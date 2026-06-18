@@ -1,0 +1,25 @@
+return {
+	filetypes = {
+		"html",
+		"css",
+		"javascript",
+		"javascriptreact",
+		"typescriptreact",
+		"pug",
+		"vue",
+		"svelte",
+		"php",
+		"astro",
+		"eruby",
+		"less",
+		"scss",
+		"sass",
+		"templ",
+	},
+	init_options = {
+		html = { options = { ["bem.enabled"] = true } },
+		preferences = { showExpandedAbbreviation = "always" },
+		showAbbreviationSuggestions = true,
+		showSuggestionsAsSnippets = false,
+	},
+}

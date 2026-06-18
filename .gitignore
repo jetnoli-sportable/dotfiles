@@ -1,6 +1,12 @@
 # tpm-managed tmux plugins (reinstalled with prefix+I)
 tmux/.config/tmux/plugins/
 
+# absorbed nvim repo's old git history (renamed from .git during migration)
+nvim/.config/nvim/.gitbakup/
+
+# personal nvim scratch/notes
+nvim/.config/nvim/improvements/
+
 # editor/OS noise
 *.swp
 .DS_Store
