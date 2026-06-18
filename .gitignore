@@ -1,0 +1,6 @@
+# tpm-managed tmux plugins (reinstalled with prefix+I)
+tmux/.config/tmux/plugins/
+
+# editor/OS noise
+*.swp
+.DS_Store
