@@ -98,6 +98,13 @@ alias n="~/Desktop/Projects/go-notes/notes.exe"
 #   secret-tool store --label='gh personal PAT' service gh account personal
 pgh() { GH_TOKEN="$(secret-tool lookup service gh account personal)" command gh "$@"; }
 
+# replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui)
+# Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/go/bin/replay" ./cmd/replay
+alias replay="$HOME/go/bin/replay"
+
+# msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)
+alias msconfig="nvim $HOME/code/be--monorepo/apps/metrics_server/config.hjson"
+
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 export PYENV_ROOT="$HOME/.pyenv"
 [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
