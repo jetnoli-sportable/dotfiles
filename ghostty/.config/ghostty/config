@@ -1,0 +1,50 @@
+# Ghostty — minimal config. tmux owns sessions/splits/keybinds, so this is
+# just renderer + font + colours. Matches oh-my-posh zen.json (Catppuccin Mocha).
+#
+# Rendering left at Ghostty stock defaults on purpose: every tuning knob we tried
+# (alpha-blending, font-thicken, freetype hints) made it worse, not better. The
+# residual softness vs GNOME Terminal is subpixel (RGBA) vs grayscale AA — Ghostty
+# has no subpixel mode, so it isn't closable here. Don't re-add render hacks.
+
+theme = Catppuccin Mocha
+# Background matched to the GNOME Terminal profile exactly (#303446) — slightly lighter
+# than Mocha's base, but identical to what you're used to in GNOME Terminal.
+background = #303446
+# Rescue dim elements (line numbers, comments) by forcing a min text/bg contrast ratio.
+minimum-contrast = 1.6
+
+# Vivid ANSI palette lifted verbatim from the GNOME Terminal profile — Catppuccin's
+# own palette is intentionally muted/pastel, which read as "dull" vs GNOME. This keeps
+# Mocha's background/fg but makes ls/eza/nvim colours pop like GNOME Terminal does.
+palette = 0=#171421
+palette = 1=#c01c28
+palette = 2=#26a269
+palette = 3=#a2734c
+palette = 4=#12488b
+palette = 5=#a347ba
+palette = 6=#2aa1b3
+palette = 7=#d0cfcc
+palette = 8=#5e5c64
+palette = 9=#f66151
+palette = 10=#33da7a
+palette = 11=#e9ad0c
+palette = 12=#2a7bde
+palette = 13=#c061cb
+palette = 14=#33c7de
+palette = 15=#ffffff
+
+# MesloLGL Nerd Font 12 — matches GNOME Terminal exactly (plain variant: icons at
+# natural width, as oh-my-posh powerline glyphs expect; not the Mono variant).
+font-family = MesloLGL Nerd Font
+font-size = 12
+cursor-style = block
+
+# Wayland clipboard — pairs with the wl-copy tmux binding.
+clipboard-read = allow
+clipboard-write = allow
+
+# Keep the GNOME titlebar: draggable bar, borders, rounded corners.
+window-decoration = auto
+window-padding-x = 4
+window-padding-y = 4
+confirm-close-surface = false

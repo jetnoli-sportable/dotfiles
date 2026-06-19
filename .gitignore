@@ -10,3 +10,6 @@ nvim/.config/nvim/improvements/
 # editor/OS noise
 *.swp
 .DS_Store
+
+# scratch (decision docs, command output)
+logs/
