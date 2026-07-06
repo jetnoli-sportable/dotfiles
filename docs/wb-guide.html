@@ -430,7 +430,7 @@ wb new try-wb-out</div> This creates <code class="inline">.worktrees/try-wb-out<
             <tr><td><kbd>l</kbd> / <kbd>Enter</kbd></td><td>Jump to the row's session or agent pane</td></tr>
             <tr><td><kbd>x</kbd></td><td>Send <kbd>Esc</kbd> to the row's most-urgent agent pane (interrupt), without leaving the picker</td></tr>
             <tr><td><kbd>r</kbd></td><td>Rename the row's tmux session (prompts inline, cosmetic only — doesn't touch the task file or worktree)</td></tr>
-            <tr><td><kbd>b</kbd></td><td>Break the row's agent pane out into a brand new session of its own (prompts for a name) — for a second agent you started ad hoc in a shared session and now want on its own</td></tr>
+            <tr><td><kbd>b</kbd></td><td>Break the row's agent pane out into a brand new session of its own (prompts for a name) — for a second agent you started ad hoc in a shared session and now want on its own. On a parent session row this takes the session's <em>most-urgent</em> agent pane; on a row with no agent it does nothing.</td></tr>
             <tr><td><kbd>Ctrl</kbd>+<kbd>x</kbd></td><td>On a task row: the full <code class="inline">wb done</code> wind-down. On a plain session/agent row: a raw kill.</td></tr>
             <tr><td><kbd>Ctrl</kbd>+<kbd>r</kbd></td><td>Force a refresh (it also auto-refreshes every few seconds)</td></tr>
             <tr><td><kbd>i</kbd> or <kbd>/</kbd></td><td>Start typing to search; <kbd>Esc</kbd> to go back to normal mode</td></tr>

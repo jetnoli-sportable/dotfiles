@@ -102,8 +102,12 @@ wb_task_files() {
 }
 
 # wb_sanitize <slug> — slug -> display form for tmux session names / filenames
-# ("/" and "." become "-"; never parse this back, see header comment).
-wb_sanitize() { local s="${1//\//-}"; echo "${s//./-}"; }
+# ("/", "." and ":" become "-"; never parse this back, see header comment).
+# ":" matters beyond aesthetics: tmux 3.4 silently rewrites "."/":" to "_"
+# in new-session -s, so an unsanitized name diverges from what tmux actually
+# created — and a stale ":"-bearing name later fed to kill-session parses as
+# session:window and can kill an UNRELATED session.
+wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; echo "${s//:/-}"; }
 
 # wb_tsv_split <string> <array_name> — split <string> on literal tabs into
 # the named array, preserving empty fields. NEVER use `IFS=$'\t' read` for
@@ -694,7 +698,7 @@ wb_status_line() {
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter · esc back to normal'
   else
-    hint='j/k move · enter jump · x interrupt · r rename · b new session · ctrl-x done/kill · / search · q quit'
+    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · ctrl-x done/kill · / search · q quit'
   fi
   printf 'wb · %s (tab to cycle) · %s\n%s' \
     "$mode" "$(wb_pending_counts)" "$hint"
@@ -724,37 +728,53 @@ _interrupt() { [ -n "${1:-}" ] && tmux send-keys -t "$1" Escape 2>/dev/null; }
 # Cosmetic only: wb's task linkage lives on the session object via
 # @wb_repo/@wb_slug (session-scoped tmux options), which survive a rename,
 # so this is safe to do at any point without breaking `wb done` or the picker.
+# Errors stay visible: no stderr suppression, and the `read` holds the
+# terminal until acknowledged — fzf repaints the instant execute() returns,
+# so an unheld message is overdrawn before it can be read.
 _rename() {
   local session="$1" new
   [ -n "$session" ] || return 0
   read -r -p "Rename '$session' to: " new
   [ -n "$new" ] || return 0
-  tmux rename-session -t "=$session:" "$new" 2>/dev/null
+  new="$(wb_sanitize "$new")"
+  if ! tmux rename-session -t "=$session:" "$new"; then
+    read -rn1 -p "wb: rename failed — press any key "
+    return 1
+  fi
 }
 
 # _break_out <target> — move a single pane out of a shared session into a
-# brand new one of its own (bound to `b`). Only makes sense on an
-# agent/sub-row, hence taking the pane target ({7}), not the session — no-op
-# on an empty target, same convention as _interrupt.
-# tmux's break-pane can't create its destination session itself (errors
-# "can't find session"), so this creates a one-window scratch session first,
-# breaks the pane into it (landing as a second window), then kills the
-# scratch window — leaving the extracted pane as the new session's only one.
+# brand new one of its own (bound to `b`). On an agent sub-row it takes that
+# pane; on a PARENT session row {7} is the session's most-urgent agent pane,
+# so it breaks that agent out. No-op on an empty target (no-agent rows).
+# tmux's break-pane can't create its destination session itself, so this
+# creates a one-window scratch session first, breaks the pane into it, then
+# kills the scratch window. Identity, never index: new-session -P returns
+# the name tmux ACTUALLY created (it silently rewrites "."/":" to "_") plus
+# the scratch window's @id — a base-index-0 config puts the scratch at :0
+# and the rescued pane at :1, so `kill-window -t $new:1` would destroy the
+# pane we just rescued. Window ids are immune to base-index and renumbering.
 _break_out() {
-  local target="$1" new
+  local target="$1" new created new_name scratch_win
   [ -n "$target" ] || return 0
   read -r -p "Break '$target' into new session: " new
   [ -n "$new" ] || return 0
+  new="$(wb_sanitize "$new")"
   if tmux has-session -t "=$new" 2>/dev/null; then
-    echo "wb: session '$new' already exists" >&2
+    read -rn1 -p "wb: session '$new' already exists — press any key "
     return 1
   fi
-  tmux new-session -d -s "$new"
-  if tmux break-pane -d -s "$target" -t "$new:" 2>/dev/null; then
-    tmux kill-window -t "$new:1" 2>/dev/null
+  if ! created="$(tmux new-session -d -P -F '#{session_name}|#{window_id}' -s "$new")"; then
+    read -rn1 -p "wb: could not create session '$new' — press any key "
+    return 1
+  fi
+  new_name="${created%%|*}"
+  scratch_win="${created##*|}"
+  if tmux break-pane -d -s "$target" -t "=$new_name:"; then
+    tmux kill-window -t "$scratch_win"
   else
-    tmux kill-session -t "$new" 2>/dev/null
-    echo "wb: could not break '$target' into '$new'" >&2
+    tmux kill-session -t "=$new_name" 2>/dev/null
+    read -rn1 -p "wb: could not break '$target' into '$new_name' — press any key "
     return 1
   fi
 }
@@ -812,19 +832,19 @@ picker() {
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
-        --bind "load:reload-sync(sleep 3; \"$SELF\" render $mode_file)+refresh-preview" \
+        --bind "load:reload-sync(sleep 3; \"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind 'j:down' --bind 'k:up' --bind 'g:first' --bind 'G:last' \
         --bind 'ctrl-d:half-page-down' --bind 'ctrl-u:half-page-up' \
         --bind 'l:accept' --bind 'h:abort' --bind 'q:abort' \
-        --bind "ctrl-r:reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
-        --bind "tab:execute-silent($SELF _cycle-mode $mode_file)+reload-sync(\"$SELF\" render $mode_file)+transform-header($SELF _mode-header $mode_file)" \
-        --bind "x:execute-silent($SELF _interrupt {7})" \
-        --bind "r:execute($SELF _rename {8})+reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
-        --bind "b:execute($SELF _break-out {7})+reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
-        --bind "ctrl-x:become($SELF _ctrl-x {10} {8} {7})" \
-        --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header($SELF _mode-header $mode_file search)" \
-        --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header($SELF _mode-header $mode_file search)" \
-        --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )+transform-header($SELF _mode-header $mode_file)")" || exit 0
+        --bind "ctrl-r:reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "tab:execute-silent(\"$SELF\" _cycle-mode \"$mode_file\")+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\")" \
+        --bind "x:execute-silent(\"$SELF\" _interrupt {7})" \
+        --bind "r:execute(\"$SELF\" _rename {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7})" \
+        --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
+        --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
+        --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )+transform-header(\"$SELF\" _mode-header \"$mode_file\")")" || exit 0
 
   [ -n "$selection" ] || exit 0
   local -a f; wb_tsv_split "$selection" f
