@@ -88,7 +88,7 @@ alias ld="lazydocker"
 alias s="~/.config/scripts/tmux/session.sh"
 alias N="~/.config/scripts/tmux/notes.sh"
 alias ca="~/.config/scripts/tmux/claude-sessions.sh"
-alias cad="~/.config/scripts/tmux/claude-sessions.sh dash"
+alias wb="~/.config/scripts/tmux/wb.sh"
 
 # Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the
 # keyring; `pgh ...` runs gh against the personal-account PAT instead (e.g. for
