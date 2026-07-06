@@ -86,6 +86,12 @@ wb                     # THE picker (replaces s and ca muscle memory)
   → grouped by repo (from @wb_repo / frontmatter repo:, never name-parsing);
     SORT: any needs-you / finished row pins to the top of its group, mirroring
     ca's rank order — urgency is never buried by alphabetical grouping.
+    *(Changed 2026-07-06, post-launch: grouping is now status-first, not
+    repo-first — all needs-you rows surface together across every repo, then
+    finished, then working, then idle, so you don't have to scan each repo's
+    group to find what's urgent. A session's sub-rows still ride along with
+    their parent as one block rather than scattering by their own individual
+    rank — see `wb.sh`'s `collect_combined_rows`.)*
   → column 3 rule: task rows show frontmatter status (planned/doing/review/done);
     repo-level rows show the current branch in [brackets] instead.
   → sessions with >1 claude pane expand to one indented sub-row per agent
@@ -221,6 +227,18 @@ I'd like a combo of a and c. And then yes to d.
 > location — `docs/` when tracked-worthy, else the central task store's dossier
 > area (never worktree-local scratch, which `wb done` deletes) — so (d)'s index
 > has a deterministic scan target. (b)'s `wb docs` picker stays unbuilt.
+
+> **addition (2026-07-06, post-ratification):** every `.md`/`.html` pair built
+> so far (this doc, the dotfiles overview) was hand-authored twice — write the
+> markdown, then manually keep an HTML render in sync alongside it. That's
+> exactly the kind of drift this section exists to prevent. Look at a proper
+> **doc-sync tool**: one markdown file in a specific, defined format
+> (frontmatter + section conventions), and a small generator that renders the
+> HTML from it — single source of truth, regenerate on demand instead of
+> hand-editing two files in parallel. Scope this alongside slice 5 (it's the
+> same "generated, not hand-maintained" principle as the help dashboard's
+> index); the exact format/generator choice can go through a quick decision
+> buffer when it's built.
 
 ---
 

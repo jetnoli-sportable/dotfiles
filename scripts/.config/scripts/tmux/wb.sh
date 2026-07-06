@@ -572,8 +572,14 @@ collect_live_rows() {
   done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
 }
 
-# collect_combined_rows — collect_live_rows, expanding multi-agent sessions
-# into indented sub-rows (see wb_agent_subrows).
+# collect_combined_rows — collect_live_rows, grouped by status (field 4, the
+# urgency rank) rather than repo, then expanding multi-agent sessions into
+# indented sub-rows (see wb_agent_subrows). The sort happens BEFORE sub-row
+# expansion and nothing re-sorts after it: sorting the flattened parent+child
+# stream by each row's own rank would scatter a session's less-urgent panes
+# away from their parent (the parent's rank is the MIN of its children's), so
+# grouping is done at the parent level and each parent's block of sub-rows
+# rides along with it, keeping the indented "↳" convention intact.
 collect_combined_rows() {
   local line repo branch session ref ucount
   local -a f
@@ -582,7 +588,7 @@ collect_combined_rows() {
     wb_tsv_split "$line" f
     repo="${f[0]}"; branch="${f[2]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"
     [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$ref" "$branch"; true
-  done < <(collect_live_rows)
+  done < <(collect_live_rows | sort -t $'\t' -k4,4n -k1,1 -k2,2)
 }
 
 # collect_agent_rows — one row per running claude pane, globally, ranked by
@@ -672,8 +678,8 @@ render_rows() {
   wb_column_header
   case "$mode" in
     agents)   collect_agent_rows | sort -t $'\t' -k4,4n -k1,1 | wb_format_for_display ;;
-    sessions) collect_live_rows  | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_format_for_display ;;
-    *)        collect_combined_rows | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_format_for_display ;;
+    sessions) collect_live_rows  | sort -t $'\t' -k4,4n -k1,1 -k2,2 | wb_format_for_display ;;
+    *)        collect_combined_rows | wb_format_for_display ;;
   esac
 }
 
