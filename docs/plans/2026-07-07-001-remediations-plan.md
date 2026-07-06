@@ -1,6 +1,6 @@
 ---
 type: fix
-status: active
+status: completed
 origin: 7-persona ce-doc-review + code-delta review over PRs #7/#8 (2026-07-06)
   + decision buffer logs/decisions/2026-07-06-slice-review-decisions.md
 ---
