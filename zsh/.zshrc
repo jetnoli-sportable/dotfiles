@@ -89,7 +89,6 @@ alias s="~/.config/scripts/tmux/session.sh"
 alias N="~/.config/scripts/tmux/notes.sh"
 alias ca="~/.config/scripts/tmux/claude-sessions.sh"
 alias cad="~/.config/scripts/tmux/claude-sessions.sh dash"
-alias n="~/Desktop/Projects/go-notes/notes.exe"
 
 # Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the
 # keyring; `pgh ...` runs gh against the personal-account PAT instead (e.g. for
