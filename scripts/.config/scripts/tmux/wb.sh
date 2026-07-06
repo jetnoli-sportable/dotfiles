@@ -507,14 +507,15 @@ wb_session_urgency() {
   printf '%s\t%s %s\t%s\t%s\n' "$rank" "$icon" "$label" "$target" "$count"
 }
 
-# wb_agent_subrows <repo> <session> <ref> — one indented sub-row per claude
-# pane in a multi-agent session (kept out of the collapsed parent row).
+# wb_agent_subrows <repo> <session> <ref> — one sub-row per claude pane in a
+# multi-agent session (kept out of the collapsed parent row). No indent
+# prefix on the label — it's plain column content like every other row.
 wb_agent_subrows() {
   local repo="$1" session="$2" ref="$3"
   local rank target status task icon label
   while IFS=$'\t' read -r rank target status task; do
     IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
-    printf '%s\t  %s\t\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\n' \
+    printf '%s\t%s\t\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\n' \
       "$repo" "$task" "$rank" "$icon" "$label" "$target" "$session" "$ref"
   done < <(tmux_claude_panes "$session" | sort -n)
 }
@@ -629,19 +630,28 @@ wb_format_for_display() {
 
 # wb_column_header — the legend row shown above the picker's rows, in the
 # SAME widths wb_format_for_display pads to. Keep the two in sync.
+# wb_column_header — the legend line, in the SAME widths wb_format_for_display
+# pads data rows to. Printed as a real line (trailing newline) so render_rows
+# can prepend it straight into the piped rows as a `--header-lines=1` sticky
+# row — that keeps it byte-locked to the data widths and pinned to the top of
+# the list regardless of scrolling, unlike a separate --header string (which
+# fzf always anchors near the prompt, not above the rows).
 wb_column_header() {
-  # No leading spaces here: fzf pads --header lines with its own 2-space
-  # margin already, matching the pointer gutter it reserves on data rows —
-  # adding our own on top double-indents the legend relative to the rows.
-  printf '\033[90m%-*s  %-*s  %-*s  %s\033[0m' \
+  # 4 spaces (not 2) before AGENT: data rows prefix their status text with a
+  # 1-char icon + 1 space, so the readable label starts 2 columns later than
+  # the column's left edge -- matching that keeps "AGENT" over the text, not
+  # over the icon.
+  printf '\033[90m%-*s  %-*s  %-*s    %s\033[0m\n' \
     "$WB_COL_REPO" "REPO" "$WB_COL_LABEL" "TASK / SESSION" "$WB_COL_STATUS" "STATUS" "AGENT"
 }
 
 # render_rows <mode_file> — dispatch to the mode currently recorded in
-# <mode_file> (combined/sessions/agents; defaults to combined). Also used by
-# the fzf `reload`/`load` bindings (via `wb.sh render <mode_file>`).
+# <mode_file> (combined/sessions/agents; defaults to combined), with the
+# column-header legend prepended as line 1. Also used by the fzf
+# `reload`/`load` bindings (via `wb.sh render <mode_file>`).
 render_rows() {
   local mode; mode="$(cat "$1" 2>/dev/null || echo combined)"
+  wb_column_header
   case "$mode" in
     agents)   collect_agent_rows | sort -t $'\t' -k4,4n -k1,1 | wb_format_for_display ;;
     sessions) collect_live_rows  | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_format_for_display ;;
@@ -649,10 +659,12 @@ render_rows() {
   esac
 }
 
-# wb_status_line <mode> <context> — 2-line header: mode + pending counts,
+# wb_status_line <mode> <context> — 2-line footer: mode + pending counts,
 # then keybind hints for whichever context (normal/search) is actually
 # active — showing both at once (the original design) meant half the header
-# was always irrelevant to what you could currently type.
+# was always irrelevant to what you could currently type. This is fzf's
+# --header, which fzf keeps anchored near the prompt (bottom, with the
+# default layout) — the column legend lives separately, see wb_column_header.
 wb_status_line() {
   local mode="${1:-combined}" ctx="${2:-normal}" hint
   if [ "$ctx" = search ]; then
@@ -660,8 +672,8 @@ wb_status_line() {
   else
     hint='j/k move · enter jump · x interrupt · ctrl-x done/kill · / search · q quit'
   fi
-  printf 'wb · %s (tab to cycle) · %s\n%s\n%s' \
-    "$mode" "$(wb_pending_counts)" "$(wb_column_header)" "$hint"
+  printf 'wb · %s (tab to cycle) · %s\n%s' \
+    "$mode" "$(wb_pending_counts)" "$hint"
 }
 
 # _cycle_mode <mode_file> — advance to the next mode, persisting it so the
@@ -721,8 +733,8 @@ picker() {
   # fields 2-12 are the real data, shown to fzf only as hidden/addressable
   # fields via --with-nth=1 so binds/preview can still reach them by index.
   selection="$(printf '%s\n' "$rendered" | fzf --ansi --query="${1:-}" --select-1 --track \
-        --delimiter=$'\t' --with-nth=1 \
-        --layout=reverse --pointer='>' \
+        --delimiter=$'\t' --with-nth=1 --header-lines=1 \
+        --pointer='>' \
         --prompt='NORMAL ' \
         --header="$(wb_status_line combined)" \
         --no-sort \
