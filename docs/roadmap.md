@@ -130,6 +130,15 @@ picker — `s`'s job is absorbed, and the worktree-invisibility bug dies with it
 Keybind (decided 2026-07-06): **cutover** — `prefix+m` and `prefix+a` both
 rebind to `wb` the moment it lands; `s`/`ca` stay invocable by name as fallback.
 
+> **Credential guard (added 2026-07-06 review):** `wb new` bootstraps `.env*`
+> into worktrees by default, and the keeper sweep copies gitignored files
+> into the central store — a repo intended for cross-machine git sync (§0).
+> Requirement retrofitted onto the live flow: the sweep must carry an
+> exclusion list for credential-shaped files (`.env*`, `*.pem`, `*.key`,
+> `*credential*`, …) and warn in the review buffer when a marked keeper
+> matches one, so a bootstrapped secret can never ride a `- [x] keep` into
+> a repo that later gets a remote.
+
 **Your take:**
 Sounds good do you think it should still be a bash script powering this or is it worthy of a go/python implemnetation? Happy to keep it as is btw just curious
 
@@ -168,6 +177,15 @@ refinement** = `wb done`'s close-out buffer plus a PUSH trigger (decided
 count and `wb done` offers the cross-task sweep past a threshold — the weekly
 `/parked-items` ritual stays available but is no longer the load-bearing path.
 
+> **Validation clock (added 2026-07-06 review, mirroring §1's):** the
+> demotion above is a behavioral bet on event-driven pushes whose events are
+> sparse (the nudge fires only at task completion; the count only renders
+> when the picker is open). Check-in: **two weeks after slices 2–3 merged**
+> (~2026-07-20), inspect the parked ledger's open-item ages. If the oldest
+> open item exceeds ~10 days, the push bet failed — restore the weekly
+> ritual as load-bearing or surface the count somewhere time-driven (e.g.
+> tmux status-left), not just inside the picker.
+
 **Your take:**
 
 ---
@@ -197,7 +215,12 @@ into the close-out buffer so keepers get promoted deliberately — marked with
 the same `- [x] keep` checkbox convention as §2's close-out. (Verified: the
 current digest CLI has no per-session filter — slice 4 includes adding a small
 `--context <tmux-session>` flag to notes-tui; the ctx metadata already records
-`tmux:<session>` per capture.) Topic ledgers = tags in
+`tmux:<session>` per capture. **Corrected 2026-07-06:** the flag alone is NOT
+sufficient — corpus.Load parses one Note per file, so the whole inbox reads
+as a single note carrying only the FIRST capture's context; slice 4 must
+first teach the corpus to split `inbox.md` into per-capture notes, each with
+its own timestamp and ctx stamp. Captures made before that lands can't be
+retro-digested per-session without reprocessing raw stamps.) Topic ledgers = tags in
 its Denote scheme (`__workflow`, `__vim`) rather than a parallel system we'd
 build from scratch. `notes.sh` daily flow keeps working untouched on the same
 corpus.
@@ -253,13 +276,20 @@ The ask: a place that answers "what do I have and how do I drive it" across
 dotfiles scripts, tmux binds, aliases, Claude skills/memories, and TUIs. Ideas:
 
 - **(a) Generated HTML manual** — a `/workbench-manual` skill scans the real
-  sources (tmux.conf binds, zshrc aliases/functions, `scripts/*/instructions.md`,
-  `~/.claude/skills/*/SKILL.md` descriptions, `MEMORY.md`, TUI READMEs) and
-  renders one searchable page in the findings-doc style. Regenerate on demand —
-  never hand-maintained, so it can't drift like instructions.md did.
-- **(b) Terminal-first** — same scan emits a flat index; `prefix+?`-style
-  `help.sh` fzf over it (name → one-liner → source path), preview shows the doc
-  excerpt, Enter opens the source.
+  sources (tmux.conf binds, zshrc aliases/functions, the repo's
+  `instructions.md` files at their real stow-nested paths —
+  `scripts/.config/scripts/tmux/instructions.md`,
+  `nvim/.config/nvim/instructions.md` — `~/.claude/skills/*/SKILL.md`
+  descriptions, `MEMORY.md`, TUI READMEs, plus `logs/decisions/*.md` and the
+  task store's `## Decisions` sections so provenance questions are
+  answerable) and renders one searchable page in the findings-doc style.
+  Regenerate on demand — never hand-maintained, so it can't drift like
+  instructions.md did.
+- **(b) Terminal-first** — same scan emits a flat index; `help.sh` fzf over
+  it (name → one-liner → source path), preview shows the doc excerpt, Enter
+  opens the source. Keybinds (decided 2026-07-06): `prefix+h` KEEPS its
+  existing direct-open-HUB behavior (muscle memory); the fzf help picker
+  lands on `prefix+?`.
 - **(c) Both from one source** — the scan produces a machine-readable
   `INDEX.md`; the HTML page and the fzf picker are two renderers of it. My
   pick: build the index + fzf first (10× more used day-to-day), HTML render
@@ -274,7 +304,10 @@ c
 > (INDEX.md) rather than requiring a manual grep across source files. This is
 > a query mode over the same index from (a)/(c), not a new data source or a
 > separate scan. Scope it as part of slice 5 when the help dashboard is built,
-> not a standalone slice.
+> not a standalone slice. *(Amended same day: "why do I have X" is a
+> provenance question — answerable only because (a)'s scan list now includes
+> `logs/decisions/*.md` and the task store's Decisions sections. Without
+> those sources the query mode could answer what/how but not why.)*
 
 > **manual precursor started (2026-07-06, PR #8):** built `docs/HUB.md` (index
 > of every doc in this project) and `docs/overview.md` (guides for
@@ -316,9 +349,33 @@ Look at notes above on park and scratch tasks
    log, the 8-persona code review, and the post-launch picker redesign
    (presence-only rows, 5-column layout, `r` rename / `b` break-out-to-own-
    session added during live usage). PR #7.*
-4. **notes-tui revival** (§4) — already cloned; wire `note.sh`, add the
-   `--context` digest filter flag, lifecycle hooks in `wb`.
-5. **HTML-in-flow + help dashboard** (§5/§6) — whichever variants you pick.
+4. **notes-tui revival** (§4) — split per the 2026-07-06 slice-review (the
+   picker-redesign lesson: don't ratify wiring before usage):
+   - **4a — capture habit, no wiring:** source `note.sh` into zshrc, merge
+     notes-tui's `feat/usage-guide` branch down first, and just *use* capture
+     + manual `notes digest` for a bounded window (~1 week, mirroring §1's
+     hook-data clock). Verified 2026-07-06: notes-tui builds clean on local
+     go1.24; `note()` does not collide with the `N`/notes.sh daily flow.
+   - **4b — the real integration, gated on 4a confirming digest-at-close is
+     the right review moment:** per-capture inbox parsing in the corpus
+     loader (VERIFIED 2026-07-06: corpus.Load parses one Note per FILE,
+     first ctx stamp wins — without splitting inbox.md into per-capture
+     notes, a `--context` filter returns at most one row, ever), THEN the
+     `--context <tmux-session>` digest flag on top, THEN the `wb` lifecycle
+     hooks (`wb new` stamps; `wb done` runs the digest into the close-out
+     buffer — placement must respect the sweep-strip: anything after the
+     generated `## Sweep` heading gets truncated by `wb done`'s cleanup awk).
+5. **HTML-in-flow + help dashboard** (§5/§6) — no longer one line of scope;
+   post-ratification additions grew it to four sub-deliverables, listed here
+   so the build-order entry matches reality: (i) the scanned index + fzf
+   picker, (ii) the HTML manual render, (iii) the doc-sync tool (§5
+   addition), (iv) the Q&A query mode (§6 addition). Sequencing/splitting
+   decided at plan time. **Prerequisite:** the pending stow-claude-config
+   task (at minimum the `skills/` subset) — the scan reads `~/.claude`
+   sources that are currently version-controlled nowhere, and a durable
+   index over unversioned sources rebuilds the drift problem one level
+   down. The scan must fail loudly (not emit a silently partial index)
+   when a declared source root is absent.
 
 **Your take:** (reorder / cut / merge freely)
 
@@ -335,13 +392,16 @@ Look at notes above on park and scratch tasks
 
 Owner's call from the doc-review buffer: **constrain harder, and defer** — add
 the roadmap view as a follow-up once everything else is working, then discuss
-in detail. Constraints locked in now: it renders a *snapshot of the same
-task-store board* `wb` shows (no second status computation — the one-board
-principle that retired `cad` holds), zoomable *today / task <slug> / week*,
-sourced from the store + parked ledger + decision docs + transcripts. **Jira
-integration is excluded** and becomes its own later, separately ratified
-addition. Output rides the HTML pipeline (md source in a buffer → HTML at the
-§5 landing path, indexed by the help dashboard).
+in detail. Constraints locked in now: it renders a snapshot computed **from
+task-store frontmatter — the same single source `wb`'s done-flow writes**
+(one-board principle at the data layer; reworded 2026-07-06: the original
+"snapshot of the board `wb` shows" became unsatisfiable when the picker went
+presence-only and stopped rendering a store-backed board at all), zoomable
+*today / task <slug> / week*, sourced from the store + parked ledger +
+decision docs + transcripts. **Jira integration is excluded** and becomes its
+own later, separately ratified addition. Output rides the HTML pipeline (md
+source in a buffer → HTML at the §5 landing path, indexed by the help
+dashboard).
 
 > **Visibility gap identified 2026-07-06 (post-launch, during live usage):**
 > the picker redesign in build-order item 3 made rows presence-only (live
@@ -356,10 +416,15 @@ addition. Output rides the HTML pipeline (md source in a buffer → HTML at the
 ### 9b. Day bookends — startup/shutdown flows (follow-up, factor into design now)
 
 Two workflows, `wb up` / `wb down` (or `/sod` `/eod`), composing the capture/recall
-skills: **startup** — review yesterday's close-out + parked items + task board +
-Jira sprint, propose today's focus, recreate tmux sessions for the chosen tasks;
+skills: **startup** — review yesterday's close-out + parked items + task board,
+propose today's focus, recreate tmux sessions for the chosen tasks;
 **shutdown** — sweep every live session, capture a quick status into each task file,
 run the notes digest, then close all sessions cleanly so the PC can power off.
+*(Amended 2026-07-06 review: the Jira sprint pull originally listed in startup
+is REMOVED from 9b's scope and joins 9a's Jira exclusion as its own later,
+separately ratified addition — same integration, same open questions: where
+the API credential lives, and whether Jira-derived text may be persisted into
+the sync-bound task store. 9a already set this precedent; 9b now follows it.)*
 
 Design principle to honor while building slices 2–4: **sessions are regenerative,
 not precious.** Because a `wb` session is fully derived from its task record (repo,
@@ -368,6 +433,13 @@ from the store — no fragile tmux state snapshotting needed. tmux-resurrect/con
 remain an optional complement for raw scrollback, but the task store is the source
 of truth. Concretely: keep everything `wb` creates reconstructable from the task
 file alone, and give `wb` a `down --all` / `up --resume` pair later.
+*(Amended 2026-07-06 review: the reconstructable set must include each agent
+pane's Claude session id, recorded at spawn — a session/window option or a
+task-file field — so `up --resume` can `claude --resume <id>` instead of
+restarting every agent cold. The 3-window layout is cheap to rebuild; the
+in-flight agent conversation is the one genuinely precious state, and the id
+is cheap to capture now but impossible to recover for sessions already
+killed.)*
 
 ### 9c. Per-skill/TUI dedicated guide pages + tile-grid dashboard (follow-up, PR #8)
 
@@ -382,8 +454,16 @@ their own page, since those dedicated pages don't exist yet. Full scope:
   `pr-review-session-guide.html` (or one per skill, naming TBD) — each in the
   `wb-guide.html` style: overview, try-it-now, full command/flag reference,
   rough edges.
-- Same for TUIs — notes-tui already has one (`notes-guide.html`), it just
-  needs a tile; a future `wb` TUI-equivalent would get one too.
+- **Born generated, not hand-built (added 2026-07-06 review):** these pages
+  are authored as markdown-with-frontmatter and rendered via the §5 doc-sync
+  tool — never hand-authored HTML like the current wb-guide.html. Building
+  them by hand first would add four more permanently hand-maintained files
+  at the exact moment §5 is trying to cut that count to one generated
+  source. Sequencing consequence: 9c's pages land *after* (or together
+  with) the doc-sync tool, not before.
+- Same for TUIs — notes-tui already has one (`notes-guide.html`) and its
+  HUB.html tile landed with PR #8; a future `wb` TUI-equivalent would get
+  one too.
 - Once built, repoint `HUB.html`'s skill tiles from `overview.html#<skill>`
   anchors to the dedicated pages, and `overview.md` shrinks back to short
   summaries + links (its current per-skill depth was a stopgap for the same
@@ -396,15 +476,26 @@ The docs project already spans repos — `dotfiles/docs/`, `~/code/notes-tui/not
 problem: HTML docs get built as Claude Artifacts during sessions and never
 committed anywhere, discoverable (if at all) only by grepping `/tmp/claude-1000/*`
 on whichever machine happened to run that session, until its scratch dir is
-cleaned up. Needed: a way to reference docs across every repo in the personal
-workflow so they stay in sync and are findable from the Hub — including
-artifacts from **any past session**, not just ones whose scratch happens to
-still be on disk right now. Shape unclear yet (a manifest file per repo that
-`HUB` aggregates? a required "commit it or lose it" rule for any HTML artifact
-enforced by a skill? something in the central task store?) — needs a decision
-buffer when picked up. Depends on / composes with 9c (more pages to track) and
-the doc-sync tool in §5 (same "don't hand-maintain N copies" instinct, one
-level up — repos, not just `.md`/`.html` pairs).
+cleaned up.
+
+**Split 2026-07-06 review — the two halves have very different costs:**
+
+- **Now (cheap, closes the actual incident):** extend §5's landing-path rule
+  into a standing skill rule covering ALL session-generated HTML artifacts —
+  any doc worth publishing as an Artifact gets written to `docs/` (tracked)
+  or the task-store dossier area at creation time, never left only in
+  session scratch. "Commit it or lose it," enforced where the artifact is
+  born. This alone stops the loss incident that motivated 9d.
+- **Later (open-ended, needs its own decision buffer):** the cross-repo /
+  cross-machine registry — referencing docs across every repo so they stay
+  findable from the Hub including artifacts from any past session on any
+  machine. Ratify only if artifacts still go missing after the standing rule
+  lands. Depends on / composes with 9c and the §5 doc-sync tool. **Boundary
+  constraint carried into that buffer as a named axis, not an
+  implementation afterthought:** whatever mechanism wins must scope
+  aggregation to an explicit personal allow-list of repos — employer-owned
+  content (Sportable) never gets indexed into, or published from, personal
+  surfaces (this session's near-miss is the motivating incident).
 
 > **Naming note:** this doc is now called "Roadmap," and §9a above describes a
 > *planned feature* also called `/roadmap` (a snapshot dashboard over the task

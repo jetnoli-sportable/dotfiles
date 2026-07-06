@@ -216,7 +216,7 @@ yet — see <a href="#missing">What's missing</a>.</p>
   <tr><td>wb.sh</td><td>The workbench: <code>wb new</code> (worktree + task + session), <code>wb</code>
       (picker — sessions/agents, presence-only, <kbd>Tab</kbd>-cyclable modes, <kbd>r</kbd> rename,
       <kbd>b</kbd> break-out-to-own-session), <code>wb done</code> (safe wind-down)</td>
-      <td>findings doc, way-forward §2</td></tr>
+      <td>findings doc, roadmap §2</td></tr>
   <tr><td>lib.sh</td><td>Shared helpers: session management, <code>tmux_claude_panes</code>
       (modal-detection, shared by wb + claude-sessions), repo enumeration</td>
       <td>findings doc §Inventory</td></tr>
@@ -355,7 +355,9 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
     <dl>
       <dt>what</dt><dd>A capture-dumb, retrieval-smart notes tool over a flat git corpus of markdown
       (<code>~/code/notes</code>, Denote-style filenames). Sibling to <code>replay-tui</code> (a
-      Sportable work tool, out of scope here), built on the shared <code>cli-kit</code> library.</dd>
+      Sportable work tool, out of scope here); its <code>go.mod</code> carries a placeholder
+      <code>replace</code> for the shared <code>cli-kit</code> library, but nothing imports it yet —
+      the sibling checkout is not required to build.</dd>
       <dt>why</dt><dd>The daily-notes flow this project actually wants — capture auto-stamped with
       cwd/git branch/tmux session, periodic digest review, and (later) mechanical cleanup proposals
       you approve rather than do by hand.</dd>
@@ -381,8 +383,9 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
   <tr><td>cmd | note</td><td>Capture command output the same way</td></tr>
   <tr><td>notes digest [hour|day|week|month] [--since 3h] [--from … --to …] [--by date|context]</td>
       <td>Review notes in the given window. <code>week</code> is a rolling 7 days unless
-      <code>--calendar</code>. <code>--by context</code> groups by cwd/branch/session instead of
-      date.</td></tr>
+      <code>--calendar</code>. <code>--by context</code> groups by repo:branch from the capture
+      stamp — cwd and tmux session are captured in the stamp but not yet used for grouping;
+      session-level filtering is the planned slice-4 <code>--context</code> flag.</td></tr>
   <tr><td>notes process [--dry-run]</td><td>Mechanical cleanup proposals (rename → Denote scheme,
       split candidates); proposal-only in v1, apply-path gated behind git review</td></tr>
   <tr><td>notes tag [name]</td><td>List tags with counts, or notes carrying a tag</td></tr>
@@ -403,6 +406,6 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
   Source: <code>docs/overview.md</code> (this file's source) · companions:
   <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> ·
   <a href="roadmap.md">roadmap.md</a> · index:
-  <a href="HUB.md">HUB.md</a> / <a href="HUB.html">.html</a>. Compiled 2026-07-06 on <code>docs/dotfiles-overview</code>.
+  <a href="HUB.md">HUB.md</a> / <a href="HUB.html">.html</a>. Compiled 2026-07-06 on branch <code>docs/dotfiles-overview</code>.
 </footer>
 </main>
