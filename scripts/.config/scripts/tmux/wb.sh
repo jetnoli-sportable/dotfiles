@@ -759,7 +759,7 @@ picker() {
   selection="$(printf '%s\n' "$rendered" | fzf --ansi --query="${1:-}" --select-1 --track \
         --delimiter=$'\t' --with-nth=1 --header-lines=1 \
         --layout=reverse-list --pointer='>' \
-        --height=80% --margin=4,0,2,0 \
+        --height=80% --margin=2,0,4,0 --padding=0,1,0,1 \
         --prompt='NORMAL ' \
         --header="$(wb_status_line combined)" \
         --no-sort \
