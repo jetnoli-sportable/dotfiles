@@ -477,12 +477,17 @@ cmd_done() {
 # tmux_claude_panes emits (needs-input/done/waiting/working/idle). Shared by
 # wb_session_urgency and wb_agent_subrows so this mapping lives in one place.
 wb_status_icon() {
+  # Plain ASCII, deliberately: the previous glyphs (◆✔○●·) are Unicode
+  # symbol/block characters whose rendered cell width isn't guaranteed
+  # across every terminal font (some fall back to a non-monospace symbol
+  # font for them), which was throwing off alignment in a way that no
+  # amount of correct padding math could fix from this end.
   case "$1" in
-    needs-input) printf '\xe2\x97\x86\tneeds you\n' ;;   # ◆
-    done)        printf '\xe2\x9c\x94\tfinished\n' ;;    # ✔
-    waiting)     printf '\xe2\x97\x8b\tdone\n' ;;         # ○
-    working)     printf '\xe2\x97\x8f\tworking\n' ;;      # ●
-    *)           printf '\xc2\xb7\tidle\n' ;;             # ·
+    needs-input) printf '!\tneeds you\n' ;;
+    done)        printf '+\tfinished\n' ;;
+    waiting)     printf 'o\tdone\n' ;;
+    working)     printf '*\tworking\n' ;;
+    *)           printf '-\tidle\n' ;;
   esac
 }
 
@@ -492,7 +497,7 @@ wb_session_urgency() {
   local rows count rank target status task
   rows="$(tmux_claude_panes "$1" | sort -n)"
   if [ -z "$rows" ]; then
-    printf '3\t\xc2\xb7 no agent\t\t0\n'
+    printf '3\t- no agent\t\t0\n'   # ASCII "-", see wb_status_icon
     return
   fi
   count="$(printf '%s\n' "$rows" | grep -c . || true)"
@@ -717,6 +722,7 @@ picker() {
   # fields via --with-nth=1 so binds/preview can still reach them by index.
   selection="$(printf '%s\n' "$rendered" | fzf --ansi --query="${1:-}" --select-1 --track \
         --delimiter=$'\t' --with-nth=1 \
+        --layout=reverse --pointer='>' \
         --prompt='NORMAL ' \
         --header="$(wb_status_line combined)" \
         --no-sort \
