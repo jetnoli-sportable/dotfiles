@@ -16,3 +16,6 @@ logs/
 
 # scratch (local task notes, not tracked)
 scratch/
+
+# worktrees (ce-worktree)
+.worktrees/
