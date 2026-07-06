@@ -341,6 +341,13 @@ machine-readable index rendering to both an fzf picker and an HTML manual, fzf f
 (<code>INDEX.md</code>) rather than requiring a manual grep across source files. A query mode over
 the same index from (a)/(c), not a new data source or a separate scan. Scoped into slice 5, not a
 standalone slice.</p></div>
+<div class="decided"><span class="who">manual precursor started · 2026-07-06, PR #8</span>
+<p>Built <code>docs/HUB.md</code> (index of every doc in this project) and
+<code>docs/dotfiles-overview.md</code> (guides for every skill and TUI, with full command/flag and
+keybind tables where possible) as the hand-maintained stand-in for (a)/(c) until the real scanned
+index exists. Both are meant to fall away once slice 5 lands — <code>HUB.md</code>'s own footer
+says so. When slice 5 is built, its generated index should absorb and then delete these two files
+rather than maintain three sources of truth.</p></div>
 <p><span class="chip">not started — slice 5</span></p>
 
 <h2 id="s7"><span class="num">7</span>Keep / retire / hold</h2>
