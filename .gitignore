@@ -13,3 +13,6 @@ nvim/.config/nvim/improvements/
 
 # scratch (decision docs, command output)
 logs/
+
+# scratch (local task notes, not tracked)
+scratch/

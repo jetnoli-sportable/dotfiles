@@ -59,7 +59,13 @@ collect_rows() {
     #       explicit marker. Its value (e.g. "nvim-buffer") is the reason why.
     #   (2) a live permission / AskUserQuestion menu (pane_awaiting_input). Such
     #       modals carry the ✳ glyph, so only ✳ ("waiting") panes are scanned.
-    if [ -n "$blocked" ]; then
+    # A pushed marker (claude-notify-hook.sh) is ground truth and beats the glyph:
+    #   "done"  -> a long turn just finished (Stop hook); awaiting you, rank 1
+    #   any other non-empty value (needs-input / nvim-buffer / ...) -> blocked, rank 0
+    # With hooks installed the content scan is a fallback for unmarked ✳ panes.
+    if [ "$blocked" = done ]; then
+      status="done"; rank=1
+    elif [ -n "$blocked" ]; then
       status="needs-input"; rank=0
     elif [ "$status" = "waiting" ] && pane_awaiting_input "$target"; then
       status="needs-input"; rank=0
@@ -78,10 +84,11 @@ render_rows() {
   rows="$(collect_rows | sort -n)"
   [ -n "$rows" ] || return 0
   printf '%s\n' "$rows" | awk -F'\t' '
-    BEGIN { m="\033[1;35m"; g="\033[32m"; y="\033[33m"; d="\033[90m"; r="\033[0m" }
+    BEGIN { m="\033[1;35m"; g="\033[32m"; y="\033[33m"; d="\033[90m"; cy="\033[36m"; r="\033[0m" }
     {
-      if ($3 == "needs-input")  { c=m; icon="◆"; lbl="needs you" }
-      else if ($3 == "waiting") { c=g; icon="○"; lbl="done" }
+      if ($3 == "needs-input")  { c=m;  icon="◆"; lbl="needs you" }
+      else if ($3 == "done")    { c=cy; icon="✔"; lbl="finished" }
+      else if ($3 == "waiting") { c=g;  icon="○"; lbl="done" }
       else if ($3 == "working") { c=y; icon="●"; lbl="working" }
       else                      { c=d; icon="·"; lbl="idle" }
       printf "%s%-24s%s %s%-12s%s %s\n", c, $2, r, c, icon" "lbl, r, $4
@@ -169,6 +176,7 @@ dashboard() {
       printf '  no claude sessions running\n'
     else
       _dash_group "$rows" needs-input "⚑ NEEDS YOUR INPUT" '\033[1;35m'
+      _dash_group "$rows" done        "✔ FINISHED (long turn)" '\033[1;36m'
       _dash_group "$rows" waiting     "DONE — AWAITING YOU" '\033[1;32m'
       _dash_group "$rows" working     "WORKING"
       _dash_group "$rows" idle        "IDLE"
@@ -177,8 +185,42 @@ dashboard() {
   done
 }
 
+# goto — jump straight to the most-urgent waiting agent (needs-input first, else
+# a just-finished long turn). Bound to prefix+j; reuses collect_rows' ranking and
+# tmux_goto_pane (lib.sh). rank<=1 means "needs-input or done", never working/idle.
+goto() {
+  local target
+  target="$(collect_rows | sort -n | awk -F'\t' '$1 <= 1 { print $2; exit }')"
+  if [ -n "$target" ]; then
+    tmux_goto_pane "$target"
+  else
+    tmux display-message "No Claude agent waiting."
+  fi
+}
+
+# preview_popup — runs INSIDE a tmux display-popup (bound to prefix+J). Shows the
+# most-urgent agent's pane title + recent output so you can decide without leaving
+# your work; j or Enter jumps to it, any other key just closes. Read-only — you
+# answer in the pane after jumping (the chosen design: see, then decide).
+preview_popup() {
+  local target k
+  target="$(collect_rows | sort -n | awk -F'\t' '$1 <= 1 { print $2; exit }')"
+  if [ -z "$target" ]; then
+    echo "No Claude agent waiting."; sleep 1; return 0
+  fi
+  printf '\033[1;35m%s\033[0m\n\n' "$(tmux display-message -p -t "$target" '#{pane_title}')"
+  tmux capture-pane -ep -t "$target" | tail -n 30
+  printf '\n\033[2m── j or ↵ = jump · any other key = close ──\033[0m'
+  IFS= read -rsn1 k || true
+  case "$k" in
+    ''|j|J) tmux_goto_pane "$target" ;;
+  esac
+}
+
 case "${1:-}" in
   dash|dashboard|-d) dashboard ;;
   render)            render_rows ;;   # internal: feeds fzf reload bindings
+  goto)              goto ;;          # prefix+j: jump to the most-urgent agent
+  preview-popup)     preview_popup ;; # prefix+J: preview popup (j/↵ jumps, else closes)
   *)                 picker "${1:-}" ;;
 esac
