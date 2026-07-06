@@ -30,10 +30,16 @@ WB_SWEEP_THRESHOLD="${WB_SWEEP_THRESHOLD:-5}"   # follow-ups+parked count that t
 # Picker column widths — shared between wb_format_for_display's padding and
 # wb_column_header's labels. Keep these in sync or the legend row drifts
 # from the data rows under it.
+# Columns: REPO (repo/location) · NAME (task title or session/repo name) ·
+# TYPE (session / agent / both — is there a live agent here, just a bare
+# session, or a sub-row for one specific agent pane) · BRANCH (the git
+# branch, when there is one) · STATUS (needs you / working / done /
+# finished / idle).
 WB_COL_REPO=16
-WB_COL_LABEL=28
-WB_COL_STATUS=14
-WB_COL_AGENT=9   # status label width, after the icon + one space
+WB_COL_LABEL=26
+WB_COL_TYPE=8
+WB_COL_BRANCH=12
+WB_COL_STATUS=9   # status label width, after the icon + one space
 
 # ---------------------------------------------------------------------------
 # Frontmatter helpers — the store's schema is plain `key: value` lines between
@@ -64,12 +70,13 @@ wb_set_frontmatter() {
 # the picker's row collection, which reads every task file on each refresh).
 wb_read_task() {
   awk '
-    BEGIN { infm = 0; status = ""; repo = ""; worktree = "" }
+    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = "" }
     /^---$/ { infm++; if (infm == 2) exit; next }
     infm == 1 && /^status:/   { s = $0; sub(/^status:[ \t]*/,   "", s); status = s }
     infm == 1 && /^repo:/     { s = $0; sub(/^repo:[ \t]*/,     "", s); repo = s }
     infm == 1 && /^worktree:/ { s = $0; sub(/^worktree:[ \t]*/, "", s); worktree = s }
-    END { printf "%s\t%s\t%s\n", status, repo, worktree }
+    infm == 1 && /^branch:/   { s = $0; sub(/^branch:[ \t]*/,   "", s); branch = s }
+    END { printf "%s\t%s\t%s\t%s\n", status, repo, worktree, branch }
   ' "$1"
 }
 
@@ -462,7 +469,8 @@ cmd_done() {
 #
 # Row schema, as produced by collect_*_rows (tab-separated), shared by
 # task/repo/agent rows:
-#   1 repo   2 label   3 status_or_branch   4 urank   5 icon_label
+#   1 repo   2 label   3 branch (git branch, in brackets)   4 urank
+#   5 icon_label
 #   6 target (hidden pane target, may be empty)
 #   7 session (the live tmux session this row belongs to)
 #   8 ref (task file path, or repo dir for repo rows)
@@ -471,7 +479,9 @@ cmd_done() {
 # wb_format_for_display (used by render_rows) prepends a pre-rendered,
 # fixed-width display string as a NEW field 1, shifting all of the above by
 # one (repo becomes field 2, ..., slug becomes field 12) — that's the shape
-# fzf and picker()'s final `read` actually see.
+# fzf and picker()'s final `read` actually see. The displayed TYPE column
+# (session/agent/both) isn't a stored field — it's derived at display time
+# from kind + ucount.
 
 # wb_status_icon <status> — print "icon\tlabel" for one of the pane statuses
 # tmux_claude_panes emits (needs-input/done/waiting/working/idle). Shared by
@@ -525,7 +535,7 @@ wb_agent_subrows() {
 # the store; otherwise shows the session name and, if its cwd is a git repo,
 # the current branch — same shape a plain `s`-created session gets.
 wb_live_session_row() {
-  local session="$1" repo slug disp_slug task_file status label statuscol kind ref slug_out=""
+  local session="$1" repo slug disp_slug task_file branch label statuscol kind ref slug_out=""
   repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
   slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
   if [ -n "$repo" ] && [ -n "$slug" ]; then
@@ -533,12 +543,12 @@ wb_live_session_row() {
     task_file="$(wb_task_file "$repo" "$disp_slug")"
     if [ -f "$task_file" ]; then
       local -a _wt; wb_tsv_split "$(wb_read_task "$task_file")" _wt
-      status="${_wt[0]}"
+      branch="${_wt[3]}"
       label="$(wb_task_title "$task_file")"; [ -n "$label" ] || label="$slug"
     else
-      status="?"; label="$slug"
+      branch="$slug"; label="$slug"
     fi
-    statuscol="$status"; kind="task"; ref="$task_file"; slug_out="$slug"
+    statuscol="[$branch]"; kind="task"; ref="$task_file"; slug_out="$slug"
   else
     repo="$session"; label="$session"; kind="repo"
     ref="$(tmux display-message -p -t "=$session:" '#{pane_current_path}' 2>/dev/null || true)"
@@ -598,7 +608,8 @@ collect_agent_rows() {
 # --with-nth=1 then shows ONLY this field, with the real data addressable as
 # hidden fields 2-12 for binds/preview.
 wb_format_for_display() {
-  awk -F'\t' -v OFS='\t' -v w1="$WB_COL_REPO" -v w2="$WB_COL_LABEL" -v w3="$WB_COL_STATUS" -v w5="$WB_COL_AGENT" '
+  awk -F'\t' -v OFS='\t' -v w1="$WB_COL_REPO" -v w2="$WB_COL_LABEL" -v w3="$WB_COL_TYPE" \
+      -v w4="$WB_COL_BRANCH" -v w5="$WB_COL_STATUS" '
       function pad(s, w,    n) {
         n = length(s)
         # ASCII "..." on purpose, not a "…" glyph: some terminals render
@@ -618,12 +629,17 @@ wb_format_for_display() {
         else if (lbl == "done")      c = g
         else if (lbl == "working")   c = y
         else                         c = d
-        # Pad the icon and label SEPARATELY, never together: this awk counts
-        # bytes, not display columns, and the icon glyphs (◆✔○●·) are 2-3
-        # UTF-8 bytes for 1 printed column each — padding the combined
-        # "icon label" string overcounts by that byte overhead.
+        # TYPE: is this row a bare session (no agent), a session that also
+        # has one, or a sub-row for one specific agent pane? Derived from
+        # kind ($9) + agent-pane count ($10), not a separate stored field.
+        if      ($9 == "agent")   type = "agent"
+        else if ($(10) + 0 >= 1)  type = "both"
+        else                      type = "session"
+        # Pad the icon and label SEPARATELY, never together: awk counts
+        # bytes, not display columns, and padding the combined "icon label"
+        # string as one unit overcounts whenever the icon is multi-byte.
         status_field = icon " " pad(lbl, w5)
-        display = c pad($1, w1) r "  " c pad($2, w2) r "  " pad($3, w3) "  " c status_field r
+        display = c pad($1, w1) r "  " c pad($2, w2) r "  " pad(type, w3) "  " pad($3, w4) "  " c status_field r
         print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11)
       }'
 }
@@ -637,12 +653,13 @@ wb_format_for_display() {
 # the list regardless of scrolling, unlike a separate --header string (which
 # fzf always anchors near the prompt, not above the rows).
 wb_column_header() {
-  # 4 spaces (not 2) before AGENT: data rows prefix their status text with a
+  # 4 spaces (not 2) before STATUS: data rows prefix their status text with a
   # 1-char icon + 1 space, so the readable label starts 2 columns later than
-  # the column's left edge -- matching that keeps "AGENT" over the text, not
-  # over the icon.
-  printf '\033[90m%-*s  %-*s  %-*s    %s\033[0m\n' \
-    "$WB_COL_REPO" "REPO" "$WB_COL_LABEL" "TASK / SESSION" "$WB_COL_STATUS" "STATUS" "AGENT"
+  # the column's left edge -- matching that keeps "STATUS" over the text,
+  # not over the icon.
+  printf '\033[90m%-*s  %-*s  %-*s  %-*s    %s\033[0m\n' \
+    "$WB_COL_REPO" "REPO" "$WB_COL_LABEL" "NAME" "$WB_COL_TYPE" "TYPE" \
+    "$WB_COL_BRANCH" "BRANCH" "STATUS"
 }
 
 # render_rows <mode_file> — dispatch to the mode currently recorded in
@@ -732,9 +749,15 @@ picker() {
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-12 are the real data, shown to fzf only as hidden/addressable
   # fields via --with-nth=1 so binds/preview can still reach them by index.
+  # --layout=reverse-list: prompt/--header stay at the bottom (fzf's default
+  # position) but the match list renders top-down instead of bottom-up, so
+  # the --header-lines column legend — which sits logically "above" the
+  # first match — actually lands at the top of the screen. Plain default
+  # layout keeps header-lines pinned next to the prompt instead (i.e. still
+  # near the bottom), which is what "the header is at the bottom again" was.
   selection="$(printf '%s\n' "$rendered" | fzf --ansi --query="${1:-}" --select-1 --track \
         --delimiter=$'\t' --with-nth=1 --header-lines=1 \
-        --pointer='>' \
+        --layout=reverse-list --pointer='>' \
         --prompt='NORMAL ' \
         --header="$(wb_status_line combined)" \
         --no-sort \
