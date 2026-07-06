@@ -517,16 +517,17 @@ wb_session_urgency() {
   printf '%s\t%s %s\t%s\t%s\n' "$rank" "$icon" "$label" "$target" "$count"
 }
 
-# wb_agent_subrows <repo> <session> <ref> — one sub-row per claude pane in a
-# multi-agent session (kept out of the collapsed parent row). No indent
-# prefix on the label — it's plain column content like every other row.
+# wb_agent_subrows <repo> <session> <ref> <branch> — one sub-row per claude
+# pane in a multi-agent session (kept out of the collapsed parent row).
+# <branch> repeats the parent row's branch (same session, same checkout) so
+# every row is self-contained instead of leaving it blank on sub-rows.
 wb_agent_subrows() {
-  local repo="$1" session="$2" ref="$3"
+  local repo="$1" session="$2" ref="$3" branch="$4"
   local rank target status task icon label
   while IFS=$'\t' read -r rank target status task; do
     IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
-    printf '%s\t%s\t\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\n' \
-      "$repo" "$task" "$rank" "$icon" "$label" "$target" "$session" "$ref"
+    printf '%s\t%s\t%s\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\n' \
+      "$repo" "$task" "$branch" "$rank" "$icon" "$label" "$target" "$session" "$ref"
   done < <(tmux_claude_panes "$session" | sort -n)
 }
 
@@ -574,13 +575,13 @@ collect_live_rows() {
 # collect_combined_rows — collect_live_rows, expanding multi-agent sessions
 # into indented sub-rows (see wb_agent_subrows).
 collect_combined_rows() {
-  local line repo session ref ucount
+  local line repo branch session ref ucount
   local -a f
   while IFS= read -r line; do
     printf '%s\n' "$line"
     wb_tsv_split "$line" f
-    repo="${f[0]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"
-    [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$ref"; true
+    repo="${f[0]}"; branch="${f[2]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"
+    [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$ref" "$branch"; true
   done < <(collect_live_rows)
 }
 
@@ -758,6 +759,7 @@ picker() {
   selection="$(printf '%s\n' "$rendered" | fzf --ansi --query="${1:-}" --select-1 --track \
         --delimiter=$'\t' --with-nth=1 --header-lines=1 \
         --layout=reverse-list --pointer='>' \
+        --height=80% --margin=2,4 \
         --prompt='NORMAL ' \
         --header="$(wb_status_line combined)" \
         --no-sort \
