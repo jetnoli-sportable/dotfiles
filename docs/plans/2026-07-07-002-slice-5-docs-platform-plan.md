@@ -161,6 +161,13 @@ declared source root is missing** — never emit a silently partial INDEX.
 - **Verification:** live tmux capture smoke test, same method as the wb
   picker rounds.
 
+> **Future consumer note (owner ask 2026-07-07, roadmap 9e):** the INDEX +
+> /help lookup machinery built here will later back "task recall" — naming a
+> piece of work in any session should surface its task-store record and
+> offer resume/recap. Not in this slice's scope, but don't design /help's
+> index access as a one-off: keep the INDEX-read + source-follow logic in a
+> shape a future task-recall skill can reuse.
+
 ### U7: Q&A mode — /help skill (interaction spec, review finding D5)
 
 - **Goal:** "why do I have binding X / what does Y do / how do I use Z"
