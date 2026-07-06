@@ -306,6 +306,24 @@ wb_sweep_section() {
   awk '/^## Sweep \(gitignored/ { found = 1 } found { print }' "$1"
 }
 
+# wb_credential_shaped <rel> — succeed when a keeper path looks like a
+# credential/secret file. The sweep copies gitignored files into the central
+# store — a repo intended for eventual cross-machine git sync — and `wb new`
+# bootstraps `.env*` into every worktree by default, so an unguarded
+# `- [x] keep .env` would carry live secrets into a repo that may one day
+# get a remote (roadmap §2 credential guard, 2026-07-06 review).
+wb_credential_shaped() {
+  local base
+  base="$(basename "$1")"
+  shopt -s nocasematch
+  local shaped=1
+  case "$base" in
+    .env|.env.*|*.pem|*.key|*secret*|*credential*|id_rsa*|id_ed25519*|*.p12|*.pfx) shaped=0 ;;
+  esac
+  shopt -u nocasematch
+  return "$shaped"
+}
+
 # wb_safe_rel <worktree_path> <rel> — validate that <rel> (as reported by a
 # `- [x] keep <rel>` checklist line) resolves to somewhere INSIDE
 # <worktree_path>, and print the canonical, `..`-free relative path; prints
@@ -451,13 +469,34 @@ cmd_done() {
       f="${f%/}"   # git reports whole ignored dirs with a trailing slash (e.g. "logs/")
       safe="$(wb_safe_rel "$worktree_path" "$f")" \
         || { echo "wb done: refusing to sweep unsafe path: $f" >&2; continue; }
+      if wb_credential_shaped "$safe"; then
+        echo "wb done: NOT sweeping credential-shaped keeper: $safe (the store may sync; copy it by hand if you truly need it)" >&2
+        continue
+      fi
       [ -e "$worktree_path/$safe" ] || continue
       safe_kept+=("$safe")
     done < <(wb_sweep_section "$task_file" | grep -oP '^- \[x\] keep \K.*' || true)
 
+    # Kept DIRECTORIES are walked file-by-file rather than cp -a'd whole:
+    # git reports an ignored dir as one keeper entry ("logs/"), so a blind
+    # recursive copy would carry a credential-shaped file INSIDE it (e.g.
+    # logs/.env) past the guard that only saw the top-level path.
+    local inner rel
     for f in "${safe_kept[@]}"; do
-      mkdir -p "$dossier/$(dirname "$f")"
-      cp -a "$worktree_path/$f" "$dossier/$f"
+      if [ -d "$worktree_path/$f" ]; then
+        while IFS= read -r -d '' inner; do
+          rel="${inner#"$worktree_path"/}"
+          if wb_credential_shaped "$rel"; then
+            echo "wb done: NOT sweeping credential-shaped file inside kept dir: $rel (copy it by hand if you truly need it)" >&2
+            continue
+          fi
+          mkdir -p "$dossier/$(dirname "$rel")"
+          cp -a "$inner" "$dossier/$rel"
+        done < <(find "$worktree_path/$f" \( -type f -o -type l \) -print0)
+      else
+        mkdir -p "$dossier/$(dirname "$f")"
+        cp -a "$worktree_path/$f" "$dossier/$f"
+      fi
     done
 
     # drop the transient Sweep section; if anything was kept, record where it went.
