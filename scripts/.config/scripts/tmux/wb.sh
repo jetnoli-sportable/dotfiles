@@ -441,13 +441,18 @@ cmd_done() {
 #   agents              — one row per running claude pane, globally, ranked by
 #                         urgency (no session grouping) — replaces `ca`
 #
-# Row schema (tab-separated), shared by task/repo/agent rows:
+# Row schema, as produced by collect_*_rows (tab-separated), shared by
+# task/repo/agent rows:
 #   1 repo   2 label   3 status_or_branch   4 urank   5 icon_label
 #   6 target (hidden pane target, may be empty)
 #   7 session (the live tmux session this row belongs to)
 #   8 ref (task file path, or repo dir for repo rows)
 #   9 kind (task|repo|agent)   10 ucount (claude panes in session)
 #   11 slug (task rows only — real, slash-preserving; used to resume via wb new)
+# wb_format_for_display (used by render_rows) prepends a pre-rendered,
+# fixed-width display string as a NEW field 1, shifting all of the above by
+# one (repo becomes field 2, ..., slug becomes field 12) — that's the shape
+# fzf and picker()'s final `read` actually see.
 
 # wb_status_icon <status> — print "icon\tlabel" for one of the pane statuses
 # tmux_claude_panes emits (needs-input/done/waiting/working/idle). Shared by
@@ -553,11 +558,24 @@ collect_agent_rows() {
   done < <(tmux_claude_panes | sort -n)
 }
 
-# wb_colorize — color fields 1/2/5 by the urgency label in field 5. Must run
-# AFTER sorting — coloring first would splice a urgency-dependent ANSI prefix
-# onto field 1, breaking any sort keyed on it.
-wb_colorize() {
+# wb_format_for_display — prepend a fixed-width, colored display string as a
+# NEW field 1, pushing the original 11 fields to 2-12. Must run AFTER sorting
+# (coloring/padding first would corrupt any sort keyed on the plain fields).
+#
+# fzf's --with-nth re-joins displayed fields with the raw tab delimiter, and
+# a raw tab always jumps to the terminal's next fixed 8-column stop — so
+# variable-length content (a long branch name, a long task title) throws off
+# every column after it. Pre-rendering one string with explicit space padding
+# (same approach claude-sessions.sh already uses) sidesteps that entirely;
+# --with-nth=1 then shows ONLY this field, with the real data addressable as
+# hidden fields 2-12 for binds/preview.
+wb_format_for_display() {
   awk -F'\t' -v OFS='\t' '
+      function pad(s, w,    n) {
+        n = length(s)
+        if (n > w) return substr(s, 1, w - 1) "\xe2\x80\xa6"   # …
+        return s sprintf("%*s", w - n, "")
+      }
       BEGIN { m = "\033[1;35m"; g = "\033[32m"; y = "\033[33m"; d = "\033[90m"; cy = "\033[36m"; r = "\033[0m" }
       {
         lbl = $5; sub(/^[^ ]+ /, "", lbl)
@@ -566,10 +584,8 @@ wb_colorize() {
         else if (lbl == "done")      c = g
         else if (lbl == "working")   c = y
         else                         c = d
-        $1 = c $1 r
-        $2 = c $2 r
-        $5 = c $5 r
-        print
+        display = c pad($1, 16) r "  " c pad($2, 28) r "  " pad($3, 14) "  " c pad($5, 12) r
+        print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11)
       }'
 }
 
@@ -579,9 +595,9 @@ wb_colorize() {
 render_rows() {
   local mode; mode="$(cat "$1" 2>/dev/null || echo combined)"
   case "$mode" in
-    agents)   collect_agent_rows | sort -t $'\t' -k4,4n -k1,1 | wb_colorize ;;
-    sessions) collect_live_rows  | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_colorize ;;
-    *)        collect_combined_rows | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_colorize ;;
+    agents)   collect_agent_rows | sort -t $'\t' -k4,4n -k1,1 | wb_format_for_display ;;
+    sessions) collect_live_rows  | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_format_for_display ;;
+    *)        collect_combined_rows | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_format_for_display ;;
   esac
 }
 
@@ -639,12 +655,15 @@ picker() {
   # unbound keys are inert; i or / enters SEARCH.
   local navkeys='j,k,g,G,q,i,x,/'
 
+  # Field 1 is the pre-rendered display string (see wb_format_for_display);
+  # fields 2-12 are the real data, shown to fzf only as hidden/addressable
+  # fields via --with-nth=1 so binds/preview can still reach them by index.
   selection="$(printf '%s\n' "$rendered" | fzf --ansi --query="${1:-}" --select-1 --track \
-        --delimiter=$'\t' --with-nth=1,2,3,5 \
+        --delimiter=$'\t' --with-nth=1 \
         --prompt='NORMAL ' \
         --header="$(wb_status_line combined)" \
         --no-sort \
-        --preview '[ -n {6} ] && tmux capture-pane -ep -t {6} || ([ -f {8} ] && cat {8} || git -C {8} -c color.status=always status -s)' \
+        --preview '[ -n {7} ] && tmux capture-pane -ep -t {7} || ([ -f {9} ] && cat {9} || git -C {9} -c color.status=always status -s)' \
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
@@ -654,15 +673,15 @@ picker() {
         --bind 'l:accept' --bind 'h:abort' --bind 'q:abort' \
         --bind "ctrl-r:reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
         --bind "tab:execute-silent($SELF _cycle-mode $mode_file)+reload-sync(\"$SELF\" render $mode_file)+transform-header($SELF _mode-header $mode_file)" \
-        --bind "x:execute-silent($SELF _interrupt {6})" \
-        --bind "ctrl-x:become($SELF _ctrl-x {9} {7} {6})" \
+        --bind "x:execute-silent($SELF _interrupt {7})" \
+        --bind "ctrl-x:become($SELF _ctrl-x {10} {8} {7})" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )" \
         --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )" \
         --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )")" || exit 0
 
   [ -n "$selection" ] || exit 0
-  local repo label statuscol urank uicon target session ref kind ucount slug
-  IFS=$'\t' read -r repo label statuscol urank uicon target session ref kind ucount slug <<< "$selection"
+  local _display repo label statuscol urank uicon target session ref kind ucount slug
+  IFS=$'\t' read -r _display repo label statuscol urank uicon target session ref kind ucount slug <<< "$selection"
 
   if [ -n "$target" ]; then
     tmux_goto_pane "$target"
