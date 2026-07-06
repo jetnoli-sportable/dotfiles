@@ -1,16 +1,20 @@
-# Dotfiles overview — the personal documentation project
+# Overview — the personal workflow
 
+> Originally "Dotfiles overview" — renamed: this covers the whole personal
+> workflow, not just this repo (notes-tui and the central task store already
+> live in separate repos under `~/code/`).
+>
 > **Status: work in progress.** This is the manually-maintained precursor to
-> the "help dashboard" (see `2026-07-06-way-forward.md` §5/§6) — a scanned,
+> the "help dashboard" (see `roadmap.md` §5/§6) — a scanned,
 > auto-generated index + Q&A layer that will eventually replace hand-writing
 > this file. Until that's built, this is where "what do I have and why" lives.
 > See `HUB.md` for the index of all docs in this project.
 
 Companion docs: [`agent-workbench-findings.html`](agent-workbench-findings.html)
 (deep dive on the tmux/Claude agent tooling specifically) and
-[`2026-07-06-way-forward.md`](2026-07-06-way-forward.md) (the plan that grew out
-of it). This doc is the wider net — everything in the dotfiles repo, not just
-the agent workbench slice.
+[`roadmap.md`](roadmap.md) (the plan that grew out
+of it). This doc is the wider net — everything in the personal workflow, not
+just the agent workbench slice, even where the pieces live in other repos.
 
 ## Coverage status
 
@@ -40,7 +44,7 @@ of this stack.
 | `ca` | claude-agent picker (fallback — `wb` absorbs this on `prefix+a`) |
 | `wb` | the workbench — see the tmux tooling section below |
 | `pgh` | `gh` with a personal-account PAT injected, for non-Sportable-org repos (see global CLAUDE.md) |
-| `replay` | work tool — daemon replay launcher (`replay-tui`, Sportable stack, not part of this dotfiles project) |
+| `replay` | work tool — daemon replay launcher (`replay-tui`, Sportable stack, not part of this personal workflow) |
 | `msconfig` | (see `.zshrc` for current definition — replay/msconfig config helpers) |
 
 ### Ghostty — `ghostty/.config/ghostty/config`
@@ -71,7 +75,7 @@ Full `wb` usage guide: see the Artifact published during the PR #7 build
 
 | Script | Job | Fuller doc |
 |---|---|---|
-| `wb.sh` | The workbench: `wb new` (worktree + task + session), `wb` (picker — sessions/agents, presence-only, `Tab`-cyclable modes, `r` rename, `b` break-out-to-own-session), `wb done` (safe wind-down) | `agent-workbench-findings.html`, `2026-07-06-way-forward.md` §2 |
+| `wb.sh` | The workbench: `wb new` (worktree + task + session), `wb` (picker — sessions/agents, presence-only, `Tab`-cyclable modes, `r` rename, `b` break-out-to-own-session), `wb done` (safe wind-down) | `agent-workbench-findings.html`, `roadmap.md` §2 |
 | `lib.sh` | Shared helpers: session management, `tmux_claude_panes` (modal-detection, shared by wb + claude-sessions), repo enumeration | `agent-workbench-findings.html` §Inventory |
 | `session.sh` | Legacy repo sessionizer (`s` alias) — superseded by `wb` but kept as fallback | `agent-workbench-findings.html` |
 | `claude-sessions.sh` | Legacy agent picker/dashboard (`ca`/`cad`) — superseded by `wb`'s agents mode | `agent-workbench-findings.html` |
@@ -132,7 +136,7 @@ Claude's transcript into a readable buffer, reply by pasting into the pane.
 
 ## Claude skills (personal) — `~/.claude/skills/`
 
-Not version-controlled today (a known gap — see `2026-07-06-way-forward.md` §1
+Not version-controlled today (a known gap — see `roadmap.md` §1
 step-zero notes on stowing `~/.claude` config). Four skills exist:
 
 ### decision-buffer
@@ -184,7 +188,7 @@ on a loop or schedule.
 markdown (`~/code/notes`, Denote-style filenames). Sibling to `replay-tui`
 (a Sportable *work* tool, out of scope for this doc), built on the shared
 `cli-kit` library.
-**Why:** the daily-notes flow this dotfiles project actually wants — capture
+**Why:** the daily-notes flow this personal workflow actually wants — capture
 auto-stamped with cwd/git branch/tmux session, periodic digest review, and
 (later) mechanical cleanup proposals you approve rather than do by hand.
 **Full usage guide:** `~/code/notes-tui/notes-guide.html` — a committed,
@@ -201,7 +205,7 @@ open it directly (`file://` or `xdg-open ~/code/notes-tui/notes-guide.html`).
 | `notes process [--dry-run]` | Mechanical cleanup proposals (rename → Denote scheme, split candidates); proposal-only in v1, apply-path gated behind git review |
 | `notes tag [name]` | List tags with counts, or notes carrying a tag |
 **Status:** cloned but not yet wired into `wb` — that's slice 4
-(`2026-07-06-way-forward.md` §4): adding a `--context <tmux-session>` digest
+(`roadmap.md` §4): adding a `--context <tmux-session>` digest
 filter and having `wb new`/`wb done` stamp and pull from it automatically.
 Until then, `notes.sh` (the nvim-based daily note, above) is what's actually
 wired to `prefix+N`/`prefix+M`.

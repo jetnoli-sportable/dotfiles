@@ -1,4 +1,4 @@
-<title>The Way Forward — synthesis, decisions &amp; build order</title>
+<title>Roadmap — the personal workflow</title>
 <style>
   /* ---- tokens: Catppuccin Latte (light) / Frappé (dark) — matches agent-workbench-findings.html ---- */
   :root {
@@ -135,14 +135,17 @@
 
 <main>
 <header class="doc">
-  <span class="eyebrow">dotfiles · plan &amp; decision log</span>
-  <h1><span class="glyph">→</span> The Way Forward</h1>
-  <p>Synthesis of the piece-by-piece review into one proposal, reacted to inline, section by
+  <span class="eyebrow">personal workflow · plan &amp; decision log</span>
+  <h1><span class="glyph">→</span> Roadmap</h1>
+  <p>Originally "The Way Forward" (2026-07-06) — renamed once its scope outgrew a single PR. This
+     is the roadmap for the whole personal workflow (tmux/Claude tooling, the central task store,
+     notes-tui, the docs project), not just this dotfiles repo — several of the things it plans
+     already live in separate repos (<code>~/code/notes-tui</code>, <code>~/code/tasks</code>).
+     Synthesis of the piece-by-piece review into one proposal, reacted to inline, section by
      section — each carries the owner's <strong>Your take</strong> and, where a call was made,
-     the <strong>ratified answer</strong>. This is the working plan doc for the agent workbench;
-     the pre-build audit it's built on lives in
+     the <strong>ratified answer</strong>. The pre-build audit it's built on lives in
      <a href="agent-workbench-findings.html">agent-workbench-findings.html</a>. Wider net covering
-     the rest of the dotfiles repo: <a href="dotfiles-overview.html">dotfiles-overview.html</a>.
+     the rest of the personal workflow: <a href="overview.html">overview.html</a>.
      Index of every doc in this project: <a href="HUB.md">HUB.md</a> / <a href="HUB.html">.html</a>.</p>
   <div class="meta">
     <span class="chip">worktree .worktrees/feat/agent-task-workflow</span>
@@ -343,7 +346,7 @@ the same index from (a)/(c), not a new data source or a separate scan. Scoped in
 standalone slice.</p></div>
 <div class="decided"><span class="who">manual precursor started · 2026-07-06, PR #8</span>
 <p>Built <code>docs/HUB.md</code> (index of every doc in this project) and
-<code>docs/dotfiles-overview.md</code> (guides for every skill and TUI, with full command/flag and
+<code>docs/overview.md</code> (guides for every skill and TUI, with full command/flag and
 keybind tables where possible) as the hand-maintained stand-in for (a)/(c) until the real scanned
 index exists. Both are meant to fall away once slice 5 lands — <code>HUB.md</code>'s own footer
 says so. When slice 5 is built, its generated index should absorb and then delete these two files
@@ -409,6 +412,28 @@ Recorded here since they post-date the buffer round the rest of the doc went thr
     derivable from its task record, so resume is "re-run <code>wb new</code>-equivalent from the
     store," no fragile tmux snapshotting.</p>
     <p><span class="chip">not started</span></p></div>
+  <div class="card"><h4>9c. Per-skill/TUI dedicated guide pages + tile-grid dashboard</h4>
+    <p>Not just a summary line per skill in <code>overview.md</code> — a proper standalone guide per
+    skill and per TUI (the <code>wb-guide.html</code> treatment), with <code>HUB.html</code> as a
+    dashboard of tiles clicking through to them. <strong>Started as an interim step (PR #8):</strong>
+    <code>HUB.html</code> is a real tile-grid dashboard now, but the 4 Claude-skill tiles deep-link
+    into <code>overview.html</code>'s skills section rather than dedicated pages, since those don't
+    exist yet. Full scope: build a dedicated guide per skill (decision-buffer, park, parked-items,
+    pr-review-session) and wire tiles to them once they exist; notes-tui already has one
+    (<code>notes-guide.html</code>) and just needs its tile pointed there (done).</p>
+    <p><span class="chip warn">interim done · PR #8</span> <span class="chip">full scope not started</span></p></div>
+  <div class="card"><h4>9d. Cross-repo, cross-session doc referencing</h4>
+    <p>The docs project already spans repos — <code>dotfiles/docs/</code>,
+    <code>~/code/notes-tui/notes-guide.html</code>, <code>~/code/tasks/*.md</code> — and
+    <code>HUB.html</code>'s "Other artifacts" section proved a third problem: HTML docs get built as
+    Claude Artifacts during sessions and never committed anywhere, discoverable (if at all) only by
+    grepping <code>/tmp/claude-1000/*</code> on whichever machine ran that session, until its scratch
+    dir is cleaned. Needed: a way to reference docs across every repo so they stay in sync and are
+    findable from the Hub — including artifacts from <strong>any past session</strong>, not just ones
+    whose scratch happens to still be on disk. Shape unclear (a manifest per repo the Hub aggregates?
+    a "commit it or lose it" rule enforced by a skill? something in the task store?) — needs a
+    decision buffer when picked up. Composes with 9c and the doc-sync tool in §5.</p>
+    <p><span class="chip">not started</span></p></div>
 </div>
 
 <div class="decided"><span class="who">visibility gap identified · 2026-07-06, post-launch</span>
@@ -420,11 +445,17 @@ This is exactly the gap <code>/roadmap</code> (9a) is meant to close — recorde
 motivating reason isn't lost by the time this follow-up gets picked up. Also tracked as a
 Follow-up on <code>~/code/tasks/dotfiles--agent-task-workflow.md</code>.</p></div>
 
+<div class="quote"><span class="who">naming note</span>
+<p>This doc is now called "Roadmap," and 9a above describes a <em>planned feature</em> also called
+<code>/roadmap</code> (a snapshot dashboard over the task store). They are not the same thing —
+this file is the plan-of-record for the whole personal workflow; <code>/roadmap</code> would be a
+live status view once built. Flagging so future-you doesn't conflate them.</p></div>
+
 <footer>
   Source: synthesis of <code>logs/2026-07-06-workbench-piece-review.md</code> (piece-by-piece
   review) reacted to inline by the owner, 2026-07-06. Companion doc:
   <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> (pre-build audit).
-  Tracked as <code>docs/2026-07-06-way-forward.md</code> (this file's source) — promoted from
+  Tracked as <code>docs/roadmap.md</code> (this file's source) — promoted from
   scratch (<code>logs/</code>, gitignored) alongside PR #7.
 </footer>
 </main>
