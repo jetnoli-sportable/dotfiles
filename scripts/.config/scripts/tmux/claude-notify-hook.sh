@@ -19,6 +19,22 @@ case "${1:-}" in
   start)        # UserPromptSubmit: clear any stale marker, stamp the start time
     tmux set -p @claude_started "$(date +%s)" 2>/dev/null || true
     tmux set -pu @claude_blocked 2>/dev/null || true
+    # Record the Claude session id on the pane (hooks receive JSON on stdin
+    # with a session_id field). A future `wb up --resume` needs it to
+    # `claude --resume <id>` instead of cold-starting the agent — the one
+    # piece of a wb session that is NOT reconstructable from the task file
+    # (roadmap 9b amendment, 2026-07-06 review). Guarded so a manual,
+    # stdin-less invocation can't hang on the read.
+    if [ ! -t 0 ]; then
+      sid=""
+      if command -v jq >/dev/null 2>&1; then
+        sid="$(jq -r '.session_id // empty' 2>/dev/null || true)"
+      else
+        sid="$(grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null \
+          | head -n1 | sed 's/.*"\([^"]*\)"$/\1/')"
+      fi
+      [ -n "$sid" ] && { tmux set -p @claude_session_id "$sid" 2>/dev/null || true; }
+    fi
     ;;
   needs-input)  # Notification: blocked on you (permission / question / idle prompt)
     tmux set -p @claude_blocked needs-input 2>/dev/null || true
