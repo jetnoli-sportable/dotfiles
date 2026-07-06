@@ -187,6 +187,10 @@ markdown (`~/code/notes`, Denote-style filenames). Sibling to `replay-tui`
 **Why:** the daily-notes flow this dotfiles project actually wants — capture
 auto-stamped with cwd/git branch/tmux session, periodic digest review, and
 (later) mechanical cleanup proposals you approve rather than do by hand.
+**Full usage guide:** `~/code/notes-tui/notes-guide.html` — a committed,
+comprehensive install/commands/global-flags/conventions/roadmap reference
+(commit `48c6d25`). Not linked from notes-tui's own README, easy to miss —
+open it directly (`file://` or `xdg-open ~/code/notes-tui/notes-guide.html`).
 **Use it today:** `source scripts/note.sh` from shell rc, then capture with:
 
 | Command | What it does |
