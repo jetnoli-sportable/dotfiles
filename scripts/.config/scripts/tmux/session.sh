@@ -11,16 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-additional_dirs=(
-  "$HOME/code/notes"
-  "$HOME/code/daemon"
-)
-
-selected="$( { printf '%s\n' "${additional_dirs[@]}"
-               "$FD_BIN" --type d --hidden --no-ignore-vcs \
-                 --exclude .terraform --exclude node_modules \
-                 '^\.git$' "$HOME/code" -X dirname
-             } | sort -u \
+selected="$( tmux_code_repos \
                | fzf --query="${1:-}" --select-1 \
                      --preview 'git -C {} -c color.status=always status -s 2>/dev/null | head -40
                                 echo

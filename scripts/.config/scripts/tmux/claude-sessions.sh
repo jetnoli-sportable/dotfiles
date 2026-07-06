@@ -12,7 +12,7 @@
 #   working     -> a braille spinner frame in the title
 #   idle        -> plain-text title, no spinner
 # Glyph alone can't tell "needs-input" from "waiting" (a modal keeps the ✳
-# glyph), so collect_rows refines those two — see pane_awaiting_input.
+# glyph), so collect_rows refines those two — see lib.sh's tmux_pane_awaiting_input.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,60 +20,15 @@ SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"   # for fzf reload to re-invo
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-# pane_awaiting_input <target> — true if the pane is showing a modal that needs
-# YOU (a permission prompt or AskUserQuestion menu) rather than sitting idle.
-# Calibrated against Claude Code v2.1.179: every such modal drops the
-# `-- INSERT --` input box and shows an "Esc to cancel" footer (permission
-# prompts additionally say "Do you want to proceed?"). Idle and working panes
-# always keep `-- INSERT --`. If a future Claude Code changes this modal UI,
-# this pair of greps is the one thing to recalibrate (capture a live prompt with
-# `tmux capture-pane -ep -t <target>` and compare).
-pane_awaiting_input() {
-  local screen
-  screen="$(tmux capture-pane -ep -t "$1" 2>/dev/null | tail -n 20)"
-  ! grep -q -- '-- INSERT --' <<<"$screen" \
-    && grep -qE 'Esc to cancel|Do you want to (proceed|run)' <<<"$screen"
-}
-
 # Emit one tab-separated row per running Claude pane:
 #   <rank>\t<target>\t<status>\t<task>
 # rank orders needs-input(0) before waiting(1) before working(2) before idle(3),
 # so the picker/dashboard surface the agent that's actually blocking you first.
+# The detection itself (including the modal-scan calibration note) lives in
+# lib.sh's tmux_claude_panes — shared with wb.sh so there's one place to
+# recalibrate if a future Claude Code changes its modal UI.
 collect_rows() {
-  local cmd sess win pane blocked title target glyph task status rank
-  while IFS='|' read -r cmd sess win pane blocked title; do
-    [ "$cmd" = "claude" ] || continue
-    target="$sess:$win.$pane"
-    glyph="${title%% *}"          # leading token
-    task="${title#* }"            # everything after it
-    [ "$task" = "$title" ] && task=""   # no space => no task text
-    case "$glyph" in
-      ✳)               status="waiting"; rank=1 ;;   # turn finished, idle at the prompt
-      ""|[A-Za-z0-9]*) status="idle";    rank=3 ;;   # plain text, no spinner
-      *)               status="working"; rank=2 ;;   # a spinner glyph
-    esac
-    # "needs input" — BLOCKED on you, not merely idle. Two signals:
-    #   (1) @claude_blocked: a marker the agent sets on its own pane before it
-    #       blocks on an nvim buffer (decision-buffer skill). That block shows a
-    #       spinner in the pane, so a content scan can't see it — hence the
-    #       explicit marker. Its value (e.g. "nvim-buffer") is the reason why.
-    #   (2) a live permission / AskUserQuestion menu (pane_awaiting_input). Such
-    #       modals carry the ✳ glyph, so only ✳ ("waiting") panes are scanned.
-    # A pushed marker (claude-notify-hook.sh) is ground truth and beats the glyph:
-    #   "done"  -> a long turn just finished (Stop hook); awaiting you, rank 1
-    #   any other non-empty value (needs-input / nvim-buffer / ...) -> blocked, rank 0
-    # With hooks installed the content scan is a fallback for unmarked ✳ panes.
-    if [ "$blocked" = done ]; then
-      status="done"; rank=1
-    elif [ -n "$blocked" ]; then
-      status="needs-input"; rank=0
-    elif [ "$status" = "waiting" ] && pane_awaiting_input "$target"; then
-      status="needs-input"; rank=0
-    fi
-    [ -n "$task" ] || task="Claude Code"
-    printf '%d\t%s\t%s\t%s\n' "$rank" "$target" "$status" "$task"
-  done < <(tmux list-panes -a -F \
-    '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{pane_title}')
+  tmux_claude_panes
 }
 
 # Emit the colored picker lines: <icon> <target> <status> <task>.
