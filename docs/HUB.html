@@ -66,6 +66,9 @@
 
   code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
          padding: .1em .35em; border-radius: 4px; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
 
   .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
           border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
@@ -122,7 +125,10 @@
   <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it.
      <span class="chip warn" style="margin-left:.3rem">manually maintained</span> — see
      <a href="overview.html">overview.html</a> §"doc-sync tool" for the plan to stop hand-updating
-     this.</p>
+     this. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or
+     <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if
+     you want relative paths (like the notes-tui tile below) to actually resolve, since they won't
+     inside a sandboxed Artifact preview.</p>
 </header>
 
 <section class="group">

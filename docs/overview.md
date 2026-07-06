@@ -96,6 +96,7 @@ Full `wb` usage guide: see the Artifact published during the PR #7 build
 | `Ctrl`+`h`/`j`/`k`/`l` | vim-tmux-navigator pane movement (reserved — a window manager must never bind these) |
 | pane-focus-in hook | `set -pu @claude_blocked` — acknowledge-on-arrival |
 | status-left | live `✳N`/`✔N` agent-attention count, `#(claude-status.sh)` |
+| `prefix`+`h` | Open `docs/HUB.html` in the default browser (`xdg-open`) |
 
 ### `wb` picker keybindings
 

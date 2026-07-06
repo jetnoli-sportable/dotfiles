@@ -5,6 +5,11 @@ maintained — update on request, not automatically. Dashboard version with
 the same content: [`HUB.html`](HUB.html) (open that one first if you're
 browsing rather than grepping).
 
+**Open it:** `prefix`+`h` from anywhere in tmux, or
+`xdg-open ~/code/dotfiles/docs/HUB.html` directly — that's the command to use
+if you want relative paths (like the notes-tui link below) to actually
+resolve, since they won't inside a sandboxed Artifact preview.
+
 ## Personal workflow — `~/code/dotfiles`
 
 | Doc | What it's for | Status |
