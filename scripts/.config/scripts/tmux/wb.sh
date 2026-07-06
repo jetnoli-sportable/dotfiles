@@ -27,6 +27,14 @@ TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
 CODE_DIR="$HOME/code"
 WB_SWEEP_THRESHOLD="${WB_SWEEP_THRESHOLD:-5}"   # follow-ups+parked count that triggers the nudge
 
+# Picker column widths — shared between wb_format_for_display's padding and
+# wb_column_header's labels. Keep these in sync or the legend row drifts
+# from the data rows under it.
+WB_COL_REPO=16
+WB_COL_LABEL=28
+WB_COL_STATUS=14
+WB_COL_AGENT=9   # status label width, after the icon + one space
+
 # ---------------------------------------------------------------------------
 # Frontmatter helpers — the store's schema is plain `key: value` lines between
 # the first two `---` markers (see ~/code/tasks/README.md).
@@ -89,6 +97,17 @@ wb_task_files() {
 # wb_sanitize <slug> — slug -> display form for tmux session names / filenames
 # ("/" and "." become "-"; never parse this back, see header comment).
 wb_sanitize() { local s="${1//\//-}"; echo "${s//./-}"; }
+
+# wb_tsv_split <string> <array_name> — split <string> on literal tabs into
+# the named array, preserving empty fields. NEVER use `IFS=$'\t' read` for
+# this: bash classifies tab as IFS-WHITESPACE regardless of what IFS is set
+# to, so a run of consecutive tabs (an empty field, e.g. an idle row's empty
+# target) gets silently collapsed into one delimiter and every field after
+# it shifts left. awk's -F'\t' has no such behavior — fields stay put.
+wb_tsv_split() {
+  local -n _wb_tsv_out="$2"
+  mapfile -t _wb_tsv_out < <(awk -F'\t' '{ for (i = 1; i <= NF; i++) print $i }' <<< "$1")
+}
 
 # ---------------------------------------------------------------------------
 # wb new — worktree + bootstrap + task seed + tmux session
@@ -507,7 +526,8 @@ wb_live_session_row() {
     disp_slug="$(wb_sanitize "$slug")"
     task_file="$(wb_task_file "$repo" "$disp_slug")"
     if [ -f "$task_file" ]; then
-      IFS=$'\t' read -r status _ _ < <(wb_read_task "$task_file")
+      local -a _wt; wb_tsv_split "$(wb_read_task "$task_file")" _wt
+      status="${_wt[0]}"
       label="$(wb_task_title "$task_file")"; [ -n "$label" ] || label="$slug"
     else
       status="?"; label="$slug"
@@ -519,8 +539,8 @@ wb_live_session_row() {
     statuscol="[$(git -C "$ref" branch --show-current 2>/dev/null || true)]"
   fi
 
-  local urank uicon target ucount
-  IFS=$'\t' read -r urank uicon target ucount < <(wb_session_urgency "$session")
+  local -a _u; wb_tsv_split "$(wb_session_urgency "$session")" _u
+  local urank="${_u[0]}" uicon="${_u[1]}" target="${_u[2]}" ucount="${_u[3]}"
 
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$repo" "$label" "$statuscol" "$urank" "$uicon" "$target" "$session" "$ref" "$kind" "$ucount" "$slug_out"
@@ -538,10 +558,12 @@ collect_live_rows() {
 # collect_combined_rows — collect_live_rows, expanding multi-agent sessions
 # into indented sub-rows (see wb_agent_subrows).
 collect_combined_rows() {
-  local line repo label statuscol urank uicon target session ref kind ucount slug
+  local line repo session ref ucount
+  local -a f
   while IFS= read -r line; do
     printf '%s\n' "$line"
-    IFS=$'\t' read -r repo label statuscol urank uicon target session ref kind ucount slug <<< "$line"
+    wb_tsv_split "$line" f
+    repo="${f[0]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"
     [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$ref"; true
   done < <(collect_live_rows)
 }
@@ -570,10 +592,15 @@ collect_agent_rows() {
 # --with-nth=1 then shows ONLY this field, with the real data addressable as
 # hidden fields 2-12 for binds/preview.
 wb_format_for_display() {
-  awk -F'\t' -v OFS='\t' '
+  awk -F'\t' -v OFS='\t' -v w1="$WB_COL_REPO" -v w2="$WB_COL_LABEL" -v w3="$WB_COL_STATUS" -v w5="$WB_COL_AGENT" '
       function pad(s, w,    n) {
         n = length(s)
-        if (n > w) return substr(s, 1, w - 1) "\xe2\x80\xa6"   # …
+        # ASCII "..." on purpose, not a "…" glyph: some terminals render
+        # that single codepoint as an ambiguous-width (2-column) character,
+        # which silently threw off every column after it on truncated rows
+        # while untruncated rows stayed correct — exactly the kind of
+        # alignment bug that is invisible until a row actually truncates.
+        if (n > w) return substr(s, 1, w - 3) "..."
         return s sprintf("%*s", w - n, "")
       }
       BEGIN { m = "\033[1;35m"; g = "\033[32m"; y = "\033[33m"; d = "\033[90m"; cy = "\033[36m"; r = "\033[0m" }
@@ -588,12 +615,21 @@ wb_format_for_display() {
         # Pad the icon and label SEPARATELY, never together: this awk counts
         # bytes, not display columns, and the icon glyphs (◆✔○●·) are 2-3
         # UTF-8 bytes for 1 printed column each — padding the combined
-        # "icon label" string overcounts by that byte overhead and truncates
-        # labels that already fit (e.g. "needs you" clipped to "needs y…").
-        status_field = icon " " pad(lbl, 9)
-        display = c pad($1, 16) r "  " c pad($2, 28) r "  " pad($3, 14) "  " c status_field r
+        # "icon label" string overcounts by that byte overhead.
+        status_field = icon " " pad(lbl, w5)
+        display = c pad($1, w1) r "  " c pad($2, w2) r "  " pad($3, w3) "  " c status_field r
         print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11)
       }'
+}
+
+# wb_column_header — the legend row shown above the picker's rows, in the
+# SAME widths wb_format_for_display pads to. Keep the two in sync.
+wb_column_header() {
+  # No leading spaces here: fzf pads --header lines with its own 2-space
+  # margin already, matching the pointer gutter it reserves on data rows —
+  # adding our own on top double-indents the legend relative to the rows.
+  printf '\033[90m%-*s  %-*s  %-*s  %s\033[0m' \
+    "$WB_COL_REPO" "REPO" "$WB_COL_LABEL" "TASK / SESSION" "$WB_COL_STATUS" "STATUS" "AGENT"
 }
 
 # render_rows <mode_file> — dispatch to the mode currently recorded in
@@ -613,14 +649,14 @@ render_rows() {
 # active — showing both at once (the original design) meant half the header
 # was always irrelevant to what you could currently type.
 wb_status_line() {
-  local mode="${1:-combined}" ctx="${2:-normal}"
+  local mode="${1:-combined}" ctx="${2:-normal}" hint
   if [ "$ctx" = search ]; then
-    printf 'wb · %s (tab to cycle) · %s\nSEARCH: type to filter · esc back to normal' \
-      "$mode" "$(wb_pending_counts)"
+    hint='SEARCH: type to filter · esc back to normal'
   else
-    printf 'wb · %s (tab to cycle) · %s\nj/k move · enter jump · x interrupt · ctrl-x done/kill · / search · q quit' \
-      "$mode" "$(wb_pending_counts)"
+    hint='j/k move · enter jump · x interrupt · ctrl-x done/kill · / search · q quit'
   fi
+  printf 'wb · %s (tab to cycle) · %s\n%s\n%s' \
+    "$mode" "$(wb_pending_counts)" "$(wb_column_header)" "$hint"
 }
 
 # _cycle_mode <mode_file> — advance to the next mode, persisting it so the
@@ -656,7 +692,12 @@ _ctrl_x() {
 }
 
 picker() {
-  local mode_file; mode_file="$(mktemp -t wb-mode.XXXXXX)"
+  # Not `local`: an EXIT trap fires when the whole script exits, which for
+  # the success path (no explicit `exit` below) happens AFTER picker()
+  # already returned and popped its locals — referencing a local mode_file
+  # from the trap at that point is an unbound-variable crash under set -u.
+  # A plain (script-global) variable stays in scope for the trap either way.
+  mode_file="$(mktemp -t wb-mode.XXXXXX)"
   echo combined > "$mode_file"
   trap 'rm -f "$mode_file"' EXIT
 
@@ -696,8 +737,8 @@ picker() {
         --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )+transform-header($SELF _mode-header $mode_file)")" || exit 0
 
   [ -n "$selection" ] || exit 0
-  local _display repo label statuscol urank uicon target session ref kind ucount slug
-  IFS=$'\t' read -r _display repo label statuscol urank uicon target session ref kind ucount slug <<< "$selection"
+  local -a f; wb_tsv_split "$selection" f
+  local repo="${f[1]}" target="${f[6]}" session="${f[7]}" ref="${f[8]}" kind="${f[9]}" slug="${f[11]}"
 
   if [ -n "$target" ]; then
     tmux_goto_pane "$target"
