@@ -688,7 +688,7 @@ wb_status_line() {
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter · esc back to normal'
   else
-    hint='j/k move · enter jump · x interrupt · ctrl-x done/kill · / search · q quit'
+    hint='j/k move · enter jump · x interrupt · r rename · ctrl-x done/kill · / search · q quit'
   fi
   printf 'wb · %s (tab to cycle) · %s\n%s' \
     "$mode" "$(wb_pending_counts)" "$hint"
@@ -713,6 +713,18 @@ _mode_header() { wb_status_line "$(cat "$1" 2>/dev/null || echo combined)" "${2:
 
 # _interrupt <target> — send Escape to a pane; no-op on an empty target (bound to `x`).
 _interrupt() { [ -n "${1:-}" ] && tmux send-keys -t "$1" Escape 2>/dev/null; }
+
+# _rename <session> — prompt for a new tmux session name (bound to `r`).
+# Cosmetic only: wb's task linkage lives on the session object via
+# @wb_repo/@wb_slug (session-scoped tmux options), which survive a rename,
+# so this is safe to do at any point without breaking `wb done` or the picker.
+_rename() {
+  local session="$1" new
+  [ -n "$session" ] || return 0
+  read -r -p "Rename '$session' to: " new
+  [ -n "$new" ] || return 0
+  tmux rename-session -t "=$session:" "$new" 2>/dev/null
+}
 
 # _ctrl_x <kind> <session> <target> — the picker's ctrl-x dispatch: task rows
 # route through the full wb done wind-down; repo sessions get a raw kill;
@@ -745,7 +757,7 @@ picker() {
 
   # Modal navigation mirrors claude-sessions.sh: NORMAL disables search so
   # unbound keys are inert; i or / enters SEARCH.
-  local navkeys='j,k,g,G,q,i,x,/'
+  local navkeys='j,k,g,G,q,i,x,r,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-12 are the real data, shown to fzf only as hidden/addressable
@@ -774,6 +786,7 @@ picker() {
         --bind "ctrl-r:reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
         --bind "tab:execute-silent($SELF _cycle-mode $mode_file)+reload-sync(\"$SELF\" render $mode_file)+transform-header($SELF _mode-header $mode_file)" \
         --bind "x:execute-silent($SELF _interrupt {7})" \
+        --bind "r:execute($SELF _rename {8})+reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
         --bind "ctrl-x:become($SELF _ctrl-x {10} {8} {7})" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header($SELF _mode-header $mode_file search)" \
         --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header($SELF _mode-header $mode_file search)" \
@@ -799,6 +812,7 @@ case "${1:-}" in
   done)        shift; cmd_done "$@" ;;
   render)      shift; render_rows "$@" ;;
   _interrupt)  shift; _interrupt "$@" ;;
+  _rename)     shift; _rename "$@" ;;
   _ctrl-x)     shift; _ctrl_x "$@" ;;
   _cycle-mode) shift; _cycle_mode "$@" ;;
   _mode-header) shift; _mode_header "$@" ;;
