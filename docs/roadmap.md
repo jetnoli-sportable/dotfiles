@@ -536,6 +536,24 @@ cleaned up.
   content (Sportable) never gets indexed into, or published from, personal
   surfaces (this session's near-miss is the motivating incident).
 
+### 9e. Task recall — resume any piece of work from any session (owner ask, 2026-07-07)
+
+Requested verbatim: tie the memories, skills, task store and Hub together so
+that referencing a task or piece of work in ANY session — e.g. "let's
+continue planning the reporting investigation" — makes the agent check the
+Hub/task store for context and offer to **resume, update, or recap** that
+work. Building blocks that already exist or are planned: the central task
+store (per-task record), `wb board` (status view), the worktree-seeding rule
+in `~/.claude/CLAUDE.md` (already does this for worktree setup specifically),
+slice 5's INDEX + `/help` Q&A (lookup machinery), and `MEMORY.md`. The
+likely shape: generalize the worktree-seeding rule into a standing
+"task-recall" behavior — on a task reference, match against
+`~/code/tasks/*.md` (title/slug/tags), read the record + its linked
+decisions/dossiers, and open with a recap + resume options. Sequencing:
+after slice 5 (it consumes the INDEX/lookup machinery); design goes through
+a decision buffer when picked up. Boundary note: recall output must respect
+the same personal/employer rules as every other aggregation surface.
+
 > **Naming note (resolved 2026-07-07):** the collision between this doc
 > ("Roadmap") and the 9a feature (formerly "/roadmap") is closed — the
 > feature is renamed `/board` (Decision 5A). "Roadmap" now unambiguously
@@ -549,3 +567,28 @@ cleaned up.
 > guardrails until then: the task store gets NO remote; slice 5's
 > INDEX/HTML outputs carry a minimal work-reference redaction guard; the
 > §2 credential guard and 9d boundary axis stand as written.
+
+---
+
+## 10. Standing follow-ups ledger (continual — committed record)
+
+> Owner ask (2026-07-07): a continual, COMMITTED section for the deferred /
+> follow-up tasks of this ongoing dotfiles-improvements push — the task
+> store (`~/code/tasks`) stays the detailed operational record and
+> `wb board` the live view, but the store is local-only and `logs/` is
+> gitignored, so this ledger is the one deferred-work index that travels
+> with the repo. One line per item; add on deferral, strike on completion.
+
+| Deferred item | Ref | Gate / when |
+|---|---|---|
+| Slice 4b — notes-tui integration (corpus split, `--context`, wb done digest) | §4, plan 003 | after slice 5 + 4a window verdict |
+| `/board` full HTML feature (zoomable today/task/week) | 9a | after slice 5; interim `wb board` live |
+| Day bookends `wb up`/`wb down` | 9b | after 4b; session-id capture already landing |
+| Jira integration (both 9a's and 9b's halves) | 9a/9b | own ratified addition, not scheduled |
+| Per-skill guide pages + generated HUB | 9c | inside slice 5 (born generated) |
+| Cross-repo/cross-machine doc registry | 9d | PROPOSAL, unratified — only if artifacts still go missing |
+| Task recall — resume any work from any session | 9e | after slice 5; decision buffer at pickup |
+| Personal/employer boundary rule (store remote, classification) | Decision 4 | FINAL follow-up, owner call, after full flow in place |
+| Delete version-pinned content scan (`tmux_pane_awaiting_input`) | §1 | ~2026-07-13 if hook data held |
+| Validation check-in: push-vs-weekly-ritual bet | §3 | ~2026-07-20 |
+| 4a capture-window verdict (gates 4b's shape) | §8-4a | ~2026-07-14 |
