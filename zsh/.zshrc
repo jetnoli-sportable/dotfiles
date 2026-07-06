@@ -3,7 +3,7 @@
 ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
 #. export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-~/.config}"
 export XDG_CONFIG_HOME="$HOME/.config"
-export PATH=$PATH:/home/jetnoli/.local/bin
+export PATH=$PATH:$HOME/.local/bin
 export PATH=$PATH:/usr/local/go/bin
 export PATH=$PATH:~/go/bin
 export PATH=$PATH:/opt/nvim-linux-x86_64/bin
@@ -89,7 +89,6 @@ alias s="~/.config/scripts/tmux/session.sh"
 alias N="~/.config/scripts/tmux/notes.sh"
 alias ca="~/.config/scripts/tmux/claude-sessions.sh"
 alias cad="~/.config/scripts/tmux/claude-sessions.sh dash"
-alias n="~/Desktop/Projects/go-notes/notes.exe"
 
 # Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the
 # keyring; `pgh ...` runs gh against the personal-account PAT instead (e.g. for
@@ -111,14 +110,14 @@ export PYENV_ROOT="$HOME/.pyenv"
 eval "$(pyenv init - zsh)"
 
 # The next line updates PATH for the Google Cloud SDK.
-if [ -f '/home/jetnoli/google-cloud-sdk/path.zsh.inc' ]; then . '/home/jetnoli/google-cloud-sdk/path.zsh.inc'; fi
+if [ -f "$HOME/google-cloud-sdk/path.zsh.inc" ]; then . "$HOME/google-cloud-sdk/path.zsh.inc"; fi
 
 # The next line enables shell command completion for gcloud.
-if [ -f '/home/jetnoli/google-cloud-sdk/completion.zsh.inc' ]; then . '/home/jetnoli/google-cloud-sdk/completion.zsh.inc'; fi
+if [ -f "$HOME/google-cloud-sdk/completion.zsh.inc" ]; then . "$HOME/google-cloud-sdk/completion.zsh.inc"; fi
 export PATH="$HOME/.tfenv/bin:$PATH"
 
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-export PATH="$HOME/.tmux/plugins/tpm/bin:$PATH"
+export PATH="$HOME/.config/tmux/plugins/tpm/bin:$PATH"
 ###-begin-npm-completion-###
 #
 # npm command completion script
@@ -188,3 +187,7 @@ elif type compctl &>/dev/null; then
   compctl -K _npm_completion npm
 fi
 ###-end-npm-completion-###
+
+# Machine-local overrides (gitignored by location — lives in ~, not the repo).
+# Host-specific PATH tweaks, SDK paths, secrets-adjacent config go here.
+[ -f ~/.zshrc.local ] && source ~/.zshrc.local
