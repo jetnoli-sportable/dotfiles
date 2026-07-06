@@ -578,13 +578,20 @@ wb_format_for_display() {
       }
       BEGIN { m = "\033[1;35m"; g = "\033[32m"; y = "\033[33m"; d = "\033[90m"; cy = "\033[36m"; r = "\033[0m" }
       {
+        icon = $5; sub(/ .*/, "", icon)
         lbl = $5; sub(/^[^ ]+ /, "", lbl)
         if      (lbl == "needs you") c = m
         else if (lbl == "finished")  c = cy
         else if (lbl == "done")      c = g
         else if (lbl == "working")   c = y
         else                         c = d
-        display = c pad($1, 16) r "  " c pad($2, 28) r "  " pad($3, 14) "  " c pad($5, 12) r
+        # Pad the icon and label SEPARATELY, never together: this awk counts
+        # bytes, not display columns, and the icon glyphs (◆✔○●·) are 2-3
+        # UTF-8 bytes for 1 printed column each — padding the combined
+        # "icon label" string overcounts by that byte overhead and truncates
+        # labels that already fit (e.g. "needs you" clipped to "needs y…").
+        status_field = icon " " pad(lbl, 9)
+        display = c pad($1, 16) r "  " c pad($2, 28) r "  " pad($3, 14) "  " c status_field r
         print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11)
       }'
 }
@@ -601,11 +608,19 @@ render_rows() {
   esac
 }
 
-# wb_status_line <mode> — header text for the picker: current mode, pending
-# counts, keybind hints.
+# wb_status_line <mode> <context> — 2-line header: mode + pending counts,
+# then keybind hints for whichever context (normal/search) is actually
+# active — showing both at once (the original design) meant half the header
+# was always irrelevant to what you could currently type.
 wb_status_line() {
-  printf 'wb · %s mode (tab to cycle) · %s\nNORMAL: j/k move · g/G top/bottom · l/enter jump-or-create · x interrupt · ctrl-x done/kill · ctrl-r refresh · tab cycle view · i,/ search · q quit\nSEARCH: type to filter · esc back to normal' \
-    "${1:-combined}" "$(wb_pending_counts)"
+  local mode="${1:-combined}" ctx="${2:-normal}"
+  if [ "$ctx" = search ]; then
+    printf 'wb · %s (tab to cycle) · %s\nSEARCH: type to filter · esc back to normal' \
+      "$mode" "$(wb_pending_counts)"
+  else
+    printf 'wb · %s (tab to cycle) · %s\nj/k move · enter jump · x interrupt · ctrl-x done/kill · / search · q quit' \
+      "$mode" "$(wb_pending_counts)"
+  fi
 }
 
 # _cycle_mode <mode_file> — advance to the next mode, persisting it so the
@@ -620,9 +635,10 @@ _cycle_mode() {
   esac > "$1"
 }
 
-# _mode_header <mode_file> — print the header for whatever mode is currently
-# recorded, for fzf's transform-header to swap in after a mode cycle.
-_mode_header() { wb_status_line "$(cat "$1" 2>/dev/null || echo combined)"; }
+# _mode_header <mode_file> [context] — print the header for whatever mode is
+# currently recorded (plus an optional normal/search context), for fzf's
+# transform-header to swap in after a mode cycle or a NORMAL/SEARCH toggle.
+_mode_header() { wb_status_line "$(cat "$1" 2>/dev/null || echo combined)" "${2:-normal}"; }
 
 # _interrupt <target> — send Escape to a pane; no-op on an empty target (bound to `x`).
 _interrupt() { [ -n "${1:-}" ] && tmux send-keys -t "$1" Escape 2>/dev/null; }
@@ -675,9 +691,9 @@ picker() {
         --bind "tab:execute-silent($SELF _cycle-mode $mode_file)+reload-sync(\"$SELF\" render $mode_file)+transform-header($SELF _mode-header $mode_file)" \
         --bind "x:execute-silent($SELF _interrupt {7})" \
         --bind "ctrl-x:become($SELF _ctrl-x {10} {8} {7})" \
-        --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )" \
-        --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )" \
-        --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )")" || exit 0
+        --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header($SELF _mode-header $mode_file search)" \
+        --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header($SELF _mode-header $mode_file search)" \
+        --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )+transform-header($SELF _mode-header $mode_file)")" || exit 0
 
   [ -n "$selection" ] || exit 0
   local _display repo label statuscol urank uicon target session ref kind ucount slug
