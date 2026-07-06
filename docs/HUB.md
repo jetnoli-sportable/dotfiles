@@ -20,6 +20,7 @@ maintained — update on request, not automatically.
 | `readme.md` (repo root) | Original stow-migration plan (2026-06-11) — historical/setup context, not a living guide. |
 | `nvim/.config/nvim/README.md` + `instructions.md` | nvim's own docs, including the `claude-tmux` bridge. Already maintained separately — not duplicated here. |
 | `scripts/.config/scripts/tmux/instructions.md` | Known stale (predates the notification work) — flagged as a gap in the findings doc, not yet refreshed. |
+| `~/code/notes-tui/notes-guide.html` | notes-tui's own committed usage guide (install/commands/global-flags/conventions/roadmap). Not linked from its own README — easy to miss. |
 
 ## Where new docs should land
 
