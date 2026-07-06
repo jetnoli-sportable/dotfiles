@@ -688,7 +688,7 @@ wb_status_line() {
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter · esc back to normal'
   else
-    hint='j/k move · enter jump · x interrupt · r rename · ctrl-x done/kill · / search · q quit'
+    hint='j/k move · enter jump · x interrupt · r rename · b new session · ctrl-x done/kill · / search · q quit'
   fi
   printf 'wb · %s (tab to cycle) · %s\n%s' \
     "$mode" "$(wb_pending_counts)" "$hint"
@@ -726,6 +726,33 @@ _rename() {
   tmux rename-session -t "=$session:" "$new" 2>/dev/null
 }
 
+# _break_out <target> — move a single pane out of a shared session into a
+# brand new one of its own (bound to `b`). Only makes sense on an
+# agent/sub-row, hence taking the pane target ({7}), not the session — no-op
+# on an empty target, same convention as _interrupt.
+# tmux's break-pane can't create its destination session itself (errors
+# "can't find session"), so this creates a one-window scratch session first,
+# breaks the pane into it (landing as a second window), then kills the
+# scratch window — leaving the extracted pane as the new session's only one.
+_break_out() {
+  local target="$1" new
+  [ -n "$target" ] || return 0
+  read -r -p "Break '$target' into new session: " new
+  [ -n "$new" ] || return 0
+  if tmux has-session -t "=$new" 2>/dev/null; then
+    echo "wb: session '$new' already exists" >&2
+    return 1
+  fi
+  tmux new-session -d -s "$new"
+  if tmux break-pane -d -s "$target" -t "$new:" 2>/dev/null; then
+    tmux kill-window -t "$new:1" 2>/dev/null
+  else
+    tmux kill-session -t "$new" 2>/dev/null
+    echo "wb: could not break '$target' into '$new'" >&2
+    return 1
+  fi
+}
+
 # _ctrl_x <kind> <session> <target> — the picker's ctrl-x dispatch: task rows
 # route through the full wb done wind-down; repo sessions get a raw kill;
 # a single agent sub-row kills just that pane. No-ops on an empty session/target.
@@ -757,7 +784,7 @@ picker() {
 
   # Modal navigation mirrors claude-sessions.sh: NORMAL disables search so
   # unbound keys are inert; i or / enters SEARCH.
-  local navkeys='j,k,g,G,q,i,x,r,/'
+  local navkeys='j,k,g,G,q,i,x,r,b,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-12 are the real data, shown to fzf only as hidden/addressable
@@ -787,6 +814,7 @@ picker() {
         --bind "tab:execute-silent($SELF _cycle-mode $mode_file)+reload-sync(\"$SELF\" render $mode_file)+transform-header($SELF _mode-header $mode_file)" \
         --bind "x:execute-silent($SELF _interrupt {7})" \
         --bind "r:execute($SELF _rename {8})+reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
+        --bind "b:execute($SELF _break-out {7})+reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
         --bind "ctrl-x:become($SELF _ctrl-x {10} {8} {7})" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header($SELF _mode-header $mode_file search)" \
         --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header($SELF _mode-header $mode_file search)" \
@@ -813,6 +841,7 @@ case "${1:-}" in
   render)      shift; render_rows "$@" ;;
   _interrupt)  shift; _interrupt "$@" ;;
   _rename)     shift; _rename "$@" ;;
+  _break-out)  shift; _break_out "$@" ;;
   _ctrl-x)     shift; _ctrl_x "$@" ;;
   _cycle-mode) shift; _cycle_mode "$@" ;;
   _mode-header) shift; _mode_header "$@" ;;
