@@ -268,6 +268,14 @@ I'd like a combo of a and c. And then yes to d.
 > index); the exact format/generator choice can go through a quick decision
 > buffer when it's built.
 
+> **Architecture ratified (2026-07-07 decision buffer, Decision 2A):** ONE
+> tool, three outputs — every doc is markdown-with-frontmatter (`title`,
+> `status`, `tile`, `group`), and a single generator renders (i) the
+> `.md → .html` pages, (ii) `HUB.html`'s tile dashboard aggregated from the
+> same frontmatter, and (iii) the INDEX's doc entries from the same scan.
+> No hand-maintained HTML survives slice 5. Stack/format specifics are
+> plan-time decisions (slice-5 plan carries the spec).
+
 ---
 
 ## 6. Help dashboard — one index of your whole personal stack
@@ -316,6 +324,17 @@ c
 > index exists. Both are meant to fall away once slice 5 lands — HUB.md's own
 > footer says so. When slice 5 is built, its generated index should absorb and
 > then delete these two files rather than maintain three sources of truth.
+
+> **End-state ratified (2026-07-07 decision buffer, Decision 3A):** after
+> slice 5, each surviving surface owns exactly one question — the
+> INDEX/fzf picker owns "what do I have and how do I drive it"; generated
+> `HUB.html` owns the entry dashboard; generated per-skill/TUI guide pages
+> own "teach me X" (template = wb-guide's real structure: overview /
+> try-it-now / per-verb reference / rough edges / next steps); `/board`
+> (9a, renamed) owns "what's the status"; the `wb` picker owns "what needs
+> me now". `overview.md` and `HUB.md` are **deleted** — sequenced LAST in
+> slice 5, so nothing is removed before its generated replacement renders.
+> This supersedes 9c's earlier "overview.md shrinks back" wording.
 
 ---
 
@@ -377,6 +396,15 @@ Look at notes above on park and scratch tasks
    down. The scan must fail loudly (not emit a silently partial index)
    when a declared source root is absent.
 
+> **Execution order ratified (2026-07-07 decision buffer, Decision 1A):**
+> 4a runs immediately as part of the pre-slice remediation pass (it's a
+> ~5-minute setup plus a background habit, not a build); **slice 5 is the
+> next build slice** — every post-ratification addition feeds it and its
+> hand-maintained precursors accrete drift daily; 4b follows slice 5, gated
+> on 4a's usage window confirming digest-at-close is the right review
+> moment. Rationale recorded so the order is defensible, per the
+> 2026-07-06 review finding.
+
 **Your take:** (reorder / cut / merge freely)
 
 ---
@@ -388,7 +416,15 @@ Look at notes above on park and scratch tasks
 > "startup/shutdown flow… factor this in"). Recorded here since they post-date
 > the buffer round the rest of the doc went through; strike or edit as usual.
 
-### 9a. Roadmap visualization skill — FOLLOW-UP (re-scoped 2026-07-06 review)
+### 9a. `/board` — task-board visualization (renamed from "/roadmap", 2026-07-07)
+
+> **Renamed + interim slot ratified (2026-07-07 decision buffer, Decision
+> 5A):** the feature is now `/board` — "roadmap" stays reserved for this
+> document, killing the grep/index name collision while the feature has no
+> built surface. An **interim, read-only `wb board`** subcommand (plain-text
+> table over store frontmatter, reusing `wb_read_task`) lands in the
+> pre-slice remediation pass to close the visibility gap now; the full
+> zoomable HTML `/board` below stays deferred exactly as ratified.
 
 Owner's call from the doc-review buffer: **constrain harder, and defer** — add
 the roadmap view as a follow-up once everything else is working, then discuss
@@ -486,19 +522,30 @@ cleaned up.
   or the task-store dossier area at creation time, never left only in
   session scratch. "Commit it or lose it," enforced where the artifact is
   born. This alone stops the loss incident that motivated 9d.
-- **Later (open-ended, needs its own decision buffer):** the cross-repo /
-  cross-machine registry — referencing docs across every repo so they stay
-  findable from the Hub including artifacts from any past session on any
-  machine. Ratify only if artifacts still go missing after the standing rule
-  lands. Depends on / composes with 9c and the §5 doc-sync tool. **Boundary
+- **Later — PROPOSAL, UNRATIFIED (Decision 6A, 2026-07-07):** the
+  cross-repo / cross-machine registry — referencing docs across every repo
+  so they stay findable from the Hub including artifacts from any past
+  session on any machine. Assistant-inferred 2026-07-06, never
+  owner-requested verbatim; do NOT plan against it as agreed scope.
+  **Trigger condition:** revisit (via decision buffer) only if artifacts
+  still go missing after the standing landing-path rule has been in force.
+  Depends on / composes with 9c and the §5 doc-sync tool. **Boundary
   constraint carried into that buffer as a named axis, not an
   implementation afterthought:** whatever mechanism wins must scope
   aggregation to an explicit personal allow-list of repos — employer-owned
   content (Sportable) never gets indexed into, or published from, personal
   surfaces (this session's near-miss is the motivating incident).
 
-> **Naming note:** this doc is now called "Roadmap," and §9a above describes a
-> *planned feature* also called `/roadmap` (a snapshot dashboard over the task
-> store). They are not the same thing — this file is the plan-of-record for
-> the whole personal workflow; `/roadmap` would be a live status view once
-> built. Flagging so future-you doesn't conflate them.
+> **Naming note (resolved 2026-07-07):** the collision between this doc
+> ("Roadmap") and the 9a feature (formerly "/roadmap") is closed — the
+> feature is renamed `/board` (Decision 5A). "Roadmap" now unambiguously
+> means this file.
+
+> **Deferred decision (owner call, 2026-07-07 buffer, Decision 4):** the
+> personal/employer boundary rule for the task store and all aggregation
+> surfaces (classification convention vs split stores vs permanent
+> local-only) is deliberately the FINAL follow-up decision — to be made
+> after all other follow-ups, once the full flow is in place. Interim
+> guardrails until then: the task store gets NO remote; slice 5's
+> INDEX/HTML outputs carry a minimal work-reference redaction guard; the
+> §2 credential guard and 9d boundary axis stand as written.
