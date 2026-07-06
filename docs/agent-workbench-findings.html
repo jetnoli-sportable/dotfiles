@@ -284,8 +284,11 @@ on disk, read and written by the nvim bridge.</p>
 <div class="table-wrap"><table>
   <thead><tr><th>Binding / alias</th><th>Action</th></tr></thead>
   <tbody>
-  <tr><td><kbd>prefix</kbd>+<kbd>m</kbd> / <code>s</code></td><td>repo sessionizer</td></tr>
-  <tr><td><kbd>prefix</kbd>+<kbd>a</kbd> / <code>ca</code></td><td>agent picker; <code>cad</code> dashboard</td></tr>
+  <tr><td><kbd>prefix</kbd>+<kbd>m</kbd> / <kbd>prefix</kbd>+<kbd>a</kbd></td>
+      <td><span class="chip ok">current, PR #7</span> both open <code>wb</code>, the unified picker.
+      The legacy <code>s</code> (repo sessionizer) and <code>ca</code>/<code>cad</code>
+      (agent picker/dashboard) zsh aliases still work if typed by name, but are no longer bound to
+      these keys directly.</td></tr>
   <tr><td><kbd>prefix</kbd>+<kbd>j</kbd></td><td>jump to most-urgent waiting agent (needs-input beats done)</td></tr>
   <tr><td><kbd>prefix</kbd>+<kbd>J</kbd></td><td>80%×60% popup preview of the most-urgent agent — Enter/j jumps, else closes</td></tr>
   <tr><td><kbd>prefix</kbd>+<kbd>N</kbd> / <kbd>prefix</kbd>+<kbd>M</kbd></td><td>note picker / today's daily note</td></tr>

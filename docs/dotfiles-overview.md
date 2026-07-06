@@ -80,6 +80,35 @@ Full `wb` usage guide: see the Artifact published during the PR #7 build
 | `notes.sh` | Daily/any note in nvim inside a persistent `notes` session (`N` alias, `prefix+N`/`prefix+M`) — the *current* notes tool; `notes-tui` below is the planned replacement | — |
 | `instructions.md` (in this dir) | Predates the notification work — known stale, flagged in the findings doc's gaps section | needs a refresh (tracked gap) |
 
+### Global tmux keybindings (`prefix` = `Ctrl+Space`)
+
+| Binding / alias | Action |
+|---|---|
+| `prefix`+`m` / `prefix`+`a` | Both open `wb`, the unified picker (as of PR #7). The legacy `s` (repo sessionizer) and `ca`/`cad` (agent picker/dashboard) zsh aliases still work if typed by name, but aren't bound to these keys directly anymore. |
+| `prefix`+`j` | Jump to the most-urgent waiting agent, server-wide (needs-input beats done) |
+| `prefix`+`J` | 80%×60% popup preview of the most-urgent agent — Enter/j jumps, else closes |
+| `prefix`+`N` / `prefix`+`M` | Note picker / today's daily note (`notes.sh`) |
+| `prefix`+`g` / `A` | lazygit / lazydocker |
+| `Ctrl`+`h`/`j`/`k`/`l` | vim-tmux-navigator pane movement (reserved — a window manager must never bind these) |
+| pane-focus-in hook | `set -pu @claude_blocked` — acknowledge-on-arrival |
+| status-left | live `✳N`/`✔N` agent-attention count, `#(claude-status.sh)` |
+
+### `wb` picker keybindings
+
+| Key | Does |
+|---|---|
+| `Tab` | Cycle combined → sessions → agents → combined |
+| `j` / `k` | Move down / up |
+| `g` / `G` | Jump to top / bottom |
+| `l` / `Enter` | Jump to the row's session or agent pane |
+| `x` | Send `Esc` to the row's most-urgent agent pane (interrupt), without leaving the picker |
+| `r` | Rename the row's tmux session (prompts inline, cosmetic only) |
+| `b` | Break the row's agent pane out into a brand new session of its own (prompts for a name) |
+| `Ctrl`+`x` | On a task row: the full `wb done` wind-down. On a plain session/agent row: a raw kill. |
+| `Ctrl`+`r` | Force a refresh (also auto-refreshes every few seconds) |
+| `i` or `/` | Start typing to search; `Esc` back to normal mode |
+| `q` / `h` | Close the picker |
+
 ---
 
 ## nvim — `nvim/.config/nvim/`
@@ -88,7 +117,16 @@ Own git repo history, own docs: `nvim/.config/nvim/README.md` and
 `instructions.md`. The piece relevant to this project is the `claude-tmux`
 bridge (`lua/claude-tmux/`, `<leader>a` — "[A]gent (Claude)") — grab/pick/follow
 Claude's transcript into a readable buffer, reply by pasting into the pane.
-Full command table: `agent-workbench-findings.html` §Inventory → "nvim bridge".
+
+| Map / cmd | What it does |
+|---|---|
+| `<leader>ao` · `:ClaudeGrab` | Latest assistant message → read-only markdown buffer (render-markdown styled) |
+| `<leader>ap` · `:ClaudePick` | Telescope picker over all assistant messages in the session |
+| `<leader>af` · `:ClaudeFollow` | Live-follow: fs-poll (1s) on the transcript, re-render without stealing focus |
+| `<leader>ay` · `:ClaudeYankCode` | Yank fenced code blocks out of the rendered output |
+| `<leader>ar` / `as` · `:ClaudeReply` / `:ClaudeSend` | Separate reply buffer; send = bracketed paste into the Claude pane + one Enter (empty-draft gated) |
+| `<leader>as` (visual) / `ac` | Push selection as fenced, location-tagged context / push current file as `@path` — pasted, not submitted |
+| `<leader>aj` · `gf` (in output buffer) | Jump to `file:line` references Claude wrote |
 
 ---
 
@@ -149,10 +187,15 @@ markdown (`~/code/notes`, Denote-style filenames). Sibling to `replay-tui`
 **Why:** the daily-notes flow this dotfiles project actually wants — capture
 auto-stamped with cwd/git branch/tmux session, periodic digest review, and
 (later) mechanical cleanup proposals you approve rather than do by hand.
-**Use it today:** `source scripts/note.sh` from shell rc, then
-`note "thought"` or `cmd | note` for capture; `notes digest [hour|day|week|month]`,
-`notes process [--dry-run]`, `notes tag [name]` for review. `week` is a
-rolling 7 days unless `--calendar`.
+**Use it today:** `source scripts/note.sh` from shell rc, then capture with:
+
+| Command | What it does |
+|---|---|
+| `note "thought"` | Zero-decision, sub-second append to `inbox.md`, auto-stamped with cwd, git repo+branch, and tmux session |
+| `cmd \| note` | Capture command output the same way |
+| `notes digest [hour\|day\|week\|month] [--since 3h] [--from … --to …] [--by date\|context]` | Review notes in the given window. `week` is a rolling 7 days unless `--calendar`. `--by context` groups by cwd/branch/session instead of date. |
+| `notes process [--dry-run]` | Mechanical cleanup proposals (rename → Denote scheme, split candidates); proposal-only in v1, apply-path gated behind git review |
+| `notes tag [name]` | List tags with counts, or notes carrying a tag |
 **Status:** cloned but not yet wired into `wb` — that's slice 4
 (`2026-07-06-way-forward.md` §4): adding a `--context <tmux-session>` digest
 filter and having `wb new`/`wb done` stamp and pull from it automatically.

@@ -235,13 +235,69 @@ yet — see <a href="#missing">What's missing</a>.</p>
   </tbody>
 </table></div>
 
+<h3>Global tmux keybindings <span class="chip"><code>prefix</code> = <code>Ctrl+Space</code></span></h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>Binding / alias</th><th>Action</th></tr></thead>
+  <tbody>
+  <tr><td><kbd>prefix</kbd>+<kbd>m</kbd> / <kbd>prefix</kbd>+<kbd>a</kbd></td>
+      <td>Both open <code>wb</code>, the unified picker (as of PR #7). The legacy <code>s</code>
+      (repo sessionizer) and <code>ca</code>/<code>cad</code> (agent picker/dashboard) zsh aliases
+      still work if typed by name, but aren't bound to these keys directly anymore.</td></tr>
+  <tr><td><kbd>prefix</kbd>+<kbd>j</kbd></td><td>Jump to the most-urgent waiting agent, server-wide
+      (needs-input beats done)</td></tr>
+  <tr><td><kbd>prefix</kbd>+<kbd>J</kbd></td><td>80%×60% popup preview of the most-urgent agent —
+      Enter/j jumps, else closes</td></tr>
+  <tr><td><kbd>prefix</kbd>+<kbd>N</kbd> / <kbd>prefix</kbd>+<kbd>M</kbd></td>
+      <td>Note picker / today's daily note (<code>notes.sh</code>)</td></tr>
+  <tr><td><kbd>prefix</kbd>+<kbd>g</kbd> / <kbd>A</kbd></td><td>lazygit / lazydocker</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd></td>
+      <td>vim-tmux-navigator pane movement (reserved — a window manager must never bind these)</td></tr>
+  <tr><td>pane-focus-in hook</td><td><code>set -pu @claude_blocked</code> — acknowledge-on-arrival</td></tr>
+  <tr><td>status-left</td><td>live <code>✳N</code>/<code>✔N</code> agent-attention count,
+      <code>#(claude-status.sh)</code></td></tr>
+  </tbody>
+</table></div>
+
+<h3><code>wb</code> picker keybindings</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>Key</th><th>Does</th></tr></thead>
+  <tbody>
+  <tr><td><kbd>Tab</kbd></td><td>Cycle combined → sessions → agents → combined</td></tr>
+  <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td>Move down / up</td></tr>
+  <tr><td><kbd>g</kbd> / <kbd>G</kbd></td><td>Jump to top / bottom</td></tr>
+  <tr><td><kbd>l</kbd> / <kbd>Enter</kbd></td><td>Jump to the row's session or agent pane</td></tr>
+  <tr><td><kbd>x</kbd></td><td>Send <kbd>Esc</kbd> to the row's most-urgent agent pane (interrupt),
+      without leaving the picker</td></tr>
+  <tr><td><kbd>r</kbd></td><td>Rename the row's tmux session (prompts inline, cosmetic only)</td></tr>
+  <tr><td><kbd>b</kbd></td><td>Break the row's agent pane out into a brand new session of its own
+      (prompts for a name)</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>x</kbd></td><td>On a task row: the full <code>wb done</code>
+      wind-down. On a plain session/agent row: a raw kill.</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>r</kbd></td><td>Force a refresh (also auto-refreshes every few
+      seconds)</td></tr>
+  <tr><td><kbd>i</kbd> or <kbd>/</kbd></td><td>Start typing to search; <kbd>Esc</kbd> back to
+      normal mode</td></tr>
+  <tr><td><kbd>q</kbd> / <kbd>h</kbd></td><td>Close the picker</td></tr>
+  </tbody>
+</table></div>
+
 <h2 id="nvim">nvim — <code>nvim/.config/nvim/</code></h2>
 <p>Own git repo history, own docs: <code>nvim/.config/nvim/README.md</code> and
 <code>instructions.md</code>. The piece relevant to this project is the <code>claude-tmux</code>
 bridge (<code>lua/claude-tmux/</code>, <kbd>&lt;leader&gt;a</kbd> — "[A]gent (Claude)") —
-grab/pick/follow Claude's transcript into a readable buffer, reply by pasting into the pane. Full
-command table: <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> §Inventory
-→ "nvim bridge".</p>
+grab/pick/follow Claude's transcript into a readable buffer, reply by pasting into the pane.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>Map / cmd</th><th>What it does</th></tr></thead>
+  <tbody>
+  <tr><td>&lt;leader&gt;ao · :ClaudeGrab</td><td>Latest assistant message → read-only markdown buffer (render-markdown styled)</td></tr>
+  <tr><td>&lt;leader&gt;ap · :ClaudePick</td><td>Telescope picker over all assistant messages in the session</td></tr>
+  <tr><td>&lt;leader&gt;af · :ClaudeFollow</td><td>Live-follow: fs-poll (1s) on the transcript, re-render without stealing focus</td></tr>
+  <tr><td>&lt;leader&gt;ay · :ClaudeYankCode</td><td>Yank fenced code blocks out of the rendered output</td></tr>
+  <tr><td>&lt;leader&gt;ar / as · :ClaudeReply / :ClaudeSend</td><td>Separate reply buffer; send = bracketed paste into the Claude pane + one Enter (empty-draft gated)</td></tr>
+  <tr><td>&lt;leader&gt;as (visual) / ac</td><td>Push selection as fenced, location-tagged context / push current file as <code>@path</code> — pasted, not submitted</td></tr>
+  <tr><td>&lt;leader&gt;aj · gf (in output buffer)</td><td>Jump to <code>file:line</code> references Claude wrote</td></tr>
+  </tbody>
+</table></div>
 
 <h2 id="skills">Claude skills (personal) — <code>~/.claude/skills/</code></h2>
 <p>Not version-controlled today (a known gap — see <code>2026-07-06-way-forward.md</code> §1
@@ -299,11 +355,8 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
       <dt>why</dt><dd>The daily-notes flow this project actually wants — capture auto-stamped with
       cwd/git branch/tmux session, periodic digest review, and (later) mechanical cleanup proposals
       you approve rather than do by hand.</dd>
-      <dt>use it</dt><dd><code>source scripts/note.sh</code> from shell rc, then
-      <code>note "thought"</code> or <code>cmd | note</code> to capture;
-      <code>notes digest [hour|day|week|month]</code>, <code>notes process [--dry-run]</code>,
-      <code>notes tag [name]</code> to review. <code>week</code> is a rolling 7 days unless
-      <code>--calendar</code>.</dd>
+      <dt>use it</dt><dd><code>source scripts/note.sh</code> from shell rc, then capture and review
+      — full command table below.</dd>
       <dt>status</dt><dd>Cloned but not yet wired into <code>wb</code> — slice 4 adds a
       <code>--context &lt;tmux-session&gt;</code> digest filter and has <code>wb new</code>/<code>wb
       done</code> stamp and pull from it automatically. Until then, <code>notes.sh</code> (the
@@ -311,6 +364,22 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
       <kbd>prefix</kbd>+<kbd>N</kbd>/<kbd>M</kbd>.</dd>
     </dl></div>
 </div>
+
+<div class="table-wrap"><table>
+  <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+  <tbody>
+  <tr><td>note "thought"</td><td>Zero-decision, sub-second append to <code>inbox.md</code>,
+      auto-stamped with cwd, git repo+branch, and tmux session</td></tr>
+  <tr><td>cmd | note</td><td>Capture command output the same way</td></tr>
+  <tr><td>notes digest [hour|day|week|month] [--since 3h] [--from … --to …] [--by date|context]</td>
+      <td>Review notes in the given window. <code>week</code> is a rolling 7 days unless
+      <code>--calendar</code>. <code>--by context</code> groups by cwd/branch/session instead of
+      date.</td></tr>
+  <tr><td>notes process [--dry-run]</td><td>Mechanical cleanup proposals (rename → Denote scheme,
+      split candidates); proposal-only in v1, apply-path gated behind git review</td></tr>
+  <tr><td>notes tag [name]</td><td>List tags with counts, or notes carrying a tag</td></tr>
+  </tbody>
+</table></div>
 
 <h2 id="missing">What's still missing from this doc</h2>
 <ul>

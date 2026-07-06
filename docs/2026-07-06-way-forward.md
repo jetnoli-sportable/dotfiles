@@ -271,6 +271,14 @@ c
 > separate scan. Scope it as part of slice 5 when the help dashboard is built,
 > not a standalone slice.
 
+> **manual precursor started (2026-07-06, PR #8):** built `docs/HUB.md` (index
+> of every doc in this project) and `docs/dotfiles-overview.md` (guides for
+> every skill and TUI, with full command/flag and keybind tables where
+> possible) as the hand-maintained stand-in for (a)/(c) until the real scanned
+> index exists. Both are meant to fall away once slice 5 lands — HUB.md's own
+> footer says so. When slice 5 is built, its generated index should absorb and
+> then delete these two files rather than maintain three sources of truth.
+
 ---
 
 ## 7. Keep / retire / hold
