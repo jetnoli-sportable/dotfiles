@@ -42,7 +42,7 @@ of this stack.
 | `s` | repo sessionizer (fallback — `wb` absorbs this on `prefix+m`) |
 | `N` | notes picker (`notes.sh`) |
 | `ca` | claude-agent picker (fallback — `wb` absorbs this on `prefix+a`) |
-| `wb` | the workbench — see the tmux tooling section below |
+| `wb` | the workbench — see the tmux tooling section below. `wb board` prints the task-store status table (the interim /board: planned/done tasks the presence-only picker hides) |
 | `pgh` | `gh` with a personal-account PAT injected, for non-Sportable-org repos (see global CLAUDE.md) |
 | `replay` | work tool — daemon replay launcher (`replay-tui`, Sportable stack, not part of this personal workflow) |
 | `msconfig` | (see `.zshrc` for current definition — replay/msconfig config helpers) |
