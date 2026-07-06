@@ -90,6 +90,13 @@ alias N="~/.config/scripts/tmux/notes.sh"
 alias ca="~/.config/scripts/tmux/claude-sessions.sh"
 alias wb="~/.config/scripts/tmux/wb.sh"
 
+# notes-tui capture hot-path (roadmap slice 4a, started 2026-07-07):
+# `note "thought"` / `cmd | note` — sub-second append to ~/code/notes/inbox.md,
+# ctx-stamped with cwd + repo:branch + tmux session. The N/notes.sh daily flow
+# above is untouched; the full wb integration is slice 4b, gated on this
+# capture window's verdict.
+[ -f ~/code/notes-tui/scripts/note.sh ] && source ~/code/notes-tui/scripts/note.sh
+
 # Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the
 # keyring; `pgh ...` runs gh against the personal-account PAT instead (e.g. for
 # repos owned by your personal user). Token is read from the system keyring at
