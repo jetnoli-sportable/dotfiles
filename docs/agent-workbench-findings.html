@@ -385,6 +385,12 @@ new we build.</p>
           concurrent agents; exact location decided when built). <code>/park</code> stays the capture
           funnel. notes-tui (found alive as a private GitHub repo; local copy was gone) becomes the
           notes backbone — its context-stamped capture + digest is the asked-for lifecycle.</td></tr>
+  <tr><td>2026-07-06</td><td>Six-persona doc review (ce-doc-review)</td>
+      <td>Plan review-hardened: 14 fixes applied + 9 buffer decisions (8 applied, roadmap re-scoped to a
+          snapshot-only, Jira-free follow-up). Headline catches: build-order inversion (store before wb),
+          verified <code>git worktree remove</code> gitignored-file destruction, session-name delimiter
+          collision with <code>be--monorepo</code>, task-store-sourced picker rows. Trail:
+          logs/decisions/2026-07-06-review-outstanding.md.</td></tr>
   <tr><td>2026-07-06</td><td>HTML docs &amp; help dashboard</td>
       <td>HTML in the flow: visual companions for comparison-heavy decision buffers (a) + a standing
           "big comparisons ship as HTML" rule (c), indexed by the help dashboard (d). Help dashboard:
@@ -505,13 +511,18 @@ options menu. The trail lives in <code>logs/2026-07-06-workbench-piece-review.md
 <div class="table-wrap"><table>
   <thead><tr><th>Piece</th><th>Decision</th></tr></thead>
   <tbody>
-  <tr><td>wb — the workbench</td>
-      <td>Bash script on <code>lib.sh</code>, three verbs. <code>wb new &lt;slug&gt;</code>: worktree +
-          session <code>&lt;repo&gt;--&lt;slug&gt;</code> (windows: nvim · claude · shell) + task file +
-          <code>@task</code> stamp. <code>wb</code>: the single picker — sessions grouped by repo, agent
-          glyph from the marker, task status from frontmatter; absorbs <code>s</code>, <code>ca</code>,
-          and <code>cad</code>, and fixes worktree invisibility. <code>wb done</code>: review buffer →
-          status update → kill session → remove worktree (blocks on uncommitted changes).</td></tr>
+  <tr><td>wb — the workbench <span class="chip ok">review-hardened</span></td>
+      <td>Bash on <code>lib.sh</code>, three verbs — spec hardened by the 2026-07-06 six-persona
+          doc review. <code>wb new</code>: worktree (per-repo <code>.worktree-bootstrap</code> manifest) +
+          display-only sanitized session name with <code>@wb_repo/@wb_slug/@task</code> as ground truth +
+          <em>lazy</em> agent window (memory ceiling) + task file seeded in the central store.
+          <code>wb</code> picker: rows are <em>tasks from the store</em> (planned/done visible), session +
+          agent state overlaid, urgency pinned above alphabetical grouping, multi-agent sessions expand
+          to sub-rows, <kbd>ctrl-x</kbd> on task rows routes through <code>wb done</code>; pending
+          Follow-ups count in the status line. <code>wb done</code>: fail-fast dirty check → review buffer
+          (<code>- [x] keep</code> convention) → sweep gitignored keepers into the store (verified:
+          <code>git worktree remove</code> silently deletes them) → status → teardown. Keybinds cut over
+          (<kbd>prefix</kbd>+<kbd>m</kbd>/<kbd>a</kbd> → wb) on landing.</td></tr>
   <tr><td>Task records</td>
       <td>Central, git-backed, file-per-task markdown store (safe for concurrent agents), frontmatter
           <code>status / repo / branch / worktree / tags</code>; sections Plan / Done / Follow-ups /
@@ -543,14 +554,19 @@ options menu. The trail lives in <code>logs/2026-07-06-workbench-piece-review.md
   <tbody>
   <tr><td>1</td><td>Step zero — hooks wired, channel fix, alias cleanup</td>
       <td>channel fix + alias done; hooks await one user-run paste</td></tr>
-  <tr><td>2</td><td><code>wb</code> core — new / picker / done</td><td>next up, this branch</td></tr>
-  <tr><td>3</td><td>Central task store + frontmatter (location via decision buffer)</td><td>queued</td></tr>
-  <tr><td>4</td><td>notes-tui revival + lifecycle hooks in <code>wb</code></td><td>queued</td></tr>
-  <tr><td>5</td><td>HTML-in-flow rules + help dashboard (index → fzf → HTML)</td><td>queued</td></tr>
-  <tr><td>6</td><td>Roadmap visualization skill — <code>/roadmap today | task &lt;slug&gt; | week</code>,
-      reading the task store + parked ledger + decisions + transcripts + Jira (MCP); md source
-      (tweakable in a buffer) rendering to HTML (findable via the docs shelf + dashboard index)</td>
-      <td>queued — parks further if it eats slices 2–4</td></tr>
+  <tr><td>2</td><td>Central task store + frontmatter — <strong>reordered ahead of wb</strong> by the
+      2026-07-06 doc review (four personas: building wb against <code>scratch/tasks/</code> then
+      relocating reworks its whole read/write model). Location via decision buffer, then convention +
+      migrate the two legacy task files</td><td>next up, this branch</td></tr>
+  <tr><td>3</td><td><code>wb</code> core — new / picker / done, built against the central store from day one</td><td>queued</td></tr>
+  <tr><td>4</td><td>notes-tui revival — already cloned; wire <code>note.sh</code>, add a
+      <code>--context</code> digest filter (verified missing), lifecycle hooks in <code>wb</code></td><td>queued</td></tr>
+  <tr><td>5</td><td>HTML-in-flow rules (fixed landing path: <code>docs/</code> or the store's dossier area)
+      + help dashboard (index → fzf → HTML)</td><td>queued</td></tr>
+  <tr><td>6</td><td>Roadmap visualization — re-scoped by review + owner: a <em>snapshot of the same
+      task-store board</em> (one-board principle holds), today/task/week zoom, <strong>no Jira</strong>
+      (separately ratified later); deferred until everything else works</td>
+      <td>follow-up — discuss in detail then</td></tr>
   <tr><td>7</td><td>Day bookends — <code>wb up</code> / <code>wb down</code>: startup reviews close-outs +
       parked + board + Jira and recreates task sessions; shutdown sweeps every session, captures status
       into task files, digests notes, closes all sessions for power-off</td>
