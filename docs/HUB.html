@@ -1,0 +1,147 @@
+<title>Hub — central overview of dotfiles documentation</title>
+<style>
+  /* ---- tokens: Catppuccin Latte (light) / Frappé (dark) — matches the other docs in this folder ---- */
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  main { max-width: 56rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+
+  header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line); margin-bottom: 2rem; }
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .2rem; }
+  header.doc p { max-width: 65ch; color: var(--ink2); }
+
+  h2 { font-family: var(--mono); font-size: 1.1rem; margin: 2.5rem 0 1rem;
+       padding-top: 1.25rem; border-top: 1px solid var(--line); letter-spacing: -.01em; }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+
+  .chip { font-family: var(--mono); font-size: .72rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .15rem .6rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
+       text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .6rem .8rem; border-bottom: 1px solid var(--line); }
+  td { padding: .6rem .8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { font-family: var(--mono); font-size: .84rem; white-space: nowrap; }
+  tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .9rem 1.1rem; margin: 1.25rem 0; font-size: .92rem; }
+  .note p { margin: 0; max-width: none; }
+
+  footer { margin-top: 3.5rem; padding-top: 1rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main>
+<header class="doc">
+  <span class="eyebrow">dotfiles · documentation index</span>
+  <h1><span class="glyph">⌂</span> Hub</h1>
+  <p>The index. When in doubt about which doc has what, start here.
+     <span class="chip warn">manually maintained</span> — updated on request, not automatically.</p>
+</header>
+
+<h2 id="live">Live docs</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Doc</th><th>What it's for</th><th>Status</th></tr></thead>
+  <tbody>
+  <tr><td><a href="dotfiles-overview.md">dotfiles-overview.md</a> /
+      <a href="dotfiles-overview.html">.html</a></td>
+      <td>Everything in this repo — what it is, why it exists, how to use it. The catch-all project
+      overview.</td>
+      <td><span class="chip warn">WIP</span></td></tr>
+  <tr><td><a href="agent-workbench-findings.html">agent-workbench-findings.html</a></td>
+      <td>Deep-dive audit of the tmux/Claude agent tooling specifically: inventory, the
+      <code>@claude_blocked</code> signal contract, gaps, target flows, decisions. Source of truth
+      for that effort.</td>
+      <td><span class="chip ok">updated as of PR #7</span></td></tr>
+  <tr><td><a href="2026-07-06-way-forward.md">2026-07-06-way-forward.md</a> /
+      <a href="2026-07-06-way-forward.html">.html</a></td>
+      <td>The synthesized plan that grew out of the findings doc: readback, decisions, build order,
+      later additions. The roadmap for the agent-workbench project.</td>
+      <td><span class="chip ok">slices 1–3 done</span> <span class="chip">4–5 not started</span></td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="related">Related, not in <code>docs/</code></h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Location</th><th>What it's for</th></tr></thead>
+  <tbody>
+  <tr><td>~/code/tasks/dotfiles--*.md</td>
+      <td>The actual per-task build logs and backlogs — most detailed, most current record of any
+      in-flight work. Central task store, its own git repo.</td></tr>
+  <tr><td>logs/decisions/*.md</td>
+      <td>Scratch decision records from decision-buffer sessions (gitignored — not tracked, cited by
+      name from the docs above).</td></tr>
+  <tr><td>readme.md <span class="chip">repo root</span></td>
+      <td>Original stow-migration plan (2026-06-11) — historical/setup context, not a living
+      guide.</td></tr>
+  <tr><td>nvim/.config/nvim/README.md + instructions.md</td>
+      <td>nvim's own docs, including the <code>claude-tmux</code> bridge. Already maintained
+      separately — not duplicated here.</td></tr>
+  <tr><td>scripts/.config/scripts/tmux/instructions.md <span class="chip warn">stale</span></td>
+      <td>Predates the notification work — flagged as a gap in the findings doc, not yet
+      refreshed.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="landing">Where new docs should land</h2>
+<div class="note"><p><code>docs/</code> in this repo, always (never <code>logs/</code> — that's
+gitignored scratch, see <code>.gitignore</code>). Add a row to this page when you add a doc.</p></div>
+
+<footer>
+  Source: <code>docs/HUB.md</code> (this file's source). Manually maintained — see
+  <a href="dotfiles-overview.html">dotfiles-overview.html</a> for the doc-sync-tool idea that would
+  eventually generate this automatically.
+</footer>
+</main>
