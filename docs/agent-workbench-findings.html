@@ -415,7 +415,10 @@ new we build.</p>
           (session·agent·both) / BRANCH / STATUS after several live alignment fixes (ASCII glyphs and
           pointer, tab-stop and ANSI-ordering bugs). Two binds added from live usage:
           <kbd>r</kbd> renames a session in place; <kbd>b</kbd> breaks an agent pane sharing a session
-          out into a new one of its own.</td></tr>
+          out into a new one of its own. Row grouping later switched from repo-first to
+          <strong>status-first</strong>: needs-you rows surface together across every repo instead of
+          requiring a scan of each repo's group, with a session's sub-rows still riding along with
+          their parent as one block rather than scattering by individual pane rank.</td></tr>
   </tbody>
 </table></div>
 

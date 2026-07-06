@@ -233,7 +233,10 @@ wb                     # THE picker (replaces s and ca muscle memory)
     live session/agent state overlaid as glyphs. Repo-level checkouts appear
     as extra rows. Enter on a session-less task row runs the wb new spin-up.
   → grouped by repo; urgency (needs-you / finished) pins to the top of its
-    group, mirroring ca's rank order.
+    group, mirroring ca's rank order. <em>Changed 2026-07-06, post-launch:
+    grouping is now status-first, not repo-first — needs-you rows surface
+    together across every repo, then finished, working, idle. A session's
+    sub-rows still ride along with their parent as one block.</em>
   → sessions with &gt;1 claude pane expand to one indented sub-row per agent.
   → ctrl-x on a worktree-backed task row routes through the wb done flow.
   → status line shows the pending Follow-ups + parked count.
@@ -312,6 +315,17 @@ daily flow keeps working untouched on the same corpus.</p>
 central task store's dossier area (never worktree-local scratch, which <code>wb done</code>
 deletes) — so (d)'s index has a deterministic scan target. (b)'s <code>wb docs</code> picker stays
 unbuilt. <span class="chip">not started — slice 5</span></p></div>
+
+<div class="decided"><span class="who">addition · 2026-07-06, post-ratification</span>
+<p>Every <code>.md</code>/<code>.html</code> pair built so far (this doc, the dotfiles overview) was
+hand-authored twice — write the markdown, then manually keep an HTML render in sync alongside it.
+That's exactly the kind of drift this section exists to prevent. Look at a proper
+<strong>doc-sync tool</strong>: one markdown file in a specific, defined format (frontmatter +
+section conventions), and a small generator that renders the HTML from it — single source of
+truth, regenerate on demand instead of hand-editing two files in parallel. Scope this alongside
+slice 5 (same "generated, not hand-maintained" principle as the help dashboard's index); exact
+format/generator choice goes through a quick decision buffer when it's built.
+<span class="chip">not started — slice 5</span></p></div>
 
 <h2 id="s6"><span class="num">6</span>Help dashboard — one index of your whole personal stack</h2>
 <p>The ask: a place that answers "what do I have and how do I drive it" across dotfiles scripts,
