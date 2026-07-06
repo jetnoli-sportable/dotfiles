@@ -3,6 +3,7 @@
 #   wb new [--agent] <slug>          from inside a repo
 #   wb new [--agent] <repo> <slug>   from anywhere
 #   wb                               the picker (replaces s + ca)
+#   wb board                         task-store status table (interim /board)
 #   wb done [<session>]              safe wind-down (defaults to the current session)
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
@@ -70,12 +71,17 @@ wb_set_frontmatter() {
 # the picker's row collection, which reads every task file on each refresh).
 wb_read_task() {
   awk '
+    # clip() strips a trailing inline comment ("value  # note") plus edge
+    # whitespace — TEMPLATE.md itself ships "status: doing  # planned|..."
+    # so any seeded task carries one, and an uncomment-stripped status
+    # breaks every consumer that compares it (board rank, picker column).
+    function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
     BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = "" }
     /^---$/ { infm++; if (infm == 2) exit; next }
-    infm == 1 && /^status:/   { s = $0; sub(/^status:[ \t]*/,   "", s); status = s }
-    infm == 1 && /^repo:/     { s = $0; sub(/^repo:[ \t]*/,     "", s); repo = s }
-    infm == 1 && /^worktree:/ { s = $0; sub(/^worktree:[ \t]*/, "", s); worktree = s }
-    infm == 1 && /^branch:/   { s = $0; sub(/^branch:[ \t]*/,   "", s); branch = s }
+    infm == 1 && /^status:/   { s = $0; sub(/^status:[ \t]*/,   "", s); status = clip(s) }
+    infm == 1 && /^repo:/     { s = $0; sub(/^repo:[ \t]*/,     "", s); repo = clip(s) }
+    infm == 1 && /^worktree:/ { s = $0; sub(/^worktree:[ \t]*/, "", s); worktree = clip(s) }
+    infm == 1 && /^branch:/   { s = $0; sub(/^branch:[ \t]*/,   "", s); branch = clip(s) }
     END { printf "%s\t%s\t%s\t%s\n", status, repo, worktree, branch }
   ' "$1"
 }
@@ -342,6 +348,46 @@ wb_parked_count() {
 # picker's status line and wb done's post-close-out nudge.
 wb_pending_counts() {
   printf '%s follow-ups pending · %s parked' "$(wb_followup_count)" "$(wb_parked_count)"
+}
+
+# cmd_board — read-only status table over the whole task store (the interim
+# /board, roadmap 9a / Decision 5A). The picker deliberately shows PRESENCE
+# only, which hides planned/done tasks entirely — this is the one place they
+# stay visible until the full /board feature exists. Reads the same
+# frontmatter wb done writes (one-board principle at the data layer); never
+# touches tmux, so it works from any shell.
+cmd_board() {
+  local f title fu rows=""
+  local -a t
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    wb_tsv_split "$(wb_read_task "$f")" t
+    title="$(wb_task_title "$f")"
+    [ -n "$title" ] || title="$(basename "$f" .md)"
+    fu="$(awk '
+      BEGIN { infu = 0 }
+      /^## Follow-ups/ { infu = 1; next }
+      /^## /           { infu = 0 }
+      infu && /^[-*] / { c++ }
+      END { print c + 0 }
+    ' "$f")"
+    rows+="$(printf '%s\t%s\t%s\t%s' "${t[0]:-?}" "${t[1]:-?}" "$title" "$fu")"$'\n'
+  done < <(wb_task_files)
+
+  if [ -z "$rows" ]; then
+    echo "wb board: no tasks in $TASKS_DIR"
+    return 0
+  fi
+
+  {
+    printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\n'
+    # doing < review < planned < done < anything-else; rank prefix keeps the
+    # plain-text sort key clean, then drops out before display.
+    printf '%s' "$rows" | awk -F'\t' -v OFS='\t' '{
+      r = ($1 == "doing") ? 0 : ($1 == "review") ? 1 : ($1 == "planned") ? 2 : ($1 == "done") ? 3 : 4
+      print r, $0
+    }' | sort -t $'\t' -k1,1n -k3,3 -k4,4 | cut -f2-
+  } | column -t -s $'\t'
 }
 
 cmd_done() {
@@ -863,6 +909,7 @@ picker() {
 
 case "${1:-}" in
   new)         shift; cmd_new "$@" ;;
+  board)       shift; cmd_board "$@" ;;
   done)        shift; cmd_done "$@" ;;
   render)      shift; render_rows "$@" ;;
   _interrupt)  shift; _interrupt "$@" ;;
