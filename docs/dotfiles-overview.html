@@ -1,0 +1,331 @@
+<title>Dotfiles Overview — the personal documentation project</title>
+<style>
+  /* ---- tokens: Catppuccin Latte (light) / Frappé (dark) — matches the other docs in this folder ---- */
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+
+  .statusbar { font-family: var(--mono); font-size: .8rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .45rem 1.25rem;
+    display: flex; gap: 1.25rem; align-items: center; color: var(--ink2); }
+  .statusbar .warn { color: var(--warn); font-weight: 700; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line); margin-bottom: 2rem; }
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+  h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em; }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem; }
+  p { max-width: 72ch; }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .2rem; }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .8rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .72rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .15rem .6rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+
+  .toc { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.25rem 0 0; padding: 0; list-style: none; }
+  .toc a { font-family: var(--mono); font-size: .78rem; text-decoration: none;
+           border: 1px solid var(--line); border-radius: 6px; padding: .3rem .7rem;
+           color: var(--ink2); background: var(--panel); display: inline-block; }
+  .toc a:hover { color: var(--acc); border-color: var(--acc); }
+
+  .tldr { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--warn);
+          border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
+  .tldr strong.label { color: var(--warn); }
+  .tldr p:last-child { margin-bottom: 0; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
+       text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { white-space: nowrap; font-family: var(--mono); font-size: .8rem; }
+  tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: .9rem; margin: 1rem 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1.1rem; }
+  .card h4 { margin: 0 0 .5rem; font-family: var(--mono); font-size: .95rem; }
+  .card dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; margin: 0; font-size: .86rem; }
+  .card dt { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .08em; color: var(--ink2); padding-top: .1rem; }
+  .card dd { margin: 0; max-width: none; }
+
+  footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="statusbar" aria-hidden="true">
+  <span><span class="warn">WIP</span> manually maintained — will fold into slice 5</span>
+  <span class="right">2026-07-06</span>
+</div>
+
+<main>
+<header class="doc">
+  <span class="eyebrow">dotfiles · personal documentation project</span>
+  <h1><span class="glyph">◈</span> Dotfiles Overview</h1>
+  <p>Everything in this repo — what it is, why it exists, how to use it. Companion to
+     <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> (deep dive on the
+     tmux/Claude agent tooling) and <a href="2026-07-06-way-forward.md">2026-07-06-way-forward.md</a>
+     (the plan that grew out of it) — this doc is the wider net, everything in the dotfiles repo,
+     not just the agent-workbench slice. Index of every doc in this project:
+     <a href="HUB.md">HUB.md</a>.</p>
+  <div class="meta">
+    <span class="chip warn">work in progress</span>
+    <span class="chip">manually maintained until slice 5</span>
+  </div>
+  <ul class="toc">
+    <li><a href="#coverage">Coverage status</a></li>
+    <li><a href="#shell">Shell &amp; terminal</a></li>
+    <li><a href="#tmux">tmux workflow tooling</a></li>
+    <li><a href="#nvim">nvim</a></li>
+    <li><a href="#skills">Claude skills</a></li>
+    <li><a href="#tuis">TUIs</a></li>
+    <li><a href="#missing">What's missing</a></li>
+  </ul>
+</header>
+
+<div class="tldr">
+  <p><strong class="label">Status: work in progress.</strong> This is the manually-maintained
+  precursor to the "help dashboard" (see <code>2026-07-06-way-forward.md</code> §5/§6) — a scanned,
+  auto-generated index + Q&amp;A layer that will eventually replace hand-writing this file. Until
+  that's built, this is where "what do I have and why" lives.</p>
+</div>
+
+<h2 id="coverage">Coverage status</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Area</th><th>Status</th></tr></thead>
+  <tbody>
+  <tr><td>Shell &amp; terminal (zsh, ghostty, ohmyposh, git)</td>
+      <td><span class="chip ok">documented here</span> — no dedicated docs exist elsewhere</td></tr>
+  <tr><td>tmux workflow tooling (wb, claude-sessions, notes.sh)</td>
+      <td><span class="chip">indexed here</span> — documented in full elsewhere, see links per item</td></tr>
+  <tr><td>nvim (claude-tmux bridge)</td>
+      <td><span class="chip">indexed here</span> — has its own README/instructions.md</td></tr>
+  <tr><td>Claude skills (decision-buffer, park, parked-items, pr-review-session)</td>
+      <td><span class="chip ok">documented here</span></td></tr>
+  <tr><td>TUIs (notes-tui)</td>
+      <td><span class="chip ok">documented here</span> — not yet wired into <code>wb</code> (slice 4)</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="shell">Shell &amp; terminal</h2>
+<h3>zsh — <code>zsh/.zshrc</code></h3>
+<p>Prompt (oh-my-posh), zsh-vi-mode, and the aliases/functions that drive the rest of this stack.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>Alias/function</th><th>What it does</th></tr></thead>
+  <tbody>
+  <tr><td>vim</td><td>→ <code>nvim</code></td></tr>
+  <tr><td>fd</td><td>fdfind wrapper (Debian/Ubuntu package name mismatch)</td></tr>
+  <tr><td>lz / ld</td><td>lazygit / lazydocker</td></tr>
+  <tr><td>s</td><td>repo sessionizer (fallback — <code>wb</code> absorbs this on <kbd>prefix</kbd>+<kbd>m</kbd>)</td></tr>
+  <tr><td>N</td><td>notes picker (<code>notes.sh</code>)</td></tr>
+  <tr><td>ca</td><td>claude-agent picker (fallback — <code>wb</code> absorbs this on <kbd>prefix</kbd>+<kbd>a</kbd>)</td></tr>
+  <tr><td>wb</td><td>the workbench — see the tmux tooling section below</td></tr>
+  <tr><td>pgh</td><td><code>gh</code> with a personal-account PAT injected, for non-Sportable-org repos</td></tr>
+  <tr><td>replay</td><td>work tool — daemon replay launcher (<code>replay-tui</code>, Sportable stack, not part of this project)</td></tr>
+  <tr><td>msconfig</td><td>see <code>.zshrc</code> for current definition</td></tr>
+  </tbody>
+</table></div>
+
+<h3>Ghostty — <code>ghostty/.config/ghostty/config</code></h3>
+<p>Terminal emulator config, kept <strong>alongside</strong> GNOME Terminal rather than replacing
+it — Ghostty is used for inline image support GNOME Terminal lacks. Catppuccin Mocha palette,
+<code>MesloLGL Nerd Font</code>, <code>minimum-contrast = 1.6</code>. Known limitation: the
+grayscale-AA glyph rendering is softer than GNOME Terminal's and isn't fixable via config — don't
+re-add render knobs chasing this, it's been tried.</p>
+
+<h3>oh-my-posh — <code>ohmyposh/.config/ohmyposh/zen.json</code></h3>
+<p>The prompt theme (<code>zen</code> segment set) sourced from <code>.zshrc</code>.</p>
+
+<h3>git — <code>git/.gitconfig</code></h3>
+<p>Minimal: identity (<code>jetnoli-sportable</code>), and a <code>gh auth git-credential</code>
+helper scoped separately for <code>github.com</code> and <code>gist.github.com</code>. No aliases
+defined — if you're looking for a <code>git</code> shortcut and it's not in <code>.zshrc</code>, it
+doesn't exist yet.</p>
+
+<h2 id="tmux">tmux workflow tooling — <code>scripts/.config/scripts/tmux/</code></h2>
+<p>The biggest, most actively-developed area. Full inventory and design history:
+<a href="agent-workbench-findings.html">agent-workbench-findings.html</a>. The full <code>wb</code>
+usage guide was built as a Claude Artifact during the PR #7 build but isn't committed to this repo
+yet — see <a href="#missing">What's missing</a>.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>Script</th><th>Job</th><th>Fuller doc</th></tr></thead>
+  <tbody>
+  <tr><td>wb.sh</td><td>The workbench: <code>wb new</code> (worktree + task + session), <code>wb</code>
+      (picker — sessions/agents, presence-only, <kbd>Tab</kbd>-cyclable modes, <kbd>r</kbd> rename,
+      <kbd>b</kbd> break-out-to-own-session), <code>wb done</code> (safe wind-down)</td>
+      <td>findings doc, way-forward §2</td></tr>
+  <tr><td>lib.sh</td><td>Shared helpers: session management, <code>tmux_claude_panes</code>
+      (modal-detection, shared by wb + claude-sessions), repo enumeration</td>
+      <td>findings doc §Inventory</td></tr>
+  <tr><td>session.sh</td><td>Legacy repo sessionizer (<code>s</code> alias) — superseded by
+      <code>wb</code> but kept as fallback</td><td>findings doc</td></tr>
+  <tr><td>claude-sessions.sh</td><td>Legacy agent picker/dashboard (<code>ca</code>/<code>cad</code>)
+      — superseded by <code>wb</code>'s agents mode</td><td>findings doc</td></tr>
+  <tr><td>claude-status.sh</td><td><code>status-left</code> segment: live <code>✳N</code>/<code>✔N</code>
+      count of agents needing you / just finished, server-wide</td><td>findings doc §Signal contract</td></tr>
+  <tr><td>claude-notify-hook.sh</td><td>Push side of the attention pipeline — wired from
+      <code>~/.claude/settings.json</code> hooks</td><td>findings doc §Signal contract</td></tr>
+  <tr><td>notes.sh</td><td>Daily/any note in nvim inside a persistent <code>notes</code> session
+      (<code>N</code> alias, <kbd>prefix</kbd>+<kbd>N</kbd>/<kbd>M</kbd>) — the <em>current</em>
+      notes tool; notes-tui below is the planned replacement</td><td>—</td></tr>
+  <tr><td>instructions.md <span class="chip warn">stale</span></td>
+      <td>Predates the notification work — flagged in the findings doc's gaps section</td>
+      <td>needs a refresh</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="nvim">nvim — <code>nvim/.config/nvim/</code></h2>
+<p>Own git repo history, own docs: <code>nvim/.config/nvim/README.md</code> and
+<code>instructions.md</code>. The piece relevant to this project is the <code>claude-tmux</code>
+bridge (<code>lua/claude-tmux/</code>, <kbd>&lt;leader&gt;a</kbd> — "[A]gent (Claude)") —
+grab/pick/follow Claude's transcript into a readable buffer, reply by pasting into the pane. Full
+command table: <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> §Inventory
+→ "nvim bridge".</p>
+
+<h2 id="skills">Claude skills (personal) — <code>~/.claude/skills/</code></h2>
+<p>Not version-controlled today (a known gap — see <code>2026-07-06-way-forward.md</code> §1
+step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p>
+<div class="cards">
+  <div class="card"><h4>decision-buffer</h4>
+    <dl>
+      <dt>what</dt><dd>Routes design decisions through a markdown doc edited in nvim instead of an
+      <code>AskUserQuestion</code> menu — a tmux split blocking on <code>wait-for</code>, checked
+      boxes + inline notes are the answer.</dd>
+      <dt>why</dt><dd>2+ non-trivial options are easier to react to in an editor (strike, edit
+      inline, add notes) than a chat menu, and it leaves a durable decision record behind.</dd>
+      <dt>use it</dt><dd>Automatic when an agent is about to present a non-trivial design choice —
+      or say "decision doc" / "open a buffer for this" explicitly. Records:
+      <code>logs/decisions/*.md</code> or <code>docs/decisions/*.md</code> per repo.</dd>
+    </dl></div>
+  <div class="card"><h4>park</h4>
+    <dl>
+      <dt>what</dt><dd>&lt;10 second capture of a "deal with this later" item — one JSON line
+      appended to a global ledger with cwd + branch for later routing.</dd>
+      <dt>why</dt><dd>Zero-ceremony deferral so "let's discuss this later" doesn't just evaporate
+      at the end of a conversation.</dd>
+      <dt>use it</dt><dd><code>/park &lt;note&gt;</code>, or say "park this" / "let's discuss this
+      later" / "revisit this" in passing. Ledger: <code>~/.claude/parked-items/ledger.jsonl</code>.</dd>
+    </dl></div>
+  <div class="card"><h4>parked-items</h4>
+    <dl>
+      <dt>what</dt><dd>The weekly review half of <code>park</code> — gathers the ledger plus a
+      transcript backstop scan, reconciles against the central task store (<code>~/code/tasks</code>),
+      presents a checklist in an nvim buffer to act on.</dd>
+      <dt>why</dt><dd>Parked items are only useful if something forces you to look at them again;
+      this is that forcing function.</dd>
+      <dt>use it</dt><dd><code>/parked-items</code> (last 7 days) or
+      <code>/parked-items --backfill</code> (full history, run once).</dd>
+    </dl></div>
+  <div class="card"><h4>pr-review-session</h4>
+    <dl>
+      <dt>what</dt><dd>Checks GitHub for open PRs across watched repos, pulls each into a worktree,
+      spins up a per-PR tmux window with a PR brief, and runs a code review on each — "the
+      prototype of the end goal" this whole workbench project generalizes.</dd>
+      <dt>why</dt><dd>Turns "go check my PRs" into one browsable tmux session instead of N manual
+      <code>gh pr checkout</code> round-trips.</dd>
+      <dt>use it</dt><dd>"check my PRs" / "review open PRs" / <code>/pr-review-session</code>, can
+      run on a loop or schedule.</dd>
+    </dl></div>
+</div>
+
+<h2 id="tuis">TUIs</h2>
+<div class="cards">
+  <div class="card"><h4>notes-tui — <code>~/code/notes-tui</code></h4>
+    <dl>
+      <dt>what</dt><dd>A capture-dumb, retrieval-smart notes tool over a flat git corpus of markdown
+      (<code>~/code/notes</code>, Denote-style filenames). Sibling to <code>replay-tui</code> (a
+      Sportable work tool, out of scope here), built on the shared <code>cli-kit</code> library.</dd>
+      <dt>why</dt><dd>The daily-notes flow this project actually wants — capture auto-stamped with
+      cwd/git branch/tmux session, periodic digest review, and (later) mechanical cleanup proposals
+      you approve rather than do by hand.</dd>
+      <dt>use it</dt><dd><code>source scripts/note.sh</code> from shell rc, then
+      <code>note "thought"</code> or <code>cmd | note</code> to capture;
+      <code>notes digest [hour|day|week|month]</code>, <code>notes process [--dry-run]</code>,
+      <code>notes tag [name]</code> to review. <code>week</code> is a rolling 7 days unless
+      <code>--calendar</code>.</dd>
+      <dt>status</dt><dd>Cloned but not yet wired into <code>wb</code> — slice 4 adds a
+      <code>--context &lt;tmux-session&gt;</code> digest filter and has <code>wb new</code>/<code>wb
+      done</code> stamp and pull from it automatically. Until then, <code>notes.sh</code> (the
+      nvim-based daily note, above) is what's actually wired to
+      <kbd>prefix</kbd>+<kbd>N</kbd>/<kbd>M</kbd>.</dd>
+    </dl></div>
+</div>
+
+<h2 id="missing">What's still missing from this doc</h2>
+<ul>
+  <li>A written guide for <code>wb</code> itself (usage guide was built as a Claude Artifact during
+      the PR #7 session but not committed here).</li>
+  <li><code>scripts/.config/scripts/tmux/instructions.md</code> refresh (flagged stale in the
+      findings doc).</li>
+  <li>Anything about the compound-engineering plugin skills (<code>ce-*</code>) is deliberately out
+      of scope here — those are Sportable-org tooling, not personal dotfiles configuration.</li>
+</ul>
+
+<footer>
+  Source: <code>docs/dotfiles-overview.md</code> (this file's source) · companions:
+  <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> ·
+  <a href="2026-07-06-way-forward.md">2026-07-06-way-forward.md</a> · index:
+  <a href="HUB.md">HUB.md</a>. Compiled 2026-07-06 on <code>docs/dotfiles-overview</code>.
+</footer>
+</main>
