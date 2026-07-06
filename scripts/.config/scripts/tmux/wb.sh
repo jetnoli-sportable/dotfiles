@@ -131,24 +131,6 @@ wb_bootstrap() {
   done
 }
 
-# wb_task_fallback_slug <file> <repo> — recover the slug for a task that has
-# never had a worktree, by stripping the KNOWN `<repo>--` prefix off its own
-# filename. Safe (unlike parsing a tmux session name) because repo is already
-# known from frontmatter, not guessed from the split itself.
-wb_task_fallback_slug() {
-  local base; base="$(basename "$1" .md)"
-  case "$base" in
-    "$2"--*) echo "${base#"$2"--}" ;;
-    *)
-      # bash's # prefix-strip is a silent no-op when the pattern doesn't
-      # match — surface the drift instead of quietly using the whole
-      # basename (repo prefix included) as the slug.
-      echo "wb: $1 doesn't match the <repo>--<slug>.md convention for repo '$2'" >&2
-      echo "$base"
-      ;;
-  esac
-}
-
 # wb_seed_task <repo> <slug> <worktree_rel> — find-or-create the task file for
 # a repo+slug pair, filling blank frontmatter fields and bumping
 # planned->doing. Never overwrites a field that's already set.
@@ -446,13 +428,26 @@ cmd_done() {
 # ---------------------------------------------------------------------------
 # wb — the picker
 # ---------------------------------------------------------------------------
+# Rows are sourced from PRESENCE (live tmux state), not inventory — a
+# `planned` task with no worktree yet, or a repo under ~/code that's never
+# been opened, doesn't show up. Use `wb new <repo> <slug>` directly to start
+# or resume one of those; the picker is for "what's live right now."
+#
+# Three modes, cycled with Tab (persisted in a per-invocation mode file so
+# the auto-refresh and manual reloads stay on whichever mode you're in):
+#   combined (default) — one row per live tmux session, multi-agent sessions
+#                         expanded into sub-rows
+#   sessions            — one row per live tmux session, collapsed (no sub-rows)
+#   agents              — one row per running claude pane, globally, ranked by
+#                         urgency (no session grouping) — replaces `ca`
+#
 # Row schema (tab-separated), shared by task/repo/agent rows:
 #   1 repo   2 label   3 status_or_branch   4 urank   5 icon_label
 #   6 target (hidden pane target, may be empty)
-#   7 session (empty => creatable/no live session)
+#   7 session (the live tmux session this row belongs to)
 #   8 ref (task file path, or repo dir for repo rows)
 #   9 kind (task|repo|agent)   10 ucount (claude panes in session)
-#   11 slug (task rows only — real, slash-preserving; used to spin up wb new)
+#   11 slug (task rows only — real, slash-preserving; used to resume via wb new)
 
 # wb_status_icon <status> — print "icon\tlabel" for one of the pane statuses
 # tmux_claude_panes emits (needs-input/done/waiting/working/idle). Shared by
@@ -495,89 +490,123 @@ wb_agent_subrows() {
   done < <(tmux_claude_panes "$session" | sort -n)
 }
 
-collect_task_rows() {
-  local file status repo worktree title
-  while IFS= read -r file; do
-    # The picker re-execs this every ~3s; a task file can vanish between
-    # wb_task_files' listing and here (e.g. a concurrent `wb done`). A file
-    # that's gone by now would otherwise crash this bare `$(...)` under
-    # set -e and take collect_repo_rows down with it — skip just this row.
-    [ -f "$file" ] || continue
-    IFS=$'\t' read -r status repo worktree < <(wb_read_task "$file")
-    [ -n "$repo" ] || continue
-    title="$(wb_task_title "$file")"; [ -n "$title" ] || title="$(basename "$file" .md)"
-
-    local slug="" disp_slug="" session=""
-    if [ -n "$worktree" ]; then
-      slug="${worktree#.worktrees/}"
-    else
-      slug="$(wb_task_fallback_slug "$file" "$repo")"
-    fi
+# wb_live_session_row <session> — one row for a live tmux session. If it's a
+# wb task session (@wb_repo/@wb_slug set), shows the task's title/status from
+# the store; otherwise shows the session name and, if its cwd is a git repo,
+# the current branch — same shape a plain `s`-created session gets.
+wb_live_session_row() {
+  local session="$1" repo slug disp_slug task_file status label statuscol kind ref slug_out=""
+  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
+  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
+  if [ -n "$repo" ] && [ -n "$slug" ]; then
     disp_slug="$(wb_sanitize "$slug")"
-    local candidate="${repo}--${disp_slug}"
-    tmux has-session -t "=$candidate" 2>/dev/null && session="$candidate"
+    task_file="$(wb_task_file "$repo" "$disp_slug")"
+    if [ -f "$task_file" ]; then
+      IFS=$'\t' read -r status _ _ < <(wb_read_task "$task_file")
+      label="$(wb_task_title "$task_file")"; [ -n "$label" ] || label="$slug"
+    else
+      status="?"; label="$slug"
+    fi
+    statuscol="$status"; kind="task"; ref="$task_file"; slug_out="$slug"
+  else
+    repo="$session"; label="$session"; kind="repo"
+    ref="$(tmux display-message -p -t "=$session:" '#{pane_current_path}' 2>/dev/null || true)"
+    statuscol="[$(git -C "$ref" branch --show-current 2>/dev/null || true)]"
+  fi
 
-    local urank=3 uicon="· no agent" target="" ucount=0
-    [ -n "$session" ] && IFS=$'\t' read -r urank uicon target ucount < <(wb_session_urgency "$session")
+  local urank uicon target ucount
+  IFS=$'\t' read -r urank uicon target ucount < <(wb_session_urgency "$session")
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\ttask\t%s\t%s\n' \
-      "$repo" "$title" "$status" "$urank" "$uicon" "$target" "$session" "$file" "$ucount" "$slug"
-
-    [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$file"; true
-  done < <(wb_task_files)
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$repo" "$label" "$statuscol" "$urank" "$uicon" "$target" "$session" "$ref" "$kind" "$ucount" "$slug_out"
 }
 
-collect_repo_rows() {
-  local dir repo branch session urank uicon target ucount
-  while IFS= read -r dir; do
-    [ -n "$dir" ] || continue
-    dir="${dir%/}"
-    repo="$(basename "$dir")"
-    branch="$(git -C "$dir" branch --show-current 2>/dev/null || true)"
-    session=""
-    tmux has-session -t "=$repo" 2>/dev/null && session="$repo"
-
-    urank=3; uicon="· no agent"; target=""; ucount=0
-    [ -n "$session" ] && IFS=$'\t' read -r urank uicon target ucount < <(wb_session_urgency "$session")
-
-    printf '%s\t%s\t[%s]\t%s\t%s\t%s\t%s\t%s\trepo\t%s\t\n' \
-      "$repo" "$repo" "$branch" "$urank" "$uicon" "$target" "$session" "$dir" "$ucount"
-
-    [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$dir"; true
-  done < <(tmux_code_repos)
+# collect_live_rows — one row per live tmux session, no sub-row expansion.
+collect_live_rows() {
+  local session
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    wb_live_session_row "$session"
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
 }
 
-# render_rows — merge task + repo (+ agent sub-) rows, color by urgency label,
-# group by repo with the most-urgent row of each group pinned to the top.
-# Also used by the fzf `reload` binding (via `wb.sh render`).
+# collect_combined_rows — collect_live_rows, expanding multi-agent sessions
+# into indented sub-rows (see wb_agent_subrows).
+collect_combined_rows() {
+  local line repo label statuscol urank uicon target session ref kind ucount slug
+  while IFS= read -r line; do
+    printf '%s\n' "$line"
+    IFS=$'\t' read -r repo label statuscol urank uicon target session ref kind ucount slug <<< "$line"
+    [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$ref"; true
+  done < <(collect_live_rows)
+}
+
+# collect_agent_rows — one row per running claude pane, globally, ranked by
+# urgency with no session grouping. Replaces `ca`.
+collect_agent_rows() {
+  local rank target status task icon label sess
+  while IFS=$'\t' read -r rank target status task; do
+    IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
+    sess="${target%%:*}"
+    printf '%s\t%s\t\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\n' \
+      "$sess" "$task" "$rank" "$icon" "$label" "$target" "$sess" "$sess"
+  done < <(tmux_claude_panes | sort -n)
+}
+
+# wb_colorize — color fields 1/2/5 by the urgency label in field 5. Must run
+# AFTER sorting — coloring first would splice a urgency-dependent ANSI prefix
+# onto field 1, breaking any sort keyed on it.
+wb_colorize() {
+  awk -F'\t' -v OFS='\t' '
+      BEGIN { m = "\033[1;35m"; g = "\033[32m"; y = "\033[33m"; d = "\033[90m"; cy = "\033[36m"; r = "\033[0m" }
+      {
+        lbl = $5; sub(/^[^ ]+ /, "", lbl)
+        if      (lbl == "needs you") c = m
+        else if (lbl == "finished")  c = cy
+        else if (lbl == "done")      c = g
+        else if (lbl == "working")   c = y
+        else                         c = d
+        $1 = c $1 r
+        $2 = c $2 r
+        $5 = c $5 r
+        print
+      }'
+}
+
+# render_rows <mode_file> — dispatch to the mode currently recorded in
+# <mode_file> (combined/sessions/agents; defaults to combined). Also used by
+# the fzf `reload`/`load` bindings (via `wb.sh render <mode_file>`).
 render_rows() {
-  # Sort on the plain fields FIRST, then colorize — coloring before sorting
-  # would splice a urgency-dependent ANSI prefix onto field 1 (repo), so the
-  # sort key becomes "color code + repo name" instead of "repo name" and the
-  # documented group-by-repo invariant breaks for any row that isn't idle-gray.
-  { collect_task_rows; collect_repo_rows; } \
-    | sort -t $'\t' -k1,1 -k4,4n -k2,2 \
-    | awk -F'\t' -v OFS='\t' '
-        BEGIN { m = "\033[1;35m"; g = "\033[32m"; y = "\033[33m"; d = "\033[90m"; cy = "\033[36m"; r = "\033[0m" }
-        {
-          lbl = $5; sub(/^[^ ]+ /, "", lbl)
-          if      (lbl == "needs you") c = m
-          else if (lbl == "finished")  c = cy
-          else if (lbl == "done")      c = g
-          else if (lbl == "working")   c = y
-          else                         c = d
-          $1 = c $1 r
-          $2 = c $2 r
-          $5 = c $5 r
-          print
-        }'
+  local mode; mode="$(cat "$1" 2>/dev/null || echo combined)"
+  case "$mode" in
+    agents)   collect_agent_rows | sort -t $'\t' -k4,4n -k1,1 | wb_colorize ;;
+    sessions) collect_live_rows  | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_colorize ;;
+    *)        collect_combined_rows | sort -t $'\t' -k1,1 -k4,4n -k2,2 | wb_colorize ;;
+  esac
 }
 
-# wb_status_line — header text for the picker: pending counts, keybind hints.
+# wb_status_line <mode> — header text for the picker: current mode, pending
+# counts, keybind hints.
 wb_status_line() {
-  printf 'wb · %s\nNORMAL: j/k move · g/G top/bottom · l/enter jump-or-create · x interrupt · ctrl-x done/kill · ctrl-r refresh · i,/ search · q quit\nSEARCH: type to filter · esc back to normal' \
-    "$(wb_pending_counts)"
+  printf 'wb · %s mode (tab to cycle) · %s\nNORMAL: j/k move · g/G top/bottom · l/enter jump-or-create · x interrupt · ctrl-x done/kill · ctrl-r refresh · tab cycle view · i,/ search · q quit\nSEARCH: type to filter · esc back to normal' \
+    "${1:-combined}" "$(wb_pending_counts)"
 }
+
+# _cycle_mode <mode_file> — advance to the next mode, persisting it so the
+# next reload (manual or auto-refresh) renders in the new mode instead of
+# resetting to combined.
+_cycle_mode() {
+  local cur; cur="$(cat "$1" 2>/dev/null || echo combined)"
+  case "$cur" in
+    combined) echo sessions ;;
+    sessions) echo agents ;;
+    *)        echo combined ;;
+  esac > "$1"
+}
+
+# _mode_header <mode_file> — print the header for whatever mode is currently
+# recorded, for fzf's transform-header to swap in after a mode cycle.
+_mode_header() { wb_status_line "$(cat "$1" 2>/dev/null || echo combined)"; }
 
 # _interrupt <target> — send Escape to a pane; no-op on an empty target (bound to `x`).
 _interrupt() { [ -n "${1:-}" ] && tmux send-keys -t "$1" Escape 2>/dev/null; }
@@ -595,10 +624,14 @@ _ctrl_x() {
 }
 
 picker() {
+  local mode_file; mode_file="$(mktemp -t wb-mode.XXXXXX)"
+  echo combined > "$mode_file"
+  trap 'rm -f "$mode_file"' EXIT
+
   local rendered selection
-  rendered="$(render_rows)"
+  rendered="$(render_rows "$mode_file")"
   if [ -z "$rendered" ]; then
-    echo "wb: no tasks or repos found." >&2
+    echo "wb: no live sessions found." >&2
     exit 0
   fi
 
@@ -609,17 +642,18 @@ picker() {
   selection="$(printf '%s\n' "$rendered" | fzf --ansi --query="${1:-}" --select-1 --track \
         --delimiter=$'\t' --with-nth=1,2,3,5 \
         --prompt='NORMAL ' \
-        --header="$(wb_status_line)" \
+        --header="$(wb_status_line combined)" \
         --no-sort \
         --preview '[ -n {6} ] && tmux capture-pane -ep -t {6} || ([ -f {8} ] && cat {8} || git -C {8} -c color.status=always status -s)' \
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
-        --bind "load:reload-sync(sleep 3; \"$SELF\" render)+refresh-preview" \
+        --bind "load:reload-sync(sleep 3; \"$SELF\" render $mode_file)+refresh-preview" \
         --bind 'j:down' --bind 'k:up' --bind 'g:first' --bind 'G:last' \
         --bind 'ctrl-d:half-page-down' --bind 'ctrl-u:half-page-up' \
         --bind 'l:accept' --bind 'h:abort' --bind 'q:abort' \
-        --bind "ctrl-r:reload-sync(\"$SELF\" render)+refresh-preview" \
+        --bind "ctrl-r:reload-sync(\"$SELF\" render $mode_file)+refresh-preview" \
+        --bind "tab:execute-silent($SELF _cycle-mode $mode_file)+reload-sync(\"$SELF\" render $mode_file)+transform-header($SELF _mode-header $mode_file)" \
         --bind "x:execute-silent($SELF _interrupt {6})" \
         --bind "ctrl-x:become($SELF _ctrl-x {9} {7} {6})" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )" \
@@ -642,10 +676,12 @@ picker() {
 }
 
 case "${1:-}" in
-  new)        shift; cmd_new "$@" ;;
-  done)       shift; cmd_done "$@" ;;
-  render)     render_rows ;;
-  _interrupt) shift; _interrupt "$@" ;;
-  _ctrl-x)    shift; _ctrl_x "$@" ;;
-  *)          picker "${1:-}" ;;
+  new)         shift; cmd_new "$@" ;;
+  done)        shift; cmd_done "$@" ;;
+  render)      shift; render_rows "$@" ;;
+  _interrupt)  shift; _interrupt "$@" ;;
+  _ctrl-x)     shift; _ctrl_x "$@" ;;
+  _cycle-mode) shift; _cycle_mode "$@" ;;
+  _mode-header) shift; _mode_header "$@" ;;
+  *)           picker "${1:-}" ;;
 esac
