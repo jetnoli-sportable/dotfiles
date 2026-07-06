@@ -187,8 +187,9 @@ on a loop or schedule.
 ### notes-tui — `~/code/notes-tui`
 **What:** a capture-dumb, retrieval-smart notes tool over a flat git corpus of
 markdown (`~/code/notes`, Denote-style filenames). Sibling to `replay-tui`
-(a Sportable *work* tool, out of scope for this doc), built on the shared
-`cli-kit` library.
+(a Sportable *work* tool, out of scope for this doc); its `go.mod` carries a
+placeholder `replace` for the shared `cli-kit` library, but nothing imports
+it yet — the sibling checkout is not required to build.
 **Why:** the daily-notes flow this personal workflow actually wants — capture
 auto-stamped with cwd/git branch/tmux session, periodic digest review, and
 (later) mechanical cleanup proposals you approve rather than do by hand.
@@ -202,7 +203,7 @@ open it directly (`file://` or `xdg-open ~/code/notes-tui/notes-guide.html`).
 |---|---|
 | `note "thought"` | Zero-decision, sub-second append to `inbox.md`, auto-stamped with cwd, git repo+branch, and tmux session |
 | `cmd \| note` | Capture command output the same way |
-| `notes digest [hour\|day\|week\|month] [--since 3h] [--from … --to …] [--by date\|context]` | Review notes in the given window. `week` is a rolling 7 days unless `--calendar`. `--by context` groups by cwd/branch/session instead of date. |
+| `notes digest [hour\|day\|week\|month] [--since 3h] [--from … --to …] [--by date\|context]` | Review notes in the given window. `week` is a rolling 7 days unless `--calendar`. `--by context` groups by repo:branch from the capture stamp — cwd and tmux session are captured in the stamp but not yet used for grouping; session-level filtering is the planned slice-4 `--context` flag. |
 | `notes process [--dry-run]` | Mechanical cleanup proposals (rename → Denote scheme, split candidates); proposal-only in v1, apply-path gated behind git review |
 | `notes tag [name]` | List tags with counts, or notes carrying a tag |
 **Status:** cloned but not yet wired into `wb` — that's slice 4
