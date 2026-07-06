@@ -1,0 +1,407 @@
+<title>The Way Forward — synthesis, decisions &amp; build order</title>
+<style>
+  /* ---- tokens: Catppuccin Latte (light) / Frappé (dark) — matches agent-workbench-findings.html ---- */
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef;        /* mauve — the ✳ needs-input magenta */
+    --acc2: #04a5e5;       /* sky — the ✔ done cyan */
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+
+  .statusbar { font-family: var(--mono); font-size: .8rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .45rem 1.25rem;
+    display: flex; gap: 1.25rem; align-items: center; color: var(--ink2); }
+  .statusbar .done  { color: var(--acc2); }
+  .statusbar .sess::before { content: "❐ "; color: var(--mut); }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line); margin-bottom: 2rem; }
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+  h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em; }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  h2 .num { color: var(--acc); margin-right: .5rem; }
+  h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem; }
+  p { max-width: 72ch; }
+  ul, ol { max-width: 72ch; }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .2rem; }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .72rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .15rem .6rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+
+  .toc { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.25rem 0 0; padding: 0; list-style: none; }
+  .toc a { font-family: var(--mono); font-size: .78rem; text-decoration: none;
+           border: 1px solid var(--line); border-radius: 6px; padding: .3rem .7rem;
+           color: var(--ink2); background: var(--panel); display: inline-block; }
+  .toc a:hover { color: var(--acc); border-color: var(--acc); }
+
+  .tldr { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
+  .tldr ul { margin: .25rem 0 0; padding-left: 1.1rem; }
+  .tldr li { margin: .35rem 0; max-width: 75ch; }
+
+  /* ---- this doc's own additions: quote (owner's take) + decided (ratified answer) ---- */
+  .quote { background: var(--bg2); border-left: 3px solid var(--mut); border-radius: 0 8px 8px 0;
+           padding: .75rem 1.1rem; margin: 1rem 0; font-size: .92rem; }
+  .quote .who { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+                letter-spacing: .1em; color: var(--mut); display: block; margin-bottom: .3rem; }
+  .decided { background: color-mix(in srgb, var(--ok) 8%, var(--panel)); border: 1px solid var(--ok);
+             border-radius: 8px; padding: .85rem 1.1rem; margin: 1rem 0; font-size: .92rem; }
+  .decided .who { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+                  letter-spacing: .1em; color: var(--ok); display: block; margin-bottom: .3rem; }
+  .decided p, .quote p { margin: 0; max-width: none; }
+  .decided code, .quote code { font-size: .82em; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
+       text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { white-space: nowrap; font-family: var(--mono); font-size: .8rem; }
+  tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: .9rem; margin: 1rem 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1.1rem; }
+  .card h4 { margin: 0 0 .4rem; font-family: var(--mono); font-size: .9rem; }
+  .card p { font-size: .85rem; margin: .35rem 0; max-width: none; }
+
+  footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="statusbar" aria-hidden="true">
+  <span><span class="done">✔3</span> of 5 slices shipped</span>
+  <span class="sess">dotfiles · feat/agent-task-workflow</span>
+  <span class="right">2026-07-06 · PR #7</span>
+</div>
+
+<main>
+<header class="doc">
+  <span class="eyebrow">dotfiles · plan &amp; decision log</span>
+  <h1><span class="glyph">→</span> The Way Forward</h1>
+  <p>Synthesis of the piece-by-piece review into one proposal, reacted to inline, section by
+     section — each carries the owner's <strong>Your take</strong> and, where a call was made,
+     the <strong>ratified answer</strong>. This is the working plan doc for the agent workbench;
+     the pre-build audit it's built on lives in
+     <a href="agent-workbench-findings.html">agent-workbench-findings.html</a>.</p>
+  <div class="meta">
+    <span class="chip">worktree .worktrees/feat/agent-task-workflow</span>
+    <span class="chip ok">slices 1–3 DONE · PR #7</span>
+    <span class="chip">slices 4–5 not started</span>
+  </div>
+  <ul class="toc">
+    <li><a href="#s0">0. Readback</a></li>
+    <li><a href="#s1">1. Step zero</a></li>
+    <li><a href="#s2">2. wb core</a></li>
+    <li><a href="#s3">3. The record</a></li>
+    <li><a href="#s4">4. Notes</a></li>
+    <li><a href="#s5">5. HTML docs</a></li>
+    <li><a href="#s6">6. Help dashboard</a></li>
+    <li><a href="#s7">7. Keep/retire/hold</a></li>
+    <li><a href="#s8">8. Build order</a></li>
+    <li><a href="#s9">9. Later additions</a></li>
+  </ul>
+</header>
+
+<div class="tldr">
+  <strong>TL;DR</strong>
+  <ul>
+    <li>Ratified shape: a bash <code>wb</code> workbench (session-per-worktree, one unified
+        picker), a central git-backed task store, notes-tui revived as the notes backbone,
+        HTML docs in the flow, and a scanned help dashboard — in that build order.</li>
+    <li><strong>Slices 1–3 are done and shipped</strong> (PR #7): hooks wired, the central store
+        live at <code>~/code/tasks</code>, and <code>wb</code> (new/picker/done) live on
+        <kbd>prefix</kbd>+<kbd>m</kbd>/<kbd>a</kbd> — including a post-launch picker redesign
+        driven entirely by live usage (see §8).</li>
+    <li>Slices 4–5 (notes-tui revival, HTML-in-flow + help dashboard) and the two later additions
+        in §9 (<code>/roadmap</code>, day bookends) are deliberately not started yet.</li>
+  </ul>
+</div>
+
+<h2 id="s0"><span class="num">0</span>Readback — the shape you described</h2>
+<ul>
+  <li><strong>Session per worktree</strong> (not per repo), standard layout: one window each for
+      nvim, agent, and running things. Grouped so a repo's sessions are easy to see together.</li>
+  <li><strong>One picker to rule them all</strong>: sessions and agents merged into a single view,
+      since they're ~1:1. This replaces the <code>s</code> + <code>ca</code> split. <code>cad</code>
+      retires.</li>
+  <li><strong>Notes with a lifecycle</strong>: a notes surface per session/worktree, seeded on
+      create, <em>reviewed on close</em> with keepers flowing into a central system; plus quick
+      capture into long-living topic ledgers, periodically reviewed, with future automation
+      proposing quick wins that you just green-light.</li>
+  <li><strong>Record layer stays plain files</strong> serving three goals: per-task backlog /
+      follow-ups, progress across all tasks + planned batches, easy review and refinement.</li>
+  <li>Keep untouched: worktree flow, <code>/park</code> + <code>/parked-items</code> (fix the
+      channel bug), <code>pr-review-session</code>, decision-buffer. Keep the nvim bridge to its
+      basic loop (output buffer + reply); fancy features on hold.</li>
+</ul>
+<div class="quote"><span class="who">your take</span>
+<p>Sounds good, one thing to refine on the record layer and parked items, is that perhaps that
+shouldn't live in scratch/ on a repo level, perhaps there should be a central location that
+different agents can access at the same time safely and then we can tag entries there to
+understand capture context but also to make it easier to factor in other similar cross project
+tasks.</p></div>
+<div class="decided"><span class="who">answer · 2026-07-06</span>
+<p>Agreed — central it is. File-per-task markdown in one central location that is itself a git
+repo (candidate: <code>~/code/tasks</code>, or a <code>tasks/</code> subtree of the notes corpus),
+frontmatter carrying <code>repo:</code> + free <code>tags:</code>. File-per-task keeps concurrent
+agents safe (no shared file contention), git gives history + cross-machine sync, tags give
+cross-project grouping. <code>/park</code>'s ledger stays the capture funnel and promotes into the
+store; <code>wb</code> and the worktree-seeding rule filter by <code>repo:</code> instead of
+reading <code>scratch/tasks/</code>. <span class="chip ok">Built — <code>~/code/tasks</code></span></p></div>
+
+<h2 id="s1"><span class="num">1</span>Step zero — light up the attention pipeline</h2>
+<p>Wire the three hooks into <code>~/.claude/settings.json</code>, fix <code>parked-items</code>'
+fixed wait-channel, and retire the dead <code>n</code> alias. After a week of hook data, delete the
+version-pinned content scan. No design needed — this is maintenance the rest builds on.</p>
+<div class="decided"><span class="who">done · 2026-07-06</span>
+<p>Hooks wired in settings.json, parked-items channel fixed, dead alias removed — commit
+<code>6015c43</code>. <span class="chip ok">DONE</span></p></div>
+
+<h2 id="s2"><span class="num">2</span>The core — <code>wb</code> (workbench): session-per-worktree + the unified picker</h2>
+<p>One script in the existing <code>lib.sh</code> style, three verbs:</p>
+<pre><code>wb new &lt;slug&gt;          # from inside a repo (or wb new &lt;repo&gt; &lt;slug&gt;)
+  → git worktree add .worktrees/&lt;slug&gt;; bootstrap via a per-repo gitignored
+    .worktree-bootstrap manifest (paths to copy/symlink), default .env* when absent
+  → seed the task file in the CENTRAL store if none exists
+  → tmux session named for display only: sanitized "&lt;repo&gt;--&lt;slug&gt;" (/ and .
+    become -); ground truth lives in session options @wb_repo + @wb_slug + @task
+  → win1 nvim · win2 agent (LAZY: window exists, claude starts on first visit
+    or wb new --agent — bounded by the ~10-concurrent-agent memory ceiling)
+  → win3 shell
+
+wb                     # THE picker (replaces s and ca muscle memory)
+  → ROW SOURCE (decided 2026-07-06): one row per TASK from the central store,
+    live session/agent state overlaid as glyphs. Repo-level checkouts appear
+    as extra rows. Enter on a session-less task row runs the wb new spin-up.
+  → grouped by repo; urgency (needs-you / finished) pins to the top of its
+    group, mirroring ca's rank order.
+  → sessions with &gt;1 claude pane expand to one indented sub-row per agent.
+  → ctrl-x on a worktree-backed task row routes through the wb done flow.
+  → status line shows the pending Follow-ups + parked count.
+
+wb done [&lt;slug&gt;]       # the wind-down that doesn't exist today — SAFE ORDER:
+  1. fail fast: git status --porcelain in the worktree; abort if dirty
+  2. open task file + session notes in a review buffer, keepers marked `- [x] keep`
+  3. on close: sweep worktree-local gitignored keepers into the central store
+  4. status → done, keepers captured
+  5. kill session, then git worktree remove</code></pre>
+<p>Repo-level sessions (<code>dotfiles</code>, main checkout) remain plain rows in the same picker
+— <code>s</code>'s job is absorbed, and the worktree-invisibility bug dies with it. Keybind:
+<strong>cutover</strong> — <kbd>prefix</kbd>+<kbd>m</kbd> and <kbd>prefix</kbd>+<kbd>a</kbd> both
+rebind to <code>wb</code> the moment it lands; <code>s</code>/<code>ca</code> stay invocable by
+name as fallback.</p>
+<div class="quote"><span class="who">your take</span>
+<p>Sounds good do you think it should still be a bash script powering this or is it worthy of a
+go/python implementation? Happy to keep it as is btw just curious.</p></div>
+<div class="decided"><span class="who">answer · 2026-07-06</span>
+<p>Bash for v1. <code>wb</code> is tmux/fzf orchestration — bash is the native tongue there,
+<code>lib.sh</code> already has the helpers, no build step, and it stows like everything else. A
+compiled implementation earns its keep only if the task <em>index</em> grows real
+querying/aggregation needs — and that's notes-tui / cli-kit territory (Go), not a reason to start
+<code>wb</code> in Go. <span class="chip ok">Built &amp; shipped — PR #7</span></p></div>
+
+<h2 id="s3"><span class="num">3</span>The record — task files that can back a board</h2>
+<pre><code>---
+status: doing        # planned | doing | review | done
+repo: dotfiles        # worktree resolves as ~/code/&lt;repo&gt;/&lt;worktree&gt;
+branch: feat/agent-task-workflow
+worktree: .worktrees/feat/agent-task-workflow
+tags: []              # free tags for cross-project grouping
+created: 2026-07-06
+---
+# Agent task workflow
+## Plan          ← batches of intended work
+## Done          ← running log of what landed
+## Follow-ups    ← per-task backlog; /parked-items review reads these
+## Decisions     ← links to logs/decisions/*.md + key calls inline</code></pre>
+<p>The three goals map: <strong>backlog</strong> = <code>## Follow-ups</code> (+ global
+<code>/park</code> for cross-task strays); <strong>progress tracker</strong> = <code>status:</code>
+rendered in the picker — the board is <em>inside</em> <code>wb</code>, not a separate surface;
+<strong>review &amp; refinement</strong> = <code>wb done</code>'s close-out buffer plus a push
+trigger: the picker status line carries the pending Follow-ups + parked count and <code>wb
+done</code> offers the cross-task sweep past a threshold — the weekly <code>/parked-items</code>
+ritual stays available but is no longer the load-bearing path.</p>
+
+<h2 id="s4"><span class="num">4</span>Notes — <code>notes-tui</code> is already the system you described</h2>
+<p>Finding: the <code>n</code> alias pointed at a binary that no longer exists on this machine —
+but the project lives on as <code>jetnoli-sportable/notes-tui</code>, and its README is your take
+#2 almost verbatim: sub-second zero-decision capture auto-stamped with cwd/branch/session, a
+<code>digest day|week --by context</code> periodic review, and cleanup proposals you just approve.</p>
+<p>Proposal: source its <code>note.sh</code> and make it the notes backbone. <code>wb new</code>
+stamps the session so every <code>note</code> during the task is already context-tagged;
+<code>wb done</code> runs the digest into the close-out buffer so keepers get promoted
+deliberately, marked with the same <code>- [x] keep</code> checkbox convention as §2's close-out.
+Topic ledgers = tags in its Denote scheme rather than a parallel system. <code>notes.sh</code>
+daily flow keeps working untouched on the same corpus.</p>
+<p><span class="chip">not started — slice 4</span></p>
+
+<h2 id="s5"><span class="num">5</span>HTML docs in the flow — ideas to pick from</h2>
+<ul>
+  <li><strong>(a) Visual mode for decision buffers</strong> — comparison-heavy decisions get an
+      HTML companion emitted next to the md doc and opened; checkboxes stay in the md buffer.</li>
+  <li><strong>(b) A docs shelf per repo</strong> — <code>wb docs</code> fzf-picks across generated
+      HTML and opens in the browser.</li>
+  <li><strong>(c) Standing agent rule</strong> — any multi-option comparison, architecture map, or
+      audit ships as HTML alongside the chat summary, by default.</li>
+  <li><strong>(d) The help dashboard indexes recent HTML docs</strong> so they're re-findable
+      weeks later.</li>
+</ul>
+<div class="quote"><span class="who">your take</span>
+<p>I'd like a combo of a and c. And then yes to d.</p></div>
+<div class="decided"><span class="who">landing-path rule · 2026-07-06</span>
+<p>(a)/(c) HTML writes to ONE fixed location — <code>docs/</code> when tracked-worthy, else the
+central task store's dossier area (never worktree-local scratch, which <code>wb done</code>
+deletes) — so (d)'s index has a deterministic scan target. (b)'s <code>wb docs</code> picker stays
+unbuilt. <span class="chip">not started — slice 5</span></p></div>
+
+<h2 id="s6"><span class="num">6</span>Help dashboard — one index of your whole personal stack</h2>
+<p>The ask: a place that answers "what do I have and how do I drive it" across dotfiles scripts,
+tmux binds, aliases, Claude skills/memories, and TUIs.</p>
+<div class="quote"><span class="who">your take</span>
+<p>(a/b/c, and where it should live — dotfiles repo?) → <strong>c</strong> — one generated
+machine-readable index rendering to both an fzf picker and an HTML manual, fzf first.</p></div>
+<div class="decided"><span class="who">addition · 2026-07-06, post-ratification</span>
+<p>Also build a quick way to <em>ask questions</em> about the config — "why do I have binding X",
+"what does skill Y do", "how do I use notes-tui" — answered by querying the generated index
+(<code>INDEX.md</code>) rather than requiring a manual grep across source files. A query mode over
+the same index from (a)/(c), not a new data source or a separate scan. Scoped into slice 5, not a
+standalone slice.</p></div>
+<p><span class="chip">not started — slice 5</span></p>
+
+<h2 id="s7"><span class="num">7</span>Keep / retire / hold</h2>
+<ul>
+  <li><strong>Retire:</strong> <code>cad</code> dashboard (unused; <code>wb</code> absorbs it),
+      dead <code>n</code> alias.</li>
+  <li><strong>Hold:</strong> nvim bridge fancy features (<code>:ClaudePick</code>, yank-code,
+      <code>gf</code>) — stay installed but no further investment until the basic loop + workbench
+      are in.</li>
+  <li><strong>Keep as-is:</strong> decision-buffer, <code>/park</code> +
+      <code>/parked-items</code> (channel fix only), <code>pr-review-session</code>, worktree flow
+      (its ritual gets absorbed by <code>wb new</code>).</li>
+</ul>
+<div class="quote"><span class="who">your take</span>
+<p>Look at notes above on park and scratch tasks.</p></div>
+<p><span class="chip ok">Honored — retire/hold/keep all landed as described above</span></p>
+
+<h2 id="s8"><span class="num">8</span>Build order (each slice usable on its own)</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>#</th><th>Slice</th><th>Status</th></tr></thead>
+  <tbody>
+  <tr><td>1</td><td>Step zero (§1) — hooks, channel fix, alias cleanup</td>
+      <td><span class="chip ok">DONE 2026-07-06</span></td></tr>
+  <tr><td>2</td><td>Central store + task frontmatter (§3) — reordered ahead of <code>wb</code>: four
+      reviewers flagged that building <code>wb</code> against <code>scratch/tasks/</code> then
+      relocating one slice later reworks its whole read/write model</td>
+      <td><span class="chip ok">DONE 2026-07-06</span> — store at <code>~/code/tasks</code>,
+      decision: <code>logs/decisions/2026-07-06-task-store-location.md</code></td></tr>
+  <tr><td>3</td><td><code>wb</code> core (§2) — new/picker/done, built against the central store
+      from day one. Board column comes free from the §3 frontmatter</td>
+      <td><span class="chip ok">DONE 2026-07-06</span> — PR #7. Full build log, the 8-persona code
+      review, and the post-launch picker redesign (presence-only rows, 5-column layout,
+      <kbd>r</kbd> rename / <kbd>b</kbd> break-out-to-own-session added during live usage) all in
+      <code>~/code/tasks/dotfiles--agent-task-workflow.md</code></td></tr>
+  <tr><td>4</td><td>notes-tui revival (§4) — already cloned; wire <code>note.sh</code>, add the
+      <code>--context</code> digest filter flag, lifecycle hooks in <code>wb</code></td>
+      <td><span class="chip">not started</span></td></tr>
+  <tr><td>5</td><td>HTML-in-flow + help dashboard (§5/§6) — whichever variants you pick</td>
+      <td><span class="chip">not started</span></td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="s9"><span class="num">9</span>Later additions (captured 2026-07-06, post-ratification)</h2>
+<p>Provenance: both items below were requested verbatim by the owner in chat on 2026-07-06.
+Recorded here since they post-date the buffer round the rest of the doc went through.</p>
+
+<div class="cards">
+  <div class="card"><h4>9a. Roadmap visualization skill — FOLLOW-UP</h4>
+    <p>Constrain harder, and defer: a <em>snapshot of the same task-store board</em> (no second
+    status computation), zoomable today/task/week, sourced from the store + parked ledger +
+    decision docs + transcripts. Jira integration excluded, becomes its own later addition. Output
+    rides the HTML pipeline.</p>
+    <p><span class="chip warn">parked — review once slices 2–3 are merged</span></p></div>
+  <div class="card"><h4>9b. Day bookends — startup/shutdown flows</h4>
+    <p><code>wb up</code> / <code>wb down</code>: startup reviews close-outs + parked + board +
+    Jira sprint and recreates sessions; shutdown sweeps every session, captures status, digests
+    notes, closes everything for power-off. Design principle honored from slice 2 onward:
+    <strong>sessions are regenerative, not precious</strong> — a <code>wb</code> session is fully
+    derivable from its task record, so resume is "re-run <code>wb new</code>-equivalent from the
+    store," no fragile tmux snapshotting.</p>
+    <p><span class="chip">not started</span></p></div>
+</div>
+
+<div class="decided"><span class="who">visibility gap identified · 2026-07-06, post-launch</span>
+<p>The picker redesign in build-order item 3 made rows presence-only (live sessions/agents only) —
+the right call for signal-to-noise, but it means there is currently no single view of live +
+deferred (<code>## Follow-ups</code>) + parked (<code>/park</code> ledger) work; each lives in a
+different place (<code>wb</code>, <code>grep ~/code/tasks/*.md</code>, <code>/parked-items</code>).
+This is exactly the gap <code>/roadmap</code> (9a) is meant to close — recorded here so the
+motivating reason isn't lost by the time this follow-up gets picked up. Also tracked as a
+Follow-up on <code>~/code/tasks/dotfiles--agent-task-workflow.md</code>.</p></div>
+
+<footer>
+  Source: synthesis of <code>logs/2026-07-06-workbench-piece-review.md</code> (piece-by-piece
+  review) reacted to inline by the owner, 2026-07-06. Companion doc:
+  <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> (pre-build audit).
+  Tracked as <code>docs/2026-07-06-way-forward.md</code> (this file's source) — promoted from
+  scratch (<code>logs/</code>, gitignored) alongside PR #7.
+</footer>
+</main>

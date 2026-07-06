@@ -5,7 +5,7 @@
 #   wb                               the picker (replaces s + ca)
 #   wb done [<session>]              safe wind-down (defaults to the current session)
 #
-# Design + build order: dotfiles/logs/2026-07-06-way-forward.md §2/§3,
+# Design + build order: dotfiles/docs/2026-07-06-way-forward.md §2/§3,
 # ratified judgment calls: dotfiles/logs/decisions/2026-07-06-review-outstanding.md,
 # task store location: dotfiles/logs/decisions/2026-07-06-task-store-location.md.
 #

@@ -1,0 +1,339 @@
+# The way forward — synthesis of your takes (react inline)
+
+> This fuses what you liked in `logs/2026-07-06-workbench-piece-review.md` into
+> one proposal. Each section has **Your take:** again — mark what lands, strike
+> what doesn't, edit anything in place. Nothing here is built yet.
+
+---
+
+## 0. Readback — the shape you described
+
+- **Session per worktree** (not per repo), standard layout: one window each for
+  nvim, agent, and running things. Grouped so a repo's sessions are easy to see
+  together.
+- **One picker to rule them all**: sessions and agents merged into a single
+  view, since they're ~1:1. This replaces the `s` + `ca` split. `cad` retires.
+- **Notes with a lifecycle**: a notes surface per session/worktree, seeded on
+  create, *reviewed on close* with keepers flowing into a central system; plus
+  quick capture into long-living topic ledgers, periodically reviewed, with
+  future automation proposing quick wins that you just green-light.
+- **Record layer stays plain files** serving three goals: per-task backlog /
+  follow-ups, progress across all tasks + planned batches, easy review and
+  refinement.
+- Keep untouched: worktree flow, `/park` + `/parked-items` (fix the channel
+  bug), `pr-review-session`, decision-buffer. Keep the nvim bridge to its basic
+  loop (output buffer + reply); fancy features on hold.
+
+**Your take:** 
+
+Sounds good, one thing to refine on the record layer and parked items, is that perhaps that shouldn't live in scratch/ on a repo level, perhaps there should be a central location that different agents can access at the same time safely and then we can tag entries there to understand capture context but also to make it easier to factor in other similar cross project tasks
+
+> **answer (2026-07-06):** agreed — central it is. Proposed shape: file-per-task
+> markdown in one central location that is itself a git repo (candidate:
+> `~/code/tasks`, or a `tasks/` subtree of the notes corpus (`~/code/notes`)
+> since notes-tui shares the ground), frontmatter carrying `repo:` + free `tags:`. File-per-task
+> keeps concurrent agents safe (no shared file contention), git gives history +
+> cross-machine sync, tags give cross-project grouping. `/park`'s ledger stays
+> the capture funnel and promotes into the store; `wb` and the worktree-seeding
+> rule filter by `repo:` instead of reading `scratch/tasks/`. Exact location +
+> notes-corpus overlap goes through a quick decision buffer when we build §3.
+
+---
+
+## 1. Step zero — light up the attention pipeline
+
+Wire the three hooks into `~/.claude/settings.json` (I'll print the block; the
+harness makes me ask you to approve/paste it), fix `parked-items`' fixed
+wait-channel, and retire the dead `n` alias (see §4). After a week of hook data,
+delete the version-pinned content scan. No design needed — this is maintenance
+the rest builds on.
+
+*(Done 2026-07-06: hooks wired in settings.json, parked-items channel fixed,
+dead alias removed — commit 6015c43. The week-of-hook-data clock is running.)*
+
+**Your take:**
+
+---
+
+## 2. The core — `wb` (workbench): session-per-worktree + the unified picker
+
+One script in the existing `lib.sh` style, three verbs:
+
+```
+wb new <slug>          # from inside a repo (or wb new <repo> <slug>)
+  → git worktree add .worktrees/<slug>; bootstrap via a per-repo gitignored
+    .worktree-bootstrap manifest (paths to copy/symlink), default .env* when absent
+  → seed the task file in the CENTRAL store (frontmatter §3; store location is
+    decided before this slice — see reordered §8) if none exists
+  → tmux session named for display only: sanitized "<repo>--<slug>" (/ and .
+    become -); ground truth lives in session options @wb_repo + @wb_slug + @task
+    (never parse the name back — be--monorepo already contains the delimiter)
+  → win1 nvim · win2 agent (LAZY: window exists, claude starts on first visit
+    or wb new --agent — bounded by the ~10-concurrent-agent memory ceiling)
+  → win3 shell
+
+wb                     # THE picker (replaces s and ca muscle memory)
+  dotfiles                      ● working    [feat/tmux-claude-agent-notification]
+  dotfiles--agent-task-flow     ◆ needs you  doing
+  be--monorepo                  · no agent
+  frontend--sfb-1204            ✔ finished   review
+  → ROW SOURCE (decided 2026-07-06): one row per TASK from the central store —
+    status from frontmatter, so planned and done tasks are visible — with live
+    session/agent state overlaid as glyphs. Repo-level checkouts (main
+    checkouts, no task) appear as extra rows. Enter on a session-less task row
+    runs the wb new spin-up. Worktrees enumerated via per-repo
+    `git worktree list` (authoritative), not directory globbing.
+  → grouped by repo (from @wb_repo / frontmatter repo:, never name-parsing);
+    SORT: any needs-you / finished row pins to the top of its group, mirroring
+    ca's rank order — urgency is never buried by alphabetical grouping.
+  → column 3 rule: task rows show frontmatter status (planned/doing/review/done);
+    repo-level rows show the current branch in [brackets] instead.
+  → sessions with >1 claude pane expand to one indented sub-row per agent
+    (glyph + pane title) — pr-review-session stays legible after ca retires.
+  → each row/sub-row carries a hidden field: its most-urgent claude pane target
+    (min-rank over collect_rows), empty if no agent. x interrupt and the
+    agent-pane preview act on THAT target, never the session's active pane.
+    ctrl-x on a worktree-backed task row routes through the wb done flow (raw
+    kill only for non-task sessions) — wind-down is the default exit, not an
+    optional ritual. No-ops when the target field is empty.
+  → status line shows the pending Follow-ups + parked count; wb done offers the
+    cross-task sweep when it crosses a threshold (push, not a weekly ritual).
+  → Enter jumps (or creates); preview = urgent agent pane, else git status.
+
+wb done [<slug>]       # the wind-down that doesn't exist today — SAFE ORDER:
+  1. fail fast: git status --porcelain in the worktree; if dirty, print the
+     short status + "commit or stash, then re-run" and abort (nothing mutated)
+  2. open task file + session notes in a review buffer (decision-buffer
+     pattern); keepers are marked with checkbox lines (`- [x] keep`) — the ONE
+     convention shared with §4's digest promotion
+  3. on close: sweep worktree-local gitignored keepers into the central store
+     (logs/decisions/*.md at minimum — VERIFIED: git worktree remove silently
+     destroys gitignored files; the dirty check never protects them) and
+     rewrite the task file's Decisions links to the store copies
+  4. status → done, keepers captured (§4)
+  5. kill session, then git worktree remove
+```
+
+Repo-level sessions (`dotfiles`, main checkout) remain plain rows in the same
+picker — `s`'s job is absorbed, and the worktree-invisibility bug dies with it.
+Keybind (decided 2026-07-06): **cutover** — `prefix+m` and `prefix+a` both
+rebind to `wb` the moment it lands; `s`/`ca` stay invocable by name as fallback.
+
+**Your take:**
+Sounds good do you think it should still be a bash script powering this or is it worthy of a go/python implemnetation? Happy to keep it as is btw just curious
+
+> **answer (2026-07-06):** bash for v1. `wb` is tmux/fzf orchestration — bash is
+> the native tongue there, `lib.sh` already has the helpers, no build step, and
+> it stows like everything else. A compiled implementation earns its keep only
+> if the task *index* grows real querying/aggregation needs — and that's
+> notes-tui / cli-kit territory (Go you already own), not a reason to start `wb`
+> in Go. Python only if we lifted `driver.py` wholesale, which we aren't.
+
+---
+
+## 3. The record — task files that can back a board
+
+```markdown
+---
+status: doing        # planned | doing | review | done
+repo: dotfiles       # worktree resolves as ~/code/<repo>/<worktree> — task
+branch: feat/agent-task-workflow          # files live centrally, so paths
+worktree: .worktrees/feat/agent-task-workflow   # must reconstruct from repo:
+tags: []             # free tags for cross-project grouping (§0 amendment)
+created: 2026-07-06
+---
+# Agent task workflow
+## Plan          ← batches of intended work (your goal 2)
+## Done          ← running log of what landed
+## Follow-ups    ← per-task backlog (your goal 1); /parked-items review reads these
+## Decisions     ← links to logs/decisions/*.md + key calls inline (F4)
+```
+
+Your three goals map: **backlog** = `## Follow-ups` (+ global `/park` for
+cross-task strays); **progress tracker** = `status:` rendered as the picker's
+third column — the board is *inside* `wb`, not a separate surface; **review &
+refinement** = `wb done`'s close-out buffer plus a PUSH trigger (decided
+2026-07-06): the picker status line carries the pending Follow-ups + parked
+count and `wb done` offers the cross-task sweep past a threshold — the weekly
+`/parked-items` ritual stays available but is no longer the load-bearing path.
+
+**Your take:**
+
+---
+
+## 4. Notes — `notes-tui` is already the system you described
+
+Finding: the `n` alias points at `~/Desktop/Projects/go-notes/notes.exe`, which
+no longer exists on this machine — but the project lives on as
+`jetnoli-sportable/notes-tui` (private, last touched 2026-06-19), and its README
+is your take #2 almost verbatim:
+
+- `note "thought"` / `cmd | note` — sub-second, zero-decision capture to an
+  inbox, **auto-stamped with cwd, git repo+branch, and tmux session** — the
+  task-linkage the daily notes lack.
+- `notes digest day|week --by context` — the periodic review you asked for.
+- `notes process` — mechanical cleanup proposals (your "automation scouts, I
+  approve" — and its roadmap's AI layer is exactly that, grown up).
+- Roadmap Phase 2 is a Bubble Tea TUI on the same corpus (`~/code/notes`, which
+  `notes.sh` already uses).
+
+Proposal: it's already cloned at `~/code/notes-tui` (branch feat/usage-guide;
+the dead alias is now removed) — source its `note.sh` and make it the notes
+backbone. Then the lifecycle wiring is small:
+`wb new` stamps the session so every `note` during the task is already
+context-tagged; `wb done` runs `notes digest --by context --context <session>`
+into the close-out buffer so keepers get promoted deliberately — marked with
+the same `- [x] keep` checkbox convention as §2's close-out. (Verified: the
+current digest CLI has no per-session filter — slice 4 includes adding a small
+`--context <tmux-session>` flag to notes-tui; the ctx metadata already records
+`tmux:<session>` per capture.) Topic ledgers = tags in
+its Denote scheme (`__workflow`, `__vim`) rather than a parallel system we'd
+build from scratch. `notes.sh` daily flow keeps working untouched on the same
+corpus.
+
+**Your take:**
+
+
+---
+
+## 5. HTML docs in the flow — ideas to pick from
+
+You liked the findings doc's format for visualizing/comparing. Ways to make
+that a habit rather than a one-off (not mutually exclusive):
+
+- **(a) Visual mode for decision buffers** — when a decision is
+  comparison-heavy, I emit an HTML companion next to the md doc and `xdg-open`
+  it; checkboxes stay in the md buffer. Zero new tooling, just a skill rule.
+- **(b) A docs shelf per repo** — convention: generated HTML lands in
+  `docs/` (tracked) or `logs/html/` (scratch); `wb docs` fzf-picks across them
+  and opens in the browser; task files link their docs so F4 dossiers include
+  visuals.
+- **(c) Standing agent rule** in global CLAUDE.md: any multi-option comparison,
+  architecture map, or audit ≥ some size ships as HTML alongside the chat
+  summary — the way this session's findings doc happened, made default.
+- **(d) The help dashboard (§6) indexes recent HTML docs** so they're
+  re-findable weeks later.
+
+**Your take:** (which of a–d, or riff)
+I'd like a combo of a and c. And then yes to d.
+
+> **landing-path rule (decided 2026-07-06):** (a)/(c) HTML writes to ONE fixed
+> location — `docs/` when tracked-worthy, else the central task store's dossier
+> area (never worktree-local scratch, which `wb done` deletes) — so (d)'s index
+> has a deterministic scan target. (b)'s `wb docs` picker stays unbuilt.
+
+---
+
+## 6. Help dashboard — one index of your whole personal stack
+
+The ask: a place that answers "what do I have and how do I drive it" across
+dotfiles scripts, tmux binds, aliases, Claude skills/memories, and TUIs. Ideas:
+
+- **(a) Generated HTML manual** — a `/workbench-manual` skill scans the real
+  sources (tmux.conf binds, zshrc aliases/functions, `scripts/*/instructions.md`,
+  `~/.claude/skills/*/SKILL.md` descriptions, `MEMORY.md`, TUI READMEs) and
+  renders one searchable page in the findings-doc style. Regenerate on demand —
+  never hand-maintained, so it can't drift like instructions.md did.
+- **(b) Terminal-first** — same scan emits a flat index; `prefix+?`-style
+  `help.sh` fzf over it (name → one-liner → source path), preview shows the doc
+  excerpt, Enter opens the source.
+- **(c) Both from one source** — the scan produces a machine-readable
+  `INDEX.md`; the HTML page and the fzf picker are two renderers of it. My
+  pick: build the index + fzf first (10× more used day-to-day), HTML render
+  second.
+
+**Your take:** (a/b/c, and where it should live — dotfiles repo?)
+c
+
+> **addition (2026-07-06, post-ratification):** also build a quick way to *ask
+> questions* about the config — "why do I have binding X", "what does skill Y
+> do", "how do I use notes-tui" — answered by querying the generated index
+> (INDEX.md) rather than requiring a manual grep across source files. This is
+> a query mode over the same index from (a)/(c), not a new data source or a
+> separate scan. Scope it as part of slice 5 when the help dashboard is built,
+> not a standalone slice.
+
+---
+
+## 7. Keep / retire / hold
+
+- **Retire:** `cad` dashboard (unused; `wb` absorbs it), dead `n` alias.
+- **Hold:** nvim bridge fancy features (`:ClaudePick`, yank-code, `gf`) — they
+  stay installed but we stop investing until the basic loop + workbench are in.
+- **Keep as-is:** decision-buffer, `/park` + `/parked-items` (channel fix only),
+  `pr-review-session`, worktree flow (its ritual gets absorbed by `wb new`).
+
+**Your take:**
+Look at notes above on park and scratch tasks
+
+---
+
+## 8. Build order (each slice usable on its own)
+
+1. **Step zero** (§1) — hooks, channel fix, alias cleanup. *DONE 2026-07-06.*
+2. **Central store + task frontmatter** (§3 — REORDERED ahead of `wb` per the
+   2026-07-06 doc review: four reviewers flagged that building `wb` against
+   `scratch/tasks/` then relocating one slice later reworks its whole
+   read/write model). Quick decision buffer on store location, then the
+   frontmatter convention + seed template; migrate the two existing task files
+   (`scratch/tasks/jump-cycle-on-repeat.md`, `scratch/tasks/stow-claude-config.md`).
+   *DONE 2026-07-06 — store at `~/code/tasks`, decision:
+   `logs/decisions/2026-07-06-task-store-location.md`.*
+3. **`wb` core** (§2) — new/picker/done, built against the central store from
+   day one. Board column comes free from the §3 frontmatter. *DONE 2026-07-06
+   — see `~/code/tasks/dotfiles--agent-task-workflow.md` for the full build
+   log, the 8-persona code review, and the post-launch picker redesign
+   (presence-only rows, 5-column layout, `r` rename / `b` break-out-to-own-
+   session added during live usage). PR #7.*
+4. **notes-tui revival** (§4) — already cloned; wire `note.sh`, add the
+   `--context` digest filter flag, lifecycle hooks in `wb`.
+5. **HTML-in-flow + help dashboard** (§5/§6) — whichever variants you pick.
+
+**Your take:** (reorder / cut / merge freely)
+
+---
+
+## 9. Later additions (captured 2026-07-06, post-ratification)
+
+> Provenance: both items below were requested verbatim by the owner in chat on
+> 2026-07-06 ("add a note to the plan… roadmap visualization on any level" /
+> "startup/shutdown flow… factor this in"). Recorded here since they post-date
+> the buffer round the rest of the doc went through; strike or edit as usual.
+
+### 9a. Roadmap visualization skill — FOLLOW-UP (re-scoped 2026-07-06 review)
+
+Owner's call from the doc-review buffer: **constrain harder, and defer** — add
+the roadmap view as a follow-up once everything else is working, then discuss
+in detail. Constraints locked in now: it renders a *snapshot of the same
+task-store board* `wb` shows (no second status computation — the one-board
+principle that retired `cad` holds), zoomable *today / task <slug> / week*,
+sourced from the store + parked ledger + decision docs + transcripts. **Jira
+integration is excluded** and becomes its own later, separately ratified
+addition. Output rides the HTML pipeline (md source in a buffer → HTML at the
+§5 landing path, indexed by the help dashboard).
+
+> **Visibility gap identified 2026-07-06 (post-launch, during live usage):**
+> the picker redesign in build-order item 3 made rows presence-only (live
+> sessions/agents only) — the right call for signal-to-noise, but it means
+> there is currently no single view of live + deferred (`## Follow-ups`) +
+> parked (`/park` ledger) work; each lives in a different place (`wb`, `grep
+> ~/code/tasks/*.md`, `/parked-items`). This is exactly the gap `/roadmap` is
+> meant to close — recorded here so the motivating reason isn't lost by the
+> time this follow-up gets picked up. Also tracked as a Follow-up on
+> `~/code/tasks/dotfiles--agent-task-workflow.md`.
+
+### 9b. Day bookends — startup/shutdown flows (follow-up, factor into design now)
+
+Two workflows, `wb up` / `wb down` (or `/sod` `/eod`), composing the capture/recall
+skills: **startup** — review yesterday's close-out + parked items + task board +
+Jira sprint, propose today's focus, recreate tmux sessions for the chosen tasks;
+**shutdown** — sweep every live session, capture a quick status into each task file,
+run the notes digest, then close all sessions cleanly so the PC can power off.
+
+Design principle to honor while building slices 2–4: **sessions are regenerative,
+not precious.** Because a `wb` session is fully derived from its task record (repo,
+worktree path, standard 3-window layout), resume = re-running `wb new`-equivalent
+from the store — no fragile tmux state snapshotting needed. tmux-resurrect/continuum
+remain an optional complement for raw scrollback, but the task store is the source
+of truth. Concretely: keep everything `wb` creates reconstructable from the task
+file alone, and give `wb` a `down --all` / `up --resume` pair later.

@@ -166,6 +166,7 @@
     <span class="chip">based on feat/tmux-claude-agent-notification</span>
     <span class="chip warn">hooks: one paste from live</span>
     <span class="chip ok">direction ratified 2026-07-06</span>
+    <span class="chip ok">wb built &amp; shipped — PR #7</span>
   </div>
   <ul class="toc">
     <li><a href="#map">System map</a></li>
@@ -193,6 +194,14 @@
         unified sessions+agents picker absorbing <code>s</code>/<code>ca</code>/<code>cad</code>, and a
         <code>wb done</code> wind-down; task records move to a central tagged store; notes-tui is revived
         as the notes backbone. Details in the way-forward section below.</li>
+    <li><strong>Slices 2–3 are built and shipped</strong> (2026-07-06, PR #7): the central store at
+        <code>~/code/tasks</code> and <code>wb</code> (new/picker/done) are live on
+        <kbd>prefix</kbd>+<kbd>m</kbd>/<kbd>a</kbd>. Live usage immediately surfaced a redesign
+        (task-store rows were mostly noise — switched to presence-only: live sessions/agents,
+        <kbd>Tab</kbd>-cyclable combined/sessions/agents modes) plus two new picker binds added
+        during that same session, <kbd>r</kbd> (rename a session) and <kbd>b</kbd> (break an agent
+        pane out into its own session). Full build log:
+        <code>~/code/tasks/dotfiles--agent-task-workflow.md</code>.</li>
   </ul>
 </div>
 
@@ -378,7 +387,7 @@ new we build.</p>
           sessions+agents picker (<code>wb</code>) replacing <code>s</code>/<code>ca</code> and retiring
           <code>cad</code>; <code>wb done</code> wind-down with review-on-close. Implementation stays
           bash on <code>lib.sh</code>. Full trail: logs/2026-07-06-workbench-piece-review.md →
-          logs/2026-07-06-way-forward.md.</td></tr>
+          docs/2026-07-06-way-forward.md.</td></tr>
   <tr><td>2026-07-06</td><td>Records &amp; notes</td>
       <td>Task records move out of per-repo <code>scratch/tasks/</code> to a central, git-backed,
           file-per-task store with <code>repo:</code> + <code>tags:</code> frontmatter (safe for
@@ -396,6 +405,17 @@ new we build.</p>
           "big comparisons ship as HTML" rule (c), indexed by the help dashboard (d). Help dashboard:
           one generated machine-readable index rendering to both an fzf picker and an HTML manual (c),
           fzf first.</td></tr>
+  <tr><td>2026-07-06</td><td>Picker redesign, post-launch</td>
+      <td>First real usage of the task-store-sourced picker rows (row source ratified above) showed it
+          was mostly noise — ~19 of 22 rows gray "no agent" on a normal day, since every never-started
+          <code>planned</code> task and every repo under <code>~/code</code> got a row regardless of
+          whether anything was live. Switched to <strong>presence</strong>: live tmux sessions +
+          running claude panes only, <kbd>Tab</kbd>-cyclable <em>combined / sessions / agents</em>
+          modes (the last replaces <code>ca</code> exactly). Columns settled at REPO / NAME / TYPE
+          (session·agent·both) / BRANCH / STATUS after several live alignment fixes (ASCII glyphs and
+          pointer, tab-stop and ANSI-ordering bugs). Two binds added from live usage:
+          <kbd>r</kbd> renames a session in place; <kbd>b</kbd> breaks an agent pane sharing a session
+          out into a new one of its own.</td></tr>
   </tbody>
 </table></div>
 
@@ -504,7 +524,7 @@ each graded honestly on what exists today.</p>
 <h2 id="next">The way forward — ratified 2026-07-06</h2>
 <p>Settled through two buffer rounds (piece-by-piece review, then synthesis) rather than a single
 options menu. The trail lives in <code>logs/2026-07-06-workbench-piece-review.md</code> and
-<code>logs/2026-07-06-way-forward.md</code>; the earlier A/B/C framing in
+<code>docs/2026-07-06-way-forward.md</code>; the earlier A/B/C framing in
 <code>logs/decisions/2026-07-06-task-workbench-shape.md</code> was superseded by this process.</p>
 
 <h3>The target shape</h3>
@@ -557,16 +577,23 @@ options menu. The trail lives in <code>logs/2026-07-06-workbench-piece-review.md
   <tr><td>2</td><td>Central task store + frontmatter — <strong>reordered ahead of wb</strong> by the
       2026-07-06 doc review (four personas: building wb against <code>scratch/tasks/</code> then
       relocating reworks its whole read/write model). Location via decision buffer, then convention +
-      migrate the two legacy task files</td><td>next up, this branch</td></tr>
-  <tr><td>3</td><td><code>wb</code> core — new / picker / done, built against the central store from day one</td><td>queued</td></tr>
+      migrate the two legacy task files</td><td><span class="chip ok">DONE 2026-07-06</span> —
+      <code>~/code/tasks</code></td></tr>
+  <tr><td>3</td><td><code>wb</code> core — new / picker / done, built against the central store from day one</td>
+      <td><span class="chip ok">DONE 2026-07-06</span> — PR #7; 8-persona code review passed, every
+      P0/P1 fixed; post-launch redesign to presence-only rows + <kbd>r</kbd>/<kbd>b</kbd> binds added
+      from live usage</td></tr>
   <tr><td>4</td><td>notes-tui revival — already cloned; wire <code>note.sh</code>, add a
       <code>--context</code> digest filter (verified missing), lifecycle hooks in <code>wb</code></td><td>queued</td></tr>
   <tr><td>5</td><td>HTML-in-flow rules (fixed landing path: <code>docs/</code> or the store's dossier area)
       + help dashboard (index → fzf → HTML)</td><td>queued</td></tr>
   <tr><td>6</td><td>Roadmap visualization — re-scoped by review + owner: a <em>snapshot of the same
       task-store board</em> (one-board principle holds), today/task/week zoom, <strong>no Jira</strong>
-      (separately ratified later); deferred until everything else works</td>
-      <td>follow-up — discuss in detail then</td></tr>
+      (separately ratified later); deferred until everything else works. Motivating gap now concrete
+      (2026-07-06, live usage after slice 3): the presence-only picker hides deferred/parked work
+      entirely, so live + follow-ups + parked are three separate places to check instead of one.</td>
+      <td>follow-up — parked on <code>~/code/tasks/dotfiles--agent-task-workflow.md</code>, review
+      once slices 2–3 are merged</td></tr>
   <tr><td>7</td><td>Day bookends — <code>wb up</code> / <code>wb down</code>: startup reviews close-outs +
       parked + board + Jira and recreates task sessions; shutdown sweeps every session, captures status
       into task files, digests notes, closes all sessions for power-off</td>
@@ -583,7 +610,8 @@ raw scrollback; the task store is the source of truth.</p>
   Sources: scripts/.config/scripts/tmux/* · tmux/.config/tmux/tmux.conf · zsh/.zshrc ·
   nvim/.config/nvim/lua/claude-tmux/* · ~/.claude/skills/{decision-buffer, park, parked-items, pr-review-session} ·
   ~/.claude/settings.json (verified live) · logs/decisions/2026-06-{18,19}-*.md · logs/stack-audit-2026-06-19.md ·
-  scratch/tasks/*.md — compiled 2026-07-06 on <code>feat/agent-task-workflow</code>; updated same day
-  with the ratified way forward (piece review + synthesis buffers).
+  ~/code/tasks/*.md — compiled 2026-07-06 on <code>feat/agent-task-workflow</code>; updated same day
+  with the ratified way forward (piece review + synthesis buffers), and again after slices 2–3 shipped
+  (PR #7) with the post-launch picker redesign.
 </footer>
 </main>
