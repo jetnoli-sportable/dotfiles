@@ -1,4 +1,4 @@
-<title>Dotfiles Overview — the personal documentation project</title>
+<title>Overview — the personal workflow</title>
 <style>
   /* ---- tokens: Catppuccin Latte (light) / Frappé (dark) — matches the other docs in this folder ---- */
   :root {
@@ -101,7 +101,7 @@
   tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: .9rem; margin: 1rem 0; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1.1rem; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1.1rem; scroll-margin-top: 1.5rem; }
   .card h4 { margin: 0 0 .5rem; font-family: var(--mono); font-size: .95rem; }
   .card dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; margin: 0; font-size: .86rem; }
   .card dt { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
@@ -121,14 +121,16 @@
 
 <main>
 <header class="doc">
-  <span class="eyebrow">dotfiles · personal documentation project</span>
-  <h1><span class="glyph">◈</span> Dotfiles Overview</h1>
-  <p>Everything in this repo — what it is, why it exists, how to use it. Companion to
+  <span class="eyebrow">personal workflow · documentation project</span>
+  <h1><span class="glyph">◈</span> Overview</h1>
+  <p>Originally "Dotfiles Overview" — renamed: this covers the whole personal workflow, not just
+     this repo (notes-tui and the central task store already live in separate repos under
+     <code>~/code/</code>). Companion to
      <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> (deep dive on the
-     tmux/Claude agent tooling) and <a href="2026-07-06-way-forward.md">2026-07-06-way-forward.md</a>
-     (the plan that grew out of it) — this doc is the wider net, everything in the dotfiles repo,
-     not just the agent-workbench slice. Index of every doc in this project:
-     <a href="HUB.md">HUB.md</a> / <a href="HUB.html">.html</a>.</p>
+     tmux/Claude agent tooling) and <a href="roadmap.md">roadmap.md</a>
+     (the plan that grew out of it) — this doc is the wider net, everything in the personal
+     workflow, not just the agent-workbench slice, even where the pieces live in other repos.
+     Index of every doc in this project: <a href="HUB.md">HUB.md</a> / <a href="HUB.html">.html</a>.</p>
   <div class="meta">
     <span class="chip warn">work in progress</span>
     <span class="chip">manually maintained until slice 5</span>
@@ -146,7 +148,7 @@
 
 <div class="tldr">
   <p><strong class="label">Status: work in progress.</strong> This is the manually-maintained
-  precursor to the "help dashboard" (see <code>2026-07-06-way-forward.md</code> §5/§6) — a scanned,
+  precursor to the "help dashboard" (see <code>roadmap.md</code> §5/§6) — a scanned,
   auto-generated index + Q&amp;A layer that will eventually replace hand-writing this file. Until
   that's built, this is where "what do I have and why" lives.</p>
 </div>
@@ -300,10 +302,10 @@ grab/pick/follow Claude's transcript into a readable buffer, reply by pasting in
 </table></div>
 
 <h2 id="skills">Claude skills (personal) — <code>~/.claude/skills/</code></h2>
-<p>Not version-controlled today (a known gap — see <code>2026-07-06-way-forward.md</code> §1
+<p>Not version-controlled today (a known gap — see <code>roadmap.md</code> §1
 step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p>
 <div class="cards">
-  <div class="card"><h4>decision-buffer</h4>
+  <div class="card" id="decision-buffer"><h4>decision-buffer</h4>
     <dl>
       <dt>what</dt><dd>Routes design decisions through a markdown doc edited in nvim instead of an
       <code>AskUserQuestion</code> menu — a tmux split blocking on <code>wait-for</code>, checked
@@ -314,7 +316,7 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
       or say "decision doc" / "open a buffer for this" explicitly. Records:
       <code>logs/decisions/*.md</code> or <code>docs/decisions/*.md</code> per repo.</dd>
     </dl></div>
-  <div class="card"><h4>park</h4>
+  <div class="card" id="park"><h4>park</h4>
     <dl>
       <dt>what</dt><dd>&lt;10 second capture of a "deal with this later" item — one JSON line
       appended to a global ledger with cwd + branch for later routing.</dd>
@@ -323,7 +325,7 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
       <dt>use it</dt><dd><code>/park &lt;note&gt;</code>, or say "park this" / "let's discuss this
       later" / "revisit this" in passing. Ledger: <code>~/.claude/parked-items/ledger.jsonl</code>.</dd>
     </dl></div>
-  <div class="card"><h4>parked-items</h4>
+  <div class="card" id="parked-items"><h4>parked-items</h4>
     <dl>
       <dt>what</dt><dd>The weekly review half of <code>park</code> — gathers the ledger plus a
       transcript backstop scan, reconciles against the central task store (<code>~/code/tasks</code>),
@@ -333,7 +335,7 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
       <dt>use it</dt><dd><code>/parked-items</code> (last 7 days) or
       <code>/parked-items --backfill</code> (full history, run once).</dd>
     </dl></div>
-  <div class="card"><h4>pr-review-session</h4>
+  <div class="card" id="pr-review-session"><h4>pr-review-session</h4>
     <dl>
       <dt>what</dt><dd>Checks GitHub for open PRs across watched repos, pulls each into a worktree,
       spins up a per-PR tmux window with a PR brief, and runs a code review on each — "the
@@ -347,7 +349,7 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
 
 <h2 id="tuis">TUIs</h2>
 <div class="cards">
-  <div class="card"><h4>notes-tui — <code>~/code/notes-tui</code></h4>
+  <div class="card" id="notes-tui"><h4>notes-tui — <code>~/code/notes-tui</code></h4>
     <dl>
       <dt>what</dt><dd>A capture-dumb, retrieval-smart notes tool over a flat git corpus of markdown
       (<code>~/code/notes</code>, Denote-style filenames). Sibling to <code>replay-tui</code> (a
@@ -396,9 +398,9 @@ step-zero notes on stowing <code>~/.claude</code> config). Four skills exist:</p
 </ul>
 
 <footer>
-  Source: <code>docs/dotfiles-overview.md</code> (this file's source) · companions:
+  Source: <code>docs/overview.md</code> (this file's source) · companions:
   <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> ·
-  <a href="2026-07-06-way-forward.md">2026-07-06-way-forward.md</a> · index:
+  <a href="roadmap.md">roadmap.md</a> · index:
   <a href="HUB.md">HUB.md</a> / <a href="HUB.html">.html</a>. Compiled 2026-07-06 on <code>docs/dotfiles-overview</code>.
 </footer>
 </main>

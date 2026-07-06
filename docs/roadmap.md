@@ -1,8 +1,13 @@
-# The way forward — synthesis of your takes (react inline)
+# Roadmap — the personal workflow
 
-> This fuses what you liked in `logs/2026-07-06-workbench-piece-review.md` into
-> one proposal. Each section has **Your take:** again — mark what lands, strike
-> what doesn't, edit anything in place. Nothing here is built yet.
+> Originally "The way forward — synthesis of your takes" (2026-07-06), renamed
+> once its scope outgrew a single PR: this is the roadmap for the whole
+> personal workflow (tmux/Claude tooling, the central task store, notes-tui,
+> the docs project), not just this dotfiles repo — several of the things it
+> plans already live in separate repos (`~/code/notes-tui`, `~/code/tasks`).
+> Fuses what landed in `logs/2026-07-06-workbench-piece-review.md` into one
+> proposal. Each section has **Your take:** — mark what lands, strike what
+> doesn't, edit anything in place.
 
 ---
 
@@ -272,7 +277,7 @@ c
 > not a standalone slice.
 
 > **manual precursor started (2026-07-06, PR #8):** built `docs/HUB.md` (index
-> of every doc in this project) and `docs/dotfiles-overview.md` (guides for
+> of every doc in this project) and `docs/overview.md` (guides for
 > every skill and TUI, with full command/flag and keybind tables where
 > possible) as the hand-maintained stand-in for (a)/(c) until the real scanned
 > index exists. Both are meant to fall away once slice 5 lands — HUB.md's own
@@ -363,3 +368,46 @@ from the store — no fragile tmux state snapshotting needed. tmux-resurrect/con
 remain an optional complement for raw scrollback, but the task store is the source
 of truth. Concretely: keep everything `wb` creates reconstructable from the task
 file alone, and give `wb` a `down --all` / `up --resume` pair later.
+
+### 9c. Per-skill/TUI dedicated guide pages + tile-grid dashboard (follow-up, PR #8)
+
+The owner's ask: not just a summary line per skill in `overview.md`, but a
+proper standalone guide per skill and per TUI — the same treatment `wb-guide.html`
+already gets — with `HUB.html` as a dashboard of tiles (grid, one card per
+skill/TUI/doc, click through to the full guide). **Started as an interim
+step** (PR #8): `HUB.html` is now a real tile-grid dashboard, but the 4
+Claude-skill tiles deep-link into `overview.md`'s skills section rather than
+their own page, since those dedicated pages don't exist yet. Full scope:
+- Build `decision-buffer-guide.html`, `park-guide.html`, `parked-items-guide.html`,
+  `pr-review-session-guide.html` (or one per skill, naming TBD) — each in the
+  `wb-guide.html` style: overview, try-it-now, full command/flag reference,
+  rough edges.
+- Same for TUIs — notes-tui already has one (`notes-guide.html`), it just
+  needs a tile; a future `wb` TUI-equivalent would get one too.
+- Once built, repoint `HUB.html`'s skill tiles from `overview.html#<skill>`
+  anchors to the dedicated pages, and `overview.md` shrinks back to short
+  summaries + links (its current per-skill depth was a stopgap for the same
+  reason the anchors are).
+
+### 9d. Cross-repo, cross-session doc referencing (follow-up, PR #8)
+
+The docs project already spans repos — `dotfiles/docs/`, `~/code/notes-tui/notes-guide.html`,
+`~/code/tasks/*.md` — and `HUB.html`'s "Other artifacts" section proved a third
+problem: HTML docs get built as Claude Artifacts during sessions and never
+committed anywhere, discoverable (if at all) only by grepping `/tmp/claude-1000/*`
+on whichever machine happened to run that session, until its scratch dir is
+cleaned up. Needed: a way to reference docs across every repo in the personal
+workflow so they stay in sync and are findable from the Hub — including
+artifacts from **any past session**, not just ones whose scratch happens to
+still be on disk right now. Shape unclear yet (a manifest file per repo that
+`HUB` aggregates? a required "commit it or lose it" rule for any HTML artifact
+enforced by a skill? something in the central task store?) — needs a decision
+buffer when picked up. Depends on / composes with 9c (more pages to track) and
+the doc-sync tool in §5 (same "don't hand-maintain N copies" instinct, one
+level up — repos, not just `.md`/`.html` pairs).
+
+> **Naming note:** this doc is now called "Roadmap," and §9a above describes a
+> *planned feature* also called `/roadmap` (a snapshot dashboard over the task
+> store). They are not the same thing — this file is the plan-of-record for
+> the whole personal workflow; `/roadmap` would be a live status view once
+> built. Flagging so future-you doesn't conflate them.

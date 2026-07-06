@@ -1,6 +1,6 @@
-<title>Hub — central overview of dotfiles documentation</title>
+<title>Hub — the personal workflow</title>
 <style>
-  /* ---- tokens: Catppuccin Latte (light) / Frappé (dark) — matches the other docs in this folder ---- */
+  /* ---- tokens: Catppuccin Latte (light) / Frappé (dark) — matches every other doc in this folder ---- */
   :root {
     --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
     --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
@@ -37,19 +37,29 @@
   * { box-sizing: border-box; }
   body { background: var(--bg); color: var(--ink); font-family: var(--sans);
          line-height: 1.55; margin: 0; font-size: 16px; }
-  main { max-width: 56rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
 
-  header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line); margin-bottom: 2rem; }
-  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  header.doc { padding: 2.5rem 0 1.5rem; }
+  h1 { font-family: var(--mono); font-size: clamp(1.6rem, 3.8vw, 2.3rem);
        margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
   h1 .glyph { color: var(--acc); }
   .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
-             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .2rem; }
-  header.doc p { max-width: 65ch; color: var(--ink2); }
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+  header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
 
-  h2 { font-family: var(--mono); font-size: 1.1rem; margin: 2.5rem 0 1rem;
-       padding-top: 1.25rem; border-top: 1px solid var(--line); letter-spacing: -.01em; }
-  h2:first-of-type { border-top: 0; padding-top: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
 
   a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
   a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
@@ -57,94 +67,169 @@
   code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
          padding: .1em .35em; border-radius: 4px; }
 
-  .chip { font-family: var(--mono); font-size: .72rem; border: 1px solid var(--line);
-          border-radius: 999px; padding: .15rem .6rem; color: var(--ink2);
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
           background: var(--panel); white-space: nowrap; display: inline-block; }
   .chip.warn { color: var(--warn); border-color: var(--warn); }
   .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.mut  { color: var(--mut); }
 
-  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin: 1rem 0; }
-  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
-  th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
-       text-align: left; color: var(--ink2); background: var(--bg2);
-       padding: .6rem .8rem; border-bottom: 1px solid var(--line); }
-  td { padding: .6rem .8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  tr:last-child td { border-bottom: 0; }
-  td:first-child { font-family: var(--mono); font-size: .84rem; white-space: nowrap; }
-  tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  /* ---- the dashboard grid ---- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .tile.mini { padding: .8rem .9rem; gap: .35rem; }
+  .tile.mini h3 { font-size: .84rem; }
+  .tile.disabled { opacity: .6; cursor: default; }
+  .tile.disabled:hover { transform: none; border-color: var(--line); box-shadow: none; }
 
   .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
-          border-radius: 0 8px 8px 0; padding: .9rem 1.1rem; margin: 1.25rem 0; font-size: .92rem; }
-  .note p { margin: 0; max-width: none; }
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
 
-  footer { margin-top: 3.5rem; padding-top: 1rem; border-top: 1px solid var(--line);
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
            color: var(--mut); font-size: .8rem; }
   footer code { font-size: .75rem; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
+<div class="statusbar" aria-hidden="true">
+  <span><b>7</b> docs</span>
+  <span><b>3</b> repos</span>
+  <span class="right">manually maintained · 2026-07-06</span>
+</div>
+
 <main>
 <header class="doc">
-  <span class="eyebrow">dotfiles · documentation index</span>
+  <span class="eyebrow">personal workflow</span>
   <h1><span class="glyph">⌂</span> Hub</h1>
-  <p>The index. When in doubt about which doc has what, start here.
-     <span class="chip warn">manually maintained</span> — updated on request, not automatically.</p>
+  <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it.
+     <span class="chip warn" style="margin-left:.3rem">manually maintained</span> — see
+     <a href="overview.html">overview.html</a> §"doc-sync tool" for the plan to stop hand-updating
+     this.</p>
 </header>
 
-<h2 id="live">Live docs</h2>
-<div class="table-wrap"><table>
-  <thead><tr><th>Doc</th><th>What it's for</th><th>Status</th></tr></thead>
-  <tbody>
-  <tr><td><a href="dotfiles-overview.md">dotfiles-overview.md</a> /
-      <a href="dotfiles-overview.html">.html</a></td>
-      <td>Everything in this repo — what it is, why it exists, how to use it. The catch-all project
-      overview.</td>
-      <td><span class="chip warn">WIP</span></td></tr>
-  <tr><td><a href="agent-workbench-findings.html">agent-workbench-findings.html</a></td>
-      <td>Deep-dive audit of the tmux/Claude agent tooling specifically: inventory, the
-      <code>@claude_blocked</code> signal contract, gaps, target flows, decisions. Source of truth
-      for that effort.</td>
-      <td><span class="chip ok">updated as of PR #7</span></td></tr>
-  <tr><td><a href="2026-07-06-way-forward.md">2026-07-06-way-forward.md</a> /
-      <a href="2026-07-06-way-forward.html">.html</a></td>
-      <td>The synthesized plan that grew out of the findings doc: readback, decisions, build order,
-      later additions. The roadmap for the agent-workbench project.</td>
-      <td><span class="chip ok">slices 1–3 done</span> <span class="chip">4–5 not started</span></td></tr>
-  </tbody>
-</table></div>
+<section class="group">
+  <div class="group-head"><h2>Personal workflow</h2>
+    <span class="group-sub"><code>~/code/dotfiles</code></span></div>
+  <div class="grid">
+    <a class="tile" href="roadmap.html">
+      <div class="tile-top"><span class="tile-glyph">→</span>
+        <span class="chip ok">slices 1–3 done</span></div>
+      <h3>Roadmap</h3>
+      <p>The plan: readback, decisions, build order, later additions. Also <code>roadmap.md</code>.</p>
+      <div class="path">docs/roadmap.html</div>
+    </a>
+    <a class="tile" href="overview.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip warn">WIP</span></div>
+      <h3>Overview</h3>
+      <p>Everything in the personal workflow — what it is, why it exists, how to use it. Also
+        <code>overview.md</code>.</p>
+      <div class="path">docs/overview.html</div>
+    </a>
+    <a class="tile" href="agent-workbench-findings.html">
+      <div class="tile-top"><span class="tile-glyph">✳</span>
+        <span class="chip ok">updated · PR #7</span></div>
+      <h3>Agent Workbench Findings</h3>
+      <p>Pre-build audit of the tmux/Claude tooling: inventory, signal contract, gaps, flows.</p>
+      <div class="path">docs/agent-workbench-findings.html</div>
+    </a>
+    <a class="tile" href="wb-guide.html">
+      <div class="tile-top"><span class="tile-glyph">▤</span>
+        <span class="chip ok">current</span></div>
+      <h3>wb Guide</h3>
+      <p>How to use <code>wb</code>: session-per-worktree, the unified picker, wind-down.</p>
+      <div class="path">docs/wb-guide.html</div>
+    </a>
+  </div>
+</section>
 
-<h2 id="related">Related, not in <code>docs/</code></h2>
-<div class="table-wrap"><table>
-  <thead><tr><th>Location</th><th>What it's for</th></tr></thead>
-  <tbody>
-  <tr><td>~/code/tasks/dotfiles--*.md</td>
-      <td>The actual per-task build logs and backlogs — most detailed, most current record of any
-      in-flight work. Central task store, its own git repo.</td></tr>
-  <tr><td>logs/decisions/*.md</td>
-      <td>Scratch decision records from decision-buffer sessions (gitignored — not tracked, cited by
-      name from the docs above).</td></tr>
-  <tr><td>readme.md <span class="chip">repo root</span></td>
-      <td>Original stow-migration plan (2026-06-11) — historical/setup context, not a living
-      guide.</td></tr>
-  <tr><td>nvim/.config/nvim/README.md + instructions.md</td>
-      <td>nvim's own docs, including the <code>claude-tmux</code> bridge. Already maintained
-      separately — not duplicated here.</td></tr>
-  <tr><td>scripts/.config/scripts/tmux/instructions.md <span class="chip warn">stale</span></td>
-      <td>Predates the notification work — flagged as a gap in the findings doc, not yet
-      refreshed.</td></tr>
-  <tr><td>~/code/notes-tui/notes-guide.html</td>
-      <td>notes-tui's own committed usage guide (install/commands/global-flags/conventions/roadmap).
-      Not linked from its own README — easy to miss.</td></tr>
-  </tbody>
-</table></div>
+<section class="group">
+  <div class="group-head"><h2>Claude skills</h2>
+    <span class="group-sub">~/.claude/skills/ · not version-controlled</span></div>
+  <div class="grid dense">
+    <a class="tile mini" href="overview.html#decision-buffer">
+      <div class="tile-top"><span class="tile-glyph">◆</span></div>
+      <h3>decision-buffer</h3>
+      <p>Design decisions through an nvim buffer instead of a chat menu.</p>
+    </a>
+    <a class="tile mini" href="overview.html#park">
+      <div class="tile-top"><span class="tile-glyph">◆</span></div>
+      <h3>park</h3>
+      <p>&lt;10s capture of a "deal with this later" item.</p>
+    </a>
+    <a class="tile mini" href="overview.html#parked-items">
+      <div class="tile-top"><span class="tile-glyph">◆</span></div>
+      <h3>parked-items</h3>
+      <p>Weekly review of everything parked, as an nvim checklist.</p>
+    </a>
+    <a class="tile mini" href="overview.html#pr-review-session">
+      <div class="tile-top"><span class="tile-glyph">◆</span></div>
+      <h3>pr-review-session</h3>
+      <p>Open PRs → worktrees + tmux windows + briefs + reviews.</p>
+    </a>
+  </div>
+  <div class="note"><p><strong>Interim only:</strong> tiles above deep-link into
+    <code>overview.html</code>'s skills section — there's no dedicated page per skill yet.
+    Standalone guide pages per skill (and per TUI) with this same tile-grid as their entry point is
+    on the roadmap.</p></div>
+</section>
 
-<h2 id="landing">Where new docs should land</h2>
-<div class="note"><p><code>docs/</code> in this repo, always (never <code>logs/</code> — that's
-gitignored scratch, see <code>.gitignore</code>). Add a row to this page when you add a doc.</p></div>
+<section class="group">
+  <div class="group-head"><h2>TUIs</h2>
+    <span class="group-sub">separate repos under <code>~/code/</code></span></div>
+  <div class="grid">
+    <a class="tile" href="../../notes-tui/notes-guide.html">
+      <div class="tile-top"><span class="tile-glyph">▦</span>
+        <span class="chip mut">orphaned doc</span></div>
+      <h3>notes-tui</h3>
+      <p>Full usage guide: install, commands, global flags, conventions, roadmap.</p>
+      <div class="path">~/code/notes-tui/notes-guide.html</div>
+    </a>
+  </div>
+</section>
+
+<section class="group">
+  <div class="group-head"><h2>Other artifacts, other repos</h2>
+    <span class="group-sub">found on this machine, not part of the personal workflow</span></div>
+  <div class="grid dense">
+    <div class="tile mini disabled">
+      <div class="tile-top"><span class="tile-glyph">✎</span></div>
+      <h3>be--monorepo sprint doc</h3>
+      <p>Work project artifact — session scratchpad, not linked here on purpose.</p>
+    </div>
+    <div class="tile mini disabled">
+      <div class="tile-top"><span class="tile-glyph">✎</span></div>
+      <h3>lib--algorithms metrics plan</h3>
+      <p>Work project artifact — session scratchpad, not linked here on purpose.</p>
+    </div>
+  </div>
+  <div class="note"><p><strong>Discoverability limit:</strong> these two turned up by scanning
+    <code>/tmp/claude-1000/*</code> on this machine right now — anything from a session whose
+    scratch dir has since been cleaned, or from another machine, is invisible to this sweep. That
+    gap is exactly the cross-repo/cross-session doc problem on the roadmap below.</p></div>
+</section>
 
 <footer>
-  Source: <code>docs/HUB.md</code> (this file's source). Manually maintained — see
-  <a href="dotfiles-overview.html">dotfiles-overview.html</a> for the doc-sync-tool idea that would
-  eventually generate this automatically.
+  Source: <code>docs/HUB.html</code> (dashboard) / <code>docs/HUB.md</code> (plain-text index,
+  same content, kept for grep/diff-friendliness). Roadmap for what replaces manual upkeep here:
+  <a href="roadmap.html">roadmap.html</a> §6.
 </footer>
 </main>
