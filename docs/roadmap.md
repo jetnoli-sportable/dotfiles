@@ -624,6 +624,63 @@ ready rather than needing a fresh investigation pass:
 
 **Your take:** pick off in any order; none block each other or slice 5.
 
+### 9g. GPaste clipboard manager setup (owner task spec, 2026-07-07 — run before the next slice)
+
+System-level (GNOME/Wayland desktop, not this repo's tooling), so it's
+sequenced as its own gate before the next slice starts rather than folded
+into 9f. gpaste-2 + the GNOME Shell extension are already installed and
+enabled (user has already logged out/in) — this is the *configuration*
+pass, not the install. Full owner-authored runbook, preserved verbatim so
+it executes faithfully when picked up:
+
+> **Goal:** configure GPaste as a Flycut-style clipboard-history manager,
+> settings captured in a dotfiles-friendly dconf file. Target: a keyboard
+> shortcut that opens clipboard history to pick and paste an old clip.
+> **Shortcut: `<Ctrl><Shift>V`** (owner call, 2026-07-07 — supersedes the
+> `<Ctrl><Alt>V` in the original spec draft below).
+>
+> 1. **Precondition check** — confirm the prior install/enable actually
+>    took before configuring anything:
+>    `which gpaste-client || echo "MISSING: gpaste-client not found"`
+>    `gpaste-client daemon-version 2>/dev/null || echo "MISSING: daemon not responding"`
+>    If either is missing: stop, report to the user. Do NOT reinstall or
+>    restart gnome-shell on Wayland — ask the user to re-check instead.
+> 2. **Verify the engine works** — `echo "test-clip-1" | gpaste-client add`,
+>    same for a second clip, then `gpaste-client history` and confirm both
+>    appear.
+> 3. **Discover exact gsettings keys (version-safe)** — do not hardcode key
+>    names from memory; run `gsettings list-recursively org.gnome.GPaste`
+>    first and confirm real key names (expect `show-history`, `launch-ui`,
+>    and sync/upload accelerators) before setting anything.
+> 4. **Configure via dconf** — the history shortcut needs GVariant
+>    list-of-strings syntax (brackets + quotes required):
+>    `gsettings set org.gnome.GPaste show-history "['<Ctrl><Shift>V']"`.
+>    Also: `max-history-size 200`, `images-support true`,
+>    `save-history true`. Only set keys confirmed to exist in step 3; skip
+>    and report any that differ.
+> 5. **Check shortcut conflicts** before finalizing — inspect
+>    `gsettings list-recursively org.gnome.settings-daemon.plugins.media-keys`
+>    and `...org.gnome.desktop.wm.keybindings`. If `<Ctrl><Shift>V`
+>    collides, warn the user and suggest an alternative — don't change it
+>    without confirmation.
+> 6. **Export to dotfiles** — `dconf dump /org/gnome/GPaste/ >
+>    ~/dotfiles/gpaste.dconf` (adjust path to this repo's actual location,
+>    `~/code/dotfiles`), show the restore command
+>    (`dconf load /org/gnome/GPaste/ < .../gpaste.dconf`) for future
+>    machines. If it's a git repo, stage but do NOT commit unless asked.
+>
+> **Constraints:** no gnome-shell restart, no reinstall — those steps are
+> done. Wayland reserves some Super-key combos, but `<Ctrl><Shift>V` avoids
+> that class of conflict; if a conflict shows up anyway in step 5 it's
+> almost certainly a different app already owning that combo, not a bad
+> install. Setting `show-history` via dconf takes effect on the running
+> daemon live, no restart needed.
+>
+> **Final verification:** `gsettings get org.gnome.GPaste show-history` →
+> expect `['<Ctrl><Shift>V']`. Report what was configured, the active
+> shortcut, and the dconf export path; ask the user to test the shortcut
+> themselves and confirm the history popup appears.
+
 > **Naming note (resolved 2026-07-07):** the collision between this doc
 > ("Roadmap") and the 9a feature (formerly "/roadmap") is closed — the
 > feature is renamed `/board` (Decision 5A). "Roadmap" now unambiguously
@@ -657,6 +714,7 @@ ready rather than needing a fresh investigation pass:
 | Jira integration (both 9a's and 9b's halves) | 9a/9b | own ratified addition, not scheduled |
 | Per-skill guide pages + generated HUB | 9c | inside slice 5 (born generated) |
 | Editor/tmux ergonomics batch (oil→window, session persistence, telescope git_status, Claude clipboard, quick-ask bind, diff plugin trial) | 9f | right after PR #9 merges |
+| GPaste clipboard-history manager (configure + dconf export, `<Ctrl><Shift>V`) | 9g | before the next slice starts |
 | Cross-repo/cross-machine doc registry | 9d | PROPOSAL, unratified — only if artifacts still go missing |
 | Task recall — resume any work from any session | 9e | after slice 5; decision buffer at pickup |
 | Personal/employer boundary rule (store remote, classification) | Decision 4 | FINAL follow-up, owner call, after full flow in place |

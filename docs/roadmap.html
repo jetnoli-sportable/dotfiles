@@ -773,6 +773,60 @@ distinct plugin name is non-standard; clarify which repo before
 installing anything under that name. <em>Small to trial.</em></li>
 </ol>
 <p><strong>Your take:</strong> pick off in any order; none block each other or slice 5.</p>
+<h3 id="9g-gpaste-clipboard-manager-setup-owner-task-spec-2026-07-07--run-before-the-next-slice">9g. GPaste clipboard manager setup (owner task spec, 2026-07-07 — run before the next slice)</h3>
+<p>System-level (GNOME/Wayland desktop, not this repo's tooling), so it's
+sequenced as its own gate before the next slice starts rather than folded
+into 9f. gpaste-2 + the GNOME Shell extension are already installed and
+enabled (user has already logged out/in) — this is the <em>configuration</em>
+pass, not the install. Full owner-authored runbook, preserved verbatim so
+it executes faithfully when picked up:</p>
+<blockquote>
+<p><strong>Goal:</strong> configure GPaste as a Flycut-style clipboard-history manager,
+settings captured in a dotfiles-friendly dconf file. Target: a keyboard
+shortcut that opens clipboard history to pick and paste an old clip.
+<strong>Shortcut: <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code></strong> (owner call, 2026-07-07 — supersedes the
+<code>&lt;Ctrl&gt;&lt;Alt&gt;V</code> in the original spec draft below).</p>
+<ol>
+<li><strong>Precondition check</strong> — confirm the prior install/enable actually
+took before configuring anything:
+<code>which gpaste-client || echo &quot;MISSING: gpaste-client not found&quot;</code>
+<code>gpaste-client daemon-version 2&gt;/dev/null || echo &quot;MISSING: daemon not responding&quot;</code>
+If either is missing: stop, report to the user. Do NOT reinstall or
+restart gnome-shell on Wayland — ask the user to re-check instead.</li>
+<li><strong>Verify the engine works</strong> — <code>echo &quot;test-clip-1&quot; | gpaste-client add</code>,
+same for a second clip, then <code>gpaste-client history</code> and confirm both
+appear.</li>
+<li><strong>Discover exact gsettings keys (version-safe)</strong> — do not hardcode key
+names from memory; run <code>gsettings list-recursively org.gnome.GPaste</code>
+first and confirm real key names (expect <code>show-history</code>, <code>launch-ui</code>,
+and sync/upload accelerators) before setting anything.</li>
+<li><strong>Configure via dconf</strong> — the history shortcut needs GVariant
+list-of-strings syntax (brackets + quotes required):
+<code>gsettings set org.gnome.GPaste show-history &quot;['&lt;Ctrl&gt;&lt;Shift&gt;V']&quot;</code>.
+Also: <code>max-history-size 200</code>, <code>images-support true</code>,
+<code>save-history true</code>. Only set keys confirmed to exist in step 3; skip
+and report any that differ.</li>
+<li><strong>Check shortcut conflicts</strong> before finalizing — inspect
+<code>gsettings list-recursively org.gnome.settings-daemon.plugins.media-keys</code>
+and <code>...org.gnome.desktop.wm.keybindings</code>. If <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code>
+collides, warn the user and suggest an alternative — don't change it
+without confirmation.</li>
+<li><strong>Export to dotfiles</strong> — <code>dconf dump /org/gnome/GPaste/ &gt; ~/dotfiles/gpaste.dconf</code> (adjust path to this repo's actual location,
+<code>~/code/dotfiles</code>), show the restore command
+(<code>dconf load /org/gnome/GPaste/ &lt; .../gpaste.dconf</code>) for future
+machines. If it's a git repo, stage but do NOT commit unless asked.</li>
+</ol>
+<p><strong>Constraints:</strong> no gnome-shell restart, no reinstall — those steps are
+done. Wayland reserves some Super-key combos, but <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> avoids
+that class of conflict; if a conflict shows up anyway in step 5 it's
+almost certainly a different app already owning that combo, not a bad
+install. Setting <code>show-history</code> via dconf takes effect on the running
+daemon live, no restart needed.</p>
+<p><strong>Final verification:</strong> <code>gsettings get org.gnome.GPaste show-history</code> →
+expect <code>['&lt;Ctrl&gt;&lt;Shift&gt;V']</code>. Report what was configured, the active
+shortcut, and the dconf export path; ask the user to test the shortcut
+themselves and confirm the history popup appears.</p>
+</blockquote>
 <blockquote>
 <p><strong>Naming note (resolved 2026-07-07):</strong> the collision between this doc
 (&quot;Roadmap&quot;) and the 9a feature (formerly &quot;/roadmap&quot;) is closed — the
@@ -837,6 +891,11 @@ with the repo. One line per item; add on deferral, strike on completion.</p>
 <td>Editor/tmux ergonomics batch (oil→window, session persistence, telescope git_status, Claude clipboard, quick-ask bind, diff plugin trial)</td>
 <td>9f</td>
 <td>right after PR #9 merges</td>
+</tr>
+<tr>
+<td>GPaste clipboard-history manager (configure + dconf export, <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code>)</td>
+<td>9g</td>
+<td>before the next slice starts</td>
 </tr>
 <tr>
 <td>Cross-repo/cross-machine doc registry</td>
