@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Regenerates the docs platform whenever a commit touches one of docgen's
+# tracked inputs, so committed docs/*.html + HUB.html + INDEX.md can never
+# drift from the sources that produced them.
+#
+# Installed via `git config core.hooksPath .githooks` (install.sh does this
+# for fresh clones). Deliberately non-blocking when docgen isn't set up yet
+# (fresh machine, ~/code/docgen not cloned) — only blocks when docgen IS
+# available and fails.
+#
+# Known limitation: reacts to `git diff --cached` (what's staged), but
+# regenerates from the working tree. Partially staging a docgen input with
+# `git add -p` and then committing will pull the unstaged remainder into the
+# generated output too. Fine for a solo-committer personal repo; not
+# something to reach for in a shared one without tightening this.
+#
+# Out of scope on purpose: docgen's OWN sources live in the sibling
+# ~/code/docgen repo, which has no hook of its own — a docgen code change
+# doesn't auto-regenerate here until you next edit something in this repo
+# (or run `docgen.sh` by hand).
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+# Tracked-in-this-repo docgen inputs only. logs/decisions/ (gitignored) and
+# ~/code/tasks (a separate repo) also feed the INDEX but can't be detected
+# from a staged diff here — regenerate by hand after editing those.
+triggers='^docs/[^/]+\.md$'
+triggers+='|^docs/guides/.*\.md$'
+triggers+='|^docs/docgen\.json$'
+triggers+='|^docs/_templates/.*\.html$'
+triggers+='|^tmux/\.config/tmux/tmux\.conf$'
+triggers+='|^zsh/\.zshrc$'
+triggers+='|^claude/\.claude/skills/.*/SKILL\.md$'
+triggers+='|^scripts/\.config/scripts/tmux/[^/]+\.sh$'
+triggers+='|^scripts/\.config/scripts/[^/]+\.sh$'
+
+changed="$(git diff --cached --name-only --diff-filter=ACMR)"
+if ! grep -qE "$triggers" <<<"$changed"; then
+  exit 0
+fi
+
+docgen_sh="$HOME/.config/scripts/docgen.sh"
+if [ ! -x "$docgen_sh" ] || [ ! -d "$HOME/code/docgen" ]; then
+  echo "pre-commit: docgen not set up (~/code/docgen missing) — docs will drift until it is; regenerate by hand later" >&2
+  exit 0
+fi
+
+echo "pre-commit: docgen-tracked source changed — regenerating"
+if ! "$docgen_sh" all; then
+  echo "pre-commit: docgen failed (see above) — fix it before committing" >&2
+  exit 1
+fi
+
+git add docs/

@@ -6,6 +6,10 @@ cd "$(dirname "$0")"
 
 command -v stow >/dev/null || sudo apt install -y stow
 
+# Auto-regenerate the docs platform (docgen) on commits that touch its
+# tracked inputs — see .githooks/pre-commit for what triggers it.
+git config core.hooksPath .githooks
+
 # -t "$HOME" is required: this repo lives at ~/code/dotfiles, so stow's
 # default target (the parent directory) would be ~/code, not $HOME.
 stow -t "$HOME" zsh git ohmyposh tmux scripts nvim ghostty
@@ -25,3 +29,4 @@ command -v nvim >/dev/null && nvim --headless "+Lazy! restore" +qa || true
 
 echo "Done. Start a new shell. Machine-local extras go in ~/.zshrc.local."
 echo "Still needed by hand: fdfind, fzf, zoxide, oh-my-posh, lazygit, nvm/pyenv/tfenv as desired."
+echo "Docs auto-regenerate on commit once ~/code/docgen is cloned (see docs/slice-5-recap.html)."

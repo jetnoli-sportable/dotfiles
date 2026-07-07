@@ -79,6 +79,16 @@ dotfiles — the tool itself is generic enough to point at another repo later.
       plus the old overview content, so drift is possible.
 - [ ] **Regenerate and confirm it's a no-op**: run `docgen.sh` from the repo
       root twice in a row and check `git status` shows nothing changed.
+- [x] **~~No freshness hook~~ — fixed.** A `.githooks/pre-commit` hook now
+      runs `docgen.sh all` automatically whenever a commit touches a
+      tracked docgen input (docs sources, `docgen.json`, templates,
+      `tmux.conf`, `.zshrc`, skill files, or tmux/scripts scripts) and
+      stages the regenerated output into the same commit. Installed via
+      `git config core.hooksPath .githooks` (`install.sh` does this on a
+      fresh clone). Non-blocking if `~/code/docgen` isn't cloned yet, and
+      only reacts to what's *tracked in this repo* — `logs/decisions/`
+      (gitignored) and the `~/code/tasks` store still need a manual
+      `docgen.sh index` after editing.
 - [ ] **Skim the PR** ([#9](https://github.com/jetnoli-sportable/dotfiles/pull/9))
       for anything that looks off before merging to `development`.
 
@@ -86,11 +96,11 @@ dotfiles — the tool itself is generic enough to point at another repo later.
 
 - **Decide on a remote for `~/code/docgen`.** Local-only right now; a
   five-minute `gh repo create` whenever it matters to you.
-- **Four review findings are parked**, not fixed — `/parked-items` will
-  surface them: no freshness hook regenerating the INDEX when source files
-  change, two hardcoded-in-Go policy decisions that should move to
+- **Three review findings are still parked** — `/parked-items` will surface
+  them: two hardcoded-in-Go policy decisions that should move to
   `docgen.json` when they come up again, and a stale-worktree edge case in
-  `pr-review-session`'s driver.
+  `pr-review-session`'s driver. (A fourth — no freshness hook — is done:
+  see below.)
 - **Merge PR #9** once you've walked the checklist above.
 - Longer-term, unstarted: notes-tui slice 4b (the `--context` digest flag
   and `wb` integration), and roadmap 9e — task recall reusing this same

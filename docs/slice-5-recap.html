@@ -273,6 +273,16 @@ flag anything that reads wrong; they were written from the SKILL.mds
 plus the old overview content, so drift is possible.</li>
 <li><input disabled="" type="checkbox"> <strong>Regenerate and confirm it's a no-op</strong>: run <code>docgen.sh</code> from the repo
 root twice in a row and check <code>git status</code> shows nothing changed.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong><del>No freshness hook</del> — fixed.</strong> A <code>.githooks/pre-commit</code> hook now
+runs <code>docgen.sh all</code> automatically whenever a commit touches a
+tracked docgen input (docs sources, <code>docgen.json</code>, templates,
+<code>tmux.conf</code>, <code>.zshrc</code>, skill files, or tmux/scripts scripts) and
+stages the regenerated output into the same commit. Installed via
+<code>git config core.hooksPath .githooks</code> (<code>install.sh</code> does this on a
+fresh clone). Non-blocking if <code>~/code/docgen</code> isn't cloned yet, and
+only reacts to what's <em>tracked in this repo</em> — <code>logs/decisions/</code>
+(gitignored) and the <code>~/code/tasks</code> store still need a manual
+<code>docgen.sh index</code> after editing.</li>
 <li><input disabled="" type="checkbox"> <strong>Skim the PR</strong> (<a href="https://github.com/jetnoli-sportable/dotfiles/pull/9">#9</a>)
 for anything that looks off before merging to <code>development</code>.</li>
 </ul>
@@ -280,11 +290,11 @@ for anything that looks off before merging to <code>development</code>.</li>
 <ul>
 <li><strong>Decide on a remote for <code>~/code/docgen</code>.</strong> Local-only right now; a
 five-minute <code>gh repo create</code> whenever it matters to you.</li>
-<li><strong>Four review findings are parked</strong>, not fixed — <code>/parked-items</code> will
-surface them: no freshness hook regenerating the INDEX when source files
-change, two hardcoded-in-Go policy decisions that should move to
+<li><strong>Three review findings are still parked</strong> — <code>/parked-items</code> will surface
+them: two hardcoded-in-Go policy decisions that should move to
 <code>docgen.json</code> when they come up again, and a stale-worktree edge case in
-<code>pr-review-session</code>'s driver.</li>
+<code>pr-review-session</code>'s driver. (A fourth — no freshness hook — is done:
+see below.)</li>
 <li><strong>Merge PR #9</strong> once you've walked the checklist above.</li>
 <li>Longer-term, unstarted: notes-tui slice 4b (the <code>--context</code> digest flag
 and <code>wb</code> integration), and roadmap 9e — task recall reusing this same
