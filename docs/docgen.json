@@ -1,0 +1,15 @@
+{
+  "templates": "docs/_templates",
+  "pageDirs": ["docs"],
+  "exclude": ["HUB.md", "INDEX.md"],
+  "hub": {
+    "out": "",
+    "eyebrow": "personal workflow",
+    "title": "Hub",
+    "intro": "",
+    "groups": [],
+    "sidecar": []
+  },
+  "index": { "out": "", "sources": [] },
+  "redact": { "denylist": [] }
+}
