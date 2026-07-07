@@ -51,6 +51,7 @@
       { "kind": "decisions", "path": "logs/decisions", "tags": "" },
       { "kind": "memory", "path": "~/.claude/projects/-home-jetnoli-code-dotfiles/memory/MEMORY.md", "tags": "" },
       { "kind": "tui", "path": "~/code/notes-tui/README.md", "name": "notes-tui", "invoke": "notes", "guide": "docs/guides/notes-tui.html", "tags": "" },
+      { "kind": "tui", "path": "~/code/replay-tui/README.md", "name": "replay-tui", "invoke": "replay", "guide": "docs/guides/replay-tui.html", "tags": "" },
       { "kind": "taskstore", "path": "~/code/tasks", "tags": "" }
     ]
   },

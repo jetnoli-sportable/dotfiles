@@ -59,6 +59,7 @@
 {"id":"doc-park","kind":"doc","name":"park","oneliner":"<10s capture of a \"deal with this later\" item.","source":"docs/guides/park.md:1","invoke":"xdg-open docs/guides/park.html","guide":"docs/guides/park.html","tags":["docs","skills"]}
 {"id":"doc-parked-items","kind":"doc","name":"parked-items","oneliner":"Weekly review of everything parked, as an nvim checklist.","source":"docs/guides/parked-items.md:1","invoke":"xdg-open docs/guides/parked-items.html","guide":"docs/guides/parked-items.html","tags":["docs","skills"]}
 {"id":"doc-pr-review-session","kind":"doc","name":"pr-review-session","oneliner":"Open PRs → worktrees + tmux windows + briefs + reviews.","source":"docs/guides/pr-review-session.md:1","invoke":"xdg-open docs/guides/pr-review-session.html","guide":"docs/guides/pr-review-session.html","tags":["docs","skills"]}
+{"id":"doc-replay-tui","kind":"doc","name":"replay-tui","oneliner":"Typed daemon-replay launcher for the Metrics Server — CLI + interactive TUI.","source":"docs/guides/replay-tui.md:1","invoke":"xdg-open docs/guides/replay-tui.html","guide":"docs/guides/replay-tui.html","tags":["docs","tuis"]}
 {"id":"doc-roadmap","kind":"doc","name":"Roadmap — the personal workflow","oneliner":"The plan: readback, decisions, build order, later additions.","source":"docs/roadmap.md:1","invoke":"xdg-open docs/roadmap.html","guide":"docs/roadmap.html","tags":["docs","personal-workflow"]}
 {"id":"doc-setup","kind":"doc","name":"Shell & terminal setup","oneliner":"zsh, Ghostty, oh-my-posh, git — what's configured and why.","source":"docs/setup.md:1","invoke":"xdg-open docs/setup.html","guide":"docs/setup.html","tags":["docs","personal-workflow"]}
 {"id":"doc-slice-5-recap","kind":"doc","name":"Slice 5 recap — the docs platform","oneliner":"What shipped, what to verify yourself, and what's next. Start here after the PR.","source":"docs/slice-5-recap.md:1","invoke":"xdg-open docs/slice-5-recap.html","guide":"docs/slice-5-recap.html","tags":["docs","personal-workflow"]}
@@ -84,6 +85,7 @@
 {"id":"skill-parked-items","kind":"skill","name":"parked-items","oneliner":"Weekly review of everything the user parked for \"later\" — items they said to discuss later, revisit, or make a scratch/follow-up task for —…","source":"claude/.claude/skills/parked-items/SKILL.md:1","invoke":"/parked-items","guide":"docs/guides/parked-items.html","tags":["claude"]}
 {"id":"skill-pr-review-session","kind":"skill","name":"pr-review-session","oneliner":"Check GitHub for open PRs in watched repos, pull each PR down as a git worktree, spin up a per-PR tmux window, write a PR brief, and run a …","source":"claude/.claude/skills/pr-review-session/SKILL.md:1","invoke":"/pr-review-session","guide":"docs/guides/pr-review-session.html","tags":["claude"]}
 {"id":"tui-notes-tui","kind":"tui","name":"notes-tui","oneliner":"A capture-dumb, retrieval-smart notes tool over a flat git corpus of markdown.","source":"~/code/notes-tui/README.md:1","invoke":"notes","guide":"docs/guides/notes-tui.html","tags":[]}
+{"id":"tui-replay-tui","kind":"tui","name":"replay-tui","oneliner":"A typed Go launcher for daemon replays.","source":"~/code/replay-tui/README.md:1","invoke":"replay","guide":"docs/guides/replay-tui.html","tags":[]}
 ```
 
 | name | kind | what | invoke | source | guide |
@@ -143,6 +145,7 @@
 | park | doc | <10s capture of a "deal with this later" item. | xdg-open docs/guides/park.html | docs/guides/park.md:1 | docs/guides/park.html |
 | parked-items | doc | Weekly review of everything parked, as an nvim checklist. | xdg-open docs/guides/parked-items.html | docs/guides/parked-items.md:1 | docs/guides/parked-items.html |
 | pr-review-session | doc | Open PRs → worktrees + tmux windows + briefs + reviews. | xdg-open docs/guides/pr-review-session.html | docs/guides/pr-review-session.md:1 | docs/guides/pr-review-session.html |
+| replay-tui | doc | Typed daemon-replay launcher for the Metrics Server — CLI + interactive TUI. | xdg-open docs/guides/replay-tui.html | docs/guides/replay-tui.md:1 | docs/guides/replay-tui.html |
 | Roadmap — the personal workflow | doc | The plan: readback, decisions, build order, later additions. | xdg-open docs/roadmap.html | docs/roadmap.md:1 | docs/roadmap.html |
 | Shell & terminal setup | doc | zsh, Ghostty, oh-my-posh, git — what's configured and why. | xdg-open docs/setup.html | docs/setup.md:1 | docs/setup.html |
 | Slice 5 recap — the docs platform | doc | What shipped, what to verify yourself, and what's next. Start here after the PR. | xdg-open docs/slice-5-recap.html | docs/slice-5-recap.md:1 | docs/slice-5-recap.html |
@@ -168,3 +171,4 @@
 | parked-items | skill | Weekly review of everything the user parked for "later" — items they said to discuss later, revisit, or make a scratch/follow-up task for —… | /parked-items | claude/.claude/skills/parked-items/SKILL.md:1 | docs/guides/parked-items.html |
 | pr-review-session | skill | Check GitHub for open PRs in watched repos, pull each PR down as a git worktree, spin up a per-PR tmux window, write a PR brief, and run a … | /pr-review-session | claude/.claude/skills/pr-review-session/SKILL.md:1 | docs/guides/pr-review-session.html |
 | notes-tui | tui | A capture-dumb, retrieval-smart notes tool over a flat git corpus of markdown. | notes | ~/code/notes-tui/README.md:1 | docs/guides/notes-tui.html |
+| replay-tui | tui | A typed Go launcher for daemon replays. | replay | ~/code/replay-tui/README.md:1 | docs/guides/replay-tui.html |
