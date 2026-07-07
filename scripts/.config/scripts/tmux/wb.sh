@@ -929,7 +929,7 @@ picker() {
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7})" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
         --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
-        --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )+transform-header(\"$SELF\" _mode-header \"$mode_file\")")" || exit 0
+        --bind "esc:enable-search+clear-query+disable-search+rebind($navkeys)+change-prompt(NORMAL )+transform-header(\"$SELF\" _mode-header \"$mode_file\")")" || exit 0
 
   [ -n "$selection" ] || exit 0
   local -a f; wb_tsv_split "$selection" f
