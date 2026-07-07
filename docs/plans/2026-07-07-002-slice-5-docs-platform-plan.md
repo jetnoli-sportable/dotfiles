@@ -1,6 +1,6 @@
 ---
 type: feat
-status: active
+status: completed
 origin: docs/roadmap.md §5/§6 + 9c, as amended by the 2026-07-06 ce-doc-review
   and ratified in logs/decisions/2026-07-06-slice-review-decisions.md
   (Decisions 1A, 2A, 3A)

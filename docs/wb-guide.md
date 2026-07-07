@@ -243,6 +243,13 @@ It's a real git repo you can `cd` into, `git log`, or open in `wb` itself
 `scratch/tasks/`, and worktree setup checks it for existing context before
 starting from scratch.
 
+The planned/backlog tasks the presence-only picker hides are one command
+away:
+
+```
+wb board    # read-only status table over the whole store (the interim /board)
+```
+
 ## Known rough edges (not blocking, worth knowing)
 
 - The picker's auto-refresh briefly pauses input while it runs (every few

@@ -4,16 +4,16 @@
 > human half (table) below. Consumers: `prefix+?` picker (help.sh), /help skill.
 
 ```jsonl
-{"id":"zsh-alias-N","kind":"alias","name":"N","oneliner":"~/.config/scripts/tmux/notes.sh","source":"zsh/.zshrc:89","invoke":"N","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-ca","kind":"alias","name":"ca","oneliner":"~/.config/scripts/tmux/claude-sessions.sh","source":"zsh/.zshrc:90","invoke":"ca","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-N","kind":"alias","name":"N","oneliner":"notes picker / daily note in the persistent notes session (notes.sh)","source":"zsh/.zshrc:91","invoke":"N","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-ca","kind":"alias","name":"ca","oneliner":"legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it","source":"zsh/.zshrc:93","invoke":"ca","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-fd","kind":"alias","name":"fd","oneliner":"fdfind","source":"zsh/.zshrc:83","invoke":"fd","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-ld","kind":"alias","name":"ld","oneliner":"lazydocker","source":"zsh/.zshrc:85","invoke":"ld","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-lz","kind":"alias","name":"lz","oneliner":"lazygit","source":"zsh/.zshrc:84","invoke":"lz","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:112","invoke":"msconfig","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o \"$HOME…","source":"zsh/.zshrc:109","invoke":"replay","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"Script Aliases","source":"zsh/.zshrc:88","invoke":"s","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:116","invoke":"msconfig","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o \"$HOME/g…","source":"zsh/.zshrc:113","invoke":"replay","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m","source":"zsh/.zshrc:89","invoke":"s","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-vim","kind":"alias","name":"vim","oneliner":"nvim","source":"zsh/.zshrc:82","invoke":"vim","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"~/.config/scripts/tmux/wb.sh","source":"zsh/.zshrc:91","invoke":"wb","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html","source":"zsh/.zshrc:95","invoke":"wb","guide":"","tags":["zsh"]}
 {"id":"tmux-bind-C-h","kind":"bind","name":"C-h","oneliner":"if-shell \"$is_vim\" 'send-keys C-h'  'select-pane -L'","source":"tmux/.config/tmux/tmux.conf:107","invoke":"C-h","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-C-j","kind":"bind","name":"C-j","oneliner":"if-shell \"$is_vim\" 'send-keys C-j'  'select-pane -D'","source":"tmux/.config/tmux/tmux.conf:108","invoke":"C-j","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-C-k","kind":"bind","name":"C-k","oneliner":"if-shell \"$is_vim\" 'send-keys C-k'  'select-pane -U'","source":"tmux/.config/tmux/tmux.conf:109","invoke":"C-k","guide":"","tags":["tmux"]}
@@ -36,7 +36,7 @@
 {"id":"tmux-bind-prefix-g","kind":"bind","name":"prefix+g","oneliner":"new-window -c \"#{pane_current_path}\" -n \"lazygit\" \"$SHELL -lc 'lazygit'\"","source":"tmux/.config/tmux/tmux.conf:27","invoke":"prefix+g","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-h","kind":"bind","name":"prefix+h","oneliner":"Personal-workflow docs hub (dotfiles/docs/HUB.html) -- `h`/`H` carry no tmux default (unlike `o`/`O`, which cycle pane focus / rotate windo…","source":"tmux/.config/tmux/tmux.conf:21","invoke":"prefix+h","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-j","kind":"bind","name":"prefix+j","oneliner":"Claude agent push-notification: prefix+j -> jump straight to the most-urgent waiting agent prefix+J -> preview it first (j/Enter jumps, any…","source":"tmux/.config/tmux/tmux.conf:13","invoke":"prefix+j","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-m","kind":"bind","name":"prefix+m","oneliner":"wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per logs/dec…","source":"tmux/.config/tmux/tmux.conf:8","invoke":"prefix+m","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-m","kind":"bind","name":"prefix+m","oneliner":"wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per logs/decis…","source":"tmux/.config/tmux/tmux.conf:8","invoke":"prefix+m","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-n","kind":"bind","name":"prefix+n","oneliner":"next-window","source":"tmux/.config/tmux/tmux.conf:15","invoke":"prefix+n","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-percent","kind":"bind","name":"prefix+%","oneliner":"split-window -h -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:142","invoke":"prefix+%","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-question","kind":"bind","name":"prefix+?","oneliner":"prefix+? — the help picker: fzf over docs/INDEX.md (every bind, alias, skill, doc, decision with provenance).","source":"tmux/.config/tmux/tmux.conf:26","invoke":"prefix+?","guide":"","tags":["tmux"]}
@@ -66,7 +66,7 @@
 {"id":"memory-decision-buffer-per-decision-notes","kind":"doc","name":"Decision-buffer per-decision notes","oneliner":"multi-decision buffer docs need a Questions/Notes subsection under EVERY decision, not one at the end (user rule, all projects)","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/decision-buffer-per-decision-notes.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/decision-buffer-per-decision-notes.md","guide":"","tags":["memory"]}
 {"id":"memory-dotfiles-ghostty-vs-gnome-terminal","kind":"doc","name":"Ghostty vs GNOME Terminal","oneliner":"Ghostty kept alongside GNOME (for inline images); grayscale-AA softness is unfixable, don't re-add render knobs","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/dotfiles-ghostty-vs-gnome-terminal.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/dotfiles-ghostty-vs-gnome-terminal.md","guide":"","tags":["memory"]}
 {"id":"memory-dotfiles-wm-direction","kind":"doc","name":"Dotfiles WM direction","oneliner":"PENDING: wants basic i3/AeroSpace trifecta (focus-or-launch + tiling + move-to-workspace); GNOME+Forge leading, Sway parked as overkill; do…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/dotfiles-wm-direction.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/dotfiles-wm-direction.md","guide":"","tags":["memory"]}
-{"id":"zsh-fn-pgh","kind":"function","name":"pgh","oneliner":"Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT inst…","source":"zsh/.zshrc:105","invoke":"pgh","guide":"","tags":["zsh"]}
+{"id":"zsh-fn-pgh","kind":"function","name":"pgh","oneliner":"Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT inst…","source":"zsh/.zshrc:109","invoke":"pgh","guide":"","tags":["zsh"]}
 {"id":"script-claude-notify-hook","kind":"script","name":"claude-notify-hook.sh","oneliner":"Claude Code hook → push the agent's state onto its own tmux pane as the","source":"scripts/.config/scripts/tmux/claude-notify-hook.sh:1","invoke":"scripts/.config/scripts/tmux/claude-notify-hook.sh","guide":"","tags":["tmux"]}
 {"id":"script-claude-sessions","kind":"script","name":"claude-sessions.sh","oneliner":"Overview of every Claude Code agent running across all tmux sessions/windows,","source":"scripts/.config/scripts/tmux/claude-sessions.sh:1","invoke":"scripts/.config/scripts/tmux/claude-sessions.sh","guide":"","tags":["tmux"]}
 {"id":"script-claude-status","kind":"script","name":"claude-status.sh","oneliner":"status-left segment: a quiet count of Claude agents that need you.","source":"scripts/.config/scripts/tmux/claude-status.sh:1","invoke":"scripts/.config/scripts/tmux/claude-status.sh","guide":"","tags":["tmux"]}
@@ -77,25 +77,25 @@
 {"id":"script-session","kind":"script","name":"session.sh","oneliner":"Fuzzy-pick a git repo under ~/code and jump to (or create) its tmux session.","source":"scripts/.config/scripts/tmux/session.sh:1","invoke":"scripts/.config/scripts/tmux/session.sh","guide":"","tags":["tmux"]}
 {"id":"script-wb","kind":"script","name":"wb.sh","oneliner":"wb (workbench) — session-per-worktree + the unified picker.","source":"scripts/.config/scripts/tmux/wb.sh:1","invoke":"scripts/.config/scripts/tmux/wb.sh","guide":"","tags":["tmux"]}
 {"id":"skill-decision-buffer","kind":"skill","name":"decision-buffer","oneliner":"Run design discussions through a markdown decision doc edited in the user's nvim buffer instead of AskUserQuestion menus.","source":"claude/.claude/skills/decision-buffer/SKILL.md:1","invoke":"/decision-buffer","guide":"docs/guides/decision-buffer.html","tags":["claude"]}
-{"id":"skill-help","kind":"skill","name":"help","oneliner":"Answer \"why do I have binding X\", \"what does Y do\", \"how do I use Z\" questions about the personal workflow with provenance, not grep — re…","source":"claude/.claude/skills/help/SKILL.md:1","invoke":"/help","guide":"","tags":["claude"]}
+{"id":"skill-help","kind":"skill","name":"help","oneliner":"Answer \"why do I have binding X\", \"what does Y do\", \"how do I use Z\" questions about the personal workflow with provenance, not grep — read…","source":"claude/.claude/skills/help/SKILL.md:1","invoke":"/help","guide":"","tags":["claude"]}
 {"id":"skill-park","kind":"skill","name":"park","oneliner":"Capture a \"deal with this later\" item to the parked-items ledger so the weekly /parked-items review surfaces it.","source":"claude/.claude/skills/park/SKILL.md:1","invoke":"/park","guide":"docs/guides/park.html","tags":["claude"]}
-{"id":"skill-parked-items","kind":"skill","name":"parked-items","oneliner":"Weekly review of everything the user parked for \"later\" — items they said to discuss later, revisit, or make a scratch/follow-up task for…","source":"claude/.claude/skills/parked-items/SKILL.md:1","invoke":"/parked-items","guide":"docs/guides/parked-items.html","tags":["claude"]}
-{"id":"skill-pr-review-session","kind":"skill","name":"pr-review-session","oneliner":">","source":"claude/.claude/skills/pr-review-session/SKILL.md:1","invoke":"/pr-review-session","guide":"docs/guides/pr-review-session.html","tags":["claude"]}
+{"id":"skill-parked-items","kind":"skill","name":"parked-items","oneliner":"Weekly review of everything the user parked for \"later\" — items they said to discuss later, revisit, or make a scratch/follow-up task for —…","source":"claude/.claude/skills/parked-items/SKILL.md:1","invoke":"/parked-items","guide":"docs/guides/parked-items.html","tags":["claude"]}
+{"id":"skill-pr-review-session","kind":"skill","name":"pr-review-session","oneliner":"Check GitHub for open PRs in watched repos, pull each PR down as a git worktree, spin up a per-PR tmux window, write a PR brief, and run a …","source":"claude/.claude/skills/pr-review-session/SKILL.md:1","invoke":"/pr-review-session","guide":"docs/guides/pr-review-session.html","tags":["claude"]}
 {"id":"tui-notes-tui","kind":"tui","name":"notes-tui","oneliner":"A capture-dumb, retrieval-smart notes tool over a flat git corpus of markdown.","source":"~/code/notes-tui/README.md:1","invoke":"notes","guide":"docs/guides/notes-tui.html","tags":[]}
 ```
 
 | name | kind | what | invoke | source | guide |
 |---|---|---|---|---|---|
-| N | alias | ~/.config/scripts/tmux/notes.sh | N | zsh/.zshrc:89 |  |
-| ca | alias | ~/.config/scripts/tmux/claude-sessions.sh | ca | zsh/.zshrc:90 |  |
+| N | alias | notes picker / daily note in the persistent notes session (notes.sh) | N | zsh/.zshrc:91 |  |
+| ca | alias | legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it | ca | zsh/.zshrc:93 |  |
 | fd | alias | fdfind | fd | zsh/.zshrc:83 |  |
 | ld | alias | lazydocker | ld | zsh/.zshrc:85 |  |
 | lz | alias | lazygit | lz | zsh/.zshrc:84 |  |
-| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:112 |  |
-| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME… | replay | zsh/.zshrc:109 |  |
-| s | alias | Script Aliases | s | zsh/.zshrc:88 |  |
+| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:116 |  |
+| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/g… | replay | zsh/.zshrc:113 |  |
+| s | alias | legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m | s | zsh/.zshrc:89 |  |
 | vim | alias | nvim | vim | zsh/.zshrc:82 |  |
-| wb | alias | ~/.config/scripts/tmux/wb.sh | wb | zsh/.zshrc:91 |  |
+| wb | alias | the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html | wb | zsh/.zshrc:95 |  |
 | C-h | bind | if-shell "$is_vim" 'send-keys C-h'  'select-pane -L' | C-h | tmux/.config/tmux/tmux.conf:107 |  |
 | C-j | bind | if-shell "$is_vim" 'send-keys C-j'  'select-pane -D' | C-j | tmux/.config/tmux/tmux.conf:108 |  |
 | C-k | bind | if-shell "$is_vim" 'send-keys C-k'  'select-pane -U' | C-k | tmux/.config/tmux/tmux.conf:109 |  |
@@ -118,7 +118,7 @@
 | prefix+g | bind | new-window -c "#{pane_current_path}" -n "lazygit" "$SHELL -lc 'lazygit'" | prefix+g | tmux/.config/tmux/tmux.conf:27 |  |
 | prefix+h | bind | Personal-workflow docs hub (dotfiles/docs/HUB.html) -- `h`/`H` carry no tmux default (unlike `o`/`O`, which cycle pane focus / rotate windo… | prefix+h | tmux/.config/tmux/tmux.conf:21 |  |
 | prefix+j | bind | Claude agent push-notification: prefix+j -> jump straight to the most-urgent waiting agent prefix+J -> preview it first (j/Enter jumps, any… | prefix+j | tmux/.config/tmux/tmux.conf:13 |  |
-| prefix+m | bind | wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per logs/dec… | prefix+m | tmux/.config/tmux/tmux.conf:8 |  |
+| prefix+m | bind | wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per logs/decis… | prefix+m | tmux/.config/tmux/tmux.conf:8 |  |
 | prefix+n | bind | next-window | prefix+n | tmux/.config/tmux/tmux.conf:15 |  |
 | prefix+% | bind | split-window -h -c "#{pane_current_path}" | prefix+% | tmux/.config/tmux/tmux.conf:142 |  |
 | prefix+? | bind | prefix+? — the help picker: fzf over docs/INDEX.md (every bind, alias, skill, doc, decision with provenance). | prefix+? | tmux/.config/tmux/tmux.conf:26 |  |
@@ -148,7 +148,7 @@
 | Decision-buffer per-decision notes | doc | multi-decision buffer docs need a Questions/Notes subsection under EVERY decision, not one at the end (user rule, all projects) | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/decision-buffer-per-decision-notes.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/decision-buffer-per-decision-notes.md:1 |  |
 | Ghostty vs GNOME Terminal | doc | Ghostty kept alongside GNOME (for inline images); grayscale-AA softness is unfixable, don't re-add render knobs | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/dotfiles-ghostty-vs-gnome-terminal.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/dotfiles-ghostty-vs-gnome-terminal.md:1 |  |
 | Dotfiles WM direction | doc | PENDING: wants basic i3/AeroSpace trifecta (focus-or-launch + tiling + move-to-workspace); GNOME+Forge leading, Sway parked as overkill; do… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/dotfiles-wm-direction.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/dotfiles-wm-direction.md:1 |  |
-| pgh | function | Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT inst… | pgh | zsh/.zshrc:105 |  |
+| pgh | function | Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT inst… | pgh | zsh/.zshrc:109 |  |
 | claude-notify-hook.sh | script | Claude Code hook → push the agent's state onto its own tmux pane as the | scripts/.config/scripts/tmux/claude-notify-hook.sh | scripts/.config/scripts/tmux/claude-notify-hook.sh:1 |  |
 | claude-sessions.sh | script | Overview of every Claude Code agent running across all tmux sessions/windows, | scripts/.config/scripts/tmux/claude-sessions.sh | scripts/.config/scripts/tmux/claude-sessions.sh:1 |  |
 | claude-status.sh | script | status-left segment: a quiet count of Claude agents that need you. | scripts/.config/scripts/tmux/claude-status.sh | scripts/.config/scripts/tmux/claude-status.sh:1 |  |
@@ -159,8 +159,8 @@
 | session.sh | script | Fuzzy-pick a git repo under ~/code and jump to (or create) its tmux session. | scripts/.config/scripts/tmux/session.sh | scripts/.config/scripts/tmux/session.sh:1 |  |
 | wb.sh | script | wb (workbench) — session-per-worktree + the unified picker. | scripts/.config/scripts/tmux/wb.sh | scripts/.config/scripts/tmux/wb.sh:1 |  |
 | decision-buffer | skill | Run design discussions through a markdown decision doc edited in the user's nvim buffer instead of AskUserQuestion menus. | /decision-buffer | claude/.claude/skills/decision-buffer/SKILL.md:1 | docs/guides/decision-buffer.html |
-| help | skill | Answer "why do I have binding X", "what does Y do", "how do I use Z" questions about the personal workflow with provenance, not grep — re… | /help | claude/.claude/skills/help/SKILL.md:1 |  |
+| help | skill | Answer "why do I have binding X", "what does Y do", "how do I use Z" questions about the personal workflow with provenance, not grep — read… | /help | claude/.claude/skills/help/SKILL.md:1 |  |
 | park | skill | Capture a "deal with this later" item to the parked-items ledger so the weekly /parked-items review surfaces it. | /park | claude/.claude/skills/park/SKILL.md:1 | docs/guides/park.html |
-| parked-items | skill | Weekly review of everything the user parked for "later" — items they said to discuss later, revisit, or make a scratch/follow-up task for… | /parked-items | claude/.claude/skills/parked-items/SKILL.md:1 | docs/guides/parked-items.html |
-| pr-review-session | skill | > | /pr-review-session | claude/.claude/skills/pr-review-session/SKILL.md:1 | docs/guides/pr-review-session.html |
+| parked-items | skill | Weekly review of everything the user parked for "later" — items they said to discuss later, revisit, or make a scratch/follow-up task for —… | /parked-items | claude/.claude/skills/parked-items/SKILL.md:1 | docs/guides/parked-items.html |
+| pr-review-session | skill | Check GitHub for open PRs in watched repos, pull each PR down as a git worktree, spin up a per-PR tmux window, write a PR brief, and run a … | /pr-review-session | claude/.claude/skills/pr-review-session/SKILL.md:1 | docs/guides/pr-review-session.html |
 | notes-tui | tui | A capture-dumb, retrieval-smart notes tool over a flat git corpus of markdown. | notes | ~/code/notes-tui/README.md:1 | docs/guides/notes-tui.html |

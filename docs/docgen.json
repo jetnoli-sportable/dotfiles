@@ -1,7 +1,6 @@
 {
   "templates": "docs/_templates",
   "pageDirs": ["docs", "docs/guides"],
-  "exclude": ["INDEX.md"],
   "hub": {
     "out": "docs/HUB.html",
     "eyebrow": "personal workflow",

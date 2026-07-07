@@ -84,10 +84,14 @@ alias fd=fdfind
 alias lz="lazygit"
 alias ld="lazydocker"
 
-#Script Aliases
+## Script Aliases
+# legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m
 alias s="~/.config/scripts/tmux/session.sh"
+# notes picker / daily note in the persistent notes session (notes.sh)
 alias N="~/.config/scripts/tmux/notes.sh"
+# legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it
 alias ca="~/.config/scripts/tmux/claude-sessions.sh"
+# the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html
 alias wb="~/.config/scripts/tmux/wb.sh"
 
 # notes-tui capture hot-path (roadmap slice 4a, started 2026-07-07):

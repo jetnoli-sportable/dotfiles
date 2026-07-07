@@ -23,7 +23,7 @@ creates worktrees + tmux windows, and pre-fills each brief from PR metadata.
 critical findings, and mark each PR done. Run this whole flow once per
 invocation; loop or schedule it (see **Scheduling**).
 
-All `driver.py` calls below are exactly what was run and verified this session.
+All `driver.py` invocation shapes below were run and verified live.
 
 ## Setup (one-time)
 

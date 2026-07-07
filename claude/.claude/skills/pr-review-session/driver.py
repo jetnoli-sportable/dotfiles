@@ -103,11 +103,14 @@ def load_config():
 def repo_owner(repo_path: Path) -> str:
     res = run(["git", "-C", str(repo_path), "remote", "get-url", "origin"], check=False)
     url = (res.stdout or "").strip()
-    # git@github.com:OWNER/repo.git  OR  https://github.com/OWNER/repo(.git)
-    if ":" in url and "@" in url:
-        tail = url.split(":", 1)[1]
-    elif "github.com/" in url:
+    # ssh://git@github.com/OWNER/repo  OR  git@github.com:OWNER/repo.git
+    # OR  https://github.com/OWNER/repo(.git) — check the host-path form
+    # first: ssh:// URLs contain both ':' and '@' but the owner follows
+    # 'github.com/', not the colon.
+    if "github.com/" in url:
         tail = url.split("github.com/", 1)[1]
+    elif ":" in url and "@" in url:
+        tail = url.split(":", 1)[1]
     else:
         return ""
     return tail.split("/", 1)[0] if "/" in tail else ""
@@ -189,7 +192,8 @@ def cmd_plan(cfg, args):
                 "title": pr["title"],
                 "branch": pr["headRefName"],
                 "base": pr["baseRefName"],
-                "author": pr["author"]["login"],
+                # author is null for deleted (ghost) users; don't crash the whole plan
+                "author": (pr.get("author") or {}).get("login", "unknown"),
                 "url": pr["url"],
                 "draft": pr.get("isDraft", False),
                 "updated_at": pr["updatedAt"],
@@ -252,7 +256,7 @@ def scaffold_brief(repo_path: Path, wt: Path, pr_data: dict) -> Path:
 
 | | |
 |---|---|
-| Author | @{pr_data['author']['login']} |
+| Author | @{(pr_data.get('author') or {}).get('login', 'unknown')} |
 | Branch | `{pr_data['headRefName']}` → `{pr_data['baseRefName']}` |
 | Changes | +{pr_data['additions']} / -{pr_data['deletions']} across {pr_data['changedFiles']} files |
 | Labels | {', '.join(labels) or '—'} |

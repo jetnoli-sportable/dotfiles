@@ -9,12 +9,16 @@
 set -euo pipefail
 
 DOCGEN_SRC="${DOCGEN_SRC:-$HOME/code/docgen}"
-DOCGEN_ROOT="${DOCGEN_ROOT:-$HOME/code/dotfiles}"
+# same root variable help.sh uses, so the two can never disagree about
+# where the repo (and its INDEX) lives
+DOCGEN_ROOT="${DOCGEN_ROOT:-${DOTFILES:-$HOME/code/dotfiles}}"
 BIN="$HOME/.local/bin/docgen"
 
 [ -d "$DOCGEN_SRC" ] || { echo "docgen.sh: no tool at $DOCGEN_SRC" >&2; exit 1; }
 
-if [ ! -x "$BIN" ] || [ -n "$(find "$DOCGEN_SRC" -name '*.go' -newer "$BIN" -print -quit 2>/dev/null)" ]; then
+# sources sit at the repo root (-maxdepth 1 keeps .git/ out of the walk);
+# go.mod/go.sum count as sources — a dependency bump must trigger a rebuild
+if [ ! -x "$BIN" ] || [ -n "$(find "$DOCGEN_SRC" -maxdepth 1 \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -newer "$BIN" -print -quit 2>/dev/null)" ]; then
   mkdir -p "$(dirname "$BIN")"
   (cd "$DOCGEN_SRC" && go build -o "$BIN" .)
 fi

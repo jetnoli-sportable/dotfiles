@@ -40,27 +40,26 @@ resolve_path() {
 }
 
 preview() {
-  local json="$1" kind src guide path line
-  IFS=$'\t' read -r kind src guide < <(jq -r '[.kind, .source, .guide] | @tsv' <<<"$json")
+  local json="$1" kind src path line
+  IFS=$'\t' read -r kind src < <(jq -r '[.kind, .source] | @tsv' <<<"$json")
   path="$(resolve_path "${src%:*}")"
   line="${src##*:}"
   [ -f "$path" ] || { echo "(source missing: $path)"; return 0; }
 
   case "$kind" in
-    doc|guide)
+    doc|guide|tui)
       sed -n '1,40p' "$path"
       ;;
     skill)
-      # frontmatter description, then the When-to-use prose if present
-      awk '/^description:/{sub(/^description: */,""); print; print ""}' "$path"
-      awk 'tolower($0) ~ /^#+ when/{on=1} on && NR>1 && /^## /&& tolower($0) !~ /^#+ when/{exit} on' "$path" | head -25
+      # the description docgen already extracted (handles block scalars),
+      # then the When-to-use prose if present
+      jq -r .oneliner <<<"$json"
+      echo
+      awk 'tolower($0) ~ /^#+ when/{on=1} on && /^## / && tolower($0) !~ /^#+ when/{exit} on' "$path" | head -25
       ;;
     bind|alias|function|script)
       # the source line ± 5 lines of comment context, target marked
       awk -v t="$line" 'NR>=t-5 && NR<=t+5 {printf "%s %4d  %s\n", (NR==t ? ">" : " "), NR, $0}' "$path"
-      ;;
-    tui)
-      sed -n '1,40p' "$path"
       ;;
     decision)
       # title + the options list
@@ -75,19 +74,19 @@ preview() {
 open_entry() {
   local json="$1" kind src guide path line
   IFS=$'\t' read -r kind src guide < <(jq -r '[.kind, .source, .guide] | @tsv' <<<"$json")
-  case "$kind" in
-    doc|guide)
-      if [ -n "$guide" ]; then
-        xdg-open "$(resolve_path "$guide")" >/dev/null 2>&1 &
-        return 0
-      fi
-      ;;& # docs with no rendered page (memory, instructions) fall through
-    *)
-      path="$(resolve_path "${src%:*}")"
-      line="${src##*:}"
-      tmux new-window -n "help:$(jq -r .name <<<"$json")" "nvim +$line '$path'"
-      ;;
-  esac
+
+  # Enter = "take me to it" (spec D3/D4): doc/guide kinds open their rendered
+  # page; everything else — including docs with no rendered page, like memory
+  # pointers — opens the source in nvim at the line.
+  if { [ "$kind" = doc ] || [ "$kind" = guide ]; } && [ -n "$guide" ]; then
+    # setsid: this script runs in its own tmux window that dies on exit —
+    # without a new session, xdg-open gets SIGHUPed before the handoff.
+    setsid --fork xdg-open "$(resolve_path "$guide")" >/dev/null 2>&1
+    return 0
+  fi
+  path="$(resolve_path "${src%:*}")"
+  line="${src##*:}"
+  tmux new-window -n "help:$(jq -r .name <<<"$json")" "nvim +$line '$path'"
 }
 
 case "${1-}" in
@@ -107,10 +106,12 @@ EOF
     ;;
 esac
 
+# display half is tab/newline-sanitized: \t is the fzf field delimiter and a
+# raw tab in a oneliner would shift the JSON payload out of field 2
 rows="$(index_jsonl | jq -r '. as $e | ([
     ($e.name + "                              ")[0:30],
     ($e.kind + "          ")[0:9],
-    $e.oneliner
+    ($e.oneliner | gsub("[\t\n]"; " "))
   ] | join(" ")) + "\t" + ($e | tostring)' 2>/dev/null)" || {
   echo "help.sh: INDEX parse failed — regenerate with docgen.sh index" >&2
   exit 1
