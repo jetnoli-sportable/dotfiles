@@ -36,15 +36,20 @@ React to them here — changing a spec after U4 lands is rework.
 
 ## Key Technical Decisions
 
-- **Generator stack — recommended: Go, new sibling tool `~/code/docgen`
-  (or a `docgen/` package inside cli-kit).** Rationale: the roadmap's own
-  §2 answer reserved "index grows real querying/aggregation needs" for
-  Go/cli-kit territory — frontmatter aggregation across repos + INDEX
-  merging is exactly that; Go gives a real markdown lib (goldmark) and
-  html/template for the design system, and it slots into the existing
-  personal-CLI stack (notes-tui/cli-kit). Bash+pandoc is the fallback if
-  you veto Go at plan review. **This is the one decision worth vetoing
-  before ce-work starts.**
+- **Generator stack — RATIFIED (owner, 2026-07-07): Go, standalone
+  `~/code/docgen`, stdlib + goldmark only.** Rationale: docgen is data
+  transformation (parse/aggregate/render), not orchestration — the
+  roadmap's own §2 answer reserved that for Go; typed parsing + table
+  tests kill the awk-parsing bug class `wb board`'s test just caught; and
+  the two future consumers (/help Q&A, 9e task-recall) read the INDEX.
+  Two owner-blessed refinements: (a) **no cli-kit dependency** — its
+  `replace` is inert in notes-tui too; extract shared code only when a
+  real second consumer exists; (b) **templates live with the docs, not in
+  the tool** — docgen reads `docs/_templates/` from the target repo
+  (tool = mechanism, dotfiles = policy), so the design system stays where
+  the docs live and the tool is reusable for other repos later. If slice
+  sizing bites mid-build, the fallback is scope-shrink (pairs + HUB first,
+  INDEX scanners next), not a language change.
 - **Template system:** one `html/template` layout carrying the shared
   Catppuccin design system (tokens lifted from the existing pages), with
   per-`kind` blocks (page, guide, hub). Existing hand-tuned pages define
