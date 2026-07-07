@@ -499,7 +499,9 @@ try-it-now / per-verb reference / rough edges / next steps); <code>/board</code>
 (9a, renamed) owns &quot;what's the status&quot;; the <code>wb</code> picker owns &quot;what needs
 me now&quot;. <code>overview.md</code> and <code>HUB.md</code> are <strong>deleted</strong> — sequenced LAST in
 slice 5, so nothing is removed before its generated replacement renders.
-This supersedes 9c's earlier &quot;overview.md shrinks back&quot; wording.</p>
+This supersedes 9c's earlier &quot;overview.md shrinks back&quot; wording.
+<em>(Executed 2026-07-07: both files deleted after their replacements
+rendered; the shell/terminal section landed in generated <code>setup.md</code>.)</em></p>
 </blockquote>
 <hr>
 <h2 id="7-keep--retire--hold">7. Keep / retire / hold</h2>
@@ -562,7 +564,14 @@ task (at minimum the <code>skills/</code> subset) — the scan reads <code>~/.cl
 sources that are currently version-controlled nowhere, and a durable
 index over unversioned sources rebuilds the drift problem one level
 down. The scan must fail loudly (not emit a silently partial index)
-when a declared source root is absent.</li>
+when a declared source root is absent.
+<em>DONE 2026-07-07 — plan <code>docs/plans/2026-07-07-002-slice-5-docs-platform-plan.md</code>.
+Shipped: <code>claude/</code> stow package (skills subset), the <code>docgen</code> tool
+(<code>~/code/docgen</code>, Go + goldmark; templates live in <code>docs/_templates/</code>),
+generated pages + HUB.html + INDEX.md, <code>prefix+?</code> picker (<code>help.sh</code>),
+<code>/help</code> Q&amp;A skill, work-repo redaction guard, per-skill/TUI guide pages
+under <code>docs/guides/</code>, and the end-state deletion of <code>overview.*</code> and
+<code>HUB.md</code> (Decision 3A).</em></li>
 </ol>
 <blockquote>
 <p><strong>Execution order ratified (2026-07-07 decision buffer, Decision 1A):</strong>
@@ -668,6 +677,9 @@ anchors to the dedicated pages, and <code>overview.md</code> shrinks back to sho
 summaries + links (its current per-skill depth was a stopgap for the same
 reason the anchors are).</li>
 </ul>
+<p><em>DONE 2026-07-07 (slice 5 U10): guides live at <code>docs/guides/*.md*</code> — born
+generated, five-section template — and HUB tiles point at them. Superseded
+detail: overview.md didn't &quot;shrink back&quot;, it was deleted per Decision 3A.</em></p>
 <h3 id="9d-cross-repo-cross-session-doc-referencing-follow-up-pr-8">9d. Cross-repo, cross-session doc referencing (follow-up, PR #8)</h3>
 <p>The docs project already spans repos — <code>dotfiles/docs/</code>, <code>~/code/notes-tui/notes-guide.html</code>,
 <code>~/code/tasks/*.md</code> — and <code>HUB.html</code>'s &quot;Other artifacts&quot; section proved a third

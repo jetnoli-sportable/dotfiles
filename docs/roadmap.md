@@ -342,6 +342,8 @@ c
 > me now". `overview.md` and `HUB.md` are **deleted** — sequenced LAST in
 > slice 5, so nothing is removed before its generated replacement renders.
 > This supersedes 9c's earlier "overview.md shrinks back" wording.
+> *(Executed 2026-07-07: both files deleted after their replacements
+> rendered; the shell/terminal section landed in generated `setup.md`.)*
 
 ---
 
@@ -402,6 +404,13 @@ Look at notes above on park and scratch tasks
    index over unversioned sources rebuilds the drift problem one level
    down. The scan must fail loudly (not emit a silently partial index)
    when a declared source root is absent.
+   *DONE 2026-07-07 — plan `docs/plans/2026-07-07-002-slice-5-docs-platform-plan.md`.
+   Shipped: `claude/` stow package (skills subset), the `docgen` tool
+   (`~/code/docgen`, Go + goldmark; templates live in `docs/_templates/`),
+   generated pages + HUB.html + INDEX.md, `prefix+?` picker (`help.sh`),
+   `/help` Q&A skill, work-repo redaction guard, per-skill/TUI guide pages
+   under `docs/guides/`, and the end-state deletion of `overview.*` and
+   `HUB.md` (Decision 3A).*
 
 > **Execution order ratified (2026-07-07 decision buffer, Decision 1A):**
 > 4a runs immediately as part of the pre-slice remediation pass (it's a
@@ -511,6 +520,10 @@ their own page, since those dedicated pages don't exist yet. Full scope:
   anchors to the dedicated pages, and `overview.md` shrinks back to short
   summaries + links (its current per-skill depth was a stopgap for the same
   reason the anchors are).
+
+*DONE 2026-07-07 (slice 5 U10): guides live at `docs/guides/*.md*` — born
+generated, five-section template — and HUB tiles point at them. Superseded
+detail: overview.md didn't "shrink back", it was deleted per Decision 3A.*
 
 ### 9d. Cross-repo, cross-session doc referencing (follow-up, PR #8)
 
