@@ -795,10 +795,19 @@ picked up:
   Revisit 9g's mechanism when the Sway migration is actually scheduled —
   GPaste's extension model has no Sway equivalent, so this isn't a config
   tweak, it's a re-pick of the whole tool.
-- **Notes corpus shape** (Decision 3). wb-specific tasks vs. general notes,
-  capture-anywhere + end-of-day aggregation, decision-context capture, and
-  cross-querying wb + personal notes — see the live discussion this section
-  triggered (2026-07-07); resolution to be folded back into §4 once settled.
+- **Notes corpus shape** (Decision 3, discussed live 2026-07-07). Resolved
+  for now: **keep `~/code/tasks` and `~/code/notes` as separate repos** —
+  this re-confirms the standing call already parked in
+  `~/code/tasks/tasks--task-note-convergence.md` (2026-07-06), which
+  explicitly deferred merging until wb + notes-tui's `--context` flag both
+  have real usage behind them (4a/4b, §8). Capture-anywhere and
+  end-of-day-aggregation are already live today via `note`/`notes digest`
+  (slice 4a) — no new plumbing needed for those two asks specifically.
+  Cross-querying wb + personal notes stays 9e's job (task recall), not a
+  directory merge. Standing instruction: flag it again if the split ever
+  becomes a real hindrance rather than a theoretical one, so it can go
+  through a proper decision instead of drifting. "Where documentation
+  lives" stays explicitly open, not addressed by this resolution.
 - **Credential guard is warn-only, not a hard block** (Decision 6). §2's
   guard is a dismissible warning in the close-out review buffer, not an
   enforced block, and has no content-based fallback (doesn't scan file
