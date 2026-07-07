@@ -19,10 +19,14 @@ NOTE_PATH="$DAILY_NOTE_DIR/$(date +'%d-%m-%Y').md"
 
 mkdir -p "$DAILY_NOTE_DIR"
 
-note_file="$NOTE_PATH"
-# Any argument other than "." opens the fuzzy picker over all notes.
-if [[ -n "${1-}" && "$1" != "." ]]; then
-  note_file="$("$FD_BIN" --type f . "$TARGET_PATH" | fzf --query="$1" --select-1)" || exit 0
+# "." = today's daily note; anything else (including NO argument) is the
+# fuzzy picker, matching the header contract above. The code had drifted:
+# no-arg fell through to the daily note, making `N` and `N .` identical and
+# the documented picker unreachable without a query (caught 2026-07-07).
+if [[ "${1-}" == "." ]]; then
+  note_file="$NOTE_PATH"
+else
+  note_file="$("$FD_BIN" --type f . "$TARGET_PATH" | fzf --query="${1-}" --select-1)" || exit 0
   [ -n "$note_file" ] || exit 0
 fi
 
