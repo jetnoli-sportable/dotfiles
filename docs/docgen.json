@@ -3,12 +3,74 @@
   "pageDirs": ["docs"],
   "exclude": ["HUB.md", "INDEX.md"],
   "hub": {
-    "out": "",
+    "out": "docs/HUB.html",
     "eyebrow": "personal workflow",
     "title": "Hub",
-    "intro": "",
-    "groups": [],
-    "sidecar": []
+    "intro": "Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview.",
+    "groups": [
+      {
+        "key": "personal-workflow",
+        "title": "Personal workflow",
+        "sub": "~/code/dotfiles",
+        "glyph": "◈"
+      },
+      {
+        "key": "skills",
+        "title": "Claude skills",
+        "sub": "~/.claude/skills/ · stowed from claude/ in this repo",
+        "glyph": "◆",
+        "dense": true,
+        "note": "<strong>Interim only:</strong> tiles above deep-link into <code>overview.html</code>'s skills section — standalone guide pages per skill (and per TUI) land later in this slice and these tiles repoint there."
+      },
+      {
+        "key": "tuis",
+        "title": "TUIs",
+        "sub": "separate repos under ~/code/",
+        "glyph": "▦"
+      }
+    ],
+    "sidecar": [
+      {
+        "group": "personal-workflow",
+        "title": "Agent Workbench Findings",
+        "tile": "Pre-build audit of the tmux/Claude tooling: inventory, signal contract, gaps, flows.",
+        "href": "agent-workbench-findings.html",
+        "path": "docs/agent-workbench-findings.html",
+        "chip": "point-in-time audit"
+      },
+      {
+        "group": "skills",
+        "title": "decision-buffer",
+        "tile": "Design decisions through an nvim buffer instead of a chat menu.",
+        "href": "overview.html#decision-buffer"
+      },
+      {
+        "group": "skills",
+        "title": "park",
+        "tile": "<10s capture of a \"deal with this later\" item.",
+        "href": "overview.html#park"
+      },
+      {
+        "group": "skills",
+        "title": "parked-items",
+        "tile": "Weekly review of everything parked, as an nvim checklist.",
+        "href": "overview.html#parked-items"
+      },
+      {
+        "group": "skills",
+        "title": "pr-review-session",
+        "tile": "Open PRs → worktrees + tmux windows + briefs + reviews.",
+        "href": "overview.html#pr-review-session"
+      },
+      {
+        "group": "tuis",
+        "title": "notes-tui",
+        "tile": "Full usage guide: install, commands, global flags, conventions, roadmap.",
+        "href": "../../notes-tui/notes-guide.html",
+        "path": "~/code/notes-tui/notes-guide.html",
+        "chip": "external repo"
+      }
+    ]
   },
   "index": { "out": "", "sources": [] },
   "redact": { "denylist": [] }
