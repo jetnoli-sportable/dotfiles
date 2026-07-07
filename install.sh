@@ -10,6 +10,10 @@ command -v stow >/dev/null || sudo apt install -y stow
 # default target (the parent directory) would be ~/code, not $HOME.
 stow -t "$HOME" zsh git ohmyposh tmux scripts nvim ghostty
 
+# claude needs --no-folding: ~/.claude/ holds live untracked state (projects/,
+# todos/, parked-items ledger) that a folded dir-symlink would shadow.
+stow --no-folding -t "$HOME" claude
+
 # tmux plugins — tpm lives under the XDG tree (tmux.conf sets
 # TMUX_PLUGIN_MANAGER_PATH accordingly); the rest install with prefix+I.
 [ -d ~/.config/tmux/plugins/tpm ] || \

@@ -19,3 +19,9 @@ scratch/
 
 # worktrees (ce-worktree)
 .worktrees/
+
+# claude package: never track machine state or unaudited settings
+claude/.claude/settings.json
+claude/.claude/settings.local.json
+claude/.claude/parked-items/
+claude/.claude/projects/
