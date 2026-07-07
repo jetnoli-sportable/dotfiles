@@ -32,9 +32,10 @@ updated: 2026-07-07
 - **Record layer stays plain files** serving three goals: per-task backlog /
   follow-ups, progress across all tasks + planned batches, easy review and
   refinement.
-- Keep untouched: worktree flow, `/park` + `/parked-items` (fix the channel
-  bug), `pr-review-session`, decision-buffer. Keep the nvim bridge to its basic
-  loop (output buffer + reply); fancy features on hold.
+- Worktree flow's ritual gets absorbed into `wb new` (§2), not left untouched;
+  `/park` + `/parked-items` (fix the channel bug), `pr-review-session`,
+  decision-buffer stay as-is. Keep the nvim bridge to its basic loop (output
+  buffer + reply); fancy features on hold.
 
 **Your take:** 
 
@@ -116,7 +117,10 @@ wb                     # THE picker (replaces s and ca muscle memory)
     optional ritual. No-ops when the target field is empty.
   → status line shows the pending Follow-ups + parked count; wb done offers the
     cross-task sweep when it crosses a threshold (push, not a weekly ritual).
-  → Enter jumps (or creates); preview = urgent agent pane, else git status.
+  → Enter jumps (or creates); preview = urgent agent pane, else git status,
+    else (added 2026-07-07 review, Decision 11) — for session-less,
+    worktree-less task rows (planned tasks with no live session and no
+    worktree yet) — the task file's `## Plan` section rendered as text.
 
 wb done [<slug>]       # the wind-down that doesn't exist today — SAFE ORDER:
   1. fail fast: git status --porcelain in the worktree; if dirty, print the
@@ -131,6 +135,15 @@ wb done [<slug>]       # the wind-down that doesn't exist today — SAFE ORDER:
   4. status → done, keepers captured (§4)
   5. kill session, then git worktree remove
 ```
+
+> **Bypass guard (added 2026-07-07 review, Decision 8):** nothing today
+> catches a worktree torn down via raw `git worktree remove`/`tmux kill-session`
+> instead of `wb done` — the task file is left at whatever status it had,
+> silently stale. Add a lightweight periodic check (piggyback on the picker's
+> refresh or `wb`'s own startup): any task-store entry whose `worktree:` path
+> no longer exists in `git worktree list` AND whose `status:` isn't `done`
+> gets flagged — surfaced as a picker row warning, not a hard block, so a
+> skipped `wb done` is caught rather than silently lost.
 
 Repo-level sessions (`dotfiles`, main checkout) remain plain rows in the same
 picker — `s`'s job is absorbed, and the worktree-invisibility bug dies with it.
@@ -472,6 +485,22 @@ skills: **startup** — review yesterday's close-out + parked items + task board
 propose today's focus, recreate tmux sessions for the chosen tasks;
 **shutdown** — sweep every live session, capture a quick status into each task file,
 run the notes digest, then close all sessions cleanly so the PC can power off.
+
+> **`wb up`'s task selection (added 2026-07-07 review, Decision 10):** reuse
+> the decision-buffer checkbox convention already shared by `wb done`'s
+> close-out and the notes-digest promotion — `wb up` opens a review buffer
+> listing yesterday's close-out + parked items + task-board candidates as
+> `- [ ] pick` lines, closing the buffer recreates a session per checked
+> task. First-run fallback (no prior close-out to review yet): fall back to
+> a plain picker over the task store's `planned`/`doing` rows.
+
+> **`wb down`'s dirty-check (added 2026-07-07 review, Decision 7):**
+> `wb down` inherits `wb done`'s per-session dirty-check-and-abort exactly —
+> a dirty worktree aborts that session's wind-down by default, same as a
+> single `wb done`. Owner call: no silent skip-and-report bulk mode for
+> now — add an override flag later; its behavior (skip-dirty-and-report vs.
+> force vs. something else) is a decision for whenever that flag actually
+> gets built, not now.
 *(Amended 2026-07-06 review: the Jira sprint pull originally listed in startup
 is REMOVED from 9b's scope and joins 9a's Jira exclusion as its own later,
 separately ratified addition — same integration, same open questions: where
@@ -624,20 +653,38 @@ ready rather than needing a fresh investigation pass:
 
 **Your take:** pick off in any order; none block each other or slice 5.
 
-### 9g. GPaste clipboard manager setup (owner task spec, 2026-07-07 — run before the next slice)
+### 9g. GPaste clipboard manager setup (owner task spec, 2026-07-07 — queue after PR #9 merges)
 
-System-level (GNOME/Wayland desktop, not this repo's tooling), so it's
-sequenced as its own gate before the next slice starts rather than folded
-into 9f. gpaste-2 + the GNOME Shell extension are already installed and
-enabled (user has already logged out/in) — this is the *configuration*
-pass, not the install. Full owner-authored runbook, preserved verbatim so
-it executes faithfully when picked up:
+System-level (GNOME/Wayland desktop, not this repo's tooling). No concrete
+build-order dependency ties this to slice timing (checked 2026-07-07 doc
+review, Decision 4) — reclassified from a hard gate to a non-blocking
+scheduling note, matching 9f's framing. gpaste-2 + the GNOME Shell
+extension are already installed and enabled (user has already logged
+out/in) — this is the *configuration* pass, not the install. Full
+owner-authored runbook, preserved verbatim so it executes faithfully when
+picked up:
 
 > **Goal:** configure GPaste as a Flycut-style clipboard-history manager,
 > settings captured in a dotfiles-friendly dconf file. Target: a keyboard
 > shortcut that opens clipboard history to pick and paste an old clip.
-> **Shortcut: `<Ctrl><Shift>V`** (owner call, 2026-07-07 — supersedes the
-> `<Ctrl><Alt>V` in the original spec draft below).
+> **Shortcut: `<Ctrl><Shift>G`** (owner call, 2026-07-07 review, Decision 1 —
+> supersedes the earlier `<Ctrl><Shift>V` pick and the original
+> `<Ctrl><Alt>V` spec draft before that. Confirmed real collision, not just a
+> theoretical one: Ghostty ships `<Ctrl><Shift>V` as its built-in paste bind
+> and this repo's `ghostty/.config/ghostty/config` never overrides it;
+> GNOME custom shortcuts registered via `gsettings` intercept at the
+> shell/compositor level before the combo ever reaches the focused terminal,
+> so binding GPaste to `V` would have silently broken terminal paste
+> repo-wide. `<Ctrl><Shift>G` is free.)
+
+> **Window manager (added 2026-07-07 review, Decision 2):** this whole
+> section assumes GNOME Shell (GPaste's extension is a GNOME Shell
+> extension). That's correct for now but not permanent: `logs/decisions/
+> 2026-06-18-window-manager.md` records the owner's intended direction as
+> Sway, at a later, unscheduled date. No conflict today — just recording the
+> pointer here so a future WM switch knows to revisit this section's GNOME
+> Shell dependency (GPaste's extension model doesn't carry over to Sway; a
+> wl-clipboard-based history manager would replace it).
 >
 > 1. **Precondition check** — confirm the prior install/enable actually
 >    took before configuring anything:
@@ -652,15 +699,16 @@ it executes faithfully when picked up:
 >    names from memory; run `gsettings list-recursively org.gnome.GPaste`
 >    first and confirm real key names (expect `show-history`, `launch-ui`,
 >    and sync/upload accelerators) before setting anything.
-> 4. **Configure via dconf** — the history shortcut needs GVariant
->    list-of-strings syntax (brackets + quotes required):
->    `gsettings set org.gnome.GPaste show-history "['<Ctrl><Shift>V']"`.
+> 4. **Configure via dconf** — `show-history` is a scalar string key (type
+>    `s`, confirmed via `gsettings range`), not a GVariant array — no
+>    brackets:
+>    `gsettings set org.gnome.GPaste show-history '<Ctrl><Shift>G'`.
 >    Also: `max-history-size 200`, `images-support true`,
 >    `save-history true`. Only set keys confirmed to exist in step 3; skip
 >    and report any that differ.
 > 5. **Check shortcut conflicts** before finalizing — inspect
 >    `gsettings list-recursively org.gnome.settings-daemon.plugins.media-keys`
->    and `...org.gnome.desktop.wm.keybindings`. If `<Ctrl><Shift>V`
+>    and `...org.gnome.desktop.wm.keybindings`. If `<Ctrl><Shift>G`
 >    collides, warn the user and suggest an alternative — don't change it
 >    without confirmation.
 > 6. **Export to dotfiles** — `dconf dump /org/gnome/GPaste/ >
@@ -670,16 +718,26 @@ it executes faithfully when picked up:
 >    machines. If it's a git repo, stage but do NOT commit unless asked.
 >
 > **Constraints:** no gnome-shell restart, no reinstall — those steps are
-> done. Wayland reserves some Super-key combos, but `<Ctrl><Shift>V` avoids
+> done. Wayland reserves some Super-key combos, but `<Ctrl><Shift>G` avoids
 > that class of conflict; if a conflict shows up anyway in step 5 it's
 > almost certainly a different app already owning that combo, not a bad
 > install. Setting `show-history` via dconf takes effect on the running
 > daemon live, no restart needed.
 >
 > **Final verification:** `gsettings get org.gnome.GPaste show-history` →
-> expect `['<Ctrl><Shift>V']`. Report what was configured, the active
-> shortcut, and the dconf export path; ask the user to test the shortcut
-> themselves and confirm the history popup appears.
+> expect `'<Ctrl><Shift>G'` (scalar string, not a list). Report what was
+> configured, the active shortcut, and the dconf export path; ask the user
+> to test the shortcut themselves and confirm the history popup appears.
+
+> **Follow-up, not folded into this task (owner call, 2026-07-07 review,
+> Decision 1 note):** unify copy/paste so terminal-level paste is never
+> needed at all — assessed and NOT taken as a same-task small lift, because
+> the only way to make the terminal bind genuinely unnecessary is to shift
+> the default paste habit onto GPaste's history picker (an extra
+> select-from-list step for the common "just paste the last thing" case) or
+> build custom logic (single-clip = instant passthrough, hold/second-tap =
+> open history) that plain GNOME custom shortcuts don't support without an
+> extension. Worth a real design pass on its own; tracked in §10.
 
 > **Naming note (resolved 2026-07-07):** the collision between this doc
 > ("Roadmap") and the 9a feature (formerly "/roadmap") is closed — the
@@ -708,16 +766,58 @@ it executes faithfully when picked up:
 
 | Deferred item | Ref | Gate / when |
 |---|---|---|
-| Slice 4b — notes-tui integration (corpus split, `--context`, wb done digest) | §4, plan 003 | after slice 5 + 4a window verdict |
+| Slice 4b — notes-tui integration (corpus split, `--context`, wb done digest) | §4, plan 003 | gated on 4a window verdict (~2026-07-14) — slice-5 prerequisite already satisfied 2026-07-07 |
 | `/board` full HTML feature (zoomable today/task/week) | 9a | after slice 5; interim `wb board` live |
 | Day bookends `wb up`/`wb down` | 9b | after 4b; session-id capture already landing |
 | Jira integration (both 9a's and 9b's halves) | 9a/9b | own ratified addition, not scheduled |
-| Per-skill guide pages + generated HUB | 9c | inside slice 5 (born generated) |
 | Editor/tmux ergonomics batch (oil→window, session persistence, telescope git_status, Claude clipboard, quick-ask bind, diff plugin trial) | 9f | right after PR #9 merges |
-| GPaste clipboard-history manager (configure + dconf export, `<Ctrl><Shift>V`) | 9g | before the next slice starts |
+| GPaste clipboard-history manager (configure + dconf export, `<Ctrl><Shift>G`) | 9g | right after PR #9 merges (non-blocking, reclassified from a gate 2026-07-07) |
+| Unify copy/paste so terminal-level paste is never needed | 9g note | not started — needs its own design pass |
 | Cross-repo/cross-machine doc registry | 9d | PROPOSAL, unratified — only if artifacts still go missing |
 | Task recall — resume any work from any session | 9e | after slice 5; decision buffer at pickup |
 | Personal/employer boundary rule (store remote, classification) | Decision 4 | FINAL follow-up, owner call, after full flow in place |
 | Delete version-pinned content scan (`tmux_pane_awaiting_input`) | §1 | ~2026-07-13 if hook data held |
 | Validation check-in: push-vs-weekly-ritual bet | §3 | ~2026-07-20 |
 | 4a capture-window verdict (gates 4b's shape) | §8-4a | ~2026-07-14 |
+
+---
+
+## 11. Open Questions (from the 2026-07-07 doc review, deferred decisions)
+
+> Findings from the 7-persona review in
+> `logs/decisions/2026-07-07-roadmap-review-findings.md` that the owner
+> checked **Defer** on. Kept here, not resolved, so they resurface next time
+> this section of the doc gets picked up.
+
+- **GPaste's GNOME Shell dependency vs. the Sway direction** (Decision 2).
+  9g's GPaste config is GNOME-Shell-specific; the owner's WM direction is
+  Sway, at a later unscheduled date (see the new pointer note in 9g).
+  Revisit 9g's mechanism when the Sway migration is actually scheduled —
+  GPaste's extension model has no Sway equivalent, so this isn't a config
+  tweak, it's a re-pick of the whole tool.
+- **Notes corpus shape** (Decision 3). wb-specific tasks vs. general notes,
+  capture-anywhere + end-of-day aggregation, decision-context capture, and
+  cross-querying wb + personal notes — see the live discussion this section
+  triggered (2026-07-07); resolution to be folded back into §4 once settled.
+- **Credential guard is warn-only, not a hard block** (Decision 6). §2's
+  guard is a dismissible warning in the close-out review buffer, not an
+  enforced block, and has no content-based fallback (doesn't scan file
+  *contents* for secret-shaped strings, only filenames). Acceptable while
+  the task store stays local-only and single-user; revisit if the store
+  ever gets a remote (same trigger as the personal/employer boundary rule
+  above) or if a credential-shaped filename ever slips past the denylist.
+- **GPaste's persistent clipboard history has no secrets policy** (Decision
+  9). Clipboard history persists to disk indefinitely (`save-history true`,
+  9g step 4) with no expiry or secret-detection — copying a token or
+  password puts it in the history store with no automatic cleanup. Shipped
+  as-is for a personal single-user machine; revisit if it turns out to be a
+  real problem in practice (e.g. add a max-age prune or a "don't persist
+  this clip" gesture).
+- **"(F4)" in the task template** (Decision 12). Traced via grep sweep
+  (owner ask, 2026-07-07): `F4` is finding-ID shorthand from
+  `docs/agent-workbench-findings.html` — "Task history is reviewable" (the
+  gap it named: task discussion/decisions scattered across three stores
+  with nothing assembling a per-task dossier). The task template's
+  `## Decisions` section exists specifically to satisfy F4. Pending owner
+  confirmation this is the right F4 before folding the explanation into §3
+  inline (rather than leaving the bare "(F4)" unexplained).
