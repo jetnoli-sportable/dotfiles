@@ -574,6 +574,56 @@ after slice 5 (it consumes the INDEX/lookup machinery); design goes through
 a decision buffer when picked up. Boundary note: recall output must respect
 the same personal/employer rules as every other aggregation surface.
 
+### 9f. Editor/tmux ergonomics batch (owner backlog, 2026-07-07, queue right after PR #9)
+
+Six quick nvim/tmux/Claude-Code workflow items, batched because they're all
+small and independent of the docs-platform work in flight. Brainstormed by
+an Explore agent against the actual installed config (not generic advice)
+— current state + recommendation + effort per item, so this is pick-up-
+ready rather than needing a fresh investigation pass:
+
+1. **Oil → new tmux window.** Already exists, just misremembered:
+   `<Leader>i` (oil.lua:251) opens a new tmux window at the entry's dir;
+   `<Leader>o` (oil.lua:237) opens the file itself but via a split, not a
+   window. Gap: no bind does "new window" + the specific file. Add
+   `<Leader>I` mirroring `<Leader>o`'s shape with `tmux new-window` instead
+   of `split-window -h`. *Trivial.*
+2. **Reopen vim where you closed from.** No session plugin installed.
+   Recommend **persistence.nvim** (folke) — cwd-scoped by default, which
+   matches the wb.sh model (one worktree = one cwd = one session) for
+   free, no extra scoping logic. *Small.*
+3. **Search changed files via telescope.** Doesn't exist — checked
+   telescope.lua fully; gitsigns owns `<leader>h*` (hunk ops), diffview
+   owns `<leader>v*` (full diff), neither is a fuzzy changed-files list.
+   Add `<leader>sc` → `builtin.git_status` (a real telescope builtin).
+   *Trivial.*
+4. **Claude Code clipboard copy unreliable.** Likely root cause: Claude's
+   alt-screen TUI + its own OSC52 emission colliding with tmux's
+   `allow-passthrough`/copy-mode path — the "only Claude is flaky"
+   signature fits (other programs don't repin the alt-screen mid-drag).
+   Try, in order: (a) use keyboard copy-mode (`prefix [` → the existing
+   `Enter`→wl-copy bind, tmux.conf:71) instead of mouse-drag — captures
+   the real pane buffer, should be immune; (b) if that's not the actual
+   fix, test `allow-passthrough all` instead of `on`. *Small — mostly
+   testing, not new code.*
+5. **Quick-question shortcut, tied to `/help`.** New binding, don't
+   overload `help.sh` (its whole point is zero-LLM, per its own header).
+   Recommend `prefix+A` (unbound) → a new `ask.sh` following `wb.sh`'s
+   `agent`-window pattern (`new-window -n ask` then `send-keys "claude"`)
+   in the *current* session, not a dedicated persistent one — a quick
+   question doesn't need to outlive the window. Keep `/help` (INDEX
+   Q&A) and this (general scratch session) separate rather than merging.
+   *Small.*
+6. **vscode-diff.nvim vs diff.nvim.** Neither installed. diffview.nvim
+   already covers the heavyweight full-tabpage case (`<leader>vo` etc.);
+   gitsigns' `<leader>hd` covers per-hunk. vscode-diff.nvim's actual niche
+   is the middle ground — inline word-level diff in a single buffer,
+   no separate tabpage — genuinely not covered yet. "diff.nvim" as a
+   distinct plugin name is non-standard; clarify which repo before
+   installing anything under that name. *Small to trial.*
+
+**Your take:** pick off in any order; none block each other or slice 5.
+
 > **Naming note (resolved 2026-07-07):** the collision between this doc
 > ("Roadmap") and the 9a feature (formerly "/roadmap") is closed — the
 > feature is renamed `/board` (Decision 5A). "Roadmap" now unambiguously
@@ -606,6 +656,7 @@ the same personal/employer rules as every other aggregation surface.
 | Day bookends `wb up`/`wb down` | 9b | after 4b; session-id capture already landing |
 | Jira integration (both 9a's and 9b's halves) | 9a/9b | own ratified addition, not scheduled |
 | Per-skill guide pages + generated HUB | 9c | inside slice 5 (born generated) |
+| Editor/tmux ergonomics batch (oil→window, session persistence, telescope git_status, Claude clipboard, quick-ask bind, diff plugin trial) | 9f | right after PR #9 merges |
 | Cross-repo/cross-machine doc registry | 9d | PROPOSAL, unratified — only if artifacts still go missing |
 | Task recall — resume any work from any session | 9e | after slice 5; decision buffer at pickup |
 | Personal/employer boundary rule (store remote, classification) | Decision 4 | FINAL follow-up, owner call, after full flow in place |

@@ -725,6 +725,54 @@ decisions/dossiers, and open with a recap + resume options. Sequencing:
 after slice 5 (it consumes the INDEX/lookup machinery); design goes through
 a decision buffer when picked up. Boundary note: recall output must respect
 the same personal/employer rules as every other aggregation surface.</p>
+<h3 id="9f-editortmux-ergonomics-batch-owner-backlog-2026-07-07-queue-right-after-pr-9">9f. Editor/tmux ergonomics batch (owner backlog, 2026-07-07, queue right after PR #9)</h3>
+<p>Six quick nvim/tmux/Claude-Code workflow items, batched because they're all
+small and independent of the docs-platform work in flight. Brainstormed by
+an Explore agent against the actual installed config (not generic advice)
+— current state + recommendation + effort per item, so this is pick-up-
+ready rather than needing a fresh investigation pass:</p>
+<ol>
+<li><strong>Oil → new tmux window.</strong> Already exists, just misremembered:
+<code>&lt;Leader&gt;i</code> (oil.lua:251) opens a new tmux window at the entry's dir;
+<code>&lt;Leader&gt;o</code> (oil.lua:237) opens the file itself but via a split, not a
+window. Gap: no bind does &quot;new window&quot; + the specific file. Add
+<code>&lt;Leader&gt;I</code> mirroring <code>&lt;Leader&gt;o</code>'s shape with <code>tmux new-window</code> instead
+of <code>split-window -h</code>. <em>Trivial.</em></li>
+<li><strong>Reopen vim where you closed from.</strong> No session plugin installed.
+Recommend <strong>persistence.nvim</strong> (folke) — cwd-scoped by default, which
+matches the wb.sh model (one worktree = one cwd = one session) for
+free, no extra scoping logic. <em>Small.</em></li>
+<li><strong>Search changed files via telescope.</strong> Doesn't exist — checked
+telescope.lua fully; gitsigns owns <code>&lt;leader&gt;h*</code> (hunk ops), diffview
+owns <code>&lt;leader&gt;v*</code> (full diff), neither is a fuzzy changed-files list.
+Add <code>&lt;leader&gt;sc</code> → <code>builtin.git_status</code> (a real telescope builtin).
+<em>Trivial.</em></li>
+<li><strong>Claude Code clipboard copy unreliable.</strong> Likely root cause: Claude's
+alt-screen TUI + its own OSC52 emission colliding with tmux's
+<code>allow-passthrough</code>/copy-mode path — the &quot;only Claude is flaky&quot;
+signature fits (other programs don't repin the alt-screen mid-drag).
+Try, in order: (a) use keyboard copy-mode (<code>prefix [</code> → the existing
+<code>Enter</code>→wl-copy bind, tmux.conf:71) instead of mouse-drag — captures
+the real pane buffer, should be immune; (b) if that's not the actual
+fix, test <code>allow-passthrough all</code> instead of <code>on</code>. <em>Small — mostly
+testing, not new code.</em></li>
+<li><strong>Quick-question shortcut, tied to <code>/help</code>.</strong> New binding, don't
+overload <code>help.sh</code> (its whole point is zero-LLM, per its own header).
+Recommend <code>prefix+A</code> (unbound) → a new <code>ask.sh</code> following <code>wb.sh</code>'s
+<code>agent</code>-window pattern (<code>new-window -n ask</code> then <code>send-keys &quot;claude&quot;</code>)
+in the <em>current</em> session, not a dedicated persistent one — a quick
+question doesn't need to outlive the window. Keep <code>/help</code> (INDEX
+Q&amp;A) and this (general scratch session) separate rather than merging.
+<em>Small.</em></li>
+<li><strong>vscode-diff.nvim vs diff.nvim.</strong> Neither installed. diffview.nvim
+already covers the heavyweight full-tabpage case (<code>&lt;leader&gt;vo</code> etc.);
+gitsigns' <code>&lt;leader&gt;hd</code> covers per-hunk. vscode-diff.nvim's actual niche
+is the middle ground — inline word-level diff in a single buffer,
+no separate tabpage — genuinely not covered yet. &quot;diff.nvim&quot; as a
+distinct plugin name is non-standard; clarify which repo before
+installing anything under that name. <em>Small to trial.</em></li>
+</ol>
+<p><strong>Your take:</strong> pick off in any order; none block each other or slice 5.</p>
 <blockquote>
 <p><strong>Naming note (resolved 2026-07-07):</strong> the collision between this doc
 (&quot;Roadmap&quot;) and the 9a feature (formerly &quot;/roadmap&quot;) is closed — the
@@ -784,6 +832,11 @@ with the repo. One line per item; add on deferral, strike on completion.</p>
 <td>Per-skill guide pages + generated HUB</td>
 <td>9c</td>
 <td>inside slice 5 (born generated)</td>
+</tr>
+<tr>
+<td>Editor/tmux ergonomics batch (oil→window, session persistence, telescope git_status, Claude clipboard, quick-ask bind, diff plugin trial)</td>
+<td>9f</td>
+<td>right after PR #9 merges</td>
 </tr>
 <tr>
 <td>Cross-repo/cross-machine doc registry</td>
