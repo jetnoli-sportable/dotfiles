@@ -1,4 +1,11 @@
-# Roadmap — the personal workflow
+---
+title: Roadmap — the personal workflow
+status: current
+tile: The plan: readback, decisions, build order, later additions.
+group: personal-workflow
+kind: page
+updated: 2026-07-07
+---
 
 > Originally "The way forward — synthesis of your takes" (2026-07-06), renamed
 > once its scope outgrew a single PR: this is the roadmap for the whole

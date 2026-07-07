@@ -1,476 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
 <title>wb — the workbench guide</title>
-<meta name="description" content="How to use wb: session-per-worktree + the unified picker">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+   
   :root {
-    --bg: #EFECE4;
-    --bg-raised: #FBFAF6;
-    --ink: #211D17;
-    --ink-dim: #6B6355;
-    --ink-faint: #A69C89;
-    --line: #DAD3C3;
-    --accent: #2E6E6A;
-    --accent-ink: #FBFAF6;
-    --code-bg: #E4DECE;
-    --code-border: #CFC6B0;
-
-    --needs-you: #9B4A94;
-    --finished: #2E8A82;
-    --done: #5C8A4E;
-    --working: #A9791E;
-    --idle: #8A8375;
-
-    --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
-    --font-body: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace;
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
   }
-
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #171511;
-      --bg-raised: #201D17;
-      --ink: #E8E2D6;
-      --ink-dim: #A79C87;
-      --ink-faint: #756B5A;
-      --line: #332E24;
-      --accent: #4FA8A0;
-      --accent-ink: #0F1512;
-      --code-bg: #1E1B14;
-      --code-border: #3A3427;
-
-      --needs-you: #C87FC0;
-      --finished: #5FC2B8;
-      --done: #8FBE7C;
-      --working: #D6A83A;
-      --idle: #7A7264;
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #171511; --bg-raised: #201D17; --ink: #E8E2D6; --ink-dim: #A79C87; --ink-faint: #756B5A;
-    --line: #332E24; --accent: #4FA8A0; --accent-ink: #0F1512; --code-bg: #1E1B14; --code-border: #3A3427;
-    --needs-you: #C87FC0; --finished: #5FC2B8; --done: #8FBE7C; --working: #D6A83A; --idle: #7A7264;
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
   }
   :root[data-theme="light"] {
-    --bg: #EFECE4; --bg-raised: #FBFAF6; --ink: #211D17; --ink-dim: #6B6355; --ink-faint: #A69C89;
-    --line: #DAD3C3; --accent: #2E6E6A; --accent-ink: #FBFAF6; --code-bg: #E4DECE; --code-border: #CFC6B0;
-    --needs-you: #9B4A94; --finished: #2E8A82; --done: #5C8A4E; --working: #A9791E; --idle: #8A8375;
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
   }
 
   * { box-sizing: border-box; }
   html { color-scheme: light dark; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
-    font-family: var(--font-body);
-    font-size: 16px;
-    line-height: 1.6;
-  }
-  a { color: var(--accent); }
-  a:focus-visible, button:focus-visible, summary:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
 
-  .shell {
-    display: grid;
-    grid-template-columns: 250px minmax(0, 1fr);
-    gap: 0;
-    max-width: 1160px;
-    margin: 0 auto;
-  }
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
 
-  nav.toc {
-    position: sticky;
-    top: 0;
-    align-self: start;
-    height: 100vh;
-    overflow-y: auto;
-    padding: 2.25rem 1.25rem 2rem 1.5rem;
-    border-right: 1px solid var(--line);
-  }
-  nav.toc .brand {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 1.05rem;
-    letter-spacing: 0.01em;
-    margin-bottom: 0.15rem;
-  }
-  nav.toc .brand-sub {
-    font-size: 0.8rem;
-    color: var(--ink-dim);
-    margin-bottom: 1.5rem;
-  }
-  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.05rem; }
-  nav.toc a {
-    display: block;
-    text-decoration: none;
-    color: var(--ink-dim);
-    font-size: 0.88rem;
-    padding: 0.32rem 0.5rem;
-    border-radius: 5px;
-  }
-  nav.toc a:hover { color: var(--ink); background: var(--bg-raised); }
-  nav.toc .legend {
-    margin-top: 2rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--line);
-  }
-  nav.toc .legend-title {
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
-    margin-bottom: 0.65rem;
-  }
-  .legend-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    font-size: 0.82rem;
-    padding: 0.2rem 0;
-    font-family: var(--font-mono);
-  }
-  .legend-row .glyph { width: 1.1em; text-align: center; }
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
 
-  main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
 
-  header.title-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.9rem;
-    padding-bottom: 2rem;
-    margin-bottom: 2.5rem;
-    border-bottom: 1px solid var(--line);
-  }
-  header.title-block h1 {
-    font-family: var(--font-display);
-    font-size: 2.3rem;
-    font-weight: 500;
-    margin: 0;
-    text-wrap: balance;
-  }
-  header.title-block h1 code {
-    font-family: var(--font-mono);
-    background: none;
-    padding: 0;
-    color: var(--accent);
-  }
-  header.title-block .dek {
-    font-size: 1.05rem;
-    color: var(--ink-dim);
-    max-width: 62ch;
-    text-wrap: balance;
-  }
-  .pill-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-  .pill {
-    font-family: var(--font-mono);
-    font-size: 0.78rem;
-    padding: 0.28rem 0.65rem;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    color: var(--ink-dim);
-    background: var(--bg-raised);
-  }
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
 
-  section { margin-bottom: 3rem; max-width: 72ch; }
-  section.wide { max-width: none; }
-  h2 {
-    font-family: var(--font-display);
-    font-size: 1.5rem;
-    font-weight: 500;
-    margin: 0 0 0.9rem;
-    scroll-margin-top: 1.5rem;
-    text-wrap: balance;
-  }
-  h3 {
-    font-family: var(--font-display);
-    font-size: 1.12rem;
-    font-weight: 600;
-    margin: 1.6rem 0 0.6rem;
-    scroll-margin-top: 1.5rem;
-  }
-  p { margin: 0 0 1rem; }
-  ul, ol { padding-left: 1.3rem; margin: 0 0 1rem; }
-  li { margin-bottom: 0.4rem; }
-  strong { font-weight: 650; }
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
 
-  code.inline {
-    font-family: var(--font-mono);
-    font-size: 0.88em;
-    background: var(--code-bg);
-    border: 1px solid var(--code-border);
-    padding: 0.05rem 0.35rem;
-    border-radius: 4px;
-  }
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
 
-  .cmd {
-    font-family: var(--font-mono);
-    font-size: 0.88rem;
-    background: var(--code-bg);
-    border: 1px solid var(--code-border);
-    border-radius: 8px;
-    padding: 0.9rem 1.1rem;
-    margin: 0 0 1rem;
-    overflow-x: auto;
-    line-height: 1.55;
-    white-space: pre;
-  }
-  .cmd .prompt { color: var(--ink-faint); user-select: none; }
-  .cmd .comment { color: var(--ink-faint); font-style: italic; }
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
 
-  .callout {
-    border-left: 3px solid var(--accent);
-    background: var(--bg-raised);
-    padding: 0.85rem 1.1rem;
-    border-radius: 0 8px 8px 0;
-    font-size: 0.92rem;
-    margin: 0 0 1rem;
-  }
-  .callout strong { color: var(--accent); }
-  .callout.warn { border-left-color: var(--working); }
-  .callout.warn strong { color: var(--working); }
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
 
-  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
-  th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
-  td code.inline, th code.inline { white-space: nowrap; }
-  .table-wrap { overflow-x: auto; margin-bottom: 1.2rem; }
-
-  .picker-demo {
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    background: var(--code-bg);
-    border: 1px solid var(--code-border);
-    border-radius: 8px;
-    padding: 0.4rem 0;
-    margin-bottom: 1.2rem;
-    overflow-x: auto;
-  }
-  .picker-demo .row {
-    display: flex;
-    gap: 1rem;
-    padding: 0.35rem 1.1rem;
-    white-space: nowrap;
-    align-items: baseline;
-  }
-  .picker-demo .row.group-head { color: var(--ink-faint); padding-top: 0.7rem; }
-  .picker-demo .repo { width: 12ch; flex-shrink: 0; }
-  .picker-demo .task { width: 32ch; flex-shrink: 0; }
-  .picker-demo .status { width: 8ch; flex-shrink: 0; color: var(--ink-dim); }
-  .picker-demo .glyph { width: 14ch; flex-shrink: 0; }
-  .picker-demo .indent { padding-left: 2ch; color: var(--ink-dim); }
-
-  .g-needs-you { color: var(--needs-you); font-weight: 600; }
-  .g-finished  { color: var(--finished); font-weight: 600; }
-  .g-done      { color: var(--done); }
-  .g-working   { color: var(--working); font-weight: 600; }
-  .g-idle      { color: var(--idle); }
-
-  kbd {
-    font-family: var(--font-mono);
-    font-size: 0.82em;
-    background: var(--bg-raised);
-    border: 1px solid var(--code-border);
-    border-bottom-width: 2px;
-    border-radius: 5px;
-    padding: 0.05rem 0.4rem;
-  }
-
-  .steps { counter-reset: step; list-style: none; padding-left: 0; }
-  .steps li {
-    position: relative;
-    padding-left: 2.6rem;
-    margin-bottom: 1.1rem;
-  }
-  .steps li::before {
-    counter-increment: step;
-    content: counter(step);
-    position: absolute;
-    left: 0; top: 0;
-    width: 1.8rem; height: 1.8rem;
-    border-radius: 50%;
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    font-weight: 600;
-    display: flex; align-items: center; justify-content: center;
-  }
-
-  footer {
-    max-width: 72ch;
-    padding-top: 2rem;
-    margin-top: 3rem;
-    border-top: 1px solid var(--line);
-    color: var(--ink-faint);
-    font-size: 0.85rem;
-  }
-
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
   @media (max-width: 860px) {
     .shell { grid-template-columns: 1fr; }
-    nav.toc { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
-    main { padding: 2rem 1.25rem 4rem; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
   }
-</style>
 
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/wb-guide.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-07</span>
+</div>
 <div class="shell">
   <nav class="toc">
-    <div class="brand">wb</div>
-    <div class="brand-sub">the workbench guide</div>
-    <p style="font-size:0.78rem;margin:0 0 1.2rem"><a href="HUB.html">&larr; back to the hub</a></p>
+    <div class="brand">wb — the workbench guide</div>
+    <div class="brand-sub">How to use wb: session-per-worktree, the unified picker, wind-down.</div>
+    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
     <ul>
-      <li><a href="#overview">Overview</a></li>
-      <li><a href="#try-it">Try it now</a></li>
-      <li><a href="#wb-new">wb new</a></li>
-      <li><a href="#wb-picker">The picker</a></li>
-      <li><a href="#wb-done">wb done</a></li>
-      <li><a href="#bootstrap">.worktree-bootstrap</a></li>
-      <li><a href="#store">The task store</a></li>
-      <li><a href="#gotchas">Known rough edges</a></li>
-      <li><a href="#next">Next steps</a></li>
-      <li><a href="#reverting">Reverting</a></li>
+      <li><a href="#what-changed-in-one-paragraph">What changed, in one paragraph</a></li>
+      <li><a href="#try-it-in-the-next-five-minutes">Try it in the next five minutes</a></li>
+      <li><a href="#wb-new--start-a-task">wb new — start a task</a></li>
+      <li><a href="#the-picker">The picker</a></li>
+      <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
+      <li><a href="#bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</a></li>
+      <li><a href="#the-task-store">The task store</a></li>
+      <li><a href="#known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</a></li>
+      <li><a href="#next-steps">Next steps</a></li>
+      <li><a href="#if-something-misbehaves">If something misbehaves</a></li>
     </ul>
-    <div class="legend">
-      <div class="legend-title">Picker glyphs</div>
-      <div class="legend-row"><span class="glyph g-needs-you">!</span> needs you</div>
-      <div class="legend-row"><span class="glyph g-finished">+</span> finished</div>
-      <div class="legend-row"><span class="glyph g-done">o</span> done</div>
-      <div class="legend-row"><span class="glyph g-working">*</span> working</div>
-      <div class="legend-row"><span class="glyph g-idle">-</span> idle / no agent</div>
-    </div>
   </nav>
-
   <main>
     <header class="title-block">
-      <h1><code>wb</code> — session-per-worktree, and one picker for all of it</h1>
-      <p class="dek">Replaces the <code class="inline">s</code> / <code class="inline">ca</code> split with a single tmux+fzf tool backed by a central, git-tracked task store at <code class="inline">~/code/tasks</code>.</p>
-      <div class="pill-row">
-        <span class="pill">wb new</span>
-        <span class="pill">wb (picker)</span>
-        <span class="pill">wb done</span>
-        <span class="pill">prefix + m / a</span>
+      <h1>wb — the workbench guide</h1>
+      <p class="dek">How to use wb: session-per-worktree, the unified picker, wind-down.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
       </div>
     </header>
-
-    <section id="overview">
-      <h2>What changed, in one paragraph</h2>
-      <p>Every worktree you open now gets a task file in <code class="inline">~/code/tasks</code> automatically, a standard three-window session (nvim / agent / shell), and a spot in one picker alongside every other repo and running Claude agent on the machine. Closing a task is now a real, guarded action — <code class="inline">wb done</code> — instead of a bare <code class="inline">tmux kill-session</code> that leaves the worktree and an untracked task behind.</p>
-      <div class="callout"><strong>Nothing old was removed.</strong> <code class="inline">s</code> and <code class="inline">ca</code> still work if you type them by name — only the <kbd>prefix</kbd>+<kbd>m</kbd> / <kbd>prefix</kbd>+<kbd>a</kbd> bindings were repointed at <code class="inline">wb</code>.</div>
-    </section>
-
-    <section id="try-it">
-      <h2>Try it in the next five minutes</h2>
-      <ol class="steps">
-        <li>Reload tmux config so the new bindings are live (only needed once, until you reattach): <div class="cmd">tmux source-file ~/.config/tmux/tmux.conf</div></li>
-        <li>Press <kbd>prefix</kbd> then <kbd>a</kbd> (or <kbd>m</kbd> — same picker now). You'll see whatever's actually live right now — running sessions and agents, grouped by status (needs-you first). Press <kbd>Tab</kbd> to cycle between <em>combined</em> / <em>sessions</em> / <em>agents</em> views.</li>
-        <li>From inside any repo, spin up a real task: <div class="cmd"><span class="comment"># from inside ~/code/dotfiles</span>
-wb new try-wb-out</div> This creates <code class="inline">.worktrees/try-wb-out</code>, a branch of the same name, a task file at <code class="inline">~/code/tasks/dotfiles--try-wb-out.md</code>, and drops you into a 3-window session.</li>
-        <li>Poke around — edit something in the <strong>nvim</strong> window, switch to the <strong>agent</strong> window and start <code class="inline">claude</code> if you want one running.</li>
-        <li>Wind it down properly instead of just killing the pane: <div class="cmd">wb done</div> (run it from inside the session — no argument needed). It'll check the tree is clean, and if there are any gitignored files it would otherwise silently destroy, it opens the task file in a split for you to mark <code class="inline">- [x] keep</code> on anything worth saving before it removes the worktree.</li>
-      </ol>
-    </section>
-
-    <section id="wb-new">
-      <h2><code class="inline">wb new</code> — start a task</h2>
-      <div class="cmd"><span class="prompt">$</span> wb new <span class="comment">[--agent]</span> &lt;slug&gt;          <span class="comment"># from inside a repo</span>
-<span class="prompt">$</span> wb new <span class="comment">[--agent]</span> &lt;repo&gt; &lt;slug&gt;   <span class="comment"># from anywhere</span></div>
-      <p>The slug becomes the git branch name, the worktree path (<code class="inline">.worktrees/&lt;slug&gt;</code>), and — sanitized (<code class="inline">/</code> and <code class="inline">.</code> → <code class="inline">-</code>) — the tmux session name and task filename. A slug like <code class="inline">feat/onboarding</code> is completely fine; it becomes session <code class="inline">reponame--feat-onboarding</code>.</p>
-      <p>Re-running <code class="inline">wb new</code> on the same slug is safe — it reuses the existing worktree, task file, and session instead of duplicating anything. That's also how you resume a task after the session got closed without going through <code class="inline">wb done</code>.</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Window</th><th>Name</th><th>What's in it</th></tr></thead>
-          <tbody>
-            <tr><td>1</td><td><code class="inline">nvim</code></td><td>Opens automatically, editing the worktree root.</td></tr>
-            <tr><td>2</td><td><code class="inline">agent</code></td><td>A plain shell — <em>you</em> type <code class="inline">claude</code> when you want an agent running here, unless you passed <code class="inline">--agent</code>.</td></tr>
-            <tr><td>3</td><td><code class="inline">shell</code></td><td>A plain shell for everything else.</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p><code class="inline">--agent</code> is deliberately opt-in: with ~10 Claude sessions being a reasonable working ceiling on this machine, <code class="inline">wb new</code> doesn't start one for you unless you ask.</p>
-    </section>
-
-    <section class="wide" id="wb-picker">
-      <h2>The picker</h2>
-      <p class="dek" style="max-width:72ch">Press <kbd>prefix</kbd>+<kbd>m</kbd> or <kbd>prefix</kbd>+<kbd>a</kbd> (both open the same picker now). Rows are <strong>presence, not inventory</strong> — only things that are actually live right now. A never-started <code class="inline">planned</code> task or a repo you haven't opened doesn't get a row; resume it with <code class="inline">wb new &lt;repo&gt; &lt;slug&gt;</code> directly instead of browsing for it.</p>
-
-      <div class="callout warn"><strong>Changed after first use.</strong> The first version showed a row for every task file and every repo under <code class="inline">~/code</code> whether or not anything was happening — on a normal day that's 20+ rows, nearly all gray "no agent" noise. It's presence-only now.</div>
-
-      <h3>Three modes, one key: <kbd>Tab</kbd></h3>
-      <p style="max-width:72ch">Press <kbd>Tab</kbd> to cycle. The header always shows which mode you're in, and it stays put across the auto-refresh — cycling to <em>sessions</em> and walking away doesn't snap back to <em>combined</em> a few seconds later.</p>
-
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Mode</th><th>Rows</th><th>Replaces</th></tr></thead>
-          <tbody>
-            <tr><td><strong>combined</strong> <span style="color:var(--ink-faint)">(default)</span></td><td>One row per live tmux session; sessions with more than one Claude pane expand into indented sub-rows</td><td>today's <code class="inline">wb</code></td></tr>
-            <tr><td><strong>sessions</strong></td><td>One row per live tmux session, collapsed — no sub-rows</td><td><code class="inline">s</code>, now agent-aware</td></tr>
-            <tr><td><strong>agents</strong></td><td>One row per running Claude pane, globally, ranked by urgency — no session grouping</td><td><code class="inline">ca</code>, exactly</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <p style="max-width:72ch">Five columns, always: <strong>REPO</strong> (location) · <strong>NAME</strong> (task title or session/repo name) · <strong>TYPE</strong> (<code class="inline">session</code> / <code class="inline">agent</code> / <code class="inline">both</code>) · <strong>BRANCH</strong> (the git branch, when there is one) · <strong>STATUS</strong> (the most urgent agent in that row). A realistic <strong>combined</strong> view — three live sessions, one of them (<code class="inline">be--monorepo</code>) running two agents:</p>
-      <div class="picker-demo">
-        <div class="row"><span class="repo">0</span><span class="task">0</span><span class="task" style="width:8ch">both</span><span class="status">[main]</span><span class="glyph g-done">o done</span></div>
-        <div class="row"><span class="repo">be--monorepo</span><span class="task">be--monorepo</span><span class="task" style="width:8ch">both</span><span class="status">[dev]</span><span class="glyph g-needs-you">! needs you</span></div>
-        <div class="row"><span class="repo indent">↳</span><span class="task">state management refactor</span><span class="task" style="width:8ch">agent</span><span class="status">[dev]</span><span class="glyph g-done">o done</span></div>
-        <div class="row"><span class="repo indent">↳</span><span class="task">reporting tool issues</span><span class="task" style="width:8ch">agent</span><span class="status">[dev]</span><span class="glyph g-needs-you">! needs you</span></div>
-        <div class="row"><span class="repo">frontend</span><span class="task">frontend</span><span class="task" style="width:8ch">session</span><span class="status">[sfb-985-…]</span><span class="glyph g-idle">- no agent</span></div>
-      </div>
-
-      <p style="max-width:72ch">TYPE tells you at a glance whether a row is a bare tmux session, a bare agent pane, or both at once. Sub-rows (indented, one per Claude pane) always show <code class="inline">agent</code> and inherit the parent row's BRANCH. Any row with a <span class="g-needs-you">needs you</span> or <span class="g-finished">finished</span> agent sorts first.</p>
-
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Key</th><th>Does</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>Tab</kbd></td><td>Cycle combined → sessions → agents → combined</td></tr>
-            <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td>Move down / up</td></tr>
-            <tr><td><kbd>g</kbd> / <kbd>G</kbd></td><td>Jump to top / bottom</td></tr>
-            <tr><td><kbd>l</kbd> / <kbd>Enter</kbd></td><td>Jump to the row's session or agent pane</td></tr>
-            <tr><td><kbd>x</kbd></td><td>Send <kbd>Esc</kbd> to the row's most-urgent agent pane (interrupt), without leaving the picker</td></tr>
-            <tr><td><kbd>r</kbd></td><td>Rename the row's tmux session (prompts inline, cosmetic only — doesn't touch the task file or worktree)</td></tr>
-            <tr><td><kbd>b</kbd></td><td>Break the row's agent pane out into a brand new session of its own (prompts for a name) — for a second agent you started ad hoc in a shared session and now want on its own. On a parent session row this takes the session's <em>most-urgent</em> agent pane; on a row with no agent it does nothing.</td></tr>
-            <tr><td><kbd>Ctrl</kbd>+<kbd>x</kbd></td><td>On a task row: the full <code class="inline">wb done</code> wind-down. On a plain session/agent row: a raw kill.</td></tr>
-            <tr><td><kbd>Ctrl</kbd>+<kbd>r</kbd></td><td>Force a refresh (it also auto-refreshes every few seconds)</td></tr>
-            <tr><td><kbd>i</kbd> or <kbd>/</kbd></td><td>Start typing to search; <kbd>Esc</kbd> to go back to normal mode</td></tr>
-            <tr><td><kbd>q</kbd> / <kbd>h</kbd></td><td>Close the picker</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="callout"><strong>Preview pane</strong> shows the live agent screen for a session row, or the task file's contents / <code class="inline">git status</code> for anything else — so you can usually tell what a row needs without leaving the list.</div>
-      <div class="callout"><strong>Multiple agents, one session.</strong> <code class="inline">wb new</code> only provisions one dedicated <code class="inline">agent</code> window, but nothing limits you to that. Open another window or split a pane in the same session and start <code class="inline">claude</code> there — the picker scans every pane in the session, not just that one window, so it's automatically picked up as another sub-row (<code class="inline">both</code>/<code class="inline">agent</code> in TYPE) with no extra step.</div>
-      <div class="callout warn"><strong>But not visually, at the tmux level.</strong> tmux's window list itself won't tell you a second agent is running — window names (<code class="inline">nvim</code>/<code class="inline">agent</code>/<code class="inline">shell</code>) are set explicitly at creation and don't auto-rename to reflect what's running, so a second <code class="inline">claude</code> started in the <code class="inline">shell</code> window still just says "shell" in the status bar. What you actually have: a global, session-independent indicator — <code class="inline">status-left</code> shows a live <code class="inline">✳N</code>/<code class="inline">✔N</code> count of agents needing you or just finished, pushed by Claude Code's own hooks (<code class="inline">claude-notify-hook.sh</code>), plus the picker's sub-rows for "which one, exactly." If a stray agent in a shared session gets annoying to track, press <kbd>b</kbd> on it to give it its own session.</div>
-    </section>
-
-    <section id="wb-done">
-      <h2><code class="inline">wb done</code> — wind down, safely</h2>
-      <div class="cmd"><span class="prompt">$</span> wb done <span class="comment">[&lt;session&gt;]</span>   <span class="comment"># no argument = the session you're in</span></div>
-      <p>In order, every time:</p>
-      <ol>
-        <li><strong>Fails fast</strong> if the worktree is dirty — prints <code class="inline">git status --porcelain</code> and stops. Nothing is touched.</li>
-        <li>If there are gitignored files or directories the worktree removal would otherwise silently destroy, appends a checklist to the task file and opens it in a split — <strong>tick <code class="inline">- [x] keep &lt;path&gt;</code></strong> on anything worth keeping, save, close.</li>
-        <li>Copies anything you kept into <code class="inline">~/code/tasks/dossiers/&lt;repo&gt;--&lt;slug&gt;/</code> and records where it went in the task file, then removes the temporary checklist.</li>
-        <li>Removes the git worktree, flips the task's <code class="inline">status:</code> to <code class="inline">done</code>, kills the tmux session.</li>
-      </ol>
-      <div class="callout">If you're several tasks behind on tidying up, <code class="inline">wb done</code> will nudge you: <em>"N follow-ups pending · M parked — consider running <code class="inline">/parked-items</code>."</em> The same count shows in the picker's status line at all times.</div>
-    </section>
-
-    <section id="bootstrap">
-      <h2>Bringing a gitignored file into a new worktree</h2>
-      <p>A fresh worktree only has tracked files — anything gitignored (a local <code class="inline">config.hjson</code>, <code class="inline">node_modules</code>, credentials) is missing until you seed it. Drop a <code class="inline">.worktree-bootstrap</code> file at a repo's root, one path per line:</p>
-      <div class="cmd"><span class="comment"># be--monorepo/.worktree-bootstrap</span>
+    <article>
+<p>Replaces the <code>s</code> / <code>ca</code> split with a single tmux+fzf tool backed by a
+central, git-tracked task store at <code>~/code/tasks</code>. Verbs: <code>wb new</code> ·
+<code>wb</code> (picker) · <code>wb done</code> · bound on <code>prefix+m</code> / <code>prefix+a</code>.</p>
+<h2 id="what-changed-in-one-paragraph">What changed, in one paragraph</h2>
+<p>Every worktree you open now gets a task file in <code>~/code/tasks</code>
+automatically, a standard three-window session (nvim / agent / shell), and a
+spot in one picker alongside every other repo and running Claude agent on
+the machine. Closing a task is now a real, guarded action — <code>wb done</code> —
+instead of a bare <code>tmux kill-session</code> that leaves the worktree and an
+untracked task behind.</p>
+<blockquote>
+<p><strong>Nothing old was removed.</strong> <code>s</code> and <code>ca</code> still work if you type them by
+name — only the <kbd>prefix</kbd>+<kbd>m</kbd> / <kbd>prefix</kbd>+<kbd>a</kbd>
+bindings were repointed at <code>wb</code>.</p>
+</blockquote>
+<h2 id="try-it-in-the-next-five-minutes">Try it in the next five minutes</h2>
+<ol>
+<li>
+<p>Reload tmux config so the new bindings are live (only needed once, until
+you reattach):</p>
+<pre><code>tmux source-file ~/.config/tmux/tmux.conf
+</code></pre>
+</li>
+<li>
+<p>Press <kbd>prefix</kbd> then <kbd>a</kbd> (or <kbd>m</kbd> — same picker
+now). You'll see whatever's actually live right now — running sessions
+and agents, grouped by status (needs-you first). Press <kbd>Tab</kbd> to
+cycle between <em>combined</em> / <em>sessions</em> / <em>agents</em> views.</p>
+</li>
+<li>
+<p>From inside any repo, spin up a real task:</p>
+<pre><code># from inside ~/code/dotfiles
+wb new try-wb-out
+</code></pre>
+<p>This creates <code>.worktrees/try-wb-out</code>, a branch of the same name, a task
+file at <code>~/code/tasks/dotfiles--try-wb-out.md</code>, and drops you into a
+3-window session.</p>
+</li>
+<li>
+<p>Poke around — edit something in the <strong>nvim</strong> window, switch to the
+<strong>agent</strong> window and start <code>claude</code> if you want one running.</p>
+</li>
+<li>
+<p>Wind it down properly instead of just killing the pane:</p>
+<pre><code>wb done
+</code></pre>
+<p>(run it from inside the session — no argument needed). It'll check the
+tree is clean, and if there are any gitignored files it would otherwise
+silently destroy, it opens the task file in a split for you to mark
+<code>- [x] keep</code> on anything worth saving before it removes the worktree.</p>
+</li>
+</ol>
+<h2 id="wb-new--start-a-task">wb new — start a task</h2>
+<pre><code>$ wb new [--agent] &lt;slug&gt;          # from inside a repo
+$ wb new [--agent] &lt;repo&gt; &lt;slug&gt;   # from anywhere
+</code></pre>
+<p>The slug becomes the git branch name, the worktree path
+(<code>.worktrees/&lt;slug&gt;</code>), and — sanitized (<code>/</code> and <code>.</code> → <code>-</code>) — the tmux
+session name and task filename. A slug like <code>feat/onboarding</code> is completely
+fine; it becomes session <code>reponame--feat-onboarding</code>.</p>
+<p>Re-running <code>wb new</code> on the same slug is safe — it reuses the existing
+worktree, task file, and session instead of duplicating anything. That's
+also how you resume a task after the session got closed without going
+through <code>wb done</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Window</th>
+<th>Name</th>
+<th>What's in it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>nvim</code></td>
+<td>Opens automatically, editing the worktree root.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>agent</code></td>
+<td>A plain shell — <em>you</em> type <code>claude</code> when you want an agent running here, unless you passed <code>--agent</code>.</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>shell</code></td>
+<td>A plain shell for everything else.</td>
+</tr>
+</tbody>
+</table>
+<p><code>--agent</code> is deliberately opt-in: with ~10 Claude sessions being a
+reasonable working ceiling on this machine, <code>wb new</code> doesn't start one for
+you unless you ask.</p>
+<h2 id="the-picker">The picker</h2>
+<p>Press <kbd>prefix</kbd>+<kbd>m</kbd> or <kbd>prefix</kbd>+<kbd>a</kbd> (both
+open the same picker now). Rows are <strong>presence, not inventory</strong> — only
+things that are actually live right now. A never-started <code>planned</code> task or
+a repo you haven't opened doesn't get a row; resume it with
+<code>wb new &lt;repo&gt; &lt;slug&gt;</code> directly instead of browsing for it.</p>
+<blockquote>
+<p><strong>Changed after first use.</strong> The first version showed a row for every task
+file and every repo under <code>~/code</code> whether or not anything was happening —
+on a normal day that's 20+ rows, nearly all gray &quot;no agent&quot; noise. It's
+presence-only now.</p>
+</blockquote>
+<h3 id="three-modes-one-key-tab">Three modes, one key: Tab</h3>
+<p>Press <kbd>Tab</kbd> to cycle. The header always shows which mode you're in,
+and it stays put across the auto-refresh — cycling to <em>sessions</em> and walking
+away doesn't snap back to <em>combined</em> a few seconds later.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Rows</th>
+<th>Replaces</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>combined</strong> (default)</td>
+<td>One row per live tmux session; sessions with more than one Claude pane expand into indented sub-rows</td>
+<td>today's <code>wb</code></td>
+</tr>
+<tr>
+<td><strong>sessions</strong></td>
+<td>One row per live tmux session, collapsed — no sub-rows</td>
+<td><code>s</code>, now agent-aware</td>
+</tr>
+<tr>
+<td><strong>agents</strong></td>
+<td>One row per running Claude pane, globally, ranked by urgency — no session grouping</td>
+<td><code>ca</code>, exactly</td>
+</tr>
+</tbody>
+</table>
+<p>Five columns, always: <strong>REPO</strong> (location) · <strong>NAME</strong> (task title or
+session/repo name) · <strong>TYPE</strong> (<code>session</code> / <code>agent</code> / <code>both</code>) · <strong>BRANCH</strong>
+(the git branch, when there is one) · <strong>STATUS</strong> (the most urgent agent in
+that row). A realistic <strong>combined</strong> view — three live sessions, one of them
+(<code>be--monorepo</code>) running two agents:</p>
+<pre><code>0              0                          both     [main]       o done
+be--monorepo   be--monorepo               both     [dev]        ! needs you
+  ↳            state management refactor  agent    [dev]        o done
+  ↳            reporting tool issues      agent    [dev]        ! needs you
+frontend       frontend                   session  [sfb-985-…]  - no agent
+</code></pre>
+<p>Status glyphs: <code>!</code> needs you · <code>+</code> finished · <code>o</code> done · <code>*</code> working ·
+<code>-</code> idle / no agent.</p>
+<p>TYPE tells you at a glance whether a row is a bare tmux session, a bare
+agent pane, or both at once. Sub-rows (indented, one per Claude pane) always
+show <code>agent</code> and inherit the parent row's BRANCH. Any row with a <em>needs you</em>
+or <em>finished</em> agent sorts first.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><kbd>Tab</kbd></td>
+<td>Cycle combined → sessions → agents → combined</td>
+</tr>
+<tr>
+<td><kbd>j</kbd> / <kbd>k</kbd></td>
+<td>Move down / up</td>
+</tr>
+<tr>
+<td><kbd>g</kbd> / <kbd>G</kbd></td>
+<td>Jump to top / bottom</td>
+</tr>
+<tr>
+<td><kbd>l</kbd> / <kbd>Enter</kbd></td>
+<td>Jump to the row's session or agent pane</td>
+</tr>
+<tr>
+<td><kbd>x</kbd></td>
+<td>Send <kbd>Esc</kbd> to the row's most-urgent agent pane (interrupt), without leaving the picker</td>
+</tr>
+<tr>
+<td><kbd>r</kbd></td>
+<td>Rename the row's tmux session (prompts inline, cosmetic only — doesn't touch the task file or worktree)</td>
+</tr>
+<tr>
+<td><kbd>b</kbd></td>
+<td>Break the row's agent pane out into a brand new session of its own (prompts for a name) — for a second agent you started ad hoc in a shared session and now want on its own. On a parent session row this takes the session's <em>most-urgent</em> agent pane; on a row with no agent it does nothing.</td>
+</tr>
+<tr>
+<td><kbd>Ctrl</kbd>+<kbd>x</kbd></td>
+<td>On a task row: the full <code>wb done</code> wind-down. On a plain session/agent row: a raw kill.</td>
+</tr>
+<tr>
+<td><kbd>Ctrl</kbd>+<kbd>r</kbd></td>
+<td>Force a refresh (it also auto-refreshes every few seconds)</td>
+</tr>
+<tr>
+<td><kbd>i</kbd> or <kbd>/</kbd></td>
+<td>Start typing to search; <kbd>Esc</kbd> to go back to normal mode</td>
+</tr>
+<tr>
+<td><kbd>q</kbd> / <kbd>h</kbd></td>
+<td>Close the picker</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Preview pane</strong> shows the live agent screen for a session row, or the
+task file's contents / <code>git status</code> for anything else — so you can usually
+tell what a row needs without leaving the list.</p>
+</blockquote>
+<blockquote>
+<p><strong>Multiple agents, one session.</strong> <code>wb new</code> only provisions one dedicated
+<code>agent</code> window, but nothing limits you to that. Open another window or
+split a pane in the same session and start <code>claude</code> there — the picker
+scans every pane in the session, not just that one window, so it's
+automatically picked up as another sub-row (<code>both</code>/<code>agent</code> in TYPE) with
+no extra step.</p>
+</blockquote>
+<blockquote>
+<p><strong>But not visually, at the tmux level.</strong> tmux's window list itself won't
+tell you a second agent is running — window names (<code>nvim</code>/<code>agent</code>/<code>shell</code>)
+are set explicitly at creation and don't auto-rename to reflect what's
+running, so a second <code>claude</code> started in the <code>shell</code> window still just
+says &quot;shell&quot; in the status bar. What you actually have: a global,
+session-independent indicator — <code>status-left</code> shows a live <code>✳N</code>/<code>✔N</code>
+count of agents needing you or just finished, pushed by Claude Code's own
+hooks (<code>claude-notify-hook.sh</code>), plus the picker's sub-rows for &quot;which
+one, exactly.&quot; If a stray agent in a shared session gets annoying to
+track, press <kbd>b</kbd> on it to give it its own session.</p>
+</blockquote>
+<h2 id="wb-done--wind-down-safely">wb done — wind down, safely</h2>
+<pre><code>$ wb done [&lt;session&gt;]   # no argument = the session you're in
+</code></pre>
+<p>In order, every time:</p>
+<ol>
+<li><strong>Fails fast</strong> if the worktree is dirty — prints <code>git status --porcelain</code>
+and stops. Nothing is touched.</li>
+<li>If there are gitignored files or directories the worktree removal would
+otherwise silently destroy, appends a checklist to the task file and
+opens it in a split — <strong>tick <code>- [x] keep &lt;path&gt;</code></strong> on anything worth
+keeping, save, close.</li>
+<li>Copies anything you kept into <code>~/code/tasks/dossiers/&lt;repo&gt;--&lt;slug&gt;/</code>
+and records where it went in the task file, then removes the temporary
+checklist.</li>
+<li>Removes the git worktree, flips the task's <code>status:</code> to <code>done</code>, kills
+the tmux session.</li>
+</ol>
+<blockquote>
+<p>If you're several tasks behind on tidying up, <code>wb done</code> will nudge you:
+<em>&quot;N follow-ups pending · M parked — consider running <code>/parked-items</code>.&quot;</em>
+The same count shows in the picker's status line at all times.</p>
+</blockquote>
+<h2 id="bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</h2>
+<p>A fresh worktree only has tracked files — anything gitignored (a local
+<code>config.hjson</code>, <code>node_modules</code>, credentials) is missing until you seed it.
+Drop a <code>.worktree-bootstrap</code> file at a repo's root, one path per line:</p>
+<pre><code># be--monorepo/.worktree-bootstrap
 apps/metrics_server/config.hjson
 node_modules
-.env.local</div>
-      <p>Files are copied; directories are symlinked back to the main checkout, so a worktree never needs its own <code class="inline">npm install</code>. No manifest? <code class="inline">wb new</code> falls back to copying whatever <code class="inline">.env*</code> files exist at the repo root.</p>
-    </section>
-
-    <section id="store">
-      <h2>The task store</h2>
-      <p><code class="inline">~/code/tasks</code> is a plain git repo, local for now (no remote pushed yet — that's a five-minute follow-up whenever you want cross-machine sync). One markdown file per task, named <code class="inline">&lt;repo&gt;--&lt;slug&gt;.md</code>:</p>
-      <div class="cmd">---
-status: doing        <span class="comment"># planned | doing | review | done</span>
+.env.local
+</code></pre>
+<p>Files are copied; directories are symlinked back to the main checkout, so a
+worktree never needs its own <code>npm install</code>. No manifest? <code>wb new</code> falls
+back to copying whatever <code>.env*</code> files exist at the repo root.</p>
+<h2 id="the-task-store">The task store</h2>
+<p><code>~/code/tasks</code> is a plain git repo, local for now (no remote pushed yet —
+that's a five-minute follow-up whenever you want cross-machine sync). One
+markdown file per task, named <code>&lt;repo&gt;--&lt;slug&gt;.md</code>:</p>
+<pre><code>---
+status: doing        # planned | doing | review | done
 repo: dotfiles
 branch: feat/onboarding
 worktree: .worktrees/feat/onboarding
@@ -482,56 +485,95 @@ created: 2026-07-06
 ## Plan
 ## Done
 ## Follow-ups
-## Decisions</div>
-      <p>It's a real git repo you can <code class="inline">cd</code> into, <code class="inline">git log</code>, or open in <code class="inline">wb</code> itself (it shows up as a repo row like anything else under <code class="inline">~/code</code>). <code class="inline">/parked-items</code> now promotes follow-ups here instead of a per-repo <code class="inline">scratch/tasks/</code>, and worktree setup checks it for existing context before starting from scratch.</p>
-    </section>
+## Decisions
+</code></pre>
+<p>It's a real git repo you can <code>cd</code> into, <code>git log</code>, or open in <code>wb</code> itself
+(it shows up as a repo row like anything else under <code>~/code</code>).
+<code>/parked-items</code> now promotes follow-ups here instead of a per-repo
+<code>scratch/tasks/</code>, and worktree setup checks it for existing context before
+starting from scratch.</p>
+<h2 id="known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</h2>
+<ul>
+<li>The picker's auto-refresh briefly pauses input while it runs (every few
+seconds) — it's doing more work per refresh than the old <code>ca</code> did, since
+it now scans every repo too. Not broken, just occasionally a beat behind
+a keypress.</li>
+<li><code>wb done</code> always opens the review buffer and waits for you to close it —
+there's no way to run it unattended yet. If you want a fully scripted
+teardown later, that's a small follow-up flag to add.</li>
+<li>Two people (or two panes) running <code>wb done</code> on the exact same session at
+the exact same time can still race each other. Unlikely on a
+single-operator machine, but worth knowing.</li>
+</ul>
+<h2 id="next-steps">Next steps</h2>
+<h3 id="finding-parked-items-and-follow-ups">Finding parked items and follow-ups</h3>
+<p>The picker went presence-only, so parked items and follow-ups don't get
+rows anymore — only live sessions/agents do. Two places to look instead:</p>
+<ul>
+<li><strong>Follow-ups</strong> live under each task's <code>## Follow-ups</code> heading in
+<code>~/code/tasks/*.md</code>. Scan them all at once:
+<code>grep -A5 '^## Follow-ups' ~/code/tasks/*.md</code>, or open one task file
+directly.</li>
+<li><strong>Parked items</strong> live in <code>~/.claude/parked-items/ledger.jsonl</code>. Run
+<code>/parked-items</code> to review, promote, or dismiss them — that's the intended
+interface, not the picker.</li>
+</ul>
+<p>The counts you see in the picker's status line and in <code>wb done</code>'s nudge
+(<code>wb_pending_counts</code>) are a heads-up that these exist, not a drill-down.</p>
+<blockquote>
+<p><strong>There's no single &quot;full picture&quot; view yet</strong> — live sessions, deferred
+follow-ups, and parked items are three separate places to look. That gap
+already has a name: <strong><code>/roadmap</code></strong>, ratified as a follow-up in
+<code>logs/decisions/2026-07-06-review-outstanding.md</code> §7 and
+<a href="roadmap.html"><code>roadmap.md</code></a> §9a — a snapshot over the same task-store
+board (no second status computation), zoomable today/task/week,
+deliberately deferred until slices 2+3 (this PR) are done. It's tracked
+as a Follow-up on this task's own record so it isn't lost.</p>
+</blockquote>
+<h3 id="merging-this-pr">Merging this PR</h3>
+<p>Everything in this guide is ready to merge as-is. What's deliberately <em>not</em>
+in this PR:</p>
+<ul>
+<li><strong><code>wb adopt</code></strong> — a command to retroactively tag an existing plain tmux
+session as a wb task (sets <code>@wb_repo</code>/<code>@wb_slug</code>, seeds a task file)
+without creating a new worktree. Useful if you're migrating hand-rolled
+sessions like an ad-hoc <code>be--monorepo</code> or <code>frontend</code> session into this
+workflow. Not built — say the word if the manual path (open a task file
+by hand, <code>tmux set-option</code> the two variables) gets old.</li>
+<li><strong>A remote for <code>~/code/tasks</code></strong> — it's a real git repo but local-only
+right now. Five-minute follow-up whenever cross-machine sync matters.</li>
+<li><strong>Slices 4 and 5</strong> from the original plan (<code>roadmap.md</code> §8) — notes-tui
+revival and an HTML-in-flow help dashboard. Separate, not-yet-started
+work.</li>
+</ul>
+<p><a href="roadmap.html"><code>roadmap.md</code></a> <em>is</em> the overarching plan doc — build order,
+later-additions log, and the day-bookend design principle all live there
+already. It's had a status pass alongside this guide: §8 now marks slices
+1–3 done, and §9a carries the visibility-gap note above.</p>
+<h2 id="if-something-misbehaves">If something misbehaves</h2>
+<p>Nothing was deleted — <code>s</code> and <code>ca</code> are still there. Two ways back:</p>
+<pre><code># by hand, right now
+s     # the old repo picker
+ca    # the old claude-agent picker
 
-    <section id="gotchas">
-      <h2>Known rough edges (not blocking, worth knowing)</h2>
-      <ul>
-        <li>The picker's auto-refresh briefly pauses input while it runs (every few seconds) — it's doing more work per refresh than the old <code class="inline">ca</code> did, since it now scans every repo too. Not broken, just occasionally a beat behind a keypress.</li>
-        <li><code class="inline">wb done</code> always opens the review buffer and waits for you to close it — there's no way to run it unattended yet. If you want a fully scripted teardown later, that's a small follow-up flag to add.</li>
-        <li>Two people (or two panes) running <code class="inline">wb done</code> on the exact same session at the exact same time can still race each other. Unlikely on a single-operator machine, but worth knowing.</li>
-      </ul>
-    </section>
-
-    <section id="next">
-      <h2>Next steps</h2>
-
-      <h3>Finding parked items and follow-ups</h3>
-      <p>The picker went presence-only, so parked items and follow-ups don't get rows anymore — only live sessions/agents do. Two places to look instead:</p>
-      <ul>
-        <li><strong>Follow-ups</strong> live under each task's <code class="inline">## Follow-ups</code> heading in <code class="inline">~/code/tasks/*.md</code>. Scan them all at once: <code class="inline">grep -A5 '^## Follow-ups' ~/code/tasks/*.md</code>, or open one task file directly.</li>
-        <li><strong>Parked items</strong> live in <code class="inline">~/.claude/parked-items/ledger.jsonl</code>. Run <code class="inline">/parked-items</code> to review, promote, or dismiss them — that's the intended interface, not the picker.</li>
-      </ul>
-      <p>The counts you see in the picker's status line and in <code class="inline">wb done</code>'s nudge (<code class="inline">wb_pending_counts</code>) are a heads-up that these exist, not a drill-down.</p>
-      <div class="callout"><strong>There's no single "full picture" view yet</strong> — live sessions, deferred follow-ups, and parked items are three separate places to look. That gap already has a name: <strong><code class="inline">/roadmap</code></strong>, ratified as a follow-up in <code class="inline">logs/decisions/2026-07-06-review-outstanding.md</code> §7 and <code class="inline">docs/roadmap.md</code> §9a — a snapshot over the same task-store board (no second status computation), zoomable today/task/week, deliberately deferred until slices 2+3 (this PR) are done. It's tracked as a Follow-up on this task's own record so it isn't lost.</div>
-
-      <h3>Merging this PR</h3>
-      <p>Everything in this guide is ready to merge as-is. What's deliberately <em>not</em> in this PR:</p>
-      <ul>
-        <li><strong><code class="inline">wb adopt</code></strong> — a command to retroactively tag an existing plain tmux session as a wb task (sets <code class="inline">@wb_repo</code>/<code class="inline">@wb_slug</code>, seeds a task file) without creating a new worktree. Useful if you're migrating hand-rolled sessions like an ad-hoc <code class="inline">be--monorepo</code> or <code class="inline">frontend</code> session into this workflow. Not built — say the word if the manual path (open a task file by hand, <code class="inline">tmux set-option</code> the two variables) gets old.</li>
-        <li><strong>A remote for <code class="inline">~/code/tasks</code></strong> — it's a real git repo but local-only right now. Five-minute follow-up whenever cross-machine sync matters.</li>
-        <li><strong>Slices 4 and 5</strong> from the original plan (<code class="inline">docs/roadmap.md</code> §8) — notes-tui revival and an HTML-in-flow help dashboard. Separate, not-yet-started work.</li>
-      </ul>
-      <p><code class="inline">docs/roadmap.md</code> <em>is</em> the overarching plan doc — build order, later-additions log, and the day-bookend design principle all live there already. It's had a status pass alongside this guide: §8 now marks slices 1–3 done, and §9a carries the visibility-gap note above.</p>
-    </section>
-
-    <section id="reverting">
-      <h2>If something misbehaves</h2>
-      <p>Nothing was deleted — <code class="inline">s</code> and <code class="inline">ca</code> are still there. Two ways back:</p>
-      <div class="cmd"><span class="comment"># by hand, right now</span>
-s     <span class="comment"># the old repo picker</span>
-ca    <span class="comment"># the old claude-agent picker</span>
-
-<span class="comment"># or revert the keybind cutover commit and reload</span>
+# or revert the keybind cutover commit and reload
 git revert 7e02be6
-tmux source-file ~/.config/tmux/tmux.conf</div>
-      <p>The cutover, the picker, and the store are three separate commits on <code class="inline">feat/agent-task-workflow</code> (PR #7) — any of them can be reverted independently if one part turns out to need more work than the others.</p>
-    </section>
-
+tmux source-file ~/.config/tmux/tmux.conf
+</code></pre>
+<p>The cutover, the picker, and the store are three separate commits on
+<code>feat/agent-task-workflow</code> (PR #7) — any of them can be reverted
+independently if one part turns out to need more work than the others.</p>
+<hr>
+<p>Built alongside PR
+<a href="https://github.com/jetnoli-sportable/dotfiles/pull/7">jetnoli-sportable/dotfiles#7</a>
+· task record: <code>~/code/tasks/dotfiles--agent-task-workflow.md</code></p>
+</article>
     <footer>
-      Built alongside PR <a href="https://github.com/jetnoli-sportable/dotfiles/pull/7">jetnoli-sportable/dotfiles#7</a> · task record: <code class="inline">~/code/tasks/dotfiles--agent-task-workflow.md</code>
+      Generated by <code>docgen</code> from <code>docs/wb-guide.md</code>. Rebuild:
+      <code>docgen.sh build</code>.
     </footer>
   </main>
 </div>
+
+</body>
+</html>

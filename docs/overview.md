@@ -1,4 +1,11 @@
-# Overview — the personal workflow
+---
+title: Overview — the personal workflow
+status: wip
+tile: Everything in the personal workflow — what it is, why it exists, how to use it.
+group: personal-workflow
+kind: page
+updated: 2026-07-07
+---
 
 > Originally "Dotfiles overview" — renamed: this covers the whole personal
 > workflow, not just this repo (notes-tui and the central task store already
