@@ -743,7 +743,7 @@ wb_format_for_display() {
         # happens to be. Plain ASCII on purpose, same reasoning as
         # wb_status_icon above: a Unicode tree glyph reintroduces the
         # cell-width alignment bug this file already moved away from.
-        if (type == "agent") { repo_cell = pad("", w1); name_cell = pad("  > " $2, w2) }
+        if (type == "agent") { repo_cell = pad("", w1); name_cell = pad(" > " $2, w2) }
         else                 { repo_cell = pad($1, w1); name_cell = pad($2, w2) }
         display = c repo_cell r "  " c name_cell r "  " pad(type, w3) "  " pad($3, w4) "  " c status_field r
         print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11)
