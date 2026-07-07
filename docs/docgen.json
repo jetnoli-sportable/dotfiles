@@ -1,6 +1,6 @@
 {
   "templates": "docs/_templates",
-  "pageDirs": ["docs"],
+  "pageDirs": ["docs", "docs/guides"],
   "exclude": ["HUB.md", "INDEX.md"],
   "hub": {
     "out": "docs/HUB.html",
@@ -17,10 +17,9 @@
       {
         "key": "skills",
         "title": "Claude skills",
-        "sub": "~/.claude/skills/ · stowed from claude/ in this repo",
+        "sub": "~/.claude/skills/ · stowed from claude/ in this repo · guides in docs/guides/",
         "glyph": "◆",
-        "dense": true,
-        "note": "<strong>Interim only:</strong> tiles above deep-link into <code>overview.html</code>'s skills section — standalone guide pages per skill (and per TUI) land later in this slice and these tiles repoint there."
+        "dense": true
       },
       {
         "key": "tuis",
@@ -37,38 +36,6 @@
         "href": "agent-workbench-findings.html",
         "path": "docs/agent-workbench-findings.html",
         "chip": "point-in-time audit"
-      },
-      {
-        "group": "skills",
-        "title": "decision-buffer",
-        "tile": "Design decisions through an nvim buffer instead of a chat menu.",
-        "href": "overview.html#decision-buffer"
-      },
-      {
-        "group": "skills",
-        "title": "park",
-        "tile": "<10s capture of a \"deal with this later\" item.",
-        "href": "overview.html#park"
-      },
-      {
-        "group": "skills",
-        "title": "parked-items",
-        "tile": "Weekly review of everything parked, as an nvim checklist.",
-        "href": "overview.html#parked-items"
-      },
-      {
-        "group": "skills",
-        "title": "pr-review-session",
-        "tile": "Open PRs → worktrees + tmux windows + briefs + reviews.",
-        "href": "overview.html#pr-review-session"
-      },
-      {
-        "group": "tuis",
-        "title": "notes-tui",
-        "tile": "Full usage guide: install, commands, global flags, conventions, roadmap.",
-        "href": "../../notes-tui/notes-guide.html",
-        "path": "~/code/notes-tui/notes-guide.html",
-        "chip": "external repo"
       }
     ]
   },
@@ -84,7 +51,7 @@
       { "kind": "doc", "path": "nvim/.config/nvim/instructions.md", "tags": "nvim" },
       { "kind": "decisions", "path": "logs/decisions", "tags": "" },
       { "kind": "memory", "path": "~/.claude/projects/-home-jetnoli-code-dotfiles/memory/MEMORY.md", "tags": "" },
-      { "kind": "tui", "path": "~/code/notes-tui/README.md", "name": "notes-tui", "invoke": "notes", "guide": "~/code/notes-tui/notes-guide.html", "tags": "" },
+      { "kind": "tui", "path": "~/code/notes-tui/README.md", "name": "notes-tui", "invoke": "notes", "guide": "docs/guides/notes-tui.html", "tags": "" },
       { "kind": "taskstore", "path": "~/code/tasks", "tags": "" }
     ]
   },

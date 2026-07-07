@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Hub</title>
+<title>pr-review-session</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -171,110 +171,120 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="hub">
-<div class="statusbar" aria-hidden="true">
-  <span><b>9</b> docs</span>
-  <span>docgen · generated — edit doc frontmatter, not this file</span>
+<body data-kind="guide">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/guides/pr-review-session.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-07</span>
 </div>
-<main>
-<header class="doc">
-  <span class="eyebrow">personal workflow</span>
-  <h1><span class="glyph">⌂</span> Hub</h1>
-  <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview.</p>
-</header>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">pr-review-session</div>
+    <div class="brand-sub">Open PRs → worktrees &#43; tmux windows &#43; briefs &#43; reviews.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="title-block">
+      <h1>pr-review-session</h1>
+      <p class="dek">Open PRs → worktrees &#43; tmux windows &#43; briefs &#43; reviews.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p>Turns &quot;go check my PRs&quot; into one browsable tmux session: every open PR in
+your watched repos gets a git worktree of its actual head, a tmux window,
+and a <code>PR-BRIEF.md</code> with a review summary and critical findings up top. The
+deterministic plumbing is <code>driver.py</code> (stdlib Python); the agent runs a
+code review per PR and writes the narrative. Described in the workbench
+findings as &quot;the prototype of the end goal&quot; of the whole workbench project.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>One-time setup — declare which repos to watch:</p>
+<pre><code>mkdir -p ~/.config/pr-review-session
+cp ~/.claude/skills/pr-review-session/config.example.json \
+   ~/.config/pr-review-session/config.json
+# edit the repos array
+</code></pre>
+<p>Then, in a Claude Code session: <strong>&quot;check my PRs&quot;</strong> (or <code>/pr-review-session</code>).
+When it finishes, walk the results:</p>
+<pre><code>tmux attach -t pr-review     # one window per PR, brief on screen
+</code></pre>
+<h2 id="reference">Reference</h2>
+<p>The agent's loop per invocation (all driver calls are idempotent):</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Command</th>
+<th>Does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scan</td>
+<td><code>driver.py plan</code></td>
+<td>JSON of PRs needing attention (new, or new commits since last review)</td>
+</tr>
+<tr>
+<td>Prepare</td>
+<td><code>driver.py prepare &lt;repo&gt; &lt;pr&gt;</code></td>
+<td>Worktree from <code>pull/&lt;n&gt;/head</code> + tmux window + scaffolded brief</td>
+</tr>
+<tr>
+<td>Review</td>
+<td><code>ce-code-review</code> headless</td>
+<td>Structured findings for the brief</td>
+</tr>
+<tr>
+<td>Brief</td>
+<td>edit <code>PR-BRIEF.md</code></td>
+<td>Critical findings first, then a plain-language summary</td>
+</tr>
+<tr>
+<td>Complete</td>
+<td><code>driver.py complete &lt;repo&gt; &lt;pr&gt;</code></td>
+<td>Records head sha so unchanged PRs aren't re-flagged</td>
+</tr>
+</tbody>
+</table>
+<p><code>driver.py status</code> shows config/state paths, per-repo token resolution
+(<code>[gh]</code>/<code>[pgh]</code>, auto-detected from origin owner), and live tmux windows.
+Config keys: <code>repos</code>, <code>tmux_session</code>, <code>limit</code>, <code>include_drafts</code>,
+<code>worktree_dir</code>. State lives in
+<code>~/.local/state/pr-review-session/state.json</code> — delete it to force
+re-review of everything.</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li>The Sportable fine-grained PAT can't read <code>statusCheckRollup</code>; checks are
+fetched best-effort and the brief says <code>checks unavailable</code> when blocked.</li>
+<li>Worktrees check out the PR author's actual commits (<code>pull/&lt;n&gt;/head</code>), not
+a fresh branch from base — don't push from them casually.</li>
+<li>A stale/dirty worktree blocks <code>prepare</code>:
+<code>git -C &lt;repo&gt; worktree remove --force .worktrees/pr-&lt;n&gt;</code> and re-run.</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<ul>
+<li>Run it on a cadence: <code>/loop /pr-review-session</code> (self-paced) or
+<code>/schedule</code> fixed times (e.g. 10:00 and 20:00) — local only; cloud runs
+lack your repos and keyring.</li>
+<li>Tear down any time: kill the <code>pr-review</code> session and remove
+<code>.worktrees/pr-*</code> worktrees; state and config are two small files. Skill
+source: <code>claude/.claude/skills/pr-review-session/</code>.</li>
+</ul>
+</article>
+    <footer>
+      Generated by <code>docgen</code> from <code>docs/guides/pr-review-session.md</code>. Rebuild:
+      <code>docgen.sh build</code>.
+    </footer>
+  </main>
+</div>
 
-<section class="group">
-  <div class="group-head"><h2>Personal workflow</h2>
-    <span class="group-sub">~/code/dotfiles</span></div>
-  <div class="grid">
-    <a class="tile" href="agent-workbench-findings.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        <span class="chip mut">point-in-time audit</span></div>
-      <h3>Agent Workbench Findings</h3>
-      <p>Pre-build audit of the tmux/Claude tooling: inventory, signal contract, gaps, flows.</p>
-      <div class="path">docs/agent-workbench-findings.html</div>
-    </a>
-    <a class="tile" href="overview.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        <span class="chip warn">wip</span></div>
-      <h3>Overview — the personal workflow</h3>
-      <p>Everything in the personal workflow — what it is, why it exists, how to use it.</p>
-      <div class="path">docs/overview.html</div>
-    </a>
-    <a class="tile" href="roadmap.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        <span class="chip ok">current</span></div>
-      <h3>Roadmap — the personal workflow</h3>
-      <p>The plan: readback, decisions, build order, later additions.</p>
-      <div class="path">docs/roadmap.html</div>
-    </a>
-    <a class="tile" href="wb-guide.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        <span class="chip ok">current</span></div>
-      <h3>wb — the workbench guide</h3>
-      <p>How to use wb: session-per-worktree, the unified picker, wind-down.</p>
-      <div class="path">docs/wb-guide.html</div>
-    </a>
-  </div>
-  
-</section>
-
-<section class="group">
-  <div class="group-head"><h2>Claude skills</h2>
-    <span class="group-sub">~/.claude/skills/ · stowed from claude/ in this repo · guides in docs/guides/</span></div>
-  <div class="grid dense">
-    <a class="tile mini" href="guides/decision-buffer.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        <span class="chip ok">current</span></div>
-      <h3>decision-buffer</h3>
-      <p>Design decisions through an nvim buffer instead of a chat menu.</p>
-      <div class="path">docs/guides/decision-buffer.html</div>
-    </a>
-    <a class="tile mini" href="guides/park.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        <span class="chip ok">current</span></div>
-      <h3>park</h3>
-      <p>&lt;10s capture of a &#34;deal with this later&#34; item.</p>
-      <div class="path">docs/guides/park.html</div>
-    </a>
-    <a class="tile mini" href="guides/parked-items.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        <span class="chip ok">current</span></div>
-      <h3>parked-items</h3>
-      <p>Weekly review of everything parked, as an nvim checklist.</p>
-      <div class="path">docs/guides/parked-items.html</div>
-    </a>
-    <a class="tile mini" href="guides/pr-review-session.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        <span class="chip ok">current</span></div>
-      <h3>pr-review-session</h3>
-      <p>Open PRs → worktrees &#43; tmux windows &#43; briefs &#43; reviews.</p>
-      <div class="path">docs/guides/pr-review-session.html</div>
-    </a>
-  </div>
-  
-</section>
-
-<section class="group">
-  <div class="group-head"><h2>TUIs</h2>
-    <span class="group-sub">separate repos under ~/code/</span></div>
-  <div class="grid">
-    <a class="tile" href="guides/notes-tui.html">
-      <div class="tile-top"><span class="tile-glyph">▦</span>
-        <span class="chip ok">current</span></div>
-      <h3>notes-tui</h3>
-      <p>Capture-dumb, retrieval-smart notes over a flat markdown corpus.</p>
-      <div class="path">docs/guides/notes-tui.html</div>
-    </a>
-  </div>
-  
-</section>
-
-<footer>
-  Generated by <code>docgen</code> from doc frontmatter + <code>docs/docgen.json</code>.
-  Rebuild: <code>docgen.sh build</code>.
-</footer>
-</main>
 </body>
 </html>

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Hub</title>
+<title>notes-tui</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -171,110 +171,116 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="hub">
-<div class="statusbar" aria-hidden="true">
-  <span><b>9</b> docs</span>
-  <span>docgen · generated — edit doc frontmatter, not this file</span>
+<body data-kind="guide">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/guides/notes-tui.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-07</span>
 </div>
-<main>
-<header class="doc">
-  <span class="eyebrow">personal workflow</span>
-  <h1><span class="glyph">⌂</span> Hub</h1>
-  <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview.</p>
-</header>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">notes-tui</div>
+    <div class="brand-sub">Capture-dumb, retrieval-smart notes over a flat markdown corpus.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="title-block">
+      <h1>notes-tui</h1>
+      <p class="dek">Capture-dumb, retrieval-smart notes over a flat markdown corpus.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p>A notes tool (separate repo, <code>~/code/notes-tui</code>) over a flat git corpus of
+markdown at <code>~/code/notes</code> — Denote-style filenames carry identity and tags.
+Capture is deliberately dumb (sub-second, zero decisions); retrieval is
+where the smarts live (<code>digest</code> windows, context grouping, tags). v1 is
+AI-free by design; the LLM layer is a later additive phase. This is the
+daily-notes flow the personal workflow is converging on — <code>notes.sh</code>
+(<code>prefix+N</code>/<code>M</code>) is the current nvim-based tool it will eventually replace.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>The capture hot-path is already wired into <code>.zshrc</code> (slice 4a):</p>
+<pre><code>note &quot;redis eviction surprised me&quot;    # appends to inbox.md, auto-stamped
+kubectl logs pod-x | note             # capture command output the same way
+</code></pre>
+<p>Every entry is stamped with cwd, git repo+branch, and tmux session. Then
+review what the week collected:</p>
+<pre><code>notes digest day
+notes digest week --by context        # grouped by repo:branch
+</code></pre>
+<h2 id="reference">Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>note &quot;thought&quot;</code> / <code>cmd | note</code></td>
+<td>Zero-decision append to <code>inbox.md</code>, context-stamped</td>
+</tr>
+<tr>
+<td><code>notes digest [hour|day|week|month]</code></td>
+<td>Review a window; <code>week</code> is rolling 7 days unless <code>--calendar</code></td>
+</tr>
+<tr>
+<td><code>notes digest --since 3h</code> / <code>--from … --to …</code></td>
+<td>Arbitrary windows</td>
+</tr>
+<tr>
+<td><code>notes digest --by context</code></td>
+<td>Group by repo:branch from the capture stamp</td>
+</tr>
+<tr>
+<td><code>notes process [--dry-run]</code></td>
+<td>Mechanical cleanup proposals (rename → Denote scheme, split candidates); proposal-only in v1</td>
+</tr>
+<tr>
+<td><code>notes tag [name]</code></td>
+<td>Tags with counts, or notes carrying a tag</td>
+</tr>
+</tbody>
+</table>
+<p>Corpus default <code>~/code/notes</code> (override <code>$NOTES_DIR</code> or <code>--dir</code>). The full
+committed reference — install, global flags, conventions, roadmap — is
+<a href="../../../notes-tui/notes-guide.html">notes-guide.html</a> in the notes-tui
+repo (<code>xdg-open ~/code/notes-tui/notes-guide.html</code>).</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li>cwd and tmux session are captured in the stamp but not yet used for
+grouping — <code>--by context</code> groups by repo:branch only; session-level
+filtering is the planned slice-4b <code>--context</code> flag.</li>
+<li>Not yet wired into <code>wb</code>: <code>wb new</code>/<code>wb done</code> don't stamp or pull digests
+automatically. That's slice 4b (<code>roadmap.md</code> §4), gated on this capture
+window's verdict.</li>
+<li><code>notes process</code> proposes only; the apply path lands behind a git review
+gate later.</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<ul>
+<li>Slice 4b (plan 003) adds the <code>--context</code> digest filter and the wb
+integration; a Bubble Tea TUI phase follows on the same core.</li>
+<li>The capture sourcing is one line in <code>.zshrc</code>
+(<code>source ~/code/notes-tui/scripts/note.sh</code>) — comment it out to unwire;
+the corpus is a plain git repo you keep either way.</li>
+</ul>
+</article>
+    <footer>
+      Generated by <code>docgen</code> from <code>docs/guides/notes-tui.md</code>. Rebuild:
+      <code>docgen.sh build</code>.
+    </footer>
+  </main>
+</div>
 
-<section class="group">
-  <div class="group-head"><h2>Personal workflow</h2>
-    <span class="group-sub">~/code/dotfiles</span></div>
-  <div class="grid">
-    <a class="tile" href="agent-workbench-findings.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        <span class="chip mut">point-in-time audit</span></div>
-      <h3>Agent Workbench Findings</h3>
-      <p>Pre-build audit of the tmux/Claude tooling: inventory, signal contract, gaps, flows.</p>
-      <div class="path">docs/agent-workbench-findings.html</div>
-    </a>
-    <a class="tile" href="overview.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        <span class="chip warn">wip</span></div>
-      <h3>Overview — the personal workflow</h3>
-      <p>Everything in the personal workflow — what it is, why it exists, how to use it.</p>
-      <div class="path">docs/overview.html</div>
-    </a>
-    <a class="tile" href="roadmap.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        <span class="chip ok">current</span></div>
-      <h3>Roadmap — the personal workflow</h3>
-      <p>The plan: readback, decisions, build order, later additions.</p>
-      <div class="path">docs/roadmap.html</div>
-    </a>
-    <a class="tile" href="wb-guide.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        <span class="chip ok">current</span></div>
-      <h3>wb — the workbench guide</h3>
-      <p>How to use wb: session-per-worktree, the unified picker, wind-down.</p>
-      <div class="path">docs/wb-guide.html</div>
-    </a>
-  </div>
-  
-</section>
-
-<section class="group">
-  <div class="group-head"><h2>Claude skills</h2>
-    <span class="group-sub">~/.claude/skills/ · stowed from claude/ in this repo · guides in docs/guides/</span></div>
-  <div class="grid dense">
-    <a class="tile mini" href="guides/decision-buffer.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        <span class="chip ok">current</span></div>
-      <h3>decision-buffer</h3>
-      <p>Design decisions through an nvim buffer instead of a chat menu.</p>
-      <div class="path">docs/guides/decision-buffer.html</div>
-    </a>
-    <a class="tile mini" href="guides/park.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        <span class="chip ok">current</span></div>
-      <h3>park</h3>
-      <p>&lt;10s capture of a &#34;deal with this later&#34; item.</p>
-      <div class="path">docs/guides/park.html</div>
-    </a>
-    <a class="tile mini" href="guides/parked-items.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        <span class="chip ok">current</span></div>
-      <h3>parked-items</h3>
-      <p>Weekly review of everything parked, as an nvim checklist.</p>
-      <div class="path">docs/guides/parked-items.html</div>
-    </a>
-    <a class="tile mini" href="guides/pr-review-session.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        <span class="chip ok">current</span></div>
-      <h3>pr-review-session</h3>
-      <p>Open PRs → worktrees &#43; tmux windows &#43; briefs &#43; reviews.</p>
-      <div class="path">docs/guides/pr-review-session.html</div>
-    </a>
-  </div>
-  
-</section>
-
-<section class="group">
-  <div class="group-head"><h2>TUIs</h2>
-    <span class="group-sub">separate repos under ~/code/</span></div>
-  <div class="grid">
-    <a class="tile" href="guides/notes-tui.html">
-      <div class="tile-top"><span class="tile-glyph">▦</span>
-        <span class="chip ok">current</span></div>
-      <h3>notes-tui</h3>
-      <p>Capture-dumb, retrieval-smart notes over a flat markdown corpus.</p>
-      <div class="path">docs/guides/notes-tui.html</div>
-    </a>
-  </div>
-  
-</section>
-
-<footer>
-  Generated by <code>docgen</code> from doc frontmatter + <code>docs/docgen.json</code>.
-  Rebuild: <code>docgen.sh build</code>.
-</footer>
-</main>
 </body>
 </html>
