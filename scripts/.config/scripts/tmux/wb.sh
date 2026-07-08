@@ -5,6 +5,8 @@
 #   wb                               the picker (replaces s + ca)
 #   wb board                         task-store status table (interim /board)
 #   wb done [<session>]              safe wind-down (defaults to the current session)
+#   wb resume <task>                 recreate a closed/gone worktree+session from its task file
+#   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
 # ratified judgment calls: dotfiles/logs/decisions/2026-07-06-review-outstanding.md,
@@ -279,6 +281,153 @@ cmd_new() {
 }
 
 # ---------------------------------------------------------------------------
+# wb resume — recreate a task's worktree+session from the central store
+# ---------------------------------------------------------------------------
+
+# cmd_resume <query> — case-insensitive substring match of <query> against
+# every task file's basename (repo--slug, minus .md), then hands off to
+# cmd_new's existing worktree/session logic (already idempotent — safe
+# whether the worktree still exists or was torn down by a prior `wb done`).
+# Never guesses on ambiguity: 0 or 2+ matches both fail loudly instead of
+# picking one.
+cmd_resume() {
+  local query="${1:-}"
+  [ -n "$query" ] || { echo "usage: wb resume <task>" >&2; exit 1; }
+
+  local -a matches=()
+  local f base
+  while IFS= read -r f; do
+    base="$(basename "$f" .md)"
+    case "${base,,}" in
+      *"${query,,}"*) matches+=("$f") ;;
+    esac
+  done < <(wb_task_files)
+
+  case "${#matches[@]}" in
+    0)
+      echo "wb resume: no task matches '$query' in $TASKS_DIR" >&2
+      exit 1
+      ;;
+    1)
+      local file="${matches[0]}" repo branch
+      repo="$(wb_get_frontmatter "$file" repo)"
+      branch="$(wb_get_frontmatter "$file" branch)"
+      [ -n "$repo" ] && [ -n "$branch" ] \
+        || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
+      cmd_new "$repo" "$branch"
+      ;;
+    *)
+      echo "wb resume: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
+      for f in "${matches[@]}"; do
+        echo "  $(basename "$f" .md)" >&2
+      done
+      exit 1
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# wb reconcile — drift detection (task store vs. git worktree reality)
+# ---------------------------------------------------------------------------
+# Detection only. The review-doc + six-action flow over these findings is a
+# separate, still-pending unit — this just reports.
+
+# wb_reconcile_repos — every repo directory to scan for orphaned worktrees.
+# Indirection point so tests can stub in fixture repos instead of scanning
+# the real $HOME/code.
+wb_reconcile_repos() { tmux_code_repos; }
+
+# wb_repo_dir <repo> — <repo>'s directory under CODE_DIR. Indirection point
+# so tests can stub in a fixture path instead of the real $HOME/code/<repo>.
+wb_repo_dir() { printf '%s/%s\n' "$CODE_DIR" "$1"; }
+
+# wb_repo_worktrees <repo_dir> — "<branch>\t<abs_path>" per worktree in
+# <repo_dir>, EXCLUDING the main worktree (the checkout itself). Uses
+# substr(), not field-split, so a path containing spaces doesn't corrupt
+# the branch/path split.
+wb_repo_worktrees() {
+  git -C "$1" worktree list --porcelain 2>/dev/null | awk -v main="$1" '
+    /^worktree / { path = substr($0, 10); branch = ""; is_main = (path == main) }
+    /^branch /   { b = substr($0, 8); sub(/^refs\/heads\//, "", b); branch = b }
+    /^detached$/ { branch = "(detached)" }
+    /^$/         { if (path != "" && !is_main) printf "%s\t%s\n", branch, path; path = "" }
+    END          { if (path != "" && !is_main) printf "%s\t%s\n", branch, path }
+  '
+}
+
+# wb_pr_merge_status <repo_dir> <branch> — "merged" | "not-merged" | "unknown"
+# for <branch>'s most recent PR. Falls back from `gh` to a personal PAT
+# (mirroring the `pgh` shell function in ~/.zshrc — reimplemented inline
+# since wb.sh is bash and pgh is a zsh function, not a standalone binary)
+# when the Sportable-scoped token can't see the repo. Hard rule: never
+# silently drop a finding — a gh/pgh failure reports "unknown" rather than
+# omitting the row entirely.
+wb_pr_merge_status() {
+  local repo_dir="$1" branch="$2" out rc
+  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state merged --json number 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state merged --json number 2>&1)"; rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo unknown
+    return
+  fi
+  if printf '%s' "$out" | grep -q '"number"'; then echo merged; else echo not-merged; fi
+}
+
+# cmd_reconcile — two kinds of drift:
+#   - orphaned worktree: a real git worktree with no task file pointing at it
+#   - missing worktree: a task file's worktree: field points nowhere
+cmd_reconcile() {
+  local repo_dir repo branch abs_path rel tf found merged
+  local -a orphan_rows=() missing_rows=()
+
+  while IFS= read -r repo_dir; do
+    [ -d "$repo_dir/.git" ] || continue
+    repo="$(basename "$repo_dir")"
+    while IFS=$'\t' read -r branch abs_path; do
+      [ -n "$abs_path" ] || continue
+      rel="${abs_path#"$repo_dir"/}"
+      found=0
+      while IFS= read -r tf; do
+        [ "$(wb_get_frontmatter "$tf" repo)" = "$repo" ] || continue
+        [ "$(wb_get_frontmatter "$tf" worktree)" = "$rel" ] || continue
+        found=1; break
+      done < <(wb_task_files)
+      if [ "$found" -eq 0 ]; then
+        merged="$(wb_pr_merge_status "$repo_dir" "$branch")"
+        orphan_rows+=("$repo"$'\t'"$branch"$'\t'"$rel"$'\t'"$merged")
+      fi
+    done < <(wb_repo_worktrees "$repo_dir")
+  done < <(wb_reconcile_repos)
+
+  while IFS= read -r tf; do
+    local t_repo t_worktree
+    t_repo="$(wb_get_frontmatter "$tf" repo)"
+    t_worktree="$(wb_get_frontmatter "$tf" worktree)"
+    [ -n "$t_repo" ] && [ -n "$t_worktree" ] || continue
+    [ -d "$(wb_repo_dir "$t_repo")/$t_worktree" ] && continue
+    missing_rows+=("$t_repo"$'\t'"$t_worktree"$'\t'"$(basename "$tf" .md)")
+  done < <(wb_task_files)
+
+  if [ "${#orphan_rows[@]}" -eq 0 ] && [ "${#missing_rows[@]}" -eq 0 ]; then
+    echo "wb reconcile: no drift found"
+    return 0
+  fi
+
+  if [ "${#orphan_rows[@]}" -gt 0 ]; then
+    echo "Orphaned worktrees (no matching task file):"
+    { printf 'REPO\tBRANCH\tWORKTREE\tMERGE-STATUS\n'; printf '%s\n' "${orphan_rows[@]}"; } | column -t -s $'\t'
+    [ "${#missing_rows[@]}" -gt 0 ] && echo
+  fi
+
+  if [ "${#missing_rows[@]}" -gt 0 ]; then
+    echo "Tasks referencing a missing worktree:"
+    { printf 'REPO\tWORKTREE\tTASK\n'; printf '%s\n' "${missing_rows[@]}"; } | column -t -s $'\t'
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # wb done — safe wind-down
 # ---------------------------------------------------------------------------
 
@@ -399,10 +548,10 @@ cmd_board() {
 
   {
     printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\n'
-    # doing < review < planned < done < anything-else; rank prefix keeps the
-    # plain-text sort key clean, then drops out before display.
+    # doing < review < paused < planned < done < anything-else; rank prefix
+    # keeps the plain-text sort key clean, then drops out before display.
     printf '%s' "$rows" | awk -F'\t' -v OFS='\t' '{
-      r = ($1 == "doing") ? 0 : ($1 == "review") ? 1 : ($1 == "planned") ? 2 : ($1 == "done") ? 3 : 4
+      r = ($1 == "doing") ? 0 : ($1 == "review") ? 1 : ($1 == "paused") ? 2 : ($1 == "planned") ? 3 : ($1 == "done") ? 4 : 5
       print r, $0
     }' | sort -t $'\t' -k1,1n -k3,3 -k4,4 | cut -f2-
   } | column -t -s $'\t'
@@ -530,6 +679,7 @@ cmd_done() {
     git -C "$repo_dir" worktree remove "$worktree_path" --force
   fi
   wb_set_frontmatter "$task_file" status done
+  wb_set_frontmatter "$task_file" closed "$(date +%F)"
   tmux kill-session -t "=$session" 2>/dev/null || true
 
   echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
@@ -956,16 +1106,24 @@ picker() {
   fi
 }
 
-case "${1:-}" in
-  new)         shift; cmd_new "$@" ;;
-  board)       shift; cmd_board "$@" ;;
-  done)        shift; cmd_done "$@" ;;
-  render)      shift; render_rows "$@" ;;
-  _interrupt)  shift; _interrupt "$@" ;;
-  _rename)     shift; _rename "$@" ;;
-  _break-out)  shift; _break_out "$@" ;;
-  _ctrl-x)     shift; _ctrl_x "$@" ;;
-  _cycle-mode) shift; _cycle_mode "$@" ;;
-  _mode-header) shift; _mode_header "$@" ;;
-  *)           picker "${1:-}" ;;
-esac
+# Guarded so tests can `source` this file to reach individual functions
+# (e.g. to stub cmd_new and unit-test cmd_resume's match logic) without
+# triggering the CLI dispatch below — real invocation (`bash wb.sh ...` /
+# `./wb.sh ...`) always has BASH_SOURCE[0] == $0, so behavior is unchanged.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  case "${1:-}" in
+    new)         shift; cmd_new "$@" ;;
+    resume)      shift; cmd_resume "$@" ;;
+    reconcile)   shift; cmd_reconcile "$@" ;;
+    board)       shift; cmd_board "$@" ;;
+    done)        shift; cmd_done "$@" ;;
+    render)      shift; render_rows "$@" ;;
+    _interrupt)  shift; _interrupt "$@" ;;
+    _rename)     shift; _rename "$@" ;;
+    _break-out)  shift; _break_out "$@" ;;
+    _ctrl-x)     shift; _ctrl_x "$@" ;;
+    _cycle-mode) shift; _cycle_mode "$@" ;;
+    _mode-header) shift; _mode_header "$@" ;;
+    *)           picker "${1:-}" ;;
+  esac
+fi
