@@ -1,0 +1,9 @@
+[/]
+history-name='history'
+images-support=true
+launch-ui='<Ctrl><Alt>g'
+max-history-size=uint64 200
+open-centered=true
+save-history=true
+show-history='<Ctrl><Shift>G'
+track-extension-state=true
