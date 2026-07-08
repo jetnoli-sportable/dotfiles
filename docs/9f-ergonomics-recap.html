@@ -222,8 +222,8 @@ all shipped in one PR. This page is the source; edit
 <tr>
 <td>4</td>
 <td>Claude Code clipboard reliability</td>
-<td><strong>Diagnosed, not a code fix</strong> — root cause is GNOME Terminal lacking OSC52 support. Full writeup: <a href="clipboard-osc52-diagnosis.html">clipboard diagnosis</a></td>
-<td><code>docs/clipboard-osc52-diagnosis.md</code></td>
+<td><strong>Diagnosed, not a code fix</strong> — see <a href="#item-4-deep-dive-claude-code-clipboard-reliability">item 4 deep dive</a></td>
+<td>merged in below</td>
 </tr>
 <tr>
 <td>5</td>
@@ -233,9 +233,9 @@ all shipped in one PR. This page is the source; edit
 </tr>
 <tr>
 <td>6</td>
-<td>Inline diff plugin trial</td>
-<td><strong>inline-diff.nvim</strong> on <code>&lt;leader&gt;vi</code> — word-level diff rendered in-buffer, no separate tabpage. Substituted for the roadmap's ambiguously-named &quot;vscode-diff.nvim&quot; (see commit <code>1b0a8d4</code> for why)</td>
-<td><code>nvim/.../plugins/config/inline-diff.lua</code></td>
+<td>VSCode-style diff plugin</td>
+<td><strong>codediff.nvim</strong> (owner pick, <code>&lt;leader&gt;vi</code>/<code>&lt;leader&gt;vI</code>) — full explorer/history/conflict-resolution UI with two-tier line+character highlighting, side-by-side or inline. See <a href="#item-6-codediffnvim-vs-diffviewnvim">item 6: codediff.nvim vs diffview.nvim</a> for how it compares to the diff tool already installed</td>
+<td><code>nvim/.../plugins/config/codediff.lua</code></td>
 </tr>
 </tbody>
 </table>
@@ -253,17 +253,141 @@ shows a fuzzy-searchable list of changed files, not something else.</li>
 (<code>:wa | :qa</code>), then run <code>nvim .</code> (or bare <code>nvim</code>) in that same
 directory — confirm your buffers come back. Try <code>&lt;leader&gt;pd</code> to stop
 saving a session you don't want remembered.</li>
-<li><input disabled="" type="checkbox"> <strong>Inline diff:</strong> make an uncommitted change to a tracked file, open
-it in nvim, press <code>&lt;leader&gt;vi</code> — confirm word-level highlighting
-appears in the buffer itself (no new window/tabpage).</li>
-<li><input disabled="" type="checkbox"> <strong>Clipboard:</strong> see the <a href="clipboard-osc52-diagnosis.html#verify-it-yourself">dedicated verification checklist</a> —
-it's its own page since the diagnosis has real content worth keeping
-separately findable.</li>
+<li><input disabled="" type="checkbox"> <strong>codediff.nvim:</strong> make an uncommitted change to a tracked file,
+open it in nvim, press <code>&lt;leader&gt;vi</code> — confirm a new tab opens with
+the diff explorer (first run downloads a small C library, needs
+network once). See <a href="#item-6-codediffnvim-vs-diffviewnvim">item 6</a>
+for commands to compare it against diffview.nvim.</li>
+<li><input disabled="" type="checkbox"> <strong>Clipboard:</strong> see <a href="#clipboard-verification-steps">clipboard verification steps</a> below.</li>
 <li><input disabled="" type="checkbox"> <strong>Regenerate and confirm it's a no-op</strong>: run <code>docgen.sh</code> from the repo
 root and check <code>git status</code> shows nothing changed.</li>
 <li><input disabled="" type="checkbox"> <strong>Skim the PR</strong> (<a href="https://github.com/jetnoli-sportable/dotfiles/pull/10">#10</a>)
 for anything that looks off before merging to <code>development</code>.</li>
 </ul>
+<h2 id="item-4-deep-dive-claude-code-clipboard-reliability">Item 4 deep dive: Claude Code clipboard reliability</h2>
+<p>Claude Code sometimes reports &quot;copied N characters to clipboard&quot; and then
+nothing actually pastes. Root cause found; it isn't a bug in Claude, tmux, or
+this dotfiles config — it's a hard capability gap in one specific terminal.</p>
+<h3 id="the-finding">The finding</h3>
+<p>Claude Code's clipboard shortcut writes via <strong>OSC 52</strong>, a terminal escape
+sequence that asks whichever terminal is attached to set the system
+clipboard directly — no shelling out to <code>wl-copy</code>/<code>xclip</code> involved. The
+write call itself doesn't error, so Claude reports success honestly. Whether
+anything actually lands in the clipboard depends entirely on the terminal
+receiving that sequence.</p>
+<p><strong>GNOME Terminal (VTE) still does not implement OSC 52 at all, as of 2026</strong> —
+a deliberate upstream decision (letting a remote program silently write your
+clipboard is a real security concern) — so it just drops the sequence.
+<strong>Ghostty does implement it</strong> (<code>clipboard-write = allow</code> is already set in
+this repo's <code>ghostty/.config/ghostty/config</code>).</p>
+<p>A first hypothesis — that <code>allow-passthrough</code> in <code>tmux.conf</code> was colliding
+with Claude's OSC52 emission — was checked and ruled out along the way:
+<code>allow-passthrough</code> only governs a <em>different</em> mechanism (DCS-wrapped
+passthrough, used by things like terminal image protocols). The setting
+that actually matters for raw OSC52 is <code>set-clipboard</code>, which was already
+<code>on</code>. The stale comment conflating the two has been corrected in
+<code>tmux.conf</code>.</p>
+<h3 id="how-it-was-confirmed">How it was confirmed</h3>
+<ol>
+<li><code>wl-copy</code>/<code>wl-paste</code> tested standalone (outside tmux and Claude
+entirely) — worked fine, ruling out a broken Wayland clipboard.</li>
+<li>tmux's live settings checked directly (<code>tmux show-options -g allow-passthrough</code> / <code>set-clipboard</code>) — both already correctly set.</li>
+<li>A raw OSC52 sequence sent directly to a real terminal pane, bypassing
+Claude entirely:
+<pre><code class="language-bash">wl-copy &lt; /dev/null   # clear it first
+printf '\033]52;c;%s\007' &quot;$(printf 'osc52-relay-test' | base64 -w0)&quot;
+wl-paste              # prints nothing =&gt; OSC52 isn't reaching the clipboard
+</code></pre>
+This printed nothing in the GNOME Terminal pane where the bug was first
+reported — confirming the break was in the terminal itself, not in
+Claude, tmux, or Wayland.</li>
+</ol>
+<h3 id="clipboard-verification-steps">Clipboard verification steps</h3>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>Run the three-line test above</strong> in a GNOME Terminal pane — confirm
+<code>wl-paste</code> prints nothing after the OSC52 write.</li>
+<li><input disabled="" type="checkbox"> <strong>Run the same three lines in a Ghostty pane</strong> — confirm <code>wl-paste</code>
+<em>does</em> print <code>osc52-relay-test</code> this time, isolating the terminal as
+the variable.</li>
+<li><input disabled="" type="checkbox"> <strong>Try tmux's own copy-mode</strong> next time you need to copy something out
+of a GNOME Terminal pane: <kbd>prefix</kbd> <kbd>[</kbd> to enter
+copy-mode, move/select, <kbd>Enter</kbd> to copy — bound to <code>wl-copy</code>
+directly in <code>tmux.conf</code>, so it works regardless of OSC52 support.</li>
+<li><input disabled="" type="checkbox"> <strong>If you want Claude's own &quot;copied N characters&quot; shortcut to just
+work</strong>, do that specific work in a Ghostty pane instead of GNOME
+Terminal.</li>
+</ul>
+<h3 id="what-this-doesnt-fix">What this doesn't fix</h3>
+<p>Nothing changed in Claude Code's behavior, and there's no tmux/Ghostty
+setting that makes GNOME Terminal support OSC52 — it's not configurable,
+by design. This section exists so the &quot;says copied but doesn't paste&quot;
+symptom is recognizable next time instead of getting re-diagnosed from
+scratch.</p>
+<h2 id="item-6-codediffnvim-vs-diffviewnvim">Item 6: codediff.nvim vs diffview.nvim</h2>
+<p>Two diff tools now live side by side on the <code>&lt;leader&gt;v*</code> prefix:
+<strong>diffview.nvim</strong> (already installed, owns <code>&lt;leader&gt;vo</code>/<code>vc</code>/<code>vh</code>/<code>vf</code>) and
+<strong>codediff.nvim</strong> (new, <code>&lt;leader&gt;vi</code>/<code>vI</code>). They overlap in scope more than
+9f-6 originally assumed — codediff.nvim isn't a lightweight inline-only
+tool, it's a full explorer/history/conflict-resolution UI comparable in
+size to diffview.nvim. Worth actually comparing before deciding whether to
+keep both, or drop one. Try these side by side on the same repo:</p>
+<table>
+<thead>
+<tr>
+<th>What to check</th>
+<th>diffview.nvim</th>
+<th>codediff.nvim</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Working tree vs HEAD, all changed files</td>
+<td><code>&lt;leader&gt;vo</code> (<code>:DiffviewOpen</code>)</td>
+<td><code>&lt;leader&gt;vi</code> (<code>:CodeDiff --inline</code>) or bare <code>:CodeDiff</code> for side-by-side</td>
+</tr>
+<tr>
+<td>Just the current file vs HEAD</td>
+<td><code>:DiffviewOpen %</code></td>
+<td><code>&lt;leader&gt;vI</code> (<code>:CodeDiff file HEAD --inline</code>)</td>
+</tr>
+<tr>
+<td>Per-file commit history</td>
+<td><code>&lt;leader&gt;vh</code> / <code>&lt;leader&gt;vf</code> (current file)</td>
+<td><code>:CodeDiff history HEAD~20 %</code></td>
+</tr>
+<tr>
+<td>Toggle side-by-side ⇄ inline live</td>
+<td>not built in — separate commands</td>
+<td>press <code>t</code> inside any codediff view</td>
+</tr>
+<tr>
+<td>Character-level (not just line-level) highlighting</td>
+<td>no</td>
+<td>yes — this is codediff's headline feature</td>
+</tr>
+<tr>
+<td>&quot;PR diff&quot; — only what <em>my</em> branch introduced</td>
+<td>needs a manual <code>:DiffviewOpen main...HEAD</code> range</td>
+<td><code>:CodeDiff main...HEAD</code> (merge-base aware, same semantics as <code>git diff main...HEAD</code>)</td>
+</tr>
+<tr>
+<td>Merge-conflict resolution UI</td>
+<td>no (falls back to vim's native <code>do</code>/<code>dp</code>)</td>
+<td>yes — <code>&lt;leader&gt;ct</code>/<code>co</code>/<code>cb</code>/<code>cx</code> accept-incoming/current/both/discard, per-hunk or whole-file</td>
+</tr>
+<tr>
+<td>First-run cost</td>
+<td>none, pure Lua</td>
+<td>downloads a small prebuilt C library once (~few MB, needs network)</td>
+</tr>
+</tbody>
+</table>
+<p>If codediff.nvim's PR-diff mode and conflict UI earn their keep, diffview.nvim
+becomes redundant and could come out later. If the extra weight (C library,
+bigger keymap surface) isn't worth it for how often you actually use
+per-file history, keep diffview.nvim and drop codediff.nvim instead — no
+need to decide today, this section is here so the comparison is easy
+whenever you do.</p>
 <h2 id="next-steps">Next steps</h2>
 <ul>
 <li><strong>Merge PR #10</strong> once you've walked the checklist above.</li>
