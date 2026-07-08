@@ -654,13 +654,14 @@ ready rather than needing a fresh investigation pass:
    question doesn't need to outlive the window. Keep `/help` (INDEX
    Q&A) and this (general scratch session) separate rather than merging.
    *Small.*
-6. **vscode-diff.nvim vs diff.nvim.** Neither installed. diffview.nvim
-   already covers the heavyweight full-tabpage case (`<leader>vo` etc.);
-   gitsigns' `<leader>hd` covers per-hunk. vscode-diff.nvim's actual niche
-   is the middle ground — inline word-level diff in a single buffer,
-   no separate tabpage — genuinely not covered yet. "diff.nvim" as a
-   distinct plugin name is non-standard; clarify which repo before
-   installing anything under that name. *Small to trial.*
+6. **vscode-diff.nvim vs diff.nvim.** *DONE 2026-07-08 — owner picked
+   `esmuellert/codediff.nvim` specifically* (a bigger tool than this
+   entry originally assumed: full explorer/history/conflict-resolution UI
+   with two-tier line+character highlighting, side-by-side or inline —
+   not a lightweight inline-only overlay). Bound to `<leader>vi`/`vI`.
+   Genuinely overlaps with diffview.nvim's scope; see
+   `docs/9f-ergonomics-recap.md`'s item-6 comparison guide (commands to
+   try side by side) before deciding whether to keep both.
 
 **Your take:** pick off in any order; none block each other or slice 5.
 
