@@ -15,6 +15,7 @@ local autoList = require("plugins.config.autolist")
 local snippets = require("plugins.config.snippets")
 local dapConfig = require("plugins.config.dap")
 local diffviewConfig = require("plugins.config.diffview")
+local persistenceConfig = require("plugins.config.persistence")
 
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
@@ -52,6 +53,7 @@ require("lazy").setup({
 	autoList,
 	dapConfig,
 	diffviewConfig,
+	persistenceConfig,
 	-- {
 	-- 	"kevinhwang91/nvim-ufo",
 	-- 	dependencies = "kevinhwang91/promise-async",
