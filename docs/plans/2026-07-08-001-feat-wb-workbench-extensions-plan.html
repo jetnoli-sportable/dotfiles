@@ -99,11 +99,13 @@
   </section>
 
   <section>
-    <h2>Key technical decisions flagged for review</h2>
+    <h2>Key technical decisions</h2>
     <div class="ktd-list">
-      <div class="ktd"><span class="flag">synthesized, not literally specified anywhere</span><p><b>/board's filter algorithm</b> — default view shows in-progress always + closed-in-window; an explicit status filter intersects with mtime-in-window instead. This is my read combining several rounds of decisions into one rule.</p></div>
-      <div class="ktd"><span class="flag">inference</span><p><b>wb pause kills the session but keeps the worktree</b> — the ratified decision said "skip worktree teardown," not what happens to the live session.</p></div>
-      <div class="ktd"><span class="flag">inference</span><p><b>"Merge with task" survivor rule</b> — earlier <code>created:</code> date wins; the other file's content gets appended, then deleted.</p></div>
+      <div class="ktd" style="border-left-color:var(--ok)"><span class="flag" style="color:var(--ok)">resolved — 6-tab model</span><p><b>/board is six status-based tabs</b>, not a composable 2-axis filter: All / In Progress / Upcoming / Paused / Deferred / Unclassified. Each tab is literally "is this task's status in the tab's set." My original combined-algorithm synthesis was rejected outright.</p></div>
+      <div class="ktd" style="border-left-color:var(--ok)"><span class="flag" style="color:var(--ok)">resolved — catch-all</span><p><b>Unclassified is a genuine catch-all</b> — unmapped/future status values, plus (the concrete case today) a git worktree on disk with no task file at all, reusing U6's worktree-scan. Considered and rejected: splitting <code>doing</code> by live-session presence.</p></div>
+      <div class="ktd" style="border-left-color:var(--ok)"><span class="flag" style="color:var(--ok)">resolved — new</span><p><b>Live-session state is a per-row badge</b> (icon + session name), not a tab axis — every row in every tab can carry one, reusing the picker's existing session lookup.</p></div>
+      <div class="ktd" style="border-left-color:var(--ok)"><span class="flag" style="color:var(--ok)">resolved</span><p><b>wb pause does NOT kill the session</b> — only worktree teardown is skipped. <b>wb done is also changing</b> to stop killing the session — a direct instruction, not new scope, touching already-shipped behavior.</p></div>
+      <div class="ktd" style="border-left-color:var(--ok)"><span class="flag" style="color:var(--ok)">resolved — synthesis</span><p><b>"Merge with task" survivor UI</b> — paired sub-checkboxes naming each candidate file, with a most-recently-active pick pre-checked as the default. Rejected extremes: pure free text (typo-prone) and a fully silent automatic pick (repeats the original problem).</p></div>
       <div class="ktd"><span class="flag">decided</span><p><b>/board's tabs are CSS-only, zero JavaScript</b> — a single static file with no backend can't re-invoke the shell per click.</p></div>
       <div class="ktd"><span class="flag">decided, from mockups</span><p><b>Layout: compact table</b> (mockup A over cards/kanban) — matches <code>docs/roadmap.md</code>'s existing table convention, doesn't reopen the composable filter model kanban would have. <b>Refined after seeing it rendered:</b> drill-down is an anchor jump-link to a detail section below the table, not inline <code>&lt;details&gt;</code> expansion.</p></div>
     </div>
@@ -123,6 +125,7 @@
         <li>Same-commit duplicate flagging (wb reconcile)</li>
         <li>Task-store schema migration (tied to Hub v0)</li>
         <li>Parent/sub-task artifact rollup &mdash; blocked on the schema itself; mocked up for reference only</li>
+        <li>A <code>pending</code> status for <code>/park</code>-derived tasks &mdash; /board's Deferred tab is built now, reserved for this, renders empty until it lands</li>
       </ul></div>
     </div>
   </section>

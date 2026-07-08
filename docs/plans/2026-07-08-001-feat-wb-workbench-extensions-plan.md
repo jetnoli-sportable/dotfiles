@@ -40,70 +40,112 @@ duplicate).
 
 **`wb pause`:**
 - R3. `wb pause [<session>]` flips a task's status to `paused` without
-  removing its worktree (mirrors `wb done`'s session resolution, skips
-  teardown).
+  removing its worktree and without killing its tmux session (mirrors `wb
+  done`'s session resolution, skips teardown and skips the session kill).
 - R4. The picker gains a keybind (`p`) that pauses the selected task row.
+- R5. `wb done` also stops killing the tmux session on wind-down — a
+  direct instruction ("I don't want windows or sessions to disappear"),
+  not an inference, and a change to already-shipped behavior rather than
+  new surface. `wb done` still removes the worktree and flips status to
+  `done`; only the `tmux kill-session` call goes away.
 
 **`wb resume`:**
-- R5. `wb resume <task>` fuzzy-matches a task by slug against the task
+- R6. `wb resume <task>` fuzzy-matches a task by slug against the task
   store, then recreates its worktree/session via the same logic `wb new`
   already uses for an existing task (idempotent either way).
 
 **`/board` (`wb board --html`):**
-- R6. `wb board --html` writes one gitignored file, `logs/board.html`,
+- R7. `wb board --html` writes one gitignored file, `logs/board.html`,
   regenerated fresh on every invocation.
-- R7. A status filter — All / Upcoming (`planned`) / Paused / the
-  unlabeled default (in-progress: `doing`/`review`) — and a timeline
-  filter — Today / This week — apply together, not as mutually exclusive
-  views.
-- R8. Under the default status view, in-progress tasks always show
-  regardless of timeline; the timeline filter additionally includes tasks
-  whose `closed:` date falls in the window.
-- R9. Under an explicit status filter (All/Upcoming/Paused), the timeline
-  filter narrows by last-touched (mtime), so all four filter combinations
-  are meaningful, not just the default.
-- R10. The page is a compact table (one row per task) whose task-name
+- R8. Six status-based tabs, in this order: **All**, **In Progress**,
+  **Upcoming**, **Paused**, **Deferred**, **Unclassified**. Each tab is
+  literally "is this task in the set this tab represents" — no composable
+  cross-axis filter algorithm. `In Progress` = `{doing, review}`.
+  `Upcoming` = `planned`. `Paused` = `paused`. `Deferred` is reserved for a
+  future `pending`-style status once `/park` items become task-store
+  entries in their own right (not this PR — see Scope Boundaries); the tab
+  exists now and renders empty rather than being added later as a template
+  rework. `done` has no tab of its own — a closed task surfaces only via
+  the timeline window below.
+- R9. `Unclassified` is a catch-all, not a fixed status mapping: it shows
+  (a) any task whose status doesn't match one of the other five tabs'
+  definitions (structurally empty today, ready for future status values),
+  and (b) — the concrete case that matters today — a git worktree that
+  exists on disk with **no task file pointing at it at all**, detected via
+  the same worktree-scan U6 already built (`wb_repo_worktrees`,
+  `wb_reconcile_repos`). A worktree with zero task-store presence has no
+  status to check against any other tab, so it lands here by construction.
+- R10. The timeline filter (Today / This week) narrows every tab by
+  whether the task was **created, updated, or closed** within the window —
+  broader than a closed-only check, and applied uniformly (no tab is
+  timeline-exempt the way the old "in-progress always shows" rule was).
+- R11. Every row — in every tab — carries a live-session badge: an icon
+  plus the tmux session name when a live session currently exists for that
+  task's `repo:`/`branch:`, using the same `@wb_repo`/`@wb_slug`
+  session-scoped lookup the picker's `wb_live_session_row` already does
+  (`wb.sh:627-653`). This is an annotation on top of the status-based
+  tabs, not a tab-splitting criterion — a task can be `In Progress` with or
+  without a live badge.
+- R12. The page is a compact table (one row per task) whose task-name
   cell is an in-page anchor link; clicking it jumps down to that task's
   full detail section (prose, cross-referenced parked-ledger entries, and
   linked artifacts — decision docs plus any open/merged PR for the task's
   branch) in a dedicated area below the table — no page navigation, no
-  inline row-expansion. Each timeline/status combination gets its own
-  table AND its own detail sections (view-scoped anchor ids), so tab
-  switching moves both together.
-- R11. Sourced from the task store + parked ledger + decision docs. No
+  inline row-expansion. Each tab gets its own table AND its own detail
+  sections (view-scoped anchor ids), so tab switching moves both together.
+- R13. Sourced from the task store + parked ledger + decision docs. No
   Jira. No transcript matching (deferred — see Scope Boundaries).
 
 **`wb reconcile`:**
-- R12. Detects two drift categories: a worktree/branch with no matching
+- R14. Detects two drift categories: a worktree/branch with no matching
   task file, and a task file whose `worktree:` no longer exists on disk.
-- R13. For each candidate orphan/stale branch, checks GitHub merged status
+- R15. For each candidate orphan/stale branch, checks GitHub merged status
   (`gh`/`pgh`) to distinguish "shipped, never cleaned up" from "genuinely
   abandoned."
-- R14. Never auto-applies a correction. Always writes a report of
+- R16. Never auto-applies a correction. Always writes a report of
   everything possibly diverged, including low-confidence cases — biased
   toward over-reporting.
-- R15. The report is one persistent markdown file (not dated snapshots);
+- R17. The report is one persistent markdown file (not dated snapshots);
   re-running with a prior unresolved report warns before overwriting.
-- R16. Each finding gets six checkbox actions: do nothing / remove /
+- R18. Each finding gets six checkbox actions: do nothing / remove /
   discuss / create a task / attach to task / merge with task. Closing the
   file is the answer, reusing the decision-buffer convention.
-- R17. "Create a task" seeds `status: doing` (not the template default
+- R19. "Create a task" seeds `status: doing` (not the template default
   `planned`) since the work it represents is already in progress.
+- R20. "Merge with task" shows the survivor choice as two paired
+  sub-checkboxes (one per candidate file), with an automatic pick
+  (most-recently-active) **pre-checked** as the default — explicit and
+  visible, not a silent algorithm and not free text to type correctly.
 
 ---
 
 ## Key Technical Decisions
 
-- **`/board`'s filter algorithm, synthesized from several rounds of
-  decisions into one concrete rule (flagged for review — this exact
-  algorithm was never written as a single spec anywhere):**
-  when the status filter is the unlabeled default, the result set is
-  `{doing, review} ∪ {tasks with closed: in the timeline window}`; when
-  an explicit status filter (All/Upcoming/Paused) is active, the result
-  set is that status's tasks intersected with "touched (mtime) within the
-  timeline window." This is the only reading that satisfies both "in-
-  progress always shows" (R8) and "status and timeline are separate,
-  composable axes" (R9) at once — confirm before `ce-work` builds it.
+- **`/board` is six status-based tabs, not a composable 2-axis filter.**
+  My original synthesis (default = `{doing,review}` always ∪ closed-in-
+  window, explicit filter = status ∩ mtime-window) was rejected outright:
+  each tab is simply "is this task's status in the set this tab
+  represents" (R8-R9). `Unclassified` resolved to a genuine catch-all
+  (R9) after a round of back-and-forth — the first framing considered was
+  "in-progress work with no task file" specifically, but the chosen
+  framing is broader and subsumes that case for free (an untracked
+  worktree has no status to match anything else, so it falls to the
+  catch-all by construction rather than needing a special case).
+- **Live-session state is a per-row badge, not a tab axis.** A late
+  addition once `Unclassified`'s scope was settled: rather than splitting
+  `doing` tasks into "has a live session" vs. not (a real option that was
+  considered and rejected — see the closed
+  `logs/decisions/2026-07-08-pr1-board-status-model.md`), live-session
+  presence renders as an icon + session name on every row regardless of
+  tab, reusing the picker's existing `wb_live_session_row` lookup
+  (`wb.sh:627-653`). Keeps `/board`'s tab semantics pure status-reads while
+  still surfacing "is anyone actually looking at this."
+- **`wb pause` does NOT kill the tmux session** — reversing my original
+  inference. Only worktree teardown is skipped; the session stays live.
+- **`wb done` also stops killing the tmux session** — this is a deliberate
+  change to already-shipped behavior ("I don't want windows or sessions to
+  disappear"), not new-feature scope creep. Called out explicitly here
+  because it touches code with no other reason to change in this PR.
 - **`/board`'s tabs are client-side, no JS.** A single generated file with
   no backend can't re-invoke the shell per click, so status/timeline
   switching uses the radio-input + CSS-sibling-selector tabs pattern
@@ -123,12 +165,6 @@ duplicate).
   limitation: it does not survive a future `git clone` once `~/code/tasks`
   gets a remote. Revisit then; a code comment should point back at this
   decision.
-- **`wb pause` kills the tmux session but keeps the worktree** — an
-  inference beyond what was explicitly ratified (the decision said "skip
-  worktree teardown," not what happens to the live session). Killing the
-  session matches the existing memory-management principle behind `wb
-  done`; keeping the worktree is what "paused, not abandoned" means.
-  Confirm this reading before `ce-work` builds it.
 - **`wb pause` skips the dirty-worktree check `wb done` has.** `wb done`
   checks dirty because worktree *removal* would destroy uncommitted work;
   `wb pause` never removes the worktree, so nothing is at risk — the check
@@ -139,12 +175,15 @@ duplicate).
   (`scripts/.config/scripts/tmux/tests/wb-board.test.sh`) already avoids
   network/auth dependencies. Inject a fake `gh` via `PATH` that emits
   canned JSON for each test's fixture branches.
-- **"Merge with task" needs a survivor rule** the original scoping didn't
-  pin down: the task with the earlier `created:` date survives: the other's
-  `## Plan`/`## Done`/`## Follow-ups` content gets appended to the
-  survivor's matching sections, then the losing file is deleted. Flagged
-  as an inference, not a ratified decision — reasonable default, but
-  worth a second look.
+- **"Merge with task" survivor rule is explicit-and-defaulted, not
+  silent.** My original "earlier `created:` wins, silently" inference was
+  rejected ("have a clear way in the doc to indicate it"). The resolved
+  mechanism: two paired sub-checkboxes under the checked "merge with task"
+  action, one per candidate file, with a most-recently-active heuristic
+  **pre-checked** as the default (R20). This was itself a synthesis of two
+  rejected extremes — pure free text (typo-prone) and a fully automatic
+  pick (repeats the original silent-guess problem) — landing on "visible,
+  clickable, pre-filled, one click to override."
 
 ---
 
@@ -155,11 +194,14 @@ duplicate).
 ```mermaid
 flowchart TB
   TS[Task store<br/>~/code/tasks/*.md] --> AGG
+  GW[git worktree scan<br/>reused from U6] --> AGG
   PL[Parked ledger<br/>ledger.jsonl] --> AGG
   DD[Decision docs<br/>logs/decisions/*.md] --> AGG
-  AGG[Aggregate + read frontmatter] --> FILT
-  FILT{Apply status x timeline filter} --> REND
-  REND[Render: pre-compute every filter<br/>combination's rows into one file] --> OUT[logs/board.html<br/>CSS-only tabs, table + anchor-linked detail sections]
+  LIVE[Live tmux sessions<br/>@wb_repo/@wb_slug lookup] --> AGG
+  AGG[Aggregate + read frontmatter] --> BUCKET
+  BUCKET{Bucket into 6 status tabs<br/>All/In Progress/Upcoming/Paused/Deferred/Unclassified} --> BADGE
+  BADGE[Annotate every row with a<br/>live-session badge, independent of tab] --> REND
+  REND[Render: pre-compute every tab x<br/>timeline-window row set into one file] --> OUT[logs/board.html<br/>CSS-only tabs, table + anchor-linked detail sections]
 ```
 
 **`wb reconcile`'s pipeline:**
@@ -198,6 +240,10 @@ flowchart TB
 - `wb reconcile`'s "instruct an existing agent directly" follow-up (this
   PR's `/handoff`-adjacent work stays out — `/handoff` itself is a
   separate, not-yet-planned roadmap item).
+- A `pending`-style task-store status for `/park`-derived items, and the
+  work to make `/park` write task-store entries instead of (or alongside)
+  `~/.claude/parked-items/ledger.jsonl`. `/board`'s `Deferred` tab is built
+  now and reserved for this, but renders empty until that status exists.
 
 ---
 
@@ -249,29 +295,38 @@ resulting frontmatter.
 
 ---
 
-### U2. `wb pause` subcommand + picker keybind
+### U2. `wb pause` subcommand + picker keybind + `wb done` session-kill removal
 
 **Goal:** mark a task paused — status flips, worktree survives, session
-winds down — via both a direct subcommand and a picker keybind.
+**stays live** — via both a direct subcommand and a picker keybind. Also
+remove `wb done`'s session-kill so neither wind-down path ever destroys a
+tmux session/window.
 
-**Requirements:** R3, R4
+**Requirements:** R3, R4, R5
 
 **Dependencies:** U1
 
 **Files:**
 - `scripts/.config/scripts/tmux/wb.sh` (new `cmd_pause`; picker keybind
-  wiring for `p`; `_ctrl_x`-style dispatch extension)
+  wiring for `p`; `_ctrl_x`-style dispatch extension; remove `cmd_done`'s
+  `tmux kill-session` call, `wb.sh:533`)
 - `scripts/.config/scripts/tmux/tests/wb-pause.test.sh` (new)
+- `scripts/.config/scripts/tmux/tests/wb-schema.test.sh` (extend: assert
+  `cmd_done` no longer kills the session)
 
 **Approach:** mirror `cmd_done`'s session-resolution block
 (`wb.sh:411-424` — resolve `$session`, read `@wb_repo`/`@wb_slug`) but
 skip the dirty-check, the `## Sweep` buffer flow, and the `git worktree
-remove` step entirely — `wb pause` only does two things: `tmux kill-session`
-(same call `cmd_done` makes, `wb.sh:533`) and
-`wb_set_frontmatter "$task_file" status paused`. Wire the picker's `p` key
-the same way `x`/`r`/`b` are already bound (`wb.sh:936-938`), executing
-`"$SELF" _pause {8}` (task file ref) via `execute-silent` +
-`reload-sync`+`refresh-preview`, matching the existing keybind pattern.
+remove` step entirely — `wb pause` does exactly one thing:
+`wb_set_frontmatter "$task_file" status paused`. No `tmux kill-session`
+call at all (this reverses the plan's original inference — see Key
+Technical Decisions). Wire the picker's `p` key the same way `x`/`r`/`b`
+are already bound (`wb.sh:936-938`), executing `"$SELF" _pause {8}` (task
+file ref) via `execute-silent` + `reload-sync`+`refresh-preview`, matching
+the existing keybind pattern. Separately, delete `cmd_done`'s
+`tmux kill-session -t "=$session" 2>/dev/null || true` line (`wb.sh:533`)
+— a direct instruction, not an inference, and the one place in this unit
+that changes already-shipped behavior rather than adding new surface.
 
 **Patterns to follow:** `cmd_done`'s session-resolution
 (`wb.sh:411-424`), the picker's existing keybind wiring
@@ -279,17 +334,22 @@ the same way `x`/`r`/`b` are already bound (`wb.sh:936-938`), executing
 
 **Test scenarios:**
 - Happy path: `wb pause <session>` on a live `doing` task session — status
-  becomes `paused`, worktree directory still exists, tmux session is gone.
+  becomes `paused`, worktree directory still exists, tmux session is still
+  live.
 - Happy path: `wb pause` with no argument, run inside the target session
   (mirrors `cmd_done`'s no-arg resolution) — same result.
 - Error path: `wb pause` on a session with no `@wb_repo`/`@wb_slug` (not a
   wb task session) — clear error, no mutation.
 - Edge case: `wb pause` on a task with uncommitted worktree changes —
   succeeds (no dirty-check), worktree keeps the uncommitted changes intact.
+- Regression: `wb done` on a live session — worktree is removed and status
+  flips to `done` as before, but the tmux session is still live afterward
+  (was previously killed).
 
 **Verification:** `bash scripts/.config/scripts/tmux/tests/wb-pause.test.sh`
 passes; manually pause a fixture session, confirm the worktree directory
-still exists on disk and the tmux session is gone.
+still exists on disk and the tmux session is still attached; manually run
+`wb done` on a fixture session and confirm the session survives wind-down.
 
 ---
 
@@ -298,7 +358,7 @@ still exists on disk and the tmux session is gone.
 **Goal:** bring a task's worktree/session back by fuzzy-matching its slug,
 without retyping `<repo> <slug>`.
 
-**Requirements:** R5
+**Requirements:** R6
 
 **Dependencies:** none
 
@@ -338,52 +398,73 @@ fragment, confirm the worktree and session both come back.
 
 ---
 
-### U4. `/board` — data aggregation and composable filtering
+### U4. `/board` — data aggregation, tab bucketing, live-session badges
 
 **Goal:** extend `cmd_board` to aggregate task store + parked ledger +
-decision docs and apply the status x timeline filter algorithm (see Key
-Technical Decisions).
+decision docs + untracked worktrees, bucket every row into exactly one of
+the six status tabs, and annotate every row with live-session presence.
 
-**Requirements:** R7, R8, R9, R11
+**Requirements:** R8, R9, R10, R11, R13
 
-**Dependencies:** U1
+**Dependencies:** U1, U6 (reuses `wb_repo_worktrees`/`wb_reconcile_repos`
+for untracked-worktree detection)
 
 **Files:**
 - `scripts/.config/scripts/tmux/wb.sh` (extend `cmd_board` with a
-  `--html` flag and the filtering pipeline; new helper functions for
-  ledger/decision-doc aggregation)
+  `--html` flag and the tab-bucketing pipeline; new helper functions for
+  ledger/decision-doc aggregation and live-session lookup)
 - `scripts/.config/scripts/tmux/tests/wb-board-html.test.sh` (new,
   fixture-based like the existing `wb-board.test.sh`)
 
 **Approach:** reuse `wb_task_files`/`wb_read_task`/`wb_task_title`
-(`wb.sh:70-108`) as the task-side data source. Add a ledger reader
-(`jq -c 'select(.status=="open")'` against
+(`wb.sh:70-108`) as the task-side data source. Bucket each task by a
+direct status→tab mapping (R8): `doing`/`review` → In Progress, `planned`
+→ Upcoming, `paused` → Paused, anything else → Unclassified (structurally
+unreachable today, ready for a future `pending` status). Separately, run
+U6's `wb_reconcile_repos`/`wb_repo_worktrees` scan and diff against every
+task's `worktree:` field exactly as `cmd_reconcile` does — any worktree
+with no matching task file becomes a synthetic Unclassified row (R9),
+carrying just repo/branch/worktree-path (no title, no Plan/Done prose,
+since there's no task file to read one from). For the live-session badge
+(R11), cross-reference each row's `repo:`/`branch:` (or, for a synthetic
+untracked-worktree row, its raw branch name) against live tmux sessions
+using the same `@wb_repo`/`@wb_slug` lookup `wb_live_session_row` already
+does (`wb.sh:627-653`) — this runs once per `wb board --html` invocation,
+same live-state-snapshot tradeoff the picker already accepts. Add a ledger
+reader (`jq -c 'select(.status=="open")'` against
 `~/.claude/parked-items/ledger.jsonl`, matched to a task by `cwd`/`branch`),
 a decision-doc lister (`logs/decisions/*.md`, linked from a task's own
 `## Decisions` section — no automatic content matching beyond what the
 task file already links), and a linked-PR lookup reusing U6's
 `gh pr list --head "$branch"` pattern (any status, not just merged — this
 is a read for display, not a drift signal) so a task's detail section can
-show an open/merged/closed PR if one exists for its branch. Compute both
-filter axes per the KTD's exact algorithm; `--html` triggers U5's render
-step, no flag falls back to the existing plain-text `wb board` behavior
-unchanged.
+show an open/merged/closed PR if one exists for its branch. The timeline
+window (R10) filters every tab uniformly by created/updated/closed-in-
+window — no tab is timeline-exempt. `--html` triggers U5's render step, no
+flag falls back to the existing plain-text `wb board` behavior unchanged.
 
 **Patterns to follow:** `cmd_board`'s existing structure
-(`wb.sh:371-409`), the existing plain-text output as the "no flag"
-fallback that must keep working.
+(`wb.sh:371-409`), `cmd_reconcile`'s worktree-scan and presence-diff
+(`wb.sh` — `wb_reconcile_repos`/`wb_repo_worktrees`, built in U6),
+`wb_live_session_row` (`wb.sh:627-653`) for the live-session lookup, the
+existing plain-text output as the "no flag" fallback that must keep
+working.
 
 **Test scenarios:**
-- Happy path: default status view with one `doing` task and one `done`
-  task closed 2 days ago, timeline=today — only the `doing` task appears.
-- Happy path: same fixture, timeline=week — both appear (in-progress
-  always shows; closed-this-week task now falls in window).
-- Happy path: status=Upcoming, timeline=today — only `planned` tasks
-  touched (mtime) today appear.
-- Happy path: status=All, timeline=week — every task touched this week
-  appears regardless of status.
-- Edge case: empty task store — today's plain-text "no tasks" message
-  equivalent for the `--html` path (an empty-state row, not a blank page).
+- Happy path: a `doing` task and a `planned` task — the first buckets to
+  In Progress, the second to Upcoming.
+- Happy path: a worktree with no task file at all — appears as a synthetic
+  row under Unclassified with repo/branch/worktree-path, no crash from a
+  missing title/Plan/Done section.
+- Happy path: a task with a live tmux session — its row carries the
+  live-session badge with the correct session name; a task with no live
+  session shows no badge, in any tab.
+- Happy path: timeline=today with a task closed 2 days ago — excluded;
+  timeline=week — included (created/updated/closed-in-window applies
+  uniformly, not just to one tab).
+- Edge case: empty task store AND no worktrees anywhere — today's
+  plain-text "no tasks" message equivalent for the `--html` path (an
+  empty-state row, not a blank page).
 - Edge case: a task with no matching ledger entries or decision docs —
   drill-down shows just its own prose, no empty cross-reference sections.
 - Integration: a ledger entry whose `cwd` matches a task's worktree path
@@ -394,17 +475,19 @@ fallback that must keep working.
 
 **Verification:** `bash scripts/.config/scripts/tmux/tests/wb-board-html.test.sh`
 passes; run `wb board --html` against the real task store, confirm the
-filtered counts match a manual read of the store.
+per-tab counts match a manual read of the store plus a manual `wb
+reconcile` run for the untracked-worktree rows.
 
 ---
 
 ### U5. `/board` — HTML rendering
 
-**Goal:** render U4's filtered data as a compact table with CSS-only tab
-switching, where each task name jump-links to its full detail section
-further down the same page.
+**Goal:** render U4's bucketed data as a compact table with CSS-only tab
+switching across the six tabs, live-session badges per row, where each
+task name jump-links to its full detail section further down the same
+page.
 
-**Requirements:** R6, R10
+**Requirements:** R7, R12
 
 **Dependencies:** U4
 
@@ -414,21 +497,26 @@ further down the same page.
 - `scripts/.config/scripts/tmux/tests/wb-board-html.test.sh` (extend U4's
   file with rendering-specific assertions)
 
-**Approach:** pre-compute every filter combination's row set (4 status x
-2 timeline = 8 sets, small at today's scale) into the page, and use the
-radio-input + CSS-sibling-selector pattern for tab switching — no
-JavaScript. Structure: one table per filter combination (matching mockup
-A, `logs/decisions/2026-07-08-board-mockup-a-table.html`), status shown
-as a colored pill, task name cell rendered as `<a href="#t-<repo>--<slug>">`;
-below the table(s), one `<section id="t-<repo>--<slug>">` per task
-currently in view, containing its `## Plan`/`## Done`/`## Follow-ups`/
-`## Decisions` prose plus any matched ledger entries from U4 — always
-present in the DOM (not toggled), so the anchor link always has something
-to land on, and the page is also readable by scrolling straight through.
-Match the Catppuccin light/dark inline `<style>` block already established
-in `docs/wb-guide.html` for visual consistency with the rest of this
-project's generated docs, adapted for a bash heredoc rather than Go
-template output.
+**Approach:** pre-compute each of the 6 tabs' row sets (already narrowed
+by the timeline window in U4) into the page, and use the radio-input +
+CSS-sibling-selector pattern for tab switching, in the fixed order All / In
+Progress / Upcoming / Paused / Deferred / Unclassified — no JavaScript.
+Structure: one table per tab (matching mockup A, updated for the 6-tab
+order: `logs/decisions/2026-07-08-board-mockup-a-table.html`), status
+shown as a colored pill, a live-session badge (icon + session name) next
+to any row U4 flagged as live, task name cell rendered as
+`<a href="#t-<repo>--<slug>">` (a synthetic Unclassified row from an
+untracked worktree instead links to a lighter section showing just
+repo/branch/worktree-path — no Plan/Done/Follow-ups to render since no
+task file exists); below the table(s), one `<section id="t-<repo>--
+<slug>">` per task currently in view, containing its `## Plan`/`##
+Done`/`## Follow-ups`/`## Decisions` prose plus any matched ledger entries
+from U4 — always present in the DOM (not toggled), so the anchor link
+always has something to land on, and the page is also readable by
+scrolling straight through. Match the Catppuccin light/dark inline
+`<style>` block already established in `docs/wb-guide.html` for visual
+consistency with the rest of this project's generated docs, adapted for a
+bash heredoc rather than Go template output.
 
 **Patterns to follow:** `docs/wb-guide.html`'s inline `<style>` block
 (palette + type tokens) — same visual language, different generator;
@@ -437,22 +525,31 @@ table structure (drill-down mechanism in the mockup itself is stale —
 it used `<details>` — the anchor-link approach here supersedes it).
 
 **Test scenarios:**
-- Happy path: generated file is valid HTML with all 8 filter-combination
-  tables present and only one visible by default (today + default
-  status).
+- Happy path: generated file is valid HTML with all 6 tab tables present
+  in the fixed order (All, In Progress, Upcoming, Paused, Deferred,
+  Unclassified) and only one visible by default (All).
 - Happy path: a task row's name links to `#t-<repo>--<slug>`, and a
   section with that exact id exists further down the page containing its
   actual Plan/Done/Follow-ups/Decisions text, not a placeholder.
+- Happy path: a synthetic Unclassified row (untracked worktree) renders
+  with repo/branch/worktree-path and links to a section with no
+  Plan/Done/Follow-ups content, without erroring on the missing task file.
+- Happy path: a row with a live session shows the badge with the correct
+  session name; a row without one shows no badge — verified in more than
+  one tab, confirming the badge is tab-independent.
 - Edge case: a task title containing HTML-special characters (`<`, `&`) —
   properly escaped in both the table cell and the anchor id/section, not
   broken markup.
 - Edge case: two tasks whose `repo--slug` combination could theoretically
   collide in the anchor id — confirm the id is built from the actual
   unique task filename, not a lossy re-derivation.
+- Edge case: the Deferred tab with zero tasks (expected — no `pending`
+  status exists yet) — renders its empty-state row rather than a broken
+  or missing table.
 - Verification (manual, since this is visual): open `logs/board.html` in
-  a browser, click each tab, then click a task name and confirm the page
-  jumps to the right detail section with no JS errors in the console and
-  no flash of unstyled content.
+  a browser, click each of the 6 tabs, then click a task name and confirm
+  the page jumps to the right detail section with no JS errors in the
+  console and no flash of unstyled content.
 
 **Verification:** automated test asserts on the generated HTML's
 structure (row counts per filter combination, presence of matching
@@ -466,7 +563,7 @@ interactive parts per the last test scenario above.
 **Goal:** detect worktrees/branches with no matching task file, task
 files whose worktree no longer exists, and merged-but-uncleaned branches.
 
-**Requirements:** R12, R13, R14
+**Requirements:** R14, R15, R16
 
 **Dependencies:** none
 
@@ -515,7 +612,7 @@ with one deliberately-orphaned worktree, confirm it's detected.
 review file, then parse the closed file and apply exactly the checked
 actions.
 
-**Requirements:** R15, R16, R17
+**Requirements:** R17, R18, R19, R20
 
 **Dependencies:** U6
 
@@ -528,18 +625,33 @@ actions.
 **Approach:** one persistent file (path convention consistent with this
 project's other gitignored live-generated docs, e.g. `logs/reconcile.md`);
 before overwriting, scan the existing file for any unchecked action lines
-and warn rather than silently clobber (R15). Each finding renders as one
+and warn rather than silently clobber (R17). Each finding renders as one
 section with six checkboxes: do nothing / remove / discuss / create a
-task / attach to task / merge with task. On re-invocation with
-`--apply` (or equivalent), parse checked boxes and execute: *remove* →
-`git worktree remove --force` (+ branch delete); *create a task* →
-`wb_seed_task`-equivalent flow, forcing `status: doing` (R17) instead of
-the template default; *attach to task* → `wb_set_frontmatter` the
-matched task's `worktree:` field; *merge with task* → apply the
-survivor rule from Key Technical Decisions (earlier `created:` wins,
-append the loser's Plan/Done/Follow-ups content, delete the loser file).
-*Discuss* and *do nothing* take no action — they exist so a finding can be
-explicitly acknowledged without either fixing or hiding it.
+task / attach to task / merge with task. Checking "merge with task" reveals
+two indented sub-checkboxes, one naming each candidate file (the new
+finding vs. the existing matched task); the report-generation step
+pre-checks whichever candidate is most-recently-active (by mtime) as the
+default survivor — visible and overridable with one click, never a silent
+pick (R20):
+
+```markdown
+- [x] merge with task
+  - [ ] survivor: this finding (new stub)
+  - [x] survivor: `be--monorepo--sfb-988.md` (existing)   <!-- pre-checked default -->
+```
+
+On re-invocation with `--apply` (or equivalent), parse checked boxes and
+execute: *remove* → `git worktree remove --force` (+ branch delete);
+*create a task* → `wb_seed_task`-equivalent flow, forcing `status: doing`
+(R19) instead of the template default; *attach to task* →
+`wb_set_frontmatter` the matched task's `worktree:` field; *merge with
+task* → whichever sub-checkbox is checked survives (validate exactly one
+is checked — zero or both is a malformed finding, skip with a warning
+rather than guess), the other's `## Plan`/`## Done`/`## Follow-ups`
+content gets appended to the survivor's matching sections, then the loser
+file is deleted. *Discuss* and *do nothing* take no action — they exist so
+a finding can be explicitly acknowledged without either fixing or hiding
+it.
 
 **Patterns to follow:** the decision-buffer convention itself
 (`claude/.claude/skills/decision-buffer/SKILL.md`) for the review file's
@@ -553,11 +665,19 @@ the "create a task" action's frontmatter seeding.
   appears with `status: doing`, correct `repo:`/`branch:`/`worktree:`.
 - Happy path: "attach to task" checked against an existing task — that
   task's `worktree:` field updates, no new file created.
-- Happy path: "merge with task" checked between two tasks with different
-  `created:` dates — the earlier-created survives with both files' Plan/
-  Done/Follow-ups content, the later one is deleted.
+- Happy path: a freshly generated "merge with task" section has the
+  most-recently-active candidate's sub-checkbox pre-checked.
+- Happy path: "merge with task" applied with the pre-checked default
+  left as-is — that candidate survives with both files' Plan/Done/
+  Follow-ups content, the other is deleted.
+- Happy path: "merge with task" applied after the user re-checks the
+  *other* sub-checkbox — the override is honored, not the pre-checked
+  default.
+- Edge case: "merge with task" checked but zero or both sub-checkboxes are
+  checked at apply time — that finding is skipped with a warning, no
+  guess made, rest of the batch proceeds.
 - Edge case: re-running `wb reconcile` while a prior report has unchecked
-  items — warns before overwriting, per R15.
+  items — warns before overwriting, per R17.
 - Edge case: "do nothing" or "discuss" checked — file regenerates cleanly
   on the next run with no residual action attempted.
 - Error path: an action references a task/worktree that no longer exists
