@@ -1,0 +1,61 @@
+{
+  "templates": "docs/_templates",
+  "pageDirs": ["docs", "docs/guides"],
+  "hub": {
+    "out": "docs/HUB.html",
+    "eyebrow": "personal workflow",
+    "title": "Hub",
+    "intro": "Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview.",
+    "groups": [
+      {
+        "key": "personal-workflow",
+        "title": "Personal workflow",
+        "sub": "~/code/dotfiles",
+        "glyph": "◈"
+      },
+      {
+        "key": "skills",
+        "title": "Claude skills",
+        "sub": "~/.claude/skills/ · stowed from claude/ in this repo · guides in docs/guides/",
+        "glyph": "◆",
+        "dense": true
+      },
+      {
+        "key": "tuis",
+        "title": "TUIs",
+        "sub": "separate repos under ~/code/",
+        "glyph": "▦"
+      }
+    ],
+    "sidecar": [
+      {
+        "group": "personal-workflow",
+        "title": "Agent Workbench Findings",
+        "tile": "Pre-build audit of the tmux/Claude tooling: inventory, signal contract, gaps, flows.",
+        "href": "agent-workbench-findings.html",
+        "path": "docs/agent-workbench-findings.html",
+        "chip": "point-in-time audit"
+      }
+    ]
+  },
+  "index": {
+    "out": "docs/INDEX.md",
+    "sources": [
+      { "kind": "tmux-binds", "path": "tmux/.config/tmux/tmux.conf", "tags": "tmux" },
+      { "kind": "zsh", "path": "zsh/.zshrc", "tags": "zsh" },
+      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude" },
+      { "kind": "scripts", "path": "scripts/.config/scripts/tmux", "tags": "tmux" },
+      { "kind": "scripts", "path": "scripts/.config/scripts", "tags": "shell" },
+      { "kind": "doc", "path": "scripts/.config/scripts/tmux/instructions.md", "tags": "tmux" },
+      { "kind": "doc", "path": "nvim/.config/nvim/instructions.md", "tags": "nvim" },
+      { "kind": "decisions", "path": "logs/decisions", "tags": "" },
+      { "kind": "memory", "path": "~/.claude/projects/-home-jetnoli-code-dotfiles/memory/MEMORY.md", "tags": "" },
+      { "kind": "tui", "path": "~/code/notes-tui/README.md", "name": "notes-tui", "invoke": "notes", "guide": "docs/guides/notes-tui.html", "tags": "" },
+      { "kind": "tui", "path": "~/code/replay-tui/README.md", "name": "replay-tui", "invoke": "replay", "guide": "docs/guides/replay-tui.html", "tags": "" },
+      { "kind": "taskstore", "path": "~/code/tasks", "tags": "" }
+    ]
+  },
+  "redact": {
+    "denylist": ["be--monorepo", "frontend", "lib--algorithms", "terraform-gcp", "tool--*", "qa--tools", "docs--architecture"]
+  }
+}

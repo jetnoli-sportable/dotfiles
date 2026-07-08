@@ -735,7 +735,17 @@ wb_format_for_display() {
         # bytes, not display columns, and padding the combined "icon label"
         # string as one unit overcounts whenever the icon is multi-byte.
         status_field = icon " " pad(lbl, w5)
-        display = c pad($1, w1) r "  " c pad($2, w2) r "  " pad(type, w3) "  " pad($3, w4) "  " c status_field r
+        # Sub-rows repeat the parent row repo name and had no visual tie
+        # back to it, which read as a sort/grouping bug rather than "this
+        # belongs to the row above" -- blank the repeated REPO cell and
+        # prefix NAME with an indent + ASCII connector so a sub-row is
+        # unmistakable at a glance, regardless of what its own status color
+        # happens to be. Plain ASCII on purpose, same reasoning as
+        # wb_status_icon above: a Unicode tree glyph reintroduces the
+        # cell-width alignment bug this file already moved away from.
+        if (type == "agent") { repo_cell = pad("", w1); name_cell = pad(" > " $2, w2) }
+        else                 { repo_cell = pad($1, w1); name_cell = pad($2, w2) }
+        display = c repo_cell r "  " c name_cell r "  " pad(type, w3) "  " pad($3, w4) "  " c status_field r
         print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11)
       }'
 }
@@ -929,7 +939,7 @@ picker() {
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7})" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
         --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
-        --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )+transform-header(\"$SELF\" _mode-header \"$mode_file\")")" || exit 0
+        --bind "esc:enable-search+clear-query+disable-search+rebind($navkeys)+change-prompt(NORMAL )+transform-header(\"$SELF\" _mode-header \"$mode_file\")")" || exit 0
 
   [ -n "$selection" ] || exit 0
   local -a f; wb_tsv_split "$selection" f

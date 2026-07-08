@@ -101,7 +101,7 @@ picker() {
         --bind "ctrl-x:execute-silent(tmux kill-pane -t {1})+reload-sync(\"$SELF\" render)" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )" \
         --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )" \
-        --bind "esc:rebind($navkeys)+disable-search+change-prompt(NORMAL )")" || exit 0
+        --bind "esc:enable-search+clear-query+disable-search+rebind($navkeys)+change-prompt(NORMAL )")" || exit 0
 
   [ -n "$selection" ] || exit 0
   target="${selection%% *}"

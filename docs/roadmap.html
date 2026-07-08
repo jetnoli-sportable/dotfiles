@@ -1,11 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
 <title>Roadmap — the personal workflow</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  /* ---- tokens: Catppuccin Latte (light) / Frappé (dark) — matches agent-workbench-findings.html ---- */
+   
   :root {
     --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
     --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
-    --acc: #8839ef;        /* mauve — the ✳ needs-input magenta */
-    --acc2: #04a5e5;       /* sky — the ✔ done cyan */
+    --acc: #8839ef; --acc2: #04a5e5;
     --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
     --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
     --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
@@ -36,35 +40,26 @@
   }
 
   * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
   body { background: var(--bg); color: var(--ink); font-family: var(--sans);
          line-height: 1.55; margin: 0; font-size: 16px; }
-  main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
 
-  .statusbar { font-family: var(--mono); font-size: .8rem; background: var(--bg2);
-    border-bottom: 1px solid var(--line); padding: .45rem 1.25rem;
-    display: flex; gap: 1.25rem; align-items: center; color: var(--ink2); }
-  .statusbar .done  { color: var(--acc2); }
-  .statusbar .sess::before { content: "❐ "; color: var(--mut); }
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
   .statusbar .right { margin-left: auto; color: var(--mut); }
-
-  header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line); margin-bottom: 2rem; }
-  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
-       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
-  h1 .glyph { color: var(--acc); }
-  .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
-
-  h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
-       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em; }
-  h2:first-of-type { border-top: 0; padding-top: 0; }
-  h2 .num { color: var(--acc); margin-right: .5rem; }
-  h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem; }
-  p { max-width: 72ch; }
-  ul, ol { max-width: 72ch; }
-  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
-             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .2rem; }
 
   a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
   a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
 
   code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
          padding: .1em .35em; border-radius: 4px; }
@@ -75,393 +70,984 @@
         border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
         padding: .08em .4em; white-space: nowrap; }
 
-  .chip { font-family: var(--mono); font-size: .72rem; border: 1px solid var(--line);
-          border-radius: 999px; padding: .15rem .6rem; color: var(--ink2);
-          background: var(--panel); white-space: nowrap; }
-  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
   .chip.warn { color: var(--warn); border-color: var(--warn); }
   .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
   .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
 
-  .toc { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.25rem 0 0; padding: 0; list-style: none; }
-  .toc a { font-family: var(--mono); font-size: .78rem; text-decoration: none;
-           border: 1px solid var(--line); border-radius: 6px; padding: .3rem .7rem;
-           color: var(--ink2); background: var(--panel); display: inline-block; }
-  .toc a:hover { color: var(--acc); border-color: var(--acc); }
-
-  .tldr { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
-          border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; }
-  .tldr ul { margin: .25rem 0 0; padding-left: 1.1rem; }
-  .tldr li { margin: .35rem 0; max-width: 75ch; }
-
-  /* ---- this doc's own additions: quote (owner's take) + decided (ratified answer) ---- */
-  .quote { background: var(--bg2); border-left: 3px solid var(--mut); border-radius: 0 8px 8px 0;
-           padding: .75rem 1.1rem; margin: 1rem 0; font-size: .92rem; }
-  .quote .who { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
-                letter-spacing: .1em; color: var(--mut); display: block; margin-bottom: .3rem; }
-  .decided { background: color-mix(in srgb, var(--ok) 8%, var(--panel)); border: 1px solid var(--ok);
-             border-radius: 8px; padding: .85rem 1.1rem; margin: 1rem 0; font-size: .92rem; }
-  .decided .who { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
-                  letter-spacing: .1em; color: var(--ok); display: block; margin-bottom: .3rem; }
-  .decided p, .quote p { margin: 0; max-width: none; }
-  .decided code, .quote code { font-size: .82em; }
-
-  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin: 1rem 0; }
-  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
-  th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
-       text-align: left; color: var(--ink2); background: var(--bg2);
-       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
-  td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  tr:last-child td { border-bottom: 0; }
-  td:first-child { white-space: nowrap; font-family: var(--mono); font-size: .8rem; }
-  tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
-
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: .9rem; margin: 1rem 0; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1.1rem; }
-  .card h4 { margin: 0 0 .4rem; font-family: var(--mono); font-size: .9rem; }
-  .card p { font-size: .85rem; margin: .35rem 0; max-width: none; }
-
-  footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--line);
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
            color: var(--mut); font-size: .8rem; }
   footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
-
-<div class="statusbar" aria-hidden="true">
-  <span><span class="done">✔3</span> of 5 slices shipped</span>
-  <span class="sess">dotfiles · feat/agent-task-workflow</span>
-  <span class="right">2026-07-06 · PR #7</span>
+</head>
+<body data-kind="page">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/roadmap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-07</span>
 </div>
-<div class="statusbar" aria-hidden="true" style="border-left: 4px solid var(--warn);">
-  <span style="color: var(--warn); font-weight: 700;">RENDER LAGS SOURCE</span>
-  <span>roadmap.md took substantial post-review amendments on 2026-07-06 (slice-4 rescope,
-  slice-5 sub-deliverables, credential guard, Jira deferral, 9d split) that are NOT mirrored
-  here — read <code>roadmap.md</code> until the §5 doc-sync tool regenerates this file.</span>
-</div>
-
 <main>
 <header class="doc">
-  <span class="eyebrow">personal workflow · plan &amp; decision log</span>
-  <h1><span class="glyph">→</span> Roadmap</h1>
-  <p>Originally "The Way Forward" (2026-07-06) — renamed once its scope outgrew a single PR. This
-     is the roadmap for the whole personal workflow (tmux/Claude tooling, the central task store,
-     notes-tui, the docs project), not just this dotfiles repo — several of the things it plans
-     already live in separate repos (<code>~/code/notes-tui</code>, <code>~/code/tasks</code>).
-     Synthesis of the piece-by-piece review into one proposal, reacted to inline, section by
-     section — each carries the owner's <strong>Your take</strong> and, where a call was made,
-     the <strong>ratified answer</strong>. The pre-build audit it's built on lives in
-     <a href="agent-workbench-findings.html">agent-workbench-findings.html</a>. Wider net covering
-     the rest of the personal workflow: <a href="overview.html">overview.html</a>.
-     Index of every doc in this project: <a href="HUB.md">HUB.md</a> / <a href="HUB.html">.html</a>.</p>
+  <span class="eyebrow">personal-workflow</span>
+  <h1><span class="glyph">§</span> Roadmap — the personal workflow</h1>
   <div class="meta">
-    <span class="chip">worktree .worktrees/feat/agent-task-workflow</span>
-    <span class="chip ok">slices 1–3 DONE · PR #7</span>
-    <span class="chip">slices 4–5 not started</span>
+    <span class="chip ok">current</span>
+    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
-  <ul class="toc">
-    <li><a href="#s0">0. Readback</a></li>
-    <li><a href="#s1">1. Step zero</a></li>
-    <li><a href="#s2">2. wb core</a></li>
-    <li><a href="#s3">3. The record</a></li>
-    <li><a href="#s4">4. Notes</a></li>
-    <li><a href="#s5">5. HTML docs</a></li>
-    <li><a href="#s6">6. Help dashboard</a></li>
-    <li><a href="#s7">7. Keep/retire/hold</a></li>
-    <li><a href="#s8">8. Build order</a></li>
-    <li><a href="#s9">9. Later additions</a></li>
-  </ul>
 </header>
-
-<div class="tldr">
-  <strong>TL;DR</strong>
-  <ul>
-    <li>Ratified shape: a bash <code>wb</code> workbench (session-per-worktree, one unified
-        picker), a central git-backed task store, notes-tui revived as the notes backbone,
-        HTML docs in the flow, and a scanned help dashboard — in that build order.</li>
-    <li><strong>Slices 1–3 are done and shipped</strong> (PR #7): hooks wired, the central store
-        live at <code>~/code/tasks</code>, and <code>wb</code> (new/picker/done) live on
-        <kbd>prefix</kbd>+<kbd>m</kbd>/<kbd>a</kbd> — including a post-launch picker redesign
-        driven entirely by live usage (see §8).</li>
-    <li>Slices 4–5 (notes-tui revival, HTML-in-flow + help dashboard) and the two later additions
-        in §9 (<code>/roadmap</code>, day bookends) are deliberately not started yet.</li>
-  </ul>
-</div>
-
-<h2 id="s0"><span class="num">0</span>Readback — the shape you described</h2>
+<article>
+<blockquote>
+<p>Originally &quot;The way forward — synthesis of your takes&quot; (2026-07-06), renamed
+once its scope outgrew a single PR: this is the roadmap for the whole
+personal workflow (tmux/Claude tooling, the central task store, notes-tui,
+the docs project), not just this dotfiles repo — several of the things it
+plans already live in separate repos (<code>~/code/notes-tui</code>, <code>~/code/tasks</code>).
+Fuses what landed in <code>logs/2026-07-06-workbench-piece-review.md</code> into one
+proposal. Each section has <strong>Your take:</strong> — mark what lands, strike what
+doesn't, edit anything in place.</p>
+</blockquote>
+<hr>
+<h2 id="0-readback--the-shape-you-described">0. Readback — the shape you described</h2>
 <ul>
-  <li><strong>Session per worktree</strong> (not per repo), standard layout: one window each for
-      nvim, agent, and running things. Grouped so a repo's sessions are easy to see together.</li>
-  <li><strong>One picker to rule them all</strong>: sessions and agents merged into a single view,
-      since they're ~1:1. This replaces the <code>s</code> + <code>ca</code> split. <code>cad</code>
-      retires.</li>
-  <li><strong>Notes with a lifecycle</strong>: a notes surface per session/worktree, seeded on
-      create, <em>reviewed on close</em> with keepers flowing into a central system; plus quick
-      capture into long-living topic ledgers, periodically reviewed, with future automation
-      proposing quick wins that you just green-light.</li>
-  <li><strong>Record layer stays plain files</strong> serving three goals: per-task backlog /
-      follow-ups, progress across all tasks + planned batches, easy review and refinement.</li>
-  <li>Keep untouched: worktree flow, <code>/park</code> + <code>/parked-items</code> (fix the
-      channel bug), <code>pr-review-session</code>, decision-buffer. Keep the nvim bridge to its
-      basic loop (output buffer + reply); fancy features on hold.</li>
+<li><strong>Session per worktree</strong> (not per repo), standard layout: one window each for
+nvim, agent, and running things. Grouped so a repo's sessions are easy to see
+together.</li>
+<li><strong>One picker to rule them all</strong>: sessions and agents merged into a single
+view, since they're ~1:1. This replaces the <code>s</code> + <code>ca</code> split. <code>cad</code> retires.</li>
+<li><strong>Notes with a lifecycle</strong>: a notes surface per session/worktree, seeded on
+create, <em>reviewed on close</em> with keepers flowing into a central system; plus
+quick capture into long-living topic ledgers, periodically reviewed, with
+future automation proposing quick wins that you just green-light.</li>
+<li><strong>Record layer stays plain files</strong> serving three goals: per-task backlog /
+follow-ups, progress across all tasks + planned batches, easy review and
+refinement.</li>
+<li>Worktree flow's ritual gets absorbed into <code>wb new</code> (§2), not left untouched;
+<code>/park</code> + <code>/parked-items</code> (fix the channel bug), <code>pr-review-session</code>,
+decision-buffer stay as-is. Keep the nvim bridge to its basic loop (output
+buffer + reply); fancy features on hold.</li>
 </ul>
-<div class="quote"><span class="who">your take</span>
-<p>Sounds good, one thing to refine on the record layer and parked items, is that perhaps that
-shouldn't live in scratch/ on a repo level, perhaps there should be a central location that
-different agents can access at the same time safely and then we can tag entries there to
-understand capture context but also to make it easier to factor in other similar cross project
-tasks.</p></div>
-<div class="decided"><span class="who">answer · 2026-07-06</span>
-<p>Agreed — central it is. File-per-task markdown in one central location that is itself a git
-repo (candidate: <code>~/code/tasks</code>, or a <code>tasks/</code> subtree of the notes corpus),
-frontmatter carrying <code>repo:</code> + free <code>tags:</code>. File-per-task keeps concurrent
-agents safe (no shared file contention), git gives history + cross-machine sync, tags give
-cross-project grouping. <code>/park</code>'s ledger stays the capture funnel and promotes into the
-store; <code>wb</code> and the worktree-seeding rule filter by <code>repo:</code> instead of
-reading <code>scratch/tasks/</code>. <span class="chip ok">Built — <code>~/code/tasks</code></span></p></div>
-
-<h2 id="s1"><span class="num">1</span>Step zero — light up the attention pipeline</h2>
-<p>Wire the three hooks into <code>~/.claude/settings.json</code>, fix <code>parked-items</code>'
-fixed wait-channel, and retire the dead <code>n</code> alias. After a week of hook data, delete the
-version-pinned content scan. No design needed — this is maintenance the rest builds on.</p>
-<div class="decided"><span class="who">done · 2026-07-06</span>
-<p>Hooks wired in settings.json, parked-items channel fixed, dead alias removed — commit
-<code>6015c43</code>. <span class="chip ok">DONE</span></p></div>
-
-<h2 id="s2"><span class="num">2</span>The core — <code>wb</code> (workbench): session-per-worktree + the unified picker</h2>
+<p><strong>Your take:</strong></p>
+<p>Sounds good, one thing to refine on the record layer and parked items, is that perhaps that shouldn't live in scratch/ on a repo level, perhaps there should be a central location that different agents can access at the same time safely and then we can tag entries there to understand capture context but also to make it easier to factor in other similar cross project tasks</p>
+<blockquote>
+<p><strong>answer (2026-07-06):</strong> agreed — central it is. Proposed shape: file-per-task
+markdown in one central location that is itself a git repo (candidate:
+<code>~/code/tasks</code>, or a <code>tasks/</code> subtree of the notes corpus (<code>~/code/notes</code>)
+since notes-tui shares the ground), frontmatter carrying <code>repo:</code> + free <code>tags:</code>. File-per-task
+keeps concurrent agents safe (no shared file contention), git gives history +
+cross-machine sync, tags give cross-project grouping. <code>/park</code>'s ledger stays
+the capture funnel and promotes into the store; <code>wb</code> and the worktree-seeding
+rule filter by <code>repo:</code> instead of reading <code>scratch/tasks/</code>. Exact location +
+notes-corpus overlap goes through a quick decision buffer when we build §3.</p>
+</blockquote>
+<hr>
+<h2 id="1-step-zero--light-up-the-attention-pipeline">1. Step zero — light up the attention pipeline</h2>
+<p>Wire the three hooks into <code>~/.claude/settings.json</code> (I'll print the block; the
+harness makes me ask you to approve/paste it), fix <code>parked-items</code>' fixed
+wait-channel, and retire the dead <code>n</code> alias (see §4). After a week of hook data,
+delete the version-pinned content scan. No design needed — this is maintenance
+the rest builds on.</p>
+<p><em>(Done 2026-07-06: hooks wired in settings.json, parked-items channel fixed,
+dead alias removed — commit 6015c43. The week-of-hook-data clock is running.)</em></p>
+<p><strong>Your take:</strong></p>
+<hr>
+<h2 id="2-the-core--wb-workbench-session-per-worktree--the-unified-picker">2. The core — <code>wb</code> (workbench): session-per-worktree + the unified picker</h2>
 <p>One script in the existing <code>lib.sh</code> style, three verbs:</p>
 <pre><code>wb new &lt;slug&gt;          # from inside a repo (or wb new &lt;repo&gt; &lt;slug&gt;)
   → git worktree add .worktrees/&lt;slug&gt;; bootstrap via a per-repo gitignored
     .worktree-bootstrap manifest (paths to copy/symlink), default .env* when absent
-  → seed the task file in the CENTRAL store if none exists
-  → tmux session named for display only: sanitized "&lt;repo&gt;--&lt;slug&gt;" (/ and .
+  → seed the task file in the CENTRAL store (frontmatter §3; store location is
+    decided before this slice — see reordered §8) if none exists
+  → tmux session named for display only: sanitized &quot;&lt;repo&gt;--&lt;slug&gt;&quot; (/ and .
     become -); ground truth lives in session options @wb_repo + @wb_slug + @task
+    (never parse the name back — be--monorepo already contains the delimiter)
   → win1 nvim · win2 agent (LAZY: window exists, claude starts on first visit
     or wb new --agent — bounded by the ~10-concurrent-agent memory ceiling)
   → win3 shell
 
 wb                     # THE picker (replaces s and ca muscle memory)
-  → ROW SOURCE (decided 2026-07-06): one row per TASK from the central store,
-    live session/agent state overlaid as glyphs. Repo-level checkouts appear
-    as extra rows. Enter on a session-less task row runs the wb new spin-up.
-  → grouped by repo; urgency (needs-you / finished) pins to the top of its
-    group, mirroring ca's rank order. <em>Changed 2026-07-06, post-launch:
-    grouping is now status-first, not repo-first — needs-you rows surface
-    together across every repo, then finished, working, idle. A session's
-    sub-rows still ride along with their parent as one block.</em>
-  → sessions with &gt;1 claude pane expand to one indented sub-row per agent.
-  → ctrl-x on a worktree-backed task row routes through the wb done flow.
-  → status line shows the pending Follow-ups + parked count.
+  dotfiles                      ● working    [feat/tmux-claude-agent-notification]
+  dotfiles--agent-task-flow     ◆ needs you  doing
+  be--monorepo                  · no agent
+  frontend--sfb-1204            ✔ finished   review
+  → ROW SOURCE (decided 2026-07-06): one row per TASK from the central store —
+    status from frontmatter, so planned and done tasks are visible — with live
+    session/agent state overlaid as glyphs. Repo-level checkouts (main
+    checkouts, no task) appear as extra rows. Enter on a session-less task row
+    runs the wb new spin-up. Worktrees enumerated via per-repo
+    `git worktree list` (authoritative), not directory globbing.
+  → grouped by repo (from @wb_repo / frontmatter repo:, never name-parsing);
+    SORT: any needs-you / finished row pins to the top of its group, mirroring
+    ca's rank order — urgency is never buried by alphabetical grouping.
+    *(Changed 2026-07-06, post-launch: grouping is now status-first, not
+    repo-first — all needs-you rows surface together across every repo, then
+    finished, then working, then idle, so you don't have to scan each repo's
+    group to find what's urgent. A session's sub-rows still ride along with
+    their parent as one block rather than scattering by their own individual
+    rank — see `wb.sh`'s `collect_combined_rows`.)*
+  → column 3 rule: task rows show frontmatter status (planned/doing/review/done);
+    repo-level rows show the current branch in [brackets] instead.
+  → sessions with &gt;1 claude pane expand to one indented sub-row per agent
+    (glyph + pane title) — pr-review-session stays legible after ca retires.
+  → each row/sub-row carries a hidden field: its most-urgent claude pane target
+    (min-rank over collect_rows), empty if no agent. x interrupt and the
+    agent-pane preview act on THAT target, never the session's active pane.
+    ctrl-x on a worktree-backed task row routes through the wb done flow (raw
+    kill only for non-task sessions) — wind-down is the default exit, not an
+    optional ritual. No-ops when the target field is empty.
+  → status line shows the pending Follow-ups + parked count; wb done offers the
+    cross-task sweep when it crosses a threshold (push, not a weekly ritual).
+  → Enter jumps (or creates); preview = urgent agent pane, else git status,
+    else (added 2026-07-07 review, Decision 11) — for session-less,
+    worktree-less task rows (planned tasks with no live session and no
+    worktree yet) — the task file's `## Plan` section rendered as text.
 
 wb done [&lt;slug&gt;]       # the wind-down that doesn't exist today — SAFE ORDER:
-  1. fail fast: git status --porcelain in the worktree; abort if dirty
-  2. open task file + session notes in a review buffer, keepers marked `- [x] keep`
+  1. fail fast: git status --porcelain in the worktree; if dirty, print the
+     short status + &quot;commit or stash, then re-run&quot; and abort (nothing mutated)
+  2. open task file + session notes in a review buffer (decision-buffer
+     pattern); keepers are marked with checkbox lines (`- [x] keep`) — the ONE
+     convention shared with §4's digest promotion
   3. on close: sweep worktree-local gitignored keepers into the central store
-  4. status → done, keepers captured
-  5. kill session, then git worktree remove</code></pre>
-<p>Repo-level sessions (<code>dotfiles</code>, main checkout) remain plain rows in the same picker
-— <code>s</code>'s job is absorbed, and the worktree-invisibility bug dies with it. Keybind:
-<strong>cutover</strong> — <kbd>prefix</kbd>+<kbd>m</kbd> and <kbd>prefix</kbd>+<kbd>a</kbd> both
-rebind to <code>wb</code> the moment it lands; <code>s</code>/<code>ca</code> stay invocable by
-name as fallback.</p>
-<div class="quote"><span class="who">your take</span>
-<p>Sounds good do you think it should still be a bash script powering this or is it worthy of a
-go/python implementation? Happy to keep it as is btw just curious.</p></div>
-<div class="decided"><span class="who">answer · 2026-07-06</span>
-<p>Bash for v1. <code>wb</code> is tmux/fzf orchestration — bash is the native tongue there,
-<code>lib.sh</code> already has the helpers, no build step, and it stows like everything else. A
-compiled implementation earns its keep only if the task <em>index</em> grows real
-querying/aggregation needs — and that's notes-tui / cli-kit territory (Go), not a reason to start
-<code>wb</code> in Go. <span class="chip ok">Built &amp; shipped — PR #7</span></p></div>
-
-<h2 id="s3"><span class="num">3</span>The record — task files that can back a board</h2>
-<pre><code>---
+     (logs/decisions/*.md at minimum — VERIFIED: git worktree remove silently
+     destroys gitignored files; the dirty check never protects them) and
+     rewrite the task file's Decisions links to the store copies
+  4. status → done, keepers captured (§4)
+  5. kill session, then git worktree remove
+</code></pre>
+<blockquote>
+<p><strong>Bypass guard (added 2026-07-07 review, Decision 8):</strong> nothing today
+catches a worktree torn down via raw <code>git worktree remove</code>/<code>tmux kill-session</code>
+instead of <code>wb done</code> — the task file is left at whatever status it had,
+silently stale. Add a lightweight periodic check (piggyback on the picker's
+refresh or <code>wb</code>'s own startup): any task-store entry whose <code>worktree:</code> path
+no longer exists in <code>git worktree list</code> AND whose <code>status:</code> isn't <code>done</code>
+gets flagged — surfaced as a picker row warning, not a hard block, so a
+skipped <code>wb done</code> is caught rather than silently lost.</p>
+</blockquote>
+<p>Repo-level sessions (<code>dotfiles</code>, main checkout) remain plain rows in the same
+picker — <code>s</code>'s job is absorbed, and the worktree-invisibility bug dies with it.
+Keybind (decided 2026-07-06): <strong>cutover</strong> — <code>prefix+m</code> and <code>prefix+a</code> both
+rebind to <code>wb</code> the moment it lands; <code>s</code>/<code>ca</code> stay invocable by name as fallback.</p>
+<blockquote>
+<p><strong>Credential guard (added 2026-07-06 review):</strong> <code>wb new</code> bootstraps <code>.env*</code>
+into worktrees by default, and the keeper sweep copies gitignored files
+into the central store — a repo intended for cross-machine git sync (§0).
+Requirement retrofitted onto the live flow: the sweep must carry an
+exclusion list for credential-shaped files (<code>.env*</code>, <code>*.pem</code>, <code>*.key</code>,
+<code>*credential*</code>, …) and warn in the review buffer when a marked keeper
+matches one, so a bootstrapped secret can never ride a <code>- [x] keep</code> into
+a repo that later gets a remote.</p>
+</blockquote>
+<p><strong>Your take:</strong>
+Sounds good do you think it should still be a bash script powering this or is it worthy of a go/python implemnetation? Happy to keep it as is btw just curious</p>
+<blockquote>
+<p><strong>answer (2026-07-06):</strong> bash for v1. <code>wb</code> is tmux/fzf orchestration — bash is
+the native tongue there, <code>lib.sh</code> already has the helpers, no build step, and
+it stows like everything else. A compiled implementation earns its keep only
+if the task <em>index</em> grows real querying/aggregation needs — and that's
+notes-tui / cli-kit territory (Go you already own), not a reason to start <code>wb</code>
+in Go. Python only if we lifted <code>driver.py</code> wholesale, which we aren't.</p>
+</blockquote>
+<hr>
+<h2 id="3-the-record--task-files-that-can-back-a-board">3. The record — task files that can back a board</h2>
+<pre><code class="language-markdown">---
 status: doing        # planned | doing | review | done
-repo: dotfiles        # worktree resolves as ~/code/&lt;repo&gt;/&lt;worktree&gt;
-branch: feat/agent-task-workflow
-worktree: .worktrees/feat/agent-task-workflow
-tags: []              # free tags for cross-project grouping
+repo: dotfiles       # worktree resolves as ~/code/&lt;repo&gt;/&lt;worktree&gt; — task
+branch: feat/agent-task-workflow          # files live centrally, so paths
+worktree: .worktrees/feat/agent-task-workflow   # must reconstruct from repo:
+tags: []             # free tags for cross-project grouping (§0 amendment)
 created: 2026-07-06
 ---
 # Agent task workflow
-## Plan          ← batches of intended work
+## Plan          ← batches of intended work (your goal 2)
 ## Done          ← running log of what landed
-## Follow-ups    ← per-task backlog; /parked-items review reads these
-## Decisions     ← links to logs/decisions/*.md + key calls inline</code></pre>
-<p>The three goals map: <strong>backlog</strong> = <code>## Follow-ups</code> (+ global
-<code>/park</code> for cross-task strays); <strong>progress tracker</strong> = <code>status:</code>
-rendered in the picker — the board is <em>inside</em> <code>wb</code>, not a separate surface;
-<strong>review &amp; refinement</strong> = <code>wb done</code>'s close-out buffer plus a push
-trigger: the picker status line carries the pending Follow-ups + parked count and <code>wb
-done</code> offers the cross-task sweep past a threshold — the weekly <code>/parked-items</code>
-ritual stays available but is no longer the load-bearing path.</p>
-
-<h2 id="s4"><span class="num">4</span>Notes — <code>notes-tui</code> is already the system you described</h2>
-<p>Finding: the <code>n</code> alias pointed at a binary that no longer exists on this machine —
-but the project lives on as <code>jetnoli-sportable/notes-tui</code>, and its README is your take
-#2 almost verbatim: sub-second zero-decision capture auto-stamped with cwd/branch/session, a
-<code>digest day|week --by context</code> periodic review, and cleanup proposals you just approve.</p>
-<p>Proposal: source its <code>note.sh</code> and make it the notes backbone. <code>wb new</code>
-stamps the session so every <code>note</code> during the task is already context-tagged;
-<code>wb done</code> runs the digest into the close-out buffer so keepers get promoted
-deliberately, marked with the same <code>- [x] keep</code> checkbox convention as §2's close-out.
-Topic ledgers = tags in its Denote scheme rather than a parallel system. <code>notes.sh</code>
-daily flow keeps working untouched on the same corpus.</p>
-<p><span class="chip">not started — slice 4</span></p>
-
-<h2 id="s5"><span class="num">5</span>HTML docs in the flow — ideas to pick from</h2>
+## Follow-ups    ← per-task backlog (your goal 1); /parked-items review reads these
+## Decisions     ← links to logs/decisions/*.md + key calls inline (F4)
+</code></pre>
+<p>Your three goals map: <strong>backlog</strong> = <code>## Follow-ups</code> (+ global <code>/park</code> for
+cross-task strays); <strong>progress tracker</strong> = <code>status:</code> rendered as the picker's
+third column — the board is <em>inside</em> <code>wb</code>, not a separate surface; <strong>review &amp;
+refinement</strong> = <code>wb done</code>'s close-out buffer plus a PUSH trigger (decided
+2026-07-06): the picker status line carries the pending Follow-ups + parked
+count and <code>wb done</code> offers the cross-task sweep past a threshold — the weekly
+<code>/parked-items</code> ritual stays available but is no longer the load-bearing path.</p>
+<blockquote>
+<p><strong>Validation clock (added 2026-07-06 review, mirroring §1's):</strong> the
+demotion above is a behavioral bet on event-driven pushes whose events are
+sparse (the nudge fires only at task completion; the count only renders
+when the picker is open). Check-in: <strong>two weeks after slices 2–3 merged</strong>
+(~2026-07-20), inspect the parked ledger's open-item ages. If the oldest
+open item exceeds ~10 days, the push bet failed — restore the weekly
+ritual as load-bearing or surface the count somewhere time-driven (e.g.
+tmux status-left), not just inside the picker.</p>
+</blockquote>
+<p><strong>Your take:</strong></p>
+<hr>
+<h2 id="4-notes--notes-tui-is-already-the-system-you-described">4. Notes — <code>notes-tui</code> is already the system you described</h2>
+<p>Finding: the <code>n</code> alias points at <code>~/Desktop/Projects/go-notes/notes.exe</code>, which
+no longer exists on this machine — but the project lives on as
+<code>jetnoli-sportable/notes-tui</code> (private, last touched 2026-06-19), and its README
+is your take #2 almost verbatim:</p>
 <ul>
-  <li><strong>(a) Visual mode for decision buffers</strong> — comparison-heavy decisions get an
-      HTML companion emitted next to the md doc and opened; checkboxes stay in the md buffer.</li>
-  <li><strong>(b) A docs shelf per repo</strong> — <code>wb docs</code> fzf-picks across generated
-      HTML and opens in the browser.</li>
-  <li><strong>(c) Standing agent rule</strong> — any multi-option comparison, architecture map, or
-      audit ships as HTML alongside the chat summary, by default.</li>
-  <li><strong>(d) The help dashboard indexes recent HTML docs</strong> so they're re-findable
-      weeks later.</li>
+<li><code>note &quot;thought&quot;</code> / <code>cmd | note</code> — sub-second, zero-decision capture to an
+inbox, <strong>auto-stamped with cwd, git repo+branch, and tmux session</strong> — the
+task-linkage the daily notes lack.</li>
+<li><code>notes digest day|week --by context</code> — the periodic review you asked for.</li>
+<li><code>notes process</code> — mechanical cleanup proposals (your &quot;automation scouts, I
+approve&quot; — and its roadmap's AI layer is exactly that, grown up).</li>
+<li>Roadmap Phase 2 is a Bubble Tea TUI on the same corpus (<code>~/code/notes</code>, which
+<code>notes.sh</code> already uses).</li>
 </ul>
-<div class="quote"><span class="who">your take</span>
-<p>I'd like a combo of a and c. And then yes to d.</p></div>
-<div class="decided"><span class="who">landing-path rule · 2026-07-06</span>
-<p>(a)/(c) HTML writes to ONE fixed location — <code>docs/</code> when tracked-worthy, else the
-central task store's dossier area (never worktree-local scratch, which <code>wb done</code>
-deletes) — so (d)'s index has a deterministic scan target. (b)'s <code>wb docs</code> picker stays
-unbuilt. <span class="chip">not started — slice 5</span></p></div>
-
-<div class="decided"><span class="who">addition · 2026-07-06, post-ratification</span>
-<p>Every <code>.md</code>/<code>.html</code> pair built so far (this doc, the dotfiles overview) was
-hand-authored twice — write the markdown, then manually keep an HTML render in sync alongside it.
-That's exactly the kind of drift this section exists to prevent. Look at a proper
-<strong>doc-sync tool</strong>: one markdown file in a specific, defined format (frontmatter +
-section conventions), and a small generator that renders the HTML from it — single source of
-truth, regenerate on demand instead of hand-editing two files in parallel. Scope this alongside
-slice 5 (same "generated, not hand-maintained" principle as the help dashboard's index); exact
-format/generator choice goes through a quick decision buffer when it's built.
-<span class="chip">not started — slice 5</span></p></div>
-
-<h2 id="s6"><span class="num">6</span>Help dashboard — one index of your whole personal stack</h2>
-<p>The ask: a place that answers "what do I have and how do I drive it" across dotfiles scripts,
-tmux binds, aliases, Claude skills/memories, and TUIs.</p>
-<div class="quote"><span class="who">your take</span>
-<p>(a/b/c, and where it should live — dotfiles repo?) → <strong>c</strong> — one generated
-machine-readable index rendering to both an fzf picker and an HTML manual, fzf first.</p></div>
-<div class="decided"><span class="who">addition · 2026-07-06, post-ratification</span>
-<p>Also build a quick way to <em>ask questions</em> about the config — "why do I have binding X",
-"what does skill Y do", "how do I use notes-tui" — answered by querying the generated index
-(<code>INDEX.md</code>) rather than requiring a manual grep across source files. A query mode over
-the same index from (a)/(c), not a new data source or a separate scan. Scoped into slice 5, not a
-standalone slice.</p></div>
-<div class="decided"><span class="who">manual precursor started · 2026-07-06, PR #8</span>
-<p>Built <code>docs/HUB.md</code> (index of every doc in this project) and
-<code>docs/overview.md</code> (guides for every skill and TUI, with full command/flag and
-keybind tables where possible) as the hand-maintained stand-in for (a)/(c) until the real scanned
-index exists. Both are meant to fall away once slice 5 lands — <code>HUB.md</code>'s own footer
-says so. When slice 5 is built, its generated index should absorb and then delete these two files
-rather than maintain three sources of truth.</p></div>
-<p><span class="chip">not started — slice 5</span></p>
-
-<h2 id="s7"><span class="num">7</span>Keep / retire / hold</h2>
+<p>Proposal: it's already cloned at <code>~/code/notes-tui</code> (branch feat/usage-guide;
+the dead alias is now removed) — source its <code>note.sh</code> and make it the notes
+backbone. Then the lifecycle wiring is small:
+<code>wb new</code> stamps the session so every <code>note</code> during the task is already
+context-tagged; <code>wb done</code> runs <code>notes digest --by context --context &lt;session&gt;</code>
+into the close-out buffer so keepers get promoted deliberately — marked with
+the same <code>- [x] keep</code> checkbox convention as §2's close-out. (Verified: the
+current digest CLI has no per-session filter — slice 4 includes adding a small
+<code>--context &lt;tmux-session&gt;</code> flag to notes-tui; the ctx metadata already records
+<code>tmux:&lt;session&gt;</code> per capture. <strong>Corrected 2026-07-06:</strong> the flag alone is NOT
+sufficient — corpus.Load parses one Note per file, so the whole inbox reads
+as a single note carrying only the FIRST capture's context; slice 4 must
+first teach the corpus to split <code>inbox.md</code> into per-capture notes, each with
+its own timestamp and ctx stamp. Captures made before that lands can't be
+retro-digested per-session without reprocessing raw stamps.) Topic ledgers = tags in
+its Denote scheme (<code>__workflow</code>, <code>__vim</code>) rather than a parallel system we'd
+build from scratch. <code>notes.sh</code> daily flow keeps working untouched on the same
+corpus.</p>
+<p><strong>Your take:</strong></p>
+<hr>
+<h2 id="5-html-docs-in-the-flow--ideas-to-pick-from">5. HTML docs in the flow — ideas to pick from</h2>
+<p>You liked the findings doc's format for visualizing/comparing. Ways to make
+that a habit rather than a one-off (not mutually exclusive):</p>
 <ul>
-  <li><strong>Retire:</strong> <code>cad</code> dashboard (unused; <code>wb</code> absorbs it),
-      dead <code>n</code> alias.</li>
-  <li><strong>Hold:</strong> nvim bridge fancy features (<code>:ClaudePick</code>, yank-code,
-      <code>gf</code>) — stay installed but no further investment until the basic loop + workbench
-      are in.</li>
-  <li><strong>Keep as-is:</strong> decision-buffer, <code>/park</code> +
-      <code>/parked-items</code> (channel fix only), <code>pr-review-session</code>, worktree flow
-      (its ritual gets absorbed by <code>wb new</code>).</li>
+<li><strong>(a) Visual mode for decision buffers</strong> — when a decision is
+comparison-heavy, I emit an HTML companion next to the md doc and <code>xdg-open</code>
+it; checkboxes stay in the md buffer. Zero new tooling, just a skill rule.</li>
+<li><strong>(b) A docs shelf per repo</strong> — convention: generated HTML lands in
+<code>docs/</code> (tracked) or <code>logs/html/</code> (scratch); <code>wb docs</code> fzf-picks across them
+and opens in the browser; task files link their docs so F4 dossiers include
+visuals.</li>
+<li><strong>(c) Standing agent rule</strong> in global CLAUDE.md: any multi-option comparison,
+architecture map, or audit ≥ some size ships as HTML alongside the chat
+summary — the way this session's findings doc happened, made default.</li>
+<li><strong>(d) The help dashboard (§6) indexes recent HTML docs</strong> so they're
+re-findable weeks later.</li>
 </ul>
-<div class="quote"><span class="who">your take</span>
-<p>Look at notes above on park and scratch tasks.</p></div>
-<p><span class="chip ok">Honored — retire/hold/keep all landed as described above</span></p>
-
-<h2 id="s8"><span class="num">8</span>Build order (each slice usable on its own)</h2>
-<div class="table-wrap"><table>
-  <thead><tr><th>#</th><th>Slice</th><th>Status</th></tr></thead>
-  <tbody>
-  <tr><td>1</td><td>Step zero (§1) — hooks, channel fix, alias cleanup</td>
-      <td><span class="chip ok">DONE 2026-07-06</span></td></tr>
-  <tr><td>2</td><td>Central store + task frontmatter (§3) — reordered ahead of <code>wb</code>: four
-      reviewers flagged that building <code>wb</code> against <code>scratch/tasks/</code> then
-      relocating one slice later reworks its whole read/write model</td>
-      <td><span class="chip ok">DONE 2026-07-06</span> — store at <code>~/code/tasks</code>,
-      decision: <code>logs/decisions/2026-07-06-task-store-location.md</code></td></tr>
-  <tr><td>3</td><td><code>wb</code> core (§2) — new/picker/done, built against the central store
-      from day one. Board column comes free from the §3 frontmatter</td>
-      <td><span class="chip ok">DONE 2026-07-06</span> — PR #7. Full build log, the 8-persona code
-      review, and the post-launch picker redesign (presence-only rows, 5-column layout,
-      <kbd>r</kbd> rename / <kbd>b</kbd> break-out-to-own-session added during live usage) all in
-      <code>~/code/tasks/dotfiles--agent-task-workflow.md</code></td></tr>
-  <tr><td>4</td><td>notes-tui revival (§4) — already cloned; wire <code>note.sh</code>, add the
-      <code>--context</code> digest filter flag, lifecycle hooks in <code>wb</code></td>
-      <td><span class="chip">not started</span></td></tr>
-  <tr><td>5</td><td>HTML-in-flow + help dashboard (§5/§6) — whichever variants you pick</td>
-      <td><span class="chip">not started</span></td></tr>
-  </tbody>
-</table></div>
-
-<h2 id="s9"><span class="num">9</span>Later additions (captured 2026-07-06, post-ratification)</h2>
-<p>Provenance: both items below were requested verbatim by the owner in chat on 2026-07-06.
-Recorded here since they post-date the buffer round the rest of the doc went through.</p>
-
-<div class="cards">
-  <div class="card"><h4>9a. Roadmap visualization skill — FOLLOW-UP</h4>
-    <p>Constrain harder, and defer: a <em>snapshot of the same task-store board</em> (no second
-    status computation), zoomable today/task/week, sourced from the store + parked ledger +
-    decision docs + transcripts. Jira integration excluded, becomes its own later addition. Output
-    rides the HTML pipeline.</p>
-    <p><span class="chip warn">parked — review once slices 2–3 are merged</span></p></div>
-  <div class="card"><h4>9b. Day bookends — startup/shutdown flows</h4>
-    <p><code>wb up</code> / <code>wb down</code>: startup reviews close-outs + parked + board +
-    Jira sprint and recreates sessions; shutdown sweeps every session, captures status, digests
-    notes, closes everything for power-off. Design principle honored from slice 2 onward:
-    <strong>sessions are regenerative, not precious</strong> — a <code>wb</code> session is fully
-    derivable from its task record, so resume is "re-run <code>wb new</code>-equivalent from the
-    store," no fragile tmux snapshotting.</p>
-    <p><span class="chip">not started</span></p></div>
-  <div class="card"><h4>9c. Per-skill/TUI dedicated guide pages + tile-grid dashboard</h4>
-    <p>Not just a summary line per skill in <code>overview.md</code> — a proper standalone guide per
-    skill and per TUI (the <code>wb-guide.html</code> treatment), with <code>HUB.html</code> as a
-    dashboard of tiles clicking through to them. <strong>Started as an interim step (PR #8):</strong>
-    <code>HUB.html</code> is a real tile-grid dashboard now, but the 4 Claude-skill tiles deep-link
-    into <code>overview.html</code>'s skills section rather than dedicated pages, since those don't
-    exist yet. Full scope: build a dedicated guide per skill (decision-buffer, park, parked-items,
-    pr-review-session) and wire tiles to them once they exist; notes-tui already has one
-    (<code>notes-guide.html</code>) and just needs its tile pointed there (done).</p>
-    <p><span class="chip warn">interim done · PR #8</span> <span class="chip">full scope not started</span></p></div>
-  <div class="card"><h4>9d. Cross-repo, cross-session doc referencing</h4>
-    <p>The docs project already spans repos — <code>dotfiles/docs/</code>,
-    <code>~/code/notes-tui/notes-guide.html</code>, <code>~/code/tasks/*.md</code> — and
-    <code>HUB.html</code>'s "Other artifacts" section proved a third problem: HTML docs get built as
-    Claude Artifacts during sessions and never committed anywhere, discoverable (if at all) only by
-    grepping <code>/tmp/claude-1000/*</code> on whichever machine ran that session, until its scratch
-    dir is cleaned. Needed: a way to reference docs across every repo so they stay in sync and are
-    findable from the Hub — including artifacts from <strong>any past session</strong>, not just ones
-    whose scratch happens to still be on disk. Shape unclear (a manifest per repo the Hub aggregates?
-    a "commit it or lose it" rule enforced by a skill? something in the task store?) — needs a
-    decision buffer when picked up. Composes with 9c and the doc-sync tool in §5.</p>
-    <p><span class="chip">not started</span></p></div>
-</div>
-
-<div class="decided"><span class="who">visibility gap identified · 2026-07-06, post-launch</span>
-<p>The picker redesign in build-order item 3 made rows presence-only (live sessions/agents only) —
-the right call for signal-to-noise, but it means there is currently no single view of live +
-deferred (<code>## Follow-ups</code>) + parked (<code>/park</code> ledger) work; each lives in a
-different place (<code>wb</code>, <code>grep ~/code/tasks/*.md</code>, <code>/parked-items</code>).
-This is exactly the gap <code>/roadmap</code> (9a) is meant to close — recorded here so the
-motivating reason isn't lost by the time this follow-up gets picked up. Also tracked as a
-Follow-up on <code>~/code/tasks/dotfiles--agent-task-workflow.md</code>.</p></div>
-
-<div class="quote"><span class="who">naming note</span>
-<p>This doc is now called "Roadmap," and 9a above describes a <em>planned feature</em> also called
-<code>/roadmap</code> (a snapshot dashboard over the task store). They are not the same thing —
-this file is the plan-of-record for the whole personal workflow; <code>/roadmap</code> would be a
-live status view once built. Flagging so future-you doesn't conflate them.</p></div>
-
+<p><strong>Your take:</strong> (which of a–d, or riff)
+I'd like a combo of a and c. And then yes to d.</p>
+<blockquote>
+<p><strong>landing-path rule (decided 2026-07-06):</strong> (a)/(c) HTML writes to ONE fixed
+location — <code>docs/</code> when tracked-worthy, else the central task store's dossier
+area (never worktree-local scratch, which <code>wb done</code> deletes) — so (d)'s index
+has a deterministic scan target. (b)'s <code>wb docs</code> picker stays unbuilt.</p>
+</blockquote>
+<blockquote>
+<p><strong>addition (2026-07-06, post-ratification):</strong> every <code>.md</code>/<code>.html</code> pair built
+so far (this doc, the dotfiles overview) was hand-authored twice — write the
+markdown, then manually keep an HTML render in sync alongside it. That's
+exactly the kind of drift this section exists to prevent. Look at a proper
+<strong>doc-sync tool</strong>: one markdown file in a specific, defined format
+(frontmatter + section conventions), and a small generator that renders the
+HTML from it — single source of truth, regenerate on demand instead of
+hand-editing two files in parallel. Scope this alongside slice 5 (it's the
+same &quot;generated, not hand-maintained&quot; principle as the help dashboard's
+index); the exact format/generator choice can go through a quick decision
+buffer when it's built.</p>
+</blockquote>
+<blockquote>
+<p><strong>Architecture ratified (2026-07-07 decision buffer, Decision 2A):</strong> ONE
+tool, three outputs — every doc is markdown-with-frontmatter (<code>title</code>,
+<code>status</code>, <code>tile</code>, <code>group</code>), and a single generator renders (i) the
+<code>.md → .html</code> pages, (ii) <code>HUB.html</code>'s tile dashboard aggregated from the
+same frontmatter, and (iii) the INDEX's doc entries from the same scan.
+No hand-maintained HTML survives slice 5. Stack/format specifics are
+plan-time decisions (slice-5 plan carries the spec).</p>
+</blockquote>
+<hr>
+<h2 id="6-help-dashboard--one-index-of-your-whole-personal-stack">6. Help dashboard — one index of your whole personal stack</h2>
+<p>The ask: a place that answers &quot;what do I have and how do I drive it&quot; across
+dotfiles scripts, tmux binds, aliases, Claude skills/memories, and TUIs. Ideas:</p>
+<ul>
+<li><strong>(a) Generated HTML manual</strong> — a <code>/workbench-manual</code> skill scans the real
+sources (tmux.conf binds, zshrc aliases/functions, the repo's
+<code>instructions.md</code> files at their real stow-nested paths —
+<code>scripts/.config/scripts/tmux/instructions.md</code>,
+<code>nvim/.config/nvim/instructions.md</code> — <code>~/.claude/skills/*/SKILL.md</code>
+descriptions, <code>MEMORY.md</code>, TUI READMEs, plus <code>logs/decisions/*.md</code> and the
+task store's <code>## Decisions</code> sections so provenance questions are
+answerable) and renders one searchable page in the findings-doc style.
+Regenerate on demand — never hand-maintained, so it can't drift like
+instructions.md did.</li>
+<li><strong>(b) Terminal-first</strong> — same scan emits a flat index; <code>help.sh</code> fzf over
+it (name → one-liner → source path), preview shows the doc excerpt, Enter
+opens the source. Keybinds (decided 2026-07-06): <code>prefix+h</code> KEEPS its
+existing direct-open-HUB behavior (muscle memory); the fzf help picker
+lands on <code>prefix+?</code>.</li>
+<li><strong>(c) Both from one source</strong> — the scan produces a machine-readable
+<code>INDEX.md</code>; the HTML page and the fzf picker are two renderers of it. My
+pick: build the index + fzf first (10× more used day-to-day), HTML render
+second.</li>
+</ul>
+<p><strong>Your take:</strong> (a/b/c, and where it should live — dotfiles repo?)
+c</p>
+<blockquote>
+<p><strong>addition (2026-07-06, post-ratification):</strong> also build a quick way to <em>ask
+questions</em> about the config — &quot;why do I have binding X&quot;, &quot;what does skill Y
+do&quot;, &quot;how do I use notes-tui&quot; — answered by querying the generated index
+(INDEX.md) rather than requiring a manual grep across source files. This is
+a query mode over the same index from (a)/(c), not a new data source or a
+separate scan. Scope it as part of slice 5 when the help dashboard is built,
+not a standalone slice. <em>(Amended same day: &quot;why do I have X&quot; is a
+provenance question — answerable only because (a)'s scan list now includes
+<code>logs/decisions/*.md</code> and the task store's Decisions sections. Without
+those sources the query mode could answer what/how but not why.)</em></p>
+</blockquote>
+<blockquote>
+<p><strong>manual precursor started (2026-07-06, PR #8):</strong> built <code>docs/HUB.md</code> (index
+of every doc in this project) and <code>docs/overview.md</code> (guides for
+every skill and TUI, with full command/flag and keybind tables where
+possible) as the hand-maintained stand-in for (a)/(c) until the real scanned
+index exists. Both are meant to fall away once slice 5 lands — HUB.md's own
+footer says so. When slice 5 is built, its generated index should absorb and
+then delete these two files rather than maintain three sources of truth.</p>
+</blockquote>
+<blockquote>
+<p><strong>End-state ratified (2026-07-07 decision buffer, Decision 3A):</strong> after
+slice 5, each surviving surface owns exactly one question — the
+INDEX/fzf picker owns &quot;what do I have and how do I drive it&quot;; generated
+<code>HUB.html</code> owns the entry dashboard; generated per-skill/TUI guide pages
+own &quot;teach me X&quot; (template = wb-guide's real structure: overview /
+try-it-now / per-verb reference / rough edges / next steps); <code>/board</code>
+(9a, renamed) owns &quot;what's the status&quot;; the <code>wb</code> picker owns &quot;what needs
+me now&quot;. <code>overview.md</code> and <code>HUB.md</code> are <strong>deleted</strong> — sequenced LAST in
+slice 5, so nothing is removed before its generated replacement renders.
+This supersedes 9c's earlier &quot;overview.md shrinks back&quot; wording.
+<em>(Executed 2026-07-07: both files deleted after their replacements
+rendered; the shell/terminal section landed in generated <code>setup.md</code>.)</em></p>
+</blockquote>
+<hr>
+<h2 id="7-keep--retire--hold">7. Keep / retire / hold</h2>
+<ul>
+<li><strong>Retire:</strong> <code>cad</code> dashboard (unused; <code>wb</code> absorbs it), dead <code>n</code> alias.</li>
+<li><strong>Hold:</strong> nvim bridge fancy features (<code>:ClaudePick</code>, yank-code, <code>gf</code>) — they
+stay installed but we stop investing until the basic loop + workbench are in.</li>
+<li><strong>Keep as-is:</strong> decision-buffer, <code>/park</code> + <code>/parked-items</code> (channel fix only),
+<code>pr-review-session</code>, worktree flow (its ritual gets absorbed by <code>wb new</code>).</li>
+</ul>
+<p><strong>Your take:</strong>
+Look at notes above on park and scratch tasks</p>
+<hr>
+<h2 id="8-build-order-each-slice-usable-on-its-own">8. Build order (each slice usable on its own)</h2>
+<ol>
+<li><strong>Step zero</strong> (§1) — hooks, channel fix, alias cleanup. <em>DONE 2026-07-06.</em></li>
+<li><strong>Central store + task frontmatter</strong> (§3 — REORDERED ahead of <code>wb</code> per the
+2026-07-06 doc review: four reviewers flagged that building <code>wb</code> against
+<code>scratch/tasks/</code> then relocating one slice later reworks its whole
+read/write model). Quick decision buffer on store location, then the
+frontmatter convention + seed template; migrate the two existing task files
+(<code>scratch/tasks/jump-cycle-on-repeat.md</code>, <code>scratch/tasks/stow-claude-config.md</code>).
+<em>DONE 2026-07-06 — store at <code>~/code/tasks</code>, decision:
+<code>logs/decisions/2026-07-06-task-store-location.md</code>.</em></li>
+<li><strong><code>wb</code> core</strong> (§2) — new/picker/done, built against the central store from
+day one. Board column comes free from the §3 frontmatter. <em>DONE 2026-07-06
+— see <code>~/code/tasks/dotfiles--agent-task-workflow.md</code> for the full build
+log, the 8-persona code review, and the post-launch picker redesign
+(presence-only rows, 5-column layout, <code>r</code> rename / <code>b</code> break-out-to-own-
+session added during live usage). PR #7.</em></li>
+<li><strong>notes-tui revival</strong> (§4) — split per the 2026-07-06 slice-review (the
+picker-redesign lesson: don't ratify wiring before usage):
+<ul>
+<li><strong>4a — capture habit, no wiring:</strong> source <code>note.sh</code> into zshrc, merge
+notes-tui's <code>feat/usage-guide</code> branch down first, and just <em>use</em> capture
+<ul>
+<li>manual <code>notes digest</code> for a bounded window (~1 week, mirroring §1's
+hook-data clock). Verified 2026-07-06: notes-tui builds clean on local
+go1.24; <code>note()</code> does not collide with the <code>N</code>/notes.sh daily flow.</li>
+</ul>
+</li>
+<li><strong>4b — the real integration, gated on 4a confirming digest-at-close is
+the right review moment:</strong> per-capture inbox parsing in the corpus
+loader (VERIFIED 2026-07-06: corpus.Load parses one Note per FILE,
+first ctx stamp wins — without splitting inbox.md into per-capture
+notes, a <code>--context</code> filter returns at most one row, ever), THEN the
+<code>--context &lt;tmux-session&gt;</code> digest flag on top, THEN the <code>wb</code> lifecycle
+hooks (<code>wb new</code> stamps; <code>wb done</code> runs the digest into the close-out
+buffer — placement must respect the sweep-strip: anything after the
+generated <code>## Sweep</code> heading gets truncated by <code>wb done</code>'s cleanup awk).</li>
+</ul>
+</li>
+<li><strong>HTML-in-flow + help dashboard</strong> (§5/§6) — no longer one line of scope;
+post-ratification additions grew it to four sub-deliverables, listed here
+so the build-order entry matches reality: (i) the scanned index + fzf
+picker, (ii) the HTML manual render, (iii) the doc-sync tool (§5
+addition), (iv) the Q&amp;A query mode (§6 addition). Sequencing/splitting
+decided at plan time. <strong>Prerequisite:</strong> the pending stow-claude-config
+task (at minimum the <code>skills/</code> subset) — the scan reads <code>~/.claude</code>
+sources that are currently version-controlled nowhere, and a durable
+index over unversioned sources rebuilds the drift problem one level
+down. The scan must fail loudly (not emit a silently partial index)
+when a declared source root is absent.
+<em>DONE 2026-07-07 — plan <code>docs/plans/2026-07-07-002-slice-5-docs-platform-plan.md</code>.
+Shipped: <code>claude/</code> stow package (skills subset), the <code>docgen</code> tool
+(<code>~/code/docgen</code>, Go + goldmark; templates live in <code>docs/_templates/</code>),
+generated pages + HUB.html + INDEX.md, <code>prefix+?</code> picker (<code>help.sh</code>),
+<code>/help</code> Q&amp;A skill, work-repo redaction guard, per-skill/TUI guide pages
+under <code>docs/guides/</code>, and the end-state deletion of <code>overview.*</code> and
+<code>HUB.md</code> (Decision 3A).</em></li>
+</ol>
+<blockquote>
+<p><strong>Execution order ratified (2026-07-07 decision buffer, Decision 1A):</strong>
+4a runs immediately as part of the pre-slice remediation pass (it's a
+~5-minute setup plus a background habit, not a build); <strong>slice 5 is the
+next build slice</strong> — every post-ratification addition feeds it and its
+hand-maintained precursors accrete drift daily; 4b follows slice 5, gated
+on 4a's usage window confirming digest-at-close is the right review
+moment. Rationale recorded so the order is defensible, per the
+2026-07-06 review finding.</p>
+</blockquote>
+<p><strong>Your take:</strong> (reorder / cut / merge freely)</p>
+<hr>
+<h2 id="9-later-additions-captured-2026-07-06-post-ratification">9. Later additions (captured 2026-07-06, post-ratification)</h2>
+<blockquote>
+<p>Provenance: both items below were requested verbatim by the owner in chat on
+2026-07-06 (&quot;add a note to the plan… roadmap visualization on any level&quot; /
+&quot;startup/shutdown flow… factor this in&quot;). Recorded here since they post-date
+the buffer round the rest of the doc went through; strike or edit as usual.</p>
+</blockquote>
+<h3 id="9a-board--task-board-visualization-renamed-from-roadmap-2026-07-07">9a. <code>/board</code> — task-board visualization (renamed from &quot;/roadmap&quot;, 2026-07-07)</h3>
+<blockquote>
+<p><strong>Renamed + interim slot ratified (2026-07-07 decision buffer, Decision
+5A):</strong> the feature is now <code>/board</code> — &quot;roadmap&quot; stays reserved for this
+document, killing the grep/index name collision while the feature has no
+built surface. An <strong>interim, read-only <code>wb board</code></strong> subcommand (plain-text
+table over store frontmatter, reusing <code>wb_read_task</code>) lands in the
+pre-slice remediation pass to close the visibility gap now; the full
+zoomable HTML <code>/board</code> below stays deferred exactly as ratified.</p>
+</blockquote>
+<p>Owner's call from the doc-review buffer: <strong>constrain harder, and defer</strong> — add
+the roadmap view as a follow-up once everything else is working, then discuss
+in detail. Constraints locked in now: it renders a snapshot computed <strong>from
+task-store frontmatter — the same single source <code>wb</code>'s done-flow writes</strong>
+(one-board principle at the data layer; reworded 2026-07-06: the original
+&quot;snapshot of the board <code>wb</code> shows&quot; became unsatisfiable when the picker went
+presence-only and stopped rendering a store-backed board at all), zoomable
+<em>today / task <slug> / week</em>, sourced from the store + parked ledger +
+decision docs + transcripts. <strong>Jira integration is excluded</strong> and becomes its
+own later, separately ratified addition. Output rides the HTML pipeline (md
+source in a buffer → HTML at the §5 landing path, indexed by the help
+dashboard).</p>
+<blockquote>
+<p><strong>Visibility gap identified 2026-07-06 (post-launch, during live usage):</strong>
+the picker redesign in build-order item 3 made rows presence-only (live
+sessions/agents only) — the right call for signal-to-noise, but it means
+there is currently no single view of live + deferred (<code>## Follow-ups</code>) +
+parked (<code>/park</code> ledger) work; each lives in a different place (<code>wb</code>, <code>grep ~/code/tasks/*.md</code>, <code>/parked-items</code>). This is exactly the gap <code>/roadmap</code> is
+meant to close — recorded here so the motivating reason isn't lost by the
+time this follow-up gets picked up. Also tracked as a Follow-up on
+<code>~/code/tasks/dotfiles--agent-task-workflow.md</code>.</p>
+</blockquote>
+<h3 id="9b-day-bookends--startupshutdown-flows-follow-up-factor-into-design-now">9b. Day bookends — startup/shutdown flows (follow-up, factor into design now)</h3>
+<p>Two workflows, <code>wb up</code> / <code>wb down</code> (or <code>/sod</code> <code>/eod</code>), composing the capture/recall
+skills: <strong>startup</strong> — review yesterday's close-out + parked items + task board,
+propose today's focus, recreate tmux sessions for the chosen tasks;
+<strong>shutdown</strong> — sweep every live session, capture a quick status into each task file,
+run the notes digest, then close all sessions cleanly so the PC can power off.</p>
+<blockquote>
+<p><strong><code>wb up</code>'s task selection (added 2026-07-07 review, Decision 10):</strong> reuse
+the decision-buffer checkbox convention already shared by <code>wb done</code>'s
+close-out and the notes-digest promotion — <code>wb up</code> opens a review buffer
+listing yesterday's close-out + parked items + task-board candidates as
+<code>- [ ] pick</code> lines, closing the buffer recreates a session per checked
+task. First-run fallback (no prior close-out to review yet): fall back to
+a plain picker over the task store's <code>planned</code>/<code>doing</code> rows.</p>
+</blockquote>
+<blockquote>
+<p><strong><code>wb down</code>'s dirty-check (added 2026-07-07 review, Decision 7):</strong>
+<code>wb down</code> inherits <code>wb done</code>'s per-session dirty-check-and-abort exactly —
+a dirty worktree aborts that session's wind-down by default, same as a
+single <code>wb done</code>. Owner call: no silent skip-and-report bulk mode for
+now — add an override flag later; its behavior (skip-dirty-and-report vs.
+force vs. something else) is a decision for whenever that flag actually
+gets built, not now.
+<em>(Amended 2026-07-06 review: the Jira sprint pull originally listed in startup
+is REMOVED from 9b's scope and joins 9a's Jira exclusion as its own later,
+separately ratified addition — same integration, same open questions: where
+the API credential lives, and whether Jira-derived text may be persisted into
+the sync-bound task store. 9a already set this precedent; 9b now follows it.)</em></p>
+</blockquote>
+<p>Design principle to honor while building slices 2–4: <strong>sessions are regenerative,
+not precious.</strong> Because a <code>wb</code> session is fully derived from its task record (repo,
+worktree path, standard 3-window layout), resume = re-running <code>wb new</code>-equivalent
+from the store — no fragile tmux state snapshotting needed. tmux-resurrect/continuum
+remain an optional complement for raw scrollback, but the task store is the source
+of truth. Concretely: keep everything <code>wb</code> creates reconstructable from the task
+file alone, and give <code>wb</code> a <code>down --all</code> / <code>up --resume</code> pair later.
+<em>(Amended 2026-07-06 review: the reconstructable set must include each agent
+pane's Claude session id, recorded at spawn — a session/window option or a
+task-file field — so <code>up --resume</code> can <code>claude --resume &lt;id&gt;</code> instead of
+restarting every agent cold. The 3-window layout is cheap to rebuild; the
+in-flight agent conversation is the one genuinely precious state, and the id
+is cheap to capture now but impossible to recover for sessions already
+killed.)</em></p>
+<h3 id="9c-per-skilltui-dedicated-guide-pages--tile-grid-dashboard-follow-up-pr-8">9c. Per-skill/TUI dedicated guide pages + tile-grid dashboard (follow-up, PR #8)</h3>
+<p>The owner's ask: not just a summary line per skill in <code>overview.md</code>, but a
+proper standalone guide per skill and per TUI — the same treatment <code>wb-guide.html</code>
+already gets — with <code>HUB.html</code> as a dashboard of tiles (grid, one card per
+skill/TUI/doc, click through to the full guide). <strong>Started as an interim
+step</strong> (PR #8): <code>HUB.html</code> is now a real tile-grid dashboard, but the 4
+Claude-skill tiles deep-link into <code>overview.md</code>'s skills section rather than
+their own page, since those dedicated pages don't exist yet. Full scope:</p>
+<ul>
+<li>Build <code>decision-buffer-guide.html</code>, <code>park-guide.html</code>, <code>parked-items-guide.html</code>,
+<code>pr-review-session-guide.html</code> (or one per skill, naming TBD) — each in the
+<code>wb-guide.html</code> style: overview, try-it-now, full command/flag reference,
+rough edges.</li>
+<li><strong>Born generated, not hand-built (added 2026-07-06 review):</strong> these pages
+are authored as markdown-with-frontmatter and rendered via the §5 doc-sync
+tool — never hand-authored HTML like the current wb-guide.html. Building
+them by hand first would add four more permanently hand-maintained files
+at the exact moment §5 is trying to cut that count to one generated
+source. Sequencing consequence: 9c's pages land <em>after</em> (or together
+with) the doc-sync tool, not before.</li>
+<li>Same for TUIs — notes-tui already has one (<code>notes-guide.html</code>) and its
+HUB.html tile landed with PR #8; a future <code>wb</code> TUI-equivalent would get
+one too.</li>
+<li>Once built, repoint <code>HUB.html</code>'s skill tiles from <code>overview.html#&lt;skill&gt;</code>
+anchors to the dedicated pages, and <code>overview.md</code> shrinks back to short
+summaries + links (its current per-skill depth was a stopgap for the same
+reason the anchors are).</li>
+</ul>
+<p><em>DONE 2026-07-07 (slice 5 U10): guides live at <code>docs/guides/*.md*</code> — born
+generated, five-section template — and HUB tiles point at them. Superseded
+detail: overview.md didn't &quot;shrink back&quot;, it was deleted per Decision 3A.</em></p>
+<h3 id="9d-cross-repo-cross-session-doc-referencing-follow-up-pr-8">9d. Cross-repo, cross-session doc referencing (follow-up, PR #8)</h3>
+<p>The docs project already spans repos — <code>dotfiles/docs/</code>, <code>~/code/notes-tui/notes-guide.html</code>,
+<code>~/code/tasks/*.md</code> — and <code>HUB.html</code>'s &quot;Other artifacts&quot; section proved a third
+problem: HTML docs get built as Claude Artifacts during sessions and never
+committed anywhere, discoverable (if at all) only by grepping <code>/tmp/claude-1000/*</code>
+on whichever machine happened to run that session, until its scratch dir is
+cleaned up.</p>
+<p><strong>Split 2026-07-06 review — the two halves have very different costs:</strong></p>
+<ul>
+<li><strong>Now (cheap, closes the actual incident):</strong> extend §5's landing-path rule
+into a standing skill rule covering ALL session-generated HTML artifacts —
+any doc worth publishing as an Artifact gets written to <code>docs/</code> (tracked)
+or the task-store dossier area at creation time, never left only in
+session scratch. &quot;Commit it or lose it,&quot; enforced where the artifact is
+born. This alone stops the loss incident that motivated 9d.</li>
+<li><strong>Later — PROPOSAL, UNRATIFIED (Decision 6A, 2026-07-07):</strong> the
+cross-repo / cross-machine registry — referencing docs across every repo
+so they stay findable from the Hub including artifacts from any past
+session on any machine. Assistant-inferred 2026-07-06, never
+owner-requested verbatim; do NOT plan against it as agreed scope.
+<strong>Trigger condition:</strong> revisit (via decision buffer) only if artifacts
+still go missing after the standing landing-path rule has been in force.
+Depends on / composes with 9c and the §5 doc-sync tool. <strong>Boundary
+constraint carried into that buffer as a named axis, not an
+implementation afterthought:</strong> whatever mechanism wins must scope
+aggregation to an explicit personal allow-list of repos — employer-owned
+content (Sportable) never gets indexed into, or published from, personal
+surfaces (this session's near-miss is the motivating incident).</li>
+</ul>
+<h3 id="9e-task-recall--resume-any-piece-of-work-from-any-session-owner-ask-2026-07-07">9e. Task recall — resume any piece of work from any session (owner ask, 2026-07-07)</h3>
+<p>Requested verbatim: tie the memories, skills, task store and Hub together so
+that referencing a task or piece of work in ANY session — e.g. &quot;let's
+continue planning the reporting investigation&quot; — makes the agent check the
+Hub/task store for context and offer to <strong>resume, update, or recap</strong> that
+work. Building blocks that already exist or are planned: the central task
+store (per-task record), <code>wb board</code> (status view), the worktree-seeding rule
+in <code>~/.claude/CLAUDE.md</code> (already does this for worktree setup specifically),
+slice 5's INDEX + <code>/help</code> Q&amp;A (lookup machinery), and <code>MEMORY.md</code>. The
+likely shape: generalize the worktree-seeding rule into a standing
+&quot;task-recall&quot; behavior — on a task reference, match against
+<code>~/code/tasks/*.md</code> (title/slug/tags), read the record + its linked
+decisions/dossiers, and open with a recap + resume options. Sequencing:
+after slice 5 (it consumes the INDEX/lookup machinery); design goes through
+a decision buffer when picked up. Boundary note: recall output must respect
+the same personal/employer rules as every other aggregation surface.</p>
+<h3 id="9f-editortmux-ergonomics-batch-owner-backlog-2026-07-07-queue-right-after-pr-9">9f. Editor/tmux ergonomics batch (owner backlog, 2026-07-07, queue right after PR #9)</h3>
+<p>Six quick nvim/tmux/Claude-Code workflow items, batched because they're all
+small and independent of the docs-platform work in flight. Brainstormed by
+an Explore agent against the actual installed config (not generic advice)
+— current state + recommendation + effort per item, so this is pick-up-
+ready rather than needing a fresh investigation pass:</p>
+<ol>
+<li><strong>Oil → new tmux window.</strong> Already exists, just misremembered:
+<code>&lt;Leader&gt;i</code> (oil.lua:251) opens a new tmux window at the entry's dir;
+<code>&lt;Leader&gt;o</code> (oil.lua:237) opens the file itself but via a split, not a
+window. Gap: no bind does &quot;new window&quot; + the specific file. Add
+<code>&lt;Leader&gt;I</code> mirroring <code>&lt;Leader&gt;o</code>'s shape with <code>tmux new-window</code> instead
+of <code>split-window -h</code>. <em>Trivial.</em></li>
+<li><strong>Reopen vim where you closed from.</strong> No session plugin installed.
+Recommend <strong>persistence.nvim</strong> (folke) — cwd-scoped by default, which
+matches the wb.sh model (one worktree = one cwd = one session) for
+free, no extra scoping logic. <em>Small.</em></li>
+<li><strong>Search changed files via telescope.</strong> Doesn't exist — checked
+telescope.lua fully; gitsigns owns <code>&lt;leader&gt;h*</code> (hunk ops), diffview
+owns <code>&lt;leader&gt;v*</code> (full diff), neither is a fuzzy changed-files list.
+Add <code>&lt;leader&gt;sc</code> → <code>builtin.git_status</code> (a real telescope builtin).
+<em>Trivial.</em></li>
+<li><strong>Claude Code clipboard copy unreliable.</strong> Likely root cause: Claude's
+alt-screen TUI + its own OSC52 emission colliding with tmux's
+<code>allow-passthrough</code>/copy-mode path — the &quot;only Claude is flaky&quot;
+signature fits (other programs don't repin the alt-screen mid-drag).
+Try, in order: (a) use keyboard copy-mode (<code>prefix [</code> → the existing
+<code>Enter</code>→wl-copy bind, tmux.conf:71) instead of mouse-drag — captures
+the real pane buffer, should be immune; (b) if that's not the actual
+fix, test <code>allow-passthrough all</code> instead of <code>on</code>. <em>Small — mostly
+testing, not new code.</em></li>
+<li><strong>Quick-question shortcut, tied to <code>/help</code>.</strong> New binding, don't
+overload <code>help.sh</code> (its whole point is zero-LLM, per its own header).
+Recommend <code>prefix+A</code> (unbound) → a new <code>ask.sh</code> following <code>wb.sh</code>'s
+<code>agent</code>-window pattern (<code>new-window -n ask</code> then <code>send-keys &quot;claude&quot;</code>)
+in the <em>current</em> session, not a dedicated persistent one — a quick
+question doesn't need to outlive the window. Keep <code>/help</code> (INDEX
+Q&amp;A) and this (general scratch session) separate rather than merging.
+<em>Small.</em></li>
+<li><strong>vscode-diff.nvim vs diff.nvim.</strong> Neither installed. diffview.nvim
+already covers the heavyweight full-tabpage case (<code>&lt;leader&gt;vo</code> etc.);
+gitsigns' <code>&lt;leader&gt;hd</code> covers per-hunk. vscode-diff.nvim's actual niche
+is the middle ground — inline word-level diff in a single buffer,
+no separate tabpage — genuinely not covered yet. &quot;diff.nvim&quot; as a
+distinct plugin name is non-standard; clarify which repo before
+installing anything under that name. <em>Small to trial.</em></li>
+</ol>
+<p><strong>Your take:</strong> pick off in any order; none block each other or slice 5.</p>
+<h3 id="9g-gpaste-clipboard-manager-setup-owner-task-spec-2026-07-07--queue-after-pr-9-merges">9g. GPaste clipboard manager setup (owner task spec, 2026-07-07 — queue after PR #9 merges)</h3>
+<p>System-level (GNOME/Wayland desktop, not this repo's tooling). No concrete
+build-order dependency ties this to slice timing (checked 2026-07-07 doc
+review, Decision 4) — reclassified from a hard gate to a non-blocking
+scheduling note, matching 9f's framing. gpaste-2 + the GNOME Shell
+extension are already installed and enabled (user has already logged
+out/in) — this is the <em>configuration</em> pass, not the install. Full
+owner-authored runbook, preserved verbatim so it executes faithfully when
+picked up:</p>
+<blockquote>
+<p><strong>Goal:</strong> configure GPaste as a Flycut-style clipboard-history manager,
+settings captured in a dotfiles-friendly dconf file. Target: a keyboard
+shortcut that opens clipboard history to pick and paste an old clip.
+<strong>Shortcut: <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code></strong> (owner call, 2026-07-07 review, Decision 1 —
+supersedes the earlier <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> pick and the original
+<code>&lt;Ctrl&gt;&lt;Alt&gt;V</code> spec draft before that. Confirmed real collision, not just a
+theoretical one: Ghostty ships <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> as its built-in paste bind
+and this repo's <code>ghostty/.config/ghostty/config</code> never overrides it;
+GNOME custom shortcuts registered via <code>gsettings</code> intercept at the
+shell/compositor level before the combo ever reaches the focused terminal,
+so binding GPaste to <code>V</code> would have silently broken terminal paste
+repo-wide. <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> is free.)</p>
+</blockquote>
+<blockquote>
+<p><strong>Window manager (added 2026-07-07 review, Decision 2):</strong> this whole
+section assumes GNOME Shell (GPaste's extension is a GNOME Shell
+extension). That's correct for now but not permanent: <code>logs/decisions/ 2026-06-18-window-manager.md</code> records the owner's intended direction as
+Sway, at a later, unscheduled date. No conflict today — just recording the
+pointer here so a future WM switch knows to revisit this section's GNOME
+Shell dependency (GPaste's extension model doesn't carry over to Sway; a
+wl-clipboard-based history manager would replace it).</p>
+<ol>
+<li><strong>Precondition check</strong> — confirm the prior install/enable actually
+took before configuring anything:
+<code>which gpaste-client || echo &quot;MISSING: gpaste-client not found&quot;</code>
+<code>gpaste-client daemon-version 2&gt;/dev/null || echo &quot;MISSING: daemon not responding&quot;</code>
+If either is missing: stop, report to the user. Do NOT reinstall or
+restart gnome-shell on Wayland — ask the user to re-check instead.</li>
+<li><strong>Verify the engine works</strong> — <code>echo &quot;test-clip-1&quot; | gpaste-client add</code>,
+same for a second clip, then <code>gpaste-client history</code> and confirm both
+appear.</li>
+<li><strong>Discover exact gsettings keys (version-safe)</strong> — do not hardcode key
+names from memory; run <code>gsettings list-recursively org.gnome.GPaste</code>
+first and confirm real key names (expect <code>show-history</code>, <code>launch-ui</code>,
+and sync/upload accelerators) before setting anything.</li>
+<li><strong>Configure via dconf</strong> — <code>show-history</code> is a scalar string key (type
+<code>s</code>, confirmed via <code>gsettings range</code>), not a GVariant array — no
+brackets:
+<code>gsettings set org.gnome.GPaste show-history '&lt;Ctrl&gt;&lt;Shift&gt;G'</code>.
+Also: <code>max-history-size 200</code>, <code>images-support true</code>,
+<code>save-history true</code>. Only set keys confirmed to exist in step 3; skip
+and report any that differ.</li>
+<li><strong>Check shortcut conflicts</strong> before finalizing — inspect
+<code>gsettings list-recursively org.gnome.settings-daemon.plugins.media-keys</code>
+and <code>...org.gnome.desktop.wm.keybindings</code>. If <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>
+collides, warn the user and suggest an alternative — don't change it
+without confirmation.</li>
+<li><strong>Export to dotfiles</strong> — <code>dconf dump /org/gnome/GPaste/ &gt; ~/dotfiles/gpaste.dconf</code> (adjust path to this repo's actual location,
+<code>~/code/dotfiles</code>), show the restore command
+(<code>dconf load /org/gnome/GPaste/ &lt; .../gpaste.dconf</code>) for future
+machines. If it's a git repo, stage but do NOT commit unless asked.</li>
+</ol>
+<p><strong>Constraints:</strong> no gnome-shell restart, no reinstall — those steps are
+done. Wayland reserves some Super-key combos, but <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> avoids
+that class of conflict; if a conflict shows up anyway in step 5 it's
+almost certainly a different app already owning that combo, not a bad
+install. Setting <code>show-history</code> via dconf takes effect on the running
+daemon live, no restart needed.</p>
+<p><strong>Final verification:</strong> <code>gsettings get org.gnome.GPaste show-history</code> →
+expect <code>'&lt;Ctrl&gt;&lt;Shift&gt;G'</code> (scalar string, not a list). Report what was
+configured, the active shortcut, and the dconf export path; ask the user
+to test the shortcut themselves and confirm the history popup appears.</p>
+</blockquote>
+<blockquote>
+<p><strong>Follow-up, not folded into this task (owner call, 2026-07-07 review,
+Decision 1 note):</strong> unify copy/paste so terminal-level paste is never
+needed at all — assessed and NOT taken as a same-task small lift, because
+the only way to make the terminal bind genuinely unnecessary is to shift
+the default paste habit onto GPaste's history picker (an extra
+select-from-list step for the common &quot;just paste the last thing&quot; case) or
+build custom logic (single-clip = instant passthrough, hold/second-tap =
+open history) that plain GNOME custom shortcuts don't support without an
+extension. Worth a real design pass on its own; tracked in §10.</p>
+</blockquote>
+<blockquote>
+<p><strong>Naming note (resolved 2026-07-07):</strong> the collision between this doc
+(&quot;Roadmap&quot;) and the 9a feature (formerly &quot;/roadmap&quot;) is closed — the
+feature is renamed <code>/board</code> (Decision 5A). &quot;Roadmap&quot; now unambiguously
+means this file.</p>
+</blockquote>
+<blockquote>
+<p><strong>Deferred decision (owner call, 2026-07-07 buffer, Decision 4):</strong> the
+personal/employer boundary rule for the task store and all aggregation
+surfaces (classification convention vs split stores vs permanent
+local-only) is deliberately the FINAL follow-up decision — to be made
+after all other follow-ups, once the full flow is in place. Interim
+guardrails until then: the task store gets NO remote; slice 5's
+INDEX/HTML outputs carry a minimal work-reference redaction guard; the
+§2 credential guard and 9d boundary axis stand as written.</p>
+</blockquote>
+<hr>
+<h2 id="10-standing-follow-ups-ledger-continual--committed-record">10. Standing follow-ups ledger (continual — committed record)</h2>
+<blockquote>
+<p>Owner ask (2026-07-07): a continual, COMMITTED section for the deferred /
+follow-up tasks of this ongoing dotfiles-improvements push — the task
+store (<code>~/code/tasks</code>) stays the detailed operational record and
+<code>wb board</code> the live view, but the store is local-only and <code>logs/</code> is
+gitignored, so this ledger is the one deferred-work index that travels
+with the repo. One line per item; add on deferral, strike on completion.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Deferred item</th>
+<th>Ref</th>
+<th>Gate / when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Slice 4b — notes-tui integration (corpus split, <code>--context</code>, wb done digest)</td>
+<td>§4, plan 003</td>
+<td>gated on 4a window verdict (~2026-07-14) — slice-5 prerequisite already satisfied 2026-07-07</td>
+</tr>
+<tr>
+<td><code>/board</code> full HTML feature (zoomable today/task/week)</td>
+<td>9a</td>
+<td>after slice 5; interim <code>wb board</code> live</td>
+</tr>
+<tr>
+<td>Day bookends <code>wb up</code>/<code>wb down</code></td>
+<td>9b</td>
+<td>after 4b; session-id capture already landing</td>
+</tr>
+<tr>
+<td>Jira integration (both 9a's and 9b's halves)</td>
+<td>9a/9b</td>
+<td>own ratified addition, not scheduled</td>
+</tr>
+<tr>
+<td>Editor/tmux ergonomics batch (oil→window, session persistence, telescope git_status, Claude clipboard, quick-ask bind, diff plugin trial)</td>
+<td>9f</td>
+<td>right after PR #9 merges</td>
+</tr>
+<tr>
+<td>GPaste clipboard-history manager (configure + dconf export, <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>)</td>
+<td>9g</td>
+<td>right after PR #9 merges (non-blocking, reclassified from a gate 2026-07-07)</td>
+</tr>
+<tr>
+<td>Unify copy/paste so terminal-level paste is never needed</td>
+<td>9g note</td>
+<td>not started — needs its own design pass</td>
+</tr>
+<tr>
+<td>Cross-repo/cross-machine doc registry</td>
+<td>9d</td>
+<td>PROPOSAL, unratified — only if artifacts still go missing</td>
+</tr>
+<tr>
+<td>Task recall — resume any work from any session</td>
+<td>9e</td>
+<td>after slice 5; decision buffer at pickup</td>
+</tr>
+<tr>
+<td>Personal/employer boundary rule (store remote, classification)</td>
+<td>Decision 4</td>
+<td>FINAL follow-up, owner call, after full flow in place</td>
+</tr>
+<tr>
+<td>Delete version-pinned content scan (<code>tmux_pane_awaiting_input</code>)</td>
+<td>§1</td>
+<td>~2026-07-13 if hook data held</td>
+</tr>
+<tr>
+<td>Validation check-in: push-vs-weekly-ritual bet</td>
+<td>§3</td>
+<td>~2026-07-20</td>
+</tr>
+<tr>
+<td>4a capture-window verdict (gates 4b's shape)</td>
+<td>§8-4a</td>
+<td>~2026-07-14</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="11-open-questions-from-the-2026-07-07-doc-review-deferred-decisions">11. Open Questions (from the 2026-07-07 doc review, deferred decisions)</h2>
+<blockquote>
+<p>Findings from the 7-persona review in
+<code>logs/decisions/2026-07-07-roadmap-review-findings.md</code> that the owner
+checked <strong>Defer</strong> on. Kept here, not resolved, so they resurface next time
+this section of the doc gets picked up.</p>
+</blockquote>
+<ul>
+<li><strong>GPaste's GNOME Shell dependency vs. the Sway direction</strong> (Decision 2).
+9g's GPaste config is GNOME-Shell-specific; the owner's WM direction is
+Sway, at a later unscheduled date (see the new pointer note in 9g).
+Revisit 9g's mechanism when the Sway migration is actually scheduled —
+GPaste's extension model has no Sway equivalent, so this isn't a config
+tweak, it's a re-pick of the whole tool.</li>
+<li><strong>Notes corpus shape</strong> (Decision 3, discussed live 2026-07-07). Resolved
+for now: <strong>keep <code>~/code/tasks</code> and <code>~/code/notes</code> as separate repos</strong> —
+this re-confirms the standing call already parked in
+<code>~/code/tasks/tasks--task-note-convergence.md</code> (2026-07-06), which
+explicitly deferred merging until wb + notes-tui's <code>--context</code> flag both
+have real usage behind them (4a/4b, §8). Capture-anywhere and
+end-of-day-aggregation are already live today via <code>note</code>/<code>notes digest</code>
+(slice 4a) — no new plumbing needed for those two asks specifically.
+Cross-querying wb + personal notes stays 9e's job (task recall), not a
+directory merge. Standing instruction: flag it again if the split ever
+becomes a real hindrance rather than a theoretical one, so it can go
+through a proper decision instead of drifting. &quot;Where documentation
+lives&quot; stays explicitly open, not addressed by this resolution.</li>
+<li><strong>Credential guard is warn-only, not a hard block</strong> (Decision 6). §2's
+guard is a dismissible warning in the close-out review buffer, not an
+enforced block, and has no content-based fallback (doesn't scan file
+<em>contents</em> for secret-shaped strings, only filenames). Acceptable while
+the task store stays local-only and single-user; revisit if the store
+ever gets a remote (same trigger as the personal/employer boundary rule
+above) or if a credential-shaped filename ever slips past the denylist.</li>
+<li><strong>GPaste's persistent clipboard history has no secrets policy</strong> (Decision
+9). Clipboard history persists to disk indefinitely (<code>save-history true</code>,
+9g step 4) with no expiry or secret-detection — copying a token or
+password puts it in the history store with no automatic cleanup. Shipped
+as-is for a personal single-user machine; revisit if it turns out to be a
+real problem in practice (e.g. add a max-age prune or a &quot;don't persist
+this clip&quot; gesture).</li>
+<li><strong>&quot;(F4)&quot; in the task template</strong> (Decision 12). Traced via grep sweep
+(owner ask, 2026-07-07): <code>F4</code> is finding-ID shorthand from
+<code>docs/agent-workbench-findings.html</code> — &quot;Task history is reviewable&quot; (the
+gap it named: task discussion/decisions scattered across three stores
+with nothing assembling a per-task dossier). The task template's
+<code>## Decisions</code> section exists specifically to satisfy F4. Pending owner
+confirmation this is the right F4 before folding the explanation into §3
+inline (rather than leaving the bare &quot;(F4)&quot; unexplained).</li>
+</ul>
+</article>
 <footer>
-  Source: synthesis of <code>logs/2026-07-06-workbench-piece-review.md</code> (piece-by-piece
-  review) reacted to inline by the owner, 2026-07-06. Companion doc:
-  <a href="agent-workbench-findings.html">agent-workbench-findings.html</a> (pre-build audit).
-  Tracked as <code>docs/roadmap.md</code> (this file's source) — promoted from
-  scratch (<code>logs/</code>, gitignored) alongside PR #7.
+  Generated by <code>docgen</code> from <code>docs/roadmap.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
 </footer>
 </main>
+
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "repos": [
+    "~/code/be--monorepo",
+    "~/code/frontend"
+  ],
+  "tmux_session": "pr-review",
+  "limit": 30,
+  "include_drafts": false,
+  "worktree_dir": ".worktrees"
+}
