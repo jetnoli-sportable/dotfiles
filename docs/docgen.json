@@ -27,16 +27,7 @@
         "glyph": "▦"
       }
     ],
-    "sidecar": [
-      {
-        "group": "personal-workflow",
-        "title": "Agent Workbench Findings",
-        "tile": "Pre-build audit of the tmux/Claude tooling: inventory, signal contract, gaps, flows.",
-        "href": "agent-workbench-findings.html",
-        "path": "docs/agent-workbench-findings.html",
-        "chip": "point-in-time audit"
-      }
-    ]
+    "sidecar": []
   },
   "index": {
     "out": "docs/INDEX.md",

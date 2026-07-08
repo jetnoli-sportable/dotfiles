@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>9g recap — GPaste clipboard-history manager</title>
+<title>Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,185 +173,141 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/9g-gpaste-recap.md</b> — edit the .md, not this file</span>
+  <span>docgen · generated from <b>docs/slice-4b-deep-dive.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-08</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> 9g recap — GPaste clipboard-history manager</h1>
+  <h1><span class="glyph">§</span> Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>GPaste configured as a Flycut-style clipboard-history manager, executed
-exactly per the owner-authored runbook below. This page is the source; edit
-<code>docs/9g-gpaste-recap.md</code>, not the rendered <code>.html</code>. The full runbook lives
-here now (moved from <code>docs/roadmap.md</code> during the 2026-07-08 roadmap
-restructure) since it's the provenance record for a task that's done, not
-an active plan.</p>
-<p><strong>Roadmap:</strong> 9g (superseded — this page is the detail) · <strong>Branch:</strong> <code>feat/gpaste-clipboard-setup</code> → <code>development</code></p>
-<h2 id="the-owner-authored-runbook-preserved-verbatim">The owner-authored runbook (preserved verbatim)</h2>
-<blockquote>
-<p><strong>Goal:</strong> configure GPaste as a Flycut-style clipboard-history manager,
-settings captured in a dotfiles-friendly dconf file. Target: a keyboard
-shortcut that opens clipboard history to pick and paste an old clip.
-<strong>Shortcut: <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code></strong> (owner call, 2026-07-07 review, Decision 1 —
-supersedes the earlier <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> pick and the original
-<code>&lt;Ctrl&gt;&lt;Alt&gt;V</code> spec draft before that. Confirmed real collision, not just a
-theoretical one: Ghostty ships <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> as its built-in paste bind
-and this repo's <code>ghostty/.config/ghostty/config</code> never overrides it;
-GNOME custom shortcuts registered via <code>gsettings</code> intercept at the
-shell/compositor level before the combo ever reaches the focused terminal,
-so binding GPaste to <code>V</code> would have silently broken terminal paste
-repo-wide. <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> is free.)</p>
-</blockquote>
-<blockquote>
-<p><strong>Window manager:</strong> this whole runbook assumes GNOME Shell (GPaste's
-extension is a GNOME Shell extension). That's correct for now but not
-permanent: <code>logs/decisions/2026-06-18-window-manager.md</code> records the
-owner's intended direction as Sway, at a later, unscheduled date. No
-conflict today — just recording the pointer here so a future WM switch
-knows to revisit this dependency (GPaste's extension model doesn't carry
-over to Sway; a wl-clipboard-based history manager would replace it).</p>
+<p>Slice 4b is the next scheduled feature after §9f/§9g, but it's blocked until
+~2026-07-14 by a deliberate usage-observation window (4a). This page explains
+both in depth: what 4b actually builds, why the gate exists, and what the
+verdict changes depending on the answer. This page is the source; edit
+<code>docs/slice-4b-deep-dive.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> §4, §8 build-order item 4, §9b · <strong>Plan:</strong> <code>docs/plans/2026-07-07-003-slice-4b-notes-tui-plan.md</code> (status: draft, gated) · <strong>Tracking:</strong> <code>~/code/tasks/dotfiles--agent-task-workflow.md</code> Follow-ups</p>
+<h2 id="why-4a-and-4b-are-split-at-all">Why 4a and 4b are split at all</h2>
+<p>The picker-redesign lesson from building <code>wb</code> itself (2026-07-06): don't
+ratify wiring before usage. <code>wb</code>'s picker went through a real redesign after
+it shipped and got used for a few days — the initial design's assumptions
+didn't survive contact with actually using it. Notes-tui integration applies
+the same discipline: <strong>4a</strong> ships the minimal capture habit with zero
+lifecycle wiring, <strong>4b</strong> builds the real integration only after real usage
+data exists to build it against.</p>
+<h2 id="what-4a-already-shipped-2026-07-07">What 4a already shipped (2026-07-07)</h2>
+<ul>
+<li><code>note.sh</code> sourced into <code>.zshrc</code> — <code>note &quot;thought&quot;</code> / <code>cmd | note</code> capture
+to <code>~/code/notes/inbox.md</code> from anywhere, auto-stamped with cwd, git
+repo+branch, and tmux session.</li>
+<li>No <code>wb</code> wiring, no digest automation — manual <code>notes digest</code> only, for a
+bounded ~1-week observation window (mirrors §1's hook-data clock: ship the
+minimum, watch real behavior, decide from data not guesses).</li>
+<li>Window started 2026-07-07, verdict due <strong>~2026-07-14</strong>.</li>
+</ul>
+<h2 id="the-usage-window-verdict--two-questions-not-one">The usage-window verdict — two questions, not one</h2>
+<p>The 4a follow-up entry (<code>~/code/tasks/dotfiles--agent-task-workflow.md</code>)
+frames the verdict as answering two things:</p>
 <ol>
-<li><strong>Precondition check</strong> — confirm the prior install/enable actually
-took before configuring anything:
-<code>which gpaste-client || echo &quot;MISSING: gpaste-client not found&quot;</code>
-<code>gpaste-client daemon-version 2&gt;/dev/null || echo &quot;MISSING: daemon not responding&quot;</code>
-If either is missing: stop, report to the user. Do NOT reinstall or
-restart gnome-shell on Wayland — ask the user to re-check instead.</li>
-<li><strong>Verify the engine works</strong> — <code>echo &quot;test-clip-1&quot; | gpaste-client add</code>,
-same for a second clip, then <code>gpaste-client history</code> and confirm both
-appear.</li>
-<li><strong>Discover exact gsettings keys (version-safe)</strong> — do not hardcode key
-names from memory; run <code>gsettings list-recursively org.gnome.GPaste</code>
-first and confirm real key names (expect <code>show-history</code>, <code>launch-ui</code>,
-and sync/upload accelerators) before setting anything.</li>
-<li><strong>Configure via dconf</strong> — <code>show-history</code> is a scalar string key (type
-<code>s</code>, confirmed via <code>gsettings range</code>), not a GVariant array — no
-brackets:
-<code>gsettings set org.gnome.GPaste show-history '&lt;Ctrl&gt;&lt;Shift&gt;G'</code>.
-Also: <code>max-history-size 200</code>, <code>images-support true</code>,
-<code>save-history true</code>. Only set keys confirmed to exist in step 3; skip
-and report any that differ.</li>
-<li><strong>Check shortcut conflicts</strong> before finalizing — inspect
-<code>gsettings list-recursively org.gnome.settings-daemon.plugins.media-keys</code>
-and <code>...org.gnome.desktop.wm.keybindings</code>. If <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>
-collides, warn the user and suggest an alternative — don't change it
-without confirmation.</li>
-<li><strong>Export to dotfiles</strong> — <code>dconf dump /org/gnome/GPaste/ &gt; ~/dotfiles/gpaste.dconf</code> (adjust path to this repo's actual location,
-<code>~/code/dotfiles</code>), show the restore command
-(<code>dconf load /org/gnome/GPaste/ &lt; .../gpaste.dconf</code>) for future
-machines. If it's a git repo, stage but do NOT commit unless asked.</li>
+<li><strong>Is <code>note</code> actually being used?</strong> If capture didn't become a habit, 4b's
+whole premise (wiring a digest into <code>wb done</code>) has nothing to wire —
+the fix is a capture-ergonomics problem, not a 4b problem.</li>
+<li><strong>Is task-end the right review moment, or did day-end win?</strong> 4b's plan
+assumes reviewing captures when a task closes (<code>wb done</code>). If real usage
+shows people naturally reviewing at day-end instead, that's a <strong>different
+hook point</strong> than the plan currently assumes.</li>
 </ol>
-<p><strong>Constraints:</strong> no gnome-shell restart, no reinstall — those steps are
-done. Wayland reserves some Super-key combos, but <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> avoids
-that class of conflict; if a conflict shows up anyway in step 5 it's
-almost certainly a different app already owning that combo, not a bad
-install. Setting <code>show-history</code> via dconf takes effect on the running
-daemon live, no restart needed.</p>
-<p><strong>Final verification:</strong> <code>gsettings get org.gnome.GPaste show-history</code> →
-expect <code>'&lt;Ctrl&gt;&lt;Shift&gt;G'</code> (scalar string, not a list). Report what was
-configured, the active shortcut, and the dconf export path; ask the user
-to test the shortcut themselves and confirm the history popup appears.</p>
-</blockquote>
-<h2 id="what-we-did">What we did</h2>
-<p>All 6 runbook steps, in order, each verified before moving to the next:</p>
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>Step</th>
-<th>Result</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td>Precondition check</td>
-<td><code>gpaste-client</code> present, daemon v45 responding — install/enable from before this task already took</td>
-</tr>
-<tr>
-<td>2</td>
-<td>Verify the engine</td>
-<td>Two test clips added and confirmed in <code>gpaste-client history</code></td>
-</tr>
-<tr>
-<td>3</td>
-<td>Discover real gsettings keys</td>
-<td><code>show-history</code>, <code>launch-ui</code>, and a third key <code>pop</code> — not in the runbook, see finding below</td>
-</tr>
-<tr>
-<td>4</td>
-<td>Configure via dconf</td>
-<td><code>show-history</code> → <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>; <code>max-history-size</code> → 200; <code>images-support</code>/<code>save-history</code> confirmed <code>true</code></td>
-</tr>
-<tr>
-<td>5</td>
-<td>Check shortcut conflicts</td>
-<td>None found — checked <code>media-keys</code>, <code>wm.keybindings</code>, custom keybindings, and a full <code>dconf dump /</code> sweep</td>
-</tr>
-<tr>
-<td>6</td>
-<td>Export to dotfiles</td>
-<td><code>gpaste.dconf</code> written to repo root — <strong>staged, not committed</strong>, per the runbook's own instruction</td>
-</tr>
-</tbody>
-</table>
-<h2 id="finding-worth-keeping-the-pop-key-is-not-a-paste-action">Finding worth keeping: the <code>pop</code> key is not a paste action</h2>
-<p>Step 3's key discovery turned up a key the runbook didn't mention:
-<code>org.gnome.GPaste pop</code> (default <code>&lt;Ctrl&gt;&lt;Alt&gt;V</code>). Before assuming anything,
-checked the actual schema (<code>/usr/share/glib-2.0/schemas/org.gnome.GPaste.gschema.xml</code>):</p>
-<pre><code>&lt;key name=&quot;pop&quot; type=&quot;s&quot;&gt;
-  &lt;summary&gt;The keyboard shortcut to delete the first element in history&lt;/summary&gt;
+<p>Question 2 is the one worth understanding precisely, because the plan
+document itself says not to execute blindly if the answer comes back
+&quot;day-end&quot;: U3 (see below) is written against <code>wb done</code>, but if day-end wins,
+<strong>U3 needs to be re-shaped to hook the future <code>wb down</code> (§9b) instead</strong> —
+a structural change to which implementation unit does what, not just a
+go/no-go gate on starting 4b at all.</p>
+<h2 id="what-slice-4b-actually-builds">What slice 4b actually builds</h2>
+<p>Four implementation units, in dependency order, spanning two repos
+(<code>~/code/notes-tui</code> and <code>~/code/dotfiles</code>):</p>
+<h3 id="u1--per-capture-inbox-parsing-notes-tui-go">U1 — Per-capture inbox parsing (notes-tui, Go)</h3>
+<p><strong>The actual blocker</strong>, verified 2026-07-06: <code>corpus.Load</code> parses one <code>Note</code>
+per <em>file</em>, not per capture. A whole day's <code>inbox.md</code> — however many times
+you ran <code>note</code> — reads back as a single Note carrying only the <strong>first</strong>
+capture's context stamp. A <code>--context &lt;session&gt;</code> filter is meaningless until
+this is fixed; there's nothing to filter, everything collapses into one row.</p>
+<ul>
+<li>Detect capture-block boundaries as <code>note.sh</code> actually writes them
+(<code>## &lt;timestamp&gt;</code> heading + <code>&lt;!-- ctx: ... --&gt;</code> stamp) and split <code>inbox.md</code>
+into N Notes, each with its own timestamp and context.</li>
+<li>Denote-format files (the daily-notes flow) keep their existing one-note-
+per-file behavior untouched — this only changes inbox parsing.</li>
+<li>Files: <code>~/code/notes-tui/internal/corpus/corpus.go</code> + tests.</li>
+</ul>
+<h3 id="u2----context-filter--session-aware-grouping-notes-tui-go">U2 — <code>--context</code> filter + session-aware grouping (notes-tui, Go)</h3>
+<ul>
+<li><code>notes digest --context &lt;tmux-session&gt;</code> filters to one session's captures.</li>
+<li><code>--by context</code> grouping gains a session dimension — today it only groups
+by repo:branch, which the usage guide has been claiming incorrectly.</li>
+<li>Files: <code>~/code/notes-tui/cmd/notes/digest.go</code> + tests, guide/README updates.</li>
+</ul>
+<h3 id="u3--wb-done-digest-injection-dotfiles-bash">U3 — <code>wb done</code> digest injection (dotfiles, bash)</h3>
+<ul>
+<li>The close-out review buffer opens with the session's digest already
+inline (<code>notes digest --by context --context &quot;$session&quot;</code>), so keepers get
+promoted deliberately with the same <code>- [x] keep</code> convention <code>wb done</code>
+already uses for the task file itself.</li>
+<li><strong>The placement constraint that makes this fiddly:</strong> <code>wb done</code>'s cleanup
+truncates the task file at the <code>## Sweep</code> heading — anything generated
+needs to land <em>above</em> that heading and get stripped on close, mirroring
+how <code>wb_sweep_section</code> already works. Get the ordering wrong and either
+the digest never gets cleaned up, or it gets deleted before the user sees
+it.</li>
+<li>Kept items promote into the task file's <code>## Follow-ups</code> section (the
+plan's recommendation — matches the store-centric model everything else
+in <code>wb</code> uses); promoting into new Denote notes instead is the one
+explicitly open call, deferred to whenever this actually gets built.</li>
+<li>Degrades gracefully when <code>notes</code> isn't on <code>PATH</code> — skip the section, no
+error, <code>wb done</code> still works exactly as it does today.</li>
+<li><strong>This is the unit that moves to <code>wb down</code> if day-end wins the verdict.</strong></li>
+</ul>
+<h3 id="u4--retire-the-interim-update-the-docs">U4 — Retire the interim, update the docs</h3>
+<p>Housekeeping: roadmap status notes, guide pages gain the digest step,
+the 4a follow-up entry in the task store closes out with whatever verdict
+gated the slice in the first place.</p>
+<h2 id="deferred-to-implementation-time-not-decided-yet">Deferred to implementation time (not decided yet)</h2>
+<ul>
+<li>Promotion target if the 4a window's real usage contradicts the
+recommendation (task-file Follow-ups vs. new Denote notes).</li>
+<li>Whether <code>--by context</code> adds the session dimension to the group key by
+default, or only behind a flag — decided at U2 based on how noisy real
+grouped output actually looks.</li>
+</ul>
+<h2 id="verification-bar-whole-slice-not-just-unit-tests">Verification bar (whole slice, not just unit tests)</h2>
+<p>The plan's own bar for &quot;done&quot;: a full <code>wb new</code> → work + <code>note</code> captures →
+<code>wb done</code> cycle where the close-out buffer actually shows both captures, a
+kept one lands in <code>## Follow-ups</code>, the task file carries no leftover
+generated content after close, notes-tui's test suite is green, and the
+daily <code>notes.sh</code> flow is completely untouched by any of this.</p>
+<h2 id="the-dependency-chain">The dependency chain</h2>
+<pre><code>4a capture window (started 2026-07-07)
+        │
+        ▼
+~2026-07-14 verdict ── used? task-end or day-end the review moment?
+        │
+        ├── day-end wins ──► re-shape U3 to hook wb down (§9b), not wb done
+        │
+        ▼
+4b: U1 (corpus split) → U2 (--context flag) → U3 (wb done/down hook) → U4 (docs)
+        │
+        ▼
+9b Day bookends (wb up / wb down) — consumes 4b's session-id capture,
+already landing independently of this gate
 </code></pre>
-<p><code>pop</code> <strong>deletes</strong> the most recent history entry — it isn't a paste shortcut
-at all, despite the name and its <code>V</code>-shaped default suggesting otherwise.
-Left untouched at its default. If this had been bound to something a future
-&quot;quick paste&quot; shortcut collided with, the symptom would have been silent
-data loss (history entries vanishing), not a paste failure — worth knowing
-before anyone reaches for <code>pop</code> assuming it's a paste action.</p>
-<p><code>show-history</code> was confirmed correct by the same method: its schema summary
-is literally &quot;The keyboard shortcut to display the menu&quot; — the actual
-Flycut-style history picker this task wanted.</p>
-<h2 id="test--verify-it-yourself">Test / verify it yourself</h2>
-<ul>
-<li><input disabled="" type="checkbox"> <strong>Press <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code></strong> anywhere — confirm the GPaste history menu
-pops up.</li>
-<li><input disabled="" type="checkbox"> <strong>Select an old entry</strong> from the menu — confirm it pastes correctly
-wherever your cursor is.</li>
-<li><input disabled="" type="checkbox"> <strong>Copy several things</strong>, then check the history holds more than one
-(up to the new <code>max-history-size</code> of 200) — confirm images are
-captured too (<code>images-support</code> is on).</li>
-<li><input disabled="" type="checkbox"> <strong>Check <code>gpaste.dconf</code></strong> (repo root, currently staged not committed)
-— confirm it matches what <code>dconf dump /org/gnome/GPaste/</code> shows live.</li>
-<li><input disabled="" type="checkbox"> <strong>On a future machine</strong>: <code>dconf load /org/gnome/GPaste/ &lt; gpaste.dconf</code>
-restores this exact config.</li>
-</ul>
-<h2 id="whats-not-done-yet">What's NOT done yet</h2>
-<ul>
-<li><strong>Unify copy/paste</strong> so terminal-level paste is never needed — deliberately
-out of scope for this task, tracked in <code>docs/roadmap.md</code>'s overview table
-as its own design pass.</li>
-<li><strong>Window manager dependency</strong> — this whole setup assumes GNOME Shell;
-revisit if/when the Sway migration (parked, no date) happens.</li>
-</ul>
-<h2 id="next-steps">Next steps</h2>
-<ul>
-<li><strong>Confirm the shortcut works for you live</strong> — press <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> and
-check the history menu appears.</li>
-<li><strong>Merge this PR</strong> once you've walked the checklist above.</li>
-<li>With 9f (pending your review) and 9g both wrapped, the next roadmap items
-needing a pickup decision are slice 4b (gated on the 4a usage-window
-verdict, ~2026-07-14) and <code>/board</code>'s full HTML feature (<code>wb board</code>
-interim is already live).</li>
-</ul>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/9g-gpaste-recap.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/slice-4b-deep-dive.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

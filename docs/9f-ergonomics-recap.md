@@ -11,7 +11,7 @@ Six small, independent nvim/tmux/Claude-Code workflow items from roadmap §9f,
 all shipped in one PR. This page is the source; edit
 `docs/9f-ergonomics-recap.md`, not the rendered `.html`.
 
-**Roadmap:** §9f (`docs/roadmap.md`) · **PR:** [#10](https://github.com/jetnoli-sportable/dotfiles/pull/10) · **Branch:** `feat/editor-tmux-ergonomics` → `development`
+**Roadmap:** 9f (superseded — this page is the detail) · **PR:** [#10](https://github.com/jetnoli-sportable/dotfiles/pull/10) · **Branch:** `feat/editor-tmux-ergonomics` → `development`
 
 ## What we added
 

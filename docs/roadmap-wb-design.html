@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Shell &amp; terminal setup</title>
+<title>wb design — the picker, wb done, and the task record schema</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -171,63 +171,149 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="page">
+<body data-kind="guide">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/setup.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span>docgen · generated from <b>docs/roadmap-wb-design.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-08</span>
 </div>
-<main>
-<header class="doc">
-  <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Shell &amp; terminal setup</h1>
-  <div class="meta">
-    <span class="chip ok">current</span>
-    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
-  </div>
-</header>
-<article>
-<p>The pieces of the stack that live <em>under</em> the workflow tooling. For every
-alias, keybind, and script with its source line, use the INDEX
-(<code>prefix+?</code> in tmux, or <code>docs/INDEX.md</code>); for the tmux/Claude tooling
-itself, see the <a href="wb-guide.html">wb guide</a> and the
-<a href="roadmap.html">roadmap</a>'s Origins section for why it was built.</p>
-<h2 id="zsh--zshzshrc">zsh — <code>zsh/.zshrc</code></h2>
-<p>Prompt (oh-my-posh), zsh-vi-mode, zinit plugins (autosuggestions,
-completions, syntax highlighting), zoxide, and the aliases/functions that
-drive the rest of this stack — <code>s</code>, <code>N</code>, <code>ca</code>, <code>wb</code>, <code>pgh</code>, <code>note</code>, and
-friends are all defined here. Every one of them is in the INDEX with its
-line number and a one-liner; <code>prefix+?</code> previews the surrounding comment
-context.</p>
-<p>Machine-local overrides go in <code>~/.zshrc.local</code> (sourced last, lives
-outside the repo).</p>
-<h2 id="ghostty--ghosttyconfigghosttyconfig">Ghostty — <code>ghostty/.config/ghostty/config</code></h2>
-<p>Terminal emulator config, kept <strong>alongside</strong> GNOME Terminal rather than
-replacing it — Ghostty is used for inline image support GNOME Terminal
-lacks. Catppuccin Mocha palette, <code>MesloLGL Nerd Font</code>,
-<code>minimum-contrast = 1.6</code>. Known limitation (see the decision record via
-<code>prefix+?</code>): the grayscale-AA glyph rendering is softer than GNOME
-Terminal's and isn't fixable via config — don't re-add render knobs
-chasing this, it's been tried.</p>
-<h2 id="oh-my-posh--ohmyposhconfigohmyposhzenjson">oh-my-posh — <code>ohmyposh/.config/ohmyposh/zen.json</code></h2>
-<p>The prompt theme (<code>zen</code> segment set), sourced from <code>.zshrc</code>.</p>
-<h2 id="git--gitgitconfig">git — <code>git/.gitconfig</code></h2>
-<p>Minimal: identity (<code>jetnoli-sportable</code>) and a <code>gh auth git-credential</code>
-helper scoped separately for <code>github.com</code> and <code>gist.github.com</code>. No
-aliases defined — if you're looking for a <code>git</code> shortcut and it's not in
-<code>.zshrc</code>, it doesn't exist yet. For non-Sportable repos, <code>pgh</code> wraps <code>gh</code>
-with the personal-account PAT from the keyring.</p>
-<h2 id="nvim--nvimconfignvim">nvim — <code>nvim/.config/nvim/</code></h2>
-<p>Own git history, own docs: <code>nvim/.config/nvim/README.md</code> and
-<code>instructions.md</code> (both indexed). The piece relevant to the workflow is
-the <code>lua/claude-tmux/</code> bridge — <code>&lt;leader&gt;a</code> maps to grab/pick/follow
-Claude's transcript into a buffer and reply from nvim; the full keymap
-table lives in <code>nvim/.config/nvim/instructions.md</code>.</p>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">wb design — the picker, wb done, and the task record schema</div>
+    <div class="brand-sub">Why wb works the way it does — sort logic, safe wind-down, decision history.</div>
+    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#the-pickers-row-source-and-sort-order">The picker&#39;s row source and sort order</a></li>
+      <li><a href="#wb-done--the-safe-wind-down">wb done — the safe wind-down</a></li>
+      <li><a href="#why-bash-not-go-or-python">Why bash, not Go or Python</a></li>
+      <li><a href="#the-task-record-schema">The task record schema</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="title-block">
+      <h1>wb design — the picker, wb done, and the task record schema</h1>
+      <p class="dek">Why wb works the way it does — sort logic, safe wind-down, decision history.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<p>The design rationale behind <code>wb</code> and the task-record schema it's built on —
+distinct from <a href="wb-guide.html"><code>wb-guide.md</code></a>, which is the usage-focused
+&quot;how do I run it&quot; doc. This page is the &quot;why it works this way&quot; companion:
+sort order, safe-wind-down ordering, and the review decisions that shaped
+both. This page is the source; edit <code>docs/roadmap-wb-design.md</code>, not the
+rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> §2/§3 (superseded — this page is the detail, <code>docs/roadmap.md</code>
+carries only the status row) · <strong>Built:</strong> PR #7, 2026-07-06 · <strong>Usage
+guide:</strong> <a href="wb-guide.html"><code>wb-guide.md</code></a></p>
+<h2 id="the-pickers-row-source-and-sort-order">The picker's row source and sort order</h2>
+<p>One row per <strong>task</strong> from the central store — status from frontmatter, so
+planned and done tasks are visible, not just live ones — with live
+session/agent state overlaid as glyphs. Repo-level checkouts (main
+checkouts, no task) appear as extra rows. Worktrees are enumerated via
+per-repo <code>git worktree list</code> (authoritative), never directory globbing.</p>
+<p>Grouping is <strong>status-first, not repo-first</strong> (changed 2026-07-06, post-
+launch): all needs-you rows surface together across every repo, then
+finished, then working, then idle — so urgency is never buried inside a
+repo's alphabetical group. A session's sub-rows still ride along with their
+parent as one block rather than scattering by their own individual rank
+(see <code>wb.sh</code>'s <code>collect_combined_rows</code>).</p>
+<p>Column 3 shows frontmatter status (<code>planned</code>/<code>doing</code>/<code>review</code>/<code>done</code>) for
+task rows, or the current branch in <code>[brackets]</code> for repo-level rows.
+Sessions with more than one Claude pane expand into one indented sub-row
+per agent. Each row/sub-row carries a hidden field — its most-urgent Claude
+pane target — so <code>x</code> (interrupt) and the agent-pane preview always act on
+the right target, never just &quot;the session's active pane.&quot;</p>
+<p><code>ctrl-x</code> on a worktree-backed task row routes through the full <code>wb done</code>
+flow (a raw kill only happens for non-task sessions) — wind-down is the
+default exit, not an optional ritual you have to remember.</p>
+<blockquote>
+<p><strong>Enter's preview fallback chain (Decision 11, 2026-07-07 review):</strong>
+urgent agent pane, else <code>git status</code>, else — for session-less,
+worktree-less task rows (planned tasks with no live session and no
+worktree yet) — the task file's <code>## Plan</code> section rendered as text. Added
+because a planned-but-not-started task previously had nothing useful to
+preview at all.</p>
+</blockquote>
+<h2 id="wb-done--the-safe-wind-down"><code>wb done</code> — the safe wind-down</h2>
+<ol>
+<li><strong>Fail fast</strong>: <code>git status --porcelain</code> in the worktree; if dirty, print
+the short status and abort — nothing mutated.</li>
+<li>Open the task file + session notes in a review buffer (decision-buffer
+pattern); keepers are marked <code>- [x] keep</code> — the one convention shared
+with the notes-digest promotion (slice 4b).</li>
+<li>On close: sweep worktree-local gitignored keepers into the central store
+(<code>logs/decisions/*.md</code> at minimum — verified: <code>git worktree remove</code>
+silently destroys gitignored files, and the dirty check never protects
+them) and rewrite the task file's Decisions links to the store copies.</li>
+<li>Status → <code>done</code>, keepers captured.</li>
+<li>Kill the session, then <code>git worktree remove</code>.</li>
+</ol>
+<blockquote>
+<p><strong>Bypass guard (Decision 8, 2026-07-07 review):</strong> nothing catches a
+worktree torn down via raw <code>git worktree remove</code>/<code>tmux kill-session</code>
+instead of <code>wb done</code> — the task file is left stale with no signal. Add a
+lightweight periodic check: any task-store entry whose <code>worktree:</code> path
+no longer exists in <code>git worktree list</code> AND whose <code>status:</code> isn't <code>done</code>
+gets flagged as a picker-row warning (not a hard block), so a skipped
+<code>wb done</code> is caught rather than silently lost. <em>(Not yet built.)</em></p>
+</blockquote>
+<blockquote>
+<p><strong>Credential guard (2026-07-06 review):</strong> <code>wb new</code> bootstraps <code>.env*</code>
+into worktrees by default, and the keeper sweep copies gitignored files
+into the central store — a repo intended for cross-machine git sync. The
+sweep carries an exclusion list for credential-shaped files (<code>.env*</code>,
+<code>*.pem</code>, <code>*.key</code>, <code>*credential*</code>, …) and warns in the review buffer when a
+marked keeper matches one, so a bootstrapped secret can't ride a
+<code>- [x] keep</code> into a repo that later gets a remote. <strong>Known limitation</strong>
+(§11 Open Questions): this is a dismissible warning, not an enforced
+block, and doesn't scan file <em>contents</em> — only filenames.</p>
+</blockquote>
+<h2 id="why-bash-not-go-or-python">Why bash, not Go or Python</h2>
+<p><code>wb</code> is tmux/fzf orchestration — bash is the native tongue there, <code>lib.sh</code>
+already had the helpers, no build step, and it stows like everything else.
+A compiled implementation would only earn its keep if the task <em>index</em>
+grows real querying/aggregation needs — that's notes-tui/cli-kit territory,
+not a reason to start <code>wb</code> itself in Go.</p>
+<h2 id="the-task-record-schema">The task record schema</h2>
+<pre><code class="language-markdown">---
+status: doing        # planned | doing | review | done
+repo: dotfiles        # worktree resolves as ~/code/&lt;repo&gt;/&lt;worktree&gt;
+branch: feat/agent-task-workflow
+worktree: .worktrees/feat/agent-task-workflow
+tags: []              # free tags for cross-project grouping
+created: 2026-07-06
+---
+# Agent task workflow
+## Plan          ← batches of intended work
+## Done          ← running log of what landed
+## Follow-ups    ← per-task backlog; /parked-items review reads these
+## Decisions     ← links to logs/decisions/*.md + key calls inline
+</code></pre>
+<p>Three goals map onto this schema directly: <strong>backlog</strong> = <code>## Follow-ups</code>
+(+ global <code>/park</code> for cross-task strays); <strong>progress tracker</strong> = <code>status:</code>
+rendered as the picker's status column — the board is <em>inside</em> <code>wb</code>, not a
+separate surface; <strong>review &amp; refinement</strong> = <code>wb done</code>'s close-out buffer
+plus a push trigger (the picker's status line carries the pending
+Follow-ups + parked count, and <code>wb done</code> offers a cross-task sweep past a
+threshold — the weekly <code>/parked-items</code> ritual stays available but isn't
+the load-bearing path anymore).</p>
+<blockquote>
+<p><strong>Validation clock:</strong> this demotion is a behavioral bet on event-driven
+pushes whose events are sparse (the nudge fires only at task completion;
+the count only renders when the picker is open). Check-in <strong>~2026-07-20</strong>
+— inspect the parked ledger's open-item ages. If the oldest open item
+exceeds ~10 days, the bet failed: restore the weekly ritual as
+load-bearing, or surface the count somewhere time-driven (e.g. tmux
+<code>status-left</code>) instead of only inside the picker.</p>
+</blockquote>
 </article>
-<footer>
-  Generated by <code>docgen</code> from <code>docs/setup.md</code>. Rebuild:
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/roadmap-wb-design.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
-</main>
+  </main>
+</div>
 
 </body>
 </html>

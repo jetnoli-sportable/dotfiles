@@ -11,7 +11,7 @@ The pieces of the stack that live *under* the workflow tooling. For every
 alias, keybind, and script with its source line, use the INDEX
 (`prefix+?` in tmux, or `docs/INDEX.md`); for the tmux/Claude tooling
 itself, see the [wb guide](wb-guide.html) and the
-[workbench findings](agent-workbench-findings.html) deep dive.
+[roadmap](roadmap.html)'s Origins section for why it was built.
 
 ## zsh — `zsh/.zshrc`
 

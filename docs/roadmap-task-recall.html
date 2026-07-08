@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Shell &amp; terminal setup</title>
+<title>Task recall — resume any work from any session</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,58 +173,59 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/setup.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span>docgen · generated from <b>docs/roadmap-task-recall.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-08</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Shell &amp; terminal setup</h1>
+  <h1><span class="glyph">§</span> Task recall — resume any work from any session</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>The pieces of the stack that live <em>under</em> the workflow tooling. For every
-alias, keybind, and script with its source line, use the INDEX
-(<code>prefix+?</code> in tmux, or <code>docs/INDEX.md</code>); for the tmux/Claude tooling
-itself, see the <a href="wb-guide.html">wb guide</a> and the
-<a href="roadmap.html">roadmap</a>'s Origins section for why it was built.</p>
-<h2 id="zsh--zshzshrc">zsh — <code>zsh/.zshrc</code></h2>
-<p>Prompt (oh-my-posh), zsh-vi-mode, zinit plugins (autosuggestions,
-completions, syntax highlighting), zoxide, and the aliases/functions that
-drive the rest of this stack — <code>s</code>, <code>N</code>, <code>ca</code>, <code>wb</code>, <code>pgh</code>, <code>note</code>, and
-friends are all defined here. Every one of them is in the INDEX with its
-line number and a one-liner; <code>prefix+?</code> previews the surrounding comment
-context.</p>
-<p>Machine-local overrides go in <code>~/.zshrc.local</code> (sourced last, lives
-outside the repo).</p>
-<h2 id="ghostty--ghosttyconfigghosttyconfig">Ghostty — <code>ghostty/.config/ghostty/config</code></h2>
-<p>Terminal emulator config, kept <strong>alongside</strong> GNOME Terminal rather than
-replacing it — Ghostty is used for inline image support GNOME Terminal
-lacks. Catppuccin Mocha palette, <code>MesloLGL Nerd Font</code>,
-<code>minimum-contrast = 1.6</code>. Known limitation (see the decision record via
-<code>prefix+?</code>): the grayscale-AA glyph rendering is softer than GNOME
-Terminal's and isn't fixable via config — don't re-add render knobs
-chasing this, it's been tried.</p>
-<h2 id="oh-my-posh--ohmyposhconfigohmyposhzenjson">oh-my-posh — <code>ohmyposh/.config/ohmyposh/zen.json</code></h2>
-<p>The prompt theme (<code>zen</code> segment set), sourced from <code>.zshrc</code>.</p>
-<h2 id="git--gitgitconfig">git — <code>git/.gitconfig</code></h2>
-<p>Minimal: identity (<code>jetnoli-sportable</code>) and a <code>gh auth git-credential</code>
-helper scoped separately for <code>github.com</code> and <code>gist.github.com</code>. No
-aliases defined — if you're looking for a <code>git</code> shortcut and it's not in
-<code>.zshrc</code>, it doesn't exist yet. For non-Sportable repos, <code>pgh</code> wraps <code>gh</code>
-with the personal-account PAT from the keyring.</p>
-<h2 id="nvim--nvimconfignvim">nvim — <code>nvim/.config/nvim/</code></h2>
-<p>Own git history, own docs: <code>nvim/.config/nvim/README.md</code> and
-<code>instructions.md</code> (both indexed). The piece relevant to the workflow is
-the <code>lua/claude-tmux/</code> bridge — <code>&lt;leader&gt;a</code> maps to grab/pick/follow
-Claude's transcript into a buffer and reply from nvim; the full keymap
-table lives in <code>nvim/.config/nvim/instructions.md</code>.</p>
+<p>Tie the memories, skills, task store, and Hub together so that referencing
+a task or piece of work in ANY session makes the agent check for context
+and offer to resume it. This page is the source; edit
+<code>docs/roadmap-task-recall.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> 9e (superseded — this page is the detail) · <strong>Status:</strong> open,
+unblocked (only depended on slice 5, which shipped)</p>
+<h2 id="the-ask-verbatim">The ask, verbatim</h2>
+<p>Referencing a task or piece of work in any session — e.g. &quot;let's continue
+planning the reporting investigation&quot; — should make the agent check the
+Hub/task store for context and offer to <strong>resume, update, or recap</strong> that
+work, rather than starting from scratch or asking the user to re-explain.</p>
+<h2 id="building-blocks-that-already-exist">Building blocks that already exist</h2>
+<ul>
+<li>The central task store (per-task record, <code>~/code/tasks/*.md</code>).</li>
+<li><code>wb board</code> (status view over the same store).</li>
+<li>The worktree-seeding rule in <code>~/.claude/CLAUDE.md</code> — already does this
+for worktree <em>setup</em> specifically (checks <code>~/code/tasks/</code> for an existing
+task file matching the target repo/slug before starting fresh).</li>
+<li>Slice 5's INDEX + <code>/help</code> Q&amp;A — the lookup machinery this would reuse.</li>
+<li><code>MEMORY.md</code>.</li>
+</ul>
+<h2 id="the-likely-shape">The likely shape</h2>
+<p>Generalize the worktree-seeding rule into a standing &quot;task-recall&quot;
+behavior: on a task reference, match against <code>~/code/tasks/*.md</code>
+(title/slug/tags), read the record plus its linked decisions/dossiers, and
+open with a recap + resume options — not just at worktree-setup time, but
+any time a task gets referenced in conversation.</p>
+<p>Sequencing: unblocked now (only needed slice 5's INDEX/lookup machinery,
+which shipped). Design goes through a decision buffer when actually picked
+up — the exact matching heuristic (fuzzy title match? tag-based? both?) and
+how aggressively to auto-trigger vs. wait for an explicit ask are real
+open questions.</p>
+<h2 id="boundary-note">Boundary note</h2>
+<p>Recall output must respect the same personal/employer boundary rules as
+every other aggregation surface in this system (§10/Decision 4) — a task
+recall triggered in a personal-repo session must never surface or
+cross-reference employer-repo (Sportable) task records.</p>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/setup.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/roadmap-task-recall.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

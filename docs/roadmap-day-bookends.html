@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>9g recap — GPaste clipboard-history manager</title>
+<title>Day bookends — wb up / wb down</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,185 +173,69 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/9g-gpaste-recap.md</b> — edit the .md, not this file</span>
+  <span>docgen · generated from <b>docs/roadmap-day-bookends.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-08</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> 9g recap — GPaste clipboard-history manager</h1>
+  <h1><span class="glyph">§</span> Day bookends — wb up / wb down</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>GPaste configured as a Flycut-style clipboard-history manager, executed
-exactly per the owner-authored runbook below. This page is the source; edit
-<code>docs/9g-gpaste-recap.md</code>, not the rendered <code>.html</code>. The full runbook lives
-here now (moved from <code>docs/roadmap.md</code> during the 2026-07-08 roadmap
-restructure) since it's the provenance record for a task that's done, not
-an active plan.</p>
-<p><strong>Roadmap:</strong> 9g (superseded — this page is the detail) · <strong>Branch:</strong> <code>feat/gpaste-clipboard-setup</code> → <code>development</code></p>
-<h2 id="the-owner-authored-runbook-preserved-verbatim">The owner-authored runbook (preserved verbatim)</h2>
+<p>Two workflows composing the capture/recall pieces already built: <code>wb up</code>
+(startup) and <code>wb down</code> (shutdown). This page is the source; edit
+<code>docs/roadmap-day-bookends.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong> open,
+gated on slice 4b's session-id capture landing</p>
+<h2 id="the-two-workflows">The two workflows</h2>
+<p><strong>Startup (<code>wb up</code>)</strong> — review yesterday's close-out + parked items + task
+board, propose today's focus, recreate tmux sessions for the chosen tasks.</p>
+<p><strong>Shutdown (<code>wb down</code>)</strong> — sweep every live session, capture a quick status
+into each task file, run the notes digest, then close all sessions cleanly
+so the PC can power off.</p>
+<h2 id="wb-ups-task-selection-decision-10-2026-07-07-review"><code>wb up</code>'s task selection (Decision 10, 2026-07-07 review)</h2>
+<p>Reuses the decision-buffer checkbox convention already shared by <code>wb done</code>'s close-out and the notes-digest promotion: <code>wb up</code> opens a review
+buffer listing yesterday's close-out + parked items + task-board candidates
+as <code>- [ ] pick</code> lines; closing the buffer recreates a session per checked
+task. First-run fallback (no prior close-out to review yet): fall back to a
+plain picker over the task store's <code>planned</code>/<code>doing</code> rows.</p>
+<h2 id="wb-downs-dirty-check-decision-7-2026-07-07-review"><code>wb down</code>'s dirty-check (Decision 7, 2026-07-07 review)</h2>
+<p><code>wb down</code> inherits <code>wb done</code>'s per-session dirty-check-and-abort exactly —
+a dirty worktree aborts that session's wind-down by default, same as a
+single <code>wb done</code>. Owner call: no silent skip-and-report bulk mode for now —
+an override flag can be added later; its exact behavior (skip-dirty-and-
+report vs. force vs. something else) is a decision for whenever that flag
+actually gets built, not now.</p>
+<h2 id="jira-exclusion">Jira exclusion</h2>
+<p>The Jira sprint pull originally listed in <code>wb up</code>'s scope is removed and
+joins <code>/board</code>'s Jira exclusion as its own later, separately-ratified
+addition — same open questions: where the API credential lives, and
+whether Jira-derived text may be persisted into the sync-bound task store.</p>
+<h2 id="design-principle-sessions-are-regenerative-not-precious">Design principle: sessions are regenerative, not precious</h2>
+<p>Because a <code>wb</code> session is fully derived from its task record (repo,
+worktree path, standard 3-window layout), resume = re-running a
+<code>wb new</code>-equivalent from the store — no fragile tmux state snapshotting
+needed. tmux-resurrect/continuum remain an optional complement for raw
+scrollback, but the task store is the source of truth. Concretely: keep
+everything <code>wb</code> creates reconstructable from the task file alone, and give
+<code>wb</code> a <code>down --all</code> / <code>up --resume</code> pair.</p>
 <blockquote>
-<p><strong>Goal:</strong> configure GPaste as a Flycut-style clipboard-history manager,
-settings captured in a dotfiles-friendly dconf file. Target: a keyboard
-shortcut that opens clipboard history to pick and paste an old clip.
-<strong>Shortcut: <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code></strong> (owner call, 2026-07-07 review, Decision 1 —
-supersedes the earlier <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> pick and the original
-<code>&lt;Ctrl&gt;&lt;Alt&gt;V</code> spec draft before that. Confirmed real collision, not just a
-theoretical one: Ghostty ships <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> as its built-in paste bind
-and this repo's <code>ghostty/.config/ghostty/config</code> never overrides it;
-GNOME custom shortcuts registered via <code>gsettings</code> intercept at the
-shell/compositor level before the combo ever reaches the focused terminal,
-so binding GPaste to <code>V</code> would have silently broken terminal paste
-repo-wide. <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> is free.)</p>
+<p><strong>The one genuinely precious piece of state:</strong> each agent pane's Claude
+session id, recorded at spawn (a session/window option or a task-file
+field), so <code>up --resume</code> can <code>claude --resume &lt;id&gt;</code> instead of restarting
+every agent cold. The 3-window layout is cheap to rebuild; an in-flight
+agent conversation is not — and the id is cheap to capture now but
+impossible to recover for sessions already killed. This capture is
+landing as part of slice 4b's groundwork, ahead of <code>wb up</code>/<code>wb down</code>
+themselves.</p>
 </blockquote>
-<blockquote>
-<p><strong>Window manager:</strong> this whole runbook assumes GNOME Shell (GPaste's
-extension is a GNOME Shell extension). That's correct for now but not
-permanent: <code>logs/decisions/2026-06-18-window-manager.md</code> records the
-owner's intended direction as Sway, at a later, unscheduled date. No
-conflict today — just recording the pointer here so a future WM switch
-knows to revisit this dependency (GPaste's extension model doesn't carry
-over to Sway; a wl-clipboard-based history manager would replace it).</p>
-<ol>
-<li><strong>Precondition check</strong> — confirm the prior install/enable actually
-took before configuring anything:
-<code>which gpaste-client || echo &quot;MISSING: gpaste-client not found&quot;</code>
-<code>gpaste-client daemon-version 2&gt;/dev/null || echo &quot;MISSING: daemon not responding&quot;</code>
-If either is missing: stop, report to the user. Do NOT reinstall or
-restart gnome-shell on Wayland — ask the user to re-check instead.</li>
-<li><strong>Verify the engine works</strong> — <code>echo &quot;test-clip-1&quot; | gpaste-client add</code>,
-same for a second clip, then <code>gpaste-client history</code> and confirm both
-appear.</li>
-<li><strong>Discover exact gsettings keys (version-safe)</strong> — do not hardcode key
-names from memory; run <code>gsettings list-recursively org.gnome.GPaste</code>
-first and confirm real key names (expect <code>show-history</code>, <code>launch-ui</code>,
-and sync/upload accelerators) before setting anything.</li>
-<li><strong>Configure via dconf</strong> — <code>show-history</code> is a scalar string key (type
-<code>s</code>, confirmed via <code>gsettings range</code>), not a GVariant array — no
-brackets:
-<code>gsettings set org.gnome.GPaste show-history '&lt;Ctrl&gt;&lt;Shift&gt;G'</code>.
-Also: <code>max-history-size 200</code>, <code>images-support true</code>,
-<code>save-history true</code>. Only set keys confirmed to exist in step 3; skip
-and report any that differ.</li>
-<li><strong>Check shortcut conflicts</strong> before finalizing — inspect
-<code>gsettings list-recursively org.gnome.settings-daemon.plugins.media-keys</code>
-and <code>...org.gnome.desktop.wm.keybindings</code>. If <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>
-collides, warn the user and suggest an alternative — don't change it
-without confirmation.</li>
-<li><strong>Export to dotfiles</strong> — <code>dconf dump /org/gnome/GPaste/ &gt; ~/dotfiles/gpaste.dconf</code> (adjust path to this repo's actual location,
-<code>~/code/dotfiles</code>), show the restore command
-(<code>dconf load /org/gnome/GPaste/ &lt; .../gpaste.dconf</code>) for future
-machines. If it's a git repo, stage but do NOT commit unless asked.</li>
-</ol>
-<p><strong>Constraints:</strong> no gnome-shell restart, no reinstall — those steps are
-done. Wayland reserves some Super-key combos, but <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> avoids
-that class of conflict; if a conflict shows up anyway in step 5 it's
-almost certainly a different app already owning that combo, not a bad
-install. Setting <code>show-history</code> via dconf takes effect on the running
-daemon live, no restart needed.</p>
-<p><strong>Final verification:</strong> <code>gsettings get org.gnome.GPaste show-history</code> →
-expect <code>'&lt;Ctrl&gt;&lt;Shift&gt;G'</code> (scalar string, not a list). Report what was
-configured, the active shortcut, and the dconf export path; ask the user
-to test the shortcut themselves and confirm the history popup appears.</p>
-</blockquote>
-<h2 id="what-we-did">What we did</h2>
-<p>All 6 runbook steps, in order, each verified before moving to the next:</p>
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>Step</th>
-<th>Result</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td>Precondition check</td>
-<td><code>gpaste-client</code> present, daemon v45 responding — install/enable from before this task already took</td>
-</tr>
-<tr>
-<td>2</td>
-<td>Verify the engine</td>
-<td>Two test clips added and confirmed in <code>gpaste-client history</code></td>
-</tr>
-<tr>
-<td>3</td>
-<td>Discover real gsettings keys</td>
-<td><code>show-history</code>, <code>launch-ui</code>, and a third key <code>pop</code> — not in the runbook, see finding below</td>
-</tr>
-<tr>
-<td>4</td>
-<td>Configure via dconf</td>
-<td><code>show-history</code> → <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>; <code>max-history-size</code> → 200; <code>images-support</code>/<code>save-history</code> confirmed <code>true</code></td>
-</tr>
-<tr>
-<td>5</td>
-<td>Check shortcut conflicts</td>
-<td>None found — checked <code>media-keys</code>, <code>wm.keybindings</code>, custom keybindings, and a full <code>dconf dump /</code> sweep</td>
-</tr>
-<tr>
-<td>6</td>
-<td>Export to dotfiles</td>
-<td><code>gpaste.dconf</code> written to repo root — <strong>staged, not committed</strong>, per the runbook's own instruction</td>
-</tr>
-</tbody>
-</table>
-<h2 id="finding-worth-keeping-the-pop-key-is-not-a-paste-action">Finding worth keeping: the <code>pop</code> key is not a paste action</h2>
-<p>Step 3's key discovery turned up a key the runbook didn't mention:
-<code>org.gnome.GPaste pop</code> (default <code>&lt;Ctrl&gt;&lt;Alt&gt;V</code>). Before assuming anything,
-checked the actual schema (<code>/usr/share/glib-2.0/schemas/org.gnome.GPaste.gschema.xml</code>):</p>
-<pre><code>&lt;key name=&quot;pop&quot; type=&quot;s&quot;&gt;
-  &lt;summary&gt;The keyboard shortcut to delete the first element in history&lt;/summary&gt;
-</code></pre>
-<p><code>pop</code> <strong>deletes</strong> the most recent history entry — it isn't a paste shortcut
-at all, despite the name and its <code>V</code>-shaped default suggesting otherwise.
-Left untouched at its default. If this had been bound to something a future
-&quot;quick paste&quot; shortcut collided with, the symptom would have been silent
-data loss (history entries vanishing), not a paste failure — worth knowing
-before anyone reaches for <code>pop</code> assuming it's a paste action.</p>
-<p><code>show-history</code> was confirmed correct by the same method: its schema summary
-is literally &quot;The keyboard shortcut to display the menu&quot; — the actual
-Flycut-style history picker this task wanted.</p>
-<h2 id="test--verify-it-yourself">Test / verify it yourself</h2>
-<ul>
-<li><input disabled="" type="checkbox"> <strong>Press <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code></strong> anywhere — confirm the GPaste history menu
-pops up.</li>
-<li><input disabled="" type="checkbox"> <strong>Select an old entry</strong> from the menu — confirm it pastes correctly
-wherever your cursor is.</li>
-<li><input disabled="" type="checkbox"> <strong>Copy several things</strong>, then check the history holds more than one
-(up to the new <code>max-history-size</code> of 200) — confirm images are
-captured too (<code>images-support</code> is on).</li>
-<li><input disabled="" type="checkbox"> <strong>Check <code>gpaste.dconf</code></strong> (repo root, currently staged not committed)
-— confirm it matches what <code>dconf dump /org/gnome/GPaste/</code> shows live.</li>
-<li><input disabled="" type="checkbox"> <strong>On a future machine</strong>: <code>dconf load /org/gnome/GPaste/ &lt; gpaste.dconf</code>
-restores this exact config.</li>
-</ul>
-<h2 id="whats-not-done-yet">What's NOT done yet</h2>
-<ul>
-<li><strong>Unify copy/paste</strong> so terminal-level paste is never needed — deliberately
-out of scope for this task, tracked in <code>docs/roadmap.md</code>'s overview table
-as its own design pass.</li>
-<li><strong>Window manager dependency</strong> — this whole setup assumes GNOME Shell;
-revisit if/when the Sway migration (parked, no date) happens.</li>
-</ul>
-<h2 id="next-steps">Next steps</h2>
-<ul>
-<li><strong>Confirm the shortcut works for you live</strong> — press <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> and
-check the history menu appears.</li>
-<li><strong>Merge this PR</strong> once you've walked the checklist above.</li>
-<li>With 9f (pending your review) and 9g both wrapped, the next roadmap items
-needing a pickup decision are slice 4b (gated on the 4a usage-window
-verdict, ~2026-07-14) and <code>/board</code>'s full HTML feature (<code>wb board</code>
-interim is already live).</li>
-</ul>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/9g-gpaste-recap.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/roadmap-day-bookends.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>
