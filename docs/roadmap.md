@@ -55,6 +55,7 @@ since the task template's `## Decisions` section still refers to "F4":
 | Cross-repo/cross-machine doc registry | Proposal, unratified | — | Only revisit if artifacts still go missing after the landing-path rule |
 | Jira integration (`/board` + day-bookends halves) | Proposal, not scheduled | — | Same open questions both times: credential location, persistence into the sync-bound store |
 | Personal/employer boundary rule | Deferred — **final** item | [open questions](roadmap-open-questions.html) | Made only after every other follow-up is in place |
+| `docgen.sh`'s pre-commit hook targets the wrong repo from a worktree | Open, not started | — | `DOTFILES` isn't exported for the hook's subprocess, so committing from a worktree without exporting it first silently regenerates docs against `$HOME/code/dotfiles` instead of the worktree (found 2026-07-08, no data loss — the hook's `git add docs/` only staged what was already correct on disk) |
 
 **Dated clocks** (not tasks — check-in points): delete the version-pinned
 content scan `tmux_pane_awaiting_input` (~2026-07-13, if hook data held) ·

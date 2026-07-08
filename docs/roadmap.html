@@ -325,6 +325,12 @@ of these.</li>
 <td><a href="roadmap-open-questions.html">open questions</a></td>
 <td>Made only after every other follow-up is in place</td>
 </tr>
+<tr>
+<td><code>docgen.sh</code>'s pre-commit hook targets the wrong repo from a worktree</td>
+<td>Open, not started</td>
+<td>—</td>
+<td><code>DOTFILES</code> isn't exported for the hook's subprocess, so committing from a worktree without exporting it first silently regenerates docs against <code>$HOME/code/dotfiles</code> instead of the worktree (found 2026-07-08, no data loss — the hook's <code>git add docs/</code> only staged what was already correct on disk)</td>
+</tr>
 </tbody>
 </table>
 <p><strong>Dated clocks</strong> (not tasks — check-in points): delete the version-pinned
