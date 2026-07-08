@@ -327,9 +327,9 @@ of these.</li>
 </tr>
 <tr>
 <td><code>docgen.sh</code>'s pre-commit hook targets the wrong repo from a worktree</td>
-<td>Open, not started</td>
+<td>Done</td>
 <td>—</td>
-<td><code>DOTFILES</code> isn't exported for the hook's subprocess, so committing from a worktree without exporting it first silently regenerates docs against <code>$HOME/code/dotfiles</code> instead of the worktree (found 2026-07-08, no data loss — the hook's <code>git add docs/</code> only staged what was already correct on disk)</td>
+<td>Fixed by exporting <code>DOTFILES=&quot;$repo_root&quot;</code> in the hook, using the root it already correctly computed via <code>git rev-parse --show-toplevel</code>. Verified with a real divergence test: a marker page committed from a throwaway worktree landed in that worktree's <code>HUB.html</code> only, main checkout untouched</td>
 </tr>
 </tbody>
 </table>
