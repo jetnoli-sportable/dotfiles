@@ -779,15 +779,26 @@ telescope.lua fully; gitsigns owns <code>&lt;leader&gt;h*</code> (hunk ops), dif
 owns <code>&lt;leader&gt;v*</code> (full diff), neither is a fuzzy changed-files list.
 Add <code>&lt;leader&gt;sc</code> → <code>builtin.git_status</code> (a real telescope builtin).
 <em>Trivial.</em></li>
-<li><strong>Claude Code clipboard copy unreliable.</strong> Likely root cause: Claude's
-alt-screen TUI + its own OSC52 emission colliding with tmux's
-<code>allow-passthrough</code>/copy-mode path — the &quot;only Claude is flaky&quot;
-signature fits (other programs don't repin the alt-screen mid-drag).
-Try, in order: (a) use keyboard copy-mode (<code>prefix [</code> → the existing
-<code>Enter</code>→wl-copy bind, tmux.conf:71) instead of mouse-drag — captures
-the real pane buffer, should be immune; (b) if that's not the actual
-fix, test <code>allow-passthrough all</code> instead of <code>on</code>. <em>Small — mostly
-testing, not new code.</em></li>
+<li><strong>Claude Code clipboard copy unreliable.</strong> <em>DIAGNOSED 2026-07-08 —
+root cause found, no config fix exists.</em> The original hypothesis
+(<code>allow-passthrough</code> colliding with Claude's OSC52 emission) was
+checked and ruled out empirically: <code>allow-passthrough</code> only governs
+DCS-wrapped passthrough sequences (image protocols etc.), not raw
+OSC52 clipboard writes — that's <code>set-clipboard</code> (already <code>on</code>). The
+real cause: the pane where the failure was reproduced was running in
+<strong>GNOME Terminal, not Ghostty</strong> — GNOME Terminal/VTE still does not
+implement OSC52 at all, by deliberate upstream design (security
+decision), and silently drops the sequence. Confirmed with a raw
+<code>printf '\033]52;c;...\007'</code> test outside of Claude entirely: <code>wl-copy</code>/
+<code>wl-paste</code> work fine standalone, but the OSC52 sequence never reached
+the clipboard through that pane. No tmux or terminal <em>setting</em> fixes
+this — it's a hard capability gap in GNOME Terminal itself.
+<strong>Resolution:</strong> tmux's own copy-mode (<code>prefix [</code> → select → <code>Enter</code> →
+the existing <code>wl-copy</code> bind, tmux.conf) bypasses OSC52 entirely — tmux
+shells out to <code>wl-copy</code> directly — and works in any terminal regardless
+of OSC52 support. Use that for reliable copy; Claude Code's own
+&quot;copied N characters&quot; shortcut only actually works in a Ghostty pane
+(<code>clipboard-write = allow</code> already configured there).</li>
 <li><strong>Quick-question shortcut, tied to <code>/help</code>.</strong> New binding, don't
 overload <code>help.sh</code> (its whole point is zero-LLM, per its own header).
 Recommend <code>prefix+A</code> (unbound) → a new <code>ask.sh</code> following <code>wb.sh</code>'s
@@ -796,13 +807,14 @@ in the <em>current</em> session, not a dedicated persistent one — a quick
 question doesn't need to outlive the window. Keep <code>/help</code> (INDEX
 Q&amp;A) and this (general scratch session) separate rather than merging.
 <em>Small.</em></li>
-<li><strong>vscode-diff.nvim vs diff.nvim.</strong> Neither installed. diffview.nvim
-already covers the heavyweight full-tabpage case (<code>&lt;leader&gt;vo</code> etc.);
-gitsigns' <code>&lt;leader&gt;hd</code> covers per-hunk. vscode-diff.nvim's actual niche
-is the middle ground — inline word-level diff in a single buffer,
-no separate tabpage — genuinely not covered yet. &quot;diff.nvim&quot; as a
-distinct plugin name is non-standard; clarify which repo before
-installing anything under that name. <em>Small to trial.</em></li>
+<li><strong>vscode-diff.nvim vs diff.nvim.</strong> <em>DONE 2026-07-08 — owner picked
+<code>esmuellert/codediff.nvim</code> specifically</em> (a bigger tool than this
+entry originally assumed: full explorer/history/conflict-resolution UI
+with two-tier line+character highlighting, side-by-side or inline —
+not a lightweight inline-only overlay). Bound to <code>&lt;leader&gt;vi</code>/<code>vI</code>.
+Genuinely overlaps with diffview.nvim's scope; see
+<code>docs/9f-ergonomics-recap.md</code>'s item-6 comparison guide (commands to
+try side by side) before deciding whether to keep both.</li>
 </ol>
 <p><strong>Your take:</strong> pick off in any order; none block each other or slice 5.</p>
 <h3 id="9g-gpaste-clipboard-manager-setup-owner-task-spec-2026-07-07--queue-after-pr-9-merges">9g. GPaste clipboard manager setup (owner task spec, 2026-07-07 — queue after PR #9 merges)</h3>

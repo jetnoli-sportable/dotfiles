@@ -626,15 +626,26 @@ ready rather than needing a fresh investigation pass:
    owns `<leader>v*` (full diff), neither is a fuzzy changed-files list.
    Add `<leader>sc` → `builtin.git_status` (a real telescope builtin).
    *Trivial.*
-4. **Claude Code clipboard copy unreliable.** Likely root cause: Claude's
-   alt-screen TUI + its own OSC52 emission colliding with tmux's
-   `allow-passthrough`/copy-mode path — the "only Claude is flaky"
-   signature fits (other programs don't repin the alt-screen mid-drag).
-   Try, in order: (a) use keyboard copy-mode (`prefix [` → the existing
-   `Enter`→wl-copy bind, tmux.conf:71) instead of mouse-drag — captures
-   the real pane buffer, should be immune; (b) if that's not the actual
-   fix, test `allow-passthrough all` instead of `on`. *Small — mostly
-   testing, not new code.*
+4. **Claude Code clipboard copy unreliable.** *DIAGNOSED 2026-07-08 —
+   root cause found, no config fix exists.* The original hypothesis
+   (`allow-passthrough` colliding with Claude's OSC52 emission) was
+   checked and ruled out empirically: `allow-passthrough` only governs
+   DCS-wrapped passthrough sequences (image protocols etc.), not raw
+   OSC52 clipboard writes — that's `set-clipboard` (already `on`). The
+   real cause: the pane where the failure was reproduced was running in
+   **GNOME Terminal, not Ghostty** — GNOME Terminal/VTE still does not
+   implement OSC52 at all, by deliberate upstream design (security
+   decision), and silently drops the sequence. Confirmed with a raw
+   `printf '\033]52;c;...\007'` test outside of Claude entirely: `wl-copy`/
+   `wl-paste` work fine standalone, but the OSC52 sequence never reached
+   the clipboard through that pane. No tmux or terminal *setting* fixes
+   this — it's a hard capability gap in GNOME Terminal itself.
+   **Resolution:** tmux's own copy-mode (`prefix [` → select → `Enter` →
+   the existing `wl-copy` bind, tmux.conf) bypasses OSC52 entirely — tmux
+   shells out to `wl-copy` directly — and works in any terminal regardless
+   of OSC52 support. Use that for reliable copy; Claude Code's own
+   "copied N characters" shortcut only actually works in a Ghostty pane
+   (`clipboard-write = allow` already configured there).
 5. **Quick-question shortcut, tied to `/help`.** New binding, don't
    overload `help.sh` (its whole point is zero-LLM, per its own header).
    Recommend `prefix+A` (unbound) → a new `ask.sh` following `wb.sh`'s
@@ -643,13 +654,14 @@ ready rather than needing a fresh investigation pass:
    question doesn't need to outlive the window. Keep `/help` (INDEX
    Q&A) and this (general scratch session) separate rather than merging.
    *Small.*
-6. **vscode-diff.nvim vs diff.nvim.** Neither installed. diffview.nvim
-   already covers the heavyweight full-tabpage case (`<leader>vo` etc.);
-   gitsigns' `<leader>hd` covers per-hunk. vscode-diff.nvim's actual niche
-   is the middle ground — inline word-level diff in a single buffer,
-   no separate tabpage — genuinely not covered yet. "diff.nvim" as a
-   distinct plugin name is non-standard; clarify which repo before
-   installing anything under that name. *Small to trial.*
+6. **vscode-diff.nvim vs diff.nvim.** *DONE 2026-07-08 — owner picked
+   `esmuellert/codediff.nvim` specifically* (a bigger tool than this
+   entry originally assumed: full explorer/history/conflict-resolution UI
+   with two-tier line+character highlighting, side-by-side or inline —
+   not a lightweight inline-only overlay). Bound to `<leader>vi`/`vI`.
+   Genuinely overlaps with diffview.nvim's scope; see
+   `docs/9f-ergonomics-recap.md`'s item-6 comparison guide (commands to
+   try side by side) before deciding whether to keep both.
 
 **Your take:** pick off in any order; none block each other or slice 5.
 
