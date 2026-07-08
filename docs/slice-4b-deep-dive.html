@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Shell &amp; terminal setup</title>
+<title>Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,58 +173,141 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/setup.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span>docgen · generated from <b>docs/slice-4b-deep-dive.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-08</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Shell &amp; terminal setup</h1>
+  <h1><span class="glyph">§</span> Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>The pieces of the stack that live <em>under</em> the workflow tooling. For every
-alias, keybind, and script with its source line, use the INDEX
-(<code>prefix+?</code> in tmux, or <code>docs/INDEX.md</code>); for the tmux/Claude tooling
-itself, see the <a href="wb-guide.html">wb guide</a> and the
-<a href="roadmap.html">roadmap</a>'s Origins section for why it was built.</p>
-<h2 id="zsh--zshzshrc">zsh — <code>zsh/.zshrc</code></h2>
-<p>Prompt (oh-my-posh), zsh-vi-mode, zinit plugins (autosuggestions,
-completions, syntax highlighting), zoxide, and the aliases/functions that
-drive the rest of this stack — <code>s</code>, <code>N</code>, <code>ca</code>, <code>wb</code>, <code>pgh</code>, <code>note</code>, and
-friends are all defined here. Every one of them is in the INDEX with its
-line number and a one-liner; <code>prefix+?</code> previews the surrounding comment
-context.</p>
-<p>Machine-local overrides go in <code>~/.zshrc.local</code> (sourced last, lives
-outside the repo).</p>
-<h2 id="ghostty--ghosttyconfigghosttyconfig">Ghostty — <code>ghostty/.config/ghostty/config</code></h2>
-<p>Terminal emulator config, kept <strong>alongside</strong> GNOME Terminal rather than
-replacing it — Ghostty is used for inline image support GNOME Terminal
-lacks. Catppuccin Mocha palette, <code>MesloLGL Nerd Font</code>,
-<code>minimum-contrast = 1.6</code>. Known limitation (see the decision record via
-<code>prefix+?</code>): the grayscale-AA glyph rendering is softer than GNOME
-Terminal's and isn't fixable via config — don't re-add render knobs
-chasing this, it's been tried.</p>
-<h2 id="oh-my-posh--ohmyposhconfigohmyposhzenjson">oh-my-posh — <code>ohmyposh/.config/ohmyposh/zen.json</code></h2>
-<p>The prompt theme (<code>zen</code> segment set), sourced from <code>.zshrc</code>.</p>
-<h2 id="git--gitgitconfig">git — <code>git/.gitconfig</code></h2>
-<p>Minimal: identity (<code>jetnoli-sportable</code>) and a <code>gh auth git-credential</code>
-helper scoped separately for <code>github.com</code> and <code>gist.github.com</code>. No
-aliases defined — if you're looking for a <code>git</code> shortcut and it's not in
-<code>.zshrc</code>, it doesn't exist yet. For non-Sportable repos, <code>pgh</code> wraps <code>gh</code>
-with the personal-account PAT from the keyring.</p>
-<h2 id="nvim--nvimconfignvim">nvim — <code>nvim/.config/nvim/</code></h2>
-<p>Own git history, own docs: <code>nvim/.config/nvim/README.md</code> and
-<code>instructions.md</code> (both indexed). The piece relevant to the workflow is
-the <code>lua/claude-tmux/</code> bridge — <code>&lt;leader&gt;a</code> maps to grab/pick/follow
-Claude's transcript into a buffer and reply from nvim; the full keymap
-table lives in <code>nvim/.config/nvim/instructions.md</code>.</p>
+<p>Slice 4b is the next scheduled feature after §9f/§9g, but it's blocked until
+~2026-07-14 by a deliberate usage-observation window (4a). This page explains
+both in depth: what 4b actually builds, why the gate exists, and what the
+verdict changes depending on the answer. This page is the source; edit
+<code>docs/slice-4b-deep-dive.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> §4, §8 build-order item 4, §9b · <strong>Plan:</strong> <code>docs/plans/2026-07-07-003-slice-4b-notes-tui-plan.md</code> (status: draft, gated) · <strong>Tracking:</strong> <code>~/code/tasks/dotfiles--agent-task-workflow.md</code> Follow-ups</p>
+<h2 id="why-4a-and-4b-are-split-at-all">Why 4a and 4b are split at all</h2>
+<p>The picker-redesign lesson from building <code>wb</code> itself (2026-07-06): don't
+ratify wiring before usage. <code>wb</code>'s picker went through a real redesign after
+it shipped and got used for a few days — the initial design's assumptions
+didn't survive contact with actually using it. Notes-tui integration applies
+the same discipline: <strong>4a</strong> ships the minimal capture habit with zero
+lifecycle wiring, <strong>4b</strong> builds the real integration only after real usage
+data exists to build it against.</p>
+<h2 id="what-4a-already-shipped-2026-07-07">What 4a already shipped (2026-07-07)</h2>
+<ul>
+<li><code>note.sh</code> sourced into <code>.zshrc</code> — <code>note &quot;thought&quot;</code> / <code>cmd | note</code> capture
+to <code>~/code/notes/inbox.md</code> from anywhere, auto-stamped with cwd, git
+repo+branch, and tmux session.</li>
+<li>No <code>wb</code> wiring, no digest automation — manual <code>notes digest</code> only, for a
+bounded ~1-week observation window (mirrors §1's hook-data clock: ship the
+minimum, watch real behavior, decide from data not guesses).</li>
+<li>Window started 2026-07-07, verdict due <strong>~2026-07-14</strong>.</li>
+</ul>
+<h2 id="the-usage-window-verdict--two-questions-not-one">The usage-window verdict — two questions, not one</h2>
+<p>The 4a follow-up entry (<code>~/code/tasks/dotfiles--agent-task-workflow.md</code>)
+frames the verdict as answering two things:</p>
+<ol>
+<li><strong>Is <code>note</code> actually being used?</strong> If capture didn't become a habit, 4b's
+whole premise (wiring a digest into <code>wb done</code>) has nothing to wire —
+the fix is a capture-ergonomics problem, not a 4b problem.</li>
+<li><strong>Is task-end the right review moment, or did day-end win?</strong> 4b's plan
+assumes reviewing captures when a task closes (<code>wb done</code>). If real usage
+shows people naturally reviewing at day-end instead, that's a <strong>different
+hook point</strong> than the plan currently assumes.</li>
+</ol>
+<p>Question 2 is the one worth understanding precisely, because the plan
+document itself says not to execute blindly if the answer comes back
+&quot;day-end&quot;: U3 (see below) is written against <code>wb done</code>, but if day-end wins,
+<strong>U3 needs to be re-shaped to hook the future <code>wb down</code> (§9b) instead</strong> —
+a structural change to which implementation unit does what, not just a
+go/no-go gate on starting 4b at all.</p>
+<h2 id="what-slice-4b-actually-builds">What slice 4b actually builds</h2>
+<p>Four implementation units, in dependency order, spanning two repos
+(<code>~/code/notes-tui</code> and <code>~/code/dotfiles</code>):</p>
+<h3 id="u1--per-capture-inbox-parsing-notes-tui-go">U1 — Per-capture inbox parsing (notes-tui, Go)</h3>
+<p><strong>The actual blocker</strong>, verified 2026-07-06: <code>corpus.Load</code> parses one <code>Note</code>
+per <em>file</em>, not per capture. A whole day's <code>inbox.md</code> — however many times
+you ran <code>note</code> — reads back as a single Note carrying only the <strong>first</strong>
+capture's context stamp. A <code>--context &lt;session&gt;</code> filter is meaningless until
+this is fixed; there's nothing to filter, everything collapses into one row.</p>
+<ul>
+<li>Detect capture-block boundaries as <code>note.sh</code> actually writes them
+(<code>## &lt;timestamp&gt;</code> heading + <code>&lt;!-- ctx: ... --&gt;</code> stamp) and split <code>inbox.md</code>
+into N Notes, each with its own timestamp and context.</li>
+<li>Denote-format files (the daily-notes flow) keep their existing one-note-
+per-file behavior untouched — this only changes inbox parsing.</li>
+<li>Files: <code>~/code/notes-tui/internal/corpus/corpus.go</code> + tests.</li>
+</ul>
+<h3 id="u2----context-filter--session-aware-grouping-notes-tui-go">U2 — <code>--context</code> filter + session-aware grouping (notes-tui, Go)</h3>
+<ul>
+<li><code>notes digest --context &lt;tmux-session&gt;</code> filters to one session's captures.</li>
+<li><code>--by context</code> grouping gains a session dimension — today it only groups
+by repo:branch, which the usage guide has been claiming incorrectly.</li>
+<li>Files: <code>~/code/notes-tui/cmd/notes/digest.go</code> + tests, guide/README updates.</li>
+</ul>
+<h3 id="u3--wb-done-digest-injection-dotfiles-bash">U3 — <code>wb done</code> digest injection (dotfiles, bash)</h3>
+<ul>
+<li>The close-out review buffer opens with the session's digest already
+inline (<code>notes digest --by context --context &quot;$session&quot;</code>), so keepers get
+promoted deliberately with the same <code>- [x] keep</code> convention <code>wb done</code>
+already uses for the task file itself.</li>
+<li><strong>The placement constraint that makes this fiddly:</strong> <code>wb done</code>'s cleanup
+truncates the task file at the <code>## Sweep</code> heading — anything generated
+needs to land <em>above</em> that heading and get stripped on close, mirroring
+how <code>wb_sweep_section</code> already works. Get the ordering wrong and either
+the digest never gets cleaned up, or it gets deleted before the user sees
+it.</li>
+<li>Kept items promote into the task file's <code>## Follow-ups</code> section (the
+plan's recommendation — matches the store-centric model everything else
+in <code>wb</code> uses); promoting into new Denote notes instead is the one
+explicitly open call, deferred to whenever this actually gets built.</li>
+<li>Degrades gracefully when <code>notes</code> isn't on <code>PATH</code> — skip the section, no
+error, <code>wb done</code> still works exactly as it does today.</li>
+<li><strong>This is the unit that moves to <code>wb down</code> if day-end wins the verdict.</strong></li>
+</ul>
+<h3 id="u4--retire-the-interim-update-the-docs">U4 — Retire the interim, update the docs</h3>
+<p>Housekeeping: roadmap status notes, guide pages gain the digest step,
+the 4a follow-up entry in the task store closes out with whatever verdict
+gated the slice in the first place.</p>
+<h2 id="deferred-to-implementation-time-not-decided-yet">Deferred to implementation time (not decided yet)</h2>
+<ul>
+<li>Promotion target if the 4a window's real usage contradicts the
+recommendation (task-file Follow-ups vs. new Denote notes).</li>
+<li>Whether <code>--by context</code> adds the session dimension to the group key by
+default, or only behind a flag — decided at U2 based on how noisy real
+grouped output actually looks.</li>
+</ul>
+<h2 id="verification-bar-whole-slice-not-just-unit-tests">Verification bar (whole slice, not just unit tests)</h2>
+<p>The plan's own bar for &quot;done&quot;: a full <code>wb new</code> → work + <code>note</code> captures →
+<code>wb done</code> cycle where the close-out buffer actually shows both captures, a
+kept one lands in <code>## Follow-ups</code>, the task file carries no leftover
+generated content after close, notes-tui's test suite is green, and the
+daily <code>notes.sh</code> flow is completely untouched by any of this.</p>
+<h2 id="the-dependency-chain">The dependency chain</h2>
+<pre><code>4a capture window (started 2026-07-07)
+        │
+        ▼
+~2026-07-14 verdict ── used? task-end or day-end the review moment?
+        │
+        ├── day-end wins ──► re-shape U3 to hook wb down (§9b), not wb done
+        │
+        ▼
+4b: U1 (corpus split) → U2 (--context flag) → U3 (wb done/down hook) → U4 (docs)
+        │
+        ▼
+9b Day bookends (wb up / wb down) — consumes 4b's session-id capture,
+already landing independently of this gate
+</code></pre>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/setup.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/slice-4b-deep-dive.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

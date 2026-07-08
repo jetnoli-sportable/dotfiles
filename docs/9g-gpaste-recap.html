@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>9g recap — GPaste clipboard-history manager</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+   
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="page">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/9g-gpaste-recap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-08</span>
+</div>
+<main>
+<header class="doc">
+  <span class="eyebrow">personal-workflow</span>
+  <h1><span class="glyph">§</span> 9g recap — GPaste clipboard-history manager</h1>
+  <div class="meta">
+    <span class="chip ok">current</span>
+    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
+  </div>
+</header>
+<article>
+<p>GPaste configured as a Flycut-style clipboard-history manager, executed
+exactly per the owner-authored runbook below. This page is the source; edit
+<code>docs/9g-gpaste-recap.md</code>, not the rendered <code>.html</code>. The full runbook lives
+here now (moved from <code>docs/roadmap.md</code> during the 2026-07-08 roadmap
+restructure) since it's the provenance record for a task that's done, not
+an active plan.</p>
+<p><strong>Roadmap:</strong> 9g (superseded — this page is the detail) · <strong>Branch:</strong> <code>feat/gpaste-clipboard-setup</code> → <code>development</code></p>
+<h2 id="the-owner-authored-runbook-preserved-verbatim">The owner-authored runbook (preserved verbatim)</h2>
+<blockquote>
+<p><strong>Goal:</strong> configure GPaste as a Flycut-style clipboard-history manager,
+settings captured in a dotfiles-friendly dconf file. Target: a keyboard
+shortcut that opens clipboard history to pick and paste an old clip.
+<strong>Shortcut: <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code></strong> (owner call, 2026-07-07 review, Decision 1 —
+supersedes the earlier <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> pick and the original
+<code>&lt;Ctrl&gt;&lt;Alt&gt;V</code> spec draft before that. Confirmed real collision, not just a
+theoretical one: Ghostty ships <code>&lt;Ctrl&gt;&lt;Shift&gt;V</code> as its built-in paste bind
+and this repo's <code>ghostty/.config/ghostty/config</code> never overrides it;
+GNOME custom shortcuts registered via <code>gsettings</code> intercept at the
+shell/compositor level before the combo ever reaches the focused terminal,
+so binding GPaste to <code>V</code> would have silently broken terminal paste
+repo-wide. <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> is free.)</p>
+</blockquote>
+<blockquote>
+<p><strong>Window manager:</strong> this whole runbook assumes GNOME Shell (GPaste's
+extension is a GNOME Shell extension). That's correct for now but not
+permanent: <code>logs/decisions/2026-06-18-window-manager.md</code> records the
+owner's intended direction as Sway, at a later, unscheduled date. No
+conflict today — just recording the pointer here so a future WM switch
+knows to revisit this dependency (GPaste's extension model doesn't carry
+over to Sway; a wl-clipboard-based history manager would replace it).</p>
+<ol>
+<li><strong>Precondition check</strong> — confirm the prior install/enable actually
+took before configuring anything:
+<code>which gpaste-client || echo &quot;MISSING: gpaste-client not found&quot;</code>
+<code>gpaste-client daemon-version 2&gt;/dev/null || echo &quot;MISSING: daemon not responding&quot;</code>
+If either is missing: stop, report to the user. Do NOT reinstall or
+restart gnome-shell on Wayland — ask the user to re-check instead.</li>
+<li><strong>Verify the engine works</strong> — <code>echo &quot;test-clip-1&quot; | gpaste-client add</code>,
+same for a second clip, then <code>gpaste-client history</code> and confirm both
+appear.</li>
+<li><strong>Discover exact gsettings keys (version-safe)</strong> — do not hardcode key
+names from memory; run <code>gsettings list-recursively org.gnome.GPaste</code>
+first and confirm real key names (expect <code>show-history</code>, <code>launch-ui</code>,
+and sync/upload accelerators) before setting anything.</li>
+<li><strong>Configure via dconf</strong> — <code>show-history</code> is a scalar string key (type
+<code>s</code>, confirmed via <code>gsettings range</code>), not a GVariant array — no
+brackets:
+<code>gsettings set org.gnome.GPaste show-history '&lt;Ctrl&gt;&lt;Shift&gt;G'</code>.
+Also: <code>max-history-size 200</code>, <code>images-support true</code>,
+<code>save-history true</code>. Only set keys confirmed to exist in step 3; skip
+and report any that differ.</li>
+<li><strong>Check shortcut conflicts</strong> before finalizing — inspect
+<code>gsettings list-recursively org.gnome.settings-daemon.plugins.media-keys</code>
+and <code>...org.gnome.desktop.wm.keybindings</code>. If <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>
+collides, warn the user and suggest an alternative — don't change it
+without confirmation.</li>
+<li><strong>Export to dotfiles</strong> — <code>dconf dump /org/gnome/GPaste/ &gt; ~/dotfiles/gpaste.dconf</code> (adjust path to this repo's actual location,
+<code>~/code/dotfiles</code>), show the restore command
+(<code>dconf load /org/gnome/GPaste/ &lt; .../gpaste.dconf</code>) for future
+machines. If it's a git repo, stage but do NOT commit unless asked.</li>
+</ol>
+<p><strong>Constraints:</strong> no gnome-shell restart, no reinstall — those steps are
+done. Wayland reserves some Super-key combos, but <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> avoids
+that class of conflict; if a conflict shows up anyway in step 5 it's
+almost certainly a different app already owning that combo, not a bad
+install. Setting <code>show-history</code> via dconf takes effect on the running
+daemon live, no restart needed.</p>
+<p><strong>Final verification:</strong> <code>gsettings get org.gnome.GPaste show-history</code> →
+expect <code>'&lt;Ctrl&gt;&lt;Shift&gt;G'</code> (scalar string, not a list). Report what was
+configured, the active shortcut, and the dconf export path; ask the user
+to test the shortcut themselves and confirm the history popup appears.</p>
+</blockquote>
+<h2 id="what-we-did">What we did</h2>
+<p>All 6 runbook steps, in order, each verified before moving to the next:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Step</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Precondition check</td>
+<td><code>gpaste-client</code> present, daemon v45 responding — install/enable from before this task already took</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Verify the engine</td>
+<td>Two test clips added and confirmed in <code>gpaste-client history</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Discover real gsettings keys</td>
+<td><code>show-history</code>, <code>launch-ui</code>, and a third key <code>pop</code> — not in the runbook, see finding below</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Configure via dconf</td>
+<td><code>show-history</code> → <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>; <code>max-history-size</code> → 200; <code>images-support</code>/<code>save-history</code> confirmed <code>true</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Check shortcut conflicts</td>
+<td>None found — checked <code>media-keys</code>, <code>wm.keybindings</code>, custom keybindings, and a full <code>dconf dump /</code> sweep</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Export to dotfiles</td>
+<td><code>gpaste.dconf</code> written to repo root — <strong>staged, not committed</strong>, per the runbook's own instruction</td>
+</tr>
+</tbody>
+</table>
+<h2 id="finding-worth-keeping-the-pop-key-is-not-a-paste-action">Finding worth keeping: the <code>pop</code> key is not a paste action</h2>
+<p>Step 3's key discovery turned up a key the runbook didn't mention:
+<code>org.gnome.GPaste pop</code> (default <code>&lt;Ctrl&gt;&lt;Alt&gt;V</code>). Before assuming anything,
+checked the actual schema (<code>/usr/share/glib-2.0/schemas/org.gnome.GPaste.gschema.xml</code>):</p>
+<pre><code>&lt;key name=&quot;pop&quot; type=&quot;s&quot;&gt;
+  &lt;summary&gt;The keyboard shortcut to delete the first element in history&lt;/summary&gt;
+</code></pre>
+<p><code>pop</code> <strong>deletes</strong> the most recent history entry — it isn't a paste shortcut
+at all, despite the name and its <code>V</code>-shaped default suggesting otherwise.
+Left untouched at its default. If this had been bound to something a future
+&quot;quick paste&quot; shortcut collided with, the symptom would have been silent
+data loss (history entries vanishing), not a paste failure — worth knowing
+before anyone reaches for <code>pop</code> assuming it's a paste action.</p>
+<p><code>show-history</code> was confirmed correct by the same method: its schema summary
+is literally &quot;The keyboard shortcut to display the menu&quot; — the actual
+Flycut-style history picker this task wanted.</p>
+<h2 id="test--verify-it-yourself">Test / verify it yourself</h2>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>Press <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code></strong> anywhere — confirm the GPaste history menu
+pops up.</li>
+<li><input disabled="" type="checkbox"> <strong>Select an old entry</strong> from the menu — confirm it pastes correctly
+wherever your cursor is.</li>
+<li><input disabled="" type="checkbox"> <strong>Copy several things</strong>, then check the history holds more than one
+(up to the new <code>max-history-size</code> of 200) — confirm images are
+captured too (<code>images-support</code> is on).</li>
+<li><input disabled="" type="checkbox"> <strong>Check <code>gpaste.dconf</code></strong> (repo root, currently staged not committed)
+— confirm it matches what <code>dconf dump /org/gnome/GPaste/</code> shows live.</li>
+<li><input disabled="" type="checkbox"> <strong>On a future machine</strong>: <code>dconf load /org/gnome/GPaste/ &lt; gpaste.dconf</code>
+restores this exact config.</li>
+</ul>
+<h2 id="whats-not-done-yet">What's NOT done yet</h2>
+<ul>
+<li><strong>Unify copy/paste</strong> so terminal-level paste is never needed — deliberately
+out of scope for this task, tracked in <code>docs/roadmap.md</code>'s overview table
+as its own design pass.</li>
+<li><strong>Window manager dependency</strong> — this whole setup assumes GNOME Shell;
+revisit if/when the Sway migration (parked, no date) happens.</li>
+</ul>
+<h2 id="next-steps">Next steps</h2>
+<ul>
+<li><strong>Confirm the shortcut works for you live</strong> — press <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> and
+check the history menu appears.</li>
+<li><strong>Merge this PR</strong> once you've walked the checklist above.</li>
+<li>With 9f (pending your review) and 9g both wrapped, the next roadmap items
+needing a pickup decision are slice 4b (gated on the 4a usage-window
+verdict, ~2026-07-14) and <code>/board</code>'s full HTML feature (<code>wb board</code>
+interim is already live).</li>
+</ul>
+</article>
+<footer>
+  Generated by <code>docgen</code> from <code>docs/9g-gpaste-recap.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+</main>
+
+</body>
+</html>

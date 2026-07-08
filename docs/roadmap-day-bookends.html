@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Shell &amp; terminal setup</title>
+<title>Day bookends — wb up / wb down</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,58 +173,69 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/setup.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span>docgen · generated from <b>docs/roadmap-day-bookends.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-08</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Shell &amp; terminal setup</h1>
+  <h1><span class="glyph">§</span> Day bookends — wb up / wb down</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>The pieces of the stack that live <em>under</em> the workflow tooling. For every
-alias, keybind, and script with its source line, use the INDEX
-(<code>prefix+?</code> in tmux, or <code>docs/INDEX.md</code>); for the tmux/Claude tooling
-itself, see the <a href="wb-guide.html">wb guide</a> and the
-<a href="roadmap.html">roadmap</a>'s Origins section for why it was built.</p>
-<h2 id="zsh--zshzshrc">zsh — <code>zsh/.zshrc</code></h2>
-<p>Prompt (oh-my-posh), zsh-vi-mode, zinit plugins (autosuggestions,
-completions, syntax highlighting), zoxide, and the aliases/functions that
-drive the rest of this stack — <code>s</code>, <code>N</code>, <code>ca</code>, <code>wb</code>, <code>pgh</code>, <code>note</code>, and
-friends are all defined here. Every one of them is in the INDEX with its
-line number and a one-liner; <code>prefix+?</code> previews the surrounding comment
-context.</p>
-<p>Machine-local overrides go in <code>~/.zshrc.local</code> (sourced last, lives
-outside the repo).</p>
-<h2 id="ghostty--ghosttyconfigghosttyconfig">Ghostty — <code>ghostty/.config/ghostty/config</code></h2>
-<p>Terminal emulator config, kept <strong>alongside</strong> GNOME Terminal rather than
-replacing it — Ghostty is used for inline image support GNOME Terminal
-lacks. Catppuccin Mocha palette, <code>MesloLGL Nerd Font</code>,
-<code>minimum-contrast = 1.6</code>. Known limitation (see the decision record via
-<code>prefix+?</code>): the grayscale-AA glyph rendering is softer than GNOME
-Terminal's and isn't fixable via config — don't re-add render knobs
-chasing this, it's been tried.</p>
-<h2 id="oh-my-posh--ohmyposhconfigohmyposhzenjson">oh-my-posh — <code>ohmyposh/.config/ohmyposh/zen.json</code></h2>
-<p>The prompt theme (<code>zen</code> segment set), sourced from <code>.zshrc</code>.</p>
-<h2 id="git--gitgitconfig">git — <code>git/.gitconfig</code></h2>
-<p>Minimal: identity (<code>jetnoli-sportable</code>) and a <code>gh auth git-credential</code>
-helper scoped separately for <code>github.com</code> and <code>gist.github.com</code>. No
-aliases defined — if you're looking for a <code>git</code> shortcut and it's not in
-<code>.zshrc</code>, it doesn't exist yet. For non-Sportable repos, <code>pgh</code> wraps <code>gh</code>
-with the personal-account PAT from the keyring.</p>
-<h2 id="nvim--nvimconfignvim">nvim — <code>nvim/.config/nvim/</code></h2>
-<p>Own git history, own docs: <code>nvim/.config/nvim/README.md</code> and
-<code>instructions.md</code> (both indexed). The piece relevant to the workflow is
-the <code>lua/claude-tmux/</code> bridge — <code>&lt;leader&gt;a</code> maps to grab/pick/follow
-Claude's transcript into a buffer and reply from nvim; the full keymap
-table lives in <code>nvim/.config/nvim/instructions.md</code>.</p>
+<p>Two workflows composing the capture/recall pieces already built: <code>wb up</code>
+(startup) and <code>wb down</code> (shutdown). This page is the source; edit
+<code>docs/roadmap-day-bookends.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong> open,
+gated on slice 4b's session-id capture landing</p>
+<h2 id="the-two-workflows">The two workflows</h2>
+<p><strong>Startup (<code>wb up</code>)</strong> — review yesterday's close-out + parked items + task
+board, propose today's focus, recreate tmux sessions for the chosen tasks.</p>
+<p><strong>Shutdown (<code>wb down</code>)</strong> — sweep every live session, capture a quick status
+into each task file, run the notes digest, then close all sessions cleanly
+so the PC can power off.</p>
+<h2 id="wb-ups-task-selection-decision-10-2026-07-07-review"><code>wb up</code>'s task selection (Decision 10, 2026-07-07 review)</h2>
+<p>Reuses the decision-buffer checkbox convention already shared by <code>wb done</code>'s close-out and the notes-digest promotion: <code>wb up</code> opens a review
+buffer listing yesterday's close-out + parked items + task-board candidates
+as <code>- [ ] pick</code> lines; closing the buffer recreates a session per checked
+task. First-run fallback (no prior close-out to review yet): fall back to a
+plain picker over the task store's <code>planned</code>/<code>doing</code> rows.</p>
+<h2 id="wb-downs-dirty-check-decision-7-2026-07-07-review"><code>wb down</code>'s dirty-check (Decision 7, 2026-07-07 review)</h2>
+<p><code>wb down</code> inherits <code>wb done</code>'s per-session dirty-check-and-abort exactly —
+a dirty worktree aborts that session's wind-down by default, same as a
+single <code>wb done</code>. Owner call: no silent skip-and-report bulk mode for now —
+an override flag can be added later; its exact behavior (skip-dirty-and-
+report vs. force vs. something else) is a decision for whenever that flag
+actually gets built, not now.</p>
+<h2 id="jira-exclusion">Jira exclusion</h2>
+<p>The Jira sprint pull originally listed in <code>wb up</code>'s scope is removed and
+joins <code>/board</code>'s Jira exclusion as its own later, separately-ratified
+addition — same open questions: where the API credential lives, and
+whether Jira-derived text may be persisted into the sync-bound task store.</p>
+<h2 id="design-principle-sessions-are-regenerative-not-precious">Design principle: sessions are regenerative, not precious</h2>
+<p>Because a <code>wb</code> session is fully derived from its task record (repo,
+worktree path, standard 3-window layout), resume = re-running a
+<code>wb new</code>-equivalent from the store — no fragile tmux state snapshotting
+needed. tmux-resurrect/continuum remain an optional complement for raw
+scrollback, but the task store is the source of truth. Concretely: keep
+everything <code>wb</code> creates reconstructable from the task file alone, and give
+<code>wb</code> a <code>down --all</code> / <code>up --resume</code> pair.</p>
+<blockquote>
+<p><strong>The one genuinely precious piece of state:</strong> each agent pane's Claude
+session id, recorded at spawn (a session/window option or a task-file
+field), so <code>up --resume</code> can <code>claude --resume &lt;id&gt;</code> instead of restarting
+every agent cold. The 3-window layout is cheap to rebuild; an in-flight
+agent conversation is not — and the id is cheap to capture now but
+impossible to recover for sessions already killed. This capture is
+landing as part of slice 4b's groundwork, ahead of <code>wb up</code>/<code>wb down</code>
+themselves.</p>
+</blockquote>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/setup.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/roadmap-day-bookends.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

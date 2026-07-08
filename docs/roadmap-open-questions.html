@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Shell &amp; terminal setup</title>
+<title>Open Questions — deferred decisions from the 2026-07-07 doc review</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,58 +173,79 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/setup.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span>docgen · generated from <b>docs/roadmap-open-questions.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-08</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Shell &amp; terminal setup</h1>
+  <h1><span class="glyph">§</span> Open Questions — deferred decisions from the 2026-07-07 doc review</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>The pieces of the stack that live <em>under</em> the workflow tooling. For every
-alias, keybind, and script with its source line, use the INDEX
-(<code>prefix+?</code> in tmux, or <code>docs/INDEX.md</code>); for the tmux/Claude tooling
-itself, see the <a href="wb-guide.html">wb guide</a> and the
-<a href="roadmap.html">roadmap</a>'s Origins section for why it was built.</p>
-<h2 id="zsh--zshzshrc">zsh — <code>zsh/.zshrc</code></h2>
-<p>Prompt (oh-my-posh), zsh-vi-mode, zinit plugins (autosuggestions,
-completions, syntax highlighting), zoxide, and the aliases/functions that
-drive the rest of this stack — <code>s</code>, <code>N</code>, <code>ca</code>, <code>wb</code>, <code>pgh</code>, <code>note</code>, and
-friends are all defined here. Every one of them is in the INDEX with its
-line number and a one-liner; <code>prefix+?</code> previews the surrounding comment
-context.</p>
-<p>Machine-local overrides go in <code>~/.zshrc.local</code> (sourced last, lives
-outside the repo).</p>
-<h2 id="ghostty--ghosttyconfigghosttyconfig">Ghostty — <code>ghostty/.config/ghostty/config</code></h2>
-<p>Terminal emulator config, kept <strong>alongside</strong> GNOME Terminal rather than
-replacing it — Ghostty is used for inline image support GNOME Terminal
-lacks. Catppuccin Mocha palette, <code>MesloLGL Nerd Font</code>,
-<code>minimum-contrast = 1.6</code>. Known limitation (see the decision record via
-<code>prefix+?</code>): the grayscale-AA glyph rendering is softer than GNOME
-Terminal's and isn't fixable via config — don't re-add render knobs
-chasing this, it's been tried.</p>
-<h2 id="oh-my-posh--ohmyposhconfigohmyposhzenjson">oh-my-posh — <code>ohmyposh/.config/ohmyposh/zen.json</code></h2>
-<p>The prompt theme (<code>zen</code> segment set), sourced from <code>.zshrc</code>.</p>
-<h2 id="git--gitgitconfig">git — <code>git/.gitconfig</code></h2>
-<p>Minimal: identity (<code>jetnoli-sportable</code>) and a <code>gh auth git-credential</code>
-helper scoped separately for <code>github.com</code> and <code>gist.github.com</code>. No
-aliases defined — if you're looking for a <code>git</code> shortcut and it's not in
-<code>.zshrc</code>, it doesn't exist yet. For non-Sportable repos, <code>pgh</code> wraps <code>gh</code>
-with the personal-account PAT from the keyring.</p>
-<h2 id="nvim--nvimconfignvim">nvim — <code>nvim/.config/nvim/</code></h2>
-<p>Own git history, own docs: <code>nvim/.config/nvim/README.md</code> and
-<code>instructions.md</code> (both indexed). The piece relevant to the workflow is
-the <code>lua/claude-tmux/</code> bridge — <code>&lt;leader&gt;a</code> maps to grab/pick/follow
-Claude's transcript into a buffer and reply from nvim; the full keymap
-table lives in <code>nvim/.config/nvim/instructions.md</code>.</p>
+<p>Findings from the 7-persona review in
+<code>logs/decisions/2026-07-07-roadmap-review-findings.md</code> that the owner
+checked <strong>Defer</strong> on. Kept here, not resolved, so they resurface rather
+than silently drop. This page is the source; edit
+<code>docs/roadmap-open-questions.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> §11 (superseded — this page is the detail)</p>
+<h2 id="gpastes-gnome-shell-dependency-vs-the-sway-direction">GPaste's GNOME Shell dependency vs. the Sway direction</h2>
+<p>9g's GPaste config is GNOME-Shell-specific; the owner's WM direction is
+Sway, at a later unscheduled date (see the WM pointer note in the <a href="9g-gpaste-recap.html">9g
+recap</a>). Revisit 9g's mechanism when the Sway
+migration is actually scheduled — GPaste's extension model has no Sway
+equivalent, so this isn't a config tweak, it's a re-pick of the whole tool.</p>
+<h2 id="notes-corpus-shape">Notes corpus shape</h2>
+<p>Resolved for now, re-confirmed 2026-07-07: <strong>keep <code>~/code/tasks</code> and
+<code>~/code/notes</code> as separate repos</strong> — this re-confirms the standing call
+already parked in <code>~/code/tasks/tasks--task-note-convergence.md</code>
+(2026-07-06), which explicitly deferred merging until <code>wb</code> + notes-tui's
+<code>--context</code> flag both have real usage behind them (4a/4b). Capture-anywhere
+and end-of-day-aggregation are already live today via <code>note</code>/<code>notes digest</code> (slice 4a) — no new plumbing needed for those two asks
+specifically. Cross-querying <code>wb</code> + personal notes stays <a href="roadmap-task-recall.html">task recall's</a>
+job, not a directory merge. <strong>Standing instruction:</strong> flag it again if the
+split ever becomes a real hindrance rather than a theoretical one, so it
+goes through a proper decision instead of drifting. &quot;Where documentation
+lives&quot; stays explicitly open, not addressed by this resolution.</p>
+<h2 id="credential-guard-is-warn-only-not-a-hard-block">Credential guard is warn-only, not a hard block</h2>
+<p>The <a href="roadmap-wb-design.html"><code>wb</code> design page</a>'s guard is a dismissible
+warning in the close-out review buffer, not an enforced block, and has no
+content-based fallback (doesn't scan file <em>contents</em> for secret-shaped
+strings, only filenames). Acceptable while the task store stays local-only
+and single-user; revisit if the store ever gets a remote (same trigger as
+the personal/employer boundary rule below) or if a credential-shaped
+filename ever slips past the denylist.</p>
+<h2 id="gpastes-persistent-clipboard-history-has-no-secrets-policy">GPaste's persistent clipboard history has no secrets policy</h2>
+<p>Clipboard history persists to disk indefinitely (<code>save-history true</code>) with
+no expiry or secret-detection — copying a token or password puts it in the
+history store with no automatic cleanup. Shipped as-is for a personal
+single-user machine; revisit if it turns out to be a real problem in
+practice (e.g. add a max-age prune or a &quot;don't persist this clip&quot; gesture).</p>
+<h2 id="f4-in-the-task-template">&quot;(F4)&quot; in the task template</h2>
+<p>Traced via grep sweep (owner ask, 2026-07-07): <code>F4</code> was finding-ID
+shorthand from the now-retired <code>agent-workbench-findings.html</code> — &quot;Task
+history is reviewable&quot; (the gap it named: task discussion/decisions
+scattered across three stores with nothing assembling a per-task dossier).
+The task template's <code>## Decisions</code> section exists specifically to satisfy
+this. Now explained inline in <code>roadmap.md</code>'s Origins note instead of
+pointing at a deleted file — <strong>this question is resolved</strong>, kept here for
+the record of how it was traced.</p>
+<h2 id="personalemployer-boundary-rule-the-final-follow-up">Personal/employer boundary rule (the FINAL follow-up)</h2>
+<p>Deliberately not &quot;deferred&quot; in the same sense as the others above — this
+one is the intentional last item. The personal/employer boundary rule for
+the task store and all aggregation surfaces (classification convention vs.
+split stores vs. permanent local-only) is deliberately the <strong>final</strong>
+follow-up decision, to be made after every other follow-up in this whole
+push, once the full flow is in place. Interim guardrails until then: the
+task store gets no remote; slice 5's INDEX/HTML outputs carry a minimal
+work-reference redaction guard; the credential guard and the cross-repo
+doc-registry boundary axis stand as written.</p>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/setup.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/roadmap-open-questions.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>
