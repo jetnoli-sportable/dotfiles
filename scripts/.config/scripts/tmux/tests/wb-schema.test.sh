@@ -48,15 +48,21 @@ else
   echo "FAIL - status ordering ($l_review,$l_paused,$l_planned)"; fail=1
 fi
 
-# --- cmd_done stamps closed: -------------------------------------------------
+# --- cmd_done stamps closed:, and no longer kills the session ---------------
 # cmd_done needs a live tmux session + worktree to exercise end-to-end, which
 # is disproportionate to unit-test here (see wb-resume.test.sh / wb-reconcile
 # .test.sh for the tmux/gh-fixture pattern this project uses when that's
-# warranted). Assert the wiring directly: the status-done and closed-date
-# stamps must be adjacent so a done task is never left with a blank closed:.
-done_block="$(awk '/wb_set_frontmatter "\$task_file" status done/,/tmux kill-session/' "$WB")"
+# warranted). Assert the wiring directly, scoped to cmd_done's own function
+# body (not an open-ended range) so a later, unrelated `tmux kill-session`
+# elsewhere in the file (e.g. _ctrl_x's repo-kill path) can't leak in.
+done_block="$(awk '/^cmd_done\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert "cmd_done stamps status done" 'status done' "$done_block"
 assert "cmd_done stamps closed: date" 'wb_set_frontmatter "\$task_file" closed "\$\(date \+%F\)"' "$done_block"
+if printf '%s' "$done_block" | grep -q 'tmux kill-session'; then
+  echo "FAIL - cmd_done still kills the tmux session (2026-07-08: sessions must survive wind-down)"; fail=1
+else
+  echo "ok   - cmd_done no longer kills the tmux session"
+fi
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

@@ -6,6 +6,7 @@
 #   wb board                         task-store status table (interim /board)
 #   wb done [<session>]              safe wind-down (defaults to the current session)
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
+#   wb pause [<session>]             mark a task paused — worktree and session both survive
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
@@ -428,6 +429,38 @@ cmd_reconcile() {
 }
 
 # ---------------------------------------------------------------------------
+# wb pause — mark inactive without tearing anything down
+# ---------------------------------------------------------------------------
+
+# cmd_pause <session> — flips a task's status to `paused`. Does NOT remove
+# the worktree (that's the whole point of "paused, not abandoned") and does
+# NOT kill the tmux session (2026-07-08: "I don't want windows or sessions
+# to disappear" — same instruction wb done's session-kill removal follows).
+# Deliberately skips wb done's dirty-worktree check too: that check exists
+# because worktree REMOVAL would destroy uncommitted work, and wb pause
+# never removes the worktree, so nothing is at risk to guard against.
+cmd_pause() {
+  local session="${1:-}"
+  if [ -z "$session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb pause: run inside the target session, or pass a session name" >&2; exit 1; }
+    session="$(tmux display-message -p '#S')"
+  fi
+
+  local repo slug
+  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
+  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
+  [ -n "$repo" ] && [ -n "$slug" ] \
+    || { echo "wb pause: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  [ -f "$task_file" ] || { echo "wb pause: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
+
+  wb_set_frontmatter "$task_file" status paused
+  echo "wb pause: $session paused — worktree and session untouched, task -> paused ($task_file)"
+}
+
+# ---------------------------------------------------------------------------
 # wb done — safe wind-down
 # ---------------------------------------------------------------------------
 
@@ -663,24 +696,22 @@ cmd_done() {
     wb_open_buffer "$task_file"
   fi
 
-  # 3. remove the worktree BEFORE flipping status or killing the session:
-  #    - wb done typically runs from inside the session it's tearing down,
-  #      so kill-session first would kill this very script mid-flight and
-  #      the removal below would never run.
+  # 3. remove the worktree BEFORE flipping status:
   #    - flipping status to "done" before a possibly-failing removal would
-  #      leave the store claiming done while the worktree/session still
-  #      exist; removing first means status only ever reflects a real
-  #      teardown.
+  #      leave the store claiming done while the worktree still exists;
+  #      removing first means status only ever reflects a real teardown.
   #    - the existence guard makes a retry safe after a prior run was
   #      killed between removal and status-set: `git worktree remove` on an
   #      already-gone path hard-fails under set -e otherwise.
   #    Branch is kept — see logs/decisions/2026-07-06-review-outstanding.md Q2.
+  #    The tmux session is deliberately left alive — wb done tears down the
+  #    worktree, not the window you're sitting in (2026-07-08: "I don't
+  #    want windows or sessions to disappear"; same reasoning as wb pause).
   if [ -d "$worktree_path" ]; then
     git -C "$repo_dir" worktree remove "$worktree_path" --force
   fi
   wb_set_frontmatter "$task_file" status done
   wb_set_frontmatter "$task_file" closed "$(date +%F)"
-  tmux kill-session -t "=$session" 2>/dev/null || true
 
   echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
 
@@ -943,7 +974,7 @@ wb_status_line() {
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter · esc back to normal'
   else
-    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · ctrl-x done/kill · / search · q quit'
+    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · p pause · ctrl-x done/kill · / search · q quit'
   fi
   printf 'wb · %s (tab to cycle) · %s\n%s' \
     "$mode" "$(wb_pending_counts)" "$hint"
@@ -984,6 +1015,19 @@ _rename() {
   new="$(wb_sanitize "$new")"
   if ! tmux rename-session -t "=$session:" "$new"; then
     read -rn1 -p "wb: rename failed — press any key "
+    return 1
+  fi
+}
+
+# _pause <session> — bound to `p`; wraps cmd_pause with the same
+# hold-the-terminal-on-failure convention as _rename (fzf repaints the
+# instant execute() returns, so an unheld error message is overdrawn
+# before it can be read).
+_pause() {
+  local session="$1"
+  [ -n "$session" ] || return 0
+  if ! cmd_pause "$session"; then
+    read -rn1 -p "wb: pause failed — press any key "
     return 1
   fi
 }
@@ -1055,7 +1099,7 @@ picker() {
 
   # Modal navigation mirrors claude-sessions.sh: NORMAL disables search so
   # unbound keys are inert; i or / enters SEARCH.
-  local navkeys='j,k,g,G,q,i,x,r,b,/'
+  local navkeys='j,k,g,G,q,i,x,r,b,p,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-12 are the real data, shown to fzf only as hidden/addressable
@@ -1086,6 +1130,7 @@ picker() {
         --bind "x:execute-silent(\"$SELF\" _interrupt {7})" \
         --bind "r:execute(\"$SELF\" _rename {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "p:execute(\"$SELF\" _pause {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7})" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
         --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
@@ -1117,6 +1162,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     reconcile)   shift; cmd_reconcile "$@" ;;
     board)       shift; cmd_board "$@" ;;
     done)        shift; cmd_done "$@" ;;
+    pause)       shift; cmd_pause "$@" ;;
+    _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
     _interrupt)  shift; _interrupt "$@" ;;
     _rename)     shift; _rename "$@" ;;
