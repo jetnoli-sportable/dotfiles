@@ -184,6 +184,7 @@
     <ul>
       <li><a href="#origins">Origins</a></li>
       <li><a href="#overview">Overview</a></li>
+      <li><a href="#window-management">Window management</a></li>
       <li><a href="#keep--retire--hold">Keep / retire / hold</a></li>
     </ul>
   </nav>
@@ -201,10 +202,11 @@ central task store, notes-tui, the docs project) — several pieces already
 live in separate repos (<code>~/code/notes-tui</code>, <code>~/code/tasks</code>).</p>
 <blockquote>
 <p><strong>Restructured 2026-07-08.</strong> This used to be one 832-line document with
-everything at the same flat depth. Every item below now gets its own
-page — click through for the design rationale, the full runbook, or
-whatever detail used to live inline here. This page stays short on
-purpose.</p>
+everything at the same flat depth. Most active or notable items below
+get their own page — click through for the design rationale, the full
+runbook, or whatever detail used to live inline here. Small completed
+items and unratified proposals are noted inline instead (<code>—</code> in the Doc
+column) rather than given a page each. This page stays short on purpose.</p>
 </blockquote>
 <h2 id="origins">Origins</h2>
 <p>Six things a 2026-07-06 findings pass (&quot;Agent Workbench,&quot; now retired —
@@ -254,10 +256,10 @@ of these.</li>
 <td>Session-per-worktree + unified picker — PR #7</td>
 </tr>
 <tr>
-<td>Notes-tui integration (4a / 4b)</td>
-<td>4a done · 4b gated ~2026-07-14</td>
+<td>Notes-tui integration, 4a (capture)</td>
+<td>Done</td>
 <td><a href="slice-4b-deep-dive.html">deep dive</a></td>
-<td>Capture habit shipped; real wiring waits on the usage-window verdict</td>
+<td>Capture habit shipped; 4b (real wiring) tracked separately below</td>
 </tr>
 <tr>
 <td>Docs platform (generated pages, Hub, INDEX, <code>/help</code>)</td>
@@ -273,21 +275,51 @@ of these.</li>
 </tr>
 <tr>
 <td><code>/board</code> — full HTML task-board view</td>
-<td>Open (interim shipped)</td>
+<td>Fully scoped, ready to implement (interim <code>wb board</code> live now)</td>
 <td><a href="roadmap-board.html">detail</a></td>
-<td>Zoomable today/task/week; <code>wb board</code> covers the visibility gap now</td>
+<td>Status+timeline filters + inline drill-down over the task store, gitignored bash-generated file</td>
+</tr>
+<tr>
+<td><code>wb pause</code> (new status + subcommand + keybind)</td>
+<td>Fully scoped, part of <code>/board</code>'s PR</td>
+<td><a href="roadmap-board.html">detail</a></td>
+<td>Needed for <code>/board</code>'s Paused status filter</td>
+</tr>
+<tr>
+<td><code>wb reconcile</code> — task-store/git drift detection</td>
+<td>Scoped, ready to plan</td>
+<td><a href="roadmap-wb-reconcile.html">detail</a></td>
+<td>Cross-references task store vs. real git state; report-only, decision-buffer-shaped review flow</td>
 </tr>
 <tr>
 <td>Day bookends (<code>wb up</code> / <code>wb down</code>)</td>
-<td>Open, gated on 4b</td>
+<td><code>wb resume &lt;task&gt;</code> open + unblocked; full up/down gated on 4b</td>
 <td><a href="roadmap-day-bookends.html">detail</a></td>
-<td>Startup/shutdown flows</td>
+<td>Startup/shutdown flows; single-task resume ships first</td>
 </tr>
 <tr>
 <td>Task recall</td>
-<td>Open, unblocked</td>
+<td>Open, <strong>actually blocked</strong> on the personal/employer boundary rule below, despite reading as unblocked</td>
 <td><a href="roadmap-task-recall.html">detail</a></td>
-<td>Resume any work from any session by referencing it</td>
+<td>Resume any work from any session by referencing it — see Open Questions for the boundary dependency</td>
+</tr>
+<tr>
+<td><code>/handoff</code> — route a discussion to the right worker</td>
+<td>Queued, marked for pickup soon</td>
+<td><a href="roadmap-handoff.html">detail</a></td>
+<td>Switch to an existing agent's session or <code>wb new</code> it; surfaced a real gap (no sub-task relationship exists yet)</td>
+</tr>
+<tr>
+<td>Notes-tui integration, 4b (real wiring)</td>
+<td>Sequenced after <code>/handoff</code>, pending 4a's ~2026-07-14 verdict</td>
+<td><a href="slice-4b-deep-dive.html">deep dive</a></td>
+<td>Placement decided 2026-07-08 — may move if the Hub v0 roadmap-visual work finds something more relevant</td>
+</tr>
+<tr>
+<td>Hub v0 (meta-documentation bundle)</td>
+<td>Scoped (parked), next PR after the current one</td>
+<td>—</td>
+<td>Artifact index, limitations list, glossary, roadmap visual, a ceremonies/rituals section (tracking exactly the dated clocks and process rituals below), plus the docgen-freshness hygiene fixes</td>
 </tr>
 <tr>
 <td>Editor/tmux ergonomics batch</td>
@@ -323,7 +355,19 @@ of these.</li>
 <td>Personal/employer boundary rule</td>
 <td>Deferred — <strong>final</strong> item</td>
 <td><a href="roadmap-open-questions.html">open questions</a></td>
-<td>Made only after every other follow-up is in place</td>
+<td>Made only after every other follow-up is in place — Task recall above already depends on it landing</td>
+</tr>
+<tr>
+<td>Task-store schema migration/reconciliation</td>
+<td>Proposal, tied to Hub v0 launch</td>
+<td>—</td>
+<td>One-time pass to bring every existing task file up to whatever schema <code>/board</code> + <code>wb reconcile</code> finalize (<code>closed:</code>, <code>paused</code>, etc. are being added piecemeal this session); do the migration once the schema settles rather than per-field</td>
+</tr>
+<tr>
+<td>Skill/tool/command usage audit</td>
+<td>Proposal, unscheduled</td>
+<td>—</td>
+<td>Monthly-ish audit of what's unused (prune candidates) AND what's underused but already solves a current pain point (before building something new) — measurement source and output location still undecided</td>
 </tr>
 <tr>
 <td><code>docgen.sh</code>'s pre-commit hook targets the wrong repo from a worktree</td>
@@ -333,12 +377,36 @@ of these.</li>
 </tr>
 </tbody>
 </table>
-<p><strong>Dated clocks</strong> (not tasks — check-in points): delete the version-pinned
-content scan <code>tmux_pane_awaiting_input</code> (~2026-07-13, if hook data held) ·
-4a capture-window verdict, gates 4b's shape (~2026-07-14) · push-vs-weekly-
-ritual validation check-in (~2026-07-20).</p>
+<p><strong>Dated clocks</strong> (not tasks — check-in points, i.e. &quot;on this date, come back and
+make a call,&quot; not &quot;on this date, code runs automatically&quot;). What's actually
+expected to happen at each:</p>
+<ul>
+<li><strong>~2026-07-13 — delete <code>tmux_pane_awaiting_input</code></strong> (if hook data held).
+This is a version-pinned content-scan fallback for detecting &quot;is this
+tmux pane waiting on input&quot; — a stopgap until the newer hook-based
+attention pipeline (Step zero, above) proved reliable. The action: if the
+hook-based detection has held up without regressions by this date, delete
+the old fallback scan; if it hasn't, keep it a while longer.</li>
+<li><strong>~2026-07-14 — 4a capture-window verdict.</strong> Look at how notes-tui's
+capture habit (4a, shipped) actually got used over the observation
+window, then decide whether that usage justifies building 4b's real
+wiring, and in what shape. A go/shape decision, not an automatic trigger.</li>
+<li><strong>~2026-07-20 — push-vs-weekly-ritual validation check-in.</strong> Compare
+whether proactive push notifications or batched weekly review (the
+<code>/parked-items</code> model) actually fits real usage better, to inform how
+similar future features get designed.</li>
+</ul>
 <p>Full detail on every deferred decision the 2026-07-07 doc review left open:
 <a href="roadmap-open-questions.html">Open Questions</a>.</p>
+<h2 id="window-management">Window management</h2>
+<p>Parked, not yet its own roadmap item until now. GNOME tiling trifecta plan
+(focus-or-launch + Forge + workspaces) already written on unmerged branch
+<code>feat/gnome-tiling</code>; <code>walker</code> decided as the launcher. Explicitly <strong>awaiting
+its own doc review until &quot;workbench core&quot; lands</strong> — that's the <code>/board</code> +
+<code>wb reconcile</code> + <code>wb resume</code>/<code>wb pause</code> PR above, so this section is the
+live home for that trigger rather than a one-time decision-buffer verdict:
+once that PR ships, this doc review is unblocked. Keybind constraint stands
+regardless of timing: <code>ctrl+hjkl</code> stays reserved for vim-tmux-navigator.</p>
 <h2 id="keep--retire--hold">Keep / retire / hold</h2>
 <ul>
 <li><strong>Retire:</strong> <code>cad</code> dashboard (unused, <code>wb</code> absorbs it), dead <code>n</code> alias.</li>

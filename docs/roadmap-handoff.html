@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Day bookends — wb up / wb down</title>
+<title>/handoff — route a discussion to the right worker</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,92 +173,71 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap-day-bookends.md</b> — edit the .md, not this file</span>
+  <span>docgen · generated from <b>docs/roadmap-handoff.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-08</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Day bookends — wb up / wb down</h1>
+  <h1><span class="glyph">§</span> /handoff — route a discussion to the right worker</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>Two workflows composing the capture/recall pieces already built: <code>wb up</code>
-(startup) and <code>wb down</code> (shutdown). This page is the source; edit
-<code>docs/roadmap-day-bookends.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong> the
-full <code>wb up</code>/<code>wb down</code> bulk flow is gated on slice 4b's session-id capture
-landing; <code>wb resume &lt;task&gt;</code> (single-task slice, see below) is open and
-unblocked</p>
-<h2 id="the-two-workflows">The two workflows</h2>
-<p><strong>Startup (<code>wb up</code>)</strong> — review yesterday's close-out + parked items + task
-board, propose today's focus, recreate tmux sessions for the chosen tasks.</p>
-<p><strong>Shutdown (<code>wb down</code>)</strong> — sweep every live session, capture a quick status
-into each task file, run the notes digest, then close all sessions cleanly
-so the PC can power off.</p>
-<h2 id="wb-ups-task-selection-decision-10-2026-07-07-review"><code>wb up</code>'s task selection (Decision 10, 2026-07-07 review)</h2>
-<p>Reuses the decision-buffer checkbox convention already shared by <code>wb done</code>'s close-out and the notes-digest promotion: <code>wb up</code> opens a review
-buffer listing yesterday's close-out + parked items + task-board candidates
-as <code>- [ ] pick</code> lines; closing the buffer recreates a session per checked
-task. First-run fallback (no prior close-out to review yet): fall back to a
-plain picker over the task store's <code>planned</code>/<code>doing</code> rows.</p>
-<h2 id="wb-downs-dirty-check-decision-7-2026-07-07-review"><code>wb down</code>'s dirty-check (Decision 7, 2026-07-07 review)</h2>
-<p><code>wb down</code> inherits <code>wb done</code>'s per-session dirty-check-and-abort exactly —
-a dirty worktree aborts that session's wind-down by default, same as a
-single <code>wb done</code>. Owner call: no silent skip-and-report bulk mode for now —
-an override flag can be added later; its exact behavior (skip-dirty-and-
-report vs. force vs. something else) is a decision for whenever that flag
-actually gets built, not now.</p>
-<h2 id="jira-exclusion">Jira exclusion</h2>
-<p>The Jira sprint pull originally listed in <code>wb up</code>'s scope is removed and
-joins <code>/board</code>'s Jira exclusion as its own later, separately-ratified
-addition — same open questions: where the API credential lives, and
-whether Jira-derived text may be persisted into the sync-bound task store.</p>
-<h2 id="design-principle-sessions-are-regenerative-not-precious">Design principle: sessions are regenerative, not precious</h2>
-<p>Because a <code>wb</code> session is fully derived from its task record (repo,
-worktree path, standard 3-window layout), resume = re-running a
-<code>wb new</code>-equivalent from the store — no fragile tmux state snapshotting
-needed. tmux-resurrect/continuum remain an optional complement for raw
-scrollback, but the task store is the source of truth. Concretely: keep
-everything <code>wb</code> creates reconstructable from the task file alone, and give
-<code>wb</code> a <code>down --all</code> / <code>up --resume</code> pair.</p>
-<blockquote>
-<p><strong>The one genuinely precious piece of state:</strong> each agent pane's Claude
-session id, recorded at spawn (a session/window option or a task-file
-field), so <code>up --resume</code> can <code>claude --resume &lt;id&gt;</code> instead of restarting
-every agent cold. The 3-window layout is cheap to rebuild; an in-flight
-agent conversation is not — and the id is cheap to capture now but
-impossible to recover for sessions already killed. This capture is
-landing as part of slice 4b's groundwork, ahead of <code>wb up</code>/<code>wb down</code>
-themselves.</p>
-</blockquote>
-<h2 id="wb-resume-task--an-early-ungated-slice-2026-07-08"><code>wb resume &lt;task&gt;</code> — an early, ungated slice (2026-07-08)</h2>
-<p>The full <code>wb up</code>/<code>wb down</code> pair above stays gated on 4b's session-id
-capture, needed for warm-restarting an agent mid-conversation. A
-single-task resume needs none of that: <code>cmd_new</code>
-(<code>scripts/.config/scripts/tmux/wb.sh:222-279</code>) is already idempotent — it
-skips worktree creation when the worktree dir exists, no-ops task-seeding
-when the task file exists, and always <code>tmux_ensure_session</code> + focuses
-regardless of whether the session was already live. Task frontmatter
-(<code>repo:</code>/<code>branch:</code>/<code>worktree:</code>) is already durable, on disk, in a git repo
-— there is nothing new to &quot;track&quot; for this slice.</p>
-<p>So <code>wb resume &lt;task&gt;</code> can ship now as a thin wrapper: fuzzy-match a task by
-slug against the store, read its frontmatter, call the same worktree/session
-logic <code>cmd_new</code> already runs. This is &quot;stage 1&quot; of the crash/reboot-recovery
-need that motivated it — bring a specific task's environment back after a
-shutdown or crash, by name, without retyping <code>&lt;repo&gt; &lt;slug&gt;</code>. <code>wb up</code> later
-becomes &quot;stage 2&quot;: run this same resume logic over every checked task in
-the startup review buffer, plus the session-id warm-restart on top.</p>
-<p>No tmux-resurrect/continuum is installed today (<code>tmux/.config/tmux/tmux.conf</code>
-only lists <code>tpm</code>, <code>tmux-sensible</code>, <code>vim-tmux-navigator</code>, <code>catppuccin-tmux</code>)
-— consistent with this doc's regenerative-sessions principle, this slice
-doesn't need it either.</p>
+<p>Queued 2026-07-08, marked for pickup soon. This page is the source; edit
+<code>docs/roadmap-handoff.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> new item, not from the original numbered list · <strong>Status:</strong>
+queued, not yet scoped in a decision-buffer round</p>
+<h2 id="the-ask-verbatim">The ask, verbatim</h2>
+<p>Take something currently being discussed and either (a) indicate an
+existing agent/session who should be the one to work it — ideally
+instructing them directly, though that's a follow-up; v1 can just switch
+the tmux session and put the text on the clipboard buffer — or (b), the
+more common case, just <code>wb new</code> it.</p>
+<h2 id="why-v1-is-likely-cheaper-than-it-first-sounds">Why v1 is likely cheaper than it first sounds</h2>
+<p>Both paths look like they can lean entirely on things <code>wb.sh</code> already
+does, rather than needing new matching logic:</p>
+<ul>
+<li><strong>Does a task already exist for this?</strong> Already solved — the
+worktree-seeding rule (<code>~/.claude/CLAUDE.md</code>) already looks up
+<code>~/code/tasks/&lt;repo&gt;--&lt;slug&gt;.md</code> by <code>repo:</code> before seeding a new
+worktree. <code>/handoff</code> doesn't need its own lookup; it computes the same
+<code>repo</code>/<code>slug</code> and asks the same question.</li>
+<li><strong>Is there a <em>live</em> session for it right now?</strong> Also cheap: the session
+name is deterministic (<code>${repo}--${disp_slug}</code>, <code>wb.sh:250</code>), so a plain
+<code>tmux has-session -t &quot;=$session&quot;</code> check (the same check <code>cmd_new</code> already
+does at <code>wb.sh:267</code>) tells you whether to switch-and-clipboard or spin up
+fresh.</li>
+<li><strong>Spinning up fresh</strong> is exactly <code>cmd_new</code>, already idempotent and
+already handling the &quot;task file exists but no session&quot; case.</li>
+</ul>
+<p>So the harder part isn't the mechanics — it's deciding <em>which</em> repo/slug
+the current discussion actually maps to, which (unlike Task Recall's
+cross-session trigger problem) <code>/handoff</code> gets to solve with the full
+context of the conversation it's invoked from, not a bare topic reference
+from cold.</p>
+<h2 id="the-real-open-gap-this-surfaced-no-sub-task-relationship-exists">The real open gap this surfaced: no sub-task relationship exists</h2>
+<p>Raised alongside the <code>/handoff</code> ask: &quot;do we have a relationship in place
+for sub-tasks? ... being able to take something big and break it down into
+a bunch of smaller pieces.&quot; Checked the actual schema
+(<code>~/code/tasks/README.md</code>) — no, nothing today represents &quot;this task is a
+piece of that task.&quot; The frontmatter is <code>status / repo / branch / worktree / tags / created</code>; <code>tags:</code> is documented as &quot;free tags for cross-project
+grouping,&quot; not a parent/child relationship. This is a genuine gap, not
+just an unbuilt feature — worth its own decision-buffer round (a <code>parent:</code>
+frontmatter field pointing at another task file? an inline sub-task list
+in the parent's <code>## Plan</code> section? something tag-based?) rather than
+guessing an answer inline here.</p>
+<h2 id="sequencing">Sequencing</h2>
+<p>Queued, not yet scoped. When picked up: a decision-buffer round covering
+(1) the sub-task relationship representation, since <code>/handoff</code>'s &quot;break
+something big into pieces&quot; framing depends on it existing, and (2) the
+follow-up (deferred on purpose) of actually instructing an existing agent
+rather than just switching to their session.</p>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-day-bookends.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/roadmap-handoff.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>
