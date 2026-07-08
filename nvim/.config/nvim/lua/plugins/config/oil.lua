@@ -257,6 +257,20 @@ return {
 				-- create a new tmux window in the current session, starting in cwd
 				tmux(string.format("tmux new-window -c %s", vim.fn.shellescape(cwd)))
 			end,
+			-- open a new tmux window and open file under cursor in Neovim
+			["<Leader>I"] = function()
+				local cwd = oil.get_current_dir()
+				local entry = oil.get_cursor_entry()
+				if cwd and entry then
+					tmux(string.format(
+						'tmux new-window -c %s "nvim %s"',
+						vim.fn.shellescape(cwd),
+						vim.fn.shellescape(entry.name)
+					))
+				else
+					vim.notify("oil.nvim: missing cwd or entry", vim.log.levels.ERROR)
+				end
+			end,
 		}
 
 		oil.setup(opts)

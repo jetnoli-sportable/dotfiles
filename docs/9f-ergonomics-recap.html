@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>9f recap — editor/tmux ergonomics batch</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+   
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="page">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/9f-ergonomics-recap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-08</span>
+</div>
+<main>
+<header class="doc">
+  <span class="eyebrow">personal-workflow</span>
+  <h1><span class="glyph">§</span> 9f recap — editor/tmux ergonomics batch</h1>
+  <div class="meta">
+    <span class="chip ok">current</span>
+    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
+  </div>
+</header>
+<article>
+<p>Six small, independent nvim/tmux/Claude-Code workflow items from roadmap §9f,
+all shipped in one PR. This page is the source; edit
+<code>docs/9f-ergonomics-recap.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> §9f (<code>docs/roadmap.md</code>) · <strong>PR:</strong> <a href="https://github.com/jetnoli-sportable/dotfiles/pull/10">#10</a> · <strong>Branch:</strong> <code>feat/editor-tmux-ergonomics</code> → <code>development</code></p>
+<h2 id="what-we-added">What we added</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Item</th>
+<th>What it does</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Oil → new tmux window</td>
+<td><code>&lt;Leader&gt;I</code> opens the entry under the cursor in a <strong>new tmux window</strong> (mirrors <code>&lt;Leader&gt;o</code>'s split-window version)</td>
+<td><code>nvim/.../plugins/config/oil.lua</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Reopen vim where you left off</td>
+<td><strong>persistence.nvim</strong>, cwd-scoped — auto-restores on a bare <code>nvim</code>/<code>nvim .</code> launch; manual <code>&lt;leader&gt;ps</code>/<code>pl</code>/<code>pd</code></td>
+<td><code>nvim/.../plugins/config/persistence.lua</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Search changed files</td>
+<td><code>&lt;leader&gt;sc</code> → telescope's <code>builtin.git_status</code>, a fuzzy changed-files list (gitsigns/diffview didn't cover this)</td>
+<td><code>nvim/.../plugins/config/telescope.lua</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Claude Code clipboard reliability</td>
+<td><strong>Diagnosed, not a code fix</strong> — see <a href="#item-4-deep-dive-claude-code-clipboard-reliability">item 4 deep dive</a></td>
+<td>merged in below</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Quick-ask shortcut</td>
+<td><code>prefix+q</code> opens a scratch Claude Code window (<code>ask.sh</code>) — corrected from the roadmap's original <code>prefix+A</code> pick, which turned out to already be bound to lazydocker</td>
+<td><code>scripts/.../tmux/ask.sh</code>, <code>tmux.conf</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>VSCode-style diff plugin</td>
+<td><strong>codediff.nvim</strong> (owner pick, <code>&lt;leader&gt;vi</code>/<code>&lt;leader&gt;vI</code>) — full explorer/history/conflict-resolution UI with two-tier line+character highlighting, side-by-side or inline. See <a href="#item-6-codediffnvim-vs-diffviewnvim">item 6: codediff.nvim vs diffview.nvim</a> for how it compares to the diff tool already installed</td>
+<td><code>nvim/.../plugins/config/codediff.lua</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="test--verify-it-yourself">Test / verify it yourself</h2>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>Reload tmux</strong> (<code>prefix r</code>), then try <code>prefix+q</code> — confirm it opens a
+new window named <code>ask</code> with Claude Code starting in it, in your
+current session.</li>
+<li><input disabled="" type="checkbox"> <strong>Oil:</strong> open oil (<code>-</code>), navigate to a file, press <code>&lt;Leader&gt;I</code> —
+confirm it opens a <strong>new tmux window</strong> (not a split) with that file
+in nvim.</li>
+<li><input disabled="" type="checkbox"> <strong>Telescope:</strong> press <code>&lt;leader&gt;sc</code> in a dirty git repo — confirm it
+shows a fuzzy-searchable list of changed files, not something else.</li>
+<li><input disabled="" type="checkbox"> <strong>Persistence:</strong> edit a file in some directory, quit nvim
+(<code>:wa | :qa</code>), then run <code>nvim .</code> (or bare <code>nvim</code>) in that same
+directory — confirm your buffers come back. Try <code>&lt;leader&gt;pd</code> to stop
+saving a session you don't want remembered.</li>
+<li><input disabled="" type="checkbox"> <strong>codediff.nvim:</strong> make an uncommitted change to a tracked file,
+open it in nvim, press <code>&lt;leader&gt;vi</code> — confirm a new tab opens with
+the diff explorer (first run downloads a small C library, needs
+network once). See <a href="#item-6-codediffnvim-vs-diffviewnvim">item 6</a>
+for commands to compare it against diffview.nvim.</li>
+<li><input disabled="" type="checkbox"> <strong>Clipboard:</strong> see <a href="#clipboard-verification-steps">clipboard verification steps</a> below.</li>
+<li><input disabled="" type="checkbox"> <strong>Regenerate and confirm it's a no-op</strong>: run <code>docgen.sh</code> from the repo
+root and check <code>git status</code> shows nothing changed.</li>
+<li><input disabled="" type="checkbox"> <strong>Skim the PR</strong> (<a href="https://github.com/jetnoli-sportable/dotfiles/pull/10">#10</a>)
+for anything that looks off before merging to <code>development</code>.</li>
+</ul>
+<h2 id="item-4-deep-dive-claude-code-clipboard-reliability">Item 4 deep dive: Claude Code clipboard reliability</h2>
+<p>Claude Code sometimes reports &quot;copied N characters to clipboard&quot; and then
+nothing actually pastes. Root cause found; it isn't a bug in Claude, tmux, or
+this dotfiles config — it's a hard capability gap in one specific terminal.</p>
+<h3 id="the-finding">The finding</h3>
+<p>Claude Code's clipboard shortcut writes via <strong>OSC 52</strong>, a terminal escape
+sequence that asks whichever terminal is attached to set the system
+clipboard directly — no shelling out to <code>wl-copy</code>/<code>xclip</code> involved. The
+write call itself doesn't error, so Claude reports success honestly. Whether
+anything actually lands in the clipboard depends entirely on the terminal
+receiving that sequence.</p>
+<p><strong>GNOME Terminal (VTE) still does not implement OSC 52 at all, as of 2026</strong> —
+a deliberate upstream decision (letting a remote program silently write your
+clipboard is a real security concern) — so it just drops the sequence.
+<strong>Ghostty does implement it</strong> (<code>clipboard-write = allow</code> is already set in
+this repo's <code>ghostty/.config/ghostty/config</code>).</p>
+<p>A first hypothesis — that <code>allow-passthrough</code> in <code>tmux.conf</code> was colliding
+with Claude's OSC52 emission — was checked and ruled out along the way:
+<code>allow-passthrough</code> only governs a <em>different</em> mechanism (DCS-wrapped
+passthrough, used by things like terminal image protocols). The setting
+that actually matters for raw OSC52 is <code>set-clipboard</code>, which was already
+<code>on</code>. The stale comment conflating the two has been corrected in
+<code>tmux.conf</code>.</p>
+<h3 id="how-it-was-confirmed">How it was confirmed</h3>
+<ol>
+<li><code>wl-copy</code>/<code>wl-paste</code> tested standalone (outside tmux and Claude
+entirely) — worked fine, ruling out a broken Wayland clipboard.</li>
+<li>tmux's live settings checked directly (<code>tmux show-options -g allow-passthrough</code> / <code>set-clipboard</code>) — both already correctly set.</li>
+<li>A raw OSC52 sequence sent directly to a real terminal pane, bypassing
+Claude entirely:
+<pre><code class="language-bash">wl-copy &lt; /dev/null   # clear it first
+printf '\033]52;c;%s\007' &quot;$(printf 'osc52-relay-test' | base64 -w0)&quot;
+wl-paste              # prints nothing =&gt; OSC52 isn't reaching the clipboard
+</code></pre>
+This printed nothing in the GNOME Terminal pane where the bug was first
+reported — confirming the break was in the terminal itself, not in
+Claude, tmux, or Wayland.</li>
+</ol>
+<h3 id="clipboard-verification-steps">Clipboard verification steps</h3>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>Run the three-line test above</strong> in a GNOME Terminal pane — confirm
+<code>wl-paste</code> prints nothing after the OSC52 write.</li>
+<li><input disabled="" type="checkbox"> <strong>Run the same three lines in a Ghostty pane</strong> — confirm <code>wl-paste</code>
+<em>does</em> print <code>osc52-relay-test</code> this time, isolating the terminal as
+the variable.</li>
+<li><input disabled="" type="checkbox"> <strong>Try tmux's own copy-mode</strong> next time you need to copy something out
+of a GNOME Terminal pane: <kbd>prefix</kbd> <kbd>[</kbd> to enter
+copy-mode, move/select, <kbd>Enter</kbd> to copy — bound to <code>wl-copy</code>
+directly in <code>tmux.conf</code>, so it works regardless of OSC52 support.</li>
+<li><input disabled="" type="checkbox"> <strong>If you want Claude's own &quot;copied N characters&quot; shortcut to just
+work</strong>, do that specific work in a Ghostty pane instead of GNOME
+Terminal.</li>
+</ul>
+<h3 id="what-this-doesnt-fix">What this doesn't fix</h3>
+<p>Nothing changed in Claude Code's behavior, and there's no tmux/Ghostty
+setting that makes GNOME Terminal support OSC52 — it's not configurable,
+by design. This section exists so the &quot;says copied but doesn't paste&quot;
+symptom is recognizable next time instead of getting re-diagnosed from
+scratch.</p>
+<h2 id="item-6-codediffnvim-vs-diffviewnvim">Item 6: codediff.nvim vs diffview.nvim</h2>
+<p>Two diff tools now live side by side on the <code>&lt;leader&gt;v*</code> prefix:
+<strong>diffview.nvim</strong> (already installed, owns <code>&lt;leader&gt;vo</code>/<code>vc</code>/<code>vh</code>/<code>vf</code>) and
+<strong>codediff.nvim</strong> (new, <code>&lt;leader&gt;vi</code>/<code>vI</code>). They overlap in scope more than
+9f-6 originally assumed — codediff.nvim isn't a lightweight inline-only
+tool, it's a full explorer/history/conflict-resolution UI comparable in
+size to diffview.nvim. Worth actually comparing before deciding whether to
+keep both, or drop one. Try these side by side on the same repo:</p>
+<table>
+<thead>
+<tr>
+<th>What to check</th>
+<th>diffview.nvim</th>
+<th>codediff.nvim</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Working tree vs HEAD, all changed files</td>
+<td><code>&lt;leader&gt;vo</code> (<code>:DiffviewOpen</code>)</td>
+<td><code>&lt;leader&gt;vi</code> (<code>:CodeDiff --inline</code>) or bare <code>:CodeDiff</code> for side-by-side</td>
+</tr>
+<tr>
+<td>Just the current file vs HEAD</td>
+<td><code>:DiffviewOpen %</code></td>
+<td><code>&lt;leader&gt;vI</code> (<code>:CodeDiff file HEAD --inline</code>)</td>
+</tr>
+<tr>
+<td>Per-file commit history</td>
+<td><code>&lt;leader&gt;vh</code> / <code>&lt;leader&gt;vf</code> (current file)</td>
+<td><code>:CodeDiff history HEAD~20 %</code></td>
+</tr>
+<tr>
+<td>Toggle side-by-side ⇄ inline live</td>
+<td>not built in — separate commands</td>
+<td>press <code>t</code> inside any codediff view</td>
+</tr>
+<tr>
+<td>Character-level (not just line-level) highlighting</td>
+<td>no</td>
+<td>yes — this is codediff's headline feature</td>
+</tr>
+<tr>
+<td>&quot;PR diff&quot; — only what <em>my</em> branch introduced</td>
+<td>needs a manual <code>:DiffviewOpen main...HEAD</code> range</td>
+<td><code>:CodeDiff main...HEAD</code> (merge-base aware, same semantics as <code>git diff main...HEAD</code>)</td>
+</tr>
+<tr>
+<td>Merge-conflict resolution UI</td>
+<td>no (falls back to vim's native <code>do</code>/<code>dp</code>)</td>
+<td>yes — <code>&lt;leader&gt;ct</code>/<code>co</code>/<code>cb</code>/<code>cx</code> accept-incoming/current/both/discard, per-hunk or whole-file</td>
+</tr>
+<tr>
+<td>First-run cost</td>
+<td>none, pure Lua</td>
+<td>downloads a small prebuilt C library once (~few MB, needs network)</td>
+</tr>
+</tbody>
+</table>
+<p>If codediff.nvim's PR-diff mode and conflict UI earn their keep, diffview.nvim
+becomes redundant and could come out later. If the extra weight (C library,
+bigger keymap surface) isn't worth it for how often you actually use
+per-file history, keep diffview.nvim and drop codediff.nvim instead — no
+need to decide today, this section is here so the comparison is easy
+whenever you do.</p>
+<h2 id="next-steps">Next steps</h2>
+<ul>
+<li><strong>Merge PR #10</strong> once you've walked the checklist above.</li>
+<li><strong>§9g — GPaste clipboard-history manager</strong> is next in the backlog, now
+non-blocking (reclassified from a hard gate during the 2026-07-07 doc
+review) — configure gsettings/dconf, shortcut <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>.</li>
+<li><strong>Standing pattern going forward:</strong> one of these recap pages per PR while
+this batch of follow-up work (9f/9g and beyond) is in flight, not just at
+the end of a slice — owner ask, 2026-07-08.</li>
+</ul>
+</article>
+<footer>
+  Generated by <code>docgen</code> from <code>docs/9f-ergonomics-recap.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+</main>
+
+</body>
+</html>
