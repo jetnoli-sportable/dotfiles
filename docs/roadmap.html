@@ -818,6 +818,8 @@ try side by side) before deciding whether to keep both.</li>
 </ol>
 <p><strong>Your take:</strong> pick off in any order; none block each other or slice 5.</p>
 <h3 id="9g-gpaste-clipboard-manager-setup-owner-task-spec-2026-07-07--queue-after-pr-9-merges">9g. GPaste clipboard manager setup (owner task spec, 2026-07-07 — queue after PR #9 merges)</h3>
+<p><em>DONE 2026-07-08 — executed exactly per the runbook below, all 6 steps.
+Recap with full verification output: <code>docs/9g-gpaste-recap.md</code>.</em></p>
 <p>System-level (GNOME/Wayland desktop, not this repo's tooling). No concrete
 build-order dependency ties this to slice timing (checked 2026-07-07 doc
 review, Decision 4) — reclassified from a hard gate to a non-blocking
@@ -891,6 +893,14 @@ configured, the active shortcut, and the dconf export path; ask the user
 to test the shortcut themselves and confirm the history popup appears.</p>
 </blockquote>
 <blockquote>
+<p><strong>Step 3 finding (2026-07-08 execution):</strong> the real key list also
+includes a <code>pop</code> key, not mentioned in the runbook above. Checked the
+schema before assuming anything: <code>pop</code>'s actual function is &quot;delete the
+first element in history&quot; — NOT a paste action. Left untouched at its
+default (<code>&lt;Ctrl&gt;&lt;Alt&gt;V</code>); binding a paste-expecting shortcut to it would
+have silently deleted history entries instead.</p>
+</blockquote>
+<blockquote>
 <p><strong>Follow-up, not folded into this task (owner call, 2026-07-07 review,
 Decision 1 note):</strong> unify copy/paste so terminal-level paste is never
 needed at all — assessed and NOT taken as a same-task small lift, because
@@ -962,9 +972,9 @@ with the repo. One line per item; add on deferral, strike on completion.</p>
 <td>right after PR #9 merges</td>
 </tr>
 <tr>
-<td>GPaste clipboard-history manager (configure + dconf export, <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>)</td>
+<td><del>GPaste clipboard-history manager (configure + dconf export, <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>)</del></td>
 <td>9g</td>
-<td>right after PR #9 merges (non-blocking, reclassified from a gate 2026-07-07)</td>
+<td><strong>DONE 2026-07-08</strong></td>
 </tr>
 <tr>
 <td>Unify copy/paste so terminal-level paste is never needed</td>

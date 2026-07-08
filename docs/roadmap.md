@@ -667,6 +667,9 @@ ready rather than needing a fresh investigation pass:
 
 ### 9g. GPaste clipboard manager setup (owner task spec, 2026-07-07 — queue after PR #9 merges)
 
+*DONE 2026-07-08 — executed exactly per the runbook below, all 6 steps.
+Recap with full verification output: `docs/9g-gpaste-recap.md`.*
+
 System-level (GNOME/Wayland desktop, not this repo's tooling). No concrete
 build-order dependency ties this to slice timing (checked 2026-07-07 doc
 review, Decision 4) — reclassified from a hard gate to a non-blocking
@@ -741,6 +744,13 @@ picked up:
 > configured, the active shortcut, and the dconf export path; ask the user
 > to test the shortcut themselves and confirm the history popup appears.
 
+> **Step 3 finding (2026-07-08 execution):** the real key list also
+> includes a `pop` key, not mentioned in the runbook above. Checked the
+> schema before assuming anything: `pop`'s actual function is "delete the
+> first element in history" — NOT a paste action. Left untouched at its
+> default (`<Ctrl><Alt>V`); binding a paste-expecting shortcut to it would
+> have silently deleted history entries instead.
+
 > **Follow-up, not folded into this task (owner call, 2026-07-07 review,
 > Decision 1 note):** unify copy/paste so terminal-level paste is never
 > needed at all — assessed and NOT taken as a same-task small lift, because
@@ -783,7 +793,7 @@ picked up:
 | Day bookends `wb up`/`wb down` | 9b | after 4b; session-id capture already landing |
 | Jira integration (both 9a's and 9b's halves) | 9a/9b | own ratified addition, not scheduled |
 | Editor/tmux ergonomics batch (oil→window, session persistence, telescope git_status, Claude clipboard, quick-ask bind, diff plugin trial) | 9f | right after PR #9 merges |
-| GPaste clipboard-history manager (configure + dconf export, `<Ctrl><Shift>G`) | 9g | right after PR #9 merges (non-blocking, reclassified from a gate 2026-07-07) |
+| ~~GPaste clipboard-history manager (configure + dconf export, `<Ctrl><Shift>G`)~~ | 9g | **DONE 2026-07-08** |
 | Unify copy/paste so terminal-level paste is never needed | 9g note | not started — needs its own design pass |
 | Cross-repo/cross-machine doc registry | 9d | PROPOSAL, unratified — only if artifacts still go missing |
 | Task recall — resume any work from any session | 9e | after slice 5; decision buffer at pickup |
