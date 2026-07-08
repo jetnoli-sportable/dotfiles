@@ -47,6 +47,14 @@ if [ ! -x "$docgen_sh" ] || [ ! -d "$HOME/code/docgen" ]; then
   exit 0
 fi
 
+# docgen.sh resolves its target root from $DOTFILES, falling back to the
+# hardcoded ~/code/dotfiles main checkout if unset — it never looks at cwd.
+# Without this, committing from a git worktree silently regenerates docs
+# against the main checkout instead of the worktree actually being
+# committed (found 2026-07-08: no data loss that time since the main
+# checkout was already docgen-consistent, but a real drift risk otherwise).
+export DOTFILES="$repo_root"
+
 echo "pre-commit: docgen-tracked source changed — regenerating"
 if ! "$docgen_sh" all; then
   echo "pre-commit: docgen failed (see above) — fix it before committing" >&2
