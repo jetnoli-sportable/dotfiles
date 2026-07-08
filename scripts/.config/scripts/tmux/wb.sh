@@ -379,8 +379,21 @@ wb_pr_merge_status() {
 # cmd_reconcile — two kinds of drift:
 #   - orphaned worktree: a real git worktree with no task file pointing at it
 #   - missing worktree: a task file's worktree: field points nowhere
+# wb_worktree_has_task <repo> <rel_worktree> — true if some task file's
+# repo:/worktree: pair matches exactly. Shared by cmd_reconcile's orphan
+# detection and /board's untracked-worktree rows (U4) — same question,
+# asked from two call sites, must never drift out of sync.
+wb_worktree_has_task() {
+  local repo="$1" rel="$2" tf
+  while IFS= read -r tf; do
+    [ "$(wb_get_frontmatter "$tf" repo)" = "$repo" ] || continue
+    [ "$(wb_get_frontmatter "$tf" worktree)" = "$rel" ] && return 0
+  done < <(wb_task_files)
+  return 1
+}
+
 cmd_reconcile() {
-  local repo_dir repo branch abs_path rel tf found merged
+  local repo_dir repo branch abs_path rel tf merged
   local -a orphan_rows=() missing_rows=()
 
   while IFS= read -r repo_dir; do
@@ -389,13 +402,7 @@ cmd_reconcile() {
     while IFS=$'\t' read -r branch abs_path; do
       [ -n "$abs_path" ] || continue
       rel="${abs_path#"$repo_dir"/}"
-      found=0
-      while IFS= read -r tf; do
-        [ "$(wb_get_frontmatter "$tf" repo)" = "$repo" ] || continue
-        [ "$(wb_get_frontmatter "$tf" worktree)" = "$rel" ] || continue
-        found=1; break
-      done < <(wb_task_files)
-      if [ "$found" -eq 0 ]; then
+      if ! wb_worktree_has_task "$repo" "$rel"; then
         merged="$(wb_pr_merge_status "$repo_dir" "$branch")"
         orphan_rows+=("$repo"$'\t'"$branch"$'\t'"$rel"$'\t'"$merged")
       fi
@@ -550,6 +557,348 @@ wb_pending_counts() {
   printf '%s follow-ups pending · %s parked' "$(wb_followup_count)" "$(wb_parked_count)"
 }
 
+# ---------------------------------------------------------------------------
+# /board (wb board --html) — 6 status tabs, timeline window, live-session
+# badges. `wb board` with no flag keeps the plain-text table below unchanged.
+# ---------------------------------------------------------------------------
+
+# wb_board_bucket_for_status <status> — maps a raw task status to one of the
+# 6 tabs' underlying buckets. `done` is a real bucket (used by the All tab)
+# but has no tab of its own — see R8/R9. Anything unrecognized (including
+# a future `pending` status before Deferred is wired up to it) falls to
+# `unclassified`, which is a deliberate catch-all, not a bug.
+wb_board_bucket_for_status() {
+  case "$1" in
+    doing|review) echo inprogress ;;
+    planned)      echo upcoming ;;
+    paused)       echo paused ;;
+    done)         echo done ;;
+    *)            echo unclassified ;;
+  esac
+}
+
+# wb_board_anchor_slug <string> — sanitize into a safe HTML id fragment.
+wb_board_anchor_slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9_-' '-'; }
+
+# wb_board_live_session_for <repo> <branch> — the live tmux session name for
+# this repo/branch, or empty. Same @wb_repo/@wb_slug lookup the picker's
+# wb_live_session_row already does (wb.sh:627-653) — a live-session badge is
+# an annotation on every row, independent of which tab it's in (R11).
+wb_board_live_session_for() {
+  local repo="$1" branch="$2" s r b
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    r="$(tmux show -t "=$s:" -v @wb_repo 2>/dev/null || true)"
+    b="$(tmux show -t "=$s:" -v @wb_slug 2>/dev/null || true)"
+    if [ "$r" = "$repo" ] && [ "$b" = "$branch" ]; then
+      printf '%s' "$s"
+      return 0
+    fi
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+}
+
+# wb_board_window_start <today|week> — epoch seconds for the timeline
+# window's start.
+wb_board_window_start() {
+  case "$1" in
+    week) date -d '7 days ago 00:00:00' +%s ;;
+    *)    date -d 'today 00:00:00' +%s ;;
+  esac
+}
+
+# wb_board_in_window <created> <closed> <updated_epoch> <window_start> —
+# true if created, updated, OR closed falls within the window (R10) — a
+# broader check than the old closed-only rule, applied uniformly to every
+# tab, not just a default view.
+wb_board_in_window() {
+  local created="$1" closed="$2" updated="$3" start="$4" e
+  if [ -n "$created" ]; then
+    e="$(date -d "$created" +%s 2>/dev/null || echo 0)"
+    [ "$e" -ge "$start" ] && return 0
+  fi
+  if [ -n "$closed" ]; then
+    e="$(date -d "$closed" +%s 2>/dev/null || echo 0)"
+    [ "$e" -ge "$start" ] && return 0
+  fi
+  [ "${updated:-0}" -ge "$start" ] && return 0
+  return 1
+}
+
+# wb_board_collect_rows — one TSV line per row, task-store tasks first, then
+# untracked worktrees (R9). Fields:
+#   1 kind (task|untracked)   2 bucket   3 status (raw, empty for untracked)
+#   4 repo   5 branch   6 worktree (relative)   7 title
+#   8 created   9 closed   10 updated (mtime, epoch)   11 taskfile (or empty)
+#   12 anchor_key (unique, sanitized — view-scoped prefixes are added at
+#      render time since the same row gets a different id per visible tab)
+wb_board_collect_rows() {
+  local f status repo worktree branch title created closed updated anchor
+  local -a t
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    wb_tsv_split "$(wb_read_task "$f")" t
+    status="${t[0]:-}"; repo="${t[1]:-}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
+    title="$(wb_task_title "$f")"; [ -n "$title" ] || title="$(basename "$f" .md)"
+    created="$(wb_get_frontmatter "$f" created)"
+    closed="$(wb_get_frontmatter "$f" closed)"
+    updated="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+    anchor="$(wb_board_anchor_slug "$(basename "$f" .md)")"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "task" "$(wb_board_bucket_for_status "$status")" "$status" "$repo" \
+      "$branch" "$worktree" "$title" "$created" "$closed" "$updated" "$f" "$anchor"
+  done < <(wb_task_files)
+
+  local repo_dir r_branch abs_path rel
+  while IFS= read -r repo_dir; do
+    [ -d "$repo_dir/.git" ] || continue
+    repo="$(basename "$repo_dir")"
+    while IFS=$'\t' read -r r_branch abs_path; do
+      [ -n "$abs_path" ] || continue
+      rel="${abs_path#"$repo_dir"/}"
+      wb_worktree_has_task "$repo" "$rel" && continue
+      updated="$(stat -c %Y "$abs_path" 2>/dev/null || echo 0)"
+      anchor="$(wb_board_anchor_slug "untracked-${repo}--${r_branch}")"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "untracked" "unclassified" "" "$repo" "$r_branch" "$rel" "$r_branch" \
+        "" "" "$updated" "" "$anchor"
+    done < <(wb_repo_worktrees "$repo_dir")
+  done < <(wb_reconcile_repos)
+}
+
+# wb_board_html_escape <string> — minimal HTML-entity escaping for table
+# cells, anchor text and attribute values built from task titles/branches,
+# which can contain `<`/`&` (R12's escaping test scenario).
+wb_board_html_escape() {
+  local s="$1"
+  # `&` in a bash pattern-substitution REPLACEMENT is a backreference to the
+  # match (same as sed) — unescaped, `${s//</&lt;}` produces "<lt;" (match
+  # `<` + literal "lt;") instead of "&lt;". `\&` forces a literal ampersand.
+  s="${s//&/\&amp;}"; s="${s//</\&lt;}"; s="${s//>/\&gt;}"
+  printf '%s' "$s"
+}
+
+# wb_board_section <file> <heading> — body lines under "## <heading>" up to
+# the next "## " heading (or EOF). Same convention wb_sweep_section already
+# uses for the "## Sweep" section, generalized to any named section.
+wb_board_section() {
+  awk -v h="## $2" '
+    $0 == h { insec = 1; next }
+    /^## / { insec = 0 }
+    insec { print }
+  ' "$1"
+}
+
+# wb_board_first_nonblank_line <text> — first non-whitespace-only line of
+# <text>, or empty. Deliberately NOT `... | sed ... | head -1`: under this
+# script's `set -o pipefail`, head closing the pipe after its first line
+# sends SIGPIPE to whatever's still writing upstream (real task files often
+# have multi-line Plan/Done sections, unlike this repo's short test
+# fixtures, which is exactly why this shipped without tripping any test).
+# A here-string loop reads a value already fully captured in memory, so
+# breaking out of it early has no live process left to SIGPIPE.
+wb_board_first_nonblank_line() {
+  local line
+  while IFS= read -r line; do
+    if [ -n "${line//[[:space:]]/}" ]; then
+      printf '%s' "$line"
+      return 0
+    fi
+  done <<< "$1"
+}
+
+# wb_board_ledger_matches <worktree_abs_path> — open /park ledger entries
+# whose cwd is under this worktree, one compact JSON object per line.
+wb_board_ledger_matches() {
+  local wt="$1" ledger="$HOME/.claude/parked-items/ledger.jsonl"
+  [ -n "$wt" ] && [ -f "$ledger" ] || return 0
+  jq -c --arg wt "$wt" \
+    'select(.cwd != null and ((.cwd == $wt) or (.cwd | startswith($wt + "/"))))' \
+    "$ledger" 2>/dev/null
+}
+
+# wb_board_pr_info <repo_dir> <branch> — "#<number> (<state>)" for the most
+# recent PR on <branch>, any state (open/closed/merged) — a display nicety
+# for a task's detail section, not a drift signal, so unlike
+# wb_pr_merge_status this silently returns empty on any gh/pgh failure
+# rather than reporting "unknown".
+wb_board_pr_info() {
+  local repo_dir="$1" branch="$2" out rc
+  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state all --json number,state 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state all --json number,state 2>&1)"; rc=$?
+  fi
+  [ "$rc" -eq 0 ] || return 0
+  printf '%s' "$out" | jq -r '.[0] // empty | "#\(.number) (\(.state))"' 2>/dev/null
+}
+
+# wb_board_render_html — writes the full /board page to stdout: 6 status
+# tabs x 2 timeline windows, pre-rendered as 12 panels with CSS-only
+# radio-sibling switching (no JS — R8/R10's zero-JS decision), live-session
+# badges per row (R11), and per-panel anchor-linked detail sections (R12).
+wb_board_render_html() {
+  local -a ROWS=()
+  local line
+  while IFS= read -r line; do ROWS+=("$line"); done < <(wb_board_collect_rows)
+
+  local -a TABS=(all inprogress upcoming paused deferred unclassified)
+  local -A TAB_LABEL=([all]="All" [inprogress]="In Progress" [upcoming]="Upcoming" [paused]="Paused" [deferred]="Deferred" [unclassified]="Unclassified")
+  local -a WINDOWS=(today week)
+  local -A WIN_LABEL=([today]="Today" [week]="This week")
+
+  # Radios are declared ONCE here, before <header>/<main> — the CSS below
+  # relies on both radio groups being earlier siblings of <main> so the
+  # `~` sibling combinator can reach it (label position doesn't matter,
+  # since labels reference these ids via for= rather than nesting).
+  local radios_html='' tabs_html='' win_html='' panel_css='' panels_html=''
+  local win tab first_win=1 first_tab=1
+  for win in "${WINDOWS[@]}"; do
+    local checked=""; [ "$first_win" = 1 ] && checked=" checked" && first_win=0
+    radios_html+="<input type=\"radio\" name=\"tl\" id=\"tl-$win\"$checked>"$'\n'
+    win_html+="<label for=\"tl-$win\">${WIN_LABEL[$win]}</label>"$'\n'
+  done
+  for tab in "${TABS[@]}"; do
+    local checked=""; [ "$first_tab" = 1 ] && checked=" checked" && first_tab=0
+    radios_html+="<input type=\"radio\" name=\"st\" id=\"st-$tab\"$checked>"$'\n'
+    tabs_html+="<label for=\"st-$tab\">${TAB_LABEL[$tab]}</label>"$'\n'
+  done
+
+  local row kind bucket status repo branch worktree title created closed updated taskfile anchor_key
+  local -a f
+  for win in "${WINDOWS[@]}"; do
+    local window_start; window_start="$(wb_board_window_start "$win")"
+    for tab in "${TABS[@]}"; do
+      panel_css+="#tl-$win:checked ~ #st-$tab:checked ~ main #panel-$tab-$win { display: flex; }"$'\n'
+      local table_rows='' detail_sections='' any=0
+      for row in "${ROWS[@]}"; do
+        wb_tsv_split "$row" f
+        kind="${f[0]}"; bucket="${f[1]}"; status="${f[2]}"; repo="${f[3]}"; branch="${f[4]}"
+        worktree="${f[5]}"; title="${f[6]}"; created="${f[7]}"; closed="${f[8]}"; updated="${f[9]}"
+        taskfile="${f[10]}"; anchor_key="${f[11]}"
+        [ "$tab" = all ] || [ "$bucket" = "$tab" ] || continue
+        wb_board_in_window "$created" "$closed" "$updated" "$window_start" || continue
+        any=1
+        local view_anchor="t-$tab-$win-$anchor_key"
+        local esc_title esc_branch esc_repo pill_class pill_label live_session live_badge
+        esc_title="$(wb_board_html_escape "$title")"
+        esc_branch="$(wb_board_html_escape "$branch")"
+        esc_repo="$(wb_board_html_escape "$repo")"
+        pill_class="$status"; pill_label="$status"
+        [ "$kind" = untracked ] && { pill_class="unclassified"; pill_label="unclassified"; }
+        live_session="$(wb_board_live_session_for "$repo" "$branch")"
+        live_badge=""
+        [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
+        local link_text="$esc_title"
+        [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
+        table_rows+="<tr class=\"row\"><td><span class=\"pill $pill_class\">$pill_label</span></td><td><a class=\"tasklink\" href=\"#$view_anchor\">$link_text</a> $live_badge</td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
+
+        if [ "$kind" = untracked ]; then
+          detail_sections+="<div class=\"task-detail untracked\" id=\"$view_anchor\"><h3>$esc_branch <span class=\"pill unclassified\">unclassified</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3><span class=\"repo\">$esc_repo</span><p><b>No task file.</b> Worktree exists on disk (<code>$(wb_board_html_escape "$worktree")</code>) with no matching entry in the task store.</p></div>"$'\n'
+        else
+          local plan done_txt followups decisions repo_dir wt_abs pr_info detail_extra=""
+          plan="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Plan)")"
+          done_txt="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Done)")"
+          [ -n "$plan" ] && detail_extra+="<p><b>Plan:</b> $(wb_board_html_escape "$plan")</p>"
+          [ -n "$done_txt" ] && detail_extra+="<p><b>Done:</b> $(wb_board_html_escape "$done_txt")</p>"
+          repo_dir="$(wb_repo_dir "$repo")"
+          if [ -d "$repo_dir/.git" ]; then
+            pr_info="$(wb_board_pr_info "$repo_dir" "$branch")"
+            [ -n "$pr_info" ] && detail_extra+="<p><b>Related:</b> <span class=\"artefact-chip\">PR $(wb_board_html_escape "$pr_info")</span></p>"
+          fi
+          wt_abs="$repo_dir/$worktree"
+          local ledger_line ledger_note=""
+          while IFS= read -r ledger_line; do
+            [ -n "$ledger_line" ] || continue
+            ledger_note+="$(printf '%s' "$ledger_line" | jq -r '.note // empty' 2>/dev/null); "
+          done < <(wb_board_ledger_matches "$wt_abs")
+          [ -n "$ledger_note" ] && detail_extra+="<p><b>Parked:</b> $(wb_board_html_escape "$ledger_note")</p>"
+          detail_sections+="<div class=\"task-detail\" id=\"$view_anchor\"><h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3><span class=\"repo\">$esc_repo</span>$detail_extra</div>"$'\n'
+        fi
+      done
+
+      if [ "$any" = 1 ]; then
+        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><table><tr><th>Status</th><th>Task</th><th>Repo</th></tr>$table_rows</table><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$detail_sections</div></div></div>"$'\n'
+      elif [ "$tab" = deferred ]; then
+        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"empty-state\">No deferred tasks yet — reserved for a future <code>pending</code> status once <code>/park</code> items become task-store entries. Not part of this PR.</div></div>"$'\n'
+      else
+        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"empty-state\">No tasks in this view.</div></div>"$'\n'
+      fi
+    done
+  done
+
+  cat <<HTMLEOF
+<title>&#9673; /board</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --doing: #04a5e5; --review: #df8e1d; --planned: #8c8fa1; --done: #40a02b; --paused: #209fb5;
+    --unclassified: #8839ef; --ok: #40a02b;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d; --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db; --doing: #99d1db; --review: #e5c890; --planned: #838ba7; --done: #a6d189; --paused: #85c1dc; --unclassified: #ca9ee6; --ok: #a6d189; }
+  }
+  :root[data-theme="dark"] { --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d; --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db; --doing: #99d1db; --review: #e5c890; --planned: #838ba7; --done: #a6d189; --paused: #85c1dc; --unclassified: #ca9ee6; --ok: #a6d189; }
+  :root[data-theme="light"] { --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da; --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5; --doing: #04a5e5; --review: #df8e1d; --planned: #8c8fa1; --done: #40a02b; --paused: #209fb5; --unclassified: #8839ef; --ok: #40a02b; }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); margin: 0; font-size: 15px; line-height: 1.5; }
+  input[type=radio] { display: none; }
+  header { padding: 1.2rem 1.5rem; border-bottom: 1px solid var(--line); background: var(--bg2); position: sticky; top: 0; z-index: 5; }
+  header h1 { font-family: var(--mono); font-size: 1.1rem; margin: 0 0 .8rem; }
+  .tabs { display: flex; gap: .4rem; flex-wrap: wrap; }
+  .tabgroup { display: flex; gap: .25rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .25rem; flex-wrap: wrap; }
+  .tabgroup label { font-family: var(--mono); font-size: .78rem; padding: .35rem .8rem; border-radius: 6px; cursor: pointer; color: var(--ink2); }
+  input[type=radio]:checked + label { background: var(--acc); color: white; }
+
+  main { padding: 1.5rem; max-width: 60rem; margin: 0 auto; }
+  .view { display: none; flex-direction: column; gap: 2rem; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th { text-align: left; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
+  td { padding: .65rem .9rem; border-bottom: 1px solid var(--line); font-size: .9rem; }
+  tr:last-child td { border-bottom: none; }
+  tr.row:hover { background: var(--bg2); }
+  td a.tasklink { color: var(--acc2); text-decoration: none; font-weight: 600; }
+  td a.tasklink:hover { text-decoration: underline; }
+  .pill { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .72rem; padding: .1em .6em; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.doing { color: var(--doing); } .pill.review { color: var(--review); } .pill.planned { color: var(--planned); } .pill.done { color: var(--done); } .pill.paused { color: var(--paused); } .pill.unclassified { color: var(--unclassified); }
+  .repo { font-family: var(--mono); font-size: .78rem; color: var(--mut); }
+  .live-badge { display: inline-flex; align-items: center; gap: .3em; font-family: var(--mono); font-size: .7rem; color: var(--ok); }
+  .empty-state { padding: 1.6rem; text-align: center; color: var(--mut); font-family: var(--mono); font-size: .85rem; background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }
+
+  .details-heading { font-family: var(--mono); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); border-bottom: 1px solid var(--line); padding-bottom: .5rem; margin: 0; }
+  .details-stack { display: flex; flex-direction: column; gap: .8rem; }
+  .task-detail { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.2rem; scroll-margin-top: 8rem; }
+  .task-detail:target { border-color: var(--acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 25%, transparent); }
+  .task-detail h3 { margin: 0 0 .3rem; font-size: 1rem; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  .task-detail .back { font-family: var(--mono); font-size: .74rem; color: var(--acc2); text-decoration: none; margin-left: auto; }
+  .task-detail p { margin: .4rem 0; font-size: .87rem; color: var(--ink2); }
+  .task-detail p b { color: var(--ink); }
+  .task-detail.untracked { border-style: dashed; }
+  .artefact-chip { display: inline-flex; font-family: var(--mono); font-size: .74rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: .1em .6em; margin-right: .3em; color: var(--ink2); }
+  $panel_css
+</style>
+$radios_html
+<header>
+  <h1>&#9673; /board</h1>
+  <div class="tabs">
+    <div class="tabgroup">$win_html</div>
+    <div class="tabgroup">$tabs_html</div>
+  </div>
+</header>
+<main>
+$panels_html
+</main>
+HTMLEOF
+}
+
 # cmd_board — read-only status table over the whole task store (the interim
 # /board, roadmap 9a / Decision 5A). The picker deliberately shows PRESENCE
 # only, which hides planned/done tasks entirely — this is the one place they
@@ -557,6 +906,20 @@ wb_pending_counts() {
 # frontmatter wb done writes (one-board principle at the data layer); never
 # touches tmux, so it works from any shell.
 cmd_board() {
+  if [ "${1:-}" = "--html" ]; then
+    # logs/board.html lives in THIS repo (dotfiles), same as logs/decisions/
+    # — derive the root from wb.sh's own location rather than assuming the
+    # repo is literally named "dotfiles" under CODE_DIR.
+    local dotfiles_root
+    dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+    [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
+    local out="$dotfiles_root/logs/board.html"
+    mkdir -p "$(dirname "$out")"
+    wb_board_render_html > "$out"
+    echo "wb board: wrote $out"
+    return 0
+  fi
+
   local f title fu rows=""
   local -a t
   while IFS= read -r f; do
