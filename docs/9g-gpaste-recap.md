@@ -64,9 +64,6 @@ Flycut-style history picker this task wanted.
 
 ## What's NOT done yet
 
-- **Commit `gpaste.dconf`** — staged per the runbook's explicit "stage but
-  do NOT commit unless asked" instruction. Say the word and it's committed
-  + a PR opened.
 - **Unify copy/paste** so terminal-level paste is never needed (roadmap 9g
   follow-up note) — deliberately out of scope for this task, tracked in
   §10 as its own design pass.
@@ -75,8 +72,10 @@ Flycut-style history picker this task wanted.
 
 ## Next steps
 
-- **Confirm the shortcut works for you live**, then say the word to commit
-  `gpaste.dconf` and open a PR.
-- With 9f and 9g both done, the next roadmap items needing a pickup
-  decision are slice 4b (gated on the 4a usage-window verdict, ~2026-07-14)
-  and `/board`'s full HTML feature (`wb board` interim is already live).
+- **Confirm the shortcut works for you live** — press `<Ctrl><Shift>G` and
+  check the history menu appears.
+- **Merge this PR** once you've walked the checklist above.
+- With 9f (pending your review) and 9g both wrapped, the next roadmap items
+  needing a pickup decision are slice 4b (gated on the 4a usage-window
+  verdict, ~2026-07-14) and `/board`'s full HTML feature (`wb board`
+  interim is already live).
