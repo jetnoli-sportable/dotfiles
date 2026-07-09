@@ -20,7 +20,13 @@ When a decision is trivial (one obvious option, yes/no with an obvious default),
 
 Path: `docs/decisions/YYYY-MM-DD-<topic>.md` if the repo has `docs/decisions/`; otherwise `./logs/decisions/YYYY-MM-DD-<topic>.md` (gitignored scratch). Use the repo the discussion concerns — for worktree-based discussions, write inside that worktree.
 
-Structure (every section required):
+Structure — every decision (even when the doc holds only one) is a fully
+self-contained block: its options, then ITS OWN recommendation, then ITS OWN
+questions/notes. Never collect recommendations or notes into a single
+section at the end of the doc — Jet reacts to each decision while reading
+it, not after reading all of them (user rule, 2026-07-06 for notes,
+2026-07-08 for recommendations; a doc-end "Recommendation: 1A, 2A, 3A" list
+forces re-scrolling to match each pick back to its reasoning).
 
 ```markdown
 # <Decision title>
@@ -32,8 +38,10 @@ Structure (every section required):
 
 Problem statement, constraints, relevant facts verified in the codebase
 (with `file:line` references), and anything already ruled out and why.
+Shared/global context goes here; a specific decision can add its own
+context inline within its own section below if it doesn't apply globally.
 
-## Options
+## Decision 1 — <name>
 
 ### Option A — <name>
 
@@ -53,26 +61,76 @@ Problem statement, constraints, relevant facts verified in the codebase
 ### Option B — <name>
 (same shape; 2-4 options total, distinct on mechanism not implementation detail)
 
-## Recommendation
+**Recommendation:** agent's pick for *this* decision and a short why, placed
+right here — immediately after this decision's own options, never deferred
+to a section at the end of the doc. State trade-offs honestly; do not pad.
 
-Agent's pick and a one-paragraph why. State trade-offs honestly; do not pad.
+### Questions / Notes
+
+_(empty — yours)_
+
+## Decision 2 — <name>
+
+(repeat the exact same shape: options → inline **Recommendation:** → its
+own ### Questions / Notes. One `## Decision N` block per decision. For a
+single-decision doc there's just one block; drop the number or call it
+`## Options` if that reads more naturally — the inline-recommendation and
+per-decision-notes shape still applies.)
 
 ## Questions / Notes
 
-_(empty — yours)_
+_(doc-level — ONLY for notes that cross-cut multiple decisions and don't
+belong to one specifically. Still seed with `_(empty — yours)_`. This is
+never where an individual decision's recommendation or notes live.)_
 ```
 
 Rules:
 - Inline code examples are mandatory per option — what the change actually looks like in this codebase, not pseudocode.
 - Repo-relative paths only inside the doc.
 - Keep context honest: include facts that argue *against* the recommendation too.
-- **Multi-decision docs: a `### Questions / Notes` subsection under EVERY
-  decision** (directly after its last option, before the next decision's
-  heading), each seeded with `_(empty — yours)_` — Jet reacts to decisions
-  inline while reading; one trailing notes section forces bottom-of-file
-  cross-referencing by number (user rule, 2026-07-06). The doc-level
-  `## Questions / Notes` at the end stays for cross-cutting notes. Parse
-  BOTH the per-decision subsections and the doc-level one on return.
+- **Every decision gets its own inline `**Recommendation:**` line AND its
+  own `### Questions / Notes` subsection**, both directly after that
+  decision's last option and before the next decision's heading. Never a
+  single `## Recommendation` or a single `## Questions / Notes` covering
+  multiple decisions — both read poorly because Jet reacts to a decision
+  immediately after seeing its options, not after scrolling through every
+  other decision first. The doc-level `## Questions / Notes` at the very
+  end is the only exception, reserved for genuinely cross-cutting notes.
+  Parse every per-decision subsection plus the doc-level one on return.
+
+### 1b. Companion HTML doc (sufficiently large buffers)
+
+For a buffer with 2+ decisions, or a single decision whose background
+context is substantial, also write a companion HTML doc at the same path
+with `.html` in place of `.md` (e.g. `logs/decisions/2026-07-08-board-
+scoping.md` pairs with `logs/decisions/2026-07-08-board-scoping.html`).
+The markdown stays the concise, actionable artifact (checkboxes, options,
+inline recommendations) — the HTML is where richer context lives, so the
+markdown never has to bloat to carry it:
+
+- Fuller background/context than the markdown's terse Context section —
+  including short quotes from (not just links to) prior decisions or docs
+  that shaped this one, so the reader never has to go find something they
+  haven't seen recently.
+- Diagrams/charts/visuals where they clarify a tradeoff (a sequence diagram
+  for a flow decision, a comparison chart for a cost tradeoff) — markdown
+  has no good native equivalent for these.
+- Relevant glossary terms surfaced inline, once a glossary page exists to
+  link to.
+
+Follow the `artifact-design` skill's guidance for the HTML itself
+(self-contained, theme-aware light/dark, no external assets) and match this
+repo's existing generated-doc visual language (see `docs/wb-guide.html`'s
+inline `<style>` block — Catppuccin-based light/dark palette) rather than
+inventing a new look per doc.
+
+Skip the companion HTML for a single small decision with an obvious,
+low-context choice — the markdown alone is the whole point there.
+
+Mention the companion doc's absolute path once, alongside the buffer-open
+message, so the user can open it in a browser at their own pace. It is
+read-only reference material, not routed through the nvim buffer flow —
+don't wait on it before opening the markdown buffer.
 
 ### 2. Hand off to the buffer — auto-open
 
@@ -131,9 +189,18 @@ When the background command completes (window closed), the `!` command returns, 
 - Multiple `[x]` → ask (in chat) whether it's a staged/combined intent or an accident.
 - Zero `[x]` and no notes → ask in chat what held them back; do not re-fire the same doc unchanged.
 
-### 4. Iterate in the buffer when asked
+### 4. Iterate — rewrite fresh, don't append
 
-If the user's notes warrant another round: edit the doc in place — append `> **answer:** ...` blockquotes directly under their questions, revise option sections if their notes change the analysis — then offer the same `! nvim` command again. The doc accumulates the dialogue; do not start a new file per round.
+When another round is warranted, do NOT keep appending `> **answer:**` blockquotes onto the existing structure and reopening the same growing doc — that's how a buffer turns into an unreadable stack of appended rounds (this happened, 2026-07-08: "the buffer is confusing as the original doc is there with our updates and decisions appended on").
+
+Instead, rewrite the doc fresh each round:
+
+- **Clearly resolved decisions** (an unambiguous `[x]` with no dangling question, or a note that fully closes the question) collapse into a compact `## Decisions made` summary at the top of the rewritten doc — one bullet per decision: what was decided and a one-line why. Do not keep their full options/pros/cons scaffolding around — that already did its job.
+- **Still-open items** — an unresolved choice, a decision whose note raises a new question needing an answer, or a restated understanding awaiting confirmation — keep their full appropriate form (options block, or a restated-understanding-plus-confirm-checkbox, whichever fits) in the body below the summary, exactly as before.
+- Seed `## Decisions made` with an instruction that the user can flag anything wrong about it inline or in that section's own notes — a summary is a claim to verify, not a fait accompli.
+- If the whole doc resolves to zero open items, don't reopen it at all — report completion in chat instead (see Afterwards).
+
+This keeps every re-opened buffer as short as the genuinely unresolved surface, not a growing transcript of the whole negotiation. The doc still accumulates as a durable record (via `## Decisions made` entries growing each round), just compacted instead of appended.
 
 ### 5. Afterwards
 

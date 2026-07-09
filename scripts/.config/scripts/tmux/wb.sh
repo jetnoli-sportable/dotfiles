@@ -5,6 +5,9 @@
 #   wb                               the picker (replaces s + ca)
 #   wb board                         task-store status table (interim /board)
 #   wb done [<session>]              safe wind-down (defaults to the current session)
+#   wb resume <task>                 recreate a closed/gone worktree+session from its task file
+#   wb pause [<session>]             mark a task paused — worktree and session both survive
+#   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
 # ratified judgment calls: dotfiles/logs/decisions/2026-07-06-review-outstanding.md,
@@ -279,6 +282,477 @@ cmd_new() {
 }
 
 # ---------------------------------------------------------------------------
+# wb resume — recreate a task's worktree+session from the central store
+# ---------------------------------------------------------------------------
+
+# cmd_resume <query> — case-insensitive substring match of <query> against
+# every task file's basename (repo--slug, minus .md), then hands off to
+# cmd_new's existing worktree/session logic (already idempotent — safe
+# whether the worktree still exists or was torn down by a prior `wb done`).
+# Never guesses on ambiguity: 0 or 2+ matches both fail loudly instead of
+# picking one.
+cmd_resume() {
+  local query="${1:-}"
+  [ -n "$query" ] || { echo "usage: wb resume <task>" >&2; exit 1; }
+
+  local -a matches=()
+  local f base
+  while IFS= read -r f; do
+    base="$(basename "$f" .md)"
+    case "${base,,}" in
+      *"${query,,}"*) matches+=("$f") ;;
+    esac
+  done < <(wb_task_files)
+
+  case "${#matches[@]}" in
+    0)
+      echo "wb resume: no task matches '$query' in $TASKS_DIR" >&2
+      exit 1
+      ;;
+    1)
+      local file="${matches[0]}" repo branch
+      repo="$(wb_get_frontmatter "$file" repo)"
+      branch="$(wb_get_frontmatter "$file" branch)"
+      [ -n "$repo" ] && [ -n "$branch" ] \
+        || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
+      cmd_new "$repo" "$branch"
+      ;;
+    *)
+      echo "wb resume: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
+      for f in "${matches[@]}"; do
+        echo "  $(basename "$f" .md)" >&2
+      done
+      exit 1
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# wb reconcile — drift detection (task store vs. git worktree reality)
+# ---------------------------------------------------------------------------
+# Detection only. The review-doc + six-action flow over these findings is a
+# separate, still-pending unit — this just reports.
+
+# wb_reconcile_repos — every repo directory to scan for orphaned worktrees.
+# Indirection point so tests can stub in fixture repos instead of scanning
+# the real $HOME/code.
+wb_reconcile_repos() { tmux_code_repos; }
+
+# wb_repo_dir <repo> — <repo>'s directory under CODE_DIR. Indirection point
+# so tests can stub in a fixture path instead of the real $HOME/code/<repo>.
+wb_repo_dir() { printf '%s/%s\n' "$CODE_DIR" "$1"; }
+
+# wb_repo_worktrees <repo_dir> — "<branch>\t<abs_path>" per worktree in
+# <repo_dir>, EXCLUDING the main worktree (the checkout itself). Uses
+# substr(), not field-split, so a path containing spaces doesn't corrupt
+# the branch/path split.
+wb_repo_worktrees() {
+  git -C "$1" worktree list --porcelain 2>/dev/null | awk -v main="$1" '
+    /^worktree / { path = substr($0, 10); branch = ""; is_main = (path == main) }
+    /^branch /   { b = substr($0, 8); sub(/^refs\/heads\//, "", b); branch = b }
+    /^detached$/ { branch = "(detached)" }
+    /^$/         { if (path != "" && !is_main) printf "%s\t%s\n", branch, path; path = "" }
+    END          { if (path != "" && !is_main) printf "%s\t%s\n", branch, path }
+  '
+}
+
+# wb_pr_merge_status <repo_dir> <branch> — "merged" | "not-merged" | "unknown"
+# for <branch>'s most recent PR. Falls back from `gh` to a personal PAT
+# (mirroring the `pgh` shell function in ~/.zshrc — reimplemented inline
+# since wb.sh is bash and pgh is a zsh function, not a standalone binary)
+# when the Sportable-scoped token can't see the repo. Hard rule: never
+# silently drop a finding — a gh/pgh failure reports "unknown" rather than
+# omitting the row entirely.
+wb_pr_merge_status() {
+  local repo_dir="$1" branch="$2" out rc
+  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state merged --json number 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state merged --json number 2>&1)"; rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo unknown
+    return
+  fi
+  if printf '%s' "$out" | grep -q '"number"'; then echo merged; else echo not-merged; fi
+}
+
+# cmd_reconcile — two kinds of drift:
+#   - orphaned worktree: a real git worktree with no task file pointing at it
+#   - missing worktree: a task file's worktree: field points nowhere
+# wb_worktree_has_task <repo> <rel_worktree> — true if some task file's
+# repo:/worktree: pair matches exactly. Shared by cmd_reconcile's orphan
+# detection and /board's untracked-worktree rows (U4) — same question,
+# asked from two call sites, must never drift out of sync.
+wb_worktree_has_task() {
+  local repo="$1" rel="$2" tf
+  while IFS= read -r tf; do
+    [ "$(wb_get_frontmatter "$tf" repo)" = "$repo" ] || continue
+    [ "$(wb_get_frontmatter "$tf" worktree)" = "$rel" ] && return 0
+  done < <(wb_task_files)
+  return 1
+}
+
+# wb_reconcile_collect — one TSV line per drift finding, shared by
+# cmd_reconcile's plain-text output and the review-doc generator (U7) so
+# detection logic lives in exactly one place. Fields:
+#   orphan:  kind=orphan   repo  branch  worktree(rel)  merge-status
+#   missing: kind=missing  repo  branch(from frontmatter)  worktree(rel)  taskfile(abs path)
+wb_reconcile_collect() {
+  local repo_dir repo branch abs_path rel merged
+  while IFS= read -r repo_dir; do
+    [ -d "$repo_dir/.git" ] || continue
+    repo="$(basename "$repo_dir")"
+    while IFS=$'\t' read -r branch abs_path; do
+      [ -n "$abs_path" ] || continue
+      rel="${abs_path#"$repo_dir"/}"
+      if ! wb_worktree_has_task "$repo" "$rel"; then
+        merged="$(wb_pr_merge_status "$repo_dir" "$branch")"
+        printf 'orphan\t%s\t%s\t%s\t%s\n' "$repo" "$branch" "$rel" "$merged"
+      fi
+    done < <(wb_repo_worktrees "$repo_dir")
+  done < <(wb_reconcile_repos)
+
+  local tf t_repo t_worktree t_branch
+  while IFS= read -r tf; do
+    t_repo="$(wb_get_frontmatter "$tf" repo)"
+    t_worktree="$(wb_get_frontmatter "$tf" worktree)"
+    [ -n "$t_repo" ] && [ -n "$t_worktree" ] || continue
+    [ -d "$(wb_repo_dir "$t_repo")/$t_worktree" ] && continue
+    t_branch="$(wb_get_frontmatter "$tf" branch)"
+    printf 'missing\t%s\t%s\t%s\t%s\n' "$t_repo" "$t_branch" "$t_worktree" "$tf"
+  done < <(wb_task_files)
+}
+
+cmd_reconcile() {
+  case "${1:-}" in
+    --review) shift; wb_reconcile_generate_review "$@"; return ;;
+    --apply)  shift; wb_reconcile_apply "$@"; return ;;
+  esac
+
+  local -a orphan_rows=() missing_rows=()
+  local line kind repo branch worktree extra
+  local -a f
+  while IFS= read -r line; do
+    wb_tsv_split "$line" f
+    kind="${f[0]}"; repo="${f[1]}"; branch="${f[2]}"; worktree="${f[3]}"; extra="${f[4]}"
+    if [ "$kind" = orphan ]; then
+      orphan_rows+=("$repo"$'\t'"$branch"$'\t'"$worktree"$'\t'"$extra")
+    else
+      missing_rows+=("$repo"$'\t'"$worktree"$'\t'"$(basename "$extra" .md)")
+    fi
+  done < <(wb_reconcile_collect)
+
+  if [ "${#orphan_rows[@]}" -eq 0 ] && [ "${#missing_rows[@]}" -eq 0 ]; then
+    echo "wb reconcile: no drift found"
+    return 0
+  fi
+
+  if [ "${#orphan_rows[@]}" -gt 0 ]; then
+    echo "Orphaned worktrees (no matching task file):"
+    { printf 'REPO\tBRANCH\tWORKTREE\tMERGE-STATUS\n'; printf '%s\n' "${orphan_rows[@]}"; } | column -t -s $'\t'
+    [ "${#missing_rows[@]}" -gt 0 ] && echo
+  fi
+
+  if [ "${#missing_rows[@]}" -gt 0 ]; then
+    echo "Tasks referencing a missing worktree:"
+    { printf 'REPO\tWORKTREE\tTASK\n'; printf '%s\n' "${missing_rows[@]}"; } | column -t -s $'\t'
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# wb reconcile --review / --apply — the persistent review doc + six-action
+# flow (U7). Each finding renders with a `<!-- wb-reconcile: ... -->`
+# marker carrying its identifying fields, immune to whatever the user edits
+# around it — --apply reads markers back, not prose.
+#
+# "merge with task" is only semantically distinct from "attach to task" for
+# a MISSING-worktree finding (two real task files, two sets of Plan/Done/
+# Follow-ups content to reconcile). An orphaned worktree has no task file of
+# its own, so "merging" it into an existing task IS attaching — there's
+# nothing else to combine. The survivor sub-checkboxes only ever apply to
+# a missing-finding merge, and since the target task isn't known until the
+# user names it in this same document, the pre-checked default can't be
+# computed at generation time — it's computed and appended on the FIRST
+# --apply that sees a named target with no survivor choice yet, and the doc
+# reopens for confirmation before anything actually merges (same
+# append-then-reopen shape wb done's own Sweep flow already uses).
+# ---------------------------------------------------------------------------
+
+# wb_reconcile_report_path — logs/reconcile.md in THIS repo (dotfiles),
+# same convention as wb_board_render_html's logs/board.html.
+wb_reconcile_report_path() {
+  local root
+  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+  [ -n "$root" ] || root="$CODE_DIR/dotfiles"
+  printf '%s/logs/reconcile.md\n' "$root"
+}
+
+# wb_reconcile_generate_review — (re)writes the persistent review doc from
+# a fresh detection pass, then opens it for editing. Refuses to clobber a
+# prior report that still has unchecked findings (R17) — an unresolved
+# review is work in progress, not something to silently discard.
+wb_reconcile_generate_review() {
+  local path; path="$(wb_reconcile_report_path)"
+  if [ -f "$path" ] && grep -q '<!-- wb-reconcile:' "$path" && grep -qE '^- \[ \]' "$path"; then
+    echo "wb reconcile --review: $path has unresolved findings from a prior review." >&2
+    echo "wb reconcile --review: check/act on them (or delete the file) before re-running." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$path")"
+  local n=0 line kind repo branch worktree extra
+  local -a f
+  {
+    echo "# wb reconcile — review"
+    echo
+    echo "> Check the action(s) you want for each finding, save and close."
+    echo "> Run \`wb reconcile --apply\` to execute what you checked — nothing"
+    echo "> here is automatic, an unchecked finding is left exactly as-is."
+    while IFS= read -r line; do
+      wb_tsv_split "$line" f
+      kind="${f[0]}"; repo="${f[1]}"; branch="${f[2]}"; worktree="${f[3]}"; extra="${f[4]}"
+      n=$((n + 1))
+      echo
+      if [ "$kind" = orphan ]; then
+        echo "## $n. orphaned worktree — $repo / $branch"
+        echo
+        echo "<!-- wb-reconcile: kind=orphan repo=$repo branch=$branch worktree=$worktree -->"
+        echo
+        echo "- Worktree: \`$worktree\`"
+        echo "- Merge status: $extra"
+      else
+        echo "## $n. missing worktree — $repo / $(basename "$extra" .md)"
+        echo
+        echo "<!-- wb-reconcile: kind=missing repo=$repo branch=$branch worktree=$worktree taskfile=$extra -->"
+        echo
+        echo "- Task file: \`$(basename "$extra")\`"
+        echo "- Missing worktree: \`$worktree\`"
+      fi
+      echo
+      echo "- [ ] do nothing"
+      echo "- [ ] remove"
+      echo "- [ ] discuss"
+      echo "- [ ] create a task"
+      echo "- [ ] attach to task: \`___\`"
+      echo "- [ ] merge with task: \`___\`"
+    done < <(wb_reconcile_collect)
+    [ "$n" -eq 0 ] && { echo; echo "No drift found."; }
+  } > "$path"
+
+  echo "wb reconcile --review: wrote $path ($n finding(s))"
+  [ "$n" -gt 0 ] && wb_open_buffer "$path"
+}
+
+# wb_reconcile_action_remove <kind> <repo> <branch> <worktree> <taskfile>
+wb_reconcile_action_remove() {
+  local kind="$1" repo="$2" branch="$3" worktree="$4" taskfile="$5" repo_dir
+  if [ "$kind" = orphan ]; then
+    repo_dir="$(wb_repo_dir "$repo")"
+    if [ -d "$repo_dir/$worktree" ]; then
+      git -C "$repo_dir" worktree remove "$repo_dir/$worktree" --force
+    fi
+    git -C "$repo_dir" branch -D "$branch" 2>/dev/null || true
+    echo "wb reconcile --apply: removed $repo/$worktree and branch $branch"
+  else
+    if [ -f "$taskfile" ]; then
+      rm -f "$taskfile"
+      echo "wb reconcile --apply: removed stale task file $taskfile"
+    else
+      echo "wb reconcile --apply: $taskfile already gone, nothing to remove" >&2
+    fi
+  fi
+}
+
+# wb_reconcile_action_create_task <kind> <repo> <branch> <worktree>
+wb_reconcile_action_create_task() {
+  local kind="$1" repo="$2" branch="$3" worktree="$4"
+  if [ "$kind" != orphan ]; then
+    echo "wb reconcile --apply: 'create a task' is a no-op on a missing-worktree finding (a task already exists) — skipping" >&2
+    return 0
+  fi
+  local file; file="$(wb_seed_task "$repo" "$branch" "$worktree")"
+  echo "wb reconcile --apply: created task $file (status: doing)"
+}
+
+# wb_reconcile_action_attach <kind> <repo> <worktree> <target_basename>
+wb_reconcile_action_attach() {
+  local kind="$1" worktree="$2" target="$3" target_file
+  if [ "$kind" != orphan ]; then
+    echo "wb reconcile --apply: 'attach to task' doesn't apply to a missing-worktree finding (it already is one) — use 'merge with task' instead — skipping" >&2
+    return 0
+  fi
+  target_file="$TASKS_DIR/$target"
+  if [ ! -f "$target_file" ]; then
+    echo "wb reconcile --apply: attach target '$target' not found in $TASKS_DIR — skipping this finding" >&2
+    return 0
+  fi
+  wb_set_frontmatter "$target_file" worktree "$worktree"
+  echo "wb reconcile --apply: attached $worktree to $target_file"
+}
+
+# wb_reconcile_merge_content <survivor_file> <loser_file> — appends the
+# loser's Plan/Done/Follow-ups content into the survivor's matching
+# sections, carries over worktree: if the survivor's is blank, then
+# deletes the loser file.
+wb_reconcile_merge_content() {
+  local survivor="$1" loser="$2" heading section
+  for heading in Plan Done Follow-ups; do
+    section="$(wb_board_section "$loser" "$heading")"
+    [ -n "$(printf '%s' "$section" | tr -d '[:space:]')" ] || continue
+    awk -v h="## $heading" -v content="$section" '
+      { print }
+      $0 == h { print content }
+    ' "$survivor" > "$survivor.tmp.$$" && mv "$survivor.tmp.$$" "$survivor"
+  done
+  local survivor_wt loser_wt
+  survivor_wt="$(wb_get_frontmatter "$survivor" worktree)"
+  loser_wt="$(wb_get_frontmatter "$loser" worktree)"
+  [ -z "$survivor_wt" ] && [ -n "$loser_wt" ] && wb_set_frontmatter "$survivor" worktree "$loser_wt"
+  rm -f "$loser"
+}
+
+# wb_reconcile_action_merge <kind> <repo> <branch> <worktree> <taskfile> <target> <block>
+# For an orphan finding, merge == attach (no task content of its own to
+# combine). For a missing-worktree finding, requires the block to already
+# carry a resolved survivor choice (exactly one `- [x] survivor:` line) —
+# the caller (wb_reconcile_apply) is responsible for appending and
+# reopening first when that choice doesn't exist yet.
+wb_reconcile_action_merge() {
+  local kind="$1" repo="$2" branch="$3" worktree="$4" taskfile="$5" target="$6" block="$7"
+  if [ "$kind" = orphan ]; then
+    wb_reconcile_action_attach "$kind" "$branch" "$worktree" "$target"
+    return
+  fi
+
+  local target_file="$TASKS_DIR/$target"
+  if [ ! -f "$taskfile" ] || [ ! -f "$target_file" ]; then
+    echo "wb reconcile --apply: merge candidate missing ($taskfile or $target_file no longer exists) — skipping this finding" >&2
+    return 0
+  fi
+
+  local -a survivor_checks=()
+  while IFS= read -r line; do survivor_checks+=("$line"); done < <(printf '%s' "$block" | grep -oP '^\s*- \[x\] survivor: \K.*')
+  if [ "${#survivor_checks[@]}" -ne 1 ]; then
+    echo "wb reconcile --apply: merge for $taskfile <-> $target_file has ${#survivor_checks[@]} survivor choices checked (need exactly 1) — skipping" >&2
+    return 0
+  fi
+
+  case "${survivor_checks[0]}" in
+    "this finding"*) wb_reconcile_merge_content "$taskfile" "$target_file" ;;
+    *)                wb_reconcile_merge_content "$target_file" "$taskfile" ;;
+  esac
+  echo "wb reconcile --apply: merged $taskfile and $target_file"
+}
+
+# wb_reconcile_apply — parse the closed review doc's marker-delimited
+# blocks and execute exactly the checked actions. Rebuilds any "merge with
+# task" block that doesn't have survivor sub-checkboxes yet (appending a
+# most-recently-active default) and reopens instead of merging blind.
+wb_reconcile_apply() {
+  local path; path="$(wb_reconcile_report_path)"
+  [ -f "$path" ] || { echo "wb reconcile --apply: no report at $path — run 'wb reconcile --review' first" >&2; return 1; }
+
+  local full_content; full_content="$(cat "$path")"
+  local -a blocks=()
+  local block="" line in_block=0
+  while IFS= read -r line; do
+    case "$line" in
+      '<!-- wb-reconcile: '*)
+        [ "$in_block" = 1 ] && blocks+=("$block")
+        block="$line"$'\n'; in_block=1 ;;
+      *)
+        [ "$in_block" = 1 ] && block+="$line"$'\n' ;;
+    esac
+  done < "$path"
+  [ "$in_block" = 1 ] && blocks+=("$block")
+
+  local reopen_needed=0
+  local b kind repo branch worktree taskfile target
+  for b in "${blocks[@]}"; do
+    kind="$(printf '%s' "$b" | grep -oP 'kind=\K[^ ]+' | head -1)"
+    repo="$(printf '%s' "$b" | grep -oP 'repo=\K[^ ]+' | head -1)"
+    branch="$(printf '%s' "$b" | grep -oP 'branch=\K[^ ]*' | head -1)"
+    worktree="$(printf '%s' "$b" | grep -oP 'worktree=\K[^ ]*' | head -1)"
+    taskfile="$(printf '%s' "$b" | grep -oP 'taskfile=\K[^ ]+' | head -1)"
+
+    if printf '%s' "$b" | grep -qE '^- \[x\] do nothing'; then
+      continue
+    elif printf '%s' "$b" | grep -qE '^- \[x\] discuss'; then
+      continue
+    elif printf '%s' "$b" | grep -qE '^- \[x\] remove'; then
+      wb_reconcile_action_remove "$kind" "$repo" "$branch" "$worktree" "$taskfile"
+    elif printf '%s' "$b" | grep -qE '^- \[x\] create a task'; then
+      wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree"
+    elif printf '%s' "$b" | grep -qP "^- \[x\] attach to task: \`[^\`_]+\`"; then
+      target="$(printf '%s' "$b" | grep -oP '^- \[x\] attach to task: `\K[^`]+' | head -1)"
+      wb_reconcile_action_attach "$kind" "$worktree" "$target"
+    elif printf '%s' "$b" | grep -qP "^- \[x\] merge with task: \`[^\`_]+\`"; then
+      target="$(printf '%s' "$b" | grep -oP '^- \[x\] merge with task: `\K[^`]+' | head -1)"
+      if [ "$kind" != orphan ] && ! printf '%s' "$b" | grep -qE '^\s*- \[.\] survivor:'; then
+        local target_file="$TASKS_DIR/$target" new_b default_pick
+        if [ -f "$target_file" ] && [ -f "$taskfile" ]; then
+          local t_self t_target
+          t_self="$(stat -c %Y "$taskfile" 2>/dev/null || echo 0)"
+          t_target="$(stat -c %Y "$target_file" 2>/dev/null || echo 0)"
+          if [ "$t_self" -ge "$t_target" ]; then
+            default_pick="self"
+          else
+            default_pick="target"
+          fi
+        else
+          default_pick="target"
+        fi
+        local self_box="[ ]" target_box="[ ]"
+        [ "$default_pick" = self ] && self_box="[x]" || target_box="[x]"
+        new_b="$(printf '%s' "$b" | sed "/^- \\[x\\] merge with task/a\\\\  - $self_box survivor: this finding (new stub)\\n  - $target_box survivor: \`$target\` (existing) <!-- pre-picked: most recently active -->")"
+        full_content="${full_content/"$b"/"$new_b"}"
+        reopen_needed=1
+        continue
+      fi
+      wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" "$b"
+    fi
+  done
+
+  if [ "$reopen_needed" = 1 ]; then
+    printf '%s' "$full_content" > "$path"
+    echo "wb reconcile --apply: added survivor choices for new merges — reopening for confirmation"
+    wb_open_buffer "$path"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# wb pause — mark inactive without tearing anything down
+# ---------------------------------------------------------------------------
+
+# cmd_pause <session> — flips a task's status to `paused`. Does NOT remove
+# the worktree (that's the whole point of "paused, not abandoned") and does
+# NOT kill the tmux session (2026-07-08: "I don't want windows or sessions
+# to disappear" — same instruction wb done's session-kill removal follows).
+# Deliberately skips wb done's dirty-worktree check too: that check exists
+# because worktree REMOVAL would destroy uncommitted work, and wb pause
+# never removes the worktree, so nothing is at risk to guard against.
+cmd_pause() {
+  local session="${1:-}"
+  if [ -z "$session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb pause: run inside the target session, or pass a session name" >&2; exit 1; }
+    session="$(tmux display-message -p '#S')"
+  fi
+
+  local repo slug
+  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
+  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
+  [ -n "$repo" ] && [ -n "$slug" ] \
+    || { echo "wb pause: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  [ -f "$task_file" ] || { echo "wb pause: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
+
+  wb_set_frontmatter "$task_file" status paused
+  echo "wb pause: $session paused — worktree and session untouched, task -> paused ($task_file)"
+}
+
+# ---------------------------------------------------------------------------
 # wb done — safe wind-down
 # ---------------------------------------------------------------------------
 
@@ -368,6 +842,420 @@ wb_pending_counts() {
   printf '%s follow-ups pending · %s parked' "$(wb_followup_count)" "$(wb_parked_count)"
 }
 
+# ---------------------------------------------------------------------------
+# /board (wb board --html) — 6 status tabs, timeline window, live-session
+# badges. `wb board` with no flag keeps the plain-text table below unchanged.
+# ---------------------------------------------------------------------------
+
+# wb_board_bucket_for_status <status> — maps a raw task status to one of the
+# 6 tabs' underlying buckets. `done` is a real bucket (used by the All tab)
+# but has no tab of its own — see R8/R9. Anything unrecognized (including
+# a future `pending` status before Deferred is wired up to it) falls to
+# `unclassified`, which is a deliberate catch-all, not a bug.
+wb_board_bucket_for_status() {
+  case "$1" in
+    doing|review) echo inprogress ;;
+    planned)      echo upcoming ;;
+    paused)       echo paused ;;
+    done)         echo done ;;
+    *)            echo unclassified ;;
+  esac
+}
+
+# wb_board_anchor_slug <string> — sanitize into a safe HTML id fragment.
+wb_board_anchor_slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9_-' '-'; }
+
+# wb_board_live_session_for <repo> <branch> — the live tmux session name for
+# this repo/branch, or empty. Same @wb_repo/@wb_slug lookup the picker's
+# wb_live_session_row already does (wb.sh:627-653) — a live-session badge is
+# an annotation on every row, independent of which tab it's in (R11).
+wb_board_live_session_for() {
+  local repo="$1" branch="$2" s r b
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    r="$(tmux show -t "=$s:" -v @wb_repo 2>/dev/null || true)"
+    b="$(tmux show -t "=$s:" -v @wb_slug 2>/dev/null || true)"
+    if [ "$r" = "$repo" ] && [ "$b" = "$branch" ]; then
+      printf '%s' "$s"
+      return 0
+    fi
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+}
+
+# wb_board_window_start <today|week> — epoch seconds for the timeline
+# window's start.
+wb_board_window_start() {
+  case "$1" in
+    week) date -d '7 days ago 00:00:00' +%s ;;
+    *)    date -d 'today 00:00:00' +%s ;;
+  esac
+}
+
+# wb_board_in_window <created> <closed> <updated_epoch> <window_start> —
+# true if created, updated, OR closed falls within the window (R10) — a
+# broader check than the old closed-only rule, applied uniformly to every
+# tab, not just a default view.
+wb_board_in_window() {
+  local created="$1" closed="$2" updated="$3" start="$4" e
+  if [ -n "$created" ]; then
+    e="$(date -d "$created" +%s 2>/dev/null || echo 0)"
+    [ "$e" -ge "$start" ] && return 0
+  fi
+  if [ -n "$closed" ]; then
+    e="$(date -d "$closed" +%s 2>/dev/null || echo 0)"
+    [ "$e" -ge "$start" ] && return 0
+  fi
+  [ "${updated:-0}" -ge "$start" ] && return 0
+  return 1
+}
+
+# wb_board_collect_rows — one TSV line per row, task-store tasks first, then
+# untracked worktrees (R9). Fields:
+#   1 kind (task|untracked)   2 bucket   3 status (raw, empty for untracked)
+#   4 repo   5 branch   6 worktree (relative)   7 title
+#   8 created   9 closed   10 updated (mtime, epoch)   11 taskfile (or empty)
+#   12 anchor_key (unique, sanitized — view-scoped prefixes are added at
+#      render time since the same row gets a different id per visible tab)
+wb_board_collect_rows() {
+  local f status repo worktree branch title created closed updated anchor
+  local -a t
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    wb_tsv_split "$(wb_read_task "$f")" t
+    status="${t[0]:-}"; repo="${t[1]:-}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
+    title="$(wb_task_title "$f")"; [ -n "$title" ] || title="$(basename "$f" .md)"
+    created="$(wb_get_frontmatter "$f" created)"
+    closed="$(wb_get_frontmatter "$f" closed)"
+    updated="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+    anchor="$(wb_board_anchor_slug "$(basename "$f" .md)")"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "task" "$(wb_board_bucket_for_status "$status")" "$status" "$repo" \
+      "$branch" "$worktree" "$title" "$created" "$closed" "$updated" "$f" "$anchor"
+  done < <(wb_task_files)
+
+  local repo_dir r_branch abs_path rel
+  while IFS= read -r repo_dir; do
+    [ -d "$repo_dir/.git" ] || continue
+    repo="$(basename "$repo_dir")"
+    while IFS=$'\t' read -r r_branch abs_path; do
+      [ -n "$abs_path" ] || continue
+      rel="${abs_path#"$repo_dir"/}"
+      wb_worktree_has_task "$repo" "$rel" && continue
+      updated="$(stat -c %Y "$abs_path" 2>/dev/null || echo 0)"
+      anchor="$(wb_board_anchor_slug "untracked-${repo}--${r_branch}")"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "untracked" "unclassified" "" "$repo" "$r_branch" "$rel" "$r_branch" \
+        "" "" "$updated" "" "$anchor"
+    done < <(wb_repo_worktrees "$repo_dir")
+  done < <(wb_reconcile_repos)
+}
+
+# wb_board_html_escape <string> — minimal HTML-entity escaping for table
+# cells, anchor text and attribute values built from task titles/branches,
+# which can contain `<`/`&` (R12's escaping test scenario).
+wb_board_html_escape() {
+  local s="$1"
+  # `&` in a bash pattern-substitution REPLACEMENT is a backreference to the
+  # match (same as sed) — unescaped, `${s//</&lt;}` produces "<lt;" (match
+  # `<` + literal "lt;") instead of "&lt;". `\&` forces a literal ampersand.
+  s="${s//&/\&amp;}"; s="${s//</\&lt;}"; s="${s//>/\&gt;}"
+  printf '%s' "$s"
+}
+
+# wb_board_section <file> <heading> — body lines under "## <heading>" up to
+# the next "## " heading (or EOF). Same convention wb_sweep_section already
+# uses for the "## Sweep" section, generalized to any named section.
+wb_board_section() {
+  awk -v h="## $2" '
+    $0 == h { insec = 1; next }
+    /^## / { insec = 0 }
+    insec { print }
+  ' "$1"
+}
+
+# wb_board_first_nonblank_line <text> — first non-whitespace-only line of
+# <text>, or empty. Deliberately NOT `... | sed ... | head -1`: under this
+# script's `set -o pipefail`, head closing the pipe after its first line
+# sends SIGPIPE to whatever's still writing upstream (real task files often
+# have multi-line Plan/Done sections, unlike this repo's short test
+# fixtures, which is exactly why this shipped without tripping any test).
+# A here-string loop reads a value already fully captured in memory, so
+# breaking out of it early has no live process left to SIGPIPE.
+wb_board_first_nonblank_line() {
+  local line
+  while IFS= read -r line; do
+    if [ -n "${line//[[:space:]]/}" ]; then
+      printf '%s' "$line"
+      return 0
+    fi
+  done <<< "$1"
+}
+
+# wb_board_ledger_matches <worktree_abs_path> — open /park ledger entries
+# whose cwd is under this worktree, one compact JSON object per line.
+wb_board_ledger_matches() {
+  local wt="$1" ledger="$HOME/.claude/parked-items/ledger.jsonl"
+  [ -n "$wt" ] && [ -f "$ledger" ] || return 0
+  jq -c --arg wt "$wt" \
+    'select(.cwd != null and ((.cwd == $wt) or (.cwd | startswith($wt + "/"))))' \
+    "$ledger" 2>/dev/null
+}
+
+# wb_board_pr_info <repo_dir> <branch> — "#<number> (<state>)" for the most
+# recent PR on <branch>, any state (open/closed/merged) — a display nicety
+# for a task's detail section, not a drift signal, so unlike
+# wb_pr_merge_status this silently returns empty on any gh/pgh failure
+# rather than reporting "unknown".
+wb_board_pr_info() {
+  local repo_dir="$1" branch="$2" out rc
+  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state all --json number,state 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state all --json number,state 2>&1)"; rc=$?
+  fi
+  [ "$rc" -eq 0 ] || return 0
+  printf '%s' "$out" | jq -r '.[0] // empty | "#\(.number) (\(.state))"' 2>/dev/null
+}
+
+# wb_board_summary_line <status> <repo> <branch> <created> <closed> — an
+# always-present, plain-language orientation sentence for a task's detail
+# card. Deliberately just restating the structured frontmatter facts, not
+# summarizing Plan/Done prose — that would need an LLM call at generation
+# time, well beyond what a bash-generated static page should do. Plan/Done
+# excerpts (when present) still render as their own, richer lines below
+# this one; this exists so a task with neither isn't a near-empty card.
+wb_board_summary_line() {
+  local status="$1" repo="$2" branch="$3" created="$4" closed="$5" s
+  s="A <code>$status</code> task in <code>$repo</code>, branch <code>$branch</code>"
+  [ -n "$created" ] && s+=", created $created"
+  [ -n "$closed" ] && s+=", closed $closed"
+  printf '%s.' "$s"
+}
+
+# wb_board_related_docs <taskfile> <dotfiles_root> — repo-root-relative
+# paths of any docs/plans, docs/brainstorms, docs/solutions, or
+# logs/decisions file the task's own prose already names (this repo's
+# established convention — see e.g. ~/code/tasks/*.md's "## Decisions"
+# sections — is a plain-text path, sometimes backtick-wrapped, sometimes
+# prefixed `dotfiles/`, not a markdown link). Deliberately conservative:
+# only surfaces a doc the task file already names, never a guessed/fuzzy
+# match. When both a .md and its rendered .html sibling exist, prefers the
+# .html (nicer to open from a browser); a reference to a since-deleted
+# file is dropped rather than linked dead.
+wb_board_related_docs() {
+  local taskfile="$1" root="$2" rel html_sibling
+  [ -f "$taskfile" ] || return 0
+  grep -oP '(?:dotfiles/)?(?:docs/(?:plans|brainstorms|solutions)|logs/decisions)/[A-Za-z0-9._/-]+\.(?:md|html)' "$taskfile" 2>/dev/null \
+    | sed 's#^dotfiles/##' | sort -u | while IFS= read -r rel; do
+      [ -f "$root/$rel" ] || continue
+      case "$rel" in
+        *.md)
+          html_sibling="${rel%.md}.html"
+          if [ -f "$root/$html_sibling" ]; then printf '%s\n' "$html_sibling"; else printf '%s\n' "$rel"; fi
+          ;;
+        *) printf '%s\n' "$rel" ;;
+      esac
+    done | sort -u
+}
+
+# wb_board_doc_link <root_relative_path> — that path's href from
+# logs/board.html's own location, since board.html isn't served over
+# http and an absolute href would resolve against the filesystem root,
+# not the repo root.
+wb_board_doc_link() {
+  case "$1" in
+    logs/*) printf '%s' "${1#logs/}" ;;
+    *)      printf '../%s' "$1" ;;
+  esac
+}
+
+# wb_board_render_html — writes the full /board page to stdout: 6 status
+# tabs x 2 timeline windows, pre-rendered as 12 panels with CSS-only
+# radio-sibling switching (no JS — R8/R10's zero-JS decision), live-session
+# badges per row (R11), and per-panel anchor-linked detail sections (R12).
+wb_board_render_html() {
+  local dotfiles_root
+  dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+  [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
+
+  local -a ROWS=()
+  local line
+  while IFS= read -r line; do ROWS+=("$line"); done < <(wb_board_collect_rows)
+
+  local -a TABS=(all inprogress upcoming paused deferred unclassified)
+  local -A TAB_LABEL=([all]="All" [inprogress]="In Progress" [upcoming]="Upcoming" [paused]="Paused" [deferred]="Deferred" [unclassified]="Unclassified")
+  local -a WINDOWS=(today week)
+  local -A WIN_LABEL=([today]="Today" [week]="This week")
+
+  # Radios are declared ONCE here, before <header>/<main> — the CSS below
+  # relies on both radio groups being earlier siblings of <main> so the
+  # `~` sibling combinator can reach it (label position doesn't matter,
+  # since labels reference these ids via for= rather than nesting).
+  # Highlight CSS is generated per-radio here too (not a single
+  # `input:checked + label` rule) for the same reason panel visibility
+  # needs `~ main #panel-...`: since the radios and their labels are no
+  # longer adjacent siblings (labels live in <header>, away from the
+  # hidden radios), `+`/plain `~` can't reach a label by position alone —
+  # each rule targets the specific label by its for= attribute instead.
+  local radios_html='' tabs_html='' win_html='' panel_css='' panels_html='' highlight_css=''
+  local win tab first_win=1 first_tab=1
+  for win in "${WINDOWS[@]}"; do
+    local checked=""; [ "$first_win" = 1 ] && checked=" checked" && first_win=0
+    radios_html+="<input type=\"radio\" name=\"tl\" id=\"tl-$win\"$checked>"$'\n'
+    win_html+="<label for=\"tl-$win\">${WIN_LABEL[$win]}</label>"$'\n'
+    highlight_css+="#tl-$win:checked ~ header label[for=\"tl-$win\"] { background: var(--acc); color: white; }"$'\n'
+  done
+  for tab in "${TABS[@]}"; do
+    local checked=""; [ "$first_tab" = 1 ] && checked=" checked" && first_tab=0
+    radios_html+="<input type=\"radio\" name=\"st\" id=\"st-$tab\"$checked>"$'\n'
+    tabs_html+="<label for=\"st-$tab\">${TAB_LABEL[$tab]}</label>"$'\n'
+    highlight_css+="#st-$tab:checked ~ header label[for=\"st-$tab\"] { background: var(--acc); color: white; }"$'\n'
+  done
+
+  local row kind bucket status repo branch worktree title created closed updated taskfile anchor_key
+  local -a f
+  for win in "${WINDOWS[@]}"; do
+    local window_start; window_start="$(wb_board_window_start "$win")"
+    for tab in "${TABS[@]}"; do
+      panel_css+="#tl-$win:checked ~ #st-$tab:checked ~ main #panel-$tab-$win { display: flex; }"$'\n'
+      local table_rows='' detail_sections='' any=0
+      for row in "${ROWS[@]}"; do
+        wb_tsv_split "$row" f
+        kind="${f[0]}"; bucket="${f[1]}"; status="${f[2]}"; repo="${f[3]}"; branch="${f[4]}"
+        worktree="${f[5]}"; title="${f[6]}"; created="${f[7]}"; closed="${f[8]}"; updated="${f[9]}"
+        taskfile="${f[10]}"; anchor_key="${f[11]}"
+        [ "$tab" = all ] || [ "$bucket" = "$tab" ] || continue
+        wb_board_in_window "$created" "$closed" "$updated" "$window_start" || continue
+        any=1
+        local view_anchor="t-$tab-$win-$anchor_key"
+        local esc_title esc_branch esc_repo pill_class pill_label live_session live_badge
+        esc_title="$(wb_board_html_escape "$title")"
+        esc_branch="$(wb_board_html_escape "$branch")"
+        esc_repo="$(wb_board_html_escape "$repo")"
+        pill_class="$status"; pill_label="$status"
+        [ "$kind" = untracked ] && { pill_class="unclassified"; pill_label="unclassified"; }
+        live_session="$(wb_board_live_session_for "$repo" "$branch")"
+        live_badge=""
+        [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
+        local link_text="$esc_title"
+        [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
+        table_rows+="<tr class=\"row\"><td><span class=\"pill $pill_class\">$pill_label</span></td><td><a class=\"tasklink\" href=\"#$view_anchor\">$link_text</a> $live_badge</td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
+
+        if [ "$kind" = untracked ]; then
+          detail_sections+="<div class=\"task-detail untracked\" id=\"$view_anchor\"><h3>$esc_branch <span class=\"pill unclassified\">unclassified</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3><span class=\"repo\">$esc_repo</span><p><b>No task file.</b> Worktree exists on disk (<code>$(wb_board_html_escape "$worktree")</code>) with no matching entry in the task store.</p></div>"$'\n'
+        else
+          local plan done_txt followups decisions repo_dir wt_abs pr_info detail_extra=""
+          detail_extra+="<p>$(wb_board_summary_line "$status" "$esc_repo" "$esc_branch" "$created" "$closed")</p>"
+          plan="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Plan)")"
+          done_txt="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Done)")"
+          [ -n "$plan" ] && detail_extra+="<p><b>Plan:</b> $(wb_board_html_escape "$plan")</p>"
+          [ -n "$done_txt" ] && detail_extra+="<p><b>Done:</b> $(wb_board_html_escape "$done_txt")</p>"
+          repo_dir="$(wb_repo_dir "$repo")"
+          if [ -d "$repo_dir/.git" ]; then
+            pr_info="$(wb_board_pr_info "$repo_dir" "$branch")"
+            [ -n "$pr_info" ] && detail_extra+="<p><b>Related:</b> <span class=\"artefact-chip\">PR $(wb_board_html_escape "$pr_info")</span></p>"
+          fi
+          wt_abs="$repo_dir/$worktree"
+          local ledger_line ledger_note=""
+          while IFS= read -r ledger_line; do
+            [ -n "$ledger_line" ] || continue
+            ledger_note+="$(printf '%s' "$ledger_line" | jq -r '.note // empty' 2>/dev/null); "
+          done < <(wb_board_ledger_matches "$wt_abs")
+          [ -n "$ledger_note" ] && detail_extra+="<p><b>Parked:</b> $(wb_board_html_escape "$ledger_note")</p>"
+          local doc_rel doc_links=""
+          while IFS= read -r doc_rel; do
+            [ -n "$doc_rel" ] || continue
+            doc_links+="<a class=\"artefact-chip\" href=\"$(wb_board_doc_link "$doc_rel")\">$(wb_board_html_escape "$(basename "$doc_rel")")</a> "
+          done < <(wb_board_related_docs "$taskfile" "$dotfiles_root")
+          [ -n "$doc_links" ] && detail_extra+="<p><b>Docs:</b> $doc_links</p>"
+          detail_sections+="<div class=\"task-detail\" id=\"$view_anchor\"><h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3><span class=\"repo\">$esc_repo</span>$detail_extra</div>"$'\n'
+        fi
+      done
+
+      if [ "$any" = 1 ]; then
+        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><table><tr><th>Status</th><th>Task</th><th>Repo</th></tr>$table_rows</table><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$detail_sections</div></div></div>"$'\n'
+      elif [ "$tab" = deferred ]; then
+        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"empty-state\">No deferred tasks yet — reserved for a future <code>pending</code> status once <code>/park</code> items become task-store entries. Not part of this PR.</div></div>"$'\n'
+      else
+        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"empty-state\">No tasks in this view.</div></div>"$'\n'
+      fi
+    done
+  done
+
+  cat <<HTMLEOF
+<title>&#9673; /board</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --doing: #04a5e5; --review: #df8e1d; --planned: #8c8fa1; --done: #40a02b; --paused: #209fb5;
+    --unclassified: #8839ef; --ok: #40a02b;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d; --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db; --doing: #99d1db; --review: #e5c890; --planned: #838ba7; --done: #a6d189; --paused: #85c1dc; --unclassified: #ca9ee6; --ok: #a6d189; }
+  }
+  :root[data-theme="dark"] { --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d; --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db; --doing: #99d1db; --review: #e5c890; --planned: #838ba7; --done: #a6d189; --paused: #85c1dc; --unclassified: #ca9ee6; --ok: #a6d189; }
+  :root[data-theme="light"] { --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da; --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5; --doing: #04a5e5; --review: #df8e1d; --planned: #8c8fa1; --done: #40a02b; --paused: #209fb5; --unclassified: #8839ef; --ok: #40a02b; }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); margin: 0; font-size: 15px; line-height: 1.5; }
+  input[type=radio] { display: none; }
+  header { padding: 1.2rem 1.5rem; border-bottom: 1px solid var(--line); background: var(--bg2); position: sticky; top: 0; z-index: 5; }
+  header h1 { font-family: var(--mono); font-size: 1.1rem; margin: 0 0 .8rem; }
+  .tabs { display: flex; gap: .4rem; flex-wrap: wrap; }
+  .tabgroup { display: flex; gap: .25rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .25rem; flex-wrap: wrap; }
+  .tabgroup label { font-family: var(--mono); font-size: .78rem; padding: .35rem .8rem; border-radius: 6px; cursor: pointer; color: var(--ink2); }
+
+  main { padding: 1.5rem; max-width: 60rem; margin: 0 auto; }
+  .view { display: none; flex-direction: column; gap: 2rem; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th { text-align: left; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
+  td { padding: .65rem .9rem; border-bottom: 1px solid var(--line); font-size: .9rem; }
+  tr:last-child td { border-bottom: none; }
+  tr.row:hover { background: var(--bg2); }
+  td a.tasklink { color: var(--acc2); text-decoration: none; font-weight: 600; }
+  td a.tasklink:hover { text-decoration: underline; }
+  .pill { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .72rem; padding: .1em .6em; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.doing { color: var(--doing); } .pill.review { color: var(--review); } .pill.planned { color: var(--planned); } .pill.done { color: var(--done); } .pill.paused { color: var(--paused); } .pill.unclassified { color: var(--unclassified); }
+  .repo { font-family: var(--mono); font-size: .78rem; color: var(--mut); }
+  .live-badge { display: inline-flex; align-items: center; gap: .3em; font-family: var(--mono); font-size: .7rem; color: var(--ok); }
+  .empty-state { padding: 1.6rem; text-align: center; color: var(--mut); font-family: var(--mono); font-size: .85rem; background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }
+
+  .details-heading { font-family: var(--mono); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); border-bottom: 1px solid var(--line); padding-bottom: .5rem; margin: 0; }
+  .details-stack { display: flex; flex-direction: column; gap: .8rem; }
+  .task-detail { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.2rem; scroll-margin-top: 8rem; }
+  .task-detail:target { border-color: var(--acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 25%, transparent); }
+  .task-detail h3 { margin: 0 0 .3rem; font-size: 1rem; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  .task-detail .back { font-family: var(--mono); font-size: .74rem; color: var(--acc2); text-decoration: none; margin-left: auto; }
+  .task-detail p { margin: .4rem 0; font-size: .87rem; color: var(--ink2); }
+  .task-detail p b { color: var(--ink); }
+  .task-detail.untracked { border-style: dashed; }
+  .artefact-chip { display: inline-flex; font-family: var(--mono); font-size: .74rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: .1em .6em; margin-right: .3em; color: var(--ink2); text-decoration: none; }
+  a.artefact-chip:hover { border-color: var(--acc2); color: var(--acc2); }
+  $panel_css
+  $highlight_css
+</style>
+$radios_html
+<header>
+  <h1>&#9673; /board</h1>
+  <div class="tabs">
+    <div class="tabgroup">$win_html</div>
+    <div class="tabgroup">$tabs_html</div>
+  </div>
+</header>
+<main>
+$panels_html
+</main>
+HTMLEOF
+}
+
 # cmd_board — read-only status table over the whole task store (the interim
 # /board, roadmap 9a / Decision 5A). The picker deliberately shows PRESENCE
 # only, which hides planned/done tasks entirely — this is the one place they
@@ -375,6 +1263,20 @@ wb_pending_counts() {
 # frontmatter wb done writes (one-board principle at the data layer); never
 # touches tmux, so it works from any shell.
 cmd_board() {
+  if [ "${1:-}" = "--html" ]; then
+    # logs/board.html lives in THIS repo (dotfiles), same as logs/decisions/
+    # — derive the root from wb.sh's own location rather than assuming the
+    # repo is literally named "dotfiles" under CODE_DIR.
+    local dotfiles_root
+    dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+    [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
+    local out="$dotfiles_root/logs/board.html"
+    mkdir -p "$(dirname "$out")"
+    wb_board_render_html > "$out"
+    echo "wb board: wrote $out"
+    return 0
+  fi
+
   local f title fu rows=""
   local -a t
   while IFS= read -r f; do
@@ -399,10 +1301,10 @@ cmd_board() {
 
   {
     printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\n'
-    # doing < review < planned < done < anything-else; rank prefix keeps the
-    # plain-text sort key clean, then drops out before display.
+    # doing < review < paused < planned < done < anything-else; rank prefix
+    # keeps the plain-text sort key clean, then drops out before display.
     printf '%s' "$rows" | awk -F'\t' -v OFS='\t' '{
-      r = ($1 == "doing") ? 0 : ($1 == "review") ? 1 : ($1 == "planned") ? 2 : ($1 == "done") ? 3 : 4
+      r = ($1 == "doing") ? 0 : ($1 == "review") ? 1 : ($1 == "paused") ? 2 : ($1 == "planned") ? 3 : ($1 == "done") ? 4 : 5
       print r, $0
     }' | sort -t $'\t' -k1,1n -k3,3 -k4,4 | cut -f2-
   } | column -t -s $'\t'
@@ -514,23 +1416,22 @@ cmd_done() {
     wb_open_buffer "$task_file"
   fi
 
-  # 3. remove the worktree BEFORE flipping status or killing the session:
-  #    - wb done typically runs from inside the session it's tearing down,
-  #      so kill-session first would kill this very script mid-flight and
-  #      the removal below would never run.
+  # 3. remove the worktree BEFORE flipping status:
   #    - flipping status to "done" before a possibly-failing removal would
-  #      leave the store claiming done while the worktree/session still
-  #      exist; removing first means status only ever reflects a real
-  #      teardown.
+  #      leave the store claiming done while the worktree still exists;
+  #      removing first means status only ever reflects a real teardown.
   #    - the existence guard makes a retry safe after a prior run was
   #      killed between removal and status-set: `git worktree remove` on an
   #      already-gone path hard-fails under set -e otherwise.
   #    Branch is kept — see logs/decisions/2026-07-06-review-outstanding.md Q2.
+  #    The tmux session is deliberately left alive — wb done tears down the
+  #    worktree, not the window you're sitting in (2026-07-08: "I don't
+  #    want windows or sessions to disappear"; same reasoning as wb pause).
   if [ -d "$worktree_path" ]; then
     git -C "$repo_dir" worktree remove "$worktree_path" --force
   fi
   wb_set_frontmatter "$task_file" status done
-  tmux kill-session -t "=$session" 2>/dev/null || true
+  wb_set_frontmatter "$task_file" closed "$(date +%F)"
 
   echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
 
@@ -793,7 +1694,7 @@ wb_status_line() {
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter · esc back to normal'
   else
-    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · ctrl-x done/kill · / search · q quit'
+    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · p pause · ctrl-x done/kill · / search · q quit'
   fi
   printf 'wb · %s (tab to cycle) · %s\n%s' \
     "$mode" "$(wb_pending_counts)" "$hint"
@@ -834,6 +1735,19 @@ _rename() {
   new="$(wb_sanitize "$new")"
   if ! tmux rename-session -t "=$session:" "$new"; then
     read -rn1 -p "wb: rename failed — press any key "
+    return 1
+  fi
+}
+
+# _pause <session> — bound to `p`; wraps cmd_pause with the same
+# hold-the-terminal-on-failure convention as _rename (fzf repaints the
+# instant execute() returns, so an unheld error message is overdrawn
+# before it can be read).
+_pause() {
+  local session="$1"
+  [ -n "$session" ] || return 0
+  if ! cmd_pause "$session"; then
+    read -rn1 -p "wb: pause failed — press any key "
     return 1
   fi
 }
@@ -905,7 +1819,7 @@ picker() {
 
   # Modal navigation mirrors claude-sessions.sh: NORMAL disables search so
   # unbound keys are inert; i or / enters SEARCH.
-  local navkeys='j,k,g,G,q,i,x,r,b,/'
+  local navkeys='j,k,g,G,q,i,x,r,b,p,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-12 are the real data, shown to fzf only as hidden/addressable
@@ -936,6 +1850,7 @@ picker() {
         --bind "x:execute-silent(\"$SELF\" _interrupt {7})" \
         --bind "r:execute(\"$SELF\" _rename {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "p:execute(\"$SELF\" _pause {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7})" \
         --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
         --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
@@ -956,16 +1871,26 @@ picker() {
   fi
 }
 
-case "${1:-}" in
-  new)         shift; cmd_new "$@" ;;
-  board)       shift; cmd_board "$@" ;;
-  done)        shift; cmd_done "$@" ;;
-  render)      shift; render_rows "$@" ;;
-  _interrupt)  shift; _interrupt "$@" ;;
-  _rename)     shift; _rename "$@" ;;
-  _break-out)  shift; _break_out "$@" ;;
-  _ctrl-x)     shift; _ctrl_x "$@" ;;
-  _cycle-mode) shift; _cycle_mode "$@" ;;
-  _mode-header) shift; _mode_header "$@" ;;
-  *)           picker "${1:-}" ;;
-esac
+# Guarded so tests can `source` this file to reach individual functions
+# (e.g. to stub cmd_new and unit-test cmd_resume's match logic) without
+# triggering the CLI dispatch below — real invocation (`bash wb.sh ...` /
+# `./wb.sh ...`) always has BASH_SOURCE[0] == $0, so behavior is unchanged.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  case "${1:-}" in
+    new)         shift; cmd_new "$@" ;;
+    resume)      shift; cmd_resume "$@" ;;
+    reconcile)   shift; cmd_reconcile "$@" ;;
+    board)       shift; cmd_board "$@" ;;
+    done)        shift; cmd_done "$@" ;;
+    pause)       shift; cmd_pause "$@" ;;
+    _pause)      shift; _pause "$@" ;;
+    render)      shift; render_rows "$@" ;;
+    _interrupt)  shift; _interrupt "$@" ;;
+    _rename)     shift; _rename "$@" ;;
+    _break-out)  shift; _break_out "$@" ;;
+    _ctrl-x)     shift; _ctrl_x "$@" ;;
+    _cycle-mode) shift; _cycle_mode "$@" ;;
+    _mode-header) shift; _mode_header "$@" ;;
+    *)           picker "${1:-}" ;;
+  esac
+fi

@@ -11,8 +11,10 @@ Two workflows composing the capture/recall pieces already built: `wb up`
 (startup) and `wb down` (shutdown). This page is the source; edit
 `docs/roadmap-day-bookends.md`, not the rendered `.html`.
 
-**Roadmap:** 9b (superseded — this page is the detail) · **Status:** open,
-gated on slice 4b's session-id capture landing
+**Roadmap:** 9b (superseded — this page is the detail) · **Status:** the
+full `wb up`/`wb down` bulk flow is gated on slice 4b's session-id capture
+landing; `wb resume <task>` (single-task slice, see below) is open and
+unblocked
 
 ## The two workflows
 
@@ -66,3 +68,28 @@ everything `wb` creates reconstructable from the task file alone, and give
 > impossible to recover for sessions already killed. This capture is
 > landing as part of slice 4b's groundwork, ahead of `wb up`/`wb down`
 > themselves.
+
+## `wb resume <task>` — an early, ungated slice (2026-07-08)
+
+The full `wb up`/`wb down` pair above stays gated on 4b's session-id
+capture, needed for warm-restarting an agent mid-conversation. A
+single-task resume needs none of that: `cmd_new`
+(`scripts/.config/scripts/tmux/wb.sh:222-279`) is already idempotent — it
+skips worktree creation when the worktree dir exists, no-ops task-seeding
+when the task file exists, and always `tmux_ensure_session` + focuses
+regardless of whether the session was already live. Task frontmatter
+(`repo:`/`branch:`/`worktree:`) is already durable, on disk, in a git repo
+— there is nothing new to "track" for this slice.
+
+So `wb resume <task>` can ship now as a thin wrapper: fuzzy-match a task by
+slug against the store, read its frontmatter, call the same worktree/session
+logic `cmd_new` already runs. This is "stage 1" of the crash/reboot-recovery
+need that motivated it — bring a specific task's environment back after a
+shutdown or crash, by name, without retyping `<repo> <slug>`. `wb up` later
+becomes "stage 2": run this same resume logic over every checked task in
+the startup review buffer, plus the session-id warm-restart on top.
+
+No tmux-resurrect/continuum is installed today (`tmux/.config/tmux/tmux.conf`
+only lists `tpm`, `tmux-sensible`, `vim-tmux-navigator`, `catppuccin-tmux`)
+— consistent with this doc's regenerative-sessions principle, this slice
+doesn't need it either.

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Day bookends — wb up / wb down</title>
+<title>wb reconcile — task-store/git drift detection</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,92 +173,75 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap-day-bookends.md</b> — edit the .md, not this file</span>
+  <span>docgen · generated from <b>docs/roadmap-wb-reconcile.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-08</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Day bookends — wb up / wb down</h1>
+  <h1><span class="glyph">§</span> wb reconcile — task-store/git drift detection</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>Two workflows composing the capture/recall pieces already built: <code>wb up</code>
-(startup) and <code>wb down</code> (shutdown). This page is the source; edit
-<code>docs/roadmap-day-bookends.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong> the
-full <code>wb up</code>/<code>wb down</code> bulk flow is gated on slice 4b's session-id capture
-landing; <code>wb resume &lt;task&gt;</code> (single-task slice, see below) is open and
-unblocked</p>
-<h2 id="the-two-workflows">The two workflows</h2>
-<p><strong>Startup (<code>wb up</code>)</strong> — review yesterday's close-out + parked items + task
-board, propose today's focus, recreate tmux sessions for the chosen tasks.</p>
-<p><strong>Shutdown (<code>wb down</code>)</strong> — sweep every live session, capture a quick status
-into each task file, run the notes digest, then close all sessions cleanly
-so the PC can power off.</p>
-<h2 id="wb-ups-task-selection-decision-10-2026-07-07-review"><code>wb up</code>'s task selection (Decision 10, 2026-07-07 review)</h2>
-<p>Reuses the decision-buffer checkbox convention already shared by <code>wb done</code>'s close-out and the notes-digest promotion: <code>wb up</code> opens a review
-buffer listing yesterday's close-out + parked items + task-board candidates
-as <code>- [ ] pick</code> lines; closing the buffer recreates a session per checked
-task. First-run fallback (no prior close-out to review yet): fall back to a
-plain picker over the task store's <code>planned</code>/<code>doing</code> rows.</p>
-<h2 id="wb-downs-dirty-check-decision-7-2026-07-07-review"><code>wb down</code>'s dirty-check (Decision 7, 2026-07-07 review)</h2>
-<p><code>wb down</code> inherits <code>wb done</code>'s per-session dirty-check-and-abort exactly —
-a dirty worktree aborts that session's wind-down by default, same as a
-single <code>wb done</code>. Owner call: no silent skip-and-report bulk mode for now —
-an override flag can be added later; its exact behavior (skip-dirty-and-
-report vs. force vs. something else) is a decision for whenever that flag
-actually gets built, not now.</p>
-<h2 id="jira-exclusion">Jira exclusion</h2>
-<p>The Jira sprint pull originally listed in <code>wb up</code>'s scope is removed and
-joins <code>/board</code>'s Jira exclusion as its own later, separately-ratified
-addition — same open questions: where the API credential lives, and
-whether Jira-derived text may be persisted into the sync-bound task store.</p>
-<h2 id="design-principle-sessions-are-regenerative-not-precious">Design principle: sessions are regenerative, not precious</h2>
-<p>Because a <code>wb</code> session is fully derived from its task record (repo,
-worktree path, standard 3-window layout), resume = re-running a
-<code>wb new</code>-equivalent from the store — no fragile tmux state snapshotting
-needed. tmux-resurrect/continuum remain an optional complement for raw
-scrollback, but the task store is the source of truth. Concretely: keep
-everything <code>wb</code> creates reconstructable from the task file alone, and give
-<code>wb</code> a <code>down --all</code> / <code>up --resume</code> pair.</p>
-<blockquote>
-<p><strong>The one genuinely precious piece of state:</strong> each agent pane's Claude
-session id, recorded at spawn (a session/window option or a task-file
-field), so <code>up --resume</code> can <code>claude --resume &lt;id&gt;</code> instead of restarting
-every agent cold. The 3-window layout is cheap to rebuild; an in-flight
-agent conversation is not — and the id is cheap to capture now but
-impossible to recover for sessions already killed. This capture is
-landing as part of slice 4b's groundwork, ahead of <code>wb up</code>/<code>wb down</code>
-themselves.</p>
-</blockquote>
-<h2 id="wb-resume-task--an-early-ungated-slice-2026-07-08"><code>wb resume &lt;task&gt;</code> — an early, ungated slice (2026-07-08)</h2>
-<p>The full <code>wb up</code>/<code>wb down</code> pair above stays gated on 4b's session-id
-capture, needed for warm-restarting an agent mid-conversation. A
-single-task resume needs none of that: <code>cmd_new</code>
-(<code>scripts/.config/scripts/tmux/wb.sh:222-279</code>) is already idempotent — it
-skips worktree creation when the worktree dir exists, no-ops task-seeding
-when the task file exists, and always <code>tmux_ensure_session</code> + focuses
-regardless of whether the session was already live. Task frontmatter
-(<code>repo:</code>/<code>branch:</code>/<code>worktree:</code>) is already durable, on disk, in a git repo
-— there is nothing new to &quot;track&quot; for this slice.</p>
-<p>So <code>wb resume &lt;task&gt;</code> can ship now as a thin wrapper: fuzzy-match a task by
-slug against the store, read its frontmatter, call the same worktree/session
-logic <code>cmd_new</code> already runs. This is &quot;stage 1&quot; of the crash/reboot-recovery
-need that motivated it — bring a specific task's environment back after a
-shutdown or crash, by name, without retyping <code>&lt;repo&gt; &lt;slug&gt;</code>. <code>wb up</code> later
-becomes &quot;stage 2&quot;: run this same resume logic over every checked task in
-the startup review buffer, plus the session-id warm-restart on top.</p>
-<p>No tmux-resurrect/continuum is installed today (<code>tmux/.config/tmux/tmux.conf</code>
-only lists <code>tpm</code>, <code>tmux-sensible</code>, <code>vim-tmux-navigator</code>, <code>catppuccin-tmux</code>)
-— consistent with this doc's regenerative-sessions principle, this slice
-doesn't need it either.</p>
+<p>Scoped via a decision-buffer round on 2026-07-08
+(<code>logs/decisions/2026-07-08-wb-reconcile-scoping.md</code>, gitignored scratch —
+this page is the durable record of what got decided). This page is the
+source; edit <code>docs/roadmap-wb-reconcile.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> new item, not from the original numbered list · <strong>Status:</strong>
+scoped, ready to plan — not yet built</p>
+<h2 id="the-gap-this-closes">The gap this closes</h2>
+<p>The task store (<code>~/code/tasks/*.md</code>) and actual git state (worktrees,
+branches, merge status) can silently diverge in both directions — a
+worktree gets created outside <code>wb new</code>, a branch gets merged and never
+cleaned up, a task's worktree gets removed by hand outside <code>wb done</code>.
+Nothing today detects this.</p>
+<p>Not hypothetical: a first pass over <code>be--monorepo</code> alone found four
+worktrees with no matching task file — <code>fix/sfb-1046-byid-gates</code> (untouched
+over a month), <code>refactor/state-management</code> (last commit references an
+already-merged PR, worktree just never got cleaned up), <code>fix/sfb-985- pitch-map-regression</code> (real uncommitted work, completely invisible to <code>wb board</code>), and <code>fix/sfb-988-af-sprints</code> (shares a commit with the already-
+tracked <code>sfb-988</code> task — a likely duplicate branch for the same work).</p>
+<h2 id="what-v1-detects">What v1 detects</h2>
+<p>Presence-diff (worktree/branch with no task file, or a task file whose
+<code>worktree:</code> no longer exists on disk) plus a GitHub merged-status check per
+candidate branch (via <code>gh</code>/<code>pgh</code>, same call pattern as
+<code>pr-review-session</code>'s driver, <code>claude/.claude/skills/pr-review-session/driver.py:130</code>).
+Same-commit duplicate flagging (the <code>fix/sfb-988-af-sprints</code>-style case) is
+a later addition, kept report-only given how easily it can be wrong — two
+branches can legitimately share a base commit before diverging.</p>
+<p><strong>Hard rule:</strong> <code>wb reconcile</code> never auto-applies a correction. It always
+shows everything possibly diverged, including anything it's genuinely
+unsure about — over-reporting (a false positive to dismiss) beats
+under-reporting (real drift that never surfaces).</p>
+<h2 id="the-review-flow">The review flow</h2>
+<p>Not a <code>--apply</code> flag plus a live <code>git diff</code>. <code>wb reconcile</code> writes one
+markdown review doc, one item per finding, with per-item options: do
+nothing / remove / discuss / create a task (the expected common case — a
+branch or worktree from real work that never got a task file) / <strong>attach to
+task</strong> (attach an orphaned worktree to an existing task record) / <strong>merge
+with task</strong> (two task records that turn out to be the same work). The last
+two started as a single overloaded &quot;combine&quot; action in the initial scoping
+pass, then got split during a follow-up <code>ce-brainstorm</code> validation
+specifically so the destructive operation (merge) stays visually distinct
+from the additive one (attach) — merging drops one task record's Plan/
+Done/Follow-ups prose, attaching only edits one field. Closing the doc is
+the answer — the exact same [[decision-buffer]] convention used everywhere
+else in this workflow, applied here as a purpose-specific review buffer
+rather than a bespoke UI.</p>
+<p>Also decided in that same brainstorm pass: <code>wb reconcile</code> always writes to
+one persistent file (no dated snapshots), warning before overwriting any
+unaddressed prior review; a task created via &quot;Create a task&quot; seeds
+<code>status: doing</code>, not the template default <code>planned</code>, since the work it
+represents is already in progress by definition.</p>
+<h2 id="sequencing">Sequencing</h2>
+<p>Scoped, not yet planned or built. Pick up with <code>/ce-plan</code> when ready — the
+decision-buffer doc above has the full option/tradeoff record for both the
+detection scope and the review-flow shape.</p>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-day-bookends.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/roadmap-wb-reconcile.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Day bookends — wb up / wb down</title>
+<title>PR #1 recap — wb resume, wb pause, /board, wb reconcile</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,92 +173,177 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap-day-bookends.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-08</span>
+  <span>docgen · generated from <b>docs/pr1-wb-workbench-recap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-09</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Day bookends — wb up / wb down</h1>
+  <h1><span class="glyph">§</span> PR #1 recap — wb resume, wb pause, /board, wb reconcile</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>Two workflows composing the capture/recall pieces already built: <code>wb up</code>
-(startup) and <code>wb down</code> (shutdown). This page is the source; edit
-<code>docs/roadmap-day-bookends.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong> the
-full <code>wb up</code>/<code>wb down</code> bulk flow is gated on slice 4b's session-id capture
-landing; <code>wb resume &lt;task&gt;</code> (single-task slice, see below) is open and
-unblocked</p>
-<h2 id="the-two-workflows">The two workflows</h2>
-<p><strong>Startup (<code>wb up</code>)</strong> — review yesterday's close-out + parked items + task
-board, propose today's focus, recreate tmux sessions for the chosen tasks.</p>
-<p><strong>Shutdown (<code>wb down</code>)</strong> — sweep every live session, capture a quick status
-into each task file, run the notes digest, then close all sessions cleanly
-so the PC can power off.</p>
-<h2 id="wb-ups-task-selection-decision-10-2026-07-07-review"><code>wb up</code>'s task selection (Decision 10, 2026-07-07 review)</h2>
-<p>Reuses the decision-buffer checkbox convention already shared by <code>wb done</code>'s close-out and the notes-digest promotion: <code>wb up</code> opens a review
-buffer listing yesterday's close-out + parked items + task-board candidates
-as <code>- [ ] pick</code> lines; closing the buffer recreates a session per checked
-task. First-run fallback (no prior close-out to review yet): fall back to a
-plain picker over the task store's <code>planned</code>/<code>doing</code> rows.</p>
-<h2 id="wb-downs-dirty-check-decision-7-2026-07-07-review"><code>wb down</code>'s dirty-check (Decision 7, 2026-07-07 review)</h2>
-<p><code>wb down</code> inherits <code>wb done</code>'s per-session dirty-check-and-abort exactly —
-a dirty worktree aborts that session's wind-down by default, same as a
-single <code>wb done</code>. Owner call: no silent skip-and-report bulk mode for now —
-an override flag can be added later; its exact behavior (skip-dirty-and-
-report vs. force vs. something else) is a decision for whenever that flag
-actually gets built, not now.</p>
-<h2 id="jira-exclusion">Jira exclusion</h2>
-<p>The Jira sprint pull originally listed in <code>wb up</code>'s scope is removed and
-joins <code>/board</code>'s Jira exclusion as its own later, separately-ratified
-addition — same open questions: where the API credential lives, and
-whether Jira-derived text may be persisted into the sync-bound task store.</p>
-<h2 id="design-principle-sessions-are-regenerative-not-precious">Design principle: sessions are regenerative, not precious</h2>
-<p>Because a <code>wb</code> session is fully derived from its task record (repo,
-worktree path, standard 3-window layout), resume = re-running a
-<code>wb new</code>-equivalent from the store — no fragile tmux state snapshotting
-needed. tmux-resurrect/continuum remain an optional complement for raw
-scrollback, but the task store is the source of truth. Concretely: keep
-everything <code>wb</code> creates reconstructable from the task file alone, and give
-<code>wb</code> a <code>down --all</code> / <code>up --resume</code> pair.</p>
-<blockquote>
-<p><strong>The one genuinely precious piece of state:</strong> each agent pane's Claude
-session id, recorded at spawn (a session/window option or a task-file
-field), so <code>up --resume</code> can <code>claude --resume &lt;id&gt;</code> instead of restarting
-every agent cold. The 3-window layout is cheap to rebuild; an in-flight
-agent conversation is not — and the id is cheap to capture now but
-impossible to recover for sessions already killed. This capture is
-landing as part of slice 4b's groundwork, ahead of <code>wb up</code>/<code>wb down</code>
-themselves.</p>
-</blockquote>
-<h2 id="wb-resume-task--an-early-ungated-slice-2026-07-08"><code>wb resume &lt;task&gt;</code> — an early, ungated slice (2026-07-08)</h2>
-<p>The full <code>wb up</code>/<code>wb down</code> pair above stays gated on 4b's session-id
-capture, needed for warm-restarting an agent mid-conversation. A
-single-task resume needs none of that: <code>cmd_new</code>
-(<code>scripts/.config/scripts/tmux/wb.sh:222-279</code>) is already idempotent — it
-skips worktree creation when the worktree dir exists, no-ops task-seeding
-when the task file exists, and always <code>tmux_ensure_session</code> + focuses
-regardless of whether the session was already live. Task frontmatter
-(<code>repo:</code>/<code>branch:</code>/<code>worktree:</code>) is already durable, on disk, in a git repo
-— there is nothing new to &quot;track&quot; for this slice.</p>
-<p>So <code>wb resume &lt;task&gt;</code> can ship now as a thin wrapper: fuzzy-match a task by
-slug against the store, read its frontmatter, call the same worktree/session
-logic <code>cmd_new</code> already runs. This is &quot;stage 1&quot; of the crash/reboot-recovery
-need that motivated it — bring a specific task's environment back after a
-shutdown or crash, by name, without retyping <code>&lt;repo&gt; &lt;slug&gt;</code>. <code>wb up</code> later
-becomes &quot;stage 2&quot;: run this same resume logic over every checked task in
-the startup review buffer, plus the session-id warm-restart on top.</p>
-<p>No tmux-resurrect/continuum is installed today (<code>tmux/.config/tmux/tmux.conf</code>
-only lists <code>tpm</code>, <code>tmux-sensible</code>, <code>vim-tmux-navigator</code>, <code>catppuccin-tmux</code>)
-— consistent with this doc's regenerative-sessions principle, this slice
-doesn't need it either.</p>
+<p>Four features extending <code>scripts/.config/scripts/tmux/wb.sh</code>, scoped via
+several decision-buffer rounds and one <code>ce-plan</code>, then built and tested
+end-to-end. This page is the source; edit <code>docs/pr1-wb-workbench-recap.md</code>,
+not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> PR #1 (this is the detail page) · <strong>Branch:</strong> <code>feat/wb-workbench-extensions</code> → <code>development</code> · <strong>PR:</strong> <a href="https://github.com/jetnoli-sportable/dotfiles/pull/14">#14</a> · <strong>Plan:</strong> <code>docs/plans/2026-07-08-001-feat-wb-workbench-extensions-plan.md</code></p>
+<h2 id="what-shipped">What shipped</h2>
+<table>
+<thead>
+<tr>
+<th>Unit</th>
+<th>What it does</th>
+<th>Verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>U1</td>
+<td><code>paused</code> status + <code>closed:</code> field</td>
+<td><code>wb done</code> stamps <code>closed:</code>; <code>wb board</code> ranks <code>paused</code> between <code>review</code> and <code>planned</code></td>
+</tr>
+<tr>
+<td>U2</td>
+<td><code>wb pause [&lt;session&gt;]</code> + picker keybind <code>p</code></td>
+<td>Status flips to <code>paused</code>, worktree AND session both survive. <code>wb done</code> no longer kills the session either</td>
+</tr>
+<tr>
+<td>U3</td>
+<td><code>wb resume &lt;task&gt;</code></td>
+<td>Fuzzy-matches a task by repo--slug substring, recreates worktree+session via <code>cmd_new</code>'s existing idempotent path</td>
+</tr>
+<tr>
+<td>U4/U5</td>
+<td><code>wb board --html</code> → <code>logs/board.html</code></td>
+<td>6 status tabs (All / In Progress / Upcoming / Paused / Deferred / Unclassified) × 2 timeline windows, CSS-only switching, live-session badges, untracked worktrees surfaced under Unclassified</td>
+</tr>
+<tr>
+<td>U6</td>
+<td><code>wb reconcile</code></td>
+<td>Detects orphaned worktrees and tasks with a missing worktree, cross-checks GitHub merge status per branch</td>
+</tr>
+<tr>
+<td>U7</td>
+<td><code>wb reconcile --review</code> / <code>--apply</code></td>
+<td>Persistent review doc, six checkbox actions per finding, two-phase confirm for merge survivor selection</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Post-review additions</strong> (same PR, added while walking the checklist below):</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Active-tab highlight fix</td>
+<td>The selected tab wasn't visibly highlighted at all — see Findings below</td>
+</tr>
+<tr>
+<td>Detail-card summary line</td>
+<td>Every task's detail card now opens with a plain &quot;A <code>doing</code> task in <code>repo</code>, branch <code>x</code>, created...&quot; sentence, so a task with no Plan/Done content isn't a near-empty card</td>
+</tr>
+<tr>
+<td>Linked docs on detail cards</td>
+<td>Any <code>docs/plans</code>, <code>docs/brainstorms</code>, <code>docs/solutions</code>, or <code>logs/decisions</code> file a task's own prose already names now renders as a clickable chip that opens the file (preferring the rendered <code>.html</code> over its <code>.md</code> source)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="findings-worth-keeping">Findings worth keeping</h2>
+<p><strong>A <code>head -1</code> in a pipeline can silently crash a <code>set -o pipefail</code> script
+on real data even when every test passes.</strong> <code>/board</code>'s detail-section
+extraction used <code>wb_board_section ... | sed ... | head -1</code> to grab a
+task's first Plan/Done line. Every test fixture had single-line sections,
+so <code>head</code> never got to truncate early — no <code>SIGPIPE</code>, tests green. Real
+task files have multi-line sections; <code>head</code> closing the pipe after line 1
+sent <code>SIGPIPE</code> to the writer still producing lines 2+, and <code>pipefail</code>
+turned that into a script-ending failure the moment <code>wb board --html</code> ran
+against actual data. Fixed by capturing the section fully first, then
+extracting the first non-blank line with a here-string loop — no live
+process left to signal once it breaks early. Same shape as a real bug, not
+a hypothetical: this class of &quot;pipe truncation under <code>pipefail</code>&quot; bug is
+invisible to tests built from short fixtures.</p>
+<p><strong>Bash's <code>${var/pattern/replacement}</code> treats an unescaped <code>&amp;</code> in the
+replacement as a backreference to the match — same as <code>sed</code>.</strong>
+<code>${s//&lt;/&amp;lt;}</code> doesn't produce <code>&amp;lt;</code>; it produces <code>&lt;lt;</code> (the matched <code>&lt;</code>,
+followed by literal <code>lt;</code>), because <code>&amp;</code> means &quot;insert what matched.&quot;
+<code>wb_board_html_escape</code>'s HTML-entity escaping silently produced broken
+markup until a test with an actual <code>&lt;</code>/<code>&amp;</code> in a task title caught it.
+Fixed with <code>\&amp;</code> to force a literal ampersand.</p>
+<p><strong><code>input:checked + label</code> requires the label to be the radio's immediate
+next sibling — it silently matches nothing otherwise.</strong> Fixing the
+duplicate-radio-id bug (radios and their labels used to be one <code>&lt;input&gt;</code>
+immediately followed by its <code>&lt;label&gt;</code>, which is where the <code>+</code> rule came
+from) meant separating radios from labels so each <code>id</code> only appears once.
+That broke the adjacent-sibling assumption the highlight CSS depended on:
+every tab rendered visually identical regardless of which was selected,
+because the rule never matched anything, in either state. Fixed with one
+generated rule per radio targeting its own label by <code>for=</code> through
+<code>&lt;header&gt;</code> — the same <code>~ descendant</code> shape the panel-visibility CSS
+already used for the same underlying reason.</p>
+<p><strong>&quot;Merge with task&quot; needed a design not fully specified anywhere.</strong> The
+plan called for an explicit, pre-checked survivor choice instead of a
+silent rule — but the target task isn't known until the user names it in
+the same review doc being generated, so nothing can pre-compute a default
+at generation time. Resolved with a two-phase confirm: the first <code>--apply</code>
+that sees a named merge target with no survivor choice yet appends paired
+sub-checkboxes (most-recently-active pre-checked) and reopens instead of
+merging blind — the same append-then-reopen shape <code>wb done</code>'s own Sweep
+flow already uses for gitignored-file survival, not a new pattern.</p>
+<h2 id="test--verify-it-yourself">Test / verify it yourself</h2>
+<ul>
+<li><input disabled="" type="checkbox"> <strong><code>wb pause</code> a live session</strong> — confirm status flips to <code>paused</code>,
+the worktree directory still exists, and the tmux session is still
+attached.</li>
+<li><input disabled="" type="checkbox"> <strong><code>wb done</code> a live session</strong> — confirm the worktree is removed and
+status flips to <code>done</code>, but the tmux session survives (this changed
+from before — it used to kill the session).</li>
+<li><input disabled="" type="checkbox"> <strong><code>wb resume &lt;fragment&gt;</code></strong> on a task whose worktree you've removed
+by hand — confirm it comes back.</li>
+<li><input disabled="" type="checkbox"> <strong><code>wb board --html</code></strong>, then open <code>logs/board.html</code> — click through
+all 6 tabs and the Today/This week toggle; confirm the active tab is
+visibly highlighted, live-session badges appear only on rows with an
+actual attached session, and any untracked worktree shows up under
+Unclassified.</li>
+<li><input disabled="" type="checkbox"> <strong>Open a task's detail card</strong> — confirm it opens with a plain
+summary sentence even when the task has no Plan/Done content, and
+that any linked doc chip actually opens the right file.</li>
+<li><input disabled="" type="checkbox"> <strong><code>wb reconcile --review</code></strong>, then check a few boxes and save —
+confirm re-running <code>--review</code> before applying warns instead of
+overwriting your in-progress choices.</li>
+<li><input disabled="" type="checkbox"> <strong><code>wb reconcile --apply</code></strong> — confirm checked actions run (remove /
+create a task / attach) and a checked &quot;merge with task&quot; reopens the
+doc with a pre-picked survivor instead of merging immediately.</li>
+</ul>
+<h2 id="whats-not-done-yet">What's NOT done yet</h2>
+<ul>
+<li><strong><code>Deferred</code> tab renders empty</strong> — reserved for a future <code>pending</code>
+status once <code>/park</code> items become task-store entries in their own right;
+not this PR.</li>
+<li><strong>Same-commit duplicate-flagging</strong> for <code>wb reconcile</code> (e.g. recognizing
+that an orphaned worktree and an existing task are actually the same
+work) — still requires the user to manually name the merge target.</li>
+<li><strong>Per-task HTML files, transcript-to-task matching, parent/sub-task
+artifact rollup</strong> — all explicitly deferred in the plan's Scope
+Boundaries.</li>
+</ul>
+<h2 id="next-steps">Next steps</h2>
+<ul>
+<li><strong>Merge <a href="https://github.com/jetnoli-sportable/dotfiles/pull/14">PR #14</a></strong> — reviewed and confirmed working (2026-07-09).</li>
+<li>Per the session's roadmap sequencing: Hub v0 (meta-documentation bundle)
+is next, followed by the sub-task/parent-child relationship
+<code>/handoff</code> surfaced as a real gap, then <code>/handoff</code> itself.</li>
+</ul>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-day-bookends.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/pr1-wb-workbench-recap.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

@@ -12,10 +12,11 @@ central task store, notes-tui, the docs project) — several pieces already
 live in separate repos (`~/code/notes-tui`, `~/code/tasks`).
 
 > **Restructured 2026-07-08.** This used to be one 832-line document with
-> everything at the same flat depth. Every item below now gets its own
-> page — click through for the design rationale, the full runbook, or
-> whatever detail used to live inline here. This page stays short on
-> purpose.
+> everything at the same flat depth. Most active or notable items below
+> get their own page — click through for the design rationale, the full
+> runbook, or whatever detail used to live inline here. Small completed
+> items and unratified proposals are noted inline instead (`—` in the Doc
+> column) rather than given a page each. This page stays short on purpose.
 
 ## Origins
 
@@ -43,27 +44,59 @@ since the task template's `## Decisions` section still refers to "F4":
 | Step zero (hooks, alias cleanup) | Done | — | Attention-pipeline hooks wired, dead `n` alias removed |
 | Central task store + frontmatter | Done | [wb design](roadmap-wb-design.html) | `~/code/tasks`, file-per-task schema |
 | `wb` core (new / picker / done) | Done | [wb design](roadmap-wb-design.html) · [wb-guide](wb-guide.html) | Session-per-worktree + unified picker — PR #7 |
-| Notes-tui integration (4a / 4b) | 4a done · 4b gated ~2026-07-14 | [deep dive](slice-4b-deep-dive.html) | Capture habit shipped; real wiring waits on the usage-window verdict |
+| Notes-tui integration, 4a (capture) | Done | [deep dive](slice-4b-deep-dive.html) | Capture habit shipped; 4b (real wiring) tracked separately below |
 | Docs platform (generated pages, Hub, INDEX, `/help`) | Done | [docgen](docgen.html) · [slice-5 recap](slice-5-recap.html) | One generator, three outputs — slice 5 |
 | Per-skill/TUI guide pages + tile dashboard | Done | `docs/guides/*` · [slice-5 recap](slice-5-recap.html) | Born-generated guides, `HUB.html` |
-| `/board` — full HTML task-board view | Open (interim shipped) | [detail](roadmap-board.html) | Zoomable today/task/week; `wb board` covers the visibility gap now |
-| Day bookends (`wb up` / `wb down`) | Open, gated on 4b | [detail](roadmap-day-bookends.html) | Startup/shutdown flows |
-| Task recall | Open, unblocked | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it |
+| `/board` — full HTML task-board view | Fully scoped, ready to implement (interim `wb board` live now) | [detail](roadmap-board.html) | Status+timeline filters + inline drill-down over the task store, gitignored bash-generated file |
+| `wb pause` (new status + subcommand + keybind) | Fully scoped, part of `/board`'s PR | [detail](roadmap-board.html) | Needed for `/board`'s Paused status filter |
+| `wb reconcile` — task-store/git drift detection | Scoped, ready to plan | [detail](roadmap-wb-reconcile.html) | Cross-references task store vs. real git state; report-only, decision-buffer-shaped review flow |
+| Day bookends (`wb up` / `wb down`) | `wb resume <task>` open + unblocked; full up/down gated on 4b | [detail](roadmap-day-bookends.html) | Startup/shutdown flows; single-task resume ships first |
+| Task recall | Open, **actually blocked** on the personal/employer boundary rule below, despite reading as unblocked | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it — see Open Questions for the boundary dependency |
+| `/handoff` — route a discussion to the right worker | Queued, marked for pickup soon | [detail](roadmap-handoff.html) | Switch to an existing agent's session or `wb new` it; surfaced a real gap (no sub-task relationship exists yet) |
+| Notes-tui integration, 4b (real wiring) | Sequenced after `/handoff`, pending 4a's ~2026-07-14 verdict | [deep dive](slice-4b-deep-dive.html) | Placement decided 2026-07-08 — may move if the Hub v0 roadmap-visual work finds something more relevant |
+| Hub v0 (meta-documentation bundle) | Scoped (parked), next PR after the current one | — | Artifact index, limitations list, glossary, roadmap visual, a ceremonies/rituals section (tracking exactly the dated clocks and process rituals below), plus the docgen-freshness hygiene fixes |
 | Editor/tmux ergonomics batch | Done | [9f recap](9f-ergonomics-recap.html) | 6 small nvim/tmux/Claude-Code items |
 | GPaste clipboard-history manager | Done | [9g recap](9g-gpaste-recap.html) | Configured, `<Ctrl><Shift>G` opens history |
 | Unify copy/paste (terminal paste never needed) | Open, not started | [9g recap](9g-gpaste-recap.html) | Needs its own design pass |
 | Cross-repo/cross-machine doc registry | Proposal, unratified | — | Only revisit if artifacts still go missing after the landing-path rule |
 | Jira integration (`/board` + day-bookends halves) | Proposal, not scheduled | — | Same open questions both times: credential location, persistence into the sync-bound store |
-| Personal/employer boundary rule | Deferred — **final** item | [open questions](roadmap-open-questions.html) | Made only after every other follow-up is in place |
+| Personal/employer boundary rule | Deferred — **final** item | [open questions](roadmap-open-questions.html) | Made only after every other follow-up is in place — Task recall above already depends on it landing |
+| Task-store schema migration/reconciliation | Proposal, tied to Hub v0 launch | — | One-time pass to bring every existing task file up to whatever schema `/board` + `wb reconcile` finalize (`closed:`, `paused`, etc. are being added piecemeal this session); do the migration once the schema settles rather than per-field |
+| Skill/tool/command usage audit | Proposal, unscheduled | — | Monthly-ish audit of what's unused (prune candidates) AND what's underused but already solves a current pain point (before building something new) — measurement source and output location still undecided |
 | `docgen.sh`'s pre-commit hook targets the wrong repo from a worktree | Done | — | Fixed by exporting `DOTFILES="$repo_root"` in the hook, using the root it already correctly computed via `git rev-parse --show-toplevel`. Verified with a real divergence test: a marker page committed from a throwaway worktree landed in that worktree's `HUB.html` only, main checkout untouched |
 
-**Dated clocks** (not tasks — check-in points): delete the version-pinned
-content scan `tmux_pane_awaiting_input` (~2026-07-13, if hook data held) ·
-4a capture-window verdict, gates 4b's shape (~2026-07-14) · push-vs-weekly-
-ritual validation check-in (~2026-07-20).
+**Dated clocks** (not tasks — check-in points, i.e. "on this date, come back and
+make a call," not "on this date, code runs automatically"). What's actually
+expected to happen at each:
+
+- **~2026-07-13 — delete `tmux_pane_awaiting_input`** (if hook data held).
+  This is a version-pinned content-scan fallback for detecting "is this
+  tmux pane waiting on input" — a stopgap until the newer hook-based
+  attention pipeline (Step zero, above) proved reliable. The action: if the
+  hook-based detection has held up without regressions by this date, delete
+  the old fallback scan; if it hasn't, keep it a while longer.
+- **~2026-07-14 — 4a capture-window verdict.** Look at how notes-tui's
+  capture habit (4a, shipped) actually got used over the observation
+  window, then decide whether that usage justifies building 4b's real
+  wiring, and in what shape. A go/shape decision, not an automatic trigger.
+- **~2026-07-20 — push-vs-weekly-ritual validation check-in.** Compare
+  whether proactive push notifications or batched weekly review (the
+  `/parked-items` model) actually fits real usage better, to inform how
+  similar future features get designed.
 
 Full detail on every deferred decision the 2026-07-07 doc review left open:
 [Open Questions](roadmap-open-questions.html).
+
+## Window management
+
+Parked, not yet its own roadmap item until now. GNOME tiling trifecta plan
+(focus-or-launch + Forge + workspaces) already written on unmerged branch
+`feat/gnome-tiling`; `walker` decided as the launcher. Explicitly **awaiting
+its own doc review until "workbench core" lands** — that's the `/board` +
+`wb reconcile` + `wb resume`/`wb pause` PR above, so this section is the
+live home for that trigger rather than a one-time decision-buffer verdict:
+once that PR ships, this doc review is unblocked. Keybind constraint stands
+regardless of timing: `ctrl+hjkl` stays reserved for vim-tmux-navigator.
 
 ## Keep / retire / hold
 
