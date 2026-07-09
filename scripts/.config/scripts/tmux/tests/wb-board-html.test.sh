@@ -148,6 +148,60 @@ assert_not "done task absent from In Progress/Week" 'Old Done Task' "$(extract_p
 deferred_today="$(extract_panel deferred-today unclassified-today)"
 assert "Deferred empty-state message" 'reserved for a future' "$deferred_today"
 
+# --- always-present summary line ----------------------------------------
+assert "summary line present for a task with Plan/Done content too" \
+  'A <code>doing</code> task in <code>proj</code>, branch <code>doing-branch</code>, created' \
+  "$(extract_panel all-today inprogress-today)"
+
+# --- related-doc links: only for docs the task's own prose already names ---
+DOC_ROOT="$(mktemp -d -t wb-board-html-docroot.XXXXXX)"
+git init -q "$DOC_ROOT"
+mkdir -p "$DOC_ROOT/scripts/.config/scripts/tmux" "$DOC_ROOT/docs/plans" "$DOC_ROOT/logs/decisions"
+git -C "$DOC_ROOT" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+echo "plan md" > "$DOC_ROOT/docs/plans/2026-07-08-x-plan.md"
+echo "plan html" > "$DOC_ROOT/docs/plans/2026-07-08-x-plan.html"
+echo "decision" > "$DOC_ROOT/logs/decisions/2026-07-06-y.md"
+echo "gone" > "/tmp/wb-board-html-nonexistent-marker"   # sentinel, never referenced
+SCRIPT_DIR_REAL="$SCRIPT_DIR"
+SCRIPT_DIR="$DOC_ROOT/scripts/.config/scripts/tmux"
+
+cat > "$FIXTURE_TASKS/proj--doclinks.md" <<EOF
+---
+status: doing
+repo: proj
+branch: doclinks-branch
+worktree: .worktrees/doclinks-branch
+tags: []
+created: $TODAY
+closed:
+---
+# Doc Links Task
+
+## Plan
+
+## Done
+
+## Decisions
+
+- \`docs/plans/2026-07-08-x-plan.md\` — the plan (has a rendered .html sibling).
+- \`dotfiles/logs/decisions/2026-07-06-y.md\` — a decision (dotfiles/-prefixed, no .html sibling).
+- \`docs/plans/2026-07-08-does-not-exist.md\` — never written to disk, must not link dead.
+EOF
+html3="$(wb_board_render_html 2>&1)"
+doclinks_panel="$(printf '%s' "$html3" | tr '\n' ' ')"
+doclinks_panel="${doclinks_panel#*id=\"panel-all-today\">}"
+doclinks_panel="${doclinks_panel%%id=\"panel-inprogress-today\"*}"
+
+assert "doc reference upgraded to its rendered .html sibling" \
+  'href="\.\./docs/plans/2026-07-08-x-plan\.html"' "$doclinks_panel"
+assert "dotfiles/-prefixed reference stripped and linked (no .html sibling, stays .md)" \
+  'href="decisions/2026-07-06-y\.md"' "$doclinks_panel"
+assert_not "reference to a file never written to disk is not linked" \
+  'does-not-exist' "$doclinks_panel"
+
+SCRIPT_DIR="$SCRIPT_DIR_REAL"
+rm -rf "$DOC_ROOT" "/tmp/wb-board-html-nonexistent-marker"
+
 # --- HTML escaping ------------------------------------------------------------
 mk_task 'proj--escaped.md' doing proj escaped-branch '' "$TODAY" '' 'Fix <script> & "quotes"'
 html2="$(wb_board_render_html 2>&1)"

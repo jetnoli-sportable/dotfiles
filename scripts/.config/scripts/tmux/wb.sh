@@ -1016,11 +1016,67 @@ wb_board_pr_info() {
   printf '%s' "$out" | jq -r '.[0] // empty | "#\(.number) (\(.state))"' 2>/dev/null
 }
 
+# wb_board_summary_line <status> <repo> <branch> <created> <closed> — an
+# always-present, plain-language orientation sentence for a task's detail
+# card. Deliberately just restating the structured frontmatter facts, not
+# summarizing Plan/Done prose — that would need an LLM call at generation
+# time, well beyond what a bash-generated static page should do. Plan/Done
+# excerpts (when present) still render as their own, richer lines below
+# this one; this exists so a task with neither isn't a near-empty card.
+wb_board_summary_line() {
+  local status="$1" repo="$2" branch="$3" created="$4" closed="$5" s
+  s="A <code>$status</code> task in <code>$repo</code>, branch <code>$branch</code>"
+  [ -n "$created" ] && s+=", created $created"
+  [ -n "$closed" ] && s+=", closed $closed"
+  printf '%s.' "$s"
+}
+
+# wb_board_related_docs <taskfile> <dotfiles_root> — repo-root-relative
+# paths of any docs/plans, docs/brainstorms, docs/solutions, or
+# logs/decisions file the task's own prose already names (this repo's
+# established convention — see e.g. ~/code/tasks/*.md's "## Decisions"
+# sections — is a plain-text path, sometimes backtick-wrapped, sometimes
+# prefixed `dotfiles/`, not a markdown link). Deliberately conservative:
+# only surfaces a doc the task file already names, never a guessed/fuzzy
+# match. When both a .md and its rendered .html sibling exist, prefers the
+# .html (nicer to open from a browser); a reference to a since-deleted
+# file is dropped rather than linked dead.
+wb_board_related_docs() {
+  local taskfile="$1" root="$2" rel html_sibling
+  [ -f "$taskfile" ] || return 0
+  grep -oP '(?:dotfiles/)?(?:docs/(?:plans|brainstorms|solutions)|logs/decisions)/[A-Za-z0-9._/-]+\.(?:md|html)' "$taskfile" 2>/dev/null \
+    | sed 's#^dotfiles/##' | sort -u | while IFS= read -r rel; do
+      [ -f "$root/$rel" ] || continue
+      case "$rel" in
+        *.md)
+          html_sibling="${rel%.md}.html"
+          if [ -f "$root/$html_sibling" ]; then printf '%s\n' "$html_sibling"; else printf '%s\n' "$rel"; fi
+          ;;
+        *) printf '%s\n' "$rel" ;;
+      esac
+    done | sort -u
+}
+
+# wb_board_doc_link <root_relative_path> — that path's href from
+# logs/board.html's own location, since board.html isn't served over
+# http and an absolute href would resolve against the filesystem root,
+# not the repo root.
+wb_board_doc_link() {
+  case "$1" in
+    logs/*) printf '%s' "${1#logs/}" ;;
+    *)      printf '../%s' "$1" ;;
+  esac
+}
+
 # wb_board_render_html — writes the full /board page to stdout: 6 status
 # tabs x 2 timeline windows, pre-rendered as 12 panels with CSS-only
 # radio-sibling switching (no JS — R8/R10's zero-JS decision), live-session
 # badges per row (R11), and per-panel anchor-linked detail sections (R12).
 wb_board_render_html() {
+  local dotfiles_root
+  dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+  [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
+
   local -a ROWS=()
   local line
   while IFS= read -r line; do ROWS+=("$line"); done < <(wb_board_collect_rows)
@@ -1088,6 +1144,7 @@ wb_board_render_html() {
           detail_sections+="<div class=\"task-detail untracked\" id=\"$view_anchor\"><h3>$esc_branch <span class=\"pill unclassified\">unclassified</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3><span class=\"repo\">$esc_repo</span><p><b>No task file.</b> Worktree exists on disk (<code>$(wb_board_html_escape "$worktree")</code>) with no matching entry in the task store.</p></div>"$'\n'
         else
           local plan done_txt followups decisions repo_dir wt_abs pr_info detail_extra=""
+          detail_extra+="<p>$(wb_board_summary_line "$status" "$esc_repo" "$esc_branch" "$created" "$closed")</p>"
           plan="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Plan)")"
           done_txt="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Done)")"
           [ -n "$plan" ] && detail_extra+="<p><b>Plan:</b> $(wb_board_html_escape "$plan")</p>"
@@ -1104,6 +1161,12 @@ wb_board_render_html() {
             ledger_note+="$(printf '%s' "$ledger_line" | jq -r '.note // empty' 2>/dev/null); "
           done < <(wb_board_ledger_matches "$wt_abs")
           [ -n "$ledger_note" ] && detail_extra+="<p><b>Parked:</b> $(wb_board_html_escape "$ledger_note")</p>"
+          local doc_rel doc_links=""
+          while IFS= read -r doc_rel; do
+            [ -n "$doc_rel" ] || continue
+            doc_links+="<a class=\"artefact-chip\" href=\"$(wb_board_doc_link "$doc_rel")\">$(wb_board_html_escape "$(basename "$doc_rel")")</a> "
+          done < <(wb_board_related_docs "$taskfile" "$dotfiles_root")
+          [ -n "$doc_links" ] && detail_extra+="<p><b>Docs:</b> $doc_links</p>"
           detail_sections+="<div class=\"task-detail\" id=\"$view_anchor\"><h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3><span class=\"repo\">$esc_repo</span>$detail_extra</div>"$'\n'
         fi
       done
@@ -1174,7 +1237,8 @@ wb_board_render_html() {
   .task-detail p { margin: .4rem 0; font-size: .87rem; color: var(--ink2); }
   .task-detail p b { color: var(--ink); }
   .task-detail.untracked { border-style: dashed; }
-  .artefact-chip { display: inline-flex; font-family: var(--mono); font-size: .74rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: .1em .6em; margin-right: .3em; color: var(--ink2); }
+  .artefact-chip { display: inline-flex; font-family: var(--mono); font-size: .74rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: .1em .6em; margin-right: .3em; color: var(--ink2); text-decoration: none; }
+  a.artefact-chip:hover { border-color: var(--acc2); color: var(--acc2); }
   $panel_css
   $highlight_css
 </style>
