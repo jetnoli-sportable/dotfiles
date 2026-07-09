@@ -25,6 +25,14 @@ not the rendered `.html`.
 | U6 | `wb reconcile` | Detects orphaned worktrees and tasks with a missing worktree, cross-checks GitHub merge status per branch |
 | U7 | `wb reconcile --review` / `--apply` | Persistent review doc, six checkbox actions per finding, two-phase confirm for merge survivor selection |
 
+**Post-review additions** (same PR, added while walking the checklist below):
+
+| What | Why |
+|---|---|
+| Active-tab highlight fix | The selected tab wasn't visibly highlighted at all — see Findings below |
+| Detail-card summary line | Every task's detail card now opens with a plain "A `doing` task in `repo`, branch `x`, created..." sentence, so a task with no Plan/Done content isn't a near-empty card |
+| Linked docs on detail cards | Any `docs/plans`, `docs/brainstorms`, `docs/solutions`, or `logs/decisions` file a task's own prose already names now renders as a clickable chip that opens the file (preferring the rendered `.html` over its `.md` source) |
+
 ## Findings worth keeping
 
 **A `head -1` in a pipeline can silently crash a `set -o pipefail` script
@@ -49,6 +57,18 @@ followed by literal `lt;`), because `&` means "insert what matched."
 markup until a test with an actual `<`/`&` in a task title caught it.
 Fixed with `\&` to force a literal ampersand.
 
+**`input:checked + label` requires the label to be the radio's immediate
+next sibling — it silently matches nothing otherwise.** Fixing the
+duplicate-radio-id bug (radios and their labels used to be one `<input>`
+immediately followed by its `<label>`, which is where the `+` rule came
+from) meant separating radios from labels so each `id` only appears once.
+That broke the adjacent-sibling assumption the highlight CSS depended on:
+every tab rendered visually identical regardless of which was selected,
+because the rule never matched anything, in either state. Fixed with one
+generated rule per radio targeting its own label by `for=` through
+`<header>` — the same `~ descendant` shape the panel-visibility CSS
+already used for the same underlying reason.
+
 **"Merge with task" needed a design not fully specified anywhere.** The
 plan called for an explicit, pre-checked survivor choice instead of a
 silent rule — but the target task isn't known until the user names it in
@@ -70,9 +90,13 @@ flow already uses for gitignored-file survival, not a new pattern.
 - [ ] **`wb resume <fragment>`** on a task whose worktree you've removed
       by hand — confirm it comes back.
 - [ ] **`wb board --html`**, then open `logs/board.html` — click through
-      all 6 tabs and the Today/This week toggle; confirm live-session
-      badges appear only on rows with an actual attached session, and any
-      untracked worktree shows up under Unclassified.
+      all 6 tabs and the Today/This week toggle; confirm the active tab is
+      visibly highlighted, live-session badges appear only on rows with an
+      actual attached session, and any untracked worktree shows up under
+      Unclassified.
+- [ ] **Open a task's detail card** — confirm it opens with a plain
+      summary sentence even when the task has no Plan/Done content, and
+      that any linked doc chip actually opens the right file.
 - [ ] **`wb reconcile --review`**, then check a few boxes and save —
       confirm re-running `--review` before applying warns instead of
       overwriting your in-progress choices.
@@ -94,7 +118,7 @@ flow already uses for gitignored-file survival, not a new pattern.
 
 ## Next steps
 
-- **Review and merge [PR #14](https://github.com/jetnoli-sportable/dotfiles/pull/14)** once you've walked the checklist above.
+- **Merge [PR #14](https://github.com/jetnoli-sportable/dotfiles/pull/14)** — reviewed and confirmed working (2026-07-09).
 - Per the session's roadmap sequencing: Hub v0 (meta-documentation bundle)
   is next, followed by the sub-task/parent-child relationship
   `/handoff` surfaced as a real gap, then `/handoff` itself.

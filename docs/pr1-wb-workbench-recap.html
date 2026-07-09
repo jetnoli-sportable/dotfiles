@@ -233,6 +233,29 @@ not the rendered <code>.html</code>.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Post-review additions</strong> (same PR, added while walking the checklist below):</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Active-tab highlight fix</td>
+<td>The selected tab wasn't visibly highlighted at all — see Findings below</td>
+</tr>
+<tr>
+<td>Detail-card summary line</td>
+<td>Every task's detail card now opens with a plain &quot;A <code>doing</code> task in <code>repo</code>, branch <code>x</code>, created...&quot; sentence, so a task with no Plan/Done content isn't a near-empty card</td>
+</tr>
+<tr>
+<td>Linked docs on detail cards</td>
+<td>Any <code>docs/plans</code>, <code>docs/brainstorms</code>, <code>docs/solutions</code>, or <code>logs/decisions</code> file a task's own prose already names now renders as a clickable chip that opens the file (preferring the rendered <code>.html</code> over its <code>.md</code> source)</td>
+</tr>
+</tbody>
+</table>
 <h2 id="findings-worth-keeping">Findings worth keeping</h2>
 <p><strong>A <code>head -1</code> in a pipeline can silently crash a <code>set -o pipefail</code> script
 on real data even when every test passes.</strong> <code>/board</code>'s detail-section
@@ -254,6 +277,17 @@ followed by literal <code>lt;</code>), because <code>&amp;</code> means &quot;in
 <code>wb_board_html_escape</code>'s HTML-entity escaping silently produced broken
 markup until a test with an actual <code>&lt;</code>/<code>&amp;</code> in a task title caught it.
 Fixed with <code>\&amp;</code> to force a literal ampersand.</p>
+<p><strong><code>input:checked + label</code> requires the label to be the radio's immediate
+next sibling — it silently matches nothing otherwise.</strong> Fixing the
+duplicate-radio-id bug (radios and their labels used to be one <code>&lt;input&gt;</code>
+immediately followed by its <code>&lt;label&gt;</code>, which is where the <code>+</code> rule came
+from) meant separating radios from labels so each <code>id</code> only appears once.
+That broke the adjacent-sibling assumption the highlight CSS depended on:
+every tab rendered visually identical regardless of which was selected,
+because the rule never matched anything, in either state. Fixed with one
+generated rule per radio targeting its own label by <code>for=</code> through
+<code>&lt;header&gt;</code> — the same <code>~ descendant</code> shape the panel-visibility CSS
+already used for the same underlying reason.</p>
 <p><strong>&quot;Merge with task&quot; needed a design not fully specified anywhere.</strong> The
 plan called for an explicit, pre-checked survivor choice instead of a
 silent rule — but the target task isn't known until the user names it in
@@ -274,9 +308,13 @@ from before — it used to kill the session).</li>
 <li><input disabled="" type="checkbox"> <strong><code>wb resume &lt;fragment&gt;</code></strong> on a task whose worktree you've removed
 by hand — confirm it comes back.</li>
 <li><input disabled="" type="checkbox"> <strong><code>wb board --html</code></strong>, then open <code>logs/board.html</code> — click through
-all 6 tabs and the Today/This week toggle; confirm live-session
-badges appear only on rows with an actual attached session, and any
-untracked worktree shows up under Unclassified.</li>
+all 6 tabs and the Today/This week toggle; confirm the active tab is
+visibly highlighted, live-session badges appear only on rows with an
+actual attached session, and any untracked worktree shows up under
+Unclassified.</li>
+<li><input disabled="" type="checkbox"> <strong>Open a task's detail card</strong> — confirm it opens with a plain
+summary sentence even when the task has no Plan/Done content, and
+that any linked doc chip actually opens the right file.</li>
 <li><input disabled="" type="checkbox"> <strong><code>wb reconcile --review</code></strong>, then check a few boxes and save —
 confirm re-running <code>--review</code> before applying warns instead of
 overwriting your in-progress choices.</li>
@@ -298,7 +336,7 @@ Boundaries.</li>
 </ul>
 <h2 id="next-steps">Next steps</h2>
 <ul>
-<li><strong>Review and merge <a href="https://github.com/jetnoli-sportable/dotfiles/pull/14">PR #14</a></strong> once you've walked the checklist above.</li>
+<li><strong>Merge <a href="https://github.com/jetnoli-sportable/dotfiles/pull/14">PR #14</a></strong> — reviewed and confirmed working (2026-07-09).</li>
 <li>Per the session's roadmap sequencing: Hub v0 (meta-documentation bundle)
 is next, followed by the sub-task/parent-child relationship
 <code>/handoff</code> surfaced as a real gap, then <code>/handoff</code> itself.</li>
