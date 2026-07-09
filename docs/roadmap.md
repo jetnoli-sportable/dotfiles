@@ -47,14 +47,14 @@ since the task template's `## Decisions` section still refers to "F4":
 | Notes-tui integration, 4a (capture) | Done | [deep dive](slice-4b-deep-dive.html) | Capture habit shipped; 4b (real wiring) tracked separately below |
 | Docs platform (generated pages, Hub, INDEX, `/help`) | Done | [docgen](docgen.html) · [slice-5 recap](slice-5-recap.html) | One generator, three outputs — slice 5 |
 | Per-skill/TUI guide pages + tile dashboard | Done | `docs/guides/*` · [slice-5 recap](slice-5-recap.html) | Born-generated guides, `HUB.html` |
-| `/board` — full HTML task-board view | Fully scoped, ready to implement (interim `wb board` live now) | [detail](roadmap-board.html) | Status+timeline filters + inline drill-down over the task store, gitignored bash-generated file |
-| `wb pause` (new status + subcommand + keybind) | Fully scoped, part of `/board`'s PR | [detail](roadmap-board.html) | Needed for `/board`'s Paused status filter |
-| `wb reconcile` — task-store/git drift detection | Scoped, ready to plan | [detail](roadmap-wb-reconcile.html) | Cross-references task store vs. real git state; report-only, decision-buffer-shaped review flow |
-| Day bookends (`wb up` / `wb down`) | `wb resume <task>` open + unblocked; full up/down gated on 4b | [detail](roadmap-day-bookends.html) | Startup/shutdown flows; single-task resume ships first |
+| `/board` — full HTML task-board view | Done — PR #14 | [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) | `wb board --html`: 6 status tabs × timeline window, live-session badges, untracked-worktree rows |
+| `wb pause` (new status + subcommand + keybind) | Done — PR #14 | [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) | Also stopped `wb done` from killing the tmux session — same instruction, both wind-down paths |
+| `wb reconcile` — task-store/git drift detection | Detection + review/apply flow done — PR #14; combining two already-tracked duplicate tasks is a real, separate gap, still open | [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-wb-reconcile.html) | `wb reconcile` / `--review` / `--apply` ship drift detection (orphaned worktree, missing worktree) with a six-action review doc; **not yet covered:** two tasks that both have valid worktrees but represent the same real work — reconcile has no way to see that as a finding at all today |
+| Day bookends (`wb up` / `wb down`) | `wb resume <task>` shipped (PR #14); full up/down gated on 4b | [detail](roadmap-day-bookends.html) | Startup/shutdown flows; single-task resume ships first |
 | Task recall | Open, **actually blocked** on the personal/employer boundary rule below, despite reading as unblocked | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it — see Open Questions for the boundary dependency |
 | `/handoff` — route a discussion to the right worker | Queued, marked for pickup soon | [detail](roadmap-handoff.html) | Switch to an existing agent's session or `wb new` it; surfaced a real gap (no sub-task relationship exists yet) |
 | Notes-tui integration, 4b (real wiring) | Sequenced after `/handoff`, pending 4a's ~2026-07-14 verdict | [deep dive](slice-4b-deep-dive.html) | Placement decided 2026-07-08 — may move if the Hub v0 roadmap-visual work finds something more relevant |
-| Hub v0 (meta-documentation bundle) | Scoped (parked), next PR after the current one | — | Artifact index, limitations list, glossary, roadmap visual, a ceremonies/rituals section (tracking exactly the dated clocks and process rituals below), plus the docgen-freshness hygiene fixes |
+| Hub v0 (meta-documentation bundle) | Scoped (parked); next up once the `wb reconcile` duplicate-task gap above is resolved | — | Artifact index, limitations list, glossary, roadmap visual, a ceremonies/rituals section (tracking exactly the dated clocks and process rituals below), plus the docgen-freshness hygiene fixes |
 | Editor/tmux ergonomics batch | Done | [9f recap](9f-ergonomics-recap.html) | 6 small nvim/tmux/Claude-Code items |
 | GPaste clipboard-history manager | Done | [9g recap](9g-gpaste-recap.html) | Configured, `<Ctrl><Shift>G` opens history |
 | Unify copy/paste (terminal paste never needed) | Open, not started | [9g recap](9g-gpaste-recap.html) | Needs its own design pass |
@@ -89,13 +89,13 @@ Full detail on every deferred decision the 2026-07-07 doc review left open:
 
 ## Window management
 
-Parked, not yet its own roadmap item until now. GNOME tiling trifecta plan
+**Unblocked 2026-07-09** — the trigger this section existed to track
+("workbench core" landing) fired: `/board` + `wb reconcile` +
+`wb resume`/`wb pause` shipped as PR #14. GNOME tiling trifecta plan
 (focus-or-launch + Forge + workspaces) already written on unmerged branch
-`feat/gnome-tiling`; `walker` decided as the launcher. Explicitly **awaiting
-its own doc review until "workbench core" lands** — that's the `/board` +
-`wb reconcile` + `wb resume`/`wb pause` PR above, so this section is the
-live home for that trigger rather than a one-time decision-buffer verdict:
-once that PR ships, this doc review is unblocked. Keybind constraint stands
+`feat/gnome-tiling`; `walker` decided as the launcher. Its own doc review
+is now available to pick up whenever it's next in line — not
+auto-scheduled, just no longer blocked. Keybind constraint stands
 regardless of timing: `ctrl+hjkl` stays reserved for vim-tmux-navigator.
 
 ## Keep / retire / hold
