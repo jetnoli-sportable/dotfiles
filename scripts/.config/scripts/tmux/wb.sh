@@ -392,10 +392,13 @@ wb_worktree_has_task() {
   return 1
 }
 
-cmd_reconcile() {
-  local repo_dir repo branch abs_path rel tf merged
-  local -a orphan_rows=() missing_rows=()
-
+# wb_reconcile_collect — one TSV line per drift finding, shared by
+# cmd_reconcile's plain-text output and the review-doc generator (U7) so
+# detection logic lives in exactly one place. Fields:
+#   orphan:  kind=orphan   repo  branch  worktree(rel)  merge-status
+#   missing: kind=missing  repo  branch(from frontmatter)  worktree(rel)  taskfile(abs path)
+wb_reconcile_collect() {
+  local repo_dir repo branch abs_path rel merged
   while IFS= read -r repo_dir; do
     [ -d "$repo_dir/.git" ] || continue
     repo="$(basename "$repo_dir")"
@@ -404,19 +407,40 @@ cmd_reconcile() {
       rel="${abs_path#"$repo_dir"/}"
       if ! wb_worktree_has_task "$repo" "$rel"; then
         merged="$(wb_pr_merge_status "$repo_dir" "$branch")"
-        orphan_rows+=("$repo"$'\t'"$branch"$'\t'"$rel"$'\t'"$merged")
+        printf 'orphan\t%s\t%s\t%s\t%s\n' "$repo" "$branch" "$rel" "$merged"
       fi
     done < <(wb_repo_worktrees "$repo_dir")
   done < <(wb_reconcile_repos)
 
+  local tf t_repo t_worktree t_branch
   while IFS= read -r tf; do
-    local t_repo t_worktree
     t_repo="$(wb_get_frontmatter "$tf" repo)"
     t_worktree="$(wb_get_frontmatter "$tf" worktree)"
     [ -n "$t_repo" ] && [ -n "$t_worktree" ] || continue
     [ -d "$(wb_repo_dir "$t_repo")/$t_worktree" ] && continue
-    missing_rows+=("$t_repo"$'\t'"$t_worktree"$'\t'"$(basename "$tf" .md)")
+    t_branch="$(wb_get_frontmatter "$tf" branch)"
+    printf 'missing\t%s\t%s\t%s\t%s\n' "$t_repo" "$t_branch" "$t_worktree" "$tf"
   done < <(wb_task_files)
+}
+
+cmd_reconcile() {
+  case "${1:-}" in
+    --review) shift; wb_reconcile_generate_review "$@"; return ;;
+    --apply)  shift; wb_reconcile_apply "$@"; return ;;
+  esac
+
+  local -a orphan_rows=() missing_rows=()
+  local line kind repo branch worktree extra
+  local -a f
+  while IFS= read -r line; do
+    wb_tsv_split "$line" f
+    kind="${f[0]}"; repo="${f[1]}"; branch="${f[2]}"; worktree="${f[3]}"; extra="${f[4]}"
+    if [ "$kind" = orphan ]; then
+      orphan_rows+=("$repo"$'\t'"$branch"$'\t'"$worktree"$'\t'"$extra")
+    else
+      missing_rows+=("$repo"$'\t'"$worktree"$'\t'"$(basename "$extra" .md)")
+    fi
+  done < <(wb_reconcile_collect)
 
   if [ "${#orphan_rows[@]}" -eq 0 ] && [ "${#missing_rows[@]}" -eq 0 ]; then
     echo "wb reconcile: no drift found"
@@ -432,6 +456,267 @@ cmd_reconcile() {
   if [ "${#missing_rows[@]}" -gt 0 ]; then
     echo "Tasks referencing a missing worktree:"
     { printf 'REPO\tWORKTREE\tTASK\n'; printf '%s\n' "${missing_rows[@]}"; } | column -t -s $'\t'
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# wb reconcile --review / --apply — the persistent review doc + six-action
+# flow (U7). Each finding renders with a `<!-- wb-reconcile: ... -->`
+# marker carrying its identifying fields, immune to whatever the user edits
+# around it — --apply reads markers back, not prose.
+#
+# "merge with task" is only semantically distinct from "attach to task" for
+# a MISSING-worktree finding (two real task files, two sets of Plan/Done/
+# Follow-ups content to reconcile). An orphaned worktree has no task file of
+# its own, so "merging" it into an existing task IS attaching — there's
+# nothing else to combine. The survivor sub-checkboxes only ever apply to
+# a missing-finding merge, and since the target task isn't known until the
+# user names it in this same document, the pre-checked default can't be
+# computed at generation time — it's computed and appended on the FIRST
+# --apply that sees a named target with no survivor choice yet, and the doc
+# reopens for confirmation before anything actually merges (same
+# append-then-reopen shape wb done's own Sweep flow already uses).
+# ---------------------------------------------------------------------------
+
+# wb_reconcile_report_path — logs/reconcile.md in THIS repo (dotfiles),
+# same convention as wb_board_render_html's logs/board.html.
+wb_reconcile_report_path() {
+  local root
+  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+  [ -n "$root" ] || root="$CODE_DIR/dotfiles"
+  printf '%s/logs/reconcile.md\n' "$root"
+}
+
+# wb_reconcile_generate_review — (re)writes the persistent review doc from
+# a fresh detection pass, then opens it for editing. Refuses to clobber a
+# prior report that still has unchecked findings (R17) — an unresolved
+# review is work in progress, not something to silently discard.
+wb_reconcile_generate_review() {
+  local path; path="$(wb_reconcile_report_path)"
+  if [ -f "$path" ] && grep -q '<!-- wb-reconcile:' "$path" && grep -qE '^- \[ \]' "$path"; then
+    echo "wb reconcile --review: $path has unresolved findings from a prior review." >&2
+    echo "wb reconcile --review: check/act on them (or delete the file) before re-running." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$path")"
+  local n=0 line kind repo branch worktree extra
+  local -a f
+  {
+    echo "# wb reconcile — review"
+    echo
+    echo "> Check the action(s) you want for each finding, save and close."
+    echo "> Run \`wb reconcile --apply\` to execute what you checked — nothing"
+    echo "> here is automatic, an unchecked finding is left exactly as-is."
+    while IFS= read -r line; do
+      wb_tsv_split "$line" f
+      kind="${f[0]}"; repo="${f[1]}"; branch="${f[2]}"; worktree="${f[3]}"; extra="${f[4]}"
+      n=$((n + 1))
+      echo
+      if [ "$kind" = orphan ]; then
+        echo "## $n. orphaned worktree — $repo / $branch"
+        echo
+        echo "<!-- wb-reconcile: kind=orphan repo=$repo branch=$branch worktree=$worktree -->"
+        echo
+        echo "- Worktree: \`$worktree\`"
+        echo "- Merge status: $extra"
+      else
+        echo "## $n. missing worktree — $repo / $(basename "$extra" .md)"
+        echo
+        echo "<!-- wb-reconcile: kind=missing repo=$repo branch=$branch worktree=$worktree taskfile=$extra -->"
+        echo
+        echo "- Task file: \`$(basename "$extra")\`"
+        echo "- Missing worktree: \`$worktree\`"
+      fi
+      echo
+      echo "- [ ] do nothing"
+      echo "- [ ] remove"
+      echo "- [ ] discuss"
+      echo "- [ ] create a task"
+      echo "- [ ] attach to task: \`___\`"
+      echo "- [ ] merge with task: \`___\`"
+    done < <(wb_reconcile_collect)
+    [ "$n" -eq 0 ] && { echo; echo "No drift found."; }
+  } > "$path"
+
+  echo "wb reconcile --review: wrote $path ($n finding(s))"
+  [ "$n" -gt 0 ] && wb_open_buffer "$path"
+}
+
+# wb_reconcile_action_remove <kind> <repo> <branch> <worktree> <taskfile>
+wb_reconcile_action_remove() {
+  local kind="$1" repo="$2" branch="$3" worktree="$4" taskfile="$5" repo_dir
+  if [ "$kind" = orphan ]; then
+    repo_dir="$(wb_repo_dir "$repo")"
+    if [ -d "$repo_dir/$worktree" ]; then
+      git -C "$repo_dir" worktree remove "$repo_dir/$worktree" --force
+    fi
+    git -C "$repo_dir" branch -D "$branch" 2>/dev/null || true
+    echo "wb reconcile --apply: removed $repo/$worktree and branch $branch"
+  else
+    if [ -f "$taskfile" ]; then
+      rm -f "$taskfile"
+      echo "wb reconcile --apply: removed stale task file $taskfile"
+    else
+      echo "wb reconcile --apply: $taskfile already gone, nothing to remove" >&2
+    fi
+  fi
+}
+
+# wb_reconcile_action_create_task <kind> <repo> <branch> <worktree>
+wb_reconcile_action_create_task() {
+  local kind="$1" repo="$2" branch="$3" worktree="$4"
+  if [ "$kind" != orphan ]; then
+    echo "wb reconcile --apply: 'create a task' is a no-op on a missing-worktree finding (a task already exists) — skipping" >&2
+    return 0
+  fi
+  local file; file="$(wb_seed_task "$repo" "$branch" "$worktree")"
+  echo "wb reconcile --apply: created task $file (status: doing)"
+}
+
+# wb_reconcile_action_attach <kind> <repo> <worktree> <target_basename>
+wb_reconcile_action_attach() {
+  local kind="$1" worktree="$2" target="$3" target_file
+  if [ "$kind" != orphan ]; then
+    echo "wb reconcile --apply: 'attach to task' doesn't apply to a missing-worktree finding (it already is one) — use 'merge with task' instead — skipping" >&2
+    return 0
+  fi
+  target_file="$TASKS_DIR/$target"
+  if [ ! -f "$target_file" ]; then
+    echo "wb reconcile --apply: attach target '$target' not found in $TASKS_DIR — skipping this finding" >&2
+    return 0
+  fi
+  wb_set_frontmatter "$target_file" worktree "$worktree"
+  echo "wb reconcile --apply: attached $worktree to $target_file"
+}
+
+# wb_reconcile_merge_content <survivor_file> <loser_file> — appends the
+# loser's Plan/Done/Follow-ups content into the survivor's matching
+# sections, carries over worktree: if the survivor's is blank, then
+# deletes the loser file.
+wb_reconcile_merge_content() {
+  local survivor="$1" loser="$2" heading section
+  for heading in Plan Done Follow-ups; do
+    section="$(wb_board_section "$loser" "$heading")"
+    [ -n "$(printf '%s' "$section" | tr -d '[:space:]')" ] || continue
+    awk -v h="## $heading" -v content="$section" '
+      { print }
+      $0 == h { print content }
+    ' "$survivor" > "$survivor.tmp.$$" && mv "$survivor.tmp.$$" "$survivor"
+  done
+  local survivor_wt loser_wt
+  survivor_wt="$(wb_get_frontmatter "$survivor" worktree)"
+  loser_wt="$(wb_get_frontmatter "$loser" worktree)"
+  [ -z "$survivor_wt" ] && [ -n "$loser_wt" ] && wb_set_frontmatter "$survivor" worktree "$loser_wt"
+  rm -f "$loser"
+}
+
+# wb_reconcile_action_merge <kind> <repo> <branch> <worktree> <taskfile> <target> <block>
+# For an orphan finding, merge == attach (no task content of its own to
+# combine). For a missing-worktree finding, requires the block to already
+# carry a resolved survivor choice (exactly one `- [x] survivor:` line) —
+# the caller (wb_reconcile_apply) is responsible for appending and
+# reopening first when that choice doesn't exist yet.
+wb_reconcile_action_merge() {
+  local kind="$1" repo="$2" branch="$3" worktree="$4" taskfile="$5" target="$6" block="$7"
+  if [ "$kind" = orphan ]; then
+    wb_reconcile_action_attach "$kind" "$branch" "$worktree" "$target"
+    return
+  fi
+
+  local target_file="$TASKS_DIR/$target"
+  if [ ! -f "$taskfile" ] || [ ! -f "$target_file" ]; then
+    echo "wb reconcile --apply: merge candidate missing ($taskfile or $target_file no longer exists) — skipping this finding" >&2
+    return 0
+  fi
+
+  local -a survivor_checks=()
+  while IFS= read -r line; do survivor_checks+=("$line"); done < <(printf '%s' "$block" | grep -oP '^\s*- \[x\] survivor: \K.*')
+  if [ "${#survivor_checks[@]}" -ne 1 ]; then
+    echo "wb reconcile --apply: merge for $taskfile <-> $target_file has ${#survivor_checks[@]} survivor choices checked (need exactly 1) — skipping" >&2
+    return 0
+  fi
+
+  case "${survivor_checks[0]}" in
+    "this finding"*) wb_reconcile_merge_content "$taskfile" "$target_file" ;;
+    *)                wb_reconcile_merge_content "$target_file" "$taskfile" ;;
+  esac
+  echo "wb reconcile --apply: merged $taskfile and $target_file"
+}
+
+# wb_reconcile_apply — parse the closed review doc's marker-delimited
+# blocks and execute exactly the checked actions. Rebuilds any "merge with
+# task" block that doesn't have survivor sub-checkboxes yet (appending a
+# most-recently-active default) and reopens instead of merging blind.
+wb_reconcile_apply() {
+  local path; path="$(wb_reconcile_report_path)"
+  [ -f "$path" ] || { echo "wb reconcile --apply: no report at $path — run 'wb reconcile --review' first" >&2; return 1; }
+
+  local full_content; full_content="$(cat "$path")"
+  local -a blocks=()
+  local block="" line in_block=0
+  while IFS= read -r line; do
+    case "$line" in
+      '<!-- wb-reconcile: '*)
+        [ "$in_block" = 1 ] && blocks+=("$block")
+        block="$line"$'\n'; in_block=1 ;;
+      *)
+        [ "$in_block" = 1 ] && block+="$line"$'\n' ;;
+    esac
+  done < "$path"
+  [ "$in_block" = 1 ] && blocks+=("$block")
+
+  local reopen_needed=0
+  local b kind repo branch worktree taskfile target
+  for b in "${blocks[@]}"; do
+    kind="$(printf '%s' "$b" | grep -oP 'kind=\K[^ ]+' | head -1)"
+    repo="$(printf '%s' "$b" | grep -oP 'repo=\K[^ ]+' | head -1)"
+    branch="$(printf '%s' "$b" | grep -oP 'branch=\K[^ ]*' | head -1)"
+    worktree="$(printf '%s' "$b" | grep -oP 'worktree=\K[^ ]*' | head -1)"
+    taskfile="$(printf '%s' "$b" | grep -oP 'taskfile=\K[^ ]+' | head -1)"
+
+    if printf '%s' "$b" | grep -qE '^- \[x\] do nothing'; then
+      continue
+    elif printf '%s' "$b" | grep -qE '^- \[x\] discuss'; then
+      continue
+    elif printf '%s' "$b" | grep -qE '^- \[x\] remove'; then
+      wb_reconcile_action_remove "$kind" "$repo" "$branch" "$worktree" "$taskfile"
+    elif printf '%s' "$b" | grep -qE '^- \[x\] create a task'; then
+      wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree"
+    elif printf '%s' "$b" | grep -qP "^- \[x\] attach to task: \`[^\`_]+\`"; then
+      target="$(printf '%s' "$b" | grep -oP '^- \[x\] attach to task: `\K[^`]+' | head -1)"
+      wb_reconcile_action_attach "$kind" "$worktree" "$target"
+    elif printf '%s' "$b" | grep -qP "^- \[x\] merge with task: \`[^\`_]+\`"; then
+      target="$(printf '%s' "$b" | grep -oP '^- \[x\] merge with task: `\K[^`]+' | head -1)"
+      if [ "$kind" != orphan ] && ! printf '%s' "$b" | grep -qE '^\s*- \[.\] survivor:'; then
+        local target_file="$TASKS_DIR/$target" new_b default_pick
+        if [ -f "$target_file" ] && [ -f "$taskfile" ]; then
+          local t_self t_target
+          t_self="$(stat -c %Y "$taskfile" 2>/dev/null || echo 0)"
+          t_target="$(stat -c %Y "$target_file" 2>/dev/null || echo 0)"
+          if [ "$t_self" -ge "$t_target" ]; then
+            default_pick="self"
+          else
+            default_pick="target"
+          fi
+        else
+          default_pick="target"
+        fi
+        local self_box="[ ]" target_box="[ ]"
+        [ "$default_pick" = self ] && self_box="[x]" || target_box="[x]"
+        new_b="$(printf '%s' "$b" | sed "/^- \\[x\\] merge with task/a\\\\  - $self_box survivor: this finding (new stub)\\n  - $target_box survivor: \`$target\` (existing) <!-- pre-picked: most recently active -->")"
+        full_content="${full_content/"$b"/"$new_b"}"
+        reopen_needed=1
+        continue
+      fi
+      wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" "$b"
+    fi
+  done
+
+  if [ "$reopen_needed" = 1 ]; then
+    printf '%s' "$full_content" > "$path"
+    echo "wb reconcile --apply: added survivor choices for new merges — reopening for confirmation"
+    wb_open_buffer "$path"
   fi
 }
 
