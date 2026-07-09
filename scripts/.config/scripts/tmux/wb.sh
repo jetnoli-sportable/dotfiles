@@ -212,7 +212,13 @@ wb_seed_task() {
 wb_layout_session() {
   local session="$1" dir="$2" start_agent="$3"
   tmux rename-window -t "=$session:1" nvim
-  tmux send-keys -t "=$session:1" "nvim ." Enter
+  # WB_AUTO_RESTORE=1 opts THIS launch into persistence.nvim's
+  # auto-restore-on-VimEnter (nvim/.config/nvim/lua/plugins/config/
+  # persistence.lua) — a worktree session's nvim window should pick back up
+  # where you left it. Typing `nvim .`/`vim .` yourself anywhere else does
+  # NOT set this and gets a plain, non-restoring open (2026-07-09: silent
+  # auto-restore on every `.` launch was surprising with no escape hatch).
+  tmux send-keys -t "=$session:1" "WB_AUTO_RESTORE=1 nvim ." Enter
   tmux new-window -t "=$session" -n agent -c "$dir"
   [ "$start_agent" = 1 ] && tmux send-keys -t "=$session:agent" "claude" Enter
   tmux new-window -t "=$session" -n shell -c "$dir"
