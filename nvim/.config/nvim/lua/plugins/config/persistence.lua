@@ -3,27 +3,17 @@
 -- worktree = one cwd = one tmux session, so there's no extra scoping logic
 -- to write here.
 --
--- Auto-restore on VimEnter is OPT-IN via $WB_AUTO_RESTORE, not a blanket
--- "any bare/directory launch restores" rule (2026-07-09: a plain `vim .`
--- typed by hand silently resuming a stale session, with no way to just get
--- a fresh directory view, was surprising enough to file as a bug). Only
--- wb_layout_session (wb.sh) sets that env var before launching a worktree
--- session's first window -- typing `vim .`/`nvim .` yourself anywhere else
--- always gets a plain, non-restoring open. Explicit restore is still one
--- keypress away: <leader>ps (this cwd) / <leader>pl (last, any cwd), both
--- bound below.
---
--- The launch-shape check itself is unchanged from the original design:
--- wb's nvim window launches as `nvim .`, not a bare `nvim`, so the standard
--- `argc() == 0` guard other kickstart-style configs use would never fire
--- for it, since "." counts as an argument. Verified empirically (headless
--- round-trip: save a session editing two files, quit, reopen with a
--- literal `nvim .`) that a plain `vim.fn.argv(0) == "."` check is NOT
--- enough either: oil.nvim intercepts the directory argument before
--- VimEnter and rewrites it to an `oil://...` buffer, so argv(0) never reads
--- back as the literal "." by the time this callback runs. Check the
--- resulting buffer name / isdirectory instead, which is robust to that
--- rewrite.
+-- Auto-restore on VimEnter, but only when nvim was launched with no real
+-- file argument. wb_layout_session (wb.sh) launches the nvim window with
+-- `nvim .`, not a bare `nvim` -- the standard `argc() == 0` guard other
+-- kickstart-style configs use would never fire for a wb session, since "."
+-- counts as an argument. Verified empirically (headless round-trip: save a
+-- session editing two files, quit, reopen with a literal `nvim .`) that a
+-- plain `vim.fn.argv(0) == "."` check is NOT enough either: oil.nvim
+-- intercepts the directory argument before VimEnter and rewrites it to an
+-- `oil://...` buffer, so argv(0) never reads back as the literal "." by the
+-- time this callback runs. Check the resulting buffer name / isdirectory
+-- instead, which is robust to that rewrite.
 --
 -- The autocmd lives in `init`, NOT `config`: `config` only runs once the
 -- plugin actually lazy-loads (on `event = "BufReadPre"` below), but a bare
@@ -75,7 +65,7 @@ local config = {
 		vim.api.nvim_create_autocmd("VimEnter", {
 			group = vim.api.nvim_create_augroup("persistence-autorestore", { clear = true }),
 			callback = function()
-				if vim.env.WB_AUTO_RESTORE == "1" and launched_with_no_real_file() then
+				if launched_with_no_real_file() then
 					require("persistence").load()
 				end
 			end,
