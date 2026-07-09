@@ -59,10 +59,57 @@ frontmatter field pointing at another task file? an inline sub-task list
 in the parent's `## Plan` section? something tag-based?) rather than
 guessing an answer inline here.
 
+## A concrete case to factor in: full-stack tasks (FE + BE)
+
+Noted 2026-07-09, ahead of the decision-buffer round: a parent/child
+relationship isn't just "one task broken into smaller pieces of the same
+kind" — a common real shape is one piece of work spanning two repos (a
+frontend change and its backend counterpart), which stresses the schema
+differently than same-repo sub-tasks do:
+
+- **Schema:** `repo:` is a single field per task file today
+  (`~/code/tasks/README.md`) — a full-stack task doesn't have one `repo:`,
+  it has (at least) two. Whatever parent/child representation gets chosen
+  needs to handle "the child tasks disagree on `repo:`" as a normal case,
+  not an edge case.
+- **tmux/session topology — genuinely open, not yet a preference:**
+  - **(a) One session, multiple windows** — a single tmux session for the
+    parent task, with an extra nvim window opened in the FE worktree
+    alongside the existing BE one (`wb_layout_session`, `wb.sh:210-223`,
+    would need a second worktree path, not just a second window in the
+    same one).
+  - **(b) One session per repo, linked by the parent/child relationship** —
+    closer to how `wb.sh` already works today (one worktree = one session),
+    just with the picker/board aware that two sessions share a parent.
+  - Both need an answer to: does ONE agent manage both worktrees (single
+    `claude` pane, working across two directories), or TWO agents (one per
+    repo, each scoped to its own worktree) — which is really a question
+    about whether an agent should ever operate outside its own worktree's
+    cwd, not just a session-layout preference.
+- **`/board` and the picker both need a rendering answer, and they're not
+  the same question:**
+  - The picker already has a working precedent for "one thing with
+    sub-rows" — `wb_agent_subrows` (`wb.sh:609-621`) expands a
+    multi-agent session into indented sub-rows under one parent row. A
+    full-stack task's two sessions (option b above) could plausibly reuse
+    that exact rendering, once the sessions know they're linked.
+  - `/board` doesn't have an equivalent precedent yet — U4/U5 (this
+    session's `/board` build) never needed one, since nothing in that
+    scope spans two repos. The parent/sub-task artifact rollup already
+    mocked up for `/board` (`logs/decisions/2026-07-08-board-mockup-a-
+    table.html`'s speculative section) is the closest existing sketch, but
+    it was drawn for "one parent, several same-repo children," not
+    specifically for a two-repo pair.
+
+None of this is decided — recording it so the eventual decision-buffer
+round scopes the representation against a real multi-repo case, not just
+the same-repo "big task into smaller pieces" framing it started from.
+
 ## Sequencing
 
 Queued, not yet scoped. When picked up: a decision-buffer round covering
-(1) the sub-task relationship representation, since `/handoff`'s "break
-something big into pieces" framing depends on it existing, and (2) the
-follow-up (deferred on purpose) of actually instructing an existing agent
-rather than just switching to their session.
+(1) the sub-task relationship representation — including the full-stack
+(multi-repo) case above, not just same-repo decomposition — since
+`/handoff`'s "break something big into pieces" framing depends on it
+existing, and (2) the follow-up (deferred on purpose) of actually
+instructing an existing agent rather than just switching to their session.
