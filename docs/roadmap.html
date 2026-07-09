@@ -275,25 +275,25 @@ of these.</li>
 </tr>
 <tr>
 <td><code>/board</code> — full HTML task-board view</td>
-<td>Fully scoped, ready to implement (interim <code>wb board</code> live now)</td>
-<td><a href="roadmap-board.html">detail</a></td>
-<td>Status+timeline filters + inline drill-down over the task store, gitignored bash-generated file</td>
+<td>Done — PR #14</td>
+<td><a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-board.html">detail</a></td>
+<td><code>wb board --html</code>: 6 status tabs × timeline window, live-session badges, untracked-worktree rows</td>
 </tr>
 <tr>
 <td><code>wb pause</code> (new status + subcommand + keybind)</td>
-<td>Fully scoped, part of <code>/board</code>'s PR</td>
-<td><a href="roadmap-board.html">detail</a></td>
-<td>Needed for <code>/board</code>'s Paused status filter</td>
+<td>Done — PR #14</td>
+<td><a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-board.html">detail</a></td>
+<td>Also stopped <code>wb done</code> from killing the tmux session — same instruction, both wind-down paths</td>
 </tr>
 <tr>
 <td><code>wb reconcile</code> — task-store/git drift detection</td>
-<td>Scoped, ready to plan</td>
-<td><a href="roadmap-wb-reconcile.html">detail</a></td>
-<td>Cross-references task store vs. real git state; report-only, decision-buffer-shaped review flow</td>
+<td>Detection + review/apply flow done — PR #14; combining two already-tracked duplicate tasks is a real, separate gap, still open</td>
+<td><a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-wb-reconcile.html">detail</a></td>
+<td><code>wb reconcile</code> / <code>--review</code> / <code>--apply</code> ship drift detection (orphaned worktree, missing worktree) with a six-action review doc; <strong>not yet covered:</strong> two tasks that both have valid worktrees but represent the same real work — reconcile has no way to see that as a finding at all today</td>
 </tr>
 <tr>
 <td>Day bookends (<code>wb up</code> / <code>wb down</code>)</td>
-<td><code>wb resume &lt;task&gt;</code> open + unblocked; full up/down gated on 4b</td>
+<td><code>wb resume &lt;task&gt;</code> shipped (PR #14); full up/down gated on 4b</td>
 <td><a href="roadmap-day-bookends.html">detail</a></td>
 <td>Startup/shutdown flows; single-task resume ships first</td>
 </tr>
@@ -317,7 +317,7 @@ of these.</li>
 </tr>
 <tr>
 <td>Hub v0 (meta-documentation bundle)</td>
-<td>Scoped (parked), next PR after the current one</td>
+<td>Scoped (parked); next up once the <code>wb reconcile</code> duplicate-task gap above is resolved</td>
 <td>—</td>
 <td>Artifact index, limitations list, glossary, roadmap visual, a ceremonies/rituals section (tracking exactly the dated clocks and process rituals below), plus the docgen-freshness hygiene fixes</td>
 </tr>
@@ -399,13 +399,13 @@ similar future features get designed.</li>
 <p>Full detail on every deferred decision the 2026-07-07 doc review left open:
 <a href="roadmap-open-questions.html">Open Questions</a>.</p>
 <h2 id="window-management">Window management</h2>
-<p>Parked, not yet its own roadmap item until now. GNOME tiling trifecta plan
+<p><strong>Unblocked 2026-07-09</strong> — the trigger this section existed to track
+(&quot;workbench core&quot; landing) fired: <code>/board</code> + <code>wb reconcile</code> +
+<code>wb resume</code>/<code>wb pause</code> shipped as PR #14. GNOME tiling trifecta plan
 (focus-or-launch + Forge + workspaces) already written on unmerged branch
-<code>feat/gnome-tiling</code>; <code>walker</code> decided as the launcher. Explicitly <strong>awaiting
-its own doc review until &quot;workbench core&quot; lands</strong> — that's the <code>/board</code> +
-<code>wb reconcile</code> + <code>wb resume</code>/<code>wb pause</code> PR above, so this section is the
-live home for that trigger rather than a one-time decision-buffer verdict:
-once that PR ships, this doc review is unblocked. Keybind constraint stands
+<code>feat/gnome-tiling</code>; <code>walker</code> decided as the launcher. Its own doc review
+is now available to pick up whenever it's next in line — not
+auto-scheduled, just no longer blocked. Keybind constraint stands
 regardless of timing: <code>ctrl+hjkl</code> stays reserved for vim-tmux-navigator.</p>
 <h2 id="keep--retire--hold">Keep / retire / hold</h2>
 <ul>
