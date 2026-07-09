@@ -1034,17 +1034,25 @@ wb_board_render_html() {
   # relies on both radio groups being earlier siblings of <main> so the
   # `~` sibling combinator can reach it (label position doesn't matter,
   # since labels reference these ids via for= rather than nesting).
-  local radios_html='' tabs_html='' win_html='' panel_css='' panels_html=''
+  # Highlight CSS is generated per-radio here too (not a single
+  # `input:checked + label` rule) for the same reason panel visibility
+  # needs `~ main #panel-...`: since the radios and their labels are no
+  # longer adjacent siblings (labels live in <header>, away from the
+  # hidden radios), `+`/plain `~` can't reach a label by position alone —
+  # each rule targets the specific label by its for= attribute instead.
+  local radios_html='' tabs_html='' win_html='' panel_css='' panels_html='' highlight_css=''
   local win tab first_win=1 first_tab=1
   for win in "${WINDOWS[@]}"; do
     local checked=""; [ "$first_win" = 1 ] && checked=" checked" && first_win=0
     radios_html+="<input type=\"radio\" name=\"tl\" id=\"tl-$win\"$checked>"$'\n'
     win_html+="<label for=\"tl-$win\">${WIN_LABEL[$win]}</label>"$'\n'
+    highlight_css+="#tl-$win:checked ~ header label[for=\"tl-$win\"] { background: var(--acc); color: white; }"$'\n'
   done
   for tab in "${TABS[@]}"; do
     local checked=""; [ "$first_tab" = 1 ] && checked=" checked" && first_tab=0
     radios_html+="<input type=\"radio\" name=\"st\" id=\"st-$tab\"$checked>"$'\n'
     tabs_html+="<label for=\"st-$tab\">${TAB_LABEL[$tab]}</label>"$'\n'
+    highlight_css+="#st-$tab:checked ~ header label[for=\"st-$tab\"] { background: var(--acc); color: white; }"$'\n'
   done
 
   local row kind bucket status repo branch worktree title created closed updated taskfile anchor_key
@@ -1141,7 +1149,6 @@ wb_board_render_html() {
   .tabs { display: flex; gap: .4rem; flex-wrap: wrap; }
   .tabgroup { display: flex; gap: .25rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .25rem; flex-wrap: wrap; }
   .tabgroup label { font-family: var(--mono); font-size: .78rem; padding: .35rem .8rem; border-radius: 6px; cursor: pointer; color: var(--ink2); }
-  input[type=radio]:checked + label { background: var(--acc); color: white; }
 
   main { padding: 1.5rem; max-width: 60rem; margin: 0 auto; }
   .view { display: none; flex-direction: column; gap: 2rem; }
@@ -1169,6 +1176,7 @@ wb_board_render_html() {
   .task-detail.untracked { border-style: dashed; }
   .artefact-chip { display: inline-flex; font-family: var(--mono); font-size: .74rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: .1em .6em; margin-right: .3em; color: var(--ink2); }
   $panel_css
+  $highlight_css
 </style>
 $radios_html
 <header>

@@ -102,6 +102,21 @@ else
   echo "FAIL - expected 12 CSS toggle rules, got $css_rule_count"; fail=1
 fi
 
+# --- active-tab highlight: every radio has a rule targeting ITS OWN label --
+# Regression coverage for a real bug: radios and labels aren't adjacent
+# siblings (labels live in <header>, away from the hidden radios), so a
+# plain `input:checked + label` rule silently never matches anything —
+# every tab looked selected-or-not identically. Each radio needs its own
+# `#id:checked ~ header label[for="id"]` rule instead.
+highlight_rule_count="$(printf '%s' "$html" | grep -c 'label\[for=')"
+if [ "$highlight_rule_count" -eq 8 ]; then
+  echo "ok   - 8 active-tab highlight rules present (2 timeline + 6 status)"
+else
+  echo "FAIL - expected 8 active-tab highlight rules, got $highlight_rule_count"; fail=1
+fi
+assert "highlight rule targets its own label by for=" '#st-paused:checked ~ header label\[for="st-paused"\]' "$html"
+assert_not "no dead adjacent-sibling highlight rule left behind" 'checked \+ label' "$html"
+
 # --- bucketing -----------------------------------------------------------
 all_today="$(extract_panel all-today inprogress-today)"
 assert "doing task appears in All/Today (created today)" 'Doing Task' "$all_today"
