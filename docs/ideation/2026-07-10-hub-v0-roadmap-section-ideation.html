@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ideation: the roadmap section of Hub v0</title>
+<style>
+  :root {
+    --base: #eff1f5; --mantle: #e6e9ef; --surface: #ccd0da; --surface-soft: #dce0e8;
+    --text: #4c4f69; --subtext: #6c6f85; --overlay: #9ca0b0;
+    --blue: #1e66f5; --mauve: #8839ef; --green: #40a02b; --yellow: #df8e1d;
+    --red: #d20f39; --peach: #fe640b; --teal: #179299; --lavender: #7287fd;
+    --blue-soft: rgba(30,102,245,.09); --mauve-soft: rgba(136,57,239,.09);
+    --green-soft: rgba(64,160,43,.10); --yellow-soft: rgba(223,142,29,.12);
+    --red-soft: rgba(210,15,57,.08); --teal-soft: rgba(23,146,153,.10);
+    --card: #ffffff; --border: #bcc0cc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --base: #1e1e2e; --mantle: #181825; --surface: #313244; --surface-soft: #292c3c;
+      --text: #cdd6f4; --subtext: #a6adc8; --overlay: #6c7086;
+      --blue: #89b4fa; --mauve: #cba6f7; --green: #a6e3a1; --yellow: #f9e2af;
+      --red: #f38ba8; --peach: #fab387; --teal: #94e2d5; --lavender: #b4befe;
+      --blue-soft: rgba(137,180,250,.12); --mauve-soft: rgba(203,166,247,.12);
+      --green-soft: rgba(166,227,161,.12); --yellow-soft: rgba(249,226,175,.13);
+      --red-soft: rgba(243,139,168,.11); --teal-soft: rgba(148,226,213,.12);
+      --card: #252537; --border: #45475a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--base); color: var(--text);
+    font: 15px/1.6 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  .page { max-width: 920px; margin-inline: auto; padding: 40px 24px 64px; }
+  p, li, dd { max-width: 72ch; }
+  code { font-family: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, monospace; font-size: .88em;
+         background: var(--surface-soft); border-radius: 4px; padding: .08em .35em; }
+  a { color: var(--blue); }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: .4rem 0 .6rem; }
+  h2 { font-size: 1.25rem; margin: 2.6rem 0 .8rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 1.6rem 0 .5rem; }
+  strong { color: inherit; }
+  .eyebrow { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--mauve); font-weight: 700; }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem 1.6rem; font-size: .85rem; color: var(--subtext); margin-bottom: .4rem; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .focus-line { font-size: .95rem; color: var(--subtext); max-width: 80ch; }
+  .stats { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1.4rem 0 0; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: .5rem .9rem; text-align: center; }
+  .stat .n { font-size: 1.25rem; font-weight: 700; color: var(--blue); display: block; line-height: 1.2; }
+  .stat .l { font-size: .72rem; color: var(--subtext); }
+  .chip { display: inline-block; border-radius: 999px; padding: .1em .7em; font-size: .74rem; font-weight: 600; }
+  .chip.axis   { background: var(--teal-soft); color: var(--teal); }
+  .chip.conf-h { background: var(--green-soft); color: var(--green); }
+  .chip.conf-m { background: var(--yellow-soft); color: var(--yellow); }
+  .chip.cx     { background: var(--surface-soft); color: var(--subtext); }
+  .chip.id     { background: var(--mauve-soft); color: var(--mauve); font-family: ui-monospace, monospace; }
+  .idea { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem 1.4rem 1.1rem; margin: 1.2rem 0; }
+  .idea header { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-bottom: .5rem; }
+  .idea h3 { margin: 0; font-size: 1.08rem; }
+  .idea dl { margin: .8rem 0 0; }
+  .idea dt { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--overlay); font-weight: 700; margin-top: .85rem; }
+  .idea dd { margin: .25rem 0 0; }
+  .jump { background: var(--mantle); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1.2rem; margin: 1rem 0 1.4rem; }
+  .jump ol { margin: .3rem 0 0 1.2rem; padding: 0; }
+  .jump li { margin: .18rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; margin: .8rem 0; }
+  th, td { text-align: left; border-bottom: 1px solid var(--border); padding: .45rem .6rem; vertical-align: top; }
+  th { font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--subtext); }
+  .viz { margin: 1rem 0 .3rem; background: var(--mantle); border: 1px solid var(--border); border-radius: 12px; padding: .9rem; overflow-x: auto; }
+  .viz svg { display: block; margin-inline: auto; max-width: 100%; height: auto; }
+  .viz-caption { font-size: .78rem; color: var(--subtext); margin: .4rem .3rem 0; }
+  .contrast { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: 1rem 0 .3rem; }
+  @media (max-width: 720px) { .contrast { grid-template-columns: 1fr; } }
+  .contrast .panel { border-radius: 12px; padding: .8rem 1rem; border: 1px solid var(--border); font-size: .88rem; }
+  .panel.warn { background: var(--red-soft); }
+  .panel.ok   { background: var(--green-soft); }
+  .panel .panel-label { font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; display: block; margin-bottom: .4rem; }
+  .panel.warn .panel-label { color: var(--red); }
+  .panel.ok .panel-label { color: var(--green); }
+  .mock { background: var(--mantle); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; margin: 1rem 0 .3rem; font-size: .86rem; }
+  .mock .mock-label { font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: var(--overlay); display: block; margin-bottom: .5rem; }
+  .qslot { display: inline-block; background: var(--blue-soft); color: var(--blue); border: 1px solid var(--blue); border-radius: 8px; padding: .25em .7em; margin: 0 .3em .3em 0; font-weight: 600; }
+  .pool-chip { display: inline-block; background: var(--surface-soft); color: var(--subtext); border-radius: 8px; padding: .25em .7em; margin: 0 .3em .3em 0; }
+  .kill-chip { display: inline-block; background: var(--red-soft); color: var(--text); border-radius: 8px; padding: .3em .7em; margin: 0 .35em .35em 0; }
+  .kill-chip s { color: var(--red); text-decoration-thickness: 1.5px; }
+  .kill-chip small { color: var(--subtext); }
+  .instruments { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .7rem; margin: 1rem 0 .3rem; }
+  .instrument { background: var(--teal-soft); border-radius: 10px; padding: .7rem .8rem; font-size: .84rem; }
+  .instrument b { display: block; color: var(--teal); margin-bottom: .2rem; }
+  footer.composition-signal { margin-top: 3.5rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: .78rem; color: var(--subtext); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <span class="eyebrow">Ideation · ce-ideate</span>
+  <h1>The roadmap section of Hub v0 — what it should contain and communicate</h1>
+  <div class="meta">
+    <span><b>Date</b> 2026-07-10</span>
+    <span><b>Topic</b> hub-v0-roadmap-section</span>
+    <span><b>Mode</b> repo-grounded</span>
+  </div>
+  <p class="focus-line"><b>Focus:</b> one level above visual layout — the page's shape, the state taxonomy, the dependency view's fate, and how this work doubles as a calibration point for the whole personal-workflow project.</p>
+  <div class="stats">
+    <div class="stat"><span class="n">48</span><span class="l">raw ideas</span></div>
+    <div class="stat"><span class="n">6</span><span class="l">frames, 5 agents</span></div>
+    <div class="stat"><span class="n">7</span><span class="l">survivors</span></div>
+    <div class="stat"><span class="n">5/5</span><span class="l">axes covered</span></div>
+    <div class="stat"><span class="n">1</span><span class="l">plan contradiction caught</span></div>
+  </div>
+</header>
+
+<section id="grounding-context">
+<h2>Grounding Context</h2>
+<h3>Codebase Context</h3>
+<p>Personal dotfiles + workflow-tooling repo. docgen (separate local-only Go tool at <code>~/code/docgen</code>) renders markdown+frontmatter into <code>docs/*.html</code>, the <code>HUB.html</code> tile dashboard, and <code>INDEX.md</code>, regenerated by a pre-commit hook. <code>docs/roadmap.md</code> is the hand-maintained canonical "what are we building" page: one Overview table of ~24 rows with free-prose statuses, restructured 2026-07-08 from an 832-line document into a short table page plus satellite detail pages. Hub v0 (plan <code>docs/plans/2026-07-10-001-feat-hub-v0-meta-documentation-plan.md</code>) adds six meta-documentation pieces; unit U7 reworks the roadmap page around a hand-authored left-to-right visual. Decision D4/D13 (reversed 2026-07-10) keeps the whole page fully hand-maintained — no docgen parser, no structured data block, no validation layer.</p>
+<h3>Evidence highlights (five dossiers, run <code>a7c3e9f1</code>)</h3>
+<ul>
+  <li><b>State taxonomy:</b> four surfaces speak four vocabularies — task-store enum (<code>planned|doing|review|paused|done</code>), /board's 6 tabs (with an <em>empty</em> Deferred tab reserved for a future <code>pending</code> status, <code>wb.sh:1183</code>), the roadmap's ~15 unparsed prose status strings, and the new visual's 4 categories.</li>
+  <li><b>Dependency vs sequencing:</b> 3 hard blockers (Task recall ← boundary rule; day-bookends ← notes-4b; /handoff ← parent/child), several chosen-order claims dressed in dependency language (parent/child "sequenced right after Hub v0" purely for PR scope — "nothing stops it starting in parallel", mockups-v2:298), and 4 items with no ordering constraint at all.</li>
+  <li><b>Page architecture:</b> 23 markdown source pages, hub-spoke linking, no split-brain duplication found; the external task store holds ~11 task files against ~24 roadmap rows.</li>
+  <li><b>Maintenance:</b> <code>docs/roadmap.md</code> gets 10+ hand-edits per week; the visual is planned to be kept in sync "by habit"; <code>wb reconcile</code> detects task↔git drift (including a GitHub merged-status check) but nothing checks the roadmap's own claims.</li>
+  <li><b>Calibration:</b> existing rituals (/park + weekly /parked-items, reconcile review docs, session/PR recaps), three dated clocks framed as "check-in points, not tasks", and a 2026-07-07 seven-persona roadmap review that surfaced 12 findings — twice catching the exact "stale sequencing claim" failure class — with no recurrence attached.</li>
+</ul>
+<h3>External context</h3>
+<ul>
+  <li>Now/Next/Later (ProdPad/Bastow): commitment gradient — only "Now" carries delivery expectation; cap it at 3–5 items.</li>
+  <li>Shape Up "Bets, Not Backlogs": maintained backlogs rot; important things resurface by repetition.</li>
+  <li>Hill chart vs kanban vs timeline each answer <em>one</em> question (feel / state / when); merging them is why roadmaps become unreadable.</li>
+  <li>Johanna Rothman (2024): Gantt-style dependency graphs are false precision and rot fast; a narrative "blocked by X" per item scales better for a single maintainer.</li>
+  <li>GTD / Personal Kanban someday-maybe: a parked lane is cheap <em>because</em> it is explicitly un-promised and reviewed on cadence.</li>
+  <li>TC39 stages 0–4: commitment expressed by stage with entrance/exit criteria — no dates.</li>
+  <li>Sivers /now page: sparse, honesty-over-polish, a tool for saying no. Digital-garden epistemic-status tags as cheap confidence markers. Solo-founder cadence (Wayline): ~90-day review half-life, retire stale items on principle.</li>
+</ul>
+<h3>Workflow review (2026-07-10, parallel session — folded in same day)</h3>
+<ul>
+  <li>Two dossiers: <code>~/code/tasks/dossiers/dotfiles--workflow-review/2026-07-10-goals-vs-tools-review.html</code> and <code>…/2026-07-10-user-journeys.html</code> (11 real journeys + 2 gap journeys, overlap matrix). Load-bearing claims re-verified directly: <code>~/code/notes/inbox.md</code> is 1 byte with a single baseline-import commit since 4a shipped — the ~07-14 dated clock's verdict is already in (unused); meta-documentation (<code>docs/*.md</code> + <code>logs/decisions/*.md</code>, 4,870 lines) now outweighs the tooling it documents (2,515 script lines).</li>
+  <li>J4 finding — "what's in flight" is answered by three unowned lists (<code>wb board</code>, <code>~/code/notes/todo.md</code>, the roadmap table) with no rule for which holds what: the cross-surface form of this doc's core diagnosis.</li>
+  <li>J1 finding — capture has three overlapping tools; the purpose-built one is the unused one; two distinct frictions (reach, read-back).</li>
+  <li>The parent/child relationship (J12 gap) is fully designed and queued behind Hub v0's remaining meta-doc units; the usage-measurement audit that would have caught the 4a result early is itself parked-unscheduled. Both feed the sequencing decision round run after this doc.</li>
+</ul>
+<p><em>Notes:</em> no <code>docs/solutions/</code> directory exists, so the institutional-learnings search was skipped; the decision records in <code>logs/decisions/</code> served that role via the evidence dossiers. Ideas were verified by a fresh-context adversarial pass that spot-checked citations against the repo.</p>
+</section>
+
+<section id="topic-axes">
+<h2>Topic Axes</h2>
+<ul>
+  <li><b>state-taxonomy</b> — what states/categories items carry and what each communicates</li>
+  <li><b>dependency-vs-sequencing</b> — representing real blockers vs chosen ordering; whether/how the dependency view lives on</li>
+  <li><b>page-architecture</b> — what lives on the roadmap page vs other surfaces; linking structure</li>
+  <li><b>data-source-maintenance</b> — hand-maintained vs generated; keeping visual and table in sync; drift</li>
+  <li><b>calibration-ritual</b> — how the picture stays current; reviews, clocks, drift detection as ritual</li>
+</ul>
+</section>
+
+<section id="ranked-ideas">
+<h2>Ranked Ideas</h2>
+<p><b>The shape of the answer, in one paragraph.</b> The current table makes one surface answer three different questions at once — what state is everything in, what order was chosen, and what already happened — and that overload, not the layout, is why the picture reads as unclear. The survivors split those questions apart: one status grammar shared by every surface (R1), blockage always written as a named link to the blocking item — with the dependency view rebuilt from those links on a cadence instead of maintained by hand (R2), a smaller live table with history and un-promised work moved to their own homes (R4, R6, R7), and calibration turned from a one-off cleanup into standing instruments on the ceremonies page being built in this very PR (R5). One item is not optional: the U7 plan and the liked mockup literally contradict each other on node interactivity, and that must be resolved before merge (R3).</p>
+<p><b>Same-day revision.</b> A parallel workflow review (dossiers under <code>~/code/tasks/dossiers/dotfiles--workflow-review/</code>) independently converged on this diagnosis — its J4 finding is that "what's in flight" is already answered by three unowned lists — and raised the stakes on scope: meta-documentation now outweighs the tooling it documents (4,870 vs 2,515 lines, verified), so survivors that <em>shrink</em> maintained surface (R2, R4, R6) outrank anything that adds pages, and whether the remaining Hub v0 units ship before or after the parent/child build became a live sequencing choice — run as its own decision-buffer round, not decided in this doc.</p>
+<div class="jump">
+  <b>Jump to:</b>
+  <ol>
+    <li><a href="#r1">One status grammar — stage × impediment — ratified across all four surfaces</a></li>
+    <li><a href="#r2">"Blocked" always names its blocker — a written waits-on link, never a bare word; the dependency view is rebuilt from those links, not maintained</a></li>
+    <li><a href="#r3">Resolve the node-interactivity contradiction; make the anchors permanent slugs</a></li>
+    <li><a href="#r4">Shrink the live surface: Done rows leave, proposals move to an un-promised pool</a></li>
+    <li><a href="#r5">Calibration gets instruments, living on the ceremonies page</a></li>
+    <li><a href="#r6">The commitment queue: chosen order as one editorial object, capped</a></li>
+    <li><a href="#r7">The 86 list: a visible "considered and killed" lane</a></li>
+  </ol>
+</div>
+
+<article class="idea" id="r1">
+  <header>
+    <span class="chip id">R1</span>
+    <h3>One status grammar — stage × impediment — ratified across all four surfaces</h3>
+    <span class="chip axis">state-taxonomy</span>
+    <span class="chip conf-h">Confidence 80%</span>
+    <span class="chip cx">Complexity: Medium</span>
+  </header>
+  <dl>
+    <dt>Description</dt>
+    <dd>The ~15 prose status strings in the Overview table are not 15 states — they are combinations of two orthogonal dimensions: a <b>commitment stage</b> (a small fixed vocabulary, e.g. <code>shipped / shakedown / active / queued / proposed / parked</code>) and an <b>impediment clause</b> (free prose: "waiting on X", "pending the ~07-14 verdict", empty for most rows). "Blocked" and "at risk" were never stages — they are impediments, and forcing them into the category set is what makes the taxonomy question feel unresolvable. Write each row as stage-word + free prose, and ratify the <em>same</em> stage names across the task-store enum, /board's tabs (cashing the reserved empty <code>pending</code>/Deferred slot at <code>wb.sh:1183</code>), the roadmap table, and the visual's zones. The <code>shakedown</code> stage (shipped but not yet proven in use — aviation "return to service") names a state three rows already occupy with no word for it: 4a shipped pending its ~07-14 verdict, <code>wb reconcile</code> done-with-a-named-gap, PR #14's "verify yourself" recap.</dd>
+    <dt>Basis</dt>
+    <dd><code>direct:</code> the state-taxonomy dossier catalogues ~15 distinct status strings from <code>docs/roadmap.md:42–67</code> against the task store's 5-value enum; <code>docs/roadmap.md:63</code> — "Open, <b>actually blocked</b> on the personal/employer boundary rule below, despite reading as unblocked" — a row that needs bold italics to fight its own status word; <code>wb.sh:1183</code> reserves the board's Deferred tab "for a future <code>pending</code> status". <code>external:</code> TC39 stages 0–4 (commitment by stage, entrance/exit criteria, no dates); METAR's controlled-vocabulary head + free-remarks tail.</dd>
+    <dt>Rationale</dt>
+    <dd>This answers the open taxonomy thread decisively: done/active/follow-up/deferred aren't wrong, they're one axis of two. It is also the single highest-leverage move in the set — one decision retires the empty board tab, defines the visual's zones, makes the table scannable in one pass, and pre-answers the parked "task-store schema migration" row (<code>docs/roadmap.md:65</code>) that is currently waiting for the schema to "settle". The verifier ranked the cross-surface unification the strongest single ingredient of all 48 candidates.</dd>
+    <dt>Downsides</dt>
+    <dd>Touching the Status column's wording brushes against R11 ("the Overview table's rendered content is unchanged") — adopting R1 in-PR means amending that requirement or scheduling the reword as the schema-migration follow-up. The vocabulary itself is a real editorial decision (six-ish words that have to hold up for a while).</dd>
+  </dl>
+  <div class="viz">
+    <svg viewBox="0 0 840 330" role="img" aria-label="Decomposing prose statuses into stage plus impediment, then ratifying one vocabulary across four surfaces">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--overlay)"/>
+        </marker>
+      </defs>
+      <text x="115" y="14" font-size="11" fill="var(--subtext)" text-anchor="middle">today: one prose string</text>
+      <text x="487" y="14" font-size="11" fill="var(--subtext)" text-anchor="middle">stage (small fixed set)</text>
+      <text x="700" y="14" font-size="11" fill="var(--subtext)" text-anchor="middle">impediment / why (free prose)</text>
+      <rect x="10" y="24" width="360" height="46" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="22" y="43" font-size="12" fill="var(--text)">"Sequenced after /handoff,</text>
+      <text x="22" y="60" font-size="12" fill="var(--text)">pending 4a's ~07-14 verdict"</text>
+      <line x1="374" y1="47" x2="414" y2="47" stroke="var(--overlay)" stroke-width="1.5" marker-end="url(#arr)"/>
+      <rect x="420" y="34" width="130" height="26" rx="13" fill="var(--blue-soft)" stroke="var(--blue)"/>
+      <text x="485" y="51" font-size="12" font-weight="700" fill="var(--blue)" text-anchor="middle">QUEUED</text>
+      <rect x="568" y="24" width="262" height="46" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="580" y="43" font-size="12" fill="var(--text)">clock: 4a verdict ~07-14</text>
+      <text x="580" y="60" font-size="12" fill="var(--subtext)">after: /handoff (chosen)</text>
+      <rect x="10" y="82" width="360" height="46" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="22" y="101" font-size="12" fill="var(--text)">"Open, actually blocked on the</text>
+      <text x="22" y="118" font-size="12" fill="var(--text)">personal/employer boundary rule"</text>
+      <line x1="374" y1="105" x2="414" y2="105" stroke="var(--overlay)" stroke-width="1.5" marker-end="url(#arr)"/>
+      <rect x="420" y="92" width="130" height="26" rx="13" fill="var(--blue-soft)" stroke="var(--blue)"/>
+      <text x="485" y="109" font-size="12" font-weight="700" fill="var(--blue)" text-anchor="middle">QUEUED</text>
+      <rect x="568" y="82" width="262" height="46" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="580" y="110" font-size="12" fill="var(--text)">needs: boundary-rule</text>
+      <rect x="10" y="140" width="360" height="46" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="22" y="159" font-size="12" fill="var(--text)">"Done — PR #14</text>
+      <text x="22" y="176" font-size="12" fill="var(--text)">(recap says: verify yourself)"</text>
+      <line x1="374" y1="163" x2="414" y2="163" stroke="var(--overlay)" stroke-width="1.5" marker-end="url(#arr)"/>
+      <rect x="420" y="150" width="130" height="26" rx="13" fill="var(--yellow-soft)" stroke="var(--yellow)"/>
+      <text x="485" y="167" font-size="12" font-weight="700" fill="var(--yellow)" text-anchor="middle">SHAKEDOWN</text>
+      <rect x="568" y="140" width="262" height="46" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="580" y="168" font-size="12" fill="var(--text)">exit: verified in real use</text>
+      <line x1="10" y1="208" x2="830" y2="208" stroke="var(--border)" stroke-dasharray="4 4"/>
+      <text x="10" y="228" font-size="11" fill="var(--subtext)">…then the stage vocabulary is ratified once, everywhere:</text>
+      <rect x="10"  y="238" width="180" height="30" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="100" y="258" font-size="12" fill="var(--text)" text-anchor="middle">task-store enum</text>
+      <rect x="215" y="238" width="180" height="30" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="305" y="258" font-size="12" fill="var(--text)" text-anchor="middle">/board tabs</text>
+      <rect x="420" y="238" width="180" height="30" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="510" y="258" font-size="12" fill="var(--text)" text-anchor="middle">roadmap table</text>
+      <rect x="625" y="238" width="180" height="30" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="715" y="258" font-size="12" fill="var(--text)" text-anchor="middle">visual zones</text>
+      <line x1="100" y1="268" x2="300" y2="296" stroke="var(--overlay)" stroke-width="1.2" marker-end="url(#arr)"/>
+      <line x1="305" y1="268" x2="380" y2="296" stroke="var(--overlay)" stroke-width="1.2" marker-end="url(#arr)"/>
+      <line x1="510" y1="268" x2="460" y2="296" stroke="var(--overlay)" stroke-width="1.2" marker-end="url(#arr)"/>
+      <line x1="715" y1="268" x2="540" y2="296" stroke="var(--overlay)" stroke-width="1.2" marker-end="url(#arr)"/>
+      <rect x="200" y="298" width="440" height="28" rx="14" fill="var(--mauve-soft)" stroke="var(--mauve)"/>
+      <text x="420" y="317" font-size="12" font-weight="700" fill="var(--mauve)" text-anchor="middle">one stage vocabulary, ratified once</text>
+    </svg>
+    <p class="viz-caption">Illustrative: each prose status decomposes losslessly into a fixed stage word plus a free impediment clause; the stage set is then shared by all four surfaces instead of four vocabularies drifting independently.</p>
+  </div>
+</article>
+
+<article class="idea" id="r2">
+  <header>
+    <span class="chip id">R2</span>
+    <h3>"Blocked" always names its blocker — a written waits-on link, never a bare word</h3>
+    <span class="chip axis">dependency-vs-sequencing</span>
+    <span class="chip conf-h">Confidence 85%</span>
+    <span class="chip cx">Complexity: Low</span>
+  </header>
+  <dl>
+    <dt>Description</dt>
+    <dd>Today a row says it is blocked with a word inside a sentence — "Open, actually blocked on…" — a description the reader has to notice and interpret. The proposal: the bare word gets banned. Any row that is waiting must write a small, recognizable notation naming <em>what</em> it waits on: <code>needs: boundary-rule</code> when the blocker is another item, <code>clock: 4a verdict ~07-14</code> when it's a dated check-in, and a chosen ordering written honestly as a choice — <code>after: Hub v0 — chosen, PR scoping</code>. Each of those is a written link between two named items (an "edge", in graph terms — that's all the word means). The payoff: the dependency-depth view's entire content turned out to be about five such links plus one finding — so the four-column view is <em>not</em> kept as a maintained page section at all. It is rebuilt from the per-row links on demand, as a dated, archived audit (a "resurvey", like a nautical chart edition) — the mockups-v2 file in <code>logs/decisions/</code> is de facto edition #1. This answers the "is the dependency view worth building for real?" thread with the third option nobody had tabled: keep the <em>data</em> (one line on ~5 rows), rebuild the <em>view</em> on cadence, retire the maintained matrix.</dd>
+    <dt>Basis</dt>
+    <dd><code>direct:</code> <code>logs/decisions/2026-07-10-roadmap-visual-mockups-v2.html:298</code> — "Sequenced right after Hub v0 by choice (kept the Hub v0 PR from growing), not because it technically depends on Hub v0 — nothing stops it starting in parallel" — while <code>docs/roadmap.md:55</code> carries no "by choice" qualifier; the view's columns hold 7/3/1/1 items (verified), i.e. ~5 real waits-on links; the same node ("Unify copy/paste") sits in two different hand-placed positions across the mockup's two views (<code>:215</code> vs <code>:246</code>). <code>external:</code> Rothman (2024) — dependency graphs rot as maintained artifacts; per-item "blocked by X" narrative scales for a single maintainer.</dd>
+    <dt>Rationale</dt>
+    <dd>The bare word rots silently — "blocked" stays in the prose after the blocker ships. A named link audits itself: the day <code>boundary-rule</code> flips to done, every row still saying <code>needs: boundary-rule</code> is visibly stale. The real-blocker-vs-chosen-order distinction the mockup exercise discovered becomes impossible to blur by accident, and every future consumer (generated roadmap, /board roadmap view) inherits it for free. The maintained-matrix alternative doubles the "sync by habit" surface D4/D13 already accepted for one artifact.</dd>
+    <dt>Downsides</dt>
+    <dd>The <code>needs:</code>/<code>after:</code>/<code>clock:</code> notation is one more authoring convention to remember (mitigated: it applies to ~5 rows today). The resurvey only stays honest if it actually recurs — which is what R5 exists to guarantee.</dd>
+  </dl>
+  <div class="viz">
+    <svg viewBox="0 0 840 300" role="img" aria-label="Before: a second maintained matrix. After: waits-on links on rows with a rebuilt resurvey artifact">
+      <defs>
+        <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--overlay)"/>
+        </marker>
+      </defs>
+      <rect x="10" y="10" width="395" height="280" rx="12" fill="var(--red-soft)" stroke="var(--border)"/>
+      <text x="207" y="34" font-size="12" font-weight="700" fill="var(--red)" text-anchor="middle">a second maintained artifact (mockup today)</text>
+      <rect x="38"  y="56" width="78" height="120" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="77"  y="122" font-size="20" font-weight="700" fill="var(--text)" text-anchor="middle">7</text>
+      <text x="77"  y="192" font-size="10" fill="var(--subtext)" text-anchor="middle">ready now</text>
+      <rect x="126" y="56" width="78" height="120" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="165" y="122" font-size="20" font-weight="700" fill="var(--text)" text-anchor="middle">3</text>
+      <text x="165" y="192" font-size="10" fill="var(--subtext)" text-anchor="middle">needs one</text>
+      <rect x="214" y="56" width="78" height="120" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="253" y="122" font-size="20" font-weight="700" fill="var(--text)" text-anchor="middle">1</text>
+      <text x="253" y="192" font-size="10" fill="var(--subtext)" text-anchor="middle">needs set</text>
+      <rect x="302" y="56" width="78" height="120" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="341" y="122" font-size="20" font-weight="700" fill="var(--text)" text-anchor="middle">1</text>
+      <text x="341" y="192" font-size="10" fill="var(--subtext)" text-anchor="middle">boundary</text>
+      <rect x="38" y="216" width="342" height="52" rx="8" fill="var(--card)" stroke="var(--red)"/>
+      <text x="209" y="238" font-size="11" fill="var(--text)" text-anchor="middle">every ordering claim copied into a second layout,</text>
+      <text x="209" y="256" font-size="11" fill="var(--red)" text-anchor="middle">hand-synced "by habit" → rots (Rothman)</text>
+      <rect x="435" y="10" width="395" height="280" rx="12" fill="var(--green-soft)" stroke="var(--border)"/>
+      <text x="632" y="34" font-size="12" font-weight="700" fill="var(--green)" text-anchor="middle">waits-on links written on the rows (proposed)</text>
+      <rect x="455" y="52" width="355" height="30" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="467" y="72" font-size="12" fill="var(--text)">Task recall — <tspan font-weight="700">needs:</tspan> boundary-rule</text>
+      <rect x="455" y="92" width="355" height="30" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="467" y="112" font-size="12" fill="var(--text)">parent/child — <tspan font-weight="700">after:</tspan> Hub v0 (chosen)</text>
+      <rect x="455" y="132" width="355" height="30" rx="8" fill="var(--card)" stroke="var(--border)"/>
+      <text x="467" y="152" font-size="12" fill="var(--text)">day bookends — <tspan font-weight="700">needs:</tspan> notes-4b</text>
+      <line x1="632" y1="168" x2="632" y2="200" stroke="var(--overlay)" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <text x="644" y="188" font-size="10" fill="var(--subtext)">derive, on cadence</text>
+      <rect x="455" y="204" width="355" height="64" rx="8" fill="var(--card)" stroke="var(--green)"/>
+      <text x="632" y="228" font-size="11" fill="var(--text)" text-anchor="middle">resurvey: rebuild the depth view from the links,</text>
+      <text x="632" y="246" font-size="11" fill="var(--text)" text-anchor="middle">diff against last edition, archive dated snapshot</text>
+    </svg>
+    <p class="viz-caption">Illustrative: the maintained four-column matrix is replaced by ~5 one-line waits-on links on the rows; the view is rebuilt and archived on cadence instead of hand-synced forever.</p>
+  </div>
+</article>
+
+<article class="idea" id="r3">
+  <header>
+    <span class="chip id">R3</span>
+    <h3>Resolve the node-interactivity contradiction; make the anchors permanent slugs</h3>
+    <span class="chip axis">data-source-maintenance</span>
+    <span class="chip conf-h">Confidence 95%</span>
+    <span class="chip cx">Complexity: Low</span>
+  </header>
+  <dl>
+    <dt>Description</dt>
+    <dd>The written U7 plan and the mockup direction you like cannot both ship: the plan specifies non-interactive steps, the mockup makes every node a real anchor link to a detail entry. Resolve it deliberately, before merge — and resolve it toward anchors: each node's <code>#detail-&lt;slug&gt;</code> id becomes the item's <em>permanent</em> slug, the join key a future generated roadmap, task-store <code>id:</code>, or /board cross-link will need. Deciding the naming convention now, while it's just an HTML anchor nobody parses, costs nothing; inventing it retroactively means a slug-migration pass across every row.</dd>
+    <dt>Basis</dt>
+    <dd><code>direct:</code> <code>docs/plans/2026-07-10-001-feat-hub-v0-meta-documentation-plan.md:497–501</code> — "Steps are non-interactive (no click-through to the table row, no legend)" — versus <code>logs/decisions/2026-07-10-roadmap-visual-mockups-v2.html:203–207</code>, where every node is a literal <code>&lt;a href="#detail-…"&gt;</code>. Verified by the fresh-context pass: "sound, effectively mandatory." The generation trigger is already named at <code>logs/decisions/2026-07-09-hub-v0-scoping.md:34–39</code>.</dd>
+    <dt>Rationale</dt>
+    <dd>This is the one survivor that isn't optional: whichever way it's resolved, the plan as written currently ships something different from the direction marked as liked. The slug half is the cheapest structure-now-for-generation-later move in the whole candidate set.</dd>
+    <dt>Downsides</dt>
+    <dd>Essentially none for the decision itself; choosing anchors adds a small amount of markup per node and commits to slug stability (renames become deliberate acts).</dd>
+  </dl>
+  <div class="contrast">
+    <div class="panel warn">
+      <span class="panel-label">plan U7 as written</span>
+      "Steps are non-interactive (no click-through to the table row, no legend)…"
+      <br><small><code>docs/plans/…-plan.md:497–501</code></small>
+    </div>
+    <div class="panel ok">
+      <span class="panel-label">the mockup you liked</span>
+      <code>&lt;a class="node active" href="#detail-hub-v0"&gt;</code> — every node links to its detail entry.
+      <br><small><code>logs/decisions/…-mockups-v2.html:203–207</code></small>
+    </div>
+  </div>
+</article>
+
+<article class="idea" id="r4">
+  <header>
+    <span class="chip id">R4</span>
+    <h3>Shrink the live surface: Done rows leave for the recap ledger, proposals move to an un-promised pool</h3>
+    <span class="chip axis">page-architecture</span>
+    <span class="chip conf-m">Confidence 75%</span>
+    <span class="chip cx">Complexity: Medium</span>
+  </header>
+  <dl>
+    <dt>Description</dt>
+    <dd>11 of the 24 Overview rows are Done, and 8 of those already link to a recap page that is the real durable record — one Done row (<code>roadmap.md:67</code>) is a bugfix that was never a roadmap item at all, it accreted because no other shipped-ledger exists. Move Done rows off the page entirely (the "12 shipped" chip links to the recap spine), and move the three bare "Proposal, unratified/unscheduled" rows into an explicitly un-promised parked pool where <b>no entry may be parked without naming its revisit trigger</b> — a date or an event (<code>roadmap.md:61</code> already writes one, ":66" has none). A row graduates back the moment work starts, which is also when it gets a task file — stating that currently-implicit rule on the page. What remains is a live table of ~10 rows that are actually moving. <b>This deliberately reopens R11</b> ("the Overview table's rendered content — including Done rows — is unchanged"): adopt it as a conscious amendment, not a quiet tweak.</dd>
+    <dt>Basis</dt>
+    <dd><code>direct:</code> exact counts verified — 11/24 Done rows, 3 proposal rows (<code>docs/roadmap.md:61,62,66</code>), 6 rows with "—" in the Doc column; <code>roadmap.md:61</code> — "Only revisit if artifacts still go missing after the landing-path rule" (an expiry condition with no mechanism). <code>external:</code> Shape Up "Bets, Not Backlogs" (backlogs rot; the important resurfaces); GTD someday-maybe (un-promised lanes are cheap); Sivers /now (the page is a tool for the present, not an archive). <code>direct:</code> (added same day) the user-journeys review's J4 — <code>wb board</code>, <code>todo.md</code>, and the roadmap table "all answer some version of 'what's going on'… nothing today tells you to check one over another" — the cross-surface form of this idea's diagnosis, raising confidence from 65%.</dd>
+    <dt>Rationale</dt>
+    <dd>The calibration thread's core complaint — "what's actually in place vs only ever planned" — is half-caused by 46% of the table being inert history competing for attention with live work. The compact-path mockup already collapses shipped items in the <em>visual</em>; this makes the <em>table</em> agree instead of the two surfaces disagreeing about what the roadmap is for.</dd>
+    <dt>Downsides</dt>
+    <dd>Reopens a settled requirement (R11) — the verifier flagged that all Done-eviction candidates presented as tweaks when they are really a reopen proposal; this card says so explicitly. Losing the single-page "everything ever" view has real value too — mitigated by Hub v0's own artifact index and tab-2 "All docs" view, plus the recap ledger.</dd>
+  </dl>
+  <div class="viz">
+    <svg viewBox="0 0 840 260" role="img" aria-label="24 rows split into shipped ledger, live table, and parked pool">
+      <defs>
+        <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--overlay)"/>
+        </marker>
+      </defs>
+      <rect x="10" y="90" width="255" height="80" rx="10" fill="var(--card)" stroke="var(--border)"/>
+      <text x="137" y="120" font-size="12" font-weight="700" fill="var(--text)" text-anchor="middle">docs/roadmap.md today</text>
+      <text x="137" y="140" font-size="11" fill="var(--subtext)" text-anchor="middle">24 rows · 11 Done · 3 proposals</text>
+      <text x="137" y="157" font-size="11" fill="var(--subtext)" text-anchor="middle">~15 distinct status strings</text>
+      <line x1="268" y1="112" x2="465" y2="52" stroke="var(--overlay)" stroke-width="1.4" marker-end="url(#arr3)"/>
+      <text x="352" y="66" font-size="10" fill="var(--subtext)">history</text>
+      <line x1="268" y1="130" x2="465" y2="130" stroke="var(--overlay)" stroke-width="1.4" marker-end="url(#arr3)"/>
+      <text x="352" y="122" font-size="10" fill="var(--subtext)">now</text>
+      <line x1="268" y1="148" x2="465" y2="212" stroke="var(--overlay)" stroke-width="1.4" marker-end="url(#arr3)"/>
+      <text x="352" y="196" font-size="10" fill="var(--subtext)">someday</text>
+      <rect x="470" y="20" width="360" height="58" rx="10" fill="var(--surface-soft)" stroke="var(--border)"/>
+      <text x="484" y="44" font-size="12" font-weight="700" fill="var(--text)">Shipped ledger</text>
+      <text x="484" y="62" font-size="11" fill="var(--subtext)">recap pages become the changelog (11 rows leave)</text>
+      <rect x="470" y="100" width="360" height="58" rx="10" fill="var(--blue-soft)" stroke="var(--blue)"/>
+      <text x="484" y="124" font-size="12" font-weight="700" fill="var(--blue)">Live table</text>
+      <text x="484" y="142" font-size="11" fill="var(--text)">~10 rows that are actually moving</text>
+      <rect x="470" y="182" width="360" height="58" rx="10" fill="var(--surface-soft)" stroke="var(--border)"/>
+      <text x="484" y="206" font-size="12" font-weight="700" fill="var(--text)">Parked pool — explicitly un-promised</text>
+      <text x="484" y="224" font-size="11" fill="var(--subtext)">every entry names its revisit trigger (date or event)</text>
+    </svg>
+    <p class="viz-caption">Illustrative: the one overloaded table splits by question — what happened (ledger), what's moving (live table), what's possible but un-promised (pool with mandatory revisit triggers).</p>
+  </div>
+</article>
+
+<article class="idea" id="r5">
+  <header>
+    <span class="chip id">R5</span>
+    <h3>Calibration gets instruments, living on the ceremonies page</h3>
+    <span class="chip axis">calibration-ritual</span>
+    <span class="chip conf-h">Confidence 80%</span>
+    <span class="chip cx">Complexity: Low</span>
+  </header>
+  <dl>
+    <dt>Description</dt>
+    <dd>Today's session is a calibration pass; the survivors above only stay true if calibration recurs by design, not luck. Hub v0 is already building <code>docs/ceremonies.md</code> (U3) "with room for future recurring reviews" — give it the roadmap's own instruments: <b>(a)</b> a recurring <b>roadmap-accuracy resurvey</b> as the fourth ceremony (rebuild the dependency view from R2's waits-on links, re-check every stage word, diff against the last edition, archive the dated snapshot — its rendered output doubles as a "changed since last check-in" delta strip); <b>(b)</b> a <b>cold-agent briefing test</b> as Hub v0's acceptance criterion — a fresh agent session, given only the rendered pages, must correctly answer what's built, what's blocked and on what, what's next, and what's deliberately un-promised; its wrong answers locate the unclear prose exactly; <b>(c)</b> the three <b>dated clocks wired to real nudges</b> (cron/schedule entries, plus surfacing <code>roadmap.md</code>'s inert <code>updated:</code> field through the existing <code>wb done</code> nudge channel); <b>(d)</b> later, mechanized drift checks as a new <code>wb reconcile</code> finding type ("roadmap row disagrees with git-observed state" — the merged-status check already exists).</dd>
+    <dt>Basis</dt>
+    <dd><code>direct:</code> the 2026-07-07 seven-persona review surfaced 12 findings and caught the stale-sequencing failure class twice (<code>logs/decisions/2026-07-07-roadmap-review-findings.md:149–210</code>) with no recurrence attached — and today's mockup exercise independently re-discovered the same class; <code>review-findings.md:14–15</code> — findings were "independently verified against the actual repo" (the cold-reader precedent); <code>docs/guides/parked-items.md:49–51</code> — the <code>wb done</code> nudge channel already exists; <code>docs/roadmap-wb-reconcile.md:36–38</code> — the GitHub merged-status check already runs. <code>external:</code> solo-founder review cadence (~90-day half-life, Wayline); docs-as-code visible-staleness practice.</dd>
+    <dt>Rationale</dt>
+    <dd>A calibration point that only catches drift when a heavyweight seven-persona review happens to run isn't a ritual, it's luck — the failure class has now recurred twice. Every instrument here attaches to machinery that already exists (ceremonies page in this PR, /parked-items weekly cadence, wb done nudge, reconcile review docs), so the marginal cost is a page section and a couple of cron entries, not new product surface.</dd>
+    <dt>Downsides</dt>
+    <dd>Ceremonies only work if attended — the cadence should stay coarse (the ~90-day/every-N-PRs grain, or riding the existing weekly review) rather than becoming daily noise. The reconcile extension (d) is real code and belongs in a later PR, not Hub v0.</dd>
+  </dl>
+  <div class="instruments">
+    <div class="instrument"><b>Resurvey ceremony</b>4th dated clock: rebuild dependency view, re-check stages, diff vs last edition, archive snapshot</div>
+    <div class="instrument"><b>Cold-agent briefing</b>acceptance test: a fresh session answers built / blocked-on-what / next / un-promised from the pages alone</div>
+    <div class="instrument"><b>Clocks → nudges</b>the 3 dated clocks become schedule entries; <code>updated:</code> staleness rides the wb done nudge</div>
+    <div class="instrument"><b>Later: reconcile check</b>new finding type — "roadmap row disagrees with git-observed state" (merged-status check exists)</div>
+    <div class="instrument"><b>Usage audit, dated</b>the parked-twice usage-measurement audit gets a real slot; the 2026-07-10 workflow review is de facto run #1 — it resolved the 4a clock days early (1-byte inbox), proving the instrument pays</div>
+  </div>
+</article>
+
+<article class="idea" id="r6">
+  <header>
+    <span class="chip id">R6</span>
+    <h3>The commitment queue: chosen order as one editorial object, capped</h3>
+    <span class="chip axis">dependency-vs-sequencing</span>
+    <span class="chip conf-m">Confidence 60%</span>
+    <span class="chip cx">Complexity: Low</span>
+  </header>
+  <dl>
+    <dt>Description</dt>
+    <dd>Sequencing-by-choice is a single global decision you make, yet it's currently stored per-item, smeared across status prose ("Queued, marked for pickup soon", "Sequenced after /handoff…"). Represent it once: an explicit ordered pick-list of at most ~3 slots at the top of the page — "the order I currently intend" — while items themselves carry only true blockers (R2's waits-on links). Re-planning becomes reordering one short list instead of rewording N statuses, and the real-dependency/chosen-order distinction becomes structural: the queue <em>is</em> the chosen order, the links <em>are</em> the real dependencies.</dd>
+    <dt>Basis</dt>
+    <dd><code>direct:</code> only 2 rows today carry the literal phrase "ready to implement" (<code>docs/roadmap.md:54–55</code>) — the genuine Now band is naturally 2–3 items; <code>mockups-v2.html:298</code>'s "by choice… nothing stops it starting in parallel". <code>external:</code> Now/Next/Later — the commitment gradient is a property of the horizon bands, not of items; only "Now" carries delivery expectation, capped at 3–5 (ProdPad); Shape Up's small-batch betting.</dd>
+    <dt>Rationale</dt>
+    <dd>Forces the one genuinely hard editorial call — which ~3 items get the promise — that the current 15-string vocabulary lets the page avoid. Composes directly with R2 (waits-on links) and R4 (the pool): queue = chosen order, links = real constraints, pool = everything un-promised.</dd>
+    <dt>Downsides</dt>
+    <dd>More opinionated than the others — it changes how the top of the page is written and edited, and a hard cap occasionally fights reality (a genuine 4-item burst). Medium confidence because it's a workflow-style bet, not a drift fix.</dd>
+  </dl>
+  <div class="mock">
+    <span class="mock-label">Illustrative shape</span>
+    <div><b>Up next (the order I currently intend — max 3):</b></div>
+    <div style="margin-top:.45rem">
+      <span class="qslot">1 · Hub v0</span>
+      <span class="qslot">2 · Task parent/child</span>
+      <span class="qslot">3 · /handoff</span>
+    </div>
+    <div style="margin-top:.55rem"><b>Pool (no promised order):</b>
+      <span class="pool-chip">notes-4b <small>· clock ~07-14</small></span>
+      <span class="pool-chip">unify copy/paste</span>
+      <span class="pool-chip">task recall <small>· needs: boundary-rule</small></span>
+      <span class="pool-chip">GNOME tiling</span>
+    </div>
+  </div>
+</article>
+
+<article class="idea" id="r7">
+  <header>
+    <span class="chip id">R7</span>
+    <h3>The 86 list: a visible "considered and killed" lane</h3>
+    <span class="chip axis">page-architecture</span>
+    <span class="chip conf-h">Confidence 75%</span>
+    <span class="chip cx">Complexity: Low</span>
+  </header>
+  <dl>
+    <dt>Description</dt>
+    <dd>Kill decisions currently vanish: <code>logs/decisions/</code> is gitignored (verified), so "Message stash: skip building anything — Ctrl+S covers it" exists nowhere tracked or published. Add a compact "Not doing" chip row to the roadmap page — item, one-line reason, decision-record pointer — sourced from existing kill decisions (a kitchen's 86 board: what's off the menu is chalked up precisely so nobody keeps prepping it). For a future-me audience, "what I decided <em>not</em> to build and why" is as load-bearing as what's planned; without it the roadmap silently invites re-litigating closed decisions.</dd>
+    <dt>Basis</dt>
+    <dd><code>direct:</code> <code>logs/decisions/2026-07-08-followups-scoping.md:7</code> — "Message stash: not worth building anything right now — skip. Ctrl+S stays the answer if/when it matters again"; <code>.gitignore:15</code> confirms <code>logs/decisions/</code> is untracked, so this content is published nowhere durable. <code>external:</code> Shape Up's no-backlog stance implies its honest counterpart — a short visible not-doing line beats a parallel document; the roadmap's own "Keep / retire / hold" section is the embryonic version of this lane.</dd>
+    <dt>Rationale</dt>
+    <dd>The only survivor that adds <em>new</em> information to the page rather than restructuring existing information — and it's the cheapest genuine calibration win: the picture of the project includes its deliberate refusals.</dd>
+    <dt>Downsides</dt>
+    <dd>Needs a light entry bar (only real "considered and killed" decisions, not every passing idea) or it becomes its own backlog to groom.</dd>
+  </dl>
+  <div class="mock">
+    <span class="mock-label">Illustrative shape</span>
+    <span class="kill-chip"><s>Message stash</s> — Ctrl+S covers it <small>· 07-08</small></span>
+    <span class="kill-chip"><s>cad dashboard</s> — unused, wb absorbs it</span>
+    <span class="kill-chip"><s>Sway WM</s> — overkill; GNOME+Forge leads <small>· memory</small></span>
+  </div>
+</article>
+</section>
+
+<section id="rejection-summary">
+<h2>Rejection Summary</h2>
+<p>48 raw ideas plus 5 orchestrator syntheses were critiqued by a fresh-context adversarial verifier (citation spot-checks against the repo), then arbitrated. Merges are listed where several candidates became one survivor. No axis ended without survivors.</p>
+<table>
+  <thead><tr><th>#</th><th>Idea</th><th>Reason rejected / disposition</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Task-file coverage counter on the page</td><td>Hand-maintained badge whose upkeep exceeds its value for a solo maintainer (verifier-confirmed).</td></tr>
+    <tr><td>2</td><td>Full 4-field row grammar (stage + waits-on link + as-of stamp + next-action, all mandatory)</td><td>Individually sound parts compound into per-row costs exceeding the demonstrated update budget (10+ edits/week, "no validation layer" chosen once already); the minimal grammar survives as R1+R2.</td></tr>
+    <tr><td>3</td><td>Per-row "as of" verification stamps / next-action field / steward badges</td><td>Same budget problem as #2; R5 does attention-verification at the ritual level instead of per-row.</td></tr>
+    <tr><td>4</td><td>Move per-row "why" narrative onto satellite pages</td><td>Collides with plan R11 without flagging it; R1's impediment clause plus existing detail entries cover the need.</td></tr>
+    <tr><td>5</td><td>Visual↔table category sync-check script</td><td>Redundant with the plan's own byte-diff verification; superseded by R1's parseable grammar.</td></tr>
+    <tr><td>6</td><td>Generate the shipped ledger from recap frontmatter</td><td>Citation overreach — presented a superseded early notion as a settled rule (verifier); optional later extension of R4 at best.</td></tr>
+    <tr><td>7</td><td>Provenance badges + git-blame freshness stamps</td><td>Bundles a cheap stamp with parsing that contradicts D4's "no new docgen parser"; the stamp instinct folds into R5.</td></tr>
+    <tr><td>8</td><td>Parse the hand-authored table itself as the structured source</td><td>Sharp catch (D4's argued rationale only defeats task-store generation) but rebuttable — the decision's blanket wording plausibly forecloses it; natural follow-on once R1's grammar exists, not a Hub v0 move.</td></tr>
+    <tr><td>9</td><td>Keep the two-tab Decided/Dependency toggle as a permanent page feature</td><td>Verifier found it sound, but arbitration rejects: it commits to a second maintained layout — the exact rot path R2 exists to avoid; the toggle's value survives as the derived resurvey.</td></tr>
+    <tr><td>10</td><td>Volatility split ("state fields leave the page")</td><td>True principle, subsumed — R4 and R6 are its concrete form.</td></tr>
+    <tr><td>11</td><td>Weekly snapshot-diff as cited</td><td>Cadence mis-attributed (Wayline's practice is ~90-day, not weekly); mechanism folded into R5 with corrected framing.</td></tr>
+    <tr><td>12</td><td>Status-vocabulary variants (blocked as 5th category; blocked-as-tag; METAR head; shakedown state; board-slot alignment; chip+why split)</td><td>Merged into R1 — the cross-surface ratification was the strongest single ingredient.</td></tr>
+    <tr><td>13</td><td>Blocked-vs-chosen variants (tag at source; typed links; discovery-instrument reading; disposable report; resurvey editions)</td><td>Merged into R2 — the named-blocker rule is the most enforceable formulation.</td></tr>
+    <tr><td>14</td><td>Done-eviction + parked-pool variants (recap changelog; someday list; expiry rule; revisit intervals; graduation trigger)</td><td>Merged into R4.</td></tr>
+    <tr><td>15</td><td>Calibration mechanisms (accuracy ceremony; cold-agent test; cron clocks; wb-done staleness nudge; reconcile finding type; delta strip)</td><td>Merged into R5.</td></tr>
+    <tr><td>16</td><td>Queue object + Now-cap</td><td>Merged into R6.</td></tr>
+    <tr><td>17</td><td>Plan-contradiction fix + permanent slugs; the 86 list</td><td>Became R3 and R7 respectively.</td></tr>
+  </tbody>
+</table>
+</section>
+
+<footer class="composition-signal">Composed 2026-07-10 by ce-ideate (run <code>a7c3e9f1</code>) from live repo grounding, five evidence dossiers, web prior-art research, and a fresh-context verification pass. Revised same day: R2 reworded in plain language; 2026-07-10 workflow-review dossiers folded into grounding, R4, and R5. Re-instated same day (evening) after the deletion incident, from the authoring session's own record — the original commit was never pushed. Hand-authored file — not a docgen output; this HTML is its own source.</footer>
+
+</div>
+</body>
+</html>

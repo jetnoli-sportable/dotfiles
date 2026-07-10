@@ -110,6 +110,32 @@ that were still open.
    manifest); tracked as its own roadmap line item so it isn't painfully
    rediscovered.
 
+**Dry-run #2 — 2026-07-10, later the same day (dotfiles, agent-orchestrated
+end-to-end).** The full flow above was repeated, this time driven by the
+orchestrating agent rather than by hand, to spawn the parent/child planning
+session itself. Three additions to the findings:
+
+- **Finding 3 confirmed + an answer candidate:** the `~/code/tasks/` read
+  prompt fired exactly as predicted, as the spawned agent's literal first
+  action. It was answered with the dialog's own session-scoped option
+  ("Yes, allow reading from tasks/ during this session") — evidence that a
+  pre-scoped tasks-read allowance per spawned session is the natural
+  mechanism, and it already exists as a one-keystroke dialog option.
+- **Readiness/prompt detection needs anchored markers, not keyword greps.**
+  A `capture-pane | grep` watcher matching "allow" false-positived on the
+  welcome banner's release-notes text ("auto-allows `git push`…"). Reliable
+  anchors observed: `? for shortcuts` (boot-ready) and `Do you want to
+  proceed` (permission dialog). `/handoff`'s poller should match those
+  exact strings.
+- **Model selection has a side effect:** `/model sonnet` sent to the
+  spawned session also *saved Sonnet as the user's default for new
+  sessions* — per-spawn model choice must not go through `/model` unless
+  that's intended; a launch-time flag/config on the `claude` invocation is
+  the clean mechanism.
+
+*(Re-instated 2026-07-10 evening from the orchestrating session's record —
+this block was uncommitted when the deletion incident hit.)*
+
 ## The sub-task relationship gap — resolved design, 2026-07-09
 
 Raised alongside the `/handoff` ask: "do we have a relationship in place

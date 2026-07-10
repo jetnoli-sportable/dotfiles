@@ -174,7 +174,7 @@
 <body data-kind="guide">
 <div class="statusbar">
   <span>docgen · generated from <b>docs/roadmap.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-08</span>
+  <span class="right">updated 2026-07-10</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -183,6 +183,7 @@
     <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#origins">Origins</a></li>
+      <li><a href="#north-star-2026-07-10">North star (2026-07-10)</a></li>
       <li><a href="#overview">Overview</a></li>
       <li><a href="#window-management">Window management</a></li>
       <li><a href="#keep--retire--hold">Keep / retire / hold</a></li>
@@ -226,6 +227,15 @@ frontmatter + <code>wb board</code>.</li>
 the hook → marker → count → jump/preview pipeline, shipped first of all
 of these.</li>
 </ul>
+<h2 id="north-star-2026-07-10">North star (2026-07-10)</h2>
+<p>Everything is a note. A task is a note labelled a task (created with
+<code>wb</code>). Tasks tie to each other (sibling or parent/child); notes tie to
+tasks. Where things live matters less than always moving toward this —
+first concrete step: an end-of-day notes-dir audit (2026-07-10, parked to
+the ledger) reducing <code>~/code/notes</code> to just <code>inbox.md</code>, with <code>tasks/*</code>
+holding all wb items, then clarifying the note↔task linking and starting
+fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
+<code>logs/decisions/2026-07-10-workflow-calibration.md</code>.)</p>
 <h2 id="overview">Overview</h2>
 <table>
 <thead>
@@ -304,22 +314,34 @@ of these.</li>
 <td>Resume any work from any session by referencing it — see Open Questions for the boundary dependency</td>
 </tr>
 <tr>
-<td><code>/handoff</code> — route a discussion to the right worker</td>
-<td>Queued, marked for pickup soon</td>
+<td>Hub v0 (meta-documentation bundle)</td>
+<td><strong>Paused 2026-07-10</strong> mid-plan — trimmed, resumes after parent/child (calibration record: <code>logs/decisions/2026-07-10-workflow-calibration.md</code>)</td>
+<td><a href="brainstorms/2026-07-09-hub-v0-requirements.md">requirements</a></td>
+<td>On resume ships: glossary, limitations page, ceremonies page, <code>/board</code> tile, roadmap full reshape (per the 2026-07-10 ideation round). Artifact index deferred — revisit when a one-off doc actually goes un-findable, or post-parent/child</td>
+</tr>
+<tr>
+<td>Task parent/child relationship (incl. cross-repo/full-stack tasks)</td>
+<td><strong>Next up</strong> — resequenced ahead of Hub v0's remaining units 2026-07-10 (calibration D1); design resolved, dry-run mechanics folded in</td>
 <td><a href="roadmap-handoff.html">detail</a></td>
-<td>Switch to an existing agent's session or <code>wb new</code> it; surfaced a real gap (no sub-task relationship exists yet)</td>
+<td><code>parent:</code> frontmatter field, one session per repo linked by it, new picker sub-rows + <code>/board</code> rollup</td>
+</tr>
+<tr>
+<td><code>/handoff</code> — route a discussion to the right worker</td>
+<td>Queued, marked for pickup soon; single-target flow run <strong>by hand</strong> 2026-07-10, mechanical findings on the detail page</td>
+<td><a href="roadmap-handoff.html">detail</a></td>
+<td>Switch to an existing agent's session or <code>wb new</code> it; depends on the parent/child relationship above</td>
+</tr>
+<tr>
+<td><code>wb new</code> bootstrap gap: repos with no <code>.worktree-bootstrap</code>/<code>.env*</code></td>
+<td>Open, small — found 2026-07-10 during the <code>/handoff</code> dry-run</td>
+<td><a href="roadmap-handoff.html">detail</a></td>
+<td><code>wb_bootstrap</code> (<code>wb.sh:136-157</code>) only copies files named by a repo's <code>.worktree-bootstrap</code> manifest, else root <code>.env*</code> — <code>be--monorepo</code>'s <code>config.hjson</code> (root + <code>apps/metrics_server/</code>) is silently skipped; fix = add that manifest in <code>be--monorepo</code></td>
 </tr>
 <tr>
 <td>Notes-tui integration, 4b (real wiring)</td>
-<td>Sequenced after <code>/handoff</code>, pending 4a's ~2026-07-14 verdict</td>
+<td>Superseded by the capture fix-forward experiment (calibration D4, 2026-07-10) — 4a measured unused (1-byte inbox); experiment (reach: tmux bind · read-back: passive surface) wires after the notes-dir audit, verdict ~2026-07-24; store convergence tabled to the ~07-20 calibration</td>
 <td><a href="slice-4b-deep-dive.html">deep dive</a></td>
-<td>Placement decided 2026-07-08 — may move if the Hub v0 roadmap-visual work finds something more relevant</td>
-</tr>
-<tr>
-<td>Hub v0 (meta-documentation bundle)</td>
-<td>Scoped (parked); next up once the <code>wb reconcile</code> duplicate-task gap above is resolved</td>
-<td>—</td>
-<td>Artifact index, limitations list, glossary, roadmap visual, a ceremonies/rituals section (tracking exactly the dated clocks and process rituals below), plus the docgen-freshness hygiene fixes</td>
+<td>Original 4b wiring only proceeds if the experiment changes real usage</td>
 </tr>
 <tr>
 <td>Editor/tmux ergonomics batch</td>
@@ -365,9 +387,9 @@ of these.</li>
 </tr>
 <tr>
 <td>Skill/tool/command usage audit</td>
-<td>Proposal, unscheduled</td>
+<td>Folded into the ~2026-07-20 check-in (calibration D6, 2026-07-10) — the 2026-07-10 workflow review counts as run #1</td>
 <td>—</td>
-<td>Monthly-ish audit of what's unused (prune candidates) AND what's underused but already solves a current pain point (before building something new) — measurement source and output location still undecided</td>
+<td>Monthly-ish audit of what's unused (prune candidates) AND what's underused but already solves a current pain point (before building something new) — resolved 2026-07-10: measurement source = agent-run review, output = dossiers under <code>~/code/tasks/dossiers/</code></td>
 </tr>
 <tr>
 <td><code>docgen.sh</code>'s pre-commit hook targets the wrong repo from a worktree</td>
