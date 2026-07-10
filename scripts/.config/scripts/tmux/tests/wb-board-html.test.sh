@@ -208,6 +208,97 @@ html2="$(wb_board_render_html 2>&1)"
 assert "title HTML-escaped" 'Fix &lt;script&gt; &amp;' "$html2"
 assert_not "raw unescaped title not injected" 'Fix <script>' "$html2"
 
+# --- parent/children rollup disclosure (U3) ---------------------------------
+DOC_ROOT2="$(mktemp -d -t wb-board-html-docroot2.XXXXXX)"
+git init -q "$DOC_ROOT2"
+mkdir -p "$DOC_ROOT2/scripts/.config/scripts/tmux" "$DOC_ROOT2/docs/plans"
+git -C "$DOC_ROOT2" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+echo "parent plan"  > "$DOC_ROOT2/docs/plans/2026-07-09-parent-plan.md"
+echo "child a plan" > "$DOC_ROOT2/docs/plans/2026-07-09-a-plan.md"
+echo "child b plan" > "$DOC_ROOT2/docs/plans/2026-07-09-b-plan.md"
+SCRIPT_DIR_REAL2="$SCRIPT_DIR"
+SCRIPT_DIR="$DOC_ROOT2/scripts/.config/scripts/tmux"
+
+mk_parent_task() { # <file> <status> <repo> <created> <closed> <title> <doc-ref-line>
+  local f="$FIXTURE_TASKS/$1"
+  {
+    printf -- '---\nstatus: %s\nrepo: %s\nbranch: b\nworktree: .worktrees/x\nparent:\ntags: []\ncreated: %s\nclosed: %s\n---\n' \
+      "$2" "$3" "$4" "$5"
+    printf '# %s\n\n## Plan\n\n## Done\n\n## Decisions\n\n%s\n' "$6" "$7"
+  } > "$f"
+}
+mk_child_task() { # <file> <status> <repo> <created> <closed> <title> <parent> <doc-ref-line>
+  local f="$FIXTURE_TASKS/$1"
+  {
+    printf -- '---\nstatus: %s\nrepo: %s\nbranch: b\nworktree: .worktrees/x\nparent: %s\ntags: []\ncreated: %s\nclosed: %s\n---\n' \
+      "$2" "$3" "$7" "$4" "$5"
+    printf '# %s\n\n## Plan\n\n## Done\n\n## Decisions\n\n%s\n' "$6" "$8"
+  } > "$f"
+}
+
+mk_parent_task 'proj--parent-y.md' doing proj "$TODAY" '' 'Parent Y' \
+  '- `docs/plans/2026-07-09-parent-plan.md` — the parent'\''s own plan.'
+mk_child_task 'proj--child-p.md' doing proj "$TODAY" '' 'Child P' proj--parent-y \
+  '- `docs/plans/2026-07-09-a-plan.md` — child P'\''s plan.'
+mk_child_task 'other--child-q.md' planned other "$OLD_DATE" '' 'Child Q' proj--parent-y \
+  '- `docs/plans/2026-07-09-b-plan.md` — child Q'\''s plan.'
+touch -d "$OLD_DATE" "$FIXTURE_TASKS/other--child-q.md"
+
+# extract_task_card <flattened_html> <anchor_key> — the substring for just
+# ONE task's own <div class="task-detail"> card: bounded on both ends (not
+# just the opening anchor), since an unbounded suffix would leak whatever
+# task's card happens to render next in store order into the assertions.
+extract_task_card() {
+  local rest="${1#*id=\"t-all-today-$2\">}"
+  printf '%s' "${rest%%<div class=\"task-detail\"*}"
+}
+
+html4="$(wb_board_render_html 2>&1)"
+flat4="$(printf '%s' "$html4" | tr '\n' ' ')"
+parent_y_panel="$(extract_task_card "$flat4" proj--parent-y)"
+
+assert "parent card: wraps in a details.parent-row disclosure" '<details open class="parent-row">' "$parent_y_panel"
+assert "parent card: own-artifact count shown" '1 of its own artifacts' "$parent_y_panel"
+assert "parent card: own doc link present" 'parent-plan\.md' "$parent_y_panel"
+assert "parent card: child P listed with its status pill" '<span class="pill doing">doing</span> Child P' "$parent_y_panel"
+assert "parent card: child Q listed, cross-repo, own status pill" '<span class="pill planned">planned</span> Child Q' "$parent_y_panel"
+assert "parent card: child P's own doc link present in its child-row" 'a-plan\.md' "$parent_y_panel"
+assert "parent card: child Q (outside today'\''s window) still listed" 'Child Q' "$parent_y_panel"
+assert "parent card: rollup toggle names the correct count (2 docs across children)" 'Show 2 artifacts from sub-tasks too' "$parent_y_panel"
+assert "parent card: rollup toggle body has both children'\''s docs" 'a-plan\.md' "$parent_y_panel"
+assert "parent card: rollup toggle body has both children'\''s docs (b)" 'b-plan\.md' "$parent_y_panel"
+
+# --- regression: a task with no children renders exactly as before ----------
+doing_branch_panel="$(extract_task_card "$flat4" proj--doing-branch)"
+assert_not "non-parent task: no details.parent-row wrapper" 'parent-row' "$doing_branch_panel"
+
+# --- edge case: empty rollup (no docs anywhere) omits the nested toggle -----
+mk_parent_task 'proj--empty-parent.md' doing proj "$TODAY" '' 'Empty Parent' ''
+mk_child_task 'proj--empty-child.md' doing proj "$TODAY" '' 'Empty Child' proj--empty-parent ''
+html5="$(wb_board_render_html 2>&1)"
+flat5="$(printf '%s' "$html5" | tr '\n' ' ')"
+empty_parent_panel="$(extract_task_card "$flat5" proj--empty-parent)"
+assert "empty parent: 0 of its own artifacts, no crash" '0 of its own artifacts' "$empty_parent_panel"
+assert "empty parent: child with no docs shows just pill and title" '<span class="pill doing">doing</span> Empty Child </div>' "$empty_parent_panel"
+assert_not "empty parent: no rollup toggle when the union is empty" 'Show .* artifact' "$empty_parent_panel"
+
+# --- edge case: self-reference is excluded from its own children map -------
+mk_parent_task 'proj--self.md' doing proj "$TODAY" '' 'Self Ref' ''
+wb_set_frontmatter "$FIXTURE_TASKS/proj--self.md" parent 'proj--self'
+html6="$(wb_board_render_html 2>&1)"
+self_panel="$(extract_task_card "$(printf '%s' "$html6" | tr '\n' ' ')" proj--self)"
+assert_not "self-reference: own card is not wrapped as a parent-row" 'parent-row' "$self_panel"
+
+# --- integration: escaping applies to every new insertion point ------------
+mk_parent_task 'proj--parent-esc.md' doing proj "$TODAY" '' 'Parent Esc' ''
+mk_child_task 'proj--child-esc.md' doing proj "$TODAY" '' 'Fix <script> & "quotes"' proj--parent-esc ''
+html7="$(wb_board_render_html 2>&1)"
+assert "child title HTML-escaped inside a child-row" 'Fix &lt;script&gt; &amp;' "$html7"
+assert_not "raw unescaped child title not injected" 'Fix <script>' "$html7"
+
+SCRIPT_DIR="$SCRIPT_DIR_REAL2"
+rm -rf "$DOC_ROOT2"
+
 # --- empty store: no crash, empty-state everywhere ---------------------------
 EMPTY_TASKS="$(mktemp -d -t wb-board-html-empty.XXXXXX)"
 EMPTY_CODE="$(mktemp -d -t wb-board-html-empty-code.XXXXXX)"

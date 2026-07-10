@@ -65,7 +65,7 @@ mk_task() {
 
 mk_template() { # <tasks_dir> — wb_seed_task reads TEMPLATE.md, so any
   # fixture exercising "create a task" needs one present.
-  printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n\n## Done\n\n## Follow-ups\n\n## Decisions\n' \
+  printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\nparent:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n\n## Done\n\n## Follow-ups\n\n## Decisions\n' \
     > "$1/TEMPLATE.md"
 }
 
@@ -129,13 +129,44 @@ mk_repo "$CODE_DIR/proj"
 add_worktree "$CODE_DIR/proj" orphan-b
 wb_reconcile_repos() { printf '%s\n' "$CODE_DIR/proj"; }
 cmd_reconcile --review >/dev/null 2>&1
-sed -i 's/^- \[ \] create a task$/- [x] create a task/' "$REPORT"
+sed -i 's/^- \[ \] create a task (optional parent: `___`)$/- [x] create a task (optional parent: `___`)/' "$REPORT"
 cmd_reconcile --apply >/dev/null 2>&1
 new_task="$TASKS_DIR/proj--orphan-b.md"
 if [ -f "$new_task" ]; then
   assert "apply create-task: status doing" 'status: doing' "$(cat "$new_task")"
 else
   echo "FAIL - apply create-task: $new_task not created"; fail=1
+fi
+
+# --apply: create a task with an optional parent: annotation
+fresh_env
+mk_repo "$CODE_DIR/proj"
+add_worktree "$CODE_DIR/proj" orphan-c
+wb_reconcile_repos() { printf '%s\n' "$CODE_DIR/proj"; }
+mk_task "$TASKS_DIR" "proj--parent-x.md" doing proj parent-x .worktrees/parent-x "Parent X"
+cmd_reconcile --review >/dev/null 2>&1
+sed -i 's/^- \[ \] create a task (optional parent: `___`)$/- [x] create a task (optional parent: `proj--parent-x`)/' "$REPORT"
+cmd_reconcile --apply >/dev/null 2>&1
+new_task="$TASKS_DIR/proj--orphan-c.md"
+if [ -f "$new_task" ]; then
+  assert "apply create-task with parent: parent: set" 'parent: proj--parent-x' "$(cat "$new_task")"
+else
+  echo "FAIL - apply create-task with parent: $new_task not created"; fail=1
+fi
+
+# --apply: create a task with a bogus parent: annotation — skips, no crash
+fresh_env
+mk_repo "$CODE_DIR/proj"
+add_worktree "$CODE_DIR/proj" orphan-d
+wb_reconcile_repos() { printf '%s\n' "$CODE_DIR/proj"; }
+cmd_reconcile --review >/dev/null 2>&1
+sed -i 's/^- \[ \] create a task (optional parent: `___`)$/- [x] create a task (optional parent: `proj--nonexistent`)/' "$REPORT"
+out="$(cmd_reconcile --apply 2>&1)"; rc=$?
+assert "apply create-task with bogus parent: exits 0 (skips, doesn't crash)" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
+if [ -f "$TASKS_DIR/proj--orphan-d.md" ]; then
+  echo "FAIL - apply create-task with bogus parent: task was created despite invalid parent"; fail=1
+else
+  echo "ok   - apply create-task with bogus parent: skipped, no task file created"
 fi
 
 # =============================================================================

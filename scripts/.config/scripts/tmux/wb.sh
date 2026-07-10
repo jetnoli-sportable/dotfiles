@@ -28,7 +28,7 @@ SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"   # for fzf reload/become to 
 source "$SCRIPT_DIR/lib.sh"
 
 TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
-CODE_DIR="$HOME/code"
+CODE_DIR="${CODE_DIR:-$HOME/code}"
 WB_SWEEP_THRESHOLD="${WB_SWEEP_THRESHOLD:-5}"   # follow-ups+parked count that triggers the nudge
 
 # Picker column widths — shared between wb_format_for_display's padding and
@@ -59,12 +59,19 @@ wb_get_frontmatter() {
   ' "$1"
 }
 
-# wb_set_frontmatter <file> <key> <value> — overwrite a frontmatter value in place.
+# wb_set_frontmatter <file> <key> <value> — overwrite a frontmatter value in
+# place, or insert it just before the closing `---` when the key has no
+# existing line (e.g. a task file that predates this key being added to the
+# schema).
 wb_set_frontmatter() {
   local file="$1" key="$2" value="$3"
   awk -v key="$key" -v val="$value" '
     BEGIN { infm = 0; done = 0 }
-    /^---$/ { infm++; print; next }
+    /^---$/ {
+      infm++
+      if (infm == 2 && !done) { print key ": " val; done = 1 }
+      print; next
+    }
     infm == 1 && !done && $0 ~ "^" key ":" { print key ": " val; done = 1; next }
     { print }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
@@ -118,6 +125,28 @@ wb_task_files() {
 # session:window and can kill an UNRELATED session.
 wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; echo "${s//:/-}"; }
 
+# wb_resolve_parent_ref <ref> — validate <ref> (a "<repo>--<slug>" task-file
+# stem) exists in the store; print its path, or fail loudly. Shared by
+# `wb new --parent` and `wb reconcile --apply`'s create-task action so a
+# parent must always be a real, pre-existing task file — never an arbitrary
+# string, same fail-loud-on-no-match convention as `wb resume`.
+wb_resolve_parent_ref() {
+  local ref="$1"
+  local file="$TASKS_DIR/$ref.md"
+  [ -f "$file" ] || { echo "wb: --parent '$ref' has no matching task file in $TASKS_DIR" >&2; return 1; }
+  printf '%s\n' "$file"
+}
+
+# wb_task_own_parent <candidate_parent_stem> <own_stem> — exit 0 (safe) when
+# candidate is NOT own_stem's own file; exit 1 (self-reference) when it is.
+# Single shared check for the write path (wb new --parent, wb reconcile
+# --apply's create-task action) and both read paths (picker grouping,
+# /board's rollup) so the rule can't drift between call sites.
+wb_task_own_parent() {
+  [ "$1" != "$2" ] || return 1
+  return 0
+}
+
 # wb_tsv_split <string> <array_name> — split <string> on literal tabs into
 # the named array, preserving empty fields. NEVER use `IFS=$'\t' read` for
 # this: bash classifies tab as IFS-WHITESPACE regardless of what IFS is set
@@ -170,11 +199,13 @@ wb_bootstrap() {
   done
 }
 
-# wb_seed_task <repo> <slug> <worktree_rel> — find-or-create the task file for
-# a repo+slug pair, filling blank frontmatter fields and bumping
-# planned->doing. Never overwrites a field that's already set.
+# wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] — find-or-create
+# the task file for a repo+slug pair, filling blank frontmatter fields and
+# bumping planned->doing. Never overwrites a field that's already set.
+# <parent_ref> is optional (defaults to empty) so wb_reconcile_action_create_task's
+# pre-existing 3-arg call keeps working unchanged — it never sets `parent:`.
 wb_seed_task() {
-  local repo="$1" slug="$2" worktree_rel="$3"
+  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}"
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local file; file="$(wb_task_file "$repo" "$disp_slug")"
 
@@ -204,6 +235,7 @@ wb_seed_task() {
     [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
     [ "$(wb_get_frontmatter "$file" status)" != planned ] || wb_set_frontmatter "$file" status doing
   fi
+  [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
   echo "$file"
 }
 
@@ -229,11 +261,22 @@ wb_layout_session() {
 }
 
 cmd_new() {
-  local agent_flag=0
+  # Index/shift case parser, not a single-token foreach: --parent takes its
+  # value as a separate following argument, which a foreach that only
+  # detects literal tokens (like --agent) can't consume — the value would
+  # fall into the else branch and corrupt the positional repo/slug count.
+  local agent_flag=0 parent_ref=""
   local -a args=()
-  local a
-  for a in "$@"; do
-    if [ "$a" = "--agent" ]; then agent_flag=1; else args+=("$a"); fi
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --agent)  agent_flag=1; shift ;;
+      --parent)
+        case "${2-}" in
+          ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
+        esac
+        parent_ref="$2"; shift 2 ;;
+      *)        args+=("$1"); shift ;;
+    esac
   done
 
   local repo slug
@@ -246,16 +289,25 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent] <slug> | wb new [--agent] <repo> <slug>" >&2
+    echo "usage: wb new [--agent] [--parent <repo>--<slug>] <slug> | wb new [--agent] [--parent <repo>--<slug>] <repo> <slug>" >&2
     exit 1
   fi
 
   [ -n "$slug" ] || { echo "wb new: <slug> must not be empty" >&2; exit 1; }
 
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+
+  # Validate before anything is touched — same fail-loud-on-no-match
+  # convention as `wb resume`. Also reject a self-referential --parent, the
+  # same guard the picker/board read paths use (wb_task_own_parent).
+  if [ -n "$parent_ref" ]; then
+    wb_resolve_parent_ref "$parent_ref" >/dev/null || exit 1
+    wb_task_own_parent "$parent_ref" "${repo}--${disp_slug}" \
+      || { echo "wb new: --parent cannot be the task's own reference" >&2; exit 1; }
+  fi
+
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
-
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local session="${repo}--${disp_slug}"
   local worktree_rel=".worktrees/$slug"
   local worktree_path="$repo_dir/$worktree_rel"
@@ -270,7 +322,7 @@ cmd_new() {
   fi
 
   local task_file
-  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel")"
+  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref")"
 
   local is_new=0
   tmux has-session -t "=$session" 2>/dev/null || is_new=1
@@ -538,7 +590,7 @@ wb_reconcile_generate_review() {
       echo "- [ ] do nothing"
       echo "- [ ] remove"
       echo "- [ ] discuss"
-      echo "- [ ] create a task"
+      echo "- [ ] create a task (optional parent: \`___\`)"
       echo "- [ ] attach to task: \`___\`"
       echo "- [ ] merge with task: \`___\`"
     done < <(wb_reconcile_collect)
@@ -569,14 +621,24 @@ wb_reconcile_action_remove() {
   fi
 }
 
-# wb_reconcile_action_create_task <kind> <repo> <branch> <worktree>
+# wb_reconcile_action_create_task <kind> <repo> <branch> <worktree> [<parent_ref>]
 wb_reconcile_action_create_task() {
-  local kind="$1" repo="$2" branch="$3" worktree="$4"
+  local kind="$1" repo="$2" branch="$3" worktree="$4" parent="${5:-}"
   if [ "$kind" != orphan ]; then
     echo "wb reconcile --apply: 'create a task' is a no-op on a missing-worktree finding (a task already exists) — skipping" >&2
     return 0
   fi
-  local file; file="$(wb_seed_task "$repo" "$branch" "$worktree")"
+  if [ -n "$parent" ]; then
+    if ! wb_resolve_parent_ref "$parent" >/dev/null; then
+      echo "wb reconcile --apply: skipping this finding's create-task action — invalid parent" >&2
+      return 0
+    fi
+    if ! wb_task_own_parent "$parent" "${repo}--$(wb_sanitize "$branch")"; then
+      echo "wb reconcile --apply: skipping this finding's create-task action — --parent cannot be the task's own reference" >&2
+      return 0
+    fi
+  fi
+  local file; file="$(wb_seed_task "$repo" "$branch" "$worktree" "$parent")"
   echo "wb reconcile --apply: created task $file (status: doing)"
 }
 
@@ -688,7 +750,10 @@ wb_reconcile_apply() {
     elif printf '%s' "$b" | grep -qE '^- \[x\] remove'; then
       wb_reconcile_action_remove "$kind" "$repo" "$branch" "$worktree" "$taskfile"
     elif printf '%s' "$b" | grep -qE '^- \[x\] create a task'; then
-      wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree"
+      local parent_ref=""
+      parent_ref="$(printf '%s' "$b" | grep -oP 'create a task \(optional parent: `\K[^`]+' | head -1)"
+      [ "$parent_ref" != '___' ] || parent_ref=""
+      wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree" "$parent_ref"
     elif printf '%s' "$b" | grep -qP "^- \[x\] attach to task: \`[^\`_]+\`"; then
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] attach to task: `\K[^`]+' | head -1)"
       wb_reconcile_action_attach "$kind" "$worktree" "$target"
@@ -1063,6 +1128,30 @@ wb_board_related_docs() {
     done | sort -u
 }
 
+# wb_board_task_doc_chips <taskfile> <dotfiles_root> — space-joined
+# artefact-chip <a> tags for every doc wb_board_related_docs finds for
+# <taskfile>, escaped and linked exactly like a task's own "Docs:" line.
+# Shared by that line, each child row, and (via wb_board_children_rollup_docs)
+# the rolled-up union, so the chip markup lives in exactly one place.
+wb_board_task_doc_chips() {
+  local taskfile="$1" root="$2" doc_rel chips=""
+  while IFS= read -r doc_rel; do
+    [ -n "$doc_rel" ] || continue
+    chips+="<a class=\"artefact-chip\" href=\"$(wb_board_doc_link "$doc_rel")\">$(wb_board_html_escape "$(basename "$doc_rel")")</a> "
+  done < <(wb_board_related_docs "$taskfile" "$root")
+  printf '%s' "$chips"
+}
+
+# wb_board_children_rollup_docs <children_files_newline_list> <root> —
+# deduplicated union of wb_board_related_docs across every child file.
+wb_board_children_rollup_docs() {
+  local list="$1" root="$2" cf
+  while IFS= read -r cf; do
+    [ -n "$cf" ] || continue
+    wb_board_related_docs "$cf" "$root"
+  done <<< "$list" | sort -u
+}
+
 # wb_board_doc_link <root_relative_path> — that path's href from
 # logs/board.html's own location, since board.html isn't served over
 # http and an absolute href would resolve against the filesystem root,
@@ -1086,6 +1175,21 @@ wb_board_render_html() {
   local -a ROWS=()
   local line
   while IFS= read -r line; do ROWS+=("$line"); done < <(wb_board_collect_rows)
+
+  # Parent-stem -> newline-joined list of children task files, one pass
+  # over the whole store (not ROWS, which is tab/window-filtered — the
+  # relationship is store-wide, independent of which panel a parent's card
+  # happens to render in). Skips a task that names itself as its own
+  # parent, the same self-reference guard U2's picker grouping uses.
+  local -A children_of=()
+  local cf cparent cstem
+  while IFS= read -r cf; do
+    cparent="$(wb_get_frontmatter "$cf" parent)"
+    [ -n "$cparent" ] || continue
+    cstem="$(basename "$cf" .md)"
+    wb_task_own_parent "$cparent" "$cstem" || continue
+    children_of["$cparent"]+="$cf"$'\n'
+  done < <(wb_task_files)
 
   local -a TABS=(all inprogress upcoming paused deferred unclassified)
   local -A TAB_LABEL=([all]="All" [inprogress]="In Progress" [upcoming]="Upcoming" [paused]="Paused" [deferred]="Deferred" [unclassified]="Unclassified")
@@ -1167,13 +1271,41 @@ wb_board_render_html() {
             ledger_note+="$(printf '%s' "$ledger_line" | jq -r '.note // empty' 2>/dev/null); "
           done < <(wb_board_ledger_matches "$wt_abs")
           [ -n "$ledger_note" ] && detail_extra+="<p><b>Parked:</b> $(wb_board_html_escape "$ledger_note")</p>"
-          local doc_rel doc_links=""
-          while IFS= read -r doc_rel; do
-            [ -n "$doc_rel" ] || continue
-            doc_links+="<a class=\"artefact-chip\" href=\"$(wb_board_doc_link "$doc_rel")\">$(wb_board_html_escape "$(basename "$doc_rel")")</a> "
-          done < <(wb_board_related_docs "$taskfile" "$dotfiles_root")
+          local own_docs doc_links
+          own_docs="$(wb_board_related_docs "$taskfile" "$dotfiles_root")"
+          doc_links="$(wb_board_task_doc_chips "$taskfile" "$dotfiles_root")"
           [ -n "$doc_links" ] && detail_extra+="<p><b>Docs:</b> $doc_links</p>"
-          detail_sections+="<div class=\"task-detail\" id=\"$view_anchor\"><h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3><span class=\"repo\">$esc_repo</span>$detail_extra</div>"$'\n'
+
+          local h3="<h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3>"
+          local stem; stem="$(basename "$taskfile" .md)"
+          if [ -n "${children_of[$stem]:-}" ]; then
+            local own_count; own_count="$(printf '%s' "$own_docs" | grep -c . || true)"
+            local children_html='' crow_file crow_status crow_title crow_chips
+            while IFS= read -r crow_file; do
+              [ -n "$crow_file" ] && [ -f "$crow_file" ] || continue
+              crow_status="$(wb_get_frontmatter "$crow_file" status)"
+              crow_title="$(wb_task_title "$crow_file")"; [ -n "$crow_title" ] || crow_title="$(basename "$crow_file" .md)"
+              crow_chips="$(wb_board_task_doc_chips "$crow_file" "$dotfiles_root")"
+              children_html+="<div class=\"child-row\"><span class=\"pill $crow_status\">$(wb_board_html_escape "$crow_status")</span> $(wb_board_html_escape "$crow_title") $crow_chips</div>"$'\n'
+            done <<< "${children_of[$stem]}"
+
+            local rollup_docs rollup_html=""
+            rollup_docs="$(wb_board_children_rollup_docs "${children_of[$stem]}" "$dotfiles_root")"
+            if [ -n "$rollup_docs" ]; then
+              local rn; rn="$(printf '%s\n' "$rollup_docs" | grep -c .)"
+              local plural=""; [ "$rn" = 1 ] || plural="s"
+              local rollup_chips="" rdoc
+              while IFS= read -r rdoc; do
+                [ -n "$rdoc" ] || continue
+                rollup_chips+="<a class=\"artefact-chip\" href=\"$(wb_board_doc_link "$rdoc")\">$(wb_board_html_escape "$(basename "$rdoc")")</a> "
+              done <<< "$rollup_docs"
+              rollup_html="<details><summary>Show $rn artifact$plural from sub-tasks too</summary><p>$rollup_chips</p></details>"
+            fi
+
+            detail_sections+="<div class=\"task-detail\" id=\"$view_anchor\"><details open class=\"parent-row\"><summary>$h3<span class=\"own-count\">$own_count of its own artifacts</span></summary><span class=\"repo\">$esc_repo</span>$detail_extra<div class=\"children\">$children_html</div>$rollup_html</details></div>"$'\n'
+          else
+            detail_sections+="<div class=\"task-detail\" id=\"$view_anchor\">$h3<span class=\"repo\">$esc_repo</span>$detail_extra</div>"$'\n'
+          fi
         fi
       done
 
@@ -1245,6 +1377,16 @@ wb_board_render_html() {
   .task-detail.untracked { border-style: dashed; }
   .artefact-chip { display: inline-flex; font-family: var(--mono); font-size: .74rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: .1em .6em; margin-right: .3em; color: var(--ink2); text-decoration: none; }
   a.artefact-chip:hover { border-color: var(--acc2); color: var(--acc2); }
+  .task-detail details.parent-row > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  .task-detail details.parent-row > summary::-webkit-details-marker { display: none; }
+  .task-detail details.parent-row > summary h3 { margin: 0; }
+  .task-detail details.parent-row .own-count { font-size: .78rem; color: var(--mut); margin-left: auto; white-space: nowrap; }
+  .task-detail .children { margin: .6rem 0 0; padding-left: 1rem; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: .4rem; }
+  .task-detail .child-row { font-size: .87rem; color: var(--ink2); display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .task-detail .children .pill { font-size: .68rem; }
+  .task-detail details.parent-row details { margin-top: .6rem; }
+  .task-detail details.parent-row details summary { cursor: pointer; color: var(--acc2); font-family: var(--mono); font-size: .78rem; list-style: none; }
+  .task-detail details.parent-row details summary::-webkit-details-marker { display: none; }
   $panel_css
   $highlight_css
 </style>
@@ -1472,9 +1614,12 @@ cmd_done() {
 #   8 ref (task file path, or repo dir for repo rows)
 #   9 kind (task|repo|agent)   10 ucount (claude panes in session)
 #   11 slug (task rows only — real, slash-preserving; used to resume via wb new)
+#   12 sib (set to "1" by wb_parent_subrows on a live sibling sharing a
+#      parent:, so it indents distinctly from an agent-pane sub-row —
+#      empty on every other row kind)
 # wb_format_for_display (used by render_rows) prepends a pre-rendered,
 # fixed-width display string as a NEW field 1, shifting all of the above by
-# one (repo becomes field 2, ..., slug becomes field 12) — that's the shape
+# one (repo becomes field 2, ..., sib becomes field 13) — that's the shape
 # fzf and picker()'s final `read` actually see. The displayed TYPE column
 # (session/agent/both) isn't a stored field — it's derived at display time
 # from kind + ucount.
@@ -1493,7 +1638,7 @@ wb_status_icon() {
     done)        printf '+\tfinished\n' ;;
     waiting)     printf 'o\tdone\n' ;;
     working)     printf '*\tworking\n' ;;
-    *)           printf '-\tidle\n' ;;
+    *)           printf -- '-\tidle\n' ;;
   esac
 }
 
@@ -1522,7 +1667,7 @@ wb_agent_subrows() {
   local rank target status task icon label
   while IFS=$'\t' read -r rank target status task; do
     IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
-    printf '%s\t%s\t%s\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\n' \
+    printf '%s\t%s\t%s\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\t\n' \
       "$repo" "$task" "$branch" "$rank" "$icon" "$label" "$target" "$session" "$ref"
   done < <(tmux_claude_panes "$session" | sort -n)
 }
@@ -1555,7 +1700,7 @@ wb_live_session_row() {
   local -a _u; wb_tsv_split "$(wb_session_urgency "$session")" _u
   local urank="${_u[0]}" uicon="${_u[1]}" target="${_u[2]}" ucount="${_u[3]}"
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n' \
     "$repo" "$label" "$statuscol" "$urank" "$uicon" "$target" "$session" "$ref" "$kind" "$ucount" "$slug_out"
 }
 
@@ -1568,23 +1713,107 @@ collect_live_rows() {
   done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
 }
 
-# collect_combined_rows — collect_live_rows, grouped by status (field 4, the
-# urgency rank) rather than repo, then expanding multi-agent sessions into
-# indented sub-rows (see wb_agent_subrows). The sort happens BEFORE sub-row
-# expansion and nothing re-sorts after it: sorting the flattened parent+child
-# stream by each row's own rank would scatter a session's less-urgent panes
-# away from their parent (the parent's rank is the MIN of its children's), so
-# grouping is done at the parent level and each parent's block of sub-rows
-# rides along with it, keeping the indented "↳" convention intact.
+# wb_emit_with_agents <row> — print <row>, then expand its agent sub-rows
+# via wb_agent_subrows when it has more than one live claude pane. Shared by
+# every emission point in collect_combined_rows (an ungrouped row, a
+# parent-group anchor, or a sibling sub-row) so agent-pane expansion never
+# depends on which path a row took to get emitted.
+wb_emit_with_agents() {
+  local row="$1" repo branch session ref ucount
+  printf '%s\n' "$row"
+  local -a f; wb_tsv_split "$row" f
+  repo="${f[0]}"; branch="${f[2]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"
+  [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$ref" "$branch"; true
+}
+
+# wb_parent_subrows <row> — return <row> with its sibling marker (field 12)
+# set to "1", so wb_format_for_display indents it as a sibling sub-row,
+# distinct from an agent-pane sub-row. Everything else — including kind,
+# still "task" — is untouched: a sibling sub-row is an independently live
+# session, not a pane within one.
+wb_parent_subrows() {
+  awk -F'\t' -v OFS='\t' '{ $12 = "1"; print }' <<< "$1"
+}
+
+# collect_combined_rows — buffers collect_live_rows' urgency-sorted output
+# into an array (two passes, not a stream): deciding a parent-shared group's
+# anchor by created: date needs to see every live sibling before emitting
+# any of them, the same reason wb_board_render_html buffers its own
+# ROWS=() rather than streaming.
+#
+# Pass 1 reads each row's own task file's parent: field once (empty when the
+# row has no task file, no parent set, or the parent equals the row's own
+# stem — self-reference is ignored, same guard U3's children map uses).
+# Pass 2 emits: an unconsumed row whose parent is shared by at least one
+# other unconsumed row picks the earliest-created: sibling as the anchor —
+# stable across refreshes, unlike live urgency rank, which cycles as an
+# agent works — emits it first (even if it isn't the row the scan is
+# currently on), then every other sibling right after as an indented
+# sub-row via wb_parent_subrows, marking the whole group consumed. A row
+# with no shared-parent sibling emits unchanged, exactly as before this
+# grouping existed.
 collect_combined_rows() {
-  local line repo branch session ref ucount
+  local -a rows=()
+  local line
+  while IFS= read -r line; do rows+=("$line"); done \
+    < <(collect_live_rows | sort -t $'\t' -k4,4n -k1,1 -k2,2)
+
+  local -A parent_of=()
+  local i kind ref stem parent
   local -a f
-  while IFS= read -r line; do
-    printf '%s\n' "$line"
-    wb_tsv_split "$line" f
-    repo="${f[0]}"; branch="${f[2]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"
-    [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$ref" "$branch"; true
-  done < <(collect_live_rows | sort -t $'\t' -k4,4n -k1,1 -k2,2)
+  for i in "${!rows[@]}"; do
+    wb_tsv_split "${rows[$i]}" f
+    kind="${f[8]}"; ref="${f[7]}"; parent=""
+    if [ "$kind" = task ] && [ -f "$ref" ]; then
+      parent="$(wb_get_frontmatter "$ref" parent)"
+      stem="$(basename "$ref" .md)"
+      wb_task_own_parent "$parent" "$stem" || parent=""
+    fi
+    parent_of[$i]="$parent"
+  done
+
+  local -A consumed=()
+  local j anchor anchor_created created
+  local -a group fj
+  for i in "${!rows[@]}"; do
+    [ -n "${consumed[$i]:-}" ] && continue
+    parent="${parent_of[$i]}"
+    if [ -z "$parent" ]; then
+      wb_emit_with_agents "${rows[$i]}"
+      consumed[$i]=1
+      continue
+    fi
+
+    group=()
+    for j in "${!rows[@]}"; do
+      [ -n "${consumed[$j]:-}" ] && continue
+      [ "${parent_of[$j]}" = "$parent" ] && group+=("$j")
+    done
+    if [ "${#group[@]}" -le 1 ]; then
+      wb_emit_with_agents "${rows[$i]}"
+      consumed[$i]=1
+      continue
+    fi
+
+    anchor=""; anchor_created=""
+    for j in "${group[@]}"; do
+      wb_tsv_split "${rows[$j]}" fj
+      created="$(wb_get_frontmatter "${fj[7]}" created)"
+      if [ -z "$anchor" ]; then
+        anchor="$j"; anchor_created="$created"
+      elif [ -n "$created" ] && { [ -z "$anchor_created" ] || [[ "$created" < "$anchor_created" ]]; }; then
+        anchor="$j"; anchor_created="$created"
+      fi
+    done
+
+    wb_emit_with_agents "${rows[$anchor]}"
+    consumed[$anchor]=1
+    for j in "${group[@]}"; do
+      [ "$j" = "$anchor" ] && continue
+      wb_emit_with_agents "$(wb_parent_subrows "${rows[$j]}")"
+      consumed[$j]=1
+    done
+  done
 }
 
 # collect_agent_rows — one row per running claude pane, globally, ranked by
@@ -1594,7 +1823,7 @@ collect_agent_rows() {
   while IFS=$'\t' read -r rank target status task; do
     IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
     sess="${target%%:*}"
-    printf '%s\t%s\t\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\n' \
+    printf '%s\t%s\t\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\t\n' \
       "$sess" "$task" "$rank" "$icon" "$label" "$target" "$sess" "$sess"
   done < <(tmux_claude_panes | sort -n)
 }
@@ -1650,10 +1879,27 @@ wb_format_for_display() {
         # happens to be. Plain ASCII on purpose, same reasoning as
         # wb_status_icon above: a Unicode tree glyph reintroduces the
         # cell-width alignment bug this file already moved away from.
-        if (type == "agent") { repo_cell = pad("", w1); name_cell = pad(" > " $2, w2) }
-        else                 { repo_cell = pad($1, w1); name_cell = pad($2, w2) }
+        #
+        # Two independent nesting kinds can indent a row here: an agent
+        # pane within one session (kind, field 9), or a live sibling
+        # sharing a parent: (field 12, set by wb_parent_subrows). A
+        # sibling is an independently live TASK session, not a pane, so
+        # reusing the plain kind=="agent" check alone would never catch it
+        # -- it needs its own connector, both so the two nesting kinds
+        # read as different things and because a sibling can ALSO expand
+        # its own agent sub-rows underneath it (U2 stacking scenario).
+        # Unlike an agent pane (always the same repo as its parent
+        # session), a sibling is explicitly cross-repo (R2), so its repo
+        # cell stays visible rather than blanked.
+        if ($9 == "agent") {
+          repo_cell = pad("", w1); name_cell = pad(" > " $2, w2)
+        } else if ($(12) == "1") {
+          repo_cell = pad($1, w1); name_cell = pad(" ~ " $2, w2)
+        } else {
+          repo_cell = pad($1, w1); name_cell = pad($2, w2)
+        }
         display = c repo_cell r "  " c name_cell r "  " pad(type, w3) "  " pad($3, w4) "  " c status_field r
-        print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11)
+        print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11), $(12)
       }'
 }
 
