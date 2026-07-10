@@ -4,14 +4,16 @@ status: current
 tile: Take what's being discussed and either switch to the agent already on it, or spin up a new task for it.
 group: personal-workflow
 kind: page
-updated: 2026-07-08
+updated: 2026-07-10
 ---
 
 Queued 2026-07-08, marked for pickup soon. This page is the source; edit
 `docs/roadmap-handoff.md`, not the rendered `.html`.
 
 **Roadmap:** new item, not from the original numbered list · **Status:**
-queued, not yet scoped in a decision-buffer round
+queued for build; the sub-task relationship it depends on is now
+fully designed (see below), not built; the single-target flow was run
+**by hand** in a real session 2026-07-10 — mechanical findings below
 
 ## The ask, verbatim
 
@@ -45,71 +47,117 @@ cross-session trigger problem) `/handoff` gets to solve with the full
 context of the conversation it's invoked from, not a bare topic reference
 from cold.
 
-## The real open gap this surfaced: no sub-task relationship exists
+## Dry-run findings — 2026-07-10 (the flow run by hand, single-target)
+
+A `be--monorepo` session ran the exact single-target flow `/handoff` is
+meant to automate, **by hand** — not a test of `/handoff` (it doesn't
+exist yet), but doing manually what it's supposed to do: mid-conversation,
+a clearly-standalone piece of follow-up work (a flaky test root-caused in
+one repo, needing its own fix in a separate worktree/branch/PR) got its
+own agent via `wb new --agent <repo> <slug>`, a hand-seeded task file, and
+a tmux-injected briefing. The steps below all surfaced as real, every-time
+mechanics — v1 must treat them as **first-class scope, not implementation
+detail to figure out later**. Nothing here reopens D9–D12
+(schema/topology/rendering stay as resolved); this feeds the parts of v1
+that were still open.
+
+1. **Task-file-as-payload.** `/handoff`'s job splits in two: write the
+   rich context (diagnosis, decisions, intended approach) into the task
+   file — in the dry run, directly under `## Plan` so the new agent never
+   re-derives it — then send a **short** pointer prompt naming that file
+   and the explicit first action. Do not try to inline full context into
+   injected tmux keystrokes. (Injection detail that mattered: one long
+   single-line string — literal newlines risk premature submission —
+   followed by a separate Enter keystroke.)
+2. **Boot-readiness detection.** The freshly spawned bare `claude`
+   process takes time to boot; the injector must poll for the ready state
+   (`tmux capture-pane`, watching for the ready prompt) before sending
+   the briefing. A fixed sleep is not reliable. Open sub-question for the
+   build: what exact ready-signal to poll for.
+3. **The permission-prompt handshake.** The briefing's first instruction —
+   read the task file — points at `~/code/tasks/`, deliberately outside
+   the repo root, so every spawned agent hits a Read-outside-cwd approval
+   prompt as its **literal first action**. Not an edge case; it fires
+   unconditionally. v1 must decide how to clear it without a human in the
+   loop each time — e.g. pre-scoped settings allowing reads from
+   `~/code/tasks/` for wb/handoff-spawned sessions, vs. some other
+   mechanism. A decision to make up front, not discover.
+4. **First-action selection.** "This needs a plan, not straight-to-work"
+   was a live judgment call — the dry run pointed the new agent at
+   `/ce-plan`, not implementation. v1 must state whether the first action
+   is hardcoded (e.g. always `/ce-plan`) or inferred from context. Real
+   decision point, encountered live, not hypothetical.
+5. **Fan-out is a real gap, not an implicit extension.** The dry run spun
+   up ONE agent. When a discussion splits into several
+   independent-but-related pieces (three separate flaky tests; a
+   cross-repo FE+BE pair), `/handoff` as scoped computes a single
+   repo/slug and has **no batch path** — this is covered nowhere in the
+   current docs. The already-resolved parent/child design (D9–D12:
+   `parent:` field, repo-agnostic coordinating parent, one tmux session
+   per child repo) is the right target shape; multi-target `/handoff`
+   should be an explicit loop over it — per piece: compute repo/slug →
+   check existing task + live session (the same lookups as
+   single-target) → `wb new` or switch → stitch the set via the shared
+   `parent:`. Say so in v1's scope rather than leaving multi-target as a
+   "probably fine" extension of the single-target case.
+6. **Separate wb-level follow-up (not `/handoff`'s to fix):** `wb new`'s
+   bootstrap only copies gitignored files named by a repo's
+   `.worktree-bootstrap` manifest, falling back to root `.env*` files
+   when there's no manifest (`wb_bootstrap`, `wb.sh:136-157`). A repo
+   with neither — `be--monorepo`'s `config.hjson` at root and
+   `apps/metrics_server/config.hjson` — gets **silently skipped**, and
+   the dry run had to copy them by hand. Fix lives in that repo (add the
+   manifest); tracked as its own roadmap line item so it isn't painfully
+   rediscovered.
+
+## The sub-task relationship gap — resolved design, 2026-07-09
 
 Raised alongside the `/handoff` ask: "do we have a relationship in place
 for sub-tasks? ... being able to take something big and break it down into
 a bunch of smaller pieces." Checked the actual schema
-(`~/code/tasks/README.md`) — no, nothing today represents "this task is a
-piece of that task." The frontmatter is `status / repo / branch / worktree
-/ tags / created`; `tags:` is documented as "free tags for cross-project
-grouping," not a parent/child relationship. This is a genuine gap, not
-just an unbuilt feature — worth its own decision-buffer round (a `parent:`
-frontmatter field pointing at another task file? an inline sub-task list
-in the parent's `## Plan` section? something tag-based?) rather than
-guessing an answer inline here.
+(`~/code/tasks/README.md`) — nothing today represents "this task is a
+piece of that task"; `tags:` is documented as "free tags for cross-project
+grouping," not a parent/child relationship.
 
-## A concrete case to factor in: full-stack tasks (FE + BE)
+Folded into the Hub v0 scoping session's own decision-buffer round rather
+than deferred to a separate one — resolved as its own PR, sequenced
+immediately after Hub v0, with the design (not the build) done now. Full
+decision record: `logs/decisions/2026-07-09-hub-v0-scoping.md`, Decisions
+9–12; requirements-level summary: `docs/brainstorms/2026-07-09-hub-v0-requirements.md`.
 
-Noted 2026-07-09, ahead of the decision-buffer round: a parent/child
-relationship isn't just "one task broken into smaller pieces of the same
-kind" — a common real shape is one piece of work spanning two repos (a
-frontend change and its backend counterpart), which stresses the schema
-differently than same-repo sub-tasks do:
+**Schema:** a new `parent: <repo>--<slug>` frontmatter field on each child
+task, pointing at its parent's filename stem. The parent task itself
+carries no real `repo:` (a placeholder) since it coordinates rather than
+does the work — this is what makes the representation identical for
+same-repo and cross-repo (full-stack FE+BE) parents alike, rather than
+needing a special case for `repo:` disagreeing across children.
 
-- **Schema:** `repo:` is a single field per task file today
-  (`~/code/tasks/README.md`) — a full-stack task doesn't have one `repo:`,
-  it has (at least) two. Whatever parent/child representation gets chosen
-  needs to handle "the child tasks disagree on `repo:`" as a normal case,
-  not an edge case.
-- **tmux/session topology — genuinely open, not yet a preference:**
-  - **(a) One session, multiple windows** — a single tmux session for the
-    parent task, with an extra nvim window opened in the FE worktree
-    alongside the existing BE one (`wb_layout_session`, `wb.sh:210-223`,
-    would need a second worktree path, not just a second window in the
-    same one).
-  - **(b) One session per repo, linked by the parent/child relationship** —
-    closer to how `wb.sh` already works today (one worktree = one session),
-    just with the picker/board aware that two sessions share a parent.
-  - Both need an answer to: does ONE agent manage both worktrees (single
-    `claude` pane, working across two directories), or TWO agents (one per
-    repo, each scoped to its own worktree) — which is really a question
-    about whether an agent should ever operate outside its own worktree's
-    cwd, not just a session-layout preference.
-- **`/board` and the picker both need a rendering answer, and they're not
-  the same question:**
-  - The picker already has a working precedent for "one thing with
-    sub-rows" — `wb_agent_subrows` (`wb.sh:609-621`) expands a
-    multi-agent session into indented sub-rows under one parent row. A
-    full-stack task's two sessions (option b above) could plausibly reuse
-    that exact rendering, once the sessions know they're linked.
-  - `/board` doesn't have an equivalent precedent yet — U4/U5 (this
-    session's `/board` build) never needed one, since nothing in that
-    scope spans two repos. The parent/sub-task artifact rollup already
-    mocked up for `/board` (`logs/decisions/2026-07-08-board-mockup-a-
-    table.html`'s speculative section) is the closest existing sketch, but
-    it was drawn for "one parent, several same-repo children," not
-    specifically for a two-repo pair.
+**Session topology + agent model:** one tmux session per repo, exactly as
+`wb.sh` already works today (`cmd_new`, `wb.sh:231-288`) — linked by the
+shared `parent:` field, not a shared multi-worktree session. Chosen over a
+single session with an extra window per child worktree specifically to
+avoid breaking the "one worktree = one agent's cwd" assumption the
+attention-pipeline hooks, the credential guard, and `wb reconcile`'s drift
+detection all already rely on.
 
-None of this is decided — recording it so the eventual decision-buffer
-round scopes the representation against a real multi-repo case, not just
-the same-repo "big task into smaller pieces" framing it started from.
+**Rendering:** a new parent-aware picker sub-row function
+(`wb_parent_subrows`, grouping by shared `parent:` — distinct from the
+existing `wb_agent_subrows`, `wb.sh:1516-1528`, which groups by
+multi-agent-per-session instead) plus making real the `/board` rollup
+already mocked up in `logs/decisions/2026-07-08-board-mockup-a-
+table.html`'s speculative section.
 
 ## Sequencing
 
-Queued, not yet scoped. When picked up: a decision-buffer round covering
-(1) the sub-task relationship representation — including the full-stack
-(multi-repo) case above, not just same-repo decomposition — since
-`/handoff`'s "break something big into pieces" framing depends on it
-existing, and (2) the follow-up (deferred on purpose) of actually
-instructing an existing agent rather than just switching to their session.
+Design resolved (above); build not yet started. When picked up: (1) the
+schema/topology/rendering design above, already resolved — no re-scoping
+needed; (2) the mechanical v1 requirements from the 2026-07-10 dry-run
+findings above (task-file-as-payload, boot-readiness polling, the
+permission-prompt handshake, explicit first-action selection) are
+first-class scope, not discovered-during-build detail; (3) multi-target
+fan-out rides the parent/child loop (finding 5) and belongs in v1's
+scope statement even if the batch path itself lands later; and (4) the
+follow-up (deferred on purpose) of actually instructing an existing
+agent rather than just switching to their session, which `/handoff`
+itself still needs once this lands — findings 1–4 apply to that path
+too, since it uses the same injection mechanics.

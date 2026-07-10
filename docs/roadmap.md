@@ -4,7 +4,7 @@ status: current
 tile: One table, one status column, one click to the detail behind each row.
 group: personal-workflow
 kind: guide
-updated: 2026-07-08
+updated: 2026-07-10
 ---
 
 The roadmap for the whole personal workflow (tmux/Claude tooling, the
@@ -37,6 +37,17 @@ since the task template's `## Decisions` section still refers to "F4":
   the hook → marker → count → jump/preview pipeline, shipped first of all
   of these.
 
+## North star (2026-07-10)
+
+Everything is a note. A task is a note labelled a task (created with
+`wb`). Tasks tie to each other (sibling or parent/child); notes tie to
+tasks. Where things live matters less than always moving toward this —
+first concrete step: an end-of-day notes-dir audit (2026-07-10, parked to
+the ledger) reducing `~/code/notes` to just `inbox.md`, with `tasks/*`
+holding all wb items, then clarifying the note↔task linking and starting
+fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
+`logs/decisions/2026-07-10-workflow-calibration.md`.)
+
 ## Overview
 
 | Item | Status | Doc | What it is |
@@ -52,9 +63,11 @@ since the task template's `## Decisions` section still refers to "F4":
 | `wb reconcile` — task-store/git drift detection | Detection + review/apply flow done — PR #14; combining two already-tracked duplicate tasks is a real, separate gap, still open | [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-wb-reconcile.html) | `wb reconcile` / `--review` / `--apply` ship drift detection (orphaned worktree, missing worktree) with a six-action review doc; **not yet covered:** two tasks that both have valid worktrees but represent the same real work — reconcile has no way to see that as a finding at all today |
 | Day bookends (`wb up` / `wb down`) | `wb resume <task>` shipped (PR #14); full up/down gated on 4b | [detail](roadmap-day-bookends.html) | Startup/shutdown flows; single-task resume ships first |
 | Task recall | Open, **actually blocked** on the personal/employer boundary rule below, despite reading as unblocked | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it — see Open Questions for the boundary dependency |
-| `/handoff` — route a discussion to the right worker | Queued, marked for pickup soon | [detail](roadmap-handoff.html) | Switch to an existing agent's session or `wb new` it; surfaced a real gap (no sub-task relationship exists yet) |
-| Notes-tui integration, 4b (real wiring) | Sequenced after `/handoff`, pending 4a's ~2026-07-14 verdict | [deep dive](slice-4b-deep-dive.html) | Placement decided 2026-07-08 — may move if the Hub v0 roadmap-visual work finds something more relevant |
-| Hub v0 (meta-documentation bundle) | Scoped (parked); next up once the `wb reconcile` duplicate-task gap above is resolved | — | Artifact index, limitations list, glossary, roadmap visual, a ceremonies/rituals section (tracking exactly the dated clocks and process rituals below), plus the docgen-freshness hygiene fixes |
+| Hub v0 (meta-documentation bundle) | **Paused 2026-07-10** mid-plan — trimmed, resumes after parent/child (calibration record: `logs/decisions/2026-07-10-workflow-calibration.md`) | [requirements](brainstorms/2026-07-09-hub-v0-requirements.md) | On resume ships: glossary, limitations page, ceremonies page, `/board` tile, roadmap full reshape (per the 2026-07-10 ideation round). Artifact index deferred — revisit when a one-off doc actually goes un-findable, or post-parent/child |
+| Task parent/child relationship (incl. cross-repo/full-stack tasks) | **Next up** — resequenced ahead of Hub v0's remaining units 2026-07-10 (calibration D1); design resolved, dry-run mechanics folded in | [detail](roadmap-handoff.html) | `parent:` frontmatter field, one session per repo linked by it, new picker sub-rows + `/board` rollup |
+| `/handoff` — route a discussion to the right worker | Queued, marked for pickup soon; single-target flow run **by hand** 2026-07-10, mechanical findings on the detail page | [detail](roadmap-handoff.html) | Switch to an existing agent's session or `wb new` it; depends on the parent/child relationship above |
+| `wb new` bootstrap gap: repos with no `.worktree-bootstrap`/`.env*` | Open, small — found 2026-07-10 during the `/handoff` dry-run | [detail](roadmap-handoff.html) | `wb_bootstrap` (`wb.sh:136-157`) only copies files named by a repo's `.worktree-bootstrap` manifest, else root `.env*` — `be--monorepo`'s `config.hjson` (root + `apps/metrics_server/`) is silently skipped; fix = add that manifest in `be--monorepo` |
+| Notes-tui integration, 4b (real wiring) | Superseded by the capture fix-forward experiment (calibration D4, 2026-07-10) — 4a measured unused (1-byte inbox); experiment (reach: tmux bind · read-back: passive surface) wires after the notes-dir audit, verdict ~2026-07-24; store convergence tabled to the ~07-20 calibration | [deep dive](slice-4b-deep-dive.html) | Original 4b wiring only proceeds if the experiment changes real usage |
 | Editor/tmux ergonomics batch | Done | [9f recap](9f-ergonomics-recap.html) | 6 small nvim/tmux/Claude-Code items |
 | GPaste clipboard-history manager | Done | [9g recap](9g-gpaste-recap.html) | Configured, `<Ctrl><Shift>G` opens history |
 | Unify copy/paste (terminal paste never needed) | Open, not started | [9g recap](9g-gpaste-recap.html) | Needs its own design pass |
@@ -62,7 +75,7 @@ since the task template's `## Decisions` section still refers to "F4":
 | Jira integration (`/board` + day-bookends halves) | Proposal, not scheduled | — | Same open questions both times: credential location, persistence into the sync-bound store |
 | Personal/employer boundary rule | Deferred — **final** item | [open questions](roadmap-open-questions.html) | Made only after every other follow-up is in place — Task recall above already depends on it landing |
 | Task-store schema migration/reconciliation | Proposal, tied to Hub v0 launch | — | One-time pass to bring every existing task file up to whatever schema `/board` + `wb reconcile` finalize (`closed:`, `paused`, etc. are being added piecemeal this session); do the migration once the schema settles rather than per-field |
-| Skill/tool/command usage audit | Proposal, unscheduled | — | Monthly-ish audit of what's unused (prune candidates) AND what's underused but already solves a current pain point (before building something new) — measurement source and output location still undecided |
+| Skill/tool/command usage audit | Folded into the ~2026-07-20 check-in (calibration D6, 2026-07-10) — the 2026-07-10 workflow review counts as run #1 | — | Monthly-ish audit of what's unused (prune candidates) AND what's underused but already solves a current pain point (before building something new) — resolved 2026-07-10: measurement source = agent-run review, output = dossiers under `~/code/tasks/dossiers/` |
 | `docgen.sh`'s pre-commit hook targets the wrong repo from a worktree | Done | — | Fixed by exporting `DOTFILES="$repo_root"` in the hook, using the root it already correctly computed via `git rev-parse --show-toplevel`. Verified with a real divergence test: a marker page committed from a throwaway worktree landed in that worktree's `HUB.html` only, main checkout untouched |
 
 **Dated clocks** (not tasks — check-in points, i.e. "on this date, come back and
