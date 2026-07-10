@@ -1,0 +1,12 @@
+# Gitignored-but-needed paths that `wb new` copies/symlinks into a fresh
+# worktree (read by wb_bootstrap in scripts/.config/scripts/tmux/wb.sh).
+# One repo-relative path per line; `#` comments allowed. A directory entry
+# is symlinked (stays current, shared), a file is copied.
+#
+# logs/decisions holds the project's decision records — gitignored, so a
+# fresh worktree lacks them, but spawned agents routinely need to read the
+# design history they're building on. Symlinking keeps one canonical log
+# shared across worktrees. (Added 2026-07-10 after hand-copying these into
+# three separate `wb new` worktrees in one evening — parent/child,
+# handoff-v1, hub-v0.)
+logs/decisions
