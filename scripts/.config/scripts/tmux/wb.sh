@@ -59,12 +59,19 @@ wb_get_frontmatter() {
   ' "$1"
 }
 
-# wb_set_frontmatter <file> <key> <value> — overwrite a frontmatter value in place.
+# wb_set_frontmatter <file> <key> <value> — overwrite a frontmatter value in
+# place, or insert it just before the closing `---` when the key has no
+# existing line (e.g. a task file that predates this key being added to the
+# schema).
 wb_set_frontmatter() {
   local file="$1" key="$2" value="$3"
   awk -v key="$key" -v val="$value" '
     BEGIN { infm = 0; done = 0 }
-    /^---$/ { infm++; print; next }
+    /^---$/ {
+      infm++
+      if (infm == 2 && !done) { print key ": " val; done = 1 }
+      print; next
+    }
     infm == 1 && !done && $0 ~ "^" key ":" { print key ": " val; done = 1; next }
     { print }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
@@ -128,6 +135,16 @@ wb_resolve_parent_ref() {
   local file="$TASKS_DIR/$ref.md"
   [ -f "$file" ] || { echo "wb: --parent '$ref' has no matching task file in $TASKS_DIR" >&2; return 1; }
   printf '%s\n' "$file"
+}
+
+# wb_task_own_parent <candidate_parent_stem> <own_stem> — exit 0 (safe) when
+# candidate is NOT own_stem's own file; exit 1 (self-reference) when it is.
+# Single shared check for the write path (wb new --parent, wb reconcile
+# --apply's create-task action) and both read paths (picker grouping,
+# /board's rollup) so the rule can't drift between call sites.
+wb_task_own_parent() {
+  [ "$1" != "$2" ] || return 1
+  return 0
 }
 
 # wb_tsv_split <string> <array_name> — split <string> on literal tabs into
@@ -278,14 +295,19 @@ cmd_new() {
 
   [ -n "$slug" ] || { echo "wb new: <slug> must not be empty" >&2; exit 1; }
 
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+
   # Validate before anything is touched — same fail-loud-on-no-match
-  # convention as `wb resume`.
-  [ -z "$parent_ref" ] || wb_resolve_parent_ref "$parent_ref" >/dev/null || exit 1
+  # convention as `wb resume`. Also reject a self-referential --parent, the
+  # same guard the picker/board read paths use (wb_task_own_parent).
+  if [ -n "$parent_ref" ]; then
+    wb_resolve_parent_ref "$parent_ref" >/dev/null || exit 1
+    wb_task_own_parent "$parent_ref" "${repo}--${disp_slug}" \
+      || { echo "wb new: --parent cannot be the task's own reference" >&2; exit 1; }
+  fi
 
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
-
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local session="${repo}--${disp_slug}"
   local worktree_rel=".worktrees/$slug"
   local worktree_path="$repo_dir/$worktree_rel"
@@ -606,9 +628,15 @@ wb_reconcile_action_create_task() {
     echo "wb reconcile --apply: 'create a task' is a no-op on a missing-worktree finding (a task already exists) — skipping" >&2
     return 0
   fi
-  if [ -n "$parent" ] && ! wb_resolve_parent_ref "$parent" >/dev/null; then
-    echo "wb reconcile --apply: skipping this finding's create-task action — invalid parent" >&2
-    return 0
+  if [ -n "$parent" ]; then
+    if ! wb_resolve_parent_ref "$parent" >/dev/null; then
+      echo "wb reconcile --apply: skipping this finding's create-task action — invalid parent" >&2
+      return 0
+    fi
+    if ! wb_task_own_parent "$parent" "${repo}--$(wb_sanitize "$branch")"; then
+      echo "wb reconcile --apply: skipping this finding's create-task action — --parent cannot be the task's own reference" >&2
+      return 0
+    fi
   fi
   local file; file="$(wb_seed_task "$repo" "$branch" "$worktree" "$parent")"
   echo "wb reconcile --apply: created task $file (status: doing)"
@@ -1159,7 +1187,7 @@ wb_board_render_html() {
     cparent="$(wb_get_frontmatter "$cf" parent)"
     [ -n "$cparent" ] || continue
     cstem="$(basename "$cf" .md)"
-    [ "$cparent" != "$cstem" ] || continue
+    wb_task_own_parent "$cparent" "$cstem" || continue
     children_of["$cparent"]+="$cf"$'\n'
   done < <(wb_task_files)
 
@@ -1739,7 +1767,7 @@ collect_combined_rows() {
     if [ "$kind" = task ] && [ -f "$ref" ]; then
       parent="$(wb_get_frontmatter "$ref" parent)"
       stem="$(basename "$ref" .md)"
-      [ "$parent" != "$stem" ] || parent=""
+      wb_task_own_parent "$parent" "$stem" || parent=""
     fi
     parent_of[$i]="$parent"
   done
