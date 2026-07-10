@@ -253,7 +253,11 @@ cmd_new() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --agent)  agent_flag=1; shift ;;
-      --parent) parent_ref="$2"; shift 2 ;;
+      --parent)
+        case "${2-}" in
+          ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
+        esac
+        parent_ref="$2"; shift 2 ;;
       *)        args+=("$1"); shift ;;
     esac
   done
@@ -719,9 +723,8 @@ wb_reconcile_apply() {
       wb_reconcile_action_remove "$kind" "$repo" "$branch" "$worktree" "$taskfile"
     elif printf '%s' "$b" | grep -qE '^- \[x\] create a task'; then
       local parent_ref=""
-      if printf '%s' "$b" | grep -qP "create a task \(optional parent: \`[^\`_]+\`\)"; then
-        parent_ref="$(printf '%s' "$b" | grep -oP 'create a task \(optional parent: `\K[^`]+' | head -1)"
-      fi
+      parent_ref="$(printf '%s' "$b" | grep -oP 'create a task \(optional parent: `\K[^`]+' | head -1)"
+      [ "$parent_ref" != '___' ] || parent_ref=""
       wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree" "$parent_ref"
     elif printf '%s' "$b" | grep -qP "^- \[x\] attach to task: \`[^\`_]+\`"; then
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] attach to task: `\K[^`]+' | head -1)"
