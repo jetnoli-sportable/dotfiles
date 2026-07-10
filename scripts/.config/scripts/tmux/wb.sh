@@ -28,7 +28,7 @@ SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"   # for fzf reload/become to 
 source "$SCRIPT_DIR/lib.sh"
 
 TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
-CODE_DIR="$HOME/code"
+CODE_DIR="${CODE_DIR:-$HOME/code}"
 WB_SWEEP_THRESHOLD="${WB_SWEEP_THRESHOLD:-5}"   # follow-ups+parked count that triggers the nudge
 
 # Picker column widths — shared between wb_format_for_display's padding and
