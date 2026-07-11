@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Open Questions — deferred decisions from the 2026-07-07 doc review</title>
+<title>Glossary — recurring workflow terms</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -171,71 +171,108 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="page">
+<body data-kind="guide">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap-open-questions.md</b> — edit the .md, not this file</span>
+  <span>docgen · generated from <b>docs/glossary.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-10</span>
 </div>
-<main>
-<header class="doc">
-  <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Open Questions — deferred decisions from the 2026-07-07 doc review</h1>
-  <div class="meta">
-    <span class="chip ok">current</span>
-    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
-  </div>
-</header>
-<article>
-<p>Findings from the 7-persona review in
-<code>logs/decisions/2026-07-07-roadmap-review-findings.md</code> that the owner
-checked <strong>Defer</strong> on. Kept here, not resolved, so they resurface rather
-than silently drop. This page is the source; edit
-<code>docs/roadmap-open-questions.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> §11 (superseded — this page is the detail)</p>
-<blockquote>
-<p><strong>2026-07-10 — three entries promoted.</strong> GPaste's Sway coupling, the
-warn-only credential guard, and GPaste's no-expiry clipboard history were
-standing, by-design constraints rather than open decisions — they moved
-to <a href="limitations.html">Limitations</a>, each keeping its own revisit trigger.
-What's left here is genuinely still open, or process record.</p>
-</blockquote>
-<h2 id="notes-corpus-shape">Notes corpus shape</h2>
-<p>Resolved for now, re-confirmed 2026-07-07: <strong>keep <code>~/code/tasks</code> and
-<code>~/code/notes</code> as separate repos</strong> — this re-confirms the standing call
-already parked in <code>~/code/tasks/tasks--task-note-convergence.md</code>
-(2026-07-06), which explicitly deferred merging until <code>wb</code> + notes-tui's
-<code>--context</code> flag both have real usage behind them (4a/4b). Capture-anywhere
-and end-of-day-aggregation are already live today via <code>note</code>/<code>notes digest</code> (slice 4a) — no new plumbing needed for those two asks
-specifically. Cross-querying <code>wb</code> + personal notes stays <a href="roadmap-task-recall.html">task recall's</a>
-job, not a directory merge. <strong>Standing instruction:</strong> flag it again if the
-split ever becomes a real hindrance rather than a theoretical one, so it
-goes through a proper decision instead of drifting. &quot;Where documentation
-lives&quot; stays explicitly open, not addressed by this resolution.</p>
-<h2 id="f4-in-the-task-template">&quot;(F4)&quot; in the task template</h2>
-<p>Traced via grep sweep (owner ask, 2026-07-07): <code>F4</code> was finding-ID
-shorthand from the now-retired <code>agent-workbench-findings.html</code> — &quot;Task
-history is reviewable&quot; (the gap it named: task discussion/decisions
-scattered across three stores with nothing assembling a per-task dossier).
-The task template's <code>## Decisions</code> section exists specifically to satisfy
-this. Now explained inline in <code>roadmap.md</code>'s Origins note instead of
-pointing at a deleted file — <strong>this question is resolved</strong>, kept here for
-the record of how it was traced.</p>
-<h2 id="personalemployer-boundary-rule-the-final-follow-up">Personal/employer boundary rule (the FINAL follow-up)</h2>
-<p>Deliberately not &quot;deferred&quot; in the same sense as the others above — this
-one is the intentional last item. The personal/employer boundary rule for
-the task store and all aggregation surfaces (classification convention vs.
-split stores vs. permanent local-only) is deliberately the <strong>final</strong>
-follow-up decision, to be made after every other follow-up in this whole
-push, once the full flow is in place. Interim guardrails until then: the
-task store gets no remote; slice 5's INDEX/HTML outputs carry a minimal
-work-reference redaction guard; the credential guard and the cross-repo
-doc-registry boundary axis stand as written.</p>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Glossary — recurring workflow terms</div>
+    <div class="brand-sub">One canonical definition per term that keeps coming up. Jump to any of them.</div>
+    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#frontmatter">Frontmatter</a></li>
+      <li><a href="#transcript">Transcript</a></li>
+      <li><a href="#ledger">Ledger</a></li>
+      <li><a href="#worktree">Worktree</a></li>
+      <li><a href="#task-store">Task store</a></li>
+      <li><a href="#tile">Tile</a></li>
+      <li><a href="#sidecar">Sidecar</a></li>
+      <li><a href="#index-entry">INDEX entry</a></li>
+      <li><a href="#decision-buffer">Decision buffer</a></li>
+      <li><a href="#parentchild-task-relationship">Parent/child task relationship</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="title-block">
+      <h1>Glossary — recurring workflow terms</h1>
+      <p class="dek">One canonical definition per term that keeps coming up. Jump to any of them.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<p>Terms that recur across this docs project, the task store, and the tmux/wb
+tooling — defined once here instead of re-explained inline every time they
+come up. Each term is its own section so the sticky table of contents can
+jump straight to it.</p>
+<h2 id="frontmatter">Frontmatter</h2>
+<p>The YAML block delimited by <code>---</code> lines at the top of a markdown source.
+Every docs page (<code>docs/*.md</code>), task file (<code>~/code/tasks/*.md</code>), and plan
+(<code>docs/plans/*.md</code>) carries one. Tools parse it directly — <code>docgen</code> reads a
+page's <code>title</code>/<code>status</code>/<code>tile</code>/<code>group</code>/<code>kind</code> to drive its HUB tile and page
+chrome without touching prose; <code>wb</code> reads a task file's <code>status</code>/<code>repo</code>/
+<code>branch</code>/<code>worktree</code>/<code>parent</code> fields the same way.</p>
+<h2 id="transcript">Transcript</h2>
+<p>The session log a Claude Code conversation leaves behind. Normally just a
+debugging aid, but it doubled as the recovery source after the 2026-07-10
+<code>~/code/tasks</code> deletion incident — both <code>tasks--task-note-convergence.md</code>
+and the incident's own recovery notes were rebuilt by mining a transcript
+that had read the originals in full.</p>
+<h2 id="ledger">Ledger</h2>
+<p>An append-only log file, one entry per event, never edited in place. <code>/park</code>
+writes to one: a JSON line per captured item at
+<code>~/.claude/parked-items/ledger.jsonl</code>, read back in full by the weekly
+<code>/parked-items</code> review.</p>
+<h2 id="worktree">Worktree</h2>
+<p>A git worktree — an isolated checkout of one branch in its own directory,
+so more than one branch can be checked out (and worked on by a separate
+agent session) at the same time. <code>wb new</code> creates one per task under
+<code>.worktrees/&lt;branch&gt;</code> and points that task's tmux session at it.</p>
+<h2 id="task-store">Task store</h2>
+<p>The central repo at <code>~/code/tasks</code>: one markdown file per task, a shared
+frontmatter schema (<code>status</code>, <code>repo</code>, <code>branch</code>, <code>worktree</code>, <code>parent</code>,
+<code>tags</code>, <code>created</code>, <code>closed</code>), and a freeform body underneath. <code>wb</code> reads
+and writes these files directly; humans can too. See <code>tasks/README.md</code> for
+the full schema.</p>
+<h2 id="tile">Tile</h2>
+<p>One clickable card on <code>HUB.html</code>, grouped under a <code>group</code> heading (e.g.
+&quot;Personal workflow&quot;). Most tiles come from a page's own frontmatter
+(<code>title</code>/<code>tile</code>/<code>status</code>); a sidecar tile (below) is the exception.</p>
+<h2 id="sidecar">Sidecar</h2>
+<p>A HUB tile for something that isn't a generated page and has no
+frontmatter of its own to drive one — declared directly as an entry in
+<code>docs/docgen.json</code>'s <code>hub.sidecar</code> array (<code>docgen/config.go:57-65</code>) with
+its own title, tile text, href, and path.</p>
+<h2 id="index-entry">INDEX entry</h2>
+<p>One row in the fenced JSONL block (and the human table below it) inside
+<code>docs/INDEX.md</code>. Produced by <code>docgen</code>'s <code>index</code> step scanning a declared
+source — tmux binds, zsh aliases, skill descriptions, decision records,
+<code>MEMORY.md</code>, TUI READMEs, the task store — into a common <code>Entry</code> shape,
+alongside a <code>doc</code> entry for every rendered page.</p>
+<h2 id="decision-buffer">Decision buffer</h2>
+<p>A markdown (and, for larger rounds, companion HTML) doc opened in the
+user's nvim buffer for a design discussion instead of a chat menu — one
+<code>- [ ] Choose Option X</code> block per decision, inline code from the real
+codebase, pros/cons, and that decision's own inline recommendation and
+Questions/Notes, all self-contained per decision. See the <code>decision-buffer</code>
+skill.</p>
+<h2 id="parentchild-task-relationship">Parent/child task relationship</h2>
+<p>A task's <code>parent:</code> frontmatter field, set to the coordinating parent
+task's filename stem, when that task is one piece of a larger effort
+broken into sub-tasks (e.g. a cross-repo feature with separate frontend
+and backend halves). The parent task itself is session-less — it carries
+a placeholder <code>repo:</code> and is never <code>wb new</code>'d into its own worktree, since
+it coordinates rather than does work directly. Shipped as dotfiles PR #17;
+see <code>tasks/README.md</code>'s &quot;Parent/child tasks&quot; section for the full schema.</p>
 </article>
-<footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-open-questions.md</code>. Rebuild:
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/glossary.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
-</main>
+  </main>
+</div>
 
 </body>
 </html>

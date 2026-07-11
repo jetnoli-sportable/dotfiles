@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Open Questions — deferred decisions from the 2026-07-07 doc review</title>
+<title>Limitations — standing, by-design workflow constraints</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,66 +173,76 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap-open-questions.md</b> — edit the .md, not this file</span>
+  <span>docgen · generated from <b>docs/limitations.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-10</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Open Questions — deferred decisions from the 2026-07-07 doc review</h1>
+  <h1><span class="glyph">§</span> Limitations — standing, by-design workflow constraints</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>Findings from the 7-persona review in
-<code>logs/decisions/2026-07-07-roadmap-review-findings.md</code> that the owner
-checked <strong>Defer</strong> on. Kept here, not resolved, so they resurface rather
-than silently drop. This page is the source; edit
-<code>docs/roadmap-open-questions.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> §11 (superseded — this page is the detail)</p>
-<blockquote>
-<p><strong>2026-07-10 — three entries promoted.</strong> GPaste's Sway coupling, the
-warn-only credential guard, and GPaste's no-expiry clipboard history were
-standing, by-design constraints rather than open decisions — they moved
-to <a href="limitations.html">Limitations</a>, each keeping its own revisit trigger.
-What's left here is genuinely still open, or process record.</p>
-</blockquote>
-<h2 id="notes-corpus-shape">Notes corpus shape</h2>
-<p>Resolved for now, re-confirmed 2026-07-07: <strong>keep <code>~/code/tasks</code> and
-<code>~/code/notes</code> as separate repos</strong> — this re-confirms the standing call
-already parked in <code>~/code/tasks/tasks--task-note-convergence.md</code>
-(2026-07-06), which explicitly deferred merging until <code>wb</code> + notes-tui's
-<code>--context</code> flag both have real usage behind them (4a/4b). Capture-anywhere
-and end-of-day-aggregation are already live today via <code>note</code>/<code>notes digest</code> (slice 4a) — no new plumbing needed for those two asks
-specifically. Cross-querying <code>wb</code> + personal notes stays <a href="roadmap-task-recall.html">task recall's</a>
-job, not a directory merge. <strong>Standing instruction:</strong> flag it again if the
-split ever becomes a real hindrance rather than a theoretical one, so it
-goes through a proper decision instead of drifting. &quot;Where documentation
-lives&quot; stays explicitly open, not addressed by this resolution.</p>
-<h2 id="f4-in-the-task-template">&quot;(F4)&quot; in the task template</h2>
-<p>Traced via grep sweep (owner ask, 2026-07-07): <code>F4</code> was finding-ID
-shorthand from the now-retired <code>agent-workbench-findings.html</code> — &quot;Task
-history is reviewable&quot; (the gap it named: task discussion/decisions
-scattered across three stores with nothing assembling a per-task dossier).
-The task template's <code>## Decisions</code> section exists specifically to satisfy
-this. Now explained inline in <code>roadmap.md</code>'s Origins note instead of
-pointing at a deleted file — <strong>this question is resolved</strong>, kept here for
-the record of how it was traced.</p>
-<h2 id="personalemployer-boundary-rule-the-final-follow-up">Personal/employer boundary rule (the FINAL follow-up)</h2>
-<p>Deliberately not &quot;deferred&quot; in the same sense as the others above — this
-one is the intentional last item. The personal/employer boundary rule for
-the task store and all aggregation surfaces (classification convention vs.
-split stores vs. permanent local-only) is deliberately the <strong>final</strong>
-follow-up decision, to be made after every other follow-up in this whole
-push, once the full flow is in place. Interim guardrails until then: the
-task store gets no remote; slice 5's INDEX/HTML outputs carry a minimal
-work-reference redaction guard; the credential guard and the cross-repo
-doc-registry boundary axis stand as written.</p>
+<p>Standing, by-design properties of the workflow — not bugs, not deferred
+decisions. Each entry explains behavior that would otherwise be surprising,
+plus what would actually make it worth revisiting. Deferred <em>decisions</em>
+(things deliberately left unresolved rather than accepted as-is) stay on
+<a href="roadmap-open-questions.html">Open Questions</a>; this page is for the ones
+that are settled as &quot;acceptable for now.&quot;</p>
+<h2 id="gpastes-gnome-shell-coupling">GPaste's GNOME Shell coupling</h2>
+<p>9g's clipboard-history config (<code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>) is a GNOME Shell extension
+with no Sway equivalent — it isn't a config tweak away from the owner's
+eventual Sway direction, it's a re-pick of the whole tool. <strong>Revisit when</strong>
+the Sway migration is actually scheduled. Detail: <a href="9g-gpaste-recap.html">9g recap</a>.</p>
+<h2 id="credential-guard-is-warn-only-not-a-hard-block">Credential guard is warn-only, not a hard block</h2>
+<p>The <a href="roadmap-wb-design.html"><code>wb</code> design</a>'s credential guard is a
+dismissible warning in the close-out review buffer, not an enforced block,
+and it only matches filenames — it doesn't scan file <em>contents</em> for
+secret-shaped strings. Acceptable while the task store stays local-only
+and single-user. <strong>Revisit when</strong> the store ever gets a remote, or a
+credential-shaped filename slips past the denylist.</p>
+<h2 id="gpastes-clipboard-history-has-no-secrets-policy">GPaste's clipboard history has no secrets policy</h2>
+<p>Clipboard history persists to disk indefinitely (<code>save-history true</code>) with
+no expiry or secret-detection — copying a token or password puts it in the
+history store with no automatic cleanup. Shipped as-is for a personal
+single-user machine. <strong>Revisit when</strong> it turns out to be a real problem in
+practice (e.g. add a max-age prune or a &quot;don't persist this clip&quot; gesture).
+Detail: <a href="9g-gpaste-recap.html">9g recap</a>.</p>
+<h2 id="personalemployer-boundary-rule-interim-state">Personal/employer boundary rule (interim state)</h2>
+<p>The classification rule for the task store and every aggregation surface
+is deliberately the <em>last</em> follow-up decision in the whole push — made
+only once everything else is in place, not before. Interim guardrails:
+the task store gets no remote; generated <code>INDEX</code>/<code>HUB</code> output carries a
+minimal work-reference redaction guard. Full writeup:
+<a href="roadmap-open-questions.html#personalemployer-boundary-rule-the-final-follow-up">Open Questions</a>.</p>
+<h2 id="task-store-schema-migration-is-incomplete">Task-store schema migration is incomplete</h2>
+<p>PR #17 (<code>fc95c63</code>) added the <code>parent:</code> field to <code>tasks/README.md</code> and
+<code>TEMPLATE.md</code> and the task parent/child relationship is live — but the
+one-time pass to bring <em>existing</em> task files up to that schema hasn't run.
+As of 2026-07-10, only the two files that PR itself touched carry
+<code>parent:</code>/<code>closed:</code>; the rest don't, and in-practice <code>status:</code> values
+(<code>doing</code>, <code>planned</code>) already drift from the schema doc's stated
+<code>open|paused|done</code>. Expect task files in <code>~/code/tasks</code> to look
+inconsistent until that migration lands. <strong>Revisit trigger:</strong> see the
+&quot;Task-store schema migration&quot; row on <a href="roadmap.html">the roadmap</a>.</p>
+<h2 id="roadmap-anchorlink-integrity-is-manually-verified-not-machine-checked">Roadmap anchor/link integrity is manually verified, not machine-checked</h2>
+<p><code>docs/roadmap.md</code>'s reshape (PR #18) introduced 28 hand-typed
+<code>id=&quot;detail-&lt;slug&gt;&quot;</code> anchors and 7 <code>href=&quot;#detail-&lt;slug&gt;&quot;</code> references in its
+&quot;At a glance&quot; visual. Nothing in the docgen pipeline validates that every
+href resolves to a matching id, or that ids stay unique — a <code>ce-code-review</code>
+pass (testing + maintainability, independently) flagged this; both counts
+were 28/28 correct as of 2026-07-11, verified by hand. A future edit to that
+page could silently break one. <strong>Revisit trigger:</strong> next time
+<code>docs/roadmap.md</code>'s anchor/link structure gets a substantive edit, manually
+re-run the duplicate-id + href-resolution check before merging; build a real
+docgen lint step if that manual check is ever skipped and something actually
+breaks.</p>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-open-questions.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/limitations.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

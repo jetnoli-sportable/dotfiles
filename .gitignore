@@ -17,6 +17,11 @@ logs/
 # scratch (local task notes, not tracked)
 scratch/
 
+# per-worktree Claude queue scratch file (also registered per-repo in
+# .git/info/exclude by wb_ensure_repo_ignore, scripts/.config/scripts/tmux/wb.sh —
+# this tracked entry documents the rule for dotfiles' own worktrees)
+.claude-queue.md
+
 # worktrees (ce-worktree)
 .worktrees/
 

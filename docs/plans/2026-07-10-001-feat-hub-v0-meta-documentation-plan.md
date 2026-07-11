@@ -1,7 +1,7 @@
 ---
 title: "Hub v0: meta-documentation bundle"
 type: feat
-status: paused
+status: active
 date: 2026-07-10
 origin: docs/brainstorms/2026-07-09-hub-v0-requirements.md
 ---
@@ -16,8 +16,9 @@ repo the unit targets; docgen-repo paths are written as `docgen/<file>`
 ## Summary
 
 **Revised 2026-07-10** (calibration round —
-`logs/decisions/2026-07-10-workflow-calibration.md`): **plan paused;
-resumes after the task parent/child build.** Scope trimmed to five pieces
+`logs/decisions/2026-07-10-workflow-calibration.md`): plan paused, then
+**resumed 2026-07-10** once its blocker (the task parent/child build)
+shipped as dotfiles PR #17 (`fc95c63`). Scope trimmed to five pieces
 of meta-documentation on top of the existing docgen/Hub pipeline: a
 glossary, a curated limitations page, a standalone ceremonies page, a
 `/board` Hub tile, and a **fully reshaped roadmap page** (stage—impediment
@@ -28,6 +29,27 @@ auto-scanned artifact index (U5/U6 — the one unit extending the sibling
 docgen tool) is **deferred**: revisit when a one-off doc actually goes
 un-findable, or post-parent/child. All remaining units are dotfiles-only
 content/config work; this plan no longer touches the docgen repo.
+
+**Validated 2026-07-10** (`/ce-plan` refresh against current `development`
+now that #17 is merged; no rewrite, only drift fixes below): U1/U3/U4's
+requirements and docgen citations are unaffected by #17 and still hold —
+verified `docgen/config.go:57-65` (`SidecarTile`) and `:31-37`
+(`HubConfig.Intro`) directly. U2's R8 is updated (see U2) — the
+parent/child relationship itself is no longer "designed but not built."
+U7's fold-in-current-state items are confirmed accurate against the live
+`docs/roadmap.md`: parent/child still reads "Next up" and Hub v0 still
+reads "Paused" there today (both stale, both fixed by U7's reshape);
+`/handoff`'s row uses a bare "depends on" today (fixed by U7's waits-on
+grammar). The task-store schema migration row is **confirmed still open,
+not closeable**: PR #17 added `parent:` to `tasks/README.md` +
+`TEMPLATE.md`, but the one-time per-file migration across
+`~/code/tasks/*.md` never ran — only the two files PR #17 itself touched
+carry the new fields; the other five task files still lack them, and
+`status:` values in practice (`doing`, `planned`) already drift from the
+schema doc's stated `open|paused|done`. The no-overlap boundary holds:
+`docs/roadmap-handoff.md` and `scripts/.config/scripts/tmux/*` both exist
+on this branch (owned by the parallel `feat/handoff-v1` lane and #17
+respectively) and nothing in U1/U2/U3/U4/U7 touches either.
 
 ## Problem Frame
 
@@ -70,8 +92,13 @@ and `logs/decisions/2026-07-09-hub-v0-scoping.md`.
   explain otherwise-surprising behavior.
 - R7. The personal/employer boundary rule gets a one-line pointer into
   this page; its full writeup stays on its existing dedicated page.
-- R8. The page notes the task parent/child relationship is designed but
-  not yet built, for the interim before that follow-on PR lands.
+- R8 *(updated 2026-07-10 — parent/child shipped as PR #17)*. The page
+  notes that the task-store schema migration is still pending: PR #17
+  added `parent:` to `tasks/README.md` + `TEMPLATE.md`, but the one-time
+  per-file pass across `~/code/tasks/*.md` hasn't run, so existing task
+  files inconsistently carry `parent:`/`closed:` (verified 2026-07-10:
+  only the two files PR #17 touched have them; `status:` values also
+  already drift from the schema doc's `open|paused|done`).
 
 **Roadmap** *(reshaped 2026-07-10 — calibration Decision 3, Option C;
 supersedes the original R9-R12. Full option cards:
@@ -162,7 +189,8 @@ supersedes the original R9-R12. Full option cards:
   dated clocks.
 - **Task parent/child relationship is out of scope for this plan.** Fully
   designed (`docs/roadmap-handoff.md`, `logs/decisions/2026-07-09-hub-v0-scoping.md`
-  Decisions 9–12) but ships as its own, immediately-following PR.
+  Decisions 9–12) and shipped as its own PR (#17, `fc95c63`) — this plan
+  only reflects that outcome in U2/U7, it doesn't build any of it.
 
 ---
 
@@ -209,7 +237,10 @@ each term must be its own `h2` section, not an `h3`, to actually appear in
 the TOC. Seed the term list from a sweep of current docs (`docs/docgen.md`,
 `docs/roadmap*.md`, `~/code/tasks/README.md`, `docs/pr1-wb-workbench-recap.md`)
 — minimum viable set: frontmatter, transcript, ledger, worktree, task
-store, tile, sidecar, INDEX entry, decision buffer. Group `group:
+store, tile, sidecar, INDEX entry, decision buffer, parent/child task
+relationship *(added 2026-07-10 — shipped as PR #17 since this term list
+was first drafted, and it's exactly the kind of recurring jargon `tasks/README.md`
+now defines that R1 is meant to catch)*. Group `group:
 personal-workflow` (existing Hub group, per `docs/docgen.json`).
 
 **Patterns to follow:** `docs/docgen.md`'s own frontmatter + prose shape
@@ -233,8 +264,8 @@ with a sticky TOC listing every `h2` term; a HUB tile appears under
 **Goal:** one page listing standing, by-design workflow constraints.
 **Requirements:** R6, R7, R8.
 **Dependencies:** none (independent of U3/U7, though R8's exact wording
-about the parent/child relationship should match U7's roadmap-page
-phrasing for consistency — no hard ordering requirement).
+about the pending schema migration should match U7's roadmap-page phrasing
+for the "Task-store schema migration" row — no hard ordering requirement).
 **Files:**
 - `docs/limitations.md` (new)
 - `docs/roadmap-open-questions.md` (edit — trim the 3 promoted items)
@@ -246,7 +277,9 @@ no-expiry clipboard history) into `docs/limitations.md` as one-line-summary
 "(F4)" trace) on `roadmap-open-questions.md` — they're process record, not
 standing limitations. The personal/employer boundary rule gets a one-line
 pointer into `limitations.md`; its full writeup stays put. Add the
-parent/child-relationship-designed-not-built note (R8).
+pending-schema-migration note (R8, updated 2026-07-10 — parent/child
+itself shipped as PR #17; the still-open gap is the per-file migration
+across `~/code/tasks`, not the relationship being unbuilt).
 
 **Patterns to follow:** `docs/roadmap-open-questions.md`'s existing
 one-item-per-section shape (source for what's being promoted); table shape
@@ -567,9 +600,12 @@ Done rows are reachable only via the shipped-ledger links.
   2026-07-10 by the calibration round (Decision 2); revisit when a
   one-off doc actually goes un-findable, or post-parent/child.
 - The task parent/child relationship build (schema, `wb.sh` session
-  handling, picker + `/board` rendering) — fully designed, ships as its
-  own immediately-following PR. `logs/decisions/2026-07-09-hub-v0-scoping.md`
-  Decisions 9–12.
+  handling, picker + `/board` rendering) — **shipped 2026-07-10** as
+  dotfiles PR #17 (`fc95c63`), the blocker this plan was paused behind.
+  `logs/decisions/2026-07-09-hub-v0-scoping.md` Decisions 9–12. The
+  per-file task-store migration that PR was meant to carry along did not
+  actually run (see U2's updated R8) — that gap stays deferred here too,
+  it's `~/code/tasks`-repo work, not this plan's.
 - `wb reconcile --glossary` (auto-detecting glossary gaps) — a `wb.sh`
   feature, not a docgen/Hub one.
 - Computed staleness detection and an existence-aware `/board` tile —
@@ -584,8 +620,8 @@ Done rows are reachable only via the shipped-ledger links.
 
 ## Sequencing
 
-*(revised 2026-07-10)* The plan is paused until the task parent/child
-build ships. On resume: U1, U2, U4 have no dependencies — landable in any
+*(revised 2026-07-10, resumed 2026-07-10 — the task parent/child build
+shipped as PR #17)* U1, U2, U4 have no dependencies — landable in any
 order, in parallel. U3 before U7 (ceremonies content must move out of
 `roadmap.md` before the roadmap rework touches that same page). U5/U6 are
 deferred out of this plan entirely.

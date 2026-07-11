@@ -1,7 +1,7 @@
 ---
 title: Roadmap — the personal workflow
 status: current
-tile: One table, one status column, one click to the detail behind each row.
+tile: Up next, a live table, a parked pool, what we're not doing, and a shipped ledger — one click to the detail behind each item.
 group: personal-workflow
 kind: guide
 updated: 2026-07-10
@@ -17,6 +17,16 @@ live in separate repos (`~/code/notes-tui`, `~/code/tasks`).
 > runbook, or whatever detail used to live inline here. Small completed
 > items and unratified proposals are noted inline instead (`—` in the Doc
 > column) rather than given a page each. This page stays short on purpose.
+
+> **Reshaped again 2026-07-10** (calibration Decision 3, Option C). The
+> single Overview table split into an Up-next queue (max 3), a live table,
+> a parked pool, a Not-doing lane, and a shipped ledger. Every status is
+> now a fixed stage word plus a free-prose impediment; an ordering claim is
+> always a waits-on link (`needs:`/`clock:`/`after: — chosen`), never a bare
+> "blocked". Dated clocks moved to [Ceremonies](ceremonies.html); three
+> standing limitations moved to [Limitations](limitations.html) — see those
+> pages for content that used to live inline here. Verification for this
+> reshape is content review, not a byte-diff (R11).
 
 ## Origins
 
@@ -48,57 +58,117 @@ holding all wb items, then clarifying the note↔task linking and starting
 fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
 `logs/decisions/2026-07-10-workflow-calibration.md`.)
 
-## Overview
+## At a glance
+
+<style>
+.roadmap-timeline {
+  display: flex; align-items: flex-end; gap: .3rem; overflow-x: auto;
+  padding: 1.2rem .5rem .5rem; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; margin: 1rem 0;
+}
+.roadmap-timeline .step {
+  flex: 0 0 auto; min-width: 6.5rem; padding: .6rem .7rem; border-radius: 6px;
+  font-size: .78rem; position: relative; border: 1px solid var(--line);
+  text-decoration: none; color: var(--ink); display: block;
+}
+.roadmap-timeline .step::after { content: "→"; position: absolute; right: -1.05rem; top: 50%; transform: translateY(-50%); color: var(--mut); }
+.roadmap-timeline .step:last-child::after { content: none; }
+.roadmap-timeline .step b { display: block; font-family: var(--mono); margin-bottom: .2rem; }
+.roadmap-timeline .step.done { background: color-mix(in srgb, var(--ok) 12%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.roadmap-timeline .step.active { background: color-mix(in srgb, var(--acc) 14%, var(--panel)); border-color: var(--acc); }
+.roadmap-timeline .step.followup { background: var(--bg2); }
+.roadmap-timeline .step.deferred { background: var(--bg2); border-style: dashed; opacity: .75; }
+</style>
+
+<div class="roadmap-timeline">
+  <a class="step done" href="#detail-docs-platform"><b>Docs platform</b>slice 5, shipped</a>
+  <a class="step done" href="#detail-wb-core"><b>wb core</b>PR #7, shipped</a>
+  <a class="step active" href="#detail-hub-v0"><b>Hub v0</b>this work</a>
+  <a class="step done" href="#detail-parent-child"><b>Parent/child</b>PR #17, shipped</a>
+  <a class="step active" href="#detail-handoff"><b>/handoff</b>in build</a>
+  <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
+  <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
+</div>
+
+## Up next (max 3)
+
+The next things actually queued to start, in priority order — everything
+else below is either already active, waiting on something named, or
+deliberately set aside.
+
+1. <a id="detail-schema-migration"></a>**Task-store schema migration** —
+   one-time pass to bring every existing task file up to the settled
+   schema (`parent:`, `closed:`, consistent `status:` values). PR #17
+   documented the schema but the per-file migration across
+   `~/code/tasks/*.md` hasn't run yet — see [Limitations](limitations.html).
+   Tied to Hub v0's launch.
+2. <a id="detail-wb-new-bootstrap-gap"></a>**`wb new` bootstrap gap** —
+   `wb_bootstrap` (`wb.sh:136-157`) only copies files named by a repo's
+   `.worktree-bootstrap` manifest, else root `.env*`; `be--monorepo`'s
+   `config.hjson` (root + `apps/metrics_server/`) is silently skipped.
+   Fix: add that manifest in `be--monorepo`. Found 2026-07-10 during the
+   `/handoff` dry-run — [detail](roadmap-handoff.html).
+3. <a id="detail-wb-reconcile-duplicate-gap"></a>**`wb reconcile` duplicate-task detection** —
+   two tasks that both have valid worktrees but represent the same real
+   work aren't recognized as a finding at all today; the user still has to
+   manually name the merge target — [detail](roadmap-wb-reconcile.html).
+
+## Live
+
+Ongoing or queued work. Every status is a fixed stage word (`active` /
+`queued` / `proposed`) plus a free-prose impediment clause. An ordering
+claim is always a waits-on link — `needs: <item>`, `clock: <date>`, or
+`after: <item> — chosen` — never a bare "blocked".
 
 | Item | Status | Doc | What it is |
 |---|---|---|---|
-| Step zero (hooks, alias cleanup) | Done | — | Attention-pipeline hooks wired, dead `n` alias removed |
-| Central task store + frontmatter | Done | [wb design](roadmap-wb-design.html) | `~/code/tasks`, file-per-task schema |
-| `wb` core (new / picker / done) | Done | [wb design](roadmap-wb-design.html) · [wb-guide](wb-guide.html) | Session-per-worktree + unified picker — PR #7 |
-| Notes-tui integration, 4a (capture) | Done | [deep dive](slice-4b-deep-dive.html) | Capture habit shipped; 4b (real wiring) tracked separately below |
-| Docs platform (generated pages, Hub, INDEX, `/help`) | Done | [docgen](docgen.html) · [slice-5 recap](slice-5-recap.html) | One generator, three outputs — slice 5 |
-| Per-skill/TUI guide pages + tile dashboard | Done | `docs/guides/*` · [slice-5 recap](slice-5-recap.html) | Born-generated guides, `HUB.html` |
-| `/board` — full HTML task-board view | Done — PR #14 | [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) | `wb board --html`: 6 status tabs × timeline window, live-session badges, untracked-worktree rows |
-| `wb pause` (new status + subcommand + keybind) | Done — PR #14 | [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) | Also stopped `wb done` from killing the tmux session — same instruction, both wind-down paths |
-| `wb reconcile` — task-store/git drift detection | Detection + review/apply flow done — PR #14; combining two already-tracked duplicate tasks is a real, separate gap, still open | [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-wb-reconcile.html) | `wb reconcile` / `--review` / `--apply` ship drift detection (orphaned worktree, missing worktree) with a six-action review doc; **not yet covered:** two tasks that both have valid worktrees but represent the same real work — reconcile has no way to see that as a finding at all today |
-| Day bookends (`wb up` / `wb down`) | `wb resume <task>` shipped (PR #14); full up/down gated on 4b | [detail](roadmap-day-bookends.html) | Startup/shutdown flows; single-task resume ships first |
-| Task recall | Open, **actually blocked** on the personal/employer boundary rule below, despite reading as unblocked | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it — see Open Questions for the boundary dependency |
-| Hub v0 (meta-documentation bundle) | **Paused 2026-07-10** mid-plan — trimmed, resumes after parent/child (calibration record: `logs/decisions/2026-07-10-workflow-calibration.md`) | [requirements](brainstorms/2026-07-09-hub-v0-requirements.md) | On resume ships: glossary, limitations page, ceremonies page, `/board` tile, roadmap full reshape (per the 2026-07-10 ideation round), and cataloging the `wb-save`/`wb-resume`/`wb-done`/`wb-board` skill family (added to the plan 2026-07-11). Artifact index deferred — revisit when a one-off doc actually goes un-findable, or post-parent/child |
-| Task parent/child relationship (incl. cross-repo/full-stack tasks) | **Next up** — resequenced ahead of Hub v0's remaining units 2026-07-10 (calibration D1); design resolved, dry-run mechanics folded in | [detail](roadmap-handoff.html) | `parent:` frontmatter field, one session per repo linked by it, new picker sub-rows + `/board` rollup |
-| `/handoff` — route a discussion to the right worker | Queued, marked for pickup soon; single-target flow run **by hand** 2026-07-10, mechanical findings on the detail page | [detail](roadmap-handoff.html) | Switch to an existing agent's session or `wb new` it; depends on the parent/child relationship above |
-| `wb new` bootstrap gap: repos with no `.worktree-bootstrap`/`.env*` | Open, small — found 2026-07-10 during the `/handoff` dry-run | [detail](roadmap-handoff.html) | `wb_bootstrap` (`wb.sh:136-157`) only copies files named by a repo's `.worktree-bootstrap` manifest, else root `.env*` — `be--monorepo`'s `config.hjson` (root + `apps/metrics_server/`) is silently skipped; fix = add that manifest in `be--monorepo` |
-| Notes-tui integration, 4b (real wiring) | Superseded by the capture fix-forward experiment (calibration D4, 2026-07-10) — 4a measured unused (1-byte inbox); experiment (reach: tmux bind · read-back: passive surface) wires after the notes-dir audit, verdict ~2026-07-24; store convergence tabled to the ~07-20 calibration | [deep dive](slice-4b-deep-dive.html) | Original 4b wiring only proceeds if the experiment changes real usage |
-| Editor/tmux ergonomics batch | Done | [9f recap](9f-ergonomics-recap.html) | 6 small nvim/tmux/Claude-Code items |
-| GPaste clipboard-history manager | Done | [9g recap](9g-gpaste-recap.html) | Configured, `<Ctrl><Shift>G` opens history |
-| Unify copy/paste (terminal paste never needed) | Open, not started | [9g recap](9g-gpaste-recap.html) | Needs its own design pass |
-| Cross-repo/cross-machine doc registry | Proposal, unratified | — | Only revisit if artifacts still go missing after the landing-path rule |
-| Jira integration (`/board` + day-bookends halves) | Proposal, not scheduled | — | Same open questions both times: credential location, persistence into the sync-bound store |
-| `/second-opinion` — ask the best available model at high effort, context-aware | Proposal, not scheduled — raised 2026-07-11 | — | Formalizes today's ad-hoc pattern (spawn a top-tier-model subagent, full conversation context, high reasoning effort, to sanity-check a decision) as a reusable skill. Open question: new skill vs. tweaking an existing `/btw` — no `/btw` skill or alias was found anywhere in this repo, so confirm what that refers to before building |
-| Personal/employer boundary rule | Deferred — **final** item | [open questions](roadmap-open-questions.html) | Made only after every other follow-up is in place — Task recall above already depends on it landing |
-| Task-store schema migration/reconciliation | Proposal, tied to Hub v0 launch | — | One-time pass to bring every existing task file up to whatever schema `/board` + `wb reconcile` finalize (`closed:`, `paused`, etc. are being added piecemeal this session); do the migration once the schema settles rather than per-field |
-| Skill/tool/command usage audit | Folded into the ~2026-07-20 check-in (calibration D6, 2026-07-10) — the 2026-07-10 workflow review counts as run #1 | — | Monthly-ish audit of what's unused (prune candidates) AND what's underused but already solves a current pain point (before building something new) — resolved 2026-07-10: measurement source = agent-run review, output = dossiers under `~/code/tasks/dossiers/` |
-| `docgen.sh`'s pre-commit hook targets the wrong repo from a worktree | Done | — | Fixed by exporting `DOTFILES="$repo_root"` in the hook, using the root it already correctly computed via `git rev-parse --show-toplevel`. Verified with a real divergence test: a marker page committed from a throwaway worktree landed in that worktree's `HUB.html` only, main checkout untouched |
+| <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) | active — this work; U5/U6 artifact index deferred | [requirements](brainstorms/2026-07-09-hub-v0-requirements.md) | Glossary, limitations, ceremonies pages, `/board` tile, this reshape, and cataloging the `wb-save`/`wb-resume`/`wb-done`/`wb-board` skill family (added to the plan 2026-07-11) |
+| <a id="detail-handoff"></a>**`/handoff`** — route a discussion to the right worker | active — building on `feat/handoff-v1`; single-target validated by hand 2026-07-10; fan-out after: parent/child (PR #17) — chosen | [detail](roadmap-handoff.html) | Switch to an existing agent's session or `wb new` it |
+| <a id="detail-task-recall"></a>**Task recall** | queued — needs: boundary-rule | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it |
+| <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
+| <a id="detail-notes-tui-4b"></a>**Notes-tui integration, 4b** (real wiring) | queued — clock: 2026-07-24 (fix-forward experiment verdict) | [deep dive](slice-4b-deep-dive.html) · [ceremonies](ceremonies.html) | Original 4b wiring only proceeds if the fix-forward experiment changes real usage |
+| <a id="detail-boundary-rule"></a>**Personal/employer boundary rule** | queued — after: every other follow-up — chosen | [limitations](limitations.html) | Deliberately the final decision; Task recall above already depends on it landing |
+| <a id="detail-jira-integration"></a>**Jira integration** (`/board` + day-bookends halves) | proposed — credential location and persistence-store design still undecided | — | Same two open questions block both integration points |
+| <a id="detail-second-opinion"></a>**`/second-opinion`** — ask the best available model at high effort, context-aware | proposed — raised 2026-07-11; new skill vs. tweaking an existing `/btw` still undecided | — | Formalizes today's ad-hoc pattern (spawn a top-tier-model subagent, full conversation context, high reasoning effort, to sanity-check a decision) as a reusable skill; no `/btw` skill or alias exists anywhere in this repo, so confirm what that refers to before building |
 
-**Dated clocks** (not tasks — check-in points, i.e. "on this date, come back and
-make a call," not "on this date, code runs automatically"). What's actually
-expected to happen at each:
+## Parked
 
-- **~2026-07-13 — delete `tmux_pane_awaiting_input`** (if hook data held).
-  This is a version-pinned content-scan fallback for detecting "is this
-  tmux pane waiting on input" — a stopgap until the newer hook-based
-  attention pipeline (Step zero, above) proved reliable. The action: if the
-  hook-based detection has held up without regressions by this date, delete
-  the old fallback scan; if it hasn't, keep it a while longer.
-- **~2026-07-14 — 4a capture-window verdict.** Look at how notes-tui's
-  capture habit (4a, shipped) actually got used over the observation
-  window, then decide whether that usage justifies building 4b's real
-  wiring, and in what shape. A go/shape decision, not an automatic trigger.
-- **~2026-07-20 — push-vs-weekly-ritual validation check-in.** Compare
-  whether proactive push notifications or batched weekly review (the
-  `/parked-items` model) actually fits real usage better, to inform how
-  similar future features get designed.
+Set aside on purpose. Every entry names what would actually bring it back.
 
-Full detail on every deferred decision the 2026-07-07 doc review left open:
+- <a id="detail-doc-registry"></a>**Cross-repo/cross-machine doc registry** — parked. Revisit trigger: artifacts still going missing after the landing-path rule.
+- <a id="detail-unify-copy-paste"></a>**Unify copy/paste** (terminal paste never needed) — parked. Revisit trigger: a design pass gets scheduled — [9g recap](9g-gpaste-recap.html).
+
+## Not doing
+
+Considered, and decided against — kept here so the reasoning isn't lost.
+
+- <a id="detail-computed-staleness"></a>**Computed staleness detection + an existence-aware `/board` tile** — traded for the static hints Hub v0 actually shipped (the `/board` tile + intro banner, U4).
+- <a id="detail-wb-reconcile-glossary"></a>**`wb reconcile --glossary`** (auto-detecting glossary gaps) — a `wb.sh` feature, not a docgen/Hub one; not this push's job.
+
+## Shipped
+
+<span class="chip ok">14 shipped</span> — full history and rationale live
+on each linked recap page; these no longer take a queue/live/parked slot.
+
+- <a id="detail-step-zero"></a>**Step zero** (hooks, alias cleanup) — attention-pipeline hooks wired, dead `n` alias removed.
+- <a id="detail-task-store-frontmatter"></a>**Central task store + frontmatter** — [wb design](roadmap-wb-design.html)
+- <a id="detail-wb-core"></a>**`wb` core** (new / picker / done) — [wb design](roadmap-wb-design.html) · [wb-guide](wb-guide.html) — PR #7
+- <a id="detail-notes-tui-4a"></a>**Notes-tui integration, 4a** (capture) — [deep dive](slice-4b-deep-dive.html)
+- <a id="detail-docs-platform"></a>**Docs platform** (generated pages, Hub, INDEX, `/help`) — [docgen](docgen.html) · [slice-5 recap](slice-5-recap.html)
+- <a id="detail-guide-pages-hub"></a>**Per-skill/TUI guide pages + tile dashboard** — `docs/guides/*` · [slice-5 recap](slice-5-recap.html)
+- <a id="detail-board-html"></a>**`/board`** — full HTML task-board view — [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) — PR #14
+- <a id="detail-wb-pause"></a>**`wb pause`** (new status + subcommand + keybind) — [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) — PR #14
+- <a id="detail-wb-reconcile-core"></a>**`wb reconcile`** — drift detection + review/apply flow — [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-wb-reconcile.html) — PR #14
+- <a id="detail-wb-resume"></a>**`wb resume <task>`** (day bookends, single-task) — [detail](roadmap-day-bookends.html) — PR #14
+- <a id="detail-ergonomics-batch"></a>**Editor/tmux ergonomics batch** — [9f recap](9f-ergonomics-recap.html)
+- <a id="detail-gpaste"></a>**GPaste clipboard-history manager** — [9g recap](9g-gpaste-recap.html)
+- <a id="detail-precommit-hook-fix"></a>**`docgen.sh`'s pre-commit hook** — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test
+- <a id="detail-parent-child"></a>**Task parent/child relationship** (incl. cross-repo/full-stack tasks) — [detail](roadmap-handoff.html) — PR #17
+
+Ceremonies (dated clocks, recurring reviews) now live on their own page:
+[Ceremonies](ceremonies.html). Standing workflow constraints now live on
+their own page: [Limitations](limitations.html). Full detail on every
+deferred decision the 2026-07-07 doc review left open:
 [Open Questions](roadmap-open-questions.html).
 
 ## Window management
