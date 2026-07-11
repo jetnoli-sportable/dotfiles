@@ -2065,10 +2065,33 @@ _break_out() {
 # the session — the one caller where that combination is always what's
 # wanted); repo sessions get a raw kill; a single agent sub-row kills just
 # that pane. No-ops on an empty session/target.
+#
+# Self-target guard (task rows only): the picker is commonly launched via
+# `new-window` with no `-t` (tmux.conf's `bind m`/`bind a`), so it opens
+# inside whatever session the user is already in, and that session shows up
+# as a selectable row like any other. Blindly closing it from ctrl-x would
+# kill the very pane running this command (and any other live window in
+# that session) with no confirmation and no way to abort mid-keypress — the
+# 2026-07-08 "sessions don't disappear" guarantee this feature is built on
+# top of, silently undone for the one row users are statistically most
+# likely to pick. Still complete the wind-down (worktree removed, task
+# marked done) either way; only the close is skipped. This guard is
+# deliberately scoped to ctrl-x's dispatch, not cmd_done itself — typing
+# `wb done --close` yourself from inside your own session stays intentional
+# self-close and is untouched.
 _ctrl_x() {
   local kind="$1" session="$2" target="$3"
   case "$kind" in
-    task)  [ -n "$session" ] && cmd_done "$session" --close ;;
+    task)
+      if [ -n "$session" ]; then
+        if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
+          cmd_done "$session"
+          echo "wb: not closing '$session' via ctrl-x — it's your current session; run 'wb done --close' yourself once you're ready to leave it" >&2
+        else
+          cmd_done "$session" --close
+        fi
+      fi
+      ;;
     repo)  [ -n "$session" ] && tmux kill-session -t "=$session" 2>/dev/null ;;
     agent) [ -n "$target" ]  && tmux kill-pane -t "$target" 2>/dev/null ;;
   esac

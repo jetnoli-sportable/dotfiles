@@ -76,6 +76,25 @@ else
   echo "FAIL - cmd_done has $kill_lines kill-session call(s); expected exactly 1 (gated behind --close)"; fail=1
 fi
 
+# --- _ctrl_x's task case: self-target guard against killing your own session
+# ------------------------------------------------------------------------
+# The picker is commonly launched via `new-window` with no `-t` (tmux.conf's
+# `bind m`/`bind a`), so it opens inside whatever session the user is already
+# in, and that session appears as a selectable row like any other — ctrl-x on
+# it would otherwise kill the very pane running the command, with no warning.
+# Exercising this live needs a real attached tmux client in the target
+# session (the same constraint wb-done.test.sh's self-resolve case documents
+# for cmd_done itself), disproportionate to fixture here — so this is a
+# source-text guard, scoped to _ctrl_x's own function body, asserting the
+# check exists and runs before the close-invoking branch. Real behavioral
+# coverage of the *non*-self-target path (the common case) lives in
+# wb-done.test.sh's ctrl-x scenario.
+ctrl_x_block="$(awk '/^_ctrl_x\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
+assert "_ctrl_x: task case checks for the currently-attached session" \
+  'tmux display-message -p' "$ctrl_x_block"
+assert "_ctrl_x: self-target case skips --close (still winds down via cmd_done)" \
+  'cmd_done "\$session"$' "$ctrl_x_block"
+
 # --- parent: schema (U1: wb_seed_task threading + wb_resolve_parent_ref) ----
 # shellcheck disable=SC1090
 source "$WB"

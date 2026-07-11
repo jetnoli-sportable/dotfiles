@@ -18,6 +18,13 @@
 # `out="$(cmd_done ...)"; rc=$?` capture pattern used throughout this suite
 # cannot survive being the thing that gets killed mid-capture. Verified by
 # hand instead — see the plan's Key Technical Decisions.
+#
+# Same constraint applies to _ctrl_x's task-case self-target guard (skip
+# --close when the row IS the currently-attached session) — genuinely
+# exercising it needs a real attached tmux client in the target session, not
+# a bare test-runner process. wb-schema.test.sh carries a source-text guard
+# for the check's presence instead; the guard's *absence* (the common case,
+# where the row isn't your current session) is covered below.
 set -uo pipefail
 
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
