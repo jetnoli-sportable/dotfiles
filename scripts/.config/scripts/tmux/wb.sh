@@ -7,6 +7,7 @@
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb pause [<session>]             mark a task paused — worktree and session both survive
+#   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
@@ -26,6 +27,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"   # for fzf reload/become to re-invoke us
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
+# shellcheck source=wb-lifecycle.sh
+source "$SCRIPT_DIR/wb-lifecycle.sh"
 
 TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
 CODE_DIR="${CODE_DIR:-$HOME/code}"
@@ -234,6 +237,12 @@ wb_seed_task() {
     [ -n "$(wb_get_frontmatter "$file" branch)" ]    || wb_set_frontmatter "$file" branch "$slug"
     [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
     [ "$(wb_get_frontmatter "$file" status)" != planned ] || wb_set_frontmatter "$file" status doing
+    # reviewed: has no inferred value (unlike repo/branch/worktree above) —
+    # it starts blank and is only ever stamped by cmd_reviewed. This just
+    # backfills the KEY onto task files that predate it in the schema, same
+    # as the other blank-field fills above, never overwriting a value
+    # that's already set.
+    [ -n "$(wb_get_frontmatter "$file" reviewed)" ]  || wb_set_frontmatter "$file" reviewed ""
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
   echo "$file"
@@ -821,6 +830,45 @@ cmd_pause() {
 
   wb_set_frontmatter "$task_file" status paused
   echo "wb pause: $session paused — worktree and session untouched, task -> paused ($task_file)"
+}
+
+# ---------------------------------------------------------------------------
+# wb reviewed — stamp a task's /ce-code-review pass as done
+# ---------------------------------------------------------------------------
+
+# cmd_reviewed <session> — stamps a task's `reviewed:` frontmatter field with
+# today's date. Mirrors cmd_pause's shape exactly (wb.sh:805-824): resolve
+# session from arg or current tmux session, read @wb_repo/@wb_slug, resolve
+# the task file, stamp the field. /ce-code-review's own artifacts are
+# ephemeral (/tmp/compound-engineering/...) and it may touch zero repo files
+# in mode:agent, so unlike /ce-work there is no git-observable signal for
+# "a review happened" — this field is the only buildable detection without
+# modifying the external skill. Detection is wb_lifecycle_review_done
+# (wb-lifecycle.sh) — `[ -n "$(wb_get_frontmatter "$taskfile" reviewed)" ]`.
+# Deliberate limitation, same trade-off wb pause already accepts for
+# `status: paused`: this requires a habit (running `wb reviewed` after a
+# review pass); no staleness invalidation either — a task that receives
+# further commits after being stamped still shows reviewed done. See
+# logs/decisions/2026-07-11-wb-board-lifecycle-detection.md.
+cmd_reviewed() {
+  local session="${1:-}"
+  if [ -z "$session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb reviewed: run inside the target session, or pass a session name" >&2; exit 1; }
+    session="$(tmux display-message -p '#S')"
+  fi
+
+  local repo slug
+  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
+  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
+  [ -n "$repo" ] && [ -n "$slug" ] \
+    || { echo "wb reviewed: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  [ -f "$task_file" ] || { echo "wb reviewed: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
+
+  wb_set_frontmatter "$task_file" reviewed "$(date +%F)"
+  echo "wb reviewed: $session marked reviewed ($task_file)"
 }
 
 # ---------------------------------------------------------------------------
@@ -2180,6 +2228,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     board)       shift; cmd_board "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
+    reviewed)    shift; cmd_reviewed "$@" ;;
     _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
     _interrupt)  shift; _interrupt "$@" ;;
