@@ -127,11 +127,18 @@ handoff_wait_for_pane_pattern "=$SESSION:falsepos-pointer" 2 "$PERM_PATTERN"
 assert_eq "dry-run #3 regression: injected pointer text does not satisfy permission-prompt" "1" "$?"
 
 # --- auto-answer gating (R10): co-occurrence required ----------------------
+# UNRELATED_POINTER stands in for handoff.sh's own injected pointer string in
+# these two tests — it deliberately shares no text with either fixture pane,
+# so filtering it out of the captured text (handoff_permission_prompt_matches'
+# own first step) removes nothing and these two tests exercise plain
+# co-occurrence, not the self-collision case (that's the dedicated test below).
+UNRELATED_POINTER="Read the task file at /unrelated/path.md - it carries the full context and states the first action to take."
+
 new_test_window gating-with
 send_payload gating-with 'echo "Do you want to proceed?" && echo "Read ~/code/tasks/dotfiles--feat-foo.md"'
 sleep 1
 pane_with="$(tmux capture-pane -ep -t "=$SESSION:gating-with" | tail -n 20)"
-if handoff_permission_prompt_matches "$pane_with"; then
+if handoff_permission_prompt_matches "$pane_with" "$UNRELATED_POINTER"; then
   echo "ok   - R10 gating: prompt co-occurring with tasks/Read text triggers auto-answer condition"
 else
   echo "FAIL - R10 gating: prompt co-occurring with tasks/Read text should trigger auto-answer condition"
@@ -142,11 +149,34 @@ new_test_window gating-without
 send_payload gating-without 'echo "Do you want to proceed?" && echo "1. Yes  2. No, and tell Claude what to do differently"'
 sleep 1
 pane_without="$(tmux capture-pane -ep -t "=$SESSION:gating-without" | tail -n 20)"
-if handoff_permission_prompt_matches "$pane_without"; then
+if handoff_permission_prompt_matches "$pane_without" "$UNRELATED_POINTER"; then
   echo "FAIL - R10 gating: prompt WITHOUT tasks/Read text should NOT trigger auto-answer condition"
   fail=1
 else
   echo "ok   - R10 gating: prompt without tasks/Read text does not trigger auto-answer condition"
+fi
+
+# --- regression: R10 gate must not be self-satisfied by handoff.sh's own ----
+# injected pointer text (found independently by 3 reviewers this session).
+# Before the fix, handoff_permission_prompt_matches checked the whole
+# captured window for "Do you want to proceed?" AND "Read" as two
+# independent substrings — since the pointer itself starts with "Read" and
+# sits in the same pane the permission poll scans, ANY "Do you want to
+# proceed?" dialog (not just the tasks/Read one) would satisfy the gate as
+# long as the pointer hadn't scrolled out of the tail-20 window yet, which
+# is virtually guaranteed immediately after injection. This constructs
+# exactly that: the real pointer text plus a dialog that is NOT the
+# tasks/Read one (a generic "allow all edits" style prompt).
+new_test_window gating-self-collision
+SELF_POINTER="Read the task file at /some/path.md - it carries the full context and states the first action to take."
+send_payload gating-self-collision "echo '$SELF_POINTER' && echo 'Do you want to proceed?' && echo '1. Yes  2. Yes, allow all edits during this session  3. No'"
+sleep 1
+pane_collision="$(tmux capture-pane -ep -t "=$SESSION:gating-self-collision" | tail -n 20)"
+if handoff_permission_prompt_matches "$pane_collision" "$SELF_POINTER"; then
+  echo "FAIL - R10 self-collision: an unrelated dialog must not auto-answer just because handoff.sh's own pointer text (containing 'Read') is still in the pane"
+  fail=1
+else
+  echo "ok   - R10 self-collision: unrelated dialog does not trigger auto-answer even with the pointer's own 'Read' text present"
 fi
 
 # --- R7 regression: no send-keys call embeds the literal string /model ----
@@ -158,6 +188,18 @@ if grep -F 'send-keys' "$HANDOFF" | grep -qF '/model'; then
   fail=1
 else
   echo "ok   - R7: no send-keys call in handoff.sh embeds the literal string /model"
+fi
+
+# --- spawn path always passes --agent to wb new -----------------------------
+# Dropping --agent would make wb_layout_session (wb.sh) leave the "agent"
+# window as an idle shell — nothing would ever type `claude` into it, and
+# the boot-ready poll would burn its full timeout waiting on a process
+# that was never started.
+if grep -qF '"$WB" new --agent "$repo" "$slug"' "$HANDOFF"; then
+  echo "ok   - spawn path passes --agent to wb new"
+else
+  echo "FAIL - spawn path missing --agent flag on the wb new call"
+  fail=1
 fi
 
 # --- timeout path: no matching text ever appears ----------------------------
@@ -207,13 +249,34 @@ assert_eq "append_followup: new line lands immediately under the heading" \
 assert "append_followup: pre-existing Follow-ups content survives" "pre-existing item" "$(cat "$TASK_FIXTURE")"
 assert "append_followup: other sections untouched" "some plan text" "$(cat "$TASK_FIXTURE")"
 
-# no-op when the heading doesn't exist at all
+# heading missing but ## Decisions exists -> insert Follow-ups right before it.
+# This is the live TEMPLATE.md shape (Plan/Decisions/Done, no Follow-ups) —
+# real pre-existing task files lack the heading too, not just template-fresh
+# ones, so this must not be a no-op (an earlier version of this function was).
+DECISIONS_ONLY_FIXTURE="$FIXTURE/decisions-only.md"
+printf -- '---\nstatus: doing\n---\n# Title\n\n## Plan\n\nsome plan text\n\n## Decisions\n' > "$DECISIONS_ONLY_FIXTURE"
+handoff_append_followup "$DECISIONS_ONLY_FIXTURE" "gap noted here"
+assert "append_followup: inserts a Follow-ups heading before Decisions when missing" \
+  "## Follow-ups" "$(cat "$DECISIONS_ONLY_FIXTURE")"
+assert "append_followup: the new line lands under the inserted heading" \
+  "gap noted here" "$(cat "$DECISIONS_ONLY_FIXTURE")"
+followups_line_no="$(grep -n '^## Follow-ups$' "$DECISIONS_ONLY_FIXTURE" | cut -d: -f1)"
+decisions_line_no="$(grep -n '^## Decisions$' "$DECISIONS_ONLY_FIXTURE" | cut -d: -f1)"
+if [ -n "$followups_line_no" ] && [ -n "$decisions_line_no" ] && [ "$followups_line_no" -lt "$decisions_line_no" ]; then
+  echo "ok   - append_followup: inserted heading lands before Decisions, not after"
+else
+  echo "FAIL - append_followup: inserted heading should land before Decisions"
+  fail=1
+fi
+
+# neither heading exists -> append a new Follow-ups section at EOF.
 NO_HEADING_FIXTURE="$FIXTURE/no-heading.md"
 printf -- '---\nstatus: doing\n---\n# Title\n\n## Plan\n' > "$NO_HEADING_FIXTURE"
-before_hash="$(md5sum "$NO_HEADING_FIXTURE")"
-handoff_append_followup "$NO_HEADING_FIXTURE" "should not appear anywhere"
-after_hash="$(md5sum "$NO_HEADING_FIXTURE")"
-assert_eq "append_followup: no-op when file has no ## Follow-ups heading" "$before_hash" "$after_hash"
+handoff_append_followup "$NO_HEADING_FIXTURE" "should still appear"
+assert "append_followup: appends a Follow-ups section at EOF when neither heading exists" \
+  "## Follow-ups" "$(cat "$NO_HEADING_FIXTURE")"
+assert "append_followup: the line appears under the appended heading" \
+  "should still appear" "$(cat "$NO_HEADING_FIXTURE")"
 
 # --- injection shape: pointer via one send-keys -l, Enter via a SEPARATE ---
 # call — never combined, never an embedded newline. Fixed-string (-F)

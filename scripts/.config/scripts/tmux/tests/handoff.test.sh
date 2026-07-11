@@ -125,6 +125,29 @@ fi
 assert "happy path: tmux_focus called real switch-client for the right session" \
   "switch-client -t =$SESSION" "$(cat "$FOCUS_LOG")"
 
+# --- switch-path edge case: session exists but agent window isn't alive ----
+# `wb_layout_session` deliberately leaves the "agent" window as an idle
+# shell for a bare `wb new` (no --agent), and a prior spawn's boot-ready
+# timeout leaves the session behind with nothing killing it — has-session
+# alone can't distinguish either from a genuinely live agent.
+REPO2B="testrepo2b"
+SLUG2B="feat/idle-agent"
+DISP_SLUG2B="$(wb_sanitize "$SLUG2B")"
+SESSION2B="${REPO2B}--${DISP_SLUG2B}"
+TASK_FILE2B="$(wb_task_file "$REPO2B" "$DISP_SLUG2B")"
+mkdir -p "$(dirname "$TASK_FILE2B")"
+printf -- '---\nstatus: doing\nrepo: %s\nbranch: %s\nworktree: .worktrees/x\ncreated: 2026-07-07\n---\n# Title\n' \
+  "$REPO2B" "$SLUG2B" > "$TASK_FILE2B"
+
+tmux new-session -d -s "$SESSION2B" 2>/dev/null
+tmux new-window -t "=$SESSION2B" -n agent 2>/dev/null   # plain shell, no claude
+SESSIONS_TO_KILL+=("$SESSION2B")
+
+run_handoff "$REPO2B" "$SLUG2B"
+assert_eq "idle agent window: exits 0 (still switches)" "0" "$rc"
+assert "idle agent window: warns no running claude process" \
+  "no running claude process" "$out"
+
 # --- switch-path edge case: live session, task file missing ---------------
 REPO2="testrepo2"
 SLUG2="feat/no-task-file"
@@ -173,6 +196,33 @@ assert "one arg: usage message on stderr" "usage: handoff\.sh <repo> <slug>" "$o
 clip_after_one="$(wl-paste 2>/dev/null || true)"
 assert_eq "one arg: clipboard untouched (no session/clipboard logic attempted)" \
   "sentinel-before-error-test" "$clip_after_one"
+
+# --- error path: invalid repo/slug (path traversal / tmux-target chars) ----
+run_handoff "../evil" "feat/x"
+assert_eq "invalid repo (traversal): exits non-zero" "1" "$rc"
+assert "invalid repo (traversal): error message" "invalid repo" "$out"
+
+run_handoff "test:repo" "feat/x"
+assert_eq "invalid repo (colon): exits non-zero" "1" "$rc"
+assert "invalid repo (colon): error message" "invalid repo" "$out"
+
+run_handoff "testrepo" "../../etc/passwd"
+assert_eq "invalid slug (traversal): exits non-zero" "1" "$rc"
+assert "invalid slug (traversal): error message" "invalid slug" "$out"
+
+run_handoff "testrepo" "/absolute/slug"
+assert_eq "invalid slug (leading slash): exits non-zero" "1" "$rc"
+assert "invalid slug (leading slash): error message" "invalid slug" "$out"
+
+run_handoff "testrepo" "feat/with:colon"
+assert_eq "invalid slug (colon): exits non-zero" "1" "$rc"
+assert "invalid slug (colon): error message" "invalid slug" "$out"
+
+# --- error path: must run from inside a tmux client -------------------------
+out_no_tmux="$(env -u TMUX PATH="$STUBDIR:$PATH" bash "$HANDOFF" "testrepo" "feat/x" 2>&1)"
+rc_no_tmux=$?
+assert_eq "no \$TMUX: exits non-zero" "1" "$rc_no_tmux"
+assert "no \$TMUX: error message" "must run from inside a tmux client" "$out_no_tmux"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

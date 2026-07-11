@@ -10,6 +10,7 @@ directory instead of replacing it.
 ## Tracked
 
 - `skills/decision-buffer/` — design decisions via nvim buffer docs
+- `skills/handoff/` — route in-conversation discussion to the right worker (switch or spawn)
 - `skills/park/` — capture "later" items to the ledger
 - `skills/parked-items/` — weekly review of parked items
 - `skills/pr-review-session/` — PR review worktree/tmux sessions

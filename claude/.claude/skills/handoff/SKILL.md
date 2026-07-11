@@ -208,10 +208,17 @@ or `## Follow-ups` — only add to it.
 ### 6. Invoke `handoff.sh` and relay the outcome
 
 Run `handoff.sh <repo> <slug>` with no flags — `first_action` already lives
-in the task file from step 4, so there's nothing else to pass:
+in the task file from step 4, so there's nothing else to pass. **Substitute
+the literal repo/slug/path values you already resolved in steps 1-2** —
+do not copy the `$DOTFILES`/`$repo`/`$slug` variable names verbatim into a
+fresh shell call. Each of steps 2-5 above runs as its own tool call (a
+`bash -c` invocation for steps 2-3, Read/Write/Edit for step 5), and this
+harness's shell state does not persist between separate Bash calls — a
+literal `"$DOTFILES/.../handoff.sh" "$repo" "$slug"` composed as a new,
+independent command would see all three as empty:
 
 ```bash
-"$DOTFILES/scripts/.config/scripts/tmux/handoff.sh" "$repo" "$slug"
+/home/jetnoli/code/dotfiles/scripts/.config/scripts/tmux/handoff.sh dotfiles feat/foo-bar
 ```
 
 (Until the plan's deferred post-merge wiring lands — a `~/.zshrc` alias
@@ -221,37 +228,57 @@ command.)
 
 Relay the outcome back to the user in one line. `handoff.sh`'s own
 stdout/stderr messages say exactly which case happened — read the pane
-output rather than guessing:
+output rather than guessing. Messages below are quoted verbatim from the
+script; a trailing internal source-reference like `(see wb_bootstrap,
+wb.sh:142-171)` can be dropped when relaying to the user, it's there for
+whoever debugs handoff.sh itself, not user-facing content.
 
-- **Switch path, success:** `handoff: switched to live session <session>
-  — pointer copied to clipboard` (exit 0). Tell the user it switched them
-  and the pointer's on the clipboard.
-- **Switch path, task file missing** (a live session with no task file —
-  still switches, just warns): `handoff: warning: <session> is live but
-  <task_file> does not exist` (stderr, exit 0 still). Relay both the
-  switch and the warning.
-- **Spawn path, fully clean:** `handoff: spawned <session>, injected
-  pointer, cleared the tasks/ read permission prompt` (exit 0). Tell the
-  user it spawned, injected, and is ready with no manual step needed.
-- **Spawn path, boot timeout:** `handoff: spawned <session> but it never
-  showed a boot-ready anchor within <N>s — check <target> by hand` (exit
-  1). Tell the user the spawn may need a manual look at that pane.
-- **Spawn path, injected, but no permission prompt seen:** `handoff:
-  spawned and injected <session> — no permission prompt seen within
-  <N>s (it may already be clear, or the agent hasn't reached its first
-  action yet)` (stderr, exit 0 — not a failure). Tell the user it spawned
-  and injected fine; the permission state just isn't confirmed.
-- **Spawn path, injected, permission prompt didn't match the expected
-  shape:** `handoff: spawned and injected <session> — a permission prompt
-  appeared but didn't match the expected tasks/Read shape; leaving it for
-  you to answer at <target>` (stderr, exit 0). Tell the user to answer
-  that prompt by hand.
-- **Bootstrap-gap warning (R11), may appear alongside any spawn-path
-  outcome above:** `handoff: warning: <repo_dir> has neither a
-  .worktree-bootstrap manifest nor a root .env* file — wb new's bootstrap
-  step likely left this worktree incomplete` (stderr) — `handoff.sh` also
-  durably records this under the task file's `## Follow-ups` itself, so
-  it's not just scrollback. Mention it if it fires, but it's non-blocking.
+**Argument validation (before anything else runs):**
+- `handoff: must run from inside a tmux client (...)` (exit 1) — this
+  skill's own invocation always runs from inside a tmux-backed session,
+  so this should not fire in normal use; if it does, something about the
+  invoking environment is unusual and worth surfacing as-is.
+- `handoff: invalid repo: <repo>` / `handoff: invalid slug: <slug>` (exit
+  1) — the repo/slug you inferred in step 1 contained a path-traversal
+  segment (`..`), a leading `/`, a `:`, or another disallowed character.
+  Re-derive a clean repo/slug rather than retrying the same values.
+
+**Switch path** (a live session already existed for this repo/slug):
+- `handoff: switched to live session <session> — pointer copied to
+  clipboard` (exit 0) — clean success; tell the user it switched them and
+  the pointer's on the clipboard.
+- `handoff: switched to live session <session>, but its agent window has
+  no running claude process — pointer copied to clipboard` (stderr, exit
+  0) — the session exists but nobody started `claude` there (or a prior
+  spawn's boot never completed); tell the user they switched in, but may
+  need to start the agent themselves.
+- Either of the above may instead end `— clipboard copy failed — pointer
+  not on clipboard` if `wl-copy` itself failed; the switch still happened,
+  just paste manually isn't available.
+- `handoff: warning: <session> is live but <task_file> does not exist`
+  (stderr, alongside either switch message above) — an inconsistent state
+  worth mentioning, but the switch itself still succeeded.
+
+**Spawn path** (no live session; `wb new --agent` ran):
+- `handoff: spawned <session>, injected pointer, cleared the tasks/ read
+  permission prompt` (exit 0) — fully clean; tell the user it spawned,
+  injected, and is ready with no manual step needed.
+- `handoff: spawned <session> but it never showed a boot-ready anchor
+  within <N>s — check <target> by hand` (exit 1) — tell the user the
+  spawn may need a manual look at that pane.
+- `handoff: spawned and injected <session> — no permission prompt seen
+  within <N>s (...)` (stderr, exit 0 — not a failure) — tell the user it
+  spawned and injected fine; the permission state just isn't confirmed.
+- `handoff: spawned and injected <session> — a permission prompt appeared
+  but didn't match the expected tasks/Read shape; leaving it for you to
+  answer at <target>` (stderr, exit 0) — tell the user to answer that
+  prompt by hand.
+- `handoff: warning: <repo_dir> has neither a .worktree-bootstrap manifest
+  nor a root .env* file — ...` (stderr, may appear alongside any spawn
+  outcome above) — R11's bootstrap-gap surfacing; `handoff.sh` also
+  durably records this under the task file's `## Follow-ups` itself
+  (inserting the heading first if the file didn't have one), so it's not
+  just scrollback. Mention it if it fires, but it's non-blocking.
 
 ## Notes
 

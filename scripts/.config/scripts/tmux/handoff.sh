@@ -24,10 +24,18 @@ source "$SCRIPT_DIR/lib.sh"
 # tests/wb-resume.test.sh already relies on. This reuses wb_sanitize/
 # wb_task_file (read-only helpers) without hand-copying the sanitize
 # transform where it could drift. NOTE: sourcing wb.sh reassigns
-# SCRIPT_DIR/SELF to its own values (wb.sh:25-26) — harmless today only
-# because handoff.sh never reads $SELF and both scripts live in the same
-# directory (so the reassigned $SCRIPT_DIR happens to still be correct);
+# SCRIPT_DIR/SELF/CODE_DIR to its own values (wb.sh:25-26,31) — harmless
+# today only because handoff.sh never reads $SELF and never sets
+# $CODE_DIR before sourcing (both scripts also live in the same
+# directory, so the reassigned $SCRIPT_DIR happens to still be correct);
 # $WB is captured above, before sourcing, so it's unaffected either way.
+# CODE_DIR is the exact variable from the 2026-07-10 deletion incident
+# (an unconditional reassignment in a sourced script clobbering the
+# sourcing script's own value of the same name) — wb.sh:31 is
+# `CODE_DIR="$HOME/code"` with no `${CODE_DIR:-...}` guard, unlike
+# TASKS_DIR right above it. Never export CODE_DIR before sourcing wb.sh
+# here expecting it to survive; the real fix (guard wb.sh:31 the same
+# way) needs a wb.sh edit and is out of scope for this branch (R2).
 # shellcheck source=wb.sh
 source "$WB"
 
@@ -73,28 +81,56 @@ handoff_bootstrap_gap() {
   return 0
 }
 
-# handoff_append_followup <task_file> <line> — insert "- <line>" immediately
-# after the line that is exactly "## Follow-ups" — the durable channel R3
-# establishes for exactly this kind of note (R11), so a spawn nobody is
-# watching the terminal for doesn't leave the gap's only record in a
-# scrollback buffer. Mirrors wb_reconcile_merge_content's own awk-based
-# body-insertion style (wb.sh). A no-op when the file has no such heading.
+# handoff_append_followup <task_file> <line> — insert "- <line>" under a
+# "## Follow-ups" heading, the durable channel R3 establishes for exactly
+# this kind of note (R11), so a spawn nobody is watching the terminal for
+# doesn't leave the gap's only record in a scrollback buffer. The live
+# ~/code/tasks/TEMPLATE.md has no such heading at all, and it's absent
+# from real pre-existing task files too — not just ones freshly created
+# from the template — so this ensures the heading exists rather than
+# requiring the caller to have added it: inserts "## Follow-ups" right
+# before "## Decisions" when that heading exists, or appends a new
+# section at EOF when neither heading is present. Mirrors
+# wb_reconcile_merge_content's own awk-based body-insertion style (wb.sh).
 handoff_append_followup() {
   local file="$1" line="$2"
   awk -v line="$line" '
+    $0 == "## Decisions" && !inserted {
+      print "## Follow-ups"
+      print ""
+      print "- " line
+      print ""
+      inserted = 1
+    }
     { print }
-    $0 == "## Follow-ups" { print "- " line }
+    $0 == "## Follow-ups" && !inserted { print "- " line; inserted = 1 }
+    END {
+      if (!inserted) {
+        print ""
+        print "## Follow-ups"
+        print ""
+        print "- " line
+      }
+    }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
 }
 
-# handoff_permission_prompt_matches <pane_text> — true when <pane_text>
-# contains BOTH the literal permission-prompt phrase and a ~/code/tasks or
-# Read substring (R10) — the co-occurrence requirement that keeps a
-# differently-shaped dialog from ever being blind-approved.
+# handoff_permission_prompt_matches <pane_text> <pointer> — true when
+# <pane_text>, with handoff.sh's own injected <pointer> line stripped out
+# first, contains BOTH the literal permission-prompt phrase and a
+# ~/code/tasks or Read substring (R10) — the co-occurrence requirement
+# that keeps a differently-shaped dialog from ever being blind-approved.
+# The strip is load-bearing, not defensive: the pointer's own fixed text
+# ("Read the task file at...") starts with "Read" and sits in the exact
+# pane this scans, so without stripping it first, the co-occurrence check
+# is satisfied by our own injection regardless of which dialog actually
+# appeared — a real dialog's own "Read(<path>)" tool-invocation line is
+# what should satisfy this, not text we typed ourselves moments earlier.
 handoff_permission_prompt_matches() {
-  local text="$1"
-  printf '%s' "$text" | grep -qE 'Do you want to proceed\?' \
-    && printf '%s' "$text" | grep -qE '~/code/tasks|Read'
+  local text="$1" pointer="$2" filtered
+  filtered="$(printf '%s' "$text" | grep -vF "$pointer")"
+  printf '%s' "$filtered" | grep -qE 'Do you want to proceed\?' \
+    && printf '%s' "$filtered" | grep -qE '~/code/tasks|Read'
 }
 
 # Below this point: the actual routing run. Guarded exactly like wb.sh's own
@@ -108,8 +144,34 @@ if [ "$#" -ne 2 ]; then
   echo "usage: handoff.sh <repo> <slug>" >&2
   exit 1
 fi
+
+# Every path below eventually calls tmux_focus (lib.sh) via either this
+# script's own switch branch or wb.sh's cmd_new — and tmux_focus falls
+# back to a blocking, interactive `tmux attach` whenever $TMUX is unset.
+# Fail loudly here instead of silently hanging (or aborting mid-spawn,
+# after the worktree/session already exist) the first time that branch
+# is reached deep inside a subprocess call.
+if [ -z "${TMUX:-}" ]; then
+  echo "handoff: must run from inside a tmux client (wb new --agent's own tmux_focus finale blocks on tmux attach otherwise)" >&2
+  exit 1
+fi
+
 repo="$1"
 slug="$2"
+
+# wb_task_file/wb_seed_task (wb.sh) never sanitize $repo, and $slug's only
+# sanitize step (wb_sanitize) rewrites `/`/`.`/`:` for the display name —
+# it doesn't reject a leading `/` or a `..` traversal segment before that
+# raw slug is used to build `worktree: .worktrees/$slug` and a real git
+# branch. Reject both here, before either value touches any path/command
+# construction below — this is handoff.sh's job since wb.sh can't be
+# modified to add it there.
+case "$repo" in
+  *[!A-Za-z0-9_.-]*|*..*) echo "handoff: invalid repo: $repo" >&2; exit 1 ;;
+esac
+case "$slug" in
+  /*|*..*|*:*|*[!A-Za-z0-9/_.-]*) echo "handoff: invalid slug: $slug" >&2; exit 1 ;;
+esac
 
 disp_slug="$(wb_sanitize "$slug")"
 session="${repo}--${disp_slug}"
@@ -121,17 +183,37 @@ task_file="$(wb_task_file "$repo" "$disp_slug")"
 pointer="Read the task file at $task_file - it carries the full context and states the first action to take."
 
 if tmux has-session -t "=$session" 2>/dev/null; then
-  # Switch path: a live session already exists for this repo/slug.
+  # Switch path: a live session already exists for this repo/slug. A live
+  # session is not the same as a live agent — a prior spawn's boot-ready
+  # timeout leaves the session behind with nothing killing it, and a bare
+  # `wb new` (no --agent) deliberately leaves the "agent" window as an
+  # idle shell (wb_layout_session, wb.sh:210-214) — so check the window's
+  # actual running command rather than trusting has-session alone.
   [ -f "$task_file" ] \
     || echo "handoff: warning: $session is live but $task_file does not exist" >&2
-  # wl-copy daemonizes to keep serving the selection after this line
-  # returns; without redirecting its own stdout/stderr away from whatever
-  # they're inherited from (e.g. a caller capturing this script's output
-  # via command substitution), that lingering background process holds
-  # the caller's pipe open forever, hanging any reader waiting for EOF.
-  printf '%s' "$pointer" | wl-copy >/dev/null 2>&1
+  agent_alive=0
+  [ "$(tmux list-panes -t "=$session:agent" -F '#{pane_current_command}' 2>/dev/null)" = "claude" ] \
+    && agent_alive=1
+  # Focus first, clipboard second: the switch is the primary action of
+  # this branch and must not fail as a side effect of the clipboard step
+  # (secondary, convenience-only) failing.
   tmux_focus "$session"
-  echo "handoff: switched to live session $session — pointer copied to clipboard"
+  if printf '%s' "$pointer" | wl-copy >/dev/null 2>&1; then
+    # wl-copy daemonizes to keep serving the selection after this line
+    # returns; without redirecting its own stdout/stderr away from
+    # whatever they're inherited from (e.g. a caller capturing this
+    # script's output via command substitution), that lingering
+    # background process holds the caller's pipe open forever, hanging
+    # any reader waiting for EOF.
+    clip_status="pointer copied to clipboard"
+  else
+    clip_status="clipboard copy failed — pointer not on clipboard"
+  fi
+  if [ "$agent_alive" = 1 ]; then
+    echo "handoff: switched to live session $session — $clip_status"
+  else
+    echo "handoff: switched to live session $session, but its agent window has no running claude process — $clip_status" >&2
+  fi
   exit 0
 fi
 
@@ -145,7 +227,14 @@ repo_dir="$(wb_repo_dir "$repo")"
 if handoff_bootstrap_gap "$repo_dir"; then
   gap_msg="$repo_dir has neither a .worktree-bootstrap manifest nor a root .env* file — wb new's bootstrap step likely left this worktree incomplete (see wb_bootstrap, wb.sh:142-171)"
   echo "handoff: warning: $gap_msg" >&2
-  [ -f "$task_file" ] && handoff_append_followup "$task_file" "$gap_msg"
+  # Best-effort: R11 is a non-blocking warning, and must stay one even if
+  # the write itself fails — under set -e, an unguarded call here would
+  # abort the rest of the spawn (boot poll, injection, permission
+  # handshake) over a failure to record a note about an unrelated gap.
+  if [ -f "$task_file" ]; then
+    handoff_append_followup "$task_file" "$gap_msg" \
+      || echo "handoff: warning: could not record the bootstrap-gap note in $task_file" >&2
+  fi
 fi
 
 # wb_layout_session (wb.sh:225) names the agent window "agent".
@@ -168,7 +257,7 @@ if ! pane_text="$(handoff_wait_for_pane_pattern "$target" "$HANDOFF_PERMISSION_T
   exit 0
 fi
 
-if handoff_permission_prompt_matches "$pane_text"; then
+if handoff_permission_prompt_matches "$pane_text" "$pointer"; then
   # R10: single keystroke, no trailing Enter — confirmed live, this menu
   # selects and submits on the keystroke itself, unlike the main input box.
   tmux send-keys -t "$target" -l '2'
