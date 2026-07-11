@@ -181,7 +181,7 @@
 <header class="doc">
   <span class="eyebrow">personal workflow</span>
   <h1><span class="glyph">⌂</span> Hub</h1>
-  <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview. Sources living outside this repo's git tree (memory, the task store, notes-tui/replay-tui READMEs) aren't picked up by the pre-commit hook that regenerates this dashboard — run <code>docgen.sh index</code> (or <code>all</code>) by hand after editing any of those.</p>
+  <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview. Sources living outside this repo's git tree (memory, the task store, notes-tui/replay-tui READMEs) aren't picked up by the pre-commit hook that regenerates this dashboard — run <code>docgen.sh index</code> (or <code>all</code>) by hand after editing any of those. Running it from a worktree? Export <code>DOTFILES=$(git rev-parse --show-toplevel)</code> first — <code>docgen.sh</code> targets <code>$DOTFILES</code> (falling back to the main checkout), never <code>cwd</code>, so an unset <code>DOTFILES</code> silently regenerates the wrong repo's docs.</p>
 </header>
 
 <section class="group">
