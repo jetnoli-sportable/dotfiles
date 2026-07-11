@@ -23,10 +23,11 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
-SESSIONS=(wb-done-test-alpha-$$ wb-done-test-beta-$$ wb-done-test-gamma-$$ wb-done-test-dirty-$$)
+SLUGS=(alpha beta gamma dirty)
+session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
   rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS"
-  for s in "${SESSIONS[@]}"; do tmux kill-session -t "=$s" 2>/dev/null || true; done
+  for slug in "${SLUGS[@]}"; do tmux kill-session -t "=$(session_for "$slug")" 2>/dev/null || true; done
 ' EXIT
 
 fail=0
@@ -54,7 +55,7 @@ mk_task() { # <slug>
     "$1" "$1" > "$f"
 }
 
-for slug in alpha beta gamma dirty; do
+for slug in "${SLUGS[@]}"; do
   add_worktree "$slug"
   mk_task "$slug"
 done
@@ -62,28 +63,12 @@ done
 # `git status --porcelain` to report something.
 echo scratch > "$FIXTURE_CODE/proj/.worktrees/dirty/scratch.txt"
 
-session_for() { # <slug> -> matching SESSIONS[] entry
-  case "$1" in
-    alpha) echo "${SESSIONS[0]}" ;;
-    beta)  echo "${SESSIONS[1]}" ;;
-    gamma) echo "${SESSIONS[2]}" ;;
-    dirty) echo "${SESSIONS[3]}" ;;
-  esac
-}
-for slug in alpha beta gamma dirty; do
+for slug in "${SLUGS[@]}"; do
   s="$(session_for "$slug")"
   tmux new-session -d -s "$s" 2>/dev/null
   tmux set-option -t "=$s:" @wb_repo proj >/dev/null
   tmux set-option -t "=$s:" @wb_slug "$slug" >/dev/null
 done
-
-status_of() { # <task-file-slug>
-  awk '
-    BEGIN { infm = 0 }
-    /^---$/ { infm++; if (infm == 2) exit; next }
-    infm == 1 && /^status:/ { sub(/^status:[ \t]*/, ""); print; exit }
-  ' "$FIXTURE_TASKS/proj--$1.md"
-}
 
 # shellcheck disable=SC1090
 source "$WB"
@@ -91,6 +76,8 @@ set +e   # wb.sh sets -e; this test intentionally captures non-zero exits
 TASKS_DIR="$FIXTURE_TASKS"
 CODE_DIR="$FIXTURE_CODE"
 wb_open_buffer() { :; }   # no interactive nvim in a test run
+
+status_of() { wb_get_frontmatter "$FIXTURE_TASKS/proj--$1.md" status; }   # <task-file-slug>; reuses wb.sh's own frontmatter reader
 
 # --- happy path: plain `wb done` (no flag) leaves the session alive ---------
 alpha_session="$(session_for alpha)"

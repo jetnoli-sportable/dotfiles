@@ -1584,9 +1584,10 @@ cmd_done() {
   #      killed between removal and status-set: `git worktree remove` on an
   #      already-gone path hard-fails under set -e otherwise.
   #    Branch is kept — see logs/decisions/2026-07-06-review-outstanding.md Q2.
-  #    The tmux session is deliberately left alive — wb done tears down the
-  #    worktree, not the window you're sitting in (2026-07-08: "I don't
-  #    want windows or sessions to disappear"; same reasoning as wb pause).
+  #    The tmux session is deliberately left alive by default — wb done tears
+  #    down the worktree, not the window you're sitting in (2026-07-08: "I
+  #    don't want windows or sessions to disappear"; same reasoning as wb
+  #    pause). See --close below for the explicit opt-in to also kill it.
   if [ -d "$worktree_path" ]; then
     git -C "$repo_dir" worktree remove "$worktree_path" --force
   fi
