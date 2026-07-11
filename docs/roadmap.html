@@ -179,12 +179,17 @@
 <div class="shell">
   <nav class="toc">
     <div class="brand">Roadmap — the personal workflow</div>
-    <div class="brand-sub">One table, one status column, one click to the detail behind each row.</div>
+    <div class="brand-sub">Up next, a live table, a parked pool, what we&#39;re not doing, and a shipped ledger — one click to the detail behind each item.</div>
     <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#origins">Origins</a></li>
       <li><a href="#north-star-2026-07-10">North star (2026-07-10)</a></li>
-      <li><a href="#overview">Overview</a></li>
+      <li><a href="#at-a-glance">At a glance</a></li>
+      <li><a href="#up-next-max-3">Up next (max 3)</a></li>
+      <li><a href="#live">Live</a></li>
+      <li><a href="#parked">Parked</a></li>
+      <li><a href="#not-doing">Not doing</a></li>
+      <li><a href="#shipped">Shipped</a></li>
       <li><a href="#window-management">Window management</a></li>
       <li><a href="#keep--retire--hold">Keep / retire / hold</a></li>
     </ul>
@@ -192,7 +197,7 @@
   <main>
     <header class="title-block">
       <h1>Roadmap — the personal workflow</h1>
-      <p class="dek">One table, one status column, one click to the detail behind each row.</p>
+      <p class="dek">Up next, a live table, a parked pool, what we&#39;re not doing, and a shipped ledger — one click to the detail behind each item.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
@@ -208,6 +213,17 @@ get their own page — click through for the design rationale, the full
 runbook, or whatever detail used to live inline here. Small completed
 items and unratified proposals are noted inline instead (<code>—</code> in the Doc
 column) rather than given a page each. This page stays short on purpose.</p>
+</blockquote>
+<blockquote>
+<p><strong>Reshaped again 2026-07-10</strong> (calibration Decision 3, Option C). The
+single Overview table split into an Up-next queue (max 3), a live table,
+a parked pool, a Not-doing lane, and a shipped ledger. Every status is
+now a fixed stage word plus a free-prose impediment; an ordering claim is
+always a waits-on link (<code>needs:</code>/<code>clock:</code>/<code>after: — chosen</code>), never a bare
+&quot;blocked&quot;. Dated clocks moved to <a href="ceremonies.html">Ceremonies</a>; three
+standing limitations moved to <a href="limitations.html">Limitations</a> — see those
+pages for content that used to live inline here. Verification for this
+reshape is content review, not a byte-diff (R11).</p>
 </blockquote>
 <h2 id="origins">Origins</h2>
 <p>Six things a 2026-07-06 findings pass (&quot;Agent Workbench,&quot; now retired —
@@ -236,7 +252,62 @@ the ledger) reducing <code>~/code/notes</code> to just <code>inbox.md</code>, wi
 holding all wb items, then clarifying the note↔task linking and starting
 fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
 <code>logs/decisions/2026-07-10-workflow-calibration.md</code>.)</p>
-<h2 id="overview">Overview</h2>
+<h2 id="at-a-glance">At a glance</h2>
+<style>
+.roadmap-timeline {
+  display: flex; align-items: flex-end; gap: .3rem; overflow-x: auto;
+  padding: 1.2rem .5rem .5rem; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; margin: 1rem 0;
+}
+.roadmap-timeline .step {
+  flex: 0 0 auto; min-width: 6.5rem; padding: .6rem .7rem; border-radius: 6px;
+  font-size: .78rem; position: relative; border: 1px solid var(--line);
+  text-decoration: none; color: var(--ink); display: block;
+}
+.roadmap-timeline .step::after { content: "→"; position: absolute; right: -1.05rem; top: 50%; transform: translateY(-50%); color: var(--mut); }
+.roadmap-timeline .step:last-child::after { content: none; }
+.roadmap-timeline .step b { display: block; font-family: var(--mono); margin-bottom: .2rem; }
+.roadmap-timeline .step.done { background: color-mix(in srgb, var(--ok) 12%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.roadmap-timeline .step.active { background: color-mix(in srgb, var(--acc) 14%, var(--panel)); border-color: var(--acc); }
+.roadmap-timeline .step.followup { background: var(--bg2); }
+.roadmap-timeline .step.deferred { background: var(--bg2); border-style: dashed; opacity: .75; }
+</style>
+<div class="roadmap-timeline">
+  <a class="step done" href="#detail-docs-platform"><b>Docs platform</b>slice 5, shipped</a>
+  <a class="step done" href="#detail-wb-core"><b>wb core</b>PR #7, shipped</a>
+  <a class="step active" href="#detail-hub-v0"><b>Hub v0</b>this work</a>
+  <a class="step done" href="#detail-parent-child"><b>Parent/child</b>PR #17, shipped</a>
+  <a class="step active" href="#detail-handoff"><b>/handoff</b>in build</a>
+  <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
+  <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
+</div>
+<h2 id="up-next-max-3">Up next (max 3)</h2>
+<p>The next things actually queued to start, in priority order — everything
+else below is either already active, waiting on something named, or
+deliberately set aside.</p>
+<ol>
+<li><a id="detail-schema-migration"></a><strong>Task-store schema migration</strong> —
+one-time pass to bring every existing task file up to the settled
+schema (<code>parent:</code>, <code>closed:</code>, consistent <code>status:</code> values). PR #17
+documented the schema but the per-file migration across
+<code>~/code/tasks/*.md</code> hasn't run yet — see <a href="limitations.html">Limitations</a>.
+Tied to Hub v0's launch.</li>
+<li><a id="detail-wb-new-bootstrap-gap"></a><strong><code>wb new</code> bootstrap gap</strong> —
+<code>wb_bootstrap</code> (<code>wb.sh:136-157</code>) only copies files named by a repo's
+<code>.worktree-bootstrap</code> manifest, else root <code>.env*</code>; <code>be--monorepo</code>'s
+<code>config.hjson</code> (root + <code>apps/metrics_server/</code>) is silently skipped.
+Fix: add that manifest in <code>be--monorepo</code>. Found 2026-07-10 during the
+<code>/handoff</code> dry-run — <a href="roadmap-handoff.html">detail</a>.</li>
+<li><a id="detail-wb-reconcile-duplicate-gap"></a><strong><code>wb reconcile</code> duplicate-task detection</strong> —
+two tasks that both have valid worktrees but represent the same real
+work aren't recognized as a finding at all today; the user still has to
+manually name the merge target — <a href="roadmap-wb-reconcile.html">detail</a>.</li>
+</ol>
+<h2 id="live">Live</h2>
+<p>Ongoing or queued work. Every status is a fixed stage word (<code>active</code> /
+<code>queued</code> / <code>proposed</code>) plus a free-prose impediment clause. An ordering
+claim is always a waits-on link — <code>needs: &lt;item&gt;</code>, <code>clock: &lt;date&gt;</code>, or
+<code>after: &lt;item&gt; — chosen</code> — never a bare &quot;blocked&quot;.</p>
 <table>
 <thead>
 <tr>
@@ -248,177 +319,84 @@ fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
 </thead>
 <tbody>
 <tr>
-<td>Step zero (hooks, alias cleanup)</td>
-<td>Done</td>
-<td>—</td>
-<td>Attention-pipeline hooks wired, dead <code>n</code> alias removed</td>
-</tr>
-<tr>
-<td>Central task store + frontmatter</td>
-<td>Done</td>
-<td><a href="roadmap-wb-design.html">wb design</a></td>
-<td><code>~/code/tasks</code>, file-per-task schema</td>
-</tr>
-<tr>
-<td><code>wb</code> core (new / picker / done)</td>
-<td>Done</td>
-<td><a href="roadmap-wb-design.html">wb design</a> · <a href="wb-guide.html">wb-guide</a></td>
-<td>Session-per-worktree + unified picker — PR #7</td>
-</tr>
-<tr>
-<td>Notes-tui integration, 4a (capture)</td>
-<td>Done</td>
-<td><a href="slice-4b-deep-dive.html">deep dive</a></td>
-<td>Capture habit shipped; 4b (real wiring) tracked separately below</td>
-</tr>
-<tr>
-<td>Docs platform (generated pages, Hub, INDEX, <code>/help</code>)</td>
-<td>Done</td>
-<td><a href="docgen.html">docgen</a> · <a href="slice-5-recap.html">slice-5 recap</a></td>
-<td>One generator, three outputs — slice 5</td>
-</tr>
-<tr>
-<td>Per-skill/TUI guide pages + tile dashboard</td>
-<td>Done</td>
-<td><code>docs/guides/*</code> · <a href="slice-5-recap.html">slice-5 recap</a></td>
-<td>Born-generated guides, <code>HUB.html</code></td>
-</tr>
-<tr>
-<td><code>/board</code> — full HTML task-board view</td>
-<td>Done — PR #14</td>
-<td><a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-board.html">detail</a></td>
-<td><code>wb board --html</code>: 6 status tabs × timeline window, live-session badges, untracked-worktree rows</td>
-</tr>
-<tr>
-<td><code>wb pause</code> (new status + subcommand + keybind)</td>
-<td>Done — PR #14</td>
-<td><a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-board.html">detail</a></td>
-<td>Also stopped <code>wb done</code> from killing the tmux session — same instruction, both wind-down paths</td>
-</tr>
-<tr>
-<td><code>wb reconcile</code> — task-store/git drift detection</td>
-<td>Detection + review/apply flow done — PR #14; combining two already-tracked duplicate tasks is a real, separate gap, still open</td>
-<td><a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-wb-reconcile.html">detail</a></td>
-<td><code>wb reconcile</code> / <code>--review</code> / <code>--apply</code> ship drift detection (orphaned worktree, missing worktree) with a six-action review doc; <strong>not yet covered:</strong> two tasks that both have valid worktrees but represent the same real work — reconcile has no way to see that as a finding at all today</td>
-</tr>
-<tr>
-<td>Day bookends (<code>wb up</code> / <code>wb down</code>)</td>
-<td><code>wb resume &lt;task&gt;</code> shipped (PR #14); full up/down gated on 4b</td>
-<td><a href="roadmap-day-bookends.html">detail</a></td>
-<td>Startup/shutdown flows; single-task resume ships first</td>
-</tr>
-<tr>
-<td>Task recall</td>
-<td>Open, <strong>actually blocked</strong> on the personal/employer boundary rule below, despite reading as unblocked</td>
-<td><a href="roadmap-task-recall.html">detail</a></td>
-<td>Resume any work from any session by referencing it — see Open Questions for the boundary dependency</td>
-</tr>
-<tr>
-<td>Hub v0 (meta-documentation bundle)</td>
-<td><strong>Paused 2026-07-10</strong> mid-plan — trimmed, resumes after parent/child (calibration record: <code>logs/decisions/2026-07-10-workflow-calibration.md</code>)</td>
+<td><a id="detail-hub-v0"></a><strong>Hub v0</strong> (meta-documentation bundle)</td>
+<td>active — this work; U5/U6 artifact index deferred</td>
 <td><a href="brainstorms/2026-07-09-hub-v0-requirements.md">requirements</a></td>
-<td>On resume ships: glossary, limitations page, ceremonies page, <code>/board</code> tile, roadmap full reshape (per the 2026-07-10 ideation round). Artifact index deferred — revisit when a one-off doc actually goes un-findable, or post-parent/child</td>
+<td>Glossary, limitations, ceremonies pages, <code>/board</code> tile, this reshape</td>
 </tr>
 <tr>
-<td>Task parent/child relationship (incl. cross-repo/full-stack tasks)</td>
-<td><strong>Next up</strong> — resequenced ahead of Hub v0's remaining units 2026-07-10 (calibration D1); design resolved, dry-run mechanics folded in</td>
+<td><a id="detail-handoff"></a><strong><code>/handoff</code></strong> — route a discussion to the right worker</td>
+<td>active — building on <code>feat/handoff-v1</code>; single-target validated by hand 2026-07-10; fan-out after: parent/child (PR #17) — chosen</td>
 <td><a href="roadmap-handoff.html">detail</a></td>
-<td><code>parent:</code> frontmatter field, one session per repo linked by it, new picker sub-rows + <code>/board</code> rollup</td>
+<td>Switch to an existing agent's session or <code>wb new</code> it</td>
 </tr>
 <tr>
-<td><code>/handoff</code> — route a discussion to the right worker</td>
-<td>Queued, marked for pickup soon; single-target flow run <strong>by hand</strong> 2026-07-10, mechanical findings on the detail page</td>
-<td><a href="roadmap-handoff.html">detail</a></td>
-<td>Switch to an existing agent's session or <code>wb new</code> it; depends on the parent/child relationship above</td>
+<td><a id="detail-task-recall"></a><strong>Task recall</strong></td>
+<td>queued — needs: boundary-rule</td>
+<td><a href="roadmap-task-recall.html">detail</a></td>
+<td>Resume any work from any session by referencing it</td>
 </tr>
 <tr>
-<td><code>wb new</code> bootstrap gap: repos with no <code>.worktree-bootstrap</code>/<code>.env*</code></td>
-<td>Open, small — found 2026-07-10 during the <code>/handoff</code> dry-run</td>
-<td><a href="roadmap-handoff.html">detail</a></td>
-<td><code>wb_bootstrap</code> (<code>wb.sh:136-157</code>) only copies files named by a repo's <code>.worktree-bootstrap</code> manifest, else root <code>.env*</code> — <code>be--monorepo</code>'s <code>config.hjson</code> (root + <code>apps/metrics_server/</code>) is silently skipped; fix = add that manifest in <code>be--monorepo</code></td>
+<td><a id="detail-day-bookends-full"></a><strong>Day bookends</strong> — full <code>wb up</code> / <code>wb down</code></td>
+<td>queued — needs: notes-tui-4b</td>
+<td><a href="roadmap-day-bookends.html">detail</a></td>
+<td>Single-task <code>wb resume</code> already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring</td>
 </tr>
 <tr>
-<td>Notes-tui integration, 4b (real wiring)</td>
-<td>Superseded by the capture fix-forward experiment (calibration D4, 2026-07-10) — 4a measured unused (1-byte inbox); experiment (reach: tmux bind · read-back: passive surface) wires after the notes-dir audit, verdict ~2026-07-24; store convergence tabled to the ~07-20 calibration</td>
-<td><a href="slice-4b-deep-dive.html">deep dive</a></td>
-<td>Original 4b wiring only proceeds if the experiment changes real usage</td>
+<td><a id="detail-notes-tui-4b"></a><strong>Notes-tui integration, 4b</strong> (real wiring)</td>
+<td>queued — clock: 2026-07-24 (fix-forward experiment verdict)</td>
+<td><a href="slice-4b-deep-dive.html">deep dive</a> · <a href="ceremonies.html">ceremonies</a></td>
+<td>Original 4b wiring only proceeds if the fix-forward experiment changes real usage</td>
 </tr>
 <tr>
-<td>Editor/tmux ergonomics batch</td>
-<td>Done</td>
-<td><a href="9f-ergonomics-recap.html">9f recap</a></td>
-<td>6 small nvim/tmux/Claude-Code items</td>
+<td><a id="detail-boundary-rule"></a><strong>Personal/employer boundary rule</strong></td>
+<td>queued — after: every other follow-up — chosen</td>
+<td><a href="limitations.html">limitations</a></td>
+<td>Deliberately the final decision; Task recall above already depends on it landing</td>
 </tr>
 <tr>
-<td>GPaste clipboard-history manager</td>
-<td>Done</td>
-<td><a href="9g-gpaste-recap.html">9g recap</a></td>
-<td>Configured, <code>&lt;Ctrl&gt;&lt;Shift&gt;G</code> opens history</td>
-</tr>
-<tr>
-<td>Unify copy/paste (terminal paste never needed)</td>
-<td>Open, not started</td>
-<td><a href="9g-gpaste-recap.html">9g recap</a></td>
-<td>Needs its own design pass</td>
-</tr>
-<tr>
-<td>Cross-repo/cross-machine doc registry</td>
-<td>Proposal, unratified</td>
+<td><a id="detail-jira-integration"></a><strong>Jira integration</strong> (<code>/board</code> + day-bookends halves)</td>
+<td>proposed — credential location and persistence-store design still undecided</td>
 <td>—</td>
-<td>Only revisit if artifacts still go missing after the landing-path rule</td>
-</tr>
-<tr>
-<td>Jira integration (<code>/board</code> + day-bookends halves)</td>
-<td>Proposal, not scheduled</td>
-<td>—</td>
-<td>Same open questions both times: credential location, persistence into the sync-bound store</td>
-</tr>
-<tr>
-<td>Personal/employer boundary rule</td>
-<td>Deferred — <strong>final</strong> item</td>
-<td><a href="roadmap-open-questions.html">open questions</a></td>
-<td>Made only after every other follow-up is in place — Task recall above already depends on it landing</td>
-</tr>
-<tr>
-<td>Task-store schema migration/reconciliation</td>
-<td>Proposal, tied to Hub v0 launch</td>
-<td>—</td>
-<td>One-time pass to bring every existing task file up to whatever schema <code>/board</code> + <code>wb reconcile</code> finalize (<code>closed:</code>, <code>paused</code>, etc. are being added piecemeal this session); do the migration once the schema settles rather than per-field</td>
-</tr>
-<tr>
-<td>Skill/tool/command usage audit</td>
-<td>Folded into the ~2026-07-20 check-in (calibration D6, 2026-07-10) — the 2026-07-10 workflow review counts as run #1</td>
-<td>—</td>
-<td>Monthly-ish audit of what's unused (prune candidates) AND what's underused but already solves a current pain point (before building something new) — resolved 2026-07-10: measurement source = agent-run review, output = dossiers under <code>~/code/tasks/dossiers/</code></td>
-</tr>
-<tr>
-<td><code>docgen.sh</code>'s pre-commit hook targets the wrong repo from a worktree</td>
-<td>Done</td>
-<td>—</td>
-<td>Fixed by exporting <code>DOTFILES=&quot;$repo_root&quot;</code> in the hook, using the root it already correctly computed via <code>git rev-parse --show-toplevel</code>. Verified with a real divergence test: a marker page committed from a throwaway worktree landed in that worktree's <code>HUB.html</code> only, main checkout untouched</td>
+<td>Same two open questions block both integration points</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Dated clocks</strong> (not tasks — check-in points, i.e. &quot;on this date, come back and
-make a call,&quot; not &quot;on this date, code runs automatically&quot;). What's actually
-expected to happen at each:</p>
+<h2 id="parked">Parked</h2>
+<p>Set aside on purpose. Every entry names what would actually bring it back.</p>
 <ul>
-<li><strong>~2026-07-13 — delete <code>tmux_pane_awaiting_input</code></strong> (if hook data held).
-This is a version-pinned content-scan fallback for detecting &quot;is this
-tmux pane waiting on input&quot; — a stopgap until the newer hook-based
-attention pipeline (Step zero, above) proved reliable. The action: if the
-hook-based detection has held up without regressions by this date, delete
-the old fallback scan; if it hasn't, keep it a while longer.</li>
-<li><strong>~2026-07-14 — 4a capture-window verdict.</strong> Look at how notes-tui's
-capture habit (4a, shipped) actually got used over the observation
-window, then decide whether that usage justifies building 4b's real
-wiring, and in what shape. A go/shape decision, not an automatic trigger.</li>
-<li><strong>~2026-07-20 — push-vs-weekly-ritual validation check-in.</strong> Compare
-whether proactive push notifications or batched weekly review (the
-<code>/parked-items</code> model) actually fits real usage better, to inform how
-similar future features get designed.</li>
+<li><a id="detail-doc-registry"></a><strong>Cross-repo/cross-machine doc registry</strong> — parked. Revisit trigger: artifacts still going missing after the landing-path rule.</li>
+<li><a id="detail-unify-copy-paste"></a><strong>Unify copy/paste</strong> (terminal paste never needed) — parked. Revisit trigger: a design pass gets scheduled — <a href="9g-gpaste-recap.html">9g recap</a>.</li>
 </ul>
-<p>Full detail on every deferred decision the 2026-07-07 doc review left open:
+<h2 id="not-doing">Not doing</h2>
+<p>Considered, and decided against — kept here so the reasoning isn't lost.</p>
+<ul>
+<li><a id="detail-computed-staleness"></a><strong>Computed staleness detection + an existence-aware <code>/board</code> tile</strong> — traded for the static hints Hub v0 actually shipped (the <code>/board</code> tile + intro banner, U4).</li>
+<li><a id="detail-wb-reconcile-glossary"></a><strong><code>wb reconcile --glossary</code></strong> (auto-detecting glossary gaps) — a <code>wb.sh</code> feature, not a docgen/Hub one; not this push's job.</li>
+</ul>
+<h2 id="shipped">Shipped</h2>
+<p><span class="chip ok">14 shipped</span> — full history and rationale live
+on each linked recap page; these no longer take a queue/live/parked slot.</p>
+<ul>
+<li><a id="detail-step-zero"></a><strong>Step zero</strong> (hooks, alias cleanup) — attention-pipeline hooks wired, dead <code>n</code> alias removed.</li>
+<li><a id="detail-task-store-frontmatter"></a><strong>Central task store + frontmatter</strong> — <a href="roadmap-wb-design.html">wb design</a></li>
+<li><a id="detail-wb-core"></a><strong><code>wb</code> core</strong> (new / picker / done) — <a href="roadmap-wb-design.html">wb design</a> · <a href="wb-guide.html">wb-guide</a> — PR #7</li>
+<li><a id="detail-notes-tui-4a"></a><strong>Notes-tui integration, 4a</strong> (capture) — <a href="slice-4b-deep-dive.html">deep dive</a></li>
+<li><a id="detail-docs-platform"></a><strong>Docs platform</strong> (generated pages, Hub, INDEX, <code>/help</code>) — <a href="docgen.html">docgen</a> · <a href="slice-5-recap.html">slice-5 recap</a></li>
+<li><a id="detail-guide-pages-hub"></a><strong>Per-skill/TUI guide pages + tile dashboard</strong> — <code>docs/guides/*</code> · <a href="slice-5-recap.html">slice-5 recap</a></li>
+<li><a id="detail-board-html"></a><strong><code>/board</code></strong> — full HTML task-board view — <a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-board.html">detail</a> — PR #14</li>
+<li><a id="detail-wb-pause"></a><strong><code>wb pause</code></strong> (new status + subcommand + keybind) — <a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-board.html">detail</a> — PR #14</li>
+<li><a id="detail-wb-reconcile-core"></a><strong><code>wb reconcile</code></strong> — drift detection + review/apply flow — <a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-wb-reconcile.html">detail</a> — PR #14</li>
+<li><a id="detail-wb-resume"></a><strong><code>wb resume &lt;task&gt;</code></strong> (day bookends, single-task) — <a href="roadmap-day-bookends.html">detail</a> — PR #14</li>
+<li><a id="detail-ergonomics-batch"></a><strong>Editor/tmux ergonomics batch</strong> — <a href="9f-ergonomics-recap.html">9f recap</a></li>
+<li><a id="detail-gpaste"></a><strong>GPaste clipboard-history manager</strong> — <a href="9g-gpaste-recap.html">9g recap</a></li>
+<li><a id="detail-precommit-hook-fix"></a><strong><code>docgen.sh</code>'s pre-commit hook</strong> — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test</li>
+<li><a id="detail-parent-child"></a><strong>Task parent/child relationship</strong> (incl. cross-repo/full-stack tasks) — <a href="roadmap-handoff.html">detail</a> — PR #17</li>
+</ul>
+<p>Ceremonies (dated clocks, recurring reviews) now live on their own page:
+<a href="ceremonies.html">Ceremonies</a>. Standing workflow constraints now live on
+their own page: <a href="limitations.html">Limitations</a>. Full detail on every
+deferred decision the 2026-07-07 doc review left open:
 <a href="roadmap-open-questions.html">Open Questions</a>.</p>
 <h2 id="window-management">Window management</h2>
 <p><strong>Unblocked 2026-07-09</strong> — the trigger this section existed to track
