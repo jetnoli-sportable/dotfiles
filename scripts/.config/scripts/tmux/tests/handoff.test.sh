@@ -144,12 +144,18 @@ expected_pointer2="Read the task file at $TASK_FILE2 - it carries the full conte
 clip2="$(wl-paste 2>/dev/null || true)"
 assert_eq "missing task file: still switches and clipboards" "$expected_pointer2" "$clip2"
 
-# --- error path: no live session -> spawn stub (not this unit's job) ------
+# --- error path: no live session -> takes the spawn branch, not switch ----
+# Branch-selection only — testrepo3 has no real ~/code checkout, so `wb new`
+# itself fails loudly ("not a git repo") before any tmux/poller/injection
+# logic runs. Full spawn-path coverage (poller, injection shape, bootstrap-
+# gap, permission handshake) lives in handoff-poller.test.sh's isolated
+# fixtures, not here — a real end-to-end spawn is the plan's manual smoke
+# test, not this automated suite.
 REPO3="testrepo3"
 SLUG3="feat/never-spawned"
 run_handoff "$REPO3" "$SLUG3"
-assert_eq "no live session: exits non-zero (spawn path stubbed)" "1" "$rc"
-assert "no live session: takes the spawn stub, not the switch path" "spawn path" "$out"
+assert_eq "no live session: exits non-zero (repo3 has no real git checkout)" "1" "$rc"
+assert "no live session: takes the spawn branch, not the switch path" "wb new:.*not a git repo" "$out"
 
 # --- error path: zero positional args --------------------------------------
 printf 'sentinel-before-error-test' | wl-copy
