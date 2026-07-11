@@ -188,5 +188,22 @@ else
   echo "FAIL - sweep: dossier copy of the queue file missing at $dossier/.claude-queue.md"; fail=1
 fi
 
+# =============================================================================
+# 8. Main-checkout path: wb_ensure_repo_ignore called directly against a repo
+#    dir (not a worktree), the branch cmd_new never exercises (it always
+#    passes a linked worktree's path). `git rev-parse --git-common-dir`
+#    prints a RELATIVE path (".git") for a main checkout vs. an absolute one
+#    for a linked worktree — this is queue.lua's lazy-stash path when a user
+#    stashes from a plain checkout rather than a wb-managed worktree.
+# =============================================================================
+mk_repo "$FIXTURE_CODE/proj7"
+wb_ensure_repo_ignore "$FIXTURE_CODE/proj7"
+excl7="$FIXTURE_CODE/proj7/.git/info/exclude"
+assert_eq "main-checkout path: exclude file has exactly one pattern occurrence" \
+  "1" "$(grep -cxF '.claude-queue.md' "$excl7" 2>/dev/null)"
+wb_ensure_repo_ignore "$FIXTURE_CODE/proj7"
+assert_eq "main-checkout path: idempotent on a second direct call" \
+  "1" "$(grep -cxF '.claude-queue.md' "$excl7" 2>/dev/null)"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

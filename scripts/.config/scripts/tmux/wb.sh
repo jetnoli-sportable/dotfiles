@@ -212,8 +212,8 @@ wb_bootstrap() {
 # <path> may be a worktree or the main checkout — `git rev-parse
 # --git-common-dir` resolves either to the one shared `.git` dir all of a
 # repo's worktrees have in common, so this same call works whether it's
-# handed a repo dir (cmd_new, below) or a worktree's cwd (queue.lua's future
-# lazy-create path).
+# handed a repo dir (cmd_new, below) or a worktree's cwd (queue.lua's lazy-
+# create path, called on every stash).
 #
 # Guarded against two concrete failure modes: a missing trailing newline in
 # a pre-existing info/exclude would otherwise glue the new pattern onto the
@@ -392,8 +392,12 @@ cmd_new() {
   # a repo's OTHER, older worktrees that predate this feature: every `wb new`
   # call re-checks (idempotently) that this repo's .git/info/exclude has the
   # queue-file pattern registered, regardless of whether *this* invocation's
-  # own worktree was newly created just now.
-  wb_ensure_repo_ignore "$worktree_path"
+  # own worktree was newly created just now. Best-effort: under `set -e`, an
+  # unguarded call here would abort the whole `wb new` (including a plain
+  # reattach to an already-existing worktree/session) on any failure in this
+  # unrelated step — warn and continue instead.
+  wb_ensure_repo_ignore "$worktree_path" \
+    || echo "wb new: warning: could not register .git/info/exclude ignore rule for $repo_dir (continuing)" >&2
 
   local task_file
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref")"

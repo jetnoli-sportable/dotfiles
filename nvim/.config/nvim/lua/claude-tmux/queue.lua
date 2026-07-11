@@ -59,19 +59,23 @@ function M.stash(text)
 
 	local cwd = vim.fn.getcwd()
 	local file = queue_file(cwd)
-	local exists = vim.fn.filereadable(file) == 1
-	if not exists then
-		local ok, err = ensure_repo_ignore(cwd)
-		if not ok then
-			notify("queue: could not register ignore rule (" .. (err or "unknown error") .. ") — stashing anyway", vim.log.levels.WARN)
-		end
+	-- Called on every stash, not just the worktree's first: wb_ensure_repo_ignore
+	-- is idempotent and cheap (a flock-guarded grep), so a failed registration
+	-- attempt gets retried on the very next stash instead of leaving the
+	-- worktree permanently unregistered for its whole lifetime.
+	local ok, err = ensure_repo_ignore(cwd)
+	if not ok then
+		notify("queue: could not register ignore rule (" .. (err or "unknown error") .. ") — stashing anyway", vim.log.levels.WARN)
 	end
 
-	local lines = exists and vim.fn.readfile(file) or {}
 	-- ISO 8601, local time — same `date +%FT%H:%M:%S` shape notes-tui's own
 	-- inbox capture blocks use (scripts/note.sh in ~/code/notes-tui).
-	vim.list_extend(lines, { "## " .. os.date("%Y-%m-%dT%H:%M:%S"), "", text, "" })
-	vim.fn.writefile(lines, file)
+	local block = { "## " .. os.date("%Y-%m-%dT%H:%M:%S"), "", text, "" }
+	-- Append mode ("a"): creates the file if absent, otherwise appends in one
+	-- write — a read-whole-file-then-write-whole-file round trip would let
+	-- two nvim instances stashing near-simultaneously race and silently drop
+	-- one entry (the second writer's whole-file write clobbers the first's).
+	vim.fn.writefile(block, file, "a")
 	notify("stashed")
 end
 
