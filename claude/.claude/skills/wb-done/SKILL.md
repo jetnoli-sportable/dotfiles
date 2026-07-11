@@ -12,10 +12,10 @@ inside a Claude Code session without hanging the agent's turn.
 ## Why this needs to exist at all
 
 `wb done` almost always opens an interactive review buffer before it does
-anything else. `cmd_done` (`scripts/.config/scripts/tmux/wb.sh:1534`) calls
+anything else. `cmd_done` (`scripts/.config/scripts/tmux/wb.sh:1546`) calls
 `wb_open_buffer` unconditionally on both its main paths — the ignored-files
-sweep branch (`wb.sh:1594`) and the plain else branch (`wb.sh:1649`); only
-the dirty-worktree fail-fast (`wb.sh:1566-1574`) skips it. `wb_open_buffer`
+sweep branch (`wb.sh:1606`) and the plain else branch (`wb.sh:1661`); only
+the dirty-worktree fail-fast (`wb.sh:1578-1586`) skips it. `wb_open_buffer`
 itself (`wb.sh:839-850`) is:
 
 ```bash
@@ -153,7 +153,7 @@ one of, among others:
 
 `cmd_done`'s self-target guard is deliberately scoped to the interactive
 picker's ctrl-x dispatch only, **not** to `cmd_done` itself
-(`wb.sh:2153-2155`: "typing `wb done --close` yourself from inside your own
+(`wb.sh:2165-2167`: "typing `wb done --close` yourself from inside your own
 session stays intentional self-close and is untouched"). If `--close` is
 requested and no other `<session>` is named, `wb done` will, as its very
 last step, `tmux kill-session` on the session this skill is running inside
@@ -161,14 +161,26 @@ last step, `tmux kill-session` on the session this skill is running inside
 session dies, the process dies with it, mid-flight, before step 3 above can
 ever run: there is no next turn in which to relay a final confirmation.
 
+`tmux kill-session` also takes down every OTHER window in that session, not
+just this one — every wb-managed session has a separate nvim window (win1,
+`wb_layout_session`, `wb.sh:247-261`) alongside the agent window. The
+dirty-tree check earlier in `cmd_done` only inspects `git status
+--porcelain` (on-disk state), so an unsaved-but-never-written buffer sitting
+open in that other window is invisible to that guard and would be silently
+destroyed along with the session — the same blast radius `_ctrl_x`'s own
+guard comment already documents for the picker path (`wb.sh:2159-2160`:
+"kill the very pane running this command (and any other live window in
+that session) with no confirmation").
+
 So: when `--close` applies to the current session, say so **before**
 launching the background call, e.g. "This will also kill the current tmux
-session once the wind-down finishes — you won't see a confirmation message
-here after that; check `wb board` or the task file afterward." This is not
-an extra confirmation prompt (the user already asked for `--close`
-explicitly, which is their call) — it's making sure they know the last
-message they'll see from this session is the one right before the command
-runs, not a relay of `wb done`'s own output.
+session — including any other window in it, like an nvim buffer with
+unsaved edits — once the wind-down finishes; you won't see a confirmation
+message here after that, check `wb board` or the task file afterward." This
+is not an extra confirmation prompt (the user already asked for `--close`
+explicitly, which is their call) — it's making sure they know the full
+blast radius and that the last message they'll see from this session is the
+one right before the command runs, not a relay of `wb done`'s own output.
 
 ## Test scenarios this skill's behavior must cover
 
