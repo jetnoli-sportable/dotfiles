@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Open Questions — deferred decisions from the 2026-07-07 doc review</title>
+<title>Ceremonies — dated clocks and recurring reviews</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,66 +173,64 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap-open-questions.md</b> — edit the .md, not this file</span>
+  <span>docgen · generated from <b>docs/ceremonies.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-10</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> Open Questions — deferred decisions from the 2026-07-07 doc review</h1>
+  <h1><span class="glyph">§</span> Ceremonies — dated clocks and recurring reviews</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>Findings from the 7-persona review in
-<code>logs/decisions/2026-07-07-roadmap-review-findings.md</code> that the owner
-checked <strong>Defer</strong> on. Kept here, not resolved, so they resurface rather
-than silently drop. This page is the source; edit
-<code>docs/roadmap-open-questions.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> §11 (superseded — this page is the detail)</p>
-<blockquote>
-<p><strong>2026-07-10 — three entries promoted.</strong> GPaste's Sway coupling, the
-warn-only credential guard, and GPaste's no-expiry clipboard history were
-standing, by-design constraints rather than open decisions — they moved
-to <a href="limitations.html">Limitations</a>, each keeping its own revisit trigger.
-What's left here is genuinely still open, or process record.</p>
-</blockquote>
-<h2 id="notes-corpus-shape">Notes corpus shape</h2>
-<p>Resolved for now, re-confirmed 2026-07-07: <strong>keep <code>~/code/tasks</code> and
-<code>~/code/notes</code> as separate repos</strong> — this re-confirms the standing call
-already parked in <code>~/code/tasks/tasks--task-note-convergence.md</code>
-(2026-07-06), which explicitly deferred merging until <code>wb</code> + notes-tui's
-<code>--context</code> flag both have real usage behind them (4a/4b). Capture-anywhere
-and end-of-day-aggregation are already live today via <code>note</code>/<code>notes digest</code> (slice 4a) — no new plumbing needed for those two asks
-specifically. Cross-querying <code>wb</code> + personal notes stays <a href="roadmap-task-recall.html">task recall's</a>
-job, not a directory merge. <strong>Standing instruction:</strong> flag it again if the
-split ever becomes a real hindrance rather than a theoretical one, so it
-goes through a proper decision instead of drifting. &quot;Where documentation
-lives&quot; stays explicitly open, not addressed by this resolution.</p>
-<h2 id="f4-in-the-task-template">&quot;(F4)&quot; in the task template</h2>
-<p>Traced via grep sweep (owner ask, 2026-07-07): <code>F4</code> was finding-ID
-shorthand from the now-retired <code>agent-workbench-findings.html</code> — &quot;Task
-history is reviewable&quot; (the gap it named: task discussion/decisions
-scattered across three stores with nothing assembling a per-task dossier).
-The task template's <code>## Decisions</code> section exists specifically to satisfy
-this. Now explained inline in <code>roadmap.md</code>'s Origins note instead of
-pointing at a deleted file — <strong>this question is resolved</strong>, kept here for
-the record of how it was traced.</p>
-<h2 id="personalemployer-boundary-rule-the-final-follow-up">Personal/employer boundary rule (the FINAL follow-up)</h2>
-<p>Deliberately not &quot;deferred&quot; in the same sense as the others above — this
-one is the intentional last item. The personal/employer boundary rule for
-the task store and all aggregation surfaces (classification convention vs.
-split stores vs. permanent local-only) is deliberately the <strong>final</strong>
-follow-up decision, to be made after every other follow-up in this whole
-push, once the full flow is in place. Interim guardrails until then: the
-task store gets no remote; slice 5's INDEX/HTML outputs carry a minimal
-work-reference redaction guard; the credential guard and the cross-repo
-doc-registry boundary axis stand as written.</p>
+<p><strong>Dated clocks</strong> are check-in points, not tasks — &quot;on this date, come back
+and make a call,&quot; never &quot;on this date, code runs automatically.&quot; Moved
+here from <code>docs/roadmap.md</code> so this page has room to grow into future
+recurring reviews beyond today's clocks.</p>
+<h2 id="active">Active</h2>
+<h3 id="2026-07-13--delete-tmux-pane-awaiting-input">~2026-07-13 — delete <code>tmux_pane_awaiting_input</code></h3>
+<p>This is a version-pinned content-scan fallback for detecting &quot;is this
+tmux pane waiting on input&quot; — a stopgap until the newer hook-based
+attention pipeline (the workflow's Step zero) proved reliable. The action:
+if the hook-based detection has held up without regressions by this date,
+delete the old fallback scan; if it hasn't, keep it a while longer.</p>
+<h3 id="2026-07-20--combined-calibration-ceremony">~2026-07-20 — combined calibration ceremony</h3>
+<p>Originally two separate check-ins, folded together by the 2026-07-10
+calibration round (Decision 6):</p>
+<ul>
+<li><strong>Push-vs-weekly-ritual validation.</strong> Compare whether proactive push
+notifications or batched weekly review (the <code>/parked-items</code> model)
+actually fits real usage better, to inform how similar future features
+get designed.</li>
+<li><strong>Skill/tool/command usage audit.</strong> Monthly-ish audit of what's unused
+(prune candidates) and what's underused but already solves a current
+pain point (before building something new). The 2026-07-10 workflow
+review counts as run #1. Measurement source: agent-run review; output:
+dossiers under <code>~/code/tasks/dossiers/</code>.</li>
+</ul>
+<h3 id="2026-07-24--capture-fix-forward-experiment-verdict">~2026-07-24 — capture fix-forward experiment verdict</h3>
+<p>Successor to the 4a capture-window clock below, which resolved early and
+unused. The fix-forward experiment (reach: tmux bind · read-back: passive
+surface) wires in after the notes-dir audit; this date is when its actual
+usage gets a verdict. Notes-tui integration 4b's original real-wiring plan
+only proceeds if this experiment changes real usage; store convergence
+(task store ↔ notes corpus) is tabled to the ~2026-07-20 combined
+ceremony above.</p>
+<h2 id="resolved">Resolved</h2>
+<h3 id="4a-capture-window-verdict--resolved-early-2026-07-10-unused">4a capture-window verdict — resolved early, 2026-07-10 (unused)</h3>
+<p>Originally scheduled for ~2026-07-14: look at how notes-tui's capture
+habit (4a, shipped) actually got used over the observation window, then
+decide whether that usage justifies building 4b's real wiring, and in
+what shape. <strong>Outcome:</strong> measured unused before the window even closed —
+a 1-byte inbox — so 4b's original wiring plan is superseded by the capture
+fix-forward experiment (see the ~2026-07-24 clock above) rather than
+proceeding as originally scoped.</p>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-open-questions.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/ceremonies.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

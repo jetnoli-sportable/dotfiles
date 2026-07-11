@@ -1,10 +1,10 @@
 ---
 title: Open Questions — deferred decisions from the 2026-07-07 doc review
 status: current
-tile: Five things deliberately left unresolved. Revisit triggers noted per item.
+tile: Deliberately unresolved decisions and process record. Standing limitations moved to their own page.
 group: personal-workflow
 kind: page
-updated: 2026-07-08
+updated: 2026-07-10
 ---
 
 Findings from the 7-persona review in
@@ -15,13 +15,11 @@ than silently drop. This page is the source; edit
 
 **Roadmap:** §11 (superseded — this page is the detail)
 
-## GPaste's GNOME Shell dependency vs. the Sway direction
-
-9g's GPaste config is GNOME-Shell-specific; the owner's WM direction is
-Sway, at a later unscheduled date (see the WM pointer note in the [9g
-recap](9g-gpaste-recap.html)). Revisit 9g's mechanism when the Sway
-migration is actually scheduled — GPaste's extension model has no Sway
-equivalent, so this isn't a config tweak, it's a re-pick of the whole tool.
+> **2026-07-10 — three entries promoted.** GPaste's Sway coupling, the
+> warn-only credential guard, and GPaste's no-expiry clipboard history were
+> standing, by-design constraints rather than open decisions — they moved
+> to [Limitations](limitations.html), each keeping its own revisit trigger.
+> What's left here is genuinely still open, or process record.
 
 ## Notes corpus shape
 
@@ -37,24 +35,6 @@ job, not a directory merge. **Standing instruction:** flag it again if the
 split ever becomes a real hindrance rather than a theoretical one, so it
 goes through a proper decision instead of drifting. "Where documentation
 lives" stays explicitly open, not addressed by this resolution.
-
-## Credential guard is warn-only, not a hard block
-
-The [`wb` design page](roadmap-wb-design.html)'s guard is a dismissible
-warning in the close-out review buffer, not an enforced block, and has no
-content-based fallback (doesn't scan file *contents* for secret-shaped
-strings, only filenames). Acceptable while the task store stays local-only
-and single-user; revisit if the store ever gets a remote (same trigger as
-the personal/employer boundary rule below) or if a credential-shaped
-filename ever slips past the denylist.
-
-## GPaste's persistent clipboard history has no secrets policy
-
-Clipboard history persists to disk indefinitely (`save-history true`) with
-no expiry or secret-detection — copying a token or password puts it in the
-history store with no automatic cleanup. Shipped as-is for a personal
-single-user machine; revisit if it turns out to be a real problem in
-practice (e.g. add a max-age prune or a "don't persist this clip" gesture).
 
 ## "(F4)" in the task template
 
