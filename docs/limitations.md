@@ -59,3 +59,17 @@ As of 2026-07-10, only the two files that PR itself touched carry
 `open|paused|done`. Expect task files in `~/code/tasks` to look
 inconsistent until that migration lands. **Revisit trigger:** see the
 "Task-store schema migration" row on [the roadmap](roadmap.html).
+
+## Roadmap anchor/link integrity is manually verified, not machine-checked
+
+`docs/roadmap.md`'s reshape (PR #18) introduced 28 hand-typed
+`id="detail-<slug>"` anchors and 7 `href="#detail-<slug>"` references in its
+"At a glance" visual. Nothing in the docgen pipeline validates that every
+href resolves to a matching id, or that ids stay unique — a `ce-code-review`
+pass (testing + maintainability, independently) flagged this; both counts
+were 28/28 correct as of 2026-07-11, verified by hand. A future edit to that
+page could silently break one. **Revisit trigger:** next time
+`docs/roadmap.md`'s anchor/link structure gets a substantive edit, manually
+re-run the duplicate-id + href-resolution check before merging; build a real
+docgen lint step if that manual check is ever skipped and something actually
+breaks.
