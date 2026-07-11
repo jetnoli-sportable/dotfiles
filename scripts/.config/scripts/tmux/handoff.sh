@@ -251,6 +251,16 @@ fi
 # submission risk). Never sends `/model` to the pane (R7).
 tmux send-keys -t "$target" -l "$pointer"
 tmux send-keys -t "$target" Enter
+# The very first Enter sent right as the boot-ready anchor first appears can
+# be silently dropped — observed live (2026-07-11 smoke test): the TUI was
+# still mid-transition from the welcome banner to interactive at that exact
+# instant, and the pointer sat unsubmitted in the input box until a second
+# Enter went through. Resending Enter once more after a short pause is a
+# safe no-op if the first one already landed (Enter on an empty,
+# already-submitted input box does nothing) and closes the gap when it
+# didn't.
+sleep 1
+tmux send-keys -t "$target" Enter
 
 if ! pane_text="$(handoff_wait_for_pane_pattern "$target" "$HANDOFF_PERMISSION_TIMEOUT" 'Do you want to proceed\?')"; then
   echo "handoff: spawned and injected $session — no permission prompt seen within ${HANDOFF_PERMISSION_TIMEOUT}s (it may already be clear, or the agent hasn't reached its first action yet)" >&2

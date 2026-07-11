@@ -166,6 +166,30 @@ detection specifically:
 and only within the agent's output region — never the input echo or the
 static banner.
 
+**Dry-run #4 — 2026-07-11, the shipped `handoff.sh`'s own required live
+manual smoke walkthrough (real `wb new --agent` spawn, real `claude`
+boot).** One finding, in the boot-ready-to-injection handoff specifically:
+
+- **The Enter sent immediately after the boot-ready anchor first matches
+  can be silently dropped.** The pointer text landed correctly in the input
+  box (confirmed via `capture-pane`), but the TUI was still mid-transition
+  off the welcome banner at that exact instant, and the very next `Enter`
+  never submitted it — the pointer sat there un-submitted until a second,
+  much-later `Enter` went through. Net effect: the permission prompt didn't
+  appear until well after `handoff.sh`'s own poll window had already given
+  up, so it exited 0 with "no permission prompt seen" even though the
+  handoff would have completed fine, just late and unattended. Fix shipped
+  the same day: resend `Enter` once more after a short pause immediately
+  after the first — safe as a no-op if the first one already landed (a
+  second `Enter` on an empty, already-submitted input box does nothing),
+  closes the gap when it didn't. Confirmed live with a second smoke-test
+  run: fully automated, zero manual intervention, well within both poll
+  windows. Not caught by the automated poller tests (`handoff-poller.test.sh`)
+  because a bare-shell fixture pane can't reproduce a real TUI's own
+  render-transition timing — exactly the class of gap only a real `claude`
+  boot surfaces, which is why the plan's Definition of Done requires this
+  walkthrough rather than treating the automated suite alone as sufficient.
+
 ## The sub-task relationship gap — resolved design, 2026-07-09
 
 Raised alongside the `/handoff` ask: "do we have a relationship in place

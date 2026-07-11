@@ -298,6 +298,21 @@ else
   echo "ok   - injection shape: no send-keys call combines -l and Enter on one line"
 fi
 
+# --- dropped-first-Enter regression (live smoke test, 2026-07-11): the ------
+# Enter sent immediately after the boot-ready anchor first matches can be
+# silently dropped while the TUI is still mid-transition off the welcome
+# banner — observed live, not in any fixture (a bare-shell pane can't
+# reproduce a real TUI's render timing). Fix is a bounded, safe-as-a-no-op
+# resend: a second Enter after a short pause. Assert the pointer-injection
+# block sends Enter twice with a sleep between, not just once.
+enter_count_after_pointer="$(awk '/-l "\$pointer"/{found=1} found && /send-keys -t "\$target" Enter/{c++} END{print c+0}' "$HANDOFF")"
+if [ "$enter_count_after_pointer" -ge 2 ]; then
+  echo "ok   - dropped-Enter regression: pointer injection resends Enter after a pause, not just once"
+else
+  echo "FAIL - dropped-Enter regression: expected a second Enter resend after pointer injection (got $enter_count_after_pointer Enter sends)"
+  fail=1
+fi
+
 # --- R10 auto-answer keystroke: single '2', no trailing Enter --------------
 answer_line="tmux send-keys -t \"\$target\" -l '2'"
 if grep -qF -- "$answer_line" "$HANDOFF"; then
