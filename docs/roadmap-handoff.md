@@ -136,6 +136,60 @@ session itself. Three additions to the findings:
 *(Re-instated 2026-07-10 evening from the orchestrating session's record —
 this block was uncommitted when the deletion incident hit.)*
 
+**Dry-run #3 — 2026-07-10, same day (dotfiles, the orchestrating session
+spawning the /handoff-v1 planning session itself — a live run of the flow
+being designed).** Two additions, both sharpening readiness/permission
+detection specifically:
+
+- **The boot-ready marker is not a single stable string — poll a SET of
+  anchors.** A poller waiting on `? for shortcuts` timed out because that
+  boot showed `Try "…"` instead. Reliable approach: match any of the ready
+  anchors — the shortcuts hint (`? for shortcuts`), the `Try "` quote
+  placeholder, or the `% ctx` statusline — not one literal. Sharpens
+  finding 3 above ("what exact ready-signal to poll for"); confirmed
+  independently the same day via a live tmux+claude probe (see the task's
+  own plan for the exact anchor set and the single-keystroke permission-menu
+  behavior).
+- **Scope the marker match to the agent's OUTPUT region, not the whole
+  pane — the input box echoes your own injected prompt.** A
+  readiness/skill watcher grepping the full `capture-pane` for `ce-plan`
+  fired a false positive by matching the literal string inside the
+  briefing text still sitting in the input box, before the skill actually
+  invoked. Only a marker confirmed in the transcript/output area is real.
+  Same failure class as the "allow" banner false-positive above,
+  generalized: any marker that can also appear in the briefing you just
+  sent will match prematurely if the poller scans the input region. The
+  poller must exclude the input line (and the welcome banner) from its
+  match window.
+
+**Net rule for v1's readiness/permission detection:** match an anchor set,
+and only within the agent's output region — never the input echo or the
+static banner.
+
+**Dry-run #4 — 2026-07-11, the shipped `handoff.sh`'s own required live
+manual smoke walkthrough (real `wb new --agent` spawn, real `claude`
+boot).** One finding, in the boot-ready-to-injection handoff specifically:
+
+- **The Enter sent immediately after the boot-ready anchor first matches
+  can be silently dropped.** The pointer text landed correctly in the input
+  box (confirmed via `capture-pane`), but the TUI was still mid-transition
+  off the welcome banner at that exact instant, and the very next `Enter`
+  never submitted it — the pointer sat there un-submitted until a second,
+  much-later `Enter` went through. Net effect: the permission prompt didn't
+  appear until well after `handoff.sh`'s own poll window had already given
+  up, so it exited 0 with "no permission prompt seen" even though the
+  handoff would have completed fine, just late and unattended. Fix shipped
+  the same day: resend `Enter` once more after a short pause immediately
+  after the first — safe as a no-op if the first one already landed (a
+  second `Enter` on an empty, already-submitted input box does nothing),
+  closes the gap when it didn't. Confirmed live with a second smoke-test
+  run: fully automated, zero manual intervention, well within both poll
+  windows. Not caught by the automated poller tests (`handoff-poller.test.sh`)
+  because a bare-shell fixture pane can't reproduce a real TUI's own
+  render-transition timing — exactly the class of gap only a real `claude`
+  boot surfaces, which is why the plan's Definition of Done requires this
+  walkthrough rather than treating the automated suite alone as sufficient.
+
 ## The sub-task relationship gap — resolved design, 2026-07-09
 
 Raised alongside the `/handoff` ask: "do we have a relationship in place
@@ -175,15 +229,62 @@ table.html`'s speculative section.
 
 ## Sequencing
 
-Design resolved (above); build not yet started. When picked up: (1) the
-schema/topology/rendering design above, already resolved — no re-scoping
-needed; (2) the mechanical v1 requirements from the 2026-07-10 dry-run
-findings above (task-file-as-payload, boot-readiness polling, the
-permission-prompt handshake, explicit first-action selection) are
-first-class scope, not discovered-during-build detail; (3) multi-target
-fan-out rides the parent/child loop (finding 5) and belongs in v1's
-scope statement even if the batch path itself lands later; and (4) the
-follow-up (deferred on purpose) of actually instructing an existing
-agent rather than just switching to their session, which `/handoff`
-itself still needs once this lands — findings 1–4 apply to that path
-too, since it uses the same injection mechanics.
+**v1 shipped 2026-07-11** (`docs/plans/2026-07-11-001-feat-handoff-v1-plan.md`,
+`scripts/.config/scripts/tmux/handoff.sh` + `claude/.claude/skills/handoff/SKILL.md`).
+(1) The schema/topology/rendering design above stands as resolved —
+untouched by v1, still waiting on the parent/child branch to build
+against it. (2) The mechanical v1 requirements from the 2026-07-10
+dry-run findings above (task-file-as-payload, boot-readiness polling,
+the permission-prompt handshake) shipped as first-class scope, exactly
+as scoped — plus one refinement found live during planning: first
+action is written into the task file's own body rather than passed as a
+`handoff.sh` flag, which also closes a free-text collision risk two
+doc-review personas found in an earlier draft. (3) Multi-target fan-out
+is still deferred, waiting on the parent/child loop (finding 5) — not
+built, `/handoff` v1 is single-target only. (4) The follow-up of
+actually instructing an existing agent rather than just switching to
+their session is still deferred, unchanged from the original framing.
+Two additional follow-ons surfaced live while shipping v1, both
+deliberately parked rather than folded in — neither changes v1's scope,
+both tracked as their own future pickups: non-blocking `/handoff`
+invocation (running independently of the current turn; captured in the
+task file's `## Follow-ups`, not built until v1 has seen real usage),
+and self-handoff between stages (its own section below).
+
+## Follow-on idea (not v1, not yet planned): self-handoff between stages
+
+Raised 2026-07-11, while /handoff v1 itself was mid-plan: keep a single
+task's context clean across its own stage boundaries (e.g. `/ce-plan`
+finishes, `/ce-work` begins) by having the *same* agent update the task
+file's state, `/clear` its own context, then re-arrive and read the task
+file fresh for the next stage — rather than one long session accumulating
+all of planning's research/back-and-forth before implementation even
+starts.
+
+This is a different mechanic from v1's routing, not a variant of it:
+v1 takes a *tangential* discussion and sends it to a *different*
+repo/slug's agent (existing session via switch+clipboard, or a fresh one
+via spawn+inject). This idea keeps the *same* repo/slug/session and clears
+*its own* context mid-flow — the "session already live" check v1 relies
+on (`tmux has-session`) would always be true here (it's asking about
+itself), so neither of v1's two delivery paths actually fits; a third
+mechanic is needed. Two real open questions it would have to answer before
+being planned for real:
+
+- **Self-`/clear` timing.** `/clear` would need to be sent (`tmux
+  send-keys`) to the agent's own pane from within its own turn, then that
+  turn would need to actually end before `/clear` gets processed — an
+  unverified mechanic, not a reuse of anything v1 already dry-ran. Needs
+  its own dry-run before being trusted, the same way v1's boot/permission
+  mechanics did.
+- **Stage-tracking convention.** The task-store schema has no notion of
+  "which stage of this task is done" today (`status:` is
+  planned/doing/review/done/paused, not per-stage) — this would need its
+  own schema decision, potentially overlapping with the parent/child
+  work's own schema changes in flight on `feat/task-parent-child`.
+
+Parked as its own future PR, sequenced after v1 (reuses v1's task-file-as-
+payload and clipboard/inject mechanics once they exist) — not built or
+scoped further here. Owner's framing: "happy to have this be a new skill
+and come in a separate PR... that should basically be a follow-up PR we
+plan after this."
