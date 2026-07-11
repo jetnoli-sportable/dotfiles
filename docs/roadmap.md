@@ -128,12 +128,13 @@ claim is always a waits-on link — `needs: <item>`, `clock: <date>`, or
 | <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
 | <a id="detail-notes-tui-4b"></a>**Notes-tui integration, 4b** (real wiring) | queued — clock: 2026-07-24 (fix-forward experiment verdict) | [deep dive](slice-4b-deep-dive.html) · [ceremonies](ceremonies.html) | Original 4b wiring only proceeds if the fix-forward experiment changes real usage |
 | <a id="detail-boundary-rule"></a>**Personal/employer boundary rule** | queued — after: every other follow-up — chosen | [limitations](limitations.html) | Deliberately the final decision; Task recall above already depends on it landing |
-| <a id="detail-jira-integration"></a>**Jira integration** (`/board` + day-bookends halves) | proposed — credential location and persistence-store design still undecided | — | Same two open questions block both integration points |
+| <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** | proposed — needs: `/ce-brainstorm` (lock file vs. serialized queue vs. narrower git-safety-only guard vs. per-agent worktrees of the store itself) | — | `~/code/tasks` is a single shared checkout every `wb`-driven session touches with no locking; a real incident (a `git reset --hard` briefly orphaned another lane's unpushed commits, caught before any push) plus an independent finding from `/handoff` v1's own code review (concurrent `handoff.sh` invocations can race) both point at the same gap — task: `dotfiles--feat-wb-tasks-concurrency-safety` |
 
 ## Parked
 
 Set aside on purpose. Every entry names what would actually bring it back.
 
+- <a id="detail-jira-integration"></a>**Jira integration** (`/board` + day-bookends halves) — parked. Revisit trigger: credential location and persistence-store design questions get resolved.
 - <a id="detail-doc-registry"></a>**Cross-repo/cross-machine doc registry** — parked. Revisit trigger: artifacts still going missing after the landing-path rule.
 - <a id="detail-unify-copy-paste"></a>**Unify copy/paste** (terminal paste never needed) — parked. Revisit trigger: a design pass gets scheduled — [9g recap](9g-gpaste-recap.html).
 
