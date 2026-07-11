@@ -881,14 +881,19 @@ cmd_reviewed() {
 # unique per open (a fixed name latches stale signals).
 wb_open_buffer() {
   local path="$1"
+  # WB_REVIEW_BUFFER=1 tells conform.nvim (nvim/.config/nvim/lua/plugins/
+  # index.lua) to skip format-on-save for this ephemeral checkbox-review
+  # buffer — same env-var-signal convention as WB_AUTO_RESTORE (wb.sh:265),
+  # set unconditionally on both branches: a non-nvim $EDITOR just never
+  # reads it, so no "is this nvim" guard is needed.
   if [ -n "${TMUX:-}" ]; then
     local chan="wb-buffer-done-$$-$RANDOM"
     tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer 2>/dev/null || true
-    tmux split-window -h -t "$TMUX_PANE" "nvim '$path'; tmux wait-for -S $chan"
+    tmux split-window -h -t "$TMUX_PANE" "WB_REVIEW_BUFFER=1 nvim '$path'; tmux wait-for -S $chan"
     tmux wait-for "$chan"
     tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
   else
-    "${EDITOR:-nvim}" "$path"
+    WB_REVIEW_BUFFER=1 "${EDITOR:-nvim}" "$path"
   fi
 }
 

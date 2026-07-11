@@ -135,7 +135,13 @@ require("lazy").setup({
 				-- have a well standardized coding style. You can add additional
 				-- languages here or re-enable it for the disabled ones.
 				local disable_filetypes = { c = true, cpp = true }
-				if disable_filetypes[vim.bo[bufnr].filetype] then
+				-- wb_open_buffer (scripts/.config/scripts/tmux/wb.sh) sets this for
+				-- its ephemeral checkbox-review buffers, mirroring WB_AUTO_RESTORE's
+				-- env-var-signal convention (persistence.lua) — a "check a few boxes"
+				-- review shouldn't run Prettier over the whole file as a side effect.
+				if vim.env.WB_REVIEW_BUFFER == "1" then
+					return nil
+				elseif disable_filetypes[vim.bo[bufnr].filetype] then
 					return nil
 				else
 					return {
