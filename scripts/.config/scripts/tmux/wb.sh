@@ -4,7 +4,7 @@
 #   wb new [--agent] <repo> <slug>   from anywhere
 #   wb                               the picker (replaces s + ca)
 #   wb board                         task-store status table (interim /board)
-#   wb done [<session>]              safe wind-down (defaults to the current session)
+#   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb pause [<session>]             mark a task paused — worktree and session both survive
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
@@ -1459,7 +1459,19 @@ cmd_board() {
 }
 
 cmd_done() {
-  local session="${1:-}"
+  # Index/shift case parser, not a single-token foreach — mirrors cmd_new's
+  # --parent handling so --close can appear before, after, or without the
+  # optional session positional.
+  local close=0
+  local -a args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --close) close=1; shift ;;
+      *)       args+=("$1"); shift ;;
+    esac
+  done
+
+  local session="${args[0]:-}"
   if [ -z "$session" ]; then
     [ -n "${TMUX:-}" ] || { echo "wb done: run inside the target session, or pass a session name" >&2; exit 1; }
     session="$(tmux display-message -p '#S')"
@@ -1572,9 +1584,10 @@ cmd_done() {
   #      killed between removal and status-set: `git worktree remove` on an
   #      already-gone path hard-fails under set -e otherwise.
   #    Branch is kept — see logs/decisions/2026-07-06-review-outstanding.md Q2.
-  #    The tmux session is deliberately left alive — wb done tears down the
-  #    worktree, not the window you're sitting in (2026-07-08: "I don't
-  #    want windows or sessions to disappear"; same reasoning as wb pause).
+  #    The tmux session is deliberately left alive by default — wb done tears
+  #    down the worktree, not the window you're sitting in (2026-07-08: "I
+  #    don't want windows or sessions to disappear"; same reasoning as wb
+  #    pause). See --close below for the explicit opt-in to also kill it.
   if [ -d "$worktree_path" ]; then
     git -C "$repo_dir" worktree remove "$worktree_path" --force
   fi
@@ -1587,6 +1600,13 @@ cmd_done() {
   if [ "$total" -ge "$WB_SWEEP_THRESHOLD" ]; then
     echo "wb done: $(wb_pending_counts) — consider running /parked-items"
   fi
+
+  # --close is opt-in, not a revert of the wb-pause-era decision above: the
+  # session survives by default, and only this explicit flag reaches for
+  # the kill. Best-effort (|| true) — by this point the state that matters
+  # (worktree removed, status flipped) is already done and echoed, so a
+  # racing/already-gone session must not abort the script under set -e.
+  [ "$close" -eq 1 ] && tmux kill-session -t "=$session" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -1946,7 +1966,7 @@ wb_status_line() {
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter · esc back to normal'
   else
-    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · p pause · ctrl-x done/kill · / search · q quit'
+    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · p pause · ctrl-x done+close/kill · / search · q quit'
   fi
   printf 'wb · %s (tab to cycle) · %s\n%s' \
     "$mode" "$(wb_pending_counts)" "$hint"
@@ -2041,12 +2061,37 @@ _break_out() {
 }
 
 # _ctrl_x <kind> <session> <target> — the picker's ctrl-x dispatch: task rows
-# route through the full wb done wind-down; repo sessions get a raw kill;
-# a single agent sub-row kills just that pane. No-ops on an empty session/target.
+# route through the full wb done wind-down plus --close (mark done AND close
+# the session — the one caller where that combination is always what's
+# wanted); repo sessions get a raw kill; a single agent sub-row kills just
+# that pane. No-ops on an empty session/target.
+#
+# Self-target guard (task rows only): the picker is commonly launched via
+# `new-window` with no `-t` (tmux.conf's `bind m`/`bind a`), so it opens
+# inside whatever session the user is already in, and that session shows up
+# as a selectable row like any other. Blindly closing it from ctrl-x would
+# kill the very pane running this command (and any other live window in
+# that session) with no confirmation and no way to abort mid-keypress — the
+# 2026-07-08 "sessions don't disappear" guarantee this feature is built on
+# top of, silently undone for the one row users are statistically most
+# likely to pick. Still complete the wind-down (worktree removed, task
+# marked done) either way; only the close is skipped. This guard is
+# deliberately scoped to ctrl-x's dispatch, not cmd_done itself — typing
+# `wb done --close` yourself from inside your own session stays intentional
+# self-close and is untouched.
 _ctrl_x() {
   local kind="$1" session="$2" target="$3"
   case "$kind" in
-    task)  [ -n "$session" ] && cmd_done "$session" ;;
+    task)
+      if [ -n "$session" ]; then
+        if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
+          cmd_done "$session"
+          echo "wb: not closing '$session' via ctrl-x — it's your current session; run 'wb done --close' yourself once you're ready to leave it" >&2
+        else
+          cmd_done "$session" --close
+        fi
+      fi
+      ;;
     repo)  [ -n "$session" ] && tmux kill-session -t "=$session" 2>/dev/null ;;
     agent) [ -n "$target" ]  && tmux kill-pane -t "$target" 2>/dev/null ;;
   esac

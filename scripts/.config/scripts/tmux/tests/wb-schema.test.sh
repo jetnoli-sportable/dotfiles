@@ -48,21 +48,52 @@ else
   echo "FAIL - status ordering ($l_review,$l_paused,$l_planned)"; fail=1
 fi
 
-# --- cmd_done stamps closed:, and no longer kills the session ---------------
+# --- cmd_done stamps closed:, and only kills the session behind --close -----
 # cmd_done needs a live tmux session + worktree to exercise end-to-end, which
-# is disproportionate to unit-test here (see wb-resume.test.sh / wb-reconcile
-# .test.sh for the tmux/gh-fixture pattern this project uses when that's
-# warranted). Assert the wiring directly, scoped to cmd_done's own function
-# body (not an open-ended range) so a later, unrelated `tmux kill-session`
-# elsewhere in the file (e.g. _ctrl_x's repo-kill path) can't leak in.
+# is disproportionate to unit-test here (see wb-done.test.sh for the real
+# fixture-backed coverage of the --close behavior itself). Assert the wiring
+# directly, scoped to cmd_done's own function body (not an open-ended range)
+# so a later, unrelated `tmux kill-session` elsewhere in the file (e.g.
+# _ctrl_x's repo-kill path) can't leak in.
+#
+# The 2026-07-08 invariant ("sessions must survive wind-down") is opt-in now,
+# not absolute: `--close` (dotfiles--feat-wb-done-close) makes the kill
+# explicit rather than reverting that decision. So the guard below checks the
+# real invariant — a kill-session call exists, but only ever reached behind
+# the close-flag check on the same line — instead of the old blanket
+# no-kill-session-anywhere assertion, which the gated call would now
+# (correctly) fail.
 done_block="$(awk '/^cmd_done\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert "cmd_done stamps status done" 'status done' "$done_block"
 assert "cmd_done stamps closed: date" 'wb_set_frontmatter "\$task_file" closed "\$\(date \+%F\)"' "$done_block"
-if printf '%s' "$done_block" | grep -q 'tmux kill-session'; then
-  echo "FAIL - cmd_done still kills the tmux session (2026-07-08: sessions must survive wind-down)"; fail=1
+assert "cmd_done's kill-session is gated behind the close flag" \
+  '\[ "\$close" -eq 1 \] && tmux kill-session' "$done_block"
+
+kill_lines="$(printf '%s' "$done_block" | grep -c 'tmux kill-session' || true)"
+if [ "$kill_lines" -eq 1 ]; then
+  echo "ok   - cmd_done has exactly one kill-session call, and it's gated"
 else
-  echo "ok   - cmd_done no longer kills the tmux session"
+  echo "FAIL - cmd_done has $kill_lines kill-session call(s); expected exactly 1 (gated behind --close)"; fail=1
 fi
+
+# --- _ctrl_x's task case: self-target guard against killing your own session
+# ------------------------------------------------------------------------
+# The picker is commonly launched via `new-window` with no `-t` (tmux.conf's
+# `bind m`/`bind a`), so it opens inside whatever session the user is already
+# in, and that session appears as a selectable row like any other — ctrl-x on
+# it would otherwise kill the very pane running the command, with no warning.
+# Exercising this live needs a real attached tmux client in the target
+# session (the same constraint wb-done.test.sh's self-resolve case documents
+# for cmd_done itself), disproportionate to fixture here — so this is a
+# source-text guard, scoped to _ctrl_x's own function body, asserting the
+# check exists and runs before the close-invoking branch. Real behavioral
+# coverage of the *non*-self-target path (the common case) lives in
+# wb-done.test.sh's ctrl-x scenario.
+ctrl_x_block="$(awk '/^_ctrl_x\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
+assert "_ctrl_x: task case checks for the currently-attached session" \
+  'tmux display-message -p' "$ctrl_x_block"
+assert "_ctrl_x: self-target case skips --close (still winds down via cmd_done)" \
+  'cmd_done "\$session"$' "$ctrl_x_block"
 
 # --- parent: schema (U1: wb_seed_task threading + wb_resolve_parent_ref) ----
 # shellcheck disable=SC1090
