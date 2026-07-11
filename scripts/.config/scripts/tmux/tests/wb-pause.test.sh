@@ -58,6 +58,22 @@ else
   fail=1
 fi
 
+# --- Handoffs: cmd_pause on a task with no "## Handoffs" section yet --------
+# mk_task's fixture (frontmatter + "# Title\n") has no body sections at all,
+# so this exercises wb_append_handoff's fully-missing-heading, append-at-EOF
+# path (no "## Decisions" to insert before either).
+handoffs_block="$(awk '/^## Handoffs$/{p=1} p' "$FIXTURE/proj--feat-alpha.md")"
+assert "cmd_pause: creates a ## Handoffs section" '^## Handoffs$' "$handoffs_block"
+assert "cmd_pause: entry heading names the source" '### [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} — wb pause \(auto\)' "$handoffs_block"
+assert "cmd_pause: entry body names the command" 'Session paused via `wb pause`\.' "$handoffs_block"
+
+handoffs_count="$(grep -c '^### .* — wb pause (auto)$' "$FIXTURE/proj--feat-alpha.md")"
+if [ "$handoffs_count" -eq 1 ]; then
+  echo "ok   - cmd_pause: exactly one Handoffs entry after one pause"
+else
+  echo "FAIL - cmd_pause: expected exactly 1 Handoffs entry, got $handoffs_count"; fail=1
+fi
+
 # --- error path: not a wb task session ---------------------------------------
 tmux new-session -d -s "${SESSION}-bare" 2>/dev/null
 out="$(cmd_pause "${SESSION}-bare" 2>&1)"; rc=$?

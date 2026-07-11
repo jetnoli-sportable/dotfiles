@@ -374,6 +374,10 @@ cmd_resume() {
       [ -n "$repo" ] && [ -n "$branch" ] \
         || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
       cmd_new "$repo" "$branch"
+      # Handoffs-append lives HERE, not inside cmd_new — cmd_new is also
+      # the path every fresh `wb new` takes, and a fresh task must not
+      # gain a Handoffs entry (see wb_append_handoff's own header comment).
+      wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
       ;;
     *)
       echo "wb resume: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
@@ -820,6 +824,7 @@ cmd_pause() {
   [ -f "$task_file" ] || { echo "wb pause: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
 
   wb_set_frontmatter "$task_file" status paused
+  wb_append_handoff "$task_file" "wb pause" 'Session paused via `wb pause`.'
   echo "wb pause: $session paused — worktree and session untouched, task -> paused ($task_file)"
 }
 
@@ -849,6 +854,74 @@ wb_open_buffer() {
 # lines from the task's own freeform Plan/Follow-ups/Decisions prose.
 wb_sweep_section() {
   awk '/^## Sweep \(gitignored/ { found = 1 } found { print }' "$1"
+}
+
+# wb_append_handoff <task_file> <source> <message> — appends a terse,
+# timestamped "### <timestamp> — <source> (auto)" entry (with <message> as
+# its one-line body) to <task_file>'s "## Handoffs" section, inserting the
+# heading itself when it's missing — same insertion point
+# handoff_append_followup (handoff.sh:84-116) uses for a missing
+# "## Follow-ups": right before "## Decisions" when present, else at EOF.
+# That's where the mirroring ends: unlike handoff_append_followup (which
+# inserts its new bullet immediately after the heading line, so repeated
+# calls read newest-first), this always appends the new entry at the END
+# of an existing "## Handoffs" section (immediately before the next "##"
+# heading, or EOF) — so repeated calls read oldest-first. That ordering is
+# load-bearing: a downstream skill (/wb-resume, not in scope here) needs to
+# find the most recent rich entry reliably, which only works if entries are
+# chronological.
+#
+# Called by cmd_pause/cmd_done/cmd_resume, always right after their own
+# state-changing line — deliberately never from cmd_new itself: cmd_new is
+# also the path every FRESH `wb new` takes, and a fresh task must not gain
+# a Handoffs entry (only a resume of a previously paused/done task should).
+wb_append_handoff() {
+  local file="$1" source="$2" message="$3"
+  local entry; entry="### $(date '+%Y-%m-%d %H:%M') — $source (auto)"
+  awk -v entry="$entry" -v msg="$message" '
+    BEGIN { found = 0; inhandoffs = 0; inserted = 0; prev = "" }
+    $0 == "## Handoffs" { found = 1; inhandoffs = 1 }
+    # Leaving an existing "## Handoffs" section (any other "## " heading
+    # reached while inside it) — insert the new entry right here, at the
+    # end of that section, before falling through to print the heading
+    # that closes it. Excludes the "## Handoffs" line itself (the very
+    # record that just turned inhandoffs on above) so a fresh heading with
+    # content following it does not immediately self-trigger this branch.
+    inhandoffs && /^## / && $0 != "## Handoffs" && !inserted {
+      if (prev != "") print ""
+      print entry; print ""; print msg; print ""
+      inserted = 1; inhandoffs = 0
+    }
+    # Heading missing entirely, but "## Decisions" exists — insert a fresh
+    # "## Handoffs" section right before it (the same missing-heading
+    # insertion point handoff_append_followup uses for its own heading).
+    $0 == "## Decisions" && !found && !inserted {
+      print "## Handoffs"
+      print ""
+      print entry
+      print ""
+      print msg
+      print ""
+      inserted = 1
+    }
+    { print; prev = $0 }
+    END {
+      if (inhandoffs && !inserted) {
+        # Section existed but ran to EOF with no following heading.
+        if (prev != "") print ""
+        print entry; print ""; print msg
+      } else if (!found && !inserted) {
+        # Neither "## Handoffs" nor "## Decisions" found anywhere — append
+        # a fresh section at EOF.
+        print ""
+        print "## Handoffs"
+        print ""
+        print entry
+        print ""
+        print msg
+      }
+    }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
 }
 
 # wb_credential_shaped <rel> — succeed when a keeper path looks like a
@@ -1593,6 +1666,7 @@ cmd_done() {
   fi
   wb_set_frontmatter "$task_file" status done
   wb_set_frontmatter "$task_file" closed "$(date +%F)"
+  wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
 
   echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
 
