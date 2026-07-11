@@ -122,13 +122,14 @@ claim is always a waits-on link — `needs: <item>`, `clock: <date>`, or
 
 | Item | Status | Doc | What it is |
 |---|---|---|---|
-| <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) | active — this work; U5/U6 artifact index deferred | [requirements](brainstorms/2026-07-09-hub-v0-requirements.md) | Glossary, limitations, ceremonies pages, `/board` tile, this reshape |
+| <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) | active — this work; U5/U6 artifact index deferred | [requirements](brainstorms/2026-07-09-hub-v0-requirements.md) | Glossary, limitations, ceremonies pages, `/board` tile, this reshape, and cataloging the `wb-save`/`wb-resume`/`wb-done`/`wb-board` skill family (added to the plan 2026-07-11) |
 | <a id="detail-handoff"></a>**`/handoff`** — route a discussion to the right worker | active — building on `feat/handoff-v1`; single-target validated by hand 2026-07-10; fan-out after: parent/child (PR #17) — chosen | [detail](roadmap-handoff.html) | Switch to an existing agent's session or `wb new` it |
 | <a id="detail-task-recall"></a>**Task recall** | queued — needs: boundary-rule | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it |
 | <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
 | <a id="detail-notes-tui-4b"></a>**Notes-tui integration, 4b** (real wiring) | queued — clock: 2026-07-24 (fix-forward experiment verdict) | [deep dive](slice-4b-deep-dive.html) · [ceremonies](ceremonies.html) | Original 4b wiring only proceeds if the fix-forward experiment changes real usage |
 | <a id="detail-boundary-rule"></a>**Personal/employer boundary rule** | queued — after: every other follow-up — chosen | [limitations](limitations.html) | Deliberately the final decision; Task recall above already depends on it landing |
 | <a id="detail-jira-integration"></a>**Jira integration** (`/board` + day-bookends halves) | proposed — credential location and persistence-store design still undecided | — | Same two open questions block both integration points |
+| <a id="detail-second-opinion"></a>**`/second-opinion`** — ask the best available model at high effort, context-aware | proposed — raised 2026-07-11; new skill vs. tweaking an existing `/btw` still undecided | — | Formalizes today's ad-hoc pattern (spawn a top-tier-model subagent, full conversation context, high reasoning effort, to sanity-check a decision) as a reusable skill; no `/btw` skill or alias exists anywhere in this repo, so confirm what that refers to before building |
 
 ## Parked
 

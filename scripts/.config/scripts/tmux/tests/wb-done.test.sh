@@ -30,7 +30,7 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
-SLUGS=(alpha beta gamma dirty)
+SLUGS=(alpha beta gamma dirty delta)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
   rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS"
@@ -69,6 +69,14 @@ done
 # make the "dirty" worktree's tree dirty — an untracked file is enough for
 # `git status --porcelain` to report something.
 echo scratch > "$FIXTURE_CODE/proj/.worktrees/dirty/scratch.txt"
+
+# "delta"'s task file already carries a "## Handoffs" section with a prior
+# entry (e.g. from an earlier `wb pause`) — overwrite mk_task's minimal
+# fixture so cmd_done's own Handoffs-append exercises the "append at the
+# END of an existing section" path, not the create-from-scratch one
+# wb-pause.test.sh already covers.
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: delta\nworktree: .worktrees/delta\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n\n## Handoffs\n\n### 2026-07-01 09:00 — wb pause (auto)\n\nSession paused via `wb pause`.\n\n## Decisions\n' \
+  > "$FIXTURE_TASKS/proj--delta.md"
 
 for slug in "${SLUGS[@]}"; do
   s="$(session_for "$slug")"
@@ -142,6 +150,39 @@ if tmux has-session -t "=$dirty_session" 2>/dev/null; then
   echo "ok   - dirty worktree: session untouched (dirty check runs before any kill)"
 else
   echo "FAIL - dirty worktree: session was killed despite the dirty guard"; fail=1
+fi
+
+
+# --- Handoffs: cmd_done appends to an ALREADY-EXISTING section, in order ----
+delta_session="$(session_for delta)"
+delta_file="$FIXTURE_TASKS/proj--delta.md"
+out="$(cmd_done "$delta_session" 2>&1)"; rc=$?
+assert "handoffs done: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
+assert "handoffs done: task flipped to done" '^done$' "$(status_of delta)"
+
+assert "handoffs done: prior entry survives" 'Session paused via `wb pause`\.' "$(cat "$delta_file")"
+assert "handoffs done: new entry appended" 'Session closed via `wb done`\.' "$(cat "$delta_file")"
+
+entry_count="$(grep -cE '^### .* — wb (pause|done) \(auto\)$' "$delta_file")"
+if [ "$entry_count" -eq 2 ]; then
+  echo "ok   - handoffs done: exactly 2 entries total (prior + new)"
+else
+  echo "FAIL - handoffs done: expected 2 Handoffs entries, got $entry_count"; fail=1
+fi
+
+pause_line="$(grep -n '^### .* — wb pause (auto)$' "$delta_file" | head -1 | cut -d: -f1)"
+done_line="$(grep -n '^### .* — wb done (auto)$' "$delta_file" | head -1 | cut -d: -f1)"
+if [ -n "$pause_line" ] && [ -n "$done_line" ] && [ "$pause_line" -lt "$done_line" ]; then
+  echo "ok   - handoffs done: new entry lands AFTER the existing one (end of section, oldest-first)"
+else
+  echo "FAIL - handoffs done: entry ordering wrong (pause=$pause_line, done=$done_line)"; fail=1
+fi
+
+decisions_line="$(grep -n '^## Decisions$' "$delta_file" | head -1 | cut -d: -f1)"
+if [ -n "$decisions_line" ] && [ "$done_line" -lt "$decisions_line" ]; then
+  echo "ok   - handoffs done: new entry still lands inside the Handoffs section (before ## Decisions)"
+else
+  echo "FAIL - handoffs done: new entry landed outside the Handoffs section (done=$done_line, decisions=$decisions_line)"; fail=1
 fi
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
