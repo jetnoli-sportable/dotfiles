@@ -109,19 +109,28 @@ when it's sourced rather than executed, the same property
 If a file already exists at `$task_file`, skip to step 4 — never
 overwrite existing frontmatter or body content wholesale.
 
-If it's missing, create it from `~/code/tasks/TEMPLATE.md`, filling the
-same frontmatter fields `wb_seed_task` (`scripts/.config/scripts/tmux/wb.sh:176-208`)
-would fill for a brand-new file:
+If it's missing, create it by shelling out to `wb.sh`'s own `wb_seed_task`
+helper (`scripts/.config/scripts/tmux/wb.sh:176-208`) — the same helper
+`cmd_new` itself calls to seed a task file, so this guarantees byte-
+identical frontmatter-fill behavior instead of re-deriving it by hand
+(same reasoning as step 2's `wb_task_file`/`wb_sanitize` shell-out):
 
-- `status: doing`
-- `repo: <repo>`
-- `branch: <slug>` (the raw slug, e.g. `feat/foo-bar` — not sanitized;
-  this matches what `wb_seed_task`/`cmd_new` store)
-- `worktree: .worktrees/<slug>` (raw slug too)
-- `created: <today, YYYY-MM-DD>`
-- a `# <title>` line derived from the slug (e.g. `feat/foo-bar` → something
-  like `# Foo bar` — use judgment for a short, readable title; this is a
-  human-facing file, not a mechanical transform)
+```bash
+DOTFILES="${DOTFILES_ROOT:-$HOME/code/dotfiles}"
+task_file="$(cd "$DOTFILES" && bash -c '
+  source scripts/.config/scripts/tmux/wb.sh
+  wb_seed_task "$1" "$2" ".worktrees/$2"
+' _ "$repo" "$slug")"
+```
+
+`wb_seed_task` creates the file from `~/code/tasks/TEMPLATE.md` and fills
+`status: doing`, `repo:`, `branch:`, `worktree:`, and `created:` when the
+file is new; it only ever fills blank fields on an existing file, never
+overwrites. It does not fill a `# <title>` heading (see the aside below) —
+compose that line yourself, derived from the slug (e.g. `feat/foo-bar` →
+something like `# Foo bar`; use judgment for a short, readable title, not
+a mechanical transform), and insert it right after the frontmatter's
+closing `---`.
 
 Never do this by calling `wb new` (or `cmd_new`) itself, even bare with no
 `--agent` flag. The plan's Key Technical Decision "Responsibility split"
@@ -131,8 +140,8 @@ as existing by the time `handoff.sh`'s own `wb new --agent` runs moments
 later, so the thing that actually types `claude` into the agent pane would
 silently never run, and the boot poller would wait forever for a process
 that was never started. `wb_seed_task` itself (the plain file-fill helper,
-no tmux/worktree side effects) is fine to mirror by hand — this skill just
-never goes through the `wb new` CLI path.
+no tmux/worktree side effects) has no such hazard — this skill just never
+goes through the `wb new` CLI path.
 
 **IMPORTANT — the live `~/code/tasks/TEMPLATE.md` currently has NO
 `## Follow-ups` heading** (only `## Plan` / `## Decisions` / `## Done`),

@@ -98,14 +98,14 @@ send_payload() {
 new_test_window boot
 send_payload boot 'sleep 1 && echo "Try \"how does this work?\""'
 
-handoff_wait_for_pane_pattern "=$SESSION:boot" 5 "$BOOT_PATTERN"
+handoff_wait_for_pane_pattern "=$SESSION:boot" 5 "$BOOT_PATTERN" >/dev/null
 assert_eq "boot anchor: poller returns success before timeout" "0" "$?"
 
 # --- happy path: permission-prompt anchor ----------------------------------
 new_test_window perm
 send_payload perm 'sleep 1 && echo "Do you want to proceed?"'
 
-handoff_wait_for_pane_pattern "=$SESSION:perm" 5 "$PERM_PATTERN"
+handoff_wait_for_pane_pattern "=$SESSION:perm" 5 "$PERM_PATTERN" >/dev/null
 assert_eq "permission anchor: poller returns success before timeout" "0" "$?"
 
 # --- regression (dry-run #2): bare "allow" text must not satisfy either ----

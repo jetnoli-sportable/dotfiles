@@ -115,7 +115,7 @@ expected_pointer="Read the task file at $TASK_FILE - it carries the full context
 clip="$(wl-paste 2>/dev/null || true)"
 assert_eq "happy path: clipboard holds exact pointer string" "$expected_pointer" "$clip"
 
-if printf '%s' "$out" | grep -q 'spawn path'; then
+if printf '%s' "$out" | grep -q 'handoff: spawned'; then
   echo "FAIL - happy path: attempted the spawn path"
   fail=1
 else

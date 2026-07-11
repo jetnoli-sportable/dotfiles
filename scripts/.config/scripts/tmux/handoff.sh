@@ -43,10 +43,13 @@ HANDOFF_PERMISSION_TIMEOUT="${HANDOFF_PERMISSION_TIMEOUT:-20}"
 # (or handoff.sh's own just-injected pointer sitting in the echoed input
 # line before Enter is processed) from ever entering the match.
 handoff_wait_for_pane_pattern() {
-  local target="$1" timeout="$2" pattern="$3" waited=0
+  local target="$1" timeout="$2" pattern="$3" waited=0 screen
   while [ "$waited" -lt "$timeout" ]; do
-    tmux capture-pane -ep -t "$target" 2>/dev/null | tail -n 20 \
-      | grep -qE "$pattern" && return 0
+    screen="$(tmux capture-pane -ep -t "$target" 2>/dev/null | tail -n 20)"
+    if printf '%s' "$screen" | grep -qE "$pattern"; then
+      printf '%s\n' "$screen"
+      return 0
+    fi
     sleep 1; waited=$((waited + 1))
   done
   return 1
@@ -138,7 +141,7 @@ fi
 
 # R11: surface (never fix) a bootstrap gap — the fix is a per-repo
 # .worktree-bootstrap manifest, tracked as its own roadmap line item.
-repo_dir="$CODE_DIR/$repo"
+repo_dir="$(wb_repo_dir "$repo")"
 if handoff_bootstrap_gap "$repo_dir"; then
   gap_msg="$repo_dir has neither a .worktree-bootstrap manifest nor a root .env* file — wb new's bootstrap step likely left this worktree incomplete (see wb_bootstrap, wb.sh:142-171)"
   echo "handoff: warning: $gap_msg" >&2
@@ -148,7 +151,7 @@ fi
 # wb_layout_session (wb.sh:225) names the agent window "agent".
 target="=$session:agent"
 
-if ! handoff_wait_for_pane_pattern "$target" "$HANDOFF_BOOT_TIMEOUT" '\? for shortcuts|Try "|[0-9]+% ctx'; then
+if ! handoff_wait_for_pane_pattern "$target" "$HANDOFF_BOOT_TIMEOUT" '\? for shortcuts|Try "|[0-9]+% ctx' >/dev/null; then
   echo "handoff: spawned $session but it never showed a boot-ready anchor within ${HANDOFF_BOOT_TIMEOUT}s — check $target by hand" >&2
   exit 1
 fi
@@ -160,12 +163,11 @@ fi
 tmux send-keys -t "$target" -l "$pointer"
 tmux send-keys -t "$target" Enter
 
-if ! handoff_wait_for_pane_pattern "$target" "$HANDOFF_PERMISSION_TIMEOUT" 'Do you want to proceed\?'; then
+if ! pane_text="$(handoff_wait_for_pane_pattern "$target" "$HANDOFF_PERMISSION_TIMEOUT" 'Do you want to proceed\?')"; then
   echo "handoff: spawned and injected $session — no permission prompt seen within ${HANDOFF_PERMISSION_TIMEOUT}s (it may already be clear, or the agent hasn't reached its first action yet)" >&2
   exit 0
 fi
 
-pane_text="$(tmux capture-pane -ep -t "$target" 2>/dev/null | tail -n 20)"
 if handoff_permission_prompt_matches "$pane_text"; then
   # R10: single keystroke, no trailing Enter — confirmed live, this menu
   # selects and submits on the keystroke itself, unlike the main input box.
