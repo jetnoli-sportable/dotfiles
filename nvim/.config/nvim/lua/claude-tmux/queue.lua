@@ -59,17 +59,15 @@ function M.stash(text)
 
 	local cwd = vim.fn.getcwd()
 	local file = queue_file(cwd)
-	if vim.fn.filereadable(file) == 0 then
+	local exists = vim.fn.filereadable(file) == 1
+	if not exists then
 		local ok, err = ensure_repo_ignore(cwd)
 		if not ok then
 			notify("queue: could not register ignore rule (" .. (err or "unknown error") .. ") — stashing anyway", vim.log.levels.WARN)
 		end
 	end
 
-	local lines = {}
-	if vim.fn.filereadable(file) == 1 then
-		lines = vim.fn.readfile(file)
-	end
+	local lines = exists and vim.fn.readfile(file) or {}
 	-- ISO 8601, local time — same `date +%FT%H:%M:%S` shape notes-tui's own
 	-- inbox capture blocks use (scripts/note.sh in ~/code/notes-tui).
 	vim.list_extend(lines, { "## " .. os.date("%Y-%m-%dT%H:%M:%S"), "", text, "" })
