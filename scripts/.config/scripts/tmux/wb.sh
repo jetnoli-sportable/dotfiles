@@ -879,15 +879,27 @@ wb_append_handoff() {
   local file="$1" source="$2" message="$3"
   local entry; entry="### $(date '+%Y-%m-%d %H:%M') — $source (auto)"
   awk -v entry="$entry" -v msg="$message" '
+    # A line only counts as a real "## X" heading when it is also preceded
+    # by a blank line (or is the very first line) — every real heading in
+    # this file format is, by the template/TEMPLATE.md convention (see
+    # wb_seed_task). Without this guard, the literal text "## Decisions" or
+    # "## Handoffs" appearing inside a task'"'"'s own ## Plan prose (e.g.
+    # someone writing notes about this very feature) exact-matches the bare
+    # $0 == "..." checks below and splices a Handoffs entry mid-paragraph —
+    # confirmed live: a Plan section quoting "## Decisions" as example text
+    # got the entry spliced in right there instead of at the real heading
+    # further down. isHeadingLine() below is the single guarded predicate
+    # both the entry-insertion and section-closing rules key off of.
+    function isHeadingLine() { return (prev == "" || NR == 1) }
     BEGIN { inhandoffs = 0; inserted = 0; prev = "" }
-    $0 == "## Handoffs" { inhandoffs = 1 }
+    $0 == "## Handoffs" && isHeadingLine() { inhandoffs = 1 }
     # Leaving an existing "## Handoffs" section (any other "## " heading
     # reached while inside it) — insert the new entry right here, at the
     # end of that section, before falling through to print the heading
     # that closes it. Excludes the "## Handoffs" line itself (the very
     # record that just turned inhandoffs on above) so a fresh heading with
     # content following it does not immediately self-trigger this branch.
-    inhandoffs && /^## / && $0 != "## Handoffs" && !inserted {
+    inhandoffs && /^## / && $0 != "## Handoffs" && !inserted && isHeadingLine() {
       if (prev != "") print ""
       print entry; print ""; print msg; print ""
       inserted = 1; inhandoffs = 0
@@ -895,7 +907,7 @@ wb_append_handoff() {
     # Heading missing entirely, but "## Decisions" exists — insert a fresh
     # "## Handoffs" section right before it (the same missing-heading
     # insertion point handoff_append_followup uses for its own heading).
-    $0 == "## Decisions" && !inhandoffs && !inserted {
+    $0 == "## Decisions" && !inhandoffs && !inserted && isHeadingLine() {
       print "## Handoffs"
       print ""
       print entry
@@ -913,7 +925,7 @@ wb_append_handoff() {
       } else if (!inserted) {
         # Neither "## Handoffs" nor "## Decisions" found anywhere — append
         # a fresh section at EOF.
-        print ""
+        if (prev != "") print ""
         print "## Handoffs"
         print ""
         print entry

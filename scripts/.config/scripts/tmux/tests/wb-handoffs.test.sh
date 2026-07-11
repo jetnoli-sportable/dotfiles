@@ -140,5 +140,40 @@ else
 fi
 assert_no_double_blank "eof case" "$EOF_CASE"
 
+# --- neither heading present, file already ends in a blank line -----------
+# The EOF-fallback branch used to unconditionally print a leading blank line
+# with no prev-check, unlike its two sibling branches — a file already
+# ending in a blank line got a double blank before the fresh section.
+NO_HEADING_TRAILING_BLANK="$FIXTURE/no-heading-trailing-blank.md"
+printf -- '---\nstatus: doing\n---\n# Title\n\n## Plan\n\nsome plan text\n\n' > "$NO_HEADING_TRAILING_BLANK"
+wb_append_handoff "$NO_HEADING_TRAILING_BLANK" "wb pause" 'Session paused via `wb pause`.'
+assert_no_double_blank "missing entirely, trailing blank in source" "$NO_HEADING_TRAILING_BLANK"
+assert "missing entirely, trailing blank: creates ## Handoffs" '^## Handoffs$' "$(cat "$NO_HEADING_TRAILING_BLANK")"
+
+# --- heading-shaped text inside ## Plan prose must not be mistaken for a --
+# --- real heading (confirmed live: this spliced a Handoffs entry mid- -----
+# --- paragraph before this guard existed) ----------------------------------
+# The literal line "## Decisions" appears here NOT preceded by a blank line
+# (mid-sentence, wrapped onto its own line) — only the real heading further
+# down, which IS preceded by a blank line, may match.
+HEADING_IN_PROSE="$FIXTURE/heading-in-prose.md"
+printf -- '---\nstatus: doing\n---\n# Title\n\n## Plan\n\nThe insertion rule mirrors handoff_append_followup: insert right before\n## Decisions\nwhen that heading is missing, same convention.\n\n## Decisions\n\n- some decision\n' > "$HEADING_IN_PROSE"
+wb_append_handoff "$HEADING_IN_PROSE" "wb pause" 'Session paused via `wb pause`.'
+prose_line="$(grep -n '^## Decisions$' "$HEADING_IN_PROSE" | head -1 | cut -d: -f1)"
+handoffs_line="$(grep -n '^## Handoffs$' "$HEADING_IN_PROSE" | cut -d: -f1)"
+real_decisions_line="$(grep -n '^## Decisions$' "$HEADING_IN_PROSE" | tail -1 | cut -d: -f1)"
+if [ -n "$handoffs_line" ] && [ -n "$real_decisions_line" ] && [ "$handoffs_line" -lt "$real_decisions_line" ] && [ "$handoffs_line" -gt "$prose_line" ]; then
+  echo "ok   - heading-in-prose: entry lands at the REAL heading, not the prose quote"
+else
+  echo "FAIL - heading-in-prose: entry landed at the wrong location (handoffs=$handoffs_line, first ## Decisions text=$prose_line, real heading=$real_decisions_line)"; fail=1
+fi
+assert "heading-in-prose: quoted prose sentence still intact, not split" 'insert right before' "$(cat "$HEADING_IN_PROSE")"
+plan_line="$(grep -n '^## Plan$' "$HEADING_IN_PROSE" | cut -d: -f1)"
+if [ -n "$plan_line" ] && [ -n "$handoffs_line" ] && [ "$plan_line" -lt "$prose_line" ] && [ "$prose_line" -lt "$handoffs_line" ]; then
+  echo "ok   - heading-in-prose: ## Plan's prose is untouched and precedes the new ## Handoffs section"
+else
+  echo "FAIL - heading-in-prose: ## Plan content was disturbed (plan=$plan_line, prose-quote=$prose_line, handoffs=$handoffs_line)"; fail=1
+fi
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
