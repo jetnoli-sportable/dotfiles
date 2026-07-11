@@ -136,9 +136,13 @@ require("lazy").setup({
 				-- languages here or re-enable it for the disabled ones.
 				local disable_filetypes = { c = true, cpp = true }
 				-- wb_open_buffer (scripts/.config/scripts/tmux/wb.sh) sets this for
-				-- its ephemeral checkbox-review buffers, mirroring WB_AUTO_RESTORE's
-				-- env-var-signal convention (persistence.lua) — a "check a few boxes"
-				-- review shouldn't run Prettier over the whole file as a side effect.
+				-- its one-shot checkbox-review passes -- the target file itself may
+				-- be persistent (e.g. a central-store task file), but the *review*
+				-- is a brief "check a few boxes" pass that shouldn't run Prettier
+				-- over the whole file as a side effect. Mirrors WB_AUTO_RESTORE's
+				-- env-var-signal convention (persistence.lua). Process-wide, not
+				-- buffer-local: wb_open_buffer's nvim process only ever exists to
+				-- review the one file it opened, so that scope is intentional.
 				if vim.env.WB_REVIEW_BUFFER == "1" then
 					return nil
 				elseif disable_filetypes[vim.bo[bufnr].filetype] then

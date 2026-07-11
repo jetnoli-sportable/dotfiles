@@ -882,8 +882,10 @@ cmd_reviewed() {
 wb_open_buffer() {
   local path="$1"
   # WB_REVIEW_BUFFER=1 tells conform.nvim (nvim/.config/nvim/lua/plugins/
-  # index.lua) to skip format-on-save for this ephemeral checkbox-review
-  # buffer — same env-var-signal convention as WB_AUTO_RESTORE (wb.sh:265),
+  # index.lua) to skip format-on-save for this one-shot checkbox-review pass
+  # — the target file itself may be persistent (a central-store task file),
+  # but the review pass is brief and shouldn't run Prettier over the whole
+  # file. Same env-var-signal convention as WB_AUTO_RESTORE (wb.sh:265),
   # set unconditionally on both branches: a non-nvim $EDITOR just never
   # reads it, so no "is this nvim" guard is needed.
   if [ -n "${TMUX:-}" ]; then
