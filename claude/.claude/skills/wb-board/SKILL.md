@@ -9,7 +9,7 @@ description: Pull up the task-store status table from inside a Claude Code sessi
 --html` (when asked for the detailed/html view) and hand back exactly what
 that command printed — no reformatting, no summarizing, no inventing output
 it didn't produce. See `cmd_board`
-(`scripts/.config/scripts/tmux/wb.sh:1486-1532`) for what each mode actually
+(`scripts/.config/scripts/tmux/wb.sh:1498-1544`) for what each mode actually
 does; this skill has no logic of its own beyond picking which of the two to
 run and how to relay it.
 
@@ -62,7 +62,7 @@ assumed available here; reporting the path is the whole job.
 ## Notes
 
 - Read-only both ways — `wb board`/`wb board --html` never touch the task
-  store or git state (`cmd_board`, `wb.sh:1486-1532`), and this skill adds
+  store or git state (`cmd_board`, `wb.sh:1498-1544`), and this skill adds
   no side effects of its own.
 - Named `/wb-board`, not `/board` — no `/board` skill exists anywhere in
   this repo today; "/board" up to now has only ever meant the underlying
