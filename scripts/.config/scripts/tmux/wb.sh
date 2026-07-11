@@ -202,6 +202,64 @@ wb_bootstrap() {
   done
 }
 
+# wb_ensure_repo_ignore <path> — idempotently register the queue file's
+# pattern (`.claude-queue.md`) as ignored in whatever repo <path> belongs to,
+# via that repo's own untracked `.git/info/exclude` — never that repo's
+# tracked `.gitignore`, never a machine-wide `core.excludesFile` (see
+# docs/plans/2026-07-11-003-feat-queue-command-plan.md's Planning Contract:
+# a foreign repo under $CODE_DIR is not ours to edit, and a machine-wide
+# setting would silently change `git status` for every repo on the machine).
+# <path> may be a worktree or the main checkout — `git rev-parse
+# --git-common-dir` resolves either to the one shared `.git` dir all of a
+# repo's worktrees have in common, so this same call works whether it's
+# handed a repo dir (cmd_new, below) or a worktree's cwd (queue.lua's lazy-
+# create path, called on every stash).
+#
+# Guarded against two concrete failure modes: a missing trailing newline in
+# a pre-existing info/exclude would otherwise glue the new pattern onto the
+# end of the prior last line, corrupting both and breaking the `grep -qxF`
+# idempotency check on every later call — fixed by ensuring the file ends in
+# a newline before ever appending. A race between two concurrent callers for
+# the same repo (two terminals, or a script, creating worktrees back to
+# back) is fixed with a `flock` on a lockfile scoped to that repo's own
+# `.git/info` directory, making the check-then-append atomic. This must
+# NEVER truncate or overwrite existing content in info/exclude — other
+# tooling, or the user, may already have entries there.
+wb_ensure_repo_ignore() {
+  local path="$1" pattern='.claude-queue.md'
+  local git_common_dir
+  git_common_dir="$(git -C "$path" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  # git prints a relative path when <path> is the main checkout (e.g.
+  # ".git"), and an absolute one when <path> is a linked worktree — resolve
+  # relative to <path> itself (not $PWD) since that's what `-C` scoped it to.
+  case "$git_common_dir" in
+    /*) : ;;
+    *)  git_common_dir="$path/$git_common_dir" ;;
+  esac
+  git_common_dir="$(cd "$git_common_dir" && pwd)" || return 1
+
+  local info_dir="$git_common_dir/info"
+  mkdir -p "$info_dir"
+  local exclude_file="$info_dir/exclude"
+  local lockfile="$info_dir/.claude-queue.lock"
+
+  (
+    flock -x 9
+    touch "$exclude_file"
+    # A non-empty file whose last byte isn't a newline needs one before the
+    # append below, or the new pattern would land glued onto the prior last
+    # line instead of as its own line.
+    if [ -s "$exclude_file" ] && [ -n "$(tail -c1 "$exclude_file")" ]; then
+      printf '\n' >> "$exclude_file"
+    fi
+    # grep failing here (pattern not yet present) is the expected, common
+    # case, not an error — see wb.sh's `set -e` note at the top of this
+    # file; a non-final command in an && list doesn't trigger errexit.
+    grep -qxF "$pattern" "$exclude_file" && exit 0
+    printf '%s\n' "$pattern" >> "$exclude_file"
+  ) 9>"$lockfile"
+}
+
 # wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] — find-or-create
 # the task file for a repo+slug pair, filling blank frontmatter fields and
 # bumping planned->doing. Never overwrites a field that's already set.
@@ -329,6 +387,17 @@ cmd_new() {
     fi
     wb_bootstrap "$repo_dir" "$worktree_path"
   fi
+
+  # Unconditional — not just for the branch above. This is self-healing for
+  # a repo's OTHER, older worktrees that predate this feature: every `wb new`
+  # call re-checks (idempotently) that this repo's .git/info/exclude has the
+  # queue-file pattern registered, regardless of whether *this* invocation's
+  # own worktree was newly created just now. Best-effort: under `set -e`, an
+  # unguarded call here would abort the whole `wb new` (including a plain
+  # reattach to an already-existing worktree/session) on any failure in this
+  # unrelated step — warn and continue instead.
+  wb_ensure_repo_ignore "$worktree_path" \
+    || echo "wb new: warning: could not register .git/info/exclude ignore rule for $repo_dir (continuing)" >&2
 
   local task_file
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref")"
