@@ -12,6 +12,10 @@ M.defaults = {
 	tmux = {
 		-- Shared tmux helper library providing tmux_find_claude_pane.
 		lib = vim.fn.expand("~/.config/scripts/tmux/lib.sh"),
+		-- wb.sh, providing wb_ensure_repo_ignore — the idempotent per-repo
+		-- .git/info/exclude registration the queue's lazy-create path calls
+		-- on first stash into a worktree that predates the feature.
+		wb = vim.fn.expand("~/.config/scripts/tmux/wb.sh"),
 	},
 
 	-- Leader prefix for all this plugin's keymaps (must match the which-key
