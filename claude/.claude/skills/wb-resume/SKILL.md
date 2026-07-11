@@ -22,11 +22,11 @@ that reads an injected pointer doesn't just acknowledge it, it acts on it.
 - **Read-only against the task file.** This skill never writes a
   `## Handoffs` entry itself — that's `/wb-save` (rich entries) and
   `wb.sh`'s `cmd_pause`/`cmd_done`/`cmd_resume` (terse, automatic entries
-  via `wb_append_handoff`, `scripts/.config/scripts/tmux/wb.sh:859-925`).
+  via `wb_append_handoff`, `scripts/.config/scripts/tmux/wb.sh:878-937`).
   It may propose edits elsewhere in conversation, but nothing about running
   `/wb-resume` itself touches the file on disk.
 - **Not the `wb resume <task>` shell command.** `wb.sh` already has a
-  `cmd_resume` (`wb.sh:352-386`, bound to the CLI `wb resume <task>`) that
+  `cmd_resume` (`wb.sh:352-390`, bound to the CLI `wb resume <task>`) that
   recreates a torn-down worktree/tmux session from its task file — an
   infra-level mechanism, already tested
   (`scripts/.config/scripts/tmux/tests/wb-resume.test.sh`). This skill is
@@ -114,12 +114,20 @@ Having found the latest rich entry (if any), check whether any entries —
 rich or terse — appear **after** it in the section.
 
 - **No entries after it** (the immediate save → clear → resume case, the
-  common path): the recorded plan is still current. State in one line what
-  was read (e.g. what's done, what's in flight, the recorded next action),
-  then **continue directly into that next action** — do not just summarize
-  it and wait. This is the same posture `/handoff`'s injected pointer
-  relies on: a freshly arrived agent acts on the first-action line it
-  finds, it doesn't merely acknowledge it.
+  common path): before continuing, glance at `## Plan`/`## Decisions` and
+  the frontmatter `status:` for anything that reads as newer than the
+  saved entry (a decision recorded after the save's timestamp, a status
+  that contradicts it). The terse-entry gap check above only catches a
+  `wb pause`/`wb done`/`wb resume` cycle — it says nothing about a manual
+  edit or a concurrent `/ce-plan`/`/ce-work` session updating the task file
+  without ever touching `## Handoffs`. If nothing looks newer, the recorded
+  plan is still current: state in one line what was read (e.g. what's
+  done, what's in flight, the recorded next action), then **continue
+  directly into that next action** — do not just summarize it and wait.
+  This is the same posture `/handoff`'s injected pointer relies on: a
+  freshly arrived agent acts on the first-action line it finds, it doesn't
+  merely acknowledge it. If something does look newer, treat it the same
+  as the gap case below — state what changed and confirm before acting.
 - **One or more terse entries after it** (a real `wb pause`/`wb done`/`wb
   resume` cycle happened between the save and this resume — the recorded
   next action may now be stale): state the recorded next action **and**
@@ -169,6 +177,12 @@ picked up from.
   "paused via `wb pause`, then resumed via `wb resume`, since that save"),
   and ask whether to proceed with the old plan or redirect — don't act
   until answered.
+- **Edge case — no terse entries after the save, but `## Plan`/`## Decisions`/
+  frontmatter status reads as newer than it** (e.g. a manual edit or a
+  concurrent `/ce-plan`/`/ce-work` session touched the task file without
+  going through `## Handoffs`): treat this the same as the terse-entry gap
+  case — state what changed and confirm before acting, rather than trusting
+  the absence of a terse entry as proof nothing changed.
 - **Edge case — `## Handoffs` has only automatic entries, no `/wb-save`
   entry yet:** say explicitly that no rich save entry exists, fall back to
   `## Plan` (and the rest of the task file) for context, and summarize
@@ -192,7 +206,7 @@ picked up from.
   step 3, that's a fresh `/wb-save` (or a direct edit under `## Plan`), not
   something this skill does on its own.
 - The naming collision with the `wb resume <task>` CLI command
-  (`wb.sh:352-386`) is intentional and pre-existing (see
+  (`wb.sh:352-390`) is intentional and pre-existing (see
   `~/code/tasks/dotfiles--feat-self-handoff.md`'s "Naming collision to
   resolve, not conflate" note) — that command is infra-level
   (worktree/session recreation), this skill is conversation-level (context
