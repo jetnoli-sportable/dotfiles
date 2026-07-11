@@ -173,7 +173,7 @@
 </head>
 <body data-kind="hub">
 <div class="statusbar" aria-hidden="true">
-  <span><b>23</b> docs</span>
+  <span><b>28</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
   <span class="right">updated 2026-07-11</span>
 </div>
@@ -181,7 +181,7 @@
 <header class="doc">
   <span class="eyebrow">personal workflow</span>
   <h1><span class="glyph">⌂</span> Hub</h1>
-  <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview.</p>
+  <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview. Sources living outside this repo's git tree (memory, the task store, notes-tui/replay-tui READMEs) aren't picked up by the pre-commit hook that regenerates this dashboard — run <code>docgen.sh index</code> (or <code>all</code>) by hand after editing any of those. Running it from a worktree? Export <code>DOTFILES=$(git rev-parse --show-toplevel)</code> first — <code>docgen.sh</code> targets <code>$DOTFILES</code> (falling back to the main checkout), never <code>cwd</code>, so an unset <code>DOTFILES</code> silently regenerates the wrong repo's docs.</p>
 </header>
 
 <section class="group">
@@ -202,6 +202,13 @@
       <p>Take what&#39;s being discussed and either switch to the agent already on it, or spin up a new task for it.</p>
       <div class="path">docs/roadmap-handoff.html</div>
     </a>
+    <a class="tile" href="handoff-guide.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>/handoff — route a discussion to the right worker</h3>
+      <p>Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</p>
+      <div class="path">docs/handoff-guide.html</div>
+    </a>
     <a class="tile" href="9f-ergonomics-recap.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         <span class="chip ok">current</span></div>
@@ -216,6 +223,13 @@
       <p>GPaste configured, Ctrl&#43;Shift&#43;G opens history. What to verify yourself.</p>
       <div class="path">docs/9g-gpaste-recap.html</div>
     </a>
+    <a class="tile" href="ceremonies.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>Ceremonies — dated clocks and recurring reviews</h3>
+      <p>Check-in points, not automatic triggers. What each one is for, and what happens when it passes.</p>
+      <div class="path">docs/ceremonies.html</div>
+    </a>
     <a class="tile" href="roadmap-day-bookends.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         <span class="chip ok">current</span></div>
@@ -223,11 +237,25 @@
       <p>Startup and shutdown flows, and the &#34;sessions are regenerative&#34; principle.</p>
       <div class="path">docs/roadmap-day-bookends.html</div>
     </a>
+    <a class="tile" href="glossary.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>Glossary — recurring workflow terms</h3>
+      <p>One canonical definition per term that keeps coming up. Jump to any of them.</p>
+      <div class="path">docs/glossary.html</div>
+    </a>
+    <a class="tile" href="limitations.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>Limitations — standing, by-design workflow constraints</h3>
+      <p>Known gaps and caveats that explain otherwise-surprising behavior, one place.</p>
+      <div class="path">docs/limitations.html</div>
+    </a>
     <a class="tile" href="roadmap-open-questions.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         <span class="chip ok">current</span></div>
       <h3>Open Questions — deferred decisions from the 2026-07-07 doc review</h3>
-      <p>Five things deliberately left unresolved. Revisit triggers noted per item.</p>
+      <p>Deliberately unresolved decisions and process record. Standing limitations moved to their own page.</p>
       <div class="path">docs/roadmap-open-questions.html</div>
     </a>
     <a class="tile" href="pr1-wb-workbench-recap.html">
@@ -241,7 +269,7 @@
       <div class="tile-top"><span class="tile-glyph">◈</span>
         <span class="chip ok">current</span></div>
       <h3>Roadmap — the personal workflow</h3>
-      <p>One table, one status column, one click to the detail behind each row.</p>
+      <p>Up next, a live table, a parked pool, what we&#39;re not doing, and a shipped ledger — one click to the detail behind each item.</p>
       <div class="path">docs/roadmap.html</div>
     </a>
     <a class="tile" href="setup.html">
@@ -264,6 +292,13 @@
       <h3>Slice 5 recap — the docs platform</h3>
       <p>What shipped, what to verify yourself, and what&#39;s next. Start here after the PR.</p>
       <div class="path">docs/slice-5-recap.html</div>
+    </a>
+    <a class="tile" href="../logs/board.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip mut">on-demand</span></div>
+      <h3>Task board</h3>
+      <p>Full HTML task board — 6 status tabs, timeline window, live-session badges. Generated on demand, not auto-rebuilt: run `wb board --html` to refresh it.</p>
+      <div class="path">logs/board.html</div>
     </a>
     <a class="tile" href="roadmap-task-recall.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
