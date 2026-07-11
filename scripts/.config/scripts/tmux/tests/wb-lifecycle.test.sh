@@ -189,5 +189,64 @@ check "pr_is_live: CLOSED state -> false" false wb_lifecycle_pr_is_live "#18 (CL
 check "pr_is_live: MERGED state -> false" false wb_lifecycle_pr_is_live "#18 (MERGED)"
 check "pr_is_live: empty pr_info -> false" false wb_lifecycle_pr_is_live ""
 
+# =============================================================================
+# signal 5: wb_lifecycle_work_done
+# =============================================================================
+# proj's main checkout stays on "main" throughout (only worktrees ever check
+# out other branches) and has no origin remote, so wb_lifecycle_default_branch
+# falls back to `git branch --show-current` against $repo_dir and resolves to
+# "main" for every scenario below except the dedicated no-resolvable-default
+# case, which uses its own detached-HEAD fixture repo.
+commit_file() { # <worktree_abs_dir> <relative_file> <content>
+  printf '%s\n' "$3" > "$1/$2"
+  git -C "$1" add "$2"
+  git -C "$1" -c user.email=t@t -c user.name=t commit -q -m "wip: $2"
+}
+
+# --- happy path: one committed non-planning change beyond merge-base -------
+add_worktree "$FIXTURE_CODE/proj" work-committed
+commit_file "$FIXTURE_CODE/proj/.worktrees/work-committed" impl.txt code
+check "work_done: committed non-planning change beyond merge-base -> true" true \
+  wb_lifecycle_work_done proj .worktrees/work-committed work-committed
+
+# --- happy path: uncommitted-only non-planning change (feat/handoff-v1 case) -
+add_worktree "$FIXTURE_CODE/proj" work-uncommitted
+printf 'wip\n' > "$FIXTURE_CODE/proj/.worktrees/work-uncommitted/wip.txt"
+check "work_done: uncommitted-only non-planning change, zero commits beyond merge-base -> true" true \
+  wb_lifecycle_work_done proj .worktrees/work-uncommitted work-uncommitted
+
+# --- happy path: worktree removed, branch still carries a committed change -
+add_worktree "$FIXTURE_CODE/proj" work-removed
+commit_file "$FIXTURE_CODE/proj/.worktrees/work-removed" impl.txt code
+git -C "$FIXTURE_CODE/proj" worktree remove --force ".worktrees/work-removed"
+check "work_done: worktree removed but branch carries committed change -> true, no crash" true \
+  wb_lifecycle_work_done proj .worktrees/work-removed work-removed
+
+# --- edge case: only planning-artifact paths touched ------------------------
+add_worktree "$FIXTURE_CODE/proj" work-planning-only
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/work-planning-only/docs/plans"
+commit_file "$FIXTURE_CODE/proj/.worktrees/work-planning-only" docs/plans/x.md plan
+check "work_done: only planning-artifact paths touched -> false (documented limitation)" false \
+  wb_lifecycle_work_done proj .worktrees/work-planning-only work-planning-only
+
+# --- edge case: zero commits beyond merge-base, clean working tree ---------
+add_worktree "$FIXTURE_CODE/proj" work-clean
+check "work_done: clean worktree, no commits beyond merge-base -> false" false \
+  wb_lifecycle_work_done proj .worktrees/work-clean work-clean
+
+# --- edge case: worktree gone AND zero commits beyond merge-base -----------
+add_worktree "$FIXTURE_CODE/proj" work-gone-clean
+git -C "$FIXTURE_CODE/proj" worktree remove --force ".worktrees/work-gone-clean"
+check "work_done: worktree gone + no commits beyond merge-base -> false, no crash" false \
+  wb_lifecycle_work_done proj .worktrees/work-gone-clean work-gone-clean
+
+# --- edge case: no resolvable default branch (detached HEAD, no origin) ----
+mk_repo "$FIXTURE_CODE/detached"
+DETACHED_SHA="$(git -C "$FIXTURE_CODE/detached" rev-parse HEAD)"
+git -C "$FIXTURE_CODE/detached" checkout -q "$DETACHED_SHA"
+add_worktree "$FIXTURE_CODE/detached" some-branch
+check "work_done: no resolvable default branch -> false, no crash" false \
+  wb_lifecycle_work_done detached .worktrees/some-branch some-branch
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

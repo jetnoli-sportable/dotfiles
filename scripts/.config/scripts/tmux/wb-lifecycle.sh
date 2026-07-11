@@ -127,3 +127,91 @@ wb_lifecycle_pr_is_live() {
     *)         return 1 ;;
   esac
 }
+
+# ---------------------------------------------------------------------------
+# signal 5: /ce-work done
+# ---------------------------------------------------------------------------
+
+# wb_lifecycle_planning_path <repo-relative path> — true if <path> is one of
+# the planning-artifact directories a change must fall OUTSIDE of to count
+# as "work done" (docs/plans/, docs/brainstorms/, docs/ideation/,
+# logs/decisions/). Deliberate limitation: a task whose actual deliverable
+# lives entirely inside one of these paths (e.g. this plan's own U6) reports
+# work_done=false even once complete — see the plan's Key Technical
+# Decisions.
+wb_lifecycle_planning_path() {
+  case "${1:-}" in
+    docs/plans/*|docs/brainstorms/*|docs/ideation/*|logs/decisions/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# wb_lifecycle_any_real_work_path — reads newline-separated repo-relative
+# paths on stdin; exits 0 if any of them is NOT a planning-artifact path
+# (i.e. counts as real, non-scaffolding work).
+wb_lifecycle_any_real_work_path() {
+  local path
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    wb_lifecycle_planning_path "$path" || return 0
+  done
+  return 1
+}
+
+# wb_lifecycle_default_branch <repo_dir> — the repo's default branch name,
+# via origin/HEAD's symbolic ref, falling back to the main (non-worktree)
+# checkout's currently-checked-out branch. Prints empty (not an error) when
+# neither resolves (e.g. a detached-HEAD main checkout with no origin/HEAD
+# set) — callers must treat empty as "can't compute this half," not a crash.
+wb_lifecycle_default_branch() {
+  local repo_dir="${1:-}" ref
+  ref="$(git -C "$repo_dir" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)"
+  if [ -n "$ref" ]; then
+    printf '%s\n' "${ref#refs/remotes/origin/}"
+    return 0
+  fi
+  git -C "$repo_dir" branch --show-current 2>/dev/null
+}
+
+# wb_lifecycle_work_done <repo> <worktree_rel> <branch> — true if
+# implementation has happened: any COMMITTED change beyond the merge-base
+# with the default branch, OR any UNCOMMITTED change, that touches a path
+# outside the planning-artifact directories (wb_lifecycle_planning_path).
+# Split into two independently-guarded halves (see the plan's Key Technical
+# Decisions):
+#   - committed half: runs against $repo_dir (the main checkout) using the
+#     branch NAME, never a worktree path — committed refs survive `wb
+#     done`'s `git worktree remove` (wb.sh:1591-1593, "Branch is kept"), so
+#     this half needs no live worktree and must not be skipped just because
+#     one is gone.
+#   - uncommitted half: needs a live worktree; vacuously false (skipped, not
+#     an error) when $(wb_repo_dir "$repo")/$worktree_rel doesn't exist —
+#     `wb.sh` runs under `set -euo pipefail` and a `done`-bucket task's
+#     worktree removal is the common case this guard exists for, not a rare
+#     edge (mirrors has_plan/has_brainstorm's own is_dir guard above).
+# Never hard-fails on a git-command error (no resolvable default branch, no
+# merge-base, not a git repo at all) — mirrors wb_pr_merge_status's "report a
+# safe default, never silently abort" convention (wb.sh:417-424).
+wb_lifecycle_work_done() {
+  local repo="${1:-}" worktree_rel="${2:-}" branch="${3:-}"
+  local repo_dir; repo_dir="$(wb_repo_dir "$repo")"
+  [ -d "$repo_dir/.git" ] || return 1
+
+  local default_branch merge_base
+  default_branch="$(wb_lifecycle_default_branch "$repo_dir")"
+  if [ -n "$default_branch" ]; then
+    merge_base="$(git -C "$repo_dir" merge-base "$branch" "$default_branch" 2>/dev/null)"
+    if [ -n "$merge_base" ]; then
+      git -C "$repo_dir" diff --name-only "$merge_base..$branch" 2>/dev/null \
+        | wb_lifecycle_any_real_work_path && return 0
+    fi
+  fi
+
+  local wt="$repo_dir/$worktree_rel"
+  if [ -d "$wt" ]; then
+    git -C "$wt" status --porcelain 2>/dev/null | cut -c4- \
+      | wb_lifecycle_any_real_work_path && return 0
+  fi
+
+  return 1
+}
