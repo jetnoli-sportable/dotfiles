@@ -248,5 +248,70 @@ add_worktree "$FIXTURE_CODE/detached" some-branch
 check "work_done: no resolvable default branch -> false, no crash" false \
   wb_lifecycle_work_done detached .worktrees/some-branch some-branch
 
+# =============================================================================
+# signal 6 + wb reviewed: wb_lifecycle_review_done / cmd_reviewed
+# =============================================================================
+
+# --- wb_lifecycle_review_done: no field -> false; field set -> true --------
+mk_task 'proj--feat-review-a.md' doing proj feat/review-a
+check "review_done: no reviewed: field at all -> false" false \
+  wb_lifecycle_review_done "$FIXTURE_TASKS/proj--feat-review-a.md"
+wb_set_frontmatter "$FIXTURE_TASKS/proj--feat-review-a.md" reviewed 2026-07-01
+check "review_done: reviewed: field set -> true" true \
+  wb_lifecycle_review_done "$FIXTURE_TASKS/proj--feat-review-a.md"
+
+# --- cmd_reviewed: happy path, stamps today's date --------------------------
+mk_task 'proj--feat-review-b.md' doing proj feat/review-b
+mk_session reviewb proj feat/review-b
+out="$(cmd_reviewed "${PREFIX}-reviewb" 2>&1)"; rc=$?
+assert "cmd_reviewed: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
+assert "cmd_reviewed: confirmation message" 'reviewed' "$out"
+today="$(date +%F)"
+assert "cmd_reviewed: stamps today's date" "^$today\$" \
+  "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--feat-review-b.md" reviewed)"
+kill_session reviewb
+
+# --- edge case: no session arg, run outside any wb session ($TMUX unset) ---
+out="$(unset TMUX; cmd_reviewed 2>&1)"; rc=$?
+assert "cmd_reviewed: no session arg + no TMUX -> non-zero exit" '^' "$rc-fail"; [ "$rc" -ne 0 ] || { echo "FAIL - exit $rc"; fail=1; }
+assert "cmd_reviewed: no session arg + no TMUX -> clear error" 'run inside the target session' "$out"
+
+# --- edge case: session given but not a wb task session (no @wb_repo/@wb_slug)
+tmux new-session -d -s "${PREFIX}-bare" 2>/dev/null
+out="$(cmd_reviewed "${PREFIX}-bare" 2>&1)"; rc=$?
+assert "cmd_reviewed: bare session -> non-zero exit" '^' "$rc-fail"; [ "$rc" -ne 0 ] || { echo "FAIL - exit $rc"; fail=1; }
+assert "cmd_reviewed: bare session -> clear error" 'not a wb task session' "$out"
+kill_session bare
+
+# --- regression: wb_seed_task's reviewed: blank-fill ------------------------
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# No Reviewed Field\n' \
+  > "$FIXTURE_TASKS/proj--noreviewed.md"
+wb_seed_task proj noreviewed .worktrees/noreviewed >/dev/null
+if grep -q '^reviewed:' "$FIXTURE_TASKS/proj--noreviewed.md"; then
+  echo "ok   - wb_seed_task: reviewed: key inserted into a pre-existing file that lacked it"
+else
+  echo "FAIL - wb_seed_task: reviewed: key missing after seed"; fail=1
+fi
+if [ -z "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--noreviewed.md" reviewed)" ]; then
+  echo "ok   - wb_seed_task: reviewed: backfilled blank, not a bogus value"
+else
+  echo "FAIL - wb_seed_task: reviewed: unexpectedly got a non-blank value"; fail=1
+fi
+
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\nclosed:\nreviewed: 2026-01-01\n---\n# Already Reviewed\n' \
+  > "$FIXTURE_TASKS/proj--already-reviewed.md"
+wb_seed_task proj already-reviewed .worktrees/already-reviewed >/dev/null
+assert "wb_seed_task: an already-set reviewed: value is never overwritten" '^2026-01-01$' \
+  "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--already-reviewed.md" reviewed)"
+
+# --- regression: repo/branch/worktree/status blank-fill still work ---------
+printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\ntags: []\ncreated:\nclosed:\n---\n# Untouched Fields\n' \
+  > "$FIXTURE_TASKS/proj--blankfields.md"
+wb_seed_task proj blankfields .worktrees/blankfields >/dev/null
+assert "regression: wb_seed_task still fills repo:" '^proj$' "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--blankfields.md" repo)"
+assert "regression: wb_seed_task still fills branch:" '^blankfields$' "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--blankfields.md" branch)"
+assert "regression: wb_seed_task still fills worktree:" '^\.worktrees/blankfields$' "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--blankfields.md" worktree)"
+assert "regression: wb_seed_task still bumps planned->doing" '^doing$' "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--blankfields.md" status)"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

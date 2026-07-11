@@ -215,3 +215,17 @@ wb_lifecycle_work_done() {
 
   return 1
 }
+
+# ---------------------------------------------------------------------------
+# signal 6: /ce-code-review done
+# ---------------------------------------------------------------------------
+
+# wb_lifecycle_review_done <taskfile> — true once `wb reviewed` (wb.sh,
+# cmd_reviewed) has stamped the task file's `reviewed:` frontmatter field.
+# No staleness invalidation: this records "a review happened at some point,"
+# not "the current HEAD was reviewed" — see the plan's Key Technical
+# Decisions and logs/decisions/2026-07-11-wb-board-lifecycle-detection.md.
+wb_lifecycle_review_done() {
+  local taskfile="${1:-}"
+  [ -n "$(wb_get_frontmatter "$taskfile" reviewed)" ]
+}
