@@ -879,8 +879,8 @@ wb_append_handoff() {
   local file="$1" source="$2" message="$3"
   local entry; entry="### $(date '+%Y-%m-%d %H:%M') — $source (auto)"
   awk -v entry="$entry" -v msg="$message" '
-    BEGIN { found = 0; inhandoffs = 0; inserted = 0; prev = "" }
-    $0 == "## Handoffs" { found = 1; inhandoffs = 1 }
+    BEGIN { inhandoffs = 0; inserted = 0; prev = "" }
+    $0 == "## Handoffs" { inhandoffs = 1 }
     # Leaving an existing "## Handoffs" section (any other "## " heading
     # reached while inside it) — insert the new entry right here, at the
     # end of that section, before falling through to print the heading
@@ -895,7 +895,7 @@ wb_append_handoff() {
     # Heading missing entirely, but "## Decisions" exists — insert a fresh
     # "## Handoffs" section right before it (the same missing-heading
     # insertion point handoff_append_followup uses for its own heading).
-    $0 == "## Decisions" && !found && !inserted {
+    $0 == "## Decisions" && !inhandoffs && !inserted {
       print "## Handoffs"
       print ""
       print entry
@@ -910,7 +910,7 @@ wb_append_handoff() {
         # Section existed but ran to EOF with no following heading.
         if (prev != "") print ""
         print entry; print ""; print msg
-      } else if (!found && !inserted) {
+      } else if (!inserted) {
         # Neither "## Handoffs" nor "## Decisions" found anywhere — append
         # a fresh section at EOF.
         print ""
