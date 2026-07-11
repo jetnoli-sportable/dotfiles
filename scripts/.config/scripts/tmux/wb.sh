@@ -544,7 +544,7 @@ cmd_reconcile() {
 # same convention as wb_board_render_html's logs/board.html.
 wb_reconcile_report_path() {
   local root
-  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
   [ -n "$root" ] || root="$CODE_DIR/dotfiles"
   printf '%s/logs/reconcile.md\n' "$root"
 }
@@ -1242,7 +1242,7 @@ wb_board_doc_link() {
 # badges per row (R11), and per-panel anchor-linked detail sections (R12).
 wb_board_render_html() {
   local dotfiles_root
-  dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+  dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
   [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
 
   local -a ROWS=()
@@ -1489,7 +1489,7 @@ cmd_board() {
     # — derive the root from wb.sh's own location rather than assuming the
     # repo is literally named "dotfiles" under CODE_DIR.
     local dotfiles_root
-    dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+    dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
     [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
     local out="$dotfiles_root/logs/board.html"
     mkdir -p "$(dirname "$out")"
