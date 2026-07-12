@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# reference-transaction hook (concurrency-safety plan, unit U6 / H9-H17).
+#
+# The CALLER-AGNOSTIC backstop against silently orphaning committed-but-
+# unpushed work via a local branch-ref update -- a raw `git reset --hard`
+# typed directly in a terminal, an agent's Bash tool call, anything that
+# ends up moving a ref. Installed by pointing `core.hooksPath` at this
+# directory (a different unit's job -- `wb install-hooks`); this file only
+# needs to BE named exactly `reference-transaction`, no extension, for git
+# to find and invoke it there. A sibling Claude-Code PreToolUse hook is a
+# cheap upstream pattern-matcher; THIS hook is the real correctness
+# judgment and the only thing that also protects a raw terminal user.
+#
+# Contract (githooks(5), verified live on git 2.43.0): git invokes this
+# hook multiple times per ref transaction, once per state -- "prepared",
+# "committed", "aborted" -- passed as $1, with the affected ref updates fed
+# on stdin as "<old-value> SP <new-value> SP <ref-name> LF" lines (one per
+# ref). A non-zero exit ONLY does anything during "prepared" (it aborts the
+# whole transaction); non-zero during "committed"/"aborted" is a no-op, so
+# this script does nothing except during "prepared".
+#
+# Deliberately NOT `set -e`: several checks below (`merge-base
+# --is-ancestor`, the /dev/tty open probe) are expected to fail as ordinary
+# control flow -- that's how we tell "fast-forward" from "not" and "real
+# terminal" from "agent session with no tty" -- not as script errors.
+# Wrapping every one of them in an explicit `if` means errexit was never
+# needed for correctness here, and skipping it removes an entire class of
+# "silently aborted before we got to react to the check" bugs.
+set -uo pipefail
+
+state="${1:-}"
+
+# X4 kill-switch, checked before anything else (even the state gate). Ships
+# pre-created by a later rollout unit, so this hook installs but stays
+# dormant until a human deliberately deletes the file after validating this
+# logic against real repo history (X7 replay). We only implement the check.
+kill_switch="${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook"
+if [ -e "$kill_switch" ]; then
+  exit 0
+fi
+
+# H9: only "prepared" can veto anything -- exit early for every other state.
+if [ "$state" != prepared ]; then
+  exit 0
+fi
+
+# Same override-safe convention wb.sh uses for TASKS_DIR (not a
+# Claude-specific env var -- this is the repo's own tooling knob -- so
+# honoring it here doesn't violate H17; it just makes the sentinel path
+# testable against a fixture instead of a real ~/code/tasks checkout).
+tasks_dir="${TASKS_DIR:-$HOME/code/tasks}"
+sentinel_file="$tasks_dir/.git/WB_ALLOW_REWIND"
+sentinel_ttl=120
+
+# H16 latch: once the sentinel has been consumed for THIS hook invocation
+# (i.e. this one "prepared" transaction, which may batch several ref-update
+# lines), every remaining line in the same invocation is allowed outright.
+# Consuming it deletes the file, so a second, separate "prepared"
+# invocation (a second git command) finds it gone and gets no free pass.
+sentinel_used=0
+
+is_zero() { # <oid> -- true for the all-zeros OID (any hash length)
+  [[ "$1" =~ ^0+$ ]]
+}
+
+# build_refusal_message <ref> <orphaned-commits-newline-separated>
+build_refusal_message() {
+  local ref="$1" orphaned="$2" lines
+  lines="$(printf '%s\n' "$orphaned" | sed -n '1,20p' | while IFS= read -r c; do
+    [ -z "$c" ] && continue
+    git log -1 --format='    %h %s' "$c" 2>/dev/null || printf '    %s\n' "$c"
+  done)"
+  cat <<EOF
+reference-transaction hook: REFUSING update to $ref
+
+The following commit(s) would become reachable from NO ref at all
+(orphaned) if this update goes through:
+$lines
+
+This refusal does NOT undo whatever your git command already did to the
+INDEX and WORKING TREE -- those have ALREADY moved to the target, so any
+uncommitted tracked changes are ALREADY GONE by the time this hook runs.
+"Refused" only means the ref pointer ($ref) itself did not move and its
+history is preserved -- it does NOT mean nothing happened.
+
+Safe resync (never refused -- old==new trivially passes the fast-forward
+check): git reset --hard HEAD
+
+Deliberate override: run \`wb unsafe-rewind\` first for a one-time pass,
+or answer the interactive prompt if you're at a real terminal.
+EOF
+}
+
+# refuse_or_allow <ref> <orphaned-commits-newline-separated>
+# Returns 0 = allow (sentinel consumed or interactively overridden), 1 =
+# refuse (message already printed to stderr).
+refuse_or_allow() {
+  local ref="$1" orphaned="$2" tty_ok=0
+  # Verified empirically on git 2.43.0 (ps/PPID-traced): a single
+  # porcelain command like `git branch -D` invokes this hook's "prepared"
+  # state MORE THAN ONCE -- as separate process invocations -- before the
+  # ref update actually sticks (observed: prepared, committed, aborted,
+  # prepared, committed, for one `branch -D` call). Every one of those
+  # invocations shares the SAME parent PID (the one git process running
+  # that command), which is a reliable, non-timing-based way to tell
+  # "another prepared call for the command that already spent this
+  # sentinel" apart from "a genuinely separate, later git command" --
+  # unlike wall-clock proximity, which can't distinguish the two.
+  local grant_marker="${sentinel_file}.granted.${PPID}"
+
+  if [ "$sentinel_used" -eq 1 ]; then
+    return 0
+  fi
+
+  if [ -e "$grant_marker" ]; then
+    # This exact command (by parent PID) already spent the sentinel on an
+    # earlier "prepared" call of its own; the main sentinel file is
+    # already gone (see below) by the time this fires.
+    sentinel_used=1
+    return 0
+  fi
+
+  if [ -f "$sentinel_file" ]; then
+    local epoch rest now age
+    epoch=""; rest=""
+    read -r epoch rest < "$sentinel_file" 2>/dev/null || true
+    if [[ "$epoch" =~ ^[0-9]+$ ]]; then
+      now="$(date +%s)"
+      age=$(( now - epoch ))
+      if [ "$age" -ge 0 ] && [ "$age" -le "$sentinel_ttl" ]; then
+        rm -f "$sentinel_file"
+        : > "$grant_marker" 2>/dev/null || true
+        # Bound the window a stale marker could wrongly match a reused
+        # PID: sweep siblings idle for 10+ minutes -- comfortably longer
+        # than any single command's internal retry span (observed: tens
+        # of milliseconds) but short enough that PID reuse within the
+        # window is not a realistic concern.
+        find "$(dirname "$sentinel_file")" -maxdepth 1 \
+          -name "$(basename "$sentinel_file").granted.*" -mmin +10 -delete 2>/dev/null || true
+        sentinel_used=1
+        echo "reference-transaction hook: fresh WB_ALLOW_REWIND sentinel found -- allowing this transaction (sentinel consumed)." >&2
+        return 0
+      fi
+    fi
+  fi
+
+  build_refusal_message "$ref" "$orphaned" >&2
+
+  # H15: only offer the prompt if /dev/tty genuinely opens for reading.
+  # Verified live from an actual Claude Code Bash tool call (2026-07-11):
+  # none of fd 0/1/2 is a tty and /dev/tty does not open there, so an agent
+  # invocation always falls straight through to the refusal below and can
+  # never hang here; only a human at a real terminal ever sees the prompt.
+  # `2>/dev/null` is attached to the { } group, not the bare `exec`
+  # statement itself: bash reports a failed exec-only redirection through
+  # whatever stderr was in effect BEFORE that redirection is applied, so
+  # `exec 3<"/dev/tty" 2>/dev/null` on one line leaks the "No such device
+  # or address" diagnostic (verified: it does, in this exact repo's test
+  # env). Wrapping it in a group command scopes the suppression to fd 3's
+  # own failure while leaving fd 3 itself set in the CURRENT shell (no
+  # subshell) if it succeeds, and restores normal stderr right after.
+  tty_ok=0
+  { exec 3<"/dev/tty"; } 2>/dev/null && tty_ok=1
+  if [ "$tty_ok" -eq 1 ]; then
+    local reply=""
+    read -r -p "Allow this one ref update anyway? [y/N] " reply <&3 2>/dev/null
+    exec 3<&- 2>/dev/null || true
+    case "$reply" in
+      [Yy]*)
+        echo "reference-transaction hook: interactively overridden for $ref." >&2
+        return 0
+        ;;
+    esac
+  fi
+
+  return 1
+}
+
+while read -r old new ref; do
+  [ -z "${ref:-}" ] && continue
+
+  # H16: transaction-wide pass already granted -- nothing left to check.
+  if [ "$sentinel_used" -eq 1 ]; then
+    continue
+  fi
+
+  # H10: only refs/heads/* (local branches) are this hook's concern --
+  # tags, refs/remotes/*, etc. skip straight through.
+  case "$ref" in
+    refs/heads/*) ;;
+    *) continue ;;
+  esac
+
+  force_refuse=0
+  extra_exclude=""
+  if is_zero "$new"; then
+    # Branch deletion. Verified empirically on git 2.43.0: `git branch -D`
+    # (and -d) perform an UNCONDITIONAL delete that does not pass an
+    # expected old value into the transaction, so <old-value> ALSO arrives
+    # here as all-zeros even when the branch has real history -- not just
+    # for a true no-op. (Contrast with `git reset --hard`, which goes
+    # through a checked update-ref and always reports the real old value.)
+    # H10/H14's zero-old-means-creation reasoning does not apply to a line
+    # that is ALSO zero-new -- that combination only ever means "this ref
+    # is being removed, and the old value wasn't supplied" -- so resolve
+    # the real pre-deletion value ourselves. The ref is still live and
+    # resolvable via plain `git rev-parse` at "prepared" time (re-checked
+    # across every prepared/aborted/prepared retry this command performs,
+    # right up to the call that finally removes it), so this is safe.
+    if is_zero "$old"; then
+      resolved="$(git rev-parse --verify -q "$ref" 2>/dev/null || true)"
+      if [ -z "$resolved" ]; then
+        continue   # ref doesn't actually resolve to anything -- nothing to lose
+      fi
+      old="$resolved"
+    fi
+    # H13: deleting `development` is blocked unconditionally (independent
+    # of reachability) unless the sentinel above already granted a pass;
+    # every other branch's deletion falls through to the ordinary H12
+    # reachability check below.
+    if [ "$ref" = "refs/heads/development" ]; then
+      force_refuse=1
+    fi
+  elif is_zero "$old"; then
+    # H14: brand-new branch (old genuinely zero, new a real, freshly
+    # created OID) -- nothing existed before, nothing to lose.
+    continue
+  else
+    # H11 fast path: old is an ancestor of new -> pure fast-forward
+    # (ordinary commit/merge/ff-pull/rebase-onto-newer), nothing lost.
+    if git merge-base --is-ancestor "$old" "$new" 2>/dev/null; then
+      continue
+    fi
+    extra_exclude="$new"
+  fi
+
+  # H12: "every other ref" via for-each-ref, excluding the ref currently
+  # being updated -- deliberately ALL ref kinds (tags, refs/remotes/*,
+  # etc.), not just other local branches: a commit reachable only via a
+  # remote-tracking ref is still reachable, not orphaned.
+  #
+  # For an update: the would-be-orphaned set is `new..old` (reachable from
+  # old, not from new) intersected with "not reachable from any other
+  # ref" -- computed here in one shot via multiple --not exclusions.
+  # For a deletion (extra_exclude empty): the two-dot form is invalid
+  # against the all-zeros OID, so this collapses to exactly the form H12
+  # specifies for deletions: `git rev-list <old> --not <all other refs>`.
+  # shellcheck disable=SC2086
+  other_refs="$(git for-each-ref --format='%(refname)' 2>/dev/null | grep -Fxv "$ref" || true)"
+  # shellcheck disable=SC2086
+  orphaned="$(git rev-list "$old" --not $other_refs $extra_exclude 2>/dev/null || true)"
+
+  if [ "$force_refuse" -eq 1 ] || [ -n "$orphaned" ]; then
+    if refuse_or_allow "$ref" "$orphaned"; then
+      continue
+    else
+      exit 1
+    fi
+  fi
+done
+
+exit 0
