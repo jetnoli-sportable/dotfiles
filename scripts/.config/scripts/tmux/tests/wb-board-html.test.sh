@@ -13,18 +13,25 @@ FIXTURE_CODE="$(mktemp -d -t wb-board-html-code.XXXXXX)"
 trap 'rm -rf "$FIXTURE_TASKS" "$FIXTURE_CODE"' EXIT
 
 fail=0
+# assert/assert_not use a here-string (<<<), never `printf | grep -q` — U6
+# pushed real render fixtures well past the 64KB pipe buffer, and `grep -q`
+# exits the instant it finds a match without draining the rest of stdin;
+# under this script's own `pipefail`, an upstream `printf` still writing
+# when that happens gets SIGPIPE and its non-zero exit becomes the
+# pipeline's reported status even though grep DID match — a false FAIL.
+# A here-string has no separate producer process to receive that signal.
 assert() { # <desc> <expected-regex> <actual>
-  if printf '%s' "$3" | grep -qE "$2"; then
+  if grep -qE "$2" <<< "$3"; then
     echo "ok   - $1"
   else
     echo "FAIL - $1"
     echo "       expected match: $2"
-    echo "       got: $(printf '%s' "$3" | head -5)"
+    echo "       got: $(head -5 <<< "$3")"
     fail=1
   fi
 }
 assert_not() { # <desc> <unexpected-regex> <actual>
-  if printf '%s' "$3" | grep -qE "$2"; then
+  if grep -qE "$2" <<< "$3"; then
     echo "FAIL - $1 (unexpectedly present)"
     fail=1
   else
@@ -292,7 +299,11 @@ html5="$(wb_board_render_html 2>&1)"
 flat5="$(printf '%s' "$html5" | tr '\n' ' ')"
 empty_parent_panel="$(extract_task_card "$flat5" proj--empty-parent)"
 assert "empty parent: 0 of its own artifacts, no crash" '0 of its own artifacts' "$empty_parent_panel"
-assert "empty parent: child with no docs shows just pill and title" '<span class="pill doing">doing</span> Empty Child </div>' "$empty_parent_panel"
+# U6: every child row now also carries a compact mini-stepper (glyph +
+# label per non-n/a stage) — a child with no docs still gets one, since
+# every task has at least the default plan/work/review path declared.
+assert "empty parent: child with no docs shows pill, title, and its mini-stepper" \
+  '<span class="pill doing">doing</span> Empty Child <div class="mini-stepper">' "$empty_parent_panel"
 assert_not "empty parent: no rollup toggle when the union is empty" 'Show .* artifact' "$empty_parent_panel"
 
 # --- edge case: self-reference is excluded from its own children map -------
@@ -487,6 +498,39 @@ pipe_row_ae7="${pipe_row_ae7%%</tr>*}"
 na_count="$(printf '%s' "$pipe_row_ae7" | grep -o '&#183;' | wc -l | tr -d ' ')"
 assert "pipeline AE7: path work,review -> exactly 3 n/a stage cells (ideate/brainstorm/plan)" '^3$' "$na_count"
 
+# --- R11/KTD-5: stage cell for a done plan links to the plan doc; work
+# cell links to the PR URL when pr_info is stubbed; a branch-only doc
+# (worktree gone, unmerged) renders an unlinked glyph with a tooltip -------
+add_worktree "$FIXTURE_CODE/proj" pipe-link-live
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/pipe-link-live/docs/plans"
+printf '# plan\n' > "$FIXTURE_CODE/proj/.worktrees/pipe-link-live/docs/plans/2026-07-11-001-pipe-link-live-plan.md"
+mk_task 'proj--pipe-link-live.md' doing proj pipe-link-live .worktrees/pipe-link-live "$TODAY" '' 'Pipe Link Live Task'
+ORIG_PR_INFO3="$(declare -f wb_board_pr_info)"
+wb_board_pr_info() { printf '#42 (OPEN)\thttps://example.com/pr/42'; }
+html_link="$(wb_board_render_html 2>&1)"
+flat_link="$(printf '%s' "$html_link" | tr '\n' ' ')"
+pipe_panel_link="${flat_link#*id=\"panel-pipeline\">}"
+row_link="${pipe_panel_link#*Pipe Link Live Task}"; row_link="${row_link%%</tr>*}"
+assert "pipeline: done plan stage cell links to the plan doc (live worktree, KTD-5)" \
+  'href="[^"]*2026-07-11-001-pipe-link-live-plan\.md"' "$row_link"
+assert "pipeline: work stage cell links to the PR url when pr_info is stubbed" \
+  'href="https://example\.com/pr/42"' "$row_link"
+eval "$ORIG_PR_INFO3"
+
+add_worktree "$FIXTURE_CODE/proj" pipe-link-kept
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/pipe-link-kept/docs/plans"
+printf '# plan\n' > "$FIXTURE_CODE/proj/.worktrees/pipe-link-kept/docs/plans/2026-07-11-001-pipe-link-kept-plan.md"
+git -C "$FIXTURE_CODE/proj/.worktrees/pipe-link-kept" add docs/plans
+git -C "$FIXTURE_CODE/proj/.worktrees/pipe-link-kept" -c user.email=t@t -c user.name=t commit -q -m plan
+git -C "$FIXTURE_CODE/proj" worktree remove --force ".worktrees/pipe-link-kept"
+mk_task 'proj--pipe-link-kept.md' done proj pipe-link-kept .worktrees/pipe-link-kept "$TODAY" "$TODAY" 'Pipe Link Kept Task'
+html_kept="$(wb_board_render_html 2>&1)"
+card_kept="$(extract_task_card "$(printf '%s' "$html_kept" | tr '\n' ' ')" proj--pipe-link-kept)"
+assert "pipeline/card: branch-only doc (worktree gone) renders unlinked glyph with a tooltip naming it" \
+  'title="plan: done \(docs/plans/2026-07-11-001-pipe-link-kept-plan\.md\)"' "$card_kept"
+assert_not "pipeline/card: branch-only doc never gets an href (nothing to link on disk)" \
+  '<span class="glyph"><a href="[^"]*pipe-link-kept-plan' "$card_kept"
+
 # --- Deps column: blocked fixture shows a blocked chip with tooltip; its
 # blocker shows an unblocks chip; dep-free rows show the em-dash -----------
 add_worktree "$FIXTURE_CODE/proj" pipe-blocker
@@ -517,6 +561,94 @@ pipe_panel_mono="${flat_mono#*id=\"panel-pipeline\">}"
 assert "pipeline be--monorepo: row present with correct repo cell" 'SFB 988 Task.*<span class="repo">be--monorepo</span>' "$pipe_panel_mono"
 assert "pipeline be--monorepo: anchor is well-formed (t-pipeline-be--monorepo--sfb-988)" \
   'id="t-pipeline-be--monorepo--sfb-988"' "$pipe_panel_mono"
+
+# =============================================================================
+# U6: two-zone cards, stepper, relationship indicators
+# =============================================================================
+
+# --- AE3: done task, worktree removed, branch carries the plan doc ->
+# stepper's plan segment shows done, never pending ---------------------------
+add_worktree "$FIXTURE_CODE/proj" u6-ae3
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/u6-ae3/docs/plans"
+printf '# plan\n' > "$FIXTURE_CODE/proj/.worktrees/u6-ae3/docs/plans/2026-07-11-001-u6-ae3-plan.md"
+git -C "$FIXTURE_CODE/proj/.worktrees/u6-ae3" add docs/plans
+git -C "$FIXTURE_CODE/proj/.worktrees/u6-ae3" -c user.email=t@t -c user.name=t commit -q -m plan
+git -C "$FIXTURE_CODE/proj" worktree remove --force ".worktrees/u6-ae3"
+mk_task 'proj--u6-ae3.md' done proj u6-ae3 .worktrees/u6-ae3 "$TODAY" "$TODAY" 'U6 AE3 Task'
+html_ae3="$(wb_board_render_html 2>&1)"
+card_ae3="$(extract_task_card "$(printf '%s' "$html_ae3" | tr '\n' ' ')" proj--u6-ae3)"
+# the kept-branch fallback also names the doc in the tooltip (nothing to
+# link to once the worktree is gone, KTD-5) — match the prefix only, not
+# the exact closing quote, so this doesn't over-constrain the tooltip text.
+assert "U6 AE3: worktree removed, branch carries plan doc -> stepper shows plan done" \
+  'step done" title="plan: done' "$card_ae3"
+assert "U6 AE3: kept-branch match still names the doc, unlinked, in the tooltip/chip" \
+  '2026-07-11-001-u6-ae3-plan\.md' "$card_ae3"
+assert_not "U6 AE3: plan never renders pending for this task" 'title="plan: pending"' "$card_ae3"
+assert "U6: done task card is structurally identical to an in-flight card (two-zone + stepper)" \
+  '<div class="card-head">.*<div class="stepper">' "$card_ae3"
+
+# --- AE4: blocked card dimmed with a ⛔ chip + tooltip; indicator clears
+# once the blocker is marked done, no manual edit needed --------------------
+add_worktree "$FIXTURE_CODE/proj" u6-ae4-blocker
+mk_task 'proj--u6-ae4-blocker.md' doing proj u6-ae4-blocker .worktrees/u6-ae4-blocker "$TODAY" '' 'U6 AE4 Blocker'
+{
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: u6-ae4-blocked\nworktree: .worktrees/u6-ae4-blocked\ndepends_on: proj--u6-ae4-blocker\ntags: []\ncreated: %s\nclosed:\n---\n' "$TODAY"
+  printf '# U6 AE4 Blocked\n\n## Plan\n\n## Done\n\n'
+} > "$FIXTURE_TASKS/proj--u6-ae4-blocked.md"
+html_ae4="$(wb_board_render_html 2>&1)"
+card_ae4="$(extract_task_card "$(printf '%s' "$html_ae4" | tr '\n' ' ')" proj--u6-ae4-blocked)"
+assert "U6 AE4: blocked card shows the ⛔ chip" 'dep-chip blocked' "$card_ae4"
+wb_set_frontmatter "$FIXTURE_TASKS/proj--u6-ae4-blocker.md" status done
+html_ae4b="$(wb_board_render_html 2>&1)"
+card_ae4b="$(extract_task_card "$(printf '%s' "$html_ae4b" | tr '\n' ' ')" proj--u6-ae4-blocked)"
+assert_not "U6 AE4: blocker done -> indicator gone on next render, no manual edit" 'dep-chip blocked' "$card_ae4b"
+
+# --- AE6: parent with all children done while `doing` shows a 3/3 counter
+# and the ready-to-close hint; parent's own pill is never altered; 2/3
+# shows the counter but no hint ---------------------------------------------
+mk_parent_task 'proj--u6-ae6-parent.md' doing proj "$TODAY" '' 'U6 AE6 Parent' ''
+mk_child_task 'proj--u6-ae6-c1.md' done proj "$TODAY" "$TODAY" 'U6 AE6 C1' proj--u6-ae6-parent ''
+mk_child_task 'proj--u6-ae6-c2.md' done proj "$TODAY" "$TODAY" 'U6 AE6 C2' proj--u6-ae6-parent ''
+mk_child_task 'proj--u6-ae6-c3.md' done proj "$TODAY" "$TODAY" 'U6 AE6 C3' proj--u6-ae6-parent ''
+html_ae6="$(wb_board_render_html 2>&1)"
+card_ae6="$(extract_task_card "$(printf '%s' "$html_ae6" | tr '\n' ' ')" proj--u6-ae6-parent)"
+assert "U6 AE6: 3/3 children done -> counter shown" '3/3 children done' "$card_ae6"
+assert "U6 AE6: ready-to-close hint present at 3/3" 'ready-hint' "$card_ae6"
+assert "U6 AE6: parent pill still reads doing" '<span class="pill doing">doing</span>' "$card_ae6"
+wb_set_frontmatter "$FIXTURE_TASKS/proj--u6-ae6-c3.md" status doing
+html_ae6b="$(wb_board_render_html 2>&1)"
+card_ae6b="$(extract_task_card "$(printf '%s' "$html_ae6b" | tr '\n' ' ')" proj--u6-ae6-parent)"
+assert "U6 AE6: 2/3 children done -> counter shown" '2/3 children done' "$card_ae6b"
+assert_not "U6 AE6: 2/3 -> no ready-to-close hint" 'ready-hint' "$card_ae6b"
+
+# --- R14: multiple matching docs for one stage all render as chips; the
+# stepper segment itself links only the lexically newest --------------------
+add_worktree "$FIXTURE_CODE/proj" u6-multidoc
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/u6-multidoc/docs/plans"
+printf '# old\n' > "$FIXTURE_CODE/proj/.worktrees/u6-multidoc/docs/plans/2026-07-01-001-u6-multidoc-plan.md"
+printf '# new\n' > "$FIXTURE_CODE/proj/.worktrees/u6-multidoc/docs/plans/2026-07-11-001-u6-multidoc-plan.md"
+mk_task 'proj--u6-multidoc.md' doing proj u6-multidoc .worktrees/u6-multidoc "$TODAY" '' 'U6 Multidoc Task'
+html_md="$(wb_board_render_html 2>&1)"
+card_md="$(extract_task_card "$(printf '%s' "$html_md" | tr '\n' ' ')" proj--u6-multidoc)"
+assert "U6 R14: older matching plan doc listed as a chip" '2026-07-01-001-u6-multidoc-plan\.md' "$card_md"
+assert "U6 R14: newer matching plan doc listed as a chip" '2026-07-11-001-u6-multidoc-plan\.md' "$card_md"
+assert "U6 R14: stepper segment links the lexically newest doc" \
+  '<span class="glyph"><a href="[^"]*2026-07-11-001-u6-multidoc-plan\.md"' "$card_md"
+
+# --- KTD-9: attribute-context escaping — a dangling depends_on: stem can
+# carry arbitrary hand-edited text, and its warning lands inside a title=
+# attribute, not just text content -------------------------------------------
+{
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: u6-attr-esc\nworktree: .worktrees/x\ndepends_on: proj--<script>\ntags: []\ncreated: %s\nclosed:\n---\n' "$TODAY"
+  printf '# U6 Attr Esc Task\n\n## Plan\n\n## Done\n\n'
+} > "$FIXTURE_TASKS/proj--u6-attr-esc.md"
+html_attr="$(wb_board_render_html 2>&1)"
+card_attr="$(extract_task_card "$(printf '%s' "$html_attr" | tr '\n' ' ')" proj--u6-attr-esc)"
+assert "U6 KTD-9: dangling-stem warning escaped inside a title= attribute" \
+  'title="depends on unresolved stem: proj--&lt;script&gt;"' "$card_attr"
+assert_not "U6 KTD-9: no raw unescaped tag inside an attribute value" \
+  'title="depends on unresolved stem: proj--<script>' "$card_attr"
 
 # --- empty store: no crash, empty-state everywhere ---------------------------
 EMPTY_TASKS="$(mktemp -d -t wb-board-html-empty.XXXXXX)"

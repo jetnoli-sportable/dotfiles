@@ -1671,56 +1671,113 @@ wb_board_stage_glyph() {
   esac
 }
 
-# wb_board_stage_doc_path <repo> <branch> <worktree_rel> <taskfile> <stage>
-# — the lexically newest (R14) worktree-relative doc path backing a
-# done/in-progress DOC stage (ideate/brainstorm/plan), or empty when
-# nothing is currently linkable on disk (no live worktree — a kept-branch-
-# only match has no path to hand a browser, KTD-5). Mirrors
-# wb_lifecycle_has_doc's own directory/candidate/discriminator logic but
-# returns a path instead of a boolean.
-wb_board_stage_doc_path() {
+# wb_board_stage_doc_kind <stage> — maps a board-display stage name to the
+# directory/kind identifier wb_lifecycle_has_doc's family of functions use
+# — these DON'T all match 1:1 (ideate's directory is docs/ideation/, not
+# docs/ideate/; brainstorm/plan keep their plural directory names).
+# wb_lifecycle_stage_state sidesteps this by dispatching to the specific
+# wb_lifecycle_has_plan/_brainstorm/_ideate wrapper for each stage; the
+# display layer needs the mapping explicitly since it calls the shared
+# wb_lifecycle_doc_dirs_for_kind/_doc_qualifies helpers directly. Only
+# called for the three doc stages — work/review have no doc directory.
+wb_board_stage_doc_kind() {
+  case "$1" in
+    ideate)     printf 'ideation' ;;
+    brainstorm) printf 'brainstorms' ;;
+    plan)       printf 'plans' ;;
+  esac
+}
+
+# wb_board_stage_doc_candidates <repo> <branch> <worktree_rel> <taskfile>
+#   <stage> — every worktree-relative doc path currently on disk backing a
+# DOC stage (ideate/brainstorm/plan), sorted, one per line — empty when
+# there's no live worktree (a kept-branch-only match has nothing to link,
+# KTD-5) or nothing matches. Mirrors wb_lifecycle_has_doc's own directory/
+# candidate/discriminator logic but collects every match instead of
+# stopping at the first (R14 — the card lists all matched docs per stage).
+wb_board_stage_doc_candidates() {
   local repo="$1" branch="${2:-}" worktree="${3:-}" taskfile="$4" stage="$5"
   [ -n "$branch" ] && [ -n "$worktree" ] || return 0
   local repo_dir; repo_dir="$(wb_repo_dir "$repo")"
   local wt="$repo_dir/$worktree"
-  [ -d "$wt" ] || return 0
+  local live=1
+  [ -d "$wt" ] || live=0
+  if [ "$live" = 0 ]; then
+    git -C "$repo_dir" cat-file -e "$branch" 2>/dev/null || return 0
+  fi
 
+  local kind; kind="$(wb_board_stage_doc_kind "$stage")"
   local frag; frag="$(wb_sanitize "$branch")"
   local -a candidates=()
-  local dir f readiness source candidate
+  local dir f readiness source candidate content
 
   while IFS= read -r dir; do
     [ -n "$dir" ] || continue
-    if [ -d "$wt/docs/$dir" ]; then
-      for f in "$wt/docs/$dir"/*.md "$wt/docs/$dir"/*.html; do
-        [ -f "$f" ] || continue
-        case "$(basename "$f")" in
+    if [ "$live" = 1 ]; then
+      if [ -d "$wt/docs/$dir" ]; then
+        for f in "$wt/docs/$dir"/*.md "$wt/docs/$dir"/*.html; do
+          [ -f "$f" ] || continue
+          case "$(basename "$f")" in
+            *"$frag"*)
+              if [ "$dir" = plans ]; then
+                readiness="$(wb_get_frontmatter "$f" artifact_readiness)"
+                source="$(wb_get_frontmatter "$f" product_contract_source)"
+                wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
+              fi
+              candidates+=("docs/$dir/$(basename "$f")")
+              ;;
+          esac
+        done
+      fi
+    else
+      while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        case "$(basename "$candidate")" in
           *"$frag"*)
             if [ "$dir" = plans ]; then
-              readiness="$(wb_get_frontmatter "$f" artifact_readiness)"
-              source="$(wb_get_frontmatter "$f" product_contract_source)"
-              wb_lifecycle_doc_qualifies "$stage" "$readiness" "$source" || continue
+              content="$(git -C "$repo_dir" show "$branch:$candidate" 2>/dev/null)"
+              readiness="$(printf '%s\n' "$content" | wb_get_frontmatter_text artifact_readiness)"
+              source="$(printf '%s\n' "$content" | wb_get_frontmatter_text product_contract_source)"
+              wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
             fi
-            candidates+=("docs/$dir/$(basename "$f")")
+            candidates+=("$candidate")
             ;;
         esac
-      done
+      done < <(git -C "$repo_dir" ls-tree -r --name-only "$branch" -- "docs/$dir" 2>/dev/null)
     fi
+
     while IFS= read -r candidate; do
       [ -n "$candidate" ] || continue
       case "$candidate" in "docs/$dir/"*) : ;; *) continue ;; esac
-      [ -f "$wt/$candidate" ] || continue
-      if [ "$dir" = plans ]; then
-        readiness="$(wb_get_frontmatter "$wt/$candidate" artifact_readiness)"
-        source="$(wb_get_frontmatter "$wt/$candidate" product_contract_source)"
-        wb_lifecycle_doc_qualifies "$stage" "$readiness" "$source" || continue
+      if [ "$live" = 1 ]; then
+        [ -f "$wt/$candidate" ] || continue
+        if [ "$dir" = plans ]; then
+          readiness="$(wb_get_frontmatter "$wt/$candidate" artifact_readiness)"
+          source="$(wb_get_frontmatter "$wt/$candidate" product_contract_source)"
+          wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
+        fi
+      else
+        git -C "$repo_dir" cat-file -e "$branch:$candidate" 2>/dev/null || continue
+        if [ "$dir" = plans ]; then
+          content="$(git -C "$repo_dir" show "$branch:$candidate" 2>/dev/null)"
+          readiness="$(printf '%s\n' "$content" | wb_get_frontmatter_text artifact_readiness)"
+          source="$(printf '%s\n' "$content" | wb_get_frontmatter_text product_contract_source)"
+          wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
+        fi
       fi
       candidates+=("$candidate")
     done < <(wb_board_doc_candidates "$taskfile")
-  done < <(wb_lifecycle_doc_dirs_for_kind "$stage")
+  done < <(wb_lifecycle_doc_dirs_for_kind "$kind")
 
   [ "${#candidates[@]}" -gt 0 ] || return 0
-  printf '%s\n' "${candidates[@]}" | sort -u | tail -1
+  printf '%s\n' "${candidates[@]}" | sort -u
+}
+
+# wb_board_stage_doc_path <repo> <branch> <worktree_rel> <taskfile> <stage>
+# — the lexically newest (R14) of wb_board_stage_doc_candidates' matches,
+# for stepper/stage-cell link targets (only one link per segment).
+wb_board_stage_doc_path() {
+  wb_board_stage_doc_candidates "$@" | tail -1
 }
 
 # wb_board_stage_link_href <repo_dir> <worktree_rel> <candidate_relpath> —
@@ -1749,14 +1806,15 @@ wb_board_pr_number() {
   printf '%s' "${d%% *}"
 }
 
-# wb_board_stage_cell <stage> <state> <repo> <branch> <worktree_rel>
-#   <taskfile> <pr_info> — one <td> for the Pipeline table (R9/R11) and
-# (U6) the card stepper: the state glyph, linked per KTD-5 when an
-# artifact backs it (work links to the PR url; doc stages link to the
-# newest matching doc when it's on disk), otherwise just a title=
-# tooltip naming the state (and, for a kept-branch-only match, the doc
-# name itself, since there's nothing to link to).
-wb_board_stage_cell() {
+# wb_board_stage_render_info <stage> <state> <repo> <branch> <worktree_rel>
+#   <taskfile> <pr_info> — prints "glyph\thref\ttooltip" (href empty when
+# unlinked). KTD-5's link precedence in exactly one place, shared by the
+# Pipeline table cell (wb_board_stage_cell) and (U6) the card stepper
+# segment (wb_board_stepper_html): work links to the PR url; doc stages
+# link to the newest matching doc when it's on disk; review's tooltip
+# carries the reviewed: date. A kept-branch-only doc match (nothing to
+# link) falls back to a tooltip naming the doc instead.
+wb_board_stage_render_info() {
   local stage="$1" state="$2" repo="$3" branch="$4" worktree="$5" taskfile="$6" pr_info="$7"
   local glyph; glyph="$(wb_board_stage_glyph "$state")"
   local href="" tooltip="$stage: $state"
@@ -1764,7 +1822,10 @@ wb_board_stage_cell() {
     work)
       [ -n "$pr_info" ] && href="$(wb_board_pr_url "$pr_info")"
       ;;
-    review) : ;;
+    review)
+      local reviewed_date; reviewed_date="$(wb_get_frontmatter "$taskfile" reviewed)"
+      [ -n "$reviewed_date" ] && tooltip="review: $state (reviewed $reviewed_date)"
+      ;;
     *)
       if [ "$state" = done ] || [ "$state" = progress ]; then
         local candidate; candidate="$(wb_board_stage_doc_path "$repo" "$branch" "$worktree" "$taskfile" "$stage")"
@@ -1775,12 +1836,74 @@ wb_board_stage_cell() {
       fi
       ;;
   esac
+  printf '%s\t%s\t%s' "$glyph" "$href" "$tooltip"
+}
+
+# wb_board_stage_cell <stage> <state> <repo> <branch> <worktree_rel>
+#   <taskfile> <pr_info> — one <td> for the Pipeline table (R9/R11): the
+# state glyph, linked when wb_board_stage_render_info found an artifact,
+# otherwise just a title= tooltip.
+wb_board_stage_cell() {
+  local -a info
+  wb_tsv_split "$(wb_board_stage_render_info "$@")" info
+  local glyph="${info[0]:-}" href="${info[1]:-}" tooltip="${info[2]:-}"
   if [ -n "$href" ]; then
     printf '<td class="stage-cell"><a href="%s" title="%s">%s</a></td>' \
       "$(wb_board_html_escape "$href")" "$(wb_board_html_escape "$tooltip")" "$glyph"
   else
     printf '<td class="stage-cell" title="%s">%s</td>' "$(wb_board_html_escape "$tooltip")" "$glyph"
   fi
+}
+
+# wb_board_stepper_html <repo> <branch> <worktree_rel> <taskfile>
+#   <anchor_key> <pr_info> [compact] — the stepper for one task's detail
+# card (R13), in canonical stage order, skipping any stage whose state is
+# n/a (STAGE_STATE already folds R4's upgrade rule in, so a fired-but-
+# undeclared stage still appears — "only path/fired stages render" is
+# exactly "state != na"). Each segment is glyph-over-label; a DOC stage
+# also lists every matched doc as an artifact chip below it (R14 — the
+# glyph itself links only the lexically newest, via
+# wb_board_stage_render_info). [compact]=1 renders the child-row mini-
+# stepper instead (glyph + label only, no links/chips) — same per-child
+# summary the approved mockup's parent group card shows.
+wb_board_stepper_html() {
+  local repo="$1" branch="$2" worktree="$3" taskfile="$4" anchor_key="$5" pr_info="$6" compact="${7:-0}"
+  local out="" stage state
+  for stage in "${WB_LIFECYCLE_STAGES[@]}"; do
+    state="${STAGE_STATE["$(wb_board_stage_key "$anchor_key" "$stage")"]:-na}"
+    [ "$state" = na ] && continue
+    local label; label="$(tr '[:lower:]' '[:upper:]' <<< "${stage:0:1}")${stage:1}"
+
+    if [ "$compact" = 1 ]; then
+      out+="<span class=\"mini-step $state\" title=\"$(wb_board_html_escape "$stage: $state")\">$(wb_board_stage_glyph "$state") $label</span>"
+      continue
+    fi
+
+    local -a info
+    wb_tsv_split "$(wb_board_stage_render_info "$stage" "$state" "$repo" "$branch" "$worktree" "$taskfile" "$pr_info")" info
+    local glyph="${info[0]:-}" href="${info[1]:-}" tooltip="${info[2]:-}"
+    local seg_glyph="$glyph"
+    [ -n "$href" ] && seg_glyph="<a href=\"$(wb_board_html_escape "$href")\">$glyph</a>"
+
+    local chips=""
+    if [ "$stage" != work ] && [ "$stage" != review ] && { [ "$state" = done ] || [ "$state" = progress ]; }; then
+      local cand chip_href
+      while IFS= read -r cand; do
+        [ -n "$cand" ] || continue
+        chip_href="$(wb_board_stage_link_href "$(wb_repo_dir "$repo")" "$worktree" "$cand")"
+        if [ -n "$chip_href" ]; then
+          chips+="<a class=\"artefact-chip\" href=\"$(wb_board_html_escape "$chip_href")\">$(wb_board_html_escape "$(basename "$cand")")</a> "
+        else
+          chips+="<span class=\"artefact-chip\">$(wb_board_html_escape "$(basename "$cand")")</span> "
+        fi
+      done < <(wb_board_stage_doc_candidates "$repo" "$branch" "$worktree" "$taskfile" "$stage")
+    fi
+
+    out+="<div class=\"step $state\" title=\"$(wb_board_html_escape "$tooltip")\"><span class=\"glyph\">$seg_glyph</span><span class=\"label\">$label</span>"
+    [ -n "$chips" ] && out+="<div class=\"step-chips\">$chips</div>"
+    out+="</div>"
+  done
+  printf '%s' "$out"
 }
 
 # wb_board_deps_chips <anchor_key> — the ⛔/→/warning chip markup for one
@@ -1836,7 +1959,6 @@ wb_board_render_detail_card() {
   [ -n "$done_txt" ] && detail_extra+="<p><b>Done:</b> $(wb_board_html_escape "$done_txt")</p>"
   repo_dir="$(wb_repo_dir "$repo")"
   pr_info="${PR_INFO["$anchor_key"]:-}"
-  [ -n "$pr_info" ] && detail_extra+="<p><b>Related:</b> <span class=\"artefact-chip\">PR $(wb_board_html_escape "$(wb_board_pr_display "$pr_info")")</span></p>"
   wt_abs="$repo_dir/$worktree"
   local ledger_line ledger_note=""
   while IFS= read -r ledger_line; do
@@ -1849,17 +1971,44 @@ wb_board_render_detail_card() {
   doc_links="$(wb_board_task_doc_chips "$taskfile" "$dotfiles_root")"
   [ -n "$doc_links" ] && detail_extra+="<p><b>Docs:</b> $doc_links</p>"
 
-  local h3="<h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3>"
+  # --- U6: two-zone head — identity left, lane-meta (agent/worktree/PR)
+  # top-right — replacing the old single-line <h3> for every card, done
+  # tasks included (R13: the superseded lifecycle-plan's done-bucket
+  # skip must not carry forward). --------------------------------------
+  local wt_glyph=""
+  wb_lifecycle_has_worktree "$repo" "$worktree" && wt_glyph="<span class=\"wt-indicator\" title=\"worktree present\">&#8962;</span>"
+  local pr_chip=""
+  [ -n "$pr_info" ] && pr_chip="<a class=\"artefact-chip pr-chip\" href=\"$(wb_board_html_escape "$(wb_board_pr_url "$pr_info")")\">PR $(wb_board_html_escape "$(wb_board_pr_display "$pr_info")")</a>"
+  local identity="<div class=\"identity\"><h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span></h3><div class=\"meta-line\">$esc_repo &middot; $esc_branch</div></div>"
+  local lane_meta="<div class=\"lane-meta\">$live_badge$wt_glyph$pr_chip</div>"
+  local card_head="<div class=\"card-head\">$identity$lane_meta<a class=\"back\" href=\"#\">&#8593; back</a></div>"
+
+  # --- U6: stepper + relationship chips (R13-R18) -------------------------
+  local stepper_html; stepper_html="<div class=\"stepper\">$(wb_board_stepper_html "$repo" "$branch" "$worktree" "$taskfile" "$anchor_key" "$pr_info" 0)</div>"
+  local deps_html; deps_html="$(wb_board_deps_chips "$anchor_key")"
+  [ -n "$deps_html" ] && deps_html="<div class=\"deps-chips\">$deps_html</div>"
+
   local stem; stem="$(basename "$taskfile" .md)"
   if [ -n "${children_of[$stem]:-}" ]; then
     local own_count; own_count="$(printf '%s' "$own_docs" | grep -c . || true)"
     local children_html='' crow_file crow_status crow_title crow_chips
+    local crow_stem crow_anchor crow_repo crow_branch crow_worktree crow_pr crow_stepper
     while IFS= read -r crow_file; do
       [ -n "$crow_file" ] && [ -f "$crow_file" ] || continue
       crow_status="$(wb_get_frontmatter "$crow_file" status)"
       crow_title="$(wb_task_title "$crow_file")"; [ -n "$crow_title" ] || crow_title="$(basename "$crow_file" .md)"
       crow_chips="$(wb_board_task_doc_chips "$crow_file" "$dotfiles_root")"
-      children_html+="<div class=\"child-row\"><span class=\"pill $crow_status\">$(wb_board_html_escape "$crow_status")</span> $(wb_board_html_escape "$crow_title") $crow_chips</div>"$'\n'
+      crow_stem="$(basename "$crow_file" .md)"
+      crow_anchor="${STEM_ANCHOR["$crow_stem"]:-}"
+      crow_stepper=""
+      if [ -n "$crow_anchor" ]; then
+        crow_repo="$(wb_get_frontmatter "$crow_file" repo)"
+        crow_branch="$(wb_get_frontmatter "$crow_file" branch)"
+        crow_worktree="$(wb_get_frontmatter "$crow_file" worktree)"
+        crow_pr="${PR_INFO["$crow_anchor"]:-}"
+        crow_stepper="<div class=\"mini-stepper\">$(wb_board_stepper_html "$crow_repo" "$crow_branch" "$crow_worktree" "$crow_file" "$crow_anchor" "$crow_pr" 1)</div>"
+      fi
+      children_html+="<div class=\"child-row\"><span class=\"pill $crow_status\">$(wb_board_html_escape "$crow_status")</span> $(wb_board_html_escape "$crow_title") $crow_chips$crow_stepper</div>"$'\n'
     done <<< "${children_of[$stem]}"
 
     local rollup_docs rollup_html=""
@@ -1875,10 +2024,18 @@ wb_board_render_detail_card() {
       rollup_html="<details><summary>Show $rn artifact$plural from sub-tasks too</summary><p>$rollup_chips</p></details>"
     fi
 
-    printf '<div class="task-detail" id="%s"><details open class="parent-row"><summary>%s<span class="own-count">%s of its own artifacts</span></summary><span class="repo">%s</span>%s<div class="children">%s</div>%s</details></div>\n' \
-      "$view_anchor" "$h3" "$own_count" "$esc_repo" "$detail_extra" "$children_html" "$rollup_html"
+    # R20: children-done counter + ready-to-close hint, never touching the
+    # parent's own status pill.
+    local rollup_counter=""
+    if [ -n "${CHILDREN_TOTAL["$stem"]:-}" ]; then
+      rollup_counter="<span class=\"children-counter\">${CHILDREN_DONE["$stem"]}/${CHILDREN_TOTAL["$stem"]} children done</span>"
+      [ -n "${READY_TO_CLOSE["$stem"]:-}" ] && rollup_counter+="<span class=\"ready-hint\">&#10003; ready to close</span>"
+    fi
+
+    printf '<div class="task-detail" id="%s"><details open class="parent-row"><summary>%s<span class="own-count">%s of its own artifacts</span>%s</summary>%s%s%s<div class="children">%s</div>%s</details></div>\n' \
+      "$view_anchor" "$card_head" "$own_count" "$rollup_counter" "$stepper_html" "$deps_html" "$detail_extra" "$children_html" "$rollup_html"
   else
-    printf '<div class="task-detail" id="%s">%s<span class="repo">%s</span>%s</div>\n' "$view_anchor" "$h3" "$esc_repo" "$detail_extra"
+    printf '<div class="task-detail" id="%s">%s%s%s%s</div>\n' "$view_anchor" "$card_head" "$stepper_html" "$deps_html" "$detail_extra"
   fi
 }
 
@@ -2238,6 +2395,31 @@ wb_board_render_html() {
   .task-detail details.parent-row details { margin-top: .6rem; }
   .task-detail details.parent-row details summary { cursor: pointer; color: var(--acc2); font-family: var(--mono); font-size: .78rem; list-style: none; }
   .task-detail details.parent-row details summary::-webkit-details-marker { display: none; }
+
+  /* U6: two-zone card head (identity left, lane-meta + back top-right) */
+  .card-head { display: flex; align-items: flex-start; gap: .6rem; flex-wrap: wrap; width: 100%; }
+  .card-head .identity { flex: 1 1 auto; min-width: 0; }
+  .card-head .identity h3 { margin: 0 0 .2rem; font-size: 1rem; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .meta-line { font-family: var(--mono); font-size: .78rem; color: var(--mut); }
+  .card-head .lane-meta { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .wt-indicator { font-size: .9rem; color: var(--mut); }
+  .card-head .back { font-family: var(--mono); font-size: .74rem; color: var(--acc2); text-decoration: none; margin-left: auto; }
+
+  /* U6: stepper — glyph-over-label segments in path order */
+  .stepper { display: flex; gap: .9rem; margin: .7rem 0; flex-wrap: wrap; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: .15rem; font-size: .72rem; color: var(--mut); min-width: 3rem; }
+  .step.done, .step.progress { color: var(--ink2); }
+  .step .glyph { font-size: 1.15rem; }
+  .step .glyph a { color: var(--acc2); text-decoration: none; }
+  .step .label { font-family: var(--mono); font-size: .64rem; text-transform: uppercase; letter-spacing: .03em; }
+  .step-chips { margin-top: .25rem; }
+  .mini-stepper { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .25rem; width: 100%; }
+  .mini-step { font-family: var(--mono); font-size: .68rem; color: var(--mut); }
+
+  /* U6: dependency/rollup indicators */
+  .deps-chips { margin: .4rem 0; }
+  .children-counter { font-size: .78rem; color: var(--mut); margin-left: auto; white-space: nowrap; }
+  .ready-hint { font-size: .74rem; color: var(--ok); margin-left: .5rem; white-space: nowrap; }
   $panel_css
   $highlight_css
 </style>
