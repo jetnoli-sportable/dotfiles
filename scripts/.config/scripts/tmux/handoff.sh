@@ -182,18 +182,20 @@ task_file="$(wb_task_file "$repo" "$disp_slug")"
 # permission anchor sets (U2) depends on this string never varying.
 pointer="Read the task file at $task_file - it carries the full context and states the first action to take."
 
-if tmux has-session -t "=$session" 2>/dev/null; then
+agent_state="$(tmux_session_agent_state "$session")"
+if [ "$agent_state" != "dead" ]; then
   # Switch path: a live session already exists for this repo/slug. A live
   # session is not the same as a live agent — a prior spawn's boot-ready
   # timeout leaves the session behind with nothing killing it, and a bare
   # `wb new` (no --agent) deliberately leaves the "agent" window as an
-  # idle shell (wb_layout_session, wb.sh:210-214) — so check the window's
-  # actual running command rather than trusting has-session alone.
+  # idle shell (wb_layout_session, wb.sh:210-214). tmux_session_agent_state
+  # (lib.sh) owns the has-session + pane_current_command check this branch
+  # used to do inline; "dead" and "unknown" both still land in the same
+  # "not alive" message below — this call site only tells alive apart from
+  # not-alive today (a future caller needs the finer distinction; see
+  # tmux_session_agent_state's own doc comment).
   [ -f "$task_file" ] \
     || echo "handoff: warning: $session is live but $task_file does not exist" >&2
-  agent_alive=0
-  [ "$(tmux list-panes -t "=$session:agent" -F '#{pane_current_command}' 2>/dev/null)" = "claude" ] \
-    && agent_alive=1
   # Focus first, clipboard second: the switch is the primary action of
   # this branch and must not fail as a side effect of the clipboard step
   # (secondary, convenience-only) failing.
@@ -209,7 +211,7 @@ if tmux has-session -t "=$session" 2>/dev/null; then
   else
     clip_status="clipboard copy failed — pointer not on clipboard"
   fi
-  if [ "$agent_alive" = 1 ]; then
+  if [ "$agent_state" = "alive" ]; then
     echo "handoff: switched to live session $session — $clip_status"
   else
     echo "handoff: switched to live session $session, but its agent window has no running claude process — $clip_status" >&2
