@@ -50,6 +50,7 @@ local config = { -- Fuzzy Finder (files, lsp, etc)
 		local always_include_globs = {
 			"*.hjson",
 			".env*",
+			".claude-queue.md",
 		}
 
 		-- Build the find_files command: a normal fd pass (which respects

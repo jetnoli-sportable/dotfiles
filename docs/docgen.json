@@ -25,6 +25,12 @@
         "title": "TUIs",
         "sub": "separate repos under ~/code/",
         "glyph": "▦"
+      },
+      {
+        "key": "nvim",
+        "title": "Nvim plugins",
+        "sub": "nvim/.config/nvim/lua/ in this repo · guides in docs/guides/",
+        "glyph": "◇"
       }
     ],
     "sidecar": [

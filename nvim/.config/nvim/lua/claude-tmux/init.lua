@@ -22,6 +22,9 @@ end
 local function jump()
 	return require("claude-tmux.jump")
 end
+local function queue()
+	return require("claude-tmux.queue")
+end
 
 function M.setup(opts)
 	config.setup(opts)
@@ -50,6 +53,14 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("ClaudeSend", function()
 		reply().send()
 	end, { desc = "Send the reply draft to the Claude pane" })
+
+	vim.api.nvim_create_user_command("ClaudeQueue", function()
+		queue().picker()
+	end, { desc = "Open the Claude queue picker" })
+
+	vim.api.nvim_create_user_command("ClaudeQueueStash", function()
+		queue().stash_prompt()
+	end, { desc = "Stash a follow-up message in the Claude queue" })
 
 	local map = function(mode, suffix, fn, desc)
 		vim.keymap.set(mode, prefix .. suffix, fn, { desc = desc })
@@ -85,6 +96,16 @@ function M.setup(opts)
 	map("n", "c", function()
 		context().send_file()
 	end, "Claude: send current file as [c]ontext")
+
+	-- Queue side (per-worktree stash of follow-up thoughts, reviewed later —
+	-- see claude-tmux/queue.lua; stashing is a pure file append and never
+	-- touches the live pane)
+	map("n", "q", function()
+		queue().picker()
+	end, "Claude: open [q]ueue picker")
+	map("n", "Q", function()
+		queue().stash_prompt()
+	end, "Claude: stash a follow-up ([Q]ueue)")
 
 	-- Jump-to-ref (also bound to gf inside the output buffer; see output.lua)
 	map("n", "j", function()

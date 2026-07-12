@@ -7,6 +7,7 @@
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb pause [<session>]             mark a task paused — worktree and session both survive
+#   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
@@ -26,6 +27,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"   # for fzf reload/become to re-invoke us
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
+# shellcheck source=wb-lifecycle.sh
+source "$SCRIPT_DIR/wb-lifecycle.sh"
 
 TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
 CODE_DIR="${CODE_DIR:-$HOME/code}"
@@ -199,6 +202,64 @@ wb_bootstrap() {
   done
 }
 
+# wb_ensure_repo_ignore <path> — idempotently register the queue file's
+# pattern (`.claude-queue.md`) as ignored in whatever repo <path> belongs to,
+# via that repo's own untracked `.git/info/exclude` — never that repo's
+# tracked `.gitignore`, never a machine-wide `core.excludesFile` (see
+# docs/plans/2026-07-11-003-feat-queue-command-plan.md's Planning Contract:
+# a foreign repo under $CODE_DIR is not ours to edit, and a machine-wide
+# setting would silently change `git status` for every repo on the machine).
+# <path> may be a worktree or the main checkout — `git rev-parse
+# --git-common-dir` resolves either to the one shared `.git` dir all of a
+# repo's worktrees have in common, so this same call works whether it's
+# handed a repo dir (cmd_new, below) or a worktree's cwd (queue.lua's lazy-
+# create path, called on every stash).
+#
+# Guarded against two concrete failure modes: a missing trailing newline in
+# a pre-existing info/exclude would otherwise glue the new pattern onto the
+# end of the prior last line, corrupting both and breaking the `grep -qxF`
+# idempotency check on every later call — fixed by ensuring the file ends in
+# a newline before ever appending. A race between two concurrent callers for
+# the same repo (two terminals, or a script, creating worktrees back to
+# back) is fixed with a `flock` on a lockfile scoped to that repo's own
+# `.git/info` directory, making the check-then-append atomic. This must
+# NEVER truncate or overwrite existing content in info/exclude — other
+# tooling, or the user, may already have entries there.
+wb_ensure_repo_ignore() {
+  local path="$1" pattern='.claude-queue.md'
+  local git_common_dir
+  git_common_dir="$(git -C "$path" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  # git prints a relative path when <path> is the main checkout (e.g.
+  # ".git"), and an absolute one when <path> is a linked worktree — resolve
+  # relative to <path> itself (not $PWD) since that's what `-C` scoped it to.
+  case "$git_common_dir" in
+    /*) : ;;
+    *)  git_common_dir="$path/$git_common_dir" ;;
+  esac
+  git_common_dir="$(cd "$git_common_dir" && pwd)" || return 1
+
+  local info_dir="$git_common_dir/info"
+  mkdir -p "$info_dir"
+  local exclude_file="$info_dir/exclude"
+  local lockfile="$info_dir/.claude-queue.lock"
+
+  (
+    flock -x 9
+    touch "$exclude_file"
+    # A non-empty file whose last byte isn't a newline needs one before the
+    # append below, or the new pattern would land glued onto the prior last
+    # line instead of as its own line.
+    if [ -s "$exclude_file" ] && [ -n "$(tail -c1 "$exclude_file")" ]; then
+      printf '\n' >> "$exclude_file"
+    fi
+    # grep failing here (pattern not yet present) is the expected, common
+    # case, not an error — see wb.sh's `set -e` note at the top of this
+    # file; a non-final command in an && list doesn't trigger errexit.
+    grep -qxF "$pattern" "$exclude_file" && exit 0
+    printf '%s\n' "$pattern" >> "$exclude_file"
+  ) 9>"$lockfile"
+}
+
 # wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] — find-or-create
 # the task file for a repo+slug pair, filling blank frontmatter fields and
 # bumping planned->doing. Never overwrites a field that's already set.
@@ -234,6 +295,12 @@ wb_seed_task() {
     [ -n "$(wb_get_frontmatter "$file" branch)" ]    || wb_set_frontmatter "$file" branch "$slug"
     [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
     [ "$(wb_get_frontmatter "$file" status)" != planned ] || wb_set_frontmatter "$file" status doing
+    # reviewed: has no inferred value (unlike repo/branch/worktree above) —
+    # it starts blank and is only ever stamped by cmd_reviewed. This just
+    # backfills the KEY onto task files that predate it in the schema, same
+    # as the other blank-field fills above, never overwriting a value
+    # that's already set.
+    [ -n "$(wb_get_frontmatter "$file" reviewed)" ]  || wb_set_frontmatter "$file" reviewed ""
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
   echo "$file"
@@ -321,6 +388,17 @@ cmd_new() {
     wb_bootstrap "$repo_dir" "$worktree_path"
   fi
 
+  # Unconditional — not just for the branch above. This is self-healing for
+  # a repo's OTHER, older worktrees that predate this feature: every `wb new`
+  # call re-checks (idempotently) that this repo's .git/info/exclude has the
+  # queue-file pattern registered, regardless of whether *this* invocation's
+  # own worktree was newly created just now. Best-effort: under `set -e`, an
+  # unguarded call here would abort the whole `wb new` (including a plain
+  # reattach to an already-existing worktree/session) on any failure in this
+  # unrelated step — warn and continue instead.
+  wb_ensure_repo_ignore "$worktree_path" \
+    || echo "wb new: warning: could not register .git/info/exclude ignore rule for $repo_dir (continuing)" >&2
+
   local task_file
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref")"
 
@@ -374,6 +452,10 @@ cmd_resume() {
       [ -n "$repo" ] && [ -n "$branch" ] \
         || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
       cmd_new "$repo" "$branch"
+      # Handoffs-append lives HERE, not inside cmd_new — cmd_new is also
+      # the path every fresh `wb new` takes, and a fresh task must not
+      # gain a Handoffs entry (see wb_append_handoff's own header comment).
+      wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
       ;;
     *)
       echo "wb resume: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
@@ -540,7 +622,7 @@ cmd_reconcile() {
 # same convention as wb_board_render_html's logs/board.html.
 wb_reconcile_report_path() {
   local root
-  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
   [ -n "$root" ] || root="$CODE_DIR/dotfiles"
   printf '%s/logs/reconcile.md\n' "$root"
 }
@@ -820,7 +902,47 @@ cmd_pause() {
   [ -f "$task_file" ] || { echo "wb pause: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
 
   wb_set_frontmatter "$task_file" status paused
+  wb_append_handoff "$task_file" "wb pause" 'Session paused via `wb pause`.'
   echo "wb pause: $session paused — worktree and session untouched, task -> paused ($task_file)"
+}
+
+# ---------------------------------------------------------------------------
+# wb reviewed — stamp a task's /ce-code-review pass as done
+# ---------------------------------------------------------------------------
+
+# cmd_reviewed <session> — stamps a task's `reviewed:` frontmatter field with
+# today's date. Mirrors cmd_pause's shape exactly (wb.sh:805-824): resolve
+# session from arg or current tmux session, read @wb_repo/@wb_slug, resolve
+# the task file, stamp the field. /ce-code-review's own artifacts are
+# ephemeral (/tmp/compound-engineering/...) and it may touch zero repo files
+# in mode:agent, so unlike /ce-work there is no git-observable signal for
+# "a review happened" — this field is the only buildable detection without
+# modifying the external skill. Detection is wb_lifecycle_review_done
+# (wb-lifecycle.sh) — `[ -n "$(wb_get_frontmatter "$taskfile" reviewed)" ]`.
+# Deliberate limitation, same trade-off wb pause already accepts for
+# `status: paused`: this requires a habit (running `wb reviewed` after a
+# review pass); no staleness invalidation either — a task that receives
+# further commits after being stamped still shows reviewed done. See
+# logs/decisions/2026-07-11-wb-board-lifecycle-detection.md.
+cmd_reviewed() {
+  local session="${1:-}"
+  if [ -z "$session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb reviewed: run inside the target session, or pass a session name" >&2; exit 1; }
+    session="$(tmux display-message -p '#S')"
+  fi
+
+  local repo slug
+  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
+  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
+  [ -n "$repo" ] && [ -n "$slug" ] \
+    || { echo "wb reviewed: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  [ -f "$task_file" ] || { echo "wb reviewed: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
+
+  wb_set_frontmatter "$task_file" reviewed "$(date +%F)"
+  echo "wb reviewed: $session marked reviewed ($task_file)"
 }
 
 # ---------------------------------------------------------------------------
@@ -833,14 +955,21 @@ cmd_pause() {
 # unique per open (a fixed name latches stale signals).
 wb_open_buffer() {
   local path="$1"
+  # WB_REVIEW_BUFFER=1 tells conform.nvim (nvim/.config/nvim/lua/plugins/
+  # index.lua) to skip format-on-save for this one-shot checkbox-review pass
+  # — the target file itself may be persistent (a central-store task file),
+  # but the review pass is brief and shouldn't run Prettier over the whole
+  # file. Same env-var-signal convention as WB_AUTO_RESTORE (wb.sh:265),
+  # set unconditionally on both branches: a non-nvim $EDITOR just never
+  # reads it, so no "is this nvim" guard is needed.
   if [ -n "${TMUX:-}" ]; then
     local chan="wb-buffer-done-$$-$RANDOM"
     tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer 2>/dev/null || true
-    tmux split-window -h -t "$TMUX_PANE" "nvim '$path'; tmux wait-for -S $chan"
+    tmux split-window -h -t "$TMUX_PANE" "WB_REVIEW_BUFFER=1 nvim '$path'; tmux wait-for -S $chan"
     tmux wait-for "$chan"
     tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
   else
-    "${EDITOR:-nvim}" "$path"
+    WB_REVIEW_BUFFER=1 "${EDITOR:-nvim}" "$path"
   fi
 }
 
@@ -849,6 +978,86 @@ wb_open_buffer() {
 # lines from the task's own freeform Plan/Follow-ups/Decisions prose.
 wb_sweep_section() {
   awk '/^## Sweep \(gitignored/ { found = 1 } found { print }' "$1"
+}
+
+# wb_append_handoff <task_file> <source> <message> — appends a terse,
+# timestamped "### <timestamp> — <source> (auto)" entry (with <message> as
+# its one-line body) to <task_file>'s "## Handoffs" section, inserting the
+# heading itself when it's missing — same insertion point
+# handoff_append_followup (handoff.sh:84-116) uses for a missing
+# "## Follow-ups": right before "## Decisions" when present, else at EOF.
+# That's where the mirroring ends: unlike handoff_append_followup (which
+# inserts its new bullet immediately after the heading line, so repeated
+# calls read newest-first), this always appends the new entry at the END
+# of an existing "## Handoffs" section (immediately before the next "##"
+# heading, or EOF) — so repeated calls read oldest-first. That ordering is
+# load-bearing: a downstream skill (/wb-resume, not in scope here) needs to
+# find the most recent rich entry reliably, which only works if entries are
+# chronological.
+#
+# Called by cmd_pause/cmd_done/cmd_resume, always right after their own
+# state-changing line — deliberately never from cmd_new itself: cmd_new is
+# also the path every FRESH `wb new` takes, and a fresh task must not gain
+# a Handoffs entry (only a resume of a previously paused/done task should).
+wb_append_handoff() {
+  local file="$1" source="$2" message="$3"
+  local entry; entry="### $(date '+%Y-%m-%d %H:%M') — $source (auto)"
+  awk -v entry="$entry" -v msg="$message" '
+    # A line only counts as a real "## X" heading when it is also preceded
+    # by a blank line (or is the very first line) — every real heading in
+    # this file format is, by the template/TEMPLATE.md convention (see
+    # wb_seed_task). Without this guard, the literal text "## Decisions" or
+    # "## Handoffs" appearing inside a task'"'"'s own ## Plan prose (e.g.
+    # someone writing notes about this very feature) exact-matches the bare
+    # $0 == "..." checks below and splices a Handoffs entry mid-paragraph —
+    # confirmed live: a Plan section quoting "## Decisions" as example text
+    # got the entry spliced in right there instead of at the real heading
+    # further down. isHeadingLine() below is the single guarded predicate
+    # both the entry-insertion and section-closing rules key off of.
+    function isHeadingLine() { return (prev == "" || NR == 1) }
+    BEGIN { inhandoffs = 0; inserted = 0; prev = "" }
+    $0 == "## Handoffs" && isHeadingLine() { inhandoffs = 1 }
+    # Leaving an existing "## Handoffs" section (any other "## " heading
+    # reached while inside it) — insert the new entry right here, at the
+    # end of that section, before falling through to print the heading
+    # that closes it. Excludes the "## Handoffs" line itself (the very
+    # record that just turned inhandoffs on above) so a fresh heading with
+    # content following it does not immediately self-trigger this branch.
+    inhandoffs && /^## / && $0 != "## Handoffs" && !inserted && isHeadingLine() {
+      if (prev != "") print ""
+      print entry; print ""; print msg; print ""
+      inserted = 1; inhandoffs = 0
+    }
+    # Heading missing entirely, but "## Decisions" exists — insert a fresh
+    # "## Handoffs" section right before it (the same missing-heading
+    # insertion point handoff_append_followup uses for its own heading).
+    $0 == "## Decisions" && !inhandoffs && !inserted && isHeadingLine() {
+      print "## Handoffs"
+      print ""
+      print entry
+      print ""
+      print msg
+      print ""
+      inserted = 1
+    }
+    { print; prev = $0 }
+    END {
+      if (inhandoffs && !inserted) {
+        # Section existed but ran to EOF with no following heading.
+        if (prev != "") print ""
+        print entry; print ""; print msg
+      } else if (!inserted) {
+        # Neither "## Handoffs" nor "## Decisions" found anywhere — append
+        # a fresh section at EOF.
+        if (prev != "") print ""
+        print "## Handoffs"
+        print ""
+        print entry
+        print ""
+        print msg
+      }
+    }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
 }
 
 # wb_credential_shaped <rel> — succeed when a keeper path looks like a
@@ -1169,7 +1378,7 @@ wb_board_doc_link() {
 # badges per row (R11), and per-panel anchor-linked detail sections (R12).
 wb_board_render_html() {
   local dotfiles_root
-  dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+  dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
   [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
 
   local -a ROWS=()
@@ -1416,7 +1625,7 @@ cmd_board() {
     # — derive the root from wb.sh's own location rather than assuming the
     # repo is literally named "dotfiles" under CODE_DIR.
     local dotfiles_root
-    dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"
+    dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
     [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
     local out="$dotfiles_root/logs/board.html"
     mkdir -p "$(dirname "$out")"
@@ -1593,6 +1802,7 @@ cmd_done() {
   fi
   wb_set_frontmatter "$task_file" status done
   wb_set_frontmatter "$task_file" closed "$(date +%F)"
+  wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
 
   echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
 
@@ -2180,6 +2390,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     board)       shift; cmd_board "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
+    reviewed)    shift; cmd_reviewed "$@" ;;
     _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
     _interrupt)  shift; _interrupt "$@" ;;

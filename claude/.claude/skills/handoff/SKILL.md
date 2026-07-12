@@ -188,6 +188,39 @@ convention, already in use in this very task file
   action than what's already there — update it only in that case, and say
   so explicitly (same rule: never silent).
 
+**Default the routed worker's kickoff to artifact + decision buffer,
+before whatever stage `first_action` names.** Whichever stage this
+routes into — `/ce-ideate`, `/ce-brainstorm`, `/ce-plan`, `/ce-work` —
+default `first_action` to starting with a context artifact (how this
+surfaced, why, relevant background gathered so far) and an accompanying
+decision buffer (`~/.claude/skills/decision-buffer/SKILL.md`) covering
+whatever open questions the routed worker will need the requester to
+answer, *then* proceeding into the named stage. This is the same
+sequence that worked well kicking off `dotfiles--fix-wb-sweep-buffer-
+autoformat` by hand (2026-07-11) — front-load context and open questions
+into artifacts the requester reacts to once, rather than trickling
+clarifying questions back through a routed session one at a time. Write
+it as part of the same line, not a separate instruction the routed
+worker might skim past:
+
+```
+**First action when picked up:** artifact + decision buffer covering
+[what's known, why, open questions], then `/ce-plan` from this file.
+```
+
+**Overridable — don't force it when it's already redundant.** Skip the
+artifact/buffer prefix and write the bare `first_action` (the original
+form above) when: the routing discussion already resolved every open
+question before handoff (nothing left for a buffer to ask), the user
+explicitly says to skip it ("just spin it up and have it start", "skip
+the artifact, go straight to work"), or the chosen stage is `/ce-work`
+against an already-fully-scoped plan with no decisions left — a decision
+buffer with zero real questions is worse than none (see the decision-
+buffer skill's own "trivial decision" exception). When in doubt, default
+to including it; it's cheap for the routed worker to produce and skip
+irrelevant sections, expensive for the requester to get a session that
+immediately starts asking questions one at a time in chat instead.
+
 ### 5. Write the rich context
 
 This is the payload the routed worker actually reads — `handoff.sh` only
