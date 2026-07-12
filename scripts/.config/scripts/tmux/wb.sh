@@ -53,13 +53,22 @@ WB_COL_STATUS=9   # status label width, after the icon + one space
 # the first two `---` markers (see ~/code/tasks/README.md).
 # ---------------------------------------------------------------------------
 
-# wb_get_frontmatter <file> <key> — print a single frontmatter value (blank if unset).
-wb_get_frontmatter() {
-  awk -v key="$2" '
+# wb_get_frontmatter_text <key> — same extraction as wb_get_frontmatter, but
+# reads the frontmatter-bearing content from stdin instead of a file path —
+# for a kept-branch `git show <branch>:<path>` blob, which has no path on
+# disk to hand a file-based reader (wb-lifecycle.sh's kept-branch fallback,
+# R6/R8).
+wb_get_frontmatter_text() {
+  awk -v key="$1" '
     BEGIN { infm = 0 }
     /^---$/ { infm++; if (infm == 2) exit; next }
     infm == 1 && $0 ~ "^" key ":" { sub("^" key ":[ \t]*", ""); print; exit }
-  ' "$1"
+  '
+}
+
+# wb_get_frontmatter <file> <key> — print a single frontmatter value (blank if unset).
+wb_get_frontmatter() {
+  wb_get_frontmatter_text "$2" < "$1"
 }
 
 # wb_set_frontmatter <file> <key> <value> — overwrite a frontmatter value in
@@ -1311,21 +1320,31 @@ wb_board_summary_line() {
   printf '%s.' "$s"
 }
 
-# wb_board_related_docs <taskfile> <dotfiles_root> — repo-root-relative
-# paths of any docs/plans, docs/brainstorms, docs/solutions, or
-# logs/decisions file the task's own prose already names (this repo's
-# established convention — see e.g. ~/code/tasks/*.md's "## Decisions"
-# sections — is a plain-text path, sometimes backtick-wrapped, sometimes
-# prefixed `dotfiles/`, not a markdown link). Deliberately conservative:
-# only surfaces a doc the task file already names, never a guessed/fuzzy
-# match. When both a .md and its rendered .html sibling exist, prefers the
-# .html (nicer to open from a browser); a reference to a since-deleted
-# file is dropped rather than linked dead.
+# wb_board_doc_candidates <taskfile> — raw docs/plans, docs/brainstorms,
+# docs/solutions, docs/ideation, or logs/decisions paths the task's own
+# prose names (this repo's established convention — see e.g.
+# ~/code/tasks/*.md's "## Decisions" sections — is a plain-text path,
+# sometimes backtick-wrapped, sometimes prefixed `dotfiles/`, not a markdown
+# link). Regex extraction only, no existence check — existence differs by
+# caller: wb_board_related_docs checks the filesystem, wb_lifecycle_has_doc's
+# prose half checks a worktree OR (kept-branch fallback) a git blob. KTD-4:
+# every path-detection stage addition updates this pattern — a standing
+# invariant, not a one-off.
+wb_board_doc_candidates() {
+  local taskfile="$1"
+  [ -f "$taskfile" ] || return 0
+  grep -oP '(?:dotfiles/)?(?:docs/(?:plans|brainstorms|solutions|ideation)|logs/decisions)/[A-Za-z0-9._/-]+\.(?:md|html)' "$taskfile" 2>/dev/null \
+    | sed 's#^dotfiles/##' | sort -u
+}
+
+# wb_board_related_docs <taskfile> <dotfiles_root> — wb_board_doc_candidates,
+# filtered to paths that exist under <root> and preferring the rendered
+# .html sibling over its .md source when both exist (nicer to open from a
+# browser); a reference to a since-deleted file is dropped rather than
+# linked dead.
 wb_board_related_docs() {
   local taskfile="$1" root="$2" rel html_sibling
-  [ -f "$taskfile" ] || return 0
-  grep -oP '(?:dotfiles/)?(?:docs/(?:plans|brainstorms|solutions)|logs/decisions)/[A-Za-z0-9._/-]+\.(?:md|html)' "$taskfile" 2>/dev/null \
-    | sed 's#^dotfiles/##' | sort -u | while IFS= read -r rel; do
+  wb_board_doc_candidates "$taskfile" | while IFS= read -r rel; do
       [ -f "$root/$rel" ] || continue
       case "$rel" in
         *.md)

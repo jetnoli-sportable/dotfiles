@@ -181,6 +181,118 @@ mk_task 'proj--feat-brainstorm-none.md' doing proj feat/brainstorm-none
 check "has_brainstorm: no docs/brainstorms/ dir at all -> false, no error" false \
   wb_lifecycle_has_brainstorm proj feat/brainstorm-none .worktrees/feat/brainstorm-none "$FIXTURE_TASKS/proj--feat-brainstorm-none.md"
 
+# --- R27/AE8: empty branch: -> not-found before any matching ---------------
+mkdir -p "$FIXTURE_CODE/proj/docs/plans"
+printf '# unrelated\n' > "$FIXTURE_CODE/proj/docs/plans/2020-01-01-anything-plan.md"
+printf -- '---\nstatus: planned\nrepo: proj\nbranch:\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
+  > "$FIXTURE_TASKS/proj--emptybranch.md"
+check "has_plan: empty branch: with unrelated docs/plans/ present -> false (AE8)" false \
+  wb_lifecycle_has_plan proj "" .worktrees/x "$FIXTURE_TASKS/proj--emptybranch.md"
+check "has_brainstorm: empty branch: -> false" false \
+  wb_lifecycle_has_brainstorm proj "" .worktrees/x "$FIXTURE_TASKS/proj--emptybranch.md"
+check "has_ideate: empty branch: -> false" false \
+  wb_lifecycle_has_ideate proj "" .worktrees/x "$FIXTURE_TASKS/proj--emptybranch.md"
+
+# --- AE8: empty worktree: -> not-found, never scans the main checkout ------
+printf '# plan\n' > "$FIXTURE_CODE/proj/docs/plans/2026-07-11-001-feat-emptywt-match-plan.md"
+printf -- '---\nstatus: planned\nrepo: proj\nbranch: feat/emptywt-match\nworktree:\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
+  > "$FIXTURE_TASKS/proj--emptywt.md"
+check "has_plan: empty worktree: with a matching-name doc in the main checkout -> false" false \
+  wb_lifecycle_has_plan proj feat/emptywt-match "" "$FIXTURE_TASKS/proj--emptywt.md"
+
+# --- R6/AE3: kept-branch fallback — worktree removed, branch has the doc ---
+add_worktree "$FIXTURE_CODE/proj" feat/plan-kept
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/feat/plan-kept/docs/plans"
+printf '# plan\n' > "$FIXTURE_CODE/proj/.worktrees/feat/plan-kept/docs/plans/2026-07-11-001-feat-plan-kept-plan.md"
+git -C "$FIXTURE_CODE/proj/.worktrees/feat/plan-kept" add docs/plans
+git -C "$FIXTURE_CODE/proj/.worktrees/feat/plan-kept" -c user.email=t@t -c user.name=t commit -q -m "plan doc"
+git -C "$FIXTURE_CODE/proj" worktree remove --force ".worktrees/feat/plan-kept"
+mk_task 'proj--feat-plan-kept.md' done proj feat/plan-kept
+check "has_plan: worktree removed, branch carries the plan doc -> true via ls-tree fallback (AE3)" true \
+  wb_lifecycle_has_plan proj feat/plan-kept .worktrees/feat/plan-kept "$FIXTURE_TASKS/proj--feat-plan-kept.md"
+
+# --- worktree removed AND branch deleted -> false, no crash -----------------
+git -C "$FIXTURE_CODE/proj" branch -D feat/plan-kept
+check "has_plan: worktree removed and branch deleted -> false, no crash" false \
+  wb_lifecycle_has_plan proj feat/plan-kept .worktrees/feat/plan-kept "$FIXTURE_TASKS/proj--feat-plan-kept.md"
+
+# --- R6/AE3: kept-branch fallback, prose half -------------------------------
+add_worktree "$FIXTURE_CODE/proj" feat/plan-kept-prose
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/feat/plan-kept-prose/docs/plans"
+printf '# plan\n' > "$FIXTURE_CODE/proj/.worktrees/feat/plan-kept-prose/docs/plans/2026-07-11-999-unrelated-name-plan.md"
+{
+  printf -- '---\nstatus: done\nrepo: proj\nbranch: feat/plan-kept-prose\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\nclosed: 2026-07-12\n---\n'
+  printf '# Feat Plan Kept Prose\n\n## Decisions\n\nSee docs/plans/2026-07-11-999-unrelated-name-plan.md for the plan.\n'
+} > "$FIXTURE_TASKS/proj--feat-plan-kept-prose.md"
+git -C "$FIXTURE_CODE/proj/.worktrees/feat/plan-kept-prose" add docs/plans
+git -C "$FIXTURE_CODE/proj/.worktrees/feat/plan-kept-prose" -c user.email=t@t -c user.name=t commit -q -m "plan doc"
+git -C "$FIXTURE_CODE/proj" worktree remove --force ".worktrees/feat/plan-kept-prose"
+check "has_plan: kept-branch fallback, prose half finds committed-only doc -> true" true \
+  wb_lifecycle_has_plan proj feat/plan-kept-prose .worktrees/feat/plan-kept-prose "$FIXTURE_TASKS/proj--feat-plan-kept-prose.md"
+
+# =============================================================================
+# signal 8: wb_lifecycle_has_ideate (R7)
+# =============================================================================
+add_worktree "$FIXTURE_CODE/proj" feat/ideate-glob
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/feat/ideate-glob/docs/ideation"
+printf '# ideate\n' > "$FIXTURE_CODE/proj/.worktrees/feat/ideate-glob/docs/ideation/2026-07-11-001-feat-ideate-glob-ideation.md"
+mk_task 'proj--feat-ideate-glob.md' doing proj feat/ideate-glob
+check "has_ideate: glob match on branch-fragment filename -> true" true \
+  wb_lifecycle_has_ideate proj feat/ideate-glob .worktrees/feat/ideate-glob "$FIXTURE_TASKS/proj--feat-ideate-glob.md"
+check "has_ideate match does not also fire has_plan" false \
+  wb_lifecycle_has_plan proj feat/ideate-glob .worktrees/feat/ideate-glob "$FIXTURE_TASKS/proj--feat-ideate-glob.md"
+
+# =============================================================================
+# R8: discriminator — docs/plans/ candidates counted by frontmatter, not location
+# =============================================================================
+add_worktree "$FIXTURE_CODE/proj" feat/disc-brainstorm
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/feat/disc-brainstorm/docs/plans"
+{
+  printf -- '---\ntitle: x\nartifact_contract: ce-unified-plan/v1\nartifact_readiness: requirements-only\nproduct_contract_source: ce-brainstorm\n---\n'
+  printf '# Plan\n'
+} > "$FIXTURE_CODE/proj/.worktrees/feat/disc-brainstorm/docs/plans/2026-07-11-001-feat-disc-brainstorm-plan.md"
+mk_task 'proj--feat-disc-brainstorm.md' doing proj feat/disc-brainstorm
+check "has_brainstorm: requirements-only ce-brainstorm plan file -> true" true \
+  wb_lifecycle_has_brainstorm proj feat/disc-brainstorm .worktrees/feat/disc-brainstorm "$FIXTURE_TASKS/proj--feat-disc-brainstorm.md"
+check "has_plan: same requirements-only file -> false (not plan-done yet)" false \
+  wb_lifecycle_has_plan proj feat/disc-brainstorm .worktrees/feat/disc-brainstorm "$FIXTURE_TASKS/proj--feat-disc-brainstorm.md"
+
+# --- after enrichment: brainstorm stays true (source persists), plan flips true
+{
+  printf -- '---\ntitle: x\nartifact_contract: ce-unified-plan/v1\nartifact_readiness: implementation-ready\nproduct_contract_source: ce-brainstorm\n---\n'
+  printf '# Plan\n'
+} > "$FIXTURE_CODE/proj/.worktrees/feat/disc-brainstorm/docs/plans/2026-07-11-001-feat-disc-brainstorm-plan.md"
+check "has_brainstorm: after enrichment, source field persists -> still true" true \
+  wb_lifecycle_has_brainstorm proj feat/disc-brainstorm .worktrees/feat/disc-brainstorm "$FIXTURE_TASKS/proj--feat-disc-brainstorm.md"
+check "has_plan: after enrichment (readiness != requirements-only) -> now true" true \
+  wb_lifecycle_has_plan proj feat/disc-brainstorm .worktrees/feat/disc-brainstorm "$FIXTURE_TASKS/proj--feat-disc-brainstorm.md"
+
+# --- legacy plan file, no contract frontmatter at all -----------------------
+add_worktree "$FIXTURE_CODE/proj" feat/disc-legacy
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/feat/disc-legacy/docs/plans"
+printf '# Legacy Plan\n' > "$FIXTURE_CODE/proj/.worktrees/feat/disc-legacy/docs/plans/2026-07-11-001-feat-disc-legacy-plan.md"
+mk_task 'proj--feat-disc-legacy.md' doing proj feat/disc-legacy
+check "has_plan: legacy plan file, no contract frontmatter -> true" true \
+  wb_lifecycle_has_plan proj feat/disc-legacy .worktrees/feat/disc-legacy "$FIXTURE_TASKS/proj--feat-disc-legacy.md"
+check "has_brainstorm: legacy plan file, no contract frontmatter -> false" false \
+  wb_lifecycle_has_brainstorm proj feat/disc-legacy .worktrees/feat/disc-legacy "$FIXTURE_TASKS/proj--feat-disc-legacy.md"
+
+# --- discriminator under the kept-branch fallback ---------------------------
+add_worktree "$FIXTURE_CODE/proj" feat/disc-kept
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/feat/disc-kept/docs/plans"
+{
+  printf -- '---\ntitle: x\nartifact_contract: ce-unified-plan/v1\nartifact_readiness: requirements-only\nproduct_contract_source: ce-brainstorm\n---\n'
+  printf '# Plan\n'
+} > "$FIXTURE_CODE/proj/.worktrees/feat/disc-kept/docs/plans/2026-07-11-001-feat-disc-kept-plan.md"
+git -C "$FIXTURE_CODE/proj/.worktrees/feat/disc-kept" add docs/plans
+git -C "$FIXTURE_CODE/proj/.worktrees/feat/disc-kept" -c user.email=t@t -c user.name=t commit -q -m "requirements-only plan"
+git -C "$FIXTURE_CODE/proj" worktree remove --force ".worktrees/feat/disc-kept"
+mk_task 'proj--feat-disc-kept.md' doing proj feat/disc-kept
+check "has_brainstorm: kept-branch fallback, requirements-only via git show -> true" true \
+  wb_lifecycle_has_brainstorm proj feat/disc-kept .worktrees/feat/disc-kept "$FIXTURE_TASKS/proj--feat-disc-kept.md"
+check "has_plan: kept-branch fallback, requirements-only via git show -> false" false \
+  wb_lifecycle_has_plan proj feat/disc-kept .worktrees/feat/disc-kept "$FIXTURE_TASKS/proj--feat-disc-kept.md"
+
 # =============================================================================
 # signal 7: wb_lifecycle_pr_is_live
 # =============================================================================
