@@ -176,6 +176,16 @@ esac
 disp_slug="$(wb_sanitize "$slug")"
 session="${repo}--${disp_slug}"
 task_file="$(wb_task_file "$repo" "$disp_slug")"
+# U3: wb_task_lock_acquire_guarded/wb_task_lock_release/
+# _wb_lock_trap_append_if_top_level all come from wb-locks.sh + wb.sh, both
+# already sourced above — this installs the EXIT-trap lock-release safety
+# net once for this whole run, same convention every locking wb.sh cmd_*
+# verb uses (the _if_top_level guard, not a raw wb_lock_trap_append call,
+# for the same subshell-safety reason documented at that function's own
+# definition in wb.sh — this file's own real run body is never itself
+# invoked via command substitution, but staying consistent with every
+# other call site avoids re-litigating the same footgun here later).
+_wb_lock_trap_append_if_top_level wb_task_lock_release_all
 
 # Fully fixed — no variable substitution beyond $task_file. first_action
 # never appears here (R6); the pointer's disjointness from the boot/
@@ -234,8 +244,16 @@ if handoff_bootstrap_gap "$repo_dir"; then
   # abort the rest of the spawn (boot poll, injection, permission
   # handshake) over a failure to record a note about an unrelated gap.
   if [ -f "$task_file" ]; then
-    handoff_append_followup "$task_file" "$gap_msg" \
-      || echo "handoff: warning: could not record the bootstrap-gap note in $task_file" >&2
+    # Its own lock burst (W5) — best-effort like the rest of this R11 note:
+    # a contended/failed acquire warns and moves on rather than aborting the
+    # whole spawn over a missed note.
+    if wb_task_lock_acquire_guarded "$task_file"; then
+      handoff_append_followup "$task_file" "$gap_msg" \
+        || echo "handoff: warning: could not record the bootstrap-gap note in $task_file" >&2
+      wb_task_lock_release "$task_file"
+    else
+      echo "handoff: warning: could not acquire the task-file lock — bootstrap-gap note not recorded in $task_file" >&2
+    fi
   fi
 fi
 
