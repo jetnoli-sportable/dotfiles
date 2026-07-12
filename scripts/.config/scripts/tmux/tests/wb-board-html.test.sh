@@ -98,17 +98,20 @@ extract_panel() {
   fi
 }
 
-# --- structure: all 12 panels present, valid-looking HTML -------------------
+# --- structure: all 13 panels present (12 bucket + 1 pipeline), valid-
+# looking HTML (U5) -----------------------------------------------------
 for tab in all inprogress upcoming paused deferred unclassified; do
   for win in today week; do
     assert "panel-$tab-$win present" "id=\"panel-$tab-$win\"" "$html"
   done
 done
+assert "panel-pipeline present (U5, window-independent, single panel)" 'id="panel-pipeline"' "$html"
+
 css_rule_count="$(printf '%s' "$html" | grep -c 'display: flex; }')"
-if [ "$css_rule_count" -eq 12 ]; then
-  echo "ok   - 12 CSS toggle rules present"
+if [ "$css_rule_count" -eq 14 ]; then
+  echo "ok   - 14 CSS toggle rules present (12 bucket + 2 pipeline, one per window)"
 else
-  echo "FAIL - expected 12 CSS toggle rules, got $css_rule_count"; fail=1
+  echo "FAIL - expected 14 CSS toggle rules, got $css_rule_count"; fail=1
 fi
 
 # --- active-tab highlight: every radio has a rule targeting ITS OWN label --
@@ -118,11 +121,12 @@ fi
 # every tab looked selected-or-not identically. Each radio needs its own
 # `#id:checked ~ header label[for="id"]` rule instead.
 highlight_rule_count="$(printf '%s' "$html" | grep -c 'label\[for=')"
-if [ "$highlight_rule_count" -eq 8 ]; then
-  echo "ok   - 8 active-tab highlight rules present (2 timeline + 6 status)"
+if [ "$highlight_rule_count" -eq 9 ]; then
+  echo "ok   - 9 active-tab highlight rules present (2 timeline + 6 status + pipeline)"
 else
-  echo "FAIL - expected 8 active-tab highlight rules, got $highlight_rule_count"; fail=1
+  echo "FAIL - expected 9 active-tab highlight rules, got $highlight_rule_count"; fail=1
 fi
+assert "pipeline tab is checked by default (approved mockup)" '<input type="radio" name="st" id="st-pipeline" checked>' "$html"
 assert "highlight rule targets its own label by for=" '#st-paused:checked ~ header label\[for="st-paused"\]' "$html"
 assert_not "no dead adjacent-sibling highlight rule left behind" 'checked \+ label' "$html"
 
@@ -428,6 +432,91 @@ eval "$ORIG_PR_INFO"
 # unchanged after moving live-session/PR lookups into the pre-pass — that
 # IS the before/after-identical-content proof (no separate assertion to
 # duplicate here).
+
+# =============================================================================
+# U5: Pipeline tab
+# =============================================================================
+
+# --- one row per in-flight task regardless of window, including a task
+# stale enough to fall outside every window filter; done tasks absent ------
+VERY_OLD="$(date -d '90 days ago' +%F)"
+add_worktree "$FIXTURE_CODE/proj" pipe-stale
+mk_task 'proj--pipe-stale.md' doing proj pipe-stale .worktrees/pipe-stale "$VERY_OLD" '' 'Pipe Stale Task'
+touch -d "$VERY_OLD" "$FIXTURE_TASKS/proj--pipe-stale.md"
+html_pipe="$(wb_board_render_html 2>&1)"
+flat_pipe="$(printf '%s' "$html_pipe" | tr '\n' ' ')"
+# NOT extract_panel (that helper reads the top-of-file global $flat,
+# captured long before these fixtures existed) — slice the FRESH flat_pipe
+# to start at the pipeline panel's own opening tag instead.
+pipe_panel="${flat_pipe#*id=\"panel-pipeline\">}"
+assert "pipeline: stale task (outside every window) still listed (R9)" 'Pipe Stale Task' "$pipe_panel"
+assert_not "pipeline: done task (Old Done Task) absent" 'Old Done Task' "$pipe_panel"
+assert_not "pipeline: untracked worktree row absent (no task file, no intent)" 'untracked-branch' "$pipe_panel"
+
+# --- AE1: work cell state via stubbed PR (no real git commits needed —
+# R3's PR-any-state signal), work in progress while doing, done once
+# status flips to done and the PR is no longer OPEN --------------------------
+ORIG_PR_INFO2="$(declare -f wb_board_pr_info)"
+add_worktree "$FIXTURE_CODE/proj" pipe-ae1
+mk_task 'proj--pipe-ae1.md' doing proj pipe-ae1 .worktrees/pipe-ae1 "$TODAY" '' 'Pipe AE1 Task'
+wb_board_pr_info() { printf '#9 (MERGED)\thttps://example.com/pr/9'; }
+html_ae1="$(wb_board_render_html 2>&1)"
+ae1_card="$(extract_task_card "$(printf '%s' "$html_ae1" | tr '\n' ' ')" proj--pipe-ae1)"
+pipe_panel_ae1="$(printf '%s' "$html_ae1" | tr '\n' ' ')"
+pipe_panel_ae1="${pipe_panel_ae1#*id=\"panel-pipeline\">}"
+assert "pipeline AE1: doing + PR (any state) -> work cell in-progress glyph" '&#9681;' "$pipe_panel_ae1"
+wb_set_frontmatter "$FIXTURE_TASKS/proj--pipe-ae1.md" status done
+html_ae1b="$(wb_board_render_html 2>&1)"
+pipe_panel_ae1b="$(printf '%s' "$html_ae1b" | tr '\n' ' ')"
+pipe_panel_ae1b="${pipe_panel_ae1b#*id=\"panel-pipeline\">}"
+assert_not "pipeline AE1: status:done task absent from Pipeline (R9 — non-done only)" 'Pipe AE1 Task' "$pipe_panel_ae1b"
+eval "$ORIG_PR_INFO2"
+
+# --- AE7: path: work,review -> ideate/brainstorm/plan cells render the n/a
+# glyph (faint middle dot), not pending -------------------------------------
+add_worktree "$FIXTURE_CODE/proj" pipe-ae7
+{
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: pipe-ae7\nworktree: .worktrees/pipe-ae7\npath: work,review\ntags: []\ncreated: %s\nclosed:\n---\n' "$TODAY"
+  printf '# Pipe AE7 Task\n\n## Plan\n\n## Done\n\n'
+} > "$FIXTURE_TASKS/proj--pipe-ae7.md"
+html_ae7="$(wb_board_render_html 2>&1)"
+flat_ae7="$(printf '%s' "$html_ae7" | tr '\n' ' ')"
+pipe_panel_ae7="${flat_ae7#*id=\"panel-pipeline\">}"
+pipe_row_ae7="${pipe_panel_ae7#*Pipe AE7 Task}"
+pipe_row_ae7="${pipe_row_ae7%%</tr>*}"
+na_count="$(printf '%s' "$pipe_row_ae7" | grep -o '&#183;' | wc -l | tr -d ' ')"
+assert "pipeline AE7: path work,review -> exactly 3 n/a stage cells (ideate/brainstorm/plan)" '^3$' "$na_count"
+
+# --- Deps column: blocked fixture shows a blocked chip with tooltip; its
+# blocker shows an unblocks chip; dep-free rows show the em-dash -----------
+add_worktree "$FIXTURE_CODE/proj" pipe-blocker
+add_worktree "$FIXTURE_CODE/proj" pipe-blocked
+mk_task 'proj--pipe-blocker.md' doing proj pipe-blocker .worktrees/pipe-blocker "$TODAY" '' 'Pipe Blocker Task'
+{
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: pipe-blocked\nworktree: .worktrees/pipe-blocked\ndepends_on: proj--pipe-blocker\ntags: []\ncreated: %s\nclosed:\n---\n' "$TODAY"
+  printf '# Pipe Blocked Task\n\n## Plan\n\n## Done\n\n'
+} > "$FIXTURE_TASKS/proj--pipe-blocked.md"
+html_deps="$(wb_board_render_html 2>&1)"
+flat_deps="$(printf '%s' "$html_deps" | tr '\n' ' ')"
+pipe_panel_deps="${flat_deps#*id=\"panel-pipeline\">}"
+row_blocked="${pipe_panel_deps#*Pipe Blocked Task}"; row_blocked="${row_blocked%%</tr>*}"
+row_blocker="${pipe_panel_deps#*Pipe Blocker Task}"; row_blocker="${row_blocker%%</tr>*}"
+assert "pipeline deps: blocked task shows the ⛔ chip with count 1" 'dep-chip blocked".*&#9940; 1' "$row_blocked"
+assert "pipeline deps: blocked task's row is dimmed" 'class="row blocked"' "$(printf '%s' "$pipe_panel_deps" | grep -o '<tr class="[^"]*"><td><a class="tasklink" href="#t-pipeline-proj--pipe-blocked">.*' | head -c 200)"
+assert "pipeline deps: blocker task shows the → unblocks chip with count 1" 'dep-chip unblocks".*&#8594; 1' "$row_blocker"
+assert "pipeline deps: dep-free task shows an em-dash" '&mdash;' "${pipe_panel_deps#*Pipe AE1 Task}"
+
+# --- be--monorepo: a literal "--" in the repo name must not corrupt
+# stem/anchor/repo-cell handling anywhere in the row -------------------------
+mk_repo "$FIXTURE_CODE/be--monorepo"
+add_worktree "$FIXTURE_CODE/be--monorepo" sfb-988
+mk_task 'be--monorepo--sfb-988.md' doing be--monorepo sfb-988 .worktrees/sfb-988 "$TODAY" '' 'SFB 988 Task'
+html_mono="$(wb_board_render_html 2>&1)"
+flat_mono="$(printf '%s' "$html_mono" | tr '\n' ' ')"
+pipe_panel_mono="${flat_mono#*id=\"panel-pipeline\">}"
+assert "pipeline be--monorepo: row present with correct repo cell" 'SFB 988 Task.*<span class="repo">be--monorepo</span>' "$pipe_panel_mono"
+assert "pipeline be--monorepo: anchor is well-formed (t-pipeline-be--monorepo--sfb-988)" \
+  'id="t-pipeline-be--monorepo--sfb-988"' "$pipe_panel_mono"
 
 # --- empty store: no crash, empty-state everywhere ---------------------------
 EMPTY_TASKS="$(mktemp -d -t wb-board-html-empty.XXXXXX)"
