@@ -110,12 +110,32 @@ tmux set -pu -t "$TMUX_PANE" @claude_blocked
 
 Re-read the file. For each item:
 
-- **Make a scratch task** → write `~/code/tasks/<repo>--<slug>.md` (repo basename from
-  `cwd`), following the central store's frontmatter schema (`~/code/tasks/TEMPLATE.md`:
-  `status: planned`, `repo:`, `branch:`/`worktree:` blank until one exists, `tags:`,
-  `created:`) with the origin quote, why it was parked, and pointers under `## Follow-ups`.
+- **Make a scratch task** → create it via `wb new --planned <repo> <slug>` (repo basename
+  from `cwd`, slug a short kebab-case derivation of `<topic>`) — the locked,
+  planned-preserving creation verb (`scripts/.config/scripts/tmux/wb.sh`, search
+  `cmd_new`'s `--planned` branch), instead of a Write-tool file creation. It seeds the
+  file from the central store's frontmatter schema (`~/code/tasks/TEMPLATE.md`) with
+  `status: planned` (never flipped to `doing` — that only happens later, for real, if
+  this scratch task is ever picked up via a real `wb new`/`wb new --agent`) and `repo:`/
+  `branch:` filled in, leaving `worktree:` blank since no worktree exists yet. Then
+  append the origin quote, why it was parked, and any pointers under `## Follow-ups`
+  via `wb append` (its locked, heading-scoped append verb) instead of an Edit-tool
+  write:
+
+  ```bash
+  DOTFILES="${DOTFILES_ROOT:-$HOME/code/dotfiles}"
+  WB="$DOTFILES/scripts/.config/scripts/tmux/wb.sh"
+  task_file="$("$WB" new --planned "$repo" "$slug")"
+  "$WB" append "$task_file" Follow-ups <<EOF
+  - Parked from chat on <date>: "<the origin quote>"
+    Why parked: <your read from Step 2 — still-open rationale>
+  EOF
+  ```
+
   Follow the user's convention: minor follow-ups go to the central store, not real Jira,
-  unless they explicitly chose "Jira".
+  unless they explicitly chose "Jira". **Never create or edit task files under
+  `~/code/tasks` with the Write/Edit tool** — `wb new --planned` (creation) and
+  `wb append` (body content) are the only two writes this step ever makes.
 - **Make a Jira ticket** → only when explicitly checked. Confirm project/summary before
   creating (outward-facing). Search first to avoid a duplicate.
 - **Discuss now** → bring it up in chat this turn.

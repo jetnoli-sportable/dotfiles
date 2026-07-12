@@ -27,13 +27,19 @@ carries the context and instructions the routed worker will need before
   discussion genuinely has multiple independent targets, route the single
   most relevant one and say so — don't try to approximate fan-out by
   looping this skill yourself.
-- **Never modifies `scripts/.config/scripts/tmux/wb.sh` and never calls
-  `wb new` directly.** Only `handoff.sh` does that, and only inside its
-  own spawn branch. This skill's own side effects are: Read/Write against
-  `~/code/tasks/<repo>--<disp_slug>.md`, and exactly one final shell-out to
-  `handoff.sh`. If something seems to need a `wb.sh` change or helper to
-  work well, don't add it — note it as a follow-up in the target task
-  file's `## Follow-ups` instead.
+- **Never modifies `scripts/.config/scripts/tmux/wb.sh` and never calls a
+  bare `wb new`/`cmd_new` (no `--agent`, no `--planned`).** Only
+  `handoff.sh` does that, and only inside its own spawn branch (step 6).
+  This skill's own side effects against `~/code/tasks/<repo>--<disp_slug>.md`
+  are exactly two locked `wb` verbs — `wb new --planned` (step 3, creation
+  only; never touches a worktree or tmux session, see step 3 for why that's
+  safe here) and `wb append` (step 5, body writes) — plus exactly one final
+  shell-out to `handoff.sh`. **Task files under `~/code/tasks` are never
+  written with the Edit/Write tool** (the one narrow exception: the
+  `# <title>`/first-action preamble line, steps 3–4 — see step 5's note).
+  If something seems to need a `wb.sh` change or helper to work well, don't
+  add it — note it as a follow-up in the target task file's `## Follow-ups`
+  instead.
 - **Trigger phrasing:** `/handoff`, "hand this off", "route this to
   <repo>", "spin up an agent for this", "send this to its own worker", or
   any mid-conversation ask to move a tangential piece of the current
@@ -109,39 +115,52 @@ when it's sourced rather than executed, the same property
 If a file already exists at `$task_file`, skip to step 4 — never
 overwrite existing frontmatter or body content wholesale.
 
-If it's missing, create it by shelling out to `wb.sh`'s own `wb_seed_task`
-helper (`scripts/.config/scripts/tmux/wb.sh:176-208`) — the same helper
-`cmd_new` itself calls to seed a task file, so this guarantees byte-
-identical frontmatter-fill behavior instead of re-deriving it by hand
-(same reasoning as step 2's `wb_task_file`/`wb_sanitize` shell-out):
+If it's missing, create it by shelling out to `wb new --planned` — the
+locked, planned-preserving creation verb (`scripts/.config/scripts/tmux/wb.sh`,
+search `cmd_new`'s `--planned` branch) that seeds the task file via
+`wb_seed_task_planned` instead of an Edit/Write-tool file creation:
 
 ```bash
 DOTFILES="${DOTFILES_ROOT:-$HOME/code/dotfiles}"
-task_file="$(cd "$DOTFILES" && bash -c '
-  source scripts/.config/scripts/tmux/wb.sh
-  wb_seed_task "$1" "$2" ".worktrees/$2"
-' _ "$repo" "$slug")"
+task_file="$("$DOTFILES/scripts/.config/scripts/tmux/wb.sh" new --planned "$repo" "$slug")"
 ```
 
-`wb_seed_task` creates the file from `~/code/tasks/TEMPLATE.md` and fills
-`status: doing`, `repo:`, `branch:`, `worktree:`, and `created:` when the
-file is new; it only ever fills blank fields on an existing file, never
-overwrites. It does not fill a `# <title>` heading (see the aside below) —
-compose that line yourself, derived from the slug (e.g. `feat/foo-bar` →
-something like `# Foo bar`; use judgment for a short, readable title, not
-a mechanical transform), and insert it right after the frontmatter's
-closing `---`.
+`wb new --planned` creates the file from `~/code/tasks/TEMPLATE.md` and
+fills `status: planned` (deliberately **not** `doing`), `repo:`, `branch:`,
+and `created:` when the file is new — it never stamps `worktree:` to a
+path, since no worktree exists yet at this point — and it only ever fills
+blank fields on an existing file, never overwrites. It does not fill a
+`# <title>` heading (see the aside below) — compose that line yourself,
+derived from the slug (e.g. `feat/foo-bar` → something like `# Foo bar`;
+use judgment for a short, readable title, not a mechanical transform), and
+insert it right after the frontmatter's closing `---`.
 
-Never do this by calling `wb new` (or `cmd_new`) itself, even bare with no
-`--agent` flag. The plan's Key Technical Decision "Responsibility split"
-(`docs/plans/2026-07-11-001-feat-handoff-v1-plan.md`) explains why in
-full — in short: `cmd_new`'s `is_new` check would already see the session
-as existing by the time `handoff.sh`'s own `wb new --agent` runs moments
-later, so the thing that actually types `claude` into the agent pane would
-silently never run, and the boot poller would wait forever for a process
-that was never started. `wb_seed_task` itself (the plain file-fill helper,
-no tmux/worktree side effects) has no such hazard — this skill just never
-goes through the `wb new` CLI path.
+**This step is simpler than it used to be, deliberately.** An earlier
+version of this skill pre-stamped `status: doing` and `worktree:
+.worktrees/$slug` right here, by sourcing `wb.sh` and calling its internal
+`wb_seed_task` directly — an UNLOCKED write that bypassed every per-task
+lock this codebase now enforces. That pre-stamping was always redundant:
+the REAL `status: doing` + `worktree:` stamping already happens moments
+later, for real, in this same skill's own step 6, when `handoff.sh` calls
+`wb new --agent` (which goes through `wb_seed_task`'s existing-file branch,
+idempotently filling in exactly those fields once the worktree actually
+exists). `wb new --planned` recognizes that redundancy and drops it — it
+only ever seeds a worktree-less, `status: planned` placeholder here, and
+lets step 6 do the real transition, through the ordinary locked path every
+other `wb new` caller uses.
+
+Calling `wb new --planned` here does **not** reintroduce the hazard a bare
+`wb new`/`cmd_new` call would: the plan's Key Technical Decision
+"Responsibility split" (`docs/plans/2026-07-11-001-feat-handoff-v1-plan.md`)
+explains why a bare call is dangerous — `cmd_new`'s `is_new` check would
+already see the session as existing by the time `handoff.sh`'s own
+`wb new --agent` runs moments later, so the thing that actually types
+`claude` into the agent pane would silently never run, and the boot poller
+would wait forever for a process that was never started. `--planned` mode
+returns before ever touching a worktree or a tmux session at all (see its
+own header comment in `wb.sh`), so it can't trip that hazard — the thing
+still genuinely forbidden here is a bare `wb new <repo> <slug>` (no
+`--agent`, no `--planned`) or `cmd_new` call, which does reach that code.
 
 **IMPORTANT — the live `~/code/tasks/TEMPLATE.md` currently has NO
 `## Follow-ups` heading** (only `## Plan` / `## Decisions` / `## Done`),
@@ -227,16 +246,49 @@ This is the payload the routed worker actually reads — `handoff.sh` only
 ever injects a short, fixed pointer naming this file (never the context
 itself), so whatever isn't captured here is lost to the routed session.
 
-- **New task (empty `## Plan`):** write the rich context — what's being
-  discussed, why, relevant constraints, anything already decided or ruled
-  out — into `## Plan`.
-- **Existing, already-active task (`## Plan` already holds unrelated
-  in-flight narrative):** don't clobber it. Append the new discussion's
-  context under `## Follow-ups` instead, as its own bullet or short block,
-  clearly distinguishable from whatever's already there.
+Shell out to `wb append` (the same locked, heading-scoped verb step 3's
+creation call goes through) instead of an Edit-tool write on the task
+file's prose, passing the full context as a multi-line body via stdin:
 
-Either way, never overwrite existing content in `## Plan`, `## Decisions`,
-or `## Follow-ups` — only add to it.
+- **New task (empty `## Plan`):** target `Plan` as the heading — the rich
+  context (what's being discussed, why, relevant constraints, anything
+  already decided or ruled out) lands as that section's own content, since
+  it's currently empty.
+
+  ```bash
+  wb append "$task_file" Plan <<EOF
+  <the rich context — what's being discussed, why, constraints, anything
+  already decided or ruled out>
+  EOF
+  ```
+
+- **Existing, already-active task (`## Plan` already holds unrelated
+  in-flight narrative):** target `Follow-ups` instead — the new
+  discussion's context lands as its own block at the end of that section,
+  clearly distinguishable from whatever's already there, never touching
+  `## Plan`'s existing prose.
+
+  ```bash
+  wb append "$task_file" Follow-ups <<EOF
+  <the new discussion's context, as its own block>
+  EOF
+  ```
+
+Either way, `wb append` is append-only under the named heading by
+construction — it can only ever add a new block at the end of that section
+(creating the heading first if it's missing, per the same fallback
+convention step 3's creation call and `wb_append_handoff` both use), never
+touch a byte of what's already in `## Plan`, `## Decisions`, or
+`## Follow-ups`. This preserves the "never overwrite" guarantee this
+section always carried, now as a structural property of the verb rather
+than a habit to remember.
+
+**Never write or edit task-file body content under a `##` section with the
+Edit/Write tool — always shell out to `wb append` instead.** The one
+narrow, documented exception in this skill: the `# <title>`/first-action
+preamble line (steps 3–4) sits *before* any `##` section, a position
+`wb append`'s heading-scoped model has no way to express, so that one line
+stays a direct Read+Edit insertion.
 
 ### 6. Invoke `handoff.sh` and relay the outcome
 
@@ -245,8 +297,10 @@ in the task file from step 4, so there's nothing else to pass. **Substitute
 the literal repo/slug/path values you already resolved in steps 1-2** —
 do not copy the `$DOTFILES`/`$repo`/`$slug` variable names verbatim into a
 fresh shell call. Each of steps 2-5 above runs as its own tool call (a
-`bash -c` invocation for steps 2-3, Read/Write/Edit for step 5), and this
-harness's shell state does not persist between separate Bash calls — a
+`bash -c` invocation for step 2, a `wb new --planned` Bash call for step 3,
+Read/Edit for step 4's title/first-action preamble line, and a `wb append`
+Bash call for step 5), and this harness's shell state does not persist
+between separate Bash calls — a
 literal `"$DOTFILES/.../handoff.sh" "$repo" "$slug"` composed as a new,
 independent command would see all three as empty:
 

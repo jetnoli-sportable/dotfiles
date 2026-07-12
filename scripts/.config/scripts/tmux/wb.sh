@@ -2,6 +2,9 @@
 # wb (workbench) — session-per-worktree + the unified picker.
 #   wb new [--agent] <slug>          from inside a repo
 #   wb new [--agent] <repo> <slug>   from anywhere
+#   wb new --planned <repo> <slug>   seed a worktree-less task file only (status stays
+#                                    planned) — no worktree, no tmux session; the
+#                                    locked creation path agent-mediated skills use
 #   wb                               the picker (replaces s + ca)
 #   wb board                         task-store status table (interim /board)
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
@@ -11,6 +14,13 @@
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
 #   wb sync                          fetch + fast-forward-only merge for $TASKS_DIR (refuses on dirty tree, divergence, or the wrong branch)
 #   wb unsafe-rewind "<reason>"      write a time-limited escape-hatch sentinel a git hook honors for a deliberate rewind
+#   wb append <task> <heading> [<body>|-]
+#                                    append <body> under "## <heading>" in <task>'s file,
+#                                    taking the per-task lock (fail-loud on an ambiguous
+#                                    or unmatched <task>); <body> omitted or literally
+#                                    "-" reads a multi-line body from stdin instead — the
+#                                    agent-mediated write path /wb-save, /handoff, and
+#                                    /parked-items use instead of Edit-tool task writes
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
 # ratified judgment calls: dotfiles/logs/decisions/2026-07-06-review-outstanding.md,
@@ -471,6 +481,62 @@ wb_seed_task() {
   echo "$file"
 }
 
+# wb_seed_task_planned <repo> <slug> [<parent_ref>] — W13's planned-preserving
+# sibling of wb_seed_task: find-or-create the task file for a repo+slug pair
+# WITHOUT ever creating a worktree, and WITHOUT wb_seed_task's own
+# planned->doing flip or worktree stamping. Used by `wb new --planned`
+# (cmd_new, below), in turn used by /parked-items' scratch-task creation and
+# /handoff's task-file seeding step — both cases where no work has actually
+# started yet, so there is no real worktree path to stamp and the task must
+# stay `status: planned` rather than jump straight to `doing`. The REAL
+# doing/worktree transition happens later, for real, the ordinary way,
+# whenever something actually calls `wb new [--agent]` on the same repo/slug
+# — that goes through wb_seed_task's own EXISTING-file branch above, which
+# idempotently fills in exactly those fields without this function's
+# involvement.
+#
+# New file: status is hardcoded to "planned" (never "doing"), repo:/branch:
+# are filled from the arguments, worktree: is left exactly as TEMPLATE.md
+# already has it (blank) — no substitution rule for it at all, unlike
+# wb_seed_task's new-file branch above.
+#
+# Existing file: same non-clobbering backfill convention as wb_seed_task for
+# repo:/branch:/reviewed:, but status: is ONLY backfilled when blank —
+# never bumped or otherwise touched when already set, to ANY value (planned,
+# doing, paused, done, ...). This is what makes a second call against the
+# same repo/slug (idempotent re-run — e.g. /handoff routing a second,
+# related discussion to an already-seeded task) safe: it can never clobber
+# a status a real `wb new`/`wb new --agent` run already advanced past
+# "planned" in the meantime.
+wb_seed_task_planned() {
+  local repo="$1" slug="$2" parent="${3:-}"
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local file; file="$(wb_task_file "$repo" "$disp_slug")"
+
+  if [ ! -f "$file" ]; then
+    mkdir -p "$TASKS_DIR"
+    local title="${slug//-/ }"
+    awk -v repo="$repo" -v branch="$slug" \
+        -v created="$(date +%F)" -v title="$title" '
+      BEGIN { infm = 0 }
+      /^---$/     { infm++; print; next }
+      infm == 1 && /^status:/   { print "status: planned"; next }
+      infm == 1 && /^repo:/     { print "repo: " repo; next }
+      infm == 1 && /^branch:/   { print "branch: " branch; next }
+      infm == 1 && /^created:/  { print "created: " created; next }
+      infm == 2 && /^# Title/   { print "# " title; next }
+      { print }
+    ' "$TASKS_DIR/TEMPLATE.md" > "$file"
+  else
+    [ -n "$(wb_get_frontmatter "$file" repo)" ]     || wb_set_frontmatter "$file" repo "$repo"
+    [ -n "$(wb_get_frontmatter "$file" branch)" ]   || wb_set_frontmatter "$file" branch "$slug"
+    [ -n "$(wb_get_frontmatter "$file" status)" ]   || wb_set_frontmatter "$file" status planned
+    [ -n "$(wb_get_frontmatter "$file" reviewed)" ] || wb_set_frontmatter "$file" reviewed ""
+  fi
+  [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
+  echo "$file"
+}
+
 # wb_layout_session <session> <dir> <start_agent> — first-time-only 3-window
 # layout: win1 nvim, win2 a plain shell for the agent (LAZY — you run `claude`
 # yourself the first time you visit, bounded by the ~10-concurrent-agent
@@ -497,11 +563,12 @@ cmd_new() {
   # value as a separate following argument, which a foreach that only
   # detects literal tokens (like --agent) can't consume — the value would
   # fall into the else branch and corrupt the positional repo/slug count.
-  local agent_flag=0 parent_ref=""
+  local agent_flag=0 parent_ref="" planned_flag=0
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --agent)  agent_flag=1; shift ;;
+      --agent)   agent_flag=1; shift ;;
+      --planned) planned_flag=1; shift ;;
       --parent)
         case "${2-}" in
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
@@ -510,6 +577,11 @@ cmd_new() {
       *)        args+=("$1"); shift ;;
     esac
   done
+
+  if [ "$planned_flag" = 1 ] && [ "$agent_flag" = 1 ]; then
+    echo "wb new: --planned and --agent are mutually exclusive — --planned never starts a worktree/session for --agent to attach to" >&2
+    exit 1
+  fi
 
   local repo slug
   if [ "${#args[@]}" -eq 2 ]; then
@@ -521,7 +593,7 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent] [--parent <repo>--<slug>] <slug> | wb new [--agent] [--parent <repo>--<slug>] <repo> <slug>" >&2
+    echo "usage: wb new [--agent|--planned] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned] [--parent <repo>--<slug>] <repo> <slug>" >&2
     exit 1
   fi
 
@@ -540,6 +612,29 @@ cmd_new() {
 
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
+
+  if [ "$planned_flag" = 1 ]; then
+    # W13's planned-preserving creation path: no worktree, no tmux session —
+    # just a lock-guarded, idempotent task-file seed via wb_seed_task_planned
+    # (above) that preserves `status: planned` (never the ordinary
+    # planned->doing flip cmd_new's normal path below performs) and never
+    # stamps `worktree:` to a path that doesn't exist yet. This is the verb
+    # /parked-items (scratch tasks with no work started) and /handoff's
+    # seeding step (the real doing/worktree transition happens later, for
+    # real, whenever something actually calls `wb new [--agent]` on the same
+    # repo/slug) both shell out to instead of an Edit-tool task-file write.
+    # Prints the resolved task-file path on stdout (the one piece of output
+    # a caller capturing `$(wb new --planned ...)` needs), mirroring
+    # wb_seed_task_planned's own `echo "$file"` convention.
+    local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+    _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+    wb_task_lock_acquire_guarded "$task_file" || exit $?
+    task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref")"
+    wb_task_lock_release "$task_file"
+    echo "$task_file"
+    return 0
+  fi
+
   local session="${repo}--${disp_slug}"
   local worktree_rel=".worktrees/$slug"
   local worktree_path="$repo_dir/$worktree_rel"
@@ -1336,20 +1431,91 @@ wb_sweep_section() {
   awk '/^## Sweep \(gitignored/ { found = 1 } found { print }' "$1"
 }
 
+# _wb_append_under_heading <file> <heading> <body> — the shared insertion
+# algorithm behind both wb_append_handoff (below) and cmd_append (U4,
+# `wb append`), extracted so there is exactly ONE heading-fallback/
+# end-of-section insertion implementation in this file, parameterized on an
+# arbitrary "## <heading>" name and an arbitrary — possibly multi-line —
+# <body> block, rather than wb_append_handoff's original hardcoded
+# "## Handoffs" + single-line-message shape. <body> is inserted VERBATIM
+# (embedded newlines print as real line breaks); this helper only manages
+# blank-line hygiene AROUND the block, never inside it — a caller wanting a
+# blank line between two of its own body lines (wb_append_handoff's
+# "entry heading, blank, message" shape) bakes that into <body> itself.
+#
+# Insertion rule (identical to wb_append_handoff's own pre-extraction
+# behavior, and the missing-heading fallback handoff_append_followup
+# (handoff.sh:84-116) established for "## Follow-ups"):
+#   - "## <heading>" exists as a real heading (isHeadingLine() below — only
+#     a line preceded by a blank line, or the file's first line, counts;
+#     without this guard, heading-shaped TEXT inside another section's own
+#     prose, e.g. a Plan paragraph quoting "## Decisions" as an example,
+#     would exact-match and splice the entry mid-paragraph — confirmed live
+#     before this guard existed) — the new <body> block lands at the END of
+#     that section: immediately before whatever "## " heading comes next,
+#     or at EOF if the section runs to the end of the file. NEVER right
+#     after the heading line itself. Repeated calls therefore read
+#     oldest-first — load-bearing for /wb-resume (not in scope here), which
+#     needs to find the most recent rich entry reliably.
+#   - "## <heading>" is missing entirely, but "## Decisions" exists as a
+#     real heading — insert a fresh "## <heading>" section immediately
+#     before it.
+#   - Neither exists anywhere — append a fresh "## <heading>" section at
+#     EOF.
+_wb_append_under_heading() {
+  local file="$1" heading="$2" body="$3"
+  local target="## $heading"
+  awk -v target="$target" -v body="$body" '
+    function isHeadingLine() { return (prev == "" || NR == 1) }
+    BEGIN { insection = 0; inserted = 0; prev = "" }
+    $0 == target && isHeadingLine() { insection = 1 }
+    # Leaving an existing target section (any other "## " heading reached
+    # while inside it) — insert the body right here, at the end of that
+    # section, before falling through to print the heading that closes it.
+    # Excludes the target heading line itself (the very record that just
+    # turned insection on above) so a fresh heading with content following
+    # it does not immediately self-trigger this branch.
+    insection && /^## / && $0 != target && !inserted && isHeadingLine() {
+      if (prev != "") print ""
+      print body; print ""
+      inserted = 1; insection = 0
+    }
+    # Heading missing entirely, but "## Decisions" exists — insert a fresh
+    # target section right before it (the same missing-heading insertion
+    # point handoff_append_followup uses for its own heading).
+    $0 == "## Decisions" && !insection && !inserted && isHeadingLine() {
+      print target
+      print ""
+      print body
+      print ""
+      inserted = 1
+    }
+    { print; prev = $0 }
+    END {
+      if (insection && !inserted) {
+        # Section existed but ran to EOF with no following heading.
+        if (prev != "") print ""
+        print body
+      } else if (!inserted) {
+        # Neither the target heading nor "## Decisions" found anywhere —
+        # append a fresh section at EOF.
+        if (prev != "") print ""
+        print target
+        print ""
+        print body
+      }
+    }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+}
+
 # wb_append_handoff <task_file> <source> <message> — appends a terse,
 # timestamped "### <timestamp> — <source> (auto)" entry (with <message> as
-# its one-line body) to <task_file>'s "## Handoffs" section, inserting the
-# heading itself when it's missing — same insertion point
-# handoff_append_followup (handoff.sh:84-116) uses for a missing
-# "## Follow-ups": right before "## Decisions" when present, else at EOF.
-# That's where the mirroring ends: unlike handoff_append_followup (which
-# inserts its new bullet immediately after the heading line, so repeated
-# calls read newest-first), this always appends the new entry at the END
-# of an existing "## Handoffs" section (immediately before the next "##"
-# heading, or EOF) — so repeated calls read oldest-first. That ordering is
-# load-bearing: a downstream skill (/wb-resume, not in scope here) needs to
-# find the most recent rich entry reliably, which only works if entries are
-# chronological.
+# its one-line body) to <task_file>'s "## Handoffs" section. A thin
+# composer over _wb_append_under_heading (above): builds the "### ...
+# (auto)" header line, joins it to <message> with a blank line between
+# (the one piece of internal body formatting this caller wants that
+# cmd_append's own callers, e.g. /wb-save's pre-formatted multi-line block,
+# don't), then hands the whole thing off as one opaque <body> block.
 #
 # Called by cmd_pause/cmd_done/cmd_resume, always right after their own
 # state-changing line — deliberately never from cmd_new itself: cmd_new is
@@ -1358,62 +1524,119 @@ wb_sweep_section() {
 wb_append_handoff() {
   local file="$1" source="$2" message="$3"
   local entry; entry="### $(date '+%Y-%m-%d %H:%M') — $source (auto)"
-  awk -v entry="$entry" -v msg="$message" '
-    # A line only counts as a real "## X" heading when it is also preceded
-    # by a blank line (or is the very first line) — every real heading in
-    # this file format is, by the template/TEMPLATE.md convention (see
-    # wb_seed_task). Without this guard, the literal text "## Decisions" or
-    # "## Handoffs" appearing inside a task'"'"'s own ## Plan prose (e.g.
-    # someone writing notes about this very feature) exact-matches the bare
-    # $0 == "..." checks below and splices a Handoffs entry mid-paragraph —
-    # confirmed live: a Plan section quoting "## Decisions" as example text
-    # got the entry spliced in right there instead of at the real heading
-    # further down. isHeadingLine() below is the single guarded predicate
-    # both the entry-insertion and section-closing rules key off of.
-    function isHeadingLine() { return (prev == "" || NR == 1) }
-    BEGIN { inhandoffs = 0; inserted = 0; prev = "" }
-    $0 == "## Handoffs" && isHeadingLine() { inhandoffs = 1 }
-    # Leaving an existing "## Handoffs" section (any other "## " heading
-    # reached while inside it) — insert the new entry right here, at the
-    # end of that section, before falling through to print the heading
-    # that closes it. Excludes the "## Handoffs" line itself (the very
-    # record that just turned inhandoffs on above) so a fresh heading with
-    # content following it does not immediately self-trigger this branch.
-    inhandoffs && /^## / && $0 != "## Handoffs" && !inserted && isHeadingLine() {
-      if (prev != "") print ""
-      print entry; print ""; print msg; print ""
-      inserted = 1; inhandoffs = 0
-    }
-    # Heading missing entirely, but "## Decisions" exists — insert a fresh
-    # "## Handoffs" section right before it (the same missing-heading
-    # insertion point handoff_append_followup uses for its own heading).
-    $0 == "## Decisions" && !inhandoffs && !inserted && isHeadingLine() {
-      print "## Handoffs"
-      print ""
-      print entry
-      print ""
-      print msg
-      print ""
-      inserted = 1
-    }
-    { print; prev = $0 }
-    END {
-      if (inhandoffs && !inserted) {
-        # Section existed but ran to EOF with no following heading.
-        if (prev != "") print ""
-        print entry; print ""; print msg
-      } else if (!inserted) {
-        # Neither "## Handoffs" nor "## Decisions" found anywhere — append
-        # a fresh section at EOF.
-        if (prev != "") print ""
-        print "## Handoffs"
-        print ""
-        print entry
-        print ""
-        print msg
-      }
-    }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  local body; body="$entry"$'\n\n'"$message"
+  _wb_append_under_heading "$file" "Handoffs" "$body"
+}
+
+# ---------------------------------------------------------------------------
+# wb append — locked, heading-scoped text insertion for agent-mediated
+# task-file writes (round-2 Decision 1B / W13-W14): the ONE way /wb-save,
+# /handoff, and /parked-items are rewired (U4) to touch a task file's body
+# instead of an Edit-tool write that bypasses every lock this plan built.
+# ---------------------------------------------------------------------------
+
+# _wb_append_resolve_task <query> — the file cmd_append should write into.
+# Two-stage resolution:
+#   1. Exact fast path: <query> already names a real file directly (as
+#      given, or as "$TASKS_DIR/<query>", or "$TASKS_DIR/<query>.md") —
+#      resolves to itself immediately, bypassing substring matching
+#      entirely. This matters because every SKILL.md rewired in this unit
+#      already computed the exact task-file path/ref before calling
+#      `wb append` (wb-save's `@task` lookup, handoff's own wb_task_file
+#      call) — those callers must never risk a FALSE ambiguity just
+#      because their own task's name happens to be a literal substring of
+#      a sibling task's name (e.g. "repo--foo" is a substring of
+#      "repo--foo-bar"), which the fuzzy fallback below would otherwise hit.
+#   2. Fuzzy fallback: the SAME case-insensitive substring-match-with-
+#      ambiguity-guard convention cmd_resume already uses against every
+#      task file's basename — 0 or 2+ matches both fail loudly rather than
+#      guessing, never silently picking one.
+_wb_append_resolve_task() {
+  local query="${1:-}"
+  [ -n "$query" ] || return 1
+
+  if [ -f "$query" ]; then
+    printf '%s\n' "$query"
+    return 0
+  fi
+  if [ -f "$TASKS_DIR/$query" ]; then
+    printf '%s\n' "$TASKS_DIR/$query"
+    return 0
+  fi
+  if [ -f "$TASKS_DIR/$query.md" ]; then
+    printf '%s\n' "$TASKS_DIR/$query.md"
+    return 0
+  fi
+
+  local -a matches=()
+  local f base
+  while IFS= read -r f; do
+    base="$(basename "$f" .md)"
+    case "${base,,}" in
+      *"${query,,}"*) matches+=("$f") ;;
+    esac
+  done < <(wb_task_files)
+
+  case "${#matches[@]}" in
+    0)
+      echo "wb append: no task matches '$query' in $TASKS_DIR" >&2
+      return 1
+      ;;
+    1)
+      printf '%s\n' "${matches[0]}"
+      return 0
+      ;;
+    *)
+      echo "wb append: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
+      for f in "${matches[@]}"; do
+        echo "  $(basename "$f" .md)" >&2
+      done
+      return 1
+      ;;
+  esac
+}
+
+# cmd_append <task-ref> <heading> [<body>|-] — resolve <task-ref>
+# (_wb_append_resolve_task, above), take the per-task lock
+# (wb_task_lock_acquire_guarded, same convention every other cmd_* verb
+# uses), insert <body> under "## <heading>" via _wb_append_under_heading,
+# release. <body> is either:
+#   - a single trailing argument — the short one-liner convenience; or
+#   - omitted, or given literally as "-" — read the (possibly multi-line)
+#     body from stdin instead, heredoc-friendly:
+#       wb append <task-ref> Handoffs <<'EOF'
+#       ### 2026-07-11 18:42 — wb-save
+#       **Done:** ...
+#       **In flight:** ...
+#       **Next:** ...
+#       EOF
+# This is W13's capability floor: /wb-save's ###-timestamped, three-field
+# block entries need the multi-line stdin form (its own skill contract
+# forbids wb_append_handoff's single-line-message shape); a terse one-off
+# note fits the trailing-argument form.
+cmd_append() {
+  local query="${1:-}" heading="${2:-}"
+  if [ -z "$query" ] || [ -z "$heading" ]; then
+    echo "usage: wb append <task-ref> <heading> [<body>|-]   (body omitted or '-' reads multi-line stdin)" >&2
+    exit 1
+  fi
+
+  local body
+  if [ $# -lt 3 ] || [ "$3" = "-" ]; then
+    body="$(cat)"
+  else
+    body="$3"
+  fi
+  [ -n "$body" ] || { echo "wb append: empty body — nothing to append" >&2; exit 1; }
+
+  local file
+  file="$(_wb_append_resolve_task "$query")" || exit 1
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_append_under_heading "$file" "$heading" "$body"
+  wb_task_lock_release "$file"
+  echo "wb append: appended under \"## $heading\" in $(basename -- "$file")"
 }
 
 # wb_credential_shaped <rel> — succeed when a keeper path looks like a
@@ -2769,6 +2992,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     reviewed)    shift; cmd_reviewed "$@" ;;
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
+    append)      shift; cmd_append "$@" ;;
     _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
     _interrupt)  shift; _interrupt "$@" ;;
