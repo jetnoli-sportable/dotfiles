@@ -425,5 +425,99 @@ assert "regression: wb_seed_task still fills branch:" '^blankfields$' "$(wb_get_
 assert "regression: wb_seed_task still fills worktree:" '^\.worktrees/blankfields$' "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--blankfields.md" worktree)"
 assert "regression: wb_seed_task still bumps planned->doing" '^doing$' "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--blankfields.md" status)"
 
+# =============================================================================
+# U2: wb_lifecycle_parse_path (R4) — path: field parsing, render-tolerant
+# =============================================================================
+assert_lines() { # <desc> <expected> <actual>
+  if [ "$3" = "$2" ]; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1"
+    echo "       expected: $(printf '%s' "$2" | tr '\n' ',')"
+    echo "       got:      $(printf '%s' "$3" | tr '\n' ',')"
+    fail=1
+  fi
+}
+
+assert_lines "parse_path: absent -> default plan,work,review" \
+  "$(printf 'plan\nwork\nreview')" "$(wb_lifecycle_parse_path '')"
+assert_lines "parse_path: blank -> default plan,work,review" \
+  "$(printf 'plan\nwork\nreview')" "$(wb_lifecycle_parse_path '   ')"
+assert_lines "parse_path: whitespace-tolerant" \
+  "$(printf 'plan\nwork\nreview')" "$(wb_lifecycle_parse_path 'plan, work , review')"
+assert_lines "parse_path: unknown token dropped, no failure" \
+  "$(printf 'plan\nwork')" "$(wb_lifecycle_parse_path 'plan,bogus,work')"
+assert_lines "parse_path: duplicates dropped, canonical order imposed" \
+  "$(printf 'plan\nwork')" "$(wb_lifecycle_parse_path 'work,plan,plan')"
+assert_lines "parse_path: bracketed form stripped" \
+  "$(printf 'work\nreview')" "$(wb_lifecycle_parse_path '[work,review]')"
+
+# =============================================================================
+# U2: wb_lifecycle_stage_state — four-state model (R1-R4)
+# =============================================================================
+default_path="$(wb_lifecycle_parse_path '')"
+
+# --- AE1: work progress under changes+merged PR; done once status:done ----
+add_worktree "$FIXTURE_CODE/proj" feat/stage-work
+commit_file "$FIXTURE_CODE/proj/.worktrees/feat/stage-work" impl.txt code
+mk_task 'proj--feat-stage-work.md' doing proj feat/stage-work
+assert "stage_state: open task, changes + merged PR -> work progress (AE1)" '^progress$' \
+  "$(wb_lifecycle_stage_state work proj feat/stage-work .worktrees/feat/stage-work "$FIXTURE_TASKS/proj--feat-stage-work.md" doing '#5 (MERGED)' "$default_path")"
+assert "stage_state: status:done + PR merged -> work done (AE1)" '^done$' \
+  "$(wb_lifecycle_stage_state work proj feat/stage-work .worktrees/feat/stage-work "$FIXTURE_TASKS/proj--feat-stage-work.md" done '#5 (MERGED)' "$default_path")"
+
+# --- open task, no changes, PR OPEN -> work progress (PR-any-state signal) -
+add_worktree "$FIXTURE_CODE/proj" feat/stage-pr-open
+mk_task 'proj--feat-stage-pr-open.md' doing proj feat/stage-pr-open
+assert "stage_state: open task, no changes, PR OPEN -> work progress" '^progress$' \
+  "$(wb_lifecycle_stage_state work proj feat/stage-pr-open .worktrees/feat/stage-pr-open "$FIXTURE_TASKS/proj--feat-stage-pr-open.md" doing '#7 (OPEN)' "$default_path")"
+
+# --- status:done, PR still OPEN -> work progress, not done (R2) -----------
+assert "stage_state: status:done, PR OPEN -> work progress, not done" '^progress$' \
+  "$(wb_lifecycle_stage_state work proj feat/stage-pr-open .worktrees/feat/stage-pr-open "$FIXTURE_TASKS/proj--feat-stage-pr-open.md" done '#7 (OPEN)' "$default_path")"
+
+# --- status:done, no PR ever -> work done ----------------------------------
+assert "stage_state: status:done, no PR ever -> work done" '^done$' \
+  "$(wb_lifecycle_stage_state work proj feat/stage-pr-open .worktrees/feat/stage-pr-open "$FIXTURE_TASKS/proj--feat-stage-pr-open.md" done '' "$default_path")"
+
+# --- AE2: no path: field + brainstorm artifact exists -> brainstorm done ---
+add_worktree "$FIXTURE_CODE/proj" feat/stage-ae2
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/feat/stage-ae2/docs/brainstorms"
+printf '# brainstorm\n' > "$FIXTURE_CODE/proj/.worktrees/feat/stage-ae2/docs/brainstorms/2026-07-11-001-feat-stage-ae2-brainstorm.md"
+mk_task 'proj--feat-stage-ae2.md' doing proj feat/stage-ae2
+assert "stage_state: no path:, brainstorm artifact exists -> brainstorm done (AE2)" '^done$' \
+  "$(wb_lifecycle_stage_state brainstorm proj feat/stage-ae2 .worktrees/feat/stage-ae2 "$FIXTURE_TASKS/proj--feat-stage-ae2.md" doing '' "$default_path")"
+
+# --- AE7: path: work,review -> ideate/brainstorm/plan all n/a -------------
+add_worktree "$FIXTURE_CODE/proj" feat/stage-ae7
+mk_task 'proj--feat-stage-ae7.md' doing proj feat/stage-ae7
+docs_only_path="$(wb_lifecycle_parse_path 'work,review')"
+for s in ideate brainstorm plan; do
+  assert "stage_state: path work,review -> $s is n/a (AE7)" '^na$' \
+    "$(wb_lifecycle_stage_state "$s" proj feat/stage-ae7 .worktrees/feat/stage-ae7 "$FIXTURE_TASKS/proj--feat-stage-ae7.md" doing '' "$docs_only_path")"
+done
+assert "stage_state: path work,review -> work renders per signals (pending, no changes)" '^pending$' \
+  "$(wb_lifecycle_stage_state work proj feat/stage-ae7 .worktrees/feat/stage-ae7 "$FIXTURE_TASKS/proj--feat-stage-ae7.md" doing '' "$docs_only_path")"
+assert "stage_state: path work,review -> review pending (not yet reviewed)" '^pending$' \
+  "$(wb_lifecycle_stage_state review proj feat/stage-ae7 .worktrees/feat/stage-ae7 "$FIXTURE_TASKS/proj--feat-stage-ae7.md" doing '' "$docs_only_path")"
+
+# --- review: stamped -> done ------------------------------------------------
+wb_set_frontmatter "$FIXTURE_TASKS/proj--feat-stage-ae7.md" reviewed 2026-07-12
+assert "stage_state: reviewed: stamped -> review done" '^done$' \
+  "$(wb_lifecycle_stage_state review proj feat/stage-ae7 .worktrees/feat/stage-ae7 "$FIXTURE_TASKS/proj--feat-stage-ae7.md" doing '' "$docs_only_path")"
+
+# --- AE8: branchless, worktree-less planned task; dirty main checkout -----
+echo dirty > "$FIXTURE_CODE/proj/dirty.txt"
+printf -- '---\nstatus: planned\nrepo: proj\nbranch:\nworktree:\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
+  > "$FIXTURE_TASKS/proj--stage-branchless.md"
+assert "stage_state: branchless+worktree-less planned task, dirty main checkout -> work pending, never progress (AE8)" '^pending$' \
+  "$(wb_lifecycle_stage_state work proj '' '' "$FIXTURE_TASKS/proj--stage-branchless.md" planned '' "$default_path")"
+rm -f "$FIXTURE_CODE/proj/dirty.txt"
+
+# --- session-less parent task: placeholder repo -> fails closed, no error --
+mk_task 'proj--stage-parent.md' doing NOSUCHREPO somebranch
+assert "stage_state: session-less parent (placeholder repo) -> plan pending, no crash" '^pending$' \
+  "$(wb_lifecycle_stage_state plan NOSUCHREPO somebranch .worktrees/x "$FIXTURE_TASKS/proj--stage-parent.md" doing '' "$default_path")"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

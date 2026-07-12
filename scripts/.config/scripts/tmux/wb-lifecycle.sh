@@ -304,25 +304,37 @@ wb_lifecycle_default_branch() {
 # Never hard-fails on a git-command error (no resolvable default branch, no
 # merge-base, not a git repo at all) — mirrors wb_pr_merge_status's "report a
 # safe default, never silently abort" convention (wb.sh:417-424).
+#
+# Both halves also guard on their field being non-empty (board-display-v2's
+# KTD-3, extending the same guard-on-field-values-not-composed-paths
+# discipline as wb_lifecycle_has_doc): an empty worktree_rel would otherwise
+# degenerate $repo_dir/$worktree_rel to the repo dir itself, which exists,
+# so the uncommitted half would run `git status` against the MAIN CHECKOUT —
+# any dirty main checkout would then render every branchless, worktree-less
+# planned task as work-in-progress (AE8; the store has eight such tasks).
 wb_lifecycle_work_done() {
   local repo="${1:-}" worktree_rel="${2:-}" branch="${3:-}"
   local repo_dir; repo_dir="$(wb_repo_dir "$repo")"
   [ -d "$repo_dir/.git" ] || return 1
 
-  local default_branch merge_base
-  default_branch="$(wb_lifecycle_default_branch "$repo_dir")"
-  if [ -n "$default_branch" ]; then
-    merge_base="$(git -C "$repo_dir" merge-base "$branch" "$default_branch" 2>/dev/null)"
-    if [ -n "$merge_base" ]; then
-      git -C "$repo_dir" diff --name-only "$merge_base..$branch" 2>/dev/null \
-        | wb_lifecycle_any_real_work_path && return 0
+  if [ -n "$branch" ]; then
+    local default_branch merge_base
+    default_branch="$(wb_lifecycle_default_branch "$repo_dir")"
+    if [ -n "$default_branch" ]; then
+      merge_base="$(git -C "$repo_dir" merge-base "$branch" "$default_branch" 2>/dev/null)"
+      if [ -n "$merge_base" ]; then
+        git -C "$repo_dir" diff --name-only "$merge_base..$branch" 2>/dev/null \
+          | wb_lifecycle_any_real_work_path && return 0
+      fi
     fi
   fi
 
-  local wt="$repo_dir/$worktree_rel"
-  if [ -d "$wt" ]; then
-    git -C "$wt" status --porcelain 2>/dev/null | cut -c4- \
-      | wb_lifecycle_any_real_work_path && return 0
+  if [ -n "$worktree_rel" ]; then
+    local wt="$repo_dir/$worktree_rel"
+    if [ -d "$wt" ]; then
+      git -C "$wt" status --porcelain 2>/dev/null | cut -c4- \
+        | wb_lifecycle_any_real_work_path && return 0
+    fi
   fi
 
   return 1
@@ -340,4 +352,111 @@ wb_lifecycle_work_done() {
 wb_lifecycle_review_done() {
   local taskfile="${1:-}"
   [ -n "$(wb_get_frontmatter "$taskfile" reviewed)" ]
+}
+
+# ---------------------------------------------------------------------------
+# Stage-state resolver (board-display-v2 U2) — composes the signals above
+# with the `path:` intent field into the four-state model per stage: n/a |
+# pending | progress | done. Stage-state strings are a second, documented
+# convention alongside this module's boolean (0/1 exit code) predicates —
+# four values can't be an exit code.
+# ---------------------------------------------------------------------------
+
+# Canonical stage order — every stage-list output (parsed path, resolver
+# iteration) renders in this order, regardless of the order stages were
+# declared or fired in.
+WB_LIFECYCLE_STAGES=(ideate brainstorm plan work review)
+
+# _wb_lifecycle_trim <string> — strip leading/trailing whitespace.
+_wb_lifecycle_trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+# wb_lifecycle_parse_path <path_field> — normalize a task's `path:`
+# frontmatter value into its intended stage list, one stage per line, in
+# canonical order. Render-tolerant (R4): comma-separated, whitespace-
+# tolerant, an optional surrounding `[...]` is stripped, unknown stage
+# tokens are silently ignored, duplicates are dropped — a hand-edited
+# `path:` must never crash the `set -euo pipefail` render; loud validation
+# on write lives only in `wb new --path` (U3). Absent or blank (the two are
+# indistinguishable through wb_get_frontmatter, and both mean "not
+# declared" — "no stages at all" is deliberately inexpressible) yields the
+# default `plan,work,review`, the ~90% real shape.
+wb_lifecycle_parse_path() {
+  local raw; raw="$(_wb_lifecycle_trim "${1:-}")"
+  case "$raw" in
+    \[*\]) raw="$(_wb_lifecycle_trim "${raw#\[}")"; raw="$(_wb_lifecycle_trim "${raw%\]}")" ;;
+  esac
+  [ -n "$raw" ] || raw="plan,work,review"
+
+  local -A want=()
+  local -a tokens
+  IFS=',' read -ra tokens <<< "$raw"
+  local tok
+  for tok in "${tokens[@]}"; do
+    tok="$(_wb_lifecycle_trim "$tok")"
+    case "$tok" in
+      ideate|brainstorm|plan|work|review) want["$tok"]=1 ;;
+      *) : ;; # unknown stage name — ignored, not an error
+    esac
+  done
+
+  local stage
+  for stage in "${WB_LIFECYCLE_STAGES[@]}"; do
+    [ -n "${want[$stage]:-}" ] && printf '%s\n' "$stage"
+  done
+}
+
+# wb_lifecycle_stage_state <stage> <repo> <branch> <worktree_rel> <taskfile>
+#   <status> <pr_info> <path_lines> — prints one of na|pending|progress|done
+# for <stage> of this task. <path_lines> is wb_lifecycle_parse_path's
+# newline-separated output — callers compute it once per task (it's
+# identical across all 5 stage calls), not once per stage.
+#
+# Signals are evaluated BEFORE path membership (R4's upgrade rule): a fired
+# completion/started signal always wins, even for a stage the declared (or
+# default) path never named — "n/a" only applies when nothing fired AND the
+# stage isn't in the intended path.
+#
+# Work-stage semantics (R2/R3): done = task `status: done` AND (no PR ever,
+# or the PR is CLOSED/MERGED — reusing $pr_info, no new fetch);
+# progress = not done AND (wb_lifecycle_work_done OR a PR in ANY state — a
+# PR is itself evidence work started, AE1 under both squash and
+# merge-commit merges). "Closed" means `status: done` — never the `closed:`
+# date field (single-authority principle). Doc stages and review have no
+# progress state: pending -> done directly.
+wb_lifecycle_stage_state() {
+  local stage="$1" repo="$2" branch="$3" worktree_rel="$4" taskfile="$5"
+  local status="$6" pr_info="$7" path_lines="$8"
+
+  local in_path=0
+  printf '%s\n' "$path_lines" | grep -qxF "$stage" && in_path=1
+
+  local done=0 progress=0
+  case "$stage" in
+    ideate)     wb_lifecycle_has_ideate     "$repo" "$branch" "$worktree_rel" "$taskfile" && done=1 ;;
+    brainstorm) wb_lifecycle_has_brainstorm "$repo" "$branch" "$worktree_rel" "$taskfile" && done=1 ;;
+    plan)       wb_lifecycle_has_plan       "$repo" "$branch" "$worktree_rel" "$taskfile" && done=1 ;;
+    review)     wb_lifecycle_review_done "$taskfile" && done=1 ;;
+    work)
+      if [ "$status" = done ]; then
+        wb_lifecycle_pr_is_live "$pr_info" && progress=1 || done=1
+      else
+        { wb_lifecycle_work_done "$repo" "$worktree_rel" "$branch" || [ -n "$pr_info" ]; } && progress=1
+      fi
+      ;;
+  esac
+
+  if [ "$done" = 1 ]; then
+    printf 'done\n'
+  elif [ "$progress" = 1 ]; then
+    printf 'progress\n'
+  elif [ "$in_path" = 1 ]; then
+    printf 'pending\n'
+  else
+    printf 'na\n'
+  fi
 }
