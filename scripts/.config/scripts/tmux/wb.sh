@@ -9,6 +9,8 @@
 #   wb pause [<session>]             mark a task paused — worktree and session both survive
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
+#   wb sync                          fetch + fast-forward-only merge for $TASKS_DIR (refuses on dirty tree, divergence, or the wrong branch)
+#   wb unsafe-rewind "<reason>"      write a time-limited escape-hatch sentinel a git hook honors for a deliberate rewind
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
 # ratified judgment calls: dotfiles/logs/decisions/2026-07-06-review-outstanding.md,
@@ -943,6 +945,133 @@ cmd_reviewed() {
 
   wb_set_frontmatter "$task_file" reviewed "$(date +%F)"
   echo "wb reviewed: $session marked reviewed ($task_file)"
+}
+
+# ---------------------------------------------------------------------------
+# wb sync — the paved path for pulling shared $TASKS_DIR changes: fetch, then
+# fast-forward-only merge, refusing loudly on anything that isn't a clean
+# fast-forward. Exists so nobody reaches for `git reset --hard
+# origin/<branch>` (or a force-push) to "fix" a stuck TASKS_DIR — that IS
+# the anti-pattern that caused the 2026-07-10 incident this concurrency-
+# safety effort responds to. This command NEVER pushes, under any
+# circumstance.
+# ---------------------------------------------------------------------------
+
+# cmd_sync — guard order: fetch (loud abort on failure) -> dirty-tree guard
+# -> branch/detached-HEAD guard -> ahead/behind decision (ff-merge / no-op /
+# refuse-diverged).
+cmd_sync() {
+  # 1. fetch FIRST — never compare against a possibly-stale local
+  # origin/<branch> ref. A failed fetch (offline, no SSH agent, unreachable
+  # remote, ...) aborts loudly, not a silent no-op against stale refs.
+  if ! git -C "$TASKS_DIR" fetch origin; then
+    echo "wb sync: git fetch origin failed for $TASKS_DIR — offline, no SSH agent, or the remote is unreachable; aborting without comparing refs" >&2
+    exit 1
+  fi
+
+  # 2. dirty-tree guard — mirrors cmd_done's guard exactly (see cmd_done
+  # above), scoped to $TASKS_DIR instead of a worktree path.
+  local dirty
+  dirty="$(git -C "$TASKS_DIR" status --porcelain 2>/dev/null || true)"
+  if [ -n "$dirty" ]; then
+    echo "wb sync: $TASKS_DIR is dirty:" >&2
+    echo "$dirty" >&2
+    echo "commit or stash, then re-run" >&2
+    exit 1
+  fi
+
+  # 3. branch guard — refuse on a detached HEAD or on any branch other than
+  # the remote's own tracked default branch. Deliberately NOT hardcoded to
+  # "development" or "main" — that's a per-repo convention, and this task
+  # store's default branch is whatever origin/HEAD actually says, not an
+  # assumption baked into this script. Prefer the locally-cached
+  # refs/remotes/origin/HEAD symref (set by `git clone`); fall back to
+  # asking the remote directly (`ls-remote --symref`, same primitive) when
+  # that symref was never established — e.g. a checkout built by `init` +
+  # `remote add` + `fetch` rather than `clone` (confirmed against a real
+  # ~/code/tasks checkout, which hit exactly this fallback path).
+  local expected_branch
+  expected_branch="$(git -C "$TASKS_DIR" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  expected_branch="${expected_branch#origin/}"
+  if [ -z "$expected_branch" ]; then
+    expected_branch="$(git -C "$TASKS_DIR" ls-remote --symref origin HEAD 2>/dev/null \
+      | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
+  fi
+  if [ -z "$expected_branch" ]; then
+    echo "wb sync: could not determine origin's default branch for $TASKS_DIR (no origin/HEAD symref, and ls-remote --symref failed) — refusing to guess" >&2
+    exit 1
+  fi
+
+  local current_ref
+  current_ref="$(git -C "$TASKS_DIR" symbolic-ref -q HEAD 2>/dev/null || true)"
+  if [ -z "$current_ref" ]; then
+    echo "wb sync: $TASKS_DIR has a detached HEAD — refusing to fast-forward-merge into a detached state; check out $expected_branch first" >&2
+    exit 1
+  fi
+  local current_branch="${current_ref#refs/heads/}"
+  if [ "$current_branch" != "$expected_branch" ]; then
+    echo "wb sync: $TASKS_DIR is on '$current_branch', not '$expected_branch' (the tracked default branch) — refusing to fast-forward-merge into the wrong branch" >&2
+    exit 1
+  fi
+
+  # 4. ahead/behind decision.
+  local counts ahead behind
+  counts="$(git -C "$TASKS_DIR" rev-list --left-right --count "HEAD...origin/$expected_branch" 2>/dev/null)" || {
+    echo "wb sync: could not compare $TASKS_DIR against origin/$expected_branch after fetch" >&2
+    exit 1
+  }
+  ahead="$(printf '%s' "$counts" | awk '{print $1}')"
+  behind="$(printf '%s' "$counts" | awk '{print $2}')"
+  ahead="${ahead:-0}"
+  behind="${behind:-0}"
+
+  if [ "$ahead" -eq 0 ] && [ "$behind" -eq 0 ]; then
+    echo "wb sync: $TASKS_DIR already up to date with origin/$expected_branch"
+  elif [ "$ahead" -eq 0 ]; then
+    git -C "$TASKS_DIR" merge --ff-only "origin/$expected_branch"
+    echo "wb sync: pulled $behind commit(s) — $TASKS_DIR now matches origin/$expected_branch"
+  elif [ "$behind" -eq 0 ]; then
+    echo "wb sync: $TASKS_DIR is $ahead commit(s) ahead of origin/$expected_branch — nothing to pull, consider pushing (wb sync never pushes)"
+  else
+    echo "wb sync: $TASKS_DIR has DIVERGED from origin/$expected_branch ($ahead ahead, $behind behind) — refusing to auto-merge" >&2
+    echo "wb sync: resolve by hand, e.g.:" >&2
+    echo "  git -C \"$TASKS_DIR\" log --oneline HEAD..origin/$expected_branch    # see what's incoming" >&2
+    echo "  git -C \"$TASKS_DIR\" log --oneline origin/$expected_branch..HEAD    # see what's local-only" >&2
+    echo "  git -C \"$TASKS_DIR\" merge origin/$expected_branch                  # or: git -C \"$TASKS_DIR\" rebase origin/$expected_branch" >&2
+    echo "wb sync: do NOT run 'git reset --hard origin/$expected_branch' (or force-push) to make this go away — that SILENTLY DISCARDS your local commits and is the exact anti-pattern this command exists to prevent" >&2
+    exit 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# wb unsafe-rewind — the ONLY sanctioned producer of the WB_ALLOW_REWIND
+# sentinel a sibling git hook (tasks-git-hooks/, not touched here) consults
+# before allowing a rewind-shaped operation (reset --hard, force-push, ...)
+# against $TASKS_DIR. Deliberately interactive/explicit: it requires a
+# non-empty reason and prints the sentinel's time-limited, one-time-use
+# contract so the caller understands what they just unlocked. The TTL/
+# one-use ENFORCEMENT itself lives in that hook, not here.
+# ---------------------------------------------------------------------------
+
+# cmd_unsafe_rewind "<reason>" — writes "<epoch> <reason>" to
+# $TASKS_DIR/.git/WB_ALLOW_REWIND (relative to whatever $TASKS_DIR resolves
+# to). Refuses with a usage error on a missing or empty reason — this is a
+# rare, deliberate escape hatch, not something that should ever fire with a
+# blank/placeholder reason.
+cmd_unsafe_rewind() {
+  local reason="$*"
+  if [ -z "$reason" ]; then
+    echo "wb unsafe-rewind: usage: wb unsafe-rewind \"<reason>\" — a non-empty reason is required" >&2
+    exit 1
+  fi
+
+  local sentinel="$TASKS_DIR/.git/WB_ALLOW_REWIND"
+  printf '%s %s\n' "$(date +%s)" "$reason" > "$sentinel"
+
+  echo "wb unsafe-rewind: sentinel written to $sentinel"
+  echo "wb unsafe-rewind: reason: $reason"
+  echo "wb unsafe-rewind: this allows exactly ONE rewind-shaped git operation (e.g. reset --hard, a force-push) against $TASKS_DIR — the hook consumes/deletes the sentinel on first use, or once it goes stale (120s TTL), whichever comes first"
+  echo "wb unsafe-rewind: if you don't run that operation within the next 120 seconds, re-run this command when you're actually ready"
 }
 
 # ---------------------------------------------------------------------------
@@ -2391,6 +2520,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
+    sync)          shift; cmd_sync "$@" ;;
+    unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
     _interrupt)  shift; _interrupt "$@" ;;
