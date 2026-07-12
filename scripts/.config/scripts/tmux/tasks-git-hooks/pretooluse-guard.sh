@@ -43,7 +43,7 @@
 #   anyway) — this is what H8's fail-open relies on.
 set -uo pipefail
 
-TASKS_DIR="$HOME/code/tasks"
+TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
 KILL_SWITCH="${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-agent-hook"
 SENTINEL_FILE="$TASKS_DIR/.git/WB_ALLOW_REWIND"
 SENTINEL_TTL_SECS=120
@@ -130,9 +130,10 @@ top_cwd="$(jq_get '.cwd // empty')"
 # here on LOCAL ref updates). ------------------------------------------------
 
 # expand_path PATH BASE -- expand a leading ~ or $HOME, then resolve a
-# relative PATH against BASE. No attempt at ".." normalization or symlink
-# resolution: a plain string-prefix comparison against TASKS_DIR is enough
-# for the scoping decision this hook makes.
+# relative PATH against BASE. Does not itself normalize ".." or resolve
+# symlinks -- path_under_tasks_dir (below) does that canonicalization on
+# the way in, so every caller gets it for free without expand_path needing
+# to know about the containment check it feeds.
 expand_path() {
   local p="$1" base="$2"
   # strip one layer of surrounding quotes, if any
@@ -151,12 +152,23 @@ expand_path() {
   printf '%s' "$p"
 }
 
-# path_under_tasks_dir PATH -- true if PATH is TASKS_DIR itself or beneath it.
+# path_under_tasks_dir PATH -- true if PATH is TASKS_DIR itself or beneath
+# it, judged on the CANONICAL form of both sides (`realpath -m` -- resolves
+# `..`/symlinks without requiring the path to actually exist yet, since a
+# git/Edit target may not). A prior version compared the raw string
+# expand_path returned against a raw $TASKS_DIR: `-C ~/code/dotfiles/../tasks`
+# expands to a string containing "dotfiles/../tasks", which a plain prefix
+# match against "$TASKS_DIR" (= ".../code/tasks") never matches, even though
+# the shell/OS resolves that exact path to the real $TASKS_DIR -- the same
+# `..`-traversal containment bug wb_safe_rel (wb.sh) already guards against
+# correctly, for a lower-stakes purpose, via this same realpath -m pattern.
 path_under_tasks_dir() {
-  local p="$1"
+  local p="$1" real_p real_tasks_dir
   [ -z "$p" ] && return 1
-  case "$p" in
-    "$TASKS_DIR"|"$TASKS_DIR"/*) return 0 ;;
+  real_p="$(realpath -m -- "$p" 2>/dev/null)" || real_p="$p"
+  real_tasks_dir="$(realpath -m -- "$TASKS_DIR" 2>/dev/null)" || real_tasks_dir="$TASKS_DIR"
+  case "$real_p" in
+    "$real_tasks_dir"|"$real_tasks_dir"/*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -216,10 +228,27 @@ handle_bash() {
       continue
     fi
 
-    [[ "$inv" =~ ^git([[:space:]]|$) ]] || continue
+    # H3's DANGEROUS_RE patterns are already shaped like git subcommands
+    # ("reset --hard", "branch...-D", ...) -- they don't need a literal
+    # leading "git" token to be meaningful, and requiring one here let an
+    # ordinary env-prefixed or wrapper-prefixed invocation
+    # (`TASKS_DIR=/tmp/x git reset --hard`, `\git reset --hard` -- the
+    # everyday alias-bypass idiom, `env git reset --hard`,
+    # `sh -c "git reset --hard ..."`) skip this check ENTIRELY: none of
+    # these are adversarial obfuscation, just ordinary shell idioms an
+    # honest agent could type, and the outer H2 pre-filter (which gates
+    # entry into this whole script) already matches DANGEROUS_RE against
+    # the raw command text with no such prefix requirement -- this inner
+    # anchor had drifted stricter than that outer gate. Do the
+    # dangerous-pattern + directory-scope check directly against every
+    # invocation; a former `^git` requirement used to `continue` past
+    # non-git-prefixed lines entirely before ever reaching it.
 
     # H4: resolve THIS invocation's target dir -- explicit -C/--git-dir
     # first, else the tracked `cd` state, else the fallback top-level cwd.
+    # Attempting -C/--git-dir extraction against a non-git invocation is
+    # harmless (the regex simply won't match) now that this no longer
+    # gates on a literal git prefix first.
     dir="$current_dir"
     if [[ "$inv" =~ -C[[:space:]]+([^[:space:]]+) ]]; then
       dir="$(expand_path "${BASH_REMATCH[1]}" "$current_dir")"

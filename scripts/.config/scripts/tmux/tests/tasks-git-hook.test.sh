@@ -272,19 +272,28 @@ out="$(run_git "$HOME4" "$REPO4" branch -d merged-away 2>&1)"; rc=$?
 assert_eq "deleting a fully-merged branch: allowed (exit 0)" 0 "$rc"
 
 # deleting development itself, no sentinel -> refused (H13)
-TASKS4="$(mktemp -d -t tasks-git-hook-tasks4.XXXXXX)"; FIXTURES+=("$TASKS4")
 run_git "$HOME4" "$REPO4" checkout -q -b temp-holder >/dev/null
-out="$(TASKS_DIR="$TASKS4" HOME="$HOME4" timeout 10 git -C "$REPO4" branch -D development </dev/null 2>&1)"; rc=$?
+out="$(run_git "$HOME4" "$REPO4" branch -D development 2>&1)"; rc=$?
 assert_eq "deleting development with no sentinel: refused (non-zero exit)" 1 "$( [ "$rc" -ne 0 ] && echo 1 || echo 0 )"
 assert "development deletion refused: message present" "REFUSING update to refs/heads/development" "$out"
 dev_still_there="$(run_git "$HOME4" "$REPO4" branch --list development)"
 assert "development deletion refused: branch still exists" "development" "$dev_still_there"
 
-# deleting development WITH a fresh sentinel -> allowed once, then consumed
-write_sentinel "$TASKS4" "$(date +%s)" "deliberate teardown"
-out="$(TASKS_DIR="$TASKS4" HOME="$HOME4" timeout 10 git -C "$REPO4" branch -D development </dev/null 2>&1)"; rc=$?
+# deleting development WITH a fresh sentinel -> allowed once, then consumed.
+# Sentinel lives in the fixture REPO's own .git/ (never a separate,
+# unrelated $TASKS_DIR-derived path) -- the hook resolves the sentinel via
+# `git rev-parse --git-common-dir` against the repo it's actually invoked
+# for, matching how a real `wb unsafe-rewind` writes it for the SAME repo
+# `wb sync`/an agent's git command later operates on. A prior version of
+# this test (and of the hook) used a TASKS_DIR env-var override pointed at
+# an unrelated directory here -- exactly the sentinel-forgery shape a
+# security review flagged: any Bash command could redirect TASKS_DIR to an
+# attacker-controlled path and forge the bypass for a repo it was never
+# written for.
+write_sentinel "$REPO4" "$(date +%s)" "deliberate teardown"
+out="$(run_git "$HOME4" "$REPO4" branch -D development 2>&1)"; rc=$?
 assert_eq "deleting development WITH a fresh sentinel: allowed (exit 0)" 0 "$rc"
-assert_eq "sentinel consumed: file gone afterward" "no" "$( [ -f "$TASKS4/.git/WB_ALLOW_REWIND" ] && echo yes || echo no )"
+assert_eq "sentinel consumed: file gone afterward" "no" "$( [ -f "$REPO4/.git/WB_ALLOW_REWIND" ] && echo yes || echo no )"
 
 # =============================================================================
 echo
@@ -293,7 +302,6 @@ echo "=== sentinel mechanics ==="
 
 HOME5="$(mk_fixture_home)"
 REPO5="$(mk_fixture_repo "$HOME5")"
-TASKS5="$(mktemp -d -t tasks-git-hook-tasks5.XXXXXX)"; FIXTURES+=("$TASKS5")
 
 # two independent unmerged (refusable) branches
 run_git "$HOME5" "$REPO5" checkout -q -b orphan-1 >/dev/null
@@ -303,25 +311,52 @@ run_git "$HOME5" "$REPO5" checkout -q -b orphan-2 >/dev/null
 commit_file "$HOME5" "$REPO5" o2.txt content "orphan-2 commit" >/dev/null
 run_git "$HOME5" "$REPO5" checkout -q development >/dev/null
 
-write_sentinel "$TASKS5" "$(date +%s)" "one-time rewind"
-out="$(TASKS_DIR="$TASKS5" HOME="$HOME5" timeout 10 git -C "$REPO5" branch -D orphan-1 </dev/null 2>&1)"; rc=$?
+write_sentinel "$REPO5" "$(date +%s)" "one-time rewind"
+out="$(run_git "$HOME5" "$REPO5" branch -D orphan-1 2>&1)"; rc=$?
 assert_eq "fresh sentinel: first refusable op in this transaction passes (exit 0)" 0 "$rc"
-assert_eq "fresh sentinel: consumed after first use" "no" "$( [ -f "$TASKS5/.git/WB_ALLOW_REWIND" ] && echo yes || echo no )"
+assert_eq "fresh sentinel: consumed after first use" "no" "$( [ -f "$REPO5/.git/WB_ALLOW_REWIND" ] && echo yes || echo no )"
 
-out="$(TASKS_DIR="$TASKS5" HOME="$HOME5" timeout 10 git -C "$REPO5" branch -D orphan-2 </dev/null 2>&1)"; rc=$?
+out="$(run_git "$HOME5" "$REPO5" branch -D orphan-2 2>&1)"; rc=$?
 assert_eq "sentinel already consumed: second refusable op in a NEW transaction is refused" 1 "$( [ "$rc" -ne 0 ] && echo 1 || echo 0 )"
 
 # stale sentinel (epoch far older than the 120s TTL) -> treated as absent
 HOME6="$(mk_fixture_home)"
 REPO6="$(mk_fixture_repo "$HOME6")"
-TASKS6="$(mktemp -d -t tasks-git-hook-tasks6.XXXXXX)"; FIXTURES+=("$TASKS6")
 run_git "$HOME6" "$REPO6" checkout -q -b orphan-stale >/dev/null
 commit_file "$HOME6" "$REPO6" os.txt content "orphan-stale commit" >/dev/null
 run_git "$HOME6" "$REPO6" checkout -q development >/dev/null
 stale_epoch=$(( $(date +%s) - 200 ))
-write_sentinel "$TASKS6" "$stale_epoch" "too old"
-out="$(TASKS_DIR="$TASKS6" HOME="$HOME6" timeout 10 git -C "$REPO6" branch -D orphan-stale </dev/null 2>&1)"; rc=$?
+write_sentinel "$REPO6" "$stale_epoch" "too old"
+out="$(run_git "$HOME6" "$REPO6" branch -D orphan-stale 2>&1)"; rc=$?
 assert_eq "stale sentinel (>120s old): refused, treated as absent" 1 "$( [ "$rc" -ne 0 ] && echo 1 || echo 0 )"
+
+# =============================================================================
+echo
+echo "=== sentinel forgery via TASKS_DIR redirection: must NOT bypass a DIFFERENT repo's refusal ==="
+# =============================================================================
+# Security regression test: a fresh, otherwise-valid sentinel written to an
+# UNRELATED directory, with TASKS_DIR pointed at that directory on the same
+# command line as the actual dangerous git invocation, must never authorize
+# a rewind against the real repo the hook is invoked for. This is exactly
+# the forgery a security review found: TASKS_DIR is a plain inheritable env
+# var, so `TASKS_DIR=/tmp/forged git reset --hard` (or here, branch -D)
+# against a repo unrelated to /tmp/forged used to succeed if the hook
+# resolved the sentinel path from that env var instead of the real repo's
+# own .git dir.
+HOME7="$(mk_fixture_home)"
+REPO7="$(mk_fixture_repo "$HOME7")"
+FORGED_DIR="$(mktemp -d -t tasks-git-hook-forged.XXXXXX)"; FIXTURES+=("$FORGED_DIR")
+run_git "$HOME7" "$REPO7" checkout -q -b unmerged-forged-target >/dev/null
+commit_file "$HOME7" "$REPO7" f.txt content "would be orphaned" >/dev/null
+run_git "$HOME7" "$REPO7" checkout -q development >/dev/null
+
+write_sentinel "$FORGED_DIR" "$(date +%s)" "forged -- written to an unrelated directory"
+out="$(HOME="$HOME7" TASKS_DIR="$FORGED_DIR" timeout 10 git -C "$REPO7" branch -D unmerged-forged-target </dev/null 2>&1)"; rc=$?
+assert_eq "forged sentinel (wrong repo, via TASKS_DIR): still refused (non-zero exit)" 1 "$( [ "$rc" -ne 0 ] && echo 1 || echo 0 )"
+assert "forged sentinel: refusal message present" "REFUSING update to refs/heads/unmerged-forged-target" "$out"
+branch_still_there="$(run_git "$HOME7" "$REPO7" branch --list unmerged-forged-target)"
+assert "forged sentinel: branch still exists" "unmerged-forged-target" "$branch_still_there"
+assert_eq "forged sentinel: the unrelated directory's own sentinel is untouched (never consumed)" "yes" "$( [ -f "$FORGED_DIR/.git/WB_ALLOW_REWIND" ] && echo yes || echo no )"
 
 # =============================================================================
 echo

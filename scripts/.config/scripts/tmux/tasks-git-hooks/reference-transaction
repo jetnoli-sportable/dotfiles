@@ -44,12 +44,41 @@ if [ "$state" != prepared ]; then
   exit 0
 fi
 
-# Same override-safe convention wb.sh uses for TASKS_DIR (not a
-# Claude-specific env var -- this is the repo's own tooling knob -- so
-# honoring it here doesn't violate H17; it just makes the sentinel path
-# testable against a fixture instead of a real ~/code/tasks checkout).
-tasks_dir="${TASKS_DIR:-$HOME/code/tasks}"
-sentinel_file="$tasks_dir/.git/WB_ALLOW_REWIND"
+# Sentinel path: derived from the ACTUAL repo this hook invocation is
+# running for (git rev-parse --git-common-dir), never from a bare
+# inheritable $TASKS_DIR env var. A prior version resolved
+# "${TASKS_DIR:-$HOME/code/tasks}/.git/WB_ALLOW_REWIND" directly -- since
+# environment variables are inherited by every child process, a single
+# ordinary Bash call (`TASKS_DIR=/tmp/x git reset --hard origin/development`,
+# with cwd still inside the real ~/code/tasks) let a forged sentinel at
+# /tmp/x/.git/WB_ALLOW_REWIND authorize a rewind against the REAL repo --
+# no file-permission violation, no hook-script edit, no kill-switch removal,
+# just an env-var prefix. That defeated this hook's own stated "caller-
+# agnostic, the real correctness judgment" property. git always runs this
+# hook with a real repository context of its own, so ask git directly
+# instead of trusting an inheritable variable. `--git-common-dir` (not
+# --git-dir) so this resolves correctly even if TASKS_DIR itself ever
+# becomes a linked worktree. Mirrors wb.sh's own wb_ensure_repo_ignore,
+# which resolves this exact relative-vs-absolute ambiguity the same way:
+# git prints a relative path ("some path") when the cwd already IS the
+# repo root (the common case for a git hook), and an absolute one for a
+# linked worktree.
+git_common_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || git_common_dir=""
+if [ -n "$git_common_dir" ]; then
+  case "$git_common_dir" in
+    /*) : ;;
+    *)  git_common_dir="$(pwd)/$git_common_dir" ;;
+  esac
+  sentinel_file="$git_common_dir/WB_ALLOW_REWIND"
+else
+  # git rev-parse only fails here if this script is run outside any git
+  # invocation at all (e.g. a human sourcing it by hand to poke at it) --
+  # not a real code path when installed via core.hooksPath. Fall back to
+  # the override-safe TASKS_DIR convention so that degenerate case still
+  # has a defined (if less trustworthy) sentinel location rather than
+  # crashing under set -u.
+  sentinel_file="${TASKS_DIR:-$HOME/code/tasks}/.git/WB_ALLOW_REWIND"
+fi
 sentinel_ttl=120
 
 # H16 latch: once the sentinel has been consumed for THIS hook invocation
@@ -176,6 +205,15 @@ refuse_or_allow() {
   return 1
 }
 
+# H12's ref universe, snapshotted ONCE before the loop rather than
+# re-queried per ref-update line: per githooks(5), a single "prepared" call
+# can carry multiple ref-update lines (e.g. an atomic multi-branch push),
+# and nothing has actually moved yet during "prepared" -- so every line in
+# this one invocation sees the identical live ref state regardless of when
+# it's read. Re-running `git for-each-ref` per line would just re-fetch the
+# same answer at O(lines) cost instead of O(1).
+all_refs="$(git for-each-ref --format='%(refname)' 2>/dev/null || true)"
+
 while read -r old new ref; do
   [ -z "${ref:-}" ] && continue
 
@@ -234,7 +272,7 @@ while read -r old new ref; do
     extra_exclude="$new"
   fi
 
-  # H12: "every other ref" via for-each-ref, excluding the ref currently
+  # H12: "every other ref" -- the pre-loop snapshot minus the ref currently
   # being updated -- deliberately ALL ref kinds (tags, refs/remotes/*,
   # etc.), not just other local branches: a commit reachable only via a
   # remote-tracking ref is still reachable, not orphaned.
@@ -245,8 +283,7 @@ while read -r old new ref; do
   # For a deletion (extra_exclude empty): the two-dot form is invalid
   # against the all-zeros OID, so this collapses to exactly the form H12
   # specifies for deletions: `git rev-list <old> --not <all other refs>`.
-  # shellcheck disable=SC2086
-  other_refs="$(git for-each-ref --format='%(refname)' 2>/dev/null | grep -Fxv "$ref" || true)"
+  other_refs="$(printf '%s\n' "$all_refs" | grep -Fxv "$ref" || true)"
   # shellcheck disable=SC2086
   orphaned="$(git rev-list "$old" --not $other_refs $extra_exclude 2>/dev/null || true)"
 
