@@ -227,14 +227,16 @@ wb_lifecycle_has_ideate() { wb_lifecycle_has_doc "$1" "$2" "$3" "$4" ideation; }
 
 # wb_lifecycle_pr_is_live <pr_info> — parses the state out of the SAME
 # $pr_info string wb_board_render_html already computes once per row via
-# wb_board_pr_info (wb.sh:1080, called at wb.sh:1264) for the existing PR
-# chip — no new network call. Only "#N (OPEN)" counts as live; CLOSED/MERGED
-# means the task has moved past this stage entirely (into done territory),
-# empty means no PR at all.
+# wb_board_pr_info — no new network call. <pr_info> may carry a tab-joined
+# URL half (board-display-v2's KTD-1); wb_board_pr_display strips to just
+# "#N (STATE)" first, so this still matches whether or not a URL is
+# attached. Only "#N (OPEN)" counts as live; CLOSED/MERGED means the task
+# has moved past this stage entirely (into done territory), empty means no
+# PR at all.
 wb_lifecycle_pr_is_live() {
   local pr_info="${1:-}"
   [ -n "$pr_info" ] || return 1
-  case "$pr_info" in
+  case "$(wb_board_pr_display "$pr_info")" in
     *'(OPEN)') return 0 ;;
     *)         return 1 ;;
   esac

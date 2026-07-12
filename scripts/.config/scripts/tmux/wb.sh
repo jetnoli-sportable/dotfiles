@@ -89,8 +89,11 @@ wb_set_frontmatter() {
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
 }
 
-# wb_read_task <file> — print "status\trepo\tworktree" in one pass (used by
-# the picker's row collection, which reads every task file on each refresh).
+# wb_read_task <file> — print "status\trepo\tworktree\tbranch\tpath\t
+# depends_on\treviewed" in one pass (used by the picker's row collection,
+# which reads every task file on each refresh, and by the board pre-pass —
+# board-display-v2's KTD-1 extends this rather than adding three more
+# per-field wb_get_frontmatter reads per task).
 wb_read_task() {
   awk '
     # clip() strips a trailing inline comment ("value  # note") plus edge
@@ -98,13 +101,16 @@ wb_read_task() {
     # so any seeded task carries one, and an uncomment-stripped status
     # breaks every consumer that compares it (board rank, picker column).
     function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
-    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = "" }
+    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = "" }
     /^---$/ { infm++; if (infm == 2) exit; next }
-    infm == 1 && /^status:/   { s = $0; sub(/^status:[ \t]*/,   "", s); status = clip(s) }
-    infm == 1 && /^repo:/     { s = $0; sub(/^repo:[ \t]*/,     "", s); repo = clip(s) }
-    infm == 1 && /^worktree:/ { s = $0; sub(/^worktree:[ \t]*/, "", s); worktree = clip(s) }
-    infm == 1 && /^branch:/   { s = $0; sub(/^branch:[ \t]*/,   "", s); branch = clip(s) }
-    END { printf "%s\t%s\t%s\t%s\n", status, repo, worktree, branch }
+    infm == 1 && /^status:/      { s = $0; sub(/^status:[ \t]*/,      "", s); status   = clip(s) }
+    infm == 1 && /^repo:/        { s = $0; sub(/^repo:[ \t]*/,        "", s); repo     = clip(s) }
+    infm == 1 && /^worktree:/    { s = $0; sub(/^worktree:[ \t]*/,    "", s); worktree = clip(s) }
+    infm == 1 && /^branch:/      { s = $0; sub(/^branch:[ \t]*/,      "", s); branch   = clip(s) }
+    infm == 1 && /^path:/        { s = $0; sub(/^path:[ \t]*/,        "", s); path     = clip(s) }
+    infm == 1 && /^depends_on:/  { s = $0; sub(/^depends_on:[ \t]*/,  "", s); deps     = clip(s) }
+    infm == 1 && /^reviewed:/    { s = $0; sub(/^reviewed:[ \t]*/,    "", s); reviewed = clip(s) }
+    END { printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, repo, worktree, branch, path, deps, reviewed }
   ' "$1"
 }
 
@@ -269,13 +275,17 @@ wb_ensure_repo_ignore() {
   ) 9>"$lockfile"
 }
 
-# wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] — find-or-create
-# the task file for a repo+slug pair, filling blank frontmatter fields and
-# bumping planned->doing. Never overwrites a field that's already set.
-# <parent_ref> is optional (defaults to empty) so wb_reconcile_action_create_task's
-# pre-existing 3-arg call keeps working unchanged — it never sets `parent:`.
+# wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<path_stages>]
+# [<depends_on_csv>] — find-or-create the task file for a repo+slug pair,
+# filling blank frontmatter fields and bumping planned->doing. Never
+# overwrites a field that's already set, UNLESS the caller explicitly passed
+# a value for it (parent/path/depends_on) — an explicit value always wins,
+# same precedent `parent:` already set below. <parent_ref>/<path_stages>/
+# <depends_on_csv> are all optional (default to empty) so
+# wb_reconcile_action_create_task's pre-existing 3/4-arg calls keep working
+# unchanged.
 wb_seed_task() {
-  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}"
+  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" path_stages="${5:-}" depends_on="${6:-}"
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local file; file="$(wb_task_file "$repo" "$disp_slug")"
 
@@ -312,6 +322,27 @@ wb_seed_task() {
     [ -n "$(wb_get_frontmatter "$file" reviewed)" ]  || wb_set_frontmatter "$file" reviewed ""
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
+
+  # path:/depends_on: — same "explicit wins, otherwise blank-fill" rule as
+  # parent: above, but the blank-fill half always runs (unlike parent:,
+  # which has no inferred value and simply stays absent with no --parent):
+  # every seeded task file must carry a path: and a depends_on: key, even
+  # when the caller never passed one, per the schema's blank-fill convention
+  # (mirrors reviewed: above). wb_set_frontmatter itself inserts the key
+  # when TEMPLATE.md (or a pre-existing file) has no line for it yet, so
+  # this is correct whether or not the template has caught up to carrying
+  # blank path:/depends_on: lines.
+  if [ -n "$path_stages" ]; then
+    wb_set_frontmatter "$file" path "$path_stages"
+  else
+    [ -n "$(wb_get_frontmatter "$file" path)" ] || wb_set_frontmatter "$file" path ""
+  fi
+  if [ -n "$depends_on" ]; then
+    wb_set_frontmatter "$file" depends_on "$depends_on"
+  else
+    [ -n "$(wb_get_frontmatter "$file" depends_on)" ] || wb_set_frontmatter "$file" depends_on ""
+  fi
+
   echo "$file"
 }
 
@@ -337,11 +368,14 @@ wb_layout_session() {
 }
 
 cmd_new() {
-  # Index/shift case parser, not a single-token foreach: --parent takes its
-  # value as a separate following argument, which a foreach that only
-  # detects literal tokens (like --agent) can't consume — the value would
-  # fall into the else branch and corrupt the positional repo/slug count.
-  local agent_flag=0 parent_ref=""
+  # Index/shift case parser, not a single-token foreach: --parent/--path take
+  # their value as a separate following argument, and --depends-on is
+  # repeatable (accumulates into an array) — none of that can be detected by
+  # a foreach that only matches literal tokens (like --agent); the value
+  # would fall into the else branch and corrupt the positional repo/slug
+  # count.
+  local agent_flag=0 parent_ref="" path_stages=""
+  local -a depends_on_stems=()
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -351,6 +385,16 @@ cmd_new() {
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
         esac
         parent_ref="$2"; shift 2 ;;
+      --path)
+        case "${2-}" in
+          ''|--*) echo "wb new: --path requires a value" >&2; exit 1 ;;
+        esac
+        path_stages="$2"; shift 2 ;;
+      --depends-on)
+        case "${2-}" in
+          ''|--*) echo "wb new: --depends-on requires a value" >&2; exit 1 ;;
+        esac
+        depends_on_stems+=("$2"); shift 2 ;;
       *)        args+=("$1"); shift ;;
     esac
   done
@@ -365,22 +409,67 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent] [--parent <repo>--<slug>] <slug> | wb new [--agent] [--parent <repo>--<slug>] <repo> <slug>" >&2
+    echo "usage: wb new [--agent] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <slug> | wb new [--agent] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <repo> <slug>" >&2
     exit 1
   fi
 
   [ -n "$slug" ] || { echo "wb new: <slug> must not be empty" >&2; exit 1; }
 
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local own_stem="${repo}--${disp_slug}"
 
   # Validate before anything is touched — same fail-loud-on-no-match
   # convention as `wb resume`. Also reject a self-referential --parent, the
   # same guard the picker/board read paths use (wb_task_own_parent).
   if [ -n "$parent_ref" ]; then
     wb_resolve_parent_ref "$parent_ref" >/dev/null || exit 1
-    wb_task_own_parent "$parent_ref" "${repo}--${disp_slug}" \
+    wb_task_own_parent "$parent_ref" "$own_stem" \
       || { echo "wb new: --parent cannot be the task's own reference" >&2; exit 1; }
   fi
+
+  # --path: split on commas and validate every token against the lifecycle
+  # pipeline's known stage names (WB_LIFECYCLE_STAGES, wb-lifecycle.sh)
+  # BEFORE anything is created — deliberately the opposite of
+  # wb_lifecycle_parse_path's render-time tolerance (unknown stages there
+  # are silently dropped; here an unknown stage is a hard, loud failure).
+  if [ -n "$path_stages" ]; then
+    local -a wb_valid_stages=("${WB_LIFECYCLE_STAGES[@]}")
+    local valid_csv; valid_csv="$(IFS=,; echo "${wb_valid_stages[*]}")"
+    local -a _wb_path_tokens
+    IFS=',' read -r -a _wb_path_tokens <<< "$path_stages"
+    local token stage ok
+    for token in "${_wb_path_tokens[@]}"; do
+      ok=0
+      for stage in "${wb_valid_stages[@]}"; do
+        [ "$token" = "$stage" ] && { ok=1; break; }
+      done
+      [ "$ok" = 1 ] \
+        || { echo "wb new: --path has unknown stage '$token' (valid: $valid_csv)" >&2; exit 1; }
+    done
+  fi
+
+  # --depends-on: each value must be a real, pre-existing task-file stem in
+  # $TASKS_DIR (mirrors wb_resolve_parent_ref's fail-loud pattern, but
+  # written inline here so the error names --depends-on rather than reusing
+  # that helper's --parent-worded message), must not contain '/' (path
+  # traversal) or ',' (the field's own list delimiter — wb_sanitize never
+  # strips commas, so a comma-bearing stem would silently split into
+  # dangling fragments later), and must not be this task's own stem
+  # (self-reference). An already-`done` blocker is legal — trivially met, no
+  # special-casing needed.
+  local dep
+  for dep in "${depends_on_stems[@]}"; do
+    case "$dep" in
+      */*) echo "wb new: --depends-on '$dep' must not contain '/'" >&2; exit 1 ;;
+      *,*) echo "wb new: --depends-on '$dep' must not contain ','" >&2; exit 1 ;;
+    esac
+    [ "$dep" != "$own_stem" ] \
+      || { echo "wb new: --depends-on cannot be the task's own reference" >&2; exit 1; }
+    [ -f "$TASKS_DIR/$dep.md" ] \
+      || { echo "wb new: --depends-on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+  done
+  local depends_on_joined=""
+  [ "${#depends_on_stems[@]}" -eq 0 ] || depends_on_joined="$(IFS=,; echo "${depends_on_stems[*]}")"
 
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
@@ -409,7 +498,7 @@ cmd_new() {
     || echo "wb new: warning: could not register .git/info/exclude ignore rule for $repo_dir (continuing)" >&2
 
   local task_file
-  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref")"
+  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "$path_stages" "$depends_on_joined")"
 
   local is_new=0
   tmux has-session -t "=$session" 2>/dev/null || is_new=1
@@ -1241,13 +1330,16 @@ wb_board_collect_rows() {
 
 # wb_board_html_escape <string> — minimal HTML-entity escaping for table
 # cells, anchor text and attribute values built from task titles/branches,
-# which can contain `<`/`&` (R12's escaping test scenario).
+# which can contain `<`/`&`/`"` (R12's escaping test scenario; `"` added for
+# board-display-v2's KTD-9 — blocked/unblocks tooltips put task titles and
+# statuses inside `title="…"` attributes, which the original `&<>`-only
+# escaping left open to attribute injection).
 wb_board_html_escape() {
   local s="$1"
   # `&` in a bash pattern-substitution REPLACEMENT is a backreference to the
   # match (same as sed) — unescaped, `${s//</&lt;}` produces "<lt;" (match
   # `<` + literal "lt;") instead of "&lt;". `\&` forces a literal ampersand.
-  s="${s//&/\&amp;}"; s="${s//</\&lt;}"; s="${s//>/\&gt;}"
+  s="${s//&/\&amp;}"; s="${s//</\&lt;}"; s="${s//>/\&gt;}"; s="${s//\"/\&quot;}"
   printf '%s' "$s"
 }
 
@@ -1290,19 +1382,37 @@ wb_board_ledger_matches() {
     "$ledger" 2>/dev/null
 }
 
-# wb_board_pr_info <repo_dir> <branch> — "#<number> (<state>)" for the most
-# recent PR on <branch>, any state (open/closed/merged) — a display nicety
-# for a task's detail section, not a drift signal, so unlike
+# wb_board_pr_info <repo_dir> <branch> — "#<number> (<state>)\t<url>" for
+# the most recent PR on <branch>, any state (open/closed/merged) — a
+# display nicety for a task's detail section, not a drift signal, so unlike
 # wb_pr_merge_status this silently returns empty on any gh/pgh failure
-# rather than reporting "unknown".
+# rather than reporting "unknown". The tab-joined URL (board-display-v2's
+# U4/KTD-1) lets work-stage cells and the Pipeline PR column link straight
+# to the PR without a second `gh` call — use wb_board_pr_display/
+# wb_board_pr_url to pull either half back out; wb_lifecycle_pr_is_live
+# already only inspects the display half.
 wb_board_pr_info() {
   local repo_dir="$1" branch="$2" out rc
-  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state all --json number,state 2>&1)"; rc=$?
+  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state all --json number,state,url 2>&1)"; rc=$?
   if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
-    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state all --json number,state 2>&1)"; rc=$?
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state all --json number,state,url 2>&1)"; rc=$?
   fi
   [ "$rc" -eq 0 ] || return 0
-  printf '%s' "$out" | jq -r '.[0] // empty | "#\(.number) (\(.state))"' 2>/dev/null
+  printf '%s' "$out" | jq -r '.[0] // empty | "#\(.number) (\(.state))\t\(.url)"' 2>/dev/null
+}
+
+# wb_board_pr_display <pr_info> — the "#<n> (<state>)" half of a
+# wb_board_pr_info string (safe to call on an untabbed legacy-shaped string
+# too — a stub or test fixture that doesn't bother with the URL half).
+wb_board_pr_display() { printf '%s' "${1%%$'\t'*}"; }
+
+# wb_board_pr_url <pr_info> — the URL half of a wb_board_pr_info string, or
+# empty when there's no tab (no PR, or a display-only stub).
+wb_board_pr_url() {
+  case "$1" in
+    *$'\t'*) printf '%s' "${1#*$'\t'}" ;;
+    *)       printf '' ;;
+  esac
 }
 
 # wb_board_summary_line <status> <repo> <branch> <created> <closed> — an
@@ -1391,6 +1501,42 @@ wb_board_doc_link() {
   esac
 }
 
+# wb_board_stage_key <anchor_key> <stage> — the STAGE_STATE lookup key
+# (board-display-v2's U4 pre-pass, KTD-1) — a single shared constructor so
+# writers and readers never drift on the delimiter.
+wb_board_stage_key() { printf '%s\x1e%s' "$1" "$2"; }
+
+# wb_board_parse_deps <depends_on_raw> — comma-separated blocker stems, one
+# per line, whitespace-tolerant, empty entries dropped. Render-tolerant
+# like path: parsing (wb_lifecycle_parse_path) — a hand-edited depends_on:
+# must never crash the render; an unresolvable stem is the caller's
+# problem (R18 fail-open), not this parser's.
+wb_board_parse_deps() {
+  local raw="${1:-}" tok
+  [ -n "$raw" ] || return 0
+  local -a tokens
+  IFS=',' read -ra tokens <<< "$raw"
+  for tok in "${tokens[@]}"; do
+    tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
+    [ -n "$tok" ] && printf '%s\n' "$tok"
+  done
+}
+
+# wb_board_normalize_loop <space-separated stems> — sorts and dedupes the
+# given cycle-member stems, then joins them starting at the
+# lexicographically smallest one and closing the loop back to it (KTD-6),
+# so every member of the same cycle renders an identical warning string
+# regardless of which member's perspective it's shown from.
+wb_board_normalize_loop() {
+  local -a stems=($1)
+  local -a sorted; mapfile -t sorted < <(printf '%s\n' "${stems[@]}" | sort -u)
+  [ "${#sorted[@]}" -gt 0 ] || return 0
+  local out="${sorted[0]}" i
+  for (( i=1; i<${#sorted[@]}; i++ )); do out+=" -> ${sorted[$i]}"; done
+  out+=" -> ${sorted[0]}"
+  printf '%s' "$out"
+}
+
 # wb_board_render_html — writes the full /board page to stdout: 6 status
 # tabs x 2 timeline windows, pre-rendered as 12 panels with CSS-only
 # radio-sibling switching (no JS — R8/R10's zero-JS decision), live-session
@@ -1418,6 +1564,197 @@ wb_board_render_html() {
     wb_task_own_parent "$cparent" "$cstem" || continue
     children_of["$cparent"]+="$cf"$'\n'
   done < <(wb_task_files)
+
+  # =========================================================================
+  # U4 pre-pass (KTD-1) — every per-task fact any surface needs, computed
+  # ONCE here (not once per panel — a task can appear in several of the
+  # window x tab panels below), keyed by anchor_key (stems exist only for
+  # task rows; untracked rows have no stem but still need their live-
+  # session badge to survive the hoist, so LIVE_SESSION covers both kinds).
+  # Mirrors the existing children_of pre-pass above.
+  # =========================================================================
+  local -A LIVE_SESSION=()   # anchor_key -> live tmux session name (or unset/empty)
+  local -A PR_INFO=()        # anchor_key -> this task's pr_info ("#n (state)\turl", task rows only)
+  local -A PATH_LINES=()     # anchor_key -> newline-joined intended stages (task rows only)
+  local -A STAGE_STATE=()    # wb_board_stage_key(anchor,stage) -> na|pending|progress|done
+  local -A STEM_ANCHOR=()    # stem -> anchor_key
+  local -A ANCHOR_STEM=()    # anchor_key -> stem
+  local -A STEM_STATUS=()    # stem -> raw status
+  local -A DEPS_OF=()        # anchor_key -> newline-joined blocker stems (dangling ones dropped after validation)
+  local -A DANGLING_WARN=()  # anchor_key -> warning text (a declared stem has no task file)
+  local -A CYCLE_MEMBER=()   # anchor_key -> 1 if on a dependency cycle
+  local -A CYCLE_WARN=()     # anchor_key -> normalized loop warning text
+  local -A UNMET_COUNT=()    # anchor_key -> count of currently-unmet blockers
+  local -A BLOCKER_NAMES=()  # anchor_key -> "stem (status); ..." tooltip text
+  local -A UNBLOCKS_COUNT=() # anchor_key -> count of other tasks currently waiting on this one
+  local -A UNBLOCKS_NAMES=() # anchor_key -> waiter stems, tooltip text
+  local -A CHILDREN_TOTAL=() # parent stem -> total children count
+  local -A CHILDREN_DONE=()  # parent stem -> done children count
+  local -A READY_TO_CLOSE=() # parent stem -> 1 when all children done and parent isn't
+
+  local -a f
+  local pp_row pp_kind pp_repo pp_branch pp_worktree pp_status pp_taskfile pp_anchor pp_stem
+
+  # --- sub-pass A: live session, stem/status lookups, path, raw deps -----
+  for pp_row in "${ROWS[@]}"; do
+    wb_tsv_split "$pp_row" f
+    pp_kind="${f[0]}"; pp_status="${f[2]}"; pp_repo="${f[3]}"; pp_branch="${f[4]}"
+    pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
+    LIVE_SESSION["$pp_anchor"]="$(wb_board_live_session_for "$pp_repo" "$pp_branch")"
+    [ "$pp_kind" = task ] || continue
+    pp_stem="$(basename "$pp_taskfile" .md)"
+    STEM_ANCHOR["$pp_stem"]="$pp_anchor"
+    ANCHOR_STEM["$pp_anchor"]="$pp_stem"
+    STEM_STATUS["$pp_stem"]="$pp_status"
+    PATH_LINES["$pp_anchor"]="$(wb_lifecycle_parse_path "${f[12]}")"
+    DEPS_OF["$pp_anchor"]="$(wb_board_parse_deps "${f[13]}")"
+  done
+
+  # --- sub-pass B: PR fetch, deduped by repo+branch (KTD-1's "one gh call
+  # per task, not per panel"; also dedupes across tasks that SHARE a
+  # branch), skipped entirely for an empty branch: ------------------------
+  local -A pr_cache=()   # "repo\x1fbranch" -> pr_info, fetched at most once
+  local pp_repo_dir pp_cache_key
+  for pp_row in "${ROWS[@]}"; do
+    wb_tsv_split "$pp_row" f
+    [ "${f[0]}" = task ] || continue
+    pp_repo="${f[3]}"; pp_branch="${f[4]}"; pp_anchor="${f[11]}"
+    [ -n "$pp_branch" ] || continue
+    pp_repo_dir="$(wb_repo_dir "$pp_repo")"
+    [ -d "$pp_repo_dir/.git" ] || continue
+    pp_cache_key="$pp_repo"$'\x1f'"$pp_branch"
+    if [ -z "${pr_cache["$pp_cache_key"]+x}" ]; then
+      pr_cache["$pp_cache_key"]="$(wb_board_pr_info "$pp_repo_dir" "$pp_branch")"
+    fi
+    PR_INFO["$pp_anchor"]="${pr_cache["$pp_cache_key"]}"
+  done
+
+  # --- sub-pass C: per-stage state (needs PATH_LINES + PR_INFO above) -----
+  local pp_stage
+  for pp_row in "${ROWS[@]}"; do
+    wb_tsv_split "$pp_row" f
+    [ "${f[0]}" = task ] || continue
+    pp_repo="${f[3]}"; pp_branch="${f[4]}"; pp_worktree="${f[5]}"; pp_status="${f[2]}"
+    pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
+    for pp_stage in "${WB_LIFECYCLE_STAGES[@]}"; do
+      STAGE_STATE["$(wb_board_stage_key "$pp_anchor" "$pp_stage")"]="$(wb_lifecycle_stage_state \
+        "$pp_stage" "$pp_repo" "$pp_branch" "$pp_worktree" "$pp_taskfile" "$pp_status" \
+        "${PR_INFO["$pp_anchor"]:-}" "${PATH_LINES["$pp_anchor"]}")"
+    done
+  done
+
+  # --- sub-pass D: validate depends_on stems — dangling ones fail open
+  # (R18) and are dropped from DEPS_OF so E/F only ever see resolved edges -
+  local pp_a pp_dep_line
+  for pp_a in "${!DEPS_OF[@]}"; do
+    [ -n "${DEPS_OF["$pp_a"]}" ] || continue
+    local -a pp_valid=() pp_missing=()
+    while IFS= read -r pp_dep_line; do
+      [ -n "$pp_dep_line" ] || continue
+      if [ -n "${STEM_ANCHOR["$pp_dep_line"]:-}" ]; then
+        pp_valid+=("$pp_dep_line")
+      else
+        pp_missing+=("$pp_dep_line")
+      fi
+    done <<< "${DEPS_OF["$pp_a"]}"
+    if [ "${#pp_missing[@]}" -gt 0 ]; then
+      local pp_missing_joined; pp_missing_joined="$(IFS=', '; echo "${pp_missing[*]}")"
+      DANGLING_WARN["$pp_a"]="depends on unresolved stem: $pp_missing_joined"
+    fi
+    DEPS_OF["$pp_a"]="$(printf '%s\n' "${pp_valid[@]}")"
+  done
+
+  # --- sub-pass E: cycle detection (R18, KTD-12) — iterative, flat BFS
+  # reachability over the (now dangling-free) dependency map: an anchor is
+  # on a cycle iff it can reach its own stem again via >=1 blocker edge.
+  # No recursion, no bash function call depth to worry about. -------------
+  local pp_a_stem pp_cur pp_cur_anchor pp_qi pp_hit pp_line
+  for pp_a in "${!DEPS_OF[@]}"; do
+    [ -n "${DEPS_OF["$pp_a"]:-}" ] || continue
+    pp_a_stem="${ANCHOR_STEM["$pp_a"]}"
+    local -A pp_seen=()
+    local -a pp_queue=()
+    while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue+=("$pp_line"); done <<< "${DEPS_OF["$pp_a"]}"
+    pp_qi=0; pp_hit=0
+    while [ "$pp_qi" -lt "${#pp_queue[@]}" ]; do
+      pp_cur="${pp_queue[$pp_qi]}"; pp_qi=$((pp_qi + 1))
+      [ -n "${pp_seen["$pp_cur"]:-}" ] && continue
+      pp_seen["$pp_cur"]=1
+      if [ "$pp_cur" = "$pp_a_stem" ]; then pp_hit=1; break; fi
+      pp_cur_anchor="${STEM_ANCHOR["$pp_cur"]:-}"
+      [ -n "$pp_cur_anchor" ] || continue
+      while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue+=("$pp_line"); done <<< "${DEPS_OF["$pp_cur_anchor"]:-}"
+    done
+    [ "$pp_hit" = 1 ] && CYCLE_MEMBER["$pp_a"]=1
+  done
+  # Name each cycle member's loop as every OTHER cycle member reachable from
+  # it, normalized to start at the lexicographically smallest stem (KTD-6)
+  # so every member's tooltip shows the identical string. A simplification
+  # for graphs with more than one independent cycle (would lump distinct
+  # cycles that happen to overlap in reachability) — acceptable for a
+  # warning message on what is, today, a zero-occurrence edge case.
+  for pp_a in "${!CYCLE_MEMBER[@]}"; do
+    pp_a_stem="${ANCHOR_STEM["$pp_a"]}"
+    local -A pp_seen2=()
+    local -a pp_queue2=() pp_members=("$pp_a_stem")
+    pp_seen2["$pp_a_stem"]=1
+    while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue2+=("$pp_line"); done <<< "${DEPS_OF["$pp_a"]}"
+    pp_qi=0
+    while [ "$pp_qi" -lt "${#pp_queue2[@]}" ]; do
+      pp_cur="${pp_queue2[$pp_qi]}"; pp_qi=$((pp_qi + 1))
+      [ -n "${pp_seen2["$pp_cur"]:-}" ] && continue
+      pp_seen2["$pp_cur"]=1
+      pp_cur_anchor="${STEM_ANCHOR["$pp_cur"]:-}"
+      [ -n "$pp_cur_anchor" ] || continue
+      [ -n "${CYCLE_MEMBER["$pp_cur_anchor"]:-}" ] && pp_members+=("$pp_cur")
+      while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue2+=("$pp_line"); done <<< "${DEPS_OF["$pp_cur_anchor"]:-}"
+    done
+    CYCLE_WARN["$pp_a"]="$(wb_board_normalize_loop "${pp_members[*]}")"
+  done
+
+  # --- sub-pass F: unmet-blocker / blocked (R16/R18) and unblocks (R17)
+  # counts, from the validated, cycle-free dependency edges. A cycle
+  # warning supersedes the ⛔ blocked treatment for its own members (KTD-6)
+  # ------------------------------------------------------------------------
+  local pp_unmet pp_names pp_blocker_status pp_blocker_anchor
+  for pp_a in "${!DEPS_OF[@]}"; do
+    [ -n "${DEPS_OF["$pp_a"]:-}" ] || continue
+    [ -n "${CYCLE_MEMBER["$pp_a"]:-}" ] && continue
+    pp_unmet=0; pp_names=""
+    while IFS= read -r pp_line; do
+      [ -n "$pp_line" ] || continue
+      pp_blocker_status="${STEM_STATUS["$pp_line"]:-}"
+      [ "$pp_blocker_status" = done ] && continue
+      pp_unmet=$((pp_unmet + 1))
+      pp_names+="$pp_line ($pp_blocker_status); "
+      pp_blocker_anchor="${STEM_ANCHOR["$pp_line"]:-}"
+      [ -n "$pp_blocker_anchor" ] || continue
+      UNBLOCKS_COUNT["$pp_blocker_anchor"]=$(( ${UNBLOCKS_COUNT["$pp_blocker_anchor"]:-0} + 1 ))
+      UNBLOCKS_NAMES["$pp_blocker_anchor"]+="$pp_a_stem, "
+    done <<< "${DEPS_OF["$pp_a"]}"
+    if [ "$pp_unmet" -gt 0 ]; then
+      UNMET_COUNT["$pp_a"]="$pp_unmet"
+      BLOCKER_NAMES["$pp_a"]="$pp_names"
+    fi
+  done
+
+  # --- sub-pass G: children rollup counts (R20) ---------------------------
+  local pp_parent_stem pp_child_file pp_total pp_done pp_child_status pp_parent_status
+  for pp_parent_stem in "${!children_of[@]}"; do
+    pp_total=0; pp_done=0
+    while IFS= read -r pp_child_file; do
+      [ -n "$pp_child_file" ] && [ -f "$pp_child_file" ] || continue
+      pp_total=$((pp_total + 1))
+      pp_child_status="$(wb_get_frontmatter "$pp_child_file" status)"
+      [ "$pp_child_status" = done ] && pp_done=$((pp_done + 1))
+    done <<< "${children_of["$pp_parent_stem"]}"
+    CHILDREN_TOTAL["$pp_parent_stem"]="$pp_total"
+    CHILDREN_DONE["$pp_parent_stem"]="$pp_done"
+    pp_parent_status="${STEM_STATUS["$pp_parent_stem"]:-}"
+    if [ "$pp_total" -gt 0 ] && [ "$pp_total" = "$pp_done" ] && [ "$pp_parent_status" != done ]; then
+      READY_TO_CLOSE["$pp_parent_stem"]=1
+    fi
+  done
 
   local -a TABS=(all inprogress upcoming paused deferred unclassified)
   local -A TAB_LABEL=([all]="All" [inprogress]="In Progress" [upcoming]="Upcoming" [paused]="Paused" [deferred]="Deferred" [unclassified]="Unclassified")
@@ -1471,7 +1808,7 @@ wb_board_render_html() {
         esc_repo="$(wb_board_html_escape "$repo")"
         pill_class="$status"; pill_label="$status"
         [ "$kind" = untracked ] && { pill_class="unclassified"; pill_label="unclassified"; }
-        live_session="$(wb_board_live_session_for "$repo" "$branch")"
+        live_session="${LIVE_SESSION["$anchor_key"]:-}"
         live_badge=""
         [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
         local link_text="$esc_title"
@@ -1488,10 +1825,8 @@ wb_board_render_html() {
           [ -n "$plan" ] && detail_extra+="<p><b>Plan:</b> $(wb_board_html_escape "$plan")</p>"
           [ -n "$done_txt" ] && detail_extra+="<p><b>Done:</b> $(wb_board_html_escape "$done_txt")</p>"
           repo_dir="$(wb_repo_dir "$repo")"
-          if [ -d "$repo_dir/.git" ]; then
-            pr_info="$(wb_board_pr_info "$repo_dir" "$branch")"
-            [ -n "$pr_info" ] && detail_extra+="<p><b>Related:</b> <span class=\"artefact-chip\">PR $(wb_board_html_escape "$pr_info")</span></p>"
-          fi
+          pr_info="${PR_INFO["$anchor_key"]:-}"
+          [ -n "$pr_info" ] && detail_extra+="<p><b>Related:</b> <span class=\"artefact-chip\">PR $(wb_board_html_escape "$(wb_board_pr_display "$pr_info")")</span></p>"
           wt_abs="$repo_dir/$worktree"
           local ledger_line ledger_note=""
           while IFS= read -r ledger_line; do
