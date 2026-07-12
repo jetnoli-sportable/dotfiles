@@ -121,6 +121,17 @@ _wb_lock_field() {
   printf '%s\n' "${line#*: }"
 }
 
+# wb_task_lock_holder_field <task_file> <key> — public reader for a
+# contended lock's recorded holder-info fields (holder/pid/acquired/
+# tmux_pane/tmux_session), for callers outside this module (e.g. wb.sh's
+# orphan-check layer) that need to inspect a lock they lost — without
+# reaching into this module's own internal path/field accessors
+# (_wb_lock_path_for/_wb_lock_field) directly. Same tolerant, read-only
+# contract: empty if the lock file doesn't exist or the key isn't set.
+wb_task_lock_holder_field() {
+  _wb_lock_field "$(_wb_lock_path_for "$1")" "$2"
+}
+
 # ---------------------------------------------------------------------------
 # public primitives
 # ---------------------------------------------------------------------------
@@ -185,7 +196,7 @@ wb_task_lock_acquire() {
     # only. No blocking stdin read here, and — per the guard above — no
     # write of any kind into the contended lock file on this path.
     echo "wb lock: contended on $(basename -- "$task_file") — held by ${holder_id:-unknown} (pid ${holder_pid:-?}) for ${elapsed}s. Agents: STOP and report this contention upward — never clear the lock yourselves. Operator-only, if the holder is confirmed dead: rm \"$lockfile\"." >&2
-    exec {fd}<&- 2>/dev/null || true
+    { exec {fd}<&-; } 2>/dev/null || true
     return 75
   fi
 
@@ -220,6 +231,17 @@ wb_task_lock_acquire() {
 # NEVER deletes the lock file itself: a next opener could otherwise lock a
 # ghost inode while a third process opens/locks a fresh file at the same
 # path, defeating mutual exclusion between the two.
+#
+# The `2>/dev/null` MUST be scoped to a `{ ; }` group around the close, not
+# attached directly to the bare `exec` statement: `exec {fd}<&- 2>/dev/null`
+# (no group) applies that redirect to the CURRENT SHELL's own fd 2
+# permanently — every stderr write for the rest of THIS PROCESS's lifetime
+# silently vanishes from the moment the first lock is ever released.
+# Reproduced live: a script's own later `echo ... >&2` after calling this
+# function stopped printing anything at all. `{ exec {fd}<&-; } 2>/dev/null`
+# scopes the suppression to the fd-close's own (rare) failure only, exactly
+# matching wb_task_lock_acquire's own `{ exec {fd}<>"$lockfile"; } 2>/dev/null`
+# a few lines up — this function had drifted from that established pattern.
 wb_task_lock_release() {
   local task_file="$1"
   _wb_lock_init_state
@@ -230,7 +252,7 @@ wb_task_lock_release() {
   local fd="${WB_LOCK_FDS[$lockfile]:-}"
   [ -n "$fd" ] || return 0
 
-  exec {fd}<&- 2>/dev/null || true
+  { exec {fd}<&-; } 2>/dev/null || true
   unset "WB_LOCK_FDS[$lockfile]"
   return 0
 }
@@ -285,7 +307,7 @@ wb_task_lock_release_all() {
   local lockfile fd
   for lockfile in "${!WB_LOCK_FDS[@]}"; do
     fd="${WB_LOCK_FDS[$lockfile]}"
-    exec {fd}<&- 2>/dev/null || true
+    { exec {fd}<&-; } 2>/dev/null || true
     unset "WB_LOCK_FDS[$lockfile]"
   done
   return 0
