@@ -36,7 +36,7 @@ carries the context and instructions the routed worker will need before
   safe here) and `wb append` (step 5, body writes) — plus exactly one final
   shell-out to `handoff.sh`. **Task files under `~/code/tasks` are never
   written with the Edit/Write tool** (the one narrow exception: the
-  `# <title>`/first-action preamble line, steps 3–4 — see step 5's note).
+  `# <title>`/first-action preamble line, step 4 — see step 5's note).
   If something seems to need a `wb.sh` change or helper to work well, don't
   add it — note it as a follow-up in the target task file's `## Follow-ups`
   instead.
@@ -286,7 +286,7 @@ than a habit to remember.
 **Never write or edit task-file body content under a `##` section with the
 Edit/Write tool — always shell out to `wb append` instead.** The one
 narrow, documented exception in this skill: the `# <title>`/first-action
-preamble line (steps 3–4) sits *before* any `##` section, a position
+preamble line (step 4) sits *before* any `##` section, a position
 `wb append`'s heading-scoped model has no way to express, so that one line
 stays a direct Read+Edit insertion.
 

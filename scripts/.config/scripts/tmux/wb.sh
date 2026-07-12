@@ -209,16 +209,19 @@ _wb_lock_cmdline_wb_shaped() {
   esac
 }
 
-# _wb_lock_holder_is_orphan <lockfile> — L2's four-condition orphan
+# _wb_lock_holder_is_orphan <task_file> <pid> — L2's four-condition orphan
 # predicate. Only ever evaluated AFTER wb_task_lock_acquire has already lost
-# a contended acquire (never runs against a live, uncontended lock). Orphan
-# (safe to clear and retry once) only when ALL FOUR hold simultaneously:
-#   1. `kill -0` on the recorded holder pid succeeds — the process itself
-#      still technically exists (e.g. a zombie/orphaned wb subprocess whose
-#      session is gone). If it doesn't, the caller (wb_task_lock_acquire_
-#      guarded) never even reaches this predicate — a gone pid means the
-#      kernel already dropped the flock on process death, the cheaper case
-#      handled directly there.
+# a contended acquire, and only for a holder pid the caller has already
+# confirmed is still alive (kill -0 succeeded there — a gone pid means the
+# kernel already dropped the flock on process death, the cheaper case
+# handled directly by the caller, never reaching here). <pid> is passed in
+# by the caller (wb_task_lock_acquire_guarded), which already read it off
+# the lock file to make that liveness check — reading it a second time here
+# would be the same field read twice on every contended acquire, the exact
+# path this whole guard exists to handle quickly. Orphan (safe to clear and
+# retry once) only when ALL FOUR hold simultaneously:
+#   1. the recorded holder pid is alive (the caller's own precondition for
+#      calling this at all — see above).
 #   2. `/proc/<pid>/cmdline` looks wb/claude-shaped (PID-reuse guard).
 #   3. the recorded acquire timestamp is >60s old — a generous multiple of
 #      any legitimate wb chain, so a session mid-spawn is never mistaken for
@@ -231,15 +234,13 @@ _wb_lock_cmdline_wb_shaped() {
 # An empty recorded tmux_session field, or a `tmux_session_agent_state`
 # result of `alive`/`unknown`, both fail this check outright (conditions 3/4
 # folded together below) — L3/L5: anything less than a confirmed-dead
-# holder session never auto-clears.
+# holder session never auto-clears. Reads holder-info fields via
+# wb-locks.sh's public wb_task_lock_holder_field, never its internal
+# _wb_lock_path_for/_wb_lock_field accessors directly.
 _wb_lock_holder_is_orphan() {
-  local lockfile="$1" pid ts tmux_session state now held_epoch elapsed
+  local task_file="$1" pid="$2" ts tmux_session state now held_epoch elapsed
 
-  pid="$(_wb_lock_field "$lockfile" pid)"
-  [ -n "$pid" ] || return 1
-  kill -0 "$pid" 2>/dev/null || return 1
-
-  tmux_session="$(_wb_lock_field "$lockfile" tmux_session)"
+  tmux_session="$(wb_task_lock_holder_field "$task_file" tmux_session)"
   [ -n "$tmux_session" ] || return 1   # empty -> unknown, never killable
 
   state="$(tmux_session_agent_state "$tmux_session")"
@@ -247,7 +248,7 @@ _wb_lock_holder_is_orphan() {
 
   _wb_lock_cmdline_wb_shaped "$pid" || return 1
 
-  ts="$(_wb_lock_field "$lockfile" acquired)"
+  ts="$(wb_task_lock_holder_field "$task_file" acquired)"
   now="$(date +%s)"
   held_epoch="$(date -d "$ts" +%s 2>/dev/null)" || held_epoch="$now"
   elapsed=$(( now - held_epoch ))
@@ -263,18 +264,17 @@ _wb_lock_holder_is_orphan() {
 # and this is that caller.
 #
 # On an uncontended win, behaves exactly like wb_task_lock_acquire: 0,
-# silent. On a lost contention (75), reads the recorded holder's info
-# straight off the side-car lock file (there is no public reader in
-# wb-locks.sh for this, so this relies on that file's own documented
-# holder-info format — holder:/pid:/acquired:/tmux_pane:/tmux_session:
-# lines — and its own `_wb_lock_path_for`/`_wb_lock_field` accessors,
-# already loaded by virtue of sourcing it, rather than re-deriving the lock
-# path or re-parsing the file by hand here) and decides:
+# silent. On a lost contention (75), reads the recorded holder's pid via
+# wb-locks.sh's public wb_task_lock_holder_field (never its internal
+# `_wb_lock_path_for`/`_wb_lock_field` accessors directly), and decides:
 #   - holder pid already gone (`kill -0` fails) -> the kernel already
 #     dropped the flock on process death; retry once — the cheap, common
 #     crash case (L2's "if the PID is gone" clause).
 #   - holder pid alive AND _wb_lock_holder_is_orphan confirms all four L2
-#     conditions -> retry once.
+#     conditions -> retry once. The already-read `holder_pid` is passed
+#     straight into that check (rather than having it re-read the same
+#     field a second time) — this whole path exists to resolve a contended
+#     acquire quickly.
 #   - anything else (alive session, unknown state, missing/empty holder
 #     info) -> never retries. wb_task_lock_acquire's own failure — which
 #     already printed the one L4 stderr message naming the holder — stands
@@ -289,15 +289,14 @@ wb_task_lock_acquire_guarded() {
   wb_task_lock_acquire "$task_file" && return 0
   local rc=$?
 
-  local lockfile; lockfile="$(_wb_lock_path_for "$task_file")"
-  local holder_pid; holder_pid="$(_wb_lock_field "$lockfile" pid)"
+  local holder_pid; holder_pid="$(wb_task_lock_holder_field "$task_file" pid)"
 
   if [ -n "$holder_pid" ] && ! kill -0 "$holder_pid" 2>/dev/null; then
     wb_task_lock_acquire "$task_file"
     return $?
   fi
 
-  if [ -n "$holder_pid" ] && _wb_lock_holder_is_orphan "$lockfile"; then
+  if [ -n "$holder_pid" ] && _wb_lock_holder_is_orphan "$task_file" "$holder_pid"; then
     wb_task_lock_acquire "$task_file"
     return $?
   fi
@@ -336,9 +335,22 @@ wb_task_lock_acquire_guarded() {
 # exit ALREADY closes every fd it holds (kernel auto-release, the final
 # backstop behind even wb_task_lock_release_all itself) — the EXIT-trap
 # safety net is pure redundancy there, so skipping it costs nothing.
+#
+# Installs at most once per top-level process (_WB_LOCK_TRAP_INSTALLED),
+# regardless of how many cmd_*/wb_reconcile_action_* calls run in it — e.g.
+# `wb reconcile --apply` looping over N checked findings would otherwise
+# re-append the identical `wb_task_lock_release_all` cleanup N times, and
+# wb_lock_trap_append's own `trap -p EXIT` + eval re-parse of the whole
+# accumulated trap string on every call makes that cost grow with N, not
+# just once. Every call site passes this function the SAME cleanup command
+# (wb_task_lock_release_all), so once it's in the trap, appending it again
+# changes nothing observable — the trap fires it exactly the same way at
+# real process exit either way.
 _wb_lock_trap_append_if_top_level() {
   [ "${BASH_SUBSHELL:-0}" -eq 0 ] || return 0
+  [ "${_WB_LOCK_TRAP_INSTALLED:-0}" -eq 1 ] && return 0
   wb_lock_trap_append "$1"
+  _WB_LOCK_TRAP_INSTALLED=1
 }
 
 # ---------------------------------------------------------------------------
@@ -694,16 +706,16 @@ cmd_new() {
 # wb resume — recreate a task's worktree+session from the central store
 # ---------------------------------------------------------------------------
 
-# cmd_resume <query> — case-insensitive substring match of <query> against
-# every task file's basename (repo--slug, minus .md), then hands off to
-# cmd_new's existing worktree/session logic (already idempotent — safe
-# whether the worktree still exists or was torn down by a prior `wb done`).
-# Never guesses on ambiguity: 0 or 2+ matches both fail loudly instead of
-# picking one.
-cmd_resume() {
-  local query="${1:-}"
-  [ -n "$query" ] || { echo "usage: wb resume <task>" >&2; exit 1; }
-
+# _wb_resolve_task_fuzzy <query> <verb-label> — case-insensitive substring
+# match of <query> against every task file's basename (repo--slug, minus
+# .md). Never guesses on ambiguity: 0 or 2+ matches both fail loudly
+# (messages prefixed with <verb-label>, e.g. "wb resume"/"wb append", so
+# each caller's errors still read as its own) instead of picking one. On
+# exactly one match, prints its path to stdout and returns 0. Shared by
+# cmd_resume and _wb_append_resolve_task's fuzzy fallback — both used to
+# hand-duplicate this exact match/ambiguity-guard block.
+_wb_resolve_task_fuzzy() {
+  local query="$1" verb="$2"
   local -a matches=()
   local f base
   while IFS= read -r f; do
@@ -715,34 +727,49 @@ cmd_resume() {
 
   case "${#matches[@]}" in
     0)
-      echo "wb resume: no task matches '$query' in $TASKS_DIR" >&2
-      exit 1
+      echo "$verb: no task matches '$query' in $TASKS_DIR" >&2
+      return 1
       ;;
     1)
-      local file="${matches[0]}" repo branch
-      repo="$(wb_get_frontmatter "$file" repo)"
-      branch="$(wb_get_frontmatter "$file" branch)"
-      [ -n "$repo" ] && [ -n "$branch" ] \
-        || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
-      cmd_new "$repo" "$branch"
-      # Handoffs-append lives HERE, not inside cmd_new — cmd_new is also
-      # the path every fresh `wb new` takes, and a fresh task must not
-      # gain a Handoffs entry (see wb_append_handoff's own header comment).
-      # A SEPARATE lock burst from cmd_new's own internal one above (which
-      # has already released by the time cmd_new returns) — never nested.
-      _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-      wb_task_lock_acquire_guarded "$file" || exit $?
-      wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
-      wb_task_lock_release "$file"
+      printf '%s\n' "${matches[0]}"
+      return 0
       ;;
     *)
-      echo "wb resume: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
+      echo "$verb: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
       for f in "${matches[@]}"; do
         echo "  $(basename "$f" .md)" >&2
       done
-      exit 1
+      return 1
       ;;
   esac
+}
+
+# cmd_resume <query> — resolves <query> (_wb_resolve_task_fuzzy, above),
+# then hands off to cmd_new's existing worktree/session logic (already
+# idempotent — safe whether the worktree still exists or was torn down by
+# a prior `wb done`).
+cmd_resume() {
+  local query="${1:-}"
+  [ -n "$query" ] || { echo "usage: wb resume <task>" >&2; exit 1; }
+
+  local file
+  file="$(_wb_resolve_task_fuzzy "$query" "wb resume")" || exit 1
+
+  local repo branch
+  repo="$(wb_get_frontmatter "$file" repo)"
+  branch="$(wb_get_frontmatter "$file" branch)"
+  [ -n "$repo" ] && [ -n "$branch" ] \
+    || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
+  cmd_new "$repo" "$branch"
+  # Handoffs-append lives HERE, not inside cmd_new — cmd_new is also
+  # the path every fresh `wb new` takes, and a fresh task must not
+  # gain a Handoffs entry (see wb_append_handoff's own header comment).
+  # A SEPARATE lock burst from cmd_new's own internal one above (which
+  # has already released by the time cmd_new returns) — never nested.
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
+  wb_task_lock_release "$file"
 }
 
 # ---------------------------------------------------------------------------
@@ -1284,6 +1311,21 @@ cmd_reviewed() {
 # circumstance.
 # ---------------------------------------------------------------------------
 
+# _wb_git_dirty_guard <path> <verb-label> — fail loud (exit 1, naming
+# <verb-label>) if <path>'s git status is non-empty; silent no-op
+# otherwise. Shared by cmd_sync and cmd_done, which used to hand-duplicate
+# this exact guard (only the path and the verb name differed).
+_wb_git_dirty_guard() {
+  local path="$1" verb="$2" dirty
+  dirty="$(git -C "$path" status --porcelain 2>/dev/null || true)"
+  if [ -n "$dirty" ]; then
+    echo "$verb: $path is dirty:" >&2
+    echo "$dirty" >&2
+    echo "commit or stash, then re-run" >&2
+    exit 1
+  fi
+}
+
 # cmd_sync — guard order: fetch (loud abort on failure) -> dirty-tree guard
 # -> branch/detached-HEAD guard -> ahead/behind decision (ff-merge / no-op /
 # refuse-diverged).
@@ -1296,16 +1338,8 @@ cmd_sync() {
     exit 1
   fi
 
-  # 2. dirty-tree guard — mirrors cmd_done's guard exactly (see cmd_done
-  # above), scoped to $TASKS_DIR instead of a worktree path.
-  local dirty
-  dirty="$(git -C "$TASKS_DIR" status --porcelain 2>/dev/null || true)"
-  if [ -n "$dirty" ]; then
-    echo "wb sync: $TASKS_DIR is dirty:" >&2
-    echo "$dirty" >&2
-    echo "commit or stash, then re-run" >&2
-    exit 1
-  fi
+  # 2. dirty-tree guard.
+  _wb_git_dirty_guard "$TASKS_DIR" "wb sync"
 
   # 3. branch guard — refuse on a detached HEAD or on any branch other than
   # the remote's own tracked default branch. Deliberately NOT hardcoded to
@@ -1573,32 +1607,7 @@ _wb_append_resolve_task() {
     return 0
   fi
 
-  local -a matches=()
-  local f base
-  while IFS= read -r f; do
-    base="$(basename "$f" .md)"
-    case "${base,,}" in
-      *"${query,,}"*) matches+=("$f") ;;
-    esac
-  done < <(wb_task_files)
-
-  case "${#matches[@]}" in
-    0)
-      echo "wb append: no task matches '$query' in $TASKS_DIR" >&2
-      return 1
-      ;;
-    1)
-      printf '%s\n' "${matches[0]}"
-      return 0
-      ;;
-    *)
-      echo "wb append: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
-      for f in "${matches[@]}"; do
-        echo "  $(basename "$f" .md)" >&2
-      done
-      return 1
-      ;;
-  esac
+  _wb_resolve_task_fuzzy "$query" "wb append"
 }
 
 # cmd_append <task-ref> <heading> [<body>|-] — resolve <task-ref>
@@ -2399,14 +2408,7 @@ cmd_done() {
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
 
   # 1. fail fast — never mutate anything on a dirty tree.
-  local dirty
-  dirty="$(git -C "$worktree_path" status --porcelain 2>/dev/null || true)"
-  if [ -n "$dirty" ]; then
-    echo "wb done: $worktree_path is dirty:" >&2
-    echo "$dirty" >&2
-    echo "commit or stash, then re-run" >&2
-    exit 1
-  fi
+  _wb_git_dirty_guard "$worktree_path" "wb done"
 
   # 2. review buffer — the task file itself IS the buffer (it already lives
   # centrally and survives `git worktree remove`, so there's no copy to sync
