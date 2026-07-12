@@ -21,6 +21,11 @@
 #                                    "-" reads a multi-line body from stdin instead — the
 #                                    agent-mediated write path /wb-save, /handoff, and
 #                                    /parked-items use instead of Edit-tool task writes
+#   wb install-hooks                 idempotently point $TASKS_DIR's core.hooksPath at the
+#                                    stowed tasks-git-hooks/ dir, harden its gc/reflog
+#                                    settings, and verify (never edit) ~/.claude/settings.json's
+#                                    PreToolUse entry — printing the paste-block + a
+#                                    restart-running-sessions reminder when it's missing
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
 # ratified judgment calls: dotfiles/logs/decisions/2026-07-06-review-outstanding.md,
@@ -1639,6 +1644,120 @@ cmd_append() {
   echo "wb append: appended under \"## $heading\" in $(basename -- "$file")"
 }
 
+# ---------------------------------------------------------------------------
+# wb install-hooks — the one idempotent verb that wires up everything the
+# concurrency-safety machine needs on this host: points $TASKS_DIR's
+# core.hooksPath at U6's reference-transaction hook (stowed path — a real
+# checkout of $TASKS_DIR needs to actually find the file at runtime, not a
+# dotfiles-repo-relative path), hardens gc/reflog retention (X5) so a
+# sentinel-blessed rewind stays recoverable by policy rather than GC luck,
+# pre-creates the git-hook kill-switch (X4) unless the X7 replay tool has
+# already recorded an accepting run, and VERIFIES (never edits — Decision
+# 4A) the live ~/.claude/settings.json's PreToolUse entry against the
+# tracked reference copy in claude/.claude/settings.recommended.json.
+# ---------------------------------------------------------------------------
+
+# cmd_install_hooks — no arguments. Every step is safe to re-run: git config
+# writes are naturally idempotent for a single value, the switch file is
+# only ever created when both the replay marker is absent AND it isn't
+# already there, and the settings check only ever reads.
+cmd_install_hooks() {
+  local hooks_dir="$HOME/.config/scripts/tmux/tasks-git-hooks"
+  local reflog_span="180 days"   # generous — months, not days; git's own
+                                  # defaults are 90/30 days, both unset on a
+                                  # real $TASKS_DIR as of 2026-07-11.
+  local changed=0
+
+  # 1. core.hooksPath -> the STOWED path (matches
+  # settings.recommended.json's own $HOME-based PreToolUse command path),
+  # not a dotfiles-repo-relative one.
+  local cur
+  cur="$(git -C "$TASKS_DIR" config --get core.hooksPath 2>/dev/null || true)"
+  [ "$cur" = "$hooks_dir" ] || changed=1
+  git -C "$TASKS_DIR" config core.hooksPath "$hooks_dir"
+
+  # 2. X5 gc/reflog hardening.
+  cur="$(git -C "$TASKS_DIR" config --get gc.auto 2>/dev/null || true)"
+  [ "$cur" = "0" ] || changed=1
+  git -C "$TASKS_DIR" config gc.auto 0
+
+  cur="$(git -C "$TASKS_DIR" config --get gc.reflogExpire 2>/dev/null || true)"
+  [ "$cur" = "$reflog_span" ] || changed=1
+  git -C "$TASKS_DIR" config gc.reflogExpire "$reflog_span"
+
+  cur="$(git -C "$TASKS_DIR" config --get gc.reflogExpireUnreachable 2>/dev/null || true)"
+  [ "$cur" = "$reflog_span" ] || changed=1
+  git -C "$TASKS_DIR" config gc.reflogExpireUnreachable "$reflog_span"
+
+  # 3. X4 kill-switch: pre-create disable-git-hook UNLESS the X7 replay
+  # tool has already left its replay-passed marker — checked FIRST, every
+  # run, so an idempotent re-run after a human deliberately enabled the
+  # hook (rm'd the switch post-replay) never silently re-disables it. Never
+  # remove an existing switch file here — that's the replay tool's/
+  # operator's job elsewhere, not this verb's.
+  local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+  local wb_state_dir="$state_home/wb"
+  local replay_marker="$wb_state_dir/replay-passed"
+  local switch_file="$wb_state_dir/disable-git-hook"
+  local switch_msg
+  if [ -e "$replay_marker" ]; then
+    switch_msg="replay-passed marker present — git-hook switch file left as-is"
+  else
+    mkdir -p "$wb_state_dir"
+    if [ -e "$switch_file" ]; then
+      switch_msg="git-hook switch file already present (still dormant)"
+    else
+      : > "$switch_file"
+      changed=1
+      switch_msg="git-hook switch file created (hook installed but dormant until the X7 replay passes)"
+    fi
+  fi
+
+  # 4. X3 settings verification — read-only against the LIVE file; the
+  # reference block lives in the tracked settings.recommended.json,
+  # resolved via wb.sh's own on-disk location (mirrors cmd_board --html's
+  # dotfiles_root resolution) rather than assuming dotfiles is checked out
+  # literally at $CODE_DIR/dotfiles.
+  local dotfiles_root
+  dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
+  [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
+  local recommended="$dotfiles_root/claude/.claude/settings.recommended.json"
+  local live="$HOME/.claude/settings.json"
+  local settings_msg
+
+  if [ ! -f "$recommended" ]; then
+    settings_msg="reference settings.recommended.json not found at $recommended — cannot verify"
+  else
+    local present=false
+    if [ -f "$live" ] && jq -e '
+        (.hooks.PreToolUse // [])
+        | any(.[]; (.hooks // []) | any(.[]; (.command // "") | contains("tasks-git-hooks/pretooluse-guard.sh")))
+      ' "$live" >/dev/null 2>&1; then
+      present=true
+    fi
+
+    if [ "$present" = true ]; then
+      settings_msg="already configured — $live's hooks.PreToolUse already has the pretooluse-guard.sh entry"
+    else
+      echo "wb install-hooks: $live is missing the pretooluse-guard.sh PreToolUse entry."
+      echo "wb install-hooks: paste this into ~/.claude/settings.json's top-level object (merge by hand — this is reference only, never auto-merged):"
+      echo
+      jq '{hooks: .hooks}' "$recommended"
+      echo
+      echo "wb install-hooks: after pasting, RESTART every already-running Claude Code session — hook config is snapshotted at session start (X6), so a session already running won't pick this up until it's restarted, in addition to any brand-new session started after the paste."
+      settings_msg="missing — paste-block + restart reminder printed above"
+    fi
+  fi
+
+  # 5. Final one-line summary, matching this codebase's terse
+  # `echo "wb <verb>: ..."` convention.
+  if [ "$changed" -eq 0 ]; then
+    echo "wb install-hooks: already installed, nothing to do (hooksPath=$hooks_dir; gc.auto=0, reflogExpire/reflogExpireUnreachable=$reflog_span; $switch_msg); settings check: $settings_msg"
+  else
+    echo "wb install-hooks: installed (hooksPath=$hooks_dir; gc.auto=0, reflogExpire/reflogExpireUnreachable=$reflog_span; $switch_msg); settings check: $settings_msg"
+  fi
+}
+
 # wb_credential_shaped <rel> — succeed when a keeper path looks like a
 # credential/secret file. The sweep copies gitignored files into the central
 # store — a repo intended for eventual cross-machine git sync — and `wb new`
@@ -2993,6 +3112,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
+    install-hooks) shift; cmd_install_hooks "$@" ;;
     _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
     _interrupt)  shift; _interrupt "$@" ;;
