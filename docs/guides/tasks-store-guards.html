@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>tasks-store-guards</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+   
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/guides/tasks-store-guards.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-12</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">tasks-store-guards</div>
+    <div class="brand-sub">The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#coverage-matrix--who-is-stopped-where">Coverage matrix — who is stopped, where</a></li>
+      <li><a href="#walkthrough--one-dangerous-command-traced-through-all-three-layers">Walkthrough — one dangerous command, traced through all three layers</a></li>
+      <li><a href="#kill-switches">Kill switches</a></li>
+      <li><a href="#runbook--lock-contention-exit-75">Runbook — lock contention (exit 75)</a></li>
+      <li><a href="#runbook--refused-rewind-aftermath">Runbook — refused-rewind aftermath</a></li>
+      <li><a href="#runbook--install--enablement">Runbook — install &amp; enablement</a></li>
+      <li><a href="#what-this-deliberately-doesnt-do">What this deliberately doesn&#39;t do</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="title-block">
+      <h1>tasks-store-guards</h1>
+      <p class="dek">The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p><code>~/code/tasks</code> (<code>TASKS_DIR</code>) is a single shared git checkout that every
+<code>wb</code>-driven Claude Code session touches, regardless of which repo or
+worktree that session is actually working in — and this machine routinely
+runs 8-10+ concurrent agents. Before this work, nothing serialized or
+guarded that checkout at all. Four real incidents proved the gap:</p>
+<ol>
+<li><strong><code>feat/handoff-v1</code>'s own code review</strong> found that concurrent
+<code>handoff.sh</code> invocations for the same repo/slug can race — no
+lockfile existed anywhere.</li>
+<li><strong>A <code>git reset --hard origin/development</code></strong> briefly orphaned another
+session's unpushed commits — caught only because nothing had been
+pushed yet.</li>
+<li><strong>A second, independent reset</strong> silently discarded a just-committed
+task-file update; it was recoverable only because the commit object
+hadn't been garbage-collected yet.</li>
+<li><strong>A reproduced silent lost write</strong> between <code>wb_append_handoff</code> and
+<code>wb_set_frontmatter</code> — two unlocked read-modify-write-via-<code>mv</code> cycles
+on the same task file, confirmed live 2026-07-11.</li>
+</ol>
+<p>Incidents 2-3 are one danger class (<strong>git-history rewinds</strong> — a raw
+command discards ref history); incidents 1 and 4 are a completely
+different one (<strong>file-write collisions</strong> — two writers race on the same
+task file's <em>content</em>, which git never sees at all since these are plain
+file writes, not commits). No single guard can see both classes, so this
+ships as three layers — a cheese-slice model where each layer's blind
+spots are covered by one of the other two:</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Verb</th>
+<th>Lives in</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1 — agent hook</strong></td>
+<td>ASKS</td>
+<td>Claude Code <code>PreToolUse</code>, <code>tasks-git-hooks/pretooluse-guard.sh</code></td>
+<td>Cheap pattern+directory match on dangerous git shapes and raw <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code> calls scoped to <code>~/code/tasks</code>, <em>before</em> they run. Always <code>&quot;ask&quot;</code>, never <code>&quot;deny&quot;</code>; fails open on any internal error.</td>
+</tr>
+<tr>
+<td><strong>2 — git guard</strong></td>
+<td>REFUSES</td>
+<td><code>core.hooksPath</code>, <code>tasks-git-hooks/reference-transaction</code></td>
+<td>The real correctness judgment. Caller-agnostic — git enforces it for Claude, a raw terminal, anything — refusing a non-fast-forward ref update that would orphan a commit reachable from no other ref.</td>
+</tr>
+<tr>
+<td><strong>3 — file lock</strong></td>
+<td>SERIALIZES</td>
+<td><code>scripts/.config/scripts/tmux/wb-locks.sh</code></td>
+<td>One <code>flock</code> side-car per task file. Every write burst in <code>wb.sh</code>/<code>handoff.sh</code>, plus the new <code>wb append</code> verb, takes it; a blocked writer halts loudly (exit 75) instead of racing the holder.</td>
+</tr>
+</tbody>
+</table>
+<p>Layers 1+2 cover the GIT dangers (incidents 2-3); layer 3 covers the FILE
+dangers (incidents 1 and 4). Remove any one layer and a real,
+already-observed incident class goes back to being unguarded.</p>
+<h2 id="coverage-matrix--who-is-stopped-where">Coverage matrix — who is stopped, where</h2>
+<table>
+<thead>
+<tr>
+<th>Dangerous action</th>
+<th>L1 agent hook</th>
+<th>L2 git guard</th>
+<th>L3 file lock</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claude session types <code>git reset --hard</code> in <code>~/code/tasks</code> <em>(incidents 2 &amp; 3)</em></td>
+<td>asks you first</td>
+<td>refuses if commits would be orphaned</td>
+<td>—</td>
+</tr>
+<tr>
+<td>You type <code>git reset --hard</code> in a raw terminal</td>
+<td>can't see it (Claude-only)</td>
+<td>refuses; offers a y/N prompt since a real tty is open</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Two writers hit the same task file at once <em>(incidents 1 &amp; 4)</em></td>
+<td>asks if either write goes through a raw <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code> under <code>~/code/tasks</code> (H24)</td>
+<td>git never sees plain file writes</td>
+<td>second writer waits ≤1s on <code>flock -w 1</code>, then halts loudly (exit 75) rather than racing</td>
+</tr>
+<tr>
+<td>Two concurrent <code>wb new</code>/<code>wb resume</code> seed paths for the <em>same</em> new task</td>
+<td>—</td>
+<td>—</td>
+<td>one seeds; the other blocks on the same lock, then halts (never an interleaved file)</td>
+</tr>
+<tr>
+<td>Ordinary safe git (commit, fetch, fast-forward pull)</td>
+<td>no match → zero friction</td>
+<td>fast-forward check (<code>merge-base --is-ancestor</code>) passes instantly</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>git clean -fdx</code> typed by a human in a raw terminal</td>
+<td>—</td>
+<td>partial — git has no hook for working-tree wipes</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>The bottom row is the honest, documented gap: no layer fully covers a
+human wiping uncommitted files from a raw terminal (see &quot;What this
+deliberately doesn't do&quot; below). Every incident actually observed (all
+four) is covered.</p>
+<h2 id="walkthrough--one-dangerous-command-traced-through-all-three-layers">Walkthrough — one dangerous command, traced through all three layers</h2>
+<p>An agent session runs <code>git reset --hard origin/development</code> from inside
+<code>~/code/tasks</code>:</p>
+<ol>
+<li><strong>L1 matches and asks.</strong> <code>pretooluse-guard.sh</code>'s <code>DANGEROUS_RE</code> matches
+<code>reset[[:space:]]+--hard</code>; H4's directory resolution (explicit <code>-C</code>/
+<code>--git-dir</code>, an in-command <code>cd</code>, else the hook payload's <code>cwd</code>) scopes
+it to <code>$HOME/code/tasks</code>. It emits <code>permissionDecision: &quot;ask&quot;</code>, naming
+the matched command, the incident precedent, and <code>wb sync</code>/<code>wb unsafe-rewind</code> as the intended alternatives — and states explicitly
+that approving here does not bypass L2.</li>
+<li><strong>Operator approves.</strong> The Bash tool call actually runs.</li>
+<li><strong>git invokes L2.</strong> Because <code>wb install-hooks</code> pointed
+<code>core.hooksPath</code> at <code>tasks-git-hooks/</code>, git calls <code>reference-transaction</code>
+in its <code>&quot;prepared&quot;</code> state before the ref update is finalized.</li>
+<li><strong>L2 checks reachability.</strong> Is <code>old</code> an ancestor of <code>new</code>
+(<code>merge-base --is-ancestor</code>)? If this reset is a true fast-forward,
+it passes instantly. If not, L2 computes the would-be-orphaned set
+(<code>git rev-list &lt;old&gt; --not &lt;every other ref&gt;</code>, per <code>build_refusal_message</code>
+in <code>reference-transaction</code>). If anything in it is reachable from no
+other ref, L2 refuses: exit 1, and the transaction never happens — the
+ref pointer itself never moves.</li>
+<li><strong>The refusal message's own words matter.</strong> <code>build_refusal_message</code>
+states, verified live on git 2.43.0: the refusal does <strong>not</strong> undo
+what the git command already did to the index and working tree — those
+have <em>already</em> moved to the target, so any uncommitted tracked changes
+are already gone by the time the hook runs. &quot;Refused&quot; means the ref
+didn't move and history is preserved; it does not mean nothing
+happened. See the aftermath runbook below.</li>
+<li><strong>The escape hatch, if the operator genuinely means it.</strong>
+<code>wb unsafe-rewind &quot;&lt;reason&gt;&quot;</code> writes <code>&lt;epoch&gt; &lt;reason&gt;</code> to
+<code>$TASKS_DIR/.git/WB_ALLOW_REWIND</code> (refuses an empty reason). L1 sees a
+fresh sentinel <em>only after</em> it has already matched and scoped the
+command (H6 — never before, or a 120s sentinel becomes &quot;allow
+everything&quot;) and emits <code>&quot;allow&quot;</code> instead of <code>&quot;ask&quot;</code>. L2 sees the fresh
+sentinel, consumes it (deletes the file, tracked per-<code>PPID</code> so a single
+git porcelain command's multiple internal <code>&quot;prepared&quot;</code> calls don't each
+need their own sentinel), and allows exactly one transaction. The TTL
+is 120 seconds either way.</li>
+</ol>
+<h2 id="kill-switches">Kill switches</h2>
+<p>Each layer checks its own switch file, under
+<code>${XDG_STATE_HOME:-$HOME/.local/state}/wb/</code>, before doing anything else —
+presence alone disables that layer (content is never read). Files, not
+environment variables: an already-running session never picks up a new
+env var, but every next command re-reads the filesystem.</p>
+<table>
+<thead>
+<tr>
+<th>Switch file</th>
+<th>Turns off</th>
+<th>Where it's checked</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>disable-agent-hook</code></td>
+<td>L1 asking</td>
+<td>first line of <code>pretooluse-guard.sh</code>, before stdin is even read</td>
+<td>Use if the hook misfires on safe commands.</td>
+</tr>
+<tr>
+<td><code>disable-git-hook</code></td>
+<td>L2 refusing</td>
+<td>first check in <code>reference-transaction</code>, before the <code>&quot;prepared&quot;</code>-state gate</td>
+<td><strong>Ships pre-created</strong> by <code>wb install-hooks</code> — the hook installs but stays dormant — unless the <code>replay-passed</code> marker already exists. Removed only by hand (<code>rm</code>), only after a human reads the X7 replay output and is satisfied. Recreate it any time for an emergency rollback.</td>
+</tr>
+<tr>
+<td><code>disable-locks</code></td>
+<td>L3 locking</td>
+<td>first line of <code>wb_task_lock_acquire</code> in <code>wb-locks.sh</code></td>
+<td>Manual escape if lock infrastructure itself ever breaks; acquire becomes an instant no-op success.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="runbook--lock-contention-exit-75">Runbook — lock contention (exit 75)</h2>
+<p>An exit-75 halt means <code>wb_task_lock_acquire</code> tried <code>flock -w 1</code> on a task
+file's side-car lock (<code>${XDG_STATE_HOME:-$HOME/.local/state}/wb/locks/&lt;basename&gt;.lock</code>)
+and timed out because another process already holds it. The one stderr
+line it prints names the recorded <strong>holder identity</strong> (<code>${repo}--${disp_slug}</code>),
+<strong>PID</strong>, and <strong>held-seconds</strong> — read straight from the lock file's own
+holder/pid/acquired fields, which are only ever written <em>after</em> a
+successful acquire (never blanked by a losing contended attempt).</p>
+<p>The message carries an explicit addressee split, and it matters:</p>
+<ul>
+<li><strong>Agents:</strong> stop and report the contention upward. Never clear the lock
+yourselves — you cannot reliably tell &quot;the holder is dead&quot; from &quot;the
+holder is mid-spawn&quot; from inside a session, and clearing a live
+holder's lock is exactly the incident-1 danger (the guard becomes the
+weapon).</li>
+<li><strong>Operator only:</strong> <code>rm &lt;lock-path&gt;</code> is the manual override, and it is
+addressed to you specifically — and only <em>after</em> you've confirmed the
+recorded holder is genuinely dead (its PID is gone, or its own recorded
+tmux pane/session no longer exists), never just because &quot;the command is
+taking a while.&quot; <code>wb_task_lock_acquire_guarded</code> (the wrapper every
+<code>cmd_*</code>/<code>wb_reconcile_action_*</code> call site actually uses) already
+automates the safe half of this: on a lost contention it checks whether
+the holder PID is gone outright (kernel already dropped the flock — an
+instant, automatic retry) or whether all four orphan conditions hold at
+once (PID alive but confirmed wb/claude-shaped via <code>/proc/&lt;pid&gt;/cmdline</code>,
+held &gt;60s, and the holder's <em>own</em> recorded tmux session confirmed <code>dead</code>
+via <code>tmux_session_agent_state</code>) before ever retrying on your behalf.
+Anything less — an alive holder, an <code>unknown</code> tmux state, a missing
+holder field — never auto-clears; it halts, which is what puts you in
+this runbook in the first place.</li>
+</ul>
+<h2 id="runbook--refused-rewind-aftermath">Runbook — refused-rewind aftermath</h2>
+<p>A refused <code>reset --hard</code> (or any other rewind-shaped ref update L2 vetoes)
+has <strong>already moved the index and working tree</strong> to the target by the
+time the hook's refusal even reaches your terminal — uncommitted tracked
+changes are already gone. &quot;Refused&quot; only means the ref pointer itself
+didn't move and the commit history behind it is preserved; it does <em>not</em>
+mean nothing happened. Treat the aftermath as: history is safe, your
+working copy currently reflects the (refused) target state, not what you
+had before.</p>
+<p>The always-safe resync, straight from <code>build_refusal_message</code>'s own
+wording: <code>git reset --hard HEAD</code>. This can never itself be refused — <code>old</code>
+and <code>new</code> are identical, which trivially passes L2's fast-forward check
+(<code>merge-base --is-ancestor</code> on equal values), so it always gets through.
+Run it to snap your working tree/index back to what the (unmoved) ref
+actually points at.</p>
+<p>If you genuinely meant the rewind: <code>wb unsafe-rewind &quot;&lt;reason&gt;&quot;</code> first,
+then re-run the same command within 120 seconds (see the walkthrough
+above for exactly how the sentinel is consumed).</p>
+<h2 id="runbook--install--enablement">Runbook — install &amp; enablement</h2>
+<p><code>wb install-hooks</code> is the one idempotent verb that wires up everything a
+host needs — safe to re-run any time:</p>
+<ol>
+<li>Sets <code>core.hooksPath</code> on <code>$TASKS_DIR</code> to the stowed
+<code>tasks-git-hooks/</code> directory, and hardens <code>gc.auto=0</code> plus generous
+<code>gc.reflogExpire</code>/<code>gc.reflogExpireUnreachable</code> (180 days) so a
+sentinel-blessed rewind stays recoverable by policy, not GC luck.</li>
+<li>Pre-creates the <code>disable-git-hook</code> switch file — <strong>unless</strong> the
+<code>replay-passed</code> marker already exists — so the git layer installs but
+stays dormant by default.</li>
+<li><strong>Verifies, never edits,</strong> the live <code>~/.claude/settings.json</code>'s
+<code>PreToolUse</code> entries against the tracked reference copy in
+<code>claude/.claude/settings.recommended.json</code>, printing the exact block to
+paste by hand when it's missing. This is deliberate: the live settings
+file is untracked and carries other hooks (the notify pipeline behind
+the picker's needs-input tier) that a script must never risk clobbering.
+After pasting, <strong>restart every already-running Claude Code session</strong> —
+hook config is snapshotted at session start, so a running session won't
+see the new entry until it restarts.</li>
+</ol>
+<p>Enabling the git guard is a separate, later, deliberately manual act —
+never bundled into <code>wb install-hooks</code> itself:</p>
+<ol start="4">
+<li>Run <code>replay-refusals.sh --repo &lt;path&gt;</code> (read-only, mutates nothing) —
+it walks <code>$TASKS_DIR</code>'s real reflog history and approximates, per ref
+transition, what <code>reference-transaction</code> would have refused. It prints
+a report; <strong>you</strong> read it and judge whether the refusals are exactly
+the known incidents and nothing else. The script has no way to make
+that call itself.</li>
+<li>Only once you're satisfied, run it again with <code>--record-pass</code>. This
+writes the <code>replay-passed</code> marker — which does <strong>one thing only</strong>: it
+stops a future <code>wb install-hooks</code> re-run from re-creating the
+<code>disable-git-hook</code> switch file. <strong>Writing this marker is not the same
+as enabling the hook</strong> — treat it as a separate, sequential decision
+from the next step, not a shortcut to it.</li>
+<li>The actual enablement act is a manual
+<code>rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook</code>. Nothing
+automates this step; it is a human, one-time decision performed once
+per host, after step 5.</li>
+</ol>
+<h2 id="what-this-deliberately-doesnt-do">What this deliberately doesn't do</h2>
+<ul>
+<li><strong>Not adversary-proof.</strong> These guards catch honest multi-agent
+mistakes between your own sessions — they are not a security boundary.
+Anyone can edit the hook files or remove a lock.</li>
+<li><strong>No conflict resolution.</strong> The lock makes writers take turns; it does
+not merge two legitimate, sequential edits to the same key. A second
+writer's value still overwrites the first's — just never silently
+mid-write.</li>
+<li><strong>No intent queue, daemon, or drain lifecycle</strong>, and no per-agent
+worktree topology for <code>TASKS_DIR</code> itself — a single-writer-daemon
+design was considered and cut; the control-plane-state-outside-TASKS_DIR
+idea it contributed lives on in the lock module instead.</li>
+<li><strong>Raw-terminal working-tree destruction is only partially covered</strong> —
+git has no hook for working-tree/index mutations (<code>clean -fdx</code>,
+<code>checkout -- .</code>, <code>stash drop</code> typed by a human outside Claude).</li>
+<li><strong><code>push --force</code> has no git-side backstop.</strong> The local
+<code>reference-transaction</code> hook never sees a remote's ref update; L1
+catches an agent-typed force-push, a raw-terminal one is accepted
+residue (every observed incident so far has been local).</li>
+<li><strong>No session-liveness TTLs or auto-cleanup</strong> beyond the lock-contention
+path covered above — no <code>wb reconcile</code>-time stale-lock sweep.</li>
+<li><strong><code>~/code/tasks</code> only; single machine.</strong> <code>~/code/notes</code> is a confirmed
+structural twin, deferred to its own follow-up task, not covered here.</li>
+<li><strong>wb.sh's own repo-level git calls across <em>different</em> task files are
+not serialized against each other</strong> — repo-wide contention (as opposed
+to per-task-file contention) is a distinct, unaddressed domain.</li>
+</ul>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guides/tasks-store-guards.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>

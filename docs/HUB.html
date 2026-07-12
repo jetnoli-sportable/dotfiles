@@ -173,9 +173,9 @@
 </head>
 <body data-kind="hub">
 <div class="statusbar" aria-hidden="true">
-  <span><b>28</b> docs</span>
+  <span><b>31</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
-  <span class="right">updated 2026-07-11</span>
+  <span class="right">updated 2026-07-12</span>
 </div>
 <main>
 <header class="doc">
@@ -195,12 +195,12 @@
       <p>Status&#43;timeline filters over the task store, fully scoped; the interim wb board is live now.</p>
       <div class="path">docs/roadmap-board.html</div>
     </a>
-    <a class="tile" href="roadmap-handoff.html">
+    <a class="tile" href="2026-07-12-workflow-push-recap.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         <span class="chip ok">current</span></div>
-      <h3>/handoff — route a discussion to the right worker</h3>
-      <p>Take what&#39;s being discussed and either switch to the agent already on it, or spin up a new task for it.</p>
-      <div class="path">docs/roadmap-handoff.html</div>
+      <h3>&#34;Recap — the Hub-v0 &#43; agent-fleet push (2026-07-10 → 12)&#34;</h3>
+      <p>Two days, 14 PRs — ideation, an rm -rf incident &#43; full recovery, and a parallel agent fleet. What shipped and where things stand.</p>
+      <div class="path">docs/2026-07-12-workflow-push-recap.html</div>
     </a>
     <a class="tile" href="handoff-guide.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
@@ -208,6 +208,13 @@
       <h3>/handoff — route a discussion to the right worker</h3>
       <p>Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</p>
       <div class="path">docs/handoff-guide.html</div>
+    </a>
+    <a class="tile" href="roadmap-handoff.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>/handoff — route a discussion to the right worker</h3>
+      <p>Take what&#39;s being discussed and either switch to the agent already on it, or spin up a new task for it.</p>
+      <div class="path">docs/roadmap-handoff.html</div>
     </a>
     <a class="tile" href="9f-ergonomics-recap.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
@@ -265,6 +272,13 @@
       <p>All four wb workbench extensions shipped. What to verify yourself.</p>
       <div class="path">docs/pr1-wb-workbench-recap.html</div>
     </a>
+    <a class="tile" href="2026-07-12-tasks-dir-concurrency-safety-recap.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>Recap — TASKS_DIR concurrency safety (hook guards &#43; per-task write locks)</h3>
+      <p>Ten units, three layers, four real incidents — how ~/code/tasks got safe for concurrent agents, and what&#39;s still deliberately dormant.</p>
+      <div class="path">docs/2026-07-12-tasks-dir-concurrency-safety-recap.html</div>
+    </a>
     <a class="tile" href="roadmap.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         <span class="chip ok">current</span></div>
@@ -313,6 +327,13 @@
       <h3>docgen — how the docs get generated</h3>
       <p>The generator&#39;s own pipeline, source locations, and a real worked example.</p>
       <div class="path">docs/docgen.html</div>
+    </a>
+    <a class="tile" href="guides/tasks-store-guards.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>tasks-store-guards</h3>
+      <p>The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.</p>
+      <div class="path">docs/guides/tasks-store-guards.html</div>
     </a>
     <a class="tile" href="roadmap-wb-design.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>

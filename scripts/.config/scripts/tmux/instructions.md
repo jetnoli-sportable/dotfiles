@@ -189,6 +189,31 @@ bind M new-window "~/.config/scripts/tmux/notes.sh ."
 
 ---
 
+## wb.sh / tasks-git-hooks/ — see the dedicated guide
+
+`wb.sh`, `handoff.sh`, and `tasks-git-hooks/` are a separate, newer tool
+family in this same directory — not documented in this file (see the
+`wb-guide` doc for `wb.sh` itself). This section is only a pointer to the
+concurrency-safety pieces the 2026-07-11/12 plan added on top of them:
+
+- `wb-locks.sh` — the per-task-file `flock` side-car lock module, sourced
+  by `wb.sh` and `handoff.sh`.
+- `tasks-git-hooks/` — three scripts: `pretooluse-guard.sh` (Claude Code
+  `PreToolUse` "ask" hook), `reference-transaction` (the `core.hooksPath`
+  git hook that refuses history-orphaning ref updates), and
+  `replay-refusals.sh` (read-only X7 replay tool for the git hook's
+  enablement gate).
+- New `wb` verbs: `wb sync`, `wb unsafe-rewind`, `wb append`,
+  `wb install-hooks`.
+
+Full reference — the three-layer model, coverage matrix, a command traced
+through all three layers, kill switches, and runbooks for lock contention,
+a refused rewind's aftermath, and install/enablement — lives in
+[`docs/guides/tasks-store-guards.md`](../../../../docs/guides/tasks-store-guards.html)
+(rendered guide), not here.
+
+---
+
 ## Conventions when editing these scripts
 
 - Every script starts with `set -euo pipefail` and sources `lib.sh` via
