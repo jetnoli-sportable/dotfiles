@@ -1294,6 +1294,9 @@ wb_board_in_window() {
 #   8 created   9 closed   10 updated (mtime, epoch)   11 taskfile (or empty)
 #   12 anchor_key (unique, sanitized — view-scoped prefixes are added at
 #      render time since the same row gets a different id per visible tab)
+#   13 path (raw path: field, task rows only)   14 depends_on (raw field)
+#   15 reviewed (raw field) — board-display-v2's U4 pre-pass consumes these
+#      three without a second per-field wb_get_frontmatter read per task.
 wb_board_collect_rows() {
   local f status repo worktree branch title created closed updated anchor
   local -a t
@@ -1301,14 +1304,16 @@ wb_board_collect_rows() {
     [ -f "$f" ] || continue
     wb_tsv_split "$(wb_read_task "$f")" t
     status="${t[0]:-}"; repo="${t[1]:-}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
+    local path="${t[4]:-}" deps="${t[5]:-}" reviewed="${t[6]:-}"
     title="$(wb_task_title "$f")"; [ -n "$title" ] || title="$(basename "$f" .md)"
     created="$(wb_get_frontmatter "$f" created)"
     closed="$(wb_get_frontmatter "$f" closed)"
     updated="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
     anchor="$(wb_board_anchor_slug "$(basename "$f" .md)")"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "task" "$(wb_board_bucket_for_status "$status")" "$status" "$repo" \
-      "$branch" "$worktree" "$title" "$created" "$closed" "$updated" "$f" "$anchor"
+      "$branch" "$worktree" "$title" "$created" "$closed" "$updated" "$f" "$anchor" \
+      "$path" "$deps" "$reviewed"
   done < <(wb_task_files)
 
   local repo_dir r_branch abs_path rel
@@ -1321,9 +1326,9 @@ wb_board_collect_rows() {
       wb_worktree_has_task "$repo" "$rel" && continue
       updated="$(stat -c %Y "$abs_path" 2>/dev/null || echo 0)"
       anchor="$(wb_board_anchor_slug "untracked-${repo}--${r_branch}")"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "untracked" "unclassified" "" "$repo" "$r_branch" "$rel" "$r_branch" \
-        "" "" "$updated" "" "$anchor"
+        "" "" "$updated" "" "$anchor" "" "" ""
     done < <(wb_repo_worktrees "$repo_dir")
   done < <(wb_reconcile_repos)
 }
@@ -1537,6 +1542,124 @@ wb_board_normalize_loop() {
   printf '%s' "$out"
 }
 
+# wb_board_deps_validate <deps_of_arr> <stem_anchor_arr> <dangling_warn_arr>
+# — R18's dangling-stem half. Takes ASSOCIATIVE ARRAY NAMES (nameref-bound,
+# same pattern as wb_tsv_split's array-name parameter), not values, since
+# it mutates <deps_of_arr> in place (dropping any stem with no matching
+# task file) and writes <dangling_warn_arr> — a task with a dangling
+# depends_on: fails open (renders unblocked) with a warning naming the
+# unresolvable stem, rather than crashing or silently misrendering.
+wb_board_deps_validate() {
+  local -n _deps_of="$1" _stem_anchor="$2" _dangling_warn="$3"
+  local pp_a pp_dep_line
+  for pp_a in "${!_deps_of[@]}"; do
+    [ -n "${_deps_of["$pp_a"]}" ] || continue
+    local -a pp_valid=() pp_missing=()
+    while IFS= read -r pp_dep_line; do
+      [ -n "$pp_dep_line" ] || continue
+      if [ -n "${_stem_anchor["$pp_dep_line"]:-}" ]; then
+        pp_valid+=("$pp_dep_line")
+      else
+        pp_missing+=("$pp_dep_line")
+      fi
+    done <<< "${_deps_of["$pp_a"]}"
+    if [ "${#pp_missing[@]}" -gt 0 ]; then
+      local pp_missing_joined; pp_missing_joined="$(IFS=', '; echo "${pp_missing[*]}")"
+      _dangling_warn["$pp_a"]="depends on unresolved stem: $pp_missing_joined"
+    fi
+    _deps_of["$pp_a"]="$(printf '%s\n' "${pp_valid[@]}")"
+  done
+}
+
+# wb_board_deps_cycles <deps_of_arr> <stem_anchor_arr> <anchor_stem_arr>
+#   <cycle_member_arr> <cycle_warn_arr> — R18's cycle half, KTD-12: an
+# iterative, flat BFS reachability walk (no recursion) over the (already
+# dangling-free — run wb_board_deps_validate first) dependency map. An
+# anchor is on a cycle iff it can reach its own stem again via >=1 blocker
+# edge. Writes <cycle_member_arr> (anchor -> 1) and <cycle_warn_arr>
+# (anchor -> normalized loop string, KTD-6): every OTHER cycle member
+# reachable from this one, sorted lexicographically and closed back to the
+# smallest — a simplification for graphs with more than one independent
+# cycle (would lump distinct cycles that happen to overlap in
+# reachability), acceptable for a warning message on what is, today, a
+# zero-occurrence edge case.
+wb_board_deps_cycles() {
+  local -n _deps_of="$1" _stem_anchor="$2" _anchor_stem="$3" _cycle_member="$4" _cycle_warn="$5"
+  local pp_a pp_a_stem pp_cur pp_cur_anchor pp_qi pp_hit pp_line
+  for pp_a in "${!_deps_of[@]}"; do
+    [ -n "${_deps_of["$pp_a"]:-}" ] || continue
+    pp_a_stem="${_anchor_stem["$pp_a"]}"
+    local -A pp_seen=()
+    local -a pp_queue=()
+    while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue+=("$pp_line"); done <<< "${_deps_of["$pp_a"]}"
+    pp_qi=0; pp_hit=0
+    while [ "$pp_qi" -lt "${#pp_queue[@]}" ]; do
+      pp_cur="${pp_queue[$pp_qi]}"; pp_qi=$((pp_qi + 1))
+      [ -n "${pp_seen["$pp_cur"]:-}" ] && continue
+      pp_seen["$pp_cur"]=1
+      if [ "$pp_cur" = "$pp_a_stem" ]; then pp_hit=1; break; fi
+      pp_cur_anchor="${_stem_anchor["$pp_cur"]:-}"
+      [ -n "$pp_cur_anchor" ] || continue
+      while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue+=("$pp_line"); done <<< "${_deps_of["$pp_cur_anchor"]:-}"
+    done
+    [ "$pp_hit" = 1 ] && _cycle_member["$pp_a"]=1
+  done
+  for pp_a in "${!_cycle_member[@]}"; do
+    pp_a_stem="${_anchor_stem["$pp_a"]}"
+    local -A pp_seen2=()
+    local -a pp_queue2=() pp_members=("$pp_a_stem")
+    pp_seen2["$pp_a_stem"]=1
+    while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue2+=("$pp_line"); done <<< "${_deps_of["$pp_a"]}"
+    pp_qi=0
+    while [ "$pp_qi" -lt "${#pp_queue2[@]}" ]; do
+      pp_cur="${pp_queue2[$pp_qi]}"; pp_qi=$((pp_qi + 1))
+      [ -n "${pp_seen2["$pp_cur"]:-}" ] && continue
+      pp_seen2["$pp_cur"]=1
+      pp_cur_anchor="${_stem_anchor["$pp_cur"]:-}"
+      [ -n "$pp_cur_anchor" ] || continue
+      [ -n "${_cycle_member["$pp_cur_anchor"]:-}" ] && pp_members+=("$pp_cur")
+      while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue2+=("$pp_line"); done <<< "${_deps_of["$pp_cur_anchor"]:-}"
+    done
+    _cycle_warn["$pp_a"]="$(wb_board_normalize_loop "${pp_members[*]}")"
+  done
+}
+
+# wb_board_deps_blocking <deps_of_arr> <stem_anchor_arr> <stem_status_arr>
+#   <anchor_stem_arr> <cycle_member_arr> <unmet_count_arr> <blocker_names_arr>
+#   <unblocks_count_arr> <unblocks_names_arr> — R16/R17/R18's blocked-state
+# half, from the validated (wb_board_deps_validate), cycle-free
+# (wb_board_deps_cycles) dependency edges. A cycle warning supersedes the
+# ⛔ blocked treatment for its own members (KTD-6) — a cycle member is
+# skipped here entirely, never getting an unmet count of its own (its
+# outgoing edges still count toward what it unblocks for others, since
+# that's the other direction's independent fact).
+wb_board_deps_blocking() {
+  local -n _deps_of="$1" _stem_anchor="$2" _stem_status="$3" _anchor_stem="$4" _cycle_member="$5"
+  local -n _unmet_count="$6" _blocker_names="$7" _unblocks_count="$8" _unblocks_names="$9"
+  local pp_a pp_a_stem pp_line pp_unmet pp_names pp_blocker_status pp_blocker_anchor
+  for pp_a in "${!_deps_of[@]}"; do
+    [ -n "${_deps_of["$pp_a"]:-}" ] || continue
+    [ -n "${_cycle_member["$pp_a"]:-}" ] && continue
+    pp_a_stem="${_anchor_stem["$pp_a"]}"
+    pp_unmet=0; pp_names=""
+    while IFS= read -r pp_line; do
+      [ -n "$pp_line" ] || continue
+      pp_blocker_status="${_stem_status["$pp_line"]:-}"
+      [ "$pp_blocker_status" = done ] && continue
+      pp_unmet=$((pp_unmet + 1))
+      pp_names+="$pp_line ($pp_blocker_status); "
+      pp_blocker_anchor="${_stem_anchor["$pp_line"]:-}"
+      [ -n "$pp_blocker_anchor" ] || continue
+      _unblocks_count["$pp_blocker_anchor"]=$(( ${_unblocks_count["$pp_blocker_anchor"]:-0} + 1 ))
+      _unblocks_names["$pp_blocker_anchor"]+="$pp_a_stem, "
+    done <<< "${_deps_of["$pp_a"]}"
+    if [ "$pp_unmet" -gt 0 ]; then
+      _unmet_count["$pp_a"]="$pp_unmet"
+      _blocker_names["$pp_a"]="$pp_names"
+    fi
+  done
+}
+
 # wb_board_render_html — writes the full /board page to stdout: 6 status
 # tabs x 2 timeline windows, pre-rendered as 12 panels with CSS-only
 # radio-sibling switching (no JS — R8/R10's zero-JS decision), live-session
@@ -1643,100 +1766,15 @@ wb_board_render_html() {
     done
   done
 
-  # --- sub-pass D: validate depends_on stems — dangling ones fail open
-  # (R18) and are dropped from DEPS_OF so E/F only ever see resolved edges -
-  local pp_a pp_dep_line
-  for pp_a in "${!DEPS_OF[@]}"; do
-    [ -n "${DEPS_OF["$pp_a"]}" ] || continue
-    local -a pp_valid=() pp_missing=()
-    while IFS= read -r pp_dep_line; do
-      [ -n "$pp_dep_line" ] || continue
-      if [ -n "${STEM_ANCHOR["$pp_dep_line"]:-}" ]; then
-        pp_valid+=("$pp_dep_line")
-      else
-        pp_missing+=("$pp_dep_line")
-      fi
-    done <<< "${DEPS_OF["$pp_a"]}"
-    if [ "${#pp_missing[@]}" -gt 0 ]; then
-      local pp_missing_joined; pp_missing_joined="$(IFS=', '; echo "${pp_missing[*]}")"
-      DANGLING_WARN["$pp_a"]="depends on unresolved stem: $pp_missing_joined"
-    fi
-    DEPS_OF["$pp_a"]="$(printf '%s\n' "${pp_valid[@]}")"
-  done
-
-  # --- sub-pass E: cycle detection (R18, KTD-12) — iterative, flat BFS
-  # reachability over the (now dangling-free) dependency map: an anchor is
-  # on a cycle iff it can reach its own stem again via >=1 blocker edge.
-  # No recursion, no bash function call depth to worry about. -------------
-  local pp_a_stem pp_cur pp_cur_anchor pp_qi pp_hit pp_line
-  for pp_a in "${!DEPS_OF[@]}"; do
-    [ -n "${DEPS_OF["$pp_a"]:-}" ] || continue
-    pp_a_stem="${ANCHOR_STEM["$pp_a"]}"
-    local -A pp_seen=()
-    local -a pp_queue=()
-    while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue+=("$pp_line"); done <<< "${DEPS_OF["$pp_a"]}"
-    pp_qi=0; pp_hit=0
-    while [ "$pp_qi" -lt "${#pp_queue[@]}" ]; do
-      pp_cur="${pp_queue[$pp_qi]}"; pp_qi=$((pp_qi + 1))
-      [ -n "${pp_seen["$pp_cur"]:-}" ] && continue
-      pp_seen["$pp_cur"]=1
-      if [ "$pp_cur" = "$pp_a_stem" ]; then pp_hit=1; break; fi
-      pp_cur_anchor="${STEM_ANCHOR["$pp_cur"]:-}"
-      [ -n "$pp_cur_anchor" ] || continue
-      while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue+=("$pp_line"); done <<< "${DEPS_OF["$pp_cur_anchor"]:-}"
-    done
-    [ "$pp_hit" = 1 ] && CYCLE_MEMBER["$pp_a"]=1
-  done
-  # Name each cycle member's loop as every OTHER cycle member reachable from
-  # it, normalized to start at the lexicographically smallest stem (KTD-6)
-  # so every member's tooltip shows the identical string. A simplification
-  # for graphs with more than one independent cycle (would lump distinct
-  # cycles that happen to overlap in reachability) — acceptable for a
-  # warning message on what is, today, a zero-occurrence edge case.
-  for pp_a in "${!CYCLE_MEMBER[@]}"; do
-    pp_a_stem="${ANCHOR_STEM["$pp_a"]}"
-    local -A pp_seen2=()
-    local -a pp_queue2=() pp_members=("$pp_a_stem")
-    pp_seen2["$pp_a_stem"]=1
-    while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue2+=("$pp_line"); done <<< "${DEPS_OF["$pp_a"]}"
-    pp_qi=0
-    while [ "$pp_qi" -lt "${#pp_queue2[@]}" ]; do
-      pp_cur="${pp_queue2[$pp_qi]}"; pp_qi=$((pp_qi + 1))
-      [ -n "${pp_seen2["$pp_cur"]:-}" ] && continue
-      pp_seen2["$pp_cur"]=1
-      pp_cur_anchor="${STEM_ANCHOR["$pp_cur"]:-}"
-      [ -n "$pp_cur_anchor" ] || continue
-      [ -n "${CYCLE_MEMBER["$pp_cur_anchor"]:-}" ] && pp_members+=("$pp_cur")
-      while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue2+=("$pp_line"); done <<< "${DEPS_OF["$pp_cur_anchor"]:-}"
-    done
-    CYCLE_WARN["$pp_a"]="$(wb_board_normalize_loop "${pp_members[*]}")"
-  done
-
-  # --- sub-pass F: unmet-blocker / blocked (R16/R18) and unblocks (R17)
-  # counts, from the validated, cycle-free dependency edges. A cycle
-  # warning supersedes the ⛔ blocked treatment for its own members (KTD-6)
-  # ------------------------------------------------------------------------
-  local pp_unmet pp_names pp_blocker_status pp_blocker_anchor
-  for pp_a in "${!DEPS_OF[@]}"; do
-    [ -n "${DEPS_OF["$pp_a"]:-}" ] || continue
-    [ -n "${CYCLE_MEMBER["$pp_a"]:-}" ] && continue
-    pp_unmet=0; pp_names=""
-    while IFS= read -r pp_line; do
-      [ -n "$pp_line" ] || continue
-      pp_blocker_status="${STEM_STATUS["$pp_line"]:-}"
-      [ "$pp_blocker_status" = done ] && continue
-      pp_unmet=$((pp_unmet + 1))
-      pp_names+="$pp_line ($pp_blocker_status); "
-      pp_blocker_anchor="${STEM_ANCHOR["$pp_line"]:-}"
-      [ -n "$pp_blocker_anchor" ] || continue
-      UNBLOCKS_COUNT["$pp_blocker_anchor"]=$(( ${UNBLOCKS_COUNT["$pp_blocker_anchor"]:-0} + 1 ))
-      UNBLOCKS_NAMES["$pp_blocker_anchor"]+="$pp_a_stem, "
-    done <<< "${DEPS_OF["$pp_a"]}"
-    if [ "$pp_unmet" -gt 0 ]; then
-      UNMET_COUNT["$pp_a"]="$pp_unmet"
-      BLOCKER_NAMES["$pp_a"]="$pp_names"
-    fi
-  done
+  # --- sub-passes D/E/F: dependency-graph validation, cycle detection, and
+  # blocked/unblocks counts — factored into standalone, nameref-based
+  # functions (wb_board_deps_validate/_cycles/_blocking) so they're
+  # directly unit-testable, same pattern wb_tsv_split already uses for its
+  # array-name parameter. -----------------------------------------------
+  wb_board_deps_validate DEPS_OF STEM_ANCHOR DANGLING_WARN
+  wb_board_deps_cycles DEPS_OF STEM_ANCHOR ANCHOR_STEM CYCLE_MEMBER CYCLE_WARN
+  wb_board_deps_blocking DEPS_OF STEM_ANCHOR STEM_STATUS ANCHOR_STEM CYCLE_MEMBER \
+    UNMET_COUNT BLOCKER_NAMES UNBLOCKS_COUNT UNBLOCKS_NAMES
 
   # --- sub-pass G: children rollup counts (R20) ---------------------------
   local pp_parent_stem pp_child_file pp_total pp_done pp_child_status pp_parent_status

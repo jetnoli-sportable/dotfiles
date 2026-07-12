@@ -31,6 +31,15 @@ assert_not() { # <desc> <unexpected-regex> <actual>
     echo "ok   - $1"
   fi
 }
+assert_empty() { # <desc> <actual> — assert's own '^$' pattern never matches
+  # a truly empty string (grep sees zero lines, not one empty line).
+  if [ -z "$2" ]; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1 (expected empty, got: $2)"
+    fail=1
+  fi
+}
 
 mk_repo() {
   git init -q "$1"
@@ -298,6 +307,127 @@ assert_not "raw unescaped child title not injected" 'Fix <script>' "$html7"
 
 SCRIPT_DIR="$SCRIPT_DIR_REAL2"
 rm -rf "$DOC_ROOT2"
+
+# =============================================================================
+# U4: render pre-pass — html-escape quote regression, dependency-graph
+# helpers (unit-tested directly, nameref-style, same pattern wb_tsv_split
+# already uses), and PR-fetch dedup.
+# =============================================================================
+
+# --- KTD-9: wb_board_html_escape gains `"` without regressing &<> ----------
+esc_out="$(wb_board_html_escape '"<&>"')"
+assert "wb_board_html_escape: quotes escaped (KTD-9)" '&quot;.*&lt;.*&amp;.*&gt;.*&quot;' "$esc_out"
+
+# --- wb_board_parse_deps: whitespace-tolerant, empty entries dropped -------
+assert "parse_deps: whitespace-tolerant, comma-separated" '^a,b,c,$' "$(wb_board_parse_deps 'a, b ,c' | tr '\n' ',')"
+assert_empty "parse_deps: blank input -> nothing" "$(wb_board_parse_deps '')"
+
+# --- wb_board_normalize_loop: starts at lexicographically smallest --------
+assert "normalize_loop: starts at smallest stem, closes the loop" '^a -> c -> a$' "$(wb_board_normalize_loop 'c a')"
+
+# --- wb_board_deps_validate: resolved stem kept, no dangling warning -------
+declare -A DV_DEPS=([anchor-b]=$'a\n')
+declare -A DV_STEM_ANCHOR=([a]=anchor-a)
+declare -A DV_DANGLE=()
+wb_board_deps_validate DV_DEPS DV_STEM_ANCHOR DV_DANGLE
+assert "deps_validate: resolved stem kept in deps_of" '^a$' "${DV_DEPS[anchor-b]}"
+assert_empty "deps_validate: no dangling warning for a resolved stem" "${DV_DANGLE[anchor-b]:-}"
+
+# --- wb_board_deps_validate: Covers AE9 — dangling stem fails open --------
+declare -A DV2_DEPS=([anchor-x]=$'missing-stem\n')
+declare -A DV2_STEM_ANCHOR=()
+declare -A DV2_DANGLE=()
+wb_board_deps_validate DV2_DEPS DV2_STEM_ANCHOR DV2_DANGLE
+assert "deps_validate: dangling stem -> warning naming it (AE9)" 'missing-stem' "${DV2_DANGLE[anchor-x]}"
+assert_empty "deps_validate: dangling stem dropped from deps_of (renders unblocked)" "${DV2_DEPS[anchor-x]}"
+
+# --- wb_board_deps_cycles: Covers AE5 — mutual dependency both flagged ----
+declare -A DC_DEPS=([anchor-a]=$'c\n' [anchor-c]=$'a\n')
+declare -A DC_STEM_ANCHOR=([a]=anchor-a [c]=anchor-c)
+declare -A DC_ANCHOR_STEM=([anchor-a]=a [anchor-c]=c)
+declare -A DC_MEMBER=() DC_WARN=()
+wb_board_deps_cycles DC_DEPS DC_STEM_ANCHOR DC_ANCHOR_STEM DC_MEMBER DC_WARN
+assert "deps_cycles: a flagged as cycle member (AE5)" '^1$' "${DC_MEMBER[anchor-a]:-}"
+assert "deps_cycles: c flagged as cycle member (AE5)" '^1$' "${DC_MEMBER[anchor-c]:-}"
+assert "deps_cycles: warning names both stems" 'a.*c|c.*a' "${DC_WARN[anchor-a]}"
+if [ "${DC_WARN[anchor-a]}" = "${DC_WARN[anchor-c]}" ]; then
+  echo "ok   - deps_cycles: both members show the identical normalized warning string (KTD-6)"
+else
+  echo "FAIL - deps_cycles: warning strings differ between cycle members"; fail=1
+fi
+
+# --- wb_board_deps_blocking: chain a->b->c, a done -> b unblocked, c still
+# blocked by b (flat resolution, no transitive met-ness) --------------------
+declare -A CH_DEPS=([anchor-b]=$'a\n' [anchor-c]=$'b\n')
+declare -A CH_STEM_ANCHOR=([a]=anchor-a [b]=anchor-b [c]=anchor-c)
+declare -A CH_STEM_STATUS=([a]=done [b]=doing [c]=doing)
+declare -A CH_ANCHOR_STEM=([anchor-a]=a [anchor-b]=b [anchor-c]=c)
+declare -A CH_MEMBER=()
+declare -A CH_UNMET=() CH_NAMES=() CH_UNBLOCKS=() CH_UNBLOCKS_NAMES=()
+wb_board_deps_blocking CH_DEPS CH_STEM_ANCHOR CH_STEM_STATUS CH_ANCHOR_STEM CH_MEMBER \
+  CH_UNMET CH_NAMES CH_UNBLOCKS CH_UNBLOCKS_NAMES
+assert_empty "deps_blocking: chain — b unblocked once a is done" "${CH_UNMET[anchor-b]:-}"
+assert "deps_blocking: chain — c still blocked by b (not transitively met)" '^1$' "${CH_UNMET[anchor-c]:-}"
+
+# --- wb_board_deps_blocking: two blockers, one done -> still blocked,
+# unmet count 1; blocker's dependents count reflects both directions -------
+declare -A TB_DEPS=([anchor-x]=$'a\nb\n')
+declare -A TB_STEM_ANCHOR=([a]=anchor-a [b]=anchor-b [x]=anchor-x)
+declare -A TB_STEM_STATUS=([a]=done [b]=doing [x]=doing)
+declare -A TB_ANCHOR_STEM=([anchor-a]=a [anchor-b]=b [anchor-x]=x)
+declare -A TB_MEMBER=()
+declare -A TB_UNMET=() TB_NAMES=() TB_UNBLOCKS=() TB_UNBLOCKS_NAMES=()
+wb_board_deps_blocking TB_DEPS TB_STEM_ANCHOR TB_STEM_STATUS TB_ANCHOR_STEM TB_MEMBER \
+  TB_UNMET TB_NAMES TB_UNBLOCKS TB_UNBLOCKS_NAMES
+assert "deps_blocking: two blockers, one done -> still blocked, unmet=1" '^1$' "${TB_UNMET[anchor-x]:-}"
+assert_empty "deps_blocking: done blocker contributes no unblocks count" "${TB_UNBLOCKS[anchor-a]:-}"
+assert "deps_blocking: not-done blocker shows 1 dependent waiting (both directions visible, R17)" \
+  '^1$' "${TB_UNBLOCKS[anchor-b]:-}"
+
+# --- wb_board_deps_blocking: mid-chain — b is simultaneously blocked (by a)
+# and blocking (c waits on it) — both indicators render at once -------------
+declare -A MC_DEPS=([anchor-b]=$'a\n' [anchor-c]=$'b\n')
+declare -A MC_STEM_ANCHOR=([a]=anchor-a [b]=anchor-b [c]=anchor-c)
+declare -A MC_STEM_STATUS=([a]=doing [b]=doing [c]=doing)
+declare -A MC_ANCHOR_STEM=([anchor-a]=a [anchor-b]=b [anchor-c]=c)
+declare -A MC_MEMBER=()
+declare -A MC_UNMET=() MC_NAMES=() MC_UNBLOCKS=() MC_UNBLOCKS_NAMES=()
+wb_board_deps_blocking MC_DEPS MC_STEM_ANCHOR MC_STEM_STATUS MC_ANCHOR_STEM MC_MEMBER \
+  MC_UNMET MC_NAMES MC_UNBLOCKS MC_UNBLOCKS_NAMES
+assert "deps_blocking: mid-chain — b carries an unmet-blocker count (⛔)" '^1$' "${MC_UNMET[anchor-b]:-}"
+assert "deps_blocking: mid-chain — b simultaneously carries an unblocks count (→), independent facts" \
+  '^1$' "${MC_UNBLOCKS[anchor-b]:-}"
+
+# --- KTD-1: gh call deduped by repo+branch, one fetch per DISTINCT branch,
+# not per task. The stub writes to a COUNTER FILE, not a shell variable:
+# wb_board_pr_info is invoked via a command-substitution subshell
+# ("$(wb_board_pr_info ...)"), so a plain variable increment inside the
+# stub would be lost the moment that subshell exits — a file write
+# survives across the subshell boundary. The assertion compares counts
+# rather than asserting an absolute number, since the store already has
+# many earlier fixtures on other branches by this point in the file —
+# adding a SECOND task on an ALREADY-fetched branch must not raise the
+# fetch count any further than adding just the FIRST one did. ------------
+ORIG_PR_INFO="$(declare -f wb_board_pr_info)"
+PR_COUNTFILE="$(mktemp -t wb-board-html-prcount.XXXXXX)"
+wb_board_pr_info() { echo x >> "$PR_COUNTFILE"; printf '#1 (OPEN)\thttps://example.com/1'; }
+mk_task 'proj--prcount-a.md' doing proj prcount-branch '' "$TODAY" '' 'PR Count A'
+wb_board_render_html >/dev/null 2>&1
+count_one_task="$(wc -l < "$PR_COUNTFILE" | tr -d ' ')"
+: > "$PR_COUNTFILE"
+mk_task 'proj--prcount-b.md' doing proj prcount-branch '' "$TODAY" '' 'PR Count B'
+wb_board_render_html >/dev/null 2>&1
+count_two_tasks_same_branch="$(wc -l < "$PR_COUNTFILE" | tr -d ' ')"
+assert "pr fetch: a second task on an already-fetched branch adds no extra fetch (KTD-1 dedup)" \
+  "^${count_one_task}\$" "$count_two_tasks_same_branch"
+rm -f "$PR_COUNTFILE"
+eval "$ORIG_PR_INFO"
+
+# --- U4's hoist is behavior-preserving: the entire suite above (doc links,
+# escaping, parent/child rollup, untracked-worktree badges) still passes
+# unchanged after moving live-session/PR lookups into the pre-pass — that
+# IS the before/after-identical-content proof (no separate assertion to
+# duplicate here).
 
 # --- empty store: no crash, empty-state everywhere ---------------------------
 EMPTY_TASKS="$(mktemp -d -t wb-board-html-empty.XXXXXX)"
