@@ -27,6 +27,11 @@ echo "Open tmux and press <prefix> + I to install tmux plugins."
 # nvim plugins restore to the committed lockfile
 command -v nvim >/dev/null && nvim --headless "+Lazy! restore" +qa || true
 
+# Correct + lock default browser MIME/scheme associations against Slack's
+# xdg-settings bug re-hijacking text/html on every launch — see the script
+# for details. Needs sudo (chattr +i); safe/expected to prompt here.
+~/.config/scripts/setup/default-browser.sh
+
 echo "Done. Start a new shell. Machine-local extras go in ~/.zshrc.local."
 echo "Still needed by hand: fdfind, fzf, zoxide, oh-my-posh, lazygit, nvm/pyenv/tfenv as desired."
 echo "Docs auto-regenerate on commit once ~/code/docgen is cloned (see docs/slice-5-recap.html)."
