@@ -257,8 +257,8 @@ silently destroy, it opens the task file in a split for you to mark
 </li>
 </ol>
 <h2 id="wb-new--start-a-task">wb new — start a task</h2>
-<pre><code>$ wb new [--agent] &lt;slug&gt;          # from inside a repo
-$ wb new [--agent] &lt;repo&gt; &lt;slug&gt;   # from anywhere
+<pre><code>$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... &lt;slug&gt;
+$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... &lt;repo&gt; &lt;slug&gt;
 </code></pre>
 <p>The slug becomes the git branch name, the worktree path
 (<code>.worktrees/&lt;slug&gt;</code>), and — sanitized (<code>/</code> and <code>.</code> → <code>-</code>) — the tmux
@@ -268,6 +268,19 @@ fine; it becomes session <code>reponame--feat-onboarding</code>.</p>
 worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through <code>wb done</code>.</p>
+<p><code>--path</code> and <code>--depends-on</code> are optional, board-only metadata (v2) — they
+don't change how the task itself runs, only how <code>wb board --html</code> displays
+it:</p>
+<ul>
+<li><code>--path &lt;stages&gt;</code> declares which of the five lifecycle stages
+(<code>ideate,brainstorm,plan,work,review</code>) this task intends to pass
+through, comma-separated. Omit it and the task defaults to
+<code>plan,work,review</code>. Unknown stage names are rejected up front.</li>
+<li><code>--depends-on &lt;stem&gt;</code> (repeatable) names a blocking task by its file
+stem (<code>&lt;repo&gt;--&lt;slug&gt;</code>, no <code>.md</code>), validated against a real task file at
+creation time. The board renders both directions — a ⛔ count on the
+blocked task, a → count on the blocker — once it's declared.</li>
+</ul>
 <table>
 <thead>
 <tr>
@@ -470,26 +483,44 @@ node_modules
 worktree never needs its own <code>npm install</code>. No manifest? <code>wb new</code> falls
 back to copying whatever <code>.env*</code> files exist at the repo root.</p>
 <h2 id="the-task-store">The task store</h2>
-<p><code>~/code/tasks</code> is a plain git repo, local for now (no remote pushed yet —
-that's a five-minute follow-up whenever you want cross-machine sync). One
-markdown file per task, named <code>&lt;repo&gt;--&lt;slug&gt;.md</code>:</p>
+<p><code>~/code/tasks</code> is a plain git repo pushed to a personal GitHub remote
+(recovered and given its first-ever remote after the 2026-07-10
+directory-deletion incident — see <code>docs/roadmap-handoff.md</code> if you want
+that story). One markdown file per task, named <code>&lt;repo&gt;--&lt;slug&gt;.md</code>,
+seeded from <code>TEMPLATE.md</code>:</p>
 <pre><code>---
-status: doing        # planned | doing | review | done
+status: planned      # planned | doing | paused | review | done (anything
+                      # else — e.g. a stale `open` — falls into an
+                      # unclassified catch-all on the board, not a crash)
+path:                 # optional: ideate,brainstorm,plan,work,review subset;
+                      # blank -&gt; defaults to plan,work,review
 repo: dotfiles
 branch: feat/onboarding
 worktree: .worktrees/feat/onboarding
+parent:               # optional: &lt;repo&gt;--&lt;slug&gt; of a parent task
+depends_on:           # optional: comma-separated blocking task stems
 tags: []
 created: 2026-07-06
+closed:
+reviewed:             # stamped by `wb reviewed` after a /ce-code-review pass
 ---
 # Title
 
 ## Plan
-## Done
-## Follow-ups
+
+## Handoffs
+
 ## Decisions
+
+## Done
+
+## Follow-ups
 </code></pre>
 <p>It's a real git repo you can <code>cd</code> into, <code>git log</code>, or open in <code>wb</code> itself
-(it shows up as a repo row like anything else under <code>~/code</code>).
+(it shows up as a repo row like anything else under <code>~/code</code>). Pre-existing
+task files are never retroactively migrated to the newer fields
+(<code>path:</code>/<code>depends_on:</code>/<code>reviewed:</code>) — they fall back to the defaults above
+until a human or agent happens to touch that file again.
 <code>/parked-items</code> now promotes follow-ups here instead of a per-repo
 <code>scratch/tasks/</code>, and worktree setup checks it for existing context before
 starting from scratch.</p>
@@ -615,14 +646,11 @@ interface, not the picker.</li>
 <p>The counts you see in the picker's status line and in <code>wb done</code>'s nudge
 (<code>wb_pending_counts</code>) are a heads-up that these exist, not a drill-down.</p>
 <blockquote>
-<p><strong>There's no single &quot;full picture&quot; view yet</strong> — live sessions, deferred
-follow-ups, and parked items are three separate places to look. That gap
-already has a name: <strong><code>/roadmap</code></strong>, ratified as a follow-up in
-<code>logs/decisions/2026-07-06-review-outstanding.md</code> §7 and
-<a href="roadmap.html"><code>roadmap.md</code></a> §9a — a snapshot over the same task-store
-board (no second status computation), zoomable today/task/week,
-deliberately deferred until slices 2+3 (this PR) are done. It's tracked
-as a Follow-up on this task's own record so it isn't lost.</p>
+<p><strong>Update:</strong> the &quot;no single full picture view&quot; gap this note originally
+flagged is closed — that's exactly what <code>wb board --html</code> (above) is now
+for. Follow-ups and parked items still live in their own places (they're
+not board-tracked), but live/planned/paused/done tasks across every repo
+are one command away.</p>
 </blockquote>
 <h3 id="merging-this-pr">Merging this PR</h3>
 <p>Everything in this guide is ready to merge as-is. What's deliberately <em>not</em>
@@ -634,8 +662,6 @@ without creating a new worktree. Useful if you're migrating hand-rolled
 sessions like an ad-hoc <code>be--monorepo</code> or <code>frontend</code> session into this
 workflow. Not built — say the word if the manual path (open a task file
 by hand, <code>tmux set-option</code> the two variables) gets old.</li>
-<li><strong>A remote for <code>~/code/tasks</code></strong> — it's a real git repo but local-only
-right now. Five-minute follow-up whenever cross-machine sync matters.</li>
 <li><strong>Slices 4 and 5</strong> from the original plan (<code>roadmap.md</code> §8) — notes-tui
 revival and an HTML-in-flow help dashboard. Separate, not-yet-started
 work.</li>
