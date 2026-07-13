@@ -1512,19 +1512,26 @@ wb_board_doc_link() {
 wb_board_stage_key() { printf '%s\x1e%s' "$1" "$2"; }
 
 # wb_board_parse_deps <depends_on_raw> — comma-separated blocker stems, one
-# per line, whitespace-tolerant, empty entries dropped. Render-tolerant
-# like path: parsing (wb_lifecycle_parse_path) — a hand-edited depends_on:
-# must never crash the render; an unresolvable stem is the caller's
-# problem (R18 fail-open), not this parser's.
+# per line, whitespace-tolerant, empty entries dropped, duplicates dropped
+# (mirrors wb_lifecycle_parse_path's dedup — a repeated stem must not
+# double-count the ⛔/→ dependency chips). Render-tolerant like path:
+# parsing — a hand-edited depends_on: must never crash the render; an
+# unresolvable stem is the caller's problem (R18 fail-open), not this
+# parser's.
 wb_board_parse_deps() {
   local raw="${1:-}" tok
   [ -n "$raw" ] || return 0
   local -a tokens
   IFS=',' read -ra tokens <<< "$raw"
+  local -A seen=()
   for tok in "${tokens[@]}"; do
     tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
-    [ -n "$tok" ] && printf '%s\n' "$tok"
+    if [ -n "$tok" ] && [ -z "${seen[$tok]:-}" ]; then
+      seen["$tok"]=1
+      printf '%s\n' "$tok"
+    fi
   done
+  return 0
 }
 
 # wb_board_normalize_loop <space-separated stems> — sorts and dedupes the
@@ -1629,17 +1636,18 @@ wb_board_deps_cycles() {
 #   <unblocks_count_arr> <unblocks_names_arr> — R16/R17/R18's blocked-state
 # half, from the validated (wb_board_deps_validate), cycle-free
 # (wb_board_deps_cycles) dependency edges. A cycle warning supersedes the
-# ⛔ blocked treatment for its own members (KTD-6) — a cycle member is
-# skipped here entirely, never getting an unmet count of its own (its
-# outgoing edges still count toward what it unblocks for others, since
-# that's the other direction's independent fact).
+# ⛔ blocked treatment for its own members (KTD-6) — a cycle member never
+# gets an unmet count of its own (guarded below, at the final write only),
+# but its outgoing edges still get walked so a non-cycle blocker it also
+# depends on still gets credited in _unblocks_count/_unblocks_names — that
+# direction is the blocker's own independent fact, unaffected by whether
+# the dependent happens to also sit on an unrelated cycle.
 wb_board_deps_blocking() {
   local -n _deps_of="$1" _stem_anchor="$2" _stem_status="$3" _anchor_stem="$4" _cycle_member="$5"
   local -n _unmet_count="$6" _blocker_names="$7" _unblocks_count="$8" _unblocks_names="$9"
   local pp_a pp_a_stem pp_line pp_unmet pp_names pp_blocker_status pp_blocker_anchor
   for pp_a in "${!_deps_of[@]}"; do
     [ -n "${_deps_of["$pp_a"]:-}" ] || continue
-    [ -n "${_cycle_member["$pp_a"]:-}" ] && continue
     pp_a_stem="${_anchor_stem["$pp_a"]}"
     pp_unmet=0; pp_names=""
     while IFS= read -r pp_line; do
@@ -1653,7 +1661,7 @@ wb_board_deps_blocking() {
       _unblocks_count["$pp_blocker_anchor"]=$(( ${_unblocks_count["$pp_blocker_anchor"]:-0} + 1 ))
       _unblocks_names["$pp_blocker_anchor"]+="$pp_a_stem, "
     done <<< "${_deps_of["$pp_a"]}"
-    if [ "$pp_unmet" -gt 0 ]; then
+    if [ -z "${_cycle_member["$pp_a"]:-}" ] && [ "$pp_unmet" -gt 0 ]; then
       _unmet_count["$pp_a"]="$pp_unmet"
       _blocker_names["$pp_a"]="$pp_names"
     fi
@@ -2145,8 +2153,9 @@ wb_board_render_html() {
   local -A READY_TO_CLOSE=() # parent stem -> 1 when all children done and parent isn't
   local -A ALL_WEEK_RENDERED=() # anchor_key -> 1 if it got a card in All/Week (U9's link-reachability check for done tasks, KTD-7)
   local -A ANCHOR_REPO=()    # anchor_key -> slugged repo (U7, task and untracked rows alike)
-  local -A ANCHOR_FAMILY=()  # anchor_key -> "stem [parent_stem]" (U7, task rows only)
+  local -A ANCHOR_FAMILY=()  # anchor_key -> "slug(stem) [slug(parent_stem)]" (U7, task rows only)
   local -A ALL_REPOS=()      # slugged repo -> display repo (for the fr-* filter group)
+  local -A REPO_NAME_TO_SLUG=() # raw repo name -> its (collision-disambiguated) slug
 
   local -a f
   local pp_row pp_kind pp_repo pp_branch pp_worktree pp_status pp_taskfile pp_anchor pp_stem
@@ -2164,9 +2173,26 @@ wb_board_render_html() {
     # or anything else that isn't a real task) would otherwise crash the
     # whole render. anchor_key itself is always non-empty (derived from a
     # real filename), so it's always safe as a key.
-    local pp_repo_slug; pp_repo_slug="$(wb_board_anchor_slug "$pp_repo")"
+    local pp_repo_slug=""
+    if [ -n "$pp_repo" ]; then
+      pp_repo_slug="${REPO_NAME_TO_SLUG["$pp_repo"]:-}"
+      if [ -z "$pp_repo_slug" ]; then
+        # wb_board_anchor_slug is lossy (every char outside [A-Za-z0-9_-]
+        # collapses to '-'), so two distinct raw repo names (e.g. sibling
+        # checkouts "next.js" and "next-js") can naively slug identically.
+        # Disambiguate with a numeric suffix on collision so the fr-*
+        # filter/data-repo attribute never conflates two different repos.
+        pp_repo_slug="$(wb_board_anchor_slug "$pp_repo")"
+        local pp_repo_suffix=2
+        while [ -n "${ALL_REPOS["$pp_repo_slug"]:-}" ] && [ "${ALL_REPOS["$pp_repo_slug"]}" != "$pp_repo" ]; do
+          pp_repo_slug="$(wb_board_anchor_slug "$pp_repo")-$pp_repo_suffix"
+          pp_repo_suffix=$((pp_repo_suffix + 1))
+        done
+        REPO_NAME_TO_SLUG["$pp_repo"]="$pp_repo_slug"
+        ALL_REPOS["$pp_repo_slug"]="$pp_repo"
+      fi
+    fi
     ANCHOR_REPO["$pp_anchor"]="$pp_repo_slug"
-    [ -n "$pp_repo_slug" ] && ALL_REPOS["$pp_repo_slug"]="$pp_repo"
     [ "$pp_kind" = task ] || continue
     pp_stem="$(basename "$pp_taskfile" .md)"
     STEM_ANCHOR["$pp_stem"]="$pp_anchor"
@@ -2174,10 +2200,14 @@ wb_board_render_html() {
     STEM_STATUS["$pp_stem"]="$pp_status"
     PATH_LINES["$pp_anchor"]="$(wb_lifecycle_parse_path "${f[12]}")"
     DEPS_OF["$pp_anchor"]="$(wb_board_parse_deps "${f[13]}")"
+    # data-family carries SLUGGED tokens (wb_board_anchor_slug), mirroring
+    # data-repo/ANCHOR_REPO — parent: is freeform frontmatter text with no
+    # validation, and the raw stem previously landed straight in this HTML
+    # attribute and in the [data-family~=...] CSS selector below unescaped.
     if [ -n "${STEM_PARENT["$pp_stem"]:-}" ]; then
-      ANCHOR_FAMILY["$pp_anchor"]="$pp_stem ${STEM_PARENT["$pp_stem"]}"
+      ANCHOR_FAMILY["$pp_anchor"]="$(wb_board_anchor_slug "$pp_stem") $(wb_board_anchor_slug "${STEM_PARENT["$pp_stem"]}")"
     else
-      ANCHOR_FAMILY["$pp_anchor"]="$pp_stem"
+      ANCHOR_FAMILY["$pp_anchor"]="$(wb_board_anchor_slug "$pp_stem")"
     fi
   done
 
@@ -2313,7 +2343,6 @@ wb_board_render_html() {
 
   local -a fam_stems_sorted=()
   local family_options_html='' family_summary_labels='' family_hide_css='' family_summary_css=''
-  local -A FAM_SLUG_TO_STEM=()
   if [ "${#children_of[@]}" -gt 0 ]; then
     mapfile -t fam_stems_sorted < <(printf '%s\n' "${!children_of[@]}" | sort)
     radios_html+="<input type=\"radio\" name=\"fp\" id=\"fp-all\" checked>"$'\n'
@@ -2322,12 +2351,15 @@ wb_board_render_html() {
     local fam_stem fam_slug fam_label
     for fam_stem in "${fam_stems_sorted[@]}"; do
       fam_slug="$(wb_board_anchor_slug "$fam_stem")"
-      FAM_SLUG_TO_STEM["$fam_slug"]="$fam_stem"
       radios_html+="<input type=\"radio\" name=\"fp\" id=\"fp-$fam_slug\">"$'\n'
       fam_label="$(wb_board_html_escape "$fam_stem")"
       family_options_html+="<label for=\"fp-$fam_slug\">$fam_label</label>"$'\n'
       family_summary_labels+="<span class=\"filter-label\" data-for=\"$fam_slug\">Family: $fam_label &#9662;</span>"
-      family_hide_css+="#fp-$fam_slug:checked ~ main .view tr.row:not([data-family~=\"$fam_stem\"]), #fp-$fam_slug:checked ~ main .view .task-detail:not([data-family~=\"$fam_stem\"]) { display: none; }"$'\n'
+      # Matching value is the SAME slug used for the radio id (not the raw
+      # $fam_stem) — data-family attributes above are populated with
+      # wb_board_anchor_slug'd tokens, and this selector must match those,
+      # not raw (unescaped, attribute-injectable) frontmatter text.
+      family_hide_css+="#fp-$fam_slug:checked ~ main .view tr.row:not([data-family~=\"$fam_slug\"]), #fp-$fam_slug:checked ~ main .view .task-detail:not([data-family~=\"$fam_slug\"]) { display: none; }"$'\n'
       family_summary_css+="#fp-$fam_slug:checked ~ header .family-filter .filter-label { display: none; } #fp-$fam_slug:checked ~ header .family-filter .filter-label[data-for=\"$fam_slug\"] { display: inline; }"$'\n'
     done
   fi
@@ -2598,7 +2630,7 @@ wb_board_render_html() {
   local -a repo_opts=("all" "${repo_slugs_sorted[@]}")
   local -a family_opts=("all")
   [ "${#children_of[@]}" -gt 0 ] && for fam_stem in "${fam_stems_sorted[@]}"; do family_opts+=("$(wb_board_anchor_slug "$fam_stem")"); done
-  local reveal_css='' panelkey ro fo fo_stem empty ptab pwin
+  local reveal_css='' panelkey ro fo empty ptab pwin
   for panelkey in "${!PANEL_ANY[@]}"; do
     for ro in "${repo_opts[@]}"; do
       for fo in "${family_opts[@]}"; do
@@ -2607,11 +2639,12 @@ wb_board_render_html() {
         if [ "$fo" = all ]; then
           [ -n "${PANEL_REPO["$panelkey"$'\x1f'"$ro"]:-}" ] || empty=1
         elif [ "$ro" = all ]; then
-          fo_stem="${FAM_SLUG_TO_STEM["$fo"]}"
-          [ -n "${PANEL_FAMILY["$panelkey"$'\x1f'"$fo_stem"]:-}" ] || empty=1
+          # $fo is already the slug PANEL_FAMILY was populated with
+          # (data-family's tokens, per row_family_attr above) — no
+          # slug->stem reverse lookup needed.
+          [ -n "${PANEL_FAMILY["$panelkey"$'\x1f'"$fo"]:-}" ] || empty=1
         else
-          fo_stem="${FAM_SLUG_TO_STEM["$fo"]}"
-          [ -n "${PANEL_COMBO["$panelkey"$'\x1f'"$ro"$'\x1f'"$fo_stem"]:-}" ] || empty=1
+          [ -n "${PANEL_COMBO["$panelkey"$'\x1f'"$ro"$'\x1f'"$fo"]:-}" ] || empty=1
         fi
         [ "$empty" = 1 ] || continue
 

@@ -297,7 +297,7 @@ Review**) each render one of four states:
 | Glyph | State | Meaning |
 |---|---|---|
 | ✓ | done | The stage's artifact exists (a doc, a stamped `reviewed:` date, or — for Work — the task is closed with no open PR) |
-| ◐ | in progress | Work only: real changes exist, or a PR is open in any state |
+| ◑ | in progress | Work only: real changes exist, or a PR is open in any state |
 | ○ | pending | Declared (or defaulted) into the task's intended path, nothing has happened yet |
 | · (faint) | n/a | Not part of this task's intended path, and nothing has fired to upgrade it |
 

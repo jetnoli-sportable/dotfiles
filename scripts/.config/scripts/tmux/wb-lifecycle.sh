@@ -30,7 +30,7 @@
 # and no new network call (signal 7 reuses the $pr_info wb_board_render_html
 # already computes via wb_board_pr_info). Boolean predicates return via exit
 # code (0 = true, 1 = false), matching this codebase's existing convention
-# (wb_task_own_parent, wb.sh:145; wb_worktree_has_task, wb.sh:444) rather
+# (wb_task_own_parent, wb.sh:163; wb_worktree_has_task, wb.sh:624) rather
 # than printing "true"/"false".
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@
 # ---------------------------------------------------------------------------
 
 # wb_lifecycle_has_worktree <repo> <worktree_rel> — same presence check
-# cmd_reconcile's missing-worktree detection uses (wb.sh:478).
+# cmd_reconcile's missing-worktree detection uses (wb.sh:664).
 wb_lifecycle_has_worktree() {
   local repo="${1:-}" worktree="${2:-}"
   [ -d "$(wb_repo_dir "$repo")/$worktree" ]
@@ -51,7 +51,7 @@ wb_lifecycle_has_worktree() {
 # wb_lifecycle_has_live_agent <repo> <branch> — true only when a real
 # `claude` pane is running in the task's session, not merely when the
 # session exists (a session can hold only an nvim/shell window with no
-# agent actually running). Reuses wb_board_live_session_for (wb.sh:943) to
+# agent actually running). Reuses wb_board_live_session_for (wb.sh:1250) to
 # find the session, then tmux_claude_panes (lib.sh:99) — the same detection
 # claude-sessions.sh already relies on — scoped to that one session.
 wb_lifecycle_has_live_agent() {
@@ -97,6 +97,31 @@ wb_lifecycle_doc_qualifies() {
   esac
 }
 
+# wb_lifecycle_doc_qualifies_at <kind> <dir> <live> <repo_dir> <branch> <path>
+# — reads readiness+source for one matched candidate and applies
+# wb_lifecycle_doc_qualifies, so wb_lifecycle_has_doc's four near-identical
+# call sites (live/fallback x glob/prose) collapse to one line each. Only a
+# docs/plans/ candidate needs the frontmatter read at all (R8); every other
+# <dir> qualifies unconditionally, matching wb_lifecycle_doc_qualifies' own
+# passthrough case. <path> is a real filesystem path when <live>=1 (read
+# directly), or a repo-relative path when <live>=0 (read via `git show
+# <branch>:<path>`) — never hard-fails on a git error, mirroring this
+# module's other fallback reads.
+wb_lifecycle_doc_qualifies_at() {
+  local kind="$1" dir="$2" live="$3" repo_dir="$4" branch="$5" path="$6"
+  [ "$dir" = plans ] || return 0
+  local content readiness source
+  if [ "$live" = 1 ]; then
+    readiness="$(wb_get_frontmatter "$path" artifact_readiness)"
+    source="$(wb_get_frontmatter "$path" product_contract_source)"
+  else
+    content="$(git -C "$repo_dir" show "$branch:$path" 2>/dev/null)"
+    readiness="$(printf '%s\n' "$content" | wb_get_frontmatter_text artifact_readiness)"
+    source="$(printf '%s\n' "$content" | wb_get_frontmatter_text product_contract_source)"
+  fi
+  wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source"
+}
+
 # wb_lifecycle_has_doc <repo> <branch> <worktree_rel> <taskfile> <kind> —
 # shared implementation for wb_lifecycle_has_plan/has_brainstorm/has_ideate
 # (kind selects the docs/ subdirectory set via wb_lifecycle_doc_dirs_for_kind).
@@ -140,7 +165,7 @@ wb_lifecycle_has_doc() {
     git -C "$repo_dir" cat-file -e "$branch" 2>/dev/null || return 1
   fi
 
-  local dir f candidate content readiness source
+  local dir f candidate
   while IFS= read -r dir; do
     [ -n "$dir" ] || continue
 
@@ -151,11 +176,7 @@ wb_lifecycle_has_doc() {
           [ -f "$f" ] || continue
           case "$(basename "$f")" in
             *"$frag"*)
-              if [ "$dir" = plans ]; then
-                readiness="$(wb_get_frontmatter "$f" artifact_readiness)"
-                source="$(wb_get_frontmatter "$f" product_contract_source)"
-                wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
-              fi
+              wb_lifecycle_doc_qualifies_at "$kind" "$dir" "$live" "$repo_dir" "$branch" "$f" || continue
               return 0
               ;;
           esac
@@ -166,12 +187,7 @@ wb_lifecycle_has_doc() {
         [ -n "$candidate" ] || continue
         case "$(basename "$candidate")" in
           *"$frag"*)
-            if [ "$dir" = plans ]; then
-              content="$(git -C "$repo_dir" show "$branch:$candidate" 2>/dev/null)"
-              readiness="$(printf '%s\n' "$content" | wb_get_frontmatter_text artifact_readiness)"
-              source="$(printf '%s\n' "$content" | wb_get_frontmatter_text product_contract_source)"
-              wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
-            fi
+            wb_lifecycle_doc_qualifies_at "$kind" "$dir" "$live" "$repo_dir" "$branch" "$candidate" || continue
             return 0
             ;;
         esac
@@ -187,19 +203,10 @@ wb_lifecycle_has_doc() {
       esac
       if [ "$live" = 1 ]; then
         [ -f "$wt/$candidate" ] || continue
-        if [ "$dir" = plans ]; then
-          readiness="$(wb_get_frontmatter "$wt/$candidate" artifact_readiness)"
-          source="$(wb_get_frontmatter "$wt/$candidate" product_contract_source)"
-          wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
-        fi
+        wb_lifecycle_doc_qualifies_at "$kind" "$dir" "$live" "$repo_dir" "$branch" "$wt/$candidate" || continue
       else
         git -C "$repo_dir" cat-file -e "$branch:$candidate" 2>/dev/null || continue
-        if [ "$dir" = plans ]; then
-          content="$(git -C "$repo_dir" show "$branch:$candidate" 2>/dev/null)"
-          readiness="$(printf '%s\n' "$content" | wb_get_frontmatter_text artifact_readiness)"
-          source="$(printf '%s\n' "$content" | wb_get_frontmatter_text product_contract_source)"
-          wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
-        fi
+        wb_lifecycle_doc_qualifies_at "$kind" "$dir" "$live" "$repo_dir" "$branch" "$candidate" || continue
       fi
       return 0
     done < <(wb_board_doc_candidates "$taskfile")
@@ -410,6 +417,7 @@ wb_lifecycle_parse_path() {
   for stage in "${WB_LIFECYCLE_STAGES[@]}"; do
     [ -n "${want[$stage]:-}" ] && printf '%s\n' "$stage"
   done
+  return 0
 }
 
 # wb_lifecycle_stage_state <stage> <repo> <branch> <worktree_rel> <taskfile>

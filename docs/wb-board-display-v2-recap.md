@@ -49,7 +49,7 @@ xdg-open logs/board.html
 
 Things to look for:
 
-1. **Pipeline is the default tab.** Every non-done task across every repo shows up, with five stage cells (Ideate/Brainstorm/Plan/Work/Review) each rendering `·` (n/a), `○` (pending), `◐` (in progress), or `✓` (done).
+1. **Pipeline is the default tab.** Every non-done task across every repo shows up, with five stage cells (Ideate/Brainstorm/Plan/Work/Review) each rendering `·` (n/a), `○` (pending), `◑` (in progress), or `✓` (done).
 2. **Open a done task's card** (any bucket tab) — it has the same two-zone layout and stepper as an in-flight task, just with every applicable stage checked off.
 3. **Repo and Family dropdowns** (header, top right) narrow every tab's rows/cards at once. Key Findings at the bottom of any tab does **not** shrink when you narrow a filter — that's deliberate (R22).
 4. **Key Findings**, bottom of every tab: look for the `board-wide · ignores filters` tag next to the heading, and however many of the six insights are non-empty right now (grep `logs/board.html` for `key-findings` if you want the raw markup).
