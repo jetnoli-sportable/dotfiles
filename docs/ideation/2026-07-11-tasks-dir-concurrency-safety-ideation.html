@@ -1,0 +1,472 @@
+<title>Ideation: TASKS_DIR Concurrency Safety</title>
+<style>
+  :root {
+    --bg: #ffffff; --bg-soft: #f6f7f9; --text: #1c2128; --text-muted: #57606a;
+    --border: #d0d7de; --accent: #6639b6; --accent-soft: #f0ebfa; --accent-text: #4d2a94;
+    --good: #1a7f37; --good-soft: #dafbe1; --warn: #9a6700; --warn-soft: #fff8c5;
+    --danger: #cf222e; --danger-soft: #ffebe9; --code-bg: #f6f7f9; --code-text: #1c2128;
+    --tok-com: #6e7781; --tok-str: #0a7d3f; --tok-key: #6639b6;
+    --shadow: 0 1px 2px rgba(27,31,36,0.06), 0 1px 8px rgba(27,31,36,0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --bg-soft: #161b22; --text: #e6edf3; --text-muted: #9198a1;
+      --border: #30363d; --accent: #b794f6; --accent-soft: #241a35; --accent-text: #d5bdfb;
+      --good: #3fb950; --good-soft: #122a1a; --warn: #d29922; --warn-soft: #2b2311;
+      --danger: #f85149; --danger-soft: #2d1214; --code-bg: #161b22; --code-text: #e6edf3;
+      --tok-com: #8b949e; --tok-str: #7ee2a8; --tok-key: #d5bdfb;
+      --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 1px 8px rgba(0,0,0,0.3);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --bg-soft: #f6f7f9; --text: #1c2128; --text-muted: #57606a;
+    --border: #d0d7de; --accent: #6639b6; --accent-soft: #f0ebfa; --accent-text: #4d2a94;
+    --code-bg: #f6f7f9; --code-text: #1c2128; --tok-com: #6e7781; --tok-str: #0a7d3f; --tok-key: #6639b6;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --bg-soft: #161b22; --text: #e6edf3; --text-muted: #9198a1;
+    --border: #30363d; --accent: #b794f6; --accent-soft: #241a35; --accent-text: #d5bdfb;
+    --code-bg: #161b22; --code-text: #e6edf3; --tok-com: #8b949e; --tok-str: #7ee2a8; --tok-key: #d5bdfb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5; margin: 0; padding: 2rem 1.25rem 5rem;
+  }
+  .page { max-width: 1440px; margin-inline: auto; }
+  h1, h2, h3 { line-height: 1.2; }
+  h1 { font-size: 1.85rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.3rem; margin-top: 2.25rem; padding-bottom: 0.35rem; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
+  a { color: var(--accent); }
+  p { margin: 0.5rem 0; }
+
+  .meta { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem; }
+  .meta dl { display: flex; flex-wrap: wrap; gap: 0 1.75rem; margin: 0.4rem 0 0; }
+  .meta dt { font-weight: 600; }
+  .meta dd { margin: 0; }
+
+  .stat-strip { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1rem 0 1.5rem; }
+  .stat { flex: 1 1 140px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 1rem; }
+  .stat .n { font-size: 1.5rem; font-weight: 800; color: var(--accent-text); }
+  .stat .l { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+
+  .context-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; margin: 1rem 0 1.5rem; }
+  .context-card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem 1.1rem; }
+  .context-card h3 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); margin-bottom: 0.4rem; }
+  .context-card ul { margin: 0; padding-left: 1.1rem; font-size: 0.92rem; }
+  .context-card li { margin-bottom: 0.3rem; }
+
+  .eyebrow { display: inline-block; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; color: var(--accent-text); background: var(--accent-soft); padding: 0.18rem 0.55rem; border-radius: 999px; margin-bottom: 0.5rem; }
+
+  .jumplist { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem 1.2rem; margin: 1rem 0 1.5rem; columns: 2; column-gap: 2rem; }
+  .jumplist ol { margin: 0.3rem 0 0; padding-left: 1.3rem; }
+  .jumplist a { text-decoration: none; }
+  .jumplist a:hover { text-decoration: underline; }
+
+  .ideas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 1.1rem; align-items: start; }
+  .idea-card.full { grid-column: 1 / -1; }
+  .idea-card { border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.3rem 1.3rem; box-shadow: var(--shadow); background: var(--bg); }
+  .idea-head { display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap; }
+  .idea-id { font-weight: 800; color: var(--accent-text); background: var(--accent-soft); border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.92rem; }
+  .idea-axis { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 0.15rem; }
+  .idea-strip { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.6rem 0 0.8rem; }
+  .pill { font-size: 0.75rem; font-weight: 600; padding: 0.24rem 0.65rem; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); }
+  .pill.conf-high { background: var(--good-soft); color: var(--good); border-color: transparent; }
+  .pill.conf-med { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+
+  .idea-body { display: grid; grid-template-columns: 1fr; gap: 0.9rem; }
+  .idea-card.full .idea-body.two-col { grid-template-columns: 1fr 1fr; }
+  .desc { font-size: 0.94rem; margin: 0.3rem 0 0; }
+
+  .code-block { background: var(--code-bg); color: var(--code-text); border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.85rem; overflow-x: auto; font-size: 0.78rem; line-height: 1.5; margin: 0.2rem 0; }
+  .code-block pre { margin: 0; white-space: pre; }
+  .tok-com { color: var(--tok-com); font-style: italic; }
+  .tok-str { color: var(--tok-str); }
+  .tok-key { color: var(--tok-key); font-weight: 600; }
+
+  .whycost { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; font-size: 0.88rem; }
+  .whycost .col h4 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.3rem; color: var(--text-muted); }
+  .whycost ul { margin: 0; padding-left: 1.05rem; }
+  .whycost li { margin-bottom: 0.25rem; }
+  .whycost .cost h4 { color: var(--warn); }
+
+  table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; }
+
+  svg { max-width: 100%; height: auto; }
+  .diagram-wrap { margin: 0.2rem 0; }
+  .diagram-caption { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.3rem; }
+
+  footer.composition-signal { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--text-muted); }
+
+  @media (max-width: 900px) {
+    .jumplist { columns: 1; }
+    .whycost { grid-template-columns: 1fr; }
+    .idea-card.full .idea-body.two-col { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="page">
+
+<div class="meta">
+  <strong>2026-07-11</strong>
+  <dl>
+    <dt>Topic</dt><dd>tasks-dir-concurrency-safety</dd>
+    <dt>Focus</dt><dd>Make ~/code/tasks (TASKS_DIR) safe under ~8-10+ concurrent Claude Code sessions</dd>
+    <dt>Mode</dt><dd>repo-grounded</dd>
+  </dl>
+</div>
+
+<h1>Ideation: TASKS_DIR Concurrency Safety</h1>
+
+<div class="stat-strip">
+  <div class="stat"><div class="n">3</div><div class="l">real incidents</div></div>
+  <div class="stat"><div class="n">41 &rarr; 7</div><div class="l">raw ideas &rarr; survivors</div></div>
+  <div class="stat"><div class="n">0</div><div class="l">git calls in wb.sh against TASKS_DIR</div></div>
+  <div class="stat"><div class="n">~10</div><div class="l">agent concurrency ceiling (wb.sh:253)</div></div>
+</div>
+
+<h2 id="grounding-context">Codebase Context</h2>
+
+<div class="context-grid">
+  <div class="context-card">
+    <h3>The setup</h3>
+    <ul>
+      <li>One shared git checkout, <code>~/code/tasks</code>, read/written by every <code>wb</code> session regardless of repo.</li>
+      <li><a href="https://github.com/jetnoli-sportable/dotfiles/blob/development/scripts/.config/scripts/tmux/wb.sh"><code>wb.sh</code></a> (~2242 lines) mediates file writes only &mdash; it runs <strong>zero</strong> git commands against <code>TASKS_DIR</code> (grep-confirmed across every <code>git -C</code> call site).</li>
+      <li>Every dangerous git command in the incidents was typed in an agent's own shell &mdash; not through any <code>wb.sh</code> code path.</li>
+    </ul>
+  </div>
+  <div class="context-card">
+    <h3>Three incidents</h3>
+    <ul>
+      <li><code>handoff.sh</code>'s own concurrent-invocation race &mdash; flagged, never fixed.</li>
+      <li><code>git reset --hard origin/development</code> rewound past another session's unpushed commits &mdash; caught by luck.</li>
+      <li>Same failure mode, days later &mdash; silently discarded a committed update, recovered only because GC hadn't run yet.</li>
+    </ul>
+  </div>
+  <div class="context-card">
+    <h3>Confirmed code gaps</h3>
+    <ul>
+      <li><code>wb_set_frontmatter</code>: whole-file read &rarr; awk &rarr; rename, no lock, no staleness check &mdash; textbook TOCTOU.</li>
+      <li><code>wb_seed_task</code> / <code>cmd_done</code> chain 5-6 sequential calls to it &mdash; not one transaction.</li>
+      <li>Zero <code>flock</code>/lockfile/PID-file anywhere; no dead-session detection beyond a bare <code>tmux has-session</code> check.</li>
+    </ul>
+  </div>
+  <div class="context-card">
+    <h3>External signal</h3>
+    <ul>
+      <li>Claude Code ships an official <code>PreToolUse</code> hook that hard-blocks a matched command &mdash; survives <code>--dangerously-skip-permissions</code>.</li>
+      <li>Git's <code>reference-transaction</code> hook can genuinely veto a ref update (verified against <code>man githooks</code>, not recalled).</li>
+      <li><code>flock</code> auto-releases on any process death &mdash; no TTL/heartbeat needed.</li>
+      <li>Bare-repo + per-agent-worktree is the dominant 2026 pattern for many-agents-one-repo.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="topic-axes">Topic Axes</h2>
+<p style="font-size:0.92rem;"><strong>file-write-concurrency</strong> &mdash; TOCTOU in frontmatter writes &nbsp;&middot;&nbsp; <strong>git-history-safety</strong> &mdash; destructive git ops discarding commits (the actual incidents) &nbsp;&middot;&nbsp; <strong>enforcement-topology</strong> &mdash; where protection lives given raw agent-typed commands &nbsp;&middot;&nbsp; <strong>session-lifecycle</strong> &mdash; crash/staleness + contention UX</p>
+
+<h2 id="ranked-ideas">Ranked Ideas</h2>
+
+<div class="jumplist">
+  <strong>Jump to:</strong>
+  <ol>
+    <li><a href="#idea-1">Three-layer hook stack</a></li>
+    <li><a href="#idea-2">Per-agent worktree isolation</a></li>
+    <li><a href="#idea-3">Single-writer intent-queue daemon</a></li>
+    <li><a href="#idea-4">Atomic multi-field write primitive</a></li>
+    <li><a href="#idea-5">Event-sourced append-only frontmatter</a></li>
+    <li><a href="#idea-6">Full contention-UX package</a></li>
+    <li><a href="#idea-7">Belt-and-suspenders recovery layer</a></li>
+  </ol>
+</div>
+
+<div class="ideas-grid">
+
+<article class="idea-card full" id="idea-1">
+  <span class="eyebrow">Top pick</span>
+  <div class="idea-head"><span class="idea-id">1</span><h3>Three-layer hook stack for git-history-safety</h3></div>
+  <div class="idea-axis">Axis: git-history-safety</div>
+  <div class="idea-strip"><span class="pill conf-high">Confidence 90%</span><span class="pill">Complexity Medium</span></div>
+  <p class="desc">Agent-side hook blocks the command before it runs &middot; git-side hook vetoes it even if the agent hook is bypassed &middot; a paved path removes the reason to hand-type it at all.</p>
+
+  <div class="idea-body two-col">
+    <div>
+      <div class="code-block"><pre><span class="tok-com">// ~/.claude/settings.json</span>
+{
+  <span class="tok-key">"hooks"</span>: { <span class="tok-key">"PreToolUse"</span>: [{
+    <span class="tok-key">"matcher"</span>: <span class="tok-str">"Bash"</span>,
+    <span class="tok-key">"hooks"</span>: [{ <span class="tok-key">"type"</span>: <span class="tok-str">"command"</span>,
+      <span class="tok-key">"command"</span>: <span class="tok-str">"~/.claude/hooks/guard-tasks-dir.sh"</span> }]
+  }] }
+}</pre></div>
+      <div class="code-block"><pre><span class="tok-com"># guard-tasks-dir.sh</span>
+cwd=$(jq -r <span class="tok-str">'.tool_input.cwd'</span>)
+cmd=$(jq -r <span class="tok-str">'.tool_input.command'</span>)
+[[ <span class="tok-key">"$cwd"</span> == <span class="tok-str">"$HOME/code/tasks"</span>* ]] || exit 0
+echo <span class="tok-key">"$cmd"</span> | grep -Eq <span class="tok-str">'reset +--hard|--force|clean +-f'</span> &&
+  { echo <span class="tok-str">'{"decision":"block"}'</span>; exit 0; }</pre></div>
+    </div>
+    <div>
+      <div class="code-block"><pre><span class="tok-com"># ~/code/tasks/.git/hooks/reference-transaction</span>
+[ <span class="tok-key">"$1"</span> = prepared ] || exit 0
+while read -r old new ref; <span class="tok-key">do</span>
+  git merge-base --is-ancestor <span class="tok-key">"$old" "$new"</span> || {
+    echo <span class="tok-str">"refuse: $ref would lose commits"</span> &gt;&amp;2
+    exit 1
+  }
+<span class="tok-key">done</span></pre></div>
+      <div class="whycost">
+        <div class="col"><h4>Why</h4><ul>
+          <li>All 3 incidents were hand-typed &mdash; <code>wb.sh</code> makes 0 git calls here.</li>
+          <li>Reference-transaction veto confirmed real via <code>man githooks</code>.</li>
+          <li><code>destructive_command_guard</code> is working prior art for the agent-side hook.</li>
+        </ul></div>
+        <div class="col cost"><h4>Cost</h4><ul>
+          <li>Refuse-condition must be scoped carefully (false positives elsewhere).</li>
+          <li>Agent hook covers Claude Code only &mdash; git hook covers a raw terminal too.</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="idea-card full" id="idea-2">
+  <div class="idea-head"><span class="idea-id">2</span><h3>Per-agent worktree isolation of TASKS_DIR</h3></div>
+  <div class="idea-axis">Axis: enforcement-topology</div>
+  <div class="idea-strip"><span class="pill conf-med">Confidence 75%</span><span class="pill">Complexity High</span></div>
+  <p class="desc">Give <code>TASKS_DIR</code> the same per-repo worktree pattern <code>cmd_new</code> already runs for code repos &mdash; each session gets its own worktree, fast-forward merge-back on <code>wb pause</code>/<code>wb done</code>.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 860 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Comparison of three enforcement topologies">
+      <defs><marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path></marker></defs>
+      <style>
+        .topo-box { fill: var(--bg-soft); stroke: var(--border); stroke-width: 1.5; }
+        .topo-label { font: 600 12px -apple-system, sans-serif; fill: var(--text); }
+        .topo-sub { font: 11px -apple-system, sans-serif; fill: var(--text-muted); }
+        .topo-title { font: 700 12px -apple-system, sans-serif; fill: var(--accent-text); }
+        .topo-arrow { stroke: var(--text-muted); stroke-width: 1.4; fill: none; marker-end: url(#arrow2); }
+      </style>
+      <text x="20" y="20" class="topo-title">A &mdash; shared checkout + hooks (idea 1)</text>
+      <rect x="20" y="32" width="240" height="66" rx="8" class="topo-box"></rect>
+      <text x="140" y="56" text-anchor="middle" class="topo-label">TASKS_DIR (1 checkout)</text>
+      <text x="140" y="74" text-anchor="middle" class="topo-sub">guarded by both hooks</text>
+      <path d="M60,120 L60,100" class="topo-arrow"></path><path d="M140,120 L140,100" class="topo-arrow"></path><path d="M220,120 L220,100" class="topo-arrow"></path>
+      <text x="60" y="134" text-anchor="middle" class="topo-sub">S1</text><text x="140" y="134" text-anchor="middle" class="topo-sub">S2</text><text x="220" y="134" text-anchor="middle" class="topo-sub">S3</text>
+
+      <text x="310" y="20" class="topo-title">B &mdash; per-agent worktrees (idea 2)</text>
+      <rect x="310" y="80" width="240" height="28" rx="6" class="topo-box"></rect>
+      <text x="430" y="98" text-anchor="middle" class="topo-label">canonical branch</text>
+      <rect x="310" y="32" width="72" height="28" rx="6" class="topo-box"></rect><text x="346" y="50" text-anchor="middle" class="topo-sub">S1 wt</text>
+      <rect x="394" y="32" width="72" height="28" rx="6" class="topo-box"></rect><text x="430" y="50" text-anchor="middle" class="topo-sub">S2 wt</text>
+      <rect x="478" y="32" width="72" height="28" rx="6" class="topo-box"></rect><text x="514" y="50" text-anchor="middle" class="topo-sub">S3 wt</text>
+      <path d="M346,60 L346,80" class="topo-arrow"></path><path d="M430,60 L430,80" class="topo-arrow"></path><path d="M514,60 L514,80" class="topo-arrow"></path>
+      <text x="430" y="134" text-anchor="middle" class="topo-sub">merge-back on pause/done</text>
+
+      <text x="600" y="20" class="topo-title">C &mdash; single-writer daemon (idea 3)</text>
+      <rect x="700" y="32" width="120" height="36" rx="8" class="topo-box"></rect>
+      <text x="760" y="54" text-anchor="middle" class="topo-label">daemon (sole writer)</text>
+      <rect x="600" y="80" width="60" height="24" rx="6" class="topo-box"></rect><text x="630" y="96" text-anchor="middle" class="topo-sub">S1</text>
+      <rect x="670" y="80" width="60" height="24" rx="6" class="topo-box"></rect><text x="700" y="96" text-anchor="middle" class="topo-sub">S2</text>
+      <rect x="740" y="80" width="60" height="24" rx="6" class="topo-box"></rect><text x="770" y="96" text-anchor="middle" class="topo-sub">S3</text>
+      <path d="M630,80 L745,68" class="topo-arrow"></path><path d="M700,80 L755,68" class="topo-arrow"></path><path d="M770,80 L765,68" class="topo-arrow"></path>
+      <text x="700" y="134" text-anchor="middle" class="topo-sub">sessions submit intents only</text>
+    </svg>
+    <p class="diagram-caption">The central fork: three mutually exclusive answers to where write access to TASKS_DIR lives. A guards today's shape; B and C remove the shared-write surface, at rising structural cost.</p>
+  </div>
+
+  <div class="whycost">
+    <div class="col"><h4>Why</h4><ul>
+      <li><code>cmd_new</code> (wb.sh:318-330) already proves this pattern for code repos.</li>
+      <li>Bare-repo + per-agent-worktree is 2026's dominant multi-agent pattern (371 worktrees cited).</li>
+    </ul></div>
+    <div class="col cost"><h4>Cost</h4><ul>
+      <li>Reopens the "always-current store" tension &mdash; <code>wb board</code> shows "as of last sync."</li>
+      <li>Needs a real merge-back design, not just worktree-add.</li>
+    </ul></div>
+  </div>
+</article>
+
+<article class="idea-card" id="idea-3">
+  <div class="idea-head"><span class="idea-id">3</span><h3>Single-writer intent-queue daemon</h3></div>
+  <div class="idea-axis">Axis: enforcement-topology</div>
+  <div class="idea-strip"><span class="pill conf-med">Confidence 55%</span><span class="pill">Complexity High</span></div>
+  <p class="desc">One process owns every mutation; sessions append intents instead of writing directly. See topology C above.</p>
+  <div class="code-block"><pre><span class="tok-com"># ~/code/tasks/.intent-log (O_APPEND, atomic under PIPE_BUF)</span>
+2026-07-11T14:01Z set dotfiles--feat-x status doing
+2026-07-11T14:02Z set dotfiles--feat-x status reviewing
+
+<span class="tok-com"># daemon loop</span>
+tail -F .intent-log | <span class="tok-key">while</span> read -r ts op file key val; <span class="tok-key">do</span>
+  wb_set_frontmatter_batch <span class="tok-key">"$file" "$key=$val"</span>
+  git add <span class="tok-key">"$file"</span> &amp;&amp; git commit -q -m <span class="tok-str">"sync: $key=$val"</span>
+<span class="tok-key">done</span></pre></div>
+  <div class="whycost">
+    <div class="col"><h4>Why</h4><ul>
+      <li>5 whole-file-replace call sites collapse into 1 code path.</li>
+      <li>MMO server-authoritative-transactions lesson: don't trust client-submitted state.</li>
+    </ul></div>
+    <div class="col cost"><h4>Cost</h4><ul>
+      <li>Verifier flagged scope stretch (100-agent / cross-machine framing overshoots reality).</li>
+      <li>New persistent process to keep reliable; exclusive with idea 2.</li>
+    </ul></div>
+  </div>
+</article>
+
+<article class="idea-card" id="idea-4">
+  <div class="idea-head"><span class="idea-id">4</span><h3>Atomic multi-field write primitive</h3></div>
+  <div class="idea-axis">Axis: file-write-concurrency</div>
+  <div class="idea-strip"><span class="pill conf-high">Confidence 92%</span><span class="pill">Complexity Low</span></div>
+  <p class="desc">Collapse sequential per-field writes into one atomic rename, guarded by a generation nonce.</p>
+  <div class="code-block"><pre><span class="tok-com"># before &mdash; 2 renames, race window between them</span>
+wb_set_frontmatter <span class="tok-key">"$f"</span> status done
+wb_set_frontmatter <span class="tok-key">"$f"</span> closed <span class="tok-key">"$(date +%F)"</span>
+
+<span class="tok-com"># after &mdash; 1 rename, aborts if rev: moved</span>
+wb_set_frontmatter_batch <span class="tok-key">"$f"</span> --expect-rev <span class="tok-key">"$rev"</span> \
+  status=done closed=<span class="tok-key">"$(date +%F)"</span></pre></div>
+  <div class="whycost">
+    <div class="col"><h4>Why</h4><ul>
+      <li>Both bugs confirmed directly in code, not inferred.</li>
+      <li>Also unblocks the in-flight parent/child feature's dual-file update.</li>
+    </ul></div>
+    <div class="col cost"><h4>Cost</h4><ul>
+      <li>New abort-and-retry contract for every caller.</li>
+      <li>File-level only &mdash; doesn't touch git-history races.</li>
+    </ul></div>
+  </div>
+</article>
+
+<article class="idea-card" id="idea-5">
+  <div class="idea-head"><span class="idea-id">5</span><h3>Event-sourced append-only frontmatter</h3></div>
+  <div class="idea-axis">Axis: file-write-concurrency</div>
+  <div class="idea-strip"><span class="pill conf-med">Confidence 65%</span><span class="pill">Complexity Medium</span></div>
+  <p class="desc">Alternative philosophy to idea 4: never overwrite, fold over an append-only log instead.</p>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 520 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Overwrite versus append-only contrast">
+      <style>
+        .es-box { fill: var(--bg-soft); stroke: var(--border); stroke-width: 1.5; }
+        .es-danger { fill: var(--danger-soft); stroke: var(--danger); stroke-width: 1.5; }
+        .es-good { fill: var(--good-soft); stroke: var(--good); stroke-width: 1.5; }
+        .es-sub { font: 10px -apple-system, sans-serif; fill: var(--text-muted); }
+        .es-title { font: 700 11px -apple-system, sans-serif; fill: var(--accent-text); }
+      </style>
+      <text x="10" y="16" class="es-title">Overwrite (today)</text>
+      <rect x="10" y="26" width="230" height="26" rx="5" class="es-box"></rect><text x="125" y="43" text-anchor="middle" class="es-sub">status: doing</text>
+      <rect x="10" y="56" width="230" height="26" rx="5" class="es-danger"></rect><text x="125" y="73" text-anchor="middle" class="es-sub">S1's "reviewing" silently gone</text>
+      <text x="125" y="102" text-anchor="middle" class="es-sub">second writer wins, first unrecoverable</text>
+
+      <text x="270" y="16" class="es-title">Append-only (idea 5)</text>
+      <rect x="270" y="26" width="240" height="20" rx="5" class="es-box"></rect><text x="390" y="40" text-anchor="middle" class="es-sub">14:01 doing (S1)</text>
+      <rect x="270" y="50" width="240" height="20" rx="5" class="es-box"></rect><text x="390" y="64" text-anchor="middle" class="es-sub">14:02 reviewing (S1)</text>
+      <rect x="270" y="74" width="240" height="20" rx="5" class="es-good"></rect><text x="390" y="88" text-anchor="middle" class="es-sub">14:02 done (S2) &mdash; both kept</text>
+      <text x="390" y="112" text-anchor="middle" class="es-sub">current state = fold over every line</text>
+    </svg>
+  </div>
+  <div class="code-block"><pre>## Handoffs
+- 2026-07-11T14:01Z status: doing (dotfiles-feat-x)
+- 2026-07-11T14:02Z status: reviewing (dotfiles-feat-x)
+- 2026-07-11T14:02Z status: done (be-monorepo-fix-y)</pre></div>
+  <div class="whycost">
+    <div class="col"><h4>Why</h4><ul>
+      <li>Reuses the README's own <code>## Handoffs</code> convention &mdash; not foreign.</li>
+      <li><code>wb_reconcile_apply</code> already reopens-not-merges-blind &mdash; this generalizes that.</li>
+    </ul></div>
+    <div class="col cost"><h4>Cost</h4><ul>
+      <li>Real schema change &mdash; touches the reader and <code>wb board</code>'s status column.</li>
+      <li>Needs explicit buy-in before implementation.</li>
+    </ul></div>
+  </div>
+</article>
+
+<article class="idea-card" id="idea-6">
+  <div class="idea-head"><span class="idea-id">6</span><h3>Full contention-UX package</h3></div>
+  <div class="idea-axis">Axis: session-lifecycle</div>
+  <div class="idea-strip"><span class="pill conf-high">Confidence 88%</span><span class="pill">Complexity Low</span></div>
+  <p class="desc">Per-file <code>flock</code> + fail-fast holder-named message + reuse <code>handoff.sh</code>'s liveness check + halt-and-ask on genuine ambiguity.</p>
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 520 140" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Contention timeline showing crash-safe lock release">
+      <defs><marker id="arrow6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--text-muted)"></path></marker></defs>
+      <style>
+        .tl-line { stroke: var(--border); stroke-width: 2; }
+        .tl-sub { font: 10px -apple-system, sans-serif; fill: var(--text-muted); }
+        .tl-event { fill: var(--accent); } .tl-danger { fill: var(--danger); } .tl-good { fill: var(--good); }
+      </style>
+      <line x1="30" y1="30" x2="490" y2="30" class="tl-line"></line><text x="12" y="34" class="tl-sub">S1</text>
+      <line x1="30" y1="90" x2="490" y2="90" class="tl-line"></line><text x="12" y="94" class="tl-sub">S2</text>
+      <circle cx="70" cy="30" r="5" class="tl-event"></circle><text x="70" y="16" text-anchor="middle" class="tl-sub">acquires flock</text>
+      <circle cx="180" cy="90" r="5" class="tl-danger"></circle><text x="180" y="112" text-anchor="middle" class="tl-sub">blocked: "held by S1"</text>
+      <circle cx="270" cy="30" r="5" class="tl-danger"></circle><text x="270" y="16" text-anchor="middle" class="tl-sub">crashes</text>
+      <path d="M270,35 L270,85" stroke="var(--danger)" stroke-width="1.5" stroke-dasharray="3 3"></path>
+      <circle cx="320" cy="30" r="5" class="tl-good"></circle><text x="370" y="16" text-anchor="middle" class="tl-sub">kernel auto-releases</text>
+      <circle cx="410" cy="90" r="5" class="tl-good"></circle><text x="410" y="112" text-anchor="middle" class="tl-sub">S2 proceeds, no TTL</text>
+      <path d="M320,35 L410,85" class="tl-line" marker-end="url(#arrow6)" stroke-dasharray="2 3"></path>
+    </svg>
+  </div>
+  <div class="code-block"><pre><span class="tok-com"># wb_with_lock</span>
+wb_with_lock() {
+  <span class="tok-key">local</span> f=<span class="tok-key">"$1"</span>; shift
+  exec {fd}&gt;<span class="tok-key">"$f.lock"</span>
+  flock -w 1 <span class="tok-key">"$fd"</span> || {
+    echo <span class="tok-str">"waiting on $(cat "$f.lock.owner")"</span> &gt;&amp;2; <span class="tok-key">return</span> 1; }
+  echo <span class="tok-key">"$WB_SESSION"</span> &gt; <span class="tok-key">"$f.lock.owner"</span>
+  <span class="tok-key">"$@"</span>
+}</pre></div>
+  <div class="whycost">
+    <div class="col"><h4>Why</h4><ul>
+      <li><code>flock</code> auto-releases on any process death &mdash; answers staleness for free.</li>
+      <li><code>handoff.sh:185-196</code> already implements the liveness check being reused.</li>
+    </ul></div>
+    <div class="col cost"><h4>Cost</h4><ul>
+      <li>Doesn't prevent a write conflict alone &mdash; pair with idea 4 or 5.</li>
+      <li>Message wording is a small but real design surface.</li>
+    </ul></div>
+  </div>
+</article>
+
+<article class="idea-card" id="idea-7">
+  <div class="idea-head"><span class="idea-id">7</span><h3>Belt-and-suspenders recovery layer</h3></div>
+  <div class="idea-axis">Axis: git-history-safety</div>
+  <div class="idea-strip"><span class="pill conf-high">Confidence 95%</span><span class="pill">Complexity Low</span></div>
+  <p class="desc">Ships regardless of which other idea wins &mdash; turns "we got lucky" into "this always works."</p>
+  <div class="code-block"><pre>git -C ~/code/tasks config gc.auto 0
+git -C ~/code/tasks config gc.reflogExpire never
+git -C ~/code/tasks config gc.reflogExpireUnreachable never
+
+<span class="tok-com"># snapshot before any reset/rebase/force-push:</span>
+git -C ~/code/tasks branch \
+  <span class="tok-str">"refs/safety/$(hostname)-$(date +%s)"</span> HEAD</pre></div>
+  <div class="whycost">
+    <div class="col"><h4>Why</h4><ul>
+      <li>Incident 3 recovered only by luck &mdash; <code>gc.reflogExpire</code>/<code>gc.auto</code> confirmed unset today.</li>
+      <li>Strictly improves every other option's worst case.</li>
+    </ul></div>
+    <div class="col cost"><h4>Cost</h4><ul>
+      <li>Prevents nothing by itself &mdash; recoverability only.</li>
+      <li><code>refs/safety/*</code> needs eventual cleanup (low urgency).</li>
+    </ul></div>
+  </div>
+</article>
+
+</div>
+
+<h2 id="rejection-summary">Rejection Summary</h2>
+<table>
+  <thead><tr><th>#</th><th>Idea</th><th>Reason Rejected</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Conflicted-copy on collision</td><td>Same philosophy as idea 5, weaker mechanism &mdash; redundant.</td></tr>
+    <tr><td>2</td><td><code>wb_with_lock</code> as a separate entry</td><td>Same mechanism as idea 6 &mdash; folded in.</td></tr>
+    <tr><td>3</td><td>Split prose/frontmatter into a sidecar</td><td>Scope stretch &mdash; idea 4 fixes the observed bug without a schema change.</td></tr>
+    <tr><td>4</td><td>Kitchen call-and-response (advisory broadcast)</td><td>Weaker than idea 6 &mdash; both incidents involved a fast-moving operator an advisory wouldn't have caught.</td></tr>
+    <tr><td>5</td><td>SBAR/ATC handover note</td><td>Sound but a follow-on to idea 6, not an independent decision.</td></tr>
+  </tbody>
+</table>
+
+<footer class="composition-signal">Composed 2026-07-11 by ce-ideate, invoked from a ce-brainstorm session on <code>docs/roadmap-tasks-concurrency-safety</code> &middot; grounded in <code>~/code/tasks/dotfiles--feat-wb-tasks-concurrency-safety.md</code> and direct reads of <code>wb.sh</code>, plus web research into git/VCS concurrency prior art.</footer>
+
+</div>

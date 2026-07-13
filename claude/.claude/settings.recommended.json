@@ -3,5 +3,27 @@
     "allow": [
       "Read(/home/jetnoli/code/tasks/**)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/tasks-git-hooks/pretooluse-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/tasks-git-hooks/pretooluse-guard.sh"
+          }
+        ]
+      }
+    ]
   }
 }

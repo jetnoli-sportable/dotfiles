@@ -134,3 +134,29 @@ tmux_claude_panes() {
   done < <(tmux list-panes -a -F \
     '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{pane_title}')
 }
+
+# tmux_session_agent_state <session> — tri-state liveness check for a wb
+# session's ":agent" window: "dead" (no exact "=<session>" tmux session
+# exists at all), "unknown" (the session exists, but its ":agent" pane
+# either doesn't exist or isn't running a claude process — e.g. a prior
+# spawn's boot-ready timeout leaves the session behind with nothing killing
+# it, or a bare `wb new` (no --agent) deliberately leaves the "agent"
+# window as an idle shell, wb_layout_session wb.sh:210-214), or "alive"
+# (the session exists AND the ":agent" pane's pane_current_command is
+# exactly "claude"). Extracted from handoff.sh's own switch-path check — a
+# pure relocation of that field-proven two-stage check (see that call
+# site's own comment for the "zombie session" scenario it guards against),
+# not a rewrite: only the return value changed shape, from a 0/1 flag to
+# this 3-way string. handoff.sh's own caller today still only tells alive
+# apart from not-alive and folds dead/unknown into the same branch; a
+# lock-contention caller (a future, separate unit) needs the two told
+# apart to decide whether a lock holder can be treated as an orphan.
+tmux_session_agent_state() {
+  local session="$1"
+  tmux has-session -t "=$session" 2>/dev/null || { echo dead; return; }
+  if [ "$(tmux list-panes -t "=$session:agent" -F '#{pane_current_command}' 2>/dev/null)" = "claude" ]; then
+    echo alive
+  else
+    echo unknown
+  fi
+}

@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>&#34;Recap — the Hub-v0 &#43; agent-fleet push (2026-07-10 → 12)&#34;</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+   
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="page">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/2026-07-12-workflow-push-recap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-12</span>
+</div>
+<main>
+<header class="doc">
+  <span class="eyebrow">personal-workflow</span>
+  <h1><span class="glyph">§</span> &#34;Recap — the Hub-v0 &#43; agent-fleet push (2026-07-10 → 12)&#34;</h1>
+  <div class="meta">
+    <span class="chip ok">current</span>
+    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
+  </div>
+</header>
+<article>
+<p>The record of a two-day push on the personal workflow. Started as a single
+<code>/ce-ideate</code> on the Hub v0 roadmap section; became a calibration of the
+whole workflow, survived a destructive incident with a full recovery, and
+ended with a fleet of parallel agents shipping the backlog. This page is
+the source; edit <code>docs/2026-07-12-workflow-push-recap.md</code>.</p>
+<h2 id="the-arc">The arc</h2>
+<ol>
+<li><strong>Ideation (2026-07-10)</strong> — <code>/ce-ideate</code> on &quot;what should the roadmap
+section of Hub v0 contain&quot;: 7 verified survivor directions (stage ×
+impediment status grammar, &quot;blocked&quot; as a written waits-on link, the
+commitment queue, the &quot;Not doing&quot; lane, calibration-as-ritual). Doc:
+<code>docs/ideation/2026-07-10-hub-v0-roadmap-section-ideation.html</code>.</li>
+<li><strong>Calibration round</strong> — a 6-decision decision-buffer
+(<code>logs/decisions/2026-07-10-workflow-calibration.md</code>) driven by a
+parallel workflow review: resequenced parent/child ahead of Hub v0,
+trimmed Hub v0 (deferred the artifact index), reshaped the roadmap,
+ratified the <strong>&quot;everything is a note&quot;</strong> north star.</li>
+<li><strong>The deletion incident</strong> — a code-review subagent <code>source</code>d <code>wb.sh</code>,
+whose unconditional <code>CODE_DIR=$HOME/code</code> clobbered the script's own
+var, and its cleanup <code>rm -rf &quot;$CODE_DIR&quot;</code> wiped <code>~/code</code>. Full account:
+<code>[[2026-07-10-deletion-incident-and-recovery]]</code> memory.</li>
+<li><strong>Recovery</strong> — notes corpus rebuilt from nvim swap/undo artifacts;
+decision records + Hub v0 docs replayed verbatim from session
+transcripts; <code>~/code/tasks</code> and <code>~/code/notes</code> got their <strong>first-ever
+git remotes</strong> as the lasting fix. Records: <code>RECOVERY-NOTES-2026-07-10.md</code>
+in the tasks store.</li>
+<li><strong>The parallel fleet (2026-07-11)</strong> — with parent/child merged, a fleet
+of agents spun up via the pseudo-handoff pattern (each dogfooding the
+<code>/handoff</code> flow being built), converging to 14 merged PRs.</li>
+</ol>
+<h2 id="what-shipped-merged-prs">What shipped (merged PRs)</h2>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>#13</td>
+<td>pre-commit hook targets the actual worktree, not always main</td>
+</tr>
+<tr>
+<td>#14</td>
+<td>wb workbench extensions: <code>wb resume</code> / <code>wb pause</code> / <code>/board</code> / <code>wb reconcile</code></td>
+</tr>
+<tr>
+<td>#15</td>
+<td>nvim: <code>vim .</code> no longer silently auto-restores a session</td>
+</tr>
+<tr>
+<td>#16</td>
+<td>roadmap sync after PR #1</td>
+</tr>
+<tr>
+<td>#17</td>
+<td><strong>task parent/child relationship</strong> (+ the CODE_DIR override-safe fix)</td>
+</tr>
+<tr>
+<td>#18</td>
+<td><strong>Hub v0</strong>: glossary, limitations, ceremonies pages, <code>/board</code> tile, roadmap reshape</td>
+</tr>
+<tr>
+<td>#19</td>
+<td><code>wb done --close</code> (opt-in session kill + self-kill guard)</td>
+</tr>
+<tr>
+<td>#20</td>
+<td><code>wb board</code> lifecycle-stage detection functions (U1–U3)</td>
+</tr>
+<tr>
+<td>#21</td>
+<td><strong><code>/handoff</code> v1</strong> — route a discussion to the right worker (now a real skill)</td>
+</tr>
+<tr>
+<td>#23</td>
+<td>limitations: roadmap anchor/link integrity recorded as manually verified</td>
+</tr>
+<tr>
+<td>#24</td>
+<td><strong><code>/queue</code></strong> — per-worktree queue for stashing follow-ups</td>
+</tr>
+<tr>
+<td>#25</td>
+<td>tmux <code>detach-on-destroy off</code> — land in another session on kill</td>
+</tr>
+<tr>
+<td>#26</td>
+<td><code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code>/<code>wb-board</code> skills (context-handoff)</td>
+</tr>
+<tr>
+<td>#27</td>
+<td>fix: Sweep-review buffer no longer autoformats itself</td>
+</tr>
+</tbody>
+</table>
+<p>Plus one un-PR'd win: <code>.worktree-bootstrap</code> seeds <code>logs/decisions</code> into
+every new worktree (kills the manual copy step). All three stores
+(dotfiles, tasks, notes) are pushed.</p>
+<h2 id="current-roadmap-state">Current roadmap state</h2>
+<p><code>docs/roadmap.md</code> is the reshaped page from #18 — sections: <strong>At a glance</strong>
+(an anchor-linked, stage-coloured timeline), <strong>Up next (max 3)</strong>, <strong>Live</strong>,
+<strong>Parked</strong> (every entry names a revisit trigger), <strong>Not doing</strong> (86'd
+items), <strong>Shipped</strong> (14 items). Statuses use the stage × impediment
+grammar with waits-on links (e.g. Task recall · <code>needs: boundary-rule</code>).</p>
+<p><strong>Known drift to fix (small):</strong> the reshape was built <em>while</em> Hub v0 and
+<code>/handoff</code> were in flight, so At-a-glance/Live still label <strong>Hub v0 as
+&quot;active&quot;</strong> and <strong><code>/handoff</code> as &quot;in build&quot;</strong> — both have since merged
+(#18, #21). A one-pass status refresh (Hub v0 → shipped, <code>/handoff</code> →
+shipped, and move the schema-migration item forward) is owed.</p>
+<h2 id="hub-v0--done-trimmed-as-planned">Hub v0 — done, trimmed as planned</h2>
+<p>Merged (#18). Live and Hub-tiled: <strong>glossary</strong>, <strong>limitations</strong>,
+<strong>ceremonies</strong>. The <strong>artifact index</strong> (U5/U6) was deliberately deferred
+(revisit when a one-off doc actually goes un-findable). The roadmap
+reshape (U7) shipped. So Hub v0's remaining scope is complete except the
+consciously-parked artifact index.</p>
+<h2 id="still-in-flight--open">Still in flight / open</h2>
+<ul>
+<li><strong>#22</strong> (open) — docs note: <code>~/code/tasks</code> has no locking across
+concurrent <code>wb</code> agents. A live <strong>concurrency-safety lane</strong> is exploring
+the actual fix (ideation: <code>docs/ideation/2026-07-11-tasks-dir-concurrency-safety-ideation.html</code>).</li>
+<li><strong>wb-board-display lane</strong> — the display/render half of the lifecycle
+board (detection shipped in #20).</li>
+<li><strong>Held, gate now cleared:</strong> <code>dotfiles--audit-tmux-jump-to</code> — jump-to gap
+audit; its blockers (<code>/handoff</code> #21 + <code>/queue</code> #24) are both merged, so
+it's ready to spawn.</li>
+<li><strong>Task-store schema migration</strong> — the per-file pass across
+<code>~/code/tasks/*.md</code> still hasn't run (only #17's two files carry the new
+fields). Top of &quot;Up next.&quot;</li>
+</ul>
+<h2 id="key-learnings-captured">Key learnings captured</h2>
+<ul>
+<li><strong>zsh implicit-modifier / tied-array footguns</strong> (<code>CODE_DIR</code>, <code>path=</code>,
+<code>$var:agent</code>→<code>:a</code>) — all bite unbraced vars <em>in zsh</em>; the shipped bash
+scripts are safe. See the incident memory.</li>
+<li><strong>Editor state dirs (undo/swap) are a first-class recovery source</strong> when
+git can't help.</li>
+<li><strong>Roadmap.md is a serialization point</strong> — only one lane touching it at a
+time, rebase-before-PR (a #26 conflict proved this).</li>
+<li><strong>Pseudo-handoff mechanics</strong> (task-file-as-payload, anchored readiness
+markers scoped to the output region, session-scoped tasks-read allow,
+no <code>/model</code> for per-spawn model) — now formalized in the <code>/handoff</code> skill.</li>
+</ul>
+<h2 id="whats-next-suggested-order">What's next (suggested order)</h2>
+<ol>
+<li>Refresh the roadmap's stale statuses (Hub v0 / <code>/handoff</code> → shipped).</li>
+<li>Land #22; decide whether to <em>implement</em> task-store locking before
+scaling agent-count further.</li>
+<li>Run the task-store schema migration.</li>
+<li>Spawn the held jump-to audit.</li>
+<li>The parked end-of-day <strong>notes-dir audit</strong> (&quot;everything is a note&quot;).</li>
+</ol>
+</article>
+<footer>
+  Generated by <code>docgen</code> from <code>docs/2026-07-12-workflow-push-recap.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+</main>
+
+</body>
+</html>

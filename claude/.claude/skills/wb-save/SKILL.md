@@ -110,18 +110,40 @@ silently breaks that shared contract:
 **Next:** ...
 ```
 
-- Use Read then Edit directly on the task file's prose — the same division
-  of labor `/handoff`'s own step 5 ("Write the rich context") uses: shell
-  out to `wb.sh` helpers only for mechanical path/frontmatter work, direct
-  Read/Edit for freeform body content. **Do not shell out to
+- Shell out to `wb append` — the locked, heading-scoped append verb
+  (`scripts/.config/scripts/tmux/wb.sh`, search `cmd_append`) every
+  agent-mediated task-file write in this codebase now goes through, instead
+  of an Edit-tool write. Pass the task file resolved in step 1, `Handoffs`
+  as the heading, and the whole three-line block above as one multi-line
+  body via stdin:
+
+```bash
+wb append "$task_file" Handoffs <<EOF
+### $(date '+%Y-%m-%d %H:%M') — wb-save
+**Done:** ...
+**In flight:** ...
+**Next:** ...
+EOF
+```
+
+  `wb append` takes the per-task `flock` lock itself (the same one every
+  other task-file writer in this codebase — `wb.sh`'s own `cmd_pause`/
+  `cmd_done`/`cmd_resume`, and `handoff.sh` — already goes through) and
+  reuses `wb_append_handoff`'s exact heading-fallback/end-of-section
+  insertion rule: inserting `## Handoffs` first if it's missing (per the
+  position rule above), and always landing the new block at the END of the
+  section, never right after the heading. **Do not shell out to
   `wb_append_handoff` itself** — that helper hardcodes the `(auto)` suffix
   meant for its own mechanical callers (`cmd_pause`/`cmd_done`/
   `cmd_resume`) and writes a single-line message body, not this
-  three-field structured entry; this skill's richer shape is exactly why
-  it isn't a caller of that helper.
-- **Never overwrite.** If `## Handoffs` already has entries, leave every
-  prior character alone — only ever insert the new heading (if it was
-  missing) and the new entry block.
+  three-field structured entry; `wb append`'s multi-line stdin form exists
+  specifically for this richer shape.
+- **Never write or edit task files under `~/code/tasks` with the Edit/Write
+  tool.** `wb append` is append-only by construction — it can only ever add
+  a new block under a named heading, never touch a byte of what's already
+  there — so shelling out to it *is* the "never overwrite every prior
+  character" guarantee this section always carried; there is no separate
+  manual-carefulness step left to describe.
 
 ### 4. Tell the user, relay, and stop
 

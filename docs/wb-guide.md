@@ -4,7 +4,7 @@ status: current
 tile: How to use wb: session-per-worktree, the unified picker, wind-down.
 group: personal-workflow
 kind: guide
-updated: 2026-07-07
+updated: 2026-07-12
 ---
 
 Replaces the `s` / `ca` split with a single tmux+fzf tool backed by a
@@ -210,6 +210,31 @@ In order, every time:
 > *"N follow-ups pending · M parked — consider running `/parked-items`."*
 > The same count shows in the picker's status line at all times.
 
+## wb breakdown — split an oversized task into a family
+
+A task whose `## Plan` has grown into a week of work becomes a
+**session-less parent** plus one or more session-sized **children**, one
+of which (the "continuing" child) inherits the parent's actual git
+branch/worktree/session — nothing already in flight gets interrupted.
+
+```
+/wb-breakdown <stem-or-ticket>   # authors a proposal buffer, opens it for you
+wb breakdown --apply <buffer>    # (invoked for you) validates + writes the family
+```
+
+`/wb-breakdown` (the skill, `claude/.claude/skills/wb-breakdown/SKILL.md`)
+does the thinking — it climbs the richest available evidence (a ticket's
+subtasks, a linked plan doc, a substantive `## Plan`, or a fresh read) and
+writes a checkbox buffer for you to edit and approve. `wb breakdown
+--apply` does the writing — under one locked, all-or-nothing transaction:
+seed the checked children, rewrite the parent's `## Plan`, move any
+checked follow-ups to the child they belong to, migrate the continuing
+child's branch/worktree away from the parent, and archive the closed
+buffer under `~/code/tasks/dossiers/<parent-stem>/`. `/wb-breakdown` with
+no argument lists tasks already tagged `breakdown-candidate`. Closing the
+last open child of a family, `wb done` prints the exact command to close
+the parent too.
+
 ## Bringing a gitignored file into a new worktree
 
 A fresh worktree only has tracked files — anything gitignored (a local
@@ -310,6 +335,14 @@ link to their backing artifact (the doc, or the PR) when one exists on disk;
 a task whose worktree is gone but whose branch still carries the doc shows
 an unlinked glyph with a tooltip naming it, rather than losing the signal.
 
+**Live and Stale tabs**, next to Pipeline: **Live** narrows to every task
+(or untracked worktree) with a currently-running tmux session — the same
+green dot Pipeline/bucket rows already show, isolated into its own list.
+**Stale** narrows to in-flight tasks whose `created`/`closed`/`updated` all
+predate a 14-day threshold (`WB_STALE_DAYS` in `wb.sh`) — the ones you
+started and haven't touched in a while. Both are window-independent, like
+Pipeline.
+
 **Every detail card** (bucket tabs and Pipeline alike, done tasks included)
 shows the same stepper as a two-zone card: identity (title, status, repo ·
 branch) on the left, live-agent badge / worktree indicator / PR chip on the
@@ -334,6 +367,11 @@ children — only appears at all once the store has at least one parent/child
 pair). Both default to "All"; picking a specific option narrows every tab's
 table and cards at once, never Key Findings (below).
 
+**Sorting.** Click a **Status** or **Repo** column header to sort that
+table by it — the one deliberate exception to the page otherwise being
+CSS-only/no-JS (a small inline script; everything else stays radio+CSS
+driven).
+
 **Key Findings**, at the bottom of every tab, is board-global and explicitly
 tagged *board-wide · ignores filters* — no repo/family filter narrows it,
 since it's meant to answer "what needs attention across everything," not
@@ -355,6 +393,27 @@ inside a `wb` session, run `wb reviewed` — it stamps the task's `reviewed:`
 field, which is what makes the Review stage (and the unreviewed-count
 insight) tell the truth. This is a convention, not automation — nothing
 enforces it, it only works if it's actually run.
+
+## Keeping the task store safe
+
+`~/code/tasks` is a single git checkout that every `wb`-driven session on
+this machine shares — 8-10+ concurrent agents on a normal day. A follow-up
+PR added guards and a handful of new verbs on top of everything above. Full
+details, incident history, and runbooks live in
+[`tasks-store-guards.md`](guides/tasks-store-guards.html); the short version:
+
+| Verb | What it's for |
+|---|---|
+| `wb sync` | Pull/rebase the task store safely — refuses on a dirty tree or real conflicts instead of guessing. |
+| `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
+| `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
+| `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |
+
+Two hooks now sit in front of raw git commands touching this repo:
+a `PreToolUse` hook asks before an agent runs anything that looks like a
+history rewind, and a `reference-transaction` git hook refuses ref updates
+that would orphan commits, regardless of which tool or shell ran the
+command. `wb unsafe-rewind` is the sanctioned way through the second one.
 
 ## Known rough edges (not blocking, worth knowing)
 
