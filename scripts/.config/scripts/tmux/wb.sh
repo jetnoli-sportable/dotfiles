@@ -2,6 +2,9 @@
 # wb (workbench) — session-per-worktree + the unified picker.
 #   wb new [--agent] <slug>          from inside a repo
 #   wb new [--agent] <repo> <slug>   from anywhere
+#   wb new --planned <repo> <slug>   seed a worktree-less task file only (status stays
+#                                    planned) — no worktree, no tmux session; the
+#                                    locked creation path agent-mediated skills use
 #   wb                               the picker (replaces s + ca)
 #   wb board                         task-store status table (interim /board)
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
@@ -9,6 +12,20 @@
 #   wb pause [<session>]             mark a task paused — worktree and session both survive
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
+#   wb sync                          fetch + fast-forward-only merge for $TASKS_DIR (refuses on dirty tree, divergence, or the wrong branch)
+#   wb unsafe-rewind "<reason>"      write a time-limited escape-hatch sentinel a git hook honors for a deliberate rewind
+#   wb append <task> <heading> [<body>|-]
+#                                    append <body> under "## <heading>" in <task>'s file,
+#                                    taking the per-task lock (fail-loud on an ambiguous
+#                                    or unmatched <task>); <body> omitted or literally
+#                                    "-" reads a multi-line body from stdin instead — the
+#                                    agent-mediated write path /wb-save, /handoff, and
+#                                    /parked-items use instead of Edit-tool task writes
+#   wb install-hooks                 idempotently point $TASKS_DIR's core.hooksPath at the
+#                                    stowed tasks-git-hooks/ dir, harden its gc/reflog
+#                                    settings, and verify (never edit) ~/.claude/settings.json's
+#                                    PreToolUse entry — printing the paste-block + a
+#                                    restart-running-sessions reminder when it's missing
 #
 # Design + build order: dotfiles/docs/roadmap.md §2/§3,
 # ratified judgment calls: dotfiles/logs/decisions/2026-07-06-review-outstanding.md,
@@ -29,6 +46,8 @@ SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"   # for fzf reload/become to 
 source "$SCRIPT_DIR/lib.sh"
 # shellcheck source=wb-lifecycle.sh
 source "$SCRIPT_DIR/wb-lifecycle.sh"
+# shellcheck source=wb-locks.sh
+source "$SCRIPT_DIR/wb-locks.sh"
 
 TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
 CODE_DIR="${CODE_DIR:-$HOME/code}"
@@ -159,6 +178,179 @@ wb_task_own_parent() {
 wb_tsv_split() {
   local -n _wb_tsv_out="$2"
   mapfile -t _wb_tsv_out < <(awk -F'\t' '{ for (i = 1; i <= NF; i++) print $i }' <<< "$1")
+}
+
+# ---------------------------------------------------------------------------
+# Lock integration (U3) — the L2-L5 caller-side orphan-check-and-retry layer
+# built on top of wb-locks.sh's (U1) generic, liveness-agnostic primitives
+# and lib.sh's (U2) tmux_session_agent_state. Lives here, not in
+# wb-locks.sh: the orphan decision needs wb/claude process-shape and tmux
+# session-liveness knowledge, both wb-specific — wb-locks.sh itself stays a
+# generic lock module with zero tmux/claude awareness. Every cmd_*/
+# wb_reconcile_action_* call site below uses wb_task_lock_acquire_guarded
+# instead of calling wb_task_lock_acquire directly, so the four-condition
+# check lives in exactly one place instead of being duplicated at every one
+# of this file's locking call sites.
+# ---------------------------------------------------------------------------
+
+# _wb_lock_cmdline_wb_shaped <pid> — true when /proc/<pid>/cmdline looks like
+# a wb.sh/handoff.sh/claude process, not an unrelated process that happens to
+# have been assigned this pid after the real holder exited (PID-reuse guard,
+# L2's process-identity condition). /proc/<pid>/cmdline is NUL-separated;
+# `tr` folds that into plain spaces for a simple substring match.
+_wb_lock_cmdline_wb_shaped() {
+  local pid="$1" cmdline
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
+  [ -n "$cmdline" ] || return 1
+  case "$cmdline" in
+    *wb.sh*|*handoff.sh*|*claude*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# _wb_lock_holder_is_orphan <task_file> <pid> — L2's four-condition orphan
+# predicate. Only ever evaluated AFTER wb_task_lock_acquire has already lost
+# a contended acquire, and only for a holder pid the caller has already
+# confirmed is still alive (kill -0 succeeded there — a gone pid means the
+# kernel already dropped the flock on process death, the cheaper case
+# handled directly by the caller, never reaching here). <pid> is passed in
+# by the caller (wb_task_lock_acquire_guarded), which already read it off
+# the lock file to make that liveness check — reading it a second time here
+# would be the same field read twice on every contended acquire, the exact
+# path this whole guard exists to handle quickly. Orphan (safe to clear and
+# retry once) only when ALL FOUR hold simultaneously:
+#   1. the recorded holder pid is alive (the caller's own precondition for
+#      calling this at all — see above).
+#   2. `/proc/<pid>/cmdline` looks wb/claude-shaped (PID-reuse guard).
+#   3. the recorded acquire timestamp is >60s old — a generous multiple of
+#      any legitimate wb chain, so a session mid-spawn is never mistaken for
+#      dead (incident 1's exact danger zone).
+#   4. the holder's OWN recorded tmux_session (never the TARGET task's own
+#      session, which legitimately doesn't exist yet during a handoff spawn
+#      — signaling the healthy winner there is incident 1's guard-as-weapon
+#      scenario) comes back `dead` from tmux_session_agent_state (U2) — no
+#      such session exists at all for the holder anymore.
+# An empty recorded tmux_session field, or a `tmux_session_agent_state`
+# result of `alive`/`unknown`, both fail this check outright (conditions 3/4
+# folded together below) — L3/L5: anything less than a confirmed-dead
+# holder session never auto-clears. Reads holder-info fields via
+# wb-locks.sh's public wb_task_lock_holder_field, never its internal
+# _wb_lock_path_for/_wb_lock_field accessors directly.
+_wb_lock_holder_is_orphan() {
+  local task_file="$1" pid="$2" ts tmux_session state now held_epoch elapsed
+
+  tmux_session="$(wb_task_lock_holder_field "$task_file" tmux_session)"
+  [ -n "$tmux_session" ] || return 1   # empty -> unknown, never killable
+
+  state="$(tmux_session_agent_state "$tmux_session")"
+  [ "$state" = dead ] || return 1      # alive/unknown -> halt, no clearing (L3/L5)
+
+  _wb_lock_cmdline_wb_shaped "$pid" || return 1
+
+  ts="$(wb_task_lock_holder_field "$task_file" acquired)"
+  now="$(date +%s)"
+  held_epoch="$(date -d "$ts" +%s 2>/dev/null)" || held_epoch="$now"
+  elapsed=$(( now - held_epoch ))
+  [ "$elapsed" -gt 60 ] || return 1
+
+  return 0
+}
+
+# wb_task_lock_acquire_guarded <task_file> — the ONE call site every cmd_*
+# verb, wb_reconcile_action_*, and handoff.sh's own write site uses instead
+# of calling wb_task_lock_acquire directly. wb_task_lock_acquire (U1) never
+# auto-retries by design (W9) — retry is explicitly a caller-level decision,
+# and this is that caller.
+#
+# On an uncontended win, behaves exactly like wb_task_lock_acquire: 0,
+# silent. On a lost contention (75), reads the recorded holder's pid via
+# wb-locks.sh's public wb_task_lock_holder_field (never its internal
+# `_wb_lock_path_for`/`_wb_lock_field` accessors directly), and decides:
+#   - holder pid already gone (`kill -0` fails) -> the kernel already
+#     dropped the flock on process death; retry once — the cheap, common
+#     crash case (L2's "if the PID is gone" clause).
+#   - holder pid alive AND _wb_lock_holder_is_orphan confirms all four L2
+#     conditions -> retry once. The already-read `holder_pid` is passed
+#     straight into that check (rather than having it re-read the same
+#     field a second time) — this whole path exists to resolve a contended
+#     acquire quickly.
+#   - anything else (alive session, unknown state, missing/empty holder
+#     info) -> never retries. wb_task_lock_acquire's own failure — which
+#     already printed the one L4 stderr message naming the holder — stands
+#     unmodified; this function never prints a second message of its own.
+# The retry itself is just another `wb_task_lock_acquire` call: wb-locks.sh
+# is not touched by this unit, so there is no standalone non-blocking
+# `flock -n` entry point to call directly — a retry against a lock that's
+# actually free (the whole premise of clearing it here) returns effectively
+# instantly through the existing `flock -w 1` path regardless.
+wb_task_lock_acquire_guarded() {
+  local task_file="$1"
+  wb_task_lock_acquire "$task_file" && return 0
+  local rc=$?
+
+  local holder_pid; holder_pid="$(wb_task_lock_holder_field "$task_file" pid)"
+
+  if [ -n "$holder_pid" ] && ! kill -0 "$holder_pid" 2>/dev/null; then
+    wb_task_lock_acquire "$task_file"
+    return $?
+  fi
+
+  if [ -n "$holder_pid" ] && _wb_lock_holder_is_orphan "$task_file" "$holder_pid"; then
+    wb_task_lock_acquire "$task_file"
+    return $?
+  fi
+
+  return "$rc"
+}
+
+# _wb_lock_trap_append_if_top_level <cleanup-command> — every cmd_*/
+# wb_reconcile_action_*/handoff.sh call site below uses THIS instead of
+# calling wb_lock_trap_append (U1) directly, guarding it on
+# `$BASH_SUBSHELL = 0` (i.e. this process IS the top-level shell, not a
+# subshell forked for a command substitution, background job, or explicit
+# `( )`).
+#
+# Why the guard: wb_lock_trap_append's whole job is to call `trap ... EXIT`
+# — that's necessary and correct composition when this IS the real,
+# possibly-long-lived process (a fresh `bash wb.sh <verb>` invocation, or
+# picker()'s own in-process `cmd_new` call composing with its pre-existing
+# `trap 'rm -f "$mode_file"' EXIT`, W6's own worked example). But bash does
+# NOT auto-fire an inherited EXIT trap in a subshell UNLESS that subshell
+# itself calls `trap ... EXIT` again — which wb_lock_trap_append does
+# unconditionally. So if a cmd_* function runs inside a subshell (the
+# ubiquitous `out="$(cmd_pause ...)"` test idiom every existing wb.sh test
+# file uses to capture output), calling wb_lock_trap_append there RE-ARMS,
+# and then immediately FIRES on that subshell's own exit, whatever EXIT
+# trap the ENCLOSING caller happened to have installed — which in every
+# existing test file is a destructive `trap 'rm -rf "$FIXTURE" ...' EXIT`.
+# Confirmed live while building wb-lock-integration.test.sh: wrapping
+# wb_reconcile_action_merge in `$(...)` to capture its stderr silently
+# deleted the test's own fixture mid-run, and the SAME shape broke
+# wb-pause.test.sh's `out="$(cmd_pause "$SESSION" 2>&1)"` the moment
+# cmd_pause gained its own wb_lock_trap_append call.
+#
+# The guard is safe to skip in the subshell case for a second, independent
+# reason, not just "it would misbehave": a subshell's own natural process
+# exit ALREADY closes every fd it holds (kernel auto-release, the final
+# backstop behind even wb_task_lock_release_all itself) — the EXIT-trap
+# safety net is pure redundancy there, so skipping it costs nothing.
+#
+# Installs at most once per top-level process (_WB_LOCK_TRAP_INSTALLED),
+# regardless of how many cmd_*/wb_reconcile_action_* calls run in it — e.g.
+# `wb reconcile --apply` looping over N checked findings would otherwise
+# re-append the identical `wb_task_lock_release_all` cleanup N times, and
+# wb_lock_trap_append's own `trap -p EXIT` + eval re-parse of the whole
+# accumulated trap string on every call makes that cost grow with N, not
+# just once. Every call site passes this function the SAME cleanup command
+# (wb_task_lock_release_all), so once it's in the trap, appending it again
+# changes nothing observable — the trap fires it exactly the same way at
+# real process exit either way.
+_wb_lock_trap_append_if_top_level() {
+  [ "${BASH_SUBSHELL:-0}" -eq 0 ] || return 0
+  [ "${_WB_LOCK_TRAP_INSTALLED:-0}" -eq 1 ] && return 0
+  wb_lock_trap_append "$1"
+  _WB_LOCK_TRAP_INSTALLED=1
 }
 
 # ---------------------------------------------------------------------------
@@ -306,6 +498,62 @@ wb_seed_task() {
   echo "$file"
 }
 
+# wb_seed_task_planned <repo> <slug> [<parent_ref>] — W13's planned-preserving
+# sibling of wb_seed_task: find-or-create the task file for a repo+slug pair
+# WITHOUT ever creating a worktree, and WITHOUT wb_seed_task's own
+# planned->doing flip or worktree stamping. Used by `wb new --planned`
+# (cmd_new, below), in turn used by /parked-items' scratch-task creation and
+# /handoff's task-file seeding step — both cases where no work has actually
+# started yet, so there is no real worktree path to stamp and the task must
+# stay `status: planned` rather than jump straight to `doing`. The REAL
+# doing/worktree transition happens later, for real, the ordinary way,
+# whenever something actually calls `wb new [--agent]` on the same repo/slug
+# — that goes through wb_seed_task's own EXISTING-file branch above, which
+# idempotently fills in exactly those fields without this function's
+# involvement.
+#
+# New file: status is hardcoded to "planned" (never "doing"), repo:/branch:
+# are filled from the arguments, worktree: is left exactly as TEMPLATE.md
+# already has it (blank) — no substitution rule for it at all, unlike
+# wb_seed_task's new-file branch above.
+#
+# Existing file: same non-clobbering backfill convention as wb_seed_task for
+# repo:/branch:/reviewed:, but status: is ONLY backfilled when blank —
+# never bumped or otherwise touched when already set, to ANY value (planned,
+# doing, paused, done, ...). This is what makes a second call against the
+# same repo/slug (idempotent re-run — e.g. /handoff routing a second,
+# related discussion to an already-seeded task) safe: it can never clobber
+# a status a real `wb new`/`wb new --agent` run already advanced past
+# "planned" in the meantime.
+wb_seed_task_planned() {
+  local repo="$1" slug="$2" parent="${3:-}"
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local file; file="$(wb_task_file "$repo" "$disp_slug")"
+
+  if [ ! -f "$file" ]; then
+    mkdir -p "$TASKS_DIR"
+    local title="${slug//-/ }"
+    awk -v repo="$repo" -v branch="$slug" \
+        -v created="$(date +%F)" -v title="$title" '
+      BEGIN { infm = 0 }
+      /^---$/     { infm++; print; next }
+      infm == 1 && /^status:/   { print "status: planned"; next }
+      infm == 1 && /^repo:/     { print "repo: " repo; next }
+      infm == 1 && /^branch:/   { print "branch: " branch; next }
+      infm == 1 && /^created:/  { print "created: " created; next }
+      infm == 2 && /^# Title/   { print "# " title; next }
+      { print }
+    ' "$TASKS_DIR/TEMPLATE.md" > "$file"
+  else
+    [ -n "$(wb_get_frontmatter "$file" repo)" ]     || wb_set_frontmatter "$file" repo "$repo"
+    [ -n "$(wb_get_frontmatter "$file" branch)" ]   || wb_set_frontmatter "$file" branch "$slug"
+    [ -n "$(wb_get_frontmatter "$file" status)" ]   || wb_set_frontmatter "$file" status planned
+    [ -n "$(wb_get_frontmatter "$file" reviewed)" ] || wb_set_frontmatter "$file" reviewed ""
+  fi
+  [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
+  echo "$file"
+}
+
 # wb_layout_session <session> <dir> <start_agent> — first-time-only 3-window
 # layout: win1 nvim, win2 a plain shell for the agent (LAZY — you run `claude`
 # yourself the first time you visit, bounded by the ~10-concurrent-agent
@@ -332,11 +580,12 @@ cmd_new() {
   # value as a separate following argument, which a foreach that only
   # detects literal tokens (like --agent) can't consume — the value would
   # fall into the else branch and corrupt the positional repo/slug count.
-  local agent_flag=0 parent_ref=""
+  local agent_flag=0 parent_ref="" planned_flag=0
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --agent)  agent_flag=1; shift ;;
+      --agent)   agent_flag=1; shift ;;
+      --planned) planned_flag=1; shift ;;
       --parent)
         case "${2-}" in
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
@@ -345,6 +594,11 @@ cmd_new() {
       *)        args+=("$1"); shift ;;
     esac
   done
+
+  if [ "$planned_flag" = 1 ] && [ "$agent_flag" = 1 ]; then
+    echo "wb new: --planned and --agent are mutually exclusive — --planned never starts a worktree/session for --agent to attach to" >&2
+    exit 1
+  fi
 
   local repo slug
   if [ "${#args[@]}" -eq 2 ]; then
@@ -356,7 +610,7 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent] [--parent <repo>--<slug>] <slug> | wb new [--agent] [--parent <repo>--<slug>] <repo> <slug>" >&2
+    echo "usage: wb new [--agent|--planned] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned] [--parent <repo>--<slug>] <repo> <slug>" >&2
     exit 1
   fi
 
@@ -375,6 +629,29 @@ cmd_new() {
 
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
+
+  if [ "$planned_flag" = 1 ]; then
+    # W13's planned-preserving creation path: no worktree, no tmux session —
+    # just a lock-guarded, idempotent task-file seed via wb_seed_task_planned
+    # (above) that preserves `status: planned` (never the ordinary
+    # planned->doing flip cmd_new's normal path below performs) and never
+    # stamps `worktree:` to a path that doesn't exist yet. This is the verb
+    # /parked-items (scratch tasks with no work started) and /handoff's
+    # seeding step (the real doing/worktree transition happens later, for
+    # real, whenever something actually calls `wb new [--agent]` on the same
+    # repo/slug) both shell out to instead of an Edit-tool task-file write.
+    # Prints the resolved task-file path on stdout (the one piece of output
+    # a caller capturing `$(wb new --planned ...)` needs), mirroring
+    # wb_seed_task_planned's own `echo "$file"` convention.
+    local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+    _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+    wb_task_lock_acquire_guarded "$task_file" || exit $?
+    task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref")"
+    wb_task_lock_release "$task_file"
+    echo "$task_file"
+    return 0
+  fi
+
   local session="${repo}--${disp_slug}"
   local worktree_rel=".worktrees/$slug"
   local worktree_path="$repo_dir/$worktree_rel"
@@ -399,8 +676,16 @@ cmd_new() {
   wb_ensure_repo_ignore "$worktree_path" \
     || echo "wb new: warning: could not register .git/info/exclude ignore rule for $repo_dir (continuing)" >&2
 
-  local task_file
+  # W5: acquire BEFORE the $(wb_seed_task ...) command substitution, using
+  # the wb_task_file-derived path computed here in the OUTER (cmd_new)
+  # scope — the lock's fd must be owned by this process, not by the
+  # subshell that command substitution spawns for wb_seed_task, or it
+  # evaporates the instant that subshell exits.
+  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$task_file" || exit $?
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref")"
+  wb_task_lock_release "$task_file"
 
   local is_new=0
   tmux has-session -t "=$session" 2>/dev/null || is_new=1
@@ -421,16 +706,16 @@ cmd_new() {
 # wb resume — recreate a task's worktree+session from the central store
 # ---------------------------------------------------------------------------
 
-# cmd_resume <query> — case-insensitive substring match of <query> against
-# every task file's basename (repo--slug, minus .md), then hands off to
-# cmd_new's existing worktree/session logic (already idempotent — safe
-# whether the worktree still exists or was torn down by a prior `wb done`).
-# Never guesses on ambiguity: 0 or 2+ matches both fail loudly instead of
-# picking one.
-cmd_resume() {
-  local query="${1:-}"
-  [ -n "$query" ] || { echo "usage: wb resume <task>" >&2; exit 1; }
-
+# _wb_resolve_task_fuzzy <query> <verb-label> — case-insensitive substring
+# match of <query> against every task file's basename (repo--slug, minus
+# .md). Never guesses on ambiguity: 0 or 2+ matches both fail loudly
+# (messages prefixed with <verb-label>, e.g. "wb resume"/"wb append", so
+# each caller's errors still read as its own) instead of picking one. On
+# exactly one match, prints its path to stdout and returns 0. Shared by
+# cmd_resume and _wb_append_resolve_task's fuzzy fallback — both used to
+# hand-duplicate this exact match/ambiguity-guard block.
+_wb_resolve_task_fuzzy() {
+  local query="$1" verb="$2"
   local -a matches=()
   local f base
   while IFS= read -r f; do
@@ -442,29 +727,49 @@ cmd_resume() {
 
   case "${#matches[@]}" in
     0)
-      echo "wb resume: no task matches '$query' in $TASKS_DIR" >&2
-      exit 1
+      echo "$verb: no task matches '$query' in $TASKS_DIR" >&2
+      return 1
       ;;
     1)
-      local file="${matches[0]}" repo branch
-      repo="$(wb_get_frontmatter "$file" repo)"
-      branch="$(wb_get_frontmatter "$file" branch)"
-      [ -n "$repo" ] && [ -n "$branch" ] \
-        || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
-      cmd_new "$repo" "$branch"
-      # Handoffs-append lives HERE, not inside cmd_new — cmd_new is also
-      # the path every fresh `wb new` takes, and a fresh task must not
-      # gain a Handoffs entry (see wb_append_handoff's own header comment).
-      wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
+      printf '%s\n' "${matches[0]}"
+      return 0
       ;;
     *)
-      echo "wb resume: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
+      echo "$verb: '$query' matches ${#matches[@]} tasks — be more specific:" >&2
       for f in "${matches[@]}"; do
         echo "  $(basename "$f" .md)" >&2
       done
-      exit 1
+      return 1
       ;;
   esac
+}
+
+# cmd_resume <query> — resolves <query> (_wb_resolve_task_fuzzy, above),
+# then hands off to cmd_new's existing worktree/session logic (already
+# idempotent — safe whether the worktree still exists or was torn down by
+# a prior `wb done`).
+cmd_resume() {
+  local query="${1:-}"
+  [ -n "$query" ] || { echo "usage: wb resume <task>" >&2; exit 1; }
+
+  local file
+  file="$(_wb_resolve_task_fuzzy "$query" "wb resume")" || exit 1
+
+  local repo branch
+  repo="$(wb_get_frontmatter "$file" repo)"
+  branch="$(wb_get_frontmatter "$file" branch)"
+  [ -n "$repo" ] && [ -n "$branch" ] \
+    || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
+  cmd_new "$repo" "$branch"
+  # Handoffs-append lives HERE, not inside cmd_new — cmd_new is also
+  # the path every fresh `wb new` takes, and a fresh task must not
+  # gain a Handoffs entry (see wb_append_handoff's own header comment).
+  # A SEPARATE lock burst from cmd_new's own internal one above (which
+  # has already released by the time cmd_new returns) — never nested.
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
+  wb_task_lock_release "$file"
 }
 
 # ---------------------------------------------------------------------------
@@ -694,12 +999,17 @@ wb_reconcile_action_remove() {
     git -C "$repo_dir" branch -D "$branch" 2>/dev/null || true
     echo "wb reconcile --apply: removed $repo/$worktree and branch $branch"
   else
+    # W10: a bare `rm -f` racing another writer's tmp+mv can resurrect the
+    # file if unlocked — lock the target task file for this remove too.
+    _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+    wb_task_lock_acquire_guarded "$taskfile" || return $?
     if [ -f "$taskfile" ]; then
       rm -f "$taskfile"
       echo "wb reconcile --apply: removed stale task file $taskfile"
     else
       echo "wb reconcile --apply: $taskfile already gone, nothing to remove" >&2
     fi
+    wb_task_lock_release "$taskfile"
   fi
 }
 
@@ -720,7 +1030,14 @@ wb_reconcile_action_create_task() {
       return 0
     fi
   fi
-  local file; file="$(wb_seed_task "$repo" "$branch" "$worktree" "$parent")"
+  # Same W5 shape as cmd_new: acquire in THIS (outer) scope before the
+  # $(wb_seed_task ...) command substitution, using the wb_task_file-derived
+  # path — wb_seed_task's own file resolution is repo + sanitize(branch).
+  local file; file="$(wb_task_file "$repo" "$(wb_sanitize "$branch")")"
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || return $?
+  file="$(wb_seed_task "$repo" "$branch" "$worktree" "$parent")"
+  wb_task_lock_release "$file"
   echo "wb reconcile --apply: created task $file (status: doing)"
 }
 
@@ -736,7 +1053,10 @@ wb_reconcile_action_attach() {
     echo "wb reconcile --apply: attach target '$target' not found in $TASKS_DIR — skipping this finding" >&2
     return 0
   fi
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$target_file" || return $?
   wb_set_frontmatter "$target_file" worktree "$worktree"
+  wb_task_lock_release "$target_file"
   echo "wb reconcile --apply: attached $worktree to $target_file"
 }
 
@@ -787,11 +1107,41 @@ wb_reconcile_action_merge() {
     return 0
   fi
 
+  # W11: this action touches TWO files (survivor + loser) — acquire BOTH
+  # locks in sorted-path order (lexically first path first) so a concurrent
+  # dual-file operation over the same pair can never deadlock by acquiring
+  # in opposite order.
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  local -a sorted_pair
+  mapfile -t sorted_pair < <(printf '%s\n%s\n' "$taskfile" "$target_file" | sort)
+  wb_task_lock_acquire_guarded "${sorted_pair[0]}" || return $?
+  # Deliberately NOT `if ! wb_task_lock_acquire_guarded ...; then` — `$?`
+  # inside that `then` branch reflects the NEGATED condition's own exit
+  # status (always 0, since `!` flipped the real failure to make the branch
+  # taken at all), not the original acquire's 75; confirmed live (`if ! foo;
+  # then echo $?; fi` prints 0 even when foo returns 75). Calling it as a
+  # plain statement first and reading `$?` immediately after is the only
+  # reliable way to capture the REAL failing exit code here — this exact
+  # class of bug (silently clobbering a captured 75 into a false 0) already
+  # bit this same line once via a *different* mistake (a `|| { release;
+  # return $?; }` where `release`'s own always-0 return clobbered `$?`),
+  # caught live by wb-lock-integration.test.sh's sorted-second-locked
+  # scenario — this rewrite avoids both footguns at once.
+  wb_task_lock_acquire_guarded "${sorted_pair[1]}"
+  local second_rc=$?
+  if [ "$second_rc" -ne 0 ]; then
+    wb_task_lock_release "${sorted_pair[0]}"
+    return "$second_rc"
+  fi
+
   case "${survivor_checks[0]}" in
     "this finding"*) wb_reconcile_merge_content "$taskfile" "$target_file" ;;
     *)                wb_reconcile_merge_content "$target_file" "$taskfile" ;;
   esac
   echo "wb reconcile --apply: merged $taskfile and $target_file"
+
+  wb_task_lock_release "${sorted_pair[1]}"
+  wb_task_lock_release "${sorted_pair[0]}"
 }
 
 # wb_reconcile_apply — parse the closed review doc's marker-delimited
@@ -816,7 +1166,7 @@ wb_reconcile_apply() {
   done < "$path"
   [ "$in_block" = 1 ] && blocks+=("$block")
 
-  local reopen_needed=0
+  local reopen_needed=0 applied_count=0 skipped_count=0
   local b kind repo branch worktree taskfile target
   for b in "${blocks[@]}"; do
     kind="$(printf '%s' "$b" | grep -oP 'kind=\K[^ ]+' | head -1)"
@@ -830,15 +1180,29 @@ wb_reconcile_apply() {
     elif printf '%s' "$b" | grep -qE '^- \[x\] discuss'; then
       continue
     elif printf '%s' "$b" | grep -qE '^- \[x\] remove'; then
-      wb_reconcile_action_remove "$kind" "$repo" "$branch" "$worktree" "$taskfile"
+      # Every action call below is guarded with `|| { ...; continue; }`:
+      # each one now goes through a lock (W10), which can return 75 on
+      # contention -- routine, not rare, at this feature's ~10-concurrent-
+      # agent scale. wb.sh runs under `set -e`, so an UNGUARDED bare call
+      # here would abort this WHOLE --apply batch on the very first
+      # contended finding, silently skipping every finding after it with
+      # no report distinguishing "skipped" from "intentionally left
+      # alone" — degrade to a per-finding skip instead.
+      wb_reconcile_action_remove "$kind" "$repo" "$branch" "$worktree" "$taskfile" \
+        || { echo "wb reconcile --apply: skipped this finding (remove, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
+      applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qE '^- \[x\] create a task'; then
       local parent_ref=""
       parent_ref="$(printf '%s' "$b" | grep -oP 'create a task \(optional parent: `\K[^`]+' | head -1)"
       [ "$parent_ref" != '___' ] || parent_ref=""
-      wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree" "$parent_ref"
+      wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree" "$parent_ref" \
+        || { echo "wb reconcile --apply: skipped this finding (create a task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
+      applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] attach to task: \`[^\`_]+\`"; then
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] attach to task: `\K[^`]+' | head -1)"
-      wb_reconcile_action_attach "$kind" "$worktree" "$target"
+      wb_reconcile_action_attach "$kind" "$worktree" "$target" \
+        || { echo "wb reconcile --apply: skipped this finding (attach to task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
+      applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] merge with task: \`[^\`_]+\`"; then
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] merge with task: `\K[^`]+' | head -1)"
       if [ "$kind" != orphan ] && ! printf '%s' "$b" | grep -qE '^\s*- \[.\] survivor:'; then
@@ -862,9 +1226,15 @@ wb_reconcile_apply() {
         reopen_needed=1
         continue
       fi
-      wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" "$b"
+      wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" "$b" \
+        || { echo "wb reconcile --apply: skipped this finding (merge with task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
+      applied_count=$((applied_count + 1))
     fi
   done
+
+  if [ "$skipped_count" -gt 0 ]; then
+    echo "wb reconcile --apply: $applied_count applied, $skipped_count skipped (contended or otherwise failed — re-run \`wb reconcile --apply\` to retry the skipped finding(s); the review doc is unchanged, so already-applied findings won't be re-applied)" >&2
+  fi
 
   if [ "$reopen_needed" = 1 ]; then
     printf '%s' "$full_content" > "$path"
@@ -901,8 +1271,11 @@ cmd_pause() {
   local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
   [ -f "$task_file" ] || { echo "wb pause: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
 
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status paused
   wb_append_handoff "$task_file" "wb pause" 'Session paused via `wb pause`.'
+  wb_task_lock_release "$task_file"
   echo "wb pause: $session paused — worktree and session untouched, task -> paused ($task_file)"
 }
 
@@ -941,8 +1314,145 @@ cmd_reviewed() {
   local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
   [ -f "$task_file" ] || { echo "wb reviewed: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
 
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" reviewed "$(date +%F)"
+  wb_task_lock_release "$task_file"
   echo "wb reviewed: $session marked reviewed ($task_file)"
+}
+
+# ---------------------------------------------------------------------------
+# wb sync — the paved path for pulling shared $TASKS_DIR changes: fetch, then
+# fast-forward-only merge, refusing loudly on anything that isn't a clean
+# fast-forward. Exists so nobody reaches for `git reset --hard
+# origin/<branch>` (or a force-push) to "fix" a stuck TASKS_DIR — that IS
+# the anti-pattern that caused the 2026-07-10 incident this concurrency-
+# safety effort responds to. This command NEVER pushes, under any
+# circumstance.
+# ---------------------------------------------------------------------------
+
+# _wb_git_dirty_guard <path> <verb-label> — fail loud (exit 1, naming
+# <verb-label>) if <path>'s git status is non-empty; silent no-op
+# otherwise. Shared by cmd_sync and cmd_done, which used to hand-duplicate
+# this exact guard (only the path and the verb name differed).
+_wb_git_dirty_guard() {
+  local path="$1" verb="$2" dirty
+  dirty="$(git -C "$path" status --porcelain 2>/dev/null || true)"
+  if [ -n "$dirty" ]; then
+    echo "$verb: $path is dirty:" >&2
+    echo "$dirty" >&2
+    echo "commit or stash, then re-run" >&2
+    exit 1
+  fi
+}
+
+# cmd_sync — guard order: fetch (loud abort on failure) -> dirty-tree guard
+# -> branch/detached-HEAD guard -> ahead/behind decision (ff-merge / no-op /
+# refuse-diverged).
+cmd_sync() {
+  # 1. fetch FIRST — never compare against a possibly-stale local
+  # origin/<branch> ref. A failed fetch (offline, no SSH agent, unreachable
+  # remote, ...) aborts loudly, not a silent no-op against stale refs.
+  if ! git -C "$TASKS_DIR" fetch origin; then
+    echo "wb sync: git fetch origin failed for $TASKS_DIR — offline, no SSH agent, or the remote is unreachable; aborting without comparing refs" >&2
+    exit 1
+  fi
+
+  # 2. dirty-tree guard.
+  _wb_git_dirty_guard "$TASKS_DIR" "wb sync"
+
+  # 3. branch guard — refuse on a detached HEAD or on any branch other than
+  # the remote's own tracked default branch. Deliberately NOT hardcoded to
+  # "development" or "main" — that's a per-repo convention, and this task
+  # store's default branch is whatever origin/HEAD actually says, not an
+  # assumption baked into this script. Prefer the locally-cached
+  # refs/remotes/origin/HEAD symref (set by `git clone`); fall back to
+  # asking the remote directly (`ls-remote --symref`, same primitive) when
+  # that symref was never established — e.g. a checkout built by `init` +
+  # `remote add` + `fetch` rather than `clone` (confirmed against a real
+  # ~/code/tasks checkout, which hit exactly this fallback path).
+  local expected_branch
+  expected_branch="$(git -C "$TASKS_DIR" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  expected_branch="${expected_branch#origin/}"
+  if [ -z "$expected_branch" ]; then
+    expected_branch="$(git -C "$TASKS_DIR" ls-remote --symref origin HEAD 2>/dev/null \
+      | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
+  fi
+  if [ -z "$expected_branch" ]; then
+    echo "wb sync: could not determine origin's default branch for $TASKS_DIR (no origin/HEAD symref, and ls-remote --symref failed) — refusing to guess" >&2
+    exit 1
+  fi
+
+  local current_ref
+  current_ref="$(git -C "$TASKS_DIR" symbolic-ref -q HEAD 2>/dev/null || true)"
+  if [ -z "$current_ref" ]; then
+    echo "wb sync: $TASKS_DIR has a detached HEAD — refusing to fast-forward-merge into a detached state; check out $expected_branch first" >&2
+    exit 1
+  fi
+  local current_branch="${current_ref#refs/heads/}"
+  if [ "$current_branch" != "$expected_branch" ]; then
+    echo "wb sync: $TASKS_DIR is on '$current_branch', not '$expected_branch' (the tracked default branch) — refusing to fast-forward-merge into the wrong branch" >&2
+    exit 1
+  fi
+
+  # 4. ahead/behind decision.
+  local counts ahead behind
+  counts="$(git -C "$TASKS_DIR" rev-list --left-right --count "HEAD...origin/$expected_branch" 2>/dev/null)" || {
+    echo "wb sync: could not compare $TASKS_DIR against origin/$expected_branch after fetch" >&2
+    exit 1
+  }
+  ahead="$(printf '%s' "$counts" | awk '{print $1}')"
+  behind="$(printf '%s' "$counts" | awk '{print $2}')"
+  ahead="${ahead:-0}"
+  behind="${behind:-0}"
+
+  if [ "$ahead" -eq 0 ] && [ "$behind" -eq 0 ]; then
+    echo "wb sync: $TASKS_DIR already up to date with origin/$expected_branch"
+  elif [ "$ahead" -eq 0 ]; then
+    git -C "$TASKS_DIR" merge --ff-only "origin/$expected_branch"
+    echo "wb sync: pulled $behind commit(s) — $TASKS_DIR now matches origin/$expected_branch"
+  elif [ "$behind" -eq 0 ]; then
+    echo "wb sync: $TASKS_DIR is $ahead commit(s) ahead of origin/$expected_branch — nothing to pull, consider pushing (wb sync never pushes)"
+  else
+    echo "wb sync: $TASKS_DIR has DIVERGED from origin/$expected_branch ($ahead ahead, $behind behind) — refusing to auto-merge" >&2
+    echo "wb sync: resolve by hand, e.g.:" >&2
+    echo "  git -C \"$TASKS_DIR\" log --oneline HEAD..origin/$expected_branch    # see what's incoming" >&2
+    echo "  git -C \"$TASKS_DIR\" log --oneline origin/$expected_branch..HEAD    # see what's local-only" >&2
+    echo "  git -C \"$TASKS_DIR\" merge origin/$expected_branch                  # or: git -C \"$TASKS_DIR\" rebase origin/$expected_branch" >&2
+    echo "wb sync: do NOT run 'git reset --hard origin/$expected_branch' (or force-push) to make this go away — that SILENTLY DISCARDS your local commits and is the exact anti-pattern this command exists to prevent" >&2
+    exit 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# wb unsafe-rewind — the ONLY sanctioned producer of the WB_ALLOW_REWIND
+# sentinel a sibling git hook (tasks-git-hooks/, not touched here) consults
+# before allowing a rewind-shaped operation (reset --hard, force-push, ...)
+# against $TASKS_DIR. Deliberately interactive/explicit: it requires a
+# non-empty reason and prints the sentinel's time-limited, one-time-use
+# contract so the caller understands what they just unlocked. The TTL/
+# one-use ENFORCEMENT itself lives in that hook, not here.
+# ---------------------------------------------------------------------------
+
+# cmd_unsafe_rewind "<reason>" — writes "<epoch> <reason>" to
+# $TASKS_DIR/.git/WB_ALLOW_REWIND (relative to whatever $TASKS_DIR resolves
+# to). Refuses with a usage error on a missing or empty reason — this is a
+# rare, deliberate escape hatch, not something that should ever fire with a
+# blank/placeholder reason.
+cmd_unsafe_rewind() {
+  local reason="$*"
+  if [ -z "$reason" ]; then
+    echo "wb unsafe-rewind: usage: wb unsafe-rewind \"<reason>\" — a non-empty reason is required" >&2
+    exit 1
+  fi
+
+  local sentinel="$TASKS_DIR/.git/WB_ALLOW_REWIND"
+  printf '%s %s\n' "$(date +%s)" "$reason" > "$sentinel"
+
+  echo "wb unsafe-rewind: sentinel written to $sentinel"
+  echo "wb unsafe-rewind: reason: $reason"
+  echo "wb unsafe-rewind: this allows exactly ONE rewind-shaped git operation (e.g. reset --hard, a force-push) against $TASKS_DIR — the hook consumes/deletes the sentinel on first use, or once it goes stale (120s TTL), whichever comes first"
+  echo "wb unsafe-rewind: if you don't run that operation within the next 120 seconds, re-run this command when you're actually ready"
 }
 
 # ---------------------------------------------------------------------------
@@ -980,20 +1490,100 @@ wb_sweep_section() {
   awk '/^## Sweep \(gitignored/ { found = 1 } found { print }' "$1"
 }
 
+# _wb_append_under_heading <file> <heading> <body> — the shared insertion
+# algorithm behind both wb_append_handoff (below) and cmd_append (U4,
+# `wb append`), extracted so there is exactly ONE heading-fallback/
+# end-of-section insertion implementation in this file, parameterized on an
+# arbitrary "## <heading>" name and an arbitrary — possibly multi-line —
+# <body> block, rather than wb_append_handoff's original hardcoded
+# "## Handoffs" + single-line-message shape. <body> is inserted VERBATIM
+# (embedded newlines print as real line breaks); this helper only manages
+# blank-line hygiene AROUND the block, never inside it — a caller wanting a
+# blank line between two of its own body lines (wb_append_handoff's
+# "entry heading, blank, message" shape) bakes that into <body> itself.
+#
+# Insertion rule (identical to wb_append_handoff's own pre-extraction
+# behavior, and the missing-heading fallback handoff_append_followup
+# (handoff.sh:84-116) established for "## Follow-ups"):
+#   - "## <heading>" exists as a real heading (isHeadingLine() below — only
+#     a line preceded by a blank line, or the file's first line, counts;
+#     without this guard, heading-shaped TEXT inside another section's own
+#     prose, e.g. a Plan paragraph quoting "## Decisions" as an example,
+#     would exact-match and splice the entry mid-paragraph — confirmed live
+#     before this guard existed) — the new <body> block lands at the END of
+#     that section: immediately before whatever "## " heading comes next,
+#     or at EOF if the section runs to the end of the file. NEVER right
+#     after the heading line itself. Repeated calls therefore read
+#     oldest-first — load-bearing for /wb-resume (not in scope here), which
+#     needs to find the most recent rich entry reliably.
+#   - "## <heading>" is missing entirely, but "## Decisions" exists as a
+#     real heading — insert a fresh "## <heading>" section immediately
+#     before it.
+#   - Neither exists anywhere — append a fresh "## <heading>" section at
+#     EOF.
+_wb_append_under_heading() {
+  local file="$1" heading="$2" body="$3"
+  local target="## $heading"
+  # Passed via ENVIRON, never `awk -v` -- POSIX awk's `-v var=value` runs C
+  # escape-sequence processing on the assigned string, so a body containing
+  # a literal `\b`/`\t`/etc. (exactly the kind of text this regex-quoting,
+  # shell-adjacent codebase's own handoff notes routinely contain -- e.g.
+  # "push\b force-flag") gets silently rewritten (`\b` -> a real backspace
+  # byte) with no error anywhere in the chain. Reproduced live; confirmed
+  # `ENVIRON["..."]` preserves the value byte-for-byte since env-var
+  # assignment does no such processing.
+  WB_APPEND_TARGET="$target" WB_APPEND_BODY="$body" awk '
+    BEGIN { target = ENVIRON["WB_APPEND_TARGET"]; body = ENVIRON["WB_APPEND_BODY"] }
+    function isHeadingLine() { return (prev == "" || NR == 1) }
+    BEGIN { insection = 0; inserted = 0; prev = "" }
+    $0 == target && isHeadingLine() { insection = 1 }
+    # Leaving an existing target section (any other "## " heading reached
+    # while inside it) — insert the body right here, at the end of that
+    # section, before falling through to print the heading that closes it.
+    # Excludes the target heading line itself (the very record that just
+    # turned insection on above) so a fresh heading with content following
+    # it does not immediately self-trigger this branch.
+    insection && /^## / && $0 != target && !inserted && isHeadingLine() {
+      if (prev != "") print ""
+      print body; print ""
+      inserted = 1; insection = 0
+    }
+    # Heading missing entirely, but "## Decisions" exists — insert a fresh
+    # target section right before it (the same missing-heading insertion
+    # point handoff_append_followup uses for its own heading).
+    $0 == "## Decisions" && !insection && !inserted && isHeadingLine() {
+      print target
+      print ""
+      print body
+      print ""
+      inserted = 1
+    }
+    { print; prev = $0 }
+    END {
+      if (insection && !inserted) {
+        # Section existed but ran to EOF with no following heading.
+        if (prev != "") print ""
+        print body
+      } else if (!inserted) {
+        # Neither the target heading nor "## Decisions" found anywhere —
+        # append a fresh section at EOF.
+        if (prev != "") print ""
+        print target
+        print ""
+        print body
+      }
+    }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+}
+
 # wb_append_handoff <task_file> <source> <message> — appends a terse,
 # timestamped "### <timestamp> — <source> (auto)" entry (with <message> as
-# its one-line body) to <task_file>'s "## Handoffs" section, inserting the
-# heading itself when it's missing — same insertion point
-# handoff_append_followup (handoff.sh:84-116) uses for a missing
-# "## Follow-ups": right before "## Decisions" when present, else at EOF.
-# That's where the mirroring ends: unlike handoff_append_followup (which
-# inserts its new bullet immediately after the heading line, so repeated
-# calls read newest-first), this always appends the new entry at the END
-# of an existing "## Handoffs" section (immediately before the next "##"
-# heading, or EOF) — so repeated calls read oldest-first. That ordering is
-# load-bearing: a downstream skill (/wb-resume, not in scope here) needs to
-# find the most recent rich entry reliably, which only works if entries are
-# chronological.
+# its one-line body) to <task_file>'s "## Handoffs" section. A thin
+# composer over _wb_append_under_heading (above): builds the "### ...
+# (auto)" header line, joins it to <message> with a blank line between
+# (the one piece of internal body formatting this caller wants that
+# cmd_append's own callers, e.g. /wb-save's pre-formatted multi-line block,
+# don't), then hands the whole thing off as one opaque <body> block.
 #
 # Called by cmd_pause/cmd_done/cmd_resume, always right after their own
 # state-changing line — deliberately never from cmd_new itself: cmd_new is
@@ -1002,62 +1592,208 @@ wb_sweep_section() {
 wb_append_handoff() {
   local file="$1" source="$2" message="$3"
   local entry; entry="### $(date '+%Y-%m-%d %H:%M') — $source (auto)"
-  awk -v entry="$entry" -v msg="$message" '
-    # A line only counts as a real "## X" heading when it is also preceded
-    # by a blank line (or is the very first line) — every real heading in
-    # this file format is, by the template/TEMPLATE.md convention (see
-    # wb_seed_task). Without this guard, the literal text "## Decisions" or
-    # "## Handoffs" appearing inside a task'"'"'s own ## Plan prose (e.g.
-    # someone writing notes about this very feature) exact-matches the bare
-    # $0 == "..." checks below and splices a Handoffs entry mid-paragraph —
-    # confirmed live: a Plan section quoting "## Decisions" as example text
-    # got the entry spliced in right there instead of at the real heading
-    # further down. isHeadingLine() below is the single guarded predicate
-    # both the entry-insertion and section-closing rules key off of.
-    function isHeadingLine() { return (prev == "" || NR == 1) }
-    BEGIN { inhandoffs = 0; inserted = 0; prev = "" }
-    $0 == "## Handoffs" && isHeadingLine() { inhandoffs = 1 }
-    # Leaving an existing "## Handoffs" section (any other "## " heading
-    # reached while inside it) — insert the new entry right here, at the
-    # end of that section, before falling through to print the heading
-    # that closes it. Excludes the "## Handoffs" line itself (the very
-    # record that just turned inhandoffs on above) so a fresh heading with
-    # content following it does not immediately self-trigger this branch.
-    inhandoffs && /^## / && $0 != "## Handoffs" && !inserted && isHeadingLine() {
-      if (prev != "") print ""
-      print entry; print ""; print msg; print ""
-      inserted = 1; inhandoffs = 0
-    }
-    # Heading missing entirely, but "## Decisions" exists — insert a fresh
-    # "## Handoffs" section right before it (the same missing-heading
-    # insertion point handoff_append_followup uses for its own heading).
-    $0 == "## Decisions" && !inhandoffs && !inserted && isHeadingLine() {
-      print "## Handoffs"
-      print ""
-      print entry
-      print ""
-      print msg
-      print ""
-      inserted = 1
-    }
-    { print; prev = $0 }
-    END {
-      if (inhandoffs && !inserted) {
-        # Section existed but ran to EOF with no following heading.
-        if (prev != "") print ""
-        print entry; print ""; print msg
-      } else if (!inserted) {
-        # Neither "## Handoffs" nor "## Decisions" found anywhere — append
-        # a fresh section at EOF.
-        if (prev != "") print ""
-        print "## Handoffs"
-        print ""
-        print entry
-        print ""
-        print msg
-      }
-    }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  local body; body="$entry"$'\n\n'"$message"
+  _wb_append_under_heading "$file" "Handoffs" "$body"
+}
+
+# ---------------------------------------------------------------------------
+# wb append — locked, heading-scoped text insertion for agent-mediated
+# task-file writes (round-2 Decision 1B / W13-W14): the ONE way /wb-save,
+# /handoff, and /parked-items are rewired (U4) to touch a task file's body
+# instead of an Edit-tool write that bypasses every lock this plan built.
+# ---------------------------------------------------------------------------
+
+# _wb_append_resolve_task <query> — the file cmd_append should write into.
+# Two-stage resolution:
+#   1. Exact fast path: <query> already names a real file directly (as
+#      given, or as "$TASKS_DIR/<query>", or "$TASKS_DIR/<query>.md") —
+#      resolves to itself immediately, bypassing substring matching
+#      entirely. This matters because every SKILL.md rewired in this unit
+#      already computed the exact task-file path/ref before calling
+#      `wb append` (wb-save's `@task` lookup, handoff's own wb_task_file
+#      call) — those callers must never risk a FALSE ambiguity just
+#      because their own task's name happens to be a literal substring of
+#      a sibling task's name (e.g. "repo--foo" is a substring of
+#      "repo--foo-bar"), which the fuzzy fallback below would otherwise hit.
+#   2. Fuzzy fallback: the SAME case-insensitive substring-match-with-
+#      ambiguity-guard convention cmd_resume already uses against every
+#      task file's basename — 0 or 2+ matches both fail loudly rather than
+#      guessing, never silently picking one.
+_wb_append_resolve_task() {
+  local query="${1:-}"
+  [ -n "$query" ] || return 1
+
+  if [ -f "$query" ]; then
+    printf '%s\n' "$query"
+    return 0
+  fi
+  if [ -f "$TASKS_DIR/$query" ]; then
+    printf '%s\n' "$TASKS_DIR/$query"
+    return 0
+  fi
+  if [ -f "$TASKS_DIR/$query.md" ]; then
+    printf '%s\n' "$TASKS_DIR/$query.md"
+    return 0
+  fi
+
+  _wb_resolve_task_fuzzy "$query" "wb append"
+}
+
+# cmd_append <task-ref> <heading> [<body>|-] — resolve <task-ref>
+# (_wb_append_resolve_task, above), take the per-task lock
+# (wb_task_lock_acquire_guarded, same convention every other cmd_* verb
+# uses), insert <body> under "## <heading>" via _wb_append_under_heading,
+# release. <body> is either:
+#   - a single trailing argument — the short one-liner convenience; or
+#   - omitted, or given literally as "-" — read the (possibly multi-line)
+#     body from stdin instead, heredoc-friendly:
+#       wb append <task-ref> Handoffs <<'EOF'
+#       ### 2026-07-11 18:42 — wb-save
+#       **Done:** ...
+#       **In flight:** ...
+#       **Next:** ...
+#       EOF
+# This is W13's capability floor: /wb-save's ###-timestamped, three-field
+# block entries need the multi-line stdin form (its own skill contract
+# forbids wb_append_handoff's single-line-message shape); a terse one-off
+# note fits the trailing-argument form.
+cmd_append() {
+  local query="${1:-}" heading="${2:-}"
+  if [ -z "$query" ] || [ -z "$heading" ]; then
+    echo "usage: wb append <task-ref> <heading> [<body>|-]   (body omitted or '-' reads multi-line stdin)" >&2
+    exit 1
+  fi
+
+  local body
+  if [ $# -lt 3 ] || [ "$3" = "-" ]; then
+    body="$(cat)"
+  else
+    body="$3"
+  fi
+  [ -n "$body" ] || { echo "wb append: empty body — nothing to append" >&2; exit 1; }
+
+  local file
+  file="$(_wb_append_resolve_task "$query")" || exit 1
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_append_under_heading "$file" "$heading" "$body"
+  wb_task_lock_release "$file"
+  echo "wb append: appended under \"## $heading\" in $(basename -- "$file")"
+}
+
+# ---------------------------------------------------------------------------
+# wb install-hooks — the one idempotent verb that wires up everything the
+# concurrency-safety machine needs on this host: points $TASKS_DIR's
+# core.hooksPath at U6's reference-transaction hook (stowed path — a real
+# checkout of $TASKS_DIR needs to actually find the file at runtime, not a
+# dotfiles-repo-relative path), hardens gc/reflog retention (X5) so a
+# sentinel-blessed rewind stays recoverable by policy rather than GC luck,
+# pre-creates the git-hook kill-switch (X4) unless the X7 replay tool has
+# already recorded an accepting run, and VERIFIES (never edits — Decision
+# 4A) the live ~/.claude/settings.json's PreToolUse entry against the
+# tracked reference copy in claude/.claude/settings.recommended.json.
+# ---------------------------------------------------------------------------
+
+# cmd_install_hooks — no arguments. Every step is safe to re-run: git config
+# writes are naturally idempotent for a single value, the switch file is
+# only ever created when both the replay marker is absent AND it isn't
+# already there, and the settings check only ever reads.
+cmd_install_hooks() {
+  local hooks_dir="$HOME/.config/scripts/tmux/tasks-git-hooks"
+  local reflog_span="180 days"   # generous — months, not days; git's own
+                                  # defaults are 90/30 days, both unset on a
+                                  # real $TASKS_DIR as of 2026-07-11.
+  local changed=0
+
+  # 1. core.hooksPath -> the STOWED path (matches
+  # settings.recommended.json's own $HOME-based PreToolUse command path),
+  # not a dotfiles-repo-relative one.
+  local cur
+  cur="$(git -C "$TASKS_DIR" config --get core.hooksPath 2>/dev/null || true)"
+  [ "$cur" = "$hooks_dir" ] || changed=1
+  git -C "$TASKS_DIR" config core.hooksPath "$hooks_dir"
+
+  # 2. X5 gc/reflog hardening.
+  cur="$(git -C "$TASKS_DIR" config --get gc.auto 2>/dev/null || true)"
+  [ "$cur" = "0" ] || changed=1
+  git -C "$TASKS_DIR" config gc.auto 0
+
+  cur="$(git -C "$TASKS_DIR" config --get gc.reflogExpire 2>/dev/null || true)"
+  [ "$cur" = "$reflog_span" ] || changed=1
+  git -C "$TASKS_DIR" config gc.reflogExpire "$reflog_span"
+
+  cur="$(git -C "$TASKS_DIR" config --get gc.reflogExpireUnreachable 2>/dev/null || true)"
+  [ "$cur" = "$reflog_span" ] || changed=1
+  git -C "$TASKS_DIR" config gc.reflogExpireUnreachable "$reflog_span"
+
+  # 3. X4 kill-switch: pre-create disable-git-hook UNLESS the X7 replay
+  # tool has already left its replay-passed marker — checked FIRST, every
+  # run, so an idempotent re-run after a human deliberately enabled the
+  # hook (rm'd the switch post-replay) never silently re-disables it. Never
+  # remove an existing switch file here — that's the replay tool's/
+  # operator's job elsewhere, not this verb's.
+  local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+  local wb_state_dir="$state_home/wb"
+  local replay_marker="$wb_state_dir/replay-passed"
+  local switch_file="$wb_state_dir/disable-git-hook"
+  local switch_msg
+  if [ -e "$replay_marker" ]; then
+    switch_msg="replay-passed marker present — git-hook switch file left as-is"
+  else
+    mkdir -p "$wb_state_dir"
+    if [ -e "$switch_file" ]; then
+      switch_msg="git-hook switch file already present (still dormant)"
+    else
+      : > "$switch_file"
+      changed=1
+      switch_msg="git-hook switch file created (hook installed but dormant until the X7 replay passes)"
+    fi
+  fi
+
+  # 4. X3 settings verification — read-only against the LIVE file; the
+  # reference block lives in the tracked settings.recommended.json,
+  # resolved via wb.sh's own on-disk location (mirrors cmd_board --html's
+  # dotfiles_root resolution) rather than assuming dotfiles is checked out
+  # literally at $CODE_DIR/dotfiles.
+  local dotfiles_root
+  dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
+  [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
+  local recommended="$dotfiles_root/claude/.claude/settings.recommended.json"
+  local live="$HOME/.claude/settings.json"
+  local settings_msg
+
+  if [ ! -f "$recommended" ]; then
+    settings_msg="reference settings.recommended.json not found at $recommended — cannot verify"
+  else
+    local present=false
+    if [ -f "$live" ] && jq -e '
+        (.hooks.PreToolUse // [])
+        | any(.[]; (.hooks // []) | any(.[]; (.command // "") | contains("tasks-git-hooks/pretooluse-guard.sh")))
+      ' "$live" >/dev/null 2>&1; then
+      present=true
+    fi
+
+    if [ "$present" = true ]; then
+      settings_msg="already configured — $live's hooks.PreToolUse already has the pretooluse-guard.sh entry"
+    else
+      echo "wb install-hooks: $live is missing the pretooluse-guard.sh PreToolUse entry."
+      echo "wb install-hooks: paste this into ~/.claude/settings.json's top-level object (merge by hand — this is reference only, never auto-merged):"
+      echo
+      jq '{hooks: .hooks}' "$recommended"
+      echo
+      echo "wb install-hooks: after pasting, RESTART every already-running Claude Code session — hook config is snapshotted at session start (X6), so a session already running won't pick this up until it's restarted, in addition to any brand-new session started after the paste."
+      settings_msg="missing — paste-block + restart reminder printed above"
+    fi
+  fi
+
+  # 5. Final one-line summary, matching this codebase's terse
+  # `echo "wb <verb>: ..."` convention.
+  if [ "$changed" -eq 0 ]; then
+    echo "wb install-hooks: already installed, nothing to do (hooksPath=$hooks_dir; gc.auto=0, reflogExpire/reflogExpireUnreachable=$reflog_span; $switch_msg); settings check: $settings_msg"
+  else
+    echo "wb install-hooks: installed (hooksPath=$hooks_dir; gc.auto=0, reflogExpire/reflogExpireUnreachable=$reflog_span; $switch_msg); settings check: $settings_msg"
+  fi
 }
 
 # wb_credential_shaped <rel> — succeed when a keeper path looks like a
@@ -1698,16 +2434,10 @@ cmd_done() {
   local worktree_path="$repo_dir/.worktrees/$slug"
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
 
   # 1. fail fast — never mutate anything on a dirty tree.
-  local dirty
-  dirty="$(git -C "$worktree_path" status --porcelain 2>/dev/null || true)"
-  if [ -n "$dirty" ]; then
-    echo "wb done: $worktree_path is dirty:" >&2
-    echo "$dirty" >&2
-    echo "commit or stash, then re-run" >&2
-    exit 1
-  fi
+  _wb_git_dirty_guard "$worktree_path" "wb done"
 
   # 2. review buffer — the task file itself IS the buffer (it already lives
   # centrally and survives `git worktree remove`, so there's no copy to sync
@@ -1718,6 +2448,10 @@ cmd_done() {
   ignored="$(git -C "$worktree_path" status --porcelain --ignored 2>/dev/null \
     | awk '$1 == "!!" { $1 = ""; sub(/^ /, ""); print }' || true)"
   if [ -n "$ignored" ]; then
+    # Burst 1: Sweep-section append — release BEFORE wb_open_buffer (the
+    # operator's interactive, human-supervised, minutes-long nvim session).
+    # A critical section must never span it (W5, round-2 Decision 2).
+    wb_task_lock_acquire_guarded "$task_file" || exit $?
     {
       echo
       echo "## Sweep (gitignored — check keep before closing; git worktree remove destroys the rest)"
@@ -1726,6 +2460,7 @@ cmd_done() {
         echo "- [ ] keep $f"
       done <<< "$ignored"
     } >> "$task_file"
+    wb_task_lock_release "$task_file"
 
     wb_open_buffer "$task_file"
 
@@ -1770,6 +2505,10 @@ cmd_done() {
       fi
     done
 
+    # Burst 2: post-buffer Sweep-strip + kept-notes append — its own,
+    # separate lock burst, acquired only now (after the unlocked buffer
+    # session above has closed), released again before anything below it.
+    wb_task_lock_acquire_guarded "$task_file" || exit $?
     # drop the transient Sweep section; if anything was kept, record where it went.
     awk '/^## Sweep \(gitignored/ { exit } { print }' "$task_file" > "$task_file.tmp.$$"
     mv "$task_file.tmp.$$" "$task_file"
@@ -1781,7 +2520,10 @@ cmd_done() {
         done
       } >> "$task_file"
     fi
+    wb_task_lock_release "$task_file"
   else
+    # No ignored files -> burst 1 never happened, nothing was written yet —
+    # nothing to lock before the buffer here; go straight to it.
     wb_open_buffer "$task_file"
   fi
 
@@ -1800,9 +2542,16 @@ cmd_done() {
   if [ -d "$worktree_path" ]; then
     git -C "$repo_dir" worktree remove "$worktree_path" --force
   fi
+
+  # Burst 3: final status/closed stamps + Handoffs entry — its own lock
+  # burst, acquired only now, AFTER the (unlocked) worktree removal above.
+  # `git worktree remove` is a slow-ish external operation and isn't a
+  # task-FILE write at all, so it must never happen while the lock is held.
+  wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status done
   wb_set_frontmatter "$task_file" closed "$(date +%F)"
   wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
+  wb_task_lock_release "$task_file"
 
   echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
 
@@ -2391,6 +3140,10 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
+    sync)          shift; cmd_sync "$@" ;;
+    unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
+    append)      shift; cmd_append "$@" ;;
+    install-hooks) shift; cmd_install_hooks "$@" ;;
     _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
     _interrupt)  shift; _interrupt "$@" ;;

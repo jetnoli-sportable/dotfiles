@@ -28,14 +28,24 @@ directory instead of replacing it.
 
 ## Recommended settings (not auto-applied)
 
-- `.claude/settings.recommended.json` — a `permissions.allow` rule that
-  pre-authorizes reads under `~/code/tasks/`, so spawned agents (`/handoff`,
-  `wb new --agent`) never hit the "Do you want to proceed?" read-outside-cwd
-  prompt for that path (`docs/roadmap-handoff.md`, "Dry-run findings",
-  finding 4). Merge its `permissions.allow` entries into your real, untracked
-  `~/.claude/settings.json` by hand — this file is reference only, never
-  auto-merged. Its exact `Read(...)` glob syntax was pattern-matched against
-  other `permissions.allow` rules already on this machine (not verified
-  against the installed Claude Code version's own docs) — smoke-test after
-  merging: add it, start a fresh session, confirm the prompt no longer
-  fires for a `~/code/tasks/` read.
+- `.claude/settings.recommended.json` — two independent things worth
+  merging separately:
+  - a `permissions.allow` rule that pre-authorizes reads under
+    `~/code/tasks/`, so spawned agents (`/handoff`, `wb new --agent`) never
+    hit the "Do you want to proceed?" read-outside-cwd prompt for that path
+    (`docs/roadmap-handoff.md`, "Dry-run findings", finding 4). Its exact
+    `Read(...)` glob syntax was pattern-matched against other
+    `permissions.allow` rules already on this machine (not verified against
+    the installed Claude Code version's own docs) — smoke-test after
+    merging: add it, start a fresh session, confirm the prompt no longer
+    fires for a `~/code/tasks/` read.
+  - a `hooks.PreToolUse` block wiring every `Bash`/`Edit`/`Write`/`MultiEdit`
+    tool call through `tasks-git-hooks/pretooluse-guard.sh`, which asks
+    before a command looks like it would rewind history inside
+    `~/code/tasks` (see [`tasks-store-guards.md`](../docs/guides/tasks-store-guards.html)
+    for the full three-layer model this is one layer of). Needs
+    `wb install-hooks` to have installed the script itself first — this
+    file only wires Claude Code up to call it.
+
+  Merge both blocks into your real, untracked `~/.claude/settings.json` by
+  hand — this file is reference only, never auto-merged.

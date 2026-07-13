@@ -17,7 +17,7 @@ FROM ubuntu:24.04
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-       bash git tmux gawk coreutils grep sed ca-certificates bsdextrautils \
+       bash git tmux gawk coreutils grep sed ca-certificates bsdextrautils jq \
     && rm -rf /var/lib/apt/lists/*
 
 # HOME has no code/ dir at all in the image — even a fresh CODE_DIR-shaped

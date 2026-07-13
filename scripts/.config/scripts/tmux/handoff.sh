@@ -24,18 +24,13 @@ source "$SCRIPT_DIR/lib.sh"
 # tests/wb-resume.test.sh already relies on. This reuses wb_sanitize/
 # wb_task_file (read-only helpers) without hand-copying the sanitize
 # transform where it could drift. NOTE: sourcing wb.sh reassigns
-# SCRIPT_DIR/SELF/CODE_DIR to its own values (wb.sh:25-26,31) — harmless
-# today only because handoff.sh never reads $SELF and never sets
-# $CODE_DIR before sourcing (both scripts also live in the same
-# directory, so the reassigned $SCRIPT_DIR happens to still be correct);
+# SCRIPT_DIR/SELF/CODE_DIR to its own values (wb.sh:43-44,53) — harmless
+# today because handoff.sh never reads $SELF, and CODE_DIR is now guarded
+# the same way TASKS_DIR is (`CODE_DIR="${CODE_DIR:-$HOME/code}"`,
+# wb.sh:53, fixed in fc95c63 — the exact variable from the 2026-07-10
+# deletion incident, where an unconditional reassignment in a sourced
+# script clobbered the sourcing script's own value of the same name).
 # $WB is captured above, before sourcing, so it's unaffected either way.
-# CODE_DIR is the exact variable from the 2026-07-10 deletion incident
-# (an unconditional reassignment in a sourced script clobbering the
-# sourcing script's own value of the same name) — wb.sh:31 is
-# `CODE_DIR="$HOME/code"` with no `${CODE_DIR:-...}` guard, unlike
-# TASKS_DIR right above it. Never export CODE_DIR before sourcing wb.sh
-# here expecting it to survive; the real fix (guard wb.sh:31 the same
-# way) needs a wb.sh edit and is out of scope for this branch (R2).
 # shellcheck source=wb.sh
 source "$WB"
 
@@ -176,24 +171,36 @@ esac
 disp_slug="$(wb_sanitize "$slug")"
 session="${repo}--${disp_slug}"
 task_file="$(wb_task_file "$repo" "$disp_slug")"
+# U3: wb_task_lock_acquire_guarded/wb_task_lock_release/
+# _wb_lock_trap_append_if_top_level all come from wb-locks.sh + wb.sh, both
+# already sourced above — this installs the EXIT-trap lock-release safety
+# net once for this whole run, same convention every locking wb.sh cmd_*
+# verb uses (the _if_top_level guard, not a raw wb_lock_trap_append call,
+# for the same subshell-safety reason documented at that function's own
+# definition in wb.sh — this file's own real run body is never itself
+# invoked via command substitution, but staying consistent with every
+# other call site avoids re-litigating the same footgun here later).
+_wb_lock_trap_append_if_top_level wb_task_lock_release_all
 
 # Fully fixed — no variable substitution beyond $task_file. first_action
 # never appears here (R6); the pointer's disjointness from the boot/
 # permission anchor sets (U2) depends on this string never varying.
 pointer="Read the task file at $task_file - it carries the full context and states the first action to take."
 
-if tmux has-session -t "=$session" 2>/dev/null; then
+agent_state="$(tmux_session_agent_state "$session")"
+if [ "$agent_state" != "dead" ]; then
   # Switch path: a live session already exists for this repo/slug. A live
   # session is not the same as a live agent — a prior spawn's boot-ready
   # timeout leaves the session behind with nothing killing it, and a bare
   # `wb new` (no --agent) deliberately leaves the "agent" window as an
-  # idle shell (wb_layout_session, wb.sh:210-214) — so check the window's
-  # actual running command rather than trusting has-session alone.
+  # idle shell (wb_layout_session, wb.sh:210-214). tmux_session_agent_state
+  # (lib.sh) owns the has-session + pane_current_command check this branch
+  # used to do inline; "dead" and "unknown" both still land in the same
+  # "not alive" message below — this call site only tells alive apart from
+  # not-alive today (a future caller needs the finer distinction; see
+  # tmux_session_agent_state's own doc comment).
   [ -f "$task_file" ] \
     || echo "handoff: warning: $session is live but $task_file does not exist" >&2
-  agent_alive=0
-  [ "$(tmux list-panes -t "=$session:agent" -F '#{pane_current_command}' 2>/dev/null)" = "claude" ] \
-    && agent_alive=1
   # Focus first, clipboard second: the switch is the primary action of
   # this branch and must not fail as a side effect of the clipboard step
   # (secondary, convenience-only) failing.
@@ -209,7 +216,7 @@ if tmux has-session -t "=$session" 2>/dev/null; then
   else
     clip_status="clipboard copy failed — pointer not on clipboard"
   fi
-  if [ "$agent_alive" = 1 ]; then
+  if [ "$agent_state" = "alive" ]; then
     echo "handoff: switched to live session $session — $clip_status"
   else
     echo "handoff: switched to live session $session, but its agent window has no running claude process — $clip_status" >&2
@@ -232,8 +239,16 @@ if handoff_bootstrap_gap "$repo_dir"; then
   # abort the rest of the spawn (boot poll, injection, permission
   # handshake) over a failure to record a note about an unrelated gap.
   if [ -f "$task_file" ]; then
-    handoff_append_followup "$task_file" "$gap_msg" \
-      || echo "handoff: warning: could not record the bootstrap-gap note in $task_file" >&2
+    # Its own lock burst (W5) — best-effort like the rest of this R11 note:
+    # a contended/failed acquire warns and moves on rather than aborting the
+    # whole spawn over a missed note.
+    if wb_task_lock_acquire_guarded "$task_file"; then
+      handoff_append_followup "$task_file" "$gap_msg" \
+        || echo "handoff: warning: could not record the bootstrap-gap note in $task_file" >&2
+      wb_task_lock_release "$task_file"
+    else
+      echo "handoff: warning: could not acquire the task-file lock — bootstrap-gap note not recorded in $task_file" >&2
+    fi
   fi
 fi
 

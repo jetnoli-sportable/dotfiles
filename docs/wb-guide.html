@@ -174,7 +174,7 @@
 <body data-kind="guide">
 <div class="statusbar">
   <span>docgen · generated from <b>docs/wb-guide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span class="right">updated 2026-07-12</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -189,6 +189,7 @@
       <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
       <li><a href="#bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</a></li>
       <li><a href="#the-task-store">The task store</a></li>
+      <li><a href="#keeping-the-task-store-safe">Keeping the task store safe</a></li>
       <li><a href="#known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</a></li>
       <li><a href="#next-steps">Next steps</a></li>
       <li><a href="#if-something-misbehaves">If something misbehaves</a></li>
@@ -496,6 +497,43 @@ starting from scratch.</p>
 away:</p>
 <pre><code>wb board    # read-only status table over the whole store (the interim /board)
 </code></pre>
+<h2 id="keeping-the-task-store-safe">Keeping the task store safe</h2>
+<p><code>~/code/tasks</code> is a single git checkout that every <code>wb</code>-driven session on
+this machine shares — 8-10+ concurrent agents on a normal day. A follow-up
+PR added guards and a handful of new verbs on top of everything above. Full
+details, incident history, and runbooks live in
+<a href="guides/tasks-store-guards.html"><code>tasks-store-guards.md</code></a>; the short version:</p>
+<table>
+<thead>
+<tr>
+<th>Verb</th>
+<th>What it's for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>wb sync</code></td>
+<td>Pull/rebase the task store safely — refuses on a dirty tree or real conflicts instead of guessing.</td>
+</tr>
+<tr>
+<td><code>wb append &lt;task&gt; &lt;heading&gt; &lt;text&gt;</code></td>
+<td>Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file.</td>
+</tr>
+<tr>
+<td><code>wb unsafe-rewind</code></td>
+<td>The deliberate escape hatch for a genuine history rewind (<code>reset --hard</code> and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself.</td>
+</tr>
+<tr>
+<td><code>wb install-hooks</code></td>
+<td>Installs the git hook and the Claude Code <code>PreToolUse</code> hook that do the refusing/asking in the first place. One-time setup per machine.</td>
+</tr>
+</tbody>
+</table>
+<p>Two hooks now sit in front of raw git commands touching this repo:
+a <code>PreToolUse</code> hook asks before an agent runs anything that looks like a
+history rewind, and a <code>reference-transaction</code> git hook refuses ref updates
+that would orphan commits, regardless of which tool or shell ran the
+command. <code>wb unsafe-rewind</code> is the sanctioned way through the second one.</p>
 <h2 id="known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</h2>
 <ul>
 <li>The picker's auto-refresh briefly pauses input while it runs (every few
