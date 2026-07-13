@@ -1,10 +1,10 @@
 ---
 title: "/board — task-board visualization"
 status: current
-tile: Status+timeline filters over the task store, fully scoped; the interim wb board is live now.
+tile: Full HTML board shipped — lifecycle stepper, Pipeline tab, relationships, filters, Key Findings.
 group: personal-workflow
 kind: page
-updated: 2026-07-08
+updated: 2026-07-13
 ---
 
 Renamed from `/roadmap` (2026-07-07, Decision 5A) once "roadmap" collided
@@ -13,8 +13,8 @@ with this document's own name — "roadmap" now unambiguously means
 `docs/roadmap-board.md`, not the rendered `.html`.
 
 **Roadmap:** 9a (superseded — this page is the detail) · **Status:**
-interim shipped (`wb board`); full feature fully scoped, ready to
-implement
+v1 HTML board shipped, then v2 (stepper/Pipeline/relationships/filters/Key
+Findings) shipped on top of it — see [What shipped in v2](#what-shipped-in-v2-board-display-v2) below.
 
 ## The gap this closes
 
@@ -49,6 +49,10 @@ planned was replaced by a simpler bash-native design once actually scoped:
   In-progress tasks always show regardless of timeline; timeline
   additionally pulls in tasks *closed* within the window, via a new
   `closed:` frontmatter field stamped when a task flips to `done`.
+  **v2 pass (2026-07-12 plan):** added a third, window-independent
+  **Pipeline** tab (every non-done task, regardless of timeline — see
+  below) plus two more composable filters, **Repo** and **Family**, that
+  narrow every tab/timeline combination at once.
 - **Per-task drill-down:** inline `<details>`/`<summary>` expansion in the
   single HTML file, not separate per-task pages (per-task files stay an
   explicit, deferred follow-up).
@@ -68,3 +72,28 @@ planned was replaced by a simpler bash-native design once actually scoped:
 
 Sequencing: fully scoped, part of the current PR (alongside `wb reconcile`
 and `wb resume`/`wb pause`) — see `logs/decisions/2026-07-08-session-recap.md`.
+
+## What shipped in v2 (board display v2)
+
+Planned in `docs/plans/2026-07-12-001-feat-wb-board-display-plan.md` and
+implemented in the same PR. Four additions on top of the v1 shape above,
+all CSS-only (no JS added anywhere in this file):
+
+- **Lifecycle stepper.** The old presence/absence badges are replaced by a
+  five-stage stepper per task (Ideate · Brainstorm · Plan · Work · Review),
+  each computed live to one of four states (n/a / pending / in-progress /
+  done) from detection signals plus an optional `path:` frontmatter field
+  declaring which stages a task intends to pass through.
+- **Pipeline tab.** One row per non-done task, window-independent —
+  the one place a stale, long-untouched in-flight task is still visible
+  even outside the today/week timeline.
+- **Relationships.** `depends_on:` (comma-separated blocker stems) renders
+  as a blocked/unblocks chip pair in both directions; existing `parent:`
+  rollup gained a children-done counter and a ready-to-close hint.
+- **Key Findings.** A board-wide, filter-immune section per tab: most-
+  blocking task, parents ready to close, done-but-unreviewed count, oldest
+  in-flight task, unclassified-status tasks, and branchless tasks whose
+  stem already matches a doc on disk.
+
+See `docs/wb-guide.md`'s board section for the human-facing walkthrough of
+all of the above.

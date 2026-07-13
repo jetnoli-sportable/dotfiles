@@ -250,6 +250,81 @@ away:
 wb board    # read-only status table over the whole store (the interim /board)
 ```
 
+## `wb board --html` — the full board (v2)
+
+`wb board --html` writes `logs/board.html` (gitignored, overwritten on every
+call) — a richer, filterable view over the whole store that goes well beyond
+the plain-text table above. Open it with `xdg-open logs/board.html` or via
+`/wb-board html` from inside a session.
+
+**Pipeline tab, first and default.** One row per task that isn't `done` yet,
+regardless of the today/week window — a task untouched for two weeks still
+shows up here, since the point is a complete in-flight surface, not a
+recency filter. Five stage columns (**Ideate · Brainstorm · Plan · Work ·
+Review**) each render one of four states:
+
+| Glyph | State | Meaning |
+|---|---|---|
+| ✓ | done | The stage's artifact exists (a doc, a stamped `reviewed:` date, or — for Work — the task is closed with no open PR) |
+| ◐ | in progress | Work only: real changes exist, or a PR is open in any state |
+| ○ | pending | Declared (or defaulted) into the task's intended path, nothing has happened yet |
+| · (faint) | n/a | Not part of this task's intended path, and nothing has fired to upgrade it |
+
+A stage's state is **computed live** every render, never stored — a task's
+`path:` frontmatter field declares which stages it intends to go through
+(defaults to `plan,work,review` when absent), but a real signal always wins
+even for an undeclared stage: if a plan doc shows up for a task that never
+declared `plan` in its path, that stage renders done anyway. Stage cells
+link to their backing artifact (the doc, or the PR) when one exists on disk;
+a task whose worktree is gone but whose branch still carries the doc shows
+an unlinked glyph with a tooltip naming it, rather than losing the signal.
+
+**Every detail card** (bucket tabs and Pipeline alike, done tasks included)
+shows the same stepper as a two-zone card: identity (title, status, repo ·
+branch) on the left, live-agent badge / worktree indicator / PR chip on the
+right. Doc stages list every matching artifact as a chip, not just the
+newest.
+
+**Relationships.** A task can declare `depends_on: <repo>--<slug>[,...]` —
+comma-separated blocker stems, met once the blocker's `status:` is `done`. A
+blocked task renders dimmed with a ⛔ count (tooltip names the blockers); its
+blocker shows a → count of tasks waiting on it — both directions visible at
+once, independently. A dangling stem or a dependency cycle fails open (fail
+loud would be worse: it renders the task unblocked with a visible warning
+naming the problem) rather than breaking the render. A parent task (via
+`parent:`) shows an `n/m children done` counter and a ready-to-close hint
+once every child is done — the parent's own status pill is never touched by
+this.
+
+**Filters.** The header carries the today/week window as a segmented
+control, plus two independent, AND-composing dropdown filters: **Repo**
+(every repo present in the store) and **Family** (a parent and its
+children — only appears at all once the store has at least one parent/child
+pair). Both default to "All"; picking a specific option narrows every tab's
+table and cards at once, never Key Findings (below).
+
+**Key Findings**, at the bottom of every tab, is board-global and explicitly
+tagged *board-wide · ignores filters* — no repo/family filter narrows it,
+since it's meant to answer "what needs attention across everything," not
+"what's in this slice." Six starter insights, each omitted when empty
+(never an empty heading): the task blocking the most others, parents ready
+to close, a count of done-but-unreviewed tasks, the oldest in-flight task,
+tasks whose status maps to no known bucket, and branchless tasks whose stem
+already matches a doc in this repo's own `docs/` tree (a "wrote the plan,
+haven't started the branch yet" pattern that's otherwise invisible).
+
+**Creating a task with intent:** `wb new` accepts `--path <stages>` (a
+comma-separated subset of the five stage names, validated against unknown
+names before anything is created) and repeatable `--depends-on <stem>` (each
+validated against a real task file). Both are optional — every task still
+gets the `plan,work,review` default when `--path` is omitted.
+
+**Review-stamp convention.** After any `/ce-code-review` pass completes
+inside a `wb` session, run `wb reviewed` — it stamps the task's `reviewed:`
+field, which is what makes the Review stage (and the unreviewed-count
+insight) tell the truth. This is a convention, not automation — nothing
+enforces it, it only works if it's actually run.
+
 ## Known rough edges (not blocking, worth knowing)
 
 - The picker's auto-refresh briefly pauses input while it runs (every few

@@ -8,10 +8,16 @@ description: Pull up the task-store status table from inside a Claude Code sessi
 `/wb-board` is a thin relay: shell out to `wb board` (default) or `wb board
 --html` (when asked for the detailed/html view) and hand back exactly what
 that command printed — no reformatting, no summarizing, no inventing output
-it didn't produce. See `cmd_board`
-(`scripts/.config/scripts/tmux/wb.sh:1498-1544`) for what each mode actually
-does; this skill has no logic of its own beyond picking which of the two to
-run and how to relay it.
+it didn't produce. See `cmd_board` in `scripts/.config/scripts/tmux/wb.sh`
+for what each mode actually does; this skill has no logic of its own
+beyond picking which of the two to run and how to relay it.
+
+`wb board --html` (v2) is more than a status table now: a lifecycle
+stepper per task (Ideate/Brainstorm/Plan/Work/Review, each n/a, pending,
+in-progress, or done), a window-independent Pipeline tab, `depends_on:`
+relationship chips, Repo/Family filters, and a board-wide Key Findings
+section. See `docs/wb-guide.md`'s board section for the full walkthrough —
+this skill still only relays the path, not the content.
 
 ## When this applies
 
@@ -62,8 +68,8 @@ assumed available here; reporting the path is the whole job.
 ## Notes
 
 - Read-only both ways — `wb board`/`wb board --html` never touch the task
-  store or git state (`cmd_board`, `wb.sh:1498-1544`), and this skill adds
-  no side effects of its own.
+  store or git state (`cmd_board` in `wb.sh`), and this skill adds no side
+  effects of its own.
 - Named `/wb-board`, not `/board` — no `/board` skill exists anywhere in
   this repo today; "/board" up to now has only ever meant the underlying
   `wb board --html` feature as described in `docs/roadmap.md` /

@@ -37,7 +37,7 @@
       {
         "group": "personal-workflow",
         "title": "Task board",
-        "tile": "Full HTML task board — 6 status tabs, timeline window, live-session badges. Generated on demand, not auto-rebuilt: run `wb board --html` to refresh it.",
+        "tile": "Full HTML task board — lifecycle stepper, Pipeline tab, dependency/parent-child relationships, repo/family filters, Key Findings. Generated on demand, not auto-rebuilt: run `wb board --html` to refresh it.",
         "href": "../logs/board.html",
         "path": "logs/board.html",
         "chip": "on-demand"

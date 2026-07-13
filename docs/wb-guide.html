@@ -189,6 +189,7 @@
       <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
       <li><a href="#bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</a></li>
       <li><a href="#the-task-store">The task store</a></li>
+      <li><a href="#wb-board---html--the-full-board-v2">wb board --html — the full board (v2)</a></li>
       <li><a href="#known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</a></li>
       <li><a href="#next-steps">Next steps</a></li>
       <li><a href="#if-something-misbehaves">If something misbehaves</a></li>
@@ -496,6 +497,95 @@ starting from scratch.</p>
 away:</p>
 <pre><code>wb board    # read-only status table over the whole store (the interim /board)
 </code></pre>
+<h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
+<p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
+call) — a richer, filterable view over the whole store that goes well beyond
+the plain-text table above. Open it with <code>xdg-open logs/board.html</code> or via
+<code>/wb-board html</code> from inside a session.</p>
+<p><strong>Pipeline tab, first and default.</strong> One row per task that isn't <code>done</code> yet,
+regardless of the today/week window — a task untouched for two weeks still
+shows up here, since the point is a complete in-flight surface, not a
+recency filter. Five stage columns (<strong>Ideate · Brainstorm · Plan · Work ·
+Review</strong>) each render one of four states:</p>
+<table>
+<thead>
+<tr>
+<th>Glyph</th>
+<th>State</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>✓</td>
+<td>done</td>
+<td>The stage's artifact exists (a doc, a stamped <code>reviewed:</code> date, or — for Work — the task is closed with no open PR)</td>
+</tr>
+<tr>
+<td>◐</td>
+<td>in progress</td>
+<td>Work only: real changes exist, or a PR is open in any state</td>
+</tr>
+<tr>
+<td>○</td>
+<td>pending</td>
+<td>Declared (or defaulted) into the task's intended path, nothing has happened yet</td>
+</tr>
+<tr>
+<td>· (faint)</td>
+<td>n/a</td>
+<td>Not part of this task's intended path, and nothing has fired to upgrade it</td>
+</tr>
+</tbody>
+</table>
+<p>A stage's state is <strong>computed live</strong> every render, never stored — a task's
+<code>path:</code> frontmatter field declares which stages it intends to go through
+(defaults to <code>plan,work,review</code> when absent), but a real signal always wins
+even for an undeclared stage: if a plan doc shows up for a task that never
+declared <code>plan</code> in its path, that stage renders done anyway. Stage cells
+link to their backing artifact (the doc, or the PR) when one exists on disk;
+a task whose worktree is gone but whose branch still carries the doc shows
+an unlinked glyph with a tooltip naming it, rather than losing the signal.</p>
+<p><strong>Every detail card</strong> (bucket tabs and Pipeline alike, done tasks included)
+shows the same stepper as a two-zone card: identity (title, status, repo ·
+branch) on the left, live-agent badge / worktree indicator / PR chip on the
+right. Doc stages list every matching artifact as a chip, not just the
+newest.</p>
+<p><strong>Relationships.</strong> A task can declare <code>depends_on: &lt;repo&gt;--&lt;slug&gt;[,...]</code> —
+comma-separated blocker stems, met once the blocker's <code>status:</code> is <code>done</code>. A
+blocked task renders dimmed with a ⛔ count (tooltip names the blockers); its
+blocker shows a → count of tasks waiting on it — both directions visible at
+once, independently. A dangling stem or a dependency cycle fails open (fail
+loud would be worse: it renders the task unblocked with a visible warning
+naming the problem) rather than breaking the render. A parent task (via
+<code>parent:</code>) shows an <code>n/m children done</code> counter and a ready-to-close hint
+once every child is done — the parent's own status pill is never touched by
+this.</p>
+<p><strong>Filters.</strong> The header carries the today/week window as a segmented
+control, plus two independent, AND-composing dropdown filters: <strong>Repo</strong>
+(every repo present in the store) and <strong>Family</strong> (a parent and its
+children — only appears at all once the store has at least one parent/child
+pair). Both default to &quot;All&quot;; picking a specific option narrows every tab's
+table and cards at once, never Key Findings (below).</p>
+<p><strong>Key Findings</strong>, at the bottom of every tab, is board-global and explicitly
+tagged <em>board-wide · ignores filters</em> — no repo/family filter narrows it,
+since it's meant to answer &quot;what needs attention across everything,&quot; not
+&quot;what's in this slice.&quot; Six starter insights, each omitted when empty
+(never an empty heading): the task blocking the most others, parents ready
+to close, a count of done-but-unreviewed tasks, the oldest in-flight task,
+tasks whose status maps to no known bucket, and branchless tasks whose stem
+already matches a doc in this repo's own <code>docs/</code> tree (a &quot;wrote the plan,
+haven't started the branch yet&quot; pattern that's otherwise invisible).</p>
+<p><strong>Creating a task with intent:</strong> <code>wb new</code> accepts <code>--path &lt;stages&gt;</code> (a
+comma-separated subset of the five stage names, validated against unknown
+names before anything is created) and repeatable <code>--depends-on &lt;stem&gt;</code> (each
+validated against a real task file). Both are optional — every task still
+gets the <code>plan,work,review</code> default when <code>--path</code> is omitted.</p>
+<p><strong>Review-stamp convention.</strong> After any <code>/ce-code-review</code> pass completes
+inside a <code>wb</code> session, run <code>wb reviewed</code> — it stamps the task's <code>reviewed:</code>
+field, which is what makes the Review stage (and the unreviewed-count
+insight) tell the truth. This is a convention, not automation — nothing
+enforces it, it only works if it's actually run.</p>
 <h2 id="known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</h2>
 <ul>
 <li>The picker's auto-refresh briefly pauses input while it runs (every few

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>&#34;/board — task-board visualization&#34;</title>
+<title>/handoff — route a discussion to the right worker</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -171,107 +171,99 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="page">
+<body data-kind="guide">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap-board.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-13</span>
+  <span>docgen · generated from <b>docs/handoff-guide.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-11</span>
 </div>
-<main>
-<header class="doc">
-  <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> &#34;/board — task-board visualization&#34;</h1>
-  <div class="meta">
-    <span class="chip ok">current</span>
-    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
-  </div>
-</header>
-<article>
-<p>Renamed from <code>/roadmap</code> (2026-07-07, Decision 5A) once &quot;roadmap&quot; collided
-with this document's own name — &quot;roadmap&quot; now unambiguously means
-<code>docs/roadmap.md</code>, the feature is <code>/board</code>. This page is the source; edit
-<code>docs/roadmap-board.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> 9a (superseded — this page is the detail) · <strong>Status:</strong>
-v1 HTML board shipped, then v2 (stepper/Pipeline/relationships/filters/Key
-Findings) shipped on top of it — see <a href="#what-shipped-in-v2-board-display-v2">What shipped in v2</a> below.</p>
-<h2 id="the-gap-this-closes">The gap this closes</h2>
-<p>The picker redesign (<code>wb</code>, PR #7) made rows presence-only — live
-sessions/agents only, the right call for signal-to-noise — but it meant
-there was no single view of live + deferred (<code>## Follow-ups</code>) + parked
-(<code>/park</code> ledger) work; each lived in a different place (<code>wb</code>, <code>grep ~/code/tasks/*.md</code>, <code>/parked-items</code>). Closing that gap is exactly what
-<code>/board</code> is for.</p>
-<h2 id="what-shipped-already-wb-board">What shipped already: <code>wb board</code></h2>
-<p>An interim, read-only <code>wb board</code> subcommand — a plain-text table over
-store frontmatter, reusing <code>wb_read_task</code> — landed in the pre-slice-5
-remediation pass specifically to close the visibility gap immediately
-rather than waiting for the full HTML feature.</p>
-<h2 id="whats-still-deferred-the-full-html-board">What's still deferred: the full HTML <code>/board</code></h2>
-<p>Scoped via a decision-buffer round on 2026-07-08
-(<code>logs/decisions/2026-07-08-board-scoping.md</code>, gitignored scratch — this
-page is the durable record of what got decided). Superseding the earlier
-2026-07-06 constraints below it — the docgen/zoom-level shape originally
-planned was replaced by a simpler bash-native design once actually scoped:</p>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">/handoff — route a discussion to the right worker</div>
+    <div class="brand-sub">Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</div>
+    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#try-it">Try it</a></li>
+      <li><a href="#the-first-action-lives-in-the-task-file-not-a-flag">The first action lives in the task file, not a flag</a></li>
+      <li><a href="#what-v1-doesnt-do">What v1 doesn&#39;t do</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="title-block">
+      <h1>/handoff — route a discussion to the right worker</h1>
+      <p class="dek">Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<p><code>/handoff</code> takes something being discussed in the current conversation and
+routes it to the worker that should own it — an already-live tmux session
+(switch + clipboard) or a freshly spawned one (<code>wb new --agent</code> + inject).
+Single-target only: one repo/slug per invocation.</p>
+<h2 id="try-it">Try it</h2>
+<p>Mid-conversation, once a clearly-standalone piece of work has come up:</p>
+<pre><code>/handoff
+</code></pre>
+<p>The skill infers <code>repo</code>/<code>slug</code> from context (checking <code>~/code/tasks/</code> for a
+task that already represents this, same lookup the worktree-seeding rule
+already uses), seeds or updates that task file, then hands off to
+<code>scripts/.config/scripts/tmux/handoff.sh &lt;repo&gt; &lt;slug&gt;</code> — no flags to pass,
+no path to type by hand.</p>
+<p>What happens next depends on whether that repo/slug already has a live
+session:</p>
 <ul>
-<li><strong>Output shape:</strong> one gitignored file, <code>logs/board.html</code>, regenerated
-live by extending <code>wb.sh</code> in bash — <strong>not</strong> the docgen HTML pipeline
-(the original 2026-07-06 plan assumed docgen; superseded).</li>
-<li><strong>Query model:</strong> two composable filters, not zoom levels — <strong>status</strong>
-(All / Upcoming = <code>planned</code> / Paused = a new status value / in-progress
-is the implicit default) and <strong>timeline</strong> (today / this week).
-In-progress tasks always show regardless of timeline; timeline
-additionally pulls in tasks <em>closed</em> within the window, via a new
-<code>closed:</code> frontmatter field stamped when a task flips to <code>done</code>.
-<strong>v2 pass (2026-07-12 plan):</strong> added a third, window-independent
-<strong>Pipeline</strong> tab (every non-done task, regardless of timeline — see
-below) plus two more composable filters, <strong>Repo</strong> and <strong>Family</strong>, that
-narrow every tab/timeline combination at once.</li>
-<li><strong>Per-task drill-down:</strong> inline <code>&lt;details&gt;</code>/<code>&lt;summary&gt;</code> expansion in the
-single HTML file, not separate per-task pages (per-task files stay an
-explicit, deferred follow-up).</li>
-<li><strong>Transcript-to-task matching, if/when built:</strong> exact <code>.cwd</code>/<code>.gitBranch</code>
-match only, no fuzzy slug/keyword search — deferred to a follow-up
-alongside per-task file output, since it has no existing precedent
-anywhere in this codebase.</li>
-<li><strong><code>wb pause</code>:</strong> a new status value plus both a <code>wb pause [&lt;session&gt;]</code>
-subcommand (mirrors <code>wb done</code>, skips worktree teardown) and a picker
-keybind (<code>p</code>), needed to support the Paused status filter above.</li>
-<li>Sourced from the store + parked ledger + decision docs + (deferred)
-transcripts.</li>
-<li><strong>Jira integration is explicitly excluded</strong> — it's its own later,
-separately-ratified addition (same open questions as 9b's Jira half:
-where the API credential lives, whether Jira-derived text may be
-persisted into the sync-bound task store).</li>
+<li><strong>Live session exists</strong> → switches you into it and puts a short pointer
+on the clipboard (<code>wl-copy</code>), naming the task file. Paste it in whenever
+you're ready.</li>
+<li><strong>No live session</strong> → <code>wb new --agent</code> spawns one, <code>handoff.sh</code> polls for
+the boot-ready screen, injects the pointer, then polls for and clears the
+one-time <code>~/code/tasks/</code> read-permission prompt automatically. You land
+on a session that's already read its task file and started working.</li>
 </ul>
-<p>Sequencing: fully scoped, part of the current PR (alongside <code>wb reconcile</code>
-and <code>wb resume</code>/<code>wb pause</code>) — see <code>logs/decisions/2026-07-08-session-recap.md</code>.</p>
-<h2 id="what-shipped-in-v2-board-display-v2">What shipped in v2 (board display v2)</h2>
-<p>Planned in <code>docs/plans/2026-07-12-001-feat-wb-board-display-plan.md</code> and
-implemented in the same PR. Four additions on top of the v1 shape above,
-all CSS-only (no JS added anywhere in this file):</p>
+<h2 id="the-first-action-lives-in-the-task-file-not-a-flag">The first action lives in the task file, not a flag</h2>
+<p>Unlike a typical CLI tool, <code>handoff.sh</code> takes no <code>--first-action</code> flag.
+<code>/handoff</code> writes a line directly into the target task file's body,
+immediately under its title — the exact convention this task file itself
+used to bootstrap its own <code>/ce-plan</code> pass:</p>
+<pre><code>**First action when picked up:** `/ce-plan` from this file.
+</code></pre>
+<p>Defaults to <code>/ce-plan</code>; the skill only picks something else (e.g.
+<code>/ce-work</code>) when the work is already fully scoped, and always says which
+it chose and why. This isn't just a style choice — it also means the
+pointer <code>handoff.sh</code> injects is a single fixed string with nothing
+runtime-variable in it, which is what makes the boot-ready/permission-
+prompt anchors safe to match against (see <code>docs/roadmap-handoff.md</code>'s
+dry-run findings for the mechanical reasoning).</p>
+<h2 id="what-v1-doesnt-do">What v1 doesn't do</h2>
 <ul>
-<li><strong>Lifecycle stepper.</strong> The old presence/absence badges are replaced by a
-five-stage stepper per task (Ideate · Brainstorm · Plan · Work · Review),
-each computed live to one of four states (n/a / pending / in-progress /
-done) from detection signals plus an optional <code>path:</code> frontmatter field
-declaring which stages a task intends to pass through.</li>
-<li><strong>Pipeline tab.</strong> One row per non-done task, window-independent —
-the one place a stale, long-untouched in-flight task is still visible
-even outside the today/week timeline.</li>
-<li><strong>Relationships.</strong> <code>depends_on:</code> (comma-separated blocker stems) renders
-as a blocked/unblocks chip pair in both directions; existing <code>parent:</code>
-rollup gained a children-done counter and a ready-to-close hint.</li>
-<li><strong>Key Findings.</strong> A board-wide, filter-immune section per tab: most-
-blocking task, parents ready to close, done-but-unreviewed count, oldest
-in-flight task, unclassified-status tasks, and branchless tasks whose
-stem already matches a doc on disk.</li>
+<li><strong>Fan-out.</strong> One discussion → several linked tasks depends on the task
+parent/child relationship, designed but not yet built (parallel
+<code>feat/task-parent-child</code> branch). <code>/handoff</code> routes the single most
+relevant target and says so.</li>
+<li><strong>Instructing an already-busy live agent directly.</strong> The switch path is
+clipboard-only — you paste the pointer in yourself when the agent is
+ready for it, rather than <code>/handoff</code> injecting into a pane that might be
+mid-turn on something else.</li>
+<li><strong>Non-blocking invocation.</strong> Running independently of the current
+turn — not blocking on it, not affecting its response — is a real,
+different idea raised while planning v1, deliberately parked until v1
+has seen real usage (<code>docs/roadmap-handoff.md</code> &quot;Follow-on idea&quot;).</li>
+<li><strong>Self-handoff between stages.</strong> Clearing your own context mid-task
+(e.g. after <code>/ce-plan</code> finishes, before <code>/ce-work</code> starts) is a
+different mechanic entirely — same session, not a different one — and
+its own not-yet-planned follow-up (<code>docs/roadmap-handoff.md</code>
+&quot;Follow-on idea: self-handoff between stages&quot;).</li>
 </ul>
-<p>See <code>docs/wb-guide.md</code>'s board section for the human-facing walkthrough of
-all of the above.</p>
+<p>Full mechanical rationale — the anchor sets, the permission handshake, why
+<code>wb.sh</code> is never touched, all three dry-run findings — lives in
+<a href="roadmap-handoff.html"><code>roadmap-handoff.md</code></a>, not repeated here.</p>
 </article>
-<footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-board.md</code>. Rebuild:
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/handoff-guide.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
-</main>
+  </main>
+</div>
 
 </body>
 </html>
