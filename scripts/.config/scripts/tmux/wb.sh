@@ -169,6 +169,42 @@ wb_task_own_parent() {
   return 0
 }
 
+# wb_session_task_file <session> — KTD7's @task-first task-file resolution.
+# Every session cmd_new creates already carries a session-scoped `@task`
+# option (set alongside @wb_repo/@wb_slug) — but until wb-breakdown, @task
+# and the @wb_repo/@wb_slug-derived file always named the SAME task, so
+# nobody needed to pick one over the other. Migration (U3) is the first
+# case where they diverge on purpose: a continuing child session keeps its
+# ORIGINAL @wb_repo/@wb_slug (its own git identity — see the System-Wide
+# Impact note on why that's fine), while @task gets re-pointed at the
+# child's file. Every verb that resolves "my task file" from a session must
+# prefer @task once that's possible, or `wb done`/`wb pause`/`wb reviewed`
+# on a migrated session would silently act on the PARENT (R12's "writes
+# nothing beyond its own task" specifically depends on this).
+#
+# Prints the resolved path and returns 0, or returns 1 with NOTHING on
+# stdout when neither @task nor @wb_repo/@wb_slug resolve — callers keep
+# printing their OWN existing "not a wb task session" wording so a session
+# without @task (every session that predates this feature, and any
+# non-cmd_new session) stays byte-for-byte unchanged (characterized in
+# wb-breakdown.test.sh's coherence section before this landed).
+wb_session_task_file() {
+  local session="$1" task_ref
+  task_ref="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+  if [ -n "$task_ref" ]; then
+    if [ -f "$task_ref" ]; then
+      printf '%s\n' "$task_ref"
+      return 0
+    fi
+    echo "wb: @task ($task_ref) no longer exists for $session — falling back to repo/slug derivation" >&2
+  fi
+  local repo slug
+  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
+  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
+  [ -n "$repo" ] && [ -n "$slug" ] || return 1
+  wb_task_file "$repo" "$(wb_sanitize "$slug")"
+}
+
 # wb_tsv_split <string> <array_name> — split <string> on literal tabs into
 # the named array, preserving empty fields. NEVER use `IFS=$'\t' read` for
 # this: bash classifies tab as IFS-WHITESPACE regardless of what IFS is set
@@ -452,15 +488,26 @@ wb_ensure_repo_ignore() {
   ) 9>"$lockfile"
 }
 
-# wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] — find-or-create
-# the task file for a repo+slug pair, filling blank frontmatter fields and
-# bumping planned->doing. Never overwrites a field that's already set.
-# <parent_ref> is optional (defaults to empty) so wb_reconcile_action_create_task's
-# pre-existing 3-arg call keeps working unchanged — it never sets `parent:`.
+# wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<file_override>]
+# — find-or-create the task file for a repo+slug pair, filling blank
+# frontmatter fields and bumping planned->doing. Never overwrites a field
+# that's already set. <parent_ref> is optional (defaults to empty) so
+# wb_reconcile_action_create_task's pre-existing 3-arg call keeps working
+# unchanged — it never sets `parent:`. <file_override> is KTD7's directional
+# escape hatch for `wb resume`: post-migration, a continuing child's own
+# branch:/worktree: equal the PARENT's original identity, so re-deriving
+# the task file from repo+slug via wb_task_file would resolve back to the
+# PARENT's file — cmd_resume already knows the real (child) file from its
+# own stem-based lookup and passes it straight through here instead.
 wb_seed_task() {
-  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}"
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
-  local file; file="$(wb_task_file "$repo" "$disp_slug")"
+  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}"
+  local file
+  if [ -n "$file_override" ]; then
+    file="$file_override"
+  else
+    local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+    file="$(wb_task_file "$repo" "$disp_slug")"
+  fi
 
   if [ ! -f "$file" ]; then
     mkdir -p "$TASKS_DIR"
@@ -483,9 +530,30 @@ wb_seed_task() {
       { print }
     ' "$TASKS_DIR/TEMPLATE.md" > "$file"
   else
-    [ -n "$(wb_get_frontmatter "$file" repo)" ]      || wb_set_frontmatter "$file" repo "$repo"
-    [ -n "$(wb_get_frontmatter "$file" branch)" ]    || wb_set_frontmatter "$file" branch "$slug"
-    [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
+    [ -n "$(wb_get_frontmatter "$file" repo)" ] || wb_set_frontmatter "$file" repo "$repo"
+
+    # Reattach guard (KTD7): don't backfill a blank branch:/worktree: pair
+    # when another task file already claims that exact pair — a muscle-
+    # memory `wb new <old-slug>` after a wb-breakdown migration would
+    # otherwise silently refill the parent's deliberately-blanked fields,
+    # leaving two files claiming one worktree.
+    local claiming_file="" f
+    if [ -z "$(wb_get_frontmatter "$file" branch)" ] || [ -z "$(wb_get_frontmatter "$file" worktree)" ]; then
+      for f in $(wb_task_files); do
+        [ "$f" != "$file" ] || continue
+        [ "$(wb_get_frontmatter "$f" branch)" = "$slug" ] || continue
+        [ "$(wb_get_frontmatter "$f" worktree)" = "$worktree_rel" ] || continue
+        claiming_file="$f"
+        break
+      done
+    fi
+    if [ -n "$claiming_file" ]; then
+      echo "wb_seed_task: not backfilling branch:/worktree: on $file — $claiming_file already claims branch=$slug worktree=$worktree_rel" >&2
+    else
+      [ -n "$(wb_get_frontmatter "$file" branch)" ]    || wb_set_frontmatter "$file" branch "$slug"
+      [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
+    fi
+
     [ "$(wb_get_frontmatter "$file" status)" != planned ] || wb_set_frontmatter "$file" status doing
     # reviewed: has no inferred value (unlike repo/branch/worktree above) —
     # it starts blank and is only ever stamped by cmd_reviewed. This just
@@ -784,10 +852,21 @@ cmd_new() {
   # scope — the lock's fd must be owned by this process, not by the
   # subshell that command substitution spawns for wb_seed_task, or it
   # evaporates the instant that subshell exits.
-  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  #
+  # _WB_TASK_FILE_OVERRIDE (KTD7): set only by cmd_resume, for exactly the
+  # post-migration case where repo+slug (the child's OWN inherited git
+  # identity) would otherwise re-derive the PARENT's file via wb_task_file
+  # — cmd_resume already resolved the real (child) file from its own
+  # stem-based lookup and hands it straight through.
+  local task_file
+  if [ -n "${_WB_TASK_FILE_OVERRIDE:-}" ]; then
+    task_file="$_WB_TASK_FILE_OVERRIDE"
+  else
+    task_file="$(wb_task_file "$repo" "$disp_slug")"
+  fi
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref")"
+  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}")"
   wb_task_lock_release "$task_file"
 
   local is_new=0
@@ -863,7 +942,14 @@ cmd_resume() {
   branch="$(wb_get_frontmatter "$file" branch)"
   [ -n "$repo" ] && [ -n "$branch" ] \
     || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
-  cmd_new "$repo" "$branch"
+  # KTD7: post-migration, a continuing child's branch:/worktree: equal the
+  # PARENT's original identity — cmd_new deriving the task file from
+  # repo+branch alone would resolve back to the PARENT's file. $file is
+  # already the REAL target (resolved above by stem, not by branch), so
+  # hand it straight through; cleared unconditionally right after so it
+  # can never leak into an unrelated later cmd_new call in this process.
+  _WB_TASK_FILE_OVERRIDE="$file" cmd_new "$repo" "$branch"
+  unset _WB_TASK_FILE_OVERRIDE
   # Handoffs-append lives HERE, not inside cmd_new — cmd_new is also
   # the path every fresh `wb new` takes, and a fresh task must not
   # gain a Handoffs entry (see wb_append_handoff's own header comment).
@@ -1734,15 +1820,10 @@ cmd_pause() {
     session="$(tmux display-message -p '#S')"
   fi
 
-  local repo slug
-  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
-  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
-  [ -n "$repo" ] && [ -n "$slug" ] \
+  local task_file
+  task_file="$(wb_session_task_file "$session")" \
     || { echo "wb pause: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
-  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
-  [ -f "$task_file" ] || { echo "wb pause: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
+  [ -f "$task_file" ] || { echo "wb pause: no task file for $session ($task_file)" >&2; exit 1; }
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
@@ -1777,15 +1858,10 @@ cmd_reviewed() {
     session="$(tmux display-message -p '#S')"
   fi
 
-  local repo slug
-  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
-  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
-  [ -n "$repo" ] && [ -n "$slug" ] \
+  local task_file
+  task_file="$(wb_session_task_file "$session")" \
     || { echo "wb reviewed: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
-  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
-  [ -f "$task_file" ] || { echo "wb reviewed: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
+  [ -f "$task_file" ] || { echo "wb reviewed: no task file for $session ($task_file)" >&2; exit 1; }
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
@@ -2895,22 +2971,66 @@ cmd_done() {
     session="$(tmux display-message -p '#S')"
   fi
 
-  # -v alone (no -p) so it cascades to the session-scoped value set-option
-  # wrote in cmd_new — -p demands a pane-local value and errors "invalid option".
-  local repo slug
-  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
-  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
-  [ -n "$repo" ] && [ -n "$slug" ] \
-    || { echo "wb done: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+  # KTD7's store-only close: <session> matching no LIVE tmux session at all
+  # is resolved as a task-file stem instead — a session-less parent (the
+  # whole point of wb-breakdown's family split) never had a session for
+  # @wb_repo/@wb_slug to be missing FROM; there's simply nothing to attach
+  # to. This is also the exact path KTD8's printed last-child nudge
+  # ("wb done <parent-stem>") depends on to actually work.
+  local task_file store_only=0
+  if tmux has-session -t "=$session" 2>/dev/null; then
+    # @task-first resolution (KTD7) — @wb_repo/@wb_slug stay intentionally
+    # stale on a migrated continuing session (its OWN git identity never
+    # changes, only which task file owns it), so trusting them here would
+    # act on the wrong file post-migration. wb_session_task_file falls back
+    # to today's @wb_repo/@wb_slug derivation byte-for-byte when @task isn't
+    # set — every session that predates this feature.
+    task_file="$(wb_session_task_file "$session")" \
+      || { echo "wb done: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+    [ -f "$task_file" ] || { echo "wb done: no task file for $session ($task_file)" >&2; exit 1; }
+  else
+    task_file="$TASKS_DIR/$session.md"
+    [ -f "$task_file" ] \
+      || { echo "wb done: '$session' matches no live tmux session and no task file in $TASKS_DIR" >&2; exit 1; }
+    store_only=1
+  fi
 
-  local repo_dir="$CODE_DIR/$repo"
-  local worktree_path="$repo_dir/.worktrees/$slug"
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
-  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  local task_stem; task_stem="$(basename "$task_file" .md)"
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
 
-  # 1. fail fast — never mutate anything on a dirty tree.
-  _wb_git_dirty_guard "$worktree_path" "wb done"
+  local repo_dir worktree_path
+  if [ "$store_only" = 0 ]; then
+    # Derived from the TASK FILE's own frontmatter, never from
+    # @wb_repo/@wb_slug directly — a migrated child's worktree:/branch: are
+    # its OWN (received from the parent during migration), and a
+    # store-only parent has neither to derive from in the first place.
+    local repo worktree_rel slug
+    repo="$(wb_get_frontmatter "$task_file" repo)"
+    slug="$(wb_get_frontmatter "$task_file" branch)"
+    worktree_rel="$(wb_get_frontmatter "$task_file" worktree)"
+    [ -n "$worktree_rel" ] || worktree_rel=".worktrees/$slug"
+    repo_dir="$CODE_DIR/$repo"
+    worktree_path="$repo_dir/$worktree_rel"
+
+    # Worktree drift guard (KTD7): worktree: is SET but doesn't exist, while
+    # the ordinary .worktrees/$slug derivation DOES — never guess which one
+    # is right (tearing down against the wrong target destroys real work).
+    if [ -n "$(wb_get_frontmatter "$task_file" worktree)" ] \
+       && [ ! -d "$worktree_path" ] \
+       && [ -d "$repo_dir/.worktrees/$slug" ]; then
+      echo "wb done: $task_file's worktree: ($worktree_rel) doesn't exist, but $repo_dir/.worktrees/$slug does — refusing to guess which is right; fix the drift by hand" >&2
+      exit 1
+    fi
+
+    # 1. fail fast — never mutate anything on a dirty tree.
+    _wb_git_dirty_guard "$worktree_path" "wb done"
+  fi
+
+  # Steps 2-3 (Sweep review buffer + worktree removal) are meaningless for a
+  # store-only close — a session-less parent never had a worktree to sweep
+  # or remove (KTD7: "no sweep, worktree, or session teardown"). Only the
+  # shared status/closed/Handoffs burst below applies to it.
+  if [ "$store_only" = 0 ]; then
 
   # 2. review buffer — the task file itself IS the buffer (it already lives
   # centrally and survives `git worktree remove`, so there's no copy to sync
@@ -2937,7 +3057,7 @@ cmd_done() {
 
     wb_open_buffer "$task_file"
 
-    local dossier="$TASKS_DIR/dossiers/${repo}--${disp_slug}"
+    local dossier="$TASKS_DIR/dossiers/$task_stem"
     local -a safe_kept=()
     local f safe
     # Scope to the section this run appended (never the task's own freeform
@@ -3016,17 +3136,26 @@ cmd_done() {
     git -C "$repo_dir" worktree remove "$worktree_path" --force
   fi
 
-  # Burst 3: final status/closed stamps + Handoffs entry — its own lock
-  # burst, acquired only now, AFTER the (unlocked) worktree removal above.
-  # `git worktree remove` is a slow-ish external operation and isn't a
-  # task-FILE write at all, so it must never happen while the lock is held.
+  fi   # store_only == 0 (steps 2-3)
+
+  # Burst 3 (shared): final status/closed stamps + Handoffs entry — its own
+  # lock burst, acquired only now, AFTER the (unlocked) worktree removal
+  # above. `git worktree remove` is a slow-ish external operation and isn't
+  # a task-FILE write at all, so it must never happen while the lock is
+  # held. Applies to both paths — a store-only close still needs its own
+  # status/closed/handoff burst (KTD7/KTD8: the printed nudge names a
+  # parent that must actually flip to done when someone acts on it).
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status done
   wb_set_frontmatter "$task_file" closed "$(date +%F)"
   wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
   wb_task_lock_release "$task_file"
 
-  echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
+  if [ "$store_only" = 1 ]; then
+    echo "wb done: $task_file closed (store-only — no live session or worktree to tear down)"
+  else
+    echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
+  fi
 
   local total=$(( $(wb_followup_count) + $(wb_parked_count) ))
   if [ "$total" -ge "$WB_SWEEP_THRESHOLD" ]; then
@@ -3038,7 +3167,8 @@ cmd_done() {
   # the kill. Best-effort (|| true) — by this point the state that matters
   # (worktree removed, status flipped) is already done and echoed, so a
   # racing/already-gone session must not abort the script under set -e.
-  [ "$close" -eq 1 ] && tmux kill-session -t "=$session" 2>/dev/null || true
+  # Store-only has no session to kill in the first place.
+  [ "$store_only" = 0 ] && [ "$close" -eq 1 ] && tmux kill-session -t "=$session" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -3129,12 +3259,16 @@ wb_agent_subrows() {
 # the store; otherwise shows the session name and, if its cwd is a git repo,
 # the current branch — same shape a plain `s`-created session gets.
 wb_live_session_row() {
-  local session="$1" repo slug disp_slug task_file branch label statuscol kind ref slug_out=""
+  local session="$1" repo slug task_file branch label statuscol kind ref slug_out=""
   repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
   slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
   if [ -n "$repo" ] && [ -n "$slug" ]; then
-    disp_slug="$(wb_sanitize "$slug")"
-    task_file="$(wb_task_file "$repo" "$disp_slug")"
+    # @task-first (KTD7): @wb_repo/@wb_slug alone would re-derive the
+    # PARENT's file on a migrated session (apply re-points @task, never
+    # these two) — repo/slug_out below stay the session's own real git
+    # identity regardless; only which task file drives the row's title/
+    # branch/ref changes.
+    task_file="$(wb_session_task_file "$session")"
     if [ -f "$task_file" ]; then
       local -a _wt; wb_tsv_split "$(wb_read_task "$task_file")" _wt
       branch="${_wt[3]}"

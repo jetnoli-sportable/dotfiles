@@ -9,7 +9,13 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-breakdown-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-breakdown-tasks.XXXXXX)"
-trap 'rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS"' EXIT
+FIXTURE_BIN="$(mktemp -d -t wb-breakdown-bin.XXXXXX)"
+REAL_TMUX="$(command -v tmux)"
+SOCK="wb-breakdown-sock-$$"
+trap '
+  "$REAL_TMUX" -L "$SOCK" kill-server 2>/dev/null || true
+  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_BIN"
+' EXIT
 
 fail=0
 assert() { # <desc> <expected-regex> <actual>
@@ -480,6 +486,166 @@ assert_eq "multi-parent buffer: hard error exit code" 2 "$rc_multi_parent"
 assert "multi-parent buffer: names both stems" 'more than one parent' "$err_multi_parent"
 
 rm -rf "$BUF_DIR"
+
+# =============================================================================
+# U4 — session/task coherence for migrated families (KTD7)
+# =============================================================================
+
+# Isolated tmux socket (wb-new.test.sh's convention): every tmux call below
+# hits a throwaway server, never the real attached one — tmux_focus's
+# switch-client must not be allowed to hijack this machine's actual client.
+cat > "$FIXTURE_BIN/tmux" <<EOF
+#!/usr/bin/env bash
+exec "$REAL_TMUX" -L "$SOCK" "\$@"
+EOF
+chmod +x "$FIXTURE_BIN/tmux"
+PATH="$FIXTURE_BIN:$PATH"
+# No interactive nvim in a test run: cmd_done's Sweep flow appends "- [ ]
+# keep <f>" lines then blocks on wb_open_buffer — auto-check every one,
+# simulating "the user kept everything," so the dossier-copy path is
+# actually exercised instead of silently no-op'd.
+wb_open_buffer() { sed -i 's/^- \[ \] keep /- [x] keep /' "$1"; }
+wb_bootstrap() { :; }     # no .worktree-bootstrap fixture needed for these scenarios
+
+mk_task_file() { # <stem> <status> <repo> <branch> <worktree> <parent>
+  local f="$TASKS_DIR/$1.md"
+  printf -- '---\nstatus: %s\nrepo: %s\nbranch: %s\nworktree: %s\nparent: %s\ncreated: 2026-07-01\nclosed:\n---\n# %s\n' \
+    "$2" "$3" "$4" "$5" "$6" "$1" > "$f"
+}
+
+# --- migrated-family fixture: cmd_done acts on the CHILD, not the parent ---
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-family ".worktrees/feat-family" >/dev/null 2>&1
+mk_task_file proj--feat-family doing proj "" "" ""   # migrated: branch:/worktree: blanked
+mk_task_file proj--feat-family-child doing proj feat-family .worktrees/feat-family proj--feat-family
+# a gitignored keeper file so the Sweep flow actually exercises the dossier
+# path (rather than skipping it entirely on a clean worktree). Via
+# .git/info/exclude (shared across every worktree of this repo, unlike a
+# tracked .gitignore, which would need to predate the branch point) so
+# `feat-family`'s checkout picks it up regardless of branch history.
+echo 'scratch-notes.txt' >> "$FIXTURE_CODE/proj/.git/info/exclude"
+echo 'kept across the split' > "$FIXTURE_CODE/proj/.worktrees/feat-family/scratch-notes.txt"
+
+fam_session="wb-breakdown-test-family-$$"
+tmux new-session -d -s "$fam_session" 2>/dev/null
+tmux set-option -t "=$fam_session:" @wb_repo proj >/dev/null      # STALE — the parent's original identity, never re-pointed
+tmux set-option -t "=$fam_session:" @wb_slug feat-family >/dev/null
+tmux set-option -t "=$fam_session:" @task "$TASKS_DIR/proj--feat-family-child.md" >/dev/null
+
+out_fam="$(cmd_done "$fam_session" 2>&1)"; rc_fam=$?
+assert_eq "migrated family: cmd_done exits 0" 0 "$rc_fam"
+assert_eq "migrated family: CHILD flipped to done" "done" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-family-child.md" status)"
+assert_eq "migrated family: PARENT untouched (still doing)" "doing" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-family.md" status)"
+if [ -d "$FIXTURE_CODE/proj/.worktrees/feat-family" ]; then
+  echo "FAIL - migrated family: worktree not removed"; fail=1
+else
+  echo "ok   - migrated family: worktree removed"
+fi
+assert_eq "migrated family: kept file lands under the CHILD's own dossier stem" \
+  "kept across the split" "$(cat "$TASKS_DIR/dossiers/proj--feat-family-child/scratch-notes.txt" 2>/dev/null)"
+if [ -e "$TASKS_DIR/dossiers/proj--feat-family/scratch-notes.txt" ]; then
+  echo "FAIL - migrated family: kept file must NOT land under the parent's stem"; fail=1
+else
+  echo "ok   - migrated family: nothing dossiered under the parent's stem"
+fi
+assert "migrated family: message names the session, not a stale parent reference" 'closed' "$out_fam"
+
+# --- @task pointing at a deleted file: fallback derivation, one warning ----
+mk_task_file proj--feat-stale-task doing proj feat-stale-task .worktrees/feat-stale-task ""
+stale_session="wb-breakdown-test-stale-$$"
+tmux new-session -d -s "$stale_session" 2>/dev/null
+tmux set-option -t "=$stale_session:" @wb_repo proj >/dev/null
+tmux set-option -t "=$stale_session:" @wb_slug feat-stale-task >/dev/null
+tmux set-option -t "=$stale_session:" @task "$TASKS_DIR/proj--this-file-does-not-exist.md" >/dev/null
+
+resolved="$(wb_session_task_file "$stale_session" 2>/tmp/wbd-stale-task.err)"
+assert_eq "@task deleted: falls back to repo/slug derivation" "$TASKS_DIR/proj--feat-stale-task.md" "$resolved"
+warn_count="$(grep -c . /tmp/wbd-stale-task.err)"
+assert_eq "@task deleted: exactly one stderr warning" 1 "$warn_count"
+assert "@task deleted: warning names the stale path" 'no longer exists' "$(cat /tmp/wbd-stale-task.err)"
+
+# --- resume-after-breakdown: reattaches the CHILD, not the parent -----------
+out_resume="$(cmd_resume "feat-family-child" 2>&1)"; rc_resume=$?
+assert_eq "resume-after-breakdown: exits 0" 0 "$rc_resume"
+if [ -d "$FIXTURE_CODE/proj/.worktrees/feat-family" ]; then
+  echo "ok   - resume-after-breakdown: worktree recreated at the SAME (single) path"
+else
+  echo "FAIL - resume-after-breakdown: worktree was not recreated"; fail=1
+fi
+wt_count="$(find "$FIXTURE_CODE/proj/.worktrees" -maxdepth 1 -type d -name 'feat-family*' | wc -l)"
+assert_eq "resume-after-breakdown: no second worktree created" 1 "$wt_count"
+assert_eq "resume-after-breakdown: CHILD file still owns branch:/worktree:" "feat-family" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-family-child.md" branch)"
+assert_eq "resume-after-breakdown: PARENT's blanked fields still blank" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-family.md" branch)"
+resume_session="proj--feat-family"   # cmd_new derives the session name from repo+branch, not the child's own stem
+resume_task="$(tmux show -t "=$resume_session:" -v @task 2>/dev/null || true)"
+assert_eq "resume-after-breakdown: new session's @task points at the CHILD" "$TASKS_DIR/proj--feat-family-child.md" "$resume_task"
+tmux kill-session -t "=$resume_session" 2>/dev/null || true
+
+# --- store-only close: session-less, worktree-less parent -------------------
+mk_task_file proj--feat-store-only doing proj "" "" ""
+out_store="$(cmd_done "proj--feat-store-only" 2>&1)"; rc_store=$?
+assert_eq "store-only close: exits 0" 0 "$rc_store"
+assert_eq "store-only close: flips to done" "done" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-store-only.md" status)"
+assert "store-only close: handoff entry appended" 'Session closed' "$(cat "$TASKS_DIR/proj--feat-store-only.md")"
+assert "store-only close: message says store-only" 'store-only' "$out_store"
+
+out_neither="$(cmd_done "no-such-session-or-task-$$" 2>&1)"; rc_neither=$?
+assert_eq "neither session nor task file: non-zero exit" 1 "$rc_neither"
+assert "neither session nor task file: fails loud" 'matches no live tmux session and no task file' "$out_neither"
+
+# --- reattach guard: wb_seed_task doesn't refill a blanked pair another ----
+# file already claims (direct unit test — same call shape cmd_new's normal
+# path uses, without the tmux/git worktree mechanics around it).
+mk_task_file proj--feat-reattach doing proj "" "" ""
+mk_task_file proj--feat-reattach-child doing proj feat-reattach .worktrees/feat-reattach proj--feat-reattach
+guard_out="$(wb_seed_task proj feat-reattach ".worktrees/feat-reattach" 2>/tmp/wbd-reattach.err)"
+assert_eq "reattach guard: parent's branch: stays blank" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-reattach.md" branch)"
+assert_eq "reattach guard: parent's worktree: stays blank" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-reattach.md" worktree)"
+assert "reattach guard: warning names the claiming child" 'proj--feat-reattach-child' "$(cat /tmp/wbd-reattach.err)"
+
+# --- picker attribution: migrated session's row shows the CHILD ------------
+mk_task_file proj--feat-picker doing proj "" "" ""
+mk_task_file proj--feat-picker-child doing proj feat-picker .worktrees/feat-picker proj--feat-picker
+picker_session="wb-breakdown-test-picker-$$"
+tmux new-session -d -s "$picker_session" 2>/dev/null
+tmux set-option -t "=$picker_session:" @wb_repo proj >/dev/null
+tmux set-option -t "=$picker_session:" @wb_slug feat-picker >/dev/null
+tmux set-option -t "=$picker_session:" @task "$TASKS_DIR/proj--feat-picker-child.md" >/dev/null
+row="$(wb_live_session_row "$picker_session")"
+declare -a row_fields; wb_tsv_split "$row" row_fields   # NEVER `IFS=$'\t' read` — bash treats tab as
+                                                          # IFS-whitespace regardless, collapsing the
+                                                          # empty urgency-target field (see wb_tsv_split's
+                                                          # own header comment; reproduced live here first).
+assert_eq "picker attribution: ref names the CHILD's file, not the parent's" "$TASKS_DIR/proj--feat-picker-child.md" "${row_fields[7]}"
+tmux kill-session -t "=$picker_session" 2>/dev/null || true
+
+# a session with no @task at all renders byte-identical to before (repo/slug-derived)
+mk_task_file proj--feat-nostale doing proj feat-nostale .worktrees/feat-nostale ""
+plain_session="wb-breakdown-test-plain-$$"
+tmux new-session -d -s "$plain_session" 2>/dev/null
+tmux set-option -t "=$plain_session:" @wb_repo proj >/dev/null
+tmux set-option -t "=$plain_session:" @wb_slug feat-nostale >/dev/null
+row_plain="$(wb_live_session_row "$plain_session")"
+declare -a row_plain_fields; wb_tsv_split "$row_plain" row_plain_fields
+assert_eq "picker attribution: no-@task session renders the repo/slug-derived file (unchanged)" "$TASKS_DIR/proj--feat-nostale.md" "${row_plain_fields[7]}"
+tmux kill-session -t "=$plain_session" 2>/dev/null || true
+
+# --- worktree drift: worktree: set but missing, while .worktrees/$slug exists
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-drift ".worktrees/feat-drift" >/dev/null 2>&1
+mk_task_file proj--feat-drift doing proj feat-drift .worktrees/nonexistent-path ""
+drift_session="wb-breakdown-test-drift-$$"
+tmux new-session -d -s "$drift_session" 2>/dev/null
+tmux set-option -t "=$drift_session:" @wb_repo proj >/dev/null
+tmux set-option -t "=$drift_session:" @wb_slug feat-drift >/dev/null
+out_drift="$(cmd_done "$drift_session" 2>&1)"; rc_drift=$?
+assert_eq "worktree drift: non-zero exit" 1 "$rc_drift"
+assert "worktree drift: names the drift" 'refusing to guess' "$out_drift"
+assert_eq "worktree drift: task NOT flipped to done" "doing" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-drift.md" status)"
+if [ -d "$FIXTURE_CODE/proj/.worktrees/feat-drift" ]; then
+  echo "ok   - worktree drift: real worktree untouched"
+else
+  echo "FAIL - worktree drift: real worktree was removed despite the drift guard"; fail=1
+fi
+tmux kill-session -t "=$drift_session" 2>/dev/null || true
 
 [ "$fail" -eq 0 ] && echo "ALL PASS"
 exit "$fail"
