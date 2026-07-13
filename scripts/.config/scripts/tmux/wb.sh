@@ -579,9 +579,13 @@ _wb_insert_plan_body() {
   rm -f "$bodyfile"
 }
 
-# wb_seed_planned_child <repo> <slug> <parent_ref> — KTD3's child seeder for
-# `wb breakdown --apply` (U3): creates a NEW planned child task file and
-# NOTHING ELSE. Unlike wb_seed_task_planned (which fills blanks on an
+# wb_seed_planned_child <repo> <slug> <parent_ref> [<title>] — KTD3's child
+# seeder for `wb breakdown --apply` (U3): creates a NEW planned child task
+# file and NOTHING ELSE. <title> is the buffer's own editable "goal:" line
+# (U3's "frontmatter + goal title" — the family's whole point is
+# session-sized, human-named slices, not slug-derived titles); when omitted
+# it falls back to the slug-derived form wb_seed_task/wb_seed_task_planned
+# already use. Unlike wb_seed_task_planned (which fills blanks on an
 # existing file and is reachable as the public `wb new --planned` verb),
 # this function ALWAYS creates fresh and REFUSES on collision — an existing
 # file at this stem means cmd_breakdown's own validation pass failed to
@@ -603,6 +607,7 @@ _wb_insert_plan_body() {
 # comment for why this never touches awk -v.
 wb_seed_planned_child() {
   local repo="$1" slug="$2" parent="$3"
+  local title="${4:-${slug//-/ }}"
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local file; file="$(wb_task_file "$repo" "$disp_slug")"
 
@@ -612,7 +617,6 @@ wb_seed_planned_child() {
   fi
 
   mkdir -p "$TASKS_DIR"
-  local title="${slug//-/ }"
   local body; body="$(cat)"
 
   awk -v repo="$repo" -v branch="$slug" -v parent="$parent" \

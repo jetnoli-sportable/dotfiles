@@ -62,8 +62,15 @@ assert_eq "seed: worktree: stays blank" "" "$(wb_get_frontmatter "$child_file" w
 assert_eq "seed: branch: is the raw slug" "feat-hub-v0-board-embed" "$(wb_get_frontmatter "$child_file" branch)"
 assert_eq "seed: repo: set" "proj" "$(wb_get_frontmatter "$child_file" repo)"
 assert_eq "seed: parent: set" "dotfiles--feat-hub-v0" "$(wb_get_frontmatter "$child_file" parent)"
-assert "seed: title derived from goal" "^feat hub v0 board embed$" "$(wb_task_title "$child_file")"
+assert "seed: title falls back to slug-derived form when omitted" "^feat hub v0 board embed$" "$(wb_task_title "$child_file")"
 assert "seed: plan body lands under ## Plan" "absorb: board-embed bullets" "$(cat "$child_file")"
+
+# --- explicit title (the buffer's own "goal:" line, per U3's "frontmatter +
+# goal title") overrides the slug-derived fallback -----------------------
+out_goal="$(printf 'goal-driven plan body\n' \
+  | wb_seed_planned_child proj feat-hub-v0-artifact-index dotfiles--feat-hub-v0 'one-line goal for the artifact index' 2>&1)"
+child_goal="$TASKS_DIR/proj--feat-hub-v0-artifact-index.md"
+assert_eq "seed: explicit title overrides slug-derived form" "one-line goal for the artifact index" "$(wb_task_title "$child_goal")"
 
 # --- existing file: refuse, file untouched -----------------------------------
 before="$(cat "$child_file")"
