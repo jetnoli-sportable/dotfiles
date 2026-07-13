@@ -1944,6 +1944,32 @@ wb_board_deps_chips() {
   printf '%s' "$out"
 }
 
+# WB_REVIEW_CONVENTION_DATE (KTD-11, R22, R24) — the date the R23/R24
+# review-stamp convention commit landed. Scopes the Key Findings
+# "done-but-unreviewed" count: the nine pre-convention done tasks are
+# grandfathered (never counted), so this is a literal constant, not
+# derived at render time — there is no other way to tell "the R23/R24
+# convention commit" apart from any other commit.
+WB_REVIEW_CONVENTION_DATE="2026-07-12"
+
+# wb_board_kf_link <anchor_key> <bucket> — the href fragment for a Key
+# Findings insight's task link (KTD-7): the Pipeline-panel copy for any
+# in-flight (non-done) task — always reachable, Pipeline is window-
+# independent and unconditional for bucket != done; the All/Week copy for
+# a done task, but ONLY when that task actually rendered there (a done
+# task outside the week window renders in no reachable panel at all).
+# Empty return means "no reachable anchor" — the caller renders plain
+# text instead of a dead link (a generation-time existence check, since
+# the render already knows every anchor it emitted).
+wb_board_kf_link() {
+  local ak="$1" bk="$2"
+  if [ "$bk" != done ]; then
+    printf '#t-pipeline-%s' "$ak"
+  elif [ -n "${ALL_WEEK_RENDERED["$ak"]:-}" ]; then
+    printf '#t-all-week-%s' "$ak"
+  fi
+}
+
 # wb_board_render_detail_card — the one <div class="task-detail"> card
 # renderer, shared by every panel that needs one: the bucket panels' per-
 # window loop in wb_board_render_html below, and (board-display-v2's U5)
@@ -2117,6 +2143,7 @@ wb_board_render_html() {
   local -A CHILDREN_TOTAL=() # parent stem -> total children count
   local -A CHILDREN_DONE=()  # parent stem -> done children count
   local -A READY_TO_CLOSE=() # parent stem -> 1 when all children done and parent isn't
+  local -A ALL_WEEK_RENDERED=() # anchor_key -> 1 if it got a card in All/Week (U9's link-reachability check for done tasks, KTD-7)
   local -A ANCHOR_REPO=()    # anchor_key -> slugged repo (U7, task and untracked rows alike)
   local -A ANCHOR_FAMILY=()  # anchor_key -> "stem [parent_stem]" (U7, task rows only)
   local -A ALL_REPOS=()      # slugged repo -> display repo (for the fr-* filter group)
@@ -2337,6 +2364,7 @@ wb_board_render_html() {
         wb_board_in_window "$created" "$closed" "$updated" "$window_start" || continue
         any=1
         PANEL_ANY["$panelkey"]=1
+        [ "$tab" = all ] && [ "$win" = week ] && ALL_WEEK_RENDERED["$anchor_key"]=1
         local view_anchor="t-$tab-$win-$anchor_key"
         local esc_title esc_branch esc_repo pill_class pill_label live_session live_badge
         esc_title="$(wb_board_html_escape "$title")"
@@ -2444,6 +2472,121 @@ wb_board_render_html() {
   else
     panels_html+="<div class=\"view\" id=\"panel-pipeline\"><div class=\"empty-state\">No in-flight tasks.</div></div>"$'\n'
   fi
+
+  # =========================================================================
+  # U9: Key Findings — board-global insights computed from the pre-pass,
+  # rendered once outside every .view (R22) so no repo/family filter can
+  # ever reach it. Starter six; an insight with no results is omitted
+  # entirely (no empty heading); only when ALL SIX are empty does the
+  # section render a single muted line — the section itself never
+  # vanishes, which would read as breakage.
+  # =========================================================================
+  local -A KF_TITLE=() KF_CREATED=() KF_CLOSED=() KF_BRANCH=() KF_BUCKET=() KF_REVIEWED=()
+  for row in "${ROWS[@]}"; do
+    wb_tsv_split "$row" f
+    [ "${f[0]}" = task ] || continue
+    anchor_key="${f[11]}"
+    KF_TITLE["$anchor_key"]="${f[6]}"
+    KF_CREATED["$anchor_key"]="${f[7]}"
+    KF_CLOSED["$anchor_key"]="${f[8]}"
+    KF_BRANCH["$anchor_key"]="${f[4]}"
+    KF_BUCKET["$anchor_key"]="${f[1]}"
+    KF_REVIEWED["$anchor_key"]="${f[14]}"
+  done
+
+  # kf_item <anchor_key> <label_extra> — one <li> for an insight, linked
+  # via wb_board_kf_link when reachable, plain text otherwise.
+  kf_item() {
+    local ak="$1" extra="${2:-}" href title_esc
+    title_esc="$(wb_board_html_escape "${KF_TITLE["$ak"]:-$ak}")"
+    href="$(wb_board_kf_link "$ak" "${KF_BUCKET["$ak"]:-}")"
+    if [ -n "$href" ]; then
+      printf '<li><a href="%s">%s</a>%s</li>' "$href" "$title_esc" "$extra"
+    else
+      printf '<li>%s%s</li>' "$title_esc" "$extra"
+    fi
+  }
+
+  local kf_html=''
+
+  # 1. Most-blocking task (max unblocks count; ties all listed)
+  local kf_max=0 kf_ak
+  for kf_ak in "${!UNBLOCKS_COUNT[@]}"; do
+    [ "${UNBLOCKS_COUNT["$kf_ak"]}" -gt "$kf_max" ] && kf_max="${UNBLOCKS_COUNT["$kf_ak"]}"
+  done
+  if [ "$kf_max" -gt 0 ]; then
+    local kf_blocking_items=''
+    for kf_ak in "${!UNBLOCKS_COUNT[@]}"; do
+      [ "${UNBLOCKS_COUNT["$kf_ak"]}" = "$kf_max" ] && kf_blocking_items+="$(kf_item "$kf_ak" " — blocks $kf_max")"
+    done
+    kf_html+="<div class=\"kf-item\"><b>Most blocking:</b><ul>$kf_blocking_items</ul></div>"
+  fi
+
+  # 2. Parents ready to close
+  if [ "${#READY_TO_CLOSE[@]}" -gt 0 ]; then
+    local kf_ready_items=''
+    for kf_ak in "${!READY_TO_CLOSE[@]}"; do
+      local kf_ready_anchor="${STEM_ANCHOR["$kf_ak"]:-}"
+      [ -n "$kf_ready_anchor" ] && kf_ready_items+="$(kf_item "$kf_ready_anchor" " — ${CHILDREN_DONE["$kf_ak"]}/${CHILDREN_TOTAL["$kf_ak"]} children done")"
+    done
+    [ -n "$kf_ready_items" ] && kf_html+="<div class=\"kf-item\"><b>Ready to close:</b><ul>$kf_ready_items</ul></div>"
+  fi
+
+  # 3. Done-but-unreviewed count (grandfathered: only counts closed: on/
+  # after the convention date, KTD-11)
+  local kf_unreviewed_count=0
+  for kf_ak in "${!KF_BUCKET[@]}"; do
+    [ "${KF_BUCKET["$kf_ak"]}" = done ] || continue
+    [ -n "${KF_REVIEWED["$kf_ak"]:-}" ] && continue
+    local kf_closed="${KF_CLOSED["$kf_ak"]:-}"
+    [ -n "$kf_closed" ] || continue
+    [[ "$kf_closed" > "$WB_REVIEW_CONVENTION_DATE" || "$kf_closed" == "$WB_REVIEW_CONVENTION_DATE" ]] || continue
+    kf_unreviewed_count=$((kf_unreviewed_count + 1))
+  done
+  [ "$kf_unreviewed_count" -gt 0 ] && kf_html+="<div class=\"kf-item\"><b>Done but unreviewed:</b> $kf_unreviewed_count</div>"
+
+  # 4. Oldest in-flight task (min created: among non-done)
+  local kf_oldest_ak='' kf_oldest_created=''
+  for kf_ak in "${!KF_BUCKET[@]}"; do
+    [ "${KF_BUCKET["$kf_ak"]}" = done ] && continue
+    local kf_created="${KF_CREATED["$kf_ak"]:-}"
+    [ -n "$kf_created" ] || continue
+    if [ -z "$kf_oldest_created" ] || [[ "$kf_created" < "$kf_oldest_created" ]]; then
+      kf_oldest_created="$kf_created"; kf_oldest_ak="$kf_ak"
+    fi
+  done
+  [ -n "$kf_oldest_ak" ] && kf_html+="<div class=\"kf-item\"><b>Oldest in-flight:</b><ul>$(kf_item "$kf_oldest_ak" " — created $kf_oldest_created")</ul></div>"
+
+  # 5. No-bucket statuses (a real task whose status maps to no known bucket)
+  local kf_nobucket_items=''
+  for kf_ak in "${!KF_BUCKET[@]}"; do
+    [ "${KF_BUCKET["$kf_ak"]}" = unclassified ] && kf_nobucket_items+="$(kf_item "$kf_ak")"
+  done
+  [ -n "$kf_nobucket_items" ] && kf_html+="<div class=\"kf-item\"><b>No-bucket status:</b><ul>$kf_nobucket_items</ul></div>"
+
+  # 6. Branchless tasks whose stem matches a store doc filename (R27's
+  # docs-before-branch pattern, suppressed from state, surfaced here)
+  local kf_docs_items=''
+  for kf_ak in "${!KF_BUCKET[@]}"; do
+    [ -n "${KF_BRANCH["$kf_ak"]:-}" ] && continue
+    local kf_stem="${ANCHOR_STEM["$kf_ak"]:-}"
+    [ -n "$kf_stem" ] || continue
+    local kf_dir kf_match=0
+    for kf_dir in plans brainstorms ideation; do
+      [ -d "$dotfiles_root/docs/$kf_dir" ] || continue
+      local kf_f
+      for kf_f in "$dotfiles_root/docs/$kf_dir"/*"$kf_stem"*; do
+        [ -f "$kf_f" ] || continue
+        kf_match=1; break
+      done
+      [ "$kf_match" = 1 ] && break
+    done
+    [ "$kf_match" = 1 ] && kf_docs_items+="$(kf_item "$kf_ak" " — docs exist, no branch yet")"
+  done
+  [ -n "$kf_docs_items" ] && kf_html+="<div class=\"kf-item\"><b>Docs before branch:</b><ul>$kf_docs_items</ul></div>"
+
+  [ -n "$kf_html" ] || kf_html='<p class="kf-empty">Nothing notable right now.</p>'
+  local key_findings_html="<section class=\"key-findings\"><h2>Key Findings <span class=\"kf-tag\">board-wide &middot; ignores filters</span></h2>$kf_html</section>"
 
   # --- U7: empty-intersection reveal rules (KTD-8) — for each panel and
   # each (repo, family) combination that would leave zero VISIBLE rows
@@ -2625,6 +2768,18 @@ wb_board_render_html() {
   .deps-chips { margin: .4rem 0; }
   .children-counter { font-size: .78rem; color: var(--mut); margin-left: auto; white-space: nowrap; }
   .ready-hint { font-size: .74rem; color: var(--ok); margin-left: .5rem; white-space: nowrap; }
+
+  /* U9: Key Findings — board-global, sits outside every .view so no
+     repo/family filter rule (which only ever targets `.view` descendants)
+     can reach it (R22). */
+  .key-findings { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.2rem 1.5rem; }
+  .key-findings h2 { font-family: var(--mono); font-size: .95rem; margin: 0 0 .8rem; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  .kf-tag { font-size: .7rem; font-weight: normal; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; }
+  .kf-item { margin: .6rem 0; font-size: .87rem; }
+  .kf-item ul { margin: .3rem 0 0; padding-left: 1.2rem; }
+  .kf-item li { margin: .15rem 0; }
+  .kf-item a { color: var(--acc2); text-decoration: none; }
+  .kf-empty { color: var(--mut); font-family: var(--mono); font-size: .85rem; margin: 0; }
   @@PANEL_CSS@@
   @@HIGHLIGHT_CSS@@
   @@REPO_HIDE_CSS@@
@@ -2647,6 +2802,7 @@ wb_board_render_html() {
 </header>
 <main>
 @@PANELS_HTML@@
+@@KEY_FINDINGS_HTML@@
 </main>
 HTMLEOF
 )"
@@ -2664,6 +2820,7 @@ HTMLEOF
   page_template="${page_template//@@REPO_OPTIONS_HTML@@/$(wb_board_escape_replacement "$repo_options_html")}"
   page_template="${page_template//@@FAMILY_DROPDOWN_HTML@@/$(wb_board_escape_replacement "$family_dropdown_html")}"
   page_template="${page_template//@@PANELS_HTML@@/$(wb_board_escape_replacement "$panels_html")}"
+  page_template="${page_template//@@KEY_FINDINGS_HTML@@/$(wb_board_escape_replacement "$key_findings_html")}"
   printf '%s\n' "$page_template"
 }
 

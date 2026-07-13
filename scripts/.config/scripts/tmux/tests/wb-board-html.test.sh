@@ -766,6 +766,115 @@ assert "regression: second backtick-bearing title renders literally, unexecuted"
 assert_not "regression: no 'command not found' leaked into the page (the injection firing)" \
   'command not found' "$html_backtick"
 
+# =============================================================================
+# U9: Key Findings — board-global insights, immune to every filter
+# =============================================================================
+
+# --- most-blocking: a shared blocker of two tasks names it, count 2,
+# linked to its Pipeline-panel anchor ----------------------------------------
+add_worktree "$FIXTURE_CODE/proj" u9-blocker
+mk_task 'proj--u9-blocker.md' doing proj u9-blocker .worktrees/u9-blocker "$TODAY" '' 'U9 Shared Blocker'
+{
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: u9-blocked-a\nworktree:\ndepends_on: proj--u9-blocker\ntags: []\ncreated: %s\nclosed:\n---\n' "$TODAY"
+  printf '# U9 Blocked A\n\n## Plan\n\n## Done\n\n'
+} > "$FIXTURE_TASKS/proj--u9-blocked-a.md"
+{
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: u9-blocked-b\nworktree:\ndepends_on: proj--u9-blocker\ntags: []\ncreated: %s\nclosed:\n---\n' "$TODAY"
+  printf '# U9 Blocked B\n\n## Plan\n\n## Done\n\n'
+} > "$FIXTURE_TASKS/proj--u9-blocked-b.md"
+html_kf="$(wb_board_render_html 2>&1)"
+flat_kf="$(printf '%s' "$html_kf" | tr '\n' ' ')"
+kf_section="${flat_kf#*class=\"key-findings\">}"
+assert "U9: most-blocking insight names the shared blocker, linked to its Pipeline anchor, count 2" \
+  '<a href="#t-pipeline-proj--u9-blocker">U9 Shared Blocker</a> — blocks 2' "$kf_section"
+
+# --- ready-to-close: parent with all children done, parent still doing -----
+mk_parent_task 'proj--u9-parent.md' doing proj "$TODAY" '' 'U9 Ready Parent' ''
+mk_child_task 'proj--u9-c1.md' done proj "$TODAY" "$TODAY" 'U9 Child 1' proj--u9-parent ''
+mk_child_task 'proj--u9-c2.md' done proj "$TODAY" "$TODAY" 'U9 Child 2' proj--u9-parent ''
+html_kf2="$(wb_board_render_html 2>&1)"
+flat_kf2="$(printf '%s' "$html_kf2" | tr '\n' ' ')"
+kf_section2="${flat_kf2#*class=\"key-findings\">}"
+assert "U9: ready-to-close insight lists the parent with its children counter" \
+  '<a href="#t-pipeline-proj--u9-parent">U9 Ready Parent</a> — 2/2 children done' "$kf_section2"
+
+# --- unreviewed counter: grandfathered before the convention date, counted
+# on/after when unstamped, not counted when stamped -------------------------
+kf_unrev_before="$(printf '%s' "$kf_section2" | grep -oE 'Done but unreviewed:</b> [0-9]+' | grep -oE '[0-9]+')"
+[ -n "$kf_unrev_before" ] || kf_unrev_before=0
+mk_task 'proj--u9-old-unreviewed.md' done proj u9-old-branch '' "$TODAY" '2026-07-01' 'U9 Old Unreviewed'
+mk_task 'proj--u9-new-unreviewed.md' done proj u9-new-branch '' "$TODAY" '2026-07-12' 'U9 New Unreviewed'
+mk_task 'proj--u9-new-reviewed.md' done proj u9-reviewed-branch '' "$TODAY" '2026-07-13' 'U9 New Reviewed'
+wb_set_frontmatter "$FIXTURE_TASKS/proj--u9-new-reviewed.md" reviewed 2026-07-13
+html_kf3="$(wb_board_render_html 2>&1)"
+flat_kf3="$(printf '%s' "$html_kf3" | tr '\n' ' ')"
+kf_section3="${flat_kf3#*class=\"key-findings\">}"
+kf_unrev_after="$(printf '%s' "$kf_section3" | grep -oE 'Done but unreviewed:</b> [0-9]+' | grep -oE '[0-9]+')"
+assert_empty "U9: unreviewed counter increases by exactly 1 (pre-date grandfathered, stamped excluded)" \
+  "$([ "$kf_unrev_after" = "$((kf_unrev_before + 1))" ] && echo '' || echo "before=$kf_unrev_before after=$kf_unrev_after")"
+
+# --- docs-before-branch: branchless task whose stem matches a docs/plans/
+# filename surfaces in the audit while its stage cells stay pending
+# (state suppression intact, R27) --------------------------------------------
+DOC_ROOT3="$(mktemp -d -t wb-board-html-docroot3.XXXXXX)"
+git init -q "$DOC_ROOT3"
+mkdir -p "$DOC_ROOT3/scripts/.config/scripts/tmux" "$DOC_ROOT3/docs/plans"
+git -C "$DOC_ROOT3" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+printf '# plan\n' > "$DOC_ROOT3/docs/plans/2026-07-13-001-proj--u9-docbranch-plan.md"
+SCRIPT_DIR_REAL3="$SCRIPT_DIR"
+SCRIPT_DIR="$DOC_ROOT3/scripts/.config/scripts/tmux"
+printf -- '---\nstatus: planned\nrepo: proj\nbranch:\nworktree:\ntags: []\ncreated: %s\nclosed:\n---\n# U9 Docbranch Task\n' "$TODAY" \
+  > "$FIXTURE_TASKS/proj--u9-docbranch.md"
+html_kf4="$(wb_board_render_html 2>&1)"
+flat_kf4="$(printf '%s' "$html_kf4" | tr '\n' ' ')"
+kf_section4="${flat_kf4#*class=\"key-findings\">}"
+assert "U9: branchless task with a matching docs/plans/ filename surfaced in the docs-before-branch audit" \
+  'U9 Docbranch Task' "$kf_section4"
+pipe_panel_docbranch="${flat_kf4#*id=\"panel-pipeline\">}"
+row_docbranch="${pipe_panel_docbranch#*U9 Docbranch Task}"; row_docbranch="${row_docbranch%%</tr>*}"
+assert "U9: docs-before-branch match never upgrades the plan stage cell (still pending)" \
+  'title="plan: pending"' "$row_docbranch"
+SCRIPT_DIR="$SCRIPT_DIR_REAL3"
+rm -rf "$DOC_ROOT3"
+
+# --- task absent from every panel (done + outside the week window) renders
+# as plain text, never a dead link -------------------------------------------
+DOC_ROOT4="$(mktemp -d -t wb-board-html-docroot4.XXXXXX)"
+git init -q "$DOC_ROOT4"
+mkdir -p "$DOC_ROOT4/scripts/.config/scripts/tmux" "$DOC_ROOT4/docs/plans"
+git -C "$DOC_ROOT4" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+printf '# plan\n' > "$DOC_ROOT4/docs/plans/2026-06-01-001-proj--u9-unreachable-plan.md"
+SCRIPT_DIR_REAL4="$SCRIPT_DIR"
+SCRIPT_DIR="$DOC_ROOT4/scripts/.config/scripts/tmux"
+printf -- '---\nstatus: done\nrepo: proj\nbranch:\nworktree:\ntags: []\ncreated: 2026-06-01\nclosed: 2026-06-01\n---\n# U9 Unreachable Task\n' \
+  > "$FIXTURE_TASKS/proj--u9-unreachable.md"
+# wb_board_in_window treats a recent mtime as in-window regardless of the
+# declared closed: date (R10 — catches reopened/edited tasks), so the file
+# must be backdated too or the freshly-written mtime alone keeps it reachable.
+touch -d '2026-06-01' "$FIXTURE_TASKS/proj--u9-unreachable.md"
+html_kf5="$(wb_board_render_html 2>&1)"
+flat_kf5="$(printf '%s' "$html_kf5" | tr '\n' ' ')"
+kf_section5="${flat_kf5#*class=\"key-findings\">}"
+assert "U9: task unreachable from any panel still renders its plain-text item" \
+  '<li>U9 Unreachable Task' "$kf_section5"
+assert_not "U9: unreachable task's item is not wrapped in a dead anchor" \
+  '<a[^>]*>U9 Unreachable Task' "$kf_section5"
+SCRIPT_DIR="$SCRIPT_DIR_REAL4"
+rm -rf "$DOC_ROOT4"
+
+# --- section markup: board-wide tag, outside every .view, no data-repo/
+# data-family on the section element itself ----------------------------------
+assert "U9: Key Findings section carries the board-wide tag" \
+  'kf-tag">board-wide &middot; ignores filters' "$html_kf5"
+kf_open_tag="$(printf '%s' "$html_kf5" | grep -o '<section class="key-findings"[^>]*>')"
+assert_not "U9: <section class=\"key-findings\"> opening tag carries no data-repo/data-family" \
+  'data-repo\|data-family' "$kf_open_tag"
+
+# --- partially-empty fixture: populated insights render, empty ones absent,
+# no "nothing notable" line once real content exists -------------------------
+assert_not "U9: 'nothing notable' fallback absent once real insights exist" \
+  'Nothing notable right now' "$kf_section5"
+
 # --- empty store: no crash, empty-state everywhere ---------------------------
 EMPTY_TASKS="$(mktemp -d -t wb-board-html-empty.XXXXXX)"
 EMPTY_CODE="$(mktemp -d -t wb-board-html-empty-code.XXXXXX)"
@@ -775,6 +884,8 @@ wb_reconcile_repos() { :; }
 empty_html="$(wb_board_render_html 2>&1)"; rc=$?
 assert "empty store: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc"; fail=1; }
 assert "empty store: All/Today shows empty state" 'No tasks in this view' "$empty_html"
+assert "U9: empty store -> Key Findings never vanishes, shows the 'nothing notable' fallback" \
+  'Nothing notable right now' "$empty_html"
 rm -rf "$EMPTY_TASKS" "$EMPTY_CODE"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
