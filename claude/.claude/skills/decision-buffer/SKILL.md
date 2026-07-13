@@ -127,6 +127,35 @@ inventing a new look per doc.
 Skip the companion HTML for a single small decision with an obvious,
 low-context choice — the markdown alone is the whole point there.
 
+**Render actual states, not just describe them, when the decision is about
+concrete UI/display output.** If the decision is "what does this render as"
+(badge states, card layouts, a status matrix — anything the user will look
+at), the companion HTML should show the real rendered states side by side
+(reusing the actual CSS classes/visual language already shipped, not a new
+look), not just prose-describe them. A markdown text sketch of "4 of 7
+badges read off, which looks like an unstarted task" is fine as backup, but
+the rendered mockup is what actually lets the user evaluate in one glance
+instead of building the picture in their head first (2026-07-11, wb board
+lifecycle: a rendered 4-card mockup made the ambiguity click immediately
+— prior rounds of prose description alone hadn't). Budget the extra
+mockup-building effort into the round; it's cheaper than a round that
+doesn't land.
+
+**A mockup can reveal the decision itself was framed wrong — that's a
+good outcome, not a failure to route around.** Presenting a concrete
+rendering sometimes shows the user that neither offered option is right,
+or that the whole approach needs rethinking together rather than picked
+from a menu (2026-07-11: seeing the actual badge states led to "let's
+redesign this as a table, not badges — take our time"). When that
+happens, don't force the original A/B/C framing to a close. Either open a
+live, iterative mockup exploration in chat/artifact instead of another
+buffer round (buffers suit picking between settled options; a genuinely
+open design conversation is faster in chat with the artifact as a shared
+canvas), or fold the reframed decision into the next buffer round with
+new options that reflect it. Say so plainly in the buffer's next
+`## Decisions made` pass rather than quietly dropping the original
+framing.
+
 Mention the companion doc's absolute path once, alongside the buffer-open
 message, so the user can open it in a browser at their own pace. It is
 read-only reference material, not routed through the nvim buffer flow —

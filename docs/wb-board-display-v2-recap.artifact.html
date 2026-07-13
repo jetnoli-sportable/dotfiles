@@ -1,0 +1,263 @@
+<title>wb board display v2 — recap</title>
+<style>
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --doing: #04a5e5; --review: #df8e1d; --planned: #8c8fa1; --done: #40a02b; --paused: #209fb5;
+    --unclassified: #8839ef; --ok: #40a02b; --warn-bg: #fdf1e0;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d; --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db; --doing: #99d1db; --review: #e5c890; --planned: #838ba7; --done: #a6d189; --paused: #85c1dc;
+      --unclassified: #ca9ee6; --ok: #a6d189; --warn-bg: #40374a; }
+  }
+  :root[data-theme="dark"] { --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d; --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db; --doing: #99d1db; --review: #e5c890; --planned: #838ba7; --done: #a6d189; --paused: #85c1dc;
+    --unclassified: #ca9ee6; --ok: #a6d189; --warn-bg: #40374a; }
+  :root[data-theme="light"] { --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da; --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5; --doing: #04a5e5; --review: #df8e1d; --planned: #8c8fa1; --done: #40a02b; --paused: #209fb5;
+    --unclassified: #8839ef; --ok: #40a02b; --warn-bg: #fdf1e0; }
+
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); margin: 0; font-size: 15px; line-height: 1.6; }
+  a { color: var(--acc2); }
+  code, .mono { font-family: var(--mono); }
+
+  nav.topbar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+  nav.topbar .row { width: min(1100px, 88vw); margin: 0 auto; padding: .7rem 0; display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+  nav.topbar .brand { font-family: var(--mono); font-size: .8rem; color: var(--mut); margin-right: .6rem; white-space: nowrap; }
+  nav.topbar a { font-family: var(--mono); font-size: .76rem; padding: .35rem .75rem; border-radius: 6px; color: var(--ink2); text-decoration: none; }
+  nav.topbar a:hover { background: var(--bg2); color: var(--ink); }
+
+  main { width: min(1100px, 88vw); margin: 0 auto; padding: 2rem 0 4rem; }
+
+  header.hero { padding: 1.6rem 0 2rem; border-bottom: 1px solid var(--line); margin-bottom: 2rem; }
+  header.hero .eyebrow { font-family: var(--mono); font-size: .76rem; color: var(--mut); text-transform: uppercase; letter-spacing: .06em; }
+  header.hero h1 { font-size: 1.9rem; margin: .4rem 0 .6rem; text-wrap: balance; }
+  header.hero .meta { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; font-size: .88rem; color: var(--ink2); }
+  header.hero p.dek { max-width: 68ch; color: var(--ink2); margin: .8rem 0 0; }
+
+  .pill { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .72rem; padding: .15em .7em; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.review { color: var(--review); } .pill.done { color: var(--done); } .pill.doing { color: var(--doing); }
+  .pill.planned { color: var(--planned); } .pill.paused { color: var(--paused); }
+
+  section { margin: 2.6rem 0; }
+  section h2 { font-size: 1.3rem; margin: 0 0 1rem; display: flex; align-items: baseline; gap: .6rem; }
+  section h2 .num { font-family: var(--mono); font-size: .8rem; color: var(--mut); }
+  section > p { max-width: 72ch; color: var(--ink2); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1.3rem 1.5rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  .table-wrap { overflow-x: auto; }
+  th { text-align: left; font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); padding: .5rem .7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: .55rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.unit { font-family: var(--mono); color: var(--mut); white-space: nowrap; }
+  td.where { font-family: var(--mono); font-size: .82rem; color: var(--mut); white-space: nowrap; }
+
+  /* stepper mockup — lifted verbatim from wb.sh's own board CSS */
+  .stepper-demo { display: flex; gap: 1.6rem; flex-wrap: wrap; margin: 1rem 0 .4rem; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: .2rem; font-size: .78rem; color: var(--mut); min-width: 3.4rem; }
+  .step.done, .step.progress { color: var(--ink2); }
+  .step .glyph { font-size: 1.4rem; }
+  .step .label { font-family: var(--mono); font-size: .66rem; text-transform: uppercase; letter-spacing: .03em; }
+  .legend { display: flex; gap: 1.4rem; flex-wrap: wrap; font-size: .82rem; color: var(--ink2); margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--line); }
+  .legend span.g { font-size: 1.1rem; margin-right: .3rem; }
+
+  .dep-chip { display: inline-flex; align-items: center; font-family: var(--mono); font-size: .74rem; padding: .1em .6em; border-radius: 999px; border: 1px solid currentColor; margin-right: .4em; }
+  .dep-chip.blocked { color: var(--review); }
+  .dep-chip.unblocks { color: var(--acc2); }
+
+  .kf-mock h3 { font-family: var(--mono); font-size: .88rem; margin: 0 0 .7rem; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  .kf-tag { font-size: .66rem; font-weight: normal; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--line); padding: .1em .5em; border-radius: 999px; }
+  .kf-item { margin: .7rem 0; font-size: .87rem; }
+  .kf-item ul { margin: .3rem 0 0; padding-left: 1.2rem; }
+
+  .checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .55rem; }
+  .checklist li { display: flex; gap: .6rem; align-items: baseline; font-size: .92rem; }
+  .checklist li::before { content: "✓"; color: var(--ok); font-weight: 700; flex: none; }
+
+  pre { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1.1rem; overflow-x: auto; font-size: .84rem; }
+  pre code { font-family: var(--mono); }
+
+  .callout { border-radius: 10px; padding: 1.1rem 1.4rem; border: 1px solid var(--review); background: var(--warn-bg); font-size: .9rem; }
+  .callout .head { font-family: var(--mono); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--review); margin-bottom: .5rem; display: flex; align-items: center; gap: .4rem; }
+
+  .gapnote { border-left: 3px solid var(--mut); padding-left: 1rem; color: var(--ink2); font-size: .88rem; margin: .8rem 0; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 3rem; padding-top: 1.5rem; font-size: .86rem; color: var(--ink2); }
+  footer ul { padding-left: 1.2rem; }
+  footer code { color: var(--ink); }
+
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+</style>
+
+<nav class="topbar">
+  <div class="row">
+    <span class="brand">wb board v2</span>
+    <a href="#shipped">Shipped</a>
+    <a href="#live">Live from the board</a>
+    <a href="#verify">Verification</a>
+    <a href="#try-it">Try it</a>
+    <a href="#ties">Other work</a>
+    <a href="#gaps">Known gaps</a>
+  </div>
+</nav>
+
+<main>
+  <header class="hero">
+    <div class="eyebrow">PR recap · feat/wb-board-display</div>
+    <h1>wb board display v2</h1>
+    <div class="meta">
+      <span class="pill review">ready for review</span>
+      <span class="mono">2026-07-13</span>
+      <span>·</span>
+      <span>10 units · 13 commits · 2,763 insertions</span>
+    </div>
+    <p class="dek">
+      The lifecycle badges on <code>wb board --html</code> are gone, replaced by a
+      four-state stepper per task, a window-independent Pipeline tab,
+      <code>depends_on:</code>/parent-child relationship chips, Repo/Family filters,
+      and a board-wide Key Findings section. CSS-only, no JavaScript. Everything
+      below is what changed, what was verified, and how to check it yourself.
+    </p>
+  </header>
+
+  <section id="shipped">
+    <h2><span class="num">01</span> What shipped</h2>
+    <div class="card table-wrap">
+      <table>
+        <tr><th>Unit</th><th>What</th><th>Where</th></tr>
+        <tr><td class="unit">U1</td><td>Doc-detection hardening — branchless guard, kept-branch fallback, <code>ideate</code> stage, R8 discriminator</td><td class="where">wb-lifecycle.sh</td></tr>
+        <tr><td class="unit">U2</td><td>Four-state stage resolver (<code>na</code>/<code>pending</code>/<code>progress</code>/<code>done</code>) + <code>path:</code> parsing</td><td class="where">wb-lifecycle.sh</td></tr>
+        <tr><td class="unit">U3</td><td><code>wb new --path</code>/<code>--depends-on</code> flags + task seeding</td><td class="where">wb.sh</td></tr>
+        <tr><td class="unit">U4</td><td>Render pre-pass — one per-task computation feeding every panel</td><td class="where">wb.sh</td></tr>
+        <tr><td class="unit">U5</td><td>Pipeline tab — every non-done task, window-independent</td><td class="where">wb.sh</td></tr>
+        <tr><td class="unit">U6</td><td>Two-zone detail cards, full/mini stepper, dependency chips, children-done counter</td><td class="where">wb.sh</td></tr>
+        <tr><td class="unit">U7</td><td>Header window control + independent Repo/Family filters (AND-composing)</td><td class="where">wb.sh</td></tr>
+        <tr><td class="unit">U8</td><td>Tasks-repo schema fix — <code>path:</code>/<code>depends_on:</code> in template, status vocabulary, restored <code># Title</code>/<code>## Follow-ups</code></td><td class="where">~/code/tasks</td></tr>
+        <tr><td class="unit">U9</td><td>Board-wide Key Findings — most-blocking, ready-to-close, unreviewed count, oldest in-flight, unclassified, docs-before-branch</td><td class="where">wb.sh</td></tr>
+        <tr><td class="unit">U10</td><td><code>wb reviewed</code> convention, doc refresh, docgen rerun</td><td class="where">docs, skills</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section id="live">
+    <h2><span class="num">02</span> Live from the board</h2>
+    <p>These are the exact CSS classes the real board renders — not a redrawn approximation.</p>
+    <div class="card">
+      <div class="mono" style="font-size:.78rem; color:var(--mut); text-transform:uppercase; letter-spacing:.05em;">Stepper — a task with path: plan,work,review</div>
+      <div class="stepper-demo">
+        <div class="step"><span class="glyph">·</span><span class="label">Ideate</span></div>
+        <div class="step"><span class="glyph">·</span><span class="label">Brainstorm</span></div>
+        <div class="step done"><span class="glyph">✓</span><span class="label">Plan</span></div>
+        <div class="step progress"><span class="glyph">◐</span><span class="label">Work</span></div>
+        <div class="step"><span class="glyph">○</span><span class="label">Review</span></div>
+      </div>
+      <div style="margin: .6rem 0 1rem;">
+        <span class="dep-chip blocked">⛔ 1</span>
+        <span class="dep-chip unblocks">→ 2</span>
+      </div>
+      <div class="legend">
+        <span><span class="g">·</span>n/a — not part of this task's path</span>
+        <span><span class="g">○</span>pending — declared, nothing's happened yet</span>
+        <span><span class="g">◐</span>in progress — real changes or an open PR</span>
+        <span><span class="g">✓</span>done — artifact exists on disk</span>
+      </div>
+    </div>
+
+    <div class="card kf-mock" style="margin-top:1.2rem;">
+      <h3>Key Findings <span class="kf-tag">board-wide · ignores filters</span></h3>
+      <div class="kf-item"><b>Most blocking:</b><ul><li>example task — blocks 2</li></ul></div>
+      <div class="kf-item"><b>Ready to close:</b><ul><li>example parent — 3/3 children done</li></ul></div>
+      <div class="kf-item"><b>Done but unreviewed:</b> 7</div>
+    </div>
+  </section>
+
+  <section id="verify">
+    <h2><span class="num">03</span> Verification Contract — results</h2>
+    <div class="card">
+      <ul class="checklist">
+        <li>Plain-text <code>wb board</code> byte-identical to the pre-change baseline (diffed against a <code>git worktree</code> checkout of the merge-base, same live store)</li>
+        <li>Docker sandbox: every board-relevant suite all-pass (<code>wb-board-html</code>, <code>wb-board</code>, <code>wb-lifecycle</code>, <code>wb-new</code>, <code>wb-schema</code>, <code>wb-parent-child</code>)</li>
+        <li>Real-store smoke test: <code>logs/board.html</code> renders clean — Pipeline, stepper, filters, Key Findings all present, no injection leakage</li>
+        <li>Regression sweep green on host across all five affected suites</li>
+        <li>R23 tasks-repo commit pushed to <code>origin/development</code>, grandfathering decision stated in the message</li>
+        <li>R24 <code>wb reviewed</code> convention present in both <code>~/.claude/CLAUDE.md</code> and <code>docs/wb-guide.md</code></li>
+        <li>Docgen regenerated — no stale board description left in the Hub tile, skill, or guide</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="try-it">
+    <h2><span class="num">04</span> Try it yourself</h2>
+    <pre><code>cd ~/code/dotfiles   # or this worktree
+wb board --html
+xdg-open logs/board.html</code></pre>
+    <p>Things to look for: Pipeline is the default tab and lists every non-done task regardless of window. A done task's detail card has the same two-zone layout and stepper as an in-flight one. The Repo/Family dropdowns narrow every tab's rows at once — but never Key Findings, which stays board-wide on purpose.</p>
+    <p style="margin-top:1.2rem;">Re-run the gates:</p>
+    <pre><code>bash scripts/.config/scripts/tmux/tests/wb-board-html.test.sh   # ~10-15 min, real gh calls
+bash scripts/.config/scripts/tmux/tests/wb-lifecycle.test.sh
+bash scripts/.config/scripts/tmux/tests/wb-new.test.sh
+docker build -t wb-tests -f scripts/.config/scripts/tmux/tests/Dockerfile .
+docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests</code></pre>
+  </section>
+
+  <section id="ties">
+    <h2><span class="num">05</span> How this ties into other work in flight</h2>
+    <p>Four other dotfiles branches are moving in parallel right now (visible together under Pipeline once this PR is live).</p>
+
+    <div class="callout">
+      <div class="head">⚠ real merge-conflict risk — feat/wb-breakdown-skill</div>
+      That branch (status <code>doing</code>) has an <strong>uncommitted, in-progress diff</strong>
+      against <code>wb.sh</code> adding 187 lines to <code>wb_seed_task</code> and <code>cmd_new</code> —
+      the exact two functions this PR's U3 also extended for <code>--path</code>/<code>--depends-on</code>.
+      The plan's own Definition of Done anticipated a conflict here in general terms
+      ("whichever branch lands second rebases, confined to <code>cmd_new</code>/<code>wb_seed_task</code>") —
+      this confirms it's real, not hypothetical. Whichever lands second should expect to
+      manually reconcile that region.
+    </div>
+
+    <div class="card table-wrap" style="margin-top:1.2rem;">
+      <table>
+        <tr><th>Branch</th><th>Status</th><th>Relationship</th></tr>
+        <tr>
+          <td class="where">docs/roadmap-tasks-concurrency-safety</td>
+          <td><span class="pill doing">doing</span></td>
+          <td>Scoping a fix for <code>~/code/tasks</code>'s lack of locking. This session's own U8 push doubled as a live example of the exact problem it wants to make automatic (manual safe-fast-forward check before pushing). No code overlap.</td>
+        </tr>
+        <tr>
+          <td class="where">feat/jira-integration</td>
+          <td><span class="pill doing">doing</span></td>
+          <td><code>/board</code> + day-bookends halves. Jira integration is explicitly out of scope for board v2 (plan's own Assumptions) — the eventual consumer of the Pipeline tab's data model. No code overlap yet.</td>
+        </tr>
+        <tr>
+          <td class="where">fix/xdg-open-slack-hijack</td>
+          <td><span class="pill review">review</span></td>
+          <td>Unrelated — desktop default-browser handling. No overlap.</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <section id="gaps">
+    <h2><span class="num">06</span> Known gaps (pre-existing, not introduced here)</h2>
+    <p>Both confirmed via <code>git diff --stat &lt;merge-base&gt;..HEAD</code> showing zero lines touched in the relevant files.</p>
+    <div class="gapnote"><code>handoff.test.sh</code> / <code>handoff-poller.test.sh</code> fail inside the Docker sandbox — they need a live tmux session/clipboard the container doesn't have. Pass fine on host.</div>
+    <div class="gapnote"><code>wb-reconcile-review.test.sh</code> fails inside Docker only — the image's <code>gawk</code> (Ubuntu 24.04) handles an escape-sequence regex differently than the host's <code>mawk</code>. Passes clean on host.</div>
+  </section>
+
+  <footer>
+    <p>Durable record + full detail: <code>docs/wb-board-display-v2-recap.md</code></p>
+    <ul>
+      <li>Plan: <code>docs/plans/2026-07-12-001-feat-wb-board-display-plan.md</code></li>
+      <li>Human guide: <code>docs/wb-guide.md</code> (v2 board section + refreshed <code>wb new</code> docs)</li>
+      <li>Roadmap detail: <code>docs/roadmap-board.md</code></li>
+      <li>Skill: <code>claude/.claude/skills/wb-board/SKILL.md</code></li>
+    </ul>
+  </footer>
+</main>

@@ -72,13 +72,22 @@ WB_COL_STATUS=9   # status label width, after the icon + one space
 # the first two `---` markers (see ~/code/tasks/README.md).
 # ---------------------------------------------------------------------------
 
-# wb_get_frontmatter <file> <key> — print a single frontmatter value (blank if unset).
-wb_get_frontmatter() {
-  awk -v key="$2" '
+# wb_get_frontmatter_text <key> — same extraction as wb_get_frontmatter, but
+# reads the frontmatter-bearing content from stdin instead of a file path —
+# for a kept-branch `git show <branch>:<path>` blob, which has no path on
+# disk to hand a file-based reader (wb-lifecycle.sh's kept-branch fallback,
+# R6/R8).
+wb_get_frontmatter_text() {
+  awk -v key="$1" '
     BEGIN { infm = 0 }
     /^---$/ { infm++; if (infm == 2) exit; next }
     infm == 1 && $0 ~ "^" key ":" { sub("^" key ":[ \t]*", ""); print; exit }
-  ' "$1"
+  '
+}
+
+# wb_get_frontmatter <file> <key> — print a single frontmatter value (blank if unset).
+wb_get_frontmatter() {
+  wb_get_frontmatter_text "$2" < "$1"
 }
 
 # wb_set_frontmatter <file> <key> <value> — overwrite a frontmatter value in
@@ -99,8 +108,11 @@ wb_set_frontmatter() {
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
 }
 
-# wb_read_task <file> — print "status\trepo\tworktree" in one pass (used by
-# the picker's row collection, which reads every task file on each refresh).
+# wb_read_task <file> — print "status\trepo\tworktree\tbranch\tpath\t
+# depends_on\treviewed" in one pass (used by the picker's row collection,
+# which reads every task file on each refresh, and by the board pre-pass —
+# board-display-v2's KTD-1 extends this rather than adding three more
+# per-field wb_get_frontmatter reads per task).
 wb_read_task() {
   awk '
     # clip() strips a trailing inline comment ("value  # note") plus edge
@@ -108,13 +120,16 @@ wb_read_task() {
     # so any seeded task carries one, and an uncomment-stripped status
     # breaks every consumer that compares it (board rank, picker column).
     function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
-    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = "" }
+    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = "" }
     /^---$/ { infm++; if (infm == 2) exit; next }
-    infm == 1 && /^status:/   { s = $0; sub(/^status:[ \t]*/,   "", s); status = clip(s) }
-    infm == 1 && /^repo:/     { s = $0; sub(/^repo:[ \t]*/,     "", s); repo = clip(s) }
-    infm == 1 && /^worktree:/ { s = $0; sub(/^worktree:[ \t]*/, "", s); worktree = clip(s) }
-    infm == 1 && /^branch:/   { s = $0; sub(/^branch:[ \t]*/,   "", s); branch = clip(s) }
-    END { printf "%s\t%s\t%s\t%s\n", status, repo, worktree, branch }
+    infm == 1 && /^status:/      { s = $0; sub(/^status:[ \t]*/,      "", s); status   = clip(s) }
+    infm == 1 && /^repo:/        { s = $0; sub(/^repo:[ \t]*/,        "", s); repo     = clip(s) }
+    infm == 1 && /^worktree:/    { s = $0; sub(/^worktree:[ \t]*/,    "", s); worktree = clip(s) }
+    infm == 1 && /^branch:/      { s = $0; sub(/^branch:[ \t]*/,      "", s); branch   = clip(s) }
+    infm == 1 && /^path:/        { s = $0; sub(/^path:[ \t]*/,        "", s); path     = clip(s) }
+    infm == 1 && /^depends_on:/  { s = $0; sub(/^depends_on:[ \t]*/,  "", s); deps     = clip(s) }
+    infm == 1 && /^reviewed:/    { s = $0; sub(/^reviewed:[ \t]*/,    "", s); reviewed = clip(s) }
+    END { printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, repo, worktree, branch, path, deps, reviewed }
   ' "$1"
 }
 
@@ -126,14 +141,16 @@ wb_task_title() {
 # wb_task_file <repo> <disp_slug> — the store path for a repo+slug pair.
 wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
 
-# wb_task_files — every real task file in the store (excludes README/TEMPLATE
-# and the dossiers/ directory used by wb done's keeper sweep).
+# wb_task_files — every real task file in the store (excludes README/TEMPLATE,
+# RECOVERY-NOTES-2026-07-10.md -- incident documentation, not a task, left in
+# $TASKS_DIR itself rather than a subdirectory -- and the dossiers/ directory
+# used by wb done's keeper sweep).
 wb_task_files() {
   local f
   for f in "$TASKS_DIR"/*.md; do
     [ -f "$f" ] || continue
     case "$(basename "$f")" in
-      TEMPLATE.md|README.md) continue ;;
+      TEMPLATE.md|README.md|RECOVERY-NOTES-2026-07-10.md) continue ;;
     esac
     echo "$f"
   done
@@ -504,18 +521,22 @@ wb_ensure_repo_ignore() {
 }
 
 # wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<file_override>]
-# — find-or-create the task file for a repo+slug pair, filling blank
-# frontmatter fields and bumping planned->doing. Never overwrites a field
-# that's already set. <parent_ref> is optional (defaults to empty) so
-# wb_reconcile_action_create_task's pre-existing 3-arg call keeps working
-# unchanged — it never sets `parent:`. <file_override> is KTD7's directional
-# escape hatch for `wb resume`: post-migration, a continuing child's own
-# branch:/worktree: equal the PARENT's original identity, so re-deriving
-# the task file from repo+slug via wb_task_file would resolve back to the
-# PARENT's file — cmd_resume already knows the real (child) file from its
-# own stem-based lookup and passes it straight through here instead.
+# [<path_stages>] [<depends_on_csv>] — find-or-create the task file for a
+# repo+slug pair, filling blank frontmatter fields and bumping
+# planned->doing. Never overwrites a field that's already set, UNLESS the
+# caller explicitly passed a value for it (parent/path/depends_on) — an
+# explicit value always wins, same precedent `parent:` already set below.
+# <parent_ref>/<file_override>/<path_stages>/<depends_on_csv> are all
+# optional (default to empty) so wb_reconcile_action_create_task's
+# pre-existing 3/4-arg calls keep working unchanged — it never sets
+# `parent:`. <file_override> is KTD7's directional escape hatch for `wb
+# resume`: post-migration, a continuing child's own branch:/worktree: equal
+# the PARENT's original identity, so re-deriving the task file from
+# repo+slug via wb_task_file would resolve back to the PARENT's file —
+# cmd_resume already knows the real (child) file from its own stem-based
+# lookup and passes it straight through here instead.
 wb_seed_task() {
-  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}"
+  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}" path_stages="${6:-}" depends_on="${7:-}"
   local file
   if [ -n "$file_override" ]; then
     file="$file_override"
@@ -578,6 +599,27 @@ wb_seed_task() {
     [ -n "$(wb_get_frontmatter "$file" reviewed)" ]  || wb_set_frontmatter "$file" reviewed ""
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
+
+  # path:/depends_on: — same "explicit wins, otherwise blank-fill" rule as
+  # parent: above, but the blank-fill half always runs (unlike parent:,
+  # which has no inferred value and simply stays absent with no --parent):
+  # every seeded task file must carry a path: and a depends_on: key, even
+  # when the caller never passed one, per the schema's blank-fill convention
+  # (mirrors reviewed: above). wb_set_frontmatter itself inserts the key
+  # when TEMPLATE.md (or a pre-existing file) has no line for it yet, so
+  # this is correct whether or not the template has caught up to carrying
+  # blank path:/depends_on: lines.
+  if [ -n "$path_stages" ]; then
+    wb_set_frontmatter "$file" path "$path_stages"
+  else
+    [ -n "$(wb_get_frontmatter "$file" path)" ] || wb_set_frontmatter "$file" path ""
+  fi
+  if [ -n "$depends_on" ]; then
+    wb_set_frontmatter "$file" depends_on "$depends_on"
+  else
+    [ -n "$(wb_get_frontmatter "$file" depends_on)" ] || wb_set_frontmatter "$file" depends_on ""
+  fi
+
   echo "$file"
 }
 
@@ -761,14 +803,19 @@ wb_layout_session() {
 }
 
 cmd_new() {
-  # Index/shift case parser, not a single-token foreach: --parent takes its
-  # value as a separate following argument, which a foreach that only
-  # detects literal tokens (like --agent) can't consume — the value would
-  # fall into the else branch and corrupt the positional repo/slug count.
-  local agent_flag=0 parent_ref="" planned_flag=0 jira_url="" title_override=""
+  # Index/shift case parser, not a single-token foreach: --parent/--path take
+  # their value as a separate following argument, and --depends-on is
+  # repeatable (accumulates into an array) — none of that can be detected by
+  # a foreach that only matches literal tokens (like --agent); the value
+  # would fall into the else branch and corrupt the positional repo/slug
+  # count.
+  local -r new_usage="usage: wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <slug> | wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <repo> <slug>"
+  local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 jira_url="" title_override=""
+  local -a depends_on_stems=()
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
+      -h|--help) echo "$new_usage"; return 0 ;;
       --agent)   agent_flag=1; shift ;;
       --planned) planned_flag=1; shift ;;
       --jira)
@@ -786,6 +833,16 @@ cmd_new() {
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
         esac
         parent_ref="$2"; shift 2 ;;
+      --path)
+        case "${2-}" in
+          ''|--*) echo "wb new: --path requires a value" >&2; exit 1 ;;
+        esac
+        path_stages="$2"; shift 2 ;;
+      --depends-on)
+        case "${2-}" in
+          ''|--*) echo "wb new: --depends-on requires a value" >&2; exit 1 ;;
+        esac
+        depends_on_stems+=("$2"); shift 2 ;;
       *)        args+=("$1"); shift ;;
     esac
   done
@@ -815,22 +872,67 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] <repo> <slug>" >&2
+    echo "$new_usage" >&2
     exit 1
   fi
 
   [ -n "$slug" ] || { echo "wb new: <slug> must not be empty" >&2; exit 1; }
 
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local own_stem="${repo}--${disp_slug}"
 
   # Validate before anything is touched — same fail-loud-on-no-match
   # convention as `wb resume`. Also reject a self-referential --parent, the
   # same guard the picker/board read paths use (wb_task_own_parent).
   if [ -n "$parent_ref" ]; then
     wb_resolve_parent_ref "$parent_ref" >/dev/null || exit 1
-    wb_task_own_parent "$parent_ref" "${repo}--${disp_slug}" \
+    wb_task_own_parent "$parent_ref" "$own_stem" \
       || { echo "wb new: --parent cannot be the task's own reference" >&2; exit 1; }
   fi
+
+  # --path: split on commas and validate every token against the lifecycle
+  # pipeline's known stage names (WB_LIFECYCLE_STAGES, wb-lifecycle.sh)
+  # BEFORE anything is created — deliberately the opposite of
+  # wb_lifecycle_parse_path's render-time tolerance (unknown stages there
+  # are silently dropped; here an unknown stage is a hard, loud failure).
+  if [ -n "$path_stages" ]; then
+    local -a wb_valid_stages=("${WB_LIFECYCLE_STAGES[@]}")
+    local valid_csv; valid_csv="$(IFS=,; echo "${wb_valid_stages[*]}")"
+    local -a _wb_path_tokens
+    IFS=',' read -r -a _wb_path_tokens <<< "$path_stages"
+    local token stage ok
+    for token in "${_wb_path_tokens[@]}"; do
+      ok=0
+      for stage in "${wb_valid_stages[@]}"; do
+        [ "$token" = "$stage" ] && { ok=1; break; }
+      done
+      [ "$ok" = 1 ] \
+        || { echo "wb new: --path has unknown stage '$token' (valid: $valid_csv)" >&2; exit 1; }
+    done
+  fi
+
+  # --depends-on: each value must be a real, pre-existing task-file stem in
+  # $TASKS_DIR (mirrors wb_resolve_parent_ref's fail-loud pattern, but
+  # written inline here so the error names --depends-on rather than reusing
+  # that helper's --parent-worded message), must not contain '/' (path
+  # traversal) or ',' (the field's own list delimiter — wb_sanitize never
+  # strips commas, so a comma-bearing stem would silently split into
+  # dangling fragments later), and must not be this task's own stem
+  # (self-reference). An already-`done` blocker is legal — trivially met, no
+  # special-casing needed.
+  local dep
+  for dep in "${depends_on_stems[@]}"; do
+    case "$dep" in
+      */*) echo "wb new: --depends-on '$dep' must not contain '/'" >&2; exit 1 ;;
+      *,*) echo "wb new: --depends-on '$dep' must not contain ','" >&2; exit 1 ;;
+    esac
+    [ "$dep" != "$own_stem" ] \
+      || { echo "wb new: --depends-on cannot be the task's own reference" >&2; exit 1; }
+    [ -f "$TASKS_DIR/$dep.md" ] \
+      || { echo "wb new: --depends-on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+  done
+  local depends_on_joined=""
+  [ "${#depends_on_stems[@]}" -eq 0 ] || depends_on_joined="$(IFS=,; echo "${depends_on_stems[*]}")"
 
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
@@ -918,7 +1020,7 @@ cmd_new() {
   fi
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}")"
+  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$path_stages" "$depends_on_joined")"
   wb_task_lock_release "$task_file"
 
   local is_new=0
@@ -2888,6 +2990,9 @@ wb_board_in_window() {
 #   8 created   9 closed   10 updated (mtime, epoch)   11 taskfile (or empty)
 #   12 anchor_key (unique, sanitized — view-scoped prefixes are added at
 #      render time since the same row gets a different id per visible tab)
+#   13 path (raw path: field, task rows only)   14 depends_on (raw field)
+#   15 reviewed (raw field) — board-display-v2's U4 pre-pass consumes these
+#      three without a second per-field wb_get_frontmatter read per task.
 wb_board_collect_rows() {
   local f status repo worktree branch title created closed updated anchor
   local -a t
@@ -2895,14 +3000,16 @@ wb_board_collect_rows() {
     [ -f "$f" ] || continue
     wb_tsv_split "$(wb_read_task "$f")" t
     status="${t[0]:-}"; repo="${t[1]:-}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
+    local path="${t[4]:-}" deps="${t[5]:-}" reviewed="${t[6]:-}"
     title="$(wb_task_title "$f")"; [ -n "$title" ] || title="$(basename "$f" .md)"
     created="$(wb_get_frontmatter "$f" created)"
     closed="$(wb_get_frontmatter "$f" closed)"
     updated="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
     anchor="$(wb_board_anchor_slug "$(basename "$f" .md)")"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "task" "$(wb_board_bucket_for_status "$status")" "$status" "$repo" \
-      "$branch" "$worktree" "$title" "$created" "$closed" "$updated" "$f" "$anchor"
+      "$branch" "$worktree" "$title" "$created" "$closed" "$updated" "$f" "$anchor" \
+      "$path" "$deps" "$reviewed"
   done < <(wb_task_files)
 
   local repo_dir r_branch abs_path rel
@@ -2915,22 +3022,25 @@ wb_board_collect_rows() {
       wb_worktree_has_task "$repo" "$rel" && continue
       updated="$(stat -c %Y "$abs_path" 2>/dev/null || echo 0)"
       anchor="$(wb_board_anchor_slug "untracked-${repo}--${r_branch}")"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "untracked" "unclassified" "" "$repo" "$r_branch" "$rel" "$r_branch" \
-        "" "" "$updated" "" "$anchor"
+        "" "" "$updated" "" "$anchor" "" "" ""
     done < <(wb_repo_worktrees "$repo_dir")
   done < <(wb_reconcile_repos)
 }
 
 # wb_board_html_escape <string> — minimal HTML-entity escaping for table
 # cells, anchor text and attribute values built from task titles/branches,
-# which can contain `<`/`&` (R12's escaping test scenario).
+# which can contain `<`/`&`/`"` (R12's escaping test scenario; `"` added for
+# board-display-v2's KTD-9 — blocked/unblocks tooltips put task titles and
+# statuses inside `title="…"` attributes, which the original `&<>`-only
+# escaping left open to attribute injection).
 wb_board_html_escape() {
   local s="$1"
   # `&` in a bash pattern-substitution REPLACEMENT is a backreference to the
   # match (same as sed) — unescaped, `${s//</&lt;}` produces "<lt;" (match
   # `<` + literal "lt;") instead of "&lt;". `\&` forces a literal ampersand.
-  s="${s//&/\&amp;}"; s="${s//</\&lt;}"; s="${s//>/\&gt;}"
+  s="${s//&/\&amp;}"; s="${s//</\&lt;}"; s="${s//>/\&gt;}"; s="${s//\"/\&quot;}"
   printf '%s' "$s"
 }
 
@@ -2973,19 +3083,37 @@ wb_board_ledger_matches() {
     "$ledger" 2>/dev/null
 }
 
-# wb_board_pr_info <repo_dir> <branch> — "#<number> (<state>)" for the most
-# recent PR on <branch>, any state (open/closed/merged) — a display nicety
-# for a task's detail section, not a drift signal, so unlike
+# wb_board_pr_info <repo_dir> <branch> — "#<number> (<state>)\t<url>" for
+# the most recent PR on <branch>, any state (open/closed/merged) — a
+# display nicety for a task's detail section, not a drift signal, so unlike
 # wb_pr_merge_status this silently returns empty on any gh/pgh failure
-# rather than reporting "unknown".
+# rather than reporting "unknown". The tab-joined URL (board-display-v2's
+# U4/KTD-1) lets work-stage cells and the Pipeline PR column link straight
+# to the PR without a second `gh` call — use wb_board_pr_display/
+# wb_board_pr_url to pull either half back out; wb_lifecycle_pr_is_live
+# already only inspects the display half.
 wb_board_pr_info() {
   local repo_dir="$1" branch="$2" out rc
-  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state all --json number,state 2>&1)"; rc=$?
+  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state all --json number,state,url 2>&1)"; rc=$?
   if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
-    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state all --json number,state 2>&1)"; rc=$?
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state all --json number,state,url 2>&1)"; rc=$?
   fi
   [ "$rc" -eq 0 ] || return 0
-  printf '%s' "$out" | jq -r '.[0] // empty | "#\(.number) (\(.state))"' 2>/dev/null
+  printf '%s' "$out" | jq -r '.[0] // empty | "#\(.number) (\(.state))\t\(.url)"' 2>/dev/null
+}
+
+# wb_board_pr_display <pr_info> — the "#<n> (<state>)" half of a
+# wb_board_pr_info string (safe to call on an untabbed legacy-shaped string
+# too — a stub or test fixture that doesn't bother with the URL half).
+wb_board_pr_display() { printf '%s' "${1%%$'\t'*}"; }
+
+# wb_board_pr_url <pr_info> — the URL half of a wb_board_pr_info string, or
+# empty when there's no tab (no PR, or a display-only stub).
+wb_board_pr_url() {
+  case "$1" in
+    *$'\t'*) printf '%s' "${1#*$'\t'}" ;;
+    *)       printf '' ;;
+  esac
 }
 
 # wb_board_summary_line <status> <repo> <branch> <created> <closed> — an
@@ -3003,21 +3131,31 @@ wb_board_summary_line() {
   printf '%s.' "$s"
 }
 
-# wb_board_related_docs <taskfile> <dotfiles_root> — repo-root-relative
-# paths of any docs/plans, docs/brainstorms, docs/solutions, or
-# logs/decisions file the task's own prose already names (this repo's
-# established convention — see e.g. ~/code/tasks/*.md's "## Decisions"
-# sections — is a plain-text path, sometimes backtick-wrapped, sometimes
-# prefixed `dotfiles/`, not a markdown link). Deliberately conservative:
-# only surfaces a doc the task file already names, never a guessed/fuzzy
-# match. When both a .md and its rendered .html sibling exist, prefers the
-# .html (nicer to open from a browser); a reference to a since-deleted
-# file is dropped rather than linked dead.
+# wb_board_doc_candidates <taskfile> — raw docs/plans, docs/brainstorms,
+# docs/solutions, docs/ideation, or logs/decisions paths the task's own
+# prose names (this repo's established convention — see e.g.
+# ~/code/tasks/*.md's "## Decisions" sections — is a plain-text path,
+# sometimes backtick-wrapped, sometimes prefixed `dotfiles/`, not a markdown
+# link). Regex extraction only, no existence check — existence differs by
+# caller: wb_board_related_docs checks the filesystem, wb_lifecycle_has_doc's
+# prose half checks a worktree OR (kept-branch fallback) a git blob. KTD-4:
+# every path-detection stage addition updates this pattern — a standing
+# invariant, not a one-off.
+wb_board_doc_candidates() {
+  local taskfile="$1"
+  [ -f "$taskfile" ] || return 0
+  grep -oP '(?:dotfiles/)?(?:docs/(?:plans|brainstorms|solutions|ideation)|logs/decisions)/[A-Za-z0-9._/-]+\.(?:md|html)' "$taskfile" 2>/dev/null \
+    | sed 's#^dotfiles/##' | sort -u
+}
+
+# wb_board_related_docs <taskfile> <dotfiles_root> — wb_board_doc_candidates,
+# filtered to paths that exist under <root> and preferring the rendered
+# .html sibling over its .md source when both exist (nicer to open from a
+# browser); a reference to a since-deleted file is dropped rather than
+# linked dead.
 wb_board_related_docs() {
   local taskfile="$1" root="$2" rel html_sibling
-  [ -f "$taskfile" ] || return 0
-  grep -oP '(?:dotfiles/)?(?:docs/(?:plans|brainstorms|solutions)|logs/decisions)/[A-Za-z0-9._/-]+\.(?:md|html)' "$taskfile" 2>/dev/null \
-    | sed 's#^dotfiles/##' | sort -u | while IFS= read -r rel; do
+  wb_board_doc_candidates "$taskfile" | while IFS= read -r rel; do
       [ -f "$root/$rel" ] || continue
       case "$rel" in
         *.md)
@@ -3064,6 +3202,596 @@ wb_board_doc_link() {
   esac
 }
 
+# wb_board_stage_key <anchor_key> <stage> — the STAGE_STATE lookup key
+# (board-display-v2's U4 pre-pass, KTD-1) — a single shared constructor so
+# writers and readers never drift on the delimiter.
+wb_board_stage_key() { printf '%s\x1e%s' "$1" "$2"; }
+
+# wb_board_parse_deps <depends_on_raw> — comma-separated blocker stems, one
+# per line, whitespace-tolerant, empty entries dropped, duplicates dropped
+# (mirrors wb_lifecycle_parse_path's dedup — a repeated stem must not
+# double-count the ⛔/→ dependency chips). Render-tolerant like path:
+# parsing — a hand-edited depends_on: must never crash the render; an
+# unresolvable stem is the caller's problem (R18 fail-open), not this
+# parser's.
+wb_board_parse_deps() {
+  local raw="${1:-}" tok
+  [ -n "$raw" ] || return 0
+  local -a tokens
+  IFS=',' read -ra tokens <<< "$raw"
+  local -A seen=()
+  for tok in "${tokens[@]}"; do
+    tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
+    if [ -n "$tok" ] && [ -z "${seen[$tok]:-}" ]; then
+      seen["$tok"]=1
+      printf '%s\n' "$tok"
+    fi
+  done
+  return 0
+}
+
+# wb_board_normalize_loop <space-separated stems> — sorts and dedupes the
+# given cycle-member stems, then joins them starting at the
+# lexicographically smallest one and closing the loop back to it (KTD-6),
+# so every member of the same cycle renders an identical warning string
+# regardless of which member's perspective it's shown from.
+wb_board_normalize_loop() {
+  local -a stems=($1)
+  local -a sorted; mapfile -t sorted < <(printf '%s\n' "${stems[@]}" | sort -u)
+  [ "${#sorted[@]}" -gt 0 ] || return 0
+  local out="${sorted[0]}" i
+  for (( i=1; i<${#sorted[@]}; i++ )); do out+=" -> ${sorted[$i]}"; done
+  out+=" -> ${sorted[0]}"
+  printf '%s' "$out"
+}
+
+# wb_board_deps_validate <deps_of_arr> <stem_anchor_arr> <dangling_warn_arr>
+# — R18's dangling-stem half. Takes ASSOCIATIVE ARRAY NAMES (nameref-bound,
+# same pattern as wb_tsv_split's array-name parameter), not values, since
+# it mutates <deps_of_arr> in place (dropping any stem with no matching
+# task file) and writes <dangling_warn_arr> — a task with a dangling
+# depends_on: fails open (renders unblocked) with a warning naming the
+# unresolvable stem, rather than crashing or silently misrendering.
+wb_board_deps_validate() {
+  local -n _deps_of="$1" _stem_anchor="$2" _dangling_warn="$3"
+  local pp_a pp_dep_line
+  for pp_a in "${!_deps_of[@]}"; do
+    [ -n "${_deps_of["$pp_a"]}" ] || continue
+    local -a pp_valid=() pp_missing=()
+    while IFS= read -r pp_dep_line; do
+      [ -n "$pp_dep_line" ] || continue
+      if [ -n "${_stem_anchor["$pp_dep_line"]:-}" ]; then
+        pp_valid+=("$pp_dep_line")
+      else
+        pp_missing+=("$pp_dep_line")
+      fi
+    done <<< "${_deps_of["$pp_a"]}"
+    if [ "${#pp_missing[@]}" -gt 0 ]; then
+      local pp_missing_joined; pp_missing_joined="$(IFS=', '; echo "${pp_missing[*]}")"
+      _dangling_warn["$pp_a"]="depends on unresolved stem: $pp_missing_joined"
+    fi
+    _deps_of["$pp_a"]="$(printf '%s\n' "${pp_valid[@]}")"
+  done
+}
+
+# wb_board_deps_cycles <deps_of_arr> <stem_anchor_arr> <anchor_stem_arr>
+#   <cycle_member_arr> <cycle_warn_arr> — R18's cycle half, KTD-12: an
+# iterative, flat BFS reachability walk (no recursion) over the (already
+# dangling-free — run wb_board_deps_validate first) dependency map. An
+# anchor is on a cycle iff it can reach its own stem again via >=1 blocker
+# edge. Writes <cycle_member_arr> (anchor -> 1) and <cycle_warn_arr>
+# (anchor -> normalized loop string, KTD-6): every OTHER cycle member
+# reachable from this one, sorted lexicographically and closed back to the
+# smallest — a simplification for graphs with more than one independent
+# cycle (would lump distinct cycles that happen to overlap in
+# reachability), acceptable for a warning message on what is, today, a
+# zero-occurrence edge case.
+wb_board_deps_cycles() {
+  local -n _deps_of="$1" _stem_anchor="$2" _anchor_stem="$3" _cycle_member="$4" _cycle_warn="$5"
+  local pp_a pp_a_stem pp_cur pp_cur_anchor pp_qi pp_hit pp_line
+  for pp_a in "${!_deps_of[@]}"; do
+    [ -n "${_deps_of["$pp_a"]:-}" ] || continue
+    pp_a_stem="${_anchor_stem["$pp_a"]}"
+    local -A pp_seen=()
+    local -a pp_queue=()
+    while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue+=("$pp_line"); done <<< "${_deps_of["$pp_a"]}"
+    pp_qi=0; pp_hit=0
+    while [ "$pp_qi" -lt "${#pp_queue[@]}" ]; do
+      pp_cur="${pp_queue[$pp_qi]}"; pp_qi=$((pp_qi + 1))
+      [ -n "${pp_seen["$pp_cur"]:-}" ] && continue
+      pp_seen["$pp_cur"]=1
+      if [ "$pp_cur" = "$pp_a_stem" ]; then pp_hit=1; break; fi
+      pp_cur_anchor="${_stem_anchor["$pp_cur"]:-}"
+      [ -n "$pp_cur_anchor" ] || continue
+      while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue+=("$pp_line"); done <<< "${_deps_of["$pp_cur_anchor"]:-}"
+    done
+    [ "$pp_hit" = 1 ] && _cycle_member["$pp_a"]=1
+  done
+  for pp_a in "${!_cycle_member[@]}"; do
+    pp_a_stem="${_anchor_stem["$pp_a"]}"
+    local -A pp_seen2=()
+    local -a pp_queue2=() pp_members=("$pp_a_stem")
+    pp_seen2["$pp_a_stem"]=1
+    while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue2+=("$pp_line"); done <<< "${_deps_of["$pp_a"]}"
+    pp_qi=0
+    while [ "$pp_qi" -lt "${#pp_queue2[@]}" ]; do
+      pp_cur="${pp_queue2[$pp_qi]}"; pp_qi=$((pp_qi + 1))
+      [ -n "${pp_seen2["$pp_cur"]:-}" ] && continue
+      pp_seen2["$pp_cur"]=1
+      pp_cur_anchor="${_stem_anchor["$pp_cur"]:-}"
+      [ -n "$pp_cur_anchor" ] || continue
+      [ -n "${_cycle_member["$pp_cur_anchor"]:-}" ] && pp_members+=("$pp_cur")
+      while IFS= read -r pp_line; do [ -n "$pp_line" ] && pp_queue2+=("$pp_line"); done <<< "${_deps_of["$pp_cur_anchor"]:-}"
+    done
+    _cycle_warn["$pp_a"]="$(wb_board_normalize_loop "${pp_members[*]}")"
+  done
+}
+
+# wb_board_deps_blocking <deps_of_arr> <stem_anchor_arr> <stem_status_arr>
+#   <anchor_stem_arr> <cycle_member_arr> <unmet_count_arr> <blocker_names_arr>
+#   <unblocks_count_arr> <unblocks_names_arr> — R16/R17/R18's blocked-state
+# half, from the validated (wb_board_deps_validate), cycle-free
+# (wb_board_deps_cycles) dependency edges. A cycle warning supersedes the
+# ⛔ blocked treatment for its own members (KTD-6) — a cycle member never
+# gets an unmet count of its own (guarded below, at the final write only),
+# but its outgoing edges still get walked so a non-cycle blocker it also
+# depends on still gets credited in _unblocks_count/_unblocks_names — that
+# direction is the blocker's own independent fact, unaffected by whether
+# the dependent happens to also sit on an unrelated cycle.
+wb_board_deps_blocking() {
+  local -n _deps_of="$1" _stem_anchor="$2" _stem_status="$3" _anchor_stem="$4" _cycle_member="$5"
+  local -n _unmet_count="$6" _blocker_names="$7" _unblocks_count="$8" _unblocks_names="$9"
+  local pp_a pp_a_stem pp_line pp_unmet pp_names pp_blocker_status pp_blocker_anchor
+  for pp_a in "${!_deps_of[@]}"; do
+    [ -n "${_deps_of["$pp_a"]:-}" ] || continue
+    pp_a_stem="${_anchor_stem["$pp_a"]}"
+    pp_unmet=0; pp_names=""
+    while IFS= read -r pp_line; do
+      [ -n "$pp_line" ] || continue
+      pp_blocker_status="${_stem_status["$pp_line"]:-}"
+      [ "$pp_blocker_status" = done ] && continue
+      pp_unmet=$((pp_unmet + 1))
+      pp_names+="$pp_line ($pp_blocker_status); "
+      pp_blocker_anchor="${_stem_anchor["$pp_line"]:-}"
+      [ -n "$pp_blocker_anchor" ] || continue
+      _unblocks_count["$pp_blocker_anchor"]=$(( ${_unblocks_count["$pp_blocker_anchor"]:-0} + 1 ))
+      _unblocks_names["$pp_blocker_anchor"]+="$pp_a_stem, "
+    done <<< "${_deps_of["$pp_a"]}"
+    if [ -z "${_cycle_member["$pp_a"]:-}" ] && [ "$pp_unmet" -gt 0 ]; then
+      _unmet_count["$pp_a"]="$pp_unmet"
+      _blocker_names["$pp_a"]="$pp_names"
+    fi
+  done
+}
+
+# wb_board_escape_replacement <text> — escape <text> for safe use as the
+# REPLACEMENT side of bash's ${var//pattern/replacement} (U7's page-
+# template substitution). An unescaped `&` there means "insert whatever
+# matched the pattern" (mirrors sed's replacement syntax) — silently
+# corrupting every HTML entity (&amp;, &#183;, &lt;, ...) in the value
+# being substituted, since HTML-escaped content is FULL of literal `&`.
+# Backslash is escaped FIRST, or a real backslash already in the text
+# would combine with the newly-inserted `\&` and change meaning.
+wb_board_escape_replacement() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//&/\\&}"
+  printf '%s' "$s"
+}
+
+# wb_board_stage_glyph <state> — the four-state glyph (R1), n/a rendered
+# as the faint middle-dot per the approved mockup's legend.
+wb_board_stage_glyph() {
+  case "$1" in
+    done)     printf '&#10003;' ;;   # check
+    progress) printf '&#9681;'  ;;   # half-filled circle
+    pending)  printf '&#9675;'  ;;   # open circle
+    *)        printf '&#183;'  ;;    # na — faint middle dot
+  esac
+}
+
+# wb_board_stage_doc_kind <stage> — maps a board-display stage name to the
+# directory/kind identifier wb_lifecycle_has_doc's family of functions use
+# — these DON'T all match 1:1 (ideate's directory is docs/ideation/, not
+# docs/ideate/; brainstorm/plan keep their plural directory names).
+# wb_lifecycle_stage_state sidesteps this by dispatching to the specific
+# wb_lifecycle_has_plan/_brainstorm/_ideate wrapper for each stage; the
+# display layer needs the mapping explicitly since it calls the shared
+# wb_lifecycle_doc_dirs_for_kind/_doc_qualifies helpers directly. Only
+# called for the three doc stages — work/review have no doc directory.
+wb_board_stage_doc_kind() {
+  case "$1" in
+    ideate)     printf 'ideation' ;;
+    brainstorm) printf 'brainstorms' ;;
+    plan)       printf 'plans' ;;
+  esac
+}
+
+# wb_board_stage_doc_candidates <repo> <branch> <worktree_rel> <taskfile>
+#   <stage> — every worktree-relative doc path currently on disk backing a
+# DOC stage (ideate/brainstorm/plan), sorted, one per line — empty when
+# there's no live worktree (a kept-branch-only match has nothing to link,
+# KTD-5) or nothing matches. Mirrors wb_lifecycle_has_doc's own directory/
+# candidate/discriminator logic but collects every match instead of
+# stopping at the first (R14 — the card lists all matched docs per stage).
+wb_board_stage_doc_candidates() {
+  local repo="$1" branch="${2:-}" worktree="${3:-}" taskfile="$4" stage="$5"
+  [ -n "$branch" ] && [ -n "$worktree" ] || return 0
+  local repo_dir; repo_dir="$(wb_repo_dir "$repo")"
+  local wt="$repo_dir/$worktree"
+  local live=1
+  [ -d "$wt" ] || live=0
+  if [ "$live" = 0 ]; then
+    git -C "$repo_dir" cat-file -e "$branch" 2>/dev/null || return 0
+  fi
+
+  local kind; kind="$(wb_board_stage_doc_kind "$stage")"
+  local frag; frag="$(wb_sanitize "$branch")"
+  local -a candidates=()
+  local dir f readiness source candidate content
+
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    if [ "$live" = 1 ]; then
+      if [ -d "$wt/docs/$dir" ]; then
+        for f in "$wt/docs/$dir"/*.md "$wt/docs/$dir"/*.html; do
+          [ -f "$f" ] || continue
+          case "$(basename "$f")" in
+            *"$frag"*)
+              if [ "$dir" = plans ]; then
+                readiness="$(wb_get_frontmatter "$f" artifact_readiness)"
+                source="$(wb_get_frontmatter "$f" product_contract_source)"
+                wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
+              fi
+              candidates+=("docs/$dir/$(basename "$f")")
+              ;;
+          esac
+        done
+      fi
+    else
+      while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        case "$(basename "$candidate")" in
+          *"$frag"*)
+            if [ "$dir" = plans ]; then
+              content="$(git -C "$repo_dir" show "$branch:$candidate" 2>/dev/null)"
+              readiness="$(printf '%s\n' "$content" | wb_get_frontmatter_text artifact_readiness)"
+              source="$(printf '%s\n' "$content" | wb_get_frontmatter_text product_contract_source)"
+              wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
+            fi
+            candidates+=("$candidate")
+            ;;
+        esac
+      done < <(git -C "$repo_dir" ls-tree -r --name-only "$branch" -- "docs/$dir" 2>/dev/null)
+    fi
+
+    while IFS= read -r candidate; do
+      [ -n "$candidate" ] || continue
+      case "$candidate" in "docs/$dir/"*) : ;; *) continue ;; esac
+      if [ "$live" = 1 ]; then
+        [ -f "$wt/$candidate" ] || continue
+        if [ "$dir" = plans ]; then
+          readiness="$(wb_get_frontmatter "$wt/$candidate" artifact_readiness)"
+          source="$(wb_get_frontmatter "$wt/$candidate" product_contract_source)"
+          wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
+        fi
+      else
+        git -C "$repo_dir" cat-file -e "$branch:$candidate" 2>/dev/null || continue
+        if [ "$dir" = plans ]; then
+          content="$(git -C "$repo_dir" show "$branch:$candidate" 2>/dev/null)"
+          readiness="$(printf '%s\n' "$content" | wb_get_frontmatter_text artifact_readiness)"
+          source="$(printf '%s\n' "$content" | wb_get_frontmatter_text product_contract_source)"
+          wb_lifecycle_doc_qualifies "$kind" "$readiness" "$source" || continue
+        fi
+      fi
+      candidates+=("$candidate")
+    done < <(wb_board_doc_candidates "$taskfile")
+  done < <(wb_lifecycle_doc_dirs_for_kind "$kind")
+
+  [ "${#candidates[@]}" -gt 0 ] || return 0
+  printf '%s\n' "${candidates[@]}" | sort -u
+}
+
+# wb_board_stage_doc_path <repo> <branch> <worktree_rel> <taskfile> <stage>
+# — the lexically newest (R14) of wb_board_stage_doc_candidates' matches,
+# for stepper/stage-cell link targets (only one link per segment).
+wb_board_stage_doc_path() {
+  wb_board_stage_doc_candidates "$@" | tail -1
+}
+
+# wb_board_stage_link_href <repo_dir> <worktree_rel> <candidate_relpath> —
+# KTD-5's link precedence: the dotfiles-root-relative form (via
+# wb_board_doc_link, reads $dotfiles_root from the caller's scope) when
+# the doc happens to exist there (true for dotfiles' own tasks, or any
+# already-merged doc); else an absolute file:// path into the task's own
+# worktree; empty when neither exists (unreachable from here — the caller
+# only invokes this once wb_board_stage_doc_path already found a live-
+# worktree candidate).
+wb_board_stage_link_href() {
+  local repo_dir="$1" worktree_rel="$2" candidate="$3"
+  [ -n "$candidate" ] || return 0
+  if [ -f "$dotfiles_root/$candidate" ]; then
+    wb_board_doc_link "$candidate"
+    return 0
+  fi
+  local wt_path="$repo_dir/$worktree_rel/$candidate"
+  [ -f "$wt_path" ] && printf 'file://%s' "$wt_path"
+}
+
+# wb_board_pr_number <pr_info> — just "#N" from a wb_board_pr_info string
+# ("#N (STATE)\turl"), for compact PR-column display.
+wb_board_pr_number() {
+  local d; d="$(wb_board_pr_display "$1")"
+  printf '%s' "${d%% *}"
+}
+
+# wb_board_stage_render_info <stage> <state> <repo> <branch> <worktree_rel>
+#   <taskfile> <pr_info> — prints "glyph\thref\ttooltip" (href empty when
+# unlinked). KTD-5's link precedence in exactly one place, shared by the
+# Pipeline table cell (wb_board_stage_cell) and (U6) the card stepper
+# segment (wb_board_stepper_html): work links to the PR url; doc stages
+# link to the newest matching doc when it's on disk; review's tooltip
+# carries the reviewed: date. A kept-branch-only doc match (nothing to
+# link) falls back to a tooltip naming the doc instead.
+wb_board_stage_render_info() {
+  local stage="$1" state="$2" repo="$3" branch="$4" worktree="$5" taskfile="$6" pr_info="$7"
+  local glyph; glyph="$(wb_board_stage_glyph "$state")"
+  local href="" tooltip="$stage: $state"
+  case "$stage" in
+    work)
+      [ -n "$pr_info" ] && href="$(wb_board_pr_url "$pr_info")"
+      ;;
+    review)
+      local reviewed_date; reviewed_date="$(wb_get_frontmatter "$taskfile" reviewed)"
+      [ -n "$reviewed_date" ] && tooltip="review: $state (reviewed $reviewed_date)"
+      ;;
+    *)
+      if [ "$state" = done ] || [ "$state" = progress ]; then
+        local candidate; candidate="$(wb_board_stage_doc_path "$repo" "$branch" "$worktree" "$taskfile" "$stage")"
+        if [ -n "$candidate" ]; then
+          href="$(wb_board_stage_link_href "$(wb_repo_dir "$repo")" "$worktree" "$candidate")"
+          [ -n "$href" ] || tooltip="$stage: $state ($candidate)"
+        fi
+      fi
+      ;;
+  esac
+  printf '%s\t%s\t%s' "$glyph" "$href" "$tooltip"
+}
+
+# wb_board_stage_cell <stage> <state> <repo> <branch> <worktree_rel>
+#   <taskfile> <pr_info> — one <td> for the Pipeline table (R9/R11): the
+# state glyph, linked when wb_board_stage_render_info found an artifact,
+# otherwise just a title= tooltip.
+wb_board_stage_cell() {
+  local state="$2"
+  local -a info
+  wb_tsv_split "$(wb_board_stage_render_info "$@")" info
+  local glyph="${info[0]:-}" href="${info[1]:-}" tooltip="${info[2]:-}"
+  if [ -n "$href" ]; then
+    printf '<td class="stage-cell %s"><a href="%s" title="%s">%s</a></td>' \
+      "$state" "$(wb_board_html_escape "$href")" "$(wb_board_html_escape "$tooltip")" "$glyph"
+  else
+    printf '<td class="stage-cell %s" title="%s">%s</td>' "$state" "$(wb_board_html_escape "$tooltip")" "$glyph"
+  fi
+}
+
+# wb_board_stepper_html <repo> <branch> <worktree_rel> <taskfile>
+#   <anchor_key> <pr_info> [compact] — the stepper for one task's detail
+# card (R13), in canonical stage order, skipping any stage whose state is
+# n/a (STAGE_STATE already folds R4's upgrade rule in, so a fired-but-
+# undeclared stage still appears — "only path/fired stages render" is
+# exactly "state != na"). Each segment is glyph-over-label; a DOC stage
+# also lists every matched doc as an artifact chip below it (R14 — the
+# glyph itself links only the lexically newest, via
+# wb_board_stage_render_info). [compact]=1 renders the child-row mini-
+# stepper instead (glyph + label only, no links/chips) — same per-child
+# summary the approved mockup's parent group card shows.
+wb_board_stepper_html() {
+  local repo="$1" branch="$2" worktree="$3" taskfile="$4" anchor_key="$5" pr_info="$6" compact="${7:-0}"
+  local out="" stage state
+  for stage in "${WB_LIFECYCLE_STAGES[@]}"; do
+    state="${STAGE_STATE["$(wb_board_stage_key "$anchor_key" "$stage")"]:-na}"
+    [ "$state" = na ] && continue
+    local label; label="$(tr '[:lower:]' '[:upper:]' <<< "${stage:0:1}")${stage:1}"
+
+    if [ "$compact" = 1 ]; then
+      out+="<span class=\"mini-step $state\" title=\"$(wb_board_html_escape "$stage: $state")\">$(wb_board_stage_glyph "$state") $label</span>"
+      continue
+    fi
+
+    local -a info
+    wb_tsv_split "$(wb_board_stage_render_info "$stage" "$state" "$repo" "$branch" "$worktree" "$taskfile" "$pr_info")" info
+    local glyph="${info[0]:-}" href="${info[1]:-}" tooltip="${info[2]:-}"
+    local seg_glyph="$glyph"
+    [ -n "$href" ] && seg_glyph="<a href=\"$(wb_board_html_escape "$href")\">$glyph</a>"
+
+    local chips=""
+    if [ "$stage" != work ] && [ "$stage" != review ] && { [ "$state" = done ] || [ "$state" = progress ]; }; then
+      local cand chip_href
+      while IFS= read -r cand; do
+        [ -n "$cand" ] || continue
+        chip_href="$(wb_board_stage_link_href "$(wb_repo_dir "$repo")" "$worktree" "$cand")"
+        if [ -n "$chip_href" ]; then
+          chips+="<a class=\"artefact-chip\" href=\"$(wb_board_html_escape "$chip_href")\">$(wb_board_html_escape "$(basename "$cand")")</a> "
+        else
+          chips+="<span class=\"artefact-chip\">$(wb_board_html_escape "$(basename "$cand")")</span> "
+        fi
+      done < <(wb_board_stage_doc_candidates "$repo" "$branch" "$worktree" "$taskfile" "$stage")
+    fi
+
+    out+="<div class=\"step $state\" title=\"$(wb_board_html_escape "$tooltip")\"><span class=\"glyph\">$seg_glyph</span><span class=\"label\">$label</span>"
+    [ -n "$chips" ] && out+="<div class=\"step-chips\">$chips</div>"
+    out+="</div>"
+  done
+  printf '%s' "$out"
+}
+
+# wb_board_deps_chips <anchor_key> — the ⛔/→/warning chip markup for one
+# task's dependency relationships (KTD-6), shared by the Pipeline Deps
+# column and (U6) card chips. Empty output means "no deps at all" — the
+# caller renders its own dash, since panels use different dash markup.
+# A cycle or dangling-stem warning takes precedence over the plain ⛔
+# blocked chip (KTD-6) — the pre-pass never sets UNMET_COUNT for a cycle
+# member in the first place, but dangling still needs the explicit branch
+# since a dangling depends_on: can coexist with an otherwise-fine graph.
+wb_board_deps_chips() {
+  local anchor_key="$1" out=""
+  if [ -n "${CYCLE_WARN["$anchor_key"]:-}" ]; then
+    out+="<span class=\"dep-chip warn\" title=\"$(wb_board_html_escape "${CYCLE_WARN["$anchor_key"]}")\">&#9888; cycle</span> "
+  elif [ -n "${DANGLING_WARN["$anchor_key"]:-}" ]; then
+    out+="<span class=\"dep-chip warn\" title=\"$(wb_board_html_escape "${DANGLING_WARN["$anchor_key"]}")\">&#9888; unresolved</span> "
+  elif [ -n "${UNMET_COUNT["$anchor_key"]:-}" ]; then
+    out+="<span class=\"dep-chip blocked\" title=\"$(wb_board_html_escape "${BLOCKER_NAMES["$anchor_key"]}")\">&#9940; ${UNMET_COUNT["$anchor_key"]}</span> "
+  fi
+  if [ -n "${UNBLOCKS_COUNT["$anchor_key"]:-}" ]; then
+    out+="<span class=\"dep-chip unblocks\" title=\"$(wb_board_html_escape "${UNBLOCKS_NAMES["$anchor_key"]}")\">&#8594; ${UNBLOCKS_COUNT["$anchor_key"]}</span>"
+  fi
+  printf '%s' "$out"
+}
+
+# WB_REVIEW_CONVENTION_DATE (KTD-11, R22, R24) — the date the R23/R24
+# review-stamp convention commit landed. Scopes the Key Findings
+# "done-but-unreviewed" count: the nine pre-convention done tasks are
+# grandfathered (never counted), so this is a literal constant, not
+# derived at render time — there is no other way to tell "the R23/R24
+# convention commit" apart from any other commit.
+WB_REVIEW_CONVENTION_DATE="2026-07-12"
+
+# wb_board_kf_link <anchor_key> <bucket> — the href fragment for a Key
+# Findings insight's task link (KTD-7): the Pipeline-panel copy for any
+# in-flight (non-done) task — always reachable, Pipeline is window-
+# independent and unconditional for bucket != done; the All/Week copy for
+# a done task, but ONLY when that task actually rendered there (a done
+# task outside the week window renders in no reachable panel at all).
+# Empty return means "no reachable anchor" — the caller renders plain
+# text instead of a dead link (a generation-time existence check, since
+# the render already knows every anchor it emitted).
+wb_board_kf_link() {
+  local ak="$1" bk="$2"
+  if [ "$bk" != done ]; then
+    printf '#t-pipeline-%s' "$ak"
+  elif [ -n "${ALL_WEEK_RENDERED["$ak"]:-}" ]; then
+    printf '#t-all-week-%s' "$ak"
+  fi
+}
+
+# wb_board_render_detail_card — the one <div class="task-detail"> card
+# renderer, shared by every panel that needs one: the bucket panels' per-
+# window loop in wb_board_render_html below, and (board-display-v2's U5)
+# the window-independent Pipeline panel — so a later card-markup change
+# (U6's two-zone/stepper rework) only needs editing in this one place, and
+# the Pipeline panel picks it up automatically with no second pass.
+#
+# Deliberately takes NO parameters: every call site is a loop iteration
+# inside wb_board_render_html using the exact same local-variable names
+# for the current row (kind, status, repo, branch, worktree, title,
+# created, closed, taskfile, anchor_key, esc_title, esc_branch, esc_repo,
+# pill_class, pill_label, live_badge, view_anchor) — bash resolves them via
+# normal (dynamic) scoping from the calling function's own locals, the same
+# mechanism wb_tsv_split's array-name parameter relies on, just without
+# needing an explicit nameref for plain scalars.
+wb_board_render_detail_card() {
+  # U7: data-repo/data-family (R26/R28) — read from the U4 pre-pass,
+  # keyed by this row's own anchor_key.
+  local card_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}"
+  local card_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
+  local card_attrs=" data-repo=\"$card_repo_attr\""
+  [ -n "$card_family_attr" ] && card_attrs+=" data-family=\"$card_family_attr\""
+
+  if [ "$kind" = untracked ]; then
+    printf '<div class="task-detail untracked"%s id="%s"><h3>%s <span class="pill unclassified">unclassified</span>%s<a class="back" href="#">&#8593; back</a></h3><span class="repo">%s</span><p><b>No task file.</b> Worktree exists on disk (<code>%s</code>) with no matching entry in the task store.</p></div>\n' \
+      "$card_attrs" "$view_anchor" "$esc_branch" "$live_badge" "$esc_repo" "$(wb_board_html_escape "$worktree")"
+    return
+  fi
+
+  local plan done_txt repo_dir wt_abs pr_info detail_extra=""
+  detail_extra+="<p>$(wb_board_summary_line "$status" "$esc_repo" "$esc_branch" "$created" "$closed")</p>"
+  plan="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Plan)")"
+  done_txt="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Done)")"
+  [ -n "$plan" ] && detail_extra+="<p><b>Plan:</b> $(wb_board_html_escape "$plan")</p>"
+  [ -n "$done_txt" ] && detail_extra+="<p><b>Done:</b> $(wb_board_html_escape "$done_txt")</p>"
+  repo_dir="$(wb_repo_dir "$repo")"
+  pr_info="${PR_INFO["$anchor_key"]:-}"
+  wt_abs="$repo_dir/$worktree"
+  local ledger_line ledger_note=""
+  while IFS= read -r ledger_line; do
+    [ -n "$ledger_line" ] || continue
+    ledger_note+="$(printf '%s' "$ledger_line" | jq -r '.note // empty' 2>/dev/null); "
+  done < <(wb_board_ledger_matches "$wt_abs")
+  [ -n "$ledger_note" ] && detail_extra+="<p><b>Parked:</b> $(wb_board_html_escape "$ledger_note")</p>"
+  local own_docs doc_links
+  own_docs="$(wb_board_related_docs "$taskfile" "$dotfiles_root")"
+  doc_links="$(wb_board_task_doc_chips "$taskfile" "$dotfiles_root")"
+  [ -n "$doc_links" ] && detail_extra+="<p><b>Docs:</b> $doc_links</p>"
+
+  # --- U6: two-zone head — identity left, lane-meta (agent/worktree/PR)
+  # top-right — replacing the old single-line <h3> for every card, done
+  # tasks included (R13: the superseded lifecycle-plan's done-bucket
+  # skip must not carry forward). --------------------------------------
+  local wt_glyph=""
+  wb_lifecycle_has_worktree "$repo" "$worktree" && wt_glyph="<span class=\"wt-indicator\" title=\"worktree present\">&#8962;</span>"
+  local pr_chip=""
+  [ -n "$pr_info" ] && pr_chip="<a class=\"artefact-chip pr-chip\" href=\"$(wb_board_html_escape "$(wb_board_pr_url "$pr_info")")\">PR $(wb_board_html_escape "$(wb_board_pr_display "$pr_info")")</a>"
+  local identity="<div class=\"identity\"><h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span></h3><div class=\"meta-line\">$esc_repo &middot; $esc_branch</div></div>"
+  local lane_meta="<div class=\"lane-meta\">$live_badge$wt_glyph$pr_chip</div>"
+  local card_head="<div class=\"card-head\">$identity$lane_meta<a class=\"back\" href=\"#\">&#8593; back</a></div>"
+
+  # --- U6: stepper + relationship chips (R13-R18) -------------------------
+  local stepper_html; stepper_html="<div class=\"stepper\">$(wb_board_stepper_html "$repo" "$branch" "$worktree" "$taskfile" "$anchor_key" "$pr_info" 0)</div>"
+  local deps_html; deps_html="$(wb_board_deps_chips "$anchor_key")"
+  [ -n "$deps_html" ] && deps_html="<div class=\"deps-chips\">$deps_html</div>"
+
+  local stem; stem="$(basename "$taskfile" .md)"
+  if [ -n "${children_of[$stem]:-}" ]; then
+    local own_count; own_count="$(printf '%s' "$own_docs" | grep -c . || true)"
+    local children_html='' crow_file crow_status crow_title crow_chips
+    local crow_stem crow_anchor crow_repo crow_branch crow_worktree crow_pr crow_stepper
+    while IFS= read -r crow_file; do
+      [ -n "$crow_file" ] && [ -f "$crow_file" ] || continue
+      crow_status="$(wb_get_frontmatter "$crow_file" status)"
+      crow_title="$(wb_task_title "$crow_file")"; [ -n "$crow_title" ] || crow_title="$(basename "$crow_file" .md)"
+      crow_chips="$(wb_board_task_doc_chips "$crow_file" "$dotfiles_root")"
+      crow_stem="$(basename "$crow_file" .md)"
+      crow_anchor="${STEM_ANCHOR["$crow_stem"]:-}"
+      crow_stepper=""
+      if [ -n "$crow_anchor" ]; then
+        crow_repo="$(wb_get_frontmatter "$crow_file" repo)"
+        crow_branch="$(wb_get_frontmatter "$crow_file" branch)"
+        crow_worktree="$(wb_get_frontmatter "$crow_file" worktree)"
+        crow_pr="${PR_INFO["$crow_anchor"]:-}"
+        crow_stepper="<div class=\"mini-stepper\">$(wb_board_stepper_html "$crow_repo" "$crow_branch" "$crow_worktree" "$crow_file" "$crow_anchor" "$crow_pr" 1)</div>"
+      fi
+      children_html+="<div class=\"child-row\"><span class=\"pill $crow_status\">$(wb_board_html_escape "$crow_status")</span> $(wb_board_html_escape "$crow_title") $crow_chips$crow_stepper</div>"$'\n'
+    done <<< "${children_of[$stem]}"
+
+    local rollup_docs rollup_html=""
+    rollup_docs="$(wb_board_children_rollup_docs "${children_of[$stem]}" "$dotfiles_root")"
+    if [ -n "$rollup_docs" ]; then
+      local rn; rn="$(printf '%s\n' "$rollup_docs" | grep -c .)"
+      local plural=""; [ "$rn" = 1 ] || plural="s"
+      local rollup_chips="" rdoc
+      while IFS= read -r rdoc; do
+        [ -n "$rdoc" ] || continue
+        rollup_chips+="<a class=\"artefact-chip\" href=\"$(wb_board_doc_link "$rdoc")\">$(wb_board_html_escape "$(basename "$rdoc")")</a> "
+      done <<< "$rollup_docs"
+      rollup_html="<details><summary>Show $rn artifact$plural from sub-tasks too</summary><p>$rollup_chips</p></details>"
+    fi
+
+    # R20: children-done counter + ready-to-close hint, never touching the
+    # parent's own status pill.
+    local rollup_counter=""
+    if [ -n "${CHILDREN_TOTAL["$stem"]:-}" ]; then
+      rollup_counter="<span class=\"children-counter\">${CHILDREN_DONE["$stem"]}/${CHILDREN_TOTAL["$stem"]} children done</span>"
+      [ -n "${READY_TO_CLOSE["$stem"]:-}" ] && rollup_counter+="<span class=\"ready-hint\">&#10003; ready to close</span>"
+    fi
+
+    printf '<div class="task-detail"%s id="%s"><details open class="parent-row"><summary>%s<span class="own-count">%s of its own artifacts</span>%s</summary>%s%s%s<div class="children">%s</div>%s</details></div>\n' \
+      "$card_attrs" "$view_anchor" "$card_head" "$own_count" "$rollup_counter" "$stepper_html" "$deps_html" "$detail_extra" "$children_html" "$rollup_html"
+  else
+    printf '<div class="task-detail"%s id="%s">%s%s%s%s</div>\n' "$card_attrs" "$view_anchor" "$card_head" "$stepper_html" "$deps_html" "$detail_extra"
+  fi
+}
+
 # wb_board_render_html — writes the full /board page to stdout: 6 status
 # tabs x 2 timeline windows, pre-rendered as 12 panels with CSS-only
 # radio-sibling switching (no JS — R8/R10's zero-JS decision), live-session
@@ -3083,6 +3811,7 @@ wb_board_render_html() {
   # happens to render in). Skips a task that names itself as its own
   # parent, the same self-reference guard U2's picker grouping uses.
   local -A children_of=()
+  local -A STEM_PARENT=()   # stem -> parent stem (U7 family attribute, R21/R28)
   local cf cparent cstem
   while IFS= read -r cf; do
     cparent="$(wb_get_frontmatter "$cf" parent)"
@@ -3090,7 +3819,155 @@ wb_board_render_html() {
     cstem="$(basename "$cf" .md)"
     wb_task_own_parent "$cparent" "$cstem" || continue
     children_of["$cparent"]+="$cf"$'\n'
+    STEM_PARENT["$cstem"]="$cparent"
   done < <(wb_task_files)
+
+  # =========================================================================
+  # U4 pre-pass (KTD-1) — every per-task fact any surface needs, computed
+  # ONCE here (not once per panel — a task can appear in several of the
+  # window x tab panels below), keyed by anchor_key (stems exist only for
+  # task rows; untracked rows have no stem but still need their live-
+  # session badge to survive the hoist, so LIVE_SESSION covers both kinds).
+  # Mirrors the existing children_of pre-pass above.
+  # =========================================================================
+  local -A LIVE_SESSION=()   # anchor_key -> live tmux session name (or unset/empty)
+  local -A PR_INFO=()        # anchor_key -> this task's pr_info ("#n (state)\turl", task rows only)
+  local -A PATH_LINES=()     # anchor_key -> newline-joined intended stages (task rows only)
+  local -A STAGE_STATE=()    # wb_board_stage_key(anchor,stage) -> na|pending|progress|done
+  local -A STEM_ANCHOR=()    # stem -> anchor_key
+  local -A ANCHOR_STEM=()    # anchor_key -> stem
+  local -A STEM_STATUS=()    # stem -> raw status
+  local -A DEPS_OF=()        # anchor_key -> newline-joined blocker stems (dangling ones dropped after validation)
+  local -A DANGLING_WARN=()  # anchor_key -> warning text (a declared stem has no task file)
+  local -A CYCLE_MEMBER=()   # anchor_key -> 1 if on a dependency cycle
+  local -A CYCLE_WARN=()     # anchor_key -> normalized loop warning text
+  local -A UNMET_COUNT=()    # anchor_key -> count of currently-unmet blockers
+  local -A BLOCKER_NAMES=()  # anchor_key -> "stem (status); ..." tooltip text
+  local -A UNBLOCKS_COUNT=() # anchor_key -> count of other tasks currently waiting on this one
+  local -A UNBLOCKS_NAMES=() # anchor_key -> waiter stems, tooltip text
+  local -A CHILDREN_TOTAL=() # parent stem -> total children count
+  local -A CHILDREN_DONE=()  # parent stem -> done children count
+  local -A READY_TO_CLOSE=() # parent stem -> 1 when all children done and parent isn't
+  local -A ALL_WEEK_RENDERED=() # anchor_key -> 1 if it got a card in All/Week (U9's link-reachability check for done tasks, KTD-7)
+  local -A ANCHOR_REPO=()    # anchor_key -> slugged repo (U7, task and untracked rows alike)
+  local -A ANCHOR_FAMILY=()  # anchor_key -> "slug(stem) [slug(parent_stem)]" (U7, task rows only)
+  local -A ALL_REPOS=()      # slugged repo -> display repo (for the fr-* filter group)
+  local -A REPO_NAME_TO_SLUG=() # raw repo name -> its (collision-disambiguated) slug
+
+  local -a f
+  local pp_row pp_kind pp_repo pp_branch pp_worktree pp_status pp_taskfile pp_anchor pp_stem
+
+  # --- sub-pass A: live session, stem/status lookups, path, raw deps -----
+  for pp_row in "${ROWS[@]}"; do
+    wb_tsv_split "$pp_row" f
+    pp_kind="${f[0]}"; pp_status="${f[2]}"; pp_repo="${f[3]}"; pp_branch="${f[4]}"
+    pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
+    LIVE_SESSION["$pp_anchor"]="$(wb_board_live_session_for "$pp_repo" "$pp_branch")"
+    # Guard on the empty VALUE, not just for tidiness: bash treats an
+    # associative-array subscript that evaluates to the empty string via
+    # command substitution as "no subscript" ("bad array subscript"),
+    # not as a literal empty key — a blank repo: (a malformed task file,
+    # or anything else that isn't a real task) would otherwise crash the
+    # whole render. anchor_key itself is always non-empty (derived from a
+    # real filename), so it's always safe as a key.
+    local pp_repo_slug=""
+    if [ -n "$pp_repo" ]; then
+      pp_repo_slug="${REPO_NAME_TO_SLUG["$pp_repo"]:-}"
+      if [ -z "$pp_repo_slug" ]; then
+        # wb_board_anchor_slug is lossy (every char outside [A-Za-z0-9_-]
+        # collapses to '-'), so two distinct raw repo names (e.g. sibling
+        # checkouts "next.js" and "next-js") can naively slug identically.
+        # Disambiguate with a numeric suffix on collision so the fr-*
+        # filter/data-repo attribute never conflates two different repos.
+        pp_repo_slug="$(wb_board_anchor_slug "$pp_repo")"
+        local pp_repo_suffix=2
+        while [ -n "${ALL_REPOS["$pp_repo_slug"]:-}" ] && [ "${ALL_REPOS["$pp_repo_slug"]}" != "$pp_repo" ]; do
+          pp_repo_slug="$(wb_board_anchor_slug "$pp_repo")-$pp_repo_suffix"
+          pp_repo_suffix=$((pp_repo_suffix + 1))
+        done
+        REPO_NAME_TO_SLUG["$pp_repo"]="$pp_repo_slug"
+        ALL_REPOS["$pp_repo_slug"]="$pp_repo"
+      fi
+    fi
+    ANCHOR_REPO["$pp_anchor"]="$pp_repo_slug"
+    [ "$pp_kind" = task ] || continue
+    pp_stem="$(basename "$pp_taskfile" .md)"
+    STEM_ANCHOR["$pp_stem"]="$pp_anchor"
+    ANCHOR_STEM["$pp_anchor"]="$pp_stem"
+    STEM_STATUS["$pp_stem"]="$pp_status"
+    PATH_LINES["$pp_anchor"]="$(wb_lifecycle_parse_path "${f[12]}")"
+    DEPS_OF["$pp_anchor"]="$(wb_board_parse_deps "${f[13]}")"
+    # data-family carries SLUGGED tokens (wb_board_anchor_slug), mirroring
+    # data-repo/ANCHOR_REPO — parent: is freeform frontmatter text with no
+    # validation, and the raw stem previously landed straight in this HTML
+    # attribute and in the [data-family~=...] CSS selector below unescaped.
+    if [ -n "${STEM_PARENT["$pp_stem"]:-}" ]; then
+      ANCHOR_FAMILY["$pp_anchor"]="$(wb_board_anchor_slug "$pp_stem") $(wb_board_anchor_slug "${STEM_PARENT["$pp_stem"]}")"
+    else
+      ANCHOR_FAMILY["$pp_anchor"]="$(wb_board_anchor_slug "$pp_stem")"
+    fi
+  done
+
+  # --- sub-pass B: PR fetch, deduped by repo+branch (KTD-1's "one gh call
+  # per task, not per panel"; also dedupes across tasks that SHARE a
+  # branch), skipped entirely for an empty branch: ------------------------
+  local -A pr_cache=()   # "repo\x1fbranch" -> pr_info, fetched at most once
+  local pp_repo_dir pp_cache_key
+  for pp_row in "${ROWS[@]}"; do
+    wb_tsv_split "$pp_row" f
+    [ "${f[0]}" = task ] || continue
+    pp_repo="${f[3]}"; pp_branch="${f[4]}"; pp_anchor="${f[11]}"
+    [ -n "$pp_branch" ] || continue
+    pp_repo_dir="$(wb_repo_dir "$pp_repo")"
+    [ -d "$pp_repo_dir/.git" ] || continue
+    pp_cache_key="$pp_repo"$'\x1f'"$pp_branch"
+    if [ -z "${pr_cache["$pp_cache_key"]+x}" ]; then
+      pr_cache["$pp_cache_key"]="$(wb_board_pr_info "$pp_repo_dir" "$pp_branch")"
+    fi
+    PR_INFO["$pp_anchor"]="${pr_cache["$pp_cache_key"]}"
+  done
+
+  # --- sub-pass C: per-stage state (needs PATH_LINES + PR_INFO above) -----
+  local pp_stage
+  for pp_row in "${ROWS[@]}"; do
+    wb_tsv_split "$pp_row" f
+    [ "${f[0]}" = task ] || continue
+    pp_repo="${f[3]}"; pp_branch="${f[4]}"; pp_worktree="${f[5]}"; pp_status="${f[2]}"
+    pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
+    for pp_stage in "${WB_LIFECYCLE_STAGES[@]}"; do
+      STAGE_STATE["$(wb_board_stage_key "$pp_anchor" "$pp_stage")"]="$(wb_lifecycle_stage_state \
+        "$pp_stage" "$pp_repo" "$pp_branch" "$pp_worktree" "$pp_taskfile" "$pp_status" \
+        "${PR_INFO["$pp_anchor"]:-}" "${PATH_LINES["$pp_anchor"]}")"
+    done
+  done
+
+  # --- sub-passes D/E/F: dependency-graph validation, cycle detection, and
+  # blocked/unblocks counts — factored into standalone, nameref-based
+  # functions (wb_board_deps_validate/_cycles/_blocking) so they're
+  # directly unit-testable, same pattern wb_tsv_split already uses for its
+  # array-name parameter. -----------------------------------------------
+  wb_board_deps_validate DEPS_OF STEM_ANCHOR DANGLING_WARN
+  wb_board_deps_cycles DEPS_OF STEM_ANCHOR ANCHOR_STEM CYCLE_MEMBER CYCLE_WARN
+  wb_board_deps_blocking DEPS_OF STEM_ANCHOR STEM_STATUS ANCHOR_STEM CYCLE_MEMBER \
+    UNMET_COUNT BLOCKER_NAMES UNBLOCKS_COUNT UNBLOCKS_NAMES
+
+  # --- sub-pass G: children rollup counts (R20) ---------------------------
+  local pp_parent_stem pp_child_file pp_total pp_done pp_child_status pp_parent_status
+  for pp_parent_stem in "${!children_of[@]}"; do
+    pp_total=0; pp_done=0
+    while IFS= read -r pp_child_file; do
+      [ -n "$pp_child_file" ] && [ -f "$pp_child_file" ] || continue
+      pp_total=$((pp_total + 1))
+      pp_child_status="$(wb_get_frontmatter "$pp_child_file" status)"
+      [ "$pp_child_status" = done ] && pp_done=$((pp_done + 1))
+    done <<< "${children_of["$pp_parent_stem"]}"
+    CHILDREN_TOTAL["$pp_parent_stem"]="$pp_total"
+    CHILDREN_DONE["$pp_parent_stem"]="$pp_done"
+    pp_parent_status="${STEM_STATUS["$pp_parent_stem"]:-}"
+    if [ "$pp_total" -gt 0 ] && [ "$pp_total" = "$pp_done" ] && [ "$pp_parent_status" != done ]; then
+      READY_TO_CLOSE["$pp_parent_stem"]=1
+    fi
+  done
 
   local -a TABS=(all inprogress upcoming paused deferred unclassified)
   local -A TAB_LABEL=([all]="All" [inprogress]="In Progress" [upcoming]="Upcoming" [paused]="Paused" [deferred]="Deferred" [unclassified]="Unclassified")
@@ -3108,19 +3985,106 @@ wb_board_render_html() {
   # hidden radios), `+`/plain `~` can't reach a label by position alone —
   # each rule targets the specific label by its for= attribute instead.
   local radios_html='' tabs_html='' win_html='' panel_css='' panels_html='' highlight_css=''
-  local win tab first_win=1 first_tab=1
+  local win tab first_win=1
   for win in "${WINDOWS[@]}"; do
     local checked=""; [ "$first_win" = 1 ] && checked=" checked" && first_win=0
     radios_html+="<input type=\"radio\" name=\"tl\" id=\"tl-$win\"$checked>"$'\n'
     win_html+="<label for=\"tl-$win\">${WIN_LABEL[$win]}</label>"$'\n'
     highlight_css+="#tl-$win:checked ~ header label[for=\"tl-$win\"] { background: var(--acc); color: white; }"$'\n'
   done
+  # Pipeline is the first tab and default-checked (approved mockup) — the
+  # rest of the TABS array is never checked by default anymore. It gets its
+  # own hand-written visibility rules below (KTD-7) rather than the
+  # generic per-(win,tab) rule the loop after this generates for the
+  # original 6 bucket tabs, since its one panel renders under EITHER
+  # window radio, not one panel per window.
+  radios_html+="<input type=\"radio\" name=\"st\" id=\"st-pipeline\" checked>"$'\n'
+  tabs_html+="<label for=\"st-pipeline\">Pipeline</label>"$'\n'
+  highlight_css+="#st-pipeline:checked ~ header label[for=\"st-pipeline\"] { background: var(--acc); color: white; }"$'\n'
+  # Live/Stale — same window-independent treatment as Pipeline (KTD-7):
+  # cross-cutting views over in-flight work, not another status bucket.
+  for tab in live stale; do
+    radios_html+="<input type=\"radio\" name=\"st\" id=\"st-$tab\">"$'\n'
+    highlight_css+="#st-$tab:checked ~ header label[for=\"st-$tab\"] { background: var(--acc); color: white; }"$'\n'
+  done
+  tabs_html+="<label for=\"st-live\">Live</label>"$'\n'
+  tabs_html+="<label for=\"st-stale\">Stale</label>"$'\n'
   for tab in "${TABS[@]}"; do
-    local checked=""; [ "$first_tab" = 1 ] && checked=" checked" && first_tab=0
-    radios_html+="<input type=\"radio\" name=\"st\" id=\"st-$tab\"$checked>"$'\n'
+    radios_html+="<input type=\"radio\" name=\"st\" id=\"st-$tab\">"$'\n'
     tabs_html+="<label for=\"st-$tab\">${TAB_LABEL[$tab]}</label>"$'\n'
     highlight_css+="#st-$tab:checked ~ header label[for=\"st-$tab\"] { background: var(--acc); color: white; }"$'\n'
   done
+
+  # Pipeline's panel is window-independent (KTD-7): it renders once, but
+  # must be reachable under EITHER window radio, hence two rules pointing
+  # at the same single #panel-pipeline id (not one rule per window x tab
+  # combination like the loop below generates for the 6 bucket tabs).
+  for win in "${WINDOWS[@]}"; do
+    panel_css+="#tl-$win:checked ~ #st-pipeline:checked ~ main #panel-pipeline { display: flex; }"$'\n'
+    panel_css+="#tl-$win:checked ~ #st-live:checked ~ main #panel-live { display: flex; }"$'\n'
+    panel_css+="#tl-$win:checked ~ #st-stale:checked ~ main #panel-stale { display: flex; }"$'\n'
+  done
+
+  # --- U7: repo/family filter radio groups (KTD-8) — declared here,
+  # before <header>/<main> (same reason as tl/st above), with fr-*/fp-*
+  # AFTER tl/st in DOM order per the plan's document-order sketch. "All
+  # repos"/"All families" are always first and checked (R26); the family
+  # group is omitted ENTIRELY when the store has no parent/child pairs at
+  # all — a lone "All families" control would be noise. Repo/family
+  # filters AND-compose by construction: two independent rule families,
+  # never a combined selector (R28).
+  local -a repo_slugs_sorted
+  mapfile -t repo_slugs_sorted < <(for s in "${!ALL_REPOS[@]}"; do printf '%s\t%s\n' "${ALL_REPOS[$s]}" "$s"; done | sort | cut -f2)
+  local repo_options_html="<label for=\"fr-all\">All repos</label>"$'\n'
+  local repo_summary_labels="<span class=\"filter-label\" data-for=\"all\">Repo &#9662;</span>"
+  local repo_hide_css='' repo_summary_css='' repo_slug repo_display
+  radios_html+="<input type=\"radio\" name=\"fr\" id=\"fr-all\" checked>"$'\n'
+  for repo_slug in "${repo_slugs_sorted[@]}"; do
+    radios_html+="<input type=\"radio\" name=\"fr\" id=\"fr-$repo_slug\">"$'\n'
+    repo_display="$(wb_board_html_escape "${ALL_REPOS[$repo_slug]}")"
+    repo_options_html+="<label for=\"fr-$repo_slug\">$repo_display</label>"$'\n'
+    repo_summary_labels+="<span class=\"filter-label\" data-for=\"$repo_slug\">Repo: $repo_display &#9662;</span>"
+    repo_hide_css+="#fr-$repo_slug:checked ~ main .view tr.row:not([data-repo=\"$repo_slug\"]), #fr-$repo_slug:checked ~ main .view .task-detail:not([data-repo=\"$repo_slug\"]) { display: none; }"$'\n'
+    repo_summary_css+="#fr-$repo_slug:checked ~ header .repo-filter .filter-label { display: none; } #fr-$repo_slug:checked ~ header .repo-filter .filter-label[data-for=\"$repo_slug\"] { display: inline; }"$'\n'
+  done
+
+  local -a fam_stems_sorted=()
+  local family_options_html='' family_summary_labels='' family_hide_css='' family_summary_css=''
+  if [ "${#children_of[@]}" -gt 0 ]; then
+    mapfile -t fam_stems_sorted < <(printf '%s\n' "${!children_of[@]}" | sort)
+    radios_html+="<input type=\"radio\" name=\"fp\" id=\"fp-all\" checked>"$'\n'
+    family_options_html="<label for=\"fp-all\">All families</label>"$'\n'
+    family_summary_labels="<span class=\"filter-label\" data-for=\"all\">Family &#9662;</span>"
+    local fam_stem fam_slug fam_label
+    for fam_stem in "${fam_stems_sorted[@]}"; do
+      fam_slug="$(wb_board_anchor_slug "$fam_stem")"
+      radios_html+="<input type=\"radio\" name=\"fp\" id=\"fp-$fam_slug\">"$'\n'
+      fam_label="$(wb_board_html_escape "$fam_stem")"
+      family_options_html+="<label for=\"fp-$fam_slug\">$fam_label</label>"$'\n'
+      family_summary_labels+="<span class=\"filter-label\" data-for=\"$fam_slug\">Family: $fam_label &#9662;</span>"
+      # Matching value is the SAME slug used for the radio id (not the raw
+      # $fam_stem) — data-family attributes above are populated with
+      # wb_board_anchor_slug'd tokens, and this selector must match those,
+      # not raw (unescaped, attribute-injectable) frontmatter text.
+      family_hide_css+="#fp-$fam_slug:checked ~ main .view tr.row:not([data-family~=\"$fam_slug\"]), #fp-$fam_slug:checked ~ main .view .task-detail:not([data-family~=\"$fam_slug\"]) { display: none; }"$'\n'
+      family_summary_css+="#fp-$fam_slug:checked ~ header .family-filter .filter-label { display: none; } #fp-$fam_slug:checked ~ header .family-filter .filter-label[data-for=\"$fam_slug\"] { display: inline; }"$'\n'
+    done
+  fi
+
+  local family_dropdown_html=""
+  if [ "${#children_of[@]}" -gt 0 ]; then
+    family_dropdown_html="<details class=\"filter-dropdown family-filter\"><summary>$family_summary_labels</summary><div class=\"filter-options\">$family_options_html</div></details>"
+  fi
+
+  # U7: per-panel (repo,family) presence tracking (KTD-8) — populated as
+  # rows are collected below, consumed after all 13 panels are built to
+  # generate empty-intersection reveal rules (a filter combination that
+  # empties an otherwise non-empty panel reveals its own pre-rendered
+  # empty-state, rather than showing a stale table/blank space).
+  local -A PANEL_ANY=()      # panelkey -> 1 if the panel has any row at all
+  local -A PANEL_REPO=()     # "panelkey\x1frepo" -> 1
+  local -A PANEL_FAMILY=()   # "panelkey\x1ffamily" -> 1
+  local -A PANEL_COMBO=()    # "panelkey\x1frepo\x1ffamily" -> 1
 
   local row kind bucket status repo branch worktree title created closed updated taskfile anchor_key
   local -a f
@@ -3128,6 +4092,7 @@ wb_board_render_html() {
     local window_start; window_start="$(wb_board_window_start "$win")"
     for tab in "${TABS[@]}"; do
       panel_css+="#tl-$win:checked ~ #st-$tab:checked ~ main #panel-$tab-$win { display: flex; }"$'\n'
+      local panelkey="$tab-$win"
       local table_rows='' detail_sections='' any=0
       for row in "${ROWS[@]}"; do
         wb_tsv_split "$row" f
@@ -3137,6 +4102,8 @@ wb_board_render_html() {
         [ "$tab" = all ] || [ "$bucket" = "$tab" ] || continue
         wb_board_in_window "$created" "$closed" "$updated" "$window_start" || continue
         any=1
+        PANEL_ANY["$panelkey"]=1
+        [ "$tab" = all ] && [ "$win" = week ] && ALL_WEEK_RENDERED["$anchor_key"]=1
         local view_anchor="t-$tab-$win-$anchor_key"
         local esc_title esc_branch esc_repo pill_class pill_label live_session live_badge
         esc_title="$(wb_board_html_escape "$title")"
@@ -3144,74 +4111,29 @@ wb_board_render_html() {
         esc_repo="$(wb_board_html_escape "$repo")"
         pill_class="$status"; pill_label="$status"
         [ "$kind" = untracked ] && { pill_class="unclassified"; pill_label="unclassified"; }
-        live_session="$(wb_board_live_session_for "$repo" "$branch")"
+        live_session="${LIVE_SESSION["$anchor_key"]:-}"
         live_badge=""
         [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
         local link_text="$esc_title"
         [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
-        table_rows+="<tr class=\"row\"><td><span class=\"pill $pill_class\">$pill_label</span></td><td><a class=\"tasklink\" href=\"#$view_anchor\">$link_text</a> $live_badge</td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
-
-        if [ "$kind" = untracked ]; then
-          detail_sections+="<div class=\"task-detail untracked\" id=\"$view_anchor\"><h3>$esc_branch <span class=\"pill unclassified\">unclassified</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3><span class=\"repo\">$esc_repo</span><p><b>No task file.</b> Worktree exists on disk (<code>$(wb_board_html_escape "$worktree")</code>) with no matching entry in the task store.</p></div>"$'\n'
-        else
-          local plan done_txt followups decisions repo_dir wt_abs pr_info detail_extra=""
-          detail_extra+="<p>$(wb_board_summary_line "$status" "$esc_repo" "$esc_branch" "$created" "$closed")</p>"
-          plan="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Plan)")"
-          done_txt="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Done)")"
-          [ -n "$plan" ] && detail_extra+="<p><b>Plan:</b> $(wb_board_html_escape "$plan")</p>"
-          [ -n "$done_txt" ] && detail_extra+="<p><b>Done:</b> $(wb_board_html_escape "$done_txt")</p>"
-          repo_dir="$(wb_repo_dir "$repo")"
-          if [ -d "$repo_dir/.git" ]; then
-            pr_info="$(wb_board_pr_info "$repo_dir" "$branch")"
-            [ -n "$pr_info" ] && detail_extra+="<p><b>Related:</b> <span class=\"artefact-chip\">PR $(wb_board_html_escape "$pr_info")</span></p>"
-          fi
-          wt_abs="$repo_dir/$worktree"
-          local ledger_line ledger_note=""
-          while IFS= read -r ledger_line; do
-            [ -n "$ledger_line" ] || continue
-            ledger_note+="$(printf '%s' "$ledger_line" | jq -r '.note // empty' 2>/dev/null); "
-          done < <(wb_board_ledger_matches "$wt_abs")
-          [ -n "$ledger_note" ] && detail_extra+="<p><b>Parked:</b> $(wb_board_html_escape "$ledger_note")</p>"
-          local own_docs doc_links
-          own_docs="$(wb_board_related_docs "$taskfile" "$dotfiles_root")"
-          doc_links="$(wb_board_task_doc_chips "$taskfile" "$dotfiles_root")"
-          [ -n "$doc_links" ] && detail_extra+="<p><b>Docs:</b> $doc_links</p>"
-
-          local h3="<h3>$esc_title <span class=\"pill $pill_class\">$pill_label</span>$live_badge<a class=\"back\" href=\"#\">&#8593; back</a></h3>"
-          local stem; stem="$(basename "$taskfile" .md)"
-          if [ -n "${children_of[$stem]:-}" ]; then
-            local own_count; own_count="$(printf '%s' "$own_docs" | grep -c . || true)"
-            local children_html='' crow_file crow_status crow_title crow_chips
-            while IFS= read -r crow_file; do
-              [ -n "$crow_file" ] && [ -f "$crow_file" ] || continue
-              crow_status="$(wb_get_frontmatter "$crow_file" status)"
-              crow_title="$(wb_task_title "$crow_file")"; [ -n "$crow_title" ] || crow_title="$(basename "$crow_file" .md)"
-              crow_chips="$(wb_board_task_doc_chips "$crow_file" "$dotfiles_root")"
-              children_html+="<div class=\"child-row\"><span class=\"pill $crow_status\">$(wb_board_html_escape "$crow_status")</span> $(wb_board_html_escape "$crow_title") $crow_chips</div>"$'\n'
-            done <<< "${children_of[$stem]}"
-
-            local rollup_docs rollup_html=""
-            rollup_docs="$(wb_board_children_rollup_docs "${children_of[$stem]}" "$dotfiles_root")"
-            if [ -n "$rollup_docs" ]; then
-              local rn; rn="$(printf '%s\n' "$rollup_docs" | grep -c .)"
-              local plural=""; [ "$rn" = 1 ] || plural="s"
-              local rollup_chips="" rdoc
-              while IFS= read -r rdoc; do
-                [ -n "$rdoc" ] || continue
-                rollup_chips+="<a class=\"artefact-chip\" href=\"$(wb_board_doc_link "$rdoc")\">$(wb_board_html_escape "$(basename "$rdoc")")</a> "
-              done <<< "$rollup_docs"
-              rollup_html="<details><summary>Show $rn artifact$plural from sub-tasks too</summary><p>$rollup_chips</p></details>"
-            fi
-
-            detail_sections+="<div class=\"task-detail\" id=\"$view_anchor\"><details open class=\"parent-row\"><summary>$h3<span class=\"own-count\">$own_count of its own artifacts</span></summary><span class=\"repo\">$esc_repo</span>$detail_extra<div class=\"children\">$children_html</div>$rollup_html</details></div>"$'\n'
-          else
-            detail_sections+="<div class=\"task-detail\" id=\"$view_anchor\">$h3<span class=\"repo\">$esc_repo</span>$detail_extra</div>"$'\n'
-          fi
+        local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
+        local row_attrs=" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+        [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
+        PANEL_REPO["$panelkey"$'\x1f'"$row_repo_attr"]=1
+        if [ -n "$row_family_attr" ]; then
+          local fam_tok
+          for fam_tok in $row_family_attr; do
+            PANEL_FAMILY["$panelkey"$'\x1f'"$fam_tok"]=1
+            PANEL_COMBO["$panelkey"$'\x1f'"$row_repo_attr"$'\x1f'"$fam_tok"]=1
+          done
         fi
+        table_rows+="<tr class=\"row\"$row_attrs><td><span class=\"pill $pill_class\">$pill_label</span></td><td><div class=\"task-cell\"><a class=\"tasklink\" href=\"#$view_anchor\">$link_text</a>$live_badge</div></td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
+
+        detail_sections+="$(wb_board_render_detail_card)"$'\n'
       done
 
       if [ "$any" = 1 ]; then
-        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><table><tr><th>Status</th><th>Task</th><th>Repo</th></tr>$table_rows</table><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$detail_sections</div></div></div>"$'\n'
+        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"table-wrap\"><table><tr><th class=\"sortable\" data-sort=\"status\">Status</th><th>Task</th><th class=\"sortable\" data-sort=\"repo\">Repo</th></tr>$table_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$detail_sections</div></div><div class=\"empty-state filtered-empty\" id=\"empty-$tab-$win\">No tasks match this filter combination.</div></div>"$'\n'
       elif [ "$tab" = deferred ]; then
         panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"empty-state\">No deferred tasks yet — reserved for a future <code>pending</code> status once <code>/park</code> items become task-store entries. Not part of this PR.</div></div>"$'\n'
       else
@@ -3220,7 +4142,347 @@ wb_board_render_html() {
     done
   done
 
-  cat <<HTMLEOF
+  # ===========================================================================
+  # U5: Pipeline panel — one row per in-flight (non-done) task, window-
+  # independent (KTD-7), sharing the same wb_board_render_detail_card
+  # renderer bucket panels use. Untracked rows are excluded (R9/Assumptions
+  # — no task file means no path/intent).
+  # ===========================================================================
+  local pipe_rows='' pipe_details='' pipe_any=0
+  for row in "${ROWS[@]}"; do
+    wb_tsv_split "$row" f
+    kind="${f[0]}"; bucket="${f[1]}"; status="${f[2]}"; repo="${f[3]}"; branch="${f[4]}"
+    worktree="${f[5]}"; title="${f[6]}"; created="${f[7]}"; closed="${f[8]}"; updated="${f[9]}"
+    taskfile="${f[10]}"; anchor_key="${f[11]}"
+    [ "$kind" = task ] || continue
+    [ "$bucket" = done ] && continue
+    pipe_any=1
+
+    local view_anchor="t-pipeline-$anchor_key"
+    local esc_title esc_branch esc_repo pill_class pill_label live_session live_badge
+    esc_title="$(wb_board_html_escape "$title")"
+    esc_branch="$(wb_board_html_escape "$branch")"
+    esc_repo="$(wb_board_html_escape "$repo")"
+    pill_class="$status"; pill_label="$status"
+    live_session="${LIVE_SESSION["$anchor_key"]:-}"
+    live_badge=""
+    [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
+
+    local row_class="row"
+    [ -n "${UNMET_COUNT["$anchor_key"]:-}" ] && row_class+=" blocked"
+    local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
+    local row_attrs=" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
+    PANEL_ANY["pipeline"]=1
+    PANEL_REPO["pipeline"$'\x1f'"$row_repo_attr"]=1
+    if [ -n "$row_family_attr" ]; then
+      local fam_tok
+      for fam_tok in $row_family_attr; do
+        PANEL_FAMILY["pipeline"$'\x1f'"$fam_tok"]=1
+        PANEL_COMBO["pipeline"$'\x1f'"$row_repo_attr"$'\x1f'"$fam_tok"]=1
+      done
+    fi
+
+    local stage_cells='' pp_stage
+    for pp_stage in "${WB_LIFECYCLE_STAGES[@]}"; do
+      stage_cells+="$(wb_board_stage_cell "$pp_stage" \
+        "${STAGE_STATE["$(wb_board_stage_key "$anchor_key" "$pp_stage")"]:-na}" \
+        "$repo" "$branch" "$worktree" "$taskfile" "${PR_INFO["$anchor_key"]:-}")"
+    done
+
+    local wt_cell pr_cell deps_cell
+    if wb_lifecycle_has_worktree "$repo" "$worktree"; then wt_cell="&#10003;"; else wt_cell="&mdash;"; fi
+    local pipe_pr_info="${PR_INFO["$anchor_key"]:-}"
+    if [ -n "$pipe_pr_info" ]; then
+      pr_cell="<a href=\"$(wb_board_html_escape "$(wb_board_pr_url "$pipe_pr_info")")\">$(wb_board_html_escape "$(wb_board_pr_number "$pipe_pr_info")")</a>"
+    else
+      pr_cell="&mdash;"
+    fi
+    deps_cell="$(wb_board_deps_chips "$anchor_key")"; [ -n "$deps_cell" ] || deps_cell="&mdash;"
+
+    pipe_rows+="<tr class=\"$row_class\"$row_attrs><td><div class=\"task-cell\"><a class=\"tasklink\" href=\"#$view_anchor\">$esc_title</a><span class=\"repo\">$esc_repo</span>$live_badge</div></td><td><span class=\"pill $pill_class\">$pill_label</span></td>$stage_cells<td>$wt_cell</td><td>$pr_cell</td><td>$deps_cell</td></tr>"$'\n'
+    detail_sections="$(wb_board_render_detail_card)"
+    pipe_details+="$detail_sections"$'\n'
+  done
+
+  if [ "$pipe_any" = 1 ]; then
+    panels_html+="<div class=\"view\" id=\"panel-pipeline\"><div class=\"table-wrap\"><table><tr><th>Task</th><th class=\"sortable\" data-sort=\"status\">Status</th><th>Ideate</th><th>Brainstorm</th><th>Plan</th><th>Work</th><th>Review</th><th>Worktree</th><th>PR</th><th>Deps</th></tr>$pipe_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$pipe_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-pipeline\">No tasks match this filter combination.</div></div>"$'\n'
+  else
+    panels_html+="<div class=\"view\" id=\"panel-pipeline\"><div class=\"empty-state\">No in-flight tasks.</div></div>"$'\n'
+  fi
+
+  # ===========================================================================
+  # Live tab — every task or untracked row with a currently-running tmux
+  # session (LIVE_SESSION non-empty), window-independent like Pipeline.
+  # Reuses the bucket-tab's 3-column table + wb_board_render_detail_card,
+  # not Pipeline's stage-cell table -- this is "what's running right now",
+  # not a lifecycle view.
+  # ===========================================================================
+  local live_rows='' live_details='' live_any=0
+  for row in "${ROWS[@]}"; do
+    wb_tsv_split "$row" f
+    kind="${f[0]}"; bucket="${f[1]}"; status="${f[2]}"; repo="${f[3]}"; branch="${f[4]}"
+    worktree="${f[5]}"; title="${f[6]}"; created="${f[7]}"; closed="${f[8]}"; updated="${f[9]}"
+    taskfile="${f[10]}"; anchor_key="${f[11]}"
+    local live_session="${LIVE_SESSION["$anchor_key"]:-}"
+    [ -n "$live_session" ] || continue
+    live_any=1
+    local view_anchor="t-live-$anchor_key"
+    local esc_title esc_branch esc_repo pill_class pill_label live_badge
+    esc_title="$(wb_board_html_escape "$title")"
+    esc_branch="$(wb_board_html_escape "$branch")"
+    esc_repo="$(wb_board_html_escape "$repo")"
+    pill_class="$status"; pill_label="$status"
+    [ "$kind" = untracked ] && { pill_class="unclassified"; pill_label="unclassified"; }
+    live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
+    local link_text="$esc_title"
+    [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
+    local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
+    local row_attrs=" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
+    PANEL_ANY["live"]=1
+    PANEL_REPO["live"$'\x1f'"$row_repo_attr"]=1
+    if [ -n "$row_family_attr" ]; then
+      local fam_tok
+      for fam_tok in $row_family_attr; do
+        PANEL_FAMILY["live"$'\x1f'"$fam_tok"]=1
+        PANEL_COMBO["live"$'\x1f'"$row_repo_attr"$'\x1f'"$fam_tok"]=1
+      done
+    fi
+    live_rows+="<tr class=\"row\"$row_attrs><td><span class=\"pill $pill_class\">$pill_label</span></td><td><div class=\"task-cell\"><a class=\"tasklink\" href=\"#$view_anchor\">$link_text</a>$live_badge</div></td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
+    live_details+="$(wb_board_render_detail_card)"$'\n'
+  done
+  if [ "$live_any" = 1 ]; then
+    panels_html+="<div class=\"view\" id=\"panel-live\"><div class=\"table-wrap\"><table><tr><th class=\"sortable\" data-sort=\"status\">Status</th><th>Task</th><th class=\"sortable\" data-sort=\"repo\">Repo</th></tr>$live_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$live_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-live\">No tasks match this filter combination.</div></div>"$'\n'
+  else
+    panels_html+="<div class=\"view\" id=\"panel-live\"><div class=\"empty-state\">No live sessions right now.</div></div>"$'\n'
+  fi
+
+  # ===========================================================================
+  # Stale tab — in-flight (non-done) tasks whose created/closed/updated all
+  # predate the staleness threshold, i.e. the inverse of wb_board_in_window
+  # widened past "week". WB_STALE_DAYS is a plain tunable constant, not a
+  # frontmatter field or a third window radio -- staleness is a Pipeline-
+  # scoped lens ("which of my in-flight tasks am I neglecting"), not a
+  # dimension the other 6 bucket tabs' today/week pairing needs too.
+  # ===========================================================================
+  local -r WB_STALE_DAYS=14
+  local stale_start; stale_start="$(date -d "${WB_STALE_DAYS} days ago 00:00:00" +%s)"
+  local stale_rows='' stale_details='' stale_any=0
+  for row in "${ROWS[@]}"; do
+    wb_tsv_split "$row" f
+    kind="${f[0]}"; bucket="${f[1]}"; status="${f[2]}"; repo="${f[3]}"; branch="${f[4]}"
+    worktree="${f[5]}"; title="${f[6]}"; created="${f[7]}"; closed="${f[8]}"; updated="${f[9]}"
+    taskfile="${f[10]}"; anchor_key="${f[11]}"
+    [ "$kind" = task ] || continue
+    [ "$bucket" = done ] && continue
+    wb_board_in_window "$created" "$closed" "$updated" "$stale_start" && continue
+    stale_any=1
+    local view_anchor="t-stale-$anchor_key"
+    local esc_title esc_branch esc_repo pill_class pill_label live_session live_badge
+    esc_title="$(wb_board_html_escape "$title")"
+    esc_branch="$(wb_board_html_escape "$branch")"
+    esc_repo="$(wb_board_html_escape "$repo")"
+    pill_class="$status"; pill_label="$status"
+    live_session="${LIVE_SESSION["$anchor_key"]:-}"
+    live_badge=""
+    [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
+    local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
+    local row_attrs=" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
+    PANEL_ANY["stale"]=1
+    PANEL_REPO["stale"$'\x1f'"$row_repo_attr"]=1
+    if [ -n "$row_family_attr" ]; then
+      local fam_tok
+      for fam_tok in $row_family_attr; do
+        PANEL_FAMILY["stale"$'\x1f'"$fam_tok"]=1
+        PANEL_COMBO["stale"$'\x1f'"$row_repo_attr"$'\x1f'"$fam_tok"]=1
+      done
+    fi
+    stale_rows+="<tr class=\"row\"$row_attrs><td><span class=\"pill $pill_class\">$pill_label</span></td><td><div class=\"task-cell\"><a class=\"tasklink\" href=\"#$view_anchor\">$esc_title</a>$live_badge</div></td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
+    stale_details+="$(wb_board_render_detail_card)"$'\n'
+  done
+  if [ "$stale_any" = 1 ]; then
+    panels_html+="<div class=\"view\" id=\"panel-stale\"><div class=\"table-wrap\"><table><tr><th class=\"sortable\" data-sort=\"status\">Status</th><th>Task</th><th class=\"sortable\" data-sort=\"repo\">Repo</th></tr>$stale_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$stale_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-stale\">No tasks match this filter combination.</div></div>"$'\n'
+  else
+    panels_html+="<div class=\"view\" id=\"panel-stale\"><div class=\"empty-state\">Nothing in-flight has gone quiet for ${WB_STALE_DAYS}+ days.</div></div>"$'\n'
+  fi
+
+  # =========================================================================
+  # U9: Key Findings — board-global insights computed from the pre-pass,
+  # rendered once outside every .view (R22) so no repo/family filter can
+  # ever reach it. Starter six; an insight with no results is omitted
+  # entirely (no empty heading); only when ALL SIX are empty does the
+  # section render a single muted line — the section itself never
+  # vanishes, which would read as breakage.
+  # =========================================================================
+  local -A KF_TITLE=() KF_CREATED=() KF_CLOSED=() KF_BRANCH=() KF_BUCKET=() KF_REVIEWED=()
+  for row in "${ROWS[@]}"; do
+    wb_tsv_split "$row" f
+    [ "${f[0]}" = task ] || continue
+    anchor_key="${f[11]}"
+    KF_TITLE["$anchor_key"]="${f[6]}"
+    KF_CREATED["$anchor_key"]="${f[7]}"
+    KF_CLOSED["$anchor_key"]="${f[8]}"
+    KF_BRANCH["$anchor_key"]="${f[4]}"
+    KF_BUCKET["$anchor_key"]="${f[1]}"
+    KF_REVIEWED["$anchor_key"]="${f[14]}"
+  done
+
+  # kf_item <anchor_key> <label_extra> — one <li> for an insight, linked
+  # via wb_board_kf_link when reachable, plain text otherwise.
+  kf_item() {
+    local ak="$1" extra="${2:-}" href title_esc
+    title_esc="$(wb_board_html_escape "${KF_TITLE["$ak"]:-$ak}")"
+    href="$(wb_board_kf_link "$ak" "${KF_BUCKET["$ak"]:-}")"
+    if [ -n "$href" ]; then
+      printf '<li><a href="%s">%s</a>%s</li>' "$href" "$title_esc" "$extra"
+    else
+      printf '<li>%s%s</li>' "$title_esc" "$extra"
+    fi
+  }
+
+  local kf_html=''
+
+  # 1. Most-blocking task (max unblocks count; ties all listed)
+  local kf_max=0 kf_ak
+  for kf_ak in "${!UNBLOCKS_COUNT[@]}"; do
+    [ "${UNBLOCKS_COUNT["$kf_ak"]}" -gt "$kf_max" ] && kf_max="${UNBLOCKS_COUNT["$kf_ak"]}"
+  done
+  if [ "$kf_max" -gt 0 ]; then
+    local kf_blocking_items=''
+    for kf_ak in "${!UNBLOCKS_COUNT[@]}"; do
+      [ "${UNBLOCKS_COUNT["$kf_ak"]}" = "$kf_max" ] && kf_blocking_items+="$(kf_item "$kf_ak" " — blocks $kf_max")"
+    done
+    kf_html+="<div class=\"kf-item\"><b>Most blocking:</b><ul>$kf_blocking_items</ul></div>"
+  fi
+
+  # 2. Parents ready to close
+  if [ "${#READY_TO_CLOSE[@]}" -gt 0 ]; then
+    local kf_ready_items=''
+    for kf_ak in "${!READY_TO_CLOSE[@]}"; do
+      local kf_ready_anchor="${STEM_ANCHOR["$kf_ak"]:-}"
+      [ -n "$kf_ready_anchor" ] && kf_ready_items+="$(kf_item "$kf_ready_anchor" " — ${CHILDREN_DONE["$kf_ak"]}/${CHILDREN_TOTAL["$kf_ak"]} children done")"
+    done
+    [ -n "$kf_ready_items" ] && kf_html+="<div class=\"kf-item\"><b>Ready to close:</b><ul>$kf_ready_items</ul></div>"
+  fi
+
+  # 3. Done-but-unreviewed count (grandfathered: only counts closed: on/
+  # after the convention date, KTD-11)
+  local kf_unreviewed_count=0
+  for kf_ak in "${!KF_BUCKET[@]}"; do
+    [ "${KF_BUCKET["$kf_ak"]}" = done ] || continue
+    [ -n "${KF_REVIEWED["$kf_ak"]:-}" ] && continue
+    local kf_closed="${KF_CLOSED["$kf_ak"]:-}"
+    [ -n "$kf_closed" ] || continue
+    [[ "$kf_closed" > "$WB_REVIEW_CONVENTION_DATE" || "$kf_closed" == "$WB_REVIEW_CONVENTION_DATE" ]] || continue
+    kf_unreviewed_count=$((kf_unreviewed_count + 1))
+  done
+  [ "$kf_unreviewed_count" -gt 0 ] && kf_html+="<div class=\"kf-item\"><b>Done but unreviewed:</b> $kf_unreviewed_count</div>"
+
+  # 4. Oldest in-flight task (min created: among non-done)
+  local kf_oldest_ak='' kf_oldest_created=''
+  for kf_ak in "${!KF_BUCKET[@]}"; do
+    [ "${KF_BUCKET["$kf_ak"]}" = done ] && continue
+    local kf_created="${KF_CREATED["$kf_ak"]:-}"
+    [ -n "$kf_created" ] || continue
+    if [ -z "$kf_oldest_created" ] || [[ "$kf_created" < "$kf_oldest_created" ]]; then
+      kf_oldest_created="$kf_created"; kf_oldest_ak="$kf_ak"
+    fi
+  done
+  [ -n "$kf_oldest_ak" ] && kf_html+="<div class=\"kf-item\"><b>Oldest in-flight:</b><ul>$(kf_item "$kf_oldest_ak" " — created $kf_oldest_created")</ul></div>"
+
+  # 5. No-bucket statuses (a real task whose status maps to no known bucket)
+  local kf_nobucket_items=''
+  for kf_ak in "${!KF_BUCKET[@]}"; do
+    [ "${KF_BUCKET["$kf_ak"]}" = unclassified ] && kf_nobucket_items+="$(kf_item "$kf_ak")"
+  done
+  [ -n "$kf_nobucket_items" ] && kf_html+="<div class=\"kf-item\"><b>No-bucket status:</b><ul>$kf_nobucket_items</ul></div>"
+
+  # 6. Branchless tasks whose stem matches a store doc filename (R27's
+  # docs-before-branch pattern, suppressed from state, surfaced here)
+  local kf_docs_items=''
+  for kf_ak in "${!KF_BUCKET[@]}"; do
+    [ -n "${KF_BRANCH["$kf_ak"]:-}" ] && continue
+    local kf_stem="${ANCHOR_STEM["$kf_ak"]:-}"
+    [ -n "$kf_stem" ] || continue
+    local kf_dir kf_match=0
+    for kf_dir in plans brainstorms ideation; do
+      [ -d "$dotfiles_root/docs/$kf_dir" ] || continue
+      local kf_f
+      for kf_f in "$dotfiles_root/docs/$kf_dir"/*"$kf_stem"*; do
+        [ -f "$kf_f" ] || continue
+        kf_match=1; break
+      done
+      [ "$kf_match" = 1 ] && break
+    done
+    [ "$kf_match" = 1 ] && kf_docs_items+="$(kf_item "$kf_ak" " — docs exist, no branch yet")"
+  done
+  [ -n "$kf_docs_items" ] && kf_html+="<div class=\"kf-item\"><b>Docs before branch:</b><ul>$kf_docs_items</ul></div>"
+
+  [ -n "$kf_html" ] || kf_html='<p class="kf-empty">Nothing notable right now.</p>'
+  local key_findings_html="<section class=\"key-findings\"><h2>Key Findings <span class=\"kf-tag\">board-wide &middot; ignores filters</span></h2>$kf_html</section>"
+
+  # --- U7: empty-intersection reveal rules (KTD-8) — for each panel and
+  # each (repo, family) combination that would leave zero VISIBLE rows
+  # despite the panel having SOME rows overall, reveal that panel's own
+  # pre-rendered .filtered-empty div. Bounded at panels x repos x
+  # families (low hundreds of rules at most) — no :has() dependency, the
+  # same pre-render-everything approach the rest of this page already
+  # uses for its 13 panels.
+  local -a repo_opts=("all" "${repo_slugs_sorted[@]}")
+  local -a family_opts=("all")
+  [ "${#children_of[@]}" -gt 0 ] && for fam_stem in "${fam_stems_sorted[@]}"; do family_opts+=("$(wb_board_anchor_slug "$fam_stem")"); done
+  local reveal_css='' panelkey ro fo empty ptab pwin
+  for panelkey in "${!PANEL_ANY[@]}"; do
+    for ro in "${repo_opts[@]}"; do
+      for fo in "${family_opts[@]}"; do
+        [ "$ro" = all ] && [ "$fo" = all ] && continue
+        empty=0
+        if [ "$fo" = all ]; then
+          [ -n "${PANEL_REPO["$panelkey"$'\x1f'"$ro"]:-}" ] || empty=1
+        elif [ "$ro" = all ]; then
+          # $fo is already the slug PANEL_FAMILY was populated with
+          # (data-family's tokens, per row_family_attr above) — no
+          # slug->stem reverse lookup needed.
+          [ -n "${PANEL_FAMILY["$panelkey"$'\x1f'"$fo"]:-}" ] || empty=1
+        else
+          [ -n "${PANEL_COMBO["$panelkey"$'\x1f'"$ro"$'\x1f'"$fo"]:-}" ] || empty=1
+        fi
+        [ "$empty" = 1 ] || continue
+
+        local fr_sel="#fr-$ro:checked ~ "
+        local fp_sel=""
+        [ "${#children_of[@]}" -gt 0 ] && fp_sel="#fp-$fo:checked ~ "
+        if [ "$panelkey" = pipeline ] || [ "$panelkey" = live ] || [ "$panelkey" = stale ]; then
+          for pwin in "${WINDOWS[@]}"; do
+            reveal_css+="#tl-$pwin:checked ~ #st-$panelkey:checked ~ $fr_sel$fp_sel main #panel-$panelkey .filtered-empty { display: block; }"$'\n'
+          done
+        else
+          ptab="${panelkey%-*}"; pwin="${panelkey##*-}"
+          reveal_css+="#tl-$pwin:checked ~ #st-$ptab:checked ~ $fr_sel$fp_sel main #panel-$ptab-$pwin .filtered-empty { display: block; }"$'\n'
+        fi
+      done
+    done
+  done
+
+  # U7: the page is built from a QUOTED heredoc (<<'HTMLEOF', no shell
+  # expansion at all) with @@TOKEN@@ placeholders, then each is substituted
+  # via ${var//search/replace} — a literal string replacement, never
+  # re-parsed for shell syntax. This is load-bearing, not stylistic: an
+  # UNQUOTED heredoc (the original design) expands embedded backticks/
+  # $(...) not per-variable but over the FULLY-SUBSTITUTED TEXT AS A
+  # WHOLE — an odd backtick count in one task's title/prose (e.g. a
+  # single, unpaired `` `code` `` mention) pairs across to the NEXT
+  # backtick anywhere later in the page (a completely unrelated task's
+  # content), and bash attempts to execute everything in between as a
+  # command. U5's window-independent Pipeline tab surfaces enough real
+  # prose that this fired for the first time against the live store
+  # ("bad array subscript"-adjacent bug, found via wb-lifecycle's own
+  # backtick-heavy conventions). Placeholder substitution closes this for
+  # every current and future call site at once, not just today's data.
+  local page_template
+  page_template="$(cat <<'HTMLEOF'
 <title>&#9673; /board</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -3248,29 +4510,70 @@ wb_board_render_html() {
   input[type=radio] { display: none; }
   header { padding: 1.2rem 1.5rem; border-bottom: 1px solid var(--line); background: var(--bg2); position: sticky; top: 0; z-index: 5; }
   header h1 { font-family: var(--mono); font-size: 1.1rem; margin: 0 0 .8rem; }
-  .tabs { display: flex; gap: .4rem; flex-wrap: wrap; }
+  .tabs { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  .tabs-left { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; flex: 1 1 auto; min-width: 0; }
   .tabgroup { display: flex; gap: .25rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .25rem; flex-wrap: wrap; }
   .tabgroup label { font-family: var(--mono); font-size: .78rem; padding: .35rem .8rem; border-radius: 6px; cursor: pointer; color: var(--ink2); }
+  /* U7: window segmented control — same tabgroup styling, visually
+     separated from the tab row (R12) by header-level flex gap/order. */
+  .tabgroup.window-control { order: -1; }
+  /* U7: repo/family filters — always the far-right cluster. margin-left:
+     auto is a belt-and-suspenders fallback for when .tabs wraps and
+     .header-controls ends up alone on its own line. */
+  .header-controls { display: flex; gap: .5rem; margin-left: auto; align-items: center; flex-wrap: nowrap; flex: 0 0 auto; }
+  /* Same outer gutter as .tabgroup (.25rem wrapper + .35rem inner padding)
+     so a filter dropdown renders the same overall size as a tabgroup pill. */
+  .filter-dropdown { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .25rem; }
+  .filter-dropdown summary { font-family: var(--mono); font-size: .78rem; padding: .35rem .8rem; cursor: pointer; color: var(--ink2); list-style: none; }
+  .filter-dropdown summary::-webkit-details-marker { display: none; }
+  .filter-dropdown .filter-label { display: none; white-space: nowrap; }
+  .filter-dropdown .filter-label[data-for="all"] { display: inline; }
+  .filter-dropdown .filter-options { position: absolute; right: 0; top: 100%; margin-top: .3rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .3rem; display: flex; flex-direction: column; gap: .1rem; z-index: 6; min-width: 8rem; }
+  .filter-dropdown .filter-options label { font-family: var(--mono); font-size: .78rem; padding: .3rem .6rem; border-radius: 6px; cursor: pointer; color: var(--ink2); white-space: nowrap; }
+  .filter-dropdown .filter-options label:hover { background: var(--bg2); }
 
-  main { padding: 1.5rem; max-width: 60rem; margin: 0 auto; }
-  .view { display: none; flex-direction: column; gap: 2rem; }
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  th { text-align: left; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
-  td { padding: .65rem .9rem; border-bottom: 1px solid var(--line); font-size: .9rem; }
+  main { padding: 1.5rem; max-width: min(1560px, 95vw); margin: 0 auto; }
+  .view { display: none; flex-direction: column; gap: 2.2rem; min-width: 0; }
+  .table-wrap { overflow-x: auto; min-width: 0; }
+  table { width: auto; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th { text-align: left; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); padding: .85rem 1.2rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--acc2); }
+  th.sortable::after { content: " \21C5"; opacity: .5; font-size: .85em; }
+  td { padding: 1rem 1.2rem; border-bottom: 1px solid var(--line); font-size: .9rem; white-space: nowrap; }
   tr:last-child td { border-bottom: none; }
   tr.row:hover { background: var(--bg2); }
+  tr.row.blocked { opacity: .6; }
   td a.tasklink { color: var(--acc2); text-decoration: none; font-weight: 600; }
   td a.tasklink:hover { text-decoration: underline; }
-  .pill { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .72rem; padding: .1em .6em; border-radius: 999px; border: 1px solid currentColor; }
+  .task-cell { display: flex; flex-direction: column; align-items: flex-start; gap: .3rem; }
+  .pill { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .72rem; padding: .2em .7em; border-radius: 999px; border: 1px solid currentColor; }
   .pill.doing { color: var(--doing); } .pill.review { color: var(--review); } .pill.planned { color: var(--planned); } .pill.done { color: var(--done); } .pill.paused { color: var(--paused); } .pill.unclassified { color: var(--unclassified); }
   .repo { font-family: var(--mono); font-size: .78rem; color: var(--mut); }
-  .live-badge { display: inline-flex; align-items: center; gap: .3em; font-family: var(--mono); font-size: .7rem; color: var(--ok); }
+  .live-badge { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .7rem; color: var(--ok); }
   .empty-state { padding: 1.6rem; text-align: center; color: var(--mut); font-family: var(--mono); font-size: .85rem; background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }
+  .stage-cell { text-align: center; font-size: 1rem; color: var(--mut); }
+  .stage-cell.na { opacity: .4; }
+  .stage-cell.pending { color: var(--ink); }
+  .stage-cell.progress { color: var(--doing); font-weight: 600; }
+  .stage-cell.done { color: var(--ok); }
+  .stage-cell a { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }
+  .dep-chip { display: inline-flex; align-items: center; font-family: var(--mono); font-size: .72rem; padding: .05em .5em; border-radius: 999px; border: 1px solid currentColor; margin-right: .2em; }
+  .dep-chip.blocked { color: var(--review); }
+  .dep-chip.unblocks { color: var(--acc2); }
+  .dep-chip.warn { color: var(--review); border-style: dashed; }
 
   .details-heading { font-family: var(--mono); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); border-bottom: 1px solid var(--line); padding-bottom: .5rem; margin: 0; }
   .details-stack { display: flex; flex-direction: column; gap: .8rem; }
   .task-detail { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.2rem; scroll-margin-top: 8rem; }
-  .task-detail:target { border-color: var(--acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 25%, transparent); }
+  /* U7 KTD-7: a repo/family filter must never dead-end an in-panel
+     anchor — :target always wins over any filter's `display: none`. */
+  .task-detail:target { border-color: var(--acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 25%, transparent); display: block !important; }
+  /* U7 KTD-8: per-panel placeholder for a filter combination that empties
+     an otherwise non-empty panel — hidden by default, revealed only by a
+     generated reveal rule (never by the panel's own natural emptiness,
+     which uses the plain .empty-state div declared alongside it instead). */
+  .filtered-empty { display: none; }
   .task-detail h3 { margin: 0 0 .3rem; font-size: 1rem; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
   .task-detail .back { font-family: var(--mono); font-size: .74rem; color: var(--acc2); text-decoration: none; margin-left: auto; }
   .task-detail p { margin: .4rem 0; font-size: .87rem; color: var(--ink2); }
@@ -3288,21 +4591,111 @@ wb_board_render_html() {
   .task-detail details.parent-row details { margin-top: .6rem; }
   .task-detail details.parent-row details summary { cursor: pointer; color: var(--acc2); font-family: var(--mono); font-size: .78rem; list-style: none; }
   .task-detail details.parent-row details summary::-webkit-details-marker { display: none; }
-  $panel_css
-  $highlight_css
+
+  /* U6: two-zone card head (identity left, lane-meta + back top-right) */
+  .card-head { display: flex; align-items: flex-start; gap: .6rem; flex-wrap: wrap; width: 100%; }
+  .card-head .identity { flex: 1 1 auto; min-width: 0; }
+  .card-head .identity h3 { margin: 0 0 .2rem; font-size: 1rem; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .meta-line { font-family: var(--mono); font-size: .78rem; color: var(--mut); }
+  .card-head .lane-meta { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .wt-indicator { font-size: .9rem; color: var(--mut); }
+  .card-head .back { font-family: var(--mono); font-size: .74rem; color: var(--acc2); text-decoration: none; margin-left: auto; }
+
+  /* U6: stepper — glyph-over-label segments in path order */
+  .stepper { display: flex; gap: .9rem; margin: .7rem 0; flex-wrap: wrap; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: .15rem; font-size: .72rem; color: var(--mut); min-width: 3rem; }
+  .step.pending { color: var(--ink); font-weight: 600; }
+  .step.progress { color: var(--doing); font-weight: 600; }
+  .step.done { color: var(--ok); }
+  .step .glyph { font-size: 1.15rem; }
+  .step .glyph a { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }
+  .step .label { font-family: var(--mono); font-size: .64rem; text-transform: uppercase; letter-spacing: .03em; }
+  .step-chips { margin-top: .25rem; }
+  .mini-stepper { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .25rem; width: 100%; }
+  .mini-step { font-family: var(--mono); font-size: .68rem; color: var(--mut); }
+  .mini-step.pending { color: var(--ink); font-weight: 600; }
+  .mini-step.progress { color: var(--doing); font-weight: 600; }
+  .mini-step.done { color: var(--ok); }
+
+  /* U6: dependency/rollup indicators */
+  .deps-chips { margin: .4rem 0; }
+  .children-counter { font-size: .78rem; color: var(--mut); margin-left: auto; white-space: nowrap; }
+  .ready-hint { font-size: .74rem; color: var(--ok); margin-left: .5rem; white-space: nowrap; }
+
+  /* U9: Key Findings — board-global, sits outside every .view so no
+     repo/family filter rule (which only ever targets `.view` descendants)
+     can reach it (R22). */
+  .key-findings { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.2rem 1.5rem; }
+  .key-findings h2 { font-family: var(--mono); font-size: .95rem; margin: 0 0 .8rem; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  .kf-tag { font-size: .7rem; font-weight: normal; color: var(--mut); text-transform: uppercase; letter-spacing: .04em; }
+  .kf-item { margin: .6rem 0; font-size: .87rem; }
+  .kf-item ul { margin: .3rem 0 0; padding-left: 1.2rem; }
+  .kf-item li { margin: .15rem 0; }
+  .kf-item a { color: var(--acc2); text-decoration: none; }
+  .kf-empty { color: var(--mut); font-family: var(--mono); font-size: .85rem; margin: 0; }
+  @@PANEL_CSS@@
+  @@HIGHLIGHT_CSS@@
+  @@REPO_HIDE_CSS@@
+  @@REPO_SUMMARY_CSS@@
+  @@FAMILY_HIDE_CSS@@
+  @@FAMILY_SUMMARY_CSS@@
+  @@REVEAL_CSS@@
 </style>
-$radios_html
+@@RADIOS_HTML@@
 <header>
   <h1>&#9673; /board</h1>
   <div class="tabs">
-    <div class="tabgroup">$win_html</div>
-    <div class="tabgroup">$tabs_html</div>
+    <div class="tabs-left">
+      <div class="tabgroup window-control">@@WIN_HTML@@</div>
+      <div class="tabgroup tabs-row">@@TABS_HTML@@</div>
+    </div>
+    <div class="header-controls">
+      <details class="filter-dropdown repo-filter"><summary>@@REPO_SUMMARY_LABELS@@</summary><div class="filter-options">@@REPO_OPTIONS_HTML@@</div></details>
+      @@FAMILY_DROPDOWN_HTML@@
+    </div>
   </div>
 </header>
 <main>
-$panels_html
+@@PANELS_HTML@@
+@@KEY_FINDINGS_HTML@@
 </main>
+<script>
+// The board is otherwise entirely CSS-only (see wb_board_render_html's
+// header comment) -- this is a deliberate, explicit exception for
+// click-to-sort, not an accidental one. Fully static, offline, no
+// dependency, no network call; every row already carries the data-repo/
+// data-status attributes this reads (populated alongside data-family for
+// the U7 filters), so this adds zero new markup weight per row.
+document.querySelectorAll('th[data-sort]').forEach(function (th) {
+  th.addEventListener('click', function () {
+    var table = th.closest('table');
+    var rows = Array.from(table.querySelectorAll('tr.row'));
+    var key = th.dataset.sort;
+    rows.sort(function (a, b) {
+      return (a.dataset[key] || '').localeCompare(b.dataset[key] || '');
+    });
+    rows.forEach(function (r) { table.appendChild(r); });
+  });
+});
+</script>
 HTMLEOF
+)"
+  page_template="${page_template//@@PANEL_CSS@@/$(wb_board_escape_replacement "$panel_css")}"
+  page_template="${page_template//@@HIGHLIGHT_CSS@@/$(wb_board_escape_replacement "$highlight_css")}"
+  page_template="${page_template//@@REPO_HIDE_CSS@@/$(wb_board_escape_replacement "$repo_hide_css")}"
+  page_template="${page_template//@@REPO_SUMMARY_CSS@@/$(wb_board_escape_replacement "$repo_summary_css")}"
+  page_template="${page_template//@@FAMILY_HIDE_CSS@@/$(wb_board_escape_replacement "$family_hide_css")}"
+  page_template="${page_template//@@FAMILY_SUMMARY_CSS@@/$(wb_board_escape_replacement "$family_summary_css")}"
+  page_template="${page_template//@@REVEAL_CSS@@/$(wb_board_escape_replacement "$reveal_css")}"
+  page_template="${page_template//@@RADIOS_HTML@@/$(wb_board_escape_replacement "$radios_html")}"
+  page_template="${page_template//@@WIN_HTML@@/$(wb_board_escape_replacement "$win_html")}"
+  page_template="${page_template//@@TABS_HTML@@/$(wb_board_escape_replacement "$tabs_html")}"
+  page_template="${page_template//@@REPO_SUMMARY_LABELS@@/$(wb_board_escape_replacement "$repo_summary_labels")}"
+  page_template="${page_template//@@REPO_OPTIONS_HTML@@/$(wb_board_escape_replacement "$repo_options_html")}"
+  page_template="${page_template//@@FAMILY_DROPDOWN_HTML@@/$(wb_board_escape_replacement "$family_dropdown_html")}"
+  page_template="${page_template//@@PANELS_HTML@@/$(wb_board_escape_replacement "$panels_html")}"
+  page_template="${page_template//@@KEY_FINDINGS_HTML@@/$(wb_board_escape_replacement "$key_findings_html")}"
+  printf '%s\n' "$page_template"
 }
 
 # cmd_board — read-only status table over the whole task store (the interim

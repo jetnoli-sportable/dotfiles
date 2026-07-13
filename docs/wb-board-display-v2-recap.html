@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>&#34;/board — task-board visualization&#34;</title>
+<title>&#34;wb board display v2 — recap&#34;</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,102 +173,183 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap-board.md</b> — edit the .md, not this file</span>
+  <span>docgen · generated from <b>docs/wb-board-display-v2-recap.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-13</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
-  <h1><span class="glyph">§</span> &#34;/board — task-board visualization&#34;</h1>
+  <h1><span class="glyph">§</span> &#34;wb board display v2 — recap&#34;</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>Renamed from <code>/roadmap</code> (2026-07-07, Decision 5A) once &quot;roadmap&quot; collided
-with this document's own name — &quot;roadmap&quot; now unambiguously means
-<code>docs/roadmap.md</code>, the feature is <code>/board</code>. This page is the source; edit
-<code>docs/roadmap-board.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> 9a (superseded — this page is the detail) · <strong>Status:</strong>
-v1 HTML board shipped, then v2 (stepper/Pipeline/relationships/filters/Key
-Findings) shipped on top of it — see <a href="#what-shipped-in-v2-board-display-v2">What shipped in v2</a> below.</p>
-<h2 id="the-gap-this-closes">The gap this closes</h2>
-<p>The picker redesign (<code>wb</code>, PR #7) made rows presence-only — live
-sessions/agents only, the right call for signal-to-noise — but it meant
-there was no single view of live + deferred (<code>## Follow-ups</code>) + parked
-(<code>/park</code> ledger) work; each lived in a different place (<code>wb</code>, <code>grep ~/code/tasks/*.md</code>, <code>/parked-items</code>). Closing that gap is exactly what
-<code>/board</code> is for.</p>
-<h2 id="what-shipped-already-wb-board">What shipped already: <code>wb board</code></h2>
-<p>An interim, read-only <code>wb board</code> subcommand — a plain-text table over
-store frontmatter, reusing <code>wb_read_task</code> — landed in the pre-slice-5
-remediation pass specifically to close the visibility gap immediately
-rather than waiting for the full HTML feature.</p>
-<h2 id="whats-still-deferred-the-full-html-board">What's still deferred: the full HTML <code>/board</code></h2>
-<p>Scoped via a decision-buffer round on 2026-07-08
-(<code>logs/decisions/2026-07-08-board-scoping.md</code>, gitignored scratch — this
-page is the durable record of what got decided). Superseding the earlier
-2026-07-06 constraints below it — the docgen/zoom-level shape originally
-planned was replaced by a simpler bash-native design once actually scoped:</p>
+<p>Ten implementation units on <code>feat/wb-board-display</code>, executed against
+<a href="plans/2026-07-12-001-feat-wb-board-display-plan.html"><code>docs/plans/2026-07-12-001-feat-wb-board-display-plan.md</code></a>
+to its Definition of Done. This page is the source; edit
+<code>docs/wb-board-display-v2-recap.md</code>, not the rendered <code>.html</code>. A richer,
+visual walkthrough of the same material is linked at the bottom.</p>
+<h2 id="what-shipped">What shipped</h2>
+<table>
+<thead>
+<tr>
+<th>Unit</th>
+<th>What</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>U1</td>
+<td>Doc-detection hardening — branchless guard, kept-branch fallback, <code>ideate</code> stage, R8 frontmatter discriminator</td>
+<td><code>wb-lifecycle.sh</code></td>
+</tr>
+<tr>
+<td>U2</td>
+<td>Four-state stage resolver (<code>na</code>/<code>pending</code>/<code>progress</code>/<code>done</code>) + <code>path:</code> parsing</td>
+<td><code>wb-lifecycle.sh</code></td>
+</tr>
+<tr>
+<td>U3</td>
+<td><code>wb new --path</code>/<code>--depends-on</code> flags + task seeding</td>
+<td><code>wb.sh</code>, <code>wb new</code></td>
+</tr>
+<tr>
+<td>U4</td>
+<td>Render pre-pass — one per-task computation pass (~15 associative arrays) feeding every panel</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U5</td>
+<td>Pipeline tab — every non-done task, window-independent</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U6</td>
+<td>Two-zone detail cards, full/mini stepper, dependency chips, children-done counter</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U7</td>
+<td>Header window control + independent Repo/Family filters (AND-composing)</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U8</td>
+<td>Tasks-repo schema fix (<code>path:</code>/<code>depends_on:</code> in template, status vocabulary correction, restored <code># Title</code>/<code>## Follow-ups</code>)</td>
+<td><code>~/code/tasks</code> (external repo)</td>
+</tr>
+<tr>
+<td>U9</td>
+<td>Board-wide Key Findings — most-blocking, ready-to-close, unreviewed count, oldest in-flight, unclassified, docs-before-branch</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U10</td>
+<td><code>wb reviewed</code> convention (<code>~/.claude/CLAUDE.md</code> + <code>wb-guide.md</code>), doc refresh, docgen rerun</td>
+<td>docs, skills, docgen</td>
+</tr>
+</tbody>
+</table>
+<p>All CSS-only — no JavaScript was added anywhere in this feature.</p>
+<h2 id="verification-contract--results">Verification Contract — results</h2>
 <ul>
-<li><strong>Output shape:</strong> one gitignored file, <code>logs/board.html</code>, regenerated
-live by extending <code>wb.sh</code> in bash — <strong>not</strong> the docgen HTML pipeline
-(the original 2026-07-06 plan assumed docgen; superseded).</li>
-<li><strong>Query model:</strong> two composable filters, not zoom levels — <strong>status</strong>
-(All / Upcoming = <code>planned</code> / Paused = a new status value / in-progress
-is the implicit default) and <strong>timeline</strong> (today / this week).
-In-progress tasks always show regardless of timeline; timeline
-additionally pulls in tasks <em>closed</em> within the window, via a new
-<code>closed:</code> frontmatter field stamped when a task flips to <code>done</code>.
-<strong>v2 pass (2026-07-12 plan):</strong> added a third, window-independent
-<strong>Pipeline</strong> tab (every non-done task, regardless of timeline — see
-below) plus two more composable filters, <strong>Repo</strong> and <strong>Family</strong>, that
-narrow every tab/timeline combination at once.</li>
-<li><strong>Per-task drill-down:</strong> inline <code>&lt;details&gt;</code>/<code>&lt;summary&gt;</code> expansion in the
-single HTML file, not separate per-task pages (per-task files stay an
-explicit, deferred follow-up).</li>
-<li><strong>Transcript-to-task matching, if/when built:</strong> exact <code>.cwd</code>/<code>.gitBranch</code>
-match only, no fuzzy slug/keyword search — deferred to a follow-up
-alongside per-task file output, since it has no existing precedent
-anywhere in this codebase.</li>
-<li><strong><code>wb pause</code>:</strong> a new status value plus both a <code>wb pause [&lt;session&gt;]</code>
-subcommand (mirrors <code>wb done</code>, skips worktree teardown) and a picker
-keybind (<code>p</code>), needed to support the Paused status filter above.</li>
-<li>Sourced from the store + parked ledger + decision docs + (deferred)
-transcripts.</li>
-<li><strong>Jira integration is explicitly excluded</strong> — it's its own later,
-separately-ratified addition (same open questions as 9b's Jira half:
-where the API credential lives, whether Jira-derived text may be
-persisted into the sync-bound task store).</li>
+<li><strong>Plain-text <code>wb board</code> is byte-identical</strong> to the pre-change baseline, checked by diffing output against a <code>git worktree</code> checkout of the branch's merge-base against a live copy of the real store.</li>
+<li><strong>Docker sandbox</strong> (<code>scripts/.config/scripts/tmux/tests/Dockerfile</code>) — every board-relevant suite (<code>wb-board-html</code>, <code>wb-board</code>, <code>wb-lifecycle</code>, <code>wb-new</code>, <code>wb-schema</code>, <code>wb-parent-child</code>) is <strong>all-pass</strong>. Two unrelated, pre-existing failures surfaced (<code>handoff*.test.sh</code>, <code>wb-reconcile-review.test.sh</code>) — see <strong>Known gaps</strong> below; both confirmed via <code>git diff --stat</code> to have zero lines touched by this branch.</li>
+<li><strong>Real-store smoke test</strong> — rendered the actual <code>logs/board.html</code> against the live <code>~/code/tasks</code> store: Pipeline tab, stepper, filters, and Key Findings all present, no injection leakage, 397 lines / 168KB.</li>
+<li><strong>Regression sweep</strong> — <code>wb-lifecycle</code>, <code>wb-new</code>, <code>wb-board</code>, <code>wb-schema</code>, <code>wb-parent-child</code> all green on host.</li>
+<li><strong>R23/R24 landed</strong>: the tasks-repo schema commit (<code>1226ce1</code>) is pushed to <code>origin/development</code> in <code>~/code/tasks</code>, with the grandfathering decision stated verbatim in its message; the <code>wb reviewed</code> convention sentence is in both <code>~/.claude/CLAUDE.md</code> and <code>docs/wb-guide.md</code>.</li>
+<li><strong>Docs regenerated</strong> via <code>docgen.sh all</code> — no stale board description remains in the Hub tile, the <code>wb-board</code> skill, or the guide.</li>
 </ul>
-<p>Sequencing: fully scoped, part of the current PR (alongside <code>wb reconcile</code>
-and <code>wb resume</code>/<code>wb pause</code>) — see <code>logs/decisions/2026-07-08-session-recap.md</code>.</p>
-<h2 id="what-shipped-in-v2-board-display-v2">What shipped in v2 (board display v2)</h2>
-<p>Planned in <code>docs/plans/2026-07-12-001-feat-wb-board-display-plan.md</code> and
-implemented in the same PR. Four additions on top of the v1 shape above,
-all CSS-only (no JS added anywhere in this file):</p>
+<h2 id="how-to-verify-it-yourself">How to verify it yourself</h2>
+<pre><code class="language-bash">cd ~/code/dotfiles   # or this worktree
+wb board --html
+xdg-open logs/board.html
+</code></pre>
+<p>Things to look for:</p>
+<ol>
+<li><strong>Pipeline is the default tab.</strong> Every non-done task across every repo shows up, with five stage cells (Ideate/Brainstorm/Plan/Work/Review) each rendering <code>·</code> (n/a), <code>○</code> (pending), <code>◑</code> (in progress), or <code>✓</code> (done).</li>
+<li><strong>Open a done task's card</strong> (any bucket tab) — it has the same two-zone layout and stepper as an in-flight task, just with every applicable stage checked off.</li>
+<li><strong>Repo and Family dropdowns</strong> (header, top right) narrow every tab's rows/cards at once. Key Findings at the bottom of any tab does <strong>not</strong> shrink when you narrow a filter — that's deliberate (R22).</li>
+<li><strong>Key Findings</strong>, bottom of every tab: look for the <code>board-wide · ignores filters</code> tag next to the heading, and however many of the six insights are non-empty right now (grep <code>logs/board.html</code> for <code>key-findings</code> if you want the raw markup).</li>
+<li><strong>A task with <code>depends_on:</code></strong> (if one exists in your store right now) shows a <code>⛔ n</code> chip; its blocker shows a <code>→ n</code> chip — both directions, independently.</li>
+</ol>
+<p>To re-run the test gates yourself:</p>
+<pre><code class="language-bash">bash scripts/.config/scripts/tmux/tests/wb-board-html.test.sh   # slow: real gh calls per branch, ~10-15 min
+bash scripts/.config/scripts/tmux/tests/wb-lifecycle.test.sh
+bash scripts/.config/scripts/tmux/tests/wb-new.test.sh
+docker build -t wb-tests -f scripts/.config/scripts/tmux/tests/Dockerfile .
+docker run --rm -v &quot;$(pwd)&quot;:/repo:ro -w /repo wb-tests
+</code></pre>
+<h2 id="how-this-ties-into-other-work-in-flight">How this ties into other work in flight</h2>
+<p>The store currently has 4 other dotfiles branches moving in parallel
+(<code>wb board --html</code> shows all of them under Pipeline). The one that
+actually matters for this PR:</p>
+<blockquote>
+<p><strong>Heads-up: real merge-conflict risk with <code>feat/wb-breakdown-skill</code>.</strong>
+That branch (status <code>doing</code>) has an uncommitted, in-progress diff
+against <code>wb.sh</code> that adds <strong>187 lines to <code>wb_seed_task</code> and <code>cmd_new</code></strong>
+— the exact two functions this PR's U3 also extended (to add
+<code>--path</code>/<code>--depends-on</code>). The plan's own Definition of Done anticipated
+a conflict here in general terms (&quot;whichever branch lands second
+rebases, confined to <code>cmd_new</code>/<code>wb_seed_task</code>&quot;) — this confirms it's a
+real, concrete collision, not a hypothetical one. Whichever of these two
+lands second should rebase and expect to manually reconcile that
+region.</p>
+</blockquote>
+<p>The other three, for context:</p>
+<table>
+<thead>
+<tr>
+<th>Branch</th>
+<th>Status</th>
+<th>Relationship</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/roadmap-tasks-concurrency-safety</code></td>
+<td>doing (brainstorm stage)</td>
+<td>Scoping a fix for <code>~/code/tasks</code>'s lack of locking. Still relevant: this session's own U8 push was a manual safe-fast-forward check (verify clean FF, don't touch someone else's uncommitted work) — exactly the kind of care that lane wants to make automatic. No code overlap with this PR.</td>
+</tr>
+<tr>
+<td><code>feat/jira-integration</code></td>
+<td>doing</td>
+<td><code>/board</code> + day-bookends halves. Board v2 explicitly excludes Jira integration from scope (plan's own Assumptions) — this is the follow-up that will eventually consume the Pipeline tab's data model. No code overlap yet.</td>
+</tr>
+<tr>
+<td><code>fix/xdg-open-slack-hijack</code></td>
+<td>review</td>
+<td>Unrelated (desktop default-browser handling). No overlap.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="known-gaps-pre-existing-not-introduced-here">Known gaps (pre-existing, not introduced here)</h2>
+<p>Both confirmed via <code>git diff --stat &lt;merge-base&gt;..HEAD</code> showing <strong>zero</strong>
+lines touched in the relevant files — neither is a regression from this
+branch:</p>
 <ul>
-<li><strong>Lifecycle stepper.</strong> The old presence/absence badges are replaced by a
-five-stage stepper per task (Ideate · Brainstorm · Plan · Work · Review),
-each computed live to one of four states (n/a / pending / in-progress /
-done) from detection signals plus an optional <code>path:</code> frontmatter field
-declaring which stages a task intends to pass through.</li>
-<li><strong>Pipeline tab.</strong> One row per non-done task, window-independent —
-the one place a stale, long-untouched in-flight task is still visible
-even outside the today/week timeline.</li>
-<li><strong>Relationships.</strong> <code>depends_on:</code> (comma-separated blocker stems) renders
-as a blocked/unblocks chip pair in both directions; existing <code>parent:</code>
-rollup gained a children-done counter and a ready-to-close hint.</li>
-<li><strong>Key Findings.</strong> A board-wide, filter-immune section per tab: most-
-blocking task, parents ready to close, done-but-unreviewed count, oldest
-in-flight task, unclassified-status tasks, and branchless tasks whose
-stem already matches a doc on disk.</li>
+<li><code>handoff.test.sh</code> / <code>handoff-poller.test.sh</code> fail inside the Docker
+sandbox — they need a live tmux session/clipboard the container doesn't
+have. Pass fine on host.</li>
+<li><code>wb-reconcile-review.test.sh</code> fails inside Docker only — the image's
+<code>gawk</code> (Ubuntu 24.04) handles an escape-sequence regex (<code>\.</code>, <code>\[</code>,
+<code>\]</code>) differently than the host's <code>mawk</code>. Passes clean on host (0
+failures).</li>
 </ul>
-<p>See <code>docs/wb-guide.md</code>'s board section for the human-facing walkthrough of
-all of the above.</p>
+<h2 id="links">Links</h2>
+<ul>
+<li>Plan: <a href="plans/2026-07-12-001-feat-wb-board-display-plan.html"><code>docs/plans/2026-07-12-001-feat-wb-board-display-plan.md</code></a></li>
+<li>Human guide: <a href="wb-guide.html"><code>docs/wb-guide.md</code></a> (v2 board section + refreshed <code>wb new</code> docs)</li>
+<li>Roadmap detail: <a href="roadmap-board.html"><code>docs/roadmap-board.md</code></a> (v2 pass, &quot;what shipped in v2&quot; section)</li>
+<li>Skill: <code>claude/.claude/skills/wb-board/SKILL.md</code></li>
+<li>Richer visual walkthrough: <code>docs/wb-board-display-v2-recap.artifact.html</code> (published separately as a claude.ai Artifact)</li>
+</ul>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-board.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/wb-board-display-v2-recap.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

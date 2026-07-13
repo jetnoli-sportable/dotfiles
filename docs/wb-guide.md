@@ -66,8 +66,8 @@ untracked task behind.
 ## wb new — start a task
 
 ```
-$ wb new [--agent] <slug>          # from inside a repo
-$ wb new [--agent] <repo> <slug>   # from anywhere
+$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... <slug>
+$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... <repo> <slug>
 ```
 
 The slug becomes the git branch name, the worktree path
@@ -79,6 +79,19 @@ Re-running `wb new` on the same slug is safe — it reuses the existing
 worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through `wb done`.
+
+`--path` and `--depends-on` are optional, board-only metadata (v2) — they
+don't change how the task itself runs, only how `wb board --html` displays
+it:
+
+- `--path <stages>` declares which of the five lifecycle stages
+  (`ideate,brainstorm,plan,work,review`) this task intends to pass
+  through, comma-separated. Omit it and the task defaults to
+  `plan,work,review`. Unknown stage names are rejected up front.
+- `--depends-on <stem>` (repeatable) names a blocking task by its file
+  stem (`<repo>--<slug>`, no `.md`), validated against a real task file at
+  creation time. The board renders both directions — a ⛔ count on the
+  blocked task, a → count on the blocker — once it's declared.
 
 | Window | Name | What's in it |
 |---|---|---|
@@ -241,29 +254,47 @@ back to copying whatever `.env*` files exist at the repo root.
 
 ## The task store
 
-`~/code/tasks` is a plain git repo, local for now (no remote pushed yet —
-that's a five-minute follow-up whenever you want cross-machine sync). One
-markdown file per task, named `<repo>--<slug>.md`:
+`~/code/tasks` is a plain git repo pushed to a personal GitHub remote
+(recovered and given its first-ever remote after the 2026-07-10
+directory-deletion incident — see `docs/roadmap-handoff.md` if you want
+that story). One markdown file per task, named `<repo>--<slug>.md`,
+seeded from `TEMPLATE.md`:
 
 ```
 ---
-status: doing        # planned | doing | review | done
+status: planned      # planned | doing | paused | review | done (anything
+                      # else — e.g. a stale `open` — falls into an
+                      # unclassified catch-all on the board, not a crash)
+path:                 # optional: ideate,brainstorm,plan,work,review subset;
+                      # blank -> defaults to plan,work,review
 repo: dotfiles
 branch: feat/onboarding
 worktree: .worktrees/feat/onboarding
+parent:               # optional: <repo>--<slug> of a parent task
+depends_on:           # optional: comma-separated blocking task stems
 tags: []
 created: 2026-07-06
+closed:
+reviewed:             # stamped by `wb reviewed` after a /ce-code-review pass
 ---
 # Title
 
 ## Plan
-## Done
-## Follow-ups
+
+## Handoffs
+
 ## Decisions
+
+## Done
+
+## Follow-ups
 ```
 
 It's a real git repo you can `cd` into, `git log`, or open in `wb` itself
-(it shows up as a repo row like anything else under `~/code`).
+(it shows up as a repo row like anything else under `~/code`). Pre-existing
+task files are never retroactively migrated to the newer fields
+(`path:`/`depends_on:`/`reviewed:`) — they fall back to the defaults above
+until a human or agent happens to touch that file again.
 `/parked-items` now promotes follow-ups here instead of a per-repo
 `scratch/tasks/`, and worktree setup checks it for existing context before
 starting from scratch.
@@ -274,6 +305,94 @@ away:
 ```
 wb board    # read-only status table over the whole store (the interim /board)
 ```
+
+## `wb board --html` — the full board (v2)
+
+`wb board --html` writes `logs/board.html` (gitignored, overwritten on every
+call) — a richer, filterable view over the whole store that goes well beyond
+the plain-text table above. Open it with `xdg-open logs/board.html` or via
+`/wb-board html` from inside a session.
+
+**Pipeline tab, first and default.** One row per task that isn't `done` yet,
+regardless of the today/week window — a task untouched for two weeks still
+shows up here, since the point is a complete in-flight surface, not a
+recency filter. Five stage columns (**Ideate · Brainstorm · Plan · Work ·
+Review**) each render one of four states:
+
+| Glyph | State | Meaning |
+|---|---|---|
+| ✓ | done | The stage's artifact exists (a doc, a stamped `reviewed:` date, or — for Work — the task is closed with no open PR) |
+| ◑ | in progress | Work only: real changes exist, or a PR is open in any state |
+| ○ | pending | Declared (or defaulted) into the task's intended path, nothing has happened yet |
+| · (faint) | n/a | Not part of this task's intended path, and nothing has fired to upgrade it |
+
+A stage's state is **computed live** every render, never stored — a task's
+`path:` frontmatter field declares which stages it intends to go through
+(defaults to `plan,work,review` when absent), but a real signal always wins
+even for an undeclared stage: if a plan doc shows up for a task that never
+declared `plan` in its path, that stage renders done anyway. Stage cells
+link to their backing artifact (the doc, or the PR) when one exists on disk;
+a task whose worktree is gone but whose branch still carries the doc shows
+an unlinked glyph with a tooltip naming it, rather than losing the signal.
+
+**Live and Stale tabs**, next to Pipeline: **Live** narrows to every task
+(or untracked worktree) with a currently-running tmux session — the same
+green dot Pipeline/bucket rows already show, isolated into its own list.
+**Stale** narrows to in-flight tasks whose `created`/`closed`/`updated` all
+predate a 14-day threshold (`WB_STALE_DAYS` in `wb.sh`) — the ones you
+started and haven't touched in a while. Both are window-independent, like
+Pipeline.
+
+**Every detail card** (bucket tabs and Pipeline alike, done tasks included)
+shows the same stepper as a two-zone card: identity (title, status, repo ·
+branch) on the left, live-agent badge / worktree indicator / PR chip on the
+right. Doc stages list every matching artifact as a chip, not just the
+newest.
+
+**Relationships.** A task can declare `depends_on: <repo>--<slug>[,...]` —
+comma-separated blocker stems, met once the blocker's `status:` is `done`. A
+blocked task renders dimmed with a ⛔ count (tooltip names the blockers); its
+blocker shows a → count of tasks waiting on it — both directions visible at
+once, independently. A dangling stem or a dependency cycle fails open (fail
+loud would be worse: it renders the task unblocked with a visible warning
+naming the problem) rather than breaking the render. A parent task (via
+`parent:`) shows an `n/m children done` counter and a ready-to-close hint
+once every child is done — the parent's own status pill is never touched by
+this.
+
+**Filters.** The header carries the today/week window as a segmented
+control, plus two independent, AND-composing dropdown filters: **Repo**
+(every repo present in the store) and **Family** (a parent and its
+children — only appears at all once the store has at least one parent/child
+pair). Both default to "All"; picking a specific option narrows every tab's
+table and cards at once, never Key Findings (below).
+
+**Sorting.** Click a **Status** or **Repo** column header to sort that
+table by it — the one deliberate exception to the page otherwise being
+CSS-only/no-JS (a small inline script; everything else stays radio+CSS
+driven).
+
+**Key Findings**, at the bottom of every tab, is board-global and explicitly
+tagged *board-wide · ignores filters* — no repo/family filter narrows it,
+since it's meant to answer "what needs attention across everything," not
+"what's in this slice." Six starter insights, each omitted when empty
+(never an empty heading): the task blocking the most others, parents ready
+to close, a count of done-but-unreviewed tasks, the oldest in-flight task,
+tasks whose status maps to no known bucket, and branchless tasks whose stem
+already matches a doc in this repo's own `docs/` tree (a "wrote the plan,
+haven't started the branch yet" pattern that's otherwise invisible).
+
+**Creating a task with intent:** `wb new` accepts `--path <stages>` (a
+comma-separated subset of the five stage names, validated against unknown
+names before anything is created) and repeatable `--depends-on <stem>` (each
+validated against a real task file). Both are optional — every task still
+gets the `plan,work,review` default when `--path` is omitted.
+
+**Review-stamp convention.** After any `/ce-code-review` pass completes
+inside a `wb` session, run `wb reviewed` — it stamps the task's `reviewed:`
+field, which is what makes the Review stage (and the unreviewed-count
+insight) tell the truth. This is a convention, not automation — nothing
+enforces it, it only works if it's actually run.
 
 ## Keeping the task store safe
 
@@ -327,14 +446,11 @@ rows anymore — only live sessions/agents do. Two places to look instead:
 The counts you see in the picker's status line and in `wb done`'s nudge
 (`wb_pending_counts`) are a heads-up that these exist, not a drill-down.
 
-> **There's no single "full picture" view yet** — live sessions, deferred
-> follow-ups, and parked items are three separate places to look. That gap
-> already has a name: **`/roadmap`**, ratified as a follow-up in
-> `logs/decisions/2026-07-06-review-outstanding.md` §7 and
-> [`roadmap.md`](roadmap.html) §9a — a snapshot over the same task-store
-> board (no second status computation), zoomable today/task/week,
-> deliberately deferred until slices 2+3 (this PR) are done. It's tracked
-> as a Follow-up on this task's own record so it isn't lost.
+> **Update:** the "no single full picture view" gap this note originally
+> flagged is closed — that's exactly what `wb board --html` (above) is now
+> for. Follow-ups and parked items still live in their own places (they're
+> not board-tracked), but live/planned/paused/done tasks across every repo
+> are one command away.
 
 ### Merging this PR
 
@@ -347,8 +463,6 @@ in this PR:
   sessions like an ad-hoc `be--monorepo` or `frontend` session into this
   workflow. Not built — say the word if the manual path (open a task file
   by hand, `tmux set-option` the two variables) gets old.
-- **A remote for `~/code/tasks`** — it's a real git repo but local-only
-  right now. Five-minute follow-up whenever cross-machine sync matters.
 - **Slices 4 and 5** from the original plan (`roadmap.md` §8) — notes-tui
   revival and an HTML-in-flow help dashboard. Separate, not-yet-started
   work.
