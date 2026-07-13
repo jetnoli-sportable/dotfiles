@@ -850,5 +850,87 @@ assert_eq "U3 lock contention: lock is clean and acquirable again after" 0 "$rec
 
 rm -rf "$U3_BUF"
 
+# =============================================================================
+# U5 — wb done last-child nudge (KTD8)
+# =============================================================================
+
+mk_nudge_task() { # <stem> <status> <parent>
+  local f="$TASKS_DIR/$1.md"
+  printf -- '---\nstatus: %s\nrepo: proj\nbranch: %s\nworktree: .worktrees/%s\nparent: %s\ncreated: 2026-07-01\n---\n# %s\n' \
+    "$2" "$1" "$1" "$3" "$1" > "$f"
+}
+mk_nudge_session() { # <slug> — real session + real worktree, matching that slug's task file
+  git -C "$FIXTURE_CODE/proj" worktree add -q -b "$1" ".worktrees/$1" >/dev/null 2>&1
+  local s="wb-breakdown-test-nudge-$1-$$"
+  tmux new-session -d -s "$s" 2>/dev/null
+  tmux set-option -t "=$s:" @wb_repo proj >/dev/null
+  tmux set-option -t "=$s:" @wb_slug "$1" >/dev/null
+  printf '%s\n' "$s"
+}
+
+# --- AE3: two-child family, closing the last one fires the nudge ----------
+mk_nudge_task proj--feat-nudge2 doing ""
+mk_nudge_task proj--feat-nudge2-a done proj--feat-nudge2
+mk_nudge_task proj--feat-nudge2-b doing proj--feat-nudge2
+sess_b="$(mk_nudge_session feat-nudge2-b)"
+out_b="$(cmd_done "$sess_b" 2>&1)"
+assert "AE3: closing the last child fires the nudge, naming the parent" \
+  'all children of proj--feat-nudge2 are done' "$out_b"
+assert "AE3: nudge names the exact close command" \
+  'close it with: wb done proj--feat-nudge2' "$out_b"
+
+# --- AE3: three-child family, one sibling still open -> silent -------------
+mk_nudge_task proj--feat-nudge3 doing ""
+mk_nudge_task proj--feat-nudge3-a done proj--feat-nudge3
+mk_nudge_task proj--feat-nudge3-b doing proj--feat-nudge3
+mk_nudge_task proj--feat-nudge3-c review proj--feat-nudge3
+sess_3b="$(mk_nudge_session feat-nudge3-b)"
+out_3b="$(cmd_done "$sess_3b" 2>&1)"
+if printf '%s' "$out_3b" | grep -q 'all children of'; then
+  echo "FAIL - AE3: a still-open sibling (review) must suppress the nudge"; fail=1
+else
+  echo "ok   - AE3: still-open sibling (status: review) suppresses the nudge"
+fi
+
+# --- only child: fires immediately -----------------------------------------
+mk_nudge_task proj--feat-nudge-only doing ""
+mk_nudge_task proj--feat-nudge-only-a doing proj--feat-nudge-only
+sess_only="$(mk_nudge_session feat-nudge-only-a)"
+out_only="$(cmd_done "$sess_only" 2>&1)"
+assert "only child: nudge fires" 'all children of proj--feat-nudge-only are done' "$out_only"
+
+# --- parent: empty -> no scan, no nudge, no error ---------------------------
+mk_nudge_task proj--feat-nudge-noparent doing ""
+sess_np="$(mk_nudge_session feat-nudge-noparent)"
+out_np="$(cmd_done "$sess_np" 2>&1)"; rc_np=$?
+assert_eq "parent: empty — exits 0" 0 "$rc_np"
+if printf '%s' "$out_np" | grep -q 'all children of'; then
+  echo "FAIL - parent: empty must never scan/print a nudge"; fail=1
+else
+  echo "ok   - parent: empty — no nudge attempted"
+fi
+
+# --- parent file missing (stale parent: pointing nowhere) -> silent, still succeeds
+mk_nudge_task proj--feat-nudge-ghostparent doing proj--feat-nudge-nonexistent-parent
+sess_ghost="$(mk_nudge_session feat-nudge-ghostparent)"
+out_ghost="$(cmd_done "$sess_ghost" 2>&1)"; rc_ghost=$?
+assert_eq "missing parent file: exits 0 (cmd_done still succeeds)" 0 "$rc_ghost"
+if printf '%s' "$out_ghost" | grep -q 'all children of'; then
+  echo "FAIL - missing parent file: must not print a nudge for a parent that doesn't exist"; fail=1
+else
+  echo "ok   - missing parent file: silent, no crash"
+fi
+
+# --- nudge is stdout-only: store byte-identical apart from the closed task's own flip
+mk_nudge_task proj--feat-nudge-byte doing ""
+mk_nudge_task proj--feat-nudge-byte-a done proj--feat-nudge-byte
+mk_nudge_task proj--feat-nudge-byte-b doing proj--feat-nudge-byte
+parent_snapshot_before="$(cat "$TASKS_DIR/proj--feat-nudge-byte.md")"
+sibling_snapshot_before="$(cat "$TASKS_DIR/proj--feat-nudge-byte-a.md")"
+sess_byte="$(mk_nudge_session feat-nudge-byte-b)"
+cmd_done "$sess_byte" >/dev/null 2>&1
+assert_eq "nudge is stdout-only: parent file byte-identical" "$parent_snapshot_before" "$(cat "$TASKS_DIR/proj--feat-nudge-byte.md")"
+assert_eq "nudge is stdout-only: sibling (already-done) file byte-identical" "$sibling_snapshot_before" "$(cat "$TASKS_DIR/proj--feat-nudge-byte-a.md")"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS"
 exit "$fail"

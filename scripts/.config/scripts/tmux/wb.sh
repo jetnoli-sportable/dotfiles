@@ -169,6 +169,21 @@ wb_task_own_parent() {
   return 0
 }
 
+# wb_family_all_done <parent_stem> — KTD8: true when <parent_stem> has at
+# least one child (parent: == <parent_stem>) and EVERY one of them is
+# status: done — a review/paused/planned sibling suppresses it, an only
+# child is enough to fire it. Pure read, no writes; cmd_done decides what
+# to do with the result (print-only, D8: closing the parent stays manual).
+wb_family_all_done() {
+  local parent_stem="$1" f found=0
+  for f in $(wb_task_files); do
+    [ "$(wb_get_frontmatter "$f" parent)" = "$parent_stem" ] || continue
+    found=1
+    [ "$(wb_get_frontmatter "$f" status)" = done ] || return 1
+  done
+  [ "$found" = 1 ]
+}
+
 # wb_session_task_file <session> — KTD7's @task-first task-file resolution.
 # Every session cmd_new creates already carries a session-scoped `@task`
 # option (set alongside @wb_repo/@wb_slug) — but until wb-breakdown, @task
@@ -3481,6 +3496,17 @@ cmd_done() {
   local total=$(( $(wb_followup_count) + $(wb_parked_count) ))
   if [ "$total" -ge "$WB_SWEEP_THRESHOLD" ]; then
     echo "wb done: $(wb_pending_counts) — consider running /parked-items"
+  fi
+
+  # KTD8's last-child nudge: pure read + print, guarded so a scan failure
+  # can never abort cmd_done under set -e (an `if` condition's exit status
+  # is exempt from errexit either way, but the explicit -f guard also keeps
+  # a missing parent file silent rather than probing wb_family_all_done
+  # against a store with no matching file at all). D8: manual parent
+  # closing stays manual — this only ever prints, never writes.
+  local task_parent; task_parent="$(wb_get_frontmatter "$task_file" parent)"
+  if [ -n "$task_parent" ] && [ -f "$TASKS_DIR/$task_parent.md" ] && wb_family_all_done "$task_parent"; then
+    echo "wb done: all children of $task_parent are done — close it with: wb done $task_parent"
   fi
 
   # --close is opt-in, not a revert of the wb-pause-era decision above: the
