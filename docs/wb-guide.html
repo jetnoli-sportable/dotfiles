@@ -187,6 +187,7 @@
       <li><a href="#wb-new--start-a-task">wb new — start a task</a></li>
       <li><a href="#the-picker">The picker</a></li>
       <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
+      <li><a href="#wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</a></li>
       <li><a href="#bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</a></li>
       <li><a href="#the-task-store">The task store</a></li>
       <li><a href="#keeping-the-task-store-safe">Keeping the task store safe</a></li>
@@ -457,6 +458,25 @@ the tmux session.</li>
 <em>&quot;N follow-ups pending · M parked — consider running <code>/parked-items</code>.&quot;</em>
 The same count shows in the picker's status line at all times.</p>
 </blockquote>
+<h2 id="wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</h2>
+<p>A task whose <code>## Plan</code> has grown into a week of work becomes a
+<strong>session-less parent</strong> plus one or more session-sized <strong>children</strong>, one
+of which (the &quot;continuing&quot; child) inherits the parent's actual git
+branch/worktree/session — nothing already in flight gets interrupted.</p>
+<pre><code>/wb-breakdown &lt;stem-or-ticket&gt;   # authors a proposal buffer, opens it for you
+wb breakdown --apply &lt;buffer&gt;    # (invoked for you) validates + writes the family
+</code></pre>
+<p><code>/wb-breakdown</code> (the skill, <code>claude/.claude/skills/wb-breakdown/SKILL.md</code>)
+does the thinking — it climbs the richest available evidence (a ticket's
+subtasks, a linked plan doc, a substantive <code>## Plan</code>, or a fresh read) and
+writes a checkbox buffer for you to edit and approve. <code>wb breakdown --apply</code> does the writing — under one locked, all-or-nothing transaction:
+seed the checked children, rewrite the parent's <code>## Plan</code>, move any
+checked follow-ups to the child they belong to, migrate the continuing
+child's branch/worktree away from the parent, and archive the closed
+buffer under <code>~/code/tasks/dossiers/&lt;parent-stem&gt;/</code>. <code>/wb-breakdown</code> with
+no argument lists tasks already tagged <code>breakdown-candidate</code>. Closing the
+last open child of a family, <code>wb done</code> prints the exact command to close
+the parent too.</p>
 <h2 id="bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</h2>
 <p>A fresh worktree only has tracked files — anything gitignored (a local
 <code>config.hjson</code>, <code>node_modules</code>, credentials) is missing until you seed it.

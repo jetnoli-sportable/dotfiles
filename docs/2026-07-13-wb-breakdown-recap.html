@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Recap — wb-breakdown (split an oversized task into a family)</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+   
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="page">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/2026-07-13-wb-breakdown-recap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-13</span>
+</div>
+<main>
+<header class="doc">
+  <span class="eyebrow">personal-workflow</span>
+  <h1><span class="glyph">§</span> Recap — wb-breakdown (split an oversized task into a family)</h1>
+  <div class="meta">
+    <span class="chip ok">current</span>
+    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
+  </div>
+</header>
+<article>
+<p><code>~/code/tasks</code> accumulates tasks that are really epics: one <code>.md</code> whose
+<code>## Plan</code> holds a week of work. A single session chews on a file like that
+for days, handoff entries pile up, and the board shows one opaque card.
+The parent/child mechanism (PR #17) gave the store family semantics —
+<code>parent:</code> frontmatter, picker sibling grouping, a board rollup card — but
+nothing <em>produced</em> a family except hand-editing frontmatter. Separately,
+work arrives as Jira tickets, and turning a ticket into a scoped task was
+entirely manual. wb-breakdown builds the missing piece: a skill that
+proposes the split, and a locked <code>wb.sh</code> verb that actually writes it.</p>
+<h2 id="what-got-built">What got built</h2>
+<p>A <code>/wb-breakdown</code> skill (<code>claude/.claude/skills/wb-breakdown/SKILL.md</code>)
+climbs the richest available evidence — a ticket's own subtasks, a linked
+<code>ce-plan</code> doc's implementation units, a substantive <code>## Plan</code> (a named,
+shared &quot;substantive-plan test&quot; — ≥3 actionable items or ≥10 non-blank
+content lines), or a fresh agent pass when none of those exist — and
+authors a reconcile-style proposal buffer the human checks and edits
+before anything is written. <code>wb breakdown --apply</code> (<code>wb.sh</code>) is the other
+half: it validates the closed buffer twice (once to determine the exact
+set of files to lock, once more after acquiring every lock — never
+trusting the buffer snapshot), then executes the family write as one
+sorted, all-or-nothing multi-file transaction — seed the checked children,
+rewrite the parent's <code>## Plan</code>, move follow-up bullets to the child they
+belong to, migrate the continuing child's branch/worktree/session away
+from the parent, archive the closed buffer under
+<code>~/code/tasks/dossiers/&lt;parent-stem&gt;/</code>, and append one handoff entry
+naming it.</p>
+<p>The apply is idempotent by construction — an existing child whose
+<code>parent:</code> already matches is &quot;already created, skipping,&quot; an
+already-blanked parent skips migration — so a crash or a contended lock
+mid-run (exit 75, zero writes) never leaves the store in a state a re-run
+can't finish cleanly. Every verb that resolves &quot;my task file&quot; from a live
+tmux session (<code>wb done</code>/<code>wb pause</code>/<code>wb reviewed</code>, the picker's live-session
+row) now checks the session's <code>@task</code> option first, since a migrated
+continuing session's <code>@wb_repo</code>/<code>@wb_slug</code> deliberately stay pointed at
+its own real git identity while <code>@task</code> gets re-aimed at the new child —
+without that change, closing the &quot;same&quot; session post-split would have
+silently acted on the parent instead. <code>wb done</code> also gained a store-only
+close path (a stem argument matching no live session resolves as a
+task-file stem instead) and a last-child nudge: closing the final open
+child of a family prints <code>wb done &lt;parent&gt;</code> as the exact command to close
+the parent, too.</p>
+<h2 id="why-this-needed-the-concurrency-safety-work-first">Why this needed the concurrency-safety work first</h2>
+<p><code>wb breakdown --apply</code> is the store's first true multi-file writer — every
+existing verb before this touched at most two files (a reconcile merge).
+It's built directly on <code>wb-locks.sh</code>'s per-task-file <code>flock</code> side-cars and
+the sorted-path multi-lock precedent <code>wb_reconcile_action_merge</code> already
+established, both from the <code>TASKS_DIR</code> concurrency-safety work
+(<a href="2026-07-12-tasks-dir-concurrency-safety-recap.html">recap</a>). That work's
+own PR hadn't landed in <code>development</code> yet when this one was built, so this
+branch merged its commits in directly to build and test against the real
+primitives rather than a guessed API — both PRs land in dependency order.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<p>The roadmap row is
+<a href="roadmap.html#detail-wb-breakdown">detail-wb-breakdown</a>. The store schema
+gained <code>jira:</code> (a task's full ticket URL) and the <code>breakdown-candidate</code>
+tag convention — see <code>~/code/tasks/README.md</code>. Deferred follow-ups: the
+Jira-watch loop that would auto-tag candidates, family-aware count
+rollups in the picker/board, and un-breakdown (merging a family back into
+one task) — none of them block using the feature as built.</p>
+</article>
+<footer>
+  Generated by <code>docgen</code> from <code>docs/2026-07-13-wb-breakdown-recap.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+</main>
+
+</body>
+</html>

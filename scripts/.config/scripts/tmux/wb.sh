@@ -169,6 +169,57 @@ wb_task_own_parent() {
   return 0
 }
 
+# wb_family_all_done <parent_stem> — KTD8: true when <parent_stem> has at
+# least one child (parent: == <parent_stem>) and EVERY one of them is
+# status: done — a review/paused/planned sibling suppresses it, an only
+# child is enough to fire it. Pure read, no writes; cmd_done decides what
+# to do with the result (print-only, D8: closing the parent stays manual).
+wb_family_all_done() {
+  local parent_stem="$1" f found=0
+  for f in $(wb_task_files); do
+    [ "$(wb_get_frontmatter "$f" parent)" = "$parent_stem" ] || continue
+    found=1
+    [ "$(wb_get_frontmatter "$f" status)" = done ] || return 1
+  done
+  [ "$found" = 1 ]
+}
+
+# wb_session_task_file <session> — KTD7's @task-first task-file resolution.
+# Every session cmd_new creates already carries a session-scoped `@task`
+# option (set alongside @wb_repo/@wb_slug) — but until wb-breakdown, @task
+# and the @wb_repo/@wb_slug-derived file always named the SAME task, so
+# nobody needed to pick one over the other. Migration (U3) is the first
+# case where they diverge on purpose: a continuing child session keeps its
+# ORIGINAL @wb_repo/@wb_slug (its own git identity — see the System-Wide
+# Impact note on why that's fine), while @task gets re-pointed at the
+# child's file. Every verb that resolves "my task file" from a session must
+# prefer @task once that's possible, or `wb done`/`wb pause`/`wb reviewed`
+# on a migrated session would silently act on the PARENT (R12's "writes
+# nothing beyond its own task" specifically depends on this).
+#
+# Prints the resolved path and returns 0, or returns 1 with NOTHING on
+# stdout when neither @task nor @wb_repo/@wb_slug resolve — callers keep
+# printing their OWN existing "not a wb task session" wording so a session
+# without @task (every session that predates this feature, and any
+# non-cmd_new session) stays byte-for-byte unchanged (characterized in
+# wb-breakdown.test.sh's coherence section before this landed).
+wb_session_task_file() {
+  local session="$1" task_ref
+  task_ref="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+  if [ -n "$task_ref" ]; then
+    if [ -f "$task_ref" ]; then
+      printf '%s\n' "$task_ref"
+      return 0
+    fi
+    echo "wb: @task ($task_ref) no longer exists for $session — falling back to repo/slug derivation" >&2
+  fi
+  local repo slug
+  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
+  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
+  [ -n "$repo" ] && [ -n "$slug" ] || return 1
+  wb_task_file "$repo" "$(wb_sanitize "$slug")"
+}
+
 # wb_tsv_split <string> <array_name> — split <string> on literal tabs into
 # the named array, preserving empty fields. NEVER use `IFS=$'\t' read` for
 # this: bash classifies tab as IFS-WHITESPACE regardless of what IFS is set
@@ -452,15 +503,26 @@ wb_ensure_repo_ignore() {
   ) 9>"$lockfile"
 }
 
-# wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] — find-or-create
-# the task file for a repo+slug pair, filling blank frontmatter fields and
-# bumping planned->doing. Never overwrites a field that's already set.
-# <parent_ref> is optional (defaults to empty) so wb_reconcile_action_create_task's
-# pre-existing 3-arg call keeps working unchanged — it never sets `parent:`.
+# wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<file_override>]
+# — find-or-create the task file for a repo+slug pair, filling blank
+# frontmatter fields and bumping planned->doing. Never overwrites a field
+# that's already set. <parent_ref> is optional (defaults to empty) so
+# wb_reconcile_action_create_task's pre-existing 3-arg call keeps working
+# unchanged — it never sets `parent:`. <file_override> is KTD7's directional
+# escape hatch for `wb resume`: post-migration, a continuing child's own
+# branch:/worktree: equal the PARENT's original identity, so re-deriving
+# the task file from repo+slug via wb_task_file would resolve back to the
+# PARENT's file — cmd_resume already knows the real (child) file from its
+# own stem-based lookup and passes it straight through here instead.
 wb_seed_task() {
-  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}"
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
-  local file; file="$(wb_task_file "$repo" "$disp_slug")"
+  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}"
+  local file
+  if [ -n "$file_override" ]; then
+    file="$file_override"
+  else
+    local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+    file="$(wb_task_file "$repo" "$disp_slug")"
+  fi
 
   if [ ! -f "$file" ]; then
     mkdir -p "$TASKS_DIR"
@@ -483,9 +545,30 @@ wb_seed_task() {
       { print }
     ' "$TASKS_DIR/TEMPLATE.md" > "$file"
   else
-    [ -n "$(wb_get_frontmatter "$file" repo)" ]      || wb_set_frontmatter "$file" repo "$repo"
-    [ -n "$(wb_get_frontmatter "$file" branch)" ]    || wb_set_frontmatter "$file" branch "$slug"
-    [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
+    [ -n "$(wb_get_frontmatter "$file" repo)" ] || wb_set_frontmatter "$file" repo "$repo"
+
+    # Reattach guard (KTD7): don't backfill a blank branch:/worktree: pair
+    # when another task file already claims that exact pair — a muscle-
+    # memory `wb new <old-slug>` after a wb-breakdown migration would
+    # otherwise silently refill the parent's deliberately-blanked fields,
+    # leaving two files claiming one worktree.
+    local claiming_file="" f
+    if [ -z "$(wb_get_frontmatter "$file" branch)" ] || [ -z "$(wb_get_frontmatter "$file" worktree)" ]; then
+      for f in $(wb_task_files); do
+        [ "$f" != "$file" ] || continue
+        [ "$(wb_get_frontmatter "$f" branch)" = "$slug" ] || continue
+        [ "$(wb_get_frontmatter "$f" worktree)" = "$worktree_rel" ] || continue
+        claiming_file="$f"
+        break
+      done
+    fi
+    if [ -n "$claiming_file" ]; then
+      echo "wb_seed_task: not backfilling branch:/worktree: on $file — $claiming_file already claims branch=$slug worktree=$worktree_rel" >&2
+    else
+      [ -n "$(wb_get_frontmatter "$file" branch)" ]    || wb_set_frontmatter "$file" branch "$slug"
+      [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
+    fi
+
     [ "$(wb_get_frontmatter "$file" status)" != planned ] || wb_set_frontmatter "$file" status doing
     # reviewed: has no inferred value (unlike repo/branch/worktree above) —
     # it starts blank and is only ever stamped by cmd_reviewed. This just
@@ -498,10 +581,15 @@ wb_seed_task() {
   echo "$file"
 }
 
-# wb_seed_task_planned <repo> <slug> [<parent_ref>] — W13's planned-preserving
-# sibling of wb_seed_task: find-or-create the task file for a repo+slug pair
-# WITHOUT ever creating a worktree, and WITHOUT wb_seed_task's own
-# planned->doing flip or worktree stamping. Used by `wb new --planned`
+# wb_seed_task_planned <repo> <slug> [<parent_ref>] [<title>] — W13's
+# planned-preserving sibling of wb_seed_task: find-or-create the task file
+# for a repo+slug pair WITHOUT ever creating a worktree, and WITHOUT
+# wb_seed_task's own planned->doing flip or worktree stamping. <title> is
+# only used on a genuinely NEW file (e.g. a Jira ticket's summary, via
+# `wb new --planned --jira --title`) — falls back to the slug-derived form
+# when omitted; an EXISTING file's title (the body's own `# ` heading,
+# not frontmatter) is never touched here, matching this function's own
+# fill-blanks-only posture for every other field. Used by `wb new --planned`
 # (cmd_new, below), in turn used by /parked-items' scratch-task creation and
 # /handoff's task-file seeding step — both cases where no work has actually
 # started yet, so there is no real worktree path to stamp and the task must
@@ -527,15 +615,20 @@ wb_seed_task() {
 # "planned" in the meantime.
 wb_seed_task_planned() {
   local repo="$1" slug="$2" parent="${3:-}"
+  local title="${4:-${slug//-/ }}"
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local file; file="$(wb_task_file "$repo" "$disp_slug")"
 
   if [ ! -f "$file" ]; then
     mkdir -p "$TASKS_DIR"
-    local title="${slug//-/ }"
+    # title is free-text (e.g. a Jira ticket summary) — never through awk -v,
+    # same reasoning as wb_seed_planned_child's own title fix: getline from a
+    # temp file instead of splicing via -v, which would mangle backslashes.
+    local titlefile; titlefile="$(mktemp)"
+    printf '%s' "$title" > "$titlefile"
     awk -v repo="$repo" -v branch="$slug" \
-        -v created="$(date +%F)" -v title="$title" '
-      BEGIN { infm = 0 }
+        -v created="$(date +%F)" -v titlefile="$titlefile" '
+      BEGIN { infm = 0; getline title < titlefile; close(titlefile) }
       /^---$/     { infm++; print; next }
       infm == 1 && /^status:/   { print "status: planned"; next }
       infm == 1 && /^repo:/     { print "repo: " repo; next }
@@ -544,6 +637,7 @@ wb_seed_task_planned() {
       infm == 2 && /^# Title/   { print "# " title; next }
       { print }
     ' "$TASKS_DIR/TEMPLATE.md" > "$file"
+    rm -f "$titlefile"
   else
     [ -n "$(wb_get_frontmatter "$file" repo)" ]     || wb_set_frontmatter "$file" repo "$repo"
     [ -n "$(wb_get_frontmatter "$file" branch)" ]   || wb_set_frontmatter "$file" branch "$slug"
@@ -551,6 +645,97 @@ wb_seed_task_planned() {
     [ -n "$(wb_get_frontmatter "$file" reviewed)" ] || wb_set_frontmatter "$file" reviewed ""
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
+  echo "$file"
+}
+
+# _wb_insert_plan_body <file> <body> — insert <body> verbatim under <file>'s
+# "## Plan" heading. Never routes <body> through awk -v: awk applies C
+# escape-sequence processing to a -v assignment's value, which would mangle
+# \n/\t/\K sequences a real plan body can legitimately carry (regex
+# snippets, Windows paths, fenced-code examples) — the cited wb_seed_task/
+# wb_reconcile_merge_content splices get away with awk -v only because their
+# values never carry backslashes. Writing <body> to a temp file with `printf
+# '%s'` (which never interprets backslashes in the value) and reading it back
+# with awk's `getline` (which reads literal lines, no escape processing)
+# avoids the mangling entirely. No-op when <body> is empty.
+_wb_insert_plan_body() {
+  local file="$1" body="$2"
+  [ -n "$body" ] || return 0
+  local bodyfile; bodyfile="$(mktemp)"
+  printf '%s\n' "$body" > "$bodyfile"
+  awk -v bodyfile="$bodyfile" '
+    { print }
+    $0 == "## Plan" {
+      print ""
+      while ((getline line < bodyfile) > 0) print line
+    }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  rm -f "$bodyfile"
+}
+
+# wb_seed_planned_child <repo> <slug> <parent_ref> [<title>] — KTD3's child
+# seeder for `wb breakdown --apply` (U3): creates a NEW planned child task
+# file and NOTHING ELSE. <title> is the buffer's own editable "goal:" line
+# (U3's "frontmatter + goal title" — the family's whole point is
+# session-sized, human-named slices, not slug-derived titles); when omitted
+# it falls back to the slug-derived form wb_seed_task/wb_seed_task_planned
+# already use. Unlike wb_seed_task_planned (which fills blanks on an
+# existing file and is reachable as the public `wb new --planned` verb),
+# this function ALWAYS creates fresh and REFUSES on collision — an existing
+# file at this stem means cmd_breakdown's own validation pass failed to
+# catch a collision upstream, never something to merge into. Not a public
+# verb; called only from cmd_breakdown's locked apply, which already holds
+# this file's path lock before calling in (this function does no locking of
+# its own).
+#
+# `status:` is left exactly as TEMPLATE.md has it (`planned`) — no
+# substitution rule, matching wb_seed_task_planned's own new-file branch.
+# `worktree:` is likewise left blank/untouched: wb_reconcile_collect only
+# flags a MISSING worktree when both a task's repo: AND worktree: are set,
+# so a planned child with a blank worktree: produces zero reconcile
+# findings (AE2). `parent:` is set unconditionally — a child always has
+# one, unlike wb_seed_task_planned's optional 3rd arg.
+#
+# The child's `## Plan` body is read from stdin (the buffer-carried plan
+# text) and landed via _wb_insert_plan_body — see that function's own
+# comment for why this never touches awk -v.
+wb_seed_planned_child() {
+  local repo="$1" slug="$2" parent="$3"
+  local title="${4:-${slug//-/ }}"
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local file; file="$(wb_task_file "$repo" "$disp_slug")"
+
+  if [ -f "$file" ]; then
+    echo "wb_seed_planned_child: $file already exists — refusing to overwrite" >&2
+    return 1
+  fi
+
+  mkdir -p "$TASKS_DIR"
+  local body; body="$(cat)"
+
+  # title is free-text (the buffer's own editable "goal:" line) and MUST NOT
+  # go through awk -v — same reasoning as _wb_insert_plan_body's body
+  # (awk's C escape-sequence processing on a -v assignment would mangle a
+  # goal containing \n/\t/\K, splitting the generated # <title> heading
+  # across lines). Read via getline from a temp file instead, exactly like
+  # every other free-text value this feature seeds.
+  local titlefile; titlefile="$(mktemp)"
+  printf '%s' "$title" > "$titlefile"
+
+  awk -v repo="$repo" -v branch="$slug" -v parent="$parent" \
+      -v created="$(date +%F)" -v titlefile="$titlefile" '
+    BEGIN { infm = 0; getline title < titlefile; close(titlefile) }
+    /^---$/     { infm++; print; next }
+    infm == 1 && /^repo:/     { print "repo: " repo; next }
+    infm == 1 && /^branch:/   { print "branch: " branch; next }
+    infm == 1 && /^parent:/   { print "parent: " parent; next }
+    infm == 1 && /^created:/  { print "created: " created; next }
+    infm == 2 && /^# Title/   { print "# " title; next }
+    { print }
+  ' "$TASKS_DIR/TEMPLATE.md" > "$file"
+  rm -f "$titlefile"
+
+  _wb_insert_plan_body "$file" "$body"
   echo "$file"
 }
 
@@ -580,12 +765,22 @@ cmd_new() {
   # value as a separate following argument, which a foreach that only
   # detects literal tokens (like --agent) can't consume — the value would
   # fall into the else branch and corrupt the positional repo/slug count.
-  local agent_flag=0 parent_ref="" planned_flag=0
+  local agent_flag=0 parent_ref="" planned_flag=0 jira_url="" title_override=""
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --agent)   agent_flag=1; shift ;;
       --planned) planned_flag=1; shift ;;
+      --jira)
+        case "${2-}" in
+          ''|--*) echo "wb new: --jira requires a value" >&2; exit 1 ;;
+        esac
+        jira_url="$2"; shift 2 ;;
+      --title)
+        case "${2-}" in
+          ''|--*) echo "wb new: --title requires a value" >&2; exit 1 ;;
+        esac
+        title_override="$2"; shift 2 ;;
       --parent)
         case "${2-}" in
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
@@ -600,6 +795,16 @@ cmd_new() {
     exit 1
   fi
 
+  if [ -n "$jira_url" ] && [ "$planned_flag" != 1 ]; then
+    echo "wb new: --jira is only valid together with --planned (ticket-parent seeding never starts a worktree/session)" >&2
+    exit 1
+  fi
+
+  if [ -n "$title_override" ] && [ "$planned_flag" != 1 ]; then
+    echo "wb new: --title is only valid together with --planned (only a fresh, worktree-less seed has a title left to set)" >&2
+    exit 1
+  fi
+
   local repo slug
   if [ "${#args[@]}" -eq 2 ]; then
     repo="${args[0]}"; slug="${args[1]}"
@@ -610,7 +815,7 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent|--planned] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned] [--parent <repo>--<slug>] <repo> <slug>" >&2
+    echo "usage: wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] <repo> <slug>" >&2
     exit 1
   fi
 
@@ -643,10 +848,28 @@ cmd_new() {
     # Prints the resolved task-file path on stdout (the one piece of output
     # a caller capturing `$(wb new --planned ...)` needs), mirroring
     # wb_seed_task_planned's own `echo "$file"` convention.
+    #
+    # --jira <url> extends this path (KTD3) for wb-breakdown's ticket-parent
+    # seeding: stamps `jira:` and, if piped, lands a stdin `## Plan` body —
+    # an extension of this same locked seed, never a duplicate path.
+    # wb_seed_task_planned's own fill-blanks-only semantics already give
+    # KTD9's find-or-create behavior for free (an existing task at this
+    # stem is reused, never overwritten).
     local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+    local was_new=0; [ -f "$task_file" ] || was_new=1
     _wb_lock_trap_append_if_top_level wb_task_lock_release_all
     wb_task_lock_acquire_guarded "$task_file" || exit $?
-    task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref")"
+    task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref" "$title_override")"
+    if [ -n "$jira_url" ]; then
+      wb_set_frontmatter "$task_file" jira "$jira_url"
+      # Consume stdin regardless (a caller always pipes a body), but only
+      # land it on a genuinely NEW file — KTD9's "reused fill-blanks-only,
+      # never overwritten" covers the body too, not just frontmatter.
+      # Re-running against an already-seeded ticket must never duplicate
+      # the body under ## Plan.
+      local ticket_body; ticket_body="$(cat)"
+      [ "$was_new" = 1 ] && _wb_insert_plan_body "$task_file" "$ticket_body"
+    fi
     wb_task_lock_release "$task_file"
     echo "$task_file"
     return 0
@@ -681,10 +904,21 @@ cmd_new() {
   # scope — the lock's fd must be owned by this process, not by the
   # subshell that command substitution spawns for wb_seed_task, or it
   # evaporates the instant that subshell exits.
-  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  #
+  # _WB_TASK_FILE_OVERRIDE (KTD7): set only by cmd_resume, for exactly the
+  # post-migration case where repo+slug (the child's OWN inherited git
+  # identity) would otherwise re-derive the PARENT's file via wb_task_file
+  # — cmd_resume already resolved the real (child) file from its own
+  # stem-based lookup and hands it straight through.
+  local task_file
+  if [ -n "${_WB_TASK_FILE_OVERRIDE:-}" ]; then
+    task_file="$_WB_TASK_FILE_OVERRIDE"
+  else
+    task_file="$(wb_task_file "$repo" "$disp_slug")"
+  fi
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref")"
+  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}")"
   wb_task_lock_release "$task_file"
 
   local is_new=0
@@ -760,7 +994,14 @@ cmd_resume() {
   branch="$(wb_get_frontmatter "$file" branch)"
   [ -n "$repo" ] && [ -n "$branch" ] \
     || { echo "wb resume: $file has no repo:/branch: frontmatter to resume from" >&2; exit 1; }
-  cmd_new "$repo" "$branch"
+  # KTD7: post-migration, a continuing child's branch:/worktree: equal the
+  # PARENT's original identity — cmd_new deriving the task file from
+  # repo+branch alone would resolve back to the PARENT's file. $file is
+  # already the REAL target (resolved above by stem, not by branch), so
+  # hand it straight through; cleared unconditionally right after so it
+  # can never leak into an unrelated later cmd_new call in this process.
+  _WB_TASK_FILE_OVERRIDE="$file" cmd_new "$repo" "$branch"
+  unset _WB_TASK_FILE_OVERRIDE
   # Handoffs-append lives HERE, not inside cmd_new — cmd_new is also
   # the path every fresh `wb new` takes, and a fresh task must not
   # gain a Handoffs entry (see wb_append_handoff's own header comment).
@@ -1244,6 +1485,731 @@ wb_reconcile_apply() {
 }
 
 # ---------------------------------------------------------------------------
+# wb breakdown — split one oversized task into a linked parent/child family
+# (docs/plans/2026-07-12-001-feat-wb-breakdown-skill-plan.md). U2 builds the
+# buffer grammar's parse + validate half only — no store writes here; U3
+# adds the locked apply execution on top of this same parse/validate core.
+# ---------------------------------------------------------------------------
+
+# wb_breakdown_report_path <parent_stem> — twin of wb_reconcile_report_path,
+# keeping the `|| true` on the git lookup (a bare failing `$(git …)` under
+# `set -e` was a real shipped bug there). One buffer per parent, unlike
+# reconcile's single global report.
+wb_breakdown_report_path() {
+  local stem="$1" root
+  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
+  [ -n "$root" ] || root="$CODE_DIR/dotfiles"
+  printf '%s/logs/breakdowns/%s.md\n' "$root" "$stem"
+}
+
+# _wb_bd_checkbox_state <line> — classify a line against KTD1's checkbox
+# grammar. "extra indentation" and `*` bullets are accepted forms (test
+# scenario); a line that LOOKS like an attempted checkbox (bullet + `[`)
+# but doesn't match the strict well-formed shape is "malformed", never
+# silently "none" — KTD1: never silently treated as unchecked. Anything
+# that doesn't even attempt a checkbox (a bare `- goal: ...` bullet, a
+# blockquote, prose) is "none".
+_wb_bd_checkbox_state() {
+  local line="$1"
+  if [[ "$line" =~ ^[[:space:]]*[-*][[:space:]]+\[([[:space:]xX])\][[:space:]] ]]; then
+    case "${BASH_REMATCH[1]}" in
+      x|X) echo checked ;;
+      *)   echo unchecked ;;
+    esac
+    return 0
+  fi
+  if [[ "$line" =~ ^[[:space:]]*[-*][[:space:]]*\[ ]]; then
+    echo malformed
+    return 0
+  fi
+  echo none
+}
+
+# _wb_bd_field <block-text> <key> — extract key=value from <block-text>'s
+# own opening marker line (its first line, always a `block=...` marker by
+# construction of _wb_breakdown_parse_blocks).
+_wb_bd_field() {
+  printf '%s' "$1" | head -1 | grep -oP "(?<= )$2=\K[^ ]+"
+}
+
+# _wb_bd_plan_markers_ok <block-text> — exactly one begin-plan then exactly
+# one end-plan, in that order; anything else is unbalanced (KTD1: hard
+# parse error, never silently ignored).
+_wb_bd_plan_markers_ok() {
+  local block="$1" begins ends first_kind
+  begins="$(printf '%s' "$block" | grep -c '<!-- wb-breakdown: begin-plan')"
+  ends="$(printf '%s' "$block" | grep -c '<!-- wb-breakdown: end-plan')"
+  [ "$begins" -eq 1 ] && [ "$ends" -eq 1 ] || return 1
+  first_kind="$(printf '%s' "$block" | grep -oE '<!-- wb-breakdown: (begin|end)-plan' | head -1)"
+  [ "$first_kind" = "<!-- wb-breakdown: begin-plan" ]
+}
+
+# _wb_bd_plan_body <block-text> — lines strictly between begin-plan and
+# end-plan. Caller must have already confirmed _wb_bd_plan_markers_ok.
+_wb_bd_plan_body() {
+  printf '%s' "$1" | awk '
+    /<!-- wb-breakdown: begin-plan/ { inbody = 1; next }
+    /<!-- wb-breakdown: end-plan/   { inbody = 0; next }
+    inbody { print }
+  '
+}
+
+# _wb_breakdown_parse_blocks <path> <array_name> — split <path> into raw
+# block strings, one per `<!-- wb-breakdown: block=... -->` marker (mirrors
+# wb_reconcile_apply's own block splitter). begin-plan/end-plan sub-markers
+# stay embedded inside their owning block's text — only a `block=` marker
+# starts a NEW block.
+_wb_breakdown_parse_blocks() {
+  local path="$1"
+  local -n _wbd_out="$2"
+  _wbd_out=()
+  local block="" line in_block=0
+  while IFS= read -r line; do
+    case "$line" in
+      '<!-- wb-breakdown: block='*)
+        [ "$in_block" = 1 ] && _wbd_out+=("$block")
+        block="$line"$'\n'; in_block=1 ;;
+      *)
+        [ "$in_block" = 1 ] && block+="$line"$'\n' ;;
+    esac
+  done < "$path"
+  [ "$in_block" = 1 ] && _wbd_out+=("$block")
+}
+
+# _wb_breakdown_validate <path> — parse + validate a closed buffer. Prints
+# one TSV row per CONFIRMED (checked and valid) action to stdout:
+#   create\t<n>\t<repo>\t<raw_slug>\t<disp_slug>\t<title>
+#   migrate\t<raw_slug>\t<disp_slug>
+#   plan_rewrite\tparent
+#   move\t<raw_slug>\t<disp_slug>\t<bullet_text>
+# Hard parse errors (mangled/missing markers, duplicate n=, a second
+# migration line, a multi-parent buffer, a whitespace/backtick-bearing
+# slug) abort the WHOLE validate — nothing is trustworthy once the buffer's
+# own structure can't be trusted (KTD1). Per-item validation failures
+# (collisions, an unresolvable migration/move target) print a warning to
+# stderr and are simply left out of the stdout action list (reconcile's
+# warn-and-skip posture) — the caller decides what "skipped" means for
+# exit-code purposes.
+_wb_breakdown_validate() {
+  local path="$1"
+  [ -n "$path" ] || { echo "wb breakdown --apply: usage: wb breakdown --apply <buffer-path>" >&2; return 1; }
+  [ -s "$path" ] || { echo "wb breakdown --apply: no buffer at $path (or it's empty) — nothing to apply" >&2; return 1; }
+
+  # --- orphan-checkbox pre-pass: any real or attempted checkbox line before
+  # the first block= marker means a marker went missing/mangled above it. --
+  local line lineno=0 saw_marker=0 state
+  while IFS= read -r line; do
+    lineno=$((lineno + 1))
+    case "$line" in
+      '<!-- wb-breakdown: block='*) saw_marker=1; continue ;;
+    esac
+    [ "$saw_marker" = 0 ] || continue
+    state="$(_wb_bd_checkbox_state "$line")"
+    if [ "$state" != none ]; then
+      echo "wb breakdown --apply: checkbox-shaped line before any wb-breakdown block marker (line $lineno) — a block marker is missing or mangled: $line" >&2
+      return 2
+    fi
+  done < "$path"
+
+  local -a blocks=()
+  _wb_breakdown_parse_blocks "$path" blocks
+  [ "${#blocks[@]}" -gt 0 ] || { echo "wb breakdown --apply: $path has no wb-breakdown blocks — malformed or empty buffer" >&2; return 2; }
+
+  # --- structural (hard) checks across all blocks ---------------------------
+  local b kind n parent repo
+  local parent_stem="" seen_ns="" mig_count=0 mig_lines=""
+  for b in "${blocks[@]}"; do
+    kind="$(_wb_bd_field "$b" block)"
+    parent="$(_wb_bd_field "$b" parent)"
+
+    if [ -z "$parent_stem" ]; then
+      parent_stem="$parent"
+    elif [ "$parent" != "$parent_stem" ]; then
+      echo "wb breakdown --apply: buffer references more than one parent ($parent_stem and $parent) — a breakdown buffer is single-parent" >&2
+      return 2
+    fi
+
+    if ! _wb_bd_plan_markers_ok "$b"; then
+      echo "wb breakdown --apply: unbalanced begin-plan/end-plan markers in a $kind block (marker line: $(printf '%s' "$b" | head -1))" >&2
+      return 2
+    fi
+
+    if [ "$kind" = child ]; then
+      n="$(_wb_bd_field "$b" n)"
+      case " $seen_ns " in
+        *" $n "*) echo "wb breakdown --apply: duplicate n=$n across child blocks" >&2; return 2 ;;
+      esac
+      seen_ns="$seen_ns $n"
+
+      local -a create_lines=()
+      while IFS= read -r line; do
+        printf '%s' "$line" | grep -q 'create child:' && create_lines+=("$line")
+      done < <(printf '%s' "$b")
+      if [ "${#create_lines[@]}" -ne 1 ]; then
+        echo "wb breakdown --apply: child block n=$n must have exactly one 'create child:' line, found ${#create_lines[@]} (marker: $(printf '%s' "$b" | head -1))" >&2
+        return 2
+      fi
+      local cl_state; cl_state="$(_wb_bd_checkbox_state "${create_lines[0]}")"
+      if [ "$cl_state" = malformed ] || [ "$cl_state" = none ]; then
+        echo "wb breakdown --apply: malformed checkbox on child n=$n's create-child line: ${create_lines[0]}" >&2
+        return 2
+      fi
+      local raw_slug; raw_slug="$(printf '%s' "${create_lines[0]}" | grep -oP 'create child: `\K[^`]*')"
+      if [ -z "$raw_slug" ]; then
+        echo "wb breakdown --apply: child n=$n's create-child line has no backticked slug: ${create_lines[0]}" >&2
+        return 2
+      fi
+      if [[ "$raw_slug" == *[[:space:]]* ]] || [[ "$raw_slug" == *'`'* ]]; then
+        echo "wb breakdown --apply: child n=$n's slug \`$raw_slug\` contains whitespace or a backtick — wb_sanitize doesn't strip either: ${create_lines[0]}" >&2
+        return 2
+      fi
+
+      # repo= is a marker field, not a checkbox-line value like raw_slug, so
+      # it never went through the whitespace/backtick check above — but it
+      # feeds the exact same wb_task_file path-construction (and, once the
+      # child is seeded, its own repo: frontmatter, which cmd_new/cmd_resume/
+      # cmd_done later trust to build repo_dir="$CODE_DIR/$repo" for real git
+      # worktree operations). A repo value containing `/` or `..` would
+      # write/read outside $TASKS_DIR / $CODE_DIR entirely — restrict it to
+      # a plain repo basename, the same charset real repo directory names
+      # actually use (alphanumeric, `-`, `_`, `.`, including the `--` this
+      # store's own cross-repo naming convention relies on).
+      local repo_field; repo_field="$(_wb_bd_field "$b" repo)"
+      if [ -z "$repo_field" ] || [[ "$repo_field" == *[/]* ]] || [[ "$repo_field" == *..* ]] || [[ "$repo_field" =~ [^A-Za-z0-9_.-] ]]; then
+        echo "wb breakdown --apply: child n=$n's repo=$repo_field is missing or unsafe (must be a plain repo basename — no / or ..): $(printf '%s' "$b" | head -1)" >&2
+        return 2
+      fi
+    fi
+
+    if [ "$kind" = parent ]; then
+      local -a mig_lines_here=()
+      while IFS= read -r line; do
+        [ "$(_wb_bd_checkbox_state "$line")" = none ] && continue
+        printf '%s' "$line" | grep -qP 'migrate branch/worktree .* continuing child:' && mig_lines_here+=("$line")
+      done < <(printf '%s' "$b")
+      mig_count=$((mig_count + ${#mig_lines_here[@]}))
+      if [ "${#mig_lines_here[@]}" -gt 1 ]; then
+        echo "wb breakdown --apply: more than one migration line in the parent block (checked or not): ${mig_lines_here[*]}" >&2
+        return 2
+      fi
+      if [ "$mig_count" -gt 1 ]; then
+        echo "wb breakdown --apply: more than one migration line across the parent block" >&2
+        return 2
+      fi
+    fi
+  done
+
+  if [ -z "$parent_stem" ]; then
+    echo "wb breakdown --apply: no parent= field found on any block" >&2
+    return 2
+  fi
+
+  local parent_file parent_repo
+  parent_file="$(wb_resolve_parent_ref "$parent_stem")" || return 2
+  parent_repo="$(wb_get_frontmatter "$parent_file" repo)"
+  if ! _wb_bd_check_no_cycle "$parent_stem"; then
+    return 2
+  fi
+
+  # --- item-level validation + stdout action rows ---------------------------
+  local -a confirmed_child_stems=()
+  for b in "${blocks[@]}"; do
+    [ "$(_wb_bd_field "$b" block)" = child ] || continue
+    n="$(_wb_bd_field "$b" n)"
+    repo="$(_wb_bd_field "$b" repo)"
+    local create_line; create_line="$(printf '%s' "$b" | grep -P '^\s*[-*]\s+\[[ xX]\]\s+create child:' | head -1)"
+    [ "$(_wb_bd_checkbox_state "$create_line")" = checked ] || continue
+
+    local raw_slug disp_slug title
+    raw_slug="$(printf '%s' "$create_line" | grep -oP 'create child: `\K[^`]*')"
+    disp_slug="$(wb_sanitize "$raw_slug")"
+    title="$(printf '%s' "$b" | grep -oP '^\s*-\s+goal:\s*\K.*' | head -1)"
+
+    local collision=0
+    local other
+    for other in "${confirmed_child_stems[@]}"; do
+      [ "$other" != "$repo--$disp_slug" ] || { collision=1; break; }
+    done
+    if [ "$collision" = 1 ]; then
+      echo "wb breakdown --apply: skipping child n=$n ($raw_slug) — sanitizes to $repo--$disp_slug, already claimed by another checked child in this buffer" >&2
+      continue
+    fi
+    if [ -f "$TASKS_DIR/$repo--$disp_slug.md" ]; then
+      # KTD5 idempotent re-apply: an existing file already claimed by THIS
+      # parent (a prior run created it) is "already created, skipping" —
+      # not a real collision, just convergence. Anything else (a genuine
+      # collision with an unrelated file) keeps the generic message.
+      if [ "$(wb_get_frontmatter "$TASKS_DIR/$repo--$disp_slug.md" parent)" = "$parent_stem" ]; then
+        echo "wb breakdown --apply: child n=$n ($raw_slug) -> $repo--$disp_slug already created, skipping" >&2
+      else
+        echo "wb breakdown --apply: skipping child n=$n ($raw_slug) — $repo--$disp_slug already exists in the store" >&2
+      fi
+      continue
+    fi
+
+    confirmed_child_stems+=("$repo--$disp_slug")
+    printf 'create\t%s\t%s\t%s\t%s\t%s\n' "$n" "$repo" "$raw_slug" "$disp_slug" "$title"
+  done
+
+  for b in "${blocks[@]}"; do
+    [ "$(_wb_bd_field "$b" block)" = parent ] || continue
+
+    local mig_line; mig_line="$(printf '%s' "$b" | grep -P 'migrate branch/worktree .* continuing child:' | head -1)"
+    if [ -n "$mig_line" ] && [ "$(_wb_bd_checkbox_state "$mig_line")" = checked ]; then
+      local mig_target; mig_target="$(printf '%s' "$mig_line" | grep -oP 'continuing child: `\K[^`]*')"
+      if [ -z "$mig_target" ] || [ "$mig_target" = ___ ]; then
+        echo "wb breakdown --apply: skipping migration — target field is unfilled (\`___\`)" >&2
+      elif [ -z "$(wb_get_frontmatter "$parent_file" branch)" ] && [ -z "$(wb_get_frontmatter "$parent_file" worktree)" ]; then
+        echo "wb breakdown --apply: skipping migration — parent $parent_stem is already session-less (no branch:/worktree: to give)" >&2
+      else
+        local mig_disp; mig_disp="$(wb_sanitize "$mig_target")"
+        local mig_ok=0 cs
+        for cs in "${confirmed_child_stems[@]}"; do
+          [ "$cs" != "$parent_repo--$mig_disp" ] || { mig_ok=1; break; }
+        done
+        if [ "$mig_ok" = 0 ]; then
+          local existing_child
+          for existing_child in $(wb_task_files); do
+            [ "$(wb_get_frontmatter "$existing_child" parent)" = "$parent_stem" ] || continue
+            [ "$(wb_get_frontmatter "$existing_child" branch)" = "$mig_target" ] || continue
+            mig_ok=1; break
+          done
+        fi
+        if [ "$mig_ok" = 1 ]; then
+          printf 'migrate\t%s\t%s\n' "$mig_target" "$mig_disp"
+        else
+          echo "wb breakdown --apply: skipping migration — target \`$mig_target\` is neither a checked child in this buffer nor an existing child of $parent_stem" >&2
+        fi
+      fi
+    fi
+
+    local rewrite_line; rewrite_line="$(printf '%s' "$b" | grep -P '^\s*[-*]\s+\[[ xX]\]\s+rewrite parent ## Plan as below' | head -1)"
+    if [ -n "$rewrite_line" ] && [ "$(_wb_bd_checkbox_state "$rewrite_line")" = checked ]; then
+      printf 'plan_rewrite\tparent\n'
+    fi
+
+    local followups; followups="$(wb_board_section "$parent_file" "Follow-ups")"
+    while IFS= read -r line; do
+      [ "$(_wb_bd_checkbox_state "$line")" = checked ] || continue
+      printf '%s' "$line" | grep -qP "move follow-up:" || continue
+      local move_text move_target
+      move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K[^"]*')"
+      move_target="$(printf '%s' "$line" | grep -oP 'child: `\K[^`]*')"
+      local match_count; match_count="$(printf '%s' "$followups" | grep -cxF -- "- $move_text")"
+      if [ "$match_count" -ne 1 ]; then
+        echo "wb breakdown --apply: skipping follow-up move (\"$move_text\") — matched $match_count bullet(s) in $parent_stem's ## Follow-ups (need exactly 1)" >&2
+        continue
+      fi
+      local move_disp; move_disp="$(wb_sanitize "$move_target")"
+      local move_ok=0 cs2
+      for cs2 in "${confirmed_child_stems[@]}"; do
+        [ "$cs2" != "$parent_repo--$move_disp" ] || { move_ok=1; break; }
+      done
+      if [ "$move_ok" = 0 ]; then
+        local existing_child2
+        for existing_child2 in $(wb_task_files); do
+          [ "$(wb_get_frontmatter "$existing_child2" parent)" = "$parent_stem" ] || continue
+          [ "$(wb_get_frontmatter "$existing_child2" branch)" = "$move_target" ] || continue
+          move_ok=1; break
+        done
+      fi
+      if [ "$move_ok" = 1 ]; then
+        printf 'move\t%s\t%s\t%s\n' "$move_target" "$move_disp" "$move_text"
+      else
+        echo "wb breakdown --apply: skipping follow-up move (\"$move_text\") — target \`$move_target\` is neither a checked child in this buffer nor an existing child of $parent_stem" >&2
+      fi
+    done < <(printf '%s' "$b")
+  done
+
+  return 0
+}
+
+# _wb_bd_check_no_cycle <stem> — walk <stem>'s own parent: chain (bounded to
+# 50 hops) and fail loud if it ever revisits a stem already seen. Defends
+# the (unrelated to this operation) case of a corrupted store already
+# carrying an A->B->A parent chain — this operation never creates one
+# itself, since every new child's parent: is <stem>, a leaf write.
+_wb_bd_check_no_cycle() {
+  local stem="$1" seen=" $1 " cur="$1" depth=0 next_file next_parent
+  while [ "$depth" -lt 50 ]; do
+    next_file="$TASKS_DIR/$cur.md"
+    [ -f "$next_file" ] || return 0
+    next_parent="$(wb_get_frontmatter "$next_file" parent)"
+    [ -n "$next_parent" ] || return 0
+    case "$seen" in
+      *" $next_parent "*)
+        echo "wb breakdown --apply: cycle detected in $stem's existing parent chain at $next_parent — refusing" >&2
+        return 1 ;;
+    esac
+    seen="$seen$next_parent "
+    cur="$next_parent"
+    depth=$((depth + 1))
+  done
+  echo "wb breakdown --apply: $stem's parent chain exceeds 50 hops — refusing (possible cycle)" >&2
+  return 1
+}
+
+# cmd_breakdown --apply <buffer-path> — U2: parse + validate only, no writes
+# (U3 extends this same function with the locked write execution).
+_wb_breakdown_buffer_parent() {
+  grep -oP '(?<= )parent=\K[^ ]+' "$1" 2>/dev/null | head -1
+}
+
+# _wb_breakdown_child_plan_body <path> <n> / _wb_breakdown_parent_plan_body
+# <path> — re-parse the buffer to pull ONE block's plan body on demand.
+# Re-parsing (rather than threading multi-line bodies through the TSV
+# action rows) keeps _wb_breakdown_validate's stdout contract flat and
+# grep-able; these buffers are small local files, not a perf concern.
+_wb_breakdown_child_plan_body() {
+  local path="$1" want_n="$2"
+  local -a blocks=(); _wb_breakdown_parse_blocks "$path" blocks
+  local b
+  for b in "${blocks[@]}"; do
+    [ "$(_wb_bd_field "$b" block)" = child ] || continue
+    [ "$(_wb_bd_field "$b" n)" = "$want_n" ] || continue
+    _wb_bd_plan_body "$b"
+    return 0
+  done
+}
+
+_wb_breakdown_parent_plan_body() {
+  local path="$1"
+  local -a blocks=(); _wb_breakdown_parse_blocks "$path" blocks
+  local b
+  for b in "${blocks[@]}"; do
+    [ "$(_wb_bd_field "$b" block)" = parent ] || continue
+    _wb_bd_plan_body "$b"
+    return 0
+  done
+}
+
+# _wb_breakdown_replace_section <file> <heading> <body> — REPLACE
+# everything under "## <heading>" (up to the next "## " heading or EOF)
+# with <body>. Never routes <body> through awk -v — same reasoning as
+# _wb_insert_plan_body: awk's C escape-sequence processing on a -v
+# assignment would mangle a buffer-authored body's backslashes.
+_wb_breakdown_replace_section() {
+  local file="$1" heading="$2" body="$3" bodyfile
+  bodyfile="$(mktemp)"
+  printf '%s\n' "$body" > "$bodyfile"
+  awk -v h="## $heading" -v bodyfile="$bodyfile" '
+    BEGIN { insec = 0 }
+    $0 == h { print; print ""; while ((getline line < bodyfile) > 0) print line; insec = 1; next }
+    insec && /^## / { insec = 0 }
+    insec { next }
+    { print }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  rm -f "$bodyfile"
+}
+
+# _wb_breakdown_append_section <file> <heading> <body> — append <body>
+# right after "## <heading>" — same insertion point wb_reconcile_merge_content
+# already uses (never at the end of existing content). File-based, not
+# awk -v, for the same backslash-fidelity reason as every other body
+# insertion in this feature.
+_wb_breakdown_append_section() {
+  local file="$1" heading="$2" body="$3" bodyfile
+  bodyfile="$(mktemp)"
+  printf '%s\n' "$body" > "$bodyfile"
+  awk -v h="## $heading" -v bodyfile="$bodyfile" '
+    { print }
+    $0 == h { while ((getline line < bodyfile) > 0) print line }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  rm -f "$bodyfile"
+}
+
+# _wb_breakdown_move_followup <parent_file> <target_file> <bullet_text> —
+# R11's "a move, never a copy": relocates the bullet line "- <bullet_text>"
+# (or "* <bullet_text>") PLUS any immediately-following indented
+# continuation lines from <parent_file>'s ## Follow-ups to <target_file>'s.
+# <bullet_text> is compared via a getline-read value, never awk -v, so a
+# bullet containing backslashes still matches correctly (the same class of
+# bug U1's Execution note flags for -v assignments).
+_wb_breakdown_move_followup() {
+  local parent_file="$1" target_file="$2" bullet_text="$3"
+  local textfile; textfile="$(mktemp)"
+  printf '%s\n' "$bullet_text" > "$textfile"
+
+  local block
+  block="$(awk -v textfile="$textfile" '
+    BEGIN { getline want < textfile; close(textfile) }
+    /^## Follow-ups/ { infu = 1; next }
+    /^## / { if (infu) infu = 0 }
+    infu && inblock && /^[-*] / { inblock = 0 }
+    infu && !inblock && ($0 == "- " want || $0 == "* " want) { inblock = 1; print; next }
+    infu && inblock { print }
+  ' "$parent_file")"
+  [ -n "$block" ] || return 1
+
+  awk -v textfile="$textfile" '
+    BEGIN { getline want < textfile; close(textfile) }
+    /^## Follow-ups/ { infu = 1; print; next }
+    /^## / { if (infu) infu = 0 }
+    infu && inblock && /^[-*] / { inblock = 0 }
+    infu && !inblock && ($0 == "- " want || $0 == "* " want) { inblock = 1; next }
+    infu && inblock { next }
+    { print }
+  ' "$parent_file" > "$parent_file.tmp.$$" && mv "$parent_file.tmp.$$" "$parent_file"
+  rm -f "$textfile"
+
+  _wb_breakdown_append_section "$target_file" "Follow-ups" "$block"
+}
+
+# _wb_breakdown_acquire_locks <array_name> <target...> — sorted-path,
+# all-or-nothing acquisition (KTD6): on any failure, releases everything
+# already acquired and returns the failing exit code (75); on success,
+# populates <array_name> (nameref) with the sorted, deduplicated list
+# actually held. MUST be called directly, never via `$(...)`/`<(...)` — a
+# process substitution runs in a subshell, and the locks this function
+# acquires would die with that subshell the instant it exits, silently
+# releasing everything before the caller ever saw the result.
+_wb_breakdown_acquire_locks() {
+  local -n _wbd_acquired="$1"; shift
+  _wbd_acquired=()
+  local -a sorted=()
+  mapfile -t sorted < <(printf '%s\n' "$@" | sort -u)
+  local t rc
+  for t in "${sorted[@]}"; do
+    # `if cmd; then rc=0; else rc=$?; fi` — the only form that is BOTH safe
+    # under this file's `set -e` AND captures the real exit code. Two other
+    # shapes look plausible and are both wrong: `if ! cmd; then rc=$?; fi`
+    # captures the NEGATED condition's own (always-0) status, not cmd's
+    # (wb_reconcile_action_merge's own comment documents that one, caught
+    # live by wb-lock-integration.test.sh). `cmd; rc=$?` as bare statements
+    # looks right and even reads correctly under this file's OWN test
+    # suite — but every test here does `source wb.sh; set +e` before
+    # calling into it, which silently disables the exact errexit behavior
+    # production hits: a bare failing statement (not an if/while/&&/||
+    # condition) triggers `set -e` immediately, aborting the whole PROCESS
+    # before `rc=$?` on the next line ever runs. Reproduced live: `set -e;
+    # inner() { return 75; }; inner; rc=$?; echo reached` never prints
+    # "reached" and exits 75 — confirmed this exact class of bug is what
+    # made the "release everything already acquired" loop below
+    # unreachable in real (non-test) use.
+    if wb_task_lock_acquire_guarded "$t"; then
+      rc=0
+    else
+      rc=$?
+    fi
+    if [ "$rc" -ne 0 ]; then
+      local already
+      for already in "${_wbd_acquired[@]}"; do
+        wb_task_lock_release "$already"
+      done
+      _wbd_acquired=()
+      return "$rc"
+    fi
+    _wbd_acquired+=("$t")
+  done
+  return 0
+}
+
+# _wb_breakdown_execute <path> <parent_file> <parent_stem> <actions_tsv> —
+# KTD5's write order, run only once every lock in the sorted set is held
+# and <actions_tsv> reflects a fresh re-validate against live store state.
+# Per-item failures are reported and skipped (reconcile's warn-and-skip
+# posture) — never abort the rest of the batch. Prints the migration
+# target's file path on its own final line when a migration happened (the
+# caller needs it to re-point @task after releasing the locks), empty
+# otherwise.
+_wb_breakdown_execute() {
+  local path="$1" parent_file="$2" parent_stem="$3" actions="$4"
+  local parent_repo; parent_repo="$(wb_get_frontmatter "$parent_file" repo)"
+  local did_something=0 migration_target_file=""
+  local -a created_children=()
+  local line
+
+  # 1. seed checked children -------------------------------------------------
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    local -a f; wb_tsv_split "$line" f
+    [ "${f[0]}" = create ] || continue
+    local n="${f[1]}" repo="${f[2]}" raw="${f[3]}" disp="${f[4]}" title="${f[5]}"
+    local body; body="$(_wb_breakdown_child_plan_body "$path" "$n")"
+    local child_file
+    if child_file="$(printf '%s' "$body" | wb_seed_planned_child "$repo" "$raw" "$parent_stem" "$title")"; then
+      created_children+=("$(basename "$child_file" .md)")
+      did_something=1
+    else
+      echo "wb breakdown --apply: failed to seed child n=$n ($raw) — skipping" >&2
+    fi
+  done <<< "$actions"
+
+  # 2. parent content edits: ## Plan rewrite, then follow-up moves ----------
+  #    Content-idempotent on re-apply: a rewrite to byte-identical content
+  #    (the buffer's checkbox left checked after a prior successful apply)
+  #    doesn't count toward did_something, or every re-run would duplicate
+  #    the archive+handoff step below for no real new progress.
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    local -a f; wb_tsv_split "$line" f
+    [ "${f[0]}" = plan_rewrite ] || continue
+    local body; body="$(_wb_breakdown_parent_plan_body "$path")"
+    local before_plan; before_plan="$(wb_board_section "$parent_file" "Plan")"
+    _wb_breakdown_replace_section "$parent_file" "Plan" "$body"
+    local after_plan; after_plan="$(wb_board_section "$parent_file" "Plan")"
+    [ "$before_plan" = "$after_plan" ] || did_something=1
+  done <<< "$actions"
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    local -a f; wb_tsv_split "$line" f
+    [ "${f[0]}" = move ] || continue
+    local target_disp="${f[2]}" bullet_text="${f[3]}"
+    local target_file="$TASKS_DIR/$parent_repo--$target_disp.md"
+    if _wb_breakdown_move_followup "$parent_file" "$target_file" "$bullet_text"; then
+      did_something=1
+    else
+      echo "wb breakdown --apply: failed to move follow-up (\"$bullet_text\") — skipping" >&2
+    fi
+  done <<< "$actions"
+
+  # 3. migration: child <- parent's branch/worktree, child -> doing, parent
+  #    blanked. Exactly one file may claim a worktree at any time. ---------
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    local -a f; wb_tsv_split "$line" f
+    [ "${f[0]}" = migrate ] || continue
+    local target_disp="${f[2]}"
+    local target_file="$TASKS_DIR/$parent_repo--$target_disp.md"
+    local p_branch p_worktree
+    p_branch="$(wb_get_frontmatter "$parent_file" branch)"
+    p_worktree="$(wb_get_frontmatter "$parent_file" worktree)"
+    wb_set_frontmatter "$target_file" branch "$p_branch"
+    wb_set_frontmatter "$target_file" worktree "$p_worktree"
+    [ "$(wb_get_frontmatter "$target_file" status)" != planned ] || wb_set_frontmatter "$target_file" status doing
+    wb_set_frontmatter "$parent_file" branch ""
+    wb_set_frontmatter "$parent_file" worktree ""
+    migration_target_file="$target_file"
+    did_something=1
+  done <<< "$actions"
+
+  # 4. archive the closed buffer + one handoff entry naming it (KTD5) ------
+  #    R6's durable record must outlive gitignored scratch — never skip
+  #    this even when the ONLY thing that happened was a plan_rewrite/move.
+  if [ "$did_something" = 1 ]; then
+    local dossier_dir="$TASKS_DIR/dossiers/$parent_stem"
+    mkdir -p "$dossier_dir"
+    local archived="$dossier_dir/$(basename "$path")"
+    cp -a "$path" "$archived"
+    local note="Family split applied via \`wb breakdown --apply\`. Archived buffer: \`${archived#"$HOME"/}\`."
+    if [ "${#created_children[@]}" -gt 0 ]; then
+      local joined; joined="$(printf '%s, ' "${created_children[@]}")"; joined="${joined%, }"
+      note="$note Created: $joined."
+    fi
+    wb_append_handoff "$parent_file" "wb breakdown" "$note"
+  fi
+
+  printf '%s\n' "$migration_target_file"
+}
+
+# _wb_breakdown_repoint_task <parent_file> <target_file> — re-points @task
+# on every LIVE session whose @task currently equals <parent_file> to
+# <target_file> instead (KTD6: after lock release, never inside the
+# critical section — a tmux call is not a task-file write). Warns rather
+# than errors when nothing matches (a session-less parent, or every
+# migrated session already re-pointed by a prior apply).
+_wb_breakdown_repoint_task() {
+  local parent_file="$1" target_file="$2"
+  local session matched=0 cur
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+    [ "$cur" = "$parent_file" ] || continue
+    tmux set-option -t "=$session:" @task "$target_file" >/dev/null
+    matched=$((matched + 1))
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+  if [ "$matched" -eq 0 ]; then
+    echo "wb breakdown --apply: no live session had @task pointing at $parent_file — nothing to re-point" >&2
+  fi
+}
+
+# wb_breakdown_apply <path> — U3: the full locked apply. Validates twice
+# (once to determine the lock set, once more after acquiring it — KTD5's
+# "never trust the buffer snapshot"), executes under the sorted multi-lock,
+# releases, then re-points @task outside the critical section.
+wb_breakdown_apply() {
+  local path="${1:-}"
+  local pre_out rc
+  # `if cmd; then rc=0; else rc=$?; fi`, never a bare `cmd; rc=$?` — see
+  # _wb_breakdown_acquire_locks's own comment for why the bare-statement
+  # form silently aborts the whole process under this file's `set -e`
+  # before `rc=$?` ever runs, masked only by this suite's own `set +e`.
+  if pre_out="$(_wb_breakdown_validate "$path")"; then rc=0; else rc=$?; fi
+  [ "$rc" -eq 0 ] || return "$rc"
+
+  if [ -z "$pre_out" ]; then
+    echo "wb breakdown --apply: nothing checked — no-op"
+    return 0
+  fi
+
+  local parent_stem; parent_stem="$(_wb_breakdown_buffer_parent "$path")"
+  local parent_file; parent_file="$(wb_resolve_parent_ref "$parent_stem")" || return 2
+  local parent_repo; parent_repo="$(wb_get_frontmatter "$parent_file" repo)"
+
+  local -a lock_targets=("$parent_file")
+  local line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    local -a f; wb_tsv_split "$line" f
+    case "${f[0]}" in
+      create)            lock_targets+=("$TASKS_DIR/${f[2]}--${f[4]}.md") ;;
+      migrate|move)       lock_targets+=("$TASKS_DIR/$parent_repo--${f[2]}.md") ;;
+    esac
+  done <<< "$pre_out"
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  local -a acquired=()
+  local acquire_rc
+  if _wb_breakdown_acquire_locks acquired "${lock_targets[@]}"; then acquire_rc=0; else acquire_rc=$?; fi
+  [ "$acquire_rc" -eq 0 ] || return "$acquire_rc"
+
+  # Re-validate against live store state — never trust the buffer snapshot
+  # (KTD5): something could have changed in the window between the
+  # pre-lock parse above and now.
+  local out
+  if out="$(_wb_breakdown_validate "$path")"; then rc=0; else rc=$?; fi
+  if [ "$rc" -ne 0 ]; then
+    local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
+    return "$rc"
+  fi
+  if [ -z "$out" ]; then
+    local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
+    echo "wb breakdown --apply: nothing checked — no-op"
+    return 0
+  fi
+
+  local migration_target_file
+  migration_target_file="$(_wb_breakdown_execute "$path" "$parent_file" "$parent_stem" "$out")"
+
+  local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
+
+  if [ -n "$migration_target_file" ]; then
+    _wb_breakdown_repoint_task "$parent_file" "$migration_target_file"
+  fi
+
+  local n_create n_migrate n_move
+  n_create="$(printf '%s\n' "$out" | grep -c $'^create\t')"
+  n_migrate="$(printf '%s\n' "$out" | grep -c $'^migrate\t')"
+  n_move="$(printf '%s\n' "$out" | grep -c $'^move\t')"
+  echo "wb breakdown --apply: $n_create child(ren) created, migration: $([ "$n_migrate" -gt 0 ] && echo yes || echo no), $n_move follow-up move(s) applied"
+  return 0
+}
+
+cmd_breakdown() {
+  case "${1:-}" in
+    --apply)
+      shift
+      wb_breakdown_apply "${1:-}"
+      ;;
+    *)
+      echo "usage: wb breakdown --apply <buffer-path>" >&2
+      return 1
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # wb pause — mark inactive without tearing anything down
 # ---------------------------------------------------------------------------
 
@@ -1261,15 +2227,10 @@ cmd_pause() {
     session="$(tmux display-message -p '#S')"
   fi
 
-  local repo slug
-  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
-  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
-  [ -n "$repo" ] && [ -n "$slug" ] \
+  local task_file
+  task_file="$(wb_session_task_file "$session")" \
     || { echo "wb pause: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
-  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
-  [ -f "$task_file" ] || { echo "wb pause: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
+  [ -f "$task_file" ] || { echo "wb pause: no task file for $session ($task_file)" >&2; exit 1; }
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
@@ -1304,15 +2265,10 @@ cmd_reviewed() {
     session="$(tmux display-message -p '#S')"
   fi
 
-  local repo slug
-  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
-  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
-  [ -n "$repo" ] && [ -n "$slug" ] \
+  local task_file
+  task_file="$(wb_session_task_file "$session")" \
     || { echo "wb reviewed: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
-  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
-  [ -f "$task_file" ] || { echo "wb reviewed: no task file for $repo/$slug ($task_file)" >&2; exit 1; }
+  [ -f "$task_file" ] || { echo "wb reviewed: no task file for $session ($task_file)" >&2; exit 1; }
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
@@ -2422,22 +3378,66 @@ cmd_done() {
     session="$(tmux display-message -p '#S')"
   fi
 
-  # -v alone (no -p) so it cascades to the session-scoped value set-option
-  # wrote in cmd_new — -p demands a pane-local value and errors "invalid option".
-  local repo slug
-  repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
-  slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
-  [ -n "$repo" ] && [ -n "$slug" ] \
-    || { echo "wb done: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+  # KTD7's store-only close: <session> matching no LIVE tmux session at all
+  # is resolved as a task-file stem instead — a session-less parent (the
+  # whole point of wb-breakdown's family split) never had a session for
+  # @wb_repo/@wb_slug to be missing FROM; there's simply nothing to attach
+  # to. This is also the exact path KTD8's printed last-child nudge
+  # ("wb done <parent-stem>") depends on to actually work.
+  local task_file store_only=0
+  if tmux has-session -t "=$session" 2>/dev/null; then
+    # @task-first resolution (KTD7) — @wb_repo/@wb_slug stay intentionally
+    # stale on a migrated continuing session (its OWN git identity never
+    # changes, only which task file owns it), so trusting them here would
+    # act on the wrong file post-migration. wb_session_task_file falls back
+    # to today's @wb_repo/@wb_slug derivation byte-for-byte when @task isn't
+    # set — every session that predates this feature.
+    task_file="$(wb_session_task_file "$session")" \
+      || { echo "wb done: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+    [ -f "$task_file" ] || { echo "wb done: no task file for $session ($task_file)" >&2; exit 1; }
+  else
+    task_file="$TASKS_DIR/$session.md"
+    [ -f "$task_file" ] \
+      || { echo "wb done: '$session' matches no live tmux session and no task file in $TASKS_DIR" >&2; exit 1; }
+    store_only=1
+  fi
 
-  local repo_dir="$CODE_DIR/$repo"
-  local worktree_path="$repo_dir/.worktrees/$slug"
-  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
-  local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+  local task_stem; task_stem="$(basename "$task_file" .md)"
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
 
-  # 1. fail fast — never mutate anything on a dirty tree.
-  _wb_git_dirty_guard "$worktree_path" "wb done"
+  local repo_dir worktree_path
+  if [ "$store_only" = 0 ]; then
+    # Derived from the TASK FILE's own frontmatter, never from
+    # @wb_repo/@wb_slug directly — a migrated child's worktree:/branch: are
+    # its OWN (received from the parent during migration), and a
+    # store-only parent has neither to derive from in the first place.
+    local repo worktree_rel slug
+    repo="$(wb_get_frontmatter "$task_file" repo)"
+    slug="$(wb_get_frontmatter "$task_file" branch)"
+    worktree_rel="$(wb_get_frontmatter "$task_file" worktree)"
+    [ -n "$worktree_rel" ] || worktree_rel=".worktrees/$slug"
+    repo_dir="$CODE_DIR/$repo"
+    worktree_path="$repo_dir/$worktree_rel"
+
+    # Worktree drift guard (KTD7): worktree: is SET but doesn't exist, while
+    # the ordinary .worktrees/$slug derivation DOES — never guess which one
+    # is right (tearing down against the wrong target destroys real work).
+    if [ -n "$(wb_get_frontmatter "$task_file" worktree)" ] \
+       && [ ! -d "$worktree_path" ] \
+       && [ -d "$repo_dir/.worktrees/$slug" ]; then
+      echo "wb done: $task_file's worktree: ($worktree_rel) doesn't exist, but $repo_dir/.worktrees/$slug does — refusing to guess which is right; fix the drift by hand" >&2
+      exit 1
+    fi
+
+    # 1. fail fast — never mutate anything on a dirty tree.
+    _wb_git_dirty_guard "$worktree_path" "wb done"
+  fi
+
+  # Steps 2-3 (Sweep review buffer + worktree removal) are meaningless for a
+  # store-only close — a session-less parent never had a worktree to sweep
+  # or remove (KTD7: "no sweep, worktree, or session teardown"). Only the
+  # shared status/closed/Handoffs burst below applies to it.
+  if [ "$store_only" = 0 ]; then
 
   # 2. review buffer — the task file itself IS the buffer (it already lives
   # centrally and survives `git worktree remove`, so there's no copy to sync
@@ -2464,7 +3464,7 @@ cmd_done() {
 
     wb_open_buffer "$task_file"
 
-    local dossier="$TASKS_DIR/dossiers/${repo}--${disp_slug}"
+    local dossier="$TASKS_DIR/dossiers/$task_stem"
     local -a safe_kept=()
     local f safe
     # Scope to the section this run appended (never the task's own freeform
@@ -2543,21 +3543,41 @@ cmd_done() {
     git -C "$repo_dir" worktree remove "$worktree_path" --force
   fi
 
-  # Burst 3: final status/closed stamps + Handoffs entry — its own lock
-  # burst, acquired only now, AFTER the (unlocked) worktree removal above.
-  # `git worktree remove` is a slow-ish external operation and isn't a
-  # task-FILE write at all, so it must never happen while the lock is held.
+  fi   # store_only == 0 (steps 2-3)
+
+  # Burst 3 (shared): final status/closed stamps + Handoffs entry — its own
+  # lock burst, acquired only now, AFTER the (unlocked) worktree removal
+  # above. `git worktree remove` is a slow-ish external operation and isn't
+  # a task-FILE write at all, so it must never happen while the lock is
+  # held. Applies to both paths — a store-only close still needs its own
+  # status/closed/handoff burst (KTD7/KTD8: the printed nudge names a
+  # parent that must actually flip to done when someone acts on it).
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status done
   wb_set_frontmatter "$task_file" closed "$(date +%F)"
   wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
   wb_task_lock_release "$task_file"
 
-  echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
+  if [ "$store_only" = 1 ]; then
+    echo "wb done: $task_file closed (store-only — no live session or worktree to tear down)"
+  else
+    echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
+  fi
 
   local total=$(( $(wb_followup_count) + $(wb_parked_count) ))
   if [ "$total" -ge "$WB_SWEEP_THRESHOLD" ]; then
     echo "wb done: $(wb_pending_counts) — consider running /parked-items"
+  fi
+
+  # KTD8's last-child nudge: pure read + print, guarded so a scan failure
+  # can never abort cmd_done under set -e (an `if` condition's exit status
+  # is exempt from errexit either way, but the explicit -f guard also keeps
+  # a missing parent file silent rather than probing wb_family_all_done
+  # against a store with no matching file at all). D8: manual parent
+  # closing stays manual — this only ever prints, never writes.
+  local task_parent; task_parent="$(wb_get_frontmatter "$task_file" parent)"
+  if [ -n "$task_parent" ] && [ -f "$TASKS_DIR/$task_parent.md" ] && wb_family_all_done "$task_parent"; then
+    echo "wb done: all children of $task_parent are done — close it with: wb done $task_parent"
   fi
 
   # --close is opt-in, not a revert of the wb-pause-era decision above: the
@@ -2565,7 +3585,8 @@ cmd_done() {
   # the kill. Best-effort (|| true) — by this point the state that matters
   # (worktree removed, status flipped) is already done and echoed, so a
   # racing/already-gone session must not abort the script under set -e.
-  [ "$close" -eq 1 ] && tmux kill-session -t "=$session" 2>/dev/null || true
+  # Store-only has no session to kill in the first place.
+  [ "$store_only" = 0 ] && [ "$close" -eq 1 ] && tmux kill-session -t "=$session" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -2656,12 +3677,16 @@ wb_agent_subrows() {
 # the store; otherwise shows the session name and, if its cwd is a git repo,
 # the current branch — same shape a plain `s`-created session gets.
 wb_live_session_row() {
-  local session="$1" repo slug disp_slug task_file branch label statuscol kind ref slug_out=""
+  local session="$1" repo slug task_file branch label statuscol kind ref slug_out=""
   repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
   slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
   if [ -n "$repo" ] && [ -n "$slug" ]; then
-    disp_slug="$(wb_sanitize "$slug")"
-    task_file="$(wb_task_file "$repo" "$disp_slug")"
+    # @task-first (KTD7): @wb_repo/@wb_slug alone would re-derive the
+    # PARENT's file on a migrated session (apply re-points @task, never
+    # these two) — repo/slug_out below stay the session's own real git
+    # identity regardless; only which task file drives the row's title/
+    # branch/ref changes.
+    task_file="$(wb_session_task_file "$session")"
     if [ -f "$task_file" ]; then
       local -a _wt; wb_tsv_split "$(wb_read_task "$task_file")" _wt
       branch="${_wt[3]}"
@@ -3136,6 +4161,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     new)         shift; cmd_new "$@" ;;
     resume)      shift; cmd_resume "$@" ;;
     reconcile)   shift; cmd_reconcile "$@" ;;
+    breakdown)   shift; cmd_breakdown "$@" ;;
     board)       shift; cmd_board "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;

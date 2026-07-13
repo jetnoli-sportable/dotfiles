@@ -381,7 +381,7 @@ claim is always a waits-on link — <code>needs: &lt;item&gt;</code>, <code>cloc
 <li><a id="detail-wb-reconcile-glossary"></a><strong><code>wb reconcile --glossary</code></strong> (auto-detecting glossary gaps) — a <code>wb.sh</code> feature, not a docgen/Hub one; not this push's job.</li>
 </ul>
 <h2 id="shipped">Shipped</h2>
-<p><span class="chip ok">15 shipped</span> — full history and rationale live
+<p><span class="chip ok">16 shipped</span> — full history and rationale live
 on each linked recap page; these no longer take a queue/live/parked slot.</p>
 <ul>
 <li><a id="detail-step-zero"></a><strong>Step zero</strong> (hooks, alias cleanup) — attention-pipeline hooks wired, dead <code>n</code> alias removed.</li>
@@ -399,6 +399,7 @@ on each linked recap page; these no longer take a queue/live/parked slot.</p>
 <li><a id="detail-precommit-hook-fix"></a><strong><code>docgen.sh</code>'s pre-commit hook</strong> — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test</li>
 <li><a id="detail-parent-child"></a><strong>Task parent/child relationship</strong> (incl. cross-repo/full-stack tasks) — <a href="roadmap-handoff.html">detail</a> — PR #17</li>
 <li><a id="detail-tasks-concurrency-safety"></a><strong>Central task-store git/file safety across concurrent agents</strong> — three-layer guard (agent-side &quot;ask&quot; hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — <a href="tasks-store-guards.html">guide</a> · <a href="2026-07-12-tasks-dir-concurrency-safety-recap.html">recap</a> — task: <code>dotfiles--docs-roadmap-tasks-concurrency-safety</code></li>
+<li><a id="detail-wb-breakdown"></a><strong><code>wb breakdown</code></strong> — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — <a href="2026-07-13-wb-breakdown-recap.html">recap</a> — task: <code>dotfiles--feat-wb-breakdown-skill</code></li>
 </ul>
 <p>Ceremonies (dated clocks, recurring reviews) now live on their own page:
 <a href="ceremonies.html">Ceremonies</a>. Standing workflow constraints now live on

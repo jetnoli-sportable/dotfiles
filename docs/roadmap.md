@@ -147,7 +147,7 @@ Considered, and decided against — kept here so the reasoning isn't lost.
 
 ## Shipped
 
-<span class="chip ok">15 shipped</span> — full history and rationale live
+<span class="chip ok">16 shipped</span> — full history and rationale live
 on each linked recap page; these no longer take a queue/live/parked slot.
 
 - <a id="detail-step-zero"></a>**Step zero** (hooks, alias cleanup) — attention-pipeline hooks wired, dead `n` alias removed.
@@ -165,6 +165,7 @@ on each linked recap page; these no longer take a queue/live/parked slot.
 - <a id="detail-precommit-hook-fix"></a>**`docgen.sh`'s pre-commit hook** — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test
 - <a id="detail-parent-child"></a>**Task parent/child relationship** (incl. cross-repo/full-stack tasks) — [detail](roadmap-handoff.html) — PR #17
 - <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** — three-layer guard (agent-side "ask" hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — [guide](tasks-store-guards.html) · [recap](2026-07-12-tasks-dir-concurrency-safety-recap.html) — task: `dotfiles--docs-roadmap-tasks-concurrency-safety`
+- <a id="detail-wb-breakdown"></a>**`wb breakdown`** — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — [recap](2026-07-13-wb-breakdown-recap.html) — task: `dotfiles--feat-wb-breakdown-skill`
 
 Ceremonies (dated clocks, recurring reviews) now live on their own page:
 [Ceremonies](ceremonies.html). Standing workflow constraints now live on

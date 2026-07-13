@@ -94,6 +94,14 @@ wb_open_buffer() { :; }   # no interactive nvim in a test run
 
 status_of() { wb_get_frontmatter "$FIXTURE_TASKS/proj--$1.md" status; }   # <task-file-slug>; reuses wb.sh's own frontmatter reader
 
+# --- U4 characterization: none of these fixture sessions set @task, so
+# wb_session_task_file's @task-first resolution (KTD7) must fall through
+# to the exact same @wb_repo/@wb_slug derivation cmd_done always used —
+# byte-identical for every session that predates wb-breakdown. Asserted
+# against "alpha" before the happy-path test below consumes it.
+assert "U4 regression: @task-less session resolves identically to the pre-KTD7 derivation" \
+  "^${FIXTURE_TASKS}/proj--alpha\\.md$" "$(wb_session_task_file "$(session_for alpha)")"
+
 # --- happy path: plain `wb done` (no flag) leaves the session alive ---------
 alpha_session="$(session_for alpha)"
 out="$(cmd_done "$alpha_session" 2>&1)"; rc=$?
