@@ -4,7 +4,7 @@ status: current
 tile: How to use wb: session-per-worktree, the unified picker, wind-down.
 group: personal-workflow
 kind: guide
-updated: 2026-07-07
+updated: 2026-07-12
 ---
 
 Replaces the `s` / `ca` split with a single tmux+fzf tool backed by a
@@ -249,6 +249,27 @@ away:
 ```
 wb board    # read-only status table over the whole store (the interim /board)
 ```
+
+## Keeping the task store safe
+
+`~/code/tasks` is a single git checkout that every `wb`-driven session on
+this machine shares — 8-10+ concurrent agents on a normal day. A follow-up
+PR added guards and a handful of new verbs on top of everything above. Full
+details, incident history, and runbooks live in
+[`tasks-store-guards.md`](guides/tasks-store-guards.html); the short version:
+
+| Verb | What it's for |
+|---|---|
+| `wb sync` | Pull/rebase the task store safely — refuses on a dirty tree or real conflicts instead of guessing. |
+| `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
+| `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
+| `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |
+
+Two hooks now sit in front of raw git commands touching this repo:
+a `PreToolUse` hook asks before an agent runs anything that looks like a
+history rewind, and a `reference-transaction` git hook refuses ref updates
+that would orphan commits, regardless of which tool or shell ran the
+command. `wb unsafe-rewind` is the sanctioned way through the second one.
 
 ## Known rough edges (not blocking, worth knowing)
 

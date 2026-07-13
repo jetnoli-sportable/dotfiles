@@ -24,18 +24,13 @@ source "$SCRIPT_DIR/lib.sh"
 # tests/wb-resume.test.sh already relies on. This reuses wb_sanitize/
 # wb_task_file (read-only helpers) without hand-copying the sanitize
 # transform where it could drift. NOTE: sourcing wb.sh reassigns
-# SCRIPT_DIR/SELF/CODE_DIR to its own values (wb.sh:25-26,31) — harmless
-# today only because handoff.sh never reads $SELF and never sets
-# $CODE_DIR before sourcing (both scripts also live in the same
-# directory, so the reassigned $SCRIPT_DIR happens to still be correct);
+# SCRIPT_DIR/SELF/CODE_DIR to its own values (wb.sh:43-44,53) — harmless
+# today because handoff.sh never reads $SELF, and CODE_DIR is now guarded
+# the same way TASKS_DIR is (`CODE_DIR="${CODE_DIR:-$HOME/code}"`,
+# wb.sh:53, fixed in fc95c63 — the exact variable from the 2026-07-10
+# deletion incident, where an unconditional reassignment in a sourced
+# script clobbered the sourcing script's own value of the same name).
 # $WB is captured above, before sourcing, so it's unaffected either way.
-# CODE_DIR is the exact variable from the 2026-07-10 deletion incident
-# (an unconditional reassignment in a sourced script clobbering the
-# sourcing script's own value of the same name) — wb.sh:31 is
-# `CODE_DIR="$HOME/code"` with no `${CODE_DIR:-...}` guard, unlike
-# TASKS_DIR right above it. Never export CODE_DIR before sourcing wb.sh
-# here expecting it to survive; the real fix (guard wb.sh:31 the same
-# way) needs a wb.sh edit and is out of scope for this branch (R2).
 # shellcheck source=wb.sh
 source "$WB"
 
