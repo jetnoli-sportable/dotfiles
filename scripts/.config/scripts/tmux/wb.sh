@@ -1347,6 +1347,376 @@ wb_reconcile_apply() {
 }
 
 # ---------------------------------------------------------------------------
+# wb breakdown — split one oversized task into a linked parent/child family
+# (docs/plans/2026-07-12-001-feat-wb-breakdown-skill-plan.md). U2 builds the
+# buffer grammar's parse + validate half only — no store writes here; U3
+# adds the locked apply execution on top of this same parse/validate core.
+# ---------------------------------------------------------------------------
+
+# wb_breakdown_report_path <parent_stem> — twin of wb_reconcile_report_path,
+# keeping the `|| true` on the git lookup (a bare failing `$(git …)` under
+# `set -e` was a real shipped bug there). One buffer per parent, unlike
+# reconcile's single global report.
+wb_breakdown_report_path() {
+  local stem="$1" root
+  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
+  [ -n "$root" ] || root="$CODE_DIR/dotfiles"
+  printf '%s/logs/breakdowns/%s.md\n' "$root" "$stem"
+}
+
+# _wb_bd_checkbox_state <line> — classify a line against KTD1's checkbox
+# grammar. "extra indentation" and `*` bullets are accepted forms (test
+# scenario); a line that LOOKS like an attempted checkbox (bullet + `[`)
+# but doesn't match the strict well-formed shape is "malformed", never
+# silently "none" — KTD1: never silently treated as unchecked. Anything
+# that doesn't even attempt a checkbox (a bare `- goal: ...` bullet, a
+# blockquote, prose) is "none".
+_wb_bd_checkbox_state() {
+  local line="$1"
+  if [[ "$line" =~ ^[[:space:]]*[-*][[:space:]]+\[([[:space:]xX])\][[:space:]] ]]; then
+    case "${BASH_REMATCH[1]}" in
+      x|X) echo checked ;;
+      *)   echo unchecked ;;
+    esac
+    return 0
+  fi
+  if [[ "$line" =~ ^[[:space:]]*[-*][[:space:]]*\[ ]]; then
+    echo malformed
+    return 0
+  fi
+  echo none
+}
+
+# _wb_bd_field <block-text> <key> — extract key=value from <block-text>'s
+# own opening marker line (its first line, always a `block=...` marker by
+# construction of _wb_breakdown_parse_blocks).
+_wb_bd_field() {
+  printf '%s' "$1" | head -1 | grep -oP "(?<= )$2=\K[^ ]+"
+}
+
+# _wb_bd_plan_markers_ok <block-text> — exactly one begin-plan then exactly
+# one end-plan, in that order; anything else is unbalanced (KTD1: hard
+# parse error, never silently ignored).
+_wb_bd_plan_markers_ok() {
+  local block="$1" begins ends first_kind
+  begins="$(printf '%s' "$block" | grep -c '<!-- wb-breakdown: begin-plan')"
+  ends="$(printf '%s' "$block" | grep -c '<!-- wb-breakdown: end-plan')"
+  [ "$begins" -eq 1 ] && [ "$ends" -eq 1 ] || return 1
+  first_kind="$(printf '%s' "$block" | grep -oE '<!-- wb-breakdown: (begin|end)-plan' | head -1)"
+  [ "$first_kind" = "<!-- wb-breakdown: begin-plan" ]
+}
+
+# _wb_bd_plan_body <block-text> — lines strictly between begin-plan and
+# end-plan. Caller must have already confirmed _wb_bd_plan_markers_ok.
+_wb_bd_plan_body() {
+  printf '%s' "$1" | awk '
+    /<!-- wb-breakdown: begin-plan/ { inbody = 1; next }
+    /<!-- wb-breakdown: end-plan/   { inbody = 0; next }
+    inbody { print }
+  '
+}
+
+# _wb_breakdown_parse_blocks <path> <array_name> — split <path> into raw
+# block strings, one per `<!-- wb-breakdown: block=... -->` marker (mirrors
+# wb_reconcile_apply's own block splitter). begin-plan/end-plan sub-markers
+# stay embedded inside their owning block's text — only a `block=` marker
+# starts a NEW block.
+_wb_breakdown_parse_blocks() {
+  local path="$1"
+  local -n _wbd_out="$2"
+  _wbd_out=()
+  local block="" line in_block=0
+  while IFS= read -r line; do
+    case "$line" in
+      '<!-- wb-breakdown: block='*)
+        [ "$in_block" = 1 ] && _wbd_out+=("$block")
+        block="$line"$'\n'; in_block=1 ;;
+      *)
+        [ "$in_block" = 1 ] && block+="$line"$'\n' ;;
+    esac
+  done < "$path"
+  [ "$in_block" = 1 ] && _wbd_out+=("$block")
+}
+
+# _wb_breakdown_validate <path> — parse + validate a closed buffer. Prints
+# one TSV row per CONFIRMED (checked and valid) action to stdout:
+#   create\t<n>\t<repo>\t<raw_slug>\t<disp_slug>\t<title>
+#   migrate\t<raw_slug>\t<disp_slug>
+#   plan_rewrite\tparent
+#   move\t<raw_slug>\t<disp_slug>\t<bullet_text>
+# Hard parse errors (mangled/missing markers, duplicate n=, a second
+# migration line, a multi-parent buffer, a whitespace/backtick-bearing
+# slug) abort the WHOLE validate — nothing is trustworthy once the buffer's
+# own structure can't be trusted (KTD1). Per-item validation failures
+# (collisions, an unresolvable migration/move target) print a warning to
+# stderr and are simply left out of the stdout action list (reconcile's
+# warn-and-skip posture) — the caller decides what "skipped" means for
+# exit-code purposes.
+_wb_breakdown_validate() {
+  local path="$1"
+  [ -n "$path" ] || { echo "wb breakdown --apply: usage: wb breakdown --apply <buffer-path>" >&2; return 1; }
+  [ -s "$path" ] || { echo "wb breakdown --apply: no buffer at $path (or it's empty) — nothing to apply" >&2; return 1; }
+
+  # --- orphan-checkbox pre-pass: any real or attempted checkbox line before
+  # the first block= marker means a marker went missing/mangled above it. --
+  local line lineno=0 saw_marker=0 state
+  while IFS= read -r line; do
+    lineno=$((lineno + 1))
+    case "$line" in
+      '<!-- wb-breakdown: block='*) saw_marker=1; continue ;;
+    esac
+    [ "$saw_marker" = 0 ] || continue
+    state="$(_wb_bd_checkbox_state "$line")"
+    if [ "$state" != none ]; then
+      echo "wb breakdown --apply: checkbox-shaped line before any wb-breakdown block marker (line $lineno) — a block marker is missing or mangled: $line" >&2
+      return 2
+    fi
+  done < "$path"
+
+  local -a blocks=()
+  _wb_breakdown_parse_blocks "$path" blocks
+  [ "${#blocks[@]}" -gt 0 ] || { echo "wb breakdown --apply: $path has no wb-breakdown blocks — malformed or empty buffer" >&2; return 2; }
+
+  # --- structural (hard) checks across all blocks ---------------------------
+  local b kind n parent repo
+  local parent_stem="" seen_ns="" mig_count=0 mig_lines=""
+  for b in "${blocks[@]}"; do
+    kind="$(_wb_bd_field "$b" block)"
+    parent="$(_wb_bd_field "$b" parent)"
+
+    if [ -z "$parent_stem" ]; then
+      parent_stem="$parent"
+    elif [ "$parent" != "$parent_stem" ]; then
+      echo "wb breakdown --apply: buffer references more than one parent ($parent_stem and $parent) — a breakdown buffer is single-parent" >&2
+      return 2
+    fi
+
+    if ! _wb_bd_plan_markers_ok "$b"; then
+      echo "wb breakdown --apply: unbalanced begin-plan/end-plan markers in a $kind block (marker line: $(printf '%s' "$b" | head -1))" >&2
+      return 2
+    fi
+
+    if [ "$kind" = child ]; then
+      n="$(_wb_bd_field "$b" n)"
+      case " $seen_ns " in
+        *" $n "*) echo "wb breakdown --apply: duplicate n=$n across child blocks" >&2; return 2 ;;
+      esac
+      seen_ns="$seen_ns $n"
+
+      local -a create_lines=()
+      while IFS= read -r line; do
+        printf '%s' "$line" | grep -q 'create child:' && create_lines+=("$line")
+      done < <(printf '%s' "$b")
+      if [ "${#create_lines[@]}" -ne 1 ]; then
+        echo "wb breakdown --apply: child block n=$n must have exactly one 'create child:' line, found ${#create_lines[@]} (marker: $(printf '%s' "$b" | head -1))" >&2
+        return 2
+      fi
+      local cl_state; cl_state="$(_wb_bd_checkbox_state "${create_lines[0]}")"
+      if [ "$cl_state" = malformed ] || [ "$cl_state" = none ]; then
+        echo "wb breakdown --apply: malformed checkbox on child n=$n's create-child line: ${create_lines[0]}" >&2
+        return 2
+      fi
+      local raw_slug; raw_slug="$(printf '%s' "${create_lines[0]}" | grep -oP 'create child: `\K[^`]*')"
+      if [ -z "$raw_slug" ]; then
+        echo "wb breakdown --apply: child n=$n's create-child line has no backticked slug: ${create_lines[0]}" >&2
+        return 2
+      fi
+      if [[ "$raw_slug" == *[[:space:]]* ]] || [[ "$raw_slug" == *'`'* ]]; then
+        echo "wb breakdown --apply: child n=$n's slug \`$raw_slug\` contains whitespace or a backtick — wb_sanitize doesn't strip either: ${create_lines[0]}" >&2
+        return 2
+      fi
+    fi
+
+    if [ "$kind" = parent ]; then
+      local -a mig_lines_here=()
+      while IFS= read -r line; do
+        [ "$(_wb_bd_checkbox_state "$line")" = none ] && continue
+        printf '%s' "$line" | grep -qP 'migrate branch/worktree .* continuing child:' && mig_lines_here+=("$line")
+      done < <(printf '%s' "$b")
+      mig_count=$((mig_count + ${#mig_lines_here[@]}))
+      if [ "${#mig_lines_here[@]}" -gt 1 ]; then
+        echo "wb breakdown --apply: more than one migration line in the parent block (checked or not): ${mig_lines_here[*]}" >&2
+        return 2
+      fi
+      if [ "$mig_count" -gt 1 ]; then
+        echo "wb breakdown --apply: more than one migration line across the parent block" >&2
+        return 2
+      fi
+    fi
+  done
+
+  if [ -z "$parent_stem" ]; then
+    echo "wb breakdown --apply: no parent= field found on any block" >&2
+    return 2
+  fi
+
+  local parent_file parent_repo
+  parent_file="$(wb_resolve_parent_ref "$parent_stem")" || return 2
+  parent_repo="$(wb_get_frontmatter "$parent_file" repo)"
+  if ! _wb_bd_check_no_cycle "$parent_stem"; then
+    return 2
+  fi
+
+  # --- item-level validation + stdout action rows ---------------------------
+  local -a confirmed_child_stems=()
+  for b in "${blocks[@]}"; do
+    [ "$(_wb_bd_field "$b" block)" = child ] || continue
+    n="$(_wb_bd_field "$b" n)"
+    repo="$(_wb_bd_field "$b" repo)"
+    local create_line; create_line="$(printf '%s' "$b" | grep -P '^\s*[-*]\s+\[[ xX]\]\s+create child:' | head -1)"
+    [ "$(_wb_bd_checkbox_state "$create_line")" = checked ] || continue
+
+    local raw_slug disp_slug title
+    raw_slug="$(printf '%s' "$create_line" | grep -oP 'create child: `\K[^`]*')"
+    disp_slug="$(wb_sanitize "$raw_slug")"
+    title="$(printf '%s' "$b" | grep -oP '^\s*-\s+goal:\s*\K.*' | head -1)"
+
+    local collision=0
+    local other
+    for other in "${confirmed_child_stems[@]}"; do
+      [ "$other" != "$repo--$disp_slug" ] || { collision=1; break; }
+    done
+    if [ "$collision" = 1 ]; then
+      echo "wb breakdown --apply: skipping child n=$n ($raw_slug) — sanitizes to $repo--$disp_slug, already claimed by another checked child in this buffer" >&2
+      continue
+    fi
+    if [ -f "$TASKS_DIR/$repo--$disp_slug.md" ]; then
+      echo "wb breakdown --apply: skipping child n=$n ($raw_slug) — $repo--$disp_slug already exists in the store" >&2
+      continue
+    fi
+
+    confirmed_child_stems+=("$repo--$disp_slug")
+    printf 'create\t%s\t%s\t%s\t%s\t%s\n' "$n" "$repo" "$raw_slug" "$disp_slug" "$title"
+  done
+
+  for b in "${blocks[@]}"; do
+    [ "$(_wb_bd_field "$b" block)" = parent ] || continue
+
+    local mig_line; mig_line="$(printf '%s' "$b" | grep -P 'migrate branch/worktree .* continuing child:' | head -1)"
+    if [ -n "$mig_line" ] && [ "$(_wb_bd_checkbox_state "$mig_line")" = checked ]; then
+      local mig_target; mig_target="$(printf '%s' "$mig_line" | grep -oP 'continuing child: `\K[^`]*')"
+      if [ -z "$mig_target" ] || [ "$mig_target" = ___ ]; then
+        echo "wb breakdown --apply: skipping migration — target field is unfilled (\`___\`)" >&2
+      elif [ -z "$(wb_get_frontmatter "$parent_file" branch)" ] && [ -z "$(wb_get_frontmatter "$parent_file" worktree)" ]; then
+        echo "wb breakdown --apply: skipping migration — parent $parent_stem is already session-less (no branch:/worktree: to give)" >&2
+      else
+        local mig_disp; mig_disp="$(wb_sanitize "$mig_target")"
+        local mig_ok=0 cs
+        for cs in "${confirmed_child_stems[@]}"; do
+          [ "$cs" != "$parent_repo--$mig_disp" ] || { mig_ok=1; break; }
+        done
+        if [ "$mig_ok" = 0 ]; then
+          local existing_child
+          for existing_child in $(wb_task_files); do
+            [ "$(wb_get_frontmatter "$existing_child" parent)" = "$parent_stem" ] || continue
+            [ "$(wb_get_frontmatter "$existing_child" branch)" = "$mig_target" ] || continue
+            mig_ok=1; break
+          done
+        fi
+        if [ "$mig_ok" = 1 ]; then
+          printf 'migrate\t%s\t%s\n' "$mig_target" "$mig_disp"
+        else
+          echo "wb breakdown --apply: skipping migration — target \`$mig_target\` is neither a checked child in this buffer nor an existing child of $parent_stem" >&2
+        fi
+      fi
+    fi
+
+    local rewrite_line; rewrite_line="$(printf '%s' "$b" | grep -P '^\s*[-*]\s+\[[ xX]\]\s+rewrite parent ## Plan as below' | head -1)"
+    if [ -n "$rewrite_line" ] && [ "$(_wb_bd_checkbox_state "$rewrite_line")" = checked ]; then
+      printf 'plan_rewrite\tparent\n'
+    fi
+
+    local followups; followups="$(wb_board_section "$parent_file" "Follow-ups")"
+    while IFS= read -r line; do
+      [ "$(_wb_bd_checkbox_state "$line")" = checked ] || continue
+      printf '%s' "$line" | grep -qP "move follow-up:" || continue
+      local move_text move_target
+      move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K[^"]*')"
+      move_target="$(printf '%s' "$line" | grep -oP 'child: `\K[^`]*')"
+      local match_count; match_count="$(printf '%s' "$followups" | grep -cxF -- "- $move_text")"
+      if [ "$match_count" -ne 1 ]; then
+        echo "wb breakdown --apply: skipping follow-up move (\"$move_text\") — matched $match_count bullet(s) in $parent_stem's ## Follow-ups (need exactly 1)" >&2
+        continue
+      fi
+      local move_disp; move_disp="$(wb_sanitize "$move_target")"
+      local move_ok=0 cs2
+      for cs2 in "${confirmed_child_stems[@]}"; do
+        [ "$cs2" != "$parent_repo--$move_disp" ] || { move_ok=1; break; }
+      done
+      if [ "$move_ok" = 0 ]; then
+        local existing_child2
+        for existing_child2 in $(wb_task_files); do
+          [ "$(wb_get_frontmatter "$existing_child2" parent)" = "$parent_stem" ] || continue
+          [ "$(wb_get_frontmatter "$existing_child2" branch)" = "$move_target" ] || continue
+          move_ok=1; break
+        done
+      fi
+      if [ "$move_ok" = 1 ]; then
+        printf 'move\t%s\t%s\t%s\n' "$move_target" "$move_disp" "$move_text"
+      else
+        echo "wb breakdown --apply: skipping follow-up move (\"$move_text\") — target \`$move_target\` is neither a checked child in this buffer nor an existing child of $parent_stem" >&2
+      fi
+    done < <(printf '%s' "$b")
+  done
+
+  return 0
+}
+
+# _wb_bd_check_no_cycle <stem> — walk <stem>'s own parent: chain (bounded to
+# 50 hops) and fail loud if it ever revisits a stem already seen. Defends
+# the (unrelated to this operation) case of a corrupted store already
+# carrying an A->B->A parent chain — this operation never creates one
+# itself, since every new child's parent: is <stem>, a leaf write.
+_wb_bd_check_no_cycle() {
+  local stem="$1" seen=" $1 " cur="$1" depth=0 next_file next_parent
+  while [ "$depth" -lt 50 ]; do
+    next_file="$TASKS_DIR/$cur.md"
+    [ -f "$next_file" ] || return 0
+    next_parent="$(wb_get_frontmatter "$next_file" parent)"
+    [ -n "$next_parent" ] || return 0
+    case "$seen" in
+      *" $next_parent "*)
+        echo "wb breakdown --apply: cycle detected in $stem's existing parent chain at $next_parent — refusing" >&2
+        return 1 ;;
+    esac
+    seen="$seen$next_parent "
+    cur="$next_parent"
+    depth=$((depth + 1))
+  done
+  echo "wb breakdown --apply: $stem's parent chain exceeds 50 hops — refusing (possible cycle)" >&2
+  return 1
+}
+
+# cmd_breakdown --apply <buffer-path> — U2: parse + validate only, no writes
+# (U3 extends this same function with the locked write execution).
+cmd_breakdown() {
+  case "${1:-}" in
+    --apply)
+      shift
+      local path="${1:-}"
+      local -a actions=()
+      local out rc
+      out="$(_wb_breakdown_validate "$path")"; rc=$?
+      [ "$rc" -eq 0 ] || return "$rc"
+      if [ -z "$out" ]; then
+        echo "wb breakdown --apply: nothing checked — no-op"
+        return 0
+      fi
+      local n_create n_migrate n_rewrite n_move
+      n_create="$(printf '%s\n' "$out" | grep -c $'^create\t')"
+      n_migrate="$(printf '%s\n' "$out" | grep -c $'^migrate\t')"
+      n_rewrite="$(printf '%s\n' "$out" | grep -c $'^plan_rewrite\t')"
+      n_move="$(printf '%s\n' "$out" | grep -c $'^move\t')"
+      echo "wb breakdown --apply: validated $n_create child(ren) to create, migration: $([ "$n_migrate" -gt 0 ] && echo yes || echo no), parent Plan rewrite: $([ "$n_rewrite" -gt 0 ] && echo yes || echo no), $n_move follow-up move(s) — no writes yet (U3)"
+      ;;
+    *)
+      echo "usage: wb breakdown --apply <buffer-path>" >&2
+      return 1
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # wb pause — mark inactive without tearing anything down
 # ---------------------------------------------------------------------------
 
@@ -3239,6 +3609,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     new)         shift; cmd_new "$@" ;;
     resume)      shift; cmd_resume "$@" ;;
     reconcile)   shift; cmd_reconcile "$@" ;;
+    breakdown)   shift; cmd_breakdown "$@" ;;
     board)       shift; cmd_board "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
