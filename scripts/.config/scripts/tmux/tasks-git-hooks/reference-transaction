@@ -192,8 +192,20 @@ refuse_or_allow() {
   { exec 3<"/dev/tty"; } 2>/dev/null && tty_ok=1
   if [ "$tty_ok" -eq 1 ]; then
     local reply=""
-    read -r -p "Allow this one ref update anyway? [y/N] " reply <&3 2>/dev/null
-    exec 3<&- 2>/dev/null || true
+    # -t 30: bound the wait instead of blocking indefinitely if the human
+    # at this real terminal steps away mid-prompt -- this hook runs
+    # synchronously inside git's "prepared" phase, holding that ref's
+    # transaction open the whole time. A timed-out/failed read leaves
+    # $reply empty, which the case below already treats as "no" (falls
+    # through to the refusal), so this changes only the worst-case wait,
+    # never the happy-path behavior for an attentive operator.
+    read -r -t 30 -p "Allow this one ref update anyway? [y/N] " reply <&3 2>/dev/null || true
+    # `{ ; }` group, not a bare `exec 3<&- 2>/dev/null`: the latter
+    # redirects THIS PROCESS's own fd 2 to /dev/null permanently (see
+    # wb-locks.sh's identical, separately-fixed bug) -- every stderr
+    # write for the rest of this hook invocation, including the refusal
+    # message a few lines below, would silently vanish otherwise.
+    { exec 3<&-; } 2>/dev/null || true
     case "$reply" in
       [Yy]*)
         echo "reference-transaction hook: interactively overridden for $ref." >&2
@@ -284,8 +296,23 @@ while read -r old new ref; do
   # against the all-zeros OID, so this collapses to exactly the form H12
   # specifies for deletions: `git rev-list <old> --not <all other refs>`.
   other_refs="$(printf '%s\n' "$all_refs" | grep -Fxv "$ref" || true)"
+  # Distinguish "computed zero orphans" (rev-list succeeded, printed
+  # nothing -- the ordinary, expected case) from "could not compute at
+  # all" (rev-list itself failed -- corrupt object, disk I/O error, an
+  # unexpected ref-name shape). A prior version piped both through
+  # `2>/dev/null || true`, collapsing a genuine internal failure into the
+  # same empty result as "nothing orphaned" -- silently ALLOWING a
+  # transaction whenever this hook's OWN reachability check itself broke,
+  # on the one layer whose entire stated purpose is to be the backstop
+  # that never does that (contrast pretooluse-guard.sh's H8, which is
+  # explicitly DOCUMENTED to fail open on internal error -- this hook has
+  # no such documented posture; its header says the opposite). Refuse,
+  # don't allow, when the check that decides refuse-vs-allow can't run.
   # shellcheck disable=SC2086
-  orphaned="$(git rev-list "$old" --not $other_refs $extra_exclude 2>/dev/null || true)"
+  if ! orphaned="$(git rev-list "$old" --not $other_refs $extra_exclude 2>&1)"; then
+    echo "reference-transaction hook: could not verify reachability for $ref (git rev-list failed: $orphaned) -- refusing out of caution rather than risking a silent false allow" >&2
+    exit 1
+  fi
 
   if [ "$force_refuse" -eq 1 ] || [ -n "$orphaned" ]; then
     if refuse_or_allow "$ref" "$orphaned"; then

@@ -283,8 +283,10 @@ ff_skipped=0
 nonff_examined=0
 refuse_count=0
 allow_count=0
+uneval_count=0
 REFUSE_SUMMARY=()
 ALLOW_SUMMARY=()
+UNEVAL_SUMMARY=()
 
 short() { git -C "$REPO" rev-parse --short "$1" 2>/dev/null || printf '%s' "$1"; }
 human_ts() { date -d "@$1" '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || printf '@%s' "$1"; }
@@ -303,16 +305,37 @@ evaluate_transition() {
     [ -n "$v" ] && other_vals+=("$v")
   done
 
-  local orphaned=""
-  if [ "${#other_vals[@]}" -gt 0 ]; then
-    orphaned="$(git -C "$REPO" rev-list "$old" --not "$new" "${other_vals[@]}" 2>/dev/null || true)"
-  else
-    orphaned="$(git -C "$REPO" rev-list "$old" --not "$new" 2>/dev/null || true)"
-  fi
-
   local old_s new_s ts_h desc
   old_s="$(short "$old")"; new_s="$(short "$new")"; ts_h="$(human_ts "$T")"
   desc="$ref  ${old_s}..${new_s}  @${T} ($ts_h)"
+
+  # Distinguish "computed zero orphans" (rev-list succeeded, printed
+  # nothing) from "could not compute at all" (rev-list itself failed) --
+  # a prior version piped both through `2>/dev/null || true`, so a genuine
+  # internal failure during replay silently read as a clean ALLOW in the
+  # report a human uses to decide whether to enable the live hook. This
+  # tool's whole purpose is to surface exactly this kind of gap before
+  # that decision, not hide it behind a fabricated-looking ALLOW reason.
+  local orphaned="" rev_list_err
+  if [ "${#other_vals[@]}" -gt 0 ]; then
+    if ! orphaned="$(git -C "$REPO" rev-list "$old" --not "$new" "${other_vals[@]}" 2>&1)"; then
+      rev_list_err="$orphaned"; orphaned=""
+      uneval_count=$((uneval_count + 1))
+      UNEVAL_SUMMARY+=("$desc")
+      echo "NOTICE - $desc"
+      echo "         reason: could not evaluate (git rev-list failed: $rev_list_err) -- NOT represented in the REFUSE/ALLOW counts above; treat this transition as unaudited, not as a passing ALLOW"
+      return
+    fi
+  else
+    if ! orphaned="$(git -C "$REPO" rev-list "$old" --not "$new" 2>&1)"; then
+      rev_list_err="$orphaned"; orphaned=""
+      uneval_count=$((uneval_count + 1))
+      UNEVAL_SUMMARY+=("$desc")
+      echo "NOTICE - $desc"
+      echo "         reason: could not evaluate (git rev-list failed: $rev_list_err) -- NOT represented in the REFUSE/ALLOW counts above; treat this transition as unaudited, not as a passing ALLOW"
+      return
+    fi
+  fi
 
   if [ -n "$orphaned" ]; then
     refuse_count=$((refuse_count + 1))
@@ -410,13 +433,29 @@ for ref_idx in "${!ALL_REFS[@]}"; do
         v="$(value_at "$j" "$T")"
         [ -n "$v" ] && other_vals+=("$v")
       done
-      if [ "${#other_vals[@]}" -gt 0 ]; then
-        orphaned="$(git -C "$REPO" rev-list "$old" --not "${other_vals[@]}" 2>/dev/null || true)"
-      else
-        orphaned="$(git -C "$REPO" rev-list "$old" 2>/dev/null || true)"
-      fi
       old_s="$(short "$old")"; ts_h="$(human_ts "$T")"
       desc="$ref  ${old_s}..(deleted)  @${T} ($ts_h)"
+      # Same rev-list-failure-vs-empty-result distinction as
+      # evaluate_transition above -- see that function's comment. This
+      # whole branch is documented dead code on git 2.43.0's "files"
+      # backend (bias #3 in this script's header), but the fix costs
+      # nothing and keeps the two mirrored reachability computations from
+      # silently drifting apart if this path ever becomes live on a
+      # different backend.
+      rev_list_ok=1
+      if [ "${#other_vals[@]}" -gt 0 ]; then
+        orphaned="$(git -C "$REPO" rev-list "$old" --not "${other_vals[@]}" 2>&1)" || rev_list_ok=0
+      else
+        orphaned="$(git -C "$REPO" rev-list "$old" 2>&1)" || rev_list_ok=0
+      fi
+      if [ "$rev_list_ok" -eq 0 ]; then
+        uneval_count=$((uneval_count + 1))
+        UNEVAL_SUMMARY+=("$desc")
+        echo "NOTICE - $desc"
+        echo "         reason: could not evaluate (git rev-list failed: $orphaned) -- NOT represented in the REFUSE/ALLOW counts above; treat this transition as unaudited, not as a passing ALLOW"
+        prev_new="$new"
+        continue
+      fi
       if [ -n "$orphaned" ]; then
         refuse_count=$((refuse_count + 1))
         REFUSE_SUMMARY+=("$desc")
@@ -463,6 +502,25 @@ echo "  ALLOW: $allow_count"
 for s in "${ALLOW_SUMMARY[@]:-}"; do
   [ -n "$s" ] && echo "    - $s"
 done
+if [ "$uneval_count" -gt 0 ]; then
+  echo "  COULD NOT EVALUATE: $uneval_count (git rev-list itself failed -- NOT counted as ALLOW; read these before trusting the counts above)"
+  for s in "${UNEVAL_SUMMARY[@]:-}"; do
+    [ -n "$s" ] && echo "    - $s"
+  done
+fi
+echo
+echo "KNOWN BLIND SPOT: branch DELETIONS are not fully represented above."
+echo "On git's \"files\" ref-storage backend (the default; verified 2026-07-11"
+echo "on git 2.43.0), \`git branch -D\` deletes the ref's reflog file outright"
+echo "instead of appending a final entry, so a historical branch deletion"
+echo "this repo's history actually contains may leave NO reflog trace for"
+echo "this replay to walk at all -- it would not appear as a REFUSE, an"
+echo "ALLOW, or even a NOTICE line above; it is simply invisible to this"
+echo "audit. This can only produce a false negative (a real past deletion"
+echo "silently unaudited), never a false ALLOW on a transition this script"
+echo "did examine. See this script's own header (bias #3) for the full"
+echo "reasoning. Do not read a clean report above as proof no dangerous"
+echo "branch deletion ever happened in this repo's history."
 echo
 echo "This script never enables the git hook and never judges whether the"
 echo "refusals above are the expected known incidents -- that read is yours."
