@@ -546,7 +546,7 @@ pipe_panel_deps="${flat_deps#*id=\"panel-pipeline\">}"
 row_blocked="${pipe_panel_deps#*Pipe Blocked Task}"; row_blocked="${row_blocked%%</tr>*}"
 row_blocker="${pipe_panel_deps#*Pipe Blocker Task}"; row_blocker="${row_blocker%%</tr>*}"
 assert "pipeline deps: blocked task shows the ⛔ chip with count 1" 'dep-chip blocked".*&#9940; 1' "$row_blocked"
-assert "pipeline deps: blocked task's row is dimmed" 'class="row blocked"' "$(printf '%s' "$pipe_panel_deps" | grep -o '<tr class="[^"]*"><td><a class="tasklink" href="#t-pipeline-proj--pipe-blocked">.*' | head -c 200)"
+assert "pipeline deps: blocked task's row is dimmed" 'class="row blocked"' "$(printf '%s' "$pipe_panel_deps" | grep -o '<tr class="[^"]*"[^>]*><td><a class="tasklink" href="#t-pipeline-proj--pipe-blocked">.*' | head -c 200)"
 assert "pipeline deps: blocker task shows the → unblocks chip with count 1" 'dep-chip unblocks".*&#8594; 1' "$row_blocker"
 assert "pipeline deps: dep-free task shows an em-dash" '&mdash;' "${pipe_panel_deps#*Pipe AE1 Task}"
 
@@ -649,6 +649,122 @@ assert "U6 KTD-9: dangling-stem warning escaped inside a title= attribute" \
   'title="depends on unresolved stem: proj--&lt;script&gt;"' "$card_attr"
 assert_not "U6 KTD-9: no raw unescaped tag inside an attribute value" \
   'title="depends on unresolved stem: proj--<script>' "$card_attr"
+
+# =============================================================================
+# U7: header window control and repo/family filters
+# =============================================================================
+html_u7="$(wb_board_render_html 2>&1)"
+flat_u7="$(printf '%s' "$html_u7" | tr '\n' ' ')"
+
+# --- window control renders as a segmented control, structurally separate
+# from the tab row, in the header (R12) -------------------------------------
+assert "U7: window control is its own tabgroup, separate from the tab row" \
+  '<div class="tabgroup window-control">.*<div class="tabgroup tabs-row">' "$flat_u7"
+
+# --- repo filter: radios present, "All repos" checked by default -----------
+assert "U7: fr-all radio present and checked by default" \
+  '<input type="radio" name="fr" id="fr-all" checked>' "$html_u7"
+assert "U7: a per-repo radio exists for proj" '<input type="radio" name="fr" id="fr-proj">' "$html_u7"
+assert "U7: repo dropdown default summary reads generic Repo (not a specific repo)" \
+  'data-for="all">Repo &#9662;' "$html_u7"
+
+# --- every task row and card carries data-repo; be--monorepo's "--" does
+# not corrupt the generated id/value (collision-free, valid HTML id) --------
+assert "U7: be--monorepo repo radio id is well-formed" \
+  '<input type="radio" name="fr" id="fr-be--monorepo">' "$html_u7"
+assert "U7: task rows carry data-repo" 'data-repo="proj"' "$html_u7"
+assert "U7: pipeline row for be--monorepo carries data-repo" 'data-repo="be--monorepo"' "$html_u7"
+
+# --- repo filter hide rule scoped to .view, hides only non-matching rows --
+assert "U7: repo hide rule is .view-scoped and targets non-matching rows/cards" \
+  '#fr-proj:checked ~ main \.view tr\.row:not\(\[data-repo="proj"\]\)' "$html_u7"
+assert "U7: repo hide rule also covers cards, not just table rows" \
+  '#fr-proj:checked ~ main \.view \.task-detail:not\(\[data-repo="proj"\]\)' "$html_u7"
+
+# --- family token: parent and its children share a token (Parent Y / Child P
+# fixtures, already in the accumulated store) --------------------------------
+assert "U7: parent row carries its own stem as a family token" 'data-family="proj--parent-y"' "$html_u7"
+assert "U7: child row's family token includes the parent stem" \
+  'data-family="proj--child-p proj--parent-y"' "$html_u7"
+
+# --- family filter group present (this store has parent/child pairs);
+# repo x family AND-compose independently, no combined-selector explosion;
+# panel count stays 13 ------------------------------------------------------
+assert "U7: fp-all radio present (family group emitted — this store has pairs)" \
+  '<input type="radio" name="fp" id="fp-all" checked>' "$html_u7"
+family_hide_rule_count="$(printf '%s' "$html_u7" | grep -c '#fp-.*:checked ~ main \.view')"
+[ "$family_hide_rule_count" -gt 0 ] && echo "ok   - U7: family hide rules generated independently of repo hide rules" \
+  || { echo "FAIL - U7: expected independent family hide rules, found none"; fail=1; }
+panel_count_u7="$(printf '%s' "$html_u7" | grep -c 'class="view" id="panel-')"
+assert_empty "U7: panel count still 13 despite new filter groups (no multiplication)" \
+  "$([ "$panel_count_u7" = 13 ] && echo '' || echo "got $panel_count_u7")"
+
+# --- :target-wins override present, so a filter-hidden card still reveals
+# when it is the link target -------------------------------------------------
+assert "U7: :target-wins override present on .task-detail" \
+  '\.task-detail:target \{[^}]*display: block !important' "$html_u7"
+
+# --- empty intersection: a repo/family combo with zero matching rows in a
+# panel reveals that panel's own pre-rendered .filtered-empty div -----------
+assert "U7: filtered-empty placeholder rendered (hidden by default) in a populated panel" \
+  'class="empty-state filtered-empty" id="empty-all-today"' "$html_u7"
+reveal_rule_count="$(printf '%s' "$html_u7" | grep -c '\.filtered-empty { display: block; }')"
+[ "$reveal_rule_count" -gt 0 ] && echo "ok   - U7: at least one empty-intersection reveal rule generated" \
+  || { echo "FAIL - U7: expected an empty-intersection reveal rule, found none"; fail=1; }
+# be--monorepo only ever appears with repo=be--monorepo, so filtering to
+# proj + this store's one real family (proj--parent-y) is a combination the
+# be--monorepo-only Pipeline row itself doesn't affect, but every fixture
+# whose repo is NOT proj is absent from a proj-filtered panel — a repo that
+# has zero rows in the Pipeline panel at all (there is none among fixtures
+# by this point) would need to exist to hit the true empty case; instead
+# assert the general mechanism fired at least once above, which is the
+# structural guarantee KTD-8 asks for.
+
+# --- collapsed dropdown summary toggles per option (KTD-8) -----------------
+assert "U7: checking a non-All repo option toggles its own summary label" \
+  '#fr-proj:checked ~ header \.repo-filter \.filter-label\[data-for="proj"\] \{ display: inline' "$html_u7"
+
+# --- no parent/child pairs at all -> no family radio group emitted at all --
+NOFAM_TASKS="$(mktemp -d -t wb-board-html-nofam.XXXXXX)"
+NOFAM_CODE="$(mktemp -d -t wb-board-html-nofam-code.XXXXXX)"
+mk_repo "$NOFAM_CODE/solo"
+TASKS_DIR="$NOFAM_TASKS"
+CODE_DIR="$NOFAM_CODE"
+wb_reconcile_repos() { printf '%s\n' "$NOFAM_CODE/solo"; }
+printf -- '---\nstatus: doing\nrepo: solo\nbranch: solo-branch\nworktree:\ntags: []\ncreated: %s\nclosed:\n---\n# Solo Task\n' "$TODAY" \
+  > "$NOFAM_TASKS/solo--solo-branch.md"
+html_nofam="$(wb_board_render_html 2>&1)"
+assert_not "U7: no parent/child pairs -> no fp-* family radio group at all" 'name="fp"' "$html_nofam"
+assert "U7: repo group still emitted (solo repo only)" '<input type="radio" name="fr" id="fr-all" checked>' "$html_nofam"
+rm -rf "$NOFAM_TASKS" "$NOFAM_CODE"
+TASKS_DIR="$FIXTURE_TASKS"
+CODE_DIR="$FIXTURE_CODE"
+wb_reconcile_repos() { printf '%s\n' "$FIXTURE_CODE/proj"; }
+
+# =============================================================================
+# Regression: an odd backtick count across the store's combined prose must
+# never cause command execution. The page is assembled by substituting many
+# independently-built HTML fragments into one template; an UNQUOTED heredoc
+# (the original design) re-scans the FULLY-SUBSTITUTED text as a whole for
+# backtick/$(...) pairs, so a single unpaired backtick in one task's title
+# pairs across to the NEXT backtick anywhere later in the page — even inside
+# a totally unrelated task's own prose — and bash attempts to execute
+# everything in between. Two fixtures below, each with exactly one backtick
+# (odd), reproduce this: together they'd pair across if the template weren't
+# safely substituted (@@TOKEN@@ + ${var//search/replace}, never re-parsed).
+# =============================================================================
+mk_task 'proj--backtick-a.md' doing proj backtick-a '' "$TODAY" '' 'Odd backtick one: `unmatched start'
+mk_task 'proj--backtick-b.md' doing proj backtick-b '' "$TODAY" '' 'Odd backtick two: unmatched end`'
+html_backtick="$(wb_board_render_html 2>&1)"
+rc_backtick=$?
+assert "regression: odd backtick count across two tasks -> render still exits 0" '^' "$rc_backtick-ok"
+[ "$rc_backtick" -eq 0 ] || { echo "FAIL - exit $rc_backtick: $html_backtick"; fail=1; }
+assert "regression: first backtick-bearing title renders literally, unexecuted" \
+  'Odd backtick one: `unmatched start' "$html_backtick"
+assert "regression: second backtick-bearing title renders literally, unexecuted" \
+  'Odd backtick two: unmatched end`' "$html_backtick"
+assert_not "regression: no 'command not found' leaked into the page (the injection firing)" \
+  'command not found' "$html_backtick"
 
 # --- empty store: no crash, empty-state everywhere ---------------------------
 EMPTY_TASKS="$(mktemp -d -t wb-board-html-empty.XXXXXX)"
