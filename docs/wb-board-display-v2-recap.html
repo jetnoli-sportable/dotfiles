@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>&#34;wb board display v2 — recap&#34;</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+   
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="page">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/wb-board-display-v2-recap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-13</span>
+</div>
+<main>
+<header class="doc">
+  <span class="eyebrow">personal-workflow</span>
+  <h1><span class="glyph">§</span> &#34;wb board display v2 — recap&#34;</h1>
+  <div class="meta">
+    <span class="chip ok">current</span>
+    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
+  </div>
+</header>
+<article>
+<p>Ten implementation units on <code>feat/wb-board-display</code>, executed against
+<a href="plans/2026-07-12-001-feat-wb-board-display-plan.html"><code>docs/plans/2026-07-12-001-feat-wb-board-display-plan.md</code></a>
+to its Definition of Done. This page is the source; edit
+<code>docs/wb-board-display-v2-recap.md</code>, not the rendered <code>.html</code>. A richer,
+visual walkthrough of the same material is linked at the bottom.</p>
+<h2 id="what-shipped">What shipped</h2>
+<table>
+<thead>
+<tr>
+<th>Unit</th>
+<th>What</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>U1</td>
+<td>Doc-detection hardening — branchless guard, kept-branch fallback, <code>ideate</code> stage, R8 frontmatter discriminator</td>
+<td><code>wb-lifecycle.sh</code></td>
+</tr>
+<tr>
+<td>U2</td>
+<td>Four-state stage resolver (<code>na</code>/<code>pending</code>/<code>progress</code>/<code>done</code>) + <code>path:</code> parsing</td>
+<td><code>wb-lifecycle.sh</code></td>
+</tr>
+<tr>
+<td>U3</td>
+<td><code>wb new --path</code>/<code>--depends-on</code> flags + task seeding</td>
+<td><code>wb.sh</code>, <code>wb new</code></td>
+</tr>
+<tr>
+<td>U4</td>
+<td>Render pre-pass — one per-task computation pass (~15 associative arrays) feeding every panel</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U5</td>
+<td>Pipeline tab — every non-done task, window-independent</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U6</td>
+<td>Two-zone detail cards, full/mini stepper, dependency chips, children-done counter</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U7</td>
+<td>Header window control + independent Repo/Family filters (AND-composing)</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U8</td>
+<td>Tasks-repo schema fix (<code>path:</code>/<code>depends_on:</code> in template, status vocabulary correction, restored <code># Title</code>/<code>## Follow-ups</code>)</td>
+<td><code>~/code/tasks</code> (external repo)</td>
+</tr>
+<tr>
+<td>U9</td>
+<td>Board-wide Key Findings — most-blocking, ready-to-close, unreviewed count, oldest in-flight, unclassified, docs-before-branch</td>
+<td><code>wb.sh</code></td>
+</tr>
+<tr>
+<td>U10</td>
+<td><code>wb reviewed</code> convention (<code>~/.claude/CLAUDE.md</code> + <code>wb-guide.md</code>), doc refresh, docgen rerun</td>
+<td>docs, skills, docgen</td>
+</tr>
+</tbody>
+</table>
+<p>All CSS-only — no JavaScript was added anywhere in this feature.</p>
+<h2 id="verification-contract--results">Verification Contract — results</h2>
+<ul>
+<li><strong>Plain-text <code>wb board</code> is byte-identical</strong> to the pre-change baseline, checked by diffing output against a <code>git worktree</code> checkout of the branch's merge-base against a live copy of the real store.</li>
+<li><strong>Docker sandbox</strong> (<code>scripts/.config/scripts/tmux/tests/Dockerfile</code>) — every board-relevant suite (<code>wb-board-html</code>, <code>wb-board</code>, <code>wb-lifecycle</code>, <code>wb-new</code>, <code>wb-schema</code>, <code>wb-parent-child</code>) is <strong>all-pass</strong>. Two unrelated, pre-existing failures surfaced (<code>handoff*.test.sh</code>, <code>wb-reconcile-review.test.sh</code>) — see <strong>Known gaps</strong> below; both confirmed via <code>git diff --stat</code> to have zero lines touched by this branch.</li>
+<li><strong>Real-store smoke test</strong> — rendered the actual <code>logs/board.html</code> against the live <code>~/code/tasks</code> store: Pipeline tab, stepper, filters, and Key Findings all present, no injection leakage, 397 lines / 168KB.</li>
+<li><strong>Regression sweep</strong> — <code>wb-lifecycle</code>, <code>wb-new</code>, <code>wb-board</code>, <code>wb-schema</code>, <code>wb-parent-child</code> all green on host.</li>
+<li><strong>R23/R24 landed</strong>: the tasks-repo schema commit (<code>1226ce1</code>) is pushed to <code>origin/development</code> in <code>~/code/tasks</code>, with the grandfathering decision stated verbatim in its message; the <code>wb reviewed</code> convention sentence is in both <code>~/.claude/CLAUDE.md</code> and <code>docs/wb-guide.md</code>.</li>
+<li><strong>Docs regenerated</strong> via <code>docgen.sh all</code> — no stale board description remains in the Hub tile, the <code>wb-board</code> skill, or the guide.</li>
+</ul>
+<h2 id="how-to-verify-it-yourself">How to verify it yourself</h2>
+<pre><code class="language-bash">cd ~/code/dotfiles   # or this worktree
+wb board --html
+xdg-open logs/board.html
+</code></pre>
+<p>Things to look for:</p>
+<ol>
+<li><strong>Pipeline is the default tab.</strong> Every non-done task across every repo shows up, with five stage cells (Ideate/Brainstorm/Plan/Work/Review) each rendering <code>·</code> (n/a), <code>○</code> (pending), <code>◐</code> (in progress), or <code>✓</code> (done).</li>
+<li><strong>Open a done task's card</strong> (any bucket tab) — it has the same two-zone layout and stepper as an in-flight task, just with every applicable stage checked off.</li>
+<li><strong>Repo and Family dropdowns</strong> (header, top right) narrow every tab's rows/cards at once. Key Findings at the bottom of any tab does <strong>not</strong> shrink when you narrow a filter — that's deliberate (R22).</li>
+<li><strong>Key Findings</strong>, bottom of every tab: look for the <code>board-wide · ignores filters</code> tag next to the heading, and however many of the six insights are non-empty right now (grep <code>logs/board.html</code> for <code>key-findings</code> if you want the raw markup).</li>
+<li><strong>A task with <code>depends_on:</code></strong> (if one exists in your store right now) shows a <code>⛔ n</code> chip; its blocker shows a <code>→ n</code> chip — both directions, independently.</li>
+</ol>
+<p>To re-run the test gates yourself:</p>
+<pre><code class="language-bash">bash scripts/.config/scripts/tmux/tests/wb-board-html.test.sh   # slow: real gh calls per branch, ~10-15 min
+bash scripts/.config/scripts/tmux/tests/wb-lifecycle.test.sh
+bash scripts/.config/scripts/tmux/tests/wb-new.test.sh
+docker build -t wb-tests -f scripts/.config/scripts/tmux/tests/Dockerfile .
+docker run --rm -v &quot;$(pwd)&quot;:/repo:ro -w /repo wb-tests
+</code></pre>
+<h2 id="how-this-ties-into-other-work-in-flight">How this ties into other work in flight</h2>
+<p>The store currently has 4 other dotfiles branches moving in parallel
+(<code>wb board --html</code> shows all of them under Pipeline). The one that
+actually matters for this PR:</p>
+<blockquote>
+<p><strong>Heads-up: real merge-conflict risk with <code>feat/wb-breakdown-skill</code>.</strong>
+That branch (status <code>doing</code>) has an uncommitted, in-progress diff
+against <code>wb.sh</code> that adds <strong>187 lines to <code>wb_seed_task</code> and <code>cmd_new</code></strong>
+— the exact two functions this PR's U3 also extended (to add
+<code>--path</code>/<code>--depends-on</code>). The plan's own Definition of Done anticipated
+a conflict here in general terms (&quot;whichever branch lands second
+rebases, confined to <code>cmd_new</code>/<code>wb_seed_task</code>&quot;) — this confirms it's a
+real, concrete collision, not a hypothetical one. Whichever of these two
+lands second should rebase and expect to manually reconcile that
+region.</p>
+</blockquote>
+<p>The other three, for context:</p>
+<table>
+<thead>
+<tr>
+<th>Branch</th>
+<th>Status</th>
+<th>Relationship</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/roadmap-tasks-concurrency-safety</code></td>
+<td>doing (brainstorm stage)</td>
+<td>Scoping a fix for <code>~/code/tasks</code>'s lack of locking. Still relevant: this session's own U8 push was a manual safe-fast-forward check (verify clean FF, don't touch someone else's uncommitted work) — exactly the kind of care that lane wants to make automatic. No code overlap with this PR.</td>
+</tr>
+<tr>
+<td><code>feat/jira-integration</code></td>
+<td>doing</td>
+<td><code>/board</code> + day-bookends halves. Board v2 explicitly excludes Jira integration from scope (plan's own Assumptions) — this is the follow-up that will eventually consume the Pipeline tab's data model. No code overlap yet.</td>
+</tr>
+<tr>
+<td><code>fix/xdg-open-slack-hijack</code></td>
+<td>review</td>
+<td>Unrelated (desktop default-browser handling). No overlap.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="known-gaps-pre-existing-not-introduced-here">Known gaps (pre-existing, not introduced here)</h2>
+<p>Both confirmed via <code>git diff --stat &lt;merge-base&gt;..HEAD</code> showing <strong>zero</strong>
+lines touched in the relevant files — neither is a regression from this
+branch:</p>
+<ul>
+<li><code>handoff.test.sh</code> / <code>handoff-poller.test.sh</code> fail inside the Docker
+sandbox — they need a live tmux session/clipboard the container doesn't
+have. Pass fine on host.</li>
+<li><code>wb-reconcile-review.test.sh</code> fails inside Docker only — the image's
+<code>gawk</code> (Ubuntu 24.04) handles an escape-sequence regex (<code>\.</code>, <code>\[</code>,
+<code>\]</code>) differently than the host's <code>mawk</code>. Passes clean on host (0
+failures).</li>
+</ul>
+<h2 id="links">Links</h2>
+<ul>
+<li>Plan: <a href="plans/2026-07-12-001-feat-wb-board-display-plan.html"><code>docs/plans/2026-07-12-001-feat-wb-board-display-plan.md</code></a></li>
+<li>Human guide: <a href="wb-guide.html"><code>docs/wb-guide.md</code></a> (v2 board section + refreshed <code>wb new</code> docs)</li>
+<li>Roadmap detail: <a href="roadmap-board.html"><code>docs/roadmap-board.md</code></a> (v2 pass, &quot;what shipped in v2&quot; section)</li>
+<li>Skill: <code>claude/.claude/skills/wb-board/SKILL.md</code></li>
+<li>Richer visual walkthrough: <code>docs/wb-board-display-v2-recap.artifact.html</code> (published separately as a claude.ai Artifact)</li>
+</ul>
+</article>
+<footer>
+  Generated by <code>docgen</code> from <code>docs/wb-board-display-v2-recap.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+</main>
+
+</body>
+</html>
