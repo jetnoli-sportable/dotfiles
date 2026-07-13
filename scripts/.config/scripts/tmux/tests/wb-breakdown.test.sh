@@ -208,10 +208,11 @@ else
   echo "ok   - AE1: unchecked parent Plan-rewrite absent"
 fi
 
-out_cmd="$(cmd_breakdown --apply "$BUF_DIR/happy.md" 2>&1)"
-assert "cmd_breakdown --apply: human summary names 2 children" '2 child' "$out_cmd"
-assert "cmd_breakdown --apply: no writes yet (U2)" 'no writes yet' "$out_cmd"
-assert_eq "cmd_breakdown --apply: no file actually created in U2" "" "$([ -f "$TASKS_DIR/proj--feat-big-one.md" ] && echo exists)"
+# cmd_breakdown --apply's real end-to-end execution (AE1/AE2, the human
+# summary, actual writes) is U3's concern — see that section below. Calling
+# it here for real would mutate proj--feat-big's shared fixture state
+# (migration blanks its branch:/worktree:, the follow-up move empties its
+# Follow-ups) that every other scenario in THIS section still depends on.
 
 # --- checkbox grammar: accepted forms ---------------------------------------
 cat > "$BUF_DIR/grammar.md" <<'EOF'
@@ -646,6 +647,208 @@ else
   echo "FAIL - worktree drift: real worktree was removed despite the drift guard"; fail=1
 fi
 tmux kill-session -t "=$drift_session" 2>/dev/null || true
+
+# =============================================================================
+# U3 — locked family apply execution (real writes)
+# =============================================================================
+
+U3_BUF="$(mktemp -d -t wb-breakdown-u3.XXXXXX)"
+
+mk_u3_parent() { # <stem> <branch> <worktree>
+  local f="$TASKS_DIR/$1.md"
+  {
+    printf -- '---\nstatus: doing\nrepo: proj\nbranch: %s\nworktree: %s\nparent:\ncreated: 2026-07-01\n---\n' "$2" "$3"
+    printf '# U3 Family\n\n## Plan\n\noriginal plan content\n\n## Follow-ups\n\n'
+    printf -- '- explore artifact indexing further\n  - needs API design first (sub-note)\n'
+    printf -- '- unrelated follow-up that stays on the parent\n'
+  } > "$f"
+}
+
+u3_buffer() {
+  cat <<'EOF'
+# wb breakdown — proj--feat-u3
+
+## child 1 — continuing
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u3 repo=proj -->
+- [x] create child: `feat-u3-one`
+- goal: continuing slice
+<!-- wb-breakdown: begin-plan n=1 -->
+child one plan body
+<!-- wb-breakdown: end-plan -->
+
+## child 2 — artifact index
+<!-- wb-breakdown: block=child n=2 parent=proj--feat-u3 repo=proj -->
+- [x] create child: `feat-u3-two`
+- goal: artifact indexing slice
+<!-- wb-breakdown: begin-plan n=2 -->
+child two plan body
+<!-- wb-breakdown: end-plan -->
+
+## child 3 — unchecked
+<!-- wb-breakdown: block=child n=3 parent=proj--feat-u3 repo=proj -->
+- [ ] create child: `feat-u3-three`
+- goal: not this time
+<!-- wb-breakdown: begin-plan n=3 -->
+child three plan body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u3 -->
+- [x] migrate branch/worktree + re-aim @task → continuing child: `feat-u3-one`
+- [x] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+post-split summary — see the continuing child for the rest
+<!-- wb-breakdown: end-plan -->
+- [x] move follow-up: "explore artifact indexing further" → child: `feat-u3-two`
+EOF
+}
+
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u3 ".worktrees/feat-u3" >/dev/null 2>&1
+mk_u3_parent proj--feat-u3 feat-u3 .worktrees/feat-u3
+u3_buffer > "$U3_BUF/family.md"
+
+out_u3="$(cmd_breakdown --apply "$U3_BUF/family.md" 2>&1)"; rc_u3=$?
+assert_eq "U3 apply: exits 0" 0 "$rc_u3"
+
+# --- AE1: exactly two child files, unchecked child absent -------------------
+assert_eq "U3 AE1: child 1 file created" "feat-u3-one" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-one.md" branch >/dev/null 2>&1 && echo feat-u3-one)"
+[ -f "$TASKS_DIR/proj--feat-u3-one.md" ] && echo "ok   - U3 AE1: child 1 file exists" || { echo "FAIL - U3 AE1: child 1 file missing"; fail=1; }
+[ -f "$TASKS_DIR/proj--feat-u3-two.md" ] && echo "ok   - U3 AE1: child 2 file exists" || { echo "FAIL - U3 AE1: child 2 file missing"; fail=1; }
+if [ -f "$TASKS_DIR/proj--feat-u3-three.md" ]; then
+  echo "FAIL - U3 AE1: unchecked child 3 must not exist"; fail=1
+else
+  echo "ok   - U3 AE1: unchecked child 3 never created"
+fi
+assert_eq "U3 AE1: child 1 parent: set" "proj--feat-u3" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-one.md" parent)"
+assert "U3 AE1: child 1 plan body landed" "child one plan body" "$(cat "$TASKS_DIR/proj--feat-u3-one.md")"
+assert "U3 AE1: child 2 plan body landed" "child two plan body" "$(cat "$TASKS_DIR/proj--feat-u3-two.md")"
+assert "U3 AE1: parent's ## Plan replaced with the buffer's rewrite" "post-split summary" "$(cat "$TASKS_DIR/proj--feat-u3.md")"
+if grep -q "original plan content" "$TASKS_DIR/proj--feat-u3.md"; then
+  echo "FAIL - U3 AE1: parent's OLD Plan content must be replaced, not appended alongside"; fail=1
+else
+  echo "ok   - U3 AE1: parent's old Plan content is gone (replaced, not appended)"
+fi
+
+# --- AE2: migration -----------------------------------------------------
+assert_eq "U3 AE2: child 1 (continuing) inherits parent's branch:" "feat-u3" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-one.md" branch)"
+assert_eq "U3 AE2: child 1 inherits parent's worktree:" ".worktrees/feat-u3" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-one.md" worktree)"
+assert_eq "U3 AE2: child 1 status flips to doing" "doing" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-one.md" status)"
+assert_eq "U3 AE2: parent's branch: blanked" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3.md" branch)"
+assert_eq "U3 AE2: parent's worktree: blanked" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3.md" worktree)"
+# Scoped to THIS test's own files: the accumulated fixture store from
+# earlier sections in this same test file carries plenty of synthetic
+# worktree: values with no real directory behind them (unrelated "missing"
+# noise) — AE2's claim is specifically about proj--feat-u3(-one), not a
+# clean bill of health for the whole accumulated fixture store.
+recon_u3="$(wb_reconcile_collect 2>/dev/null)"
+if printf '%s' "$recon_u3" | grep -E '^missing' | grep -qE 'proj--feat-u3(-one)?\.md$'; then
+  echo "FAIL - U3 AE2: wb_reconcile_collect must report zero findings for proj--feat-u3/-one post-migration"; fail=1
+else
+  echo "ok   - U3 AE2: wb_reconcile_collect reports zero findings for proj--feat-u3/-one post-migration"
+fi
+
+# --- follow-up move: whole block (incl. sub-bullet) moves, count unchanged -
+assert "U3 move: bullet landed on child 2's Follow-ups" "explore artifact indexing further" "$(cat "$TASKS_DIR/proj--feat-u3-two.md")"
+assert "U3 move: sub-bullet moved WITH its parent bullet (whole block)" "needs API design first" "$(cat "$TASKS_DIR/proj--feat-u3-two.md")"
+if grep -q "explore artifact indexing further" "$TASKS_DIR/proj--feat-u3.md"; then
+  echo "FAIL - U3 move: bullet must be REMOVED from the parent (a move, not a copy)"; fail=1
+else
+  echo "ok   - U3 move: bullet removed from the parent"
+fi
+assert "U3 move: the OTHER follow-up stays on the parent" "unrelated follow-up that stays" "$(cat "$TASKS_DIR/proj--feat-u3.md")"
+
+# --- archived buffer + handoff entry naming it ------------------------------
+assert_eq "U3 archive: closed buffer archived under dossiers/<parent-stem>/" "family.md" "$(basename "$TASKS_DIR/dossiers/proj--feat-u3/family.md" 2>/dev/null)"
+assert "U3 archive: handoff entry names the archived path" 'dossiers/proj--feat-u3/family.md' "$(cat "$TASKS_DIR/proj--feat-u3.md")"
+handoff_count_1="$(grep -c '^### .* — wb breakdown (auto)$' "$TASKS_DIR/proj--feat-u3.md")"
+assert_eq "U3 handoff: exactly one entry after the first apply" 1 "$handoff_count_1"
+
+# --- idempotent re-apply: second run is a clean no-op, store byte-identical
+snapshot_before="$(find "$TASKS_DIR" -maxdepth 1 -name 'proj--feat-u3*.md' -exec cat {} \;)"
+out_u3_again="$(cmd_breakdown --apply "$U3_BUF/family.md" 2>&1)"; rc_u3_again=$?
+assert_eq "U3 idempotent re-apply: exits 0" 0 "$rc_u3_again"
+snapshot_after="$(find "$TASKS_DIR" -maxdepth 1 -name 'proj--feat-u3*.md' -exec cat {} \;)"
+assert_eq "U3 idempotent re-apply: store byte-identical" "$snapshot_before" "$snapshot_after"
+handoff_count_2="$(grep -c '^### .* — wb breakdown (auto)$' "$TASKS_DIR/proj--feat-u3.md")"
+assert_eq "U3 idempotent re-apply: handoff NOT duplicated" 1 "$handoff_count_2"
+
+# --- crash simulation: child already seeded, migration not yet done --------
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u3-crash ".worktrees/feat-u3-crash" >/dev/null 2>&1
+mk_u3_parent proj--feat-u3-crash feat-u3-crash .worktrees/feat-u3-crash
+cat > "$U3_BUF/crash.md" <<'EOF'
+# wb breakdown — proj--feat-u3-crash
+
+## child 1 — continuing
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u3-crash repo=proj -->
+- [x] create child: `feat-u3-crash-one`
+- goal: continuing slice
+<!-- wb-breakdown: begin-plan n=1 -->
+child one plan body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u3-crash -->
+- [x] migrate branch/worktree + re-aim @task → continuing child: `feat-u3-crash-one`
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+# Simulate "crashed after step 1, before migration": pre-seed the child
+# exactly as wb_seed_planned_child would have, by hand.
+printf -- '---\nstatus: planned\nrepo: proj\nbranch: feat-u3-crash-one\nworktree:\nparent: proj--feat-u3-crash\ncreated: 2026-07-01\n---\n# continuing slice\n\n## Plan\n\nchild one plan body\n' \
+  > "$TASKS_DIR/proj--feat-u3-crash-one.md"
+
+out_crash="$(cmd_breakdown --apply "$U3_BUF/crash.md" 2>&1)"; rc_crash=$?
+assert_eq "U3 crash recovery: exits 0" 0 "$rc_crash"
+assert "U3 crash recovery: child NOT re-created (already existed), just skipped" 'already created, skipping' "$out_crash"
+assert_eq "U3 crash recovery: migration STILL completes on the resumed run" "feat-u3-crash" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-crash-one.md" branch)"
+assert_eq "U3 crash recovery: child flips to doing" "doing" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-crash-one.md" status)"
+assert_eq "U3 crash recovery: parent blanked" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-crash.md" branch)"
+if [ -f "$TASKS_DIR/proj--feat-u3-crash-one.md" ]; then
+  echo "ok   - U3 crash recovery: no file was deleted"
+else
+  echo "FAIL - U3 crash recovery: the pre-existing child file is gone"; fail=1
+fi
+
+# --- lock contention: a held sibling lock -> exit 75, zero writes -----------
+mk_u3_parent proj--feat-u3-lock feat-u3-lock .worktrees/feat-u3-lock
+cat > "$U3_BUF/lock.md" <<'EOF'
+# wb breakdown — proj--feat-u3-lock
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u3-lock repo=proj -->
+- [x] create child: `feat-u3-lock-one`
+- goal: contended
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u3-lock -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+before_lock_snapshot="$(cat "$TASKS_DIR/proj--feat-u3-lock.md")"
+wb_task_lock_acquire "$TASKS_DIR/proj--feat-u3-lock.md" >/dev/null 2>&1
+out_contend="$(cmd_breakdown --apply "$U3_BUF/lock.md" 2>&1)"; rc_contend=$?
+wb_task_lock_release "$TASKS_DIR/proj--feat-u3-lock.md"
+assert_eq "U3 lock contention: exit 75" 75 "$rc_contend"
+if [ -f "$TASKS_DIR/proj--feat-u3-lock-one.md" ]; then
+  echo "FAIL - U3 lock contention: child must NOT have been created"; fail=1
+else
+  echo "ok   - U3 lock contention: zero writes (child never created)"
+fi
+assert_eq "U3 lock contention: parent file untouched" "$before_lock_snapshot" "$(cat "$TASKS_DIR/proj--feat-u3-lock.md")"
+# the lock we held ourselves must still be releasable cleanly afterward —
+# confirms apply's own failed acquisition attempt didn't corrupt it.
+wb_task_lock_acquire "$TASKS_DIR/proj--feat-u3-lock.md" >/tmp/wbd-lock-recheck.out 2>&1
+recheck_rc=$?
+wb_task_lock_release "$TASKS_DIR/proj--feat-u3-lock.md"
+assert_eq "U3 lock contention: lock is clean and acquirable again after" 0 "$recheck_rc"
+
+rm -rf "$U3_BUF"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS"
 exit "$fail"
