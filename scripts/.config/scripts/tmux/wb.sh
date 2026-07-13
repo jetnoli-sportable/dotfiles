@@ -374,11 +374,13 @@ cmd_new() {
   # a foreach that only matches literal tokens (like --agent); the value
   # would fall into the else branch and corrupt the positional repo/slug
   # count.
+  local -r new_usage="usage: wb new [--agent] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <slug> | wb new [--agent] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <repo> <slug>"
   local agent_flag=0 parent_ref="" path_stages=""
   local -a depends_on_stems=()
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
+      -h|--help) echo "$new_usage"; return 0 ;;
       --agent)  agent_flag=1; shift ;;
       --parent)
         case "${2-}" in
@@ -409,7 +411,7 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <slug> | wb new [--agent] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <repo> <slug>" >&2
+    echo "$new_usage" >&2
     exit 1
   fi
 
