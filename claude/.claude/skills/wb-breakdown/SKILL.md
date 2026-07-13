@@ -107,19 +107,26 @@ whether a task already exists for this exact `jira:` URL or the ticket-
 derived stem — reuse it (a re-run against the same ticket must never
 duplicate or clobber). Otherwise, seed a session-less parent via the
 locked, planned-preserving verb (`scripts/.config/scripts/tmux/wb.sh`,
-search `cmd_new`'s `--planned` branch, extended with `--jira`):
+search `cmd_new`'s `--planned` branch, extended with `--jira`/`--title`):
 
 ```bash
 wb new --planned --jira "https://sportable.atlassian.net/browse/SFB-1234" \
+  --title "Ticket summary text here" \
   proj feat-ticket-slug <<'EOF'
 <ticket description, rendered to markdown>
 EOF
 ```
 
-The ticket's summary becomes the `# <title>` heading (never frontmatter —
-no YAML-quoting surface for arbitrary ticket text); the description lands
-under the seeded parent's `## Plan`, exactly like the stdin body path
-`wb_seed_planned_child` uses for children. Once the parent exists, continue
+**Pass `--title` explicitly with the ticket's summary** — without it, the
+parent's title falls back to a mechanical slug-derived form
+(`feat-ticket-slug` → "feat ticket slug"), which is never what you want for
+a ticket-seeded parent. The description lands under the seeded parent's
+`## Plan`, exactly like the stdin body path `wb_seed_planned_child` uses
+for children — and, matching KTD9's find-or-create guarantee, both the
+title and the body land ONLY on a genuinely new file; re-running this same
+command against an already-seeded ticket reuses the existing parent
+untouched (fill-blanks-only applies to frontmatter only — an existing
+file's title/body are never overwritten). Once the parent exists, continue
 identically to the stem path from here — the rest of this flow doesn't
 know or care whether the parent came from a ticket or was already there.
 
@@ -290,12 +297,21 @@ touches), so its stdout/stderr come back inline immediately.
 wb breakdown --apply logs/breakdowns/<parent-stem>.md
 ```
 
-If `_wb_breakdown_validate`'s own parse ever refuses the buffer (a
-malformed marker, a slug collision, a duplicate migration line — see
+Two different failure shapes to tell apart when relaying the result — see
 `scripts/.config/scripts/tmux/wb.sh`, search `_wb_breakdown_validate` for
-the full list), relay that refusal verbatim and stop — don't try to
-hand-patch the buffer yourself and re-run; let the human fix it and
-re-invoke.
+the authoritative list of each:
+
+- **Hard parse errors** (a malformed/mangled marker, a duplicate `n=`, more
+  than one migration line, a whitespace/backtick-bearing slug) abort the
+  *whole* apply — nothing was written. Relay the error verbatim and stop;
+  don't hand-patch the buffer yourself and re-run, let the human fix it and
+  re-invoke.
+- **Item-level issues** (a slug collision, an unresolvable migration/move
+  target, an unfilled `___` field) are a per-item *skip*, not a whole-apply
+  abort — `--apply` still runs and reports success for everything else,
+  with a warning on stderr naming what it skipped. Relay both the success
+  summary and the skip warning(s) together in the family report (step 9) —
+  don't report a partial success as a total failure.
 
 ### 9. Report the family
 

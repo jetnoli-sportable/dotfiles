@@ -78,6 +78,15 @@ out_goal="$(printf 'goal-driven plan body\n' \
 child_goal="$TASKS_DIR/proj--feat-hub-v0-artifact-index.md"
 assert_eq "seed: explicit title overrides slug-derived form" "one-line goal for the artifact index" "$(wb_task_title "$child_goal")"
 
+# --- regression: a backslash-bearing title must NOT go through awk -v -------
+# (review finding: title was spliced via `awk -v title=`, mangling \n/\t/\K
+# the same way U1's Execution note already flagged for plan bodies).
+backslash_title='fix \K regex and \n literal newline in the title'
+out_goal_bs="$(printf 'body\n' \
+  | wb_seed_planned_child proj feat-hub-v0-bstitle dotfiles--feat-hub-v0 "$backslash_title" 2>&1)"
+child_bstitle="$TASKS_DIR/proj--feat-hub-v0-bstitle.md"
+assert_eq "seed: backslash-bearing title round-trips byte-identical" "$backslash_title" "$(wb_task_title "$child_bstitle")"
+
 # --- existing file: refuse, file untouched -----------------------------------
 before="$(cat "$child_file")"
 err="$(printf 'ignored\n' | wb_seed_planned_child proj feat-hub-v0-board-embed dotfiles--feat-hub-v0 2>&1 1>/dev/null)"
@@ -120,6 +129,28 @@ assert_eq "ticket-parent: status: planned" "planned" "$(wb_get_frontmatter "$tic
 assert_eq "ticket-parent: worktree: stays blank" "" "$(wb_get_frontmatter "$ticket_file" worktree)"
 assert "ticket-parent: stdin plan body lands under ## Plan" "ticket description line 1" "$(cat "$ticket_file")"
 assert "ticket-parent: body byte-identical incl. backslash sequence" 'ticket description line 2 with a \\K escape' "$(cat "$ticket_file")"
+
+# --- regression: --title actually sets the ticket-parent's title -----------
+# (review finding: SKILL.md promised "the ticket's summary becomes the
+# title", but cmd_new's --jira path never threaded any title through —
+# wb_seed_task_planned unconditionally used the slug-derived form.)
+out_title="$(printf 'body\n' \
+  | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-5678' --title 'Fix the flaky dashboard chart' proj feat-ticket-titled 2>&1)"
+ticket_titled="$TASKS_DIR/proj--feat-ticket-titled.md"
+assert_eq "ticket-parent --title: sets the H1 heading from the ticket summary" "Fix the flaky dashboard chart" "$(wb_task_title "$ticket_titled")"
+
+# --- regression: re-running --jira against an already-seeded ticket must not
+# duplicate the plan body (KTD9: fill-blanks-only, never overwritten) -------
+# (not a full byte-identical check: wb_seed_task_planned's existing-file
+# branch harmlessly rewrites a blank `reviewed:` -> `reviewed: ` on every
+# re-seed regardless of --jira, a pre-existing, unrelated quirk — scope
+# the assertion to what the fix actually claims: the body doesn't duplicate.)
+before_plan_reseed="$(wb_board_section "$ticket_file" "Plan")"
+out_reseed="$(printf '%s\n' "$jira_body" \
+  | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-1234' proj feat-ticket-parent 2>&1)"
+assert_eq "ticket-parent re-run: ## Plan section unchanged (body not duplicated)" "$before_plan_reseed" "$(wb_board_section "$ticket_file" "Plan")"
+body_occurrences="$(grep -c 'ticket description line 1' "$ticket_file")"
+assert_eq "ticket-parent re-run: body appears exactly once" 1 "$body_occurrences"
 
 # --- --jira without --planned is a clean usage error -------------------------
 err2="$(cmd_new --jira 'https://x/y' proj feat-bad 2>&1 1>/dev/null)"
@@ -422,6 +453,60 @@ EOF
 err_bad_slug="$(_wb_breakdown_validate "$BUF_DIR/bad-slug-space.md" 2>&1 1>/dev/null)"; rc_bad_slug=$?
 assert_eq "slug with whitespace: hard error exit code" 2 "$rc_bad_slug"
 assert "slug with whitespace: names it" 'contains whitespace or a backtick' "$err_bad_slug"
+
+# --- P0 regression: an unsafe repo= marker field is rejected, not trusted --
+# (security finding: repo= flowed straight into wb_task_file/wb_seed_planned_child
+# with zero validation, unlike the sibling raw_slug field checked above —
+# a path-traversal-shaped repo= could write a task file, and later a real
+# git worktree, outside $TASKS_DIR/$CODE_DIR entirely.)
+cat > "$BUF_DIR/bad-repo-traversal.md" <<'EOF'
+# wb breakdown — proj--feat-big
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-big repo=../../etc -->
+- [x] create child: `feat-evil`
+- goal: path traversal via repo=
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-big -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+body
+<!-- wb-breakdown: end-plan -->
+EOF
+err_bad_repo="$(_wb_breakdown_validate "$BUF_DIR/bad-repo-traversal.md" 2>&1 1>/dev/null)"; rc_bad_repo=$?
+assert_eq "repo= path traversal: hard error exit code" 2 "$rc_bad_repo"
+assert "repo= path traversal: names it" 'repo=.*is missing or unsafe' "$err_bad_repo"
+if [ -e "$TASKS_DIR/../etc" ] || [ -e "$FIXTURE_TASKS/../etc" ]; then
+  echo "FAIL - repo= path traversal: something was created outside the store"; fail=1
+else
+  echo "ok   - repo= path traversal: nothing written outside the store"
+fi
+
+cat > "$BUF_DIR/bad-repo-empty.md" <<'EOF'
+# wb breakdown — proj--feat-big
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-big repo= -->
+- [x] create child: `feat-empty-repo`
+- goal: empty repo=
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-big -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+body
+<!-- wb-breakdown: end-plan -->
+EOF
+err_empty_repo="$(_wb_breakdown_validate "$BUF_DIR/bad-repo-empty.md" 2>&1 1>/dev/null)"; rc_empty_repo=$?
+assert_eq "repo= empty: hard error exit code" 2 "$rc_empty_repo"
+assert "repo= empty: names it" 'is missing or unsafe' "$err_empty_repo"
 
 # --- follow-up move: zero or two bullet matches --------------------------
 sed 's/move follow-up: "explore wb breakdown verb further"/move follow-up: "no such bullet exists"/' "$BUF_DIR/happy.md" \

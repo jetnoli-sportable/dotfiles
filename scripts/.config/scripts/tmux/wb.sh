@@ -581,10 +581,15 @@ wb_seed_task() {
   echo "$file"
 }
 
-# wb_seed_task_planned <repo> <slug> [<parent_ref>] — W13's planned-preserving
-# sibling of wb_seed_task: find-or-create the task file for a repo+slug pair
-# WITHOUT ever creating a worktree, and WITHOUT wb_seed_task's own
-# planned->doing flip or worktree stamping. Used by `wb new --planned`
+# wb_seed_task_planned <repo> <slug> [<parent_ref>] [<title>] — W13's
+# planned-preserving sibling of wb_seed_task: find-or-create the task file
+# for a repo+slug pair WITHOUT ever creating a worktree, and WITHOUT
+# wb_seed_task's own planned->doing flip or worktree stamping. <title> is
+# only used on a genuinely NEW file (e.g. a Jira ticket's summary, via
+# `wb new --planned --jira --title`) — falls back to the slug-derived form
+# when omitted; an EXISTING file's title (the body's own `# ` heading,
+# not frontmatter) is never touched here, matching this function's own
+# fill-blanks-only posture for every other field. Used by `wb new --planned`
 # (cmd_new, below), in turn used by /parked-items' scratch-task creation and
 # /handoff's task-file seeding step — both cases where no work has actually
 # started yet, so there is no real worktree path to stamp and the task must
@@ -610,15 +615,20 @@ wb_seed_task() {
 # "planned" in the meantime.
 wb_seed_task_planned() {
   local repo="$1" slug="$2" parent="${3:-}"
+  local title="${4:-${slug//-/ }}"
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local file; file="$(wb_task_file "$repo" "$disp_slug")"
 
   if [ ! -f "$file" ]; then
     mkdir -p "$TASKS_DIR"
-    local title="${slug//-/ }"
+    # title is free-text (e.g. a Jira ticket summary) — never through awk -v,
+    # same reasoning as wb_seed_planned_child's own title fix: getline from a
+    # temp file instead of splicing via -v, which would mangle backslashes.
+    local titlefile; titlefile="$(mktemp)"
+    printf '%s' "$title" > "$titlefile"
     awk -v repo="$repo" -v branch="$slug" \
-        -v created="$(date +%F)" -v title="$title" '
-      BEGIN { infm = 0 }
+        -v created="$(date +%F)" -v titlefile="$titlefile" '
+      BEGIN { infm = 0; getline title < titlefile; close(titlefile) }
       /^---$/     { infm++; print; next }
       infm == 1 && /^status:/   { print "status: planned"; next }
       infm == 1 && /^repo:/     { print "repo: " repo; next }
@@ -627,6 +637,7 @@ wb_seed_task_planned() {
       infm == 2 && /^# Title/   { print "# " title; next }
       { print }
     ' "$TASKS_DIR/TEMPLATE.md" > "$file"
+    rm -f "$titlefile"
   else
     [ -n "$(wb_get_frontmatter "$file" repo)" ]     || wb_set_frontmatter "$file" repo "$repo"
     [ -n "$(wb_get_frontmatter "$file" branch)" ]   || wb_set_frontmatter "$file" branch "$slug"
@@ -702,9 +713,18 @@ wb_seed_planned_child() {
   mkdir -p "$TASKS_DIR"
   local body; body="$(cat)"
 
+  # title is free-text (the buffer's own editable "goal:" line) and MUST NOT
+  # go through awk -v — same reasoning as _wb_insert_plan_body's body
+  # (awk's C escape-sequence processing on a -v assignment would mangle a
+  # goal containing \n/\t/\K, splitting the generated # <title> heading
+  # across lines). Read via getline from a temp file instead, exactly like
+  # every other free-text value this feature seeds.
+  local titlefile; titlefile="$(mktemp)"
+  printf '%s' "$title" > "$titlefile"
+
   awk -v repo="$repo" -v branch="$slug" -v parent="$parent" \
-      -v created="$(date +%F)" -v title="$title" '
-    BEGIN { infm = 0 }
+      -v created="$(date +%F)" -v titlefile="$titlefile" '
+    BEGIN { infm = 0; getline title < titlefile; close(titlefile) }
     /^---$/     { infm++; print; next }
     infm == 1 && /^repo:/     { print "repo: " repo; next }
     infm == 1 && /^branch:/   { print "branch: " branch; next }
@@ -713,6 +733,7 @@ wb_seed_planned_child() {
     infm == 2 && /^# Title/   { print "# " title; next }
     { print }
   ' "$TASKS_DIR/TEMPLATE.md" > "$file"
+  rm -f "$titlefile"
 
   _wb_insert_plan_body "$file" "$body"
   echo "$file"
@@ -744,7 +765,7 @@ cmd_new() {
   # value as a separate following argument, which a foreach that only
   # detects literal tokens (like --agent) can't consume — the value would
   # fall into the else branch and corrupt the positional repo/slug count.
-  local agent_flag=0 parent_ref="" planned_flag=0 jira_url=""
+  local agent_flag=0 parent_ref="" planned_flag=0 jira_url="" title_override=""
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -755,6 +776,11 @@ cmd_new() {
           ''|--*) echo "wb new: --jira requires a value" >&2; exit 1 ;;
         esac
         jira_url="$2"; shift 2 ;;
+      --title)
+        case "${2-}" in
+          ''|--*) echo "wb new: --title requires a value" >&2; exit 1 ;;
+        esac
+        title_override="$2"; shift 2 ;;
       --parent)
         case "${2-}" in
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
@@ -774,6 +800,11 @@ cmd_new() {
     exit 1
   fi
 
+  if [ -n "$title_override" ] && [ "$planned_flag" != 1 ]; then
+    echo "wb new: --title is only valid together with --planned (only a fresh, worktree-less seed has a title left to set)" >&2
+    exit 1
+  fi
+
   local repo slug
   if [ "${#args[@]}" -eq 2 ]; then
     repo="${args[0]}"; slug="${args[1]}"
@@ -784,7 +815,7 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent|--planned [--jira <url>]] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned [--jira <url>]] [--parent <repo>--<slug>] <repo> <slug>" >&2
+    echo "usage: wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] <repo> <slug>" >&2
     exit 1
   fi
 
@@ -825,13 +856,19 @@ cmd_new() {
     # KTD9's find-or-create behavior for free (an existing task at this
     # stem is reused, never overwritten).
     local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
+    local was_new=0; [ -f "$task_file" ] || was_new=1
     _wb_lock_trap_append_if_top_level wb_task_lock_release_all
     wb_task_lock_acquire_guarded "$task_file" || exit $?
-    task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref")"
+    task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref" "$title_override")"
     if [ -n "$jira_url" ]; then
       wb_set_frontmatter "$task_file" jira "$jira_url"
+      # Consume stdin regardless (a caller always pipes a body), but only
+      # land it on a genuinely NEW file — KTD9's "reused fill-blanks-only,
+      # never overwritten" covers the body too, not just frontmatter.
+      # Re-running against an already-seeded ticket must never duplicate
+      # the body under ## Plan.
       local ticket_body; ticket_body="$(cat)"
-      _wb_insert_plan_body "$task_file" "$ticket_body"
+      [ "$was_new" = 1 ] && _wb_insert_plan_body "$task_file" "$ticket_body"
     fi
     wb_task_lock_release "$task_file"
     echo "$task_file"
@@ -1626,6 +1663,22 @@ _wb_breakdown_validate() {
         echo "wb breakdown --apply: child n=$n's slug \`$raw_slug\` contains whitespace or a backtick — wb_sanitize doesn't strip either: ${create_lines[0]}" >&2
         return 2
       fi
+
+      # repo= is a marker field, not a checkbox-line value like raw_slug, so
+      # it never went through the whitespace/backtick check above — but it
+      # feeds the exact same wb_task_file path-construction (and, once the
+      # child is seeded, its own repo: frontmatter, which cmd_new/cmd_resume/
+      # cmd_done later trust to build repo_dir="$CODE_DIR/$repo" for real git
+      # worktree operations). A repo value containing `/` or `..` would
+      # write/read outside $TASKS_DIR / $CODE_DIR entirely — restrict it to
+      # a plain repo basename, the same charset real repo directory names
+      # actually use (alphanumeric, `-`, `_`, `.`, including the `--` this
+      # store's own cross-repo naming convention relies on).
+      local repo_field; repo_field="$(_wb_bd_field "$b" repo)"
+      if [ -z "$repo_field" ] || [[ "$repo_field" == *[/]* ]] || [[ "$repo_field" == *..* ]] || [[ "$repo_field" =~ [^A-Za-z0-9_.-] ]]; then
+        echo "wb breakdown --apply: child n=$n's repo=$repo_field is missing or unsafe (must be a plain repo basename — no / or ..): $(printf '%s' "$b" | head -1)" >&2
+        return 2
+      fi
     fi
 
     if [ "$kind" = parent ]; then
@@ -1917,13 +1970,27 @@ _wb_breakdown_acquire_locks() {
   mapfile -t sorted < <(printf '%s\n' "$@" | sort -u)
   local t rc
   for t in "${sorted[@]}"; do
-    # Plain statement, THEN read $?  — deliberately NOT `if ! foo; then
-    # rc=$?`: `$?` inside that branch would reflect the NEGATED condition's
-    # own (always-0) result, not foo's real failing code. Same footgun
-    # wb_reconcile_action_merge's own comment documents at its sorted-pair
-    # acquire, caught live by wb-lock-integration.test.sh there.
-    wb_task_lock_acquire_guarded "$t"
-    rc=$?
+    # `if cmd; then rc=0; else rc=$?; fi` — the only form that is BOTH safe
+    # under this file's `set -e` AND captures the real exit code. Two other
+    # shapes look plausible and are both wrong: `if ! cmd; then rc=$?; fi`
+    # captures the NEGATED condition's own (always-0) status, not cmd's
+    # (wb_reconcile_action_merge's own comment documents that one, caught
+    # live by wb-lock-integration.test.sh). `cmd; rc=$?` as bare statements
+    # looks right and even reads correctly under this file's OWN test
+    # suite — but every test here does `source wb.sh; set +e` before
+    # calling into it, which silently disables the exact errexit behavior
+    # production hits: a bare failing statement (not an if/while/&&/||
+    # condition) triggers `set -e` immediately, aborting the whole PROCESS
+    # before `rc=$?` on the next line ever runs. Reproduced live: `set -e;
+    # inner() { return 75; }; inner; rc=$?; echo reached` never prints
+    # "reached" and exits 75 — confirmed this exact class of bug is what
+    # made the "release everything already acquired" loop below
+    # unreachable in real (non-test) use.
+    if wb_task_lock_acquire_guarded "$t"; then
+      rc=0
+    else
+      rc=$?
+    fi
     if [ "$rc" -ne 0 ]; then
       local already
       for already in "${_wbd_acquired[@]}"; do
@@ -2064,7 +2131,11 @@ _wb_breakdown_repoint_task() {
 wb_breakdown_apply() {
   local path="${1:-}"
   local pre_out rc
-  pre_out="$(_wb_breakdown_validate "$path")"; rc=$?
+  # `if cmd; then rc=0; else rc=$?; fi`, never a bare `cmd; rc=$?` — see
+  # _wb_breakdown_acquire_locks's own comment for why the bare-statement
+  # form silently aborts the whole process under this file's `set -e`
+  # before `rc=$?` ever runs, masked only by this suite's own `set +e`.
+  if pre_out="$(_wb_breakdown_validate "$path")"; then rc=0; else rc=$?; fi
   [ "$rc" -eq 0 ] || return "$rc"
 
   if [ -z "$pre_out" ]; then
@@ -2089,15 +2160,15 @@ wb_breakdown_apply() {
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   local -a acquired=()
-  _wb_breakdown_acquire_locks acquired "${lock_targets[@]}"
-  local acquire_rc=$?
+  local acquire_rc
+  if _wb_breakdown_acquire_locks acquired "${lock_targets[@]}"; then acquire_rc=0; else acquire_rc=$?; fi
   [ "$acquire_rc" -eq 0 ] || return "$acquire_rc"
 
   # Re-validate against live store state — never trust the buffer snapshot
   # (KTD5): something could have changed in the window between the
   # pre-lock parse above and now.
   local out
-  out="$(_wb_breakdown_validate "$path")"; rc=$?
+  if out="$(_wb_breakdown_validate "$path")"; then rc=0; else rc=$?; fi
   if [ "$rc" -ne 0 ]; then
     local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
     return "$rc"
