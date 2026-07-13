@@ -1166,7 +1166,7 @@ wb_reconcile_apply() {
   done < "$path"
   [ "$in_block" = 1 ] && blocks+=("$block")
 
-  local reopen_needed=0
+  local reopen_needed=0 applied_count=0 skipped_count=0
   local b kind repo branch worktree taskfile target
   for b in "${blocks[@]}"; do
     kind="$(printf '%s' "$b" | grep -oP 'kind=\K[^ ]+' | head -1)"
@@ -1180,15 +1180,29 @@ wb_reconcile_apply() {
     elif printf '%s' "$b" | grep -qE '^- \[x\] discuss'; then
       continue
     elif printf '%s' "$b" | grep -qE '^- \[x\] remove'; then
-      wb_reconcile_action_remove "$kind" "$repo" "$branch" "$worktree" "$taskfile"
+      # Every action call below is guarded with `|| { ...; continue; }`:
+      # each one now goes through a lock (W10), which can return 75 on
+      # contention -- routine, not rare, at this feature's ~10-concurrent-
+      # agent scale. wb.sh runs under `set -e`, so an UNGUARDED bare call
+      # here would abort this WHOLE --apply batch on the very first
+      # contended finding, silently skipping every finding after it with
+      # no report distinguishing "skipped" from "intentionally left
+      # alone" — degrade to a per-finding skip instead.
+      wb_reconcile_action_remove "$kind" "$repo" "$branch" "$worktree" "$taskfile" \
+        || { echo "wb reconcile --apply: skipped this finding (remove, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
+      applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qE '^- \[x\] create a task'; then
       local parent_ref=""
       parent_ref="$(printf '%s' "$b" | grep -oP 'create a task \(optional parent: `\K[^`]+' | head -1)"
       [ "$parent_ref" != '___' ] || parent_ref=""
-      wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree" "$parent_ref"
+      wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree" "$parent_ref" \
+        || { echo "wb reconcile --apply: skipped this finding (create a task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
+      applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] attach to task: \`[^\`_]+\`"; then
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] attach to task: `\K[^`]+' | head -1)"
-      wb_reconcile_action_attach "$kind" "$worktree" "$target"
+      wb_reconcile_action_attach "$kind" "$worktree" "$target" \
+        || { echo "wb reconcile --apply: skipped this finding (attach to task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
+      applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] merge with task: \`[^\`_]+\`"; then
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] merge with task: `\K[^`]+' | head -1)"
       if [ "$kind" != orphan ] && ! printf '%s' "$b" | grep -qE '^\s*- \[.\] survivor:'; then
@@ -1212,9 +1226,15 @@ wb_reconcile_apply() {
         reopen_needed=1
         continue
       fi
-      wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" "$b"
+      wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" "$b" \
+        || { echo "wb reconcile --apply: skipped this finding (merge with task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
+      applied_count=$((applied_count + 1))
     fi
   done
+
+  if [ "$skipped_count" -gt 0 ]; then
+    echo "wb reconcile --apply: $applied_count applied, $skipped_count skipped (contended or otherwise failed — re-run \`wb reconcile --apply\` to retry the skipped finding(s); the review doc is unchanged, so already-applied findings won't be re-applied)" >&2
+  fi
 
   if [ "$reopen_needed" = 1 ]; then
     printf '%s' "$full_content" > "$path"

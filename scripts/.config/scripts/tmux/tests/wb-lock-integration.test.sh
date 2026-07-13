@@ -386,6 +386,54 @@ assert "reconcile _remove: contention message names the target" "$(basename "$RE
 wait "$remove_holder" 2>/dev/null
 
 # =============================================================================
+# Scenario (code-review regression): wb_reconcile_apply's real loop over a
+# batch of 2+ checked findings degrades a contended finding to a per-finding
+# skip instead of aborting the WHOLE --apply run under set -e. Every
+# wb_reconcile_action_* call is now lock-guarded (W10), which can return 75
+# on contention — routine, not rare, at this feature's ~10-concurrent-agent
+# scale — and a prior version called each action as a bare statement with no
+# `||` guard, so the FIRST contended finding in a batch killed the entire
+# process, silently skipping every finding after it.
+# =============================================================================
+
+BATCH_TASK_A="$TASKS_DIR/proj--batch-a.md"
+BATCH_TASK_B="$TASKS_DIR/proj--batch-b.md"
+mk_merge_task "$BATCH_TASK_A" branch-batch-a worktree-batch-a
+mk_merge_task "$BATCH_TASK_B" branch-batch-b worktree-batch-b
+BATCH_REPORT="$(mktemp -u -t wb-lock-integ-batch-report.XXXXXX.md)"
+ALL_TMP+=("$BATCH_REPORT")
+cat > "$BATCH_REPORT" <<EOF
+# wb reconcile — review
+
+## 1. missing worktree — proj / batch-a
+
+<!-- wb-reconcile: kind=missing repo=proj branch=branch-batch-a worktree=worktree-batch-a taskfile=$BATCH_TASK_A -->
+
+- [ ] do nothing
+- [x] remove
+- [ ] discuss
+
+## 2. missing worktree — proj / batch-b
+
+<!-- wb-reconcile: kind=missing repo=proj branch=branch-batch-b worktree=worktree-batch-b taskfile=$BATCH_TASK_B -->
+
+- [ ] do nothing
+- [x] remove
+- [ ] discuss
+EOF
+
+wb_reconcile_report_path() { printf '%s' "$BATCH_REPORT"; }
+batch_holder="$(spawn_holder "$BATCH_TASK_A" 2 "batch-order-irrelevant-session")"
+_wait_for_holder "$BATCH_TASK_A" "$batch_holder"
+
+batch_out="$(wb_reconcile_apply 2>&1)"
+assert "reconcile --apply batch: reports partial completion (1 applied, 1 skipped)" '1 applied, 1 skipped' "$batch_out"
+[ -f "$BATCH_TASK_A" ] && echo "ok   - reconcile --apply batch: contended finding (A) left untouched, not deleted" || { echo "FAIL - reconcile --apply batch: contended finding (A) was deleted"; fail=1; }
+[ ! -f "$BATCH_TASK_B" ] && echo "ok   - reconcile --apply batch: uncontended finding (B) still applied despite A's contention" || { echo "FAIL - reconcile --apply batch: uncontended finding (B) was never reached (whole batch aborted)"; fail=1; }
+wait "$batch_holder" 2>/dev/null
+unset -f wb_reconcile_report_path
+
+# =============================================================================
 # Scenario: reconcile — existing checked-box gate behavior is unchanged (a
 # quick smoke test only; wb-reconcile-review.test.sh already covers this
 # logic in depth). Real fixture repo + worktree, faked `gh`, stubbed
