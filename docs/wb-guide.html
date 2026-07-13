@@ -174,7 +174,7 @@
 <body data-kind="guide">
 <div class="statusbar">
   <span>docgen · generated from <b>docs/wb-guide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span class="right">updated 2026-07-12</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -187,9 +187,11 @@
       <li><a href="#wb-new--start-a-task">wb new — start a task</a></li>
       <li><a href="#the-picker">The picker</a></li>
       <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
+      <li><a href="#wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</a></li>
       <li><a href="#bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</a></li>
       <li><a href="#the-task-store">The task store</a></li>
       <li><a href="#wb-board---html--the-full-board-v2">wb board --html — the full board (v2)</a></li>
+      <li><a href="#keeping-the-task-store-safe">Keeping the task store safe</a></li>
       <li><a href="#known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</a></li>
       <li><a href="#next-steps">Next steps</a></li>
       <li><a href="#if-something-misbehaves">If something misbehaves</a></li>
@@ -470,6 +472,25 @@ the tmux session.</li>
 <em>&quot;N follow-ups pending · M parked — consider running <code>/parked-items</code>.&quot;</em>
 The same count shows in the picker's status line at all times.</p>
 </blockquote>
+<h2 id="wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</h2>
+<p>A task whose <code>## Plan</code> has grown into a week of work becomes a
+<strong>session-less parent</strong> plus one or more session-sized <strong>children</strong>, one
+of which (the &quot;continuing&quot; child) inherits the parent's actual git
+branch/worktree/session — nothing already in flight gets interrupted.</p>
+<pre><code>/wb-breakdown &lt;stem-or-ticket&gt;   # authors a proposal buffer, opens it for you
+wb breakdown --apply &lt;buffer&gt;    # (invoked for you) validates + writes the family
+</code></pre>
+<p><code>/wb-breakdown</code> (the skill, <code>claude/.claude/skills/wb-breakdown/SKILL.md</code>)
+does the thinking — it climbs the richest available evidence (a ticket's
+subtasks, a linked plan doc, a substantive <code>## Plan</code>, or a fresh read) and
+writes a checkbox buffer for you to edit and approve. <code>wb breakdown --apply</code> does the writing — under one locked, all-or-nothing transaction:
+seed the checked children, rewrite the parent's <code>## Plan</code>, move any
+checked follow-ups to the child they belong to, migrate the continuing
+child's branch/worktree away from the parent, and archive the closed
+buffer under <code>~/code/tasks/dossiers/&lt;parent-stem&gt;/</code>. <code>/wb-breakdown</code> with
+no argument lists tasks already tagged <code>breakdown-candidate</code>. Closing the
+last open child of a family, <code>wb done</code> prints the exact command to close
+the parent too.</p>
 <h2 id="bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</h2>
 <p>A fresh worktree only has tracked files — anything gitignored (a local
 <code>config.hjson</code>, <code>node_modules</code>, credentials) is missing until you seed it.
@@ -553,7 +574,7 @@ Review</strong>) each render one of four states:</p>
 <td>The stage's artifact exists (a doc, a stamped <code>reviewed:</code> date, or — for Work — the task is closed with no open PR)</td>
 </tr>
 <tr>
-<td>◐</td>
+<td>◑</td>
 <td>in progress</td>
 <td>Work only: real changes exist, or a PR is open in any state</td>
 </tr>
@@ -577,6 +598,13 @@ declared <code>plan</code> in its path, that stage renders done anyway. Stage ce
 link to their backing artifact (the doc, or the PR) when one exists on disk;
 a task whose worktree is gone but whose branch still carries the doc shows
 an unlinked glyph with a tooltip naming it, rather than losing the signal.</p>
+<p><strong>Live and Stale tabs</strong>, next to Pipeline: <strong>Live</strong> narrows to every task
+(or untracked worktree) with a currently-running tmux session — the same
+green dot Pipeline/bucket rows already show, isolated into its own list.
+<strong>Stale</strong> narrows to in-flight tasks whose <code>created</code>/<code>closed</code>/<code>updated</code> all
+predate a 14-day threshold (<code>WB_STALE_DAYS</code> in <code>wb.sh</code>) — the ones you
+started and haven't touched in a while. Both are window-independent, like
+Pipeline.</p>
 <p><strong>Every detail card</strong> (bucket tabs and Pipeline alike, done tasks included)
 shows the same stepper as a two-zone card: identity (title, status, repo ·
 branch) on the left, live-agent badge / worktree indicator / PR chip on the
@@ -598,6 +626,10 @@ control, plus two independent, AND-composing dropdown filters: <strong>Repo</str
 children — only appears at all once the store has at least one parent/child
 pair). Both default to &quot;All&quot;; picking a specific option narrows every tab's
 table and cards at once, never Key Findings (below).</p>
+<p><strong>Sorting.</strong> Click a <strong>Status</strong> or <strong>Repo</strong> column header to sort that
+table by it — the one deliberate exception to the page otherwise being
+CSS-only/no-JS (a small inline script; everything else stays radio+CSS
+driven).</p>
 <p><strong>Key Findings</strong>, at the bottom of every tab, is board-global and explicitly
 tagged <em>board-wide · ignores filters</em> — no repo/family filter narrows it,
 since it's meant to answer &quot;what needs attention across everything,&quot; not
@@ -617,6 +649,43 @@ inside a <code>wb</code> session, run <code>wb reviewed</code> — it stamps the
 field, which is what makes the Review stage (and the unreviewed-count
 insight) tell the truth. This is a convention, not automation — nothing
 enforces it, it only works if it's actually run.</p>
+<h2 id="keeping-the-task-store-safe">Keeping the task store safe</h2>
+<p><code>~/code/tasks</code> is a single git checkout that every <code>wb</code>-driven session on
+this machine shares — 8-10+ concurrent agents on a normal day. A follow-up
+PR added guards and a handful of new verbs on top of everything above. Full
+details, incident history, and runbooks live in
+<a href="guides/tasks-store-guards.html"><code>tasks-store-guards.md</code></a>; the short version:</p>
+<table>
+<thead>
+<tr>
+<th>Verb</th>
+<th>What it's for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>wb sync</code></td>
+<td>Pull/rebase the task store safely — refuses on a dirty tree or real conflicts instead of guessing.</td>
+</tr>
+<tr>
+<td><code>wb append &lt;task&gt; &lt;heading&gt; &lt;text&gt;</code></td>
+<td>Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file.</td>
+</tr>
+<tr>
+<td><code>wb unsafe-rewind</code></td>
+<td>The deliberate escape hatch for a genuine history rewind (<code>reset --hard</code> and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself.</td>
+</tr>
+<tr>
+<td><code>wb install-hooks</code></td>
+<td>Installs the git hook and the Claude Code <code>PreToolUse</code> hook that do the refusing/asking in the first place. One-time setup per machine.</td>
+</tr>
+</tbody>
+</table>
+<p>Two hooks now sit in front of raw git commands touching this repo:
+a <code>PreToolUse</code> hook asks before an agent runs anything that looks like a
+history rewind, and a <code>reference-transaction</code> git hook refuses ref updates
+that would orphan commits, regardless of which tool or shell ran the
+command. <code>wb unsafe-rewind</code> is the sanctioned way through the second one.</p>
 <h2 id="known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</h2>
 <ul>
 <li>The picker's auto-refresh briefly pauses input while it runs (every few

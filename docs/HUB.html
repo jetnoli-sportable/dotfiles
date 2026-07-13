@@ -173,7 +173,7 @@
 </head>
 <body data-kind="hub">
 <div class="statusbar" aria-hidden="true">
-  <span><b>29</b> docs</span>
+  <span><b>33</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
   <span class="right">updated 2026-07-13</span>
 </div>
@@ -194,6 +194,13 @@
       <h3>&#34;/board — task-board visualization&#34;</h3>
       <p>Full HTML board shipped — lifecycle stepper, Pipeline tab, relationships, filters, Key Findings.</p>
       <div class="path">docs/roadmap-board.html</div>
+    </a>
+    <a class="tile" href="2026-07-12-workflow-push-recap.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>&#34;Recap — the Hub-v0 &#43; agent-fleet push (2026-07-10 → 12)&#34;</h3>
+      <p>Two days, 14 PRs — ideation, an rm -rf incident &#43; full recovery, and a parallel agent fleet. What shipped and where things stand.</p>
+      <div class="path">docs/2026-07-12-workflow-push-recap.html</div>
     </a>
     <a class="tile" href="wb-board-display-v2-recap.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
@@ -272,6 +279,20 @@
       <p>All four wb workbench extensions shipped. What to verify yourself.</p>
       <div class="path">docs/pr1-wb-workbench-recap.html</div>
     </a>
+    <a class="tile" href="2026-07-12-tasks-dir-concurrency-safety-recap.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>Recap — TASKS_DIR concurrency safety (hook guards &#43; per-task write locks)</h3>
+      <p>Ten units, three layers, four real incidents — how ~/code/tasks got safe for concurrent agents, and what&#39;s still deliberately dormant.</p>
+      <div class="path">docs/2026-07-12-tasks-dir-concurrency-safety-recap.html</div>
+    </a>
+    <a class="tile" href="2026-07-13-wb-breakdown-recap.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>Recap — wb-breakdown (split an oversized task into a family)</h3>
+      <p>A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.</p>
+      <div class="path">docs/2026-07-13-wb-breakdown-recap.html</div>
+    </a>
     <a class="tile" href="roadmap.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         <span class="chip ok">current</span></div>
@@ -320,6 +341,13 @@
       <h3>docgen — how the docs get generated</h3>
       <p>The generator&#39;s own pipeline, source locations, and a real worked example.</p>
       <div class="path">docs/docgen.html</div>
+    </a>
+    <a class="tile" href="guides/tasks-store-guards.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        <span class="chip ok">current</span></div>
+      <h3>tasks-store-guards</h3>
+      <p>The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.</p>
+      <div class="path">docs/guides/tasks-store-guards.html</div>
     </a>
     <a class="tile" href="roadmap-wb-design.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
