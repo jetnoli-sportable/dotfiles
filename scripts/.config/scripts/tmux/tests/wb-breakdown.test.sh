@@ -932,5 +932,44 @@ cmd_done "$sess_byte" >/dev/null 2>&1
 assert_eq "nudge is stdout-only: parent file byte-identical" "$parent_snapshot_before" "$(cat "$TASKS_DIR/proj--feat-nudge-byte.md")"
 assert_eq "nudge is stdout-only: sibling (already-done) file byte-identical" "$sibling_snapshot_before" "$(cat "$TASKS_DIR/proj--feat-nudge-byte-a.md")"
 
+# =============================================================================
+# U6 — /wb-breakdown skill: write-boundary grep check
+# =============================================================================
+# Same convention wb-append.test.sh's W14 scenario already established for
+# handoff/parked-items/wb-save — a reasonable grep-based smoke check (not
+# exhaustive NLP) that this new skill never instructs an Edit/Write-tool
+# write against ~/code/tasks, and DOES reference the locked verbs + state
+# the never-Edit/Write-tool rule.
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
+SKILL_FILE="$REPO_ROOT/claude/.claude/skills/wb-breakdown/SKILL.md"
+
+if [ ! -f "$SKILL_FILE" ]; then
+  echo "FAIL - U6 skill grep check: $SKILL_FILE not found"
+  fail=1
+else
+  if grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md' "$SKILL_FILE" >/dev/null; then
+    echo "FAIL - U6 skill grep check: wb-breakdown/SKILL.md contains an Edit/Write-tool task-file write instruction:"
+    grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md' "$SKILL_FILE" | sed 's/^/       /'
+    fail=1
+  else
+    echo "ok   - U6 skill grep check: wb-breakdown/SKILL.md has no Edit/Write-tool task-file write instruction"
+  fi
+
+  if grep -qE 'wb (breakdown --apply|new --planned)' "$SKILL_FILE"; then
+    echo "ok   - U6 skill grep check: references wb breakdown --apply / wb new --planned"
+  else
+    echo "FAIL - U6 skill grep check: does not reference wb breakdown --apply or wb new --planned"
+    fail=1
+  fi
+
+  if grep -Pzoqi '(?s)never[^.]{0,200}?(edit|write)[\s/-]*tool' "$SKILL_FILE"; then
+    echo "ok   - U6 skill grep check: states the never-Edit/Write-tool-task-files rule"
+  else
+    echo "FAIL - U6 skill grep check: missing the never-Edit/Write-tool-task-files rule"
+    fail=1
+  fi
+fi
+
 [ "$fail" -eq 0 ] && echo "ALL PASS"
 exit "$fail"
