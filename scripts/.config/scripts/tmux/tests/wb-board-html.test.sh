@@ -115,10 +115,10 @@ done
 assert "panel-pipeline present (U5, window-independent, single panel)" 'id="panel-pipeline"' "$html"
 
 css_rule_count="$(printf '%s' "$html" | grep -c 'display: flex; }')"
-if [ "$css_rule_count" -eq 14 ]; then
-  echo "ok   - 14 CSS toggle rules present (12 bucket + 2 pipeline, one per window)"
+if [ "$css_rule_count" -eq 18 ]; then
+  echo "ok   - 18 CSS toggle rules present (12 bucket + 2 pipeline + 2 live + 2 stale, one per window)"
 else
-  echo "FAIL - expected 14 CSS toggle rules, got $css_rule_count"; fail=1
+  echo "FAIL - expected 18 CSS toggle rules, got $css_rule_count"; fail=1
 fi
 
 # --- active-tab highlight: every radio has a rule targeting ITS OWN label --
@@ -128,10 +128,10 @@ fi
 # every tab looked selected-or-not identically. Each radio needs its own
 # `#id:checked ~ header label[for="id"]` rule instead.
 highlight_rule_count="$(printf '%s' "$html" | grep -c 'label\[for=')"
-if [ "$highlight_rule_count" -eq 9 ]; then
-  echo "ok   - 9 active-tab highlight rules present (2 timeline + 6 status + pipeline)"
+if [ "$highlight_rule_count" -eq 11 ]; then
+  echo "ok   - 11 active-tab highlight rules present (2 timeline + 6 status + pipeline + live + stale)"
 else
-  echo "FAIL - expected 9 active-tab highlight rules, got $highlight_rule_count"; fail=1
+  echo "FAIL - expected 11 active-tab highlight rules, got $highlight_rule_count"; fail=1
 fi
 assert "pipeline tab is checked by default (approved mockup)" '<input type="radio" name="st" id="st-pipeline" checked>' "$html"
 assert "highlight rule targets its own label by for=" '#st-paused:checked ~ header label\[for="st-paused"\]' "$html"
@@ -546,7 +546,7 @@ pipe_panel_deps="${flat_deps#*id=\"panel-pipeline\">}"
 row_blocked="${pipe_panel_deps#*Pipe Blocked Task}"; row_blocked="${row_blocked%%</tr>*}"
 row_blocker="${pipe_panel_deps#*Pipe Blocker Task}"; row_blocker="${row_blocker%%</tr>*}"
 assert "pipeline deps: blocked task shows the ⛔ chip with count 1" 'dep-chip blocked".*&#9940; 1' "$row_blocked"
-assert "pipeline deps: blocked task's row is dimmed" 'class="row blocked"' "$(printf '%s' "$pipe_panel_deps" | grep -o '<tr class="[^"]*"[^>]*><td><a class="tasklink" href="#t-pipeline-proj--pipe-blocked">.*' | head -c 200)"
+assert "pipeline deps: blocked task's row is dimmed" 'class="row blocked"' "$(printf '%s' "$pipe_panel_deps" | grep -o '<tr class="[^"]*"[^>]*><td><div class="task-cell"><a class="tasklink" href="#t-pipeline-proj--pipe-blocked">.*' | head -c 200)"
 assert "pipeline deps: blocker task shows the → unblocks chip with count 1" 'dep-chip unblocks".*&#8594; 1' "$row_blocker"
 assert "pipeline deps: dep-free task shows an em-dash" '&mdash;' "${pipe_panel_deps#*Pipe AE1 Task}"
 
@@ -696,8 +696,9 @@ family_hide_rule_count="$(printf '%s' "$html_u7" | grep -c '#fp-.*:checked ~ mai
 [ "$family_hide_rule_count" -gt 0 ] && echo "ok   - U7: family hide rules generated independently of repo hide rules" \
   || { echo "FAIL - U7: expected independent family hide rules, found none"; fail=1; }
 panel_count_u7="$(printf '%s' "$html_u7" | grep -c 'class="view" id="panel-')"
-assert_empty "U7: panel count still 13 despite new filter groups (no multiplication)" \
-  "$([ "$panel_count_u7" = 13 ] && echo '' || echo "got $panel_count_u7")"
+# 13 (6 bucket tabs x 2 windows + Pipeline) + Live + Stale = 15 panels total.
+assert_empty "U7: panel count still 15 despite new filter groups (no multiplication)" \
+  "$([ "$panel_count_u7" = 15 ] && echo '' || echo "got $panel_count_u7")"
 
 # --- :target-wins override present, so a filter-hidden card still reveals
 # when it is the link target -------------------------------------------------

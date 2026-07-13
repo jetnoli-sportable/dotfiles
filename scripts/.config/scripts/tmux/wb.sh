@@ -122,14 +122,16 @@ wb_task_title() {
 # wb_task_file <repo> <disp_slug> — the store path for a repo+slug pair.
 wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
 
-# wb_task_files — every real task file in the store (excludes README/TEMPLATE
-# and the dossiers/ directory used by wb done's keeper sweep).
+# wb_task_files — every real task file in the store (excludes README/TEMPLATE,
+# RECOVERY-NOTES-2026-07-10.md -- incident documentation, not a task, left in
+# $TASKS_DIR itself rather than a subdirectory -- and the dossiers/ directory
+# used by wb done's keeper sweep).
 wb_task_files() {
   local f
   for f in "$TASKS_DIR"/*.md; do
     [ -f "$f" ] || continue
     case "$(basename "$f")" in
-      TEMPLATE.md|README.md) continue ;;
+      TEMPLATE.md|README.md|RECOVERY-NOTES-2026-07-10.md) continue ;;
     esac
     echo "$f"
   done
@@ -1869,14 +1871,15 @@ wb_board_stage_render_info() {
 # state glyph, linked when wb_board_stage_render_info found an artifact,
 # otherwise just a title= tooltip.
 wb_board_stage_cell() {
+  local state="$2"
   local -a info
   wb_tsv_split "$(wb_board_stage_render_info "$@")" info
   local glyph="${info[0]:-}" href="${info[1]:-}" tooltip="${info[2]:-}"
   if [ -n "$href" ]; then
-    printf '<td class="stage-cell"><a href="%s" title="%s">%s</a></td>' \
-      "$(wb_board_html_escape "$href")" "$(wb_board_html_escape "$tooltip")" "$glyph"
+    printf '<td class="stage-cell %s"><a href="%s" title="%s">%s</a></td>' \
+      "$state" "$(wb_board_html_escape "$href")" "$(wb_board_html_escape "$tooltip")" "$glyph"
   else
-    printf '<td class="stage-cell" title="%s">%s</td>' "$(wb_board_html_escape "$tooltip")" "$glyph"
+    printf '<td class="stage-cell %s" title="%s">%s</td>' "$state" "$(wb_board_html_escape "$tooltip")" "$glyph"
   fi
 }
 
@@ -2306,6 +2309,14 @@ wb_board_render_html() {
   radios_html+="<input type=\"radio\" name=\"st\" id=\"st-pipeline\" checked>"$'\n'
   tabs_html+="<label for=\"st-pipeline\">Pipeline</label>"$'\n'
   highlight_css+="#st-pipeline:checked ~ header label[for=\"st-pipeline\"] { background: var(--acc); color: white; }"$'\n'
+  # Live/Stale — same window-independent treatment as Pipeline (KTD-7):
+  # cross-cutting views over in-flight work, not another status bucket.
+  for tab in live stale; do
+    radios_html+="<input type=\"radio\" name=\"st\" id=\"st-$tab\">"$'\n'
+    highlight_css+="#st-$tab:checked ~ header label[for=\"st-$tab\"] { background: var(--acc); color: white; }"$'\n'
+  done
+  tabs_html+="<label for=\"st-live\">Live</label>"$'\n'
+  tabs_html+="<label for=\"st-stale\">Stale</label>"$'\n'
   for tab in "${TABS[@]}"; do
     radios_html+="<input type=\"radio\" name=\"st\" id=\"st-$tab\">"$'\n'
     tabs_html+="<label for=\"st-$tab\">${TAB_LABEL[$tab]}</label>"$'\n'
@@ -2318,6 +2329,8 @@ wb_board_render_html() {
   # combination like the loop below generates for the 6 bucket tabs).
   for win in "${WINDOWS[@]}"; do
     panel_css+="#tl-$win:checked ~ #st-pipeline:checked ~ main #panel-pipeline { display: flex; }"$'\n'
+    panel_css+="#tl-$win:checked ~ #st-live:checked ~ main #panel-live { display: flex; }"$'\n'
+    panel_css+="#tl-$win:checked ~ #st-stale:checked ~ main #panel-stale { display: flex; }"$'\n'
   done
 
   # --- U7: repo/family filter radio groups (KTD-8) — declared here,
@@ -2412,7 +2425,7 @@ wb_board_render_html() {
         local link_text="$esc_title"
         [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
         local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-        local row_attrs=" data-repo=\"$row_repo_attr\""
+        local row_attrs=" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
         [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
         PANEL_REPO["$panelkey"$'\x1f'"$row_repo_attr"]=1
         if [ -n "$row_family_attr" ]; then
@@ -2422,13 +2435,13 @@ wb_board_render_html() {
             PANEL_COMBO["$panelkey"$'\x1f'"$row_repo_attr"$'\x1f'"$fam_tok"]=1
           done
         fi
-        table_rows+="<tr class=\"row\"$row_attrs><td><span class=\"pill $pill_class\">$pill_label</span></td><td><a class=\"tasklink\" href=\"#$view_anchor\">$link_text</a> $live_badge</td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
+        table_rows+="<tr class=\"row\"$row_attrs><td><span class=\"pill $pill_class\">$pill_label</span></td><td><div class=\"task-cell\"><a class=\"tasklink\" href=\"#$view_anchor\">$link_text</a>$live_badge</div></td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
 
         detail_sections+="$(wb_board_render_detail_card)"$'\n'
       done
 
       if [ "$any" = 1 ]; then
-        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"table-wrap\"><table><tr><th>Status</th><th>Task</th><th>Repo</th></tr>$table_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$detail_sections</div></div><div class=\"empty-state filtered-empty\" id=\"empty-$tab-$win\">No tasks match this filter combination.</div></div>"$'\n'
+        panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"table-wrap\"><table><tr><th class=\"sortable\" data-sort=\"status\">Status</th><th>Task</th><th class=\"sortable\" data-sort=\"repo\">Repo</th></tr>$table_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$detail_sections</div></div><div class=\"empty-state filtered-empty\" id=\"empty-$tab-$win\">No tasks match this filter combination.</div></div>"$'\n'
       elif [ "$tab" = deferred ]; then
         panels_html+="<div class=\"view\" id=\"panel-$tab-$win\"><div class=\"empty-state\">No deferred tasks yet — reserved for a future <code>pending</code> status once <code>/park</code> items become task-store entries. Not part of this PR.</div></div>"$'\n'
       else
@@ -2466,7 +2479,7 @@ wb_board_render_html() {
     local row_class="row"
     [ -n "${UNMET_COUNT["$anchor_key"]:-}" ] && row_class+=" blocked"
     local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-    local row_attrs=" data-repo=\"$row_repo_attr\""
+    local row_attrs=" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
     [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
     PANEL_ANY["pipeline"]=1
     PANEL_REPO["pipeline"$'\x1f'"$row_repo_attr"]=1
@@ -2485,9 +2498,8 @@ wb_board_render_html() {
         "$repo" "$branch" "$worktree" "$taskfile" "${PR_INFO["$anchor_key"]:-}")"
     done
 
-    local wt_cell agent_cell pr_cell deps_cell
+    local wt_cell pr_cell deps_cell
     if wb_lifecycle_has_worktree "$repo" "$worktree"; then wt_cell="&#10003;"; else wt_cell="&mdash;"; fi
-    if [ -n "$live_badge" ]; then agent_cell="$live_badge"; else agent_cell="&mdash;"; fi
     local pipe_pr_info="${PR_INFO["$anchor_key"]:-}"
     if [ -n "$pipe_pr_info" ]; then
       pr_cell="<a href=\"$(wb_board_html_escape "$(wb_board_pr_url "$pipe_pr_info")")\">$(wb_board_html_escape "$(wb_board_pr_number "$pipe_pr_info")")</a>"
@@ -2496,15 +2508,112 @@ wb_board_render_html() {
     fi
     deps_cell="$(wb_board_deps_chips "$anchor_key")"; [ -n "$deps_cell" ] || deps_cell="&mdash;"
 
-    pipe_rows+="<tr class=\"$row_class\"$row_attrs><td><a class=\"tasklink\" href=\"#$view_anchor\">$esc_title</a> <span class=\"repo\">$esc_repo</span> $live_badge</td><td><span class=\"pill $pill_class\">$pill_label</span></td>$stage_cells<td>$wt_cell</td><td>$agent_cell</td><td>$pr_cell</td><td>$deps_cell</td></tr>"$'\n'
+    pipe_rows+="<tr class=\"$row_class\"$row_attrs><td><div class=\"task-cell\"><a class=\"tasklink\" href=\"#$view_anchor\">$esc_title</a><span class=\"repo\">$esc_repo</span>$live_badge</div></td><td><span class=\"pill $pill_class\">$pill_label</span></td>$stage_cells<td>$wt_cell</td><td>$pr_cell</td><td>$deps_cell</td></tr>"$'\n'
     detail_sections="$(wb_board_render_detail_card)"
     pipe_details+="$detail_sections"$'\n'
   done
 
   if [ "$pipe_any" = 1 ]; then
-    panels_html+="<div class=\"view\" id=\"panel-pipeline\"><div class=\"table-wrap\"><table><tr><th>Task</th><th>Status</th><th>Ideate</th><th>Brainstorm</th><th>Plan</th><th>Work</th><th>Review</th><th>Worktree</th><th>Agent</th><th>PR</th><th>Deps</th></tr>$pipe_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$pipe_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-pipeline\">No tasks match this filter combination.</div></div>"$'\n'
+    panels_html+="<div class=\"view\" id=\"panel-pipeline\"><div class=\"table-wrap\"><table><tr><th>Task</th><th class=\"sortable\" data-sort=\"status\">Status</th><th>Ideate</th><th>Brainstorm</th><th>Plan</th><th>Work</th><th>Review</th><th>Worktree</th><th>PR</th><th>Deps</th></tr>$pipe_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$pipe_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-pipeline\">No tasks match this filter combination.</div></div>"$'\n'
   else
     panels_html+="<div class=\"view\" id=\"panel-pipeline\"><div class=\"empty-state\">No in-flight tasks.</div></div>"$'\n'
+  fi
+
+  # ===========================================================================
+  # Live tab — every task or untracked row with a currently-running tmux
+  # session (LIVE_SESSION non-empty), window-independent like Pipeline.
+  # Reuses the bucket-tab's 3-column table + wb_board_render_detail_card,
+  # not Pipeline's stage-cell table -- this is "what's running right now",
+  # not a lifecycle view.
+  # ===========================================================================
+  local live_rows='' live_details='' live_any=0
+  for row in "${ROWS[@]}"; do
+    wb_tsv_split "$row" f
+    kind="${f[0]}"; bucket="${f[1]}"; status="${f[2]}"; repo="${f[3]}"; branch="${f[4]}"
+    worktree="${f[5]}"; title="${f[6]}"; created="${f[7]}"; closed="${f[8]}"; updated="${f[9]}"
+    taskfile="${f[10]}"; anchor_key="${f[11]}"
+    local live_session="${LIVE_SESSION["$anchor_key"]:-}"
+    [ -n "$live_session" ] || continue
+    live_any=1
+    local view_anchor="t-live-$anchor_key"
+    local esc_title esc_branch esc_repo pill_class pill_label live_badge
+    esc_title="$(wb_board_html_escape "$title")"
+    esc_branch="$(wb_board_html_escape "$branch")"
+    esc_repo="$(wb_board_html_escape "$repo")"
+    pill_class="$status"; pill_label="$status"
+    [ "$kind" = untracked ] && { pill_class="unclassified"; pill_label="unclassified"; }
+    live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
+    local link_text="$esc_title"
+    [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
+    local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
+    local row_attrs=" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
+    PANEL_ANY["live"]=1
+    PANEL_REPO["live"$'\x1f'"$row_repo_attr"]=1
+    if [ -n "$row_family_attr" ]; then
+      local fam_tok
+      for fam_tok in $row_family_attr; do
+        PANEL_FAMILY["live"$'\x1f'"$fam_tok"]=1
+        PANEL_COMBO["live"$'\x1f'"$row_repo_attr"$'\x1f'"$fam_tok"]=1
+      done
+    fi
+    live_rows+="<tr class=\"row\"$row_attrs><td><span class=\"pill $pill_class\">$pill_label</span></td><td><div class=\"task-cell\"><a class=\"tasklink\" href=\"#$view_anchor\">$link_text</a>$live_badge</div></td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
+    live_details+="$(wb_board_render_detail_card)"$'\n'
+  done
+  if [ "$live_any" = 1 ]; then
+    panels_html+="<div class=\"view\" id=\"panel-live\"><div class=\"table-wrap\"><table><tr><th class=\"sortable\" data-sort=\"status\">Status</th><th>Task</th><th class=\"sortable\" data-sort=\"repo\">Repo</th></tr>$live_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$live_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-live\">No tasks match this filter combination.</div></div>"$'\n'
+  else
+    panels_html+="<div class=\"view\" id=\"panel-live\"><div class=\"empty-state\">No live sessions right now.</div></div>"$'\n'
+  fi
+
+  # ===========================================================================
+  # Stale tab — in-flight (non-done) tasks whose created/closed/updated all
+  # predate the staleness threshold, i.e. the inverse of wb_board_in_window
+  # widened past "week". WB_STALE_DAYS is a plain tunable constant, not a
+  # frontmatter field or a third window radio -- staleness is a Pipeline-
+  # scoped lens ("which of my in-flight tasks am I neglecting"), not a
+  # dimension the other 6 bucket tabs' today/week pairing needs too.
+  # ===========================================================================
+  local -r WB_STALE_DAYS=14
+  local stale_start; stale_start="$(date -d "${WB_STALE_DAYS} days ago 00:00:00" +%s)"
+  local stale_rows='' stale_details='' stale_any=0
+  for row in "${ROWS[@]}"; do
+    wb_tsv_split "$row" f
+    kind="${f[0]}"; bucket="${f[1]}"; status="${f[2]}"; repo="${f[3]}"; branch="${f[4]}"
+    worktree="${f[5]}"; title="${f[6]}"; created="${f[7]}"; closed="${f[8]}"; updated="${f[9]}"
+    taskfile="${f[10]}"; anchor_key="${f[11]}"
+    [ "$kind" = task ] || continue
+    [ "$bucket" = done ] && continue
+    wb_board_in_window "$created" "$closed" "$updated" "$stale_start" && continue
+    stale_any=1
+    local view_anchor="t-stale-$anchor_key"
+    local esc_title esc_branch esc_repo pill_class pill_label live_session live_badge
+    esc_title="$(wb_board_html_escape "$title")"
+    esc_branch="$(wb_board_html_escape "$branch")"
+    esc_repo="$(wb_board_html_escape "$repo")"
+    pill_class="$status"; pill_label="$status"
+    live_session="${LIVE_SESSION["$anchor_key"]:-}"
+    live_badge=""
+    [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
+    local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
+    local row_attrs=" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
+    PANEL_ANY["stale"]=1
+    PANEL_REPO["stale"$'\x1f'"$row_repo_attr"]=1
+    if [ -n "$row_family_attr" ]; then
+      local fam_tok
+      for fam_tok in $row_family_attr; do
+        PANEL_FAMILY["stale"$'\x1f'"$fam_tok"]=1
+        PANEL_COMBO["stale"$'\x1f'"$row_repo_attr"$'\x1f'"$fam_tok"]=1
+      done
+    fi
+    stale_rows+="<tr class=\"row\"$row_attrs><td><span class=\"pill $pill_class\">$pill_label</span></td><td><div class=\"task-cell\"><a class=\"tasklink\" href=\"#$view_anchor\">$esc_title</a>$live_badge</div></td><td class=\"repo\">$esc_repo</td></tr>"$'\n'
+    stale_details+="$(wb_board_render_detail_card)"$'\n'
+  done
+  if [ "$stale_any" = 1 ]; then
+    panels_html+="<div class=\"view\" id=\"panel-stale\"><div class=\"table-wrap\"><table><tr><th class=\"sortable\" data-sort=\"status\">Status</th><th>Task</th><th class=\"sortable\" data-sort=\"repo\">Repo</th></tr>$stale_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$stale_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-stale\">No tasks match this filter combination.</div></div>"$'\n'
+  else
+    panels_html+="<div class=\"view\" id=\"panel-stale\"><div class=\"empty-state\">Nothing in-flight has gone quiet for ${WB_STALE_DAYS}+ days.</div></div>"$'\n'
   fi
 
   # =========================================================================
@@ -2653,9 +2762,9 @@ wb_board_render_html() {
         local fr_sel="#fr-$ro:checked ~ "
         local fp_sel=""
         [ "${#children_of[@]}" -gt 0 ] && fp_sel="#fp-$fo:checked ~ "
-        if [ "$panelkey" = pipeline ]; then
+        if [ "$panelkey" = pipeline ] || [ "$panelkey" = live ] || [ "$panelkey" = stale ]; then
           for pwin in "${WINDOWS[@]}"; do
-            reveal_css+="#tl-$pwin:checked ~ #st-pipeline:checked ~ $fr_sel$fp_sel main #panel-pipeline .filtered-empty { display: block; }"$'\n'
+            reveal_css+="#tl-$pwin:checked ~ #st-$panelkey:checked ~ $fr_sel$fp_sel main #panel-$panelkey .filtered-empty { display: block; }"$'\n'
           done
         else
           ptab="${panelkey%-*}"; pwin="${panelkey##*-}"
@@ -2709,16 +2818,20 @@ wb_board_render_html() {
   input[type=radio] { display: none; }
   header { padding: 1.2rem 1.5rem; border-bottom: 1px solid var(--line); background: var(--bg2); position: sticky; top: 0; z-index: 5; }
   header h1 { font-family: var(--mono); font-size: 1.1rem; margin: 0 0 .8rem; }
-  .tabs { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+  .tabs { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  .tabs-left { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; flex: 1 1 auto; min-width: 0; }
   .tabgroup { display: flex; gap: .25rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .25rem; flex-wrap: wrap; }
   .tabgroup label { font-family: var(--mono); font-size: .78rem; padding: .35rem .8rem; border-radius: 6px; cursor: pointer; color: var(--ink2); }
   /* U7: window segmented control — same tabgroup styling, visually
      separated from the tab row (R12) by header-level flex gap/order. */
   .tabgroup.window-control { order: -1; }
-  /* U7: repo/family filters — right-aligned header-controls group with
-     <details> dropdowns wrapping the fr-*/fp-* labels. */
-  .header-controls { display: flex; gap: .5rem; margin-left: auto; align-items: center; flex-wrap: wrap; }
-  .filter-dropdown { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  /* U7: repo/family filters — always the far-right cluster. margin-left:
+     auto is a belt-and-suspenders fallback for when .tabs wraps and
+     .header-controls ends up alone on its own line. */
+  .header-controls { display: flex; gap: .5rem; margin-left: auto; align-items: center; flex-wrap: nowrap; flex: 0 0 auto; }
+  /* Same outer gutter as .tabgroup (.25rem wrapper + .35rem inner padding)
+     so a filter dropdown renders the same overall size as a tabgroup pill. */
+  .filter-dropdown { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .25rem; }
   .filter-dropdown summary { font-family: var(--mono); font-size: .78rem; padding: .35rem .8rem; cursor: pointer; color: var(--ink2); list-style: none; }
   .filter-dropdown summary::-webkit-details-marker { display: none; }
   .filter-dropdown .filter-label { display: none; white-space: nowrap; }
@@ -2728,23 +2841,31 @@ wb_board_render_html() {
   .filter-dropdown .filter-options label:hover { background: var(--bg2); }
 
   main { padding: 1.5rem; max-width: min(1560px, 95vw); margin: 0 auto; }
-  .view { display: none; flex-direction: column; gap: 2rem; }
-  .table-wrap { overflow-x: auto; }
+  .view { display: none; flex-direction: column; gap: 2.2rem; min-width: 0; }
+  .table-wrap { overflow-x: auto; min-width: 0; }
   table { width: auto; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  th { text-align: left; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); padding: .6rem .9rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  td { padding: .65rem .9rem; border-bottom: 1px solid var(--line); font-size: .9rem; white-space: nowrap; }
+  th { text-align: left; font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); padding: .85rem 1.2rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--acc2); }
+  th.sortable::after { content: " \21C5"; opacity: .5; font-size: .85em; }
+  td { padding: 1rem 1.2rem; border-bottom: 1px solid var(--line); font-size: .9rem; white-space: nowrap; }
   tr:last-child td { border-bottom: none; }
   tr.row:hover { background: var(--bg2); }
   tr.row.blocked { opacity: .6; }
   td a.tasklink { color: var(--acc2); text-decoration: none; font-weight: 600; }
   td a.tasklink:hover { text-decoration: underline; }
-  .pill { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .72rem; padding: .1em .6em; border-radius: 999px; border: 1px solid currentColor; }
+  .task-cell { display: flex; flex-direction: column; align-items: flex-start; gap: .3rem; }
+  .pill { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .72rem; padding: .2em .7em; border-radius: 999px; border: 1px solid currentColor; }
   .pill.doing { color: var(--doing); } .pill.review { color: var(--review); } .pill.planned { color: var(--planned); } .pill.done { color: var(--done); } .pill.paused { color: var(--paused); } .pill.unclassified { color: var(--unclassified); }
   .repo { font-family: var(--mono); font-size: .78rem; color: var(--mut); }
-  .live-badge { display: inline-flex; align-items: center; gap: .3em; font-family: var(--mono); font-size: .7rem; color: var(--ok); }
+  .live-badge { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .7rem; color: var(--ok); }
   .empty-state { padding: 1.6rem; text-align: center; color: var(--mut); font-family: var(--mono); font-size: .85rem; background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }
-  .stage-cell { text-align: center; font-size: 1rem; }
-  .stage-cell a { text-decoration: none; }
+  .stage-cell { text-align: center; font-size: 1rem; color: var(--mut); }
+  .stage-cell.na { opacity: .4; }
+  .stage-cell.pending { color: var(--ink); }
+  .stage-cell.progress { color: var(--doing); font-weight: 600; }
+  .stage-cell.done { color: var(--ok); }
+  .stage-cell a { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }
   .dep-chip { display: inline-flex; align-items: center; font-family: var(--mono); font-size: .72rem; padding: .05em .5em; border-radius: 999px; border: 1px solid currentColor; margin-right: .2em; }
   .dep-chip.blocked { color: var(--review); }
   .dep-chip.unblocks { color: var(--acc2); }
@@ -2791,13 +2912,18 @@ wb_board_render_html() {
   /* U6: stepper — glyph-over-label segments in path order */
   .stepper { display: flex; gap: .9rem; margin: .7rem 0; flex-wrap: wrap; }
   .step { display: flex; flex-direction: column; align-items: center; gap: .15rem; font-size: .72rem; color: var(--mut); min-width: 3rem; }
-  .step.done, .step.progress { color: var(--ink2); }
+  .step.pending { color: var(--ink); font-weight: 600; }
+  .step.progress { color: var(--doing); font-weight: 600; }
+  .step.done { color: var(--ok); }
   .step .glyph { font-size: 1.15rem; }
-  .step .glyph a { color: var(--acc2); text-decoration: none; }
+  .step .glyph a { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; }
   .step .label { font-family: var(--mono); font-size: .64rem; text-transform: uppercase; letter-spacing: .03em; }
   .step-chips { margin-top: .25rem; }
   .mini-stepper { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .25rem; width: 100%; }
   .mini-step { font-family: var(--mono); font-size: .68rem; color: var(--mut); }
+  .mini-step.pending { color: var(--ink); font-weight: 600; }
+  .mini-step.progress { color: var(--doing); font-weight: 600; }
+  .mini-step.done { color: var(--ok); }
 
   /* U6: dependency/rollup indicators */
   .deps-chips { margin: .4rem 0; }
@@ -2827,8 +2953,10 @@ wb_board_render_html() {
 <header>
   <h1>&#9673; /board</h1>
   <div class="tabs">
-    <div class="tabgroup window-control">@@WIN_HTML@@</div>
-    <div class="tabgroup tabs-row">@@TABS_HTML@@</div>
+    <div class="tabs-left">
+      <div class="tabgroup window-control">@@WIN_HTML@@</div>
+      <div class="tabgroup tabs-row">@@TABS_HTML@@</div>
+    </div>
     <div class="header-controls">
       <details class="filter-dropdown repo-filter"><summary>@@REPO_SUMMARY_LABELS@@</summary><div class="filter-options">@@REPO_OPTIONS_HTML@@</div></details>
       @@FAMILY_DROPDOWN_HTML@@
@@ -2839,6 +2967,25 @@ wb_board_render_html() {
 @@PANELS_HTML@@
 @@KEY_FINDINGS_HTML@@
 </main>
+<script>
+// The board is otherwise entirely CSS-only (see wb_board_render_html's
+// header comment) -- this is a deliberate, explicit exception for
+// click-to-sort, not an accidental one. Fully static, offline, no
+// dependency, no network call; every row already carries the data-repo/
+// data-status attributes this reads (populated alongside data-family for
+// the U7 filters), so this adds zero new markup weight per row.
+document.querySelectorAll('th[data-sort]').forEach(function (th) {
+  th.addEventListener('click', function () {
+    var table = th.closest('table');
+    var rows = Array.from(table.querySelectorAll('tr.row'));
+    var key = th.dataset.sort;
+    rows.sort(function (a, b) {
+      return (a.dataset[key] || '').localeCompare(b.dataset[key] || '');
+    });
+    rows.forEach(function (r) { table.appendChild(r); });
+  });
+});
+</script>
 HTMLEOF
 )"
   page_template="${page_template//@@PANEL_CSS@@/$(wb_board_escape_replacement "$panel_css")}"
