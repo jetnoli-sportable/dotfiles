@@ -197,6 +197,31 @@ In order, every time:
 > *"N follow-ups pending · M parked — consider running `/parked-items`."*
 > The same count shows in the picker's status line at all times.
 
+## wb breakdown — split an oversized task into a family
+
+A task whose `## Plan` has grown into a week of work becomes a
+**session-less parent** plus one or more session-sized **children**, one
+of which (the "continuing" child) inherits the parent's actual git
+branch/worktree/session — nothing already in flight gets interrupted.
+
+```
+/wb-breakdown <stem-or-ticket>   # authors a proposal buffer, opens it for you
+wb breakdown --apply <buffer>    # (invoked for you) validates + writes the family
+```
+
+`/wb-breakdown` (the skill, `claude/.claude/skills/wb-breakdown/SKILL.md`)
+does the thinking — it climbs the richest available evidence (a ticket's
+subtasks, a linked plan doc, a substantive `## Plan`, or a fresh read) and
+writes a checkbox buffer for you to edit and approve. `wb breakdown
+--apply` does the writing — under one locked, all-or-nothing transaction:
+seed the checked children, rewrite the parent's `## Plan`, move any
+checked follow-ups to the child they belong to, migrate the continuing
+child's branch/worktree away from the parent, and archive the closed
+buffer under `~/code/tasks/dossiers/<parent-stem>/`. `/wb-breakdown` with
+no argument lists tasks already tagged `breakdown-candidate`. Closing the
+last open child of a family, `wb done` prints the exact command to close
+the parent too.
+
 ## Bringing a gitignored file into a new worktree
 
 A fresh worktree only has tracked files — anything gitignored (a local
