@@ -554,6 +554,83 @@ wb_seed_task_planned() {
   echo "$file"
 }
 
+# _wb_insert_plan_body <file> <body> — insert <body> verbatim under <file>'s
+# "## Plan" heading. Never routes <body> through awk -v: awk applies C
+# escape-sequence processing to a -v assignment's value, which would mangle
+# \n/\t/\K sequences a real plan body can legitimately carry (regex
+# snippets, Windows paths, fenced-code examples) — the cited wb_seed_task/
+# wb_reconcile_merge_content splices get away with awk -v only because their
+# values never carry backslashes. Writing <body> to a temp file with `printf
+# '%s'` (which never interprets backslashes in the value) and reading it back
+# with awk's `getline` (which reads literal lines, no escape processing)
+# avoids the mangling entirely. No-op when <body> is empty.
+_wb_insert_plan_body() {
+  local file="$1" body="$2"
+  [ -n "$body" ] || return 0
+  local bodyfile; bodyfile="$(mktemp)"
+  printf '%s\n' "$body" > "$bodyfile"
+  awk -v bodyfile="$bodyfile" '
+    { print }
+    $0 == "## Plan" {
+      print ""
+      while ((getline line < bodyfile) > 0) print line
+    }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  rm -f "$bodyfile"
+}
+
+# wb_seed_planned_child <repo> <slug> <parent_ref> — KTD3's child seeder for
+# `wb breakdown --apply` (U3): creates a NEW planned child task file and
+# NOTHING ELSE. Unlike wb_seed_task_planned (which fills blanks on an
+# existing file and is reachable as the public `wb new --planned` verb),
+# this function ALWAYS creates fresh and REFUSES on collision — an existing
+# file at this stem means cmd_breakdown's own validation pass failed to
+# catch a collision upstream, never something to merge into. Not a public
+# verb; called only from cmd_breakdown's locked apply, which already holds
+# this file's path lock before calling in (this function does no locking of
+# its own).
+#
+# `status:` is left exactly as TEMPLATE.md has it (`planned`) — no
+# substitution rule, matching wb_seed_task_planned's own new-file branch.
+# `worktree:` is likewise left blank/untouched: wb_reconcile_collect only
+# flags a MISSING worktree when both a task's repo: AND worktree: are set,
+# so a planned child with a blank worktree: produces zero reconcile
+# findings (AE2). `parent:` is set unconditionally — a child always has
+# one, unlike wb_seed_task_planned's optional 3rd arg.
+#
+# The child's `## Plan` body is read from stdin (the buffer-carried plan
+# text) and landed via _wb_insert_plan_body — see that function's own
+# comment for why this never touches awk -v.
+wb_seed_planned_child() {
+  local repo="$1" slug="$2" parent="$3"
+  local disp_slug; disp_slug="$(wb_sanitize "$slug")"
+  local file; file="$(wb_task_file "$repo" "$disp_slug")"
+
+  if [ -f "$file" ]; then
+    echo "wb_seed_planned_child: $file already exists — refusing to overwrite" >&2
+    return 1
+  fi
+
+  mkdir -p "$TASKS_DIR"
+  local title="${slug//-/ }"
+  local body; body="$(cat)"
+
+  awk -v repo="$repo" -v branch="$slug" -v parent="$parent" \
+      -v created="$(date +%F)" -v title="$title" '
+    BEGIN { infm = 0 }
+    /^---$/     { infm++; print; next }
+    infm == 1 && /^repo:/     { print "repo: " repo; next }
+    infm == 1 && /^branch:/   { print "branch: " branch; next }
+    infm == 1 && /^parent:/   { print "parent: " parent; next }
+    infm == 1 && /^created:/  { print "created: " created; next }
+    infm == 2 && /^# Title/   { print "# " title; next }
+    { print }
+  ' "$TASKS_DIR/TEMPLATE.md" > "$file"
+
+  _wb_insert_plan_body "$file" "$body"
+  echo "$file"
+}
+
 # wb_layout_session <session> <dir> <start_agent> — first-time-only 3-window
 # layout: win1 nvim, win2 a plain shell for the agent (LAZY — you run `claude`
 # yourself the first time you visit, bounded by the ~10-concurrent-agent
@@ -580,12 +657,17 @@ cmd_new() {
   # value as a separate following argument, which a foreach that only
   # detects literal tokens (like --agent) can't consume — the value would
   # fall into the else branch and corrupt the positional repo/slug count.
-  local agent_flag=0 parent_ref="" planned_flag=0
+  local agent_flag=0 parent_ref="" planned_flag=0 jira_url=""
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --agent)   agent_flag=1; shift ;;
       --planned) planned_flag=1; shift ;;
+      --jira)
+        case "${2-}" in
+          ''|--*) echo "wb new: --jira requires a value" >&2; exit 1 ;;
+        esac
+        jira_url="$2"; shift 2 ;;
       --parent)
         case "${2-}" in
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
@@ -600,6 +682,11 @@ cmd_new() {
     exit 1
   fi
 
+  if [ -n "$jira_url" ] && [ "$planned_flag" != 1 ]; then
+    echo "wb new: --jira is only valid together with --planned (ticket-parent seeding never starts a worktree/session)" >&2
+    exit 1
+  fi
+
   local repo slug
   if [ "${#args[@]}" -eq 2 ]; then
     repo="${args[0]}"; slug="${args[1]}"
@@ -610,7 +697,7 @@ cmd_new() {
       || { echo "wb new <slug>: not inside a repo — pass 'wb new <repo> <slug>'" >&2; exit 1; }
     repo="$(basename "$toplevel")"
   else
-    echo "usage: wb new [--agent|--planned] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned] [--parent <repo>--<slug>] <repo> <slug>" >&2
+    echo "usage: wb new [--agent|--planned [--jira <url>]] [--parent <repo>--<slug>] <slug> | wb new [--agent|--planned [--jira <url>]] [--parent <repo>--<slug>] <repo> <slug>" >&2
     exit 1
   fi
 
@@ -643,10 +730,22 @@ cmd_new() {
     # Prints the resolved task-file path on stdout (the one piece of output
     # a caller capturing `$(wb new --planned ...)` needs), mirroring
     # wb_seed_task_planned's own `echo "$file"` convention.
+    #
+    # --jira <url> extends this path (KTD3) for wb-breakdown's ticket-parent
+    # seeding: stamps `jira:` and, if piped, lands a stdin `## Plan` body —
+    # an extension of this same locked seed, never a duplicate path.
+    # wb_seed_task_planned's own fill-blanks-only semantics already give
+    # KTD9's find-or-create behavior for free (an existing task at this
+    # stem is reused, never overwritten).
     local task_file; task_file="$(wb_task_file "$repo" "$disp_slug")"
     _wb_lock_trap_append_if_top_level wb_task_lock_release_all
     wb_task_lock_acquire_guarded "$task_file" || exit $?
     task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref")"
+    if [ -n "$jira_url" ]; then
+      wb_set_frontmatter "$task_file" jira "$jira_url"
+      local ticket_body; ticket_body="$(cat)"
+      _wb_insert_plan_body "$task_file" "$ticket_body"
+    fi
     wb_task_lock_release "$task_file"
     echo "$task_file"
     return 0
