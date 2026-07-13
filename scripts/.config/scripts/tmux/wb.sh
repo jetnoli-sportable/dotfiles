@@ -1504,7 +1504,16 @@ wb_sweep_section() {
 _wb_append_under_heading() {
   local file="$1" heading="$2" body="$3"
   local target="## $heading"
-  awk -v target="$target" -v body="$body" '
+  # Passed via ENVIRON, never `awk -v` -- POSIX awk's `-v var=value` runs C
+  # escape-sequence processing on the assigned string, so a body containing
+  # a literal `\b`/`\t`/etc. (exactly the kind of text this regex-quoting,
+  # shell-adjacent codebase's own handoff notes routinely contain -- e.g.
+  # "push\b force-flag") gets silently rewritten (`\b` -> a real backspace
+  # byte) with no error anywhere in the chain. Reproduced live; confirmed
+  # `ENVIRON["..."]` preserves the value byte-for-byte since env-var
+  # assignment does no such processing.
+  WB_APPEND_TARGET="$target" WB_APPEND_BODY="$body" awk '
+    BEGIN { target = ENVIRON["WB_APPEND_TARGET"]; body = ENVIRON["WB_APPEND_BODY"] }
     function isHeadingLine() { return (prev == "" || NR == 1) }
     BEGIN { insection = 0; inserted = 0; prev = "" }
     $0 == target && isHeadingLine() { insection = 1 }

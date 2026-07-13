@@ -408,5 +408,29 @@ else
   done
 fi
 
+# =============================================================================
+# Scenario (code-review regression): a body containing backslash-escape-
+# shaped text round-trips BYTE-FOR-BYTE. _wb_append_under_heading used to
+# pass the body to awk via `-v body="$body"`, and POSIX awk's `-v`
+# assignment runs C-style escape processing on the VALUE, not just the
+# script text -- a body containing a literal `\b` silently became a real
+# backspace byte (with `\d`, an unrecognized escape, left alone --
+# inconsistent, silent corruption with no error anywhere in the chain).
+# This is realistic input for a task-store note: this very codebase's own
+# regex patterns use `\b`/`[[:space:]]` shapes an agent could easily quote
+# verbatim into a /wb-save handoff entry or a /handoff routed-context note.
+# Fixed by passing target/body through ENVIRON instead of -v.
+# =============================================================================
+
+BACKSLASH_TASK="$TASKS_DIR/proj--append-backslash.md"
+mk_task "$BACKSLASH_TASK" "append-backslash"
+
+out="$(cmd_append "append-backslash" "Follow-ups" 'pattern: push\b force-flag, \d unrecognized, \t also literal' 2>&1)"; rc=$?
+assert_eq "backslash body: cmd_append exits 0" 0 "$rc"
+content="$(cat "$BACKSLASH_TASK")"
+assert "backslash body: \\b preserved literally (not corrupted into a backspace byte)" 'push\\b force-flag' "$content"
+assert "backslash body: \\d preserved literally" '\\d unrecognized' "$content"
+assert "backslash body: \\t preserved literally" '\\t also literal' "$content"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
