@@ -4,7 +4,7 @@ status: current
 tile: Known gaps and caveats that explain otherwise-surprising behavior, one place.
 group: personal-workflow
 kind: page
-updated: 2026-07-10
+updated: 2026-07-14
 ---
 
 Standing, by-design properties of the workflow — not bugs, not deferred
@@ -62,14 +62,17 @@ inconsistent until that migration lands. **Revisit trigger:** see the
 
 ## Roadmap anchor/link integrity is manually verified, not machine-checked
 
-`docs/roadmap.md`'s reshape (PR #18) introduced 28 hand-typed
-`id="detail-<slug>"` anchors and 7 `href="#detail-<slug>"` references in its
+`docs/roadmap.md`'s reshape (PR #18) introduced hand-typed
+`id="detail-<slug>"` anchors and `href="#detail-<slug>"` references in its
 "At a glance" visual. Nothing in the docgen pipeline validates that every
 href resolves to a matching id, or that ids stay unique — a `ce-code-review`
-pass (testing + maintainability, independently) flagged this; both counts
-were 28/28 correct as of 2026-07-11, verified by hand. A future edit to that
-page could silently break one. **Revisit trigger:** next time
+pass (testing + maintainability, independently) flagged this. Three edits
+(PR #22, #26, #29) landed between the 2026-07-11 check and this one without
+the re-check this entry itself prescribes; re-verified now, as of
+**2026-07-14**: 34 ids, 7 hrefs, zero orphans, zero duplicates. A future
+edit to that page could silently break one. **Revisit trigger:** next time
 `docs/roadmap.md`'s anchor/link structure gets a substantive edit, manually
 re-run the duplicate-id + href-resolution check before merging; build a real
 docgen lint step if that manual check is ever skipped and something actually
-breaks.
+breaks (see U9 in `docs/plans/2026-07-14-001-feat-hub-roadmap-refresh-plan.md`
+for exactly that lint being added, closing the gap this entry describes).
