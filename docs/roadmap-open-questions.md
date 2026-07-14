@@ -2,7 +2,7 @@
 title: Open Questions — deferred decisions from the 2026-07-07 doc review
 status: current
 tile: Deliberately unresolved decisions and process record. Standing limitations moved to their own page.
-group: personal-workflow
+group: roadmap
 kind: page
 updated: 2026-07-10
 ---

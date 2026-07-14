@@ -2,7 +2,7 @@
 title: "wb board display v2 — recap"
 status: current
 tile: Lifecycle stepper, Pipeline tab, dependency relationships, filters, Key Findings — shipped, Docker-verified, ready for review.
-group: personal-workflow
+group: recaps
 kind: page
 updated: 2026-07-13
 ---

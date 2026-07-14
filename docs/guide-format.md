@@ -2,7 +2,7 @@
 title: Guide format — the shapes a skill/TUI guide page follows
 status: current
 tile: The single-skill 5-section shape, and the command-family alternate — which to use, and how docgen finds either.
-group: personal-workflow
+group: docs-meta
 kind: page
 updated: 2026-07-14
 ---

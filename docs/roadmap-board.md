@@ -2,7 +2,7 @@
 title: "/board — task-board visualization"
 status: current
 tile: Full HTML board shipped — lifecycle stepper, Pipeline tab, relationships, filters, Key Findings.
-group: personal-workflow
+group: roadmap
 kind: page
 updated: 2026-07-14
 ---

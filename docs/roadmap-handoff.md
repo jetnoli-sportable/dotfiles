@@ -2,7 +2,7 @@
 title: /handoff — route a discussion to the right worker
 status: current
 tile: Take what's being discussed and either switch to the agent already on it, or spin up a new task for it.
-group: personal-workflow
+group: roadmap
 kind: page
 updated: 2026-07-14
 ---

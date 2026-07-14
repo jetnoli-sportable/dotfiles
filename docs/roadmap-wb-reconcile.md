@@ -2,7 +2,7 @@
 title: wb reconcile — task-store/git drift detection
 status: current
 tile: Cross-reference the task store against real git state; report drift, never auto-apply.
-group: personal-workflow
+group: roadmap
 kind: page
 updated: 2026-07-14
 ---

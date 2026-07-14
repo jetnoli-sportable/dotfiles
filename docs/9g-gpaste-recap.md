@@ -2,7 +2,7 @@
 title: 9g recap — GPaste clipboard-history manager
 status: current
 tile: GPaste configured, Ctrl+Shift+G opens history. What to verify yourself.
-group: personal-workflow
+group: recaps
 kind: page
 updated: 2026-07-14
 ---

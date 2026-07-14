@@ -2,7 +2,7 @@
 title: PR #1 recap — wb resume, wb pause, /board, wb reconcile
 status: current
 tile: All four wb workbench extensions shipped. What to verify yourself.
-group: personal-workflow
+group: recaps
 kind: page
 updated: 2026-07-09
 ---

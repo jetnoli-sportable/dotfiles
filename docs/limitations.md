@@ -2,7 +2,7 @@
 title: Limitations — standing, by-design workflow constraints
 status: current
 tile: Known gaps and caveats that explain otherwise-surprising behavior, one place.
-group: personal-workflow
+group: roadmap
 kind: page
 updated: 2026-07-14
 ---

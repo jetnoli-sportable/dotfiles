@@ -2,7 +2,7 @@
 title: wb — the workbench guide
 status: current
 tile: How to use wb: session-per-worktree, the unified picker, wind-down.
-group: personal-workflow
+group: workbench
 kind: guide
 updated: 2026-07-12
 ---

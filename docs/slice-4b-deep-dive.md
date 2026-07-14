@@ -2,7 +2,7 @@
 title: Slice 4b deep dive — notes-tui integration + the 4a usage-window verdict
 status: current
 tile: What 4b would build; the 4a gate resolved early (unused), now superseded by the fix-forward experiment.
-group: personal-workflow
+group: roadmap
 kind: page
 updated: 2026-07-14
 ---

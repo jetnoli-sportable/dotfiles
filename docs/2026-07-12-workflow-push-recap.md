@@ -2,7 +2,7 @@
 title: "Recap — the Hub-v0 + agent-fleet push (2026-07-10 → 12)"
 status: current
 tile: Two days, 14 PRs — ideation, an rm -rf incident + full recovery, and a parallel agent fleet. What shipped and where things stand.
-group: personal-workflow
+group: recaps
 kind: page
 updated: 2026-07-12
 ---
