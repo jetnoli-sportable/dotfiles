@@ -4798,14 +4798,19 @@ cmd_done() {
   local task_stem; task_stem="$(basename "$task_file" .md)"
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
 
+  # Read unconditionally (not just inside the store_only==0 branch below):
+  # U10's roadmap-currency nudge near the end needs repo: on a store-only
+  # close too, and a conditionally-scoped local would be unbound there
+  # under set -u.
+  local repo; repo="$(wb_get_frontmatter "$task_file" repo)"
+
   local repo_dir worktree_path
   if [ "$store_only" = 0 ]; then
-    # Derived from the TASK FILE's own frontmatter, never from
-    # @wb_repo/@wb_slug directly — a migrated child's worktree:/branch: are
-    # its OWN (received from the parent during migration), and a
+    # worktree_rel/slug derived from the TASK FILE's own frontmatter, never
+    # from @wb_repo/@wb_slug directly — a migrated child's worktree:/branch:
+    # are its OWN (received from the parent during migration), and a
     # store-only parent has neither to derive from in the first place.
-    local repo worktree_rel slug
-    repo="$(wb_get_frontmatter "$task_file" repo)"
+    local worktree_rel slug
     slug="$(wb_get_frontmatter "$task_file" branch)"
     worktree_rel="$(wb_get_frontmatter "$task_file" worktree)"
     [ -n "$worktree_rel" ] || worktree_rel=".worktrees/$slug"
@@ -4974,16 +4979,12 @@ cmd_done() {
   fi
 
   # KTD5's roadmap-currency nudge: pure read + print, never gates or writes.
-  # Fresh wb_get_frontmatter read here (not the store_only-conditional
-  # $repo local set above, which is never assigned on a store-only close
-  # and would be an unbound-variable error under set -u). Matched against
-  # a small fixed list of roadmap-tracked repos — never a raw substring
-  # match against the bracketed tags: text, which could false-positive on
-  # an unrelated tag.
-  local nudge_repo; nudge_repo="$(wb_get_frontmatter "$task_file" repo)"
-  case "$nudge_repo" in
+  # Matched against a small fixed list of roadmap-tracked repos — never a
+  # raw substring match against the bracketed tags: text, which could
+  # false-positive on an unrelated tag.
+  case "$repo" in
     dotfiles|docgen)
-      echo "wb done: $nudge_repo is roadmap-tracked — worth a check of docs/roadmap.md"
+      echo "wb done: $repo is roadmap-tracked — worth a check of docs/roadmap.md"
       ;;
   esac
 
