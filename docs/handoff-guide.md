@@ -4,7 +4,7 @@ status: current
 tile: Route something being discussed right now to a live session or a fresh one, without retyping context by hand.
 group: personal-workflow
 kind: guide
-updated: 2026-07-11
+updated: 2026-07-14
 ---
 
 `/handoff` takes something being discussed in the current conversation and
@@ -59,9 +59,9 @@ dry-run findings for the mechanical reasoning).
 ## What v1 doesn't do
 
 - **Fan-out.** One discussion → several linked tasks depends on the task
-  parent/child relationship, designed but not yet built (parallel
-  `feat/task-parent-child` branch). `/handoff` routes the single most
-  relevant target and says so.
+  parent/child relationship — already shipped (PR #17), not just designed.
+  The gap is that `/handoff` itself isn't wired to loop over it yet.
+  `/handoff` routes the single most relevant target and says so.
 - **Instructing an already-busy live agent directly.** The switch path is
   clipboard-only — you paste the pointer in yourself when the agent is
   ready for it, rather than `/handoff` injecting into a pane that might be

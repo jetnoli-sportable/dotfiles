@@ -174,7 +174,7 @@
 <body data-kind="guide">
 <div class="statusbar">
   <span>docgen · generated from <b>docs/handoff-guide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-11</span>
+  <span class="right">updated 2026-07-14</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -237,9 +237,9 @@ dry-run findings for the mechanical reasoning).</p>
 <h2 id="what-v1-doesnt-do">What v1 doesn't do</h2>
 <ul>
 <li><strong>Fan-out.</strong> One discussion → several linked tasks depends on the task
-parent/child relationship, designed but not yet built (parallel
-<code>feat/task-parent-child</code> branch). <code>/handoff</code> routes the single most
-relevant target and says so.</li>
+parent/child relationship — already shipped (PR #17), not just designed.
+The gap is that <code>/handoff</code> itself isn't wired to loop over it yet.
+<code>/handoff</code> routes the single most relevant target and says so.</li>
 <li><strong>Instructing an already-busy live agent directly.</strong> The switch path is
 clipboard-only — you paste the pointer in yourself when the agent is
 ready for it, rather than <code>/handoff</code> injecting into a pane that might be
