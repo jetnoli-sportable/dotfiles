@@ -30,7 +30,7 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
-SLUGS=(alpha beta gamma dirty delta epsilon)
+SLUGS=(alpha beta gamma dirty delta epsilon zeta)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
   rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS"
@@ -78,18 +78,43 @@ echo scratch > "$FIXTURE_CODE/proj/.worktrees/dirty/scratch.txt"
 printf -- '---\nstatus: doing\nrepo: proj\nbranch: delta\nworktree: .worktrees/delta\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n\n## Handoffs\n\n### 2026-07-01 09:00 — wb pause (auto)\n\nSession paused via `wb pause`.\n\n## Decisions\n' \
   > "$FIXTURE_TASKS/proj--delta.md"
 
-# "epsilon"'s task file claims repo: dotfiles (a roadmap-tracked repo, per
-# KTD5) rather than "proj" — the U10 nudge fixture. Its own worktree/branch
-# still live under the "proj" fixture repo since that's the only git repo
-# this suite sets up; only the repo: frontmatter value (what the nudge
-# actually reads) needs to say "dotfiles".
+# "epsilon" needs its OWN fixture repo named "dotfiles" (a roadmap-tracked
+# repo, per KTD5) — cmd_done resolves repo_dir from the task file's repo:
+# frontmatter (wb.sh's hoisted `repo` read), never from the @wb_repo tmux
+# option, so a task file merely claiming repo: dotfiles while its real
+# worktree sits under the generic "proj" fixture would make cmd_done's own
+# repo_dir="$CODE_DIR/$repo" point at a directory that doesn't exist —
+# every teardown step would then silently no-op via its own existence guard,
+# and this fixture would only ever prove the nudge prints, never that it
+# coexists correctly with a real worktree removal.
+git init -q "$FIXTURE_CODE/dotfiles"
+git -C "$FIXTURE_CODE/dotfiles" -c user.email=test@test -c user.name=test commit -q --allow-empty -m init
+git -C "$FIXTURE_CODE/dotfiles" worktree add -q -b epsilon ".worktrees/epsilon" >/dev/null 2>&1
+rm -f "$FIXTURE_TASKS/proj--epsilon.md"   # unused: mk_task's generic proj-rooted fixture for this slug
 printf -- '---\nstatus: doing\nrepo: dotfiles\nbranch: epsilon\nworktree: .worktrees/epsilon\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
-  > "$FIXTURE_TASKS/proj--epsilon.md"
+  > "$FIXTURE_TASKS/dotfiles--epsilon.md"
+
+# "zeta" mirrors epsilon for the OTHER roadmap-tracked repo value — the
+# `dotfiles|docgen)` case pattern in wb.sh's nudge has two branches, and a
+# fixture only exercising the first would let a typo/drop of the second
+# alternative pass the whole suite unnoticed.
+git init -q "$FIXTURE_CODE/docgen"
+git -C "$FIXTURE_CODE/docgen" -c user.email=test@test -c user.name=test commit -q --allow-empty -m init
+git -C "$FIXTURE_CODE/docgen" worktree add -q -b zeta ".worktrees/zeta" >/dev/null 2>&1
+rm -f "$FIXTURE_TASKS/proj--zeta.md"   # unused: mk_task's generic proj-rooted fixture for this slug
+printf -- '---\nstatus: doing\nrepo: docgen\nbranch: zeta\nworktree: .worktrees/zeta\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
+  > "$FIXTURE_TASKS/docgen--zeta.md"
 
 for slug in "${SLUGS[@]}"; do
   s="$(session_for "$slug")"
   tmux new-session -d -s "$s" 2>/dev/null
-  tmux set-option -t "=$s:" @wb_repo proj >/dev/null
+  # epsilon/zeta each point at their own real fixture repo above (dotfiles/
+  # docgen respectively), not the generic "proj" one every other slug uses.
+  case "$slug" in
+    epsilon) tmux set-option -t "=$s:" @wb_repo dotfiles >/dev/null ;;
+    zeta)    tmux set-option -t "=$s:" @wb_repo docgen >/dev/null ;;
+    *)       tmux set-option -t "=$s:" @wb_repo proj >/dev/null ;;
+  esac
   tmux set-option -t "=$s:" @wb_slug "$slug" >/dev/null
 done
 
@@ -207,11 +232,28 @@ else
 fi
 
 
-# --- U10: roadmap-currency nudge fires only for a roadmap-tracked repo: ----
+# --- U10: roadmap-currency nudge fires only for a roadmap-tracked repo, ----
+# --- alongside a REAL worktree teardown against its own "dotfiles" fixture --
 epsilon_session="$(session_for epsilon)"
 out="$(cmd_done "$epsilon_session" 2>&1)"; rc=$?
 assert "U10 nudge: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
 assert "U10 nudge: fires for repo: dotfiles" 'dotfiles is roadmap-tracked.*docs/roadmap\.md' "$out"
+[ -d "$FIXTURE_CODE/dotfiles/.worktrees/epsilon" ] \
+  && { echo "FAIL - U10 nudge: epsilon's real worktree not removed"; fail=1; } \
+  || echo "ok   - U10 nudge: epsilon's real worktree removed (repo_dir resolved correctly)"
+status_of_dotfiles_epsilon() { wb_get_frontmatter "$FIXTURE_TASKS/dotfiles--epsilon.md" status; }
+assert "U10 nudge: epsilon task flipped to done" '^done$' "$(status_of_dotfiles_epsilon)"
+
+# --- U10: the OTHER roadmap-tracked repo value (docgen) fires too ----------
+zeta_session="$(session_for zeta)"
+out="$(cmd_done "$zeta_session" 2>&1)"; rc=$?
+assert "U10 nudge: exits 0 (docgen)" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
+assert "U10 nudge: fires for repo: docgen" 'docgen is roadmap-tracked.*docs/roadmap\.md' "$out"
+[ -d "$FIXTURE_CODE/docgen/.worktrees/zeta" ] \
+  && { echo "FAIL - U10 nudge: zeta's real worktree not removed"; fail=1; } \
+  || echo "ok   - U10 nudge: zeta's real worktree removed (repo_dir resolved correctly)"
+status_of_docgen_zeta() { wb_get_frontmatter "$FIXTURE_TASKS/docgen--zeta.md" status; }
+assert "U10 nudge: zeta task flipped to done" '^done$' "$(status_of_docgen_zeta)"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
