@@ -50,7 +50,12 @@
     "sources": [
       { "kind": "tmux-binds", "path": "tmux/.config/tmux/tmux.conf", "tags": "tmux" },
       { "kind": "zsh", "path": "zsh/.zshrc", "tags": "zsh" },
-      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude" },
+      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude", "guideOverrides": {
+        "wb-done": "docs/wb-guide.html#wb-done--wind-down-safely",
+        "wb-breakdown": "docs/wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family",
+        "wb-board": "docs/wb-guide.html#wb-board---html--the-full-board-v2",
+        "handoff": "docs/handoff-guide.html"
+      } },
       { "kind": "scripts", "path": "scripts/.config/scripts/tmux", "tags": "tmux" },
       { "kind": "scripts", "path": "scripts/.config/scripts", "tags": "shell" },
       { "kind": "doc", "path": "scripts/.config/scripts/tmux/instructions.md", "tags": "tmux" },
