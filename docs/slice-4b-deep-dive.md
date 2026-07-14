@@ -1,17 +1,21 @@
 ---
 title: Slice 4b deep dive — notes-tui integration + the 4a usage-window verdict
 status: current
-tile: What 4b actually builds, why it's gated, and what the verdict decides.
+tile: What 4b would build; the 4a gate resolved early (unused), now superseded by the fix-forward experiment.
 group: personal-workflow
 kind: page
-updated: 2026-07-08
+updated: 2026-07-14
 ---
 
-Slice 4b is the next scheduled feature after §9f/§9g, but it's blocked until
-~2026-07-14 by a deliberate usage-observation window (4a). This page explains
-both in depth: what 4b actually builds, why the gate exists, and what the
-verdict changes depending on the answer. This page is the source; edit
-`docs/slice-4b-deep-dive.md`, not the rendered `.html`.
+Slice 4b was gated behind a deliberate usage-observation window (4a); that
+window **resolved early, 2026-07-10** (unused — see
+[Ceremonies](ceremonies.html#4a-capture-window-verdict--resolved-early-2026-07-10-unused)).
+4b's original wiring plan is now superseded by the capture fix-forward
+experiment, whose own verdict lands **~2026-07-24**
+([Ceremonies](ceremonies.html)). This page explains what 4b would have
+built and why it was gated, kept as background for if/when the
+fix-forward experiment's verdict revives it. This page is the source;
+edit `docs/slice-4b-deep-dive.md`, not the rendered `.html`.
 
 **Roadmap:** §4, §8 build-order item 4, §9b · **Plan:** `docs/plans/2026-07-07-003-slice-4b-notes-tui-plan.md` (status: draft, gated) · **Tracking:** `~/code/tasks/dotfiles--agent-task-workflow.md` Follow-ups
 
@@ -33,12 +37,17 @@ data exists to build it against.
 - No `wb` wiring, no digest automation — manual `notes digest` only, for a
   bounded ~1-week observation window (mirrors §1's hook-data clock: ship the
   minimum, watch real behavior, decide from data not guesses).
-- Window started 2026-07-07, verdict due **~2026-07-14**.
+- Window started 2026-07-07, **resolved early 2026-07-10**: unused (a
+  1-byte inbox, measured before the window even closed). 4b's original
+  wiring plan is superseded by the capture fix-forward experiment
+  (new clock ~2026-07-24) rather than proceeding as originally scoped.
 
-## The usage-window verdict — two questions, not one
+## The usage-window verdict — two questions, not one (as originally scoped)
 
 The 4a follow-up entry (`~/code/tasks/dotfiles--agent-task-workflow.md`)
-frames the verdict as answering two things:
+framed the verdict as answering two things. Question 1 resolved "not
+used," which made this moot for now — kept here as the reasoning behind
+why 4b was structured the way it was, not as a live decision:
 
 1. **Is `note` actually being used?** If capture didn't become a habit, 4b's
    whole premise (wiring a digest into `wb done`) has nothing to wire —
@@ -130,12 +139,13 @@ daily `notes.sh` flow is completely untouched by any of this.
 4a capture window (started 2026-07-07)
         │
         ▼
-~2026-07-14 verdict ── used? task-end or day-end the review moment?
-        │
-        ├── day-end wins ──► re-shape U3 to hook wb down (§9b), not wb done
+resolved early, 2026-07-10 ── unused (1-byte inbox)
         │
         ▼
-4b: U1 (corpus split) → U2 (--context flag) → U3 (wb done/down hook) → U4 (docs)
+capture fix-forward experiment ── verdict ~2026-07-24
+        │
+        ├── changes real usage ──► revive 4b: U1 (corpus split) → U2 (--context
+        │                          flag) → U3 (wb done/down hook) → U4 (docs)
         │
         ▼
 9b Day bookends (wb up / wb down) — consumes 4b's session-id capture,

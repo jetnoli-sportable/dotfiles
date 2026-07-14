@@ -4,7 +4,7 @@ status: current
 tile: Startup and shutdown flows, and the "sessions are regenerative" principle.
 group: personal-workflow
 kind: page
-updated: 2026-07-08
+updated: 2026-07-14
 ---
 
 Two workflows composing the capture/recall pieces already built: `wb up`
@@ -12,8 +12,12 @@ Two workflows composing the capture/recall pieces already built: `wb up`
 `docs/roadmap-day-bookends.md`, not the rendered `.html`.
 
 **Roadmap:** 9b (superseded — this page is the detail) · **Status:** the
-full `wb up`/`wb down` bulk flow is gated on slice 4b's session-id capture
-landing; `wb resume <task>` (single-task slice, see below) is open and
+full `wb up`/`wb down` bulk flow needs slice 4b's session-id capture,
+which was gated behind the 4a usage-window verdict; that verdict resolved
+early 2026-07-10 (unused) and 4b's original plan is now superseded by the
+capture fix-forward experiment, whose own verdict lands ~2026-07-24 (see
+[Ceremonies](ceremonies.html)) — so this bulk flow's start date moved with
+it. `wb resume <task>` (single-task slice, see below) is open and
 unblocked
 
 ## The two workflows
@@ -65,9 +69,10 @@ everything `wb` creates reconstructable from the task file alone, and give
 > field), so `up --resume` can `claude --resume <id>` instead of restarting
 > every agent cold. The 3-window layout is cheap to rebuild; an in-flight
 > agent conversation is not — and the id is cheap to capture now but
-> impossible to recover for sessions already killed. This capture is
-> landing as part of slice 4b's groundwork, ahead of `wb up`/`wb down`
-> themselves.
+> impossible to recover for sessions already killed. This capture was
+> slated as part of slice 4b's groundwork, ahead of `wb up`/`wb down`
+> themselves — now dependent on the capture fix-forward experiment's
+> verdict (~2026-07-24) reviving 4b's original plan.
 
 ## `wb resume <task>` — an early, ungated slice (2026-07-08)
 
