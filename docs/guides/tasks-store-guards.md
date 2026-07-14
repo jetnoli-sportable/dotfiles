@@ -2,9 +2,9 @@
 title: tasks-store-guards
 status: current
 tile: The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.
-group: personal-workflow
+group: workbench
 kind: guide
-updated: 2026-07-12
+updated: 2026-07-14
 ---
 
 ## Overview
@@ -102,6 +102,13 @@ An agent session runs `git reset --hard origin/development` from inside
    git porcelain command's multiple internal `"prepared"` calls don't each
    need their own sentinel), and allows exactly one transaction. The TTL
    is 120 seconds either way.
+
+## The paved path: `wb sync`
+
+`wb sync` removes the reason to reach for `git reset --hard` in the first
+place: it fetches, checks for a clean fast-forward, and refuses loudly on
+anything else. It's the alternative L1's own "ask" message points you at —
+reach for it before a raw rewind, not after.
 
 ## Kill switches
 

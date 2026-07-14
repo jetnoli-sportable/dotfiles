@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Shell &amp; terminal setup</title>
+<title>help</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -171,63 +171,112 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="page">
+<body data-kind="guide">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/setup.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span>docgen · generated from <b>docs/guides/help.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-14</span>
 </div>
-<main>
-<header class="doc">
-  <span class="eyebrow">docs-meta</span>
-  <h1><span class="glyph">§</span> Shell &amp; terminal setup</h1>
-  <div class="meta">
-    <span class="chip ok">current</span>
-    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
-  </div>
-</header>
-<article>
-<p>The pieces of the stack that live <em>under</em> the workflow tooling. For every
-alias, keybind, and script with its source line, use the INDEX
-(<code>prefix+?</code> in tmux, or <code>docs/INDEX.md</code>); for the tmux/Claude tooling
-itself, see the <a href="wb-guide.html">wb guide</a> and the
-<a href="roadmap.html">roadmap</a>'s Origins section for why it was built.</p>
-<h2 id="zsh--zshzshrc">zsh — <code>zsh/.zshrc</code></h2>
-<p>Prompt (oh-my-posh), zsh-vi-mode, zinit plugins (autosuggestions,
-completions, syntax highlighting), zoxide, and the aliases/functions that
-drive the rest of this stack — <code>s</code>, <code>N</code>, <code>ca</code>, <code>wb</code>, <code>pgh</code>, <code>note</code>, and
-friends are all defined here. Every one of them is in the INDEX with its
-line number and a one-liner; <code>prefix+?</code> previews the surrounding comment
-context.</p>
-<p>Machine-local overrides go in <code>~/.zshrc.local</code> (sourced last, lives
-outside the repo).</p>
-<h2 id="ghostty--ghosttyconfigghosttyconfig">Ghostty — <code>ghostty/.config/ghostty/config</code></h2>
-<p>Terminal emulator config, kept <strong>alongside</strong> GNOME Terminal rather than
-replacing it — Ghostty is used for inline image support GNOME Terminal
-lacks. Catppuccin Mocha palette, <code>MesloLGL Nerd Font</code>,
-<code>minimum-contrast = 1.6</code>. Known limitation (see the decision record via
-<code>prefix+?</code>): the grayscale-AA glyph rendering is softer than GNOME
-Terminal's and isn't fixable via config — don't re-add render knobs
-chasing this, it's been tried.</p>
-<h2 id="oh-my-posh--ohmyposhconfigohmyposhzenjson">oh-my-posh — <code>ohmyposh/.config/ohmyposh/zen.json</code></h2>
-<p>The prompt theme (<code>zen</code> segment set), sourced from <code>.zshrc</code>.</p>
-<h2 id="git--gitgitconfig">git — <code>git/.gitconfig</code></h2>
-<p>Minimal: identity (<code>jetnoli-sportable</code>) and a <code>gh auth git-credential</code>
-helper scoped separately for <code>github.com</code> and <code>gist.github.com</code>. No
-aliases defined — if you're looking for a <code>git</code> shortcut and it's not in
-<code>.zshrc</code>, it doesn't exist yet. For non-Sportable repos, <code>pgh</code> wraps <code>gh</code>
-with the personal-account PAT from the keyring.</p>
-<h2 id="nvim--nvimconfignvim">nvim — <code>nvim/.config/nvim/</code></h2>
-<p>Own git history, own docs: <code>nvim/.config/nvim/README.md</code> and
-<code>instructions.md</code> (both indexed). The piece relevant to the workflow is
-the <code>lua/claude-tmux/</code> bridge — <code>&lt;leader&gt;a</code> maps to grab/pick/follow
-Claude's transcript into a buffer and reply from nvim; the full keymap
-table lives in <code>nvim/.config/nvim/instructions.md</code>.</p>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">help</div>
+    <div class="brand-sub">Why-do-I-have-X / what-does-Y-do / how-do-I-use-Z, answered from the INDEX with citations.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="title-block">
+      <h1>help</h1>
+      <p class="dek">Why-do-I-have-X / what-does-Y-do / how-do-I-use-Z, answered from the INDEX with citations.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p>Answers questions about the personal workflow — tmux binds, zsh aliases
+and functions, scripts, Claude skills, TUIs, docs, decisions — by reading
+the generated <code>docs/INDEX.md</code> and following its links, never by grepping
+cold. This is the <em>reasoning</em> half of the help system: it can chain
+<code>source</code> → <code>guide</code> → decision records to answer a &quot;why&quot; question with a
+quoted <code>file:line</code>, not just a lookup. The deterministic twin is the
+<code>prefix+?</code> fzf picker (<code>help.sh</code>) — no LLM, straight index lookup;
+<code>/help</code> is for when the question needs actual reasoning over that same
+data.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>In any Claude Code session:</p>
+<pre><code>/help why do I have prefix+m bound to the wb picker
+</code></pre>
+<p>The agent reads <code>docs/INDEX.md</code>'s JSONL block, matches the entry by name/
+tag, follows its <code>source</code> line and any linked decision record, then
+answers in chat with a <code>file:line</code> citation — never from the one-liner
+alone.</p>
+<h2 id="reference">Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Question shape</th>
+<th>What gets followed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><em>what / how</em></td>
+<td>The entry's <code>source</code>; its <code>guide</code> page's markdown sibling when one exists (<code>docs/*.html</code> → <code>docs/*.md</code>); <code>SKILL.md</code> for skills, <code>README</code> for TUIs</td>
+</tr>
+<tr>
+<td><em>why</em></td>
+<td><code>kind: decision</code> entries — <code>logs/decisions/*.md</code> and task-store <code>## Decisions</code> sections (<code>~/code/tasks/*.md</code>) — plus the comment block at the entry's <code>source</code> line; quotes the deciding line, not a paraphrase</td>
+</tr>
+<tr>
+<td>No match</td>
+<td>Names the 2–3 nearest entries by name/tag so you can redirect — never invents a binding, entry, or rationale that isn't in the INDEX or its linked sources</td>
+</tr>
+<tr>
+<td>INDEX missing/stale</td>
+<td>Says so and points at <code>docgen.sh index</code></td>
+</tr>
+</tbody>
+</table>
+<p>Every INDEX entry carries <code>id</code>, <code>kind</code> (bind / alias / function / script
+/ skill / tui / doc / decision), <code>name</code>, <code>oneliner</code>, <code>source</code> (path:line),
+<code>invoke</code>, <code>guide</code>, <code>tags</code>. Repo-relative sources resolve under
+<code>~/code/dotfiles/</code>; <code>~/</code>-form sources resolve under <code>$HOME</code>.</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li><strong>Only as current as the last rebuild.</strong> The INDEX is generated
+(<code>docgen index</code>), not live — a binding added since the last
+<code>docgen.sh</code> run won't show up until the next one.</li>
+<li><strong>Employer-repo content is deliberately withheld</strong> (the redaction
+guard) — a question that runs into that wall gets &quot;out of scope for
+the personal INDEX,&quot; not a guess.</li>
+<li><strong>Reasoning, not search</strong> — for a large-surface &quot;find me everything
+matching X&quot; sweep, the <code>prefix+?</code> picker's fzf fuzzy-match over every
+entry is often faster than a conversational round-trip.</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<ul>
+<li>The deterministic twin, <code>prefix+?</code> in tmux (<code>help.sh</code>,
+<code>scripts/.config/scripts/tmux/help.sh</code>), is the fzf picker over the
+same <code>docs/INDEX.md</code> — Enter opens the thing (<code>xdg-open</code> for
+docs/guides, <code>nvim +line</code> for everything else), preview shows source
+context or a skill's own description. See <a href="../setup.html">setup</a> for
+where it's introduced alongside the rest of the shell/terminal stack.</li>
+<li>Nothing to unwire: <code>/help</code> only ever reads <code>docs/INDEX.md</code> and its
+linked sources — it never writes anything.</li>
+</ul>
 </article>
-<footer>
-  Generated by <code>docgen</code> from <code>docs/setup.md</code>. Rebuild:
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guides/help.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
-</main>
+  </main>
+</div>
 
 </body>
 </html>

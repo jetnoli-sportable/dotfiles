@@ -2,7 +2,7 @@
 title: Glossary — recurring workflow terms
 status: current
 tile: One canonical definition per term that keeps coming up. Jump to any of them.
-group: personal-workflow
+group: docs-meta
 kind: guide
 updated: 2026-07-10
 ---

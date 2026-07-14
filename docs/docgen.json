@@ -1,6 +1,7 @@
 {
   "templates": "docs/_templates",
   "pageDirs": ["docs", "docs/guides"],
+  "exclude": ["2026-07-12-tasks-dir-concurrency-safety-recap.md"],
   "hub": {
     "out": "docs/HUB.html",
     "eyebrow": "personal workflow",
@@ -8,10 +9,28 @@
     "intro": "Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview. Sources living outside this repo's git tree (memory, the task store, notes-tui/replay-tui READMEs) aren't picked up by the pre-commit hook that regenerates this dashboard — run <code>docgen.sh index</code> (or <code>all</code>) by hand after editing any of those. Running it from a worktree? Export <code>DOTFILES=$(git rev-parse --show-toplevel)</code> first — <code>docgen.sh</code> targets <code>$DOTFILES</code> (falling back to the main checkout), never <code>cwd</code>, so an unset <code>DOTFILES</code> silently regenerates the wrong repo's docs.",
     "groups": [
       {
-        "key": "personal-workflow",
-        "title": "Personal workflow",
-        "sub": "~/code/dotfiles",
+        "key": "roadmap",
+        "title": "Roadmap",
+        "sub": "status, live work, ceremonies & limitations",
         "glyph": "◈"
+      },
+      {
+        "key": "recaps",
+        "title": "Recaps",
+        "sub": "point-in-time write-ups of shipped work",
+        "glyph": "▧"
+      },
+      {
+        "key": "workbench",
+        "title": "Workbench guides",
+        "sub": "wb / handoff / task-store reference — task board tile lives here too",
+        "glyph": "◪"
+      },
+      {
+        "key": "docs-meta",
+        "title": "Docs & setup",
+        "sub": "how the docs get built, glossary, shell/terminal setup",
+        "glyph": "▥"
       },
       {
         "key": "skills",
@@ -35,7 +54,7 @@
     ],
     "sidecar": [
       {
-        "group": "personal-workflow",
+        "group": "workbench",
         "title": "Task board",
         "tile": "Full HTML task board — lifecycle stepper, Pipeline tab, dependency/parent-child relationships, repo/family filters, Key Findings. Generated on demand, not auto-rebuilt: run `wb board --html` to refresh it.",
         "href": "../logs/board.html",
@@ -49,7 +68,12 @@
     "sources": [
       { "kind": "tmux-binds", "path": "tmux/.config/tmux/tmux.conf", "tags": "tmux" },
       { "kind": "zsh", "path": "zsh/.zshrc", "tags": "zsh" },
-      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude" },
+      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude", "guideOverrides": {
+        "wb-done": "docs/wb-guide.html#wb-done--wind-down-safely",
+        "wb-breakdown": "docs/wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family",
+        "wb-board": "docs/wb-guide.html#wb-board---html--the-full-board-v2",
+        "handoff": "docs/handoff-guide.html"
+      } },
       { "kind": "scripts", "path": "scripts/.config/scripts/tmux", "tags": "tmux" },
       { "kind": "scripts", "path": "scripts/.config/scripts", "tags": "shell" },
       { "kind": "doc", "path": "scripts/.config/scripts/tmux/instructions.md", "tags": "tmux" },

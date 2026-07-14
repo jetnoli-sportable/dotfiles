@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>PR #1 recap — wb resume, wb pause, /board, wb reconcile</title>
+<title>Guide format — the shapes a skill/TUI guide page follows</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -173,177 +173,70 @@
 </head>
 <body data-kind="page">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/pr1-wb-workbench-recap.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-09</span>
+  <span>docgen · generated from <b>docs/guide-format.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-14</span>
 </div>
 <main>
 <header class="doc">
-  <span class="eyebrow">recaps</span>
-  <h1><span class="glyph">§</span> PR #1 recap — wb resume, wb pause, /board, wb reconcile</h1>
+  <span class="eyebrow">docs-meta</span>
+  <h1><span class="glyph">§</span> Guide format — the shapes a skill/TUI guide page follows</h1>
   <div class="meta">
     <span class="chip ok">current</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p>Four features extending <code>scripts/.config/scripts/tmux/wb.sh</code>, scoped via
-several decision-buffer rounds and one <code>ce-plan</code>, then built and tested
-end-to-end. This page is the source; edit <code>docs/pr1-wb-workbench-recap.md</code>,
-not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> PR #1 (this is the detail page) · <strong>Branch:</strong> <code>feat/wb-workbench-extensions</code> → <code>development</code> · <strong>PR:</strong> <a href="https://github.com/jetnoli-sportable/dotfiles/pull/14">#14</a> · <strong>Plan:</strong> <code>docs/plans/2026-07-08-001-feat-wb-workbench-extensions-plan.md</code></p>
-<h2 id="what-shipped">What shipped</h2>
-<table>
-<thead>
-<tr>
-<th>Unit</th>
-<th>What it does</th>
-<th>Verify</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>U1</td>
-<td><code>paused</code> status + <code>closed:</code> field</td>
-<td><code>wb done</code> stamps <code>closed:</code>; <code>wb board</code> ranks <code>paused</code> between <code>review</code> and <code>planned</code></td>
-</tr>
-<tr>
-<td>U2</td>
-<td><code>wb pause [&lt;session&gt;]</code> + picker keybind <code>p</code></td>
-<td>Status flips to <code>paused</code>, worktree AND session both survive. <code>wb done</code> no longer kills the session either</td>
-</tr>
-<tr>
-<td>U3</td>
-<td><code>wb resume &lt;task&gt;</code></td>
-<td>Fuzzy-matches a task by repo--slug substring, recreates worktree+session via <code>cmd_new</code>'s existing idempotent path</td>
-</tr>
-<tr>
-<td>U4/U5</td>
-<td><code>wb board --html</code> → <code>logs/board.html</code></td>
-<td>6 status tabs (All / In Progress / Upcoming / Paused / Deferred / Unclassified) × 2 timeline windows, CSS-only switching, live-session badges, untracked worktrees surfaced under Unclassified</td>
-</tr>
-<tr>
-<td>U6</td>
-<td><code>wb reconcile</code></td>
-<td>Detects orphaned worktrees and tasks with a missing worktree, cross-checks GitHub merge status per branch</td>
-</tr>
-<tr>
-<td>U7</td>
-<td><code>wb reconcile --review</code> / <code>--apply</code></td>
-<td>Persistent review doc, six checkbox actions per finding, two-phase confirm for merge survivor selection</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Post-review additions</strong> (same PR, added while walking the checklist below):</p>
-<table>
-<thead>
-<tr>
-<th>What</th>
-<th>Why</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Active-tab highlight fix</td>
-<td>The selected tab wasn't visibly highlighted at all — see Findings below</td>
-</tr>
-<tr>
-<td>Detail-card summary line</td>
-<td>Every task's detail card now opens with a plain &quot;A <code>doing</code> task in <code>repo</code>, branch <code>x</code>, created...&quot; sentence, so a task with no Plan/Done content isn't a near-empty card</td>
-</tr>
-<tr>
-<td>Linked docs on detail cards</td>
-<td>Any <code>docs/plans</code>, <code>docs/brainstorms</code>, <code>docs/solutions</code>, or <code>logs/decisions</code> file a task's own prose already names now renders as a clickable chip that opens the file (preferring the rendered <code>.html</code> over its <code>.md</code> source)</td>
-</tr>
-</tbody>
-</table>
-<h2 id="findings-worth-keeping">Findings worth keeping</h2>
-<p><strong>A <code>head -1</code> in a pipeline can silently crash a <code>set -o pipefail</code> script
-on real data even when every test passes.</strong> <code>/board</code>'s detail-section
-extraction used <code>wb_board_section ... | sed ... | head -1</code> to grab a
-task's first Plan/Done line. Every test fixture had single-line sections,
-so <code>head</code> never got to truncate early — no <code>SIGPIPE</code>, tests green. Real
-task files have multi-line sections; <code>head</code> closing the pipe after line 1
-sent <code>SIGPIPE</code> to the writer still producing lines 2+, and <code>pipefail</code>
-turned that into a script-ending failure the moment <code>wb board --html</code> ran
-against actual data. Fixed by capturing the section fully first, then
-extracting the first non-blank line with a here-string loop — no live
-process left to signal once it breaks early. Same shape as a real bug, not
-a hypothetical: this class of &quot;pipe truncation under <code>pipefail</code>&quot; bug is
-invisible to tests built from short fixtures.</p>
-<p><strong>Bash's <code>${var/pattern/replacement}</code> treats an unescaped <code>&amp;</code> in the
-replacement as a backreference to the match — same as <code>sed</code>.</strong>
-<code>${s//&lt;/&amp;lt;}</code> doesn't produce <code>&amp;lt;</code>; it produces <code>&lt;lt;</code> (the matched <code>&lt;</code>,
-followed by literal <code>lt;</code>), because <code>&amp;</code> means &quot;insert what matched.&quot;
-<code>wb_board_html_escape</code>'s HTML-entity escaping silently produced broken
-markup until a test with an actual <code>&lt;</code>/<code>&amp;</code> in a task title caught it.
-Fixed with <code>\&amp;</code> to force a literal ampersand.</p>
-<p><strong><code>input:checked + label</code> requires the label to be the radio's immediate
-next sibling — it silently matches nothing otherwise.</strong> Fixing the
-duplicate-radio-id bug (radios and their labels used to be one <code>&lt;input&gt;</code>
-immediately followed by its <code>&lt;label&gt;</code>, which is where the <code>+</code> rule came
-from) meant separating radios from labels so each <code>id</code> only appears once.
-That broke the adjacent-sibling assumption the highlight CSS depended on:
-every tab rendered visually identical regardless of which was selected,
-because the rule never matched anything, in either state. Fixed with one
-generated rule per radio targeting its own label by <code>for=</code> through
-<code>&lt;header&gt;</code> — the same <code>~ descendant</code> shape the panel-visibility CSS
-already used for the same underlying reason.</p>
-<p><strong>&quot;Merge with task&quot; needed a design not fully specified anywhere.</strong> The
-plan called for an explicit, pre-checked survivor choice instead of a
-silent rule — but the target task isn't known until the user names it in
-the same review doc being generated, so nothing can pre-compute a default
-at generation time. Resolved with a two-phase confirm: the first <code>--apply</code>
-that sees a named merge target with no survivor choice yet appends paired
-sub-checkboxes (most-recently-active pre-checked) and reopens instead of
-merging blind — the same append-then-reopen shape <code>wb done</code>'s own Sweep
-flow already uses for gitignored-file survival, not a new pattern.</p>
-<h2 id="test--verify-it-yourself">Test / verify it yourself</h2>
-<ul>
-<li><input disabled="" type="checkbox"> <strong><code>wb pause</code> a live session</strong> — confirm status flips to <code>paused</code>,
-the worktree directory still exists, and the tmux session is still
-attached.</li>
-<li><input disabled="" type="checkbox"> <strong><code>wb done</code> a live session</strong> — confirm the worktree is removed and
-status flips to <code>done</code>, but the tmux session survives (this changed
-from before — it used to kill the session).</li>
-<li><input disabled="" type="checkbox"> <strong><code>wb resume &lt;fragment&gt;</code></strong> on a task whose worktree you've removed
-by hand — confirm it comes back.</li>
-<li><input disabled="" type="checkbox"> <strong><code>wb board --html</code></strong>, then open <code>logs/board.html</code> — click through
-all 6 tabs and the Today/This week toggle; confirm the active tab is
-visibly highlighted, live-session badges appear only on rows with an
-actual attached session, and any untracked worktree shows up under
-Unclassified.</li>
-<li><input disabled="" type="checkbox"> <strong>Open a task's detail card</strong> — confirm it opens with a plain
-summary sentence even when the task has no Plan/Done content, and
-that any linked doc chip actually opens the right file.</li>
-<li><input disabled="" type="checkbox"> <strong><code>wb reconcile --review</code></strong>, then check a few boxes and save —
-confirm re-running <code>--review</code> before applying warns instead of
-overwriting your in-progress choices.</li>
-<li><input disabled="" type="checkbox"> <strong><code>wb reconcile --apply</code></strong> — confirm checked actions run (remove /
-create a task / attach) and a checked &quot;merge with task&quot; reopens the
-doc with a pre-picked survivor instead of merging immediately.</li>
-</ul>
-<h2 id="whats-not-done-yet">What's NOT done yet</h2>
-<ul>
-<li><strong><code>Deferred</code> tab renders empty</strong> — reserved for a future <code>pending</code>
-status once <code>/park</code> items become task-store entries in their own right;
-not this PR.</li>
-<li><strong>Same-commit duplicate-flagging</strong> for <code>wb reconcile</code> (e.g. recognizing
-that an orphaned worktree and an existing task are actually the same
-work) — still requires the user to manually name the merge target.</li>
-<li><strong>Per-task HTML files, transcript-to-task matching, parent/sub-task
-artifact rollup</strong> — all explicitly deferred in the plan's Scope
-Boundaries.</li>
-</ul>
-<h2 id="next-steps">Next steps</h2>
-<ul>
-<li><strong>Merge <a href="https://github.com/jetnoli-sportable/dotfiles/pull/14">PR #14</a></strong> — reviewed and confirmed working (2026-07-09).</li>
-<li>Per the session's roadmap sequencing: Hub v0 (meta-documentation bundle)
-is next, followed by the sub-task/parent-child relationship
-<code>/handoff</code> surfaced as a real gap, then <code>/handoff</code> itself.</li>
-</ul>
+<p><code>docs/guides/*.md</code> pages already converge on a shape without being told
+to — this page names it, so the next new guide follows it on purpose
+instead of by accident, and covers the one alternate shape that's
+equally real: one page documenting a whole command family.</p>
+<h2 id="the-standard-shape-single-skill-guide">The standard shape: single-skill guide</h2>
+<p>Five sections, in this order, followed exactly by <code>decision-buffer.md</code>,
+<code>notes-tui.md</code>, <code>parked-items.md</code>, <code>park.md</code>, <code>pr-review-session.md</code>, and
+<code>replay-tui.md</code>:</p>
+<ol>
+<li><strong>Overview</strong> — what the thing is, one paragraph.</li>
+<li><strong>Try it now</strong> — the shortest real invocation that produces output,
+copy-pasteable.</li>
+<li><strong>Reference</strong> — the full command/flag surface, usually a table.</li>
+<li><strong>Known rough edges</strong> — real gaps and their scope, not hidden.</li>
+<li><strong>Next steps / reverting</strong> — what's next for this feature, and how to
+turn it off if it doesn't work out.</li>
+</ol>
+<p>This is the default for any new single-skill guide. Two existing pages —
+<code>claude-tmux.md</code> (six module-specific sections) and <code>tasks-store-guards.md</code>
+(a coverage matrix + three runbooks) — flex the shape for genuine depth
+rather than deviating by accident: both are reference docs for a
+multi-part subsystem, not a single command. Reach for that flex only when
+a subsystem genuinely doesn't fit five sections, not as a default.</p>
+<h2 id="the-alternate-shape-command-family-guide">The alternate shape: command-family guide</h2>
+<p><code>wb-guide.md</code> and <code>handoff-guide.md</code> don't document one skill — they
+document a family of related subcommands (<code>wb new</code>/<code>wb done</code>/<code>wb breakdown</code>/<code>wb board --html</code>, or the whole <code>/handoff</code> surface) on one
+page, each subcommand getting its own <code>##</code>/<code>###</code> section rather than its
+own file. Use this shape when a set of skills are tightly coupled enough
+that reading them separately would mean constantly flipping between
+pages — the same judgment call already made for <code>wb-guide.md</code>.</p>
+<h2 id="how-docgen-finds-either-shape">How docgen finds either shape</h2>
+<p>docgen's indexer resolves a skill's <code>guide</code> field by checking
+<code>docs/guides/&lt;skill-name&gt;.html</code> — the single-skill shape lands there and
+needs no config. A command-family guide doesn't live at that
+conventional path (it's a different filename entirely, and possibly not
+even in <code>docs/guides/</code>), so it needs an explicit override in
+<code>docs/docgen.json</code>'s <code>skills</code> index source, <code>guideOverrides</code>:</p>
+<pre><code class="language-json">{ &quot;kind&quot;: &quot;skills&quot;, &quot;path&quot;: &quot;claude/.claude/skills&quot;, &quot;guideOverrides&quot;: {
+  &quot;wb-done&quot;: &quot;docs/wb-guide.html#wb-done--wind-down-safely&quot;,
+  &quot;handoff&quot;: &quot;docs/handoff-guide.html&quot;
+}}
+</code></pre>
+<p>Point at an in-page anchor (<code>#section-id</code>) when the family guide covers
+several skills and each has its own subsection; point at the bare page
+when one guide is entirely about one skill (<code>handoff-guide.md</code> has no
+<code>#handoff</code> anchor and doesn't need one). An override pointing at a path
+that doesn't exist on disk resolves to no guide, the same as a skill with
+no guide at all — never a silently dead link.</p>
 </article>
 <footer>
-  Generated by <code>docgen</code> from <code>docs/pr1-wb-workbench-recap.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/guide-format.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
 </main>

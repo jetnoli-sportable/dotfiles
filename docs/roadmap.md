@@ -2,9 +2,9 @@
 title: Roadmap — the personal workflow
 status: current
 tile: Up next, a live table, a parked pool, what we're not doing, and a shipped ledger — one click to the detail behind each item.
-group: personal-workflow
+group: roadmap
 kind: guide
-updated: 2026-07-12
+updated: 2026-07-14
 ---
 
 The roadmap for the whole personal workflow (tmux/Claude tooling, the
@@ -85,7 +85,7 @@ fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
   <a class="step done" href="#detail-wb-core"><b>wb core</b>PR #7, shipped</a>
   <a class="step active" href="#detail-hub-v0"><b>Hub v0</b>this work</a>
   <a class="step done" href="#detail-parent-child"><b>Parent/child</b>PR #17, shipped</a>
-  <a class="step active" href="#detail-handoff"><b>/handoff</b>in build</a>
+  <a class="step done" href="#detail-handoff"><b>/handoff</b>PR #21, shipped</a>
   <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
   <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
 </div>
@@ -123,7 +123,6 @@ claim is always a waits-on link — `needs: <item>`, `clock: <date>`, or
 | Item | Status | Doc | What it is |
 |---|---|---|---|
 | <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) | active — this work; U5/U6 artifact index deferred | [requirements](brainstorms/2026-07-09-hub-v0-requirements.md) | Glossary, limitations, ceremonies pages, `/board` tile, this reshape, and cataloging the `wb-save`/`wb-resume`/`wb-done`/`wb-board` skill family (added to the plan 2026-07-11) |
-| <a id="detail-handoff"></a>**`/handoff`** — route a discussion to the right worker | active — building on `feat/handoff-v1`; single-target validated by hand 2026-07-10; fan-out after: parent/child (PR #17) — chosen | [detail](roadmap-handoff.html) | Switch to an existing agent's session or `wb new` it |
 | <a id="detail-task-recall"></a>**Task recall** | queued — needs: boundary-rule | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it |
 | <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
 | <a id="detail-notes-tui-4b"></a>**Notes-tui integration, 4b** (real wiring) | queued — clock: 2026-07-24 (fix-forward experiment verdict) | [deep dive](slice-4b-deep-dive.html) · [ceremonies](ceremonies.html) | Original 4b wiring only proceeds if the fix-forward experiment changes real usage |
@@ -147,8 +146,11 @@ Considered, and decided against — kept here so the reasoning isn't lost.
 
 ## Shipped
 
-<span class="chip ok">16 shipped</span> — full history and rationale live
+<span class="chip ok">20 shipped</span> — full history and rationale live
 on each linked recap page; these no longer take a queue/live/parked slot.
+Also landed inline, without their own row: `wb done --close` plus a guard
+against self-killing the calling session (PR #19), and a fix stopping the
+sweep-review buffer from autoformatting itself (PR #27).
 
 - <a id="detail-step-zero"></a>**Step zero** (hooks, alias cleanup) — attention-pipeline hooks wired, dead `n` alias removed.
 - <a id="detail-task-store-frontmatter"></a>**Central task store + frontmatter** — [wb design](roadmap-wb-design.html)
@@ -164,8 +166,12 @@ on each linked recap page; these no longer take a queue/live/parked slot.
 - <a id="detail-gpaste"></a>**GPaste clipboard-history manager** — [9g recap](9g-gpaste-recap.html)
 - <a id="detail-precommit-hook-fix"></a>**`docgen.sh`'s pre-commit hook** — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test
 - <a id="detail-parent-child"></a>**Task parent/child relationship** (incl. cross-repo/full-stack tasks) — [detail](roadmap-handoff.html) — PR #17
-- <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** — three-layer guard (agent-side "ask" hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — [guide](tasks-store-guards.html) · [recap](2026-07-12-tasks-dir-concurrency-safety-recap.html) — task: `dotfiles--docs-roadmap-tasks-concurrency-safety`
+- <a id="detail-handoff"></a>**`/handoff`** — route something being discussed to the worker that should own it — an already-live tmux session (switch + clipboard) or a freshly spawned one (`wb new --agent` + inject); single-target only — fan-out (one discussion → several linked tasks) still not built, waiting on the parent/child loop — [detail](roadmap-handoff.html) · [guide](handoff-guide.html) — PR #21
+- <a id="detail-queue"></a>**`/queue`** — per-worktree queue for stashing follow-ups without losing the current thread (`<leader>aq`/`<leader>aQ`, `queue.lua`) — task: `dotfiles--feat-queue-command` — PR #24
+- <a id="detail-xdg-open-fix"></a>**`xdg-open`/Slack fix** — stopped Slack's Electron bug from hijacking the system default-browser handler, wired into `install.sh` — task: `dotfiles--fix-xdg-open-slack-hijack` — PR #28
+- <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** — three-layer guard (agent-side "ask" hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — [guide](guides/tasks-store-guards.html) — task: `dotfiles--docs-roadmap-tasks-concurrency-safety`
 - <a id="detail-wb-breakdown"></a>**`wb breakdown`** — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — [recap](2026-07-13-wb-breakdown-recap.html) — task: `dotfiles--feat-wb-breakdown-skill`
+- <a id="detail-board-display-v2"></a>**Board display v2** — lifecycle stepper, Pipeline/Live/Stale tabs, dependency chips, sorting on top of the v1 HTML board — [detail](roadmap-board.html#what-shipped-in-v2-board-display-v2) · [recap](wb-board-display-v2-recap.html) — PR #30
 
 Ceremonies (dated clocks, recurring reviews) now live on their own page:
 [Ceremonies](ceremonies.html). Standing workflow constraints now live on

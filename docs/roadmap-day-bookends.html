@@ -174,11 +174,11 @@
 <body data-kind="page">
 <div class="statusbar">
   <span>docgen · generated from <b>docs/roadmap-day-bookends.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-08</span>
+  <span class="right">updated 2026-07-14</span>
 </div>
 <main>
 <header class="doc">
-  <span class="eyebrow">personal-workflow</span>
+  <span class="eyebrow">roadmap</span>
   <h1><span class="glyph">§</span> Day bookends — wb up / wb down</h1>
   <div class="meta">
     <span class="chip ok">current</span>
@@ -190,8 +190,12 @@
 (startup) and <code>wb down</code> (shutdown). This page is the source; edit
 <code>docs/roadmap-day-bookends.md</code>, not the rendered <code>.html</code>.</p>
 <p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong> the
-full <code>wb up</code>/<code>wb down</code> bulk flow is gated on slice 4b's session-id capture
-landing; <code>wb resume &lt;task&gt;</code> (single-task slice, see below) is open and
+full <code>wb up</code>/<code>wb down</code> bulk flow needs slice 4b's session-id capture,
+which was gated behind the 4a usage-window verdict; that verdict resolved
+early 2026-07-10 (unused) and 4b's original plan is now superseded by the
+capture fix-forward experiment, whose own verdict lands ~2026-07-24 (see
+<a href="ceremonies.html">Ceremonies</a>) — so this bulk flow's start date moved with
+it. <code>wb resume &lt;task&gt;</code> (single-task slice, see below) is open and
 unblocked</p>
 <h2 id="the-two-workflows">The two workflows</h2>
 <p><strong>Startup (<code>wb up</code>)</strong> — review yesterday's close-out + parked items + task
@@ -231,9 +235,10 @@ session id, recorded at spawn (a session/window option or a task-file
 field), so <code>up --resume</code> can <code>claude --resume &lt;id&gt;</code> instead of restarting
 every agent cold. The 3-window layout is cheap to rebuild; an in-flight
 agent conversation is not — and the id is cheap to capture now but
-impossible to recover for sessions already killed. This capture is
-landing as part of slice 4b's groundwork, ahead of <code>wb up</code>/<code>wb down</code>
-themselves.</p>
+impossible to recover for sessions already killed. This capture was
+slated as part of slice 4b's groundwork, ahead of <code>wb up</code>/<code>wb down</code>
+themselves — now dependent on the capture fix-forward experiment's
+verdict (~2026-07-24) reviving 4b's original plan.</p>
 </blockquote>
 <h2 id="wb-resume-task--an-early-ungated-slice-2026-07-08"><code>wb resume &lt;task&gt;</code> — an early, ungated slice (2026-07-08)</h2>
 <p>The full <code>wb up</code>/<code>wb down</code> pair above stays gated on 4b's session-id
