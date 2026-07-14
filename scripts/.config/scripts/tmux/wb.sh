@@ -4973,6 +4973,20 @@ cmd_done() {
     echo "wb done: all children of $task_parent are done — close it with: wb done $task_parent"
   fi
 
+  # KTD5's roadmap-currency nudge: pure read + print, never gates or writes.
+  # Fresh wb_get_frontmatter read here (not the store_only-conditional
+  # $repo local set above, which is never assigned on a store-only close
+  # and would be an unbound-variable error under set -u). Matched against
+  # a small fixed list of roadmap-tracked repos — never a raw substring
+  # match against the bracketed tags: text, which could false-positive on
+  # an unrelated tag.
+  local nudge_repo; nudge_repo="$(wb_get_frontmatter "$task_file" repo)"
+  case "$nudge_repo" in
+    dotfiles|docgen)
+      echo "wb done: $nudge_repo is roadmap-tracked — worth a check of docs/roadmap.md"
+      ;;
+  esac
+
   # --close is opt-in, not a revert of the wb-pause-era decision above: the
   # session survives by default, and only this explicit flag reaches for
   # the kill. Best-effort (|| true) — by this point the state that matters

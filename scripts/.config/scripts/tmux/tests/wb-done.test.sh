@@ -30,7 +30,7 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
-SLUGS=(alpha beta gamma dirty delta)
+SLUGS=(alpha beta gamma dirty delta epsilon)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
   rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS"
@@ -78,6 +78,14 @@ echo scratch > "$FIXTURE_CODE/proj/.worktrees/dirty/scratch.txt"
 printf -- '---\nstatus: doing\nrepo: proj\nbranch: delta\nworktree: .worktrees/delta\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n\n## Handoffs\n\n### 2026-07-01 09:00 — wb pause (auto)\n\nSession paused via `wb pause`.\n\n## Decisions\n' \
   > "$FIXTURE_TASKS/proj--delta.md"
 
+# "epsilon"'s task file claims repo: dotfiles (a roadmap-tracked repo, per
+# KTD5) rather than "proj" — the U10 nudge fixture. Its own worktree/branch
+# still live under the "proj" fixture repo since that's the only git repo
+# this suite sets up; only the repo: frontmatter value (what the nudge
+# actually reads) needs to say "dotfiles".
+printf -- '---\nstatus: doing\nrepo: dotfiles\nbranch: epsilon\nworktree: .worktrees/epsilon\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
+  > "$FIXTURE_TASKS/proj--epsilon.md"
+
 for slug in "${SLUGS[@]}"; do
   s="$(session_for "$slug")"
   tmux new-session -d -s "$s" 2>/dev/null
@@ -107,6 +115,11 @@ alpha_session="$(session_for alpha)"
 out="$(cmd_done "$alpha_session" 2>&1)"; rc=$?
 assert "plain done: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
 assert "plain done: confirmation message" 'closed' "$out"
+if printf '%s' "$out" | grep -q 'roadmap-tracked'; then
+  echo "FAIL - U10 nudge: fired for repo: proj, which isn't roadmap-tracked"; fail=1
+else
+  echo "ok   - U10 nudge: silent for an unrelated repo"
+fi
 [ -d "$FIXTURE_CODE/proj/.worktrees/alpha" ] \
   && { echo "FAIL - plain done: worktree not removed"; fail=1; } \
   || echo "ok   - plain done: worktree removed"
@@ -192,6 +205,13 @@ if [ -n "$decisions_line" ] && [ "$done_line" -lt "$decisions_line" ]; then
 else
   echo "FAIL - handoffs done: new entry landed outside the Handoffs section (done=$done_line, decisions=$decisions_line)"; fail=1
 fi
+
+
+# --- U10: roadmap-currency nudge fires only for a roadmap-tracked repo: ----
+epsilon_session="$(session_for epsilon)"
+out="$(cmd_done "$epsilon_session" 2>&1)"; rc=$?
+assert "U10 nudge: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
+assert "U10 nudge: fires for repo: dotfiles" 'dotfiles is roadmap-tracked.*docs/roadmap\.md' "$out"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
