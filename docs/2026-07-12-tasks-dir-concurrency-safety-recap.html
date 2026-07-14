@@ -174,77 +174,27 @@
 <body data-kind="page">
 <div class="statusbar">
   <span>docgen · generated from <b>docs/2026-07-12-tasks-dir-concurrency-safety-recap.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-12</span>
+  <span class="right">updated 2026-07-14</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal-workflow</span>
   <h1><span class="glyph">§</span> Recap — TASKS_DIR concurrency safety (hook guards &#43; per-task write locks)</h1>
   <div class="meta">
-    <span class="chip ok">current</span>
+    <span class="chip mut">archive</span>
     <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
-<p><code>~/code/tasks</code> is a single shared git checkout every <code>wb</code>-driven Claude
-Code session reads and writes, and this machine routinely runs 8-10+
-agents at once. Nothing guarded that checkout before this work — and it
-showed. A code review flagged that concurrent <code>handoff.sh</code> invocations for
-the same task could race. Two separate <code>git reset --hard</code> calls each
-briefly orphaned another session's unpushed commits, one caught only
-because a garbage-collected object hadn't actually been swept yet. And a
-fourth incident was reproduced live, not just observed: <code>wb_append_handoff</code>
-and <code>wb_set_frontmatter</code> running as two unlocked read-modify-write-via-<code>mv</code>
-cycles on the same task file, silently dropping a write. Four incidents,
-two genuinely different danger classes — git-history rewinds and
-file-write collisions — and no existing guard covered either.</p>
-<h2 id="what-got-built">What got built</h2>
-<p>Three layers, because no single guard can see both danger classes. A
-Claude Code <code>PreToolUse</code> hook (<code>pretooluse-guard.sh</code>) now <strong>asks</strong> before
-any dangerous-shaped git command or raw file edit runs against
-<code>~/code/tasks</code> — cheap, pattern-based, fails open, never blocks outright.
-A <code>reference-transaction</code> git hook now <strong>refuses</strong>, at the git level
-itself, any non-fast-forward ref update that would orphan a commit
-reachable from nowhere else — caller-agnostic, so it catches a raw
-terminal command exactly as well as an agent's. And a per-task-file
-<code>flock</code> side-car lock (<code>wb-locks.sh</code>) now <strong>serializes</strong> every write burst
-across <code>wb.sh</code>, <code>handoff.sh</code>, and a new locked <code>wb append</code> verb that
-<code>/wb-save</code>, <code>/handoff</code>, and <code>/parked-items</code> now shell out to instead of
-editing task files directly with an editor tool.</p>
-<p>Around those three mechanisms: a one-time escape hatch
-(<code>wb unsafe-rewind &quot;&lt;reason&gt;&quot;</code>, a 120-second one-use sentinel) for the rare
-deliberate rewind; a paved path (<code>wb sync</code>) that fetches, checks for a
-clean fast-forward, and refuses loudly on anything else — removing the
-reason to reach for <code>reset --hard</code> in the first place; <code>wb install-hooks</code>
-to wire a host up idempotently; and an X7 replay tool
-(<code>replay-refusals.sh</code>) that walks a repo's real reflog history read-only
-and reports what the git hook <em>would</em> have refused, so a human can judge
-the logic against real history before trusting it live.</p>
-<h2 id="whats-deliberately-not-enabled-yet">What's deliberately not enabled yet</h2>
-<p>The git-side hook ships <strong>installed but dormant</strong>. <code>wb install-hooks</code>
-pre-creates its kill-switch file unless a <code>replay-passed</code> marker already
-exists, so the hook is inert from day one on any host that runs it. Two
-separate, sequential human decisions stand between &quot;installed&quot; and
-&quot;live&quot;: first, running <code>replay-refusals.sh</code> and reading its output to
-confirm it refuses only the known incidents and nothing else, optionally
-recording that pass; second — and only after that — manually deleting the
-<code>disable-git-hook</code> switch file. Nothing automates either step, and
-writing the replay-passed marker is explicitly not the same act as
-enabling the hook. Locks and the agent-side &quot;ask&quot; hook, by contrast, are
-live immediately — the agent hook just needs the one-time settings paste
-and a restart of any already-running sessions, since hook config is
-snapshotted at session start.</p>
-<h2 id="where-to-go-next">Where to go next</h2>
-<p>The full reference — the layer model, a coverage matrix, a command traced
-through all three layers, the kill-switch table, and runbooks for lock
-contention, a refused-rewind's aftermath, and the install/enablement
-sequence — lives in the
-<a href="tasks-store-guards.html">tasks-store-guards guide</a>. The roadmap row is
+<p><strong>Merged 2026-07-14</strong> into the
+<a href="guides/tasks-store-guards.html">tasks-store-guards guide</a>, which is now
+the canonical reference for this work — the layer model, the coverage
+matrix, the command walkthrough, kill switches, and every runbook. This
+page's content didn't add anything the guide doesn't already cover in
+more depth, so it's kept on disk as a pointer rather than duplicated.</p>
+<p>The roadmap row is
 <a href="roadmap.html#detail-tasks-concurrency-safety">detail-tasks-concurrency-safety</a>,
-now in Shipped. The one planned follow-up this work didn't attempt:
-<code>~/code/notes</code> is a confirmed structural twin to <code>~/code/tasks</code> with the
-same unguarded-checkout shape, deferred to its own task rather than
-folded in here.</p>
+in Shipped.</p>
 </article>
 <footer>
   Generated by <code>docgen</code> from <code>docs/2026-07-12-tasks-dir-concurrency-safety-recap.md</code>. Rebuild:

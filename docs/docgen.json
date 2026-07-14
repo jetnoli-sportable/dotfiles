@@ -1,6 +1,7 @@
 {
   "templates": "docs/_templates",
   "pageDirs": ["docs", "docs/guides"],
+  "exclude": ["2026-07-12-tasks-dir-concurrency-safety-recap.md"],
   "hub": {
     "out": "docs/HUB.html",
     "eyebrow": "personal workflow",
