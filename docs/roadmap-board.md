@@ -4,7 +4,7 @@ status: current
 tile: Full HTML board shipped — lifecycle stepper, Pipeline tab, relationships, filters, Key Findings.
 group: personal-workflow
 kind: page
-updated: 2026-07-13
+updated: 2026-07-14
 ---
 
 Renamed from `/roadmap` (2026-07-07, Decision 5A) once "roadmap" collided
@@ -83,7 +83,7 @@ all CSS-only (no JS added anywhere in this file):
   five-stage stepper per task (Ideate · Brainstorm · Plan · Work · Review),
   each computed live to one of four states (n/a / pending / in-progress /
   done) from detection signals plus an optional `path:` frontmatter field
-  declaring which stages a task intends to pass through.
+  declaring which stages a task intends to pass through — PR #20.
 - **Pipeline tab.** One row per non-done task, window-independent —
   the one place a stale, long-untouched in-flight task is still visible
   even outside the today/week timeline.
