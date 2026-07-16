@@ -173,7 +173,7 @@
 </head>
 <body data-kind="hub">
 <div class="statusbar" aria-hidden="true">
-  <span><b>37</b> docs</span>
+  <span><b>38</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
   <span class="right">updated 2026-07-16</span>
 </div>
@@ -183,6 +183,21 @@
   <h1><span class="glyph">⌂</span> Hub</h1>
   <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview. Sources living outside this repo's git tree (memory, the task store, notes-tui/replay-tui READMEs) aren't picked up by the pre-commit hook that regenerates this dashboard — run <code>docgen.sh index</code> (or <code>all</code>) by hand after editing any of those. Running it from a worktree? Export <code>DOTFILES=$(git rev-parse --show-toplevel)</code> first — <code>docgen.sh</code> targets <code>$DOTFILES</code> (falling back to the main checkout), never <code>cwd</code>, so an unset <code>DOTFILES</code> silently regenerates the wrong repo's docs.</p>
 </header>
+
+<section class="group">
+  <div class="group-head"><h2>Where we are</h2>
+    <span class="group-sub">current status snapshot — shipped, in review, what&#39;s next</span></div>
+  <div class="grid">
+    <a class="tile" href="where-we-are.html">
+      <div class="tile-top"><span class="tile-glyph">◉</span>
+        <span class="chip ok">current</span></div>
+      <h3>Where we are</h3>
+      <p>The current state of the personal-workflow build — what&#39;s shipped, what&#39;s in review (PR #32), and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</p>
+      <div class="path">docs/where-we-are.html</div>
+    </a>
+  </div>
+  
+</section>
 
 <section class="group">
   <div class="group-head"><h2>Roadmap</h2>

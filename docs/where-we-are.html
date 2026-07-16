@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Where we are</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+   
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c; --kbd-bg: #414559;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c; --kbd-bg: #414559;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
+           max-width: 1160px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
+       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
+       max-width: 62ch; text-wrap: balance; margin: 0; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide">
+<div class="statusbar">
+  <span>docgen · generated from <b>docs/where-we-are.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-16</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Where we are</div>
+    <div class="brand-sub">The current state of the personal-workflow build — what&#39;s shipped, what&#39;s in review (PR #32), and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</div>
+    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#in-one-paragraph">In one paragraph</a></li>
+      <li><a href="#shipped">Shipped</a></li>
+      <li><a href="#in-review">In review</a></li>
+      <li><a href="#next-up">Next up</a></li>
+      <li><a href="#deferred--parked">Deferred / parked</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="title-block">
+      <h1>Where we are</h1>
+      <p class="dek">The current state of the personal-workflow build — what&#39;s shipped, what&#39;s in review (PR #32), and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<p>A point-in-time status snapshot of the whole personal-workflow build — the
+one-screen answer to &quot;where are we?&quot;. The <a href="roadmap.html">Roadmap</a> holds the
+forward-looking plan and the design rationale; this page is the current
+state. Every shipped item links back to its recap or roadmap detail.</p>
+<h2 id="in-one-paragraph">In one paragraph</h2>
+<p>The workbench is real and in daily use: <code>wb</code> runs a session-per-worktree
+picker over a central task store, tasks carry lifecycle state, and a
+generated docs platform (this Hub, <code>INDEX</code>, <code>/help</code>) keeps it all
+navigable. The last build run hardened the store against concurrent agents
+(PR #22), then stacked task-family tooling on top of those lock primitives
+(<code>/wb-breakdown</code>, PR #29) and refreshed the board (PR #30) and Hub (PR #31).
+<strong>In review right now:</strong> Jira interop — emitting a task or family as SFB
+tickets (PR #32). Next up is the one-time task-store schema migration and
+closing two known <code>wb</code> gaps.</p>
+<h2 id="shipped">Shipped</h2>
+<p><span class="chip ok">21 merged</span> — full history and rationale live on
+the linked recaps; this is the chronological ledger. Foundations before
+PR #11 (the docs platform, <code>wb</code> core, notes-tui capture) are folded into
+the <a href="roadmap.html#detail-step-zero">Roadmap's shipped section</a>.</p>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>What</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>#11</td>
+<td>GPaste clipboard-history manager</td>
+<td><a href="9g-gpaste-recap.html">recap</a></td>
+</tr>
+<tr>
+<td>#12</td>
+<td>Roadmap restructured into overview + detail pages</td>
+<td><a href="roadmap.html">roadmap</a></td>
+</tr>
+<tr>
+<td>#13</td>
+<td><code>docgen.sh</code> pre-commit hook targets the real worktree</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#14</td>
+<td><strong>wb workbench extensions</strong> — <code>wb resume</code> / <code>wb pause</code> / <code>/board</code> / <code>wb reconcile</code></td>
+<td><a href="pr1-wb-workbench-recap.html">recap</a></td>
+</tr>
+<tr>
+<td>#15</td>
+<td>nvim session auto-restore escape hatch</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#16</td>
+<td>Roadmap sync after PR #1 shipped</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#17</td>
+<td><strong>Task parent/child relationship</strong> (incl. cross-repo families)</td>
+<td><a href="roadmap-handoff.html">detail</a></td>
+</tr>
+<tr>
+<td>#18</td>
+<td><strong>Hub v0</strong> — glossary, limitations, ceremonies, <code>/board</code> tile, roadmap reshape</td>
+<td><a href="roadmap.html#detail-hub-v0">roadmap</a></td>
+</tr>
+<tr>
+<td>#19</td>
+<td><code>wb done --close</code> + self-kill guard</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#20</td>
+<td><code>wb</code> lifecycle-stage detection functions</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#21</td>
+<td><strong><code>/handoff</code> v1</strong> — route a discussion to the right worker</td>
+<td><a href="handoff-guide.html">guide</a></td>
+</tr>
+<tr>
+<td>#22</td>
+<td><strong>Task-store concurrency safety</strong> — ask/refuse/serialize, per-task locks</td>
+<td><a href="guides/tasks-store-guards.html">guide</a></td>
+</tr>
+<tr>
+<td>#23</td>
+<td>Limitations doc — roadmap link-integrity recorded as manual</td>
+<td><a href="limitations.html">limitations</a></td>
+</tr>
+<tr>
+<td>#24</td>
+<td>Per-worktree <code>/queue</code> for stashing follow-ups</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#25</td>
+<td>tmux: land in another session on kill, detach-on-destroy off</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#26</td>
+<td><strong><code>wb-save</code> / <code>wb-resume</code> / <code>wb-done</code> / <code>wb-board</code> skills</strong></td>
+<td><a href="wb-guide.html">wb-guide</a></td>
+</tr>
+<tr>
+<td>#27</td>
+<td>Sweep-review buffer no longer autoformats itself</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#28</td>
+<td><code>xdg-open</code>/Slack default-browser hijack fix</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#29</td>
+<td><strong><code>/wb-breakdown</code></strong> — split an oversized task/ticket into a family</td>
+<td><a href="2026-07-13-wb-breakdown-recap.html">recap</a></td>
+</tr>
+<tr>
+<td>#30</td>
+<td><strong>Board display v2</strong> — stepper, Pipeline/Live/Stale tabs, dependencies</td>
+<td><a href="wb-board-display-v2-recap.html">recap</a></td>
+</tr>
+<tr>
+<td>#31</td>
+<td><strong>Hub + roadmap refresh</strong> — currency, guide gaps, sectioning, docgen lint</td>
+<td><a href="roadmap.html">roadmap</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="in-review">In review</h2>
+<ul>
+<li><strong>Jira interop — emit (Phase 1)</strong> — <a href="https://github.com/jetnoli-sportable/dotfiles/pull/32">PR #32</a>,
+branch <code>feat/jira-integration</code>. A <code>wb jira-set</code> locked write-back verb plus
+a <code>/wb-jira-create</code> skill that turns a task or <code>/wb-breakdown</code> family into
+new SFB tickets over the Atlassian MCP, behind an approval buffer, stamping
+each ticket URL back into the task. <strong>Create-only.</strong> All automated gates are
+green; the remaining gate is a manual end-to-end run against a live MCP
+(there's no sandbox SFB project) — a step-by-step verification checklist
+lives in the task dossier
+(<code>~/code/tasks/dossiers/dotfiles--feat-jira-integration/test-plan.html</code>).
+<a href="2026-07-16-jira-interop-recap.html">recap</a></li>
+</ul>
+<h2 id="next-up">Next up</h2>
+<p>The queue behind the current work — full context on the
+<a href="roadmap.html#up-next-max-3">Roadmap</a>.</p>
+<ol>
+<li><strong>Task-store schema migration</strong> — one-time pass bringing every existing
+<code>~/code/tasks/*.md</code> up to the settled schema (<code>parent:</code>, <code>closed:</code>,
+consistent <code>status:</code>). Documented in PR #17; not yet run.</li>
+<li><strong><code>wb new</code> bootstrap gap</strong> — <code>wb_bootstrap</code> skips <code>be--monorepo</code>'s
+<code>config.hjson</code>; fix is a <code>.worktree-bootstrap</code> manifest there.</li>
+<li><strong><code>wb reconcile</code> duplicate-task detection</strong> — two valid worktrees for the
+same real work aren't flagged today.</li>
+</ol>
+<p>Queued behind those: <strong>Task recall</strong> (needs the boundary rule), <strong>full day
+bookends</strong> <code>wb up</code>/<code>wb down</code> (needs notes-tui 4b wiring, clock 2026-07-24),
+and the <strong>personal/employer boundary rule</strong> (deliberately the last decision).</p>
+<h2 id="deferred--parked">Deferred / parked</h2>
+<ul>
+<li><strong>Jira interop — Phase 2 (sprint pull)</strong> — list current-sprint SFB tickets
+and convert the chosen ones into wb tasks via <code>/wb-breakdown</code>'s existing
+ticket→task path. In the plan, independent of Phase 1, not started —
+task <code>dotfiles--loop-jira-watch</code>.</li>
+<li><strong>Real Epic hierarchy</strong> for emit (parent → Epic + epic-linked children) —
+the generic &quot;Relates&quot; link ships first; the <code>Parent ticket:</code> field is
+forward-compatible with the upgrade.</li>
+<li><strong>Notes-dir &quot;everything is a note&quot; convergence</strong> — the north-star reduction
+of <code>~/code/notes</code>; parked to the ledger.</li>
+<li><strong><code>/second-opinion</code> skill</strong>, <strong>cross-repo doc registry</strong>, <strong>unify
+copy/paste</strong> — see the <a href="roadmap.html#parked">Roadmap's parked pool</a>.</li>
+</ul>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/where-we-are.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>
