@@ -2411,12 +2411,29 @@ cmd_jira_set() {
   [ -f "$file" ] \
     || { echo "wb jira-set: '$stem' has no matching task file in $TASKS_DIR" >&2; exit 1; }
 
-  # Idempotent-or-refuse decision BEFORE taking the lock (KTD3): this read is
-  # advisory (the correctness backstop against a double-create is the skill's
-  # Jira-side dedup, KTD8), and a pure retry against an already-stamped task
-  # must not contend on the lock at all.
+  # Fast path (KTD3): a pure retry against an already-correctly-stamped task is
+  # a no-op that must not contend on the lock at all. This pre-lock read is
+  # ONLY that optimization for the identical-value case — never the authority
+  # for the write decision.
+  if [ "$(wb_get_frontmatter "$file" jira)" = "$url" ]; then
+    echo "wb jira-set: $stem already stamped with $url (no-op)"
+    return 0
+  fi
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+
+  # The authoritative idempotent-or-refuse decision (KTD3) is made UNDER the
+  # lock and is atomic with the write below (W5: check-then-write must run
+  # inside the held lock, the same ordering cmd_new documents at its own
+  # wb_seed_task call site — never trust a value read before the lock). Without
+  # this re-read, two concurrent writers could both observe an empty field
+  # pre-lock, serialize on the lock, and the second would clobber the first's
+  # URL with no refusal — the exact silent-lost-write class this repo's lock
+  # work exists to prevent.
   local existing; existing="$(wb_get_frontmatter "$file" jira)"
   if [ -n "$existing" ]; then
+    wb_task_lock_release "$file"
     if [ "$existing" = "$url" ]; then
       echo "wb jira-set: $stem already stamped with $url (no-op)"
       return 0
@@ -2425,8 +2442,6 @@ cmd_jira_set() {
     exit 1
   fi
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
   wb_set_frontmatter "$file" jira "$url"
   wb_task_lock_release "$file"
   echo "wb jira-set: $stem jira set to $url"

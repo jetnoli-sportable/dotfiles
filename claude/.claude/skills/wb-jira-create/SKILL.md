@@ -49,7 +49,11 @@ locked verb, `wb jira-set` (`scripts/.config/scripts/tmux/wb.sh`, search
   tickets were created/reused and stamped and which were not (KTD2).
 - **Target project is SFB** ("Software Features and Bugs"); its issue types
   are Feature, Defect, Epic, Improvement, Bug, New Feature — no Story, no
-  Sub-task. Default type is **Feature**.
+  Sub-task. This skill offers **five** of them as selectable per-ticket types
+  (Feature | Defect | Bug | Improvement | New Feature); **Epic is deliberately
+  not offered** in v1 — Epic-as-hierarchy is a deferred upgrade (see Notes),
+  and the single `Parent ticket:` field, not an Epic type, carries hierarchy
+  here. Default type is **Feature**.
 - **Trigger phrasing:** `/wb-jira-create`, `/wb-jira-create <stem>`,
   "create tickets for this", "file these as SFB tickets", "make Jira
   tickets from this family", "emit these to Jira", or the natural chain
@@ -63,12 +67,18 @@ locked verb, `wb jira-set` (`scripts/.config/scripts/tmux/wb.sh`, search
   `.md`) or a fuzzy match against one — the same substring-with-ambiguity
   guard `wb resume`/`wb append`/`/wb-breakdown` use (0 or 2+ matches fail
   loud rather than guessing). Resolve it to a real file before continuing.
-- **Family**: when the resolved task is a family parent (or the user asks
-  for "this family"), enumerate the parent plus every task whose `parent:`
-  frontmatter equals the parent's stem. This is a scan over the store
-  (`grep -l '^parent: <stem>$' ~/code/tasks/*.md`), the same shape
-  `wb_family_all_done` uses — **not** the fuzzy matcher (which returns
-  exactly one match or fails loud).
+- **Family**: **always run the child-scan on the resolved stem** — you can't
+  know a task is a family parent without it. Enumerate every task whose
+  `parent:` **frontmatter** value equals the resolved stem, the same rule
+  `wb_family_all_done` uses (`scripts/.config/scripts/tmux/wb.sh`): iterate the
+  real task files (excluding `README.md`/`TEMPLATE.md`/`RECOVERY-NOTES-*.md`)
+  and compare each file's `wb_get_frontmatter "$f" parent` against the stem —
+  a frontmatter-scoped read, **not** a whole-file grep (a `parent:` line in a
+  `## Plan` body must never count). If the scan returns one or more children,
+  treat the input as a family (parent + those children); if it returns zero,
+  it's a single standalone task. A quick `grep -l "^parent: <stem>$"
+  ~/code/tasks/*.md` is fine as a first cut, but confirm each hit's match is
+  in the frontmatter block and drop the non-task files above.
 
 ### 2. Gather each task and drop the already-ticketed ones (R11)
 
@@ -239,52 +249,64 @@ linkage cleanly and report flat tickets rather than failing each
 
 ### 6. Emit — create tickets, link, write back
 
+One sub-routine is shared by both the parent and the children — call it
+**create-or-reuse(row)**:
+
+- **Dedup first (KTD8)** — a prior run can leave a real SFB ticket whose task
+  never got stamped, which the `jira:` skip would miss. Query candidates with
+  `searchJiraIssuesUsingJql({ cloudId, jql: 'project = SFB AND labels = wb AND summary ~ "<summary>"' })`,
+  but treat `~` as a **coarse, tokenized full-text filter, NOT an exact
+  match** — it can match partial-word overlaps. Then compare each returned
+  issue's `summary` field to the task's exact title string **agent-side**;
+  only a byte-exact summary match counts as a hit. This prevents `~`'s fuzzy
+  matching from reusing (and stamping) an unrelated ticket's URL — a silent
+  wrong-link that `jira:`'s one-way verbatim semantics (KTD6) make hard to
+  undo. If the summary contains a `"`, escape it in the JQL literal, or drop
+  the `summary ~` clause and filter the `project = SFB AND labels = wb`
+  candidates entirely agent-side.
+- On a byte-exact hit, **reuse** that ticket. Otherwise **create it**:
+  ```
+  createJiraIssue({
+    cloudId,
+    projectKey: "SFB",
+    issueTypeName: <the row's type>,
+    summary: <the row's summary>,
+    description: <the task's ## Plan body, verbatim markdown>,
+    assignee_account_id: <the resolved accountId>,
+    additional_fields: { labels: ["wb"] }
+  })
+  ```
+- **Validate the returned URL's shape** — expected Atlassian host and an
+  `SFB-<n>` key. A malformed or wrong-site string is refused: report it and
+  leave that task's `jira:` unset (never stamp a bad URL). Returns the
+  ticket's key + URL.
+
 Order the work by parent resolution (per R8 / the plan's parent-resolution
 diagram):
 
 1. **Resolve the parent once** from the `Parent ticket:` field:
    - blank → no parent; every ticket is flat.
-   - existing key/URL → the parent key is that ticket; create nothing for
-     it.
-   - batch row → if that row already carries `jira:`, resolve to its
-     existing ticket URL/key (KTD10, no create); otherwise `createJiraIssue`
-     for it **first** and capture the returned key, so children can link to
-     it.
-2. **Then, per checked row** (children, and the batch-row parent if it was
-   created in step 1):
-   - **Dedup first (KTD8)** — a prior run can leave a real SFB ticket whose
-     task never got stamped, which the `jira:` skip would miss. Query
-     `searchJiraIssuesUsingJql({ cloudId, jql })` for an existing SFB issue
-     carrying the `wb` label with the same summary, e.g.
-     `project = SFB AND labels = wb AND summary ~ "<exact summary>"`. On a
-     confident hit, **reuse** that ticket (stamp its URL back) instead of
-     creating a second one.
-   - Otherwise **create it**:
-     ```
-     createJiraIssue({
-       cloudId,
-       projectKey: "SFB",
-       issueTypeName: <the row's type>,
-       summary: <the row's summary>,
-       description: <the task's ## Plan body, verbatim markdown>,
-       assignee_account_id: <the resolved accountId>,
-       additional_fields: { labels: ["wb"] }
-     })
-     ```
+   - existing key/URL → the parent key is that ticket; create nothing for it,
+     and it is **not** one of the batch rows.
+   - batch row → if that row already carries `jira:`, resolve to its existing
+     ticket URL/key (KTD10, no create). Otherwise run **create-or-reuse** on
+     the coordinator row **first**, capture its key, and **write its own URL
+     back** with `wb jira-set` now. The coordinator is now fully handled — it
+     is **excluded from the per-child loop below** (do not dedup, create, or
+     link it a second time, and never link it to itself).
+2. **Then, per remaining checked row** (the children — every checked row
+   except a batch-row parent already handled in step 1):
+   - Run **create-or-reuse(row)**.
    - **Link, if a parent resolved (R7, KTD5):**
      `createIssueLink({ cloudId, type: "Relates", inwardIssue: <parent key>, outwardIssue: <child key> })`.
-     "Relates" is symmetric, so direction is immaterial; a blank parent
-     skips this entirely (flat).
-   - **Validate the returned URL's shape** before writing it back — expected
-     Atlassian host and an `SFB-<n>` key. A malformed or wrong-site string
-     is refused: report it and leave that task's `jira:` unset (never stamp
-     a bad URL).
-   - **Write it back:** derive the task's exact `<repo>--<slug>` stem from
-     its resolved file (basename minus `.md`) and call
-     `wb jira-set <stem> <url>` (the one store write, R4). `wb jira-set` is
-     idempotent-or-refuse: a re-run against an already-correctly-stamped
-     task is a safe no-op; a *different* existing value fails loud (it never
-     clobbers) — surface that as a per-ticket failure, don't fight it.
+     "Relates" is symmetric, so direction is immaterial; a blank parent skips
+     this entirely (flat).
+   - **Write it back:** derive the task's exact `<repo>--<slug>` stem from its
+     resolved file (basename minus `.md`) and call `wb jira-set <stem> <url>`
+     (the one store write, R4). `wb jira-set` is idempotent-or-refuse: a
+     re-run against an already-correctly-stamped task is a safe no-op; a
+     *different* existing value fails loud (it never clobbers) — surface that
+     as a per-ticket failure, don't fight it.
 
 Because `createJiraIssue` (agent) and `wb jira-set` (bash) are not one
 transaction (KTD2), a ticket can be created and then its stamp fail (lock

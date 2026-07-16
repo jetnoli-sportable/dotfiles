@@ -235,7 +235,7 @@ no argument lists tasks already tagged `breakdown-candidate`. Closing the
 last open child of a family, `wb done` prints the exact command to close
 the parent too.
 
-## wb jira-create — file a task or family as SFB tickets
+## /wb-jira-create — file a task or family as SFB tickets
 
 The reverse of `wb breakdown`'s ticket→task path: take a task (or a whole
 breakdown family) you scoped locally and **emit** it as new SFB Jira
