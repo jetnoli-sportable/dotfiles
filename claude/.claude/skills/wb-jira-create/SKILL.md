@@ -1,12 +1,13 @@
 ---
 name: wb-jira-create
-description: Turn a wb task (or a /wb-breakdown family) into new SFB Jira tickets through a human-approved proposal buffer, writing each created ticket's URL back into the task's jira: field. Use when the user types `/wb-jira-create`, says "create tickets for this", "file these as SFB tickets", "make Jira tickets from this family", "emit these tasks to Jira", or asks — often right after /wb-breakdown — to turn a scoped task or family into real tickets for the team. Create-only: never updates, transitions, or edits existing tickets. The only task-store write is `wb jira-set`; every ticket is created agent-side over the Atlassian MCP behind an approval gate.
+description: Turn a wb task (or a /wb-breakdown family) into new Jira tickets in a chosen project (SFB by default, or SW, or another) through a human-approved proposal buffer, writing each created ticket's URL back into the task's jira: field. Use when the user types `/wb-jira-create`, says "create tickets for this", "file these as SFB tickets", "file these as SW tickets", "make Jira tickets from this family", "emit these tasks to Jira", or asks — often right after /wb-breakdown — to turn a scoped task or family into real tickets for the team. Create-only: never updates, transitions, or edits existing tickets. The only task-store write is `wb jira-set`; every ticket is created agent-side over the Atlassian MCP behind an approval gate.
 ---
 
 # wb-jira-create
 
 Turns a wb task, or a whole `/wb-breakdown` **family** (a parent plus its
-`parent:`-linked children), into new **SFB** Jira tickets — one issue per
+`parent:`-linked children), into new Jira tickets in a chosen project
+(**SFB** by default, or another such as **SW**) — one issue per
 task that doesn't already carry a `jira:` value — and writes each created
 ticket's canonical URL back into that task's `jira:` frontmatter. This is
 the *emit* direction: an idea scoped into tasks locally becomes real tickets
@@ -47,16 +48,23 @@ locked verb, `wb jira-set` (`scripts/.config/scripts/tmux/wb.sh`, search
   created issue key/URL, or an error) is what actually happened — relay it,
   never paraphrase a guess. On a mid-run failure, report exactly which
   tickets were created/reused and stamped and which were not (KTD2).
-- **Target project is SFB** ("Software Features and Bugs"); its issue types
-  are Feature, Defect, Epic, Improvement, Bug, New Feature — no Story, no
-  Sub-task. This skill offers **five** of them as selectable per-ticket types
-  (Feature | Defect | Bug | Improvement | New Feature); **Epic is deliberately
-  not offered** in v1 — Epic-as-hierarchy is a deferred upgrade (see Notes),
-  and the single `Parent ticket:` field, not an Epic type, carries hierarchy
-  here. Default type is **Feature**.
+- **Target project is selectable — `SFB` by default.** The run's project is
+  one run-level `Project:` field in the buffer, defaulting to **SFB**
+  ("Software Features and Bugs") but editable to another Sportable project
+  the OAuth identity can reach — e.g. **SW** — or any valid project key. An
+  invocation phrased "file these as SW tickets" just seeds that default; the
+  buffer field is the authority. **Issue types are project-specific**, so the
+  selectable types are resolved from the chosen project's own metadata at
+  preflight (step 2b), not hard-coded — for SFB those are Feature | Defect |
+  Bug | Improvement | New Feature (Epic exists in SFB but is deliberately not
+  offered as a per-ticket type in v1; Epic-as-hierarchy is a deferred upgrade,
+  see Notes — the single `Parent ticket:` field carries hierarchy here).
+  Default type is **Feature** when the project has it, else the project's own
+  default type.
 - **Trigger phrasing:** `/wb-jira-create`, `/wb-jira-create <stem>`,
-  "create tickets for this", "file these as SFB tickets", "make Jira
-  tickets from this family", "emit these to Jira", or the natural chain
+  "create tickets for this", "file these as SFB tickets", "file these as SW
+  tickets", "make Jira tickets from this family", "emit these to Jira", or the
+  natural chain
   after `/wb-breakdown` ("...now create the tickets").
 
 ## Flow
@@ -100,18 +108,25 @@ stop — no buffer, no MCP calls.
 ### 2b. MCP preflight — validate depth, not just reachability (KTD9)
 
 Before authoring the buffer, confirm the Atlassian MCP can actually do the
-work — reachability alone is insufficient. Resolve, once, up front:
+work — reachability alone is insufficient. Resolve, once, up front, for the
+**target project** (default `SFB`, or the project the invocation hinted):
 
 ```
-getAccessibleAtlassianResources()     # -> cloudId for the SFB site
+getAccessibleAtlassianResources()     # -> cloudId for the Atlassian site
 atlassianUserInfo()                    # -> the current user's accountId (for the assignee, R3)
+getJiraProjectIssueTypesMetadata({ cloudId, projectKey })  # -> the project's own issue types
 ```
 
 and confirm the tools the emit loop needs are present:
 `createJiraIssue`, `createIssueLink`, `searchJiraIssuesUsingJql`,
 `getIssueLinkTypes`. Jira Cloud takes an **`accountId`** for the assignee,
 never a name — resolve it here (`atlassianUserInfo` gives the current
-user's).
+user's). Resolve the target project's **issue types** here too — they are
+project-specific, so the buffer's editable `type:` options come from this
+metadata (default `Feature` when the project has it, else the project's
+default), not a hard-coded list. Confirm the OAuth identity can actually
+reach the chosen project (a mistyped or inaccessible key fails here, not
+mid-create).
 
 If the MCP is unavailable, the fetch auth-errors, or a needed tool is
 missing → report the specific gap clearly, **touch nothing** (no buffer, no
@@ -137,18 +152,20 @@ bash-parsed grammar (KTD4):
 ```markdown
 # wb jira-create — <input label> (<N> ticket(s) proposed)
 
-> Check the tickets to create; edit `type:` / `summary:` / `Parent ticket:`
-> in place; save and close. Only checked blocks are created. The description
-> shown under each block is EXACTLY the text published to the shared SFB
-> tracker — edit it here if it should read differently.
+> Check the tickets to create; edit `Project:` / `type:` / `summary:` /
+> `Parent ticket:` in place; save and close. Only checked blocks are created.
+> The description shown under each block is EXACTLY the text published to the
+> shared tracker — edit it here if it should read differently.
 
+Project: SFB          <!-- the target project key; edit to SW (or another) — types re-resolve at re-preflight -->
+<!-- wb-jira-create: project-field default=SFB -->
 Parent ticket: <blank | SFB-1234 | batch:feat-coordinator-slug>
 <!-- wb-jira-create: parent-field default=<batch:coordinator-slug | blank> -->
 
 ## ticket 1 — <task title>
 <!-- wb-jira-create: block=ticket n=1 stem=<repo>--<slug> -->
-- [x] create SFB ticket
-- type: Feature      (editable: Feature | Defect | Bug | Improvement | New Feature)
+- [x] create ticket
+- type: Feature      (editable — one of the Project's own issue types, from preflight)
 - summary: <task title>
 <!-- wb-jira-create: begin-description n=1 -->
 <the task's entire ## Plan body, verbatim — the ticket description>
@@ -156,7 +173,7 @@ Parent ticket: <blank | SFB-1234 | batch:feat-coordinator-slug>
 
 ## ticket 2 — <task title>
 <!-- wb-jira-create: block=ticket n=2 stem=<repo>--<slug> -->
-- [x] create SFB ticket
+- [x] create ticket
 - type: Feature
 - summary: <task title>
 <!-- wb-jira-create: begin-description n=2 -->
@@ -174,9 +191,17 @@ Buffer rules:
   preview.** The approver must see exactly what publishes to the shared
   tracker. If a `## Plan` is empty, note that and still show the (empty)
   block so the human can fill it before checking.
-- **`type:` defaults to `Feature`**, editable to any one of the five SFB
-  types (Feature | Defect | Bug | Improvement | New Feature). No Story, no
-  Sub-task — those don't exist in SFB.
+- **`Project:` is one run-level field**, default `SFB`, editable to another
+  accessible project key (e.g. `SW`). It sets `projectKey` for every ticket
+  in the run, the dedup JQL's `project = …`, and the `<KEY>-<n>` shape the
+  returned URL is validated against. If the human edits it, the post-approval
+  re-preflight (step 5b) re-resolves that project's metadata and issue types
+  before anything is created.
+- **`type:` defaults to `Feature`** (or the project's default when it has no
+  Feature type), editable to any one of the **chosen project's** own issue
+  types as resolved at preflight — for SFB that's Feature | Defect | Bug |
+  Improvement | New Feature (no Story, no Sub-task); another project's set may
+  differ. Don't offer a type the preflight metadata didn't return.
 - **`Parent ticket:` is one run-level field** applied to every created
   child in the run (R5). It resolves three ways (R6):
   - **blank** → tickets created flat, no links (AE2);
@@ -191,7 +216,7 @@ Buffer rules:
   - Default the field to the family coordinator's `batch:` row when the
     input is a family that has one; leave it **blank** for a single
     standalone task.
-- Every proposed ticket's `create SFB ticket` box is **checked by default**
+- Every proposed ticket's `create ticket` box is **checked by default**
   (you're proposing it). A skipped task appears only in the skipped list,
   never as a create-block.
 
@@ -221,24 +246,28 @@ background command completing is the signal.
 
 When the background command completes, read the closed buffer fresh:
 
-- Resolve any inline prose note, or an edited `Parent ticket:` / `type:` /
-  `summary:` field, before acting — same contract `decision-buffer` step 3
-  uses.
+- Resolve any inline prose note, or an edited `Project:` / `Parent ticket:` /
+  `type:` / `summary:` field, before acting — same contract `decision-buffer`
+  step 3 uses.
 - **All-unchecked close**: if nothing at all is checked, report that
   nothing was approved and stop. Do **not** re-fire (re-generate/re-open)
   the buffer automatically or call the MCP — the human closed it on
   purpose; ask before trying again.
-- Otherwise, collect the checked blocks (stem, resolved `type`, edited
-  `summary`, verbatim description) and the resolved `Parent ticket:` value,
-  and continue.
+- Otherwise, collect the run-level `Project:` value, the checked blocks
+  (stem, resolved `type`, edited `summary`, verbatim description) and the
+  resolved `Parent ticket:` value, and continue.
 
 ### 5b. Re-run the MCP preflight (KTD9)
 
 The approval wait is unbounded and the MCP can drop during it. **Re-run the
 step-2b preflight** (cloudId, accountId, tool presence) immediately before
-the first `createJiraIssue`. If it now fails, stop and report — zero
-tickets created, zero writes. The pre-buffer check was advisory; this is
-the load-bearing one.
+the first `createJiraIssue` — **against the `Project:` the human approved**,
+which may differ from the pre-buffer default. Re-resolve that project's
+metadata and issue types, and validate every checked row's `type:` against
+them (a type valid for SFB may not exist in SW). If the preflight now fails,
+the project is unreachable, or a chosen type isn't valid there, stop and
+report — zero tickets created, zero writes. The pre-buffer check was
+advisory; this is the load-bearing one.
 
 Also probe the link type once, if a parent will resolve (KTD5): call
 `getIssueLinkTypes({ cloudId })` and confirm a usable **"Relates"**-
@@ -252,23 +281,24 @@ linkage cleanly and report flat tickets rather than failing each
 One sub-routine is shared by both the parent and the children — call it
 **create-or-reuse(row)**:
 
-- **Dedup first (KTD8)** — a prior run can leave a real SFB ticket whose task
-  never got stamped, which the `jira:` skip would miss. Query candidates with
-  `searchJiraIssuesUsingJql({ cloudId, jql: 'project = SFB AND labels = wb AND summary ~ "<summary>"' })`,
-  but treat `~` as a **coarse, tokenized full-text filter, NOT an exact
-  match** — it can match partial-word overlaps. Then compare each returned
-  issue's `summary` field to the task's exact title string **agent-side**;
-  only a byte-exact summary match counts as a hit. This prevents `~`'s fuzzy
-  matching from reusing (and stamping) an unrelated ticket's URL — a silent
-  wrong-link that `jira:`'s one-way verbatim semantics (KTD6) make hard to
-  undo. If the summary contains a `"`, escape it in the JQL literal, or drop
-  the `summary ~` clause and filter the `project = SFB AND labels = wb`
-  candidates entirely agent-side.
+- **Dedup first (KTD8)** — a prior run can leave a real ticket in the project
+  whose task never got stamped, which the `jira:` skip would miss. Query
+  candidates with `searchJiraIssuesUsingJql({ cloudId, jql: 'project = <PROJECT> AND labels = wb AND summary ~ "<summary>"' })`
+  (`<PROJECT>` = the run's `Project:` — e.g. `SFB` or `SW`), but treat `~` as a
+  **coarse, tokenized full-text filter, NOT an exact match** — it can match
+  partial-word overlaps. Then compare each returned issue's `summary` field to
+  the task's exact title string **agent-side**; only a byte-exact summary match
+  counts as a hit. This prevents `~`'s fuzzy matching from reusing (and
+  stamping) an unrelated ticket's URL — a silent wrong-link that `jira:`'s
+  one-way verbatim semantics (KTD6) make hard to undo. If the summary contains
+  a `"`, escape it in the JQL literal, or drop the `summary ~` clause and
+  filter the `project = <PROJECT> AND labels = wb` candidates entirely
+  agent-side.
 - On a byte-exact hit, **reuse** that ticket. Otherwise **create it**:
   ```
   createJiraIssue({
     cloudId,
-    projectKey: "SFB",
+    projectKey: <the run's Project — e.g. "SFB" or "SW">,
     issueTypeName: <the row's type>,
     summary: <the row's summary>,
     description: <the task's ## Plan body, verbatim markdown>,
@@ -276,8 +306,9 @@ One sub-routine is shared by both the parent and the children — call it
     additional_fields: { labels: ["wb"] }
   })
   ```
-- **Validate the returned URL's shape** — expected Atlassian host and an
-  `SFB-<n>` key. A malformed or wrong-site string is refused: report it and
+- **Validate the returned URL's shape** — expected Atlassian host and a
+  `<PROJECT>-<n>` key matching the run's project (e.g. `SFB-1234`, `SW-42`). A
+  malformed, wrong-site, or wrong-project string is refused: report it and
   leave that task's `jira:` unset (never stamp a bad URL). Returns the
   ticket's key + URL.
 
@@ -335,12 +366,18 @@ Optionally archive the approved buffer under
 ## Test scenarios this skill's behavior must cover
 
 - **AE2 — flat single task**: one standalone task, `Parent ticket:` blank →
-  one flat SFB ticket, no `createIssueLink`, `jira:` stamped via `wb jira-set`.
+  one flat ticket in the run's project, no `createIssueLink`, `jira:` stamped
+  via `wb jira-set`.
 - **AE3 — family with coordinator parent**: `Parent ticket:` = the
   coordinator batch row → the coordinator ticket is created first, then each
   child is created and "Relates"-linked to it, each `jira:` stamped.
 - **AE4 — existing parent key**: `Parent ticket:` = `SFB-1234` → children
   "Relates"-linked to `SFB-1234`, no parent ticket created.
+- **Project selection (SFB / SW)**: `Project:` left `SFB` → tickets land in
+  SFB with the `SFB-<n>` shape; `Project:` edited to `SW` → the re-preflight
+  re-resolves SW's issue types, the dedup JQL scopes to `project = SW`,
+  tickets land in SW with the `SW-<n>` shape, and a type not valid in SW is
+  rejected before any create.
 - **AE1 / R11 — already-ticketed skip**: a family of three where one child
   already has `jira:` → the buffer proposes two, lists the third as skipped;
   it is never double-created.
