@@ -1,0 +1,225 @@
+<title>Jira emit — hierarchy mechanism ideation</title>
+<style>
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5; --emit: #1e66f5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db; --emit: #8caaee;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db; --emit: #8caaee;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5; --emit: #1e66f5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2); flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 5; }
+  .statusbar b { color: var(--ink); }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+
+  a { color: var(--acc2); }
+  .wrap { width: 90%; max-width: 1160px; margin: 1.6rem auto 4rem; }
+
+  .eyebrow { font-family: var(--mono); font-size: .74rem; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--acc); margin: 0 0 .4rem; }
+  h1 { font-family: var(--mono); font-size: clamp(1.4rem, 3vw, 2rem); margin: 0 0 .5rem;
+       letter-spacing: -.02em; text-wrap: balance; }
+  .thesis { color: var(--ink2); margin: 0 0 1rem; max-width: 72ch; }
+  .q { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--emit);
+    border-radius: 0 10px 10px 0; padding: .7rem 1.1rem; margin: 1rem 0 1.6rem; font-size: .95rem; }
+  .q b { color: var(--ink); }
+  h2 { font-family: var(--mono); font-size: 1.15rem; margin: 2.6rem 0 .8rem;
+       padding-bottom: .35rem; border-bottom: 1px solid var(--line); }
+  h2 .n { color: var(--acc); }
+  h3 { font-size: 1rem; margin: 1.4rem 0 .4rem; color: var(--ink); }
+  p, li { color: var(--ink2); max-width: 82ch; }
+  p b, li b { color: var(--ink); }
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+    padding: .08em .35em; border-radius: 5px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: .8rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .84rem; margin: 1rem 0; }
+  .tablewrap { overflow-x: auto; }
+  th, td { border: 1px solid var(--line); padding: .45rem .65rem; text-align: left; vertical-align: top; }
+  th { background: var(--bg2); font-family: var(--mono); font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--ink2); }
+  td { background: var(--panel); color: var(--ink2); }
+  td b { color: var(--ink); }
+  .tag { font-family: var(--mono); font-size: .66rem; padding: .1em .5em; border-radius: 5px;
+    text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; font-weight: 700; }
+  .win { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); }
+  .fall { background: color-mix(in srgb, var(--acc2) 20%, transparent); color: var(--acc2); }
+  .defer { background: color-mix(in srgb, var(--warn) 24%, transparent); color: var(--warn); }
+  .rej { background: color-mix(in srgb, var(--crit) 20%, transparent); color: var(--crit); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1rem 1.2rem; margin: 1rem 0; }
+  .card.winner { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
+  .card h3 { margin-top: 0; }
+  .card .why { font-size: .86rem; }
+  .card .why .good { color: var(--ok); font-weight: 600; }
+  .card .why .bad { color: var(--crit); font-weight: 600; }
+
+  .callout { border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    background: var(--panel); border-radius: 10px; padding: .85rem 1.15rem; margin: 1.3rem 0;
+    font-size: .92rem; }
+  .callout.ok { border-left-color: var(--ok); }
+  .callout.info { border-left-color: var(--acc2); }
+  .callout b:first-child { display: block; margin-bottom: .3rem; color: var(--ink); }
+</style>
+
+<div class="statusbar">
+  <span>ideation · narrow</span>
+  <span>task <b>dotfiles--feat-jira-integration</b></span>
+  <span>one sub-problem: the hierarchy mechanism</span>
+  <span class="right">2026-07-16</span>
+</div>
+
+<div class="wrap">
+<p class="eyebrow">Jira emit flow · hierarchy sub-problem</p>
+<h1>Specifying a parent without forcing an Epic</h1>
+<p class="thesis">A tight, single-question ideation (not the full fleet — the
+scope is one mechanism and the grounding is already in hand). Generate the ways
+to give created child tickets a parent, critique each on risk, and converge on
+the lowest-risk v1.</p>
+
+<div class="q"><b>The question:</b> when <code>/wb-jira-create</code> creates N
+child tickets from a wb task family, how do we let the user specify a
+<b>parent</b> the children hang under — with minimal risk, and
+<b>not necessarily an Epic</b>? (Your seed: a "parent task" field in the buffer,
+pick a parent for all children, just some linkage.)</p>
+
+<h2 id="ground"><span class="n">▸</span> Grounding: the linkage landscape</h2>
+<p>Jira offers several ways to relate issues, and they differ sharply on
+<b>config risk</b> — the thing to minimize here:</p>
+<div class="tablewrap"><table>
+<tr><th>Mechanism</th><th>Config risk</th><th>Why</th></tr>
+<tr><td><b>Generic issue links</b> ("Relates", "Blocks"…)</td><td class="tag win">low</td>
+<td>Built-in system link types present in <i>every</i> Jira instance; independent of project type.</td></tr>
+<tr><td><b>Epic + Epic Link</b></td><td class="tag rej">high</td>
+<td>The epic-link field differs by project style (team-managed <code>parent</code> vs company-managed <code>Epic Link</code> customfield). <b>Unknown for SFB, and MCP is down so we can't probe it.</b></td></tr>
+<tr><td><b>Native <code>parent</code> field</b></td><td class="tag defer">medium</td>
+<td>Works in team-managed; company-managed restricts what can parent what. Same risk class as epic-link.</td></tr>
+<tr><td><b>Description mention</b> (paste parent key in body)</td><td class="tag defer">low-ish</td>
+<td>No link API, but whether a mention becomes a visible relationship depends on instance auto-link config — soft/unreliable.</td></tr>
+</table></div>
+<div class="callout info"><b>The insight that shapes everything:</b> generic
+issue links are the one mechanism that is <b>config-independent and
+universally present</b>. Any approach built on them dodges the epic-link
+uncertainty entirely — which is exactly the risk you flagged. SFB also has
+<b>no Sub-task and no Story type</b>, so native subtask hierarchy isn't even on
+the table here.</div>
+
+<h2 id="cands"><span class="n">▸</span> Candidates generated, then critiqued</h2>
+<p>Eight ways to do it. Verdict and one-line reason each — survivors expanded below.</p>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>Candidate</th><th>Verdict</th><th>Reason</th></tr>
+<tr><td>1</td><td>Flat — no parent at all</td><td class="tag fall">fallback</td>
+<td>Fails the "specify a parent" goal, but is the correct behaviour when the field is left blank.</td></tr>
+<tr><td>2</td><td>Existing ticket as parent + issue-link</td><td class="tag win">survivor</td>
+<td>Low risk; but can't create the parent in the same run — parent must pre-exist.</td></tr>
+<tr><td>3</td><td>Nominate one batch ticket as parent + issue-link</td><td class="tag win">survivor</td>
+<td>Low risk; mirrors the family (the coordinator becomes the parent).</td></tr>
+<tr><td>4</td><td>Create a fresh <b>Epic</b> + epic-link children</td><td class="tag rej">defer → v2</td>
+<td>Epic-link is the exact config-risk you want to avoid; can't verify SFB now.</td></tr>
+<tr><td>5</td><td>Native <code>parent</code> field</td><td class="tag rej">defer → v2</td>
+<td>Config-dependent; same risk class. The higher-fidelity upgrade path once SFB's config is known.</td></tr>
+<tr><td>6</td><td>Record parent in frontmatter, link in Jira later</td><td class="tag fall">fallback</td>
+<td>Delivers no visible Jira hierarchy — but a safe retreat if link-creation itself proves flaky.</td></tr>
+<tr><td>7</td><td><b>Polymorphic "parent ticket" field + issue-link</b></td><td class="tag win">WINNER</td>
+<td>Synthesises 2+3: one field, existing-or-batch-or-blank, always a generic link.</td></tr>
+<tr><td>8</td><td>Description-mention backlink only</td><td class="tag rej">reject</td>
+<td>Soft link, auto-link is config-dependent too — weaker than issue links for no risk saving.</td></tr>
+</table></div>
+
+<h2 id="survivors"><span class="n">▸</span> The survivors</h2>
+
+<div class="card winner">
+<h3>#7 — Polymorphic "parent ticket" field, linked generically <span class="tag win">recommended v1</span></h3>
+<p>Your seed, generalised and de-risked. The proposal buffer carries one
+optional field:</p>
+<pre>Parent ticket:  (blank = flat)  |  SFB-1234 (an existing ticket)  |  @1 (a row in this batch)</pre>
+<p>Whatever it resolves to, each created child gets a <b>generic issue-link</b>
+to that parent (default link type <b>"Relates"</b> — universal). Resolution
+rules:</p>
+<ul>
+  <li><b>An existing key/URL</b> → link children to it (candidate 2). Good for "these belong under an existing Feature/Epic."</li>
+  <li><b>A batch row</b> (default: the family's coordinator task, if there is one) → create that ticket first, capture its key, link the rest to it (candidate 3). Mirrors the family.</li>
+  <li><b>Blank</b> → flat, no linkage (candidate 1). Graceful default.</li>
+</ul>
+<p class="why"><span class="good">+</span> Minimal risk — the only write beyond
+<code>createJiraIssue</code> is <code>createIssueLink</code>, which is
+config-independent. <span class="good">+</span> Answers "specify a parent, not an
+Epic" exactly. <span class="good">+</span> Human stays in control per-run in the
+buffer. <br><span class="bad">−</span> "Relates" is symmetric, so Jira shows a
+link, not a true parent→child rollup (fidelity trade for safety).</p>
+</div>
+
+<div class="callout"><b>One nuance worth a choice:</b> "Relates" is
+non-directional. If you want a parent→child <i>feel</i>, some instances carry a
+directional type ("Blocks/Is blocked by", or a custom "Parent/Child"). Which
+types SFB actually has needs a single <code>getIssueLinkTypes</code> call —
+<b>deferred until the MCP reconnects</b> (it dropped mid-session). This is a
+low-risk verification, not a blocker: "Relates" is guaranteed present, so v1
+works even if that's all there is.</div>
+
+<h3>Fallbacks, kept explicitly</h3>
+<ul>
+  <li><b>#1 flat</b> is the blank-field behaviour, not a separate feature.</li>
+  <li><b>#6 frontmatter-only</b> is the retreat if <code>createIssueLink</code> itself
+  proves unreliable in practice: record the chosen parent in the task file, link in Jira later.</li>
+</ul>
+
+<h3>Deferred to v2 (higher fidelity, higher config risk)</h3>
+<ul>
+  <li><b>#4 fresh Epic + epic-link</b> and <b>#5 native <code>parent</code> field</b>
+  are the true-hierarchy upgrades. They become cheap and safe <i>once</i> we've
+  confirmed SFB's project style and epic-link field (one probe when MCP is back).
+  The polymorphic field from #7 is forward-compatible: the same "parent ticket"
+  value can later drive an epic-link instead of a generic link, with no buffer
+  change.</li>
+</ul>
+
+<h2 id="rec"><span class="n">▸</span> Recommendation</h2>
+<div class="callout ok"><b>Ship #7 as v1.</b> A single optional "parent ticket"
+field in the proposal buffer, resolving to an existing ticket, a batch row
+(default: the family coordinator), or blank; children linked to it with a
+generic <b>"Relates"</b> issue-link. This is the lowest-risk mechanism that
+still lets you specify a parent, it needs zero knowledge of SFB's epic
+configuration, and it upgrades cleanly to real Epic hierarchy in v2 without
+reworking the buffer. The only follow-up is a one-call
+<code>getIssueLinkTypes</code> check (when MCP is back) to see whether a nicer
+directional link type than "Relates" exists.</div>
+<p style="font-size:.85rem;color:var(--mut);">Next: fold this into the emit-flow
+brainstorm as the resolved hierarchy mechanism, then the requirements-only plan
+can treat hierarchy as decided (generic-link v1, Epic v2).</p>
+</div>
