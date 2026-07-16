@@ -217,5 +217,64 @@ fi
 kill "$contend_holder" 2>/dev/null
 wait "$contend_holder" 2>/dev/null
 
+# =============================================================================
+# U4 — /wb-jira-create skill: write-boundary + create-only grep check
+# =============================================================================
+# The one mechanically enforceable invariant for the agent-driven skill
+# halves (U2/U3), same precedent wb-breakdown.test.sh's U6 established: a
+# grep-based smoke check (not exhaustive NLP) that this skill (a) never
+# instructs an Edit/Write-tool write against ~/code/tasks, (b) routes its
+# ONE store write through `wb jira-set`, (c) states the never-Edit/Write-tool
+# rule, (d) states its create-only posture, and (e) names no ticket-mutation
+# MCP tool (transition/edit/worklog/delete) — so Jira access stays
+# create-only (R12).
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
+SKILL_FILE="$REPO_ROOT/claude/.claude/skills/wb-jira-create/SKILL.md"
+
+if [ ! -f "$SKILL_FILE" ]; then
+  echo "FAIL - U4 skill grep check: $SKILL_FILE not found"
+  fail=1
+else
+  if grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md' "$SKILL_FILE" >/dev/null; then
+    echo "FAIL - U4 skill grep check: wb-jira-create/SKILL.md contains an Edit/Write-tool task-file write instruction:"
+    grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md' "$SKILL_FILE" | sed 's/^/       /'
+    fail=1
+  else
+    echo "ok   - U4 skill grep check: no Edit/Write-tool task-file write instruction"
+  fi
+
+  if grep -qE 'wb jira-set' "$SKILL_FILE"; then
+    echo "ok   - U4 skill grep check: routes its store write through wb jira-set"
+  else
+    echo "FAIL - U4 skill grep check: does not reference wb jira-set"
+    fail=1
+  fi
+
+  if grep -Pzoqi '(?s)never[^.]{0,200}?(edit|write)[\s/-]*tool' "$SKILL_FILE"; then
+    echo "ok   - U4 skill grep check: states the never-Edit/Write-tool rule"
+  else
+    echo "FAIL - U4 skill grep check: missing the never-Edit/Write-tool rule"
+    fail=1
+  fi
+
+  if grep -qiE 'create-only' "$SKILL_FILE"; then
+    echo "ok   - U4 skill grep check: states the create-only posture (R12)"
+  else
+    echo "FAIL - U4 skill grep check: missing the create-only posture statement"
+    fail=1
+  fi
+
+  # No ticket-mutation MCP tool named as an action — create-only means the
+  # skill's Jira writes are createJiraIssue/createIssueLink only.
+  if grep -niE 'transitionJiraIssue|editJiraIssue|addWorklogToJiraIssue|deleteJiraIssue' "$SKILL_FILE" >/dev/null; then
+    echo "FAIL - U4 skill grep check: names a ticket-mutation MCP tool (not create-only):"
+    grep -niE 'transitionJiraIssue|editJiraIssue|addWorklogToJiraIssue|deleteJiraIssue' "$SKILL_FILE" | sed 's/^/       /'
+    fail=1
+  else
+    echo "ok   - U4 skill grep check: names no ticket-mutation MCP tool (create-only)"
+  fi
+fi
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

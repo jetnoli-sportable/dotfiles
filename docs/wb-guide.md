@@ -235,6 +235,43 @@ no argument lists tasks already tagged `breakdown-candidate`. Closing the
 last open child of a family, `wb done` prints the exact command to close
 the parent too.
 
+## wb jira-create — file a task or family as SFB tickets
+
+The reverse of `wb breakdown`'s ticket→task path: take a task (or a whole
+breakdown family) you scoped locally and **emit** it as new SFB Jira
+tickets the team can see — each created ticket's URL written back into the
+task's `jira:` field.
+
+```
+/wb-jira-create <stem-or-family>   # authors a proposal buffer, opens it for you
+wb jira-set <repo>--<slug> <url>   # (invoked for you) stamps a created ticket's URL back
+```
+
+`/wb-jira-create` (the skill, `claude/.claude/skills/wb-jira-create/SKILL.md`)
+does the thinking and the talking to Jira. It gathers each task's title
+(→ ticket summary) and `## Plan` body (→ ticket description, shown in the
+buffer **verbatim and in full** — exactly what publishes to the shared
+tracker), drops any task that already has a `jira:` value, then writes a
+checkbox buffer for you to edit and approve. Each block carries an editable
+issue **type** (default `Feature`, among SFB's Feature / Defect / Bug /
+Improvement / New Feature), and one run-level **`Parent ticket:`** field:
+leave it blank for flat tickets, name an existing `SFB-1234` to link every
+child to it, or point at a batch row (default: the family's coordinator) to
+create that parent first and link the children to it with a generic
+"Relates" issue-link. Nothing is created until you approve; the tickets are
+created **agent-side over the Atlassian MCP** (create-only — this never
+transitions, edits, or updates an existing ticket).
+
+The one and only task-store write is `wb jira-set`, the locked write-back
+verb: for each created ticket it stamps the canonical URL into that task's
+`jira:` field. It's **idempotent-or-refuse** — writing an empty field,
+a no-op on an identical value (so a re-run after a partial failure is safe),
+and a loud refusal that changes nothing if the field already holds a
+*different* URL. A re-run is retry-safe end to end: before creating, the
+skill checks Jira for an existing `wb`-labelled ticket with the same summary
+and reuses it rather than double-filing. The Atlassian MCP must be connected
+with `write:jira-work` at run time.
+
 ## Bringing a gitignored file into a new worktree
 
 A fresh worktree only has tracked files — anything gitignored (a local
