@@ -11,6 +11,9 @@
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb pause [<session>]             mark a task paused — worktree and session both survive
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
+#   wb jira-set <repo>--<slug> <url> stamp a created Jira ticket URL into a task's jira: field
+#                                    (locked, idempotent-or-refuse) — the /wb-jira-create emit
+#                                    flow's only task-store write; never re-derives the URL
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
 #   wb sync                          fetch + fast-forward-only merge for $TASKS_DIR (refuses on dirty tree, divergence, or the wrong branch)
 #   wb unsafe-rewind "<reason>"      write a time-limited escape-hatch sentinel a git hook honors for a deliberate rewind
@@ -2377,6 +2380,56 @@ cmd_reviewed() {
   wb_set_frontmatter "$task_file" reviewed "$(date +%F)"
   wb_task_lock_release "$task_file"
   echo "wb reviewed: $session marked reviewed ($task_file)"
+}
+
+# cmd_jira_set <repo>--<slug> <url> — stamp a created Jira ticket's URL into
+# an existing task's `jira:` frontmatter field, under the task-store lock.
+# The ONE store write in the /wb-jira-create emit flow (KTD1/KTD2): the skill
+# calls this once per successfully created ticket, each an independent guarded
+# lock burst. Modeled on cmd_reviewed's single-field locked write above.
+#
+# Idempotent-or-refuse (KTD3) — the defense-in-depth behind the skill's R11
+# gather-time skip: an empty `jira:` is written; an IDENTICAL value is a no-op
+# success (a create-then-stamp partial failure is safe to retry); a DIFFERENT
+# non-empty value fails loud and writes nothing, so a double-emit bug fails
+# safe rather than clobbering an existing ticket link. The URL is stored
+# VERBATIM (KTD6) — never normalized or re-derived here, matching
+# cmd_new's --jira path and ~/code/tasks/README.md's "stored exactly as
+# normalized when the task was created … never re-derived or rewritten."
+#
+# Takes an EXACT stem (the wb_resolve_parent_ref pattern, above), never the
+# fuzzy matcher: the caller derives the stem from the task's already-resolved
+# file, so an absent or ambiguous stem must fail loud rather than guess.
+cmd_jira_set() {
+  local stem="${1:-}" url="${2:-}"
+  if [ -z "$stem" ] || [ -z "$url" ]; then
+    echo "wb jira-set: usage: wb jira-set <repo>--<slug> <url>" >&2
+    exit 1
+  fi
+
+  local file="$TASKS_DIR/$stem.md"
+  [ -f "$file" ] \
+    || { echo "wb jira-set: '$stem' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+
+  # Idempotent-or-refuse decision BEFORE taking the lock (KTD3): this read is
+  # advisory (the correctness backstop against a double-create is the skill's
+  # Jira-side dedup, KTD8), and a pure retry against an already-stamped task
+  # must not contend on the lock at all.
+  local existing; existing="$(wb_get_frontmatter "$file" jira)"
+  if [ -n "$existing" ]; then
+    if [ "$existing" = "$url" ]; then
+      echo "wb jira-set: $stem already stamped with $url (no-op)"
+      return 0
+    fi
+    echo "wb jira-set: $stem already has a different jira: value ($existing) — refusing to overwrite" >&2
+    exit 1
+  fi
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  wb_set_frontmatter "$file" jira "$url"
+  wb_task_lock_release "$file"
+  echo "wb jira-set: $stem jira set to $url"
 }
 
 # ---------------------------------------------------------------------------
@@ -5574,6 +5627,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
+    jira-set)    shift; cmd_jira_set "$@" ;;
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
