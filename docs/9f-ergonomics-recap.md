@@ -2,7 +2,7 @@
 title: 9f recap — editor/tmux ergonomics batch
 status: current
 tile: Six small nvim/tmux items shipped in one PR. What to verify yourself.
-group: personal-workflow
+group: recaps
 kind: page
 updated: 2026-07-08
 ---

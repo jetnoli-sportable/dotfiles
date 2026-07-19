@@ -2,7 +2,7 @@
 title: Slice 4b deep dive — notes-tui integration + the 4a usage-window verdict
 status: current
 tile: What 4b actually builds, why it's gated, and what the verdict decides.
-group: personal-workflow
+group: design-notes
 kind: page
 updated: 2026-07-08
 ---

@@ -2,7 +2,7 @@
 title: Slice 5 recap — the docs platform
 status: current
 tile: What shipped, what to verify yourself, and what's next. Start here after the PR.
-group: personal-workflow
+group: recaps
 kind: page
 updated: 2026-07-07
 ---

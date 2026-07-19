@@ -8,9 +8,15 @@
     "intro": "Everything here is a note — and a task is a note labelled a task. This dashboard indexes every documented piece of the personal workflow; click a tile to open it, or press <kbd>prefix</kbd>+<kbd>h</kbd> in tmux. New here? Start with the <b>roadmap</b>, the <b>wb guide</b>, and <b>setup</b> below.",
     "groups": [
       {
-        "key": "personal-workflow",
-        "title": "Personal workflow",
-        "sub": "~/code/dotfiles",
+        "key": "start-here",
+        "title": "Start here",
+        "sub": "the front doors — roadmap · the workbench · setup · glossary",
+        "glyph": "★"
+      },
+      {
+        "key": "workflow",
+        "title": "Workflow",
+        "sub": "~/code/dotfiles — how the pieces work",
         "glyph": "◈"
       },
       {
@@ -31,11 +37,25 @@
         "title": "Nvim plugins",
         "sub": "nvim/.config/nvim/lua/ in this repo · guides in docs/guides/",
         "glyph": "◇"
+      },
+      {
+        "key": "design-notes",
+        "title": "Design notes",
+        "sub": "reached from the roadmap timeline — listed here for direct access",
+        "glyph": "✎",
+        "dense": true
+      },
+      {
+        "key": "recaps",
+        "title": "Recaps",
+        "sub": "point-in-time write-ups of shipped work, newest first",
+        "glyph": "▪",
+        "dense": true
       }
     ],
     "sidecar": [
       {
-        "group": "personal-workflow",
+        "group": "start-here",
         "title": "Task board",
         "tile": "Full HTML task board — lifecycle stepper, Pipeline tab, dependency/parent-child relationships, repo/family filters, Key Findings. Generated on demand, not auto-rebuilt: run `wb board --html` to refresh it.",
         "href": "../logs/board.html",
@@ -49,7 +69,15 @@
     "sources": [
       { "kind": "tmux-binds", "path": "tmux/.config/tmux/tmux.conf", "tags": "tmux" },
       { "kind": "zsh", "path": "zsh/.zshrc", "tags": "zsh" },
-      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude" },
+      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude",
+        "guideOverrides": {
+          "handoff": "docs/handoff-guide.html",
+          "wb-board": "docs/wb-guide.html",
+          "wb-breakdown": "docs/wb-guide.html",
+          "wb-done": "docs/wb-guide.html",
+          "wb-resume": "docs/wb-guide.html",
+          "wb-save": "docs/wb-guide.html"
+        } },
       { "kind": "scripts", "path": "scripts/.config/scripts/tmux", "tags": "tmux" },
       { "kind": "scripts", "path": "scripts/.config/scripts", "tags": "shell" },
       { "kind": "doc", "path": "scripts/.config/scripts/tmux/instructions.md", "tags": "tmux" },

@@ -5,15 +5,15 @@
 <title>{{.Page.Title}}</title>
 {{template "head"}}
 </head>
-<body data-kind="{{.Page.Kind}}">
-{{if eq .Page.Kind "guide"}}{{template "kind/guide" .}}{{else}}{{template "kind/page" .}}{{end}}
+<body data-kind="{{if and (eq .Page.Kind "page") .Page.HasToc}}guide{{else}}{{.Page.Kind}}{{end}}">
+{{if or (eq .Page.Kind "guide") (and (eq .Page.Kind "page") .Page.HasToc)}}{{template "kind/guide" .}}{{else}}{{template "kind/page" .}}{{end}}
 </body>
 </html>
 {{end}}
 
 {{define "statusbar" -}}
 <div class="statusbar">
-  <span class="crumb"><a href="{{if .InGuidesDir}}../HUB.html{{else}}HUB.html{{end}}">⌂ Hub</a>{{if .Group}} <span class="sep">/</span> {{.Group}}{{end}}</span>
+  <span class="crumb"><a href="{{if .InGuidesDir}}../HUB.html{{else}}HUB.html{{end}}">⌂ Hub</a>{{if .Parent}} <span class="sep">/</span> <a href="{{.ParentHref}}">{{.Parent}}</a>{{else if .Group}} <span class="sep">/</span> {{.Group}}{{end}}</span>
   <span class="gen">docgen · generated from <b>{{.Source}}</b> — edit the .md, not this file</span>
   {{if .Updated}}<span class="right">updated {{.Updated}}</span>{{end}}
 </div>

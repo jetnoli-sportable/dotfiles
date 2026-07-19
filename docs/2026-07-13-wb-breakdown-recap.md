@@ -2,7 +2,7 @@
 title: Recap — wb-breakdown (split an oversized task into a family)
 status: current
 tile: A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.
-group: personal-workflow
+group: recaps
 kind: page
 updated: 2026-07-13
 ---

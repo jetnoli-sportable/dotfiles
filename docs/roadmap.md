@@ -2,7 +2,7 @@
 title: Roadmap — the personal workflow
 status: current
 tile: Up next, a live table, a parked pool, what we're not doing, and a shipped ledger — one click to the detail behind each item.
-group: personal-workflow
+group: start-here
 kind: guide
 updated: 2026-07-18
 ---
