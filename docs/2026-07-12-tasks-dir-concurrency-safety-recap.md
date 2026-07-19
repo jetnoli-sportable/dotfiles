@@ -67,7 +67,7 @@ The full reference — the layer model, a coverage matrix, a command traced
 through all three layers, the kill-switch table, and runbooks for lock
 contention, a refused-rewind's aftermath, and the install/enablement
 sequence — lives in the
-[tasks-store-guards guide](tasks-store-guards.html). The roadmap row is
+[tasks-store-guards guide](guides/tasks-store-guards.html). The roadmap row is
 [detail-tasks-concurrency-safety](roadmap.html#detail-tasks-concurrency-safety),
 now in Shipped. The one planned follow-up this work didn't attempt:
 `~/code/notes` is a confirmed structural twin to `~/code/tasks` with the

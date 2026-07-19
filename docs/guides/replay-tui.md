@@ -72,10 +72,7 @@ the picker without stopping the daemon.
 
 - The full manual — install, config precedence, every flag, troubleshooting
   table, and scope — lives in
-  [USAGE.md](../../../replay-tui/USAGE.md) or, as an interactive rendered
-  version,
-  [docs/replay-guide.html](../../../replay-tui/docs/replay-guide.html) in
-  the replay-tui repo itself.
+  [the replay-tui repo's README](../../../replay-tui/README.md).
 - Rebuild after pulling: `cd ~/code/replay-tui && go build -o "$HOME/go/bin/replay" ./cmd/replay`
   (the `replay` alias in `.zshrc` just points at that binary).
 - Future ideas live in that repo's `improvements/` dir, not here.

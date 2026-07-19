@@ -8,7 +8,7 @@ updated: 2026-07-13
 ---
 
 Ten implementation units on `feat/wb-board-display`, executed against
-[`docs/plans/2026-07-12-001-feat-wb-board-display-plan.md`](plans/2026-07-12-001-feat-wb-board-display-plan.html)
+[`docs/plans/2026-07-12-001-feat-wb-board-display-plan.md`](plans/2026-07-12-001-feat-wb-board-display-plan.md)
 to its Definition of Done. This page is the source; edit
 `docs/wb-board-display-v2-recap.md`, not the rendered `.html`. A richer,
 visual walkthrough of the same material is linked at the bottom.
@@ -106,7 +106,7 @@ branch:
 
 ## Links
 
-- Plan: [`docs/plans/2026-07-12-001-feat-wb-board-display-plan.md`](plans/2026-07-12-001-feat-wb-board-display-plan.html)
+- Plan: [`docs/plans/2026-07-12-001-feat-wb-board-display-plan.md`](plans/2026-07-12-001-feat-wb-board-display-plan.md)
 - Human guide: [`docs/wb-guide.md`](wb-guide.html) (v2 board section + refreshed `wb new` docs)
 - Roadmap detail: [`docs/roadmap-board.md`](roadmap-board.html) (v2 pass, "what shipped in v2" section)
 - Skill: `claude/.claude/skills/wb-board/SKILL.md`

@@ -4,7 +4,7 @@ status: current
 tile: Up next, a live table, a parked pool, what we're not doing, and a shipped ledger — one click to the detail behind each item.
 group: personal-workflow
 kind: guide
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 The roadmap for the whole personal workflow (tmux/Claude tooling, the
@@ -85,6 +85,7 @@ fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
   <a class="step done" href="#detail-wb-core"><b>wb core</b>PR #7, shipped</a>
   <a class="step active" href="#detail-hub-v0"><b>Hub v0</b>this work</a>
   <a class="step done" href="#detail-parent-child"><b>Parent/child</b>PR #17, shipped</a>
+  <a class="step done" href="#detail-board-v2"><b>Board v2</b>PR #30, shipped</a>
   <a class="step active" href="#detail-handoff"><b>/handoff</b>in build</a>
   <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
   <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
@@ -128,7 +129,7 @@ claim is always a waits-on link — `needs: <item>`, `clock: <date>`, or
 | <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
 | <a id="detail-notes-tui-4b"></a>**Notes-tui integration, 4b** (real wiring) | queued — clock: 2026-07-24 (fix-forward experiment verdict) | [deep dive](slice-4b-deep-dive.html) · [ceremonies](ceremonies.html) | Original 4b wiring only proceeds if the fix-forward experiment changes real usage |
 | <a id="detail-boundary-rule"></a>**Personal/employer boundary rule** | queued — after: every other follow-up — chosen | [limitations](limitations.html) | Deliberately the final decision; Task recall above already depends on it landing |
-| <a id="detail-jira-integration"></a>**Jira integration** (`/board` + day-bookends halves) | proposed — needs: `/ce-brainstorm` (credential location, persistence-store design) | — | Wanted sooner rather than later — task: `dotfiles--feat-jira-integration` |
+| <a id="detail-jira-integration"></a>**Jira integration** (`/board` + day-bookends halves) | active — Phase 1 (emit tasks → SFB tickets) open as PR #32; Phase 2 (sprint-pull) deferred | — | task: `dotfiles--feat-jira-integration` |
 | <a id="detail-second-opinion"></a>**`/second-opinion`** — ask the best available model at high effort, context-aware | proposed — raised 2026-07-11; new skill vs. tweaking an existing `/btw` still undecided | — | Formalizes today's ad-hoc pattern (spawn a top-tier-model subagent, full conversation context, high reasoning effort, to sanity-check a decision) as a reusable skill; no `/btw` skill or alias exists anywhere in this repo, so confirm what that refers to before building |
 
 ## Parked
@@ -147,7 +148,7 @@ Considered, and decided against — kept here so the reasoning isn't lost.
 
 ## Shipped
 
-<span class="chip ok">16 shipped</span> — full history and rationale live
+<span class="chip ok">17 shipped</span> — full history and rationale live
 on each linked recap page; these no longer take a queue/live/parked slot.
 
 - <a id="detail-step-zero"></a>**Step zero** (hooks, alias cleanup) — attention-pipeline hooks wired, dead `n` alias removed.
@@ -164,8 +165,9 @@ on each linked recap page; these no longer take a queue/live/parked slot.
 - <a id="detail-gpaste"></a>**GPaste clipboard-history manager** — [9g recap](9g-gpaste-recap.html)
 - <a id="detail-precommit-hook-fix"></a>**`docgen.sh`'s pre-commit hook** — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test
 - <a id="detail-parent-child"></a>**Task parent/child relationship** (incl. cross-repo/full-stack tasks) — [detail](roadmap-handoff.html) — PR #17
-- <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** — three-layer guard (agent-side "ask" hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — [guide](tasks-store-guards.html) · [recap](2026-07-12-tasks-dir-concurrency-safety-recap.html) — task: `dotfiles--docs-roadmap-tasks-concurrency-safety`
+- <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** — three-layer guard (agent-side "ask" hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — [guide](guides/tasks-store-guards.html) · [recap](2026-07-12-tasks-dir-concurrency-safety-recap.html) — task: `dotfiles--docs-roadmap-tasks-concurrency-safety`
 - <a id="detail-wb-breakdown"></a>**`wb breakdown`** — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — [recap](2026-07-13-wb-breakdown-recap.html) — task: `dotfiles--feat-wb-breakdown-skill`
+- <a id="detail-board-v2"></a>**Board display v2** — lifecycle stage stepper, Pipeline/Live/Stale tabs, dependency + parent/child relationships, repo/family filters, Key Findings, column sorting (the parent/family progress view lives here) — [recap](wb-board-display-v2-recap.html) — PR #30
 
 Ceremonies (dated clocks, recurring reviews) now live on their own page:
 [Ceremonies](ceremonies.html). Standing workflow constraints now live on

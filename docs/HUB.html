@@ -4,6 +4,30 @@
 <title>Hub</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
 <style>
    
   :root {
@@ -51,6 +75,10 @@
     flex-wrap: wrap; }
   .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
   .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
 
   a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
   a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
@@ -113,8 +141,8 @@
   body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
 
    
-  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
-           max-width: 1160px; margin: 0 auto; }
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
   nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
             padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
   nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
@@ -139,7 +167,7 @@
   }
 
    
-  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
   body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
   body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
   section.group { margin-top: 2.75rem; }
@@ -168,6 +196,14 @@
   .note p { margin: 0; max-width: none; color: var(--ink2); }
   .note strong { color: var(--ink); }
 
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -175,13 +211,13 @@
 <div class="statusbar" aria-hidden="true">
   <span><b>33</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
-  <span class="right">updated 2026-07-13</span>
+  <span class="right">updated 2026-07-18</span>
 </div>
 <main>
 <header class="doc">
   <span class="eyebrow">personal workflow</span>
   <h1><span class="glyph">⌂</span> Hub</h1>
-  <p>Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview. Sources living outside this repo's git tree (memory, the task store, notes-tui/replay-tui READMEs) aren't picked up by the pre-commit hook that regenerates this dashboard — run <code>docgen.sh index</code> (or <code>all</code>) by hand after editing any of those. Running it from a worktree? Export <code>DOTFILES=$(git rev-parse --show-toplevel)</code> first — <code>docgen.sh</code> targets <code>$DOTFILES</code> (falling back to the main checkout), never <code>cwd</code>, so an unset <code>DOTFILES</code> silently regenerates the wrong repo's docs.</p>
+  <p>Everything here is a note — and a task is a note labelled a task. This dashboard indexes every documented piece of the personal workflow; click a tile to open it, or press <kbd>prefix</kbd>+<kbd>h</kbd> in tmux. New here? Start with the <b>roadmap</b>, the <b>wb guide</b>, and <b>setup</b> below.</p>
 </header>
 
 <section class="group">
@@ -450,6 +486,7 @@
 <footer>
   Generated by <code>docgen</code> from doc frontmatter + <code>docs/docgen.json</code>.
   Rebuild: <code>docgen.sh build</code>.
+  <span class="footer-notes">Open via <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> so relative tiles resolve (they won't in a sandboxed Artifact preview). Sources outside this repo's git tree (memory, the task store, notes-tui/replay-tui READMEs) aren't caught by the regenerate hook — run <code>docgen.sh index</code> after editing those. From a worktree, export <code>DOTFILES=$(git rev-parse --show-toplevel)</code> first so <code>docgen.sh</code> targets the right tree, not <code>cwd</code>.</span>
 </footer>
 </main>
 </body>
