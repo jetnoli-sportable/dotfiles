@@ -174,7 +174,7 @@
 <body data-kind="page">
 <div class="statusbar">
   <span>docgen · generated from <b>docs/roadmap-handoff.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-10</span>
+  <span class="right">updated 2026-07-19</span>
 </div>
 <main>
 <header class="doc">
@@ -411,6 +411,36 @@ both tracked as their own future pickups: non-blocking <code>/handoff</code>
 invocation (running independently of the current turn; captured in the
 task file's <code>## Follow-ups</code>, not built until v1 has seen real usage),
 and self-handoff between stages (its own section below).</p>
+<p><strong>Pane mode shipped 2026-07-19</strong>
+(<code>docs/plans/2026-07-19-001-feat-handoff-pane-mode-plan.md</code>,
+<code>scripts/.config/scripts/tmux/handoff.sh --pane</code> +
+<code>claude/.claude/skills/handoff-pane/SKILL.md</code>). A <strong>third</strong> mode alongside
+switch and spawn: a co-located <code>claude</code> helper in a <strong>split pane of the current
+window, sharing this session's worktree</strong> — the shape for reviewing or acting
+on <strong>uncommitted</strong> changes neither existing mode can see (a fresh <code>wb new --agent</code> worktree is a clean checkout; a switch abandons the requester's pane
+and points at a different worktree). Both task bindings ship — ephemeral
+(task-less one-shot) and a planned child task (<code>parent:</code> set, blank
+<code>worktree:</code>, so its <code>wb done</code> closes store-only and never removes the parent's
+worktree) — with posture invoker-chosen per call (report-only default;
+apply-fixes only with the parent paused, since the shared worktree has no
+lock). <code>wb.sh</code> stayed <strong>untouched</strong>; child seeding goes through the public
+<code>wb new --planned --parent</code> verb, and <code>handoff.sh</code> reused its own poller,
+injector, and permission handshake in place.</p>
+<p><strong>Deferred follow-up: pane-aware <code>wb done</code>.</strong> <code>cmd_done</code> never enumerates
+panes, so a live helper pane in a shared worktree is invisible to teardown —
+<code>git worktree remove --force</code> can pull its cwd out from under it, and <code>--close</code>
+kills the whole session with the helper in it. The fix is a read-only check in
+<code>cmd_done</code> (reusing <code>tmux_claude_panes</code>) that warns when an extra <code>claude</code> pane
+is live before teardown; deferred to its own small, tested PR because it
+requires modifying <code>wb.sh</code>, which the pane-mode PR deliberately did not touch.
+A second <code>wb.sh</code>-touching follow-up surfaced during the build: <strong>pane-scoped
+<code>@task</code> resolution</strong> so a child helper's <code>/wb-save</code> targets the child's task
+file rather than the session-scoped parent's. Both are documented as footguns
+in <a href="handoff-guide.html"><code>handoff-guide.md</code></a> in the meantime. The interim safety
+for the apply-fixes concurrency risk is the requester pausing the parent; the
+durable fix is the cross-cutting &quot;check for uncommitted work before acting&quot;
+convention (a separate multi-agent-coordination initiative), not a
+handoff-pane-specific lock.</p>
 <h2 id="follow-on-idea-not-v1-not-yet-planned-self-handoff-between-stages">Follow-on idea (not v1, not yet planned): self-handoff between stages</h2>
 <p>Raised 2026-07-11, while /handoff v1 itself was mid-plan: keep a single
 task's context clean across its own stage boundaries (e.g. <code>/ce-plan</code>

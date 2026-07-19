@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>/handoff — route a discussion to the right worker</title>
+<title>/handoff &amp; /handoff-pane — route a discussion to the right worker</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -174,23 +174,24 @@
 <body data-kind="guide">
 <div class="statusbar">
   <span>docgen · generated from <b>docs/handoff-guide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-11</span>
+  <span class="right">updated 2026-07-19</span>
 </div>
 <div class="shell">
   <nav class="toc">
-    <div class="brand">/handoff — route a discussion to the right worker</div>
-    <div class="brand-sub">Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</div>
+    <div class="brand">/handoff &amp; /handoff-pane — route a discussion to the right worker</div>
+    <div class="brand-sub">Route something being discussed right now to a live session, a fresh one, or a helper agent in this very window — without retyping context by hand.</div>
     <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#try-it">Try it</a></li>
       <li><a href="#the-first-action-lives-in-the-task-file-not-a-flag">The first action lives in the task file, not a flag</a></li>
+      <li><a href="#pane-mode--a-second-agent-in-this-window-handoff-pane">Pane mode — a second agent in this window (/handoff-pane)</a></li>
       <li><a href="#what-v1-doesnt-do">What v1 doesn&#39;t do</a></li>
     </ul>
   </nav>
   <main>
     <header class="title-block">
-      <h1>/handoff — route a discussion to the right worker</h1>
-      <p class="dek">Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</p>
+      <h1>/handoff &amp; /handoff-pane — route a discussion to the right worker</h1>
+      <p class="dek">Route something being discussed right now to a live session, a fresh one, or a helper agent in this very window — without retyping context by hand.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
@@ -234,6 +235,68 @@ pointer <code>handoff.sh</code> injects is a single fixed string with nothing
 runtime-variable in it, which is what makes the boot-ready/permission-
 prompt anchors safe to match against (see <code>docs/roadmap-handoff.md</code>'s
 dry-run findings for the mechanical reasoning).</p>
+<h2 id="pane-mode--a-second-agent-in-this-window-handoff-pane">Pane mode — a second agent in <em>this</em> window (<code>/handoff-pane</code>)</h2>
+<p>Sometimes you don't want to route work <em>elsewhere</em> — you want a second agent
+right here, in the worktree you're already in, looking at changes you
+<strong>haven't committed yet</strong>. That's <code>/handoff-pane</code>: it splits a new pane in the
+current tmux window and boots a <code>claude</code> there with its cwd set to this
+session's worktree, so both agents share one working tree. Neither <code>/handoff</code>
+mode can do this — a fresh <code>wb new --agent</code> worktree is a clean checkout that
+can't see your uncommitted changes, and switching to a live session abandons
+your pane and points at a <em>different</em> worktree.</p>
+<p>The script side is <code>handoff.sh --pane [--await-perm] &lt;payload&gt;</code> — the same file
+as <code>/handoff</code>, one new mode reusing its boot poller, injector, and permission
+handshake in place. The split is horizontal (side-by-side) by default; flip it
+to a stacked split for one call with <code>HANDOFF_PANE_SPLIT=-v</code>. The skill
+<code>/handoff-pane</code> owns the judgment below; the script is entirely mechanical.</p>
+<h3 id="two-bindings">Two bindings</h3>
+<ul>
+<li><strong>Ephemeral (default).</strong> No task file, no store entry — the payload is a
+short one-line prompt. Use it for a throwaway: review this worktree, a quick
+spike, a second pair of eyes. Nothing to clean up afterwards, and no lock to
+contend with the parent over.</li>
+<li><strong>Child task.</strong> A planned child task created via
+<code>wb new --planned --parent &lt;parent-stem&gt; &lt;repo&gt; &lt;slug&gt;</code>, seeded with
+<code>parent:</code> set and a <strong>blank <code>worktree:</code></strong> — so the child owns no worktree of
+its own and its eventual <code>wb done</code> closes store-only, never removing the
+parent's worktree. Use it when you want a durable, board-visible record. Only
+available when the current session has a resolvable <code>@task</code> (otherwise
+<code>/handoff-pane</code> falls back to ephemeral and says so).</li>
+</ul>
+<h3 id="two-postures--always-stated-never-silent">Two postures — always stated, never silent</h3>
+<p>Both agents share one worktree with <strong>no lock</strong> over its files, so the helper's
+posture toward it is chosen per call and stated out loud:</p>
+<ul>
+<li><strong>Report-only (default-safe).</strong> The helper inspects and reports, makes no
+edits — e.g. <code>/ce-code-review mode:agent</code>. Safe to run while you keep working
+in the parent.</li>
+<li><strong>Apply-fixes.</strong> The helper edits the shared worktree. ⚠️ Because there is
+<strong>no lock</strong>, if the parent is not actually idle, concurrent edits to the same
+file <strong>silently overwrite each other's uncommitted work, with no git recovery
+path</strong>. Only choose this when you <strong>pause the parent</strong> for the duration —
+that pause is the interim safety until the cross-cutting &quot;check for
+uncommitted work before acting&quot; convention exists (a separate initiative, not
+this feature). The posture lives in the helper's prompt; the script never
+inspects or enforces it.</li>
+</ul>
+<h3 id="lifecycle--the-footguns-documented-not-enforced-yet">Lifecycle — the footguns (documented, not enforced yet)</h3>
+<p><code>wb done</code> was written before pane mode existed and <strong>never enumerates panes</strong>,
+so a live helper pane in a shared worktree is invisible to it. Until pane-aware
+<code>wb done</code> lands (a deferred follow-up — see
+<a href="roadmap-handoff.html"><code>roadmap-handoff.md</code></a>), mind these by hand:</p>
+<ul>
+<li><strong><code>wb done --close</code> kills the whole session — the helper pane with it.</strong>
+Close the helper pane before winding the parent down with <code>--close</code>.</li>
+<li><strong><code>wb done</code>'s <code>git worktree remove --force</code> can delete the shared worktree
+out from under a live helper</strong>, pulling its cwd away mid-thought.</li>
+<li><strong>Uncommitted helper changes make <code>wb done</code> refuse</strong> (the dirty guard) — a
+feature, not a bug: commit or discard the helper's work first.</li>
+<li><strong>A child helper shares this session's <code>@task</code>.</strong> <code>@task</code> is session-scoped,
+so a <code>/wb-save</code> run <em>from the helper pane</em> resolves to the <strong>parent's</strong> task
+file, not the child's. The helper reads its own file via the injected pointer
+(unaffected); just don't lean on <code>/wb-save</code> from a child helper until
+pane-scoped <code>@task</code> resolution exists (another deferred follow-up).</li>
+</ul>
 <h2 id="what-v1-doesnt-do">What v1 doesn't do</h2>
 <ul>
 <li><strong>Fan-out.</strong> One discussion → several linked tasks depends on the task
