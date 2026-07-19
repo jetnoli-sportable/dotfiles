@@ -5,7 +5,7 @@
 <title>{{.Page.Title}}</title>
 {{template "head"}}
 </head>
-<body data-kind="{{if and (eq .Page.Kind "page") .Page.HasToc}}guide{{else}}{{.Page.Kind}}{{end}}">
+<body data-kind="{{if and (eq .Page.Kind "page") .Page.HasToc}}guide{{else}}{{.Page.Kind}}{{end}}" data-group="{{.Page.Group}}">
 {{if or (eq .Page.Kind "guide") (and (eq .Page.Kind "page") .Page.HasToc)}}{{template "kind/guide" .}}{{else}}{{template "kind/page" .}}{{end}}
 </body>
 </html>
@@ -56,7 +56,8 @@
     </ul>
   </nav>
   <main>
-    <header class="title-block">
+    <header class="doc guide-banner">
+      {{if .Page.Group}}<span class="eyebrow">{{.Page.Group}} · guide</span>{{end}}
       <h1>{{.Page.Title}}</h1>
       {{if .Page.Tile}}<p class="dek">{{.Page.Tile}}</p>{{end}}
       <div class="meta">

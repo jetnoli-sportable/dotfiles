@@ -31,37 +31,53 @@
 <style>
    
   :root {
-    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
-    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
-    --acc: #8839ef; --acc2: #04a5e5;
-    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
-    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
     --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
     --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
-      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
-      --acc: #ca9ee6; --acc2: #99d1db;
-      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
-      --code-bg: #292c3c; --kbd-bg: #414559;
-    }
-  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
   :root[data-theme="dark"] {
-    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
-    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
-    --acc: #ca9ee6; --acc2: #99d1db;
-    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
-    --code-bg: #292c3c; --kbd-bg: #414559;
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
   }
   :root[data-theme="light"] {
-    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
-    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
-    --acc: #8839ef; --acc2: #04a5e5;
-    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
-    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
   }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
 
   * { box-sizing: border-box; }
   html { color-scheme: light dark; }
@@ -155,15 +171,22 @@
               font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
   nav.toc a:hover { color: var(--ink); background: var(--panel); }
   .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
-  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
-       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
-  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
-       max-width: 62ch; text-wrap: balance; margin: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
   @media (max-width: 860px) {
     .shell { grid-template-columns: 1fr; }
     nav.toc { position: static; height: auto; border-right: none;
               border-bottom: 1px solid var(--line); }
     .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
   }
 
    
@@ -172,20 +195,22 @@
   body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
   section.group { margin-top: 2.75rem; }
   .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
-                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
-  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 55%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
   .group-head .group-sub { font-size: .82rem; color: var(--mut); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
   .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
-  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
-          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 8%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 24%, var(--line));
+          border-left: 3px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
           text-decoration: none; color: inherit; position: relative;
           transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
-  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
-    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
-  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
   .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
-  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--g); line-height: 1; }
   .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
              text-wrap: balance; }
   .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
@@ -207,7 +232,7 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="guide">
+<body data-kind="guide" data-group="start-here">
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> start-here</span>
   <span class="gen">docgen · generated from <b>docs/roadmap.md</b> — edit the .md, not this file</span>
@@ -232,7 +257,8 @@
     </ul>
   </nav>
   <main>
-    <header class="title-block">
+    <header class="doc guide-banner">
+      <span class="eyebrow">start-here · guide</span>
       <h1>Roadmap — the personal workflow</h1>
       <p class="dek">Up next, a live table, a parked pool, what we&#39;re not doing, and a shipped ledger — one click to the detail behind each item.</p>
       <div class="meta">

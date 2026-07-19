@@ -18,7 +18,7 @@
   <p>{{.Intro}}</p>
 </header>
 {{range .Groups}}{{$g := .}}
-<section class="group">
+<section class="group" data-group="{{.Key}}">
   <div class="group-head"><h2>{{.Title}}</h2>
     {{if .Sub}}<span class="group-sub">{{.Sub}}</span>{{end}}</div>
   <div class="grid{{if .Dense}} dense{{end}}">
