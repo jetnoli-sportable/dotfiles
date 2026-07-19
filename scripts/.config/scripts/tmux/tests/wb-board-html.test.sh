@@ -91,7 +91,8 @@ html="$(wb_board_render_html 2>&1)"
 # detail loops, so a line-based sed/awk range is fragile — extract_panel
 # below works on the flattened blob instead, using the actual emission
 # order (win outer loop: today, week; tab inner loop: all, inprogress,
-# upcoming, paused, deferred, unclassified — see wb_board_render_html).
+# upcoming, paused, unclassified — see wb_board_render_html; B3 dropped the
+# always-empty Deferred tab).
 flat="$(printf '%s' "$html" | tr '\n' ' ')"
 
 # extract_panel <panel_id> [<next_panel_id>] — the substring between this
@@ -105,9 +106,9 @@ extract_panel() {
   fi
 }
 
-# --- structure: all 13 panels present (12 bucket + 1 pipeline), valid-
-# looking HTML (U5) -----------------------------------------------------
-for tab in all inprogress upcoming paused deferred unclassified; do
+# --- structure: all 11 panels present (10 bucket + 1 pipeline), valid-
+# looking HTML (U5; B3 dropped Deferred) --------------------------------
+for tab in all inprogress upcoming paused unclassified; do
   for win in today week; do
     assert "panel-$tab-$win present" "id=\"panel-$tab-$win\"" "$html"
   done
@@ -115,10 +116,10 @@ done
 assert "panel-pipeline present (U5, window-independent, single panel)" 'id="panel-pipeline"' "$html"
 
 css_rule_count="$(printf '%s' "$html" | grep -c 'display: flex; }')"
-if [ "$css_rule_count" -eq 18 ]; then
-  echo "ok   - 18 CSS toggle rules present (12 bucket + 2 pipeline + 2 live + 2 stale, one per window)"
+if [ "$css_rule_count" -eq 16 ]; then
+  echo "ok   - 16 CSS toggle rules present (10 bucket + 2 pipeline + 2 live + 2 stale, one per window; B3 dropped Deferred)"
 else
-  echo "FAIL - expected 18 CSS toggle rules, got $css_rule_count"; fail=1
+  echo "FAIL - expected 16 CSS toggle rules, got $css_rule_count"; fail=1
 fi
 
 # --- active-tab highlight: every radio has a rule targeting ITS OWN label --
@@ -128,10 +129,10 @@ fi
 # every tab looked selected-or-not identically. Each radio needs its own
 # `#id:checked ~ header label[for="id"]` rule instead.
 highlight_rule_count="$(printf '%s' "$html" | grep -c 'label\[for=')"
-if [ "$highlight_rule_count" -eq 11 ]; then
-  echo "ok   - 11 active-tab highlight rules present (2 timeline + 6 status + pipeline + live + stale)"
+if [ "$highlight_rule_count" -eq 10 ]; then
+  echo "ok   - 10 active-tab highlight rules present (2 timeline + 5 status + pipeline + live + stale; B3 dropped Deferred)"
 else
-  echo "FAIL - expected 11 active-tab highlight rules, got $highlight_rule_count"; fail=1
+  echo "FAIL - expected 10 active-tab highlight rules, got $highlight_rule_count"; fail=1
 fi
 assert "pipeline tab is checked by default (approved mockup)" '<input type="radio" name="st" id="st-pipeline" checked>' "$html"
 assert "highlight rule targets its own label by for=" '#st-paused:checked ~ header label\[for="st-paused"\]' "$html"
@@ -156,7 +157,7 @@ unclassified_week="$(extract_panel unclassified-week)"
 assert "untracked worktree appears in Unclassified" 'untracked-branch' "$unclassified_week"
 assert "untracked worktree marked no task file" 'no task file' "$unclassified_week"
 
-paused_week="$(extract_panel paused-week deferred-week)"
+paused_week="$(extract_panel paused-week unclassified-week)"
 assert_not "untracked worktree absent from Paused" 'untracked-branch' "$paused_week"
 
 # --- done task only in All, never in a named status tab ----------------------
@@ -164,9 +165,10 @@ all_week="$(extract_panel all-week inprogress-week)"
 assert "done task (closed 3d ago) appears in All/Week" 'Old Done Task' "$all_week"
 assert_not "done task absent from In Progress/Week" 'Old Done Task' "$(extract_panel inprogress-week upcoming-week)"
 
-# --- Deferred is always empty with its own message ---------------------------
-deferred_today="$(extract_panel deferred-today unclassified-today)"
-assert "Deferred empty-state message" 'reserved for a future' "$deferred_today"
+# --- B3: the Deferred tab was dropped (always empty by design) — no panel,
+# no tab, no "reserved for a future" message any more ------------------------
+assert_not "no Deferred tab/panel after B3" 'panel-deferred' "$html"
+assert_not "no Deferred reserved-message after B3" 'reserved for a future' "$html"
 
 # --- always-present summary line ----------------------------------------
 assert "summary line present for a task with Plan/Done content too" \
@@ -454,7 +456,16 @@ VERY_OLD="$(date -d '90 days ago' +%F)"
 add_worktree "$FIXTURE_CODE/proj" pipe-stale
 mk_task 'proj--pipe-stale.md' doing proj pipe-stale .worktrees/pipe-stale "$VERY_OLD" '' 'Pipe Stale Task'
 touch -d "$VERY_OLD" "$FIXTURE_TASKS/proj--pipe-stale.md"
+# Stub wb_board_pr_info here too (matching every other render call in this
+# file) -- this scenario doesn't assert on PR state, but leaving the REAL
+# function active makes wb_board_render_html shell out to the real `gh`
+# against a fixture repo with no GitHub remote, which is slow-to-hang
+# depending on the environment's network reachability rather than failing
+# fast, and previously stalled the whole suite right at this point.
+ORIG_PR_INFO_PIPE_STALE="$(declare -f wb_board_pr_info)"
+wb_board_pr_info() { printf ''; }
 html_pipe="$(wb_board_render_html 2>&1)"
+eval "$ORIG_PR_INFO_PIPE_STALE"
 flat_pipe="$(printf '%s' "$html_pipe" | tr '\n' ' ')"
 # NOT extract_panel (that helper reads the top-of-file global $flat,
 # captured long before these fixtures existed) — slice the FRESH flat_pipe
@@ -498,9 +509,10 @@ pipe_row_ae7="${pipe_row_ae7%%</tr>*}"
 na_count="$(printf '%s' "$pipe_row_ae7" | grep -o '&#183;' | wc -l | tr -d ' ')"
 assert "pipeline AE7: path work,review -> exactly 3 n/a stage cells (ideate/brainstorm/plan)" '^3$' "$na_count"
 
-# --- R11/KTD-5: stage cell for a done plan links to the plan doc; work
-# cell links to the PR URL when pr_info is stubbed; a branch-only doc
-# (worktree gone, unmerged) renders an unlinked glyph with a tooltip -------
+# --- R11/KTD-5 + B5: a doc that lives ONLY inside a worktree is no longer
+# linked (the old file:// href rotted on `wb done` and leaked $HOME) — it
+# renders an unlinked glyph whose tooltip still names the doc. The work cell
+# still links the PR URL when pr_info is stubbed (unaffected by B5). ---------
 add_worktree "$FIXTURE_CODE/proj" pipe-link-live
 mkdir -p "$FIXTURE_CODE/proj/.worktrees/pipe-link-live/docs/plans"
 printf '# plan\n' > "$FIXTURE_CODE/proj/.worktrees/pipe-link-live/docs/plans/2026-07-11-001-pipe-link-live-plan.md"
@@ -511,8 +523,10 @@ html_link="$(wb_board_render_html 2>&1)"
 flat_link="$(printf '%s' "$html_link" | tr '\n' ' ')"
 pipe_panel_link="${flat_link#*id=\"panel-pipeline\">}"
 row_link="${pipe_panel_link#*Pipe Link Live Task}"; row_link="${row_link%%</tr>*}"
-assert "pipeline: done plan stage cell links to the plan doc (live worktree, KTD-5)" \
+assert_not "pipeline: worktree-only plan doc is NOT linked (B5 — file:// would rot on wb done)" \
   'href="[^"]*2026-07-11-001-pipe-link-live-plan\.md"' "$row_link"
+assert "pipeline: worktree-only plan doc still named in the stage-cell tooltip (B5)" \
+  'title="[^"]*2026-07-11-001-pipe-link-live-plan\.md' "$row_link"
 assert "pipeline: work stage cell links to the PR url when pr_info is stubbed" \
   'href="https://example\.com/pr/42"' "$row_link"
 eval "$ORIG_PR_INFO3"
@@ -633,7 +647,7 @@ html_md="$(wb_board_render_html 2>&1)"
 card_md="$(extract_task_card "$(printf '%s' "$html_md" | tr '\n' ' ')" proj--u6-multidoc)"
 assert "U6 R14: older matching plan doc listed as a chip" '2026-07-01-001-u6-multidoc-plan\.md' "$card_md"
 assert "U6 R14: newer matching plan doc listed as a chip" '2026-07-11-001-u6-multidoc-plan\.md' "$card_md"
-assert "U6 R14: stepper segment links the lexically newest doc" \
+assert_not "U6 R14 / B5: stepper glyph does NOT link a worktree-only doc (file:// would rot); chips above still name both" \
   '<span class="glyph"><a href="[^"]*2026-07-11-001-u6-multidoc-plan\.md"' "$card_md"
 
 # --- KTD-9: attribute-context escaping — a dangling depends_on: stem can
@@ -657,9 +671,12 @@ html_u7="$(wb_board_render_html 2>&1)"
 flat_u7="$(printf '%s' "$html_u7" | tr '\n' ' ')"
 
 # --- window control renders as a segmented control, structurally separate
-# from the tab row, in the header (R12) -------------------------------------
+# from the tab row, in the header (R12; B3 split the tab row into Views +
+# Status tabgroups) ---------------------------------------------------------
 assert "U7: window control is its own tabgroup, separate from the tab row" \
-  '<div class="tabgroup window-control">.*<div class="tabgroup tabs-row">' "$flat_u7"
+  '<div class="tabgroup window-control">.*<div class="tabgroup tabs-row views">' "$flat_u7"
+assert "B3: Status bucket tabs are their own tabgroup" \
+  '<div class="tabgroup tabs-row statuses">' "$flat_u7"
 
 # --- repo filter: radios present, "All repos" checked by default -----------
 assert "U7: fr-all radio present and checked by default" \
@@ -696,9 +713,10 @@ family_hide_rule_count="$(printf '%s' "$html_u7" | grep -c '#fp-.*:checked ~ mai
 [ "$family_hide_rule_count" -gt 0 ] && echo "ok   - U7: family hide rules generated independently of repo hide rules" \
   || { echo "FAIL - U7: expected independent family hide rules, found none"; fail=1; }
 panel_count_u7="$(printf '%s' "$html_u7" | grep -c 'class="view" id="panel-')"
-# 13 (6 bucket tabs x 2 windows + Pipeline) + Live + Stale = 15 panels total.
-assert_empty "U7: panel count still 15 despite new filter groups (no multiplication)" \
-  "$([ "$panel_count_u7" = 15 ] && echo '' || echo "got $panel_count_u7")"
+# 11 (5 bucket tabs x 2 windows + Pipeline) + Live + Stale = 13 panels total
+# (B3 dropped the Deferred tab, i.e. its 2 window panels).
+assert_empty "U7: panel count still 13 despite new filter groups (no multiplication)" \
+  "$([ "$panel_count_u7" = 13 ] && echo '' || echo "got $panel_count_u7")"
 
 # --- :target-wins override present, so a filter-hidden card still reveals
 # when it is the link target -------------------------------------------------
