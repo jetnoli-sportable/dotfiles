@@ -48,10 +48,16 @@ STUBROOT="$(mktemp -d -t handoff-pane-stub.XXXXXX)"
 WTROOT="$(mktemp -d -t handoff-pane-wt.XXXXXX)"     # git-worktree fixtures live here
 NONGIT="$(mktemp -d -t handoff-pane-nongit.XXXXXX)" # a dir that is NOT a git worktree
 
-SESSIONS_TO_KILL=()
 cleanup() {
+  # Fixture sessions are created inside mk_pane_session, which runs in a
+  # command-substitution subshell (it echoes the new pane id) — so a
+  # parent-scoped array populated there never reaches this EXIT trap, and an
+  # earlier array-based cleanup silently leaked every session. Kill by this
+  # run's own name pattern instead: every fixture session is hp-<scenario>-$$
+  # where $$ is this test process's PID, so this both catches them all and
+  # never touches another run's (or a real) session.
   local s
-  for s in "${SESSIONS_TO_KILL[@]}"; do
+  for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E "^hp-.*-$$\$"); do
     tmux kill-session -t "=$s" 2>/dev/null || true
   done
   rm -rf "$STUBROOT" "$WTROOT" "$NONGIT"
@@ -140,7 +146,6 @@ STUB_WRAPPERM="$(mk_stub wrapperm \
 mk_pane_session() {
   local sess="$1" stub="$2" cwd="$3" width="${4:-200}"
   tmux new-session -d -s "$sess" -x "$width" -y 50
-  SESSIONS_TO_KILL+=("$sess")
   # NOTE: set-option's -t takes a bare session name, NOT the `=name` exact form
   # (that form errors "no such session" here); the `=` form is only for
   # display/send/split targets below.
