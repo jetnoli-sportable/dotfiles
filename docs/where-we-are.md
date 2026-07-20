@@ -63,9 +63,9 @@ the [Roadmap's shipped section](roadmap.html#detail-step-zero).
   new SFB tickets over the Atlassian MCP, behind an approval buffer, stamping
   each ticket URL back into the task. **Create-only.** All automated gates are
   green; the remaining gate is a manual end-to-end run against a live MCP
-  (there's no sandbox SFB project) — a step-by-step verification checklist
-  lives in the task dossier
-  (`~/code/tasks/dossiers/dotfiles--feat-jira-integration/test-plan.html`).
+  (no sandbox project). **Unverified end-to-end — do not run `/wb-jira-create`
+  against live Jira until this passes** (the skill carries the same banner):
+  [verification checklist](verification/2026-07-16-jira-emit-verification.html).
   [recap](2026-07-16-jira-interop-recap.html)
 
 ## Next up

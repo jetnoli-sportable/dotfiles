@@ -341,9 +341,9 @@ a <code>/wb-jira-create</code> skill that turns a task or <code>/wb-breakdown</c
 new SFB tickets over the Atlassian MCP, behind an approval buffer, stamping
 each ticket URL back into the task. <strong>Create-only.</strong> All automated gates are
 green; the remaining gate is a manual end-to-end run against a live MCP
-(there's no sandbox SFB project) — a step-by-step verification checklist
-lives in the task dossier
-(<code>~/code/tasks/dossiers/dotfiles--feat-jira-integration/test-plan.html</code>).
+(no sandbox project). <strong>Unverified end-to-end — do not run <code>/wb-jira-create</code>
+against live Jira until this passes</strong> (the skill carries the same banner):
+<a href="verification/2026-07-16-jira-emit-verification.html">verification checklist</a>.
 <a href="2026-07-16-jira-interop-recap.html">recap</a></li>
 </ul>
 <h2 id="next-up">Next up</h2>
