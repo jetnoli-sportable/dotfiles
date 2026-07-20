@@ -4,40 +4,80 @@
 <title>Roadmap — the personal workflow</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
 <style>
    
   :root {
-    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
-    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
-    --acc: #8839ef; --acc2: #04a5e5;
-    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
-    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
     --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
     --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
-      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
-      --acc: #ca9ee6; --acc2: #99d1db;
-      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
-      --code-bg: #292c3c; --kbd-bg: #414559;
-    }
-  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
   :root[data-theme="dark"] {
-    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
-    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
-    --acc: #ca9ee6; --acc2: #99d1db;
-    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
-    --code-bg: #292c3c; --kbd-bg: #414559;
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
   }
   :root[data-theme="light"] {
-    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
-    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
-    --acc: #8839ef; --acc2: #04a5e5;
-    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
-    --code-bg: #e6e9ef; --kbd-bg: #dce0e8;
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
   }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
 
   * { box-sizing: border-box; }
   html { color-scheme: light dark; }
@@ -51,6 +91,10 @@
     flex-wrap: wrap; }
   .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
   .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
 
   a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
   a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
@@ -113,8 +157,8 @@
   body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
 
    
-  .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0;
-           max-width: 1160px; margin: 0 auto; }
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
   nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
             padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
   nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
@@ -127,37 +171,46 @@
               font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
   nav.toc a:hover { color: var(--ink); background: var(--panel); }
   .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
-  .shell header.title-block { display: flex; flex-direction: column; gap: .9rem;
-       padding-bottom: 2rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
-  .shell header.title-block .dek { font-size: 1.05rem; color: var(--ink2);
-       max-width: 62ch; text-wrap: balance; margin: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
   @media (max-width: 860px) {
     .shell { grid-template-columns: 1fr; }
     nav.toc { position: static; height: auto; border-right: none;
               border-bottom: 1px solid var(--line); }
     .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
   }
 
    
-  body[data-kind="hub"] main { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
   body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
   body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
   section.group { margin-top: 2.75rem; }
   .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
-                padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
-  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
   .group-head .group-sub { font-size: .82rem; color: var(--mut); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
   .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
-  .tile { display: flex; flex-direction: column; gap: .5rem; background: var(--panel);
-          border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem;
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
           text-decoration: none; color: inherit; position: relative;
           transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
-  .tile:hover, .tile:focus-visible { border-color: var(--acc); transform: translateY(-2px);
-    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--acc) 45%, transparent); outline: none; }
-  .tile:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
   .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
-  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--acc); line-height: 1; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
   .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
              text-wrap: balance; }
   .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
@@ -168,13 +221,22 @@
   .note p { margin: 0; max-width: none; color: var(--ink2); }
   .note strong { color: var(--ink); }
 
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="guide">
+<body data-kind="guide" data-group="start-here">
 <div class="statusbar">
-  <span>docgen · generated from <b>docs/roadmap.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-12</span>
+  <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> start-here</span>
+  <span class="gen">docgen · generated from <b>docs/roadmap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-18</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -195,7 +257,8 @@
     </ul>
   </nav>
   <main>
-    <header class="title-block">
+    <header class="doc guide-banner">
+      <span class="eyebrow">start-here · guide</span>
       <h1>Roadmap — the personal workflow</h1>
       <p class="dek">Up next, a live table, a parked pool, what we&#39;re not doing, and a shipped ledger — one click to the detail behind each item.</p>
       <div class="meta">
@@ -275,12 +338,17 @@ fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
 <div class="roadmap-timeline">
   <a class="step done" href="#detail-docs-platform"><b>Docs platform</b>slice 5, shipped</a>
   <a class="step done" href="#detail-wb-core"><b>wb core</b>PR #7, shipped</a>
-  <a class="step active" href="#detail-hub-v0"><b>Hub v0</b>this work</a>
   <a class="step done" href="#detail-parent-child"><b>Parent/child</b>PR #17, shipped</a>
-  <a class="step active" href="#detail-handoff"><b>/handoff</b>in build</a>
+  <a class="step done" href="#detail-hub-v0"><b>Hub v0</b>PR #18, shipped</a>
+  <a class="step done" href="#detail-handoff"><b>/handoff</b>PR #21, shipped</a>
+  <a class="step done" href="#detail-tasks-concurrency-safety"><b>Store safety</b>PR #22, shipped</a>
+  <a class="step done" href="#detail-wb-breakdown"><b>wb breakdown</b>PR #29, shipped</a>
+  <a class="step done" href="#detail-board-v2"><b>Board v2</b>PR #30, shipped</a>
+  <a class="step active" href="#detail-jira-integration"><b>Jira emit</b>PR #32, in review</a>
   <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
   <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
 </div>
+<p style="margin:.2rem 0 0;font-size:.85rem;color:var(--mut)">Full current status: <a href="where-we-are.html">Where we are</a>.</p>
 <h2 id="up-next-max-3">Up next (max 3)</h2>
 <p>The next things actually queued to start, in priority order — everything
 else below is either already active, waiting on something named, or
@@ -319,18 +387,6 @@ claim is always a waits-on link — <code>needs: &lt;item&gt;</code>, <code>cloc
 </thead>
 <tbody>
 <tr>
-<td><a id="detail-hub-v0"></a><strong>Hub v0</strong> (meta-documentation bundle)</td>
-<td>active — this work; U5/U6 artifact index deferred</td>
-<td><a href="brainstorms/2026-07-09-hub-v0-requirements.md">requirements</a></td>
-<td>Glossary, limitations, ceremonies pages, <code>/board</code> tile, this reshape, and cataloging the <code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code>/<code>wb-board</code> skill family (added to the plan 2026-07-11)</td>
-</tr>
-<tr>
-<td><a id="detail-handoff"></a><strong><code>/handoff</code></strong> — route a discussion to the right worker</td>
-<td>active — building on <code>feat/handoff-v1</code>; single-target validated by hand 2026-07-10; fan-out after: parent/child (PR #17) — chosen</td>
-<td><a href="roadmap-handoff.html">detail</a></td>
-<td>Switch to an existing agent's session or <code>wb new</code> it</td>
-</tr>
-<tr>
 <td><a id="detail-task-recall"></a><strong>Task recall</strong></td>
 <td>queued — needs: boundary-rule</td>
 <td><a href="roadmap-task-recall.html">detail</a></td>
@@ -355,10 +411,10 @@ claim is always a waits-on link — <code>needs: &lt;item&gt;</code>, <code>cloc
 <td>Deliberately the final decision; Task recall above already depends on it landing</td>
 </tr>
 <tr>
-<td><a id="detail-jira-integration"></a><strong>Jira integration</strong> (<code>/board</code> + day-bookends halves)</td>
-<td>proposed — needs: <code>/ce-brainstorm</code> (credential location, persistence-store design)</td>
-<td>—</td>
-<td>Wanted sooner rather than later — task: <code>dotfiles--feat-jira-integration</code></td>
+<td><a id="detail-jira-integration"></a><strong>Jira interop — emit</strong> (Phase 1)</td>
+<td>active — emit in review as PR #32; Phase 2 (sprint pull) deferred</td>
+<td><a href="2026-07-16-jira-interop-recap.html">recap</a></td>
+<td><code>/wb-jira-create</code> files a task or family as SFB tickets over the MCP behind an approval buffer; <code>wb jira-set</code> stamps each URL back — task: <code>dotfiles--feat-jira-integration</code></td>
 </tr>
 <tr>
 <td><a id="detail-second-opinion"></a><strong><code>/second-opinion</code></strong> — ask the best available model at high effort, context-aware</td>
@@ -381,8 +437,11 @@ claim is always a waits-on link — <code>needs: &lt;item&gt;</code>, <code>cloc
 <li><a id="detail-wb-reconcile-glossary"></a><strong><code>wb reconcile --glossary</code></strong> (auto-detecting glossary gaps) — a <code>wb.sh</code> feature, not a docgen/Hub one; not this push's job.</li>
 </ul>
 <h2 id="shipped">Shipped</h2>
-<p><span class="chip ok">16 shipped</span> — full history and rationale live
-on each linked recap page; these no longer take a queue/live/parked slot.</p>
+<p><span class="chip ok">21 shipped</span> — full history and rationale live
+on each linked recap page; these no longer take a queue/live/parked slot.
+Also landed inline, without their own row: <code>wb done --close</code> plus a guard
+against self-killing the calling session (PR #19), and a fix stopping the
+sweep-review buffer from autoformatting itself (PR #27).</p>
 <ul>
 <li><a id="detail-step-zero"></a><strong>Step zero</strong> (hooks, alias cleanup) — attention-pipeline hooks wired, dead <code>n</code> alias removed.</li>
 <li><a id="detail-task-store-frontmatter"></a><strong>Central task store + frontmatter</strong> — <a href="roadmap-wb-design.html">wb design</a></li>
@@ -390,6 +449,7 @@ on each linked recap page; these no longer take a queue/live/parked slot.</p>
 <li><a id="detail-notes-tui-4a"></a><strong>Notes-tui integration, 4a</strong> (capture) — <a href="slice-4b-deep-dive.html">deep dive</a></li>
 <li><a id="detail-docs-platform"></a><strong>Docs platform</strong> (generated pages, Hub, INDEX, <code>/help</code>) — <a href="docgen.html">docgen</a> · <a href="slice-5-recap.html">slice-5 recap</a></li>
 <li><a id="detail-guide-pages-hub"></a><strong>Per-skill/TUI guide pages + tile dashboard</strong> — <code>docs/guides/*</code> · <a href="slice-5-recap.html">slice-5 recap</a></li>
+<li><a id="detail-hub-v0"></a><strong>Hub v0</strong> (meta-documentation bundle) — glossary, limitations, ceremonies pages, the <code>/board</code> tile, the roadmap reshape, and the <code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code>/<code>wb-board</code> skill catalog; U5/U6 artifact index deferred — PR #18</li>
 <li><a id="detail-board-html"></a><strong><code>/board</code></strong> — full HTML task-board view — <a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-board.html">detail</a> — PR #14</li>
 <li><a id="detail-wb-pause"></a><strong><code>wb pause</code></strong> (new status + subcommand + keybind) — <a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-board.html">detail</a> — PR #14</li>
 <li><a id="detail-wb-reconcile-core"></a><strong><code>wb reconcile</code></strong> — drift detection + review/apply flow — <a href="pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="roadmap-wb-reconcile.html">detail</a> — PR #14</li>
@@ -398,8 +458,12 @@ on each linked recap page; these no longer take a queue/live/parked slot.</p>
 <li><a id="detail-gpaste"></a><strong>GPaste clipboard-history manager</strong> — <a href="9g-gpaste-recap.html">9g recap</a></li>
 <li><a id="detail-precommit-hook-fix"></a><strong><code>docgen.sh</code>'s pre-commit hook</strong> — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test</li>
 <li><a id="detail-parent-child"></a><strong>Task parent/child relationship</strong> (incl. cross-repo/full-stack tasks) — <a href="roadmap-handoff.html">detail</a> — PR #17</li>
-<li><a id="detail-tasks-concurrency-safety"></a><strong>Central task-store git/file safety across concurrent agents</strong> — three-layer guard (agent-side &quot;ask&quot; hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — <a href="tasks-store-guards.html">guide</a> · <a href="2026-07-12-tasks-dir-concurrency-safety-recap.html">recap</a> — task: <code>dotfiles--docs-roadmap-tasks-concurrency-safety</code></li>
+<li><a id="detail-handoff"></a><strong><code>/handoff</code></strong> — route something being discussed to the worker that should own it — an already-live tmux session (switch + clipboard) or a freshly spawned one (<code>wb new --agent</code> + inject); single-target only — fan-out (one discussion → several linked tasks) still not built, waiting on the parent/child loop — <a href="roadmap-handoff.html">detail</a> · <a href="handoff-guide.html">guide</a> — PR #21</li>
+<li><a id="detail-queue"></a><strong><code>/queue</code></strong> — per-worktree queue for stashing follow-ups without losing the current thread (<code>&lt;leader&gt;aq</code>/<code>&lt;leader&gt;aQ</code>, <code>queue.lua</code>) — task: <code>dotfiles--feat-queue-command</code> — PR #24</li>
+<li><a id="detail-xdg-open-fix"></a><strong><code>xdg-open</code>/Slack fix</strong> — stopped Slack's Electron bug from hijacking the system default-browser handler, wired into <code>install.sh</code> — task: <code>dotfiles--fix-xdg-open-slack-hijack</code> — PR #28</li>
+<li><a id="detail-tasks-concurrency-safety"></a><strong>Central task-store git/file safety across concurrent agents</strong> — three-layer guard (agent-side &quot;ask&quot; hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — <a href="guides/tasks-store-guards.html">guide</a> — task: <code>dotfiles--docs-roadmap-tasks-concurrency-safety</code></li>
 <li><a id="detail-wb-breakdown"></a><strong><code>wb breakdown</code></strong> — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — <a href="2026-07-13-wb-breakdown-recap.html">recap</a> — task: <code>dotfiles--feat-wb-breakdown-skill</code></li>
+<li><a id="detail-board-v2"></a><strong>Board display v2</strong> — lifecycle stage stepper, Pipeline/Live/Stale tabs, dependency + parent/child relationships, repo/family filters, Key Findings, column sorting (the parent/family progress view lives here) — <a href="wb-board-display-v2-recap.html">recap</a> — PR #30</li>
 </ul>
 <p>Ceremonies (dated clocks, recurring reviews) now live on their own page:
 <a href="ceremonies.html">Ceremonies</a>. Standing workflow constraints now live on

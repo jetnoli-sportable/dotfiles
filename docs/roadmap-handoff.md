@@ -2,7 +2,8 @@
 title: /handoff & /handoff-pane — route a discussion to the right worker
 status: current
 tile: Take what's being discussed and either switch to the agent already on it, spin up a new task for it, or split a helper agent into this very window.
-group: personal-workflow
+group: design-notes
+parent: roadmap
 kind: page
 updated: 2026-07-19
 ---
@@ -11,9 +12,11 @@ Queued 2026-07-08, marked for pickup soon. This page is the source; edit
 `docs/roadmap-handoff.md`, not the rendered `.html`.
 
 **Roadmap:** new item, not from the original numbered list · **Status:**
-queued for build; the sub-task relationship it depends on is now
-fully designed (see below), not built; the single-target flow was run
-**by hand** in a real session 2026-07-10 — mechanical findings below
+v1 shipped 2026-07-11 (PR #21), single-target only — see Sequencing below.
+The sub-task relationship it depends on for fan-out already shipped too
+(PR #17); fan-out itself is the still-deferred piece. Mechanical findings
+from the pre-build hand-run dry-runs below remain the record of how v1's
+scope was validated.
 
 ## The ask, verbatim
 

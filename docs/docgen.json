@@ -1,16 +1,34 @@
 {
   "templates": "docs/_templates",
-  "pageDirs": ["docs", "docs/guides"],
+  "pageDirs": [
+    "docs",
+    "docs/guides"
+  ],
+  "exclude": [
+    "2026-07-12-tasks-dir-concurrency-safety-recap.md"
+  ],
   "hub": {
     "out": "docs/HUB.html",
     "eyebrow": "personal workflow",
     "title": "Hub",
-    "intro": "Everything documented about the personal workflow, one dashboard. Click a tile to open it. Open with <kbd>prefix</kbd>+<kbd>h</kbd> from anywhere in tmux, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code> directly — that's the command to use if you want relative paths (like the notes-tui tile below) to actually resolve, since they won't inside a sandboxed Artifact preview. Sources living outside this repo's git tree (memory, the task store, notes-tui/replay-tui READMEs) aren't picked up by the pre-commit hook that regenerates this dashboard — run <code>docgen.sh index</code> (or <code>all</code>) by hand after editing any of those. Running it from a worktree? Export <code>DOTFILES=$(git rev-parse --show-toplevel)</code> first — <code>docgen.sh</code> targets <code>$DOTFILES</code> (falling back to the main checkout), never <code>cwd</code>, so an unset <code>DOTFILES</code> silently regenerates the wrong repo's docs.",
+    "intro": "Everything here is a note — and a task is a note labelled a task. This dashboard indexes every documented piece of the personal workflow; click a tile to open it, or press <kbd>prefix</kbd>+<kbd>h</kbd> in tmux. New here? Start with the <b>roadmap</b>, the <b>wb guide</b>, and <b>setup</b> below.",
     "groups": [
       {
-        "key": "personal-workflow",
-        "title": "Personal workflow",
-        "sub": "~/code/dotfiles",
+        "key": "where-we-are",
+        "title": "Where we are",
+        "sub": "current status snapshot — shipped, in review, what's next",
+        "glyph": "◉"
+      },
+      {
+        "key": "start-here",
+        "title": "Start here",
+        "sub": "the front doors — roadmap · the workbench · setup · glossary",
+        "glyph": "★"
+      },
+      {
+        "key": "workflow",
+        "title": "Workflow",
+        "sub": "~/code/dotfiles — how the pieces work",
         "glyph": "◈"
       },
       {
@@ -31,11 +49,25 @@
         "title": "Nvim plugins",
         "sub": "nvim/.config/nvim/lua/ in this repo · guides in docs/guides/",
         "glyph": "◇"
+      },
+      {
+        "key": "design-notes",
+        "title": "Design notes",
+        "sub": "reached from the roadmap timeline — listed here for direct access",
+        "glyph": "✎",
+        "dense": true
+      },
+      {
+        "key": "recaps",
+        "title": "Recaps",
+        "sub": "point-in-time write-ups of shipped work, newest first",
+        "glyph": "▪",
+        "dense": true
       }
     ],
     "sidecar": [
       {
-        "group": "personal-workflow",
+        "group": "start-here",
         "title": "Task board",
         "tile": "Full HTML task board — lifecycle stepper, Pipeline tab, dependency/parent-child relationships, repo/family filters, Key Findings. Generated on demand, not auto-rebuilt: run `wb board --html` to refresh it.",
         "href": "../logs/board.html",
@@ -47,21 +79,89 @@
   "index": {
     "out": "docs/INDEX.md",
     "sources": [
-      { "kind": "tmux-binds", "path": "tmux/.config/tmux/tmux.conf", "tags": "tmux" },
-      { "kind": "zsh", "path": "zsh/.zshrc", "tags": "zsh" },
-      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude" },
-      { "kind": "scripts", "path": "scripts/.config/scripts/tmux", "tags": "tmux" },
-      { "kind": "scripts", "path": "scripts/.config/scripts", "tags": "shell" },
-      { "kind": "doc", "path": "scripts/.config/scripts/tmux/instructions.md", "tags": "tmux" },
-      { "kind": "doc", "path": "nvim/.config/nvim/instructions.md", "tags": "nvim" },
-      { "kind": "decisions", "path": "logs/decisions", "tags": "" },
-      { "kind": "memory", "path": "~/.claude/projects/-home-jetnoli-code-dotfiles/memory/MEMORY.md", "tags": "" },
-      { "kind": "tui", "path": "~/code/notes-tui/README.md", "name": "notes-tui", "invoke": "notes", "guide": "docs/guides/notes-tui.html", "tags": "" },
-      { "kind": "tui", "path": "~/code/replay-tui/README.md", "name": "replay-tui", "invoke": "replay", "guide": "docs/guides/replay-tui.html", "tags": "" },
-      { "kind": "taskstore", "path": "~/code/tasks", "tags": "" }
+      {
+        "kind": "tmux-binds",
+        "path": "tmux/.config/tmux/tmux.conf",
+        "tags": "tmux"
+      },
+      {
+        "kind": "zsh",
+        "path": "zsh/.zshrc",
+        "tags": "zsh"
+      },
+      {
+        "kind": "skills",
+        "path": "claude/.claude/skills",
+        "tags": "claude",
+        "guideOverrides": {
+          "handoff": "docs/handoff-guide.html",
+          "wb-board": "docs/wb-guide.html#wb-board---html--the-full-board-v2",
+          "wb-breakdown": "docs/wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family",
+          "wb-done": "docs/wb-guide.html#wb-done--wind-down-safely"
+        }
+      },
+      {
+        "kind": "scripts",
+        "path": "scripts/.config/scripts/tmux",
+        "tags": "tmux"
+      },
+      {
+        "kind": "scripts",
+        "path": "scripts/.config/scripts",
+        "tags": "shell"
+      },
+      {
+        "kind": "doc",
+        "path": "scripts/.config/scripts/tmux/instructions.md",
+        "tags": "tmux"
+      },
+      {
+        "kind": "doc",
+        "path": "nvim/.config/nvim/instructions.md",
+        "tags": "nvim"
+      },
+      {
+        "kind": "decisions",
+        "path": "logs/decisions",
+        "tags": ""
+      },
+      {
+        "kind": "memory",
+        "path": "~/.claude/projects/-home-jetnoli-code-dotfiles/memory/MEMORY.md",
+        "tags": ""
+      },
+      {
+        "kind": "tui",
+        "path": "~/code/notes-tui/README.md",
+        "name": "notes-tui",
+        "invoke": "notes",
+        "guide": "docs/guides/notes-tui.html",
+        "tags": ""
+      },
+      {
+        "kind": "tui",
+        "path": "~/code/replay-tui/README.md",
+        "name": "replay-tui",
+        "invoke": "replay",
+        "guide": "docs/guides/replay-tui.html",
+        "tags": ""
+      },
+      {
+        "kind": "taskstore",
+        "path": "~/code/tasks",
+        "tags": ""
+      }
     ]
   },
   "redact": {
-    "denylist": ["be--monorepo", "frontend", "lib--algorithms", "terraform-gcp", "tool--*", "qa--tools", "docs--architecture"]
+    "denylist": [
+      "be--monorepo",
+      "frontend",
+      "lib--algorithms",
+      "terraform-gcp",
+      "tool--*",
+      "qa--tools",
+      "docs--architecture"
+    ]
   }
 }

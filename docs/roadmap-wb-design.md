@@ -2,7 +2,8 @@
 title: wb design — the picker, wb done, and the task record schema
 status: current
 tile: Why wb works the way it does — sort logic, safe wind-down, decision history.
-group: personal-workflow
+group: design-notes
+parent: roadmap
 kind: guide
 updated: 2026-07-08
 ---

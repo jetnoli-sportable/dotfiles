@@ -2,9 +2,10 @@
 title: wb reconcile — task-store/git drift detection
 status: current
 tile: Cross-reference the task store against real git state; report drift, never auto-apply.
-group: personal-workflow
+group: design-notes
+parent: roadmap
 kind: page
-updated: 2026-07-08
+updated: 2026-07-14
 ---
 
 Scoped via a decision-buffer round on 2026-07-08
@@ -13,7 +14,9 @@ this page is the durable record of what got decided). This page is the
 source; edit `docs/roadmap-wb-reconcile.md`, not the rendered `.html`.
 
 **Roadmap:** new item, not from the original numbered list · **Status:**
-scoped, ready to plan — not yet built
+basic presence-diff + review/apply flow shipped in PR #14
+(`cmd_reconcile()`, `scripts/.config/scripts/tmux/wb.sh:1214`); only the
+narrower same-commit-duplicate-detection gap (below) stays open
 
 ## The gap this closes
 
@@ -71,6 +74,10 @@ represents is already in progress by definition.
 
 ## Sequencing
 
-Scoped, not yet planned or built. Pick up with `/ce-plan` when ready — the
-decision-buffer doc above has the full option/tradeoff record for both the
-detection scope and the review-flow shape.
+**Shipped 2026-07-08, PR #14:** presence-diff detection and the full
+review flow above (do nothing / remove / discuss / create a task / attach
+to task / merge with task). **Still open:** same-commit duplicate
+flagging — see [Up next](roadmap.html#detail-wb-reconcile-duplicate-gap)
+on the roadmap. The decision-buffer doc above has the full option/tradeoff
+record for both, including why duplicate detection stayed report-only and
+deferred rather than shipping alongside v1.

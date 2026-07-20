@@ -2,7 +2,7 @@
 title: /handoff & /handoff-pane — route a discussion to the right worker
 status: current
 tile: Route something being discussed right now to a live session, a fresh one, or a helper agent in this very window — without retyping context by hand.
-group: personal-workflow
+group: workflow
 kind: guide
 updated: 2026-07-19
 ---
@@ -126,9 +126,9 @@ so a live helper pane in a shared worktree is invisible to it. Until pane-aware
 ## What v1 doesn't do
 
 - **Fan-out.** One discussion → several linked tasks depends on the task
-  parent/child relationship, designed but not yet built (parallel
-  `feat/task-parent-child` branch). `/handoff` routes the single most
-  relevant target and says so.
+  parent/child relationship — already shipped (PR #17), not just designed.
+  The gap is that `/handoff` itself isn't wired to loop over it yet.
+  `/handoff` routes the single most relevant target and says so.
 - **Instructing an already-busy live agent directly.** The switch path is
   clipboard-only — you paste the pointer in yourself when the agent is
   ready for it, rather than `/handoff` injecting into a pane that might be

@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>wb-save</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="skills">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="gen">docgen · generated from <b>docs/guides/wb-save.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-14</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">wb-save</div>
+    <div class="brand-sub">Write a structured done/in-flight/next snapshot before a manual /clear.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">skills · guide</span>
+      <h1>wb-save</h1>
+      <p class="dek">Write a structured done/in-flight/next snapshot before a manual /clear.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p>The &quot;save&quot; half of a human-in-the-loop context-reset pair —
+<a href="wb-resume.html"><code>/wb-resume</code></a> is the other half. It exists because an
+agent autonomously clearing its own context was tried and hard-blocked:
+Claude Code's auto-mode classifier denied an earlier dry-run's attempt to
+<code>tmux send-keys</code> <code>/clear</code> into its own pane, as &quot;an agent self-driving
+its own pane to alter its own session/oversight state.&quot; <code>/wb-save</code>
+writes the state that needs to survive the clear; the human runs
+<code>/clear</code> themselves.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>Right before you're about to <code>/clear</code>:</p>
+<pre><code>/wb-save
+</code></pre>
+<p>or any of: &quot;save my progress&quot;, &quot;checkpoint this&quot;, &quot;save state before I
+clear&quot;. The agent composes done/in-flight/next from the actual
+conversation, appends it to the task file's <code>## Handoffs</code> section, and
+confirms in one line:</p>
+<pre><code>Saved to ## Handoffs — /clear when you're ready.
+</code></pre>
+<h2 id="reference">Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Locate the task file</td>
+<td>Reads <code>@task</code> off the current tmux session (<code>tmux show -t &quot;=$session:&quot; -v @task</code>) — never cwd/branch inference</td>
+</tr>
+<tr>
+<td>Compose the entry</td>
+<td><strong>Done</strong> / <strong>In flight</strong> / <strong>Next</strong>, drawn from what actually happened this session — a genuinely empty field is stated plainly (<code>**Done:** nothing yet this session</code>), never invented</td>
+</tr>
+<tr>
+<td>Append</td>
+<td>Shells out to <code>wb append &lt;task_file&gt; Handoffs</code> (the locked, heading-scoped append verb) with the three-field block over stdin — never an Edit/Write-tool edit to a task file</td>
+</tr>
+<tr>
+<td>Entry shape</td>
+<td><code>### &lt;YYYY-MM-DD HH:MM&gt; — wb-save</code> heading (no <code>(auto)</code> suffix — that's reserved for <code>wb.sh</code>'s own mechanical <code>pause</code>/<code>done</code>/<code>resume</code> entries), then <code>**Done:**</code>/<code>**In flight:**</code>/<code>**Next:**</code></td>
+</tr>
+<tr>
+<td>No <code>@task</code> set</td>
+<td>Stops before touching any file: <code>wb-save: this session has no @task — not a wb task session.</code></td>
+</tr>
+<tr>
+<td><code>@task</code> set but file missing</td>
+<td>Stops: <code>wb-save: no task file at &lt;path&gt; — recorded in this session's @task, but missing on disk.</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li><strong>Append-only, on purpose.</strong> Never touches any existing content —
+prior <code>## Handoffs</code> entries, <code>## Plan</code>, <code>## Decisions</code> — so it can't be
+used to correct or edit something already recorded; that's a manual
+task-file edit instead.</li>
+<li><strong>Never invokes <code>/clear</code> itself, never touches tmux state</strong> beyond the
+one read-only <code>@task</code> lookup. This is a closed design boundary, not a
+gap — see Overview.</li>
+<li><strong>Shared log.</strong> <code>## Handoffs</code> also receives <code>wb.sh</code>'s own automatic
+<code>pause</code>/<code>done</code>/<code>resume</code> entries. Seeing a terse automatic entry
+interleaved with a rich <code>/wb-save</code> one is expected, not a bug.</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<ul>
+<li>Pairs with <a href="wb-resume.html"><code>/wb-resume</code></a>, which reads this same
+<code>## Handoffs</code> section back on the other side of a <code>/clear</code>.</li>
+<li>Nothing to revert or unwire — skipping <code>/wb-save</code> just means
+<code>/wb-resume</code> (or a human) falls back to reading <code>## Plan</code> cold instead
+of a written snapshot.</li>
+</ul>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guides/wb-save.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>

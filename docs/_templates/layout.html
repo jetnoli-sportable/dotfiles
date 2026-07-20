@@ -5,15 +5,16 @@
 <title>{{.Page.Title}}</title>
 {{template "head"}}
 </head>
-<body data-kind="{{.Page.Kind}}">
-{{if eq .Page.Kind "guide"}}{{template "kind/guide" .}}{{else}}{{template "kind/page" .}}{{end}}
+<body data-kind="{{if and (eq .Page.Kind "page") .Page.HasToc}}guide{{else}}{{.Page.Kind}}{{end}}" data-group="{{.Page.Group}}">
+{{if or (eq .Page.Kind "guide") (and (eq .Page.Kind "page") .Page.HasToc)}}{{template "kind/guide" .}}{{else}}{{template "kind/page" .}}{{end}}
 </body>
 </html>
 {{end}}
 
 {{define "statusbar" -}}
 <div class="statusbar">
-  <span>docgen · generated from <b>{{.Source}}</b> — edit the .md, not this file</span>
+  <span class="crumb"><a href="{{if .InGuidesDir}}../HUB.html{{else}}HUB.html{{end}}">⌂ Hub</a>{{if .Parent}} <span class="sep">/</span> <a href="{{.ParentHref}}">{{.Parent}}</a>{{else if .Group}} <span class="sep">/</span> {{.Group}}{{end}}</span>
+  <span class="gen">docgen · generated from <b>{{.Source}}</b> — edit the .md, not this file</span>
   {{if .Updated}}<span class="right">updated {{.Updated}}</span>{{end}}
 </div>
 {{- end}}
@@ -33,7 +34,6 @@
   <h1><span class="glyph">§</span> {{.Page.Title}}</h1>
   <div class="meta">
     <span class="chip {{.Page.ChipClass}}">{{.Page.Status}}</span>
-    <span class="chip"><a href="HUB.html" style="text-decoration:none;color:inherit">⌂ hub</a></span>
   </div>
 </header>
 <article>
@@ -56,7 +56,8 @@
     </ul>
   </nav>
   <main>
-    <header class="title-block">
+    <header class="doc guide-banner">
+      {{if .Page.Group}}<span class="eyebrow">{{.Page.Group}} · guide</span>{{end}}
       <h1>{{.Page.Title}}</h1>
       {{if .Page.Tile}}<p class="dek">{{.Page.Tile}}</p>{{end}}
       <div class="meta">

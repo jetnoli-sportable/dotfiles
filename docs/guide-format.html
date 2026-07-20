@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Guide format — the shapes a skill/TUI guide page follows</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="workflow">
+<div class="statusbar">
+  <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
+  <span class="gen">docgen · generated from <b>docs/guide-format.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-14</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Guide format — the shapes a skill/TUI guide page follows</div>
+    <div class="brand-sub">The single-skill 5-section shape, and the command-family alternate — which to use, and how docgen finds either.</div>
+    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#the-standard-shape-single-skill-guide">The standard shape: single-skill guide</a></li>
+      <li><a href="#the-alternate-shape-command-family-guide">The alternate shape: command-family guide</a></li>
+      <li><a href="#how-docgen-finds-either-shape">How docgen finds either shape</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">workflow · guide</span>
+      <h1>Guide format — the shapes a skill/TUI guide page follows</h1>
+      <p class="dek">The single-skill 5-section shape, and the command-family alternate — which to use, and how docgen finds either.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<p><code>docs/guides/*.md</code> pages already converge on a shape without being told
+to — this page names it, so the next new guide follows it on purpose
+instead of by accident, and covers the one alternate shape that's
+equally real: one page documenting a whole command family.</p>
+<h2 id="the-standard-shape-single-skill-guide">The standard shape: single-skill guide</h2>
+<p>Five sections, in this order, followed exactly by <code>decision-buffer.md</code>,
+<code>notes-tui.md</code>, <code>parked-items.md</code>, <code>park.md</code>, <code>pr-review-session.md</code>, and
+<code>replay-tui.md</code>:</p>
+<ol>
+<li><strong>Overview</strong> — what the thing is, one paragraph.</li>
+<li><strong>Try it now</strong> — the shortest real invocation that produces output,
+copy-pasteable.</li>
+<li><strong>Reference</strong> — the full command/flag surface, usually a table.</li>
+<li><strong>Known rough edges</strong> — real gaps and their scope, not hidden.</li>
+<li><strong>Next steps / reverting</strong> — what's next for this feature, and how to
+turn it off if it doesn't work out.</li>
+</ol>
+<p>This is the default for any new single-skill guide. Two existing pages —
+<code>claude-tmux.md</code> (six module-specific sections) and <code>tasks-store-guards.md</code>
+(a coverage matrix + three runbooks) — flex the shape for genuine depth
+rather than deviating by accident: both are reference docs for a
+multi-part subsystem, not a single command. Reach for that flex only when
+a subsystem genuinely doesn't fit five sections, not as a default.</p>
+<h2 id="the-alternate-shape-command-family-guide">The alternate shape: command-family guide</h2>
+<p><code>wb-guide.md</code> and <code>handoff-guide.md</code> don't document one skill — they
+document a family of related subcommands (<code>wb new</code>/<code>wb done</code>/<code>wb breakdown</code>/<code>wb board --html</code>, or the whole <code>/handoff</code> surface) on one
+page, each subcommand getting its own <code>##</code>/<code>###</code> section rather than its
+own file. Use this shape when a set of skills are tightly coupled enough
+that reading them separately would mean constantly flipping between
+pages — the same judgment call already made for <code>wb-guide.md</code>.</p>
+<h2 id="how-docgen-finds-either-shape">How docgen finds either shape</h2>
+<p>docgen's indexer resolves a skill's <code>guide</code> field by checking
+<code>docs/guides/&lt;skill-name&gt;.html</code> — the single-skill shape lands there and
+needs no config. A command-family guide doesn't live at that
+conventional path (it's a different filename entirely, and possibly not
+even in <code>docs/guides/</code>), so it needs an explicit override in
+<code>docs/docgen.json</code>'s <code>skills</code> index source, <code>guideOverrides</code>:</p>
+<pre><code class="language-json">{ &quot;kind&quot;: &quot;skills&quot;, &quot;path&quot;: &quot;claude/.claude/skills&quot;, &quot;guideOverrides&quot;: {
+  &quot;wb-done&quot;: &quot;docs/wb-guide.html#wb-done--wind-down-safely&quot;,
+  &quot;handoff&quot;: &quot;docs/handoff-guide.html&quot;
+}}
+</code></pre>
+<p>Point at an in-page anchor (<code>#section-id</code>) when the family guide covers
+several skills and each has its own subsection; point at the bare page
+when one guide is entirely about one skill (<code>handoff-guide.md</code> has no
+<code>#handoff</code> anchor and doesn't need one). An override pointing at a path
+that doesn't exist on disk resolves to no guide, the same as a skill with
+no guide at all — never a silently dead link.</p>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guide-format.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>

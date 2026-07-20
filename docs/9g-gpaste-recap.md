@@ -2,9 +2,9 @@
 title: 9g recap — GPaste clipboard-history manager
 status: current
 tile: GPaste configured, Ctrl+Shift+G opens history. What to verify yourself.
-group: personal-workflow
+group: recaps
 kind: page
-updated: 2026-07-08
+updated: 2026-07-14
 ---
 
 GPaste configured as a Flycut-style clipboard-history manager, executed
@@ -145,6 +145,8 @@ Flycut-style history picker this task wanted.
   check the history menu appears.
 - **Merge this PR** once you've walked the checklist above.
 - With 9f (pending your review) and 9g both wrapped, the next roadmap items
-  needing a pickup decision are slice 4b (gated on the 4a usage-window
-  verdict, ~2026-07-14) and `/board`'s full HTML feature (`wb board`
-  interim is already live).
+  needing a pickup decision are slice 4b — the 4a usage-window verdict
+  resolved early (2026-07-10, unused), so 4b's original plan is now
+  superseded by the capture fix-forward experiment (verdict ~2026-07-24,
+  see [Ceremonies](ceremonies.html)) — and `/board`'s full HTML feature
+  (shipped since as `/board` v1 + v2, see [detail](roadmap-board.html)).
