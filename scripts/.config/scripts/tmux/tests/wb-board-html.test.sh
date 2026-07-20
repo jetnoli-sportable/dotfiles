@@ -486,7 +486,7 @@ html_ae1="$(wb_board_render_html 2>&1)"
 ae1_card="$(extract_task_card "$(printf '%s' "$html_ae1" | tr '\n' ' ')" proj--pipe-ae1)"
 pipe_panel_ae1="$(printf '%s' "$html_ae1" | tr '\n' ' ')"
 pipe_panel_ae1="${pipe_panel_ae1#*id=\"panel-pipeline\">}"
-assert "pipeline AE1: doing + PR (any state) -> work cell in-progress glyph" '&#9681;' "$pipe_panel_ae1"
+assert "pipeline AE1: doing + PR (any state) -> work cell in-progress glyph (&#9679; solid = active)" '&#9679;' "$pipe_panel_ae1"
 wb_set_frontmatter "$FIXTURE_TASKS/proj--pipe-ae1.md" status done
 html_ae1b="$(wb_board_render_html 2>&1)"
 pipe_panel_ae1b="$(printf '%s' "$html_ae1b" | tr '\n' ' ')"

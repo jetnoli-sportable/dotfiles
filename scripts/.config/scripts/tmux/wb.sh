@@ -3392,7 +3392,7 @@ wb_board_escape_replacement() {
 wb_board_stage_glyph() {
   case "$1" in
     done)     printf '&#10003;' ;;   # check
-    progress) printf '&#9681;'  ;;   # half-filled circle
+    progress) printf '&#9679;'  ;;   # solid circle — active (discrete state, not a fill gauge)
     pending)  printf '&#9675;'  ;;   # open circle
     *)        printf '&#183;'  ;;    # na — faint middle dot
   esac
@@ -3803,10 +3803,13 @@ wb_board_render_detail_card() {
   fi
 }
 
-# wb_board_render_html — writes the full /board page to stdout: 6 status
-# tabs x 2 timeline windows, pre-rendered as 12 panels with CSS-only
-# radio-sibling switching (no JS — R8/R10's zero-JS decision), live-session
-# badges per row (R11), and per-panel anchor-linked detail sections (R12).
+# wb_board_render_html — writes the full /board page to stdout: 5 status
+# tabs x 2 timeline windows, pre-rendered as 10 panels (+ Pipeline/Live/Stale)
+# with radio-sibling tab switching. The switching mechanism itself is CSS-only
+# (R8/R10); JS is limited to three deliberate, offline, dependency-free
+# enhancements — column sort, theme toggle, and last-selected-tab persistence.
+# Plus live-session badges per row (R11) and per-panel anchor-linked detail
+# sections (R12).
 wb_board_render_html() {
   local dotfiles_root
   dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
@@ -4221,7 +4224,7 @@ wb_board_render_html() {
   done
 
   if [ "$pipe_any" = 1 ]; then
-    panels_html+="<div class=\"view\" id=\"panel-pipeline\"><p class=\"stage-legend\"><b>Stages:</b> &#10003; done &middot; &#9681; in progress &middot; &#9675; pending &middot; &#183; n/a</p><div class=\"table-wrap\"><table><tr><th>Task</th><th class=\"sortable\" data-sort=\"status\">Status</th><th>Ideate</th><th>Brainstorm</th><th>Plan</th><th>Work</th><th>Review</th><th>Worktree</th><th>PR</th><th>Deps</th></tr>$pipe_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$pipe_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-pipeline\">No tasks match this filter combination.</div></div>"$'\n'
+    panels_html+="<div class=\"view\" id=\"panel-pipeline\"><p class=\"stage-legend\"><b>Stages:</b> &#10003; done &middot; &#9679; active &middot; &#9675; pending &middot; &#183; n/a</p><div class=\"table-wrap\"><table><tr><th>Task</th><th class=\"sortable\" data-sort=\"status\">Status</th><th>Ideate</th><th>Brainstorm</th><th>Plan</th><th>Work</th><th>Review</th><th>Worktree</th><th>PR</th><th>Deps</th></tr>$pipe_rows</table></div><div><p class=\"details-heading\">Task details</p><div class=\"details-stack\">$pipe_details</div></div><div class=\"empty-state filtered-empty\" id=\"empty-pipeline\">No tasks match this filter combination.</div></div>"$'\n'
   else
     panels_html+="<div class=\"view\" id=\"panel-pipeline\"><div class=\"empty-state\">No in-flight tasks.</div></div>"$'\n'
   fi
@@ -4609,7 +4612,8 @@ wb_board_render_html() {
   td { padding: 1rem 1.2rem; border-bottom: 1px solid var(--line); font-size: .9rem; white-space: nowrap; }
   tr:last-child td { border-bottom: none; }
   tr.row:hover { background: var(--bg2); }
-  tr.row.blocked { opacity: .6; }
+  tr.row.blocked { opacity: .82; }
+  tr.row.blocked td:first-child { box-shadow: inset 3px 0 var(--review); }
   td a.tasklink { color: var(--acc2); text-decoration: none; font-weight: 600; }
   td a.tasklink:hover { text-decoration: underline; }
   .task-cell { display: flex; flex-direction: column; align-items: flex-start; gap: .3rem; }
@@ -4670,7 +4674,7 @@ wb_board_render_html() {
   /* U6: stepper — glyph-over-label segments in path order */
   .stepper { display: flex; gap: .9rem; margin: .7rem 0; flex-wrap: wrap; }
   .step { display: flex; flex-direction: column; align-items: center; gap: .15rem; font-size: .72rem; color: var(--mut); min-width: 3rem; }
-  .step.pending { color: var(--ink); font-weight: 600; }
+  .step.pending { color: var(--mut); }
   .step.progress { color: var(--doing); font-weight: 600; }
   .step.done { color: var(--ok); }
   .step .glyph { font-size: 1.15rem; }
@@ -4750,6 +4754,22 @@ document.querySelectorAll('th[data-sort]').forEach(function (th) {
     rows.forEach(function (r) { table.appendChild(r); });
   });
 });
+// Persist the last-selected view/status tab across reloads (localStorage, the
+// same store the theme toggle uses). The tabs are otherwise CSS-only radios
+// that reset to the default (Pipeline) on every reload/regen; this restores
+// the one you left on. Same deliberate-exception rationale as the sort above.
+(function () {
+  var KEY = 'wb-board-tab';
+  try {
+    var saved = localStorage.getItem(KEY);
+    if (saved) { var el = document.getElementById(saved); if (el) el.checked = true; }
+  } catch (e) {}
+  document.querySelectorAll('input[name="st"]').forEach(function (r) {
+    r.addEventListener('change', function () {
+      try { if (r.checked) localStorage.setItem(KEY, r.id); } catch (e) {}
+    });
+  });
+})();
 </script>
 </body>
 </html>

@@ -197,22 +197,22 @@
   body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
   section.group { margin-top: 2.75rem; }
   .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
-                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 55%, var(--line)); }
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
   .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
   .group-head .group-sub { font-size: .82rem; color: var(--mut); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
   .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
   .tile { display: flex; flex-direction: column; gap: .5rem;
-          background: color-mix(in srgb, var(--g) 8%, var(--panel));
-          border: 1px solid color-mix(in srgb, var(--g) 24%, var(--line));
-          border-left: 3px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
           text-decoration: none; color: inherit; position: relative;
           transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
   .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
     box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
   .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
   .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
-  .tile-glyph { font-family: var(--mono); font-size: 1.1rem; color: var(--g); line-height: 1; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
   .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
              text-wrap: balance; }
   .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
