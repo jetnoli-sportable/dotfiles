@@ -2,7 +2,8 @@
 title: Task recall — resume any work from any session
 status: current
 tile: Reference a task from anywhere and get a recap + resume options.
-group: roadmap
+group: design-notes
+parent: roadmap
 kind: page
 updated: 2026-07-08
 ---

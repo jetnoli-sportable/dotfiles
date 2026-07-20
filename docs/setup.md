@@ -2,7 +2,7 @@
 title: Shell & terminal setup
 status: current
 tile: zsh, Ghostty, oh-my-posh, git — what's configured and why.
-group: docs-meta
+group: start-here
 kind: page
 updated: 2026-07-07
 ---

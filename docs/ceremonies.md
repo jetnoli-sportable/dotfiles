@@ -2,7 +2,7 @@
 title: Ceremonies — dated clocks and recurring reviews
 status: current
 tile: Check-in points, not automatic triggers. What each one is for, and what happens when it passes.
-group: roadmap
+group: workflow
 kind: page
 updated: 2026-07-10
 ---

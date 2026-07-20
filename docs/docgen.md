@@ -2,7 +2,7 @@
 title: docgen — how the docs get generated
 status: current
 tile: The generator's own pipeline, source locations, and a real worked example.
-group: docs-meta
+group: workflow
 kind: page
 updated: 2026-07-07
 ---

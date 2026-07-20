@@ -2,7 +2,7 @@
 title: tasks-store-guards
 status: current
 tile: The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.
-group: workbench
+group: workflow
 kind: guide
 updated: 2026-07-14
 ---

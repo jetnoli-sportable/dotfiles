@@ -1,8 +1,9 @@
 ---
-title: "/board — task-board visualization"
+title: /board — task-board visualization
 status: current
 tile: Full HTML board shipped — lifecycle stepper, Pipeline tab, relationships, filters, Key Findings.
-group: roadmap
+group: design-notes
+parent: roadmap
 kind: page
 updated: 2026-07-14
 ---
