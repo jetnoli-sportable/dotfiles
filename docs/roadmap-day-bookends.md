@@ -2,7 +2,8 @@
 title: Day bookends — wb up / wb down
 status: current
 tile: Startup and shutdown flows, and the "sessions are regenerative" principle.
-group: roadmap
+group: design-notes
+parent: roadmap
 kind: page
 updated: 2026-07-14
 ---

@@ -2,9 +2,9 @@
 title: Roadmap — the personal workflow
 status: current
 tile: Up next, a live table, a parked pool, what we're not doing, and a shipped ledger — one click to the detail behind each item.
-group: roadmap
+group: start-here
 kind: guide
-updated: 2026-07-14
+updated: 2026-07-18
 ---
 
 The roadmap for the whole personal workflow (tmux/Claude tooling, the
@@ -81,10 +81,14 @@ fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
 </style>
 
 <div class="roadmap-timeline">
+  <a class="step done" href="#detail-docs-platform"><b>Docs platform</b>slice 5, shipped</a>
   <a class="step done" href="#detail-wb-core"><b>wb core</b>PR #7, shipped</a>
+  <a class="step done" href="#detail-parent-child"><b>Parent/child</b>PR #17, shipped</a>
   <a class="step done" href="#detail-hub-v0"><b>Hub v0</b>PR #18, shipped</a>
+  <a class="step done" href="#detail-handoff"><b>/handoff</b>PR #21, shipped</a>
   <a class="step done" href="#detail-tasks-concurrency-safety"><b>Store safety</b>PR #22, shipped</a>
   <a class="step done" href="#detail-wb-breakdown"><b>wb breakdown</b>PR #29, shipped</a>
+  <a class="step done" href="#detail-board-v2"><b>Board v2</b>PR #30, shipped</a>
   <a class="step active" href="#detail-jira-integration"><b>Jira emit</b>PR #32, in review</a>
   <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
   <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
@@ -173,7 +177,7 @@ sweep-review buffer from autoformatting itself (PR #27).
 - <a id="detail-xdg-open-fix"></a>**`xdg-open`/Slack fix** — stopped Slack's Electron bug from hijacking the system default-browser handler, wired into `install.sh` — task: `dotfiles--fix-xdg-open-slack-hijack` — PR #28
 - <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** — three-layer guard (agent-side "ask" hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — [guide](guides/tasks-store-guards.html) — task: `dotfiles--docs-roadmap-tasks-concurrency-safety`
 - <a id="detail-wb-breakdown"></a>**`wb breakdown`** — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — [recap](2026-07-13-wb-breakdown-recap.html) — task: `dotfiles--feat-wb-breakdown-skill`
-- <a id="detail-board-display-v2"></a>**Board display v2** — lifecycle stepper, Pipeline/Live/Stale tabs, dependency chips, sorting on top of the v1 HTML board — [detail](roadmap-board.html#what-shipped-in-v2-board-display-v2) · [recap](wb-board-display-v2-recap.html) — PR #30
+- <a id="detail-board-v2"></a>**Board display v2** — lifecycle stage stepper, Pipeline/Live/Stale tabs, dependency + parent/child relationships, repo/family filters, Key Findings, column sorting (the parent/family progress view lives here) — [recap](wb-board-display-v2-recap.html) — PR #30
 
 Ceremonies (dated clocks, recurring reviews) now live on their own page:
 [Ceremonies](ceremonies.html). Standing workflow constraints now live on

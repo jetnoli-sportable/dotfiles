@@ -2,7 +2,7 @@
 title: /handoff — route a discussion to the right worker
 status: current
 tile: Route something being discussed right now to a live session or a fresh one, without retyping context by hand.
-group: workbench
+group: workflow
 kind: guide
 updated: 2026-07-14
 ---
