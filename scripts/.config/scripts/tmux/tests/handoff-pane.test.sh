@@ -20,11 +20,14 @@
 # a stub can't reproduce a real TUI's render-transition timing, the same reason
 # handoff-poller.test.sh gives for keeping the real spawn out of automation.
 #
-# handoff.sh is exercised as a real subprocess (it has no source guard around
-# its --pane run body; the guard only prevents its switch/spawn dispatch from
-# firing when sourced). $TMUX is inherited from the suite's own tmux client;
-# $TMUX_PANE is overridden per call to point at a throwaway fixture pane so a
-# split can never land in the real window.
+# handoff.sh's whole run body — the --pane branch AND the switch/spawn path —
+# sits under one `[ "${BASH_SOURCE[0]}" = "${0}" ]` guard, so nothing dispatches
+# when the file is sourced (that is exactly what lets the sibling
+# handoff-poller.test.sh source it to reach the helper functions). This suite
+# therefore exercises the pane branch by running handoff.sh as a real
+# subprocess. $TMUX is inherited from the suite's own tmux client; $TMUX_PANE is
+# overridden per call to point at a throwaway fixture pane so a split can never
+# land in the real window.
 # Run: bash scripts/.config/scripts/tmux/tests/handoff-pane.test.sh
 set -uo pipefail
 
@@ -120,14 +123,23 @@ STUB_NOANCHOR="$(mk_stub noanchor 'exec cat >/dev/null')"
 # permission dialog — exercises the reused handshake end to end against a pane.
 STUB_PERM="$(mk_stub perm \
   "$FILLER"$'\n''echo "? for shortcuts"'$'\n''read -r _'$'\n''echo "Read(~/code/tasks/dotfiles--child.md)"'$'\n''echo "Do you want to proceed?"'$'\n''echo "1. Yes  2. Yes, do not ask again  3. No"'$'\n''exec cat >/dev/null')"
+# boots, consumes the injected pointer, then presents a dialog that is NOT the
+# tasks/Read one (no "~/code/tasks", no "Read" — a Bash tool prompt). Used in a
+# deliberately NARROW pane where the injected pointer's echo WRAPS: the only
+# source of "Read ~/code/tasks/..." tokens in the pane is the wrapped pointer
+# itself, so the permission gate must strip it (via the poller's -J join) and
+# NOT auto-approve this unrelated dialog. Regression guard for the wrapped-
+# pointer strip fix.
+STUB_WRAPPERM="$(mk_stub wrapperm \
+  "$FILLER"$'\n''echo "? for shortcuts"'$'\n''read -r _'$'\n''echo "Bash(rm -rf /tmp/scratch)"'$'\n''echo "Do you want to proceed?"'$'\n''echo "1. Yes  2. Yes, allow all edits  3. No"'$'\n''exec cat >/dev/null')"
 
 # mk_pane_session <session-name> <stub-dir> <fixture-cwd>  -> echoes fixture pane id
 # Creates a throwaway session whose panes launch `bash --norc` with <stub-dir>
 # on PATH first, then a fixture window cwd'd to <fixture-cwd>. The returned
 # pane id is what tests pass as $TMUX_PANE to handoff.sh.
 mk_pane_session() {
-  local sess="$1" stub="$2" cwd="$3"
-  tmux new-session -d -s "$sess" -x 200 -y 50
+  local sess="$1" stub="$2" cwd="$3" width="${4:-200}"
+  tmux new-session -d -s "$sess" -x "$width" -y 50
   SESSIONS_TO_KILL+=("$sess")
   # NOTE: set-option's -t takes a bare session name, NOT the `=name` exact form
   # (that form errors "no such session" here); the `=` form is only for
@@ -316,6 +328,25 @@ FIXP="$(mk_pane_session "$SP" "$STUB_PERM" "$WTP")"
 out="$(TMUX_PANE="$FIXP" HANDOFF_PERMISSION_TIMEOUT=8 bash "$HANDOFF" --pane --await-perm "Read the task file at ~/code/tasks/dotfiles--child.md - it carries the full context and states the first action to take." 2>&1)"; rc=$?
 assert_eq "handshake: exits 0" "0" "$rc"
 assert "handshake: cleared the tasks/ read permission prompt" "cleared the tasks/ read permission prompt" "$out"
+
+# ===========================================================================
+# Wrapped-pointer strip regression (KTD5 safety): in a NARROW pane the injected
+# ~130-char pointer echo wraps across rows. The permission gate's pointer strip
+# is line-oriented, so without the poller's -J join it would no-op and the
+# wrapped pointer's own "Read ~/code/tasks/..." text would satisfy the
+# co-occurrence check — auto-approving an UNRELATED dialog with the broad
+# "allow all edits" grant. Here the dialog is a Bash tool prompt (no tasks/Read
+# tokens of its own), so a match can ONLY come from a failure to strip the
+# wrapped pointer. Expect the mismatch outcome (no '2' sent), NOT "cleared".
+# This assertion fails if the -J join is ever removed from the poller.
+WTW="$(mk_worktree wtw)"
+SW="hp-wrap-$$"
+# width 90 -> the -h split gives ~44-col panes, guaranteeing the pointer wraps.
+FIXW="$(mk_pane_session "$SW" "$STUB_WRAPPERM" "$WTW" 90)"
+out="$(TMUX_PANE="$FIXW" HANDOFF_PERMISSION_TIMEOUT=8 bash "$HANDOFF" --pane --await-perm "Read the task file at ~/code/tasks/dotfiles--feat-handoff-pane-review.md - it carries the full context and states the first action to take." 2>&1)"; rc=$?
+assert_eq "wrapped-pointer strip: exits 0" "0" "$rc"
+assert "wrapped-pointer strip: unrelated dialog NOT auto-approved (mismatch outcome)" "didn't match the expected tasks/Read shape" "$out"
+refute "wrapped-pointer strip: did NOT falsely clear the prompt (would fire without -J)" "cleared the tasks/ read permission prompt" "$out"
 
 # ===========================================================================
 # Boot timeout: a pane that never shows a boot anchor fails loudly.

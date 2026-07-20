@@ -1,7 +1,7 @@
 ---
-title: /handoff — route a discussion to the right worker
+title: /handoff & /handoff-pane — route a discussion to the right worker
 status: current
-tile: Take what's being discussed and either switch to the agent already on it, or spin up a new task for it.
+tile: Take what's being discussed and either switch to the agent already on it, spin up a new task for it, or split a helper agent into this very window.
 group: personal-workflow
 kind: page
 updated: 2026-07-19

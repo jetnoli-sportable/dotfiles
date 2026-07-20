@@ -52,10 +52,20 @@ HANDOFF_PANE_SPLIT="${HANDOFF_PANE_SPLIT:--h}"
 # scoping convention — a bounded recent-lines window keeps stale scrollback
 # (or handoff.sh's own just-injected pointer sitting in the echoed input
 # line before Enter is processed) from ever entering the match.
+# -J joins wrapped rows back into one logical line per display line. This is
+# load-bearing for the permission handshake, not cosmetic: the pointer strip
+# in handoff_permission_prompt_matches is line-oriented (grep -vF), so it only
+# neutralizes the injected pointer while the pointer occupies ONE row. In the
+# --pane branch's narrow -h split (roughly half width) the ~130-char pointer
+# wraps across two rows, and without -J the strip would no-op — leaving the
+# pointer's own "Read ~/code/tasks/..." text to satisfy the co-occurrence gate
+# and blind-approve an unrelated dialog. -J makes the tail-20 window logical
+# lines so the strip lands on the whole pointer in both the full-width spawn
+# window and the split pane.
 handoff_wait_for_pane_pattern() {
   local target="$1" timeout="$2" pattern="$3" waited=0 screen
   while [ "$waited" -lt "$timeout" ]; do
-    screen="$(tmux capture-pane -ep -t "$target" 2>/dev/null | tail -n 20)"
+    screen="$(tmux capture-pane -epJ -t "$target" 2>/dev/null | tail -n 20)"
     if printf '%s' "$screen" | grep -qE "$pattern"; then
       printf '%s\n' "$screen"
       return 0
@@ -190,7 +200,13 @@ if [ "$mode" = "pane" ]; then
   # <repo> <slug> to derive it from — then verify it really is a git worktree.
   # A drifted cwd (the agent cd'd elsewhere earlier in this long-lived shell)
   # must fail loudly here, never silently split into the wrong directory.
-  worktree="$(tmux display -p -t "$TMUX_PANE" '#{pane_current_path}')"
+  # The `|| { … }` keeps set -e from aborting on a raw tmux error when
+  # $TMUX_PANE is set but stale/invalid (a dead or foreign pane id): emit the
+  # same "handoff:"-prefixed diagnostic as the guards on either side rather
+  # than a bare tmux stderr line. (set -e does not fire for the left side of
+  # a `||`, so the handler runs.)
+  worktree="$(tmux display -p -t "$TMUX_PANE" '#{pane_current_path}')" \
+    || { echo "handoff: could not resolve \$TMUX_PANE ($TMUX_PANE) — is it a live pane?" >&2; exit 1; }
   if ! git -C "$worktree" rev-parse --show-toplevel >/dev/null 2>&1; then
     echo "handoff: $worktree is not a git worktree — refusing to split (\$TMUX_PANE's cwd may have drifted off the worktree)" >&2
     exit 1
