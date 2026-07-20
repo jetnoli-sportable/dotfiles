@@ -1,13 +1,24 @@
 {
   "templates": "docs/_templates",
-  "pageDirs": ["docs", "docs/guides"],
-  "exclude": ["2026-07-12-tasks-dir-concurrency-safety-recap.md"],
+  "pageDirs": [
+    "docs",
+    "docs/guides"
+  ],
+  "exclude": [
+    "2026-07-12-tasks-dir-concurrency-safety-recap.md"
+  ],
   "hub": {
     "out": "docs/HUB.html",
     "eyebrow": "personal workflow",
     "title": "Hub",
     "intro": "Everything here is a note — and a task is a note labelled a task. This dashboard indexes every documented piece of the personal workflow; click a tile to open it, or press <kbd>prefix</kbd>+<kbd>h</kbd> in tmux. New here? Start with the <b>roadmap</b>, the <b>wb guide</b>, and <b>setup</b> below.",
     "groups": [
+      {
+        "key": "where-we-are",
+        "title": "Where we are",
+        "sub": "current status snapshot — shipped, in review, what's next",
+        "glyph": "◉"
+      },
       {
         "key": "start-here",
         "title": "Start here",
@@ -68,27 +79,89 @@
   "index": {
     "out": "docs/INDEX.md",
     "sources": [
-      { "kind": "tmux-binds", "path": "tmux/.config/tmux/tmux.conf", "tags": "tmux" },
-      { "kind": "zsh", "path": "zsh/.zshrc", "tags": "zsh" },
-      { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude",
+      {
+        "kind": "tmux-binds",
+        "path": "tmux/.config/tmux/tmux.conf",
+        "tags": "tmux"
+      },
+      {
+        "kind": "zsh",
+        "path": "zsh/.zshrc",
+        "tags": "zsh"
+      },
+      {
+        "kind": "skills",
+        "path": "claude/.claude/skills",
+        "tags": "claude",
         "guideOverrides": {
           "handoff": "docs/handoff-guide.html",
           "wb-board": "docs/wb-guide.html#wb-board---html--the-full-board-v2",
           "wb-breakdown": "docs/wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family",
           "wb-done": "docs/wb-guide.html#wb-done--wind-down-safely"
-        } },
-      { "kind": "scripts", "path": "scripts/.config/scripts/tmux", "tags": "tmux" },
-      { "kind": "scripts", "path": "scripts/.config/scripts", "tags": "shell" },
-      { "kind": "doc", "path": "scripts/.config/scripts/tmux/instructions.md", "tags": "tmux" },
-      { "kind": "doc", "path": "nvim/.config/nvim/instructions.md", "tags": "nvim" },
-      { "kind": "decisions", "path": "logs/decisions", "tags": "" },
-      { "kind": "memory", "path": "~/.claude/projects/-home-jetnoli-code-dotfiles/memory/MEMORY.md", "tags": "" },
-      { "kind": "tui", "path": "~/code/notes-tui/README.md", "name": "notes-tui", "invoke": "notes", "guide": "docs/guides/notes-tui.html", "tags": "" },
-      { "kind": "tui", "path": "~/code/replay-tui/README.md", "name": "replay-tui", "invoke": "replay", "guide": "docs/guides/replay-tui.html", "tags": "" },
-      { "kind": "taskstore", "path": "~/code/tasks", "tags": "" }
+        }
+      },
+      {
+        "kind": "scripts",
+        "path": "scripts/.config/scripts/tmux",
+        "tags": "tmux"
+      },
+      {
+        "kind": "scripts",
+        "path": "scripts/.config/scripts",
+        "tags": "shell"
+      },
+      {
+        "kind": "doc",
+        "path": "scripts/.config/scripts/tmux/instructions.md",
+        "tags": "tmux"
+      },
+      {
+        "kind": "doc",
+        "path": "nvim/.config/nvim/instructions.md",
+        "tags": "nvim"
+      },
+      {
+        "kind": "decisions",
+        "path": "logs/decisions",
+        "tags": ""
+      },
+      {
+        "kind": "memory",
+        "path": "~/.claude/projects/-home-jetnoli-code-dotfiles/memory/MEMORY.md",
+        "tags": ""
+      },
+      {
+        "kind": "tui",
+        "path": "~/code/notes-tui/README.md",
+        "name": "notes-tui",
+        "invoke": "notes",
+        "guide": "docs/guides/notes-tui.html",
+        "tags": ""
+      },
+      {
+        "kind": "tui",
+        "path": "~/code/replay-tui/README.md",
+        "name": "replay-tui",
+        "invoke": "replay",
+        "guide": "docs/guides/replay-tui.html",
+        "tags": ""
+      },
+      {
+        "kind": "taskstore",
+        "path": "~/code/tasks",
+        "tags": ""
+      }
     ]
   },
   "redact": {
-    "denylist": ["be--monorepo", "frontend", "lib--algorithms", "terraform-gcp", "tool--*", "qa--tools", "docs--architecture"]
+    "denylist": [
+      "be--monorepo",
+      "frontend",
+      "lib--algorithms",
+      "terraform-gcp",
+      "tool--*",
+      "qa--tools",
+      "docs--architecture"
+    ]
   }
 }

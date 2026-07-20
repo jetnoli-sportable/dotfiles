@@ -250,6 +250,7 @@
       <li><a href="#the-picker">The picker</a></li>
       <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
       <li><a href="#wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</a></li>
+      <li><a href="#wb-jira-create--file-a-task-or-family-as-jira-tickets">/wb-jira-create — file a task or family as Jira tickets</a></li>
       <li><a href="#bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</a></li>
       <li><a href="#the-task-store">The task store</a></li>
       <li><a href="#wb-board---html--the-full-board-v2">wb board --html — the full board (v2)</a></li>
@@ -554,6 +555,40 @@ buffer under <code>~/code/tasks/dossiers/&lt;parent-stem&gt;/</code>. <code>/wb-
 no argument lists tasks already tagged <code>breakdown-candidate</code>. Closing the
 last open child of a family, <code>wb done</code> prints the exact command to close
 the parent too.</p>
+<h2 id="wb-jira-create--file-a-task-or-family-as-jira-tickets">/wb-jira-create — file a task or family as Jira tickets</h2>
+<p>The reverse of <code>wb breakdown</code>'s ticket→task path: take a task (or a whole
+breakdown family) you scoped locally and <strong>emit</strong> it as new Jira tickets the
+team can see — in a chosen project (<strong>SFB</strong> by default, or <strong>SW</strong>, or
+another) — each created ticket's URL written back into the task's <code>jira:</code>
+field.</p>
+<pre><code>/wb-jira-create &lt;stem-or-family&gt;   # authors a proposal buffer, opens it for you
+wb jira-set &lt;repo&gt;--&lt;slug&gt; &lt;url&gt;   # (invoked for you) stamps a created ticket's URL back
+</code></pre>
+<p><code>/wb-jira-create</code> (the skill, <code>claude/.claude/skills/wb-jira-create/SKILL.md</code>)
+does the thinking and the talking to Jira. It gathers each task's title
+(→ ticket summary) and <code>## Plan</code> body (→ ticket description, shown in the
+buffer <strong>verbatim and in full</strong> — exactly what publishes to the shared
+tracker), drops any task that already has a <code>jira:</code> value, then writes a
+checkbox buffer for you to edit and approve. The buffer carries a run-level
+<strong><code>Project:</code></strong> field (default <code>SFB</code>, editable to <code>SW</code> or another key you can
+reach — the issue types on offer come from that project's own metadata), an
+editable per-ticket issue <strong>type</strong> (for SFB: Feature / Defect / Bug /
+Improvement / New Feature, default <code>Feature</code>), and one run-level
+<strong><code>Parent ticket:</code></strong> field: leave it blank for flat tickets, name an existing
+key like <code>SFB-1234</code> to link every child to it, or point at a batch row
+(default: the family's coordinator) to create that parent first and link the
+children to it with a generic &quot;Relates&quot; issue-link. Nothing is created until
+you approve; the tickets are created <strong>agent-side over the Atlassian MCP</strong>
+(create-only — this never transitions, edits, or updates an existing ticket).</p>
+<p>The one and only task-store write is <code>wb jira-set</code>, the locked write-back
+verb: for each created ticket it stamps the canonical URL into that task's
+<code>jira:</code> field. It's <strong>idempotent-or-refuse</strong> — writing an empty field,
+a no-op on an identical value (so a re-run after a partial failure is safe),
+and a loud refusal that changes nothing if the field already holds a
+<em>different</em> URL. A re-run is retry-safe end to end: before creating, the
+skill checks Jira for an existing <code>wb</code>-labelled ticket with the same summary
+and reuses it rather than double-filing. The Atlassian MCP must be connected
+with <code>write:jira-work</code> at run time.</p>
 <h2 id="bringing-a-gitignored-file-into-a-new-worktree">Bringing a gitignored file into a new worktree</h2>
 <p>A fresh worktree only has tracked files — anything gitignored (a local
 <code>config.hjson</code>, <code>node_modules</code>, credentials) is missing until you seed it.

@@ -83,13 +83,18 @@ fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
 <div class="roadmap-timeline">
   <a class="step done" href="#detail-docs-platform"><b>Docs platform</b>slice 5, shipped</a>
   <a class="step done" href="#detail-wb-core"><b>wb core</b>PR #7, shipped</a>
-  <a class="step active" href="#detail-hub-v0"><b>Hub v0</b>this work</a>
   <a class="step done" href="#detail-parent-child"><b>Parent/child</b>PR #17, shipped</a>
-  <a class="step done" href="#detail-board-v2"><b>Board v2</b>PR #30, shipped</a>
+  <a class="step done" href="#detail-hub-v0"><b>Hub v0</b>PR #18, shipped</a>
   <a class="step done" href="#detail-handoff"><b>/handoff</b>PR #21, shipped</a>
+  <a class="step done" href="#detail-tasks-concurrency-safety"><b>Store safety</b>PR #22, shipped</a>
+  <a class="step done" href="#detail-wb-breakdown"><b>wb breakdown</b>PR #29, shipped</a>
+  <a class="step done" href="#detail-board-v2"><b>Board v2</b>PR #30, shipped</a>
+  <a class="step active" href="#detail-jira-integration"><b>Jira emit</b>PR #32, in review</a>
   <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
   <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
 </div>
+
+<p style="margin:.2rem 0 0;font-size:.85rem;color:var(--mut)">Full current status: <a href="where-we-are.html">Where we are</a>.</p>
 
 ## Up next (max 3)
 
@@ -123,12 +128,11 @@ claim is always a waits-on link — `needs: <item>`, `clock: <date>`, or
 
 | Item | Status | Doc | What it is |
 |---|---|---|---|
-| <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) | active — this work; U5/U6 artifact index deferred | [requirements](brainstorms/2026-07-09-hub-v0-requirements.md) | Glossary, limitations, ceremonies pages, `/board` tile, this reshape, and cataloging the `wb-save`/`wb-resume`/`wb-done`/`wb-board` skill family (added to the plan 2026-07-11) |
 | <a id="detail-task-recall"></a>**Task recall** | queued — needs: boundary-rule | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it |
 | <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
 | <a id="detail-notes-tui-4b"></a>**Notes-tui integration, 4b** (real wiring) | queued — clock: 2026-07-24 (fix-forward experiment verdict) | [deep dive](slice-4b-deep-dive.html) · [ceremonies](ceremonies.html) | Original 4b wiring only proceeds if the fix-forward experiment changes real usage |
 | <a id="detail-boundary-rule"></a>**Personal/employer boundary rule** | queued — after: every other follow-up — chosen | [limitations](limitations.html) | Deliberately the final decision; Task recall above already depends on it landing |
-| <a id="detail-jira-integration"></a>**Jira integration** (`/board` + day-bookends halves) | active — Phase 1 (emit tasks → SFB tickets) open as PR #32; Phase 2 (sprint-pull) deferred | — | task: `dotfiles--feat-jira-integration` |
+| <a id="detail-jira-integration"></a>**Jira interop — emit** (Phase 1) | active — emit in review as PR #32; Phase 2 (sprint pull) deferred | [recap](2026-07-16-jira-interop-recap.html) | `/wb-jira-create` files a task or family as SFB tickets over the MCP behind an approval buffer; `wb jira-set` stamps each URL back — task: `dotfiles--feat-jira-integration` |
 | <a id="detail-second-opinion"></a>**`/second-opinion`** — ask the best available model at high effort, context-aware | proposed — raised 2026-07-11; new skill vs. tweaking an existing `/btw` still undecided | — | Formalizes today's ad-hoc pattern (spawn a top-tier-model subagent, full conversation context, high reasoning effort, to sanity-check a decision) as a reusable skill; no `/btw` skill or alias exists anywhere in this repo, so confirm what that refers to before building |
 
 ## Parked
@@ -147,7 +151,7 @@ Considered, and decided against — kept here so the reasoning isn't lost.
 
 ## Shipped
 
-<span class="chip ok">20 shipped</span> — full history and rationale live
+<span class="chip ok">21 shipped</span> — full history and rationale live
 on each linked recap page; these no longer take a queue/live/parked slot.
 Also landed inline, without their own row: `wb done --close` plus a guard
 against self-killing the calling session (PR #19), and a fix stopping the
@@ -159,6 +163,7 @@ sweep-review buffer from autoformatting itself (PR #27).
 - <a id="detail-notes-tui-4a"></a>**Notes-tui integration, 4a** (capture) — [deep dive](slice-4b-deep-dive.html)
 - <a id="detail-docs-platform"></a>**Docs platform** (generated pages, Hub, INDEX, `/help`) — [docgen](docgen.html) · [slice-5 recap](slice-5-recap.html)
 - <a id="detail-guide-pages-hub"></a>**Per-skill/TUI guide pages + tile dashboard** — `docs/guides/*` · [slice-5 recap](slice-5-recap.html)
+- <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) — glossary, limitations, ceremonies pages, the `/board` tile, the roadmap reshape, and the `wb-save`/`wb-resume`/`wb-done`/`wb-board` skill catalog; U5/U6 artifact index deferred — PR #18
 - <a id="detail-board-html"></a>**`/board`** — full HTML task-board view — [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) — PR #14
 - <a id="detail-wb-pause"></a>**`wb pause`** (new status + subcommand + keybind) — [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) — PR #14
 - <a id="detail-wb-reconcile-core"></a>**`wb reconcile`** — drift detection + review/apply flow — [PR #1 recap](pr1-wb-workbench-recap.html) · [detail](roadmap-wb-reconcile.html) — PR #14

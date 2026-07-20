@@ -1,0 +1,470 @@
+<style>
+  :root {
+    --ground: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef0f4;
+    --ink: #1a1d23;
+    --muted: #5b6472;
+    --faint: #8b93a1;
+    --line: #e0e3ea;
+    --accent: #5566d6;
+    --accent-ink: #3f4fc0;
+    --pass: #2f9e5f;
+    --pass-bg: #e7f4ec;
+    --pending: #b5820f;
+    --pending-bg: #f8efd6;
+    --blocked: #c4553b;
+    --blocked-bg: #f7e6e0;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", "Cascadia Code", monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", "Inter", system-ui, sans-serif;
+    --shadow: 0 1px 2px rgba(20, 24, 34, .04), 0 4px 16px rgba(20, 24, 34, .05);
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0f1319;
+      --surface: #161b23;
+      --surface-2: #1d2530;
+      --ink: #e6e9ef;
+      --muted: #9aa4b4;
+      --faint: #6b7585;
+      --line: #262d38;
+      --accent: #8393f0;
+      --accent-ink: #a3b0f6;
+      --pass: #57c98a;
+      --pass-bg: #16281f;
+      --pending: #e0b64e;
+      --pending-bg: #2c2515;
+      --blocked: #e58163;
+      --blocked-bg: #2e1c17;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .35);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f6f7f9; --surface: #ffffff; --surface-2: #eef0f4; --ink: #1a1d23;
+    --muted: #5b6472; --faint: #8b93a1; --line: #e0e3ea; --accent: #5566d6;
+    --accent-ink: #3f4fc0; --pass: #2f9e5f; --pass-bg: #e7f4ec; --pending: #b5820f;
+    --pending-bg: #f8efd6; --blocked: #c4553b; --blocked-bg: #f7e6e0;
+    --shadow: 0 1px 2px rgba(20,24,34,.04), 0 4px 16px rgba(20,24,34,.05);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0f1319; --surface: #161b23; --surface-2: #1d2530; --ink: #e6e9ef;
+    --muted: #9aa4b4; --faint: #6b7585; --line: #262d38; --accent: #8393f0;
+    --accent-ink: #a3b0f6; --pass: #57c98a; --pass-bg: #16281f; --pending: #e0b64e;
+    --pending-bg: #2c2515; --blocked: #e58163; --blocked-bg: #2e1c17;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1rem, 4vw, 2rem) 5rem; }
+
+  /* ---- header ---- */
+  .eyebrow {
+    font-size: .72rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent-ink); font-weight: 650; margin: 0 0 .6rem;
+  }
+  h1 {
+    font-size: clamp(1.7rem, 4vw, 2.5rem); line-height: 1.1; margin: 0 0 .7rem;
+    letter-spacing: -.02em; text-wrap: balance; font-weight: 720;
+  }
+  .lede { font-size: 1.05rem; color: var(--muted); max-width: 68ch; margin: 0 0 1.4rem; }
+  .lede a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+  .lede a:hover { border-bottom-color: var(--accent); }
+
+  /* ---- progress ---- */
+  .progress-card {
+    display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 1rem 1.2rem; box-shadow: var(--shadow); margin-bottom: 1.2rem;
+  }
+  .progress-num { font-size: 1.9rem; font-weight: 730; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .progress-num span { color: var(--faint); font-weight: 500; }
+  .progress-track { flex: 1 1 200px; height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; min-width: 140px; }
+  .progress-fill { height: 100%; width: 0; background: var(--accent); border-radius: 99px; transition: width .35s ease; }
+  @media (prefers-reduced-motion: reduce) { .progress-fill { transition: none; } }
+  .reset-btn {
+    font-family: var(--sans); font-size: .8rem; color: var(--muted); background: transparent;
+    border: 1px solid var(--line); border-radius: 7px; padding: .4rem .7rem; cursor: pointer;
+  }
+  .reset-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+  /* ---- legend ---- */
+  .legend { display: flex; gap: .5rem .9rem; flex-wrap: wrap; margin-bottom: 2.4rem; font-size: .82rem; color: var(--muted); }
+  .legend .chip { margin-right: .3rem; }
+
+  /* ---- chips ---- */
+  .chip {
+    display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; font-weight: 650;
+    letter-spacing: .04em; text-transform: uppercase; padding: .2rem .55rem; border-radius: 99px;
+    white-space: nowrap;
+  }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+  .chip.pass { color: var(--pass); background: var(--pass-bg); }
+  .chip.pending { color: var(--pending); background: var(--pending-bg); }
+  .chip.blocked { color: var(--blocked); background: var(--blocked-bg); }
+
+  /* ---- sections ---- */
+  section { margin-bottom: 2.6rem; }
+  .sec-head { display: flex; align-items: baseline; gap: .7rem; margin-bottom: .3rem; border-bottom: 1px solid var(--line); padding-bottom: .6rem; }
+  .sec-num {
+    font-family: var(--mono); font-size: .8rem; color: var(--accent-ink); font-weight: 600;
+    background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 6px; padding: .15rem .5rem;
+  }
+  .sec-head h2 { font-size: 1.25rem; margin: 0; letter-spacing: -.01em; font-weight: 680; flex: 1; }
+  .sec-sub { color: var(--muted); font-size: .92rem; margin: .55rem 0 1.1rem; max-width: 70ch; }
+
+  /* ---- test items ---- */
+  .item {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); margin-bottom: .8rem; overflow: hidden;
+    display: grid; grid-template-columns: auto 1fr; align-items: start;
+  }
+  .item > label.tick {
+    padding: 1.05rem .3rem 1rem 1.1rem; cursor: pointer; display: flex; align-items: center;
+  }
+  .item input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none; width: 22px; height: 22px; margin: 0;
+    border: 2px solid var(--faint); border-radius: 6px; cursor: pointer; position: relative;
+    background: var(--surface); flex: none; transition: border-color .15s, background .15s;
+  }
+  .item input[type="checkbox"]:hover { border-color: var(--accent); }
+  .item input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .item input[type="checkbox"]:checked { background: var(--pass); border-color: var(--pass); }
+  .item input[type="checkbox"]:checked::after {
+    content: ""; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px;
+    border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(43deg);
+  }
+  .item .body { padding: .9rem 1.2rem 1.05rem .5rem; min-width: 0; }
+  .item.done .body .what { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+  .item-top { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .15rem; }
+  .what { font-weight: 620; font-size: 1rem; }
+  .expect { color: var(--muted); font-size: .92rem; margin-top: .35rem; }
+  .expect strong { color: var(--ink); font-weight: 620; }
+  .ref { font-family: var(--mono); font-size: .72rem; color: var(--faint); margin-left: auto; white-space: nowrap; }
+
+  pre {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: .7rem .9rem; overflow-x: auto; margin: .6rem 0 .3rem; font-family: var(--mono);
+    font-size: .82rem; line-height: 1.5; color: var(--ink);
+  }
+  code { font-family: var(--mono); font-size: .86em; background: var(--surface-2); padding: .1em .35em; border-radius: 4px; }
+  pre code { background: none; padding: 0; font-size: 1em; }
+
+  /* ---- callout ---- */
+  .callout {
+    border-radius: var(--radius); padding: 1rem 1.2rem; margin: 0 0 1.3rem;
+    border: 1px solid var(--blocked); background: var(--blocked-bg); font-size: .92rem;
+  }
+  .callout strong { color: var(--blocked); }
+  .callout.info { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+  .callout.info strong { color: var(--accent-ink); }
+
+  .foot { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--faint); font-size: .82rem; }
+  .foot code { font-size: .8em; }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Jira interop · Phase 1 (emit) · PR&nbsp;#32</p>
+  <h1>Verification checklist</h1>
+  <p class="lede">
+    What to run to confirm the emit flow is really done — take a wb task or family, file it as Jira
+    tickets (project <code>SFB</code> by default, or <code>SW</code>), and stamp each ticket URL back.
+    The automated gates below are already green; the manual
+    end-to-end run against a live Atlassian MCP is the outstanding gate. Tracks against
+    <a href="https://github.com/jetnoli-sportable/dotfiles/pull/32">PR&nbsp;#32</a> and the plan's Verification Contract.
+  </p>
+
+  <div class="progress-card">
+    <div class="progress-num"><span id="pdone">0</span><span> / </span><span id="ptotal">0</span> checked</div>
+    <div class="progress-track"><div class="progress-fill" id="pfill"></div></div>
+    <button class="reset-btn" id="reset">Reset</button>
+  </div>
+
+  <div class="legend">
+    <span><span class="chip pass">verified</span>already run &amp; green</span>
+    <span><span class="chip pending">to run</span>manual, needs live MCP</span>
+    <span><span class="chip blocked">gate</span>merge / done criteria</span>
+  </div>
+
+  <!-- ================= AUTOMATED ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">A</span>
+      <h2>Automated gates</h2>
+      <span class="chip pass">verified</span>
+    </div>
+    <p class="sec-sub">
+      Already run during the build and after the code-review fixes — all green. Re-run any of these to
+      re-confirm; none touch Jira or the shared task store.
+    </p>
+
+    <div class="item" data-id="a1">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Verb + guardrail unit tests</span><span class="ref">U1, U4</span></div>
+        <pre><code>bash scripts/.config/scripts/tmux/tests/wb-jira-set.test.sh</code></pre>
+        <p class="expect"><strong>Expect:</strong> <code>ALL PASS</code> — happy path, idempotent re-run, refuse-clobber, missing stem, empty URL, field-insert, real-holder lock contention, plus the 5 SKILL grep-guardrail checks (create-only, no store Edit/Write, routes through <code>wb jira-set</code>).</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="a2">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">No regressions in sibling suites</span><span class="ref">Docker sandbox</span></div>
+        <pre><code>docker build -t wb-tests -f scripts/.config/scripts/tmux/tests/Dockerfile . -q
+docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests \
+  bash scripts/.config/scripts/tmux/tests/wb-breakdown.test.sh
+docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests \
+  bash scripts/.config/scripts/tmux/tests/wb-lock-integration.test.sh</code></pre>
+        <p class="expect"><strong>Expect:</strong> both <code>ALL PASS</code>. The lock-integration suite must run in the sandbox (real background flock holders).</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="a3">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Shell lint clean (no new findings)</span><span class="ref">wb.sh</span></div>
+        <pre><code>docker run --rm -v "$(pwd)":/repo:ro -w /repo koalaman/shellcheck:stable \
+  scripts/.config/scripts/tmux/wb.sh</code></pre>
+        <p class="expect"><strong>Expect:</strong> the same 34 pre-existing findings as <code>origin/development</code> — <strong>zero new</strong> in <code>cmd_jira_set</code>.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="a4">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Docs regenerate idempotently</span><span class="ref">U4</span></div>
+        <pre><code>DOCGEN_ROOT="$(git rev-parse --show-toplevel)" \
+  bash scripts/.config/scripts/docgen.sh all   # run twice</code></pre>
+        <p class="expect"><strong>Expect:</strong> second run is a byte-for-byte no-op; <code>wb-guide.html</code>, <code>INDEX.md</code> carry the verb + <code>/wb-jira-create</code>; <code>/help "wb jira-create"</code> resolves.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PREREQUISITES ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">B</span>
+      <h2>Prerequisites for the live run</h2>
+      <span class="chip pending">to run</span>
+    </div>
+    <p class="sec-sub">The emit flow only works with a connected Atlassian MCP. Confirm depth, not just reachability, before creating anything.</p>
+
+    <div class="item" data-id="b1">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Atlassian MCP connected with <code>write:jira-work</code></span></div>
+        <p class="expect">Reconnect the connector in this session. The plan flags it dropped mid-session, so this is the real runtime dependency.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b2">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Preflight resolves cloudId + accountId + project types + tools</span><span class="ref">KTD9</span></div>
+        <p class="expect"><code>getAccessibleAtlassianResources</code> → a <code>cloudId</code> for the Atlassian site; <code>atlassianUserInfo</code> → your <code>accountId</code>; <code>getJiraProjectIssueTypesMetadata</code> → the target project's own issue types (Feature etc. for SFB); and <code>createJiraIssue</code> / <code>createIssueLink</code> / <code>searchJiraIssuesUsingJql</code> / <code>getIssueLinkTypes</code> all present.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b3">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">"Relates" link type exists for SFB</span><span class="ref">KTD5</span></div>
+        <p class="expect"><code>getIssueLinkTypes({cloudId})</code> returns a usable <strong>Relates</strong>-equivalent. Note whether a nicer directional type exists (it feeds the v2 Epic-hierarchy upgrade) — but "Relates" is what v1 commits to.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b4">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Build throwaway fixture tasks</span></div>
+        <p class="expect">Create a couple of planned tasks with obviously-disposable titles (e.g. <code>[wb-emit-test] flat ticket</code>) so the resulting tickets are identifiable. A 2-task family (one coordinator + one child) covers AE3. The buffer's <code>Project:</code> field defaults to <code>SFB</code>; edit it to <code>SW</code> to exercise that path (step C9).</p>
+        <pre><code>wb new --planned dotfiles wb-emit-test-flat &lt;&lt;'EOF'
+## Plan
+throwaway — verifying /wb-jira-create emit
+EOF</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MANUAL E2E ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">C</span>
+      <h2>Manual end-to-end emit</h2>
+      <span class="chip pending">to run</span>
+    </div>
+
+    <div class="callout">
+      <strong>These create real tickets in the shared tracker (SFB or whichever project you pick).</strong> Create-only means they cannot be
+      un-created from the workbench — if a test ticket is unwanted, delete it in Jira by hand afterward. Do the
+      dry rehearsal (C1) first; it makes zero Jira writes.
+    </div>
+
+    <div class="item" data-id="c1">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Dry rehearsal — buffer, then close unchecked</span><span class="ref">zero writes</span></div>
+        <p class="expect">Run <code>/wb-jira-create dotfiles--wb-emit-test-flat</code>. In the buffer, confirm: one create-block, <code>type: Feature</code> default, the <strong>full <code>## Plan</code> body shown verbatim</strong> (not truncated), and an accurate skipped list. Then <strong>close it with nothing checked</strong> → reports a clean no-op, <strong>no <code>createJiraIssue</code> call</strong>. Proves resolve → gather → preflight → buffer → parse with zero Jira/store writes.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c2">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Flat single ticket, blank parent</span><span class="ref">AE2</span></div>
+        <p class="expect">Standalone task, <code>Parent ticket:</code> blank → approve → <strong>one</strong> flat SFB ticket, <strong>no</strong> issue-link. Then: <code>grep '^jira:' ~/code/tasks/dotfiles--wb-emit-test-flat.md</code> shows the created ticket's exact URL.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c3">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Family with coordinator as parent</span><span class="ref">AE3</span></div>
+        <p class="expect">2-task family, <code>Parent ticket:</code> = the coordinator batch row → the <strong>coordinator ticket is created first</strong>, the child is created and <strong>"Relates"-linked</strong> to it, and <strong>both</strong> <code>jira:</code> fields are stamped. Confirm the link direction in Jira and that no self-link was made on the coordinator.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c4">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Existing ticket key as parent</span><span class="ref">AE4</span></div>
+        <p class="expect"><code>Parent ticket:</code> = an existing <code>SFB-XXXX</code> → children "Relates"-linked to it, <strong>no parent ticket created</strong>.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c5">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Already-ticketed task is skipped</span><span class="ref">AE1 · R11</span></div>
+        <p class="expect">Run against a family where one member already carries <code>jira:</code> → the buffer proposes only the others and lists that one under <strong>skipped</strong>; it is never re-created.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c6">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Retry creates no duplicates</span><span class="ref">KTD8 dedup</span></div>
+        <p class="expect">Re-run <code>/wb-jira-create</code> on the <em>same</em> family (imagine a prior partial failure). The dedup search finds the existing <code>wb</code>-labelled tickets by exact summary and <strong>reuses</strong> them — <strong>zero</strong> new tickets in SFB. This is the critical retry-safety guarantee.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c7">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Write-back is idempotent-or-refuse</span><span class="ref">wb jira-set · KTD3</span></div>
+        <pre><code>wb jira-set dotfiles--wb-emit-test-flat &lt;same-url&gt;   # no-op, exit 0
+wb jira-set dotfiles--wb-emit-test-flat &lt;different-url&gt; # refuses, exit 1, field unchanged</code></pre>
+        <p class="expect"><strong>Expect:</strong> same URL → no-op success; a different URL → fails loud naming the existing value and writes nothing.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c8">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">MCP-drop mid-flow stops cleanly</span><span class="ref">KTD9 · KTD2</span></div>
+        <p class="expect">If the connector drops during the approval wait, the post-approval re-preflight catches it and stops <strong>before any <code>createJiraIssue</code></strong> — zero tickets, zero writes. If a create succeeds but its stamp fails, the report names exactly which tickets landed and which didn't (no fabricated success, no rollback claim).</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c9">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Project selection — SFB vs SW</span><span class="ref">Project: field</span></div>
+        <p class="expect">Leave <code>Project:</code> = <code>SFB</code> → ticket lands in SFB, URL validates as <code>SFB-&lt;n&gt;</code>. Then run again with <code>Project:</code> edited to <code>SW</code> → the re-preflight re-resolves SW's issue types, the dedup JQL scopes to <code>project = SW</code>, the ticket lands in SW as <code>SW-&lt;n&gt;</code>, and a <code>type:</code> not valid in SW is rejected <strong>before</strong> any create. Confirm the stamped <code>jira:</code> URL points at the right project.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DONE GATE ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">D</span>
+      <h2>Done when</h2>
+      <span class="chip blocked">gate</span>
+    </div>
+    <p class="sec-sub">Phase 1 is complete once the automated gates stay green and the live run confirms the emit flow end-to-end.</p>
+
+    <div class="item" data-id="d1">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">All of section A green + C1–C8 confirmed on a live MCP</span></div>
+        <p class="expect">The one manual dependency the plan calls out; everything else is already verified.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="d2">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Test tickets cleaned up in Jira</span></div>
+        <p class="expect">Delete the throwaway <code>[wb-emit-test]</code> tickets created during C2–C9.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="d3">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Merge PR&nbsp;#32</span><span class="ref">feat/jira-integration → development</span></div>
+        <p class="expect">Squash-merge, then <code>wb done</code> to wind down the worktree. Phase 2 (sprint-pull) stays deferred as its own increment.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    Durable source: <code>~/code/tasks/dossiers/dotfiles--feat-jira-integration/test-plan.html</code> ·
+    Plan: <code>docs/plans/2026-07-16-001-feat-jira-ticket-interop-plan.md</code> ·
+    Recap: <code>docs/2026-07-16-jira-interop-recap.md</code>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var KEY = "wb-jira-emit-testplan-v1";
+    var items = Array.prototype.slice.call(document.querySelectorAll(".item"));
+    var boxes = {};
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { saved = {}; }
+
+    var total = items.length;
+    document.getElementById("ptotal").textContent = total;
+    var pdone = document.getElementById("pdone");
+    var pfill = document.getElementById("pfill");
+
+    function render() {
+      var done = 0;
+      items.forEach(function (it) {
+        var id = it.getAttribute("data-id");
+        var box = boxes[id];
+        if (box.checked) { done++; it.classList.add("done"); } else { it.classList.remove("done"); }
+      });
+      pdone.textContent = done;
+      pfill.style.width = total ? (done / total * 100) + "%" : "0";
+    }
+
+    items.forEach(function (it) {
+      var id = it.getAttribute("data-id");
+      var box = it.querySelector('input[type="checkbox"]');
+      boxes[id] = box;
+      box.checked = !!saved[id];
+      box.addEventListener("change", function () {
+        saved[id] = box.checked;
+        try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+        render();
+      });
+    });
+
+    document.getElementById("reset").addEventListener("click", function () {
+      saved = {};
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      items.forEach(function (it) { boxes[it.getAttribute("data-id")].checked = false; });
+      render();
+    });
+
+    render();
+  })();
+</script>
