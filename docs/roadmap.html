@@ -341,7 +341,7 @@ fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
   <a class="step active" href="#detail-hub-v0"><b>Hub v0</b>this work</a>
   <a class="step done" href="#detail-parent-child"><b>Parent/child</b>PR #17, shipped</a>
   <a class="step done" href="#detail-board-v2"><b>Board v2</b>PR #30, shipped</a>
-  <a class="step active" href="#detail-handoff"><b>/handoff</b>in build</a>
+  <a class="step done" href="#detail-handoff"><b>/handoff</b>PR #21, shipped</a>
   <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
   <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
 </div>
@@ -387,12 +387,6 @@ claim is always a waits-on link — <code>needs: &lt;item&gt;</code>, <code>cloc
 <td>active — this work; U5/U6 artifact index deferred</td>
 <td><a href="brainstorms/2026-07-09-hub-v0-requirements.md">requirements</a></td>
 <td>Glossary, limitations, ceremonies pages, <code>/board</code> tile, this reshape, and cataloging the <code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code>/<code>wb-board</code> skill family (added to the plan 2026-07-11)</td>
-</tr>
-<tr>
-<td><a id="detail-handoff"></a><strong><code>/handoff</code></strong> — route a discussion to the right worker</td>
-<td>active — building on <code>feat/handoff-v1</code>; single-target validated by hand 2026-07-10; fan-out after: parent/child (PR #17) — chosen</td>
-<td><a href="roadmap-handoff.html">detail</a></td>
-<td>Switch to an existing agent's session or <code>wb new</code> it</td>
 </tr>
 <tr>
 <td><a id="detail-task-recall"></a><strong>Task recall</strong></td>
@@ -445,8 +439,11 @@ claim is always a waits-on link — <code>needs: &lt;item&gt;</code>, <code>cloc
 <li><a id="detail-wb-reconcile-glossary"></a><strong><code>wb reconcile --glossary</code></strong> (auto-detecting glossary gaps) — a <code>wb.sh</code> feature, not a docgen/Hub one; not this push's job.</li>
 </ul>
 <h2 id="shipped">Shipped</h2>
-<p><span class="chip ok">17 shipped</span> — full history and rationale live
-on each linked recap page; these no longer take a queue/live/parked slot.</p>
+<p><span class="chip ok">20 shipped</span> — full history and rationale live
+on each linked recap page; these no longer take a queue/live/parked slot.
+Also landed inline, without their own row: <code>wb done --close</code> plus a guard
+against self-killing the calling session (PR #19), and a fix stopping the
+sweep-review buffer from autoformatting itself (PR #27).</p>
 <ul>
 <li><a id="detail-step-zero"></a><strong>Step zero</strong> (hooks, alias cleanup) — attention-pipeline hooks wired, dead <code>n</code> alias removed.</li>
 <li><a id="detail-task-store-frontmatter"></a><strong>Central task store + frontmatter</strong> — <a href="roadmap-wb-design.html">wb design</a></li>
@@ -462,7 +459,10 @@ on each linked recap page; these no longer take a queue/live/parked slot.</p>
 <li><a id="detail-gpaste"></a><strong>GPaste clipboard-history manager</strong> — <a href="9g-gpaste-recap.html">9g recap</a></li>
 <li><a id="detail-precommit-hook-fix"></a><strong><code>docgen.sh</code>'s pre-commit hook</strong> — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test</li>
 <li><a id="detail-parent-child"></a><strong>Task parent/child relationship</strong> (incl. cross-repo/full-stack tasks) — <a href="roadmap-handoff.html">detail</a> — PR #17</li>
-<li><a id="detail-tasks-concurrency-safety"></a><strong>Central task-store git/file safety across concurrent agents</strong> — three-layer guard (agent-side &quot;ask&quot; hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — <a href="guides/tasks-store-guards.html">guide</a> · <a href="2026-07-12-tasks-dir-concurrency-safety-recap.html">recap</a> — task: <code>dotfiles--docs-roadmap-tasks-concurrency-safety</code></li>
+<li><a id="detail-handoff"></a><strong><code>/handoff</code></strong> — route something being discussed to the worker that should own it — an already-live tmux session (switch + clipboard) or a freshly spawned one (<code>wb new --agent</code> + inject); single-target only — fan-out (one discussion → several linked tasks) still not built, waiting on the parent/child loop — <a href="roadmap-handoff.html">detail</a> · <a href="handoff-guide.html">guide</a> — PR #21</li>
+<li><a id="detail-queue"></a><strong><code>/queue</code></strong> — per-worktree queue for stashing follow-ups without losing the current thread (<code>&lt;leader&gt;aq</code>/<code>&lt;leader&gt;aQ</code>, <code>queue.lua</code>) — task: <code>dotfiles--feat-queue-command</code> — PR #24</li>
+<li><a id="detail-xdg-open-fix"></a><strong><code>xdg-open</code>/Slack fix</strong> — stopped Slack's Electron bug from hijacking the system default-browser handler, wired into <code>install.sh</code> — task: <code>dotfiles--fix-xdg-open-slack-hijack</code> — PR #28</li>
+<li><a id="detail-tasks-concurrency-safety"></a><strong>Central task-store git/file safety across concurrent agents</strong> — three-layer guard (agent-side &quot;ask&quot; hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — <a href="guides/tasks-store-guards.html">guide</a> — task: <code>dotfiles--docs-roadmap-tasks-concurrency-safety</code></li>
 <li><a id="detail-wb-breakdown"></a><strong><code>wb breakdown</code></strong> — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — <a href="2026-07-13-wb-breakdown-recap.html">recap</a> — task: <code>dotfiles--feat-wb-breakdown-skill</code></li>
 <li><a id="detail-board-v2"></a><strong>Board display v2</strong> — lifecycle stage stepper, Pipeline/Live/Stale tabs, dependency + parent/child relationships, repo/family filters, Key Findings, column sorting (the parent/family progress view lives here) — <a href="wb-board-display-v2-recap.html">recap</a> — PR #30</li>
 </ul>

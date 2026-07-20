@@ -234,7 +234,7 @@
 </head>
 <body data-kind="hub">
 <div class="statusbar" aria-hidden="true">
-  <span><b>33</b> docs</span>
+  <span><b>36</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
   <span class="right">updated 2026-07-18</span>
 </div>
@@ -292,13 +292,6 @@
   <div class="group-head"><h2>Workflow</h2>
     <span class="group-sub">~/code/dotfiles — how the pieces work</span></div>
   <div class="grid">
-    <a class="tile" href="guides/tasks-store-guards.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        </div>
-      <h3>tasks-store-guards</h3>
-      <p>The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.</p>
-      <div class="path">docs/guides/tasks-store-guards.html</div>
-    </a>
     <a class="tile" href="handoff-guide.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         </div>
@@ -306,12 +299,12 @@
       <p>Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</p>
       <div class="path">docs/handoff-guide.html</div>
     </a>
-    <a class="tile" href="ceremonies.html">
+    <a class="tile" href="guide-format.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         </div>
-      <h3>Ceremonies — dated clocks and recurring reviews</h3>
-      <p>Check-in points, not automatic triggers. What each one is for, and what happens when it passes.</p>
-      <div class="path">docs/ceremonies.html</div>
+      <h3>Guide format — the shapes a skill/TUI guide page follows</h3>
+      <p>The single-skill 5-section shape, and the command-family alternate — which to use, and how docgen finds either.</p>
+      <div class="path">docs/guide-format.html</div>
     </a>
     <a class="tile" href="limitations.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
@@ -319,6 +312,20 @@
       <h3>Limitations — standing, by-design workflow constraints</h3>
       <p>Known gaps and caveats that explain otherwise-surprising behavior, one place.</p>
       <div class="path">docs/limitations.html</div>
+    </a>
+    <a class="tile" href="guides/tasks-store-guards.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        </div>
+      <h3>tasks-store-guards</h3>
+      <p>The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.</p>
+      <div class="path">docs/guides/tasks-store-guards.html</div>
+    </a>
+    <a class="tile" href="ceremonies.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        </div>
+      <h3>Ceremonies — dated clocks and recurring reviews</h3>
+      <p>Check-in points, not automatic triggers. What each one is for, and what happens when it passes.</p>
+      <div class="path">docs/ceremonies.html</div>
     </a>
     <a class="tile" href="docgen.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
@@ -349,7 +356,7 @@
       <p>Route one piece of the current, in-conversation discussion to the worker that should own it — switch to an already-live tmux session (clipb…</p>
       <div class="path">claude/.claude/skills/handoff/SKILL.md</div>
     </a>
-    <a class="tile mini" href="../claude/.claude/skills/help/SKILL.md">
+    <a class="tile mini" href="guides/help.html">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
       <h3>/help</h3>
@@ -377,35 +384,35 @@
       <p>Check GitHub for open PRs in watched repos, pull each PR down as a git worktree, spin up a per-PR tmux window, write a PR brief, and run a …</p>
       <div class="path">claude/.claude/skills/pr-review-session/SKILL.md</div>
     </a>
-    <a class="tile mini" href="wb-guide.html">
+    <a class="tile mini" href="wb-guide.html#wb-board---html--the-full-board-v2">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
       <h3>/wb-board</h3>
       <p>Pull up the task-store status table from inside a Claude Code session — default invocation shells out to `wb board` and relays its plain-te…</p>
       <div class="path">claude/.claude/skills/wb-board/SKILL.md</div>
     </a>
-    <a class="tile mini" href="wb-guide.html">
+    <a class="tile mini" href="wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
       <h3>/wb-breakdown</h3>
       <p>Split one oversized task in `~/code/tasks` (or an incoming Jira ticket) into a linked parent/child family of session-sized tasks, through a…</p>
       <div class="path">claude/.claude/skills/wb-breakdown/SKILL.md</div>
     </a>
-    <a class="tile mini" href="wb-guide.html">
+    <a class="tile mini" href="wb-guide.html#wb-done--wind-down-safely">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
       <h3>/wb-done</h3>
       <p>Run `wb done` (the wb workbench&#39;s safe wind-down — removes the worktree, flips the task to done) from inside a Claude Code session without …</p>
       <div class="path">claude/.claude/skills/wb-done/SKILL.md</div>
     </a>
-    <a class="tile mini" href="wb-guide.html">
+    <a class="tile mini" href="guides/wb-resume.html">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
       <h3>/wb-resume</h3>
       <p>Reads a task&#39;s `## Handoffs` log in a freshly `/clear`ed Claude Code session and picks the work back up — locates the most recent `/wb-save…</p>
       <div class="path">claude/.claude/skills/wb-resume/SKILL.md</div>
     </a>
-    <a class="tile mini" href="wb-guide.html">
+    <a class="tile mini" href="guides/wb-save.html">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
       <h3>/wb-save</h3>
@@ -471,13 +478,6 @@
       <p>Take what&#39;s being discussed and either switch to the agent already on it, or spin up a new task for it.</p>
       <div class="path">docs/roadmap-handoff.html</div>
     </a>
-    <a class="tile mini" href="roadmap-open-questions.html">
-      <div class="tile-top"><span class="tile-glyph">✎</span>
-        </div>
-      <h3>Open Questions — deferred decisions from the 2026-07-07 doc review</h3>
-      <p>Deliberately unresolved decisions and process record. Standing limitations moved to their own page.</p>
-      <div class="path">docs/roadmap-open-questions.html</div>
-    </a>
     <a class="tile mini" href="roadmap-day-bookends.html">
       <div class="tile-top"><span class="tile-glyph">✎</span>
         </div>
@@ -489,8 +489,22 @@
       <div class="tile-top"><span class="tile-glyph">✎</span>
         </div>
       <h3>Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</h3>
-      <p>What 4b actually builds, why it&#39;s gated, and what the verdict decides.</p>
+      <p>What 4b would build; the 4a gate resolved early (unused), now superseded by the fix-forward experiment.</p>
       <div class="path">docs/slice-4b-deep-dive.html</div>
+    </a>
+    <a class="tile mini" href="roadmap-wb-reconcile.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        </div>
+      <h3>wb reconcile — task-store/git drift detection</h3>
+      <p>Cross-reference the task store against real git state; report drift, never auto-apply.</p>
+      <div class="path">docs/roadmap-wb-reconcile.html</div>
+    </a>
+    <a class="tile mini" href="roadmap-open-questions.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        </div>
+      <h3>Open Questions — deferred decisions from the 2026-07-07 doc review</h3>
+      <p>Deliberately unresolved decisions and process record. Standing limitations moved to their own page.</p>
+      <div class="path">docs/roadmap-open-questions.html</div>
     </a>
     <a class="tile mini" href="roadmap-task-recall.html">
       <div class="tile-top"><span class="tile-glyph">✎</span>
@@ -506,13 +520,6 @@
       <p>Why wb works the way it does — sort logic, safe wind-down, decision history.</p>
       <div class="path">docs/roadmap-wb-design.html</div>
     </a>
-    <a class="tile mini" href="roadmap-wb-reconcile.html">
-      <div class="tile-top"><span class="tile-glyph">✎</span>
-        </div>
-      <h3>wb reconcile — task-store/git drift detection</h3>
-      <p>Cross-reference the task store against real git state; report drift, never auto-apply.</p>
-      <div class="path">docs/roadmap-wb-reconcile.html</div>
-    </a>
   </div>
   
 </section>
@@ -521,12 +528,12 @@
   <div class="group-head"><h2>Recaps</h2>
     <span class="group-sub">point-in-time write-ups of shipped work, newest first</span></div>
   <div class="grid dense">
-    <a class="tile mini" href="2026-07-13-wb-breakdown-recap.html">
+    <a class="tile mini" href="9g-gpaste-recap.html">
       <div class="tile-top"><span class="tile-glyph">▪</span>
         </div>
-      <h3>Recap — wb-breakdown (split an oversized task into a family)</h3>
-      <p>A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.</p>
-      <div class="path">docs/2026-07-13-wb-breakdown-recap.html</div>
+      <h3>9g recap — GPaste clipboard-history manager</h3>
+      <p>GPaste configured, Ctrl&#43;Shift&#43;G opens history. What to verify yourself.</p>
+      <div class="path">docs/9g-gpaste-recap.html</div>
     </a>
     <a class="tile mini" href="wb-board-display-v2-recap.html">
       <div class="tile-top"><span class="tile-glyph">▪</span>
@@ -535,12 +542,12 @@
       <p>Lifecycle stepper, Pipeline tab, dependency relationships, filters, Key Findings — shipped, Docker-verified, ready for review.</p>
       <div class="path">docs/wb-board-display-v2-recap.html</div>
     </a>
-    <a class="tile mini" href="2026-07-12-tasks-dir-concurrency-safety-recap.html">
+    <a class="tile mini" href="2026-07-13-wb-breakdown-recap.html">
       <div class="tile-top"><span class="tile-glyph">▪</span>
         </div>
-      <h3>Recap — TASKS_DIR concurrency safety (hook guards &#43; per-task write locks)</h3>
-      <p>Ten units, three layers, four real incidents — how ~/code/tasks got safe for concurrent agents, and what&#39;s still deliberately dormant.</p>
-      <div class="path">docs/2026-07-12-tasks-dir-concurrency-safety-recap.html</div>
+      <h3>Recap — wb-breakdown (split an oversized task into a family)</h3>
+      <p>A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.</p>
+      <div class="path">docs/2026-07-13-wb-breakdown-recap.html</div>
     </a>
     <a class="tile mini" href="2026-07-12-workflow-push-recap.html">
       <div class="tile-top"><span class="tile-glyph">▪</span>
@@ -562,13 +569,6 @@
       <h3>9f recap — editor/tmux ergonomics batch</h3>
       <p>Six small nvim/tmux items shipped in one PR. What to verify yourself.</p>
       <div class="path">docs/9f-ergonomics-recap.html</div>
-    </a>
-    <a class="tile mini" href="9g-gpaste-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>9g recap — GPaste clipboard-history manager</h3>
-      <p>GPaste configured, Ctrl&#43;Shift&#43;G opens history. What to verify yourself.</p>
-      <div class="path">docs/9g-gpaste-recap.html</div>
     </a>
     <a class="tile mini" href="slice-5-recap.html">
       <div class="tile-top"><span class="tile-glyph">▪</span>

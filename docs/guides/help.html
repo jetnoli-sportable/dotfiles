@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>/handoff — route a discussion to the right worker</title>
+<title>help</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
@@ -232,97 +232,110 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="guide" data-group="workflow">
+<body data-kind="guide" data-group="skills">
 <div class="statusbar">
-  <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
-  <span class="gen">docgen · generated from <b>docs/handoff-guide.md</b> — edit the .md, not this file</span>
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="gen">docgen · generated from <b>docs/guides/help.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-14</span>
 </div>
 <div class="shell">
   <nav class="toc">
-    <div class="brand">/handoff — route a discussion to the right worker</div>
-    <div class="brand-sub">Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</div>
-    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <div class="brand">help</div>
+    <div class="brand-sub">Why-do-I-have-X / what-does-Y-do / how-do-I-use-Z, answered from the INDEX with citations.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
-      <li><a href="#try-it">Try it</a></li>
-      <li><a href="#the-first-action-lives-in-the-task-file-not-a-flag">The first action lives in the task file, not a flag</a></li>
-      <li><a href="#what-v1-doesnt-do">What v1 doesn&#39;t do</a></li>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
     </ul>
   </nav>
   <main>
     <header class="doc guide-banner">
-      <span class="eyebrow">workflow · guide</span>
-      <h1>/handoff — route a discussion to the right worker</h1>
-      <p class="dek">Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</p>
+      <span class="eyebrow">skills · guide</span>
+      <h1>help</h1>
+      <p class="dek">Why-do-I-have-X / what-does-Y-do / how-do-I-use-Z, answered from the INDEX with citations.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
     </header>
     <article>
-<p><code>/handoff</code> takes something being discussed in the current conversation and
-routes it to the worker that should own it — an already-live tmux session
-(switch + clipboard) or a freshly spawned one (<code>wb new --agent</code> + inject).
-Single-target only: one repo/slug per invocation.</p>
-<h2 id="try-it">Try it</h2>
-<p>Mid-conversation, once a clearly-standalone piece of work has come up:</p>
-<pre><code>/handoff
+<h2 id="overview">Overview</h2>
+<p>Answers questions about the personal workflow — tmux binds, zsh aliases
+and functions, scripts, Claude skills, TUIs, docs, decisions — by reading
+the generated <code>docs/INDEX.md</code> and following its links, never by grepping
+cold. This is the <em>reasoning</em> half of the help system: it can chain
+<code>source</code> → <code>guide</code> → decision records to answer a &quot;why&quot; question with a
+quoted <code>file:line</code>, not just a lookup. The deterministic twin is the
+<code>prefix+?</code> fzf picker (<code>help.sh</code>) — no LLM, straight index lookup;
+<code>/help</code> is for when the question needs actual reasoning over that same
+data.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>In any Claude Code session:</p>
+<pre><code>/help why do I have prefix+m bound to the wb picker
 </code></pre>
-<p>The skill infers <code>repo</code>/<code>slug</code> from context (checking <code>~/code/tasks/</code> for a
-task that already represents this, same lookup the worktree-seeding rule
-already uses), seeds or updates that task file, then hands off to
-<code>scripts/.config/scripts/tmux/handoff.sh &lt;repo&gt; &lt;slug&gt;</code> — no flags to pass,
-no path to type by hand.</p>
-<p>What happens next depends on whether that repo/slug already has a live
-session:</p>
+<p>The agent reads <code>docs/INDEX.md</code>'s JSONL block, matches the entry by name/
+tag, follows its <code>source</code> line and any linked decision record, then
+answers in chat with a <code>file:line</code> citation — never from the one-liner
+alone.</p>
+<h2 id="reference">Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Question shape</th>
+<th>What gets followed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><em>what / how</em></td>
+<td>The entry's <code>source</code>; its <code>guide</code> page's markdown sibling when one exists (<code>docs/*.html</code> → <code>docs/*.md</code>); <code>SKILL.md</code> for skills, <code>README</code> for TUIs</td>
+</tr>
+<tr>
+<td><em>why</em></td>
+<td><code>kind: decision</code> entries — <code>logs/decisions/*.md</code> and task-store <code>## Decisions</code> sections (<code>~/code/tasks/*.md</code>) — plus the comment block at the entry's <code>source</code> line; quotes the deciding line, not a paraphrase</td>
+</tr>
+<tr>
+<td>No match</td>
+<td>Names the 2–3 nearest entries by name/tag so you can redirect — never invents a binding, entry, or rationale that isn't in the INDEX or its linked sources</td>
+</tr>
+<tr>
+<td>INDEX missing/stale</td>
+<td>Says so and points at <code>docgen.sh index</code></td>
+</tr>
+</tbody>
+</table>
+<p>Every INDEX entry carries <code>id</code>, <code>kind</code> (bind / alias / function / script
+/ skill / tui / doc / decision), <code>name</code>, <code>oneliner</code>, <code>source</code> (path:line),
+<code>invoke</code>, <code>guide</code>, <code>tags</code>. Repo-relative sources resolve under
+<code>~/code/dotfiles/</code>; <code>~/</code>-form sources resolve under <code>$HOME</code>.</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
-<li><strong>Live session exists</strong> → switches you into it and puts a short pointer
-on the clipboard (<code>wl-copy</code>), naming the task file. Paste it in whenever
-you're ready.</li>
-<li><strong>No live session</strong> → <code>wb new --agent</code> spawns one, <code>handoff.sh</code> polls for
-the boot-ready screen, injects the pointer, then polls for and clears the
-one-time <code>~/code/tasks/</code> read-permission prompt automatically. You land
-on a session that's already read its task file and started working.</li>
+<li><strong>Only as current as the last rebuild.</strong> The INDEX is generated
+(<code>docgen index</code>), not live — a binding added since the last
+<code>docgen.sh</code> run won't show up until the next one.</li>
+<li><strong>Employer-repo content is deliberately withheld</strong> (the redaction
+guard) — a question that runs into that wall gets &quot;out of scope for
+the personal INDEX,&quot; not a guess.</li>
+<li><strong>Reasoning, not search</strong> — for a large-surface &quot;find me everything
+matching X&quot; sweep, the <code>prefix+?</code> picker's fzf fuzzy-match over every
+entry is often faster than a conversational round-trip.</li>
 </ul>
-<h2 id="the-first-action-lives-in-the-task-file-not-a-flag">The first action lives in the task file, not a flag</h2>
-<p>Unlike a typical CLI tool, <code>handoff.sh</code> takes no <code>--first-action</code> flag.
-<code>/handoff</code> writes a line directly into the target task file's body,
-immediately under its title — the exact convention this task file itself
-used to bootstrap its own <code>/ce-plan</code> pass:</p>
-<pre><code>**First action when picked up:** `/ce-plan` from this file.
-</code></pre>
-<p>Defaults to <code>/ce-plan</code>; the skill only picks something else (e.g.
-<code>/ce-work</code>) when the work is already fully scoped, and always says which
-it chose and why. This isn't just a style choice — it also means the
-pointer <code>handoff.sh</code> injects is a single fixed string with nothing
-runtime-variable in it, which is what makes the boot-ready/permission-
-prompt anchors safe to match against (see <code>docs/roadmap-handoff.md</code>'s
-dry-run findings for the mechanical reasoning).</p>
-<h2 id="what-v1-doesnt-do">What v1 doesn't do</h2>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
 <ul>
-<li><strong>Fan-out.</strong> One discussion → several linked tasks depends on the task
-parent/child relationship — already shipped (PR #17), not just designed.
-The gap is that <code>/handoff</code> itself isn't wired to loop over it yet.
-<code>/handoff</code> routes the single most relevant target and says so.</li>
-<li><strong>Instructing an already-busy live agent directly.</strong> The switch path is
-clipboard-only — you paste the pointer in yourself when the agent is
-ready for it, rather than <code>/handoff</code> injecting into a pane that might be
-mid-turn on something else.</li>
-<li><strong>Non-blocking invocation.</strong> Running independently of the current
-turn — not blocking on it, not affecting its response — is a real,
-different idea raised while planning v1, deliberately parked until v1
-has seen real usage (<code>docs/roadmap-handoff.md</code> &quot;Follow-on idea&quot;).</li>
-<li><strong>Self-handoff between stages.</strong> Clearing your own context mid-task
-(e.g. after <code>/ce-plan</code> finishes, before <code>/ce-work</code> starts) is a
-different mechanic entirely — same session, not a different one — and
-its own not-yet-planned follow-up (<code>docs/roadmap-handoff.md</code>
-&quot;Follow-on idea: self-handoff between stages&quot;).</li>
+<li>The deterministic twin, <code>prefix+?</code> in tmux (<code>help.sh</code>,
+<code>scripts/.config/scripts/tmux/help.sh</code>), is the fzf picker over the
+same <code>docs/INDEX.md</code> — Enter opens the thing (<code>xdg-open</code> for
+docs/guides, <code>nvim +line</code> for everything else), preview shows source
+context or a skill's own description. See <a href="../setup.html">setup</a> for
+where it's introduced alongside the rest of the shell/terminal stack.</li>
+<li>Nothing to unwire: <code>/help</code> only ever reads <code>docs/INDEX.md</code> and its
+linked sources — it never writes anything.</li>
 </ul>
-<p>Full mechanical rationale — the anchor sets, the permission handshake, why
-<code>wb.sh</code> is never touched, all three dry-run findings — lives in
-<a href="roadmap-handoff.html"><code>roadmap-handoff.md</code></a>, not repeated here.</p>
 </article>
     <footer>
-  Generated by <code>docgen</code> from <code>docs/handoff-guide.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/guides/help.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
   </main>

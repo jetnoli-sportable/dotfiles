@@ -4,7 +4,7 @@ status: current
 tile: Capture-dumb, retrieval-smart notes over a flat markdown corpus.
 group: tuis
 kind: guide
-updated: 2026-07-07
+updated: 2026-07-14
 ---
 
 ## Overview
@@ -56,8 +56,10 @@ repo (`xdg-open ~/code/notes-tui/notes-guide.html`).
   grouping — `--by context` groups by repo:branch only; session-level
   filtering is the planned slice-4b `--context` flag.
 - Not yet wired into `wb`: `wb new`/`wb done` don't stamp or pull digests
-  automatically. That's slice 4b (`roadmap.md` §4), gated on this capture
-  window's verdict.
+  automatically. That's slice 4b's original plan (`roadmap.md`); the 4a
+  usage-window verdict resolved early (2026-07-10, unused), so 4b is now
+  superseded by the capture fix-forward experiment — see
+  [Ceremonies](../ceremonies.html).
 - `notes process` proposes only; the apply path lands behind a git review
   gate later.
 

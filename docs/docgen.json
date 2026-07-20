@@ -1,6 +1,7 @@
 {
   "templates": "docs/_templates",
   "pageDirs": ["docs", "docs/guides"],
+  "exclude": ["2026-07-12-tasks-dir-concurrency-safety-recap.md"],
   "hub": {
     "out": "docs/HUB.html",
     "eyebrow": "personal workflow",
@@ -72,11 +73,9 @@
       { "kind": "skills", "path": "claude/.claude/skills", "tags": "claude",
         "guideOverrides": {
           "handoff": "docs/handoff-guide.html",
-          "wb-board": "docs/wb-guide.html",
-          "wb-breakdown": "docs/wb-guide.html",
-          "wb-done": "docs/wb-guide.html",
-          "wb-resume": "docs/wb-guide.html",
-          "wb-save": "docs/wb-guide.html"
+          "wb-board": "docs/wb-guide.html#wb-board---html--the-full-board-v2",
+          "wb-breakdown": "docs/wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family",
+          "wb-done": "docs/wb-guide.html#wb-done--wind-down-safely"
         } },
       { "kind": "scripts", "path": "scripts/.config/scripts/tmux", "tags": "tmux" },
       { "kind": "scripts", "path": "scripts/.config/scripts", "tags": "shell" },

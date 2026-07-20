@@ -4,7 +4,7 @@ status: current
 tile: Lifecycle stepper, Pipeline tab, dependency relationships, filters, Key Findings — shipped, Docker-verified, ready for review.
 group: recaps
 kind: page
-updated: 2026-07-13
+updated: 2026-07-14
 ---
 
 Ten implementation units on `feat/wb-board-display`, executed against

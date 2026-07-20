@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
   <span class="gen">docgen · generated from <b>docs/guides/tasks-store-guards.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-12</span>
+  <span class="right">updated 2026-07-14</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -247,6 +247,7 @@
       <li><a href="#overview">Overview</a></li>
       <li><a href="#coverage-matrix--who-is-stopped-where">Coverage matrix — who is stopped, where</a></li>
       <li><a href="#walkthrough--one-dangerous-command-traced-through-all-three-layers">Walkthrough — one dangerous command, traced through all three layers</a></li>
+      <li><a href="#the-paved-path-wb-sync">The paved path: wb sync</a></li>
       <li><a href="#kill-switches">Kill switches</a></li>
       <li><a href="#runbook--lock-contention-exit-75">Runbook — lock contention (exit 75)</a></li>
       <li><a href="#runbook--refused-rewind-aftermath">Runbook — refused-rewind aftermath</a></li>
@@ -416,6 +417,11 @@ git porcelain command's multiple internal <code>&quot;prepared&quot;</code> call
 need their own sentinel), and allows exactly one transaction. The TTL
 is 120 seconds either way.</li>
 </ol>
+<h2 id="the-paved-path-wb-sync">The paved path: <code>wb sync</code></h2>
+<p><code>wb sync</code> removes the reason to reach for <code>git reset --hard</code> in the first
+place: it fetches, checks for a clean fast-forward, and refuses loudly on
+anything else. It's the alternative L1's own &quot;ask&quot; message points you at —
+reach for it before a raw rewind, not after.</p>
 <h2 id="kill-switches">Kill switches</h2>
 <p>Each layer checks its own switch file, under
 <code>${XDG_STATE_HOME:-$HOME/.local/state}/wb/</code>, before doing anything else —
