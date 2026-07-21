@@ -39,16 +39,33 @@ source "$WB"
 HANDOFF_BOOT_TIMEOUT="${HANDOFF_BOOT_TIMEOUT:-30}"
 HANDOFF_PERMISSION_TIMEOUT="${HANDOFF_PERMISSION_TIMEOUT:-20}"
 
+# --pane split direction (KTD6) — the one place the horizontal-vs-vertical
+# choice lives, so flipping side-by-side to stacked is a single-word change
+# (or a per-invocation `HANDOFF_PANE_SPLIT=-v` override) rather than a literal
+# scattered through the pane branch. Default `-h` = side-by-side, matching the
+# decision-buffer split precedent (claude/.claude/skills/decision-buffer/SKILL.md:174).
+HANDOFF_PANE_SPLIT="${HANDOFF_PANE_SPLIT:--h}"
+
 # handoff_wait_for_pane_pattern <target> <timeout_secs> <extended-regex> —
 # polls <target>'s recent pane text for <pattern>, 1s between attempts, up
 # to <timeout_secs>. Mirrors lib.sh's own tmux_pane_awaiting_input tail-20
 # scoping convention — a bounded recent-lines window keeps stale scrollback
 # (or handoff.sh's own just-injected pointer sitting in the echoed input
 # line before Enter is processed) from ever entering the match.
+# -J joins wrapped rows back into one logical line per display line. This is
+# load-bearing for the permission handshake, not cosmetic: the pointer strip
+# in handoff_permission_prompt_matches is line-oriented (grep -vF), so it only
+# neutralizes the injected pointer while the pointer occupies ONE row. In the
+# --pane branch's narrow -h split (roughly half width) the ~130-char pointer
+# wraps across two rows, and without -J the strip would no-op — leaving the
+# pointer's own "Read ~/code/tasks/..." text to satisfy the co-occurrence gate
+# and blind-approve an unrelated dialog. -J makes the tail-20 window logical
+# lines so the strip lands on the whole pointer in both the full-width spawn
+# window and the split pane.
 handoff_wait_for_pane_pattern() {
   local target="$1" timeout="$2" pattern="$3" waited=0 screen
   while [ "$waited" -lt "$timeout" ]; do
-    screen="$(tmux capture-pane -ep -t "$target" 2>/dev/null | tail -n 20)"
+    screen="$(tmux capture-pane -epJ -t "$target" 2>/dev/null | tail -n 20)"
     if printf '%s' "$screen" | grep -qE "$pattern"; then
       printf '%s\n' "$screen"
       return 0
@@ -135,8 +152,124 @@ handoff_permission_prompt_matches() {
 # vs-$0 property already relied on above to source wb.sh safely.
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
 
-if [ "$#" -ne 2 ]; then
+# Arg parse — split flags from positionals in one pass. The original
+# two-positional switch/spawn contract is preserved untouched: an invocation
+# with no --pane still collects exactly <repo> <slug> and takes the unchanged
+# path below. --pane selects the mode; --await-perm is the child-binding
+# handshake flag (KTD5); --pane's payload and switch/spawn's repo/slug both
+# fall through as positionals.
+mode="switch"
+await_perm=0
+args=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pane) mode="pane" ;;
+    --await-perm) await_perm=1 ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+
+# --pane branch (KTD1) — entirely mechanical and self-contained: resolve the
+# invoking pane's worktree, split the current window, boot-poll + inject, and
+# (only for child binding, KTD5) clear the one-time tasks/ read prompt. It
+# never writes the task store and never takes a task-file lock, and it returns
+# before any switch/spawn logic below. Everything conversational — binding
+# choice, posture, payload authoring, child seeding — is the /handoff-pane
+# skill's job (claude/.claude/skills/handoff-pane/SKILL.md).
+if [ "$mode" = "pane" ]; then
+  # $TMUX/$TMUX_PANE are this branch's only environment inputs. Fail loudly if
+  # either is missing — the $TMUX case mirrors the switch/spawn guard below;
+  # $TMUX_PANE is the invoking agent's own pane, and its cwd is the worktree
+  # both agents will share.
+  if [ -z "${TMUX:-}" ]; then
+    echo "handoff: --pane must run from inside a tmux client" >&2
+    exit 1
+  fi
+  if [ -z "${TMUX_PANE:-}" ]; then
+    echo "handoff: --pane needs \$TMUX_PANE set (the invoking pane, whose cwd is the shared worktree)" >&2
+    exit 1
+  fi
+  if [ "${#args[@]}" -ne 1 ]; then
+    echo "usage: handoff.sh --pane [--await-perm] <payload>" >&2
+    exit 1
+  fi
+  payload="${args[0]}"
+
+  # KTD3: resolve the worktree from the invoking pane's cwd — pane mode has no
+  # <repo> <slug> to derive it from — then verify it really is a git worktree.
+  # A drifted cwd (the agent cd'd elsewhere earlier in this long-lived shell)
+  # must fail loudly here, never silently split into the wrong directory.
+  # The `|| { … }` keeps set -e from aborting on a raw tmux error when
+  # $TMUX_PANE is set but stale/invalid (a dead or foreign pane id): emit the
+  # same "handoff:"-prefixed diagnostic as the guards on either side rather
+  # than a bare tmux stderr line. (set -e does not fire for the left side of
+  # a `||`, so the handler runs.)
+  worktree="$(tmux display -p -t "$TMUX_PANE" '#{pane_current_path}')" \
+    || { echo "handoff: could not resolve \$TMUX_PANE ($TMUX_PANE) — is it a live pane?" >&2; exit 1; }
+  if ! git -C "$worktree" rev-parse --show-toplevel >/dev/null 2>&1; then
+    echo "handoff: $worktree is not a git worktree — refusing to split (\$TMUX_PANE's cwd may have drifted off the worktree)" >&2
+    exit 1
+  fi
+
+  # KTD3: split a PLAIN pane (no trailing command) in the current window, then
+  # launch claude by typing it into the new pane's interactive shell. Never
+  # `split-window ... 'claude'` — that runs claude under `/bin/sh -c` (missing
+  # the interactive-shell PATH that puts claude on $PATH) and, with no
+  # remain-on-exit set, would leave no shell behind to diagnose a failed
+  # launch. Mirrors wb_layout_session's own send-keys launch (wb.sh:800).
+  # Split direction is the HANDOFF_PANE_SPLIT constant (KTD6), never a literal.
+  pane="$(tmux split-window "$HANDOFF_PANE_SPLIT" -t "$TMUX_PANE" -c "$worktree" -P -F '#{pane_id}')"
+  tmux send-keys -t "$pane" -l 'claude'
+  tmux send-keys -t "$pane" Enter
+
+  # R6: reuse the existing boot-ready poller (same anchor set as the spawn
+  # path), pointed at the new pane instead of a spawned :agent window.
+  if ! handoff_wait_for_pane_pattern "$pane" "$HANDOFF_BOOT_TIMEOUT" '\? for shortcuts|Try "|[0-9]+% ctx' >/dev/null; then
+    echo "handoff: split a helper pane ($pane) but it never showed a boot-ready anchor within ${HANDOFF_BOOT_TIMEOUT}s — check it by hand" >&2
+    exit 1
+  fi
+
+  # R6/R7: inject the payload exactly like the spawn path — one literal-flag
+  # send-keys call, Enter as a SEPARATE call (never one call with an embedded
+  # newline: premature-submission risk), plus the same resend-Enter guard for
+  # the first-Enter-dropped-mid-TUI-transition case documented at the spawn
+  # injector above. The payload is opaque here (posture-blind, KTD7) — the
+  # skill composed it. Never sends /model (R7).
+  tmux send-keys -t "$pane" -l "$payload"
+  tmux send-keys -t "$pane" Enter
+  sleep 1
+  tmux send-keys -t "$pane" Enter
+
+  # KTD5: run the permission handshake ONLY when the skill passed --await-perm
+  # (child binding, whose payload points at a ~/code/tasks file outside the
+  # worktree). The common ephemeral path reads only inside the already-trusted
+  # worktree, so no outside-cwd prompt appears — skip the poll entirely.
+  # Gating is on the explicit flag, never on payload content (payload-sniffing
+  # would silently flip behavior when a prompt is reworded).
+  if [ "$await_perm" = 1 ]; then
+    if ! pane_text="$(handoff_wait_for_pane_pattern "$pane" "$HANDOFF_PERMISSION_TIMEOUT" 'Do you want to proceed\?')"; then
+      echo "handoff: split the helper pane ($pane) and injected the pointer — no permission prompt seen within ${HANDOFF_PERMISSION_TIMEOUT}s (it may already be clear, or the agent hasn't reached its first action yet)" >&2
+      exit 0
+    fi
+    if handoff_permission_prompt_matches "$pane_text" "$payload"; then
+      # Same single-keystroke menu answer the spawn path uses — this menu
+      # selects and submits on the keystroke itself, no trailing Enter.
+      tmux send-keys -t "$pane" -l '2'
+      echo "handoff: split the helper pane ($pane), injected the pointer, cleared the tasks/ read permission prompt"
+    else
+      echo "handoff: split the helper pane ($pane) and injected the pointer — a permission prompt appeared but didn't match the expected tasks/Read shape; leaving it for you to answer" >&2
+    fi
+  else
+    echo "handoff: split a helper pane ($pane), booted claude, and injected the payload"
+  fi
+  exit 0
+fi
+
+# Switch/spawn path — the unchanged two-positional contract.
+if [ "${#args[@]}" -ne 2 ]; then
   echo "usage: handoff.sh <repo> <slug>" >&2
+  echo "       handoff.sh --pane [--await-perm] <payload>" >&2
   exit 1
 fi
 
@@ -151,8 +284,8 @@ if [ -z "${TMUX:-}" ]; then
   exit 1
 fi
 
-repo="$1"
-slug="$2"
+repo="${args[0]}"
+slug="${args[1]}"
 
 # wb_task_file/wb_seed_task (wb.sh) never sanitize $repo, and $slug's only
 # sanitize step (wb_sanitize) rewrites `/`/`.`/`:` for the display name —

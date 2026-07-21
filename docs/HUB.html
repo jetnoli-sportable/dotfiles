@@ -236,7 +236,7 @@
 <div class="statusbar" aria-hidden="true">
   <span><b>38</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
-  <span class="right">updated 2026-07-18</span>
+  <span class="right">updated 2026-07-19</span>
 </div>
 <main>
 <header class="doc">
@@ -310,8 +310,8 @@
     <a class="tile" href="handoff-guide.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         </div>
-      <h3>/handoff — route a discussion to the right worker</h3>
-      <p>Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</p>
+      <h3>/handoff &amp; /handoff-pane — route a discussion to the right worker</h3>
+      <p>Route something being discussed right now to a live session, a fresh one, or a helper agent in this very window — without retyping context by hand.</p>
       <div class="path">docs/handoff-guide.html</div>
     </a>
     <a class="tile" href="guide-format.html">
@@ -370,6 +370,13 @@
       <h3>/handoff</h3>
       <p>Route one piece of the current, in-conversation discussion to the worker that should own it — switch to an already-live tmux session (clipb…</p>
       <div class="path">claude/.claude/skills/handoff/SKILL.md</div>
+    </a>
+    <a class="tile mini" href="../claude/.claude/skills/handoff-pane/SKILL.md">
+      <div class="tile-top"><span class="tile-glyph">◆</span>
+        </div>
+      <h3>/handoff-pane</h3>
+      <p>Route a piece of the current discussion to a second `claude` agent in a split pane of THIS tmux window, sharing this session&#39;s worktree — s…</p>
+      <div class="path">claude/.claude/skills/handoff-pane/SKILL.md</div>
     </a>
     <a class="tile mini" href="guides/help.html">
       <div class="tile-top"><span class="tile-glyph">◆</span>
@@ -486,19 +493,19 @@
   <div class="group-head"><h2>Design notes</h2>
     <span class="group-sub">reached from the roadmap timeline — listed here for direct access</span></div>
   <div class="grid dense">
+    <a class="tile mini" href="roadmap-handoff.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        </div>
+      <h3>/handoff &amp; /handoff-pane — route a discussion to the right worker</h3>
+      <p>Take what&#39;s being discussed and either switch to the agent already on it, spin up a new task for it, or split a helper agent into this very window.</p>
+      <div class="path">docs/roadmap-handoff.html</div>
+    </a>
     <a class="tile mini" href="roadmap-board.html">
       <div class="tile-top"><span class="tile-glyph">✎</span>
         </div>
       <h3>/board — task-board visualization</h3>
       <p>Full HTML board shipped — lifecycle stepper, Pipeline tab, relationships, filters, Key Findings.</p>
       <div class="path">docs/roadmap-board.html</div>
-    </a>
-    <a class="tile mini" href="roadmap-handoff.html">
-      <div class="tile-top"><span class="tile-glyph">✎</span>
-        </div>
-      <h3>/handoff — route a discussion to the right worker</h3>
-      <p>Take what&#39;s being discussed and either switch to the agent already on it, or spin up a new task for it.</p>
-      <div class="path">docs/roadmap-handoff.html</div>
     </a>
     <a class="tile mini" href="roadmap-day-bookends.html">
       <div class="tile-top"><span class="tile-glyph">✎</span>
