@@ -1,0 +1,314 @@
+<title>Post-crash merge batch — verification checklist</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    /* Tokyo Night — Day (light) */
+    --ground: #e1e2e7;   --surface: #ffffff;  --surface-2: #e9e9ed;
+    --ink: #343b58;      --muted: #6a6f87;    --faint: #8990b3;
+    --line: #c4c8da;     --line-2: #d7dae6;
+    --accent: #2e7de9;   --accent-ink: #2559b8; --accent-soft: #d3e0fb;
+    --purple: #7847bd;
+    --pass: #587539;     --pass-bg: #dfe8cf;
+    --pending: #8c6c3e;  --pending-bg: #f0e5cf;
+    --blocked: #c64343;  --blocked-bg: #f6dcdc;
+    --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --shadow: 0 1px 2px rgba(52,59,88,.05), 0 6px 22px rgba(52,59,88,.07);
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      /* Tokyo Night — Storm (dark) */
+      --ground: #1a1b26;   --surface: #24283b;  --surface-2: #2a2e42;
+      --ink: #c0caf5;      --muted: #9aa5ce;    --faint: #737aa2;
+      --line: #2f3549;     --line-2: #3b4261;
+      --accent: #7aa2f7;   --accent-ink: #a9c1ff; --accent-soft: #263056;
+      --purple: #bb9af7;
+      --pass: #9ece6a;     --pass-bg: #1f2b1a;
+      --pending: #e0af68;  --pending-bg: #2e2716;
+      --blocked: #f7768e;  --blocked-bg: #331c22;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 26px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #e1e2e7; --surface: #ffffff; --surface-2: #e9e9ed; --ink: #343b58;
+    --muted: #6a6f87; --faint: #8990b3; --line: #c4c8da; --line-2: #d7dae6;
+    --accent: #2e7de9; --accent-ink: #2559b8; --accent-soft: #d3e0fb; --purple: #7847bd;
+    --pass: #587539; --pass-bg: #dfe8cf; --pending: #8c6c3e; --pending-bg: #f0e5cf;
+    --blocked: #c64343; --blocked-bg: #f6dcdc;
+    --shadow: 0 1px 2px rgba(52,59,88,.05), 0 6px 22px rgba(52,59,88,.07);
+  }
+  :root[data-theme="dark"] {
+    --ground: #1a1b26; --surface: #24283b; --surface-2: #2a2e42; --ink: #c0caf5;
+    --muted: #9aa5ce; --faint: #737aa2; --line: #2f3549; --line-2: #3b4261;
+    --accent: #7aa2f7; --accent-ink: #a9c1ff; --accent-soft: #263056; --purple: #bb9af7;
+    --pass: #9ece6a; --pass-bg: #1f2b1a; --pending: #e0af68; --pending-bg: #2e2716;
+    --blocked: #f7768e; --blocked-bg: #331c22;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 26px rgba(0,0,0,.4);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.58; -webkit-font-smoothing: antialiased;
+    font-size: 16px;
+  }
+  .wrap { width: min(1180px, 88vw); margin: 0 auto; padding: clamp(1.4rem, 3.5vw, 3rem) 0 6rem; }
+  code, kbd, .mono { font-family: var(--mono); font-size: .88em; }
+  a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); }
+  a:hover { border-bottom-color: var(--accent); }
+
+  /* ---- header ---- */
+  header.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem; flex-wrap: wrap; }
+  .eyebrow { font-family: var(--mono); font-size: .72rem; letter-spacing: .13em; text-transform: uppercase; color: var(--accent-ink); font-weight: 600; margin: 0 0 .55rem; }
+  h1 { font-size: clamp(1.55rem, 3.6vw, 2.35rem); line-height: 1.08; margin: 0 0 .6rem; letter-spacing: -.02em; text-wrap: balance; font-weight: 720; }
+  .lede { font-size: 1.02rem; color: var(--muted); max-width: 68ch; margin: 0; }
+  .lede b { color: var(--ink); font-weight: 650; }
+
+  /* theme toggle */
+  .theme-toggle { flex: none; font-family: var(--mono); font-size: .74rem; letter-spacing: .04em; background: var(--surface); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: .5rem .9rem; cursor: pointer; }
+  .theme-toggle:hover { color: var(--ink); border-color: var(--accent); }
+
+  /* progress */
+  .progress-card { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.25rem; box-shadow: var(--shadow); margin: 1.5rem 0 .5rem; }
+  .progress-num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.5rem; font-weight: 650; color: var(--ink); }
+  .progress-num small { color: var(--faint); font-weight: 400; }
+  .bar { flex: 1 1 220px; height: 9px; border-radius: 999px; background: var(--surface-2); overflow: hidden; min-width: 160px; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--purple)); transition: width .35s ease; }
+  .progress-card .label { font-size: .9rem; color: var(--muted); }
+  .btn { font-family: var(--mono); font-size: .74rem; background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .75rem; cursor: pointer; }
+  .btn:hover { color: var(--blocked); border-color: var(--blocked); }
+
+  /* legend */
+  .legend { display: flex; gap: 1.1rem; flex-wrap: wrap; margin: 1rem 0 2rem; font-size: .82rem; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: .4rem; }
+  .chip { font-family: var(--mono); font-size: .68rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: .16rem .5rem; border-radius: 6px; white-space: nowrap; }
+  .chip.done { color: var(--pass); background: var(--pass-bg); }
+  .chip.manual { color: var(--pending); background: var(--pending-bg); }
+  .chip.gate { color: var(--blocked); background: var(--blocked-bg); }
+  .chip.live { color: var(--purple); background: var(--accent-soft); }
+
+  /* section */
+  section { margin: 2.4rem 0; }
+  .sec-head { display: flex; align-items: baseline; gap: .7rem; border-bottom: 2px solid var(--line); padding-bottom: .5rem; margin-bottom: 1.1rem; }
+  .sec-head .k { font-family: var(--mono); color: var(--accent); font-weight: 650; font-size: 1rem; }
+  .sec-head h2 { font-size: 1.15rem; margin: 0; letter-spacing: -.01em; font-weight: 680; }
+  .sec-head .pr { margin-left: auto; font-family: var(--mono); font-size: .78rem; color: var(--faint); }
+  .sec-note { color: var(--muted); font-size: .92rem; margin: -.4rem 0 1rem; max-width: 74ch; }
+
+  /* table (batch summary + automated gates) */
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; background: var(--surface); }
+  th, td { text-align: left; padding: .68rem .85rem; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  th { font-family: var(--mono); font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); font-weight: 600; background: var(--surface-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  td .mono, td code { color: var(--ink); }
+  td.ok { color: var(--pass); font-weight: 600; }
+
+  /* checklist */
+  ul.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .55rem; }
+  ul.checks li { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: .8rem .95rem; display: grid; grid-template-columns: auto 1fr; gap: .8rem; align-items: start; }
+  ul.checks li.auto { border-style: dashed; opacity: .96; }
+  ul.checks li.gate-item { border-color: color-mix(in srgb, var(--blocked) 45%, var(--line)); }
+  .box { appearance: none; -webkit-appearance: none; flex: none; width: 20px; height: 20px; margin-top: .12rem; border: 2px solid var(--line-2); border-radius: 6px; background: var(--ground); cursor: pointer; position: relative; }
+  .box:checked { background: var(--accent); border-color: var(--accent); }
+  .box:checked::after { content: "✓"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: .8rem; font-weight: 700; }
+  .box:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
+  .box.static { cursor: default; background: var(--pass); border-color: var(--pass); }
+  .box.static::after { content: "✓"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: .8rem; font-weight: 700; }
+  .ck-body .t { font-weight: 600; color: var(--ink); }
+  .ck-body .t .tag { font-family: var(--mono); font-size: .66rem; color: var(--accent-ink); background: var(--accent-soft); padding: .1rem .4rem; border-radius: 5px; margin-left: .45rem; letter-spacing: .03em; }
+  .ck-body .d { color: var(--muted); font-size: .88rem; margin-top: .28rem; }
+  .ck-body pre { margin: .5rem 0 0; background: var(--ground); border: 1px solid var(--line-2); border-radius: 8px; padding: .55rem .7rem; overflow-x: auto; }
+  .ck-body pre code { color: var(--ink); font-size: .82rem; line-height: 1.5; }
+  li.done-glow .ck-body .t { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--pass) 60%, transparent); color: var(--muted); }
+
+  /* callout */
+  .callout { border-radius: var(--radius); padding: 1rem 1.2rem; margin: 1.1rem 0; border: 1px solid var(--line); background: var(--surface); }
+  .callout.warn { border-color: color-mix(in srgb, var(--pending) 45%, var(--line)); background: color-mix(in srgb, var(--pending-bg) 55%, var(--surface)); }
+  .callout.stop { border-color: color-mix(in srgb, var(--blocked) 45%, var(--line)); background: color-mix(in srgb, var(--blocked-bg) 55%, var(--surface)); }
+  .callout h3 { margin: 0 0 .4rem; font-size: .98rem; display: flex; align-items: center; gap: .5rem; }
+  .callout p { margin: .3rem 0; font-size: .9rem; color: var(--muted); }
+  .callout code { color: var(--ink); }
+
+  footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--line); font-size: .8rem; color: var(--faint); font-family: var(--mono); line-height: 1.8; }
+  footer a { color: var(--faint); }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">dotfiles · merge overseer · 2026-07-21</p>
+      <h1>Post-crash merge batch — verification checklist</h1>
+      <p class="lede">Three stacked PRs are <b>merged into <code>development</code></b> after the 2026-07-20 crash. Every automated gate a machine can run is <b>green</b>; what remains is the human-in-the-loop verification a sandbox can't prove. Tick items as you confirm them — <b>progress saves in this browser</b>.</p>
+    </div>
+    <button class="theme-toggle" id="themeBtn" type="button" aria-label="Toggle light/dark theme">◐ theme</button>
+  </header>
+
+  <div class="progress-card">
+    <span class="progress-num" id="pnum">0<small> / 0</small></span>
+    <span class="bar"><i id="pbar"></i></span>
+    <span class="label" id="plabel">manual checks confirmed</span>
+    <button class="btn" id="resetBtn" type="button">reset</button>
+  </div>
+  <div class="legend">
+    <span><span class="chip done">done</span> already verified by the overseer (automated)</span>
+    <span><span class="chip manual">manual</span> you confirm in a browser / tmux</span>
+    <span><span class="chip live">live</span> touches a real external system</span>
+    <span><span class="chip gate">gate</span> merge/done criterion</span>
+  </div>
+
+  <!-- ============ BATCH SUMMARY ============ -->
+  <section>
+    <div class="sec-head"><span class="k">▪</span><h2>What landed</h2><span class="pr">base d6b6e67 (#31)</span></div>
+    <p class="sec-note">Merge order was <b>#33 → #32 → #34</b> (theme overhaul first so everything downstream regenerated against the final docgen templates; smallest last). Each branch merged <code>origin/development</code> in, had its generated docs re-run through docgen (never hand-merged), and was squash-merged.</p>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>PR</th><th>What it is</th><th>Squash commit</th><th>Hand-merged conflicts</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">#33</td><td>Docs platform + board UX overhaul — Tokyo Night theme, Hub grouping, real back-links</td><td class="mono">98e3561</td><td>—　(merged clean)</td></tr>
+          <tr><td class="mono">#32</td><td>Jira interop Phase 1 — emit tasks to SFB/SW tickets</td><td class="mono">f0db205</td><td><code>docgen.json</code> (kept #33 taxonomy + re-added <code>where-we-are</code>), <code>roadmap.md</code> (union timeline). <code>wb.sh</code> auto-merged.</td></tr>
+          <tr><td class="mono">#34</td><td>handoff <code>--pane</code> — co-located helper agent in the current worktree</td><td class="mono">65ff737</td><td><code>handoff-guide.md</code>, <code>roadmap-handoff.md</code> (#34 content + #33 taxonomy). <code>handoff.sh</code> auto-merged.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ AUTOMATED GATES ============ -->
+  <section>
+    <div class="sec-head"><span class="k">✓</span><h2>Automated gates — done</h2><span class="pr">re-runnable</span></div>
+    <p class="sec-note">Run by the overseer against each merged tree. None of these touch Jira, the shared task store beyond reads, or any external system.</p>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>Gate</th><th>#33</th><th>#32</th><th>#34</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Full <code>wb</code> suite (Docker sandbox)</td><td class="mono">40f / 1032✓</td><td class="mono">41f / 1063✓</td><td class="mono">42f / 1063✓</td><td class="ok">green vs baseline</td></tr>
+          <tr><td>shellcheck <code>wb.sh</code> / <code>handoff.sh</code></td><td class="mono">37 = dev</td><td class="mono">37 = dev</td><td class="mono">handoff 7 = dev</td><td class="ok">zero new findings</td></tr>
+          <tr><td>docgen idempotency (HTML pages)</td><td class="ok">idempotent</td><td class="ok">idempotent</td><td class="ok">idempotent</td><td class="ok">clean*</td></tr>
+          <tr><td><code>wb board --html</code> renders</td><td colspan="3" class="mono">exit 0 · 315 KB · 121 tasks · Tokyo Night · 0 markers</td><td class="ok">generates</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sec-note" style="margin-top:.7rem">* <code>INDEX.md</code> shows benign churn on regen because it indexes machine-local state outside the repo (<code>~/code/tasks</code>, <code>~/.claude</code> memory) that drifts over time — not a staleness bug. The board-render fix (<code>wb_board_related_docs</code> <code>return 0</code> under <code>set -e</code>/<code>pipefail</code>) is present on <code>development</code> via #33.</p>
+    <div class="callout warn">
+      <h3>⚠ Known pre-existing sandbox failures — <em>not</em> regressions</h3>
+      <p>Three suites fail in the batch Docker run <b>identically on plain <code>origin/development</code></b> (verified by byte-identical failing-assertion sets), so no PR introduced them:</p>
+      <p><code>handoff.test.sh</code> (17) &amp; <code>handoff-poller.test.sh</code> (7) — trip <code>handoff: must run from inside a tmux client</code>; <code>wb-reconcile-review.test.sh</code> (7) — mtime-ordering flakiness. #34's <code>handoff-pane.test.sh</code> self-guards with <code>this suite must run from inside a tmux client</code>, so it early-exits rather than asserting. All three are re-checked as manual items below where they matter.</p>
+    </div>
+  </section>
+
+  <!-- ============ #32 MANUAL ============ -->
+  <section id="pr32">
+    <div class="sec-head"><span class="k">#32</span><h2>Jira emit — live end-to-end</h2><span class="pr">feat/jira-integration</span></div>
+    <div class="callout stop">
+      <h3>⛔ Create-only, irreversible — do this on a live Atlassian MCP only</h3>
+      <p><code>/wb-jira-create</code> files <b>real tickets</b> that cannot be un-created from the workbench. The overseer did <b>not</b> run it. The <code>UNVERIFIED / do not run against live Jira</code> banner in the <code>wb-jira-create</code> skill <b>must stay</b> until every item here passes. Full committed plan: <a href="2026-07-16-jira-emit-verification.html">2026-07-16-jira-emit-verification.html</a>.</p>
+    </div>
+    <ul class="checks" data-group="pr32">
+      <li class="auto"><span class="box static" aria-hidden="true"></span><div class="ck-body"><span class="t">Verb + guardrail unit tests green<span class="tag">auto · U1/U4</span></span><div class="d"><code>wb-jira-set.test.sh</code> → ALL PASS (happy path, idempotent re-run, refuse-clobber, missing stem, empty URL, lock contention, 5 SKILL grep-guardrails). Confirmed in the merged suite.</div></div></li>
+      <li class="gate-item"><input class="box" type="checkbox" id="c32-1"><div class="ck-body"><span class="t">Atlassian MCP connected with <code>write:jira-work</code><span class="tag">live · prereq</span></span><div class="d">Reconnect the connector in your session — the plan flags it dropped mid-session, so this is the real runtime dependency.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-2"><div class="ck-body"><span class="t">Preflight resolves cloudId + accountId + project types + tools<span class="tag">KTD9</span></span><div class="d"><code>getAccessibleAtlassianResources</code>, <code>atlassianUserInfo</code>, <code>getJiraProjectIssueTypesMetadata</code>, and create/link/search tools all present; a usable “Relates” link type exists for SFB.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-3"><div class="ck-body"><span class="t">Dry rehearsal — buffer, close unchecked, zero writes<span class="tag">live · C1</span></span><div class="d">Build a throwaway task, run <code>/wb-jira-create</code>, confirm one create-block + <code>type: Feature</code> default + full <code>## Plan</code> body verbatim + accurate skipped list, then close with nothing checked → clean no-op, no <code>createJiraIssue</code> call.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-4"><div class="ck-body"><span class="t">Flat single ticket, blank parent → URL stamped back<span class="tag">live · AE2</span></span><div class="d">Standalone task, blank parent → one flat SFB ticket, no link. Then <code>grep '^jira:' &lt;task&gt;.md</code> shows the created URL.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-5"><div class="ck-body"><span class="t">Family with coordinator parent, Relates-linked<span class="tag">live · AE3</span></span><div class="d">Coordinator ticket created first; child created and “Relates”-linked to it; both <code>jira:</code> fields stamped; no self-link on the coordinator.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-6"><div class="ck-body"><span class="t">Existing ticket key as parent<span class="tag">live · AE4</span></span><div class="d">Parent = an existing <code>SFB-XXXX</code> → children linked to it, no new parent ticket created.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-7"><div class="ck-body"><span class="t">Already-ticketed task is skipped<span class="tag">AE1 · R11</span></span><div class="d">Family where one member already carries <code>jira:</code> → buffer proposes only the others and lists that one as skipped; never re-created.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-8"><div class="ck-body"><span class="t">Retry creates no duplicates<span class="tag">live · KTD8</span></span><div class="d">Re-run on the same family → dedup search finds existing wb-labelled tickets by exact summary and reuses them; zero new tickets. The critical retry-safety guarantee.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-9"><div class="ck-body"><span class="t">Write-back is idempotent-or-refuse<span class="tag">KTD3</span></span><div class="d"><code>wb jira-set &lt;task&gt; &lt;same-url&gt;</code> → no-op exit 0; <code>&lt;different-url&gt;</code> → refuses, exit 1, field unchanged.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-10"><div class="ck-body"><span class="t">MCP-drop mid-flow stops cleanly<span class="tag">live · KTD9/KTD2</span></span><div class="d">If the connector drops during the approval wait, the re-preflight stops before any <code>createJiraIssue</code>; if a create lands but its stamp fails, the report names exactly which tickets landed — no fabricated success.</div></div></li>
+      <li><input class="box" type="checkbox" id="c32-11"><div class="ck-body"><span class="t">Project selection — SFB vs SW<span class="tag">live · C9</span></span><div class="d">Default <code>Project: SFB</code> → <code>SFB-&lt;n&gt;</code>; edit to <code>SW</code> → re-preflight re-resolves SW issue types, dedup JQL scopes to <code>project = SW</code>, ticket lands as <code>SW-&lt;n&gt;</code>, an SFB-only type is rejected before any create.</div></div></li>
+      <li class="gate-item"><input class="box" type="checkbox" id="c32-done"><div class="ck-body"><span class="t">GATE: all above green → remove the UNVERIFIED banner<span class="tag">gate · D</span></span><div class="d">Only after the live run passes: delete the do-not-run banner from the <code>wb-jira-create</code> skill and clean up the throwaway <code>[wb-emit-test]</code> tickets in Jira.</div></div></li>
+    </ul>
+  </section>
+
+  <!-- ============ #33 MANUAL ============ -->
+  <section id="pr33">
+    <div class="sec-head"><span class="k">#33</span><h2>Tokyo Night docs + board — browser render</h2><span class="pr">feat/wb-board-parent-filter</span></div>
+    <p class="sec-note">Open the generated pages and confirm the theme, structure, and interactions render correctly in a real browser (light &amp; dark). Regenerate first if needed: <code>docgen.sh all</code> and <code>wb board --html</code>.</p>
+    <ul class="checks" data-group="pr33">
+      <li class="auto"><span class="box static" aria-hidden="true"></span><div class="ck-body"><span class="t">Board generates without error<span class="tag">auto</span></span><div class="d"><code>wb board --html</code> → exit 0, 315 KB, 121 tasks, no conflict markers. Verified.</div></div></li>
+      <li><input class="box" type="checkbox" id="c33-1"><div class="ck-body"><span class="t">Hub renders in Tokyo Night, both themes<span class="tag">manual</span></span><div class="d">Open <code>docs/HUB.html</code>; toggle light/dark — colours, contrast, and the accent all hold. Theme toggle persists.</div></div></li>
+      <li><input class="box" type="checkbox" id="c33-2"><div class="ck-body"><span class="t">Hub groups correct — incl. merged <code>where-we-are</code><span class="tag">merge check</span></span><div class="d">Groups read: <b>Where we are</b> (◉, from #32) · Start here · Workflow · Claude skills · TUIs · Nvim plugins · Design notes · Recaps. The <code>where-we-are</code> tile was re-added on top of #33's taxonomy during the #32 merge — confirm it appears and links correctly.</div></div></li>
+      <li><input class="box" type="checkbox" id="c33-3"><div class="ck-body"><span class="t">Board UX — stepper, tabs, relationships<span class="tag">manual</span></span><div class="d">Open <code>logs/board.html</code>: lifecycle stage stepper, Pipeline/Live/Stale tabs (with tab persistence), group colour-coding, blocked accent + active glyph, dependency and parent/child relationships, column sorting.</div></div></li>
+      <li><input class="box" type="checkbox" id="c33-4"><div class="ck-body"><span class="t">Guides &amp; long docs — back-links, TOCs, breadcrumbs<span class="tag">manual</span></span><div class="d">Spot-check a guide and a long roadmap page: solid guide banners, companion back-links resolve, long-doc table-of-contents present, breadcrumb navigation works.</div></div></li>
+      <li><input class="box" type="checkbox" id="c33-5"><div class="ck-body"><span class="t">roadmap.md timeline reads correctly<span class="tag">merge check</span></span><div class="d">The merge produced a union timeline: Docs platform · wb core · Parent/child · Hub v0 (#18, shipped) · /handoff · Store safety · wb breakdown · Board v2 · <b>Jira emit (#32, in review)</b>. Confirm no dead <code>#detail-</code> anchors.</div></div></li>
+    </ul>
+  </section>
+
+  <!-- ============ #34 MANUAL ============ -->
+  <section id="pr34">
+    <div class="sec-head"><span class="k">#34</span><h2>handoff <code>--pane</code> — live tmux</h2><span class="pr">feat/handoff-pane-mode</span></div>
+    <p class="sec-note">These exercise real tmux sessions, so they can only be confirmed from inside a tmux client — which is exactly why the automated suite can't self-verify them.</p>
+    <ul class="checks" data-group="pr34">
+      <li class="gate-item"><input class="box" type="checkbox" id="c34-1"><div class="ck-body"><span class="t">Run the pane suite inside tmux<span class="tag">manual</span></span><div class="d">From inside a tmux client: <code>bash scripts/.config/scripts/tmux/tests/handoff-pane.test.sh</code> → expect ALL PASS (it early-exits with a guard message when run outside tmux, as it does in the sandbox).</div></div></li>
+      <li><input class="box" type="checkbox" id="c34-2"><div class="ck-body"><span class="t"><code>--pane</code> splits a co-located helper agent<span class="tag">manual</span></span><div class="d">Trigger <code>/handoff-pane</code> mid-conversation → a helper agent spawns in a split pane of the <b>current</b> worktree's window, seeded with the handed-off context, without retyping by hand.</div></div></li>
+      <li><input class="box" type="checkbox" id="c34-3"><div class="ck-body"><span class="t">Pane poller permission-strip survives a wrapped pointer<span class="tag">manual · review-fix</span></span><div class="d">Confirm the <code>-J</code> poller fix: when the pointer text wraps, the permission strip is not falsely auto-answered by handoff's own <code>Read</code> text (the R10 self-collision case).</div></div></li>
+    </ul>
+  </section>
+
+  <!-- ============ CLEANUP ============ -->
+  <section id="cleanup">
+    <div class="sec-head"><span class="k">⌦</span><h2>Cleanup &amp; loose ends</h2><span class="pr">overseer follow-ups</span></div>
+    <ul class="checks" data-group="cleanup">
+      <li><input class="box" type="checkbox" id="cl-1"><div class="ck-body"><span class="t">Main checkout has stale, now-redundant WIP<span class="tag">safe to discard</span></span><div class="d">The main checkout (<code>~/code/dotfiles</code>) carries uncommitted edits to <code>wb.sh</code> + <code>wb-board-html.test.sh</code> + <code>INDEX.md</code> — the pre-crash origin of the board <code>return 0</code> fix, <b>already shipped via #33</b>. Safe to <code>git restore</code> them, then <code>git merge --ff-only origin/development</code>. The overseer did not touch it.</div></div></li>
+      <li><input class="box" type="checkbox" id="cl-2"><div class="ck-body"><span class="t">Delete throwaway Jira tickets<span class="tag">after #32</span></span><div class="d">Remove any <code>[wb-emit-test]</code> tickets created during the #32 live run.</div></div></li>
+      <li><input class="box" type="checkbox" id="cl-3"><div class="ck-body"><span class="t">Wind down the three worktrees<span class="tag">wb done</span></span><div class="d">Once verified: <code>wb done</code> each of feat/jira-integration, feat/wb-board-parent-filter, feat/handoff-pane-mode to remove the worktrees and flip the tasks to done.</div></div></li>
+    </ul>
+  </section>
+
+  <footer>
+    Durable source: docs/verification/2026-07-21-post-crash-merge-batch-verification.html<br>
+    Overseer task: ~/code/tasks/dotfiles--chore-merge-overseer.md · Crash recap: ~/code/tasks/dossiers/system-recovery-2026-07-20/<br>
+    Hand-authored, docgen-inert. Merged: #33 98e3561 · #32 f0db205 · #34 65ff737 → development.
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var KEY = "mo-verify-2026-07-21";
+    // theme toggle
+    var btn = document.getElementById("themeBtn");
+    try {
+      var savedT = localStorage.getItem(KEY + "-theme");
+      if (savedT) root.setAttribute("data-theme", savedT);
+    } catch (e) {}
+    btn.addEventListener("click", function () {
+      var cur = root.getAttribute("data-theme");
+      if (!cur) cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      var next = cur === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem(KEY + "-theme", next); } catch (e) {}
+    });
+    // checklist persistence + progress
+    var boxes = Array.prototype.slice.call(document.querySelectorAll('input.box[type=checkbox]'));
+    var pnum = document.getElementById("pnum");
+    var pbar = document.getElementById("pbar");
+    function save() {
+      var state = {};
+      boxes.forEach(function (b) { state[b.id] = b.checked; });
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    }
+    function render() {
+      var done = boxes.filter(function (b) { return b.checked; }).length;
+      var total = boxes.length;
+      pnum.innerHTML = done + "<small> / " + total + "</small>";
+      pbar.style.width = total ? (100 * done / total) + "%" : "0%";
+      boxes.forEach(function (b) {
+        var li = b.closest("li");
+        if (li) li.classList.toggle("done-glow", b.checked);
+      });
+    }
+    try {
+      var saved = JSON.parse(localStorage.getItem(KEY) || "{}");
+      boxes.forEach(function (b) { if (saved[b.id]) b.checked = true; });
+    } catch (e) {}
+    boxes.forEach(function (b) { b.addEventListener("change", function () { save(); render(); }); });
+    document.getElementById("resetBtn").addEventListener("click", function () {
+      boxes.forEach(function (b) { b.checked = false; });
+      save(); render();
+    });
+    render();
+  })();
+</script>
