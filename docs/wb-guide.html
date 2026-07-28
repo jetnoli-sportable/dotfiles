@@ -248,6 +248,7 @@
       <li><a href="#try-it-in-the-next-five-minutes">Try it in the next five minutes</a></li>
       <li><a href="#wb-new--start-a-task">wb new — start a task</a></li>
       <li><a href="#the-picker">The picker</a></li>
+      <li><a href="#prefixt--open-this-sessions-task-file">prefix&#43;t — open this session&#39;s task file</a></li>
       <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
       <li><a href="#wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</a></li>
       <li><a href="#wb-jira-create--file-a-task-or-family-as-jira-tickets">/wb-jira-create — file a task or family as Jira tickets</a></li>
@@ -494,6 +495,22 @@ or <em>finished</em> agent sorts first.</p>
 task file's contents / <code>git status</code> for anything else — so you can usually
 tell what a row needs without leaving the list.</p>
 </blockquote>
+<h2 id="prefixt--open-this-sessions-task-file">prefix+t — open this session's task file</h2>
+<p>From inside any wb session, <kbd>prefix</kbd>+<kbd>t</kbd> opens that
+session's task file in <code>$EDITOR</code> in a new window. No picker, no typing a
+path — it's the fastest way to reread the plan or jot a note mid-task.</p>
+<p>It resolves through the session's <code>@task</code> option (the same lookup
+<code>/wb-save</code> and <code>/wb-resume</code> use), <em>not</em> the working directory or branch
+name. That matters after <code>wb breakdown --apply</code> migrates a session to a
+child task: <code>@task</code> gets re-pointed at the child, so <code>prefix+t</code> opens the
+child's file rather than the parent's.</p>
+<p>The same resolution is available as a command, which prints the path
+instead of opening it — handy in scripts and one-liners:</p>
+<pre><code class="language-sh">wb task-file            # -&gt; /home/you/code/tasks/dotfiles--my-thing.md
+nvim &quot;$(wb task-file)&quot;  # equivalent to prefix+t
+</code></pre>
+<p>Outside a wb session (no <code>@task</code>), both forms fail with
+<code>not a wb task session</code> rather than guessing a file from your cwd.</p>
 <blockquote>
 <p><strong>Multiple agents, one session.</strong> <code>wb new</code> only provisions one dedicated
 <code>agent</code> window, but nothing limits you to that. Open another window or
