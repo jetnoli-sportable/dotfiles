@@ -96,10 +96,22 @@ tmux_pane_awaiting_input() {
 # per-session urgency check); omit to scan every session (claude-sessions.sh).
 # See tmux_pane_awaiting_input for the "needs input" modal-detection note —
 # this is the single shared home for that calibration.
+#
+# The title glyph alone can no longer tell "working" from "idle at the
+# prompt": this case was calibrated against Claude Code v2.1.179, where an
+# active turn showed a distinct braille-spinner glyph and only an idle prompt
+# showed "✳". Confirmed live against v2.1.241: the title glyph is a static
+# "✳" during BOTH an actively-generating turn and a genuinely idle one, so
+# the glyph case can no longer reach its
+# "working" branch for a real agent — every in-progress session read back as
+# "waiting" until Stop fired. @claude_working (claude-notify-hook.sh, set at
+# UserPromptSubmit, cleared at Stop) is the ground-truth fix for that; the
+# glyph stays as the fallback for a pane with no hook data (e.g. an older
+# Claude Code build, or claude launched outside wb's hook-managed settings).
 tmux_claude_panes() {
   local scope="${1:-}"
-  local cmd sess win pane blocked title target glyph task status rank
-  while IFS='|' read -r cmd sess win pane blocked title; do
+  local cmd sess win pane blocked working title target glyph task status rank
+  while IFS='|' read -r cmd sess win pane blocked working title; do
     [ "$cmd" = "claude" ] || continue
     [ -z "$scope" ] || [ "$sess" = "$scope" ] || continue
     target="$sess:$win.$pane"
@@ -128,11 +140,13 @@ tmux_claude_panes() {
       status="needs-input"; rank=0
     elif [ "$status" = "waiting" ] && tmux_pane_awaiting_input "$target"; then
       status="needs-input"; rank=0
+    elif [ "$status" = "waiting" ] && [ "$working" = "1" ]; then
+      status="working"; rank=2   # @claude_working: a turn is actually running (see above)
     fi
     [ -n "$task" ] || task="Claude Code"
     printf '%d\t%s\t%s\t%s\n' "$rank" "$target" "$status" "$task"
   done < <(tmux list-panes -a -F \
-    '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{pane_title}')
+    '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{@claude_working}|#{pane_title}')
 }
 
 # tmux_session_agent_state <session> — tri-state liveness check for a wb
