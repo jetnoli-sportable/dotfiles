@@ -220,6 +220,12 @@ if [ "$mode" = "pane" ]; then
   # launch. Mirrors wb_layout_session's own send-keys launch (wb.sh:800).
   # Split direction is the HANDOFF_PANE_SPLIT constant (KTD6), never a literal.
   pane="$(tmux split-window "$HANDOFF_PANE_SPLIT" -t "$TMUX_PANE" -c "$worktree" -P -F '#{pane_id}')"
+  # remain-on-exit (pane-scoped) so a stray Ctrl-D / `exit` after quitting the
+  # helper claude leaves the pane as [dead] rather than silently vanishing —
+  # same reasoning and recovery (prefix+E) as wb_layout_session's agent window
+  # (wb.sh:800). The plain-split + send-keys launch already keeps a shell behind
+  # when claude exits; this covers the case where that shell itself dies.
+  tmux set-option -p -t "$pane" remain-on-exit on
   tmux send-keys -t "$pane" -l 'claude'
   tmux send-keys -t "$pane" Enter
 
