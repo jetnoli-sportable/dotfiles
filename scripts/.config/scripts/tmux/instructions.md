@@ -40,45 +40,66 @@ cad           # live auto-refreshing dashboard (ctrl-c quits)
 - **Dashboard** groups agents under `⚑ NEEDS YOUR INPUT` / `DONE — AWAITING YOU` /
   `WORKING` / `IDLE` and redraws every 2s — keep it open in a window while agents run.
 
-### The four statuses
+### The five statuses
 
 The whole point of the redesign: separate an agent that's **blocked on you** from
-one that's merely **done and idle**. Both look identical by title glyph (`✳`), so
-the script refines them.
+one that's merely **done and idle**, and — since the glyph alone can't do it on
+current Claude Code (see below) — from one that's still **actively working**.
 
 | Status        | Picker         | Means | How detected |
 |---------------|----------------|-------|--------------|
 | `needs-input` | magenta `◆ needs you` | Blocked: a permission/question modal is up, or it's waiting on a decision-buffer nvim split | `@claude_blocked` marker **or** a modal in the pane content |
-| `waiting`     | green `○ done` | Turn finished, sitting idle at the `✳` prompt awaiting your next message | `✳` glyph + no modal |
-| `working`     | yellow `● working` | Mid-turn (braille spinner in the title) | spinner glyph |
+| `done`        | cyan `✔ finished` | A long-running turn (≥30s) just finished; awaiting you | `@claude_blocked=done` (Stop hook) |
+| `waiting`     | green `○ done` | Turn finished, sitting idle at the `✳` prompt, no active-turn marker | `✳` glyph, no `@claude_working`, no modal |
+| `working`     | yellow `● working` | Mid-turn | `@claude_working=1` marker, **or** (fallback, no hook data) a spinner glyph |
 | `idle`        | grey `· idle`  | Plain-text title, no spinner | fallthrough |
 
 ### How detection works
 
-Claude Code already tells tmux most of it through the pane:
+Claude Code tells tmux part of it through the pane; a Claude Code hook pushes
+the rest as ground truth, because the pane alone is no longer enough:
 
 - **Identity:** `#{pane_current_command} == "claude"` marks a Claude pane.
 - **Glyph (first pass):** the leading token of `#{pane_title}`:
-  - `✳` (U+2733) → idle/ready **or** a modal is up (the glyph can't tell them apart)
-  - a braille spinner frame (U+2800–U+28FF, e.g. `⠐ ⠂`) → **working**
+  - `✳` (U+2733) → idle/ready **or** a modal is up **or** (on current Claude
+    Code) an active turn — the glyph alone can no longer tell these apart, see
+    the `@claude_working` note below
+  - a braille spinner frame (U+2800–U+28FF, e.g. `⠐ ⠂`) → **working** — this
+    was the sole busy/idle signal until Claude Code v2.1.241 started showing a
+    static `✳` during both busy and idle; kept as a fallback for a pane with
+    no hook data (an older Claude Code build, or `claude` launched outside
+    this tmux/hooks setup)
   - the text after the glyph is the live task description
-- **`needs-input` (second pass)**, two signals, either promotes the row:
-  1. **`@claude_blocked` pane option** — an agent sets this on its own pane before
-     it blocks on something invisible-in-the-pane, namely the decision-buffer nvim
-     split (that block runs as a background command, so the pane shows a *working
-     spinner* — only an explicit marker can catch it). The value is the reason
-     (`nvim-buffer`). Cleared when the block ends.
-  2. **`pane_awaiting_input()`** — for `✳` panes only, capture the pane and check
-     for a live permission / AskUserQuestion modal. Calibrated against Claude Code
-     **v2.1.179**: every such modal drops the `-- INSERT --` input box and shows an
-     `Esc to cancel` footer (permission prompts also say `Do you want to proceed?`);
-     idle/working panes always keep `-- INSERT --`.
+- **`@claude_working` marker (ground truth for "working")** — pushed by
+  `claude-notify-hook.sh` on the `UserPromptSubmit` hook (`start` case, set to
+  `1`) and cleared on the `Stop` hook (`done` case). Wins over a `✳` glyph
+  that would otherwise read as idle, unless `@claude_blocked` or a live modal
+  (next signal) already claimed the row.
+- **`needs-input`/`done` (second pass)**, promotes or relabels the row:
+  1. **`@claude_blocked` pane option** — an agent sets this on its own pane
+     before it blocks on something invisible-in-the-pane, namely the
+     decision-buffer nvim split (that block runs as a background command, so
+     the pane shows a *working spinner* — only an explicit marker can catch
+     it). Value `needs-input`/`nvim-buffer`/... → blocked; value `done` (set
+     by the `Stop` hook only for turns ≥30s) → finished, awaiting you.
+     Cleared at the next `UserPromptSubmit`.
+  2. **`tmux_pane_awaiting_input()`** — for `✳` panes only, capture the pane
+     and check for a live permission / AskUserQuestion modal. Calibrated
+     against Claude Code **v2.1.179**: every such modal drops the
+     `-- INSERT --` input box and shows an `Esc to cancel` footer (permission
+     prompts also say `Do you want to proceed?`); idle/working panes always
+     keep `-- INSERT --`. **Not yet reconfirmed against v2.1.241** — the same
+     version bump that broke the glyph-only working/idle split; if this modal
+     UI drifted too, recalibrate the two greps the same way the
+     `@claude_working` marker replaced the glyph for "working" (capture a
+     live prompt with `tmux capture-pane -ep -t <target>` and compare).
 
-Enumeration command (the heart of the tool — note the `@claude_blocked` field):
+Enumeration command (the heart of the tool — note the `@claude_blocked` and
+`@claude_working` fields):
 
 ```sh
 tmux list-panes -a -F \
-  '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{pane_title}'
+  '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{@claude_working}|#{pane_title}'
 ```
 
 **Caveats**
@@ -88,14 +109,18 @@ tmux list-panes -a -F \
 - Status is classified in shell (`case`), **not** mawk — Debian's default `awk`
   isn't UTF-8 aware and would mis-split the multibyte glyphs.
 - The glyph mapping **and** the modal-content signatures are observed conventions,
-  not a documented API. If a future Claude Code build changes its title glyphs,
-  update the `case` in `collect_rows()`; if it changes the modal UI, recalibrate
-  the two greps in `pane_awaiting_input()` (capture a live prompt with
-  `tmux capture-pane -ep -t <target>` and compare). Both live in one file.
+  not a documented API. Both the glyph case and `tmux_pane_awaiting_input()`
+  now live in `lib.sh`'s `tmux_claude_panes()` (shared by `claude-sessions.sh`
+  and `wb.sh`, not duplicated) — `claude-sessions.sh`'s own `collect_rows()` is
+  just a one-line call into it. If a future Claude Code build changes its title
+  glyphs again, add/adjust a ground-truth pane marker the way `@claude_working`
+  was added, rather than re-deriving from the glyph; if it changes the modal
+  UI, recalibrate the two greps in `tmux_pane_awaiting_input()`.
 - The content scan runs one `capture-pane` per `✳` claude pane per refresh tick —
   a handful of agents at 2–3s is negligible.
 - `window_activity_flag` is unreliable here (monitor-activity is off), so status
-  comes solely from the title glyph + the two `needs-input` signals.
+  comes solely from the title glyph, the `@claude_working`/`@claude_blocked`
+  markers, and the modal content-scan.
 
 ---
 
