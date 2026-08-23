@@ -800,6 +800,16 @@ wb_layout_session() {
   # auto-restore on every `.` launch was surprising with no escape hatch).
   tmux send-keys -t "=$session:1" "WB_AUTO_RESTORE=1 nvim ." Enter
   tmux new-window -t "=$session" -n agent -c "$dir"
+  # remain-on-exit keeps the agent window as [dead] instead of letting tmux
+  # auto-close it the instant its shell exits. The window is a bare shell with
+  # claude run inside it (send-keys below), so the ONLY thing keeping it alive
+  # after you quit claude is that shell — and a stray Ctrl-D / `exit` (easy to
+  # fat-finger, since claude ALSO quits on Ctrl-D) then silently takes the whole
+  # window with it. Scoped to this window only, never global: the picker/help/
+  # ask/notes windows are launched AS their command and are MEANT to close on
+  # exit. Recover a dead one with prefix+E (respawn-pane, tmux.conf). Explicit
+  # kills (wb done --close, ctrl-x) are unaffected — they destroy regardless.
+  tmux set-option -w -t "=$session:agent" remain-on-exit on
   [ "$start_agent" = 1 ] && tmux send-keys -t "=$session:agent" "claude" Enter
   tmux new-window -t "=$session" -n shell -c "$dir"
   tmux select-window -t "=$session:1"
