@@ -5,7 +5,24 @@ set -uo pipefail
 
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE="$(mktemp -d -t wb-board-fixture.XXXXXX)"
-trap 'rm -rf "$FIXTURE"' EXIT
+TMUX_STUB_BIN="$(mktemp -d -t wb-board-tmux-stub.XXXXXX)"
+trap 'rm -rf "$FIXTURE" "$TMUX_STUB_BIN"' EXIT
+
+# `wb board` is invoked as a fresh `bash "$WB"` subprocess below (not
+# sourced), so stubbing wb_live_agent_count's own tmux_claude_panes directly
+# (the wb-lifecycle.test.sh `save_fn`/redefine convention) wouldn't survive
+# the process boundary — a fake `tmux` on PATH answering only the
+# `list-panes -a` call wb_live_agent_count makes gets the same effect and
+# works across subprocess boundaries. FAKE_PANE_ROWS lines follow
+# tmux_claude_panes' own pipe-separated format (lib.sh); only field 1
+# (pane_current_command) matters for the count.
+cat > "$TMUX_STUB_BIN/tmux" <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "list-panes" ]; then
+  printf '%s\n' "${FAKE_PANE_ROWS:-}"
+fi
+STUB
+chmod +x "$TMUX_STUB_BIN/tmux"
 
 fail=0
 assert() { # <desc> <expected-regex> <actual>
@@ -72,6 +89,17 @@ if printf '%s' "$out" | grep -q 'Not a task\|Template'; then
 else
   echo "ok   - README/TEMPLATE excluded"
 fi
+
+# --- live-agent count (U3, R7) -----------------------------------------------
+out_agents3="$(TASKS_DIR="$FIXTURE" PATH="$TMUX_STUB_BIN:$PATH" \
+  FAKE_PANE_ROWS=$'claude|s1|0|0|||t1\nclaude|s2|0|0|||t2\nclaude|s3|0|0|||t3' \
+  bash "$WB" board 2>&1)"
+assert "board shows live-agent count" 'live agents: 3' "$out_agents3"
+
+out_agents0="$(TASKS_DIR="$FIXTURE" PATH="$TMUX_STUB_BIN:$PATH" FAKE_PANE_ROWS='' bash "$WB" board 2>&1)"
+rc_agents0=$?
+assert "board with zero live agents" 'live agents: 0' "$out_agents0"
+[ "$rc_agents0" -eq 0 ] || { echo "FAIL - zero-agents board exited $rc_agents0"; fail=1; }
 
 # empty store
 empty="$(mktemp -d -t wb-board-empty.XXXXXX)"

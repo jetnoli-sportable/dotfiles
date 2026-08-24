@@ -149,6 +149,16 @@ tmux_claude_panes() {
     '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{@claude_working}|#{pane_title}')
 }
 
+# wb_live_agent_count — total live `claude` panes across every tmux session
+# on this server (R7). Built on tmux_claude_panes rather than a second
+# `tmux list-panes -a | grep -cx claude` one-liner, so the picker/board count
+# and the claude() wrapper's own pre-launch warn count (zsh/.zshrc — a
+# separate process, can't call this bash function) share one definition of
+# "live" and can't drift apart.
+wb_live_agent_count() {
+  tmux_claude_panes | wc -l | tr -d ' '
+}
+
 # tmux_session_agent_state <session> — tri-state liveness check for a wb
 # session's ":agent" window: "dead" (no exact "=<session>" tmux session
 # exists at all), "unknown" (the session exists, but its ":agent" pane
