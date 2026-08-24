@@ -1,0 +1,429 @@
+<style>
+  :root {
+    --ground: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef0f4;
+    --ink: #1a1d23;
+    --muted: #5b6472;
+    --faint: #8b93a1;
+    --line: #e0e3ea;
+    --accent: #5566d6;
+    --accent-ink: #3f4fc0;
+    --pass: #2f9e5f;
+    --pass-bg: #e7f4ec;
+    --pending: #b5820f;
+    --pending-bg: #f8efd6;
+    --blocked: #c4553b;
+    --blocked-bg: #f7e6e0;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", "Cascadia Code", monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", "Inter", system-ui, sans-serif;
+    --shadow: 0 1px 2px rgba(20, 24, 34, .04), 0 4px 16px rgba(20, 24, 34, .05);
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0f1319;
+      --surface: #161b23;
+      --surface-2: #1d2530;
+      --ink: #e6e9ef;
+      --muted: #9aa4b4;
+      --faint: #6b7585;
+      --line: #262d38;
+      --accent: #8393f0;
+      --accent-ink: #a3b0f6;
+      --pass: #57c98a;
+      --pass-bg: #16281f;
+      --pending: #e0b64e;
+      --pending-bg: #2c2515;
+      --blocked: #e58163;
+      --blocked-bg: #2e1c17;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .35);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f6f7f9; --surface: #ffffff; --surface-2: #eef0f4; --ink: #1a1d23;
+    --muted: #5b6472; --faint: #8b93a1; --line: #e0e3ea; --accent: #5566d6;
+    --accent-ink: #3f4fc0; --pass: #2f9e5f; --pass-bg: #e7f4ec; --pending: #b5820f;
+    --pending-bg: #f8efd6; --blocked: #c4553b; --blocked-bg: #f7e6e0;
+    --shadow: 0 1px 2px rgba(20,24,34,.04), 0 4px 16px rgba(20,24,34,.05);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0f1319; --surface: #161b23; --surface-2: #1d2530; --ink: #e6e9ef;
+    --muted: #9aa4b4; --faint: #6b7585; --line: #262d38; --accent: #8393f0;
+    --accent-ink: #a3b0f6; --pass: #57c98a; --pass-bg: #16281f; --pending: #e0b64e;
+    --pending-bg: #2c2515; --blocked: #e58163; --blocked-bg: #2e1c17;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1rem, 4vw, 2rem) 5rem; }
+
+  /* ---- header ---- */
+  .eyebrow {
+    font-size: .72rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent-ink); font-weight: 650; margin: 0 0 .6rem;
+  }
+  h1 {
+    font-size: clamp(1.7rem, 4vw, 2.5rem); line-height: 1.1; margin: 0 0 .7rem;
+    letter-spacing: -.02em; text-wrap: balance; font-weight: 720;
+  }
+  .lede { font-size: 1.05rem; color: var(--muted); max-width: 68ch; margin: 0 0 1.4rem; }
+  .lede a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+  .lede a:hover { border-bottom-color: var(--accent); }
+
+  /* ---- progress ---- */
+  .progress-card {
+    display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 1rem 1.2rem; box-shadow: var(--shadow); margin-bottom: 1.2rem;
+  }
+  .progress-num { font-size: 1.9rem; font-weight: 730; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .progress-num span { color: var(--faint); font-weight: 500; }
+  .progress-track { flex: 1 1 200px; height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; min-width: 140px; }
+  .progress-fill { height: 100%; width: 0; background: var(--accent); border-radius: 99px; transition: width .35s ease; }
+  @media (prefers-reduced-motion: reduce) { .progress-fill { transition: none; } }
+  .reset-btn {
+    font-family: var(--sans); font-size: .8rem; color: var(--muted); background: transparent;
+    border: 1px solid var(--line); border-radius: 7px; padding: .4rem .7rem; cursor: pointer;
+  }
+  .reset-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+  /* ---- legend ---- */
+  .legend { display: flex; gap: .5rem .9rem; flex-wrap: wrap; margin-bottom: 2.4rem; font-size: .82rem; color: var(--muted); }
+  .legend .chip { margin-right: .3rem; }
+
+  /* ---- chips ---- */
+  .chip {
+    display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; font-weight: 650;
+    letter-spacing: .04em; text-transform: uppercase; padding: .2rem .55rem; border-radius: 99px;
+    white-space: nowrap;
+  }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+  .chip.pass { color: var(--pass); background: var(--pass-bg); }
+  .chip.pending { color: var(--pending); background: var(--pending-bg); }
+  .chip.blocked { color: var(--blocked); background: var(--blocked-bg); }
+
+  /* ---- sections ---- */
+  section { margin-bottom: 2.6rem; }
+  .sec-head { display: flex; align-items: baseline; gap: .7rem; margin-bottom: .3rem; border-bottom: 1px solid var(--line); padding-bottom: .6rem; }
+  .sec-num {
+    font-family: var(--mono); font-size: .8rem; color: var(--accent-ink); font-weight: 600;
+    background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 6px; padding: .15rem .5rem;
+  }
+  .sec-head h2 { font-size: 1.25rem; margin: 0; letter-spacing: -.01em; font-weight: 680; flex: 1; }
+  .sec-sub { color: var(--muted); font-size: .92rem; margin: .55rem 0 1.1rem; max-width: 70ch; }
+
+  /* ---- test items ---- */
+  .item {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); margin-bottom: .8rem; overflow: hidden;
+    display: grid; grid-template-columns: auto 1fr; align-items: start;
+  }
+  .item > label.tick {
+    padding: 1.05rem .3rem 1rem 1.1rem; cursor: pointer; display: flex; align-items: center;
+  }
+  .item input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none; width: 22px; height: 22px; margin: 0;
+    border: 2px solid var(--faint); border-radius: 6px; cursor: pointer; position: relative;
+    background: var(--surface); flex: none; transition: border-color .15s, background .15s;
+  }
+  .item input[type="checkbox"]:hover { border-color: var(--accent); }
+  .item input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .item input[type="checkbox"]:checked { background: var(--pass); border-color: var(--pass); }
+  .item input[type="checkbox"]:checked::after {
+    content: ""; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px;
+    border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(43deg);
+  }
+  .item .body { padding: .9rem 1.2rem 1.05rem .5rem; min-width: 0; }
+  .item.done .body .what { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+  .item-top { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .15rem; }
+  .what { font-weight: 620; font-size: 1rem; }
+  .expect { color: var(--muted); font-size: .92rem; margin-top: .35rem; }
+  .expect strong { color: var(--ink); font-weight: 620; }
+  .ref { font-family: var(--mono); font-size: .72rem; color: var(--faint); margin-left: auto; white-space: nowrap; }
+
+  pre {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: .7rem .9rem; overflow-x: auto; margin: .6rem 0 .3rem; font-family: var(--mono);
+    font-size: .82rem; line-height: 1.5; color: var(--ink);
+  }
+  code { font-family: var(--mono); font-size: .86em; background: var(--surface-2); padding: .1em .35em; border-radius: 4px; }
+  pre code { background: none; padding: 0; font-size: 1em; }
+
+  /* ---- callout ---- */
+  .callout {
+    border-radius: var(--radius); padding: 1rem 1.2rem; margin: 0 0 1.3rem;
+    border: 1px solid var(--blocked); background: var(--blocked-bg); font-size: .92rem;
+  }
+  .callout strong { color: var(--blocked); }
+  .callout.info { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+  .callout.info strong { color: var(--accent-ink); }
+
+  .foot { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--faint); font-size: .82rem; }
+  .foot code { font-size: .8em; }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">wb session memory mitigations · cgroup isolation + concurrency cap</p>
+  <h1>Verification checklist</h1>
+  <p class="lede">
+    Confirms the fix for the 2026-08-24 <code>systemd-oomd</code> crash that killed every wb tmux session at
+    once. The automated gates below are already green; what's outstanding is running the isolated
+    <code>claude()</code> wrapper for real — real cgroups, a real quit, a real blast-radius test — which no
+    sandboxed suite can prove. Tracks
+    <code>docs/plans/2026-08-24-001-feat-wb-session-cgroup-isolation-plan.md</code>'s Verification Contract.
+  </p>
+
+  <div class="progress-card">
+    <div class="progress-num"><span id="pdone">0</span><span> / </span><span id="ptotal">0</span> checked</div>
+    <div class="progress-track"><div class="progress-fill" id="pfill"></div></div>
+    <button class="reset-btn" id="reset">Reset</button>
+  </div>
+
+  <div class="legend">
+    <span><span class="chip pass">verified</span>already run &amp; green</span>
+    <span><span class="chip pending">to run</span>manual, needs a real wb session</span>
+    <span><span class="chip blocked">gate</span>merge / done criteria</span>
+  </div>
+
+  <!-- ================= AUTOMATED ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">A</span>
+      <h2>Automated gates</h2>
+      <span class="chip pass">verified</span>
+    </div>
+    <p class="sec-sub">
+      Already run during the build — all green. Re-run any of these to re-confirm; none require a real
+      <code>systemd --user</code> manager or touch a live wb session.
+    </p>
+
+    <div class="item" data-id="a1">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Wrapper unit tests</span><span class="ref">U1, U2</span></div>
+        <pre><code>bash scripts/.config/scripts/tmux/tests/wb-claude-wrapper.test.sh</code></pre>
+        <p class="expect"><strong>Expect:</strong> exit 0 — passthrough (no tmux / no <code>@wb_repo</code>), isolate invocation shape (<code>--scope --user</code>, <code>MemoryHigh</code>/<code>MemoryMax</code>, resolved absolute path, not literal <code>command</code>), env override, unit-name sanitization, and the warn-threshold scenarios. Run on this host, the real-cgroup detection-contract scenario (R4) also passes for real — inside the Docker sandbox it explicitly skips (no systemd user manager there) rather than fail.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="a2">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Board live-count tests</span><span class="ref">U3</span></div>
+        <pre><code>bash scripts/.config/scripts/tmux/tests/wb-board.test.sh</code></pre>
+        <p class="expect"><strong>Expect:</strong> <code>ALL PASS</code> — existing board assertions plus the new live-agent-count line (3 agents, then 0 agents, via a stubbed <code>tmux</code>).</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="a3">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">No regressions in the full suite</span><span class="ref">Docker sandbox</span></div>
+        <pre><code>docker build -t wb-tests -f scripts/.config/scripts/tmux/tests/Dockerfile . -q
+docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests</code></pre>
+        <p class="expect"><strong>Expect:</strong> the same known-failure floor as <code>origin/development</code> (3 env-dependent files — handoff*, wb-reconcile-review) and nothing new. <code>zsh</code> is now part of the sandbox image (the wrapper under test is zsh, not bash) — confirm the image still builds clean.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="a4">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Shell lint clean (no new findings)</span><span class="ref">wb.sh</span></div>
+        <pre><code>docker run --rm -v "$(pwd)":/repo:ro -w /repo koalaman/shellcheck:stable \
+  scripts/.config/scripts/tmux/wb.sh</code></pre>
+        <p class="expect"><strong>Expect:</strong> the same 34 pre-existing findings as <code>origin/development</code> — <strong>zero new</strong> in <code>wb_live_agent_count</code>, <code>wb_status_line</code>, <code>cmd_board</code>, or <code>wb_board_render_html</code>.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="a5">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Docs regenerate clean</span><span class="ref">U4</span></div>
+        <pre><code>DOTFILES="$(git rev-parse --show-toplevel)" bash scripts/.config/scripts/docgen.sh</code></pre>
+        <p class="expect"><strong>Expect:</strong> no drift beyond the intended edit; <code>wb-guide.html</code> carries the new "Session memory isolation" subsection; <code>/help "how do I limit agent memory"</code> resolves to it. Note: <code>docgen.sh</code> defaults its root to <code>$HOME/code/dotfiles</code> (the main checkout) unless <code>DOTFILES</code>/<code>DOCGEN_ROOT</code> points at the worktree — easy to accidentally regenerate the wrong checkout's docs.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MANUAL ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">B</span>
+      <h2>Manual verification — real cgroups</h2>
+      <span class="chip pending">to run</span>
+    </div>
+    <p class="sec-sub">
+      Everything here needs a real <code>systemd --user</code> manager and a real wb tmux session — the one
+      thing the Docker sandbox structurally can't provide (no systemd user manager inside the container).
+    </p>
+
+    <div class="item" data-id="b1">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Isolated scope appears, with the right limit</span><span class="ref">R1</span></div>
+        <pre><code># in a real wb session (wb new / wb resume), start claude, then from another shell:
+systemctl --user list-units 'wb-agent-*'</code></pre>
+        <p class="expect"><strong>Expect:</strong> one active scope named <code>wb-agent-&lt;session&gt;-&lt;pid&gt;</code> with <code>MemoryMax=8G</code> (<code>systemctl --user show wb-agent-&lt;...&gt;.scope -p MemoryMax</code> to confirm the exact value).</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b2">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Detection contract + quit→prompt still hold</span><span class="ref">R4, R5</span></div>
+        <p class="expect"><strong>Expect:</strong> the picker/board still show this session as a live agent (<code>pane_current_command</code> reads <code>claude</code> — same detection the picker/handoff already rely on); quitting <code>claude</code> (<code>/exit</code> or Ctrl-D) returns to the pane's normal shell prompt, not a closed pane — confirms the wrapper never <code>exec</code>'d over the shell.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b3">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Ad-hoc session is untouched</span><span class="ref">R3</span></div>
+        <p class="expect">Start <code>claude</code> in a plain, non-wb tmux session (no <code>@wb_repo</code> set — e.g. this session, name <code>0</code>).</p>
+        <p class="expect"><strong>Expect:</strong> <strong>no</strong> <code>wb-agent-*</code> scope appears for it in <code>systemctl --user list-units 'wb-agent-*'</code> — pure passthrough.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b4">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Env override changes the real limit</span><span class="ref">R8</span></div>
+        <pre><code>WB_AGENT_MEM_MAX=4G claude   # inside a wb pane</code></pre>
+        <p class="expect"><strong>Expect:</strong> the new scope's <code>MemoryMax</code> reads <code>4G</code>, confirming <code>~/.zshrc.local</code> (or an inline override) is a real tuning seam with no code edit.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b5">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Warn fires at threshold, never blocks</span><span class="ref">R6</span></div>
+        <p class="expect">With 8 (or your current <code>WB_AGENT_WARN_AT</code>) live <code>claude</code> agents already running, start a 9th.</p>
+        <p class="expect"><strong>Expect:</strong> a stderr warning naming the count and threshold, then the agent starts normally — never refuses.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b6">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Live count is visible ambiently</span><span class="ref">R7</span></div>
+        <pre><code>wb board
+wb            # picker — check the header line</code></pre>
+        <p class="expect"><strong>Expect:</strong> both show the same live-agent number, matching <code>tmux list-panes -a -F '#{pane_current_command}' | grep -cx claude</code>. Also spot-check <code>wb board --html</code>'s header for the same count (parity, not a separate requirement).</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="b7">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Blast-radius smoke — the actual payoff</span><span class="ref">the whole point of this plan</span></div>
+        <p class="expect">Deliberately drive one agent's scope past its <code>MemoryMax</code> (e.g. ask that agent to allocate memory until it's OOM-killed, or lower its <code>WB_AGENT_MEM_MAX</code> first to make it quick) while at least one other wb session is live.</p>
+        <p class="expect"><strong>Expect:</strong> only the offending <code>wb-agent-*</code> scope is killed — the tmux <strong>server</strong> and every <strong>other</strong> session survive. This is the one scenario that directly proves the fix for the 2026-08-24 crash, not just the wrapper's mechanics.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DONE GATE ================= -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">C</span>
+      <h2>Done when</h2>
+      <span class="chip blocked">gate</span>
+    </div>
+    <p class="sec-sub">Bookkeeping from the plan's Definition of Done that isn't code — some of it only makes sense after merge.</p>
+
+    <div class="item done" data-id="c1">
+      <label class="tick"><input type="checkbox" checked></label>
+      <div class="body">
+        <div class="item-top"><span class="what">gopls/nvim isolation fast-follow filed as a new planned task</span></div>
+        <p class="expect">Already done: <code>~/code/tasks/dotfiles--wb-agent-isolation-gopls-followup.md</code>, cross-linked from this task's Follow-ups.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c2">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Section A green + section B confirmed on this machine</span></div>
+        <p class="expect">The real-cgroup dependency the plan calls out; everything else is already verified.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c3">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">PR opened and merged</span><span class="ref">wb-session-memory-mitigations → development</span></div>
+        <p class="expect">Then <code>wb done</code> to wind down the worktree.</p>
+      </div>
+    </div>
+
+    <div class="item" data-id="c4">
+      <label class="tick"><input type="checkbox"></label>
+      <div class="body">
+        <div class="item-top"><span class="what">Task flipped to done, memory updated with the PR link</span></div>
+        <p class="expect"><code>~/code/tasks/dotfiles--wb-session-memory-mitigations.md</code> status → <code>done</code> (on merge, via <code>wb done</code>); memory <code>2026-08-24-tmux-oom-crash-and-recovery</code> updated with the shipped mitigation and the merged PR's link.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    Durable source: <code>docs/verification/2026-08-24-wb-session-cgroup-isolation-verification.html</code> ·
+    Plan: <code>docs/plans/2026-08-24-001-feat-wb-session-cgroup-isolation-plan.md</code> ·
+    Decision record: <code>logs/decisions/2026-08-24-wb-session-memory-mitigations.md</code> ·
+    Task: <code>~/code/tasks/dotfiles--wb-session-memory-mitigations.md</code>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var KEY = "wb-cgroup-isolation-testplan-v1";
+    var items = Array.prototype.slice.call(document.querySelectorAll(".item"));
+    var boxes = {};
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { saved = {}; }
+
+    var total = items.length;
+    document.getElementById("ptotal").textContent = total;
+    var pdone = document.getElementById("pdone");
+    var pfill = document.getElementById("pfill");
+
+    function render() {
+      var done = 0;
+      items.forEach(function (it) {
+        var id = it.getAttribute("data-id");
+        var box = boxes[id];
+        if (box.checked) { done++; it.classList.add("done"); } else { it.classList.remove("done"); }
+      });
+      pdone.textContent = done;
+      pfill.style.width = total ? (done / total * 100) + "%" : "0";
+    }
+
+    items.forEach(function (it) {
+      var id = it.getAttribute("data-id");
+      var box = it.querySelector('input[type="checkbox"]');
+      boxes[id] = box;
+      if (saved[id] !== undefined) box.checked = !!saved[id];
+      box.addEventListener("change", function () {
+        saved[id] = box.checked;
+        try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+        render();
+      });
+    });
+
+    document.getElementById("reset").addEventListener("click", function () {
+      saved = {};
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      items.forEach(function (it) {
+        var id = it.getAttribute("data-id");
+        if (id !== "c1") boxes[id].checked = false;
+      });
+      render();
+    });
+
+    render();
+  })();
+</script>
