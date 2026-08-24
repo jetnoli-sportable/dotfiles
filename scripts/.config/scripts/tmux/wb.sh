@@ -55,6 +55,10 @@ source "$SCRIPT_DIR/wb-locks.sh"
 TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
 CODE_DIR="${CODE_DIR:-$HOME/code}"
 WB_SWEEP_THRESHOLD="${WB_SWEEP_THRESHOLD:-5}"   # follow-ups+parked count that triggers the nudge
+# Same default the claude() wrapper (zsh/.zshrc) warns at — set once here so
+# wb.sh's own displays (picker header, wb board) can't drift to a different
+# fallback than the three call sites below used to inline separately.
+WB_AGENT_WARN_AT="${WB_AGENT_WARN_AT:-8}"
 
 # Picker column widths — shared between wb_format_for_display's padding and
 # wb_column_header's labels. Keep these in sync or the legend row drifts
@@ -4087,9 +4091,8 @@ wb_board_render_html() {
   # each rule targets the specific label by its for= attribute instead.
   local radios_html='' tabs_html='' status_tabs_html='' win_html='' panel_css='' panels_html='' highlight_css=''
   # R7 parity with the picker/plain-text board (wb_status_line / cmd_board) —
-  # same wb_live_agent_count this repo already computes live-session badges
-  # from (wb_board_live_session_for, below).
-  local live_agents_html; live_agents_html="<span class=\"live-agents\">agents: $(wb_live_agent_count) live (warn &ge; ${WB_AGENT_WARN_AT:-8})</span>"
+  # same wb_live_agent_count, just rendered into this page's own header.
+  local live_agents_html; live_agents_html="<span class=\"live-agents\">agents: $(wb_live_agent_count) live (warn &ge; ${WB_AGENT_WARN_AT})</span>"
   local win tab first_win=1
   for win in "${WINDOWS[@]}"; do
     local checked=""; [ "$first_win" = 1 ] && checked=" checked" && first_win=0
@@ -4923,7 +4926,7 @@ cmd_board() {
     rows+="$(printf '%s\t%s\t%s\t%s' "${t[0]:-?}" "${t[1]:-?}" "$title" "$fu")"$'\n'
   done < <(wb_task_files)
 
-  printf 'live agents: %s (warn >= %s)\n' "$(wb_live_agent_count)" "${WB_AGENT_WARN_AT:-8}"
+  printf 'live agents: %s (warn >= %s)\n' "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT"
 
   if [ -z "$rows" ]; then
     echo "wb board: no tasks in $TASKS_DIR"
@@ -5550,7 +5553,7 @@ wb_status_line() {
     hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · p pause · ctrl-x done+close/kill · / search · q quit'
   fi
   printf 'wb · %s (tab to cycle) · %s · %s agents live (warn >= %s)\n%s' \
-    "$mode" "$(wb_pending_counts)" "$(wb_live_agent_count)" "${WB_AGENT_WARN_AT:-8}" "$hint"
+    "$mode" "$(wb_pending_counts)" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$hint"
 }
 
 # _cycle_mode <mode_file> — advance to the next mode, persisting it so the

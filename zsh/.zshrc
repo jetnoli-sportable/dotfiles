@@ -127,13 +127,20 @@ pgh() { GH_TOKEN="$(secret-tool lookup service gh account personal)" command gh 
 export WB_AGENT_MEM_HIGH WB_AGENT_MEM_MAX WB_AGENT_WARN_AT
 claude() {
   [[ -n $TMUX ]] || { command claude "$@"; return }
-  local repo; repo="$(tmux show-options -qv @wb_repo 2>/dev/null)"
+  # One round-trip for both the gate and the session name (#{@wb_repo}
+  # expands to "" when the option is unset, same as show-options -q).
+  local repo sess
+  IFS='|' read -r repo sess <<< "$(tmux display-message -p '#{@wb_repo}|#{session_name}' 2>/dev/null)"
   [[ -n $repo ]] || { command claude "$@"; return }
   local n; n="$(tmux list-panes -a -F '#{pane_current_command}' 2>/dev/null | grep -cx claude)"
   if (( n >= WB_AGENT_WARN_AT )); then
     echo "wb: ${n} claude agents already running (warn >= ${WB_AGENT_WARN_AT}); starting another. Ctrl-C to abort." >&2
   fi
-  local sess; sess="$(tmux display-message -p '#S' | tr -c 'A-Za-z0-9_-' '-')"
+  # printf, not a <<< here-string: a here-string appends its own trailing
+  # newline, which tr then turns into a spurious trailing '-' (outside the
+  # allowed charset) since it isn't stripped the way command-substitution
+  # would strip an actual trailing newline.
+  sess="$(printf '%s' "$sess" | tr -c 'A-Za-z0-9_-' '-')"
   sess="${sess:0:50}"
   # `command` is a shell builtin systemd-run can't exec, and `exec`ing the real
   # binary would replace the pane's shell (breaking quit->prompt, R5) — resolve

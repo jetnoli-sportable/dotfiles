@@ -8,7 +8,7 @@
 # `zinit` clone on a cold cache and is unrelated to what's under test here.
 #
 # `tmux` and `systemd-run` are stubbed on PATH: the fake `tmux` answers only
-# the three queries the wrapper makes (so no real tmux server is needed for
+# the two queries the wrapper makes (so no real tmux server is needed for
 # most scenarios), and the fake `systemd-run` records its argv then execs the
 # trailing command, so the invocation SHAPE can be asserted without a real
 # systemd --user manager (the read-only Docker suite has none — see the
@@ -96,15 +96,16 @@ exit 1
 STUB
 chmod +x "$FIXTURE_BIN/systemd-run"
 
-# --- stub tmux: answers only the three queries the wrapper makes ------------
+# --- stub tmux: answers only the two queries the wrapper makes --------------
+# The wrapper's gate check and session-name lookup are one combined
+# `display-message -p '#{@wb_repo}|#{session_name}'` call (not two separate
+# ones), so this always returns both fields pipe-joined regardless of the
+# exact format string asked for.
 cat > "$FIXTURE_BIN/tmux" <<'STUB'
 #!/usr/bin/env bash
 case "$1 $2" in
-  "show-options -qv")
-    [ "${3:-}" = "@wb_repo" ] && printf '%s' "${FAKE_WB_REPO:-}"
-    ;;
   "display-message -p")
-    printf '%s' "${FAKE_SESSION_NAME:-testsess}"
+    printf '%s|%s' "${FAKE_WB_REPO:-}" "${FAKE_SESSION_NAME:-testsess}"
     ;;
   "list-panes -a")
     printf '%s\n' "${FAKE_PANE_LIST:-}"
