@@ -121,6 +121,10 @@ pgh() { GH_TOKEN="$(secret-tool lookup service gh account personal)" command gh 
 # this block rather than sourcing the whole .zshrc (which does a network
 # zinit clone on a cold cache).
 : ${WB_AGENT_MEM_HIGH:=6G} ${WB_AGENT_MEM_MAX:=8G} ${WB_AGENT_WARN_AT:=8}
+# Exported so wb.sh (a separate bash process — the picker, `wb board`) reads
+# the same live threshold this wrapper warns at, instead of a second
+# hardcoded copy that could drift from whatever ~/.zshrc.local overrides.
+export WB_AGENT_MEM_HIGH WB_AGENT_MEM_MAX WB_AGENT_WARN_AT
 claude() {
   [[ -n $TMUX ]] || { command claude "$@"; return }
   local repo; repo="$(tmux show-options -qv @wb_repo 2>/dev/null)"

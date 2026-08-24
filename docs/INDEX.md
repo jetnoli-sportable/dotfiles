@@ -9,8 +9,8 @@
 {"id":"zsh-alias-fd","kind":"alias","name":"fd","oneliner":"fdfind","source":"zsh/.zshrc:83","invoke":"fd","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-ld","kind":"alias","name":"ld","oneliner":"lazydocker","source":"zsh/.zshrc:85","invoke":"ld","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-lz","kind":"alias","name":"lz","oneliner":"lazygit","source":"zsh/.zshrc:84","invoke":"lz","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:149","invoke":"msconfig","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o \"$HOME/g…","source":"zsh/.zshrc:146","invoke":"replay","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:153","invoke":"msconfig","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o \"$HOME/g…","source":"zsh/.zshrc:150","invoke":"replay","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m","source":"zsh/.zshrc:89","invoke":"s","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-vim","kind":"alias","name":"vim","oneliner":"nvim","source":"zsh/.zshrc:82","invoke":"vim","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html","source":"zsh/.zshrc:95","invoke":"wb","guide":"","tags":["zsh"]}
@@ -186,7 +186,7 @@
 {"id":"memory-wb-resume-parent-substring-limit","kind":"doc","name":"wb resume parent substring limit","oneliner":"wb's fuzzy task resolver is pure substring; a parent whose name prefixes its children can't be uniquely targeted by resume/pause/append/don…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md","guide":"","tags":["memory"]}
 {"id":"memory-wb-test-sandbox-known-failures","kind":"doc","name":"wb test sandbox known failures","oneliner":"full wb Docker suite exits 1 on clean dev: 3 env-dependent files (handoff*, wb-reconcile-review) are the floor; baseline-compare failing-fi…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md","guide":"","tags":["memory"]}
 {"id":"memory-workflow-goals-vs-tools-tension","kind":"doc","name":"Workflow goals vs tools tension","oneliner":"2026-07-10 review: notes-tui 4a capture unused (empty inbox), meta-docs now outweigh actual tooling, parent/child feature queued behind mor…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md","guide":"","tags":["memory"]}
-{"id":"zsh-fn-claude","kind":"function","name":"claude","oneliner":"shell function","source":"zsh/.zshrc:124","invoke":"claude","guide":"","tags":["zsh"]}
+{"id":"zsh-fn-claude","kind":"function","name":"claude","oneliner":"shell function","source":"zsh/.zshrc:128","invoke":"claude","guide":"","tags":["zsh"]}
 {"id":"zsh-fn-pgh","kind":"function","name":"pgh","oneliner":"Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT inst…","source":"zsh/.zshrc:109","invoke":"pgh","guide":"","tags":["zsh"]}
 {"id":"script-ask","kind":"script","name":"ask.sh","oneliner":"ask.sh — quick-question scratch window (roadmap 9f-5): a fresh Claude Code","source":"scripts/.config/scripts/tmux/ask.sh:1","invoke":"scripts/.config/scripts/tmux/ask.sh","guide":"","tags":["tmux"]}
 {"id":"script-claude-notify-hook","kind":"script","name":"claude-notify-hook.sh","oneliner":"Claude Code hook → push the agent's state onto its own tmux pane as the","source":"scripts/.config/scripts/tmux/claude-notify-hook.sh:1","invoke":"scripts/.config/scripts/tmux/claude-notify-hook.sh","guide":"","tags":["tmux"]}
@@ -227,8 +227,8 @@
 | fd | alias | fdfind | fd | zsh/.zshrc:83 |  |
 | ld | alias | lazydocker | ld | zsh/.zshrc:85 |  |
 | lz | alias | lazygit | lz | zsh/.zshrc:84 |  |
-| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:149 |  |
-| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/g… | replay | zsh/.zshrc:146 |  |
+| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:153 |  |
+| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/g… | replay | zsh/.zshrc:150 |  |
 | s | alias | legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m | s | zsh/.zshrc:89 |  |
 | vim | alias | nvim | vim | zsh/.zshrc:82 |  |
 | wb | alias | the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html | wb | zsh/.zshrc:95 |  |
@@ -404,7 +404,7 @@
 | wb resume parent substring limit | doc | wb's fuzzy task resolver is pure substring; a parent whose name prefixes its children can't be uniquely targeted by resume/pause/append/don… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md:1 |  |
 | wb test sandbox known failures | doc | full wb Docker suite exits 1 on clean dev: 3 env-dependent files (handoff*, wb-reconcile-review) are the floor; baseline-compare failing-fi… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md:1 |  |
 | Workflow goals vs tools tension | doc | 2026-07-10 review: notes-tui 4a capture unused (empty inbox), meta-docs now outweigh actual tooling, parent/child feature queued behind mor… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md:1 |  |
-| claude | function | shell function | claude | zsh/.zshrc:124 |  |
+| claude | function | shell function | claude | zsh/.zshrc:128 |  |
 | pgh | function | Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT inst… | pgh | zsh/.zshrc:109 |  |
 | ask.sh | script | ask.sh — quick-question scratch window (roadmap 9f-5): a fresh Claude Code | scripts/.config/scripts/tmux/ask.sh | scripts/.config/scripts/tmux/ask.sh:1 |  |
 | claude-notify-hook.sh | script | Claude Code hook → push the agent's state onto its own tmux pane as the | scripts/.config/scripts/tmux/claude-notify-hook.sh | scripts/.config/scripts/tmux/claude-notify-hook.sh:1 |  |
