@@ -108,6 +108,39 @@ alias wb="~/.config/scripts/tmux/wb.sh"
 #   secret-tool store --label='gh personal PAT' service gh account personal
 pgh() { GH_TOKEN="$(secret-tool lookup service gh account personal)" command gh "$@"; }
 
+# wb agent isolation (docs/plans/2026-08-24-001-feat-wb-session-cgroup-isolation-plan.md):
+# every wb launch site (wb.sh, handoff.sh, ask.sh) types the bare word `claude`
+# into a pane's zsh, so gating one shell function here is the single chokepoint
+# that covers both scripted AND manually-typed launches (the `wb resume` case)
+# — see KTD1. Isolating each agent in its own systemd --user scope means oomd
+# kills one runaway agent instead of the shared Ghostty scope that also holds
+# the tmux server and every other session (2026-08-24 crash, recurred despite
+# PR #40's lazy-nvim). ~/.zshrc.local (sourced below) is the override seam for
+# these three defaults.
+# wb-claude-wrapper:begin — markers let wb-claude-wrapper.test.sh extract just
+# this block rather than sourcing the whole .zshrc (which does a network
+# zinit clone on a cold cache).
+: ${WB_AGENT_MEM_HIGH:=6G} ${WB_AGENT_MEM_MAX:=8G} ${WB_AGENT_WARN_AT:=8}
+claude() {
+  [[ -n $TMUX ]] || { command claude "$@"; return }
+  local repo; repo="$(tmux show-options -qv @wb_repo 2>/dev/null)"
+  [[ -n $repo ]] || { command claude "$@"; return }
+  local n; n="$(tmux list-panes -a -F '#{pane_current_command}' 2>/dev/null | grep -cx claude)"
+  if (( n >= WB_AGENT_WARN_AT )); then
+    echo "wb: ${n} claude agents already running (warn >= ${WB_AGENT_WARN_AT}); starting another. Ctrl-C to abort." >&2
+  fi
+  local sess; sess="$(tmux display-message -p '#S' | tr -c 'A-Za-z0-9_-' '-')"
+  sess="${sess:0:50}"
+  # `command` is a shell builtin systemd-run can't exec, and `exec`ing the real
+  # binary would replace the pane's shell (breaking quit->prompt, R5) — resolve
+  # the real path and hand it to systemd-run as a plain argv (KTD5).
+  local real; real="$(whence -p claude)"
+  systemd-run --user --scope --quiet --unit="wb-agent-${sess}-$$" \
+    -p MemoryHigh="$WB_AGENT_MEM_HIGH" -p MemoryMax="$WB_AGENT_MEM_MAX" \
+    "$real" "$@"
+}
+# wb-claude-wrapper:end
+
 # replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui)
 # Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/go/bin/replay" ./cmd/replay
 alias replay="$HOME/go/bin/replay"
