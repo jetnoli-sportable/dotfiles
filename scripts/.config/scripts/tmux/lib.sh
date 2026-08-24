@@ -160,7 +160,11 @@ tmux_claude_panes() {
 # of one predicate, not a shared implementation; keep them in sync if the
 # definition of "live" ever changes.
 wb_live_agent_count() {
-  tmux list-panes -a -F '#{pane_current_command}' 2>/dev/null | grep -cx claude
+  # `|| true`: grep -c exits 1 on zero matches (the common case — no live
+  # agents), which would otherwise abort any caller running under `set -e`
+  # (wb.sh does) at this command substitution — same idiom wb.sh's own
+  # zero-count helpers already use (e.g. wb.sh:3846, :5254).
+  tmux list-panes -a -F '#{pane_current_command}' 2>/dev/null | grep -cx claude || true
 }
 
 # tmux_session_agent_state <session> — tri-state liveness check for a wb

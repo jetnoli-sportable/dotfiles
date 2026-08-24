@@ -9,8 +9,8 @@
 {"id":"zsh-alias-fd","kind":"alias","name":"fd","oneliner":"fdfind","source":"zsh/.zshrc:83","invoke":"fd","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-ld","kind":"alias","name":"ld","oneliner":"lazydocker","source":"zsh/.zshrc:85","invoke":"ld","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-lz","kind":"alias","name":"lz","oneliner":"lazygit","source":"zsh/.zshrc:84","invoke":"lz","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:160","invoke":"msconfig","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o \"$HOME/g…","source":"zsh/.zshrc:157","invoke":"replay","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:177","invoke":"msconfig","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o \"$HOME/g…","source":"zsh/.zshrc:174","invoke":"replay","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m","source":"zsh/.zshrc:89","invoke":"s","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-vim","kind":"alias","name":"vim","oneliner":"nvim","source":"zsh/.zshrc:82","invoke":"vim","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html","source":"zsh/.zshrc:95","invoke":"wb","guide":"","tags":["zsh"]}
@@ -227,8 +227,8 @@
 | fd | alias | fdfind | fd | zsh/.zshrc:83 |  |
 | ld | alias | lazydocker | ld | zsh/.zshrc:85 |  |
 | lz | alias | lazygit | lz | zsh/.zshrc:84 |  |
-| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:160 |  |
-| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/g… | replay | zsh/.zshrc:157 |  |
+| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:177 |  |
+| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/g… | replay | zsh/.zshrc:174 |  |
 | s | alias | legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m | s | zsh/.zshrc:89 |  |
 | vim | alias | nvim | vim | zsh/.zshrc:82 |  |
 | wb | alias | the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html | wb | zsh/.zshrc:95 |  |

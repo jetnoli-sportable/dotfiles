@@ -146,7 +146,24 @@ claude() {
   # binary would replace the pane's shell (breaking quit->prompt, R5) — resolve
   # the real path and hand it to systemd-run as a plain argv (KTD5).
   local real; real="$(whence -p claude)"
-  systemd-run --user --scope --quiet --unit="wb-agent-${sess}-$$" \
+  # Fail OPEN to passthrough, never closed: without this, a machine missing
+  # systemd-run (or a claude shadowed only by this very function, so
+  # `whence -p` finds nothing on PATH) would silently launch no agent at all
+  # in every wb pane, with no recovery — this wrapper is the sole chokepoint
+  # every launch site depends on.
+  if [[ -z $real ]] || ! command -v systemd-run >/dev/null 2>&1; then
+    command claude "$@"
+    return
+  fi
+  # --collect: without it, a scope killed by its own MemoryMax (the exact
+  # event this wrapper exists to contain) leaves a "failed" unit registered
+  # under this exact name — and since there's no `exec` above, $$ (the
+  # pane's shell PID) is stable for the pane's whole lifetime, so the very
+  # next `claude` typed into the SAME pane would fail to start at all
+  # ("Unit wb-agent-...-$$.scope was already loaded"). Verified live: an
+  # OOM-killed scope without --collect blocks reuse of its unit name;
+  # with --collect it's auto-unloaded and the name is immediately reusable.
+  systemd-run --user --scope --quiet --collect --unit="wb-agent-${sess}-$$" \
     -p MemoryHigh="$WB_AGENT_MEM_HIGH" -p MemoryMax="$WB_AGENT_MEM_MAX" \
     "$real" "$@"
 }

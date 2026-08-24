@@ -905,6 +905,25 @@ assert "empty store: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - ex
 assert "empty store: All/Today shows empty state" 'No tasks in this view' "$empty_html"
 assert "U9: empty store -> Key Findings never vanishes, shows the 'nothing notable' fallback" \
   'Nothing notable right now' "$empty_html"
+# --- live-agent count header (U3, R7 parity with wb_status_line/cmd_board) --
+# Redefine wb_live_agent_count directly (this file sources wb.sh into the
+# same process, unlike wb-board.test.sh's subprocess boundary) — the
+# wb-lifecycle.test.sh save_fn/redefine convention. The zero-count case is
+# the one that previously crashed the whole sourced script under wb.sh's own
+# `set -e` (grep -c exits 1 on no match) before wb_live_agent_count gained
+# its `|| true` guard; asserting it deterministically here doesn't depend on
+# incidental tmux state the way the "empty store" block above does.
+ORIG_LIVE_COUNT="$(declare -f wb_live_agent_count)"
+wb_live_agent_count() { echo 3; }
+live_html="$(wb_board_render_html 2>&1)"
+assert "U3: HTML board header shows a nonzero live-agent count" \
+  'agents: 3 live' "$live_html"
+wb_live_agent_count() { echo 0; }
+live_html_zero="$(wb_board_render_html 2>&1)"; rc=$?
+assert "U3: HTML board header shows zero live agents, never errors" \
+  'agents: 0 live' "$live_html_zero"
+[ "$rc" -eq 0 ] || { echo "FAIL - zero-live-agent render exited $rc"; fail=1; }
+eval "$ORIG_LIVE_COUNT"
 rm -rf "$EMPTY_TASKS" "$EMPTY_CODE"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"

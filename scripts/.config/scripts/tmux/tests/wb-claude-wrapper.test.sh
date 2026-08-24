@@ -174,6 +174,24 @@ assert_empty_file "warn/override-below: 3 agents < WARN_AT=5, silent" "$LOG_DIR/
 run_claude TMUX=1 FAKE_WB_REPO=dotfiles WB_AGENT_WARN_AT=3 FAKE_PANE_LIST=$'claude\nclaude\nclaude\nbash'
 assert_contains "warn/override-at: 3 agents == WARN_AT=3, warns" "$LOG_DIR/stderr.log" "3 claude agents already running"
 
+# --- Fail-open fallback: systemd-run missing from PATH -----------------------
+# A PATH containing ONLY this fixture dir (plus real tr/grep the wrapper also
+# shells out to) so systemd-run genuinely cannot be found anywhere — not just
+# absent from FIXTURE_BIN, since the ambient PATH's real systemd-run would
+# otherwise still resolve.
+NO_SYSTEMD_BIN="$(mktemp -d -t wb-claude-wrapper-no-systemd.XXXXXX)"
+cp "$FIXTURE_BIN/claude" "$FIXTURE_BIN/tmux" "$NO_SYSTEMD_BIN/"
+ln -s "$(command -v tr)" "$NO_SYSTEMD_BIN/tr"
+ln -s "$(command -v grep)" "$NO_SYSTEMD_BIN/grep"
+ln -s "$(command -v bash)" "$NO_SYSTEMD_BIN/bash"
+ln -s "$(command -v zsh)" "$NO_SYSTEMD_BIN/zsh"
+: > "$LOG_DIR/claude.log"; : > "$LOG_DIR/systemd-run.argv"; : > "$LOG_DIR/stderr.log"
+env -i HOME="$HOME" PATH="$NO_SYSTEMD_BIN" WB_TEST_LOG_DIR="$LOG_DIR" TMUX=1 FAKE_WB_REPO=dotfiles \
+  zsh -c "$FUNC_SRC"$'\n''claude arg1 arg2' 2>"$LOG_DIR/stderr.log"
+assert_contains "fallback: systemd-run missing -> real claude still ran (fail open)" "$LOG_DIR/claude.log" "real-claude-ran arg1 arg2"
+assert_empty_file "fallback: systemd-run missing -> never attempted (nothing to record argv to)" "$LOG_DIR/systemd-run.argv"
+rm -rf "$NO_SYSTEMD_BIN"
+
 # --- Detection contract (integration, R4): real tmux pane -------------------
 # Needs a real `systemd-run --user` (no systemd user manager inside the
 # read-only Docker suite) — skip with an explicit message rather than fail.
