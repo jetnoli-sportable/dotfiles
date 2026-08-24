@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> start-here</span>
   <span class="gen">docgen · generated from <b>docs/wb-guide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-12</span>
+  <span class="right">updated 2026-08-24</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -255,6 +255,7 @@
       <li><a href="#the-task-store">The task store</a></li>
       <li><a href="#wb-board---html--the-full-board-v2">wb board --html — the full board (v2)</a></li>
       <li><a href="#keeping-the-task-store-safe">Keeping the task store safe</a></li>
+      <li><a href="#session-memory-isolation">Session memory isolation</a></li>
       <li><a href="#known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</a></li>
       <li><a href="#next-steps">Next steps</a></li>
       <li><a href="#if-something-misbehaves">If something misbehaves</a></li>
@@ -784,6 +785,58 @@ a <code>PreToolUse</code> hook asks before an agent runs anything that looks lik
 history rewind, and a <code>reference-transaction</code> git hook refuses ref updates
 that would orphan commits, regardless of which tool or shell ran the
 command. <code>wb unsafe-rewind</code> is the sanctioned way through the second one.</p>
+<h2 id="session-memory-isolation">Session memory isolation</h2>
+<p>Every <code>claude</code> launch inside a wb pane — <code>wb new --agent</code>, <code>wb resume</code>, a
+handoff, <code>/ask</code>, or just typing <code>claude</code> yourself — runs inside its own
+transient <code>systemd --user</code> scope instead of sharing one cgroup with the tmux
+server and every other session. This exists because of the 2026-08-24
+crash: all wb sessions lived in one Ghostty surface scope, so when memory
+pressure tripped <code>systemd-oomd</code>, it killed that whole scope — tmux server
+included — taking every session down at once. A <code>claude()</code> wrapper function
+in <code>zsh/.zshrc</code> is the one chokepoint every launch path already flows
+through (they all just type the word <code>claude</code>), so it re-launches the real
+binary under <code>systemd-run --user --scope</code> with a memory ceiling. Outside a
+wb pane (an ad-hoc <code>claude</code> session, no <code>@wb_repo</code> set) the wrapper is an
+inert passthrough.</p>
+<p>Before starting a new agent, the wrapper also checks how many <code>claude</code>
+agents are already live across every session and prints a non-blocking
+warning to stderr past a threshold — it never refuses to start one, since
+the cgroup isolation above is the actual containment. The count is also
+surfaced ambiently in the picker header and in <code>wb board</code> / <code>wb board --html</code>, so it's a glance rather than something you have to go looking for.</p>
+<p>Three env vars control it, each with a default and a <code>~/.zshrc.local</code>
+override seam (that file is sourced after these defaults, so a plain
+<code>export WB_AGENT_MEM_MAX=4G</code> there is all a tuning change needs — no code
+edit):</p>
+<table>
+<thead>
+<tr>
+<th>Env var</th>
+<th>Default</th>
+<th>Controls</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WB_AGENT_MEM_HIGH</code></td>
+<td><code>6G</code></td>
+<td>Soft throttle limit passed to <code>systemd-run</code> as <code>MemoryHigh</code>.</td>
+</tr>
+<tr>
+<td><code>WB_AGENT_MEM_MAX</code></td>
+<td><code>8G</code></td>
+<td>Hard cap passed as <code>MemoryMax</code> — <code>systemd-oomd</code>/the kernel OOM-kills the scope if a <code>claude</code> process tree exceeds this.</td>
+</tr>
+<tr>
+<td><code>WB_AGENT_WARN_AT</code></td>
+<td><code>8</code></td>
+<td>Live-agent count at/above which starting another agent prints the stderr warning.</td>
+</tr>
+</tbody>
+</table>
+<p>This is a partial fix by design: only <code>claude</code> is isolated this iteration,
+not nvim/gopls, so a few manually-opened editor instances can still make
+the shared Ghostty scope the highest-pressure one. Isolating nvim/gopls is
+a tracked fast-follow, not something this covers yet.</p>
 <h2 id="known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</h2>
 <ul>
 <li>The picker's auto-refresh briefly pauses input while it runs (every few
