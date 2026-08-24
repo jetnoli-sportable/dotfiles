@@ -785,20 +785,27 @@ wb_seed_planned_child() {
 }
 
 # wb_layout_session <session> <dir> <start_agent> — first-time-only 3-window
-# layout: win1 nvim, win2 a plain shell for the agent (LAZY — you run `claude`
-# yourself the first time you visit, bounded by the ~10-concurrent-agent
-# memory ceiling; pass start_agent=1, i.e. `wb new --agent`, to start it now),
-# win3 shell.
+# layout: win1 an editor shell (LAZY — the nvim launch is pre-typed but not
+# run, so nvim/LSP start only when you visit and press Enter), win2 a plain
+# shell for the agent (LAZY — you run `claude` yourself the first time you
+# visit, bounded by the ~10-concurrent-agent memory ceiling; pass start_agent=1,
+# i.e. `wb new --agent`, to start it now), win3 shell.
 wb_layout_session() {
   local session="$1" dir="$2" start_agent="$3"
   tmux rename-window -t "=$session:1" nvim
-  # WB_AUTO_RESTORE=1 opts THIS launch into persistence.nvim's
-  # auto-restore-on-VimEnter (nvim/.config/nvim/lua/plugins/config/
-  # persistence.lua) — a worktree session's nvim window should pick back up
-  # where you left it. Typing `nvim .`/`vim .` yourself anywhere else does
-  # NOT set this and gets a plain, non-restoring open (2026-07-09: silent
-  # auto-restore on every `.` launch was surprising with no escape hatch).
-  tmux send-keys -t "=$session:1" "WB_AUTO_RESTORE=1 nvim ." Enter
+  # LAZY editor, mirroring the agent window below: we PRE-TYPE the nvim launch
+  # into win1 but deliberately DON'T send Enter, so nvim + its LSP (gopls in
+  # be--monorepo is 1-4GB *per session*) only start when you actually land here
+  # and press Enter — not eagerly on every `wb new`/`wb resume`. Resuming N
+  # sessions at once used to spawn N gopls immediately; that eager cost was a
+  # direct contributor to the 2026-08-24 systemd-oomd kill that took down the
+  # whole tmux server. WB_AUTO_RESTORE=1 still opts this launch into
+  # persistence.nvim's auto-restore-on-VimEnter (nvim/.config/nvim/lua/plugins/
+  # config/persistence.lua), so hitting Enter picks back up where you left off;
+  # typing `nvim .`/`vim .` yourself anywhere else does NOT set it and gets a
+  # plain, non-restoring open (2026-07-09: silent auto-restore on every `.`
+  # launch was surprising with no escape hatch).
+  tmux send-keys -t "=$session:1" "WB_AUTO_RESTORE=1 nvim ."
   tmux new-window -t "=$session" -n agent -c "$dir"
   # remain-on-exit keeps the agent window as [dead] instead of letting tmux
   # auto-close it the instant its shell exits. The window is a bare shell with
