@@ -1,6 +1,6 @@
 ---
 name: quick-wins
-description: On-demand effort/isolation/ownership triage across the whole deferred backlog — wb tasks in ~/code/tasks (status planned), the /park ledger, and ## Follow-ups blocks inside task files — answering one question per item, "could this be done right now, quickly, outside the ce (/ce-plan → /ce-work) flow?" Surfaces a ranked shortlist; acts only on an explicit pick or when a conservative high-confidence auto-lane threshold is cleared. Use when the user types /quick-wins, or asks "anything quick I can just do", "what's a cheap win", "any low-hanging fruit in the backlog", "what can I knock out without a plan". Pairs with /parked-items (weekly routing review) and is the human-in-the-loop classifier the autonomous loop (dotfiles--loop-autorun-deferred-followups) inherits.
+description: On-demand effort/isolation/ownership triage across the whole deferred backlog — wb tasks in ~/code/tasks (status planned), the /park ledger, and ## Follow-ups blocks inside task files — answering one question per item, "could this be done right now, quickly, outside the ce (/ce-plan → /ce-work) flow?" Renders a ranked shortlist as a readable HTML file (pick-buffer alongside); acts only on an explicit pick or when a conservative high-confidence auto-lane threshold is cleared. Use when the user types /quick-wins, or asks "anything quick I can just do", "what's a cheap win", "any low-hanging fruit in the backlog", "what can I knock out without a plan". Pairs with /parked-items (weekly routing review) and is the human-in-the-loop classifier the autonomous loop (dotfiles--loop-autorun-deferred-followups) inherits.
 ---
 
 # quick-wins
@@ -160,21 +160,47 @@ Apply the three axes to each surviving candidate and produce its verdict block.
 Be explicit in the one-clause "why" on each axis — that reasoning is what a
 human (or a future audit) checks the call against.
 
-### 5. Present the shortlist
+### 5. Present the shortlist — an HTML file is the primary, readable output
 
-Rank `QUICK-WIN` items first (auto-lane candidates flagged), then
-`OWNED-ELSEWHERE` (with the owning ticket named), then a compact tail of
-`NEEDS-A-PLAN` (one line each — the point is to show they were *considered*, not
-to expand them). Present as a pick-list:
+**Render the classified shortlist as a self-contained HTML file.** It is far
+more readable than a chat list or a raw markdown buffer, so it is the default
+output of every run. Follow the repo's generated-doc conventions — theme-aware
+light/dark, wide layout, no external assets — and mirror the existing visual
+language (`docs/wb-guide.html` / the decision-buffer companion HTML), don't
+invent a new look. Ranked:
 
-```
-shortlist row → [ ] do now   [ ] make a plan/task   [ ] keep parked   [ ] drop
-```
+1. `QUICK-WIN` items first (auto-lane candidates clearly badged), then
+2. `OWNED-ELSEWHERE` (owning ticket named), then
+3. a compact `NEEDS-A-PLAN` tail (one line each — proof they were *considered*).
 
-For a small shortlist, presenting inline in chat and taking picks in the reply
-is fine. For a large one, open the pick-list as an nvim buffer the same way
-`/parked-items` step 3 does (unique wait-channel, `@claude_blocked`, background
-Bash). Do not pre-check boxes and treat an unedited close as approval.
+Each row carries a **stable `#`**, the one-line description, its source, the
+three axes each with their one-clause "why", the verdict, and confidence — so a
+pick can reference it by number ("do #3, plan #5, drop #8").
+
+Write it to a **durable path — never scratch-only** (scratch gets cleaned):
+`~/code/tasks/dossiers/quick-wins/quick-wins-<YYYY-MM-DD-HHMM>.html` by default,
+or the current repo's own `docs/`/scratch convention when the run is scoped to
+that repo. **Respect the work/personal boundary** — a run surfacing
+employer-repo items must not be published to a personal artifact surface
+(claude.ai); land it in the work repo's own conventions instead. Publishing to
+claude.ai as an Artifact is optional and only for personal/dotfiles runs; always
+name the file path alongside any URL.
+
+**Taking picks** — the HTML is read-only, so picks happen elsewhere:
+
+- Simplest: the human reads the HTML and tells you which to action by `#`
+  ("do #3, make a plan for #5, keep #8 parked").
+- Or, alongside the HTML, open an nvim **pick-buffer** the way `/parked-items`
+  step 3 does (markdown checkboxes, unique wait-channel, `@claude_blocked`,
+  background Bash) for check-box selection — worth it above
+  `max_shortlist_before_buffer` items:
+
+  ```
+  shortlist row → [ ] do now   [ ] make a plan/task   [ ] keep parked   [ ] drop
+  ```
+
+Do not pre-check boxes and treat an unedited buffer close (or an unremarked HTML
+read) as approval — no explicit pick means no action beyond the auto-lane.
 
 ### 6. Act — auto-lane, then explicit picks
 

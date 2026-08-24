@@ -57,4 +57,5 @@ quick win for a pick than auto-act on something with a hidden seam.
 
 - surface_needs_a_plan_tail: true   # still list NEEDS-A-PLAN items (one line each)
                                     #   so it's clear they were considered, not missed
-- max_shortlist_before_buffer: 8    # above this, present as an nvim pick-buffer, not inline
+- max_shortlist_before_buffer: 8    # above this, also open an nvim pick-buffer for check-box
+                                    #   picks (the readable HTML render is produced every run either way)
