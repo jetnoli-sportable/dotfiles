@@ -108,6 +108,67 @@ alias wb="~/.config/scripts/tmux/wb.sh"
 #   secret-tool store --label='gh personal PAT' service gh account personal
 pgh() { GH_TOKEN="$(secret-tool lookup service gh account personal)" command gh "$@"; }
 
+# wb agent isolation (docs/plans/2026-08-24-001-feat-wb-session-cgroup-isolation-plan.md):
+# every wb launch site (wb.sh, handoff.sh, ask.sh) types the bare word `claude`
+# into a pane's zsh, so gating one shell function here is the single chokepoint
+# that covers both scripted AND manually-typed launches (the `wb resume` case)
+# — see KTD1. Isolating each agent in its own systemd --user scope means oomd
+# kills one runaway agent instead of the shared Ghostty scope that also holds
+# the tmux server and every other session (2026-08-24 crash, recurred despite
+# PR #40's lazy-nvim). ~/.zshrc.local (sourced below) is the override seam for
+# these three defaults.
+# wb-claude-wrapper:begin — markers let wb-claude-wrapper.test.sh extract just
+# this block rather than sourcing the whole .zshrc (which does a network
+# zinit clone on a cold cache).
+: ${WB_AGENT_MEM_HIGH:=6G} ${WB_AGENT_MEM_MAX:=8G} ${WB_AGENT_WARN_AT:=8}
+# Exported so wb.sh (a separate bash process — the picker, `wb board`) reads
+# the same live threshold this wrapper warns at, instead of a second
+# hardcoded copy that could drift from whatever ~/.zshrc.local overrides.
+export WB_AGENT_MEM_HIGH WB_AGENT_MEM_MAX WB_AGENT_WARN_AT
+claude() {
+  [[ -n $TMUX ]] || { command claude "$@"; return }
+  # One round-trip for both the gate and the session name (#{@wb_repo}
+  # expands to "" when the option is unset, same as show-options -q).
+  local repo sess
+  IFS='|' read -r repo sess <<< "$(tmux display-message -p '#{@wb_repo}|#{session_name}' 2>/dev/null)"
+  [[ -n $repo ]] || { command claude "$@"; return }
+  local n; n="$(tmux list-panes -a -F '#{pane_current_command}' 2>/dev/null | grep -cx claude)"
+  if (( n >= WB_AGENT_WARN_AT )); then
+    echo "wb: ${n} claude agents already running (warn >= ${WB_AGENT_WARN_AT}); starting another. Ctrl-C to abort." >&2
+  fi
+  # printf, not a <<< here-string: a here-string appends its own trailing
+  # newline, which tr then turns into a spurious trailing '-' (outside the
+  # allowed charset) since it isn't stripped the way command-substitution
+  # would strip an actual trailing newline.
+  sess="$(printf '%s' "$sess" | tr -c 'A-Za-z0-9_-' '-')"
+  sess="${sess:0:50}"
+  # `command` is a shell builtin systemd-run can't exec, and `exec`ing the real
+  # binary would replace the pane's shell (breaking quit->prompt, R5) — resolve
+  # the real path and hand it to systemd-run as a plain argv (KTD5).
+  local real; real="$(whence -p claude)"
+  # Fail OPEN to passthrough, never closed: without this, a machine missing
+  # systemd-run (or a claude shadowed only by this very function, so
+  # `whence -p` finds nothing on PATH) would silently launch no agent at all
+  # in every wb pane, with no recovery — this wrapper is the sole chokepoint
+  # every launch site depends on.
+  if [[ -z $real ]] || ! command -v systemd-run >/dev/null 2>&1; then
+    command claude "$@"
+    return
+  fi
+  # --collect: without it, a scope killed by its own MemoryMax (the exact
+  # event this wrapper exists to contain) leaves a "failed" unit registered
+  # under this exact name — and since there's no `exec` above, $$ (the
+  # pane's shell PID) is stable for the pane's whole lifetime, so the very
+  # next `claude` typed into the SAME pane would fail to start at all
+  # ("Unit wb-agent-...-$$.scope was already loaded"). Verified live: an
+  # OOM-killed scope without --collect blocks reuse of its unit name;
+  # with --collect it's auto-unloaded and the name is immediately reusable.
+  systemd-run --user --scope --quiet --collect --unit="wb-agent-${sess}-$$" \
+    -p MemoryHigh="$WB_AGENT_MEM_HIGH" -p MemoryMax="$WB_AGENT_MEM_MAX" \
+    "$real" "$@"
+}
+# wb-claude-wrapper:end
+
 # replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui)
 # Rebuild with: cd ~/code/replay-tui* && go build -o "$HOME/go/bin/replay" ./cmd/replay
 alias replay="$HOME/go/bin/replay"
