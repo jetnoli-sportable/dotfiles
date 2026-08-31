@@ -280,6 +280,21 @@ conversation, appends it to the task file's <code>## Handoffs</code> section, an
 confirms in one line:</p>
 <pre><code>Saved to ## Handoffs — /clear when you're ready.
 </code></pre>
+<p>If you say what should happen on resume — &quot;wb-save and set resume to run
+a full ce-code-review&quot; — the entry also gets a fenced <code>run:</code> directive
+naming that action literally, so <code>/wb-resume</code> can execute it
+deterministically instead of re-reading prose:</p>
+<pre><code>### 2026-08-31 10:05 — wb-save
+**Done:** landed the parser fix
+**In flight:** nothing
+**Next:** run a full code review before merging
+
+```run
+/ce-code-review --full --subagents
+```
+</code></pre>
+<p>No directive is written if you don't state a concrete next action — a
+plain &quot;save my progress&quot; produces the same three-field entry as before.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>
@@ -304,6 +319,10 @@ confirms in one line:</p>
 <tr>
 <td>Entry shape</td>
 <td><code>### &lt;YYYY-MM-DD HH:MM&gt; — wb-save</code> heading (no <code>(auto)</code> suffix — that's reserved for <code>wb.sh</code>'s own mechanical <code>pause</code>/<code>done</code>/<code>resume</code> entries), then <code>**Done:**</code>/<code>**In flight:**</code>/<code>**Next:**</code></td>
+</tr>
+<tr>
+<td>Next-action directive</td>
+<td>Optional fourth element: a fenced <code>```run</code> block right after <code>**Next:**</code>, containing the literal command to run on resume — only emitted when the save-request explicitly named one</td>
 </tr>
 <tr>
 <td>No <code>@task</code> set</td>
