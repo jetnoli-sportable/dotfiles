@@ -160,21 +160,32 @@ bash-parsed grammar (KTD4):
 ```markdown
 # wb jira-create — <input label> (<N> ticket(s) proposed)
 
-> Check the tickets to create; edit `Project:` / `type:` / `summary:` /
-> `Parent ticket:` in place; save and close. Only checked blocks are created.
-> The description shown under each block is EXACTLY the text published to the
-> shared tracker — edit it here if it should read differently.
+> Check the tickets to create. For `Project:` and each ticket's `type:`,
+> check exactly one box (or, for `Project:`, check "other:" and fill in a
+> project key). Edit `summary:` / `Parent ticket:` in place as free text.
+> Save and close. Only checked ticket blocks are created. The description
+> shown under each block is EXACTLY the text published to the shared
+> tracker — edit it here if it should read differently.
 
-Project: SFB          <!-- the target project key; edit to SW (or another) — types re-resolve at re-preflight -->
+Project: (check exactly one)
 <!-- wb-jira-create: project-field default=SFB -->
+- [x] SFB
+- [ ] SW
+- [ ] other: ____
 Parent ticket: <blank | SFB-1234 | batch:feat-coordinator-slug>
 <!-- wb-jira-create: parent-field default=<batch:coordinator-slug | blank> -->
 
 ## ticket 1 — <task title>
 <!-- wb-jira-create: block=ticket n=1 stem=<repo>--<slug> -->
 - [x] create ticket
-- type: Feature      (editable — one of the Project's own issue types, from preflight)
 - summary: <task title>
+- type: (check exactly one — SFB's own issue types, from preflight)
+  <!-- wb-jira-create: type-field n=1 default=Feature -->
+  - [x] Feature
+  - [ ] Defect
+  - [ ] Bug
+  - [ ] Improvement
+  - [ ] New Feature
 <!-- wb-jira-create: begin-description n=1 -->
 <the task's entire ## Plan body, verbatim — the ticket description>
 <!-- wb-jira-create: end-description n=1 -->
@@ -182,8 +193,14 @@ Parent ticket: <blank | SFB-1234 | batch:feat-coordinator-slug>
 ## ticket 2 — <task title>
 <!-- wb-jira-create: block=ticket n=2 stem=<repo>--<slug> -->
 - [x] create ticket
-- type: Feature
 - summary: <task title>
+- type: (check exactly one — SFB's own issue types, from preflight)
+  <!-- wb-jira-create: type-field n=2 default=Feature -->
+  - [x] Feature
+  - [ ] Defect
+  - [ ] Bug
+  - [ ] Improvement
+  - [ ] New Feature
 <!-- wb-jira-create: begin-description n=2 -->
 …
 <!-- wb-jira-create: end-description n=2 -->
@@ -199,17 +216,33 @@ Buffer rules:
   preview.** The approver must see exactly what publishes to the shared
   tracker. If a `## Plan` is empty, note that and still show the (empty)
   block so the human can fill it before checking.
-- **`Project:` is one run-level field**, default `SFB`, editable to another
-  accessible project key (e.g. `SW`). It sets `projectKey` for every ticket
-  in the run, the dedup JQL's `project = …`, and the `<KEY>-<n>` shape the
-  returned URL is validated against. If the human edits it, the post-approval
-  re-preflight (step 5b) re-resolves that project's metadata and issue types
-  before anything is created.
-- **`type:` defaults to `Feature`** (or the project's default when it has no
-  Feature type), editable to any one of the **chosen project's** own issue
-  types as resolved at preflight — for SFB that's Feature | Defect | Bug |
-  Improvement | New Feature (no Story, no Sub-task); another project's set may
-  differ. Don't offer a type the preflight metadata didn't return.
+- **`Project:` is one run-level select**, one checkbox per commonly-used
+  project (`SFB`, `SW`) plus a trailing `other: ____` line for any other
+  accessible project key, default `SFB` checked. It sets `projectKey` for
+  every ticket in the run, the dedup JQL's `project = …`, and the
+  `<KEY>-<n>` shape the returned URL is validated against. **Exactly one
+  box must be checked** — if the human checks zero or 2+ (including
+  checking `other:` while leaving text blank, or leaving `other:` unchecked
+  with text filled in anyway), don't guess: report the ambiguity and ask
+  before proceeding, same as an all-unchecked ticket list is a stop, not a
+  guess. If the human switches the project (including via `other:`), the
+  post-approval re-preflight (step 5b) re-resolves that project's metadata
+  and issue types before anything is created.
+- **Each ticket's `type:` is a per-ticket select**, populated at
+  buffer-authoring time from the **default project's** (pre-buffer)
+  preflight metadata — for `SFB` that's Feature | Defect | Bug |
+  Improvement | New Feature (no Story, no Sub-task); another project's set
+  may differ. Default `Feature` checked (or the project's own default type
+  when it has no Feature). **Exactly one box per ticket must be checked** —
+  same zero/2+ ambiguity rule as `Project:`. **If the human also switches
+  `Project:` away from the default**, these checkboxes still show the
+  *original* project's types (the buffer is static text, authored once) —
+  the human should check whichever option is closest; step 5b's
+  re-preflight validates the checked type name against the *actually
+  chosen* project's real types and stops cleanly, reporting the mismatch,
+  rather than silently coercing or creating with a wrong type. Re-author
+  and re-open the buffer against the new project if that happens, rather
+  than guessing a substitute type.
 - **`Parent ticket:` is one run-level field** applied to every created
   child in the run (R5). It resolves three ways (R6):
   - **blank** → tickets created flat, no links (AE2);
@@ -254,16 +287,28 @@ background command completing is the signal.
 
 When the background command completes, read the closed buffer fresh:
 
-- Resolve any inline prose note, or an edited `Project:` / `Parent ticket:` /
-  `type:` / `summary:` field, before acting — same contract `decision-buffer`
-  step 3 uses.
-- **All-unchecked close**: if nothing at all is checked, report that
-  nothing was approved and stop. Do **not** re-fire (re-generate/re-open)
-  the buffer automatically or call the MCP — the human closed it on
-  purpose; ask before trying again.
-- Otherwise, collect the run-level `Project:` value, the checked blocks
-  (stem, resolved `type`, edited `summary`, verbatim description) and the
-  resolved `Parent ticket:` value, and continue.
+- Resolve the `Project:` select, each ticket's `type:` select, and any
+  edited `Parent ticket:` / `summary:` field, before acting — same contract
+  `decision-buffer` step 3 uses.
+- **`Project:` select**: exactly one of the `SFB` / `SW` / `other:` boxes
+  must be checked. Zero checked, 2+ checked, or `other:` checked with its
+  text blank (or left unchecked with text filled in) is an ambiguous close
+  — do **not** guess a project; report the ambiguity and stop, same as an
+  all-unchecked ticket list.
+- **Per-ticket `type:` select**: exactly one box per checked ticket must be
+  checked. Same zero/2+ ambiguity rule — report and stop rather than
+  guessing which type was intended. This is independent of whether that
+  type is later valid for the approved project; step 5b's re-preflight is
+  what catches a type that's syntactically unambiguous here but doesn't
+  exist in the chosen project.
+- **All-unchecked close**: if nothing at all is checked — no ticket boxes,
+  regardless of the Project/type selects — report that nothing was
+  approved and stop. Do **not** re-fire (re-generate/re-open) the buffer
+  automatically or call the MCP — the human closed it on purpose; ask
+  before trying again.
+- Otherwise, collect the resolved `Project:` value, the checked ticket
+  blocks (stem, resolved `type`, edited `summary`, verbatim description)
+  and the resolved `Parent ticket:` value, and continue.
 
 ### 5b. Re-run the MCP preflight (KTD9)
 
