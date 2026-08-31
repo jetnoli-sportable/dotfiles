@@ -79,6 +79,40 @@ If a field is genuinely empty (e.g. the session just started and nothing
 is done yet), say so plainly — `**Done:** nothing yet this session` —
 rather than omitting the field or inventing content to fill it.
 
+**Next-action directive (optional fourth element).** Jet frequently states
+the intended resume action in his own save-request itself — "wb-save and
+set resume to run a full ce-code-review", "set the ce-plan as next step on
+resume". When the save-request (this turn, or earlier in the conversation)
+names a concrete command/skill to run on resume, don't just fold that into
+the prose `**Next:**` field — also encode it as a literal, machine-readable
+directive: a fenced ` ```run ` block containing exactly the command to
+invoke, nothing else:
+
+```run
+/ce-code-review --full --subagents
+```
+
+- The block's content is the literal invocation — a slash command with its
+  flags, or a shell command — copied/normalized from what the user said,
+  not a paraphrase. `/wb-resume` executes this string verbatim as its first
+  step (subject to its own gap-check guardrail), so it must be something
+  that can actually run as typed.
+- The prose `**Next:**` field still carries the human-readable description
+  of the next action (it's read by a human skimming `## Handoffs`, and by
+  `/wb-resume`'s fallback path when no directive is present) — the fenced
+  block is an *addition*, not a replacement. Keep them consistent: `**Next:**
+  Run a full code review` alongside a ` ```run\n/ce-code-review --full
+  --subagents\n``` ` block naming the same action.
+- **Only emit this block when the user's own words named a concrete next
+  action.** If the save-request is a plain "save my progress" with no
+  stated resume intent, omit the block entirely — never invent a directive
+  to fill it. A `**Next:**` field describing what to look at (not what to
+  run) with no block is a normal, valid entry.
+- Emit at most one ` ```run ` block per entry — if multiple actions were
+  named, pick the immediate first one for the block and describe the rest
+  in the `**Next:**` prose (`/wb-resume` only ever acts on the first step
+  anyway; sequencing beyond that is a human/planning concern).
+
 ### 3. Append into `## Handoffs` — exact section shape
 
 This must match `wb.sh`'s own `wb_append_handoff` helper
@@ -110,6 +144,20 @@ silently breaks that shared contract:
 **Next:** ...
 ```
 
+When a next-action directive applies (see above), it goes on its own
+fenced block after `**Next:**`, separated by a blank line:
+
+````
+### 2026-07-11 18:42 — wb-save
+**Done:** ...
+**In flight:** ...
+**Next:** ...
+
+```run
+/ce-code-review --full --subagents
+```
+````
+
 - Shell out to `wb append` — the locked, heading-scoped append verb
   (`scripts/.config/scripts/tmux/wb.sh`, search `cmd_append`) every
   agent-mediated task-file write in this codebase now goes through, instead
@@ -123,6 +171,23 @@ wb append "$task_file" Handoffs <<EOF
 **Done:** ...
 **In flight:** ...
 **Next:** ...
+EOF
+```
+
+  With a next-action directive, the fenced ` ```run ` block is just more
+  literal lines inside the same stdin body — nothing about the `wb append`
+  invocation changes:
+
+```bash
+wb append "$task_file" Handoffs <<EOF
+### $(date '+%Y-%m-%d %H:%M') — wb-save
+**Done:** ...
+**In flight:** ...
+**Next:** ...
+
+\`\`\`run
+/ce-code-review --full --subagents
+\`\`\`
 EOF
 ```
 
@@ -177,6 +242,14 @@ question.
   sibling skill, not this one) is the intended round-trip. `/wb-resume`
   reads this same `## Handoffs` section back to pick the work up; nothing
   about its internals needs to be understood here.
+- **Edge case — save-request names an explicit next action:** e.g.
+  "wb-save and set resume to run a full ce-code-review" — compose the
+  entry as usual, and additionally append the ` ```run ` directive block
+  described above so `/wb-resume` can act on it deterministically instead
+  of re-deriving intent from the `**Next:**` prose.
+- **Edge case — save-request names no explicit next action:** e.g. plain
+  "save my progress" — compose `**Done:**`/`**In flight:**`/`**Next:**` as
+  usual and omit the directive block entirely; don't infer one.
 
 ## Notes
 
@@ -186,3 +259,9 @@ question.
   `/wb-save` one (or vice versa) is expected, not a bug.
 - `~/code/tasks/README.md` documents the `## Handoffs` convention for the
   whole task-store schema.
+- **Next-action directive syntax:** a fenced ` ```run ` block (its content
+  the literal command to run) is the machine-readable counterpart to the
+  prose `**Next:**` field — added specifically so `/wb-resume` doesn't have
+  to re-derive an explicitly stated resume intent from prose. See "Compose
+  the entry" above for when to emit it and "Entry format" for its exact
+  placement.

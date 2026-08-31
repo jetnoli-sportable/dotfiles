@@ -35,6 +35,25 @@ confirms in one line:
 Saved to ## Handoffs — /clear when you're ready.
 ```
 
+If you say what should happen on resume — "wb-save and set resume to run
+a full ce-code-review" — the entry also gets a fenced `run:` directive
+naming that action literally, so `/wb-resume` can execute it
+deterministically instead of re-reading prose:
+
+````
+### 2026-08-31 10:05 — wb-save
+**Done:** landed the parser fix
+**In flight:** nothing
+**Next:** run a full code review before merging
+
+```run
+/ce-code-review --full --subagents
+```
+````
+
+No directive is written if you don't state a concrete next action — a
+plain "save my progress" produces the same three-field entry as before.
+
 ## Reference
 
 | Step | What happens |
@@ -43,6 +62,7 @@ Saved to ## Handoffs — /clear when you're ready.
 | Compose the entry | **Done** / **In flight** / **Next**, drawn from what actually happened this session — a genuinely empty field is stated plainly (`**Done:** nothing yet this session`), never invented |
 | Append | Shells out to `wb append <task_file> Handoffs` (the locked, heading-scoped append verb) with the three-field block over stdin — never an Edit/Write-tool edit to a task file |
 | Entry shape | `### <YYYY-MM-DD HH:MM> — wb-save` heading (no `(auto)` suffix — that's reserved for `wb.sh`'s own mechanical `pause`/`done`/`resume` entries), then `**Done:**`/`**In flight:**`/`**Next:**` |
+| Next-action directive | Optional fourth element: a fenced ` ```run ` block right after `**Next:**`, containing the literal command to run on resume — only emitted when the save-request explicitly named one |
 | No `@task` set | Stops before touching any file: `wb-save: this session has no @task — not a wb task session.` |
 | `@task` set but file missing | Stops: `wb-save: no task file at <path> — recorded in this session's @task, but missing on disk.` |
 
