@@ -120,7 +120,7 @@ pgh() { GH_TOKEN="$(secret-tool lookup service gh account personal)" command gh 
 # wb-claude-wrapper:begin — markers let wb-claude-wrapper.test.sh extract just
 # this block rather than sourcing the whole .zshrc (which does a network
 # zinit clone on a cold cache).
-: ${WB_AGENT_MEM_HIGH:=6G} ${WB_AGENT_MEM_MAX:=8G} ${WB_AGENT_WARN_AT:=8}
+: ${WB_AGENT_MEM_HIGH:=14G} ${WB_AGENT_MEM_MAX:=18G} ${WB_AGENT_WARN_AT:=8}
 # Exported so wb.sh (a separate bash process — the picker, `wb board`) reads
 # the same live threshold this wrapper warns at, instead of a second
 # hardcoded copy that could drift from whatever ~/.zshrc.local overrides.

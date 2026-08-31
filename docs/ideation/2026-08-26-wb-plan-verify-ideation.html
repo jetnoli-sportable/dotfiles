@@ -1,0 +1,328 @@
+<title>wb plan/verify ideation</title>
+<style>
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5; --emit: #1e66f5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+      --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+      --acc: #ca9ee6; --acc2: #99d1db; --emit: #8caaee;
+      --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+      --code-bg: #292c3c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #303446; --bg2: #292c3c; --panel: #363a4f; --line: #51576d;
+    --ink: #c6d0f5; --ink2: #a5adce; --mut: #838ba7;
+    --acc: #ca9ee6; --acc2: #99d1db; --emit: #8caaee;
+    --ok: #a6d189; --warn: #e5c890; --crit: #e78284;
+    --code-bg: #292c3c;
+  }
+  :root[data-theme="light"] {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5; --emit: #1e66f5;
+    --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2); flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 5; }
+  .statusbar b { color: var(--ink); }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  a { color: var(--acc2); }
+  .wrap { width: 90%; max-width: 1160px; margin: 1.6rem auto 4rem; }
+  .eyebrow { font-family: var(--mono); font-size: .74rem; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--acc); margin: 0 0 .4rem; }
+  h1 { font-family: var(--mono); font-size: clamp(1.4rem, 3vw, 2rem); margin: 0 0 .5rem;
+       letter-spacing: -.02em; text-wrap: balance; }
+  .thesis { color: var(--ink2); margin: 0 0 1rem; max-width: 72ch; }
+  .q { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--emit);
+    border-radius: 0 10px 10px 0; padding: .7rem 1.1rem; margin: 1rem 0 1.6rem; font-size: .95rem; }
+  .q b { color: var(--ink); }
+  h2 { font-family: var(--mono); font-size: 1.15rem; margin: 2.6rem 0 .8rem;
+       padding-bottom: .35rem; border-bottom: 1px solid var(--line); }
+  h3 { font-family: var(--mono); font-size: 1rem; margin: 1.6rem 0 .5rem; color: var(--acc); }
+  .axis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: .6rem; margin: 1rem 0; }
+  .axis { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem; font-size: .88rem; }
+  .axis b { display: block; font-family: var(--mono); color: var(--acc2); font-size: .8rem; margin-bottom: .2rem; }
+  table { width: 100%; border-collapse: collapse; margin: .8rem 0 1.6rem; font-size: .9rem; }
+  th, td { border: 1px solid var(--line); padding: .5rem .6rem; text-align: left; vertical-align: top; }
+  th { background: var(--bg2); font-family: var(--mono); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+  tr.rejected td { color: var(--mut); }
+  .verdict { font-family: var(--mono); font-size: .74rem; font-weight: 600; padding: .1rem .45rem; border-radius: 5px; display: inline-block; }
+  .v-survive { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .v-reject { background: color-mix(in srgb, var(--crit) 14%, transparent); color: var(--crit); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .card h4 { font-family: var(--mono); margin: 0 0 .3rem; font-size: 1rem; }
+  .rank { font-family: var(--mono); color: var(--mut); font-size: .8rem; }
+  .tag { display: inline-block; background: var(--bg2); border: 1px solid var(--line); border-radius: 5px;
+    padding: .05rem .4rem; font-family: var(--mono); font-size: .72rem; color: var(--ink2); margin-right: .3rem; }
+  .pc { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .6rem 0; }
+  .pc div { font-size: .87rem; }
+  .pc .pro b, .pc .con b { font-family: var(--mono); font-size: .74rem; text-transform: uppercase; }
+  .pc .pro b { color: var(--ok); } .pc .con b { color: var(--crit); }
+  code { font-family: var(--mono); background: var(--code-bg); border-radius: 4px; padding: .05rem .3rem; font-size: .88em; }
+  .basis { font-size: .8rem; color: var(--mut); margin-top: .4rem; }
+  ul { padding-left: 1.3rem; }
+  @media (max-width: 640px) { .pc { grid-template-columns: 1fr; } }
+</style>
+
+<div class="statusbar">
+  <span><b>ce-ideate</b> · condensed single-pass</span>
+  <span>repo: dotfiles</span>
+  <span class="right">2026-08-26</span>
+</div>
+
+<div class="wrap">
+  <p class="eyebrow">Ideation · repo-grounded</p>
+  <h1>Strengthening wb's brainstorm → plan → verification stages</h1>
+  <p class="thesis">Treating this as a topic in this codebase — about closing gaps in the <code>wb</code> workflow between a raw task and a confidently-implemented one: requirements interrogation, staged critical-path scoping, breakdown quality, plan verification, and implementation confidence.</p>
+
+  <div class="q"><b>Grounding used</b> — this run reused two research passes already completed earlier in-session (skill-inventory audit of <code>~/.claude/skills/</code> + <code>docs/roadmap.md</code>; external survey of Spec Kit, Kiro spec-mode, Shape Up, Walking Skeleton, MoSCoW/RICE, INVEST, adversarial pre-mortem review, generate-then-critique loops, tiered DoD) instead of re-dispatching grounding agents, since that material was already gathered this session against the same topic.</div>
+
+  <h2>Topic axes</h2>
+  <div class="axis-grid">
+    <div class="axis"><b>1 · Requirements interrogation</b>Raw ticket → tight, well-understood requirements, before any decomposition.</div>
+    <div class="axis"><b>2 · Staged critical-path scoping</b>Broad requirement set → MVP / Good / Fully-spec-complete tiers, with everything below the line explicitly deferred.</div>
+    <div class="axis"><b>3 · Breakdown quality</b>The moment <code>wb breakdown</code> actually splits a task — are the resulting children understood, not just sized.</div>
+    <div class="axis"><b>4 · Plan verification</b>Confidence in a plan before code is written.</div>
+    <div class="axis"><b>5 · Implementation confidence</b>Confidence that what got built actually matches intent, after the fact.</div>
+  </div>
+
+  <h2>Candidates generated (16, across 5 axes)</h2>
+  <table>
+    <tr><th style="width:3rem">#</th><th>Axis</th><th>Idea</th><th style="width:6rem">Verdict</th></tr>
+    <tr><td>1</td><td>1</td><td><b>/spec-interrogate</b> — new skill upstream of <code>wb-breakdown</code>: reads a raw ticket/task, asks targeted MUST/SHOULD/MAY + CLEAR/ASSUMED/BLOCKED questions (community pattern), outputs a tight requirements doc gated by INVEST criteria before breakdown is allowed to run.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>2</td><td>1</td><td>Fold interrogation into <code>wb-breakdown</code> itself as a mandatory Phase 0.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>3</td><td>1</td><td>A chatbot-style "20 questions" skill that just asks everything the LLM can think of.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>4</td><td>1</td><td>Require every new task file to carry an INVEST-scored header, enforced by a pre-commit-style hook in the task store.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>5</td><td>2</td><td><b>/critical-path</b> — new skill: takes a requirements doc (ideally the output of #1) and produces a three-tier scope doc — MVP (walking-skeleton, ships first), Good, Full-spec — with an explicit "deferred, not forgotten" list per Shape Up's no-gos.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>6</td><td>2</td><td>Auto-tag every child task from <code>wb-breakdown</code> with an MVP/Good/Full label using RICE scoring under the hood.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>7</td><td>2</td><td>A single combined "mega-skill" that does interrogation + critical-path + breakdown in one long run.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>8</td><td>2</td><td>Extend <code>decision-buffer</code>'s doc format with an optional MVP/Good/Full section instead of a separate skill.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>9</td><td>3</td><td><b>wb-breakdown: require a "walking skeleton" note per child</b> — each generated child task gets one sentence stating what thin, testable slice it proves, not just a title/size.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>10</td><td>3</td><td>Make <code>wb-breakdown</code> refuse to split a task until <code>/spec-interrogate</code> output exists for it (hard gate).</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>11</td><td>3</td><td>Have breakdown children link back to the specific requirement line(s) they satisfy from the interrogation doc.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>12</td><td>4</td><td><b>/plan-premortem</b> — adversarial plan-review skill: 2-3 independent skeptic passes over a plan/task file, pre-mortem style ("assume this failed — why"), before implementation starts.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>13</td><td>4</td><td>Bolt adversarial review onto existing <code>ce-plan</code> as a mandatory final phase.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>14</td><td>4</td><td>A generic "red team this" slash command with no task-store integration.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>15</td><td>5</td><td><b>/verify-against-spec</b> — post-implementation skill: diffs the actual change against the tiered requirements doc from #1/#5, flags scope drift (over- or under-build) and unmet MUST items before <code>wb done</code>.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr class="rejected"><td>16</td><td>5</td><td>Rely on <code>ce-code-review</code> alone for post-build confidence (no spec-diff step).</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+  </table>
+
+  <h2>Survivors (5)</h2>
+
+  <div class="card">
+    <h4><span class="rank">#1</span> /spec-interrogate</h4>
+    <span class="tag">axis 1</span><span class="tag">new skill</span><span class="tag">upstream of wb-breakdown</span>
+    <p>Directly answers pain point 3. Takes a raw task/ticket, runs one targeted interrogation pass (single-select where possible, per the ce-ideate interaction convention), and emits a requirements doc scored against INVEST (Independent/Negotiable/Valuable/Estimable/Small/Testable) as the exit gate — mirroring Spec Kit's <code>/specify</code> phase and Kiro's EARS-formatted requirements, the two clearest existing implementations of this exact step.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Solves the root cause of pain point 1 (breakdown-before-understanding) rather than patching breakdown itself</li><li>Reuses proven prior art (INVEST, EARS) instead of inventing a novel rubric</li><li>Composable — its output doc becomes the input to <code>/critical-path</code> and <code>wb-breakdown</code></li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Adds a step to every task's front — real friction cost if not kept fast for small tasks</li><li>Needs a "trivial task, skip this" escape hatch or it will get bypassed like any unenforced ceremony</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> pain point 3 (session brief) + <code>external</code> Spec Kit/Kiro spec-mode, INVEST criteria (prior research, this session).</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#2</span> /critical-path</h4>
+    <span class="tag">axis 2</span><span class="tag">new skill</span><span class="tag">named explicitly by user</span>
+    <p>Takes a requirements doc (ideally <code>/spec-interrogate</code>'s output) and stages it into MVP → Good → Fully-spec-complete, using Shape Up's appetite + no-gos framing: MVP is the walking skeleton that ships, Good and Full-spec items are explicitly named and deferred rather than silently dropped. This is the most directly-requested item in the brief and has the cleanest ready-made scaffold of anything surveyed.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Exact match to a named ask, not an inferred one</li><li>Shape Up's "no-gos" list gives a concrete artifact shape (not just prose) — a checklist the user can react to like a decision-buffer</li><li>Naturally feeds <code>wb-breakdown</code> a pre-scoped MVP tier to split first</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Staging judgment (what's "Good" vs "Full") is subjective — needs the human to confirm tiers, not just accept an LLM's split</li><li>Risk of becoming yet another buffer doc the user has to read through if not kept tight</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> pain point 2, verbatim from the user's brief. <code>external</code> Shape Up appetite/no-gos, Walking Skeleton/Steel Thread (prior research, this session).</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#3</span> /plan-premortem</h4>
+    <span class="tag">axis 4</span><span class="tag">new skill</span><span class="tag">verification</span>
+    <p>An adversarial plan-review pass — 2-3 independent skeptic reads of a plan or task file, each prompted to argue it fails, before implementation starts. Directly ports the <code>plan-review-adversarial</code> community pattern and the generate-then-critique self-critique research finding into a wb-integrated step.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Cheapest of the survivors to build — it's a review pass over an existing artifact, no new document format</li><li>Directly answers pain point 4 (confidence before building)</li><li>Composes naturally as a gate right before <code>wb resume</code>/first commit on a task</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Only as good as the plan it's reviewing — garbage-in if run before <code>/spec-interrogate</code>/<code>/critical-path</code> exist</li><li>Risk of alert fatigue if it fires on every task regardless of size</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>external</code> Smithery <code>plan-review-adversarial</code> skill, arXiv 2512.24103 generate-then-critique (prior research, this session).</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#4</span> wb-breakdown: walking-skeleton note per child</h4>
+    <span class="tag">axis 3</span><span class="tag">modify existing skill</span><span class="tag">small</span>
+    <p>The smallest, cheapest change on this list: when <code>wb-breakdown</code> generates child tasks, require one sentence per child stating the thin, testable slice it proves — not just a title and a size estimate. Directly targets "the pieces stay vague until someone implements them" by forcing the breakdown step itself to state what "done" looks like for each piece, before anyone picks it up.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Incremental — a prompt-template change to an existing, already-adopted skill, not a new skill to learn</li><li>Directly targets the exact symptom described in the brief</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Treats the symptom (vague children) rather than the cause (breakdown running before interrogation) — should be paired with #1, not a substitute for it</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> pain point 1 (session brief) + Walking Skeleton pattern (prior research).</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#5</span> /verify-against-spec</h4>
+    <span class="tag">axis 5</span><span class="tag">new skill</span><span class="tag">post-implementation</span>
+    <p>A closing-the-loop skill: diffs what actually got built against the tiered requirements doc from <code>/spec-interrogate</code> + <code>/critical-path</code>, flagging both unmet MUST items and unrequested scope creep, run before <code>wb done</code>/<code>close-out</code>. This is the "confidence after building" half of pain point 4 that <code>/plan-premortem</code> doesn't cover.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Closes the loop the other four ideas open — without it, the tiered spec is only ever aspirational</li><li>Natural composition point: slots into <code>close-out</code>, which already sweeps a session before <code>wb done</code></li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Fully dependent on #1/#2 existing and being used — low value in isolation</li><li>"Diff intent vs implementation" is a harder LLM task than the others here; likely to need iteration to get signal-to-noise right</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> pain point 4, second half (session brief) + tiered Definition-of-Done pattern (prior research).</p>
+  </div>
+
+  <h2>Rejected — why (grouped, not repeated per-row)</h2>
+  <ul>
+    <li><b>Mega-skill combining interrogation + critical-path + breakdown (#7):</b> violates the existing dotfiles convention of small, composable skills (<code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code> are already split this way) — a monolith is harder to invoke partially and harder to iterate on.</li>
+    <li><b>Hard gates (#2, #10):</b> forcing interrogation/premortem to block breakdown risks the same fate the audit flagged for ceremony-heavy steps — unenforced-by-tooling rules get skipped under time pressure. Better as a strongly-defaulted-on step with an explicit skip, not a hard block.</li>
+    <li><b>Folding into existing skills (#8, #13, #16):</b> decision-buffer, ce-plan, and ce-code-review already have clear, narrower jobs; bolting new phases onto them dilutes what each is for and duplicates the plugin-vs-dotfiles overlap already flagged in the earlier audit.</li>
+    <li><b>Enforcement via hooks/scoring (#4, #6):</b> mechanical INVEST/RICE scoring without human judgment produces theater, not confidence — these frameworks are meant as discussion aids, not gates a script enforces.</li>
+    <li><b>Generic red-team command with no task-store integration (#14):</b> loses all the value of being wb-aware (which task, which requirements doc to check against).</li>
+  </ul>
+
+  <h2>Suggested sequencing <span class="tag">round 1, superseded below</span></h2>
+  <p>Build order should follow the actual dependency chain: <b>#1 → #2 → #4</b> can ship independently in that order (each stands alone once the previous exists); <b>#3</b> is a same-day small edit that can land anytime, ideally before or alongside #1; <b>#5</b> is the last piece and only pays off once #1+#2 are in real use for a few tasks.</p>
+
+  <h2 style="margin-top:3.2rem; border-color: var(--acc);">Round 2 — revision from human feedback</h2>
+  <div class="q"><b>Feedback that triggered this round</b> (verbatim intent, not re-derived): (1) <code>/plan-premortem</code> vs <code>ce-doc-review</code> — what's actually different, are these two skills or one skill with an extra lens? (2) <b>#5 <code>/verify-against-spec</code></b> feels like a bolt-on gap-filler — shouldn't verification be designed into the brainstorm/plan phase itself, not reconstructed after the fact? (3) shouldn't TDD integrate more seamlessly, rather than existing as a separate discipline?</p></div>
+
+  <h3>New candidates generated (9)</h3>
+  <table>
+    <tr><th style="width:3rem">#</th><th>Resolves</th><th>Idea</th><th style="width:6rem">Verdict</th></tr>
+    <tr><td>17</td><td>Q1</td><td>Keep <code>/plan-premortem</code> fully separate; document the mechanism difference (adversarial refutation vs constructive role-lens) so the two never get confused.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>18</td><td>Q1</td><td><b>Fold premortem into <code>ce-doc-review</code> as a new "skeptic" lens</b>, selectable alongside its existing role lenses, rather than a standalone skill.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>19</td><td>Q1</td><td>Build premortem as a wb-specific wrapper that calls <code>ce-doc-review --lens skeptic</code> with task-store context (which task, which spec doc) injected — thin glue, not a fork of the review logic.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>20</td><td>Q2/Q3</td><td>Drop <code>/verify-against-spec</code> as a standalone skill entirely; acceptance criteria become a required output field of <code>/spec-interrogate</code>.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>21</td><td>Q2/Q3</td><td><b><code>/critical-path</code> generates failing tests per tier</b> — MVP/Good/Full each get a concrete test set at staging time, not just a prose description; implementation is "make these currently-red tests green."</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>22</td><td>Q2/Q3</td><td>Full TDD enforcement: block any commit on a wb task if the tier's test file has no red→green history (git-hook level).</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>23</td><td>Q2/Q3</td><td>wb-breakdown children inherit their tier's failing test(s) as their done-definition, replacing the round-1 "walking-skeleton sentence" (#9) with something executable.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>24</td><td>Q2/Q3</td><td><code>close-out</code> gains a mechanical check — are this task's tier tests green? — replacing the LLM-reconstructed diff that <code>/verify-against-spec</code> would have done.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>25</td><td>Q2/Q3</td><td>Generate tests only at implementation time (status quo elsewhere), keep acceptance criteria as prose-only in the spec doc.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+  </table>
+
+  <h3>Revised survivor set (supersedes round 1's 5)</h3>
+
+  <div class="card">
+    <h4><span class="rank">#1</span> /spec-interrogate <span class="tag">unchanged</span></h4>
+    <p>Same as round 1, with one addition: its output requirements doc now has a <b>mandatory acceptance-criteria field per requirement</b>, phrased as a testable statement (this is INVEST's "Testable" leg made literal instead of aspirational). This is what makes #21/#23/#24 possible downstream — criteria authored once, at the point where the requirement is best understood, not reconstructed later.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#2</span> /critical-path <span class="tag">revised — now generates tests</span></h4>
+    <p>Same staging (MVP/Good/Full) as round 1, plus: for each tier, generate the actual failing test(s) that encode that tier's acceptance criteria from <code>/spec-interrogate</code>'s output. The MVP tier's tests are the walking skeleton made executable — passing them <i>is</i> "MVP shipped," not a judgment call.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>TDD stops being a separate discipline someone has to remember — it's the literal mechanism the tiering skill produces</li><li>Removes subjectivity flagged as a con in round 1 ("what's Good vs Full is subjective") — a test either exists at a tier or it doesn't</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Test-generation quality is now load-bearing for the whole chain — a badly-scoped test poisons everything downstream</li><li>Needs language/framework awareness per repo (ties to existing <code>sportable:init-repo</code> stack detection — reuse, don't reinvent)</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> user feedback this round (Q2/Q3, verbatim). <code>external</code> TDD/red-green, tiered DoD (prior research).</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#3</span> ce-doc-review: skeptic lens <span class="tag">replaces standalone /plan-premortem</span></h4>
+    <p>Resolves the Q1 question in favor of fusion, not separation: adversarial pre-mortem critique becomes a selectable lens (<code>--lens skeptic</code>) on the existing <code>ce-doc-review</code> skill, alongside its role lenses, rather than a new skill users have to learn to invoke separately. A thin wb-aware wrapper (candidate #19) can still make it feel first-class from inside a task — "run the skeptic pass on this task's spec" — without maintaining a forked review engine.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Directly answers your question — no redundant skill, no "which one do I invoke" confusion</li><li>Smaller build: one new lens on an existing skill vs. a whole new skill</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Depends on <code>ce-doc-review</code>'s lens mechanism actually being extensible this way — needs a quick check of its plugin source before committing (not verified this round)</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> user feedback this round (Q1, verbatim) + round-1 candidate #12/#13 tension.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#4</span> wb-breakdown + close-out: inherit and check tier tests <span class="tag">replaces standalone /verify-against-spec</span></h4>
+    <p>Two small, mechanical changes replace round 1's speculative post-hoc diff skill: (a) <code>wb-breakdown</code> children inherit their tier's failing test(s) from <code>/critical-path</code> as their done-definition (supersedes round 1's #9 prose sentence); (b) <code>close-out</code>'s existing pre-<code>wb done</code> sweep gains one mechanical check — are this task's inherited tests green? "Verification" is no longer an LLM reconstructing intent after the fact — it's running tests that were written before the code, which is what you're actually pointing at with the TDD question.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Deletes an entire speculative skill (round-1 #5) in favor of two cheap edits to skills that already exist and are already adopted</li><li>Verification cost drops from "LLM re-derives intent" to "run test suite" — cheaper and more reliable</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Only covers what got test-ified at <code>/critical-path</code> time — scope creep or drift *outside* the original spec's surface still needs a human or a lighter review pass to catch; this is a real residual gap, not a false confidence claim</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> user feedback this round (Q2, verbatim) + round-1 #4/#5 revision.</p>
+  </div>
+
+  <h3>What changed and why (delta from round 1)</h3>
+  <ul>
+    <li><b>Dropped:</b> standalone <code>/verify-against-spec</code> (round-1 #5) — replaced by mechanical test-checks in <code>close-out</code>, per Q2/Q3.</li>
+    <li><b>Dropped:</b> standalone <code>/plan-premortem</code> (round-1 #3) — replaced by a lens on <code>ce-doc-review</code>, per Q1.</li>
+    <li><b>Revised:</b> <code>/critical-path</code> (round-1 #2) now generates failing tests per tier, not just prose scope — this is the direct TDD-integration answer to Q3.</li>
+    <li><b>Revised:</b> wb-breakdown's walking-skeleton note (round-1 #4) upgraded from a prose sentence to inherited executable tests.</li>
+    <li><b>Unchanged:</b> <code>/spec-interrogate</code> (round-1 #1), now with a mandatory testable-acceptance-criteria field — the one addition that makes everything else in this round possible.</li>
+    <li><b>Net effect:</b> 5 round-1 survivors → 4 round-2 survivors. Two new skills instead of three; two extensions to already-adopted skills (<code>ce-doc-review</code>, <code>close-out</code>) instead of building parallel new ones.</li>
+  </ul>
+
+  <h2>Suggested sequencing <span class="tag">round 2, superseded below</span></h2>
+  <p><b>#1 <code>/spec-interrogate</code></b> first (nothing else has a testable-criteria field to consume without it) → <b>#2 <code>/critical-path</code></b> (needs #1's criteria to generate tier tests) → <b>#4</b>'s two edits (wb-breakdown inherit + close-out check) can land alongside or immediately after #2, they're small → <b>#3</b> (doc-review skeptic lens) is independent of the others and can be built in parallel at any point, pending a quick look at whether <code>ce-doc-review</code>'s lens mechanism supports the addition cleanly.</p>
+
+  <h2 style="margin-top:3.2rem; border-color: var(--acc);">Round 3 — pipeline expansion from human feedback</h2>
+  <div class="q"><b>Feedback that triggered this round</b>: (1) testable-acceptance-criteria deserves its own skill, not just a field on <code>/spec-interrogate</code>'s output; (2) a fuller pipeline shape — idea → (maybe ideate) → spec-interrogate → acceptance-criteria → prd → critical-path → breakdown — with the acceptance-criteria/PRD order and the critical-path/breakdown order both flagged as uncertain; (3) want an any-time "am I still on track to the big picture" check runnable from inside a child task; (4) want a roadmap visualization skill.</div>
+
+  <h3>Resolving the two ordering questions</h3>
+  <p><b>Acceptance-criteria vs PRD — PRD goes first.</b> A PRD is the stakeholder-facing "what and why" — the thing you'd actually show someone to confirm you're building the right thing. Acceptance criteria are testable derivations of what the PRD commits to. Writing criteria before the PRD exists means locking in tests against requirements that haven't been confirmed yet — if the PRD review changes scope, you've thrown away test work. This also matches how <code>/spec-interrogate</code> already behaves: it resolves ambiguity and produces a tight requirements doc, which <i>is</i> functionally a lightweight PRD. So the resolved order treats interrogation's output as the PRD input, with a distinct polishing/PRD-formatting step only where a repo genuinely needs a stakeholder-facing document (see #6 below on whether that's a separate skill or a mode).</p>
+  <p><b>Critical-path vs breakdown — critical-path stays first, with a caveat.</b> Critical-path's entire job is deciding <i>which</i> pieces are MVP vs deferred; breakdown's job is splitting the chosen pieces into session-sized tasks. Running breakdown first would mean splitting work before knowing what's in scope — defeats the purpose. The real tension you may be sensing is estimation: you often don't know true effort/complexity until you've broken something down. The resolution most teams land on (and the one that fits your composable-skill convention) is a <i>rough</i> pass, not a full breakdown, informing critical-path's staging — <code>wb-breakdown</code> itself already produces session-sized, estimable children, so critical-path can lean on a lightweight version of that same splitting logic for sizing without doing the full production breakdown twice.</p>
+
+  <h3>Revised pipeline</h3>
+  <p style="font-family:var(--mono); font-size:.9rem; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.8rem 1rem; overflow-x:auto; white-space:pre;">idea → (optional) ce-ideate → /spec-interrogate → /spec-acceptance-criteria → /critical-path → wb-breakdown
+                                                                    ↑                                    |
+                                                            /on-track  ←───────── (any time, any child task) ──┘
+                                                            /roadmap   ← visualize at any point</p>
+
+  <h3>New candidates (6)</h3>
+  <table>
+    <tr><th style="width:3rem">#</th><th>Idea</th><th style="width:6rem">Verdict</th></tr>
+    <tr><td>26</td><td><b>/spec-acceptance-criteria</b> — split out of round 2's <code>/spec-interrogate</code> field into its own skill: reads the interrogation output, produces testable criteria + the actual generated tests per requirement. <code>/critical-path</code> now <i>consumes</i> these tests for tiering rather than generating them itself.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>27</td><td>Keep acceptance criteria as a field on <code>/spec-interrogate</code> (round 2's design) rather than splitting it out.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+    <tr><td>28</td><td><b>/spec-prd</b> as a separate formatting/polish skill — takes <code>/spec-interrogate</code>'s output and produces a stakeholder-facing document, for the subset of tasks that actually need one.</td><td><span class="verdict v-reject">REJECTED (folded)</span></td></tr>
+    <tr><td>29</td><td><b>/on-track</b> — new skill, callable from inside any child task's worktree at any time: reads the parent task's critical-path doc + the child's own scope, reports whether current work still serves the tier it was scoped for, flags drift.</td><td><span class="verdict v-survive">SURVIVES</span></td></tr>
+    <tr><td>30</td><td><b>/roadmap</b> — extend <code>wb-board --html</code>'s existing rendering rather than building a new skill: add a family-tree view showing parent → critical-path tiers → children, with tier and status coloring.</td><td><span class="verdict v-survive">SURVIVES (as extension, not new skill)</span></td></tr>
+    <tr><td>31</td><td><code>/roadmap</code> as a fully standalone new skill, independent of <code>wb-board</code>.</td><td><span class="verdict v-reject">REJECTED</span></td></tr>
+  </table>
+
+  <div class="card">
+    <h4><span class="rank">#6</span> /spec-acceptance-criteria</h4>
+    <span class="tag">new skill</span><span class="tag">split from round 2's #1</span>
+    <p>Your instinct was right, and it's consistent with a principle this session already established twice (round 1's rejection of a mega-skill, and wb's existing small-composable convention: <code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code> are already split this granularly). Splitting it out also cleanly separates two different failure modes: <code>/spec-interrogate</code> can be wrong about <i>what</i> is required; <code>/spec-acceptance-criteria</code> can be wrong about <i>how to test</i> a requirement that's correctly stated. Conflating them in one skill made both harder to debug independently.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Matches the established composable-skill convention rather than fighting it</li><li>Lets <code>/critical-path</code> stay a pure staging/tiering skill — it consumes tests, doesn't generate them, which was a round-2 con (test-generation quality was "load-bearing" for a skill whose real job is prioritization)</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>One more skill in the chain — real risk of ceremony fatigue on small tasks unless each step stays fast and has a "trivial task, skip" escape hatch (same caveat as round 1's #1)</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> user feedback this round, verbatim. Supersedes round 2's "criteria as a field" design.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#7</span> /on-track</h4>
+    <span class="tag">new skill</span><span class="tag">mid-flight, not end-of-task</span>
+    <p>Fills a real gap none of the prior rounds covered: everything so far checks alignment either before implementation (<code>/plan-premortem</code> → the doc-review skeptic lens) or at the very end (<code>close-out</code>'s tier-test check). Nothing lets you check mid-flight, from inside a child task you've been heads-down in for a while, whether you've drifted from what the parent's critical-path actually scoped you for. This is the single biggest omission across rounds 1-2.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Closes a real gap — mid-flight drift-checking has no analog anywhere else in the pipeline</li><li>Cheap to build: read the parent's critical-path doc + this child's scope, compare, report — no new document format</li><li>Natural fit for the existing wb parent/child linkage <code>wb-breakdown</code> already establishes</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Only as useful as the parent's critical-path doc is current — if scope changed upstream and nobody updated the doc, this reports false confidence</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> user feedback this round, verbatim — a genuinely new axis, not a revision of a prior survivor.</p>
+  </div>
+
+  <div class="card">
+    <h4><span class="rank">#8</span> /roadmap (as a wb-board extension)</h4>
+    <span class="tag">extends existing skill</span><span class="tag">not a new skill</span>
+    <p><code>wb-board --html</code> already renders a status table; the roadmap need is really "the same data, with the critical-path tiers and parent/child family tree made visible" rather than a wholly new data source. Building it as a rendering mode of <code>wb-board</code> avoids yet another skill that has to independently learn how to read the task store, and keeps one canonical "what does my work look like right now" surface instead of two.</p>
+    <div class="pc">
+      <div class="pro"><b>Pro</b><ul><li>Reuses <code>wb-board</code>'s existing task-store reading logic instead of duplicating it</li><li>One canonical status surface, not two competing ones</li></ul></div>
+      <div class="con"><b>Con</b><ul><li>Depends on <code>wb-board</code>'s renderer being extensible enough for a tree/tier layout — not verified this round, may need a small architecture check before committing</li></ul></div>
+    </div>
+    <p class="basis">Basis: <code>internal</code> user feedback this round, verbatim.</p>
+  </div>
+
+  <h3>Rejected — why</h3>
+  <ul>
+    <li><b>#27 keep criteria as a field, not a skill:</b> reversed from round 2 — the split-skill convention argument (mega-skill avoidance, already established twice this session) won out over the "fewer steps" argument once weighed against it directly.</li>
+    <li><b>#28 standalone <code>/spec-prd</code>:</b> folded rather than built — <code>/spec-interrogate</code>'s output already functions as a lightweight PRD; a separate polishing skill would only earn its keep for the subset of tasks needing a stakeholder-facing doc, which is a "mode" or later addition, not a pipeline-stage gap today.</li>
+    <li><b>#31 standalone <code>/roadmap</code>:</b> would duplicate <code>wb-board</code>'s task-store reading logic for no benefit over extending it.</li>
+  </ul>
+
+  <h2>Suggested sequencing <span class="tag">round 3 — current</span></h2>
+  <p>Build order for the full revised pipeline: <b>/spec-interrogate</b> → <b>/spec-acceptance-criteria</b> → <b>/critical-path</b> (now a pure consumer of the tests from the previous step) → <b>wb-breakdown</b> edit (inherit tier tests) + <b>close-out</b> edit (tier-test check) land together, small → <b>ce-doc-review</b> skeptic lens is independent, build anytime → <b>/on-track</b> and the <b>wb-board</b> roadmap extension are both independent of the spec chain and of each other — either can be built first depending on which pain is more acute right now (drift-checking mid-task vs. visualizing the whole board).</p>
+</div>

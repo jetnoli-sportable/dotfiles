@@ -818,13 +818,13 @@ edit):</p>
 <tbody>
 <tr>
 <td><code>WB_AGENT_MEM_HIGH</code></td>
-<td><code>6G</code></td>
-<td>Soft throttle limit passed to <code>systemd-run</code> as <code>MemoryHigh</code>.</td>
+<td><code>14G</code></td>
+<td>Soft throttle limit passed to <code>systemd-run</code> as <code>MemoryHigh</code>. Bumped 2026-08-31 from <code>6G</code> — a monorepo full-build/test agent routinely spiked past the old cap and got the whole scope OOM-killed (not just the offending subprocess) even with plenty of free system memory.</td>
 </tr>
 <tr>
 <td><code>WB_AGENT_MEM_MAX</code></td>
-<td><code>8G</code></td>
-<td>Hard cap passed as <code>MemoryMax</code> — <code>systemd-oomd</code>/the kernel OOM-kills the scope if a <code>claude</code> process tree exceeds this.</td>
+<td><code>18G</code></td>
+<td>Hard cap passed as <code>MemoryMax</code> — <code>systemd-oomd</code>/the kernel OOM-kills the scope if a <code>claude</code> process tree exceeds this. Bumped 2026-08-31 from <code>8G</code>, same reason as above.</td>
 </tr>
 <tr>
 <td><code>WB_AGENT_WARN_AT</code></td>

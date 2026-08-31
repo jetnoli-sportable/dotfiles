@@ -484,8 +484,8 @@ edit):
 
 | Env var | Default | Controls |
 |---|---|---|
-| `WB_AGENT_MEM_HIGH` | `6G` | Soft throttle limit passed to `systemd-run` as `MemoryHigh`. |
-| `WB_AGENT_MEM_MAX` | `8G` | Hard cap passed as `MemoryMax` — `systemd-oomd`/the kernel OOM-kills the scope if a `claude` process tree exceeds this. |
+| `WB_AGENT_MEM_HIGH` | `14G` | Soft throttle limit passed to `systemd-run` as `MemoryHigh`. Bumped 2026-08-31 from `6G` — a monorepo full-build/test agent routinely spiked past the old cap and got the whole scope OOM-killed (not just the offending subprocess) even with plenty of free system memory. |
+| `WB_AGENT_MEM_MAX` | `18G` | Hard cap passed as `MemoryMax` — `systemd-oomd`/the kernel OOM-kills the scope if a `claude` process tree exceeds this. Bumped 2026-08-31 from `8G`, same reason as above. |
 | `WB_AGENT_WARN_AT` | `8` | Live-agent count at/above which starting another agent prints the stderr warning. |
 
 This is a partial fix by design: only `claude` is isolated this iteration,
