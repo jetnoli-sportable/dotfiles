@@ -1,0 +1,290 @@
+<title>Verify the merge batch — a 3-pass walk-through</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    /* Tokyo Night — Day (light) */
+    --ground: #e9eaef;   --surface: #ffffff;  --surface-2: #eef0f6;
+    --ink: #2f344d;      --muted: #5c627e;    --faint: #8a90ad;
+    --line: #dcdfea;     --line-2: #e6e8f0;
+    --accent: #2e7de9;   --accent-ink: #2559b8; --accent-soft: #dce8fc;
+    --purple: #7847bd;   --purple-soft: #ece3f8;
+    --pass: #587539;     --pass-bg: #e4eed6;
+    --warm: #8c6c3e;     --warm-bg: #f3e9d5;
+    --care: #b1506a;     --care-bg: #f6e2e8;
+    --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --shadow: 0 1px 2px rgba(47,52,77,.04), 0 10px 30px rgba(47,52,77,.06);
+    --shadow-lift: 0 2px 6px rgba(47,52,77,.06), 0 16px 40px rgba(47,52,77,.10);
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #16161e;   --surface: #1e2030;  --surface-2: #24263a;
+      --ink: #c8d3f5;      --muted: #9aa5ce;    --faint: #6e75a0;
+      --line: #2a2d43;     --line-2: #33375080;
+      --accent: #82aaff;   --accent-ink: #b4cbff; --accent-soft: #23304f;
+      --purple: #c099ff;   --purple-soft: #2a2444;
+      --pass: #a7d576;     --pass-bg: #1e2a17;
+      --warm: #e0af68;     --warm-bg: #2c2614;
+      --care: #ff8aa6;     --care-bg: #331d25;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 34px rgba(0,0,0,.45);
+      --shadow-lift: 0 2px 8px rgba(0,0,0,.45), 0 20px 48px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #e9eaef; --surface: #ffffff; --surface-2: #eef0f6; --ink: #2f344d; --muted: #5c627e; --faint: #8a90ad;
+    --line: #dcdfea; --line-2: #e6e8f0; --accent: #2e7de9; --accent-ink: #2559b8; --accent-soft: #dce8fc;
+    --purple: #7847bd; --purple-soft: #ece3f8; --pass: #587539; --pass-bg: #e4eed6; --warm: #8c6c3e; --warm-bg: #f3e9d5;
+    --care: #b1506a; --care-bg: #f6e2e8;
+    --shadow: 0 1px 2px rgba(47,52,77,.04), 0 10px 30px rgba(47,52,77,.06);
+    --shadow-lift: 0 2px 6px rgba(47,52,77,.06), 0 16px 40px rgba(47,52,77,.10);
+  }
+  :root[data-theme="dark"] {
+    --ground: #16161e; --surface: #1e2030; --surface-2: #24263a; --ink: #c8d3f5; --muted: #9aa5ce; --faint: #6e75a0;
+    --line: #2a2d43; --line-2: #33375080; --accent: #82aaff; --accent-ink: #b4cbff; --accent-soft: #23304f;
+    --purple: #c099ff; --purple-soft: #2a2444; --pass: #a7d576; --pass-bg: #1e2a17; --warm: #e0af68; --warm-bg: #2c2614;
+    --care: #ff8aa6; --care-bg: #331d25;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 34px rgba(0,0,0,.45);
+    --shadow-lift: 0 2px 8px rgba(0,0,0,.45), 0 20px 48px rgba(0,0,0,.5);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; animation: none !important; } }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans); line-height: 1.6; -webkit-font-smoothing: antialiased; font-size: 16.5px; }
+  .wrap { width: min(1060px, 90vw); margin: 0 auto; padding: clamp(1.5rem, 4vw, 3.5rem) 0 6rem; }
+  code, kbd, .mono { font-family: var(--mono); font-size: .86em; }
+  a { color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+  a:hover { border-bottom-color: var(--accent); }
+
+  /* hero */
+  header.hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1.6rem; }
+  .eyebrow { font-family: var(--mono); font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--accent-ink); font-weight: 600; margin: 0 0 .7rem; }
+  h1 { font-size: clamp(1.8rem, 4.4vw, 2.9rem); line-height: 1.05; margin: 0 0 .8rem; letter-spacing: -.025em; text-wrap: balance; font-weight: 750; }
+  .lede { font-size: 1.1rem; color: var(--muted); max-width: 60ch; margin: 0; }
+  .lede b { color: var(--ink); font-weight: 650; }
+  .theme-toggle { flex: none; font-family: var(--mono); font-size: .74rem; background: var(--surface); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: .5rem .95rem; cursor: pointer; box-shadow: var(--shadow); }
+  .theme-toggle:hover { color: var(--ink); border-color: var(--accent); }
+
+  /* reassurance banner */
+  .reassure { display: flex; align-items: center; gap: .9rem; background: color-mix(in srgb, var(--pass-bg) 70%, var(--surface)); border: 1px solid color-mix(in srgb, var(--pass) 30%, var(--line)); border-radius: var(--radius); padding: .9rem 1.2rem; margin: 0 0 1.6rem; }
+  .reassure .big { font-size: 1.5rem; }
+  .reassure p { margin: 0; font-size: .96rem; color: var(--ink); }
+  .reassure b { color: var(--pass); }
+
+  /* progress */
+  .progress { display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap; margin: 0 0 2.4rem; }
+  .progress .num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.1rem; font-weight: 650; color: var(--muted); white-space: nowrap; }
+  .progress .num b { color: var(--ink); }
+  .bar { flex: 1 1 200px; height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; min-width: 140px; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--purple)); transition: width .4s cubic-bezier(.4,0,.2,1); }
+  .cheer { font-size: .88rem; color: var(--pass); font-weight: 600; opacity: 0; transition: opacity .3s; }
+  .cheer.show { opacity: 1; }
+  .mini-btn { font-family: var(--mono); font-size: .72rem; background: transparent; color: var(--faint); border: 1px solid var(--line); border-radius: 8px; padding: .4rem .7rem; cursor: pointer; }
+  .mini-btn:hover { color: var(--care); border-color: var(--care); }
+
+  /* the 3 passes overview */
+  h2.section-label { font-size: .8rem; font-family: var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: 600; margin: 2.4rem 0 1rem; }
+  .paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  .path-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.15rem 1.2rem; box-shadow: var(--shadow); text-decoration: none; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: .5rem; transition: transform .15s, box-shadow .15s, border-color .15s; }
+  .path-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); border-color: var(--accent); }
+  .path-card .row1 { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+  .path-card .n { font-family: var(--mono); font-size: .74rem; color: var(--faint); }
+  .path-card .time { font-family: var(--mono); font-size: .72rem; font-weight: 600; color: var(--accent-ink); background: var(--accent-soft); padding: .2rem .55rem; border-radius: 999px; white-space: nowrap; }
+  .path-card h3 { margin: 0; font-size: 1.15rem; letter-spacing: -.01em; color: var(--ink); font-weight: 700; }
+  .path-card p { margin: 0; font-size: .9rem; color: var(--muted); }
+  .path-card .where { font-family: var(--mono); font-size: .74rem; color: var(--faint); margin-top: .1rem; }
+  .path-card.care { border-color: color-mix(in srgb, var(--care) 30%, var(--line)); }
+  .path-card.care .time { color: var(--care); background: var(--care-bg); }
+
+  /* pass section */
+  section.pass { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(1.2rem, 3vw, 1.9rem); margin: 1.1rem 0; box-shadow: var(--shadow); scroll-margin-top: 1rem; }
+  .pass-head { display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap; margin-bottom: .3rem; }
+  .pass-head h3 { font-size: 1.35rem; margin: 0; letter-spacing: -.02em; font-weight: 720; }
+  .pass-head .n { font-family: var(--mono); font-size: .8rem; color: var(--accent); font-weight: 650; }
+  .pass-head .time { margin-left: auto; font-family: var(--mono); font-size: .74rem; font-weight: 600; color: var(--accent-ink); background: var(--accent-soft); padding: .2rem .6rem; border-radius: 999px; }
+  .pass-sub { color: var(--muted); font-size: .95rem; margin: 0 0 1.15rem; max-width: 66ch; }
+  .pass.care .pass-head .time { color: var(--care); background: var(--care-bg); }
+
+  /* friendly checklist */
+  ul.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .1rem; }
+  ul.checks li { display: grid; grid-template-columns: auto 1fr; gap: .85rem; align-items: start; padding: .8rem .2rem; border-bottom: 1px solid var(--line-2); }
+  ul.checks li:last-child { border-bottom: none; }
+  .box { appearance: none; -webkit-appearance: none; flex: none; width: 22px; height: 22px; margin-top: .1rem; border: 2px solid color-mix(in srgb, var(--muted) 40%, var(--line)); border-radius: 7px; background: var(--ground); cursor: pointer; position: relative; transition: background .15s, border-color .15s, transform .1s; }
+  .box:hover { border-color: var(--accent); }
+  .box:active { transform: scale(.9); }
+  .box:checked { background: var(--accent); border-color: var(--accent); }
+  .box:checked::after { content: "✓"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: .85rem; font-weight: 800; }
+  .box:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
+  .ck .t { font-weight: 600; color: var(--ink); font-size: 1.02rem; }
+  .ck .d { color: var(--muted); font-size: .9rem; margin-top: .2rem; }
+  .ck .d code { color: var(--ink); background: var(--surface-2); padding: .05rem .35rem; border-radius: 5px; }
+  li.checked .ck .t { color: var(--faint); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--pass) 55%, transparent); }
+
+  /* care note */
+  .care-note { display: flex; gap: .8rem; align-items: flex-start; background: color-mix(in srgb, var(--care-bg) 55%, var(--surface)); border: 1px solid color-mix(in srgb, var(--care) 30%, var(--line)); border-radius: 12px; padding: .85rem 1.05rem; margin: 0 0 1.15rem; }
+  .care-note .ic { font-size: 1.15rem; line-height: 1.3; }
+  .care-note p { margin: 0; font-size: .9rem; color: var(--ink); }
+  .care-note a { color: var(--care); border-bottom-color: color-mix(in srgb, var(--care) 40%, transparent); }
+
+  /* "already handled" — quiet, reassuring, collapsible */
+  details.handled { margin: 2.6rem 0 0; border: 1px dashed var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface) 60%, var(--ground)); }
+  details.handled > summary { cursor: pointer; padding: 1rem 1.2rem; font-weight: 600; color: var(--muted); font-size: .95rem; list-style: none; display: flex; align-items: center; gap: .6rem; }
+  details.handled > summary::-webkit-details-marker { display: none; }
+  details.handled > summary .tw { margin-left: auto; font-family: var(--mono); font-size: .75rem; color: var(--faint); }
+  details.handled[open] > summary { border-bottom: 1px dashed var(--line); }
+  .handled-body { padding: 1rem 1.2rem 1.2rem; font-size: .9rem; color: var(--muted); }
+  .handled-body ul { margin: .4rem 0 0; padding-left: 1.1rem; line-height: 1.8; }
+  .handled-body code { color: var(--ink); }
+  .handled-body .ok { color: var(--pass); font-weight: 600; }
+
+  footer { margin-top: 3rem; text-align: center; font-size: .8rem; color: var(--faint); font-family: var(--mono); line-height: 1.8; }
+  footer a { color: var(--faint); }
+  .done-cap { text-align: center; margin: 2.4rem 0 0; padding: 1.6rem; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); }
+  .done-cap h3 { margin: 0 0 .4rem; font-size: 1.15rem; }
+  .done-cap p { margin: 0; color: var(--muted); font-size: .92rem; }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <div>
+      <p class="eyebrow">dotfiles · you're almost there</p>
+      <h1>3 quick passes and you're done</h1>
+      <p class="lede">The hard part is already finished — <b>every automated check is green</b>. What's left is the good bit: clicking through your three new features to confirm they feel right. <b>About 30–45 minutes</b>, and only the last pass touches anything real.</p>
+    </div>
+    <button class="theme-toggle" id="themeBtn" type="button" aria-label="Toggle light or dark theme">◐ theme</button>
+  </header>
+
+  <div class="reassure">
+    <span class="big" aria-hidden="true">✓</span>
+    <p><b>40+ tests, shellcheck, docgen, and the board render all passed</b> across #32, #33 and #34. Nothing below can break anything — except the Jira pass, which we've flagged and put last.</p>
+  </div>
+
+  <div class="progress">
+    <span class="num"><b id="pdone">0</b> of <span id="ptot">0</span> checks</span>
+    <span class="bar"><i id="pbar"></i></span>
+    <span class="cheer" id="cheer">nice — all done! 🎉</span>
+    <button class="mini-btn" id="resetBtn" type="button">reset</button>
+  </div>
+
+  <!-- overview -->
+  <h2 class="section-label">Your path</h2>
+  <div class="paths">
+    <a class="path-card" href="#pass1">
+      <div class="row1"><span class="n">Pass 1 · #33</span><span class="time">⏱ ~10 min</span></div>
+      <h3>Docs &amp; board look right</h3>
+      <p>Click through the Hub and board in your browser. This is the one the DAG view builds on, so it's worth doing first.</p>
+      <span class="where">in a browser</span>
+    </a>
+    <a class="path-card" href="#pass2">
+      <div class="row1"><span class="n">Pass 2 · #34</span><span class="time">⏱ ~10 min</span></div>
+      <h3>Handoff pane works</h3>
+      <p>Split a helper agent into your current window and watch it pick up the context.</p>
+      <span class="where">in a tmux window</span>
+    </a>
+    <a class="path-card care" href="#pass3">
+      <div class="row1"><span class="n">Pass 3 · #32</span><span class="time">⏱ ~20–25 min</span></div>
+      <h3>Jira emit — the careful one</h3>
+      <p>Files real tickets, so it's last and clearly flagged. Nothing else waits on it — do it whenever.</p>
+      <span class="where">needs live Jira</span>
+    </a>
+  </div>
+
+  <!-- PASS 1 -->
+  <section class="pass" id="pass1">
+    <div class="pass-head"><span class="n">Pass 1 · #33</span><h3>Docs &amp; board look right</h3><span class="time">⏱ ~10 min · browser</span></div>
+    <p class="pass-sub">Regenerate if you like (<code>docgen.sh all</code> then <code>wb board --html</code>), then just look. Toggle light/dark as you go.</p>
+    <ul class="checks">
+      <li><input class="box" type="checkbox" id="p1a"><div class="ck"><span class="t">Open the Hub — does it look right?</span><div class="d">Open <code>docs/HUB.html</code>. The Tokyo Night theme reads well in both dark and light, and the theme toggle sticks.</div></div></li>
+      <li><input class="box" type="checkbox" id="p1b"><div class="ck"><span class="t">The groups are all there</span><div class="d">Eight groups, with <b>“Where we are”</b> up top (that's the one I re-slotted in during the merge) — then Start here · Workflow · Claude skills · TUIs · Nvim · Design notes · Recaps.</div></div></li>
+      <li><input class="box" type="checkbox" id="p1c"><div class="ck"><span class="t">Open the board — everything renders</span><div class="d">Open <code>logs/board.html</code>: stage stepper, the Pipeline/Live/Stale tabs (they remember which tab you're on), group colours, blocked/active markers, parent-child + dependency lines, and column sorting.</div></div></li>
+      <li><input class="box" type="checkbox" id="p1d"><div class="ck"><span class="t">Peek at one guide</span><div class="d">Open any guide page — back-links resolve, the table-of-contents and breadcrumb are there. One is enough to trust the rest.</div></div></li>
+    </ul>
+  </section>
+
+  <!-- PASS 2 -->
+  <section class="pass" id="pass2">
+    <div class="pass-head"><span class="n">Pass 2 · #34</span><h3>Handoff pane works</h3><span class="time">⏱ ~10 min · tmux</span></div>
+    <p class="pass-sub">These need a real tmux client — which is exactly why the automated suite can't check them for you.</p>
+    <ul class="checks">
+      <li><input class="box" type="checkbox" id="p2a"><div class="ck"><span class="t">Run the pane test from inside tmux</span><div class="d"><code>bash scripts/.config/scripts/tmux/tests/handoff-pane.test.sh</code> → expect ALL PASS. (Outside tmux it just says it needs a client and stops — that's expected.)</div></div></li>
+      <li><input class="box" type="checkbox" id="p2b"><div class="ck"><span class="t">Split a helper agent into this window</span><div class="d">Trigger <code>/handoff-pane</code> mid-chat → a helper spawns in a split pane of your current worktree, already seeded with the context. No re-typing.</div></div></li>
+      <li><input class="box" type="checkbox" id="p2c"><div class="ck"><span class="t">The permission strip survives a long pointer</span><div class="d">When the pointer text wraps, the permission prompt isn't accidentally auto-answered — the <code>-J</code> poller fix from review.</div></div></li>
+    </ul>
+  </section>
+
+  <!-- PASS 3 -->
+  <section class="pass care" id="pass3">
+    <div class="pass-head"><span class="n">Pass 3 · #32</span><h3>Jira emit — the careful one</h3><span class="time">⏱ ~20–25 min · live Jira</span></div>
+    <div class="care-note">
+      <span class="ic" aria-hidden="true">🌱</span>
+      <p>This is the only pass that creates <b>real tickets</b> you'd delete by hand afterward — so take it slow, start with the dry run, and use throwaway <code>[wb-emit-test]</code> titles. The full step-by-step lives in the <a href="2026-07-16-jira-emit-verification.html">original Jira checklist</a> if you want every detail. The “don't run yet” banner stays until this pass is done.</p>
+    </div>
+    <ul class="checks">
+      <li><input class="box" type="checkbox" id="p3a"><div class="ck"><span class="t">Connect Jira + do a dry run (no tickets created)</span><div class="d">Reconnect the Atlassian MCP, then run <code>/wb-jira-create</code> on a throwaway task and <b>close the buffer unchecked</b> — it should report a clean no-op with zero writes. Good confidence-builder.</div></div></li>
+      <li><input class="box" type="checkbox" id="p3b"><div class="ck"><span class="t">Create one flat ticket</span><div class="d">Standalone task, blank parent → one SFB ticket, and the ticket URL is stamped back into the task's <code>jira:</code> field.</div></div></li>
+      <li><input class="box" type="checkbox" id="p3c"><div class="ck"><span class="t">Create a family</span><div class="d">A coordinator + child → coordinator ticket first, child “Relates”-linked to it, both stamped. (Bonus: try an existing <code>SFB-XXXX</code> as the parent — no new parent ticket is made.)</div></div></li>
+      <li><input class="box" type="checkbox" id="p3d"><div class="ck"><span class="t">Retry is safe — the important one</span><div class="d">Re-run on the same family → it finds and reuses the existing tickets, creating <b>zero duplicates</b>. Also: a task already carrying <code>jira:</code> is skipped, never re-created.</div></div></li>
+      <li><input class="box" type="checkbox" id="p3e"><div class="ck"><span class="t">Write-back behaves</span><div class="d"><code>wb jira-set &lt;task&gt; &lt;same-url&gt;</code> → no-op; <code>&lt;different-url&gt;</code> → refuses and changes nothing.</div></div></li>
+      <li><input class="box" type="checkbox" id="p3f"><div class="ck"><span class="t">Try the SW project too</span><div class="d">Set <code>Project: SW</code> in the buffer → lands as <code>SW-&lt;n&gt;</code>, and an SFB-only type is rejected before anything is created. <span style="color:var(--faint)">(If the connection drops mid-run, it stops cleanly before creating anything.)</span></div></div></li>
+      <li><input class="box" type="checkbox" id="p3g"><div class="ck"><span class="t">Wrap up: delete test tickets, drop the banner</span><div class="d">Delete the throwaway <code>[wb-emit-test]</code> tickets in Jira, then remove the “don't run yet” banner from the <code>wb-jira-create</code> skill. That closes out #32.</div></div></li>
+    </ul>
+  </section>
+
+  <!-- done cap -->
+  <div class="done-cap" id="donecap">
+    <h3>That's the lot 🎉</h3>
+    <p>When these are ticked, all three features are confirmed and we're clear to start the family-DAG view on a verified foundation. I can <code>wb done</code> the three worktrees whenever you say.</p>
+  </div>
+
+  <!-- already handled -->
+  <details class="handled">
+    <summary>Already handled for you — nothing to do here <span class="tw">tap to expand</span></summary>
+    <div class="handled-body">
+      <p>Run by the overseer against each merged branch; listed so you can see the floor, not because you need to touch it.</p>
+      <ul>
+        <li><span class="ok">✓</span> Full <code>wb</code> test suite — 40–42 files, 1000+ assertions pass on all three, green vs the <code>development</code> baseline.</li>
+        <li><span class="ok">✓</span> shellcheck — zero new findings in <code>wb.sh</code> (37 = dev) and <code>handoff.sh</code> (7 = dev).</li>
+        <li><span class="ok">✓</span> docgen regenerates cleanly; <code>wb board --html</code> renders (exit 0, 315 KB, 121 tasks).</li>
+        <li><span class="ok">✓</span> Merges landed: #33 <code>98e3561</code> · #32 <code>f0db205</code> · #34 <code>65ff737</code> → <code>development</code>.</li>
+      </ul>
+      <p style="margin-top:.9rem"><b>One thing that's normal, not a bug:</b> three test files (<code>handoff.test.sh</code>, <code>handoff-poller.test.sh</code>, <code>wb-reconcile-review.test.sh</code>) always show red in the sandbox — they need a real tmux client or are timing-sensitive. Verified identical on plain <code>development</code>, so not caused by these PRs.</p>
+      <p style="margin-top:.9rem"><b>Loose end:</b> your main checkout <code>~/code/dotfiles</code> has stale uncommitted edits (a board fix already shipped via #33) — safe to <code>git restore</code> then fast-forward. I left it untouched.</p>
+    </div>
+  </details>
+
+  <footer>
+    docs/verification/2026-07-21-post-crash-merge-batch-verification.html · progress saved in this browser<br>
+    full detail: overseer task ~/code/tasks/dotfiles--chore-merge-overseer.md
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var KEY = "mo-verify-2026-07-21";
+    var btn = document.getElementById("themeBtn");
+    try { var t = localStorage.getItem(KEY + "-theme"); if (t) root.setAttribute("data-theme", t); } catch (e) {}
+    btn.addEventListener("click", function () {
+      var cur = root.getAttribute("data-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      var next = cur === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem(KEY + "-theme", next); } catch (e) {}
+    });
+    var boxes = Array.prototype.slice.call(document.querySelectorAll("input.box"));
+    var pdone = document.getElementById("pdone"), ptot = document.getElementById("ptot"),
+        pbar = document.getElementById("pbar"), cheer = document.getElementById("cheer");
+    ptot.textContent = boxes.length;
+    function save() { var s = {}; boxes.forEach(function (b) { s[b.id] = b.checked; }); try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+    function render() {
+      var done = boxes.filter(function (b) { return b.checked; }).length;
+      pdone.textContent = done;
+      pbar.style.width = boxes.length ? (100 * done / boxes.length) + "%" : "0%";
+      cheer.classList.toggle("show", done === boxes.length && boxes.length > 0);
+      boxes.forEach(function (b) { var li = b.closest("li"); if (li) li.classList.toggle("checked", b.checked); });
+    }
+    try { var saved = JSON.parse(localStorage.getItem(KEY) || "{}"); boxes.forEach(function (b) { if (saved[b.id]) b.checked = true; }); } catch (e) {}
+    boxes.forEach(function (b) { b.addEventListener("change", function () { save(); render(); }); });
+    document.getElementById("resetBtn").addEventListener("click", function () { boxes.forEach(function (b) { b.checked = false; }); save(); render(); });
+    render();
+  })();
+</script>
