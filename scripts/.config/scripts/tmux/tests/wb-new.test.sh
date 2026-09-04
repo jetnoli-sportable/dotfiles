@@ -217,6 +217,73 @@ tmux kill-session -t "=proj--dep-done" 2>/dev/null
 depends_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--dep-done.md" depends_on)"
 assert_eq "--depends-on <done stem>: accepted, recorded" "proj--done-task" "$depends_val"
 
+# --- size-depends-capture U5: --size ----------------------------------------
+
+# --size L -> size: L written; validated via the shared _wb_valid_size enum.
+cmd_new proj size-l --size L >/dev/null 2>&1
+tmux kill-session -t "=proj--size-l" 2>/dev/null
+size_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-l.md" size)"
+assert_eq "--size L: size: recorded" "L" "$size_val"
+
+# no --size -> size: key present but blank (blank-fill convention, same as
+# path:/depends_on:) — the fixture TEMPLATE.md has no size: line at all, so
+# this also proves the key gets INSERTED, not just left absent.
+size_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--path-none.md" size)"
+assert_eq "no --size: size: is blank" "" "$size_val"
+grep -qE '^size:' "$FIXTURE_TASKS/proj--path-none.md"
+assert_eq "no --size: size: key line was actually inserted" 0 $?
+
+# --size XXL -> loud failure before any worktree/session/task file.
+out="$(cmd_new proj size-bad --size XXL 2>&1)"; code=$?
+assert "--size XXL: clean error naming --size and the enum" "wb new: --size 'XXL' is not one of S\|M\|L\|XL" "$out"
+assert_eq "--size XXL: exit code 1" 1 "$code"
+[ -d "$FIXTURE_CODE/proj/.worktrees/size-bad" ] && { echo "FAIL - --size XXL: worktree should not have been created"; fail=1; } \
+  || echo "ok   - --size XXL: no worktree created"
+[ -f "$FIXTURE_TASKS/proj--size-bad.md" ] && { echo "FAIL - --size XXL: task file should not have been created"; fail=1; } \
+  || echo "ok   - --size XXL: no task file created"
+tmux has-session -t "=proj--size-bad" 2>/dev/null \
+  && { echo "FAIL - --size XXL: tmux session should not have been created"; fail=1; } \
+  || echo "ok   - --size XXL: no tmux session created"
+
+# lowercase is rejected too (strict uppercase enum, no normalization).
+out="$(cmd_new proj size-lower --size m 2>&1)"; code=$?
+assert_eq "--size m (lowercase): exit code 1" 1 "$code"
+[ -f "$FIXTURE_TASKS/proj--size-lower.md" ] && { echo "FAIL - --size m: task file should not have been created"; fail=1; } \
+  || echo "ok   - --size m: no task file created"
+
+# --size with no value / followed by another flag -> "requires a value".
+out="$(cmd_new proj size-noval --size 2>&1)"; code=$?
+assert "--size with no value: requires-a-value error" "wb new: --size requires a value" "$out"
+assert_eq "--size with no value: exit code 1" 1 "$code"
+out="$(cmd_new proj size-flag --size --agent 2>&1)"; code=$?
+assert "--size followed by a flag: requires-a-value error" "wb new: --size requires a value" "$out"
+assert_eq "--size followed by a flag: exit code 1" 1 "$code"
+
+# --size composes with --depends-on / --path (regression: neither changes).
+cmd_new proj size-combo --size XL --path work,review --depends-on proj--existing >/dev/null 2>&1
+tmux kill-session -t "=proj--size-combo" 2>/dev/null
+assert_eq "--size + --path + --depends-on: size: XL" "XL" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-combo.md" size)"
+assert_eq "--size + --path + --depends-on: path: unchanged behavior" "work,review" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-combo.md" path)"
+assert_eq "--size + --path + --depends-on: depends_on: unchanged behavior" "proj--existing" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-combo.md" depends_on)"
+
+# --planned --size S -> honored on the worktree-less path too (R7: every
+# creation path). No blank-fill there: a planned seed without --size leaves
+# the template's own (absent, in this fixture) size: line alone.
+cmd_new --planned --size S proj size-planned >/dev/null 2>&1
+assert_eq "--planned --size S: size: S on the planned path" "S" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-planned.md" size)"
+assert_eq "--planned --size S: status stays planned" "planned" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-planned.md" status)"
+
+# existing task file with size: already set -> a flag-less re-run does NOT
+# overwrite it; an explicit --size <other> DOES.
+cmd_new proj size-existing --size L >/dev/null 2>&1
+tmux kill-session -t "=proj--size-existing" 2>/dev/null
+cmd_new proj size-existing >/dev/null 2>&1
+tmux kill-session -t "=proj--size-existing" 2>/dev/null
+assert_eq "existing size: flag-less re-run does not overwrite" "L" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-existing.md" size)"
+cmd_new proj size-existing --size S >/dev/null 2>&1
+tmux kill-session -t "=proj--size-existing" 2>/dev/null
+assert_eq "existing size: explicit --size overwrites" "S" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-existing.md" size)"
+
 # existing task file with path: already set -> a flag-less `wb new` re-run
 # does NOT overwrite it; --path <other> on the same file DOES overwrite it.
 cmd_new proj path-existing --path work,review >/dev/null 2>&1
