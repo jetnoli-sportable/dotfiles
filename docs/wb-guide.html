@@ -337,7 +337,8 @@ also how you resume a task after the session got closed without going
 through <code>wb done</code>.</p>
 <p><code>--path</code>, <code>--depends-on</code> and <code>--size</code> are optional, board-only metadata —
 they don't change how the task itself runs, only how <code>wb board --html</code>
-(and the family DAG / critical-path views built on it) display it:</p>
+displays it (<code>--size</code> is captured now for the family DAG / critical-path
+views still to be built on top of the board; nothing renders it yet):</p>
 <ul>
 <li><code>--path &lt;stages&gt;</code> declares which of the five lifecycle stages
 (<code>ideate,brainstorm,plan,work,review</code>) this task intends to pass

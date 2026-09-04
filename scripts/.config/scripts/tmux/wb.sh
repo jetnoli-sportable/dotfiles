@@ -171,20 +171,20 @@ wb_task_files() {
 # session:window and can kill an UNRELATED session.
 wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; echo "${s//:/-}"; }
 
-# _wb_valid_size <value> — true when <value> is a legal `size:` frontmatter
-# value: one of the strict, uppercase S|M|L|XL enum, or empty (blank means
+# WB_SIZE_VALUES / _wb_valid_size <value> — the `size:` frontmatter enum,
+# defined ONCE as the `|`-joined literal (it doubles as the text of every
+# "not one of …" error) and checked by anchoring it as a regex alternation.
+# Legal: one of the strict, uppercase S|M|L|XL, or empty (blank means
 # "unset", which every reader treats as M — see ~/code/tasks/README.md
 # "Size"). Shared by cmd_new's --size and _wb_breakdown_validate's per-child
-# `- size:` bullet so the enum lives in exactly one place. Lowercase is
-# deliberately rejected rather than normalized (kept strict; normalization
-# is a trivial follow-up if it ever proves annoying in practice).
-_wb_valid_size() {
-  case "$1" in
-    ''|S|M|L|XL) return 0 ;;
-    *) return 1 ;;
-  esac
-}
+# `- size:` bullet. Lowercase is deliberately rejected rather than
+# normalized (kept strict; normalization is a trivial follow-up if it ever
+# proves annoying in practice).
 WB_SIZE_VALUES="S|M|L|XL"
+_wb_valid_size() {
+  [ -n "$1" ] || return 0
+  [[ "$1" =~ ^($WB_SIZE_VALUES)$ ]]
+}
 
 # wb_resolve_parent_ref <ref> — validate <ref> (a "<repo>--<slug>" task-file
 # stem) exists in the store; print its path, or fail loudly. Shared by
@@ -542,8 +542,23 @@ wb_ensure_repo_ignore() {
   ) 9>"$lockfile"
 }
 
+# _wb_fill_frontmatter <file> <key> <value> — "explicit wins, else
+# blank-fill": a non-empty <value> is written unconditionally; an empty one
+# only ensures the key LINE exists (inserted blank when absent), never
+# clobbering a value already in the file. wb_seed_task's optional
+# board-metadata fields (path, depends_on, size) all share this shape so a
+# flag-less re-run leaves an earlier explicit value alone.
+_wb_fill_frontmatter() {
+  local file="$1" key="$2" value="$3"
+  if [ -n "$value" ]; then
+    wb_set_frontmatter "$file" "$key" "$value"
+  else
+    [ -n "$(wb_get_frontmatter "$file" "$key")" ] || wb_set_frontmatter "$file" "$key" ""
+  fi
+}
+
 # wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<file_override>]
-# [<path_stages>] [<depends_on_csv>] — find-or-create the task file for a
+# [<path_stages>] [<depends_on_csv>] [<size>] — find-or-create the task file for a
 # repo+slug pair, filling blank frontmatter fields and bumping
 # planned->doing. Never overwrites a field that's already set, UNLESS the
 # caller explicitly passed a value for it (parent/path/depends_on) — an
@@ -622,33 +637,20 @@ wb_seed_task() {
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
 
-  # path:/depends_on: — same "explicit wins, otherwise blank-fill" rule as
-  # parent: above, but the blank-fill half always runs (unlike parent:,
-  # which has no inferred value and simply stays absent with no --parent):
-  # every seeded task file must carry a path: and a depends_on: key, even
-  # when the caller never passed one, per the schema's blank-fill convention
+  # path:/depends_on:/size: — same "explicit wins, otherwise blank-fill"
+  # rule as parent: above, but the blank-fill half always runs (unlike
+  # parent:, which has no inferred value and simply stays absent with no
+  # --parent): every seeded task file must carry all three keys, even when
+  # the caller never passed one, per the schema's blank-fill convention
   # (mirrors reviewed: above). wb_set_frontmatter itself inserts the key
   # when TEMPLATE.md (or a pre-existing file) has no line for it yet, so
   # this is correct whether or not the template has caught up to carrying
-  # blank path:/depends_on: lines.
-  if [ -n "$path_stages" ]; then
-    wb_set_frontmatter "$file" path "$path_stages"
-  else
-    [ -n "$(wb_get_frontmatter "$file" path)" ] || wb_set_frontmatter "$file" path ""
-  fi
-  if [ -n "$depends_on" ]; then
-    wb_set_frontmatter "$file" depends_on "$depends_on"
-  else
-    [ -n "$(wb_get_frontmatter "$file" depends_on)" ] || wb_set_frontmatter "$file" depends_on ""
-  fi
-  # size: — same rule again. Blank reads as M at load, so the blank-fill
-  # half never manufactures a value; the caller (cmd_new --size) has
-  # already validated a non-empty value against _wb_valid_size.
-  if [ -n "$size" ]; then
-    wb_set_frontmatter "$file" size "$size"
-  else
-    [ -n "$(wb_get_frontmatter "$file" size)" ] || wb_set_frontmatter "$file" size ""
-  fi
+  # the blank lines. A blank size: reads as M at load, so blank-filling it
+  # never manufactures a value; cmd_new has already validated a non-empty
+  # --size against _wb_valid_size.
+  _wb_fill_frontmatter "$file" path "$path_stages"
+  _wb_fill_frontmatter "$file" depends_on "$depends_on"
+  _wb_fill_frontmatter "$file" size "$size"
 
   echo "$file"
 }
@@ -1711,10 +1713,21 @@ _wb_bd_field() {
 
 # _wb_bd_bullet <block-text> <key> — the value of the block's first
 # `- <key>: <value>` bullet (the editable per-child fields: goal, size,
-# depends_on). Same field-grep the original `- goal:` extraction used;
-# empty when the bullet is absent or has no value.
+# depends_on); empty when the bullet is absent or has no value.
+#
+# Only the block HEADER is searched — everything before the block's
+# `begin-plan` marker. The plan body is free-form markdown that may itself
+# contain a line like `- depends_on: …` or `- size: …`, and a header bullet
+# left blank (the default, per SKILL.md's blank-unless-verified rule) must
+# not fall through to it. GNU grep -o prints nothing for an empty match, so
+# a `\K.*`-style extraction over the whole block did exactly that
+# fall-through — the first matching LINE has to win, value or not. Trailing
+# whitespace is trimmed.
 _wb_bd_bullet() {
-  printf '%s' "$1" | grep -oP "^\s*-\s+$2:\s*\K.*" | head -1 | sed 's/[[:space:]]*$//'
+  printf '%s\n' "$1" \
+    | awk '/<!-- wb-breakdown: begin-plan/ { exit } { print }' \
+    | grep -P "^\s*-\s+$2:" | head -1 \
+    | sed -E "s/^[[:space:]]*-[[:space:]]+$2:[[:space:]]*//; s/[[:space:]]*$//" || true
 }
 
 # _wb_bd_resolve_deps <repo> <deps_raw> — turn a buffer's raw `- depends_on:`
@@ -1731,9 +1744,14 @@ _wb_bd_bullet() {
 # discarding stdout, to turn a bad token into a hard parse error) and the
 # executor (which keeps the stdout) can never disagree on what's legal:
 # no interior whitespace in a token (wb_sanitize strips none, mirroring the
-# create-child slug rule), no `..`, and a full stem may not contain `/`
-# (it's used verbatim as a filename stem — a bare slug's `/` is fine, it
-# sanitizes to `-`). Returns 1 with the reason on stderr.
+# create-child slug rule), no `..`, a full stem may not contain `/` (it's
+# used verbatim as a filename stem — a bare slug's `/` is fine, it
+# sanitizes to `-`), and the RESOLVED stem must stay within
+# [A-Za-z0-9_.-] — the same charset the parent marker's repo= field is
+# held to. That last check is load-bearing, not cosmetic: the stem is fed
+# to wb_set_frontmatter's `awk -v`, which interprets backslash escapes, so
+# an unfiltered `\n` would inject a second frontmatter line into the child.
+# Returns 1 with the reason on stderr.
 _wb_bd_resolve_deps() {
   local repo="$1" raw="$2" out="" tok
   local -a toks
@@ -1755,6 +1773,9 @@ _wb_bd_resolve_deps() {
         fi ;;
       *) tok="$repo--$(wb_sanitize "$tok")" ;;
     esac
+    if [[ "$tok" =~ [^A-Za-z0-9_.-] ]]; then
+      echo "token '$tok' has characters outside [A-Za-z0-9_.-]" >&2; return 1
+    fi
     out="${out:+$out,}$tok"
   done
   printf '%s' "$out"
@@ -1951,7 +1972,7 @@ _wb_breakdown_validate() {
     local raw_slug disp_slug title size deps_raw
     raw_slug="$(printf '%s' "$create_line" | grep -oP 'create child: `\K[^`]*')"
     disp_slug="$(wb_sanitize "$raw_slug")"
-    title="$(printf '%s' "$b" | grep -oP '^\s*-\s+goal:\s*\K.*' | head -1)"
+    title="$(_wb_bd_bullet "$b" goal)"
     # `- size:` / `- depends_on:` are optional sibling bullets of `- goal:`
     # (D1). A missing or blank bullet is fine (blank size reads as M); a
     # NON-empty size outside the S|M|L|XL enum is a hard parse error —
@@ -1969,6 +1990,15 @@ _wb_breakdown_validate() {
       echo "wb breakdown --apply: child n=$n ($raw_slug) depends_on: $deps_err" >&2
       return 2
     fi
+    # A literal tab in any bullet value would split the tab-separated create
+    # row below and shift every later field (a tabbed goal lands its tail in
+    # the size slot, past the enum check above) — hard parse error, like the
+    # other structural guards.
+    case "$title$size$deps_raw" in
+      *$'\t'*)
+        echo "wb breakdown --apply: child n=$n ($raw_slug) goal/size/depends_on must not contain a tab character" >&2
+        return 2 ;;
+    esac
 
     local collision=0
     local other

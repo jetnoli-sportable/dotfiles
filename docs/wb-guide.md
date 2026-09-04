@@ -82,7 +82,8 @@ through `wb done`.
 
 `--path`, `--depends-on` and `--size` are optional, board-only metadata —
 they don't change how the task itself runs, only how `wb board --html`
-(and the family DAG / critical-path views built on it) display it:
+displays it (`--size` is captured now for the family DAG / critical-path
+views still to be built on top of the board; nothing renders it yet):
 
 - `--path <stages>` declares which of the five lifecycle stages
   (`ideate,brainstorm,plan,work,review`) this task intends to pass

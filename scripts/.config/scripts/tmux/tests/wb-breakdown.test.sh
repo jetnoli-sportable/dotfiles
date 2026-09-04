@@ -346,6 +346,75 @@ assert_eq "resolve deps: full stem kept verbatim" "other--ext-dep" "$(_wb_bd_res
 assert_eq "resolve deps: empty tokens skipped" "proj--a" "$(_wb_bd_resolve_deps proj ', `a`, ,')"
 assert_eq "resolve deps: empty input -> empty output" "" "$(_wb_bd_resolve_deps proj '')"
 
+# --- review fixes (PR #45 code review) ---------------------------------------
+# Header-only bullet extraction: a plan-body line shaped like a bullet must
+# never be read as the field, whether the header bullet is blank or absent.
+# (GNU grep -o prints nothing for an empty match, so the original
+# whole-block `\K.*` extraction fell through a blank `- size:` to the body.)
+cat > "$BUF_DIR/sd-body-leak.md" <<'EOF'
+# wb breakdown — proj--feat-big
+
+## child 1 — blank header bullets
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-big repo=proj -->
+- [x] create child: `feat-big-leak1`
+- goal: leak one
+- size:
+- depends_on:
+<!-- wb-breakdown: begin-plan n=1 -->
+Notes from the old estimate:
+- size: XL was the previous guess
+- depends_on: `feat-a` in prose, not a real dep
+<!-- wb-breakdown: end-plan -->
+
+## child 2 — no header bullets at all (old-style)
+<!-- wb-breakdown: block=child n=2 parent=proj--feat-big repo=proj -->
+- [x] create child: `feat-big-leak2`
+- goal: leak two
+<!-- wb-breakdown: begin-plan n=2 -->
+- size: XXL
+- depends_on: `feat a b`
+<!-- wb-breakdown: end-plan -->
+EOF
+out_leak="$(_wb_breakdown_validate "$BUF_DIR/sd-body-leak.md" 2>/dev/null)"; rc_leak=$?
+assert_eq "body leak: plan-body bullets do not abort validate (exit 0)" 0 "$rc_leak"
+row_leak1="$(printf '%s\n' "$out_leak" | grep $'^create\t1\t')"
+assert_eq "body leak: blank header size stays blank despite body '- size: XL'" "" "$(printf '%s' "$row_leak1" | awk -F'\t' '{print $7}')"
+assert_eq "body leak: blank header depends_on stays blank despite body line" "" "$(printf '%s' "$row_leak1" | awk -F'\t' '{print $8}')"
+row_leak2="$(printf '%s\n' "$out_leak" | grep $'^create\t2\t')"
+assert_eq "body leak: absent header bullets -> size empty (body XXL ignored)" "" "$(printf '%s' "$row_leak2" | awk -F'\t' '{print $7}')"
+assert_eq "body leak: absent header bullets -> deps empty (body ignored)" "" "$(printf '%s' "$row_leak2" | awk -F'\t' '{print $8}')"
+assert_eq "body leak: title still read from the header" "leak two" "$(printf '%s' "$row_leak2" | awk -F'\t' '{print $6}')"
+assert_eq "bullet helper: first header line wins even when blank" "" "$(_wb_bd_bullet $'- goal: g\n- size:\n<!-- wb-breakdown: begin-plan n=1 -->\n- size: XL\n<!-- wb-breakdown: end-plan -->' size)"
+assert_eq "bullet helper: goal trailing whitespace trimmed" "hello" "$(_wb_bd_bullet $'- goal: hello   \n<!-- wb-breakdown: begin-plan n=1 -->\nbody' goal)"
+
+# A literal tab anywhere in the header values is a hard parse error — it
+# would otherwise split the tab-separated create row and shift fields.
+sd_buffer $'- size: S' $'- depends_on: `feat-a`,\t`feat-b`' > "$BUF_DIR/sd-tab-deps.md"
+err_tab="$(_wb_breakdown_validate "$BUF_DIR/sd-tab-deps.md" 2>&1 1>/dev/null)"; rc_tab=$?
+assert_eq "tab between depends_on tokens: hard parse error (return 2)" 2 "$rc_tab"
+assert "tab between depends_on tokens: error names the child and the rule" "child n=1 \(feat-big-sized\) goal/size/depends_on must not contain a tab" "$err_tab"
+sed $'s/^- goal: sized slice$/- goal: sized\tslice/' "$BUF_DIR/sd-happy.md" > "$BUF_DIR/sd-tab-goal.md"
+err_tab_goal="$(_wb_breakdown_validate "$BUF_DIR/sd-tab-goal.md" 2>&1 1>/dev/null)"; rc_tab_goal=$?
+assert_eq "tab inside goal: hard parse error (return 2)" 2 "$rc_tab_goal"
+
+# Resolved dep stems are charset-limited: a backslash would reach
+# wb_set_frontmatter's awk -v and inject a second frontmatter line.
+err_bs="$(_wb_bd_resolve_deps proj '`other--x\nstatus:done`' 2>&1 1>/dev/null)"; rc_bs=$?
+assert_eq "resolve deps: backslash in full stem rejected" 1 "$rc_bs"
+assert "resolve deps: backslash error names the charset" "outside \[A-Za-z0-9_.-\]" "$err_bs"
+err_at="$(_wb_bd_resolve_deps proj '`feat@x`' 2>&1 1>/dev/null)"; rc_at=$?
+assert_eq "resolve deps: bare slug with '@' rejected after sanitize" 1 "$rc_at"
+sd_buffer '' '- depends_on: `other--x\nstatus:done`' > "$BUF_DIR/sd-bs-dep.md"
+err_bs_v="$(_wb_breakdown_validate "$BUF_DIR/sd-bs-dep.md" 2>&1 1>/dev/null)"; rc_bs_v=$?
+assert_eq "depends_on with backslash: validate hard-aborts (return 2)" 2 "$rc_bs_v"
+
+# The size enum is a single anchored alternation — a value that merely
+# contains a legal alternative (or the separator) must not slip through.
+_wb_valid_size 'S|M'; assert_eq "valid_size: 'S|M' rejected (anchored, not substring)" 1 $?
+_wb_valid_size 'XL'; assert_eq "valid_size: XL accepted" 0 $?
+_wb_valid_size 'X'; assert_eq "valid_size: X rejected" 1 $?
+_wb_valid_size ''; assert_eq "valid_size: blank accepted" 0 $?
+
 # cmd_breakdown --apply's real end-to-end execution (AE1/AE2, the human
 # summary, actual writes) is U3's concern — see that section below. Calling
 # it here for real would mutate proj--feat-big's shared fixture state
