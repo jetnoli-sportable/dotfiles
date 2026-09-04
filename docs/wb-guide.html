@@ -324,8 +324,8 @@ silently destroy, it opens the task file in a split for you to mark
 </li>
 </ol>
 <h2 id="wb-new--start-a-task">wb new — start a task</h2>
-<pre><code>$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... &lt;slug&gt;
-$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... &lt;repo&gt; &lt;slug&gt;
+<pre><code>$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size S|M|L|XL] &lt;slug&gt;
+$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size S|M|L|XL] &lt;repo&gt; &lt;slug&gt;
 </code></pre>
 <p>The slug becomes the git branch name, the worktree path
 (<code>.worktrees/&lt;slug&gt;</code>), and — sanitized (<code>/</code> and <code>.</code> → <code>-</code>) — the tmux
@@ -335,9 +335,9 @@ fine; it becomes session <code>reponame--feat-onboarding</code>.</p>
 worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through <code>wb done</code>.</p>
-<p><code>--path</code> and <code>--depends-on</code> are optional, board-only metadata (v2) — they
-don't change how the task itself runs, only how <code>wb board --html</code> displays
-it:</p>
+<p><code>--path</code>, <code>--depends-on</code> and <code>--size</code> are optional, board-only metadata —
+they don't change how the task itself runs, only how <code>wb board --html</code>
+(and the family DAG / critical-path views built on it) display it:</p>
 <ul>
 <li><code>--path &lt;stages&gt;</code> declares which of the five lifecycle stages
 (<code>ideate,brainstorm,plan,work,review</code>) this task intends to pass
@@ -347,6 +347,11 @@ through, comma-separated. Omit it and the task defaults to
 stem (<code>&lt;repo&gt;--&lt;slug&gt;</code>, no <code>.md</code>), validated against a real task file at
 creation time. The board renders both directions — a ⛔ count on the
 blocked task, a → count on the blocker — once it's declared.</li>
+<li><code>--size S|M|L|XL</code> stamps a rough effort bucket into the task's <code>size:</code>
+frontmatter (uppercase, exactly — anything else is rejected before any
+file is touched). Omit it and <code>size:</code> is written blank, which every
+reader treats as <code>M</code>. Works on <code>--planned</code> seeds too. <code>/wb-breakdown</code>
+buffers carry the same field per child as a <code>- size:</code> bullet.</li>
 </ul>
 <table>
 <thead>
