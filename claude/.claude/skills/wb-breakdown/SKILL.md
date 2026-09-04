@@ -276,8 +276,19 @@ Rules worth restating because the parser enforces them exactly:
   and is written verbatim (for cross-repo/external blockers). There is
   **no existence check**: a sibling seeded later in the same apply is fine,
   and a dep matching neither a checked sibling nor an existing file only
-  warns (the board fails open on dangling deps). Tokens may not contain
-  whitespace.
+  warns (the board fails open on dangling deps). Shape rules the parser
+  does enforce, all hard whole-apply errors: a token may not contain
+  whitespace or `..`; a full stem may not contain `/` (a bare slug may —
+  it sanitizes to `-`); and the resolved stem must stay within
+  `[A-Za-z0-9_.-]` (it's written into frontmatter and used as a filename
+  stem verbatim).
+- No literal tab characters in `- goal:`, `- size:` or `- depends_on:`
+  values — the parser carries them in a tab-separated row, so a tab is a
+  hard parse error rather than a silently shifted field.
+- Only the block **header** (the bullets above `begin-plan`) is read for
+  `- goal:`/`- size:`/`- depends_on:`. Plan-body lines that happen to
+  start the same way are prose and are never picked up, so a blank header
+  bullet stays blank.
 
 ### 6. Open the buffer, blocking
 
