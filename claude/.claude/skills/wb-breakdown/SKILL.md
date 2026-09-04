@@ -211,6 +211,8 @@ shape; see `scripts/.config/scripts/tmux/wb.sh`, search
 <!-- wb-breakdown: block=child n=1 parent=<parent-stem> repo=<repo> -->
 - [x] create child: `<raw-slug>`
 - goal: <one-line goal, editable — becomes the child's title>
+- size: <S|M|L|XL or blank — see "size/depends_on" rule below>
+- depends_on: <blank, or `<sibling-raw-slug>`, `<repo>--<slug>`, … comma-separated>
 <!-- wb-breakdown: begin-plan n=1 -->
 <child's plan body, verbatim markdown, written into the child's ## Plan>
 <!-- wb-breakdown: end-plan -->
@@ -219,6 +221,8 @@ shape; see `scripts/.config/scripts/tmux/wb.sh`, search
 <!-- wb-breakdown: block=child n=2 parent=<parent-stem> repo=<repo> -->
 - [ ] create child: `<raw-slug>`
 - goal: <one-line goal>
+- size:
+- depends_on:
 <!-- wb-breakdown: begin-plan n=2 -->
 …
 <!-- wb-breakdown: end-plan -->
@@ -249,6 +253,31 @@ Rules worth restating because the parser enforces them exactly:
 - Raw slugs must be real git-branch-shaped strings with no whitespace and
   no backtick — `wb_sanitize` (the sanitizer apply uses to turn a raw slug
   into a filename stem) strips neither.
+- **`- size:` / `- depends_on:` are always emitted on every child block,
+  values blank by default.** Both bullets sit directly under `- goal:` so
+  they're discoverable and one keystroke to fill, but the skill writes a
+  value only when the child's own plan/goal already states a clear,
+  verified basis: an explicit effort estimate already in the plan body →
+  `size`; a dependency already named in prose (e.g. "needs the schema from
+  child 1 first") → `depends_on`. Never a blind `size: M`, never a
+  "predecessor chain" that makes each child depend on the previous one by
+  default — parallel is the norm, a dependency is the exception, and a
+  blank `size:` already reads as `M` at load, so blank costs nothing and
+  never manufactures false precision.
+- `size` must be exactly one of `S`, `M`, `L`, `XL` (uppercase) or blank.
+  Anything else (`XXL`, `medium`, lowercase `l`) is a hard parse error
+  that aborts the **whole** apply before any write, like the other
+  structural guards — not a per-item skip.
+- `depends_on` lists **raw sibling slugs** (backticked, comma-separated,
+  the same raw form as the `create child:` line), which apply resolves to
+  `<repo>--<sanitize(slug)>` stems at write time — exactly the
+  raw-slug-resolved-at-apply convention the migrate/move targets already
+  use. A token that already contains `--` is a full `<repo>--<slug>` stem
+  and is written verbatim (for cross-repo/external blockers). There is
+  **no existence check**: a sibling seeded later in the same apply is fine,
+  and a dep matching neither a checked sibling nor an existing file only
+  warns (the board fails open on dangling deps). Tokens may not contain
+  whitespace.
 
 ### 6. Open the buffer, blocking
 
@@ -361,8 +390,10 @@ sibling skills.
   something here seems to need a `wb.sh` change to work well, that's a
   follow-up for the task file, not something to patch around in this
   skill.
-- `~/code/tasks/README.md` documents the `jira:` frontmatter field and the
-  `breakdown-candidate` tag convention this skill reads/writes.
+- `~/code/tasks/README.md` documents the `jira:` frontmatter field, the
+  `breakdown-candidate` tag convention this skill reads/writes, and the
+  `size:` field ("Size" section: `S|M|L|XL`, absent/blank reads as `M`, no
+  retroactive backfill of older task files).
 - The Jira-watch loop that would auto-tag candidates
   (`dotfiles--loop-jira-watch`) and bash-side `wb new <ticket>`
   (`feat-jira-integration`) are separate, later work — this skill's own

@@ -66,8 +66,8 @@ untracked task behind.
 ## wb new — start a task
 
 ```
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... <slug>
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... <repo> <slug>
+$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size S|M|L|XL] <slug>
+$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size S|M|L|XL] <repo> <slug>
 ```
 
 The slug becomes the git branch name, the worktree path
@@ -80,9 +80,9 @@ worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through `wb done`.
 
-`--path` and `--depends-on` are optional, board-only metadata (v2) — they
-don't change how the task itself runs, only how `wb board --html` displays
-it:
+`--path`, `--depends-on` and `--size` are optional, board-only metadata —
+they don't change how the task itself runs, only how `wb board --html`
+(and the family DAG / critical-path views built on it) display it:
 
 - `--path <stages>` declares which of the five lifecycle stages
   (`ideate,brainstorm,plan,work,review`) this task intends to pass
@@ -92,6 +92,11 @@ it:
   stem (`<repo>--<slug>`, no `.md`), validated against a real task file at
   creation time. The board renders both directions — a ⛔ count on the
   blocked task, a → count on the blocker — once it's declared.
+- `--size S|M|L|XL` stamps a rough effort bucket into the task's `size:`
+  frontmatter (uppercase, exactly — anything else is rejected before any
+  file is touched). Omit it and `size:` is written blank, which every
+  reader treats as `M`. Works on `--planned` seeds too. `/wb-breakdown`
+  buffers carry the same field per child as a `- size:` bullet.
 
 | Window | Name | What's in it |
 |---|---|---|

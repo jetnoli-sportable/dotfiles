@@ -37,7 +37,7 @@ assert_eq() { # <desc> <expected> <actual>
   fi
 }
 
-printf -- '---\nstatus: planned\npath:\nrepo:\nbranch:\nworktree:\nparent:\ndepends_on:\ntags: []\ncreated:\nclosed:\nreviewed:\n---\n# Title\n\n## Plan\n\n\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' \
+printf -- '---\nstatus: planned\npath:\nrepo:\nbranch:\nworktree:\nparent:\ndepends_on:\nsize:\ntags: []\ncreated:\nclosed:\nreviewed:\n---\n# Title\n\n## Plan\n\n\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' \
   > "$FIXTURE_TASKS/TEMPLATE.md"
 
 # real (throwaway) git repo under the fixture CODE_DIR, matching cmd_new's
@@ -107,6 +107,36 @@ child2="$TASKS_DIR/proj--feat-hub-v0-backslash.md"
 plan_section="$(awk '/^## Plan/{f=1;next} /^## Handoffs/{f=0} f' "$child2" | sed '/^$/d')"
 expected_section="$(printf '%s\n' "$backslash_body" | sed '/^$/d')"
 assert_eq "seed: backslash body round-trips byte-identical" "$expected_section" "$plan_section"
+
+# --- size: / depends_on: (size-depends-capture U2) --------------------------
+# Trailing optional 5th/6th args; written ONLY when non-empty, so an unset
+# value leaves the template's blank line intact (blank size: reads as M).
+out_sd="$(printf 'body\n' \
+  | wb_seed_planned_child proj feat-hub-v0-sized dotfiles--feat-hub-v0 'sized child' L 'proj--a,proj--b' 2>&1)"
+child_sd="$TASKS_DIR/proj--feat-hub-v0-sized.md"
+assert_eq "seed size/deps: size: L written" "L" "$(wb_get_frontmatter "$child_sd" size)"
+assert_eq "seed size/deps: depends_on: comma-joined value written verbatim" "proj--a,proj--b" "$(wb_get_frontmatter "$child_sd" depends_on)"
+assert_eq "seed size/deps: title still set alongside" "sized child" "$(wb_task_title "$child_sd")"
+assert_eq "seed size/deps: exactly one size: line" 1 "$(grep -c '^size:' "$child_sd")"
+assert_eq "seed size/deps: exactly one depends_on: line" 1 "$(grep -c '^depends_on:' "$child_sd")"
+
+out_sd_blank="$(printf 'body\n' \
+  | wb_seed_planned_child proj feat-hub-v0-unsized dotfiles--feat-hub-v0 'unsized child' '' '' 2>&1)"
+child_sd_blank="$TASKS_DIR/proj--feat-hub-v0-unsized.md"
+assert_eq "seed size/deps: empty size -> key present, blank" "" "$(wb_get_frontmatter "$child_sd_blank" size)"
+assert_eq "seed size/deps: empty size -> size: line still present (from template)" 1 "$(grep -c '^size:' "$child_sd_blank")"
+assert_eq "seed size/deps: empty deps -> key present, blank" "" "$(wb_get_frontmatter "$child_sd_blank" depends_on)"
+
+out_sd_only="$(printf 'body\n' \
+  | wb_seed_planned_child proj feat-hub-v0-sizeonly dotfiles--feat-hub-v0 'size only' XL 2>&1)"
+child_sd_only="$TASKS_DIR/proj--feat-hub-v0-sizeonly.md"
+assert_eq "seed size/deps: size only -> size: XL" "XL" "$(wb_get_frontmatter "$child_sd_only" size)"
+assert_eq "seed size/deps: size only -> depends_on: stays blank" "" "$(wb_get_frontmatter "$child_sd_only" depends_on)"
+
+# regression: the 3-arg form (no title/size/deps) still yields the same
+# planned/blank-worktree/raw-branch/parent shape as before, plus blank size:.
+assert_eq "seed regression: 3-arg call size: blank" "" "$(wb_get_frontmatter "$child_file" size)"
+assert_eq "seed regression: 3-arg call depends_on: blank" "" "$(wb_get_frontmatter "$child_file" depends_on)"
 
 # --- AE2 (half): a planned child (blank worktree:) is invisible to reconcile -
 recon_out="$(wb_reconcile_collect 2>/dev/null)"
@@ -238,6 +268,83 @@ if printf '%s\n' "$out" | grep -q $'^plan_rewrite\t'; then
 else
   echo "ok   - AE1: unchecked parent Plan-rewrite absent"
 fi
+
+# --- size: / depends_on: bullets (size-depends-capture U3) ------------------
+# The create row is now 8 tab fields: create n repo raw disp title size deps.
+# An old-style buffer (no new bullets) still validates, with the two
+# trailing fields empty — wb_tsv_split keeps trailing empties positional.
+row_old="$(printf '%s\n' "$out" | grep $'^create\t' | head -1)"
+assert_eq "row shape: old-style buffer create row has 8 tab-separated fields" 8 "$(printf '%s' "$row_old" | awk -F'\t' '{print NF}')"
+assert_eq "row shape: old-style buffer size field empty" "" "$(printf '%s' "$row_old" | awk -F'\t' '{print $7}')"
+assert_eq "row shape: old-style buffer deps field empty" "" "$(printf '%s' "$row_old" | awk -F'\t' '{print $8}')"
+
+sd_buffer() { # <size-line> <deps-line>  (each a full "- key: value" line, or empty)
+  cat <<EOF
+# wb breakdown — proj--feat-big
+
+## child 1 — sized
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-big repo=proj -->
+- [x] create child: \`feat-big-sized\`
+- goal: sized slice
+${1}
+${2}
+<!-- wb-breakdown: begin-plan n=1 -->
+plan body
+<!-- wb-breakdown: end-plan -->
+
+## child 2 — plain
+<!-- wb-breakdown: block=child n=2 parent=proj--feat-big repo=proj -->
+- [x] create child: \`feat-big-plain\`
+- goal: plain slice
+- size:
+- depends_on:
+<!-- wb-breakdown: begin-plan n=2 -->
+plan body two
+<!-- wb-breakdown: end-plan -->
+EOF
+}
+
+sd_buffer '- size: L' '- depends_on: `feat-a`, `feat-b`' > "$BUF_DIR/sd-happy.md"
+out_sd="$(_wb_breakdown_validate "$BUF_DIR/sd-happy.md" 2>/dev/null)"; rc_sd=$?
+assert_eq "size/deps happy: validate exits 0" 0 "$rc_sd"
+row_sd="$(printf '%s\n' "$out_sd" | grep $'^create\t1\t')"
+assert_eq "size/deps happy: 8 fields" 8 "$(printf '%s' "$row_sd" | awk -F'\t' '{print NF}')"
+assert_eq "size/deps happy: size field = L" "L" "$(printf '%s' "$row_sd" | awk -F'\t' '{print $7}')"
+assert_eq "size/deps happy: deps field carries the RAW (still-backticked) string" '`feat-a`, `feat-b`' "$(printf '%s' "$row_sd" | awk -F'\t' '{print $8}')"
+row_sd2="$(printf '%s\n' "$out_sd" | grep $'^create\t2\t')"
+assert_eq "size/deps blank bullets: 8 fields, size empty" "" "$(printf '%s' "$row_sd2" | awk -F'\t' '{print $7}')"
+assert_eq "size/deps blank bullets: deps empty" "" "$(printf '%s' "$row_sd2" | awk -F'\t' '{print $8}')"
+assert_eq "size/deps blank bullets: still 8 fields" 8 "$(printf '%s' "$row_sd2" | awk -F'\t' '{print NF}')"
+
+sd_buffer '- size: S   ' '' > "$BUF_DIR/sd-trailing-ws.md"
+out_sd_ws="$(_wb_breakdown_validate "$BUF_DIR/sd-trailing-ws.md" 2>/dev/null)"; rc_sd_ws=$?
+assert_eq "size with trailing whitespace: accepted (trimmed)" 0 "$rc_sd_ws"
+assert_eq "size with trailing whitespace: size field = S" "S" "$(printf '%s\n' "$out_sd_ws" | grep $'^create\t1\t' | awk -F'\t' '{print $7}')"
+
+sd_buffer '- size: XXL' '' > "$BUF_DIR/sd-bad-size.md"
+err_sd_bad="$(_wb_breakdown_validate "$BUF_DIR/sd-bad-size.md" 2>&1 1>/dev/null)"; rc_sd_bad=$?
+assert_eq "size XXL: hard parse error (return 2)" 2 "$rc_sd_bad"
+assert "size XXL: error names the child and the enum" "child n=1 \(feat-big-sized\) size 'XXL' is not one of S\|M\|L\|XL" "$err_sd_bad"
+
+sd_buffer '- size: l' '' > "$BUF_DIR/sd-lower-size.md"
+err_sd_lower="$(_wb_breakdown_validate "$BUF_DIR/sd-lower-size.md" 2>&1 1>/dev/null)"; rc_sd_lower=$?
+assert_eq "size lowercase l: rejected (enum is strict uppercase)" 2 "$rc_sd_lower"
+
+sd_buffer '' '- depends_on: `feat a`' > "$BUF_DIR/sd-bad-dep.md"
+err_sd_dep="$(_wb_breakdown_validate "$BUF_DIR/sd-bad-dep.md" 2>&1 1>/dev/null)"; rc_sd_dep=$?
+assert_eq "depends_on token with whitespace: hard parse error (return 2)" 2 "$rc_sd_dep"
+assert "depends_on token with whitespace: error names the child + token" "child n=1 \(feat-big-sized\) depends_on: token 'feat a' contains whitespace" "$err_sd_dep"
+
+sd_buffer '' '- depends_on: `other--x/../../etc`' > "$BUF_DIR/sd-traversal-dep.md"
+err_sd_trav="$(_wb_breakdown_validate "$BUF_DIR/sd-traversal-dep.md" 2>&1 1>/dev/null)"; rc_sd_trav=$?
+assert_eq "depends_on full stem with '..'/'/': hard parse error" 2 "$rc_sd_trav"
+
+# resolver unit checks (the executor's half of D2)
+assert_eq "resolve deps: bare slugs get repo-prefixed + sanitized, backticks/spaces stripped" \
+  "proj--feat-a,proj--feat-b-c" "$(_wb_bd_resolve_deps proj '`feat-a`, `feat/b.c` ')"
+assert_eq "resolve deps: full stem kept verbatim" "other--ext-dep" "$(_wb_bd_resolve_deps proj '`other--ext-dep`')"
+assert_eq "resolve deps: empty tokens skipped" "proj--a" "$(_wb_bd_resolve_deps proj ', `a`, ,')"
+assert_eq "resolve deps: empty input -> empty output" "" "$(_wb_bd_resolve_deps proj '')"
 
 # cmd_breakdown --apply's real end-to-end execution (AE1/AE2, the human
 # summary, actual writes) is U3's concern — see that section below. Calling
@@ -856,6 +963,63 @@ snapshot_after="$(find "$TASKS_DIR" -maxdepth 1 -name 'proj--feat-u3*.md' -exec 
 assert_eq "U3 idempotent re-apply: store byte-identical" "$snapshot_before" "$snapshot_after"
 handoff_count_2="$(grep -c '^### .* — wb breakdown (auto)$' "$TASKS_DIR/proj--feat-u3.md")"
 assert_eq "U3 idempotent re-apply: handoff NOT duplicated" 1 "$handoff_count_2"
+
+# --- size: / depends_on: end-to-end (size-depends-capture U4) --------------
+# Child 1 depends on child 2 (seeded LATER in the same apply — order-
+# independence, no existence check); child 2 depends on child 1 via a
+# raw slug carrying a '/' (sanitizes to '-') plus an external full stem
+# that doesn't exist (fail-open: warning, never abort).
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u3-sd ".worktrees/feat-u3-sd" >/dev/null 2>&1
+mk_u3_parent proj--feat-u3-sd feat-u3-sd .worktrees/feat-u3-sd
+cat > "$U3_BUF/sd.md" <<'EOF'
+# wb breakdown — proj--feat-u3-sd
+
+## child 1 — one
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u3-sd repo=proj -->
+- [x] create child: `feat/u3-sd-one`
+- goal: first slice
+- size: S
+- depends_on: `feat-u3-sd-two`
+<!-- wb-breakdown: begin-plan n=1 -->
+one body
+<!-- wb-breakdown: end-plan -->
+
+## child 2 — two
+<!-- wb-breakdown: block=child n=2 parent=proj--feat-u3-sd repo=proj -->
+- [x] create child: `feat-u3-sd-two`
+- goal: second slice
+- size:
+- depends_on: `feat/u3-sd-one`, `other--ext-dep`
+<!-- wb-breakdown: begin-plan n=2 -->
+two body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u3-sd -->
+- [ ] migrate branch/worktree + re-aim @task → continuing child: `___`
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+unused
+<!-- wb-breakdown: end-plan -->
+EOF
+out_sd_apply="$(cmd_breakdown --apply "$U3_BUF/sd.md" 2>&1)"; rc_sd_apply=$?
+assert_eq "U4 size/deps apply: exits 0" 0 "$rc_sd_apply"
+sd_one="$TASKS_DIR/proj--feat-u3-sd-one.md"; sd_two="$TASKS_DIR/proj--feat-u3-sd-two.md"
+[ -f "$sd_one" ] && echo "ok   - U4 size/deps apply: child 1 file exists" || { echo "FAIL - U4 size/deps apply: child 1 missing"; fail=1; }
+[ -f "$sd_two" ] && echo "ok   - U4 size/deps apply: child 2 file exists" || { echo "FAIL - U4 size/deps apply: child 2 missing"; fail=1; }
+assert_eq "U4 size/deps apply: child 1 size: S" "S" "$(wb_get_frontmatter "$sd_one" size)"
+assert_eq "U4 size/deps apply: child 1 depends_on resolved to later-seeded sibling stem" "proj--feat-u3-sd-two" "$(wb_get_frontmatter "$sd_one" depends_on)"
+assert_eq "U4 size/deps apply: child 2 blank size stays blank (reads as M)" "" "$(wb_get_frontmatter "$sd_two" size)"
+assert_eq "U4 size/deps apply: child 2 multi-dep resolved, sanitized, external stem verbatim, no spaces/backticks" \
+  "proj--feat-u3-sd-one,other--ext-dep" "$(wb_get_frontmatter "$sd_two" depends_on)"
+assert "U4 size/deps apply: dangling external dep warns (fail-open) instead of aborting" "warning: child n=2 \(feat-u3-sd-two\) depends_on 'other--ext-dep' matches neither" "$out_sd_apply"
+if printf '%s' "$out_sd_apply" | grep -q "depends_on 'proj--feat-u3-sd-two' matches neither"; then
+  echo "FAIL - U4 size/deps apply: a same-apply sibling seeded later must NOT trigger the dangling-dep warning"; fail=1
+else
+  echo "ok   - U4 size/deps apply: later-seeded sibling dep does not warn"
+fi
+assert_eq "U4 size/deps apply: child 1 exactly one size: line" 1 "$(grep -c '^size:' "$sd_one")"
+assert_eq "U4 size/deps apply: child 1 exactly one depends_on: line" 1 "$(grep -c '^depends_on:' "$sd_one")"
 
 # --- crash simulation: child already seeded, migration not yet done --------
 git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u3-crash ".worktrees/feat-u3-crash" >/dev/null 2>&1
