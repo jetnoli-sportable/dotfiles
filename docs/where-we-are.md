@@ -1,10 +1,10 @@
 ---
 title: Where we are
 status: current
-tile: The current state of the personal-workflow build — what's shipped, what's in review (PR #32), and what's queued next. The at-a-glance snapshot behind the roadmap's detail.
+tile: The current state of the personal-workflow build — what's shipped, what's verified, and what's queued next. The at-a-glance snapshot behind the roadmap's detail.
 group: where-we-are
 kind: guide
-updated: 2026-07-16
+updated: 2026-09-07
 ---
 
 A point-in-time status snapshot of the whole personal-workflow build — the
@@ -20,13 +20,16 @@ generated docs platform (this Hub, `INDEX`, `/help`) keeps it all
 navigable. The last build run hardened the store against concurrent agents
 (PR #22), then stacked task-family tooling on top of those lock primitives
 (`/wb-breakdown`, PR #29) and refreshed the board (PR #30) and Hub (PR #31).
-**In review right now:** Jira interop — emitting a task or family as SFB
-tickets (PR #32). Next up is the one-time task-store schema migration and
-closing two known `wb` gaps.
+Since then: Jira interop Phase 1 shipped (PR #32) and was **verified against
+live Jira on 2026-09-07**; the docs platform and board got a UX overhaul
+(PR #33); `/handoff --pane`, `/parked-items` and `/quick-wins` landed; and a
+run of tmux memory fixes (PRs #37–#41) made many concurrent agent sessions
+survivable. Nothing is in review right now. Next up is the one-time
+task-store schema migration and closing two known `wb` gaps.
 
 ## Shipped
 
-<span class="chip ok">21 merged</span> — full history and rationale live on
+<span class="chip ok">35 merged</span> — full history and rationale live on
 the linked recaps; this is the chronological ledger. Foundations before
 PR&nbsp;#11 (the docs platform, `wb` core, notes-tui capture) are folded into
 the [Roadmap's shipped section](roadmap.html#detail-step-zero).
@@ -54,19 +57,27 @@ the [Roadmap's shipped section](roadmap.html#detail-step-zero).
 | #29 | **`/wb-breakdown`** — split an oversized task/ticket into a family | [recap](2026-07-13-wb-breakdown-recap.html) |
 | #30 | **Board display v2** — stepper, Pipeline/Live/Stale tabs, dependencies | [recap](wb-board-display-v2-recap.html) |
 | #31 | **Hub + roadmap refresh** — currency, guide gaps, sectioning, docgen lint | [roadmap](roadmap.html) |
+| #32 | **Jira interop — emit (Phase 1)** — `wb jira-set` + `/wb-jira-create`; verified live 2026-09-07 | [recap](2026-07-16-jira-interop-recap.html) · [verification](verification/2026-07-16-jira-emit-verification.html) |
+| #33 | **Docs platform + board UX overhaul** — Tokyo Night theme, Hub grouping, real back-links | [verification](verification/2026-07-21-post-crash-merge-batch-verification.html) |
+| #34 | **`/handoff --pane`** — a co-located helper agent in the current worktree | [handoff guide](handoff-guide.html) |
+| #35 | Post-crash merge-batch verification checklist (#32/#33/#34) | [verification](verification/2026-07-21-post-crash-merge-batch-verification.html) |
+| #36 | **`/parked-items`** — wb-task vocabulary, `/handoff` action, carry-forward rounds | [guide](guides/parked-items.html) |
+| #37 | tmux: keep agent windows alive on shell exit (`remain-on-exit`) | — |
+| #38 | tmux: wb picker no longer misreports in-progress agents as idle/done | — |
+| #39 | **`/quick-wins`** — effort/isolation/ownership triage across the deferred backlog | — |
+| #40 | tmux: lazy nvim window per wb session to curb memory | — |
+| #41 | **wb session memory mitigations** — per-agent cgroup isolation | [verification](verification/2026-08-24-wb-session-cgroup-isolation-verification.html) |
+| #42 | Auto-generated try-it catalog from the roadmap + linked docs | [try it](try-it.html) |
+| #43 | Machine-readable next-action directive for `/wb-save` / `/wb-resume` | [wb-guide](wb-guide.html) |
+| #44 | `/wb-jira-create`: checkbox-select for Project/type | [recap](2026-07-16-jira-interop-recap.html) |
+| #45 | `wb breakdown` captures `size:` + `depends_on:` at apply-time; `wb new --size` | [wb-guide](wb-guide.html) |
 
 ## In review
 
-- **Jira interop — emit (Phase 1)** — [PR&nbsp;#32](https://github.com/jetnoli-sportable/dotfiles/pull/32),
-  branch `feat/jira-integration`. A `wb jira-set` locked write-back verb plus
-  a `/wb-jira-create` skill that turns a task or `/wb-breakdown` family into
-  new SFB tickets over the Atlassian MCP, behind an approval buffer, stamping
-  each ticket URL back into the task. **Create-only.** All automated gates are
-  green; the remaining gate is a manual end-to-end run against a live MCP
-  (no sandbox project). **Unverified end-to-end — do not run `/wb-jira-create`
-  against live Jira until this passes** (the skill carries the same banner):
-  [verification checklist](verification/2026-07-16-jira-emit-verification.html).
-  [recap](2026-07-16-jira-interop-recap.html)
+Nothing right now. The last item through this gate was Jira interop — emit
+(PR&nbsp;#32): its end-to-end run against the live Atlassian MCP passed on
+2026-09-07, closing the one gate that stayed open after merge
+([checklist](verification/2026-07-16-jira-emit-verification.html)).
 
 ## Next up
 
