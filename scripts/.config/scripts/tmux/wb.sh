@@ -171,6 +171,21 @@ wb_task_files() {
 # session:window and can kill an UNRELATED session.
 wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; echo "${s//:/-}"; }
 
+# WB_SIZE_VALUES / _wb_valid_size <value> — the `size:` frontmatter enum,
+# defined ONCE as the `|`-joined literal (it doubles as the text of every
+# "not one of …" error) and checked by anchoring it as a regex alternation.
+# Legal: one of the strict, uppercase S|M|L|XL, or empty (blank means
+# "unset", which every reader treats as M — see ~/code/tasks/README.md
+# "Size"). Shared by cmd_new's --size and _wb_breakdown_validate's per-child
+# `- size:` bullet. Lowercase is deliberately rejected rather than
+# normalized (kept strict; normalization is a trivial follow-up if it ever
+# proves annoying in practice).
+WB_SIZE_VALUES="S|M|L|XL"
+_wb_valid_size() {
+  [ -n "$1" ] || return 0
+  [[ "$1" =~ ^($WB_SIZE_VALUES)$ ]]
+}
+
 # wb_resolve_parent_ref <ref> — validate <ref> (a "<repo>--<slug>" task-file
 # stem) exists in the store; print its path, or fail loudly. Shared by
 # `wb new --parent` and `wb reconcile --apply`'s create-task action so a
@@ -527,8 +542,23 @@ wb_ensure_repo_ignore() {
   ) 9>"$lockfile"
 }
 
+# _wb_fill_frontmatter <file> <key> <value> — "explicit wins, else
+# blank-fill": a non-empty <value> is written unconditionally; an empty one
+# only ensures the key LINE exists (inserted blank when absent), never
+# clobbering a value already in the file. wb_seed_task's optional
+# board-metadata fields (path, depends_on, size) all share this shape so a
+# flag-less re-run leaves an earlier explicit value alone.
+_wb_fill_frontmatter() {
+  local file="$1" key="$2" value="$3"
+  if [ -n "$value" ]; then
+    wb_set_frontmatter "$file" "$key" "$value"
+  else
+    [ -n "$(wb_get_frontmatter "$file" "$key")" ] || wb_set_frontmatter "$file" "$key" ""
+  fi
+}
+
 # wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<file_override>]
-# [<path_stages>] [<depends_on_csv>] — find-or-create the task file for a
+# [<path_stages>] [<depends_on_csv>] [<size>] — find-or-create the task file for a
 # repo+slug pair, filling blank frontmatter fields and bumping
 # planned->doing. Never overwrites a field that's already set, UNLESS the
 # caller explicitly passed a value for it (parent/path/depends_on) — an
@@ -543,7 +573,7 @@ wb_ensure_repo_ignore() {
 # cmd_resume already knows the real (child) file from its own stem-based
 # lookup and passes it straight through here instead.
 wb_seed_task() {
-  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}" path_stages="${6:-}" depends_on="${7:-}"
+  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}" path_stages="${6:-}" depends_on="${7:-}" size="${8:-}"
   local file
   if [ -n "$file_override" ]; then
     file="$file_override"
@@ -607,25 +637,20 @@ wb_seed_task() {
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
 
-  # path:/depends_on: — same "explicit wins, otherwise blank-fill" rule as
-  # parent: above, but the blank-fill half always runs (unlike parent:,
-  # which has no inferred value and simply stays absent with no --parent):
-  # every seeded task file must carry a path: and a depends_on: key, even
-  # when the caller never passed one, per the schema's blank-fill convention
+  # path:/depends_on:/size: — same "explicit wins, otherwise blank-fill"
+  # rule as parent: above, but the blank-fill half always runs (unlike
+  # parent:, which has no inferred value and simply stays absent with no
+  # --parent): every seeded task file must carry all three keys, even when
+  # the caller never passed one, per the schema's blank-fill convention
   # (mirrors reviewed: above). wb_set_frontmatter itself inserts the key
   # when TEMPLATE.md (or a pre-existing file) has no line for it yet, so
   # this is correct whether or not the template has caught up to carrying
-  # blank path:/depends_on: lines.
-  if [ -n "$path_stages" ]; then
-    wb_set_frontmatter "$file" path "$path_stages"
-  else
-    [ -n "$(wb_get_frontmatter "$file" path)" ] || wb_set_frontmatter "$file" path ""
-  fi
-  if [ -n "$depends_on" ]; then
-    wb_set_frontmatter "$file" depends_on "$depends_on"
-  else
-    [ -n "$(wb_get_frontmatter "$file" depends_on)" ] || wb_set_frontmatter "$file" depends_on ""
-  fi
+  # the blank lines. A blank size: reads as M at load, so blank-filling it
+  # never manufactures a value; cmd_new has already validated a non-empty
+  # --size against _wb_valid_size.
+  _wb_fill_frontmatter "$file" path "$path_stages"
+  _wb_fill_frontmatter "$file" depends_on "$depends_on"
+  _wb_fill_frontmatter "$file" size "$size"
 
   echo "$file"
 }
@@ -748,9 +773,18 @@ _wb_insert_plan_body() {
 # The child's `## Plan` body is read from stdin (the buffer-carried plan
 # text) and landed via _wb_insert_plan_body — see that function's own
 # comment for why this never touches awk -v.
+#
+# Optional trailing <size> (S|M|L|XL, already validated by the caller) and
+# <depends_on> (comma-joined, already-resolved `<repo>--<slug>` stems —
+# _wb_breakdown_execute does the raw-slug → stem resolution) are written
+# via wb_set_frontmatter ONLY when non-empty, so an unset value leaves the
+# template's blank line intact (blank size: reads as M; blank depends_on:
+# is "no blockers"). Trailing + optional keeps every existing 3/4-arg call
+# byte-identical in behavior.
 wb_seed_planned_child() {
   local repo="$1" slug="$2" parent="$3"
   local title="${4:-${slug//-/ }}"
+  local size="${5:-}" depends_on="${6:-}"
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local file; file="$(wb_task_file "$repo" "$disp_slug")"
 
@@ -783,6 +817,9 @@ wb_seed_planned_child() {
     { print }
   ' "$TASKS_DIR/TEMPLATE.md" > "$file"
   rm -f "$titlefile"
+
+  [ -z "$size" ]       || wb_set_frontmatter "$file" size "$size"
+  [ -z "$depends_on" ] || wb_set_frontmatter "$file" depends_on "$depends_on"
 
   _wb_insert_plan_body "$file" "$body"
   echo "$file"
@@ -833,8 +870,8 @@ cmd_new() {
   # a foreach that only matches literal tokens (like --agent); the value
   # would fall into the else branch and corrupt the positional repo/slug
   # count.
-  local -r new_usage="usage: wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <slug> | wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... <repo> <slug>"
-  local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 jira_url="" title_override=""
+  local -r new_usage="usage: wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size S|M|L|XL] <slug> | wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size S|M|L|XL] <repo> <slug>"
+  local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 jira_url="" title_override="" size_value=""
   local -a depends_on_stems=()
   local -a args=()
   while [ $# -gt 0 ]; do
@@ -867,6 +904,11 @@ cmd_new() {
           ''|--*) echo "wb new: --depends-on requires a value" >&2; exit 1 ;;
         esac
         depends_on_stems+=("$2"); shift 2 ;;
+      --size)
+        case "${2-}" in
+          ''|--*) echo "wb new: --size requires a value (one of $WB_SIZE_VALUES)" >&2; exit 1 ;;
+        esac
+        size_value="$2"; shift 2 ;;
       *)        args+=("$1"); shift ;;
     esac
   done
@@ -958,6 +1000,13 @@ cmd_new() {
   local depends_on_joined=""
   [ "${#depends_on_stems[@]}" -eq 0 ] || depends_on_joined="$(IFS=,; echo "${depends_on_stems[*]}")"
 
+  # --size: strict uppercase S|M|L|XL enum (_wb_valid_size, shared with the
+  # breakdown buffer's per-child `- size:` bullet), checked BEFORE anything
+  # is created — same fail-loud-first convention as --path/--depends-on.
+  if ! _wb_valid_size "$size_value"; then
+    echo "wb new: --size '$size_value' is not one of $WB_SIZE_VALUES" >&2; exit 1
+  fi
+
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
 
@@ -986,6 +1035,10 @@ cmd_new() {
     _wb_lock_trap_append_if_top_level wb_task_lock_release_all
     wb_task_lock_acquire_guarded "$task_file" || exit $?
     task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref" "$title_override")"
+    # --size is honored on the planned path too (R7: settable on EVERY
+    # creation path). Explicit wins; no blank-fill here — wb_seed_task_planned
+    # deliberately leaves the template's own blank size: line as-is.
+    [ -z "$size_value" ] || wb_set_frontmatter "$task_file" size "$size_value"
     if [ -n "$jira_url" ]; then
       wb_set_frontmatter "$task_file" jira "$jira_url"
       # Consume stdin regardless (a caller always pipes a body), but only
@@ -1044,7 +1097,7 @@ cmd_new() {
   fi
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$path_stages" "$depends_on_joined")"
+  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$path_stages" "$depends_on_joined" "$size_value")"
   wb_task_lock_release "$task_file"
 
   local is_new=0
@@ -1658,6 +1711,76 @@ _wb_bd_field() {
   printf '%s' "$1" | head -1 | grep -oP "(?<= )$2=\K[^ ]+"
 }
 
+# _wb_bd_bullet <block-text> <key> — the value of the block's first
+# `- <key>: <value>` bullet (the editable per-child fields: goal, size,
+# depends_on); empty when the bullet is absent or has no value.
+#
+# Only the block HEADER is searched — everything before the block's
+# `begin-plan` marker. The plan body is free-form markdown that may itself
+# contain a line like `- depends_on: …` or `- size: …`, and a header bullet
+# left blank (the default, per SKILL.md's blank-unless-verified rule) must
+# not fall through to it. GNU grep -o prints nothing for an empty match, so
+# a `\K.*`-style extraction over the whole block did exactly that
+# fall-through — the first matching LINE has to win, value or not. Trailing
+# whitespace is trimmed.
+_wb_bd_bullet() {
+  printf '%s\n' "$1" \
+    | awk '/<!-- wb-breakdown: begin-plan/ { exit } { print }' \
+    | grep -P "^\s*-\s+$2:" | head -1 \
+    | sed -E "s/^[[:space:]]*-[[:space:]]+$2:[[:space:]]*//; s/[[:space:]]*$//" || true
+}
+
+# _wb_bd_resolve_deps <repo> <deps_raw> — turn a buffer's raw `- depends_on:`
+# value into the comma-joined `<repo>--<slug>` stem list the frontmatter
+# stores. Split on commas; per token strip backticks + edge whitespace and
+# skip empties; a token already containing `--` is a full stem (an external
+# or cross-repo dep) kept verbatim; a bare token is a sibling's RAW slug and
+# becomes <repo>--<wb_sanitize(token)> — the same raw-slug-resolved-at-apply
+# convention migrate/move targets use. NO existence check (D2/R4): a
+# same-apply sibling needn't be seeded yet, and the board already fails open
+# on a dangling depends_on: (README "Dependencies").
+#
+# Shape checks live here too, so the validator (which calls this once,
+# discarding stdout, to turn a bad token into a hard parse error) and the
+# executor (which keeps the stdout) can never disagree on what's legal:
+# no interior whitespace in a token (wb_sanitize strips none, mirroring the
+# create-child slug rule), no `..`, a full stem may not contain `/` (it's
+# used verbatim as a filename stem — a bare slug's `/` is fine, it
+# sanitizes to `-`), and the RESOLVED stem must stay within
+# [A-Za-z0-9_.-] — the same charset the parent marker's repo= field is
+# held to. That last check is load-bearing, not cosmetic: the stem is fed
+# to wb_set_frontmatter's `awk -v`, which interprets backslash escapes, so
+# an unfiltered `\n` would inject a second frontmatter line into the child.
+# Returns 1 with the reason on stderr.
+_wb_bd_resolve_deps() {
+  local repo="$1" raw="$2" out="" tok
+  local -a toks
+  IFS=',' read -r -a toks <<< "$raw"
+  for tok in "${toks[@]}"; do
+    tok="${tok//\`/}"
+    tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
+    [ -n "$tok" ] || continue
+    if [[ "$tok" == *[[:space:]]* ]]; then
+      echo "token '$tok' contains whitespace (one backticked slug or <repo>--<slug> stem per comma)" >&2; return 1
+    fi
+    if [[ "$tok" == *..* ]]; then
+      echo "token '$tok' contains '..'" >&2; return 1
+    fi
+    case "$tok" in
+      *--*)
+        if [[ "$tok" == */* ]]; then
+          echo "full stem '$tok' must not contain '/'" >&2; return 1
+        fi ;;
+      *) tok="$repo--$(wb_sanitize "$tok")" ;;
+    esac
+    if [[ "$tok" =~ [^A-Za-z0-9_.-] ]]; then
+      echo "token '$tok' has characters outside [A-Za-z0-9_.-]" >&2; return 1
+    fi
+    out="${out:+$out,}$tok"
+  done
+  printf '%s' "$out"
+}
+
 # _wb_bd_plan_markers_ok <block-text> — exactly one begin-plan then exactly
 # one end-plan, in that order; anything else is unbalanced (KTD1: hard
 # parse error, never silently ignored).
@@ -1846,10 +1969,36 @@ _wb_breakdown_validate() {
     local create_line; create_line="$(printf '%s' "$b" | grep -P '^\s*[-*]\s+\[[ xX]\]\s+create child:' | head -1)"
     [ "$(_wb_bd_checkbox_state "$create_line")" = checked ] || continue
 
-    local raw_slug disp_slug title
+    local raw_slug disp_slug title size deps_raw
     raw_slug="$(printf '%s' "$create_line" | grep -oP 'create child: `\K[^`]*')"
     disp_slug="$(wb_sanitize "$raw_slug")"
-    title="$(printf '%s' "$b" | grep -oP '^\s*-\s+goal:\s*\K.*' | head -1)"
+    title="$(_wb_bd_bullet "$b" goal)"
+    # `- size:` / `- depends_on:` are optional sibling bullets of `- goal:`
+    # (D1). A missing or blank bullet is fine (blank size reads as M); a
+    # NON-empty size outside the S|M|L|XL enum is a hard parse error —
+    # whole-apply abort, like the block's other structural guards — never a
+    # silently-dropped value. depends_on is passed through RAW here; the
+    # execute side resolves slugs to stems (_wb_bd_resolve_deps).
+    size="$(_wb_bd_bullet "$b" size)"
+    deps_raw="$(_wb_bd_bullet "$b" depends_on)"
+    if ! _wb_valid_size "$size"; then
+      echo "wb breakdown --apply: child n=$n ($raw_slug) size '$size' is not one of $WB_SIZE_VALUES (or blank)" >&2
+      return 2
+    fi
+    local deps_err
+    if ! deps_err="$(_wb_bd_resolve_deps "$repo" "$deps_raw" 2>&1 >/dev/null)"; then
+      echo "wb breakdown --apply: child n=$n ($raw_slug) depends_on: $deps_err" >&2
+      return 2
+    fi
+    # A literal tab in any bullet value would split the tab-separated create
+    # row below and shift every later field (a tabbed goal lands its tail in
+    # the size slot, past the enum check above) — hard parse error, like the
+    # other structural guards.
+    case "$title$size$deps_raw" in
+      *$'\t'*)
+        echo "wb breakdown --apply: child n=$n ($raw_slug) goal/size/depends_on must not contain a tab character" >&2
+        return 2 ;;
+    esac
 
     local collision=0
     local other
@@ -1874,7 +2023,10 @@ _wb_breakdown_validate() {
     fi
 
     confirmed_child_stems+=("$repo--$disp_slug")
-    printf 'create\t%s\t%s\t%s\t%s\t%s\n' "$n" "$repo" "$raw_slug" "$disp_slug" "$title"
+    # 8 tab fields: create⇥n⇥repo⇥raw⇥disp⇥title⇥size⇥deps_raw. The last two
+    # are usually empty — wb_tsv_split (awk -F'\t') keeps trailing empty
+    # fields in place, so the execute side's f[6]/f[7] reads stay positional.
+    printf 'create\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$repo" "$raw_slug" "$disp_slug" "$title" "$size" "$deps_raw"
   done
 
   for b in "${blocks[@]}"; do
@@ -2146,14 +2298,34 @@ _wb_breakdown_execute() {
   local line
 
   # 1. seed checked children -------------------------------------------------
+  #    Pre-pass: every create row's resolved stem, so a depends_on: naming a
+  #    sibling seeded LATER in this same apply (order-independence) isn't
+  #    mistaken for a dangling ref by the advisory warning below.
+  local all_create_stems=" "
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     local -a f; wb_tsv_split "$line" f
     [ "${f[0]}" = create ] || continue
-    local n="${f[1]}" repo="${f[2]}" raw="${f[3]}" disp="${f[4]}" title="${f[5]}"
+    all_create_stems="$all_create_stems${f[2]}--${f[4]} "
+  done <<< "$actions"
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    local -a f; wb_tsv_split "$line" f
+    [ "${f[0]}" = create ] || continue
+    local n="${f[1]}" repo="${f[2]}" raw="${f[3]}" disp="${f[4]}" title="${f[5]}" size="${f[6]:-}" deps_raw="${f[7]:-}"
+    local deps; deps="$(_wb_bd_resolve_deps "$repo" "$deps_raw")"
+    # Advisory only (D2 fail-open): warn, never abort, on a resolved dep
+    # that is neither a checked sibling in this buffer nor an existing file.
+    local dep
+    for dep in ${deps//,/ }; do
+      case "$all_create_stems" in *" $dep "*) continue ;; esac
+      [ -f "$TASKS_DIR/$dep.md" ] \
+        || echo "wb breakdown --apply: warning: child n=$n ($raw) depends_on '$dep' matches neither a checked child in this buffer nor an existing task file (kept as-is; the board fails open on dangling deps)" >&2
+    done
     local body; body="$(_wb_breakdown_child_plan_body "$path" "$n")"
     local child_file
-    if child_file="$(printf '%s' "$body" | wb_seed_planned_child "$repo" "$raw" "$parent_stem" "$title")"; then
+    if child_file="$(printf '%s' "$body" | wb_seed_planned_child "$repo" "$raw" "$parent_stem" "$title" "$size" "$deps")"; then
       created_children+=("$(basename "$child_file" .md)")
       did_something=1
     else
