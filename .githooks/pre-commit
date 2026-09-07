@@ -56,6 +56,16 @@ fi
 export DOTFILES="$repo_root"
 
 echo "pre-commit: docgen-tracked source changed — regenerating"
+
+# docs/try-it.md is itself generated (from roadmap.md + each linked doc's
+# own Try-it/Test-it section) but nothing else runs its extractor — do it
+# here, before docgen renders try-it.md like any other page. Non-blocking:
+# the try-it catalog going stale for a commit is not worth failing on.
+build_try_it_sh="$repo_root/scripts/.config/scripts/build-try-it.sh"
+if [ -x "$build_try_it_sh" ]; then
+  "$build_try_it_sh" || echo "pre-commit: build-try-it.sh failed — docs/try-it.md may be stale" >&2
+fi
+
 if ! "$docgen_sh" all; then
   echo "pre-commit: docgen failed (see above) — fix it before committing" >&2
   exit 1
