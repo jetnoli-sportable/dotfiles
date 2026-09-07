@@ -283,6 +283,15 @@ flight — U4. Continuing into: fix roadmap-wb-reconcile.md's status line.
 <p>If a <code>wb pause</code>/<code>wb done</code>/<code>wb resume</code> cycle happened after the last save,
 it states the recorded plan <strong>and</strong> the gap, then asks before proceeding
 rather than assuming the old plan still holds.</p>
+<p>If the <code>/wb-save</code> entry it read carries a fenced <code>run:</code> directive (see
+<a href="wb-save.html"><code>/wb-save</code></a>) — a literal next-action command the user
+explicitly stated at save time — <code>/wb-resume</code> runs that directive directly
+instead of re-deriving intent from the <code>**Next:**</code> prose, e.g.:</p>
+<pre><code>Read the wb-save entry from 2026-08-31 10:05: done — parser fix landed.
+Continuing into the recorded directive: /ce-code-review --full --subagents
+</code></pre>
+<p>This only happens on the no-gap path. If a <code>wb pause</code>/<code>wb done</code>/<code>wb resume</code> cycle landed after the save, the directive is quoted as part of
+&quot;the recorded plan&quot; being confirmed — it is never auto-run across a gap.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>
@@ -295,6 +304,10 @@ rather than assuming the old plan still holds.</p>
 <tr>
 <td>Recent <code>/wb-save</code> entry, nothing after it</td>
 <td>States what was read, proceeds straight into the recorded <strong>Next</strong> action</td>
+</tr>
+<tr>
+<td>Recent <code>/wb-save</code> entry with a <code>run:</code> directive, nothing after it</td>
+<td>States the directive's literal command, then executes it directly — no confirmation needed</td>
 </tr>
 <tr>
 <td>A terse automatic entry (<code>wb pause</code>/<code>wb done</code>/<code>wb resume</code>) landed after the last <code>/wb-save</code> entry</td>
