@@ -93,7 +93,25 @@ entry can appear, distinguished by their heading line:
 
 - **Rich, `/wb-save`-authored:** `### <YYYY-MM-DD HH:MM> — wb-save`,
   followed by `**Done:**` / `**In flight:**` / `**Next:**` bold-leader
-  fields. No trailing `(auto)`.
+  fields. No trailing `(auto)`. Optionally, immediately after `**Next:**`,
+  a fenced ` ```run ` block whose content is a literal, machine-readable
+  next-action directive — e.g.:
+
+  ````
+  **Next:** Run a full code review
+  ```run
+  /ce-code-review --full --subagents
+  ```
+  ````
+
+  When present, this block is the authoritative statement of *what to run*
+  — `/wb-save`'s own skill only emits it when the user's save-request
+  explicitly named a concrete resume action, so its presence means intent
+  was unambiguous at save time, not inferred. Extract its content (the line(s)
+  between the ` ```run ` fence markers) alongside the three prose fields
+  when reading this entry. Not every rich entry has one — a save with no
+  stated next action has `**Next:**` prose and no block, which is a normal,
+  valid entry, not a gap in the file.
 - **Terse, automatic:** `### <YYYY-MM-DD HH:MM> — <source> (auto)` (e.g.
   `wb pause (auto)`, `wb done (auto)`, `wb resume (auto)`), with a single
   one-line body such as `` Session paused via `wb pause`. `` — always ends
@@ -126,8 +144,22 @@ rich or terse — appear **after** it in the section.
   directly into that next action** — do not just summarize it and wait.
   This is the same posture `/handoff`'s injected pointer relies on: a
   freshly arrived agent acts on the first-action line it finds, it doesn't
-  merely acknowledge it. If something does look newer, treat it the same
-  as the gap case below — state what changed and confirm before acting.
+  merely acknowledge it.
+
+  **If the entry carries a ` ```run ` directive, execute it as the
+  deterministic first step instead of re-deriving intent from the
+  `**Next:**` prose** — the directive exists precisely so this doesn't have
+  to be guessed. State the directive's literal command in the one-line
+  summary (e.g. "Continuing into the recorded directive:
+  `/ce-code-review --full --subagents`"), then run/invoke it directly. If
+  the entry has no directive, fall back to the prior behavior: continue
+  into the action described in the `**Next:**` prose.
+
+  If something does look newer, treat it the same as the gap case below —
+  state what changed and confirm before acting. This applies whether or
+  not the entry carries a directive: a directive removes ambiguity about
+  *what* was planned, it never overrides this freshness check about
+  *whether* the plan is still current.
 - **One or more terse entries after it** (a real `wb pause`/`wb done`/`wb
   resume` cycle happened between the save and this resume — the recorded
   next action may now be stale): state the recorded next action **and**
@@ -135,7 +167,12 @@ rich or terse — appear **after** it in the section.
   order (e.g. "this task was paused, then resumed, since that save") —
   then **ask the human to confirm the old plan still holds, or redirect,
   before proceeding**. Do not barrel into the recorded action as if nothing
-  happened in between.
+  happened in between. If the entry carries a ` ```run ` directive, state
+  it verbatim as part of "the recorded plan" being confirmed (e.g. "the
+  recorded next action was to run `/ce-code-review --full --subagents`") —
+  a directive makes the stated plan more precise, it does not change this
+  branch's requirement to ask first. **Never execute the directive before
+  the human confirms** when this branch applies.
 
 Either branch, never decide silently which case applies — say which one
 you're in as part of the same one-line statement.
@@ -172,11 +209,17 @@ picked up from.
 - **Happy path — recent `/wb-save` entry, nothing after it:** state what
   was read (`Read the wb-save entry from <timestamp>: done — …, in flight
   — …`), then proceed straight into the recorded `**Next:**` action.
+- **Happy path — recent `/wb-save` entry with a ` ```run ` directive,
+  nothing after it:** state what was read, including the directive's
+  literal command, then execute that directive directly as the first step
+  — no re-deriving intent from `**Next:**` prose, no asking for
+  confirmation (there's no gap).
 - **Edge case — a terse entry (or entries) landed after the last
-  `/wb-save` entry:** state the recorded next action, name the gap (e.g.
+  `/wb-save` entry:** state the recorded next action (quoting the
+  ` ```run ` directive verbatim if the entry has one), name the gap (e.g.
   "paused via `wb pause`, then resumed via `wb resume`, since that save"),
   and ask whether to proceed with the old plan or redirect — don't act
-  until answered.
+  until answered, and never auto-run the directive in this branch.
 - **Edge case — no terse entries after the save, but `## Plan`/`## Decisions`/
   frontmatter status reads as newer than it** (e.g. a manual edit or a
   concurrent `/ce-plan`/`/ce-work` session touched the task file without
@@ -216,3 +259,10 @@ picked up from.
 - `~/code/tasks/README.md`'s "Task body" section documents the
   `## Handoffs` convention (append-only, oldest-to-newest, terse vs. rich
   entries) this skill relies on.
+- **Next-action directive syntax:** a fenced ` ```run ` block right after
+  `**Next:**` in a rich entry (`claude/.claude/skills/wb-save/SKILL.md`'s
+  "Compose the entry" section documents when `/wb-save` emits it). It
+  makes *what was intended* explicit and machine-actionable, but it does
+  **not** change the gap-check contract above — a directive is only ever
+  auto-run on the no-gap path; on the gap path it is surfaced as part of
+  "the recorded plan" and still requires human confirmation first.

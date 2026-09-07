@@ -234,9 +234,9 @@
 </head>
 <body data-kind="hub">
 <div class="statusbar" aria-hidden="true">
-  <span><b>38</b> docs</span>
+  <span><b>39</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
-  <span class="right">updated 2026-07-18</span>
+  <span class="right">updated 2026-08-31</span>
 </div>
 <main>
 <header class="doc">
@@ -249,6 +249,13 @@
   <div class="group-head"><h2>Where we are</h2>
     <span class="group-sub">current status snapshot — shipped, in review, what&#39;s next</span></div>
   <div class="grid">
+    <a class="tile" href="try-it.html">
+      <div class="tile-top"><span class="tile-glyph">◉</span>
+        </div>
+      <h3>Try it — a live catalog of what you can actually run</h3>
+      <p>One row per roadmap feature that has a real, runnable example — command and expected result lifted straight from that feature&#39;s own guide or recap. Auto-generated; never hand-edit — rerun build-try-it.sh &#43; docgen.sh.</p>
+      <div class="path">docs/try-it.html</div>
+    </a>
     <a class="tile" href="where-we-are.html">
       <div class="tile-top"><span class="tile-glyph">◉</span>
         </div>
@@ -264,19 +271,19 @@
   <div class="group-head"><h2>Start here</h2>
     <span class="group-sub">the front doors — roadmap · the workbench · setup · glossary</span></div>
   <div class="grid">
-    <a class="tile" href="roadmap.html">
-      <div class="tile-top"><span class="tile-glyph">★</span>
-        </div>
-      <h3>Roadmap — the personal workflow</h3>
-      <p>Up next, a live table, a parked pool, what we&#39;re not doing, and a shipped ledger — one click to the detail behind each item.</p>
-      <div class="path">docs/roadmap.html</div>
-    </a>
     <a class="tile" href="wb-guide.html">
       <div class="tile-top"><span class="tile-glyph">★</span>
         </div>
       <h3>wb — the workbench guide</h3>
       <p>How to use wb: session-per-worktree, the unified picker, wind-down.</p>
       <div class="path">docs/wb-guide.html</div>
+    </a>
+    <a class="tile" href="roadmap.html">
+      <div class="tile-top"><span class="tile-glyph">★</span>
+        </div>
+      <h3>Roadmap — the personal workflow</h3>
+      <p>Up next, a live table, a parked pool, what we&#39;re not doing, and a shipped ledger — one click to the detail behind each item.</p>
+      <div class="path">docs/roadmap.html</div>
     </a>
     <a class="tile" href="glossary.html">
       <div class="tile-top"><span class="tile-glyph">★</span>
@@ -310,8 +317,8 @@
     <a class="tile" href="handoff-guide.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         </div>
-      <h3>/handoff — route a discussion to the right worker</h3>
-      <p>Route something being discussed right now to a live session or a fresh one, without retyping context by hand.</p>
+      <h3>/handoff &amp; /handoff-pane — route a discussion to the right worker</h3>
+      <p>Route something being discussed right now to a live session, a fresh one, or a helper agent in this very window — without retyping context by hand.</p>
       <div class="path">docs/handoff-guide.html</div>
     </a>
     <a class="tile" href="guide-format.html">
@@ -357,6 +364,13 @@
   <div class="group-head"><h2>Claude skills</h2>
     <span class="group-sub">~/.claude/skills/ · stowed from claude/ in this repo · guides in docs/guides/</span></div>
   <div class="grid dense">
+    <a class="tile mini" href="../claude/.claude/skills/close-out/SKILL.md">
+      <div class="tile-top"><span class="tile-glyph">◆</span>
+        </div>
+      <h3>/close-out</h3>
+      <p>End-of-session wind-down for a wb task — sweep the session for anything worth a follow-up task or a park note, fold the session&#39;s real Deci…</p>
+      <div class="path">claude/.claude/skills/close-out/SKILL.md</div>
+    </a>
     <a class="tile mini" href="guides/decision-buffer.html">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
@@ -370,6 +384,13 @@
       <h3>/handoff</h3>
       <p>Route one piece of the current, in-conversation discussion to the worker that should own it — switch to an already-live tmux session (clipb…</p>
       <div class="path">claude/.claude/skills/handoff/SKILL.md</div>
+    </a>
+    <a class="tile mini" href="../claude/.claude/skills/handoff-pane/SKILL.md">
+      <div class="tile-top"><span class="tile-glyph">◆</span>
+        </div>
+      <h3>/handoff-pane</h3>
+      <p>Route a piece of the current discussion to a second `claude` agent in a split pane of THIS tmux window, sharing this session&#39;s worktree — s…</p>
+      <div class="path">claude/.claude/skills/handoff-pane/SKILL.md</div>
     </a>
     <a class="tile mini" href="guides/help.html">
       <div class="tile-top"><span class="tile-glyph">◆</span>
@@ -398,6 +419,20 @@
       <h3>/pr-review-session</h3>
       <p>Check GitHub for open PRs in watched repos, pull each PR down as a git worktree, spin up a per-PR tmux window, write a PR brief, and run a …</p>
       <div class="path">claude/.claude/skills/pr-review-session/SKILL.md</div>
+    </a>
+    <a class="tile mini" href="../claude/.claude/skills/quick-wins/SKILL.md">
+      <div class="tile-top"><span class="tile-glyph">◆</span>
+        </div>
+      <h3>/quick-wins</h3>
+      <p>On-demand effort/isolation/ownership triage across the whole deferred backlog — wb tasks in ~/code/tasks (status planned), the /park ledger…</p>
+      <div class="path">claude/.claude/skills/quick-wins/SKILL.md</div>
+    </a>
+    <a class="tile mini" href="../claude/.claude/skills/visual-explore/SKILL.md">
+      <div class="tile-top"><span class="tile-glyph">◆</span>
+        </div>
+      <h3>/visual-explore</h3>
+      <p>Explores HTML/visual design directions by fanning out parallel low-effort subagents, each producing a self-contained mockup of a distinct v…</p>
+      <div class="path">claude/.claude/skills/visual-explore/SKILL.md</div>
     </a>
     <a class="tile mini" href="wb-guide.html#wb-board---html--the-full-board-v2">
       <div class="tile-top"><span class="tile-glyph">◆</span>
@@ -486,19 +521,19 @@
   <div class="group-head"><h2>Design notes</h2>
     <span class="group-sub">reached from the roadmap timeline — listed here for direct access</span></div>
   <div class="grid dense">
+    <a class="tile mini" href="roadmap-handoff.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        </div>
+      <h3>/handoff &amp; /handoff-pane — route a discussion to the right worker</h3>
+      <p>Take what&#39;s being discussed and either switch to the agent already on it, spin up a new task for it, or split a helper agent into this very window.</p>
+      <div class="path">docs/roadmap-handoff.html</div>
+    </a>
     <a class="tile mini" href="roadmap-board.html">
       <div class="tile-top"><span class="tile-glyph">✎</span>
         </div>
       <h3>/board — task-board visualization</h3>
       <p>Full HTML board shipped — lifecycle stepper, Pipeline tab, relationships, filters, Key Findings.</p>
       <div class="path">docs/roadmap-board.html</div>
-    </a>
-    <a class="tile mini" href="roadmap-handoff.html">
-      <div class="tile-top"><span class="tile-glyph">✎</span>
-        </div>
-      <h3>/handoff — route a discussion to the right worker</h3>
-      <p>Take what&#39;s being discussed and either switch to the agent already on it, or spin up a new task for it.</p>
-      <div class="path">docs/roadmap-handoff.html</div>
     </a>
     <a class="tile mini" href="roadmap-day-bookends.html">
       <div class="tile-top"><span class="tile-glyph">✎</span>

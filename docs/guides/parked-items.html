@@ -285,8 +285,12 @@ then creates tasks / discusses / drops as instructed and summarizes.</p>
 </thead>
 <tbody>
 <tr>
-<td>Make a scratch task</td>
-<td>Task file in <code>~/code/tasks/&lt;repo&gt;--&lt;slug&gt;.md</code> (central store schema), routed by the item's captured cwd</td>
+<td>Make a wb task</td>
+<td><code>wb new --planned</code> seeds <code>~/code/tasks/&lt;repo&gt;--&lt;slug&gt;.md</code> (<code>status: planned</code>, no worktree), routed by the item's captured cwd</td>
+</tr>
+<tr>
+<td>wb task + /handoff session</td>
+<td>The above, then <a href="../handoff-guide.html">handoff</a> spins up a worker session for it — for items ready to be <em>worked</em>, not just filed. One per item; more than two in a run asks first</td>
 </tr>
 <tr>
 <td>Make a Jira ticket</td>
@@ -307,8 +311,14 @@ then creates tasks / discusses / drops as instructed and summarizes.</p>
 </tbody>
 </table>
 <p>Flags: <code>--since=14d</code> widens the window; <code>--backfill</code> scans all history.
-Sources in priority order: ledger → transcript scan → task-store
-reconciliation (already-actioned items drop off automatically).</p>
+Sources in priority order: newest <code>review-*.md</code> (carried forward) → ledger →
+transcript scan → task-store reconciliation (already-actioned items drop off
+automatically).</p>
+<p>Two behaviours worth knowing: each run reads the <strong>previous review file first</strong>
+and leads with its still-open items rather than re-deriving them, so a backlog
+survives across weeks. And a run can be <strong>survey-only</strong> — say &quot;just note these,
+we'll discuss next time&quot; and the file is written, the recommendations stay
+un-actioned, and no ledger line is stamped.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
 <li>The transcript backstop is phrase-matching — the first <code>--backfill</code> run

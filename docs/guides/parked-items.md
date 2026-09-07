@@ -31,15 +31,23 @@ then creates tasks / discusses / drops as instructed and summarizes.
 
 | Checkbox | What happens |
 |---|---|
-| Make a scratch task | Task file in `~/code/tasks/<repo>--<slug>.md` (central store schema), routed by the item's captured cwd |
+| Make a wb task | `wb new --planned` seeds `~/code/tasks/<repo>--<slug>.md` (`status: planned`, no worktree), routed by the item's captured cwd |
+| wb task + /handoff session | The above, then [handoff](../handoff-guide.html) spins up a worker session for it — for items ready to be *worked*, not just filed. One per item; more than two in a run asks first |
 | Make a Jira ticket | Only when explicitly checked; agent confirms project/summary first |
 | Discuss now | Raised in chat that same turn |
 | Keep parked | Stays `open`, resurfaces next week |
 | Drop | Ledger line rewritten `status:"dropped"` — audit trail kept, never re-raised |
 
 Flags: `--since=14d` widens the window; `--backfill` scans all history.
-Sources in priority order: ledger → transcript scan → task-store
-reconciliation (already-actioned items drop off automatically).
+Sources in priority order: newest `review-*.md` (carried forward) → ledger →
+transcript scan → task-store reconciliation (already-actioned items drop off
+automatically).
+
+Two behaviours worth knowing: each run reads the **previous review file first**
+and leads with its still-open items rather than re-deriving them, so a backlog
+survives across weeks. And a run can be **survey-only** — say "just note these,
+we'll discuss next time" and the file is written, the recommendations stay
+un-actioned, and no ledger line is stamped.
 
 ## Known rough edges
 

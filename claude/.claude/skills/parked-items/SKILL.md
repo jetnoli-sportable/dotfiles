@@ -25,6 +25,20 @@ encoding is lossy). Any follow-up task gets routed to the repo named by that `cw
 
 ## Step 1 — Gather candidates
 
+**A0. The previous review file — read it FIRST.** `ls -t ~/.claude/parked-items/review-*.md
+| head -1`. Its open items are the standing backlog and they carry a judgement pass already
+done; this run's job is to **carry them forward, not re-derive them**. Two cases:
+
+- It records that items were **actioned** (wb tasks / tickets created) → those should also
+  show as `done` in the ledger; trust that and don't re-raise.
+- It records a **survey-only** round (surfaced, deliberately not actioned — the ledger will
+  still say `open`) → those items are the *first* thing to work through this run, ahead of
+  new intake, because they've been waiting a full cycle. Reuse the prior file's quotes and
+  "My read" lines rather than re-reading transcripts for them; spend the effort on deciding.
+
+Only then gather **new** intake (A + B below), and mark clearly in the new buffer which
+items are carried-forward vs. new this week.
+
 **A. Ledger (explicit `/park` items):**
 
 ```bash
@@ -76,14 +90,14 @@ the quote, your read, and a checkbox-per-action. Recommended action pre-checked.
 # Parked items — week of <date>   (<open> open · <resolved> resolved)
 
 > Check ONE action per item, add notes inline, save & close. I'll act on what's checked.
-> Apply = create the scratch task / take the action · Defer = keep parked · Drop = dismiss.
+> Apply = create the wb task / take the action · Defer = keep parked · Drop = dismiss.
 
 ## Open
 
 ### 1. <topic>  ·  <repo> @ <branch>  ·  <date>
 > "<the quote>"
 My read: <still-open because …>
-- [x] Make a scratch task   - [ ] Make a Jira ticket   - [ ] Discuss now   - [ ] Keep parked   - [ ] Drop
+- [x] Make a wb task   - [ ] wb task + /handoff session   - [ ] Make a Jira ticket   - [ ] Discuss now   - [ ] Keep parked   - [ ] Drop
 
 ### 2. …
 
@@ -110,13 +124,13 @@ tmux set -pu -t "$TMUX_PANE" @claude_blocked
 
 Re-read the file. For each item:
 
-- **Make a scratch task** → create it via `wb new --planned <repo> <slug>` (repo basename
+- **Make a wb task** → create it via `wb new --planned <repo> <slug>` (repo basename
   from `cwd`, slug a short kebab-case derivation of `<topic>`) — the locked,
   planned-preserving creation verb (`scripts/.config/scripts/tmux/wb.sh`, search
   `cmd_new`'s `--planned` branch), instead of a Write-tool file creation. It seeds the
   file from the central store's frontmatter schema (`~/code/tasks/TEMPLATE.md`) with
   `status: planned` (never flipped to `doing` — that only happens later, for real, if
-  this scratch task is ever picked up via a real `wb new`/`wb new --agent`) and `repo:`/
+  this task is ever picked up via a real `wb new`/`wb new --agent`) and `repo:`/
   `branch:` filled in, leaving `worktree:` blank since no worktree exists yet. Then
   append the origin quote, why it was parked, and any pointers under `## Follow-ups`
   via `wb append` (its locked, heading-scoped append verb) instead of an Edit-tool
@@ -136,6 +150,20 @@ Re-read the file. For each item:
   unless they explicitly chose "Jira". **Never create or edit task files under
   `~/code/tasks` with the Write/Edit tool** — `wb new --planned` (creation) and
   `wb append` (body content) are the only two writes this step ever makes.
+- **wb task + /handoff session** → for items ready to be *worked* now, not just filed. Do
+  the "Make a wb task" step above in full first (so the task file carries the origin quote
+  and the still-open rationale before any worker reads it), then invoke the
+  [[handoff]] skill targeting that task file to spin up the worker session. **Let `/handoff`
+  own session creation** — don't hand-roll `wb new --agent`, a tmux session, or a worktree
+  here; this skill's only job is to hand it a well-seeded task. Note that the task is
+  `status: planned` with no worktree, so this is handoff's *fresh-session* path, not its
+  switch-to-a-live-session path.
+
+  Guardrail: **one `/handoff` per checked item, and confirm before spawning more than two
+  in a single run.** A review can legitimately surface a dozen open items; silently
+  spawning a dozen agent sessions off one buffer close is not what checking a box means.
+  If more than two are checked, create *all* the wb tasks, then ask which to spawn now and
+  leave the rest as `planned`.
 - **Make a Jira ticket** → only when explicitly checked. Confirm project/summary before
   creating (outward-facing). Search first to avoid a duplicate.
 - **Discuss now** → bring it up in chat this turn.
@@ -158,6 +186,13 @@ unprompted; the manual cadence is the default.
 
 - Ledger status lifecycle: `open` → `done` (actioned) | `dropped` (dismissed). Never
   delete lines; rewriting status keeps an audit trail and prevents re-raising.
+- **Survey-only rounds are legitimate.** The user may say "just note these, don't act — we'll
+  discuss next time". Then: keep the review file (it's the durable note), leave **every**
+  ledger entry `open` — including ones that reconciled clean, so the next run re-confirms
+  rather than trusting an unreviewed pass — and state plainly at the top of the file that
+  nothing was actioned and that the `[x]` marks are recommendations, not decisions. Don't
+  create tasks, tickets, or sessions on the strength of your own pre-checked boxes; a buffer
+  that closes unedited is not an approval.
 - Keep the action list to genuinely-open items; over-listing erodes trust in the review.
 - The `--backfill` run is a one-time baseline: expect to Drop a lot of phrase-match noise
   on the first pass; subsequent weekly runs are small.

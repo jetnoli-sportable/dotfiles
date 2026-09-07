@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>wb-resume</title>
+<title>Try it — a live catalog of what you can actually run</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
@@ -232,140 +232,59 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="guide" data-group="skills">
+<body data-kind="page" data-group="where-we-are">
 <div class="statusbar">
-  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
-  <span class="gen">docgen · generated from <b>docs/guides/wb-resume.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-14</span>
+  <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> where-we-are</span>
+  <span class="gen">docgen · generated from <b>docs/try-it.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-08-31</span>
 </div>
-<div class="shell">
-  <nav class="toc">
-    <div class="brand">wb-resume</div>
-    <div class="brand-sub">Pick a task back up after /clear — reads the last /wb-save snapshot and acts on it.</div>
-    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
-    <ul>
-      <li><a href="#overview">Overview</a></li>
-      <li><a href="#try-it-now">Try it now</a></li>
-      <li><a href="#reference">Reference</a></li>
-      <li><a href="#known-rough-edges">Known rough edges</a></li>
-      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
-    </ul>
-  </nav>
-  <main>
-    <header class="doc guide-banner">
-      <span class="eyebrow">skills · guide</span>
-      <h1>wb-resume</h1>
-      <p class="dek">Pick a task back up after /clear — reads the last /wb-save snapshot and acts on it.</p>
-      <div class="meta">
-        <span class="chip ok">current</span>
-      </div>
-    </header>
-    <article>
-<h2 id="overview">Overview</h2>
-<p>The second half of the <code>/wb-save</code> → manual <code>/clear</code> → <code>/wb-resume</code> pair.
-Where <code>/wb-save</code> writes a rich done/in-flight/next snapshot into the task
-file's <code>## Handoffs</code> section right before the human clears context by
-hand, <code>/wb-resume</code> runs in the freshly cleared session and reads that
-snapshot back — then <strong>acts</strong> on the recorded next step, the same way a
-freshly spawned <code>/handoff</code> agent acts on its injected pointer rather than
-just acknowledging it. Read-only: it never writes to the task file
-itself, and it's not the <code>wb resume &lt;task&gt;</code> shell command (see Known
-rough edges) — this is conversation-level context re-read, not
-worktree/session recreation.</p>
-<h2 id="try-it-now">Try it now</h2>
-<p>Right after a manual <code>/clear</code> that followed a <code>/wb-save</code>:</p>
-<pre><code>/wb-resume
-</code></pre>
-<p>The agent states what it found in one line, then continues directly:</p>
-<pre><code>Read the wb-save entry from 2026-07-14 13:20: done — U3 landed, in
-flight — U4. Continuing into: fix roadmap-wb-reconcile.md's status line.
-</code></pre>
-<p>If a <code>wb pause</code>/<code>wb done</code>/<code>wb resume</code> cycle happened after the last save,
-it states the recorded plan <strong>and</strong> the gap, then asks before proceeding
-rather than assuming the old plan still holds.</p>
-<p>If the <code>/wb-save</code> entry it read carries a fenced <code>run:</code> directive (see
-<a href="wb-save.html"><code>/wb-save</code></a>) — a literal next-action command the user
-explicitly stated at save time — <code>/wb-resume</code> runs that directive directly
-instead of re-deriving intent from the <code>**Next:**</code> prose, e.g.:</p>
-<pre><code>Read the wb-save entry from 2026-08-31 10:05: done — parser fix landed.
-Continuing into the recorded directive: /ce-code-review --full --subagents
-</code></pre>
-<p>This only happens on the no-gap path. If a <code>wb pause</code>/<code>wb done</code>/<code>wb resume</code> cycle landed after the save, the directive is quoted as part of
-&quot;the recorded plan&quot; being confirmed — it is never auto-run across a gap.</p>
-<h2 id="reference">Reference</h2>
+<main>
+<header class="doc">
+  <span class="eyebrow">where-we-are</span>
+  <h1><span class="glyph">§</span> Try it — a live catalog of what you can actually run</h1>
+  <div class="meta">
+    <span class="chip ok">current</span>
+  </div>
+</header>
+<article>
+<p>Generated from <a href="roadmap.html">the roadmap</a>: every item there that links to a
+doc carrying its own <code>## Try it</code> / <code>## Test it</code> section contributes one
+row here, with the command and the one-line &quot;expect&quot; lifted verbatim from
+that doc — nothing below is hand-typed. Regenerate with
+<code>scripts/.config/scripts/build-try-it.sh</code> (runs automatically before
+<code>docgen.sh</code> via <code>.githooks/pre-commit</code>). A feature missing here just
+means its linked doc doesn't carry a fenced Try-it command yet, not that it
+isn't real — check the roadmap for its actual status.</p>
 <table>
 <thead>
 <tr>
-<th>Situation</th>
-<th>Behavior</th>
+<th>Feature</th>
+<th>Status</th>
+<th>Try it</th>
+<th>Expect</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Recent <code>/wb-save</code> entry, nothing after it</td>
-<td>States what was read, proceeds straight into the recorded <strong>Next</strong> action</td>
+<td><code>wb</code> core</td>
+<td>Built</td>
+<td><code>tmux source-file ~/.config/tmux/tmux.conf</code></td>
+<td>—</td>
 </tr>
 <tr>
-<td>Recent <code>/wb-save</code> entry with a <code>run:</code> directive, nothing after it</td>
-<td>States the directive's literal command, then executes it directly — no confirmation needed</td>
-</tr>
-<tr>
-<td>A terse automatic entry (<code>wb pause</code>/<code>wb done</code>/<code>wb resume</code>) landed after the last <code>/wb-save</code> entry</td>
-<td>States the recorded next action and the gap, asks to confirm or redirect before acting</td>
-</tr>
-<tr>
-<td>No terse entry after the save, but <code>## Plan</code>/<code>## Decisions</code>/frontmatter <code>status:</code> reads as newer</td>
-<td>Treated the same as the gap case above — confirm before acting</td>
-</tr>
-<tr>
-<td><code>## Handoffs</code> has only automatic entries, no <code>/wb-save</code> entry yet</td>
-<td>Says so explicitly, falls back to <code>## Plan</code> for context</td>
-</tr>
-<tr>
-<td>No <code>## Handoffs</code> section at all</td>
-<td>Says so explicitly, falls back to reading the whole task file</td>
-</tr>
-<tr>
-<td>No <code>@task</code> set on this session</td>
-<td>Stops: <code>wb-resume: &lt;session&gt; has no @task — not a wb task session</code></td>
-</tr>
-<tr>
-<td><code>@task</code> set but the file doesn't exist on disk</td>
-<td>Stops: <code>wb-resume: no task file at &lt;task_file&gt; (from this session's @task) — it may have been moved or deleted</code></td>
+<td><code>/handoff</code></td>
+<td>Built</td>
+<td><code>/handoff</code></td>
+<td>The skill infers <code>repo</code>/<code>slug</code> from context (checking <code>~/code/tasks/</code> for a</td>
 </tr>
 </tbody>
 </table>
-<h2 id="known-rough-edges">Known rough edges</h2>
-<ul>
-<li><strong>Single current session only.</strong> Operates on whichever task this tmux
-session is already bound to via <code>@task</code> — no repo/slug argument, no
-searching across other sessions.</li>
-<li><strong>Naming collision with <code>wb resume &lt;task&gt;</code>, deliberate.</strong> <code>wb.sh</code>'s
-<code>cmd_resume</code> (<code>wb.sh:352-390</code>) is a different, infra-level mechanism
-that recreates a torn-down worktree/tmux session from its task file.
-<code>/wb-resume</code> never shells out to it — if the worktree/session
-themselves are gone, run <code>wb resume &lt;task&gt;</code> first to get a live
-session back, then <code>/wb-resume</code> applies once you're in it.</li>
-<li><strong>Doesn't detect drift with certainty.</strong> The gap check catches
-automatic <code>wb pause</code>/<code>wb done</code>/<code>wb resume</code> entries and an eyeballed
-read of <code>## Plan</code>/<code>## Decisions</code>/status — it isn't a diff against every
-possible out-of-band edit.</li>
-</ul>
-<h2 id="next-steps--reverting">Next steps / reverting</h2>
-<ul>
-<li>Pairs with <a href="wb-save.html"><code>/wb-save</code></a> — save before clearing, resume
-after. Neither skill invokes <code>/clear</code> itself; that stays a manual step.</li>
-<li>If <code>/wb-resume</code> ever picks the wrong context back up, the task file's
-<code>## Handoffs</code> section is a plain markdown log — read it yourself
-(<code>nvim</code> the task file) instead of trusting the skill's summary.</li>
-</ul>
 </article>
-    <footer>
-  Generated by <code>docgen</code> from <code>docs/guides/wb-resume.md</code>. Rebuild:
+<footer>
+  Generated by <code>docgen</code> from <code>docs/try-it.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
-  </main>
-</div>
+</main>
 
 </body>
 </html>

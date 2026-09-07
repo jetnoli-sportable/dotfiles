@@ -8,11 +8,16 @@
 # Status, most-urgent first:
 #   needs-input -> BLOCKED on you: a permission/question modal in the pane, or a
 #                  decision-buffer nvim split it set @claude_blocked for
-#   waiting     -> turn finished, idle at the ✳ prompt (done — awaiting you)
-#   working     -> a braille spinner frame in the title
+#   done        -> a long-running turn just finished (Stop hook), awaiting you
+#   waiting     -> turn finished, idle at the ✳ prompt, no @claude_working marker
+#   working     -> @claude_working=1 (a turn is actually running), or a
+#                  non-✳ spinner glyph in the title on a pane with no hook data
 #   idle        -> plain-text title, no spinner
-# Glyph alone can't tell "needs-input" from "waiting" (a modal keeps the ✳
-# glyph), so collect_rows refines those two — see lib.sh's tmux_pane_awaiting_input.
+# The title glyph alone can't tell "working" from "waiting" on current Claude
+# Code (its title glyph is a static ✳ whether generating or idle) or tell
+# "needs-input" from "waiting" (a modal also keeps the ✳ glyph) — collect_rows
+# relies on lib.sh's tmux_claude_panes to refine all three, via @claude_working
+# / @claude_blocked and tmux_pane_awaiting_input respectively.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

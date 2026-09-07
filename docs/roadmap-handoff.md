@@ -1,11 +1,11 @@
 ---
-title: /handoff — route a discussion to the right worker
+title: /handoff & /handoff-pane — route a discussion to the right worker
 status: current
-tile: Take what's being discussed and either switch to the agent already on it, or spin up a new task for it.
+tile: Take what's being discussed and either switch to the agent already on it, spin up a new task for it, or split a helper agent into this very window.
 group: design-notes
 parent: roadmap
 kind: page
-updated: 2026-07-14
+updated: 2026-07-19
 ---
 
 Queued 2026-07-08, marked for pickup soon. This page is the source; edit
@@ -253,6 +253,39 @@ both tracked as their own future pickups: non-blocking `/handoff`
 invocation (running independently of the current turn; captured in the
 task file's `## Follow-ups`, not built until v1 has seen real usage),
 and self-handoff between stages (its own section below).
+
+**Pane mode shipped 2026-07-19**
+(`docs/plans/2026-07-19-001-feat-handoff-pane-mode-plan.md`,
+`scripts/.config/scripts/tmux/handoff.sh --pane` +
+`claude/.claude/skills/handoff-pane/SKILL.md`). A **third** mode alongside
+switch and spawn: a co-located `claude` helper in a **split pane of the current
+window, sharing this session's worktree** — the shape for reviewing or acting
+on **uncommitted** changes neither existing mode can see (a fresh `wb new
+--agent` worktree is a clean checkout; a switch abandons the requester's pane
+and points at a different worktree). Both task bindings ship — ephemeral
+(task-less one-shot) and a planned child task (`parent:` set, blank
+`worktree:`, so its `wb done` closes store-only and never removes the parent's
+worktree) — with posture invoker-chosen per call (report-only default;
+apply-fixes only with the parent paused, since the shared worktree has no
+lock). `wb.sh` stayed **untouched**; child seeding goes through the public
+`wb new --planned --parent` verb, and `handoff.sh` reused its own poller,
+injector, and permission handshake in place.
+
+**Deferred follow-up: pane-aware `wb done`.** `cmd_done` never enumerates
+panes, so a live helper pane in a shared worktree is invisible to teardown —
+`git worktree remove --force` can pull its cwd out from under it, and `--close`
+kills the whole session with the helper in it. The fix is a read-only check in
+`cmd_done` (reusing `tmux_claude_panes`) that warns when an extra `claude` pane
+is live before teardown; deferred to its own small, tested PR because it
+requires modifying `wb.sh`, which the pane-mode PR deliberately did not touch.
+A second `wb.sh`-touching follow-up surfaced during the build: **pane-scoped
+`@task` resolution** so a child helper's `/wb-save` targets the child's task
+file rather than the session-scoped parent's. Both are documented as footguns
+in [`handoff-guide.md`](handoff-guide.html) in the meantime. The interim safety
+for the apply-fixes concurrency risk is the requester pausing the parent; the
+durable fix is the cross-cutting "check for uncommitted work before acting"
+convention (a separate multi-agent-coordination initiative), not a
+handoff-pane-specific lock.
 
 ## Follow-on idea (not v1, not yet planned): self-handoff between stages
 

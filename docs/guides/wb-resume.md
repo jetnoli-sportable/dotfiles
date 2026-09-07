@@ -39,11 +39,26 @@ If a `wb pause`/`wb done`/`wb resume` cycle happened after the last save,
 it states the recorded plan **and** the gap, then asks before proceeding
 rather than assuming the old plan still holds.
 
+If the `/wb-save` entry it read carries a fenced `run:` directive (see
+[`/wb-save`](wb-save.html)) — a literal next-action command the user
+explicitly stated at save time — `/wb-resume` runs that directive directly
+instead of re-deriving intent from the `**Next:**` prose, e.g.:
+
+```
+Read the wb-save entry from 2026-08-31 10:05: done — parser fix landed.
+Continuing into the recorded directive: /ce-code-review --full --subagents
+```
+
+This only happens on the no-gap path. If a `wb pause`/`wb done`/`wb
+resume` cycle landed after the save, the directive is quoted as part of
+"the recorded plan" being confirmed — it is never auto-run across a gap.
+
 ## Reference
 
 | Situation | Behavior |
 |---|---|
 | Recent `/wb-save` entry, nothing after it | States what was read, proceeds straight into the recorded **Next** action |
+| Recent `/wb-save` entry with a `run:` directive, nothing after it | States the directive's literal command, then executes it directly — no confirmation needed |
 | A terse automatic entry (`wb pause`/`wb done`/`wb resume`) landed after the last `/wb-save` entry | States the recorded next action and the gap, asks to confirm or redirect before acting |
 | No terse entry after the save, but `## Plan`/`## Decisions`/frontmatter `status:` reads as newer | Treated the same as the gap case above — confirm before acting |
 | `## Handoffs` has only automatic entries, no `/wb-save` entry yet | Says so explicitly, falls back to `## Plan` for context |

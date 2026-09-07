@@ -96,10 +96,22 @@ tmux_pane_awaiting_input() {
 # per-session urgency check); omit to scan every session (claude-sessions.sh).
 # See tmux_pane_awaiting_input for the "needs input" modal-detection note —
 # this is the single shared home for that calibration.
+#
+# The title glyph alone can no longer tell "working" from "idle at the
+# prompt": this case was calibrated against Claude Code v2.1.179, where an
+# active turn showed a distinct braille-spinner glyph and only an idle prompt
+# showed "✳". Confirmed live against v2.1.241: the title glyph is a static
+# "✳" during BOTH an actively-generating turn and a genuinely idle one, so
+# the glyph case can no longer reach its
+# "working" branch for a real agent — every in-progress session read back as
+# "waiting" until Stop fired. @claude_working (claude-notify-hook.sh, set at
+# UserPromptSubmit, cleared at Stop) is the ground-truth fix for that; the
+# glyph stays as the fallback for a pane with no hook data (e.g. an older
+# Claude Code build, or claude launched outside wb's hook-managed settings).
 tmux_claude_panes() {
   local scope="${1:-}"
-  local cmd sess win pane blocked title target glyph task status rank
-  while IFS='|' read -r cmd sess win pane blocked title; do
+  local cmd sess win pane blocked working title target glyph task status rank
+  while IFS='|' read -r cmd sess win pane blocked working title; do
     [ "$cmd" = "claude" ] || continue
     [ -z "$scope" ] || [ "$sess" = "$scope" ] || continue
     target="$sess:$win.$pane"
@@ -128,11 +140,31 @@ tmux_claude_panes() {
       status="needs-input"; rank=0
     elif [ "$status" = "waiting" ] && tmux_pane_awaiting_input "$target"; then
       status="needs-input"; rank=0
+    elif [ "$status" = "waiting" ] && [ "$working" = "1" ]; then
+      status="working"; rank=2   # @claude_working: a turn is actually running (see above)
     fi
     [ -n "$task" ] || task="Claude Code"
     printf '%d\t%s\t%s\t%s\n' "$rank" "$target" "$status" "$task"
   done < <(tmux list-panes -a -F \
-    '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{pane_title}')
+    '#{pane_current_command}|#{session_name}|#{window_index}|#{pane_index}|#{@claude_blocked}|#{@claude_working}|#{pane_title}')
+}
+
+# wb_live_agent_count — total live `claude` panes across every tmux session
+# on this server (R7). Deliberately NOT built on tmux_claude_panes: that
+# function does a full needs-input/working/waiting classification for every
+# pane — including a `tmux capture-pane` + two greps per "waiting" pane
+# (tmux_pane_awaiting_input, above) — all of which this count would discard.
+# This is the same minimal `pane_current_command == claude` query the
+# claude() wrapper (zsh/.zshrc) uses directly, since zsh can't call this bash
+# function (separate process) — the two are independently-maintained copies
+# of one predicate, not a shared implementation; keep them in sync if the
+# definition of "live" ever changes.
+wb_live_agent_count() {
+  # `|| true`: grep -c exits 1 on zero matches (the common case — no live
+  # agents), which would otherwise abort any caller running under `set -e`
+  # (wb.sh does) at this command substitution — same idiom wb.sh's own
+  # zero-count helpers already use (e.g. wb.sh:3846, :5254).
+  tmux list-panes -a -F '#{pane_current_command}' 2>/dev/null | grep -cx claude || true
 }
 
 # tmux_session_agent_state <session> — tri-state liveness check for a wb

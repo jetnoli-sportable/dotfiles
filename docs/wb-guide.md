@@ -4,7 +4,7 @@ status: current
 tile: How to use wb: session-per-worktree, the unified picker, wind-down.
 group: start-here
 kind: guide
-updated: 2026-07-12
+updated: 2026-08-24
 ---
 
 Replaces the `s` / `ca` split with a single tmux+fzf tool backed by a
@@ -66,8 +66,8 @@ untracked task behind.
 ## wb new — start a task
 
 ```
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... <slug>
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... <repo> <slug>
+$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size S|M|L|XL] <slug>
+$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size S|M|L|XL] <repo> <slug>
 ```
 
 The slug becomes the git branch name, the worktree path
@@ -80,9 +80,10 @@ worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through `wb done`.
 
-`--path` and `--depends-on` are optional, board-only metadata (v2) — they
-don't change how the task itself runs, only how `wb board --html` displays
-it:
+`--path`, `--depends-on` and `--size` are optional, board-only metadata —
+they don't change how the task itself runs, only how `wb board --html`
+displays it (`--size` is captured now for the family DAG / critical-path
+views still to be built on top of the board; nothing renders it yet):
 
 - `--path <stages>` declares which of the five lifecycle stages
   (`ideate,brainstorm,plan,work,review`) this task intends to pass
@@ -92,6 +93,11 @@ it:
   stem (`<repo>--<slug>`, no `.md`), validated against a real task file at
   creation time. The board renders both directions — a ⛔ count on the
   blocked task, a → count on the blocker — once it's declared.
+- `--size S|M|L|XL` stamps a rough effort bucket into the task's `size:`
+  frontmatter (uppercase, exactly — anything else is rejected before any
+  file is touched). Omit it and `size:` is written blank, which every
+  reader treats as `M`. Works on `--planned` seeds too. `/wb-breakdown`
+  buffers carry the same field per child as a `- size:` bullet.
 
 | Window | Name | What's in it |
 |---|---|---|
@@ -454,6 +460,44 @@ a `PreToolUse` hook asks before an agent runs anything that looks like a
 history rewind, and a `reference-transaction` git hook refuses ref updates
 that would orphan commits, regardless of which tool or shell ran the
 command. `wb unsafe-rewind` is the sanctioned way through the second one.
+
+## Session memory isolation
+
+Every `claude` launch inside a wb pane — `wb new --agent`, `wb resume`, a
+handoff, `/ask`, or just typing `claude` yourself — runs inside its own
+transient `systemd --user` scope instead of sharing one cgroup with the tmux
+server and every other session. This exists because of the 2026-08-24
+crash: all wb sessions lived in one Ghostty surface scope, so when memory
+pressure tripped `systemd-oomd`, it killed that whole scope — tmux server
+included — taking every session down at once. A `claude()` wrapper function
+in `zsh/.zshrc` is the one chokepoint every launch path already flows
+through (they all just type the word `claude`), so it re-launches the real
+binary under `systemd-run --user --scope` with a memory ceiling. Outside a
+wb pane (an ad-hoc `claude` session, no `@wb_repo` set) the wrapper is an
+inert passthrough.
+
+Before starting a new agent, the wrapper also checks how many `claude`
+agents are already live across every session and prints a non-blocking
+warning to stderr past a threshold — it never refuses to start one, since
+the cgroup isolation above is the actual containment. The count is also
+surfaced ambiently in the picker header and in `wb board` / `wb board
+--html`, so it's a glance rather than something you have to go looking for.
+
+Three env vars control it, each with a default and a `~/.zshrc.local`
+override seam (that file is sourced after these defaults, so a plain
+`export WB_AGENT_MEM_MAX=4G` there is all a tuning change needs — no code
+edit):
+
+| Env var | Default | Controls |
+|---|---|---|
+| `WB_AGENT_MEM_HIGH` | `14G` | Soft throttle limit passed to `systemd-run` as `MemoryHigh`. Bumped 2026-08-31 from `6G` — a monorepo full-build/test agent routinely spiked past the old cap and got the whole scope OOM-killed (not just the offending subprocess) even with plenty of free system memory. |
+| `WB_AGENT_MEM_MAX` | `18G` | Hard cap passed as `MemoryMax` — `systemd-oomd`/the kernel OOM-kills the scope if a `claude` process tree exceeds this. Bumped 2026-08-31 from `8G`, same reason as above. |
+| `WB_AGENT_WARN_AT` | `8` | Live-agent count at/above which starting another agent prints the stderr warning. |
+
+This is a partial fix by design: only `claude` is isolated this iteration,
+not nvim/gopls, so a few manually-opened editor instances can still make
+the shared Ghostty scope the highest-pressure one. Isolating nvim/gopls is
+a tracked fast-follow, not something this covers yet.
 
 ## Known rough edges (not blocking, worth knowing)
 
