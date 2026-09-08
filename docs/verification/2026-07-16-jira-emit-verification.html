@@ -174,8 +174,9 @@
   <p class="lede">
     What to run to confirm the emit flow is really done — take a wb task or family, file it as Jira
     tickets (project <code>SFB</code> by default, or <code>SW</code>), and stamp each ticket URL back.
-    The automated gates below are already green; the manual
-    end-to-end run against a live Atlassian MCP is the outstanding gate. Tracks against
+    The automated gates below are green, and the manual end-to-end run against the live
+    Atlassian MCP <strong>passed on 2026-09-07</strong> — Phase&nbsp;1 is verified. Kept as the
+    re-verification script for future changes to the skill. Tracks against
     <a href="https://github.com/jetnoli-sportable/dotfiles/pull/32">PR&nbsp;#32</a> and the plan's Verification Contract.
   </p>
 
@@ -388,7 +389,7 @@ wb jira-set dotfiles--wb-emit-test-flat &lt;different-url&gt; # refuses, exit 1,
       <h2>Done when</h2>
       <span class="chip blocked">gate</span>
     </div>
-    <p class="sec-sub">Phase 1 is complete once the automated gates stay green and the live run confirms the emit flow end-to-end.</p>
+    <p class="sec-sub">Phase 1 is complete: the automated gates are green and the live run confirmed the emit flow end-to-end on 2026-09-07 (verified by Jet). PR #32 merged 2026-07-21; PR #44 later replaced the buffer's bare text fields with checkbox-select for Project/type.</p>
 
     <div class="item" data-id="d1">
       <label class="tick"><input type="checkbox"></label>

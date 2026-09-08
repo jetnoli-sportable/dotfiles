@@ -236,12 +236,12 @@
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> where-we-are</span>
   <span class="gen">docgen · generated from <b>docs/where-we-are.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-16</span>
+  <span class="right">updated 2026-09-07</span>
 </div>
 <div class="shell">
   <nav class="toc">
     <div class="brand">Where we are</div>
-    <div class="brand-sub">The current state of the personal-workflow build — what&#39;s shipped, what&#39;s in review (PR #32), and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</div>
+    <div class="brand-sub">The current state of the personal-workflow build — what&#39;s shipped, what&#39;s verified, and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</div>
     <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#in-one-paragraph">In one paragraph</a></li>
@@ -255,7 +255,7 @@
     <header class="doc guide-banner">
       <span class="eyebrow">where-we-are · guide</span>
       <h1>Where we are</h1>
-      <p class="dek">The current state of the personal-workflow build — what&#39;s shipped, what&#39;s in review (PR #32), and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</p>
+      <p class="dek">The current state of the personal-workflow build — what&#39;s shipped, what&#39;s verified, and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
@@ -272,11 +272,14 @@ generated docs platform (this Hub, <code>INDEX</code>, <code>/help</code>) keeps
 navigable. The last build run hardened the store against concurrent agents
 (PR #22), then stacked task-family tooling on top of those lock primitives
 (<code>/wb-breakdown</code>, PR #29) and refreshed the board (PR #30) and Hub (PR #31).
-<strong>In review right now:</strong> Jira interop — emitting a task or family as SFB
-tickets (PR #32). Next up is the one-time task-store schema migration and
-closing two known <code>wb</code> gaps.</p>
+Since then: Jira interop Phase 1 shipped (PR #32) and was <strong>verified against
+live Jira on 2026-09-07</strong>; the docs platform and board got a UX overhaul
+(PR #33); <code>/handoff --pane</code>, <code>/parked-items</code> and <code>/quick-wins</code> landed; and a
+run of tmux memory fixes (PRs #37–#41) made many concurrent agent sessions
+survivable. Nothing is in review right now. Next up is the one-time
+task-store schema migration and closing two known <code>wb</code> gaps.</p>
 <h2 id="shipped">Shipped</h2>
-<p><span class="chip ok">21 merged</span> — full history and rationale live on
+<p><span class="chip ok">35 merged</span> — full history and rationale live on
 the linked recaps; this is the chronological ledger. Foundations before
 PR #11 (the docs platform, <code>wb</code> core, notes-tui capture) are folded into
 the <a href="roadmap.html#detail-step-zero">Roadmap's shipped section</a>.</p>
@@ -394,21 +397,83 @@ the <a href="roadmap.html#detail-step-zero">Roadmap's shipped section</a>.</p>
 <td><strong>Hub + roadmap refresh</strong> — currency, guide gaps, sectioning, docgen lint</td>
 <td><a href="roadmap.html">roadmap</a></td>
 </tr>
+<tr>
+<td>#32</td>
+<td><strong>Jira interop — emit (Phase 1)</strong> — <code>wb jira-set</code> + <code>/wb-jira-create</code>; verified live 2026-09-07</td>
+<td><a href="2026-07-16-jira-interop-recap.html">recap</a> · <a href="verification/2026-07-16-jira-emit-verification.html">verification</a></td>
+</tr>
+<tr>
+<td>#33</td>
+<td><strong>Docs platform + board UX overhaul</strong> — Tokyo Night theme, Hub grouping, real back-links</td>
+<td><a href="verification/2026-07-21-post-crash-merge-batch-verification.html">verification</a></td>
+</tr>
+<tr>
+<td>#34</td>
+<td><strong><code>/handoff --pane</code></strong> — a co-located helper agent in the current worktree</td>
+<td><a href="handoff-guide.html">handoff guide</a></td>
+</tr>
+<tr>
+<td>#35</td>
+<td>Post-crash merge-batch verification checklist (#32/#33/#34)</td>
+<td><a href="verification/2026-07-21-post-crash-merge-batch-verification.html">verification</a></td>
+</tr>
+<tr>
+<td>#36</td>
+<td><strong><code>/parked-items</code></strong> — wb-task vocabulary, <code>/handoff</code> action, carry-forward rounds</td>
+<td><a href="guides/parked-items.html">guide</a></td>
+</tr>
+<tr>
+<td>#37</td>
+<td>tmux: keep agent windows alive on shell exit (<code>remain-on-exit</code>)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#38</td>
+<td>tmux: wb picker no longer misreports in-progress agents as idle/done</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#39</td>
+<td><strong><code>/quick-wins</code></strong> — effort/isolation/ownership triage across the deferred backlog</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#40</td>
+<td>tmux: lazy nvim window per wb session to curb memory</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#41</td>
+<td><strong>wb session memory mitigations</strong> — per-agent cgroup isolation</td>
+<td><a href="verification/2026-08-24-wb-session-cgroup-isolation-verification.html">verification</a></td>
+</tr>
+<tr>
+<td>#42</td>
+<td>Auto-generated try-it catalog from the roadmap + linked docs</td>
+<td><a href="try-it.html">try it</a></td>
+</tr>
+<tr>
+<td>#43</td>
+<td>Machine-readable next-action directive for <code>/wb-save</code> / <code>/wb-resume</code></td>
+<td><a href="wb-guide.html">wb-guide</a></td>
+</tr>
+<tr>
+<td>#44</td>
+<td><code>/wb-jira-create</code>: checkbox-select for Project/type</td>
+<td><a href="2026-07-16-jira-interop-recap.html">recap</a></td>
+</tr>
+<tr>
+<td>#45</td>
+<td><code>wb breakdown</code> captures <code>size:</code> + <code>depends_on:</code> at apply-time; <code>wb new --size</code></td>
+<td><a href="wb-guide.html">wb-guide</a></td>
+</tr>
 </tbody>
 </table>
 <h2 id="in-review">In review</h2>
-<ul>
-<li><strong>Jira interop — emit (Phase 1)</strong> — <a href="https://github.com/jetnoli-sportable/dotfiles/pull/32">PR #32</a>,
-branch <code>feat/jira-integration</code>. A <code>wb jira-set</code> locked write-back verb plus
-a <code>/wb-jira-create</code> skill that turns a task or <code>/wb-breakdown</code> family into
-new SFB tickets over the Atlassian MCP, behind an approval buffer, stamping
-each ticket URL back into the task. <strong>Create-only.</strong> All automated gates are
-green; the remaining gate is a manual end-to-end run against a live MCP
-(no sandbox project). <strong>Unverified end-to-end — do not run <code>/wb-jira-create</code>
-against live Jira until this passes</strong> (the skill carries the same banner):
-<a href="verification/2026-07-16-jira-emit-verification.html">verification checklist</a>.
-<a href="2026-07-16-jira-interop-recap.html">recap</a></li>
-</ul>
+<p>Nothing right now. The last item through this gate was Jira interop — emit
+(PR #32): its end-to-end run against the live Atlassian MCP passed on
+2026-09-07, closing the one gate that stayed open after merge
+(<a href="verification/2026-07-16-jira-emit-verification.html">checklist</a>).</p>
 <h2 id="next-up">Next up</h2>
 <p>The queue behind the current work — full context on the
 <a href="roadmap.html#up-next-max-3">Roadmap</a>.</p>

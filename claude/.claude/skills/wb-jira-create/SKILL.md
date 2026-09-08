@@ -5,13 +5,9 @@ description: Turn a wb task (or a /wb-breakdown family) into new Jira tickets in
 
 # wb-jira-create
 
-> **⚠ NOT YET VERIFIED END-TO-END — do not run against live Jira yet (as of 2026-07-20).**
-> The emit flow passes every automated gate but has never been run against a live Atlassian
-> MCP (the shared tracker has no sandbox project). Until the verification checklist is worked
-> through and green, do **not** invoke this skill to create real tickets — if asked to, surface
-> this banner and get explicit confirmation first. Checklist:
-> `docs/verification/2026-07-16-jira-emit-verification.html` in the dotfiles repo (PR #32).
-> Remove this banner once the checklist passes.
+> **Verified end-to-end 2026-09-07** — run against the live Atlassian MCP and passed
+> (`docs/verification/2026-07-16-jira-emit-verification.html`). It still creates real tickets
+> in the shared tracker, so the approval buffer remains the gate: never create without it.
 
 Turns a wb task, or a whole `/wb-breakdown` **family** (a parent plus its
 `parent:`-linked children), into new Jira tickets in a chosen project

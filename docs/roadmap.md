@@ -89,7 +89,7 @@ fresh. (Stated in the 2026-07-10 calibration round, Decision 5's note —
   <a class="step done" href="#detail-tasks-concurrency-safety"><b>Store safety</b>PR #22, shipped</a>
   <a class="step done" href="#detail-wb-breakdown"><b>wb breakdown</b>PR #29, shipped</a>
   <a class="step done" href="#detail-board-v2"><b>Board v2</b>PR #30, shipped</a>
-  <a class="step active" href="#detail-jira-integration"><b>Jira emit</b>PR #32, in review</a>
+  <a class="step done" href="#detail-jira-integration"><b>Jira emit</b>PR #32, shipped</a>
   <a class="step followup" href="#detail-task-recall"><b>Task recall</b>needs: boundary-rule</a>
   <a class="step deferred" href="#detail-boundary-rule"><b>Boundary rule</b>final item, by design</a>
 </div>
@@ -132,7 +132,6 @@ claim is always a waits-on link — `needs: <item>`, `clock: <date>`, or
 | <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
 | <a id="detail-notes-tui-4b"></a>**Notes-tui integration, 4b** (real wiring) | queued — clock: 2026-07-24 (fix-forward experiment verdict) | [deep dive](slice-4b-deep-dive.html) · [ceremonies](ceremonies.html) | Original 4b wiring only proceeds if the fix-forward experiment changes real usage |
 | <a id="detail-boundary-rule"></a>**Personal/employer boundary rule** | queued — after: every other follow-up — chosen | [limitations](limitations.html) | Deliberately the final decision; Task recall above already depends on it landing |
-| <a id="detail-jira-integration"></a>**Jira interop — emit** (Phase 1) | active — emit in review as PR #32; Phase 2 (sprint pull) deferred | [recap](2026-07-16-jira-interop-recap.html) | `/wb-jira-create` files a task or family as SFB tickets over the MCP behind an approval buffer; `wb jira-set` stamps each URL back — task: `dotfiles--feat-jira-integration` |
 | <a id="detail-second-opinion"></a>**`/second-opinion`** — ask the best available model at high effort, context-aware | proposed — raised 2026-07-11; new skill vs. tweaking an existing `/btw` still undecided | — | Formalizes today's ad-hoc pattern (spawn a top-tier-model subagent, full conversation context, high reasoning effort, to sanity-check a decision) as a reusable skill; no `/btw` skill or alias exists anywhere in this repo, so confirm what that refers to before building |
 
 ## Parked
@@ -151,7 +150,7 @@ Considered, and decided against — kept here so the reasoning isn't lost.
 
 ## Shipped
 
-<span class="chip ok">21 shipped</span> — full history and rationale live
+<span class="chip ok">22 shipped</span> — full history and rationale live
 on each linked recap page; these no longer take a queue/live/parked slot.
 Also landed inline, without their own row: `wb done --close` plus a guard
 against self-killing the calling session (PR #19), and a fix stopping the
@@ -178,6 +177,7 @@ sweep-review buffer from autoformatting itself (PR #27).
 - <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** — three-layer guard (agent-side "ask" hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — [guide](guides/tasks-store-guards.html) — task: `dotfiles--docs-roadmap-tasks-concurrency-safety`
 - <a id="detail-wb-breakdown"></a>**`wb breakdown`** — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — [recap](2026-07-13-wb-breakdown-recap.html) — task: `dotfiles--feat-wb-breakdown-skill`
 - <a id="detail-board-v2"></a>**Board display v2** — lifecycle stage stepper, Pipeline/Live/Stale tabs, dependency + parent/child relationships, repo/family filters, Key Findings, column sorting (the parent/family progress view lives here) — [recap](wb-board-display-v2-recap.html) — PR #30
+- <a id="detail-jira-integration"></a>**Jira interop — emit** (Phase 1) — `/wb-jira-create` files a task or `/wb-breakdown` family as Jira tickets (SFB default, or SW) over the Atlassian MCP behind an approval buffer; `wb jira-set` stamps each URL back. Verified live 2026-09-07; PR #44 added checkbox-select for Project/type. Phase 2 (sprint pull) deferred to task `dotfiles--loop-jira-watch` — [recap](2026-07-16-jira-interop-recap.html) · [verification](verification/2026-07-16-jira-emit-verification.html) — task: `dotfiles--feat-jira-integration` — PR #32
 
 Ceremonies (dated clocks, recurring reviews) now live on their own page:
 [Ceremonies](ceremonies.html). Standing workflow constraints now live on
