@@ -272,5 +272,79 @@ assert "reattach, pane alive but not nvim: treated as already closed" 'treating 
 assert_eq "reattach, pane alive but not nvim: state file deleted" "" "$([ -f "$NOTNVIM_SF" ] && echo present)"
 assert_eq "reattach, pane alive but not nvim: never calls wait-for" "0" "$(grep -c '^wait-for' "$FIXTURE/tmux-calls-notnvim.log" || true)"
 
+# ===========================================================================
+# --reattach against a `closed=1` state file (a normal tmux/terminal close
+# now rewrites the state file instead of deleting it, so reopen_count/
+# content_hash survive for the next open — see prepare_open's carry-forward
+# scenarios below). --reattach must recognize this as a genuine deliberate
+# close, not misreport it via the PaneGone "not deliberate" language.
+# ===========================================================================
+CLOSED_DOC="$FIXTURE/docs/already-closed.md"
+printf '# doc\n' > "$CLOSED_DOC"
+CLOSED_SF="$(state_path_for "$CLOSED_DOC")"
+DEAD_CLOSED="$(dead_pid)"
+{
+  printf 'chan=decision-buffer-done-test-closed\n'
+  printf 'pane_id=%%9\n'
+  printf 'mode=tmux\n'
+  printf 'opened_at=%s\n' "$(date +%s)"
+  printf 'caller_pid=%s\n' "$DEAD_CLOSED"
+  printf 'content_hash=deadbeef\n'
+  printf 'reopen_count=2\n'
+  printf 'closed=1\n'
+} > "$CLOSED_SF"
+# Deliberately no panes-*.txt fixture wired up for this one — closed=1 must
+# short-circuit before mode_reattach ever gets to `tmux list-panes`, so if
+# this scenario somehow DID reach that code, PATH resolving to a tmux stub
+# with no configured panes file would make the failure obvious rather than
+# silently matching.
+out_closed="$(PATH="$FIXTURE/bin:$PATH" TMUX="fake-session" TMUX_PANE="%0" \
+  TMUX_STUB_LOG="$FIXTURE/tmux-calls-closed.log" \
+  bash "$SCRIPT" --reattach "$CLOSED_DOC" 2>&1)"
+rc_closed=$?
+assert_eq "reattach, closed=1: exits 0" "0" "$rc_closed"
+assert "reattach, closed=1: reports already closed normally" 'already closed normally' "$out_closed"
+assert_not_eq "reattach, closed=1: does NOT use the PaneGone/not-deliberate wording" "1" "$(printf '%s' "$out_closed" | grep -qc 'not deliberate' && echo 1 || echo 0)"
+assert_eq "reattach, closed=1: state file deleted" "" "$([ -f "$CLOSED_SF" ] && echo present)"
+# No log file at all means no tmux invocation happened whatsoever (a
+# stronger result than "list-panes specifically wasn't called") — the
+# closed=1 check exits before @claude_blocked/mode/caller_pid checks ever
+# touch tmux, so the stub log is never created in this scenario.
+assert_eq "reattach, closed=1: never calls tmux at all (log file never created)" "" "$([ -f "$FIXTURE/tmux-calls-closed.log" ] && echo present)"
+
+# ===========================================================================
+# reopen_count carry-forward survives a `closed=1` state file, not just a
+# --manual one — this is the actual P1 fix: prepare_open must not care
+# which mode wrote the prior state file, only whether it exists and matches
+# content_hash. A hand-crafted closed=1 file (standing in for what
+# mode_tmux/mode_terminal now leave behind on a real close, which this
+# suite can't drive directly without a real tmux server) proves the fix's
+# core mechanism: prepare_open reads it identically to a --manual one.
+# ===========================================================================
+CARRY_DOC="$FIXTURE/docs/carry-forward.md"
+printf 'unchanged content\n' > "$CARRY_DOC"
+CARRY_SF="$(state_path_for "$CARRY_DOC")"
+CARRY_HASH="$(sha256sum "$CARRY_DOC" 2>/dev/null | awk '{print $1}')"
+DEAD_CARRY="$(dead_pid)"
+{
+  printf 'chan=decision-buffer-done-test-carry\n'
+  printf 'pane_id=%%9\n'
+  printf 'mode=tmux\n'
+  printf 'opened_at=%s\n' "$(date +%s)"
+  printf 'caller_pid=%s\n' "$DEAD_CARRY"
+  printf 'content_hash=%s\n' "$CARRY_HASH"
+  printf 'reopen_count=1\n'
+  printf 'closed=1\n'
+} > "$CARRY_SF"
+bash "$SCRIPT" --manual "$CARRY_DOC" >/dev/null 2>&1
+assert_eq "carry-forward from closed=1: reopen_count increments (1 -> 2), content unchanged" "2" "$(state_field "$CARRY_SF" reopen_count)"
+assert_eq "carry-forward from closed=1: new record is itself marked open (closed=0)" "0" "$(state_field "$CARRY_SF" closed)"
+
+# New content since the closed=1 record -> resets to 0, same as the
+# existing --manual-to-manual carry-forward scenario already covers.
+printf 'this is now different content\n' > "$CARRY_DOC"
+bash "$SCRIPT" --manual "$CARRY_DOC" >/dev/null 2>&1
+assert_eq "carry-forward from closed=1: reopen_count resets to 0 on new content" "0" "$(state_field "$CARRY_SF" reopen_count)"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

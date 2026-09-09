@@ -1866,7 +1866,7 @@ _wb_breakdown_validate() {
 
   # --- structural (hard) checks across all blocks ---------------------------
   local b kind n parent repo
-  local parent_stem="" seen_ns="" mig_count=0 mig_lines=""
+  local parent_stem="" seen_ns="" mig_count=0 mig_lines="" approve_count=0
   for b in "${blocks[@]}"; do
     kind="$(_wb_bd_field "$b" block)"
     parent="$(_wb_bd_field "$b" parent)"
@@ -1883,6 +1883,11 @@ _wb_breakdown_validate() {
       # malformed-ness (never silently "none"), then move on; the actual
       # checked/unchecked state is read separately by wb_breakdown_apply
       # (approve is a run-level gate, not a create/migrate/move action row).
+      approve_count=$((approve_count + 1))
+      if [ "$approve_count" -gt 1 ]; then
+        echo "wb breakdown --apply: more than one Approve block in this buffer — a run-level gate must be singular, never silently pick one" >&2
+        return 2
+      fi
       local aline; aline="$(printf '%s' "$b" | grep -P '^\s*[-*]\s*\[' | head -1)"
       local astate; astate="$(_wb_bd_checkbox_state "$aline")"
       if [ "$astate" = malformed ]; then
@@ -2857,8 +2862,13 @@ wb_open_buffer() {
   # it, so no "is this nvim" guard is needed.
   if [ -n "${TMUX:-}" ]; then
     local chan="wb-buffer-done-$$-$RANDOM"
+    # printf %q, not a hand-wrapped '$path' — a path containing a literal
+    # single quote would prematurely close the quoted command string below,
+    # breaking the trailing `; tmux wait-for -S $chan` and hanging the wait
+    # forever with no timeout. Same fix as open-buffer.sh's mode_tmux.
+    local quoted_path; quoted_path="$(printf '%q' "$path")"
     tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer 2>/dev/null || true
-    tmux split-window -h -t "$TMUX_PANE" "WB_REVIEW_BUFFER=1 nvim '$path'; tmux wait-for -S $chan"
+    tmux split-window -h -t "$TMUX_PANE" "WB_REVIEW_BUFFER=1 ${EDITOR:-nvim} $quoted_path; tmux wait-for -S $chan"
     tmux wait-for "$chan"
     tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
   else

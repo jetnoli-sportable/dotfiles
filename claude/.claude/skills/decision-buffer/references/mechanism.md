@@ -62,6 +62,7 @@ opened_at=<unix time>
 caller_pid=<pid of the opening process, for duplicate-waiter detection>
 content_hash=<hash of the document's content at open time>
 reopen_count=<count of consecutive reopens with no new content>
+closed=<0 while open, 1 once a --tmux/--terminal wait completes normally>
 ```
 
 **Which modes write it:** `tmux`, `terminal`, and `manual` all write one.
@@ -90,6 +91,19 @@ process and have nothing later to reattach to or reopen.
   string `nohash` if neither tool is present (documented degradation
   below).
 - `reopen_count` — see next section.
+- `closed` — `0` while the wait is genuinely in flight (written at open
+  time by every state-writing mode); `--tmux`/`--terminal` rewrite it to
+  `1` in place, in the SAME state file, once their wait completes normally
+  — they no longer `rm -f` the file on a clean close. This is what lets
+  `reopen_count`/`content_hash` survive to the *next* open's carry-forward
+  check (see below): deleting the file on every close made the counter
+  reset to 0 on every single reopen, silently defeating R10's three-
+  reopen cap in the two modes that matter most. `--reattach` checks this
+  flag first (see the decision tree below) so it never mistakes "already
+  closed, deliberately" for the interrupted-wait case it exists to
+  recover. `--manual` never sets it to `1` — it has no completion signal
+  to react to, so its state file already persisted across closes before
+  this field existed, unaffected by this change.
 
 **Overwrite rule (R16):** every field except `reopen_count` is
 overwritten unconditionally on every fresh open (`--tmux`/`--terminal`/
@@ -157,6 +171,7 @@ restart, a crashed session — not a deliberate close). Directional logic:
 ```text
 on --reattach <doc>:
   if no state file for <doc>:            → "nothing to reattach", exit 1
+  if state.closed == 1:                  → "already closed normally", delete state file, exit 0
   if state.mode != tmux:                 → "reattach not supported outside tmux", exit 1
   if state.caller_pid is alive:          → "already waiting", exit 1  (duplicate-waiter guard)
   if not inside tmux right now:          → "reattach requires being inside tmux", exit 1

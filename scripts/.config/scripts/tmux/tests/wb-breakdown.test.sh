@@ -1303,6 +1303,44 @@ else
   echo "ok   - approve gate: malformed Approve checkbox aborts the whole apply, nothing written"
 fi
 
+# --- two Approve blocks in one buffer: hard parse error, whole apply
+# aborts, nothing written (a run-level gate must be singular — never
+# silently pick the first one and ignore the second) -----------------------
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u5-dupapprove ".worktrees/feat-u5-dupapprove" >/dev/null 2>&1
+mk_approve_parent proj--feat-u5-dupapprove feat-u5-dupapprove .worktrees/feat-u5-dupapprove
+cat > "$APPROVE_BUF/dup-approve.md" <<'EOF'
+# wb breakdown — proj--feat-u5-dupapprove
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-dupapprove -->
+- [x] **Approve — apply everything ticked below**
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u5-dupapprove repo=proj -->
+- [x] create child: `feat-u5-dupapprove-one`
+- goal: should never be created
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-dupapprove -->
+- [ ] **Approve — apply everything ticked below**
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u5-dupapprove -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+out_dup_approve="$(cmd_breakdown --apply "$APPROVE_BUF/dup-approve.md" 2>&1)"; rc_dup_approve=$?
+assert_eq "approve gate: two Approve blocks — hard error exit code" 2 "$rc_dup_approve"
+assert "approve gate: two Approve blocks — error names the duplication" 'more than one Approve block' "$out_dup_approve"
+if [ -f "$TASKS_DIR/proj--feat-u5-dupapprove-one.md" ]; then
+  echo "FAIL - approve gate: two Approve blocks must abort the WHOLE apply, not pick the first (ticked) one"; fail=1
+else
+  echo "ok   - approve gate: two Approve blocks aborts the whole apply, does not silently pick the first"
+fi
+
 # --- missing Approve block entirely (old-format buffer, pre-dating this
 # gate): treated as unapproved (safe default), nothing applied, no crash --
 git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u5-noblock ".worktrees/feat-u5-noblock" >/dev/null 2>&1

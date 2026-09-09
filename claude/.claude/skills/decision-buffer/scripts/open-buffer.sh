@@ -115,6 +115,7 @@ STATE_OPENED_AT=""
 STATE_CALLER_PID=""
 STATE_CONTENT_HASH=""
 STATE_REOPEN_COUNT=0
+STATE_CLOSED=0
 
 # read_state <state-file> -> populates STATE_* globals, returns 1 if the
 # file doesn't exist. Parsed field-by-field (not sourced) even though
@@ -123,7 +124,7 @@ STATE_REOPEN_COUNT=0
 read_state() {
   local sf="$1" key val
   STATE_CHAN="" STATE_PANE_ID="" STATE_MODE="" STATE_OPENED_AT=""
-  STATE_CALLER_PID="" STATE_CONTENT_HASH="" STATE_REOPEN_COUNT=0
+  STATE_CALLER_PID="" STATE_CONTENT_HASH="" STATE_REOPEN_COUNT=0 STATE_CLOSED=0
   [ -f "$sf" ] || return 1
   while IFS='=' read -r key val; do
     case "$key" in
@@ -134,18 +135,23 @@ read_state() {
       caller_pid) STATE_CALLER_PID="$val" ;;
       content_hash) STATE_CONTENT_HASH="$val" ;;
       reopen_count) STATE_REOPEN_COUNT="$val" ;;
+      closed) STATE_CLOSED="$val" ;;
     esac
   done < "$sf"
   return 0
 }
 
-# write_state <state-file> <chan> <pane_id> <mode> <caller_pid> <hash> <reopen_count>
+# write_state <state-file> <chan> <pane_id> <mode> <caller_pid> <hash> <reopen_count> <closed>
 # Every field is overwritten unconditionally except reopen_count, whose
 # carry-forward value is computed by the caller (prepare_open, below)
 # before write_state is invoked — write_state itself just writes whatever
-# it's given.
+# it's given. <closed> (0 or 1): see the "rewrite, don't delete, on a
+# normal tmux/terminal close" comment in mode_tmux/mode_terminal below —
+# this is what lets prepare_open's reopen_count carry-forward survive a
+# clean close, and what lets --reattach tell a genuinely-closed buffer
+# apart from one whose wait died mid-flight.
 write_state() {
-  local sf="$1" chan="$2" pane_id="$3" mode="$4" caller_pid="$5" hash="$6" reopen="$7"
+  local sf="$1" chan="$2" pane_id="$3" mode="$4" caller_pid="$5" hash="$6" reopen="$7" closed="${8:-0}"
   {
     printf 'chan=%s\n' "$chan"
     printf 'pane_id=%s\n' "$pane_id"
@@ -154,6 +160,7 @@ write_state() {
     printf 'caller_pid=%s\n' "$caller_pid"
     printf 'content_hash=%s\n' "$hash"
     printf 'reopen_count=%s\n' "$reopen"
+    printf 'closed=%s\n' "$closed"
   } > "$sf"
 }
 
@@ -188,7 +195,7 @@ prepare_open() {
 # ---------------------------------------------------------------------------
 
 mode_tmux() {
-  local path sf chan pane_id
+  local path sf chan pane_id quoted_path
   path="$(abs_path "$1")"
 
   if [ -z "${TMUX:-}" ]; then
@@ -202,14 +209,30 @@ mode_tmux() {
 
   tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer 2>/dev/null || true
 
+  # printf %q (not a hand-wrapped '$path') because $path can legitimately
+  # contain a single quote (a title-derived doc name, an apostrophe in a
+  # ticket summary) — a naive '$path' would prematurely close the quoted
+  # string this whole thing becomes when passed to split-window, breaking
+  # the trailing `; tmux wait-for -S $chan` and hanging the wait below
+  # forever with no timeout.
+  quoted_path="$(printf '%q' "$path")"
   pane_id="$(tmux split-window -h -P -F '#{pane_id}' -t "$TMUX_PANE" \
-    "WB_REVIEW_BUFFER=1 ${EDITOR:-nvim} '$path'; tmux wait-for -S $chan")"
+    "WB_REVIEW_BUFFER=1 ${EDITOR:-nvim} $quoted_path; tmux wait-for -S $chan")"
 
   write_state "$sf" "$chan" "$pane_id" "tmux" "$$" "$OPEN_HASH" "$OPEN_REOPEN"
 
   tmux wait-for "$chan"
   tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
-  rm -f "$sf"
+
+  # Rewrite as closed, don't delete: prepare_open's reopen_count
+  # carry-forward (R10's three-reopen cap) needs THIS session's
+  # content_hash/reopen_count to still be on disk the next time this same
+  # path is opened — deleting here would silently reset the counter to 0
+  # on every single open, defeating the cap entirely in the default mode.
+  # closed=1 is what lets --reattach (if ever invoked against this now-gone
+  # session) recognize a genuinely-closed buffer instead of misreading it
+  # as PaneGone/"not deliberate".
+  write_state "$sf" "$chan" "$pane_id" "tmux" "$$" "$OPEN_HASH" "$OPEN_REOPEN" "1"
   exit 0
 }
 
@@ -239,7 +262,10 @@ mode_terminal() {
   rc=$?
 
   [ -n "${TMUX_PANE:-}" ] && tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null
-  rm -f "$sf"
+
+  # Rewrite as closed, don't delete — same reopen_count carry-forward
+  # rationale as mode_tmux above.
+  write_state "$sf" "" "" "terminal" "$$" "$OPEN_HASH" "$OPEN_REOPEN" "1"
   exit "$rc"
 }
 
@@ -284,6 +310,17 @@ mode_reattach() {
     exit 1
   fi
 
+  if [ "$STATE_CLOSED" = "1" ]; then
+    # A normal close (mode_tmux/mode_terminal) now rewrites the state file
+    # instead of deleting it, so its content_hash/reopen_count survive for
+    # the next open's carry-forward check. Tell that apart from a genuine
+    # interrupted-wait case up front, before any of the PaneGone/
+    # CLOSED_NO_SIGNAL machinery below — this was closed deliberately.
+    echo "$SCRIPT_NAME: $path was already closed normally (no waiter died) — nothing to reattach" >&2
+    rm -f "$sf"
+    exit 0
+  fi
+
   if [ "$STATE_MODE" != "tmux" ]; then
     echo "$SCRIPT_NAME: reattach not supported outside tmux (recorded mode: $STATE_MODE)" >&2
     exit 1
@@ -315,6 +352,7 @@ mode_reattach() {
     # document on disk as found; any ticks/notes are "on disk,
     # unconfirmed" until Jet says otherwise (R18).
     echo "$SCRIPT_NAME: recorded pane $STATE_PANE_ID is gone — reading $path as found, not waiting (close was not deliberate)" >&2
+    tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
     rm -f "$sf"
     exit 0
   fi
@@ -323,6 +361,7 @@ mode_reattach() {
     # CLOSED_NO_SIGNAL: the pane is alive but nvim already exited (e.g.
     # the wait-for signal was lost). Treat exactly like a normal close.
     echo "$SCRIPT_NAME: recorded pane $STATE_PANE_ID is alive but not running nvim (command: $pane_cmd) — treating as already closed" >&2
+    tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
     rm -f "$sf"
     exit 0
   fi
