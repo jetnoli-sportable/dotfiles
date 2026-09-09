@@ -207,38 +207,61 @@ convention, already in use in this very task file
   action than what's already there — update it only in that case, and say
   so explicitly (same rule: never silent).
 
-**Default the routed worker's kickoff to artifact + decision buffer,
-before whatever stage `first_action` names.** Whichever stage this
-routes into — `/ce-ideate`, `/ce-brainstorm`, `/ce-plan`, `/ce-work` —
-default `first_action` to starting with a context artifact (how this
-surfaced, why, relevant background gathered so far) and an accompanying
-decision buffer (`~/.claude/skills/decision-buffer/SKILL.md`) covering
-whatever open questions the routed worker will need the requester to
-answer, *then* proceeding into the named stage. This is the same
-sequence that worked well kicking off `dotfiles--fix-wb-sweep-buffer-
-autoformat` by hand (2026-07-11) — front-load context and open questions
-into artifacts the requester reacts to once, rather than trickling
-clarifying questions back through a routed session one at a time. Write
-it as part of the same line, not a separate instruction the routed
-worker might skim past:
+**Default the routed worker's kickoff to present findings and check
+alignment, before whatever stage `first_action` names — not straight
+into a buffer.** Whichever stage this routes into — `/ce-ideate`,
+`/ce-brainstorm`, `/ce-plan`, `/ce-work` — default `first_action` to
+starting with presenting the gathered findings and a proposed direction
+in chat, then checking alignment before opening anything, per
+`decision-buffer/SKILL.md`'s own §1 "Align first, in chat — before any
+buffer" (read that file directly for its exact current wording — cite
+it, don't re-derive it from memory; as of this writing it reads: "Before
+writing anything, present findings and a proposed direction in chat and
+ask whether the remaining open points should go to a buffer. Never open
+a buffer as the first move, even when a task file's 'first action:
+decision buffer' line says to — that line does not bypass this check;
+align first, buffer second."). The routed worker runs that align check
+itself — this default names what to do *if* a buffer turns out to be
+warranted afterward, not a skip of the check.
+
+If a buffer is warranted, default the shape recommendation to the
+routed task's kind: a **spike or scoping task** (open-ended
+investigation, "figure out X", no settled direction yet) defaults to
+recommending the **findings-review** or **interview** shape
+(`decision-buffer/SKILL.md` §2); a **settled plan** (routing discussion
+already has clear direction, just needs decisions checked off) defaults
+to recommending the **choice** shape. This replaces an earlier version
+of this default that jumped straight to "artifact + decision buffer,
+then `<stage>`" unconditionally — that is the exact wrong-tool pattern
+the decision-buffer v2 rewrite exists to fix: it's how a scoping spike
+task acquired a "first action: … decision buffer" line that then
+produced two mis-shaped choice buffers before the ground was even
+understood (2026-09-04). Write the default as part of the same line, not
+a separate instruction the routed worker might skim past, choosing the
+kind/shape that actually fits the routed task at write-time (this is a
+template for the prose, not a literal string to hard-code):
 
 ```
-**First action when picked up:** artifact + decision buffer covering
-[what's known, why, open questions], then `/ce-plan` from this file.
+**First action when picked up:** present findings and a proposed
+direction, then check alignment before opening any buffer (see
+`decision-buffer/SKILL.md` §1) — if a buffer turns out to be warranted,
+default to [findings-review|interview|choice] given this is a
+[spike/scoping|settled-plan] task, then `/ce-plan` from this file.
 ```
 
 **Overridable — don't force it when it's already redundant.** Skip the
-artifact/buffer prefix and write the bare `first_action` (the original
-form above) when: the routing discussion already resolved every open
-question before handoff (nothing left for a buffer to ask), the user
-explicitly says to skip it ("just spin it up and have it start", "skip
-the artifact, go straight to work"), or the chosen stage is `/ce-work`
-against an already-fully-scoped plan with no decisions left — a decision
-buffer with zero real questions is worse than none (see the decision-
-buffer skill's own "trivial decision" exception). When in doubt, default
-to including it; it's cheap for the routed worker to produce and skip
-irrelevant sections, expensive for the requester to get a session that
-immediately starts asking questions one at a time in chat instead.
+align-check-then-shape prefix and write the bare `first_action` (the
+original form above) when: the routing discussion already resolved
+every open question before handoff (nothing left to align on or ask in
+a buffer), the user explicitly says to skip it ("just spin it up and
+have it start", "skip the alignment step, go straight to work"), or the
+chosen stage is `/ce-work` against an already-fully-scoped plan with no
+decisions left — a buffer with zero real questions is worse than none
+(see the decision-buffer skill's own "trivial decision" exception). When
+in doubt, default to including it; it's cheap for the routed worker to
+run an align check and skip irrelevant shapes, expensive for the
+requester to get a session that immediately starts asking questions one
+at a time in chat instead.
 
 ### 5. Write the rich context
 
