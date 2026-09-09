@@ -189,12 +189,34 @@ a migration that hasn't happened yet, more follow-up moves).
 ### 5. Author the proposal buffer
 
 One buffer per parent, at `logs/breakdowns/<parent-stem>.md` in the
-dotfiles repo. **Refuse to clobber a prior unresolved buffer** — the same
-guard `wb_reconcile_generate_review` uses (`scripts/.config/scripts/tmux/wb.sh`,
-search `wb_reconcile_generate_review`): if a file already exists at that
-path, still carries a `<!-- wb-breakdown:` marker, and still has any
-unchecked `- [ ]` box, stop and tell the human an unresolved review already
-exists there rather than overwriting it.
+dotfiles repo.
+
+**Refuse to clobber a prior GENUINELY OPEN buffer, keyed off state-file
+liveness, not box state (R14).** Before authoring a fresh proposal at that
+path, check whether `logs/breakdowns/<parent-stem>.md.buffer-state` exists
+and whether the process it records is still alive — the same
+duplicate-waiter check `claude/.claude/skills/decision-buffer/scripts/open-buffer.sh`
+itself performs internally (see
+`claude/.claude/skills/decision-buffer/references/mechanism.md`'s
+"duplicate-waiter guard" section). If a live state file names a still-alive
+process, a buffer is genuinely still open right now — stop and tell the
+human rather than clobbering it. If the state file is absent, or present
+but stale (its recorded process is dead — meaning a prior buffer WAS
+closed, approved or not), the path is free to reuse:
+
+- If a prior buffer file still sits at that exact path (closed, but its
+  Approve box wasn't ticked — see step 7), **archive it first**, e.g.:
+  ```bash
+  [ -f "logs/breakdowns/<parent-stem>.md" ] && \
+    mv "logs/breakdowns/<parent-stem>.md" \
+       "logs/breakdowns/<parent-stem>.unapproved-$(date +%Y%m%dT%H%M%S).md"
+  ```
+- Then write the fresh proposal at the now-free original path.
+
+This is what makes R14's guarantee real: a declined proposal (Approve left
+unticked) never permanently blocks a later run for the same parent — only a
+buffer that's *still open right now* does. Box state — which used to gate
+this refusal — no longer does at all.
 
 Grammar (exact — `cmd_breakdown --apply`'s parser is strict about this
 shape; see `scripts/.config/scripts/tmux/wb.sh`, search
@@ -204,8 +226,13 @@ shape; see `scripts/.config/scripts/tmux/wb.sh`, search
 # wb breakdown — <raw-parent-branch> (<parent-stem>)
 
 > Check what you approve, edit slugs/goals/bodies in place, save and close.
-> `wb breakdown --apply logs/breakdowns/<parent-stem>.md` executes
-> exactly what's checked — an unchecked item is left exactly as-is.
+> `wb breakdown --apply logs/breakdowns/<parent-stem>.md` executes exactly
+> what's checked — but nothing is applied at all unless the Approve line
+> below is also checked. An unticked Approve line leaves this run's proposal
+> unresolved and safely regeneratable; it does not block a later run.
+
+<!-- wb-breakdown: block=approve parent=<parent-stem> -->
+- [ ] **Approve — apply everything ticked below**
 
 ## child 1 — <short label> (continuing)
 <!-- wb-breakdown: block=child n=1 parent=<parent-stem> repo=<repo> -->
@@ -292,26 +319,21 @@ Rules worth restating because the parser enforces them exactly:
 
 ### 6. Open the buffer, blocking
 
-Same recipe `decision-buffer`/`wb-done` use
-(`claude/.claude/skills/decision-buffer/SKILL.md`, search "auto-open" —
-the `tmux split-window` + unique-per-invocation `wait-for` channel):
+Open it where the user is, blocking until they close it, via the shared
+decision-buffer script rather than a hand-rolled recipe — it handles the
+tmux/terminal/manual fallback ladder and wait-channel uniqueness
+internally. Run it as a **background Bash call** (`run_in_background:
+true`) so closing the buffer re-invokes you; see
+`claude/.claude/skills/decision-buffer/references/mechanism.md` for the
+full contract (state file, fallback tiers, reattach).
 
-```
-Bash (run_in_background: true):
-  CHAN="wb-breakdown-done-$$-$RANDOM"
-  tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer
-  WB_REVIEW_BUFFER=1 tmux split-window -h -t "$TMUX_PANE" \
-    "nvim 'logs/breakdowns/<parent-stem>.md'; tmux wait-for -S $CHAN" \
-    && tmux wait-for "$CHAN"
-  tmux set -pu -t "$TMUX_PANE" @claude_blocked
+```bash
+claude/.claude/skills/decision-buffer/scripts/open-buffer.sh logs/breakdowns/<parent-stem>.md
 ```
 
-`WB_REVIEW_BUFFER=1` is required — it's the flag conform.nvim's
-format-on-save checks before running, so it can't silently mangle the
-buffer's HTML-comment markers (the exact PR #27 Sweep-buffer regression
-this convention exists to prevent). After launching, tell the user the
-buffer is open and end the turn — do not poll, schedule a wakeup, or keep
-talking; the background command completing is the signal.
+After launching, tell the user the buffer is open and end the turn — do not
+poll, schedule a wakeup, or keep talking; the background command completing
+is the signal.
 
 ### 7. Parse on return
 
@@ -319,10 +341,22 @@ When the background command completes, read the closed buffer fresh:
 
 - Prose under any inline note, or an edited `parent=` field, gets answered
   or resolved before acting on anything else — same contract
-  decision-buffer's own step 3 uses.
-- **All-unchecked close**: if nothing at all is checked, report that
-  nothing was approved and stop. Do not re-fire (re-generate/re-open) the
-  same buffer automatically — the human closed it on purpose; ask before
+  decision-buffer's own §6 "Parse rules" uses. **A note requesting a
+  change means the Approve tick (even if checked) is not acted on until the
+  note is resolved and the buffer is reopened** — do not invoke `--apply`
+  while an unresolved note stands, regardless of the Approve/per-item
+  checkbox state (AE10).
+- **Approve line unticked**: regardless of what's checked below it, report
+  that nothing was approved and stop — do not invoke `--apply` at all (it
+  would report the same thing itself, but there's no reason to shell out
+  for a no-op). Do not re-fire (re-generate/re-open) the same buffer
+  automatically — the human closed it on purpose; a later `/wb-breakdown`
+  run against the same parent regenerates cleanly (step 5's refusal rule
+  keys off whether a buffer is still genuinely open, not off this decline)
+  (AE3).
+- **All-unchecked close** (Approve ticked, but nothing else): if no
+  per-item box is checked, report that nothing was approved and stop. Do
+  not re-fire automatically — the human closed it on purpose; ask before
   trying again.
 - Otherwise, continue to apply.
 
@@ -383,9 +417,23 @@ approved — R6).
 - **All-unchecked close**: closing the buffer with every box left
   unchecked reports a clean no-op and does not reopen or regenerate the
   buffer.
-- **Buffer-already-unresolved refusal**: invoking this skill again against
-  a parent whose prior buffer still has a marker and an unchecked box
-  relays wb.sh's/step 5's own refusal rather than silently overwriting it.
+- **AE3 — unapproved close, then regenerate**: closing the buffer with the
+  Approve line unticked (per-item boxes checked or not) applies nothing —
+  `--apply` reports "not approved," no task files are written — and a
+  later `/wb-breakdown` run for the same parent regenerates a fresh
+  proposal rather than refusing, because the refusal rule (below) keys off
+  live-buffer state, not the declined Approve tick.
+- **AE10 — a note blocks apply even with Approve ticked**: a closed buffer
+  with the Approve box ticked, a child checked, AND an inline note asking
+  for a change (e.g. rename a child's slug) does not invoke `--apply` at
+  all — the note is answered first, a corrected proposal is reopened, and
+  only a subsequent clean approval (no open notes) reaches `--apply`.
+- **Buffer-genuinely-open refusal**: invoking this skill again against a
+  parent whose prior buffer's `.buffer-state` file names a still-live
+  process relays the refusal rather than silently overwriting it; once
+  that buffer is closed (state file gone or stale), a new run is free to
+  archive the old file (if unapproved) and write a fresh proposal at the
+  same path — box state alone no longer blocks a rerun.
 
 Plus one repo-level check enforced by `tests/wb-breakdown.test.sh` itself
 (not something this skill can self-test): a grep assertion that this

@@ -1878,6 +1878,20 @@ _wb_breakdown_validate() {
       return 2
     fi
 
+    if [ "$kind" = approve ]; then
+      # No plan body on this block — validate its own checkbox line for
+      # malformed-ness (never silently "none"), then move on; the actual
+      # checked/unchecked state is read separately by wb_breakdown_apply
+      # (approve is a run-level gate, not a create/migrate/move action row).
+      local aline; aline="$(printf '%s' "$b" | grep -P '^\s*[-*]\s*\[' | head -1)"
+      local astate; astate="$(_wb_bd_checkbox_state "$aline")"
+      if [ "$astate" = malformed ]; then
+        echo "wb breakdown --apply: malformed checkbox on the Approve line: $aline" >&2
+        return 2
+      fi
+      continue
+    fi
+
     if ! _wb_bd_plan_markers_ok "$b"; then
       echo "wb breakdown --apply: unbalanced begin-plan/end-plan markers in a $kind block (marker line: $(printf '%s' "$b" | head -1))" >&2
       return 2
@@ -2422,6 +2436,24 @@ _wb_breakdown_repoint_task() {
   fi
 }
 
+# _wb_bd_approve_checked <path> — true (state=checked) if the buffer's
+# run-level Approve block is ticked; false for unticked or absent
+# (missing entirely is treated as unapproved — the safe default, so an
+# older buffer authored before this gate existed never silently applies).
+_wb_bd_approve_checked() {
+  local path="$1"
+  local -a blocks=()
+  _wb_breakdown_parse_blocks "$path" blocks
+  local b
+  for b in "${blocks[@]}"; do
+    [ "$(_wb_bd_field "$b" block)" = approve ] || continue
+    local aline; aline="$(printf '%s' "$b" | grep -P '^\s*[-*]\s*\[' | head -1)"
+    [ "$(_wb_bd_checkbox_state "$aline")" = checked ]
+    return
+  done
+  return 1
+}
+
 # wb_breakdown_apply <path> — U3: the full locked apply. Validates twice
 # (once to determine the lock set, once more after acquiring it — KTD5's
 # "never trust the buffer snapshot"), executes under the sorted multi-lock,
@@ -2435,6 +2467,11 @@ wb_breakdown_apply() {
   # before `rc=$?` ever runs, masked only by this suite's own `set +e`.
   if pre_out="$(_wb_breakdown_validate "$path")"; then rc=0; else rc=$?; fi
   [ "$rc" -eq 0 ] || return "$rc"
+
+  if ! _wb_bd_approve_checked "$path"; then
+    echo "wb breakdown --apply: not approved — the top-level Approve line is unticked, nothing applied"
+    return 0
+  fi
 
   if [ -z "$pre_out" ]; then
     echo "wb breakdown --apply: nothing checked — no-op"
@@ -2470,6 +2507,11 @@ wb_breakdown_apply() {
   if [ "$rc" -ne 0 ]; then
     local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
     return "$rc"
+  fi
+  if ! _wb_bd_approve_checked "$path"; then
+    local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
+    echo "wb breakdown --apply: not approved — the top-level Approve line is unticked, nothing applied"
+    return 0
   fi
   if [ -z "$out" ]; then
     local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
