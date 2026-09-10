@@ -119,6 +119,22 @@ else
   echo "ok   - fresh wb new: no ## Handoffs section (only resume adds one)"
 fi
 
+# --- R5/U4: wb_seed_task flips a shelved (paused) task back to doing -------
+# (the same existing-file branch that already flips planned->doing) — this
+# is what makes `wb resume`/the picker's accept-on-a-dormant-row un-shelve a
+# task, since both go through cmd_new -> wb_seed_task.
+printf -- '---\nstatus: paused\nrepo: dotfiles\nbranch: feat/shelved\nworktree: .worktrees/feat/shelved\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Shelved\n' \
+  > "$FIXTURE/dotfiles--feat-shelved.md"
+wb_seed_task dotfiles feat/shelved .worktrees/feat/shelved >/dev/null
+assert "wb_seed_task: paused -> doing on resume" '^doing$' "$(wb_get_frontmatter "$FIXTURE/dotfiles--feat-shelved.md" status)"
+
+# a `done` or `review` task must NOT be silently flipped — only planned and
+# paused are "not yet started" / "shelved" states this un-shelve applies to.
+printf -- '---\nstatus: review\nrepo: dotfiles\nbranch: feat/inreview\nworktree: .worktrees/feat/inreview\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# In Review\n' \
+  > "$FIXTURE/dotfiles--feat-inreview.md"
+wb_seed_task dotfiles feat/inreview .worktrees/feat/inreview >/dev/null
+assert "wb_seed_task: review status is left alone" '^review$' "$(wb_get_frontmatter "$FIXTURE/dotfiles--feat-inreview.md" status)"
+
 # Source-text guard: cmd_resume calls the helper, cmd_new's own body never
 # does — the structural rule the runtime check above can't fully pin down
 # on its own (a passing runtime check plus an absent call in cmd_new is

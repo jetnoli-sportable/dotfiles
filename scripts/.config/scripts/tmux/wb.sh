@@ -744,7 +744,13 @@ wb_seed_task() {
       [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
     fi
 
-    [ "$(wb_get_frontmatter "$file" status)" != planned ] || wb_set_frontmatter "$file" status doing
+    # R5/U4: resuming a shelved task flips it back to doing, exactly like
+    # the pre-existing planned->doing flip below — a `paused` task was
+    # deliberately shelved, not abandoned, so `wb new`/`wb resume` bringing
+    # it back is itself the "un-shelve" action.
+    case "$(wb_get_frontmatter "$file" status)" in
+      planned|paused) wb_set_frontmatter "$file" status doing ;;
+    esac
     # reviewed: has no inferred value (unlike repo/branch/worktree above) —
     # it starts blank and is only ever stamped by cmd_reviewed. This just
     # backfills the KEY onto task files that predate it in the schema, same
@@ -942,14 +948,17 @@ wb_seed_planned_child() {
   echo "$file"
 }
 
-# wb_layout_session <session> <dir> <start_agent> — first-time-only 3-window
-# layout: win1 an editor shell (LAZY — the nvim launch is pre-typed but not
-# run, so nvim/LSP start only when you visit and press Enter), win2 a plain
-# shell for the agent (LAZY — you run `claude` yourself the first time you
-# visit, bounded by the ~10-concurrent-agent memory ceiling; pass start_agent=1,
-# i.e. `wb new --agent`, to start it now), win3 shell.
+# wb_layout_session <session> <dir> <start_agent> [<agent_cmd>] —
+# first-time-only 3-window layout: win1 an editor shell (LAZY — the nvim
+# launch is pre-typed but not run, so nvim/LSP start only when you visit and
+# press Enter), win2 a plain shell for the agent (LAZY — you run `claude`
+# yourself the first time you visit, bounded by the ~10-concurrent-agent
+# memory ceiling; pass start_agent=1, i.e. `wb new --agent`, to start it
+# now), win3 shell. <agent_cmd> (U4/R9) is the command win2 pre-types
+# instead of a bare "claude" — a warm `claude --resume <id>`/`claude
+# --continue` when the caller resolved one, empty for a brand-new task.
 wb_layout_session() {
-  local session="$1" dir="$2" start_agent="$3"
+  local session="$1" dir="$2" start_agent="$3" agent_cmd="${4:-}"
   tmux rename-window -t "=$session:1" nvim
   # LAZY editor, mirroring the agent window below: we PRE-TYPE the nvim launch
   # into win1 but deliberately DON'T send Enter, so nvim + its LSP (gopls in
@@ -975,7 +984,19 @@ wb_layout_session() {
   # exit. Recover a dead one with prefix+E (respawn-pane, tmux.conf). Explicit
   # kills (wb done --close, ctrl-x) are unaffected — they destroy regardless.
   tmux set-option -w -t "=$session:agent" remain-on-exit on
-  [ "$start_agent" = 1 ] && tmux send-keys -t "=$session:agent" "claude" Enter
+  # U4/R9: <agent_cmd> lets the caller pre-type a warm `claude --resume <id>`
+  # / `claude --continue` instead of the bare "claude" — same lazy-launch
+  # rule as the nvim window above, just parameterized: --agent (start_agent=1)
+  # presses Enter on whatever command was resolved (falling back to plain
+  # "claude" when there's nothing to resume, i.e. today's exact behavior);
+  # the default lazy path pre-types it without Enter, and types NOTHING at
+  # all when there's no id/history to resume from (a brand-new task) — never
+  # eagerly starting an agent just because a command string happens to exist.
+  if [ "$start_agent" = 1 ]; then
+    tmux send-keys -t "=$session:agent" "${agent_cmd:-claude}" Enter
+  elif [ -n "$agent_cmd" ]; then
+    tmux send-keys -t "=$session:agent" "$agent_cmd"
+  fi
   tmux new-window -t "=$session" -n shell -c "$dir"
   tmux select-window -t "=$session:1"
 }
@@ -1227,7 +1248,23 @@ cmd_new() {
   tmux set-option -t "=$session:" @wb_repo "$repo" >/dev/null
   tmux set-option -t "=$session:" @wb_slug "$slug" >/dev/null
   tmux set-option -t "=$session:" @task "$task_file" >/dev/null
-  [ "$is_new" = 1 ] && wb_layout_session "$session" "$worktree_path" "$agent_flag"
+  if [ "$is_new" = 1 ]; then
+    # R9/U4: resolve what the agent window should pre-type. Preference
+    # order — a resumable transcript (wb_resume_id, U2) beats a plain
+    # `--continue`, which beats typing nothing for a genuinely new task.
+    # "Has this task been touched by a wb verb before" (a Handoffs entry)
+    # is the signal for "not brand new" when no transcript survives —
+    # `--continue` on a truly untouched task would have nothing to do
+    # anyway, so the distinction only matters for what gets pre-typed.
+    local agent_cmd="" resume_id
+    resume_id="$(wb_resume_id "$task_file" "$worktree_path")"
+    if [ -n "$resume_id" ]; then
+      agent_cmd="claude --resume $resume_id"
+    elif awk '/^## Handoffs$/ { p = 1; next } /^## / { p = 0 } p && /^### / { f = 1 } END { exit !f }' "$task_file"; then
+      agent_cmd="claude --continue"
+    fi
+    wb_layout_session "$session" "$worktree_path" "$agent_flag" "$agent_cmd"
+  fi
 
   tmux_focus "$session"
 }

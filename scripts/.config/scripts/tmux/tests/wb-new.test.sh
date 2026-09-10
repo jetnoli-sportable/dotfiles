@@ -14,6 +14,7 @@ WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-new-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-new-tasks.XXXXXX)"
 FIXTURE_BIN="$(mktemp -d -t wb-new-bin.XXXXXX)"
+FIXTURE_PROJECTS="$(mktemp -d -t wb-new-projects.XXXXXX)"   # fixture ~/.claude/projects (U4)
 SOCK="wb-new-sock-$$"
 REAL_TMUX="$(command -v tmux)"
 
@@ -26,7 +27,7 @@ PATH="$FIXTURE_BIN:$PATH"
 
 cleanup() {
   "$REAL_TMUX" -L "$SOCK" kill-server 2>/dev/null || true
-  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_BIN"
+  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_BIN" "$FIXTURE_PROJECTS"
 }
 trap cleanup EXIT
 
@@ -75,6 +76,7 @@ printf -- '---\nstatus: done\nrepo: proj\nbranch: done-task\nworktree: .worktree
 # was about; never touch $HOME/code from this test.
 export CODE_DIR="$FIXTURE_CODE"
 export TASKS_DIR="$FIXTURE_TASKS"
+export CLAUDE_PROJECTS_DIR="$FIXTURE_PROJECTS"
 
 # shellcheck disable=SC1090
 source "$WB"
@@ -325,5 +327,67 @@ assert_eq "combined flags: depends_on: recorded" "proj--existing" "$depends_val"
 tmux has-session -t "=proj--combo-a:agent" 2>/dev/null
 assert_eq "combined flags: agent window exists (--agent still took effect)" 0 $?
 tmux kill-session -t "=proj--combo-a" 2>/dev/null
+
+# --- U4: warm relaunch — what wb_layout_session pre-types in win2 ----------
+
+mk_transcript() { # <worktree_abs> <id> <touch-date>
+  local dir; dir="$(wb_transcript_dir "$1")"
+  mkdir -p "$dir"
+  printf '{}' > "$dir/$2.jsonl"
+  touch -d "$3" "$dir/$2.jsonl"
+}
+
+# a brand-new task -> nothing pre-typed in the agent window (today's exact
+# behavior; no transcript, no Handoffs history to fall back to either).
+cmd_new proj fresh >/dev/null 2>&1
+pane="$(tmux capture-pane -p -t "=proj--fresh:agent" 2>/dev/null)"
+if printf '%s' "$pane" | grep -q claude; then
+  echo "FAIL - fresh task: agent window unexpectedly has 'claude' pre-typed"; fail=1
+else
+  echo "ok   - fresh task: agent window has nothing pre-typed"
+fi
+tmux kill-session -t "=proj--fresh" 2>/dev/null
+
+# an existing task, no live session, a transcript on disk for its worktree
+# -> the agent window pre-types `claude --resume <id>` with NO Enter (the
+# lazy-launch rule): create the task file + worktree directly (bypassing
+# cmd_new's own creation path, mirroring "a session that was closed with
+# wb down and is now being resumed"), seed one transcript, then call
+# cmd_new to bring the session back.
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat/warm\nworktree: .worktrees/feat/warm\nparent:\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Warm\n' \
+  > "$FIXTURE_TASKS/proj--feat-warm.md"
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat/warm "$FIXTURE_CODE/proj/.worktrees/feat/warm" >/dev/null 2>&1
+mk_transcript "$FIXTURE_CODE/proj/.worktrees/feat/warm" warm-id-123 2026-09-05T00:00:00
+cmd_new proj feat/warm >/dev/null 2>&1
+pane="$(tmux capture-pane -p -t "=proj--feat-warm:agent" 2>/dev/null)"
+assert "resume with a transcript: pre-types claude --resume <id>" 'claude --resume warm-id-123' "$pane"
+tmux kill-session -t "=proj--feat-warm" 2>/dev/null
+
+# an existing task with prior Handoffs entries but NO transcript on disk
+# (retention purge, or the conversation ran before this feature existed) ->
+# falls back to a pre-typed `claude --continue`, never a cold "claude".
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat/history\nworktree: .worktrees/feat/history\nparent:\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# History\n\n## Handoffs\n\n### 2026-09-01 09:00 — wb pause (auto)\n\nSession paused via `wb pause`.\n' \
+  > "$FIXTURE_TASKS/proj--feat-history.md"
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat/history "$FIXTURE_CODE/proj/.worktrees/feat/history" >/dev/null 2>&1
+cmd_new proj feat/history >/dev/null 2>&1
+pane="$(tmux capture-pane -p -t "=proj--feat-history:agent" 2>/dev/null)"
+assert "resume with Handoffs history, no transcript: pre-types claude --continue" 'claude --continue' "$pane"
+tmux kill-session -t "=proj--feat-history" 2>/dev/null
+
+# --agent + a transcript: the resume command is actually SENT (Enter
+# pressed), not left sitting at the prompt — asserted by the command text
+# still being visible in the pane (either as the shell's own echo of what
+# it ran, or the "command not found" tail if the fixture PATH has no real
+# `claude` binary — either way proves send-keys included Enter with the
+# resolved command, not a bare "claude").
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat/warm-agent\nworktree: .worktrees/feat/warm-agent\nparent:\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Warm Agent\n' \
+  > "$FIXTURE_TASKS/proj--feat-warm-agent.md"
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat/warm-agent "$FIXTURE_CODE/proj/.worktrees/feat/warm-agent" >/dev/null 2>&1
+mk_transcript "$FIXTURE_CODE/proj/.worktrees/feat/warm-agent" warm-agent-id 2026-09-06T00:00:00
+cmd_new --agent proj feat/warm-agent >/dev/null 2>&1
+sleep 0.2   # let the shell finish echoing the submitted command line
+pane="$(tmux capture-pane -p -t "=proj--feat-warm-agent:agent" 2>/dev/null)"
+assert "--agent + transcript: resume command was submitted, not left bare" 'claude --resume warm-agent-id' "$pane"
+tmux kill-session -t "=proj--feat-warm-agent" 2>/dev/null
 
 exit "$fail"
