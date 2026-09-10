@@ -116,10 +116,13 @@ wb_set_frontmatter() {
 }
 
 # wb_read_task <file> — print "status\trepo\tworktree\tbranch\tpath\t
-# depends_on\treviewed" in one pass (used by the picker's row collection,
-# which reads every task file on each refresh, and by the board pre-pass —
-# board-display-v2's KTD-1 extends this rather than adding three more
-# per-field wb_get_frontmatter reads per task).
+# depends_on\treviewed\tclaude_sessions" in one pass (used by the picker's
+# row collection, which reads every task file on each refresh, and by the
+# board pre-pass — board-display-v2's KTD-1 extends this rather than adding
+# three more per-field wb_get_frontmatter reads per task). claude_sessions
+# (U2) is appended as an 8th field, never inserted mid-row — every existing
+# caller destructures fields 1-7 by position and would silently shift if a
+# new field landed anywhere else.
 wb_read_task() {
   awk '
     # clip() strips a trailing inline comment ("value  # note") plus edge
@@ -127,16 +130,17 @@ wb_read_task() {
     # so any seeded task carries one, and an uncomment-stripped status
     # breaks every consumer that compares it (board rank, picker column).
     function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
-    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = "" }
+    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = ""; sessions = "" }
     /^---$/ { infm++; if (infm == 2) exit; next }
-    infm == 1 && /^status:/      { s = $0; sub(/^status:[ \t]*/,      "", s); status   = clip(s) }
-    infm == 1 && /^repo:/        { s = $0; sub(/^repo:[ \t]*/,        "", s); repo     = clip(s) }
-    infm == 1 && /^worktree:/    { s = $0; sub(/^worktree:[ \t]*/,    "", s); worktree = clip(s) }
-    infm == 1 && /^branch:/      { s = $0; sub(/^branch:[ \t]*/,      "", s); branch   = clip(s) }
-    infm == 1 && /^path:/        { s = $0; sub(/^path:[ \t]*/,        "", s); path     = clip(s) }
-    infm == 1 && /^depends_on:/  { s = $0; sub(/^depends_on:[ \t]*/,  "", s); deps     = clip(s) }
-    infm == 1 && /^reviewed:/    { s = $0; sub(/^reviewed:[ \t]*/,    "", s); reviewed = clip(s) }
-    END { printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, repo, worktree, branch, path, deps, reviewed }
+    infm == 1 && /^status:/          { s = $0; sub(/^status:[ \t]*/,          "", s); status   = clip(s) }
+    infm == 1 && /^repo:/            { s = $0; sub(/^repo:[ \t]*/,            "", s); repo     = clip(s) }
+    infm == 1 && /^worktree:/        { s = $0; sub(/^worktree:[ \t]*/,        "", s); worktree = clip(s) }
+    infm == 1 && /^branch:/          { s = $0; sub(/^branch:[ \t]*/,          "", s); branch   = clip(s) }
+    infm == 1 && /^path:/            { s = $0; sub(/^path:[ \t]*/,            "", s); path     = clip(s) }
+    infm == 1 && /^depends_on:/      { s = $0; sub(/^depends_on:[ \t]*/,      "", s); deps     = clip(s) }
+    infm == 1 && /^reviewed:/        { s = $0; sub(/^reviewed:[ \t]*/,        "", s); reviewed = clip(s) }
+    infm == 1 && /^claude_sessions:/ { s = $0; sub(/^claude_sessions:[ \t]*/, "", s); sessions = clip(s) }
+    END { printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, repo, worktree, branch, path, deps, reviewed, sessions }
   ' "$1"
 }
 
@@ -161,6 +165,112 @@ wb_task_files() {
     esac
     echo "$f"
   done
+}
+
+# ---------------------------------------------------------------------------
+# Claude transcript store (U2) — the activity axis's real source of truth.
+# Claude Code keeps one .jsonl file per conversation under
+# ~/.claude/projects/<encoded-cwd>/, where the encoding is the absolute cwd
+# with every "/" replaced by "-". A wb task's worktree IS that cwd, so
+# "does this worktree have transcripts" and "what's the newest one" answer
+# both halves of "is this task warm" (KTD1/KTD2) with zero writes of our
+# own — no hook state, no sidecar, nothing to go stale except by Claude's
+# own retention window (cleanupPeriodDays, default 30 days). The
+# claude_sessions: frontmatter field is a snapshot for the board/record
+# only (wb_sessions_snapshot, near cmd_down) — it is never consulted here.
+# ---------------------------------------------------------------------------
+
+# wb_transcript_dir <worktree_abs> — the directory Claude Code stores
+# <worktree_abs>'s conversations under. Claude Code's own encoding replaces
+# every "/" AND "." with "-" (verified against this very worktree: path
+# .../dotfiles/.worktrees/<slug> encodes to .../dotfiles--worktrees-<slug>,
+# not .../dotfiles-.worktrees-<slug> — the "/." pair collapses to "--", not
+# "-."). Override CLAUDE_PROJECTS_DIR in tests to point this at a fixture
+# root instead of the real ~/.claude/projects.
+wb_transcript_dir() {
+  printf '%s/%s\n' "${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}" "$(printf '%s' "$1" | tr './' '--')"
+}
+
+# wb_transcripts <worktree_abs> — "<id>\t<mtime-epoch>" per conversation
+# recorded for <worktree_abs>, newest first. Empty output (exit 0, not an
+# error) when the directory doesn't exist or holds no transcripts — "no
+# transcripts" is the cold/dormant boundary, not a failure. Reads only
+# *.jsonl directly under the directory — Claude Code also nests a
+# same-named subagent-transcript subdirectory per session there, which
+# this deliberately ignores (a subagent run is not a resumable top-level
+# conversation).
+wb_transcripts() {
+  local dir; dir="$(wb_transcript_dir "$1")"
+  [ -d "$dir" ] || return 0
+  local f mtime
+  for f in "$dir"/*.jsonl; do
+    [ -f "$f" ] || continue
+    mtime="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+    printf '%s\t%s\n' "$(basename "$f" .jsonl)" "$mtime"
+  done | sort -t $'\t' -k2,2nr
+}
+
+# wb_resume_id <task_file> <worktree_abs> — the session id `--resume` should
+# use (R9): the id marked `@primary` in claude_sessions: when its transcript
+# still exists, else the worktree's newest transcript, else empty (nothing
+# to resume — the caller falls back to `--continue` or a cold start).
+wb_resume_id() {
+  local task_file="$1" worktree_abs="$2"
+  local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"
+  [ -n "$transcripts" ] || return 0
+
+  local field entry primary_id=""
+  field="$(wb_get_frontmatter "$task_file" claude_sessions)"
+  if [ -n "$field" ]; then
+    local -a _wb_sessions_entries
+    IFS=',' read -r -a _wb_sessions_entries <<< "$field"
+    for entry in "${_wb_sessions_entries[@]}"; do
+      case "$entry" in
+        *@primary) primary_id="${entry%%@*}" ;;
+      esac
+    done
+  fi
+  if [ -n "$primary_id" ] && printf '%s\n' "$transcripts" | cut -f1 | grep -qxF "$primary_id"; then
+    printf '%s\n' "$primary_id"
+    return 0
+  fi
+  printf '%s\n' "$transcripts" | head -n1 | cut -f1
+}
+
+# wb_sessions_snapshot <session> <worktree_abs> — "<id>@<iso-ts>[@primary],..."
+# oldest first, for every transcript currently on disk for <worktree_abs>.
+# When <session> is live, the id belonging to its `agent`-window pane's
+# @claude_session_id (set by claude-notify-hook.sh) is marked @primary
+# (KTD3) — that pane is the task's main conversation by construction
+# (wb_layout_session always creates it there). <session> may be empty or
+# already gone; the snapshot still builds from disk, just with no primary
+# marked. Record-only (KTD2): nothing downstream re-derives activity from
+# this field, only wb_resume_id's primary-preference hint above.
+wb_sessions_snapshot() {
+  local session="$1" worktree_abs="$2"
+  local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"
+  [ -n "$transcripts" ] || return 0
+
+  local primary_sid="" agent_pane
+  if [ -n "$session" ] && tmux has-session -t "=$session" 2>/dev/null; then
+    agent_pane="$(tmux list-panes -s -t "=$session:" -F '#{window_name}\t#{pane_id}' 2>/dev/null \
+      | awk -F'\t' '$1 == "agent" { print $2; exit }')"
+    [ -n "$agent_pane" ] && primary_sid="$(tmux show -p -v -t "$agent_pane" @claude_session_id 2>/dev/null || true)"
+  fi
+
+  local id ts iso line
+  local -a entries=()
+  while IFS=$'\t' read -r id ts; do
+    [ -n "$id" ] || continue
+    iso="$(date -u -d "@$ts" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+    [ -n "$iso" ] || iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    line="$id@$iso"
+    [ -n "$primary_sid" ] && [ "$id" = "$primary_sid" ] && line="$line@primary"
+    entries+=("$line")
+  done < <(printf '%s\n' "$transcripts" | tac)
+
+  local IFS=','
+  printf '%s\n' "${entries[*]}"
 }
 
 # wb_sanitize <slug> — slug -> display form for tmux session names / filenames

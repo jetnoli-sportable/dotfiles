@@ -158,5 +158,76 @@ else
   echo "FAIL - cmd_new: --parent validation must run before touching the repo"; fail=1
 fi
 
+# --- claude_sessions: schema + transcript helpers (U2) ----------------------
+
+# wb_set_frontmatter inserts a missing claude_sessions: key before the
+# closing --- on a pre-existing file that predates the field.
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Old Schema\n' \
+  > "$FIXTURE/proj--oldschema.md"
+wb_set_frontmatter "$FIXTURE/proj--oldschema.md" claude_sessions 'abc@2026-09-01T00:00:00Z'
+assert "wb_set_frontmatter: inserts claude_sessions: before closing ---" \
+  '^abc@2026-09-01T00:00:00Z$' "$(wb_get_frontmatter "$FIXTURE/proj--oldschema.md" claude_sessions)"
+assert "wb_set_frontmatter: claude_sessions: lands inside the frontmatter block" \
+  '^claude_sessions: abc@2026-09-01T00:00:00Z$' "$(sed -n '/^---$/,/^---$/p' "$FIXTURE/proj--oldschema.md" | grep '^claude_sessions:')"
+
+# wb_read_task returns the same field count with and without the key set.
+mk_task 'proj--noclaudesessions.md' doing proj 'No Sessions'
+fields_without="$(wb_read_task "$FIXTURE/proj--noclaudesessions.md" | awk -F'\t' '{print NF}')"
+fields_with="$(wb_read_task "$FIXTURE/proj--oldschema.md" | awk -F'\t' '{print NF}')"
+assert "wb_read_task: 8 fields without claude_sessions:" '^8$' "$fields_without"
+assert "wb_read_task: 8 fields with claude_sessions: set" '^8$' "$fields_with"
+assert "wb_read_task: 8th field carries claude_sessions:" \
+  'abc@2026-09-01T00:00:00Z$' "$(wb_read_task "$FIXTURE/proj--oldschema.md")"
+
+# wb_transcript_dir encodes the absolute worktree path under CLAUDE_PROJECTS_DIR,
+# collapsing "/." to "--" (Claude Code's own encoding — verified against this
+# worktree's own transcript dir name), not "-.".
+assert "wb_transcript_dir: encodes / and . as -" \
+  '^/fake/projects/-home-x-code-r--worktrees-a$' \
+  "$(CLAUDE_PROJECTS_DIR=/fake/projects wb_transcript_dir /home/x/code/r/.worktrees/a)"
+
+# wb_transcripts: newest-first from a fixture transcript dir; empty dir -> no output.
+TR_FIXTURE="$(mktemp -d -t wb-schema-transcripts.XXXXXX)"
+WT_DIR="$TR_FIXTURE/wt"
+mkdir -p "$WT_DIR"
+enc="$(printf '%s' "$WT_DIR" | tr './' '--')"
+mkdir -p "$TR_FIXTURE/projects/$enc"
+printf '{}' > "$TR_FIXTURE/projects/$enc/older-id.jsonl"
+touch -d '2026-09-01T00:00:00' "$TR_FIXTURE/projects/$enc/older-id.jsonl"
+printf '{}' > "$TR_FIXTURE/projects/$enc/newer-id.jsonl"
+touch -d '2026-09-05T00:00:00' "$TR_FIXTURE/projects/$enc/newer-id.jsonl"
+out="$(CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_transcripts "$WT_DIR")"
+assert "wb_transcripts: newest id first" '^newer-id\s' "$out"
+assert "wb_transcripts: both ids present" 'older-id' "$out"
+empty_out="$(CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_transcripts "$TR_FIXTURE/nope" 2>&1)"; rc=$?
+if [ -z "$empty_out" ] && [ "$rc" -eq 0 ]; then
+  echo "ok   - wb_transcripts: no transcript dir -> no output, exit 0"
+else
+  echo "FAIL - wb_transcripts: no transcript dir -> no output, exit 0 (got rc=$rc, out=$empty_out)"; fail=1
+fi
+
+# wb_resume_id preference order: primary-with-transcript > newest > empty.
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\nclaude_sessions: older-id@2026-09-01T00:00:00Z@primary,newer-id@2026-09-05T00:00:00Z\n---\n# Primary\n' \
+  > "$FIXTURE/proj--primary.md"
+out="$(CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_resume_id "$FIXTURE/proj--primary.md" "$WT_DIR")"
+assert "wb_resume_id: primary id with a live transcript wins over newest" '^older-id$' "$out"
+
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\nclaude_sessions: gone-id@2026-08-01T00:00:00Z@primary\n---\n# Gone Primary\n' \
+  > "$FIXTURE/proj--goneprimary.md"
+out="$(CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_resume_id "$FIXTURE/proj--goneprimary.md" "$WT_DIR")"
+assert "wb_resume_id: primary id whose transcript is gone falls back to newest" '^newer-id$' "$out"
+
+out="$(CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_resume_id "$FIXTURE/proj--noclaudesessions.md" "$WT_DIR")"
+assert "wb_resume_id: no claude_sessions: field falls back to newest" '^newer-id$' "$out"
+
+out="$(CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_resume_id "$FIXTURE/proj--primary.md" "$TR_FIXTURE/nope-worktree")"
+if [ -z "$out" ]; then
+  echo "ok   - wb_resume_id: no transcripts at all -> empty"
+else
+  echo "FAIL - wb_resume_id: no transcripts at all -> empty (got '$out')"; fail=1
+fi
+
+rm -rf "$TR_FIXTURE"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
