@@ -15,6 +15,21 @@ directory instead of replacing it.
 - `skills/parked-items/` — weekly review of parked items
 - `skills/pr-review-session/` — PR review worktree/tmux sessions
 
+## Vendored (third-party, via `npx skills`)
+
+Installed with `npx skills add <owner/repo@skill> -a claude-code --copy -y`
+run from `claude/` so the files land in the stow source. `claude/skills-lock.json`
+records source + hash; update with `npx skills update` from the same dir, then
+re-run `stow --no-folding -t "$HOME" claude` for any new skill dirs. Don't
+hand-edit vendored SKILL.md files — the lockfile hash would drift; override
+paths/vocabulary in the invocation prompt instead.
+
+- `skills/find-skills/` — vercel-labs/skills; search skills.sh from inside a session
+- `skills/write-product-spec/` — warpdotdev/common-skills; PRD as numbered, testable
+  behaviour invariants (consumer's perspective, no implementation)
+- `skills/write-tech-spec/` — warpdotdev/common-skills; companion implementation
+  spec, code-grounded, maps tests to the product spec's invariants
+
 ## Deliberately NOT tracked (this pass)
 
 - `~/.claude/settings.json` — mixes machine-local state (enabled plugins,
