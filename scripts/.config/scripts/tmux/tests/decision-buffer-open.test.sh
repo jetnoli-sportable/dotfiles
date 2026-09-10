@@ -346,5 +346,112 @@ printf 'this is now different content\n' > "$CARRY_DOC"
 bash "$SCRIPT" --manual "$CARRY_DOC" >/dev/null 2>&1
 assert_eq "carry-forward from closed=1: reopen_count resets to 0 on new content" "0" "$(state_field "$CARRY_SF" reopen_count)"
 
+# ===========================================================================
+# prepare_open's OWN duplicate-waiter guard (distinct from --reattach's copy
+# of the same check, already covered above) — this is the one every FRESH
+# open (--tmux/--terminal/--manual) actually goes through in practice, and
+# is exercised here via --manual since it needs no real tmux/gnome-terminal.
+# ===========================================================================
+FRESH_WAIT_DOC="$FIXTURE/docs/fresh-open-live-waiter.md"
+printf 'being waited on by a fresh-open attempt\n' > "$FRESH_WAIT_DOC"
+FRESH_WAIT_SF="$(state_path_for "$FRESH_WAIT_DOC")"
+{
+  printf 'chan=decision-buffer-done-test-freshwait\n'
+  printf 'pane_id=%%2\n'
+  printf 'mode=manual\n'
+  printf 'opened_at=%s\n' "$(date +%s)"
+  printf 'caller_pid=%s\n' "$$"   # the test's own pid — guaranteed alive
+  printf 'content_hash=deadbeef\n'
+  printf 'reopen_count=0\n'
+  printf 'closed=0\n'
+} > "$FRESH_WAIT_SF"
+before_fw_mtime="$(stat -c %Y "$FRESH_WAIT_SF" 2>/dev/null || stat -f %m "$FRESH_WAIT_SF")"
+out_freshwait="$(bash "$SCRIPT" --manual "$FRESH_WAIT_DOC" 2>&1)"; rc_freshwait=$?
+assert_eq "prepare_open duplicate-waiter: fresh --manual open exits 1" "1" "$rc_freshwait"
+assert "prepare_open duplicate-waiter: already-waiting message" "already waiting" "$out_freshwait"
+after_fw_mtime="$(stat -c %Y "$FRESH_WAIT_SF" 2>/dev/null || stat -f %m "$FRESH_WAIT_SF")"
+assert_eq "prepare_open duplicate-waiter: state file not overwritten" "$before_fw_mtime" "$after_fw_mtime"
+assert_eq "prepare_open duplicate-waiter: reopen_count untouched" "0" "$(state_field "$FRESH_WAIT_SF" reopen_count)"
+
+# ===========================================================================
+# mode_tmux's own "not inside tmux" guard — no real tmux needed, just an
+# unset $TMUX.
+# ===========================================================================
+NOTMUX_DOC="$FIXTURE/docs/not-in-tmux.md"
+printf 'irrelevant\n' > "$NOTMUX_DOC"
+out_notmux="$(env -u TMUX bash "$SCRIPT" --tmux "$NOTMUX_DOC" 2>&1)"; rc_notmux=$?
+assert_eq "mode_tmux, no TMUX: exits 2" "2" "$rc_notmux"
+assert "mode_tmux, no TMUX: reports not inside tmux" "not inside tmux" "$out_notmux"
+assert_eq "mode_tmux, no TMUX: writes no state file" "" "$([ -f "$(state_path_for "$NOTMUX_DOC")" ] && echo present)"
+
+# ===========================================================================
+# --reattach against a state file recorded by a non-tmux mode (terminal here)
+# — "reattach not supported outside tmux", distinct from every other
+# --reattach scenario above (all of which recorded mode=tmux).
+# ===========================================================================
+NONTMUX_MODE_DOC="$FIXTURE/docs/reattach-nontmux-mode.md"
+printf 'opened via --terminal, never --tmux\n' > "$NONTMUX_MODE_DOC"
+NONTMUX_MODE_SF="$(state_path_for "$NONTMUX_MODE_DOC")"
+DEAD_NONTMUX="$(dead_pid)"
+{
+  printf 'chan=\n'
+  printf 'pane_id=\n'
+  printf 'mode=terminal\n'
+  printf 'opened_at=%s\n' "$(date +%s)"
+  printf 'caller_pid=%s\n' "$DEAD_NONTMUX"
+  printf 'content_hash=deadbeef\n'
+  printf 'reopen_count=0\n'
+  printf 'closed=1\n'
+} > "$NONTMUX_MODE_SF"
+out_nontmux_mode="$(PATH="$FIXTURE/bin:$PATH" TMUX="fake-session" TMUX_PANE="%0" \
+  bash "$SCRIPT" --reattach "$NONTMUX_MODE_DOC" 2>&1)"; rc_nontmux_mode=$?
+assert_eq "reattach, recorded mode=terminal: exits 0 (closed=1 short-circuits first)" "0" "$rc_nontmux_mode"
+assert "reattach, recorded mode=terminal: already-closed-normally message" "already closed normally" "$out_nontmux_mode"
+
+# Same recorded mode, but closed=0 (a stuck/interrupted --terminal open,
+# the actual case the "reattach not supported outside tmux" message exists
+# for) — now the mode check is what fires.
+NONTMUX_MODE_OPEN_DOC="$FIXTURE/docs/reattach-nontmux-mode-open.md"
+printf 'opened via --terminal, still open\n' > "$NONTMUX_MODE_OPEN_DOC"
+NONTMUX_MODE_OPEN_SF="$(state_path_for "$NONTMUX_MODE_OPEN_DOC")"
+DEAD_NONTMUX_OPEN="$(dead_pid)"
+{
+  printf 'chan=\n'
+  printf 'pane_id=\n'
+  printf 'mode=terminal\n'
+  printf 'opened_at=%s\n' "$(date +%s)"
+  printf 'caller_pid=%s\n' "$DEAD_NONTMUX_OPEN"
+  printf 'content_hash=deadbeef\n'
+  printf 'reopen_count=0\n'
+  printf 'closed=0\n'
+} > "$NONTMUX_MODE_OPEN_SF"
+out_nontmux_mode_open="$(PATH="$FIXTURE/bin:$PATH" TMUX="fake-session" TMUX_PANE="%0" \
+  bash "$SCRIPT" --reattach "$NONTMUX_MODE_OPEN_DOC" 2>&1)"; rc_nontmux_mode_open=$?
+assert_eq "reattach, recorded mode=terminal (still open): exits 1" "1" "$rc_nontmux_mode_open"
+assert "reattach, recorded mode=terminal (still open): reattach-not-supported message" "reattach not supported outside tmux" "$out_nontmux_mode_open"
+
+# ===========================================================================
+# --reattach called from outside tmux entirely (recorded mode IS tmux, dead
+# caller_pid, but $TMUX itself is unset right now) — "reattach requires
+# being inside tmux".
+# ===========================================================================
+OUTSIDE_TMUX_DOC="$FIXTURE/docs/reattach-outside-tmux.md"
+printf 'recorded tmux, but no tmux right now\n' > "$OUTSIDE_TMUX_DOC"
+OUTSIDE_TMUX_SF="$(state_path_for "$OUTSIDE_TMUX_DOC")"
+DEAD_OUTSIDE="$(dead_pid)"
+{
+  printf 'chan=decision-buffer-done-test-outside\n'
+  printf 'pane_id=%%7\n'
+  printf 'mode=tmux\n'
+  printf 'opened_at=%s\n' "$(date +%s)"
+  printf 'caller_pid=%s\n' "$DEAD_OUTSIDE"
+  printf 'content_hash=deadbeef\n'
+  printf 'reopen_count=0\n'
+  printf 'closed=0\n'
+} > "$OUTSIDE_TMUX_SF"
+out_outside="$(env -u TMUX bash "$SCRIPT" --reattach "$OUTSIDE_TMUX_DOC" 2>&1)"; rc_outside=$?
+assert_eq "reattach, no TMUX right now: exits 1" "1" "$rc_outside"
+assert "reattach, no TMUX right now: requires-being-inside-tmux message" "reattach requires being inside tmux" "$out_outside"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
