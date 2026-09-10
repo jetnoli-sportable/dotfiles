@@ -14,6 +14,7 @@ directory instead of replacing it.
 - `skills/park/` — capture "later" items to the ledger
 - `skills/parked-items/` — weekly review of parked items
 - `skills/pr-review-session/` — PR review worktree/tmux sessions
+- `skills/spec-doc/` — requirements spec (PRD): synthesised, seams-first, Warp-style invariants + user stories; composes the vendored spec skills below
 
 ## Vendored (third-party, via `npx skills`)
 
