@@ -9,7 +9,10 @@
 #   wb board                         task-store status table (interim /board)
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
-#   wb pause [<session>]             mark a task paused — worktree and session both survive
+#   wb down [<session>]              close a session, keep the worktree — activity only, status
+#                                    untouched except -> review when the branch has an open PR
+#   wb pause [<session>]             shelve a task on purpose: status -> paused, then `wb down`
+#   wb pr-open [<session>]           exit 0 if the session's branch has an open PR, 1 otherwise
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb jira-set <repo>--<slug> <url> stamp a created Jira ticket URL into a task's jira: field
 #                                    (locked, idempotent-or-refuse) — the /wb-jira-create emit
@@ -251,10 +254,14 @@ wb_sessions_snapshot() {
   local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"
   [ -n "$transcripts" ] || return 0
 
+  # "|"-delimited, not tab: a literal "\t" inside a single-quoted -F string
+  # is passed to tmux as the two characters backslash+t, not an actual tab
+  # (bash single-quotes don't interpret escapes) — the same reason
+  # _break_out's own multi-field -F below uses "|".
   local primary_sid="" agent_pane
   if [ -n "$session" ] && tmux has-session -t "=$session" 2>/dev/null; then
-    agent_pane="$(tmux list-panes -s -t "=$session:" -F '#{window_name}\t#{pane_id}' 2>/dev/null \
-      | awk -F'\t' '$1 == "agent" { print $2; exit }')"
+    agent_pane="$(tmux list-panes -s -t "=$session:" -F '#{window_name}|#{pane_id}' 2>/dev/null \
+      | awk -F'|' '$1 == "agent" { print $2; exit }')"
     [ -n "$agent_pane" ] && primary_sid="$(tmux show -p -v -t "$agent_pane" @claude_session_id 2>/dev/null || true)"
   fi
 
@@ -1331,24 +1338,51 @@ wb_repo_worktrees() {
   '
 }
 
+# _wb_gh_pr_list <repo_dir> <branch> <state> — raw `gh pr list --json
+# number` output for <branch>/<state>. Falls back from `gh` to a personal
+# PAT (mirroring the `pgh` shell function in ~/.zshrc — reimplemented
+# inline since wb.sh is bash and pgh is a zsh function, not a standalone
+# binary an agent's Bash tool could see) when the Sportable-scoped token
+# can't see the repo. Prints the raw gh output and returns gh's own final
+# exit code — callers decide how to read it. Shared by wb_pr_merge_status
+# and wb_branch_has_open_pr (U3/KTD6) so the fallback lives in one place.
+_wb_gh_pr_list() {
+  local repo_dir="$1" branch="$2" state="$3" out rc
+  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state "$state" --json number 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state "$state" --json number 2>&1)"; rc=$?
+  fi
+  printf '%s' "$out"
+  return "$rc"
+}
+
 # wb_pr_merge_status <repo_dir> <branch> — "merged" | "not-merged" | "unknown"
-# for <branch>'s most recent PR. Falls back from `gh` to a personal PAT
-# (mirroring the `pgh` shell function in ~/.zshrc — reimplemented inline
-# since wb.sh is bash and pgh is a zsh function, not a standalone binary)
-# when the Sportable-scoped token can't see the repo. Hard rule: never
-# silently drop a finding — a gh/pgh failure reports "unknown" rather than
-# omitting the row entirely.
+# for <branch>'s most recent PR. Hard rule: never silently drop a finding —
+# a gh/pgh failure reports "unknown" rather than omitting the row entirely.
 wb_pr_merge_status() {
   local repo_dir="$1" branch="$2" out rc
-  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state merged --json number 2>&1)"; rc=$?
-  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
-    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state merged --json number 2>&1)"; rc=$?
-  fi
+  out="$(_wb_gh_pr_list "$repo_dir" "$branch" merged)"; rc=$?
   if [ "$rc" -ne 0 ]; then
     echo unknown
     return
   fi
   if printf '%s' "$out" | grep -q '"number"'; then echo merged; else echo not-merged; fi
+}
+
+# wb_branch_has_open_pr <repo_dir> <branch> — exit 0 when <branch> has an
+# open PR, exit 1 otherwise, including "couldn't tell" (KTD6): any gh/pgh
+# failure degrades to "no PR" rather than blocking `wb down`/`wb pr-open`,
+# with one stderr line so the degradation is visible, not silent. Exposed
+# as `wb pr-open` (cmd_pr_open) so a skill's Bash tool — which can't see
+# the zsh `pgh` fallback function — can still ask the question.
+wb_branch_has_open_pr() {
+  local repo_dir="$1" branch="$2" out rc
+  out="$(_wb_gh_pr_list "$repo_dir" "$branch" open)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "wb: could not check PR status for '$branch' (gh unavailable/unauthenticated) — treating as no open PR" >&2
+    return 1
+  fi
+  printf '%s' "$out" | grep -q '"number"'
 }
 
 # cmd_reconcile — two kinds of drift:
@@ -2665,16 +2699,110 @@ cmd_breakdown() {
 }
 
 # ---------------------------------------------------------------------------
-# wb pause — mark inactive without tearing anything down
+# wb down / wb pause — close a session without tearing the worktree down
 # ---------------------------------------------------------------------------
+# Two axes, deliberately kept apart (KTD1): PROGRESS (`status:`, stored,
+# changed only by an explicit verb) and ACTIVITY (derived at read time from
+# a live tmux session plus Claude's own transcript store for the worktree —
+# see wb_transcripts, U2 — never stored). `wb down` is the activity-only
+# verb: it closes the session and keeps the worktree, touching `status:`
+# only to mark `review` when the branch has an open PR. `wb pause` is the
+# progress verb: shelving a task on purpose, which composes `wb down` so a
+# paused task never has a live session left behind (the exact conflation
+# the two-axis model exists to rule out).
 
-# cmd_pause <session> — flips a task's status to `paused`. Does NOT remove
-# the worktree (that's the whole point of "paused, not abandoned") and does
-# NOT kill the tmux session (2026-07-08: "I don't want windows or sessions
-# to disappear" — same instruction wb done's session-kill removal follows).
-# Deliberately skips wb done's dirty-worktree check too: that check exists
-# because worktree REMOVAL would destroy uncommitted work, and wb pause
-# never removes the worktree, so nothing is at risk to guard against.
+# cmd_down [--keep-session] [<session>] — close <session> (or the current
+# one) while leaving the worktree untouched: snapshot every conversation
+# id currently on disk for the worktree into claude_sessions: (record-only,
+# KTD2), mark `review` when wb_branch_has_open_pr says the branch has one,
+# append a Handoffs entry, then kill the tmux session. --keep-session does
+# everything except the kill — the picker's `_down` wrapper uses it for the
+# self-target case (mirrors _ctrl_x's task-row guard: the picker commonly
+# opens inside whatever session you're already in via a bare `new-window`,
+# so closing THAT row would otherwise kill the very pane running the
+# picker). Typing `wb down` yourself from inside your own session is
+# intentional self-close and stays unguarded here, same precedent as
+# `wb done --close` (_ctrl_x's own header comment).
+cmd_down() {
+  local keep_session=0
+  local -a args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --keep-session) keep_session=1; shift ;;
+      *)               args+=("$1"); shift ;;
+    esac
+  done
+
+  local session="${args[0]:-}"
+  if [ -z "$session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb down: run inside the target session, or pass a session name" >&2; exit 1; }
+    session="$(tmux display-message -p '#S')"
+  fi
+
+  local task_file
+  task_file="$(wb_session_task_file "$session")" \
+    || { echo "wb down: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+  [ -f "$task_file" ] || { echo "wb down: no task file for $session ($task_file)" >&2; exit 1; }
+
+  local repo branch worktree_rel worktree_path
+  repo="$(wb_get_frontmatter "$task_file" repo)"
+  branch="$(wb_get_frontmatter "$task_file" branch)"
+  worktree_rel="$(wb_get_frontmatter "$task_file" worktree)"
+  [ -n "$worktree_rel" ] || worktree_rel=".worktrees/$branch"
+  worktree_path="$(wb_repo_dir "$repo")/$worktree_rel"
+
+  # Read the snapshot BEFORE the lock — it's a pure read (task lock, not
+  # tmux/disk locks), and computing it while a lock is held would extend
+  # the critical section over a `tmux list-panes` call for no reason.
+  local snapshot; snapshot="$(wb_sessions_snapshot "$session" "$worktree_path")"
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$task_file" || exit $?
+  [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
+  wb_branch_has_open_pr "$(wb_repo_dir "$repo")" "$branch" && wb_set_frontmatter "$task_file" status review
+  wb_append_handoff "$task_file" "wb down" 'Session closed via `wb down` — worktree kept.'
+  wb_task_lock_release "$task_file"
+
+  if [ "$keep_session" = 0 ]; then
+    tmux kill-session -t "=$session" 2>/dev/null || true
+  fi
+
+  echo "wb down: $session set aside — worktree and record kept, resume via the picker or \`wb resume\` ($task_file)"
+}
+
+# cmd_pr_open [<session>] — CLI wrapper over wb_branch_has_open_pr (R16):
+# exits 0 when the session's branch has an open PR, 1 otherwise. Exists so
+# a skill (whose Bash tool can't see the zsh `pgh` fallback function
+# wb_branch_has_open_pr shares with wb_pr_merge_status) can ask the
+# question without shelling out to `gh` directly.
+cmd_pr_open() {
+  local session="${1:-}"
+  if [ -z "$session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb pr-open: run inside the target session, or pass a session name" >&2; exit 1; }
+    session="$(tmux display-message -p '#S')"
+  fi
+
+  local task_file
+  task_file="$(wb_session_task_file "$session")" \
+    || { echo "wb pr-open: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+  [ -f "$task_file" ] || { echo "wb pr-open: no task file for $session ($task_file)" >&2; exit 1; }
+
+  local repo branch
+  repo="$(wb_get_frontmatter "$task_file" repo)"
+  branch="$(wb_get_frontmatter "$task_file" branch)"
+  wb_branch_has_open_pr "$(wb_repo_dir "$repo")" "$branch"
+}
+
+# cmd_pause <session> — shelves a task ON PURPOSE (KTD1's progress axis):
+# sets `status: paused`, then composes cmd_down so a paused task never has
+# a live session left behind. The lock here is released BEFORE cmd_down
+# acquires its own — wb_task_lock_acquire's flock is not re-entrant, so a
+# nested acquire from the same process would time out (exit 75) and leave
+# the task paused with the session still running, exactly the crossed-axes
+# state this model rules out (see cmd_resume's own never-nested note for
+# the same hazard in a different verb). Deliberately skips wb done's
+# dirty-worktree check: that check guards worktree REMOVAL, and neither
+# `wb pause` nor `wb down` ever removes the worktree.
 cmd_pause() {
   local session="${1:-}"
   if [ -z "$session" ]; then
@@ -2692,7 +2820,9 @@ cmd_pause() {
   wb_set_frontmatter "$task_file" status paused
   wb_append_handoff "$task_file" "wb pause" 'Session paused via `wb pause`.'
   wb_task_lock_release "$task_file"
-  echo "wb pause: $session paused — worktree and session untouched, task -> paused ($task_file)"
+  echo "wb pause: $task_file -> paused"
+
+  cmd_down "$session"
 }
 
 # ---------------------------------------------------------------------------
@@ -6121,6 +6251,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     board)       shift; cmd_board "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
+    down)        shift; cmd_down "$@" ;;
+    pr-open)     shift; cmd_pr_open "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     sync)          shift; cmd_sync "$@" ;;
