@@ -236,17 +236,17 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
   <span class="gen">docgen · generated from <b>docs/guides/decision-buffer.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span class="right">updated 2026-09-09</span>
 </div>
 <div class="shell">
   <nav class="toc">
     <div class="brand">decision-buffer</div>
-    <div class="brand-sub">Design decisions through an nvim buffer instead of a chat menu.</div>
+    <div class="brand-sub">Route decisions, reviews, and checklists through an nvim buffer instead of a chat menu.</div>
     <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#overview">Overview</a></li>
       <li><a href="#try-it-now">Try it now</a></li>
-      <li><a href="#reference">Reference</a></li>
+      <li><a href="#reference-the-choice-shapes-close-contract">Reference: the choice shape&#39;s close contract</a></li>
       <li><a href="#known-rough-edges">Known rough edges</a></li>
       <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
     </ul>
@@ -255,36 +255,90 @@
     <header class="doc guide-banner">
       <span class="eyebrow">skills · guide</span>
       <h1>decision-buffer</h1>
-      <p class="dek">Design decisions through an nvim buffer instead of a chat menu.</p>
+      <p class="dek">Route decisions, reviews, and checklists through an nvim buffer instead of a chat menu.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
     </header>
     <article>
 <h2 id="overview">Overview</h2>
-<p>When an agent is about to present two or more non-trivial design options, it
-writes a markdown decision doc and opens it in nvim <strong>where you already are</strong>
-(a tmux split), instead of firing an <code>AskUserQuestion</code> chat menu. You react
-in the editor — check boxes, strike lines, write notes inline — and closing
-the buffer hands control back: the edited doc <em>is</em> your answer.</p>
-<p>Why: decisions with real options are easier to weigh in an editor than in a
-menu, and the doc doubles as a durable decision record (<code>docs/decisions/</code> in
-repos that keep one, <code>logs/decisions/</code> scratch otherwise).</p>
+<p>The decision-buffer skill routes work into a markdown doc you answer
+asynchronously in nvim <strong>where you already are</strong> (a tmux split), instead of
+blocking the turn on chat back-and-forth or firing an <code>AskUserQuestion</code> menu.
+The trigger is no longer &quot;two or more design options&quot; — it fires whenever an
+answer is needed <strong>in writing, asynchronously, once direction is basically
+agreed</strong>: a settled choice between named approaches, sure, but also a
+findings review, a clarifying interview, or a batch of facts to confirm.</p>
+<p>The headline change from the old version: the agent <strong>aligns in chat first</strong>,
+always. It presents findings and a proposed direction, and only opens a
+buffer once you've confirmed something genuinely needs a written async
+answer — never as the first move, even mid-task. If you reply with a
+question instead, it's answered in chat, not folded into a freshly-opened
+buffer.</p>
+<p>Once aligned, the doc's shape depends on the kind of answer needed — six
+shapes, each with its own header stating exactly what closing it with
+nothing marked means:</p>
+<table>
+<thead>
+<tr>
+<th>Shape</th>
+<th>Used for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Choice</td>
+<td>A settled decision between named options</td>
+</tr>
+<tr>
+<td>Findings review</td>
+<td>Reacting to claims: agree / disagree / dig deeper / out of scope</td>
+</tr>
+<tr>
+<td>Clarifying interview</td>
+<td>Free-text answers to open questions, agent states a default</td>
+</tr>
+<tr>
+<td>Paste target</td>
+<td>An async execute-and-paste loop</td>
+</tr>
+<tr>
+<td>Confirm-facts</td>
+<td>Ticking a small batch of true/false statements</td>
+</tr>
+<tr>
+<td>Code-review triage</td>
+<td>Apply / Defer / Skip per finding</td>
+</tr>
+</tbody>
+</table>
+<p>Why: a written answer is easier to weigh in an editor than in a chat menu,
+and — for design choices specifically — the doc doubles as a starting point
+for a durable decision record (<code>docs/decisions/</code> in repos that keep one,
+<code>logs/decisions/</code> scratch otherwise; see &quot;Next steps&quot; below for what
+&quot;durable&quot; actually means now).</p>
 <h2 id="try-it-now">Try it now</h2>
 <ol>
-<li>In any Claude Code session, get to a fork in the road and say
-<strong>&quot;open a buffer for this&quot;</strong> or <strong>&quot;decision doc&quot;</strong> — or just let the
-agent hit a 2+-option design choice; the skill fires on its own.</li>
-<li>A tmux split opens with the doc in nvim. Read the Context, then:
-<ul>
-<li>mark the option you want: <code>- [x] **Choose Option A**</code></li>
-<li>write questions inline or under any <em>Questions / Notes</em> section</li>
-</ul>
-</li>
-<li>Save and close (<code>:x</code>). The split closes, the agent wakes up, answers
-your notes first, then proceeds on the checked option.</li>
+<li>In any Claude Code session, get to a point where an answer is needed in
+writing — a design fork, a findings review, an open question — and say
+<strong>&quot;open a buffer for this&quot;</strong> or <strong>&quot;decision doc&quot;</strong>, or let the agent
+reach that point on its own.</li>
+<li>First, the agent aligns with you in chat: it states what it found and
+what it proposes, and asks whether the open points should go to a
+buffer. Answer directly, or say to go ahead.</li>
+<li>A tmux split opens with the doc in nvim. Every shape's own header
+blockquote at the top tells you exactly what to do and what closing it
+with nothing marked means for that particular doc — read that first
+rather than assuming the old checkbox convention.</li>
+<li>Save and close (<code>:x</code>). The split closes, the agent wakes up, answers any
+notes first, then proceeds on what you marked.</li>
 </ol>
-<h2 id="reference">Reference</h2>
+<h2 id="reference-the-choice-shapes-close-contract">Reference: the choice shape's close contract</h2>
+<p>The table below describes the <strong>choice shape</strong> specifically — the original
+named-options decision, still the most common case. The other five shapes
+each state their own close contract in their own header (loaded from
+<code>references/shapes/*.md</code>); never assume the choice-shape table below applies
+to a findings-review or confirm-facts buffer just because it looks similar.</p>
 <table>
 <thead>
 <tr>
@@ -303,7 +357,7 @@ your notes first, then proceeds on the checked option.</li>
 </tr>
 <tr>
 <td>Check multiple options</td>
-<td>Asks whether staged/combined or accident</td>
+<td>Asks whether staged/combined or accidental</td>
 </tr>
 <tr>
 <td>Check nothing, note nothing</td>
@@ -311,33 +365,54 @@ your notes first, then proceeds on the checked option.</li>
 </tr>
 <tr>
 <td>Ask for another round</td>
-<td>Edits the same doc in place (answers appear as <code>&gt; **answer:**</code> quotes)</td>
+<td>Rewrites the doc fresh (resolved decisions collapse to a summary, still-open ones keep full detail)</td>
 </tr>
 </tbody>
 </table>
-<p>Doc structure the agent must produce: <code>## Context</code> (with <code>file:line</code> facts),
-per-option <code>### Option X</code> blocks with a Choose checkbox, inline code from the
-real codebase, pros/cons, then <code>## Recommendation</code> and <code>## Questions / Notes</code>.
-<strong>Multi-decision docs carry a <code>### Questions / Notes</code> subsection under every
-decision</strong> — not one notes section at the end (user rule, 2026-07-06).</p>
+<p>Doc structure for a choice buffer: <code>## Decision N — &lt;name&gt;</code>, per-option
+<code>### Option X</code> blocks with a Choose checkbox, inline code from the real
+codebase, pros/cons, then that decision's <strong>own</strong> <code>### Questions / Notes</code>
+subsection — directly under it, not one shared section at the doc's end.
+Every shape carries this same &quot;every question states why it's being asked
+and which stage it belongs to&quot; discipline, not just choice.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
 <li>The buffer blocks the agent until you close it — the pane shows a working
 spinner meanwhile. The <code>@claude_blocked</code> pane marker keeps the <code>wb</code> picker
 honest about it (&quot;needs you&quot;, not &quot;working&quot;).</li>
-<li>Wait-channel names must be unique per open; a stale fixed channel makes
-the agent return before you've touched the buffer. Fixed in the skill —
-worth knowing if a buffer ever &quot;answers itself&quot;.</li>
+<li><strong>Pane-gone vs. waiter-killed recovery.</strong> If the background process
+waiting on your buffer dies for some unrelated reason (a killed shell, an
+agent restart) but your nvim pane is still open, the agent re-attaches to
+the <strong>same</strong> buffer next time it looks — no data loss, no second buffer
+opened alongside the one you still have open. If instead the pane itself
+is gone (closed out of band, not via <code>:x</code>), the agent does <strong>not</strong> guess
+what you meant: it tells you plainly that the close wasn't deliberate and
+reports whatever is on disk as <strong>&quot;unconfirmed&quot;</strong> rather than acting on any
+ticks or notes it finds there. These two cases used to be indistinguishable
+(a stale fixed wait-channel could make the agent return before you'd
+touched the buffer at all) — the buffer's open now records the actual tmux
+pane id, so the two cases are told apart for real, not guessed at.</li>
 <li>Outside tmux it falls back to <code>gnome-terminal --wait</code>, then to printing a
 manual <code>! nvim &lt;path&gt;</code> command.</li>
 </ul>
 <h2 id="next-steps--reverting">Next steps / reverting</h2>
 <ul>
-<li>Finalized decisions in <code>docs/decisions/</code> get a <code>**Decided:** Option X</code>
-line; scratch docs in <code>logs/</code> need no upkeep.</li>
-<li>To bypass for one decision, say &quot;just ask in chat&quot;. The skill is a file at
-<code>claude/.claude/skills/decision-buffer/SKILL.md</code> — unstow or delete to
-retire it entirely.</li>
+<li><strong>The buffer itself is never the durable record.</strong> Its wording is
+deliberately rough — written for a fast answer, not polished prose.
+Answers get folded into the task file or plan that's actually authoritative
+as soon as the buffer closes; nothing is ever cited back to the raw buffer
+file afterward. Where the raw file then goes depends on where it was
+opened: an employer-repo buffer (tracked <code>docs/decisions/</code> or gitignored
+<code>logs/decisions/</code>) stays right where it is, with a one-line &quot;Folded into:
+<code>&lt;path&gt;</code>&quot; note; a buffer opened in <strong>this</strong> dotfiles repo's
+<code>logs/decisions/</code> moves into the current task's dossier under
+<code>decision-records/</code> instead; a buffer already written inside a dossier is
+left as-is.</li>
+<li>To bypass for one decision, say &quot;just ask in chat&quot;. The skill lives at
+<code>claude/.claude/skills/decision-buffer/SKILL.md</code>, with its mechanism
+(<code>references/mechanism.md</code>) and shapes (<code>references/shapes/*.md</code>) as
+separate files the skill loads on demand — unstow or delete the whole
+directory to retire it entirely.</li>
 </ul>
 </article>
     <footer>

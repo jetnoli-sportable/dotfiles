@@ -276,5 +276,60 @@ else
   fi
 fi
 
+# =============================================================================
+# U5 — /wb-jira-create skill: Approve-gate contract (R14, decision-buffer v2)
+# =============================================================================
+# wb-jira-create has NO bash apply step (createJiraIssue runs agent-side over
+# the Atlassian MCP), so the approve gate here is pure agent-executed prose —
+# there's no wb.sh function to unit-test. Same grep-assertion convention as
+# U4 above: not exhaustive NLP, just confirms the SKILL.md's buffer template
+# and its "Parse on return" step actually state the contract, so a future
+# edit can't silently drop it.
+
+if [ ! -f "$SKILL_FILE" ]; then
+  echo "FAIL - U5 skill grep check: $SKILL_FILE not found"
+  fail=1
+else
+  # The buffer template itself must carry a top-level Approve line, distinct
+  # from the per-ticket "create ticket" boxes.
+  if grep -qE '\[ \] \*\*Approve' "$SKILL_FILE"; then
+    echo "ok   - U5 skill grep check: buffer template carries a top-level Approve line"
+  else
+    echo "FAIL - U5 skill grep check: buffer template is missing a top-level Approve line"
+    fail=1
+  fi
+
+  # "Parse on return" (step 5) must check the Approve line, and must say it
+  # gates regardless of the per-ticket ticks' state (R14's "regardless of the
+  # per-item ticks' state" clause) — not just an all-unchecked-tickets rule.
+  if grep -qiE 'Approve line' "$SKILL_FILE" && grep -qiE 'regardless of the per-ticket' "$SKILL_FILE"; then
+    echo "ok   - U5 skill grep check: Parse-on-return states the Approve gate, independent of per-ticket state"
+  else
+    echo "FAIL - U5 skill grep check: Parse-on-return is missing the Approve-gate / per-ticket-independence language"
+    fail=1
+  fi
+
+  # The gate must be checked FIRST (before Project:/type: resolution) — grep
+  # for the Approve-line bullet appearing before the Project: select bullet
+  # inside step 5's list, using a byte-order check on the two anchors.
+  approve_pos="$(grep -n 'Approve line — checked FIRST' "$SKILL_FILE" | head -1 | cut -d: -f1)"
+  project_select_pos="$(grep -n '\*\*.Project:. select\*\*' "$SKILL_FILE" | head -1 | cut -d: -f1)"
+  if [ -n "$approve_pos" ] && [ -n "$project_select_pos" ] && [ "$approve_pos" -lt "$project_select_pos" ]; then
+    echo "ok   - U5 skill grep check: Approve gate is checked before Project:/type: resolution"
+  else
+    echo "FAIL - U5 skill grep check: Approve gate is not clearly ordered before Project:/type: resolution (approve@${approve_pos:-none}, project-select@${project_select_pos:-none})"
+    fail=1
+  fi
+
+  # R14's non-permanent-block guarantee must be stated somewhere near the
+  # Approve gate (a decline is not a permanent refusal for a later run).
+  if grep -qiE 'regenerat' "$SKILL_FILE"; then
+    echo "ok   - U5 skill grep check: states a decline does not permanently block a later run"
+  else
+    echo "FAIL - U5 skill grep check: missing the not-permanently-blocked-on-decline guarantee"
+    fail=1
+  fi
+fi
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

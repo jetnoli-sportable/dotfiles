@@ -142,12 +142,34 @@ and the MCP has been observed to drop mid-session.
 
 One buffer per invocation, at `logs/jira-create/<stem>.md` in the dotfiles
 repo (`<stem>` = the resolved single task's, or the family parent's, stem).
-**Refuse to clobber a prior unresolved buffer** — the same guard
-`/wb-breakdown` step 5 cites (`wb_reconcile_generate_review`,
-`scripts/.config/scripts/tmux/wb.sh`): if a file already exists at that
-path, still carries a `<!-- wb-jira-create:` marker, and still has any
-unchecked `- [ ]` box, stop and tell the human an unresolved proposal
-already exists there rather than overwriting it.
+
+**Refuse to clobber a prior GENUINELY OPEN buffer, keyed off state-file
+liveness, not box state (R14)** — the same rule `/wb-breakdown` step 5 now
+uses. Before authoring a fresh proposal at that path, check whether
+`logs/jira-create/<stem>.md.buffer-state` exists and whether the process it
+records is still alive — the same duplicate-waiter check
+`claude/.claude/skills/decision-buffer/scripts/open-buffer.sh` itself
+performs internally (see
+`claude/.claude/skills/decision-buffer/references/mechanism.md`'s
+"duplicate-waiter guard" section). If a live state file names a still-alive
+process, a buffer is genuinely still open right now — stop and tell the
+human rather than clobbering it. If the state file is absent, or present
+but stale (its recorded process is dead — meaning a prior buffer WAS
+closed, approved or not), the path is free to reuse:
+
+- If a prior buffer file still sits at that exact path (closed, but its
+  Approve box wasn't ticked — see step 5), **archive it first**, e.g.:
+  ```bash
+  [ -f "logs/jira-create/<stem>.md" ] && \
+    mv "logs/jira-create/<stem>.md" \
+       "logs/jira-create/<stem>.unapproved-$(date +%Y%m%dT%H%M%S).md"
+  ```
+- Then write the fresh proposal at the now-free original path.
+
+This is what makes R14's guarantee real: a declined proposal (Approve left
+unticked) never permanently blocks a later run for the same input — only a
+buffer that's *still open right now* does. Box state — which used to gate
+this refusal — no longer does at all.
 
 Grammar — one checkbox block per ticket to create; the agent (not bash)
 reads this back on return, so it is a human+agent approval surface, never a
@@ -159,9 +181,14 @@ bash-parsed grammar (KTD4):
 > Check the tickets to create. For `Project:` and each ticket's `type:`,
 > check exactly one box (or, for `Project:`, check "other:" and fill in a
 > project key). Edit `summary:` / `Parent ticket:` in place as free text.
-> Save and close. Only checked ticket blocks are created. The description
-> shown under each block is EXACTLY the text published to the shared
-> tracker — edit it here if it should read differently.
+> Save and close. Only checked ticket blocks are created — but nothing is
+> created at all unless the Approve line below is also checked. An
+> unticked Approve line leaves this run's proposal unresolved and safely
+> regeneratable; it does not block a later run. The description shown
+> under each block is EXACTLY the text published to the shared tracker —
+> edit it here if it should read differently.
+
+- [ ] **Approve — create everything ticked below**
 
 Project: (check exactly one)
 <!-- wb-jira-create: project-field default=SFB -->
@@ -208,6 +235,12 @@ Parent ticket: <blank | SFB-1234 | batch:feat-coordinator-slug>
 
 Buffer rules:
 
+- **The Approve line is one run-level gate, separate from and in addition
+  to the per-ticket `create ticket` boxes (R14).** Unticked, regardless of
+  which ticket boxes are checked, means nothing is created — step 5 checks
+  it first, before resolving anything else. It does not permanently block
+  a future proposal for the same input: see step 3's refusal-guard note
+  below for what makes a rerun free vs. blocked.
 - **The description is shown in full, verbatim — never a truncated
   preview.** The approver must see exactly what publishes to the shared
   tracker. If a `## Plan` is empty, note that and still show the (empty)
@@ -259,30 +292,38 @@ Buffer rules:
 
 ### 4. Open the buffer, blocking
 
-Same recipe `/wb-breakdown` step 6 and `decision-buffer` use — a
-`tmux split-window` with a unique-per-invocation `wait-for` channel:
+Open it where the user is, blocking until they close it, via the shared
+decision-buffer script rather than a hand-rolled recipe — it handles the
+tmux/terminal/manual fallback ladder and wait-channel uniqueness
+internally. Run it as a **background Bash call** (`run_in_background:
+true`) so closing the buffer re-invokes you; see
+`claude/.claude/skills/decision-buffer/references/mechanism.md` for the
+full contract (state file, fallback tiers, reattach).
 
-```
-Bash (run_in_background: true):
-  CHAN="wb-jira-create-done-$$-$RANDOM"
-  tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer
-  WB_REVIEW_BUFFER=1 tmux split-window -h -t "$TMUX_PANE" \
-    "nvim 'logs/jira-create/<stem>.md'; tmux wait-for -S $CHAN" \
-    && tmux wait-for "$CHAN"
-  tmux set -pu -t "$TMUX_PANE" @claude_blocked
+```bash
+claude/.claude/skills/decision-buffer/scripts/open-buffer.sh logs/jira-create/<stem>.md
 ```
 
-`WB_REVIEW_BUFFER=1` is required — it is the flag conform.nvim's
-format-on-save checks before running, so it can't silently mangle the
-buffer's HTML-comment markers (the PR #27 Sweep-buffer regression this
-convention prevents). After launching, tell the user the buffer is open and
-**end the turn** — do not poll, schedule a wakeup, or keep talking; the
-background command completing is the signal.
+After launching, tell the user the buffer is open and **end the turn** —
+do not poll, schedule a wakeup, or keep talking; the background command
+completing is the signal.
 
 ### 5. Parse on return
 
 When the background command completes, read the closed buffer fresh:
 
+- **Approve line — checked FIRST, before anything else below (R14).** If
+  the top-level `- [ ] **Approve — create everything ticked below**` line
+  is unticked, report that nothing was approved and stop — no MCP calls,
+  no `Project:`/`type:` resolution, no `wb jira-set`. This holds
+  **regardless of the per-ticket ticks' state**: an approve-unticked,
+  tickets-ticked buffer still creates nothing. Same non-reopening posture
+  as the all-unchecked rule below — the human closed it on purpose; ask
+  before trying again, don't auto-regenerate.
+- Prose under any inline note gets answered or resolved before acting on
+  anything else — same contract `decision-buffer` step 3/§6 uses. A note
+  requesting a change means the Approve tick (even if checked) is not
+  acted on until the note is resolved and the buffer is reopened.
 - Resolve the `Project:` select, each ticket's `type:` select, and any
   edited `Parent ticket:` / `summary:` field, before acting — same contract
   `decision-buffer` step 3 uses.
@@ -447,6 +488,12 @@ Optionally archive the approved buffer under
   reports it, and leaves `jira:` unset.
 - **All-unchecked close**: closing the buffer with nothing checked reports a
   clean no-op — no MCP calls, no re-open.
+- **R14 — Approve line unticked, tickets ticked**: closing the buffer with
+  the top-level Approve line unticked but one or more ticket boxes checked
+  still creates nothing — reported as not approved, zero MCP calls, before
+  even `Project:`/`type:` resolution runs. A later `/wb-jira-create` run
+  against the same input is free to regenerate (this skill's refusal guard
+  is unaffected by an Approve decline).
 - **Full-description render**: the buffer shows each ticket's entire `## Plan`
   body, not a truncated preview.
 

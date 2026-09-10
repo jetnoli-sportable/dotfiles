@@ -1866,7 +1866,7 @@ _wb_breakdown_validate() {
 
   # --- structural (hard) checks across all blocks ---------------------------
   local b kind n parent repo
-  local parent_stem="" seen_ns="" mig_count=0 mig_lines=""
+  local parent_stem="" seen_ns="" mig_count=0 mig_lines="" approve_count=0
   for b in "${blocks[@]}"; do
     kind="$(_wb_bd_field "$b" block)"
     parent="$(_wb_bd_field "$b" parent)"
@@ -1876,6 +1876,25 @@ _wb_breakdown_validate() {
     elif [ "$parent" != "$parent_stem" ]; then
       echo "wb breakdown --apply: buffer references more than one parent ($parent_stem and $parent) — a breakdown buffer is single-parent" >&2
       return 2
+    fi
+
+    if [ "$kind" = approve ]; then
+      # No plan body on this block — validate its own checkbox line for
+      # malformed-ness (never silently "none"), then move on; the actual
+      # checked/unchecked state is read separately by wb_breakdown_apply
+      # (approve is a run-level gate, not a create/migrate/move action row).
+      approve_count=$((approve_count + 1))
+      if [ "$approve_count" -gt 1 ]; then
+        echo "wb breakdown --apply: more than one Approve block in this buffer — a run-level gate must be singular, never silently pick one" >&2
+        return 2
+      fi
+      local aline; aline="$(printf '%s' "$b" | grep -P '^\s*[-*]\s*\[' | head -1)"
+      local astate; astate="$(_wb_bd_checkbox_state "$aline")"
+      if [ "$astate" = malformed ]; then
+        echo "wb breakdown --apply: malformed checkbox on the Approve line: $aline" >&2
+        return 2
+      fi
+      continue
     fi
 
     if ! _wb_bd_plan_markers_ok "$b"; then
@@ -2422,6 +2441,24 @@ _wb_breakdown_repoint_task() {
   fi
 }
 
+# _wb_bd_approve_checked <path> — true (state=checked) if the buffer's
+# run-level Approve block is ticked; false for unticked or absent
+# (missing entirely is treated as unapproved — the safe default, so an
+# older buffer authored before this gate existed never silently applies).
+_wb_bd_approve_checked() {
+  local path="$1"
+  local -a blocks=()
+  _wb_breakdown_parse_blocks "$path" blocks
+  local b
+  for b in "${blocks[@]}"; do
+    [ "$(_wb_bd_field "$b" block)" = approve ] || continue
+    local aline; aline="$(printf '%s' "$b" | grep -P '^\s*[-*]\s*\[' | head -1)"
+    [ "$(_wb_bd_checkbox_state "$aline")" = checked ]
+    return
+  done
+  return 1
+}
+
 # wb_breakdown_apply <path> — U3: the full locked apply. Validates twice
 # (once to determine the lock set, once more after acquiring it — KTD5's
 # "never trust the buffer snapshot"), executes under the sorted multi-lock,
@@ -2435,6 +2472,11 @@ wb_breakdown_apply() {
   # before `rc=$?` ever runs, masked only by this suite's own `set +e`.
   if pre_out="$(_wb_breakdown_validate "$path")"; then rc=0; else rc=$?; fi
   [ "$rc" -eq 0 ] || return "$rc"
+
+  if ! _wb_bd_approve_checked "$path"; then
+    echo "wb breakdown --apply: not approved — the top-level Approve line is unticked, nothing applied"
+    return 0
+  fi
 
   if [ -z "$pre_out" ]; then
     echo "wb breakdown --apply: nothing checked — no-op"
@@ -2470,6 +2512,11 @@ wb_breakdown_apply() {
   if [ "$rc" -ne 0 ]; then
     local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
     return "$rc"
+  fi
+  if ! _wb_bd_approve_checked "$path"; then
+    local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
+    echo "wb breakdown --apply: not approved — the top-level Approve line is unticked, nothing applied"
+    return 0
   fi
   if [ -z "$out" ]; then
     local t; for t in "${acquired[@]}"; do wb_task_lock_release "$t"; done
@@ -2778,23 +2825,50 @@ cmd_unsafe_rewind() {
 # wb done — safe wind-down
 # ---------------------------------------------------------------------------
 
-# wb_open_buffer <path> — open <path> in nvim, blocking until closed. Same
-# tmux-split + wait-for pattern as the decision-buffer / parked-items skills;
-# see ~/.claude/skills/decision-buffer/SKILL.md for why the channel must be
-# unique per open (a fixed name latches stale signals).
+# wb_open_buffer <path> — open <path> in nvim, blocking until closed. Thin
+# shim over the shared decision-buffer script
+# (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which now owns
+# the tmux-split + wait-for recipe (and its channel-uniqueness rule) for
+# every caller of it — decision-buffer, wb-done, parked-items, wb.sh's own
+# internal callers below. See
+# ~/.claude/skills/decision-buffer/references/mechanism.md for the full
+# contract. This function keeps its own signature and blocking behavior
+# unchanged so its four internal callers elsewhere in this file need no
+# change. If the shared script is missing or not executable (a stale,
+# un-restowed environment), fall back to the original inline recipe this
+# function used before the script existed.
 wb_open_buffer() {
   local path="$1"
-  # WB_REVIEW_BUFFER=1 tells conform.nvim (nvim/.config/nvim/lua/plugins/
-  # index.lua) to skip format-on-save for this one-shot checkbox-review pass
-  # — the target file itself may be persistent (a central-store task file),
-  # but the review pass is brief and shouldn't run Prettier over the whole
-  # file. Same env-var-signal convention as WB_AUTO_RESTORE (wb.sh:265),
-  # set unconditionally on both branches: a non-nvim $EDITOR just never
-  # reads it, so no "is this nvim" guard is needed.
+  local script="$HOME/.claude/skills/decision-buffer/scripts/open-buffer.sh"
+
+  if [ -x "$script" ]; then
+    if [ -n "${TMUX:-}" ]; then
+      "$script" --tmux "$path"
+    else
+      "$script" --direct "$path"
+    fi
+    return
+  fi
+
+  echo "wb_open_buffer: $script missing or not executable — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
+
+  # Fallback: the original inline recipe, unchanged. WB_REVIEW_BUFFER=1
+  # tells conform.nvim (nvim/.config/nvim/lua/plugins/index.lua) to skip
+  # format-on-save for this one-shot checkbox-review pass — the target file
+  # itself may be persistent (a central-store task file), but the review
+  # pass is brief and shouldn't run Prettier over the whole file. Same
+  # env-var-signal convention as WB_AUTO_RESTORE (wb.sh:265), set
+  # unconditionally on both branches: a non-nvim $EDITOR just never reads
+  # it, so no "is this nvim" guard is needed.
   if [ -n "${TMUX:-}" ]; then
     local chan="wb-buffer-done-$$-$RANDOM"
+    # printf %q, not a hand-wrapped '$path' — a path containing a literal
+    # single quote would prematurely close the quoted command string below,
+    # breaking the trailing `; tmux wait-for -S $chan` and hanging the wait
+    # forever with no timeout. Same fix as open-buffer.sh's mode_tmux.
+    local quoted_path; quoted_path="$(printf '%q' "$path")"
     tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer 2>/dev/null || true
-    tmux split-window -h -t "$TMUX_PANE" "WB_REVIEW_BUFFER=1 nvim '$path'; tmux wait-for -S $chan"
+    tmux split-window -h -t "$TMUX_PANE" "WB_REVIEW_BUFFER=1 ${EDITOR:-nvim} $quoted_path; tmux wait-for -S $chan"
     tmux wait-for "$chan"
     tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
   else

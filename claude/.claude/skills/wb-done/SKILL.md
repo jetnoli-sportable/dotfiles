@@ -16,28 +16,18 @@ anything else. `cmd_done` (`scripts/.config/scripts/tmux/wb.sh:1546`) calls
 `wb_open_buffer` unconditionally on both its main paths — the ignored-files
 sweep branch (`wb.sh:1606`) and the plain else branch (`wb.sh:1661`); only
 the dirty-worktree fail-fast (`wb.sh:1578-1586`) skips it. `wb_open_buffer`
-itself (`wb.sh:839-850`) is:
+itself (`wb.sh:2785-2803`) is a thin shim over the shared
+`claude/.claude/skills/decision-buffer/scripts/open-buffer.sh` script: it
+calls `open-buffer.sh --tmux <path>` when `$TMUX` is set (or `--direct
+<path>` when it isn't), falling back to its own original inline
+tmux-split-plus-wait-for recipe only if the script is missing or not
+executable.
 
-```bash
-wb_open_buffer() {
-  local path="$1"
-  if [ -n "${TMUX:-}" ]; then
-    local chan="wb-buffer-done-$$-$RANDOM"
-    tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer 2>/dev/null || true
-    tmux split-window -h -t "$TMUX_PANE" "nvim '$path'; tmux wait-for -S $chan"
-    tmux wait-for "$chan"
-    tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
-  else
-    "${EDITOR:-nvim}" "$path"
-  fi
-}
-```
-
-That `tmux wait-for "$chan"` is an **untimed, blocking wait** for a human to
+That underlying wait is an **untimed, blocking wait** for a human to
 close an nvim split — a split that doesn't even exist yet from the human's
 point of view until this runs. A Claude Code session always has `$TMUX` set
-(wb runs one session per worktree, each a tmux session), so this branch
-always fires. If this skill invoked `wb done` as a plain synchronous
+(wb runs one session per worktree, each a tmux session), so the `--tmux`
+path always fires. If this skill invoked `wb done` as a plain synchronous
 foreground Bash call, the agent's own Bash tool call would hang right there
 — indistinguishable from a stuck process — until the user happened to
 notice a new split pane and closed it. That is the exact failure mode the
@@ -46,40 +36,25 @@ skill copies its fix.
 
 ## The background-Bash-plus-wait-channel mechanism
 
-`decision-buffer/SKILL.md` (`claude/.claude/skills/decision-buffer/SKILL.md:143-148` for the
-invocation, `:152` for the uniqueness rule) documents the pattern this skill mirrors:
+`claude/.claude/skills/decision-buffer/references/mechanism.md` documents the
+full contract for the shared `open-buffer.sh` script this skill's own
+`wb_open_buffer` now delegates to — the state-file fields, the fallback
+tiers (`--tmux` → `--terminal` → `--manual`), and the reattach decision
+tree. Read that file rather than this section if you need the contract
+itself; what follows is only what matters for this skill.
 
-```
-Bash (run_in_background: true):
-  CHAN="decision-buffer-done-$$-$RANDOM"   # MUST be unique per open — see below
-  tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer
-  tmux split-window -h -t "$TMUX_PANE" "nvim '<abs path>'; tmux wait-for -S $CHAN" \
-    && tmux wait-for "$CHAN"
-  tmux set -pu -t "$TMUX_PANE" @claude_blocked
-```
-
-> **The channel name MUST be unique per invocation** (`$$-$RANDOM` above...).
-> `tmux wait-for` *latches* a signal when no client is waiting: if any
-> earlier `wait-for -S <chan>` ran with no waiter present ... the next
-> `wait-for <chan>` returns **instantly** — re-invoking the agent before the
-> user has closed (or even touched) the buffer. A fixed channel name ... is
-> shared across every session on the tmux server, so this misfire is not
-> rare. A fresh per-open channel name cannot carry a stale signal.
-
-Two things follow from reading `wb_open_buffer` against that:
+Two things follow from reading `wb_open_buffer` against that contract:
 
 1. **`wb done` already implements this exact mechanism, one layer down.**
-   `wb_open_buffer`'s `chan="wb-buffer-done-$$-$RANDOM"` is the same
-   `$$-$RANDOM`-per-invocation uniqueness rule decision-buffer's SKILL.md
-   requires, generated fresh on every `wb done` call — there is no fixed,
-   reused channel name to latch a stale signal here. This skill does not
-   need to (and must not) mint a *second*, redundant wait-channel of its
-   own wrapping `wb done` — there's no async gap to bridge at this layer
-   the way `tmux split-window`'s fork-and-return behavior forces one
-   inside `wb_open_buffer`. `wb done` is an ordinary synchronous script:
-   the whole invocation (dirty check → buffer open-and-wait → worktree
-   removal → status flip → outcome message) does not return to its caller
-   until it is genuinely finished, buffer close included.
+   `wb_open_buffer` delegates to `open-buffer.sh`, which generates its own
+   unique wait-channel per invocation internally (`gen_chan()` in the
+   script) — there is no fixed, reused channel name to latch a stale
+   signal here, and this skill does not need to (and must not) mint a
+   *second*, redundant wait-channel of its own wrapping `wb done`. `wb
+   done` is an ordinary synchronous script: the whole invocation (dirty
+   check → buffer open-and-wait → worktree removal → status flip →
+   outcome message) does not return to its caller until it is genuinely
+   finished, buffer close included.
 2. **The one thing this skill is responsible for is not calling that
    synchronous script in the foreground.** Backgrounding the *entire*
    `wb done ...` invocation as a single Bash tool call gives the same

@@ -1,236 +1,191 @@
 ---
 name: decision-buffer
-description: Run design discussions through a markdown decision doc edited in the user's nvim buffer instead of AskUserQuestion menus. Use whenever presenting 2+ design/architecture options for a non-trivial decision, or when the user says "decision doc", "open a buffer for this", "which approach" in a design context, or invokes /decision-buffer explicitly.
+description: Route work into a markdown doc the user answers asynchronously in
+  nvim — a settled choice between named options, a findings/audit
+  review needing a reaction, a clarifying interview, an
+  execute-and-paste checklist, a batch of facts to confirm, or
+  code-review triage — instead of blocking the turn on chat
+  back-and-forth or firing an AskUserQuestion menu. Use once the
+  direction is basically agreed and what's left needs a written,
+  async answer, or when Jet says "decision doc", "open a buffer for
+  this", "put this in a buffer", "which approach", or invokes
+  /decision-buffer.
 ---
 
 # Decision Buffer
 
-Present design decisions as a markdown doc the user edits in nvim. Checked checkboxes and inline notes in the closed buffer ARE the user's answer — do not also fire AskUserQuestion for the same decision.
+Route a decision, review, or checklist into a markdown doc the user edits in
+nvim instead of AskUserQuestion. Checked checkboxes and inline notes in the
+closed buffer ARE the answer — never also fire AskUserQuestion for the same
+ground.
 
-## When this applies
+## 1. Align first, in chat — before any buffer
 
-- You are about to present two or more design/architecture/approach options for a decision that isn't trivial.
-- The user asked for a decision doc or to review options in a buffer.
+Before writing anything, present findings and a proposed direction in chat and
+ask whether the remaining open points should go to a buffer. Never open a
+buffer as the first move, even when a task file's "first action: decision
+buffer" line says to — that line does not bypass this check; align first,
+buffer second.
 
-When a decision is trivial (one obvious option, yes/no with an obvious default), skip this skill and just proceed or ask in chat.
+Three outcomes:
 
-## Flow
+- **Jet waves it through, or answers directly.** Proceed accordingly — open a
+  buffer only if something genuinely needing a written async answer remains;
+  otherwise just act on the chat answer.
+- **Jet replies with a question.** Answer it in chat. Do NOT open a buffer on
+  the same turn — re-ask alignment in one line on a later turn instead.
+- **Jet doesn't reply** (turn ends, or gets interrupted). Treat this as
+  not-aligned. Do not open a buffer on the next turn without re-asking
+  alignment first.
 
-### 1. Write the decision doc
+A spike or scoping task defaults to a findings-review or interview buffer
+here, never straight to a choice buffer — jumping to
+options-and-recommendation before the ground is even understood is the
+repeated wrong-tool pattern (2026-09-04: a scoping spike got an options buffer
+twice) this rewrite exists to fix.
 
-Path: `docs/decisions/YYYY-MM-DD-<topic>.md` if the repo has `docs/decisions/`; otherwise `./logs/decisions/YYYY-MM-DD-<topic>.md` (gitignored scratch). Use the repo the discussion concerns — for worktree-based discussions, write inside that worktree.
+## 2. Pick a shape
 
-Structure — every decision (even when the doc holds only one) is a fully
-self-contained block: its options, then ITS OWN recommendation, then ITS OWN
-questions/notes. Never collect recommendations or notes into a single
-section at the end of the doc — Jet reacts to each decision while reading
-it, not after reading all of them (user rule, 2026-07-06 for notes,
-2026-07-08 for recommendations; a doc-end "Recommendation: 1A, 2A, 3A" list
-forces re-scrolling to match each pick back to its reasoning).
+After alignment, choose the shape by the kind of answer needed. Each is a
+self-contained reference file with its own close-contract header — load ONLY
+the one selected, never inline a template here:
 
-```markdown
-# <Decision title>
+| Shape | File | Used for |
+|---|---|---|
+| Choice | `references/shapes/choice.md` | A settled decision between named options |
+| Findings review | `references/shapes/findings-review.md` | Reacting to claims: agree / disagree / dig deeper / out of scope |
+| Clarifying interview | `references/shapes/interview.md` | Free-text answers to open questions, agent states a default |
+| Paste target | `references/shapes/paste-target.md` | An async execute-and-paste loop |
+| Confirm-facts | `references/shapes/confirm-facts.md` | Ticking a small batch of true/false statements |
+| Code-review triage | `references/shapes/code-review-triage.md` | Apply / Defer / Skip per finding |
 
-> Check the option(s) you want with `[x]`, add questions or notes anywhere
-> inline or under *Questions / Notes*, then save and close the buffer.
+## 3. Every question states why, and its stage
 
-## Context
+Standing rule across all six shapes: every question in a buffer states why
+it's being asked and which stage it belongs to (planning, review, scoping,
+etc.) — never a bare question with no framing. A code-level question asked
+during planning carries the relevant code excerpt and enough context to judge
+it without opening files — e.g. a question asking which of two functions
+should own a check includes both functions' bodies and the downstream
+consequence of each answer, right there inline.
 
-Problem statement, constraints, relevant facts verified in the codebase
-(with `file:line` references), and anything already ruled out and why.
-Shared/global context goes here; a specific decision can add its own
-context inline within its own section below if it doesn't apply globally.
+## 4. Mechanism
 
-## Decision 1 — <name>
+The skill opens the doc by calling `scripts/open-buffer.sh <path>` (default
+`--tmux`, falling back to `--terminal` outside tmux, `--manual` if neither is
+available) as a **backgrounded** Bash call (`run_in_background: true`) — never
+foreground; the tool-call timeout would kill it before Jet ever closes the
+buffer. See `references/mechanism.md` for the full state-file field contract,
+the fallback-tier rationale, and the `--reattach` recovery decision tree —
+that content is not re-derived here.
 
-### Option A — <name>
+## 5. Runtime check before opening
 
-- [ ] **Choose Option A**
+Before calling the script or loading a shape reference, confirm
+`scripts/open-buffer.sh` exists and is executable, and that the selected
+shape's reference file exists. If either is missing, report the exact fix —
+`stow --no-folding -t "$HOME" claude` — and STOP. Do not fall back to
+hand-writing the tmux recipe from memory.
 
-**Problem it solves:** ...
-**Solution:** 2-4 sentence summary.
+## 6. Parse rules
 
-\`\`\`ts
-// inline code example of what changes — concrete, from the actual codebase
-\`\`\`
+- **Tick-line grammar.** A real answer is a checkbox-pattern line (`- [ ]` /
+  `- [x]` and variants) that is OUTSIDE any fenced code block, blockquote, or
+  HTML comment, and BELOW the doc's first section heading. A literal `[x]`
+  inside instructional or example text (the header blockquote, a template
+  fragment) is never counted as an answer.
+- **`Closing because:` is read first and controls everything else.** A reason
+  that signals abort ("too early", "wrong shape", "ignore", "let's talk")
+  means nothing is applied; any ticks present are echoed back as "you also
+  ticked X — carry into the next round?" rather than acted on. Any other
+  reason proceeds to the normal notes-then-ticks handling below. An ambiguous
+  reason is asked about in chat before anything is applied.
+- **Silent close is defined by content hash, not by absence of ticks.** A
+  silent close means the file's content is unchanged from what the agent wrote
+  — compared against the hash recorded when the buffer opened (`content_hash`
+  in the state file, per `references/mechanism.md`) — with no `Closing
+  because:` line. A silent close applies nothing in any shape; report that and
+  continue in chat. Any diff from the recorded content — an edited fact, a
+  reordered option, a struck-through line, not only a tick or a note — counts
+  as a note and is acknowledged, never treated as silence.
+- **Notes are answered before any selection is acted on.** In a shape with an
+  approve gate (built in a later unit — see wb-breakdown/wb-jira-create
+  proposal buffers), a note requesting a change means the approve tick is not
+  acted on until the note is resolved and the buffer is reopened.
+- **Parsing only happens when the wait actually completes.** The buffer is
+  parsed only when the background wait (or a `--reattach`) completes, or Jet
+  explicitly says the buffer is closed. An unrelated message arriving while
+  the recorded pane is still open is answered on its own terms — restate that
+  the buffer is still open, don't treat the message as a close.
 
-**Pros:** ...
-**Cons:** ...
-**Best when:** ...
+## 7. Iterate — rewrite fresh, don't append
 
-### Option B — <name>
-(same shape; 2-4 options total, distinct on mechanism not implementation detail)
+When another round is warranted, don't append `> **answer:**` blockquotes onto
+the existing structure — that turns a buffer into an unreadable stack of
+appended rounds. Rewrite the doc fresh each round instead:
 
-**Recommendation:** agent's pick for *this* decision and a short why, placed
-right here — immediately after this decision's own options, never deferred
-to a section at the end of the doc. State trade-offs honestly; do not pad.
+- Clearly resolved decisions collapse into a compact `## Decisions made`
+  summary at the top — one bullet per decision, what was decided and a
+  one-line why. Drop their full options/pros/cons scaffolding; it already did
+  its job.
+- Still-open items keep their full appropriate form in the body below the
+  summary, exactly as before.
+- Seed `## Decisions made` with an instruction that Jet can flag anything
+  wrong about it inline — a summary is a claim to verify, not a fait accompli.
+- If the whole doc resolves to zero open items, don't reopen it — report
+  completion in chat instead.
 
-### Questions / Notes
+## 8. Afterwards — fold, then move per where it was opened
 
-_(empty — yours)_
+At close, answers are folded into the task file or plan — the buffer's own
+wording is deliberately rough (written fast, for a quick answer) and is never
+treated as the polished, final record. The fold-in is what's authoritative;
+the buffer file itself is never cited as the source of truth once its answers
+are folded.
 
-## Decision 2 — <name>
+Where the raw buffer file then goes depends on where it was opened:
 
-(repeat the exact same shape: options → inline **Recommendation:** → its
-own ### Questions / Notes. One `## Decision N` block per decision. For a
-single-decision doc there's just one block; drop the number or call it
-`## Options` if that reads more naturally — the inline-recommendation and
-per-decision-notes shape still applies.)
+- A buffer in an employer repo's tracked `docs/decisions/` stays in place with
+  a one-line "Folded into: `<path>`" note (no `git mv` — that history is the
+  record).
+- A buffer in an employer repo's gitignored `logs/decisions/` also stays in
+  that repo, with the same note — employer-repo content never lands on a
+  personal surface.
+- A buffer in the personal dotfiles repo's `logs/decisions/` moves into the
+  current task's dossier under `decision-records/` (created if absent).
+- A buffer already written inside a dossier is left as-is.
 
-## Questions / Notes
+## 9. Two standing rules, written explicitly
 
-_(doc-level — ONLY for notes that cross-cut multiple decisions and don't
-belong to one specifically. Still seed with `_(empty — yours)_`. This is
-never where an individual decision's recommendation or notes live.)_
-```
+- **Self-contained / glossary discipline.** Define any coined term, piece of
+  jargon, or bare cross-reference (a "§2", "the tripwire", a term from a doc
+  the reader hasn't necessarily seen recently) inline, at first use, in every
+  buffer — never assume the reader remembers something from earlier in the doc
+  or from a different doc.
+- **A buffer is rough, never the durable record.** A buffer's wording is
+  deliberately rough — written for a fast answer, not polished prose. It gets
+  folded into a plan's own decisions section, a task file, or a purpose-built
+  decisions doc, then treated as scratch (moved/archived per §8), never kept
+  as-is as the final wording.
 
-Rules:
-- Inline code examples are mandatory per option — what the change actually looks like in this codebase, not pseudocode.
-- Repo-relative paths only inside the doc.
-- Keep context honest: include facts that argue *against* the recommendation too.
-- **Every decision gets its own inline `**Recommendation:**` line AND its
-  own `### Questions / Notes` subsection**, both directly after that
-  decision's last option and before the next decision's heading. Never a
-  single `## Recommendation` or a single `## Questions / Notes` covering
-  multiple decisions — both read poorly because Jet reacts to a decision
-  immediately after seeing its options, not after scrolling through every
-  other decision first. The doc-level `## Questions / Notes` at the very
-  end is the only exception, reserved for genuinely cross-cutting notes.
-  Parse every per-decision subsection plus the doc-level one on return.
+## 10. Feedback ledger
 
-### 1b. Companion HTML doc (sufficiently large buffers)
+`learnings.md`, beside this file, receives one dated line — Jet's own words
+plus the buffer path — every time Jet flags a buffer as unhelpful in-session.
+Append to it rather than losing the signal; it's the running record of what to
+fix next.
 
-For a buffer with 2+ decisions, or a single decision whose background
-context is substantial, also write a companion HTML doc at the same path
-with `.html` in place of `.md` (e.g. `logs/decisions/2026-07-08-board-
-scoping.md` pairs with `logs/decisions/2026-07-08-board-scoping.html`).
-The markdown stays the concise, actionable artifact (checkboxes, options,
-inline recommendations) — the HTML is where richer context lives, so the
-markdown never has to bloat to carry it:
+## 11. Companion HTML — only when it earns its place
 
-- Fuller background/context than the markdown's terse Context section —
-  including short quotes from (not just links to) prior decisions or docs
-  that shaped this one, so the reader never has to go find something they
-  haven't seen recently.
-- Diagrams/charts/visuals where they clarify a tradeoff (a sequence diagram
-  for a flow decision, a comparison chart for a cost tradeoff) — markdown
-  has no good native equivalent for these.
-- Relevant glossary terms surfaced inline, once a glossary page exists to
-  link to.
+Write a companion HTML doc at the same path (`.html` in place of `.md`) only
+when a lot of extra context is needed, or the buffer's questions aren't
+self-describing — a choice buffer with substantial background, or a findings
+review spanning a lot of source material. Never for interview, paste-target,
+or confirm-facts shapes: free text, paste-and-verify, and plain fact ticks are
+inherently self-describing and don't benefit from a companion doc. When one is
+warranted, follow the `artifact-design` skill for the HTML's own visual
+conventions rather than restating them here — mention its absolute path once,
+alongside the buffer-open message, so Jet can open it in a browser at their
+own pace; it's read-only reference material, not routed through the nvim
+buffer flow.
 
-Follow the `artifact-design` skill's guidance for the HTML itself
-(self-contained, theme-aware light/dark, no external assets) and match this
-repo's existing generated-doc visual language (see `docs/wb-guide.html`'s
-inline `<style>` block — Catppuccin-based light/dark palette) rather than
-inventing a new look per doc.
-
-Skip the companion HTML for a single small decision with an obvious,
-low-context choice — the markdown alone is the whole point there.
-
-**Render actual states, not just describe them, when the decision is about
-concrete UI/display output.** If the decision is "what does this render as"
-(badge states, card layouts, a status matrix — anything the user will look
-at), the companion HTML should show the real rendered states side by side
-(reusing the actual CSS classes/visual language already shipped, not a new
-look), not just prose-describe them. A markdown text sketch of "4 of 7
-badges read off, which looks like an unstarted task" is fine as backup, but
-the rendered mockup is what actually lets the user evaluate in one glance
-instead of building the picture in their head first (2026-07-11, wb board
-lifecycle: a rendered 4-card mockup made the ambiguity click immediately
-— prior rounds of prose description alone hadn't). Budget the extra
-mockup-building effort into the round; it's cheaper than a round that
-doesn't land.
-
-**A mockup can reveal the decision itself was framed wrong — that's a
-good outcome, not a failure to route around.** Presenting a concrete
-rendering sometimes shows the user that neither offered option is right,
-or that the whole approach needs rethinking together rather than picked
-from a menu (2026-07-11: seeing the actual badge states led to "let's
-redesign this as a table, not badges — take our time"). When that
-happens, don't force the original A/B/C framing to a close. Either open a
-live, iterative mockup exploration in chat/artifact instead of another
-buffer round (buffers suit picking between settled options; a genuinely
-open design conversation is faster in chat with the artifact as a shared
-canvas), or fold the reframed decision into the next buffer round with
-new options that reflect it. Say so plainly in the buffer's next
-`## Decisions made` pass rather than quietly dropping the original
-framing.
-
-Mention the companion doc's absolute path once, alongside the buffer-open
-message, so the user can open it in a browser at their own pace. It is
-read-only reference material, not routed through the nvim buffer flow —
-don't wait on it before opening the markdown buffer.
-
-### 2. Hand off to the buffer — auto-open
-
-Auto-open the doc in nvim where the user already is, as a **background** Bash command so the agent is re-invoked the moment the user closes the buffer. Detection ladder, first match wins:
-
-**(a) Inside tmux** (`$TMUX` non-empty — Jet's usual setup): open a split pane next to the session and block on a wait-channel:
-
-```
-Bash (run_in_background: true):
-  CHAN="decision-buffer-done-$$-$RANDOM"   # MUST be unique per open — see below
-  tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer
-  tmux split-window -h -t "$TMUX_PANE" "nvim '<abs path>'; tmux wait-for -S $CHAN" \
-    && tmux wait-for "$CHAN"
-  tmux set -pu -t "$TMUX_PANE" @claude_blocked
-```
-
-Closing nvim closes the pane, fires the signal, completes the background task → agent re-invoked. This is the preferred mode: same terminal window, Ctrl+G-like feel.
-
-**The channel name MUST be unique per invocation** (`$$-$RANDOM` above; a pane id or timestamp works too). `tmux wait-for` *latches* a signal when no client is waiting: if any earlier `wait-for -S <chan>` ran with no waiter present (a buffer from a prior session, an aborted open), tmux remembers one pending signal on that channel, and the next `wait-for <chan>` returns **instantly** — re-invoking the agent before the user has closed (or even touched) the buffer. A fixed channel name like `decision-buffer-done` is shared across every session on the tmux server, so this misfire is not rare. A fresh per-open channel name cannot carry a stale signal. The inner `$CHAN` is expanded by the outer shell before being passed to the pane, so both sides use the same unique value. If you ever must reuse a fixed channel, drain it first with a non-blocking `tmux wait-for -S <chan>` immediately followed by a waiter — but unique names are simpler and correct.
-
-The `@claude_blocked` pane option marks this agent as *blocked on you* (vs. merely
-idle) while the buffer is open. The `claude-sessions.sh` overview reads it to sort
-this agent into its "needs your input" tier — necessary here because a decision-buffer
-block runs as a background command, so the pane shows a working spinner that no
-content scan can distinguish from real work. The trailing `set -pu` clears the
-marker the instant the buffer closes and control returns. (Permission prompts and
-AskUserQuestion menus don't need the marker — the overview detects those from the
-pane's own modal UI.)
-
-**(b) Graphical session, no tmux** (`$DISPLAY`/`$WAYLAND_DISPLAY` set): spawn a terminal window that blocks until close:
-
-```
-Bash (run_in_background: true):
-  gnome-terminal --wait -- nvim <abs path>
-```
-
-(`--wait` is required — gnome-terminal otherwise forks to its server and returns immediately, losing the close signal. kitty/alacritty/foot block by default with `<term> -e nvim <path>`; detect with `command -v`.)
-
-**(c) Fallback** (headless, or spawn fails): manual handoff. End the turn with the literal command the user can copy:
-
-```
-! nvim <path to the doc>
-```
-
-and explain once per session: the `!` prefix runs nvim in this session; closing it returns control.
-
-After launching (a) or (b), tell the user the buffer is open and end the turn. Do NOT poll, schedule wakeups, or keep talking — the background command completing IS the signal.
-
-### 3. Parse on return
-
-When the background command completes (window closed), the `!` command returns, or the user sends any message — Read the doc fresh and interpret:
-
-- `[x]` on a Choose line → that option is selected.
-- Exactly one `[x]` and no questions → proceed on that option immediately.
-- Prose under **Questions / Notes** or inline edits/comments anywhere → answer them BEFORE acting on any selection. Quote each question and answer it.
-- Multiple `[x]` → ask (in chat) whether it's a staged/combined intent or an accident.
-- Zero `[x]` and no notes → ask in chat what held them back; do not re-fire the same doc unchanged.
-
-### 4. Iterate — rewrite fresh, don't append
-
-When another round is warranted, do NOT keep appending `> **answer:**` blockquotes onto the existing structure and reopening the same growing doc — that's how a buffer turns into an unreadable stack of appended rounds (this happened, 2026-07-08: "the buffer is confusing as the original doc is there with our updates and decisions appended on").
-
-Instead, rewrite the doc fresh each round:
-
-- **Clearly resolved decisions** (an unambiguous `[x]` with no dangling question, or a note that fully closes the question) collapse into a compact `## Decisions made` summary at the top of the rewritten doc — one bullet per decision: what was decided and a one-line why. Do not keep their full options/pros/cons scaffolding around — that already did its job.
-- **Still-open items** — an unresolved choice, a decision whose note raises a new question needing an answer, or a restated understanding awaiting confirmation — keep their full appropriate form (options block, or a restated-understanding-plus-confirm-checkbox, whichever fits) in the body below the summary, exactly as before.
-- Seed `## Decisions made` with an instruction that the user can flag anything wrong about it inline or in that section's own notes — a summary is a claim to verify, not a fait accompli.
-- If the whole doc resolves to zero open items, don't reopen it at all — report completion in chat instead (see Afterwards).
-
-This keeps every re-opened buffer as short as the genuinely unresolved surface, not a growing transcript of the whole negotiation. The doc still accumulates as a durable record (via `## Decisions made` entries growing each round), just compacted instead of appended.
-
-### 5. Afterwards
-
-The doc is a durable decision record. If a decision is finalized and the doc lives in `docs/decisions/`, update it with a final `**Decided:** Option X (YYYY-MM-DD)` line at the top. Docs in `./logs/` are scratch and need no upkeep.

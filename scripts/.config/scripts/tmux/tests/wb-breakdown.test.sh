@@ -707,9 +707,14 @@ out_move_bad="$(_wb_breakdown_validate "$BUF_DIR/move-unchecked-target.md" 2>/tm
 assert_eq "follow-up move to unchecked child: no move action" 0 "$(printf '%s\n' "$out_move_bad" | grep -c $'^move\t')"
 assert "follow-up move to unchecked child: warning" 'neither a checked child' "$(cat /tmp/wbd-move-bad.err)"
 
-# --- zero checked items: clean no-op exit 0 ---------------------------------
+# --- zero checked items: clean no-op exit 0 (approve ticked, per-item boxes
+# left unchecked — this is testing the per-item no-op path, not the approve
+# gate, so Approve is ticked to isolate that) --------------------------------
 cat > "$BUF_DIR/zero-checked.md" <<'EOF'
 # wb breakdown — proj--feat-big
+
+<!-- wb-breakdown: block=approve parent=proj--feat-big -->
+- [x] Approve — apply everything ticked below
 
 ## child 1
 <!-- wb-breakdown: block=child n=1 parent=proj--feat-big repo=proj -->
@@ -929,6 +934,9 @@ u3_buffer() {
   cat <<'EOF'
 # wb breakdown — proj--feat-u3
 
+<!-- wb-breakdown: block=approve parent=proj--feat-u3 -->
+- [x] Approve — apply everything ticked below
+
 ## child 1 — continuing
 <!-- wb-breakdown: block=child n=1 parent=proj--feat-u3 repo=proj -->
 - [x] create child: `feat-u3-one`
@@ -1043,6 +1051,9 @@ mk_u3_parent proj--feat-u3-sd feat-u3-sd .worktrees/feat-u3-sd
 cat > "$U3_BUF/sd.md" <<'EOF'
 # wb breakdown — proj--feat-u3-sd
 
+<!-- wb-breakdown: block=approve parent=proj--feat-u3-sd -->
+- [x] Approve — apply everything ticked below
+
 ## child 1 — one
 <!-- wb-breakdown: block=child n=1 parent=proj--feat-u3-sd repo=proj -->
 - [x] create child: `feat/u3-sd-one`
@@ -1096,6 +1107,9 @@ mk_u3_parent proj--feat-u3-crash feat-u3-crash .worktrees/feat-u3-crash
 cat > "$U3_BUF/crash.md" <<'EOF'
 # wb breakdown — proj--feat-u3-crash
 
+<!-- wb-breakdown: block=approve parent=proj--feat-u3-crash -->
+- [x] Approve — apply everything ticked below
+
 ## child 1 — continuing
 <!-- wb-breakdown: block=child n=1 parent=proj--feat-u3-crash repo=proj -->
 - [x] create child: `feat-u3-crash-one`
@@ -1133,6 +1147,9 @@ mk_u3_parent proj--feat-u3-lock feat-u3-lock .worktrees/feat-u3-lock
 cat > "$U3_BUF/lock.md" <<'EOF'
 # wb breakdown — proj--feat-u3-lock
 
+<!-- wb-breakdown: block=approve parent=proj--feat-u3-lock -->
+- [x] Approve — apply everything ticked below
+
 ## child 1
 <!-- wb-breakdown: block=child n=1 parent=proj--feat-u3-lock repo=proj -->
 - [x] create child: `feat-u3-lock-one`
@@ -1167,6 +1184,259 @@ wb_task_lock_release "$TASKS_DIR/proj--feat-u3-lock.md"
 assert_eq "U3 lock contention: lock is clean and acquirable again after" 0 "$recheck_rc"
 
 rm -rf "$U3_BUF"
+
+# =============================================================================
+# Approve gate (R14 — decision-buffer v2 U5): a run-level Approve block,
+# separate from and in addition to the per-item ticks. Unticked/missing ->
+# nothing applied, ever (safe default); malformed -> hard parse error; a
+# rerun against a fresh buffer at the same path is never blocked by wb.sh
+# itself once the buffer was closed (approved or not).
+# =============================================================================
+
+APPROVE_BUF="$(mktemp -d -t wb-breakdown-approve.XXXXXX)"
+
+mk_approve_parent() { # <stem> <branch> <worktree>
+  local f="$TASKS_DIR/$1.md"
+  {
+    printf -- '---\nstatus: doing\nrepo: proj\nbranch: %s\nworktree: %s\nparent:\ncreated: 2026-07-01\n---\n' "$2" "$3"
+    printf '# Approve gate family\n\n## Plan\n\noriginal plan content\n\n## Follow-ups\n\n'
+  } > "$f"
+}
+
+# --- unticked Approve, everything else ticked normally: apply reports "not
+# approved", NO task files written, exits 0 (AE3) --------------------------
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u5-unticked ".worktrees/feat-u5-unticked" >/dev/null 2>&1
+mk_approve_parent proj--feat-u5-unticked feat-u5-unticked .worktrees/feat-u5-unticked
+cat > "$APPROVE_BUF/unticked.md" <<'EOF'
+# wb breakdown — proj--feat-u5-unticked
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-unticked -->
+- [ ] Approve — apply everything ticked below
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u5-unticked repo=proj -->
+- [x] create child: `feat-u5-unticked-one`
+- goal: would-be child
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u5-unticked -->
+- [x] migrate branch/worktree + re-aim @task → continuing child: `feat-u5-unticked-one`
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+out_unticked="$(cmd_breakdown --apply "$APPROVE_BUF/unticked.md" 2>&1)"; rc_unticked=$?
+assert_eq "approve gate: unticked Approve — exits 0" 0 "$rc_unticked"
+assert "approve gate: unticked Approve — reports not approved" 'not approved' "$out_unticked"
+if [ -f "$TASKS_DIR/proj--feat-u5-unticked-one.md" ]; then
+  echo "FAIL - approve gate: unticked Approve must create NO child file"; fail=1
+else
+  echo "ok   - approve gate: unticked Approve creates no child file"
+fi
+assert_eq "approve gate: unticked Approve — parent branch: untouched (no migration)" "feat-u5-unticked" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u5-unticked.md" branch)"
+
+# --- Approve ticked, normal proposal: apply proceeds exactly as it did
+# before this unit — regression check (also exercised end-to-end by the U3
+# section above, now with a ticked Approve block added to every fixture) --
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u5-approved ".worktrees/feat-u5-approved" >/dev/null 2>&1
+mk_approve_parent proj--feat-u5-approved feat-u5-approved .worktrees/feat-u5-approved
+cat > "$APPROVE_BUF/approved.md" <<'EOF'
+# wb breakdown — proj--feat-u5-approved
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-approved -->
+- [x] Approve — apply everything ticked below
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u5-approved repo=proj -->
+- [x] create child: `feat-u5-approved-one`
+- goal: real child
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u5-approved -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+out_approved="$(cmd_breakdown --apply "$APPROVE_BUF/approved.md" 2>&1)"; rc_approved=$?
+assert_eq "approve gate: ticked Approve — exits 0" 0 "$rc_approved"
+assert "approve gate: ticked Approve — normal apply summary, not a not-approved message" '1 child\(ren\) created' "$out_approved"
+[ -f "$TASKS_DIR/proj--feat-u5-approved-one.md" ] && echo "ok   - approve gate: ticked Approve creates the checked child" || { echo "FAIL - approve gate: ticked Approve should have created the child"; fail=1; }
+
+# --- malformed Approve checkbox: hard parse error, whole apply aborts,
+# nothing written -----------------------------------------------------------
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u5-malformed ".worktrees/feat-u5-malformed" >/dev/null 2>&1
+mk_approve_parent proj--feat-u5-malformed feat-u5-malformed .worktrees/feat-u5-malformed
+cat > "$APPROVE_BUF/malformed-approve.md" <<'EOF'
+# wb breakdown — proj--feat-u5-malformed
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-malformed -->
+- [x Approve — apply everything ticked below
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u5-malformed repo=proj -->
+- [x] create child: `feat-u5-malformed-one`
+- goal: should never be created
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u5-malformed -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+out_malformed_approve="$(cmd_breakdown --apply "$APPROVE_BUF/malformed-approve.md" 2>&1)"; rc_malformed_approve=$?
+assert_eq "approve gate: malformed Approve checkbox — hard error exit code" 2 "$rc_malformed_approve"
+assert "approve gate: malformed Approve checkbox — error names the Approve line" 'malformed checkbox on the Approve line' "$out_malformed_approve"
+if [ -f "$TASKS_DIR/proj--feat-u5-malformed-one.md" ]; then
+  echo "FAIL - approve gate: malformed Approve checkbox must abort the WHOLE apply"; fail=1
+else
+  echo "ok   - approve gate: malformed Approve checkbox aborts the whole apply, nothing written"
+fi
+
+# --- two Approve blocks in one buffer: hard parse error, whole apply
+# aborts, nothing written (a run-level gate must be singular — never
+# silently pick the first one and ignore the second) -----------------------
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u5-dupapprove ".worktrees/feat-u5-dupapprove" >/dev/null 2>&1
+mk_approve_parent proj--feat-u5-dupapprove feat-u5-dupapprove .worktrees/feat-u5-dupapprove
+cat > "$APPROVE_BUF/dup-approve.md" <<'EOF'
+# wb breakdown — proj--feat-u5-dupapprove
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-dupapprove -->
+- [x] **Approve — apply everything ticked below**
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u5-dupapprove repo=proj -->
+- [x] create child: `feat-u5-dupapprove-one`
+- goal: should never be created
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-dupapprove -->
+- [ ] **Approve — apply everything ticked below**
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u5-dupapprove -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+out_dup_approve="$(cmd_breakdown --apply "$APPROVE_BUF/dup-approve.md" 2>&1)"; rc_dup_approve=$?
+assert_eq "approve gate: two Approve blocks — hard error exit code" 2 "$rc_dup_approve"
+assert "approve gate: two Approve blocks — error names the duplication" 'more than one Approve block' "$out_dup_approve"
+if [ -f "$TASKS_DIR/proj--feat-u5-dupapprove-one.md" ]; then
+  echo "FAIL - approve gate: two Approve blocks must abort the WHOLE apply, not pick the first (ticked) one"; fail=1
+else
+  echo "ok   - approve gate: two Approve blocks aborts the whole apply, does not silently pick the first"
+fi
+
+# --- missing Approve block entirely (old-format buffer, pre-dating this
+# gate): treated as unapproved (safe default), nothing applied, no crash --
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u5-noblock ".worktrees/feat-u5-noblock" >/dev/null 2>&1
+mk_approve_parent proj--feat-u5-noblock feat-u5-noblock .worktrees/feat-u5-noblock
+cat > "$APPROVE_BUF/no-approve-block.md" <<'EOF'
+# wb breakdown — proj--feat-u5-noblock
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u5-noblock repo=proj -->
+- [x] create child: `feat-u5-noblock-one`
+- goal: old-format buffer, no approve block at all
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u5-noblock -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+out_noblock="$(cmd_breakdown --apply "$APPROVE_BUF/no-approve-block.md" 2>&1)"; rc_noblock=$?
+assert_eq "approve gate: missing Approve block — exits 0 (safe default), no crash" 0 "$rc_noblock"
+assert "approve gate: missing Approve block — reports not approved" 'not approved' "$out_noblock"
+if [ -f "$TASKS_DIR/proj--feat-u5-noblock-one.md" ]; then
+  echo "FAIL - approve gate: missing Approve block must still be treated as unapproved"; fail=1
+else
+  echo "ok   - approve gate: missing Approve block treated as unapproved, nothing written"
+fi
+
+# --- regenerate-after-decline: wb.sh itself carries no memory across
+# invocations — a fresh (ticked) buffer written to the SAME path as a prior
+# unapproved close applies cleanly on the next --apply call. (The
+# archive-then-write dance that frees up the path for a human/agent to
+# reuse is SKILL.md-level prose, not a wb.sh behavior — what's bash-testable
+# here is that wb.sh has no persistent "this path was declined" state.) --
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-u5-regen ".worktrees/feat-u5-regen" >/dev/null 2>&1
+mk_approve_parent proj--feat-u5-regen feat-u5-regen .worktrees/feat-u5-regen
+cat > "$APPROVE_BUF/regen.md" <<'EOF'
+# wb breakdown — proj--feat-u5-regen
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-regen -->
+- [ ] Approve — apply everything ticked below
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u5-regen repo=proj -->
+- [x] create child: `feat-u5-regen-one`
+- goal: first (declined) proposal
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u5-regen -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+out_regen_1="$(cmd_breakdown --apply "$APPROVE_BUF/regen.md" 2>&1)"; rc_regen_1=$?
+assert_eq "approve gate regen: first (unticked) apply — exits 0" 0 "$rc_regen_1"
+assert "approve gate regen: first apply — not approved" 'not approved' "$out_regen_1"
+[ -f "$TASKS_DIR/proj--feat-u5-regen-one.md" ] && { echo "FAIL - approve gate regen: declined apply must not have created a child"; fail=1; } \
+  || echo "ok   - approve gate regen: declined apply created nothing"
+
+# a fresh proposal, ticked, overwrites the SAME path (as the archive-then-
+# write dance in SKILL.md step 5 would leave it) and applies cleanly.
+cat > "$APPROVE_BUF/regen.md" <<'EOF'
+# wb breakdown — proj--feat-u5-regen
+
+<!-- wb-breakdown: block=approve parent=proj--feat-u5-regen -->
+- [x] Approve — apply everything ticked below
+
+## child 1
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-u5-regen repo=proj -->
+- [x] create child: `feat-u5-regen-one`
+- goal: regenerated (approved) proposal
+<!-- wb-breakdown: begin-plan n=1 -->
+body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-u5-regen -->
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+n/a
+<!-- wb-breakdown: end-plan -->
+EOF
+out_regen_2="$(cmd_breakdown --apply "$APPROVE_BUF/regen.md" 2>&1)"; rc_regen_2=$?
+assert_eq "approve gate regen: second (ticked) apply against the same path — exits 0" 0 "$rc_regen_2"
+assert "approve gate regen: second apply — normal creation summary" '1 child\(ren\) created' "$out_regen_2"
+[ -f "$TASKS_DIR/proj--feat-u5-regen-one.md" ] && echo "ok   - approve gate regen: a fresh ticked buffer at the same path is never blocked by wb.sh" \
+  || { echo "FAIL - approve gate regen: wb.sh must not remember the earlier decline"; fail=1; }
+
+rm -rf "$APPROVE_BUF"
 
 # =============================================================================
 # U5 — wb done last-child nudge (KTD8)

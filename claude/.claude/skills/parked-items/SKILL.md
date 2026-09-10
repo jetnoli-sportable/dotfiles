@@ -105,19 +105,16 @@ My read: <still-open because …>
 - <topic> — <how it was resolved> (<repo>, <date>)
 ```
 
-Open it where the user is, blocking until they close it (same mechanism as
-`[[decision-buffer]]`): inside tmux, mark the pane blocked and `split-window` running
-`nvim` with a `wait-for` signal; fall back to `gnome-terminal --wait`, then to a manual
-`! nvim <path>`. Run the launch as a background Bash command so closing the buffer
-re-invokes you.
+Open it where the user is, blocking until they close it, via the shared
+decision-buffer script rather than a hand-rolled recipe — it handles the
+tmux/terminal/manual fallback ladder and wait-channel uniqueness
+internally. Run it as a **background Bash call** (`run_in_background:
+true`) so closing the buffer re-invokes you; see
+`claude/.claude/skills/decision-buffer/references/mechanism.md` for the
+full contract (state file, fallback tiers, reattach).
 
 ```bash
-CHAN="parked-review-done-$$-$RANDOM"   # MUST be unique per open — a fixed name
-                                       # latches stale signals (see decision-buffer)
-tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer
-tmux split-window -h -t "$TMUX_PANE" "nvim '<abs path>'; tmux wait-for -S $CHAN" \
-  && tmux wait-for "$CHAN"
-tmux set -pu -t "$TMUX_PANE" @claude_blocked
+claude/.claude/skills/decision-buffer/scripts/open-buffer.sh <abs path>
 ```
 
 ## Step 4 — Act on the returned buffer
