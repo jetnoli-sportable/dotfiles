@@ -9,7 +9,10 @@
 #   wb board                         task-store status table (interim /board)
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
-#   wb pause [<session>]             mark a task paused — worktree and session both survive
+#   wb down [<session>]              close a session, keep the worktree — activity only, status
+#                                    untouched except -> review when the branch has an open PR
+#   wb pause [<session>]             shelve a task on purpose: status -> paused, then `wb down`
+#   wb pr-open [<session>]           exit 0 if the session's branch has an open PR, 1 otherwise
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb jira-set <repo>--<slug> <url> stamp a created Jira ticket URL into a task's jira: field
 #                                    (locked, idempotent-or-refuse) — the /wb-jira-create emit
@@ -116,10 +119,13 @@ wb_set_frontmatter() {
 }
 
 # wb_read_task <file> — print "status\trepo\tworktree\tbranch\tpath\t
-# depends_on\treviewed" in one pass (used by the picker's row collection,
-# which reads every task file on each refresh, and by the board pre-pass —
-# board-display-v2's KTD-1 extends this rather than adding three more
-# per-field wb_get_frontmatter reads per task).
+# depends_on\treviewed\tclaude_sessions" in one pass (used by the picker's
+# row collection, which reads every task file on each refresh, and by the
+# board pre-pass — board-display-v2's KTD-1 extends this rather than adding
+# three more per-field wb_get_frontmatter reads per task). claude_sessions
+# (U2) is appended as an 8th field, never inserted mid-row — every existing
+# caller destructures fields 1-7 by position and would silently shift if a
+# new field landed anywhere else.
 wb_read_task() {
   awk '
     # clip() strips a trailing inline comment ("value  # note") plus edge
@@ -127,16 +133,17 @@ wb_read_task() {
     # so any seeded task carries one, and an uncomment-stripped status
     # breaks every consumer that compares it (board rank, picker column).
     function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
-    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = "" }
+    BEGIN { infm = 0; status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = ""; sessions = "" }
     /^---$/ { infm++; if (infm == 2) exit; next }
-    infm == 1 && /^status:/      { s = $0; sub(/^status:[ \t]*/,      "", s); status   = clip(s) }
-    infm == 1 && /^repo:/        { s = $0; sub(/^repo:[ \t]*/,        "", s); repo     = clip(s) }
-    infm == 1 && /^worktree:/    { s = $0; sub(/^worktree:[ \t]*/,    "", s); worktree = clip(s) }
-    infm == 1 && /^branch:/      { s = $0; sub(/^branch:[ \t]*/,      "", s); branch   = clip(s) }
-    infm == 1 && /^path:/        { s = $0; sub(/^path:[ \t]*/,        "", s); path     = clip(s) }
-    infm == 1 && /^depends_on:/  { s = $0; sub(/^depends_on:[ \t]*/,  "", s); deps     = clip(s) }
-    infm == 1 && /^reviewed:/    { s = $0; sub(/^reviewed:[ \t]*/,    "", s); reviewed = clip(s) }
-    END { printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, repo, worktree, branch, path, deps, reviewed }
+    infm == 1 && /^status:/          { s = $0; sub(/^status:[ \t]*/,          "", s); status   = clip(s) }
+    infm == 1 && /^repo:/            { s = $0; sub(/^repo:[ \t]*/,            "", s); repo     = clip(s) }
+    infm == 1 && /^worktree:/        { s = $0; sub(/^worktree:[ \t]*/,        "", s); worktree = clip(s) }
+    infm == 1 && /^branch:/          { s = $0; sub(/^branch:[ \t]*/,          "", s); branch   = clip(s) }
+    infm == 1 && /^path:/            { s = $0; sub(/^path:[ \t]*/,            "", s); path     = clip(s) }
+    infm == 1 && /^depends_on:/      { s = $0; sub(/^depends_on:[ \t]*/,      "", s); deps     = clip(s) }
+    infm == 1 && /^reviewed:/        { s = $0; sub(/^reviewed:[ \t]*/,        "", s); reviewed = clip(s) }
+    infm == 1 && /^claude_sessions:/ { s = $0; sub(/^claude_sessions:[ \t]*/, "", s); sessions = clip(s) }
+    END { printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, repo, worktree, branch, path, deps, reviewed, sessions }
   ' "$1"
 }
 
@@ -161,6 +168,116 @@ wb_task_files() {
     esac
     echo "$f"
   done
+}
+
+# ---------------------------------------------------------------------------
+# Claude transcript store (U2) — the activity axis's real source of truth.
+# Claude Code keeps one .jsonl file per conversation under
+# ~/.claude/projects/<encoded-cwd>/, where the encoding is the absolute cwd
+# with every "/" replaced by "-". A wb task's worktree IS that cwd, so
+# "does this worktree have transcripts" and "what's the newest one" answer
+# both halves of "is this task warm" (KTD1/KTD2) with zero writes of our
+# own — no hook state, no sidecar, nothing to go stale except by Claude's
+# own retention window (cleanupPeriodDays, default 30 days). The
+# claude_sessions: frontmatter field is a snapshot for the board/record
+# only (wb_sessions_snapshot, near cmd_down) — it is never consulted here.
+# ---------------------------------------------------------------------------
+
+# wb_transcript_dir <worktree_abs> — the directory Claude Code stores
+# <worktree_abs>'s conversations under. Claude Code's own encoding replaces
+# every "/" AND "." with "-" (verified against this very worktree: path
+# .../dotfiles/.worktrees/<slug> encodes to .../dotfiles--worktrees-<slug>,
+# not .../dotfiles-.worktrees-<slug> — the "/." pair collapses to "--", not
+# "-."). Override CLAUDE_PROJECTS_DIR in tests to point this at a fixture
+# root instead of the real ~/.claude/projects.
+wb_transcript_dir() {
+  printf '%s/%s\n' "${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}" "$(printf '%s' "$1" | tr './' '--')"
+}
+
+# wb_transcripts <worktree_abs> — "<id>\t<mtime-epoch>" per conversation
+# recorded for <worktree_abs>, newest first. Empty output (exit 0, not an
+# error) when the directory doesn't exist or holds no transcripts — "no
+# transcripts" is the cold/dormant boundary, not a failure. Reads only
+# *.jsonl directly under the directory — Claude Code also nests a
+# same-named subagent-transcript subdirectory per session there, which
+# this deliberately ignores (a subagent run is not a resumable top-level
+# conversation).
+wb_transcripts() {
+  local dir; dir="$(wb_transcript_dir "$1")"
+  [ -d "$dir" ] || return 0
+  local f mtime
+  for f in "$dir"/*.jsonl; do
+    [ -f "$f" ] || continue
+    mtime="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+    printf '%s\t%s\n' "$(basename "$f" .jsonl)" "$mtime"
+  done | sort -t $'\t' -k2,2nr
+}
+
+# wb_resume_id <task_file> <worktree_abs> — the session id `--resume` should
+# use (R9): the id marked `@primary` in claude_sessions: when its transcript
+# still exists, else the worktree's newest transcript, else empty (nothing
+# to resume — the caller falls back to `--continue` or a cold start).
+wb_resume_id() {
+  local task_file="$1" worktree_abs="$2"
+  local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"
+  [ -n "$transcripts" ] || return 0
+
+  local field entry primary_id=""
+  field="$(wb_get_frontmatter "$task_file" claude_sessions)"
+  if [ -n "$field" ]; then
+    local -a _wb_sessions_entries
+    IFS=',' read -r -a _wb_sessions_entries <<< "$field"
+    for entry in "${_wb_sessions_entries[@]}"; do
+      case "$entry" in
+        *@primary) primary_id="${entry%%@*}" ;;
+      esac
+    done
+  fi
+  if [ -n "$primary_id" ] && printf '%s\n' "$transcripts" | cut -f1 | grep -qxF "$primary_id"; then
+    printf '%s\n' "$primary_id"
+    return 0
+  fi
+  printf '%s\n' "$transcripts" | head -n1 | cut -f1
+}
+
+# wb_sessions_snapshot <session> <worktree_abs> — "<id>@<iso-ts>[@primary],..."
+# oldest first, for every transcript currently on disk for <worktree_abs>.
+# When <session> is live, the id belonging to its `agent`-window pane's
+# @claude_session_id (set by claude-notify-hook.sh) is marked @primary
+# (KTD3) — that pane is the task's main conversation by construction
+# (wb_layout_session always creates it there). <session> may be empty or
+# already gone; the snapshot still builds from disk, just with no primary
+# marked. Record-only (KTD2): nothing downstream re-derives activity from
+# this field, only wb_resume_id's primary-preference hint above.
+wb_sessions_snapshot() {
+  local session="$1" worktree_abs="$2"
+  local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"
+  [ -n "$transcripts" ] || return 0
+
+  # "|"-delimited, not tab: a literal "\t" inside a single-quoted -F string
+  # is passed to tmux as the two characters backslash+t, not an actual tab
+  # (bash single-quotes don't interpret escapes) — the same reason
+  # _break_out's own multi-field -F below uses "|".
+  local primary_sid="" agent_pane
+  if [ -n "$session" ] && tmux has-session -t "=$session" 2>/dev/null; then
+    agent_pane="$(tmux list-panes -s -t "=$session:" -F '#{window_name}|#{pane_id}' 2>/dev/null \
+      | awk -F'|' '$1 == "agent" { print $2; exit }')"
+    [ -n "$agent_pane" ] && primary_sid="$(tmux show -p -v -t "$agent_pane" @claude_session_id 2>/dev/null || true)"
+  fi
+
+  local id ts iso line
+  local -a entries=()
+  while IFS=$'\t' read -r id ts; do
+    [ -n "$id" ] || continue
+    iso="$(date -u -d "@$ts" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+    [ -n "$iso" ] || iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    line="$id@$iso"
+    [ -n "$primary_sid" ] && [ "$id" = "$primary_sid" ] && line="$line@primary"
+    entries+=("$line")
+  done < <(printf '%s\n' "$transcripts" | tac)
+
+  local IFS=','
+  printf '%s\n' "${entries[*]}"
 }
 
 # wb_sanitize <slug> — slug -> display form for tmux session names / filenames
@@ -627,7 +744,13 @@ wb_seed_task() {
       [ -n "$(wb_get_frontmatter "$file" worktree)" ]  || wb_set_frontmatter "$file" worktree "$worktree_rel"
     fi
 
-    [ "$(wb_get_frontmatter "$file" status)" != planned ] || wb_set_frontmatter "$file" status doing
+    # R5/U4: resuming a shelved task flips it back to doing, exactly like
+    # the pre-existing planned->doing flip below — a `paused` task was
+    # deliberately shelved, not abandoned, so `wb new`/`wb resume` bringing
+    # it back is itself the "un-shelve" action.
+    case "$(wb_get_frontmatter "$file" status)" in
+      planned|paused) wb_set_frontmatter "$file" status doing ;;
+    esac
     # reviewed: has no inferred value (unlike repo/branch/worktree above) —
     # it starts blank and is only ever stamped by cmd_reviewed. This just
     # backfills the KEY onto task files that predate it in the schema, same
@@ -825,14 +948,17 @@ wb_seed_planned_child() {
   echo "$file"
 }
 
-# wb_layout_session <session> <dir> <start_agent> — first-time-only 3-window
-# layout: win1 an editor shell (LAZY — the nvim launch is pre-typed but not
-# run, so nvim/LSP start only when you visit and press Enter), win2 a plain
-# shell for the agent (LAZY — you run `claude` yourself the first time you
-# visit, bounded by the ~10-concurrent-agent memory ceiling; pass start_agent=1,
-# i.e. `wb new --agent`, to start it now), win3 shell.
+# wb_layout_session <session> <dir> <start_agent> [<agent_cmd>] —
+# first-time-only 3-window layout: win1 an editor shell (LAZY — the nvim
+# launch is pre-typed but not run, so nvim/LSP start only when you visit and
+# press Enter), win2 a plain shell for the agent (LAZY — you run `claude`
+# yourself the first time you visit, bounded by the ~10-concurrent-agent
+# memory ceiling; pass start_agent=1, i.e. `wb new --agent`, to start it
+# now), win3 shell. <agent_cmd> (U4/R9) is the command win2 pre-types
+# instead of a bare "claude" — a warm `claude --resume <id>`/`claude
+# --continue` when the caller resolved one, empty for a brand-new task.
 wb_layout_session() {
-  local session="$1" dir="$2" start_agent="$3"
+  local session="$1" dir="$2" start_agent="$3" agent_cmd="${4:-}"
   tmux rename-window -t "=$session:1" nvim
   # LAZY editor, mirroring the agent window below: we PRE-TYPE the nvim launch
   # into win1 but deliberately DON'T send Enter, so nvim + its LSP (gopls in
@@ -858,7 +984,19 @@ wb_layout_session() {
   # exit. Recover a dead one with prefix+E (respawn-pane, tmux.conf). Explicit
   # kills (wb done --close, ctrl-x) are unaffected — they destroy regardless.
   tmux set-option -w -t "=$session:agent" remain-on-exit on
-  [ "$start_agent" = 1 ] && tmux send-keys -t "=$session:agent" "claude" Enter
+  # U4/R9: <agent_cmd> lets the caller pre-type a warm `claude --resume <id>`
+  # / `claude --continue` instead of the bare "claude" — same lazy-launch
+  # rule as the nvim window above, just parameterized: --agent (start_agent=1)
+  # presses Enter on whatever command was resolved (falling back to plain
+  # "claude" when there's nothing to resume, i.e. today's exact behavior);
+  # the default lazy path pre-types it without Enter, and types NOTHING at
+  # all when there's no id/history to resume from (a brand-new task) — never
+  # eagerly starting an agent just because a command string happens to exist.
+  if [ "$start_agent" = 1 ]; then
+    tmux send-keys -t "=$session:agent" "${agent_cmd:-claude}" Enter
+  elif [ -n "$agent_cmd" ]; then
+    tmux send-keys -t "=$session:agent" "$agent_cmd"
+  fi
   tmux new-window -t "=$session" -n shell -c "$dir"
   tmux select-window -t "=$session:1"
 }
@@ -1110,7 +1248,23 @@ cmd_new() {
   tmux set-option -t "=$session:" @wb_repo "$repo" >/dev/null
   tmux set-option -t "=$session:" @wb_slug "$slug" >/dev/null
   tmux set-option -t "=$session:" @task "$task_file" >/dev/null
-  [ "$is_new" = 1 ] && wb_layout_session "$session" "$worktree_path" "$agent_flag"
+  if [ "$is_new" = 1 ]; then
+    # R9/U4: resolve what the agent window should pre-type. Preference
+    # order — a resumable transcript (wb_resume_id, U2) beats a plain
+    # `--continue`, which beats typing nothing for a genuinely new task.
+    # "Has this task been touched by a wb verb before" (a Handoffs entry)
+    # is the signal for "not brand new" when no transcript survives —
+    # `--continue` on a truly untouched task would have nothing to do
+    # anyway, so the distinction only matters for what gets pre-typed.
+    local agent_cmd="" resume_id
+    resume_id="$(wb_resume_id "$task_file" "$worktree_path")"
+    if [ -n "$resume_id" ]; then
+      agent_cmd="claude --resume $resume_id"
+    elif awk '/^## Handoffs$/ { p = 1; next } /^## / { p = 0 } p && /^### / { f = 1 } END { exit !f }' "$task_file"; then
+      agent_cmd="claude --continue"
+    fi
+    wb_layout_session "$session" "$worktree_path" "$agent_flag" "$agent_cmd"
+  fi
 
   tmux_focus "$session"
 }
@@ -1221,24 +1375,51 @@ wb_repo_worktrees() {
   '
 }
 
+# _wb_gh_pr_list <repo_dir> <branch> <state> — raw `gh pr list --json
+# number` output for <branch>/<state>. Falls back from `gh` to a personal
+# PAT (mirroring the `pgh` shell function in ~/.zshrc — reimplemented
+# inline since wb.sh is bash and pgh is a zsh function, not a standalone
+# binary an agent's Bash tool could see) when the Sportable-scoped token
+# can't see the repo. Prints the raw gh output and returns gh's own final
+# exit code — callers decide how to read it. Shared by wb_pr_merge_status
+# and wb_branch_has_open_pr (U3/KTD6) so the fallback lives in one place.
+_wb_gh_pr_list() {
+  local repo_dir="$1" branch="$2" state="$3" out rc
+  out="$(cd "$repo_dir" && timeout 10 gh pr list --head "$branch" --state "$state" --json number 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" timeout 10 gh pr list --head "$branch" --state "$state" --json number 2>&1)"; rc=$?
+  fi
+  printf '%s' "$out"
+  return "$rc"
+}
+
 # wb_pr_merge_status <repo_dir> <branch> — "merged" | "not-merged" | "unknown"
-# for <branch>'s most recent PR. Falls back from `gh` to a personal PAT
-# (mirroring the `pgh` shell function in ~/.zshrc — reimplemented inline
-# since wb.sh is bash and pgh is a zsh function, not a standalone binary)
-# when the Sportable-scoped token can't see the repo. Hard rule: never
-# silently drop a finding — a gh/pgh failure reports "unknown" rather than
-# omitting the row entirely.
+# for <branch>'s most recent PR. Hard rule: never silently drop a finding —
+# a gh/pgh failure reports "unknown" rather than omitting the row entirely.
 wb_pr_merge_status() {
   local repo_dir="$1" branch="$2" out rc
-  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state merged --json number 2>&1)"; rc=$?
-  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
-    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state merged --json number 2>&1)"; rc=$?
-  fi
+  out="$(_wb_gh_pr_list "$repo_dir" "$branch" merged)"; rc=$?
   if [ "$rc" -ne 0 ]; then
     echo unknown
     return
   fi
   if printf '%s' "$out" | grep -q '"number"'; then echo merged; else echo not-merged; fi
+}
+
+# wb_branch_has_open_pr <repo_dir> <branch> — exit 0 when <branch> has an
+# open PR, exit 1 otherwise, including "couldn't tell" (KTD6): any gh/pgh
+# failure degrades to "no PR" rather than blocking `wb down`/`wb pr-open`,
+# with one stderr line so the degradation is visible, not silent. Exposed
+# as `wb pr-open` (cmd_pr_open) so a skill's Bash tool — which can't see
+# the zsh `pgh` fallback function — can still ask the question.
+wb_branch_has_open_pr() {
+  local repo_dir="$1" branch="$2" out rc
+  out="$(_wb_gh_pr_list "$repo_dir" "$branch" open)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "wb: could not check PR status for '$branch' (gh unavailable/unauthenticated) — treating as no open PR" >&2
+    return 1
+  fi
+  printf '%s' "$out" | grep -q '"number"'
 }
 
 # cmd_reconcile — two kinds of drift:
@@ -2555,16 +2736,117 @@ cmd_breakdown() {
 }
 
 # ---------------------------------------------------------------------------
-# wb pause — mark inactive without tearing anything down
+# wb down / wb pause — close a session without tearing the worktree down
 # ---------------------------------------------------------------------------
+# Two axes, deliberately kept apart (KTD1): PROGRESS (`status:`, stored,
+# changed only by an explicit verb) and ACTIVITY (derived at read time from
+# a live tmux session plus Claude's own transcript store for the worktree —
+# see wb_transcripts, U2 — never stored). `wb down` is the activity-only
+# verb: it closes the session and keeps the worktree, touching `status:`
+# only to mark `review` when the branch has an open PR. `wb pause` is the
+# progress verb: shelving a task on purpose, which composes `wb down` so a
+# paused task never has a live session left behind (the exact conflation
+# the two-axis model exists to rule out).
 
-# cmd_pause <session> — flips a task's status to `paused`. Does NOT remove
-# the worktree (that's the whole point of "paused, not abandoned") and does
-# NOT kill the tmux session (2026-07-08: "I don't want windows or sessions
-# to disappear" — same instruction wb done's session-kill removal follows).
-# Deliberately skips wb done's dirty-worktree check too: that check exists
-# because worktree REMOVAL would destroy uncommitted work, and wb pause
-# never removes the worktree, so nothing is at risk to guard against.
+# cmd_down [--keep-session] [<session>] — close <session> (or the current
+# one) while leaving the worktree untouched: snapshot every conversation
+# id currently on disk for the worktree into claude_sessions: (record-only,
+# KTD2), mark `review` when wb_branch_has_open_pr says the branch has one,
+# append a Handoffs entry, then kill the tmux session. --keep-session does
+# everything except the kill — the picker's `_down` wrapper uses it for the
+# self-target case (mirrors _ctrl_x's task-row guard: the picker commonly
+# opens inside whatever session you're already in via a bare `new-window`,
+# so closing THAT row would otherwise kill the very pane running the
+# picker). Typing `wb down` yourself from inside your own session is
+# intentional self-close and stays unguarded here, same precedent as
+# `wb done --close` (_ctrl_x's own header comment).
+cmd_down() {
+  local keep_session=0 no_status_flip=0
+  local -a args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --keep-session)   keep_session=1; shift ;;
+      --no-status-flip) no_status_flip=1; shift ;;
+      *)                args+=("$1"); shift ;;
+    esac
+  done
+
+  local session="${args[0]:-}"
+  if [ -z "$session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb down: run inside the target session, or pass a session name" >&2; exit 1; }
+    session="$(tmux display-message -p '#S')"
+  fi
+
+  local task_file
+  task_file="$(wb_session_task_file "$session")" \
+    || { echo "wb down: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+  [ -f "$task_file" ] || { echo "wb down: no task file for $session ($task_file)" >&2; exit 1; }
+
+  local repo branch worktree_rel worktree_path
+  repo="$(wb_get_frontmatter "$task_file" repo)"
+  branch="$(wb_get_frontmatter "$task_file" branch)"
+  worktree_rel="$(wb_get_frontmatter "$task_file" worktree)"
+  [ -n "$worktree_rel" ] || worktree_rel=".worktrees/$branch"
+  worktree_path="$(wb_repo_dir "$repo")/$worktree_rel"
+
+  # Read the snapshot and the PR-open probe BEFORE the lock — both are pure
+  # reads (task lock, not tmux/disk/network locks), and computing either
+  # while a lock is held would extend the critical section over a `tmux
+  # list-panes` call or a `gh pr list` network round trip for no reason —
+  # the latter has no bound on how long it can hang (network partition,
+  # GitHub outage), which would otherwise starve every other `wb append`/
+  # `wb pause`/`wb down` on the same task file for as long as it stalls.
+  local snapshot; snapshot="$(wb_sessions_snapshot "$session" "$worktree_path")"
+  local has_open_pr=1
+  wb_branch_has_open_pr "$(wb_repo_dir "$repo")" "$branch" && has_open_pr=0
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$task_file" || exit $?
+  [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
+  [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && wb_set_frontmatter "$task_file" status review
+  wb_append_handoff "$task_file" "wb down" 'Session closed via `wb down` — worktree kept.'
+  wb_task_lock_release "$task_file"
+
+  if [ "$keep_session" = 0 ]; then
+    tmux kill-session -t "=$session" 2>/dev/null || true
+  fi
+
+  echo "wb down: $session set aside — worktree and record kept, resume via the picker or \`wb resume\` ($task_file)"
+}
+
+# cmd_pr_open [<session>] — CLI wrapper over wb_branch_has_open_pr (R16):
+# exits 0 when the session's branch has an open PR, 1 otherwise. Exists so
+# a skill (whose Bash tool can't see the zsh `pgh` fallback function
+# wb_branch_has_open_pr shares with wb_pr_merge_status) can ask the
+# question without shelling out to `gh` directly.
+cmd_pr_open() {
+  local session="${1:-}"
+  if [ -z "$session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb pr-open: run inside the target session, or pass a session name" >&2; exit 1; }
+    session="$(tmux display-message -p '#S')"
+  fi
+
+  local task_file
+  task_file="$(wb_session_task_file "$session")" \
+    || { echo "wb pr-open: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+  [ -f "$task_file" ] || { echo "wb pr-open: no task file for $session ($task_file)" >&2; exit 1; }
+
+  local repo branch
+  repo="$(wb_get_frontmatter "$task_file" repo)"
+  branch="$(wb_get_frontmatter "$task_file" branch)"
+  wb_branch_has_open_pr "$(wb_repo_dir "$repo")" "$branch"
+}
+
+# cmd_pause <session> — shelves a task ON PURPOSE (KTD1's progress axis):
+# sets `status: paused`, then composes cmd_down so a paused task never has
+# a live session left behind. The lock here is released BEFORE cmd_down
+# acquires its own — wb_task_lock_acquire's flock is not re-entrant, so a
+# nested acquire from the same process would time out (exit 75) and leave
+# the task paused with the session still running, exactly the crossed-axes
+# state this model rules out (see cmd_resume's own never-nested note for
+# the same hazard in a different verb). Deliberately skips wb done's
+# dirty-worktree check: that check guards worktree REMOVAL, and neither
+# `wb pause` nor `wb down` ever removes the worktree.
 cmd_pause() {
   local session="${1:-}"
   if [ -z "$session" ]; then
@@ -2582,7 +2864,14 @@ cmd_pause() {
   wb_set_frontmatter "$task_file" status paused
   wb_append_handoff "$task_file" "wb pause" 'Session paused via `wb pause`.'
   wb_task_lock_release "$task_file"
-  echo "wb pause: $session paused — worktree and session untouched, task -> paused ($task_file)"
+  echo "wb pause: $task_file -> paused"
+
+  # --no-status-flip: pause is the explicit verb here (KTD1's "status is
+  # progress, changed only by an explicit verb") — it must win over
+  # cmd_down's own inferred review flip, or a task paused while its branch
+  # already has an open PR would silently end at status:review instead of
+  # the paused status just printed above.
+  cmd_down --no-status-flip "$session"
 }
 
 # ---------------------------------------------------------------------------
@@ -3289,6 +3578,27 @@ wb_board_live_session_for() {
       return 0
     fi
   done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+}
+
+# wb_task_activity <repo> <branch> <worktree_rel> [<live_session>] — U6/R7:
+# the derived active|dormant|cold classification, factored out of
+# wb_board_render_html's pre-pass and cmd_board's ACT column (both computed
+# the same three-way check independently before this). <worktree_rel> is
+# the relative path stored in a task's `worktree:` frontmatter field. Pass
+# <live_session> when the caller already looked it up (wb_board_live_session_for's
+# tmux query is not free) to avoid repeating that lookup; omit it to have
+# this function do the lookup itself.
+wb_task_activity() {
+  local repo="$1" branch="$2" worktree_rel="$3" live_session
+  if [ $# -ge 4 ]; then live_session="$4"; else live_session="$(wb_board_live_session_for "$repo" "$branch")"; fi
+  if [ -n "$live_session" ]; then
+    printf 'active\n'
+  elif [ -n "$worktree_rel" ] \
+       && [ -n "$(wb_transcripts "$(wb_repo_dir "$repo")/$worktree_rel" 2>/dev/null)" ]; then
+    printf 'dormant\n'
+  else
+    printf 'cold\n'
+  fi
 }
 
 # wb_board_window_start <today|week> — epoch seconds for the timeline
@@ -4180,6 +4490,7 @@ wb_board_render_html() {
   # Mirrors the existing children_of pre-pass above.
   # =========================================================================
   local -A LIVE_SESSION=()   # anchor_key -> live tmux session name (or unset/empty)
+  local -A ACTIVITY=()       # anchor_key -> active|dormant|cold (U6/R7, derived, never stored)
   local -A PR_INFO=()        # anchor_key -> this task's pr_info ("#n (state)\turl", task rows only)
   local -A PATH_LINES=()     # anchor_key -> newline-joined intended stages (task rows only)
   local -A STAGE_STATE=()    # wb_board_stage_key(anchor,stage) -> na|pending|progress|done
@@ -4210,8 +4521,12 @@ wb_board_render_html() {
   for pp_row in "${ROWS[@]}"; do
     wb_tsv_split "$pp_row" f
     pp_kind="${f[0]}"; pp_status="${f[2]}"; pp_repo="${f[3]}"; pp_branch="${f[4]}"
-    pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
+    pp_worktree="${f[5]}"; pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
     LIVE_SESSION["$pp_anchor"]="$(wb_board_live_session_for "$pp_repo" "$pp_branch")"
+    # U6/R7: activity, via the shared wb_task_activity classifier, passing
+    # the live-session lookup just above so it isn't repeated — derived
+    # here, never stored, same rule the picker's own dormant rows follow.
+    ACTIVITY["$pp_anchor"]="$(wb_task_activity "$pp_repo" "$pp_branch" "$pp_worktree" "${LIVE_SESSION["$pp_anchor"]}")"
     # Guard on the empty VALUE, not just for tidiness: bash treats an
     # associative-array subscript that evaluates to the empty string via
     # command substitution as "no subscript" ("bad array subscript"),
@@ -4434,6 +4749,14 @@ wb_board_render_html() {
     family_dropdown_html="<details class=\"filter-dropdown family-filter\"><summary>$family_summary_labels</summary><div class=\"filter-options\">$family_options_html</div></details>"
   fi
 
+  # U6/R17: "Dormant only" — a single checkbox toggle (not a radio dropdown
+  # like repo/family) since activity is a plain on/off filter, not a
+  # many-valued choice; AND-composes with repo/family the same way those
+  # two already AND-compose with each other (R28).
+  radios_html+="<input type=\"checkbox\" id=\"dormant-only\">"$'\n'
+  local dormant_toggle_html='<label for="dormant-only" class="dormant-toggle">Dormant only</label>'
+  local dormant_hide_css='#dormant-only:checked ~ main .view tr.row:not([data-activity="dormant"]), #dormant-only:checked ~ main .view .task-detail:not([data-activity="dormant"]) { display: none; }'
+
   # U7: per-panel (repo,family) presence tracking (KTD-8) — populated as
   # rows are collected below, consumed after all 13 panels are built to
   # generate empty-intersection reveal rules (a filter combination that
@@ -4475,7 +4798,7 @@ wb_board_render_html() {
         local link_text="$esc_title"
         [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
         local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-        local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+        local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\" data-activity=\"${ACTIVITY["$anchor_key"]:-cold}\""
         [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
         PANEL_REPO["$panelkey"$'\x1f'"$row_repo_attr"]=1
         if [ -n "$row_family_attr" ]; then
@@ -4527,7 +4850,7 @@ wb_board_render_html() {
     local row_class="row"
     [ -n "${UNMET_COUNT["$anchor_key"]:-}" ] && row_class+=" blocked"
     local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\" data-activity=\"${ACTIVITY["$anchor_key"]:-cold}\""
     [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
     PANEL_ANY["pipeline"]=1
     PANEL_REPO["pipeline"$'\x1f'"$row_repo_attr"]=1
@@ -4594,7 +4917,7 @@ wb_board_render_html() {
     local link_text="$esc_title"
     [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
     local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\" data-activity=\"${ACTIVITY["$anchor_key"]:-cold}\""
     [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
     PANEL_ANY["live"]=1
     PANEL_REPO["live"$'\x1f'"$row_repo_attr"]=1
@@ -4644,7 +4967,7 @@ wb_board_render_html() {
     live_badge=""
     [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
     local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\" data-activity=\"${ACTIVITY["$anchor_key"]:-cold}\""
     [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
     PANEL_ANY["stale"]=1
     PANEL_REPO["stale"$'\x1f'"$row_repo_attr"]=1
@@ -4938,6 +5261,8 @@ wb_board_render_html() {
   .filter-dropdown .filter-options { position: absolute; right: 0; top: 100%; margin-top: .3rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .3rem; display: flex; flex-direction: column; gap: .1rem; z-index: 6; min-width: 8rem; }
   .filter-dropdown .filter-options label { font-family: var(--mono); font-size: .78rem; padding: .3rem .6rem; border-radius: 6px; cursor: pointer; color: var(--ink2); white-space: nowrap; }
   .filter-dropdown .filter-options label:hover { background: var(--bg2); }
+  .dormant-toggle { display: flex; align-items: center; gap: .35rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .35rem .8rem; font-family: var(--mono); font-size: .78rem; color: var(--ink2); cursor: pointer; white-space: nowrap; }
+  .dormant-toggle input { cursor: pointer; }
 
   main { padding: 1.5rem; max-width: min(1560px, 95vw); margin: 0 auto; }
   .view { display: none; flex-direction: column; gap: 2.2rem; min-width: 0; }
@@ -5047,6 +5372,7 @@ wb_board_render_html() {
   @@REPO_SUMMARY_CSS@@
   @@FAMILY_HIDE_CSS@@
   @@FAMILY_SUMMARY_CSS@@
+  @@DORMANT_HIDE_CSS@@
   @@REVEAL_CSS@@
 </style>
 </head>
@@ -5067,6 +5393,7 @@ wb_board_render_html() {
     <div class="header-controls">
       <details class="filter-dropdown repo-filter"><summary>@@REPO_SUMMARY_LABELS@@</summary><div class="filter-options">@@REPO_OPTIONS_HTML@@</div></details>
       @@FAMILY_DROPDOWN_HTML@@
+      @@DORMANT_TOGGLE_HTML@@
     </div>
   </div>
 </header>
@@ -5120,6 +5447,7 @@ HTMLEOF
   page_template="${page_template//@@REPO_SUMMARY_CSS@@/$(wb_board_escape_replacement "$repo_summary_css")}"
   page_template="${page_template//@@FAMILY_HIDE_CSS@@/$(wb_board_escape_replacement "$family_hide_css")}"
   page_template="${page_template//@@FAMILY_SUMMARY_CSS@@/$(wb_board_escape_replacement "$family_summary_css")}"
+  page_template="${page_template//@@DORMANT_HIDE_CSS@@/$(wb_board_escape_replacement "$dormant_hide_css")}"
   page_template="${page_template//@@REVEAL_CSS@@/$(wb_board_escape_replacement "$reveal_css")}"
   page_template="${page_template//@@RADIOS_HTML@@/$(wb_board_escape_replacement "$radios_html")}"
   page_template="${page_template//@@LIVE_AGENTS_HTML@@/$(wb_board_escape_replacement "$live_agents_html")}"
@@ -5129,6 +5457,7 @@ HTMLEOF
   page_template="${page_template//@@REPO_SUMMARY_LABELS@@/$(wb_board_escape_replacement "$repo_summary_labels")}"
   page_template="${page_template//@@REPO_OPTIONS_HTML@@/$(wb_board_escape_replacement "$repo_options_html")}"
   page_template="${page_template//@@FAMILY_DROPDOWN_HTML@@/$(wb_board_escape_replacement "$family_dropdown_html")}"
+  page_template="${page_template//@@DORMANT_TOGGLE_HTML@@/$(wb_board_escape_replacement "$dormant_toggle_html")}"
   page_template="${page_template//@@PANELS_HTML@@/$(wb_board_escape_replacement "$panels_html")}"
   page_template="${page_template//@@KEY_FINDINGS_HTML@@/$(wb_board_escape_replacement "$key_findings_html")}"
   printf '%s\n' "$page_template"
@@ -5155,11 +5484,21 @@ cmd_board() {
     return 0
   fi
 
-  local f title fu rows=""
+  local f title fu rows="" repo status worktree branch activity
   local -a t
+  # U6/R17: an ACT column, only when the terminal is wide enough to take it
+  # without wrapping the existing four columns — a plain `wb board` run in a
+  # narrow split pane shouldn't have to trade STATUS/REPO/TASK legibility
+  # for it. 100 cols is a rough floor, not a measured one; the HTML board's
+  # data-activity attribute (U6) is the place to look for this
+  # width-independently.
+  local term_width show_act=0
+  term_width="$(tput cols 2>/dev/null || echo 0)"
+  [ "${term_width:-0}" -ge 100 ] && show_act=1
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     wb_tsv_split "$(wb_read_task "$f")" t
+    status="${t[0]:-?}"; repo="${t[1]:-?}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
     title="$(wb_task_title "$f")"
     [ -n "$title" ] || title="$(basename "$f" .md)"
     fu="$(awk '
@@ -5169,7 +5508,12 @@ cmd_board() {
       infu && /^[-*] / { c++ }
       END { print c + 0 }
     ' "$f")"
-    rows+="$(printf '%s\t%s\t%s\t%s' "${t[0]:-?}" "${t[1]:-?}" "$title" "$fu")"$'\n'
+    if [ "$show_act" = 1 ]; then
+      activity="$(wb_task_activity "$repo" "$branch" "$worktree")"
+      rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$activity")"$'\n'
+    else
+      rows+="$(printf '%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu")"$'\n'
+    fi
   done < <(wb_task_files)
 
   printf 'live agents: %s (warn >= %s)\n' "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT"
@@ -5180,7 +5524,11 @@ cmd_board() {
   fi
 
   {
-    printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\n'
+    if [ "$show_act" = 1 ]; then
+      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\tACT\n'
+    else
+      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\n'
+    fi
     # doing < review < paused < planned < done < anything-else; rank prefix
     # keeps the plain-text sort key clean, then drops out before display.
     printf '%s' "$rows" | awk -F'\t' -v OFS='\t' '{
@@ -5391,6 +5739,11 @@ cmd_done() {
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status done
   wb_set_frontmatter "$task_file" closed "$(date +%F)"
+  # U6/R6: a done task has no worktree left to resume into, so the
+  # claude_sessions: snapshot (a record of resumable conversations) is
+  # stale the instant the worktree is removed — blank it rather than let a
+  # future reader mistake a done task for one with a warm history.
+  wb_set_frontmatter "$task_file" claude_sessions ""
   wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
   wb_task_lock_release "$task_file"
 
@@ -5666,16 +6019,74 @@ collect_combined_rows() {
   done
 }
 
-# collect_agent_rows — one row per running claude pane, globally, ranked by
-# urgency with no session grouping. Replaces `ca`.
-collect_agent_rows() {
-  local rank target status task icon label sess
-  while IFS=$'\t' read -r rank target status task; do
-    IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
-    sess="${target%%:*}"
-    printf '%s\t%s\t\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\t\n' \
-      "$sess" "$task" "$rank" "$icon" "$label" "$target" "$sess" "$sess"
-  done < <(tmux_claude_panes | sort -n)
+# collect_dormant_rows <mode> — dormant task rows (R10): status doing|review
+# always, plus paused when <mode> is "search" (KTD9/R11 — the July
+# presence-only decision keeps planned tasks out of every mode). A task only
+# qualifies when it has a non-empty worktree: and at least one Claude
+# transcript still on disk for that worktree (R7 — "dormant" IS "has a
+# resumable conversation", not merely "not live"; retention purging every
+# transcript degrades a task straight to cold with no verb run). Liveness is
+# checked by resolving each LIVE session's own task file via
+# wb_session_task_file (option-based, the same @task/@wb_repo/@wb_slug
+# lookup wb_live_session_row itself uses) rather than matching on the
+# session's NAME — a session renamed with `r` must still suppress its
+# dormant row (KTD8). Rows reuse the same 12-field shape live rows do, with
+# kind=task and empty session/target, so picker()'s existing accept branch
+# (`elif [ "$kind" = task ]; then cmd_new "$repo" "$slug"`) needs no change
+# at all to resume one.
+collect_dormant_rows() {
+  local mode="$1" now; now="$(date +%s)"
+  local -A live_files=()
+  local session tf
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    tf="$(wb_session_task_file "$session" 2>/dev/null)" || continue
+    [ -n "$tf" ] && live_files["$tf"]=1
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+
+  local f status repo worktree branch title rank urank
+  local worktree_abs transcripts newest age
+  local -a t
+  for f in $(wb_task_files); do
+    [ -z "${live_files[$f]:-}" ] || continue
+    wb_tsv_split "$(wb_read_task "$f")" t
+    status="${t[0]:-}"; repo="${t[1]:-}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
+    case "$status" in
+      doing|review) ;;
+      paused)       [ "$mode" = search ] || continue ;;
+      *)            continue ;;
+    esac
+    [ -n "$worktree" ] || continue
+    worktree_abs="$(wb_repo_dir "$repo")/$worktree"
+    transcripts="$(wb_transcripts "$worktree_abs")"
+    [ -n "$transcripts" ] || continue
+    newest="$(printf '%s\n' "$transcripts" | head -n1 | cut -f2)"
+    age=$(( (now - newest) / 86400 ))
+    [ "$age" -ge 0 ] || age=0
+    title="$(wb_task_title "$f")"; [ -n "$title" ] || title="$(basename "$f" .md)"
+    case "$status" in
+      doing) rank=0 ;; review) rank=1 ;; *) rank=2 ;;
+    esac
+    # Status-rank first, newest transcript within a rank second — a single
+    # sortable integer so the caller can use the same plain
+    # `sort -t $'\t' -k4,4n` every other collector already sorts urank with.
+    urank=$(( rank * 10000000000 + (9999999999 - newest) ))
+    printf '%s\t%s\t%s\t%s\t~ %s %sd\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$title" "[$branch]" "$urank" "$status" "$age" "" "" "$f" task 0 "$branch" ""
+  done
+}
+
+# wb_dormant_divider — the legend row `── dormant ──` between live and
+# dormant rows (only ever printed by render_rows when at least one dormant
+# row exists). Emitted directly in the SAME post-wb_format_for_display shape
+# (display field + 12 empty raw fields) rather than piped through that
+# function, since it carries no real row data to format — this also keeps
+# it crash-safe under `set -u`: picker()'s accept-path array indexing
+# (${f[1]}, ${f[6]}, ...) needs every one of those 12 raw fields to exist,
+# even empty, or selecting this row would hit an unbound-variable error.
+wb_dormant_divider() {
+  local pad; pad="$(printf '\t%.0s' $(seq 1 12))"
+  printf '%s%s\n' $'\033[90m── dormant ──\033[0m' "$pad"
 }
 
 # wb_format_for_display — prepend a fixed-width, colored display string as a
@@ -5771,56 +6182,54 @@ wb_column_header() {
     "$WB_COL_BRANCH" "BRANCH" "STATUS"
 }
 
-# render_rows <mode_file> — dispatch to the mode currently recorded in
-# <mode_file> (combined/sessions/agents; defaults to combined), with the
-# column-header legend prepended as line 1. Also used by the fzf
-# `reload`/`load` bindings (via `wb.sh render <mode_file>`).
+# render_rows <mode_file> — live combined rows, then (only when at least one
+# qualifies) a dormant-section divider plus dormant rows sorted status-rank-
+# then-newest-first (KTD8), with the column-header legend prepended as line
+# 1. <mode_file> holds "normal" or "search" (R11/KTD9) — read fresh on every
+# call, since each invocation is its own process with no memory of the
+# last one, so a stale in-flight auto-refresh (see picker()'s `load:` bind)
+# still renders whatever the CURRENT mode actually is, never a stale pool.
+# Also used by the fzf `reload`/`load` bindings (via `wb.sh render
+# <mode_file>`).
 render_rows() {
-  local mode; mode="$(cat "$1" 2>/dev/null || echo combined)"
+  local mode; mode="$(cat "$1" 2>/dev/null || echo normal)"
   wb_column_header
-  case "$mode" in
-    agents)   collect_agent_rows | sort -t $'\t' -k4,4n -k1,1 | wb_format_for_display ;;
-    sessions) collect_live_rows  | sort -t $'\t' -k4,4n -k1,1 -k2,2 | wb_format_for_display ;;
-    *)        collect_combined_rows | wb_format_for_display ;;
-  esac
-}
-
-# wb_status_line <mode> <context> — 2-line footer: mode + pending counts,
-# then keybind hints for whichever context (normal/search) is actually
-# active — showing both at once (the original design) meant half the header
-# was always irrelevant to what you could currently type. This is fzf's
-# --header, which fzf keeps anchored near the prompt (bottom, with the
-# default layout) — the column legend lives separately, see wb_column_header.
-wb_status_line() {
-  local mode="${1:-combined}" ctx="${2:-normal}" hint
-  if [ "$ctx" = search ]; then
-    hint='SEARCH: type to filter · esc back to normal'
-  else
-    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · p pause · ctrl-x done+close/kill · / search · q quit'
+  collect_combined_rows | wb_format_for_display
+  local dormant; dormant="$(collect_dormant_rows "$mode" | sort -t $'\t' -k4,4n)"
+  if [ -n "$dormant" ]; then
+    wb_dormant_divider
+    printf '%s\n' "$dormant" | wb_format_for_display
   fi
-  printf 'wb · %s (tab to cycle) · %s · %s agents live (warn >= %s)\n%s' \
-    "$mode" "$(wb_pending_counts)" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$hint"
 }
 
-# _cycle_mode <mode_file> — advance to the next mode, persisting it so the
-# next reload (manual or auto-refresh) renders in the new mode instead of
-# resetting to combined.
-_cycle_mode() {
-  local cur; cur="$(cat "$1" 2>/dev/null || echo combined)"
-  case "$cur" in
-    combined) echo sessions ;;
-    sessions) echo agents ;;
-    *)        echo combined ;;
-  esac > "$1"
+# wb_status_line <context> — 2-line footer: pending counts + live-agent
+# count, then keybind hints for whichever context (normal/search) is
+# actually active — showing both at once (the original design) meant half
+# the header was always irrelevant to what you could currently type. This
+# is fzf's --header, which fzf keeps anchored near the prompt (bottom, with
+# the default layout) — the column legend lives separately, see
+# wb_column_header.
+wb_status_line() {
+  local ctx="${1:-normal}" hint
+  if [ "$ctx" = search ]; then
+    hint='SEARCH: type to filter (includes paused) · esc back to normal'
+  else
+    hint='j/k move · enter jump/resume · n new · p down · r rename · b break-out · ctrl-x done+close/kill · / search · q quit'
+  fi
+  printf 'wb · %s · %s agents live (warn >= %s)\n%s' \
+    "$(wb_pending_counts)" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$hint"
 }
 
-# _mode_header <mode_file> [context] — print the header for whatever mode is
-# currently recorded (plus an optional normal/search context), for fzf's
-# transform-header to swap in after a mode cycle or a NORMAL/SEARCH toggle.
-_mode_header() { wb_status_line "$(cat "$1" 2>/dev/null || echo combined)" "${2:-normal}"; }
+# _set_mode <mode_file> <value> — persist "normal"/"search" (KTD9), read
+# fresh by render_rows on every call. Replaces the old 3-way _cycle_mode
+# now that the picker has a single (live + dormant) view instead of a
+# combined/sessions/agents Tab cycle.
+_set_mode() { printf '%s' "$2" > "$1"; }
 
-# _interrupt <target> — send Escape to a pane; no-op on an empty target (bound to `x`).
-_interrupt() { [ -n "${1:-}" ] && tmux send-keys -t "$1" Escape 2>/dev/null; }
+# _mode_header [context] — the header for whatever context fzf's
+# transform-header passes (normal when omitted), for fzf to swap in after
+# entering/leaving search.
+_mode_header() { wb_status_line "${1:-normal}"; }
 
 # _rename <session> — prompt for a new tmux session name (bound to `r`).
 # Cosmetic only: wb's task linkage lives on the session object via
@@ -5841,15 +6250,28 @@ _rename() {
   fi
 }
 
-# _pause <session> — bound to `p`; wraps cmd_pause with the same
-# hold-the-terminal-on-failure convention as _rename (fzf repaints the
-# instant execute() returns, so an unheld error message is overdrawn
-# before it can be read).
-_pause() {
+# _down <session> — bound to `p`; wraps cmd_down with the picker's usual
+# self-target guard: the picker is commonly launched via `new-window` with
+# no `-t` (tmux.conf's `bind m`/`bind a`), so it opens inside whatever
+# session you're already in, and that session shows up as a selectable row
+# like any other — closing THAT row would otherwise kill the very pane
+# running the picker (mirrors _ctrl_x's own task-row self-target guard).
+# cmd_down --keep-session still writes the snapshot and marks `review` on
+# an open PR either way; only the kill is skipped. Same hold-the-terminal-
+# on-failure convention as _rename.
+_down() {
   local session="$1"
   [ -n "$session" ] || return 0
-  if ! cmd_pause "$session"; then
-    read -rn1 -p "wb: pause failed — press any key "
+  if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
+    if ! cmd_down --keep-session "$session"; then
+      read -rn1 -p "wb: down failed — press any key "
+      return 1
+    fi
+    read -rn1 -p "wb: not closing '$session' via p — it's your current session; run 'wb down' yourself once you're ready — press any key "
+    return 0
+  fi
+  if ! cmd_down "$session"; then
+    read -rn1 -p "wb: down failed — press any key "
     return 1
   fi
 }
@@ -5890,6 +6312,32 @@ _break_out() {
   fi
 }
 
+# _new — bound to `n` (R12): prompts for a repo, defaulting to the picker's
+# OWN launching session's @wb_repo when it has one (no default outside a wb
+# session — the picker's `-c "$HOME"` launch means the current directory no
+# longer says which repo you're in), then a slug. An empty slug opens a
+# plain repo session instead of a task (tmux_attach_or_create), mirroring
+# what typing `:new` in tmux itself already does. Bound with `become`, not
+# execute+reload, since cmd_new/tmux_attach_or_create already switch the
+# client themselves — returning to the picker's own list afterward would
+# just show a stale render for a beat before the switch takes effect.
+_new() {
+  local default_repo repo slug
+  default_repo="$(tmux display-message -p '#{@wb_repo}' 2>/dev/null || true)"
+  read -r -p "New — repo${default_repo:+ [$default_repo]}: " repo
+  repo="${repo:-$default_repo}"
+  if [ -z "$repo" ]; then
+    read -rn1 -p "wb: a repo is required — press any key "
+    return 1
+  fi
+  read -r -p "New — slug (blank = plain session): " slug
+  if [ -n "$slug" ]; then
+    cmd_new "$repo" "$slug"
+  else
+    tmux_attach_or_create "$repo" "$(wb_repo_dir "$repo")"
+  fi
+}
+
 # _ctrl_x <kind> <session> <target> — the picker's ctrl-x dispatch: task rows
 # route through the full wb done wind-down plus --close (mark done AND close
 # the session — the one caller where that combination is always what's
@@ -5910,7 +6358,7 @@ _break_out() {
 # `wb done --close` yourself from inside your own session stays intentional
 # self-close and is untouched.
 _ctrl_x() {
-  local kind="$1" session="$2" target="$3"
+  local kind="$1" session="$2" target="$3" ref="${4:-}"
   case "$kind" in
     task)
       if [ -n "$session" ]; then
@@ -5920,6 +6368,12 @@ _ctrl_x() {
         else
           cmd_done "$session" --close
         fi
+      elif [ -n "$ref" ]; then
+        # Dormant row (R10): no live session for @wb_repo/@wb_slug to
+        # resolve from at all — cmd_done's own KTD7 store-only path
+        # resolves a task-file stem instead, same mechanism the printed
+        # "wb done <parent-stem>" nudge already relies on.
+        cmd_done "$(basename "$ref" .md)"
       fi
       ;;
     repo)  [ -n "$session" ] && tmux kill-session -t "=$session" 2>/dev/null ;;
@@ -5934,7 +6388,7 @@ picker() {
   # from the trap at that point is an unbound-variable crash under set -u.
   # A plain (script-global) variable stays in scope for the trap either way.
   mode_file="$(mktemp -t wb-mode.XXXXXX)"
-  echo combined > "$mode_file"
+  echo normal > "$mode_file"
   trap 'rm -f "$mode_file"' EXIT
 
   local rendered selection
@@ -5945,8 +6399,9 @@ picker() {
   fi
 
   # Modal navigation mirrors claude-sessions.sh: NORMAL disables search so
-  # unbound keys are inert; i or / enters SEARCH.
-  local navkeys='j,k,g,G,q,i,x,r,b,p,/'
+  # unbound keys are inert; i or / enters SEARCH. `x`/Tab are gone with the
+  # old interrupt key and the combined/sessions/agents mode cycle; `n` is new.
+  local navkeys='j,k,g,G,q,i,r,b,p,n,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-12 are the real data, shown to fzf only as hidden/addressable
@@ -5962,26 +6417,25 @@ picker() {
         --layout=reverse-list --pointer='>' \
         --height=100% --padding=6,1,2,1 \
         --prompt='NORMAL ' \
-        --header="$(wb_status_line combined)" \
+        --header="$(wb_status_line normal)" \
         --no-sort \
         --preview '[ -n {7} ] && tmux capture-pane -ep -t {7} || ([ -f {9} ] && cat {9} || git -C {9} -c color.status=always status -s)' \
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
-        --bind "load:reload-sync(sleep 3; \"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "load:reload(sleep 3; \"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind 'j:down' --bind 'k:up' --bind 'g:first' --bind 'G:last' \
         --bind 'ctrl-d:half-page-down' --bind 'ctrl-u:half-page-up' \
         --bind 'l:accept' --bind 'h:abort' --bind 'q:abort' \
         --bind "ctrl-r:reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
-        --bind "tab:execute-silent(\"$SELF\" _cycle-mode \"$mode_file\")+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\")" \
-        --bind "x:execute-silent(\"$SELF\" _interrupt {7})" \
         --bind "r:execute(\"$SELF\" _rename {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
-        --bind "p:execute(\"$SELF\" _pause {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
-        --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7})" \
-        --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
-        --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
-        --bind "esc:enable-search+clear-query+disable-search+rebind($navkeys)+change-prompt(NORMAL )+transform-header(\"$SELF\" _mode-header \"$mode_file\")")" || exit 0
+        --bind "p:execute(\"$SELF\" _down {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "n:become(\"$SELF\" _new)" \
+        --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7} {9})" \
+        --bind "i:execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header search)" \
+        --bind "/:clear-query+execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header search)" \
+        --bind "esc:enable-search+clear-query+disable-search+execute-silent(\"$SELF\" _set-mode \"$mode_file\" normal)+rebind($navkeys)+change-prompt(NORMAL )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header)")" || exit 0
 
   [ -n "$selection" ] || exit 0
   local -a f; wb_tsv_split "$selection" f
@@ -5994,7 +6448,16 @@ picker() {
   elif [ "$kind" = "repo" ]; then
     tmux_attach_or_create "$repo" "$ref"
   elif [ "$kind" = "task" ]; then
-    cmd_new "$repo" "$slug"
+    # KTD7: a dormant row's `slug` field is $branch, not the task's real
+    # slug (see collect_dormant_rows) — for an ordinary task branch equals
+    # the raw slug, but for a wb-breakdown migrated child, branch: is the
+    # PARENT's inherited identity while the child's own file is a distinct
+    # stem. Deriving the task file from repo+slug here (cmd_new's default)
+    # would resolve back onto the parent. $ref is already the real target
+    # file this row was read from — hand it through, same override
+    # cmd_resume uses for the identical hazard.
+    _WB_TASK_FILE_OVERRIDE="$ref" cmd_new "$repo" "$slug"
+    unset _WB_TASK_FILE_OVERRIDE
   fi
 }
 
@@ -6011,19 +6474,21 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     board)       shift; cmd_board "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
+    down)        shift; cmd_down "$@" ;;
+    pr-open)     shift; cmd_pr_open "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
     install-hooks) shift; cmd_install_hooks "$@" ;;
-    _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
-    _interrupt)  shift; _interrupt "$@" ;;
+    _new)        shift; _new "$@" ;;
+    _down)       shift; _down "$@" ;;
     _rename)     shift; _rename "$@" ;;
     _break-out)  shift; _break_out "$@" ;;
     _ctrl-x)     shift; _ctrl_x "$@" ;;
-    _cycle-mode) shift; _cycle_mode "$@" ;;
+    _set-mode)   shift; _set_mode "$@" ;;
     _mode-header) shift; _mode_header "$@" ;;
     *)           picker "${1:-}" ;;
   esac

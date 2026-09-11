@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Tests for `wb pause` (U2) — plain-bash assertions against a fixture store
-# and a real (but throwaway) tmux session, same convention as
+# Tests for `wb pause` (U3 rework) — plain-bash assertions against a fixture
+# store and a real (but throwaway) tmux session, same convention as
 # wb-board.test.sh. Sources wb.sh (safe: see the BASH_SOURCE guard at the
 # bottom of wb.sh) to call cmd_pause directly against fixture tmux state.
+# `wb pause` now shelves a task ON PURPOSE (the progress axis) and composes
+# `wb down` (the activity axis) so a paused task never keeps a live session
+# — see wb-down.test.sh for cmd_down's own scenarios (snapshot building,
+# the PR probe, the --keep-session self-target path).
 # Run: bash scripts/.config/scripts/tmux/tests/wb-pause.test.sh
 set -uo pipefail
 
@@ -27,6 +31,7 @@ assert() { # <desc> <expected-regex> <actual>
 source "$WB"
 set +e   # wb.sh sets -e; this test intentionally captures non-zero exits
 TASKS_DIR="$FIXTURE"
+CLAUDE_PROJECTS_DIR="$FIXTURE/projects"   # no real ~/.claude/projects reads/writes from this test
 
 mk_task() { # <file> <status> <repo> <branch>
   local f="$FIXTURE/$1"
@@ -34,15 +39,32 @@ mk_task() { # <file> <status> <repo> <branch>
     "$2" "$3" "$4" > "$f"
 }
 
-# --- happy path: paused task keeps its worktree marker and its session ------
+# --- happy path: paused task keeps its worktree marker, loses its session --
 mk_task 'proj--feat-alpha.md' doing proj feat/alpha
 tmux new-session -d -s "$SESSION" 2>/dev/null
 tmux set-option -t "=$SESSION:" @wb_repo proj >/dev/null
 tmux set-option -t "=$SESSION:" @wb_slug feat/alpha >/dev/null
 
+# Stub the PR probe so this test never shells out to a real `gh` — cmd_down's
+# own PR-marking behavior is wb-down.test.sh's concern, not this file's.
+wb_branch_has_open_pr() { return 1; }
+
+# Lock-ordering trace (KTD5): wraps the two real primitives so this test can
+# prove cmd_pause releases its own lock BEFORE cmd_down acquires its own,
+# rather than nesting one critical section inside the other (the flock
+# underneath wb_task_lock_acquire is not re-entrant — a nested acquire from
+# the same process would time out and leave the task paused with the
+# session still alive, exactly the crossed-axes state this model forbids).
+LOCK_TRACE="$FIXTURE/.lock-trace"
+eval "$(declare -f wb_task_lock_acquire_guarded | sed '1s/.*/_orig_acquire_guarded()/')"
+eval "$(declare -f wb_task_lock_release | sed '1s/.*/_orig_release()/')"
+wb_task_lock_acquire_guarded() { echo acquire >> "$LOCK_TRACE"; _orig_acquire_guarded "$@"; }
+wb_task_lock_release()          { echo release >> "$LOCK_TRACE"; _orig_release "$@"; }
+
 out="$(cmd_pause "$SESSION" 2>&1)"; rc=$?
 assert "exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit code $rc: $out"; fail=1; }
-assert "confirmation message" 'paused' "$out"
+assert "confirmation message names paused" 'paused' "$out"
+assert "confirmation message names the down step" 'set aside' "$out"
 
 status_val="$(awk '
   BEGIN { infm = 0 }
@@ -52,26 +74,38 @@ status_val="$(awk '
 assert "status flipped to paused" '^paused$' "$status_val"
 
 if tmux has-session -t "=$SESSION" 2>/dev/null; then
-  echo "ok   - tmux session still alive after pause"
-else
-  echo "FAIL - tmux session was killed by wb pause"
+  echo "FAIL - tmux session survived wb pause (a paused task must never keep a live session)"
   fail=1
+else
+  echo "ok   - tmux session killed by wb pause (composed wb down)"
 fi
 
-# --- Handoffs: cmd_pause on a task with no "## Handoffs" section yet --------
-# mk_task's fixture (frontmatter + "# Title\n") has no body sections at all,
-# so this exercises wb_append_handoff's fully-missing-heading, append-at-EOF
-# path (no "## Decisions" to insert before either).
+trace="$(cat "$LOCK_TRACE" 2>/dev/null)"
+assert "lock trace: acquire, release, acquire, release (never nested)" \
+  '^acquire
+release
+acquire
+release$' "$trace"
+
+# --- Handoffs: pause then down, in that order, one entry each ---------------
 handoffs_block="$(awk '/^## Handoffs$/{p=1} p' "$FIXTURE/proj--feat-alpha.md")"
 assert "cmd_pause: creates a ## Handoffs section" '^## Handoffs$' "$handoffs_block"
-assert "cmd_pause: entry heading names the source" '### [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} — wb pause \(auto\)' "$handoffs_block"
-assert "cmd_pause: entry body names the command" 'Session paused via `wb pause`\.' "$handoffs_block"
-
-handoffs_count="$(grep -c '^### .* — wb pause (auto)$' "$FIXTURE/proj--feat-alpha.md")"
-if [ "$handoffs_count" -eq 1 ]; then
-  echo "ok   - cmd_pause: exactly one Handoffs entry after one pause"
+pause_line=$(printf '%s\n' "$handoffs_block" | grep -n '— wb pause (auto)$' | cut -d: -f1 | head -1)
+down_line=$(printf '%s\n' "$handoffs_block" | grep -n '— wb down (auto)$' | cut -d: -f1 | head -1)
+if [ -n "$pause_line" ] && [ -n "$down_line" ] && [ "$pause_line" -lt "$down_line" ]; then
+  echo "ok   - Handoffs: wb pause entry precedes wb down entry"
 else
-  echo "FAIL - cmd_pause: expected exactly 1 Handoffs entry, got $handoffs_count"; fail=1
+  echo "FAIL - Handoffs: expected wb pause entry before wb down entry (pause=$pause_line, down=$down_line)"; fail=1
+fi
+assert "cmd_pause: entry body names the command" 'Session paused via `wb pause`\.' "$handoffs_block"
+assert "cmd_down: entry body names the command" 'Session closed via `wb down`' "$handoffs_block"
+
+pause_count="$(grep -c '^### .* — wb pause (auto)$' "$FIXTURE/proj--feat-alpha.md")"
+down_count="$(grep -c '^### .* — wb down (auto)$' "$FIXTURE/proj--feat-alpha.md")"
+if [ "$pause_count" -eq 1 ] && [ "$down_count" -eq 1 ]; then
+  echo "ok   - exactly one wb pause entry and one wb down entry after one pause"
+else
+  echo "FAIL - expected exactly 1 wb pause + 1 wb down entry, got pause=$pause_count down=$down_count"; fail=1
 fi
 
 # --- error path: not a wb task session ---------------------------------------

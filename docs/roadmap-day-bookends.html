@@ -250,6 +250,7 @@
       <li><a href="#jira-exclusion">Jira exclusion</a></li>
       <li><a href="#design-principle-sessions-are-regenerative-not-precious">Design principle: sessions are regenerative, not precious</a></li>
       <li><a href="#wb-resume-task--an-early-ungated-slice-2026-07-08">wb resume &lt;task&gt; — an early, ungated slice (2026-07-08)</a></li>
+      <li><a href="#wb-down--single-session-shipped---all-still-deferred-2026-09-11">wb down — single-session shipped, --all still deferred (2026-09-11)</a></li>
     </ul>
   </nav>
   <main>
@@ -265,14 +266,17 @@
 <p>Two workflows composing the capture/recall pieces already built: <code>wb up</code>
 (startup) and <code>wb down</code> (shutdown). This page is the source; edit
 <code>docs/roadmap-day-bookends.md</code>, not the rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong> the
-full <code>wb up</code>/<code>wb down</code> bulk flow needs slice 4b's session-id capture,
-which was gated behind the 4a usage-window verdict; that verdict resolved
-early 2026-07-10 (unused) and 4b's original plan is now superseded by the
-capture fix-forward experiment, whose own verdict lands ~2026-07-24 (see
-<a href="ceremonies.html">Ceremonies</a>) — so this bulk flow's start date moved with
-it. <code>wb resume &lt;task&gt;</code> (single-task slice, see below) is open and
-unblocked</p>
+<p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong>
+single-task <code>wb down</code> shipped 2026-09-11 (picker-session-lifecycle plan) —
+see the new section below. It resolves the &quot;one genuinely precious piece of
+state&quot; blocker this page originally raised: Claude Code's own transcript
+store on disk turned out to already hold everything slice 4b's session-id
+capture was going to build a hook for, so nothing here was actually gated
+on 4b after all. The <code>--all</code> bulk sweep (<code>wb down --all</code>, this doc's own
+proposed name below) stays deferred — real value once you're closing more
+than one session at a time, not before. <code>wb up</code>'s startup-side review
+buffer is unaffected and still open work. <code>wb resume &lt;task&gt;</code> (single-task
+slice, see below) shipped earlier and needed none of this either.</p>
 <h2 id="the-two-workflows">The two workflows</h2>
 <p><strong>Startup (<code>wb up</code>)</strong> — review yesterday's close-out + parked items + task
 board, propose today's focus, recreate tmux sessions for the chosen tasks.</p>
@@ -306,15 +310,18 @@ scrollback, but the task store is the source of truth. Concretely: keep
 everything <code>wb</code> creates reconstructable from the task file alone, and give
 <code>wb</code> a <code>down --all</code> / <code>up --resume</code> pair.</p>
 <blockquote>
-<p><strong>The one genuinely precious piece of state:</strong> each agent pane's Claude
-session id, recorded at spawn (a session/window option or a task-file
-field), so <code>up --resume</code> can <code>claude --resume &lt;id&gt;</code> instead of restarting
-every agent cold. The 3-window layout is cheap to rebuild; an in-flight
-agent conversation is not — and the id is cheap to capture now but
-impossible to recover for sessions already killed. This capture was
-slated as part of slice 4b's groundwork, ahead of <code>wb up</code>/<code>wb down</code>
-themselves — now dependent on the capture fix-forward experiment's
-verdict (~2026-07-24) reviving 4b's original plan.</p>
+<p><strong>The one genuinely precious piece of state — resolved 2026-09-11, not
+the way this page expected.</strong> Each agent pane's Claude session id turned
+out not to need capturing at all: Claude Code already writes one
+<code>.jsonl</code> transcript per conversation under
+<code>~/.claude/projects/&lt;encoded-worktree-path&gt;/</code>, keyed by the exact cwd a
+<code>wb</code> session already runs in. <code>wb down</code>/<code>wb pause</code> read that directory
+directly (<code>wb_transcripts</code> in <code>wb.sh</code>) rather than hooking anything at
+spawn time — no session/window option, no task-file field needed to make
+resume warm. See <a href="wb-guide.html#session-lifecycle-wb-down-wb-pause-and-warm-resume">the wb guide's session-lifecycle
+section</a>
+for the shipped behavior. <code>up --resume</code>'s bulk case inherits this for
+free whenever it gets built.</p>
 </blockquote>
 <h2 id="wb-resume-task--an-early-ungated-slice-2026-07-08"><code>wb resume &lt;task&gt;</code> — an early, ungated slice (2026-07-08)</h2>
 <p>The full <code>wb up</code>/<code>wb down</code> pair above stays gated on 4b's session-id
@@ -337,6 +344,22 @@ the startup review buffer, plus the session-id warm-restart on top.</p>
 only lists <code>tpm</code>, <code>tmux-sensible</code>, <code>vim-tmux-navigator</code>, <code>catppuccin-tmux</code>)
 — consistent with this doc's regenerative-sessions principle, this slice
 doesn't need it either.</p>
+<h2 id="wb-down--single-session-shipped---all-still-deferred-2026-09-11"><code>wb down</code> — single-session shipped, <code>--all</code> still deferred (2026-09-11)</h2>
+<p>The picker-session-lifecycle plan shipped this doc's proposed
+<code>down</code>/<code>--all</code> split, but only the first half: <code>wb down [&lt;session&gt;]</code>
+closes one session (activity axis only — <code>status:</code> moves to <code>review</code> when
+the branch has an open PR, otherwise untouched) and keeps the worktree,
+same shape as <code>wb resume</code> above — a single-target primitive, not the
+sweep-every-session shutdown flow this page originally scoped. <code>wb pause</code>
+composes it for the deliberate-shelve case (<code>status: paused</code>).</p>
+<p>Warm resume works exactly as this page hoped, just without ever needing a
+captured session id (see the resolved blockquote above): the picker's
+dormant rows and <code>wb resume</code> both pre-type <code>claude --resume &lt;id&gt;</code> from
+whatever transcript exists on disk for the worktree.</p>
+<p><strong>Still open, unclaimed by this slice:</strong> the <code>--all</code> sweep this page named
+(close every live session, one status write per task) and <code>wb up</code>'s
+startup-side review buffer (Decision 10 above) — both real bulk-flow work,
+now genuinely unblocked by anything session-id-shaped, just not yet built.</p>
 </article>
     <footer>
   Generated by <code>docgen</code> from <code>docs/roadmap-day-bookends.md</code>. Rebuild:

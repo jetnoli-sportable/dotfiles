@@ -137,6 +137,10 @@ assert "U4 regression: @task-less session resolves identically to the pre-KTD7 d
 
 # --- happy path: plain `wb done` (no flag) leaves the session alive ---------
 alpha_session="$(session_for alpha)"
+# U6/R6: seed a claude_sessions: snapshot before closing — cmd_done must
+# blank it, since a done task's worktree is gone and the record would
+# otherwise claim a resumable conversation that no longer exists.
+wb_set_frontmatter "$FIXTURE_TASKS/proj--alpha.md" claude_sessions 'abc@2026-09-01T00:00:00Z@primary'
 out="$(cmd_done "$alpha_session" 2>&1)"; rc=$?
 assert "plain done: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
 assert "plain done: confirmation message" 'closed' "$out"
@@ -149,6 +153,12 @@ fi
   && { echo "FAIL - plain done: worktree not removed"; fail=1; } \
   || echo "ok   - plain done: worktree removed"
 assert "plain done: task flipped to done" '^done$' "$(status_of alpha)"
+sessions_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--alpha.md" claude_sessions)"
+if [ -z "$sessions_val" ]; then
+  echo "ok   - plain done: claude_sessions: blanked"
+else
+  echo "FAIL - plain done: claude_sessions: should be blank, got '$sessions_val'"; fail=1
+fi
 if tmux has-session -t "=$alpha_session" 2>/dev/null; then
   echo "ok   - plain done: tmux session still alive"
 else
