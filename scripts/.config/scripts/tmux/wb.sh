@@ -147,6 +147,38 @@ wb_read_task() {
   ' "$1"
 }
 
+# wb_read_tasks_batch <file>... — same fields as wb_read_task, for many
+# files in ONE awk process instead of one process per file (each row is
+# prefixed with its own source path, since a multi-file run has no other
+# way to tell rows apart). Exists for scan-the-whole-store callers like
+# collect_dormant_rows, where forking a fresh awk per task file — cheap in
+# isolation — dominates real wall-clock once the store has hundreds of them.
+wb_read_tasks_batch() {
+  awk '
+    function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
+    function emit() {
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", \
+        file, status, repo, worktree, branch, path, deps, reviewed, sessions
+    }
+    FNR == 1 {
+      if (NR > 1) emit()
+      file = FILENAME; infm = 0; done = 0
+      status = ""; repo = ""; worktree = ""; branch = ""; path = ""; deps = ""; reviewed = ""; sessions = ""
+    }
+    done { next }
+    /^---$/ { infm++; if (infm == 2) done = 1; next }
+    infm == 1 && /^status:/          { s = $0; sub(/^status:[ \t]*/,          "", s); status   = clip(s) }
+    infm == 1 && /^repo:/            { s = $0; sub(/^repo:[ \t]*/,            "", s); repo     = clip(s) }
+    infm == 1 && /^worktree:/        { s = $0; sub(/^worktree:[ \t]*/,        "", s); worktree = clip(s) }
+    infm == 1 && /^branch:/          { s = $0; sub(/^branch:[ \t]*/,          "", s); branch   = clip(s) }
+    infm == 1 && /^path:/            { s = $0; sub(/^path:[ \t]*/,            "", s); path     = clip(s) }
+    infm == 1 && /^depends_on:/      { s = $0; sub(/^depends_on:[ \t]*/,      "", s); deps     = clip(s) }
+    infm == 1 && /^reviewed:/        { s = $0; sub(/^reviewed:[ \t]*/,        "", s); reviewed = clip(s) }
+    infm == 1 && /^claude_sessions:/ { s = $0; sub(/^claude_sessions:[ \t]*/, "", s); sessions = clip(s) }
+    END { emit() }
+  ' "$@"
+}
+
 # wb_task_title <file> — the first `# ` heading, or empty if none.
 wb_task_title() {
   awk '/^# / { sub(/^# /, ""); print; exit }' "$1"
@@ -160,10 +192,14 @@ wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
 # $TASKS_DIR itself rather than a subdirectory -- and the dossiers/ directory
 # used by wb done's keeper sweep).
 wb_task_files() {
-  local f
+  local f base
   for f in "$TASKS_DIR"/*.md; do
     [ -f "$f" ] || continue
-    case "$(basename "$f")" in
+    # Parameter expansion, not `$(basename "$f")` — this loop runs once per
+    # task file in the store (hundreds, and growing), so a subshell fork
+    # per file just to check the basename adds up fast. Same output, no forks.
+    base="${f##*/}"
+    case "$base" in
       TEMPLATE.md|README.md|RECOVERY-NOTES-2026-07-10.md) continue ;;
     esac
     echo "$f"
@@ -205,12 +241,17 @@ wb_transcript_dir() {
 wb_transcripts() {
   local dir; dir="$(wb_transcript_dir "$1")"
   [ -d "$dir" ] || return 0
-  local f mtime
-  for f in "$dir"/*.jsonl; do
-    [ -f "$f" ] || continue
-    mtime="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
-    printf '%s\t%s\n' "$(basename "$f" .jsonl)" "$mtime"
-  done | sort -t $'\t' -k2,2nr
+  local -a files=("$dir"/*.jsonl)
+  [ -e "${files[0]}" ] || return 0
+  # One `stat` call covering every file, not one fork per file (this is
+  # called once per dormant-row candidate — collect_dormant_rows alone can
+  # call it dozens of times per picker render/tab-switch) — same output
+  # (id, mtime, newest-first), just without an O(n) fork cost to get there.
+  local mtime path id
+  while IFS=$'\t' read -r mtime path; do
+    id="${path##*/}"; id="${id%.jsonl}"
+    printf '%s\t%s\n' "$id" "$mtime"
+  done < <(stat -c $'%Y\t%n' "${files[@]}" 2>/dev/null) | sort -t $'\t' -k2,2nr
 }
 
 # wb_resume_id <task_file> <worktree_abs> — the session id `--resume` should
@@ -6044,13 +6085,21 @@ collect_dormant_rows() {
     [ -n "$tf" ] && live_files["$tf"]=1
   done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
 
+  local -a all_files
+  mapfile -t all_files < <(wb_task_files)
+  [ "${#all_files[@]}" -gt 0 ] || return 0
+
+  # Batch every task file's frontmatter through ONE awk process (see
+  # wb_read_tasks_batch) rather than forking wb_read_task per file — this
+  # loop runs against the WHOLE store (hundreds of files, most of which
+  # aren't doing/review/paused at all), not just the handful that end up
+  # qualifying, so per-file fork overhead here scales with store size, not
+  # with how many dormant rows actually exist.
   local f status repo worktree branch title rank urank
   local worktree_abs transcripts newest age
-  local -a t
-  for f in $(wb_task_files); do
+  while IFS=$'\t' read -r f status repo worktree branch _path _deps _reviewed _sessions; do
+    [ -n "$f" ] || continue
     [ -z "${live_files[$f]:-}" ] || continue
-    wb_tsv_split "$(wb_read_task "$f")" t
-    status="${t[0]:-}"; repo="${t[1]:-}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
     case "$status" in
       doing|review) ;;
       paused)       [ "$mode" = search ] || continue ;;
@@ -6063,7 +6112,8 @@ collect_dormant_rows() {
     newest="$(printf '%s\n' "$transcripts" | head -n1 | cut -f2)"
     age=$(( (now - newest) / 86400 ))
     [ "$age" -ge 0 ] || age=0
-    title="$(wb_task_title "$f")"; [ -n "$title" ] || title="$(basename "$f" .md)"
+    title="$(wb_task_title "$f")"
+    if [ -z "$title" ]; then title="${f##*/}"; title="${title%.md}"; fi
     case "$status" in
       doing) rank=0 ;; review) rank=1 ;; *) rank=2 ;;
     esac
@@ -6073,7 +6123,7 @@ collect_dormant_rows() {
     urank=$(( rank * 10000000000 + (9999999999 - newest) ))
     printf '%s\t%s\t%s\t%s\t~ %s %sd\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$repo" "$title" "[$branch]" "$urank" "$status" "$age" "" "" "$f" task 0 "$branch" ""
-  done
+  done < <(wb_read_tasks_batch "${all_files[@]}")
 }
 
 # wb_format_for_display — prepend a fixed-width, colored display string as a
