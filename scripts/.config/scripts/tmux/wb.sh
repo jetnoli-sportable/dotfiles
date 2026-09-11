@@ -5943,16 +5943,74 @@ collect_combined_rows() {
   done
 }
 
-# collect_agent_rows — one row per running claude pane, globally, ranked by
-# urgency with no session grouping. Replaces `ca`.
-collect_agent_rows() {
-  local rank target status task icon label sess
-  while IFS=$'\t' read -r rank target status task; do
-    IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
-    sess="${target%%:*}"
-    printf '%s\t%s\t\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\t\n' \
-      "$sess" "$task" "$rank" "$icon" "$label" "$target" "$sess" "$sess"
-  done < <(tmux_claude_panes | sort -n)
+# collect_dormant_rows <mode> — dormant task rows (R10): status doing|review
+# always, plus paused when <mode> is "search" (KTD9/R11 — the July
+# presence-only decision keeps planned tasks out of every mode). A task only
+# qualifies when it has a non-empty worktree: and at least one Claude
+# transcript still on disk for that worktree (R7 — "dormant" IS "has a
+# resumable conversation", not merely "not live"; retention purging every
+# transcript degrades a task straight to cold with no verb run). Liveness is
+# checked by resolving each LIVE session's own task file via
+# wb_session_task_file (option-based, the same @task/@wb_repo/@wb_slug
+# lookup wb_live_session_row itself uses) rather than matching on the
+# session's NAME — a session renamed with `r` must still suppress its
+# dormant row (KTD8). Rows reuse the same 12-field shape live rows do, with
+# kind=task and empty session/target, so picker()'s existing accept branch
+# (`elif [ "$kind" = task ]; then cmd_new "$repo" "$slug"`) needs no change
+# at all to resume one.
+collect_dormant_rows() {
+  local mode="$1" now; now="$(date +%s)"
+  local -A live_files=()
+  local session tf
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    tf="$(wb_session_task_file "$session" 2>/dev/null)" || continue
+    [ -n "$tf" ] && live_files["$tf"]=1
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+
+  local f status repo worktree branch title rank urank
+  local worktree_abs transcripts newest age
+  local -a t
+  for f in $(wb_task_files); do
+    [ -z "${live_files[$f]:-}" ] || continue
+    wb_tsv_split "$(wb_read_task "$f")" t
+    status="${t[0]:-}"; repo="${t[1]:-}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
+    case "$status" in
+      doing|review) ;;
+      paused)       [ "$mode" = search ] || continue ;;
+      *)            continue ;;
+    esac
+    [ -n "$worktree" ] || continue
+    worktree_abs="$(wb_repo_dir "$repo")/$worktree"
+    transcripts="$(wb_transcripts "$worktree_abs")"
+    [ -n "$transcripts" ] || continue
+    newest="$(printf '%s\n' "$transcripts" | head -n1 | cut -f2)"
+    age=$(( (now - newest) / 86400 ))
+    [ "$age" -ge 0 ] || age=0
+    title="$(wb_task_title "$f")"; [ -n "$title" ] || title="$(basename "$f" .md)"
+    case "$status" in
+      doing) rank=0 ;; review) rank=1 ;; *) rank=2 ;;
+    esac
+    # Status-rank first, newest transcript within a rank second — a single
+    # sortable integer so the caller can use the same plain
+    # `sort -t $'\t' -k4,4n` every other collector already sorts urank with.
+    urank=$(( rank * 10000000000 + (9999999999 - newest) ))
+    printf '%s\t%s\t%s\t%s\t~ %s %sd\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$title" "[$branch]" "$urank" "$status" "$age" "" "" "$f" task 0 "$branch" ""
+  done
+}
+
+# wb_dormant_divider — the legend row `── dormant ──` between live and
+# dormant rows (only ever printed by render_rows when at least one dormant
+# row exists). Emitted directly in the SAME post-wb_format_for_display shape
+# (display field + 12 empty raw fields) rather than piped through that
+# function, since it carries no real row data to format — this also keeps
+# it crash-safe under `set -u`: picker()'s accept-path array indexing
+# (${f[1]}, ${f[6]}, ...) needs every one of those 12 raw fields to exist,
+# even empty, or selecting this row would hit an unbound-variable error.
+wb_dormant_divider() {
+  local pad; pad="$(printf '\t%.0s' $(seq 1 12))"
+  printf '%s%s\n' $'\033[90m── dormant ──\033[0m' "$pad"
 }
 
 # wb_format_for_display — prepend a fixed-width, colored display string as a
@@ -6048,56 +6106,54 @@ wb_column_header() {
     "$WB_COL_BRANCH" "BRANCH" "STATUS"
 }
 
-# render_rows <mode_file> — dispatch to the mode currently recorded in
-# <mode_file> (combined/sessions/agents; defaults to combined), with the
-# column-header legend prepended as line 1. Also used by the fzf
-# `reload`/`load` bindings (via `wb.sh render <mode_file>`).
+# render_rows <mode_file> — live combined rows, then (only when at least one
+# qualifies) a dormant-section divider plus dormant rows sorted status-rank-
+# then-newest-first (KTD8), with the column-header legend prepended as line
+# 1. <mode_file> holds "normal" or "search" (R11/KTD9) — read fresh on every
+# call, since each invocation is its own process with no memory of the
+# last one, so a stale in-flight auto-refresh (see picker()'s `load:` bind)
+# still renders whatever the CURRENT mode actually is, never a stale pool.
+# Also used by the fzf `reload`/`load` bindings (via `wb.sh render
+# <mode_file>`).
 render_rows() {
-  local mode; mode="$(cat "$1" 2>/dev/null || echo combined)"
+  local mode; mode="$(cat "$1" 2>/dev/null || echo normal)"
   wb_column_header
-  case "$mode" in
-    agents)   collect_agent_rows | sort -t $'\t' -k4,4n -k1,1 | wb_format_for_display ;;
-    sessions) collect_live_rows  | sort -t $'\t' -k4,4n -k1,1 -k2,2 | wb_format_for_display ;;
-    *)        collect_combined_rows | wb_format_for_display ;;
-  esac
-}
-
-# wb_status_line <mode> <context> — 2-line footer: mode + pending counts,
-# then keybind hints for whichever context (normal/search) is actually
-# active — showing both at once (the original design) meant half the header
-# was always irrelevant to what you could currently type. This is fzf's
-# --header, which fzf keeps anchored near the prompt (bottom, with the
-# default layout) — the column legend lives separately, see wb_column_header.
-wb_status_line() {
-  local mode="${1:-combined}" ctx="${2:-normal}" hint
-  if [ "$ctx" = search ]; then
-    hint='SEARCH: type to filter · esc back to normal'
-  else
-    hint='j/k move · enter jump · x interrupt · r rename · b break-out agent · p pause · ctrl-x done+close/kill · / search · q quit'
+  collect_combined_rows | wb_format_for_display
+  local dormant; dormant="$(collect_dormant_rows "$mode" | sort -t $'\t' -k4,4n)"
+  if [ -n "$dormant" ]; then
+    wb_dormant_divider
+    printf '%s\n' "$dormant" | wb_format_for_display
   fi
-  printf 'wb · %s (tab to cycle) · %s · %s agents live (warn >= %s)\n%s' \
-    "$mode" "$(wb_pending_counts)" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$hint"
 }
 
-# _cycle_mode <mode_file> — advance to the next mode, persisting it so the
-# next reload (manual or auto-refresh) renders in the new mode instead of
-# resetting to combined.
-_cycle_mode() {
-  local cur; cur="$(cat "$1" 2>/dev/null || echo combined)"
-  case "$cur" in
-    combined) echo sessions ;;
-    sessions) echo agents ;;
-    *)        echo combined ;;
-  esac > "$1"
+# wb_status_line <context> — 2-line footer: pending counts + live-agent
+# count, then keybind hints for whichever context (normal/search) is
+# actually active — showing both at once (the original design) meant half
+# the header was always irrelevant to what you could currently type. This
+# is fzf's --header, which fzf keeps anchored near the prompt (bottom, with
+# the default layout) — the column legend lives separately, see
+# wb_column_header.
+wb_status_line() {
+  local ctx="${1:-normal}" hint
+  if [ "$ctx" = search ]; then
+    hint='SEARCH: type to filter (includes paused) · esc back to normal'
+  else
+    hint='j/k move · enter jump/resume · n new · p down · r rename · b break-out · ctrl-x done+close/kill · / search · q quit'
+  fi
+  printf 'wb · %s · %s agents live (warn >= %s)\n%s' \
+    "$(wb_pending_counts)" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$hint"
 }
 
-# _mode_header <mode_file> [context] — print the header for whatever mode is
-# currently recorded (plus an optional normal/search context), for fzf's
-# transform-header to swap in after a mode cycle or a NORMAL/SEARCH toggle.
-_mode_header() { wb_status_line "$(cat "$1" 2>/dev/null || echo combined)" "${2:-normal}"; }
+# _set_mode <mode_file> <value> — persist "normal"/"search" (KTD9), read
+# fresh by render_rows on every call. Replaces the old 3-way _cycle_mode
+# now that the picker has a single (live + dormant) view instead of a
+# combined/sessions/agents Tab cycle.
+_set_mode() { printf '%s' "$2" > "$1"; }
 
-# _interrupt <target> — send Escape to a pane; no-op on an empty target (bound to `x`).
-_interrupt() { [ -n "${1:-}" ] && tmux send-keys -t "$1" Escape 2>/dev/null; }
+# _mode_header [context] — the header for whatever context fzf's
+# transform-header passes (normal when omitted), for fzf to swap in after
+# entering/leaving search.
+_mode_header() { wb_status_line "${1:-normal}"; }
 
 # _rename <session> — prompt for a new tmux session name (bound to `r`).
 # Cosmetic only: wb's task linkage lives on the session object via
@@ -6118,15 +6174,25 @@ _rename() {
   fi
 }
 
-# _pause <session> — bound to `p`; wraps cmd_pause with the same
-# hold-the-terminal-on-failure convention as _rename (fzf repaints the
-# instant execute() returns, so an unheld error message is overdrawn
-# before it can be read).
-_pause() {
+# _down <session> — bound to `p`; wraps cmd_down with the picker's usual
+# self-target guard: the picker is commonly launched via `new-window` with
+# no `-t` (tmux.conf's `bind m`/`bind a`), so it opens inside whatever
+# session you're already in, and that session shows up as a selectable row
+# like any other — closing THAT row would otherwise kill the very pane
+# running the picker (mirrors _ctrl_x's own task-row self-target guard).
+# cmd_down --keep-session still writes the snapshot and marks `review` on
+# an open PR either way; only the kill is skipped. Same hold-the-terminal-
+# on-failure convention as _rename.
+_down() {
   local session="$1"
   [ -n "$session" ] || return 0
-  if ! cmd_pause "$session"; then
-    read -rn1 -p "wb: pause failed — press any key "
+  if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
+    cmd_down --keep-session "$session"
+    read -rn1 -p "wb: not closing '$session' via p — it's your current session; run 'wb down' yourself once you're ready — press any key "
+    return 0
+  fi
+  if ! cmd_down "$session"; then
+    read -rn1 -p "wb: down failed — press any key "
     return 1
   fi
 }
@@ -6164,6 +6230,32 @@ _break_out() {
     tmux kill-session -t "=$new_name" 2>/dev/null
     read -rn1 -p "wb: could not break '$target' into '$new_name' — press any key "
     return 1
+  fi
+}
+
+# _new — bound to `n` (R12): prompts for a repo, defaulting to the picker's
+# OWN launching session's @wb_repo when it has one (no default outside a wb
+# session — the picker's `-c "$HOME"` launch means the current directory no
+# longer says which repo you're in), then a slug. An empty slug opens a
+# plain repo session instead of a task (tmux_attach_or_create), mirroring
+# what typing `:new` in tmux itself already does. Bound with `become`, not
+# execute+reload, since cmd_new/tmux_attach_or_create already switch the
+# client themselves — returning to the picker's own list afterward would
+# just show a stale render for a beat before the switch takes effect.
+_new() {
+  local default_repo repo slug
+  default_repo="$(tmux display-message -p '#{@wb_repo}' 2>/dev/null || true)"
+  read -r -p "New — repo${default_repo:+ [$default_repo]}: " repo
+  repo="${repo:-$default_repo}"
+  if [ -z "$repo" ]; then
+    read -rn1 -p "wb: a repo is required — press any key "
+    return 1
+  fi
+  read -r -p "New — slug (blank = plain session): " slug
+  if [ -n "$slug" ]; then
+    cmd_new "$repo" "$slug"
+  else
+    tmux_attach_or_create "$repo" "$(wb_repo_dir "$repo")"
   fi
 }
 
@@ -6211,7 +6303,7 @@ picker() {
   # from the trap at that point is an unbound-variable crash under set -u.
   # A plain (script-global) variable stays in scope for the trap either way.
   mode_file="$(mktemp -t wb-mode.XXXXXX)"
-  echo combined > "$mode_file"
+  echo normal > "$mode_file"
   trap 'rm -f "$mode_file"' EXIT
 
   local rendered selection
@@ -6222,8 +6314,9 @@ picker() {
   fi
 
   # Modal navigation mirrors claude-sessions.sh: NORMAL disables search so
-  # unbound keys are inert; i or / enters SEARCH.
-  local navkeys='j,k,g,G,q,i,x,r,b,p,/'
+  # unbound keys are inert; i or / enters SEARCH. `x`/Tab are gone with the
+  # old interrupt key and the combined/sessions/agents mode cycle; `n` is new.
+  local navkeys='j,k,g,G,q,i,r,b,p,n,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-12 are the real data, shown to fzf only as hidden/addressable
@@ -6239,26 +6332,25 @@ picker() {
         --layout=reverse-list --pointer='>' \
         --height=100% --padding=6,1,2,1 \
         --prompt='NORMAL ' \
-        --header="$(wb_status_line combined)" \
+        --header="$(wb_status_line normal)" \
         --no-sort \
         --preview '[ -n {7} ] && tmux capture-pane -ep -t {7} || ([ -f {9} ] && cat {9} || git -C {9} -c color.status=always status -s)' \
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
-        --bind "load:reload-sync(sleep 3; \"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "load:reload(sleep 3; \"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind 'j:down' --bind 'k:up' --bind 'g:first' --bind 'G:last' \
         --bind 'ctrl-d:half-page-down' --bind 'ctrl-u:half-page-up' \
         --bind 'l:accept' --bind 'h:abort' --bind 'q:abort' \
         --bind "ctrl-r:reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
-        --bind "tab:execute-silent(\"$SELF\" _cycle-mode \"$mode_file\")+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\")" \
-        --bind "x:execute-silent(\"$SELF\" _interrupt {7})" \
         --bind "r:execute(\"$SELF\" _rename {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
-        --bind "p:execute(\"$SELF\" _pause {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "p:execute(\"$SELF\" _down {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "n:become(\"$SELF\" _new)" \
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7})" \
-        --bind "i:unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
-        --bind "/:clear-query+unbind($navkeys)+enable-search+change-prompt(SEARCH )+transform-header(\"$SELF\" _mode-header \"$mode_file\" search)" \
-        --bind "esc:enable-search+clear-query+disable-search+rebind($navkeys)+change-prompt(NORMAL )+transform-header(\"$SELF\" _mode-header \"$mode_file\")")" || exit 0
+        --bind "i:execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header search)" \
+        --bind "/:clear-query+execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header search)" \
+        --bind "esc:enable-search+clear-query+disable-search+execute-silent(\"$SELF\" _set-mode \"$mode_file\" normal)+rebind($navkeys)+change-prompt(NORMAL )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header)")" || exit 0
 
   [ -n "$selection" ] || exit 0
   local -a f; wb_tsv_split "$selection" f
@@ -6296,13 +6388,13 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
     install-hooks) shift; cmd_install_hooks "$@" ;;
-    _pause)      shift; _pause "$@" ;;
     render)      shift; render_rows "$@" ;;
-    _interrupt)  shift; _interrupt "$@" ;;
+    _new)        shift; _new "$@" ;;
+    _down)       shift; _down "$@" ;;
     _rename)     shift; _rename "$@" ;;
     _break-out)  shift; _break_out "$@" ;;
     _ctrl-x)     shift; _ctrl_x "$@" ;;
-    _cycle-mode) shift; _cycle_mode "$@" ;;
+    _set-mode)   shift; _set_mode "$@" ;;
     _mode-header) shift; _mode_header "$@" ;;
     *)           picker "${1:-}" ;;
   esac
