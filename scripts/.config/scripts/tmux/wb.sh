@@ -1385,9 +1385,9 @@ wb_repo_worktrees() {
 # and wb_branch_has_open_pr (U3/KTD6) so the fallback lives in one place.
 _wb_gh_pr_list() {
   local repo_dir="$1" branch="$2" state="$3" out rc
-  out="$(cd "$repo_dir" && gh pr list --head "$branch" --state "$state" --json number 2>&1)"; rc=$?
+  out="$(cd "$repo_dir" && timeout 10 gh pr list --head "$branch" --state "$state" --json number 2>&1)"; rc=$?
   if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qi 'could not resolve to a repository'; then
-    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" gh pr list --head "$branch" --state "$state" --json number 2>&1)"; rc=$?
+    out="$(cd "$repo_dir" && GH_TOKEN="$(secret-tool lookup service gh account personal 2>/dev/null)" timeout 10 gh pr list --head "$branch" --state "$state" --json number 2>&1)"; rc=$?
   fi
   printf '%s' "$out"
   return "$rc"
@@ -2761,12 +2761,13 @@ cmd_breakdown() {
 # intentional self-close and stays unguarded here, same precedent as
 # `wb done --close` (_ctrl_x's own header comment).
 cmd_down() {
-  local keep_session=0
+  local keep_session=0 no_status_flip=0
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --keep-session) keep_session=1; shift ;;
-      *)               args+=("$1"); shift ;;
+      --keep-session)   keep_session=1; shift ;;
+      --no-status-flip) no_status_flip=1; shift ;;
+      *)                args+=("$1"); shift ;;
     esac
   done
 
@@ -2788,15 +2789,21 @@ cmd_down() {
   [ -n "$worktree_rel" ] || worktree_rel=".worktrees/$branch"
   worktree_path="$(wb_repo_dir "$repo")/$worktree_rel"
 
-  # Read the snapshot BEFORE the lock — it's a pure read (task lock, not
-  # tmux/disk locks), and computing it while a lock is held would extend
-  # the critical section over a `tmux list-panes` call for no reason.
+  # Read the snapshot and the PR-open probe BEFORE the lock — both are pure
+  # reads (task lock, not tmux/disk/network locks), and computing either
+  # while a lock is held would extend the critical section over a `tmux
+  # list-panes` call or a `gh pr list` network round trip for no reason —
+  # the latter has no bound on how long it can hang (network partition,
+  # GitHub outage), which would otherwise starve every other `wb append`/
+  # `wb pause`/`wb down` on the same task file for as long as it stalls.
   local snapshot; snapshot="$(wb_sessions_snapshot "$session" "$worktree_path")"
+  local has_open_pr=1
+  wb_branch_has_open_pr "$(wb_repo_dir "$repo")" "$branch" && has_open_pr=0
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
-  wb_branch_has_open_pr "$(wb_repo_dir "$repo")" "$branch" && wb_set_frontmatter "$task_file" status review
+  [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && wb_set_frontmatter "$task_file" status review
   wb_append_handoff "$task_file" "wb down" 'Session closed via `wb down` — worktree kept.'
   wb_task_lock_release "$task_file"
 
@@ -2859,7 +2866,12 @@ cmd_pause() {
   wb_task_lock_release "$task_file"
   echo "wb pause: $task_file -> paused"
 
-  cmd_down "$session"
+  # --no-status-flip: pause is the explicit verb here (KTD1's "status is
+  # progress, changed only by an explicit verb") — it must win over
+  # cmd_down's own inferred review flip, or a task paused while its branch
+  # already has an open PR would silently end at status:review instead of
+  # the paused status just printed above.
+  cmd_down --no-status-flip "$session"
 }
 
 # ---------------------------------------------------------------------------
@@ -3566,6 +3578,27 @@ wb_board_live_session_for() {
       return 0
     fi
   done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+}
+
+# wb_task_activity <repo> <branch> <worktree_rel> [<live_session>] — U6/R7:
+# the derived active|dormant|cold classification, factored out of
+# wb_board_render_html's pre-pass and cmd_board's ACT column (both computed
+# the same three-way check independently before this). <worktree_rel> is
+# the relative path stored in a task's `worktree:` frontmatter field. Pass
+# <live_session> when the caller already looked it up (wb_board_live_session_for's
+# tmux query is not free) to avoid repeating that lookup; omit it to have
+# this function do the lookup itself.
+wb_task_activity() {
+  local repo="$1" branch="$2" worktree_rel="$3" live_session
+  if [ $# -ge 4 ]; then live_session="$4"; else live_session="$(wb_board_live_session_for "$repo" "$branch")"; fi
+  if [ -n "$live_session" ]; then
+    printf 'active\n'
+  elif [ -n "$worktree_rel" ] \
+       && [ -n "$(wb_transcripts "$(wb_repo_dir "$repo")/$worktree_rel" 2>/dev/null)" ]; then
+    printf 'dormant\n'
+  else
+    printf 'cold\n'
+  fi
 }
 
 # wb_board_window_start <today|week> — epoch seconds for the timeline
@@ -4490,17 +4523,10 @@ wb_board_render_html() {
     pp_kind="${f[0]}"; pp_status="${f[2]}"; pp_repo="${f[3]}"; pp_branch="${f[4]}"
     pp_worktree="${f[5]}"; pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
     LIVE_SESSION["$pp_anchor"]="$(wb_board_live_session_for "$pp_repo" "$pp_branch")"
-    # U6/R7: activity, reusing the live-session lookup just above plus a
-    # transcript-store check (U2's wb_transcripts) — derived here, never
-    # stored, same rule the picker's own dormant rows follow.
-    if [ -n "${LIVE_SESSION["$pp_anchor"]}" ]; then
-      ACTIVITY["$pp_anchor"]=active
-    elif [ -n "$pp_repo" ] && [ -n "$pp_worktree" ] \
-         && [ -n "$(wb_transcripts "$(wb_repo_dir "$pp_repo")/$pp_worktree" 2>/dev/null)" ]; then
-      ACTIVITY["$pp_anchor"]=dormant
-    else
-      ACTIVITY["$pp_anchor"]=cold
-    fi
+    # U6/R7: activity, via the shared wb_task_activity classifier, passing
+    # the live-session lookup just above so it isn't repeated — derived
+    # here, never stored, same rule the picker's own dormant rows follow.
+    ACTIVITY["$pp_anchor"]="$(wb_task_activity "$pp_repo" "$pp_branch" "$pp_worktree" "${LIVE_SESSION["$pp_anchor"]}")"
     # Guard on the empty VALUE, not just for tidiness: bash treats an
     # associative-array subscript that evaluates to the empty string via
     # command substitution as "no subscript" ("bad array subscript"),
@@ -5483,13 +5509,7 @@ cmd_board() {
       END { print c + 0 }
     ' "$f")"
     if [ "$show_act" = 1 ]; then
-      if [ -n "$(wb_board_live_session_for "$repo" "$branch")" ]; then
-        activity=active
-      elif [ -n "$worktree" ] && [ -n "$(wb_transcripts "$(wb_repo_dir "$repo")/$worktree" 2>/dev/null)" ]; then
-        activity=dormant
-      else
-        activity=cold
-      fi
+      activity="$(wb_task_activity "$repo" "$branch" "$worktree")"
       rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$activity")"$'\n'
     else
       rows+="$(printf '%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu")"$'\n'
@@ -6243,7 +6263,10 @@ _down() {
   local session="$1"
   [ -n "$session" ] || return 0
   if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
-    cmd_down --keep-session "$session"
+    if ! cmd_down --keep-session "$session"; then
+      read -rn1 -p "wb: down failed — press any key "
+      return 1
+    fi
     read -rn1 -p "wb: not closing '$session' via p — it's your current session; run 'wb down' yourself once you're ready — press any key "
     return 0
   fi
@@ -6335,7 +6358,7 @@ _new() {
 # `wb done --close` yourself from inside your own session stays intentional
 # self-close and is untouched.
 _ctrl_x() {
-  local kind="$1" session="$2" target="$3"
+  local kind="$1" session="$2" target="$3" ref="${4:-}"
   case "$kind" in
     task)
       if [ -n "$session" ]; then
@@ -6345,6 +6368,12 @@ _ctrl_x() {
         else
           cmd_done "$session" --close
         fi
+      elif [ -n "$ref" ]; then
+        # Dormant row (R10): no live session for @wb_repo/@wb_slug to
+        # resolve from at all — cmd_done's own KTD7 store-only path
+        # resolves a task-file stem instead, same mechanism the printed
+        # "wb done <parent-stem>" nudge already relies on.
+        cmd_done "$(basename "$ref" .md)"
       fi
       ;;
     repo)  [ -n "$session" ] && tmux kill-session -t "=$session" 2>/dev/null ;;
@@ -6403,7 +6432,7 @@ picker() {
         --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind "p:execute(\"$SELF\" _down {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
         --bind "n:become(\"$SELF\" _new)" \
-        --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7})" \
+        --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7} {9})" \
         --bind "i:execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header search)" \
         --bind "/:clear-query+execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header search)" \
         --bind "esc:enable-search+clear-query+disable-search+execute-silent(\"$SELF\" _set-mode \"$mode_file\" normal)+rebind($navkeys)+change-prompt(NORMAL )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header)")" || exit 0
@@ -6419,7 +6448,16 @@ picker() {
   elif [ "$kind" = "repo" ]; then
     tmux_attach_or_create "$repo" "$ref"
   elif [ "$kind" = "task" ]; then
-    cmd_new "$repo" "$slug"
+    # KTD7: a dormant row's `slug` field is $branch, not the task's real
+    # slug (see collect_dormant_rows) — for an ordinary task branch equals
+    # the raw slug, but for a wb-breakdown migrated child, branch: is the
+    # PARENT's inherited identity while the child's own file is a distinct
+    # stem. Deriving the task file from repo+slug here (cmd_new's default)
+    # would resolve back onto the parent. $ref is already the real target
+    # file this row was read from — hand it through, same override
+    # cmd_resume uses for the identical hazard.
+    _WB_TASK_FILE_OVERRIDE="$ref" cmd_new "$repo" "$slug"
+    unset _WB_TASK_FILE_OVERRIDE
   fi
 }
 

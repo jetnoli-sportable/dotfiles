@@ -191,5 +191,67 @@ else
   echo "FAIL - could not locate tmux.conf at $TMUX_CONF"; fail=1
 fi
 
+# --- _down's self-target guard against killing your own session -----------
+# Same rationale as wb-schema.test.sh's _ctrl_x self-guard check: exercising
+# this live needs a genuinely attached tmux client in the target session,
+# disproportionate to fixture here — a source-text guard on _down's own
+# function body instead, asserting the identity check exists, it degrades
+# to --keep-session (not a full close) on a self-target, and it checks that
+# call's own exit status rather than assuming success.
+down_block="$(awk '/^_down\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
+assert "_down: checks for the currently-attached session" \
+  'tmux display-message -p' "$down_block"
+assert "_down: self-target case degrades to --keep-session" \
+  'cmd_down --keep-session "\$session"' "$down_block"
+assert "_down: self-target's --keep-session call checks its own exit status" \
+  'if ! cmd_down --keep-session' "$down_block"
+
+# --- ctrl-x on a dormant row (session-less task) reaches cmd_done ----------
+# Dormant rows have no live session/target field to key off of; the ctrl-x
+# bind must also pass the row's ref (task-file) field so _ctrl_x's task
+# case can fall back to cmd_done's store-only stem resolution.
+assert "picker: ctrl-x bind passes the ref field through to _ctrl_x" \
+  'ctrl-x:become\(.*_ctrl-x \{10\} \{8\} \{7\} \{9\}\)' "$picker_block"
+ctrl_x_block="$(awk '/^_ctrl_x\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
+assert "_ctrl_x: task case falls back to a store-only cmd_done when there is no live session" \
+  'cmd_done "\$\(basename "\$ref" \.md\)"' "$ctrl_x_block"
+
+# --- accepting a dormant task row resolves the REAL task file, not a ------
+# --- repo+slug re-derivation (KTD7: a wb-breakdown migrated child's -------
+# --- inherited branch would otherwise resolve back onto its parent) -------
+assert "picker: accepting a task row forces cmd_new onto the row's own ref via the override" \
+  '_WB_TASK_FILE_OVERRIDE="\$ref" cmd_new "\$repo" "\$slug"' "$picker_block"
+
+# --- render_rows: the dormant-divider gate ---------------------------------
+# render_rows is what fzf actually invokes on every render/reload — it's the
+# only caller deciding whether wb_dormant_divider gets emitted at all,
+# gluing collect_combined_rows' output to collect_dormant_rows' via a plain
+# `[ -n "$dormant" ]` check. The fixture above already produces exactly 2
+# dormant rows in normal mode; reuse it here rather than building a new one.
+rr_out="$(render_rows <(printf 'normal\n'))"
+divider_count="$(printf '%s' "$rr_out" | grep -c '── dormant ──')"
+if [ "$divider_count" -eq 1 ]; then
+  echo "ok   - render_rows: dormant divider appears exactly once"
+else
+  echo "FAIL - render_rows: expected exactly 1 dormant divider, got $divider_count"; fail=1
+fi
+last_live_line="$(printf '%s' "$rr_out" | grep -n 'proj--in-review\.md\|proj--doing-dormant\.md' | tail -1 | cut -d: -f1)"
+divider_line="$(printf '%s' "$rr_out" | grep -n '── dormant ──' | head -1 | cut -d: -f1)"
+first_dormant_row_line="$(printf '%s' "$rr_out" | grep -n 'proj--in-review\.md\|proj--doing-dormant\.md' | head -1 | cut -d: -f1)"
+if [ -n "$divider_line" ] && [ -n "$first_dormant_row_line" ] && [ "$divider_line" -lt "$first_dormant_row_line" ]; then
+  echo "ok   - render_rows: divider is positioned before the dormant rows"
+else
+  echo "FAIL - render_rows: divider (line $divider_line) must precede the dormant rows (line $first_dormant_row_line)"; fail=1
+fi
+
+EMPTY_TASKS="$(mktemp -d -t wb-picker-empty-tasks.XXXXXX)"
+rr_empty="$(TASKS_DIR="$EMPTY_TASKS" render_rows <(printf 'normal\n'))"
+rm -rf "$EMPTY_TASKS"
+if printf '%s' "$rr_empty" | grep -q '── dormant ──'; then
+  echo "FAIL - render_rows: divider must be absent when there are no dormant rows"; fail=1
+else
+  echo "ok   - render_rows: divider absent when there are no dormant rows"
+fi
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
