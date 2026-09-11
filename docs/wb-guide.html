@@ -297,10 +297,10 @@ you reattach):</p>
 </li>
 <li>
 <p>Press <kbd>prefix</kbd> then <kbd>a</kbd> (or <kbd>m</kbd> — same picker
-now). You'll see whatever's actually live right now — running sessions
-and agents, grouped by status (needs-you first) — plus, below a
-<code>── dormant ──</code> divider, any task you closed with <code>wb down</code>/<code>wb pause</code>
-that's still resumable.</p>
+now). You'll land on the <strong>LIVE</strong> tab: whatever's actually running right
+now, grouped by status (needs-you first). Press <kbd>tab</kbd> for the
+<strong>DORMANT</strong> tab — any task you closed with <code>wb down</code>/<code>wb pause</code> that's
+still resumable.</p>
 </li>
 <li>
 <p>From inside any repo, spin up a real task:</p>
@@ -320,9 +320,10 @@ file at <code>~/code/tasks/dotfiles--try-wb-out.md</code>, and drops you into a
 <pre><code>wb down
 </code></pre>
 <p>The tmux session disappears, but the worktree stays and nothing flips to
-<code>done</code>. Open the picker again and the task shows up under the <code>── dormant ──</code> divider; press <kbd>Enter</kbd> on it and it rebuilds the
-session with a warm <code>claude --resume</code>/<code>claude --continue</code> pre-typed in
-the agent window, ready on <kbd>Enter</kbd>.</p>
+<code>done</code>. Open the picker again, press <kbd>tab</kbd> for the DORMANT tab,
+and the task shows up there; press <kbd>Enter</kbd> on it and it rebuilds
+the session with a warm <code>claude --resume</code>/<code>claude --continue</code> pre-typed
+in the agent window, ready on <kbd>Enter</kbd>.</p>
 </li>
 <li>
 <p>Wind it down properly instead of just killing the pane:</p>
@@ -410,26 +411,28 @@ presence-only now — with one deliberate exception (dormant rows, below):
 a task counts as &quot;present&quot; once it has a resumable conversation waiting,
 not only while its tmux session is alive.</p>
 </blockquote>
-<h3 id="one-view-live-then-dormant">One view: live, then dormant</h3>
-<p>There's a single view now — no Tab-cycling between combined/sessions/agents
-modes. Live tmux sessions render first (sessions with more than one Claude
-pane expand into indented sub-rows), then, only when at least one qualifies,
-a <code>── dormant ──</code> divider and the dormant rows: tasks you closed with
-<code>wb down</code>/<code>wb pause</code> (or that survived a crash) that still have a Claude
-transcript on disk for their worktree, sorted by status then by how
-recently they were active.</p>
+<h3 id="two-tabs-live-and-dormant">Two tabs: LIVE and DORMANT</h3>
+<p>Press <kbd>tab</kbd> to switch. LIVE tmux sessions render first (sessions
+with more than one Claude pane expand into indented sub-rows) — this tab
+auto-refreshes every few seconds. DORMANT is a separate tab: tasks you
+closed with <code>wb down</code>/<code>wb pause</code> (or that survived a crash) that still have
+a Claude transcript on disk for their worktree, sorted by status then by
+how recently they were active. It does <strong>not</strong> auto-refresh — scanning the
+whole task store for dormant candidates is too slow to redo every few
+seconds against a real store, so it recomputes only when you switch into
+it or press <kbd>ctrl-r</kbd>.</p>
 <p>Five columns, always: <strong>REPO</strong> (location) · <strong>NAME</strong> (task title or
 session/repo name) · <strong>TYPE</strong> (<code>session</code> / <code>agent</code> / <code>both</code>) · <strong>BRANCH</strong>
 (the git branch, when there is one) · <strong>STATUS</strong> (the most urgent agent in
-that row, or the dormant task's status + age). A realistic view — two live
-sessions, one of them (<code>be--monorepo</code>) running two agents, plus one dormant
-task waiting on review:</p>
+that row, or the dormant task's status + age). LIVE, with <code>be--monorepo</code>
+running two agents:</p>
 <pre><code>0              0                          both     [main]       o done
 be--monorepo   be--monorepo               both     [dev]        ! needs you
   ↳            state management refactor  agent    [dev]        o done
   ↳            reporting tool issues      agent    [dev]        ! needs you
-── dormant ──
-frontend       Pass-rate chart tweak      session  [sfb-985-…]  ~ review 2d
+</code></pre>
+<p>DORMANT (<code>tab</code> to get here):</p>
+<pre><code>frontend       Pass-rate chart tweak      session  [sfb-985-…]  ~ review 2d
 </code></pre>
 <p>Status glyphs: <code>!</code> needs you · <code>+</code> finished · <code>o</code> done · <code>*</code> working ·
 <code>-</code> idle / no agent · <code>~</code> dormant (status + days since last active).</p>

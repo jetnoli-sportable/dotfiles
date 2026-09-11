@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Tests for the picker's single-view + dormant rows (U5) — same convention
-# as wb-new.test.sh: source wb.sh, a real tmux server on a throwaway
-# isolated socket, fixture CODE_DIR/TASKS_DIR/CLAUDE_PROJECTS_DIR. Covers
-# collect_dormant_rows directly (no live sessions needed for most of it)
-# plus the one scenario that genuinely needs a real session: a renamed live
-# session must still suppress its own dormant row (KTD8).
+# Tests for the picker's LIVE/DORMANT tabs (U5, reverted from an inline
+# combined view to a tab toggle after the inline design turned out to
+# visibly flash — collect_dormant_rows is too slow against a real task
+# store to recompute on the picker's ~3s auto-reload cadence) — same
+# convention as wb-new.test.sh: source wb.sh, a real tmux server on a
+# throwaway isolated socket, fixture CODE_DIR/TASKS_DIR/CLAUDE_PROJECTS_DIR.
+# Covers collect_dormant_rows directly (no live sessions needed for most of
+# it) plus the one scenario that genuinely needs a real session: a renamed
+# live session must still suppress its own dormant row (KTD8).
 #
 # Run: bash scripts/.config/scripts/tmux/tests/wb-picker-rows.test.sh
 set -uo pipefail
@@ -222,35 +225,77 @@ assert "_ctrl_x: task case falls back to a store-only cmd_done when there is no 
 assert "picker: accepting a task row forces cmd_new onto the row's own ref via the override" \
   '_WB_TASK_FILE_OVERRIDE="\$ref" cmd_new "\$repo" "\$slug"' "$picker_block"
 
-# --- render_rows: the dormant-divider gate ---------------------------------
-# render_rows is what fzf actually invokes on every render/reload — it's the
-# only caller deciding whether wb_dormant_divider gets emitted at all,
-# gluing collect_combined_rows' output to collect_dormant_rows' via a plain
-# `[ -n "$dormant" ]` check. The fixture above already produces exactly 2
-# dormant rows in normal mode; reuse it here rather than building a new one.
-rr_out="$(render_rows <(printf 'normal\n'))"
-divider_count="$(printf '%s' "$rr_out" | grep -c '── dormant ──')"
-if [ "$divider_count" -eq 1 ]; then
-  echo "ok   - render_rows: dormant divider appears exactly once"
+# --- render_rows: LIVE and DORMANT are separate tabs, not one combined -----
+# --- view (reverted design) -------------------------------------------------
+# The fixture above already produces exactly 2 dormant rows in normal mode;
+# reuse it here rather than building a new one.
+MODE_FILE="$(mktemp -t wb-test-mode.XXXXXX)"; printf 'normal' > "$MODE_FILE"
+VIEW_FILE="$(mktemp -t wb-test-view.XXXXXX)"; printf 'live' > "$VIEW_FILE"
+
+rr_live="$(render_rows "$MODE_FILE" "$VIEW_FILE")"
+if printf '%s' "$rr_live" | grep -q 'proj--doing-dormant\.md\|proj--in-review\.md'; then
+  echo "FAIL - render_rows(live): dormant rows must never appear in the LIVE tab"; fail=1
 else
-  echo "FAIL - render_rows: expected exactly 1 dormant divider, got $divider_count"; fail=1
-fi
-last_live_line="$(printf '%s' "$rr_out" | grep -n 'proj--in-review\.md\|proj--doing-dormant\.md' | tail -1 | cut -d: -f1)"
-divider_line="$(printf '%s' "$rr_out" | grep -n '── dormant ──' | head -1 | cut -d: -f1)"
-first_dormant_row_line="$(printf '%s' "$rr_out" | grep -n 'proj--in-review\.md\|proj--doing-dormant\.md' | head -1 | cut -d: -f1)"
-if [ -n "$divider_line" ] && [ -n "$first_dormant_row_line" ] && [ "$divider_line" -lt "$first_dormant_row_line" ]; then
-  echo "ok   - render_rows: divider is positioned before the dormant rows"
-else
-  echo "FAIL - render_rows: divider (line $divider_line) must precede the dormant rows (line $first_dormant_row_line)"; fail=1
+  echo "ok   - render_rows(live): dormant rows absent from the LIVE tab"
 fi
 
-EMPTY_TASKS="$(mktemp -d -t wb-picker-empty-tasks.XXXXXX)"
-rr_empty="$(TASKS_DIR="$EMPTY_TASKS" render_rows <(printf 'normal\n'))"
-rm -rf "$EMPTY_TASKS"
-if printf '%s' "$rr_empty" | grep -q '── dormant ──'; then
-  echo "FAIL - render_rows: divider must be absent when there are no dormant rows"; fail=1
+# No cache yet (never toggled to dormant) — render_rows(dormant) must not
+# crash and must simply show nothing, not stale/wrong content.
+printf 'dormant' > "$VIEW_FILE"
+rr_dormant_uncached="$(render_rows "$MODE_FILE" "$VIEW_FILE")"
+if printf '%s' "$rr_dormant_uncached" | grep -q 'proj--'; then
+  echo "FAIL - render_rows(dormant) with no cache yet must show no task rows"; fail=1
 else
-  echo "ok   - render_rows: divider absent when there are no dormant rows"
+  echo "ok   - render_rows(dormant) with no cache yet shows no task rows"
+fi
+
+# _refresh_dormant populates the cache; render_rows(dormant) then shows it,
+# and — the whole point of caching — shows ONLY the dormant rows, no live
+# ones mixed in.
+bash "$WB" _refresh-dormant "$MODE_FILE" "$VIEW_FILE" 2>&1 >/dev/null
+rr_dormant="$(render_rows "$MODE_FILE" "$VIEW_FILE")"
+assert "render_rows(dormant): doing-dormant present after _refresh_dormant" 'proj--doing-dormant\.md' "$rr_dormant"
+assert "render_rows(dormant): in-review present after _refresh_dormant" 'proj--in-review\.md' "$rr_dormant"
+if printf '%s' "$rr_dormant" | grep -q 'proj--doing-live\.md'; then
+  echo "FAIL - render_rows(dormant): a live-tab task must not leak into the DORMANT tab"; fail=1
+else
+  echo "ok   - render_rows(dormant): no live-tab task leaks into the DORMANT tab"
+fi
+
+# _refresh_dormant is a no-op while the LIVE tab is showing (ctrl-r fires it
+# unconditionally — see picker()'s ctrl-r bind — so this must not blow away
+# an existing dormant cache just because the user is currently on LIVE).
+printf 'stale-marker' > "$VIEW_FILE.cache"
+printf 'live' > "$VIEW_FILE"
+bash "$WB" _refresh-dormant "$MODE_FILE" "$VIEW_FILE" 2>&1 >/dev/null
+cache_after="$(cat "$VIEW_FILE.cache" 2>/dev/null)"
+assert "_refresh_dormant: no-op while the LIVE tab is active" '^stale-marker$' "$cache_after"
+
+# _toggle_view flips live<->dormant and populates the cache synchronously
+# on the way IN to dormant (so the very first render is never empty).
+printf 'live' > "$VIEW_FILE"; rm -f "$VIEW_FILE.cache"
+bash "$WB" _toggle-view "$MODE_FILE" "$VIEW_FILE" 2>&1 >/dev/null
+assert "_toggle_view: live -> dormant" '^dormant$' "$(cat "$VIEW_FILE")"
+if [ -s "$VIEW_FILE.cache" ]; then
+  echo "ok   - _toggle_view: populates the dormant cache on entry"
+else
+  echo "FAIL - _toggle_view: dormant cache is empty right after switching in"; fail=1
+fi
+bash "$WB" _toggle-view "$MODE_FILE" "$VIEW_FILE" 2>&1 >/dev/null
+assert "_toggle_view: dormant -> live" '^live$' "$(cat "$VIEW_FILE")"
+
+rm -f "$MODE_FILE" "$VIEW_FILE" "$VIEW_FILE.cache"
+
+# --- picker: tab toggles the view, ctrl-r also refreshes the dormant cache -
+assert "picker: tab bind calls _toggle-view then reload-sync" \
+  'tab:execute-silent\(.*_toggle-view.*\)\+reload-sync' "$picker_block"
+assert "picker: ctrl-r also refreshes the dormant cache before reloading" \
+  'ctrl-r:execute-silent\(.*_refresh-dormant.*\)\+reload-sync' "$picker_block"
+load_bind_line="$(printf '%s' "$picker_block" | grep -- '--bind "load:')"
+if printf '%s' "$load_bind_line" | grep -q '_refresh-dormant\|_toggle-view'; then
+  echo "FAIL - picker: the periodic load bind must not trigger a dormant recompute"; fail=1
+else
+  echo "ok   - picker: the periodic load bind still only re-renders (no dormant recompute)"
 fi
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
