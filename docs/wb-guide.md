@@ -34,10 +34,10 @@ untracked task behind.
    ```
 
 2. Press <kbd>prefix</kbd> then <kbd>a</kbd> (or <kbd>m</kbd> — same picker
-   now). You'll see whatever's actually live right now — running sessions
-   and agents, grouped by status (needs-you first) — plus, below a
-   `── dormant ──` divider, any task you closed with `wb down`/`wb pause`
-   that's still resumable.
+   now). You'll land on the **LIVE** tab: whatever's actually running right
+   now, grouped by status (needs-you first). Press <kbd>tab</kbd> for the
+   **DORMANT** tab — any task you closed with `wb down`/`wb pause` that's
+   still resumable.
 
 3. From inside any repo, spin up a real task:
 
@@ -60,10 +60,10 @@ untracked task behind.
    ```
 
    The tmux session disappears, but the worktree stays and nothing flips to
-   `done`. Open the picker again and the task shows up under the `──
-   dormant ──` divider; press <kbd>Enter</kbd> on it and it rebuilds the
-   session with a warm `claude --resume`/`claude --continue` pre-typed in
-   the agent window, ready on <kbd>Enter</kbd>.
+   `done`. Open the picker again, press <kbd>tab</kbd> for the DORMANT tab,
+   and the task shows up there; press <kbd>Enter</kbd> on it and it rebuilds
+   the session with a warm `claude --resume`/`claude --continue` pre-typed
+   in the agent window, ready on <kbd>Enter</kbd>.
 
 6. Wind it down properly instead of just killing the pane:
 
@@ -139,29 +139,34 @@ with `wb new <repo> <slug>` directly instead of browsing for it.
 > a task counts as "present" once it has a resumable conversation waiting,
 > not only while its tmux session is alive.
 
-### One view: live, then dormant
+### Two tabs: LIVE and DORMANT
 
-There's a single view now — no Tab-cycling between combined/sessions/agents
-modes. Live tmux sessions render first (sessions with more than one Claude
-pane expand into indented sub-rows), then, only when at least one qualifies,
-a `── dormant ──` divider and the dormant rows: tasks you closed with
-`wb down`/`wb pause` (or that survived a crash) that still have a Claude
-transcript on disk for their worktree, sorted by status then by how
-recently they were active.
+Press <kbd>tab</kbd> to switch. LIVE tmux sessions render first (sessions
+with more than one Claude pane expand into indented sub-rows) — this tab
+auto-refreshes every few seconds. DORMANT is a separate tab: tasks you
+closed with `wb down`/`wb pause` (or that survived a crash) that still have
+a Claude transcript on disk for their worktree, sorted by status then by
+how recently they were active. It does **not** auto-refresh — scanning the
+whole task store for dormant candidates is too slow to redo every few
+seconds against a real store, so it recomputes only when you switch into
+it or press <kbd>ctrl-r</kbd>.
 
 Five columns, always: **REPO** (location) · **NAME** (task title or
 session/repo name) · **TYPE** (`session` / `agent` / `both`) · **BRANCH**
 (the git branch, when there is one) · **STATUS** (the most urgent agent in
-that row, or the dormant task's status + age). A realistic view — two live
-sessions, one of them (`be--monorepo`) running two agents, plus one dormant
-task waiting on review:
+that row, or the dormant task's status + age). LIVE, with `be--monorepo`
+running two agents:
 
 ```
 0              0                          both     [main]       o done
 be--monorepo   be--monorepo               both     [dev]        ! needs you
   ↳            state management refactor  agent    [dev]        o done
   ↳            reporting tool issues      agent    [dev]        ! needs you
-── dormant ──
+```
+
+DORMANT (`tab` to get here):
+
+```
 frontend       Pass-rate chart tweak      session  [sfb-985-…]  ~ review 2d
 ```
 

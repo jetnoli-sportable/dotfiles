@@ -6076,19 +6076,6 @@ collect_dormant_rows() {
   done
 }
 
-# wb_dormant_divider — the legend row `── dormant ──` between live and
-# dormant rows (only ever printed by render_rows when at least one dormant
-# row exists). Emitted directly in the SAME post-wb_format_for_display shape
-# (display field + 12 empty raw fields) rather than piped through that
-# function, since it carries no real row data to format — this also keeps
-# it crash-safe under `set -u`: picker()'s accept-path array indexing
-# (${f[1]}, ${f[6]}, ...) needs every one of those 12 raw fields to exist,
-# even empty, or selecting this row would hit an unbound-variable error.
-wb_dormant_divider() {
-  local pad; pad="$(printf '\t%.0s' $(seq 1 12))"
-  printf '%s%s\n' $'\033[90m── dormant ──\033[0m' "$pad"
-}
-
 # wb_format_for_display — prepend a fixed-width, colored display string as a
 # NEW field 1, pushing the original 11 fields to 2-12. Must run AFTER sorting
 # (coloring/padding first would corrupt any sort keyed on the plain fields).
@@ -6182,54 +6169,86 @@ wb_column_header() {
     "$WB_COL_BRANCH" "BRANCH" "STATUS"
 }
 
-# render_rows <mode_file> — live combined rows, then (only when at least one
-# qualifies) a dormant-section divider plus dormant rows sorted status-rank-
-# then-newest-first (KTD8), with the column-header legend prepended as line
-# 1. <mode_file> holds "normal" or "search" (R11/KTD9) — read fresh on every
+# render_rows <mode_file> [<view_file>] — the picker is two tabs, not one
+# combined list: LIVE (default, <view_file> missing/"live") renders
+# collect_combined_rows fresh on every call; DORMANT renders whatever's in
+# <view_file>.cache, a snapshot _refresh_dormant last wrote. This split
+# exists because collect_dormant_rows is genuinely expensive against a
+# real task store (a full-store scan + a wb_transcripts stat-loop per
+# candidate — ~2.7s measured against 232 tasks, vs ~0.4s for the live
+# rows) and the picker's own periodic auto-refresh reloads every ~3s
+# (see picker()'s `load:` bind) — recomputing it on that cadence made the
+# dormant section visibly flash in and out every cycle. Caching means the
+# fast periodic reload only ever touches the cheap live path; dormant
+# content refreshes on tab-entry (_toggle_view) and ctrl-r
+# (_refresh_dormant), never silently on a timer.
+# <mode_file> holds "normal" or "search" (R11/KTD9) — read fresh on every
 # call, since each invocation is its own process with no memory of the
-# last one, so a stale in-flight auto-refresh (see picker()'s `load:` bind)
-# still renders whatever the CURRENT mode actually is, never a stale pool.
-# Also used by the fzf `reload`/`load` bindings (via `wb.sh render
-# <mode_file>`).
+# last one, so a stale in-flight auto-refresh still renders whatever the
+# CURRENT mode actually is, never a stale pool. Also used by the fzf
+# `reload`/`load` bindings (via `wb.sh render <mode_file> <view_file>`).
 render_rows() {
-  local mode; mode="$(cat "$1" 2>/dev/null || echo normal)"
+  local view; view="$(cat "${2:-}" 2>/dev/null || echo live)"
   wb_column_header
-  collect_combined_rows | wb_format_for_display
-  local dormant; dormant="$(collect_dormant_rows "$mode" | sort -t $'\t' -k4,4n)"
-  if [ -n "$dormant" ]; then
-    wb_dormant_divider
-    printf '%s\n' "$dormant" | wb_format_for_display
+  if [ "$view" = dormant ]; then
+    cat "${2}.cache" 2>/dev/null | wb_format_for_display
+  else
+    collect_combined_rows | wb_format_for_display
   fi
 }
 
-# wb_status_line <context> — 2-line footer: pending counts + live-agent
-# count, then keybind hints for whichever context (normal/search) is
-# actually active — showing both at once (the original design) meant half
-# the header was always irrelevant to what you could currently type. This
-# is fzf's --header, which fzf keeps anchored near the prompt (bottom, with
-# the default layout) — the column legend lives separately, see
-# wb_column_header.
+# _refresh_dormant <mode_file> <view_file> — recompute the dormant-tab cache
+# (a no-op while the LIVE tab is active, so it's safe to fire unconditionally
+# from ctrl-r regardless of which tab is showing). See render_rows' header
+# comment for why this is cached rather than recomputed on every reload.
+_refresh_dormant() {
+  local view; view="$(cat "${2:-}" 2>/dev/null || echo live)"
+  [ "$view" = dormant ] || return 0
+  local mode; mode="$(cat "$1" 2>/dev/null || echo normal)"
+  collect_dormant_rows "$mode" | sort -t $'\t' -k4,4n > "${2}.cache"
+}
+
+# _toggle_view <mode_file> <view_file> — bound to `tab`: flips live<->dormant
+# and, only when landing ON dormant, populates its cache synchronously
+# before the caller's reload-sync render (see picker()'s `tab:` bind) so the
+# very first render of the tab is never empty/stale.
+_toggle_view() {
+  local cur; cur="$(cat "${2:-}" 2>/dev/null || echo live)"
+  if [ "$cur" = live ]; then printf 'dormant' > "$2"; else printf 'live' > "$2"; fi
+  _refresh_dormant "$1" "$2"
+}
+
+# wb_status_line <context> <view> — 2-line footer: which tab (LIVE/DORMANT)
+# plus pending counts + live-agent count, then keybind hints for whichever
+# search context (normal/search) is actually active — showing both at once
+# (the original design) meant half the header was always irrelevant to what
+# you could currently type. This is fzf's --header, which fzf keeps
+# anchored near the prompt (bottom, with the default layout) — the column
+# legend lives separately, see wb_column_header.
 wb_status_line() {
-  local ctx="${1:-normal}" hint
+  local ctx="${1:-normal}" view="${2:-live}" hint label
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter (includes paused) · esc back to normal'
   else
-    hint='j/k move · enter jump/resume · n new · p down · r rename · b break-out · ctrl-x done+close/kill · / search · q quit'
+    hint='j/k move · enter jump/resume · n new · p down · r rename · b break-out · ctrl-x done+close/kill · tab switch view · / search · q quit'
   fi
-  printf 'wb · %s · %s agents live (warn >= %s)\n%s' \
-    "$(wb_pending_counts)" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$hint"
+  if [ "$view" = dormant ]; then label=DORMANT; else label=LIVE; fi
+  printf 'wb · %s · %s · %s agents live (warn >= %s)\n%s' \
+    "$label" "$(wb_pending_counts)" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$hint"
 }
 
 # _set_mode <mode_file> <value> — persist "normal"/"search" (KTD9), read
-# fresh by render_rows on every call. Replaces the old 3-way _cycle_mode
-# now that the picker has a single (live + dormant) view instead of a
-# combined/sessions/agents Tab cycle.
+# fresh by render_rows on every call. Orthogonal to the LIVE/DORMANT view
+# (_toggle_view) — search widens whichever tab is currently showing.
 _set_mode() { printf '%s' "$2" > "$1"; }
 
-# _mode_header [context] — the header for whatever context fzf's
-# transform-header passes (normal when omitted), for fzf to swap in after
-# entering/leaving search.
-_mode_header() { wb_status_line "${1:-normal}"; }
+# _mode_header <mode_file> <view_file> — the header for fzf's
+# transform-header to swap in after entering/leaving search or switching
+# tabs. Reads both files itself (rather than taking literal words) so it
+# always reflects current state regardless of which bind fired it.
+_mode_header() {
+  wb_status_line "$(cat "${1:-}" 2>/dev/null || echo normal)" "$(cat "${2:-}" 2>/dev/null || echo live)"
+}
 
 # _rename <session> — prompt for a new tmux session name (bound to `r`).
 # Cosmetic only: wb's task linkage lives on the session object via
@@ -6384,23 +6403,27 @@ _ctrl_x() {
 picker() {
   # Not `local`: an EXIT trap fires when the whole script exits, which for
   # the success path (no explicit `exit` below) happens AFTER picker()
-  # already returned and popped its locals — referencing a local mode_file
-  # from the trap at that point is an unbound-variable crash under set -u.
-  # A plain (script-global) variable stays in scope for the trap either way.
+  # already returned and popped its locals — referencing a local
+  # mode_file/view_file from the trap at that point is an unbound-variable
+  # crash under set -u. A plain (script-global) variable stays in scope
+  # for the trap either way.
   mode_file="$(mktemp -t wb-mode.XXXXXX)"
+  view_file="$(mktemp -t wb-view.XXXXXX)"
   echo normal > "$mode_file"
-  trap 'rm -f "$mode_file"' EXIT
+  echo live > "$view_file"
+  trap 'rm -f "$mode_file" "$view_file" "$view_file.cache"' EXIT
 
   local rendered selection
-  rendered="$(render_rows "$mode_file")"
+  rendered="$(render_rows "$mode_file" "$view_file")"
   if [ -z "$rendered" ]; then
     echo "wb: no live sessions found." >&2
     exit 0
   fi
 
   # Modal navigation mirrors claude-sessions.sh: NORMAL disables search so
-  # unbound keys are inert; i or / enters SEARCH. `x`/Tab are gone with the
-  # old interrupt key and the combined/sessions/agents mode cycle; `n` is new.
+  # unbound keys are inert; i or / enters SEARCH. `x` is gone with the old
+  # interrupt key; `n` is new; `tab` is back, now toggling LIVE<->DORMANT
+  # (not the old combined/sessions/agents cycle it used to drive).
   local navkeys='j,k,g,G,q,i,r,b,p,n,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
@@ -6417,25 +6440,26 @@ picker() {
         --layout=reverse-list --pointer='>' \
         --height=100% --padding=6,1,2,1 \
         --prompt='NORMAL ' \
-        --header="$(wb_status_line normal)" \
+        --header="$(wb_status_line normal live)" \
         --no-sort \
         --preview '[ -n {7} ] && tmux capture-pane -ep -t {7} || ([ -f {9} ] && cat {9} || git -C {9} -c color.status=always status -s)' \
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
-        --bind "load:reload(sleep 3; \"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "load:reload(sleep 3; \"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind 'j:down' --bind 'k:up' --bind 'g:first' --bind 'G:last' \
         --bind 'ctrl-d:half-page-down' --bind 'ctrl-u:half-page-up' \
         --bind 'l:accept' --bind 'h:abort' --bind 'q:abort' \
-        --bind "ctrl-r:reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
-        --bind "r:execute(\"$SELF\" _rename {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
-        --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
-        --bind "p:execute(\"$SELF\" _down {8})+reload-sync(\"$SELF\" render \"$mode_file\")+refresh-preview" \
+        --bind "ctrl-r:execute-silent(\"$SELF\" _refresh-dormant \"$mode_file\" \"$view_file\")+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
+        --bind "tab:execute-silent(\"$SELF\" _toggle-view \"$mode_file\" \"$view_file\")+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")" \
+        --bind "r:execute(\"$SELF\" _rename {8})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
+        --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
+        --bind "p:execute(\"$SELF\" _down {8})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind "n:become(\"$SELF\" _new)" \
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7} {9})" \
-        --bind "i:execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header search)" \
-        --bind "/:clear-query+execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header search)" \
-        --bind "esc:enable-search+clear-query+disable-search+execute-silent(\"$SELF\" _set-mode \"$mode_file\" normal)+rebind($navkeys)+change-prompt(NORMAL )+reload-sync(\"$SELF\" render \"$mode_file\")+transform-header(\"$SELF\" _mode-header)")" || exit 0
+        --bind "i:execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")" \
+        --bind "/:clear-query+execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")" \
+        --bind "esc:enable-search+clear-query+disable-search+execute-silent(\"$SELF\" _set-mode \"$mode_file\" normal)+rebind($navkeys)+change-prompt(NORMAL )+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")")" || exit 0
 
   [ -n "$selection" ] || exit 0
   local -a f; wb_tsv_split "$selection" f
@@ -6489,6 +6513,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     _break-out)  shift; _break_out "$@" ;;
     _ctrl-x)     shift; _ctrl_x "$@" ;;
     _set-mode)   shift; _set_mode "$@" ;;
+    _toggle-view)   shift; _toggle_view "$@" ;;
+    _refresh-dormant) shift; _refresh_dormant "$@" ;;
     _mode-header) shift; _mode_header "$@" ;;
     *)           picker "${1:-}" ;;
   esac
