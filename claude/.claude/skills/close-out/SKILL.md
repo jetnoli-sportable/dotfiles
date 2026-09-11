@@ -1,6 +1,6 @@
 ---
 name: close-out
-description: End-of-session wind-down for a wb task — sweep the session for anything worth a follow-up task or a park note, fold the session's real Decisions/Done/Follow-ups into the task file, then run `wb done` (via the wb-done skill's background+relay mechanism) to remove the worktree and flip the task to done. Use when the user asks "anything deserving a task or discussion", "wb done and close this out", "wrap this up, what am I missing", "close out this worktree", or types /close-out. Composes wb-done for the actual wind-down rather than reimplementing its async nvim-buffer handling.
+description: End-of-session wind-down for a wb task — sweep the session for anything worth a follow-up task or a park note, fold the session's real Decisions/Done/Follow-ups into the task file, then either `wb down` (worktree kept, warm resume — when the branch has an open PR) or `wb done` (via the wb-done skill's background+relay mechanism, to remove the worktree and flip the task to done). Use when the user asks "anything deserving a task or discussion", "wb done and close this out", "wrap this up, what am I missing", "close out this worktree", or types /close-out. Composes wb-done for the wb-done exit rather than reimplementing its async nvim-buffer handling.
 ---
 
 # close-out
@@ -125,24 +125,44 @@ down this task premature or would get silently lost with it:
   check here; if it's dirty, `wb done` will fail fast with its own message
   and this skill relays that verbatim in step 6, same as any other outcome.
 
-### 6. Determine `--close` and run the wind-down
+### 6. Determine the exit — `wb down` at the PR moment, `wb done` otherwise
 
-Exactly `wb-done/SKILL.md`'s own flow, not a re-derivation of it:
+Run `wb pr-open` against the closing session first. This is the one place
+this skill checks something `wb-done/SKILL.md` doesn't, because it changes
+which verb is right, not just a flag on the same one:
 
-- `--close` only if the user's words in *this* invocation asked for it
-  ("close the session too", "kill it when you're done", etc.) — never by
-  default, never carried over from an earlier turn.
-- If `--close` applies to the current session, surface the self-kill hazard
-  from `wb-done/SKILL.md` step 4 **before** launching — the last message the
-  user sees from this session is the one right before the background call,
-  not a relay of `wb done`'s own output.
-- Launch `wb done [--close]` as a single Bash tool call with
-  `run_in_background: true`. Say one short line and stop — do not poll, do
-  not schedule a wakeup, do not keep talking. The background command
-  completing is the signal.
-- When it returns, relay `wb done`'s own stdout/stderr message verbatim
-  (happy path, dirty-tree error, or the optional pending-counts/roadmap
-  nudges) — same posture as `wb-done/SKILL.md` step 3.
+- **Exit 0 (the branch has an open PR):** the session has nothing left to
+  do until a human reviews it — winding it all the way down and removing
+  the worktree would throw away a warm, resumable conversation for no
+  reason. Offer `wb down` instead of `wb done` in one line ("PR's up —
+  close the session and keep the worktree so this resumes warm later, or
+  wind it all the way down with `wb done`?") and act on the answer. `wb
+  down` runs synchronously in the foreground (a single Bash call, no
+  `run_in_background`) — unlike `wb done`, it never opens the Sweep review
+  buffer (it never removes the worktree, so there's nothing gitignored to
+  review), so there's no async-buffer problem to route around. Relay its
+  stdout verbatim, same posture as the `wb done` relay below.
+- **Exit non-zero (no open PR, or the probe couldn't tell):** fall through
+  to the ordinary `wb done` wind-down below — exactly `wb-done/SKILL.md`'s
+  own flow, not a re-derivation of it:
+  - `--close` only if the user's words in *this* invocation asked for it
+    ("close the session too", "kill it when you're done", etc.) — never by
+    default, never carried over from an earlier turn.
+  - If `--close` applies to the current session, surface the self-kill
+    hazard from `wb-done/SKILL.md` step 4 **before** launching — the last
+    message the user sees from this session is the one right before the
+    background call, not a relay of `wb done`'s own output.
+  - Launch `wb done [--close]` as a single Bash tool call with
+    `run_in_background: true`. Say one short line and stop — do not poll,
+    do not schedule a wakeup, do not keep talking. The background command
+    completing is the signal.
+  - When it returns, relay `wb done`'s own stdout/stderr message verbatim
+    (happy path, dirty-tree error, or the optional pending-counts/roadmap
+    nudges) — same posture as `wb-done/SKILL.md` step 3.
+
+The sweep (steps 2-4) and the other-work check (step 5) run identically
+either way — the PR check only changes which verb finishes the session,
+never whether the record gets written first.
 
 ## Test scenarios this skill's behavior must cover
 
