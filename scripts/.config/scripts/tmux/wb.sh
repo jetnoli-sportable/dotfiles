@@ -4457,6 +4457,7 @@ wb_board_render_html() {
   # Mirrors the existing children_of pre-pass above.
   # =========================================================================
   local -A LIVE_SESSION=()   # anchor_key -> live tmux session name (or unset/empty)
+  local -A ACTIVITY=()       # anchor_key -> active|dormant|cold (U6/R7, derived, never stored)
   local -A PR_INFO=()        # anchor_key -> this task's pr_info ("#n (state)\turl", task rows only)
   local -A PATH_LINES=()     # anchor_key -> newline-joined intended stages (task rows only)
   local -A STAGE_STATE=()    # wb_board_stage_key(anchor,stage) -> na|pending|progress|done
@@ -4487,8 +4488,19 @@ wb_board_render_html() {
   for pp_row in "${ROWS[@]}"; do
     wb_tsv_split "$pp_row" f
     pp_kind="${f[0]}"; pp_status="${f[2]}"; pp_repo="${f[3]}"; pp_branch="${f[4]}"
-    pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
+    pp_worktree="${f[5]}"; pp_taskfile="${f[10]}"; pp_anchor="${f[11]}"
     LIVE_SESSION["$pp_anchor"]="$(wb_board_live_session_for "$pp_repo" "$pp_branch")"
+    # U6/R7: activity, reusing the live-session lookup just above plus a
+    # transcript-store check (U2's wb_transcripts) — derived here, never
+    # stored, same rule the picker's own dormant rows follow.
+    if [ -n "${LIVE_SESSION["$pp_anchor"]}" ]; then
+      ACTIVITY["$pp_anchor"]=active
+    elif [ -n "$pp_repo" ] && [ -n "$pp_worktree" ] \
+         && [ -n "$(wb_transcripts "$(wb_repo_dir "$pp_repo")/$pp_worktree" 2>/dev/null)" ]; then
+      ACTIVITY["$pp_anchor"]=dormant
+    else
+      ACTIVITY["$pp_anchor"]=cold
+    fi
     # Guard on the empty VALUE, not just for tidiness: bash treats an
     # associative-array subscript that evaluates to the empty string via
     # command substitution as "no subscript" ("bad array subscript"),
@@ -4711,6 +4723,14 @@ wb_board_render_html() {
     family_dropdown_html="<details class=\"filter-dropdown family-filter\"><summary>$family_summary_labels</summary><div class=\"filter-options\">$family_options_html</div></details>"
   fi
 
+  # U6/R17: "Dormant only" — a single checkbox toggle (not a radio dropdown
+  # like repo/family) since activity is a plain on/off filter, not a
+  # many-valued choice; AND-composes with repo/family the same way those
+  # two already AND-compose with each other (R28).
+  radios_html+="<input type=\"checkbox\" id=\"dormant-only\">"$'\n'
+  local dormant_toggle_html='<label for="dormant-only" class="dormant-toggle">Dormant only</label>'
+  local dormant_hide_css='#dormant-only:checked ~ main .view tr.row:not([data-activity="dormant"]), #dormant-only:checked ~ main .view .task-detail:not([data-activity="dormant"]) { display: none; }'
+
   # U7: per-panel (repo,family) presence tracking (KTD-8) — populated as
   # rows are collected below, consumed after all 13 panels are built to
   # generate empty-intersection reveal rules (a filter combination that
@@ -4752,7 +4772,7 @@ wb_board_render_html() {
         local link_text="$esc_title"
         [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
         local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-        local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+        local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\" data-activity=\"${ACTIVITY["$anchor_key"]:-cold}\""
         [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
         PANEL_REPO["$panelkey"$'\x1f'"$row_repo_attr"]=1
         if [ -n "$row_family_attr" ]; then
@@ -4804,7 +4824,7 @@ wb_board_render_html() {
     local row_class="row"
     [ -n "${UNMET_COUNT["$anchor_key"]:-}" ] && row_class+=" blocked"
     local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\" data-activity=\"${ACTIVITY["$anchor_key"]:-cold}\""
     [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
     PANEL_ANY["pipeline"]=1
     PANEL_REPO["pipeline"$'\x1f'"$row_repo_attr"]=1
@@ -4871,7 +4891,7 @@ wb_board_render_html() {
     local link_text="$esc_title"
     [ "$kind" = untracked ] && link_text="$esc_branch <span class=\"repo\">(no task file)</span>"
     local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\" data-activity=\"${ACTIVITY["$anchor_key"]:-cold}\""
     [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
     PANEL_ANY["live"]=1
     PANEL_REPO["live"$'\x1f'"$row_repo_attr"]=1
@@ -4921,7 +4941,7 @@ wb_board_render_html() {
     live_badge=""
     [ -n "$live_session" ] && live_badge="<span class=\"live-badge\"><span class=\"dot\">&#9679;</span>$(wb_board_html_escape "$live_session")</span>"
     local row_repo_attr="${ANCHOR_REPO["$anchor_key"]:-}" row_family_attr="${ANCHOR_FAMILY["$anchor_key"]:-}"
-    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\""
+    local row_attrs=" id=\"row-$view_anchor\" data-repo=\"$row_repo_attr\" data-status=\"$pill_class\" data-activity=\"${ACTIVITY["$anchor_key"]:-cold}\""
     [ -n "$row_family_attr" ] && row_attrs+=" data-family=\"$row_family_attr\""
     PANEL_ANY["stale"]=1
     PANEL_REPO["stale"$'\x1f'"$row_repo_attr"]=1
@@ -5215,6 +5235,8 @@ wb_board_render_html() {
   .filter-dropdown .filter-options { position: absolute; right: 0; top: 100%; margin-top: .3rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .3rem; display: flex; flex-direction: column; gap: .1rem; z-index: 6; min-width: 8rem; }
   .filter-dropdown .filter-options label { font-family: var(--mono); font-size: .78rem; padding: .3rem .6rem; border-radius: 6px; cursor: pointer; color: var(--ink2); white-space: nowrap; }
   .filter-dropdown .filter-options label:hover { background: var(--bg2); }
+  .dormant-toggle { display: flex; align-items: center; gap: .35rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .35rem .8rem; font-family: var(--mono); font-size: .78rem; color: var(--ink2); cursor: pointer; white-space: nowrap; }
+  .dormant-toggle input { cursor: pointer; }
 
   main { padding: 1.5rem; max-width: min(1560px, 95vw); margin: 0 auto; }
   .view { display: none; flex-direction: column; gap: 2.2rem; min-width: 0; }
@@ -5324,6 +5346,7 @@ wb_board_render_html() {
   @@REPO_SUMMARY_CSS@@
   @@FAMILY_HIDE_CSS@@
   @@FAMILY_SUMMARY_CSS@@
+  @@DORMANT_HIDE_CSS@@
   @@REVEAL_CSS@@
 </style>
 </head>
@@ -5344,6 +5367,7 @@ wb_board_render_html() {
     <div class="header-controls">
       <details class="filter-dropdown repo-filter"><summary>@@REPO_SUMMARY_LABELS@@</summary><div class="filter-options">@@REPO_OPTIONS_HTML@@</div></details>
       @@FAMILY_DROPDOWN_HTML@@
+      @@DORMANT_TOGGLE_HTML@@
     </div>
   </div>
 </header>
@@ -5397,6 +5421,7 @@ HTMLEOF
   page_template="${page_template//@@REPO_SUMMARY_CSS@@/$(wb_board_escape_replacement "$repo_summary_css")}"
   page_template="${page_template//@@FAMILY_HIDE_CSS@@/$(wb_board_escape_replacement "$family_hide_css")}"
   page_template="${page_template//@@FAMILY_SUMMARY_CSS@@/$(wb_board_escape_replacement "$family_summary_css")}"
+  page_template="${page_template//@@DORMANT_HIDE_CSS@@/$(wb_board_escape_replacement "$dormant_hide_css")}"
   page_template="${page_template//@@REVEAL_CSS@@/$(wb_board_escape_replacement "$reveal_css")}"
   page_template="${page_template//@@RADIOS_HTML@@/$(wb_board_escape_replacement "$radios_html")}"
   page_template="${page_template//@@LIVE_AGENTS_HTML@@/$(wb_board_escape_replacement "$live_agents_html")}"
@@ -5406,6 +5431,7 @@ HTMLEOF
   page_template="${page_template//@@REPO_SUMMARY_LABELS@@/$(wb_board_escape_replacement "$repo_summary_labels")}"
   page_template="${page_template//@@REPO_OPTIONS_HTML@@/$(wb_board_escape_replacement "$repo_options_html")}"
   page_template="${page_template//@@FAMILY_DROPDOWN_HTML@@/$(wb_board_escape_replacement "$family_dropdown_html")}"
+  page_template="${page_template//@@DORMANT_TOGGLE_HTML@@/$(wb_board_escape_replacement "$dormant_toggle_html")}"
   page_template="${page_template//@@PANELS_HTML@@/$(wb_board_escape_replacement "$panels_html")}"
   page_template="${page_template//@@KEY_FINDINGS_HTML@@/$(wb_board_escape_replacement "$key_findings_html")}"
   printf '%s\n' "$page_template"
@@ -5432,11 +5458,21 @@ cmd_board() {
     return 0
   fi
 
-  local f title fu rows=""
+  local f title fu rows="" repo status worktree branch activity
   local -a t
+  # U6/R17: an ACT column, only when the terminal is wide enough to take it
+  # without wrapping the existing four columns — a plain `wb board` run in a
+  # narrow split pane shouldn't have to trade STATUS/REPO/TASK legibility
+  # for it. 100 cols is a rough floor, not a measured one; the HTML board's
+  # data-activity attribute (U6) is the place to look for this
+  # width-independently.
+  local term_width show_act=0
+  term_width="$(tput cols 2>/dev/null || echo 0)"
+  [ "${term_width:-0}" -ge 100 ] && show_act=1
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     wb_tsv_split "$(wb_read_task "$f")" t
+    status="${t[0]:-?}"; repo="${t[1]:-?}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
     title="$(wb_task_title "$f")"
     [ -n "$title" ] || title="$(basename "$f" .md)"
     fu="$(awk '
@@ -5446,7 +5482,18 @@ cmd_board() {
       infu && /^[-*] / { c++ }
       END { print c + 0 }
     ' "$f")"
-    rows+="$(printf '%s\t%s\t%s\t%s' "${t[0]:-?}" "${t[1]:-?}" "$title" "$fu")"$'\n'
+    if [ "$show_act" = 1 ]; then
+      if [ -n "$(wb_board_live_session_for "$repo" "$branch")" ]; then
+        activity=active
+      elif [ -n "$worktree" ] && [ -n "$(wb_transcripts "$(wb_repo_dir "$repo")/$worktree" 2>/dev/null)" ]; then
+        activity=dormant
+      else
+        activity=cold
+      fi
+      rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$activity")"$'\n'
+    else
+      rows+="$(printf '%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu")"$'\n'
+    fi
   done < <(wb_task_files)
 
   printf 'live agents: %s (warn >= %s)\n' "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT"
@@ -5457,7 +5504,11 @@ cmd_board() {
   fi
 
   {
-    printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\n'
+    if [ "$show_act" = 1 ]; then
+      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\tACT\n'
+    else
+      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\n'
+    fi
     # doing < review < paused < planned < done < anything-else; rank prefix
     # keeps the plain-text sort key clean, then drops out before display.
     printf '%s' "$rows" | awk -F'\t' -v OFS='\t' '{
@@ -5668,6 +5719,11 @@ cmd_done() {
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status done
   wb_set_frontmatter "$task_file" closed "$(date +%F)"
+  # U6/R6: a done task has no worktree left to resume into, so the
+  # claude_sessions: snapshot (a record of resumable conversations) is
+  # stale the instant the worktree is removed — blank it rather than let a
+  # future reader mistake a done task for one with a warm history.
+  wb_set_frontmatter "$task_file" claude_sessions ""
   wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
   wb_task_lock_release "$task_file"
 

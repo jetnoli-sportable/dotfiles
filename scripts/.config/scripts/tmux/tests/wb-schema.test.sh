@@ -229,5 +229,35 @@ fi
 
 rm -rf "$TR_FIXTURE"
 
+# --- cmd_board (plain text): ACT column only when the terminal is wide -----
+# (U6/R17). `tput cols` falls back to $COLUMNS with no real tty (verified in
+# this sandbox), which is what lets this test control it without a real
+# terminal. Runs `bash "$WB" board` as a real subprocess, same convention
+# as the status-ordering test above — the CLI path, not the sourced
+# function, is what actually reads $COLUMNS via tput.
+out_narrow="$(COLUMNS=60 TASKS_DIR="$FIXTURE" bash "$WB" board 2>&1)"
+if printf '%s' "$out_narrow" | grep -q '^STATUS.*ACT'; then
+  echo "FAIL - narrow terminal: ACT column should not appear"; fail=1
+else
+  echo "ok   - narrow terminal: no ACT column"
+fi
+
+ACT_CODE="$(mktemp -d -t wb-schema-act-code.XXXXXX)"
+ACT_PROJECTS="$(mktemp -d -t wb-schema-act-projects.XXXXXX)"
+git init -q "$ACT_CODE/proj"
+git -C "$ACT_CODE/proj" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git -C "$ACT_CODE/proj" worktree add -q -b feat/act-dormant ".worktrees/feat/act-dormant" >/dev/null 2>&1
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat/act-dormant\nworktree: .worktrees/feat/act-dormant\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Act Dormant\n' \
+  > "$FIXTURE/proj--act-dormant.md"
+mkdir -p "$(CLAUDE_PROJECTS_DIR="$ACT_PROJECTS" wb_transcript_dir "$ACT_CODE/proj/.worktrees/feat/act-dormant")"
+printf '{}' > "$(CLAUDE_PROJECTS_DIR="$ACT_PROJECTS" wb_transcript_dir "$ACT_CODE/proj/.worktrees/feat/act-dormant")/some-id.jsonl"
+
+out_wide="$(COLUMNS=150 TASKS_DIR="$FIXTURE" CODE_DIR="$ACT_CODE" CLAUDE_PROJECTS_DIR="$ACT_PROJECTS" bash "$WB" board 2>&1)"
+assert "wide terminal: ACT column header present" '^STATUS.*ACT' "$out_wide"
+assert "wide terminal: the dormant task reads dormant" 'proj +Act Dormant +[0-9]+ +dormant' "$out_wide"
+assert "wide terminal: an ordinary task with no transcript reads cold" 'doing +dotfiles +Doing Task +[0-9]+ +cold' "$out_wide"
+rm -rf "$ACT_CODE" "$ACT_PROJECTS"
+rm -f "$FIXTURE/proj--act-dormant.md"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

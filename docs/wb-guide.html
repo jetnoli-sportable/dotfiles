@@ -248,6 +248,7 @@
       <li><a href="#try-it-in-the-next-five-minutes">Try it in the next five minutes</a></li>
       <li><a href="#wb-new--start-a-task">wb new — start a task</a></li>
       <li><a href="#the-picker">The picker</a></li>
+      <li><a href="#session-lifecycle-wb-down-wb-pause-and-warm-resume">Session lifecycle: wb down, wb pause, and warm resume</a></li>
       <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
       <li><a href="#wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</a></li>
       <li><a href="#wb-jira-create--file-a-task-or-family-as-jira-tickets">/wb-jira-create — file a task or family as Jira tickets</a></li>
@@ -297,8 +298,9 @@ you reattach):</p>
 <li>
 <p>Press <kbd>prefix</kbd> then <kbd>a</kbd> (or <kbd>m</kbd> — same picker
 now). You'll see whatever's actually live right now — running sessions
-and agents, grouped by status (needs-you first). Press <kbd>Tab</kbd> to
-cycle between <em>combined</em> / <em>sessions</em> / <em>agents</em> views.</p>
+and agents, grouped by status (needs-you first) — plus, below a
+<code>── dormant ──</code> divider, any task you closed with <code>wb down</code>/<code>wb pause</code>
+that's still resumable.</p>
 </li>
 <li>
 <p>From inside any repo, spin up a real task:</p>
@@ -312,6 +314,15 @@ file at <code>~/code/tasks/dotfiles--try-wb-out.md</code>, and drops you into a
 <li>
 <p>Poke around — edit something in the <strong>nvim</strong> window, switch to the
 <strong>agent</strong> window and start <code>claude</code> if you want one running.</p>
+</li>
+<li>
+<p>Close it without abandoning it — the everyday exit at a real PR moment:</p>
+<pre><code>wb down
+</code></pre>
+<p>The tmux session disappears, but the worktree stays and nothing flips to
+<code>done</code>. Open the picker again and the task shows up under the <code>── dormant ──</code> divider; press <kbd>Enter</kbd> on it and it rebuilds the
+session with a warm <code>claude --resume</code>/<code>claude --continue</code> pre-typed in
+the agent window, ready on <kbd>Enter</kbd>.</p>
 </li>
 <li>
 <p>Wind it down properly instead of just killing the pane:</p>
@@ -385,63 +396,47 @@ reasonable working ceiling on this machine, <code>wb new</code> doesn't start on
 you unless you ask.</p>
 <h2 id="the-picker">The picker</h2>
 <p>Press <kbd>prefix</kbd>+<kbd>m</kbd> or <kbd>prefix</kbd>+<kbd>a</kbd> (both
-open the same picker now). Rows are <strong>presence, not inventory</strong> — only
-things that are actually live right now. A never-started <code>planned</code> task or
-a repo you haven't opened doesn't get a row; resume it with
-<code>wb new &lt;repo&gt; &lt;slug&gt;</code> directly instead of browsing for it.</p>
+open the same picker now, launched with a neutral <code>$HOME</code> cwd so <code>wb done</code>
+tearing down the worktree you started the picker from can never yank the
+picker pane's own directory out from under it). Rows are <strong>presence, not
+inventory</strong> — only things that are actually live, or dormant. A never-started
+<code>planned</code> task or a repo you haven't opened doesn't get a row; resume it
+with <code>wb new &lt;repo&gt; &lt;slug&gt;</code> directly instead of browsing for it.</p>
 <blockquote>
 <p><strong>Changed after first use.</strong> The first version showed a row for every task
 file and every repo under <code>~/code</code> whether or not anything was happening —
 on a normal day that's 20+ rows, nearly all gray &quot;no agent&quot; noise. It's
-presence-only now.</p>
+presence-only now — with one deliberate exception (dormant rows, below):
+a task counts as &quot;present&quot; once it has a resumable conversation waiting,
+not only while its tmux session is alive.</p>
 </blockquote>
-<h3 id="three-modes-one-key-tab">Three modes, one key: Tab</h3>
-<p>Press <kbd>Tab</kbd> to cycle. The header always shows which mode you're in,
-and it stays put across the auto-refresh — cycling to <em>sessions</em> and walking
-away doesn't snap back to <em>combined</em> a few seconds later.</p>
-<table>
-<thead>
-<tr>
-<th>Mode</th>
-<th>Rows</th>
-<th>Replaces</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>combined</strong> (default)</td>
-<td>One row per live tmux session; sessions with more than one Claude pane expand into indented sub-rows</td>
-<td>today's <code>wb</code></td>
-</tr>
-<tr>
-<td><strong>sessions</strong></td>
-<td>One row per live tmux session, collapsed — no sub-rows</td>
-<td><code>s</code>, now agent-aware</td>
-</tr>
-<tr>
-<td><strong>agents</strong></td>
-<td>One row per running Claude pane, globally, ranked by urgency — no session grouping</td>
-<td><code>ca</code>, exactly</td>
-</tr>
-</tbody>
-</table>
+<h3 id="one-view-live-then-dormant">One view: live, then dormant</h3>
+<p>There's a single view now — no Tab-cycling between combined/sessions/agents
+modes. Live tmux sessions render first (sessions with more than one Claude
+pane expand into indented sub-rows), then, only when at least one qualifies,
+a <code>── dormant ──</code> divider and the dormant rows: tasks you closed with
+<code>wb down</code>/<code>wb pause</code> (or that survived a crash) that still have a Claude
+transcript on disk for their worktree, sorted by status then by how
+recently they were active.</p>
 <p>Five columns, always: <strong>REPO</strong> (location) · <strong>NAME</strong> (task title or
 session/repo name) · <strong>TYPE</strong> (<code>session</code> / <code>agent</code> / <code>both</code>) · <strong>BRANCH</strong>
 (the git branch, when there is one) · <strong>STATUS</strong> (the most urgent agent in
-that row). A realistic <strong>combined</strong> view — three live sessions, one of them
-(<code>be--monorepo</code>) running two agents:</p>
+that row, or the dormant task's status + age). A realistic view — two live
+sessions, one of them (<code>be--monorepo</code>) running two agents, plus one dormant
+task waiting on review:</p>
 <pre><code>0              0                          both     [main]       o done
 be--monorepo   be--monorepo               both     [dev]        ! needs you
   ↳            state management refactor  agent    [dev]        o done
   ↳            reporting tool issues      agent    [dev]        ! needs you
-frontend       frontend                   session  [sfb-985-…]  - no agent
+── dormant ──
+frontend       Pass-rate chart tweak      session  [sfb-985-…]  ~ review 2d
 </code></pre>
 <p>Status glyphs: <code>!</code> needs you · <code>+</code> finished · <code>o</code> done · <code>*</code> working ·
-<code>-</code> idle / no agent.</p>
+<code>-</code> idle / no agent · <code>~</code> dormant (status + days since last active).</p>
 <p>TYPE tells you at a glance whether a row is a bare tmux session, a bare
 agent pane, or both at once. Sub-rows (indented, one per Claude pane) always
 show <code>agent</code> and inherit the parent row's BRANCH. Any row with a <em>needs you</em>
-or <em>finished</em> agent sorts first.</p>
+or <em>finished</em> agent sorts first among live rows.</p>
 <table>
 <thead>
 <tr>
@@ -450,10 +445,6 @@ or <em>finished</em> agent sorts first.</p>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><kbd>Tab</kbd></td>
-<td>Cycle combined → sessions → agents → combined</td>
-</tr>
 <tr>
 <td><kbd>j</kbd> / <kbd>k</kbd></td>
 <td>Move down / up</td>
@@ -464,11 +455,15 @@ or <em>finished</em> agent sorts first.</p>
 </tr>
 <tr>
 <td><kbd>l</kbd> / <kbd>Enter</kbd></td>
-<td>Jump to the row's session or agent pane</td>
+<td>Jump to the row's session/agent pane, or <strong>resume</strong> a dormant task — rebuilds its session and pre-types a warm <code>claude --resume</code>/<code>claude --continue</code> in the agent window (see <a href="#session-lifecycle-wb-down-wb-pause-and-warm-resume">Session lifecycle</a> below)</td>
 </tr>
 <tr>
-<td><kbd>x</kbd></td>
-<td>Send <kbd>Esc</kbd> to the row's most-urgent agent pane (interrupt), without leaving the picker</td>
+<td><kbd>n</kbd></td>
+<td>New — prompts for a repo (defaults to the picker's own launching session's repo) and a slug; an empty slug opens a plain repo session instead of a task</td>
+</tr>
+<tr>
+<td><kbd>p</kbd></td>
+<td>Close this row's session with <code>wb down</code> — worktree kept, resumable later. Guarded the same way <kbd>Ctrl</kbd>+<kbd>x</kbd> is: on the picker's own current session it writes everything but skips the kill</td>
 </tr>
 <tr>
 <td><kbd>r</kbd></td>
@@ -484,11 +479,11 @@ or <em>finished</em> agent sorts first.</p>
 </tr>
 <tr>
 <td><kbd>Ctrl</kbd>+<kbd>r</kbd></td>
-<td>Force a refresh (it also auto-refreshes every few seconds)</td>
+<td>Force a refresh (it also auto-refreshes every few seconds, without ever blocking your typing)</td>
 </tr>
 <tr>
 <td><kbd>i</kbd> or <kbd>/</kbd></td>
-<td>Start typing to search; <kbd>Esc</kbd> to go back to normal mode</td>
+<td>Start typing to search — this also widens the dormant pool to include <code>paused</code> (deliberately shelved) tasks; <kbd>Esc</kbd> to go back to normal mode</td>
 </tr>
 <tr>
 <td><kbd>q</kbd> / <kbd>h</kbd></td>
@@ -499,7 +494,8 @@ or <em>finished</em> agent sorts first.</p>
 <blockquote>
 <p><strong>Preview pane</strong> shows the live agent screen for a session row, or the
 task file's contents / <code>git status</code> for anything else — so you can usually
-tell what a row needs without leaving the list.</p>
+tell what a row needs without leaving the list. For a dormant row this is
+the task file's own content, same as any other task-file preview.</p>
 </blockquote>
 <blockquote>
 <p><strong>Multiple agents, one session.</strong> <code>wb new</code> only provisions one dedicated
@@ -521,6 +517,45 @@ hooks (<code>claude-notify-hook.sh</code>), plus the picker's sub-rows for &quot
 one, exactly.&quot; If a stray agent in a shared session gets annoying to
 track, press <kbd>b</kbd> on it to give it its own session.</p>
 </blockquote>
+<h2 id="session-lifecycle-wb-down-wb-pause-and-warm-resume">Session lifecycle: wb down, wb pause, and warm resume</h2>
+<p>Two axes, kept deliberately separate:</p>
+<ul>
+<li><strong>Progress</strong> — <code>status:</code>, stored in the task file, changed only by an
+explicit verb: <code>planned → doing → paused/review/done</code>.</li>
+<li><strong>Activity</strong> — active / dormant / cold, <em>derived</em> every time, never
+stored: active means a live tmux session; dormant means no live session
+but a Claude conversation transcript still exists on disk for the
+worktree; cold means neither. This is what makes a crash safe — nothing
+writes &quot;active,&quot; so nothing can be caught lying about it afterward.</li>
+</ul>
+<pre><code>$ wb down [&lt;session&gt;]    # close the session, keep the worktree — activity only
+$ wb pause [&lt;session&gt;]   # shelve on purpose: status -&gt; paused, then wb down
+$ wb pr-open [&lt;session&gt;] # exit 0 if the branch has an open PR, 1 otherwise
+</code></pre>
+<p><code>wb down</code> is the everyday &quot;I'm done for now, but not done-done&quot; exit — the
+one to reach for when a PR just went up and there's nothing left to do
+until someone reviews it. It snapshots every Claude conversation currently
+on disk for the worktree into the task's <code>claude_sessions:</code> field (a record
+for the board and for humans — never the source of truth for resuming),
+marks the pane in the <code>agent</code> window as the primary one, sets <code>status: review</code> only if <code>wb pr-open</code> finds an open PR on the branch, then kills the
+session. The worktree is never touched.</p>
+<p><code>wb pause</code> is the same close, plus a deliberate <code>status: paused</code> — for a
+task you're shelving on purpose (reprioritized, blocked on something else),
+not just stepping away from mid-flight. A <code>paused</code> task never has a live
+session; resuming one (picker or <code>wb resume</code>) flips it straight back to
+<code>doing</code>.</p>
+<p><strong>Resuming is warm by default.</strong> Bringing a dormant or paused task back —
+via the picker's dormant rows or <code>wb resume &lt;task&gt;</code> — rebuilds the usual
+3-window layout and pre-types a resume command in the agent window instead
+of a bare <code>claude</code>: <code>claude --resume &lt;id&gt;</code> when a usable transcript exists
+(preferring the one marked primary), <code>claude --continue</code> when the task has
+prior history but no transcript survived, or nothing at all for a genuinely
+new task. Like the nvim window, it's pre-typed, not run — you land on the
+window and press Enter yourself, so resuming several tasks at once never
+eagerly starts several agents.</p>
+<p><strong>Why not just leave it stored?</strong> Claude Code's own transcripts expire
+after <code>cleanupPeriodDays</code> (30 by default) — a task shelved longer than that
+resumes cold, which is correct: there's nothing left to warm-resume into.</p>
 <h2 id="wb-done--wind-down-safely">wb done — wind down, safely</h2>
 <pre><code>$ wb done [&lt;session&gt;]   # no argument = the session you're in
 </code></pre>
@@ -535,8 +570,9 @@ keeping, save, close.</li>
 <li>Copies anything you kept into <code>~/code/tasks/dossiers/&lt;repo&gt;--&lt;slug&gt;/</code>
 and records where it went in the task file, then removes the temporary
 checklist.</li>
-<li>Removes the git worktree, flips the task's <code>status:</code> to <code>done</code>, kills
-the tmux session.</li>
+<li>Removes the git worktree, flips the task's <code>status:</code> to <code>done</code>, blanks
+<code>claude_sessions:</code> (a done task's worktree is gone, so there's nothing
+left for it to record), kills the tmux session.</li>
 </ol>
 <blockquote>
 <p>If you're several tasks behind on tidying up, <code>wb done</code> will nudge you:
@@ -629,6 +665,11 @@ tags: []
 created: 2026-07-06
 closed:
 reviewed:             # stamped by `wb reviewed` after a /ce-code-review pass
+claude_sessions:      # optional: id@iso-ts[@primary],... — a record of
+                      # Claude conversations for this worktree, written by
+                      # `wb down`/`wb pause`, blanked by `wb done`. Never
+                      # consulted for resume — Claude's own transcript
+                      # store on disk is the source of truth for that.
 ---
 # Title
 
@@ -654,6 +695,10 @@ starting from scratch.</p>
 away:</p>
 <pre><code>wb board    # read-only status table over the whole store (the interim /board)
 </code></pre>
+<p>On a wide-enough terminal (roughly 100+ columns) this also gains an <strong>ACT</strong>
+column — <code>active</code>/<code>dormant</code>/<code>cold</code>, the same derived value the picker's
+dormant rows and the HTML board's toggle use — dropped entirely on a
+narrow split pane rather than squeezing STATUS/REPO/TASK to make room.</p>
 <h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
 <p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
 call) — a richer, filterable view over the whole store that goes well beyond
@@ -730,7 +775,12 @@ control, plus two independent, AND-composing dropdown filters: <strong>Repo</str
 (every repo present in the store) and <strong>Family</strong> (a parent and its
 children — only appears at all once the store has at least one parent/child
 pair). Both default to &quot;All&quot;; picking a specific option narrows every tab's
-table and cards at once, never Key Findings (below).</p>
+table and cards at once, never Key Findings (below). A third, simpler
+<strong>Dormant only</strong> checkbox sits next to them (U6) — every row also carries a
+derived <code>active</code>/<code>dormant</code>/<code>cold</code> activity value (the same rule the
+picker's dormant rows use: no live session, but a Claude transcript still
+on disk), and the toggle narrows to just the dormant ones, AND-composing
+with Repo/Family the same way those two already compose with each other.</p>
 <p><strong>Sorting.</strong> Click a <strong>Status</strong> or <strong>Repo</strong> column header to sort that
 table by it — the one deliberate exception to the page otherwise being
 CSS-only/no-JS (a small inline script; everything else stays radio+CSS
@@ -845,10 +895,10 @@ the shared Ghostty scope the highest-pressure one. Isolating nvim/gopls is
 a tracked fast-follow, not something this covers yet.</p>
 <h2 id="known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</h2>
 <ul>
-<li>The picker's auto-refresh briefly pauses input while it runs (every few
-seconds) — it's doing more work per refresh than the old <code>ca</code> did, since
-it now scans every repo too. Not broken, just occasionally a beat behind
-a keypress.</li>
+<li><strong>Resolved (2026-09-11):</strong> the picker's auto-refresh used to briefly pause
+input while it ran every few seconds — the periodic refresh now runs
+async (<code>reload</code>, not <code>reload-sync</code>) specifically so it never blocks a
+keypress, including while you're typing a search query.</li>
 <li><code>wb done</code> always opens the review buffer and waits for you to close it —
 there's no way to run it unattended yet. If you want a fully scripted
 teardown later, that's a small follow-up flag to add.</li>

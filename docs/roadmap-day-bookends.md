@@ -12,14 +12,17 @@ Two workflows composing the capture/recall pieces already built: `wb up`
 (startup) and `wb down` (shutdown). This page is the source; edit
 `docs/roadmap-day-bookends.md`, not the rendered `.html`.
 
-**Roadmap:** 9b (superseded — this page is the detail) · **Status:** the
-full `wb up`/`wb down` bulk flow needs slice 4b's session-id capture,
-which was gated behind the 4a usage-window verdict; that verdict resolved
-early 2026-07-10 (unused) and 4b's original plan is now superseded by the
-capture fix-forward experiment, whose own verdict lands ~2026-07-24 (see
-[Ceremonies](ceremonies.html)) — so this bulk flow's start date moved with
-it. `wb resume <task>` (single-task slice, see below) is open and
-unblocked
+**Roadmap:** 9b (superseded — this page is the detail) · **Status:**
+single-task `wb down` shipped 2026-09-11 (picker-session-lifecycle plan) —
+see the new section below. It resolves the "one genuinely precious piece of
+state" blocker this page originally raised: Claude Code's own transcript
+store on disk turned out to already hold everything slice 4b's session-id
+capture was going to build a hook for, so nothing here was actually gated
+on 4b after all. The `--all` bulk sweep (`wb down --all`, this doc's own
+proposed name below) stays deferred — real value once you're closing more
+than one session at a time, not before. `wb up`'s startup-side review
+buffer is unaffected and still open work. `wb resume <task>` (single-task
+slice, see below) shipped earlier and needed none of this either.
 
 ## The two workflows
 
@@ -65,15 +68,18 @@ scrollback, but the task store is the source of truth. Concretely: keep
 everything `wb` creates reconstructable from the task file alone, and give
 `wb` a `down --all` / `up --resume` pair.
 
-> **The one genuinely precious piece of state:** each agent pane's Claude
-> session id, recorded at spawn (a session/window option or a task-file
-> field), so `up --resume` can `claude --resume <id>` instead of restarting
-> every agent cold. The 3-window layout is cheap to rebuild; an in-flight
-> agent conversation is not — and the id is cheap to capture now but
-> impossible to recover for sessions already killed. This capture was
-> slated as part of slice 4b's groundwork, ahead of `wb up`/`wb down`
-> themselves — now dependent on the capture fix-forward experiment's
-> verdict (~2026-07-24) reviving 4b's original plan.
+> **The one genuinely precious piece of state — resolved 2026-09-11, not
+> the way this page expected.** Each agent pane's Claude session id turned
+> out not to need capturing at all: Claude Code already writes one
+> `.jsonl` transcript per conversation under
+> `~/.claude/projects/<encoded-worktree-path>/`, keyed by the exact cwd a
+> `wb` session already runs in. `wb down`/`wb pause` read that directory
+> directly (`wb_transcripts` in `wb.sh`) rather than hooking anything at
+> spawn time — no session/window option, no task-file field needed to make
+> resume warm. See [the wb guide's session-lifecycle
+> section](wb-guide.html#session-lifecycle-wb-down-wb-pause-and-warm-resume)
+> for the shipped behavior. `up --resume`'s bulk case inherits this for
+> free whenever it gets built.
 
 ## `wb resume <task>` — an early, ungated slice (2026-07-08)
 
@@ -99,3 +105,23 @@ No tmux-resurrect/continuum is installed today (`tmux/.config/tmux/tmux.conf`
 only lists `tpm`, `tmux-sensible`, `vim-tmux-navigator`, `catppuccin-tmux`)
 — consistent with this doc's regenerative-sessions principle, this slice
 doesn't need it either.
+
+## `wb down` — single-session shipped, `--all` still deferred (2026-09-11)
+
+The picker-session-lifecycle plan shipped this doc's proposed
+`down`/`--all` split, but only the first half: `wb down [<session>]`
+closes one session (activity axis only — `status:` moves to `review` when
+the branch has an open PR, otherwise untouched) and keeps the worktree,
+same shape as `wb resume` above — a single-target primitive, not the
+sweep-every-session shutdown flow this page originally scoped. `wb pause`
+composes it for the deliberate-shelve case (`status: paused`).
+
+Warm resume works exactly as this page hoped, just without ever needing a
+captured session id (see the resolved blockquote above): the picker's
+dormant rows and `wb resume` both pre-type `claude --resume <id>` from
+whatever transcript exists on disk for the worktree.
+
+**Still open, unclaimed by this slice:** the `--all` sweep this page named
+(close every live session, one status write per task) and `wb up`'s
+startup-side review buffer (Decision 10 above) — both real bulk-flow work,
+now genuinely unblocked by anything session-id-shaped, just not yet built.

@@ -10,7 +10,8 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_TASKS="$(mktemp -d -t wb-board-html-tasks.XXXXXX)"
 FIXTURE_CODE="$(mktemp -d -t wb-board-html-code.XXXXXX)"
-trap 'rm -rf "$FIXTURE_TASKS" "$FIXTURE_CODE"' EXIT
+FIXTURE_PROJECTS="$(mktemp -d -t wb-board-html-projects.XXXXXX)"   # fixture ~/.claude/projects (U6)
+trap 'rm -rf "$FIXTURE_TASKS" "$FIXTURE_CODE" "$FIXTURE_PROJECTS"' EXIT
 
 fail=0
 # assert/assert_not use a here-string (<<<), never `printf | grep -q` — U6
@@ -84,6 +85,7 @@ source "$WB"
 set +e   # wb.sh sets -e; this test captures non-zero exits by design
 TASKS_DIR="$FIXTURE_TASKS"
 CODE_DIR="$FIXTURE_CODE"
+CLAUDE_PROJECTS_DIR="$FIXTURE_PROJECTS"
 wb_reconcile_repos() { printf '%s\n' "$FIXTURE_CODE/proj"; }
 
 html="$(wb_board_render_html 2>&1)"
@@ -758,6 +760,7 @@ assert "U7: repo group still emitted (solo repo only)" '<input type="radio" name
 rm -rf "$NOFAM_TASKS" "$NOFAM_CODE"
 TASKS_DIR="$FIXTURE_TASKS"
 CODE_DIR="$FIXTURE_CODE"
+CLAUDE_PROJECTS_DIR="$FIXTURE_PROJECTS"
 wb_reconcile_repos() { printf '%s\n' "$FIXTURE_CODE/proj"; }
 
 # =============================================================================
@@ -893,6 +896,28 @@ assert_not "U9: <section class=\"key-findings\"> opening tag carries no data-rep
 # no "nothing notable" line once real content exists -------------------------
 assert_not "U9: 'nothing notable' fallback absent once real insights exist" \
   'Nothing notable right now' "$kf_section5"
+
+# --- U6: activity attribute + Dormant-only toggle ---------------------------
+# A doing task with a real worktree and a Claude transcript on disk, no live
+# tmux session pointing at it -> dormant. TASKS_DIR/CODE_DIR/
+# CLAUDE_PROJECTS_DIR are still the main FIXTURE_* store at this point in the
+# file (no live-session lookup added for this branch, so it never matches
+# wb_board_live_session_for's scan of real tmux sessions either way).
+add_worktree "$FIXTURE_CODE/proj" dormant-branch
+mk_task 'proj--dormant-branch.md' doing proj dormant-branch .worktrees/dormant-branch "$TODAY" '' 'Dormant Task'
+dormant_wt="$FIXTURE_CODE/proj/.worktrees/dormant-branch"
+dormant_transcript_dir="$(wb_transcript_dir "$dormant_wt")"
+mkdir -p "$dormant_transcript_dir"
+printf '{}' > "$dormant_transcript_dir/some-id.jsonl"
+activity_html="$(wb_board_render_html 2>&1)"
+assert "U6: dormant task row carries data-activity=\"dormant\"" \
+  'data-repo="proj"[^>]*data-status="doing"[^>]*data-activity="dormant"[^>]*data-family="proj--dormant-branch"' "$activity_html"
+assert "U6: a task with no worktree/transcript reads cold, not dormant" \
+  'data-activity="cold"[^>]*data-family="proj--doing-branch"' "$activity_html"
+assert "U6: the Dormant-only toggle is present in the filter header" \
+  'id="dormant-only"' "$activity_html"
+assert "U6: the toggle's hide rule targets data-activity=\"dormant\"" \
+  '#dormant-only:checked.*data-activity="dormant"' "$activity_html"
 
 # --- empty store: no crash, empty-state everywhere ---------------------------
 EMPTY_TASKS="$(mktemp -d -t wb-board-html-empty.XXXXXX)"
