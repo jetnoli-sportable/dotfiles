@@ -132,10 +132,17 @@ wb_set_frontmatter() {
 # comment-preserving sibling of wb_set_frontmatter above: overwrite <key>'s
 # frontmatter line in place, keeping any trailing inline "# ..." comment
 # that line already carries (TEMPLATE.md/README.md's own `key: val  # note`
-# shape). When <key> has no existing line, insert it right after
-# <after_key>'s line when given and present in the file, otherwise just
-# before the closing `---` — same default-insertion point as
-# wb_set_frontmatter. Extracted from cmd_status's original inline awk (the
+# shape). When <key> has no existing line ANYWHERE in the frontmatter
+# block, insert it right after <after_key>'s line when given and present
+# in the file, otherwise just before the closing `---` — same default-
+# insertion point as wb_set_frontmatter. Two-pass: first a whole-block scan
+# decides whether <key> already exists (so an insertion point that happens
+# to come BEFORE the key's real line — e.g. `after_key=size` on
+# TEMPLATE.md, where `priority:` ships its own empty line further down —
+# never fires and produces a duplicate); if it exists, the FIRST occurrence
+# is replaced in place (comment preserved) and every further occurrence in
+# the block is dropped (self-healing dedupe for files a prior buggy run
+# already duplicated). Extracted from cmd_status's original inline awk (the
 # ONE comment-preserving frontmatter rewrite); shared by cmd_status
 # (status:, never needs after_key — the key always exists) and cmd_set
 # (priority:/value:/size:/parent:/depends_on:/jira:/tags:/path:, some of
@@ -143,25 +150,45 @@ wb_set_frontmatter() {
 wb_set_frontmatter_field() {
   local file="$1" key="$2" value="$3" after_key="${4:-}"
   awk -v key="$key" -v val="$value" -v after="$after_key" '
-    BEGIN { infm = 0; done = 0 }
-    /^---$/ {
-      infm++
-      if (infm == 2 && !done) { print key ": " val; done = 1 }
-      print; next
-    }
-    infm == 1 && !done && $0 ~ "^" key ":" {
-      line = $0
-      comment = ""
-      if (match(line, /[ \t]+#.*$/)) { comment = substr(line, RSTART) }
-      print key ": " val comment
-      done = 1
-      next
-    }
     {
-      print
-      if (infm == 1 && !done && after != "" && $0 ~ "^" after ":") {
-        print key ": " val
-        done = 1
+      n++
+      lines[n] = $0
+      if ($0 ~ /^---$/) {
+        infm++
+        if (infm == 1) fmstart = n
+        else if (infm == 2 && fmend == 0) fmend = n
+      }
+    }
+    END {
+      exists = 0; firstidx = 0
+      for (i = fmstart + 1; i < fmend; i++) {
+        if (lines[i] ~ ("^" key ":")) {
+          exists++
+          if (firstidx == 0) firstidx = i
+        }
+      }
+      inserted = 0
+      for (i = 1; i <= n; i++) {
+        line = lines[i]
+        if (i > fmstart && i < fmend && line ~ ("^" key ":")) {
+          if (i == firstidx) {
+            comment = ""
+            if (match(line, /[ \t]+#.*$/)) { comment = substr(line, RSTART) }
+            print key ": " val comment
+          }
+          continue   # drop every further duplicate occurrence
+        }
+        if (!exists && !inserted && i > fmstart && i < fmend && after != "" && line ~ ("^" after ":")) {
+          print line
+          print key ": " val
+          inserted = 1
+          continue
+        }
+        if (!exists && !inserted && i == fmend) {
+          print key ": " val
+          inserted = 1
+        }
+        print line
       }
     }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
@@ -3646,7 +3673,15 @@ cmd_set() {
   local old
   old="$(wb_get_frontmatter "$file" "$field")"
 
-  if [ "$old" = "$value" ]; then
+  # A file with duplicate `$field:` lines (e.g. left behind by the old
+  # buggy insert-without-checking wb_set_frontmatter_field) must never
+  # short-circuit as a no-op even when the FIRST occurrence already reads
+  # $value — the awk rewrite below is what dedupes the file down to one
+  # line, and skipping it here would leave the duplicates in place.
+  local dup_count
+  dup_count="$(awk -v key="$field" 'BEGIN{infm=0} /^---$/{infm++; if(infm==2) exit; next} infm==1 && $0 ~ "^" key ":" {c++} END{print c+0}' "$file")"
+
+  if [ "$old" = "$value" ] && [ "$dup_count" -le 1 ]; then
     echo "wb set: $(basename -- "$file") $field already '$value'"
     exit 0
   fi

@@ -227,6 +227,67 @@ assert_eq "jira invalid scheme: exit 1" 1 "$rc"
 assert "jira invalid scheme: message" "must start with https://" "$out"
 
 # =============================================================================
+# Scenario: wb_set_frontmatter_field / cmd_set dedupe regression — a
+# TEMPLATE.md-shaped file already ships an empty `priority:`/`value:` line
+# right after `size:`. The `after_key=size` insertion path must not fire
+# just because it walks past `size:` before reaching that existing (empty,
+# further-down-in-source-order-wise-adjacent) line — it must REPLACE the
+# existing line, never insert a second one.
+# =============================================================================
+
+mk_template_task() { # <file> <branch> — TEMPLATE.md's own frontmatter field
+  # order, with priority:/value: already present (empty) right after size:,
+  # same shape as a freshly `wb new`-created task file.
+  local f="$TASKS_DIR/$1" branch="$2"
+  printf -- '---\nstatus: doing\npath:\nrepo: proj\nbranch: %s\nworktree: .worktrees/%s\nparent:\ndepends_on:\nsize:\npriority:\nvalue:\ntags: []\njira:\ncreated: 2026-07-01\nclosed:\nreviewed:\nclaude_sessions:\n---\n# Title\n' \
+    "$branch" "$branch" > "$f"
+}
+
+# (a) set on a template that already has the empty key -> exactly one
+# priority: line afterward, holding the new value.
+mk_template_task "proj--set-tmpl.md" set-tmpl
+out="$(cmd_set "set-tmpl" priority P3 2>&1)"; rc=$?
+assert_eq "template dedupe: exit 0" 0 "$rc"
+content="$(cat "$TASKS_DIR/proj--set-tmpl.md")"
+count="$(printf '%s\n' "$content" | grep -c '^priority:')"
+assert_eq "template dedupe: exactly one priority: line" "1" "$count"
+assert "template dedupe: it holds the new value" '^priority: P3$' "$content"
+
+# (b) a file with a pre-existing duplicate -> after set, exactly one line
+# with the new value.
+{
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: set-dup\nworktree: .worktrees/set-dup\n'
+  printf -- 'size:\npriority: P1\npriority:\nvalue:\ntags: []\ncreated: 2026-07-01\nclosed:\n'
+  printf -- '---\n# Title\n'
+} > "$TASKS_DIR/proj--set-dup.md"
+out="$(cmd_set "set-dup" priority P2 2>&1)"; rc=$?
+assert_eq "pre-existing duplicate: exit 0" 0 "$rc"
+content="$(cat "$TASKS_DIR/proj--set-dup.md")"
+count="$(printf '%s\n' "$content" | grep -c '^priority:')"
+assert_eq "pre-existing duplicate: exactly one priority: line" "1" "$count"
+assert "pre-existing duplicate: it holds the new value" '^priority: P2$' "$content"
+
+# (c) re-running set with the SAME value on a duplicated file repairs it —
+# must not be treated as a no-op even though the first occurrence already
+# matches.
+{
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: set-dup2\nworktree: .worktrees/set-dup2\n'
+  printf -- 'size:\npriority: P1\npriority:\nvalue:\ntags: []\ncreated: 2026-07-01\nclosed:\n'
+  printf -- '---\n# Title\n'
+} > "$TASKS_DIR/proj--set-dup2.md"
+out="$(cmd_set "set-dup2" priority P1 2>&1)"; rc=$?
+assert_eq "same-value repair: exit 0" 0 "$rc"
+if printf '%s' "$out" | grep -q 'already'; then
+  echo "FAIL - same-value repair: must not short-circuit as a no-op"; fail=1
+else
+  echo "ok   - same-value repair: did not short-circuit as a no-op"
+fi
+content="$(cat "$TASKS_DIR/proj--set-dup2.md")"
+count="$(printf '%s\n' "$content" | grep -c '^priority:')"
+assert_eq "same-value repair: exactly one priority: line" "1" "$count"
+assert "same-value repair: it holds the value" '^priority: P1$' "$content"
+
+# =============================================================================
 # Scenario: refuses when a LIVE tmux session's @task points at the resolved
 # file. Skipped if this harness has no usable tmux server.
 # =============================================================================
