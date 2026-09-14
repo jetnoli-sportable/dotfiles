@@ -188,6 +188,17 @@ a migration that hasn't happened yet, more follow-up moves).
 
 ### 5. Author the proposal buffer
 
+> **Large proposals (roughly 8+ children, or when Jet asks for a page):** author
+> the proposal on the `review-page` skill instead of an nvim buffer — one row per
+> child with its Plan body in the collapsed `description` and slug/goal/size/
+> depends_on as editable `fields`; keep parent-edits (migration, plan rewrite,
+> follow-up moves) out of the row table and state them as a bundle in the intro;
+> ask at most two explicit questions, never encode alternative strategies as
+> skip-rows (`claude/.claude/skills/review-page/learnings.md`, 2026-09-14). The
+> answers are then translated into this exact grammar below and handed to
+> `wb breakdown --apply` unchanged.
+
+
 One buffer per parent, at `logs/breakdowns/<parent-stem>.md` in the
 dotfiles repo.
 

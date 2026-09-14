@@ -40,6 +40,15 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
   acted on. Notes are never treated as silence.
 - Default port 8765 (stable URL); falls forward to the next free port if busy; `--port N`
   overrides.
+- **The server binds before it prints the URL or opens a browser** (2026-09-14 review): on
+  `EADDRINUSE` it retries the next port up to ten times, so a lost race for 8765 can never
+  leave a dead tab open.
+- **`/submit` verifies the request is this review's own page** (2026-09-14 review):
+  a cross-origin `Origin`/`Referer` → 403; a non-`application/json` body → 415; a body whose
+  `spec_hash` differs from the hash this server rendered → 409 (a stale tab from an earlier
+  review on the same port, or a forged POST); a second submit after the first → 409. Only a
+  passing body is written to `answers.json` and fires the wait channel. A bare `curl` with no
+  Origin header is allowed (agent/test use).
 - The script writes `<answers.json>.buffer-state` beside the output file, with
   the same fields as `open-buffer.sh`'s state file (`chan`, `pane_id`, `mode`,
   `opened_at`, `caller_pid`, `content_hash`, `reopen_count`, `closed`) —

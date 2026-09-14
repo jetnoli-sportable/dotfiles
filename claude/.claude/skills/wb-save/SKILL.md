@@ -14,6 +14,12 @@ own pane, twice, both times as "an agent self-driving its own pane to alter
 its own session/oversight state." `/wb-save` writes the state that needs
 to survive the clear; the human runs `/clear` themselves.
 
+> **Store-only field/status edits:** never Edit/Write a task file's frontmatter by
+> hand — `wb status <task-ref> <planned|paused|doing|review>` flips status and
+> `wb set <task-ref> <field> <value>` (fields: priority value size parent
+> depends_on jira tags path) writes any other frontmatter field under the task
+> lock, both refusing when a live session owns the task.
+
 ## Scope — what this does and doesn't do
 
 - **Writes into the current session's task file only.** No cross-repo or

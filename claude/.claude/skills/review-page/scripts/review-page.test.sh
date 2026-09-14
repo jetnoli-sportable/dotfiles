@@ -28,6 +28,8 @@ cat > "$SPEC" <<'EOF'
 {
   "title": "Fixture Review",
   "intro_md": "Test fixture — **three** items.",
+  "sections": [{"title": "Fixture section", "md": "## Directions\n- alpha\n- beta", "open": true}],
+  "hide_columns": ["group"],
   "verdicts": [
     {"id": "apply", "label": "Apply", "color": "#a6e3a1"},
     {"id": "defer", "label": "Defer", "color": "#f9e2af"},
@@ -51,7 +53,7 @@ cat > "$SPEC" <<'EOF'
           "depended_on_by": ["item-2"],
           "links": [],
           "meta": [["size", "M"], ["owner", "jet"]],
-          "description": "### Plan\n- step one\n- step two",
+          "description": "### Plan\n- step one\n- step two\n\n1. first\n2. second\n\n```\ncode here\n```\n\nTail para with ``` unclosed fence\n- after fence bullet",
           "fields": [{"key": "slug", "label": "slug", "value": "feat/one"}]
         },
         {
@@ -118,7 +120,25 @@ if echo "$BODY" | grep -q 'id="details-item-2"'; then
 else
   pass "no details row for an item without description/fields"
 fi
-if echo "$BODY" | grep -q 'id="sections-marker-absent"'; then :; fi
+if echo "$BODY" | grep -q '<details class="page-section" open><summary>Fixture section</summary>' \
+   && echo "$BODY" | grep -q "<ul class='md-ul'><li>alpha</li><li>beta</li></ul>"; then
+  pass "sections panel renders with block markdown"
+else
+  fail "sections panel missing or mis-rendered"
+fi
+if echo "$BODY" | grep -q '\.review-table \.col-group { display: none; }'; then
+  pass "hide_columns emits the column CSS rule"
+else
+  fail "hide_columns CSS rule missing"
+fi
+if echo "$BODY" | grep -q "<h5 class='md-h'>Plan</h5>" \
+   && echo "$BODY" | grep -q "<ol class='md-ol'><li>first</li><li>second</li></ol>" \
+   && echo "$BODY" | grep -q "<pre class='md-pre'>code here</pre>" \
+   && echo "$BODY" | grep -q "<li>after fence bullet</li>"; then
+  pass "md_block renders heading, ordered list, fence; an unclosed fence does not swallow the tail"
+else
+  fail "md_block heading/ol/fence/unclosed-fence rendering wrong"
+fi
 if echo "$BODY" | grep -q '<title>Fixture Review</title>'; then
   pass "GET / returns 200 with title present"
 else
@@ -143,8 +163,19 @@ SUBMIT_PAYLOAD=$(cat <<EOF
 EOF
 )
 
+BAD_HASH_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  -d '{"spec_hash":"deadbeef","items":[]}' "http://127.0.0.1:$PORT/submit")"
+if [ "$BAD_HASH_STATUS" = "409" ]; then pass "POST /submit with a foreign spec_hash is rejected (409)"; else fail "foreign spec_hash returned $BAD_HASH_STATUS, expected 409"; fi
+XORIGIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  -H 'Origin: http://evil.example' -d "$SUBMIT_PAYLOAD" "http://127.0.0.1:$PORT/submit")"
+if [ "$XORIGIN_STATUS" = "403" ]; then pass "cross-origin POST /submit is rejected (403)"; else fail "cross-origin submit returned $XORIGIN_STATUS, expected 403"; fi
+CTYPE_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: text/plain' \
+  -d "$SUBMIT_PAYLOAD" "http://127.0.0.1:$PORT/submit")"
+if [ "$CTYPE_STATUS" = "415" ]; then pass "non-JSON content type is rejected (415)"; else fail "text/plain submit returned $CTYPE_STATUS, expected 415"; fi
+if [ -s "$OUT" ]; then fail "rejected submits must not write answers.json"; else pass "rejected submits wrote nothing"; fi
+
 SUBMIT_STATUS="$(curl -s -o /tmp/review-page-test-submit-resp.$$ -w '%{http_code}' \
-  -X POST -H 'Content-Type: application/json' -d "$SUBMIT_PAYLOAD" \
+  -X POST -H 'Content-Type: application/json' -H "Origin: http://127.0.0.1:$PORT" -d "$SUBMIT_PAYLOAD" \
   "http://127.0.0.1:$PORT/submit")"
 rm -f "/tmp/review-page-test-submit-resp.$$"
 

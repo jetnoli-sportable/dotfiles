@@ -65,8 +65,7 @@ Recent work across these configs, so the doc captures the whole picture:
 
 - Prefix `C-Space`; base-index 1; mouse on; Wayland clipboard; vi copy-mode;
   vim-tmux-navigator pane switching; catppuccin (frappe).
-- **Keybinds:** `m`→session.sh, `a`→claude-sessions.sh, `N`/`M`→notes.sh,
-  `g`→lazygit, `A`→lazydocker, `r`→reload.
+- **Keybinds:** `m`→session.sh, `a`→claude-sessions.sh, `g`→lazygit, `A`→lazydocker, `r`→reload.
 - **tpm:** `set -g @plugin` for tpm / tmux-sensible / vim-tmux-navigator /
   catppuccin-tmux. `run '~/.tmux/plugins/tpm/tpm'` (line 113).
 - **⚠ tpm path inconsistency:** tpm is _run_ from `~/.tmux/plugins/tpm`, but the

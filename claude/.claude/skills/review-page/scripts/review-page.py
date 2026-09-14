@@ -216,6 +216,12 @@ def md_block(s: str) -> str:
             buf = []
             while j < len(lines) and not lines[j].strip().startswith("```"):
                 buf.append(lines[j]); j += 1
+            if j >= len(lines):
+                # Unclosed fence: never swallow the rest of the body — treat the
+                # opening ``` as ordinary text and keep parsing from the next line.
+                para.append(ln)
+                i += 1
+                continue
             out.append("<pre class='md-pre'>%s</pre>" % esc("\n".join(buf)))
             i = j + 1
             continue
@@ -1073,6 +1079,33 @@ class ReviewHandler(http.server.BaseHTTPRequestHandler):
     page_html = b""
     result_holder = {}
     submitted_event = None
+    spec_hash = ""          # the hash this server rendered; /submit must echo it
+    port = 0                # bound port; /submit must come from this origin
+
+    MAX_BODY = 8 * 1024 * 1024
+
+    def _reject(self, code, msg):
+        body = msg.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _origin_ok(self) -> bool:
+        """Only the page this server rendered may submit: same-origin on
+        127.0.0.1:<port>. A cross-origin page in the same browser (DNS
+        rebinding, a hostile tab) sends a foreign Origin, or none with a
+        foreign Referer; a bare curl sends neither and is allowed (agent /
+        test use)."""
+        allowed = {"http://127.0.0.1:%d" % self.port, "http://localhost:%d" % self.port}
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            return origin.rstrip("/") in allowed
+        referer = self.headers.get("Referer")
+        if referer:
+            return any(referer.startswith(a + "/") or referer == a for a in allowed)
+        return True
 
     def log_message(self, fmt, *args):
         pass  # quiet — this is a short-lived local server, not a service
@@ -1093,14 +1126,35 @@ class ReviewHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         if path == "/submit":
-            length = int(self.headers.get("Content-Length", "0"))
+            if not self._origin_ok():
+                self._reject(403, "forbidden: cross-origin submit")
+                return
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                self._reject(415, "unsupported media type: expected application/json")
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                self._reject(400, "bad Content-Length")
+                return
+            if length < 0 or length > self.MAX_BODY:
+                self._reject(413, "payload too large")
+                return
             raw = self.rfile.read(length) if length else b"{}"
             try:
                 payload = json.loads(raw.decode("utf-8"))
             except Exception as e:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(("bad json: %s" % e).encode("utf-8"))
+                self._reject(400, "bad json: %s" % e)
+                return
+            if not isinstance(payload, dict) or payload.get("spec_hash") != self.spec_hash:
+                # A stale tab from an earlier review on the same port, or a
+                # forged body, carries a different hash: never treat it as
+                # this review's answers.
+                self._reject(409, "spec_hash mismatch: this page is not the review being served")
+                return
+            if self.__class__.submitted_event.is_set():
+                self._reject(409, "already submitted")
                 return
             self.__class__.result_holder["answers"] = payload
             self.send_response(200)
@@ -1113,12 +1167,30 @@ class ReviewHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
 
-def run_server(port: int, page_html: str, out_path: str):
+def bind_server(port, page_html: str, spec_hash: str, tries: int = 10):
+    """Bind the HTTP server BEFORE anything is printed or a browser opened.
+    `port` is an int to bind exactly, or "auto" to start at DEFAULT_PORT and
+    fall forward on EADDRINUSE — the probe-then-bind race the old pick_port
+    path had is closed by binding directly and retrying on failure."""
     ReviewHandler.page_html = page_html.encode("utf-8")
     ReviewHandler.result_holder = {}
     ReviewHandler.submitted_event = threading.Event()
+    ReviewHandler.spec_hash = spec_hash
+    candidates = [int(port)] if port != "auto" else list(range(DEFAULT_PORT, DEFAULT_PORT + tries))
+    last_err = None
+    for p in candidates:
+        try:
+            httpd = http.server.ThreadingHTTPServer(("127.0.0.1", p), ReviewHandler)
+        except OSError as e:
+            last_err = e
+            continue
+        ReviewHandler.port = p
+        return httpd, p
+    raise SystemExit("review-page.py: could not bind any port (%s..%s): %s" % (
+        candidates[0], candidates[-1], last_err))
 
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", port), ReviewHandler)
+
+def run_server(httpd, out_path: str):
     server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     server_thread.start()
 
@@ -1166,16 +1238,13 @@ def main():
     title = args.title or spec.get("title") or "Review"
     page_html = render_page(spec, title, spec_hash)
 
-    if args.port == "auto":
-        port = find_free_port()
-    else:
-        port = int(args.port)
+    httpd, port = bind_server(args.port, page_html, spec_hash)
 
     url = "http://127.0.0.1:%d/" % port
     print("review-page.py: serving %s" % url)
     open_browser(url)
 
-    answers = run_server(port, page_html, out_path)
+    answers = run_server(httpd, out_path)
 
     write_state(sf, chan, "", "review-page", os.getpid(), spec_hash, reopen_count, 1)
 

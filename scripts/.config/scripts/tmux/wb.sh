@@ -147,6 +147,40 @@ wb_set_frontmatter() {
 # (status:, never needs after_key — the key always exists) and cmd_set
 # (priority:/value:/size:/parent:/depends_on:/jira:/tags:/path:, some of
 # which land after size: on a pre-schema task file that predates them).
+# _wb_refuse_if_live_session <task-file> <verb> — exit 1 when any live tmux
+# session's @task points at <task-file>. Store-only verbs (wb status, wb set)
+# share this so the refusal text and scan never drift between them.
+_wb_refuse_if_live_session() {
+  local file="$1" verb="$2" session cur
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+    [ "$cur" = "$file" ] || continue
+    echo "$verb: $(basename -- "$file") has a live session $session — use wb pause/wb down from that session" >&2
+    exit 1
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+}
+
+# _wb_frontmatter_value_ok <verb> <field> <value> — fail loud on a value that
+# cannot round-trip through a one-line frontmatter field: an embedded
+# newline/CR would inject a second `key: value` line (a status: flip smuggled
+# through `wb set tags`), and whitespace+'#' is read as a trailing comment by
+# every reader (clip()), so the store would silently disagree with what
+# `wb set` echoed back.
+_wb_frontmatter_value_ok() {
+  local verb="$1" field="$2" value="$3"
+  case "$value" in
+    *$'\n'*|*$'\r'*)
+      echo "$verb: $field value must be a single line (embedded newline)" >&2
+      return 1 ;;
+  esac
+  if printf '%s' "$value" | grep -qE '[[:space:]]#'; then
+    echo "$verb: $field value must not contain whitespace followed by '#' (read as a comment by every reader)" >&2
+    return 1
+  fi
+  return 0
+}
+
 wb_set_frontmatter_field() {
   local file="$1" key="$2" value="$3" after_key="${4:-}"
   awk -v key="$key" -v val="$value" -v after="$after_key" '
@@ -3524,16 +3558,8 @@ cmd_status() {
 
   # Refuse when a live session's @task already points at this file — this
   # verb is for store-only tasks; a live session must route the change
-  # through wb pause/wb down instead (same live-session-scan idiom as
-  # _wb_breakdown_repoint_task, above).
-  local session cur
-  while IFS= read -r session; do
-    [ -n "$session" ] || continue
-    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
-    [ "$cur" = "$file" ] || continue
-    echo "wb status: $(basename -- "$file") has a live session $session — use wb pause/wb down from that session" >&2
-    exit 1
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+  # through wb pause/wb down instead.
+  _wb_refuse_if_live_session "$file" "wb status"
 
   local old
   old="$(wb_get_frontmatter "$file" status)"
@@ -3655,20 +3681,14 @@ cmd_set() {
       ;;
     tags|path) ;;   # free text — no enum, no existence check
   esac
+  _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
 
   local file
   file="$(_wb_append_resolve_task "$query")" || exit 1
 
-  # Refuse when a live session's @task already points at this file — same
-  # scan cmd_status uses above; this verb is for store-only tasks.
-  local session cur
-  while IFS= read -r session; do
-    [ -n "$session" ] || continue
-    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
-    [ "$cur" = "$file" ] || continue
-    echo "wb set: $(basename -- "$file") has a live session $session — use wb pause/wb down from that session" >&2
-    exit 1
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+  # Refuse when a live session's @task already points at this file — this
+  # verb is for store-only tasks.
+  _wb_refuse_if_live_session "$file" "wb set"
 
   local old
   old="$(wb_get_frontmatter "$file" "$field")"

@@ -137,6 +137,33 @@ assert_eq "parent missing: exit 1" 1 "$rc"
 assert "parent missing: message" "has no matching task file" "$out"
 
 # =============================================================================
+# Scenario: free-text fields refuse values that cannot round-trip through a
+# one-line frontmatter field (embedded newline; whitespace+'#' comment start).
+# =============================================================================
+
+mk_task "proj--set-nl.md" set-nl
+out="$(cmd_set "set-nl" tags $'action-live\nstatus: done' 2>&1)"; rc=$?
+assert_eq "tags with embedded newline: exit 1" 1 "$rc"
+assert "tags with embedded newline: message" "must be a single line" "$out"
+content="$(cat "$TASKS_DIR/proj--set-nl.md")"
+if printf '%s' "$content" | grep -q '^status: done$'; then
+  echo "FAIL - tags newline: injected status line landed"; fail=1
+else
+  echo "ok   - tags newline: no injected frontmatter line"
+fi
+
+mk_task "proj--set-hash.md" set-hash
+out="$(cmd_set "set-hash" path "plan #1,work" 2>&1)"; rc=$?
+assert_eq "path with whitespace-#: exit 1" 1 "$rc"
+assert "path with whitespace-#: message" "whitespace followed by '#'" "$out"
+content="$(cat "$TASKS_DIR/proj--set-hash.md")"
+if printf '%s' "$content" | grep -q '^path: plan'; then
+  echo "FAIL - path hash: value should not have been written"; fail=1
+else
+  echo "ok   - path hash: file untouched"
+fi
+
+# =============================================================================
 # Scenario: depends_on — comma-separated list, each validated.
 # =============================================================================
 
