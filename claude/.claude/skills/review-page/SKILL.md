@@ -124,8 +124,9 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
 # run_in_background: true — this blocks until the page POSTs /submit
 ```
 
-- `--port auto` (the default) picks a free port — don't hardcode one unless
-  there's a specific reason to.
+- The page is served on **`http://127.0.0.1:8765`** by default — one stable, bookmarkable
+  URL; a new review just refreshes the tab. If 8765 is busy (a second page open at once) it
+  falls forward to the next free port and prints it. `--port N` overrides.
 - Served on `127.0.0.1`, not `file://` — snap-packaged Chromium can't open
   `file://` URLs under hidden directories (a documented environment
   limitation); serving over HTTP sidesteps this entirely, so it isn't a

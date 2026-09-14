@@ -35,8 +35,8 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
 # run_in_background: true — this blocks until the page POSTs /submit
 ```
 
-- `--port auto` (the default) picks a free port; pass a specific port only if
-  the caller has a reason to.
+- Default port 8765 (stable URL); falls forward to the next free port if busy; `--port N`
+  overrides.
 - The script writes `<answers.json>.buffer-state` beside the output file, with
   the same fields as `open-buffer.sh`'s state file (`chan`, `pane_id`, `mode`,
   `opened_at`, `caller_pid`, `content_hash`, `reopen_count`, `closed`) —

@@ -13,11 +13,11 @@ always empty (this isn't a tmux pane — it's a browser tab talking to a
 local HTTP server).
 
 Usage:
-  review-page.py --spec <spec.json> --out <answers.json> [--title TITLE] [--port auto|N]
+  review-page.py --spec <spec.json> --out <answers.json> [--title TITLE] [--port N]   (default: 8765, or next free)
 
 Behaviour:
   1. Load and validate the spec.
-  2. Pick a free port (or use --port N).
+  2. Serve on 127.0.0.1:8765 so the URL is stable/bookmarkable (falls forward to the next free port if busy; --port N overrides).
   3. Render the page (inline CSS+JS, no CDNs) from the spec.
   4. Write <out>.buffer-state (mode=review-page, closed=0).
   5. Serve on 127.0.0.1:<port>; open it in a browser (snap chromium, else
@@ -122,10 +122,25 @@ def prepare_open(out_path: str, spec_hash: str):
     return reopen
 
 
-def find_free_port() -> int:
+DEFAULT_PORT = 8765  # stable, bookmarkable; a second concurrent page falls forward
+
+
+def port_is_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) != 0
+
+
+def pick_port(preferred: int = DEFAULT_PORT, tries: int = 10) -> int:
+    for p in range(preferred, preferred + tries):
+        if port_is_free(p):
+            return p
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def find_free_port() -> int:
+    return pick_port()
 
 
 def open_browser(url: str):
@@ -883,7 +898,7 @@ def main():
     ap.add_argument("--spec", required=True, help="path to spec.json")
     ap.add_argument("--out", required=True, help="path to write answers.json")
     ap.add_argument("--title", default=None, help="override the page title")
-    ap.add_argument("--port", default="auto", help="port number, or 'auto' for a free port")
+    ap.add_argument("--port", default="auto", help="port number; default picks %d (or the next free one above it)" % DEFAULT_PORT)
     args = ap.parse_args()
 
     spec_path = os.path.abspath(args.spec)
