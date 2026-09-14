@@ -4,9 +4,7 @@
     "docs",
     "docs/guides"
   ],
-  "exclude": [
-    "2026-07-12-tasks-dir-concurrency-safety-recap.md"
-  ],
+  "exclude": [],
   "hub": {
     "out": "docs/HUB.html",
     "eyebrow": "personal workflow",

@@ -42,7 +42,7 @@ subcommands, `docgen.sh [build|index|all]` (`all` is the default):
    changes a true no-op — nothing to diff, nothing to review.
 
 A `.githooks/pre-commit` hook runs this automatically now whenever a commit
-touches a tracked source (see [the slice 5 recap](slice-5-recap.html) for
+touches a tracked source (see [the slice 5 recap](archive/slice-5-recap.html) for
 what triggers it) — but the pipeline above is the same either way, by hand
 or by hook.
 
