@@ -277,6 +277,7 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
   </td>
   <td class="col-verdict">
     <div class="verdict-group" data-item-id="{iid}">{verdict_radios(iid, suggested)}</div>
+    <button type="button" class="agree-btn" data-item-id="{iid}" title="agree with suggested verdict (a)">Agree &#10003;</button>
     {f'<div class="sug-reason">{md_lite(reason)}</div>' if reason else ''}
   </td>
   <td class="col-group">
@@ -325,6 +326,8 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
     if close_rule_html:
         intro_html += '<hr style="border-color:var(--overlay); margin:8px 0;">' + close_rule_html
 
+    accept_defaults_checked = " checked" if spec.get("accept_defaults_default", False) else ""
+
     return PAGE_TEMPLATE.format(
         title=esc(title),
         intro_html=intro_html,
@@ -335,6 +338,7 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
         areas_json=areas_json,
         spec_hash_json=spec_hash_json,
         total_items=len(all_items),
+        accept_defaults_checked=accept_defaults_checked,
     )
 
 
@@ -437,6 +441,12 @@ table.review-table col {{ }}
 }}
 .item-row.touched {{ }}
 .item-row.diverged {{ box-shadow: inset 4px 0 0 var(--yellow); }}
+.item-row.agreed {{ box-shadow: inset 4px 0 0 var(--green); }}
+.agree-btn {{
+  margin-top: 6px; background: var(--overlay); color: var(--text); border: 1px solid var(--green);
+  border-radius: 6px; padding: 3px 8px; font-size: 12px; cursor: pointer;
+}}
+.agree-btn.active {{ background: var(--green); color: var(--base); font-weight: 600; }}
 .item-row.has-note td.col-item .item-title::after {{
   content: " ?"; color: var(--yellow); font-weight: bold;
 }}
@@ -458,6 +468,11 @@ footer.submit-bar textarea {{
 }}
 .btn.secondary {{ background: var(--overlay); color: var(--text); }}
 .status-msg {{ font-size: 13px; color: var(--subtext); }}
+.footer-badge {{
+  background: var(--overlay); color: var(--text); border-radius: 8px;
+  padding: 6px 12px; font-size: 13px; font-weight: 600;
+}}
+.footer-badge.warn {{ background: var(--yellow); color: var(--base); }}
 </style>
 </head>
 <body>
@@ -479,7 +494,8 @@ footer.submit-bar textarea {{
 {area_tables}
 </main>
 <footer class="submit-bar">
-  <label><input type="checkbox" id="accept-defaults"> accept remaining defaults for untouched rows</label>
+  <span class="footer-badge" id="untouched-badge">untouched: 0</span>
+  <label><input type="checkbox" id="accept-defaults"{accept_defaults_checked}> accept remaining defaults for untouched rows</label>
   <textarea id="global-note" placeholder="questions for the agent (applies to the whole review)"></textarea>
   <button class="btn" id="submit-btn">Submit</button>
   <button class="btn secondary" id="copy-btn">Copy answers as JSON</button>
@@ -496,7 +512,7 @@ function initState() {{
   document.querySelectorAll('.item-row').forEach(row => {{
     const id = row.dataset.itemId;
     const suggested = row.dataset.suggested || '';
-    state[id] = {{ verdict: suggested, suggested, touched: false, group: '', note: '' }};
+    state[id] = {{ verdict: suggested, suggested, touched: false, agreed: false, group: '', note: '' }};
   }});
 }}
 
@@ -511,7 +527,10 @@ function refreshRowClasses(row, id) {{
   const s = state[id];
   row.classList.toggle('touched', !!s.touched);
   row.classList.toggle('diverged', !!s.touched && s.verdict !== s.suggested);
+  row.classList.toggle('agreed', !!s.agreed);
   row.classList.toggle('has-note', !!(s.note && s.note.trim()));
+  const btn = row.querySelector('.agree-btn');
+  if (btn) btn.classList.toggle('active', !!s.agreed);
 }}
 
 function updateCounts() {{
@@ -538,6 +557,13 @@ function updateCounts() {{
     parts.push(`<span class="pill">${{v.label}}: ${{perVerdict[v.id] || 0}}</span>`);
   }});
   strip.innerHTML = parts.join('');
+
+  const untouched = total - touched;
+  const badge = document.getElementById('untouched-badge');
+  if (badge) {{
+    badge.textContent = `untouched: ${{untouched}}`;
+    badge.classList.toggle('warn', untouched > 0);
+  }}
 }}
 
 function applyFilters() {{
@@ -571,10 +597,15 @@ function wireRow(row) {{
     r.addEventListener('change', () => {{
       state[id].verdict = r.value;
       state[id].touched = true;
+      state[id].agreed = false;
       refreshRowClasses(row, id);
       updateCounts();
     }});
   }});
+  const agreeBtn = row.querySelector('.agree-btn');
+  if (agreeBtn) {{
+    agreeBtn.addEventListener('click', () => {{ toggleAgree(row, id); }});
+  }}
   const groupInput = row.querySelector('.group-input');
   groupInput.addEventListener('input', () => {{
     state[id].group = groupInput.value;
@@ -628,6 +659,41 @@ function autoGrow(el) {{
   el.style.height = (el.scrollHeight) + 'px';
 }}
 
+function setRadioForVerdict(row, verdict) {{
+  const radio = row.querySelector(`input[type=radio][value="${{CSS.escape(verdict)}}"]`);
+  if (radio) radio.checked = true;
+}}
+
+function toggleAgree(row, id) {{
+  const s = state[id];
+  if (s.agreed) {{
+    // toggle off — revert to untouched default
+    s.agreed = false;
+    s.touched = false;
+    s.verdict = s.suggested;
+  }} else {{
+    s.verdict = s.suggested;
+    s.touched = true;
+    s.agreed = true;
+  }}
+  setRadioForVerdict(row, s.verdict);
+  refreshRowClasses(row, id);
+  updateCounts();
+}}
+
+function agreeAllVisible() {{
+  document.querySelectorAll('.item-row:not(.hidden-by-filter)').forEach(row => {{
+    const id = row.dataset.itemId;
+    const s = state[id];
+    s.verdict = s.suggested;
+    s.touched = true;
+    s.agreed = true;
+    setRadioForVerdict(row, s.verdict);
+    refreshRowClasses(row, id);
+  }});
+  updateCounts();
+}}
+
 function buildAnswers() {{
   const acceptDefaults = document.getElementById('accept-defaults').checked;
   const globalNote = document.getElementById('global-note').value;
@@ -635,7 +701,11 @@ function buildAnswers() {{
     id, verdict: s.verdict, suggested: s.suggested, touched: !!s.touched,
     group: s.group || '', note: s.note || '',
   }}));
-  return {{ spec_hash: SPEC_HASH, accept_defaults: acceptDefaults, global_note: globalNote, items }};
+  const untouchedCount = items.filter(i => !i.touched).length;
+  return {{
+    spec_hash: SPEC_HASH, accept_defaults: acceptDefaults, global_note: globalNote,
+    untouched_count: untouchedCount, items,
+  }};
 }}
 
 function wireKeyboard() {{
@@ -662,6 +732,15 @@ function wireKeyboard() {{
         const idx = parseInt(e.key, 10) - 1;
         if (radios[idx]) {{ radios[idx].checked = true; radios[idx].dispatchEvent(new Event('change')); }}
       }}
+    }} else if (e.key === 'a') {{
+      if (rs[focusedIdx]) {{
+        const row = rs[focusedIdx];
+        toggleAgree(row, row.dataset.itemId);
+        e.preventDefault();
+      }}
+    }} else if (e.key === 'A') {{
+      agreeAllVisible();
+      e.preventDefault();
     }} else if (e.key === 'g') {{
       if (rs[focusedIdx]) {{ rs[focusedIdx].querySelector('.group-input').focus(); e.preventDefault(); }}
     }} else if (e.key === 'n') {{
@@ -675,6 +754,13 @@ function wireKeyboard() {{
 
 async function submit() {{
   const answers = buildAnswers();
+  if (answers.untouched_count > 0 && !answers.accept_defaults) {{
+    const ok = confirm(
+      `${{answers.untouched_count}} rows untouched — they will NOT be applied unless ` +
+      `'accept remaining defaults' is ticked. Submit anyway?`
+    );
+    if (!ok) return;
+  }}
   document.getElementById('status-msg').textContent = 'submitting...';
   try {{
     const resp = await fetch('/submit', {{

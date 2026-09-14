@@ -121,8 +121,10 @@ SUBMIT_PAYLOAD=$(cat <<EOF
   "items": [
     {"id": "item-1", "verdict": "apply", "suggested": "apply", "touched": true, "group": "g1", "note": ""},
     {"id": "item-2", "verdict": "skip", "suggested": "defer", "touched": true, "group": "g1", "note": "why override?"},
-    {"id": "item-3", "verdict": "", "suggested": "", "touched": false, "group": "", "note": ""}
-  ]
+    {"id": "item-3", "verdict": "", "suggested": "", "touched": false, "group": "", "note": ""},
+    {"id": "item-4", "verdict": "defer", "suggested": "defer", "touched": true, "group": "", "note": ""}
+  ],
+  "untouched_count": 1
 }
 EOF
 )
@@ -159,6 +161,9 @@ assert items['item-1']['verdict'] == 'apply', 'item-1 verdict wrong'
 assert items['item-2']['verdict'] == 'skip', 'item-2 verdict wrong'
 assert items['item-2']['note'] == 'why override?', 'item-2 note wrong'
 assert items['item-3']['touched'] is False, 'item-3 touched wrong'
+assert d.get('untouched_count') == 1, 'untouched_count wrong: %r' % d.get('untouched_count')
+assert items['item-4']['touched'] is True, 'item-4 (agreed) touched wrong'
+assert items['item-4']['verdict'] == items['item-4']['suggested'] == 'defer', 'item-4 (agreed) verdict/suggested mismatch'
 print('ok')
 " > /tmp/review-page-test-check.$$ 2>&1; then
     pass "answers.json content matches submitted payload"

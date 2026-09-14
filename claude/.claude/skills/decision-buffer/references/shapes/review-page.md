@@ -91,6 +91,17 @@ Every `item.id` must be unique across the whole spec (dep chips and row anchors
 are keyed on it). `suggested` may be `""` (no default) — the page then leaves no
 verdict pre-selected and counts that row as "needs me" automatically.
 
+Each row also has an **Agree ✓** button beside the verdict radios, for the
+common case of reviewing many rows where the suggested verdict is simply
+right — clicking it sets `verdict=suggested` and `touched=true` (a subtle
+green left accent marks the row), and clicking again untouches it. Keyboard:
+`a` agrees with the keyboard-focused row, `A` (shift) agrees with every
+currently *visible* (filtered) row at once. A sticky footer badge
+("untouched: N") tracks rows never interacted with — including via Agree —
+and Submit warns before submitting with `accept_defaults` unticked and N>0.
+Set top-level spec flag `"accept_defaults_default": true` to pre-tick that
+footer checkbox (default `false`).
+
 ## Answers format (`answers.json`, written by the script, read by the agent)
 
 ```json
@@ -98,6 +109,7 @@ verdict pre-selected and counts that row as "needs me" automatically.
   "spec_hash": "sha256 of the exact spec.json bytes the page was rendered from",
   "accept_defaults": true,
   "global_note": "free text from the footer's 'questions for the agent' box, or empty",
+  "untouched_count": 0,
   "items": [
     {
       "id": "item-1",
