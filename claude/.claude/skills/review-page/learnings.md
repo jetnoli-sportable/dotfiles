@@ -34,3 +34,4 @@ on go in this file.
   `accept_defaults_default: false`); the submit warning only fires when the
   checkbox is off and rows are untouched. A row with no suggestion at all
   stays unresolved regardless — there's nothing to silently accept.
+- 2026-09-14 — Jet: "if I add a note think of that as marking it touched." Page already did (note input sets touched); now explicit in the contract: note ⇒ touched, verdict stands as displayed, note answered before acting.

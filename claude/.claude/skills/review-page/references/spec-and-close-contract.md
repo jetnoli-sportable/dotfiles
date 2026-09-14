@@ -35,6 +35,9 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
 # run_in_background: true — this blocks until the page POSTs /submit
 ```
 
+- **A row note marks the row touched** (Jet, 2026-09-14): its verdict stands as displayed —
+  the suggestion, or whatever was picked — and the note is answered before that verdict is
+  acted on. Notes are never treated as silence.
 - Default port 8765 (stable URL); falls forward to the next free port if busy; `--port N`
   overrides.
 - The script writes `<answers.json>.buffer-state` beside the output file, with
