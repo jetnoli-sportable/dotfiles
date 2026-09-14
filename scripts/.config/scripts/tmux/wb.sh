@@ -12,6 +12,16 @@
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
 #   wb pause [<session>]             shelve a task on purpose: status -> paused, then `wb down`
+#   wb status <task-ref> <planned|paused|doing|review>
+#                                    set a store-only task's status: field directly, under the
+#                                    per-task lock — refuses when a live session's @task already
+#                                    points at it (use wb pause/wb down from that session instead)
+#   wb set <task-ref> <field> <value>
+#                                    set one board-metadata frontmatter field (priority, value,
+#                                    size, parent, depends_on, jira, tags, path) on a store-only
+#                                    task, under the per-task lock — same live-session refusal
+#                                    as wb status; status/created/closed/reviewed/claude_sessions/
+#                                    repo/branch/worktree are refused (use their own verb instead)
 #   wb pr-open [<session>]           exit 0 if the session's branch has an open PR, 1 otherwise
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb jira-set <repo>--<slug> <url> stamp a created Jira ticket URL into a task's jira: field
@@ -115,6 +125,106 @@ wb_set_frontmatter() {
     }
     infm == 1 && !done && $0 ~ "^" key ":" { print key ": " val; done = 1; next }
     { print }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+}
+
+# wb_set_frontmatter_field <file> <key> <value> [<after_key>] — the
+# comment-preserving sibling of wb_set_frontmatter above: overwrite <key>'s
+# frontmatter line in place, keeping any trailing inline "# ..." comment
+# that line already carries (TEMPLATE.md/README.md's own `key: val  # note`
+# shape). When <key> has no existing line ANYWHERE in the frontmatter
+# block, insert it right after <after_key>'s line when given and present
+# in the file, otherwise just before the closing `---` — same default-
+# insertion point as wb_set_frontmatter. Two-pass: first a whole-block scan
+# decides whether <key> already exists (so an insertion point that happens
+# to come BEFORE the key's real line — e.g. `after_key=size` on
+# TEMPLATE.md, where `priority:` ships its own empty line further down —
+# never fires and produces a duplicate); if it exists, the FIRST occurrence
+# is replaced in place (comment preserved) and every further occurrence in
+# the block is dropped (self-healing dedupe for files a prior buggy run
+# already duplicated). Extracted from cmd_status's original inline awk (the
+# ONE comment-preserving frontmatter rewrite); shared by cmd_status
+# (status:, never needs after_key — the key always exists) and cmd_set
+# (priority:/value:/size:/parent:/depends_on:/jira:/tags:/path:, some of
+# which land after size: on a pre-schema task file that predates them).
+# _wb_refuse_if_live_session <task-file> <verb> — exit 1 when any live tmux
+# session's @task points at <task-file>. Store-only verbs (wb status, wb set)
+# share this so the refusal text and scan never drift between them.
+_wb_refuse_if_live_session() {
+  local file="$1" verb="$2" session cur
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+    [ "$cur" = "$file" ] || continue
+    echo "$verb: $(basename -- "$file") has a live session $session — use wb pause/wb down from that session" >&2
+    exit 1
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+}
+
+# _wb_frontmatter_value_ok <verb> <field> <value> — fail loud on a value that
+# cannot round-trip through a one-line frontmatter field: an embedded
+# newline/CR would inject a second `key: value` line (a status: flip smuggled
+# through `wb set tags`), and whitespace+'#' is read as a trailing comment by
+# every reader (clip()), so the store would silently disagree with what
+# `wb set` echoed back.
+_wb_frontmatter_value_ok() {
+  local verb="$1" field="$2" value="$3"
+  case "$value" in
+    *$'\n'*|*$'\r'*)
+      echo "$verb: $field value must be a single line (embedded newline)" >&2
+      return 1 ;;
+  esac
+  if printf '%s' "$value" | grep -qE '[[:space:]]#'; then
+    echo "$verb: $field value must not contain whitespace followed by '#' (read as a comment by every reader)" >&2
+    return 1
+  fi
+  return 0
+}
+
+wb_set_frontmatter_field() {
+  local file="$1" key="$2" value="$3" after_key="${4:-}"
+  awk -v key="$key" -v val="$value" -v after="$after_key" '
+    {
+      n++
+      lines[n] = $0
+      if ($0 ~ /^---$/) {
+        infm++
+        if (infm == 1) fmstart = n
+        else if (infm == 2 && fmend == 0) fmend = n
+      }
+    }
+    END {
+      exists = 0; firstidx = 0
+      for (i = fmstart + 1; i < fmend; i++) {
+        if (lines[i] ~ ("^" key ":")) {
+          exists++
+          if (firstidx == 0) firstidx = i
+        }
+      }
+      inserted = 0
+      for (i = 1; i <= n; i++) {
+        line = lines[i]
+        if (i > fmstart && i < fmend && line ~ ("^" key ":")) {
+          if (i == firstidx) {
+            comment = ""
+            if (match(line, /[ \t]+#.*$/)) { comment = substr(line, RSTART) }
+            print key ": " val comment
+          }
+          continue   # drop every further duplicate occurrence
+        }
+        if (!exists && !inserted && i > fmstart && i < fmend && after != "" && line ~ ("^" after ":")) {
+          print line
+          print key ": " val
+          inserted = 1
+          continue
+        }
+        if (!exists && !inserted && i == fmend) {
+          print key ": " val
+          inserted = 1
+        }
+        print line
+      }
+    }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
 }
 
@@ -3406,6 +3516,214 @@ cmd_append() {
 }
 
 # ---------------------------------------------------------------------------
+# wb status — set a STORE-ONLY task's status: field directly (no live
+# session to route the change through `wb pause`/`wb down`/`wb resume`).
+# ---------------------------------------------------------------------------
+
+# cmd_status <task-ref> <planned|paused|doing|review> — resolves <task-ref>
+# via _wb_append_resolve_task (the same exact-then-fuzzy resolver `wb
+# append` uses — fail-loud on ambiguity), refuses when any LIVE tmux
+# session's @task already points at the resolved file (this verb is for
+# tasks with no session to carry the transition — a live session must go
+# through wb pause/wb down, which also handle the session side), then
+# rewrites `status:` in the frontmatter block only, under the per-task lock,
+# preserving a trailing inline comment on that line if present (TEMPLATE.md/
+# README.md's own `status: planned|doing|...  # lifecycle state ...` shape) —
+# the same frontmatter-scoped awk idiom wb_set_frontmatter/wb_seed_task_planned
+# use, specialized here only for the comment-preserving requirement.
+# `done` is deliberately NOT a valid value here: `wb done` is a whole
+# wind-down (worktree removal, board bookkeeping) this verb must never
+# shortcut around.
+cmd_status() {
+  local query="${1:-}" new="${2:-}"
+  if [ -z "$query" ] || [ -z "$new" ]; then
+    echo "usage: wb status <task-ref> <planned|paused|doing|review>" >&2
+    exit 1
+  fi
+
+  case "$new" in
+    planned|paused|doing|review) ;;
+    done)
+      echo "wb status: use \`wb done <task>\` instead" >&2
+      exit 1
+      ;;
+    *)
+      echo "usage: wb status <task-ref> <planned|paused|doing|review>" >&2
+      exit 1
+      ;;
+  esac
+
+  local file
+  file="$(_wb_append_resolve_task "$query")" || exit 1
+
+  # Refuse when a live session's @task already points at this file — this
+  # verb is for store-only tasks; a live session must route the change
+  # through wb pause/wb down instead.
+  _wb_refuse_if_live_session "$file" "wb status"
+
+  local old
+  old="$(wb_get_frontmatter "$file" status)"
+
+  if [ "$old" = "$new" ]; then
+    echo "wb status: $(basename -- "$file") already $new"
+    exit 0
+  fi
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  wb_set_frontmatter_field "$file" status "$new"
+  wb_append_handoff "$file" "wb status" "Status set to \`$new\` via \`wb status\` (store-only)."
+  wb_task_lock_release "$file"
+  echo "wb status: $(basename -- "$file") $old -> $new"
+}
+
+# ---------------------------------------------------------------------------
+# wb set — generalizes `wb status` (above) to a controlled subset of
+# board-metadata frontmatter fields: set exactly one field on a STORE-ONLY
+# task, under the per-task lock, via the shared wb_set_frontmatter_field
+# rewrite core. Same live-session-refusal scan as cmd_status — this verb
+# is for tasks with no session to carry the change.
+# ---------------------------------------------------------------------------
+
+# WB_SET_FIELDS — the field allowlist `wb set` accepts, one space-separated
+# literal so cmd_set's case statement and its own usage/error text can't
+# drift apart. Deliberately excludes every field owned by a dedicated verb
+# (status: -> wb status/wb done, reviewed: -> wb reviewed, jira: creation ->
+# /wb-jira-create's `wb jira-set`, though jira: itself stays editable here
+# for a plain URL correction) and every field the tooling derives/stamps
+# itself (created/closed/claude_sessions/repo/branch/worktree).
+WB_SET_FIELDS="priority value size parent depends_on jira tags path"
+
+# cmd_set <task-ref> <field> <value> — resolves <task-ref> the same way
+# cmd_status does (_wb_append_resolve_task), refuses a field this verb
+# doesn't own with a message naming the right verb (status:) or simply
+# saying it isn't settable here (created/closed/reviewed/claude_sessions/
+# repo/branch/worktree), refuses an unknown field, validates the value for
+# the fields that have an enum or a must-exist-in-$TASKS_DIR constraint
+# (priority/value/size/parent/depends_on/jira — same fail-loud-before-any-
+# write convention `wb new`'s --size/--depends-on validation uses), then
+# rewrites just that one frontmatter line under the per-task lock. Inserts
+# the field right after `size:` when it's missing entirely (priority:/
+# value: land there in TEMPLATE.md's own field order) — every other
+# missing field falls back to wb_set_frontmatter_field's own default
+# (just before the closing `---`). No-op (no write, no lock even taken)
+# when the value already matches. Appends a terse Handoffs entry ONLY for
+# the three structural fields (parent/depends_on/jira) — priority/value/
+# size/tags/path are left silent, matching /wb-save's own signal-over-
+# noise posture for low-stakes board metadata.
+cmd_set() {
+  local query="${1:-}" field="${2:-}" value="${3:-}"
+  if [ -z "$query" ] || [ -z "$field" ] || [ "$#" -lt 3 ]; then
+    echo "usage: wb set <task-ref> <field> <value>   (field: $WB_SET_FIELDS)" >&2
+    exit 1
+  fi
+
+  case "$field" in
+    status)
+      echo "wb set: 'status' is not settable via \`wb set\` — use \`wb status\`/\`wb done\` instead" >&2
+      exit 1
+      ;;
+    created|closed|reviewed|claude_sessions|repo|branch|worktree)
+      echo "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)" >&2
+      exit 1
+      ;;
+    priority|value|size|parent|depends_on|jira|tags|path)
+      ;;
+    *)
+      echo "wb set: unknown field '$field' (allowed: $WB_SET_FIELDS)" >&2
+      exit 1
+      ;;
+  esac
+
+  case "$field" in
+    priority)
+      case "$value" in
+        P1|P2|P3) ;;
+        *) echo "wb set: priority '$value' is not one of P1|P2|P3" >&2; exit 1 ;;
+      esac
+      ;;
+    value)
+      case "$value" in
+        high|med|low) ;;
+        *) echo "wb set: value '$value' is not one of high|med|low" >&2; exit 1 ;;
+      esac
+      ;;
+    size)
+      if ! _wb_valid_size "$value"; then
+        echo "wb set: size '$value' is not one of $WB_SIZE_VALUES" >&2
+        exit 1
+      fi
+      ;;
+    parent)
+      case "$value" in
+        */*) echo "wb set: parent '$value' must not contain '/'" >&2; exit 1 ;;
+      esac
+      [ -f "$TASKS_DIR/$value.md" ] \
+        || { echo "wb set: parent '$value' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+      ;;
+    depends_on)
+      local dep
+      local -a _wb_set_deps
+      IFS=',' read -r -a _wb_set_deps <<< "$value"
+      for dep in "${_wb_set_deps[@]}"; do
+        case "$dep" in
+          */*) echo "wb set: depends_on '$dep' must not contain '/'" >&2; exit 1 ;;
+        esac
+        [ -f "$TASKS_DIR/$dep.md" ] \
+          || { echo "wb set: depends_on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+      done
+      ;;
+    jira)
+      case "$value" in
+        https://*) ;;
+        *) echo "wb set: jira '$value' must start with https://" >&2; exit 1 ;;
+      esac
+      ;;
+    tags|path) ;;   # free text — no enum, no existence check
+  esac
+  _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
+
+  local file
+  file="$(_wb_append_resolve_task "$query")" || exit 1
+
+  # Refuse when a live session's @task already points at this file — this
+  # verb is for store-only tasks.
+  _wb_refuse_if_live_session "$file" "wb set"
+
+  local old
+  old="$(wb_get_frontmatter "$file" "$field")"
+
+  # A file with duplicate `$field:` lines (e.g. left behind by the old
+  # buggy insert-without-checking wb_set_frontmatter_field) must never
+  # short-circuit as a no-op even when the FIRST occurrence already reads
+  # $value — the awk rewrite below is what dedupes the file down to one
+  # line, and skipping it here would leave the duplicates in place.
+  local dup_count
+  dup_count="$(awk -v key="$field" 'BEGIN{infm=0} /^---$/{infm++; if(infm==2) exit; next} infm==1 && $0 ~ "^" key ":" {c++} END{print c+0}' "$file")"
+
+  if [ "$old" = "$value" ] && [ "$dup_count" -le 1 ]; then
+    echo "wb set: $(basename -- "$file") $field already '$value'"
+    exit 0
+  fi
+
+  local after_key=""
+  case "$field" in
+    priority|value) after_key="size" ;;
+  esac
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
+  case "$field" in
+    parent|depends_on|jira)
+      wb_append_handoff "$file" "wb set" "\`$field:\` set to \`$value\` via \`wb set\` (was \`$old\`)."
+      ;;
+  esac
+  wb_task_lock_release "$file"
+  echo "wb set: $(basename -- "$file") $field '$old' -> '$value'"
+}
+
+# ---------------------------------------------------------------------------
 # wb install-hooks — the one idempotent verb that wires up everything the
 # concurrency-safety machine needs on this host: points $TASKS_DIR's
 # core.hooksPath at U6's reference-transaction hook (stowed path — a real
@@ -6555,6 +6873,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
+    status)      shift; cmd_status "$@" ;;
+    set)         shift; cmd_set "$@" ;;
     install-hooks) shift; cmd_install_hooks "$@" ;;
     render)      shift; render_rows "$@" ;;
     _new)        shift; _new "$@" ;;

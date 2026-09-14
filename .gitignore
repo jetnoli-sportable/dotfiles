@@ -30,3 +30,7 @@ claude/.claude/settings.json
 claude/.claude/settings.local.json
 claude/.claude/parked-items/
 claude/.claude/projects/
+
+# python bytecode (review-page.py and friends)
+__pycache__/
+*.pyc

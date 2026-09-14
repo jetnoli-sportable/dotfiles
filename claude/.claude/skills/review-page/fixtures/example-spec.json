@@ -1,0 +1,107 @@
+{
+  "title": "Example Review \u2014 3 fixture rows",
+  "intro_md": "Fixture spec for trying the review-page mechanism. **Leaving a row alone accepts its suggestion** \u2014 opt out with a changed verdict, a row note, or the questions box below. Submit posts your answers to this run's terminal.",
+  "accept_defaults_default": true,
+  "verdicts": [
+    {
+      "id": "apply",
+      "label": "Apply",
+      "color": "#a6e3a1"
+    },
+    {
+      "id": "defer",
+      "label": "Defer",
+      "color": "#f9e2af"
+    },
+    {
+      "id": "skip",
+      "label": "Skip",
+      "color": "#f38ba8"
+    }
+  ],
+  "areas": [
+    {
+      "id": "fixture-area",
+      "title": "Fixture area",
+      "note": "Three made-up rows, standing in for a real audit's items.",
+      "items": [
+        {
+          "id": "row-1",
+          "title": "Rename foo.sh to foo.bash",
+          "where": "scripts/foo.sh:1",
+          "what": "Extension doesn't match the shell it's actually written in.",
+          "evidence": [
+            "Shebang is #!/usr/bin/env bash, not sh",
+            "No POSIX-sh-only constructs used"
+          ],
+          "suggested": "apply",
+          "suggested_reason": "Clear, low-risk rename.",
+          "depends_on": [],
+          "depended_on_by": [],
+          "links": [],
+          "meta": [
+            [
+              "size",
+              "M"
+            ],
+            [
+              "stage",
+              "plan"
+            ]
+          ],
+          "description": "### Why\nLong-form body shown in the expandable details panel \u2014 markdown paragraphs, bullets, headings and code fences render.\n\n- one\n- two",
+          "fields": [
+            {
+              "key": "slug",
+              "label": "slug",
+              "value": "feat/example",
+              "wide": true
+            },
+            {
+              "key": "size",
+              "label": "size",
+              "value": "M",
+              "placeholder": "S|M|L|XL"
+            }
+          ]
+        },
+        {
+          "id": "row-2",
+          "title": "Merge duplicate helper into lib/util.sh",
+          "where": "lib/util2.sh:1-40",
+          "what": "Near-duplicate of an existing helper; merging reduces drift.",
+          "evidence": "diff shows 90% overlap with lib/util.sh's retry() function",
+          "suggested": "defer",
+          "suggested_reason": "Safe in principle, but touches call sites \u2014 worth a dedicated pass.",
+          "depends_on": [],
+          "depended_on_by": [
+            "row-3"
+          ],
+          "links": []
+        },
+        {
+          "id": "row-3",
+          "title": "Unclear ownership of scratch/legacy.sh",
+          "where": "scratch/legacy.sh",
+          "what": "No recent commits, no clear caller found by grep \u2014 might be dead, might be sourced dynamically.",
+          "evidence": "",
+          "suggested": "",
+          "suggested_reason": "",
+          "depends_on": [
+            "row-2"
+          ],
+          "depended_on_by": [],
+          "links": []
+        }
+      ]
+    }
+  ],
+  "close_rule": "No action on a row = accept its suggestion. row-3 has no suggestion, so it stays unresolved even if left untouched \u2014 it must be answered explicitly.",
+  "sections": [
+    {
+      "title": "How to read this page",
+      "md": "Collapsible context panels go here \u2014 e.g. a summary of the directions a breakdown could take, a glossary, or how the answers map onto the apply step.",
+      "open": false
+    }
+  ]
+}

@@ -19,7 +19,7 @@ that are settled as "acceptable for now."
 9g's clipboard-history config (`<Ctrl><Shift>G`) is a GNOME Shell extension
 with no Sway equivalent — it isn't a config tweak away from the owner's
 eventual Sway direction, it's a re-pick of the whole tool. **Revisit when**
-the Sway migration is actually scheduled. Detail: [9g recap](9g-gpaste-recap.html).
+the Sway migration is actually scheduled. Detail: [9g recap](archive/9g-gpaste-recap.html).
 
 ## Credential guard is warn-only, not a hard block
 
@@ -37,7 +37,7 @@ no expiry or secret-detection — copying a token or password puts it in the
 history store with no automatic cleanup. Shipped as-is for a personal
 single-user machine. **Revisit when** it turns out to be a real problem in
 practice (e.g. add a max-age prune or a "don't persist this clip" gesture).
-Detail: [9g recap](9g-gpaste-recap.html).
+Detail: [9g recap](archive/9g-gpaste-recap.html).
 
 ## Personal/employer boundary rule (interim state)
 

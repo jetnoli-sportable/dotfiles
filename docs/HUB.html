@@ -234,9 +234,9 @@
 </head>
 <body data-kind="hub">
 <div class="statusbar" aria-hidden="true">
-  <span><b>39</b> docs</span>
+  <span><b>30</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
-  <span class="right">updated 2026-09-11</span>
+  <span class="right">updated 2026-09-14</span>
 </div>
 <main>
 <header class="doc">
@@ -314,10 +314,17 @@
   <div class="group-head"><h2>Workflow</h2>
     <span class="group-sub">~/code/dotfiles — how the pieces work</span></div>
   <div class="grid">
+    <a class="tile" href="ceremonies.html">
+      <div class="tile-top"><span class="tile-glyph">◈</span>
+        </div>
+      <h3>Ceremonies — dated clocks and recurring reviews</h3>
+      <p>Check-in points, not automatic triggers. What each one is for, and what happens when it passes.</p>
+      <div class="path">docs/ceremonies.html</div>
+    </a>
     <a class="tile" href="handoff-guide.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
         </div>
-      <h3>/handoff &amp; /handoff-pane — route a discussion to the right worker</h3>
+      <h3>/handoff — route a discussion to the right worker</h3>
       <p>Route something being discussed right now to a live session, a fresh one, or a helper agent in this very window — without retyping context by hand.</p>
       <div class="path">docs/handoff-guide.html</div>
     </a>
@@ -341,13 +348,6 @@
       <h3>tasks-store-guards</h3>
       <p>The three-layer concurrency-safety model guarding ~/code/tasks — ask, refuse, serialize — plus runbooks for lock contention, refused rewinds, and enablement.</p>
       <div class="path">docs/guides/tasks-store-guards.html</div>
-    </a>
-    <a class="tile" href="ceremonies.html">
-      <div class="tile-top"><span class="tile-glyph">◈</span>
-        </div>
-      <h3>Ceremonies — dated clocks and recurring reviews</h3>
-      <p>Check-in points, not automatic triggers. What each one is for, and what happens when it passes.</p>
-      <div class="path">docs/ceremonies.html</div>
     </a>
     <a class="tile" href="docgen.html">
       <div class="tile-top"><span class="tile-glyph">◈</span>
@@ -392,13 +392,6 @@
       <p>Route one piece of the current, in-conversation discussion to the worker that should own it — switch to an already-live tmux session (clipb…</p>
       <div class="path">claude/.claude/skills/handoff/SKILL.md</div>
     </a>
-    <a class="tile mini" href="../claude/.claude/skills/handoff-pane/SKILL.md">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        </div>
-      <h3>/handoff-pane</h3>
-      <p>Route a piece of the current discussion to a second `claude` agent in a split pane of THIS tmux window, sharing this session&#39;s worktree — s…</p>
-      <div class="path">claude/.claude/skills/handoff-pane/SKILL.md</div>
-    </a>
     <a class="tile mini" href="guides/help.html">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
@@ -420,19 +413,19 @@
       <p>Weekly review of everything the user parked for &#34;later&#34; — items they said to discuss later, revisit, or make a scratch/follow-up task for —…</p>
       <div class="path">claude/.claude/skills/parked-items/SKILL.md</div>
     </a>
-    <a class="tile mini" href="guides/pr-review-session.html">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        </div>
-      <h3>/pr-review-session</h3>
-      <p>Check GitHub for open PRs in watched repos, pull each PR down as a git worktree, spin up a per-PR tmux window, write a PR brief, and run a …</p>
-      <div class="path">claude/.claude/skills/pr-review-session/SKILL.md</div>
-    </a>
     <a class="tile mini" href="../claude/.claude/skills/quick-wins/SKILL.md">
       <div class="tile-top"><span class="tile-glyph">◆</span>
         </div>
       <h3>/quick-wins</h3>
       <p>On-demand effort/isolation/ownership triage across the whole deferred backlog — wb tasks in ~/code/tasks (status planned), the /park ledger…</p>
       <div class="path">claude/.claude/skills/quick-wins/SKILL.md</div>
+    </a>
+    <a class="tile mini" href="guides/review-page.html">
+      <div class="tile-top"><span class="tile-glyph">◆</span>
+        </div>
+      <h3>/review-page</h3>
+      <p>Serve a large batch of items — a task-store triage, a piece/skill</p>
+      <div class="path">claude/.claude/skills/review-page/SKILL.md</div>
     </a>
     <a class="tile mini" href="../claude/.claude/skills/spec-doc/SKILL.md">
       <div class="tile-top"><span class="tile-glyph">◆</span>
@@ -447,13 +440,6 @@
       <h3>/visual-explore</h3>
       <p>Explores HTML/visual design directions by fanning out parallel low-effort subagents, each producing a self-contained mockup of a distinct v…</p>
       <div class="path">claude/.claude/skills/visual-explore/SKILL.md</div>
-    </a>
-    <a class="tile mini" href="wb-guide.html#wb-board---html--the-full-board-v2">
-      <div class="tile-top"><span class="tile-glyph">◆</span>
-        </div>
-      <h3>/wb-board</h3>
-      <p>Pull up the task-store status table from inside a Claude Code session — default invocation shells out to `wb board` and relays its plain-te…</p>
-      <div class="path">claude/.claude/skills/wb-board/SKILL.md</div>
     </a>
     <a class="tile mini" href="wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family">
       <div class="tile-top"><span class="tile-glyph">◆</span>
@@ -570,13 +556,6 @@
       <p>Startup and shutdown flows, and the &#34;sessions are regenerative&#34; principle.</p>
       <div class="path">docs/roadmap-day-bookends.html</div>
     </a>
-    <a class="tile mini" href="slice-4b-deep-dive.html">
-      <div class="tile-top"><span class="tile-glyph">✎</span>
-        </div>
-      <h3>Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</h3>
-      <p>What 4b would build; the 4a gate resolved early (unused), now superseded by the fix-forward experiment.</p>
-      <div class="path">docs/slice-4b-deep-dive.html</div>
-    </a>
     <a class="tile mini" href="roadmap-wb-reconcile.html">
       <div class="tile-top"><span class="tile-glyph">✎</span>
         </div>
@@ -613,62 +592,6 @@
   <div class="group-head"><h2>Recaps</h2>
     <span class="group-sub">point-in-time write-ups of shipped work, newest first</span></div>
   <div class="grid dense">
-    <a class="tile mini" href="2026-07-16-jira-interop-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>Recap — Jira ticket interop (emit tasks to Jira tickets)</h3>
-      <p>A human-approved proposal buffer plus a locked write-back verb — turning a wb task or /wb-breakdown family into new Jira tickets (SFB by default, or SW), with each ticket&#39;s URL stamped back into the task.</p>
-      <div class="path">docs/2026-07-16-jira-interop-recap.html</div>
-    </a>
-    <a class="tile mini" href="9g-gpaste-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>9g recap — GPaste clipboard-history manager</h3>
-      <p>GPaste configured, Ctrl&#43;Shift&#43;G opens history. What to verify yourself.</p>
-      <div class="path">docs/9g-gpaste-recap.html</div>
-    </a>
-    <a class="tile mini" href="wb-board-display-v2-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>wb board display v2 — recap</h3>
-      <p>Lifecycle stepper, Pipeline tab, dependency relationships, filters, Key Findings — shipped, Docker-verified, ready for review.</p>
-      <div class="path">docs/wb-board-display-v2-recap.html</div>
-    </a>
-    <a class="tile mini" href="2026-07-13-wb-breakdown-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>Recap — wb-breakdown (split an oversized task into a family)</h3>
-      <p>A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.</p>
-      <div class="path">docs/2026-07-13-wb-breakdown-recap.html</div>
-    </a>
-    <a class="tile mini" href="2026-07-12-workflow-push-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>Recap — the Hub-v0 &#43; agent-fleet push (2026-07-10 → 12)</h3>
-      <p>Two days, 14 PRs — ideation, an rm -rf incident &#43; full recovery, and a parallel agent fleet. What shipped and where things stand.</p>
-      <div class="path">docs/2026-07-12-workflow-push-recap.html</div>
-    </a>
-    <a class="tile mini" href="pr1-wb-workbench-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>PR #1 recap — wb resume, wb pause, /board, wb reconcile</h3>
-      <p>All four wb workbench extensions shipped. What to verify yourself.</p>
-      <div class="path">docs/pr1-wb-workbench-recap.html</div>
-    </a>
-    <a class="tile mini" href="9f-ergonomics-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>9f recap — editor/tmux ergonomics batch</h3>
-      <p>Six small nvim/tmux items shipped in one PR. What to verify yourself.</p>
-      <div class="path">docs/9f-ergonomics-recap.html</div>
-    </a>
-    <a class="tile mini" href="slice-5-recap.html">
-      <div class="tile-top"><span class="tile-glyph">▪</span>
-        </div>
-      <h3>Slice 5 recap — the docs platform</h3>
-      <p>What shipped, what to verify yourself, and what&#39;s next. Start here after the PR.</p>
-      <div class="path">docs/slice-5-recap.html</div>
-    </a>
   </div>
   
 </section>

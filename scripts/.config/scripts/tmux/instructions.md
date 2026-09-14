@@ -9,7 +9,7 @@ notes, and survey/jump-to running Claude Code agents. All scripts live in
 | Script               | Alias       | tmux keybind        | What it does |
 |----------------------|-------------|---------------------|--------------|
 | `session.sh`         | `s`         | `prefix + m`        | Fuzzy-pick a git repo under `~/code`, attach/create its tmux session |
-| `notes.sh`           | `N`         | `prefix + N` / `prefix + M` | Open daily/any note in nvim inside a persistent `notes` session |
+| `notes.sh`           | `N`         | (no tmux bind — alias only) | Open daily/any note in nvim inside a persistent `notes` session |
 | `claude-sessions.sh` | `ca` / `cad`| `prefix + a`        | Overview of all Claude Code agents across tmux + jump to one |
 | `lib.sh`             | —           | —                   | Shared helpers (sourced by the three scripts above) |
 
@@ -208,8 +208,6 @@ alias cad="~/.config/scripts/tmux/claude-sessions.sh dash"
 ```sh
 bind m new-window "~/.config/scripts/tmux/session.sh"
 bind a new-window "~/.config/scripts/tmux/claude-sessions.sh"
-bind N new-window "~/.config/scripts/tmux/notes.sh"
-bind M new-window "~/.config/scripts/tmux/notes.sh ."
 ```
 
 ---

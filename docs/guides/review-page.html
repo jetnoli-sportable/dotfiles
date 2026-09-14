@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>Recap — wb-breakdown (split an oversized task into a family)</title>
+<title>review-page</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
@@ -232,95 +232,130 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="guide" data-group="recaps">
+<body data-kind="guide" data-group="skills">
 <div class="statusbar">
-  <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> recaps</span>
-  <span class="gen">docgen · generated from <b>docs/2026-07-13-wb-breakdown-recap.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-13</span>
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="gen">docgen · generated from <b>docs/guides/review-page.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-09-14</span>
 </div>
 <div class="shell">
   <nav class="toc">
-    <div class="brand">Recap — wb-breakdown (split an oversized task into a family)</div>
-    <div class="brand-sub">A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.</div>
-    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <div class="brand">review-page</div>
+    <div class="brand-sub">Serve a large batch review (25&#43; rows) as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
-      <li><a href="#what-got-built">What got built</a></li>
-      <li><a href="#why-this-needed-the-concurrency-safety-work-first">Why this needed the concurrency-safety work first</a></li>
-      <li><a href="#where-to-go-next">Where to go next</a></li>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it">Try it</a></li>
+      <li><a href="#how-it-differs-from-decision-buffer">How it differs from decision-buffer</a></li>
+      <li><a href="#the-close-rule">The close rule</a></li>
     </ul>
   </nav>
   <main>
     <header class="doc guide-banner">
-      <span class="eyebrow">recaps · guide</span>
-      <h1>Recap — wb-breakdown (split an oversized task into a family)</h1>
-      <p class="dek">A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.</p>
+      <span class="eyebrow">skills · guide</span>
+      <h1>review-page</h1>
+      <p class="dek">Serve a large batch review (25&#43; rows) as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
     </header>
     <article>
-<p><code>~/code/tasks</code> accumulates tasks that are really epics: one <code>.md</code> whose
-<code>## Plan</code> holds a week of work. A single session chews on a file like that
-for days, handoff entries pile up, and the board shows one opaque card.
-The parent/child mechanism (PR #17) gave the store family semantics —
-<code>parent:</code> frontmatter, picker sibling grouping, a board rollup card — but
-nothing <em>produced</em> a family except hand-editing frontmatter. Separately,
-work arrives as Jira tickets, and turning a ticket into a scoped task was
-entirely manual. wb-breakdown builds the missing piece: a skill that
-proposes the split, and a locked <code>wb.sh</code> verb that actually writes it.</p>
-<h2 id="what-got-built">What got built</h2>
-<p>A <code>/wb-breakdown</code> skill (<code>claude/.claude/skills/wb-breakdown/SKILL.md</code>)
-climbs the richest available evidence — a ticket's own subtasks, a linked
-<code>ce-plan</code> doc's implementation units, a substantive <code>## Plan</code> (a named,
-shared &quot;substantive-plan test&quot; — ≥3 actionable items or ≥10 non-blank
-content lines), or a fresh agent pass when none of those exist — and
-authors a reconcile-style proposal buffer the human checks and edits
-before anything is written. <code>wb breakdown --apply</code> (<code>wb.sh</code>) is the other
-half: it validates the closed buffer twice (once to determine the exact
-set of files to lock, once more after acquiring every lock — never
-trusting the buffer snapshot), then executes the family write as one
-sorted, all-or-nothing multi-file transaction — seed the checked children,
-rewrite the parent's <code>## Plan</code>, move follow-up bullets to the child they
-belong to, migrate the continuing child's branch/worktree/session away
-from the parent, archive the closed buffer under
-<code>~/code/tasks/dossiers/&lt;parent-stem&gt;/</code>, and append one handoff entry
-naming it.</p>
-<p>The apply is idempotent by construction — an existing child whose
-<code>parent:</code> already matches is &quot;already created, skipping,&quot; an
-already-blanked parent skips migration — so a crash or a contended lock
-mid-run (exit 75, zero writes) never leaves the store in a state a re-run
-can't finish cleanly. Every verb that resolves &quot;my task file&quot; from a live
-tmux session (<code>wb done</code>/<code>wb pause</code>/<code>wb reviewed</code>, the picker's live-session
-row) now checks the session's <code>@task</code> option first, since a migrated
-continuing session's <code>@wb_repo</code>/<code>@wb_slug</code> deliberately stay pointed at
-its own real git identity while <code>@task</code> gets re-aimed at the new child —
-without that change, closing the &quot;same&quot; session post-split would have
-silently acted on the parent instead. <code>wb done</code> also gained a store-only
-close path (a stem argument matching no live session resolves as a
-task-file stem instead) and a last-child nudge: closing the final open
-child of a family prints <code>wb done &lt;parent&gt;</code> as the exact command to close
-the parent, too.</p>
-<h2 id="why-this-needed-the-concurrency-safety-work-first">Why this needed the concurrency-safety work first</h2>
-<p><code>wb breakdown --apply</code> is the store's first true multi-file writer — every
-existing verb before this touched at most two files (a reconcile merge).
-It's built directly on <code>wb-locks.sh</code>'s per-task-file <code>flock</code> side-cars and
-the sorted-path multi-lock precedent <code>wb_reconcile_action_merge</code> already
-established, both from the <code>TASKS_DIR</code> concurrency-safety work
-(<a href="2026-07-12-tasks-dir-concurrency-safety-recap.html">recap</a>). That work's
-own PR hadn't landed in <code>development</code> yet when this one was built, so this
-branch merged its commits in directly to build and test against the real
-primitives rather than a guessed API — both PRs land in dependency order.</p>
-<h2 id="where-to-go-next">Where to go next</h2>
-<p>The roadmap row is
-<a href="roadmap.html#detail-wb-breakdown">detail-wb-breakdown</a>. The store schema
-gained <code>jira:</code> (a task's full ticket URL) and the <code>breakdown-candidate</code>
-tag convention — see <code>~/code/tasks/README.md</code>. Deferred follow-ups: the
-Jira-watch loop that would auto-tag candidates, family-aware count
-rollups in the picker/board, and un-breakdown (merging a family back into
-one task) — none of them block using the feature as built.</p>
+<h2 id="overview">Overview</h2>
+<p><code>review-page</code> serves a large review — a task-store triage, a piece/skill
+audit, a prune list, a <code>wb-breakdown</code> proposal, a weekly review — as a
+locally-hosted HTML page instead of a markdown buffer in nvim. It split out
+of <code>decision-buffer</code>'s seventh shape once it became clear the mechanism (a
+spec file, an HTTP server, a browser tab, filtering, keyboard navigation) is
+different enough from the other six nvim-buffer shapes to be its own thing.
+Every row carries evidence, a suggested verdict, and an optional note; the
+page can be filtered, searched, and grouped, and closes by POSTing an
+<code>answers.json</code> back to the waiting agent — same open/wait/parse contract as
+every <code>decision-buffer</code> shape, just served over <code>http://127.0.0.1</code> instead
+of opened in a tmux pane.</p>
+<p><strong>The headline contract, worth stating up front:</strong> in this flow, leaving a
+row alone means you <strong>accept its suggested verdict</strong> — the opposite of the
+nvim <code>decision-buffer</code> rule, where silence applies nothing. Opting a row out
+takes an explicit act: changing its verdict, writing a note on it, or a word
+in the page's global questions box.</p>
+<h2 id="try-it">Try it</h2>
+<p>A 3-row fixture spec ships at
+<code>claude/.claude/skills/review-page/fixtures/example-spec.json</code> — run the
+script against it to see the page live:</p>
+<pre><code class="language-bash">python3 claude/.claude/skills/review-page/scripts/review-page.py \
+  --spec claude/.claude/skills/review-page/fixtures/example-spec.json \
+  --out /tmp/review-page-example-answers.json \
+  --title &quot;Example Review&quot;
+</code></pre>
+<p>This blocks in your terminal (it's meant to run backgrounded when an agent
+calls it) and opens a browser tab on a free <code>127.0.0.1</code> port. Two of the
+fixture's three rows have a suggested verdict pre-selected; the third
+(<code>row-3</code>) has none, so it shows as &quot;needs me&quot; and stays unresolved even if
+you leave it alone. Click Submit (with or without touching anything) to see
+<code>answers.json</code> written to <code>/tmp/review-page-example-answers.json</code>, then
+Ctrl-C the script if it's still running.</p>
+<h2 id="how-it-differs-from-decision-buffer">How it differs from decision-buffer</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>decision-buffer</code> (six nvim shapes)</th>
+<th><code>review-page</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Surface</td>
+<td>markdown buffer in nvim, opened in a tmux split</td>
+<td>HTML page served on <code>127.0.0.1</code>, opened in a browser tab</td>
+</tr>
+<tr>
+<td>Scale</td>
+<td>small batches, a handful of options/questions</td>
+<td>large batches, ≳25 rows</td>
+</tr>
+<tr>
+<td>Untouched-row default</td>
+<td><strong>nothing applies</strong> — silence is never consent</td>
+<td><strong>the suggested verdict applies</strong> — silence is consent unless a note says otherwise</td>
+</tr>
+<tr>
+<td>Per-row extras</td>
+<td>none needed at that scale</td>
+<td>evidence toggle, dependency chips, free-text grouping, Agree button</td>
+</tr>
+<tr>
+<td>Opting out</td>
+<td>leave everything unmarked</td>
+<td>change the verdict, or leave a row/global note</td>
+</tr>
+</tbody>
+</table>
+<p>Use <code>decision-buffer</code> instead for a settled 2-4 option choice or a short
+interview — the review-page machinery (spec file, HTTP server, filters) is
+overkill below its threshold. See <code>claude/.claude/skills/review-page/SKILL.md</code>
+for the fuller when-to-use guidance and the exact spec-writing rules.</p>
+<h2 id="the-close-rule">The close rule</h2>
+<ol>
+<li>A <strong>row note</strong> or the page's <strong>global questions box</strong> must be answered
+before anything tied to it is acted on.</li>
+<li>A row with no note, left untouched, and carrying a non-empty <code>suggested</code>
+verdict: <strong>that suggestion applies</strong> — same as if the user had clicked
+Agree.</li>
+<li>A row with <strong>no suggestion at all</strong> (empty <code>suggested</code>) and left
+untouched is <strong>unresolved</strong> — there's nothing to silently accept, so it
+gets re-asked rather than defaulted or skipped.</li>
+<li>The footer's &quot;accept remaining defaults for untouched rows&quot; checkbox is
+pre-ticked by default (a spec can turn this off with
+<code>&quot;accept_defaults_default&quot;: false</code>); unticking it flips untouched rows
+back to &quot;apply nothing&quot; — Submit only warns in that case.</li>
+<li>A second round rewrites the spec fresh with only the still-unresolved
+rows — settled ones collapse into a summary rather than being reshown.</li>
+</ol>
+<p>Full field-by-field detail lives in
+<code>claude/.claude/skills/review-page/references/spec-and-close-contract.md</code>.</p>
 </article>
     <footer>
-  Generated by <code>docgen</code> from <code>docs/2026-07-13-wb-breakdown-recap.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/guides/review-page.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
   </main>

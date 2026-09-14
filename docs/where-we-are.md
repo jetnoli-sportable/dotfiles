@@ -36,10 +36,10 @@ the [Roadmap's shipped section](roadmap.html#detail-step-zero).
 
 | PR | What | Detail |
 |---|---|---|
-| #11 | GPaste clipboard-history manager | [recap](9g-gpaste-recap.html) |
+| #11 | GPaste clipboard-history manager | [recap](archive/9g-gpaste-recap.html) |
 | #12 | Roadmap restructured into overview + detail pages | [roadmap](roadmap.html) |
 | #13 | `docgen.sh` pre-commit hook targets the real worktree | — |
-| #14 | **wb workbench extensions** — `wb resume` / `wb pause` / `/board` / `wb reconcile` | [recap](pr1-wb-workbench-recap.html) |
+| #14 | **wb workbench extensions** — `wb resume` / `wb pause` / `/board` / `wb reconcile` | [recap](archive/pr1-wb-workbench-recap.html) |
 | #15 | nvim session auto-restore escape hatch | — |
 | #16 | Roadmap sync after PR #1 shipped | — |
 | #17 | **Task parent/child relationship** (incl. cross-repo families) | [detail](roadmap-handoff.html) |
@@ -54,10 +54,10 @@ the [Roadmap's shipped section](roadmap.html#detail-step-zero).
 | #26 | **`wb-save` / `wb-resume` / `wb-done` / `wb-board` skills** | [wb-guide](wb-guide.html) |
 | #27 | Sweep-review buffer no longer autoformats itself | — |
 | #28 | `xdg-open`/Slack default-browser hijack fix | — |
-| #29 | **`/wb-breakdown`** — split an oversized task/ticket into a family | [recap](2026-07-13-wb-breakdown-recap.html) |
-| #30 | **Board display v2** — stepper, Pipeline/Live/Stale tabs, dependencies | [recap](wb-board-display-v2-recap.html) |
+| #29 | **`/wb-breakdown`** — split an oversized task/ticket into a family | [recap](archive/2026-07-13-wb-breakdown-recap.html) |
+| #30 | **Board display v2** — stepper, Pipeline/Live/Stale tabs, dependencies | [recap](archive/wb-board-display-v2-recap.html) |
 | #31 | **Hub + roadmap refresh** — currency, guide gaps, sectioning, docgen lint | [roadmap](roadmap.html) |
-| #32 | **Jira interop — emit (Phase 1)** — `wb jira-set` + `/wb-jira-create`; verified live 2026-09-07 | [recap](2026-07-16-jira-interop-recap.html) · [verification](verification/2026-07-16-jira-emit-verification.html) |
+| #32 | **Jira interop — emit (Phase 1)** — `wb jira-set` + `/wb-jira-create`; verified live 2026-09-07 | [recap](archive/2026-07-16-jira-interop-recap.html) · [verification](verification/2026-07-16-jira-emit-verification.html) |
 | #33 | **Docs platform + board UX overhaul** — Tokyo Night theme, Hub grouping, real back-links | [verification](verification/2026-07-21-post-crash-merge-batch-verification.html) |
 | #34 | **`/handoff --pane`** — a co-located helper agent in the current worktree | [handoff guide](handoff-guide.html) |
 | #35 | Post-crash merge-batch verification checklist (#32/#33/#34) | [verification](verification/2026-07-21-post-crash-merge-batch-verification.html) |
@@ -69,7 +69,7 @@ the [Roadmap's shipped section](roadmap.html#detail-step-zero).
 | #41 | **wb session memory mitigations** — per-agent cgroup isolation | [verification](verification/2026-08-24-wb-session-cgroup-isolation-verification.html) |
 | #42 | Auto-generated try-it catalog from the roadmap + linked docs | [try it](try-it.html) |
 | #43 | Machine-readable next-action directive for `/wb-save` / `/wb-resume` | [wb-guide](wb-guide.html) |
-| #44 | `/wb-jira-create`: checkbox-select for Project/type | [recap](2026-07-16-jira-interop-recap.html) |
+| #44 | `/wb-jira-create`: checkbox-select for Project/type | [recap](archive/2026-07-16-jira-interop-recap.html) |
 | #45 | `wb breakdown` captures `size:` + `depends_on:` at apply-time; `wb new --size` | [wb-guide](wb-guide.html) |
 
 ## In review
