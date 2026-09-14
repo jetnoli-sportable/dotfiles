@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
   <span class="gen">docgen · generated from <b>docs/ceremonies.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-10</span>
+  <span class="right">updated 2026-09-14</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -244,7 +244,7 @@
     <div class="brand-sub">Check-in points, not automatic triggers. What each one is for, and what happens when it passes.</div>
     <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
     <ul>
-      <li><a href="#active">Active</a></li>
+      <li><a href="#recurring">Recurring</a></li>
       <li><a href="#resolved">Resolved</a></li>
     </ul>
   </nav>
@@ -262,36 +262,51 @@
 and make a call,&quot; never &quot;on this date, code runs automatically.&quot; Moved
 here from <code>docs/roadmap.md</code> so this page has room to grow into future
 recurring reviews beyond today's clocks.</p>
-<h2 id="active">Active</h2>
-<h3 id="2026-07-13--delete-tmux-pane-awaiting-input">~2026-07-13 — delete <code>tmux_pane_awaiting_input</code></h3>
-<p>This is a version-pinned content-scan fallback for detecting &quot;is this
-tmux pane waiting on input&quot; — a stopgap until the newer hook-based
-attention pipeline (the workflow's Step zero) proved reliable. The action:
-if the hook-based detection has held up without regressions by this date,
-delete the old fallback scan; if it hasn't, keep it a while longer.</p>
-<h3 id="2026-07-20--combined-calibration-ceremony">~2026-07-20 — combined calibration ceremony</h3>
-<p>Originally two separate check-ins, folded together by the 2026-07-10
-calibration round (Decision 6):</p>
-<ul>
-<li><strong>Push-vs-weekly-ritual validation.</strong> Compare whether proactive push
-notifications or batched weekly review (the <code>/parked-items</code> model)
-actually fits real usage better, to inform how similar future features
-get designed.</li>
-<li><strong>Skill/tool/command usage audit.</strong> Monthly-ish audit of what's unused
-(prune candidates) and what's underused but already solves a current
-pain point (before building something new). The 2026-07-10 workflow
-review counts as run #1. Measurement source: agent-run review; output:
-dossiers under <code>~/code/tasks/dossiers/</code>.</li>
-</ul>
-<h3 id="2026-07-24--capture-fix-forward-experiment-verdict">~2026-07-24 — capture fix-forward experiment verdict</h3>
-<p>Successor to the 4a capture-window clock below, which resolved early and
-unused. The fix-forward experiment (reach: tmux bind · read-back: passive
-surface) wires in after the notes-dir audit; this date is when its actual
-usage gets a verdict. Notes-tui integration 4b's original real-wiring plan
-only proceeds if this experiment changes real usage; store convergence
-(task store ↔ notes corpus) is tabled to the ~2026-07-20 combined
-ceremony above.</p>
+<p><strong>2026-09-14 note:</strong> all three clocks below sat unresolved for ~7-8 weeks
+past their dates — the failure mode this page itself warns against, since a
+date in a doc has no trigger. Resolved as part of scoping
+<code>dotfiles--workflow-strategy-and-ceremonies</code>; a weekly ceremony (see
+<code>## Recurring</code> below, once built) replaces bare dated clocks as the
+mechanism going forward.</p>
+<h2 id="recurring">Recurring</h2>
+<h3 id="weekly-workflow-review--not-yet-built">Weekly workflow review — not yet built</h3>
+<p>Replaces this page's original &quot;combined calibration ceremony&quot; clock.
+Starts as a manually-invoked skill (not hooked to <code>wb up</code>, not calendar-
+nagged) — force it into the workflow incrementally once it's proven useful,
+rather than over-building the trigger up front. Gathers the week's
+evidence (transcript grep for skill usage, tasks-repo git log, <code>/park</code>
+ledger, merged PRs) and reviews it in a findings-review buffer: what
+worked, what didn't, one increment to the workflow or skills. First run's
+agenda includes triaging the task store's &quot;doing&quot; backlog. Scoped in
+<code>dotfiles--workflow-strategy-and-ceremonies</code>; not yet built.</p>
 <h2 id="resolved">Resolved</h2>
+<h3 id="2026-07-13--delete-tmux-pane-awaiting-input--resolved-2026-09-14-keep">~2026-07-13 — delete <code>tmux_pane_awaiting_input</code> — resolved 2026-09-14 (KEEP)</h3>
+<p>Was scoped as a stopgap content-scan fallback for &quot;is this tmux pane
+waiting on input,&quot; to be deleted once the newer hook-based attention
+pipeline proved reliable. <strong>Outcome: keep it, not delete.</strong> The premise
+was wrong — the hook pipeline (<code>@claude_blocked</code>/<code>@claude_working</code>) didn't
+make the content scan obsolete, it complements it. <code>lib.sh</code>'s
+<code>tmux_claude_panes</code> deliberately falls back to <code>tmux_pane_awaiting_input</code>
+for any <code>✳</code>-glyph pane with no hook marker set (an older Claude Code build,
+or <code>claude</code> launched outside wb's hook-managed settings) — still actively
+tested (<code>tests/lib-claude-panes.test.sh</code>'s &quot;modal-scan fallback still
+outranks @claude_working&quot; case) and touched as recently as PR #38/#41.
+Deleting it would silently break needs-input detection for any unmarked
+pane.</p>
+<h3 id="2026-07-20--combined-calibration-ceremony--resolved-2026-09-14-absorbed">~2026-07-20 — combined calibration ceremony — resolved 2026-09-14 (absorbed)</h3>
+<p>Originally two separate check-ins, folded together by the 2026-07-10
+calibration round (Decision 6): push-vs-weekly-ritual validation, and a
+monthly-ish skill/tool/command usage audit (run #1: 2026-07-10, never
+re-run). <strong>Outcome:</strong> absorbed into the weekly workflow review above — it
+<em>is</em> this ceremony now, not a separately-tracked clock. The
+push-vs-weekly-ritual question is answered implicitly by that choice
+(weekly ritual, not push).</p>
+<h3 id="2026-07-24--capture-fix-forward-experiment-verdict--resolved-2026-09-14-unused">~2026-07-24 — capture fix-forward experiment verdict — resolved 2026-09-14 (unused)</h3>
+<p>Successor to the 4a capture-window clock below. Whether the fix-forward
+experiment (tmux-bind capture, passive read-back) changed real notes-tui
+usage, gating whether 4b's original real-wiring plan proceeds. <strong>Outcome:
+unused, no contrary evidence found</strong> — 4b's original wiring plan does not
+proceed, consistent with the 4a verdict below.</p>
 <h3 id="4a-capture-window-verdict--resolved-early-2026-07-10-unused">4a capture-window verdict — resolved early, 2026-07-10 (unused)</h3>
 <p>Originally scheduled for ~2026-07-14: look at how notes-tui's capture
 habit (4a, shipped) actually got used over the observation window, then
