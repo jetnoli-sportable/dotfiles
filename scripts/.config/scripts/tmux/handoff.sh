@@ -36,7 +36,11 @@ source "$WB"
 
 # Poll timeouts — env-var overridable, matching wb.sh's own
 # WB_SWEEP_THRESHOLD="${WB_SWEEP_THRESHOLD:-5}" convention (wb.sh:32).
-HANDOFF_BOOT_TIMEOUT="${HANDOFF_BOOT_TIMEOUT:-30}"
+# 90s, not 30s (raised post-PR#52): a large checkout's first `claude` boot
+# (be--monorepo's ~4.5k files) can eat most of a 30s budget on cold caches,
+# so the poller gave up and reported "check it by hand" on a launch that
+# was still merely slow, not stuck.
+HANDOFF_BOOT_TIMEOUT="${HANDOFF_BOOT_TIMEOUT:-90}"
 HANDOFF_PERMISSION_TIMEOUT="${HANDOFF_PERMISSION_TIMEOUT:-20}"
 
 # --pane split direction (KTD6) — the one place the horizontal-vs-vertical

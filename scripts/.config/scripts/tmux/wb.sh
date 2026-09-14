@@ -1408,15 +1408,24 @@ cmd_new() {
     # R9/U4: resolve what the agent window should pre-type. Preference
     # order — a resumable transcript (wb_resume_id, U2) beats a plain
     # `--continue`, which beats typing nothing for a genuinely new task.
-    # "Has this task been touched by a wb verb before" (a Handoffs entry)
-    # is the signal for "not brand new" when no transcript survives —
-    # `--continue` on a truly untouched task would have nothing to do
-    # anyway, so the distinction only matters for what gets pre-typed.
+    # "Has claude_sessions: ever been populated" (wb_down/wb_pause's own
+    # record-only snapshot, KTD2) is the signal for "a real conversation
+    # happened here before" when no transcript survives to --resume by id.
+    #
+    # This USED to scan Handoffs for any "### " line instead — which
+    # over-fired: wb_append_handoff also stamps "### ... (auto)" entries
+    # for `wb set`/`wb status`/`wb breakdown`, none of which imply a live
+    # Claude session ever ran in this worktree. A brand-new task re-parented
+    # by `wb set` (or migrated by `wb breakdown --apply`) before its first
+    # `wb new --agent` already carries such an entry, so the old check
+    # pre-typed `claude --continue` for a session with nothing to continue
+    # — "No conversation found to continue", boot-ready never appears, and
+    # handoff.sh's poller (below) times out waiting for it.
     local agent_cmd="" resume_id
     resume_id="$(wb_resume_id "$task_file" "$worktree_path")"
     if [ -n "$resume_id" ]; then
       agent_cmd="claude --resume $resume_id"
-    elif awk '/^## Handoffs$/ { p = 1; next } /^## / { p = 0 } p && /^### / { f = 1 } END { exit !f }' "$task_file"; then
+    elif [ -n "$(wb_get_frontmatter "$task_file" claude_sessions)" ]; then
       agent_cmd="claude --continue"
     fi
     wb_layout_session "$session" "$worktree_path" "$agent_flag" "$agent_cmd"
