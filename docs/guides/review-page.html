@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>/handoff — route a discussion to the right worker</title>
+<title>review-page</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
@@ -232,105 +232,130 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="guide" data-group="workflow">
+<body data-kind="guide" data-group="skills">
 <div class="statusbar">
-  <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
-  <span class="gen">docgen · generated from <b>docs/handoff-guide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-19</span>
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="gen">docgen · generated from <b>docs/guides/review-page.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-09-14</span>
 </div>
 <div class="shell">
   <nav class="toc">
-    <div class="brand">/handoff — route a discussion to the right worker</div>
-    <div class="brand-sub">Route something being discussed right now to a live session, a fresh one, or a helper agent in this very window — without retyping context by hand.</div>
-    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <div class="brand">review-page</div>
+    <div class="brand-sub">Serve a large batch review (25&#43; rows) as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
+      <li><a href="#overview">Overview</a></li>
       <li><a href="#try-it">Try it</a></li>
-      <li><a href="#the-first-action-lives-in-the-task-file-not-a-flag">The first action lives in the task file, not a flag</a></li>
-      <li><a href="#pane-mode--removed-2026-09-14">Pane mode — removed 2026-09-14</a></li>
-      <li><a href="#what-v1-doesnt-do">What v1 doesn&#39;t do</a></li>
+      <li><a href="#how-it-differs-from-decision-buffer">How it differs from decision-buffer</a></li>
+      <li><a href="#the-close-rule">The close rule</a></li>
     </ul>
   </nav>
   <main>
     <header class="doc guide-banner">
-      <span class="eyebrow">workflow · guide</span>
-      <h1>/handoff — route a discussion to the right worker</h1>
-      <p class="dek">Route something being discussed right now to a live session, a fresh one, or a helper agent in this very window — without retyping context by hand.</p>
+      <span class="eyebrow">skills · guide</span>
+      <h1>review-page</h1>
+      <p class="dek">Serve a large batch review (25&#43; rows) as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
     </header>
     <article>
-<p><code>/handoff</code> takes something being discussed in the current conversation and
-routes it to the worker that should own it — an already-live tmux session
-(switch + clipboard) or a freshly spawned one (<code>wb new --agent</code> + inject).
-Single-target only: one repo/slug per invocation.</p>
+<h2 id="overview">Overview</h2>
+<p><code>review-page</code> serves a large review — a task-store triage, a piece/skill
+audit, a prune list, a <code>wb-breakdown</code> proposal, a weekly review — as a
+locally-hosted HTML page instead of a markdown buffer in nvim. It split out
+of <code>decision-buffer</code>'s seventh shape once it became clear the mechanism (a
+spec file, an HTTP server, a browser tab, filtering, keyboard navigation) is
+different enough from the other six nvim-buffer shapes to be its own thing.
+Every row carries evidence, a suggested verdict, and an optional note; the
+page can be filtered, searched, and grouped, and closes by POSTing an
+<code>answers.json</code> back to the waiting agent — same open/wait/parse contract as
+every <code>decision-buffer</code> shape, just served over <code>http://127.0.0.1</code> instead
+of opened in a tmux pane.</p>
+<p><strong>The headline contract, worth stating up front:</strong> in this flow, leaving a
+row alone means you <strong>accept its suggested verdict</strong> — the opposite of the
+nvim <code>decision-buffer</code> rule, where silence applies nothing. Opting a row out
+takes an explicit act: changing its verdict, writing a note on it, or a word
+in the page's global questions box.</p>
 <h2 id="try-it">Try it</h2>
-<p>Mid-conversation, once a clearly-standalone piece of work has come up:</p>
-<pre><code>/handoff
+<p>A 3-row fixture spec ships at
+<code>claude/.claude/skills/review-page/fixtures/example-spec.json</code> — run the
+script against it to see the page live:</p>
+<pre><code class="language-bash">python3 claude/.claude/skills/review-page/scripts/review-page.py \
+  --spec claude/.claude/skills/review-page/fixtures/example-spec.json \
+  --out /tmp/review-page-example-answers.json \
+  --title &quot;Example Review&quot;
 </code></pre>
-<p>The skill infers <code>repo</code>/<code>slug</code> from context (checking <code>~/code/tasks/</code> for a
-task that already represents this, same lookup the worktree-seeding rule
-already uses), seeds or updates that task file, then hands off to
-<code>scripts/.config/scripts/tmux/handoff.sh &lt;repo&gt; &lt;slug&gt;</code> — no flags to pass,
-no path to type by hand.</p>
-<p>What happens next depends on whether that repo/slug already has a live
-session:</p>
-<ul>
-<li><strong>Live session exists</strong> → switches you into it and puts a short pointer
-on the clipboard (<code>wl-copy</code>), naming the task file. Paste it in whenever
-you're ready.</li>
-<li><strong>No live session</strong> → <code>wb new --agent</code> spawns one, <code>handoff.sh</code> polls for
-the boot-ready screen, injects the pointer, then polls for and clears the
-one-time <code>~/code/tasks/</code> read-permission prompt automatically. You land
-on a session that's already read its task file and started working.</li>
-</ul>
-<h2 id="the-first-action-lives-in-the-task-file-not-a-flag">The first action lives in the task file, not a flag</h2>
-<p>Unlike a typical CLI tool, <code>handoff.sh</code> takes no <code>--first-action</code> flag.
-<code>/handoff</code> writes a line directly into the target task file's body,
-immediately under its title — the exact convention this task file itself
-used to bootstrap its own <code>/ce-plan</code> pass:</p>
-<pre><code>**First action when picked up:** `/ce-plan` from this file.
-</code></pre>
-<p>Defaults to <code>/ce-plan</code>; the skill only picks something else (e.g.
-<code>/ce-work</code>) when the work is already fully scoped, and always says which
-it chose and why. This isn't just a style choice — it also means the
-pointer <code>handoff.sh</code> injects is a single fixed string with nothing
-runtime-variable in it, which is what makes the boot-ready/permission-
-prompt anchors safe to match against (see <code>docs/roadmap-handoff.md</code>'s
-dry-run findings for the mechanical reasoning).</p>
-<h2 id="pane-mode--removed-2026-09-14">Pane mode — removed 2026-09-14</h2>
-<p><code>/handoff-pane</code> (a second agent in a split pane of the current tmux window,
-sharing this session's worktree) was removed in the 2026-09-14 piece audit —
-zero measured usage since it shipped. <code>/handoff</code> covers the routing use case:
-an already-live session (switch + clipboard) or a freshly spawned one (<code>wb new --agent</code>). If you need a second agent looking at this exact worktree's
-uncommitted changes again in the future, that's the gap <code>/handoff-pane</code> used
-to fill; for now, commit or stash first and route via <code>/handoff</code> instead.</p>
-<h2 id="what-v1-doesnt-do">What v1 doesn't do</h2>
-<ul>
-<li><strong>Fan-out.</strong> One discussion → several linked tasks depends on the task
-parent/child relationship — already shipped (PR #17), not just designed.
-The gap is that <code>/handoff</code> itself isn't wired to loop over it yet.
-<code>/handoff</code> routes the single most relevant target and says so.</li>
-<li><strong>Instructing an already-busy live agent directly.</strong> The switch path is
-clipboard-only — you paste the pointer in yourself when the agent is
-ready for it, rather than <code>/handoff</code> injecting into a pane that might be
-mid-turn on something else.</li>
-<li><strong>Non-blocking invocation.</strong> Running independently of the current
-turn — not blocking on it, not affecting its response — is a real,
-different idea raised while planning v1, deliberately parked until v1
-has seen real usage (<code>docs/roadmap-handoff.md</code> &quot;Follow-on idea&quot;).</li>
-<li><strong>Self-handoff between stages.</strong> Clearing your own context mid-task
-(e.g. after <code>/ce-plan</code> finishes, before <code>/ce-work</code> starts) is a
-different mechanic entirely — same session, not a different one — and
-its own not-yet-planned follow-up (<code>docs/roadmap-handoff.md</code>
-&quot;Follow-on idea: self-handoff between stages&quot;).</li>
-</ul>
-<p>Full mechanical rationale — the anchor sets, the permission handshake, why
-<code>wb.sh</code> is never touched, all three dry-run findings — lives in
-<a href="roadmap-handoff.html"><code>roadmap-handoff.md</code></a>, not repeated here.</p>
+<p>This blocks in your terminal (it's meant to run backgrounded when an agent
+calls it) and opens a browser tab on a free <code>127.0.0.1</code> port. Two of the
+fixture's three rows have a suggested verdict pre-selected; the third
+(<code>row-3</code>) has none, so it shows as &quot;needs me&quot; and stays unresolved even if
+you leave it alone. Click Submit (with or without touching anything) to see
+<code>answers.json</code> written to <code>/tmp/review-page-example-answers.json</code>, then
+Ctrl-C the script if it's still running.</p>
+<h2 id="how-it-differs-from-decision-buffer">How it differs from decision-buffer</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>decision-buffer</code> (six nvim shapes)</th>
+<th><code>review-page</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Surface</td>
+<td>markdown buffer in nvim, opened in a tmux split</td>
+<td>HTML page served on <code>127.0.0.1</code>, opened in a browser tab</td>
+</tr>
+<tr>
+<td>Scale</td>
+<td>small batches, a handful of options/questions</td>
+<td>large batches, ≳25 rows</td>
+</tr>
+<tr>
+<td>Untouched-row default</td>
+<td><strong>nothing applies</strong> — silence is never consent</td>
+<td><strong>the suggested verdict applies</strong> — silence is consent unless a note says otherwise</td>
+</tr>
+<tr>
+<td>Per-row extras</td>
+<td>none needed at that scale</td>
+<td>evidence toggle, dependency chips, free-text grouping, Agree button</td>
+</tr>
+<tr>
+<td>Opting out</td>
+<td>leave everything unmarked</td>
+<td>change the verdict, or leave a row/global note</td>
+</tr>
+</tbody>
+</table>
+<p>Use <code>decision-buffer</code> instead for a settled 2-4 option choice or a short
+interview — the review-page machinery (spec file, HTTP server, filters) is
+overkill below its threshold. See <code>claude/.claude/skills/review-page/SKILL.md</code>
+for the fuller when-to-use guidance and the exact spec-writing rules.</p>
+<h2 id="the-close-rule">The close rule</h2>
+<ol>
+<li>A <strong>row note</strong> or the page's <strong>global questions box</strong> must be answered
+before anything tied to it is acted on.</li>
+<li>A row with no note, left untouched, and carrying a non-empty <code>suggested</code>
+verdict: <strong>that suggestion applies</strong> — same as if the user had clicked
+Agree.</li>
+<li>A row with <strong>no suggestion at all</strong> (empty <code>suggested</code>) and left
+untouched is <strong>unresolved</strong> — there's nothing to silently accept, so it
+gets re-asked rather than defaulted or skipped.</li>
+<li>The footer's &quot;accept remaining defaults for untouched rows&quot; checkbox is
+pre-ticked by default (a spec can turn this off with
+<code>&quot;accept_defaults_default&quot;: false</code>); unticking it flips untouched rows
+back to &quot;apply nothing&quot; — Submit only warns in that case.</li>
+<li>A second round rewrites the spec fresh with only the still-unresolved
+rows — settled ones collapse into a summary rather than being reshown.</li>
+</ol>
+<p>Full field-by-field detail lives in
+<code>claude/.claude/skills/review-page/references/spec-and-close-contract.md</code>.</p>
 </article>
     <footer>
-  Generated by <code>docgen</code> from <code>docs/handoff-guide.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/guides/review-page.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
   </main>

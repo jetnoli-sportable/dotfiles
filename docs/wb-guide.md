@@ -437,8 +437,10 @@ narrow split pane rather than squeezing STATUS/REPO/TASK to make room.
 
 `wb board --html` writes `logs/board.html` (gitignored, overwritten on every
 call) — a richer, filterable view over the whole store that goes well beyond
-the plain-text table above. Open it with `xdg-open logs/board.html` or via
-`/wb-board html` from inside a session.
+the plain-text table above. Open it with `xdg-open logs/board.html`, or ask
+an agent to run `wb board --html` and relay the path (the `/wb-board` skill
+was removed 2026-09-14 — zero measured usage, agents were already just
+shelling out to `wb board` manually and relaying the result).
 
 **Pipeline tab, first and default.** One row per task that isn't `done` yet,
 regardless of the today/week window — a task untouched for two weeks still

@@ -3,8 +3,9 @@
 locally-served HTML review table for a batch of items too large for a
 markdown buffer (>~25 rows, or needing defaults + grouping + questions).
 
-Mirrors scripts/open-buffer.sh's contract (see references/mechanism.md)
-rather than reinventing one: same state-file fields (chan, pane_id,
+Mirrors the decision-buffer skill's scripts/open-buffer.sh contract (see
+claude/.claude/skills/decision-buffer/references/mechanism.md) rather than
+reinventing one: same state-file fields (chan, pane_id,
 mode, opened_at, caller_pid, content_hash, reopen_count, closed), same
 tmux wait-for signal on close, same "run this backgrounded" expectation
 for the calling agent. mode is always "review-page" here; pane_id is
@@ -326,7 +327,10 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
     if close_rule_html:
         intro_html += '<hr style="border-color:var(--overlay); margin:8px 0;">' + close_rule_html
 
-    accept_defaults_checked = " checked" if spec.get("accept_defaults_default", False) else ""
+    # Contract (2026-09-14): no action on a row = accept its suggestion.
+    # accept-remaining-defaults is pre-ticked by default; a spec can turn it
+    # off with "accept_defaults_default": false.
+    accept_defaults_checked = " checked" if spec.get("accept_defaults_default", True) else ""
 
     return PAGE_TEMPLATE.format(
         title=esc(title),

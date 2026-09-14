@@ -1,23 +1,27 @@
-# Shape: Review Page
+# review-page: spec format and close contract
 
-The seventh shape. For a batch too large or too structured for a markdown buffer —
-more than ~25 rows, or when what's needed is per-row defaults (a suggested verdict
-per item), free-text grouping, AND per-row questions all at once. A markdown buffer
-with 40+ checkbox blocks is unreadable and slow to scan; this shape trades the nvim
-buffer for a locally-served HTML page with filtering, keyboard navigation, and a
-submit button, while keeping the same open/wait/parse contract as every other shape.
+The mechanism this skill uses in place of a markdown buffer, for a batch too
+large or too structured for one — more than ~25 rows, or when what's needed is
+per-row defaults (a suggested verdict per item), free-text grouping, AND
+per-row questions all at once. A markdown buffer with 40+ checkbox blocks is
+unreadable and slow to scan; this shape trades the nvim buffer for a
+locally-served HTML page with filtering, keyboard navigation, and a submit
+button, while keeping the same open/wait/parse contract as decision-buffer's
+own shapes.
 
-Use `findings-review.md` or `code-review-triage.md` instead for a small batch (under
-~25 items) with no grouping/defaults need — this shape's extra machinery (a local
-HTTP server, a spec file, a browser tab) isn't worth it below that size.
+Use `decision-buffer`'s `findings-review.md` or `code-review-triage.md`
+instead for a small batch (under ~25 items) with no grouping/defaults need —
+this shape's extra machinery (a local HTTP server, a spec file, a browser tab)
+isn't worth it below that size.
 
 ## Mechanism (differs from the nvim-buffer shapes)
 
-This shape does NOT call `scripts/open-buffer.sh`. It calls
-`scripts/review-page.py` instead, which mirrors the same contract described in
-`references/mechanism.md` — same state-file fields, same "always run backgrounded"
-rule, same `tmux wait-for` signal on close — but serves a page over
-`http://127.0.0.1:<port>` rather than opening nvim in a tmux pane or terminal.
+This does NOT call decision-buffer's `scripts/open-buffer.sh`. It calls this
+skill's own `scripts/review-page.py` instead, which mirrors the same contract
+described in decision-buffer's `references/mechanism.md` — same state-file
+fields, same "always run backgrounded" rule, same `tmux wait-for` signal on
+close — but serves a page over `http://127.0.0.1:<port>` rather than opening
+nvim in a tmux pane or terminal.
 
 **Why HTTP, not `file://`:** snap-packaged Chromium cannot open `file://` URLs
 under hidden directories (a documented environment limitation) — serving over
@@ -26,7 +30,7 @@ under hidden directories (a documented environment limitation) — serving over
 Invoke exactly like this, as a **backgrounded** Bash call:
 
 ```bash
-python3 claude/.claude/skills/decision-buffer/scripts/review-page.py \
+python3 claude/.claude/skills/review-page/scripts/review-page.py \
   --spec /path/to/spec.json --out /path/to/answers.json --title "Something Review"
 # run_in_background: true — this blocks until the page POSTs /submit
 ```
@@ -96,11 +100,18 @@ common case of reviewing many rows where the suggested verdict is simply
 right — clicking it sets `verdict=suggested` and `touched=true` (a subtle
 green left accent marks the row), and clicking again untouches it. Keyboard:
 `a` agrees with the keyboard-focused row, `A` (shift) agrees with every
-currently *visible* (filtered) row at once. A sticky footer badge
-("untouched: N") tracks rows never interacted with — including via Agree —
-and Submit warns before submitting with `accept_defaults` unticked and N>0.
-Set top-level spec flag `"accept_defaults_default": true` to pre-tick that
-footer checkbox (default `false`).
+currently *visible* (filtered) row at once. **The Agree button is a
+convenience, not a requirement** — see the contract below: leaving a row
+alone already accepts its suggestion, Agree just marks it touched so it
+doesn't read as something you missed. A sticky footer badge ("untouched: N")
+tracks rows never interacted with — including via Agree — purely as a
+visibility aid, not a warning. The footer's "accept remaining defaults for
+untouched rows" checkbox is **pre-ticked by default** (`accept_defaults_default`
+defaults to `true`; set it to `false` in the spec to require an explicit
+tick). Submit only warns when that checkbox has been unticked AND N>0 — the
+opposite direction from what you might expect from an nvim decision-buffer,
+where silence means nothing happens. Here, silence means "I accept the
+suggestion" (see Close semantics below).
 
 ## Answers format (`answers.json`, written by the script, read by the agent)
 
@@ -130,21 +141,33 @@ asking first.
 
 ## Close semantics — read in this order
 
+**The headline rule, stated once up front because it inverts the nvim
+decision-buffer default:** in this flow, **no action on a row means accept
+its suggested verdict.** Opt-out is an explicit act — a changed verdict, a
+row note, or a word in the global questions box — never silence. This is the
+*opposite* of decision-buffer's nvim shapes, where a silent close applies
+nothing. Every review-page intro must say this plainly ("leaving a row alone
+accepts its suggestion") so it's never assumed from memory.
+
 1. **A non-empty `global_note` is answered before anything else is acted on.**
    It applies to the whole review, not one row — treat it like a blocking
    question, the same way an unresolved note blocks its own row (below).
 2. **Any item with a non-empty `note` must be answered before its verdict is
    acted on**, regardless of what `verdict` or `touched` say for that row. A
    question attached to a row means the row isn't settled yet, even if a
-   verdict was also picked.
-3. **`accept_defaults=false` → only `touched` rows apply.** Untouched rows
-   (the ones where the user never interacted with the verdict, group, or note
-   fields) get no action at all — not even their `suggested` default. Silence
-   is never read as consent, same rule as every other shape.
-4. **`accept_defaults=true` → untouched rows take their `suggested` verdict.**
-   This only fires for rows that still have a non-empty `suggested` value —
-   a row with no suggestion and no interaction stays unresolved and should be
-   flagged back to the user rather than silently skipped.
+   verdict was also picked. A row note is the correct way to opt a row out of
+   the "no action = accept" default.
+3. **`accept_defaults=true` (the default) → untouched rows take their
+   `suggested` verdict.** This only fires for rows that still have a
+   non-empty `suggested` value — a row with an **empty** `suggested` (no
+   signal) that's also untouched is **unresolved**, never defaulted; flag it
+   back to the user and re-ask rather than silently skipping or applying
+   anything.
+4. **`accept_defaults=false` (spec set `accept_defaults_default: false`, or
+   the user unticked the footer checkbox) → only `touched` rows apply.**
+   Untouched rows get no action at all — not even their `suggested` default.
+   This is the one case where silence is read as "not yet decided," not as
+   consent — it only applies when the checkbox is explicitly off.
 5. **A submit with zero touched rows and `accept_defaults=false` applies
    nothing.** Report this plainly rather than treating it as an empty-but-valid
    result — it usually means the user looked and left without deciding, not
@@ -157,6 +180,7 @@ beyond "these belong together" from the text itself.
 
 ## When it earns its place vs. a companion HTML
 
-This shape IS the interactive artifact — it never gets a separate companion
-HTML the way `choice.md`/`findings-review.md` sometimes do (§11 of SKILL.md).
-Don't write both a review-page spec and a companion doc for the same review.
+This page IS the interactive artifact — it never gets a separate companion
+HTML the way decision-buffer's `choice.md`/`findings-review.md` sometimes do
+(§11 of decision-buffer's SKILL.md). Don't write both a review-page spec and a
+companion doc for the same review.

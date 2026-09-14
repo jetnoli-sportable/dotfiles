@@ -705,8 +705,10 @@ narrow split pane rather than squeezing STATUS/REPO/TASK to make room.</p>
 <h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
 <p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
 call) — a richer, filterable view over the whole store that goes well beyond
-the plain-text table above. Open it with <code>xdg-open logs/board.html</code> or via
-<code>/wb-board html</code> from inside a session.</p>
+the plain-text table above. Open it with <code>xdg-open logs/board.html</code>, or ask
+an agent to run <code>wb board --html</code> and relay the path (the <code>/wb-board</code> skill
+was removed 2026-09-14 — zero measured usage, agents were already just
+shelling out to <code>wb board</code> manually and relaying the result).</p>
 <p><strong>Pipeline tab, first and default.</strong> One row per task that isn't <code>done</code> yet,
 regardless of the today/week window — a task untouched for two weeks still
 shows up here, since the point is a complete in-flight surface, not a

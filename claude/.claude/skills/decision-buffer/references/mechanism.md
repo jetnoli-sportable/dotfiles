@@ -29,7 +29,7 @@ mode):
 | `--manual` | decision-buffer et al., headless (no tmux, no terminal spawn) | no — prints a copyable `! nvim <path>` command and returns immediately | yes (records the offer was made) | no |
 | `--direct` | `wb.sh`'s own non-agent callers (`wb reconcile --review`, sweep-review call sites) | yes, synchronously in the calling shell | **no** | no |
 | `--reattach` | any caller resuming an interrupted `--tmux` wait | yes (`tmux wait-for` again), or returns immediately if the wait shouldn't resume | rewrites nothing; only deletes the state file on completion | yes, while re-waiting |
-| `review-page` (`scripts/review-page.py`, not `open-buffer.sh`) | the review-page shape only, for a large batch served as HTML instead of an nvim buffer | yes (blocks until the page POSTs `/submit`) | yes, same field set, `mode=review-page`, `pane_id` always empty | no — there is no tmux pane to mark, only a local HTTP server and a browser tab |
+| `review-page` — a separate skill now, not a mode of this script; see `claude/.claude/skills/review-page/SKILL.md` | large batches (≳25 rows) served as HTML instead of an nvim buffer | yes (blocks until the page POSTs `/submit`) | yes, same field set, `mode=review-page`, `pane_id` always empty | no — there is no tmux pane to mark, only a local HTTP server and a browser tab |
 
 `--direct` exists only to reproduce `wb_open_buffer()`'s pre-existing
 non-tmux branch (`scripts/.config/scripts/tmux/wb.sh:2800-2802`) exactly —
