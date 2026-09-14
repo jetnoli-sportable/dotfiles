@@ -49,7 +49,10 @@ cat > "$SPEC" <<'EOF'
           "suggested_reason": "clear win",
           "depends_on": [],
           "depended_on_by": ["item-2"],
-          "links": []
+          "links": [],
+          "meta": [["size", "M"], ["owner", "jet"]],
+          "description": "### Plan\n- step one\n- step two",
+          "fields": [{"key": "slug", "label": "slug", "value": "feat/one"}]
         },
         {
           "id": "item-2",
@@ -105,6 +108,17 @@ fi
 pass "server came up"
 
 BODY="$(curl -s "http://127.0.0.1:$PORT/")"
+if echo "$BODY" | grep -q 'id="details-item-1"' && echo "$BODY" | grep -q 'data-field-key="slug"' && echo "$BODY" | grep -q '<span class="meta-k">size</span> M' && echo "$BODY" | grep -q "<ul class='md-ul'><li>step one</li>"; then
+  pass "details row, editable field, meta chip and block-markdown render"
+else
+  fail "details/fields/meta/markdown missing from page"
+fi
+if echo "$BODY" | grep -q 'id="details-item-2"'; then
+  fail "item-2 has no description/fields but got a details row"
+else
+  pass "no details row for an item without description/fields"
+fi
+if echo "$BODY" | grep -q 'id="sections-marker-absent"'; then :; fi
 if echo "$BODY" | grep -q '<title>Fixture Review</title>'; then
   pass "GET / returns 200 with title present"
 else

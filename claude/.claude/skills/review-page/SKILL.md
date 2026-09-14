@@ -108,6 +108,17 @@ Rules learned building and running this mechanism (2026-09-14, see
   all (see Close contract) — set it to `false` explicitly only when you want
   the user to have to opt every row in by hand.
 
+- **Use `description` + `fields` when the row IS the artefact** (a proposed
+  child task, a ticket to create): the long body goes in the collapsed details
+  panel, the machine-read values (slug, goal, size, deps) go in editable
+  `fields` so the answers can feed the apply step directly. Put a summary of
+  the *directions* the batch could take — the alternatives you considered and
+  why the rows are shaped the way they are — in a top-of-page `sections`
+  panel, not in the intro (Jet, 2026-09-14: "do a summary of possible
+  breakdown directions on top of the page").
+- **`meta` chips carry the facts a reviewer compares across rows** (size,
+  stage, deps count) so the table reads like a table, not a list of prose.
+
 Full field-by-field spec format, verdict/area/item schema, and the answers
 format are in `references/spec-and-close-contract.md` — load it before
 writing a spec, don't reconstruct the JSON shape from memory.

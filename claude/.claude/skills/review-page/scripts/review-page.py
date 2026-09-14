@@ -193,6 +193,72 @@ def md_lite(s: str) -> str:
     return out
 
 
+def md_block(s: str) -> str:
+    """Small block-level markdown -> HTML for long bodies (descriptions,
+    top-of-page sections): paragraphs, `- `/`* ` bullets, `1. ` numbered
+    lists, `#`/`##`/`###` headings, ``` fences, plus md_lite inline. Not a
+    full markdown parser — enough for a task Plan body to read well."""
+    if not s:
+        return ""
+    import re
+    lines = s.splitlines()
+    out, i = [], 0
+    para = []
+    def flush_para():
+        if para:
+            out.append("<p>%s</p>" % md_lite("\n".join(para)))
+            para.clear()
+    while i < len(lines):
+        ln = lines[i]
+        if ln.strip().startswith("```"):
+            flush_para()
+            j = i + 1
+            buf = []
+            while j < len(lines) and not lines[j].strip().startswith("```"):
+                buf.append(lines[j]); j += 1
+            out.append("<pre class='md-pre'>%s</pre>" % esc("\n".join(buf)))
+            i = j + 1
+            continue
+        m = re.match(r"^(#{1,4})\s+(.*)$", ln)
+        if m:
+            flush_para()
+            lvl = min(len(m.group(1)) + 2, 6)
+            out.append("<h%d class='md-h'>%s</h%d>" % (lvl, md_lite(m.group(2)), lvl))
+            i += 1
+            continue
+        if re.match(r"^\s*[-*]\s+", ln):
+            flush_para()
+            items = []
+            while i < len(lines) and re.match(r"^\s*[-*]\s+", lines[i]):
+                item = re.sub(r"^\s*[-*]\s+", "", lines[i])
+                i += 1
+                # continuation lines (indented, non-bullet) belong to the item
+                while i < len(lines) and lines[i].startswith("  ") and not re.match(r"^\s*[-*]\s+|^\s*\d+\.\s+", lines[i]):
+                    item += " " + lines[i].strip(); i += 1
+                items.append("<li>%s</li>" % md_lite(item))
+            out.append("<ul class='md-ul'>%s</ul>" % "".join(items))
+            continue
+        if re.match(r"^\s*\d+\.\s+", ln):
+            flush_para()
+            items = []
+            while i < len(lines) and re.match(r"^\s*\d+\.\s+", lines[i]):
+                item = re.sub(r"^\s*\d+\.\s+", "", lines[i])
+                i += 1
+                while i < len(lines) and lines[i].startswith("  ") and not re.match(r"^\s*[-*]\s+|^\s*\d+\.\s+", lines[i]):
+                    item += " " + lines[i].strip(); i += 1
+                items.append("<li>%s</li>" % md_lite(item))
+            out.append("<ol class='md-ol'>%s</ol>" % "".join(items))
+            continue
+        if not ln.strip():
+            flush_para()
+            i += 1
+            continue
+        para.append(ln)
+        i += 1
+    flush_para()
+    return "".join(out)
+
+
 def render_page(spec: dict, title: str, spec_hash: str) -> str:
     verdicts = spec.get("verdicts") or []
     areas = spec.get("areas") or []
@@ -245,6 +311,48 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
             return "<ul class='evidence-list'>%s</ul>" % items
         return "<div class='evidence-text'>%s</div>" % md_lite(evidence)
 
+    def meta_html(meta):
+        """`meta`: list of [label, value] pairs (or a dict) -> compact chips
+        in the item cell — structured facts the reviewer should see without
+        expanding anything (size, slug, stage path, owner, ...)."""
+        if not meta:
+            return ""
+        pairs = meta.items() if isinstance(meta, dict) else meta
+        chips = []
+        for pair in pairs:
+            try:
+                k, v = pair
+            except Exception:
+                continue
+            if v in (None, "", [], {}):
+                continue
+            if isinstance(v, (list, tuple)):
+                v = ", ".join(str(x) for x in v)
+            chips.append('<span class="meta-chip"><span class="meta-k">%s</span> %s</span>' % (esc(k), esc(v)))
+        return ('<div class="item-meta">%s</div>' % "".join(chips)) if chips else ""
+
+    def fields_html(iid, fields):
+        """`fields`: list of {key,label,value,placeholder,wide} -> editable
+        inputs inside the details panel. Values come back in answers.json
+        under item.fields; a changed value marks the row touched."""
+        if not fields:
+            return ""
+        parts = []
+        for f in fields:
+            key = esc(f.get("key", ""))
+            if not key:
+                continue
+            label = esc(f.get("label", key))
+            value = esc(f.get("value", ""))
+            ph = esc(f.get("placeholder", ""))
+            wide = " wide" if f.get("wide") else ""
+            parts.append(
+                '<label class="field%s"><span class="field-label">%s</span>'
+                '<input type="text" class="field-input" data-item-id="%s" data-field-key="%s" '
+                'data-original="%s" value="%s" placeholder="%s"></label>' % (
+                    wide, label, iid, key, value, value, ph))
+        return ('<div class="fields-grid">%s</div>' % "".join(parts)) if parts else ""
+
     def links_html(links):
         if not links:
             return ""
@@ -271,6 +379,23 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
             deps = dep_chips(item.get("depends_on"), "&larr; ")
             depby = dep_chips(item.get("depended_on_by"), "&rarr; ")
             links = links_html(item.get("links"))
+            meta = meta_html(item.get("meta"))
+            description = item.get("description", "")
+            fields = item.get("fields") or []
+            has_details = bool(description or fields)
+            details_html = ""
+            if has_details:
+                details_html = f'''
+<tr id="details-{iid}" class="details-row" data-item-id="{iid}" data-area="{aid}" hidden>
+  <td colspan="8" class="details-cell">
+    {fields_html(iid, fields)}
+    {f'<div class="details-body">{md_block(description)}</div>' if description else ''}
+  </td>
+</tr>'''
+            details_btn = (
+                f'<button type="button" class="details-toggle" data-action="toggle-details" '
+                f'data-item-id="{iid}" title="expand details (d)">details &#9656;</button>'
+            ) if has_details else ""
             needs_me = "1" if (not suggested or "unclear" in reason.lower()) else "0"
 
             rows_html.append(f'''
@@ -280,7 +405,8 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
   <td class="col-item">
     <div class="item-title">{esc(item.get("title", iid))}</div>
     <div class="item-where">{where}</div>
-    <div class="item-links">{links}</div>
+    {meta}
+    <div class="item-links">{links} {details_btn}</div>
   </td>
   <td class="col-what">{what}</td>
   <td class="col-evidence">
@@ -303,7 +429,7 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
   <td class="col-note">
     <textarea class="note-input" data-item-id="{iid}" rows="1" placeholder="ask / note"></textarea>
   </td>
-</tr>''')
+</tr>{details_html}''')
         area_tables.append(f'''
 <section class="area-block" data-area="{aid}">
   <h2 class="area-title">{atitle} <span class="area-count" data-area-count="{aid}"></span></h2>
@@ -338,6 +464,24 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
         for a in areas
     )
 
+    # `sections`: list of {title, md, open} rendered as collapsible panels
+    # between the intro box and the tables — for a directions summary, a
+    # glossary, a "how this maps onto the apply step" note. Closed unless
+    # `open: true`.
+    sections_html = ""
+    for sec in spec.get("sections") or []:
+        stitle = esc(sec.get("title", "section"))
+        sbody = md_block(sec.get("md", ""))
+        sopen = " open" if sec.get("open") else ""
+        sections_html += f'<details class="page-section"{sopen}><summary>{stitle}</summary><div class="page-section-body">{sbody}</div></details>'
+
+    # `hide_columns`: list of column keys (what, evidence, deps, group, note)
+    # to hide when a review doesn't use them — frees width for the rest.
+    hide_cols = spec.get("hide_columns") or []
+    hide_css = "".join(
+        ".review-table .col-%s { display: none; }" % esc(c) for c in hide_cols
+    )
+
     intro_html = md_lite(intro_md)
     if close_rule_html:
         intro_html += '<hr style="border-color:var(--overlay); margin:8px 0;">' + close_rule_html
@@ -358,6 +502,8 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
         spec_hash_json=spec_hash_json,
         total_items=len(all_items),
         accept_defaults_checked=accept_defaults_checked,
+        sections_html=sections_html,
+        hide_css=hide_css,
     )
 
 
@@ -492,12 +638,49 @@ footer.submit-bar textarea {{
   padding: 6px 12px; font-size: 13px; font-weight: 600;
 }}
 .footer-badge.warn {{ background: var(--yellow); color: var(--base); }}
+.page-section {{
+  background: var(--surface); border: 1px solid var(--overlay); border-radius: 10px;
+  padding: 8px 16px; margin: 10px 0; max-width: 1100px;
+}}
+.page-section > summary {{ cursor: pointer; font-weight: 600; font-size: 15px; }}
+.page-section-body {{ font-size: 14px; color: var(--text); margin-top: 6px; }}
+.item-meta {{ margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }}
+.meta-chip {{
+  display: inline-block; background: var(--base); border: 1px solid var(--overlay);
+  border-radius: 6px; padding: 1px 6px; font-size: 12px; font-family: monospace;
+}}
+.meta-k {{ color: var(--subtext); }}
+.details-toggle {{
+  background: var(--overlay); color: var(--text); border: none; border-radius: 6px;
+  padding: 3px 8px; font-size: 12px; cursor: pointer; margin-left: 4px;
+}}
+.details-toggle.open {{ background: var(--mauve); color: var(--base); }}
+.details-row td.details-cell {{
+  background: var(--base); padding: 12px 18px 14px 40px; font-size: 14px;
+  border-bottom: 2px solid var(--overlay);
+}}
+.details-body {{ max-width: 1100px; }}
+.details-body p {{ margin: 4px 0 8px; }}
+.md-h {{ margin: 10px 0 4px; font-size: 14px; color: var(--mauve); }}
+.md-ul, .md-ol {{ margin: 4px 0 8px 20px; padding: 0; }}
+.md-pre {{ background: var(--surface); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; }}
+.fields-grid {{ display: flex; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 10px; }}
+.field {{ display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--subtext); min-width: 160px; }}
+.field.wide {{ flex: 1 1 100%; }}
+.field-input {{
+  background: var(--surface); color: var(--text); border: 1px solid var(--overlay);
+  border-radius: 6px; padding: 5px 7px; font-size: 13px; font-family: monospace;
+}}
+.field-input.changed {{ border-color: var(--yellow); }}
+.details-row.hidden-by-filter {{ display: none; }}
+{hide_css}
 </style>
 </head>
 <body>
 <header>
   <h1>{title}</h1>
   <div class="intro-box">{intro_html}</div>
+  {sections_html}
   <div class="counts-strip" id="counts-strip"></div>
 </header>
 <div class="filter-bar">
@@ -507,6 +690,8 @@ footer.submit-bar textarea {{
   <label><input type="checkbox" id="needs-me-filter"> needs me</label>
   <label><input type="checkbox" id="touched-filter"> touched only</label>
   <label><input type="checkbox" id="untouched-filter"> untouched only</label>
+  <button type="button" class="btn secondary" id="expand-all" style="padding:4px 10px;font-size:12px">expand all details</button>
+  <button type="button" class="btn secondary" id="collapse-all" style="padding:4px 10px;font-size:12px">collapse all</button>
 </div>
 <datalist id="group-options"></datalist>
 <main id="main">
@@ -531,8 +716,34 @@ function initState() {{
   document.querySelectorAll('.item-row').forEach(row => {{
     const id = row.dataset.itemId;
     const suggested = row.dataset.suggested || '';
-    state[id] = {{ verdict: suggested, suggested, touched: false, agreed: false, group: '', note: '' }};
+    state[id] = {{ verdict: suggested, suggested, touched: false, agreed: false, group: '', note: '', fields: {{}}, fieldsChanged: false }};
+    const details = document.getElementById('details-' + id);
+    if (details) {{
+      details.querySelectorAll('.field-input').forEach(inp => {{
+        state[id].fields[inp.dataset.fieldKey] = inp.value;
+      }});
+    }}
   }});
+}}
+
+function setDetails(id, open) {{
+  const details = document.getElementById('details-' + id);
+  const btn = document.querySelector(`.details-toggle[data-item-id="${{CSS.escape(id)}}"]`);
+  if (!details) return;
+  details.hidden = !open;
+  if (btn) {{
+    btn.classList.toggle('open', open);
+    btn.innerHTML = open ? 'details &#9662;' : 'details &#9656;';
+  }}
+}}
+
+function toggleDetails(id) {{
+  const details = document.getElementById('details-' + id);
+  if (details) setDetails(id, details.hidden);
+}}
+
+function setAllDetails(open) {{
+  document.querySelectorAll('.item-row:not(.hidden-by-filter)').forEach(row => setDetails(row.dataset.itemId, open));
 }}
 
 function updateGroupOptions() {{
@@ -607,6 +818,8 @@ function applyFilters() {{
       if (!text.includes(q)) show = false;
     }}
     row.classList.toggle('hidden-by-filter', !show);
+    const details = document.getElementById('details-' + id);
+    if (details) details.classList.toggle('hidden-by-filter', !show);
   }});
 }}
 
@@ -654,6 +867,24 @@ function wireRow(row) {{
     refreshRowClasses(row, id);
     updateCounts();
   }});
+  const detailsBtn = row.querySelector('.details-toggle');
+  if (detailsBtn) {{
+    detailsBtn.addEventListener('click', () => toggleDetails(id));
+  }}
+  const detailsRow = document.getElementById('details-' + id);
+  if (detailsRow) {{
+    detailsRow.querySelectorAll('.field-input').forEach(inp => {{
+      inp.addEventListener('input', () => {{
+        state[id].fields[inp.dataset.fieldKey] = inp.value;
+        const changed = inp.value !== inp.dataset.original;
+        inp.classList.toggle('changed', changed);
+        state[id].fieldsChanged = Array.from(detailsRow.querySelectorAll('.field-input')).some(x => x.value !== x.dataset.original);
+        state[id].touched = true;
+        refreshRowClasses(row, id);
+        updateCounts();
+      }});
+    }});
+  }}
   const evToggle = row.querySelector('.ev-toggle');
   if (evToggle) {{
     evToggle.addEventListener('click', () => {{
@@ -719,6 +950,7 @@ function buildAnswers() {{
   const items = Object.entries(state).map(([id, s]) => ({{
     id, verdict: s.verdict, suggested: s.suggested, touched: !!s.touched,
     group: s.group || '', note: s.note || '',
+    fields: s.fields || {{}}, fields_changed: !!s.fieldsChanged,
   }}));
   const untouchedCount = items.filter(i => !i.touched).length;
   return {{
@@ -759,6 +991,12 @@ function wireKeyboard() {{
       }}
     }} else if (e.key === 'A') {{
       agreeAllVisible();
+      e.preventDefault();
+    }} else if (e.key === 'd') {{
+      if (rs[focusedIdx]) {{ toggleDetails(rs[focusedIdx].dataset.itemId); e.preventDefault(); }}
+    }} else if (e.key === 'D') {{
+      const anyOpen = Array.from(document.querySelectorAll('.details-row')).some(d => !d.hidden);
+      setAllDetails(!anyOpen);
       e.preventDefault();
     }} else if (e.key === 'g') {{
       if (rs[focusedIdx]) {{ rs[focusedIdx].querySelector('.group-input').focus(); e.preventDefault(); }}
@@ -818,6 +1056,8 @@ wireKeyboard();
 ['needs-me-filter', 'touched-filter', 'untouched-filter'].forEach(id => document.getElementById(id).addEventListener('change', applyFilters));
 document.getElementById('submit-btn').addEventListener('click', submit);
 document.getElementById('copy-btn').addEventListener('click', copyJson);
+document.getElementById('expand-all').addEventListener('click', () => setAllDetails(true));
+document.getElementById('collapse-all').addEventListener('click', () => setAllDetails(false));
 document.querySelectorAll('.note-input').forEach(autoGrow);
 </script>
 </body>

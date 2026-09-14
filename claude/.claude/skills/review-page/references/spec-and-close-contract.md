@@ -94,6 +94,14 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
 }
 ```
 
+**Richer rows (added 2026-09-14, first use: the wb-breakdown proposal page).** All optional, per item unless noted:
+
+- `meta`: list of `[label, value]` pairs (or a dict). Rendered as compact monospace chips under the title — structured facts the reviewer should see without expanding anything (size, slug, stage path, deps count). Empty values are dropped; list values join with ", ".
+- `description`: a long markdown body (paragraphs, `- ` bullets, `1.` lists, `#`..`####` headings, ``` fences, inline **bold**/`code`). Rendered in a collapsed **details** row under the item; toggled by the row's "details ▸" button, `d` on the focused row, `D` / the "expand all details" button for every visible row. Use it for the thing the verdict is really about (a proposed child's Plan body, a finding's full write-up) — evidence stays the short, checkable list.
+- `fields`: list of `{key, label, value, placeholder, wide}` — editable text inputs shown at the top of the details row. Their current values come back in answers under `item.fields` (`{key: value}`) with `item.fields_changed` true when any differs from what the spec set; editing a field marks the row touched. This is how a page can drive a downstream grammar (e.g. a breakdown child's slug/goal/size) without a second buffer.
+- Spec-level `sections`: list of `{title, md, open}` rendered as collapsible panels between the intro box and the first table — a directions summary, a glossary, "how your answers map onto the apply step". Closed unless `open: true`. Not a substitute for `intro_md`'s six lines; it is where the longer context lives.
+- Spec-level `hide_columns`: list of column keys among `what`, `evidence`, `deps`, `group`, `note` to hide when a review does not use them, freeing width for the rest.
+
 Every `item.id` must be unique across the whole spec (dep chips and row anchors
 are keyed on it). `suggested` may be `""` (no default) — the page then leaves no
 verdict pre-selected and counts that row as "needs me" automatically.
@@ -131,7 +139,9 @@ suggestion" (see Close semantics below).
       "suggested": "apply",
       "touched": true,
       "group": "g1",
-      "note": ""
+      "note": "",
+      "fields": {"slug": "feat/x", "size": "M"},
+      "fields_changed": false
     }
   ]
 }
