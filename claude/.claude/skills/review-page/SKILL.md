@@ -144,6 +144,16 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
   decision to revisit per use.
 - It opens the browser itself (`/snap/bin/chromium` if present, else
   `xdg-open`) — don't also try to open one yourself.
+- **A never-returning backgrounded call usually means the tab got closed
+  without Submit** (or never opened at all) — the server waits forever by
+  default, so check on it rather than assuming it's still being read.
+  `--timeout SECS` bounds the wait: past it, the process exits 4, writes no
+  `answers.json`, and leaves the state file at `closed=0` (nothing was
+  fabricated). Recover either way — a stuck backgrounded call, or a `--timeout`
+  exit-4 you want to keep waiting past — with
+  `review-page.py --reattach /path/to/answers.json` (also backgrounded; see
+  `references/spec-and-close-contract.md`), or just kill the process and
+  re-run with a fresh `--spec`/`--out`.
 
 ## Close contract
 

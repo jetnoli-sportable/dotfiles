@@ -122,6 +122,87 @@ def prepare_open(out_path: str, spec_hash: str):
     return reopen
 
 
+def _wait_for_chan_or_death(chan: str, caller_pid, poll_interval: float = 1.0) -> bool:
+    """Block until either `tmux wait-for <chan>` unblocks (the original
+    process reached its own signal-and-exit) or <caller_pid> dies first
+    (it was killed mid-review, so the signal will never come). Polls the
+    subprocess and pid_alive() rather than a bare blocking wait-for, so a
+    process that dies AFTER --reattach starts waiting is still caught —
+    not just the already-dead case checked before the wait begins."""
+    proc = subprocess.Popen(
+        ["tmux", "wait-for", chan],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    while True:
+        if proc.poll() is not None:
+            return True
+        if not pid_alive(caller_pid):
+            proc.kill()
+            return False
+        time.sleep(poll_interval)
+
+
+def mode_reattach(out_path: str):
+    """--reattach <answers.json> — resume the wait recorded by an earlier
+    (now backgrounded, possibly-dead) `review-page.py` invocation for the
+    same --out path, mirroring open-buffer.sh's own reattach decision tree
+    (references/spec-and-close-contract.md, mechanism.md) rather than a
+    fresh one: this is the one case (a stale in-flight review) the two
+    scripts share, so the shape stays recognizable across both.
+
+    Decision tree:
+      - no state file at all              -> nothing to reattach, exit 1
+      - closed=1 (a normal prior close)    -> print <out_path>, exit 0
+      - closed=0, caller_pid already dead  -> exit 3 (process died before
+                                               submit — re-run)
+      - closed=0, caller_pid alive         -> wait (tmux wait-for <chan> if
+                                               tmux+TMUX are available, else
+                                               poll the state file) until it
+                                               flips to closed=1 or the pid
+                                               dies underneath the wait.
+    """
+    out_path = os.path.abspath(out_path)
+    sf = state_path_for(out_path)
+    state = read_state(sf)
+    if not state:
+        sys.stderr.write("review-page.py: nothing to reattach for %s (no state file)\n" % out_path)
+        sys.exit(1)
+
+    if state.get("closed") == "1":
+        # A normal close writes answers.json BEFORE rewriting the state
+        # file (run_server returns, then main() calls write_state) — so
+        # closed=1 always implies the file is already on disk.
+        print(out_path)
+        sys.exit(0)
+
+    caller_pid = state.get("caller_pid")
+    chan = state.get("chan")
+
+    if not pid_alive(caller_pid):
+        sys.stderr.write("review-page.py: page process died before submit — re-run\n")
+        sys.exit(3)
+
+    if shutil.which("tmux") and os.environ.get("TMUX"):
+        signaled = _wait_for_chan_or_death(chan, caller_pid)
+    else:
+        signaled = False
+        while True:
+            time.sleep(1)
+            cur = read_state(sf)
+            if cur and cur.get("closed") == "1":
+                signaled = True
+                break
+            if not pid_alive(caller_pid):
+                break
+
+    if not signaled:
+        sys.stderr.write("review-page.py: page process died before submit — re-run\n")
+        sys.exit(3)
+
+    print(out_path)
+    sys.exit(0)
+
+
 DEFAULT_PORT = 8765  # stable, bookmarkable; a second concurrent page falls forward
 
 
@@ -178,6 +259,7 @@ def esc(s) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace('"', "&quot;")
+        .replace("'", "&#39;")
     )
 
 
@@ -1190,11 +1272,19 @@ def bind_server(port, page_html: str, spec_hash: str, tries: int = 10):
         candidates[0], candidates[-1], last_err))
 
 
-def run_server(httpd, out_path: str):
+def run_server(httpd, out_path: str, timeout=None):
+    """Blocks until /submit posts, or (with --timeout) until <timeout>
+    seconds pass with no submit — a closed/never-opened tab otherwise waits
+    forever. Returns the answers dict on a normal submit, or None on
+    timeout; the caller (main) tells the two apart to decide whether to
+    write answers.json / flip the state file to closed=1 at all."""
     server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     server_thread.start()
 
-    ReviewHandler.submitted_event.wait()  # blocks until /submit posts
+    got_submit = ReviewHandler.submitted_event.wait(timeout)
+    if not got_submit:
+        httpd.shutdown()
+        return None
 
     answers = ReviewHandler.result_holder.get("answers", {})
     with open(out_path, "w") as f:
@@ -1207,11 +1297,22 @@ def run_server(httpd, out_path: str):
 
 def main():
     ap = argparse.ArgumentParser(description="Serve a generic review-page buffer.")
-    ap.add_argument("--spec", required=True, help="path to spec.json")
-    ap.add_argument("--out", required=True, help="path to write answers.json")
+    ap.add_argument("--spec", default=None, help="path to spec.json (required unless --reattach)")
+    ap.add_argument("--out", default=None, help="path to write answers.json (required unless --reattach)")
     ap.add_argument("--title", default=None, help="override the page title")
     ap.add_argument("--port", default="auto", help="port number; default picks %d (or the next free one above it)" % DEFAULT_PORT)
+    ap.add_argument("--reattach", metavar="ANSWERS_JSON", default=None,
+                     help="resume waiting on an earlier --out invocation instead of starting a new review")
+    ap.add_argument("--timeout", type=float, default=None, metavar="SECS",
+                     help="give up waiting for a submit after SECS seconds (default: wait forever); "
+                          "exits 4, leaves the state file closed=0, writes no answers.json")
     args = ap.parse_args()
+
+    if args.reattach is not None:
+        mode_reattach(args.reattach)  # never returns
+
+    if not args.spec or not args.out:
+        ap.error("--spec and --out are required (unless --reattach is given)")
 
     spec_path = os.path.abspath(args.spec)
     out_path = os.path.abspath(args.out)
@@ -1244,7 +1345,21 @@ def main():
     print("review-page.py: serving %s" % url)
     open_browser(url)
 
-    answers = run_server(httpd, out_path)
+    answers = run_server(httpd, out_path, timeout=args.timeout)
+
+    if answers is None:
+        # Timed out — the tab was closed without Submit, or never opened.
+        # Leave the state file at closed=0 (this run never happened, as far
+        # as the state file is concerned) and write nothing: recovery is
+        # `--reattach <out>` (if the caller wants to keep waiting) or a
+        # fresh `--spec`/`--out` re-run, not a corrupted answers.json.
+        sys.stderr.write(
+            "review-page.py: timed out after %ss waiting for a submit — "
+            "the tab may be closed or was never opened. Recover with "
+            "`review-page.py --reattach %s` to keep waiting, or kill this "
+            "process and re-run.\n" % (args.timeout, out_path)
+        )
+        sys.exit(4)
 
     write_state(sf, chan, "", "review-page", os.getpid(), spec_hash, reopen_count, 1)
 
