@@ -202,6 +202,9 @@ regardless of timing: `ctrl+hjkl` stays reserved for vim-tmux-navigator.
 - **Hold:** nvim bridge fancy features (`:ClaudePick`, yank-code, `gf`) —
   stay installed, no further investment until the basic loop + workbench
   are further along.
-- **Keep as-is:** decision-buffer, `/park` + `/parked-items`,
-  `pr-review-session`, the worktree flow (its ritual is absorbed by
-  `wb new`, not replaced).
+- **Keep as-is:** decision-buffer, `/park` + `/parked-items`, the worktree
+  flow (its ritual is absorbed by `wb new`, not replaced).
+  `pr-review-session` was on this list until 2026-09-14, when the usage
+  inventory for `dotfiles--workflow-strategy-and-ceremonies` showed zero
+  invocations since July and it was removed — the first cut from that
+  task's prune list.
