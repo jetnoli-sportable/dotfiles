@@ -2436,7 +2436,14 @@ _wb_breakdown_validate() {
       [ "$(_wb_bd_checkbox_state "$line")" = checked ] || continue
       printf '%s' "$line" | grep -qP "move follow-up:" || continue
       local move_text move_target
-      move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K[^"]*')"
+      # `[^"]*` used to stop at the first double quote, so a bullet
+      # containing one could never be moved — the buffer's own checkbox
+      # line has nowhere to put that quote unescaped without prematurely
+      # closing the "..." span. `(?:\\"|[^"])*` accepts a backslash-escaped
+      # `\"` as part of the quoted span instead of ending it, then the sed
+      # below undoes the escaping so $move_text matches the ACTUAL
+      # (unescaped) bullet text in ## Follow-ups.
+      move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K(?:\\"|[^"])*' | sed 's/\\"/"/g')"
       move_target="$(printf '%s' "$line" | grep -oP 'child: `\K[^`]*')"
       local match_count; match_count="$(printf '%s' "$followups" | grep -cxF -- "- $move_text")"
       if [ "$match_count" -ne 1 ]; then

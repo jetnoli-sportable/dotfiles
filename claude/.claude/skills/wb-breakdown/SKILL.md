@@ -180,6 +180,12 @@ a migration that hasn't happened yet, more follow-up moves).
   line, quoting the bullet's exact current text (the match at apply time
   is exact-string, not fuzzy). Bullets that don't clearly belong to one
   child stay put by default — checked moves are a move, never a copy.
+  **If the bullet's own text contains a double quote, backslash-escape it
+  as `\"` inside the `"..."` span** (e.g. a bullet `- fix the "stuck" tab`
+  becomes `move follow-up: "fix the \"stuck\" tab" → child: ...`) — the
+  parser accepts `\"` as an escaped quote and unescapes it back to a plain
+  `"` before matching against the real bullet text, so write the bullet's
+  literal quotes escaped, never re-worded to dodge them.
 - **Parent `## Plan` rewrite**: propose a short post-split summary plus
   whatever didn't get absorbed into any child — this replaces the
   parent's entire `## Plan` section at apply time (not appended), so
@@ -323,6 +329,9 @@ Rules worth restating because the parser enforces them exactly:
 - No literal tab characters in `- goal:`, `- size:` or `- depends_on:`
   values — the parser carries them in a tab-separated row, so a tab is a
   hard parse error rather than a silently shifted field.
+- `move follow-up: "..."` accepts a backslash-escaped `\"` inside the
+  quoted span for a bullet whose own text contains a double quote (see
+  R11 above) — write it escaped, don't rephrase the bullet to avoid it.
 - Only the block **header** (the bullets above `begin-plan`) is read for
   `- goal:`/`- size:`/`- depends_on:`. Plan-body lines that happen to
   start the same way are prose and are never picked up, so a blank header
