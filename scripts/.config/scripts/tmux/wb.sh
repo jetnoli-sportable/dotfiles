@@ -12,6 +12,10 @@
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
 #   wb pause [<session>]             shelve a task on purpose: status -> paused, then `wb down`
+#   wb status <task-ref> <planned|paused|doing|review>
+#                                    set a store-only task's status: field directly, under the
+#                                    per-task lock — refuses when a live session's @task already
+#                                    points at it (use wb pause/wb down from that session instead)
 #   wb pr-open [<session>]           exit 0 if the session's branch has an open PR, 1 otherwise
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb jira-set <repo>--<slug> <url> stamp a created Jira ticket URL into a task's jira: field
@@ -3406,6 +3410,87 @@ cmd_append() {
 }
 
 # ---------------------------------------------------------------------------
+# wb status — set a STORE-ONLY task's status: field directly (no live
+# session to route the change through `wb pause`/`wb down`/`wb resume`).
+# ---------------------------------------------------------------------------
+
+# cmd_status <task-ref> <planned|paused|doing|review> — resolves <task-ref>
+# via _wb_append_resolve_task (the same exact-then-fuzzy resolver `wb
+# append` uses — fail-loud on ambiguity), refuses when any LIVE tmux
+# session's @task already points at the resolved file (this verb is for
+# tasks with no session to carry the transition — a live session must go
+# through wb pause/wb down, which also handle the session side), then
+# rewrites `status:` in the frontmatter block only, under the per-task lock,
+# preserving a trailing inline comment on that line if present (TEMPLATE.md/
+# README.md's own `status: planned|doing|...  # lifecycle state ...` shape) —
+# the same frontmatter-scoped awk idiom wb_set_frontmatter/wb_seed_task_planned
+# use, specialized here only for the comment-preserving requirement.
+# `done` is deliberately NOT a valid value here: `wb done` is a whole
+# wind-down (worktree removal, board bookkeeping) this verb must never
+# shortcut around.
+cmd_status() {
+  local query="${1:-}" new="${2:-}"
+  if [ -z "$query" ] || [ -z "$new" ]; then
+    echo "usage: wb status <task-ref> <planned|paused|doing|review>" >&2
+    exit 1
+  fi
+
+  case "$new" in
+    planned|paused|doing|review) ;;
+    done)
+      echo "wb status: use \`wb done <task>\` instead" >&2
+      exit 1
+      ;;
+    *)
+      echo "usage: wb status <task-ref> <planned|paused|doing|review>" >&2
+      exit 1
+      ;;
+  esac
+
+  local file
+  file="$(_wb_append_resolve_task "$query")" || exit 1
+
+  # Refuse when a live session's @task already points at this file — this
+  # verb is for store-only tasks; a live session must route the change
+  # through wb pause/wb down instead (same live-session-scan idiom as
+  # _wb_breakdown_repoint_task, above).
+  local session cur
+  while IFS= read -r session; do
+    [ -n "$session" ] || continue
+    cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+    [ "$cur" = "$file" ] || continue
+    echo "wb status: $(basename -- "$file") has a live session $session — use wb pause/wb down from that session" >&2
+    exit 1
+  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+
+  local old
+  old="$(wb_get_frontmatter "$file" status)"
+
+  if [ "$old" = "$new" ]; then
+    echo "wb status: $(basename -- "$file") already $new"
+    exit 0
+  fi
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  awk -v val="$new" '
+    BEGIN { infm = 0 }
+    /^---$/ { infm++; print; next }
+    infm == 1 && /^status:/ {
+      line = $0
+      comment = ""
+      if (match(line, /[ \t]+#.*$/)) { comment = substr(line, RSTART) }
+      print "status: " val comment
+      next
+    }
+    { print }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  wb_append_handoff "$file" "wb status" "Status set to \`$new\` via \`wb status\` (store-only)."
+  wb_task_lock_release "$file"
+  echo "wb status: $(basename -- "$file") $old -> $new"
+}
+
+# ---------------------------------------------------------------------------
 # wb install-hooks — the one idempotent verb that wires up everything the
 # concurrency-safety machine needs on this host: points $TASKS_DIR's
 # core.hooksPath at U6's reference-transaction hook (stowed path — a real
@@ -6555,6 +6640,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
+    status)      shift; cmd_status "$@" ;;
     install-hooks) shift; cmd_install_hooks "$@" ;;
     render)      shift; render_rows "$@" ;;
     _new)        shift; _new "$@" ;;
