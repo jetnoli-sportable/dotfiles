@@ -58,6 +58,7 @@ the one selected, never inline a template here:
 | Paste target | `references/shapes/paste-target.md` | An async execute-and-paste loop |
 | Confirm-facts | `references/shapes/confirm-facts.md` | Ticking a small batch of true/false statements |
 | Code-review triage | `references/shapes/code-review-triage.md` | Apply / Defer / Skip per finding |
+| Review page | `references/shapes/review-page.md` | A large (>~25 row) batch needing per-row defaults, grouping, and questions at once — served as an HTML page, not an nvim buffer |
 
 ## 3. Every question states why, and its stage
 
