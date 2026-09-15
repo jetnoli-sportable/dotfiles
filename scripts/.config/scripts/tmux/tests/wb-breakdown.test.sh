@@ -707,6 +707,29 @@ out_move_bad="$(_wb_breakdown_validate "$BUF_DIR/move-unchecked-target.md" 2>/tm
 assert_eq "follow-up move to unchecked child: no move action" 0 "$(printf '%s\n' "$out_move_bad" | grep -c $'^move\t')"
 assert "follow-up move to unchecked child: warning" 'neither a checked child' "$(cat /tmp/wbd-move-bad.err)"
 
+# --- follow-up move: bullet text itself contains a double quote -----------
+# The real bullet under ## Follow-ups carries a LITERAL quote; the buffer's
+# move line escapes it as \" (the grammar wb-breakdown/SKILL.md documents).
+# Regression for the "a bullet with a quote could never be moved" bug —
+# the old `grep -oP 'move follow-up: "\K[^"]*'` stopped at the first quote.
+mk_parent proj--feat-quoted feat-quoted .worktrees/feat-quoted
+cat >> "$TASKS_DIR/proj--feat-quoted.md" <<'EOF'
+- fix the "stuck" tab
+EOF
+sed -e 's/proj--feat-big/proj--feat-quoted/g' \
+    -e 's/move follow-up: "explore wb breakdown verb further"/move follow-up: "fix the \\"stuck\\" tab"/' \
+    "$BUF_DIR/happy.md" > "$BUF_DIR/move-quoted.md"
+out_move_quoted="$(_wb_breakdown_validate "$BUF_DIR/move-quoted.md" 2>/tmp/wbd-move-quoted.err)"
+assert_eq "follow-up move, quoted bullet: exactly one move action" 1 \
+  "$(printf '%s\n' "$out_move_quoted" | grep -c $'^move\t')"
+assert "follow-up move, quoted bullet: unescaped text carried in the action" \
+  $'move\t.*fix the "stuck" tab' "$out_move_quoted"
+if printf '%s' "$(cat /tmp/wbd-move-quoted.err)" | grep -q 'matched 0 bullet'; then
+  echo "FAIL - follow-up move, quoted bullet: must resolve to exactly one match, not zero"; fail=1
+else
+  echo "ok   - follow-up move, quoted bullet: no zero-match warning"
+fi
+
 # --- zero checked items: clean no-op exit 0 (approve ticked, per-item boxes
 # left unchecked — this is testing the per-item no-op path, not the approve
 # gate, so Approve is ticked to isolate that) --------------------------------

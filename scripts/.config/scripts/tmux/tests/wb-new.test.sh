@@ -363,15 +363,47 @@ pane="$(tmux capture-pane -p -t "=proj--feat-warm:agent" 2>/dev/null)"
 assert "resume with a transcript: pre-types claude --resume <id>" 'claude --resume warm-id-123' "$pane"
 tmux kill-session -t "=proj--feat-warm" 2>/dev/null
 
-# an existing task with prior Handoffs entries but NO transcript on disk
-# (retention purge, or the conversation ran before this feature existed) ->
-# falls back to a pre-typed `claude --continue`, never a cold "claude".
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat/history\nworktree: .worktrees/feat/history\nparent:\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# History\n\n## Handoffs\n\n### 2026-09-01 09:00 — wb pause (auto)\n\nSession paused via `wb pause`.\n' \
+# Regression (post-PR#52): an existing task with a Handoffs entry from an
+# AUTO verb (wb set/wb status/wb breakdown all stamp "### ... (auto)" the
+# same way wb pause does) but NO claude_sessions: field and NO transcript on
+# disk must NOT pre-type `claude --continue` — there is nothing to
+# continue. This is exactly last night's misfire: a brand-new task
+# re-parented by `wb set` before its first `wb new --agent` used to get a
+# pre-typed `--continue` that failed with "No conversation found to
+# continue" and left handoff.sh's boot-ready poller waiting forever.
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat/auto-only\nworktree: .worktrees/feat/auto-only\nparent:\nclaude_sessions:\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Auto Only\n\n## Handoffs\n\n### 2026-09-01 09:00 — wb set (auto)\n\n`parent:` set to `proj--other` via `wb set` (was ``).\n' \
+  > "$FIXTURE_TASKS/proj--feat-auto-only.md"
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat/auto-only "$FIXTURE_CODE/proj/.worktrees/feat/auto-only" >/dev/null 2>&1
+cmd_new proj feat/auto-only >/dev/null 2>&1
+pane="$(tmux capture-pane -p -t "=proj--feat-auto-only:agent" 2>/dev/null)"
+if printf '%s' "$pane" | grep -q claude; then
+  echo "FAIL - auto-verb Handoffs entry, no claude_sessions:/transcript: agent window unexpectedly has 'claude' pre-typed"; fail=1
+else
+  echo "ok   - auto-verb Handoffs entry, no claude_sessions:/transcript: nothing pre-typed (no false --continue)"
+fi
+tmux kill-session -t "=proj--feat-auto-only" 2>/dev/null
+
+# Regression (live, post-first-fix): claude_sessions: populated by a prior
+# `wb down`/`wb pause`, but the recorded transcript no longer exists on
+# disk (retention purge, or the worktree path it was recorded against has
+# since changed) — must NOT pre-type `claude --continue` either.
+# `--continue`'s own resolution is scoped to the exact same
+# wb_transcript_dir-hashed directory wb_resume_id already checked and found
+# empty, so it can't find anything `wb_resume_id` didn't — there is no
+# claude_sessions:-based signal that changes that. (This is exactly what
+# `claude_sessions: non-empty -> --continue`, the first attempt at this
+# fix, still got wrong: reported live as `claude --continue` failing for a
+# be--monorepo task the same way the original Handoffs-scan bug did.)
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: feat/history\nworktree: .worktrees/feat/history\nparent:\nclaude_sessions: purged-id-999@2026-09-01T09:00:00Z@primary\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# History\n\n## Handoffs\n\n### 2026-09-01 09:00 — wb pause (auto)\n\nSession paused via `wb pause`.\n' \
   > "$FIXTURE_TASKS/proj--feat-history.md"
 git -C "$FIXTURE_CODE/proj" worktree add -q -b feat/history "$FIXTURE_CODE/proj/.worktrees/feat/history" >/dev/null 2>&1
 cmd_new proj feat/history >/dev/null 2>&1
 pane="$(tmux capture-pane -p -t "=proj--feat-history:agent" 2>/dev/null)"
-assert "resume with Handoffs history, no transcript: pre-types claude --continue" 'claude --continue' "$pane"
+if printf '%s' "$pane" | grep -q claude; then
+  echo "FAIL - claude_sessions: set, no surviving transcript: agent window unexpectedly has 'claude' pre-typed (a --continue with nothing to continue)"; fail=1
+else
+  echo "ok   - claude_sessions: set, no surviving transcript: nothing pre-typed (no false --continue)"
+fi
 tmux kill-session -t "=proj--feat-history" 2>/dev/null
 
 # --agent + a transcript: the resume command is actually SENT (Enter

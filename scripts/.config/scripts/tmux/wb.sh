@@ -6,6 +6,8 @@
 #                                    planned) — no worktree, no tmux session; the
 #                                    locked creation path agent-mediated skills use
 #   wb                               the picker (replaces s + ca)
+#   wb help                          this verb list (also --help/-h); any other unknown
+#                                    token exits 2 rather than opening the picker
 #   wb board                         task-store status table (interim /board)
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
@@ -17,17 +19,20 @@
 #                                    per-task lock — refuses when a live session's @task already
 #                                    points at it (use wb pause/wb down from that session instead)
 #   wb set <task-ref> <field> <value>
-#                                    set one board-metadata frontmatter field (priority, value,
-#                                    size, parent, depends_on, jira, tags, path) on a store-only
+#                                    set one board-metadata frontmatter field on a store-only
 #                                    task, under the per-task lock — same live-session refusal
 #                                    as wb status; status/created/closed/reviewed/claude_sessions/
 #                                    repo/branch/worktree are refused (use their own verb instead)
+#                                    fields: @@WB_SET_FIELDS@@
 #   wb pr-open [<session>]           exit 0 if the session's branch has an open PR, 1 otherwise
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb jira-set <repo>--<slug> <url> stamp a created Jira ticket URL into a task's jira: field
 #                                    (locked, idempotent-or-refuse) — the /wb-jira-create emit
 #                                    flow's only task-store write; never re-derives the URL
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
+#   wb breakdown --apply <buffer>    execute an approved /wb-breakdown proposal buffer:
+#                                    create the children, migrate the worktree, move
+#                                    follow-ups — the feature's only task-store write path
 #   wb sync                          fetch + fast-forward-only merge for $TASKS_DIR (refuses on dirty tree, divergence, or the wrong branch)
 #   wb unsafe-rewind "<reason>"      write a time-limited escape-hatch sentinel a git hook honors for a deliberate rewind
 #   wb append <task> <heading> [<body>|-]
@@ -1400,19 +1405,33 @@ cmd_new() {
   tmux set-option -t "=$session:" @wb_slug "$slug" >/dev/null
   tmux set-option -t "=$session:" @task "$task_file" >/dev/null
   if [ "$is_new" = 1 ]; then
-    # R9/U4: resolve what the agent window should pre-type. Preference
-    # order — a resumable transcript (wb_resume_id, U2) beats a plain
-    # `--continue`, which beats typing nothing for a genuinely new task.
-    # "Has this task been touched by a wb verb before" (a Handoffs entry)
-    # is the signal for "not brand new" when no transcript survives —
-    # `--continue` on a truly untouched task would have nothing to do
-    # anyway, so the distinction only matters for what gets pre-typed.
+    # R9/U4: resolve what the agent window should pre-type. Only ever
+    # `claude --resume <id>` (wb_resume_id, U2) when a real transcript
+    # exists on disk for THIS worktree, or nothing at all for a genuinely
+    # new task — there is deliberately no `--continue` fallback, because
+    # `--continue`'s own resolution is scoped to the exact same directory
+    # wb_transcript_dir hashes (its header comment: "verified against this
+    # very worktree"), which is precisely what wb_resume_id/wb_transcripts
+    # already checked. If wb_resume_id found nothing, `--continue` run
+    # from this same worktree finds nothing either — there's no signal
+    # (a Handoffs "### " line, claude_sessions: non-empty) that changes
+    # that, because none of them speak to whether a transcript exists in
+    # THIS specific directory right now.
+    #
+    # This used to guess `--continue` from two different weaker signals in
+    # turn, and both misfired live in exactly this way: first "any Handoffs
+    # ### line" (wb_append_handoff stamps that same "### ... (auto)" shape
+    # for `wb set`/`wb status`/`wb breakdown`, none of which imply a real
+    # session), then "claude_sessions: non-empty" (the field can be
+    # populated from an earlier session whose transcript no longer exists
+    # under THIS worktree path — reported live as `claude --continue`
+    # failing the same way for a be--monorepo task). Both guesses produced
+    # "No conversation found to continue" with `--agent`'s auto-Enter,
+    # boot-ready never appearing, and handoff.sh's poller timing out.
     local agent_cmd="" resume_id
     resume_id="$(wb_resume_id "$task_file" "$worktree_path")"
     if [ -n "$resume_id" ]; then
       agent_cmd="claude --resume $resume_id"
-    elif awk '/^## Handoffs$/ { p = 1; next } /^## / { p = 0 } p && /^### / { f = 1 } END { exit !f }' "$task_file"; then
-      agent_cmd="claude --continue"
     fi
     wb_layout_session "$session" "$worktree_path" "$agent_flag" "$agent_cmd"
   fi
@@ -2422,7 +2441,14 @@ _wb_breakdown_validate() {
       [ "$(_wb_bd_checkbox_state "$line")" = checked ] || continue
       printf '%s' "$line" | grep -qP "move follow-up:" || continue
       local move_text move_target
-      move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K[^"]*')"
+      # `[^"]*` used to stop at the first double quote, so a bullet
+      # containing one could never be moved — the buffer's own checkbox
+      # line has nowhere to put that quote unescaped without prematurely
+      # closing the "..." span. `(?:\\"|[^"])*` accepts a backslash-escaped
+      # `\"` as part of the quoted span instead of ending it, then the sed
+      # below undoes the escaping so $move_text matches the ACTUAL
+      # (unescaped) bullet text in ## Follow-ups.
+      move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K(?:\\"|[^"])*' | sed 's/\\"/"/g')"
       move_target="$(printf '%s' "$line" | grep -oP 'child: `\K[^`]*')"
       local match_count; match_count="$(printf '%s' "$followups" | grep -cxF -- "- $move_text")"
       if [ "$match_count" -ne 1 ]; then
@@ -6853,6 +6879,34 @@ picker() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# wb help — the verb list
+# ---------------------------------------------------------------------------
+
+# cmd_help — prints this file's OWN header usage block (the `#   wb <verb>`
+# lines at the top) instead of a second, hand-maintained copy. That block is
+# already formatted as a usage screen, and tests/wb-help.test.sh asserts
+# every verb the dispatch at the bottom accepts actually appears in it, so
+# the two can't silently drift — the drift this verb was added to fix
+# (`wb breakdown` had been missing from the header since it shipped).
+# @@WB_SET_FIELDS@@ is substituted with the live allowlist so the printed
+# help can never disagree with what cmd_set itself accepts.
+cmd_help() {
+  local body
+  body="$(awk '
+    /^#   wb / { inblock = 1 }
+    inblock && !/^#   / { exit }
+    inblock { sub(/^# ?/, ""); print }
+  ' "$SELF")"
+  if [ -z "$body" ]; then
+    echo "wb help: could not read the usage block from $SELF" >&2
+    return 1
+  fi
+  printf 'wb (workbench) — session-per-worktree tasks + the unified picker.\n\nUsage:\n'
+  printf '%s\n' "${body//@@WB_SET_FIELDS@@/$WB_SET_FIELDS}"
+  printf '\nGuide: dotfiles/docs/wb-guide.md\n'
+}
+
 # Guarded so tests can `source` this file to reach individual functions
 # (e.g. to stub cmd_new and unit-test cmd_resume's match logic) without
 # triggering the CLI dispatch below — real invocation (`bash wb.sh ...` /
@@ -6886,6 +6940,15 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     _toggle-view)   shift; _toggle_view "$@" ;;
     _refresh-dormant) shift; _refresh_dormant "$@" ;;
     _mode-header) shift; _mode_header "$@" ;;
-    *)           picker "${1:-}" ;;
+    help|--help|-h) cmd_help ;;
+    # Bare `wb` is the picker; an unknown TOKEN is a typo, not a picker
+    # query. It used to be handed to fzf as --query, so `wb set` typed on a
+    # checkout without the verb opened the picker instead of erroring —
+    # and in a non-tty context that surfaced as fzf's "inappropriate ioctl
+    # for device" rather than anything about wb. Nothing invokes `wb
+    # <query>` (tmux.conf binds plain `wb.sh`), so the query pass-through
+    # had no caller to keep.
+    '')          picker "" ;;
+    *)           printf "wb: unknown verb '%s' — try wb help\n" "$1" >&2; exit 2 ;;
   esac
 fi

@@ -61,11 +61,24 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
   then writes `answers.json`, rewrites the state file to `closed=1`, runs
   `tmux wait-for -S <chan>` if tmux is present (so a caller that also waits on
   the channel unblocks the same way it would for any other shape), and exits 0.
-- There is no `--reattach` equivalent yet — if the backgrounded process dies
-  mid-review, the state file is left with `closed=0` and a dead `caller_pid`;
-  treat that the same way `open-buffer.sh`'s PaneGone case is treated: read
-  `answers.json` if it exists (it won't, if the process died before submit),
-  otherwise report the close as not deliberate and ask before re-running.
+- `python3 review-page.py --reattach <answers.json>` resumes the wait recorded
+  by an earlier invocation of the same `--out` path — mirrors
+  `open-buffer.sh --reattach`'s decision tree, adapted for a browser tab
+  instead of a tmux pane (there's no pane/nvim-process to probe, only the
+  state file and the backgrounded script's own `caller_pid`):
+  - `closed=1` (a normal prior close) → prints `<answers.json>`'s path and
+    exits 0. Closed always implies the file is already on disk — a normal
+    close writes `answers.json` before rewriting the state file.
+  - `closed=0` and `caller_pid` is dead → the process died before submit;
+    exits 3 with "page process died before submit — re-run" and writes
+    nothing. Re-run the original invocation (same `--spec`/`--out`) rather
+    than reattaching again.
+  - `closed=0` and `caller_pid` is alive → re-waits for the same close
+    signal the original invocation would have waited on itself (`tmux
+    wait-for <chan>` when tmux and `$TMUX` are available, otherwise polls
+    the state file once a second) and exits 0 once it flips to `closed=1`,
+    or 3 if the process dies while `--reattach` is still waiting.
+  - No state file at all → nothing to reattach; exits 1.
 
 ## Spec format (`spec.json`, written by the agent before invoking the script)
 
