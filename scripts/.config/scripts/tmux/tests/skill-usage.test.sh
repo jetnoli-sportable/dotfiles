@@ -67,6 +67,34 @@ assert "both forms + merge: ce-review counted twice (once per form, merged under
   '^ce-review[[:space:]]+2[[:space:]]' "$out"
 
 # =============================================================================
+# Scenario: with --skills-dir given, a detected `<command-name>` hit that is
+# NOT a real skill (a built-in slash command like /clear or /model — the
+# tag shape is identical, so the script can't tell them apart on its own)
+# does not leak into the report as a spurious row. Only the known roster
+# (from --skills-dir) is reported; detected-but-unknown names are dropped,
+# not unioned in.
+# =============================================================================
+
+T1b="$FIXTURE/t1b"; S1b="$FIXTURE/s1b"
+mkdir -p "$T1b/proj"
+cat > "$T1b/proj/a.jsonl" <<'JSONL'
+{"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>\n<command-message>clear</command-message>"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"ce-review"}}]}}
+JSONL
+mk_skill "$S1b" ce-review
+
+out="$(bash "$SCRIPT" --dir "$T1b" --skills-dir "$S1b" 2>&1)"; rc=$?
+assert_eq "built-in-command leak guard: exit 0" 0 "$rc"
+assert "built-in-command leak guard: the real skill is reported" \
+  '^ce-review[[:space:]]+1[[:space:]]' "$out"
+if printf '%s' "$out" | grep -qE '^clear[[:space:]]'; then
+  echo "FAIL - built-in-command leak guard: '/clear' (not a skill) leaked into the report as a row"
+  fail=1
+else
+  echo "ok   - built-in-command leak guard: '/clear' (not a skill) did not leak into the report"
+fi
+
+# =============================================================================
 # Scenario: a skill mentioned only in prose (no tag, no tool block) is
 # reported as zero, and the output carries the not-detected caveat.
 # =============================================================================

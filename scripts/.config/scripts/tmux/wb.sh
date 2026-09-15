@@ -205,7 +205,20 @@ _wb_frontmatter_value_ok() {
 
 wb_set_frontmatter_field() {
   local file="$1" key="$2" value="$3" after_key="${4:-}"
-  awk -v key="$key" -v val="$value" -v after="$after_key" '
+  # `val` goes through ENVIRON, never `awk -v` — awk -v applies C
+  # escape-sequence processing to the assigned string, so a free-text
+  # value containing the literal two-character sequence `\n` is silently
+  # decoded into a REAL newline byte at assignment time. That happens
+  # BEFORE `_wb_frontmatter_value_ok`'s embedded-real-newline check ever
+  # runs (that check inspects the raw argv, which still only has `\`+`n`,
+  # two ordinary characters) — so a value like `urgent\nstatus: pwned`
+  # sails through validation and then injects a second frontmatter line.
+  # Same reasoning as `_wb_append_under_heading`'s own ENVIRON use.
+  # `key`/`after` stay on `-v`: both are always one of a small fixed set
+  # of internal field names (never caller-composed free text), so they
+  # carry none of this risk.
+  WB_SET_FM_VALUE="$value" awk -v key="$key" -v after="$after_key" '
+    BEGIN { val = ENVIRON["WB_SET_FM_VALUE"] }
     {
       n++
       lines[n] = $0
@@ -3825,6 +3838,20 @@ cmd_set() {
   # verb is for store-only tasks.
   _wb_refuse_if_live_session "$file" "wb set"
 
+  # Locked BEFORE `old` is read — not just before the write. For every
+  # field except tags, `old` is used only for the no-op check and the
+  # confirmation message, so a stale unlocked read was harmless (the
+  # write below always replaces unconditionally with the literal argv
+  # value). tags is different: the WRITTEN value is *computed from* `old`
+  # (see the merge below), so an unlocked read-then-merge-then-write is
+  # exactly the lost-update race this module's locking exists to prevent
+  # — two concurrent `wb set <task> tags <x>` calls could each read the
+  # same stale `old`, merge independently, and the second writer would
+  # silently discard the first writer's tag. Acquiring the lock here
+  # covers read+merge+write as one atomic section for every field.
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+
   local old
   old="$(wb_get_frontmatter "$file" "$field")"
 
@@ -3845,6 +3872,7 @@ cmd_set() {
   dup_count="$(awk -v key="$field" 'BEGIN{infm=0} /^---$/{infm++; if(infm==2) exit; next} infm==1 && $0 ~ "^" key ":" {c++} END{print c+0}' "$file")"
 
   if [ "$old" = "$value" ] && [ "$dup_count" -le 1 ]; then
+    wb_task_lock_release "$file"
     if [ "$unset_req" -eq 1 ]; then
       echo "wb set: $(basename -- "$file") $field already empty"
     else
@@ -3858,8 +3886,6 @@ cmd_set() {
     priority|value) after_key="size" ;;
   esac
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
   wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
   case "$field" in
     parent|depends_on|jira)
@@ -3936,10 +3962,20 @@ _wb_week_valid_section() {
 # the review routes a follow-up task to the right repo, and `wb new` needs a
 # repo argument). Best-effort: outside a git repo, both fields read "?"
 # rather than failing the append.
+#
+# `repo` is derived from `--git-common-dir`, NOT `--show-toplevel`: inside a
+# git WORKTREE (the common case — this is a session-per-worktree tool, and
+# `/park` is meant to be invoked mid-task), `--show-toplevel` returns the
+# worktree's own directory, so `basename` of it is the worktree's leaf name
+# (e.g. "feat-weekly-review"), not the repo ("dotfiles") — silently wrong,
+# not a failure, so it would never be noticed until a promoted task pointed
+# `wb new` at a nonexistent (or wrong) repo directory. `--git-common-dir`
+# resolves to the SAME shared `.git` for a worktree and its main checkout
+# alike, so `basename(dirname(...))` gives the real repo name either way.
 _wb_week_stamp() {
-  local toplevel repo branch
-  toplevel="$(git rev-parse --show-toplevel 2>/dev/null)" || true
-  repo="?"; [ -n "$toplevel" ] && repo="$(basename -- "$toplevel")"
+  local common_dir repo branch
+  common_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || true
+  repo="?"; [ -n "$common_dir" ] && repo="$(basename -- "$(cd "$(dirname -- "$common_dir")" && pwd)")"
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || branch="?"
   printf '%s · %s/%s' "$(date +%F)" "$repo" "$branch"
 }
@@ -4007,6 +4043,16 @@ _wb_week_previous_record() {
 # re-running `wb week record` mid-week never double-reviews an entry.
 _wb_week_cmd_record() {
   local iso="${1:-$(_wb_week_iso)}"
+  # <iso> becomes a path component below (record="$dir/$iso-review.md") —
+  # reject anything not shaped like an ISO week identifier BEFORE that,
+  # so a value like "../../../../tmp/pwned" can't escape weeks/.
+  case "$iso" in
+    [0-9][0-9][0-9][0-9]-W[0-9][0-9]) ;;
+    *)
+      echo "wb week record: '$iso' is not a valid ISO week (expected <YYYY>-W<WW>, e.g. 2026-W38)" >&2
+      exit 1
+      ;;
+  esac
   _wb_week_ensure_capture
   local dir; dir="$(_wb_week_dir)"
   local record="$dir/$iso-review.md"
@@ -4019,6 +4065,20 @@ _wb_week_cmd_record() {
   local capture; capture="$(_wb_week_capture_path)"
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$capture" || exit $?
+
+  # Re-check under the lock (classic double-checked locking): the check
+  # above ran BEFORE acquiring the lock, so a second concurrent `wb week
+  # record` call for the same not-yet-existing ISO week can reach here
+  # after a first call already won the race, built the record, and
+  # flipped the capture doc's entries to reviewed. Without this re-check,
+  # the second caller would re-scan the now-fully-reviewed capture doc,
+  # find nothing left unreviewed, and silently overwrite the first
+  # caller's real roll-up with an empty one.
+  if [ -f "$record" ]; then
+    wb_task_lock_release "$capture"
+    echo "$record"
+    return 0
+  fi
 
   local prev; prev="$(_wb_week_previous_record "$iso")"
 
@@ -4254,7 +4314,14 @@ wb_followup_count() {
 wb_week_unreviewed_count() {
   local path; path="$(_wb_week_capture_path)"
   [ -f "$path" ] || { echo 0; return; }
-  grep -c '^- \[ \] ' "$path" 2>/dev/null || echo 0
+  # `grep -c` already prints "0" (not nothing) on zero matches, and only
+  # exits 1 to signal that — `|| echo 0` on that nonzero exit prints a
+  # SECOND "0" line, corrupting any caller (cmd_done's arithmetic, under
+  # `set -e`, aborts on the resulting two-line value). Capture the count
+  # unconditionally instead of branching on grep's exit status.
+  local n
+  n="$(grep -c '^- \[ \] ' "$path" 2>/dev/null)" || true
+  printf '%s\n' "${n:-0}"
 }
 
 # wb_week_days_since_last_record — days since the most recently minted

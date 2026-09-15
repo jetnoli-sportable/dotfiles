@@ -121,11 +121,27 @@ fi
 
 declare -a ALL_NAMES=()
 declare -A SEEN_NAME=()
-for n in "${KNOWN[@]}" "${!COUNT[@]}"; do
-  [ -n "${SEEN_NAME["$n"]:-}" ] && continue
-  SEEN_NAME["$n"]=1
-  ALL_NAMES+=("$n")
-done
+if [ -n "$SKILLS_DIR" ] && [ -d "$SKILLS_DIR" ]; then
+  # --skills-dir given: report EXACTLY the known roster, not the union with
+  # every detected `<command-name>` hit. The slash-command tag can't tell a
+  # skill invocation from a built-in command (/clear, /model, ...) — both
+  # render identically — so an unfiltered union leaks built-ins into a
+  # report whose whole point is per-SKILL counts, with a real (nonzero)
+  # count that makes them look like legitimate rows rather than noise.
+  for n in "${KNOWN[@]}"; do
+    [ -n "${SEEN_NAME["$n"]:-}" ] && continue
+    SEEN_NAME["$n"]=1
+    ALL_NAMES+=("$n")
+  done
+else
+  # No --skills-dir: no positive list to filter against, so report
+  # whatever was detected as-is — the documented (noisier) default.
+  for n in "${!COUNT[@]}"; do
+    [ -n "${SEEN_NAME["$n"]:-}" ] && continue
+    SEEN_NAME["$n"]=1
+    ALL_NAMES+=("$n")
+  done
+fi
 IFS=$'\n' ALL_NAMES=($(printf '%s\n' "${ALL_NAMES[@]}" | sort)); unset IFS
 
 echo "# skill-usage: counts two textual patterns (the /<skill> slash-command"

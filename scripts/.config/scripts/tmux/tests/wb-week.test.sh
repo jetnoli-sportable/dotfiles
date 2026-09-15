@@ -180,6 +180,33 @@ cmd_week append "What's working" "entry C" >/dev/null 2>&1
 assert "stranding: entry C still unreviewed before any record covers it" '\- \[ \] .*entry C' "$(cat "$CAPTURE")"
 
 # =============================================================================
+# Scenario: `wb_week_unreviewed_count` prints a single-line "0" (not "0\n0")
+# when the capture doc exists but has zero unreviewed entries — the normal
+# post-review state. `grep -c` already prints "0" on no match and only
+# EXITS 1 to signal that; a caller doing `grep -c ... || echo 0` gets a
+# second "0" line on that nonzero exit, which breaks arithmetic composition
+# (exactly what `cmd_done` does with this count) under `set -e`.
+# =============================================================================
+
+cmd_week record 2026-W20 >/dev/null 2>&1   # flips the remaining unreviewed entry (C)
+out="$(wb_week_unreviewed_count)"
+assert_eq "unreviewed count at zero: single-line '0'" "0" "$out"
+n_lines="$(printf '%s' "$out" | wc -l)"
+# wc -l counts newlines, not lines-if-no-trailing-newline; a `$(...)`
+# capture strips the trailing newline either way, so a genuinely single
+# "0\n" line here reads 0, and the "0\n0\n" bug would read 1.
+assert_eq "unreviewed count at zero: no embedded newline" "0" "$n_lines"
+
+# The exact arithmetic `cmd_done` performs with this value — must not
+# abort under `set -e` (it would if the count carried a second line).
+(
+  set -e
+  total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
+  exit "$([ "$total" -ge 0 ] && echo 0 || echo 1)"
+)
+assert_eq "unreviewed count at zero: cmd_done-shaped arithmetic does not abort" 0 "$?"
+
+# =============================================================================
 # Scenario: `wb_pending_counts` reports unreviewed capture entries and days
 # since the last record, and does not read ledger.jsonl.
 # =============================================================================
