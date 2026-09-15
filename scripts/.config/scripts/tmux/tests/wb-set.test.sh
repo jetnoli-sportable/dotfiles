@@ -248,6 +248,62 @@ assert_eq "jira structural: exit 0" 0 "$rc"
 content="$(cat "$TASKS_DIR/proj--set-j.md")"
 assert "jira structural: Handoffs entry appended" 'wb set \(auto\)' "$content"
 
+# =============================================================================
+# Scenario: R26 canonical `tags:` — list form, idempotent across input
+# shapes, additive (merges rather than clobbers, no duplicates), and the
+# migration path (re-running against a bare-scalar file normalizes it).
+# =============================================================================
+
+# Idempotent across input shapes: comma, comma-space, and already-bracketed
+# all produce the identical canonical `[a, b]` result on a fresh field.
+mk_task "proj--tags-shape-a.md" tags-shape-a
+cmd_set "tags-shape-a" tags "a,b" >/dev/null 2>&1
+assert_eq "tags shape 'a,b': canonical list form" "[a, b]" \
+  "$(wb_get_frontmatter "$TASKS_DIR/proj--tags-shape-a.md" tags)"
+
+mk_task "proj--tags-shape-b.md" tags-shape-b
+cmd_set "tags-shape-b" tags "a, b" >/dev/null 2>&1
+assert_eq "tags shape 'a, b': canonical list form" "[a, b]" \
+  "$(wb_get_frontmatter "$TASKS_DIR/proj--tags-shape-b.md" tags)"
+
+mk_task "proj--tags-shape-c.md" tags-shape-c
+cmd_set "tags-shape-c" tags "[a, b]" >/dev/null 2>&1
+assert_eq "tags shape '[a, b]': canonical list form" "[a, b]" \
+  "$(wb_get_frontmatter "$TASKS_DIR/proj--tags-shape-c.md" tags)"
+
+# Additive: setting tags on a file that already has a list merges rather
+# than clobbers, and does not duplicate an existing tag.
+mk_task "proj--tags-merge.md" tags-merge
+cmd_set "tags-merge" tags "a,b" >/dev/null 2>&1
+cmd_set "tags-merge" tags "b,c" >/dev/null 2>&1
+assert_eq "tags merge: union, no duplicate, existing order preserved" "[a, b, c]" \
+  "$(wb_get_frontmatter "$TASKS_DIR/proj--tags-merge.md" tags)"
+
+# --unset still clears the field outright (regression on the just-shipped
+# behaviour — merge must never apply on the clearing path).
+mk_task "proj--tags-unset.md" tags-unset
+cmd_set "tags-unset" tags "a,b" >/dev/null 2>&1
+out="$(cmd_set "tags-unset" tags --unset 2>&1)"; rc=$?
+assert_eq "tags --unset: exit 0" 0 "$rc"
+assert_eq "tags --unset: field cleared, not merged" "" \
+  "$(wb_get_frontmatter "$TASKS_DIR/proj--tags-unset.md" tags)"
+
+# A tag value containing whitespace-then-'#' is still refused by the shared
+# frontmatter validator (same guard as every other field).
+mk_task "proj--tags-hash.md" tags-hash
+out="$(cmd_set "tags-hash" tags "plan #1,work" 2>&1)"; rc=$?
+assert_eq "tags whitespace-#: exit 1" 1 "$rc"
+assert "tags whitespace-#: message" "whitespace followed by '#'" "$out"
+
+# Migration path: re-running `wb set tags` against a pre-existing
+# bare-scalar `tags: action-live` file with the SAME value normalizes it
+# into canonical list form.
+mk_task "proj--tags-migrate.md" tags-migrate
+sed -i 's/^tags: \[\]$/tags: action-live/' "$TASKS_DIR/proj--tags-migrate.md"
+cmd_set "tags-migrate" tags "action-live" >/dev/null 2>&1
+assert_eq "tags migration: bare scalar normalized to list form" "[action-live]" \
+  "$(wb_get_frontmatter "$TASKS_DIR/proj--tags-migrate.md" tags)"
+
 # jira must start with https://
 out="$(cmd_set "set-j" jira "http://example.com" 2>&1)"; rc=$?
 assert_eq "jira invalid scheme: exit 1" 1 "$rc"

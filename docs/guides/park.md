@@ -4,16 +4,17 @@ status: current
 tile: <10s capture of a "deal with this later" item.
 group: skills
 kind: guide
-updated: 2026-07-07
+updated: 2026-09-15
 ---
 
 ## Overview
 
-Zero-ceremony deferral: one JSON line appended to a global ledger
-(`~/.claude/parked-items/ledger.jsonl`), stamped with cwd and git branch so
-the weekly review can route it later. Exists so "let's discuss this later"
-doesn't evaporate when the conversation ends. Capture half of the pair —
-[parked-items](parked-items.html) is the review half.
+Near-zero-ceremony deferral. Not-work-shaped items go straight into the
+standing weekly-capture doc (`wb week append`) with no confirmation step —
+work-shaped items propose a `prospective` task and ask first, since that's
+a real store write. Exists so "let's discuss this later" doesn't evaporate
+when the conversation ends. Capture half of the pair — [weekly-review](weekly-review.html)
+is the ceremony that reviews everything captured here.
 
 ## Try it now
 
@@ -23,31 +24,40 @@ In any Claude Code session:
 /park try out the new help picker on a real question
 ```
 
-The agent confirms in one line: `Parked: "…" (dotfiles @ docs/…). It'll show
-up in /parked-items.` That's the whole flow.
+Not work-shaped — the agent appends it under the capture doc's `New ideas`
+section (or whichever fits) and confirms in one line: `Parked (not
+work-shaped) to "New ideas": "try out the new help picker on a real
+question"`. That's the whole flow for non-work capture.
+
+For a work-shaped note (e.g. `/park the export endpoint should retry on a
+timeout`), the agent instead asks before creating anything — see Reference.
 
 ## Reference
 
 | Trigger | Behavior |
 |---|---|
-| `/park <note>` | Appends the note verbatim |
-| `/park` (no argument) | Agent summarizes the thing under discussion into a one-liner |
+| `/park <note>`, not work-shaped | Appends under the best-fit capture-doc section, no asking |
+| `/park <note>`, work-shaped | Proposes a `status: prospective` task, asks first — declining falls back to the capture doc |
+| `/park` (no argument) | Agent summarizes the thing under discussion into a one-liner, then judges it the same way |
 | Saying "park this" / "revisit later" / "make a follow-up task for this" in passing | Agent captures proactively and tells you in one line |
 
-Ledger entry shape: `{ts, cwd, branch, note, status:"open", source:"manual"}` —
-append-only; status changes (`done`/`dropped`) happen in the weekly review,
-never here.
+The capture doc lives at `~/code/tasks/weeks/capture.md` (`wb week path` to
+print it) with four standing sections: `What's working`, `What's not
+working`, `New ideas`, `Notes` — never cleared. Each entry is stamped with
+date/repo/branch and starts unreviewed (`- [ ]`); `/weekly-review` rolls
+unreviewed entries into a week record and marks them reviewed (`- [x]`), so
+nothing is silently re-offered forever or silently dropped.
 
 ## Known rough edges
 
-- Capture is deliberately dumb: no dedupe, no editing, no categorization at
-  park time. If you park the same thought twice, the review dedupes it.
+- The work-shaped/not-shaped judgement is a one-line guess, stated so a
+  wrong call is easy to correct — it is not infallible.
 - If something needs action *now*, don't park it — the skill itself will
   refuse the detour and just do the work.
 
 ## Next steps / reverting
 
-- Review parked items weekly with [/parked-items](parked-items.html).
-- The ledger is a plain file — `cat` it, back it up, or delete a line by
-  hand if something should never resurface. Skill source:
+- Review captured items weekly with [/weekly-review](weekly-review.html).
+- The capture doc is a plain markdown file — read it, edit an entry by
+  hand, or move something out if it should never resurface. Skill source:
   `claude/.claude/skills/park/SKILL.md`.

@@ -22,7 +22,12 @@ ticket is still the wrong thing to do (see the ownership guard below).
 
 - **Reads the deferred backlog across three sources** (see step 2). Primary and
   durable: `~/code/tasks/*.md` (`status: planned`) and `## Follow-ups` blocks
-  inside task files. Also: the `/park` ledger
+  inside task files. **`status: prospective` tasks (R25) are OUT of scope** —
+  prospective means captured-but-not-yet-judged-as-work, exactly the triage
+  `/weekly-review` still owes it; treating a prospective row as backlog here
+  would pre-empt that judgement instead of waiting for it. A prospective task
+  enters this skill's scope only after the weekly review promotes it to
+  `planned`. Also: the `/park` ledger
   (`~/.claude/parked-items/ledger.jsonl`). The owner's direction (2026-08-24) is
   to converge `/park`, `/parked-items`, and this skill into one coherent process
   centred on wb tasks — not a hard deprecation, more a tweak-and-merge — and

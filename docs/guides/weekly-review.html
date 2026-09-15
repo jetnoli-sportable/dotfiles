@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>park</title>
+<title>weekly-review</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
@@ -235,13 +235,13 @@
 <body data-kind="guide" data-group="skills">
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
-  <span class="gen">docgen · generated from <b>docs/guides/park.md</b> — edit the .md, not this file</span>
+  <span class="gen">docgen · generated from <b>docs/guides/weekly-review.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-09-15</span>
 </div>
 <div class="shell">
   <nav class="toc">
-    <div class="brand">park</div>
-    <div class="brand-sub">&lt;10s capture of a &#34;deal with this later&#34; item.</div>
+    <div class="brand">weekly-review</div>
+    <div class="brand-sub">The weekly ceremony — evidence, review page, output record.</div>
     <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#overview">Overview</a></li>
@@ -254,76 +254,108 @@
   <main>
     <header class="doc guide-banner">
       <span class="eyebrow">skills · guide</span>
-      <h1>park</h1>
-      <p class="dek">&lt;10s capture of a &#34;deal with this later&#34; item.</p>
+      <h1>weekly-review</h1>
+      <p class="dek">The weekly ceremony — evidence, review page, output record.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
     </header>
     <article>
 <h2 id="overview">Overview</h2>
-<p>Near-zero-ceremony deferral. Not-work-shaped items go straight into the
-standing weekly-capture doc (<code>wb week append</code>) with no confirmation step —
-work-shaped items propose a <code>prospective</code> task and ask first, since that's
-a real store write. Exists so &quot;let's discuss this later&quot; doesn't evaporate
-when the conversation ends. Capture half of the pair — <a href="weekly-review.html">weekly-review</a>
-is the ceremony that reviews everything captured here.</p>
+<p>Replaces the three dated clocks that lapsed for seven weeks in
+<code>docs/ceremonies.md</code>, plus <a href="parked-items.html">parked-items</a> (retired) and
+<code>/hindsight</code>. Gathers four evidence sources in a fixed order — <code>wb reconcile</code>
+drift, the <a href="park.html">park</a> capture doc's unreviewed entries, tasks moved /
+PRs merged since last review, and skill-usage counts — classifies each
+capture entry (task idea / skill idea / grievance / workflow improvement),
+and presents at most five candidate suggestions on the <a href="review-page.html">review
+page</a>, never an nvim buffer. Emits one output record per
+ISO week under <code>~/code/tasks/weeks/</code> with Retro and Sprint-planning rollups.</p>
 <h2 id="try-it-now">Try it now</h2>
-<p>In any Claude Code session:</p>
-<pre><code>/park try out the new help picker on a real question
+<pre><code>/weekly-review
 </code></pre>
-<p>Not work-shaped — the agent appends it under the capture doc's <code>New ideas</code>
-section (or whichever fits) and confirms in one line: <code>Parked (not work-shaped) to &quot;New ideas&quot;: &quot;try out the new help picker on a real question&quot;</code>. That's the whole flow for non-work capture.</p>
-<p>For a work-shaped note (e.g. <code>/park the export endpoint should retry on a timeout</code>), the agent instead asks before creating anything — see Reference.</p>
+<p>Run it from the main dotfiles checkout (not a worktree — <code>wb week</code>/<code>wb reconcile</code> are stowed there). The agent gathers evidence, classifies every
+capture-doc entry, opens a review page for the task/skill-idea candidates,
+then writes <code>~/code/tasks/weeks/&lt;ISO&gt;-review.md</code> once you close the page.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>
 <tr>
-<th>Trigger</th>
-<th>Behavior</th>
+<th>Evidence step</th>
+<th>Source</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>/park &lt;note&gt;</code>, not work-shaped</td>
-<td>Appends under the best-fit capture-doc section, no asking</td>
+<td>1. Reconcile</td>
+<td><code>wb reconcile --machine</code> — task-store/git drift</td>
 </tr>
 <tr>
-<td><code>/park &lt;note&gt;</code>, work-shaped</td>
-<td>Proposes a <code>status: prospective</code> task, asks first — declining falls back to the capture doc</td>
+<td>2. Capture doc</td>
+<td><code>wb week record</code> — rolls up every unreviewed entry, marks it reviewed</td>
 </tr>
 <tr>
-<td><code>/park</code> (no argument)</td>
-<td>Agent summarizes the thing under discussion into a one-liner, then judges it the same way</td>
+<td>3. Moved/merged</td>
+<td>Last record's seeded tasks, checked against <code>status: done</code> / merged PRs</td>
 </tr>
 <tr>
-<td>Saying &quot;park this&quot; / &quot;revisit later&quot; / &quot;make a follow-up task for this&quot; in passing</td>
-<td>Agent captures proactively and tells you in one line</td>
+<td>4. Skill usage</td>
+<td><code>scripts/.config/scripts/skill-usage.sh</code> — reproducible counts, stated blind spots</td>
 </tr>
 </tbody>
 </table>
-<p>The capture doc lives at <code>~/code/tasks/weeks/capture.md</code> (<code>wb week path</code> to
-print it) with four standing sections: <code>What's working</code>, <code>What's not working</code>, <code>New ideas</code>, <code>Notes</code> — never cleared. Each entry is stamped with
-date/repo/branch and starts unreviewed (<code>- [ ]</code>); <code>/weekly-review</code> rolls
-unreviewed entries into a week record and marks them reviewed (<code>- [x]</code>), so
-nothing is silently re-offered forever or silently dropped.</p>
+<table>
+<thead>
+<tr>
+<th>Classification</th>
+<th>Routes to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Task idea</td>
+<td>Sprint planning (candidate suggestion)</td>
+</tr>
+<tr>
+<td>Skill idea</td>
+<td>Sprint planning (candidate suggestion)</td>
+</tr>
+<tr>
+<td>Grievance</td>
+<td>Retro</td>
+</tr>
+<tr>
+<td>Workflow improvement</td>
+<td>Retro, and Sprint planning if it implies a concrete change</td>
+</tr>
+</tbody>
+</table>
+<p>Accepted suggestions are seeded via <code>wb new --prospective</code>/<code>--planned</code> then
+tagged <code>wb set &lt;task&gt; tags weekly-review</code> — two locked-verb calls, <code>wb new</code>
+has no <code>--tags</code> flag.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
-<li>The work-shaped/not-shaped judgement is a one-line guess, stated so a
-wrong call is easy to correct — it is not infallible.</li>
-<li>If something needs action <em>now</em>, don't park it — the skill itself will
-refuse the detour and just do the work.</li>
+<li>The ceremony is manually invoked — no calendar/hook trigger — until a few
+real runs prove it earns its keep (see the plan's own Risks section and
+its dated week-3 re-evaluation task).</li>
+<li>Classification at capture time (in <code>/park</code>) and at review time (here) are
+both one-line judgement calls, not infallible — correct them inline when
+wrong.</li>
+<li>Skill-usage counts can't see a skill invoked by natural-language
+description alone — a zero there means &quot;not detected,&quot; never &quot;unused.&quot;</li>
 </ul>
 <h2 id="next-steps--reverting">Next steps / reverting</h2>
 <ul>
-<li>Review captured items weekly with <a href="weekly-review.html">/weekly-review</a>.</li>
-<li>The capture doc is a plain markdown file — read it, edit an entry by
-hand, or move something out if it should never resurface. Skill source:
-<code>claude/.claude/skills/park/SKILL.md</code>.</li>
+<li>The capture doc is a plain standing file at <code>~/code/tasks/weeks/capture.md</code>
+(<code>wb week path</code> to print it) — read it, edit an entry, or move something
+out any time, not just during a review.</li>
+<li>Every output record lives under <code>~/code/tasks/weeks/</code> — plain markdown,
+one file per ISO week. Skill source:
+<code>claude/.claude/skills/weekly-review/SKILL.md</code>.</li>
 </ul>
 </article>
     <footer>
-  Generated by <code>docgen</code> from <code>docs/guides/park.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/guides/weekly-review.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
   </main>
