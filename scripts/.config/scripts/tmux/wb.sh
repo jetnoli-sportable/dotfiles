@@ -18,7 +18,7 @@
 #                                    set a store-only task's status: field directly, under the
 #                                    per-task lock — refuses when a live session's @task already
 #                                    points at it (use wb pause/wb down from that session instead)
-#   wb set <task-ref> <field> <value>
+#   wb set <task-ref> <field> <value|--unset>
 #                                    set one board-metadata frontmatter field on a store-only
 #                                    task, under the per-task lock — same live-session refusal
 #                                    as wb status; status/created/closed/reviewed/claude_sessions/
@@ -3640,7 +3640,7 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path"
 cmd_set() {
   local query="${1:-}" field="${2:-}" value="${3:-}"
   if [ -z "$query" ] || [ -z "$field" ] || [ "$#" -lt 3 ]; then
-    echo "usage: wb set <task-ref> <field> <value>   (field: $WB_SET_FIELDS)" >&2
+    echo "usage: wb set <task-ref> <field> <value|--unset>   (field: $WB_SET_FIELDS)" >&2
     exit 1
   fi
 
@@ -3661,52 +3661,66 @@ cmd_set() {
       ;;
   esac
 
-  case "$field" in
-    priority)
-      case "$value" in
-        P1|P2|P3) ;;
-        *) echo "wb set: priority '$value' is not one of P1|P2|P3" >&2; exit 1 ;;
-      esac
-      ;;
-    value)
-      case "$value" in
-        high|med|low) ;;
-        *) echo "wb set: value '$value' is not one of high|med|low" >&2; exit 1 ;;
-      esac
-      ;;
-    size)
-      if ! _wb_valid_size "$value"; then
-        echo "wb set: size '$value' is not one of $WB_SIZE_VALUES" >&2
-        exit 1
-      fi
-      ;;
-    parent)
-      case "$value" in
-        */*) echo "wb set: parent '$value' must not contain '/'" >&2; exit 1 ;;
-      esac
-      [ -f "$TASKS_DIR/$value.md" ] \
-        || { echo "wb set: parent '$value' has no matching task file in $TASKS_DIR" >&2; exit 1; }
-      ;;
-    depends_on)
-      local dep
-      local -a _wb_set_deps
-      IFS=',' read -r -a _wb_set_deps <<< "$value"
-      for dep in "${_wb_set_deps[@]}"; do
-        case "$dep" in
-          */*) echo "wb set: depends_on '$dep' must not contain '/'" >&2; exit 1 ;;
+  # `--unset` (or an empty value) clears the field. Every field this verb owns
+  # is optional per $TASKS_DIR/README.md, so clearing is always legal — and the
+  # validation below polices real values, not their absence: parent's and
+  # depends_on's must-exist-in-$TASKS_DIR checks have no file to match when
+  # there is no value, which is what made un-parenting a task impossible
+  # through the locked path before this existed.
+  local unset_req=0
+  if [ "$value" = "--unset" ] || [ -z "$value" ]; then
+    unset_req=1
+    value=""
+  fi
+
+  if [ "$unset_req" -eq 0 ]; then
+    case "$field" in
+      priority)
+        case "$value" in
+          P1|P2|P3) ;;
+          *) echo "wb set: priority '$value' is not one of P1|P2|P3" >&2; exit 1 ;;
         esac
-        [ -f "$TASKS_DIR/$dep.md" ] \
-          || { echo "wb set: depends_on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
-      done
-      ;;
-    jira)
-      case "$value" in
-        https://*) ;;
-        *) echo "wb set: jira '$value' must start with https://" >&2; exit 1 ;;
-      esac
-      ;;
-    tags|path) ;;   # free text — no enum, no existence check
-  esac
+        ;;
+      value)
+        case "$value" in
+          high|med|low) ;;
+          *) echo "wb set: value '$value' is not one of high|med|low" >&2; exit 1 ;;
+        esac
+        ;;
+      size)
+        if ! _wb_valid_size "$value"; then
+          echo "wb set: size '$value' is not one of $WB_SIZE_VALUES" >&2
+          exit 1
+        fi
+        ;;
+      parent)
+        case "$value" in
+          */*) echo "wb set: parent '$value' must not contain '/'" >&2; exit 1 ;;
+        esac
+        [ -f "$TASKS_DIR/$value.md" ] \
+          || { echo "wb set: parent '$value' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+        ;;
+      depends_on)
+        local dep
+        local -a _wb_set_deps
+        IFS=',' read -r -a _wb_set_deps <<< "$value"
+        for dep in "${_wb_set_deps[@]}"; do
+          case "$dep" in
+            */*) echo "wb set: depends_on '$dep' must not contain '/'" >&2; exit 1 ;;
+          esac
+          [ -f "$TASKS_DIR/$dep.md" ] \
+            || { echo "wb set: depends_on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+        done
+        ;;
+      jira)
+        case "$value" in
+          https://*) ;;
+          *) echo "wb set: jira '$value' must start with https://" >&2; exit 1 ;;
+        esac
+        ;;
+      tags|path) ;;   # free text — no enum, no existence check
+    esac
+  fi
   _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
 
   local file
@@ -3728,7 +3742,11 @@ cmd_set() {
   dup_count="$(awk -v key="$field" 'BEGIN{infm=0} /^---$/{infm++; if(infm==2) exit; next} infm==1 && $0 ~ "^" key ":" {c++} END{print c+0}' "$file")"
 
   if [ "$old" = "$value" ] && [ "$dup_count" -le 1 ]; then
-    echo "wb set: $(basename -- "$file") $field already '$value'"
+    if [ "$unset_req" -eq 1 ]; then
+      echo "wb set: $(basename -- "$file") $field already empty"
+    else
+      echo "wb set: $(basename -- "$file") $field already '$value'"
+    fi
     exit 0
   fi
 
@@ -3742,11 +3760,19 @@ cmd_set() {
   wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
   case "$field" in
     parent|depends_on|jira)
-      wb_append_handoff "$file" "wb set" "\`$field:\` set to \`$value\` via \`wb set\` (was \`$old\`)."
+      if [ "$unset_req" -eq 1 ]; then
+        wb_append_handoff "$file" "wb set" "\`$field:\` cleared via \`wb set --unset\` (was \`$old\`)."
+      else
+        wb_append_handoff "$file" "wb set" "\`$field:\` set to \`$value\` via \`wb set\` (was \`$old\`)."
+      fi
       ;;
   esac
   wb_task_lock_release "$file"
-  echo "wb set: $(basename -- "$file") $field '$old' -> '$value'"
+  if [ "$unset_req" -eq 1 ]; then
+    echo "wb set: $(basename -- "$file") $field '$old' -> (cleared)"
+  else
+    echo "wb set: $(basename -- "$file") $field '$old' -> '$value'"
+  fi
 }
 
 # ---------------------------------------------------------------------------

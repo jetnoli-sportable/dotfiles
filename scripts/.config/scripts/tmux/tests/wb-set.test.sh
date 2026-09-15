@@ -315,6 +315,75 @@ assert_eq "same-value repair: exactly one priority: line" "1" "$count"
 assert "same-value repair: it holds the value" '^priority: P1$' "$content"
 
 # =============================================================================
+# Scenario: --unset clears a structural field. This is the case the flag was
+# added for: parent's validation requires the value to name an existing task
+# file, so before --unset there was no way to UN-parent a task through the
+# locked path at all (hit 2026-09-15 retiring a date-named skills umbrella).
+# =============================================================================
+
+mk_task "proj--unset-parent.md" unset-parent
+mk_task "proj--unset-mum.md" unset-mum
+cmd_set "unset-parent" parent "proj--unset-mum" >/dev/null 2>&1
+out="$(cmd_set "unset-parent" parent --unset 2>&1)"; rc=$?
+assert_eq "--unset parent: exit 0" 0 "$rc"
+assert "--unset parent: confirmation says cleared" "parent 'proj--unset-mum' -> \\(cleared\\)" "$out"
+content="$(cat "$TASKS_DIR/proj--unset-parent.md")"
+assert "--unset parent: frontmatter value is empty" '^parent:[[:space:]]*$' "$content"
+assert "--unset parent: Handoffs records the clear" 'cleared via .wb set --unset.' "$content"
+
+# =============================================================================
+# Scenario: --unset on a noise field writes no Handoffs entry, matching the
+# same signal-over-noise split cmd_set already applies to real values.
+# =============================================================================
+
+mk_task "proj--unset-prio.md" unset-prio
+cmd_set "unset-prio" priority P1 >/dev/null 2>&1
+out="$(cmd_set "unset-prio" priority --unset 2>&1)"; rc=$?
+assert_eq "--unset priority: exit 0" 0 "$rc"
+content="$(cat "$TASKS_DIR/proj--unset-prio.md")"
+assert "--unset priority: frontmatter value is empty" '^priority:[[:space:]]*$' "$content"
+if printf '%s' "$content" | grep -q '## Handoffs'; then
+  echo "FAIL - --unset priority: no Handoffs entry should be appended (noise field)"; fail=1
+else
+  echo "ok   - --unset priority: no Handoffs entry appended"
+fi
+
+# =============================================================================
+# Scenario: --unset on an already-empty field is a no-op, and says so.
+# =============================================================================
+
+mk_task "proj--unset-noop.md" unset-noop
+out="$(cmd_set "unset-noop" parent --unset 2>&1)"; rc=$?
+assert_eq "--unset no-op: exit 0" 0 "$rc"
+assert "--unset no-op: says already empty" "parent already empty" "$out"
+
+# =============================================================================
+# Scenario: an empty value behaves exactly like --unset (so a caller passing
+# "" doesn't hit the enum/existence validation either).
+# =============================================================================
+
+mk_task "proj--unset-empty.md" unset-empty
+cmd_set "unset-empty" size L >/dev/null 2>&1
+out="$(cmd_set "unset-empty" size "" 2>&1)"; rc=$?
+assert_eq "empty value: exit 0" 0 "$rc"
+content="$(cat "$TASKS_DIR/proj--unset-empty.md")"
+assert "empty value: frontmatter cleared" '^size:[[:space:]]*$' "$content"
+
+# =============================================================================
+# Scenario: REGRESSION — --unset must not weaken validation of real values.
+# =============================================================================
+
+mk_task "proj--unset-guard.md" unset-guard
+out="$(cmd_set "unset-guard" parent "proj--does-not-exist" 2>&1)"; rc=$?
+assert_eq "real value still validated: exit 1" 1 "$rc"
+assert "real value still validated: message" "has no matching task file" "$out"
+out="$(cmd_set "unset-guard" priority bogus 2>&1)"; rc=$?
+assert_eq "real enum still validated: exit 1" 1 "$rc"
+out="$(cmd_set "unset-guard" bogusfield --unset 2>&1)"; rc=$?
+assert_eq "--unset on unknown field still refused: exit 1" 1 "$rc"
+assert "--unset on unknown field: message" "unknown field" "$out"
+
+# =============================================================================
 # Scenario: refuses when a LIVE tmux session's @task points at the resolved
 # file. Skipped if this harness has no usable tmux server.
 # =============================================================================
