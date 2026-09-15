@@ -61,7 +61,7 @@ the [Roadmap's shipped section](roadmap.html#detail-step-zero).
 | #33 | **Docs platform + board UX overhaul** — Tokyo Night theme, Hub grouping, real back-links | [verification](verification/2026-07-21-post-crash-merge-batch-verification.html) |
 | #34 | **`/handoff --pane`** — a co-located helper agent in the current worktree | [handoff guide](handoff-guide.html) |
 | #35 | Post-crash merge-batch verification checklist (#32/#33/#34) | [verification](verification/2026-07-21-post-crash-merge-batch-verification.html) |
-| #36 | **`/parked-items`** — wb-task vocabulary, `/handoff` action, carry-forward rounds | [guide](guides/parked-items.html) |
+| #36 | **`/parked-items`** — wb-task vocabulary, `/handoff` action, carry-forward rounds (retired 2026-09-15, superseded by `/weekly-review`) | — |
 | #37 | tmux: keep agent windows alive on shell exit (`remain-on-exit`) | — |
 | #38 | tmux: wb picker no longer misreports in-progress agents as idle/done | — |
 | #39 | **`/quick-wins`** — effort/isolation/ownership triage across the deferred backlog | — |

@@ -120,9 +120,9 @@ one of, among others:
   output and `commit or stash, then re-run` (stderr, exit 1) — the dirty
   edge case; nothing was removed, nothing was closed, relay the error
   verbatim and stop — don't retry or force anything on the user's behalf.
-- `wb done: $(wb_pending_counts) — consider running /parked-items` — an
-  optional trailing nudge when follow-ups/parked items pass the sweep
-  threshold; include it if present.
+- `wb done: $(wb_pending_counts) — consider running /weekly-review` — an
+  optional trailing nudge when follow-ups/unreviewed capture entries pass
+  the sweep threshold; include it if present.
 
 ### 4. The `--close` self-kill hazard — surface it before launching, not after
 

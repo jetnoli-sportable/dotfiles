@@ -35,7 +35,7 @@ Typical uses:
   keep/merge/retire)
 - Prune lists (files, branches, dependencies flagged for removal)
 - `wb-breakdown` proposals with many candidate child tasks
-- The weekly review (`/parked-items` and similar recurring sweeps)
+- The weekly review (`/weekly-review` and similar recurring sweeps)
 
 Stay in `decision-buffer` instead for:
 

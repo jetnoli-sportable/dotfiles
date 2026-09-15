@@ -10,8 +10,8 @@ updated: 2026-09-15
 ## Overview
 
 Replaces the three dated clocks that lapsed for seven weeks in
-`docs/ceremonies.md`, plus [parked-items](parked-items.html) (retired) and
-`/hindsight`. Gathers four evidence sources in a fixed order — `wb reconcile`
+`docs/ceremonies.md`, plus `/parked-items` (retired) and `/hindsight`.
+Gathers four evidence sources in a fixed order — `wb reconcile`
 drift, the [park](park.html) capture doc's unreviewed entries, tasks moved /
 PRs merged since last review, and skill-usage counts — classifies each
 capture entry (task idea / skill idea / grievance / workflow improvement),

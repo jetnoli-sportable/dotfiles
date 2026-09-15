@@ -48,7 +48,7 @@
 #                                    or unmatched <task>); <body> omitted or literally
 #                                    "-" reads a multi-line body from stdin instead — the
 #                                    agent-mediated write path /wb-save, /handoff, and
-#                                    /parked-items use instead of Edit-tool task writes
+#                                    /weekly-review use instead of Edit-tool task writes
 #   wb week path                     print the standing weekly-capture doc's path,
 #                                    creating it from the four-section template
 #                                    (What's working|What's not working|New ideas|Notes)
@@ -960,7 +960,7 @@ wb_seed_task() {
 # when omitted; an EXISTING file's title (the body's own `# ` heading,
 # not frontmatter) is never touched here, matching this function's own
 # fill-blanks-only posture for every other field. Used by `wb new --planned`
-# (cmd_new, below), in turn used by /parked-items' scratch-task creation and
+# (cmd_new, below), in turn used by /weekly-review's scratch-task creation and
 # /handoff's task-file seeding step — both cases where no work has actually
 # started yet, so there is no real worktree path to stamp and the task must
 # stay `status: planned` rather than jump straight to `doing`. The REAL
@@ -1344,7 +1344,7 @@ cmd_new() {
     # (above) that preserves `status: planned` (never the ordinary
     # planned->doing flip cmd_new's normal path below performs) and never
     # stamps `worktree:` to a path that doesn't exist yet. This is the verb
-    # /parked-items (scratch tasks with no work started) and /handoff's
+    # /weekly-review (scratch tasks with no work started) and /handoff's
     # seeding step (the real doing/worktree transition happens later, for
     # real, whenever something actually calls `wb new [--agent]` on the same
     # repo/slug) both shell out to instead of an Edit-tool task-file write.
@@ -3502,7 +3502,7 @@ wb_append_handoff() {
 # ---------------------------------------------------------------------------
 # wb append — locked, heading-scoped text insertion for agent-mediated
 # task-file writes (round-2 Decision 1B / W13-W14): the ONE way /wb-save,
-# /handoff, and /parked-items are rewired (U4) to touch a task file's body
+# /handoff, and /weekly-review are rewired (U4) to touch a task file's body
 # instead of an Edit-tool write that bypasses every lock this plan built.
 # ---------------------------------------------------------------------------
 
@@ -4248,11 +4248,6 @@ wb_followup_count() {
   ' "${files[@]}"
 }
 
-# wb_parked_count — open items in the /park ledger.
-wb_parked_count() {
-  jq -c 'select(.status == "open")' "$HOME/.claude/parked-items/ledger.jsonl" 2>/dev/null | wc -l
-}
-
 # wb_week_unreviewed_count — `- [ ]` (unreviewed) entries across the
 # standing capture doc, regardless of section. 0 when the doc doesn't exist
 # yet (never creates it just to count).
@@ -4479,14 +4474,17 @@ wb_board_first_nonblank_line() {
   done <<< "$1"
 }
 
-# wb_board_ledger_matches <worktree_abs_path> — open /park ledger entries
-# whose cwd is under this worktree, one compact JSON object per line.
-wb_board_ledger_matches() {
-  local wt="$1" ledger="$HOME/.claude/parked-items/ledger.jsonl"
-  [ -n "$wt" ] && [ -f "$ledger" ] || return 0
-  jq -c --arg wt "$wt" \
-    'select(.cwd != null and ((.cwd == $wt) or (.cwd | startswith($wt + "/"))))' \
-    "$ledger" 2>/dev/null
+# wb_board_capture_matches <repo> <branch> — unreviewed weekly-capture-doc
+# entries (U1) stamped with this repo/branch, one raw "- [ ] ..." line per
+# line. Replaces the retired /park ledger's wb_board_ledger_matches (U8):
+# `wb week append` stamps each entry with { date, repo, branch } — the
+# same fields the ledger used to carry, just as capture-doc prose instead
+# of a JSON cwd path.
+wb_board_capture_matches() {
+  local repo="$1" branch="$2" path
+  path="$(_wb_week_capture_path)"
+  [ -n "$repo" ] && [ -n "$branch" ] && [ -f "$path" ] || return 0
+  grep -F "· $repo/$branch ·" "$path" 2>/dev/null | grep '^- \[ \] '
 }
 
 # wb_board_pr_info <repo_dir> <branch> — "#<number> (<state>)\t<url>" for
@@ -5121,21 +5119,19 @@ wb_board_render_detail_card() {
     return
   fi
 
-  local plan done_txt repo_dir wt_abs pr_info detail_extra=""
+  local plan done_txt pr_info detail_extra=""
   detail_extra+="<p>$(wb_board_summary_line "$status" "$esc_repo" "$esc_branch" "$created" "$closed")</p>"
   plan="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Plan)")"
   done_txt="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Done)")"
   [ -n "$plan" ] && detail_extra+="<p><b>Plan:</b> $(wb_board_html_escape "$plan")</p>"
   [ -n "$done_txt" ] && detail_extra+="<p><b>Done:</b> $(wb_board_html_escape "$done_txt")</p>"
-  repo_dir="$(wb_repo_dir "$repo")"
   pr_info="${PR_INFO["$anchor_key"]:-}"
-  wt_abs="$repo_dir/$worktree"
-  local ledger_line ledger_note=""
-  while IFS= read -r ledger_line; do
-    [ -n "$ledger_line" ] || continue
-    ledger_note+="$(printf '%s' "$ledger_line" | jq -r '.note // empty' 2>/dev/null); "
-  done < <(wb_board_ledger_matches "$wt_abs")
-  [ -n "$ledger_note" ] && detail_extra+="<p><b>Parked:</b> $(wb_board_html_escape "$ledger_note")</p>"
+  local capture_line capture_note=""
+  while IFS= read -r capture_line; do
+    [ -n "$capture_line" ] || continue
+    capture_note+="$(printf '%s' "$capture_line" | sed -E 's/^- \[ \] [0-9]{4}-[0-9]{2}-[0-9]{2} · [^·]+ · //'); "
+  done < <(wb_board_capture_matches "$repo" "$branch")
+  [ -n "$capture_note" ] && detail_extra+="<p><b>Captured:</b> $(wb_board_html_escape "$capture_note")</p>"
   local own_docs doc_links
   own_docs="$(wb_board_related_docs "$taskfile" "$dotfiles_root")"
   doc_links="$(wb_board_task_doc_chips "$taskfile" "$dotfiles_root")"
@@ -6515,9 +6511,9 @@ cmd_done() {
     echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
   fi
 
-  local total=$(( $(wb_followup_count) + $(wb_parked_count) ))
+  local total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
   if [ "$total" -ge "$WB_SWEEP_THRESHOLD" ]; then
-    echo "wb done: $(wb_pending_counts) — consider running /parked-items"
+    echo "wb done: $(wb_pending_counts) — consider running /weekly-review"
   fi
 
   # KTD8's last-child nudge: pure read + print, guarded so a scan failure

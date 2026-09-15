@@ -96,13 +96,17 @@ For every row that resolves to `Seed as prospective task` or `Seed as planned ta
 locked-verb calls — `wb new` has no `--tags` flag, so tagging is always a second call:
 
 ```bash
-task_file="$("$WB" new --prospective "$repo" "$slug")"   # or --planned, per the verdict
+# "Seed as prospective task":
+task_file="$("$WB" new --prospective "$repo" "$slug")"
+# "Seed as planned task":
+task_file="$("$WB" new --planned "$repo" "$slug")"
 "$WB" set "$repo--$slug" tags weekly-review
 ```
 
-Never Write/Edit a file under `$TASKS_DIR` directly for this — creation and tagging are
-the only two writes this step makes, both through locked verbs, both taking argv values
-(never a composed/interpolated string).
+Never use the Edit or Write tool on a file under `$TASKS_DIR` directly for this — creation
+and tagging are the only two writes this step makes, both through locked verbs (`wb new`/
+`wb set`, the same ones `wb append` composes over), both taking argv values (never a
+composed/interpolated string).
 
 ## Emit the output record
 

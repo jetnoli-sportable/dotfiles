@@ -20,9 +20,8 @@ threads, then the wind-down, in that order, because the sweep has to happen
 ## Scope — what this does and doesn't do
 
 - **Reads back over *this conversation***, not the task file's history, to
-  find loose threads. It has no separate transcript-mining step — see
-  `parked-items/SKILL.md`'s backstop scan for that; this skill only looks at
-  what's already in context.
+  find loose threads. It has no separate transcript-mining step; this skill
+  only looks at what's already in context.
 - **Writes to `## Decisions`, `## Done`, and `## Follow-ups`** in the closing
   task's own file. Never touches `## Handoffs` (that section is
   `/wb-save`'s and `wb.sh`'s own append point, written right before a manual
@@ -30,10 +29,10 @@ threads, then the wind-down, in that order, because the sweep has to happen
   (that section is `wb done`'s own gitignored-files review, written by the
   wind-down step this skill launches, not by this skill directly).
 - **Creates new task files** in `~/code/tasks/` for follow-ups substantial
-  enough to need their own plan, and **appends to the `/park` ledger**
-  (`~/.claude/parked-items/ledger.jsonl`) for one-line reminders that don't.
-  See "Routing a loose thread" below for which is which — don't default to
-  the heavier option out of caution; task-file sprawl is its own cost.
+  enough to need their own plan, and **hands a one-line reminder to `/park`**
+  for anything lighter. See "Routing a loose thread" below for which is
+  which — don't default to the heavier option out of caution; task-file
+  sprawl is its own cost.
 - **Delegates the actual wind-down to the `wb-done` skill's mechanism**,
   verbatim (background Bash, no polling, relay the outcome as-is). This
   skill does not open its own copy of that async-nvim-buffer problem — see
@@ -70,7 +69,7 @@ when the session was a straight-line execution with no such asides — don't
 manufacture findings to justify running the sweep.
 
 **Before creating anything, check what already exists** — grep the task's
-own `## Follow-ups`, `` `~/.claude/parked-items/ledger.jsonl` ``, and
+own `## Follow-ups`, the standing weekly-capture doc (`wb week path`), and
 `~/code/tasks/*.md` for the topic so a thread the user already parked or
 already spun into a task mid-session doesn't get a duplicate.
 
@@ -87,12 +86,12 @@ the lighter one** when genuinely unsure:
   context/tradeoffs/proposed-fix already came up in conversation into
   `## Decisions`, so the next reader isn't starting cold. Link it from the
   closing task's own `## Follow-ups` as `[[<new-slug>]]`.
-- **`/park` ledger line** (follow that skill's own recipe: `jq -nc` into
-  `~/.claude/parked-items/ledger.jsonl`, never hand-concatenated JSON) for a
-  one-line reminder, idea, or "revisit this" note with no independent plan
-  of its own. Cheaper, reversible, reconciled weekly by `/parked-items` — the
-  right default when a thread is more "don't let this slip" than "here's a
-  scoped unit of work."
+- **Hand it to `/park`** (follow that skill's own judgement — non-work-shaped
+  appends straight to the capture doc, work-shaped proposes a `prospective`
+  task and asks) for a one-line reminder, idea, or "revisit this" note with
+  no independent plan of its own. Cheaper, reversible, reviewed weekly by
+  `/weekly-review` — the right default when a thread is more "don't let this
+  slip" than "here's a scoped unit of work."
 
 Tell the user what got created/parked, in one line each, before moving on —
 don't let this land silently the way `/park`'s own mid-conversation capture
@@ -191,10 +190,10 @@ never whether the record gets written first.
 ## Notes
 
 - This skill never re-implements `wb done`'s dirty-check, sweep-buffer, or
-  worktree-removal logic, and never re-implements `/park`'s ledger-append
-  recipe — it calls into `wb-done/SKILL.md` and `park/SKILL.md` for those.
-  If either's own behavior seems wrong, that's a change to that skill (or to
-  `wb.sh`), not something to work around here.
+  worktree-removal logic, and never re-implements `/park`'s capture-doc-append
+  or prospective-task recipe — it calls into `wb-done/SKILL.md` and
+  `park/SKILL.md` for those. If either's own behavior seems wrong, that's a
+  change to that skill (or to `wb.sh`), not something to work around here.
 - Not every session needs this. A session that's just answering questions,
   or one where `/wb-save` already ran and the human is winding down by hand,
   doesn't need `/close-out` invoked reflexively — it's for the moment the

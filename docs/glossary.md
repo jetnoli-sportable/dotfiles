@@ -29,12 +29,15 @@ debugging aid, but it doubled as the recovery source after the 2026-07-10
 and the incident's own recovery notes were rebuilt by mining a transcript
 that had read the originals in full.
 
-## Ledger
+## Capture doc
 
-An append-only log file, one entry per event, never edited in place. `/park`
-writes to one: a JSON line per captured item at
-`~/.claude/parked-items/ledger.jsonl`, read back in full by the weekly
-`/parked-items` review.
+The standing weekly-capture doc (`~/code/tasks/weeks/capture.md`), never
+cleared. `/park` appends a non-work-shaped item under one of its four
+sections (`What's working`, `What's not working`, `New ideas`, `Notes`) via
+`wb week append`; `/weekly-review` rolls unreviewed (`- [ ]`) entries into a
+per-week output record and marks them reviewed (`- [x]`). Replaces the
+retired `/park` ledger (a JSON-line file with no per-entry reviewed state,
+which is what let entries go untriaged across two weekly-routing reviews).
 
 ## Worktree
 

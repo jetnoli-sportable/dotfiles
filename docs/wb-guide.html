@@ -579,8 +579,9 @@ left for it to record), kills the tmux session.</li>
 </ol>
 <blockquote>
 <p>If you're several tasks behind on tidying up, <code>wb done</code> will nudge you:
-<em>&quot;N follow-ups pending · M parked — consider running <code>/parked-items</code>.&quot;</em>
-The same count shows in the picker's status line at all times.</p>
+<em>&quot;N follow-ups pending · M unreviewed capture entries (Xd since last
+review) — consider running <code>/weekly-review</code>.&quot;</em> The same counts show in
+the picker's status line at all times.</p>
 </blockquote>
 <h2 id="wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</h2>
 <p>A task whose <code>## Plan</code> has grown into a week of work becomes a
@@ -691,7 +692,7 @@ claude_sessions:      # optional: id@iso-ts[@primary],... — a record of
 task files are never retroactively migrated to the newer fields
 (<code>path:</code>/<code>depends_on:</code>/<code>reviewed:</code>) — they fall back to the defaults above
 until a human or agent happens to touch that file again.
-<code>/parked-items</code> now promotes follow-ups here instead of a per-repo
+<code>/weekly-review</code> now promotes follow-ups here instead of a per-repo
 <code>scratch/tasks/</code>, and worktree setup checks it for existing context before
 starting from scratch.</p>
 <p>The planned/backlog tasks the presence-only picker hides are one command
@@ -920,8 +921,9 @@ rows anymore — only live sessions/agents do. Two places to look instead:</p>
 <code>~/code/tasks/*.md</code>. Scan them all at once:
 <code>grep -A5 '^## Follow-ups' ~/code/tasks/*.md</code>, or open one task file
 directly.</li>
-<li><strong>Parked items</strong> live in <code>~/.claude/parked-items/ledger.jsonl</code>. Run
-<code>/parked-items</code> to review, promote, or dismiss them — that's the intended
+<li><strong>Captured items</strong> live in the standing weekly-capture doc
+(<code>~/code/tasks/weeks/capture.md</code>, <code>wb week path</code> to print it). Run
+<code>/weekly-review</code> to review, promote, or dismiss them — that's the intended
 interface, not the picker.</li>
 </ul>
 <p>The counts you see in the picker's status line and in <code>wb done</code>'s nudge
