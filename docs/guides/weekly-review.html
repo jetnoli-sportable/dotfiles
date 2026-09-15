@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>parked-items</title>
+<title>weekly-review</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
@@ -235,13 +235,13 @@
 <body data-kind="guide" data-group="skills">
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
-  <span class="gen">docgen · generated from <b>docs/guides/parked-items.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span class="gen">docgen · generated from <b>docs/guides/weekly-review.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-09-15</span>
 </div>
 <div class="shell">
   <nav class="toc">
-    <div class="brand">parked-items</div>
-    <div class="brand-sub">Weekly review of everything parked, as an nvim checklist.</div>
+    <div class="brand">weekly-review</div>
+    <div class="brand-sub">The weekly ceremony — evidence, review page, output record.</div>
     <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#overview">Overview</a></li>
@@ -254,91 +254,108 @@
   <main>
     <header class="doc guide-banner">
       <span class="eyebrow">skills · guide</span>
-      <h1>parked-items</h1>
-      <p class="dek">Weekly review of everything parked, as an nvim checklist.</p>
+      <h1>weekly-review</h1>
+      <p class="dek">The weekly ceremony — evidence, review page, output record.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
     </header>
     <article>
 <h2 id="overview">Overview</h2>
-<p>The forcing function that makes <a href="park.html">park</a> worth anything: gathers
-the <code>/park</code> ledger plus a transcript backstop (things you <em>said</em> to revisit
-but never parked), reconciles against the central task store
-(<code>~/code/tasks</code>), and presents one nvim checklist of genuinely-open items.
-You check an action per item; the agent executes them when you close the
-buffer.</p>
+<p>Replaces the three dated clocks that lapsed for seven weeks in
+<code>docs/ceremonies.md</code>, plus <code>/parked-items</code> (retired) and <code>/hindsight</code>.
+Gathers four evidence sources in a fixed order — <code>wb reconcile</code>
+drift, the <a href="park.html">park</a> capture doc's unreviewed entries, tasks moved /
+PRs merged since last review, and skill-usage counts — classifies each
+capture entry (task idea / skill idea / grievance / workflow improvement),
+and presents at most five candidate suggestions on the <a href="review-page.html">review
+page</a>, never an nvim buffer. Emits one output record per
+ISO week under <code>~/code/tasks/weeks/</code> with Retro and Sprint-planning rollups.</p>
 <h2 id="try-it-now">Try it now</h2>
-<pre><code>/parked-items --backfill    # first ever run: full-history baseline (noisy, expected)
-/parked-items               # the weekly cadence: last 7 days
+<pre><code>/weekly-review
 </code></pre>
-<p>The buffer opens in a tmux split. For each item: keep the pre-checked
-recommendation or move the <code>[x]</code>, add notes inline, save, close. The agent
-then creates tasks / discusses / drops as instructed and summarizes.</p>
+<p>Run it from the main dotfiles checkout (not a worktree — <code>wb week</code>/<code>wb reconcile</code> are stowed there). The agent gathers evidence, classifies every
+capture-doc entry, opens a review page for the task/skill-idea candidates,
+then writes <code>~/code/tasks/weeks/&lt;ISO&gt;-review.md</code> once you close the page.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>
 <tr>
-<th>Checkbox</th>
-<th>What happens</th>
+<th>Evidence step</th>
+<th>Source</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Make a wb task</td>
-<td><code>wb new --planned</code> seeds <code>~/code/tasks/&lt;repo&gt;--&lt;slug&gt;.md</code> (<code>status: planned</code>, no worktree), routed by the item's captured cwd</td>
+<td>1. Reconcile</td>
+<td><code>wb reconcile --machine</code> — task-store/git drift</td>
 </tr>
 <tr>
-<td>wb task + /handoff session</td>
-<td>The above, then <a href="../handoff-guide.html">handoff</a> spins up a worker session for it — for items ready to be <em>worked</em>, not just filed. One per item; more than two in a run asks first</td>
+<td>2. Capture doc</td>
+<td><code>wb week record</code> — rolls up every unreviewed entry, marks it reviewed</td>
 </tr>
 <tr>
-<td>Make a Jira ticket</td>
-<td>Only when explicitly checked; agent confirms project/summary first</td>
+<td>3. Moved/merged</td>
+<td>Last record's seeded tasks, checked against <code>status: done</code> / merged PRs</td>
 </tr>
 <tr>
-<td>Discuss now</td>
-<td>Raised in chat that same turn</td>
-</tr>
-<tr>
-<td>Keep parked</td>
-<td>Stays <code>open</code>, resurfaces next week</td>
-</tr>
-<tr>
-<td>Drop</td>
-<td>Ledger line rewritten <code>status:&quot;dropped&quot;</code> — audit trail kept, never re-raised</td>
+<td>4. Skill usage</td>
+<td><code>scripts/.config/scripts/skill-usage.sh</code> — reproducible counts, stated blind spots</td>
 </tr>
 </tbody>
 </table>
-<p>Flags: <code>--since=14d</code> widens the window; <code>--backfill</code> scans all history.
-Sources in priority order: newest <code>review-*.md</code> (carried forward) → ledger →
-transcript scan → task-store reconciliation (already-actioned items drop off
-automatically).</p>
-<p>Two behaviours worth knowing: each run reads the <strong>previous review file first</strong>
-and leads with its still-open items rather than re-deriving them, so a backlog
-survives across weeks. And a run can be <strong>survey-only</strong> — say &quot;just note these,
-we'll discuss next time&quot; and the file is written, the recommendations stay
-un-actioned, and no ledger line is stamped.</p>
+<table>
+<thead>
+<tr>
+<th>Classification</th>
+<th>Routes to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Task idea</td>
+<td>Sprint planning (candidate suggestion)</td>
+</tr>
+<tr>
+<td>Skill idea</td>
+<td>Sprint planning (candidate suggestion)</td>
+</tr>
+<tr>
+<td>Grievance</td>
+<td>Retro</td>
+</tr>
+<tr>
+<td>Workflow improvement</td>
+<td>Retro, and Sprint planning if it implies a concrete change</td>
+</tr>
+</tbody>
+</table>
+<p>Accepted suggestions are seeded via <code>wb new --prospective</code>/<code>--planned</code> then
+tagged <code>wb set &lt;task&gt; tags weekly-review</code> — two locked-verb calls, <code>wb new</code>
+has no <code>--tags</code> flag.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
-<li>The transcript backstop is phrase-matching — the first <code>--backfill</code> run
-surfaces false positives by design; Drop them once and they stay dropped.</li>
-<li>Needs local transcripts (<code>~/.claude/projects/</code>) — a cloud/headless run
-can't do the backstop half, which is why this stays a local ritual.</li>
-<li><code>wb done</code> nudges you (&quot;N follow-ups pending · M parked&quot;) when you fall
-behind; the picker status line carries the same count.</li>
+<li>The ceremony is manually invoked — no calendar/hook trigger — until a few
+real runs prove it earns its keep (see the plan's own Risks section and
+its dated week-3 re-evaluation task).</li>
+<li>Classification at capture time (in <code>/park</code>) and at review time (here) are
+both one-line judgement calls, not infallible — correct them inline when
+wrong.</li>
+<li>Skill-usage counts can't see a skill invoked by natural-language
+description alone — a zero there means &quot;not detected,&quot; never &quot;unused.&quot;</li>
 </ul>
 <h2 id="next-steps--reverting">Next steps / reverting</h2>
 <ul>
-<li>Once the weekly output has earned trust, ask to <code>/schedule</code> it (e.g.
-Monday 09:00, local) — deliberately not set up by default.</li>
-<li>Everything is plain files: the ledger, the review buffers
-(<code>~/.claude/parked-items/review-*.md</code>), the task store. Skill source:
-<code>claude/.claude/skills/parked-items/SKILL.md</code>.</li>
+<li>The capture doc is a plain standing file at <code>~/code/tasks/weeks/capture.md</code>
+(<code>wb week path</code> to print it) — read it, edit an entry, or move something
+out any time, not just during a review.</li>
+<li>Every output record lives under <code>~/code/tasks/weeks/</code> — plain markdown,
+one file per ISO week. Skill source:
+<code>claude/.claude/skills/weekly-review/SKILL.md</code>.</li>
 </ul>
 </article>
     <footer>
-  Generated by <code>docgen</code> from <code>docs/guides/parked-items.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/guides/weekly-review.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
   </main>

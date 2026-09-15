@@ -97,8 +97,9 @@ the actual generated `docs/guides/park.html` come out as:
 </div>
 ...
 <h2 id="overview">Overview</h2>
-<p>Zero-ceremony deferral: one JSON line appended to a global ledger
-(<code>~/.claude/parked-items/ledger.jsonl</code>), ...
+<p>Near-zero-ceremony deferral. Not-work-shaped items go straight into the
+standing weekly-capture doc (<code>wb week append</code>) with no
+confirmation step, ...
 ```
 
 The `title:`/`status:` frontmatter became the `<title>`, the sidebar

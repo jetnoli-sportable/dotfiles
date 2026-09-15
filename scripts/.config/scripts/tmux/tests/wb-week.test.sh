@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# Tests for `wb week` (cmd_week) — the standing weekly-capture doc and the
+# per-week output record (U1, KTD1-KTD3). Same fixture/harness convention as
+# wb-set.test.sh (fixture TASKS_DIR, source wb.sh, set +e to capture non-zero
+# exits).
+# Run: bash scripts/.config/scripts/tmux/tests/wb-week.test.sh
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WB="$SELF_DIR/wb.sh"
+
+FIXTURE="$(mktemp -d -t wb-week-fixture.XXXXXX)"
+trap 'rm -rf "$FIXTURE"' EXIT
+
+fail=0
+assert() { # <desc> <expected-regex> <actual>
+  if printf '%s' "$3" | grep -qE "$2"; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1"
+    echo "       expected match: $2"
+    echo "       got: $(printf '%s' "$3" | head -8)"
+    fail=1
+  fi
+}
+assert_eq() { # <desc> <expected> <actual>
+  if [ "$2" = "$3" ]; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1 (expected '$2', got '$3')"
+    fail=1
+  fi
+}
+
+export XDG_STATE_HOME="$FIXTURE/state"
+export HOME="$FIXTURE/home"
+export CODE_DIR="$FIXTURE/code"
+export TASKS_DIR="$FIXTURE/tasks"
+mkdir -p "$XDG_STATE_HOME" "$HOME" "$CODE_DIR" "$TASKS_DIR"
+
+# shellcheck disable=SC1090
+source "$WB"
+set +e   # wb.sh sets -e; this suite intentionally captures non-zero exits
+
+CAPTURE="$TASKS_DIR/weeks/capture.md"
+
+# =============================================================================
+# Scenario: `wb week path` on an empty store creates the doc with exactly
+# the four sections and prints its path.
+# =============================================================================
+
+out="$(cmd_week path 2>&1)"; rc=$?
+assert_eq "path (create): exit 0" 0 "$rc"
+assert_eq "path (create): prints the capture path" "$CAPTURE" "$out"
+[ -f "$CAPTURE" ] || { echo "FAIL - path (create): file was not created"; fail=1; }
+n_sections="$(grep -c '^## ' "$CAPTURE")"
+assert_eq "path (create): exactly four sections" 4 "$n_sections"
+for h in "What's working" "What's not working" "New ideas" "Notes"; do
+  grep -qF "## $h" "$CAPTURE" || { echo "FAIL - path (create): missing section '$h'"; fail=1; }
+done
+
+# =============================================================================
+# Scenario: `wb week path` a second time is idempotent.
+# =============================================================================
+
+before_content="$(cat "$CAPTURE")"
+out2="$(cmd_week path 2>&1)"; rc2=$?
+assert_eq "path (idempotent): exit 0" 0 "$rc2"
+assert_eq "path (idempotent): same path" "$CAPTURE" "$out2"
+after_content="$(cat "$CAPTURE")"
+assert_eq "path (idempotent): content unchanged" "$before_content" "$after_content"
+n_sections2="$(grep -c '^## ' "$CAPTURE")"
+assert_eq "path (idempotent): still exactly four sections" 4 "$n_sections2"
+
+# =============================================================================
+# Scenario: `wb week append` inserts under the right heading, leaves the
+# other three untouched, and round-trips a body with quotes/# intact.
+# =============================================================================
+
+rm -f "$CAPTURE"
+out="$(cmd_week append "What's not working" 'reviews stall — quoting "the" spec, then a # comment-looking bit' 2>&1)"
+rc=$?
+assert_eq "append: exit 0" 0 "$rc"
+content="$(cat "$CAPTURE")"
+
+# Section boundaries: the entry must land strictly between "## What's not
+# working" and the next "## " heading.
+between="$(awk '/^## What.s not working$/{f=1;next} /^## /{f=0} f' "$CAPTURE")"
+assert "append: entry lands under the right heading" \
+  'reviews stall .* "the" spec, then a # comment-looking bit' "$between"
+
+for h in "What's working" "New ideas" "Notes"; do
+  section_body="$(awk -v h="## $h" '$0==h{f=1;next} /^## /{f=0} f' "$CAPTURE")"
+  if printf '%s' "$section_body" | grep -q '\[ \]'; then
+    echo "FAIL - append: '$h' section unexpectedly gained an entry"; fail=1
+  fi
+done
+echo "ok   - append: other three sections left untouched"
+
+# =============================================================================
+# Scenario: an unknown section name exits non-zero, names the four valid
+# sections, and writes nothing.
+# =============================================================================
+
+before_content="$(cat "$CAPTURE")"
+out="$(cmd_week append "Grievances" "should be refused" 2>&1)"; rc=$?
+assert_eq "append unknown section: exit 1" 1 "$rc"
+assert "append unknown section: names all four sections" \
+  "What's working.*What's not working.*New ideas.*Notes" "$out"
+after_content="$(cat "$CAPTURE")"
+assert_eq "append unknown section: file untouched" "$before_content" "$after_content"
+
+# =============================================================================
+# Scenario: an appended entry round-trips its date, repo and branch stamp
+# intact. This fixture's $CODE_DIR is not a git repo, so the stamp falls
+# back to "?" for both — still asserts the stamp SHAPE (date · repo/branch)
+# round-trips rather than being dropped or mangled.
+# =============================================================================
+
+rm -f "$CAPTURE"
+cmd_week append "New ideas" "stamped entry" >/dev/null 2>&1
+today="$(date +%F)"
+assert "stamp round-trip: date/repo/branch shape present" \
+  "\\- \\[ \\] $today · .*/.* · stamped entry" "$(cat "$CAPTURE")"
+
+# =============================================================================
+# Scenario: `wb week record` mints weeks/<ISO>-review.md and is idempotent
+# on a second call.
+# =============================================================================
+
+rm -f "$CAPTURE"
+cmd_week append "What's working" "entry A" >/dev/null 2>&1
+out="$(cmd_week record 2026-W10 2>&1)"; rc=$?
+RECORD1="$TASKS_DIR/weeks/2026-W10-review.md"
+assert_eq "record (mint): exit 0" 0 "$rc"
+assert_eq "record (mint): prints the record path" "$RECORD1" "$out"
+[ -f "$RECORD1" ] || { echo "FAIL - record (mint): file was not created"; fail=1; }
+assert "record (mint): names the ISO week" "Week 2026-W10 review" "$(cat "$RECORD1")"
+assert "record (mint): first review has no previous record" "Previous record: none" "$(cat "$RECORD1")"
+assert "record (mint): rolled up entry A" "entry A" "$(cat "$RECORD1")"
+
+before_record="$(cat "$RECORD1")"
+out2="$(cmd_week record 2026-W10 2>&1)"; rc2=$?
+assert_eq "record (idempotent): exit 0" 0 "$rc2"
+assert_eq "record (idempotent): same path" "$RECORD1" "$out2"
+after_record="$(cat "$RECORD1")"
+assert_eq "record (idempotent): content unchanged" "$before_record" "$after_record"
+
+# =============================================================================
+# Scenario: a minted record links the previous week's record when one
+# exists.
+# =============================================================================
+
+cmd_week append "What's working" "entry B" >/dev/null 2>&1
+out="$(cmd_week record 2026-W13 2>&1)"; rc=$?
+RECORD2="$TASKS_DIR/weeks/2026-W13-review.md"
+assert_eq "record (link prev): exit 0" 0 "$rc"
+assert "record (link prev): links the previous record" "Previous record: .*2026-W10-review\\.md" "$(cat "$RECORD2")"
+
+# =============================================================================
+# Scenario: an entry marked reviewed is not re-offered by the next record;
+# an unmarked entry still is (the stranding case wb week record exists to
+# fix — the old /park ledger left 12 of 58 entries untriaged across two
+# reviews with no per-entry state).
+# =============================================================================
+
+if grep -qF 'entry A' "$RECORD2"; then
+  echo "FAIL - stranding: entry A (already reviewed in 2026-W10) was re-offered in 2026-W13"; fail=1
+else
+  echo "ok   - stranding: reviewed entry A was not re-offered"
+fi
+assert "stranding: unreviewed entry B was offered" "entry B" "$(cat "$RECORD2")"
+assert "stranding: entry A flipped to reviewed in the capture doc" '\- \[x\] .*entry A' "$(cat "$CAPTURE")"
+assert "stranding: entry B flipped to reviewed after its own record" '\- \[x\] .*entry B' "$(cat "$CAPTURE")"
+
+# A THIRD entry, never rolled into any record yet, must still show up as
+# unreviewed — directly asserting the marker (not a date window) is what
+# drives inclusion.
+cmd_week append "What's working" "entry C" >/dev/null 2>&1
+assert "stranding: entry C still unreviewed before any record covers it" '\- \[ \] .*entry C' "$(cat "$CAPTURE")"
+
+# =============================================================================
+# Scenario: `wb_week_unreviewed_count` prints a single-line "0" (not "0\n0")
+# when the capture doc exists but has zero unreviewed entries — the normal
+# post-review state. `grep -c` already prints "0" on no match and only
+# EXITS 1 to signal that; a caller doing `grep -c ... || echo 0` gets a
+# second "0" line on that nonzero exit, which breaks arithmetic composition
+# (exactly what `cmd_done` does with this count) under `set -e`.
+# =============================================================================
+
+cmd_week record 2026-W20 >/dev/null 2>&1   # flips the remaining unreviewed entry (C)
+out="$(wb_week_unreviewed_count)"
+assert_eq "unreviewed count at zero: single-line '0'" "0" "$out"
+n_lines="$(printf '%s' "$out" | wc -l)"
+# wc -l counts newlines, not lines-if-no-trailing-newline; a `$(...)`
+# capture strips the trailing newline either way, so a genuinely single
+# "0\n" line here reads 0, and the "0\n0\n" bug would read 1.
+assert_eq "unreviewed count at zero: no embedded newline" "0" "$n_lines"
+
+# The exact arithmetic `cmd_done` performs with this value — must not
+# abort under `set -e` (it would if the count carried a second line).
+(
+  set -e
+  total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
+  exit "$([ "$total" -ge 0 ] && echo 0 || echo 1)"
+)
+assert_eq "unreviewed count at zero: cmd_done-shaped arithmetic does not abort" 0 "$?"
+
+# =============================================================================
+# Scenario: `wb_pending_counts` reports unreviewed capture entries and days
+# since the last record, and does not read ledger.jsonl.
+# =============================================================================
+
+out="$(wb_pending_counts)"
+assert "pending counts: reports unreviewed capture entries" '[0-9]+ unreviewed capture entries' "$out"
+assert "pending counts: reports days since last review" 'since last review' "$out"
+if printf '%s' "$out" | grep -qi 'parked'; then
+  echo "FAIL - pending counts: still mentions the retired 'parked' ledger wording"; fail=1
+else
+  echo "ok   - pending counts: no ledger wording"
+fi
+
+[ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
+exit "$fail"

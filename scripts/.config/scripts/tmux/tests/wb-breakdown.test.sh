@@ -1547,7 +1547,7 @@ assert_eq "nudge is stdout-only: sibling (already-done) file byte-identical" "$s
 # U6 — /wb-breakdown skill: write-boundary grep check
 # =============================================================================
 # Same convention wb-append.test.sh's W14 scenario already established for
-# handoff/parked-items/wb-save — a reasonable grep-based smoke check (not
+# handoff/weekly-review/wb-save — a reasonable grep-based smoke check (not
 # exhaustive NLP) that this new skill never instructs an Edit/Write-tool
 # write against ~/code/tasks, and DOES reference the locked verbs + state
 # the never-Edit/Write-tool rule.

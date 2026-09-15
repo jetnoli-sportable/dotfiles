@@ -68,6 +68,22 @@ assert "planned->paused: Handoffs entry appended" 'wb status \(auto\)' "$content
 assert "planned->paused: Handoffs entry message" 'Status set to `paused` via `wb status`' "$content"
 
 # =============================================================================
+# Scenario: `prospective` (R25) is accepted by the enum.
+# =============================================================================
+
+mk_task "proj--status-prospective.md" planned status-prospective
+out="$(cmd_status "status-prospective" prospective 2>&1)"; rc=$?
+assert_eq "planned->prospective: exit 0" 0 "$rc"
+content="$(cat "$TASKS_DIR/proj--status-prospective.md")"
+assert "planned->prospective: frontmatter status updated" '^status: prospective$' "$content"
+
+# An invalid value's usage message names the full enum, prospective included.
+out="$(cmd_status "status-prospective" bogus 2>&1)"; rc=$?
+assert_eq "invalid value names full enum: exit 1" 1 "$rc"
+assert "invalid value names full enum incl. prospective" \
+  'usage: wb status <task-ref> <prospective\|planned\|paused\|doing\|review>' "$out"
+
+# =============================================================================
 # Scenario: `done` is refused with a pointer to `wb done`.
 # =============================================================================
 

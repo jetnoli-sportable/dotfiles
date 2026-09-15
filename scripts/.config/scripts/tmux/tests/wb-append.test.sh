@@ -374,7 +374,7 @@ if [ -z "$REPO_ROOT" ]; then
   echo "FAIL - skill grep check: could not resolve repo root via git rev-parse --show-toplevel"
   fail=1
 else
-  for skill in handoff parked-items wb-save; do
+  for skill in handoff weekly-review wb-save; do
     skill_file="$REPO_ROOT/claude/.claude/skills/$skill/SKILL.md"
     if [ ! -f "$skill_file" ]; then
       echo "FAIL - skill grep check: $skill_file not found"

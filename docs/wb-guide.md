@@ -284,8 +284,9 @@ In order, every time:
    left for it to record), kills the tmux session.
 
 > If you're several tasks behind on tidying up, `wb done` will nudge you:
-> *"N follow-ups pending · M parked — consider running `/parked-items`."*
-> The same count shows in the picker's status line at all times.
+> *"N follow-ups pending · M unreviewed capture entries (Xd since last
+> review) — consider running `/weekly-review`."* The same counts show in
+> the picker's status line at all times.
 
 ## wb breakdown — split an oversized task into a family
 
@@ -417,7 +418,7 @@ It's a real git repo you can `cd` into, `git log`, or open in `wb` itself
 task files are never retroactively migrated to the newer fields
 (`path:`/`depends_on:`/`reviewed:`) — they fall back to the defaults above
 until a human or agent happens to touch that file again.
-`/parked-items` now promotes follow-ups here instead of a per-repo
+`/weekly-review` now promotes follow-ups here instead of a per-repo
 `scratch/tasks/`, and worktree setup checks it for existing context before
 starting from scratch.
 
@@ -611,8 +612,9 @@ rows anymore — only live sessions/agents do. Two places to look instead:
   `~/code/tasks/*.md`. Scan them all at once:
   `grep -A5 '^## Follow-ups' ~/code/tasks/*.md`, or open one task file
   directly.
-- **Parked items** live in `~/.claude/parked-items/ledger.jsonl`. Run
-  `/parked-items` to review, promote, or dismiss them — that's the intended
+- **Captured items** live in the standing weekly-capture doc
+  (`~/code/tasks/weeks/capture.md`, `wb week path` to print it). Run
+  `/weekly-review` to review, promote, or dismiss them — that's the intended
   interface, not the picker.
 
 The counts you see in the picker's status line and in `wb done`'s nudge

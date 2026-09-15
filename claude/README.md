@@ -11,8 +11,8 @@ directory instead of replacing it.
 
 - `skills/decision-buffer/` — design decisions via nvim buffer docs
 - `skills/handoff/` — route in-conversation discussion to the right worker (switch or spawn)
-- `skills/park/` — capture "later" items to the ledger
-- `skills/parked-items/` — weekly review of parked items
+- `skills/park/` — capture "later" items to the standing weekly-capture doc
+- `skills/weekly-review/` — the weekly ceremony that reviews captured items
 - `skills/pr-review-session/` — PR review worktree/tmux sessions
 - `skills/spec-doc/` — requirements spec (PRD): synthesised, seams-first, Warp-style invariants + user stories; composes the vendored spec skills below
 
@@ -38,7 +38,6 @@ paths/vocabulary in the invocation prompt instead.
   curation + secret audit before it's safe to track (it currently
   references Sportable-owned plugin marketplaces, which shouldn't land in
   this personal repo without a deliberate call).
-- `~/.claude/parked-items/ledger.jsonl` — state, not config.
 - `~/.claude/projects/`, `todos/`, caches, telemetry — machine state,
   never track.
 

@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
   <span class="gen">docgen · generated from <b>docs/guides/park.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-07</span>
+  <span class="right">updated 2026-09-15</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -262,16 +262,19 @@
     </header>
     <article>
 <h2 id="overview">Overview</h2>
-<p>Zero-ceremony deferral: one JSON line appended to a global ledger
-(<code>~/.claude/parked-items/ledger.jsonl</code>), stamped with cwd and git branch so
-the weekly review can route it later. Exists so &quot;let's discuss this later&quot;
-doesn't evaporate when the conversation ends. Capture half of the pair —
-<a href="parked-items.html">parked-items</a> is the review half.</p>
+<p>Near-zero-ceremony deferral. Not-work-shaped items go straight into the
+standing weekly-capture doc (<code>wb week append</code>) with no confirmation step —
+work-shaped items propose a <code>prospective</code> task and ask first, since that's
+a real store write. Exists so &quot;let's discuss this later&quot; doesn't evaporate
+when the conversation ends. Capture half of the pair — <a href="weekly-review.html">weekly-review</a>
+is the ceremony that reviews everything captured here.</p>
 <h2 id="try-it-now">Try it now</h2>
 <p>In any Claude Code session:</p>
 <pre><code>/park try out the new help picker on a real question
 </code></pre>
-<p>The agent confirms in one line: <code>Parked: &quot;…&quot; (dotfiles @ docs/…). It'll show up in /parked-items.</code> That's the whole flow.</p>
+<p>Not work-shaped — the agent appends it under the capture doc's <code>New ideas</code>
+section (or whichever fits) and confirms in one line: <code>Parked (not work-shaped) to &quot;New ideas&quot;: &quot;try out the new help picker on a real question&quot;</code>. That's the whole flow for non-work capture.</p>
+<p>For a work-shaped note (e.g. <code>/park the export endpoint should retry on a timeout</code>), the agent instead asks before creating anything — see Reference.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>
@@ -282,12 +285,16 @@ doesn't evaporate when the conversation ends. Capture half of the pair —
 </thead>
 <tbody>
 <tr>
-<td><code>/park &lt;note&gt;</code></td>
-<td>Appends the note verbatim</td>
+<td><code>/park &lt;note&gt;</code>, not work-shaped</td>
+<td>Appends under the best-fit capture-doc section, no asking</td>
+</tr>
+<tr>
+<td><code>/park &lt;note&gt;</code>, work-shaped</td>
+<td>Proposes a <code>status: prospective</code> task, asks first — declining falls back to the capture doc</td>
 </tr>
 <tr>
 <td><code>/park</code> (no argument)</td>
-<td>Agent summarizes the thing under discussion into a one-liner</td>
+<td>Agent summarizes the thing under discussion into a one-liner, then judges it the same way</td>
 </tr>
 <tr>
 <td>Saying &quot;park this&quot; / &quot;revisit later&quot; / &quot;make a follow-up task for this&quot; in passing</td>
@@ -295,21 +302,23 @@ doesn't evaporate when the conversation ends. Capture half of the pair —
 </tr>
 </tbody>
 </table>
-<p>Ledger entry shape: <code>{ts, cwd, branch, note, status:&quot;open&quot;, source:&quot;manual&quot;}</code> —
-append-only; status changes (<code>done</code>/<code>dropped</code>) happen in the weekly review,
-never here.</p>
+<p>The capture doc lives at <code>~/code/tasks/weeks/capture.md</code> (<code>wb week path</code> to
+print it) with four standing sections: <code>What's working</code>, <code>What's not working</code>, <code>New ideas</code>, <code>Notes</code> — never cleared. Each entry is stamped with
+date/repo/branch and starts unreviewed (<code>- [ ]</code>); <code>/weekly-review</code> rolls
+unreviewed entries into a week record and marks them reviewed (<code>- [x]</code>), so
+nothing is silently re-offered forever or silently dropped.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
-<li>Capture is deliberately dumb: no dedupe, no editing, no categorization at
-park time. If you park the same thought twice, the review dedupes it.</li>
+<li>The work-shaped/not-shaped judgement is a one-line guess, stated so a
+wrong call is easy to correct — it is not infallible.</li>
 <li>If something needs action <em>now</em>, don't park it — the skill itself will
 refuse the detour and just do the work.</li>
 </ul>
 <h2 id="next-steps--reverting">Next steps / reverting</h2>
 <ul>
-<li>Review parked items weekly with <a href="parked-items.html">/parked-items</a>.</li>
-<li>The ledger is a plain file — <code>cat</code> it, back it up, or delete a line by
-hand if something should never resurface. Skill source:
+<li>Review captured items weekly with <a href="weekly-review.html">/weekly-review</a>.</li>
+<li>The capture doc is a plain markdown file — read it, edit an entry by
+hand, or move something out if it should never resurface. Skill source:
 <code>claude/.claude/skills/park/SKILL.md</code>.</li>
 </ul>
 </article>
