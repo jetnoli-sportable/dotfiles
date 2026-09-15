@@ -1405,28 +1405,33 @@ cmd_new() {
   tmux set-option -t "=$session:" @wb_slug "$slug" >/dev/null
   tmux set-option -t "=$session:" @task "$task_file" >/dev/null
   if [ "$is_new" = 1 ]; then
-    # R9/U4: resolve what the agent window should pre-type. Preference
-    # order — a resumable transcript (wb_resume_id, U2) beats a plain
-    # `--continue`, which beats typing nothing for a genuinely new task.
-    # "Has claude_sessions: ever been populated" (wb_down/wb_pause's own
-    # record-only snapshot, KTD2) is the signal for "a real conversation
-    # happened here before" when no transcript survives to --resume by id.
+    # R9/U4: resolve what the agent window should pre-type. Only ever
+    # `claude --resume <id>` (wb_resume_id, U2) when a real transcript
+    # exists on disk for THIS worktree, or nothing at all for a genuinely
+    # new task — there is deliberately no `--continue` fallback, because
+    # `--continue`'s own resolution is scoped to the exact same directory
+    # wb_transcript_dir hashes (its header comment: "verified against this
+    # very worktree"), which is precisely what wb_resume_id/wb_transcripts
+    # already checked. If wb_resume_id found nothing, `--continue` run
+    # from this same worktree finds nothing either — there's no signal
+    # (a Handoffs "### " line, claude_sessions: non-empty) that changes
+    # that, because none of them speak to whether a transcript exists in
+    # THIS specific directory right now.
     #
-    # This USED to scan Handoffs for any "### " line instead — which
-    # over-fired: wb_append_handoff also stamps "### ... (auto)" entries
-    # for `wb set`/`wb status`/`wb breakdown`, none of which imply a live
-    # Claude session ever ran in this worktree. A brand-new task re-parented
-    # by `wb set` (or migrated by `wb breakdown --apply`) before its first
-    # `wb new --agent` already carries such an entry, so the old check
-    # pre-typed `claude --continue` for a session with nothing to continue
-    # — "No conversation found to continue", boot-ready never appears, and
-    # handoff.sh's poller (below) times out waiting for it.
+    # This used to guess `--continue` from two different weaker signals in
+    # turn, and both misfired live in exactly this way: first "any Handoffs
+    # ### line" (wb_append_handoff stamps that same "### ... (auto)" shape
+    # for `wb set`/`wb status`/`wb breakdown`, none of which imply a real
+    # session), then "claude_sessions: non-empty" (the field can be
+    # populated from an earlier session whose transcript no longer exists
+    # under THIS worktree path — reported live as `claude --continue`
+    # failing the same way for a be--monorepo task). Both guesses produced
+    # "No conversation found to continue" with `--agent`'s auto-Enter,
+    # boot-ready never appearing, and handoff.sh's poller timing out.
     local agent_cmd="" resume_id
     resume_id="$(wb_resume_id "$task_file" "$worktree_path")"
     if [ -n "$resume_id" ]; then
       agent_cmd="claude --resume $resume_id"
-    elif [ -n "$(wb_get_frontmatter "$task_file" claude_sessions)" ]; then
-      agent_cmd="claude --continue"
     fi
     wb_layout_session "$session" "$worktree_path" "$agent_flag" "$agent_cmd"
   fi
