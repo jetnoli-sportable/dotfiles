@@ -3937,9 +3937,9 @@ _wb_week_ensure_capture() {
   {
     echo "# Weekly capture"
     echo
-    echo "Standing capture doc for \`/park\` and the weekly review — never cleared."
-    echo "Each entry is \`- [ ]\` (unreviewed) until \`wb week record\` rolls it up and"
-    echo "flips it to \`- [x]\`."
+    echo "Standing capture doc for \`/park\` and the weekly review — bounded to only"
+    echo "unreviewed entries. Each entry is \`- [ ]\` until \`wb week record\` rolls it"
+    echo "into that week's output record (the durable copy) and removes it here."
     local section
     for section in "${WB_WEEK_SECTIONS[@]}"; do
       echo
@@ -4044,12 +4044,17 @@ _wb_week_previous_record() {
 
 # cmd_week record [<iso>] — mint $TASKS_DIR/weeks/<iso>-review.md
 # (default: the current ISO week) if absent, rolling up every unreviewed
-# (`- [ ]`) capture entry per section into the record and flipping it to
-# `- [x]` in the capture doc so the next review never re-offers it
-# (KTD1 — the exact stranding failure that left 12 of 58 /park ledger
-# entries untriaged across two reviews). Idempotent: a second call for an
-# already-minted <iso> just prints its path — no re-scan, no re-flip, so
-# re-running `wb week record` mid-week never double-reviews an entry.
+# (`- [ ]`) capture entry per section into the record and then REMOVING it
+# from the capture doc so the next review never re-offers it (KTD1 — the
+# exact stranding failure that left 12 of 58 /park ledger entries untriaged
+# across two reviews) and the capture doc never grows unboundedly (Jet,
+# 2026-09-16: flipping entries to `- [x]` in place instead of removing them
+# meant the doc would carry every entry ever captured, forever — the
+# per-week record already IS the durable, immutable copy, so keeping a
+# second flipped-in-place copy in the standing doc served no purpose).
+# Idempotent: a second call for an already-minted <iso> just prints its
+# path — no re-scan, no re-removal, so re-running `wb week record` mid-week
+# never double-reviews (or double-deletes) an entry.
 _wb_week_cmd_record() {
   local iso="${1:-$(_wb_week_iso)}"
   # <iso> becomes a path component below (record="$dir/$iso-review.md") —
@@ -4079,10 +4084,10 @@ _wb_week_cmd_record() {
   # above ran BEFORE acquiring the lock, so a second concurrent `wb week
   # record` call for the same not-yet-existing ISO week can reach here
   # after a first call already won the race, built the record, and
-  # flipped the capture doc's entries to reviewed. Without this re-check,
-  # the second caller would re-scan the now-fully-reviewed capture doc,
-  # find nothing left unreviewed, and silently overwrite the first
-  # caller's real roll-up with an empty one.
+  # removed the capture doc's rolled-up entries. Without this re-check,
+  # the second caller would re-scan the now-emptied capture doc, find
+  # nothing left unreviewed, and silently overwrite the first caller's
+  # real roll-up with an empty one.
   if [ -f "$record" ]; then
     wb_task_lock_release "$capture"
     echo "$record"
@@ -4129,11 +4134,23 @@ _wb_week_cmd_record() {
     echo "(filled in by /weekly-review)"
   } > "$record"
 
-  # Flip every entry just rolled into the record from unreviewed to
-  # reviewed — sed, not awk-with-ENVIRON, is fine here: the substitution
-  # is a fixed two-character literal prefix swap, not a caller-supplied
-  # body that could carry regex-special bytes.
-  sed -i 's/^- \[ \] /- [x] /' "$capture"
+  # Remove every entry just rolled into the record — its text already
+  # lives verbatim in $record (built above), which is the durable,
+  # immutable copy from here on, so the capture doc doesn't need a second
+  # (flipped) copy of the same line kept forever. Every "- [ ] " line
+  # still in the doc at this point was just captured into $record above
+  # (the scan loop covers all four sections unconditionally), so this is
+  # a plain unconditional removal, not a per-section operation. Each
+  # entry's own trailing blank line (inserted by _wb_append_under_heading,
+  # which always follows an entry with exactly one blank line) is removed
+  # alongside it, so a fully-emptied section collapses back to the same
+  # "heading, blank, next heading" shape _wb_week_ensure_capture's own
+  # template produces — never a stray double-blank or dangling line.
+  awk '
+    /^- \[ \] / { skip_blank = 1; next }
+    skip_blank && $0 == "" { skip_blank = 0; next }
+    { skip_blank = 0; print }
+  ' "$capture" > "$capture.tmp.$$" && mv "$capture.tmp.$$" "$capture"
 
   wb_task_lock_release "$capture"
   echo "$record"
