@@ -42,11 +42,12 @@ timeout`), the agent instead asks before creating anything — see Reference.
 | Saying "park this" / "revisit later" / "make a follow-up task for this" in passing | Agent captures proactively and tells you in one line |
 
 The capture doc lives at `~/code/tasks/weeks/capture.md` (`wb week path` to
-print it) with four standing sections: `What's working`, `What's not
-working`, `New ideas`, `Notes` — never cleared. Each entry is stamped with
-date/repo/branch and starts unreviewed (`- [ ]`); `/weekly-review` rolls
-unreviewed entries into a week record and marks them reviewed (`- [x]`), so
-nothing is silently re-offered forever or silently dropped.
+print it, or **`prefix+p`** to open it directly in nvim) with four standing
+sections: `What's working`, `What's not working`, `New ideas`, `Notes` —
+never cleared. Each entry is stamped with date/repo/branch and starts
+unreviewed (`- [ ]`); `/weekly-review` rolls unreviewed entries into a week
+record and marks them reviewed (`- [x]`), so nothing is silently re-offered
+forever or silently dropped.
 
 ## Known rough edges
 
@@ -58,6 +59,6 @@ nothing is silently re-offered forever or silently dropped.
 ## Next steps / reverting
 
 - Review captured items weekly with [/weekly-review](weekly-review.html).
-- The capture doc is a plain markdown file — read it, edit an entry by
-  hand, or move something out if it should never resurface. Skill source:
-  `claude/.claude/skills/park/SKILL.md`.
+- The capture doc is a plain markdown file — `prefix+p`, read it, edit an
+  entry by hand, or move something out if it should never resurface. Skill
+  source: `claude/.claude/skills/park/SKILL.md`.
