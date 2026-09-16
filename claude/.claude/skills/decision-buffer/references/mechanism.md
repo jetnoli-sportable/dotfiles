@@ -8,12 +8,11 @@ implementation.
 
 ## Why a script, not prose
 
-The tmux open/wait recipe used to be prose copied into five places
-(decision-buffer, wb-done, parked-items, wb-breakdown, wb-jira-create) plus
-one real implementation (`wb_open_buffer()` in
-`scripts/.config/scripts/tmux/wb.sh`). One executable implementation now
-backs all of them; the other skills call this script instead of repeating
-the recipe.
+The tmux open/wait recipe used to be prose copied into several places
+(decision-buffer, wb-done, wb-breakdown, wb-jira-create) plus one real
+implementation (`wb_open_buffer()` in `scripts/.config/scripts/tmux/wb.sh`).
+One executable implementation now backs all of them; the other skills call
+this script instead of repeating the recipe.
 
 ## The four modes
 

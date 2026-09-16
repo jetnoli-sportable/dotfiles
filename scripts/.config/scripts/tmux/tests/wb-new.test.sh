@@ -275,6 +275,33 @@ cmd_new --planned --size S proj size-planned >/dev/null 2>&1
 assert_eq "--planned --size S: size: S on the planned path" "S" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-planned.md" size)"
 assert_eq "--planned --size S: status stays planned" "planned" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-planned.md" status)"
 
+# --prospective (R25/KTD4) -> same worktree-less/session-less path as
+# --planned, but status: prospective instead of status: planned, and no
+# worktree or tmux session either.
+out="$(cmd_new --prospective proj prospective-a 2>&1)"; code=$?
+assert_eq "--prospective: exit 0" 0 "$code"
+assert_eq "--prospective: status is prospective" "prospective" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--prospective-a.md" status)"
+[ -d "$FIXTURE_CODE/proj/.worktrees/prospective-a" ] \
+  && { echo "FAIL - --prospective: no worktree should have been created"; fail=1; } \
+  || echo "ok   - --prospective: no worktree created"
+tmux has-session -t "=proj--prospective-a" 2>/dev/null \
+  && { echo "FAIL - --prospective: no tmux session should have been created"; fail=1; } \
+  || echo "ok   - --prospective: no tmux session created"
+
+# --prospective and --agent are mutually exclusive, same shape as --planned.
+out="$(cmd_new --prospective --agent proj prospective-agent 2>&1)"; code=$?
+assert_eq "--prospective + --agent: exit 1" 1 "$code"
+assert "--prospective + --agent: names both flags" \
+  '\-\-prospective and \-\-agent are mutually exclusive' "$out"
+
+# existing prospective task file -> a flag-less `wb new` re-run backfills
+# repo:/branch: but never bumps status: past prospective (same
+# non-clobbering convention --planned already has).
+cmd_new proj prospective-a >/dev/null 2>&1
+tmux kill-session -t "=proj--prospective-a" 2>/dev/null
+assert_eq "existing prospective: flag-less re-run does not advance status" \
+  "prospective" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--prospective-a.md" status)"
+
 # existing task file with size: already set -> a flag-less re-run does NOT
 # overwrite it; an explicit --size <other> DOES.
 cmd_new proj size-existing --size L >/dev/null 2>&1

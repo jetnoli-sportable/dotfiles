@@ -5,6 +5,10 @@
 #   wb new --planned <repo> <slug>   seed a worktree-less task file only (status stays
 #                                    planned) — no worktree, no tmux session; the
 #                                    locked creation path agent-mediated skills use
+#   wb new --prospective <repo> <slug>
+#                                    same worktree-less/session-less path as --planned,
+#                                    but status: prospective (captured, not yet judged
+#                                    as work) — /park's work-shaped capture path
 #   wb                               the picker (replaces s + ca)
 #   wb help                          this verb list (also --help/-h); any other unknown
 #                                    token exits 2 rather than opening the picker
@@ -14,11 +18,11 @@
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
 #   wb pause [<session>]             shelve a task on purpose: status -> paused, then `wb down`
-#   wb status <task-ref> <planned|paused|doing|review>
+#   wb status <task-ref> <prospective|planned|paused|doing|review>
 #                                    set a store-only task's status: field directly, under the
 #                                    per-task lock — refuses when a live session's @task already
 #                                    points at it (use wb pause/wb down from that session instead)
-#   wb set <task-ref> <field> <value>
+#   wb set <task-ref> <field> <value|--unset>
 #                                    set one board-metadata frontmatter field on a store-only
 #                                    task, under the per-task lock — same live-session refusal
 #                                    as wb status; status/created/closed/reviewed/claude_sessions/
@@ -30,6 +34,9 @@
 #                                    (locked, idempotent-or-refuse) — the /wb-jira-create emit
 #                                    flow's only task-store write; never re-derives the URL
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
+#   wb reconcile --machine           the same drift, as parseable TSV (read-only) — the
+#                                    fifth field's meaning differs by kind (orphan: merge
+#                                    status; missing: task-file path), see wb_reconcile_collect
 #   wb breakdown --apply <buffer>    execute an approved /wb-breakdown proposal buffer:
 #                                    create the children, migrate the worktree, move
 #                                    follow-ups — the feature's only task-store write path
@@ -41,7 +48,17 @@
 #                                    or unmatched <task>); <body> omitted or literally
 #                                    "-" reads a multi-line body from stdin instead — the
 #                                    agent-mediated write path /wb-save, /handoff, and
-#                                    /parked-items use instead of Edit-tool task writes
+#                                    /weekly-review use instead of Edit-tool task writes
+#   wb week path                     print the standing weekly-capture doc's path,
+#                                    creating it from the four-section template
+#                                    (What's working|What's not working|New ideas|Notes)
+#                                    when absent
+#   wb week append <section> <body>  append <body>, stamped with date/repo/branch and
+#                                    an unreviewed marker, under one of the capture
+#                                    doc's four sections
+#   wb week record [<iso>]           mint (idempotently) $TASKS_DIR/weeks/<iso>-review.md
+#                                    (default: the current ISO week), rolling up every
+#                                    unreviewed capture entry and marking it reviewed
 #   wb install-hooks                 idempotently point $TASKS_DIR's core.hooksPath at the
 #                                    stowed tasks-git-hooks/ dir, harden its gc/reflog
 #                                    settings, and verify (never edit) ~/.claude/settings.json's
@@ -188,7 +205,20 @@ _wb_frontmatter_value_ok() {
 
 wb_set_frontmatter_field() {
   local file="$1" key="$2" value="$3" after_key="${4:-}"
-  awk -v key="$key" -v val="$value" -v after="$after_key" '
+  # `val` goes through ENVIRON, never `awk -v` — awk -v applies C
+  # escape-sequence processing to the assigned string, so a free-text
+  # value containing the literal two-character sequence `\n` is silently
+  # decoded into a REAL newline byte at assignment time. That happens
+  # BEFORE `_wb_frontmatter_value_ok`'s embedded-real-newline check ever
+  # runs (that check inspects the raw argv, which still only has `\`+`n`,
+  # two ordinary characters) — so a value like `urgent\nstatus: pwned`
+  # sails through validation and then injects a second frontmatter line.
+  # Same reasoning as `_wb_append_under_heading`'s own ENVIRON use.
+  # `key`/`after` stay on `-v`: both are always one of a small fixed set
+  # of internal field names (never caller-composed free text), so they
+  # carry none of this risk.
+  WB_SET_FM_VALUE="$value" awk -v key="$key" -v after="$after_key" '
+    BEGIN { val = ENVIRON["WB_SET_FM_VALUE"] }
     {
       n++
       lines[n] = $0
@@ -943,7 +973,7 @@ wb_seed_task() {
 # when omitted; an EXISTING file's title (the body's own `# ` heading,
 # not frontmatter) is never touched here, matching this function's own
 # fill-blanks-only posture for every other field. Used by `wb new --planned`
-# (cmd_new, below), in turn used by /parked-items' scratch-task creation and
+# (cmd_new, below), in turn used by /weekly-review's scratch-task creation and
 # /handoff's task-file seeding step — both cases where no work has actually
 # started yet, so there is no real worktree path to stamp and the task must
 # stay `status: planned` rather than jump straight to `doing`. The REAL
@@ -966,9 +996,16 @@ wb_seed_task() {
 # related discussion to an already-seeded task) safe: it can never clobber
 # a status a real `wb new`/`wb new --agent` run already advanced past
 # "planned" in the meantime.
+#
+# Optional trailing <status> (default "planned"; `wb new --prospective`
+# passes "prospective", R25) is the status stamped on a genuinely NEW file
+# and the fill-blank value on an existing one — same non-clobbering rule,
+# just parameterized so `--planned` and `--prospective` share this one
+# creation path instead of forking it.
 wb_seed_task_planned() {
   local repo="$1" slug="$2" parent="${3:-}"
   local title="${4:-${slug//-/ }}"
+  local status_override="${5:-planned}"
   local disp_slug; disp_slug="$(wb_sanitize "$slug")"
   local file; file="$(wb_task_file "$repo" "$disp_slug")"
 
@@ -979,11 +1016,11 @@ wb_seed_task_planned() {
     # temp file instead of splicing via -v, which would mangle backslashes.
     local titlefile; titlefile="$(mktemp)"
     printf '%s' "$title" > "$titlefile"
-    awk -v repo="$repo" -v branch="$slug" \
+    awk -v repo="$repo" -v branch="$slug" -v status="$status_override" \
         -v created="$(date +%F)" -v titlefile="$titlefile" '
       BEGIN { infm = 0; getline title < titlefile; close(titlefile) }
       /^---$/     { infm++; print; next }
-      infm == 1 && /^status:/   { print "status: planned"; next }
+      infm == 1 && /^status:/   { print "status: " status; next }
       infm == 1 && /^repo:/     { print "repo: " repo; next }
       infm == 1 && /^branch:/   { print "branch: " branch; next }
       infm == 1 && /^created:/  { print "created: " created; next }
@@ -994,7 +1031,7 @@ wb_seed_task_planned() {
   else
     [ -n "$(wb_get_frontmatter "$file" repo)" ]     || wb_set_frontmatter "$file" repo "$repo"
     [ -n "$(wb_get_frontmatter "$file" branch)" ]   || wb_set_frontmatter "$file" branch "$slug"
-    [ -n "$(wb_get_frontmatter "$file" status)" ]   || wb_set_frontmatter "$file" status planned
+    [ -n "$(wb_get_frontmatter "$file" status)" ]   || wb_set_frontmatter "$file" status "$status_override"
     [ -n "$(wb_get_frontmatter "$file" reviewed)" ] || wb_set_frontmatter "$file" reviewed ""
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
@@ -1164,8 +1201,8 @@ cmd_new() {
   # a foreach that only matches literal tokens (like --agent); the value
   # would fall into the else branch and corrupt the positional repo/slug
   # count.
-  local -r new_usage="usage: wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size S|M|L|XL] <slug> | wb new [--agent|--planned [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size S|M|L|XL] <repo> <slug>"
-  local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 jira_url="" title_override="" size_value=""
+  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size S|M|L|XL] <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size S|M|L|XL] <repo> <slug>"
+  local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 prospective_flag=0 jira_url="" title_override="" size_value=""
   local -a depends_on_stems=()
   local -a args=()
   while [ $# -gt 0 ]; do
@@ -1173,6 +1210,12 @@ cmd_new() {
       -h|--help) echo "$new_usage"; return 0 ;;
       --agent)   agent_flag=1; shift ;;
       --planned) planned_flag=1; shift ;;
+      # R25/KTD4: `--prospective` is `--planned`'s worktree-less/session-less
+      # creation path (wb_seed_task_planned) with `status: prospective`
+      # instead of `status: planned` — the direct creation verb /park's
+      # work-shaped capture path uses, so it never needs a two-step
+      # "create planned, then wb status ... prospective".
+      --prospective) planned_flag=1; prospective_flag=1; shift ;;
       --jira)
         case "${2-}" in
           ''|--*) echo "wb new: --jira requires a value" >&2; exit 1 ;;
@@ -1208,7 +1251,11 @@ cmd_new() {
   done
 
   if [ "$planned_flag" = 1 ] && [ "$agent_flag" = 1 ]; then
-    echo "wb new: --planned and --agent are mutually exclusive — --planned never starts a worktree/session for --agent to attach to" >&2
+    if [ "$prospective_flag" = 1 ]; then
+      echo "wb new: --prospective and --agent are mutually exclusive — --prospective never starts a worktree/session for --agent to attach to" >&2
+    else
+      echo "wb new: --planned and --agent are mutually exclusive — --planned never starts a worktree/session for --agent to attach to" >&2
+    fi
     exit 1
   fi
 
@@ -1310,7 +1357,7 @@ cmd_new() {
     # (above) that preserves `status: planned` (never the ordinary
     # planned->doing flip cmd_new's normal path below performs) and never
     # stamps `worktree:` to a path that doesn't exist yet. This is the verb
-    # /parked-items (scratch tasks with no work started) and /handoff's
+    # /weekly-review (scratch tasks with no work started) and /handoff's
     # seeding step (the real doing/worktree transition happens later, for
     # real, whenever something actually calls `wb new [--agent]` on the same
     # repo/slug) both shell out to instead of an Edit-tool task-file write.
@@ -1328,7 +1375,8 @@ cmd_new() {
     local was_new=0; [ -f "$task_file" ] || was_new=1
     _wb_lock_trap_append_if_top_level wb_task_lock_release_all
     wb_task_lock_acquire_guarded "$task_file" || exit $?
-    task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref" "$title_override")"
+    local seed_status="planned"; [ "$prospective_flag" = 1 ] && seed_status="prospective"
+    task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref" "$title_override" "$seed_status")"
     # --size is honored on the planned path too (R7: settable on EVERY
     # creation path). Explicit wins; no blank-fill here — wb_seed_task_planned
     # deliberately leaves the template's own blank size: line as-is.
@@ -1641,8 +1689,17 @@ wb_reconcile_collect() {
 
 cmd_reconcile() {
   case "${1:-}" in
-    --review) shift; wb_reconcile_generate_review "$@"; return ;;
-    --apply)  shift; wb_reconcile_apply "$@"; return ;;
+    --review)  shift; wb_reconcile_generate_review "$@"; return ;;
+    --apply)   shift; wb_reconcile_apply "$@"; return ;;
+    # R28/KTD5: publish wb_reconcile_collect's existing TSV verbatim rather
+    # than reshaping it — a caller (the weekly review, U7) parses THIS,
+    # never wb_reconcile_collect directly, so a future internal refactor of
+    # that function has one public contract to keep, not every caller. The
+    # fifth field is NOT one thing (see wb_reconcile_collect's own header):
+    # orphan rows carry a merge status there, missing rows a task-file path
+    # — a caller that assumes a single field-five meaning misreads one kind
+    # as the other. Read-only, same as the human-readable mode below.
+    --machine) shift; wb_reconcile_collect; return ;;
   esac
 
   local -a orphan_rows=() missing_rows=()
@@ -3458,7 +3515,7 @@ wb_append_handoff() {
 # ---------------------------------------------------------------------------
 # wb append — locked, heading-scoped text insertion for agent-mediated
 # task-file writes (round-2 Decision 1B / W13-W14): the ONE way /wb-save,
-# /handoff, and /parked-items are rewired (U4) to touch a task file's body
+# /handoff, and /weekly-review are rewired (U4) to touch a task file's body
 # instead of an Edit-tool write that bypasses every lock this plan built.
 # ---------------------------------------------------------------------------
 
@@ -3546,9 +3603,9 @@ cmd_append() {
 # session to route the change through `wb pause`/`wb down`/`wb resume`).
 # ---------------------------------------------------------------------------
 
-# cmd_status <task-ref> <planned|paused|doing|review> — resolves <task-ref>
-# via _wb_append_resolve_task (the same exact-then-fuzzy resolver `wb
-# append` uses — fail-loud on ambiguity), refuses when any LIVE tmux
+# cmd_status <task-ref> <prospective|planned|paused|doing|review> — resolves
+# <task-ref> via _wb_append_resolve_task (the same exact-then-fuzzy resolver
+# `wb append` uses — fail-loud on ambiguity), refuses when any LIVE tmux
 # session's @task already points at the resolved file (this verb is for
 # tasks with no session to carry the transition — a live session must go
 # through wb pause/wb down, which also handle the session side), then
@@ -3557,24 +3614,26 @@ cmd_append() {
 # README.md's own `status: planned|doing|...  # lifecycle state ...` shape) —
 # the same frontmatter-scoped awk idiom wb_set_frontmatter/wb_seed_task_planned
 # use, specialized here only for the comment-preserving requirement.
-# `done` is deliberately NOT a valid value here: `wb done` is a whole
-# wind-down (worktree removal, board bookkeeping) this verb must never
-# shortcut around.
+# `prospective` (R25/KTD4) is captured-but-unjudged work — a real lifecycle
+# position the weekly review moves tasks in and out of (planned <->
+# prospective), not just a tag. `done` is deliberately NOT a valid value
+# here: `wb done` is a whole wind-down (worktree removal, board bookkeeping)
+# this verb must never shortcut around.
 cmd_status() {
   local query="${1:-}" new="${2:-}"
   if [ -z "$query" ] || [ -z "$new" ]; then
-    echo "usage: wb status <task-ref> <planned|paused|doing|review>" >&2
+    echo "usage: wb status <task-ref> <prospective|planned|paused|doing|review>" >&2
     exit 1
   fi
 
   case "$new" in
-    planned|paused|doing|review) ;;
+    prospective|planned|paused|doing|review) ;;
     done)
       echo "wb status: use \`wb done <task>\` instead" >&2
       exit 1
       ;;
     *)
-      echo "usage: wb status <task-ref> <planned|paused|doing|review>" >&2
+      echo "usage: wb status <task-ref> <prospective|planned|paused|doing|review>" >&2
       exit 1
       ;;
   esac
@@ -3611,6 +3670,55 @@ cmd_status() {
 # is for tasks with no session to carry the change.
 # ---------------------------------------------------------------------------
 
+# _wb_tags_parse <raw> — split a `tags:` value in any of its accepted input
+# shapes (`a,b` | `a, b` | `[a, b]`) into one trimmed token per line. Strips
+# a wrapping `[...]` (the canonical list form, R26) if present; a bare
+# scalar (no brackets, e.g. the legacy `action-live`) reads as one token.
+_wb_tags_parse() {
+  local raw="$1"
+  raw="${raw#\[}"; raw="${raw%\]}"
+  [ -n "$raw" ] || return 0
+  local -a toks=()
+  IFS=',' read -r -a toks <<< "$raw"
+  local t
+  for t in "${toks[@]}"; do
+    t="${t#"${t%%[![:space:]]*}"}"
+    t="${t%"${t##*[![:space:]]}"}"
+    [ -n "$t" ] && printf '%s\n' "$t"
+  done
+}
+
+# _wb_tags_join <tag>... — "a, b, c", the canonical list form's inner text.
+_wb_tags_join() {
+  local out="" first=1 t
+  for t in "$@"; do
+    if [ "$first" = 1 ]; then out="$t"; first=0; else out="$out, $t"; fi
+  done
+  printf '%s' "$out"
+}
+
+# _wb_tags_merge <old-raw> <new-raw> — R26's canonical writer: union <old>'s
+# tags with <new>'s (existing order preserved, new-only tags appended,
+# de-duplicated), rendered as `[a, b, c]`. `wb set tags <value>` is
+# additive, never a replace — the field is a free-tag collection, and a
+# plain overwrite would silently drop whatever was already there. This is
+# also the migration path (U5): re-running it against a bare-scalar
+# `tags: action-live` file with the SAME value merges the one existing
+# token with itself and re-emits it in canonical list form.
+_wb_tags_merge() {
+  local old="$1" new="$2"
+  local -a result=()
+  local -A seen=()
+  local t
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    [ -n "${seen["$t"]:-}" ] && continue
+    seen["$t"]=1
+    result+=("$t")
+  done < <(_wb_tags_parse "$old"; _wb_tags_parse "$new")
+  printf '[%s]' "$(_wb_tags_join "${result[@]}")"
+}
+
 # WB_SET_FIELDS — the field allowlist `wb set` accepts, one space-separated
 # literal so cmd_set's case statement and its own usage/error text can't
 # drift apart. Deliberately excludes every field owned by a dedicated verb
@@ -3640,7 +3748,7 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path"
 cmd_set() {
   local query="${1:-}" field="${2:-}" value="${3:-}"
   if [ -z "$query" ] || [ -z "$field" ] || [ "$#" -lt 3 ]; then
-    echo "usage: wb set <task-ref> <field> <value>   (field: $WB_SET_FIELDS)" >&2
+    echo "usage: wb set <task-ref> <field> <value|--unset>   (field: $WB_SET_FIELDS)" >&2
     exit 1
   fi
 
@@ -3661,52 +3769,66 @@ cmd_set() {
       ;;
   esac
 
-  case "$field" in
-    priority)
-      case "$value" in
-        P1|P2|P3) ;;
-        *) echo "wb set: priority '$value' is not one of P1|P2|P3" >&2; exit 1 ;;
-      esac
-      ;;
-    value)
-      case "$value" in
-        high|med|low) ;;
-        *) echo "wb set: value '$value' is not one of high|med|low" >&2; exit 1 ;;
-      esac
-      ;;
-    size)
-      if ! _wb_valid_size "$value"; then
-        echo "wb set: size '$value' is not one of $WB_SIZE_VALUES" >&2
-        exit 1
-      fi
-      ;;
-    parent)
-      case "$value" in
-        */*) echo "wb set: parent '$value' must not contain '/'" >&2; exit 1 ;;
-      esac
-      [ -f "$TASKS_DIR/$value.md" ] \
-        || { echo "wb set: parent '$value' has no matching task file in $TASKS_DIR" >&2; exit 1; }
-      ;;
-    depends_on)
-      local dep
-      local -a _wb_set_deps
-      IFS=',' read -r -a _wb_set_deps <<< "$value"
-      for dep in "${_wb_set_deps[@]}"; do
-        case "$dep" in
-          */*) echo "wb set: depends_on '$dep' must not contain '/'" >&2; exit 1 ;;
+  # `--unset` (or an empty value) clears the field. Every field this verb owns
+  # is optional per $TASKS_DIR/README.md, so clearing is always legal — and the
+  # validation below polices real values, not their absence: parent's and
+  # depends_on's must-exist-in-$TASKS_DIR checks have no file to match when
+  # there is no value, which is what made un-parenting a task impossible
+  # through the locked path before this existed.
+  local unset_req=0
+  if [ "$value" = "--unset" ] || [ -z "$value" ]; then
+    unset_req=1
+    value=""
+  fi
+
+  if [ "$unset_req" -eq 0 ]; then
+    case "$field" in
+      priority)
+        case "$value" in
+          P1|P2|P3) ;;
+          *) echo "wb set: priority '$value' is not one of P1|P2|P3" >&2; exit 1 ;;
         esac
-        [ -f "$TASKS_DIR/$dep.md" ] \
-          || { echo "wb set: depends_on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
-      done
-      ;;
-    jira)
-      case "$value" in
-        https://*) ;;
-        *) echo "wb set: jira '$value' must start with https://" >&2; exit 1 ;;
-      esac
-      ;;
-    tags|path) ;;   # free text — no enum, no existence check
-  esac
+        ;;
+      value)
+        case "$value" in
+          high|med|low) ;;
+          *) echo "wb set: value '$value' is not one of high|med|low" >&2; exit 1 ;;
+        esac
+        ;;
+      size)
+        if ! _wb_valid_size "$value"; then
+          echo "wb set: size '$value' is not one of $WB_SIZE_VALUES" >&2
+          exit 1
+        fi
+        ;;
+      parent)
+        case "$value" in
+          */*) echo "wb set: parent '$value' must not contain '/'" >&2; exit 1 ;;
+        esac
+        [ -f "$TASKS_DIR/$value.md" ] \
+          || { echo "wb set: parent '$value' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+        ;;
+      depends_on)
+        local dep
+        local -a _wb_set_deps
+        IFS=',' read -r -a _wb_set_deps <<< "$value"
+        for dep in "${_wb_set_deps[@]}"; do
+          case "$dep" in
+            */*) echo "wb set: depends_on '$dep' must not contain '/'" >&2; exit 1 ;;
+          esac
+          [ -f "$TASKS_DIR/$dep.md" ] \
+            || { echo "wb set: depends_on '$dep' has no matching task file in $TASKS_DIR" >&2; exit 1; }
+        done
+        ;;
+      jira)
+        case "$value" in
+          https://*) ;;
+          *) echo "wb set: jira '$value' must start with https://" >&2; exit 1 ;;
+        esac
+        ;;
+      tags|path) ;;   # free text — no enum, no existence check
+    esac
+  fi
   _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
 
   local file
@@ -3716,8 +3838,30 @@ cmd_set() {
   # verb is for store-only tasks.
   _wb_refuse_if_live_session "$file" "wb set"
 
+  # Locked BEFORE `old` is read — not just before the write. For every
+  # field except tags, `old` is used only for the no-op check and the
+  # confirmation message, so a stale unlocked read was harmless (the
+  # write below always replaces unconditionally with the literal argv
+  # value). tags is different: the WRITTEN value is *computed from* `old`
+  # (see the merge below), so an unlocked read-then-merge-then-write is
+  # exactly the lost-update race this module's locking exists to prevent
+  # — two concurrent `wb set <task> tags <x>` calls could each read the
+  # same stale `old`, merge independently, and the second writer would
+  # silently discard the first writer's tag. Acquiring the lock here
+  # covers read+merge+write as one atomic section for every field.
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+
   local old
   old="$(wb_get_frontmatter "$file" "$field")"
+
+  # R26: `tags:` is additive, never a replace — merge the argv value into
+  # whatever the file already has (bare-scalar, list, or blank), canonical
+  # `[a, b]` form, deduplicated. Skipped on --unset (clearing IS a replace,
+  # of the whole field, and unset_req's branch below already handles it).
+  if [ "$field" = "tags" ] && [ "$unset_req" -eq 0 ]; then
+    value="$(_wb_tags_merge "$old" "$value")"
+  fi
 
   # A file with duplicate `$field:` lines (e.g. left behind by the old
   # buggy insert-without-checking wb_set_frontmatter_field) must never
@@ -3728,7 +3872,12 @@ cmd_set() {
   dup_count="$(awk -v key="$field" 'BEGIN{infm=0} /^---$/{infm++; if(infm==2) exit; next} infm==1 && $0 ~ "^" key ":" {c++} END{print c+0}' "$file")"
 
   if [ "$old" = "$value" ] && [ "$dup_count" -le 1 ]; then
-    echo "wb set: $(basename -- "$file") $field already '$value'"
+    wb_task_lock_release "$file"
+    if [ "$unset_req" -eq 1 ]; then
+      echo "wb set: $(basename -- "$file") $field already empty"
+    else
+      echo "wb set: $(basename -- "$file") $field already '$value'"
+    fi
     exit 0
   fi
 
@@ -3737,16 +3886,261 @@ cmd_set() {
     priority|value) after_key="size" ;;
   esac
 
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || exit $?
   wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
   case "$field" in
     parent|depends_on|jira)
-      wb_append_handoff "$file" "wb set" "\`$field:\` set to \`$value\` via \`wb set\` (was \`$old\`)."
+      if [ "$unset_req" -eq 1 ]; then
+        wb_append_handoff "$file" "wb set" "\`$field:\` cleared via \`wb set --unset\` (was \`$old\`)."
+      else
+        wb_append_handoff "$file" "wb set" "\`$field:\` set to \`$value\` via \`wb set\` (was \`$old\`)."
+      fi
       ;;
   esac
   wb_task_lock_release "$file"
-  echo "wb set: $(basename -- "$file") $field '$old' -> '$value'"
+  if [ "$unset_req" -eq 1 ]; then
+    echo "wb set: $(basename -- "$file") $field '$old' -> (cleared)"
+  else
+    echo "wb set: $(basename -- "$file") $field '$old' -> '$value'"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# wb week — the ONE writer for the standing weekly-capture doc and the
+# per-week output record (U1, KTD1-KTD3). Not a task file: `wb week` never
+# resolves a <task-ref>, it always targets $TASKS_DIR/weeks/.
+# ---------------------------------------------------------------------------
+
+# WB_WEEK_SECTIONS — the capture doc's four authored sections, canonical
+# order and exact spelling (D5/KTD1). `wb week append`'s <section> argument
+# is matched against this list verbatim — no case-folding, no abbreviation —
+# so a typo fails loud instead of silently inventing a fifth section
+# `_wb_append_under_heading` would never route entries into again.
+WB_WEEK_SECTIONS=("What's working" "What's not working" "New ideas" "Notes")
+
+# _wb_week_dir / _wb_week_capture_path — $TASKS_DIR/weeks/ is invisible to
+# the board/picker by construction (KTD2: the row source globs
+# "$TASKS_DIR"/*.md, non-recursive). The capture doc is standing, not
+# per-week (D5) — one file, never cleared.
+_wb_week_dir() { printf '%s/weeks\n' "$TASKS_DIR"; }
+_wb_week_capture_path() { printf '%s/capture.md\n' "$(_wb_week_dir)"; }
+
+# _wb_week_ensure_capture — create the capture doc from its four-section
+# template iff absent. Idempotent: a second call is a no-op. A blank line
+# precedes every "## " heading (notes-for-implementer gotcha) —
+# _wb_append_under_heading's heading detector only recognizes "## " as a
+# heading when it follows a blank line or is line 1, so a template that
+# skipped this would silently break every section's routing.
+_wb_week_ensure_capture() {
+  local path; path="$(_wb_week_capture_path)"
+  [ -f "$path" ] && return 0
+  mkdir -p "$(_wb_week_dir)"
+  {
+    echo "# Weekly capture"
+    echo
+    echo "Standing capture doc for \`/park\` and the weekly review — never cleared."
+    echo "Each entry is \`- [ ]\` (unreviewed) until \`wb week record\` rolls it up and"
+    echo "flips it to \`- [x]\`."
+    local section
+    for section in "${WB_WEEK_SECTIONS[@]}"; do
+      echo
+      echo "## $section"
+    done
+  } > "$path"
+}
+
+# _wb_week_valid_section <name> — exact match against WB_WEEK_SECTIONS.
+_wb_week_valid_section() {
+  local name="$1" s
+  for s in "${WB_WEEK_SECTIONS[@]}"; do
+    [ "$s" = "$name" ] && return 0
+  done
+  return 1
+}
+
+# _wb_week_stamp — "<ISO-date> · <repo>/<branch>" prefix (KTD1: the same
+# {ts, cwd, branch} the old /park ledger carried, and for the same reason —
+# the review routes a follow-up task to the right repo, and `wb new` needs a
+# repo argument). Best-effort: outside a git repo, both fields read "?"
+# rather than failing the append.
+#
+# `repo` is derived from `--git-common-dir`, NOT `--show-toplevel`: inside a
+# git WORKTREE (the common case — this is a session-per-worktree tool, and
+# `/park` is meant to be invoked mid-task), `--show-toplevel` returns the
+# worktree's own directory, so `basename` of it is the worktree's leaf name
+# (e.g. "feat-weekly-review"), not the repo ("dotfiles") — silently wrong,
+# not a failure, so it would never be noticed until a promoted task pointed
+# `wb new` at a nonexistent (or wrong) repo directory. `--git-common-dir`
+# resolves to the SAME shared `.git` for a worktree and its main checkout
+# alike, so `basename(dirname(...))` gives the real repo name either way.
+_wb_week_stamp() {
+  local common_dir repo branch
+  common_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || true
+  repo="?"; [ -n "$common_dir" ] && repo="$(basename -- "$(cd "$(dirname -- "$common_dir")" && pwd)")"
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" || branch="?"
+  printf '%s · %s/%s' "$(date +%F)" "$repo" "$branch"
+}
+
+# _wb_week_iso [<date>] — ISO 8601 week identifier, "<year>-W<week>"
+# (%G/%V — the ISO week-numbering year, which can differ from %Y in the
+# first/last days of a year — and the ISO week number itself).
+_wb_week_iso() {
+  date ${1:+-d "$1"} +%G-W%V
+}
+
+# cmd_week path — print the capture doc's path, creating it first if absent.
+_wb_week_cmd_path() {
+  _wb_week_ensure_capture
+  _wb_week_capture_path
+}
+
+# cmd_week append <section> <body> — insert a stamped, unreviewed
+# (`- [ ]`) entry under one of the four capture sections, under the
+# per-task lock (KTD3: composes _wb_append_under_heading, the same
+# primitive wb_append_handoff uses, never a second writer).
+_wb_week_cmd_append() {
+  local section="${1:-}" body="${2:-}"
+  if [ -z "$section" ] || [ -z "$body" ]; then
+    echo "usage: wb week append <section> <body>   (section: ${WB_WEEK_SECTIONS[*]})" >&2
+    exit 1
+  fi
+  if ! _wb_week_valid_section "$section"; then
+    echo "wb week append: unknown section '$section' (valid: ${WB_WEEK_SECTIONS[*]})" >&2
+    exit 1
+  fi
+
+  _wb_week_ensure_capture
+  local path; path="$(_wb_week_capture_path)"
+  local entry; entry="- [ ] $(_wb_week_stamp) · $body"
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$path" || exit $?
+  _wb_append_under_heading "$path" "$section" "$entry"
+  wb_task_lock_release "$path"
+  echo "wb week: appended under \"## $section\" in $(basename -- "$path")"
+}
+
+# _wb_week_previous_record <iso> — the most recent existing
+# weeks/<iso>-review.md OTHER than <iso> itself, by filename sort (ISO week
+# identifiers sort lexicographically in chronological order). Empty when
+# none exist yet.
+_wb_week_previous_record() {
+  local iso="$1" dir; dir="$(_wb_week_dir)"
+  [ -d "$dir" ] || return 0
+  ls "$dir" 2>/dev/null \
+    | grep -E '^[0-9]{4}-W[0-9]{2}-review\.md$' \
+    | grep -v -F "$iso-review.md" \
+    | sort \
+    | tail -1
+}
+
+# cmd_week record [<iso>] — mint $TASKS_DIR/weeks/<iso>-review.md
+# (default: the current ISO week) if absent, rolling up every unreviewed
+# (`- [ ]`) capture entry per section into the record and flipping it to
+# `- [x]` in the capture doc so the next review never re-offers it
+# (KTD1 — the exact stranding failure that left 12 of 58 /park ledger
+# entries untriaged across two reviews). Idempotent: a second call for an
+# already-minted <iso> just prints its path — no re-scan, no re-flip, so
+# re-running `wb week record` mid-week never double-reviews an entry.
+_wb_week_cmd_record() {
+  local iso="${1:-$(_wb_week_iso)}"
+  # <iso> becomes a path component below (record="$dir/$iso-review.md") —
+  # reject anything not shaped like an ISO week identifier BEFORE that,
+  # so a value like "../../../../tmp/pwned" can't escape weeks/.
+  case "$iso" in
+    [0-9][0-9][0-9][0-9]-W[0-9][0-9]) ;;
+    *)
+      echo "wb week record: '$iso' is not a valid ISO week (expected <YYYY>-W<WW>, e.g. 2026-W38)" >&2
+      exit 1
+      ;;
+  esac
+  _wb_week_ensure_capture
+  local dir; dir="$(_wb_week_dir)"
+  local record="$dir/$iso-review.md"
+
+  if [ -f "$record" ]; then
+    echo "$record"
+    return 0
+  fi
+
+  local capture; capture="$(_wb_week_capture_path)"
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$capture" || exit $?
+
+  # Re-check under the lock (classic double-checked locking): the check
+  # above ran BEFORE acquiring the lock, so a second concurrent `wb week
+  # record` call for the same not-yet-existing ISO week can reach here
+  # after a first call already won the race, built the record, and
+  # flipped the capture doc's entries to reviewed. Without this re-check,
+  # the second caller would re-scan the now-fully-reviewed capture doc,
+  # find nothing left unreviewed, and silently overwrite the first
+  # caller's real roll-up with an empty one.
+  if [ -f "$record" ]; then
+    wb_task_lock_release "$capture"
+    echo "$record"
+    return 0
+  fi
+
+  local prev; prev="$(_wb_week_previous_record "$iso")"
+
+  {
+    echo "# Week $iso review"
+    echo
+    if [ -n "$prev" ]; then
+      echo "Previous record: \`$prev\`"
+    else
+      echo "Previous record: none — first review."
+    fi
+    local section
+    for section in "${WB_WEEK_SECTIONS[@]}"; do
+      echo
+      echo "## $section"
+      echo
+      local target="## $section" insection=0 found=0 line
+      while IFS= read -r line; do
+        if [ "$line" = "$target" ]; then insection=1; continue; fi
+        if [ "$insection" = 1 ] && [[ "$line" == "## "* ]]; then insection=0; fi
+        if [ "$insection" = 1 ] && [[ "$line" == "- [ ] "* ]]; then
+          echo "$line"
+          found=1
+        fi
+      done < "$capture"
+      [ "$found" = 1 ] || echo "(none)"
+    done
+    echo
+    echo "## Retro"
+    echo
+    echo "(filled in by /weekly-review)"
+    echo
+    echo "## Sprint planning"
+    echo
+    echo "(filled in by /weekly-review)"
+    echo
+    echo "## Actioned vs. carried over"
+    echo
+    echo "(filled in by /weekly-review)"
+  } > "$record"
+
+  # Flip every entry just rolled into the record from unreviewed to
+  # reviewed — sed, not awk-with-ENVIRON, is fine here: the substitution
+  # is a fixed two-character literal prefix swap, not a caller-supplied
+  # body that could carry regex-special bytes.
+  sed -i 's/^- \[ \] /- [x] /' "$capture"
+
+  wb_task_lock_release "$capture"
+  echo "$record"
+}
+
+cmd_week() {
+  local sub="${1:-}"; shift || true
+  case "$sub" in
+    path)   _wb_week_cmd_path ;;
+    append) _wb_week_cmd_append "$@" ;;
+    record) _wb_week_cmd_record "$@" ;;
+    *)
+      echo "usage: wb week path | wb week append <section> <body> | wb week record [<iso>]" >&2
+      exit 1
+      ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -3914,15 +4308,55 @@ wb_followup_count() {
   ' "${files[@]}"
 }
 
-# wb_parked_count — open items in the /park ledger.
-wb_parked_count() {
-  jq -c 'select(.status == "open")' "$HOME/.claude/parked-items/ledger.jsonl" 2>/dev/null | wc -l
+# wb_week_unreviewed_count — `- [ ]` (unreviewed) entries across the
+# standing capture doc, regardless of section. 0 when the doc doesn't exist
+# yet (never creates it just to count).
+wb_week_unreviewed_count() {
+  local path; path="$(_wb_week_capture_path)"
+  [ -f "$path" ] || { echo 0; return; }
+  # `grep -c` already prints "0" (not nothing) on zero matches, and only
+  # exits 1 to signal that — `|| echo 0` on that nonzero exit prints a
+  # SECOND "0" line, corrupting any caller (cmd_done's arithmetic, under
+  # `set -e`, aborts on the resulting two-line value). Capture the count
+  # unconditionally instead of branching on grep's exit status.
+  local n
+  n="$(grep -c '^- \[ \] ' "$path" 2>/dev/null)" || true
+  printf '%s\n' "${n:-0}"
 }
 
-# wb_pending_counts — "<n> follow-ups pending · <m> parked", read by the
-# picker's status line and wb done's post-close-out nudge.
+# wb_week_days_since_last_record — days since the most recently minted
+# weeks/<iso>-review.md's mtime, or empty when none exist yet (no review
+# has ever run).
+wb_week_days_since_last_record() {
+  local dir; dir="$(_wb_week_dir)"
+  local latest
+  latest="$( [ -d "$dir" ] && ls "$dir" 2>/dev/null | grep -E '^[0-9]{4}-W[0-9]{2}-review\.md$' | sort | tail -1)"
+  [ -n "$latest" ] || return 0
+  local mtime now
+  mtime="$(stat -c %Y "$dir/$latest" 2>/dev/null || stat -f %m "$dir/$latest" 2>/dev/null)"
+  [ -n "$mtime" ] || return 0
+  now="$(date +%s)"
+  echo $(( (now - mtime) / 86400 ))
+}
+
+# wb_pending_counts — "<n> follow-ups pending · <m> unreviewed capture
+# entries (Nd since last review)", read by the picker's status line and
+# wb done's post-close-out nudge. KTD2a: repointed from the retired /park
+# ledger's open count at the standing capture doc instead — the ledger's
+# invisibility to the board/picker was only safe because this ambient
+# nudge existed; losing the signal here would reproduce the exact
+# structural rot this plan exists to end.
 wb_pending_counts() {
-  printf '%s follow-ups pending · %s parked' "$(wb_followup_count)" "$(wb_parked_count)"
+  local unreviewed days
+  unreviewed="$(wb_week_unreviewed_count)"
+  days="$(wb_week_days_since_last_record)"
+  if [ -n "$days" ]; then
+    printf '%s follow-ups pending · %s unreviewed capture entries (%sd since last review)' \
+      "$(wb_followup_count)" "$unreviewed" "$days"
+  else
+    printf '%s follow-ups pending · %s unreviewed capture entries (no review yet)' \
+      "$(wb_followup_count)" "$unreviewed"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -3932,14 +4366,18 @@ wb_pending_counts() {
 
 # wb_board_bucket_for_status <status> — maps a raw task status to one of the
 # 6 tabs' underlying buckets. `done` is a real bucket (used by the All tab)
-# but has no tab of its own — see R8/R9. Anything unrecognized (including
-# a future `pending` status before Deferred is wired up to it) falls to
-# `unclassified`, which is a deliberate catch-all, not a bug.
+# but has no tab of its own — see R8/R9. `prospective` (R25) likewise gets
+# its own named bucket rather than falling into the `unclassified` catch-all
+# — a demoted/captured task must stay distinguishable from an untracked
+# worktree, even before `feat-board-build` gives it a dedicated tab/shelf.
+# Anything ELSE unrecognized falls to `unclassified`, which remains a
+# deliberate catch-all, not a bug.
 wb_board_bucket_for_status() {
   case "$1" in
     doing|review) echo inprogress ;;
     planned)      echo upcoming ;;
     paused)       echo paused ;;
+    prospective)  echo prospective ;;
     done)         echo done ;;
     *)            echo unclassified ;;
   esac
@@ -4103,14 +4541,17 @@ wb_board_first_nonblank_line() {
   done <<< "$1"
 }
 
-# wb_board_ledger_matches <worktree_abs_path> — open /park ledger entries
-# whose cwd is under this worktree, one compact JSON object per line.
-wb_board_ledger_matches() {
-  local wt="$1" ledger="$HOME/.claude/parked-items/ledger.jsonl"
-  [ -n "$wt" ] && [ -f "$ledger" ] || return 0
-  jq -c --arg wt "$wt" \
-    'select(.cwd != null and ((.cwd == $wt) or (.cwd | startswith($wt + "/"))))' \
-    "$ledger" 2>/dev/null
+# wb_board_capture_matches <repo> <branch> — unreviewed weekly-capture-doc
+# entries (U1) stamped with this repo/branch, one raw "- [ ] ..." line per
+# line. Replaces the retired /park ledger's wb_board_ledger_matches (U8):
+# `wb week append` stamps each entry with { date, repo, branch } — the
+# same fields the ledger used to carry, just as capture-doc prose instead
+# of a JSON cwd path.
+wb_board_capture_matches() {
+  local repo="$1" branch="$2" path
+  path="$(_wb_week_capture_path)"
+  [ -n "$repo" ] && [ -n "$branch" ] && [ -f "$path" ] || return 0
+  grep -F "· $repo/$branch ·" "$path" 2>/dev/null | grep '^- \[ \] '
 }
 
 # wb_board_pr_info <repo_dir> <branch> — "#<number> (<state>)\t<url>" for
@@ -4745,21 +5186,19 @@ wb_board_render_detail_card() {
     return
   fi
 
-  local plan done_txt repo_dir wt_abs pr_info detail_extra=""
+  local plan done_txt pr_info detail_extra=""
   detail_extra+="<p>$(wb_board_summary_line "$status" "$esc_repo" "$esc_branch" "$created" "$closed")</p>"
   plan="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Plan)")"
   done_txt="$(wb_board_first_nonblank_line "$(wb_board_section "$taskfile" Done)")"
   [ -n "$plan" ] && detail_extra+="<p><b>Plan:</b> $(wb_board_html_escape "$plan")</p>"
   [ -n "$done_txt" ] && detail_extra+="<p><b>Done:</b> $(wb_board_html_escape "$done_txt")</p>"
-  repo_dir="$(wb_repo_dir "$repo")"
   pr_info="${PR_INFO["$anchor_key"]:-}"
-  wt_abs="$repo_dir/$worktree"
-  local ledger_line ledger_note=""
-  while IFS= read -r ledger_line; do
-    [ -n "$ledger_line" ] || continue
-    ledger_note+="$(printf '%s' "$ledger_line" | jq -r '.note // empty' 2>/dev/null); "
-  done < <(wb_board_ledger_matches "$wt_abs")
-  [ -n "$ledger_note" ] && detail_extra+="<p><b>Parked:</b> $(wb_board_html_escape "$ledger_note")</p>"
+  local capture_line capture_note=""
+  while IFS= read -r capture_line; do
+    [ -n "$capture_line" ] || continue
+    capture_note+="$(printf '%s' "$capture_line" | sed -E 's/^- \[ \] [0-9]{4}-[0-9]{2}-[0-9]{2} · [^·]+ · //'); "
+  done < <(wb_board_capture_matches "$repo" "$branch")
+  [ -n "$capture_note" ] && detail_extra+="<p><b>Captured:</b> $(wb_board_html_escape "$capture_note")</p>"
   local own_docs doc_links
   own_docs="$(wb_board_related_docs "$taskfile" "$dotfiles_root")"
   doc_links="$(wb_board_task_doc_chips "$taskfile" "$dotfiles_root")"
@@ -5581,24 +6020,25 @@ wb_board_render_html() {
 <style>
   /* Tokyo Night (dark) / Tokyo Night Day (light) — matches the docs Hub/guides.
      Status hues: doing=blue, review=yellow, planned=muted, done=green,
-     paused=cyan, unclassified=grey. */
+     paused=cyan, prospective=purple, unclassified=grey. */
   :root {
     --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
     --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
     --acc: #2e7de9; --acc2: #007197;
     --doing: #2e7de9; --review: #8c6c3e; --planned: #8990b3; --done: #587539; --paused: #007197;
+    --prospective: #7847bd;
     --unclassified: #6c7399; --ok: #587539;
     --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
     --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549; --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
-      --acc: #7aa2f7; --acc2: #7dcfff; --doing: #7aa2f7; --review: #e0af68; --planned: #737aa2; --done: #9ece6a; --paused: #7dcfff; --unclassified: #9aa5ce; --ok: #9ece6a; }
+      --acc: #7aa2f7; --acc2: #7dcfff; --doing: #7aa2f7; --review: #e0af68; --planned: #737aa2; --done: #9ece6a; --paused: #7dcfff; --prospective: #bb9af7; --unclassified: #9aa5ce; --ok: #9ece6a; }
   }
   :root[data-theme="dark"] { --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549; --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
-    --acc: #7aa2f7; --acc2: #7dcfff; --doing: #7aa2f7; --review: #e0af68; --planned: #737aa2; --done: #9ece6a; --paused: #7dcfff; --unclassified: #9aa5ce; --ok: #9ece6a; }
+    --acc: #7aa2f7; --acc2: #7dcfff; --doing: #7aa2f7; --review: #e0af68; --planned: #737aa2; --done: #9ece6a; --paused: #7dcfff; --prospective: #bb9af7; --unclassified: #9aa5ce; --ok: #9ece6a; }
   :root[data-theme="light"] { --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6; --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
-    --acc: #2e7de9; --acc2: #007197; --doing: #2e7de9; --review: #8c6c3e; --planned: #8990b3; --done: #587539; --paused: #007197; --unclassified: #6c7399; --ok: #587539; }
+    --acc: #2e7de9; --acc2: #007197; --doing: #2e7de9; --review: #8c6c3e; --planned: #8990b3; --done: #587539; --paused: #007197; --prospective: #7847bd; --unclassified: #6c7399; --ok: #587539; }
 
   * { box-sizing: border-box; }
   html { color-scheme: light dark; scroll-behavior: smooth; }
@@ -5666,7 +6106,7 @@ wb_board_render_html() {
   td a.tasklink:hover { text-decoration: underline; }
   .task-cell { display: flex; flex-direction: column; align-items: flex-start; gap: .3rem; }
   .pill { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .72rem; padding: .2em .7em; border-radius: 999px; border: 1px solid currentColor; }
-  .pill.doing { color: var(--doing); } .pill.review { color: var(--review); } .pill.planned { color: var(--planned); } .pill.done { color: var(--done); } .pill.paused { color: var(--paused); } .pill.unclassified { color: var(--unclassified); }
+  .pill.doing { color: var(--doing); } .pill.review { color: var(--review); } .pill.planned { color: var(--planned); } .pill.done { color: var(--done); } .pill.paused { color: var(--paused); } .pill.prospective { color: var(--prospective); } .pill.unclassified { color: var(--unclassified); }
   .repo { font-family: var(--mono); font-size: .78rem; color: var(--mut); }
   .live-badge { display: inline-flex; align-items: center; gap: .35em; font-family: var(--mono); font-size: .7rem; color: var(--ok); }
   .empty-state { padding: 1.6rem; text-align: center; color: var(--mut); font-family: var(--mono); font-size: .85rem; background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }
@@ -6138,9 +6578,9 @@ cmd_done() {
     echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
   fi
 
-  local total=$(( $(wb_followup_count) + $(wb_parked_count) ))
+  local total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
   if [ "$total" -ge "$WB_SWEEP_THRESHOLD" ]; then
-    echo "wb done: $(wb_pending_counts) — consider running /parked-items"
+    echo "wb done: $(wb_pending_counts) — consider running /weekly-review"
   fi
 
   # KTD8's last-child nudge: pure read + print, guarded so a scan failure
@@ -6927,6 +7367,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
+    week)        shift; cmd_week "$@" ;;
     status)      shift; cmd_status "$@" ;;
     set)         shift; cmd_set "$@" ;;
     install-hooks) shift; cmd_install_hooks "$@" ;;

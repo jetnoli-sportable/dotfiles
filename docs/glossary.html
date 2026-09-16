@@ -246,7 +246,7 @@
     <ul>
       <li><a href="#frontmatter">Frontmatter</a></li>
       <li><a href="#transcript">Transcript</a></li>
-      <li><a href="#ledger">Ledger</a></li>
+      <li><a href="#capture-doc">Capture doc</a></li>
       <li><a href="#worktree">Worktree</a></li>
       <li><a href="#task-store">Task store</a></li>
       <li><a href="#tile">Tile</a></li>
@@ -283,11 +283,14 @@ debugging aid, but it doubled as the recovery source after the 2026-07-10
 <code>~/code/tasks</code> deletion incident — both <code>tasks--task-note-convergence.md</code>
 and the incident's own recovery notes were rebuilt by mining a transcript
 that had read the originals in full.</p>
-<h2 id="ledger">Ledger</h2>
-<p>An append-only log file, one entry per event, never edited in place. <code>/park</code>
-writes to one: a JSON line per captured item at
-<code>~/.claude/parked-items/ledger.jsonl</code>, read back in full by the weekly
-<code>/parked-items</code> review.</p>
+<h2 id="capture-doc">Capture doc</h2>
+<p>The standing weekly-capture doc (<code>~/code/tasks/weeks/capture.md</code>), never
+cleared. <code>/park</code> appends a non-work-shaped item under one of its four
+sections (<code>What's working</code>, <code>What's not working</code>, <code>New ideas</code>, <code>Notes</code>) via
+<code>wb week append</code>; <code>/weekly-review</code> rolls unreviewed (<code>- [ ]</code>) entries into a
+per-week output record and marks them reviewed (<code>- [x]</code>). Replaces the
+retired <code>/park</code> ledger (a JSON-line file with no per-entry reviewed state,
+which is what let entries go untriaged across two weekly-routing reviews).</p>
 <h2 id="worktree">Worktree</h2>
 <p>A git worktree — an isolated checkout of one branch in its own directory,
 so more than one branch can be checked out (and worked on by a separate

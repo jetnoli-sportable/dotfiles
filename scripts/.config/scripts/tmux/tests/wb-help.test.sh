@@ -63,8 +63,8 @@ unset TMUX
 out="$(bash "$WB" help 2>&1)"; rc=$?
 assert_eq "wb help: exit 0" 0 "$rc"
 assert "wb help: lists the status verb with its enum" \
-  'wb status <task-ref> <planned\|paused\|doing\|review>' "$out"
-assert "wb help: lists the set verb" 'wb set <task-ref> <field> <value>' "$out"
+  'wb status <task-ref> <prospective\|planned\|paused\|doing\|review>' "$out"
+assert "wb help: lists the set verb" 'wb set <task-ref> <field> <value\|--unset>' "$out"
 assert "wb help: names the live \$WB_SET_FIELDS allowlist, not a stale copy" \
   'fields: priority value size parent depends_on jira tags path' "$out"
 assert "wb help: points at the guide" 'Guide: dotfiles/docs/wb-guide.md' "$out"

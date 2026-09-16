@@ -95,6 +95,37 @@ else
   echo "ok   - tracked-branch excluded (matched by task file)"
 fi
 
+# =============================================================================
+# `wb reconcile --machine` (R28/KTD5) — the same drift as parseable TSV.
+# =============================================================================
+
+# Read-only: snapshot the store + worktrees before, compare after.
+before_tasks="$(find "$FIXTURE_TASKS" -type f | sort | xargs -r md5sum 2>/dev/null)"
+before_worktrees="$(git -C "$FIXTURE_CODE/proj" worktree list --porcelain)"
+
+out_m="$(cmd_reconcile --machine 2>&1)"; rc_m=$?
+assert "machine mode: exits 0" '^' "$rc_m-ok"; [ "$rc_m" -eq 0 ] || { echo "FAIL - machine mode exit code $rc_m: $out_m"; fail=1; }
+
+# Orphan row: kind=orphan, fifth field is a merge status (merged/not-merged/unknown).
+assert "machine mode: orphan row, fifth field is a merge status" \
+  '^orphan	proj	merged-orphan	\.worktrees/merged-orphan	merged$' "$out_m"
+assert "machine mode: not-merged orphan, fifth field is a merge status" \
+  '^orphan	proj	stale-orphan	\.worktrees/stale-orphan	not-merged$' "$out_m"
+
+# Missing row: kind=missing, fifth field is a TASK-FILE PATH — a different
+# meaning for the same column position, asserted separately so a caller
+# reading field five as a single fixed meaning is caught here.
+assert "machine mode: missing row, fifth field is a task-file path (not a merge status)" \
+  '^missing	proj	ghost-branch	\.worktrees/ghost-branch	.*proj--ghost\.md$' "$out_m"
+
+after_tasks="$(find "$FIXTURE_TASKS" -type f | sort | xargs -r md5sum 2>/dev/null)"
+after_worktrees="$(git -C "$FIXTURE_CODE/proj" worktree list --porcelain)"
+if [ "$before_tasks" = "$after_tasks" ] && [ "$before_worktrees" = "$after_worktrees" ]; then
+  echo "ok   - machine mode: read-only (store + worktrees byte-identical)"
+else
+  echo "FAIL - machine mode: store or worktrees changed by a read-only call"; fail=1
+fi
+
 # --- clean tree: no orphans, no missing worktrees -> explicit no-drift ------
 CLEAN_CODE="$(mktemp -d -t wb-reconcile-clean-code.XXXXXX)"
 CLEAN_TASKS="$(mktemp -d -t wb-reconcile-clean-tasks.XXXXXX)"
@@ -108,6 +139,17 @@ wb_reconcile_repos() { printf '%s\n' "$CLEAN_CODE/proj"; }
 out_clean="$(cmd_reconcile 2>&1)"; rc_clean=$?
 assert "clean tree exits 0" '^' "$rc_clean-ok"; [ "$rc_clean" -eq 0 ] || { echo "FAIL - exit code $rc_clean: $out_clean"; fail=1; }
 assert "clean tree reports no drift" 'no drift found' "$out_clean"
+
+# Machine mode on a clean tree: prints NOTHING and exits 0 — distinct from
+# the human mode's "no drift found" line above.
+out_clean_m="$(cmd_reconcile --machine 2>&1)"; rc_clean_m=$?
+assert "clean tree, machine mode: exits 0" '^' "$rc_clean_m-ok"; [ "$rc_clean_m" -eq 0 ] || { echo "FAIL - exit code $rc_clean_m: $out_clean_m"; fail=1; }
+if [ -z "$out_clean_m" ]; then
+  echo "ok   - clean tree, machine mode: prints nothing"
+else
+  echo "FAIL - clean tree, machine mode: expected empty output, got: $out_clean_m"; fail=1
+fi
+
 rm -rf "$CLEAN_CODE" "$CLEAN_TASKS"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"

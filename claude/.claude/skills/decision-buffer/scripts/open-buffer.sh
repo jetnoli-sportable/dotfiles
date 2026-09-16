@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # open-buffer.sh — the bundled tmux open/wait/reattach/fallback recipe for
 # the decision-buffer skill (and anything else that needs a blocking,
-# agent-resumable nvim buffer: wb-done, parked-items, wb-breakdown,
-# wb-jira-create, wb_open_buffer() in wb.sh).
+# agent-resumable nvim buffer: wb-done, wb-breakdown, wb-jira-create,
+# wb_open_buffer() in wb.sh).
 #
 # One executable implementation instead of the recipe copied as prose in
-# five places (dotfiles roadmap R15). See references/mechanism.md for the
+# several places (dotfiles roadmap R15). See references/mechanism.md for the
 # full state-file field contract, the fallback-tier rationale, and the
 # reattach decision tree — this header only summarizes the CLI surface.
 #
