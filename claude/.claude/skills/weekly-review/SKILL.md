@@ -32,8 +32,8 @@ record="$("$WB" week record)"
 `$record` now holds the raw entries under each of the four capture-doc sections
 (`What's working` / `What's not working` / `New ideas` / `Notes`), plus a link to the
 previous record if one exists. This is your classification input for the next section —
-read `$record`, don't re-read the capture doc (its entries are already flipped to
-reviewed).
+read `$record`, don't re-read the capture doc (its rolled-up entries are already
+removed from it — `$record` is their durable copy now).
 
 **3. Tasks moved and PRs merged since the last review.** Find the previous record from
 the "Previous record" line `wb week record` just printed (or `none` on the first-ever

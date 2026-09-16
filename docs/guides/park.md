@@ -43,11 +43,13 @@ timeout`), the agent instead asks before creating anything — see Reference.
 
 The capture doc lives at `~/code/tasks/weeks/capture.md` (`wb week path` to
 print it, or **`prefix+p`** to open it directly in nvim) with four standing
-sections: `What's working`, `What's not working`, `New ideas`, `Notes` —
-never cleared. Each entry is stamped with date/repo/branch and starts
-unreviewed (`- [ ]`); `/weekly-review` rolls unreviewed entries into a week
-record and marks them reviewed (`- [x]`), so nothing is silently re-offered
-forever or silently dropped.
+sections: `What's working`, `What's not working`, `New ideas`, `Notes`.
+Each entry is stamped with date/repo/branch and starts unreviewed
+(`- [ ]`); `/weekly-review` rolls every unreviewed entry into that week's
+output record — its durable, immutable copy — and then removes it from the
+capture doc, which stays bounded to only what's still unreviewed rather
+than growing forever. Nothing is silently re-offered or silently dropped:
+the record is where a reviewed entry's text lives on.
 
 ## Known rough edges
 

@@ -304,11 +304,13 @@ section (or whichever fits) and confirms in one line: <code>Parked (not work-sha
 </table>
 <p>The capture doc lives at <code>~/code/tasks/weeks/capture.md</code> (<code>wb week path</code> to
 print it, or <strong><code>prefix+p</code></strong> to open it directly in nvim) with four standing
-sections: <code>What's working</code>, <code>What's not working</code>, <code>New ideas</code>, <code>Notes</code> —
-never cleared. Each entry is stamped with date/repo/branch and starts
-unreviewed (<code>- [ ]</code>); <code>/weekly-review</code> rolls unreviewed entries into a week
-record and marks them reviewed (<code>- [x]</code>), so nothing is silently re-offered
-forever or silently dropped.</p>
+sections: <code>What's working</code>, <code>What's not working</code>, <code>New ideas</code>, <code>Notes</code>.
+Each entry is stamped with date/repo/branch and starts unreviewed
+(<code>- [ ]</code>); <code>/weekly-review</code> rolls every unreviewed entry into that week's
+output record — its durable, immutable copy — and then removes it from the
+capture doc, which stays bounded to only what's still unreviewed rather
+than growing forever. Nothing is silently re-offered or silently dropped:
+the record is where a reviewed entry's text lives on.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
 <li>The work-shaped/not-shaped judgement is a one-line guess, stated so a

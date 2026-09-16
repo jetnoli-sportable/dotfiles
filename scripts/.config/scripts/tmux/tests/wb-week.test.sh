@@ -158,26 +158,55 @@ assert_eq "record (link prev): exit 0" 0 "$rc"
 assert "record (link prev): links the previous record" "Previous record: .*2026-W10-review\\.md" "$(cat "$RECORD2")"
 
 # =============================================================================
-# Scenario: an entry marked reviewed is not re-offered by the next record;
-# an unmarked entry still is (the stranding case wb week record exists to
-# fix — the old /park ledger left 12 of 58 entries untriaged across two
-# reviews with no per-entry state).
+# Scenario: an entry rolled into a record is not re-offered by the next
+# record; an unrolled entry still is (the stranding case wb week record
+# exists to fix — the old /park ledger left 12 of 58 entries untriaged
+# across two reviews with no per-entry state). Rolled-up entries are
+# REMOVED from the capture doc (not flipped to `- [x]` and kept forever —
+# Jet, 2026-09-16: the per-week record is already the durable copy, so
+# the capture doc stays bounded to only what's still unreviewed).
 # =============================================================================
 
 if grep -qF 'entry A' "$RECORD2"; then
-  echo "FAIL - stranding: entry A (already reviewed in 2026-W10) was re-offered in 2026-W13"; fail=1
+  echo "FAIL - stranding: entry A (already rolled up in 2026-W10) was re-offered in 2026-W13"; fail=1
 else
-  echo "ok   - stranding: reviewed entry A was not re-offered"
+  echo "ok   - stranding: entry A already rolled up was not re-offered"
 fi
 assert "stranding: unreviewed entry B was offered" "entry B" "$(cat "$RECORD2")"
-assert "stranding: entry A flipped to reviewed in the capture doc" '\- \[x\] .*entry A' "$(cat "$CAPTURE")"
-assert "stranding: entry B flipped to reviewed after its own record" '\- \[x\] .*entry B' "$(cat "$CAPTURE")"
+assert_eq "stranding: entry A removed from the capture doc (not kept as [x])" "" "$(grep -F 'entry A' "$CAPTURE")"
+assert_eq "stranding: entry B removed from the capture doc after its own record" "" "$(grep -F 'entry B' "$CAPTURE")"
+if grep -qF '\[x\]' "$CAPTURE"; then
+  echo "FAIL - stranding: capture doc still contains a [x] line — rolled-up entries must be removed, not flipped"; fail=1
+else
+  echo "ok   - stranding: capture doc never accumulates [x] lines"
+fi
+
+# "What's working" (both its entries just removed) must collapse back to
+# the exact same "heading, blank, next heading" shape the fresh template
+# produces — never a stray double-blank or dangling line.
+what_working_body="$(awk '/^## What.s working$/{f=1;next} /^## /{f=0} f' "$CAPTURE")"
+assert_eq "stranding: emptied 'What's working' section is well-formed (no leftover blanks)" "" "$what_working_body"
 
 # A THIRD entry, never rolled into any record yet, must still show up as
 # unreviewed — directly asserting the marker (not a date window) is what
 # drives inclusion.
 cmd_week append "What's working" "entry C" >/dev/null 2>&1
 assert "stranding: entry C still unreviewed before any record covers it" '\- \[ \] .*entry C' "$(cat "$CAPTURE")"
+
+# =============================================================================
+# Scenario: a section emptied by a roll-up still accepts a fresh append
+# afterward — the removal must never corrupt the heading it collapses
+# back to (the same shape a brand-new section starts in).
+# =============================================================================
+
+rm -f "$CAPTURE"
+cmd_week append "New ideas" "entry X" >/dev/null 2>&1
+cmd_week record 2026-W15 >/dev/null 2>&1   # rolls up + removes entry X, empties "New ideas"
+cmd_week append "New ideas" "entry Y" >/dev/null 2>&1
+between2="$(awk '/^## New ideas$/{f=1;next} /^## /{f=0} f' "$CAPTURE")"
+assert "re-append into emptied section: lands under the right heading" "entry Y" "$between2"
+n_sections3="$(grep -c '^## ' "$CAPTURE")"
+assert_eq "re-append into emptied section: still exactly four sections" 4 "$n_sections3"
 
 # =============================================================================
 # Scenario: `wb_week_unreviewed_count` prints a single-line "0" (not "0\n0")
@@ -188,7 +217,7 @@ assert "stranding: entry C still unreviewed before any record covers it" '\- \[ 
 # (exactly what `cmd_done` does with this count) under `set -e`.
 # =============================================================================
 
-cmd_week record 2026-W20 >/dev/null 2>&1   # flips the remaining unreviewed entry (C)
+cmd_week record 2026-W20 >/dev/null 2>&1   # rolls up + removes the remaining unreviewed entry (C)
 out="$(wb_week_unreviewed_count)"
 assert_eq "unreviewed count at zero: single-line '0'" "0" "$out"
 n_lines="$(printf '%s' "$out" | wc -l)"
