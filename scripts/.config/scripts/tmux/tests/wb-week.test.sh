@@ -124,6 +124,28 @@ assert "stamp round-trip: date/repo/branch shape present" \
   "\\- \\[ \\] $today · .*/.* · stamped entry" "$(cat "$CAPTURE")"
 
 # =============================================================================
+# Scenario: `wb week record` on the very first-ever review — no prior
+# weeks/*-review.md exists, so `_wb_week_previous_record`'s pipeline finds
+# zero matches and exits 1. Under this suite's `set +e` that's invisible,
+# so this scenario invokes wb.sh as a real subprocess (same convention as
+# wb-board.test.sh) to exercise the actual `set -euo pipefail` the CLI runs
+# under. Regression for: that non-zero return propagated through
+# `prev="$(_wb_week_previous_record "$iso")"` and killed the whole `wb week
+# record` call via set -e before it ever wrote the record — every
+# first-ever weekly review would fail silently.
+# =============================================================================
+
+FIRSTRUN_TASKS="$(mktemp -d -t wb-week-firstrun.XXXXXX)"
+out="$(HOME="$HOME" XDG_STATE_HOME="$XDG_STATE_HOME" CODE_DIR="$CODE_DIR" TASKS_DIR="$FIRSTRUN_TASKS" bash "$WB" week record 2026-W01 2>&1)"
+rc=$?
+assert_eq "first-ever record: exit 0" 0 "$rc"
+FIRSTRUN_RECORD="$FIRSTRUN_TASKS/weeks/2026-W01-review.md"
+assert_eq "first-ever record: prints the record path" "$FIRSTRUN_RECORD" "$out"
+[ -f "$FIRSTRUN_RECORD" ] || { echo "FAIL - first-ever record: file was not created"; fail=1; }
+assert "first-ever record: no previous record" "Previous record: none" "$(cat "$FIRSTRUN_RECORD" 2>/dev/null)"
+rm -rf "$FIRSTRUN_TASKS"
+
+# =============================================================================
 # Scenario: `wb week record` mints weeks/<ISO>-review.md and is idempotent
 # on a second call.
 # =============================================================================
