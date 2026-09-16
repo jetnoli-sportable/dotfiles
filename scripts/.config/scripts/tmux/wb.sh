@@ -4026,11 +4026,20 @@ _wb_week_cmd_append() {
 _wb_week_previous_record() {
   local iso="$1" dir; dir="$(_wb_week_dir)"
   [ -d "$dir" ] || return 0
+  # `|| true`: under set -o pipefail, grep finding zero matches (the
+  # guaranteed case on the first-ever review, and any time no prior week
+  # has been recorded) exits 1, which would otherwise make this whole
+  # pipeline — and this function's return status — non-zero. Callers do
+  # `prev="$(_wb_week_previous_record "$iso")"` under set -e, so a
+  # non-zero return here (despite "empty" being the documented, valid
+  # result) killed the entire `wb week record` call before it wrote
+  # anything.
   ls "$dir" 2>/dev/null \
     | grep -E '^[0-9]{4}-W[0-9]{2}-review\.md$' \
     | grep -v -F "$iso-review.md" \
     | sort \
-    | tail -1
+    | tail -1 \
+    || true
 }
 
 # cmd_week record [<iso>] — mint $TASKS_DIR/weeks/<iso>-review.md
