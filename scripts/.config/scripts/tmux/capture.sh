@@ -9,7 +9,7 @@
 # `wb week path` also creates the doc (with its four standing sections) on
 # first use, so this works even before anything has ever been captured.
 #
-# Invoked via `bind p new-window -c "$HOME" "capture.sh"` in tmux.conf, so
+# Invoked via `bind N new-window -c "$HOME" "capture.sh"` in tmux.conf, so
 # this script runs inside the freshly created window already — same
 # scratch-window pattern as ask.sh/help.sh (rename, then run the tool
 # directly; the window closes when the tool exits).
