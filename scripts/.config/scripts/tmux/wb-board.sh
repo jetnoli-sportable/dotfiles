@@ -306,11 +306,63 @@ wb_board_deps_blocking() {
 # being substituted, since HTML-escaped content is FULL of literal `&`.
 # Backslash is escaped FIRST, or a real backslash already in the text
 # would combine with the newly-inserted `\&` and change meaning.
+#
+# NOTE: the board's own page assembly no longer uses this — it fills the
+# template with wb_board_v2_fill_template below, which appends fragments
+# verbatim instead of running them through a substitution. Kept because it
+# is a general-purpose helper (and the trap it documents is a real one for
+# any future `${var//}` templating), not because the renderer calls it.
 wb_board_escape_replacement() {
   local s="$1"
   s="${s//\\/\\\\}"
   s="${s//&/\\&}"
   printf '%s' "$s"
+}
+
+# wb_board_v2_fill_template <template> <tokens_assoc_name> <out_var> —
+# substitute every @@TOKEN@@ in <template> with <tokens_assoc>[TOKEN], in a
+# single left-to-right walk of the TEMPLATE, appending each fragment to the
+# output verbatim.
+#
+# Why not the obvious `${page_template//@@TOKEN@@/$value}` chain it
+# replaced (see wb_board_render_v2's page-assembly comment for the full
+# rationale): that chain rescanned the whole, growing page once per token —
+# ~650KB by the last pass, and `${var//}` is measurably non-linear in size
+# — and, worse, rescanned already-substituted CONTENT, so a task title
+# holding a literal `@@FOO@@` corrupted the page. Here, content never
+# re-enters the scan.
+#
+# An unknown token is emitted literally (`@@FOO@@`), which is loud rather
+# than silently blanking a region of the page. An odd trailing `@@` with no
+# closer is likewise passed through unchanged.
+wb_board_v2_fill_template() {
+  local __tpl="$1"
+  local -n __tok="$2"
+  local __out="" __head __name __rest="$__tpl"
+  while [ -n "$__rest" ]; do
+    case "$__rest" in
+      *'@@'*) ;;
+      *) __out+="$__rest"; __rest=""; break ;;
+    esac
+    __head="${__rest%%@@*}"
+    __rest="${__rest#*@@}"
+    case "$__rest" in
+      *'@@'*)
+        __name="${__rest%%@@*}"
+        # Only a bare NAME between the markers is a token; anything with a
+        # newline or another `@@` in it is prose that happens to contain
+        # `@@`, and is passed through.
+        if [[ "$__name" =~ ^[A-Z0-9_]+$ ]] && [ -n "${__tok[$__name]+x}" ]; then
+          __out+="$__head${__tok[$__name]}"
+          __rest="${__rest#*@@}"
+        else
+          __out+="${__head}@@"
+        fi
+        ;;
+      *) __out+="${__head}@@${__rest}"; __rest="" ;;
+    esac
+  done
+  printf -v "$3" '%s' "$__out"
 }
 
 
@@ -896,7 +948,7 @@ wb_board_v2_next_line() {
 # carries no such restriction, at any recursion depth, since no new
 # nameref is ever created here.
 wb_board_v2_rail_node_html() {
-  local stem="$1"
+  local stem="$1" fam_anchor="${2:-}"
   # Cycle guard (fix(review)): a hand-edited parent: loop (A parent-of B,
   # B parent-of A) makes FAMILY_CHILDREN mutually reference the two stems,
   # and this function recurses on each child — with no visited set that is
@@ -916,19 +968,34 @@ wb_board_v2_rail_node_html() {
   else
     right="<span class=\"rail-row-age mono\">$(wb_board_v2_age_label "$age")</span>"
   fi
+  # UX pass (scope model): every rail node carries the three attributes the
+  # client-side SCOPE reads — data-stem (the `wb resume` id), data-anchor
+  # (its DOM anchor, matching card-/lane-/drilldown- ids) and data-family
+  # (its family ROOT's anchor, i.e. the scope key shared by a whole
+  # subtree). A phantom stem (a hand-typed `parent:` with no real file —
+  # see wb_board_v2_family_root's note) has no STEM_ANCHOR entry, so the
+  # anchor is computed fresh rather than looked up, and the stem is escaped
+  # before landing in an attribute.
+  local anchor; wb_board_v2_anchor "$stem" anchor
+  local stem_h; wb_board_html_escape "$stem" stem_h
+  [ -n "$fam_anchor" ] || fam_anchor="$anchor"
+  # R22's click-to-copy moves OFF the row title onto an explicit ⧉ glyph:
+  # the primary click on a row now SELECTS (sets scope), and a single click
+  # must never both copy and select.
+  local copy_ic="<span class=\"copy-ic copyable\" data-copy=\"wb resume ${stem_h}\" title=\"copy wb resume ${stem_h}\">&#8865;</span>"
   local kids="${_m_family_children[$stem]:-}"
   if [ -n "$kids" ]; then
-    printf '<details class="family-node" open><summary><span class="chev">&#9656;</span><span class="dot %s"></span><span class="rail-row-title copyable" data-copy="wb resume %s">%s</span>%s</summary><div class="family-children">' \
-      "$dot" "$stem" "$title" "$right"
+    printf '<details class="family-node" open><summary data-stem="%s" data-anchor="%s" data-family="%s" onclick="railSummaryClick(event,this)"><span class="chev">&#9656;</span><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</summary><div class="family-children">' \
+      "$stem_h" "$anchor" "$fam_anchor" "$dot" "$title" "$copy_ic" "$right"
     local rn_child
     while IFS= read -r rn_child; do
       [ -n "$rn_child" ] || continue
-      wb_board_v2_rail_node_html "$rn_child"
+      wb_board_v2_rail_node_html "$rn_child" "$fam_anchor"
     done <<< "$kids"
     printf '</div></details>'
   else
-    printf '<div class="rail-row"><span class="dot %s"></span><span class="rail-row-title copyable" data-copy="wb resume %s">%s</span>%s</div>' \
-      "$dot" "$stem" "$title" "$right"
+    printf '<div class="rail-row" data-stem="%s" data-anchor="%s" data-family="%s" onclick="railPick(event,this)"><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</div>' \
+      "$stem_h" "$anchor" "$fam_anchor" "$dot" "$title" "$copy_ic" "$right"
   fi
 }
 
@@ -937,10 +1004,25 @@ wb_board_v2_rail_node_html() {
 # (no dot color grading — these are presentational catch-alls, not a
 # freshness signal), click-to-copy (R22).
 wb_board_v2_shelf_items_html() {
-  local list="$1" si_stem out=""
+  # UX pass: shelf/next rows join the scope model too (data-stem/-anchor/
+  # -family + a primary select click); R22's copy moves onto the explicit
+  # ⧉ glyph, same as the Doing tree's rows. __h/__a are scratch out-vars
+  # (D2A) — these lists run to the hundreds store-wide, so no `$(...)`.
+  # NB: the out-vars are si_-prefixed on purpose. wb_board_v2_anchor's own
+  # local scratch is named `__a`, and bash's dynamic scoping means an
+  # out-var literally called `__a` is SHADOWED by that local — `printf -v
+  # __a` then writes the callee's copy and the caller reads an empty
+  # string. (Caught by the render test: every shelf row came out with
+  # data-anchor="".) Same class of trap as the nameref-recursion note on
+  # wb_board_v2_family_root; out-var names must not collide with the
+  # callee's locals.
+  local list="$1" si_stem out="" si_h="" si_a="" si_sh=""
   while IFS= read -r si_stem; do
     [ -n "$si_stem" ] || continue
-    out+="<div class=\"shelf-row\"><span class=\"shelf-dot\"></span><span class=\"shelf-text copyable\" data-copy=\"wb resume $si_stem\">$(wb_board_html_escape "${_m_title[$si_stem]:-$si_stem}")</span></div>"
+    wb_board_html_escape "${_m_title[$si_stem]:-$si_stem}" si_h
+    wb_board_html_escape "$si_stem" si_sh
+    wb_board_v2_anchor "$si_stem" si_a
+    out+="<div class=\"shelf-row\" data-stem=\"$si_sh\" data-anchor=\"$si_a\" data-family=\"$si_a\" onclick=\"railPick(event,this)\"><span class=\"shelf-dot\"></span><span class=\"shelf-text\">$si_h</span><span class=\"copy-ic copyable\" data-copy=\"wb resume $si_sh\" title=\"copy wb resume $si_sh\">&#8865;</span></div>"
   done <<< "$list"
   printf '%s' "$out"
 }
@@ -1029,14 +1111,19 @@ wb_board_v2_roadmap_bar() {
     [ "$bucket" = stale ] && return 0
     local track=4
     [ "$age" -gt 6 ] && track=3
-    printf '%s\t<div class="rm-bar active-bar" title="doing &middot; %s">doing &middot; %s</div>' \
-      "$track" "$(wb_board_v2_age_label "$age")" "$(wb_board_v2_age_label "$age")"
+    # UX pass: the bar carries the task's own title (it used to read only
+    # "doing · 3d", which in a multi-member lane clipped to 2-4 chars) plus
+    # data-anchor so a task-level scope can highlight this exact bar, and a
+    # title= tooltip with the full text for whatever the ellipsis eats.
+    printf '%s\t<div class="rm-bar active-bar" data-anchor="%s" title="%s &mdash; doing &middot; %s">%s <span class="rm-bar-age">%s</span></div>' \
+      "$track" "$anchor" "$title_attr" "$(wb_board_v2_age_label "$age")" "$title_attr" "$(wb_board_v2_age_label "$age")"
   elif [ "$status" = planned ]; then
     if [ -n "${UNMET_COUNT[$stem]:-}" ]; then   # fix(review) D4: keyed by stem, not anchor
-      printf '6\t<div class="rm-bar blocked-bar"><span class="lock-ic">&#128274;</span>%s<span class="rm-after-tag">after: %s</span></div>' \
-        "$title_attr" "$(wb_board_html_escape "${BLOCKER_NAMES[$stem]:-}")"
+      local blockers_attr; blockers_attr="$(wb_board_html_escape "${BLOCKER_NAMES[$stem]:-}")"
+      printf '6\t<div class="rm-bar blocked-bar" data-anchor="%s" title="%s &mdash; blocked after: %s"><span class="lock-ic">&#128274;</span>%s<span class="rm-after-tag">after: %s</span></div>' \
+        "$anchor" "$title_attr" "$blockers_attr" "$title_attr" "$blockers_attr"
     else
-      printf '5\t<div class="rm-bar ready-bar" title="%s">%s</div>' "$title_attr" "$title_attr"
+      printf '5\t<div class="rm-bar ready-bar" data-anchor="%s" title="%s">%s</div>' "$anchor" "$title_attr" "$title_attr"
     fi
   fi
 }
@@ -1317,9 +1404,14 @@ wb_board_render_v2() {
   # parent: cycle renders each stem once instead of recursing forever — see
   # that function's cycle-guard comment.
   local -A RAIL_SEEN=()
-  local rail_doing_html="" rd_stem
+  # UX pass: an "All doing" row heads the tree — the explicit way back to
+  # "no scope" once a family/task pick has narrowed every view (the scope
+  # model's identity element, not a filter).
+  local rail_doing_html='<div class="rail-row rail-all selected" data-stem="" data-anchor="" data-family="" onclick="railPick(event,this)"><span class="dot muted"></span><span class="rail-row-title">All doing</span></div>'
+  local rd_stem rd_anchor
   for rd_stem in "${active_family_roots_sorted[@]}"; do
-    rail_doing_html+="$(wb_board_v2_rail_node_html "$rd_stem")"
+    wb_board_v2_anchor "$rd_stem" rd_anchor
+    rail_doing_html+="$(wb_board_v2_rail_node_html "$rd_stem" "$rd_anchor")"
   done
 
   local -a next_items=() shelf_items=()
@@ -1375,10 +1467,17 @@ wb_board_render_v2() {
     while IFS= read -r dk_stem; do deck_order+=("$dk_stem"); done < <(wb_board_v2_sort_stems_by_age asc "${deck_stale[@]}")
   fi
 
-  local deck_html="" drilldowns_html="" dk_idx=0
+  # UX pass: each card and its drilldown live together in a `.card-slot`
+  # so the expanded detail opens IN PLACE beneath the card that was
+  # clicked, instead of in one shared slot far down the page (the old
+  # batched @@DRILLDOWNS_HTML@@ block, now gone). The slot also carries the
+  # scope attributes (data-anchor = the task, data-family = its family
+  # root's anchor) the rail's setScope() narrows the deck by.
+  local deck_html="" dk_idx=0 dk_fam_anchor=""
   for dk_stem in "${deck_order[@]}"; do
     dk_idx=$((dk_idx + 1))
     local dk_anchor="${_m_stem_anchor[$dk_stem]}"
+    wb_board_v2_anchor "${_m_family_root[$dk_stem]:-$dk_stem}" dk_fam_anchor
     local dk_bucket="${_m_bucket[$dk_stem]}"
     local dk_age="${_m_age_days[$dk_stem]:-0}"
     local dk_dot; dk_dot="$(wb_board_v2_dot_class "${_m_status[$dk_stem]}" "$dk_bucket" "$dk_age")"
@@ -1400,21 +1499,23 @@ wb_board_render_v2() {
     local dk_next; dk_next="$(wb_board_v2_next_line "${_m_plan_raw[$dk_stem]:-}" "${_m_handoff_raw[$dk_stem]:-}" "$dk_bucket")"
     local dk_title; dk_title="$(wb_board_html_escape "${_m_title[$dk_stem]:-$dk_stem}")"
 
+    deck_html+="<div class=\"card-slot${dk_sel_cls}\" data-stem=\"${dk_stem}\" data-anchor=\"${dk_anchor}\" data-family=\"${dk_fam_anchor}\">"
     deck_html+="<div class=\"card${dk_sel_cls}${dk_stale_cls}\" id=\"card-${dk_anchor}\" data-drilldown=\"drilldown-${dk_anchor}\">"
     deck_html+="<div class=\"card-top\"><div><div class=\"card-title\">${dk_title}</div><span class=\"card-id mono copyable\" data-copy=\"wb resume ${dk_stem}\">${dk_stem}</span></div>"
     deck_html+="<div class=\"ring-wrap\"><svg width=\"42\" height=\"42\" viewBox=\"0 0 42 42\"><circle cx=\"21\" cy=\"21\" r=\"17\" fill=\"none\" stroke=\"var(--overlay)\" stroke-width=\"4\"/>${dk_ring_circle}</svg><span class=\"ring-label\">${dk_ring_label}</span></div></div>"
     deck_html+="${dk_quote_html}"
     deck_html+="<div class=\"next-line\">Next: <b>$(wb_board_html_escape "$dk_next")</b></div>"
-    deck_html+="<div class=\"card-foot\"><span class=\"dot ${dk_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "$dk_age")</span></div>"
+    deck_html+="<div class=\"card-foot\"><span class=\"dot ${dk_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "$dk_age")</span><span class=\"card-caret\" title=\"expand\">&#9656;</span></div>"
     deck_html+="</div>"
 
     local dk_active_cls=""
     [ "$dk_idx" = 1 ] && dk_active_cls=" active"
-    drilldowns_html+="<div class=\"drilldown${dk_active_cls}\" id=\"drilldown-${dk_anchor}\">"
-    drilldowns_html+="<div><h3>Plan</h3>$(wb_board_v2_plan_ul "$dk_stem")</div>"
-    drilldowns_html+="<div><h3>Done</h3>$(wb_board_v2_done_ul "$dk_stem")<div class=\"dd-meta\">$(wb_board_v2_handoff_meta "$dk_stem")</div></div>"
-    drilldowns_html+="<div><h3>Follow-ups</h3>$(wb_board_v2_followups_ul "$dk_stem")</div>"
-    drilldowns_html+="</div>"
+    deck_html+="<div class=\"drilldown${dk_active_cls}\" id=\"drilldown-${dk_anchor}\">"
+    deck_html+="<div><h3>Plan</h3>$(wb_board_v2_plan_ul "$dk_stem")</div>"
+    deck_html+="<div><h3>Done</h3>$(wb_board_v2_done_ul "$dk_stem")<div class=\"dd-meta\">$(wb_board_v2_handoff_meta "$dk_stem")</div></div>"
+    deck_html+="<div><h3>Follow-ups</h3>$(wb_board_v2_followups_ul "$dk_stem")</div>"
+    deck_html+="</div>"
+    deck_html+="</div>"
   done
 
   # =========================================================================
@@ -1444,17 +1545,21 @@ wb_board_render_v2() {
     [ -n "$rm_bars" ] || continue
     local rm_span_end=$((rm_max_track + 1))
     local rm_title; rm_title="$(wb_board_html_escape "${_m_title[$rm_stem]:-$rm_stem}")"
+    # UX pass: the lane names its family so setScope() can outline it,
+    # scroll it into view and dim (never hide — a roadmap of one lane is
+    # useless) the rest.
+    local rm_anchor; wb_board_v2_anchor "$rm_stem" rm_anchor
     if [ -n "$rm_kids" ]; then
       local rm_total=${#rm_members[@]} rm_done=0
       for rm_member in "${rm_members[@]}"; do
         [ "${_m_status[$rm_member]:-}" = done ] && rm_done=$((rm_done + 1))
       done
-      rm_lanes_html+="<div class=\"rm-lane milestone-lane\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\">${rm_title} <span class=\"rm-mfrac mono\">${rm_done} / ${rm_total}</span></div></div>"
+      rm_lanes_html+="<div class=\"rm-lane milestone-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\">${rm_title} <span class=\"rm-mfrac mono\">${rm_done} / ${rm_total}</span></div></div>"
       rm_lanes_html+="<div class=\"rm-bracket\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\"></div>"
       rm_lanes_html+="<div class=\"rm-bars\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\">${rm_bars}</div></div>"
     else
       local rm_dot; rm_dot="$(wb_board_v2_dot_class "${_m_status[$rm_stem]}" "${_m_bucket[$rm_stem]}" "${_m_age_days[$rm_stem]:-0}")"
-      rm_lanes_html+="<div class=\"rm-lane\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\">${rm_title}</div><div class=\"rm-standalone-meta\"><span class=\"dot ${rm_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "${_m_age_days[$rm_stem]:-0}")</span></div></div>"
+      rm_lanes_html+="<div class=\"rm-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\">${rm_title}</div><div class=\"rm-standalone-meta\"><span class=\"dot ${rm_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "${_m_age_days[$rm_stem]:-0}")</span></div></div>"
       rm_lanes_html+="<div class=\"rm-bars\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\">${rm_bars}</div></div>"
     fi
   done
@@ -1490,9 +1595,16 @@ wb_board_render_v2() {
     done < <(wb_board_v2_sort_stems_by_title "${blocked_planned[@]}")
     [ "${#blocked_planned[@]}" -gt "$RM_CAP" ] && blocked_html+="<span class=\"rm-blocked-pill\" style=\"opacity:.6;\">+$(( ${#blocked_planned[@]} - RM_CAP )) more</span>"
   fi
+  # UX pass: the strip used to eat 602px of a 1000px viewport before the
+  # first lane — the roadmap's actual content started below the fold. It
+  # now collapses to a single summary line ("Ready now · N · Blocked · N
+  # ▸") and only renders its pills when opened (state in localStorage).
   local rm_readiness_html=""
   [ -n "$ready_html" ] && rm_readiness_html+="<div class=\"rm-readiness-group\"><span class=\"rm-readiness-label\">Ready now &middot; ${#ready_planned[@]}</span>${ready_html}</div>"
   [ -n "$blocked_html" ] && rm_readiness_html+="<div class=\"rm-readiness-group\"><span class=\"rm-readiness-label\">Blocked &middot; ${#blocked_planned[@]}</span>${blocked_html}</div>"
+  if [ -n "$rm_readiness_html" ]; then
+    rm_readiness_html="<div class=\"rm-strip-head\" onclick=\"toggleRmStrip()\"><span class=\"rm-strip-caret\">&#9656;</span><span class=\"rm-readiness-label\">Ready now</span><span class=\"rm-strip-n ready\">${#ready_planned[@]}</span><span class=\"rm-readiness-label\">Blocked</span><span class=\"rm-strip-n blocked\">${#blocked_planned[@]}</span></div><div class=\"rm-strip-body\">${rm_readiness_html}</div>"
+  fi
 
   # stale toggle content — flat, store-wide, shared shape by both the
   # Roadmap and Week views (each renders it into its own container markup).
@@ -1501,18 +1613,20 @@ wb_board_render_v2() {
   for st_stem in "${!_m_stem_anchor[@]}"; do
     [ "${_m_bucket[$st_stem]:-}" = stale ] && stale_stems+=("$st_stem")
   done
-  local rm_stale_rows_html="" week_stale_rows_html=""
+  local rm_stale_rows_html="" week_stale_rows_html="" ss_anchor="" ss_fam_anchor=""
   if [ "${#stale_stems[@]}" -gt 0 ]; then
     local ss_stem
     while IFS= read -r ss_stem; do
+      wb_board_v2_anchor "$ss_stem" ss_anchor
+      wb_board_v2_anchor "${_m_family_root[$ss_stem]:-$ss_stem}" ss_fam_anchor
       rm_stale_rows_html+="<div class=\"rm-stale-row\"><div class=\"rm-lane-label\" title=\"$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")\"><span class=\"dot red\"></span>$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")<span class=\"age-red mono\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div></div>"
-      week_stale_rows_html+="<div class=\"carried-row\"><span class=\"dot red\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $ss_stem\">$ss_stem</span>$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")</span><span class=\"age\" style=\"color:var(--red);\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div>"
+      week_stale_rows_html+="<div class=\"carried-row\" data-stem=\"$ss_stem\" data-anchor=\"$ss_anchor\" data-family=\"$ss_fam_anchor\"><span class=\"dot red\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $ss_stem\">$ss_stem</span>$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")</span><span class=\"age\" style=\"color:var(--red);\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div>"
     done < <(wb_board_v2_sort_stems_by_age desc "${stale_stems[@]}")
   fi
 
   local roadmap_view_html
   roadmap_view_html='<div class="rm-board"><div class="rm-grid-header"><div class="col-label"></div><div class="col-label">2 wks ago</div><div class="col-label">last wk</div><div class="col-label this-week">THIS WEEK</div><div class="col-label">next</div><div class="col-label">later</div></div>'
-  [ -n "$rm_readiness_html" ] && roadmap_view_html+="<div class=\"rm-readiness-strip\">${rm_readiness_html}</div>"
+  [ -n "$rm_readiness_html" ] && roadmap_view_html+="<div class=\"rm-readiness-strip\" id=\"rm-strip\">${rm_readiness_html}</div>"
   roadmap_view_html+='<div class="rm-lanes"><div class="rm-grid-lines"><div class="vline" style="left: calc(260px + 1 * ((100% - 260px) / 5));"></div><div class="vline" style="left: calc(260px + 2 * ((100% - 260px) / 5));"></div><div class="vline" style="left: calc(260px + 3 * ((100% - 260px) / 5));"></div><div class="vline" style="left: calc(260px + 4 * ((100% - 260px) / 5));"></div></div>'
   roadmap_view_html+='<div class="rm-thisweek-band" style="left: calc(260px + 2 * ((100% - 260px) / 5)); width: calc((100% - 260px) / 5);"></div>'
   roadmap_view_html+='<div class="rm-today-line" style="left: calc(260px + 3 * ((100% - 260px) / 5));"></div>'
@@ -1551,15 +1665,21 @@ wb_board_render_v2() {
     [ "${_m_updated[$wk_stem]:-0}" -ge "$monday_epoch" ] && this_week_stems+=("$wk_stem")
   done
 
-  local week_cards_html=""
+  # UX pass: week cards render COLLAPSED (top row + meta) and expand on
+  # click — 23 always-open full drilldowns made this view 8579px tall. They
+  # also carry the scope attributes so a rail pick narrows the week the
+  # same way it narrows the deck, and auto-expands the scoped task.
+  local week_cards_html="" wc_anchor="" wc_fam_anchor=""
   if [ "${#this_week_stems[@]}" -gt 0 ]; then
     local wc_stem
     while IFS= read -r wc_stem; do
+      wb_board_v2_anchor "$wc_stem" wc_anchor
+      wb_board_v2_anchor "${_m_family_root[$wc_stem]:-$wc_stem}" wc_fam_anchor
       local wc_dot; wc_dot="$(wb_board_v2_dot_class "${_m_status[$wc_stem]}" "${_m_bucket[$wc_stem]}" "${_m_age_days[$wc_stem]:-0}")"
       local wc_title; wc_title="$(wb_board_html_escape "${_m_title[$wc_stem]:-$wc_stem}")"
       local wc_parent_html=""
       [ -n "${_m_stem_parent[$wc_stem]:-}" ] && wc_parent_html=" &middot; <span class=\"parent-chip mono\">child of $(wb_board_html_escape "${_m_stem_parent[$wc_stem]}")</span>"
-      week_cards_html+="<div class=\"week-card\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">$(wb_board_html_escape "${_m_status[$wc_stem]:-}")</span></div>"
+      week_cards_html+="<div class=\"week-card\" data-stem=\"${wc_stem}\" data-anchor=\"${wc_anchor}\" data-family=\"${wc_fam_anchor}\" onclick=\"toggleWeekCard(event,this)\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">$(wb_board_html_escape "${_m_status[$wc_stem]:-}")</span><span class=\"wk-caret\">&#9656;</span></div>"
       week_cards_html+="<div class=\"meta\"><span class=\"mono copyable\" data-copy=\"wb resume $wc_stem\">$wc_stem</span> &middot; touched $(wb_board_v2_age_label "${_m_age_days[$wc_stem]:-0}")${wc_parent_html}</div>"
       week_cards_html+="<div class=\"wdrill\"><div><div class=\"wdrill-block\"><h4>Plan</h4>$(wb_board_v2_plan_ul "$wc_stem")</div><div class=\"wdrill-block\"><h4>Done</h4>$(wb_board_v2_done_ul "$wc_stem")</div></div>"
       week_cards_html+="<div><div class=\"wdrill-block\"><h4>Latest handoff</h4><div class=\"handoff\">$(wb_board_v2_handoff_meta "$wc_stem")</div></div><div class=\"wdrill-block\"><h4>Follow-ups</h4>$(wb_board_v2_followups_ul "$wc_stem")</div></div></div></div>"
@@ -1579,7 +1699,8 @@ wb_board_render_v2() {
       [ -n "${THIS_WEEK_SET[$cw_stem]:-}" ] && continue
       local cw_dot; cw_dot="$(wb_board_v2_dot_class "${_m_status[$cw_stem]}" "${_m_bucket[$cw_stem]}" "${_m_age_days[$cw_stem]:-0}")"
       local cw_title; cw_title="$(wb_board_html_escape "${_m_title[$cw_stem]:-$cw_stem}")"
-      family_blocks_html+="<div class=\"family-block\"><div class=\"fam-row\"><span class=\"dot ${cw_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cw_stem\">$cw_stem</span>${cw_title}</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cw_stem]:-0}")</span></div><div class=\"fam-kids\">"
+      local cw_anchor; wb_board_v2_anchor "$cw_stem" cw_anchor
+      family_blocks_html+="<div class=\"family-block\" data-stem=\"$cw_stem\" data-anchor=\"$cw_anchor\" data-family=\"$cw_anchor\"><div class=\"fam-row\"><span class=\"dot ${cw_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cw_stem\">$cw_stem</span>${cw_title}</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cw_stem]:-0}")</span></div><div class=\"fam-kids\">"
       local cw_child cw_pill_cls cw_pill_text
       while IFS= read -r cw_child; do
         [ -n "$cw_child" ] || continue
@@ -1598,10 +1719,12 @@ wb_board_render_v2() {
     fi
   done
   if [ "${#carried_standalone_stems[@]}" -gt 0 ]; then
-    local cl_stem cl_dot
+    local cl_stem cl_dot cl_anchor cl_fam_anchor
     while IFS= read -r cl_stem; do
       cl_dot="$(wb_board_v2_dot_class "${_m_status[$cl_stem]}" "${_m_bucket[$cl_stem]}" "${_m_age_days[$cl_stem]:-0}")"
-      carried_list_html+="<div class=\"carried-row\"><span class=\"dot ${cl_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cl_stem\">$cl_stem</span>$(wb_board_html_escape "${_m_title[$cl_stem]:-$cl_stem}")</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cl_stem]:-0}")</span></div>"
+      wb_board_v2_anchor "$cl_stem" cl_anchor
+      wb_board_v2_anchor "${_m_family_root[$cl_stem]:-$cl_stem}" cl_fam_anchor
+      carried_list_html+="<div class=\"carried-row\" data-stem=\"$cl_stem\" data-anchor=\"$cl_anchor\" data-family=\"$cl_fam_anchor\"><span class=\"dot ${cl_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cl_stem\">$cl_stem</span>$(wb_board_html_escape "${_m_title[$cl_stem]:-$cl_stem}")</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cl_stem]:-0}")</span></div>"
     done < <(wb_board_v2_sort_stems_by_age asc "${carried_standalone_stems[@]}")
   fi
 
@@ -1610,13 +1733,15 @@ wb_board_render_v2() {
   # is every status:paused task store-wide.
   local unblocked_chips_html=""
   if [ "${#ready_planned[@]}" -gt 0 ]; then
-    local uq_i=0 uq_stem uq_root uq_breadcrumb
+    local uq_i=0 uq_stem uq_root uq_breadcrumb uq_anchor uq_fam_anchor
     while IFS= read -r uq_stem; do
       uq_i=$((uq_i + 1)); [ "$uq_i" -gt 12 ] && break
       uq_root="${_m_family_root[$uq_stem]:-$uq_stem}"
       uq_breadcrumb="top-level"
       [ "$uq_root" != "$uq_stem" ] && uq_breadcrumb="$(wb_board_html_escape "${_m_title[$uq_root]:-$uq_root}")"
-      unblocked_chips_html+="<span class=\"qs-chip planned copyable\" data-copy=\"wb resume $uq_stem\">$(wb_board_html_escape "${_m_title[$uq_stem]:-$uq_stem}") <span class=\"breadcrumb\">&#8618; ${uq_breadcrumb}</span></span>"
+      wb_board_v2_anchor "$uq_stem" uq_anchor
+      wb_board_v2_anchor "$uq_root" uq_fam_anchor
+      unblocked_chips_html+="<span class=\"qs-chip planned copyable\" data-stem=\"$uq_stem\" data-anchor=\"$uq_anchor\" data-family=\"$uq_fam_anchor\" data-copy=\"wb resume $uq_stem\">$(wb_board_html_escape "${_m_title[$uq_stem]:-$uq_stem}") <span class=\"breadcrumb\">&#8618; ${uq_breadcrumb}</span></span>"
     done < <(wb_board_v2_sort_stems_by_title "${ready_planned[@]}")
     [ "${#ready_planned[@]}" -gt 12 ] && unblocked_chips_html+="<span class=\"qs-chip planned\" style=\"opacity:.6;\">+$(( ${#ready_planned[@]} - 12 )) more</span>"
   fi
@@ -1628,16 +1753,50 @@ wb_board_render_v2() {
   done
   local shelf_chips_html=""
   if [ "${#shelf_paused[@]}" -gt 0 ]; then
-    local sc_i=0 sc_stem
+    local sc_i=0 sc_stem sc_h="" sc_sh="" sc_a="" sc_fa=""
     while IFS= read -r sc_stem; do
       sc_i=$((sc_i + 1)); [ "$sc_i" -gt 12 ] && break
-      shelf_chips_html+="<span class=\"qs-chip shelf copyable\" data-copy=\"wb resume $sc_stem\">$(wb_board_html_escape "${_m_title[$sc_stem]:-$sc_stem}")</span>"
+      wb_board_html_escape "${_m_title[$sc_stem]:-$sc_stem}" sc_h
+      wb_board_html_escape "$sc_stem" sc_sh
+      wb_board_v2_anchor "$sc_stem" sc_a
+      wb_board_v2_anchor "${_m_family_root[$sc_stem]:-$sc_stem}" sc_fa
+      shelf_chips_html+="<span class=\"qs-chip shelf copyable\" data-stem=\"$sc_sh\" data-anchor=\"$sc_a\" data-family=\"$sc_fa\" data-copy=\"wb resume $sc_sh\">$sc_h</span>"
     done < <(wb_board_v2_sort_stems_by_title "${shelf_paused[@]}")
     [ "${#shelf_paused[@]}" -gt 12 ] && shelf_chips_html+="<span class=\"qs-chip shelf\" style=\"opacity:.6;\">+$(( ${#shelf_paused[@]} - 12 )) more</span>"
   fi
 
+  # UX pass: "N shelved" in the week header used to be a dead number with
+  # no way to see what it counted. It's now a toggle whose body lists the
+  # whole shelved bucket MINUS done (paused/prospective/planned — the
+  # things you could actually pull back off the shelf); `done` is most of
+  # the bucket's mass and listing it would be noise, so the body carries
+  # its own "N of M shelved" count line rather than silently disagreeing
+  # with the header. Rendered with out-var escape/anchor calls (D2A), no
+  # per-row subshell — this runs to a couple of hundred rows store-wide.
+  local -a wk_shelf_stems=()
+  local wsh_stem
+  for wsh_stem in "${!_m_stem_anchor[@]}"; do
+    [ "${_m_bucket[$wsh_stem]:-}" = shelved ] || continue
+    [ "${_m_status[$wsh_stem]:-}" = done ] && continue
+    wk_shelf_stems+=("$wsh_stem")
+  done
+  local wk_shelf_rows_html=""
+  if [ "${#wk_shelf_stems[@]}" -gt 0 ]; then
+    local ws_stem ws_h="" ws_sh="" ws_a="" ws_fa="" ws_st=""
+    while IFS= read -r ws_stem; do
+      wb_board_html_escape "${_m_title[$ws_stem]:-$ws_stem}" ws_h
+      wb_board_html_escape "$ws_stem" ws_sh
+      wb_board_html_escape "${_m_status[$ws_stem]:-}" ws_st
+      wb_board_v2_anchor "$ws_stem" ws_a
+      wb_board_v2_anchor "${_m_family_root[$ws_stem]:-$ws_stem}" ws_fa
+      wk_shelf_rows_html+="<div class=\"wk-shelf-row\" data-stem=\"$ws_sh\" data-anchor=\"$ws_a\" data-family=\"$ws_fa\"><span class=\"shelf-dot\"></span><span class=\"t\">$ws_h</span><span class=\"st\">$ws_st</span><span class=\"id mono copyable\" data-copy=\"wb resume $ws_sh\">$ws_sh</span></div>"
+    done < <(wb_board_v2_sort_stems_by_title "${wk_shelf_stems[@]}")
+  fi
+
   local week_view_html
-  week_view_html="<header class=\"week-header\"><h1>Week ${week_num} &middot; ${mon_label}&ndash;${sun_label}</h1><div class=\"summary\"><b class=\"n-active\">${_m_bucket_count[active]:-0} active</b> &middot; <b class=\"n-stale\">${_m_bucket_count[stale]:-0} stale</b> &middot; <b class=\"n-shelved\">${_m_bucket_count[shelved]:-0} shelved</b></div></header>"
+  week_view_html="<header class=\"week-header\"><h1>Week ${week_num} &middot; ${mon_label}&ndash;${sun_label}</h1><div class=\"summary\"><b class=\"n-active\">${_m_bucket_count[active]:-0} active</b> &middot; <b class=\"n-stale\">${_m_bucket_count[stale]:-0} stale</b> &middot; <b class=\"n-shelved\" id=\"wk-shelf-toggle\" onclick=\"toggleWeekShelf()\" title=\"show the shelf\">${_m_bucket_count[shelved]:-0} shelved <span class=\"caret\">&#9656;</span></b></div></header>"
+  week_view_html+="<div class=\"wk-shelf-detail\" id=\"wk-shelf-detail\"><p class=\"region-label\">Shelf &middot; ${#wk_shelf_stems[@]} of ${_m_bucket_count[shelved]:-0} shelved &mdash; done excluded</p><div class=\"wk-shelf-list\">${wk_shelf_rows_html:-<span style=\"color:var(--subtext);\">Shelf is empty.</span>}</div></div>"
+  week_view_html+='<div class="scope-header" id="week-scope-header" style="display:none;"></div>'
   week_view_html+='<section class="region"><p class="region-label">This week</p>'
   if [ -n "$week_cards_html" ]; then
     week_view_html+="$week_cards_html"
@@ -1722,7 +1881,7 @@ wb_board_render_v2() {
     # the rail's own `.dot`/`.rail-row-title` visual language so it reads
     # as "the same sidebar, a different list" rather than a new widget.
     local fam_dot; fam_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
-    rail_family_html+="<div class=\"rail-row fam-rail-row${fam_sel_cls}\" data-fam=\"${fr_anchor}\" onclick=\"selectFamily('${fr_anchor}')\"><span class=\"dot ${fam_dot}\"></span><span class=\"rail-row-title\">${__h}</span><span class=\"rail-row-age mono\">${fr_done}/${fr_total}</span></div>"
+    rail_family_html+="<div class=\"rail-row fam-rail-row${fam_sel_cls}\" data-fam=\"${fr_anchor}\" data-stem=\"${fr_stem_h}\" data-anchor=\"${fr_anchor}\" data-family=\"${fr_anchor}\" onclick=\"selectFamily('${fr_anchor}')\"><span class=\"dot ${fam_dot}\"></span><span class=\"rail-row-title\">${__h}</span><span class=\"rail-row-age mono\">${fr_done}/${fr_total}</span></div>"
 
     # Decisions timeline: parent + every child, date-sorted. One `sort`
     # fork per family (bounded to the family count, not the whole store) —
@@ -1991,18 +2150,13 @@ wb_board_render_v2() {
       fam_body_html+='</div>'
     fi
 
-    # fix(perf, U5/U6): escape THIS family's body now, per-block, rather
-    # than once over the whole concatenated family_view_html at page
-    # assembly. wb_board_escape_replacement's `${s//&/\&}` global
-    # substitution measured NON-linear in the size of a single call — a
-    # 230KB single call over all 32 families' content cost ~0.85s, the
-    # SAME aggregate content split into ~32 per-family calls cost ~0.29s,
-    # further improving as each family's own size drops (a 21KB single
-    # call costs only ~0.018s) — verified during this unit's real-store
-    # timing pass. Escaping here (not at the bottom substitution line)
-    # means `family_view_html` arrives at the page template ALREADY safe
-    # for the `${page_template//@@FAMILY_HTML@@/...}` swap.
-    fam_body_html="$(wb_board_escape_replacement "$fam_body_html")"
+    # (Historical note: this used to call wb_board_escape_replacement per
+    # family, because the page template was assembled with a chain of
+    # `${page_template//@@TOKEN@@/...}` substitutions and a raw `&` in the
+    # REPLACEMENT is a backreference there. Page assembly now walks the
+    # template once and appends fragments verbatim — see its own comment —
+    # so no fragment needs replacement-escaping at all, and the non-linear
+    # `${s//&/\&}` cost this used to split up is simply gone.)
     # .fam-block defaults to display:none in CSS (every block hidden until
     # selectFamily shows one) — the first family needs an explicit inline
     # override, not just the ABSENCE of a hiding style, or it renders blank
@@ -2026,36 +2180,42 @@ wb_board_render_v2() {
   if [ "${#all_family_roots_sorted[@]}" -gt 0 ]; then
     family_view_html="$fam_blocks_html"
   else
-    # Static text, pre-escaped by hand (no dynamic content to run through
-    # wb_board_escape_replacement) — this is the same @@FAMILY_HTML@@ token
-    # that skips the escape wrapper below, so any literal `&` here must
-    # already be `\&`.
-    family_view_html='<h2 class="region-label">Family</h2><p style="color:var(--subtext);">No families yet \&mdash; a family appears once a task has a <span class="mono">parent:</span> field or at least one child.</p>'
+    family_view_html='<h2 class="region-label">Family</h2><p style="color:var(--subtext);">No families yet &mdash; a family appears once a task has a <span class="mono">parent:</span> field or at least one child.</p>'
   fi
   local fam_tab_badge="${#all_family_roots_sorted[@]}"
 
   # UX follow-up: the family list joins the rail as a second, initially-
   # hidden panel (#rail-families) — showView('family') swaps to it,
   # everything else swaps back to #rail-tasks (see rail_html's own note
-  # above). Escaped once here (not per-row) since it's a single small
-  # concatenation, not the per-family-block scale that motivated the
-  # per-block escaping elsewhere in this function.
-  rail_family_html="$(wb_board_escape_replacement "$rail_family_html")"
+  # above).
   if [ -z "$rail_family_html" ]; then
     rail_family_html='<p style="color:var(--subtext);font-size:14px;padding:0 4px;">No families yet.</p>'
   fi
   rail_html+="<div id=\"rail-families\" style=\"display:none;\"><div class=\"rail-heading\">Family</div><div class=\"rail-tree\">${rail_family_html}</div></div>"
 
   # =========================================================================
-  # PAGE ASSEMBLY — heredoc + @@TOKEN@@ substitution, the same templating
-  # convention the deleted old renderer used: the
-  # CSS/skeleton/script are entirely static (translated from
-  # board-reference-final.html, "Mockup O"), so they live directly in the
-  # single-quoted heredoc; only the per-render HTML fragments built above
-  # are substituted in, each through wb_board_escape_replacement (R16
-  # n/a here, but the same substitution-safety concern as the old
-  # renderer's own template — a raw `&` in escaped HTML content is a
-  # backreference on the RHS of `${var//pat/repl}` otherwise).
+  # PAGE ASSEMBLY — heredoc + @@TOKEN@@ substitution: the CSS/skeleton/
+  # script are entirely static (translated from board-reference-final.html,
+  # "Mockup O"), so they live directly in the single-quoted heredoc; only
+  # the per-render HTML fragments built above are substituted in.
+  #
+  # fix(perf/P3, UX pass): the swap is now a SINGLE walk over the template
+  # (wb_board_v2_fill_template below), not the old chain of nine
+  # `${page_template//@@TOKEN@@/...}` substitutions. Two reasons, both
+  # real:
+  #   * cost — each of those nine passes rescanned the whole, already-
+  #     grown page (650KB by the last one) for the next token, and bash's
+  #     `${var//pat/repl}` is the same non-linear-in-size operation this
+  #     file's per-family escaping note already measured. R15's ≤10s
+  #     budget was down to ~0.1s of headroom before this.
+  #   * correctness — a substituted fragment was itself rescanned by every
+  #     LATER substitution, so a task title containing a literal
+  #     `@@SOMETHING@@` corrupted the page (a known P3, and there is a task
+  #     in the real store whose title says exactly that). The walk appends
+  #     fragments verbatim and never looks at them again, which closes it.
+  # It also removes the need for wb_board_escape_replacement on every
+  # fragment: nothing is a substitution RHS any more, so a raw `&` is just
+  # an `&`.
   # =========================================================================
   local tab_badge=$(( ${_m_bucket_count[active]:-0} + ${_m_bucket_count[stale]:-0} ))
   local generated_ts; generated_ts="$(date -d "@$now" '+%Y-%m-%d %H:%M %Z')"
@@ -2095,7 +2255,12 @@ wb_board_render_v2() {
   .page { display: flex; width: min(96vw, 1800px); margin: 0 0 0 24px; padding: 14px 24px 40px 0; gap: 40px; align-items: flex-start; }
 
   /* ================= LEFT RAIL (outline) ================= */
-  .rail { width: 340px; flex: 0 0 340px; display: flex; flex-direction: column; gap: 20px; padding: 8px; }
+  /* UX pass: the rail is the board's nav surface, so it must stay on
+     screen while a 4000px view scrolls past it — sticky with its own
+     scrollbar, filter box pinned at its top. */
+  .rail { width: 340px; flex: 0 0 340px; display: flex; flex-direction: column; gap: 20px; padding: 8px; position: sticky; top: 14px; max-height: calc(100vh - 28px); overflow-y: auto; overscroll-behavior: contain; }
+  .rail::-webkit-scrollbar { width: 8px; }
+  .rail::-webkit-scrollbar-thumb { background: var(--overlay); border-radius: 4px; }
   .rail-filter { width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--overlay); background: var(--surface); color: var(--text); font-size: 14px; }
   .rail-filter::placeholder { color: var(--subtext); }
   .rail-heading { font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--subtext); padding: 0 4px 6px 4px; }
@@ -2104,6 +2269,24 @@ wb_board_render_v2() {
   .rail-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; font-size: 15px; }
   .rail-row:hover { background: var(--surface); }
   .filter-hidden { display: none !important; }
+  .scope-hidden { display: none !important; }
+
+  /* UX pass (scope model): `.selected` is the picked rail row, `.scoped`
+     the family whose subtree the whole board is narrowed to — both mauve,
+     the reserved selection/current colour, nothing else. */
+  .rail-row.selected, details.family-node > summary.selected { background: rgba(203,166,247,.12); border-color: var(--mauve); }
+  .rail-row.selected .rail-row-title, details.family-node > summary.selected .rail-row-title { color: var(--mauve); }
+  details.family-node > summary { border: 1px solid transparent; }
+  details.family-node > summary.scoped .rail-row-title { color: var(--mauve); }
+  .shelf-row.selected { background: rgba(203,166,247,.12); }
+  .shelf-row.selected .shelf-text { color: var(--mauve); }
+  .rail-all { color: var(--subtext); }
+
+  /* R22's copy affordance, split off the row title so a primary click
+     selects and only this glyph copies. */
+  .copy-ic { flex: 0 0 auto; font-size: 12px; color: var(--subtext); opacity: 0; padding: 0 2px; transition: opacity .12s ease; }
+  .rail-row:hover .copy-ic, details.family-node > summary:hover .copy-ic, .shelf-row:hover .copy-ic { opacity: .75; }
+  .copy-ic:hover { opacity: 1; color: var(--mauve); }
 
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
   .dot.green { background: var(--green); }
@@ -2158,7 +2341,23 @@ wb_board_render_v2() {
   h2.region-label { font-size: 12.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--subtext); font-weight: 600; margin: 0 0 12px 2px; }
   .deck-row { display: flex; flex-wrap: wrap; gap: 18px; padding: 8px 4px 14px 4px; }
 
-  .card { flex: 1 1 340px; max-width: 420px; background: var(--surface); border: 1px solid var(--overlay); border-radius: 12px; padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 12px; position: relative; transition: transform .15s ease; cursor: pointer; }
+  /* UX pass: the flex item is now the SLOT (card + its own drilldown), so
+     the detail opens in place; a selected slot takes the whole row so the
+     3-column drilldown has room and the deck reflows around it. */
+  .card-slot { flex: 1 1 340px; max-width: 420px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .card-slot.selected { flex: 1 1 100%; max-width: 100%; }
+  .card-caret { color: var(--subtext); font-size: 11.5px; transition: transform .12s ease; }
+  .card-slot.selected .card-caret { transform: rotate(90deg); color: var(--mauve); }
+
+  .scope-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 4px 12px 4px; padding: 8px 14px; border-radius: 9px; background: rgba(203,166,247,.08); border: 1px solid rgba(203,166,247,.3); font-size: 14.5px; color: var(--text); }
+  .scope-header .scope-label { font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--subtext); font-weight: 600; }
+  .scope-header .scope-name { color: var(--mauve); font-weight: 600; }
+  .scope-header .scope-count { color: var(--subtext); font-size: 13.5px; }
+  .scope-header .scope-clear { margin-left: auto; cursor: pointer; font-size: 13.5px; color: var(--blue); border: 1px solid var(--overlay); border-radius: 7px; padding: 2px 10px; }
+  .scope-header .scope-clear:hover { border-color: var(--blue); }
+  .scope-empty { margin: 4px 4px 0 4px; padding: 14px 16px; border: 1px dashed var(--overlay); border-radius: 10px; color: var(--subtext); font-size: 15px; }
+
+  .card { width: 100%; background: var(--surface); border: 1px solid var(--overlay); border-radius: 12px; padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 12px; position: relative; transition: transform .15s ease; cursor: pointer; }
   /* R21: stale renders FULL CONTRAST + red, never desaturated — the
      mockup's own `.card.stale { filter: saturate(.55); }` rule is a
      captured mistake (its own header comment says so), dropped here; a
@@ -2215,6 +2414,9 @@ wb_board_render_v2() {
   .rm-lane-label .rm-title-row .rm-mfrac { font-size: 15px; color: var(--subtext); flex: 0 0 auto; }
   .rm-lane-label .rm-standalone-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--subtext); }
 
+  /* UX pass (scope): out-of-scope lanes dim, never disappear. */
+  .rm-lane.scope-dim { opacity: .38; }
+  .rm-lane.selected { outline: 1.5px solid var(--mauve); outline-offset: 4px; border-radius: 10px; }
   .rm-lane.milestone-lane { position: relative; z-index: 1; }
   .rm-lane.milestone-lane::before { content: ""; position: absolute; inset: -6px -14px; background: rgba(203,166,247,.05); border: 1px solid rgba(203,166,247,.12); border-radius: 12px; z-index: -1; }
 
@@ -2223,8 +2425,14 @@ wb_board_render_v2() {
   .rm-bracket::before { left: 0; }
   .rm-bracket::after { right: 0; }
 
-  .rm-bars { grid-row: 2; display: flex; gap: 8px; align-items: center; min-width: 0; position: relative; }
-  .rm-bar { height: 28px; border-radius: 8px; display: flex; align-items: center; padding: 0 12px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; position: relative; flex: 1; }
+  /* UX pass: bars WRAP rather than share one row down to a 2-char stub —
+     a readable label beats a perfectly single-row lane. Each also carries
+     a title= tooltip with its full text for whatever the ellipsis eats. */
+  .rm-bars { grid-row: 2; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; min-width: 0; position: relative; }
+  .rm-bar { height: 28px; border-radius: 8px; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 130px; position: relative; flex: 1 1 130px; }
+  .rm-bar > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .rm-bar-age { flex: 0 0 auto; opacity: .75; font-size: 11.5px; }
+  .rm-bar.selected { outline: 2px solid var(--mauve); outline-offset: 2px; }
   .rm-bar.active-bar { background: var(--green); color: var(--base); font-weight: 600; }
   .rm-bar.ready-bar { background: transparent; border: 2px solid var(--blue); color: var(--blue); padding-right: 46px; }
   .rm-bar.ready-bar::after { content: "ready"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 11px; color: var(--blue); opacity: .85; letter-spacing: .02em; }
@@ -2232,7 +2440,16 @@ wb_board_render_v2() {
   .rm-bar .lock-ic { margin-right: 5px; font-size: 11px; }
   .rm-after-tag { flex-basis: 100%; margin-left: 19px; font-size: 11.5px; color: var(--red); white-space: nowrap; opacity: 1; }
 
-  .rm-readiness-strip { display: flex; flex-wrap: wrap; gap: 10px 32px; align-items: center; margin: 2px 0 18px 0; padding: 12px 16px; background: rgba(137,180,250,.04); border: 1px solid var(--overlay); border-radius: 10px; }
+  .rm-readiness-strip { margin: 2px 0 14px 0; padding: 8px 16px; background: rgba(137,180,250,.04); border: 1px solid var(--overlay); border-radius: 10px; }
+  .rm-strip-head { display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; font-size: 13px; }
+  .rm-strip-caret { font-size: 11.5px; color: var(--subtext); width: 10px; text-align: center; transition: transform .12s ease; }
+  .rm-readiness-strip.open .rm-strip-caret { transform: rotate(90deg); }
+  .rm-strip-n { font-size: 14px; font-weight: 700; }
+  .rm-strip-n.ready { color: var(--blue); }
+  .rm-strip-n.blocked { color: var(--subtext); }
+  .rm-strip-head .rm-readiness-label { margin-right: 0; }
+  .rm-strip-body { display: none; flex-wrap: wrap; gap: 10px 32px; align-items: center; padding-top: 12px; }
+  .rm-readiness-strip.open .rm-strip-body { display: flex; }
   .rm-readiness-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .rm-readiness-label { font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--subtext); font-weight: 600; margin-right: 2px; white-space: nowrap; }
   .rm-ready-pill { font-size: 14px; padding: 5px 12px; border-radius: 999px; border: 1.5px solid var(--blue); color: var(--blue); background: rgba(137,180,250,.08); white-space: nowrap; }
@@ -2267,7 +2484,28 @@ wb_board_render_v2() {
   .week-badge { font-size: 12.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--overlay); color: var(--subtext); text-transform: lowercase; }
   .week-card .meta { color: var(--subtext); font-size: 14.5px; margin: 4px 0 18px 21px; }
   .week-card .meta .parent-chip { color: var(--blue); opacity: 0.9; }
-  .wdrill { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px 32px; }
+  /* UX pass: collapsed by default (23 always-open drilldowns made this
+     view 8579px tall); the caret + pointer cursor say it opens. */
+  .week-card { cursor: pointer; margin-bottom: 10px; }
+  .week-card .wk-caret { margin-left: auto; font-size: 11.5px; color: var(--subtext); transition: transform .12s ease; }
+  .week-card.expanded .wk-caret { transform: rotate(90deg); color: var(--mauve); }
+  .week-card .meta { margin-bottom: 0; }
+  .week-card.expanded .meta { margin-bottom: 18px; }
+  .wdrill { display: none; grid-template-columns: 1.15fr 1fr; gap: 20px 32px; }
+  .week-card.expanded .wdrill { display: grid; }
+
+  header.week-header .summary b.n-shelved { cursor: pointer; user-select: none; }
+  header.week-header .summary b.n-shelved .caret { display: inline-block; font-size: 11px; transition: transform .12s ease; }
+  header.week-header .summary b.n-shelved.open .caret { transform: rotate(90deg); }
+  .wk-shelf-detail { display: none; margin: -14px 0 28px 0; padding: 14px 16px; border: 1px solid var(--overlay); border-radius: 10px; background: rgba(250,179,135,.04); max-height: 420px; overflow-y: auto; }
+  .wk-shelf-detail.open { display: block; }
+  .wk-shelf-detail .region-label { margin: 0 0 8px 0; }
+  .wk-shelf-list { display: flex; flex-direction: column; gap: 1px; }
+  .wk-shelf-row { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; font-size: 14px; color: var(--text); }
+  .wk-shelf-row:hover { background: var(--surface); }
+  .wk-shelf-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wk-shelf-row .id { flex: 0 0 auto; font-size: 12px; color: var(--subtext); }
+  .wk-shelf-row .st { flex: 0 0 auto; font-size: 11.5px; color: var(--subtext); border: 1px solid var(--overlay); border-radius: 999px; padding: 0 8px; }
   .wdrill h4 { margin: 0 0 9px; font-size: 13.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--subtext); }
   .wdrill ul { margin: 0; padding: 0; list-style: none; }
   .wdrill li { position: relative; padding-left: 22px; margin-bottom: 8px; color: var(--text); font-size: 15.5px; }
@@ -2367,6 +2605,11 @@ wb_board_render_v2() {
   .fam-tl-source.parent-src { border-color: rgba(203,166,247,.35); color: var(--mauve); }
   .fam-tl-source.child-src { border-color: rgba(137,180,250,.35); color: var(--blue); }
 
+  /* j/k rail cursor (UX pass: j/k now walks the rail, not the deck). */
+  .rail-cursor { box-shadow: inset 0 0 0 1px var(--blue); }
+  .key-legend { color: var(--subtext); }
+  .key-legend kbd { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 11.5px; border: 1px solid var(--overlay); border-radius: 4px; padding: 0 5px; margin: 0 1px; color: var(--text); }
+
   .fam-art-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .fam-art-group { background: var(--surface); border: 1px solid var(--overlay); border-radius: 12px; padding: 16px 18px; }
   .fam-art-group h4 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--subtext); font-weight: 700; }
@@ -2422,7 +2665,7 @@ wb_board_render_v2() {
 </style>
 </head>
 <body>
-<div class="caption">wb board &middot; generated @@GENERATED_TS@@</div>
+<div class="caption">wb board &middot; generated @@GENERATED_TS@@ &middot; <span class="key-legend"><kbd>1</kbd>&ndash;<kbd>4</kbd> views &middot; <kbd>j</kbd>/<kbd>k</kbd> rail &middot; <kbd>Enter</kbd> scope &middot; <kbd>a</kbd> all &middot; <kbd>/</kbd> filter</span></div>
 <div class="page">
 
   <div class="rail">
@@ -2439,10 +2682,11 @@ wb_board_render_v2() {
 
     <div class="view active" id="view-active">
       <h2 class="region-label">Active tasks</h2>
+      <div class="scope-header" id="active-scope-header" style="display:none;"></div>
       <div class="deck-row" id="deckRow">
 @@DECK_HTML@@
       </div>
-@@DRILLDOWNS_HTML@@
+      <div class="scope-empty" id="active-scope-empty" style="display:none;"></div>
     </div>
 
     <div class="view" id="view-roadmap">
@@ -2462,20 +2706,42 @@ wb_board_render_v2() {
 </div>
 
 <script>
+  // =====================================================================
+  // SCOPE — one global narrowing, driven by the rail, shared by every
+  // view. `family` is a family ROOT's anchor (the subtree the board is
+  // narrowed to), `task` a single task's anchor inside it. Both empty =
+  // no scope = the whole board, which is the default and what the rail's
+  // "All doing" row (and the `a` key) restores. Persisted, with the
+  // current view, in localStorage so a re-render lands where you left it.
+  // =====================================================================
+  var SCOPE = {family: '', task: ''};
+  var CURRENT_VIEW = 'active';
+  var LS = {
+    get: function(k, d){ try { var v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set: function(k, v){ try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
   function toggleGroup(id) { document.getElementById(id).classList.toggle('expanded'); }
+
   function showView(name) {
+    CURRENT_VIEW = name;
+    LS.set('wbBoard.view', name);
     document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
-    document.getElementById('view-' + name).classList.add('active');
+    var el = document.getElementById('view-' + name);
+    if (el) el.classList.add('active');
     document.querySelectorAll('.view-tab').forEach(function(t){
       t.classList.toggle('active', t.getAttribute('data-view') === name);
     });
-    // UX follow-up: the rail is the nav surface for every view — Family
-    // swaps it to the family list, everything else swaps back to the
-    // Doing tree + Next/Shelf.
+    // The rail is the nav surface for every view — Family swaps it to the
+    // family list, everything else swaps back to the Doing tree.
     var isFamily = name === 'family';
     document.getElementById('rail-tasks').style.display = isFamily ? 'none' : '';
     document.getElementById('rail-families').style.display = isFamily ? '' : 'none';
+    // Scope survives a tab switch; re-apply so the newly visible view
+    // picks up the narrowing (and scrolls its scoped lane into view).
+    applyScope();
   }
+
   function toggleStale() {
     document.getElementById('rm-stale-toggle').classList.toggle('open');
     document.getElementById('rm-stale-detail').classList.toggle('open');
@@ -2484,7 +2750,177 @@ wb_board_render_v2() {
     document.getElementById('wk-stale-toggle').classList.toggle('open');
     document.getElementById('wk-stale-detail').classList.toggle('open');
   }
-  function selectFamily(anchor) {
+  function toggleWeekShelf() {
+    document.getElementById('wk-shelf-toggle').classList.toggle('open');
+    document.getElementById('wk-shelf-detail').classList.toggle('open');
+  }
+  function toggleRmStrip() {
+    var s = document.getElementById('rm-strip');
+    if (!s) return;
+    s.classList.toggle('open');
+    LS.set('wbBoard.rmStrip', s.classList.contains('open') ? '1' : '0');
+  }
+  function toggleRung(id) { document.getElementById(id).classList.toggle('expanded'); }
+
+  function toggleWeekCard(ev, el) {
+    if (ev && ev.target && ev.target.closest('.copyable')) return;
+    el.classList.toggle('expanded');
+  }
+
+  // ---- rail clicks ----------------------------------------------------
+  // The primary click on any rail row SELECTS (sets scope); copying is the
+  // explicit ⧉ glyph only, so one click never both copies and scopes.
+  function railPick(ev, el) {
+    if (ev && ev.target && ev.target.closest('.copyable')) return;
+    var fam = el.getAttribute('data-family') || '';
+    var anchor = el.getAttribute('data-anchor') || '';
+    setScope(fam, anchor);
+  }
+  // A family <summary> keeps its native open/close on the chevron only;
+  // anywhere else on the row scopes to that family instead of toggling.
+  function railSummaryClick(ev, el) {
+    if (ev.target.closest('.copyable')) return;
+    if (ev.target.closest('.chev')) return;
+    ev.preventDefault();
+    var fam = el.getAttribute('data-family') || '';
+    var anchor = el.getAttribute('data-anchor') || '';
+    setScope(fam, anchor === fam ? '' : anchor);
+  }
+
+  function setScope(family, task) {
+    SCOPE.family = family || '';
+    SCOPE.task = task || '';
+    LS.set('wbBoard.scope', JSON.stringify(SCOPE));
+    applyScope();
+  }
+
+  function railTitleFor(anchor) {
+    if (!anchor) return '';
+    var r = document.querySelector('#rail-tasks [data-anchor="' + anchor + '"]');
+    if (!r) return anchor;
+    var t = r.querySelector('.rail-row-title, .shelf-text');
+    return t ? t.textContent.trim() : anchor;
+  }
+  function railStatusFor(anchor) {
+    var r = document.querySelector('#rail-tasks [data-anchor="' + anchor + '"]');
+    if (!r) return '';
+    if (r.querySelector('.rail-pill')) return r.querySelector('.rail-pill').textContent.trim();
+    if (r.classList.contains('shelf-row')) return 'shelved';
+    return 'not in the active deck';
+  }
+
+  function selectCardSlot(slot, scroll) {
+    document.querySelectorAll('#deckRow .card-slot').forEach(function(s){ s.classList.remove('selected'); });
+    document.querySelectorAll('#deckRow .card').forEach(function(c){ c.classList.remove('selected'); });
+    document.querySelectorAll('#deckRow .drilldown').forEach(function(d){ d.classList.remove('active'); });
+    if (!slot) return;
+    slot.classList.add('selected');
+    var card = slot.querySelector('.card');
+    if (card) card.classList.add('selected');
+    var dd = slot.querySelector('.drilldown');
+    if (dd) dd.classList.add('active');
+    if (scroll && card) card.scrollIntoView({block: 'nearest'});
+  }
+
+  function applyScope() {
+    var fam = SCOPE.family, task = SCOPE.task;
+
+    // --- rail selection -----------------------------------------------
+    document.querySelectorAll('#rail-tasks [data-anchor]').forEach(function(r){
+      var a = r.getAttribute('data-anchor') || '';
+      var f = r.getAttribute('data-family') || '';
+      var isSel = task ? (a === task) : (fam ? (a === fam) : (a === ''));
+      r.classList.toggle('selected', isSel);
+      r.classList.toggle('scoped', !!fam && !!a && f === fam && !isSel);
+    });
+    // Family tab selection follows the same scope.
+    document.querySelectorAll('.fam-rail-row').forEach(function(r){
+      r.classList.toggle('selected', !!fam && r.getAttribute('data-fam') === fam);
+    });
+    if (fam && document.getElementById('fam-' + fam)) showFamilyBlock(fam);
+
+    // --- Active --------------------------------------------------------
+    var slots = Array.prototype.slice.call(document.querySelectorAll('#deckRow .card-slot'));
+    var visible = [], taskSlot = null;
+    slots.forEach(function(s){
+      var hide = !!fam && s.getAttribute('data-family') !== fam;
+      s.classList.toggle('scope-hidden', hide);
+      if (!hide) visible.push(s);
+      if (task && s.getAttribute('data-anchor') === task) taskSlot = s;
+    });
+    selectCardSlot(taskSlot || visible[0] || null, !!taskSlot && CURRENT_VIEW === 'active');
+
+    var hdr = document.getElementById('active-scope-header');
+    if (hdr) {
+      if (fam) {
+        hdr.style.display = '';
+        hdr.innerHTML = '';
+        var lab = document.createElement('span'); lab.className = 'scope-label'; lab.textContent = 'Family';
+        var nm = document.createElement('span'); nm.className = 'scope-name'; nm.textContent = railTitleFor(fam) || fam;
+        var cnt = document.createElement('span'); cnt.className = 'scope-count';
+        cnt.textContent = '· ' + visible.length + (visible.length === 1 ? ' card' : ' cards');
+        var clr = document.createElement('span'); clr.className = 'scope-clear'; clr.textContent = 'All';
+        clr.addEventListener('click', function(){ setScope('', ''); });
+        hdr.appendChild(lab); hdr.appendChild(nm); hdr.appendChild(cnt); hdr.appendChild(clr);
+      } else {
+        hdr.style.display = 'none';
+        hdr.textContent = '';
+      }
+    }
+    var empty = document.getElementById('active-scope-empty');
+    if (empty) {
+      if (visible.length === 0 && (fam || task)) {
+        empty.style.display = '';
+        var who = task || fam;
+        empty.textContent = 'not in the doing set — ' + (railTitleFor(who) || who) + ' (' + (railStatusFor(who) || 'not active') + ')';
+      } else {
+        empty.style.display = 'none';
+        empty.textContent = '';
+      }
+    }
+
+    // --- Roadmap: dim, never hide (a roadmap of one lane is useless) ----
+    var scopedLane = null;
+    document.querySelectorAll('.rm-lane').forEach(function(l){
+      var f = l.getAttribute('data-family') || '';
+      var isScoped = !!fam && f === fam;
+      l.classList.toggle('scope-dim', !!fam && !isScoped);
+      l.classList.toggle('selected', isScoped);
+      if (isScoped) scopedLane = l;
+    });
+    document.querySelectorAll('.rm-bar').forEach(function(b){
+      b.classList.toggle('selected', !!task && b.getAttribute('data-anchor') === task);
+    });
+    if (scopedLane && CURRENT_VIEW === 'roadmap') scopedLane.scrollIntoView({block: 'center'});
+
+    // --- Week ----------------------------------------------------------
+    document.querySelectorAll('#view-week [data-family]').forEach(function(el){
+      el.classList.toggle('scope-hidden', !!fam && el.getAttribute('data-family') !== fam);
+    });
+    if (task) {
+      document.querySelectorAll('.week-card').forEach(function(c){
+        if (c.getAttribute('data-anchor') === task) c.classList.add('expanded');
+      });
+    }
+    var whdr = document.getElementById('week-scope-header');
+    if (whdr) {
+      if (fam) {
+        whdr.style.display = '';
+        whdr.innerHTML = '';
+        var wl = document.createElement('span'); wl.className = 'scope-label'; wl.textContent = 'Family';
+        var wn = document.createElement('span'); wn.className = 'scope-name'; wn.textContent = railTitleFor(fam) || fam;
+        var wc = document.createElement('span'); wc.className = 'scope-clear'; wc.textContent = 'All';
+        wc.addEventListener('click', function(){ setScope('', ''); });
+        whdr.appendChild(wl); whdr.appendChild(wn); whdr.appendChild(wc);
+      } else {
+        whdr.style.display = 'none';
+        whdr.textContent = '';
+      }
+    }
+  }
+
+  // ---- Family tab -----------------------------------------------------
+  function showFamilyBlock(anchor) {
     document.querySelectorAll('.fam-block').forEach(function(b){ b.style.display = 'none'; });
     var b = document.getElementById('fam-' + anchor);
     if (b) b.style.display = 'block';
@@ -2492,15 +2928,18 @@ wb_board_render_v2() {
       r.classList.toggle('selected', r.getAttribute('data-fam') === anchor);
     });
   }
-  function toggleRung(id) { document.getElementById(id).classList.toggle('expanded'); }
+  // Picking in #rail-families also sets the global scope, so switching to
+  // Active/Roadmap/Week keeps the same family.
+  function selectFamily(anchor) {
+    showFamilyBlock(anchor);
+    if (SCOPE.family !== anchor) setScope(anchor, '');
+  }
 
+  // ---- Active deck clicks ---------------------------------------------
   document.querySelectorAll('#deckRow .card').forEach(function(c){
-    c.addEventListener('click', function(){
-      document.querySelectorAll('#deckRow .card').forEach(function(x){ x.classList.remove('selected'); });
-      document.querySelectorAll('.drilldown').forEach(function(x){ x.classList.remove('active'); });
-      c.classList.add('selected');
-      var dd = document.getElementById(c.dataset.drilldown);
-      if (dd) dd.classList.add('active');
+    c.addEventListener('click', function(e){
+      if (e.target.closest('.copyable')) return;
+      selectCardSlot(c.closest('.card-slot'), true);
     });
   });
 
@@ -2522,12 +2961,31 @@ wb_board_render_v2() {
     }
   });
 
-  // UX-review mandate: 1/2/3 view switch, j/k card nav, `/` filter focus.
+  // ---- keyboard: 1-4 views, / filter, j/k rail, Enter scope, a all ----
+  function visibleRailRows() {
+    var panel = document.getElementById('rail-families').style.display === 'none' ? '#rail-tasks' : '#rail-families';
+    var sel = panel + ' .rail-row, ' + panel + ' details.family-node > summary, ' + panel + ' .shelf-row';
+    return Array.prototype.slice.call(document.querySelectorAll(sel)).filter(function(el){
+      return el.offsetParent !== null && !el.classList.contains('filter-hidden');
+    });
+  }
+  function moveRailCursor(delta) {
+    var rows = visibleRailRows();
+    if (!rows.length) return;
+    var idx = rows.findIndex(function(r){ return r.classList.contains('rail-cursor'); });
+    if (idx === -1) idx = rows.findIndex(function(r){ return r.classList.contains('selected'); });
+    if (idx === -1) idx = delta > 0 ? -1 : 0;
+    idx = Math.min(Math.max(idx + delta, 0), rows.length - 1);
+    rows.forEach(function(r){ r.classList.remove('rail-cursor'); });
+    rows[idx].classList.add('rail-cursor');
+    rows[idx].scrollIntoView({block: 'nearest'});
+  }
   document.addEventListener('keydown', function(e){
     if (e.target && e.target.id === 'board-filter') {
       if (e.key === 'Escape') { e.target.value = ''; filterBoard(''); e.target.blur(); }
       return;
     }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === '1') { showView('active'); return; }
     if (e.key === '2') { showView('roadmap'); return; }
     if (e.key === '3') { showView('week'); return; }
@@ -2538,28 +2996,38 @@ wb_board_render_v2() {
       if (f) f.focus();
       return;
     }
-    if (e.key === 'j' || e.key === 'k') {
-      var cards = Array.prototype.slice.call(document.querySelectorAll('#deckRow .card'));
-      if (!cards.length) return;
-      var idx = cards.findIndex(function(c){ return c.classList.contains('selected'); });
-      if (idx === -1) idx = 0;
-      idx = e.key === 'j' ? Math.min(idx + 1, cards.length - 1) : Math.max(idx - 1, 0);
-      cards[idx].click();
-      cards[idx].scrollIntoView({block: 'nearest'});
+    if (e.key === 'a') { setScope('', ''); return; }
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.rail-cursor').forEach(function(r){ r.classList.remove('rail-cursor'); });
+      return;
+    }
+    if (e.key === 'j') { e.preventDefault(); moveRailCursor(1); return; }
+    if (e.key === 'k') { e.preventDefault(); moveRailCursor(-1); return; }
+    if (e.key === 'Enter') {
+      var cur = document.querySelector('.rail-cursor');
+      if (cur) { e.preventDefault(); cur.click(); }
+      return;
     }
   });
 
+  // ---- filter: rail tree AND the main pane of every view --------------
   function filterBoard(q) {
     q = q.toLowerCase();
     // Descendant selector (not a fixed-depth child chain) so this matches
     // both #rail-tasks's tree (nested one level deeper, under its own
     // wrapper div) and #rail-families's flat list — whichever is visible.
+    // The "All doing" row is scope, not content — never filtered away.
     document.querySelectorAll('.rail .rail-tree > .rail-row, .rail .rail-tree > details.family-node').forEach(function(el){
+      if (el.classList.contains('rail-all')) return;
       var t = (el.querySelector('.rail-row-title') || el).textContent.toLowerCase();
       el.classList.toggle('filter-hidden', q.length > 0 && t.indexOf(q) === -1);
     });
-    document.querySelectorAll('#deckRow .card').forEach(function(el){
-      var t = (el.querySelector('.card-title') || el).textContent.toLowerCase();
+    // UX pass: the filter used to narrow the rail only, leaving the deck
+    // at its full 24 cards. It now narrows the main pane of every view by
+    // the same query.
+    var mainSel = '#deckRow .card-slot, .rm-lane, .rm-stale-row, .week-card, .family-block, .carried-row, .qs-chip, .wk-shelf-row, .fam-tree-row';
+    document.querySelectorAll(mainSel).forEach(function(el){
+      var t = (el.querySelector('.card-title, .rm-title-row, .title, .row-title, .t-title, .t') || el).textContent.toLowerCase();
       el.classList.toggle('filter-hidden', q.length > 0 && t.indexOf(q) === -1);
     });
   }
@@ -2567,19 +3035,45 @@ wb_board_render_v2() {
     var f = document.getElementById('board-filter');
     if (f) f.addEventListener('input', function(){ filterBoard(f.value); });
   })();
+
+  // ---- restore persisted view + scope ---------------------------------
+  (function(){
+    var s = document.getElementById('rm-strip');
+    if (s && LS.get('wbBoard.rmStrip', '0') === '1') s.classList.add('open');
+    var saved = LS.get('wbBoard.scope', '');
+    if (saved) {
+      try {
+        var o = JSON.parse(saved);
+        // Only restore a scope whose family/task still exists in this
+        // render — the store moves between renders and a stale anchor
+        // would silently blank every view.
+        var fam = o && o.family ? String(o.family) : '';
+        var task = o && o.task ? String(o.task) : '';
+        if (fam && !document.querySelector('[data-family="' + fam + '"]')) { fam = ''; task = ''; }
+        if (task && !document.querySelector('#deckRow [data-anchor="' + task + '"], #rail-tasks [data-anchor="' + task + '"]')) task = '';
+        SCOPE.family = fam; SCOPE.task = task;
+      } catch (err) {}
+    }
+    var view = LS.get('wbBoard.view', 'active');
+    if (!document.getElementById('view-' + view)) view = 'active';
+    showView(view);
+  })();
 </script>
 </body>
 </html>
 HTMLEOF
 )"
-  page_template="${page_template//@@RAIL_HTML@@/$(wb_board_escape_replacement "$rail_html")}"
-  page_template="${page_template//@@DECK_HTML@@/$(wb_board_escape_replacement "$deck_html")}"
-  page_template="${page_template//@@DRILLDOWNS_HTML@@/$(wb_board_escape_replacement "$drilldowns_html")}"
-  page_template="${page_template//@@ROADMAP_HTML@@/$(wb_board_escape_replacement "$roadmap_view_html")}"
-  page_template="${page_template//@@WEEK_HTML@@/$(wb_board_escape_replacement "$week_view_html")}"
-  page_template="${page_template//@@FAMILY_HTML@@/$family_view_html}"   # already escaped per-family above (perf)
-  page_template="${page_template//@@TAB_BADGE@@/$(wb_board_escape_replacement "$tab_badge")}"
-  page_template="${page_template//@@FAM_TAB_BADGE@@/$(wb_board_escape_replacement "$fam_tab_badge")}"
-  page_template="${page_template//@@GENERATED_TS@@/$(wb_board_escape_replacement "$generated_ts")}"
-  printf '%s\n' "$page_template"
+  local -A PAGE_TOKENS=(
+    [RAIL_HTML]="$rail_html"
+    [DECK_HTML]="$deck_html"
+    [ROADMAP_HTML]="$roadmap_view_html"
+    [WEEK_HTML]="$week_view_html"
+    [FAMILY_HTML]="$family_view_html"
+    [TAB_BADGE]="$tab_badge"
+    [FAM_TAB_BADGE]="$fam_tab_badge"
+    [GENERATED_TS]="$generated_ts"
+  )
+  local page_out
+  wb_board_v2_fill_template "$page_template" PAGE_TOKENS page_out
+  printf '%s\n' "$page_out"
 }

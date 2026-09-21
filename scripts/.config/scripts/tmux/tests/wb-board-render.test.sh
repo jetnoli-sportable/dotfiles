@@ -28,7 +28,14 @@ trap cleanup EXIT
 
 fail=0
 assert() { # <desc> <expected-regex> <actual>
-  if printf '%s' "$3" | grep -qE "$2"; then echo "ok   - $1"
+  # NB: `grep -E >/dev/null`, never `grep -qE`. With `set -o pipefail` (line
+  # 13) and a render this size, -q makes grep exit on the first match while
+  # printf is still writing — printf dies of SIGPIPE (141), pipefail hands
+  # that status to the `if`, and a matching assertion reports FAIL. It bit
+  # every pattern that matches EARLY in the page (grep exits soonest), so it
+  # looked like a render regression rather than a harness bug. Draining the
+  # input keeps the pipeline honest.
+  if printf '%s' "$3" | grep -E "$2" >/dev/null 2>&1; then echo "ok   - $1"
   else echo "FAIL - $1"; echo "       expected match: $2"; echo "       got: $(printf '%s' "$3" | head -4)"; fail=1; fi
 }
 assert_eq() { # <desc> <expected> <actual>
@@ -56,9 +63,19 @@ source "$WB"
 
 # fixtures: 2 active + 1 stale (active+stale = 3 -> tab badge), 1 planned (shelved)
 mk_task alpha  doing   2
-mk_task bravo  review  1
+# `bravo` is touched TODAY on purpose: the Week view only builds a
+# .week-card for an active task updated since this Monday, so a fixture
+# with nothing touched today renders an empty week and silently skips
+# every week-card assertion below (which is how the collapsed-by-default
+# contract could regress unnoticed).
+mk_task bravo  review  0
 mk_task oldie  doing   20
 mk_task later  planned 5
+# A planned CHILD of an active root: makes `alpha` a family (so the rail's
+# Doing tree emits a <details>/<summary> node, not just leaf rows) and puts
+# a `ready` bar in alpha's roadmap lane. Planned => shelved bucket, so the
+# active+stale count asserted below is unchanged.
+mk_task alpha-child planned 2 $'parent: alpha'
 
 # U6 family fixtures — a flat family (fam-parent + 2 children) and a ladder
 # family (a "### Version ladder status" table inside Plan, one rung
@@ -177,14 +194,109 @@ fam_badge_count=0
 for s in "${!FAMILY_CHILDREN[@]}"; do [ -n "${FAMILY_CHILDREN[$s]:-}" ] && fam_badge_count=$((fam_badge_count + 1)); done
 fam_badge="$(printf '%s' "$render" | grep -oE '>Family <span class="tab-badge">[0-9]+<' | grep -oE '[0-9]+')"
 assert_eq "R23: Family tab badge equals the model's family count" "$fam_badge_count" "$fam_badge"
-assert_eq "Family fixture sanity — 3 families (fam-parent, xss-parent, ladder-parent)" "3" "$fam_badge_count"
+assert_eq "Family fixture sanity — 4 families (alpha, fam-parent, xss-parent, ladder-parent)" "4" "$fam_badge_count"
 
 # UX follow-up: family selection moved from a top-of-page chip grid to a
 # rail-row list (#rail-families), toggled with #rail-tasks by showView().
 assert "Rail has a #rail-tasks panel (Doing tree + Next/Shelf)"    'id="rail-tasks"'    "$render"
 assert "Rail has a #rail-families panel (hidden until Family tab)" 'id="rail-families" style="display:none;"' "$render"
-assert "Rail lists a family as a .fam-rail-row with its copy-id"   'class="rail-row fam-rail-row selected" data-fam="[a-z0-9-]+" onclick="selectFamily' "$render"
+assert "Rail lists a family as a .fam-rail-row with its copy-id"   'class="rail-row fam-rail-row selected" data-fam="[a-z0-9-]+".*onclick="selectFamily' "$render"
 assert_eq "Rail lists exactly one .fam-rail-row per family" "$fam_badge_count" "$(printf '%s' "$render" | grep -o 'class="rail-row fam-rail-row' | wc -l)"
+
+# =========================================================================
+# UX interaction-model pass (A-F): the client-side SCOPE contract. Every
+# assertion below pins a structural promise the JS depends on — if the
+# markup stops carrying it, scoping silently does nothing rather than
+# erroring, which is exactly the failure mode that needs a test.
+# =========================================================================
+
+# (A) rail rows are the scope carriers: data-stem / data-anchor /
+# data-family on every leaf row, family summary and shelf row, plus the
+# "All doing" escape hatch at the top of the tree.
+assert "A: rail leaf rows carry data-stem/-anchor/-family + a select click" \
+  '<div class="rail-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="railPick' "$render"
+assert "A: family summaries carry the same scope attrs + railSummaryClick" \
+  '<summary data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="railSummaryClick' "$render"
+assert "A: shelf rows carry the scope attrs + a select click" \
+  '<div class="shelf-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="railPick' "$render"
+assert "A: an 'All doing' row heads the Doing tree with an empty anchor" \
+  'class="rail-row rail-all selected" data-stem="" data-anchor="" data-family=""' "$render"
+# R22's copy moves OFF the row title onto an explicit glyph, so a primary
+# click selects and never also copies.
+assert "A: copy affordance is a separate .copy-ic, not the row title" \
+  'class="copy-ic copyable" data-copy="wb resume ' "$render"
+if printf '%s' "$render" | grep -qE 'class="rail-row-title copyable"'; then
+  echo "FAIL - A: the rail row title no longer carries data-copy"; fail=1
+else
+  echo "ok   - A: the rail row title no longer carries data-copy"
+fi
+# A family's children inherit the ROOT's anchor as data-family (the scope
+# key a whole subtree shares).
+fam_root_anchor="$(printf '%s' "$render" | grep -o 'data-stem="fam-parent-child1" data-anchor="[^"]*" data-family="[^"]*"' | head -1 | sed 's/.*data-family="\([^"]*\)".*/\1/')"
+assert_eq "A: a child row's data-family is its family root's anchor" "fam-parent" "$fam_root_anchor"
+
+# (B) the SCOPE state machine + localStorage persistence, and the filter
+# reaching the main pane rather than the rail alone.
+assert "B: a global SCOPE object drives every view"       'var SCOPE = .family' "$render"
+assert "B: setScope persists to localStorage wbBoard.scope" "wbBoard.scope"    "$render"
+assert "B: the current view persists to wbBoard.view"       "wbBoard.view"     "$render"
+assert "B: filterBoard also narrows the main pane"          "#deckRow .card-slot, .rm-lane" "$render"
+assert "B: j/k walk the rail rows, not the deck"            'function moveRailCursor'      "$render"
+
+# (C) Active: each drilldown is emitted INSIDE its own card's slot, so it
+# opens in place; the batched trailing drilldown block is gone.
+assert "C: cards are wrapped in a per-card .card-slot with scope attrs" \
+  '<div class="card-slot[^"]*" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+">' "$render"
+slot_count="$(printf '%s' "$render" | grep -o 'class="card-slot' | wc -l)"
+dd_count="$(printf '%s' "$render" | grep -o 'class="drilldown' | wc -l)"
+assert_eq "C: exactly one drilldown per card slot" "$slot_count" "$dd_count"
+assert_eq "C: fixture sanity — 3 active+stale cards => 3 slots" "3" "$slot_count"
+# Placement: the drilldown must sit between its own card's open tag and
+# the slot's close, i.e. immediately after the card it belongs to.
+assert "C: the drilldown follows its own card inside the slot" \
+  'id="card-alpha" data-drilldown="drilldown-alpha">.*id="drilldown-alpha"' "$render"
+if printf '%s' "$render" | grep -q 'DRILLDOWNS_HTML'; then
+  echo "FAIL - C: the batched @@DRILLDOWNS_HTML@@ token is gone"; fail=1
+else
+  echo "ok   - C: the batched @@DRILLDOWNS_HTML@@ token is gone"
+fi
+assert "C: the deck has a scope header + empty-state slot" 'id="active-scope-header"' "$render"
+assert "C: the deck has a not-in-doing-set empty state"    'id="active-scope-empty"'  "$render"
+
+# (D) Roadmap: lanes are addressable by family, bars name their task, and
+# the readiness strip is a one-line toggle by default.
+assert "D: lanes carry id=lane-ANCHOR and data-family" 'class="rm-lane[^"]*" id="lane-[^"]+" data-family="[^"]+"' "$render"
+assert "D: the readiness strip is a collapsible #rm-strip" 'class="rm-readiness-strip" id="rm-strip"' "$render"
+assert "D: the strip's default state is the collapsed one-line head" 'class="rm-strip-head" onclick="toggleRmStrip' "$render"
+if printf '%s' "$render" | grep -q 'class="rm-readiness-strip open"'; then
+  echo "FAIL - D: the strip does not render pre-expanded"; fail=1
+else
+  echo "ok   - D: the strip does not render pre-expanded"
+fi
+assert "D: roadmap bars carry data-anchor + a full-title tooltip" 'class="rm-bar ready-bar" data-anchor="[^"]+" title="' "$render"
+
+# (E) Week: cards collapse by default and carry the scope attrs; the
+# shelved count is a real toggle over a compact list.
+assert "E: week cards carry the scope attrs and a toggle click" \
+  '<div class="week-card" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="toggleWeekCard' "$render"
+if printf '%s' "$render" | grep -q 'class="week-card expanded"'; then
+  echo "FAIL - E: week cards render collapsed, not pre-expanded"; fail=1
+else
+  echo "ok   - E: week cards render collapsed, not pre-expanded"
+fi
+assert "E: carried rows carry the scope attrs"  '<div class="carried-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+"' "$render"
+assert "E: queue/shelf chips carry the scope attrs" 'class="qs-chip [a-z]+ copyable" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+"' "$render"
+assert "E: the shelved count is a toggle"       'id="wk-shelf-toggle" onclick="toggleWeekShelf' "$render"
+assert "E: the shelf toggle reveals a compact row list" 'id="wk-shelf-detail"' "$render"
+assert "E: the shelf list holds a row per non-done shelved task" 'class="wk-shelf-row" data-stem="later"' "$render"
+
+# (F) Family: selection in either rail syncs the shared scope.
+assert "F: fam rail rows also carry data-stem/-anchor/-family" \
+  'class="rail-row fam-rail-row[^"]*" data-fam="[^"]*" data-stem="[^"]*" data-anchor="[^"]*" data-family="' "$render"
+assert "F: selectFamily feeds the shared SCOPE" 'function selectFamily' "$render"
+
+# The rail must stay on screen while a long view scrolls (friction #6).
+assert "A: the rail is sticky with its own scroll" '\.rail \{[^}]*position: sticky' "$render"
 
 # Flat family: children listed with status pills, R22 copy ids present,
 # decisions timeline shows the fixture's dated entry.
