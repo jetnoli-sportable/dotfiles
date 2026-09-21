@@ -243,6 +243,21 @@ assert_eq "R23: active+stale+shelved totals the store count" "$total_files" "$bu
 assert_eq "R23: planned task lands in shelved (not a 4th bucket)" "shelved" "${M_BUCKET[planned-task]:-}"
 assert_eq "R23: paused task lands in shelved" "shelved" "${M_BUCKET[paused-task]:-}"
 
+# --- fix(review) D3: cutover parity invariants ---------------------------
+# U4's old-vs-new parity was a one-off manual check and the old collector is
+# now deleted, so lock the model-level facts parity implied as standing
+# assertions (drift now fails here instead of passing CI silently).
+model_stem_count="${#M_STATUS[@]}"
+assert_eq "Parity: collect emits exactly one model row per store file" "$total_files" "$model_stem_count"
+missing_bucket=0
+for s in "${!M_STATUS[@]}"; do [ -n "${M_BUCKET[$s]:-}" ] || missing_bucket=$((missing_bucket + 1)); done
+assert_eq "Parity: every model stem carries a bucket (no half-populated row)" "0" "$missing_bucket"
+dangling_root=0
+for s in "${!M_FAMILY_ROOT[@]}"; do
+  r="${M_FAMILY_ROOT[$s]}"; [ -n "${M_STATUS[$r]:-}" ] || dangling_root=$((dangling_root + 1))
+done
+assert_eq "Parity: every family root resolves to a real task in the model" "0" "$dangling_root"
+
 # --- R18: Plan checklist ratio (0/n, n/n, no-Plan) -----------------------
 assert_eq "Plan ratio: 2 checked of 3 total" "2" "${M_PLAN_CHECKED[plan-task]:-}"
 assert_eq "Plan ratio: 2 checked of 3 total (total)" "3" "${M_PLAN_TOTAL[plan-task]:-}"

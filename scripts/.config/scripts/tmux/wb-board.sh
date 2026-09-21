@@ -100,13 +100,13 @@ wb_board_section() {
 # A here-string loop reads a value already fully captured in memory, so
 # breaking out of it early has no live process left to SIGPIPE.
 wb_board_first_nonblank_line() {
-  local line
+  # fix(review) D2A: optional <out_var> ($2) for plain-statement calls;
+  # stdout fallback preserves existing callers.
+  local line __r=""
   while IFS= read -r line; do
-    if [ -n "${line//[[:space:]]/}" ]; then
-      printf '%s' "$line"
-      return 0
-    fi
+    if [ -n "${line//[[:space:]]/}" ]; then __r="$line"; break; fi
   done <<< "$1"
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__r"; else printf '%s' "$__r"; fi
 }
 
 # wb_board_pr_display <pr_info> — the "#<n> (<state>)" half of a
@@ -139,19 +139,24 @@ wb_board_doc_candidates() {
 # unresolvable stem is the caller's problem (R18 fail-open), not this
 # parser's.
 wb_board_parse_deps() {
-  local raw="${1:-}" tok
-  [ -n "$raw" ] || return 0
-  local -a tokens
-  IFS=',' read -ra tokens <<< "$raw"
-  local -A seen=()
-  for tok in "${tokens[@]}"; do
-    tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
-    if [ -n "$tok" ] && [ -z "${seen[$tok]:-}" ]; then
-      seen["$tok"]=1
-      printf '%s\n' "$tok"
-    fi
-  done
-  return 0
+  # fix(review) D2A: optional <out_var> ($2) for plain-statement calls in the
+  # render's full-store loop; stdout fallback preserves existing/test callers.
+  # Output is newline-joined stems (the shape DEPS_OF stores and the deps
+  # helpers read back), unchanged from the old stdout form.
+  local raw="${1:-}" tok __out=""
+  if [ -n "$raw" ]; then
+    local -a tokens
+    IFS=',' read -ra tokens <<< "$raw"
+    local -A seen=()
+    for tok in "${tokens[@]}"; do
+      tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
+      if [ -n "$tok" ] && [ -z "${seen[$tok]:-}" ]; then
+        seen["$tok"]=1
+        __out+="$tok"$'\n'
+      fi
+    done
+  fi
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__out"; else printf '%s' "$__out"; fi
 }
 
 # wb_board_normalize_loop <space-separated stems> — sorts and dedupes the
@@ -322,7 +327,13 @@ wb_board_escape_replacement() {
 # wb_board_collect_rows_v2 below. Was verified byte-identical to that old
 # function's output for every character class it handles (ASCII,
 # punctuation, empty string) before it was removed in U4's cutover.
-wb_board_v2_anchor() { printf '%s' "${1//[^A-Za-z0-9_-]/-}"; }
+wb_board_v2_anchor() {
+  # fix(review) D2A: optional <out_var> so the collect loop can call this as a
+  # plain statement (printf -v, no subshell) instead of `$(...)`; stdout
+  # fallback keeps existing/test callers working.
+  local __a="${1//[^A-Za-z0-9_-]/-}"
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__a"; else printf '%s' "$__a"; fi
+}
 
 # wb_board_v2_age_days <mtime_epoch> <now_epoch> — whole days between them,
 # R21's staleness clock. Floor division (bash integer arithmetic), so
@@ -333,7 +344,9 @@ wb_board_v2_anchor() { printf '%s' "${1//[^A-Za-z0-9_-]/-}"; }
 # per task (a real, measured cost at ~300 files — see the timing note on
 # wb_board_collect_rows_v2).
 wb_board_v2_age_days() {
-  echo $(( ("$2" - "$1") / 86400 ))
+  # fix(review) D2A: optional <out_var> ($3) for plain-statement calls.
+  local __d=$(( ("$2" - "$1") / 86400 ))
+  if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$__d"; else printf '%s\n' "$__d"; fi
 }
 
 # wb_board_v2_bucket <status> <age_days> — R23's single active/stale/shelved
@@ -346,12 +359,14 @@ wb_board_v2_age_days() {
 # vs-Shelf presentational split (U3) is a further distinction WITHIN
 # shelved (status == planned vs not), not a 4th bucket here.
 wb_board_v2_bucket() {
-  local status="$1" age_days="$2"
+  # fix(review) D2A: optional <out_var> ($3) for plain-statement calls.
+  local status="$1" age_days="$2" __b
   if [ "$status" = doing ] || [ "$status" = review ]; then
-    if [ "$age_days" -ge 14 ]; then printf 'stale'; else printf 'active'; fi
+    if [ "$age_days" -ge 14 ]; then __b=stale; else __b=active; fi
   else
-    printf 'shelved'
+    __b=shelved
   fi
+  if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$__b"; else printf '%s' "$__b"; fi
 }
 
 # wb_board_v2_family_root <stem> <stem_parent_arrayname> — walks the
@@ -563,21 +578,29 @@ wb_board_collect_rows_v2() {
     #    7 parent 8 tags 9 created 10 closed 11 plan_checked 12 plan_total
     #    13 title
     stem="${f##*/}"; stem="${stem%.md}"
-    anchor="$(wb_board_v2_anchor "$stem")"
+    # fix(review) D5: enforce the stem invariant [A-Za-z0-9._-] once, here, so
+    # every downstream use (HTML text, data-copy, the copied `wb resume <id>`
+    # shell command) is safe by construction. A filename outside this class is
+    # not a real wb task; skip it rather than emit an unescaped/shell-unsafe id.
+    case "$stem" in *[!A-Za-z0-9._-]*) continue ;; esac
+    # fix(review) D2A: plain-statement helper calls (printf -v via out-param),
+    # not `$(...)` — no subshell fork per task across the ~300-file store.
+    wb_board_v2_anchor "$stem" anchor
     parent="${t[7]:-}"
     wb_task_own_parent "$parent" "$stem" || parent=""
     title="${t[13]:-}"; [ -n "$title" ] || title="$stem"
     updated="${_mtimes["$f"]:-0}"
-    age_days="$(wb_board_v2_age_days "$updated" "$now")"
-    bucket="$(wb_board_v2_bucket "${t[0]:-}" "$age_days")"
+    wb_board_v2_age_days "$updated" "$now" age_days
+    wb_board_v2_bucket "${t[0]:-}" "$age_days" bucket
     _cr_plan["$stem"]="${plan_a[0]}"
     _cr_done["$stem"]="${done_a[0]}"
     _cr_handoff["$stem"]="${handoff_a[0]}"
     _cr_followups["$stem"]="${followups_a[0]}"
-    _cr_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    printf -v record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
       "$stem" "${t[0]:-}" "${t[1]:-}" "${t[3]:-}" "${t[2]:-}" "$title" "${t[9]:-}" "${t[10]:-}" \
       "$updated" "$f" "$anchor" "$parent" "${t[5]:-}" "${t[8]:-}" "${t[11]:-0}" "${t[12]:-0}" \
-      "$age_days" "$bucket")")
+      "$age_days" "$bucket"
+    _cr_rows+=("$record")
   done < <(wb_task_files)
 }
 
@@ -627,7 +650,10 @@ wb_board_build_model() {
     _stem_anchor["$stem"]="$anchor"
     [ -n "${f[11]}" ] && _stem_parent["$stem"]="${f[11]}"
     _bucket_count["${f[17]}"]=$(( ${_bucket_count["${f[17]}"]:-0} + 1 ))
-    _handoff_summary["$stem"]="$(wb_board_first_nonblank_line "${_bm_handoff["$stem"]:-}")"
+    # fix(review) D2A: plain-statement call into a temp, then assign — avoids a
+    # subshell fork per task and sidesteps printf -v onto a nameref array elem.
+    local __hs; wb_board_first_nonblank_line "${_bm_handoff["$stem"]:-}" __hs
+    _handoff_summary["$stem"]="$__hs"
   done
 
   # Family roots + children map, from STEM_PARENT (just populated above).
@@ -956,9 +982,9 @@ wb_board_v2_roadmap_bar() {
     printf '%s\t<div class="rm-bar active-bar" title="doing &middot; %s">doing &middot; %s</div>' \
       "$track" "$(wb_board_v2_age_label "$age")" "$(wb_board_v2_age_label "$age")"
   elif [ "$status" = planned ]; then
-    if [ -n "${UNMET_COUNT[$anchor]:-}" ]; then
+    if [ -n "${UNMET_COUNT[$stem]:-}" ]; then   # fix(review) D4: keyed by stem, not anchor
       printf '6\t<div class="rm-bar blocked-bar"><span class="lock-ic">&#128274;</span>%s<span class="rm-after-tag">after: %s</span></div>' \
-        "$title_attr" "$(wb_board_html_escape "${BLOCKER_NAMES[$anchor]:-}")"
+        "$title_attr" "$(wb_board_html_escape "${BLOCKER_NAMES[$stem]:-}")"
     else
       printf '5\t<div class="rm-bar ready-bar" title="%s">%s</div>' "$title_attr" "$title_attr"
     fi
@@ -1002,16 +1028,26 @@ wb_board_render_v2() {
   # ROWS. UNMET_COUNT/BLOCKER_NAMES read back by wb_board_v2_roadmap_bar
   # and the readiness-strip/queue-chip code below via the same dynamic-
   # scoping convention as wb_board_deps_chips already relies on. ----
-  local -A DEPS_OF=() ANCHOR_STEM=() DANGLING_WARN=() CYCLE_MEMBER=() CYCLE_WARN=()
+  local -A DEPS_OF=() DG_KEY=() DANGLING_WARN=() CYCLE_MEMBER=() CYCLE_WARN=()
   local -A UNMET_COUNT=() BLOCKER_NAMES=() UNBLOCKS_COUNT=() UNBLOCKS_NAMES=()
+  # fix(review) D4: key the dependency graph off the STEM (unique — it IS the
+  # filename), not the sanitized anchor (many-to-one: two stems can collapse to
+  # one anchor and silently overwrite each other's edges / cross-wire deps).
+  # The deps helpers only use their stem_anchor/anchor_stem args to map a
+  # dep-line stem to a graph key and back; feeding them an identity map
+  # (DG_KEY: stem->stem) keys the whole graph — and its UNMET_COUNT/
+  # BLOCKER_NAMES/… outputs — by stem, with ZERO change to those shared, tested
+  # helpers. depends_on: already names stems, so resolution is unchanged; the
+  # anchor stays DOM-ids-only. (fix(review) D2A also hoists wb_board_parse_deps
+  # to a plain statement — printf -v into the DEPS_OF element, no subshell.)
   local dg_stem
   for dg_stem in "${!_m_stem_anchor[@]}"; do
-    ANCHOR_STEM["${_m_stem_anchor[$dg_stem]}"]="$dg_stem"
-    DEPS_OF["${_m_stem_anchor[$dg_stem]}"]="$(wb_board_parse_deps "${_m_deps[$dg_stem]:-}")"
+    DG_KEY["$dg_stem"]="$dg_stem"
+    wb_board_parse_deps "${_m_deps[$dg_stem]:-}" "DEPS_OF[$dg_stem]"
   done
-  wb_board_deps_validate DEPS_OF _m_stem_anchor DANGLING_WARN
-  wb_board_deps_cycles DEPS_OF _m_stem_anchor ANCHOR_STEM CYCLE_MEMBER CYCLE_WARN
-  wb_board_deps_blocking DEPS_OF _m_stem_anchor _m_status ANCHOR_STEM CYCLE_MEMBER \
+  wb_board_deps_validate DEPS_OF DG_KEY DANGLING_WARN
+  wb_board_deps_cycles DEPS_OF DG_KEY DG_KEY CYCLE_MEMBER CYCLE_WARN
+  wb_board_deps_blocking DEPS_OF DG_KEY _m_status DG_KEY CYCLE_MEMBER \
     UNMET_COUNT BLOCKER_NAMES UNBLOCKS_COUNT UNBLOCKS_NAMES
 
   # ---- family roots currently "doing" (root or any descendant in bucket
@@ -1185,7 +1221,7 @@ wb_board_render_v2() {
   local rp2_stem
   for rp2_stem in "${!_m_stem_anchor[@]}"; do
     [ "${_m_status[$rp2_stem]:-}" = planned ] || continue
-    if [ -n "${UNMET_COUNT[${_m_stem_anchor[$rp2_stem]}]:-}" ]; then
+    if [ -n "${UNMET_COUNT[$rp2_stem]:-}" ]; then   # fix(review) D4: keyed by stem
       blocked_planned+=("$rp2_stem")
     else
       ready_planned+=("$rp2_stem")
@@ -1205,8 +1241,7 @@ wb_board_render_v2() {
     local bp_i=0 bp_stem bp_anchor
     while IFS= read -r bp_stem; do
       bp_i=$((bp_i + 1)); [ "$bp_i" -gt "$RM_CAP" ] && break
-      bp_anchor="${_m_stem_anchor[$bp_stem]}"
-      blocked_html+="<span class=\"rm-blocked-pill\"><span class=\"lock-ic\">&#128274;</span>$(wb_board_html_escape "${_m_title[$bp_stem]:-$bp_stem}")<span class=\"after-inline\">after: $(wb_board_html_escape "${BLOCKER_NAMES[$bp_anchor]:-}")</span></span>"
+      blocked_html+="<span class=\"rm-blocked-pill\"><span class=\"lock-ic\">&#128274;</span>$(wb_board_html_escape "${_m_title[$bp_stem]:-$bp_stem}")<span class=\"after-inline\">after: $(wb_board_html_escape "${BLOCKER_NAMES[$bp_stem]:-}")</span></span>"
     done < <(wb_board_v2_sort_stems_by_title "${blocked_planned[@]}")
     [ "${#blocked_planned[@]}" -gt "$RM_CAP" ] && blocked_html+="<span class=\"rm-blocked-pill\" style=\"opacity:.6;\">+$(( ${#blocked_planned[@]} - RM_CAP )) more</span>"
   fi
