@@ -13,6 +13,9 @@
 #   wb help                          this verb list (also --help/-h); any other unknown
 #                                    token exits 2 rather than opening the picker
 #   wb board                         task-store status table (interim /board)
+#   wb board2                        feat-board-build (D1): the new-renderer verb, counts-only
+#                                    for now — parity-checked against `wb board` before it
+#                                    replaces it and is deleted (temporary, not a stable verb)
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
@@ -4463,6 +4466,36 @@ cmd_board() {
   } | column -t -s $'\t'
 }
 
+# cmd_board2 — the new-renderer verb (D1): runs beside `wb board` (unchanged)
+# until the parity check (U4) confirms count/content agreement on the real
+# store, at which point `board)` is flipped to call wb_board_render_v2
+# directly and this verb is deleted. Bare (no --html yet — U3 wires that up)
+# prints a counts summary: the single source `time wb board2` measures
+# against R15's <=10s budget, and what U4's parity script diffs against
+# `wb board`'s own table counts.
+cmd_board2() {
+  local -a V2ROWS=()
+  local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=()
+  wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW
+
+  local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
+    M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
+    M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
+    M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
+    STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=()
+  wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+    M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
+    M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
+    M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
+    FAMILY_CHILDREN BUCKET_COUNT
+
+  local total="${#V2ROWS[@]}" families=0 fam
+  for fam in "${!FAMILY_CHILDREN[@]}"; do families=$((families + 1)); done
+  printf 'wb board2: %s tasks (active=%s stale=%s shelved=%s), %s families\n' \
+    "$total" "${BUCKET_COUNT[active]:-0}" "${BUCKET_COUNT[stale]:-0}" \
+    "${BUCKET_COUNT[shelved]:-0}" "$families"
+}
+
 cmd_done() {
   # Index/shift case parser, not a single-token foreach — mirrors cmd_new's
   # --parent handling so --close can appear before, after, or without the
@@ -5458,6 +5491,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     reconcile)   shift; cmd_reconcile "$@" ;;
     breakdown)   shift; cmd_breakdown "$@" ;;
     board)       shift; cmd_board "$@" ;;
+    board2)      shift; cmd_board2 "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
     down)        shift; cmd_down "$@" ;;

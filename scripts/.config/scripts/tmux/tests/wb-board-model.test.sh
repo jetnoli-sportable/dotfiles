@@ -1,0 +1,277 @@
+#!/usr/bin/env bash
+# Behavioral tests for board2's single-pass collect + model (feat-board-build
+# U2): wb_board_v2_read_file, wb_board_v2_parse_record, wb_board_collect_rows_v2
+# and wb_board_build_model. Same convention as wb-new.test.sh (source wb.sh,
+# fixture TASKS_DIR, plain assert helpers) — no bats, matches this repo's
+# `*.test.sh` suite.
+#
+# Run: bash scripts/.config/scripts/tmux/tests/wb-board-model.test.sh
+set -uo pipefail
+
+WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
+FIXTURE_TASKS="$(mktemp -d -t wb-board-model-tasks.XXXXXX)"
+FIXTURE_BIN="$(mktemp -d -t wb-board-model-bin.XXXXXX)"
+FIXTURE_TRACE="$(mktemp -t wb-board-model-trace.XXXXXX)"
+
+# R16's proof: tmux/gh/git shims that only APPEND their own name to a trace
+# file instead of doing anything real. If board2's collect path ever shells
+# out to one of these, the trace file gains a line and the "no shell-outs"
+# assertion below fails loudly instead of just happening to still pass.
+for bin in tmux gh git; do
+  cat > "$FIXTURE_BIN/$bin" <<EOF
+#!/usr/bin/env bash
+echo "$bin \$*" >> "$FIXTURE_TRACE"
+exit 0
+EOF
+  chmod +x "$FIXTURE_BIN/$bin"
+done
+# stat/date/awk/basename/etc. must still resolve to the real system
+# binaries — only tmux/gh/git are shimmed, so prepend rather than replace.
+PATH="$FIXTURE_BIN:$PATH"
+
+cleanup() { rm -rf "$FIXTURE_TASKS" "$FIXTURE_BIN" "$FIXTURE_TRACE"; }
+trap cleanup EXIT
+
+fail=0
+assert() { # <desc> <expected-regex> <actual>
+  if printf '%s' "$3" | grep -qE "$2"; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1"
+    echo "       expected match: $2"
+    echo "       got: $(printf '%s' "$3" | head -8)"
+    fail=1
+  fi
+}
+assert_eq() { # <desc> <expected> <actual>
+  if [ "$2" = "$3" ]; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1 (expected '$2', got '$3')"
+    fail=1
+  fi
+}
+
+# mk_task <stem> <status> <mtime_days_ago> [<extra frontmatter lines>] —
+# writes a fixture task file, then backdates its mtime (R21's staleness
+# clock reads mtime, not created:).
+mk_task() {
+  local stem="$1" status="$2" days_ago="$3" extra="${4:-}"
+  local f="$FIXTURE_TASKS/$stem.md"
+  cat > "$f" <<EOF
+---
+status: $status
+path:
+repo: dotfiles
+branch: feat/$stem
+worktree: .worktrees/feat/$stem
+$extra
+---
+# Title for $stem
+EOF
+  touch -d "$days_ago days ago" "$f"
+}
+
+TASKS_DIR="$FIXTURE_TASKS"
+source "$WB"
+
+# --- fixtures -----------------------------------------------------------
+mk_task active-task doing 2
+mk_task stale-task doing 14
+mk_task border-task doing 13
+mk_task planned-task planned 5
+mk_task paused-task paused 5
+
+cat > "$FIXTURE_TASKS/plan-task.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/plan-task
+worktree: .worktrees/feat/plan-task
+---
+# Plan task
+
+## Plan
+- [x] done one
+- [x] done two
+- [ ] not done yet
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/plan-task.md"
+
+cat > "$FIXTURE_TASKS/no-plan-task.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/no-plan-task
+worktree: .worktrees/feat/no-plan-task
+---
+# No plan task
+
+## Done
+- shipped it
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/no-plan-task.md"
+
+cat > "$FIXTURE_TASKS/no-handoff-task.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/no-handoff-task
+worktree: .worktrees/feat/no-handoff-task
+---
+# No handoff task
+
+## Follow-ups
+- a follow-up item
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/no-handoff-task.md"
+
+cat > "$FIXTURE_TASKS/handoff-task.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/handoff-task
+worktree: .worktrees/feat/handoff-task
+---
+# Handoff task
+
+## Handoffs
+
+### 2026-01-01 00:00 — wb pause (auto)
+Session paused via `wb pause`.
+
+### 2026-01-02 00:00 — wb-save
+**Done:** first thing
+**Next:** second thing
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/handoff-task.md"
+
+cat > "$FIXTURE_TASKS/tags-bare.md" <<'EOF'
+---
+status: planned
+path:
+repo: dotfiles
+branch: feat/tags-bare
+worktree: .worktrees/feat/tags-bare
+tags: solo
+---
+# Tags bare
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/tags-bare.md"
+
+cat > "$FIXTURE_TASKS/tags-csv.md" <<'EOF'
+---
+status: planned
+path:
+repo: dotfiles
+branch: feat/tags-csv
+worktree: .worktrees/feat/tags-csv
+tags: a,b
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/tags-csv.md"
+
+cat > "$FIXTURE_TASKS/tags-list.md" <<'EOF'
+---
+status: planned
+path:
+repo: dotfiles
+branch: feat/tags-list
+worktree: .worktrees/feat/tags-list
+tags: [a, b]
+---
+# Tags list
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/tags-list.md"
+
+cat > "$FIXTURE_TASKS/parent-a.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/parent-a
+worktree: .worktrees/feat/parent-a
+---
+# Family root
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/parent-a.md"
+
+cat > "$FIXTURE_TASKS/parent-a--child-b.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/child-b
+worktree: .worktrees/feat/child-b
+parent: parent-a
+---
+# Family child
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/parent-a--child-b.md"
+
+# --- run the collector ---------------------------------------------------
+declare -a V2ROWS=()
+declare -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=()
+wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW
+
+declare -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
+  M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
+  M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
+  M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
+  STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=()
+wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+  M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
+  M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
+  M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
+  FAMILY_CHILDREN BUCKET_COUNT
+
+# --- R16: no tmux/gh/git shell-outs during collect -----------------------
+assert_eq "R16: no tmux/gh/git calls during collect" "" "$(cat "$FIXTURE_TRACE" 2>/dev/null || true)"
+
+# --- R21: 14d stale, 13d not ---------------------------------------------
+assert_eq "R21: task touched 14d ago classifies stale" "stale" "${M_BUCKET[stale-task]:-}"
+assert_eq "R21: task touched 13d ago does not classify stale" "active" "${M_BUCKET[border-task]:-}"
+assert_eq "R21: task touched 2d ago is active" "active" "${M_BUCKET[active-task]:-}"
+
+# --- R23: active+stale+shelved partition is disjoint and total agrees ---
+total_files="$(find "$FIXTURE_TASKS" -maxdepth 1 -name '*.md' | wc -l)"
+bucket_sum=$(( ${BUCKET_COUNT[active]:-0} + ${BUCKET_COUNT[stale]:-0} + ${BUCKET_COUNT[shelved]:-0} ))
+assert_eq "R23: active+stale+shelved totals the store count" "$total_files" "$bucket_sum"
+assert_eq "R23: planned task lands in shelved (not a 4th bucket)" "shelved" "${M_BUCKET[planned-task]:-}"
+assert_eq "R23: paused task lands in shelved" "shelved" "${M_BUCKET[paused-task]:-}"
+
+# --- R18: Plan checklist ratio (0/n, n/n, no-Plan) -----------------------
+assert_eq "Plan ratio: 2 checked of 3 total" "2" "${M_PLAN_CHECKED[plan-task]:-}"
+assert_eq "Plan ratio: 2 checked of 3 total (total)" "3" "${M_PLAN_TOTAL[plan-task]:-}"
+assert_eq "Plan ratio: no Plan section -> 0 checked" "0" "${M_PLAN_CHECKED[no-plan-task]:-}"
+assert_eq "Plan ratio: no Plan section -> 0 total (renderer's em-dash sentinel signal)" "0" "${M_PLAN_TOTAL[no-plan-task]:-}"
+
+# --- R16/R18: latest Handoff (last "### " block), empty when absent -----
+assert_eq "Empty Handoffs -> empty raw text, not a crash" "" "${M_HANDOFF_RAW[no-handoff-task]:-}"
+assert "Latest Handoff is the LAST ### block, not the first" "wb-save" "${M_HANDOFF_RAW[handoff-task]:-}"
+assert_eq "Latest Handoff excludes the earlier block's body" "0" "$(printf '%s' "${M_HANDOFF_RAW[handoff-task]:-}" | grep -c 'Session paused' || true)"
+assert "Handoff summary is the first non-blank line of the latest block" "wb-save" "${M_HANDOFF_SUMMARY[handoff-task]:-}"
+
+# --- tags: bare/csv/list all parse to the same token set -----------------
+bare_tokens="$(_wb_tags_parse "${M_TAGS[tags-bare]:-}" | sort | tr '\n' ',')"
+csv_tokens="$(_wb_tags_parse "${M_TAGS[tags-csv]:-}" | sort | tr '\n' ',')"
+list_tokens="$(_wb_tags_parse "${M_TAGS[tags-list]:-}" | sort | tr '\n' ',')"
+assert_eq "tags: bare scalar parses to one token" "solo," "$bare_tokens"
+assert_eq "tags: csv and list form parse to the same set" "a,b," "$csv_tokens"
+assert_eq "tags: csv and list form agree with each other" "$csv_tokens" "$list_tokens"
+
+# --- family: parent/child rollup -----------------------------------------
+assert "Family: child appears in parent's children list" "child-b" "${FAMILY_CHILDREN[parent-a]:-}"
+assert_eq "Family: child's family root resolves to the parent" "parent-a" "${M_FAMILY_ROOT[parent-a--child-b]:-}"
+assert_eq "Family: root task's family root is itself" "parent-a" "${M_FAMILY_ROOT[parent-a]:-}"
+
+echo
+if [ "$fail" = 0 ]; then
+  echo "wb-board-model.test.sh: all assertions passed"
+else
+  echo "wb-board-model.test.sh: FAILURES"
+fi
+exit "$fail"

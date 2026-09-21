@@ -1934,3 +1934,337 @@ HTMLEOF
   printf '%s\n' "$page_template"
 }
 
+
+# ===========================================================================
+# board2 (feat-board-build, U2) — single-pass collect + in-memory model for
+# the ratified 3-view renderer (wb_board_render_v2, U3). Deliberately a NEW
+# collect path, not an extension of wb_board_collect_rows above: that
+# function's 15-field TSV is a public-ish contract for the OLD renderer
+# (wb_board_render_html), which stays live and untouched until D1's parity
+# check passes (U4) — this section, and everything under it, is additive.
+# ===========================================================================
+
+# wb_board_v2_anchor <stem> — same sanitization as wb_board_anchor_slug
+# (every char outside [A-Za-z0-9_-] -> '-'), but pure bash parameter
+# expansion instead of that function's `printf | tr` pipe. Not a style
+# preference: this runs once per task in board2's single-pass loop (~300
+# files on the real store today), and the pipe's two forks per call were
+# real, measured cost — see the timing note on wb_board_collect_rows_v2
+# below. Verified byte-identical to wb_board_anchor_slug's output for every
+# character class it handles (ASCII, punctuation, empty string).
+wb_board_v2_anchor() { printf '%s' "${1//[^A-Za-z0-9_-]/-}"; }
+
+# wb_board_v2_age_days <mtime_epoch> <now_epoch> — whole days between them,
+# R21's staleness clock. Floor division (bash integer arithmetic), so
+# "13d 23h" reports as 13, not 14 — matches the U2 test scenario's 13d/14d
+# boundary ("13d does not [classify stale]"). Takes <now_epoch> as a
+# parameter rather than calling `date +%s` itself: the collect loop below
+# forks `date` exactly once for the whole pass and passes it in, not once
+# per task (a real, measured cost at ~300 files — see the timing note on
+# wb_board_collect_rows_v2).
+wb_board_v2_age_days() {
+  echo $(( ("$2" - "$1") / 86400 ))
+}
+
+# wb_board_v2_bucket <status> <age_days> — R23's single active/stale/shelved
+# definition, computed once here so every view (rail counts, Active deck,
+# Roadmap readiness, Week) reads the same partition instead of re-deriving
+# it. Deliberately only 3 values, no 4th "done"/"next" bucket: R23's test
+# scenario requires active+stale+shelved to total the whole store, so a
+# planned/paused/prospective/done task must land in "shelved" (not actively
+# being worked) rather than falling through uncounted. The sidebar's Next-
+# vs-Shelf presentational split (U3) is a further distinction WITHIN
+# shelved (status == planned vs not), not a 4th bucket here.
+wb_board_v2_bucket() {
+  local status="$1" age_days="$2"
+  if [ "$status" = doing ] || [ "$status" = review ]; then
+    if [ "$age_days" -ge 14 ]; then printf 'stale'; else printf 'active'; fi
+  else
+    printf 'shelved'
+  fi
+}
+
+# wb_board_v2_family_root <stem> <stem_parent_arrayname> — walks the
+# parent: chain (STEM_PARENT, built by the same single pass below) to its
+# root ancestor, bounded to 50 hops so a hand-edited parent: cycle can never
+# spin the render loop forever (fail-open to the stem itself, same
+# tolerance-for-bad-frontmatter posture as wb_board_parse_deps).
+#
+# Nameref param deliberately named `_fr_sp`, NOT `_stem_parent` — a caller
+# one frame up (wb_board_build_model) also binds a local nameref literally
+# named `_stem_parent`; passing that name straight through here would make
+# bash resolve this function's own `-n _stem_parent` against itself
+# ("circular name reference") instead of the real backing array. Any two
+# nameref parameter names that collide across a call chain hit this, not
+# just this pair — kept distinct on purpose.
+wb_board_v2_family_root() {
+  local -n _fr_sp="$2"
+  local cur="$1" hops=0 seen_key
+  local -A seen=()
+  while [ -n "${_fr_sp["$cur"]:-}" ] && [ "$hops" -lt 50 ]; do
+    seen_key="$cur"
+    [ -n "${seen["$seen_key"]:-}" ] && break   # cycle guard
+    seen["$seen_key"]=1
+    cur="${_fr_sp["$cur"]}"
+    hops=$((hops + 1))
+  done
+  printf '%s' "$cur"
+}
+
+# wb_board_v2_read_file <file> — THE single-read primitive (R16): one awk
+# process reads <file> ONCE and extracts frontmatter + the Plan/Done/
+# Handoffs/Follow-ups body sections together, instead of the fork-per-field/
+# fork-per-section style wb_read_task + wb_task_title + wb_get_frontmatter +
+# wb_board_section(xN) would cost if called separately for every task (an
+# early real-store timing run at ~300 tasks measured that fragmented
+# approach at ~3600 forked processes and 16.7s wall-clock — over the R15
+# budget; this collapses it to one process per file).
+#
+# Output on stdout, consumed only by wb_board_v2_parse_record below (never
+# hand-parsed at a call site): 5 fields joined by a bare SOH byte (\001, a
+# byte that cannot appear in a markdown task file's prose, so no escaping
+# is ever needed) — field order is fixed, not labeled, since the caller
+# always wants all five:
+#   1 the frontmatter/plan-count TSV line: status \t repo \t worktree \t
+#     branch \t path \t deps \t reviewed \t parent \t tags \t created \t
+#     closed \t plan_checked \t plan_total \t title
+#   2 raw Plan section text
+#   3 raw Done section text
+#   4 raw Handoff text — the LAST "### " block under "## Handoffs" (heading
+#     line included)
+#   5 raw Follow-ups section text
+# An earlier version labeled each field with its own SOH-wrapped sentinel
+# line and had wb_board_v2_parse_record split on those with `${var%%pat*}`/
+# `${var#*pat}` parameter expansion — correct, but measured at ~10ms/call
+# across the real store (pure bash, no forking, but apparently expensive
+# glob-pattern matching against a pattern built from concatenated quoted
+# expansions). A plain `IFS=$soh read -r -d '"'"''"'"' -a parts` split
+# (below) measured over 2x faster on the same data, so the labels were
+# dropped — they only existed to make that old split self-documenting.
+wb_board_v2_read_file() {
+  awk '
+    function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
+    BEGIN {
+      SOH = sprintf("%c", 1)
+      status=""; repo=""; worktree=""; branch=""; path=""; deps=""
+      reviewed=""; parent=""; tags=""; created=""; closed=""; title=""
+      infm = 0; donefm = 0; cursec = ""; handoff_capturing = 0; title_found = 0
+      plan_checked = 0; plan_total = 0
+    }
+    # wb_task_title <file> equivalent (first "# <heading>" line anywhere in
+    # the file, single "#" only — "## Plan" etc. never match) — folded in
+    # here so the collect loop below doesn'\''t fork a second awk per file
+    # just for the title.
+    !title_found && /^# / { title = $0; sub(/^# /, "", title); title_found = 1 }
+    /^---$/ { infm++; if (infm == 2) donefm = 1; next }
+    infm == 1 && !donefm {
+      if ($0 ~ /^status:/)      { s=$0; sub(/^status:[ \t]*/,"",s);      status=clip(s) }
+      if ($0 ~ /^repo:/)        { s=$0; sub(/^repo:[ \t]*/,"",s);        repo=clip(s) }
+      if ($0 ~ /^worktree:/)    { s=$0; sub(/^worktree:[ \t]*/,"",s);    worktree=clip(s) }
+      if ($0 ~ /^branch:/)      { s=$0; sub(/^branch:[ \t]*/,"",s);      branch=clip(s) }
+      if ($0 ~ /^path:/)        { s=$0; sub(/^path:[ \t]*/,"",s);        path=clip(s) }
+      if ($0 ~ /^depends_on:/)  { s=$0; sub(/^depends_on:[ \t]*/,"",s);  deps=clip(s) }
+      if ($0 ~ /^reviewed:/)    { s=$0; sub(/^reviewed:[ \t]*/,"",s);    reviewed=clip(s) }
+      if ($0 ~ /^parent:/)      { s=$0; sub(/^parent:[ \t]*/,"",s);      parent=clip(s) }
+      if ($0 ~ /^tags:/)        { s=$0; sub(/^tags:[ \t]*/,"",s);        tags=clip(s) }
+      if ($0 ~ /^created:/)     { s=$0; sub(/^created:[ \t]*/,"",s);     created=clip(s) }
+      if ($0 ~ /^closed:/)      { s=$0; sub(/^closed:[ \t]*/,"",s);      closed=clip(s) }
+      next
+    }
+    donefm && /^## / {
+      h = $0; sub(/^## /, "", h); cursec = h; handoff_capturing = 0; next
+    }
+    donefm && cursec == "Plan" {
+      plan_text = plan_text $0 "\n"
+      if ($0 ~ /- \[[xX]\]/)      { plan_checked++; plan_total++ }
+      else if ($0 ~ /- \[ \]/)    { plan_total++ }
+      next
+    }
+    donefm && cursec == "Done"        { done_text = done_text $0 "\n"; next }
+    donefm && cursec == "Follow-ups"  { followups_text = followups_text $0 "\n"; next }
+    donefm && cursec == "Handoffs" {
+      if ($0 ~ /^### /) { handoff_text = $0 "\n"; handoff_capturing = 1; next }
+      if (handoff_capturing) { handoff_text = handoff_text $0 "\n" }
+      next
+    }
+    END {
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", \
+        status, repo, worktree, branch, path, deps, reviewed, parent, tags, \
+        created, closed, plan_checked, plan_total, title
+      printf "%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, followups_text, ""
+    }
+  ' "$1"
+}
+
+# wb_board_v2_parse_record <record_text> <scalar_array_name> \
+#   <plan_array_name> <done_array_name> <handoff_array_name> \
+#   <followups_array_name> — splits one wb_board_v2_read_file capture on its
+# 5 bare-SOH-joined fields into <scalar_array_name>[0] (the TSV header
+# line, further split by the caller with wb_tsv_split) and the four
+# body-text arrays. Pure string manipulation, no forking, no file I/O — the
+# read already happened.
+#
+# `IFS=$soh read -r -d '' -a parts`, not the `${var%%pattern*}` splitting
+# an earlier version used: that measured ~10ms/call across the real store
+# (pure bash, no forking, but apparently expensive glob-pattern matching
+# against a pattern built from concatenated quoted expansions); this
+# measured over 2x faster on the same data. `-d ''` (NUL delimiter, which
+# never appears in a bash string) is required so `read` consumes the WHOLE
+# multi-line input instead of stopping at the first newline — IFS is set to
+# only SOH, so embedded newlines within a field are never treated as
+# separators and survive in the split fields intact.
+wb_board_v2_parse_record() {
+  local -n _pr_scalar="$2" _pr_plan="$3" _pr_done="$4" _pr_handoff="$5" _pr_followups="$6"
+  local soh=$'\1'
+  local -a parts=()
+  IFS="$soh" read -r -d '' -a parts <<< "$1" || true
+  _pr_scalar[0]="${parts[0]:-}"
+  _pr_plan[0]="${parts[1]:-}"; _pr_done[0]="${parts[2]:-}"
+  _pr_handoff[0]="${parts[3]:-}"; _pr_followups[0]="${parts[4]:-}"
+}
+
+# wb_board_v2_mtimes <-n out_array_name> — one `stat` invocation for every
+# task file in $TASKS_DIR (not one per file), filling <out_array_name>
+# ["<path>"] = mtime epoch. R21's staleness clock reads this, not a
+# per-file `stat -c %Y` fork.
+wb_board_v2_mtimes() {
+  local -n _mt="$1"
+  local -a files=()
+  local f
+  while IFS= read -r f; do files+=("$f"); done < <(wb_task_files)
+  [ "${#files[@]}" -gt 0 ] || return 0
+  local line mtime path
+  while IFS=' ' read -r mtime path; do
+    _mt["$path"]="$mtime"
+  done < <(stat -c '%Y %n' "${files[@]}" 2>/dev/null)
+}
+
+# wb_board_collect_rows_v2 <rows_arrayname> <plan_arrayname> <done_arrayname>
+#   <handoff_arrayname> <followups_arrayname> — one pass over $TASKS_DIR/*.md
+# (wb_task_files), one wb_board_v2_read_file fork per file, no tmux/gh/git
+# calls (R16). Pushes one TSV row per task into <rows_arrayname> (never
+# printed to stdout — see the call-convention note below) with fields:
+#   1 stem  2 status  3 repo  4 branch  5 worktree  6 title  7 created
+#   8 closed  9 updated(mtime epoch)  10 taskfile  11 anchor  12 parent(stem,
+#   self-ref guarded)  13 depends_on(raw)  14 tags(raw frontmatter value —
+#   parse with _wb_tags_parse, D3 residual)  15 plan_checked  16 plan_total
+#   17 age_days  18 bucket(active|stale|shelved)
+# and, in the SAME loop iteration (never a second pass/re-read over the file
+# list — R16), fills the four text-block arrays keyed by stem with the raw
+# Plan/Done/Handoff/Follow-ups section text wb_board_v2_read_file already
+# captured for that file.
+#
+# Call convention — MUST be invoked as a plain statement, never wrapped in
+# `<(...)` or `$(...)`: nameref writes only reach the CALLER's variables
+# when this function runs in the caller's own shell. Process substitution
+# (`while read ... done < <(wb_board_collect_rows_v2 ...)`, the obvious way
+# to stream stdout into an array) forks a SUBSHELL — this function's
+# nameref assignments would land in that subshell's private copies of the
+# arrays and vanish when it exits, silently leaving every caller-side array
+# empty. This bit during development (rows populated fine via stdout, but
+# the four text-block arrays came back empty) before rows moved to a
+# fifth nameref array instead of stdout, for exactly this reason.
+#
+# Per-file forking is kept to exactly one (wb_board_v2_read_file's awk
+# process) on purpose: `basename`, `wb_task_title`, a second per-file
+# wb_board_v2_read_file call (once for the row, once for the text blocks),
+# and per-file `date +%s` were all tried here first and each measurably
+# added ~300 more forks across the real store. Real-store timing across
+# these iterations: fragmented per-field extraction (wb_read_task +
+# wb_task_title + wb_get_frontmatter xN + wb_board_section xN) was 16.7s;
+# a single-awk-per-file pass that still re-read every file a second time
+# for body text was 17.1s (11.1s in this function alone); collapsing to
+# exactly one fork per file, with text blocks threaded out via nameref
+# instead of re-read, is what gets the whole collect+model pass under the
+# R15 budget — verify with `time wb board2` before extending this further.
+wb_board_collect_rows_v2() {
+  local -n _cr_rows="$1" _cr_plan="$2" _cr_done="$3" _cr_handoff="$4" _cr_followups="$5"
+  local -A _mtimes=()
+  wb_board_v2_mtimes _mtimes
+  local now; now="$(date +%s)"
+  local f stem anchor parent title updated age_days bucket record
+  local -a scalar=() t=() plan_a=() done_a=() handoff_a=() followups_a=()
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    record="$(wb_board_v2_read_file "$f")"
+    wb_board_v2_parse_record "$record" scalar plan_a done_a handoff_a followups_a
+    wb_tsv_split "${scalar[0]}" t
+    # t: 0 status 1 repo 2 worktree 3 branch 4 path 5 deps 6 reviewed
+    #    7 parent 8 tags 9 created 10 closed 11 plan_checked 12 plan_total
+    #    13 title
+    stem="${f##*/}"; stem="${stem%.md}"
+    anchor="$(wb_board_v2_anchor "$stem")"
+    parent="${t[7]:-}"
+    wb_task_own_parent "$parent" "$stem" || parent=""
+    title="${t[13]:-}"; [ -n "$title" ] || title="$stem"
+    updated="${_mtimes["$f"]:-0}"
+    age_days="$(wb_board_v2_age_days "$updated" "$now")"
+    bucket="$(wb_board_v2_bucket "${t[0]:-}" "$age_days")"
+    _cr_plan["$stem"]="${plan_a[0]}"
+    _cr_done["$stem"]="${done_a[0]}"
+    _cr_handoff["$stem"]="${handoff_a[0]}"
+    _cr_followups["$stem"]="${followups_a[0]}"
+    _cr_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+      "$stem" "${t[0]:-}" "${t[1]:-}" "${t[3]:-}" "${t[2]:-}" "$title" "${t[9]:-}" "${t[10]:-}" \
+      "$updated" "$f" "$anchor" "$parent" "${t[5]:-}" "${t[8]:-}" "${t[11]:-0}" "${t[12]:-0}" \
+      "$age_days" "$bucket")")
+  done < <(wb_task_files)
+}
+
+# wb_board_build_model <rows_arrayname> <plan_arrayname> <done_arrayname>
+#   <handoff_arrayname> <followups_arrayname> <...scalar output array
+#   names...> — takes wb_board_collect_rows_v2's already-populated rows and
+# text-block arrays (no file I/O of its own — every read already happened
+# in that single pass) and fills the per-field associative-array model
+# every v2 view reads from. Nameref-bound output arrays, same convention as
+# wb_board_deps_validate/_cycles/_blocking above. Like
+# wb_board_collect_rows_v2, this must be called as a plain statement, never
+# `<(...)`/`$(...)` — see that function's call-convention note.
+#
+# Usage:
+#   local -a V2ROWS=()
+#   local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=()
+#   wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW
+#   local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
+#     M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
+#     M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
+#     M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
+#     STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=()
+#   wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+#     M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
+#     M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
+#     M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
+#     FAMILY_CHILDREN BUCKET_COUNT
+wb_board_build_model() {
+  local -n _bm_rows="$1" _bm_plan="$2" _bm_done="$3" _bm_handoff="$4" _bm_followups="$5"
+  local -n _status="$6" _repo="$7" _branch="$8" _worktree="$9" _title="${10}"
+  local -n _created="${11}" _closed="${12}" _updated="${13}" _taskfile="${14}" _parent="${15}"
+  local -n _deps="${16}" _tags="${17}" _plan_checked="${18}" _plan_total="${19}" _age_days="${20}"
+  local -n _bucket="${21}" _handoff_summary="${22}" _family_root="${23}"
+  local -n _stem_parent="${24}" _stem_anchor="${25}" _family_children="${26}" _bucket_count="${27}"
+
+  local row stem anchor
+  local -a f
+  for row in "${_bm_rows[@]}"; do
+    wb_tsv_split "$row" f
+    stem="${f[0]}"; anchor="${f[10]}"
+    _status["$stem"]="${f[1]}"; _repo["$stem"]="${f[2]}"; _branch["$stem"]="${f[3]}"
+    _worktree["$stem"]="${f[4]}"; _title["$stem"]="${f[5]}"; _created["$stem"]="${f[6]}"
+    _closed["$stem"]="${f[7]}"; _updated["$stem"]="${f[8]}"; _taskfile["$stem"]="${f[9]}"
+    _parent["$stem"]="${f[11]}"; _deps["$stem"]="${f[12]}"; _tags["$stem"]="${f[13]}"
+    _plan_checked["$stem"]="${f[14]}"; _plan_total["$stem"]="${f[15]}"
+    _age_days["$stem"]="${f[16]}"; _bucket["$stem"]="${f[17]}"
+    _stem_anchor["$stem"]="$anchor"
+    [ -n "${f[11]}" ] && _stem_parent["$stem"]="${f[11]}"
+    _bucket_count["${f[17]}"]=$(( ${_bucket_count["${f[17]}"]:-0} + 1 ))
+    _handoff_summary["$stem"]="$(wb_board_first_nonblank_line "${_bm_handoff["$stem"]:-}")"
+  done
+
+  # Family roots + children map, from STEM_PARENT (just populated above).
+  for stem in "${!_stem_anchor[@]}"; do
+    _family_root["$stem"]="$(wb_board_v2_family_root "$stem" _stem_parent)"
+    if [ -n "${_stem_parent["$stem"]:-}" ]; then
+      _family_children["${_stem_parent["$stem"]}"]+="$stem"$'\n'
+    fi
+  done
+}
