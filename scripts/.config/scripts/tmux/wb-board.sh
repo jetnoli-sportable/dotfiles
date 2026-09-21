@@ -313,14 +313,15 @@ wb_board_escape_replacement() {
 # this is now simply THE board renderer, not a parallel "v2" track.
 # ===========================================================================
 
-# wb_board_v2_anchor <stem> — same sanitization as wb_board_anchor_slug
-# (every char outside [A-Za-z0-9_-] -> '-'), but pure bash parameter
-# expansion instead of that function's `printf | tr` pipe. Not a style
-# preference: this runs once per task in board2's single-pass loop (~300
-# files on the real store today), and the pipe's two forks per call were
-# real, measured cost — see the timing note on wb_board_collect_rows_v2
-# below. Verified byte-identical to wb_board_anchor_slug's output for every
-# character class it handles (ASCII, punctuation, empty string).
+# wb_board_v2_anchor <stem> — same sanitization the old, now-deleted
+# wb_board_anchor_slug used (every char outside [A-Za-z0-9_-] -> '-'), but
+# pure bash parameter expansion instead of that function's `printf | tr`
+# pipe. Not a style preference: this runs once per task in board2's single-
+# pass loop (~300 files on the real store today), and the pipe's two forks
+# per call were real, measured cost — see the timing note on
+# wb_board_collect_rows_v2 below. Was verified byte-identical to that old
+# function's output for every character class it handles (ASCII,
+# punctuation, empty string) before it was removed in U4's cutover.
 wb_board_v2_anchor() { printf '%s' "${1//[^A-Za-z0-9_-]/-}"; }
 
 # wb_board_v2_age_days <mtime_epoch> <now_epoch> — whole days between them,
@@ -820,6 +821,16 @@ wb_board_v2_next_line() {
 # nameref is ever created here.
 wb_board_v2_rail_node_html() {
   local stem="$1"
+  # Cycle guard (fix(review)): a hand-edited parent: loop (A parent-of B,
+  # B parent-of A) makes FAMILY_CHILDREN mutually reference the two stems,
+  # and this function recurses on each child — with no visited set that is
+  # unbounded recursion (bash has no default FUNCNEST cap), crashing the
+  # whole render. wb_board_v2_family_root already guards the same cycle
+  # class; the rail render must too. RAIL_SEEN is declared once in
+  # wb_board_render_v2's rail section and read here via the same dynamic-
+  # scoping convention as the _m_* arrays. Render each stem at most once.
+  [ -n "${RAIL_SEEN[$stem]:-}" ] && return 0
+  RAIL_SEEN["$stem"]=1
   local status="${_m_status[$stem]:-}" bucket="${_m_bucket[$stem]:-}" age="${_m_age_days[$stem]:-0}"
   local dot; dot="$(wb_board_v2_dot_class "$status" "$bucket" "$age")"
   local title; title="$(wb_board_html_escape "${_m_title[$stem]:-$stem}")"
@@ -1030,6 +1041,10 @@ wb_board_render_v2() {
   # rows otherwise), then the collapsed Next/Shelf groups for everything
   # not already covered by an active family.
   # =========================================================================
+  # RAIL_SEEN: visited set for wb_board_v2_rail_node_html's recursion, so a
+  # parent: cycle renders each stem once instead of recursing forever — see
+  # that function's cycle-guard comment.
+  local -A RAIL_SEEN=()
   local rail_doing_html="" rd_stem
   for rd_stem in "${active_family_roots_sorted[@]}"; do
     rail_doing_html+="$(wb_board_v2_rail_node_html "$rd_stem")"
@@ -1264,7 +1279,7 @@ wb_board_render_v2() {
       local wc_title; wc_title="$(wb_board_html_escape "${_m_title[$wc_stem]:-$wc_stem}")"
       local wc_parent_html=""
       [ -n "${_m_stem_parent[$wc_stem]:-}" ] && wc_parent_html=" &middot; <span class=\"parent-chip mono\">child of $(wb_board_html_escape "${_m_stem_parent[$wc_stem]}")</span>"
-      week_cards_html+="<div class=\"week-card\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">${_m_status[$wc_stem]}</span></div>"
+      week_cards_html+="<div class=\"week-card\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">$(wb_board_html_escape "${_m_status[$wc_stem]:-}")</span></div>"
       week_cards_html+="<div class=\"meta\"><span class=\"mono copyable\" data-copy=\"wb resume $wc_stem\">$wc_stem</span> &middot; touched $(wb_board_v2_age_label "${_m_age_days[$wc_stem]:-0}")${wc_parent_html}</div>"
       week_cards_html+="<div class=\"wdrill\"><div><div class=\"wdrill-block\"><h4>Plan</h4>$(wb_board_v2_plan_ul "$wc_stem")</div><div class=\"wdrill-block\"><h4>Done</h4>$(wb_board_v2_done_ul "$wc_stem")</div></div>"
       week_cards_html+="<div><div class=\"wdrill-block\"><h4>Latest handoff</h4><div class=\"handoff\">$(wb_board_v2_handoff_meta "$wc_stem")</div></div><div class=\"wdrill-block\"><h4>Follow-ups</h4>$(wb_board_v2_followups_ul "$wc_stem")</div></div></div></div>"
@@ -1293,7 +1308,7 @@ wb_board_render_v2() {
           doing|review) cw_pill_cls="doing"; cw_pill_text="doing" ;;
           *) cw_pill_cls="planned"; cw_pill_text="${_m_status[$cw_child]:-}" ;;
         esac
-        family_blocks_html+="<div class=\"fam-kid-row\"><span class=\"title copyable\" data-copy=\"wb resume $cw_child\">$(wb_board_html_escape "${_m_title[$cw_child]:-$cw_child}")</span><span class=\"right\"><span class=\"pill ${cw_pill_cls}\">${cw_pill_text}</span><span class=\"age mono\">$(wb_board_v2_age_label "${_m_age_days[$cw_child]:-0}")</span></span></div>"
+        family_blocks_html+="<div class=\"fam-kid-row\"><span class=\"title copyable\" data-copy=\"wb resume $cw_child\">$(wb_board_html_escape "${_m_title[$cw_child]:-$cw_child}")</span><span class=\"right\"><span class=\"pill ${cw_pill_cls}\">$(wb_board_html_escape "$cw_pill_text")</span><span class=\"age mono\">$(wb_board_v2_age_label "${_m_age_days[$cw_child]:-0}")</span></span></div>"
       done <<< "$cw_kids"
       family_blocks_html+='</div></div>'
     else
