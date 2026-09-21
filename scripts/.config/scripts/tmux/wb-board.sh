@@ -508,12 +508,35 @@ wb_board_v2_read_file() {
         s = substr(s, RSTART + RLENGTH)
       }
     }
+    # Lifecycle-stage signals (U7). wb-lifecycle.sh owns the stage MODEL
+    # (order, the four states, the resolver) and this reuses it, but its
+    # detectors shell out to git/tmux/gh once per task, which R16 forbids in
+    # the render path. Every signal the board needs is a text fact already
+    # sitting in the file this awk is reading, so it is collected here, in
+    # the one pass, for free. `index()` (a substring scan) not a regex for
+    # the fixed markers: this runs on every line of every task file.
+    function scan_signals(line) {
+      if (index(line, "docs/ideation/")    || index(line, "/ce-ideate"))     sig_ideate = 1
+      if (index(line, "docs/brainstorms/") || index(line, "/ce-brainstorm")) sig_brainstorm = 1
+      if (index(line, "docs/plans/")       || index(line, "/ce-plan"))       sig_plan = 1
+      if (index(line, "/ce-work")          || index(line, "/goal"))          sig_work = 1
+      if (index(line, "/ce-code-review"))                                    sig_review = 1
+      # First PR URL wins, and a PR is itself evidence work started (the
+      # same AE1 reasoning wb_lifecycle_stage_state uses).
+      if (index(line, "github.com/") && match(line, prre)) {
+        if (pr_url == "") pr_url = substr(line, RSTART, RLENGTH)
+        sig_work = 1
+      }
+    }
     BEGIN {
       SOH = sprintf("%c", 1)
       status=""; repo=""; worktree=""; branch=""; path=""; deps=""
       reviewed=""; parent=""; tags=""; created=""; closed=""; title=""
       infm = 0; donefm = 0; cursec = ""; handoff_capturing = 0; title_found = 0
       plan_checked = 0; plan_total = 0
+      sig_ideate = 0; sig_brainstorm = 0; sig_plan = 0; sig_work = 0
+      sig_review = 0; pr_url = ""
+      prre = "https://github\\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+"
       # dossiers/*.md|html, docs/{plans,brainstorms,solutions,ideation}/*.md|html,
       # logs/decisions/*.md|html, or a claude.ai URL — same path shapes
       # wb_board_doc_candidates already looks for (plus dossiers/ and
@@ -526,8 +549,11 @@ wb_board_v2_read_file() {
     # the file, single "#" only — "## Plan" etc. never match) — folded in
     # here so the collect loop below doesn'\''t fork a second awk per file
     # just for the title.
-    !title_found && /^# / { title = $0; sub(/^# /, "", title); title_found = 1 }
-    { extract_links($0) }
+    # A tab in the title would shift every field appended after it in the
+    # TSV below, so it is neutralised at capture (a tab in a markdown H1 is
+    # not meaningful text anyway).
+    !title_found && /^# / { title = $0; sub(/^# /, "", title); gsub(/\t/, " ", title); title_found = 1 }
+    { extract_links($0); scan_signals($0) }
     /^---$/ { infm++; if (infm == 2) donefm = 1; next }
     infm == 1 && !donefm {
       if ($0 ~ /^status:/)      { s=$0; sub(/^status:[ \t]*/,"",s);      status=clip(s) }
@@ -556,14 +582,16 @@ wb_board_v2_read_file() {
     donefm && cursec == "Follow-ups"  { followups_text = followups_text $0 "\n"; next }
     donefm && cursec == "Decisions"   { decisions_text = decisions_text $0 "\n"; next }
     donefm && cursec == "Handoffs" {
+      if (index($0, "wb-save")) sig_work = 1
       if ($0 ~ /^### /) { handoff_text = $0 "\n"; handoff_capturing = 1; next }
       if (handoff_capturing) { handoff_text = handoff_text $0 "\n" }
       next
     }
     END {
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", \
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s%s%s%s\t%s", \
         status, repo, worktree, branch, path, deps, reviewed, parent, tags, \
-        created, closed, plan_checked, plan_total, title
+        created, closed, plan_checked, plan_total, title, \
+        sig_ideate, sig_brainstorm, sig_plan, sig_work, sig_review, pr_url
       printf "%s%s%s%s%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, followups_text, SOH, decisions_text, SOH, links_text, ""
     }
   ' "$1"
@@ -661,7 +689,7 @@ wb_board_collect_rows_v2() {
   local -A _mtimes=()
   wb_board_v2_mtimes _mtimes
   local now; now="$(date +%s)"
-  local f stem anchor parent title updated age_days bucket record
+  local f stem anchor parent title updated age_days bucket record stage_sig path_bits
   local -a scalar=() t=() plan_a=() done_a=() handoff_a=() followups_a=() decisions_a=() links_a=()
   while IFS= read -r f; do
     [ -f "$f" ] || continue
@@ -670,7 +698,7 @@ wb_board_collect_rows_v2() {
     wb_tsv_split "${scalar[0]}" t
     # t: 0 status 1 repo 2 worktree 3 branch 4 path 5 deps 6 reviewed
     #    7 parent 8 tags 9 created 10 closed 11 plan_checked 12 plan_total
-    #    13 title
+    #    13 title 14 stage signal bits "ibpwr" (U7) 15 first PR url
     stem="${f##*/}"; stem="${stem%.md}"
     # fix(review) D5: enforce the stem invariant [A-Za-z0-9._-] once, here, so
     # every downstream use (HTML text, data-copy, the copied `wb resume <id>`
@@ -692,10 +720,22 @@ wb_board_collect_rows_v2() {
     _cr_followups["$stem"]="${followups_a[0]}"
     _cr_decisions["$stem"]="${decisions_a[0]}"
     _cr_links["$stem"]="${links_a[0]}"
-    printf -v record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    # U7: stage_sig is the raw "ibpwr" bit string from the awk pass plus the
+    # `reviewed:` frontmatter field folded in as a 6th bit — the review
+    # stage's primary signal is `wb reviewed` stamping that field, and the
+    # /ce-code-review text mention is only its fallback.
+    stage_sig="${t[14]:-00000}"
+    [ -n "${t[6]:-}" ] && stage_sig="${stage_sig}1" || stage_sig="${stage_sig}0"
+    # ...and the `path:` membership mask appended as 5 more bits, resolved
+    # HERE because `path:` is only in this loop's scalar split — carrying it
+    # as its own model array would be a third new field for something the
+    # renderer only ever reads through the resolver anyway.
+    wb_board_v2_stage_path_bits "${t[4]:-}" path_bits
+    stage_sig="${stage_sig}${path_bits}"
+    printf -v record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
       "$stem" "${t[0]:-}" "${t[1]:-}" "${t[3]:-}" "${t[2]:-}" "$title" "${t[9]:-}" "${t[10]:-}" \
       "$updated" "$f" "$anchor" "$parent" "${t[5]:-}" "${t[8]:-}" "${t[11]:-0}" "${t[12]:-0}" \
-      "$age_days" "$bucket"
+      "$age_days" "$bucket" "$stage_sig" "${t[15]:-}"
     _cr_rows+=("$record")
   done < <(wb_task_files)
 }
@@ -733,6 +773,7 @@ wb_board_build_model() {
   local -n _deps="${16}" _tags="${17}" _plan_checked="${18}" _plan_total="${19}" _age_days="${20}"
   local -n _bucket="${21}" _handoff_summary="${22}" _family_root="${23}"
   local -n _stem_parent="${24}" _stem_anchor="${25}" _family_children="${26}" _bucket_count="${27}"
+  local -n _stage_sig="${28}" _pr_url="${29}"
 
   local row stem anchor
   local -a f
@@ -745,6 +786,7 @@ wb_board_build_model() {
     _parent["$stem"]="${f[11]}"; _deps["$stem"]="${f[12]}"; _tags["$stem"]="${f[13]}"
     _plan_checked["$stem"]="${f[14]}"; _plan_total["$stem"]="${f[15]}"
     _age_days["$stem"]="${f[16]}"; _bucket["$stem"]="${f[17]}"
+    _stage_sig["$stem"]="${f[18]}"; _pr_url["$stem"]="${f[19]}"
     _stem_anchor["$stem"]="$anchor"
     [ -n "${f[11]}" ] && _stem_parent["$stem"]="${f[11]}"
     _bucket_count["${f[17]}"]=$(( ${_bucket_count["${f[17]}"]:-0} + 1 ))
@@ -1331,6 +1373,132 @@ wb_board_v2_task_open_html() {
   printf -v "$2" '%s' "<a class=\"${__cls}\" href=\"${TASK_HREF_PREFIX}${__enc}.md\" target=\"_blank\" title=\"${__t}\">&#8599;</a>"
 }
 
+# ---------------------------------------------------------------------------
+# U7 — lifecycle stage strip. wb-lifecycle.sh remains the OWNER of the stage
+# model: the order (ideate, brainstorm, plan, work, review), the four states
+# (na|pending|progress|done), `path:` semantics and the resolver's
+# precedence (done > progress > pending-if-in-path > na) are all its
+# decisions and are reproduced faithfully here. What is NOT reused is its
+# detectors: they run git/tmux/gh once per task, which R16 forbids on this
+# path. Every signal is instead a text fact the single awk pass already
+# collected (see scan_signals), so the strip costs no extra I/O at all.
+# ---------------------------------------------------------------------------
+
+# wb_board_v2_stage_path_bits <path_field> <out_var> — wb_lifecycle_parse_path
+# re-expressed as a 5-character membership mask over WB_LIFECYCLE_STAGES
+# ("ideate brainstorm plan work review"), e.g. "00111" for the default.
+# Same tolerance contract as the original (R4): comma separated, whitespace
+# and an optional surrounding [...] tolerated, unknown tokens ignored,
+# duplicates collapsed, and absent/blank means the default plan,work,review.
+# A hand-edited `path:` must never crash the render.
+#
+# A case statement over the trimmed field, not `IFS=, read -ra` + a loop:
+# this runs once per task across the whole store and the original's shape
+# (two trims per token, an assoc array, a stage loop) is more work than the
+# answer needs. `,${raw},` padding makes each membership test a single
+# substring match that cannot alias a longer token (`plan` vs `planning`).
+wb_board_v2_stage_path_bits() {
+  local __raw="${1:-}" __bits=""
+  __raw="${__raw#"${__raw%%[![:space:]]*}"}"; __raw="${__raw%"${__raw##*[![:space:]]}"}"
+  case "$__raw" in
+    \[*\]) __raw="${__raw#\[}"; __raw="${__raw%\]}" ;;
+  esac
+  [ -n "$__raw" ] || __raw="plan,work,review"
+  # Strip every space so ", work , review" and ",work,review" agree.
+  __raw=",${__raw// /},"
+  local __st
+  for __st in ideate brainstorm plan work review; do
+    case "$__raw" in *",$__st,"*) __bits+=1 ;; *) __bits+=0 ;; esac
+  done
+  printf -v "$2" '%s' "$__bits"
+}
+
+# wb_board_v2_stage_states <stem> <out_var> — the five stage states for one
+# task, as a 5-character string of n|p|g|d (na|pending|proGress|Done), in
+# canonical stage order. Reads the model by dynamic scope (_m_* — the same
+# convention wb_board_v2_roadmap_bar already uses); _m_stage_sig is the
+# 11-bit string the collect loop packed (6 signal bits + 5 `path:` bits).
+#
+# Resolver, straight from wb_lifecycle_stage_state: a fired signal ALWAYS
+# wins over path membership ("n/a" only when nothing fired and the stage
+# isn't in the intended path), doc stages and review go pending -> done with
+# no progress state, and work is the only stage with a progress state.
+#
+# The one deliberate simplification: the original's work-stage rule consults
+# LIVE PR state (`status: done` + an open PR => still progress). That needs a
+# `gh` call per task, so this treats `status: done` as done, full stop. The
+# PR is surfaced next to the strip as its own chip instead, where its number
+# is a link rather than a hidden input to a glyph.
+wb_board_v2_stage_states() {
+  local __stem="$1"
+  local __sig="${_m_stage_sig[$__stem]:-00000000111}"
+  local __status="${_m_status[$__stem]:-}"
+  # sig bits: 0 ideate 1 brainstorm 2 plan 3 work-started 4 /ce-code-review
+  #           5 reviewed: frontmatter non-empty, then 6..10 = the `path:`
+  #           membership mask (resolved in the collect loop).
+  local __bits="${__sig:6:5}"
+  local __out="" __i __done __prog __stage
+  for __i in 0 1 2 3 4; do
+    __done=0; __prog=0
+    case "$__i" in
+      0|1|2) [ "${__sig:$__i:1}" = 1 ] && __done=1 ;;
+      3)
+        if [ "$__status" = done ]; then
+          __done=1
+        elif [ "$__status" = doing ] || [ "$__status" = review ]; then
+          # started = any checked Plan box, or a /ce-work | /goal | wb-save
+          # mention, or a PR — the awk pass folded all but the checkbox into
+          # bit 3.
+          { [ "${__sig:3:1}" = 1 ] || [ "${_m_plan_checked[$__stem]:-0}" -gt 0 ]; } && __prog=1
+        fi
+        ;;
+      4) { [ "${__sig:5:1}" = 1 ] || [ "${__sig:4:1}" = 1 ]; } && __done=1 ;;
+    esac
+    if [ "$__done" = 1 ]; then __out+=d
+    elif [ "$__prog" = 1 ]; then __out+=g
+    elif [ "${__bits:$__i:1}" = 1 ]; then __out+=p
+    else __out+=n
+    fi
+  done
+  printf -v "$2" '%s' "$__out"
+}
+
+# wb_board_v2_stage_strip_html <stem> <out_var> [mini] — the compact strip:
+# one glyph+label per stage whose state isn't `na`, in stage order, plus the
+# PR chip when the task has one.
+#
+# Glyphs are ✓ / ● / ○, never the old renderer's half-filled ◑ — this task's
+# own quick-wins note records that ◑ read as "50% done" rather than "in
+# progress", which is a different claim. Progress is BLUE, not mauve: mauve
+# is reserved for selection/current/TODAY (R24).
+wb_board_v2_stage_strip_html() {
+  local __stem="$1" __mini="${3:-}"
+  local __states; wb_board_v2_stage_states "$__stem" __states
+  local __out="" __i __s __cls __glyph __name
+  local -a __names=(ideate brainstorm plan work review)
+  for __i in 0 1 2 3 4; do
+    __s="${__states:$__i:1}"
+    [ "$__s" = n ] && continue
+    __name="${__names[$__i]}"
+    case "$__s" in
+      d) __cls=done;     __glyph='&#10003;' ;;
+      g) __cls=progress; __glyph='&#9679;'  ;;
+      *) __cls=pending;  __glyph='&#9675;'  ;;
+    esac
+    __out+="<span class=\"stage ${__cls}\" title=\"${__name}: ${__cls}\"><span class=\"stage-g\">${__glyph}</span>"
+    [ -n "$__mini" ] || __out+="<span class=\"stage-l\">${__name}</span>"
+    __out+="</span>"
+  done
+  local __pr="${_m_pr_url[$__stem]:-}"
+  if [ -n "$__pr" ]; then
+    local __n="${__pr##*/}" __h
+    wb_board_html_escape "$__pr" __h
+    __out+="<a class=\"pr-chip\" href=\"${__h}\" target=\"_blank\" title=\"open pull request\">PR #${__n}</a>"
+  fi
+  [ -z "$__out" ] || __out="<div class=\"stage-strip${__mini:+ mini}\">${__out}</div>"
+  printf -v "$2" '%s' "$__out"
+}
+
 # wb_board_v2_parse_ladder_table <raw_plan_text> — TSV rows "rung \t ticket
 # \t wbtask_cell \t status_cell" for a nested "### Version ladder status"
 # markdown table inside a family root's Plan section (the
@@ -1455,7 +1623,8 @@ wb_board_render_v2() {
   local -n _m_deps="${16}" _m_tags="${17}" _m_plan_checked="${18}" _m_plan_total="${19}" _m_age_days="${20}"
   local -n _m_bucket="${21}" _m_handoff_summary="${22}" _m_family_root="${23}"
   local -n _m_stem_parent="${24}" _m_stem_anchor="${25}" _m_family_children="${26}" _m_bucket_count="${27}"
-  local -n _m_decisions_raw="${28}" _m_links_raw="${29}"
+  local -n _m_stage_sig="${28}" _m_pr_url="${29}"
+  local -n _m_decisions_raw="${30}" _m_links_raw="${31}"
 
   local now; now="$(date +%s)"
 
@@ -1630,6 +1799,8 @@ wb_board_render_v2() {
     local dk_open; wb_board_v2_task_open_html "$dk_stem" dk_open
     deck_html+="<div class=\"card-top\"><div><div class=\"card-title\">${dk_title}</div><span class=\"card-id mono copyable\" data-copy=\"wb resume ${dk_stem}\">${dk_stem}</span>${dk_open}</div>"
     deck_html+="<div class=\"ring-wrap\"><svg width=\"42\" height=\"42\" viewBox=\"0 0 42 42\"><circle cx=\"21\" cy=\"21\" r=\"17\" fill=\"none\" stroke=\"var(--overlay)\" stroke-width=\"4\"/>${dk_ring_circle}</svg><span class=\"ring-label\">${dk_ring_label}</span></div></div>"
+    local dk_strip; wb_board_v2_stage_strip_html "$dk_stem" dk_strip
+    deck_html+="$dk_strip"
     deck_html+="${dk_quote_html}"
     deck_html+="<div class=\"next-line\">Next: <b>$(wb_board_html_escape "$dk_next")</b></div>"
     deck_html+="<div class=\"card-foot\"><span class=\"dot ${dk_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "$dk_age")</span><span class=\"card-caret\" title=\"expand\">&#9656;</span></div>"
@@ -1977,7 +2148,7 @@ wb_board_render_v2() {
   # site here would be exactly the per-call fork cost U2's own timing
   # notes warn against. Reused across iterations on purpose (scratch,
   # consumed immediately after each call, never read stale).
-  local __h="" __h2="" __h3="" __al="" __open=""
+  local __h="" __h2="" __h3="" __al="" __open="" __strip=""
   local rail_family_html="" fam_blocks_html="" fam_idx=0 fam_json_entries=""
   for fr_stem in "${all_family_roots_sorted[@]}"; do
     fam_idx=$((fam_idx + 1))
@@ -1999,6 +2170,9 @@ wb_board_render_v2() {
     # the raw stem at each site.
     local fr_stem_h; wb_board_html_escape "$fr_stem" fr_stem_h
     local fr_open; wb_board_v2_task_open_html "$fr_stem" fr_open
+    local fr_strip fr_strip_mini
+    wb_board_v2_stage_strip_html "$fr_stem" fr_strip
+    wb_board_v2_stage_strip_html "$fr_stem" fr_strip_mini mini
     local fr_kids="${_m_family_children[$fr_stem]}"
     local -a fr_members=("$fr_stem")
     local fr_c
@@ -2156,7 +2330,8 @@ wb_board_render_v2() {
         if [ -n "$fr_child" ] && [ -n "${_m_status[$fr_child]:-}" ]; then
           fr_resolved_status="${_m_status[$fr_child]}"
           wb_board_v2_task_open_html "$fr_child" __open
-          fr_rung_child_html="<span class=\"rung-child mono copyable\" data-copy=\"wb resume ${fr_child}\">&#8618; <span class=\"id\">${fr_child}</span></span>${__open}"
+          wb_board_v2_stage_strip_html "$fr_child" __strip mini
+          fr_rung_child_html="<span class=\"rung-child mono copyable\" data-copy=\"wb resume ${fr_child}\">&#8618; <span class=\"id\">${fr_child}</span></span>${__open}${__strip}"
         fi
         local fr_rcls; wb_board_v2_ladder_status_class "$fr_resolved_status" "$fr_status_cell" fr_rcls
         local fr_active_cls=""
@@ -2212,14 +2387,14 @@ wb_board_render_v2() {
       fam_body_html+="<h2 class=\"region-label\">Family view</h2>"
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
-      fam_body_html+="<div class=\"fam-hero\"><div class=\"fam-hero-top\"><div><div class=\"fam-hero-title\">${__h}</div><span class=\"fam-hero-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span>${fr_open}</div><div class=\"fam-hero-meta\"><span class=\"dot ${fr_dot}\"></span><span class=\"age mono\">${__al}</span></div></div>"
+      fam_body_html+="<div class=\"fam-hero\"><div class=\"fam-hero-top\"><div><div class=\"fam-hero-title\">${__h}</div><span class=\"fam-hero-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span>${fr_open}${fr_strip}</div><div class=\"fam-hero-meta\"><span class=\"dot ${fr_dot}\"></span><span class=\"age mono\">${__al}</span></div></div>"
       fam_body_html+='<div class="fam-tree">'
       local fr_p_status="${_m_status[$fr_stem]:-}" fr_p_pill_cls="planned"
       case "$fr_p_status" in doing|review) fr_p_pill_cls="doing" ;; esac
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
       wb_board_html_escape "$fr_p_status" __h2
-      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem_h}\">${__h}</div><span class=\"t-id mono\">${fr_stem_h} &middot; parent</span></div>${fr_open}<span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem_h}\">${__h}</div><span class=\"t-id mono\">${fr_stem_h} &middot; parent</span>${fr_strip_mini}</div>${fr_open}<span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
       local fr_child_row
       while IFS= read -r fr_child_row; do
         [ -n "$fr_child_row" ] || continue
@@ -2230,7 +2405,8 @@ wb_board_render_v2() {
         wb_board_html_escape "$fr_c_status" __h2
         wb_board_html_escape "$fr_child_row" __h3
         wb_board_v2_task_open_html "$fr_child_row" __open
-        fam_body_html+="<div class=\"fam-tree-row child-row\"><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span></div>${__open}<span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+        wb_board_v2_stage_strip_html "$fr_child_row" __strip mini
+        fam_body_html+="<div class=\"fam-tree-row child-row\"><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span>${__strip}</div>${__open}<span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
       done <<< "$fr_kids"
       fam_body_html+='</div></div>'
 
@@ -2555,6 +2731,21 @@ wb_board_render_v2() {
   li.done-item { color: var(--subtext); text-decoration: line-through; text-decoration-color: var(--overlay); }
   .dd-meta { color: var(--subtext); font-size: 13.5px; margin-top: 14px; }
   .followup { color: var(--yellow); }
+
+  /* ---------- U7: lifecycle stage strip ---------- */
+  /* Progress is BLUE. Mauve stays reserved for selection/current/TODAY
+     (R24), so a "this stage is running" glyph must not use it. */
+  .stage-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin: 2px 0 2px; font-size: 12px; }
+  .stage { display: inline-flex; align-items: center; gap: 5px; color: var(--subtext); white-space: nowrap; }
+  .stage-g { font-size: 11px; line-height: 1; }
+  .stage-l { letter-spacing: .02em; }
+  .stage.done { color: var(--green); }
+  .stage.progress { color: var(--blue); }
+  .stage.pending { color: var(--subtext); opacity: .55; }
+  .stage-strip.mini { gap: 0 5px; margin: 3px 0 0; }
+  .stage-strip.mini .stage-g { font-size: 10px; }
+  .pr-chip { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(137,180,250,.4); background: rgba(137,180,250,.1); color: var(--blue); text-decoration: none; white-space: nowrap; }
+  .pr-chip:hover { border-color: var(--blue); }
 
   .copyable { cursor: pointer; }
   .copyable:hover { text-decoration: underline; text-decoration-color: var(--mauve); }

@@ -77,6 +77,51 @@ mk_task later  planned 5
 # active+stale count asserted below is unchanged.
 mk_task alpha-child planned 2 $'parent: alpha'
 
+# U7 stage-strip fixture: a doing task with a docs/plans link (plan done),
+# `reviewed:` stamped (review done) and NO work signal at all — so work must
+# resolve to `pending` (in the default path, nothing fired), and ideate /
+# brainstorm to `na` (not in the default path, nothing fired). Also carries a
+# PR URL, which IS a work signal, so a second fixture keeps them apart.
+cat > "$FIXTURE_TASKS/stagey.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/stagey
+worktree: .worktrees/feat/stagey
+reviewed: 2026-09-01
+---
+# Stage fixture
+
+## Plan
+
+- [ ] nothing started
+
+## Follow-ups
+
+Wrote it up in docs/plans/2026-09-01-001-stagey-plan.md first.
+EOF
+touch -d "2 days ago" "$FIXTURE_TASKS/stagey.md"
+
+# A task whose only work signal is a PR URL, with an explicit `path:` that
+# names every stage — so ideate/brainstorm render as pending rather than na.
+cat > "$FIXTURE_TASKS/prtask.md" <<'EOF'
+---
+status: doing
+path: ideate, brainstorm, plan, work, review
+repo: dotfiles
+branch: feat/prtask
+worktree: .worktrees/feat/prtask
+---
+# PR fixture
+
+## Handoffs
+
+### 2026-09-02 12:00 — note
+Opened https://github.com/jetnoli-sportable/dotfiles/pull/4242 for this.
+EOF
+touch -d "2 days ago" "$FIXTURE_TASKS/prtask.md"
+
 # U6 family fixtures — a flat family (fam-parent + 2 children) and a ladder
 # family (a "### Version ladder status" table inside Plan, one rung
 # resolving to a real child stem, one rung with no child yet). All
@@ -164,18 +209,18 @@ declare -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
   M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
   M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
   M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
-  STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=()
+  STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=()
 wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
   M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
   M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
   M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-  FAMILY_CHILDREN BUCKET_COUNT
+  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL
 
 render="$(wb_board_render_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
   M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
   M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
   M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-  FAMILY_CHILDREN BUCKET_COUNT M_DECISIONS_RAW M_LINKS_RAW)"
+  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_DECISIONS_RAW M_LINKS_RAW)"
 rc=$?
 
 # --- assertions ----------------------------------------------------------
@@ -189,7 +234,7 @@ assert "emits well-formed closing </html>"  '</html>'           "$render"
 badge="$(printf '%s' "$render" | grep -o 'class="tab-badge">[0-9]*' | head -1 | grep -o '[0-9]*$')"
 expected_badge=$(( ${BUCKET_COUNT[active]:-0} + ${BUCKET_COUNT[stale]:-0} ))
 assert_eq "R23: tab badge equals active+stale bucket count" "$expected_badge" "$badge"
-assert_eq "R23: fixture sanity — 2 active + 1 stale = 3" "3" "$expected_badge"
+assert_eq "R23: fixture sanity — 4 active + 1 stale = 5" "5" "$expected_badge"
 
 # --- U6: Family view (fourth tab) ----------------------------------------
 assert "renders the Family view container" 'id="view-family"' "$render"
@@ -256,7 +301,7 @@ assert "C: cards are wrapped in a per-card .card-slot with scope attrs" \
 slot_count="$(printf '%s' "$render" | grep -o 'class="card-slot' | wc -l)"
 dd_count="$(printf '%s' "$render" | grep -o 'class="drilldown' | wc -l)"
 assert_eq "C: exactly one drilldown per card slot" "$slot_count" "$dd_count"
-assert_eq "C: fixture sanity — 3 active+stale cards => 3 slots" "3" "$slot_count"
+assert_eq "C: fixture sanity — 5 active+stale cards => 5 slots" "5" "$slot_count"
 # Placement: the drilldown must sit between its own card's open tag and
 # the slot's close, i.e. immediately after the card it belongs to.
 assert "C: the drilldown follows its own card inside the slot" \
@@ -395,12 +440,60 @@ assert "L: drilldown headings link to the task file"  '<h3>Plan<a class="open-ic
 assert "L: a phantom stem's open link is marked .missing" 'class="open-ic missing" href="[^"]+" target="_blank" title="no such task file"' "$render"
 assert "L: the handoff block links to the task file"  'class="dd-meta">.*<a class="open-ic"' "$render"
 assert "L: week meta ids link to the task file"       'data-copy="wb resume bravo">bravo</span><a class="open-ic"' "$render"
-assert "L: family tree rows link to the task file"    'class="t-id mono">[^<]*</span></div><a class="open-ic"' "$render"
+assert "L: family tree rows link to the task file"    'class="t-id mono">[^<]*</span>.*</div><a class="open-ic"' "$render"
 assert "L: the decisions timeline source links too"   'class="fam-tl-source [^"]*copyable" data-copy="[^"]+">[^<]*</span><a class="open-ic"' "$render"
 # Every open-ic href must be an absolute file:// URL under TASKS_DIR —
 # a relative one would 404 from the rendered page's own directory.
 bad_open="$(printf '%s' "$render" | grep -oE 'class="open-ic[^"]*" href="[^"]*"' | grep -vcE "href=\"file://$FIXTURE_TASKS/" || true)"
 assert_eq "L: no open-ic href is relative or outside TASKS_DIR" "0" "${bad_open:-0}"
+
+# =========================================================================
+# U7: the lifecycle stage strip. The stage MODEL is wb-lifecycle.sh's
+# (order, four states, resolver precedence); only the signal detection is
+# reimplemented here, store-only, so these assertions pin the resolver's
+# answers rather than the detectors' internals.
+# =========================================================================
+# `stagey`: docs/plans link => plan done; reviewed: set => review done;
+# nothing started => work pending (it IS in the default path); ideate and
+# brainstorm are absent from the default path and nothing fired => na, so
+# they must not render at all.
+# NB: no `| head -1` here. A pipe consumer that exits early makes grep die
+# of SIGPIPE, and bash re-raises a command substitution's fatal signal in
+# the parent — which silently KILLED this whole test file mid-run (the same
+# class of trap as the `grep -qE` note on assert() above). Take the window
+# with one grep and the first line with parameter expansion instead.
+strip_stagey="$(printf '%s' "$render" | grep -oE 'id="card-stagey".{0,1400}' || true)"
+strip_stagey="${strip_stagey%%$'\n'*}"
+assert "U7: stagey renders a stage strip"                'class="stage-strip"' "$strip_stagey"
+assert "U7: stagey plan is done (docs/plans link)"       'class="stage done" title="plan: done"' "$strip_stagey"
+assert "U7: stagey review is done (reviewed: stamped)"   'class="stage done" title="review: done"' "$strip_stagey"
+assert "U7: stagey work is pending (in path, nothing fired)" 'class="stage pending" title="work: pending"' "$strip_stagey"
+if printf '%s' "$strip_stagey" | grep -E 'title="(ideate|brainstorm):' >/dev/null 2>&1; then
+  echo "FAIL - U7: an na stage is omitted from the strip entirely"; fail=1
+else
+  echo "ok   - U7: an na stage is omitted from the strip entirely"
+fi
+# The old renderer's half-filled glyph read as "50% done" rather than "in
+# progress" (this task's own quick-wins note) — it must not come back.
+if printf '%s' "$render" | grep -F '&#9681;' >/dev/null 2>&1; then
+  echo "FAIL - U7: the half-filled progress glyph is not used"; fail=1
+else
+  echo "ok   - U7: the half-filled progress glyph is not used"
+fi
+# `prtask`: a PR URL is itself evidence work started (AE1), and its explicit
+# `path:` names every stage, so the never-fired doc stages are pending here
+# rather than na.
+strip_pr="$(printf '%s' "$render" | grep -oE 'id="card-prtask".{0,1400}' || true)"
+strip_pr="${strip_pr%%$'\n'*}"
+assert "U7: a PR URL puts work in progress"              'class="stage progress" title="work: progress"' "$strip_pr"
+assert "U7: an explicit path: makes an unfired stage pending, not na" 'title="ideate: pending"' "$strip_pr"
+assert "U7: the PR chip links to the pull request"       'class="pr-chip" href="https://github.com/jetnoli-sportable/dotfiles/pull/4242" target="_blank"' "$render"
+assert "U7: the PR chip shows its number"                '>PR #4242</a>' "$render"
+# The strip appears on cards and as a mini strip in the Family view, never
+# in the rail.
+assert "U7: family tree child rows carry a mini strip" 'class="stage-strip mini"' "$render"
+rail_strip="$(printf '%s' "$render" | grep -oE 'id="rail-tasks".*id="rail-families"' | grep -c 'stage-strip' || true)"
+assert_eq "U7: the rail carries no stage strip" "0" "${rail_strip:-0}"
 
 # Ladder family: a resolvable rung shows the live child status (R23 —
 # reads the model, not the table's own stale text) and a "now" marker; an
