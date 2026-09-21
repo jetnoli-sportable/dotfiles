@@ -1336,11 +1336,20 @@ wb_board_render_v2() {
   [ "${#next_items[@]}" -gt 0 ] && next_html="$(wb_board_v2_shelf_items_html "$(wb_board_v2_sort_stems_by_title "${next_items[@]}")")"
   [ "${#shelf_items[@]}" -gt 0 ] && shelf_html="$(wb_board_v2_shelf_items_html "$(wb_board_v2_sort_stems_by_title "${shelf_items[@]}")")"
 
+  # U6 follow-up (UX feedback on PR #60): the rail switches content by
+  # active view — #rail-tasks (Doing tree + Next/Shelf, this block) for
+  # Active/Roadmap/Week, #rail-families (built alongside the family loop
+  # below) for Family. showView() toggles which one is visible; family
+  # selection moves from the old cramped top-of-page chip grid (33+
+  # families in a wrapping grid read as "overwhelming") to this same rail
+  # nav surface every other view already uses.
   local rail_html
   rail_html="<input type=\"text\" id=\"board-filter\" class=\"rail-filter\" placeholder=\"Filter&hellip; (press /)\" autocomplete=\"off\">"
+  rail_html+="<div id=\"rail-tasks\">"
   rail_html+="<div><div class=\"rail-heading\">Doing</div><div class=\"rail-tree\">${rail_doing_html}</div></div>"
   rail_html+="<div class=\"group\" id=\"next-group\"><div class=\"group-head\" onclick=\"toggleGroup('next-group')\"><span class=\"group-caret\">&#9656;</span><span class=\"group-label\">Next &middot; <span class=\"count-blue\">${#next_items[@]}</span></span></div><div class=\"group-body\">${next_html}</div></div>"
   rail_html+="<div class=\"group expanded\" id=\"shelf-group\"><div class=\"group-head\" onclick=\"toggleGroup('shelf-group')\"><span class=\"group-caret\">&#9656;</span><span class=\"group-label\">Shelf &middot; <span class=\"count-peach\">${#shelf_items[@]}</span></span></div><div class=\"group-body\">${shelf_html}</div></div>"
+  rail_html+='</div>'
 
   # =========================================================================
   # ACTIVE VIEW (R18): one card per doing/review task, stale ones included
@@ -1677,7 +1686,7 @@ wb_board_render_v2() {
   # notes warn against. Reused across iterations on purpose (scratch,
   # consumed immediately after each call, never read stale).
   local __h="" __h2="" __h3="" __al=""
-  local fam_picker_html="" fam_blocks_html="" fam_idx=0 fam_json_entries=""
+  local rail_family_html="" fam_blocks_html="" fam_idx=0 fam_json_entries=""
   for fr_stem in "${all_family_roots_sorted[@]}"; do
     fam_idx=$((fam_idx + 1))
     # A dangling `parent:` (no existence check, a known pre-existing P3 —
@@ -1707,7 +1716,13 @@ wb_board_render_v2() {
     local fam_sel_cls=""
     [ "$fam_idx" = 1 ] && fam_sel_cls=" selected"
     wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
-    fam_picker_html+="<span class=\"fam-chip${fam_sel_cls}\" data-fam=\"${fr_anchor}\" onclick=\"selectFamily('${fr_anchor}')\">${__h} <span class=\"fam-chip-frac mono\">${fr_done}/${fr_total}</span></span>"
+    # UX follow-up: family selection moved from a top-of-page chip grid
+    # (33+ families wrapped into an "overwhelming" block) to a rail-row
+    # list, the same nav surface Active/Roadmap/Week already use. Reuses
+    # the rail's own `.dot`/`.rail-row-title` visual language so it reads
+    # as "the same sidebar, a different list" rather than a new widget.
+    local fam_dot; fam_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
+    rail_family_html+="<div class=\"rail-row fam-rail-row${fam_sel_cls}\" data-fam=\"${fr_anchor}\" onclick=\"selectFamily('${fr_anchor}')\"><span class=\"dot ${fam_dot}\"></span><span class=\"rail-row-title\">${__h}</span><span class=\"rail-row-age mono\">${fr_done}/${fr_total}</span></div>"
 
     # Decisions timeline: parent + every child, date-sorted. One `sort`
     # fork per family (bounded to the family count, not the whole store) —
@@ -2009,8 +2024,7 @@ wb_board_render_v2() {
 
   local family_view_html=""
   if [ "${#all_family_roots_sorted[@]}" -gt 0 ]; then
-    fam_picker_html="$(wb_board_escape_replacement "$fam_picker_html")"
-    family_view_html="<div class=\"fam-picker-row\"><span class=\"fam-picker-label\">Family</span>${fam_picker_html}</div>${fam_blocks_html}"
+    family_view_html="$fam_blocks_html"
   else
     # Static text, pre-escaped by hand (no dynamic content to run through
     # wb_board_escape_replacement) — this is the same @@FAMILY_HTML@@ token
@@ -2019,6 +2033,18 @@ wb_board_render_v2() {
     family_view_html='<h2 class="region-label">Family</h2><p style="color:var(--subtext);">No families yet \&mdash; a family appears once a task has a <span class="mono">parent:</span> field or at least one child.</p>'
   fi
   local fam_tab_badge="${#all_family_roots_sorted[@]}"
+
+  # UX follow-up: the family list joins the rail as a second, initially-
+  # hidden panel (#rail-families) — showView('family') swaps to it,
+  # everything else swaps back to #rail-tasks (see rail_html's own note
+  # above). Escaped once here (not per-row) since it's a single small
+  # concatenation, not the per-family-block scale that motivated the
+  # per-block escaping elsewhere in this function.
+  rail_family_html="$(wb_board_escape_replacement "$rail_family_html")"
+  if [ -z "$rail_family_html" ]; then
+    rail_family_html='<p style="color:var(--subtext);font-size:14px;padding:0 4px;">No families yet.</p>'
+  fi
+  rail_html+="<div id=\"rail-families\" style=\"display:none;\"><div class=\"rail-heading\">Family</div><div class=\"rail-tree\">${rail_family_html}</div></div>"
 
   # =========================================================================
   # PAGE ASSEMBLY — heredoc + @@TOKEN@@ substitution, the same templating
@@ -2290,13 +2316,15 @@ wb_board_render_v2() {
   .qs-chip.shelf { background: rgba(250,179,135,.10); border-color: rgba(250,179,135,.35); color: var(--peach); }
 
   /* ---------- VIEW 4: Family (U6, mockups D + A) ---------- */
-  .fam-picker-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
-  .fam-picker-label { font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--subtext); font-weight: 600; margin-right: 2px; }
-  .fam-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 14.5px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--overlay); background: var(--surface); color: var(--subtext); cursor: pointer; white-space: nowrap; }
-  .fam-chip:hover { color: var(--text); }
-  .fam-chip.selected { border-color: var(--mauve); color: var(--mauve); background: rgba(203,166,247,.12); }
-  .fam-chip .fam-chip-frac { font-size: 12.5px; color: var(--subtext); }
-  .fam-chip.selected .fam-chip-frac { color: var(--mauve); opacity: .85; }
+  /* Family selection lives in the rail (#rail-families, a peer of
+     #rail-tasks — see showView()'s own note) as .fam-rail-row, reusing
+     .rail-row/.dot/.rail-row-title/.rail-row-age wholesale; only the
+     selected-state accent below is Family-specific (mirrors the mauve
+     "selection" language .card.selected already uses on the Active deck,
+     translated from a card to a rail row). */
+  .fam-rail-row.selected { background: rgba(203,166,247,.12); border-color: var(--mauve); }
+  .fam-rail-row.selected .rail-row-title { color: var(--mauve); }
+  .fam-rail-row.selected .rail-row-age { color: var(--mauve); opacity: .85; }
   .fam-block { display: none; }
 
   .fam-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 2px 2px 20px 2px; flex-wrap: wrap; }
@@ -2441,6 +2469,12 @@ wb_board_render_v2() {
     document.querySelectorAll('.view-tab').forEach(function(t){
       t.classList.toggle('active', t.getAttribute('data-view') === name);
     });
+    // UX follow-up: the rail is the nav surface for every view — Family
+    // swaps it to the family list, everything else swaps back to the
+    // Doing tree + Next/Shelf.
+    var isFamily = name === 'family';
+    document.getElementById('rail-tasks').style.display = isFamily ? 'none' : '';
+    document.getElementById('rail-families').style.display = isFamily ? '' : 'none';
   }
   function toggleStale() {
     document.getElementById('rm-stale-toggle').classList.toggle('open');
@@ -2454,8 +2488,8 @@ wb_board_render_v2() {
     document.querySelectorAll('.fam-block').forEach(function(b){ b.style.display = 'none'; });
     var b = document.getElementById('fam-' + anchor);
     if (b) b.style.display = 'block';
-    document.querySelectorAll('.fam-chip').forEach(function(c){
-      c.classList.toggle('selected', c.getAttribute('data-fam') === anchor);
+    document.querySelectorAll('.fam-rail-row').forEach(function(r){
+      r.classList.toggle('selected', r.getAttribute('data-fam') === anchor);
     });
   }
   function toggleRung(id) { document.getElementById(id).classList.toggle('expanded'); }
@@ -2517,7 +2551,10 @@ wb_board_render_v2() {
 
   function filterBoard(q) {
     q = q.toLowerCase();
-    document.querySelectorAll('.rail > div > .rail-tree > .rail-row, .rail > div > .rail-tree > details.family-node').forEach(function(el){
+    // Descendant selector (not a fixed-depth child chain) so this matches
+    // both #rail-tasks's tree (nested one level deeper, under its own
+    // wrapper div) and #rail-families's flat list — whichever is visible.
+    document.querySelectorAll('.rail .rail-tree > .rail-row, .rail .rail-tree > details.family-node').forEach(function(el){
       var t = (el.querySelector('.rail-row-title') || el).textContent.toLowerCase();
       el.classList.toggle('filter-hidden', q.length > 0 && t.indexOf(q) === -1);
     });
