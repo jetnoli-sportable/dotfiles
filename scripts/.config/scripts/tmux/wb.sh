@@ -12,11 +12,8 @@
 #   wb                               the picker (replaces s + ca)
 #   wb help                          this verb list (also --help/-h); any other unknown
 #                                    token exits 2 rather than opening the picker
-#   wb board                         task-store status table (interim /board)
-#   wb board2 [--html]               feat-board-build (D1): the new-renderer verb; bare prints
-#                                    counts, --html writes the ratified 3-view page to
-#                                    logs/board2.html — parity-checked against `wb board` before
-#                                    it replaces it and is deleted (temporary, not a stable verb)
+#   wb board                         task-store status table (interim /board); --html writes the
+#                                    ratified 3-view page to logs/board.html (feat-board-build)
 #   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
@@ -4408,7 +4405,31 @@ cmd_board() {
     [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
     local out="$dotfiles_root/logs/board.html"
     mkdir -p "$(dirname "$out")"
-    wb_board_render_html > "$out"
+
+    # U4 cutover: the ratified 3-view renderer (feat-board-build), replacing
+    # the old wb_board_render_html after its parity check (task set,
+    # per-status counts, per-family membership) passed clean against the
+    # real ~301-task store. R16's single collect pass, no tmux/gh/git calls.
+    local -a V2ROWS=()
+    local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=()
+    wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW
+
+    local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
+      M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
+      M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
+      M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
+      STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=()
+    wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+      M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
+      M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
+      M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
+      FAMILY_CHILDREN BUCKET_COUNT
+
+    wb_board_render_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+      M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
+      M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
+      M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
+      FAMILY_CHILDREN BUCKET_COUNT > "$out"
     echo "wb board: wrote $out"
     return 0
   fi
@@ -4465,54 +4486,6 @@ cmd_board() {
       print r, $0
     }' | sort -t $'\t' -k1,1n -k3,3 -k4,4 | cut -f2-
   } | column -t -s $'\t'
-}
-
-# cmd_board2 — the new-renderer verb (D1): runs beside `wb board` (unchanged)
-# until the parity check (U4) confirms count/content agreement on the real
-# store, at which point `board)` is flipped to call wb_board_render_v2
-# directly and this verb is deleted. Bare prints a counts summary: the
-# single source `time wb board2` measures against R15's <=10s budget, and
-# what U4's parity script diffs against `wb board`'s own table counts.
-# `--html` (U3) renders the ratified 3-view page to logs/board2.html,
-# mirroring cmd_board's own `--html` branch above (same dotfiles_root
-# derivation, same "wrote <path>" confirmation) so U4's cutover can later
-# just swap which render function `board)` calls.
-cmd_board2() {
-  local -a V2ROWS=()
-  local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=()
-  wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW
-
-  local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
-    M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
-    M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
-    M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
-    STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=()
-  wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
-    M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
-    M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
-    M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-    FAMILY_CHILDREN BUCKET_COUNT
-
-  if [ "${1:-}" = "--html" ]; then
-    local dotfiles_root
-    dotfiles_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || true
-    [ -n "$dotfiles_root" ] || dotfiles_root="$CODE_DIR/dotfiles"
-    local out="$dotfiles_root/logs/board2.html"
-    mkdir -p "$(dirname "$out")"
-    wb_board_render_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
-      M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
-      M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
-      M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-      FAMILY_CHILDREN BUCKET_COUNT > "$out"
-    echo "wb board2: wrote $out"
-    return 0
-  fi
-
-  local total="${#V2ROWS[@]}" families=0 fam
-  for fam in "${!FAMILY_CHILDREN[@]}"; do families=$((families + 1)); done
-  printf 'wb board2: %s tasks (active=%s stale=%s shelved=%s), %s families\n' \
-    "$total" "${BUCKET_COUNT[active]:-0}" "${BUCKET_COUNT[stale]:-0}" \
-    "${BUCKET_COUNT[shelved]:-0}" "$families"
 }
 
 cmd_done() {
@@ -5510,7 +5483,6 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     reconcile)   shift; cmd_reconcile "$@" ;;
     breakdown)   shift; cmd_breakdown "$@" ;;
     board)       shift; cmd_board "$@" ;;
-    board2)      shift; cmd_board2 "$@" ;;
     done)        shift; cmd_done "$@" ;;
     pause)       shift; cmd_pause "$@" ;;
     down)        shift; cmd_down "$@" ;;
