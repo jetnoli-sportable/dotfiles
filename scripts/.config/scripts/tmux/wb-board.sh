@@ -890,27 +890,29 @@ wb_board_v2_ring_offset() {
 # (prose, not a checklist row) is skipped. Bash string matching only (no
 # awk/grep fork per line) — this is called once per active-bucket card.
 wb_board_v2_checklist_html() {
-  local raw="${1:-}" line trimmed text out=""
+  local raw="${1:-}" line trimmed text out="" __h
   while IFS= read -r line; do
     trimmed="${line#"${line%%[![:space:]]*}"}"
     case "$trimmed" in
       '- [x]'*|'- [X]'*)
         text="${trimmed#*'] '}"
-        out+="<li class=\"done-item\"><span class=\"chk done\">&#10003;</span> $(wb_board_html_escape "$text")</li>"
+        wb_board_html_escape "$text" __h
+        out+="<li class=\"done-item\"><span class=\"chk done\">&#10003;</span> $__h</li>"
         ;;
       '- [ ]'*)
         text="${trimmed#*'] '}"
-        out+="<li><span class=\"chk todo\">&#9675;</span> $(wb_board_html_escape "$text")</li>"
+        wb_board_html_escape "$text" __h
+        out+="<li><span class=\"chk todo\">&#9675;</span> $__h</li>"
         ;;
     esac
   done <<< "$raw"
-  printf '%s' "$out"
+  if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$out"; else printf '%s' "$out"; fi
 }
 
 # wb_board_v2_bullet_html <raw_text> [<li_class>] — plain "- "/"* " bullet
 # lines (Done, Follow-ups) as <li>s, optionally classed (e.g. "followup").
 wb_board_v2_bullet_html() {
-  local raw="${1:-}" cls="${2:-}" line trimmed text out=""
+  local raw="${1:-}" cls="${2:-}" line trimmed text out="" __h
   while IFS= read -r line; do
     trimmed="${line#"${line%%[![:space:]]*}"}"
     case "$trimmed" in
@@ -918,13 +920,10 @@ wb_board_v2_bullet_html() {
       '* '*) text="${trimmed#'* '}" ;;
       *) continue ;;
     esac
-    if [ -n "$cls" ]; then
-      out+="<li class=\"$cls\">$(wb_board_html_escape "$text")</li>"
-    else
-      out+="<li>$(wb_board_html_escape "$text")</li>"
-    fi
+    wb_board_html_escape "$text" __h
+    if [ -n "$cls" ]; then out+="<li class=\"$cls\">$__h</li>"; else out+="<li>$__h</li>"; fi
   done <<< "$raw"
-  printf '%s' "$out"
+  if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$out"; else printf '%s' "$out"; fi
 }
 
 # wb_board_v2_handoff_heading <raw_handoff_text> — the latest Handoff
@@ -1105,36 +1104,56 @@ wb_board_v2_sort_stems_by_age() {
 # model's raw text-block arrays (_m_plan_raw/_m_done_raw/_m_followups_raw
 # — U2's already-captured section text, no re-read). Shared by both views
 # so the checklist/bullet parsing rules live in exactly one place.
+#
+# fix(perf, U8): all three (and wb_board_v2_checklist_html /
+# wb_board_v2_bullet_html underneath them) take an optional out-var, D2A's
+# convention. The summary-first detail block is built for EVERY task in the
+# store, not just the 24 on the deck, so the `$(...)` form these used
+# internally was about to become ~800 subshell forks per render.
 wb_board_v2_plan_ul() {
-  local stem="$1" items; items="$(wb_board_v2_checklist_html "${_m_plan_raw[$stem]:-}")"
-  if [ -n "$items" ]; then printf '<ul>%s</ul>' "$items"
-  else printf '<p style="color:var(--subtext);font-size:14.5px;margin:0;">No plan logged yet.</p>'
+  local stem="$1" items; wb_board_v2_checklist_html "${_m_plan_raw[$stem]:-}" "" items
+  local __o
+  if [ -n "$items" ]; then __o="<ul>$items</ul>"
+  else __o='<p style="color:var(--subtext);font-size:14.5px;margin:0;">No plan logged yet.</p>'
   fi
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__o"; else printf '%s' "$__o"; fi
 }
 wb_board_v2_done_ul() {
-  local stem="$1" items; items="$(wb_board_v2_bullet_html "${_m_done_raw[$stem]:-}")"
-  if [ -n "$items" ]; then printf '<ul>%s</ul>' "$items"
-  else printf '<p style="color:var(--subtext);font-size:14.5px;margin:0;">No activity logged yet.</p>'
+  local stem="$1" items; wb_board_v2_bullet_html "${_m_done_raw[$stem]:-}" "" items
+  local __o
+  if [ -n "$items" ]; then __o="<ul>$items</ul>"
+  else __o='<p style="color:var(--subtext);font-size:14.5px;margin:0;">No activity logged yet.</p>'
   fi
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__o"; else printf '%s' "$__o"; fi
 }
 wb_board_v2_followups_ul() {
-  local stem="$1" items; items="$(wb_board_v2_bullet_html "${_m_followups_raw[$stem]:-}" followup)"
-  if [ -n "$items" ]; then printf '<ul>%s</ul>' "$items"
-  else printf '<p style="color:var(--subtext);font-size:14.5px;margin:0;">No follow-ups.</p>'
+  local stem="$1" items; wb_board_v2_bullet_html "${_m_followups_raw[$stem]:-}" followup items
+  local __o
+  if [ -n "$items" ]; then __o="<ul>$items</ul>"
+  else __o='<p style="color:var(--subtext);font-size:14.5px;margin:0;">No follow-ups.</p>'
   fi
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__o"; else printf '%s' "$__o"; fi
 }
 
 # wb_board_v2_handoff_meta <stem> — "Latest handoff · <heading> — "<summary>""
 # for the drilldown/wdrill's meta line, or a placeholder when the task has
 # no Handoffs section at all.
 wb_board_v2_handoff_meta() {
-  local stem="$1" raw heading summary
+  local stem="$1" raw heading summary __o __h
   raw="${_m_handoff_raw[$stem]:-}"
-  if [ -z "$raw" ]; then printf 'No handoff logged yet.'; return 0; fi
-  heading="$(wb_board_v2_handoff_heading "$raw")"
-  summary="${_m_handoff_summary[$stem]:-}"
-  printf 'Latest handoff &middot; %s' "$(wb_board_html_escape "$heading")"
-  [ -n "$summary" ] && printf ' &mdash; &ldquo;%s&rdquo;' "$(wb_board_html_escape "$summary")"
+  if [ -z "$raw" ]; then
+    __o='No handoff logged yet.'
+  else
+    heading="$(wb_board_v2_handoff_heading "$raw")"
+    wb_board_html_escape "$heading" __h
+    __o="Latest handoff &middot; $__h"
+    summary="${_m_handoff_summary[$stem]:-}"
+    if [ -n "$summary" ]; then
+      wb_board_html_escape "$summary" __h
+      __o+=" &mdash; &ldquo;${__h}&rdquo;"
+    fi
+  fi
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__o"; else printf '%s' "$__o"; fi
 }
 
 # wb_board_v2_roadmap_bar <stem> — "<track>\t<bar_html>" for one Roadmap
@@ -1499,6 +1518,196 @@ wb_board_v2_stage_strip_html() {
   printf -v "$2" '%s' "$__out"
 }
 
+# ---------------------------------------------------------------------------
+# U8 — the summary-first task detail. "When expanding and digging into
+# things it feels confusing — we need a clear summary that the expanded text
+# can give us."
+#
+# The old drilldown threw three equal-weight columns (Plan / Done /
+# Follow-ups) at you at once, with no answer to "so what IS this, and what's
+# next". This block leads with the answer — title, status, stage strip,
+# parent, and a "Now" line — and puts everything else behind collapsed
+# sections with counts, so depth is available without being imposed.
+#
+# ONE block per task, rendered once into a hidden #detail-pool and MOVED by
+# the JS into whichever slot is expanding (Active card slot, Week card,
+# Family child row, ladder rung). Emitting it three times, once per view,
+# would triple the biggest content on the page for no benefit.
+# ---------------------------------------------------------------------------
+
+# wb_board_v2_clip <text> <max_chars> <out_var> — <text>, truncated to
+# <max_chars> with a visible marker when it was cut.
+#
+# This is both a page-weight and a CPU lever, and the second matters more:
+# wb_board_html_escape is four global `${var//}` substitutions, which this
+# file's own per-family escaping note measured as NON-linear in the size of
+# a single call. One task's Handoffs entry runs to 18KB and one Decisions
+# section to 12KB; clipping BEFORE escaping keeps every block cheap. The
+# full text is always one click away — the header's open link goes straight
+# to the file, which is the whole point of the link work in this branch.
+wb_board_v2_clip() {
+  local __t="${1:-}" __max="${2:-2000}"
+  if [ "${#__t}" -gt "$__max" ]; then
+    __t="${__t:0:$__max}"$'\n\n[clipped — open the task file for the rest]'
+  fi
+  printf -v "$3" '%s' "$__t"
+}
+
+# wb_board_v2_count_li <html> <out_var> — how many <li>s a rendered list
+# fragment holds, by length difference after deleting the tag. Pure
+# expansion; no grep/wc fork, and this is called several times per task.
+wb_board_v2_count_li() {
+  local __s="${1:-}" __stripped="${1:-}"
+  __stripped="${__stripped//<li/}"
+  printf -v "$2" '%s' "$(( (${#__s} - ${#__stripped}) / 3 ))"
+}
+
+# wb_board_v2_now_line <stem> <out_var> — the one line that answers "what
+# happens next on this task": the latest handoff's **Next:** field, else the
+# first non-blank Plan line, else a placeholder. Escaped, full text (the
+# card's own next-line is clamped by CSS; here it is meant to be read).
+wb_board_v2_now_line() {
+  # Two statements, not one `local a=$1 b=${...[$a]}`: bash expands EVERY
+  # word of a `local` command before performing any of its assignments, so
+  # the second would read an as-yet-unset __stem (and die under `set -u`).
+  local __stem="$1"
+  local __raw="${_m_handoff_raw[$__stem]:-}" __line __t __found=""
+  while IFS= read -r __line; do
+    __t="${__line#"${__line%%[![:space:]]*}"}"
+    case "$__t" in
+      '**Next:**'*) __found="${__t#'**Next:**'}"; break ;;
+      'Next:'*)     __found="${__t#'Next:'}"; break ;;
+      '- **Next:**'*) __found="${__t#'- **Next:**'}"; break ;;
+    esac
+  done <<< "$__raw"
+  if [ -z "$__found" ]; then
+    while IFS= read -r __line; do
+      __t="${__line#"${__line%%[![:space:]]*}"}"
+      case "$__t" in
+        ''|'#'*) continue ;;
+        '- ['*) __found="${__t#*'] '}"; break ;;
+        '- '*)  __found="${__t#'- '}"; break ;;
+        *) __found="$__t"; break ;;
+      esac
+    done <<< "${_m_plan_raw[$__stem]:-}"
+  fi
+  __found="${__found#"${__found%%[![:space:]]*}"}"
+  __found="${__found%"${__found##*[![:space:]]}"}"
+  if [ -z "$__found" ]; then
+    printf -v "$2" '%s' '<span class="placeholder">No handoff or plan yet.</span>'
+  else
+    local __h; wb_board_html_escape "$__found" __h
+    printf -v "$2" '%s' "$__h"
+  fi
+}
+
+# wb_board_v2_detail_html <stem> <compact 0|1> <out_var> — one task's whole
+# detail block.
+#
+# <compact> is the R15 budget talking, not the design — the full block for
+# every expandable task overshot 10s:
+#   0  everything (doing/review/paused/prospective)
+#   2  planned: no Decisions, no Artifacts. A planned task has essentially
+#      no decision history yet, and its cited docs are one click away via
+#      the header's open link; these two sections were 200KB of the page.
+#   1  done: header + Now + Done only. Nobody digs a checklist out of a
+#      finished task, and there are ~90 of them.
+#
+# Raw multi-line text (the handoff entry, the Decisions section) is escaped
+# and dropped into a <pre> rather than parsed into markup: it preserves the
+# author's own line structure, and it avoids a per-line loop over text that
+# runs to hundreds of KB store-wide.
+wb_board_v2_detail_html() {
+  # Every local here is d_-prefixed, not __-prefixed, and that is load-
+  # bearing: bash's dynamic scoping means an out-var whose name matches a
+  # CALLEE's own local gets shadowed, and the caller silently reads an empty
+  # string (or, under `set -u`, dies). This function calls eight helpers
+  # whose scratch locals are all __-prefixed — wb_board_v2_now_line has its
+  # own `__h`, wb_board_v2_resolve_link its own `__abs`. Same trap as the
+  # `__a` collision in wb_board_v2_shelf_items_html.
+  local d_stem="$1" d_compact="${2:-0}"
+  local d_anchor; wb_board_v2_anchor "$d_stem" d_anchor
+  local d_h d_h2 d_n d_body="" d_sec=""
+  local d_status="${_m_status[$d_stem]:-}"
+
+  # ---- header ----
+  wb_board_html_escape "${_m_title[$d_stem]:-$d_stem}" d_h
+  d_body="<div class=\"detail\" id=\"detail-${d_anchor}\" data-stem=\"${d_stem}\" data-anchor=\"${d_anchor}\">"
+  d_body+="<div class=\"detail-head\"><div class=\"detail-title\">${d_h}</div>"
+  wb_board_html_escape "$d_status" d_h
+  d_body+="<span class=\"detail-pill st-${d_h}\">${d_h}</span>"
+  wb_board_v2_age_label "${_m_age_days[$d_stem]:-0}" d_h
+  d_body+="<span class=\"detail-age mono\">touched ${d_h}</span>"
+  local d_root="${_m_family_root[$d_stem]:-$d_stem}"
+  if [ "$d_root" != "$d_stem" ]; then
+    local d_ra; wb_board_v2_anchor "$d_root" d_ra
+    wb_board_html_escape "${_m_title[$d_root]:-$d_root}" d_h
+    d_body+="<span class=\"detail-parent\" onclick=\"setScope('${d_ra}','')\" title=\"scope the board to this family\">&#8627; ${d_h}</span>"
+  fi
+  wb_board_html_escape "$d_stem" d_h
+  local d_open; wb_board_v2_task_open_html "$d_stem" d_open
+  d_body+="<span class=\"detail-id mono copyable\" data-copy=\"wb resume ${d_h}\">${d_h}</span>${d_open}</div>"
+  local d_strip; wb_board_v2_stage_strip_html "$d_stem" d_strip
+  d_body+="$d_strip"
+
+  # ---- the answer line ----
+  wb_board_v2_now_line "$d_stem" d_h
+  d_body+="<div class=\"detail-now\"><span class=\"lbl\">Now</span><span class=\"txt\">${d_h}</span></div>"
+
+  # ---- latest handoff: the only section open by default ----
+  local d_hraw=""; wb_board_v2_clip "${_m_handoff_raw[$d_stem]:-}" 2200 d_hraw
+  if [ -n "$d_hraw" ]; then
+    wb_board_html_escape "$d_hraw" d_h
+    d_body+="<details class=\"dsec\" open><summary>Latest handoff</summary><pre class=\"dsec-pre\">${d_h}</pre></details>"
+  else
+    d_body+="<details class=\"dsec\" open><summary>Latest handoff</summary><div class=\"dsec-body placeholder\">No handoff logged yet.</div></details>"
+  fi
+
+  if [ "$d_compact" != 1 ]; then
+    wb_board_v2_plan_ul "$d_stem" d_sec
+    d_body+="<details class=\"dsec\"><summary>Plan <span class=\"n\">${_m_plan_checked[$d_stem]:-0}/${_m_plan_total[$d_stem]:-0}</span></summary><div class=\"dsec-body\">${d_sec}</div></details>"
+  fi
+
+  wb_board_v2_done_ul "$d_stem" d_sec
+  wb_board_v2_count_li "$d_sec" d_n
+  d_body+="<details class=\"dsec\"><summary>Done <span class=\"n\">${d_n}</span></summary><div class=\"dsec-body\">${d_sec}</div></details>"
+
+  if [ "$d_compact" != 1 ]; then
+    wb_board_v2_followups_ul "$d_stem" d_sec
+    wb_board_v2_count_li "$d_sec" d_n
+    d_body+="<details class=\"dsec\"><summary>Follow-ups <span class=\"n\">${d_n}</span></summary><div class=\"dsec-body\">${d_sec}</div></details>"
+
+    if [ "$d_compact" = 0 ]; then
+    local d_draw=""; wb_board_v2_clip "${_m_decisions_raw[$d_stem]:-}" 2200 d_draw
+    if [ -n "${d_draw//[[:space:]]/}" ]; then
+      wb_board_html_escape "$d_draw" d_h
+      d_body+="<details class=\"dsec\"><summary>Decisions</summary><pre class=\"dsec-pre\">${d_h}</pre></details>"
+    fi
+
+    # Artifacts, resolved the same way the Family view resolves them (item 1
+    # of this round) so a missing file stays visibly missing here too.
+    local d_art="" d_ln d_kind d_label d_path d_href d_abs d_gone d_na=0
+    local -A d_seen=()
+    while IFS= read -r d_ln; do
+      [ -n "$d_ln" ] || continue
+      wb_board_v2_classify_link "$d_ln" d_kind d_label d_path
+      [ -n "${d_seen[$d_path]:-}" ] && continue
+      d_seen["$d_path"]=1
+      wb_board_v2_resolve_link "$d_path" "${_m_repo[$d_stem]:-}" d_href d_abs d_gone
+      wb_board_html_escape "$d_abs" d_h
+      wb_board_html_escape "$d_href" d_h2
+      d_art+="<li><a class=\"artifact-link mono${d_gone:+ missing}\" href=\"${d_h2}\" target=\"_blank\" rel=\"noopener\" title=\"${d_h}\">${d_h}</a><span class=\"copy-ic copyable\" data-copy=\"${d_h}\" title=\"copy path\">&#8865;</span></li>"
+      d_na=$((d_na + 1))
+      [ "$d_na" -ge 10 ] && break   # same page-weight cap as RM_CAP / the chip rows
+    done <<< "${_m_links_raw[$d_stem]:-}"
+    [ -n "$d_art" ] && d_body+="<details class=\"dsec\"><summary>Artifacts <span class=\"n\">${d_na}</span></summary><div class=\"dsec-body\"><ul class=\"art-ul\">${d_art}</ul></div></details>"
+    fi
+  fi
+
+  d_body+="</div>"
+  printf -v "$3" '%s' "$d_body"
+}
+
 # wb_board_v2_parse_ladder_table <raw_plan_text> — TSV rows "rung \t ticket
 # \t wbtask_cell \t status_cell" for a nested "### Version ladder status"
 # markdown table inside a family root's Plan section (the
@@ -1671,6 +1880,12 @@ wb_board_render_v2() {
   # surfaces via the rail's Next/Shelf groups and the readiness strips
   # instead of a full lane/tree entry — on this real ~300-task store that
   # would otherwise be several dozen always-empty single-bar lanes. ----
+  # U8: the exact set of tasks something can actually EXPAND. Every mount
+  # host below registers its stem here, and the #detail-pool is built from
+  # this set alone — emitting a block for a task with no host (a rail-only
+  # or roadmap-only task) is pure page weight nothing can ever reach. On the
+  # real store that is 186 blocks instead of 303.
+  local -A DETAIL_WANT=()
   local -A ACTIVE_FAMILY_ROOTS=() RAIL_COVERED=()
   local af_stem
   for af_stem in "${!_m_stem_anchor[@]}"; do
@@ -1806,13 +2021,12 @@ wb_board_render_v2() {
     deck_html+="<div class=\"card-foot\"><span class=\"dot ${dk_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "$dk_age")</span><span class=\"card-caret\" title=\"expand\">&#9656;</span></div>"
     deck_html+="</div>"
 
-    local dk_active_cls=""
-    [ "$dk_idx" = 1 ] && dk_active_cls=" active"
-    deck_html+="<div class=\"drilldown${dk_active_cls}\" id=\"drilldown-${dk_anchor}\">"
-    deck_html+="<div><h3>Plan${dk_open}</h3>$(wb_board_v2_plan_ul "$dk_stem")</div>"
-    deck_html+="<div><h3>Done${dk_open}</h3>$(wb_board_v2_done_ul "$dk_stem")<div class=\"dd-meta\">$(wb_board_v2_handoff_meta "$dk_stem") ${dk_open}</div></div>"
-    deck_html+="<div><h3>Follow-ups${dk_open}</h3>$(wb_board_v2_followups_ul "$dk_stem")</div>"
-    deck_html+="</div>"
+    # U8: the expanded detail is no longer built here. Every task has ONE
+    # block in #detail-pool and the JS moves it into this host — the same
+    # block the Week and Family views mount, so "expanded" means the same
+    # thing wherever you are.
+    DETAIL_WANT["$dk_stem"]=1
+    deck_html+="<div class=\"detail-host\" data-anchor=\"${dk_anchor}\"></div>"
     deck_html+="</div>"
   done
 
@@ -1981,8 +2195,8 @@ wb_board_render_v2() {
       week_cards_html+="<div class=\"week-card\" data-stem=\"${wc_stem}\" data-anchor=\"${wc_anchor}\" data-family=\"${wc_fam_anchor}\" onclick=\"toggleWeekCard(event,this)\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">$(wb_board_html_escape "${_m_status[$wc_stem]:-}")</span><span class=\"wk-caret\">&#9656;</span></div>"
       wb_board_v2_task_open_html "$wc_stem" wc_open
       week_cards_html+="<div class=\"meta\"><span class=\"mono copyable\" data-copy=\"wb resume $wc_stem\">$wc_stem</span>${wc_open} &middot; touched $(wb_board_v2_age_label "${_m_age_days[$wc_stem]:-0}")${wc_parent_html}</div>"
-      week_cards_html+="<div class=\"wdrill\"><div><div class=\"wdrill-block\"><h4>Plan</h4>$(wb_board_v2_plan_ul "$wc_stem")</div><div class=\"wdrill-block\"><h4>Done</h4>$(wb_board_v2_done_ul "$wc_stem")</div></div>"
-      week_cards_html+="<div><div class=\"wdrill-block\"><h4>Latest handoff</h4><div class=\"handoff\">$(wb_board_v2_handoff_meta "$wc_stem")</div></div><div class=\"wdrill-block\"><h4>Follow-ups</h4>$(wb_board_v2_followups_ul "$wc_stem")</div></div></div></div>"
+      DETAIL_WANT["$wc_stem"]=1
+      week_cards_html+="<div class=\"detail-host\" data-anchor=\"${wc_anchor}\"></div></div>"
     done < <(wb_board_v2_sort_stems_by_age asc "${this_week_stems[@]}")
   fi
 
@@ -2148,7 +2362,7 @@ wb_board_render_v2() {
   # site here would be exactly the per-call fork cost U2's own timing
   # notes warn against. Reused across iterations on purpose (scratch,
   # consumed immediately after each call, never read stale).
-  local __h="" __h2="" __h3="" __al="" __open="" __strip=""
+  local __h="" __h2="" __h3="" __al="" __open="" __strip="" __ca=""
   local rail_family_html="" fam_blocks_html="" fam_idx=0 fam_json_entries=""
   for fr_stem in "${all_family_roots_sorted[@]}"; do
     fam_idx=$((fam_idx + 1))
@@ -2326,11 +2540,14 @@ wb_board_render_v2() {
         local fr_ticket="${fr_rest%%$'\t'*}"; fr_rest="${fr_rest#*$'\t'}"
         local fr_wbtask_cell="${fr_rest%%$'\t'*}" fr_status_cell="${fr_rest#*$'\t'}"
         local fr_child; wb_board_v2_ladder_child_stem "$fr_wbtask_cell" fr_child
-        local fr_resolved_status="" fr_rung_child_html='<span class="rung-child none">no child task yet</span>'
+        local fr_resolved_status="" fr_child_anchor=""
+        local fr_rung_child_html='<span class="rung-child none">no child task yet</span>'
         if [ -n "$fr_child" ] && [ -n "${_m_status[$fr_child]:-}" ]; then
           fr_resolved_status="${_m_status[$fr_child]}"
           wb_board_v2_task_open_html "$fr_child" __open
           wb_board_v2_stage_strip_html "$fr_child" __strip mini
+          wb_board_v2_anchor "$fr_child" fr_child_anchor
+          DETAIL_WANT["$fr_child"]=1
           fr_rung_child_html="<span class=\"rung-child mono copyable\" data-copy=\"wb resume ${fr_child}\">&#8618; <span class=\"id\">${fr_child}</span></span>${__open}${__strip}"
         fi
         local fr_rcls; wb_board_v2_ladder_status_class "$fr_resolved_status" "$fr_status_cell" fr_rcls
@@ -2351,6 +2568,7 @@ wb_board_render_v2() {
         fam_body_html+="<span class=\"rung-status-pill ${fr_rcls}\">${__h}${fr_now_tag}</span>"
         fam_body_html+="${fr_rung_child_html}"
         fam_body_html+='<span class="rung-caret">&#9656;</span></div>'
+        [ -z "$fr_child" ] || fam_body_html+="<div class=\"detail-host\" data-anchor=\"${fr_child_anchor}\"></div>"
         fam_body_html+='<div class="rung-body"><div class="rung-grid"><div><h4>Decisions</h4><ul>'
         local fr_rd_found=0
         if [ -n "$fr_child" ] && [ -n "$fr_decisions_sorted" ]; then
@@ -2406,7 +2624,9 @@ wb_board_render_v2() {
         wb_board_html_escape "$fr_child_row" __h3
         wb_board_v2_task_open_html "$fr_child_row" __open
         wb_board_v2_stage_strip_html "$fr_child_row" __strip mini
-        fam_body_html+="<div class=\"fam-tree-row child-row\"><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span>${__strip}</div>${__open}<span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+        wb_board_v2_anchor "$fr_child_row" __ca
+        DETAIL_WANT["$fr_child_row"]=1
+        fam_body_html+="<div class=\"fam-tree-row child-row expandable\" data-anchor=\"${__ca}\" onclick=\"toggleFamDetail(event,this)\"><span class=\"fam-caret\">&#9656;</span><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span>${__strip}</div>${__open}<span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div><div class=\"detail-host\" data-anchor=\"${__ca}\"></div>"
       done <<< "$fr_kids"
       fam_body_html+='</div></div>'
 
@@ -2511,6 +2731,23 @@ wb_board_render_v2() {
     family_view_html='<h2 class="region-label">Family</h2><p style="color:var(--subtext);">No families yet &mdash; a family appears once a task has a <span class="mono">parent:</span> field or at least one child.</p>'
   fi
   local fam_tab_badge="${#all_family_roots_sorted[@]}"
+
+  # =========================================================================
+  # U8 — #detail-pool: one summary-first detail block per task, rendered
+  # once and moved into place by the JS. Done tasks get the compact shape
+  # (header + Now + Done); everything else gets the full set of sections.
+  # That split is the R15 budget talking, not the design: there are ~90 done
+  # tasks in this store and nobody digs a checklist out of a finished one.
+  # =========================================================================
+  local detail_pool_html="" dp_stem dp_block=""
+  for dp_stem in "${!DETAIL_WANT[@]}"; do
+    case "${_m_status[$dp_stem]:-}" in
+      done)    wb_board_v2_detail_html "$dp_stem" 1 dp_block ;;
+      planned) wb_board_v2_detail_html "$dp_stem" 2 dp_block ;;
+      *)       wb_board_v2_detail_html "$dp_stem" 0 dp_block ;;
+    esac
+    detail_pool_html+="$dp_block"
+  done
 
   # UX follow-up: the family list joins the rail as a second, initially-
   # hidden panel (#rail-families) — showView('family') swaps to it,
@@ -2746,6 +2983,50 @@ wb_board_render_v2() {
   .stage-strip.mini .stage-g { font-size: 10px; }
   .pr-chip { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(137,180,250,.4); background: rgba(137,180,250,.1); color: var(--blue); text-decoration: none; white-space: nowrap; }
   .pr-chip:hover { border-color: var(--blue); }
+
+  /* ---------- U8: the shared summary-first detail block ---------- */
+  #detail-pool { display: none; }
+  .detail-host { display: none; }
+  .detail-host.open { display: block; margin-top: 10px; }
+
+  .detail { background: var(--surface); border: 1px solid var(--mauve); border-radius: 12px; padding: 18px 22px 16px; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+  .detail-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+  .detail-title { font-size: 18px; font-weight: 650; color: var(--text); flex: 1 1 320px; min-width: 0; line-height: 1.35; }
+  .detail-pill { flex: 0 0 auto; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--overlay); color: var(--subtext); text-transform: lowercase; }
+  .detail-pill.st-doing, .detail-pill.st-review { background: rgba(166,227,161,.16); color: var(--green); }
+  .detail-pill.st-planned { background: rgba(137,180,250,.16); color: var(--blue); }
+  .detail-pill.st-paused, .detail-pill.st-prospective { background: rgba(250,179,135,.16); color: var(--peach); }
+  .detail-age { font-size: 12.5px; color: var(--subtext); flex: 0 0 auto; }
+  .detail-parent { font-size: 12.5px; color: var(--blue); cursor: pointer; flex: 0 0 auto; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-parent:hover { text-decoration: underline; }
+  .detail-id { font-size: 12px; color: var(--subtext); flex: 0 0 auto; }
+
+  /* The answer line: what happens next, in full, before anything else. */
+  .detail-now { display: flex; gap: 10px; align-items: baseline; background: var(--base); border-left: 2px solid var(--mauve); border-radius: 0 8px 8px 0; padding: 9px 14px; }
+  .detail-now .lbl { flex: 0 0 auto; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--mauve); }
+  .detail-now .txt { font-size: 15px; color: var(--text); line-height: 1.5; }
+  .detail-now .placeholder { color: var(--subtext); font-style: italic; }
+
+  .dsec { border-top: 1px solid var(--overlay); padding-top: 8px; }
+  .dsec > summary { list-style: none; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--subtext); padding: 2px 0; }
+  .dsec > summary::-webkit-details-marker { display: none; }
+  .dsec > summary::before { content: "\25B8"; font-size: 10px; transition: transform .12s ease; display: inline-block; }
+  .dsec[open] > summary::before { transform: rotate(90deg); }
+  .dsec > summary:hover { color: var(--text); }
+  .dsec > summary .n { font-weight: 400; color: var(--subtext); opacity: .85; text-transform: none; letter-spacing: 0; }
+  .dsec-body { padding: 8px 0 6px 18px; font-size: 14.5px; }
+  .dsec-body ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .dsec-body li { display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
+  .dsec-body .placeholder, .dsec-body.placeholder { color: var(--subtext); font-style: italic; }
+  .dsec-pre { margin: 6px 0 4px 18px; padding: 10px 13px; background: var(--base); border: 1px solid var(--overlay); border-radius: 8px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 12.5px; line-height: 1.55; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 460px; overflow: auto; }
+  .art-ul li { align-items: baseline; }
+
+  /* Family tree rows become expandable in place. */
+  .fam-tree-row.expandable { cursor: pointer; grid-template-columns: 12px 20px 1fr auto auto; }
+  .fam-caret { font-size: 10px; color: var(--subtext); transition: transform .12s ease; }
+  .fam-tree-row.expanded .fam-caret { transform: rotate(90deg); color: var(--mauve); }
+  .fam-tree-row.expanded { background: rgba(203,166,247,.07); border-color: rgba(203,166,247,.3); }
+  .fam-tree-row.child-row + .detail-host.open { margin-left: 26px; }
 
   .copyable { cursor: pointer; }
   .copyable:hover { text-decoration: underline; text-decoration-color: var(--mauve); }
@@ -3085,6 +3366,9 @@ wb_board_render_v2() {
 
     <div class="gen-ts">Generated @@GENERATED_TS@@ by <span class="mono">wb board --html</span></div>
   </div>
+  <div id="detail-pool" hidden>
+@@DETAIL_POOL_HTML@@
+  </div>
 </div>
 
 <script>
@@ -3150,9 +3434,55 @@ wb_board_render_v2() {
   }
   function toggleRung(id) { document.getElementById(id).classList.toggle('expanded'); }
 
+  // ---- U8: the shared summary-first detail block --------------------
+  // Every task has exactly ONE detail node, parked in #detail-pool. Mounting
+  // is a move (appendChild relocates), so a block can never be duplicated
+  // and never drifts out of sync between views; unmounting parks it again.
+  function mountDetail(anchor, host) {
+    if (!anchor || !host) return null;
+    var d = document.getElementById('detail-' + anchor);
+    if (!d) return null;
+    if (d.parentNode !== host) {
+      // The block is a single node, so mounting it MOVES it. Whoever held
+      // it must stop advertising itself as open, or it is left showing an
+      // empty expanded box. (This bit: applyScope's Week auto-expand was
+      // silently stealing the block the Active deck had just mounted.)
+      var prev = d.parentNode;
+      if (prev && prev.classList && prev.classList.contains('detail-host')) prev.classList.remove('open');
+      host.appendChild(d);
+    }
+    host.classList.add('open');
+    return d;
+  }
+  function unmountHost(host) {
+    if (!host) return;
+    var d = host.querySelector(':scope > .detail');
+    if (d) document.getElementById('detail-pool').appendChild(d);
+    host.classList.remove('open');
+  }
+  function hostFor(el) { return el ? el.querySelector(':scope > .detail-host') : null; }
+
   function toggleWeekCard(ev, el) {
     if (ev && ev.target && ev.target.closest('.copyable')) return;
-    el.classList.toggle('expanded');
+    if (ev && ev.target && ev.target.closest('.detail')) return;
+    if (ev && ev.target && ev.target.closest('a')) return;
+    var host = hostFor(el);
+    if (el.classList.toggle('expanded')) mountDetail(el.getAttribute('data-anchor'), host);
+    else unmountHost(host);
+  }
+
+  // Family view: one expanded child per family block, so a family stays
+  // readable as a family rather than becoming a wall of open details.
+  function toggleFamDetail(ev, el) {
+    if (ev && ev.target && ev.target.closest('.copyable')) return;
+    if (ev && ev.target && ev.target.closest('a')) return;
+    var host = el.nextElementSibling;
+    if (!host || !host.classList.contains('detail-host')) return;
+    var block = el.closest('.fam-block') || document;
+    var wasOpen = host.classList.contains('open');
+    block.querySelectorAll('.detail-host.open').forEach(unmountHost);
+    block.querySelectorAll('.fam-tree-row.expanded').forEach(function(r){ r.classList.remove('expanded'); });
+    if (!wasOpen) { el.classList.add('expanded'); mountDetail(el.getAttribute('data-anchor'), host); }
   }
 
   // ---- rail clicks ----------------------------------------------------
@@ -3198,16 +3528,18 @@ wb_board_render_v2() {
     return (r.getAttribute('data-status') || '').trim();
   }
 
-  function selectCardSlot(slot, scroll) {
+  // `mount` is false when the Active view isn't the one on screen: only the
+  // CURRENT view may hold the shared block, and showView() re-runs
+  // applyScope(), so switching tabs re-mounts it wherever it now belongs.
+  function selectCardSlot(slot, scroll, mount) {
     document.querySelectorAll('#deckRow .card-slot').forEach(function(s){ s.classList.remove('selected'); });
     document.querySelectorAll('#deckRow .card').forEach(function(c){ c.classList.remove('selected'); });
-    document.querySelectorAll('#deckRow .drilldown').forEach(function(d){ d.classList.remove('active'); });
+    document.querySelectorAll('#deckRow .detail-host.open').forEach(unmountHost);
     if (!slot) return;
     slot.classList.add('selected');
     var card = slot.querySelector('.card');
     if (card) card.classList.add('selected');
-    var dd = slot.querySelector('.drilldown');
-    if (dd) dd.classList.add('active');
+    if (mount !== false) mountDetail(slot.getAttribute('data-anchor'), hostFor(slot));
     if (scroll) scrollSlotIntoView(slot);
   }
 
@@ -3258,7 +3590,8 @@ wb_board_render_v2() {
     // scope (or none) auto-selects.
     var taskMissing = !!task && !taskSlot;
     selectCardSlot(taskSlot || (taskMissing ? null : visible[0]) || null,
-                   !!taskSlot && CURRENT_VIEW === 'active');
+                   !!taskSlot && CURRENT_VIEW === 'active',
+                   CURRENT_VIEW === 'active');
 
     var hdr = document.getElementById('active-scope-header');
     if (hdr) {
@@ -3309,9 +3642,12 @@ wb_board_render_v2() {
     document.querySelectorAll('#view-week [data-family]').forEach(function(el){
       el.classList.toggle('scope-hidden', !!fam && el.getAttribute('data-family') !== fam);
     });
-    if (task) {
+    if (task && CURRENT_VIEW === 'week') {
       document.querySelectorAll('.week-card').forEach(function(c){
-        if (c.getAttribute('data-anchor') === task) c.classList.add('expanded');
+        if (c.getAttribute('data-anchor') === task) {
+          c.classList.add('expanded');
+          mountDetail(task, hostFor(c));
+        }
       });
     }
     var whdr = document.getElementById('week-scope-header');
@@ -3485,6 +3821,7 @@ HTMLEOF
     [ROADMAP_HTML]="$roadmap_view_html"
     [WEEK_HTML]="$week_view_html"
     [FAMILY_HTML]="$family_view_html"
+    [DETAIL_POOL_HTML]="$detail_pool_html"
     [TAB_BADGE]="$tab_badge"
     [FAM_TAB_BADGE]="$fam_tab_badge"
     [GENERATED_TS]="$generated_ts"

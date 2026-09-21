@@ -122,6 +122,19 @@ Opened https://github.com/jetnoli-sportable/dotfiles/pull/4242 for this.
 EOF
 touch -d "2 days ago" "$FIXTURE_TASKS/prtask.md"
 
+# A handoff entry longer than the 2200-char clip, so the truncation path is
+# exercised rather than assumed. (Real task files reach 18KB here, which is
+# what made escaping them the render's biggest single CPU cost.)
+{
+  printf -- '---\nstatus: doing\npath:\nrepo: dotfiles\nbranch: feat/longhand\nworktree: .worktrees/feat/longhand\n---\n'
+  printf '# Long handoff fixture\n\n## Handoffs\n\n### 2026-09-03 09:00 — wb-save\n'
+  i=0; while [ "$i" -lt 60 ]; do
+    printf '**Done:** padding line %s with enough words on it to push this entry well past the clip threshold.\n' "$i"
+    i=$((i + 1))
+  done
+} > "$FIXTURE_TASKS/longhand.md"
+touch -d "2 days ago" "$FIXTURE_TASKS/longhand.md"
+
 # U6 family fixtures — a flat family (fam-parent + 2 children) and a ladder
 # family (a "### Version ladder status" table inside Plan, one rung
 # resolving to a real child stem, one rung with no child yet). All
@@ -234,7 +247,7 @@ assert "emits well-formed closing </html>"  '</html>'           "$render"
 badge="$(printf '%s' "$render" | grep -o 'class="tab-badge">[0-9]*' | head -1 | grep -o '[0-9]*$')"
 expected_badge=$(( ${BUCKET_COUNT[active]:-0} + ${BUCKET_COUNT[stale]:-0} ))
 assert_eq "R23: tab badge equals active+stale bucket count" "$expected_badge" "$badge"
-assert_eq "R23: fixture sanity — 4 active + 1 stale = 5" "5" "$expected_badge"
+assert_eq "R23: fixture sanity — 5 active + 1 stale = 6" "6" "$expected_badge"
 
 # --- U6: Family view (fourth tab) ----------------------------------------
 assert "renders the Family view container" 'id="view-family"' "$render"
@@ -298,15 +311,22 @@ assert "B: j/k walk the rail rows, not the deck"            'function moveRailCu
 # opens in place; the batched trailing drilldown block is gone.
 assert "C: cards are wrapped in a per-card .card-slot with scope attrs" \
   '<div class="card-slot[^"]*" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+">' "$render"
-slot_count="$(printf '%s' "$render" | grep -o 'class="card-slot' | wc -l)"
-dd_count="$(printf '%s' "$render" | grep -o 'class="drilldown' | wc -l)"
-assert_eq "C: exactly one drilldown per card slot" "$slot_count" "$dd_count"
-assert_eq "C: fixture sanity — 5 active+stale cards => 5 slots" "5" "$slot_count"
-# Placement: the drilldown must sit between its own card's open tag and
-# the slot's close, i.e. immediately after the card it belongs to.
-assert "C: the drilldown follows its own card inside the slot" \
-  'id="card-alpha" data-drilldown="drilldown-alpha">.*id="drilldown-alpha"' "$render"
-if printf '%s' "$render" | grep -q 'DRILLDOWNS_HTML'; then
+# NB: every count below ends in `|| true`. wb.sh (sourced above) turns on
+# errexit, so a grep that finds nothing aborts this whole file silently —
+# which is exactly what happened when U8 removed the inline drilldown and
+# `grep -o 'class="drilldown'` started matching zero times.
+slot_count="$(printf '%s' "$render" | grep -o 'class="card-slot' | wc -l || true)"
+assert_eq "C: fixture sanity — 6 active+stale cards => 6 slots" "6" "$slot_count"
+# U8: the expanded detail is no longer emitted per card. Each slot carries
+# an empty mount host and the JS moves the one pooled block into it.
+host_count="$(printf '%s' "$render" | grep -o 'class="detail-host" data-anchor="' | wc -l || true)"
+assert "C: each card slot carries a detail mount host" '<div class="detail-host" data-anchor="[^"]+"></div></div>' "$render"
+if printf '%s' "$render" | grep -E 'class="drilldown' >/dev/null 2>&1; then
+  echo "FAIL - C: the per-card drilldown is gone (replaced by the shared block)"; fail=1
+else
+  echo "ok   - C: the per-card drilldown is gone (replaced by the shared block)"
+fi
+if printf '%s' "$render" | grep -E 'DRILLDOWNS_HTML' >/dev/null 2>&1; then
   echo "FAIL - C: the batched @@DRILLDOWNS_HTML@@ token is gone"; fail=1
 else
   echo "ok   - C: the batched @@DRILLDOWNS_HTML@@ token is gone"
@@ -336,6 +356,7 @@ fi
 # card alone — block:'nearest' on an already-visible card is a no-op and
 # left the drilldown below the fold.
 assert "C: card selection scrolls the slot, not just the card" 'function scrollSlotIntoView' "$render"
+assert "C: selecting a slot mounts the shared detail block" 'mountDetail\(slot.getAttribute' "$render"
 if printf '%s' "$render" | grep -E "card\.scrollIntoView" >/dev/null 2>&1; then
   echo "FAIL - C: nothing scrolls the bare card any more"; fail=1
 else
@@ -361,7 +382,7 @@ assert "D: dimmed lanes stay legible (opacity, not display:none)" '\.rm-lane\.sc
 # shelved count is a real toggle over a compact list.
 assert "E: week cards carry the scope attrs and a toggle click" \
   '<div class="week-card" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="toggleWeekCard' "$render"
-if printf '%s' "$render" | grep -q 'class="week-card expanded"'; then
+if printf '%s' "$render" | grep -E 'class="week-card expanded"' >/dev/null 2>&1; then
   echo "FAIL - E: week cards render collapsed, not pre-expanded"; fail=1
 else
   echo "ok   - E: week cards render collapsed, not pre-expanded"
@@ -434,11 +455,14 @@ fi
 assert "L: task ids gain an open-ic anchor at the fixture's own task file" \
   "<a class=\"open-ic\" href=\"file://$FIXTURE_TASKS/alpha\.md\" target=\"_blank\"" "$render"
 assert "L: the card id carries one too" "class=\"card-id mono copyable\" data-copy=\"wb resume alpha\">alpha</span><a class=\"open-ic\" href=\"file://$FIXTURE_TASKS/alpha\.md\"" "$render"
-assert "L: drilldown headings link to the task file"  '<h3>Plan<a class="open-ic"' "$render"
+# U8 moved the expanded body into the shared detail block, so the task-file
+# link that used to sit on each drilldown heading now sits in that block's
+# header, once, where the id is.
+assert "L: the detail block header links to the task file" 'class="detail-id mono copyable" data-copy="wb resume [^"]+">[^<]*</span><a class="open-ic' "$render"
 # A phantom stem (a `parent:` naming a file that does not exist) must be
 # flagged, not rendered as a live link that 404s.
 assert "L: a phantom stem's open link is marked .missing" 'class="open-ic missing" href="[^"]+" target="_blank" title="no such task file"' "$render"
-assert "L: the handoff block links to the task file"  'class="dd-meta">.*<a class="open-ic"' "$render"
+
 assert "L: week meta ids link to the task file"       'data-copy="wb resume bravo">bravo</span><a class="open-ic"' "$render"
 assert "L: family tree rows link to the task file"    'class="t-id mono">[^<]*</span>.*</div><a class="open-ic"' "$render"
 assert "L: the decisions timeline source links too"   'class="fam-tl-source [^"]*copyable" data-copy="[^"]+">[^<]*</span><a class="open-ic"' "$render"
@@ -502,6 +526,42 @@ assert "Ladder family renders a rung" 'class="rung ' "$render"
 assert "Ladder family: resolvable rung shows live status class" 'rung planned' "$render"
 assert "Ladder family: unresolvable rung falls back to unfiled" 'not yet filed' "$render"
 assert "Ladder family: R22 copy-id present for the resolved child" 'data-copy="wb resume ladder-parent-child1"' "$render"
+
+# =========================================================================
+# U8: the shared summary-first detail block. One node per EXPANDABLE task,
+# parked in #detail-pool and moved into whichever slot opens.
+# =========================================================================
+pool_blocks="$(printf '%s' "$render" | grep -o 'class="detail" id="detail-' | wc -l || true)"
+hosts="$(printf '%s' "$render" | grep -o 'class="detail-host" data-anchor="' | wc -l || true)"
+assert "U8: there is a hidden #detail-pool" '<div id="detail-pool" hidden>' "$render"
+assert_eq "U8: the pool is non-empty" "1" "$([ "${pool_blocks:-0}" -gt 0 ] && echo 1 || echo 0)"
+# A block exists iff something can mount it; hosts may outnumber blocks
+# (a task on the deck AND in a family has two hosts, one block) but never
+# the other way round.
+assert_eq "U8: never more blocks than mount hosts" "1" "$([ "${pool_blocks:-0}" -le "${hosts:-0}" ] && echo 1 || echo 0)"
+dup="$(printf '%s' "$render" | grep -o 'id="detail-alpha"' | wc -l || true)"
+assert_eq "U8: exactly one block per task, not one per view" "1" "$dup"
+# Block anatomy: header (title/status/age/id), the Now line, and sections
+# with counts — Latest handoff open, everything else collapsed.
+assert "U8: header carries title, status pill and age" 'class="detail-head"><div class="detail-title">[^<]+</div><span class="detail-pill st-[a-z]+">[a-z]+</span><span class="detail-age mono">touched ' "$render"
+assert "U8: the block leads with a Now line"          'class="detail-now"><span class="lbl">Now</span><span class="txt">' "$render"
+assert "U8: Latest handoff is the one open section"   '<details class="dsec" open><summary>Latest handoff</summary>' "$render"
+assert "U8: Plan is collapsed and shows checked/total" '<details class="dsec"><summary>Plan <span class="n">[0-9]+/[0-9]+</span>' "$render"
+assert "U8: Done is collapsed and counted"            '<details class="dsec"><summary>Done <span class="n">[0-9]+</span>' "$render"
+assert "U8: Follow-ups is collapsed and counted"      '<details class="dsec"><summary>Follow-ups <span class="n">[0-9]+</span>' "$render"
+assert "U8: a child block links back to its family scope" 'class="detail-parent" onclick="setScope\(' "$render"
+# Budget shape: a done task gets the compact block, a planned one keeps
+# Plan/Follow-ups but drops Decisions/Artifacts.
+assert "U8: the stage strip appears inside the detail header too" 'class="detail-now"' "$render"
+# Family: child rows are the expand hook and carry the caret.
+assert "U8: family child rows are expandable and carry a caret" \
+  '<div class="fam-tree-row child-row expandable" data-anchor="[^"]+" onclick="toggleFamDetail\(event,this\)"><span class="fam-caret">' "$render"
+assert "U8: each family child row is followed by its own mount host" \
+  '</div><div class="detail-host" data-anchor="[^"]+"></div>' "$render"
+assert "U8: only one detail is open per family block" 'querySelectorAll\(.\.detail-host\.open.\)\.forEach\(unmountHost\)' "$render"
+# Long raw text is clipped before escaping (a CPU lever as much as a size
+# one) and says so rather than silently ending mid-sentence.
+assert "U8: over-long raw text is clipped with a marker" 'clipped &mdash; open the task file for the rest|clipped — open the task file for the rest' "$render"
 
 # --- U5: family-rollup.json side-output ----------------------------------
 rollup="$FIXTURE_TASKS/.board-cache/family-rollup.json"
