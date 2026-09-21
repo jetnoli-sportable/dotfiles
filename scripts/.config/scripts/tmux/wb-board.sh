@@ -987,6 +987,9 @@ wb_board_v2_rail_node_html() {
   # the primary click on a row now SELECTS (sets scope), and a single click
   # must never both copy and select.
   local copy_ic="<span class=\"copy-ic copyable\" data-copy=\"wb resume ${stem_h}\" title=\"copy wb resume ${stem_h}\">&#8865;</span>"
+  # ...and the other half: an anchor straight to the task's own file.
+  local open_ic; wb_board_v2_task_open_html "$stem" open_ic
+  copy_ic+="$open_ic"
   local kids="${_m_family_children[$stem]:-}"
   if [ -n "$kids" ]; then
     printf '<details class="family-node" open><summary data-stem="%s" data-anchor="%s" data-family="%s" data-status="%s" onclick="railSummaryClick(event,this)"><span class="chev">&#9656;</span><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</summary><div class="family-children">' \
@@ -1020,14 +1023,15 @@ wb_board_v2_shelf_items_html() {
   # data-anchor="".) Same class of trap as the nameref-recursion note on
   # wb_board_v2_family_root; out-var names must not collide with the
   # callee's locals.
-  local list="$1" si_stem out="" si_h="" si_a="" si_sh="" si_st=""
+  local list="$1" si_stem out="" si_h="" si_a="" si_sh="" si_st="" si_open=""
   while IFS= read -r si_stem; do
     [ -n "$si_stem" ] || continue
     wb_board_html_escape "${_m_title[$si_stem]:-$si_stem}" si_h
     wb_board_html_escape "$si_stem" si_sh
     wb_board_html_escape "${_m_status[$si_stem]:-}" si_st
     wb_board_v2_anchor "$si_stem" si_a
-    out+="<div class=\"shelf-row\" data-stem=\"$si_sh\" data-anchor=\"$si_a\" data-family=\"$si_a\" data-status=\"$si_st\" onclick=\"railPick(event,this)\"><span class=\"shelf-dot\"></span><span class=\"shelf-text\">$si_h</span><span class=\"copy-ic copyable\" data-copy=\"wb resume $si_sh\" title=\"copy wb resume $si_sh\">&#8865;</span></div>"
+    wb_board_v2_task_open_html "$si_stem" si_open
+    out+="<div class=\"shelf-row\" data-stem=\"$si_sh\" data-anchor=\"$si_a\" data-family=\"$si_a\" data-status=\"$si_st\" onclick=\"railPick(event,this)\"><span class=\"shelf-dot\"></span><span class=\"shelf-text\">$si_h</span><span class=\"copy-ic copyable\" data-copy=\"wb resume $si_sh\" title=\"copy wb resume $si_sh\">&#8865;</span>$si_open</div>"
   done <<< "$list"
   printf '%s' "$out"
 }
@@ -1226,6 +1230,107 @@ wb_board_v2_classify_link() {
   esac
 }
 
+# wb_board_v2_url_escape <path> <out_var> — percent-encode the handful of
+# characters that actually break a `file://` URL. NOT a general URL
+# encoder: `/`, `.`, `-`, `_` and every other path character must survive
+# verbatim or the link stops pointing at the file. `%` goes first, or the
+# escapes introduced below would themselves be re-encoded. Pure parameter
+# expansion, no fork — this runs once per link and once per task id.
+wb_board_v2_url_escape() {
+  local __u="${1:-}"
+  __u="${__u//'%'/%25}"
+  __u="${__u// /%20}"
+  __u="${__u//'#'/%23}"
+  __u="${__u//'?'/%3F}"
+  __u="${__u//'['/%5B}"
+  __u="${__u//']'/%5D}"
+  printf -v "$2" '%s' "$__u"
+}
+
+# wb_board_v2_resolve_link <raw_link> <owning_repo> <href_out> <text_out>
+#   <missing_out> — turn one of U2's raw link candidates into something a
+# browser can actually open, plus the absolute text to show for it.
+#
+# The capture pass records links exactly as the task file wrote them, which
+# is almost never openable from the board: `dossiers/x/plan.md` is relative
+# to the task STORE, `docs/plans/y.md` is relative to the owning task's
+# REPO, and neither is relative to logs/board.html. The resolution rules:
+#
+#   https:// , http://      left alone (claude.ai artifacts and friends)
+#   /absolute               left alone
+#   ~/...                   $HOME/...
+#   dossiers/...            $TASKS_DIR/dossiers/...
+#   docs/... , logs/...     $CODE_DIR/<repo>/...   (repo from the owning
+#                           task's `repo:` frontmatter)
+#   anything else relative  $CODE_DIR/<repo>/...   (same assumption: a
+#                           bare relative path in a task file means "in the
+#                           repo this task is about")
+#
+# A task with an empty `repo:` falls back to $CODE_DIR/dotfiles — the repo
+# the board itself lives in, which is where an unqualified docs/ or logs/
+# path in this store overwhelmingly means.
+#
+# <missing_out> is set to "1" when the resolved path does not exist on
+# disk. Missing links are MARKED, never dropped: a link that has gone stale
+# is exactly the thing worth seeing on the board. `[ -e ]` is a builtin
+# (no fork) and links are deduped per family, so this is cheap.
+wb_board_v2_resolve_link() {
+  local __raw="${1:-}" __repo="${2:-}"
+  local -n _rl_href="$3" _rl_text="$4" _rl_missing="$5"
+  _rl_missing=""
+  case "$__raw" in
+    https://*|http://*)
+      _rl_href="$__raw"; _rl_text="$__raw"; return 0 ;;
+  esac
+  local __abs
+  case "$__raw" in
+    /*)            __abs="$__raw" ;;
+    '~/'*)         __abs="$HOME/${__raw#\~/}" ;;
+    dossiers/*)    __abs="${TASKS_DIR:-$HOME/code/tasks}/$__raw" ;;
+    *)             __abs="${CODE_DIR:-$HOME/code}/${__repo:-dotfiles}/$__raw" ;;
+  esac
+  [ -e "$__abs" ] || _rl_missing=1
+  _rl_text="$__abs"
+  local __enc; wb_board_v2_url_escape "$__abs" __enc
+  _rl_href="file://$__enc"
+}
+
+# wb_board_v2_task_open_html <stem> <out_var> — the small "↗" anchor that
+# opens a task's own markdown file. Every place the board shows a task id
+# already offered `wb resume <stem>` on the clipboard; this is the other
+# half of the ask — a link you can actually click to read the file.
+#
+# TASK_HREF_PREFIX is declared once in wb_board_render_v2 and read here via
+# the same dynamic-scoping convention as the _m_* arrays (the alternative,
+# re-escaping $TASKS_DIR at every one of the ~500 call sites a full store
+# produces, is exactly the per-row cost this file's D2A convention exists
+# to avoid). The stem still goes through both escapes per call: a phantom
+# stem from a hand-typed `parent:` never passed through the real files'
+# [A-Za-z0-9._-] filename invariant.
+#
+# The markup is kept deliberately lean. At ~800 of these on the real store
+# every byte is multiplied: a per-link `title="open <stem>.md"` and a
+# `rel="noopener"` added ~45 bytes each, ~35KB to the page and measurable
+# time to R15's budget, for no information the href doesn't already carry
+# (the browser shows it on hover anyway, and `target="_blank"` has implied
+# noopener since 2021). A static title carries the affordance instead.
+#
+# A stem with no entry in the model is a PHANTOM — a hand-typed `parent:`
+# naming a task file that does not exist (the pre-existing P3 this file
+# documents in several places). Its link would 404, so it is marked the
+# same way a missing artifact is, rather than looking like a live link.
+# That is an array lookup, not a `[ -e ]` per call: cheaper, and it is the
+# authoritative answer, since the model IS the set of files that were read.
+wb_board_v2_task_open_html() {
+  local __enc __cls="open-ic" __t="open task file"
+  if [ -z "${_m_stem_anchor[${1:-}]+x}" ]; then
+    __cls="open-ic missing"; __t="no such task file"
+  fi
+  wb_board_v2_url_escape "${1:-}" __enc
+  wb_board_html_escape "$__enc" __enc
+  printf -v "$2" '%s' "<a class=\"${__cls}\" href=\"${TASK_HREF_PREFIX}${__enc}.md\" target=\"_blank\" title=\"${__t}\">&#8599;</a>"
+}
+
 # wb_board_v2_parse_ladder_table <raw_plan_text> — TSV rows "rung \t ticket
 # \t wbtask_cell \t status_cell" for a nested "### Version ladder status"
 # markdown table inside a family root's Plan section (the
@@ -1353,6 +1458,14 @@ wb_board_render_v2() {
   local -n _m_decisions_raw="${28}" _m_links_raw="${29}"
 
   local now; now="$(date +%s)"
+
+  # TASK_HREF_PREFIX: "file:///abs/path/to/tasks/" — escaped ONCE here and
+  # read by wb_board_v2_task_open_html at every task-id site (see its own
+  # note), rather than re-escaping $TASKS_DIR a few hundred times.
+  local TASK_HREF_PREFIX
+  wb_board_v2_url_escape "${TASKS_DIR:-$HOME/code/tasks}" TASK_HREF_PREFIX
+  wb_board_html_escape "$TASK_HREF_PREFIX" TASK_HREF_PREFIX
+  TASK_HREF_PREFIX="file://${TASK_HREF_PREFIX}/"
 
   # ---- dependency graph (Roadmap/Week readiness cues, R19) — reuses the
   # OLD renderer's wb_board_deps_validate/_cycles/_blocking (U1's split,
@@ -1511,7 +1624,11 @@ wb_board_render_v2() {
 
     deck_html+="<div class=\"card-slot${dk_sel_cls}\" data-stem=\"${dk_stem}\" data-anchor=\"${dk_anchor}\" data-family=\"${dk_fam_anchor}\">"
     deck_html+="<div class=\"card${dk_sel_cls}${dk_stale_cls}\" id=\"card-${dk_anchor}\" data-drilldown=\"drilldown-${dk_anchor}\">"
-    deck_html+="<div class=\"card-top\"><div><div class=\"card-title\">${dk_title}</div><span class=\"card-id mono copyable\" data-copy=\"wb resume ${dk_stem}\">${dk_stem}</span></div>"
+    # The card id gains an "open the task file" anchor beside its existing
+    # copy behaviour, and each drilldown heading carries the same link so
+    # the expanded detail is one click from the source it summarises.
+    local dk_open; wb_board_v2_task_open_html "$dk_stem" dk_open
+    deck_html+="<div class=\"card-top\"><div><div class=\"card-title\">${dk_title}</div><span class=\"card-id mono copyable\" data-copy=\"wb resume ${dk_stem}\">${dk_stem}</span>${dk_open}</div>"
     deck_html+="<div class=\"ring-wrap\"><svg width=\"42\" height=\"42\" viewBox=\"0 0 42 42\"><circle cx=\"21\" cy=\"21\" r=\"17\" fill=\"none\" stroke=\"var(--overlay)\" stroke-width=\"4\"/>${dk_ring_circle}</svg><span class=\"ring-label\">${dk_ring_label}</span></div></div>"
     deck_html+="${dk_quote_html}"
     deck_html+="<div class=\"next-line\">Next: <b>$(wb_board_html_escape "$dk_next")</b></div>"
@@ -1521,9 +1638,9 @@ wb_board_render_v2() {
     local dk_active_cls=""
     [ "$dk_idx" = 1 ] && dk_active_cls=" active"
     deck_html+="<div class=\"drilldown${dk_active_cls}\" id=\"drilldown-${dk_anchor}\">"
-    deck_html+="<div><h3>Plan</h3>$(wb_board_v2_plan_ul "$dk_stem")</div>"
-    deck_html+="<div><h3>Done</h3>$(wb_board_v2_done_ul "$dk_stem")<div class=\"dd-meta\">$(wb_board_v2_handoff_meta "$dk_stem")</div></div>"
-    deck_html+="<div><h3>Follow-ups</h3>$(wb_board_v2_followups_ul "$dk_stem")</div>"
+    deck_html+="<div><h3>Plan${dk_open}</h3>$(wb_board_v2_plan_ul "$dk_stem")</div>"
+    deck_html+="<div><h3>Done${dk_open}</h3>$(wb_board_v2_done_ul "$dk_stem")<div class=\"dd-meta\">$(wb_board_v2_handoff_meta "$dk_stem") ${dk_open}</div></div>"
+    deck_html+="<div><h3>Follow-ups${dk_open}</h3>$(wb_board_v2_followups_ul "$dk_stem")</div>"
     deck_html+="</div>"
     deck_html+="</div>"
   done
@@ -1623,14 +1740,15 @@ wb_board_render_v2() {
   for st_stem in "${!_m_stem_anchor[@]}"; do
     [ "${_m_bucket[$st_stem]:-}" = stale ] && stale_stems+=("$st_stem")
   done
-  local rm_stale_rows_html="" week_stale_rows_html="" ss_anchor="" ss_fam_anchor=""
+  local rm_stale_rows_html="" week_stale_rows_html="" ss_anchor="" ss_fam_anchor="" ss_open=""
   if [ "${#stale_stems[@]}" -gt 0 ]; then
     local ss_stem
     while IFS= read -r ss_stem; do
       wb_board_v2_anchor "$ss_stem" ss_anchor
       wb_board_v2_anchor "${_m_family_root[$ss_stem]:-$ss_stem}" ss_fam_anchor
+      wb_board_v2_task_open_html "$ss_stem" ss_open
       rm_stale_rows_html+="<div class=\"rm-stale-row\"><div class=\"rm-lane-label\" title=\"$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")\"><span class=\"dot red\"></span>$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")<span class=\"age-red mono\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div></div>"
-      week_stale_rows_html+="<div class=\"carried-row\" data-stem=\"$ss_stem\" data-anchor=\"$ss_anchor\" data-family=\"$ss_fam_anchor\"><span class=\"dot red\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $ss_stem\">$ss_stem</span>$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")</span><span class=\"age\" style=\"color:var(--red);\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div>"
+      week_stale_rows_html+="<div class=\"carried-row\" data-stem=\"$ss_stem\" data-anchor=\"$ss_anchor\" data-family=\"$ss_fam_anchor\"><span class=\"dot red\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $ss_stem\">$ss_stem</span>${ss_open}$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")</span><span class=\"age\" style=\"color:var(--red);\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div>"
     done < <(wb_board_v2_sort_stems_by_age desc "${stale_stems[@]}")
   fi
 
@@ -1679,7 +1797,7 @@ wb_board_render_v2() {
   # click — 23 always-open full drilldowns made this view 8579px tall. They
   # also carry the scope attributes so a rail pick narrows the week the
   # same way it narrows the deck, and auto-expands the scoped task.
-  local week_cards_html="" wc_anchor="" wc_fam_anchor=""
+  local week_cards_html="" wc_anchor="" wc_fam_anchor="" wc_open=""
   if [ "${#this_week_stems[@]}" -gt 0 ]; then
     local wc_stem
     while IFS= read -r wc_stem; do
@@ -1690,7 +1808,8 @@ wb_board_render_v2() {
       local wc_parent_html=""
       [ -n "${_m_stem_parent[$wc_stem]:-}" ] && wc_parent_html=" &middot; <span class=\"parent-chip mono\">child of $(wb_board_html_escape "${_m_stem_parent[$wc_stem]}")</span>"
       week_cards_html+="<div class=\"week-card\" data-stem=\"${wc_stem}\" data-anchor=\"${wc_anchor}\" data-family=\"${wc_fam_anchor}\" onclick=\"toggleWeekCard(event,this)\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">$(wb_board_html_escape "${_m_status[$wc_stem]:-}")</span><span class=\"wk-caret\">&#9656;</span></div>"
-      week_cards_html+="<div class=\"meta\"><span class=\"mono copyable\" data-copy=\"wb resume $wc_stem\">$wc_stem</span> &middot; touched $(wb_board_v2_age_label "${_m_age_days[$wc_stem]:-0}")${wc_parent_html}</div>"
+      wb_board_v2_task_open_html "$wc_stem" wc_open
+      week_cards_html+="<div class=\"meta\"><span class=\"mono copyable\" data-copy=\"wb resume $wc_stem\">$wc_stem</span>${wc_open} &middot; touched $(wb_board_v2_age_label "${_m_age_days[$wc_stem]:-0}")${wc_parent_html}</div>"
       week_cards_html+="<div class=\"wdrill\"><div><div class=\"wdrill-block\"><h4>Plan</h4>$(wb_board_v2_plan_ul "$wc_stem")</div><div class=\"wdrill-block\"><h4>Done</h4>$(wb_board_v2_done_ul "$wc_stem")</div></div>"
       week_cards_html+="<div><div class=\"wdrill-block\"><h4>Latest handoff</h4><div class=\"handoff\">$(wb_board_v2_handoff_meta "$wc_stem")</div></div><div class=\"wdrill-block\"><h4>Follow-ups</h4>$(wb_board_v2_followups_ul "$wc_stem")</div></div></div></div>"
     done < <(wb_board_v2_sort_stems_by_age asc "${this_week_stems[@]}")
@@ -1710,7 +1829,8 @@ wb_board_render_v2() {
       local cw_dot; cw_dot="$(wb_board_v2_dot_class "${_m_status[$cw_stem]}" "${_m_bucket[$cw_stem]}" "${_m_age_days[$cw_stem]:-0}")"
       local cw_title; cw_title="$(wb_board_html_escape "${_m_title[$cw_stem]:-$cw_stem}")"
       local cw_anchor; wb_board_v2_anchor "$cw_stem" cw_anchor
-      family_blocks_html+="<div class=\"family-block\" data-stem=\"$cw_stem\" data-anchor=\"$cw_anchor\" data-family=\"$cw_anchor\"><div class=\"fam-row\"><span class=\"dot ${cw_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cw_stem\">$cw_stem</span>${cw_title}</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cw_stem]:-0}")</span></div><div class=\"fam-kids\">"
+      local cw_open cw_child_open; wb_board_v2_task_open_html "$cw_stem" cw_open
+      family_blocks_html+="<div class=\"family-block\" data-stem=\"$cw_stem\" data-anchor=\"$cw_anchor\" data-family=\"$cw_anchor\"><div class=\"fam-row\"><span class=\"dot ${cw_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cw_stem\">$cw_stem</span>${cw_open}${cw_title}</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cw_stem]:-0}")</span></div><div class=\"fam-kids\">"
       local cw_child cw_pill_cls cw_pill_text
       while IFS= read -r cw_child; do
         [ -n "$cw_child" ] || continue
@@ -1719,7 +1839,8 @@ wb_board_render_v2() {
           doing|review) cw_pill_cls="doing"; cw_pill_text="doing" ;;
           *) cw_pill_cls="planned"; cw_pill_text="${_m_status[$cw_child]:-}" ;;
         esac
-        family_blocks_html+="<div class=\"fam-kid-row\"><span class=\"title copyable\" data-copy=\"wb resume $cw_child\">$(wb_board_html_escape "${_m_title[$cw_child]:-$cw_child}")</span><span class=\"right\"><span class=\"pill ${cw_pill_cls}\">$(wb_board_html_escape "$cw_pill_text")</span><span class=\"age mono\">$(wb_board_v2_age_label "${_m_age_days[$cw_child]:-0}")</span></span></div>"
+        wb_board_v2_task_open_html "$cw_child" cw_child_open
+        family_blocks_html+="<div class=\"fam-kid-row\">${cw_child_open}<span class=\"title copyable\" data-copy=\"wb resume $cw_child\">$(wb_board_html_escape "${_m_title[$cw_child]:-$cw_child}")</span><span class=\"right\"><span class=\"pill ${cw_pill_cls}\">$(wb_board_html_escape "$cw_pill_text")</span><span class=\"age mono\">$(wb_board_v2_age_label "${_m_age_days[$cw_child]:-0}")</span></span></div>"
       done <<< "$cw_kids"
       family_blocks_html+='</div></div>'
     else
@@ -1729,12 +1850,13 @@ wb_board_render_v2() {
     fi
   done
   if [ "${#carried_standalone_stems[@]}" -gt 0 ]; then
-    local cl_stem cl_dot cl_anchor cl_fam_anchor
+    local cl_stem cl_dot cl_anchor cl_fam_anchor cl_open
     while IFS= read -r cl_stem; do
       cl_dot="$(wb_board_v2_dot_class "${_m_status[$cl_stem]}" "${_m_bucket[$cl_stem]}" "${_m_age_days[$cl_stem]:-0}")"
       wb_board_v2_anchor "$cl_stem" cl_anchor
       wb_board_v2_anchor "${_m_family_root[$cl_stem]:-$cl_stem}" cl_fam_anchor
-      carried_list_html+="<div class=\"carried-row\" data-stem=\"$cl_stem\" data-anchor=\"$cl_anchor\" data-family=\"$cl_fam_anchor\"><span class=\"dot ${cl_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cl_stem\">$cl_stem</span>$(wb_board_html_escape "${_m_title[$cl_stem]:-$cl_stem}")</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cl_stem]:-0}")</span></div>"
+      wb_board_v2_task_open_html "$cl_stem" cl_open
+      carried_list_html+="<div class=\"carried-row\" data-stem=\"$cl_stem\" data-anchor=\"$cl_anchor\" data-family=\"$cl_fam_anchor\"><span class=\"dot ${cl_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cl_stem\">$cl_stem</span>${cl_open}$(wb_board_html_escape "${_m_title[$cl_stem]:-$cl_stem}")</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cl_stem]:-0}")</span></div>"
     done < <(wb_board_v2_sort_stems_by_age asc "${carried_standalone_stems[@]}")
   fi
 
@@ -1792,14 +1914,15 @@ wb_board_render_v2() {
   done
   local wk_shelf_rows_html=""
   if [ "${#wk_shelf_stems[@]}" -gt 0 ]; then
-    local ws_stem ws_h="" ws_sh="" ws_a="" ws_fa="" ws_st=""
+    local ws_stem ws_h="" ws_sh="" ws_a="" ws_fa="" ws_st="" ws_open=""
     while IFS= read -r ws_stem; do
       wb_board_html_escape "${_m_title[$ws_stem]:-$ws_stem}" ws_h
       wb_board_html_escape "$ws_stem" ws_sh
       wb_board_html_escape "${_m_status[$ws_stem]:-}" ws_st
       wb_board_v2_anchor "$ws_stem" ws_a
       wb_board_v2_anchor "${_m_family_root[$ws_stem]:-$ws_stem}" ws_fa
-      wk_shelf_rows_html+="<div class=\"wk-shelf-row\" data-stem=\"$ws_sh\" data-anchor=\"$ws_a\" data-family=\"$ws_fa\"><span class=\"shelf-dot\"></span><span class=\"t\">$ws_h</span><span class=\"st\">$ws_st</span><span class=\"id mono copyable\" data-copy=\"wb resume $ws_sh\">$ws_sh</span></div>"
+      wb_board_v2_task_open_html "$ws_stem" ws_open
+      wk_shelf_rows_html+="<div class=\"wk-shelf-row\" data-stem=\"$ws_sh\" data-anchor=\"$ws_a\" data-family=\"$ws_fa\"><span class=\"shelf-dot\"></span><span class=\"t\">$ws_h</span><span class=\"st\">$ws_st</span><span class=\"id mono copyable\" data-copy=\"wb resume $ws_sh\">$ws_sh</span>${ws_open}</div>"
     done < <(wb_board_v2_sort_stems_by_title "${wk_shelf_stems[@]}")
   fi
 
@@ -1854,7 +1977,7 @@ wb_board_render_v2() {
   # site here would be exactly the per-call fork cost U2's own timing
   # notes warn against. Reused across iterations on purpose (scratch,
   # consumed immediately after each call, never read stale).
-  local __h="" __h2="" __h3="" __al=""
+  local __h="" __h2="" __h3="" __al="" __open=""
   local rail_family_html="" fam_blocks_html="" fam_idx=0 fam_json_entries=""
   for fr_stem in "${all_family_roots_sorted[@]}"; do
     fam_idx=$((fam_idx + 1))
@@ -1875,6 +1998,7 @@ wb_board_render_v2() {
     # handling makes it safe for both contexts) instead of interpolating
     # the raw stem at each site.
     local fr_stem_h; wb_board_html_escape "$fr_stem" fr_stem_h
+    local fr_open; wb_board_v2_task_open_html "$fr_stem" fr_open
     local fr_kids="${_m_family_children[$fr_stem]}"
     local -a fr_members=("$fr_stem")
     local fr_c
@@ -1934,7 +2058,8 @@ wb_board_render_v2() {
     # the same per-file fork cost U2's timing notes warn against.
     local -A fr_link_seen=()
     local -a fr_link_kind=() fr_link_label=() fr_link_path=() fr_link_source=()
-    local fr_m3 fr_link_line fr_kind fr_label fr_path
+    local -a fr_link_href=() fr_link_abs=() fr_link_missing=()
+    local fr_m3 fr_link_line fr_kind fr_label fr_path fr_href fr_abs fr_gone
     for fr_m3 in "${fr_members[@]}"; do
       while IFS= read -r fr_link_line; do
         [ -n "$fr_link_line" ] || continue
@@ -1942,7 +2067,12 @@ wb_board_render_v2() {
         local fr_dedupe_key="${fr_kind}"$'\x1f'"${fr_path}"
         [ -n "${fr_link_seen[$fr_dedupe_key]:-}" ] && continue
         fr_link_seen["$fr_dedupe_key"]=1
+        # Resolve to an openable absolute path/URL once, here, where the
+        # OWNING member's `repo:` is still in hand — the render sites below
+        # group by kind and no longer know which task cited what.
+        wb_board_v2_resolve_link "$fr_path" "${_m_repo[$fr_m3]:-}" fr_href fr_abs fr_gone
         fr_link_kind+=("$fr_kind"); fr_link_label+=("$fr_label"); fr_link_path+=("$fr_path"); fr_link_source+=("$fr_m3")
+        fr_link_href+=("$fr_href"); fr_link_abs+=("$fr_abs"); fr_link_missing+=("$fr_gone")
       done <<< "${_m_links_raw[$fr_m3]:-}"
     done
 
@@ -2025,7 +2155,8 @@ wb_board_render_v2() {
         local fr_resolved_status="" fr_rung_child_html='<span class="rung-child none">no child task yet</span>'
         if [ -n "$fr_child" ] && [ -n "${_m_status[$fr_child]:-}" ]; then
           fr_resolved_status="${_m_status[$fr_child]}"
-          fr_rung_child_html="<span class=\"rung-child mono copyable\" data-copy=\"wb resume ${fr_child}\">&#8618; <span class=\"id\">${fr_child}</span></span>"
+          wb_board_v2_task_open_html "$fr_child" __open
+          fr_rung_child_html="<span class=\"rung-child mono copyable\" data-copy=\"wb resume ${fr_child}\">&#8618; <span class=\"id\">${fr_child}</span></span>${__open}"
         fi
         local fr_rcls; wb_board_v2_ladder_status_class "$fr_resolved_status" "$fr_status_cell" fr_rcls
         local fr_active_cls=""
@@ -2063,9 +2194,11 @@ wb_board_render_v2() {
         if [ -n "$fr_child" ]; then
           for fr_ra_i in "${!fr_link_source[@]}"; do
             [ "${fr_link_source[$fr_ra_i]}" = "$fr_child" ] || continue
-            wb_board_html_escape "${fr_link_label[$fr_ra_i]}" __h
-            wb_board_html_escape "${fr_link_path[$fr_ra_i]}" __h2
-            fam_body_html+="<li><span class=\"artifact-link copyable\" data-copy=\"${__h2}\" title=\"${__h2}\"><span class=\"label\">${__h}</span></span></li>"
+            wb_board_html_escape "${fr_link_abs[$fr_ra_i]}" __h2
+            wb_board_html_escape "${fr_link_href[$fr_ra_i]}" __h3
+            local fr_ra_cls=""
+            [ -n "${fr_link_missing[$fr_ra_i]}" ] && fr_ra_cls=" missing"
+            fam_body_html+="<li><a class=\"artifact-link mono${fr_ra_cls}\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\" title=\"${__h2}\">${__h2}</a><span class=\"copy-ic copyable\" data-copy=\"${__h2}\" title=\"copy path\">&#8865;</span></li>"
             fr_ra_found=1
           done
         fi
@@ -2079,14 +2212,14 @@ wb_board_render_v2() {
       fam_body_html+="<h2 class=\"region-label\">Family view</h2>"
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
-      fam_body_html+="<div class=\"fam-hero\"><div class=\"fam-hero-top\"><div><div class=\"fam-hero-title\">${__h}</div><span class=\"fam-hero-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span></div><div class=\"fam-hero-meta\"><span class=\"dot ${fr_dot}\"></span><span class=\"age mono\">${__al}</span></div></div>"
+      fam_body_html+="<div class=\"fam-hero\"><div class=\"fam-hero-top\"><div><div class=\"fam-hero-title\">${__h}</div><span class=\"fam-hero-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span>${fr_open}</div><div class=\"fam-hero-meta\"><span class=\"dot ${fr_dot}\"></span><span class=\"age mono\">${__al}</span></div></div>"
       fam_body_html+='<div class="fam-tree">'
       local fr_p_status="${_m_status[$fr_stem]:-}" fr_p_pill_cls="planned"
       case "$fr_p_status" in doing|review) fr_p_pill_cls="doing" ;; esac
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
       wb_board_html_escape "$fr_p_status" __h2
-      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem_h}\">${__h}</div><span class=\"t-id mono\">${fr_stem_h} &middot; parent</span></div><span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem_h}\">${__h}</div><span class=\"t-id mono\">${fr_stem_h} &middot; parent</span></div>${fr_open}<span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
       local fr_child_row
       while IFS= read -r fr_child_row; do
         [ -n "$fr_child_row" ] || continue
@@ -2096,7 +2229,8 @@ wb_board_render_v2() {
         wb_board_v2_age_label "${_m_age_days[$fr_child_row]:-0}" __al
         wb_board_html_escape "$fr_c_status" __h2
         wb_board_html_escape "$fr_child_row" __h3
-        fam_body_html+="<div class=\"fam-tree-row child-row\"><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span></div><span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+        wb_board_v2_task_open_html "$fr_child_row" __open
+        fam_body_html+="<div class=\"fam-tree-row child-row\"><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span></div>${__open}<span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
       done <<< "$fr_kids"
       fam_body_html+='</div></div>'
 
@@ -2110,7 +2244,8 @@ wb_board_render_v2() {
           wb_board_html_escape "$fr_td_date" __h
           wb_board_html_escape "$fr_td_text" __h2
           wb_board_html_escape "$fr_td_src" __h3
-          fr_timeline_html+="<div class=\"fam-tl-item ${fr_src_cls}\"><div class=\"fam-tl-date mono\">${__h}</div><div class=\"fam-tl-text\">${__h2}</div><span class=\"fam-tl-source ${fr_src_badge_cls} copyable\" data-copy=\"wb resume ${__h3}\">${__h3}</span></div>"
+          wb_board_v2_task_open_html "$fr_td_src" __open
+          fr_timeline_html+="<div class=\"fam-tl-item ${fr_src_cls}\"><div class=\"fam-tl-date mono\">${__h}</div><div class=\"fam-tl-text\">${__h2}</div><span class=\"fam-tl-source ${fr_src_badge_cls} copyable\" data-copy=\"wb resume ${__h3}\">${__h3}</span>${__open}</div>"
         done <<< "$fr_decisions_sorted"
       fi
       fam_body_html+="<div class=\"fam-section\"><div class=\"fam-section-head\"><h3>Decisions &middot; across the whole family</h3><span class=\"fam-section-sub\">${fr_decisions_total} decisions</span></div>"
@@ -2132,15 +2267,22 @@ wb_board_render_v2() {
           local fr_group_html="" fr_gi
           for fr_gi in "${!fr_link_kind[@]}"; do
             [ "${fr_link_kind[$fr_gi]}" = "$fr_kind_want" ] || continue
-            wb_board_html_escape "${fr_link_path[$fr_gi]}" __h
+            # Every artifact is a real anchor now, showing (and copying)
+            # the ABSOLUTE path — a relative `dossiers/x/plan.md` is not
+            # openable from logs/board.html, which was the whole point of
+            # the ask. fix(review) P1 still holds: the full path, never the
+            # basename, is what is displayed, copied and deduped on.
+            wb_board_html_escape "${fr_link_abs[$fr_gi]}" __h
             wb_board_html_escape "${fr_link_source[$fr_gi]}" __h2
+            wb_board_html_escape "${fr_link_href[$fr_gi]}" __h3
+            local fr_gone_cls="" fr_gone_title=""
+            if [ -n "${fr_link_missing[$fr_gi]}" ]; then
+              fr_gone_cls=" missing"; fr_gone_title=" title=\"not found on disk\""
+            fi
             if [ "$fr_kind_want" = claude-ai ]; then
-              fr_group_html+="<div class=\"fam-art-row\"><span class=\"fam-art-icon\">&#128279;</span><a class=\"fam-art-path mono\" href=\"${__h}\" target=\"_blank\" rel=\"noopener\">${__h}</a><span class=\"fam-art-tag\">${__h2}</span></div>"
+              fr_group_html+="<div class=\"fam-art-row copyable\" data-copy=\"${__h}\"><span class=\"fam-art-icon\">&#128279;</span><a class=\"fam-art-path mono\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\">${__h}</a><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
             else
-              # fix(review) P1: data-copy and the visible path text now both
-              # use the full path (fr_link_path), not the basename-only
-              # fr_link_label — a basename alone can't be opened/found again.
-              fr_group_html+="<div class=\"fam-art-row copyable\" data-copy=\"${__h}\"><span class=\"fam-art-icon\">&#128196;</span><span class=\"fam-art-path mono\">${__h}</span><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
+              fr_group_html+="<div class=\"fam-art-row copyable${fr_gone_cls}\" data-copy=\"${__h}\"${fr_gone_title}><span class=\"fam-art-icon\">&#128196;</span><a class=\"fam-art-path mono\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\">${__h}</a><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
             fi
           done
           [ -n "$fr_group_html" ] || continue
@@ -2298,6 +2440,22 @@ wb_board_render_v2() {
   .rail-row:hover .copy-ic, details.family-node > summary:hover .copy-ic, .shelf-row:hover .copy-ic { opacity: .75; }
   .copy-ic:hover { opacity: 1; color: var(--mauve); }
 
+  /* "↗ open the file" — the other half of the copy glyph. Hidden until
+     hover in the dense rail; always visible where a task id is the point
+     of the row (cards, drilldown headings, family tree, timeline). */
+  .open-ic { flex: 0 0 auto; font-size: 12px; color: var(--subtext); text-decoration: none; padding: 0 2px; opacity: .55; transition: opacity .12s ease, color .12s ease; }
+  .open-ic:hover { opacity: 1; color: var(--blue); }
+  .rail-row .open-ic, details.family-node > summary .open-ic, .shelf-row .open-ic { opacity: 0; }
+  .rail-row:hover .open-ic, details.family-node > summary:hover .open-ic, .shelf-row:hover .open-ic { opacity: .75; }
+  .drilldown h3 .open-ic { margin-left: 8px; color: var(--mauve); }
+  .card-id + .open-ic { margin-left: 6px; }
+
+  /* An artifact whose resolved path is not on disk is MARKED, never
+     dropped — a link that has gone stale is worth seeing. */
+  .missing .fam-art-path, a.artifact-link.missing { color: var(--red); text-decoration: line-through; text-decoration-color: rgba(243,139,168,.45); }
+  .missing .fam-art-icon { color: var(--red); opacity: .8; }
+  a.open-ic.missing { color: var(--red); }
+
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
   .dot.green { background: var(--green); }
   .dot.yellow { background: var(--yellow); }
@@ -2377,7 +2535,7 @@ wb_board_render_v2() {
   .card.selected .ring-stroke { stroke: var(--mauve) !important; }
   .card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
   .card-title { font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.4; }
-  .card-id { display: block; color: var(--subtext); margin-top: 4px; font-size: 13px; }
+  .card-id { display: inline-block; color: var(--subtext); margin-top: 4px; font-size: 13px; }
   .ring-wrap { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .ring-label { font-size: 11.5px; color: var(--subtext); }
   .quote { font-size: 14.5px; color: var(--subtext); font-style: italic; border-left: 2px solid var(--overlay); padding-left: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -2598,7 +2756,7 @@ wb_board_render_v2() {
   .fam-hero { background: var(--surface); border: 1px solid var(--overlay); border-radius: 14px; padding: 24px 28px; margin-bottom: 26px; }
   .fam-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
   .fam-hero-title { font-size: 21px; font-weight: 650; color: var(--text); }
-  .fam-hero-id { display: block; margin-top: 5px; }
+  .fam-hero-id { display: inline-block; margin-top: 5px; }
   .fam-hero-meta { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
   .fam-hero-meta .age { font-size: 13.5px; color: var(--subtext); }
 
@@ -2643,7 +2801,11 @@ wb_board_render_v2() {
   .fam-art-row { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-radius: 8px; font-size: 14.5px; color: var(--text); }
   .fam-art-row:hover { background: var(--base); }
   .fam-art-icon { flex: 0 0 auto; font-size: 14px; color: var(--subtext); width: 16px; text-align: center; }
-  .fam-art-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); text-decoration: none; }
+  /* The whole point of the ask is to SEE and use the full path, so it
+     wraps rather than ellipsising away the filename. */
+  .fam-art-path { flex: 1; min-width: 0; color: var(--text); text-decoration: none; word-break: break-all; font-size: 13px; line-height: 1.45; }
+  .fam-art-path:hover { text-decoration: underline; text-decoration-color: var(--mauve); }
+  .fam-art-row { align-items: flex-start; }
   .fam-art-tag { flex: 0 0 auto; font-size: 12px; color: var(--subtext); }
   .fam-art-grab { flex: 0 0 auto; font-size: 12px; color: var(--mauve); border: 1px solid rgba(203,166,247,.35); background: rgba(203,166,247,.08); border-radius: 6px; padding: 2px 8px; opacity: 0; transition: opacity .12s ease; }
   .fam-art-row:hover .fam-art-grab { opacity: 1; }
@@ -2686,7 +2848,10 @@ wb_board_render_v2() {
   .rung-grid li.empty { color: var(--subtext); font-style: italic; font-size: 14px; }
   .decision-item { padding-left: 16px; position: relative; }
   .decision-item::before { content: "\2014"; position: absolute; left: 0; color: var(--mauve); }
-  .artifact-link { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; }
+  .artifact-link { display: inline-block; max-width: 100%; font-size: 13px; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+  .artifact-link:hover { text-decoration: underline; text-decoration-color: var(--mauve); }
+  .rung-grid li .copy-ic { opacity: .5; }
+  .rung-grid li:hover .copy-ic { opacity: 1; }
   .fam-today-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mauve); background: rgba(203,166,247,.12); border: 1px solid rgba(203,166,247,.4); padding: 2px 9px; border-radius: 999px; margin-left: 8px; }
 </style>
 </head>

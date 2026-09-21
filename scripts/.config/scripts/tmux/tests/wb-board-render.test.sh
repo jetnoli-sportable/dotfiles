@@ -126,6 +126,12 @@ EOF
 touch -d "3 days ago" "$FIXTURE_TASKS/xss-parent.md"
 mk_task xss-parent-child1 planned 3 $'parent: xss-parent'
 
+# A PHANTOM parent: `ghost-parent.md` is never created, so FAMILY_CHILDREN
+# gains a key with no collected row. It is a real shape in this store (a
+# hand-typed `parent:` with a typo, or a parent that was deleted) and the
+# only way to exercise the "no such task file" branch on an open link.
+mk_task ghost-child planned 3 $'parent: ghost-parent'
+
 mk_task ladder-parent-child1 planned 4 $'parent: ladder-parent'
 cat > "$FIXTURE_TASKS/ladder-parent.md" <<'EOF'
 ---
@@ -194,7 +200,7 @@ fam_badge_count=0
 for s in "${!FAMILY_CHILDREN[@]}"; do [ -n "${FAMILY_CHILDREN[$s]:-}" ] && fam_badge_count=$((fam_badge_count + 1)); done
 fam_badge="$(printf '%s' "$render" | grep -oE '>Family <span class="tab-badge">[0-9]+<' | grep -oE '[0-9]+')"
 assert_eq "R23: Family tab badge equals the model's family count" "$fam_badge_count" "$fam_badge"
-assert_eq "Family fixture sanity — 4 families (alpha, fam-parent, xss-parent, ladder-parent)" "4" "$fam_badge_count"
+assert_eq "Family fixture sanity — 5 families (alpha, fam-parent, xss-parent, ladder-parent, ghost-parent)" "5" "$fam_badge_count"
 
 # UX follow-up: family selection moved from a top-of-page chip grid to a
 # rail-row list (#rail-families), toggled with #rail-tasks by showView().
@@ -340,8 +346,13 @@ assert "Flat family: decisions timeline shows the fixture entry" 'Chose the simp
 # just a basename — both fam-parent's and fam-parent-child1's "plan.md"
 # (different directories, same basename) must survive, each copyable to
 # its OWN real path, not collapsed into one entry by a basename-only dedup.
-assert "Artifacts: parent's plan.md keeps its real path"      'data-copy="dossiers/fam-parent/plan\.md"'        "$render"
-assert "Artifacts: child's plan.md keeps its own real path"   'data-copy="dossiers/fam-parent-child1/plan\.md"' "$render"
+# (The paths are now resolved to ABSOLUTE, under the fixture's own
+# TASKS_DIR — a relative `dossiers/...` is not openable from the rendered
+# page, which is what the file:// links below exist to fix. The P1
+# regression this guards is unchanged: two same-basename files must stay
+# two distinct entries.)
+assert "Artifacts: parent's plan.md keeps its real path"      "data-copy=\"$FIXTURE_TASKS/dossiers/fam-parent/plan\.md\""        "$render"
+assert "Artifacts: child's plan.md keeps its own real path"   "data-copy=\"$FIXTURE_TASKS/dossiers/fam-parent-child1/plan\.md\"" "$render"
 parent_plan_count="$(printf '%s' "$render" | grep -c 'dossiers/fam-parent/plan\.md' || true)"
 child_plan_count="$(printf '%s' "$render" | grep -c 'dossiers/fam-parent-child1/plan\.md' || true)"
 assert_eq "Artifacts: both same-basename links present, not deduped away" "1" "$([ "${parent_plan_count:-0}" -ge 1 ] && [ "${child_plan_count:-0}" -ge 1 ] && echo 1 || echo 0)"
@@ -354,6 +365,42 @@ if printf '%s' "$render" | grep -qF '<script>alert'; then
 else
   echo "ok   - Family view never emits the raw unescaped <script> tag"
 fi
+
+# =========================================================================
+# Round-2 item 1: artifacts and task ids are OPENABLE, not just copyable.
+# Every path the board shows is resolved to an absolute file:// href — a
+# relative `dossiers/x/plan.md` cannot be opened from logs/board.html.
+# =========================================================================
+assert "L: an artifact renders as an anchor with a file:// absolute href" \
+  "<a class=\"fam-art-path mono\" href=\"file://$FIXTURE_TASKS/dossiers/fam-parent/plan\.md\"" "$render"
+assert "L: the anchor's TEXT is the full absolute path, not a basename" \
+  ">$FIXTURE_TASKS/dossiers/fam-parent/plan\.md</a>" "$render"
+assert "L: artifact anchors open in a new tab" 'class="fam-art-path mono" href="file://[^"]+" target="_blank" rel="noopener"' "$render"
+# The fixture's dossiers/ paths are cited in prose but never created on
+# disk, so they exercise the missing-link branch: marked, never dropped.
+assert "L: an artifact with no file on disk is marked .missing" 'class="fam-art-row copyable missing" data-copy="[^"]+" title="not found on disk"' "$render"
+if printf '%s' "$render" | grep -E "dossiers/fam-parent-child1/plan\.md" >/dev/null 2>&1; then
+  echo "ok   - L: a missing artifact is still rendered, not dropped"
+else
+  echo "FAIL - L: a missing artifact is still rendered, not dropped"; fail=1
+fi
+# A claude.ai / http(s) link keeps its own scheme rather than being
+# rewritten to file://.
+assert "L: task ids gain an open-ic anchor at the fixture's own task file" \
+  "<a class=\"open-ic\" href=\"file://$FIXTURE_TASKS/alpha\.md\" target=\"_blank\"" "$render"
+assert "L: the card id carries one too" "class=\"card-id mono copyable\" data-copy=\"wb resume alpha\">alpha</span><a class=\"open-ic\" href=\"file://$FIXTURE_TASKS/alpha\.md\"" "$render"
+assert "L: drilldown headings link to the task file"  '<h3>Plan<a class="open-ic"' "$render"
+# A phantom stem (a `parent:` naming a file that does not exist) must be
+# flagged, not rendered as a live link that 404s.
+assert "L: a phantom stem's open link is marked .missing" 'class="open-ic missing" href="[^"]+" target="_blank" title="no such task file"' "$render"
+assert "L: the handoff block links to the task file"  'class="dd-meta">.*<a class="open-ic"' "$render"
+assert "L: week meta ids link to the task file"       'data-copy="wb resume bravo">bravo</span><a class="open-ic"' "$render"
+assert "L: family tree rows link to the task file"    'class="t-id mono">[^<]*</span></div><a class="open-ic"' "$render"
+assert "L: the decisions timeline source links too"   'class="fam-tl-source [^"]*copyable" data-copy="[^"]+">[^<]*</span><a class="open-ic"' "$render"
+# Every open-ic href must be an absolute file:// URL under TASKS_DIR —
+# a relative one would 404 from the rendered page's own directory.
+bad_open="$(printf '%s' "$render" | grep -oE 'class="open-ic[^"]*" href="[^"]*"' | grep -vcE "href=\"file://$FIXTURE_TASKS/" || true)"
+assert_eq "L: no open-ic href is relative or outside TASKS_DIR" "0" "${bad_open:-0}"
 
 # Ladder family: a resolvable rung shows the live child status (R23 —
 # reads the model, not the table's own stale text) and a "now" marker; an
