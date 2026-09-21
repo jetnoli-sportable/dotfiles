@@ -3122,7 +3122,7 @@ wb_board_render_v2() {
   .ring-label { font-size: 11.5px; color: var(--subtext); }
   .quote { font-size: 14.5px; color: var(--subtext); font-style: italic; border-left: 2px solid var(--overlay); padding-left: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .quote.placeholder { opacity: .6; }
-  .next-line { font-size: 15px; color: var(--text); }
+  .next-line { font-size: 15px; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .next-line b { color: var(--mauve); font-weight: 600; }
   .card-foot { margin-top: auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 13.5px; color: var(--subtext); }
 
