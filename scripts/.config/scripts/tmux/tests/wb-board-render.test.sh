@@ -179,6 +179,13 @@ fam_badge="$(printf '%s' "$render" | grep -oE '>Family <span class="tab-badge">[
 assert_eq "R23: Family tab badge equals the model's family count" "$fam_badge_count" "$fam_badge"
 assert_eq "Family fixture sanity — 3 families (fam-parent, xss-parent, ladder-parent)" "3" "$fam_badge_count"
 
+# UX follow-up: family selection moved from a top-of-page chip grid to a
+# rail-row list (#rail-families), toggled with #rail-tasks by showView().
+assert "Rail has a #rail-tasks panel (Doing tree + Next/Shelf)"    'id="rail-tasks"'    "$render"
+assert "Rail has a #rail-families panel (hidden until Family tab)" 'id="rail-families" style="display:none;"' "$render"
+assert "Rail lists a family as a .fam-rail-row with its copy-id"   'class="rail-row fam-rail-row selected" data-fam="[a-z0-9-]+" onclick="selectFamily' "$render"
+assert_eq "Rail lists exactly one .fam-rail-row per family" "$fam_badge_count" "$(printf '%s' "$render" | grep -o 'class="rail-row fam-rail-row' | wc -l)"
+
 # Flat family: children listed with status pills, R22 copy ids present,
 # decisions timeline shows the fixture's dated entry.
 assert "Flat family lists child 1 by title" 'fam-parent-child1' "$render"
