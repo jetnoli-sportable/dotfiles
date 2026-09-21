@@ -976,8 +976,12 @@ wb_board_v2_rail_node_html() {
   # see wb_board_v2_family_root's note) has no STEM_ANCHOR entry, so the
   # anchor is computed fresh rather than looked up, and the stem is escaped
   # before landing in an attribute.
+  # data-status is the task's real status, so the Active view's empty state
+  # can name it ("No doing card for X (planned)") instead of guessing from
+  # which rail widgets happen to be present.
   local anchor; wb_board_v2_anchor "$stem" anchor
   local stem_h; wb_board_html_escape "$stem" stem_h
+  local status_h; wb_board_html_escape "$status" status_h
   [ -n "$fam_anchor" ] || fam_anchor="$anchor"
   # R22's click-to-copy moves OFF the row title onto an explicit ⧉ glyph:
   # the primary click on a row now SELECTS (sets scope), and a single click
@@ -985,8 +989,8 @@ wb_board_v2_rail_node_html() {
   local copy_ic="<span class=\"copy-ic copyable\" data-copy=\"wb resume ${stem_h}\" title=\"copy wb resume ${stem_h}\">&#8865;</span>"
   local kids="${_m_family_children[$stem]:-}"
   if [ -n "$kids" ]; then
-    printf '<details class="family-node" open><summary data-stem="%s" data-anchor="%s" data-family="%s" onclick="railSummaryClick(event,this)"><span class="chev">&#9656;</span><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</summary><div class="family-children">' \
-      "$stem_h" "$anchor" "$fam_anchor" "$dot" "$title" "$copy_ic" "$right"
+    printf '<details class="family-node" open><summary data-stem="%s" data-anchor="%s" data-family="%s" data-status="%s" onclick="railSummaryClick(event,this)"><span class="chev">&#9656;</span><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</summary><div class="family-children">' \
+      "$stem_h" "$anchor" "$fam_anchor" "$status_h" "$dot" "$title" "$copy_ic" "$right"
     local rn_child
     while IFS= read -r rn_child; do
       [ -n "$rn_child" ] || continue
@@ -994,8 +998,8 @@ wb_board_v2_rail_node_html() {
     done <<< "$kids"
     printf '</div></details>'
   else
-    printf '<div class="rail-row" data-stem="%s" data-anchor="%s" data-family="%s" onclick="railPick(event,this)"><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</div>' \
-      "$stem_h" "$anchor" "$fam_anchor" "$dot" "$title" "$copy_ic" "$right"
+    printf '<div class="rail-row" data-stem="%s" data-anchor="%s" data-family="%s" data-status="%s" onclick="railPick(event,this)"><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</div>' \
+      "$stem_h" "$anchor" "$fam_anchor" "$status_h" "$dot" "$title" "$copy_ic" "$right"
   fi
 }
 
@@ -1016,13 +1020,14 @@ wb_board_v2_shelf_items_html() {
   # data-anchor="".) Same class of trap as the nameref-recursion note on
   # wb_board_v2_family_root; out-var names must not collide with the
   # callee's locals.
-  local list="$1" si_stem out="" si_h="" si_a="" si_sh=""
+  local list="$1" si_stem out="" si_h="" si_a="" si_sh="" si_st=""
   while IFS= read -r si_stem; do
     [ -n "$si_stem" ] || continue
     wb_board_html_escape "${_m_title[$si_stem]:-$si_stem}" si_h
     wb_board_html_escape "$si_stem" si_sh
+    wb_board_html_escape "${_m_status[$si_stem]:-}" si_st
     wb_board_v2_anchor "$si_stem" si_a
-    out+="<div class=\"shelf-row\" data-stem=\"$si_sh\" data-anchor=\"$si_a\" data-family=\"$si_a\" onclick=\"railPick(event,this)\"><span class=\"shelf-dot\"></span><span class=\"shelf-text\">$si_h</span><span class=\"copy-ic copyable\" data-copy=\"wb resume $si_sh\" title=\"copy wb resume $si_sh\">&#8865;</span></div>"
+    out+="<div class=\"shelf-row\" data-stem=\"$si_sh\" data-anchor=\"$si_a\" data-family=\"$si_a\" data-status=\"$si_st\" onclick=\"railPick(event,this)\"><span class=\"shelf-dot\"></span><span class=\"shelf-text\">$si_h</span><span class=\"copy-ic copyable\" data-copy=\"wb resume $si_sh\" title=\"copy wb resume $si_sh\">&#8865;</span></div>"
   done <<< "$list"
   printf '%s' "$out"
 }
@@ -2423,9 +2428,17 @@ wb_board_render_v2() {
   .rm-lane-label .rm-title-row .rm-lane-t { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rm-lane-label .rm-standalone-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--subtext); }
 
-  /* UX pass (scope): out-of-scope lanes dim, never disappear. */
-  .rm-lane.scope-dim { opacity: .38; }
-  .rm-lane.selected { outline: 1.5px solid var(--mauve); outline-offset: 4px; border-radius: 10px; }
+  /* UX pass (scope): out-of-scope lanes dim, never disappear — a roadmap
+     of one lane is useless. An outline alone read as too subtle next to 17
+     merely-faded neighbours, so the scoped lane also gets a mauve left
+     rule on its label and a faint mauve wash, and the dimmed ones lose a
+     little saturation as well as opacity. (R21 is untouched: a stale task
+     never places on the grid at all — see wb_board_v2_roadmap_bar — so no
+     stale content is ever desaturated by this.) */
+  .rm-lane.scope-dim { opacity: .34; filter: saturate(.55); }
+  .rm-lane.selected { outline: 1.5px solid var(--mauve); outline-offset: 4px; border-radius: 10px; background: rgba(203,166,247,.055); }
+  .rm-lane.selected .rm-lane-label { border-left: 3px solid var(--mauve); padding-left: 12px; margin-left: -15px; }
+  .rm-lane.selected .rm-lane-label .rm-title-row .rm-lane-t { color: var(--mauve); font-weight: 600; }
   .rm-lane.milestone-lane { position: relative; z-index: 1; }
   .rm-lane.milestone-lane::before { content: ""; position: absolute; inset: -6px -14px; background: rgba(203,166,247,.05); border: 1px solid rgba(203,166,247,.12); border-radius: 12px; z-index: -1; }
 
@@ -2739,6 +2752,12 @@ wb_board_render_v2() {
   function showView(name) {
     CURRENT_VIEW = name;
     LS.set('wbBoard.view', name);
+    // A tab is a <div>, so clicking one never moves focus off the filter
+    // input. Leave it focused and the next `/` is typed INTO the query
+    // ("abc/") instead of focusing the filter — the box silently stops
+    // matching anything. Blur on every view switch.
+    var bf = document.getElementById('board-filter');
+    if (bf && document.activeElement === bf) bf.blur();
     document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
     var el = document.getElementById('view-' + name);
     if (el) el.classList.add('active');
@@ -2814,12 +2833,13 @@ wb_board_render_v2() {
     var t = r.querySelector('.rail-row-title, .shelf-text');
     return t ? t.textContent.trim() : anchor;
   }
+  // The rail carries the real `status:` in data-status, so the empty state
+  // can say "(planned)" rather than inferring it from which widgets the
+  // row happens to have rendered.
   function railStatusFor(anchor) {
     var r = document.querySelector('#rail-tasks [data-anchor="' + anchor + '"]');
     if (!r) return '';
-    if (r.querySelector('.rail-pill')) return r.querySelector('.rail-pill').textContent.trim();
-    if (r.classList.contains('shelf-row')) return 'shelved';
-    return 'not in the active deck';
+    return (r.getAttribute('data-status') || '').trim();
   }
 
   function selectCardSlot(slot, scroll) {
@@ -2832,7 +2852,21 @@ wb_board_render_v2() {
     if (card) card.classList.add('selected');
     var dd = slot.querySelector('.drilldown');
     if (dd) dd.classList.add('active');
-    if (scroll && card) card.scrollIntoView({block: 'nearest'});
+    if (scroll) scrollSlotIntoView(slot);
+  }
+
+  // Scrolling the CARD with block:'nearest' is not enough: the card is
+  // already on screen (that is why it was clicked), so 'nearest' is a
+  // no-op, and the drilldown that just opened underneath it lands below
+  // the fold — the exact complaint this pass set out to fix, reproduced
+  // for any card low in the viewport. Scroll the whole SLOT (card +
+  // drilldown) instead, and when the slot is taller than the viewport
+  // fall back to aligning its top, so the drilldown's headings are the
+  // thing you see rather than its tail.
+  function scrollSlotIntoView(slot) {
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    var h = slot.getBoundingClientRect().height;
+    slot.scrollIntoView(h > vh - 40 ? {block: 'start'} : {block: 'nearest'});
   }
 
   function applyScope() {
@@ -2861,7 +2895,14 @@ wb_board_render_v2() {
       if (!hide) visible.push(s);
       if (task && s.getAttribute('data-anchor') === task) taskSlot = s;
     });
-    selectCardSlot(taskSlot || visible[0] || null, !!taskSlot && CURRENT_VIEW === 'active');
+    // A task scope with no card of its own must NOT quietly fall back to
+    // the family's first card — picking "Job entrypoint" and watching a
+    // different task light up reads as a bug. It gets the same honest
+    // empty-state line the shelf case already got; only a family-level
+    // scope (or none) auto-selects.
+    var taskMissing = !!task && !taskSlot;
+    selectCardSlot(taskSlot || (taskMissing ? null : visible[0]) || null,
+                   !!taskSlot && CURRENT_VIEW === 'active');
 
     var hdr = document.getElementById('active-scope-header');
     if (hdr) {
@@ -2882,10 +2923,12 @@ wb_board_render_v2() {
     }
     var empty = document.getElementById('active-scope-empty');
     if (empty) {
-      if (visible.length === 0 && (fam || task)) {
+      if (taskMissing || (visible.length === 0 && (fam || task))) {
         empty.style.display = '';
-        var who = task || fam;
-        empty.textContent = 'not in the doing set — ' + (railTitleFor(who) || who) + ' (' + (railStatusFor(who) || 'not active') + ')';
+        var who = taskMissing ? task : (task || fam);
+        var st = railStatusFor(who);
+        empty.textContent = 'No doing card for ' + (railTitleFor(who) || who) +
+          (st ? ' (' + st + ')' : '') + ' — see it in Roadmap or Week.';
       } else {
         empty.style.display = 'none';
         empty.textContent = '';
@@ -2996,6 +3039,10 @@ wb_board_render_v2() {
   document.addEventListener('keydown', function(e){
     if (e.target && e.target.id === 'board-filter') {
       if (e.key === 'Escape') { e.target.value = ''; filterBoard(''); e.target.blur(); }
+      // `/` is "focus the filter". Already focused, so make it mean
+      // "start over": select the whole query so the next keystroke
+      // replaces it, rather than appending a literal slash.
+      if (e.key === '/') { e.preventDefault(); e.target.select(); }
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;

@@ -214,11 +214,11 @@ assert_eq "Rail lists exactly one .fam-rail-row per family" "$fam_badge_count" "
 # data-family on every leaf row, family summary and shelf row, plus the
 # "All doing" escape hatch at the top of the tree.
 assert "A: rail leaf rows carry data-stem/-anchor/-family + a select click" \
-  '<div class="rail-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="railPick' "$render"
+  '<div class="rail-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+"[^>]* onclick="railPick' "$render"
 assert "A: family summaries carry the same scope attrs + railSummaryClick" \
-  '<summary data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="railSummaryClick' "$render"
+  '<summary data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+"[^>]* onclick="railSummaryClick' "$render"
 assert "A: shelf rows carry the scope attrs + a select click" \
-  '<div class="shelf-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="railPick' "$render"
+  '<div class="shelf-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+"[^>]* onclick="railPick' "$render"
 assert "A: an 'All doing' row heads the Doing tree with an empty anchor" \
   'class="rail-row rail-all selected" data-stem="" data-anchor="" data-family=""' "$render"
 # R22's copy moves OFF the row title onto an explicit glyph, so a primary
@@ -262,6 +262,34 @@ else
 fi
 assert "C: the deck has a scope header + empty-state slot" 'id="active-scope-header"' "$render"
 assert "C: the deck has a not-in-doing-set empty state"    'id="active-scope-empty"'  "$render"
+# The empty state names the task's real status, so the rail has to carry it
+# (it used to be inferred from which widgets a row happened to render).
+assert "C: rail rows carry data-status for the empty-state line" \
+  '<div class="rail-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" data-status="[a-z]+"' "$render"
+assert "C: family summaries carry data-status too" \
+  '<summary data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" data-status="[a-z]+"' "$render"
+assert "C: shelf rows carry data-status too" \
+  '<div class="shelf-row" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" data-status="[a-z]+"' "$render"
+assert "C: a planned child row's data-status is planned" 'data-stem="alpha-child"[^>]*data-status="planned"' "$render"
+# The empty-state copy is a "here is where it lives" pointer, not a
+# bug-sounding "not in the doing set".
+assert "C: the empty state points at Roadmap/Week rather than reading as an error" \
+  "No doing card for" "$render"
+assert "C: the empty state names the other two views" 'see it in Roadmap or Week' "$render"
+if printf '%s' "$render" | grep -E 'not in the doing set' >/dev/null 2>&1; then
+  echo "FAIL - C: the old bug-like empty-state wording is gone"; fail=1
+else
+  echo "ok   - C: the old bug-like empty-state wording is gone"
+fi
+# Selecting a card must scroll the whole SLOT (card + drilldown), not the
+# card alone — block:'nearest' on an already-visible card is a no-op and
+# left the drilldown below the fold.
+assert "C: card selection scrolls the slot, not just the card" 'function scrollSlotIntoView' "$render"
+if printf '%s' "$render" | grep -E "card\.scrollIntoView" >/dev/null 2>&1; then
+  echo "FAIL - C: nothing scrolls the bare card any more"; fail=1
+else
+  echo "ok   - C: nothing scrolls the bare card any more"
+fi
 
 # (D) Roadmap: lanes are addressable by family, bars name their task, and
 # the readiness strip is a one-line toggle by default.
@@ -274,6 +302,9 @@ else
   echo "ok   - D: the strip does not render pre-expanded"
 fi
 assert "D: roadmap bars carry data-anchor + a full-title tooltip" 'class="rm-bar ready-bar" data-anchor="[^"]+" title="' "$render"
+# The scoped lane needs a positive signal, not just 17 faded neighbours.
+assert "D: the scoped lane gets a mauve left rule on its label" '\.rm-lane\.selected \.rm-lane-label \{ border-left: 3px solid var\(--mauve\)' "$render"
+assert "D: dimmed lanes stay legible (opacity, not display:none)" '\.rm-lane\.scope-dim \{ opacity:' "$render"
 
 # (E) Week: cards collapse by default and carry the scope attrs; the
 # shelved count is a real toggle over a compact list.
