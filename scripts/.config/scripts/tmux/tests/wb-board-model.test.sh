@@ -196,6 +196,14 @@ branch: feat/parent-a
 worktree: .worktrees/feat/parent-a
 ---
 # Family root
+
+## Plan
+See docs/plans/2026-01-01-001-feat-parent-a-plan.md for the writeup.
+
+## Decisions
+
+### 2026-01-02 — Chose the simple approach
+Went with the direct fix instead of a bigger refactor.
 EOF
 touch -d "1 days ago" "$FIXTURE_TASKS/parent-a.md"
 
@@ -284,6 +292,20 @@ assert_eq "tags: csv and list form agree with each other" "$csv_tokens" "$list_t
 assert "Family: child appears in parent's children list" "child-b" "${FAMILY_CHILDREN[parent-a]:-}"
 assert_eq "Family: child's family root resolves to the parent" "parent-a" "${M_FAMILY_ROOT[parent-a--child-b]:-}"
 assert_eq "Family: root task's family root is itself" "parent-a" "${M_FAMILY_ROOT[parent-a]:-}"
+
+# --- U5: Decisions/links raw-text round-trip through the collect pass ----
+assert "M_DECISIONS_RAW captures the dated entry" "2026-01-02 . Chose the simple approach" "${M_DECISIONS_RAW[parent-a]:-}"
+assert "M_DECISIONS_RAW captures the entry body" "Went with the direct fix" "${M_DECISIONS_RAW[parent-a]:-}"
+assert_eq "M_DECISIONS_RAW is empty for a task with no Decisions section" "" "${M_DECISIONS_RAW[no-handoff-task]:-}"
+assert "M_LINKS_RAW captures a doc path cited outside Decisions (Plan prose)" "docs/plans/2026-01-01-001-feat-parent-a-plan\.md" "${M_LINKS_RAW[parent-a]:-}"
+# Links is the LAST SOH-joined field wb_board_v2_parse_record splits, so an
+# empty value still picks up the enclosing here-string's own trailing
+# newline (a pre-existing artifact of that split, not a U5 regression —
+# every consumer already reads this line-by-line and skips blank lines, so
+# it's inert in practice); assert on that functional emptiness rather than
+# a byte-exact "".
+no_links_trimmed="$(printf '%s' "${M_LINKS_RAW[no-handoff-task]:-}" | grep -c . || true)"
+assert_eq "M_LINKS_RAW has no non-blank lines for a task with no cited doc paths" "0" "$no_links_trimmed"
 
 echo
 if [ "$fail" = 0 ]; then

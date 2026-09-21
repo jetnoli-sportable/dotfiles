@@ -1097,17 +1097,27 @@ wb_board_v2_decisions_entries() {
   if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$__out"; else printf '%s' "$__out"; fi
 }
 
-# wb_board_v2_classify_link <raw_link_line> <kind_outvar> <label_outvar> —
-# fills <kind_outvar>/<label_outvar> for one link line from U2's links_text
-# capture, grouping it for the Family view's Artifacts section.
-# <label_outvar> is the link's display text (basename for a file path, the
-# URL itself for a claude.ai link). Required nameref out-params, not the
-# usual optional-3rd-arg/stdout-fallback convention (there are two values
-# to return, not one) — called once per link line per family member across
-# the whole store, so no `$(...)` form is offered at all here.
+# wb_board_v2_classify_link <raw_link_line> <kind_outvar> <label_outvar>
+#   <path_outvar> — fills <kind_outvar>/<label_outvar>/<path_outvar> for one
+# link line from U2's links_text capture, grouping it for the Family view's
+# Artifacts section. <label_outvar> is the SHORT display text (basename for
+# a file path, the URL itself for a claude.ai link) — <path_outvar> is
+# always the full matched string (the real relative path or URL). fix(review)
+# P1: an earlier version only kept the basename and used it for BOTH display
+# and the `data-copy`/dedup value — useless for actually opening the file
+# (this store's own dossier convention is `dossiers/<repo>--<slug>/plan.md`,
+# so a basename collision across families is the norm, not an edge case) and
+# it silently dropped one family's artifact whenever two files shared a
+# basename, since dedup keyed on the same lossy label. Callers must use
+# <path_outvar> for `data-copy` and the dedup key, <label_outvar> only for
+# the short visible text. Required nameref out-params, not the usual
+# optional-3rd-arg/stdout-fallback convention (there are multiple values to
+# return) — called once per link line per family member across the whole
+# store, so no `$(...)` form is offered at all here.
 wb_board_v2_classify_link() {
   local link="${1:-}"
-  local -n _cl_kind="$2" _cl_label="$3"
+  local -n _cl_kind="$2" _cl_label="$3" _cl_path="$4"
+  _cl_path="$link"
   case "$link" in
     */decision-records/*) _cl_kind=decision-records; _cl_label="${link##*/}" ;;
     logs/decisions/*)     _cl_kind=decision-records; _cl_label="${link##*/}" ;;
@@ -1156,34 +1166,46 @@ wb_board_v2_parse_ladder_table() {
   printf '%s' "$out"
 }
 
-# wb_board_v2_ladder_child_stem <wbtask_cell> — the backtick-quoted task
-# stem from a ladder table's "wb task" cell (e.g. "`lib--algorithms--foo`"),
-# or empty for prose like "not yet created" / "same task as T1 — no
-# separate wb task".
+# wb_board_v2_ladder_child_stem <wbtask_cell> [<out_var>] — the
+# backtick-quoted task stem from a ladder table's "wb task" cell (e.g.
+# "`lib--algorithms--foo`"), or empty for prose like "not yet created" /
+# "same task as T1 — no separate wb task".
+#
+# fix(review) P2: optional out-var (D2A's convention) — called once per
+# rung, and a ladder family's rungs are walked twice in the same pass (once
+# for the JSON side-output, once for the HTML), so a `$(...)` fork here was
+# 2x the fork count this function needed. Rare in practice (ladder tables
+# are a small subset of families today) so not a budget risk, but the fix
+# is free — stdout fallback preserves any future `$(...)` caller.
 wb_board_v2_ladder_child_stem() {
-  local cell="${1:-}"
-  if [[ "$cell" =~ \`([A-Za-z0-9._-]+)\` ]]; then printf '%s' "${BASH_REMATCH[1]}"; fi
+  local cell="${1:-}" __cs=""
+  if [[ "$cell" =~ \`([A-Za-z0-9._-]+)\` ]]; then __cs="${BASH_REMATCH[1]}"; fi
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__cs"; else printf '%s' "$__cs"; fi
 }
 
-# wb_board_v2_ladder_status_class <resolved_status_or_empty> <status_cell> —
-# the rung's done|active|planned|unfiled class. Prefers the LIVE model
-# status of the resolved child task (so the rung reflects reality even if
-# the ladder table's own free-text status cell has gone stale) and falls
-# back to keyword-matching the status cell's prose only when no wb task is
-# resolvable.
+# wb_board_v2_ladder_status_class <resolved_status_or_empty> <status_cell>
+#   [<out_var>] — the rung's done|active|planned|unfiled class. Prefers the
+# LIVE model status of the resolved child task (so the rung reflects
+# reality even if the ladder table's own free-text status cell has gone
+# stale) and falls back to keyword-matching the status cell's prose only
+# when no wb task is resolvable. Optional out-var, same rationale as
+# wb_board_v2_ladder_child_stem above.
 wb_board_v2_ladder_status_class() {
-  local resolved="${1:-}" cell="${2:-}"
+  local resolved="${1:-}" cell="${2:-}" __cls
   case "$resolved" in
-    done) printf 'done'; return 0 ;;
-    doing|review) printf 'active'; return 0 ;;
-    planned|paused|prospective) printf 'planned'; return 0 ;;
+    done) __cls=done ;;
+    doing|review) __cls=active ;;
+    planned|paused|prospective) __cls=planned ;;
+    *)
+      case "$cell" in
+        *[Dd]one*|*shipped*|*merged*) __cls=done ;;
+        *doing*|*active*|*implemented*|*in\ progress*) __cls=active ;;
+        *planned*) __cls=planned ;;
+        *) __cls=unfiled ;;
+      esac
+      ;;
   esac
-  case "$cell" in
-    *[Dd]one*|*shipped*|*merged*) printf 'done' ;;
-    *doing*|*active*|*implemented*|*in\ progress*) printf 'active' ;;
-    *planned*) printf 'planned' ;;
-    *) printf 'unfiled' ;;
-  esac
+  if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$__cls"; else printf '%s' "$__cls"; fi
 }
 
 # wb_board_v2_json_escape <string> <out_var> — minimal JSON string escaping
@@ -1666,6 +1688,15 @@ wb_board_render_v2() {
     # never run through the real stems' [A-Za-z0-9._-] filename invariant,
     # so it needs its own sanitizing before landing in a DOM id/JS call.
     local fr_anchor; wb_board_v2_anchor "$fr_stem" fr_anchor
+    # fix(review) P1: the same "phantom stem" risk above applies to fr_stem
+    # ITSELF wherever it's rendered as HTML text/attribute, not just to the
+    # DOM anchor — a hand-typed `parent:` value can carry `<`/`"`/`&` and
+    # this codebase's own comment on the anchor above already names the
+    # risk without closing it out here. Escape once, reuse everywhere below
+    # (element text AND `data-copy="..."` — wb_board_html_escape's `"`
+    # handling makes it safe for both contexts) instead of interpolating
+    # the raw stem at each site.
+    local fr_stem_h; wb_board_html_escape "$fr_stem" fr_stem_h
     local fr_kids="${_m_family_children[$fr_stem]}"
     local -a fr_members=("$fr_stem")
     local fr_c
@@ -1708,23 +1739,26 @@ wb_board_render_v2() {
       fi
     fi
 
-    # Artifact links: parent + every child, deduped on (kind,label) — a doc
+    # Artifact links: parent + every child, deduped on (kind,PATH — fix(review)
+    # P1: was (kind,label), and label is just a basename, so two distinct
+    # files sharing a name (e.g. two dossiers each with their own plan.md)
+    # collapsed into one and silently dropped the other's link) — a doc
     # cited by both a parent and a child collapses to one entry, first-seen
     # source wins the tag. wb_board_v2_classify_link is a plain-statement
     # nameref call (no `$(...)` fork) — this loop runs once per link line
     # per family member across the whole store, so a subshell here would be
     # the same per-file fork cost U2's timing notes warn against.
     local -A fr_link_seen=()
-    local -a fr_link_kind=() fr_link_label=() fr_link_source=()
-    local fr_m3 fr_link_line fr_kind fr_label
+    local -a fr_link_kind=() fr_link_label=() fr_link_path=() fr_link_source=()
+    local fr_m3 fr_link_line fr_kind fr_label fr_path
     for fr_m3 in "${fr_members[@]}"; do
       while IFS= read -r fr_link_line; do
         [ -n "$fr_link_line" ] || continue
-        wb_board_v2_classify_link "$fr_link_line" fr_kind fr_label
-        local fr_dedupe_key="${fr_kind}"$'\x1f'"${fr_label}"
+        wb_board_v2_classify_link "$fr_link_line" fr_kind fr_label fr_path
+        local fr_dedupe_key="${fr_kind}"$'\x1f'"${fr_path}"
         [ -n "${fr_link_seen[$fr_dedupe_key]:-}" ] && continue
         fr_link_seen["$fr_dedupe_key"]=1
-        fr_link_kind+=("$fr_kind"); fr_link_label+=("$fr_label"); fr_link_source+=("$fr_m3")
+        fr_link_kind+=("$fr_kind"); fr_link_label+=("$fr_label"); fr_link_path+=("$fr_path"); fr_link_source+=("$fr_m3")
       done <<< "${_m_links_raw[$fr_m3]:-}"
     done
 
@@ -1742,7 +1776,13 @@ wb_board_render_v2() {
       [ "$fr_jc_i" -gt 0 ] && fr_json_children+=","
       local fr_jc_m="${fr_members[$fr_jc_i]}"
       wb_board_v2_json_escape "${_m_title[$fr_jc_m]:-$fr_jc_m}" __h
-      fr_json_children+="{\"id\":\"${fr_jc_m}\",\"title\":\"${__h}\",\"status\":\"${_m_status[$fr_jc_m]:-}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
+      # fix(review) P2: id is a raw stem — real child stems are already
+      # filename-safe (D5's collect-time invariant), but fr_jc_m at index 0
+      # is fr_stem itself, which for a family root can be an unsanitized
+      # hand-typed `parent:` value (the same "phantom stem" risk noted
+      # below) — escape uniformly rather than special-casing index 0.
+      wb_board_v2_json_escape "$fr_jc_m" __h2
+      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"status\":\"${_m_status[$fr_jc_m]:-}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
     done
     local fr_json_decisions="" fr_jd_first=1 fr_jd_date fr_jd_text fr_jd_src
     if [ -n "$fr_decisions_full_sorted" ]; then
@@ -1758,7 +1798,8 @@ wb_board_render_v2() {
     for fr_ja_i in "${!fr_link_kind[@]}"; do
       [ "$fr_ja_i" -gt 0 ] && fr_json_artifacts+=","
       wb_board_v2_json_escape "${fr_link_label[$fr_ja_i]}" __h
-      fr_json_artifacts+="{\"kind\":\"${fr_link_kind[$fr_ja_i]}\",\"label\":\"${__h}\",\"source\":\"${fr_link_source[$fr_ja_i]}\"}"
+      wb_board_v2_json_escape "${fr_link_path[$fr_ja_i]}" __h2
+      fr_json_artifacts+="{\"kind\":\"${fr_link_kind[$fr_ja_i]}\",\"label\":\"${__h}\",\"path\":\"${__h2}\",\"source\":\"${fr_link_source[$fr_ja_i]}\"}"
     done
     local fr_json_rungs="" fr_jr_first=1 fr_jr_line
     if [ -n "$fr_ladder" ]; then
@@ -1767,10 +1808,10 @@ wb_board_render_v2() {
         local fr_jr_rung="${fr_jr_line%%$'\t'*}" fr_jr_rest="${fr_jr_line#*$'\t'}"
         local fr_jr_ticket="${fr_jr_rest%%$'\t'*}"; fr_jr_rest="${fr_jr_rest#*$'\t'}"
         local fr_jr_wbtask="${fr_jr_rest%%$'\t'*}" fr_jr_status_cell="${fr_jr_rest#*$'\t'}"
-        local fr_jr_child; fr_jr_child="$(wb_board_v2_ladder_child_stem "$fr_jr_wbtask")"
+        local fr_jr_child; wb_board_v2_ladder_child_stem "$fr_jr_wbtask" fr_jr_child
         local fr_jr_resolved=""
         [ -n "$fr_jr_child" ] && fr_jr_resolved="${_m_status[$fr_jr_child]:-}"
-        local fr_jr_cls; fr_jr_cls="$(wb_board_v2_ladder_status_class "$fr_jr_resolved" "$fr_jr_status_cell")"
+        local fr_jr_cls; wb_board_v2_ladder_status_class "$fr_jr_resolved" "$fr_jr_status_cell" fr_jr_cls
         [ "$fr_jr_first" = 1 ] || fr_json_rungs+=","
         fr_jr_first=0
         wb_board_v2_json_escape "$fr_jr_rung" __h
@@ -1779,14 +1820,15 @@ wb_board_render_v2() {
       done <<< "$fr_ladder"
     fi
     wb_board_v2_json_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
+    wb_board_v2_json_escape "$fr_stem" __h2
     [ "$fam_idx" -gt 1 ] && fam_json_entries+=","
-    fam_json_entries+="{\"root\":\"${fr_stem}\",\"title\":\"${__h}\",\"shape\":\"$([ -n "$fr_ladder" ] && printf ladder || printf flat)\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}]}"
+    fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"$([ -n "$fr_ladder" ] && printf ladder || printf flat)\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}]}"
 
     if [ -n "$fr_ladder" ]; then
       # ---- LADDER SHAPE (mockup D) ----
       fam_body_html+="<h2 class=\"region-label\">Family &middot; ladder view</h2>"
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
-      fam_body_html+="<div class=\"fam-title-row\"><div><h1>${__h}</h1><span class=\"fam-id mono copyable\" data-copy=\"wb resume ${fr_stem}\">${fr_stem}</span></div></div>"
+      fam_body_html+="<div class=\"fam-title-row\"><div><h1>${__h}</h1><span class=\"fam-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span></div></div>"
       fam_body_html+='<div class="ladder">'
       local fr_rung_line fr_rung_i=0
       while IFS= read -r fr_rung_line; do
@@ -1795,13 +1837,13 @@ wb_board_render_v2() {
         local fr_rung="${fr_rung_line%%$'\t'*}" fr_rest="${fr_rung_line#*$'\t'}"
         local fr_ticket="${fr_rest%%$'\t'*}"; fr_rest="${fr_rest#*$'\t'}"
         local fr_wbtask_cell="${fr_rest%%$'\t'*}" fr_status_cell="${fr_rest#*$'\t'}"
-        local fr_child; fr_child="$(wb_board_v2_ladder_child_stem "$fr_wbtask_cell")"
+        local fr_child; wb_board_v2_ladder_child_stem "$fr_wbtask_cell" fr_child
         local fr_resolved_status="" fr_rung_child_html='<span class="rung-child none">no child task yet</span>'
         if [ -n "$fr_child" ] && [ -n "${_m_status[$fr_child]:-}" ]; then
           fr_resolved_status="${_m_status[$fr_child]}"
           fr_rung_child_html="<span class=\"rung-child mono copyable\" data-copy=\"wb resume ${fr_child}\">&#8618; <span class=\"id\">${fr_child}</span></span>"
         fi
-        local fr_rcls; fr_rcls="$(wb_board_v2_ladder_status_class "$fr_resolved_status" "$fr_status_cell")"
+        local fr_rcls; wb_board_v2_ladder_status_class "$fr_resolved_status" "$fr_status_cell" fr_rcls
         local fr_active_cls=""
         [ "$fr_rcls" = active ] && fr_active_cls=" active expanded"
         local fr_now_tag=""
@@ -1838,7 +1880,8 @@ wb_board_render_v2() {
           for fr_ra_i in "${!fr_link_source[@]}"; do
             [ "${fr_link_source[$fr_ra_i]}" = "$fr_child" ] || continue
             wb_board_html_escape "${fr_link_label[$fr_ra_i]}" __h
-            fam_body_html+="<li><span class=\"artifact-link copyable\" data-copy=\"${__h}\"><span class=\"label\">${__h}</span></span></li>"
+            wb_board_html_escape "${fr_link_path[$fr_ra_i]}" __h2
+            fam_body_html+="<li><span class=\"artifact-link copyable\" data-copy=\"${__h2}\" title=\"${__h2}\"><span class=\"label\">${__h}</span></span></li>"
             fr_ra_found=1
           done
         fi
@@ -1852,14 +1895,14 @@ wb_board_render_v2() {
       fam_body_html+="<h2 class=\"region-label\">Family view</h2>"
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
-      fam_body_html+="<div class=\"fam-hero\"><div class=\"fam-hero-top\"><div><div class=\"fam-hero-title\">${__h}</div><span class=\"fam-hero-id mono copyable\" data-copy=\"wb resume ${fr_stem}\">${fr_stem}</span></div><div class=\"fam-hero-meta\"><span class=\"dot ${fr_dot}\"></span><span class=\"age mono\">${__al}</span></div></div>"
+      fam_body_html+="<div class=\"fam-hero\"><div class=\"fam-hero-top\"><div><div class=\"fam-hero-title\">${__h}</div><span class=\"fam-hero-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span></div><div class=\"fam-hero-meta\"><span class=\"dot ${fr_dot}\"></span><span class=\"age mono\">${__al}</span></div></div>"
       fam_body_html+='<div class="fam-tree">'
       local fr_p_status="${_m_status[$fr_stem]:-}" fr_p_pill_cls="planned"
       case "$fr_p_status" in doing|review) fr_p_pill_cls="doing" ;; esac
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
       wb_board_html_escape "$fr_p_status" __h2
-      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem}\">${__h}</div><span class=\"t-id mono\">${fr_stem} &middot; parent</span></div><span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem_h}\">${__h}</div><span class=\"t-id mono\">${fr_stem_h} &middot; parent</span></div><span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
       local fr_child_row
       while IFS= read -r fr_child_row; do
         [ -n "$fr_child_row" ] || continue
@@ -1868,7 +1911,8 @@ wb_board_render_v2() {
         wb_board_html_escape "${_m_title[$fr_child_row]:-$fr_child_row}" __h
         wb_board_v2_age_label "${_m_age_days[$fr_child_row]:-0}" __al
         wb_board_html_escape "$fr_c_status" __h2
-        fam_body_html+="<div class=\"fam-tree-row child-row\"><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_child_row}\">${__h}</div><span class=\"t-id mono\">${fr_child_row}</span></div><span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+        wb_board_html_escape "$fr_child_row" __h3
+        fam_body_html+="<div class=\"fam-tree-row child-row\"><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span></div><span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
       done <<< "$fr_kids"
       fam_body_html+='</div></div>'
 
@@ -1904,11 +1948,14 @@ wb_board_render_v2() {
           local fr_group_html="" fr_gi
           for fr_gi in "${!fr_link_kind[@]}"; do
             [ "${fr_link_kind[$fr_gi]}" = "$fr_kind_want" ] || continue
-            wb_board_html_escape "${fr_link_label[$fr_gi]}" __h
+            wb_board_html_escape "${fr_link_path[$fr_gi]}" __h
             wb_board_html_escape "${fr_link_source[$fr_gi]}" __h2
             if [ "$fr_kind_want" = claude-ai ]; then
               fr_group_html+="<div class=\"fam-art-row\"><span class=\"fam-art-icon\">&#128279;</span><a class=\"fam-art-path mono\" href=\"${__h}\" target=\"_blank\" rel=\"noopener\">${__h}</a><span class=\"fam-art-tag\">${__h2}</span></div>"
             else
+              # fix(review) P1: data-copy and the visible path text now both
+              # use the full path (fr_link_path), not the basename-only
+              # fr_link_label — a basename alone can't be opened/found again.
               fr_group_html+="<div class=\"fam-art-row copyable\" data-copy=\"${__h}\"><span class=\"fam-art-icon\">&#128196;</span><span class=\"fam-art-path mono\">${__h}</span><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
             fi
           done

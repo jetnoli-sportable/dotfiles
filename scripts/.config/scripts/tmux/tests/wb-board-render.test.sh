@@ -75,7 +75,39 @@ cat >> "$FIXTURE_TASKS/fam-parent.md" <<'EOF'
 
 ### 2026-01-05 — Ship it this way
 Chose the simpler approach because it was faster to build.
+
+## Follow-ups
+
+See dossiers/fam-parent/plan.md for the writeup.
 EOF
+# fix(review) P1 regression fixture: two DIFFERENT files that share a
+# basename ("plan.md") in different directories — the bug this caught was
+# classify_link deduping/copying on the basename alone, which silently
+# dropped one family's artifact and made "copy" paste an unopenable
+# bare filename instead of the real path.
+cat >> "$FIXTURE_TASKS/fam-parent-child1.md" <<'EOF'
+
+## Follow-ups
+
+See dossiers/fam-parent-child1/plan.md for its own writeup.
+EOF
+
+# U6 flat-family escaping fixture — a title with `<`, `>`, `&`, `"` to
+# prove the Family view's html-escaping path is exercised, not just
+# assumed safe (a fresh code path per the perf-motivated per-family
+# re-escaping restructure).
+cat > "$FIXTURE_TASKS/xss-parent.md" <<'EOF'
+---
+status: paused
+path:
+repo: dotfiles
+branch: feat/xss-parent
+worktree: .worktrees/feat/xss-parent
+---
+# <script>alert('x')</script> & "quoted"
+EOF
+touch -d "3 days ago" "$FIXTURE_TASKS/xss-parent.md"
+mk_task xss-parent-child1 planned 3 $'parent: xss-parent'
 
 mk_task ladder-parent-child1 planned 4 $'parent: ladder-parent'
 cat > "$FIXTURE_TASKS/ladder-parent.md" <<'EOF'
@@ -145,7 +177,7 @@ fam_badge_count=0
 for s in "${!FAMILY_CHILDREN[@]}"; do [ -n "${FAMILY_CHILDREN[$s]:-}" ] && fam_badge_count=$((fam_badge_count + 1)); done
 fam_badge="$(printf '%s' "$render" | grep -oE '>Family <span class="tab-badge">[0-9]+<' | grep -oE '[0-9]+')"
 assert_eq "R23: Family tab badge equals the model's family count" "$fam_badge_count" "$fam_badge"
-assert_eq "Family fixture sanity — 2 families (fam-parent, ladder-parent)" "2" "$fam_badge_count"
+assert_eq "Family fixture sanity — 3 families (fam-parent, xss-parent, ladder-parent)" "3" "$fam_badge_count"
 
 # Flat family: children listed with status pills, R22 copy ids present,
 # decisions timeline shows the fixture's dated entry.
@@ -153,6 +185,25 @@ assert "Flat family lists child 1 by title" 'fam-parent-child1' "$render"
 assert "Flat family lists child 2 by title" 'fam-parent-child2' "$render"
 assert "Flat family: R22 copy-id present for a child" 'data-copy="wb resume fam-parent-child1"' "$render"
 assert "Flat family: decisions timeline shows the fixture entry" 'Chose the simpler approach' "$render"
+
+# fix(review) P1 regression: artifact links must carry the full path, not
+# just a basename — both fam-parent's and fam-parent-child1's "plan.md"
+# (different directories, same basename) must survive, each copyable to
+# its OWN real path, not collapsed into one entry by a basename-only dedup.
+assert "Artifacts: parent's plan.md keeps its real path"      'data-copy="dossiers/fam-parent/plan\.md"'        "$render"
+assert "Artifacts: child's plan.md keeps its own real path"   'data-copy="dossiers/fam-parent-child1/plan\.md"' "$render"
+parent_plan_count="$(printf '%s' "$render" | grep -c 'dossiers/fam-parent/plan\.md' || true)"
+child_plan_count="$(printf '%s' "$render" | grep -c 'dossiers/fam-parent-child1/plan\.md' || true)"
+assert_eq "Artifacts: both same-basename links present, not deduped away" "1" "$([ "${parent_plan_count:-0}" -ge 1 ] && [ "${child_plan_count:-0}" -ge 1 ] && echo 1 || echo 0)"
+
+# fix(review) P1 regression: family-view content is HTML-escaped, including
+# the family root's own title (a fresh per-family re-escaping code path).
+assert "Family view escapes a title with <script>/&/\""      '&lt;script&gt;alert' "$render"
+if printf '%s' "$render" | grep -qF '<script>alert'; then
+  echo "FAIL - Family view never emits the raw unescaped <script> tag"; fail=1
+else
+  echo "ok   - Family view never emits the raw unescaped <script> tag"
+fi
 
 # Ladder family: a resolvable rung shows the live child status (R23 —
 # reads the model, not the table's own stale text) and a "now" marker; an
