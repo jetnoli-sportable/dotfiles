@@ -1115,15 +1115,20 @@ wb_board_v2_roadmap_bar() {
     # "doing · 3d", which in a multi-member lane clipped to 2-4 chars) plus
     # data-anchor so a task-level scope can highlight this exact bar, and a
     # title= tooltip with the full text for whatever the ellipsis eats.
-    printf '%s\t<div class="rm-bar active-bar" data-anchor="%s" title="%s &mdash; doing &middot; %s">%s <span class="rm-bar-age">%s</span></div>' \
+    # The label text lives in its OWN span, not as a bare text node: an
+    # anonymous flex item can't be given `text-overflow: ellipsis`, so a
+    # bare text node either overruns the bar's padding (and, on a ready
+    # bar, the "ready" tag) or forces the bar to grow. One span per label
+    # is what keeps every bar exactly one line tall with a clean ellipsis.
+    printf '%s\t<div class="rm-bar active-bar" data-anchor="%s" title="%s &mdash; doing &middot; %s"><span class="rm-bar-t">%s</span><span class="rm-bar-age">%s</span></div>' \
       "$track" "$anchor" "$title_attr" "$(wb_board_v2_age_label "$age")" "$title_attr" "$(wb_board_v2_age_label "$age")"
   elif [ "$status" = planned ]; then
     if [ -n "${UNMET_COUNT[$stem]:-}" ]; then   # fix(review) D4: keyed by stem, not anchor
       local blockers_attr; blockers_attr="$(wb_board_html_escape "${BLOCKER_NAMES[$stem]:-}")"
-      printf '6\t<div class="rm-bar blocked-bar" data-anchor="%s" title="%s &mdash; blocked after: %s"><span class="lock-ic">&#128274;</span>%s<span class="rm-after-tag">after: %s</span></div>' \
+      printf '6\t<div class="rm-bar blocked-bar" data-anchor="%s" title="%s &mdash; blocked after: %s"><span class="lock-ic">&#128274;</span><span class="rm-bar-t">%s</span><span class="rm-after-tag">after: %s</span></div>' \
         "$anchor" "$title_attr" "$blockers_attr" "$title_attr" "$blockers_attr"
     else
-      printf '5\t<div class="rm-bar ready-bar" data-anchor="%s" title="%s">%s</div>' "$anchor" "$title_attr" "$title_attr"
+      printf '5\t<div class="rm-bar ready-bar" data-anchor="%s" title="%s"><span class="rm-bar-t">%s</span></div>' "$anchor" "$title_attr" "$title_attr"
     fi
   fi
 }
@@ -1554,12 +1559,12 @@ wb_board_render_v2() {
       for rm_member in "${rm_members[@]}"; do
         [ "${_m_status[$rm_member]:-}" = done ] && rm_done=$((rm_done + 1))
       done
-      rm_lanes_html+="<div class=\"rm-lane milestone-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\">${rm_title} <span class=\"rm-mfrac mono\">${rm_done} / ${rm_total}</span></div></div>"
+      rm_lanes_html+="<div class=\"rm-lane milestone-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\"><span class=\"rm-lane-t\">${rm_title}</span><span class=\"rm-mfrac mono\">${rm_done} / ${rm_total}</span></div></div>"
       rm_lanes_html+="<div class=\"rm-bracket\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\"></div>"
       rm_lanes_html+="<div class=\"rm-bars\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\">${rm_bars}</div></div>"
     else
       local rm_dot; rm_dot="$(wb_board_v2_dot_class "${_m_status[$rm_stem]}" "${_m_bucket[$rm_stem]}" "${_m_age_days[$rm_stem]:-0}")"
-      rm_lanes_html+="<div class=\"rm-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\">${rm_title}</div><div class=\"rm-standalone-meta\"><span class=\"dot ${rm_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "${_m_age_days[$rm_stem]:-0}")</span></div></div>"
+      rm_lanes_html+="<div class=\"rm-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\"><span class=\"rm-lane-t\">${rm_title}</span></div><div class=\"rm-standalone-meta\"><span class=\"dot ${rm_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "${_m_age_days[$rm_stem]:-0}")</span></div></div>"
       rm_lanes_html+="<div class=\"rm-bars\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\">${rm_bars}</div></div>"
     fi
   done
@@ -2412,6 +2417,10 @@ wb_board_render_v2() {
   .rm-lane-label .id { display: block; font-size: 11.5px; color: var(--subtext); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rm-lane-label .rm-title-row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: baseline; gap: 10px; }
   .rm-lane-label .rm-title-row .rm-mfrac { font-size: 15px; color: var(--subtext); flex: 0 0 auto; }
+  /* The lane title needs its own span for the same reason .rm-bar-t does:
+     as a bare text node it is an anonymous flex item, so the ellipsis
+     landed on the ROW and ate the "3 / 13" milestone fraction instead. */
+  .rm-lane-label .rm-title-row .rm-lane-t { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rm-lane-label .rm-standalone-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--subtext); }
 
   /* UX pass (scope): out-of-scope lanes dim, never disappear. */
@@ -2429,16 +2438,20 @@ wb_board_render_v2() {
      a readable label beats a perfectly single-row lane. Each also carries
      a title= tooltip with its full text for whatever the ellipsis eats. */
   .rm-bars { grid-row: 2; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; min-width: 0; position: relative; }
-  .rm-bar { height: 28px; border-radius: 8px; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 130px; position: relative; flex: 1 1 130px; }
-  .rm-bar > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .rm-bar { height: 28px; border-radius: 8px; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12.5px; white-space: nowrap; overflow: hidden; min-width: 150px; position: relative; flex: 1 1 150px; }
+  .rm-bar-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rm-bar-age { flex: 0 0 auto; opacity: .75; font-size: 11.5px; }
   .rm-bar.selected { outline: 2px solid var(--mauve); outline-offset: 2px; }
   .rm-bar.active-bar { background: var(--green); color: var(--base); font-weight: 600; }
   .rm-bar.ready-bar { background: transparent; border: 2px solid var(--blue); color: var(--blue); padding-right: 46px; }
   .rm-bar.ready-bar::after { content: "ready"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 11px; color: var(--blue); opacity: .85; letter-spacing: .02em; }
-  .rm-bar.blocked-bar { background: rgba(69,71,90,.55); border: 1px solid var(--overlay); color: var(--subtext); flex-wrap: wrap; height: auto; min-height: 28px; white-space: normal; padding: 6px 12px; row-gap: 2px; }
+  /* Two lines at most (title, then its "after:" tag) — with the narrower
+     wrapped columns the UX pass introduced, the old `white-space: normal`
+     turned a blocked bar into a 10-line paragraph and a lane into a
+     500px block. */
+  .rm-bar.blocked-bar { background: rgba(69,71,90,.55); border: 1px solid var(--overlay); color: var(--subtext); flex-wrap: wrap; height: auto; min-height: 28px; padding: 5px 12px; row-gap: 1px; }
   .rm-bar .lock-ic { margin-right: 5px; font-size: 11px; }
-  .rm-after-tag { flex-basis: 100%; margin-left: 19px; font-size: 11.5px; color: var(--red); white-space: nowrap; opacity: 1; }
+  .rm-after-tag { flex-basis: 100%; margin-left: 19px; font-size: 11.5px; color: var(--red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; opacity: 1; }
 
   .rm-readiness-strip { margin: 2px 0 14px 0; padding: 8px 16px; background: rgba(137,180,250,.04); border: 1px solid var(--overlay); border-radius: 10px; }
   .rm-strip-head { display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; font-size: 13px; }
