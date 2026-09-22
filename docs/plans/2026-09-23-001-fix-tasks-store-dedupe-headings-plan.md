@@ -159,7 +159,7 @@ U1 is independent and lands first so the live `wb` stops producing Handoffs dupl
 - **Requirements:** R4, R5, R6, R7, R8
 - **Dependencies:** U2
 - **Files:** `scripts/.config/scripts/tmux/wb.sh` (merge helper, `--diff`/`--fix` in `cmd_lint_sections`), `scripts/.config/scripts/tmux/tests/wb-lint-sections.test.sh`
-- **Approach:** the merge helper reuses U2's section records and applies the KTD5 layout, writing to a temp file. `--diff` prints `diff -u` of original vs merged per finding file. `--fix <file>:<hash>…` (or `--fix --all`) takes `wb_task_lock_acquire_guarded` per file, re-hashes, skips on a hash mismatch, writes via temp-then-`mv`, and releases. The EXIT-trap release idiom matches the other locked verbs. A post-merge self-check refuses the write if the multiset of non-blank lines differs from the original's (minus the removed duplicate heading lines).
+- **Approach:** the merge helper reuses U2's section records and applies the KTD5 layout, writing to a temp file. `--diff` prints `diff -u` of original vs merged per finding file. `--fix <file>:<hash>…` accepts only explicit targets (there is no `--all`: every write must trace to a reviewed hash) and takes `wb_task_lock_acquire_guarded` per file, re-hashes, skips on a hash mismatch, writes via temp-then-`mv`, and releases. The EXIT-trap release idiom matches the other locked verbs. A post-merge self-check refuses the write if the multiset of non-blank lines differs from the original's (minus the removed duplicate heading lines).
 - **Patterns to follow:** the lock idiom in `cmd_append` (`_wb_lock_trap_append_if_top_level wb_task_lock_release_all`, then acquire, write, release); the temp-file `mv` pattern used by every section writer.
 - **Test scenarios:**
   - Follow-ups bug file where both copies have content → one `## Follow-ups` in the canonical slot, upper copy's lines then lower copy's.
@@ -169,6 +169,7 @@ U1 is independent and lands first so the live `wb` stops producing Handoffs dupl
   - File with a duplicate `## Follow-ups` plus a `## Follow-ups (superseded — see ## Decisions)` section → only the two exact copies merge; the superseded section and its content are untouched.
   - Preamble (frontmatter, title, first-action paragraph) byte-identical after fix.
   - `--fix` with a stale hash → file untouched, message names it, exit status reports skips.
+  - `--fix` with no targets, or with a bare path lacking `:<hash>` → usage error, nothing written.
   - Lock held by a background holder → `--fix` waits/fails per the guarded-acquire contract and never writes unlocked.
   - Self-check trips when the merge would drop a line (inject by fixture) → no write.
   - Second `--fix` run and a follow-up lint → no findings, no writes.
