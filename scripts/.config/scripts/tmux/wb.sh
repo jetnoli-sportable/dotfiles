@@ -833,7 +833,7 @@ wb_ensure_repo_ignore() {
   local info_dir="$git_common_dir/info"
   mkdir -p "$info_dir"
   local exclude_file="$info_dir/exclude"
-  local lockfile="$info_dir/.claude-queue.lock"
+  local lockfile="$info_dir/.wb-ensure-ignore.lock"
 
   (
     flock -x 9
@@ -924,8 +924,9 @@ _wb_seed_concepts_file() {
     printf '# Task-family context (wb, untracked)\n\n'
     printf 'This worktree belongs to the "%s" task family. Treat the family concepts\n' "$family_note"
     printf 'file(s) below as part of AGENTS.md: settled facts, vocabulary and rules\n'
-    printf 'that override older dossier docs where they disagree. Nearest first: a\n'
-    printf 'later import may correct or extend an earlier one.\n\n'
+    printf 'that override older dossier docs where they disagree. Listed nearest-\n'
+    printf 'first: the nearer (child) file takes precedence over a farther\n'
+    printf '(umbrella) one where they disagree.\n\n'
     for p in "${paths[@]}"; do
       printf '@%s\n' "$p"
     done
