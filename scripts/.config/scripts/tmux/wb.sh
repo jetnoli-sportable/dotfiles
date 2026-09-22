@@ -781,19 +781,23 @@ wb_bootstrap() {
       entries+=("$(basename "$f")")
     done < <(find "$repo_dir" -maxdepth 1 -name '.env*' -print0 2>/dev/null)
   fi
-  local entry src dest
+  # Per-entry failures are tracked, not fatal: a caller's `|| warn` disables
+  # errexit in here, so without the explicit rc only a failing LAST entry
+  # would ever surface.
+  local entry src dest rc=0
   for entry in "${entries[@]}"; do
     src="$repo_dir/$entry"
     [ -e "$src" ] || continue
     dest="$worktree_path/$entry"
     { [ -e "$dest" ] || [ -L "$dest" ]; } && continue
-    mkdir -p "$(dirname "$dest")"
+    mkdir -p "$(dirname "$dest")" || { rc=1; continue; }
     if [ -d "$src" ]; then
-      ln -s "$src" "$dest"
+      ln -s "$src" "$dest" || rc=1
     else
-      cp -a "$src" "$dest"
+      cp -a "$src" "$dest" || rc=1
     fi
   done
+  return "$rc"
 }
 
 # wb_ensure_repo_ignore <path> [<pattern>] — idempotently register <pattern>

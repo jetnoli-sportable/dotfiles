@@ -479,4 +479,18 @@ assert_eq "re-bootstrap: modified .env not overwritten" "SECRET=local-edit" "$(c
 [ -e "$FIXTURE_CODE/proj/deps/deps" ] && { echo "FAIL - re-bootstrap: nested deps/deps link created through the existing symlink"; fail=1; } \
   || echo "ok   - re-bootstrap: no nested link through the existing symlink"
 
+# A failing entry (its parent path is a FILE in the worktree, so mkdir -p
+# fails) warns, doesn't stop the later entries, and doesn't abort `wb new`.
+printf 'blocker/x\n.env\n' > "$FIXTURE_CODE/proj/.worktree-bootstrap"
+mkdir -p "$FIXTURE_CODE/proj/blocker" && printf 'x\n' > "$FIXTURE_CODE/proj/blocker/x"
+fail_wt="$FIXTURE_CODE/proj/.worktrees/boot-fail"
+git -C "$FIXTURE_CODE/proj" worktree add -q -b boot-fail "$fail_wt" >/dev/null 2>&1
+printf 'not a dir\n' > "$fail_wt/blocker"
+out="$(cmd_new proj boot-fail 2>&1)"
+assert "failing bootstrap entry: warns and continues" 'bootstrap of gitignored files .* failed \(continuing\)' "$out"
+assert_eq "failing bootstrap entry: later entries still seeded" "SECRET=main" "$(cat "$fail_wt/.env" 2>/dev/null)"
+tmux has-session -t "=proj--boot-fail" 2>/dev/null
+assert_eq "failing bootstrap entry: wb new still created the session" 0 $?
+tmux kill-session -t "=proj--boot-fail" 2>/dev/null
+
 exit "$fail"
