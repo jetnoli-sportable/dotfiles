@@ -143,7 +143,7 @@ Per-session state (`…/wb/capture/<session_id>/`):
 | `outstanding` (a nudge was delivered, awaiting follow) | hook-prompt | hook-posttool (→ `followed`), dismiss |
 | `ended` (tombstone) | hook-end | reaper removes the whole dir |
 
-At SessionEnd, `hook-end` logs `pending_at_end` if `marker` or `draft` exists and writes an `ended` tombstone. A throttled reaper, run from `hook-prompt`, removes ended or 7-day-stale session dirs and rotates the log (U5). This covers sessions killed with `tmux kill-session`, where SessionEnd may never fire. Session state is per session, so `wb resume` (a cold start with a new session) and `/clear` start clean: mute and cooldown reset, which is accepted for cut 1.
+At SessionEnd, `hook-end` logs `pending_at_end` if `marker` or `draft` exists and writes an `ended` tombstone. A throttled reaper, run from `hook-prompt`, removes ended or 7-day-stale session dirs and rotates the log (U5). This covers sessions killed with `tmux kill-session`, where SessionEnd may never fire. State is per session, so anything that yields a new `session_id` starts clean, with mute and cooldown reset; that's accepted for cut 1. `wb resume` pre-types `claude --resume <id>` (`wb_layout_session`), so the session and its capture state may carry over, unless the resume falls back to a fresh session (e.g. the transcript was pruned by `cleanupPeriodDays`). U1 check 5 settles which.
 
 ### Assumptions
 
@@ -166,7 +166,7 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 - **Approach:** check each of the following.
   1. A skills-dir plugin whose files are stow-style symlinks loads, and its hooks fire. Check with a probe plugin that logs stdin, via `--plugin-dir` and then as a symlinked `~/.claude/skills/<probe>/`, removed afterwards.
   2. The Stop stdin carries `last_assistant_message` and `transcript_path`, and the PostToolUse(Bash) stdin carries `tool_input.command`, including for sub-agent tool calls. Record whether a sub-agent's PostToolUse carries the **parent's** `session_id`.
-  5. Session identity across lifecycle events: does `/clear` issue a new `session_id`, and does SessionEnd fire when the tmux session is killed (`wb pause`/`wb down` use `tmux kill-session`)? `wb resume` cold-starts `claude`, so it always gets a new session.
+  5. Session identity across lifecycle events: does `/clear` issue a new `session_id`, and does SessionEnd fire when the tmux session is killed (`wb pause`/`wb down` use `tmux kill-session`)? Does a `wb resume` (which pre-types `claude --resume <id>`) keep the prior `session_id`?
   3. An `async: true` Stop hook can launch `claude -p --model haiku --no-session-persistence --max-turns 1` with tools disabled. Find the exact flag for "no tools". The child inherits `WB_CAPTURE_SWEEP` and does fire user and plugin hooks (so our guard is what stops recursion). It writes no transcript. It runs inside the parent's `wb-agent-*.scope`: check with `systemd-cgls`, and note peak memory against `MemoryMax`.
   4. `docgen.sh` tolerates a `claude/.claude/skills/wb-capture/` directory with no `SKILL.md`. Run it in a `git archive` clean-room copy, never the shared checkout.
 - **Execution note:** this is a spike. Probe artifacts live in the scratchpad and are removed; nothing here ships. Kill no processes and stop no units without asking Jet.
@@ -336,7 +336,7 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 - **Accepted cut-1 behaviours:**
   - Two agents on one task file each get their own nudges and sweeps, since state is per session.
   - Another writer's append to the shared task file resets this session's staleness counter and can delay a sweep.
-  - Mute and cooldown don't survive `/clear` or `wb resume`.
+  - Mute and cooldown don't survive anything that issues a new `session_id` (possibly `/clear`, and a `wb resume` whose `--resume` falls back to a fresh session).
 
 ## Risks & Dependencies
 
