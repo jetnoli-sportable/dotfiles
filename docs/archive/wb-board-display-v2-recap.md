@@ -108,6 +108,6 @@ branch:
 
 - Plan: [`docs/plans/2026-07-12-001-feat-wb-board-display-plan.md`](../plans/2026-07-12-001-feat-wb-board-display-plan.md)
 - Human guide: [`docs/wb-guide.md`](../wb-guide.html) (v2 board section + refreshed `wb new` docs)
-- Roadmap detail: [`docs/roadmap-board.md`](../roadmap-board.html) (v2 pass, "what shipped in v2" section)
+- Roadmap detail: [`docs/roadmap-board.md`](roadmap-board.html) (v2 pass, "what shipped in v2" section)
 - Skill: `claude/.claude/skills/wb-board/SKILL.md`
 - Richer visual walkthrough: `docs/wb-board-display-v2-recap.artifact.html` (published separately as a claude.ai Artifact)

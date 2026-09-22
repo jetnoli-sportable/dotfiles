@@ -145,11 +145,22 @@ assert_empty_file "passthrough/no-wb_repo: systemd-run never invoked" "$LOG_DIR/
 run_claude TMUX=1 FAKE_WB_REPO=dotfiles FAKE_SESSION_NAME=testsess
 assert_contains "isolate: systemd-run invoked with --scope" "$LOG_DIR/systemd-run.argv" "--scope"
 assert_contains "isolate: systemd-run invoked with --user" "$LOG_DIR/systemd-run.argv" "--user"
-assert_contains "isolate: default MemoryHigh=6G" "$LOG_DIR/systemd-run.argv" "MemoryHigh=6G"
-assert_contains "isolate: default MemoryMax=8G" "$LOG_DIR/systemd-run.argv" "MemoryMax=8G"
-assert_matches "isolate: --unit names the session" "$LOG_DIR/systemd-run.argv" '^--unit=wb-agent-testsess-[0-9]+$'
+assert_contains "isolate: default MemoryHigh=14G" "$LOG_DIR/systemd-run.argv" "MemoryHigh=14G"
+assert_contains "isolate: default MemoryMax=18G" "$LOG_DIR/systemd-run.argv" "MemoryMax=18G"
+assert_matches "isolate: --unit names the session" "$LOG_DIR/systemd-run.argv" '^--unit=wb-agent-testsess-[0-9]+-[0-9]+$'
 assert_contains "isolate: resolved absolute claude path, not literal 'command'" "$LOG_DIR/systemd-run.argv" "$FIXTURE_BIN/claude"
 assert_contains "isolate: wrapped claude still ran (stub execs trailing cmd)" "$LOG_DIR/claude.log" "real-claude-ran arg1 arg2"
+
+# --- Unit name is unique per launch, not just per pane -----------------------
+# $$ is the pane shell's PID, stable across relaunches in the same pane; a
+# scope kept active by a detached child (wl-copy) would otherwise make the
+# next same-pane `claude` fail with "Unit ... was already loaded".
+: > "$LOG_DIR/systemd-run.argv"
+env -i HOME="$HOME" PATH="$FIXTURE_BIN:/usr/bin:/bin" WB_TEST_LOG_DIR="$LOG_DIR" TMUX=1 FAKE_WB_REPO=dotfiles \
+  zsh -c "$FUNC_SRC"$'\n''claude a; claude b' 2>/dev/null
+units="$(grep -E '^--unit=' "$LOG_DIR/systemd-run.argv")"
+assert_eq "unique unit: two launches from one shell both went through systemd-run" "2" "$(printf '%s\n' "$units" | grep -c .)"
+assert_eq "unique unit: two launches from one shell get distinct unit names" "2" "$(printf '%s\n' "$units" | sort -u | grep -c .)"
 
 # --- Env override (R8) -------------------------------------------------------
 run_claude TMUX=1 FAKE_WB_REPO=dotfiles WB_AGENT_MEM_MAX=4G
@@ -157,7 +168,7 @@ assert_contains "env override: MemoryMax reflects WB_AGENT_MEM_MAX=4G" "$LOG_DIR
 
 # --- Unit-name sanitization (R1 robustness) ----------------------------------
 run_claude TMUX=1 FAKE_WB_REPO=dotfiles FAKE_SESSION_NAME='weird.name/here'
-assert_matches "sanitize: --unit strips chars outside [A-Za-z0-9_-]" "$LOG_DIR/systemd-run.argv" '^--unit=wb-agent-weird-name-here-[0-9]+$'
+assert_matches "sanitize: --unit strips chars outside [A-Za-z0-9_-]" "$LOG_DIR/systemd-run.argv" '^--unit=wb-agent-weird-name-here-[0-9]+-[0-9]+$'
 
 # --- U2: below threshold, silent (R6) ---------------------------------------
 run_claude TMUX=1 FAKE_WB_REPO=dotfiles FAKE_PANE_LIST=$'claude\nbash'
@@ -230,6 +241,17 @@ EOF
 
   pane_cmd="$(PATH="$DETECT_BIN:$PATH" tmux list-panes -t "=$SESSION" -F '#{pane_current_command}')"
   assert_eq "detection contract: pane_current_command reads 'claude' under real isolation" "claude" "$pane_cmd"
+
+  # Same-pane relaunch while the first scope is still ACTIVE — the real
+  # collision the stubbed systemd-run can't reproduce. Ctrl-Z keeps the first
+  # agent alive in its scope (like an orphaned wl-copy would); with a
+  # PID-only unit name the second launch fails "Unit ... was already loaded".
+  PATH="$DETECT_BIN:$PATH" tmux send-keys -t "$PANE" C-z
+  sleep 1
+  PATH="$DETECT_BIN:$PATH" tmux send-keys -t "$PANE" "PATH=\"$CLAUDE_STUB_DIR:\$PATH\" claude 300" Enter
+  sleep 2
+  n_scopes="$(systemctl --user list-units --type=scope --state=active --no-legend --plain "wb-agent-${SESSION}-*" 2>/dev/null | grep -c .)"
+  assert_eq "same-pane relaunch: second scope starts while the first is still active" "2" "$n_scopes"
 
   detect_cleanup
   trap cleanup EXIT

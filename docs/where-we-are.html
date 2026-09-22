@@ -236,273 +236,738 @@
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> where-we-are</span>
   <span class="gen">docgen · generated from <b>docs/where-we-are.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-09-07</span>
+  <span class="right">updated 2026-09-22</span>
 </div>
 <div class="shell">
   <nav class="toc">
     <div class="brand">Where we are</div>
-    <div class="brand-sub">The current state of the personal-workflow build — what&#39;s shipped, what&#39;s verified, and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</div>
+    <div class="brand-sub">The strategy page — task-store numbers, which tool to reach for when, the save/resume workflow, every skill/verb/doc with measured usage and a verdict, the architecture direction, and what&#39;s next.</div>
     <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
     <ul>
-      <li><a href="#in-one-paragraph">In one paragraph</a></li>
-      <li><a href="#shipped">Shipped</a></li>
-      <li><a href="#in-review">In review</a></li>
+      <li><a href="#at-a-glance">At a glance</a></li>
+      <li><a href="#which-tool-when">Which tool when</a></li>
+      <li><a href="#save--resume--the-intended-workflow">Save &amp; resume — the intended workflow</a></li>
+      <li><a href="#inventory-and-verdicts">Inventory and verdicts</a></li>
+      <li><a href="#wb-design--open-threads">wb design &amp; open threads</a></li>
+      <li><a href="#architecture-direction">Architecture direction</a></li>
       <li><a href="#next-up">Next up</a></li>
-      <li><a href="#deferred--parked">Deferred / parked</a></li>
+      <li><a href="#shipped">Shipped</a></li>
     </ul>
   </nav>
   <main>
     <header class="doc guide-banner">
       <span class="eyebrow">where-we-are · guide</span>
       <h1>Where we are</h1>
-      <p class="dek">The current state of the personal-workflow build — what&#39;s shipped, what&#39;s verified, and what&#39;s queued next. The at-a-glance snapshot behind the roadmap&#39;s detail.</p>
+      <p class="dek">The strategy page — task-store numbers, which tool to reach for when, the save/resume workflow, every skill/verb/doc with measured usage and a verdict, the architecture direction, and what&#39;s next.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
     </header>
     <article>
-<p>A point-in-time status snapshot of the whole personal-workflow build — the
-one-screen answer to &quot;where are we?&quot;. The <a href="roadmap.html">Roadmap</a> holds the
-forward-looking plan and the design rationale; this page is the current
-state. Every shipped item links back to its recap or roadmap detail.</p>
-<h2 id="in-one-paragraph">In one paragraph</h2>
-<p>The workbench is real and in daily use: <code>wb</code> runs a session-per-worktree
-picker over a central task store, tasks carry lifecycle state, and a
-generated docs platform (this Hub, <code>INDEX</code>, <code>/help</code>) keeps it all
-navigable. The last build run hardened the store against concurrent agents
-(PR #22), then stacked task-family tooling on top of those lock primitives
-(<code>/wb-breakdown</code>, PR #29) and refreshed the board (PR #30) and Hub (PR #31).
-Since then: Jira interop Phase 1 shipped (PR #32) and was <strong>verified against
-live Jira on 2026-09-07</strong>; the docs platform and board got a UX overhaul
-(PR #33); <code>/handoff --pane</code>, <code>/parked-items</code> and <code>/quick-wins</code> landed; and a
-run of tmux memory fixes (PRs #37–#41) made many concurrent agent sessions
-survivable. Nothing is in review right now. Next up is the one-time
-task-store schema migration and closing two known <code>wb</code> gaps.</p>
+<style>
+  /* Page-scoped components. Colours come only from the shared template tokens. */
+  .wwa-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: .75rem; margin: 1.25rem 0 .5rem; }
+  .wwa-stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: .8rem 1rem; border-top: 3px solid var(--k, var(--line)); }
+  .wwa-stat b { display: block; font-family: var(--mono); font-size: 1.7rem; line-height: 1.1;
+    font-variant-numeric: tabular-nums; color: var(--ink); }
+  .wwa-stat span { font-size: .78rem; color: var(--ink2); }
+  .wwa-stat.doing { --k: var(--acc); } .wwa-stat.review { --k: var(--warn); }
+  .wwa-stat.paused { --k: var(--mut); } .wwa-stat.planned { --k: var(--acc2); }
+  .wwa-stat.done { --k: var(--ok); } .wwa-stat.prosp { --k: var(--line); }
+  .wwa-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+    gap: .85rem; margin: 1rem 0; }
+  .wwa-card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+    border-radius: 0 10px 10px 0; padding: .85rem 1rem; }
+  .wwa-card h3 { font-family: var(--mono); font-size: .9rem; margin: 0 0 .4rem; }
+  .wwa-card p { font-size: .84rem; color: var(--ink2); margin: .25rem 0 0; max-width: none; }
+  .wwa-card .use { font-family: var(--mono); font-size: .82rem; color: var(--ink); }
+  .wwa-card.new { border-left-color: var(--warn); }
+  .wwa-card.task { border-left-color: var(--acc2); }
+  .wwa-card.batch { border-left-color: var(--ok); }
+  .wwa-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin: 1rem 0; }
+  .wwa-flow .step { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: .6rem .8rem; flex: 1 1 170px; font-size: .82rem; color: var(--ink2); }
+  .wwa-flow .step b { display: block; font-family: var(--mono); color: var(--ink); font-size: .85rem; margin-bottom: .2rem; }
+  .wwa-flow .arrow { align-self: center; color: var(--mut); font-family: var(--mono); }
+  article details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: .5rem 1rem; margin: 1rem 0; }
+  article details > summary { cursor: pointer; font-family: var(--mono); font-size: .88rem;
+    padding: .25rem 0; color: var(--ink); }
+  article details[open] > summary { margin-bottom: .5rem; }
+  .wwa-num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  @media (max-width: 600px) { .wwa-cards { grid-template-columns: 1fr; } }
+</style>
+<p>The strategy page for the personal workflow: where things stand, which tool
+to reach for in which situation, what every piece is actually used for,
+and what comes next. Rewritten 2026-09-22 from the old status snapshot.
+The <a href="roadmap.html">Roadmap</a> still holds the long-form history. Usage
+numbers come from Claude Code transcripts, 2026-07-01 → 2026-09-22.</p>
+<h2 id="at-a-glance">At a glance</h2>
+<p>The workbench is in daily use. <code>wb</code> runs one tmux session per worktree
+over a central task store, and the <strong>weekly loop now exists</strong>:
+<code>/park</code> drops loose ends into a standing capture doc,
+<code>/weekly-review</code> turns the week's evidence into a handful of suggestions on
+the review page, and <code>wb board --html</code> shows everything across four views.
+Since 2026-09-14: the strategy family shipped the review page and <code>wb status</code>/<code>wb set</code> (#52), the weekly review (#55–#58), the rebuilt board
+(#59, #62), per-family <code>CONCEPTS.md</code> (#61), and the <code>store-specialist</code>
+subagent (#63). A quick-fix batch is in flight, and four tasks that need
+decisions are queued (see <a href="#next-up">Next up</a>).</p>
+<div class="wwa-stats">
+  <div class="wwa-stat doing"><b>22</b><span>doing (62 on 2026-09-14)</span></div>
+  <div class="wwa-stat review"><b>7</b><span>in review</span></div>
+  <div class="wwa-stat paused"><b>5</b><span>paused</span></div>
+  <div class="wwa-stat planned"><b>183</b><span>planned</span></div>
+  <div class="wwa-stat prosp"><b>8</b><span>prospective</span></div>
+  <div class="wwa-stat done"><b>94</b><span>done</span></div>
+</div>
+<p>Task-store status counts as of 2026-09-22 (319 files). The 2026-09-14 triage
+took <code>doing</code> from 62 to about 20, and it has stayed there. The old
+non-standard <code>todo</code>/<code>open</code> values are gone.</p>
+<h2 id="which-tool-when">Which tool when</h2>
+<p>One card per situation. A tool named here is the default; the others are
+alternatives for a specific shape of the problem.</p>
+<div class="wwa-cards">
+  <div class="wwa-card"><h3>Capture a loose end</h3>
+    <p class="use">/park &lt;note&gt;</p>
+    <p>Appends to the standing capture doc (<code>~/code/tasks/weeks/capture.md</code>), which the weekly review rolls up. If it's shaped like work, it's proposed as a <code>prospective</code> task instead. <kbd>prefix</kbd>+<kbd>N</kbd> opens the capture doc directly. <a href="guides/park.html">guide</a></p></div>
+  <div class="wwa-card"><h3>Make a settled choice</h3>
+    <p class="use">/decision-buffer</p>
+    <p>Once the direction is agreed in chat and what's left needs a written answer. Six shapes: choice, findings-review, interview, paste-target, confirm-facts, code-review triage. Past ~25 rows, use <code>/review-page</code> instead. <a href="guides/decision-buffer.html">guide</a></p></div>
+  <div class="wwa-card"><h3>Review a big batch</h3>
+    <p class="use">/review-page</p>
+    <p>A local HTML page with evidence per row, a suggested verdict, grouping and questions. Use it for audits, prune lists and triage, where an nvim buffer becomes unreadable. <a href="guides/review-page.html">guide</a></p></div>
+  <div class="wwa-card"><h3>Scope an open question</h3>
+    <p class="use">/ce-brainstorm → /ce-plan</p>
+    <p>Brainstorm for what to build, <code>/ce-ideate</code> for generating options, <code>/spec-doc</code> when requirements need pinning down for others, <code>/ce-pov</code> for "should we adopt X?".</p></div>
+  <div class="wwa-card"><h3>Split something too big</h3>
+    <p class="use">/wb-breakdown</p>
+    <p>Turns one oversized task or Jira ticket into a parent/child family, via an approved proposal that <code>wb breakdown --apply</code> writes. <a href="wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family">wb guide</a></p></div>
+  <div class="wwa-card"><h3>Start or reopen work</h3>
+    <p class="use">wb  ·  wb new  ·  wb resume &lt;task&gt;</p>
+    <p>The picker (<kbd>prefix</kbd>+<kbd>m</kbd>) lists live and dormant sessions. <code>wb new</code> makes a worktree, session and task file. <code>wb resume</code> rebuilds a torn-down one from its task file. <a href="wb-guide.html">wb guide</a></p></div>
+  <div class="wwa-card"><h3>Free up context mid-task</h3>
+    <p class="use">/wb-save → /clear → /wb-resume</p>
+    <p>The most-used loop in the whole system (91 and 86 transcripts). See <a href="#save--resume--the-intended-workflow">save &amp; resume</a> below.</p></div>
+  <div class="wwa-card"><h3>End a session</h3>
+    <p class="use">/close-out</p>
+    <p>Sweeps the session for follow-ups, updates the task file, then runs <code>wb down</code> (keeps the worktree; use when a PR is open) or <code>wb done</code> through <code>/wb-done</code> (removes the worktree and marks the task done).</p></div>
+  <div class="wwa-card"><h3>Hand work to another session</h3>
+    <p class="use">/handoff</p>
+    <p>Routes one piece of the current discussion to its own worker. It switches to the live session if one exists, or spawns one with <code>wb new --agent</code>, with the context written into the target's task file first. <a href="handoff-guide.html">guide</a></p></div>
+  <div class="wwa-card"><h3>Start the week</h3>
+    <p class="use">/weekly-review</p>
+    <p>Gathers reconcile drift, unreviewed capture entries, tasks moved, PRs merged and skill usage, shows at most a handful of suggestions on the review page, and writes <code>weeks/&lt;iso&gt;-review.md</code>. Accepted suggestions become <code>planned</code> tasks. <a href="guides/weekly-review.html">guide</a></p></div>
+  <div class="wwa-card"><h3>See everything</h3>
+    <p class="use">wb board --html</p>
+    <p>Writes <a href="../logs/board.html">logs/board.html</a> with four views: <b>Active</b>, <b>Roadmap</b>, <b>Week</b> and <b>Family</b> (per-family ladder, plus a <code>family-rollup.json</code> side output). It is generated on demand.</p></div>
+  <div class="wwa-card"><h3>Ask the task store something</h3>
+    <p class="use">store-specialist (subagent)</p>
+    <p>For an agent that needs "what does the store say about X" with <code>file#section</code> pointers, or needs to write a decision or frontmatter change back through the locked <code>wb</code> verbs rather than a hand edit. New in #63.</p></div>
+  <div class="wwa-card"><h3>Ship a change</h3>
+    <p class="use">/ce-code-review → wb reviewed → PR</p>
+    <p>Review before the PR, then stamp the task's <code>reviewed:</code> field immediately (the board's review stage reads it). <code>/ce-commit-push-pr</code> opens the PR.</p></div>
+  <div class="wwa-card"><h3>"Why do I have X?"</h3>
+    <p class="use"><kbd>prefix</kbd>+<kbd>?</kbd></p>
+    <p>A fuzzy picker over the generated <a href="INDEX.md">INDEX</a> (binds, aliases, skills, docs), with source links.</p></div>
+</div>
+<h3 id="newer-skills--when-to-reach-for-them">Newer skills — when to reach for them</h3>
+<p>These are too new, or too rarely used, to judge. Each has a concrete trigger
+so it has a fair chance of being tried.</p>
+<div class="wwa-cards">
+  <div class="wwa-card new"><h3>/quick-wins <span class="chip mut">0 uses</span></h3>
+    <p>You have an hour and want to finish something: it ranks planned tasks and captured items by effort, isolation and ownership. <em>Example:</em> Friday afternoon, "which planned dotfiles tasks are S-sized and need nothing from anyone?"</p></div>
+  <div class="wwa-card new"><h3>/spec-doc <span class="chip mut">1 use</span></h3>
+    <p>Before <code>/wb-breakdown</code> or <code>/ce-plan</code> on something big enough that the requirements need writing down. <em>Example:</em> the task-store schema owner (T2 below), where the numbered rules decide the module's API.</p></div>
+  <div class="wwa-card new"><h3>/visual-explore <span class="chip ok">4 uses</span></h3>
+    <p>Choosing the look of a new HTML surface by comparing 3–4 mockups side by side before building. <em>Example:</em> the <code>/wb-breakdown</code> review page (T3 below).</p></div>
+  <div class="wwa-card new"><h3>/find-skills <span class="chip mut">0 uses</span></h3>
+    <p>When you think "there's probably a skill for this": search installable skills before writing a new one. <em>Example:</em> before building a custom statusline or a new Jira helper.</p></div>
+  <div class="wwa-card new"><h3>/write-product-spec · /write-tech-spec <span class="chip mut">0 uses</span></h3>
+    <p>Vendored for features in Warp's own repo. Outside Warp, <code>/spec-doc</code> covers product specs and hands off to write-tech-spec only when a separate TECH spec helps. <em>Example:</em> a contribution to Warp itself. Otherwise, leave them alone.</p></div>
+</div>
+<h2 id="save--resume--the-intended-workflow">Save &amp; resume — the intended workflow</h2>
+<p>The session boundary is where context gets lost, so this is the workflow to
+get right. It's already the most-used loop in the system.</p>
+<div class="wwa-flow">
+  <div class="step"><b>/wb-save</b>Writes a rich <code>## Handoffs</code> entry (Done / In flight / Next, plus an optional <code>```run</code> directive) into the task file found via the tmux session's <code>@task</code>.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>/clear</b>Manual. Context is gone; the task file is the only carrier.</div>
+  <div class="arrow">→</div>
+  <div class="step"><b>/wb-resume</b>Reads the newest rich entry and continues with its Next. If terse automatic entries (<code>wb pause</code>/<code>done</code>/<code>resume</code>) landed after it, it states the gap and asks first.</div>
+</div>
+<p>At the <strong>session</strong> level, the same idea works without <code>/clear</code>:</p>
+<ul>
+<li><strong><code>wb down</code></strong> closes the tmux session and keeps the worktree. The status
+moves to <code>review</code> if the branch has an open PR, otherwise it stays as it was.
+Resume is warm: the picker's dormant rows and <code>wb resume</code> pre-type
+<code>claude --resume &lt;id&gt;</code> from the transcript Claude Code already keeps
+on disk. No session-id capture is needed. <a href="wb-guide.html#session-lifecycle-wb-down-wb-pause-and-warm-resume">Details</a>.</li>
+<li><strong><code>wb pause</code></strong> is <code>wb down</code> plus <code>status: paused</code>, for deliberately
+shelving something.</li>
+<li><strong><code>wb done</code></strong> is the safe wind-down: it aborts on a dirty worktree, runs a
+sweep-review buffer, removes the worktree and marks the task <code>done</code>. From
+inside Claude, go through <code>/wb-done</code> (background plus relay) so the buffer
+doesn't hang the turn.</li>
+<li><strong><code>/close-out</code></strong> wraps all of it for the end of a session.</li>
+</ul>
+<p>The per-skill references stay as they are: <a href="guides/wb-save.html">wb-save</a> ·
+<a href="guides/wb-resume.html">wb-resume</a>. <strong>Next evolution:</strong> the
+<code>dotfiles--feat-wb-implicit-handoff</code> task (planned) makes saving automatic.
+A cheap Haiku-class writer runs from a Stop/PreCompact hook, and a manual
+<code>/wb-save</code> stays for rich snapshots.</p>
+<h2 id="inventory-and-verdicts">Inventory and verdicts</h2>
+<p>Every piece, with measured usage and a verdict. &quot;Transcripts&quot; means distinct
+Claude Code sessions that invoked it between 2026-07-01 and 2026-09-22;
+&quot;since 9/15&quot; shows recent uptake. Verdicts carry forward the 2026-09-14
+piece audit, re-checked against the refreshed counts.</p>
+<blockquote>
+<p><strong>Correction to the 2026-09-14 numbers.</strong> The earlier snapshot undercounted
+Skill-tool calls badly (for example <code>/handoff</code> showed 1 session; the real
+number is 27; <code>ce-code-review</code> showed 3 against 53). None of that
+audit's <em>removals</em> were wrong: every removed piece is still at zero. But
+several &quot;keep (light)&quot; verdicts were really core pieces. Source:
+<code>dossiers/dotfiles--feat-strategy-doc/usage-inventory-2026-09-22.md</code>.</p>
+</blockquote>
+<h3 id="local-skills">Local skills</h3>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>Transcripts</th>
+<th>Since 9/15</th>
+<th>Verdict</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>wb-resume</td>
+<td><span class="wwa-num">91</span></td>
+<td><span class="wwa-num">26</span></td>
+<td><span class="chip ok">keep</span></td>
+<td>Top of the list.</td>
+</tr>
+<tr>
+<td>wb-save</td>
+<td><span class="wwa-num">86</span></td>
+<td><span class="wwa-num">25</span></td>
+<td><span class="chip ok">keep</span></td>
+<td>Automatic saving planned (implicit-handoff task).</td>
+</tr>
+<tr>
+<td>decision-buffer</td>
+<td><span class="wwa-num">56</span></td>
+<td><span class="wwa-num">9</span></td>
+<td><span class="chip ok">keep</span></td>
+<td>v2 rewrite (#47); big batches go to review-page.</td>
+</tr>
+<tr>
+<td>handoff</td>
+<td><span class="wwa-num">27</span></td>
+<td><span class="wwa-num">8</span></td>
+<td><span class="chip ok">keep</span></td>
+<td>Was &quot;keep (light)&quot; on the undercount.</td>
+</tr>
+<tr>
+<td>close-out</td>
+<td><span class="wwa-num">19</span></td>
+<td><span class="wwa-num">11</span></td>
+<td><span class="chip ok">keep</span></td>
+<td>Growing fast.</td>
+</tr>
+<tr>
+<td>wb-done</td>
+<td><span class="wwa-num">11</span></td>
+<td><span class="wwa-num">1</span></td>
+<td><span class="chip ok">keep</span></td>
+<td>Mostly reached through close-out now.</td>
+</tr>
+<tr>
+<td>park</td>
+<td><span class="wwa-num">5</span></td>
+<td><span class="wwa-num">4</span></td>
+<td><span class="chip ok">keep</span></td>
+<td>Plus 19 capture-doc entries; now feeds the weekly review.</td>
+</tr>
+<tr>
+<td>wb-jira-create</td>
+<td><span class="wwa-num">5</span></td>
+<td><span class="wwa-num">2</span></td>
+<td><span class="chip ok">keep</span></td>
+<td>Was zero on the undercount.</td>
+</tr>
+<tr>
+<td>wb-breakdown</td>
+<td><span class="wwa-num">4</span></td>
+<td><span class="wwa-num">2</span></td>
+<td><span class="chip warn">keep · revamp</span></td>
+<td>Proposal moves to the review page, see T3.</td>
+</tr>
+<tr>
+<td>visual-explore</td>
+<td><span class="wwa-num">4</span></td>
+<td><span class="wwa-num">1</span></td>
+<td><span class="chip acc">too new · in use</span></td>
+<td></td>
+</tr>
+<tr>
+<td>review-page</td>
+<td><span class="wwa-num">1</span></td>
+<td><span class="wwa-num">1</span></td>
+<td><span class="chip acc">too new</span></td>
+<td>Shipped 2026-09-14; weekly-review uses it underneath.</td>
+</tr>
+<tr>
+<td>weekly-review</td>
+<td><span class="wwa-num">1</span></td>
+<td><span class="wwa-num">1</span></td>
+<td><span class="chip acc">too new</span></td>
+<td>Has run once (W38).</td>
+</tr>
+<tr>
+<td>spec-doc</td>
+<td><span class="wwa-num">1</span></td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="chip acc">too new</span></td>
+<td></td>
+</tr>
+<tr>
+<td>quick-wins</td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="chip mut">no uptake</span></td>
+<td>A month old. Question for the weekly review, not a removal.</td>
+</tr>
+<tr>
+<td>help</td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="chip mut">no uptake</span></td>
+<td>Kept in the audit; the <kbd>prefix</kbd>+<kbd>?</kbd> picker does the same job.</td>
+</tr>
+<tr>
+<td>find-skills</td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="chip acc">too new</span></td>
+<td></td>
+</tr>
+<tr>
+<td>write-product-spec · write-tech-spec</td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="chip mut">no uptake</span></td>
+<td>Specific to Warp's repo, vendored.</td>
+</tr>
+<tr>
+<td>store-specialist (subagent)</td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="wwa-num">0</span></td>
+<td><span class="chip acc">too new</span></td>
+<td>Landed today (#63).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Already removed</strong> (the 2026-09-14 audit, all still at zero): <code>handoff-pane</code>
+and <code>wb-board</code> (#52), <code>parked-items</code> (absorbed into <code>/weekly-review</code>, #55).
+<strong>The prune list (R12) is empty:</strong> every remove, archive and merge verdict
+from that audit has shipped or is covered by this rewrite, so no prune
+follow-up tasks are needed.</p>
+<h3 id="plugin-skills-compound-engineering">Plugin skills (compound-engineering)</h3>
+<p>Plugin-provided, so they get guidance on when to use them rather than
+verdicts. They are central to how work gets done: plan → work → review
+runs through them.</p>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Skills (transcripts)</th>
+<th>Reach for it when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Core loop</strong></td>
+<td><code>ce-code-review</code> 53 · <code>ce-work</code> 37 · <code>ce-plan</code> 30 · <code>ce-doc-review</code> 23</td>
+<td>Every non-trivial task: plan it, doc-review the plan if it's big, work it, code-review before the PR.</td>
+</tr>
+<tr>
+<td><strong>Situational</strong></td>
+<td><code>ce-simplify-code</code> 12 · <code>ce-debug</code> 8 · <code>ce-ideate</code> 5 · <code>ce-brainstorm</code> 5 · <code>ce-explain</code> 2 · <code>ce-commit-push-pr</code> 2</td>
+<td>Debug a failure, tidy after a feature lands, generate or refine ideas, learn a diff, open a PR.</td>
+</tr>
+<tr>
+<td><strong>Deliberately</strong></td>
+<td><code>ce-worktree</code> 4 · <code>ce-pov</code> 0 · <code>ce-resolve-pr-feedback</code> 0 · <code>ce-compound</code> 0 · <code>ce-test-browser</code> 0</td>
+<td><code>ce-worktree</code> only outside dotfiles: here, <code>wb new</code> also bootstraps. <code>ce-pov</code> for &quot;adopt X?&quot;. <code>ce-resolve-pr-feedback</code> when PR comments pile up. <code>ce-compound</code> to record a hard-won fix.</td>
+</tr>
+<tr>
+<td><strong>Not needed here</strong></td>
+<td><code>ce-strategy</code> · <code>ce-commit</code> · <code>ce-compound-refresh</code> · <code>ce-optimize</code> · <code>ce-proof</code> · <code>ce-riffrec-feedback-analysis</code> (all 0)</td>
+<td>This page plays the STRATEGY.md role. Commits happen inside other flows. The rest target setups that don't exist here.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="wb-verbs">wb verbs</h3>
+<p>Usage is measured two ways: automatic <code>## Handoffs</code> entries the verb writes
+into task files, and distinct transcripts that ran it through Bash.</p>
+<table>
+<thead>
+<tr>
+<th>Verb</th>
+<th>Evidence</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>wb resume</code></td>
+<td>103 auto entries</td>
+<td><span class="chip ok">keep</span></td>
+</tr>
+<tr>
+<td><code>wb done</code></td>
+<td>81 auto entries</td>
+<td><span class="chip ok">keep</span></td>
+</tr>
+<tr>
+<td><code>wb new</code></td>
+<td>40 transcripts; the picker's <code>n</code>; used by 6 skills</td>
+<td><span class="chip ok">keep</span></td>
+</tr>
+<tr>
+<td><code>wb set</code> · <code>wb status</code></td>
+<td>54 / 29 auto entries</td>
+<td><span class="chip ok">keep</span> (new since #52)</td>
+</tr>
+<tr>
+<td><code>wb board</code></td>
+<td>25 transcripts</td>
+<td><span class="chip ok">keep</span> (rebuilt #59/#62)</td>
+</tr>
+<tr>
+<td><code>wb reconcile</code></td>
+<td>12 transcripts; first evidence step of the weekly review</td>
+<td><span class="chip ok">keep</span> · duplicate detection → T1</td>
+</tr>
+<tr>
+<td><code>wb week</code></td>
+<td>10 transcripts</td>
+<td><span class="chip acc">too new</span></td>
+</tr>
+<tr>
+<td><code>wb breakdown</code></td>
+<td>8 auto entries</td>
+<td><span class="chip warn">keep · refine</span> → T3</td>
+</tr>
+<tr>
+<td><code>wb down</code> · <code>wb pause</code> · <code>wb pr-open</code> · <code>wb append</code> · <code>wb install-hooks</code></td>
+<td>Used by close-out, wb-resume, handoff, wb-save and weekly-review</td>
+<td><span class="chip ok">keep</span></td>
+</tr>
+<tr>
+<td><code>wb reviewed</code> · <code>wb jira-set</code> · <code>wb sync</code> · <code>wb unsafe-rewind</code></td>
+<td>Rare by design (stamps and escape hatches)</td>
+<td><span class="chip ok">keep (light)</span></td>
+</tr>
+</tbody>
+</table>
+<h3 id="docs-pages">Docs pages</h3>
+<details>
+<summary>30 pages: 19 current, 7 archived by this rewrite, and a note on staleness</summary>
+<table>
+<thead>
+<tr>
+<th>Page</th>
+<th>Updated</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="where-we-are.html">where-we-are</a> (this page)</td>
+<td>2026-09-22</td>
+<td><span class="chip ok">keep</span>: the strategy page</td>
+</tr>
+<tr>
+<td><a href="try-it.html">try-it</a> · <a href="ceremonies.html">ceremonies</a> · guides: <a href="guides/weekly-review.html">weekly-review</a> · <a href="guides/park.html">park</a> · <a href="guides/review-page.html">review-page</a> · <a href="guides/decision-buffer.html">decision-buffer</a></td>
+<td>2026-09-09 → 09-22</td>
+<td><span class="chip ok">keep</span></td>
+</tr>
+<tr>
+<td><a href="wb-guide.html">wb-guide</a></td>
+<td>2026-08-24</td>
+<td><span class="chip warn">keep · stale</span>: its board section still describes v2, before the #59/#62 rebuild</td>
+</tr>
+<tr>
+<td><a href="roadmap.html">roadmap</a></td>
+<td>2026-07-18</td>
+<td><span class="chip warn">keep · stale</span>: long-form history; this page supersedes its &quot;Up next&quot;</td>
+</tr>
+<tr>
+<td><a href="handoff-guide.html">handoff-guide</a></td>
+<td>2026-07-19</td>
+<td><span class="chip warn">keep · stale</span>: still documents pane mode, whose skill was removed in #52</td>
+</tr>
+<tr>
+<td><a href="setup.html">setup</a> · <a href="glossary.html">glossary</a> · <a href="limitations.html">limitations</a> · <a href="docgen.html">docgen</a> · <a href="guide-format.html">guide-format</a></td>
+<td>2026-07-07 → 07-14</td>
+<td><span class="chip ok">keep</span></td>
+</tr>
+<tr>
+<td>guides: <a href="guides/wb-save.html">wb-save</a> · <a href="guides/wb-resume.html">wb-resume</a> · <a href="guides/tasks-store-guards.html">tasks-store-guards</a> · <a href="guides/help.html">help</a> · <a href="guides/claude-tmux.html">claude-tmux</a> · <a href="guides/notes-tui.html">notes-tui</a> · <a href="guides/replay-tui.html">replay-tui</a></td>
+<td>2026-07-07 → 07-14</td>
+<td><span class="chip ok">keep</span>. The workflow now lives here; replay-tui simplification is tracked in <code>replay-tui--replay-improvements</code></td>
+</tr>
+<tr>
+<td>7 <code>roadmap-*</code> design notes</td>
+<td>2026-07-08 → 07-19</td>
+<td><span class="chip mut">archived</span>, folded into <a href="#wb-design--open-threads">wb design &amp; open threads</a></td>
+</tr>
+<tr>
+<td>10 recaps plus slice-4b</td>
+<td>—</td>
+<td><span class="chip mut">archived</span> in #52</td>
+</tr>
+</tbody>
+</table>
+</details>
+<h2 id="wb-design--open-threads">wb design &amp; open threads</h2>
+<p>The seven <code>roadmap-*</code> design notes are folded in here: one paragraph each on
+what shipped and what's still genuinely open. The originals are kept, word
+for word, in <code>docs/archive/</code>.</p>
+<div class="wwa-cards">
+  <div class="wwa-card"><h3>Board <span class="chip ok">shipped</span></h3>
+    <p>The interim text <code>wb board</code>, then the v1 HTML board, then v2 (stepper, Pipeline, relationships, Key Findings), then the rebuild into the four views (#59, #62). Jira stays excluded. Nothing is open. <a href="archive/roadmap-board.html">archived note</a></p></div>
+  <div class="wwa-card"><h3>Day bookends <span class="chip warn">partly open</span></h3>
+    <p>Single-session <code>wb down</code> and <code>wb resume</code> shipped. The "precious session id" worry went away: transcripts on disk already make resume warm. Still open: the <code>wb down --all</code> sweep and <code>wb up</code>'s startup review buffer. The weekly review now covers the start of the week. Principle: sessions can always be rebuilt from the task file. <a href="archive/roadmap-day-bookends.html">archived note</a></p></div>
+  <div class="wwa-card"><h3>Handoff <span class="chip warn">partly open</span></h3>
+    <p>v1 (switch or spawn, the task file as the payload) shipped in #21. Pane mode shipped in #34; its skill was removed in #52, though <code>handoff.sh --pane</code> remains. Still open: fan-out to several targets (parent/child now exists, and the board's <code>family-rollup.json</code> is built for it), instructing a live agent, non-blocking handoff, and handoff between stages of the same task. <a href="archive/roadmap-handoff.html">archived note</a></p></div>
+  <div class="wwa-card"><h3>Task recall <span class="chip warn">open</span></h3>
+    <p>Mentioning a task in any session should bring up its context and offer to resume it. Partly covered by the worktree-seeding rule, per-family <code>CONCEPTS.md</code> (#61) and <code>store-specialist</code> (#63). Open decisions: the matching heuristic, how eagerly to trigger it automatically, and the personal/employer boundary. <a href="archive/roadmap-task-recall.html">archived note</a></p></div>
+  <div class="wwa-card"><h3>wb design <span class="chip ok">settled</span></h3>
+    <p>Picker rows are tasks from the store, grouped by status first. <code>wb done</code> fails fast on a dirty worktree. It's bash, not Go, because it's tmux/fzf glue. The task record's sections are Plan / Handoffs / Decisions / Done / Follow-ups. The 2026-07-20 check on the parked ledger was resolved by making the weekly review the main path (#55). <a href="archive/roadmap-wb-design.html">archived note</a></p></div>
+  <div class="wwa-card"><h3>wb reconcile <span class="chip warn">one gap</span></h3>
+    <p>Presence-diff plus the review flow (do nothing / remove / discuss / create / attach / merge) shipped in #14, and it never auto-applies. Duplicate detection for two worktrees sharing a commit was deliberately deferred and kept report-only. It's now T1. <a href="archive/roadmap-wb-reconcile.html">archived note</a></p></div>
+  <div class="wwa-card"><h3>Open questions <span class="chip mut">record</span></h3>
+    <p><code>~/code/tasks</code> and <code>~/code/notes</code> stay separate repos (the "everything is a note" north star is parked). The "(F4)" mystery was traced. The <b>personal/employer boundary rule</b> is deliberately left as the last decision. <a href="archive/roadmap-open-questions.html">archived note</a></p></div>
+</div>
+<h2 id="architecture-direction">Architecture direction</h2>
+<p><strong>One schema owner for the task store.</strong> Today every <code>wb</code> verb, skill and
+agent reads and writes frontmatter its own way. The ratified order (parked
+item 7, 2026-09-14) is:</p>
+<ol>
+<li><strong><code>--json</code> on <code>wb</code> read commands.</strong> Agents stop scraping human-formatted output. → <code>dotfiles--feat-task-store-json-read</code> <span class="chip acc">planned</span></li>
+<li><strong>A single frontmatter read/write module</strong> that every verb goes through. The <code>store-specialist</code> subagent (#63) is already a partial single owner on the agent side; this step decides how the two relate.</li>
+<li><strong>The schema migration</strong>, run through that module. It's much smaller than it was: every <code>status:</code> value is now valid. The empty-key backfill for <code>parent</code>/<code>closed</code>/<code>depends_on</code> is in the quick-fix batch. What's left is deciding whether <code>size</code>/<code>priority</code>/<code>value</code> (missing from ~70–75% of files) are required with empty defaults or genuinely optional.</li>
+<li><strong>Read-only HTTP</strong> over the store.</li>
+<li><strong>MCP last</strong>, and only for mutating operations.</li>
+</ol>
+<p>All of this is held by the parent task <code>dotfiles--feat-task-store-schema-owner</code>,
+which gets split with <code>/wb-breakdown</code> as each step comes up. <strong>Already fixed:</strong>
+the <code>CODE_DIR</code> sourcing hazard behind the 2026-07-10 deletion incident.
+<code>wb.sh</code> now only sets it if unset (<code>CODE_DIR=&quot;${CODE_DIR:-$HOME/code}&quot;</code>).</p>
+<h2 id="next-up">Next up</h2>
+<p>The old &quot;Next up&quot; list, re-checked 2026-09-22. None of the three items had
+landed. Each is now either in the quick-fix batch or a task with its open
+decisions written down.</p>
+<h3 id="in-flight--quick-fix-batch">In flight — quick-fix batch</h3>
+<div class="wwa-cards">
+  <div class="wwa-card batch"><h3>dotfiles--fix-strategy-quick-fixes <span class="chip acc">doing</span></h3>
+    <p>Clear fixes with no design decisions, in one worker session:</p>
+    <p>① <code>wb new</code> bootstrap self-heal (bootstrap was skipped when the worktree dir already existed) · ② <code>be--monorepo</code> bootstrap manifest (local) · ③ empty-key schema backfill · ④ docgen: a missing source root becomes a warning · ⑤ statusline usage and reset times, if Claude Code provides the data · ⑥ render <code>docs/archive/</code> pages (fixes 22 broken recap links)</p></div>
+</div>
+<h3 id="tasks-that-need-a-decision-first">Tasks that need a decision first</h3>
+<div class="wwa-cards">
+  <div class="wwa-card task"><h3>T1 · wb reconcile duplicate detection <span class="chip">M</span></h3>
+    <p>Decide what counts as a duplicate (shared commit? same Jira key? stuttered slugs?), whether it stays report-only, and whether it appears in the weekly review. <code>dotfiles--feat-wb-reconcile-duplicate-detection</code></p></div>
+  <div class="wwa-card task"><h3>T2 · task-store schema owner <span class="chip">L</span></h3>
+    <p>The parent for the five-step direction above; the <code>size</code>/<code>priority</code>/<code>value</code> policy is decided here. <code>dotfiles--feat-task-store-schema-owner</code></p></div>
+  <div class="wwa-card task"><h3>T2a · <code>--json</code> read output <span class="chip">M</span></h3>
+    <p>Which commands get it, the JSON shape and versioning, and how store-specialist consumes it. <code>dotfiles--feat-task-store-json-read</code></p></div>
+  <div class="wwa-card task"><h3>T3 · /wb-breakdown on the review page <span class="chip">M</span></h3>
+    <p>Replace the buffer or keep it as a fallback, what replaces the approve gate, and how answers reach <code>wb breakdown --apply</code>. <code>dotfiles--feat-wb-breakdown-review-page</code></p></div>
+</div>
+<h3 id="queued-behind-those">Queued behind those</h3>
+<ul>
+<li><strong>Family follow-ons:</strong> <code>dotfiles--feat-task-file-structure</code> (unblocked once
+this page ships) and <code>dotfiles--chore-ceremonies-refresh</code>.</li>
+<li><strong>Task recall</strong>, <strong><code>wb down --all</code> / <code>wb up</code></strong>, <strong>handoff fan-out</strong>: see
+the open threads above.</li>
+<li><strong>Jira Phase 2 (sprint pull)</strong>: <code>dotfiles--loop-jira-watch</code>. Also a
+real Epic hierarchy for emit.</li>
+<li><strong>Implicit save/resume</strong> (<code>dotfiles--feat-wb-implicit-handoff</code>) and
+<strong>replay-tui simplification</strong> (<code>replay-tui--replay-improvements</code>).</li>
+<li><strong>Personal/employer boundary rule</strong>: deliberately the last decision.</li>
+</ul>
 <h2 id="shipped">Shipped</h2>
-<p><span class="chip ok">35 merged</span> — full history and rationale live on
-the linked recaps; this is the chronological ledger. Foundations before
-PR #11 (the docs platform, <code>wb</code> core, notes-tui capture) are folded into
-the <a href="roadmap.html#detail-step-zero">Roadmap's shipped section</a>.</p>
+<details>
+<summary><span class="chip ok">53 merged</span> PRs #11 → #63. Full history is on the linked recaps and the roadmap.</summary>
 <table>
 <thead>
 <tr>
 <th>PR</th>
 <th>What</th>
-<th>Detail</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>#11</td>
-<td>GPaste clipboard-history manager</td>
-<td><a href="archive/9g-gpaste-recap.html">recap</a></td>
+<td>#63</td>
+<td><code>store-specialist</code> subagent: a task-store retriever and mechanical writer</td>
 </tr>
 <tr>
-<td>#12</td>
-<td>Roadmap restructured into overview + detail pages</td>
-<td><a href="roadmap.html">roadmap</a></td>
+<td>#62</td>
+<td>Board Family view (re-landed) + UX pass driven by the side rail</td>
 </tr>
 <tr>
-<td>#13</td>
-<td><code>docgen.sh</code> pre-commit hook targets the real worktree</td>
-<td>—</td>
+<td>#61</td>
+<td>Per-family <code>CONCEPTS.md</code> seeded automatically into every worktree agent</td>
 </tr>
 <tr>
-<td>#14</td>
-<td><strong>wb workbench extensions</strong> — <code>wb resume</code> / <code>wb pause</code> / <code>/board</code> / <code>wb reconcile</code></td>
-<td><a href="archive/pr1-wb-workbench-recap.html">recap</a></td>
+<td>#59</td>
+<td><code>wb board</code> rebuilt as the Active/Roadmap/Week renderer</td>
 </tr>
 <tr>
-<td>#15</td>
-<td>nvim session auto-restore escape hatch</td>
-<td>—</td>
+<td>#57, #58</td>
+<td>Capture-doc bind (<kbd>prefix</kbd>+<kbd>N</kbd>)</td>
 </tr>
 <tr>
-<td>#16</td>
-<td>Roadmap sync after PR #1 shipped</td>
-<td>—</td>
+<td>#55, #56</td>
+<td><strong>Weekly review loop</strong>: week file, <code>/park</code> capture, review-page ceremony</td>
 </tr>
 <tr>
-<td>#17</td>
-<td><strong>Task parent/child relationship</strong> (incl. cross-repo families)</td>
-<td><a href="roadmap-handoff.html">detail</a></td>
+<td>#54</td>
+<td>wb + review-page follow-ups after #52</td>
 </tr>
 <tr>
-<td>#18</td>
-<td><strong>Hub v0</strong> — glossary, limitations, ceremonies, <code>/board</code> tile, roadmap reshape</td>
-<td><a href="roadmap.html#detail-hub-v0">roadmap</a></td>
+<td>#53</td>
+<td>decision-buffer learning from the parked-items run</td>
 </tr>
 <tr>
-<td>#19</td>
-<td><code>wb done --close</code> + self-kill guard</td>
-<td>—</td>
+<td>#52</td>
+<td><strong>Requirements plan, <code>/review-page</code>, <code>wb status</code>/<code>wb set</code>, piece-audit prune</strong></td>
 </tr>
 <tr>
-<td>#20</td>
-<td><code>wb</code> lifecycle-stage detection functions</td>
-<td>—</td>
+<td>#49–#51</td>
+<td>Picker + session lifecycle: <code>wb down</code>, dormant rows, warm resume from transcripts</td>
 </tr>
 <tr>
-<td>#21</td>
-<td><strong><code>/handoff</code> v1</strong> — route a discussion to the right worker</td>
-<td><a href="handoff-guide.html">guide</a></td>
+<td>#48</td>
+<td><code>/spec-doc</code> + vendored find-skills and Warp spec skills</td>
 </tr>
 <tr>
-<td>#22</td>
-<td><strong>Task-store concurrency safety</strong> — ask/refuse/serialize, per-task locks</td>
-<td><a href="guides/tasks-store-guards.html">guide</a></td>
+<td>#47</td>
+<td><strong>decision-buffer v2</strong>: align check, six shapes, approve gate</td>
 </tr>
 <tr>
-<td>#23</td>
-<td>Limitations doc — roadmap link-integrity recorded as manual</td>
-<td><a href="limitations.html">limitations</a></td>
-</tr>
-<tr>
-<td>#24</td>
-<td>Per-worktree <code>/queue</code> for stashing follow-ups</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#25</td>
-<td>tmux: land in another session on kill, detach-on-destroy off</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#26</td>
-<td><strong><code>wb-save</code> / <code>wb-resume</code> / <code>wb-done</code> / <code>wb-board</code> skills</strong></td>
-<td><a href="wb-guide.html">wb-guide</a></td>
-</tr>
-<tr>
-<td>#27</td>
-<td>Sweep-review buffer no longer autoformats itself</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#28</td>
-<td><code>xdg-open</code>/Slack default-browser hijack fix</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#29</td>
-<td><strong><code>/wb-breakdown</code></strong> — split an oversized task/ticket into a family</td>
-<td><a href="archive/2026-07-13-wb-breakdown-recap.html">recap</a></td>
-</tr>
-<tr>
-<td>#30</td>
-<td><strong>Board display v2</strong> — stepper, Pipeline/Live/Stale tabs, dependencies</td>
-<td><a href="archive/wb-board-display-v2-recap.html">recap</a></td>
-</tr>
-<tr>
-<td>#31</td>
-<td><strong>Hub + roadmap refresh</strong> — currency, guide gaps, sectioning, docgen lint</td>
-<td><a href="roadmap.html">roadmap</a></td>
-</tr>
-<tr>
-<td>#32</td>
-<td><strong>Jira interop — emit (Phase 1)</strong> — <code>wb jira-set</code> + <code>/wb-jira-create</code>; verified live 2026-09-07</td>
-<td><a href="archive/2026-07-16-jira-interop-recap.html">recap</a> · <a href="verification/2026-07-16-jira-emit-verification.html">verification</a></td>
-</tr>
-<tr>
-<td>#33</td>
-<td><strong>Docs platform + board UX overhaul</strong> — Tokyo Night theme, Hub grouping, real back-links</td>
-<td><a href="verification/2026-07-21-post-crash-merge-batch-verification.html">verification</a></td>
-</tr>
-<tr>
-<td>#34</td>
-<td><strong><code>/handoff --pane</code></strong> — a co-located helper agent in the current worktree</td>
-<td><a href="handoff-guide.html">handoff guide</a></td>
-</tr>
-<tr>
-<td>#35</td>
-<td>Post-crash merge-batch verification checklist (#32/#33/#34)</td>
-<td><a href="verification/2026-07-21-post-crash-merge-batch-verification.html">verification</a></td>
-</tr>
-<tr>
-<td>#36</td>
-<td><strong><code>/parked-items</code></strong> — wb-task vocabulary, <code>/handoff</code> action, carry-forward rounds (retired 2026-09-15, superseded by <code>/weekly-review</code>)</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#37</td>
-<td>tmux: keep agent windows alive on shell exit (<code>remain-on-exit</code>)</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#38</td>
-<td>tmux: wb picker no longer misreports in-progress agents as idle/done</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#39</td>
-<td><strong><code>/quick-wins</code></strong> — effort/isolation/ownership triage across the deferred backlog</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#40</td>
-<td>tmux: lazy nvim window per wb session to curb memory</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#41</td>
-<td><strong>wb session memory mitigations</strong> — per-agent cgroup isolation</td>
-<td><a href="verification/2026-08-24-wb-session-cgroup-isolation-verification.html">verification</a></td>
-</tr>
-<tr>
-<td>#42</td>
-<td>Auto-generated try-it catalog from the roadmap + linked docs</td>
-<td><a href="try-it.html">try it</a></td>
-</tr>
-<tr>
-<td>#43</td>
-<td>Machine-readable next-action directive for <code>/wb-save</code> / <code>/wb-resume</code></td>
-<td><a href="wb-guide.html">wb-guide</a></td>
-</tr>
-<tr>
-<td>#44</td>
-<td><code>/wb-jira-create</code>: checkbox-select for Project/type</td>
-<td><a href="archive/2026-07-16-jira-interop-recap.html">recap</a></td>
+<td>#46</td>
+<td>Jira emit marked verified live</td>
 </tr>
 <tr>
 <td>#45</td>
-<td><code>wb breakdown</code> captures <code>size:</code> + <code>depends_on:</code> at apply-time; <code>wb new --size</code></td>
-<td><a href="wb-guide.html">wb-guide</a></td>
+<td><code>wb breakdown</code> captures <code>size:</code>/<code>depends_on:</code>; <code>wb new --size</code></td>
+</tr>
+<tr>
+<td>#44</td>
+<td><code>/wb-jira-create</code> checkbox-select</td>
+</tr>
+<tr>
+<td>#43</td>
+<td>Machine-readable next-action directive for <code>/wb-save</code>/<code>/wb-resume</code></td>
+</tr>
+<tr>
+<td>#42</td>
+<td>Auto-generated try-it catalog</td>
+</tr>
+<tr>
+<td>#41</td>
+<td>Per-agent cgroup isolation</td>
+</tr>
+<tr>
+<td>#40</td>
+<td>Lazy nvim window per wb session</td>
+</tr>
+<tr>
+<td>#39</td>
+<td><code>/quick-wins</code></td>
+</tr>
+<tr>
+<td>#37, #38</td>
+<td>tmux: agent windows survive shell exit; picker idle/done fix</td>
+</tr>
+<tr>
+<td>#36</td>
+<td><code>/parked-items</code> (retired in #55)</td>
+</tr>
+<tr>
+<td>#34, #35</td>
+<td><code>/handoff --pane</code>; post-crash verification checklist</td>
+</tr>
+<tr>
+<td>#33</td>
+<td>Docs platform + board UX overhaul</td>
+</tr>
+<tr>
+<td>#32</td>
+<td><strong>Jira interop, emit (Phase 1)</strong>, verified live 2026-09-07</td>
+</tr>
+<tr>
+<td>#31</td>
+<td>Hub + roadmap refresh</td>
+</tr>
+<tr>
+<td>#30</td>
+<td>Board display v2</td>
+</tr>
+<tr>
+<td>#29</td>
+<td><strong><code>/wb-breakdown</code></strong></td>
+</tr>
+<tr>
+<td>#28</td>
+<td>Default-browser hijack fix</td>
+</tr>
+<tr>
+<td>#26, #27</td>
+<td><code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code>/<code>wb-board</code> skills</td>
+</tr>
+<tr>
+<td>#25</td>
+<td>tmux: land in another session on kill</td>
+</tr>
+<tr>
+<td>#24</td>
+<td>Per-worktree <code>/queue</code></td>
+</tr>
+<tr>
+<td>#22, #23</td>
+<td><strong>Task-store concurrency safety</strong></td>
+</tr>
+<tr>
+<td>#21</td>
+<td><strong><code>/handoff</code> v1</strong></td>
+</tr>
+<tr>
+<td>#19, #20</td>
+<td><code>wb done --close</code>; lifecycle-stage detection</td>
+</tr>
+<tr>
+<td>#17, #18</td>
+<td><strong>Task parent/child</strong>; Hub v0</td>
+</tr>
+<tr>
+<td>#14–#16</td>
+<td><strong>wb workbench extensions</strong>: resume / pause / board / reconcile</td>
+</tr>
+<tr>
+<td>#11–#13</td>
+<td>GPaste; roadmap restructure; docgen hook</td>
 </tr>
 </tbody>
 </table>
-<h2 id="in-review">In review</h2>
-<p>Nothing right now. The last item through this gate was Jira interop — emit
-(PR #32): its end-to-end run against the live Atlassian MCP passed on
-2026-09-07, closing the one gate that stayed open after merge
-(<a href="verification/2026-07-16-jira-emit-verification.html">checklist</a>).</p>
-<h2 id="next-up">Next up</h2>
-<p>The queue behind the current work — full context on the
-<a href="roadmap.html#up-next-max-3">Roadmap</a>.</p>
-<ol>
-<li><strong>Task-store schema migration</strong> — one-time pass bringing every existing
-<code>~/code/tasks/*.md</code> up to the settled schema (<code>parent:</code>, <code>closed:</code>,
-consistent <code>status:</code>). Documented in PR #17; not yet run.</li>
-<li><strong><code>wb new</code> bootstrap gap</strong> — <code>wb_bootstrap</code> skips <code>be--monorepo</code>'s
-<code>config.hjson</code>; fix is a <code>.worktree-bootstrap</code> manifest there.</li>
-<li><strong><code>wb reconcile</code> duplicate-task detection</strong> — two valid worktrees for the
-same real work aren't flagged today.</li>
-</ol>
-<p>Queued behind those: <strong>Task recall</strong> (needs the boundary rule), <strong>full day
-bookends</strong> <code>wb up</code>/<code>wb down</code> (needs notes-tui 4b wiring, clock 2026-07-24),
-and the <strong>personal/employer boundary rule</strong> (deliberately the last decision).</p>
-<h2 id="deferred--parked">Deferred / parked</h2>
-<ul>
-<li><strong>Jira interop — Phase 2 (sprint pull)</strong> — list current-sprint SFB tickets
-and convert the chosen ones into wb tasks via <code>/wb-breakdown</code>'s existing
-ticket→task path. In the plan, independent of Phase 1, not started —
-task <code>dotfiles--loop-jira-watch</code>.</li>
-<li><strong>Real Epic hierarchy</strong> for emit (parent → Epic + epic-linked children) —
-the generic &quot;Relates&quot; link ships first; the <code>Parent ticket:</code> field is
-forward-compatible with the upgrade.</li>
-<li><strong>Notes-dir &quot;everything is a note&quot; convergence</strong> — the north-star reduction
-of <code>~/code/notes</code>; parked to the ledger.</li>
-<li><strong><code>/second-opinion</code> skill</strong>, <strong>cross-repo doc registry</strong>, <strong>unify
-copy/paste</strong> — see the <a href="roadmap.html#parked">Roadmap's parked pool</a>.</li>
-</ul>
+</details>
 </article>
     <footer>
   Generated by <code>docgen</code> from <code>docs/where-we-are.md</code>. Rebuild:

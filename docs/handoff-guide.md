@@ -53,7 +53,7 @@ Defaults to `/ce-plan`; the skill only picks something else (e.g.
 it chose and why. This isn't just a style choice — it also means the
 pointer `handoff.sh` injects is a single fixed string with nothing
 runtime-variable in it, which is what makes the boot-ready/permission-
-prompt anchors safe to match against (see `docs/roadmap-handoff.md`'s
+prompt anchors safe to match against (see `docs/archive/roadmap-handoff.md`'s
 dry-run findings for the mechanical reasoning).
 
 ## Pane mode — removed 2026-09-14
@@ -79,13 +79,13 @@ to fill; for now, commit or stash first and route via `/handoff` instead.
 - **Non-blocking invocation.** Running independently of the current
   turn — not blocking on it, not affecting its response — is a real,
   different idea raised while planning v1, deliberately parked until v1
-  has seen real usage (`docs/roadmap-handoff.md` "Follow-on idea").
+  has seen real usage (`docs/archive/roadmap-handoff.md` "Follow-on idea").
 - **Self-handoff between stages.** Clearing your own context mid-task
   (e.g. after `/ce-plan` finishes, before `/ce-work` starts) is a
   different mechanic entirely — same session, not a different one — and
-  its own not-yet-planned follow-up (`docs/roadmap-handoff.md`
+  its own not-yet-planned follow-up (`docs/archive/roadmap-handoff.md`
   "Follow-on idea: self-handoff between stages").
 
 Full mechanical rationale — the anchor sets, the permission handshake, why
 `wb.sh` is never touched, all three dry-run findings — lives in
-[`roadmap-handoff.md`](roadmap-handoff.html), not repeated here.
+[`archive/roadmap-handoff.md`](archive/roadmap-handoff.html), not repeated here.

@@ -31,6 +31,10 @@
 #                                    fields: @@WB_SET_FIELDS@@
 #   wb pr-open [<session>]           exit 0 if the session's branch has an open PR, 1 otherwise
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
+#   wb agents [--orphans]            list the claude() wrapper's wb-agent-* systemd scopes and
+#                                    what's inside each; ORPHAN = no claude process left (a
+#                                    detached wl-copy / dev server keeps it alive). Read-only:
+#                                    prints the systemctl stop line, never stops anything
 #   wb jira-set <repo>--<slug> <url> stamp a created Jira ticket URL into a task's jira: field
 #                                    (locked, idempotent-or-refuse) — the /wb-jira-create emit
 #                                    flow's only task-store write; never re-derives the URL
@@ -5619,6 +5623,60 @@ picker() {
 }
 
 # ---------------------------------------------------------------------------
+# wb agents — list claude() wrapper scopes, flag orphans (read-only)
+# ---------------------------------------------------------------------------
+
+# cmd_agents [--orphans] — one row per loaded wb-agent-* systemd scope (the
+# per-launch cgroups zsh/.zshrc's claude() wrapper creates) with the
+# processes still inside it. A scope whose cgroup holds no `claude` process
+# is ORPHAN: something the agent launched (wl-copy, a `go run` dev server,
+# gopls) outlived it and keeps the scope active. Detection only — it never
+# stops anything (an orphan's leftover may be a server you still want), it
+# prints the `systemctl --user stop` line for the human to run. WB_CGROUP_ROOT
+# / WB_PROC_ROOT exist so the test can point at a fixture tree.
+cmd_agents() {
+  local only_orphans=0
+  case "${1:-}" in
+    --orphans) only_orphans=1 ;;
+    '') ;;
+    *) echo "wb agents: unknown flag '$1' (usage: wb agents [--orphans])" >&2; exit 2 ;;
+  esac
+  command -v systemctl >/dev/null 2>&1 || { echo "wb agents: systemctl not found — no systemd --user scopes to list" >&2; exit 1; }
+
+  local cg_root="${WB_CGROUP_ROOT:-/sys/fs/cgroup}" proc_root="${WB_PROC_ROOT:-/proc}"
+  local unit cg pid comm procs state n_total=0 n_orphan=0
+  local -a orphans=()
+  printf '%-7s %-72s %s\n' STATE SCOPE PROCESSES
+  while read -r unit _; do
+    [ -n "$unit" ] || continue
+    cg="$(systemctl --user show -p ControlGroup --value "$unit" 2>/dev/null)"
+    procs=""
+    if [ -n "$cg" ] && [ -r "$cg_root$cg/cgroup.procs" ]; then
+      # `if`, not `&&`: a pid that exits between the cgroup.procs read and
+      # the comm read is routine, and a trailing false `&&` would fail the
+      # loop -> the pipeline (pipefail) -> the whole scan (set -e).
+      procs="$(while read -r pid; do
+                 if comm="$(cat "$proc_root/$pid/comm" 2>/dev/null)"; then printf '%s\n' "$comm"; fi
+               done < "$cg_root$cg/cgroup.procs" | sort | uniq -c | awk '{printf "%s:%s ", $2, $1}')"
+    fi
+    if printf '%s' "$procs" | grep -qE '(^| )claude:'; then
+      state=live
+    else
+      state=ORPHAN; n_orphan=$((n_orphan + 1)); orphans+=("$unit")
+    fi
+    n_total=$((n_total + 1))
+    [ "$only_orphans" = 1 ] && [ "$state" = live ] && continue
+    printf '%-7s %-72s %s\n' "$state" "$unit" "${procs:-(empty)}"
+  done < <(systemctl --user list-units --type=scope --all --no-legend --plain 'wb-agent-*' 2>/dev/null)
+
+  printf '\n%s scope(s), %s orphaned (no claude process inside).\n' "$n_total" "$n_orphan"
+  if [ "$n_orphan" -gt 0 ]; then
+    echo "Inspect first (systemctl --user status <unit>); if the leftovers are junk, stop them yourself:"
+    for unit in "${orphans[@]}"; do printf '  systemctl --user stop %s\n' "$unit"; done
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # wb help — the verb list
 # ---------------------------------------------------------------------------
 
@@ -5662,6 +5720,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     down)        shift; cmd_down "$@" ;;
     pr-open)     shift; cmd_pr_open "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
+    agents)      shift; cmd_agents "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;

@@ -13,7 +13,7 @@
 
 {{define "statusbar" -}}
 <div class="statusbar">
-  <span class="crumb"><a href="{{if .InGuidesDir}}../HUB.html{{else}}HUB.html{{end}}">⌂ Hub</a>{{if .Parent}} <span class="sep">/</span> <a href="{{.ParentHref}}">{{.Parent}}</a>{{else if .Group}} <span class="sep">/</span> {{.Group}}{{end}}</span>
+  <span class="crumb"><a href="{{.DocsRoot}}HUB.html">⌂ Hub</a>{{if .Parent}} <span class="sep">/</span> <a href="{{.ParentHref}}">{{.Parent}}</a>{{else if .Group}} <span class="sep">/</span> {{.Group}}{{end}}</span>
   <span class="gen">docgen · generated from <b>{{.Source}}</b> — edit the .md, not this file</span>
   {{if .Updated}}<span class="right">updated {{.Updated}}</span>{{end}}
 </div>
@@ -48,7 +48,7 @@
   <nav class="toc">
     <div class="brand">{{.Page.Title}}</div>
     {{if .Page.Tile}}<div class="brand-sub">{{.Page.Tile}}</div>{{end}}
-    <p class="backlink"><a href="{{if .Page.InGuidesDir}}../HUB.html{{else}}HUB.html{{end}}">&larr; back to the hub</a></p>
+    <p class="backlink"><a href="{{.Page.DocsRoot}}HUB.html">&larr; back to the hub</a></p>
     <ul>
       {{- range .Page.Headings}}{{if eq .Level 2}}
       <li><a href="#{{.ID}}">{{.Text}}</a></li>

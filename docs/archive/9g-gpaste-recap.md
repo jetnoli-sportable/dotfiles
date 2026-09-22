@@ -149,4 +149,4 @@ Flycut-style history picker this task wanted.
   resolved early (2026-07-10, unused), so 4b's original plan is now
   superseded by the capture fix-forward experiment (verdict ~2026-07-24,
   see [Ceremonies](../ceremonies.html)) — and `/board`'s full HTML feature
-  (shipped since as `/board` v1 + v2, see [detail](../roadmap-board.html)).
+  (shipped since as `/board` v1 + v2, see [detail](roadmap-board.html)).

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<title>wb design — the picker, wb done, and the task record schema</title>
+<title>Task recall — resume any work from any session</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>
@@ -234,145 +234,72 @@
 </head>
 <body data-kind="guide" data-group="design-notes">
 <div class="statusbar">
-  <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> <a href="roadmap.html">roadmap</a></span>
-  <span class="gen">docgen · generated from <b>docs/roadmap-wb-design.md</b> — edit the .md, not this file</span>
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> <a href="../roadmap.html">roadmap</a></span>
+  <span class="gen">docgen · generated from <b>docs/archive/roadmap-task-recall.md</b> — edit the .md, not this file</span>
   <span class="right">updated 2026-07-08</span>
 </div>
 <div class="shell">
   <nav class="toc">
-    <div class="brand">wb design — the picker, wb done, and the task record schema</div>
-    <div class="brand-sub">Why wb works the way it does — sort logic, safe wind-down, decision history.</div>
-    <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
+    <div class="brand">Task recall — resume any work from any session</div>
+    <div class="brand-sub">Reference a task from anywhere and get a recap &#43; resume options.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
-      <li><a href="#the-pickers-row-source-and-sort-order">The picker&#39;s row source and sort order</a></li>
-      <li><a href="#wb-done--the-safe-wind-down">wb done — the safe wind-down</a></li>
-      <li><a href="#why-bash-not-go-or-python">Why bash, not Go or Python</a></li>
-      <li><a href="#the-task-record-schema">The task record schema</a></li>
+      <li><a href="#the-ask-verbatim">The ask, verbatim</a></li>
+      <li><a href="#building-blocks-that-already-exist">Building blocks that already exist</a></li>
+      <li><a href="#the-likely-shape">The likely shape</a></li>
+      <li><a href="#boundary-note">Boundary note</a></li>
     </ul>
   </nav>
   <main>
     <header class="doc guide-banner">
       <span class="eyebrow">design-notes · guide</span>
-      <h1>wb design — the picker, wb done, and the task record schema</h1>
-      <p class="dek">Why wb works the way it does — sort logic, safe wind-down, decision history.</p>
+      <h1>Task recall — resume any work from any session</h1>
+      <p class="dek">Reference a task from anywhere and get a recap &#43; resume options.</p>
       <div class="meta">
-        <span class="chip ok">current</span>
+        <span class="chip mut">archive</span>
       </div>
     </header>
     <article>
-<p>The design rationale behind <code>wb</code> and the task-record schema it's built on —
-distinct from <a href="wb-guide.html"><code>wb-guide.md</code></a>, which is the usage-focused
-&quot;how do I run it&quot; doc. This page is the &quot;why it works this way&quot; companion:
-sort order, safe-wind-down ordering, and the review decisions that shaped
-both. This page is the source; edit <code>docs/roadmap-wb-design.md</code>, not the
-rendered <code>.html</code>.</p>
-<p><strong>Roadmap:</strong> §2/§3 (superseded — this page is the detail, <code>docs/roadmap.md</code>
-carries only the status row) · <strong>Built:</strong> PR #7, 2026-07-06 · <strong>Usage
-guide:</strong> <a href="wb-guide.html"><code>wb-guide.md</code></a></p>
-<h2 id="the-pickers-row-source-and-sort-order">The picker's row source and sort order</h2>
-<p>One row per <strong>task</strong> from the central store — status from frontmatter, so
-planned and done tasks are visible, not just live ones — with live
-session/agent state overlaid as glyphs. Repo-level checkouts (main
-checkouts, no task) appear as extra rows. Worktrees are enumerated via
-per-repo <code>git worktree list</code> (authoritative), never directory globbing.</p>
-<p>Grouping is <strong>status-first, not repo-first</strong> (changed 2026-07-06, post-
-launch): all needs-you rows surface together across every repo, then
-finished, then working, then idle — so urgency is never buried inside a
-repo's alphabetical group. A session's sub-rows still ride along with their
-parent as one block rather than scattering by their own individual rank
-(see <code>wb.sh</code>'s <code>collect_combined_rows</code>).</p>
-<p>Column 3 shows frontmatter status (<code>planned</code>/<code>doing</code>/<code>review</code>/<code>done</code>) for
-task rows, or the current branch in <code>[brackets]</code> for repo-level rows.
-Sessions with more than one Claude pane expand into one indented sub-row
-per agent. Each row/sub-row carries a hidden field — its most-urgent Claude
-pane target — so <code>x</code> (interrupt) and the agent-pane preview always act on
-the right target, never just &quot;the session's active pane.&quot;</p>
-<p><code>ctrl-x</code> on a worktree-backed task row routes through the full <code>wb done</code>
-flow (a raw kill only happens for non-task sessions) — wind-down is the
-default exit, not an optional ritual you have to remember.</p>
-<blockquote>
-<p><strong>Enter's preview fallback chain (Decision 11, 2026-07-07 review):</strong>
-urgent agent pane, else <code>git status</code>, else — for session-less,
-worktree-less task rows (planned tasks with no live session and no
-worktree yet) — the task file's <code>## Plan</code> section rendered as text. Added
-because a planned-but-not-started task previously had nothing useful to
-preview at all.</p>
-</blockquote>
-<h2 id="wb-done--the-safe-wind-down"><code>wb done</code> — the safe wind-down</h2>
-<ol>
-<li><strong>Fail fast</strong>: <code>git status --porcelain</code> in the worktree; if dirty, print
-the short status and abort — nothing mutated.</li>
-<li>Open the task file + session notes in a review buffer (decision-buffer
-pattern); keepers are marked <code>- [x] keep</code> — the one convention shared
-with the notes-digest promotion (slice 4b).</li>
-<li>On close: sweep worktree-local gitignored keepers into the central store
-(<code>logs/decisions/*.md</code> at minimum — verified: <code>git worktree remove</code>
-silently destroys gitignored files, and the dirty check never protects
-them) and rewrite the task file's Decisions links to the store copies.</li>
-<li>Status → <code>done</code>, keepers captured.</li>
-<li>Kill the session, then <code>git worktree remove</code>.</li>
-</ol>
-<blockquote>
-<p><strong>Bypass guard (Decision 8, 2026-07-07 review):</strong> nothing catches a
-worktree torn down via raw <code>git worktree remove</code>/<code>tmux kill-session</code>
-instead of <code>wb done</code> — the task file is left stale with no signal. Add a
-lightweight periodic check: any task-store entry whose <code>worktree:</code> path
-no longer exists in <code>git worktree list</code> AND whose <code>status:</code> isn't <code>done</code>
-gets flagged as a picker-row warning (not a hard block), so a skipped
-<code>wb done</code> is caught rather than silently lost. <em>(Not yet built.)</em></p>
-</blockquote>
-<blockquote>
-<p><strong>Credential guard (2026-07-06 review):</strong> <code>wb new</code> bootstraps <code>.env*</code>
-into worktrees by default, and the keeper sweep copies gitignored files
-into the central store — a repo intended for cross-machine git sync. The
-sweep carries an exclusion list for credential-shaped files (<code>.env*</code>,
-<code>*.pem</code>, <code>*.key</code>, <code>*credential*</code>, …) and warns in the review buffer when a
-marked keeper matches one, so a bootstrapped secret can't ride a
-<code>- [x] keep</code> into a repo that later gets a remote. <strong>Known limitation</strong>
-(§11 Open Questions): this is a dismissible warning, not an enforced
-block, and doesn't scan file <em>contents</em> — only filenames.</p>
-</blockquote>
-<h2 id="why-bash-not-go-or-python">Why bash, not Go or Python</h2>
-<p><code>wb</code> is tmux/fzf orchestration — bash is the native tongue there, <code>lib.sh</code>
-already had the helpers, no build step, and it stows like everything else.
-A compiled implementation would only earn its keep if the task <em>index</em>
-grows real querying/aggregation needs — that's notes-tui/cli-kit territory,
-not a reason to start <code>wb</code> itself in Go.</p>
-<h2 id="the-task-record-schema">The task record schema</h2>
-<pre><code class="language-markdown">---
-status: doing        # planned | doing | review | done
-repo: dotfiles        # worktree resolves as ~/code/&lt;repo&gt;/&lt;worktree&gt;
-branch: feat/agent-task-workflow
-worktree: .worktrees/feat/agent-task-workflow
-tags: []              # free tags for cross-project grouping
-created: 2026-07-06
----
-# Agent task workflow
-## Plan          ← batches of intended work
-## Done          ← running log of what landed
-## Follow-ups    ← per-task backlog; /parked-items review reads these
-## Decisions     ← links to logs/decisions/*.md + key calls inline
-</code></pre>
-<p>Three goals map onto this schema directly: <strong>backlog</strong> = <code>## Follow-ups</code>
-(+ global <code>/park</code> for cross-task strays); <strong>progress tracker</strong> = <code>status:</code>
-rendered as the picker's status column — the board is <em>inside</em> <code>wb</code>, not a
-separate surface; <strong>review &amp; refinement</strong> = <code>wb done</code>'s close-out buffer
-plus a push trigger (the picker's status line carries the pending
-Follow-ups + parked count, and <code>wb done</code> offers a cross-task sweep past a
-threshold — the weekly <code>/parked-items</code> ritual stays available but isn't
-the load-bearing path anymore).</p>
-<blockquote>
-<p><strong>Validation clock:</strong> this demotion is a behavioral bet on event-driven
-pushes whose events are sparse (the nudge fires only at task completion;
-the count only renders when the picker is open). Check-in <strong>~2026-07-20</strong>
-— inspect the parked ledger's open-item ages. If the oldest open item
-exceeds ~10 days, the bet failed: restore the weekly ritual as
-load-bearing, or surface the count somewhere time-driven (e.g. tmux
-<code>status-left</code>) instead of only inside the picker.</p>
-</blockquote>
+<p>Tie the memories, skills, task store, and Hub together so that referencing
+a task or piece of work in ANY session makes the agent check for context
+and offer to resume it. This page is the source; edit
+<code>docs/roadmap-task-recall.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> 9e (superseded — this page is the detail) · <strong>Status:</strong> open,
+unblocked (only depended on slice 5, which shipped)</p>
+<h2 id="the-ask-verbatim">The ask, verbatim</h2>
+<p>Referencing a task or piece of work in any session — e.g. &quot;let's continue
+planning the reporting investigation&quot; — should make the agent check the
+Hub/task store for context and offer to <strong>resume, update, or recap</strong> that
+work, rather than starting from scratch or asking the user to re-explain.</p>
+<h2 id="building-blocks-that-already-exist">Building blocks that already exist</h2>
+<ul>
+<li>The central task store (per-task record, <code>~/code/tasks/*.md</code>).</li>
+<li><code>wb board</code> (status view over the same store).</li>
+<li>The worktree-seeding rule in <code>~/.claude/CLAUDE.md</code> — already does this
+for worktree <em>setup</em> specifically (checks <code>~/code/tasks/</code> for an existing
+task file matching the target repo/slug before starting fresh).</li>
+<li>Slice 5's INDEX + <code>/help</code> Q&amp;A — the lookup machinery this would reuse.</li>
+<li><code>MEMORY.md</code>.</li>
+</ul>
+<h2 id="the-likely-shape">The likely shape</h2>
+<p>Generalize the worktree-seeding rule into a standing &quot;task-recall&quot;
+behavior: on a task reference, match against <code>~/code/tasks/*.md</code>
+(title/slug/tags), read the record plus its linked decisions/dossiers, and
+open with a recap + resume options — not just at worktree-setup time, but
+any time a task gets referenced in conversation.</p>
+<p>Sequencing: unblocked now (only needed slice 5's INDEX/lookup machinery,
+which shipped). Design goes through a decision buffer when actually picked
+up — the exact matching heuristic (fuzzy title match? tag-based? both?) and
+how aggressively to auto-trigger vs. wait for an explicit ask are real
+open questions.</p>
+<h2 id="boundary-note">Boundary note</h2>
+<p>Recall output must respect the same personal/employer boundary rules as
+every other aggregation surface in this system (§10/Decision 4) — a task
+recall triggered in a personal-repo session must never surface or
+cross-reference employer-repo (Sportable) task records.</p>
 </article>
     <footer>
-  Generated by <code>docgen</code> from <code>docs/roadmap-wb-design.md</code>. Rebuild:
+  Generated by <code>docgen</code> from <code>docs/archive/roadmap-task-recall.md</code>. Rebuild:
   <code>docgen.sh build</code>.
 </footer>
   </main>

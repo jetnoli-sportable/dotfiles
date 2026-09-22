@@ -1,6 +1,6 @@
 ---
 title: Day bookends — wb up / wb down
-status: current
+status: archive
 tile: Startup and shutdown flows, and the "sessions are regenerative" principle.
 group: design-notes
 parent: roadmap
@@ -77,7 +77,7 @@ everything `wb` creates reconstructable from the task file alone, and give
 > directly (`wb_transcripts` in `wb.sh`) rather than hooking anything at
 > spawn time — no session/window option, no task-file field needed to make
 > resume warm. See [the wb guide's session-lifecycle
-> section](wb-guide.html#session-lifecycle-wb-down-wb-pause-and-warm-resume)
+> section](../wb-guide.html#session-lifecycle-wb-down-wb-pause-and-warm-resume)
 > for the shipped behavior. `up --resume`'s bulk case inherits this for
 > free whenever it gets built.
 

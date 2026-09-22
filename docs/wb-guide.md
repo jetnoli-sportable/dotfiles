@@ -374,7 +374,7 @@ back to copying whatever `.env*` files exist at the repo root.
 
 `~/code/tasks` is a plain git repo pushed to a personal GitHub remote
 (recovered and given its first-ever remote after the 2026-07-10
-directory-deletion incident — see `docs/roadmap-handoff.md` if you want
+directory-deletion incident — see `docs/archive/roadmap-handoff.md` if you want
 that story). One markdown file per task, named `<repo>--<slug>.md`,
 seeded from `TEMPLATE.md`:
 
@@ -587,6 +587,25 @@ This is a partial fix by design: only `claude` is isolated this iteration,
 not nvim/gopls, so a few manually-opened editor instances can still make
 the shared Ghostty scope the highest-pressure one. Isolating nvim/gopls is
 a tracked fast-follow, not something this covers yet.
+
+### Finding orphaned agent scopes — `wb agents`
+
+Each launch gets its own scope, named `wb-agent-<session>-<pane-pid>-<launch-ns>`.
+The per-launch suffix means a relaunch in the same pane never collides with an
+old scope. Anything the agent started that outlives it keeps that old scope
+**active**, though: `wl-copy` serving the clipboard, a `go run` dev server,
+`gopls`. So these orphans slowly pile up, each holding a stray process.
+
+```
+wb agents             # every wb-agent-* scope + the processes inside it
+wb agents --orphans   # only the ones with no claude process left
+```
+
+A scope with no `claude` process inside is marked `ORPHAN`. The command is
+read-only. It never stops anything, because an orphan's leftover might be a
+dev server you still want running. It prints a `systemctl --user stop <unit>`
+line for each orphan so you can check it (`systemctl --user status <unit>`)
+and run the stop yourself.
 
 ## Known rough edges (not blocking, worth knowing)
 

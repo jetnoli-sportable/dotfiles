@@ -1,6 +1,6 @@
 ---
 title: Open Questions — deferred decisions from the 2026-07-07 doc review
-status: current
+status: archive
 tile: Deliberately unresolved decisions and process record. Standing limitations moved to their own page.
 group: design-notes
 parent: roadmap
@@ -19,7 +19,7 @@ than silently drop. This page is the source; edit
 > **2026-07-10 — three entries promoted.** GPaste's Sway coupling, the
 > warn-only credential guard, and GPaste's no-expiry clipboard history were
 > standing, by-design constraints rather than open decisions — they moved
-> to [Limitations](limitations.html), each keeping its own revisit trigger.
+> to [Limitations](../limitations.html), each keeping its own revisit trigger.
 > What's left here is genuinely still open, or process record.
 
 ## Notes corpus shape
