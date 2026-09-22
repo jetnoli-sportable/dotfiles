@@ -163,7 +163,13 @@ claude() {
   # ("Unit wb-agent-...-$$.scope was already loaded"). Verified live: an
   # OOM-killed scope without --collect blocks reuse of its unit name;
   # with --collect it's auto-unloaded and the name is immediately reusable.
-  systemd-run --user --scope --quiet --collect --unit="wb-agent-${sess}-$$" \
+  # The per-launch timestamp suffix covers what --collect can't: a detached
+  # child (e.g. `wl-copy`, which outlives its parent to keep serving the
+  # selection) keeps the scope's cgroup non-empty, so the unit stays ACTIVE
+  # long after claude exits and --collect (inactive/failed only) never fires.
+  # Verified live: an orphaned wl-copy-only scope blocked a same-pane relaunch.
+  systemd-run --user --scope --quiet --collect \
+    --unit="wb-agent-${sess}-$$-$(date +%s%N)" \
     -p MemoryHigh="$WB_AGENT_MEM_HIGH" -p MemoryMax="$WB_AGENT_MEM_MAX" \
     "$real" "$@"
 }
