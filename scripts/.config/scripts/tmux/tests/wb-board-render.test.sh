@@ -376,7 +376,14 @@ fi
 assert "D: roadmap bars carry data-anchor + a full-title tooltip" 'class="rm-bar ready-bar" data-anchor="[^"]+" title="' "$render"
 # The scoped lane needs a positive signal, not just 17 faded neighbours.
 assert "D: the scoped lane gets a mauve left rule on its label" '\.rm-lane\.selected \.rm-lane-label \{ border-left: 3px solid var\(--mauve\)' "$render"
-assert "D: dimmed lanes stay legible (opacity, not display:none)" '\.rm-lane\.scope-dim \{ opacity:' "$render"
+# Round-3 item 2: a scope now HIDES the other lanes rather than dimming
+# them — among 18 lanes, hunting for the un-faded one is still hunting.
+assert "D: a scoped roadmap hides the other lanes" "l.classList.toggle\('scope-hidden', !!fam && !isScoped\)" "$render"
+assert "D: and never leaves them merely dimmed"    "l.classList.remove\('scope-dim'\)" "$render"
+# The grid header, TODAY marker and readiness line sit outside .rm-lane, so
+# scoping must not take them with it.
+assert "D: the grid header survives a scope" 'class="rm-grid-header"' "$render"
+assert "D: the TODAY marker survives a scope" 'class="rm-today-line"' "$render"
 
 # (E) Week: cards collapse by default and carry the scope attrs; the
 # shelved count is a real toggle over a compact list.
@@ -439,8 +446,11 @@ fi
 # =========================================================================
 assert "L: an artifact renders as an anchor with a file:// absolute href" \
   "<a class=\"fam-art-path mono\" href=\"file://$FIXTURE_TASKS/dossiers/fam-parent/plan\.md\"" "$render"
-assert "L: the anchor's TEXT is the full absolute path, not a basename" \
-  ">$FIXTURE_TASKS/dossiers/fam-parent/plan\.md</a>" "$render"
+# Round-3 item 5: the visible text is the BASENAME (a column of near
+# identical 90-char paths was unreadable); the full absolute path moves to
+# title= and stays on the clipboard and in the href.
+assert "L: the anchor's TEXT is the file name" \
+  "title=\"$FIXTURE_TASKS/dossiers/fam-parent/plan\.md\">plan\.md</a>" "$render"
 assert "L: artifact anchors open in a new tab" 'class="fam-art-path mono" href="file://[^"]+" target="_blank" rel="noopener"' "$render"
 # The fixture's dossiers/ paths are cited in prose but never created on
 # disk, so they exercise the missing-link branch: marked, never dropped.

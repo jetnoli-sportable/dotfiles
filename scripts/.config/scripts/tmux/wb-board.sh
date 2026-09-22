@@ -1686,7 +1686,7 @@ wb_board_v2_detail_html() {
 
     # Artifacts, resolved the same way the Family view resolves them (item 1
     # of this round) so a missing file stays visibly missing here too.
-    local d_art="" d_ln d_kind d_label d_path d_href d_abs d_gone d_na=0
+    local d_art="" d_ln d_kind d_label d_path d_href d_abs d_gone d_base d_na=0
     local -A d_seen=()
     while IFS= read -r d_ln; do
       [ -n "$d_ln" ] || continue
@@ -1695,8 +1695,9 @@ wb_board_v2_detail_html() {
       d_seen["$d_path"]=1
       wb_board_v2_resolve_link "$d_path" "${_m_repo[$d_stem]:-}" d_href d_abs d_gone
       wb_board_html_escape "$d_abs" d_h
+      wb_board_html_escape "${d_abs##*/}" d_base
       wb_board_html_escape "$d_href" d_h2
-      d_art+="<li><a class=\"artifact-link mono${d_gone:+ missing}\" href=\"${d_h2}\" target=\"_blank\" rel=\"noopener\" title=\"${d_h}\">${d_h}</a><span class=\"copy-ic copyable\" data-copy=\"${d_h}\" title=\"copy path\">&#8865;</span></li>"
+      d_art+="<li><a class=\"artifact-link mono${d_gone:+ missing}\" href=\"${d_h2}\" target=\"_blank\" rel=\"noopener\" title=\"${d_h}\">${d_base}</a><span class=\"copy-ic copyable\" data-copy=\"${d_h}\" title=\"copy path\">&#8865;</span></li>"
       d_na=$((d_na + 1))
       [ "$d_na" -ge 10 ] && break   # same page-weight cap as RM_CAP / the chip rows
     done <<< "${_m_links_raw[$d_stem]:-}"
@@ -2225,7 +2226,7 @@ wb_board_render_v2() {
           *) cw_pill_cls="planned"; cw_pill_text="${_m_status[$cw_child]:-}" ;;
         esac
         wb_board_v2_task_open_html "$cw_child" cw_child_open
-        family_blocks_html+="<div class=\"fam-kid-row\">${cw_child_open}<span class=\"title copyable\" data-copy=\"wb resume $cw_child\">$(wb_board_html_escape "${_m_title[$cw_child]:-$cw_child}")</span><span class=\"right\"><span class=\"pill ${cw_pill_cls}\">$(wb_board_html_escape "$cw_pill_text")</span><span class=\"age mono\">$(wb_board_v2_age_label "${_m_age_days[$cw_child]:-0}")</span></span></div>"
+        family_blocks_html+="<div class=\"fam-kid-row\"><span class=\"title copyable\" data-copy=\"wb resume $cw_child\">$(wb_board_html_escape "${_m_title[$cw_child]:-$cw_child}")</span>${cw_child_open}<span class=\"right\"><span class=\"pill ${cw_pill_cls}\">$(wb_board_html_escape "$cw_pill_text")</span><span class=\"age mono\">$(wb_board_v2_age_label "${_m_age_days[$cw_child]:-0}")</span></span></div>"
       done <<< "$cw_kids"
       family_blocks_html+='</div></div>'
     else
@@ -2362,7 +2363,7 @@ wb_board_render_v2() {
   # site here would be exactly the per-call fork cost U2's own timing
   # notes warn against. Reused across iterations on purpose (scratch,
   # consumed immediately after each call, never read stale).
-  local __h="" __h2="" __h3="" __al="" __open="" __strip="" __ca=""
+  local __h="" __h2="" __h3="" __h4="" __al="" __open="" __strip="" __ca=""
   local rail_family_html="" fam_blocks_html="" fam_idx=0 fam_json_entries=""
   for fr_stem in "${all_family_roots_sorted[@]}"; do
     fam_idx=$((fam_idx + 1))
@@ -2588,10 +2589,11 @@ wb_board_render_v2() {
           for fr_ra_i in "${!fr_link_source[@]}"; do
             [ "${fr_link_source[$fr_ra_i]}" = "$fr_child" ] || continue
             wb_board_html_escape "${fr_link_abs[$fr_ra_i]}" __h2
+            wb_board_html_escape "${fr_link_abs[$fr_ra_i]##*/}" __h4
             wb_board_html_escape "${fr_link_href[$fr_ra_i]}" __h3
             local fr_ra_cls=""
             [ -n "${fr_link_missing[$fr_ra_i]}" ] && fr_ra_cls=" missing"
-            fam_body_html+="<li><a class=\"artifact-link mono${fr_ra_cls}\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\" title=\"${__h2}\">${__h2}</a><span class=\"copy-ic copyable\" data-copy=\"${__h2}\" title=\"copy path\">&#8865;</span></li>"
+            fam_body_html+="<li><a class=\"artifact-link mono${fr_ra_cls}\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\" title=\"${__h2}\">${__h4}</a><span class=\"copy-ic copyable\" data-copy=\"${__h2}\" title=\"copy path\">&#8865;</span></li>"
             fr_ra_found=1
           done
         fi
@@ -2668,7 +2670,13 @@ wb_board_render_v2() {
             # openable from logs/board.html, which was the whole point of
             # the ask. fix(review) P1 still holds: the full path, never the
             # basename, is what is displayed, copied and deduped on.
+            # Basename as the visible text, full absolute path in title=
+            # and on the clipboard. A column of 90-character paths that all
+            # share their first 60 characters is unreadable; the name is the
+            # part that identifies the doc, and the path is one hover (or
+            # one click, via the href) away.
             wb_board_html_escape "${fr_link_abs[$fr_gi]}" __h
+            wb_board_html_escape "${fr_link_abs[$fr_gi]##*/}" __h4
             wb_board_html_escape "${fr_link_source[$fr_gi]}" __h2
             wb_board_html_escape "${fr_link_href[$fr_gi]}" __h3
             local fr_gone_cls="" fr_gone_title=""
@@ -2676,9 +2684,9 @@ wb_board_render_v2() {
               fr_gone_cls=" missing"; fr_gone_title=" title=\"not found on disk\""
             fi
             if [ "$fr_kind_want" = claude-ai ]; then
-              fr_group_html+="<div class=\"fam-art-row copyable\" data-copy=\"${__h}\"><span class=\"fam-art-icon\">&#128279;</span><a class=\"fam-art-path mono\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\">${__h}</a><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
+              fr_group_html+="<div class=\"fam-art-row copyable\" data-copy=\"${__h}\"><span class=\"fam-art-icon\">&#128279;</span><a class=\"fam-art-path mono\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\" title=\"${__h}\">${__h4}</a><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
             else
-              fr_group_html+="<div class=\"fam-art-row copyable${fr_gone_cls}\" data-copy=\"${__h}\"${fr_gone_title}><span class=\"fam-art-icon\">&#128196;</span><a class=\"fam-art-path mono\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\">${__h}</a><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
+              fr_group_html+="<div class=\"fam-art-row copyable${fr_gone_cls}\" data-copy=\"${__h}\"${fr_gone_title}><span class=\"fam-art-icon\">&#128196;</span><a class=\"fam-art-path mono\" href=\"${__h3}\" target=\"_blank\" rel=\"noopener\" title=\"${__h}\">${__h4}</a><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
             fi
           done
           [ -n "$fr_group_html" ] || continue
@@ -3058,13 +3066,11 @@ wb_board_render_v2() {
   .rm-lane-label .rm-title-row .rm-lane-t { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rm-lane-label .rm-standalone-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12.5px; color: var(--subtext); }
 
-  /* UX pass (scope): out-of-scope lanes dim, never disappear — a roadmap
-     of one lane is useless. An outline alone read as too subtle next to 17
-     merely-faded neighbours, so the scoped lane also gets a mauve left
-     rule on its label and a faint mauve wash, and the dimmed ones lose a
-     little saturation as well as opacity. (R21 is untouched: a stale task
-     never places on the grid at all — see wb_board_v2_roadmap_bar — so no
-     stale content is ever desaturated by this.) */
+  /* UX pass (scope): a scoped roadmap shows ONLY that family's lane. This
+     started as a dim (.scope-dim, kept below for anything that still wants
+     it) on the theory that a roadmap of one lane is useless; live use said
+     otherwise — among 18 lanes, hunting for the un-faded one is still
+     hunting. Clearing the scope brings every lane straight back. */
   .rm-lane.scope-dim { opacity: .34; filter: saturate(.55); }
   .rm-lane.selected { outline: 1.5px solid var(--mauve); outline-offset: 4px; border-radius: 10px; background: rgba(203,166,247,.055); }
   .rm-lane.selected .rm-lane-label { border-left: 3px solid var(--mauve); padding-left: 12px; margin-left: -15px; }
@@ -3180,11 +3186,20 @@ wb_board_render_v2() {
 
   .family-block { margin: 4px 0 8px 0; }
   .family-block .fam-row { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 12px; padding: 9px 14px; border-radius: 8px; }
-  .family-block .fam-row .row-title { font-size: 15.5px; color: var(--text); }
+  .family-block .fam-row .row-title { font-size: 15.5px; color: var(--text); text-align: left; }
+  .family-block, .carried-list, .carried-row, .family-block .fam-row, .fam-kid-row { text-align: left; }
+  .carried-row .row-title, .carried-row .age { text-align: left; }
   .family-block .fam-row .row-title .id { color: var(--subtext); font-size: 13.5px; margin-right: 8px; }
   .family-block .fam-row .age { color: var(--red); font-size: 14px; }
   .family-block .fam-kids { margin: 2px 0 6px 30px; border-left: 1px solid var(--overlay); padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
-  .fam-kid-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 6px; }
+  /* Left-aligned, always. `justify-content: space-between` pushed the title
+     into the middle of the row (the open-glyph sat at the far left and the
+     pill/age at the far right), so a column of child tasks read as ragged
+     centred text instead of a list. Titles start at the left edge; only the
+     pill and age are pushed right, by an auto margin. */
+  .fam-kid-row { display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: 6px 8px; border-radius: 6px; text-align: left; }
+  .fam-kid-row .title { flex: 1 1 auto; min-width: 0; text-align: left; }
+  .fam-kid-row .right { margin-left: auto; flex: 0 0 auto; }
   .fam-kid-row:hover { background: var(--surface); }
   .fam-kid-row .title { font-size: 15px; color: var(--text); }
   .fam-kid-row .right { display: flex; align-items: center; gap: 8px; }
@@ -3275,9 +3290,11 @@ wb_board_render_v2() {
   .fam-art-icon { flex: 0 0 auto; font-size: 14px; color: var(--subtext); width: 16px; text-align: center; }
   /* The whole point of the ask is to SEE and use the full path, so it
      wraps rather than ellipsising away the filename. */
-  .fam-art-path { flex: 1; min-width: 0; color: var(--text); text-decoration: none; word-break: break-all; font-size: 13px; line-height: 1.45; }
+  /* The visible text is a basename now, so it needs neither break-all nor
+     a wrapping row — the full path lives in title= and on the clipboard. */
+  .fam-art-path { flex: 1; min-width: 0; color: var(--text); text-decoration: none; font-size: 13px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fam-art-path:hover { text-decoration: underline; text-decoration-color: var(--mauve); }
-  .fam-art-row { align-items: flex-start; }
+  .fam-art-row { align-items: center; }
   .fam-art-tag { flex: 0 0 auto; font-size: 12px; color: var(--subtext); }
   .fam-art-grab { flex: 0 0 auto; font-size: 12px; color: var(--mauve); border: 1px solid rgba(203,166,247,.35); background: rgba(203,166,247,.08); border-radius: 6px; padding: 2px 8px; opacity: 0; transition: opacity .12s ease; }
   .fam-art-row:hover .fam-art-grab { opacity: 1; }
@@ -3625,11 +3642,16 @@ wb_board_render_v2() {
     }
 
     // --- Roadmap: dim, never hide (a roadmap of one lane is useless) ----
+    // A scope now HIDES the other lanes outright rather than dimming them:
+    // live use showed that at 18 lanes, "find the one that isn't faded" is
+    // still a search. Unscoped still shows everything, and the grid header,
+    // TODAY marker and readiness line are outside .rm-lane so they stay.
     var scopedLane = null;
     document.querySelectorAll('.rm-lane').forEach(function(l){
       var f = l.getAttribute('data-family') || '';
       var isScoped = !!fam && f === fam;
-      l.classList.toggle('scope-dim', !!fam && !isScoped);
+      l.classList.toggle('scope-hidden', !!fam && !isScoped);
+      l.classList.remove('scope-dim');
       l.classList.toggle('selected', isScoped);
       if (isScoped) scopedLane = l;
     });
