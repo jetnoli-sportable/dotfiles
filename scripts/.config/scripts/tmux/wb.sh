@@ -790,10 +790,11 @@ wb_bootstrap() {
   done
 }
 
-# wb_ensure_repo_ignore <path> — idempotently register the queue file's
-# pattern (`.claude-queue.md`) as ignored in whatever repo <path> belongs to,
-# via that repo's own untracked `.git/info/exclude` — never that repo's
-# tracked `.gitignore`, never a machine-wide `core.excludesFile` (see
+# wb_ensure_repo_ignore <path> [<pattern>] — idempotently register <pattern>
+# (default: the queue file's `.claude-queue.md`) as ignored in whatever repo
+# <path> belongs to, via that repo's own untracked `.git/info/exclude` —
+# never that repo's tracked `.gitignore`, never a machine-wide
+# `core.excludesFile` (see
 # docs/plans/2026-07-11-003-feat-queue-command-plan.md's Planning Contract:
 # a foreign repo under $CODE_DIR is not ours to edit, and a machine-wide
 # setting would silently change `git status` for every repo on the machine).
@@ -801,7 +802,8 @@ wb_bootstrap() {
 # --git-common-dir` resolves either to the one shared `.git` dir all of a
 # repo's worktrees have in common, so this same call works whether it's
 # handed a repo dir (cmd_new, below) or a worktree's cwd (queue.lua's lazy-
-# create path, called on every stash).
+# create path, called on every stash, or cmd_new's own CONCEPTS.md seed
+# writer registering `CLAUDE.local.md`).
 #
 # Guarded against two concrete failure modes: a missing trailing newline in
 # a pre-existing info/exclude would otherwise glue the new pattern onto the
@@ -810,11 +812,13 @@ wb_bootstrap() {
 # a newline before ever appending. A race between two concurrent callers for
 # the same repo (two terminals, or a script, creating worktrees back to
 # back) is fixed with a `flock` on a lockfile scoped to that repo's own
-# `.git/info` directory, making the check-then-append atomic. This must
-# NEVER truncate or overwrite existing content in info/exclude — other
+# `.git/info` directory, making the check-then-append atomic — shared across
+# every <pattern> for the repo, which only serializes independent callers a
+# little more than strictly necessary, never a correctness problem. This
+# must NEVER truncate or overwrite existing content in info/exclude — other
 # tooling, or the user, may already have entries there.
 wb_ensure_repo_ignore() {
-  local path="$1" pattern='.claude-queue.md'
+  local path="$1" pattern="${2:-.claude-queue.md}"
   local git_common_dir
   git_common_dir="$(git -C "$path" rev-parse --git-common-dir 2>/dev/null)" || return 1
   # git prints a relative path when <path> is the main checkout (e.g.
@@ -846,6 +850,90 @@ wb_ensure_repo_ignore() {
     grep -qxF "$pattern" "$exclude_file" && exit 0
     printf '%s\n' "$pattern" >> "$exclude_file"
   ) 9>"$lockfile"
+}
+
+# _wb_concepts_paths <task_file> — task-family CONCEPTS.md resolver.
+#
+# Originally scoped (in planning) as a per-prompt hook's lookup; the task's
+# own U1 spike (see the origin task file's `## Decisions`) found that Claude
+# Code hooks cannot inject context into Task-tool sub-agents at all — the
+# exact audience this needs to reach, since that's where the motivating
+# drift incident happened. U2 pivoted to seed-automation instead (this
+# function, called from cmd_new's worktree-creation path below rather than
+# from a hook), which reaches sub-agents because they load a worktree's cwd
+# instruction files same as the top-level session does.
+#
+# Walks the parent: chain starting at <task_file>'s own stem — nearest
+# first, so a child's own settled facts are listed before an umbrella's —
+# self-parent (wb_task_own_parent) and cycles (seen-set) both stop the walk
+# rather than looping; a depth cap is a backstop against either guard
+# somehow missing a case. Prints one path per line for every
+# $TASKS_DIR/dossiers/<stem>/CONCEPTS.md that exists anywhere in the chain;
+# prints nothing (exit 0) when none exist, including when <task_file> itself
+# doesn't exist.
+_wb_concepts_paths() {
+  local task_file="$1"
+  [ -f "$task_file" ] || return 0
+  local -A seen=()
+  local depth=0 max_depth=20
+  local current_file="$task_file"
+  local current_stem; current_stem="$(basename "$task_file" .md)"
+
+  while [ -n "$current_stem" ] && [ "$depth" -lt "$max_depth" ]; do
+    [ -z "${seen[$current_stem]:-}" ] || break
+    seen[$current_stem]=1
+    depth=$((depth + 1))
+
+    local dossier="$TASKS_DIR/dossiers/$current_stem/CONCEPTS.md"
+    [ -f "$dossier" ] && printf '%s\n' "$dossier"
+
+    local parent_ref; parent_ref="$(wb_get_frontmatter "$current_file" parent)"
+    [ -n "$parent_ref" ] || break
+    wb_task_own_parent "$parent_ref" "$current_stem" || break
+
+    local parent_file="$TASKS_DIR/$parent_ref.md"
+    [ -f "$parent_file" ] || break
+    current_file="$parent_file"
+    current_stem="$parent_ref"
+  done
+  return 0
+}
+
+# _wb_seed_concepts_file <task_file> <worktree_path> — write (or refresh) the
+# untracked `CLAUDE.local.md` pointer that gives every agent in
+# <worktree_path> — including Task-tool sub-agents (D1/U1) — the task
+# family's settled-facts file(s), without copying content. Regenerates on
+# every call so re-running `wb new` on an existing worktree (already
+# idempotent/self-healing, see the queue-ignore call site above) is also the
+# escape hatch for a reparent or a newly-added CONCEPTS.md taking effect —
+# there is no runtime hook re-resolving this on its own. No-ops (leaves any
+# existing file alone) when _wb_concepts_paths finds nothing in the chain;
+# stale-removal for a family that LOSES its last CONCEPTS.md is out of scope
+# (narrow edge case, not the common reparent-adds-facts direction).
+_wb_seed_concepts_file() {
+  local task_file="$1" worktree_path="$2"
+  local -a paths=()
+  local p
+  while IFS= read -r p; do
+    [ -n "$p" ] && paths+=("$p")
+  done < <(_wb_concepts_paths "$task_file")
+  [ "${#paths[@]}" -gt 0 ] || return 0
+
+  local family_note; family_note="$(basename "$task_file" .md)"
+  {
+    printf '# Task-family context (wb, untracked)\n\n'
+    printf 'This worktree belongs to the "%s" task family. Treat the family concepts\n' "$family_note"
+    printf 'file(s) below as part of AGENTS.md: settled facts, vocabulary and rules\n'
+    printf 'that override older dossier docs where they disagree. Nearest first: a\n'
+    printf 'later import may correct or extend an earlier one.\n\n'
+    for p in "${paths[@]}"; do
+      printf '@%s\n' "$p"
+    done
+    printf '\nCoordinator task file: %s\n' "${task_file/#$HOME/\~}"
+  } > "$worktree_path/CLAUDE.local.md"
+
+  wb_ensure_repo_ignore "$worktree_path" "CLAUDE.local.md" \
+    || echo "wb new: warning: could not register .git/info/exclude ignore rule for CLAUDE.local.md (continuing)" >&2
 }
 
 # _wb_fill_frontmatter <file> <key> <value> — "explicit wins, else
@@ -1444,6 +1532,14 @@ cmd_new() {
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$path_stages" "$depends_on_joined" "$size_value")"
   wb_task_lock_release "$task_file"
+
+  # Task-family CONCEPTS.md seed (D2 pivot from a hook to seed-automation —
+  # see _wb_seed_concepts_file above). Runs on every call, same
+  # unconditional/self-healing/best-effort convention as the queue-file
+  # ignore registration just above: covers pre-existing worktrees, a
+  # reparent, or a freshly-added CONCEPTS.md on a plain re-run of `wb new`.
+  _wb_seed_concepts_file "$task_file" "$worktree_path" \
+    || echo "wb new: warning: could not write CLAUDE.local.md concepts pointer for $task_file (continuing)" >&2
 
   local is_new=0
   tmux has-session -t "=$session" 2>/dev/null || is_new=1
