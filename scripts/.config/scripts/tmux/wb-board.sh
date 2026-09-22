@@ -69,7 +69,12 @@ wb_board_html_escape() {
   # match (same as sed) — unescaped, `${s//</&lt;}` produces "<lt;" (match
   # `<` + literal "lt;") instead of "&lt;". `\&` forces a literal ampersand.
   s="${s//&/\&amp;}"; s="${s//</\&lt;}"; s="${s//>/\&gt;}"; s="${s//\"/\&quot;}"
-  printf '%s' "$s"
+  # fix(perf, U5/U6): optional <out_var> ($2, D2A's convention) — the Family
+  # view calls this per family member/decision/artifact (hundreds of times
+  # across the store), so a `$(...)` subshell here is the same per-call
+  # fork cost U2's own timing notes warn against; stdout fallback preserves
+  # every existing call site unchanged.
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$s"; else printf '%s' "$s"; fi
 }
 
 # wb_board_section <file> <heading> — body lines under "## <heading>" up to
@@ -406,10 +411,10 @@ wb_board_v2_family_root() {
 # budget; this collapses it to one process per file).
 #
 # Output on stdout, consumed only by wb_board_v2_parse_record below (never
-# hand-parsed at a call site): 5 fields joined by a bare SOH byte (\001, a
+# hand-parsed at a call site): 7 fields joined by a bare SOH byte (\001, a
 # byte that cannot appear in a markdown task file's prose, so no escaping
 # is ever needed) — field order is fixed, not labeled, since the caller
-# always wants all five:
+# always wants all seven:
 #   1 the frontmatter/plan-count TSV line: status \t repo \t worktree \t
 #     branch \t path \t deps \t reviewed \t parent \t tags \t created \t
 #     closed \t plan_checked \t plan_total \t title
@@ -418,6 +423,16 @@ wb_board_v2_family_root() {
 #   4 raw Handoff text — the LAST "### " block under "## Handoffs" (heading
 #     line included)
 #   5 raw Follow-ups section text
+#   6 raw Decisions section text (U5, PR2 — the family view's decisions
+#     timeline source; unused by U3's 3 views)
+#   7 doc/artifact-link candidates, one per line — every line of the WHOLE
+#     file (not just Decisions) matching a dossiers/docs-plans/logs-decisions
+#     path or a claude.ai URL (U5, PR2 — the family view's artifact links).
+#     Scanned unconditionally alongside the section capture above so this
+#     stays a single pass (R16) even though link mentions aren't confined to
+#     one "## " section in practice (a Decisions entry, a Follow-up, or Plan
+#     prose can all cite a doc). Extracted, not just the matching line, so
+#     the family-rollup code never re-parses these lines itself.
 # An earlier version labeled each field with its own SOH-wrapped sentinel
 # line and had wb_board_v2_parse_record split on those with `${var%%pat*}`/
 # `${var#*pat}` parameter expansion — correct, but measured at ~10ms/call
@@ -429,18 +444,38 @@ wb_board_v2_family_root() {
 wb_board_v2_read_file() {
   awk '
     function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
+    function extract_links(line,    s) {
+      # U5: pull every dossiers/docs-plans-etc path or claude.ai URL out of
+      # <line>, appended one per line to links_text. A while(match()) loop
+      # (not a single match) so a line citing two paths (rare but real —
+      # see e.g. task files pairing a plan with its decision buffer) yields
+      # both, not just the first.
+      s = line
+      while (match(s, linkre)) {
+        links_text = links_text substr(s, RSTART, RLENGTH) "\n"
+        s = substr(s, RSTART + RLENGTH)
+      }
+    }
     BEGIN {
       SOH = sprintf("%c", 1)
       status=""; repo=""; worktree=""; branch=""; path=""; deps=""
       reviewed=""; parent=""; tags=""; created=""; closed=""; title=""
       infm = 0; donefm = 0; cursec = ""; handoff_capturing = 0; title_found = 0
       plan_checked = 0; plan_total = 0
+      # dossiers/*.md|html, docs/{plans,brainstorms,solutions,ideation}/*.md|html,
+      # logs/decisions/*.md|html, or a claude.ai URL — same path shapes
+      # wb_board_doc_candidates already looks for (plus dossiers/ and
+      # claude.ai, which that function does not — U5 needs both since the
+      # decision-buffer/dossier convention lives under dossiers/, not
+      # logs/decisions/, in this store).
+      linkre = "(dossiers/[A-Za-z0-9._/-]+\\.(md|html))|(docs/(plans|brainstorms|solutions|ideation)/[A-Za-z0-9._/-]+\\.(md|html))|(logs/decisions/[A-Za-z0-9._/-]+\\.(md|html))|(https://claude\\.ai/[A-Za-z0-9._/-]+)"
     }
     # wb_task_title <file> equivalent (first "# <heading>" line anywhere in
     # the file, single "#" only — "## Plan" etc. never match) — folded in
     # here so the collect loop below doesn'\''t fork a second awk per file
     # just for the title.
     !title_found && /^# / { title = $0; sub(/^# /, "", title); title_found = 1 }
+    { extract_links($0) }
     /^---$/ { infm++; if (infm == 2) donefm = 1; next }
     infm == 1 && !donefm {
       if ($0 ~ /^status:/)      { s=$0; sub(/^status:[ \t]*/,"",s);      status=clip(s) }
@@ -467,6 +502,7 @@ wb_board_v2_read_file() {
     }
     donefm && cursec == "Done"        { done_text = done_text $0 "\n"; next }
     donefm && cursec == "Follow-ups"  { followups_text = followups_text $0 "\n"; next }
+    donefm && cursec == "Decisions"   { decisions_text = decisions_text $0 "\n"; next }
     donefm && cursec == "Handoffs" {
       if ($0 ~ /^### /) { handoff_text = $0 "\n"; handoff_capturing = 1; next }
       if (handoff_capturing) { handoff_text = handoff_text $0 "\n" }
@@ -476,18 +512,19 @@ wb_board_v2_read_file() {
       printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", \
         status, repo, worktree, branch, path, deps, reviewed, parent, tags, \
         created, closed, plan_checked, plan_total, title
-      printf "%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, followups_text, ""
+      printf "%s%s%s%s%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, followups_text, SOH, decisions_text, SOH, links_text, ""
     }
   ' "$1"
 }
 
 # wb_board_v2_parse_record <record_text> <scalar_array_name> \
 #   <plan_array_name> <done_array_name> <handoff_array_name> \
-#   <followups_array_name> — splits one wb_board_v2_read_file capture on its
-# 5 bare-SOH-joined fields into <scalar_array_name>[0] (the TSV header
-# line, further split by the caller with wb_tsv_split) and the four
-# body-text arrays. Pure string manipulation, no forking, no file I/O — the
-# read already happened.
+#   <followups_array_name> <decisions_array_name> <links_array_name> —
+# splits one wb_board_v2_read_file capture on its 7 bare-SOH-joined fields
+# into <scalar_array_name>[0] (the TSV header line, further split by the
+# caller with wb_tsv_split) and the six body-text arrays (U5 added
+# decisions/links to U2's original four). Pure string manipulation, no
+# forking, no file I/O — the read already happened.
 #
 # `IFS=$soh read -r -d '' -a parts`, not the `${var%%pattern*}` splitting
 # an earlier version used: that measured ~10ms/call across the real store
@@ -500,12 +537,14 @@ wb_board_v2_read_file() {
 # separators and survive in the split fields intact.
 wb_board_v2_parse_record() {
   local -n _pr_scalar="$2" _pr_plan="$3" _pr_done="$4" _pr_handoff="$5" _pr_followups="$6"
+  local -n _pr_decisions="$7" _pr_links="$8"
   local soh=$'\1'
   local -a parts=()
   IFS="$soh" read -r -d '' -a parts <<< "$1" || true
   _pr_scalar[0]="${parts[0]:-}"
   _pr_plan[0]="${parts[1]:-}"; _pr_done[0]="${parts[2]:-}"
   _pr_handoff[0]="${parts[3]:-}"; _pr_followups[0]="${parts[4]:-}"
+  _pr_decisions[0]="${parts[5]:-}"; _pr_links[0]="${parts[6]:-}"
 }
 
 # wb_board_v2_mtimes <-n out_array_name> — one `stat` invocation for every
@@ -525,19 +564,21 @@ wb_board_v2_mtimes() {
 }
 
 # wb_board_collect_rows_v2 <rows_arrayname> <plan_arrayname> <done_arrayname>
-#   <handoff_arrayname> <followups_arrayname> — one pass over $TASKS_DIR/*.md
-# (wb_task_files), one wb_board_v2_read_file fork per file, no tmux/gh/git
-# calls (R16). Pushes one TSV row per task into <rows_arrayname> (never
-# printed to stdout — see the call-convention note below) with fields:
+#   <handoff_arrayname> <followups_arrayname> <decisions_arrayname>
+#   <links_arrayname> — one pass over $TASKS_DIR/*.md (wb_task_files), one
+# wb_board_v2_read_file fork per file, no tmux/gh/git calls (R16). Pushes one
+# TSV row per task into <rows_arrayname> (never printed to stdout — see the
+# call-convention note below) with fields:
 #   1 stem  2 status  3 repo  4 branch  5 worktree  6 title  7 created
 #   8 closed  9 updated(mtime epoch)  10 taskfile  11 anchor  12 parent(stem,
 #   self-ref guarded)  13 depends_on(raw)  14 tags(raw frontmatter value —
 #   parse with _wb_tags_parse, D3 residual)  15 plan_checked  16 plan_total
 #   17 age_days  18 bucket(active|stale|shelved)
 # and, in the SAME loop iteration (never a second pass/re-read over the file
-# list — R16), fills the four text-block arrays keyed by stem with the raw
-# Plan/Done/Handoff/Follow-ups section text wb_board_v2_read_file already
-# captured for that file.
+# list — R16), fills the six text-block arrays keyed by stem with the raw
+# Plan/Done/Handoff/Follow-ups/Decisions section text and the doc/artifact-
+# link candidates (U5, PR2) wb_board_v2_read_file already captured for that
+# file.
 #
 # Call convention — MUST be invoked as a plain statement, never wrapped in
 # `<(...)` or `$(...)`: nameref writes only reach the CALLER's variables
@@ -564,15 +605,16 @@ wb_board_v2_mtimes() {
 # R15 budget — verify with `time wb board --html` before extending this further.
 wb_board_collect_rows_v2() {
   local -n _cr_rows="$1" _cr_plan="$2" _cr_done="$3" _cr_handoff="$4" _cr_followups="$5"
+  local -n _cr_decisions="$6" _cr_links="$7"
   local -A _mtimes=()
   wb_board_v2_mtimes _mtimes
   local now; now="$(date +%s)"
   local f stem anchor parent title updated age_days bucket record
-  local -a scalar=() t=() plan_a=() done_a=() handoff_a=() followups_a=()
+  local -a scalar=() t=() plan_a=() done_a=() handoff_a=() followups_a=() decisions_a=() links_a=()
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     record="$(wb_board_v2_read_file "$f")"
-    wb_board_v2_parse_record "$record" scalar plan_a done_a handoff_a followups_a
+    wb_board_v2_parse_record "$record" scalar plan_a done_a handoff_a followups_a decisions_a links_a
     wb_tsv_split "${scalar[0]}" t
     # t: 0 status 1 repo 2 worktree 3 branch 4 path 5 deps 6 reviewed
     #    7 parent 8 tags 9 created 10 closed 11 plan_checked 12 plan_total
@@ -596,6 +638,8 @@ wb_board_collect_rows_v2() {
     _cr_done["$stem"]="${done_a[0]}"
     _cr_handoff["$stem"]="${handoff_a[0]}"
     _cr_followups["$stem"]="${followups_a[0]}"
+    _cr_decisions["$stem"]="${decisions_a[0]}"
+    _cr_links["$stem"]="${links_a[0]}"
     printf -v record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
       "$stem" "${t[0]:-}" "${t[1]:-}" "${t[3]:-}" "${t[2]:-}" "$title" "${t[9]:-}" "${t[10]:-}" \
       "$updated" "$f" "$anchor" "$parent" "${t[5]:-}" "${t[8]:-}" "${t[11]:-0}" "${t[12]:-0}" \
@@ -616,8 +660,10 @@ wb_board_collect_rows_v2() {
 #
 # Usage:
 #   local -a V2ROWS=()
-#   local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=()
-#   wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW
+#   local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=() \
+#     M_DECISIONS_RAW=() M_LINKS_RAW=()
+#   wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+#     M_DECISIONS_RAW M_LINKS_RAW
 #   local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
 #     M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
 #     M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
@@ -721,8 +767,12 @@ wb_board_v2_dot_class() {
 # age_days is always a small whole number, never a distinguishable
 # "no activity ever" case.
 wb_board_v2_age_label() {
-  local d="${1:-0}"
-  if [ "$d" -le 0 ]; then printf 'today'; else printf '%sd' "$d"; fi
+  local d="${1:-0}" __l
+  if [ "$d" -le 0 ]; then __l='today'; else __l="${d}d"; fi
+  # fix(perf, U5/U6): optional <out_var> ($2, D2A's convention) — see
+  # wb_board_html_escape's identical note; stdout fallback preserves every
+  # existing call site unchanged.
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__l"; else printf '%s' "$__l"; fi
 }
 
 # wb_board_v2_ring_offset <checked> <total> — the Plan-ring's SVG
@@ -991,14 +1041,199 @@ wb_board_v2_roadmap_bar() {
   fi
 }
 
+# ===========================================================================
+# U5/U6 (feat-board-build PR2, D2) — family rollup + the fourth "Family"
+# view: a version-ladder (mockup D) when the family root's Plan section
+# carries a "### Version ladder status" table, else a flat family (children
+# tree + mockup A's aggregated decisions timeline + artifact links).
+# Everything below reads only text U2's single pass already captured
+# (M_PLAN_RAW for the ladder table, M_DECISIONS_RAW/M_LINKS_RAW added by
+# this unit alongside it) — no second file read, R16 holds.
+# ===========================================================================
+
+# wb_board_v2_decisions_entries <raw_decisions_text> <source_stem>
+#   [<out_var>] — one TSV line per dated "### YYYY-MM-DD... — <title>" entry
+# under a task's "## Decisions": date \t text \t source_stem. <text> is the
+# entry's first non-blank body line (its lede), falling back to <title> for
+# a bare one-line decision with no body. An entry whose heading isn't
+# date-led (a stray "### Open questions" subheading, say) is skipped — U5's
+# timeline is date-ordered by construction, so an undated entry has nowhere
+# to sit on it.
+#
+# fix(perf, U5): optional <out_var> (printf -v, D2A's convention) — the
+# Family view calls this once per family MEMBER across the whole store
+# (~200 files with a parent:/child), so a `$(...)` subshell here is exactly
+# the per-file fork cost U2's own timing notes warn against; a plain-
+# statement call avoids it. Same for the nested first-nonblank-line lookup
+# below, which already supports this out-var form itself.
+wb_board_v2_decisions_entries() {
+  local raw="${1:-}" source="${2:-}" line heading date="" title="" body="" __out="" text
+  local in_entry=0
+  while IFS= read -r line; do
+    case "$line" in
+      '### '*)
+        if [ "$in_entry" = 1 ]; then
+          wb_board_first_nonblank_line "$body" text; [ -n "$text" ] || text="$title"
+          __out+="$date"$'\t'"$text"$'\t'"$source"$'\n'
+        fi
+        heading="${line#'### '}"
+        case "$heading" in
+          [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*)
+            date="${heading:0:10}"
+            title="${heading#*" — "}"
+            [ "$title" = "$heading" ] && title="$heading"
+            body=""; in_entry=1
+            ;;
+          *) in_entry=0 ;;
+        esac
+        ;;
+      *) [ "$in_entry" = 1 ] && body+="$line"$'\n' ;;
+    esac
+  done <<< "$raw"
+  if [ "$in_entry" = 1 ]; then
+    wb_board_first_nonblank_line "$body" text; [ -n "$text" ] || text="$title"
+    __out+="$date"$'\t'"$text"$'\t'"$source"$'\n'
+  fi
+  if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$__out"; else printf '%s' "$__out"; fi
+}
+
+# wb_board_v2_classify_link <raw_link_line> <kind_outvar> <label_outvar>
+#   <path_outvar> — fills <kind_outvar>/<label_outvar>/<path_outvar> for one
+# link line from U2's links_text capture, grouping it for the Family view's
+# Artifacts section. <label_outvar> is the SHORT display text (basename for
+# a file path, the URL itself for a claude.ai link) — <path_outvar> is
+# always the full matched string (the real relative path or URL). fix(review)
+# P1: an earlier version only kept the basename and used it for BOTH display
+# and the `data-copy`/dedup value — useless for actually opening the file
+# (this store's own dossier convention is `dossiers/<repo>--<slug>/plan.md`,
+# so a basename collision across families is the norm, not an edge case) and
+# it silently dropped one family's artifact whenever two files shared a
+# basename, since dedup keyed on the same lossy label. Callers must use
+# <path_outvar> for `data-copy` and the dedup key, <label_outvar> only for
+# the short visible text. Required nameref out-params, not the usual
+# optional-3rd-arg/stdout-fallback convention (there are multiple values to
+# return) — called once per link line per family member across the whole
+# store, so no `$(...)` form is offered at all here.
+wb_board_v2_classify_link() {
+  local link="${1:-}"
+  local -n _cl_kind="$2" _cl_label="$3" _cl_path="$4"
+  _cl_path="$link"
+  case "$link" in
+    */decision-records/*) _cl_kind=decision-records; _cl_label="${link##*/}" ;;
+    logs/decisions/*)     _cl_kind=decision-records; _cl_label="${link##*/}" ;;
+    dossiers/*)           _cl_kind=dossiers; _cl_label="${link##*/}" ;;
+    docs/plans/*|docs/brainstorms/*|docs/solutions/*|docs/ideation/*)
+                           _cl_kind=plans; _cl_label="${link##*/}" ;;
+    https://claude.ai/*)  _cl_kind=claude-ai; _cl_label="$link" ;;
+    *)                    _cl_kind=other; _cl_label="${link##*/}" ;;
+  esac
+}
+
+# wb_board_v2_parse_ladder_table <raw_plan_text> — TSV rows "rung \t ticket
+# \t wbtask_cell \t status_cell" for a nested "### Version ladder status"
+# markdown table inside a family root's Plan section (the
+# be--monorepo--spike-port-post-processor-to-metric-server pattern, D2), or
+# empty when the heading is absent. Rows are matched generically (any
+# "| a | b | ... |" line under the heading, first two skipped as the
+# header + "---" separator) rather than requiring a fixed 4-column table —
+# a hand-edited row with a missing/extra cell degrades gracefully (empty
+# cells default to "", never a crash) rather than requiring the table stay
+# byte-exact.
+wb_board_v2_parse_ladder_table() {
+  local raw="${1:-}" line found=0 row_i=0 out=""
+  local -a cells
+  while IFS= read -r line; do
+    if [ "$found" = 0 ]; then
+      case "$line" in '### Version ladder status'*) found=1 ;; esac
+      continue
+    fi
+    case "$line" in
+      '### '*) break ;;
+      '|'*'|'*)
+        row_i=$((row_i + 1))
+        [ "$row_i" -le 2 ] && continue   # 1: header row, 2: |---|---| separator
+        IFS='|' read -ra cells <<< "$line"
+        local rung="${cells[1]:-}" ticket="${cells[2]:-}" wbtask="${cells[3]:-}" status="${cells[4]:-}"
+        rung="${rung#"${rung%%[![:space:]]*}"}"; rung="${rung%"${rung##*[![:space:]]}"}"
+        ticket="${ticket#"${ticket%%[![:space:]]*}"}"; ticket="${ticket%"${ticket##*[![:space:]]}"}"
+        wbtask="${wbtask#"${wbtask%%[![:space:]]*}"}"; wbtask="${wbtask%"${wbtask##*[![:space:]]}"}"
+        status="${status#"${status%%[![:space:]]*}"}"; status="${status%"${status##*[![:space:]]}"}"
+        [ -n "$rung" ] || continue
+        out+="$rung"$'\t'"$ticket"$'\t'"$wbtask"$'\t'"$status"$'\n'
+        ;;
+    esac
+  done <<< "$raw"
+  printf '%s' "$out"
+}
+
+# wb_board_v2_ladder_child_stem <wbtask_cell> [<out_var>] — the
+# backtick-quoted task stem from a ladder table's "wb task" cell (e.g.
+# "`lib--algorithms--foo`"), or empty for prose like "not yet created" /
+# "same task as T1 — no separate wb task".
+#
+# fix(review) P2: optional out-var (D2A's convention) — called once per
+# rung, and a ladder family's rungs are walked twice in the same pass (once
+# for the JSON side-output, once for the HTML), so a `$(...)` fork here was
+# 2x the fork count this function needed. Rare in practice (ladder tables
+# are a small subset of families today) so not a budget risk, but the fix
+# is free — stdout fallback preserves any future `$(...)` caller.
+wb_board_v2_ladder_child_stem() {
+  local cell="${1:-}" __cs=""
+  if [[ "$cell" =~ \`([A-Za-z0-9._-]+)\` ]]; then __cs="${BASH_REMATCH[1]}"; fi
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__cs"; else printf '%s' "$__cs"; fi
+}
+
+# wb_board_v2_ladder_status_class <resolved_status_or_empty> <status_cell>
+#   [<out_var>] — the rung's done|active|planned|unfiled class. Prefers the
+# LIVE model status of the resolved child task (so the rung reflects
+# reality even if the ladder table's own free-text status cell has gone
+# stale) and falls back to keyword-matching the status cell's prose only
+# when no wb task is resolvable. Optional out-var, same rationale as
+# wb_board_v2_ladder_child_stem above.
+wb_board_v2_ladder_status_class() {
+  local resolved="${1:-}" cell="${2:-}" __cls
+  case "$resolved" in
+    done) __cls=done ;;
+    doing|review) __cls=active ;;
+    planned|paused|prospective) __cls=planned ;;
+    *)
+      case "$cell" in
+        *[Dd]one*|*shipped*|*merged*) __cls=done ;;
+        *doing*|*active*|*implemented*|*in\ progress*) __cls=active ;;
+        *planned*) __cls=planned ;;
+        *) __cls=unfiled ;;
+      esac
+      ;;
+  esac
+  if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$__cls"; else printf '%s' "$__cls"; fi
+}
+
+# wb_board_v2_json_escape <string> <out_var> — minimal JSON string escaping
+# (backslash, double-quote, newline/tab/CR — the control chars real task
+# prose can actually contain; task titles/decisions never carry other C0
+# control bytes) for the U5 family-rollup.json side-output. Always an
+# out-var, no stdout fallback: every caller in the Family view's JSON
+# assembly is a hot per-family/per-child loop (D2A's convention — see
+# wb_board_html_escape's identical note).
+wb_board_v2_json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"; s="${s//$'\t'/\\t}"; s="${s//$'\r'/}"
+  printf -v "$2" '%s' "$s"
+}
+
 # wb_board_render_v2 <27 model array names, exactly wb_board_build_model's
-# own output-array list — see its usage comment> — the ratified 3-view
-# (Active/Roadmap/Week) HTML page (U3). Deliberately takes the SAME 27
-# names cmd_board's --html branch already builds for wb_board_build_model,
-# in the SAME order, so a caller does:
-#   wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW
+# own output-array list, PLUS M_DECISIONS_RAW M_LINKS_RAW (U5, PR2 — the
+# Family view's own raw text, never touched by build_model since they carry
+# no per-field model derivation, just pass-through text like M_PLAN_RAW)> —
+# the ratified 3-view (Active/Roadmap/Week) HTML page (U3) plus the Family
+# view (U6). Deliberately takes the SAME 27 names cmd_board's --html branch
+# already builds for wb_board_build_model, in the SAME order, plus the 2
+# trailing raw arrays, so a caller does:
+#   wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+#     M_DECISIONS_RAW M_LINKS_RAW
 #   wb_board_build_model V2ROWS M_PLAN_RAW ... BUCKET_COUNT
-#   wb_board_render_v2   V2ROWS M_PLAN_RAW ... BUCKET_COUNT
+#   wb_board_render_v2   V2ROWS M_PLAN_RAW ... BUCKET_COUNT M_DECISIONS_RAW M_LINKS_RAW
 # — one collect, one model build, one render, over the SAME arrays (R16:
 # no second file read). Nameref parameter names are prefixed `_m_`
 # (model), never bare (`_status`, `_stem_anchor`, ...) precisely because
@@ -1018,6 +1253,7 @@ wb_board_render_v2() {
   local -n _m_deps="${16}" _m_tags="${17}" _m_plan_checked="${18}" _m_plan_total="${19}" _m_age_days="${20}"
   local -n _m_bucket="${21}" _m_handoff_summary="${22}" _m_family_root="${23}"
   local -n _m_stem_parent="${24}" _m_stem_anchor="${25}" _m_family_children="${26}" _m_bucket_count="${27}"
+  local -n _m_decisions_raw="${28}" _m_links_raw="${29}"
 
   local now; now="$(date +%s)"
 
@@ -1100,11 +1336,20 @@ wb_board_render_v2() {
   [ "${#next_items[@]}" -gt 0 ] && next_html="$(wb_board_v2_shelf_items_html "$(wb_board_v2_sort_stems_by_title "${next_items[@]}")")"
   [ "${#shelf_items[@]}" -gt 0 ] && shelf_html="$(wb_board_v2_shelf_items_html "$(wb_board_v2_sort_stems_by_title "${shelf_items[@]}")")"
 
+  # U6 follow-up (UX feedback on PR #60): the rail switches content by
+  # active view — #rail-tasks (Doing tree + Next/Shelf, this block) for
+  # Active/Roadmap/Week, #rail-families (built alongside the family loop
+  # below) for Family. showView() toggles which one is visible; family
+  # selection moves from the old cramped top-of-page chip grid (33+
+  # families in a wrapping grid read as "overwhelming") to this same rail
+  # nav surface every other view already uses.
   local rail_html
   rail_html="<input type=\"text\" id=\"board-filter\" class=\"rail-filter\" placeholder=\"Filter&hellip; (press /)\" autocomplete=\"off\">"
+  rail_html+="<div id=\"rail-tasks\">"
   rail_html+="<div><div class=\"rail-heading\">Doing</div><div class=\"rail-tree\">${rail_doing_html}</div></div>"
   rail_html+="<div class=\"group\" id=\"next-group\"><div class=\"group-head\" onclick=\"toggleGroup('next-group')\"><span class=\"group-caret\">&#9656;</span><span class=\"group-label\">Next &middot; <span class=\"count-blue\">${#next_items[@]}</span></span></div><div class=\"group-body\">${next_html}</div></div>"
   rail_html+="<div class=\"group expanded\" id=\"shelf-group\"><div class=\"group-head\" onclick=\"toggleGroup('shelf-group')\"><span class=\"group-caret\">&#9656;</span><span class=\"group-label\">Shelf &middot; <span class=\"count-peach\">${#shelf_items[@]}</span></span></div><div class=\"group-body\">${shelf_html}</div></div>"
+  rail_html+='</div>'
 
   # =========================================================================
   # ACTIVE VIEW (R18): one card per doing/review task, stale ones included
@@ -1415,6 +1660,393 @@ wb_board_render_v2() {
   week_view_html+='</section>'
 
   # =========================================================================
+  # FAMILY VIEW (U6, R17's fourth view + D2): a version-ladder (mockup D)
+  # when the family root's Plan carries a "### Version ladder status" table,
+  # else a flat family (children tree + mockup A's decisions timeline +
+  # artifact links). Every family (any stem with >=1 child) gets a block,
+  # ALL pre-rendered and toggled client-side by the family picker — a
+  # server-side "render just the selected family" would need a second pass
+  # per pick, which R15's single ≤10s render doesn't have room for.
+  # =========================================================================
+  local -a all_family_roots=()
+  local fr_stem
+  for fr_stem in "${!_m_family_children[@]}"; do
+    [ -n "${_m_family_children[$fr_stem]:-}" ] && all_family_roots+=("$fr_stem")
+  done
+  local -a all_family_roots_sorted=()
+  if [ "${#all_family_roots[@]}" -gt 0 ]; then
+    while IFS= read -r fr_stem; do all_family_roots_sorted+=("$fr_stem"); done < <(wb_board_v2_sort_stems_by_title "${all_family_roots[@]}")
+  fi
+
+  # fix(perf, U5/U6): __h/__al below are scratch out-vars for the
+  # plain-statement forms of wb_board_html_escape/wb_board_v2_age_label
+  # (D2A's convention) — this loop runs per family member/decision/
+  # artifact across the whole store, so a `$(...)` subshell at every call
+  # site here would be exactly the per-call fork cost U2's own timing
+  # notes warn against. Reused across iterations on purpose (scratch,
+  # consumed immediately after each call, never read stale).
+  local __h="" __h2="" __h3="" __al=""
+  local rail_family_html="" fam_blocks_html="" fam_idx=0 fam_json_entries=""
+  for fr_stem in "${all_family_roots_sorted[@]}"; do
+    fam_idx=$((fam_idx + 1))
+    # A dangling `parent:` (no existence check, a known pre-existing P3 —
+    # see wb_board_v2_family_root's cycle-guard comment) can make a
+    # FAMILY_CHILDREN key a phantom stem with no real collected row, so
+    # STEM_ANCHOR has no entry for it — compute the anchor fresh instead of
+    # looking it up, which is also safer: a hand-typed parent: value is
+    # never run through the real stems' [A-Za-z0-9._-] filename invariant,
+    # so it needs its own sanitizing before landing in a DOM id/JS call.
+    local fr_anchor; wb_board_v2_anchor "$fr_stem" fr_anchor
+    # fix(review) P1: the same "phantom stem" risk above applies to fr_stem
+    # ITSELF wherever it's rendered as HTML text/attribute, not just to the
+    # DOM anchor — a hand-typed `parent:` value can carry `<`/`"`/`&` and
+    # this codebase's own comment on the anchor above already names the
+    # risk without closing it out here. Escape once, reuse everywhere below
+    # (element text AND `data-copy="..."` — wb_board_html_escape's `"`
+    # handling makes it safe for both contexts) instead of interpolating
+    # the raw stem at each site.
+    local fr_stem_h; wb_board_html_escape "$fr_stem" fr_stem_h
+    local fr_kids="${_m_family_children[$fr_stem]}"
+    local -a fr_members=("$fr_stem")
+    local fr_c
+    while IFS= read -r fr_c; do [ -n "$fr_c" ] && fr_members+=("$fr_c"); done <<< "$fr_kids"
+    local fr_total=${#fr_members[@]} fr_done=0 fr_m
+    for fr_m in "${fr_members[@]}"; do [ "${_m_status[$fr_m]:-}" = done ] && fr_done=$((fr_done + 1)); done
+
+    local fam_sel_cls=""
+    [ "$fam_idx" = 1 ] && fam_sel_cls=" selected"
+    wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
+    # UX follow-up: family selection moved from a top-of-page chip grid
+    # (33+ families wrapped into an "overwhelming" block) to a rail-row
+    # list, the same nav surface Active/Roadmap/Week already use. Reuses
+    # the rail's own `.dot`/`.rail-row-title` visual language so it reads
+    # as "the same sidebar, a different list" rather than a new widget.
+    local fam_dot; fam_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
+    rail_family_html+="<div class=\"rail-row fam-rail-row${fam_sel_cls}\" data-fam=\"${fr_anchor}\" onclick=\"selectFamily('${fr_anchor}')\"><span class=\"dot ${fam_dot}\"></span><span class=\"rail-row-title\">${__h}</span><span class=\"rail-row-age mono\">${fr_done}/${fr_total}</span></div>"
+
+    # Decisions timeline: parent + every child, date-sorted. One `sort`
+    # fork per family (bounded to the family count, not the whole store) —
+    # the per-member entry extraction itself is a plain-statement call
+    # (zero forks; see wb_board_v2_decisions_entries's perf note).
+    local fr_decisions_raw="" fr_m2 __fr_dec_entry
+    for fr_m2 in "${fr_members[@]}"; do
+      wb_board_v2_decisions_entries "${_m_decisions_raw[$fr_m2]:-}" "$fr_m2" __fr_dec_entry
+      fr_decisions_raw+="$__fr_dec_entry"
+    done
+    local fr_decisions_sorted="" fr_decisions_total=0
+    # Cap to the fr_dec_cap most recent entries (tail of the ascending
+    # sort) — a large family's full-store decisions text can run into
+    # hundreds of KB once every member's history is concatenated, and
+    # bash's `${var//pat/repl}` substitution (wb_board_escape_replacement +
+    # the page-template token swap below) measurably does not scale
+    # linearly at that size (verified: ~0.85s for a 210KB string with many
+    # `&` entities alone) — capping content volume is the same lever
+    # RM_CAP/the 12-item chip caps elsewhere in this file already use for
+    # exactly this class of store-wide-scale concern.
+    local -i fr_dec_cap=20
+    local fr_decisions_full_sorted=""
+    if [ -n "$fr_decisions_raw" ]; then
+      fr_decisions_sorted="$(printf '%s' "$fr_decisions_raw" | sort -t $'\t' -k1,1)"
+      fr_decisions_full_sorted="$fr_decisions_sorted"   # U5 JSON side-output: uncapped
+      fr_decisions_total="$(printf '%s\n' "$fr_decisions_sorted" | grep -c . || true)"
+      if [ "$fr_decisions_total" -gt "$fr_dec_cap" ]; then
+        fr_decisions_sorted="$(printf '%s\n' "$fr_decisions_sorted" | tail -n "$fr_dec_cap")"
+      fi
+    fi
+
+    # Artifact links: parent + every child, deduped on (kind,PATH — fix(review)
+    # P1: was (kind,label), and label is just a basename, so two distinct
+    # files sharing a name (e.g. two dossiers each with their own plan.md)
+    # collapsed into one and silently dropped the other's link) — a doc
+    # cited by both a parent and a child collapses to one entry, first-seen
+    # source wins the tag. wb_board_v2_classify_link is a plain-statement
+    # nameref call (no `$(...)` fork) — this loop runs once per link line
+    # per family member across the whole store, so a subshell here would be
+    # the same per-file fork cost U2's timing notes warn against.
+    local -A fr_link_seen=()
+    local -a fr_link_kind=() fr_link_label=() fr_link_path=() fr_link_source=()
+    local fr_m3 fr_link_line fr_kind fr_label fr_path
+    for fr_m3 in "${fr_members[@]}"; do
+      while IFS= read -r fr_link_line; do
+        [ -n "$fr_link_line" ] || continue
+        wb_board_v2_classify_link "$fr_link_line" fr_kind fr_label fr_path
+        local fr_dedupe_key="${fr_kind}"$'\x1f'"${fr_path}"
+        [ -n "${fr_link_seen[$fr_dedupe_key]:-}" ] && continue
+        fr_link_seen["$fr_dedupe_key"]=1
+        fr_link_kind+=("$fr_kind"); fr_link_label+=("$fr_label"); fr_link_path+=("$fr_path"); fr_link_source+=("$fr_m3")
+      done <<< "${_m_links_raw[$fr_m3]:-}"
+    done
+
+    local fam_body_html=""
+    local fr_ladder; fr_ladder="$(wb_board_v2_parse_ladder_table "${_m_plan_raw[$fr_stem]:-}")"
+
+    # U5 (parked item 6): the machine-readable rollup, built from the SAME
+    # per-family data the HTML above reads (no second pass) — written to
+    # family-rollup.json after the loop as a by-product for future
+    # `/handoff` fan-out. Decisions here are the FULL (uncapped) set, not
+    # the display-capped one — a downstream consumer fanning out to
+    # `/handoff` wants the whole history, not just what fits on one page.
+    local fr_json_children="" fr_jc_i
+    for fr_jc_i in "${!fr_members[@]}"; do
+      [ "$fr_jc_i" -gt 0 ] && fr_json_children+=","
+      local fr_jc_m="${fr_members[$fr_jc_i]}"
+      wb_board_v2_json_escape "${_m_title[$fr_jc_m]:-$fr_jc_m}" __h
+      # fix(review) P2: id is a raw stem — real child stems are already
+      # filename-safe (D5's collect-time invariant), but fr_jc_m at index 0
+      # is fr_stem itself, which for a family root can be an unsanitized
+      # hand-typed `parent:` value (the same "phantom stem" risk noted
+      # below) — escape uniformly rather than special-casing index 0.
+      wb_board_v2_json_escape "$fr_jc_m" __h2
+      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"status\":\"${_m_status[$fr_jc_m]:-}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
+    done
+    local fr_json_decisions="" fr_jd_first=1 fr_jd_date fr_jd_text fr_jd_src
+    if [ -n "$fr_decisions_full_sorted" ]; then
+      while IFS=$'\t' read -r fr_jd_date fr_jd_text fr_jd_src; do
+        [ -n "${fr_jd_date:-}" ] || continue
+        [ "$fr_jd_first" = 1 ] || fr_json_decisions+=","
+        fr_jd_first=0
+        wb_board_v2_json_escape "$fr_jd_text" __h
+        fr_json_decisions+="{\"date\":\"${fr_jd_date}\",\"text\":\"${__h}\",\"source\":\"${fr_jd_src}\"}"
+      done <<< "$fr_decisions_full_sorted"
+    fi
+    local fr_json_artifacts="" fr_ja_i
+    for fr_ja_i in "${!fr_link_kind[@]}"; do
+      [ "$fr_ja_i" -gt 0 ] && fr_json_artifacts+=","
+      wb_board_v2_json_escape "${fr_link_label[$fr_ja_i]}" __h
+      wb_board_v2_json_escape "${fr_link_path[$fr_ja_i]}" __h2
+      fr_json_artifacts+="{\"kind\":\"${fr_link_kind[$fr_ja_i]}\",\"label\":\"${__h}\",\"path\":\"${__h2}\",\"source\":\"${fr_link_source[$fr_ja_i]}\"}"
+    done
+    local fr_json_rungs="" fr_jr_first=1 fr_jr_line
+    if [ -n "$fr_ladder" ]; then
+      while IFS= read -r fr_jr_line; do
+        [ -n "$fr_jr_line" ] || continue
+        local fr_jr_rung="${fr_jr_line%%$'\t'*}" fr_jr_rest="${fr_jr_line#*$'\t'}"
+        local fr_jr_ticket="${fr_jr_rest%%$'\t'*}"; fr_jr_rest="${fr_jr_rest#*$'\t'}"
+        local fr_jr_wbtask="${fr_jr_rest%%$'\t'*}" fr_jr_status_cell="${fr_jr_rest#*$'\t'}"
+        local fr_jr_child; wb_board_v2_ladder_child_stem "$fr_jr_wbtask" fr_jr_child
+        local fr_jr_resolved=""
+        [ -n "$fr_jr_child" ] && fr_jr_resolved="${_m_status[$fr_jr_child]:-}"
+        local fr_jr_cls; wb_board_v2_ladder_status_class "$fr_jr_resolved" "$fr_jr_status_cell" fr_jr_cls
+        [ "$fr_jr_first" = 1 ] || fr_json_rungs+=","
+        fr_jr_first=0
+        wb_board_v2_json_escape "$fr_jr_rung" __h
+        wb_board_v2_json_escape "$fr_jr_ticket" __h2
+        fr_json_rungs+="{\"rung\":\"${__h}\",\"ticket\":\"${__h2}\",\"child\":\"${fr_jr_child}\",\"status\":\"${fr_jr_cls}\"}"
+      done <<< "$fr_ladder"
+    fi
+    wb_board_v2_json_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
+    wb_board_v2_json_escape "$fr_stem" __h2
+    [ "$fam_idx" -gt 1 ] && fam_json_entries+=","
+    fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"$([ -n "$fr_ladder" ] && printf ladder || printf flat)\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}]}"
+
+    if [ -n "$fr_ladder" ]; then
+      # ---- LADDER SHAPE (mockup D) ----
+      fam_body_html+="<h2 class=\"region-label\">Family &middot; ladder view</h2>"
+      wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
+      fam_body_html+="<div class=\"fam-title-row\"><div><h1>${__h}</h1><span class=\"fam-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span></div></div>"
+      fam_body_html+='<div class="ladder">'
+      local fr_rung_line fr_rung_i=0
+      while IFS= read -r fr_rung_line; do
+        [ -n "$fr_rung_line" ] || continue
+        fr_rung_i=$((fr_rung_i + 1))
+        local fr_rung="${fr_rung_line%%$'\t'*}" fr_rest="${fr_rung_line#*$'\t'}"
+        local fr_ticket="${fr_rest%%$'\t'*}"; fr_rest="${fr_rest#*$'\t'}"
+        local fr_wbtask_cell="${fr_rest%%$'\t'*}" fr_status_cell="${fr_rest#*$'\t'}"
+        local fr_child; wb_board_v2_ladder_child_stem "$fr_wbtask_cell" fr_child
+        local fr_resolved_status="" fr_rung_child_html='<span class="rung-child none">no child task yet</span>'
+        if [ -n "$fr_child" ] && [ -n "${_m_status[$fr_child]:-}" ]; then
+          fr_resolved_status="${_m_status[$fr_child]}"
+          fr_rung_child_html="<span class=\"rung-child mono copyable\" data-copy=\"wb resume ${fr_child}\">&#8618; <span class=\"id\">${fr_child}</span></span>"
+        fi
+        local fr_rcls; wb_board_v2_ladder_status_class "$fr_resolved_status" "$fr_status_cell" fr_rcls
+        local fr_active_cls=""
+        [ "$fr_rcls" = active ] && fr_active_cls=" active expanded"
+        local fr_now_tag=""
+        [ "$fr_rcls" = active ] && fr_now_tag='<span class="fam-today-tag">now</span>'
+        local fr_status_label="$fr_rcls"
+        [ "$fr_rcls" = unfiled ] && fr_status_label="not yet filed"
+        fam_body_html+="<div class=\"rung ${fr_rcls}${fr_active_cls}\" id=\"rung-${fr_anchor}-${fr_rung_i}\">"
+        fam_body_html+="<span class=\"rung-node ${fr_rcls}\"></span>"
+        fam_body_html+="<div class=\"rung-head\" onclick=\"toggleRung('rung-${fr_anchor}-${fr_rung_i}')\">"
+        wb_board_html_escape "$fr_rung" __h
+        fam_body_html+="<span class=\"rung-ver mono\" title=\"${__h}\">${__h}</span>"
+        wb_board_html_escape "$fr_ticket" __h
+        fam_body_html+="<span class=\"rung-goal\" title=\"${__h}\">${__h}</span>"
+        wb_board_html_escape "$fr_status_label" __h
+        fam_body_html+="<span class=\"rung-status-pill ${fr_rcls}\">${__h}${fr_now_tag}</span>"
+        fam_body_html+="${fr_rung_child_html}"
+        fam_body_html+='<span class="rung-caret">&#9656;</span></div>'
+        fam_body_html+='<div class="rung-body"><div class="rung-grid"><div><h4>Decisions</h4><ul>'
+        local fr_rd_found=0
+        if [ -n "$fr_child" ] && [ -n "$fr_decisions_sorted" ]; then
+          local fr_rd_date fr_rd_text fr_rd_src
+          while IFS=$'\t' read -r fr_rd_date fr_rd_text fr_rd_src; do
+            [ -n "${fr_rd_date:-}" ] || continue
+            [ "$fr_rd_src" = "$fr_child" ] || continue
+            wb_board_html_escape "$fr_rd_text" __h
+            fam_body_html+="<li class=\"decision-item\">${__h}</li>"
+            fr_rd_found=1
+          done <<< "$fr_decisions_sorted"
+        fi
+        [ "$fr_rd_found" = 1 ] || fam_body_html+='<li class="empty">None yet.</li>'
+        fam_body_html+='</ul></div><div><h4>Artifacts</h4><ul>'
+        local fr_ra_found=0 fr_ra_i
+        if [ -n "$fr_child" ]; then
+          for fr_ra_i in "${!fr_link_source[@]}"; do
+            [ "${fr_link_source[$fr_ra_i]}" = "$fr_child" ] || continue
+            wb_board_html_escape "${fr_link_label[$fr_ra_i]}" __h
+            wb_board_html_escape "${fr_link_path[$fr_ra_i]}" __h2
+            fam_body_html+="<li><span class=\"artifact-link copyable\" data-copy=\"${__h2}\" title=\"${__h2}\"><span class=\"label\">${__h}</span></span></li>"
+            fr_ra_found=1
+          done
+        fi
+        [ "$fr_ra_found" = 1 ] || fam_body_html+='<li class="empty">None yet.</li>'
+        fam_body_html+='</ul></div></div></div></div>'
+      done <<< "$fr_ladder"
+      fam_body_html+='</div>'
+    else
+      # ---- FLAT SHAPE (mockup A) ----
+      local fr_dot; fr_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
+      fam_body_html+="<h2 class=\"region-label\">Family view</h2>"
+      wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
+      wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
+      fam_body_html+="<div class=\"fam-hero\"><div class=\"fam-hero-top\"><div><div class=\"fam-hero-title\">${__h}</div><span class=\"fam-hero-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span></div><div class=\"fam-hero-meta\"><span class=\"dot ${fr_dot}\"></span><span class=\"age mono\">${__al}</span></div></div>"
+      fam_body_html+='<div class="fam-tree">'
+      local fr_p_status="${_m_status[$fr_stem]:-}" fr_p_pill_cls="planned"
+      case "$fr_p_status" in doing|review) fr_p_pill_cls="doing" ;; esac
+      wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
+      wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
+      wb_board_html_escape "$fr_p_status" __h2
+      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem_h}\">${__h}</div><span class=\"t-id mono\">${fr_stem_h} &middot; parent</span></div><span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+      local fr_child_row
+      while IFS= read -r fr_child_row; do
+        [ -n "$fr_child_row" ] || continue
+        local fr_c_status="${_m_status[$fr_child_row]:-}" fr_c_pill_cls="planned"
+        case "$fr_c_status" in doing|review) fr_c_pill_cls="doing" ;; esac
+        wb_board_html_escape "${_m_title[$fr_child_row]:-$fr_child_row}" __h
+        wb_board_v2_age_label "${_m_age_days[$fr_child_row]:-0}" __al
+        wb_board_html_escape "$fr_c_status" __h2
+        wb_board_html_escape "$fr_child_row" __h3
+        fam_body_html+="<div class=\"fam-tree-row child-row\"><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span></div><span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+      done <<< "$fr_kids"
+      fam_body_html+='</div></div>'
+
+      local fr_timeline_html=""
+      if [ -n "$fr_decisions_sorted" ]; then
+        local fr_td_date fr_td_text fr_td_src
+        while IFS=$'\t' read -r fr_td_date fr_td_text fr_td_src; do
+          [ -n "${fr_td_date:-}" ] || continue
+          local fr_src_cls="from-child" fr_src_badge_cls="child-src"
+          [ "$fr_td_src" = "$fr_stem" ] && fr_src_cls="from-parent" && fr_src_badge_cls="parent-src"
+          wb_board_html_escape "$fr_td_date" __h
+          wb_board_html_escape "$fr_td_text" __h2
+          wb_board_html_escape "$fr_td_src" __h3
+          fr_timeline_html+="<div class=\"fam-tl-item ${fr_src_cls}\"><div class=\"fam-tl-date mono\">${__h}</div><div class=\"fam-tl-text\">${__h2}</div><span class=\"fam-tl-source ${fr_src_badge_cls} copyable\" data-copy=\"wb resume ${__h3}\">${__h3}</span></div>"
+        done <<< "$fr_decisions_sorted"
+      fi
+      fam_body_html+="<div class=\"fam-section\"><div class=\"fam-section-head\"><h3>Decisions &middot; across the whole family</h3><span class=\"fam-section-sub\">${fr_decisions_total} decisions</span></div>"
+      if [ -n "$fr_timeline_html" ]; then
+        if [ "$fr_decisions_total" -gt "$fr_dec_cap" ]; then
+          fam_body_html+="<p style=\"color:var(--subtext);font-size:13px;margin:0 0 10px;\">Showing the ${fr_dec_cap} most recent &mdash; $(( fr_decisions_total - fr_dec_cap )) earlier decision(s) not shown.</p>"
+        fi
+        fam_body_html+="<div class=\"fam-timeline\">${fr_timeline_html}</div>"
+      else
+        fam_body_html+='<p style="color:var(--subtext);">No decisions logged yet.</p>'
+      fi
+      fam_body_html+='</div>'
+
+      fam_body_html+="<div class=\"fam-section\"><div class=\"fam-section-head\"><h3>Artifacts &middot; grab from the family</h3><span class=\"fam-section-sub\">${#fr_link_kind[@]} links</span></div>"
+      if [ "${#fr_link_kind[@]}" -gt 0 ]; then
+        fam_body_html+='<div class="fam-art-groups">'
+        local fr_kind_want fr_kind_heading
+        for fr_kind_want in decision-records plans dossiers claude-ai other; do
+          local fr_group_html="" fr_gi
+          for fr_gi in "${!fr_link_kind[@]}"; do
+            [ "${fr_link_kind[$fr_gi]}" = "$fr_kind_want" ] || continue
+            wb_board_html_escape "${fr_link_path[$fr_gi]}" __h
+            wb_board_html_escape "${fr_link_source[$fr_gi]}" __h2
+            if [ "$fr_kind_want" = claude-ai ]; then
+              fr_group_html+="<div class=\"fam-art-row\"><span class=\"fam-art-icon\">&#128279;</span><a class=\"fam-art-path mono\" href=\"${__h}\" target=\"_blank\" rel=\"noopener\">${__h}</a><span class=\"fam-art-tag\">${__h2}</span></div>"
+            else
+              # fix(review) P1: data-copy and the visible path text now both
+              # use the full path (fr_link_path), not the basename-only
+              # fr_link_label — a basename alone can't be opened/found again.
+              fr_group_html+="<div class=\"fam-art-row copyable\" data-copy=\"${__h}\"><span class=\"fam-art-icon\">&#128196;</span><span class=\"fam-art-path mono\">${__h}</span><span class=\"fam-art-tag\">${__h2}</span><span class=\"fam-art-grab\">copy</span></div>"
+            fi
+          done
+          [ -n "$fr_group_html" ] || continue
+          case "$fr_kind_want" in
+            decision-records) fr_kind_heading="Decision records" ;;
+            plans) fr_kind_heading="Plans" ;;
+            dossiers) fr_kind_heading="Dossiers" ;;
+            claude-ai) fr_kind_heading="claude.ai artifacts" ;;
+            *) fr_kind_heading="Other" ;;
+          esac
+          fam_body_html+="<div class=\"fam-art-group\"><h4>${fr_kind_heading}</h4><div class=\"fam-art-list\">${fr_group_html}</div></div>"
+        done
+        fam_body_html+='</div>'
+      else
+        fam_body_html+='<p style="color:var(--subtext);">No artifacts linked yet.</p>'
+      fi
+      fam_body_html+='</div>'
+    fi
+
+    # fix(perf, U5/U6): escape THIS family's body now, per-block, rather
+    # than once over the whole concatenated family_view_html at page
+    # assembly. wb_board_escape_replacement's `${s//&/\&}` global
+    # substitution measured NON-linear in the size of a single call — a
+    # 230KB single call over all 32 families' content cost ~0.85s, the
+    # SAME aggregate content split into ~32 per-family calls cost ~0.29s,
+    # further improving as each family's own size drops (a 21KB single
+    # call costs only ~0.018s) — verified during this unit's real-store
+    # timing pass. Escaping here (not at the bottom substitution line)
+    # means `family_view_html` arrives at the page template ALREADY safe
+    # for the `${page_template//@@FAMILY_HTML@@/...}` swap.
+    fam_body_html="$(wb_board_escape_replacement "$fam_body_html")"
+    # .fam-block defaults to display:none in CSS (every block hidden until
+    # selectFamily shows one) — the first family needs an explicit inline
+    # override, not just the ABSENCE of a hiding style, or it renders blank
+    # on load (caught in browser verification: picker chip selected but no
+    # body visible).
+    local fam_display_style=' style="display:none;"'
+    [ "$fam_idx" = 1 ] && fam_display_style=' style="display:block;"'
+    fam_blocks_html+="<div class=\"fam-block\" id=\"fam-${fr_anchor}\"${fam_display_style}>${fam_body_html}</div>"
+  done
+
+  # U5 (parked item 6): write the family rollup as a machine-readable
+  # by-product of this same render pass — no second pass over the store
+  # (R16). $TASKS_DIR is the same global cmd_board's own --html branch
+  # resolves the task store from. A write failure (e.g. read-only mount in
+  # a sandboxed test run) must never break the HTML render itself — this
+  # is a side-output, not part of R15's contract.
+  mkdir -p "$TASKS_DIR/.board-cache" 2>/dev/null \
+    && printf '[%s]\n' "$fam_json_entries" > "$TASKS_DIR/.board-cache/family-rollup.json" 2>/dev/null || true
+
+  local family_view_html=""
+  if [ "${#all_family_roots_sorted[@]}" -gt 0 ]; then
+    family_view_html="$fam_blocks_html"
+  else
+    # Static text, pre-escaped by hand (no dynamic content to run through
+    # wb_board_escape_replacement) — this is the same @@FAMILY_HTML@@ token
+    # that skips the escape wrapper below, so any literal `&` here must
+    # already be `\&`.
+    family_view_html='<h2 class="region-label">Family</h2><p style="color:var(--subtext);">No families yet \&mdash; a family appears once a task has a <span class="mono">parent:</span> field or at least one child.</p>'
+  fi
+  local fam_tab_badge="${#all_family_roots_sorted[@]}"
+
+  # UX follow-up: the family list joins the rail as a second, initially-
+  # hidden panel (#rail-families) — showView('family') swaps to it,
+  # everything else swaps back to #rail-tasks (see rail_html's own note
+  # above). Escaped once here (not per-row) since it's a single small
+  # concatenation, not the per-family-block scale that motivated the
+  # per-block escaping elsewhere in this function.
+  rail_family_html="$(wb_board_escape_replacement "$rail_family_html")"
+  if [ -z "$rail_family_html" ]; then
+    rail_family_html='<p style="color:var(--subtext);font-size:14px;padding:0 4px;">No families yet.</p>'
+  fi
+  rail_html+="<div id=\"rail-families\" style=\"display:none;\"><div class=\"rail-heading\">Family</div><div class=\"rail-tree\">${rail_family_html}</div></div>"
+
+  # =========================================================================
   # PAGE ASSEMBLY — heredoc + @@TOKEN@@ substitution, the same templating
   # convention the deleted old renderer used: the
   # CSS/skeleton/script are entirely static (translated from
@@ -1682,6 +2314,111 @@ wb_board_render_v2() {
   .qs-chip.planned { background: rgba(137,180,250,.10); border-color: rgba(137,180,250,.35); color: var(--blue); }
   .qs-chip.planned .breadcrumb { color: var(--subtext); font-size: 12.5px; }
   .qs-chip.shelf { background: rgba(250,179,135,.10); border-color: rgba(250,179,135,.35); color: var(--peach); }
+
+  /* ---------- VIEW 4: Family (U6, mockups D + A) ---------- */
+  /* Family selection lives in the rail (#rail-families, a peer of
+     #rail-tasks — see showView()'s own note) as .fam-rail-row, reusing
+     .rail-row/.dot/.rail-row-title/.rail-row-age wholesale; only the
+     selected-state accent below is Family-specific (mirrors the mauve
+     "selection" language .card.selected already uses on the Active deck,
+     translated from a card to a rail row). */
+  .fam-rail-row.selected { background: rgba(203,166,247,.12); border-color: var(--mauve); }
+  .fam-rail-row.selected .rail-row-title { color: var(--mauve); }
+  .fam-rail-row.selected .rail-row-age { color: var(--mauve); opacity: .85; }
+  .fam-block { display: none; }
+
+  .fam-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 2px 2px 20px 2px; flex-wrap: wrap; }
+  .fam-title-row h1 { margin: 0; font-size: 25px; font-weight: 650; letter-spacing: -0.01em; color: var(--text); }
+  .fam-id, .fam-hero-id { color: var(--subtext); font-size: 13.5px; }
+
+  .fam-hero { background: var(--surface); border: 1px solid var(--overlay); border-radius: 14px; padding: 24px 28px; margin-bottom: 26px; }
+  .fam-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .fam-hero-title { font-size: 21px; font-weight: 650; color: var(--text); }
+  .fam-hero-id { display: block; margin-top: 5px; }
+  .fam-hero-meta { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+  .fam-hero-meta .age { font-size: 13.5px; color: var(--subtext); }
+
+  .fam-tree { display: flex; flex-direction: column; gap: 8px; }
+  .fam-tree-row { display: grid; grid-template-columns: 20px 1fr auto auto; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 9px; background: var(--base); border: 1px solid transparent; }
+  .fam-tree-row.parent-row { background: rgba(203,166,247,.06); border-color: rgba(203,166,247,.22); }
+  .fam-tree-row.child-row { margin-left: 26px; width: calc(100% - 26px); }
+  .fam-tree-row .branch { color: var(--overlay); font-size: 14px; text-align: center; }
+  .fam-tree-row .t-title { font-size: 15.5px; color: var(--text); }
+  .fam-tree-row .t-id { display: block; font-size: 12.5px; color: var(--subtext); margin-top: 2px; }
+  .fam-status-pill { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; letter-spacing: .02em; white-space: nowrap; }
+  .fam-status-pill.doing { background: rgba(166,227,161,.16); color: var(--green); }
+  .fam-status-pill.planned { background: rgba(137,180,250,.16); color: var(--blue); }
+  .fam-tree-row .t-age { font-size: 13px; color: var(--subtext); white-space: nowrap; text-align: right; min-width: 42px; }
+
+  .fam-section { margin-bottom: 28px; }
+  .fam-section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  .fam-section-head h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--subtext); font-weight: 700; }
+  .fam-section-sub { font-size: 13px; color: var(--subtext); }
+
+  .fam-timeline { position: relative; padding-left: 22px; }
+  .fam-timeline::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 1px; background: var(--overlay); }
+  .fam-tl-item { position: relative; padding-bottom: 20px; }
+  .fam-tl-item:last-child { padding-bottom: 0; }
+  .fam-tl-item::before { content: ""; position: absolute; left: -22px; top: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--mauve); box-shadow: 0 0 0 3px var(--base); }
+  .fam-tl-item.from-child::before { background: var(--blue); }
+  .fam-tl-date { font-size: 13px; color: var(--subtext); margin-bottom: 4px; }
+  .fam-tl-text { font-size: 15.5px; color: var(--text); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .fam-tl-source { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12.5px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--overlay); color: var(--subtext); cursor: pointer; }
+  .fam-tl-source.parent-src { border-color: rgba(203,166,247,.35); color: var(--mauve); }
+  .fam-tl-source.child-src { border-color: rgba(137,180,250,.35); color: var(--blue); }
+
+  .fam-art-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .fam-art-group { background: var(--surface); border: 1px solid var(--overlay); border-radius: 12px; padding: 16px 18px; }
+  .fam-art-group h4 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--subtext); font-weight: 700; }
+  .fam-art-list { display: flex; flex-direction: column; gap: 2px; }
+  .fam-art-row { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-radius: 8px; font-size: 14.5px; color: var(--text); }
+  .fam-art-row:hover { background: var(--base); }
+  .fam-art-icon { flex: 0 0 auto; font-size: 14px; color: var(--subtext); width: 16px; text-align: center; }
+  .fam-art-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); text-decoration: none; }
+  .fam-art-tag { flex: 0 0 auto; font-size: 12px; color: var(--subtext); }
+  .fam-art-grab { flex: 0 0 auto; font-size: 12px; color: var(--mauve); border: 1px solid rgba(203,166,247,.35); background: rgba(203,166,247,.08); border-radius: 6px; padding: 2px 8px; opacity: 0; transition: opacity .12s ease; }
+  .fam-art-row:hover .fam-art-grab { opacity: 1; }
+
+  /* ---------- Ladder (mockup D) ---------- */
+  .ladder { position: relative; margin: 0 2px; padding-left: 26px; }
+  .ladder::before { content: ""; position: absolute; left: 9px; top: 6px; bottom: 6px; width: 2px; background: var(--overlay); }
+  .rung { position: relative; margin-bottom: 4px; border-radius: 12px; }
+  .rung-node { position: absolute; left: -26px; top: 20px; width: 20px; height: 20px; border-radius: 50%; background: var(--base); border: 2px solid var(--overlay); display: flex; align-items: center; justify-content: center; z-index: 2; }
+  .rung-node.done { border-color: var(--green); background: var(--green); }
+  .rung-node.done::after { content: "\2713"; color: var(--base); font-size: 11px; font-weight: 700; }
+  .rung-node.active { border-color: var(--mauve); background: var(--base); box-shadow: 0 0 0 4px rgba(203,166,247,.18); }
+  .rung-node.active::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--mauve); }
+  .rung-node.planned { border-color: var(--blue); }
+  .rung-node.unfiled { border-color: var(--overlay); }
+  .rung-head { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: 12px; border: 1px solid var(--overlay); background: var(--surface); cursor: pointer; user-select: none; }
+  .rung.active .rung-head { border-color: var(--mauve); background: linear-gradient(180deg, rgba(203,166,247,.07), var(--surface) 55%); box-shadow: 0 8px 24px -12px rgba(203,166,247,.4); }
+  .rung.unfiled .rung-head { opacity: 0.68; }
+  .rung.unfiled .rung-head:hover { opacity: 0.9; }
+  .rung-ver { font-size: 15px; font-weight: 700; color: var(--text); flex: 0 0 auto; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rung.active .rung-ver { color: var(--mauve); }
+  .rung-goal { flex: 1; min-width: 0; font-size: 15.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rung.unfiled .rung-goal { color: var(--subtext); font-style: italic; }
+  .rung-status-pill { flex: 0 0 auto; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 3px 10px; border-radius: 999px; }
+  .rung-status-pill.done { background: rgba(166,227,161,.16); color: var(--green); }
+  .rung-status-pill.active { background: rgba(203,166,247,.18); color: var(--mauve); }
+  .rung-status-pill.planned { background: rgba(137,180,250,.16); color: var(--blue); }
+  .rung-status-pill.unfiled { background: rgba(69,71,90,.6); color: var(--subtext); }
+  .rung-child { flex: 0 0 auto; font-size: 13px; color: var(--subtext); cursor: pointer; }
+  .rung-child .id { color: var(--subtext); }
+  .rung-child.none { font-style: italic; cursor: default; }
+  .rung-caret { flex: 0 0 auto; font-size: 11.5px; color: var(--subtext); transition: transform .12s ease; width: 10px; text-align: center; }
+  .rung.expanded .rung-caret { transform: rotate(90deg); }
+  .rung-body { display: none; padding: 4px 18px 18px 60px; }
+  .rung.expanded .rung-body { display: block; }
+  .rung-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px 32px; margin-top: 6px; }
+  .rung-grid h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--subtext); }
+  .rung-grid ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .rung-grid li { font-size: 14.5px; color: var(--text); line-height: 1.5; }
+  .rung-grid li.empty { color: var(--subtext); font-style: italic; font-size: 14px; }
+  .decision-item { padding-left: 16px; position: relative; }
+  .decision-item::before { content: "\2014"; position: absolute; left: 0; color: var(--mauve); }
+  .artifact-link { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; }
+  .fam-today-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mauve); background: rgba(203,166,247,.12); border: 1px solid rgba(203,166,247,.4); padding: 2px 9px; border-radius: 999px; margin-left: 8px; }
 </style>
 </head>
 <body>
@@ -1697,6 +2434,7 @@ wb_board_render_v2() {
       <div class="view-tab active" data-view="active" onclick="showView('active')">Active <span class="tab-badge">@@TAB_BADGE@@</span></div>
       <div class="view-tab" data-view="roadmap" onclick="showView('roadmap')">Roadmap <span class="tab-badge">@@TAB_BADGE@@</span></div>
       <div class="view-tab" data-view="week" onclick="showView('week')">Week <span class="tab-badge">@@TAB_BADGE@@</span></div>
+      <div class="view-tab" data-view="family" onclick="showView('family')">Family <span class="tab-badge">@@FAM_TAB_BADGE@@</span></div>
     </div>
 
     <div class="view active" id="view-active">
@@ -1715,6 +2453,10 @@ wb_board_render_v2() {
 @@WEEK_HTML@@
     </div>
 
+    <div class="view" id="view-family">
+@@FAMILY_HTML@@
+    </div>
+
     <div class="gen-ts">Generated @@GENERATED_TS@@ by <span class="mono">wb board --html</span></div>
   </div>
 </div>
@@ -1727,6 +2469,12 @@ wb_board_render_v2() {
     document.querySelectorAll('.view-tab').forEach(function(t){
       t.classList.toggle('active', t.getAttribute('data-view') === name);
     });
+    // UX follow-up: the rail is the nav surface for every view — Family
+    // swaps it to the family list, everything else swaps back to the
+    // Doing tree + Next/Shelf.
+    var isFamily = name === 'family';
+    document.getElementById('rail-tasks').style.display = isFamily ? 'none' : '';
+    document.getElementById('rail-families').style.display = isFamily ? '' : 'none';
   }
   function toggleStale() {
     document.getElementById('rm-stale-toggle').classList.toggle('open');
@@ -1736,6 +2484,15 @@ wb_board_render_v2() {
     document.getElementById('wk-stale-toggle').classList.toggle('open');
     document.getElementById('wk-stale-detail').classList.toggle('open');
   }
+  function selectFamily(anchor) {
+    document.querySelectorAll('.fam-block').forEach(function(b){ b.style.display = 'none'; });
+    var b = document.getElementById('fam-' + anchor);
+    if (b) b.style.display = 'block';
+    document.querySelectorAll('.fam-rail-row').forEach(function(r){
+      r.classList.toggle('selected', r.getAttribute('data-fam') === anchor);
+    });
+  }
+  function toggleRung(id) { document.getElementById(id).classList.toggle('expanded'); }
 
   document.querySelectorAll('#deckRow .card').forEach(function(c){
     c.addEventListener('click', function(){
@@ -1774,6 +2531,7 @@ wb_board_render_v2() {
     if (e.key === '1') { showView('active'); return; }
     if (e.key === '2') { showView('roadmap'); return; }
     if (e.key === '3') { showView('week'); return; }
+    if (e.key === '4') { showView('family'); return; }
     if (e.key === '/') {
       e.preventDefault();
       var f = document.getElementById('board-filter');
@@ -1793,7 +2551,10 @@ wb_board_render_v2() {
 
   function filterBoard(q) {
     q = q.toLowerCase();
-    document.querySelectorAll('.rail > div > .rail-tree > .rail-row, .rail > div > .rail-tree > details.family-node').forEach(function(el){
+    // Descendant selector (not a fixed-depth child chain) so this matches
+    // both #rail-tasks's tree (nested one level deeper, under its own
+    // wrapper div) and #rail-families's flat list — whichever is visible.
+    document.querySelectorAll('.rail .rail-tree > .rail-row, .rail .rail-tree > details.family-node').forEach(function(el){
       var t = (el.querySelector('.rail-row-title') || el).textContent.toLowerCase();
       el.classList.toggle('filter-hidden', q.length > 0 && t.indexOf(q) === -1);
     });
@@ -1816,7 +2577,9 @@ HTMLEOF
   page_template="${page_template//@@DRILLDOWNS_HTML@@/$(wb_board_escape_replacement "$drilldowns_html")}"
   page_template="${page_template//@@ROADMAP_HTML@@/$(wb_board_escape_replacement "$roadmap_view_html")}"
   page_template="${page_template//@@WEEK_HTML@@/$(wb_board_escape_replacement "$week_view_html")}"
+  page_template="${page_template//@@FAMILY_HTML@@/$family_view_html}"   # already escaped per-family above (perf)
   page_template="${page_template//@@TAB_BADGE@@/$(wb_board_escape_replacement "$tab_badge")}"
+  page_template="${page_template//@@FAM_TAB_BADGE@@/$(wb_board_escape_replacement "$fam_tab_badge")}"
   page_template="${page_template//@@GENERATED_TS@@/$(wb_board_escape_replacement "$generated_ts")}"
   printf '%s\n' "$page_template"
 }
