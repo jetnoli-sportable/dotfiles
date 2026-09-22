@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ideation — Family DAG view build approach</title>
+<style>
+  :root {
+    --bg: #eff1f5; --bg2: #e6e9ef; --panel: #ffffff; --line: #ccd0da;
+    --ink: #4c4f69; --ink2: #5c5f77; --mut: #8c8fa1;
+    --acc: #8839ef; --acc2: #04a5e5; --ok: #40a02b; --warn: #df8e1d; --crit: #d20f39;
+    --code-bg: #e6e9ef;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#303446; --bg2:#292c3c; --panel:#363a4f; --line:#51576d;
+      --ink:#c6d0f5; --ink2:#a5adce; --mut:#838ba7; --acc:#ca9ee6; --acc2:#99d1db;
+      --ok:#a6d189; --warn:#e5c890; --crit:#e78284; --code-bg:#292c3c; }
+  }
+  :root[data-theme="dark"] { --bg:#303446; --bg2:#292c3c; --panel:#363a4f; --line:#51576d;
+    --ink:#c6d0f5; --ink2:#a5adce; --mut:#838ba7; --acc:#ca9ee6; --acc2:#99d1db;
+    --ok:#a6d189; --warn:#e5c890; --crit:#e78284; --code-bg:#292c3c; }
+  :root[data-theme="light"] { --bg:#eff1f5; --bg2:#e6e9ef; --panel:#ffffff; --line:#ccd0da;
+    --ink:#4c4f69; --ink2:#5c5f77; --mut:#8c8fa1; --acc:#8839ef; --acc2:#04a5e5;
+    --ok:#40a02b; --warn:#df8e1d; --crit:#d20f39; --code-bg:#e6e9ef; }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.55; margin: 0; }
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem; display: flex; gap: 1.4rem;
+    align-items: center; color: var(--ink2); flex-wrap: wrap; position: sticky; top: 0; z-index: 5; }
+  .statusbar b { color: var(--ink); }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  a { color: var(--acc2); }
+  .layout { display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 2rem;
+    width: 88%; max-width: 1500px; margin: 1.6rem auto 4rem; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } nav.toc { position: static; } }
+  nav.toc { position: sticky; top: 4rem; align-self: start; font-family: var(--mono);
+    font-size: .76rem; border-left: 2px solid var(--line); padding-left: .9rem; }
+  nav.toc a { display: block; color: var(--ink2); text-decoration: none; padding: .2rem 0; }
+  nav.toc a:hover { color: var(--acc); }
+  nav.toc .sec { color: var(--mut); text-transform: uppercase; letter-spacing: .08em;
+    font-size: .66rem; margin: .9rem 0 .25rem; }
+  main { min-width: 0; }
+  .eyebrow { font-family: var(--mono); font-size: .74rem; text-transform: uppercase; letter-spacing: .12em; color: var(--acc); margin: 0 0 .4rem; }
+  h1 { font-family: var(--mono); font-size: clamp(1.4rem, 3vw, 2rem); margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  .thesis { color: var(--ink2); margin: 0 0 1rem; max-width: 82ch; }
+  .meta { font-family: var(--mono); font-size: .72rem; color: var(--mut); display: flex; gap: 1.2rem; flex-wrap: wrap; margin: 0 0 1.4rem; }
+  .meta b { color: var(--ink2); }
+  h2 { font-family: var(--mono); font-size: 1.15rem; margin: 2.8rem 0 .8rem; padding-bottom: .35rem; border-bottom: 1px solid var(--line); scroll-margin-top: 4rem; }
+  h2 .n { color: var(--acc); }
+  h3 { font-size: 1rem; margin: 1.5rem 0 .5rem; color: var(--ink); font-family: var(--mono); }
+  p, li { color: var(--ink2); max-width: 82ch; }
+  p b, li b { color: var(--ink); }
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg); padding: .08em .35em; border-radius: 5px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .8rem 1rem; overflow-x: auto; font-family: var(--mono); font-size: .8rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: .8rem; margin: 1.2rem 0; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: .9rem 1rem; }
+  .stat .num { font-family: var(--mono); font-size: 1.5rem; color: var(--acc); font-weight: 700; }
+  .stat .lbl { font-size: .78rem; color: var(--ink2); margin-top: .2rem; }
+  .callout { border: 1px solid var(--line); border-left: 4px solid var(--warn); background: var(--panel);
+    border-radius: 10px; padding: .85rem 1.15rem; margin: 1.2rem 0; font-size: .93rem; }
+  .callout.info { border-left-color: var(--acc2); } .callout.ok { border-left-color: var(--ok); }
+  .callout.crit { border-left-color: var(--crit); }
+  .callout b:first-child { display: block; margin-bottom: .3rem; color: var(--ink); }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .82rem; margin: 1rem 0; }
+  th, td { border: 1px solid var(--line); padding: .42rem .6rem; text-align: left; vertical-align: top; }
+  th { background: var(--bg2); font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink2); }
+  td { background: var(--panel); color: var(--ink2); } td b { color: var(--ink); }
+  td code, th code { font-size: .78rem; }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: .78rem; color: var(--mut); font-family: var(--mono); }
+
+  .axes { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .5rem; }
+  .axes li { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--acc2); border-radius: 8px; padding: .5rem .8rem; font-size: .88rem; }
+  .axes li b { font-family: var(--mono); font-size: .82rem; }
+
+  .jump { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0 1.6rem; padding: 0; list-style: none; }
+  .jump li { margin: 0; }
+  .jump a { font-family: var(--mono); font-size: .72rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: .25em .7em; text-decoration: none; color: var(--ink2); }
+  .jump a:hover { border-color: var(--acc); color: var(--ink); }
+
+  .idea { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem 1.3rem; margin: 1.1rem 0; scroll-margin-top: 4rem; }
+  .idea.top { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc); }
+  .idea h3 { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin: 0 0 .5rem; }
+  .idea h3 .rank { color: var(--acc); font-size: 1.1rem; }
+  .idea h3 .ttl { color: var(--ink); font-size: 1.02rem; }
+  .chips { display: flex; gap: .4rem; flex-wrap: wrap; margin-left: auto; }
+  .chip { font-family: var(--mono); font-size: .62rem; text-transform: uppercase; letter-spacing: .03em; padding: .12em .55em; border-radius: 999px; border: 1px solid var(--line); color: var(--ink2); background: var(--bg2); white-space: nowrap; }
+  .chip.axis { border-color: var(--acc2); color: var(--acc2); }
+  .chip.conf-high { border-color: var(--ok); color: var(--ok); }
+  .chip.conf-med { border-color: var(--warn); color: var(--warn); }
+  .idea .field { margin: .5rem 0; font-size: .9rem; }
+  .idea .field .k { font-family: var(--mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); display: block; margin-bottom: .1rem; }
+  .idea .basis code { font-size: .78rem; }
+  .basis .tag { font-family: var(--mono); font-size: .64rem; font-weight: 700; padding: .05em .4em; border-radius: 4px; margin-right: .4em; }
+  .basis .tag.direct { background: color-mix(in srgb, var(--ok) 20%, var(--panel)); color: var(--ok); border: 1px solid var(--ok); }
+  .basis .tag.external { background: color-mix(in srgb, var(--acc2) 18%, var(--panel)); color: var(--acc2); border: 1px solid var(--acc2); }
+  .basis .tag.reasoned { background: color-mix(in srgb, var(--acc) 18%, var(--panel)); color: var(--acc); border: 1px solid var(--acc); }
+  .idea .down { color: var(--ink2); }
+  .idea figure { margin: .9rem 0 .3rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: .8rem; overflow-x: auto; }
+  .idea figure figcaption { font-family: var(--mono); font-size: .64rem; color: var(--mut); text-transform: uppercase; letter-spacing: .05em; margin-top: .5rem; }
+  .conv { font-family: var(--mono); font-size: .68rem; color: var(--mut); }
+
+  .dec { border: 1px solid var(--line); border-left: 4px solid var(--acc); background: var(--panel); border-radius: 10px; padding: .8rem 1.1rem; margin: .9rem 0; }
+  .dec h4 { margin: 0 0 .3rem; font-family: var(--mono); font-size: .82rem; color: var(--ink); }
+  .dec .rec { color: var(--ok); font-weight: 700; }
+  svg text { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="statusbar">
+  <span><b>Family DAG view — build approach</b></span>
+  <span>ideation · 7 ranked (40 raw, 33 cut/folded)</span>
+  <span>repo: <b>dotfiles</b></span>
+  <span class="right">2026-07-20 · rev 2026-07-21 · feat/family-dag-view</span>
+</div>
+
+<div class="layout">
+<nav class="toc">
+  <div class="sec">Context</div>
+  <a href="#grounding">Grounding</a>
+  <a href="#axes">Topic axes</a>
+  <div class="sec">Ranked ideas</div>
+  <a href="#i1">1 · Layering backbone</a>
+  <a href="#i2">2 · Breakdown capture</a>
+  <a href="#i3">3 · Placement</a>
+  <a href="#i4">4 · CPM / ETA</a>
+  <a href="#i5">5 · Frontier highlight</a>
+  <a href="#i6">6 · Honest degrade</a>
+  <a href="#i7">7 · JS budget</a>
+  <div class="sec">Decide &amp; cut</div>
+  <a href="#decisions">Decisions to resolve</a>
+  <a href="#rejected">Rejection summary</a>
+</nav>
+
+<main>
+  <p class="eyebrow">ce-ideate · build-approach</p>
+  <h1>Family DAG view — how to build it</h1>
+  <p class="thesis">The what is settled (family-scoped dependency DAG; explicit <code>size:</code> →
+  node scale; derived definedness → solid/dashed; hand-drawn inline-SVG node-link graph). This is the
+  <b>how</b>: five ideation frames × five build-surface axes, critiqued by a fresh-context verifier.
+  Two findings reshaped the ranking — the backbone is one small algorithm, and the feature's real
+  risk is data, not rendering.</p>
+  <p class="meta"><span><b>focus:</b> build approach</span><span><b>mode:</b> repo-grounded</span><span><b>frames:</b> 5</span><span><b>survivors:</b> 7 / 40</span></p>
+
+  <div class="callout info">
+    <b>Revised 2026-07-21 — re-grounded against merged <code>origin/development</code> (@<code>65ff737</code>).</b>
+    Authored on <code>cf58faf</code>; since then PRs #31/#32/#33/#34 merged (<code>wb.sh</code> +227/−47,
+    5576→5756 lines), so every line anchor below was re-verified and remapped. Three findings moved:
+    <b>(1)</b> <code>depends_on:</code> adoption jumped from <b>1/~33</b> to <b>10/59</b> — a real
+    multi-node family now exists (see headline). <b>(2)</b> The board now ships <b>two</b> scoped
+    <code>&lt;script&gt;</code>s, not one — #33 added a no-FOUC theme toggle — which softens idea 7 / Dc.
+    <b>(3)</b> The layering algorithm is still entirely absent (idea 1's premise re-confirmed).
+    <code>size:</code> is still unadopted (<b>0</b> files).
+  </div>
+
+  <div class="callout crit">
+    <b>The headline risk is adoption — and on re-check it has split in two.</b>
+    At authoring the fear was one number: <b>1 of ~33</b> task files declared <code>depends_on:</code>.
+    On the 2026-07-21 re-check the <b>edges</b> half has largely resolved itself: <b>10 of 59</b> files
+    now populate <code>depends_on:</code>, and 9 of them form <em>one genuine interlinked family</em> —
+    <code>be--monorepo customer-download-files</code>, a real fan-in/fan-out DAG (a <code>foundations</code>
+    root, parallel <code>events-gf</code>/<code>physical-gf</code> branches, a <code>unit-pass</code>
+    join). So the renderer would <b>not</b> draw an empty graph on day one — it has a real, non-trivial
+    family to prove itself on immediately. But the <b>sizes</b> half is unchanged: <code>size:</code>
+    still exists on <b>0</b> files, so node-scale and the CPM/ETA rollup (idea&nbsp;4) remain speculative
+    until idea&nbsp;2's capture ships. Net: build the renderer against the real family now; still sequence
+    the <code>size:</code> capture (idea&nbsp;2) with — or before — anything that leans on duration.
+  </div>
+
+  <h2 id="grounding"><span class="n">§</span> Grounding context (codebase)</h2>
+  <p>Everything the graph needs is already computed once in the board's U4 pre-pass
+  (<code>wb_board_render_html</code>, <code>scripts/.config/scripts/tmux/wb.sh:3881</code>); the build
+  is mostly a <em>consumer</em> of it, plus one new algorithm.
+  <span class="conv">Line refs re-verified 2026-07-21 @<code>65ff737</code>.</span></p>
+  <div class="tablewrap"><table>
+    <tr><th>Fact</th><th>Where (re-verified @<code>65ff737</code>)</th><th>Bearing on the build</th></tr>
+    <tr><td>Forward edges <code>DEPS_OF</code></td><td>decl <code>wb.sh:3922</code>, populated <code>3981</code></td><td>The graph edges — validated, dangling dropped.</td></tr>
+    <tr><td>Reverse edges <code>UNBLOCKS_COUNT/NAMES</code></td><td><code>wb.sh:3928-3929</code></td><td>Endpoints, blocking counts, frontier.</td></tr>
+    <tr><td>Unmet blockers <code>UNMET_COUNT</code> + <code>BLOCKER_NAMES</code></td><td><code>wb.sh:3926-3927</code></td><td>"blocked" state + startable-now.</td></tr>
+    <tr><td>Cycle detection (BFS), <b>no layering</b></td><td><code>wb.sh:3365</code>, body <code>3368-3400</code></td><td>Layering is the one missing algorithm (re-confirmed absent).</td></tr>
+    <tr><td>validate → cycles → blocking pipeline</td><td><code>wb.sh:4031-4034</code></td><td>The factoring idiom the new pass mirrors.</td></tr>
+    <tr><td>Children rollup <code>CHILDREN_TOTAL/DONE</code></td><td>populated <code>4046-4047</code>, consumed <code>3862-3863</code></td><td>Where a family ETA can piggyback.</td></tr>
+    <tr><td>Family filter <code>fp-*</code> + hide CSS</td><td><code>wb.sh:4143-4164</code></td><td>Reusable placement / scoping surface.</td></tr>
+    <tr><td><code>:checked ~</code> sibling primitive</td><td>repo_hide_css <code>wb.sh:4128</code>, selector <code>4135</code></td><td>Zero-JS interactivity path.</td></tr>
+    <tr><td>Parent <code>&lt;details class="parent-row"&gt;</code> card</td><td>printf <code>wb.sh:3867</code>, CSS <code>4722-4731</code></td><td>Inline placement host.</td></tr>
+    <tr><td>Scoped <code>&lt;script&gt;</code>s — <b>now two</b> (theme + sort)</td><td>theme <code>wb.sh:4578-4602</code>, sort <code>4807-4841</code></td><td>Precedent + escalation point; the "one exception" norm is now two (#33).</td></tr>
+    <tr><td><code>@@TOKEN@@</code> heredoc substitution</td><td>placeholders <code>4774-4779</code>, applied <code>4848</code></td><td>Where new SVG/CSS strings get injected.</td></tr>
+    <tr><td><code>wb_seed_task</code> blank-fills <code>depends_on:</code></td><td>def <code>wb.sh:541</code>, blank-fill <code>620-623</code></td><td>Why every family starts with zero edges.</td></tr>
+  </table></div>
+  <p class="conv">Resolved going in: family-scoped · <code>size: S|M|L|XL</code> (default M) → node scale ·
+  definedness derived → solid/dashed · inline-SVG node-link visual (mockup&nbsp;3).</p>
+
+  <h2 id="axes"><span class="n">§</span> Topic axes</h2>
+  <ul class="axes">
+    <li><b>Placement &amp; navigation</b> — where the view lives / how it's reached.</li>
+    <li><b>Layout &amp; rendering engine</b> — layering, coordinates, SVG emission, degradation.</li>
+    <li><b>Interactivity &amp; progressive disclosure</b> — static vs hover/collapse; how much JS.</li>
+    <li><b>Encoded signals &amp; semantics</b> — what the graph says beyond the four encodings.</li>
+    <li><b>Data &amp; authoring</b> — making <code>size:</code>/<code>depends_on:</code> cheap and current.</li>
+  </ul>
+
+  <h2 id="ranked"><span class="n">§</span> Ranked ideas</h2>
+  <ul class="jump">
+    <li><a href="#i1">1 · Layering backbone</a></li>
+    <li><a href="#i2">2 · Breakdown-time capture</a></li>
+    <li><a href="#i3">3 · Placement</a></li>
+    <li><a href="#i4">4 · CPM / slack / ETA</a></li>
+    <li><a href="#i5">5 · Frontier highlight</a></li>
+    <li><a href="#i6">6 · Honest degradation</a></li>
+    <li><a href="#i7">7 · JS budget</a></li>
+  </ul>
+
+  <!-- 1 -->
+  <div class="idea top" id="i1">
+    <h3><span class="rank">1.</span> <span class="ttl">A factored <code>wb_board_deps_layer</code> pass — the backbone</span>
+      <span class="chips"><span class="chip axis">Layout</span><span class="chip conf-high">Conf 92%</span><span class="chip">Cx Medium</span></span></h3>
+    <div class="field"><span class="k">Description</span>Add one nameref function that mirrors the existing <code>wb_board_deps_validate → _cycles → _blocking</code> trio: a Kahn/longest-path walk over the already-validated, cycle-free <code>DEPS_OF</code> that emits <code>LAYER[anchor]</code> (topological depth) and <code>CRITICAL_PATH[anchor]</code>, filtered to one family's node set. Keep the layout <em>math</em> (layer → x/y, edge control points) in a pure function, separate from a second function that emits the SVG string for <code>@@TOKEN@@</code> substitution.</div>
+    <figure>
+      <svg viewBox="0 0 520 130" width="520" height="130" role="img" aria-label="One layering function feeds three visual treatments plus the ETA">
+        <rect x="8" y="46" width="150" height="38" rx="8" fill="var(--panel)" stroke="var(--acc)" stroke-width="1.5"/>
+        <text x="83" y="62" font-size="11" fill="var(--ink)" text-anchor="middle">wb_board_deps_layer</text>
+        <text x="83" y="76" font-size="9" fill="var(--mut)" text-anchor="middle">LAYER[] · CRITICAL_PATH[]</text>
+        <g stroke="var(--acc2)" stroke-width="1.5" fill="none">
+          <path d="M158 55 C210 30 250 26 300 26"/>
+          <path d="M158 62 C210 55 250 55 300 55"/>
+          <path d="M158 70 C210 84 250 86 300 86"/>
+          <path d="M158 76 C210 108 250 112 300 112"/>
+        </g>
+        <g font-size="10" fill="var(--ink2)">
+          <rect x="300" y="14" width="210" height="24" rx="6" fill="var(--bg2)" stroke="var(--line)"/><text x="312" y="30">depth-banded lanes (columns)</text>
+          <rect x="300" y="43" width="210" height="24" rx="6" fill="var(--bg2)" stroke="var(--line)"/><text x="312" y="59">critical-path spine</text>
+          <rect x="300" y="72" width="210" height="24" rx="6" fill="var(--bg2)" stroke="var(--line)"/><text x="312" y="88">"you are here" frontier</text>
+          <rect x="300" y="101" width="210" height="24" rx="6" fill="var(--bg2)" stroke="var(--line)"/><text x="312" y="117">family ETA (size-sum)</text>
+        </g>
+      </svg>
+      <figcaption>one small algorithm unlocks four of the decided treatments</figcaption>
+    </figure>
+    <div class="field basis"><span class="k">Basis</span><span class="tag direct">direct</span>All 5 frames converged here independently. <code>wb_board_deps_cycles</code> (<code>wb.sh:3365</code>) is an iterative BFS <em>reachability</em> walk (body <code>3368-3400</code>) that answers "is there a cycle," never "what depth" — re-verified 2026-07-21: still no rank/layer/topo code anywhere in the file (the only <code>wb_board_deps_*</code> helpers are validate/cycles/blocking/chips). The three-function pipeline it slots beside is at <code>wb.sh:4031-4034</code>. <span class="tag external">external</span>Kahn topological sort; Coffman–Graham / Sugiyama layer assignment (Graphviz <code>dot</code> rank model).</div>
+    <div class="field"><span class="k">Rationale</span>Reframes "write a graph-layout engine in bash" (sounds infeasible) into "~30 lines mirroring a function that already ships." Every other visual promise — lanes, spine, frontier, node x/y — is downstream of a per-node layer number, so this is the true critical path of the <em>build</em>. Splitting math from emission (frame L6) lets the same coordinates later feed a plain-text/ASCII renderer.</div>
+    <div class="field down"><span class="k">Downsides</span>Bespoke crossing-minimization is explicitly out of scope here (see idea 6 / rejections) — v1 accepts some edge crossing. Cycle handling must be decided first (idea 6). Folds in two hygiene notes: consume <code>DEPS_OF</code> as-is (no second <code>depends_on:</code> parser), and emit shared <code>data-depth</code>/<code>data-crit</code> attributes so lane placement and the sort script never drift.</div>
+  </div>
+
+  <!-- 2 -->
+  <div class="idea top" id="i2">
+    <h3><span class="rank">2.</span> <span class="ttl">Capture <code>size:</code> &amp; <code>depends_on:</code> at breakdown time — and edit from the graph</span>
+      <span class="chips"><span class="chip axis">Data</span><span class="chip conf-high">Conf 85%</span><span class="chip">Cx Medium</span></span></h3>
+    <div class="field"><span class="k">Description</span><code>wb breakdown --apply</code> is the one moment a whole family is enumerated together in a locked, human-approved write. Extend its proposal buffer to capture each child's <code>size:</code> and its blocking relationships — and <b>default each child to depend on its predecessor in the approved order</b>, so <em>declaring parallelism</em> becomes the explicit exception rather than every edge being hand-typed. Downstream, since the board is static HTML, let each node emit a one-click copy-out <code>wb dep add &lt;child&gt; &lt;blocker&gt;</code> / <code>wb size &lt;child&gt; L</code> so the graph becomes a command palette for its own structure.</div>
+    <div class="field basis"><span class="k">Basis</span><span class="tag direct">direct</span>Re-verified 2026-07-21: <b>10 of 59</b> task files now carry a non-blank <code>depends_on:</code> (was 1/~33 at authoring) — but <b>0</b> carry <code>size:</code>, which still doesn't exist as a field. <code>wb_seed_task</code> blank-fills <code>depends_on:</code> for every task (<code>wb.sh:620-623</code>). Families are defined purely by <code>parent:</code> frontmatter written at creation (<code>STEM_PARENT</code> <code>wb.sh:3904</code> → <code>ANCHOR_FAMILY</code> <code>3986-3987</code>, commit 43d899f). <span class="tag reasoned">reasoned</span>Breakdown is the only moment the author holds the whole family's shape; capturing two fields there is near-zero marginal cost vs a retroactive backfill nobody does.</div>
+    <div class="field"><span class="k">Rationale</span>Still the make-or-break — but the burden has shifted from <code>depends_on:</code> to <code>size:</code>. Edges arrived organically (one real 9-node family already, see headline), so the renderer won't be empty on day one; <code>size:</code> however is at zero adoption, so node-scale and every duration-derived signal (idea&nbsp;4) draw nothing until capture ships. Fixing both at breakdown time bootstraps every <em>new</em> family with real structure for free, and the predecessor-default edge convention means even authors who skip the deps UI still get a sensible chain.</div>
+    <div class="field down"><span class="k">Downsides</span>Doesn't retrofit the existing backlog (that's the deferred "inferred edges" fork — see rejections). Adds UX weight to the breakdown proposal buffer. Copy-out editing is a workaround for static HTML, not true in-place editing. <span class="conv">Converges: P4 · I2 · L4 · A5 · R5.</span></div>
+  </div>
+
+  <!-- 3 -->
+  <div class="idea" id="i3">
+    <h3><span class="rank">3.</span> <span class="ttl">The DAG rides the existing family filter / parent card — no new tab</span>
+      <span class="chips"><span class="chip axis">Placement</span><span class="chip conf-high">Conf 88%</span><span class="chip">Cx Low</span></span></h3>
+    <div class="field"><span class="k">Description</span>Settles the open placement question. Two compatible flavors: (a) render the inline-SVG as the <em>body</em> of the expanded parent <code>&lt;details class="parent-row"&gt;</code> card, replacing/augmenting the flat child list; and/or (b) selecting a family in the existing <code>fp-*</code> filter dropdown reveals a pre-rendered per-family SVG panel via the same <code>#fp-$fam:checked ~</code> pattern the filter already uses.</div>
+    <div class="field basis"><span class="k">Basis</span><span class="tag direct">direct</span>The family filter radios + hide CSS exist at <code>wb.sh:4143-4164</code>; rows already carry <code>data-family</code> tokens (built <code>wb.sh:3986-3987</code>, applied to card <code>3778</code> and rows <code>4209/4261/4328/4378</code>); the parent card printf is at <code>wb.sh:3867</code> (styled <code>4722-4731</code>). Convergence across P7 · I4 · L3 · R1.</div>
+    <div class="field"><span class="k">Rationale</span>A standalone tab would duplicate the window/tab radio wiring <em>and</em> a family picker that already exists. Riding the filter means "where does the view live" dissolves — it's "more detail about a family already on screen," and filtering to one family gives the literal family view for free.</div>
+    <div class="field down"><span class="k">Downsides</span>Less first-load discoverability than a dedicated tab. Pre-rendering one SVG per family grows page weight (bounded by family count, which is small).</div>
+  </div>
+
+  <!-- 4 -->
+  <div class="idea" id="i4">
+    <h3><span class="rank">4.</span> <span class="ttl">CPM: critical path + slack/float + a family ETA rollup</span>
+      <span class="chips"><span class="chip axis">Signals</span><span class="chip conf-med">Conf 80%</span><span class="chip">Cx Medium</span></span></h3>
+    <div class="field"><span class="k">Description</span>Treat <code>size:</code> as activity duration and apply the Critical Path Method on top of idea 1's layers: earliest-start = longest size-weighted path in, slack = latest-finish − earliest-start. <b>Zero-slack nodes ARE the critical path</b> (auto-derived, not a hand-picked spine), and positive-slack parallel tasks render with a "float" affordance. Sum the critical path's sizes for a family ETA and roll it into the existing children-rollup so the parent card, Pipeline tab, and future digests inherit it.</div>
+    <figure>
+      <svg viewBox="0 0 520 120" width="520" height="120" role="img" aria-label="CPM distinguishes true parallelism (has slack) from false parallelism (both critical)">
+        <g stroke="var(--crit)" stroke-width="2.5" fill="none"><path d="M40 40 H180 M220 40 H360 M400 40 H480"/></g>
+        <g fill="var(--crit)"><circle cx="40" cy="40" r="5"/><circle cx="200" cy="40" r="5"/><circle cx="380" cy="40" r="5"/><circle cx="480" cy="40" r="5"/></g>
+        <text x="20" y="24" font-size="9" fill="var(--crit)">critical chain — zero slack (the ETA)</text>
+        <rect x="220" y="74" width="70" height="16" rx="4" fill="color-mix(in srgb, var(--ok) 25%, transparent)" stroke="var(--ok)"/>
+        <rect x="290" y="74" width="70" height="16" rx="8" fill="none" stroke="var(--ok)" stroke-dasharray="3 3"/>
+        <circle cx="220" cy="82" r="4" fill="var(--ok)"/><circle cx="290" cy="82" r="4" fill="var(--ok)"/>
+        <text x="220" y="108" font-size="9" fill="var(--ok)">parallel task WITH slack → can start late, safely deferrable</text>
+      </svg>
+      <figcaption>true parallelism (deferrable slack) vs false (concurrent but both critical) — a plain node-link can't show it</figcaption>
+    </figure>
+    <div class="field basis"><span class="k">Basis</span><span class="tag external">external</span>Critical Path Method (Kelley &amp; Walker, 1959) / PERT — project duration = longest weighted path, not node count. <span class="tag direct">direct</span>The rollup loop to extend is verified at <code>wb.sh:4046-4047</code> (consumed for the counter at <code>3862-3863</code>); it computes <code>CHILDREN_TOTAL/DONE</code> today with no duration weighting.</div>
+    <div class="field"><span class="k">Rationale</span>The most direct hit on "roughly how long" + "what can be done in parallel." An 8-child family with a 3-node critical path <em>is</em> short — node count would mislead. Turns the DAG from a picture into an estimate, and putting it in the rollup makes it a store-wide fact other surfaces reuse.</div>
+    <div class="field down"><span class="k">Downsides</span>ETA credibility is only as good as <code>size:</code> adoption (gated on idea 2). Asserting an ETA means owning a wrong one. <span class="conv">Converges: A3 · L2 · R4.</span></div>
+  </div>
+
+  <!-- 5 -->
+  <div class="idea" id="i5">
+    <h3><span class="rank">5.</span> <span class="ttl">Frontier line + highlight <em>all</em> startable-now nodes</span>
+      <span class="chips"><span class="chip axis">Signals</span><span class="chip conf-high">Conf 88%</span><span class="chip">Cx Low</span></span></h3>
+    <div class="field"><span class="k">Description</span>The "you are here" frontier is a pure rendering of data already in memory — no new schema. Go one step past a single marker: highlight <em>every</em> currently-startable node at once (<code>UNMET_COUNT=0</code> and status not done/in-progress), answering "what can I do in parallel right now" literally instead of asking the reader to trace arrows.</div>
+    <div class="field basis"><span class="k">Basis</span><span class="tag direct">direct</span><code>wb_board_deps_blocking</code> already computes per-anchor unmet/blocker + unblocks (<code>wb.sh:3417</code>), exposed as <code>UNMET_COUNT</code>/<code>BLOCKER_NAMES</code>/<code>UNBLOCKS_*</code> (decl <code>wb.sh:3926-3929</code>). Re-verified exact 2026-07-21.</div>
+    <div class="field"><span class="k">Rationale</span>Directly answers the user's stated pain ("what next steps are") as a computed set, not a picture to interpret — and it's essentially free, riding the existing blocked/unblocks machinery with zero new frontmatter.</div>
+    <div class="field down"><span class="k">Downsides</span>Highlighting "all startable" is only meaningful once edges exist (gated on idea 2); on a zero-edge family everything is trivially startable. <span class="conv">Converges: P8 · I5 · I8.</span></div>
+  </div>
+
+  <!-- 6 -->
+  <div class="idea" id="i6">
+    <h3><span class="rank">6.</span> <span class="ttl">Always render something honest — cycles, dangling deps, and no-edge families</span>
+      <span class="chips"><span class="chip axis">Layout</span><span class="chip conf-high">Conf 85%</span><span class="chip">Cx Low/Med</span></span></h3>
+    <div class="field"><span class="k">Description</span>A layout engine has no defined behavior on a cyclic subgraph, so decide the fallback <em>before</em> writing the layering pass. Three coordinated moves: lay out the acyclic majority and draw offending edges as red git-style <b>back-edges</b> (with the existing <code>CYCLE_WARN</code> inline); when a graph can't be trusted at all, fall back to a monospace <code>git log --graph</code> ASCII lane diagram (structurally incapable of drawing a lie, and doubles as the narrow-viewport/print view); and give a genuinely edge-free family an explicit <em>"no dependency data yet — add <code>depends_on:</code>"</em> empty-state rather than a parallel column that masquerades as signal.</div>
+    <div class="field basis"><span class="k">Basis</span><span class="tag direct">direct</span>Failure modes are already detected and named — <code>DANGLING_WARN</code>/<code>CYCLE_MEMBER</code>/<code>CYCLE_WARN</code> at <code>wb.sh:3923-3925</code>, set by the fails-open cycle walk (<code>_cycle_member</code> nameref in <code>wb_board_deps_cycles</code>, <code>wb.sh:3366</code>) — they just have no visual today. <span class="tag external">external</span><code>git log --graph</code> ASCII DAG; Sugiyama tolerating a minimal feedback-arc set.</div>
+    <div class="field"><span class="k">Rationale</span>The board's whole philosophy is "fail open, render something." A graph that blanks on one bad edge betrays that; reusing already-computed flags makes robustness nearly free. The empty-state is the honest answer to the adoption reality (idea 2's risk) — and a deliberate fork away from guessing edges (see rejections).</div>
+    <div class="field down"><span class="k">Downsides</span>An ASCII fallback is a second renderer to maintain (mitigated by idea 1's math/emission split). Deciding "how many edges is enough to draw the SVG" is a threshold call. <span class="conv">Converges: P2 · P3 · I7 · A8 · R6.</span></div>
+  </div>
+
+  <!-- 7 -->
+  <div class="idea" id="i7">
+    <h3><span class="rank">7.</span> <span class="ttl">Interactivity: bank the JS budget (CSS <code>:checked</code> cones) — or spend it once</span>
+      <span class="chips"><span class="chip axis">Interactivity</span><span class="chip conf-med">Conf 70%</span><span class="chip">Cx Low/Med</span></span></h3>
+    <div class="field"><span class="k">Description</span>The no-JS relaxation is granted — so make it an explicit choice, not a drift. <b>Recommended v1:</b> stay zero-JS — emit a hidden radio + a <code>&lt;label&gt;</code> overlay per node and light its upstream/downstream cone with <code>#node-x:checked ~ svg .downstream-of-x { opacity:1 }</code>, the exact <code>:checked ~</code> primitive the repo/family filters already run on. The precomputed cones are what idea 1's layering pass already knows. <b>Escalation:</b> one justified second <code>&lt;script&gt;</code> (following the sort-script precedent) for hover-driven highlighting if click-to-focus proves too coarse.</div>
+    <div class="field basis"><span class="k">Basis</span><span class="tag direct">direct</span>The <code>:checked ~</code> sibling-targeting primitive is proven across the tl/st/fr/fp filters, e.g. <code>repo_hide_css</code> (decl <code>wb.sh:4128</code>, selector <code>4135</code>). <b>Update 2026-07-21:</b> there is no longer a <em>single</em> sanctioned script — #33 added a no-FOUC theme-toggle script (<code>wb.sh:4578-4602</code>, self-described as "a deliberate second copy") alongside the click-to-sort script (<code>wb.sh:4807-4841</code>). So the board already runs <b>two</b> deliberate scoped scripts, each with a "this is an explicit exception" comment.</div>
+    <div class="field"><span class="k">Rationale</span>This fork is upstream of several rejected flourishes (hover tooltips, click-to-trace, scrub playhead) — deciding it settles them. Banking the budget preserves the board's pre-rendered, <code>git diff</code>-able, offline-perfect identity exactly when that identity is up for grabs.</div>
+    <div class="field down"><span class="k">Downsides</span>CSS cones mean one hidden radio + label per node (markup weight) and click-not-hover interaction. The "adding a script breaks the one-exception norm" argument is now weaker — the norm is already two exceptions (theme + sort) as of #33 — so an interactivity script would be incremental, not a philosophical first break. The stronger reason to bank is preserving the pre-rendered, offline-perfect, <code>git diff</code>-able identity, not exception-counting. <span class="conv">Fork: R3 (bank) vs L5 (spend); see decision Dc.</span></div>
+  </div>
+
+  <h2 id="decisions"><span class="n">§</span> Decisions to resolve before building</h2>
+  <p>These are forks the ideation surfaced, not ideas — each shapes how idea 1 gets scoped. They're the natural input to a <code>ce-brainstorm</code> / <code>ce-plan</code> pass.</p>
+  <div class="dec">
+    <h4>Da · What is a "family"? (challenges resolved D1)</h4>
+    Frame 5 reframed "family" as the dependency <em>cone</em> around the in-progress node (transitive <code>DEPS_OF</code> + <code>UNBLOCKS</code>) rather than a parent's children. It's a strict superset when deps stay in-family (which D1 says they do) but also handles parentless / cross-parent chains. This defines the exact node set idea 1's layering pass filters to, so it must be answered first.
+    <br><span class="rec">Recommendation:</span> keep D1 (parent's children) for v1, but write <code>wb_board_deps_layer</code> to take an <em>arbitrary node set</em> — then "cone" is a later filter swap, not a rewrite.
+  </div>
+  <div class="dec">
+    <h4>Db · No-edge families: honest empty-state vs inferred edges</h4>
+    Idea 6 shows an honest "no data yet" empty-state; the deferred alternative infers a faint provisional chain from creation order and asks you to confirm it.
+    <br><span class="rec">Recommendation:</span> honest empty-state for v1. Inferred edges risk being confidently wrong on exactly the un-annotated backlog they target, and would pollute the validated <code>DEPS_OF</code> pipeline unless explicitly tagged and excluded from cycle/blocked logic.
+  </div>
+  <div class="dec">
+    <h4>Dc · Spend the JS budget now, or bank it?</h4>
+    Idea 7's fork. Settling it also settles whether the rejected tooltip/click-trace/playhead flourishes are in scope.
+    <em>Note (2026-07-21):</em> the board now ships two scoped scripts (#33's theme toggle + sort), so "adding a script breaks the one-exception rule" is no longer the deciding argument.
+    <br><span class="rec">Recommendation:</span> still bank it — ship zero-JS CSS cones in v1 — but on the durable grounds (pre-rendered, offline, <code>git diff</code>-able), not exception-counting. Revisit a scoped script only if click-to-focus proves too coarse.
+  </div>
+  <div class="dec">
+    <h4>Dd · Sequencing (re-checked: 10/59 <code>depends_on:</code>, 0 <code>size:</code>)</h4>
+    The adoption picture split since authoring: edges now exist on a real family, sizes don't exist at all.
+    <br><span class="rec">Recommendation:</span> build the renderer + idea 6's empty-state against the real <code>customer-download-files</code> family <em>now</em> (it's a genuine day-one test case), and ship idea 2's <code>size:</code> capture <em>with or before</em> any duration-derived surface (node-scale, CPM/ETA — idea 4), which otherwise draws nothing.
+  </div>
+
+  <h2 id="rejected"><span class="n">§</span> Rejection summary</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Idea</th><th>Reason cut / deferred</th></tr>
+    <tr><td>Computed/derived <code>size:</code> (from plan-presence)</td><td>Contradicts resolved D3 (explicit <code>size:</code>); verifier found no logical link between plan-doc presence and S/M/L/XL.</td></tr>
+    <tr><td>Inferred / provisional edges for the backlog</td><td>Deferred. Conflicts with the honest-empty-state choice (Db) and risks polluting the validated <code>DEPS_OF</code> pipeline unless tagged &amp; excluded. A real future fork, not v1.</td></tr>
+    <tr><td>Watershed "bottleneck width" (transitive downstream count)</td><td>Genuinely novel signal, but encoding overload for v1 (collides with size-as-scale). Revisit after the core signals land.</td></tr>
+    <tr><td>Transit-map octilinear routing</td><td>Visual-polish variant that conflicts with the chosen hand-drawn bezier identity.</td></tr>
+    <tr><td>Chess-style branch collapse + size-cap/table fallback</td><td>Large-family readability — deferred; today's families are tiny (mostly zero edges), so this isn't the v1 pain.</td></tr>
+    <tr><td>Score "playhead" scrub bar</td><td>Beyond v1 interactivity; depends on decision Dc going the "spend" way.</td></tr>
+    <tr><td>Definedness hover diagnostic ("which signal is missing")</td><td>Premature — the D4 definedness score isn't built yet (verifier: unverifiable), and it depends on Dc. Revisit once definedness exists.</td></tr>
+    <tr><td>"Don't fork the deps parser" · shared <code>data-*</code> attrs</td><td>Sound but baseline hygiene — folded into idea 1's implementation notes rather than standing as ideas.</td></tr>
+  </table></div>
+  <p class="conv">All five axes carry survivors (Layout ×2, Data, Placement, Signals ×2, Interactivity). No axis was left empty.</p>
+
+  <footer>ce-ideate · dotfiles · feat/family-dag-view · authored 2026-07-20 (@cf58faf), re-grounded 2026-07-21 (@65ff737, post #31/#32/#33/#34 merge) · 40 raw ideas → 7 ranked, 5 frames, fresh-context verified</footer>
+</main>
+</div>
+</body>
+</html>
