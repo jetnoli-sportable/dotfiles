@@ -2036,30 +2036,73 @@ wb_board_render_v2() {
   # families in a wrapping grid read as "overwhelming") to this same rail
   # nav surface every other view already uses.
   local rail_html
-  # Round 3 item 3: a repo segmented control under the filter box. One chip
-  # per repo when the store has at most 6 of them; beyond that the row would
-  # be longer than the rail is wide, so it collapses to All / dotfiles /
-  # other (`other` = "not dotfiles", i.e. everything work-shaped). The tab
-  # badges stay store-wide (R23) — this filters what you SEE, it does not
-  # restate the counts.
-  local -A REPO_SEEN=()
-  local rf_stem rf_repo
+  # Round 3 item 3: a repo segmented control under the filter box —
+  # All, then the five biggest repos by task count (dotfiles pinned first
+  # when it is present, since it is the repo the board itself lives in),
+  # then `other`.
+  #
+  # The earlier rule bailed out to All/dotfiles/other whenever the store
+  # held more than six repos, which on the real store (eight) meant the
+  # 184-task be--monorepo could not be selected at all — the filter
+  # excluded its own biggest case. Top-5-by-count always names the repos
+  # that actually carry the work.
+  #
+  # `other` is a real SET, not a negation: it carries the remaining repo
+  # names in data-repo-set and matches membership. A task with no `repo:`
+  # at all is folded in too (the trailing separator below puts "" in the
+  # set) — otherwise those tasks would be reachable only through All. The
+  # tab badges stay store-wide (R23): this filters what you SEE, it does
+  # not restate what the store contains.
+  local -A REPO_COUNT=()
+  local rf_stem rf_repo rf_blank=0
   for rf_stem in "${!_m_stem_anchor[@]}"; do
     rf_repo="${_m_repo[$rf_stem]:-}"
-    [ -n "$rf_repo" ] && REPO_SEEN["$rf_repo"]=1
+    if [ -n "$rf_repo" ]; then
+      REPO_COUNT["$rf_repo"]=$(( ${REPO_COUNT["$rf_repo"]:-0} + 1 ))
+    else
+      rf_blank=1
+    fi
   done
-  local RF_CAP=6
+  # dotfiles first, then by task count descending, then by name so the
+  # order is stable between renders when counts tie. One `sort` fork for
+  # the whole control, not one per repo.
+  local -a rf_ranked=()
+  if [ "${#REPO_COUNT[@]}" -gt 0 ]; then
+    local rf_line
+    while IFS= read -r rf_line; do
+      [ -n "$rf_line" ] && rf_ranked+=("${rf_line#*$'\t'}")
+    done < <(
+      for rf_repo in "${!REPO_COUNT[@]}"; do
+        if [ "$rf_repo" = dotfiles ]; then
+          printf '0\t%s\n' "$rf_repo"          # pinned ahead of everything
+        else
+          printf '%s\t%s\n' "$(( 1000000 - ${REPO_COUNT[$rf_repo]} ))" "$rf_repo"
+        fi
+      done | sort -t $'\t' -k1,1n -k2,2
+    )
+  fi
+  local RF_TOP=5
   local repo_chips_html="<span class=\"repo-chip selected\" data-repo-pick=\"\" onclick=\"pickRepo(event,this)\">All</span>"
-  if [ "${#REPO_SEEN[@]}" -le "$RF_CAP" ] && [ "${#REPO_SEEN[@]}" -gt 0 ]; then
-    local rf_sorted rf_h
-    while IFS= read -r rf_sorted; do
-      [ -n "$rf_sorted" ] || continue
-      wb_board_html_escape "$rf_sorted" rf_h
-      repo_chips_html+="<span class=\"repo-chip\" data-repo-pick=\"${rf_h}\" onclick=\"pickRepo(event,this)\" title=\"only ${rf_h}\">${rf_h}</span>"
-    done < <(printf '%s\n' "${!REPO_SEEN[@]}" | sort)
-  else
-    repo_chips_html+="<span class=\"repo-chip\" data-repo-pick=\"dotfiles\" onclick=\"pickRepo(event,this)\">dotfiles</span>"
-    repo_chips_html+="<span class=\"repo-chip\" data-repo-pick=\"__other__\" onclick=\"pickRepo(event,this)\" title=\"everything that is not dotfiles\">other</span>"
+  local rf_i=0 rf_h rf_rest=""
+  for rf_repo in "${rf_ranked[@]}"; do
+    rf_i=$((rf_i + 1))
+    wb_board_html_escape "$rf_repo" rf_h
+    if [ "$rf_i" -le "$RF_TOP" ]; then
+      repo_chips_html+="<span class=\"repo-chip\" data-repo-pick=\"${rf_h}\" onclick=\"pickRepo(event,this)\" title=\"only ${rf_h} (${REPO_COUNT[$rf_repo]})\">${rf_h}</span>"
+    else
+      rf_rest+="${rf_h}|"
+    fi
+  done
+  rf_rest="${rf_rest%|}"    # no trailing separator...
+  if [ "$rf_blank" = 1 ]; then
+    # ...except when the store holds tasks with no `repo:` at all: a
+    # trailing "|" leaves an empty member after split(), which is how those
+    # tasks join the set. Without it `other` would silently match them
+    # anyway, which is the same negation bug in miniature.
+    rf_rest="${rf_rest}|"
+  fi
+  if [ -n "$rf_rest" ]; then
+    repo_chips_html+="<span class=\"repo-chip\" data-repo-pick=\"__other__\" data-repo-set=\"${rf_rest}\" onclick=\"pickRepo(event,this)\" title=\"every repo not named above\">other</span>"
   fi
 
   rail_html="<input type=\"text\" id=\"board-filter\" class=\"rail-filter\" placeholder=\"Filter&hellip; (press /)\" autocomplete=\"off\">"
@@ -3628,10 +3671,22 @@ wb_board_render_v2() {
     LS.set('wbBoard.repo', REPO);
     applyRepo();
   }
+  // `other` is a set of the repo names that did not earn their own chip
+  // (plus the empty string, for tasks with no `repo:`), never "not
+  // dotfiles" — a negation would have quietly included the named repos the
+  // moment the top-5 list changed.
+  var OTHER_SET = null;
+  function otherSet() {
+    if (OTHER_SET) return OTHER_SET;
+    OTHER_SET = {};
+    var c = document.querySelector('#repo-chips [data-repo-pick="__other__"]');
+    if (c) (c.getAttribute('data-repo-set') || '').split('|').forEach(function(r){ OTHER_SET[r] = 1; });
+    return OTHER_SET;
+  }
   function repoOk(el) {
     if (!REPO) return true;
     var r = el.getAttribute('data-repo') || '';
-    if (REPO === '__other__') return r !== 'dotfiles';
+    if (REPO === '__other__') return otherSet()[r] === 1;
     return r === REPO;
   }
   // Composes with scope and the text filter by owning its OWN class: each

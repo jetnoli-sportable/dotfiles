@@ -135,6 +135,30 @@ touch -d "2 days ago" "$FIXTURE_TASKS/prtask.md"
 } > "$FIXTURE_TASKS/longhand.md"
 touch -d "2 days ago" "$FIXTURE_TASKS/longhand.md"
 
+# Repo-filter fixtures (round 3 follow-up). mk_task always writes
+# `repo: dotfiles`, so these hand-written ones give the store six repos
+# with deliberately distinct counts: the control must show All + the top 5
+# (dotfiles pinned first, then by count desc, then by name) and fold the
+# rest into `other` as a real SET.
+mk_repo_task() { # <stem> <repo>
+  cat > "$FIXTURE_TASKS/$1.md" <<EOF
+---
+status: planned
+path:
+repo: $2
+branch: feat/$1
+worktree: .worktrees/feat/$1
+---
+# Repo fixture $1
+EOF
+  touch -d "5 days ago" "$FIXTURE_TASKS/$1.md"
+}
+mk_repo_task rf-zeta-1 zeta; mk_repo_task rf-zeta-2 zeta; mk_repo_task rf-zeta-3 zeta
+mk_repo_task rf-yank-1 yank; mk_repo_task rf-yank-2 yank
+mk_repo_task rf-vega-1 vega
+mk_repo_task rf-whisk-1 whisk
+mk_repo_task rf-xray-1 xray
+
 # U6 family fixtures — a flat family (fam-parent + 2 children) and a ladder
 # family (a "### Version ladder status" table inside Plan, one rung
 # resolving to a real child stem, one rung with no child yet). All
@@ -581,7 +605,46 @@ assert "U8: over-long raw text is clipped with a marker" 'clipped &mdash; open t
 # All/dotfiles/other fallback.
 assert "R3: the rail carries a repo segmented control" 'class="repo-chips" id="repo-chips"' "$render"
 assert "R3: All is the default selection"              'class="repo-chip selected" data-repo-pick=""' "$render"
-assert "R3: a chip exists for a repo present in the store" 'class="repo-chip" data-repo-pick="dotfiles"' "$render"
+# Round 3 follow-up: All, then the top 5 repos by task count (dotfiles
+# pinned first), then `other` holding the rest AS A SET. The previous rule
+# bailed out to All/dotfiles/other above six repos, which on the real store
+# made its own biggest repo unselectable.
+assert "R3: dotfiles is pinned as the first repo chip" \
+  '>All</span><span class="repo-chip" data-repo-pick="dotfiles"' "$render"
+# Fixture counts: zeta 3, yank 2, vega/whisk/xray 1 each (ties break by
+# name), so the five named are dotfiles, zeta, yank, vega, whisk.
+assert "R3: the remaining chips follow task count descending" \
+  'data-repo-pick="zeta"[^>]*>zeta</span><span class="repo-chip" data-repo-pick="yank"' "$render"
+assert "R3: a tie is broken by name, not hash order" \
+  'data-repo-pick="vega"[^>]*>vega</span><span class="repo-chip" data-repo-pick="whisk"' "$render"
+assert "R3: a chip titles itself with its task count" 'title="only zeta \(3\)"' "$render"
+# `other` is a real set of the leftover names, never "not dotfiles".
+assert "R3: other carries the remaining repos as a set" 'data-repo-pick="__other__" data-repo-set="xray"' "$render"
+if printf '%s' "$render" | grep -E 'data-repo-pick="xray"' >/dev/null 2>&1; then
+  echo "FAIL - R3: a repo folded into other has no chip of its own"; fail=1
+else
+  echo "ok   - R3: a repo folded into other has no chip of its own"
+fi
+for named in dotfiles zeta yank vega whisk; do
+  if printf '%s' "$render" | grep -E "data-repo-set=\"[^\"]*${named}" >/dev/null 2>&1; then
+    echo "FAIL - R3: other excludes the named repo $named"; fail=1
+  else
+    echo "ok   - R3: other excludes the named repo $named"
+  fi
+done
+assert "R3: other matches by set membership, not by negation" 'return otherSet\(\)\[r\] === 1' "$render"
+if printf '%s' "$render" | grep -F "r !== 'dotfiles'" >/dev/null 2>&1; then
+  echo "FAIL - R3: the old not-dotfiles negation is gone"; fail=1
+else
+  echo "ok   - R3: the old not-dotfiles negation is gone"
+fi
+# No blank-repo task in this fixture, so the set must NOT carry the empty
+# member that folds those in.
+if printf '%s' "$render" | grep -E 'data-repo-set="[^"]*\|"' >/dev/null 2>&1; then
+  echo "FAIL - R3: no empty member unless the store has repo-less tasks"; fail=1
+else
+  echo "ok   - R3: no empty member unless the store has repo-less tasks"
+fi
 assert "R3: the repo filter persists"                  "wbBoard.repo" "$render"
 assert "R3: the repo filter owns its own hiding class"  "classList.toggle\('repo-hidden', !repoOk\(el\)\)" "$render"
 # Composition: three independent hiding classes, so clearing one never
