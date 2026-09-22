@@ -212,6 +212,38 @@ else
   echo "FAIL - template order: wrong placement (decisions=$l_dec done=$l_done d1=$l_d1 d2=$l_d2 followups=$l_fu f1=$l_f1)"
   fail=1
 fi
+# assert_no_double_blank can't apply here: the template's own padding
+# already has blank runs. Check the helper adds exactly one blank between
+# consecutive entries instead.
+assert_eq "template order: one blank line between consecutive Done entries" 2 "$(( l_d2 - l_d1 ))"
+
+# Edge cases for the two-pass scan: target heading on line 1 (isHeadingLine
+# must use FNR, not NR, or pass 2's line 1 is never a heading), an empty
+# file (no FNR == 1 record at all), and heading-shaped PROSE naming the
+# target after Decisions (pass 1 must apply the same blank-line guard as
+# pass 2, so this still counts as missing).
+LINE1_TASK="$FIXTURE/line1.md"
+printf -- '## Done\n\n- old\n\n## Decisions\n' > "$LINE1_TASK"
+_wb_append_under_heading "$LINE1_TASK" "Done" "- new"
+assert_eq "line-1 heading: still exactly one ## Done" 1 "$(grep -c '^## Done$' "$LINE1_TASK")"
+assert_eq "line-1 heading: new entry lands after the old one, before Decisions" \
+  "## Done||- old||- new||## Decisions" "$(paste -sd '|' "$LINE1_TASK")"
+
+EMPTY_TASK="$FIXTURE/empty.md"
+: > "$EMPTY_TASK"
+_wb_append_under_heading "$EMPTY_TASK" "Done" "- only"
+assert_eq "empty file: fresh section appended" "## Done||- only" "$(paste -sd '|' "$EMPTY_TASK")"
+
+PROSE_TASK="$FIXTURE/prose.md"
+printf -- '# Title\n\n## Decisions\n\n- d\n\n## Notes\nquoted:\n## Done\n' > "$PROSE_TASK"
+_wb_append_under_heading "$PROSE_TASK" "Done" "- real"
+l_new="$(grep -n '^## Done$' "$PROSE_TASK" | head -1 | cut -d: -f1)"
+l_dec="$(grep -n '^## Decisions$' "$PROSE_TASK" | cut -d: -f1)"
+if [ -n "$l_new" ] && [ -n "$l_dec" ] && [ "$l_new" -lt "$l_dec" ]; then
+  echo "ok   - heading-shaped prose after Decisions: treated as missing, fresh ## Done inserted before Decisions"
+else
+  echo "FAIL - heading-shaped prose after Decisions: expected a fresh heading before Decisions (new=$l_new decisions=$l_dec)"; fail=1
+fi
 
 # =============================================================================
 # Scenario: multi-line body round-trips — the /wb-save shape (a
