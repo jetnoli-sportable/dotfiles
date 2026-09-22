@@ -758,7 +758,12 @@ _wb_lock_trap_append_if_top_level() {
 # manifest (one relative path per line, `#` comments allowed). Defaults to
 # `.env*` at the repo root when the repo has no manifest. Files are copied;
 # directories are symlinked back to the main checkout (e.g. node_modules) so
-# a worktree never needs its own reinstall.
+# a worktree never needs its own reinstall. Idempotent per entry — an entry
+# already present in the worktree is left alone: `ln -s` onto an existing
+# directory symlink would nest a link INSIDE the main checkout's dir, and a
+# `cp -a` would clobber a worktree-local edit (e.g. a tweaked `.env`). That
+# is what makes it safe for cmd_new to call on every run, not just on
+# worktree creation.
 wb_bootstrap() {
   local repo_dir="$1" worktree_path="$2" manifest="$repo_dir/.worktree-bootstrap"
   local -a entries=()
@@ -781,6 +786,7 @@ wb_bootstrap() {
     src="$repo_dir/$entry"
     [ -e "$src" ] || continue
     dest="$worktree_path/$entry"
+    { [ -e "$dest" ] || [ -L "$dest" ]; } && continue
     mkdir -p "$(dirname "$dest")"
     if [ -d "$src" ]; then
       ln -s "$src" "$dest"
@@ -1539,8 +1545,15 @@ cmd_new() {
     else
       git -C "$repo_dir" worktree add -b "$slug" "$worktree_path"
     fi
-    wb_bootstrap "$repo_dir" "$worktree_path"
   fi
+
+  # Unconditional, for the same self-healing reason as the ignore rule
+  # below: a worktree whose dir already existed (ce-worktree, a manual
+  # `git worktree add`, a half-finished earlier `wb new`) would otherwise
+  # never get bootstrapped. wb_bootstrap skips entries already present, so
+  # re-running it is a no-op. Best-effort for the same `set -e` reason.
+  wb_bootstrap "$repo_dir" "$worktree_path" \
+    || echo "wb new: warning: bootstrap of gitignored files into $worktree_path failed (continuing)" >&2
 
   # Unconditional — not just for the branch above. This is self-healing for
   # a repo's OTHER, older worktrees that predate this feature: every `wb new`

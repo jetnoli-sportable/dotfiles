@@ -449,4 +449,34 @@ pane="$(tmux capture-pane -p -t "=proj--feat-warm-agent:agent" 2>/dev/null)"
 assert "--agent + transcript: resume command was submitted, not left bare" 'claude --resume warm-agent-id' "$pane"
 tmux kill-session -t "=proj--feat-warm-agent" 2>/dev/null
 
+# --- wb_bootstrap self-heal: a pre-existing worktree dir still gets seeded ---
+# A worktree made outside `wb new` (ce-worktree, a manual `git worktree add`,
+# a half-finished earlier run) used to skip bootstrap permanently, because
+# the call only ran when `wb new` itself created the dir.
+printf '.env\ndeps\n' > "$FIXTURE_CODE/proj/.worktree-bootstrap"
+printf 'SECRET=main\n' > "$FIXTURE_CODE/proj/.env"
+mkdir -p "$FIXTURE_CODE/proj/deps"
+boot_wt="$FIXTURE_CODE/proj/.worktrees/boot-pre"
+git -C "$FIXTURE_CODE/proj" worktree add -q -b boot-pre "$boot_wt" >/dev/null 2>&1
+cmd_new proj boot-pre >/dev/null 2>&1
+tmux kill-session -t "=proj--boot-pre" 2>/dev/null
+assert_eq "pre-existing worktree dir: .env copied in" "SECRET=main" "$(cat "$boot_wt/.env" 2>/dev/null)"
+assert_eq "pre-existing worktree dir: deps symlinked to main checkout" \
+  "$FIXTURE_CODE/proj/deps" "$(readlink "$boot_wt/deps" 2>/dev/null)"
+
+# Re-running over an already-bootstrapped worktree is a no-op per entry: no
+# `ln -s` error on the existing symlink (nor a nested deps/deps link through
+# it), and a worktree-local edit to a copied file survives.
+printf 'SECRET=local-edit\n' > "$boot_wt/.env"
+out="$(cmd_new proj boot-pre 2>&1)"
+tmux kill-session -t "=proj--boot-pre" 2>/dev/null
+if printf '%s' "$out" | grep -qE 'ln: |File exists'; then
+  echo "FAIL - re-bootstrap: errored on an existing entry"; echo "       got: $out"; fail=1
+else
+  echo "ok   - re-bootstrap: no error on existing entries"
+fi
+assert_eq "re-bootstrap: modified .env not overwritten" "SECRET=local-edit" "$(cat "$boot_wt/.env")"
+[ -e "$FIXTURE_CODE/proj/deps/deps" ] && { echo "FAIL - re-bootstrap: nested deps/deps link created through the existing symlink"; fail=1; } \
+  || echo "ok   - re-bootstrap: no nested link through the existing symlink"
+
 exit "$fail"
