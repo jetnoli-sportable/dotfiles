@@ -298,6 +298,345 @@ wb_board_deps_blocking() {
   done
 }
 
+# wb_board_deps_layer <nodes_arr> <deps_of_arr> <cycle_member_arr>
+#   <unmet_count_arr> <status_arr> <size_arr> <out_layer_arr> <out_order_arr>
+#   <out_critical_arr> <out_startable_arr> <out_extblk_arr> <out_tag_arr>
+#   <out_edges_arr> <out_backedges_arr> <out_critpath_arr>
+#   <out_remaining_var> <out_maxlayer_var>
+#
+# U3 (family DAG view): the per-family layering/critical-path/startable pass
+# that renders a node-link dependency graph of a family's direct children.
+# Pure and node-set-agnostic (KTD3): <nodes_arr> is ANY list of stems — the
+# real caller (the SVG emitter, next unit) passes one family root's direct
+# children — and DEPS_OF/CYCLE_MEMBER/UNMET_COUNT are the SAME store-wide,
+# STEM-keyed maps wb_board_render_v2 already builds for R19 (KTD2 — DG_KEY
+# there is an identity map, so those arrays are keyed by stem already; see
+# the D4 comment on that block). <status_arr>/<size_arr> are a plain
+# stem->status / stem->`size:` map (any status value the store uses;
+# `size:` one of XS/S/M/L/XL or blank). Every input array is read only —
+# never mutated (verified by a dedicated purity test) — and every output
+# array/scalar is fully reset at the top of the call, so a stale value from
+# a previous family's call can never leak into the next.
+#
+# In-set edges (R3): only depends_on: edges where BOTH ends are in
+# <nodes_arr> are drawn or used for layering — an edge to the family root or
+# to another family's task is invisible to layering (though still visible to
+# <out_extblk> below, R6). Layer (R4) is the node's longest unweighted
+# dependency chain within the set, roots at column 0. Weight (R5, KTD1) is
+# stored DOUBLED so bash's integer-only arithmetic is exact: XS=1 S=2 M=4
+# L=6 XL=10, blank/unknown=4 (=M), done status=0 regardless of size — the
+# render layer divides by 2 for display. Critical path (R5) is the maximum
+# such doubled-weight chain of REMAINING (non-done-inclusive, since done
+# nodes cost 0) work; ties break by smallest stem, both for the path's own
+# endpoint and for each step's best predecessor.
+#
+# Cycle members (R7, KTD4): reuses CYCLE_MEMBER verbatim rather than a
+# second cycle detector — a node already flagged (store-wide) is placed in
+# the FINAL column (one past the highest non-cycle layer; 0 if the set has
+# no non-cycle nodes) and is excluded entirely from the critical-path
+# search (it contributes no weight to any other node's `ef`, and can never
+# be picked as a step's best predecessor). An in-set edge is a BACK-EDGE
+# iff BOTH ends are cycle members; those are the only edges omitted from
+# <out_edges> (they still count for nothing else — no layering, no order,
+# no tag). An edge from a non-cycle node INTO a cycle member is an ordinary
+# edge (drawn, tag-eligible) but, symmetrically with the point above, is
+# never treated as a layering predecessor of anything (cycle members don't
+# participate in the non-cycle Kahn pass at all). An edge FROM a cycle
+# member TO a non-cycle node is the one shape the design brief calls out as
+# not really occurring in a well-formed graph (KTD4); this function's sane
+# behaviour for it is to render it as an ordinary (non-back) edge — it can
+# still set that non-cycle node's START/END tag — but to simply never let
+# it feed that node's layer/critical-path computation, since a cycle
+# member's own layer isn't known until after the non-cycle pass completes.
+# Termination is structural either way (see below), not dependent on this
+# case being rare.
+#
+# Layering algorithm: Kahn's algorithm restricted to non-cycle nodes, using
+# only non-cycle-to-non-cycle in-set edges as the precedence relation.
+# CYCLE_MEMBER is computed store-wide via full reachability (see
+# wb_board_deps_cycles), so a cycle occurring purely within THIS node set's
+# edges already has every one of its members flagged — meaning the non-
+# cycle subgraph fed to Kahn is guaranteed acyclic, and the queue-driven
+# pass below (bounded by node count, no recursion) always drains and
+# terminates whether or not that invariant holds.
+#
+# startable-now (R6): status is `planned`, not a cycle member, and
+# UNMET_COUNT is 0/unset (that count is already store-wide — computed by
+# wb_board_deps_blocking over the FULL depends_on: list, not just in-set
+# edges — so an external blocker already counts against it here with zero
+# extra work). <out_extblk> is purely informational: every depends_on:
+# stem of a node that is OUTSIDE this node set and not status `done`.
+#
+# START/END tag (the design brief's "at most one, never both"): only a node
+# touched by >=1 in-set NON-BACK edge gets a tag at all; of those, no in-set
+# predecessor -> START, no in-set successor -> END, both present -> "" (a
+# node with a non-back edge has at least one of the two, so exactly one of
+# START/END/"" applies, never both tags at once).
+#
+# In-column order (KTD5): one left-to-right barycenter pass — column 0
+# sorts by stem; column k>0 sorts by the mean already-assigned order index
+# of each node's in-set non-back predecessors (all of which sit in a
+# strictly earlier column, by construction), ties broken by stem. A node
+# with no such predecessor (only possible for an isolated cycle member)
+# sorts last within its column. Deterministic regardless of <nodes_arr>'s
+# own input order — proven by a dedicated test that feeds an intentionally
+# scrambled node list and checks the resulting order tracks predecessors,
+# not the input.
+#
+# Design choice (documented per the plan's instruction): when all in-set
+# critical-path-eligible work is already done, <out_remaining> is 0 and
+# <out_critpath> is left EMPTY rather than reporting the longest all-zero
+# chain — an empty critical path is a cleaner "nothing left to rush" signal
+# for the SVG emitter than a chain of already-done nodes.
+wb_board_deps_layer() {
+  local -n dl_nodes="$1" dl_deps_of="$2" dl_cycle_member="$3" dl_unmet_count="$4"
+  local -n dl_status="$5" dl_size="$6"
+  local -n dl_out_layer="$7" dl_out_order="$8" dl_out_critical="$9" dl_out_startable="${10}"
+  local -n dl_out_extblk="${11}" dl_out_tag="${12}" dl_out_edges="${13}" dl_out_backedges="${14}"
+  local -n dl_out_critpath="${15}" dl_out_remaining="${16}" dl_out_maxlayer="${17}"
+
+  dl_out_layer=(); dl_out_order=(); dl_out_critical=(); dl_out_startable=()
+  dl_out_extblk=(); dl_out_tag=(); dl_out_edges=(); dl_out_backedges=(); dl_out_critpath=()
+  dl_out_remaining=0; dl_out_maxlayer=-1
+
+  [ "${#dl_nodes[@]}" -gt 0 ] || return 0
+
+  local -A dl_inset=()
+  local dl_v
+  for dl_v in "${dl_nodes[@]}"; do dl_inset["$dl_v"]=1; done
+
+  # ---- R3: collect in-set edges only, "$dep\t$dependent" per line, deduped
+  # and lexicographically sorted for a deterministic <out_edges>/
+  # <out_backedges> order regardless of <nodes_arr>'s own order ------------
+  local -a dl_raw_edges=()
+  local dl_dep
+  for dl_v in "${dl_nodes[@]}"; do
+    [ -n "${dl_deps_of[$dl_v]:-}" ] || continue
+    while IFS= read -r dl_dep; do
+      [ -n "$dl_dep" ] || continue
+      [ -n "${dl_inset[$dl_dep]:-}" ] || continue
+      dl_raw_edges+=("$dl_dep"$'\t'"$dl_v")
+    done <<< "${dl_deps_of[$dl_v]}"
+  done
+  local -a dl_all_edges=()
+  if [ "${#dl_raw_edges[@]}" -gt 0 ]; then
+    mapfile -t dl_all_edges < <(printf '%s\n' "${dl_raw_edges[@]}" | sort -u)
+  fi
+
+  # ---- classify each in-set edge: back-edge (both ends cycle members, KTD4)
+  # or ordinary. dl_nbpred/dl_nbsucc (non-back, both cycle & non-cycle ends)
+  # feed the tag + barycenter-order passes below; dl_lpred/dl_lsucc (non-back
+  # AND the predecessor is non-cycle) feed layering + CPM only ------------
+  local -A dl_nbpred=() dl_nbsucc=() dl_lpred=() dl_lsucc=() dl_touched=()
+  local dl_e dl_from dl_to
+  for dl_e in "${dl_all_edges[@]}"; do
+    dl_from="${dl_e%%$'\t'*}"; dl_to="${dl_e#*$'\t'}"
+    if [ -n "${dl_cycle_member[$dl_from]:-}" ] && [ -n "${dl_cycle_member[$dl_to]:-}" ]; then
+      dl_out_backedges+=("$dl_from $dl_to")
+      continue
+    fi
+    dl_out_edges+=("$dl_from $dl_to")
+    dl_touched["$dl_from"]=1; dl_touched["$dl_to"]=1
+    dl_nbpred["$dl_to"]+="$dl_from"$'\n'
+    dl_nbsucc["$dl_from"]+="$dl_to"$'\n'
+    if [ -z "${dl_cycle_member[$dl_from]:-}" ]; then
+      dl_lpred["$dl_to"]+="$dl_from"$'\n'
+      dl_lsucc["$dl_from"]+="$dl_to"$'\n'
+    fi
+  done
+
+  # ---- KTD1: doubled weight per node (done -> 0 regardless of size) ------
+  local -A dl_w=()
+  for dl_v in "${dl_nodes[@]}"; do
+    if [ "${dl_status[$dl_v]:-}" = done ]; then
+      dl_w["$dl_v"]=0
+    else
+      case "${dl_size[$dl_v]:-}" in
+        XS) dl_w["$dl_v"]=1 ;;
+        S)  dl_w["$dl_v"]=2 ;;
+        M)  dl_w["$dl_v"]=4 ;;
+        L)  dl_w["$dl_v"]=6 ;;
+        XL) dl_w["$dl_v"]=10 ;;
+        *)  dl_w["$dl_v"]=4 ;;
+      esac
+    fi
+  done
+
+  # ---- Kahn over non-cycle nodes only, using dl_lpred/dl_lsucc — see the
+  # header comment above for why the non-cycle subgraph is guaranteed
+  # acyclic (so this always fully drains) and for the cycle-adjacent edge
+  # cases this deliberately ignores for layering purposes ------------------
+  local -A dl_indeg=() dl_layer=() dl_ef=() dl_bestpred=()
+  local -a dl_queue=()
+  local dl_p dl_cnt
+  for dl_v in "${dl_nodes[@]}"; do
+    [ -n "${dl_cycle_member[$dl_v]:-}" ] && continue
+    dl_cnt=0
+    if [ -n "${dl_lpred[$dl_v]:-}" ]; then
+      while IFS= read -r dl_p; do [ -n "$dl_p" ] && dl_cnt=$((dl_cnt + 1)); done <<< "${dl_lpred[$dl_v]}"
+    fi
+    dl_indeg["$dl_v"]="$dl_cnt"
+    [ "$dl_cnt" -eq 0 ] && dl_queue+=("$dl_v")
+  done
+
+  local dl_qi=0 dl_maxlayer_n0=-1 dl_max_ef=0 dl_best_stem="" dl_s
+  while [ "$dl_qi" -lt "${#dl_queue[@]}" ]; do
+    dl_v="${dl_queue[$dl_qi]}"; dl_qi=$((dl_qi + 1))
+    if [ -z "${dl_lpred[$dl_v]:-}" ]; then
+      dl_layer["$dl_v"]=0
+      dl_ef["$dl_v"]="${dl_w[$dl_v]}"
+      dl_bestpred["$dl_v"]=""
+    else
+      local dl_max_layer_p=-1 dl_max_ef_p=-1 dl_best_p=""
+      while IFS= read -r dl_p; do
+        [ -n "$dl_p" ] || continue
+        [ "${dl_layer["$dl_p"]}" -gt "$dl_max_layer_p" ] && dl_max_layer_p="${dl_layer["$dl_p"]}"
+        if [ "${dl_ef["$dl_p"]}" -gt "$dl_max_ef_p" ] || \
+           { [ "${dl_ef["$dl_p"]}" -eq "$dl_max_ef_p" ] && [[ "$dl_p" < "$dl_best_p" ]]; }; then
+          dl_max_ef_p="${dl_ef["$dl_p"]}"; dl_best_p="$dl_p"
+        fi
+      done <<< "${dl_lpred[$dl_v]}"
+      dl_layer["$dl_v"]=$((dl_max_layer_p + 1))
+      dl_ef["$dl_v"]=$(( dl_max_ef_p + ${dl_w[$dl_v]} ))
+      dl_bestpred["$dl_v"]="$dl_best_p"
+    fi
+    [ "${dl_layer["$dl_v"]}" -gt "$dl_maxlayer_n0" ] && dl_maxlayer_n0="${dl_layer["$dl_v"]}"
+    if [ "${dl_ef["$dl_v"]}" -gt "$dl_max_ef" ] || \
+       { [ "${dl_ef["$dl_v"]}" -eq "$dl_max_ef" ] && { [ -z "$dl_best_stem" ] || [[ "$dl_v" < "$dl_best_stem" ]]; }; }; then
+      dl_max_ef="${dl_ef["$dl_v"]}"; dl_best_stem="$dl_v"
+    fi
+    if [ -n "${dl_lsucc[$dl_v]:-}" ]; then
+      while IFS= read -r dl_s; do
+        [ -n "$dl_s" ] || continue
+        # A successor reached via dl_lsucc is, by construction, always a
+        # non-cycle node (dl_lsucc only records non-cycle -> non-cycle
+        # edges — see the classification loop above, which only feeds
+        # dl_lsucc[from] when `from` is non-cycle, and here `from` IS the
+        # predecessor; the successor side can still be a cycle member
+        # though, e.g. C->A in the 2-cycle test — that case has no indeg
+        # entry at all (cycle members never enter the Kahn universe) and
+        # is skipped rather than decremented.
+        [ -n "${dl_indeg["$dl_s"]+x}" ] || continue
+        dl_indeg["$dl_s"]=$(( ${dl_indeg["$dl_s"]} - 1 ))
+        [ "${dl_indeg["$dl_s"]}" -eq 0 ] && dl_queue+=("$dl_s")
+      done <<< "${dl_lsucc[$dl_v]}"
+    fi
+  done
+
+  # ---- R7: cycle members go in the final column (one past the highest
+  # non-cycle layer; 0 if there were no non-cycle nodes at all) -----------
+  local dl_cycle_layer=$((dl_maxlayer_n0 + 1))
+  local dl_has_cycle=0
+  for dl_v in "${dl_nodes[@]}"; do
+    if [ -n "${dl_cycle_member[$dl_v]:-}" ]; then
+      dl_layer["$dl_v"]="$dl_cycle_layer"
+      dl_has_cycle=1
+    fi
+  done
+  if [ "$dl_has_cycle" -eq 1 ]; then dl_out_maxlayer="$dl_cycle_layer"; else dl_out_maxlayer="$dl_maxlayer_n0"; fi
+
+  for dl_v in "${dl_nodes[@]}"; do dl_out_layer["$dl_v"]="${dl_layer[$dl_v]:-0}"; done
+
+  # ---- critical path: prefer an EMPTY path over an all-zero (all-done)
+  # chain when nothing remains (documented design choice above) -----------
+  dl_out_remaining="$dl_max_ef"
+  if [ "$dl_max_ef" -gt 0 ] && [ -n "$dl_best_stem" ]; then
+    local -a dl_path_rev=()
+    local -A dl_path_seen=()
+    local dl_cur="$dl_best_stem" dl_i
+    while [ -n "$dl_cur" ]; do
+      [ -n "${dl_path_seen[$dl_cur]:-}" ] && break   # defensive; structurally unreachable
+      dl_path_seen["$dl_cur"]=1
+      dl_path_rev+=("$dl_cur")
+      dl_cur="${dl_bestpred[$dl_cur]:-}"
+    done
+    for (( dl_i=${#dl_path_rev[@]}-1; dl_i>=0; dl_i-- )); do
+      dl_out_critpath+=("${dl_path_rev[$dl_i]}")
+      dl_out_critical["${dl_path_rev[$dl_i]}"]=1
+    done
+  fi
+  for dl_v in "${dl_nodes[@]}"; do
+    [ -n "${dl_out_critical[$dl_v]:-}" ] || dl_out_critical["$dl_v"]=0
+  done
+
+  # ---- R6: startable-now — UNMET_COUNT is store-wide (external blockers
+  # already counted, wb_board_deps_blocking) ------------------------------
+  for dl_v in "${dl_nodes[@]}"; do
+    if [ "${dl_status[$dl_v]:-}" = planned ] && [ -z "${dl_cycle_member[$dl_v]:-}" ] && \
+       [ "${dl_unmet_count[$dl_v]:-0}" -eq 0 ]; then
+      dl_out_startable["$dl_v"]=1
+    else
+      dl_out_startable["$dl_v"]=0
+    fi
+  done
+
+  # ---- extblk: every depends_on: stem OUTSIDE this node set that isn't
+  # done yet (a done external dep is dropped — nothing to warn about) -----
+  for dl_v in "${dl_nodes[@]}"; do
+    [ -n "${dl_deps_of[$dl_v]:-}" ] || continue
+    local dl_ext=""
+    while IFS= read -r dl_dep; do
+      [ -n "$dl_dep" ] || continue
+      [ -n "${dl_inset[$dl_dep]:-}" ] && continue
+      [ "${dl_status[$dl_dep]:-}" = done ] && continue
+      dl_ext+="$dl_dep "
+    done <<< "${dl_deps_of[$dl_v]}"
+    dl_ext="${dl_ext% }"
+    [ -n "$dl_ext" ] && dl_out_extblk["$dl_v"]="$dl_ext"
+  done
+
+  # ---- START/END tag: only nodes touched by >=1 non-back in-set edge ----
+  for dl_v in "${dl_nodes[@]}"; do
+    dl_out_tag["$dl_v"]=""
+    [ -n "${dl_touched[$dl_v]:-}" ] || continue
+    if [ -z "${dl_nbpred[$dl_v]:-}" ]; then
+      dl_out_tag["$dl_v"]="START"
+    elif [ -z "${dl_nbsucc[$dl_v]:-}" ]; then
+      dl_out_tag["$dl_v"]="END"
+    fi
+  done
+
+  # ---- KTD5: barycenter in-column order, column 0 first, one left-to-
+  # right pass so every predecessor's order is already assigned -----------
+  local dl_c
+  for (( dl_c=0; dl_c<=dl_out_maxlayer; dl_c++ )); do
+    local -a dl_col=()
+    for dl_v in "${dl_nodes[@]}"; do
+      [ "${dl_out_layer[$dl_v]}" -eq "$dl_c" ] && dl_col+=("$dl_v")
+    done
+    [ "${#dl_col[@]}" -gt 0 ] || continue
+    local -a dl_keyed=()
+    if [ "$dl_c" -eq 0 ]; then
+      for dl_v in "${dl_col[@]}"; do dl_keyed+=("0"$'\t'"$dl_v"); done
+    else
+      for dl_v in "${dl_col[@]}"; do
+        local dl_sum=0 dl_cnt2=0 dl_key
+        if [ -n "${dl_nbpred[$dl_v]:-}" ]; then
+          while IFS= read -r dl_p; do
+            [ -n "$dl_p" ] || continue
+            dl_sum=$(( dl_sum + ${dl_out_order["$dl_p"]:-0} ))
+            dl_cnt2=$((dl_cnt2 + 1))
+          done <<< "${dl_nbpred[$dl_v]}"
+        fi
+        if [ "$dl_cnt2" -eq 0 ]; then
+          dl_key=9999999   # no in-column predecessor (isolated cycle member) -> sorts last
+        else
+          dl_key=$(( (dl_sum * 1000) / dl_cnt2 ))
+        fi
+        dl_keyed+=("$dl_key"$'\t'"$dl_v")
+      done
+    fi
+    local -a dl_sorted_col=()
+    mapfile -t dl_sorted_col < <(printf '%s\n' "${dl_keyed[@]}" | sort -t$'\t' -k1,1n -k2,2)
+    local dl_idx=0
+    for dl_e in "${dl_sorted_col[@]}"; do
+      dl_v="${dl_e#*$'\t'}"
+      dl_out_order["$dl_v"]="$dl_idx"
+      dl_idx=$((dl_idx + 1))
+    done
+  done
+}
+
 # wb_board_v2_fill_template <template> <tokens_assoc_name> <out_var> —
 # substitute every @@TOKEN@@ in <template> with <tokens_assoc>[TOKEN], in a
 # single left-to-right walk of the TEMPLATE, appending each fragment to the
