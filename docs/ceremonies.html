@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
   <span class="gen">docgen · generated from <b>docs/ceremonies.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-09-14</span>
+  <span class="right">updated 2026-09-22</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -265,20 +265,65 @@ recurring reviews beyond today's clocks.</p>
 <p><strong>2026-09-14 note:</strong> all three clocks below sat unresolved for ~7-8 weeks
 past their dates — the failure mode this page itself warns against, since a
 date in a doc has no trigger. Resolved as part of scoping
-<code>dotfiles--workflow-strategy-and-ceremonies</code>; a weekly ceremony (see
-<code>## Recurring</code> below, once built) replaces bare dated clocks as the
+<code>dotfiles--workflow-strategy-and-ceremonies</code>. The weekly review (see
+<code>## Recurring</code> below, shipped 2026-09-15) replaces bare dated clocks as the
 mechanism going forward.</p>
 <h2 id="recurring">Recurring</h2>
-<h3 id="weekly-workflow-review--not-yet-built">Weekly workflow review — not yet built</h3>
-<p>Replaces this page's original &quot;combined calibration ceremony&quot; clock.
-Starts as a manually-invoked skill (not hooked to <code>wb up</code>, not calendar-
-nagged) — force it into the workflow incrementally once it's proven useful,
-rather than over-building the trigger up front. Gathers the week's
-evidence (transcript grep for skill usage, tasks-repo git log, <code>/park</code>
-ledger, merged PRs) and reviews it in a findings-review buffer: what
-worked, what didn't, one increment to the workflow or skills. First run's
-agenda includes triaging the task store's &quot;doing&quot; backlog. Scoped in
-<code>dotfiles--workflow-strategy-and-ceremonies</code>; not yet built.</p>
+<h3 id="weekly-workflow-review--weekly-review">Weekly workflow review — <code>/weekly-review</code></h3>
+<p>Replaces this page's original &quot;combined calibration ceremony&quot; clock, plus
+the retired <code>/parked-items</code>. Shipped in #55–#58 and first run for 2026-W38.
+Full usage is in the <a href="guides/weekly-review.html">weekly-review guide</a>.</p>
+<ul>
+<li><strong>Capture, all week:</strong> <a href="guides/park.html"><code>/park &lt;note&gt;</code></a> appends to the
+standing capture doc (<code>~/code/tasks/weeks/capture.md</code>, which
+<kbd>prefix</kbd>+<kbd>N</kbd> opens). Work-shaped items get proposed as
+<code>prospective</code> tasks instead.</li>
+<li><strong>Review, weekly:</strong> <code>/weekly-review</code>, run from the main dotfiles
+checkout. It gathers four kinds of evidence in a fixed order: <code>wb reconcile</code> drift, unreviewed capture entries, tasks moved and PRs merged
+since the last record, and skill-usage counts. It sorts each capture
+entry into one of four kinds (task idea, skill idea, grievance, workflow
+improvement) and shows at most five suggestions on the review page. It
+then writes <code>~/code/tasks/weeks/&lt;ISO&gt;-review.md</code>. Accepted suggestions
+become <code>planned</code> tasks tagged <code>weekly-review</code>.</li>
+<li><strong>Trigger:</strong> manual, on purpose. There is no calendar or hook nudge. The
+only prompt is the &quot;unreviewed capture entries (Nd since last review)&quot;
+count in the picker status line and at the end of <code>wb done</code>. It stays
+manual until a few real runs show it's worth keeping. If the suggestions
+keep coming up empty, rethink the ceremony rather than automating it.</li>
+</ul>
+<h3 id="fortnightly-retro-and-sprint-planning--fed-by-the-weekly-review">Fortnightly Retro and Sprint planning — fed by the weekly review</h3>
+<p>Retro and Sprint planning are real meetings, held every two weeks. They
+are not agent ceremonies, and nothing here schedules them. The weekly
+review's job is to make sure both meetings start from captured evidence
+rather than memory. Each week's record has one section for each meeting:</p>
+<table>
+<thead>
+<tr>
+<th>Captured as</th>
+<th>Feeds</th>
+<th>Lands in the week record as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Grievance / friction</td>
+<td><strong>Retro</strong></td>
+<td>One line under <code>## Retro</code>, plus any &quot;what's working&quot; item settled that round</td>
+</tr>
+<tr>
+<td>Workflow improvement</td>
+<td><strong>Retro</strong>, plus <strong>Sprint planning</strong> if it implies a concrete change</td>
+<td>Under <code>## Retro</code>, plus a planning row when it's actionable</td>
+</tr>
+<tr>
+<td>Task idea / skill idea / deferred work</td>
+<td><strong>Sprint planning</strong></td>
+<td>Under <code>## Sprint planning</code>: what was seeded (task ref), what was dropped (and why), what an existing task already covered</td>
+</tr>
+</tbody>
+</table>
+<p>To prepare for either meeting, read the last two <code>weeks/*-review.md</code>
+records. Their <code>## Retro</code> or <code>## Sprint planning</code> sections are the agenda.</p>
 <h2 id="resolved">Resolved</h2>
 <h3 id="2026-07-13--delete-tmux-pane-awaiting-input--resolved-2026-09-14-keep">~2026-07-13 — delete <code>tmux_pane_awaiting_input</code> — resolved 2026-09-14 (KEEP)</h3>
 <p>Was scoped as a stopgap content-scan fallback for &quot;is this tmux pane
