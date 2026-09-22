@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Slice 5 recap — the docs platform</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="recaps">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> recaps</span>
+  <span class="gen">docgen · generated from <b>docs/archive/slice-5-recap.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-07</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Slice 5 recap — the docs platform</div>
+    <div class="brand-sub">What shipped, what to verify yourself, and what&#39;s next. Start here after the PR.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#what-we-added">What we added</a></li>
+      <li><a href="#test--verify-it-yourself">Test / verify it yourself</a></li>
+      <li><a href="#next-steps">Next steps</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">recaps · guide</span>
+      <h1>Slice 5 recap — the docs platform</h1>
+      <p class="dek">What shipped, what to verify yourself, and what&#39;s next. Start here after the PR.</p>
+      <div class="meta">
+        <span class="chip mut">archive</span>
+      </div>
+    </header>
+    <article>
+<p>One generator, three outputs. Every hand-maintained doc surface in this
+project — the two you're used to editing by hand, and the dashboard you
+clicked through — is now rendered from markdown sources by a tool that
+didn't exist a session ago. This page is itself one of those sources: edit
+<code>docs/slice-5-recap.md</code>, not this rendered file.</p>
+<p><strong>PR:</strong> <a href="https://github.com/jetnoli-sportable/dotfiles/pull/9">#9</a> ·
+<strong>Plan:</strong> <code>docs/plans/2026-07-07-002-slice-5-docs-platform-plan.md</code> (now
+<code>status: completed</code>) · <strong>Branch:</strong> <code>docs/dotfiles-overview</code> → <code>development</code></p>
+<h2 id="what-we-added">What we added</h2>
+<h3 id="the-generator--codedocgen">The generator — <code>~/code/docgen</code></h3>
+<p>A new, separate Go repo (stdlib + goldmark, no other dependencies). It reads
+markdown-with-frontmatter and a small <code>docs/docgen.json</code> policy file from
+<em>this</em> repo, and writes three things: rendered HTML pages, the <code>HUB.html</code>
+tile dashboard, and <code>INDEX.md</code>. The templates and the policy live here in
+dotfiles — the tool itself is generic enough to point at another repo later.</p>
+<blockquote>
+<p><strong>This repo is local-only — it has no git remote yet.</strong> If the machine
+is lost before one gets pushed, the generator's source goes with it. Say
+the word and I'll create one.</p>
+</blockquote>
+<h3 id="the-three-generated-outputs">The three generated outputs</h3>
+<table>
+<thead>
+<tr>
+<th>Output</th>
+<th>Replaces</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/roadmap.html</code>, <code>docs/wb-guide.html</code>, <code>docs/setup.html</code>, five pages under <code>docs/guides/</code></td>
+<td>Hand-edited HTML that drifted from its <code>.md</code>/source of truth</td>
+<td>Never edit the <code>.html</code> — edit the <code>.md</code> and rerun <code>docgen.sh</code></td>
+</tr>
+<tr>
+<td><code>docs/HUB.html</code></td>
+<td>The old hand-maintained dashboard</td>
+<td>Tiles come from every page's frontmatter, plus a small sidecar for the findings audit and this recap</td>
+</tr>
+<tr>
+<td><code>docs/INDEX.md</code></td>
+<td>Nothing — this is new</td>
+<td>78 entries: every tmux bind, zsh alias/function, skill, script, doc, decision record, and the notes-tui pointer, each with a <code>file:line</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="two-new-ways-to-ask-what-do-i-have">Two new ways to ask &quot;what do I have&quot;</h3>
+<ul>
+<li><strong><code>prefix+?</code></strong> in tmux opens an fzf picker over the INDEX. Enter jumps you
+to the thing (its rendered page, or its source at the right line);
+preview tells you about it first.</li>
+<li><strong><code>/help &lt;question&gt;</code></strong> in any Claude Code session reads the same INDEX,
+follows the links (including decision records for &quot;why&quot; questions), and
+answers in chat with citations.</li>
+</ul>
+<h3 id="housekeeping-that-came-with-it">Housekeeping that came with it</h3>
+<ul>
+<li>The four hand-authored Claude skills (<code>decision-buffer</code>, <code>park</code>,
+<code>parked-items</code>, <code>pr-review-session</code>) are now tracked in a <code>claude/</code> stow
+package instead of living only on this machine.</li>
+<li><code>overview.md</code> / <code>overview.html</code> and <code>HUB.md</code> are <strong>deleted</strong> — their
+content moved to the INDEX, the per-skill guide pages, and this repo's
+generated <code>setup.html</code>.</li>
+<li>A work-repo denylist keeps employer-repo names out of anything the
+scanner pulls from <code>MEMORY.md</code> or the task store, withheld with a log
+line rather than silently.</li>
+</ul>
+<h2 id="test--verify-it-yourself">Test / verify it yourself</h2>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>Reload tmux</strong>, then press <kbd>prefix</kbd>+<kbd>?</kbd>. Type a few
+letters of something you know exists (<code>wb</code>, <code>park</code>, <code>notes</code>) and
+confirm the preview pane shows something sensible; press Enter on a
+couple of different kinds (a bind, a skill, a doc) and check it takes
+you to the right place.</li>
+<li><input disabled="" type="checkbox"> <strong>Ask <code>/help</code></strong> a real question — &quot;why does prefix+m open wb&quot;, &quot;what
+does the park skill do&quot;, &quot;how do I use notes-tui&quot; — and check the
+citations actually point at real files.</li>
+<li><input disabled="" type="checkbox"> <strong>Open the HUB</strong> (<code>prefix+h</code>, or <code>xdg-open ~/code/dotfiles/docs/HUB.html</code>)
+and click through a few tiles, including the four skill tiles under
+&quot;Claude skills&quot; — they should land on real guide pages now, not an
+anchor into a deleted file.</li>
+<li><input disabled="" type="checkbox"> <strong>Skim the guide pages</strong> at <code>docs/guides/*.html</code> for your own skills —
+flag anything that reads wrong; they were written from the SKILL.mds
+plus the old overview content, so drift is possible.</li>
+<li><input disabled="" type="checkbox"> <strong>Regenerate and confirm it's a no-op</strong>: run <code>docgen.sh</code> from the repo
+root twice in a row and check <code>git status</code> shows nothing changed.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong><del>No freshness hook</del> — fixed.</strong> A <code>.githooks/pre-commit</code> hook now
+runs <code>docgen.sh all</code> automatically whenever a commit touches a
+tracked docgen input (docs sources, <code>docgen.json</code>, templates,
+<code>tmux.conf</code>, <code>.zshrc</code>, skill files, or tmux/scripts scripts) and
+stages the regenerated output into the same commit. Installed via
+<code>git config core.hooksPath .githooks</code> (<code>install.sh</code> does this on a
+fresh clone). Non-blocking if <code>~/code/docgen</code> isn't cloned yet, and
+only reacts to what's <em>tracked in this repo</em> — <code>logs/decisions/</code>
+(gitignored) and the <code>~/code/tasks</code> store still need a manual
+<code>docgen.sh index</code> after editing.</li>
+<li><input disabled="" type="checkbox"> <strong>Skim the PR</strong> (<a href="https://github.com/jetnoli-sportable/dotfiles/pull/9">#9</a>)
+for anything that looks off before merging to <code>development</code>.</li>
+</ul>
+<h2 id="next-steps">Next steps</h2>
+<ul>
+<li><strong>Decide on a remote for <code>~/code/docgen</code>.</strong> Local-only right now; a
+five-minute <code>gh repo create</code> whenever it matters to you.</li>
+<li><strong>Three review findings are still parked</strong> — <code>/parked-items</code> will surface
+them: two hardcoded-in-Go policy decisions that should move to
+<code>docgen.json</code> when they come up again, and a stale-worktree edge case in
+<code>pr-review-session</code>'s driver. (A fourth — no freshness hook — is done:
+see below.)</li>
+<li><strong>Merge PR #9</strong> once you've walked the checklist above.</li>
+<li>Longer-term, unstarted: notes-tui slice 4b (the <code>--context</code> digest flag
+and <code>wb</code> integration), and roadmap 9e — task recall reusing this same
+INDEX-read machinery to resume work by name from any session.</li>
+</ul>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/archive/slice-5-recap.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>

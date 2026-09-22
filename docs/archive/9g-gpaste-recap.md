@@ -1,6 +1,6 @@
 ---
 title: 9g recap — GPaste clipboard-history manager
-status: current
+status: archive
 tile: GPaste configured, Ctrl+Shift+G opens history. What to verify yourself.
 group: recaps
 kind: page
@@ -148,5 +148,5 @@ Flycut-style history picker this task wanted.
   needing a pickup decision are slice 4b — the 4a usage-window verdict
   resolved early (2026-07-10, unused), so 4b's original plan is now
   superseded by the capture fix-forward experiment (verdict ~2026-07-24,
-  see [Ceremonies](ceremonies.html)) — and `/board`'s full HTML feature
-  (shipped since as `/board` v1 + v2, see [detail](roadmap-board.html)).
+  see [Ceremonies](../ceremonies.html)) — and `/board`'s full HTML feature
+  (shipped since as `/board` v1 + v2, see [detail](../roadmap-board.html)).

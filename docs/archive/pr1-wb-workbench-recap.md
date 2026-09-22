@@ -1,6 +1,6 @@
 ---
 title: PR #1 recap — wb resume, wb pause, /board, wb reconcile
-status: current
+status: archive
 tile: All four wb workbench extensions shipped. What to verify yourself.
 group: recaps
 kind: page

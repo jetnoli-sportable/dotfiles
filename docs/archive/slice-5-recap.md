@@ -1,6 +1,6 @@
 ---
 title: Slice 5 recap — the docs platform
-status: current
+status: archive
 tile: What shipped, what to verify yourself, and what's next. Start here after the PR.
 group: recaps
 kind: page
