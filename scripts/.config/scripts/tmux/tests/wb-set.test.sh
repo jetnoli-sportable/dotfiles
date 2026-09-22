@@ -408,10 +408,35 @@ fi
 # Scenario: --unset on an already-empty field is a no-op, and says so.
 # =============================================================================
 
-mk_task "proj--unset-noop.md" unset-noop
+mk_task "proj--unset-noop.md" unset-noop "parent:"
+before="$(cat "$TASKS_DIR/proj--unset-noop.md")"
 out="$(cmd_set "unset-noop" parent --unset 2>&1)"; rc=$?
 assert_eq "--unset no-op: exit 0" 0 "$rc"
 assert "--unset no-op: says already empty" "parent already empty" "$out"
+assert_eq "--unset no-op: file untouched" "$before" "$(cat "$TASKS_DIR/proj--unset-noop.md")"
+
+# =============================================================================
+# Scenario: --unset on a field whose key is MISSING entirely materialises it
+# as an empty line (the schema-backfill path: every optional key present,
+# value blank). Nothing semantically changed, so no Handoffs entry even for
+# a structural field.
+# =============================================================================
+
+mk_task "proj--unset-missing.md" unset-missing
+out="$(cmd_set "unset-missing" depends_on --unset 2>&1)"; rc=$?
+assert_eq "--unset missing key: exit 0" 0 "$rc"
+assert "--unset missing key: says key added" "depends_on: key added \\(empty\\)" "$out"
+content="$(cat "$TASKS_DIR/proj--unset-missing.md")"
+assert "--unset missing key: empty key line inserted" '^depends_on:[[:space:]]*$' "$content"
+assert_eq "--unset missing key: exactly one key line" 1 \
+  "$(grep -c '^depends_on:' "$TASKS_DIR/proj--unset-missing.md")"
+if printf '%s' "$content" | grep -q 'wb set (auto)'; then
+  echo "FAIL - --unset missing key: no Handoffs entry should be appended (value unchanged)"; fail=1
+else
+  echo "ok   - --unset missing key: no Handoffs entry appended"
+fi
+out="$(cmd_set "unset-missing" depends_on --unset 2>&1)"
+assert "--unset missing key: second run is the plain no-op" "depends_on already empty" "$out"
 
 # =============================================================================
 # Scenario: an empty value behaves exactly like --unset (so a caller passing

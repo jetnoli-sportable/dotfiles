@@ -3894,8 +3894,9 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path"
 # the field right after `size:` when it's missing entirely (priority:/
 # value: land there in TEMPLATE.md's own field order) — every other
 # missing field falls back to wb_set_frontmatter_field's own default
-# (just before the closing `---`). No-op (no write, no lock even taken)
-# when the value already matches. Appends a terse Handoffs entry ONLY for
+# (just before the closing `---`). No write when the value already
+# matches — except `--unset` on a key missing entirely, which inserts it
+# empty (schema backfill; silent, no Handoffs entry). Appends a terse Handoffs entry ONLY for
 # the three structural fields (parent/depends_on/jira) — priority/value/
 # size/tags/path are left silent, matching /wb-save's own signal-over-
 # noise posture for low-stakes board metadata.
@@ -4025,6 +4026,23 @@ cmd_set() {
   local dup_count
   dup_count="$(awk -v key="$field" 'BEGIN{infm=0} /^---$/{infm++; if(infm==2) exit; next} infm==1 && $0 ~ "^" key ":" {c++} END{print c+0}' "$file")"
 
+  local after_key=""
+  case "$field" in
+    priority|value) after_key="size" ;;
+  esac
+
+  # --unset on a key that is MISSING entirely (dup_count 0 — `old` reads
+  # blank either way) materialises it as an empty line instead of no-op'ing:
+  # the schema-backfill path, so every optional key can be made present
+  # through this locked verb. The value didn't change, so no Handoffs entry
+  # even for the structural fields.
+  if [ "$unset_req" -eq 1 ] && [ "$dup_count" -eq 0 ]; then
+    wb_set_frontmatter_field "$file" "$field" "" "$after_key"
+    wb_task_lock_release "$file"
+    echo "wb set: $(basename -- "$file") $field: key added (empty)"
+    exit 0
+  fi
+
   if [ "$old" = "$value" ] && [ "$dup_count" -le 1 ]; then
     wb_task_lock_release "$file"
     if [ "$unset_req" -eq 1 ]; then
@@ -4034,11 +4052,6 @@ cmd_set() {
     fi
     exit 0
   fi
-
-  local after_key=""
-  case "$field" in
-    priority|value) after_key="size" ;;
-  esac
 
   wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
   case "$field" in
