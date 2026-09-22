@@ -178,6 +178,7 @@ tmux_claude_panes() {
   printf '3\t%s:1.1\tidle\ttask-two\n' "${PREFIX}-a"
 }
 out="$(collect_combined_rows)"
+formatted="$(collect_combined_rows | wb_format_for_display | strip_ansi)"
 restore_orig_panes
 sib_line_no="$(printf '%s\n' "$out" | grep -nE $'^alpha\t' | head -1 | cut -d: -f1)"
 agent_line_no="$(printf '%s\n' "$out" | grep -n $'\tagent\t' | head -1 | cut -d: -f1)"
@@ -187,6 +188,10 @@ if [ -n "$sib_line_no" ] && [ -n "$agent_line_no" ] && [ "$agent_line_no" -gt "$
 else
   echo "FAIL - stacked nesting: agent sub-rows not positioned after their sibling row"; fail=1
 fi
+agent_marks="$(printf '%s\n' "$out" | grep $'\tagent\t' | cut -f12 | sort -u)"
+assert "stacked nesting: a sibling's agent rows are marked a1" '^a1$' "$agent_marks"
+assert "stacked nesting: a sibling's agent row indents past the ' ~ ' connector" \
+  "^ {$((WB_COL_REPO + 2))}   > task-one" "$(printf '%s\n' "$formatted" | grep -F 'task-one')"
 kill_sessions a b
 
 # --- regression: no shared parent sorts/renders exactly as before -----------
@@ -280,7 +285,18 @@ formatted="$(collect_combined_rows | wb_format_for_display | strip_ansi)"
 lines="$(printf '%s\n' "$out" | cut -f1,12 | tr '\t' ' ')"
 expected=$'d0 \nd1 c1\nd2 c2\nd3 c3\nd4 c3'
 [ "$lines" = "$expected" ] && echo "ok   - depth cap: levels 1..3, the 4th-deep child clamps to c3" || { echo "FAIL - depth cap: unexpected levels"; echo "       got: $lines"; fail=1; }
-assert "depth cap: a level-3 row is indented four spaces before its connector" '     \|- d3--three' "$(printf '%s\n' "$formatted" | grep -F $'\td3\t')"
+# NAME starts WB_COL_REPO + 2 columns in (padded REPO cell + separator); a
+# level-N child adds 2*(N-1) spaces, then " |- ". Anchor on that exact
+# prefix so each level is distinguishable (an unanchored match can't be).
+for lv in 1 2 3; do
+  r="d$lv"; name="$(printf '%s\n' "$out" | awk -F'\t' -v r="$r" '$1 == r {print $2}')"
+  line="$(printf '%s\n' "$formatted" | grep -F $'\t'"$r"$'\t')"
+  assert "depth cap: level-$lv row has exactly $((2 * (lv - 1))) extra spaces before ' |- '" \
+    "^$r {$((WB_COL_REPO - ${#r} + 2 + 2 * (lv - 1) + 1))}\|- $name" "$line"
+done
+d4_line="$(printf '%s\n' "$formatted" | grep -F $'\td4\t')"
+assert "depth cap: the 4th-deep row renders at level 3's indent" \
+  "^d4 {$((WB_COL_REPO - 2 + 2 + 4 + 1))}\|- d4--four" "$d4_line"
 kill_sessions r s1 s2 s3 s4
 
 # --- a parent: cycle among live rows terminates, each row once --------------
@@ -291,6 +307,16 @@ out="$(collect_combined_rows)"
 row_total="$(printf '%s\n' "$out" | grep -c .)"
 [ "$row_total" -eq 2 ] && echo "ok   - cycle: terminates with each row emitted once" || { echo "FAIL - cycle: expected 2 rows, got $row_total"; fail=1; }
 kill_sessions ca cb
+
+mk_task 'cyc3--a.md' cyc3 'cyc3--c' 2026-09-01
+mk_task 'cyc3--b.md' cyc3 'cyc3--a' 2026-09-01
+mk_task 'cyc3--c.md' cyc3 'cyc3--b' 2026-09-01
+mk_session c3a cyc3 a; mk_session c3b cyc3 b; mk_session c3c cyc3 c
+out="$(collect_combined_rows)"
+row_total="$(printf '%s\n' "$out" | grep -c .)"
+uniq_total="$(printf '%s\n' "$out" | cut -f7 | sort -u | grep -c .)"
+[ "$row_total" -eq 3 ] && [ "$uniq_total" -eq 3 ] && echo "ok   - 3-node cycle: terminates with each row emitted once" || { echo "FAIL - 3-node cycle: expected 3 distinct rows, got $row_total ($uniq_total distinct)"; fail=1; }
+kill_sessions c3a c3b c3c
 
 # --- parent not live: siblings still group, and a sibling's own live child --
 # --- nests beneath that sibling -------------------------------------------
@@ -305,6 +331,25 @@ lines="$(printf '%s\n' "$out" | cut -f1,12 | tr '\t' ' ')"
 expected=$'beta \nalpha 1\ngamma c2'
 [ "$lines" = "$expected" ] && echo "ok   - dead parent: sibling grouping unchanged, a sibling's child nests at c2" || { echo "FAIL - dead parent: unexpected grouping"; echo "       got: $lines"; fail=1; }
 kill_sessions a b c
+
+# --- the sibling-group ANCHOR's own live child nests right under it (c1), ----
+# --- ahead of the " ~ " siblings -------------------------------------------
+mk_task 'beta--anc.md'    beta  'meta--gone2' 2026-07-01
+mk_task 'alpha--sib2.md'  alpha 'meta--gone2' 2026-07-05
+mk_task 'gamma--sib3.md'  gamma 'meta--gone2' 2026-07-06
+mk_task 'delta--kid.md'   delta 'beta--anc'   2026-07-07
+mk_session a beta anc; mk_session b alpha sib2; mk_session c gamma sib3; mk_session d delta kid
+out="$(collect_combined_rows)"
+lines="$(printf '%s\n' "$out" | cut -f1,12 | tr '\t' ' ')"
+expected=$'beta \ndelta c1\nalpha 1\ngamma 1'
+[ "$lines" = "$expected" ] && echo "ok   - anchor's own child nests at c1 before the ~ siblings" || { echo "FAIL - anchor's child: unexpected order/markers"; echo "       got: $lines"; fail=1; }
+
+# Production renders under wb.sh's own `set -euo pipefail`; this suite runs
+# with `set +e`, which would hide an errexit regression in the new paths.
+( set -euo pipefail; collect_combined_rows | wb_format_for_display >/dev/null )
+rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - errexit: family grouping + display exit 0 under set -euo pipefail" || { echo "FAIL - errexit: exited $rc under set -euo pipefail"; fail=1; }
+kill_sessions a b c d
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

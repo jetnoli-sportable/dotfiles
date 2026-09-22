@@ -5084,11 +5084,8 @@ wb_emit_with_agents() {
 # pane within one.
 wb_parent_subrows() {
   local marker="${2:-1}"
-  if [ "$1" = - ]; then
+  if [ "$1" = - ]; then cat; else printf '%s\n' "$1"; fi |
     awk -F'\t' -v OFS='\t' -v m="$marker" '{ $12 = m; print }'
-  else
-    awk -F'\t' -v OFS='\t' -v m="$marker" '{ $12 = m; print }' <<< "$1"
-  fi
 }
 
 # WB_NEST_MAX — deepest nesting level the picker indents a child to. A
