@@ -250,22 +250,39 @@ assert_eq "bootstrap gap: root .env present -> no gap" "1" "$?"
 handoff_bootstrap_gap "$FIXTURE/repo-envfile-variant"
 assert_eq "bootstrap gap: root .env.local (glob match) present -> no gap" "1" "$?"
 
-# --- handoff_append_followup: inserts right under the heading --------------
+# --- handoff_append_followup: appends at the END of the section ----------
 TASK_FIXTURE="$FIXTURE/task.md"
 printf -- '---\nstatus: doing\nrepo: fixture-repo\n---\n# Title\n\n## Plan\n\nsome plan text\n\n## Follow-ups\n\n- pre-existing item\n\n## Decisions\n' > "$TASK_FIXTURE"
 
 handoff_append_followup "$TASK_FIXTURE" "bootstrap gap: fixture-repo has neither manifest nor .env*"
 
-inserted="$(awk '/^## Follow-ups$/ { getline; print; exit }' "$TASK_FIXTURE")"
-assert_eq "append_followup: new line lands immediately under the heading" \
-  "- bootstrap gap: fixture-repo has neither manifest nor .env*" "$inserted"
+existing_no="$(grep -n '^- pre-existing item$' "$TASK_FIXTURE" | cut -d: -f1)"
+new_no="$(grep -nF -- '- bootstrap gap: fixture-repo has neither manifest nor .env*' "$TASK_FIXTURE" | cut -d: -f1)"
+dec_no="$(grep -n '^## Decisions$' "$TASK_FIXTURE" | cut -d: -f1)"
+if [ -n "$existing_no" ] && [ -n "$new_no" ] && [ -n "$dec_no" ] \
+  && [ "$existing_no" -lt "$new_no" ] && [ "$new_no" -lt "$dec_no" ]; then
+  echo "ok   - append_followup: new line lands after the existing item (oldest-first), before Decisions"
+else
+  echo "FAIL - append_followup: wrong placement (existing=$existing_no new=$new_no decisions=$dec_no)"
+  fail=1
+fi
 assert "append_followup: pre-existing Follow-ups content survives" "pre-existing item" "$(cat "$TASK_FIXTURE")"
 assert "append_followup: other sections untouched" "some plan text" "$(cat "$TASK_FIXTURE")"
 
+# Real TEMPLATE.md order: "## Follow-ups" comes AFTER "## Decisions". The
+# line must land in that existing section — an earlier version inserted a
+# duplicate "## Follow-ups" before Decisions on reaching it first.
+TEMPLATE_FIXTURE="$FIXTURE/template-order.md"
+printf -- '---\nstatus: doing\n---\n# Title\n\n## Plan\n\n\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' > "$TEMPLATE_FIXTURE"
+handoff_append_followup "$TEMPLATE_FIXTURE" "template gap"
+assert_eq "append_followup: template order keeps exactly one Follow-ups heading" \
+  1 "$(grep -c '^## Follow-ups$' "$TEMPLATE_FIXTURE")"
+assert_eq "append_followup: template order puts the line at EOF, under the real heading" \
+  "- template gap" "$(tail -1 "$TEMPLATE_FIXTURE")"
+
 # heading missing but ## Decisions exists -> insert Follow-ups right before it.
-# This is the live TEMPLATE.md shape (Plan/Decisions/Done, no Follow-ups) —
-# real pre-existing task files lack the heading too, not just template-fresh
-# ones, so this must not be a no-op (an earlier version of this function was).
+# Older task files predating TEMPLATE.md's Follow-ups heading lack it, so
+# this must not be a no-op (an earlier version of this function was).
 DECISIONS_ONLY_FIXTURE="$FIXTURE/decisions-only.md"
 printf -- '---\nstatus: doing\n---\n# Title\n\n## Plan\n\nsome plan text\n\n## Decisions\n' > "$DECISIONS_ONLY_FIXTURE"
 handoff_append_followup "$DECISIONS_ONLY_FIXTURE" "gap noted here"

@@ -173,6 +173,47 @@ assert "neither heading: body present" 'eof body' "$content"
 assert_no_double_blank "neither heading (EOF fallback)" "$EOF_TASK"
 
 # =============================================================================
+# Scenario (regression): the real ~/code/tasks/TEMPLATE.md section order —
+# Plan → Handoffs → Decisions → Done → Follow-ups, each followed by the
+# template's own blank padding. Done/Follow-ups sit AFTER "## Decisions", so
+# a single-pass scan reaches Decisions before it has seen the target and
+# the missing-heading fallback used to fire anyway, splicing a duplicate
+# "## Done"/"## Follow-ups" in before Decisions and leaving the real
+# (empty) section untouched. Every earlier fixture above put the target
+# BEFORE Decisions, which is why this shipped unnoticed.
+# =============================================================================
+
+TPL_TASK="$TASKS_DIR/proj--append-template.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-template\nworktree: .worktrees/append-template\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\n\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' \
+  > "$TPL_TASK"
+
+cmd_append "append-template" "Done" "- first done" >/dev/null 2>&1
+cmd_append "append-template" "Follow-ups" "- only follow-up" >/dev/null 2>&1
+cmd_append "append-template" "Done" "- second done" >/dev/null 2>&1
+
+for h in Plan Handoffs Decisions Done Follow-ups; do
+  assert_eq "template order: exactly one ## $h heading" 1 "$(grep -c "^## $h\$" "$TPL_TASK")"
+done
+assert_eq "template order: heading order unchanged" \
+  "## Plan|## Handoffs|## Decisions|## Done|## Follow-ups" \
+  "$(grep '^## ' "$TPL_TASK" | paste -sd '|')"
+
+l_dec="$(grep -n '^## Decisions$' "$TPL_TASK" | cut -d: -f1)"
+l_done="$(grep -n '^## Done$' "$TPL_TASK" | cut -d: -f1)"
+l_fu="$(grep -n '^## Follow-ups$' "$TPL_TASK" | cut -d: -f1)"
+l_d1="$(grep -nF -- '- first done' "$TPL_TASK" | cut -d: -f1)"
+l_d2="$(grep -nF -- '- second done' "$TPL_TASK" | cut -d: -f1)"
+l_f1="$(grep -nF -- '- only follow-up' "$TPL_TASK" | cut -d: -f1)"
+if [ -n "$l_dec" ] && [ -n "$l_done" ] && [ -n "$l_fu" ] && [ -n "$l_d1" ] && [ -n "$l_d2" ] && [ -n "$l_f1" ] \
+  && [ "$l_dec" -lt "$l_done" ] && [ "$l_done" -lt "$l_d1" ] && [ "$l_d1" -lt "$l_d2" ] \
+  && [ "$l_d2" -lt "$l_fu" ] && [ "$l_fu" -lt "$l_f1" ]; then
+  echo "ok   - template order: Done entries under ## Done oldest-first, follow-up under ## Follow-ups"
+else
+  echo "FAIL - template order: wrong placement (decisions=$l_dec done=$l_done d1=$l_d1 d2=$l_d2 followups=$l_fu f1=$l_f1)"
+  fail=1
+fi
+
+# =============================================================================
 # Scenario: multi-line body round-trips — the /wb-save shape (a
 # "###"-timestamped block with three bold-leader lines), read from stdin.
 # All lines present, in order, adjacent to each other (no stray blank line

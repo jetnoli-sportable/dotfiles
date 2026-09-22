@@ -2,12 +2,10 @@
 # Unit tests for wb_append_handoff (U1) — the shared "## Handoffs"-append
 # helper wired into cmd_pause/cmd_done/cmd_resume. Plain-bash assertions
 # against fixture files, same convention as handoff-poller.test.sh's own
-# handoff_append_followup coverage (that helper's closest sibling in
-# handoff.sh) — but unlike handoff_append_followup (which inserts its new
-# bullet immediately after the heading, so repeated calls read
-# newest-first), wb_append_handoff always appends at the END of an
-# existing section, so these tests assert oldest-first ordering, not
-# newest-first. Sources wb.sh directly (safe: the BASH_SOURCE guard at its
+# handoff_append_followup coverage (that helper's sibling in handoff.sh,
+# which now delegates to the same _wb_append_under_heading core).
+# wb_append_handoff always appends at the END of an existing section, so
+# these tests assert oldest-first ordering. Sources wb.sh directly (safe: the BASH_SOURCE guard at its
 # end), same convention as wb-pause.test.sh / wb-resume.test.sh.
 # Run: bash scripts/.config/scripts/tmux/tests/wb-handoffs.test.sh
 set -uo pipefail
