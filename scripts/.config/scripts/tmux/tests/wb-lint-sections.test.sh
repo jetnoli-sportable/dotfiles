@@ -197,6 +197,26 @@ diff_out="$(cmd_lint_sections "$FLUSH" --diff 2>&1)"; diff_rc=$?
 assert_eq "$tag: --diff exits 0 even though files differ" 0 "$diff_rc"
 assert "$tag: --diff shows the removed duplicate Handoffs heading" '^-## Handoffs$' "$diff_out"
 
+# ---- --diff via a REAL subprocess, not the sourced function (P1
+# regression): wb.sh runs under `set -euo pipefail`, and
+# _wb_lint_sections_diff runs a bare `diff -u ...` (exit 1 = "files
+# differ") inside a `while read` loop with nothing guarding it. That abort
+# never shows up when this suite just sources cmd_lint_sections and calls
+# it inside `$(...)` (this whole file runs with `set +e`, which a
+# subshell forked from it also inherits) -- only a genuine `bash wb.sh
+# lint-sections --diff` invocation, which starts fresh with wb.sh's own
+# set -e intact, can catch it. Only run once (gawk pass); the double-pass
+# structure adds nothing for a real-process invocation. Uses $FLUSH and
+# $BUG, which are still unfixed at this point in the scenario order, so
+# both differ from their merged form. ----
+if [ "$tag" = "gawk" ]; then
+  real_diff_out="$(bash "$WB" lint-sections --diff "$FLUSH" "$BUG" 2>&1)"; real_diff_rc=$?
+  assert_eq "$tag: real CLI --diff over two differing files: exit 0" 0 "$real_diff_rc"
+  assert "$tag: real CLI --diff: shows FLUSH's removed duplicate Handoffs heading" '^-## Handoffs$' "$real_diff_out"
+  assert "$tag: real CLI --diff: FLUSH's diff header appears" "a/$(basename -- "$FLUSH")" "$real_diff_out"
+  assert "$tag: real CLI --diff: BUG's diff header also appears (both files' diffs shown)" "a/$(basename -- "$BUG")" "$real_diff_out"
+fi
+
 # ---- --fix usage errors: no targets / bare path -> nothing written ----
 out="$(cmd_lint_sections --fix 2>&1)"; rc=$?
 assert_eq "$tag: --fix with no targets: exit 1" 1 "$rc"
@@ -322,6 +342,32 @@ assert_eq "$tag: self-check trip: fix_one returns non-zero" 1 "$rc"
 assert "$tag: self-check trip: message names the refusal" 'content self-check' "$out"
 assert_eq "$tag: self-check trip: file untouched" "$sc_before" "$(cat "$SC")"
 
+# ---- --fix under a non-C locale (P1 regression): the self-check builds
+# its inputs with LC_ALL=C sort/awk but ran the actual `comm -23`
+# comparison in the calling shell's locale -- under en_US.UTF-8 that
+# `comm` call re-collates lines that were only sorted for C and mis-pairs
+# them, so the self-check refused nearly every real merge. Fixture
+# mirrors the shapes that actually trip locale-dependent sort: an
+# indented nested bullet, a punctuation-leading (quote/paren) line,
+# alongside a plain duplicated section. Fails loudly (not skip) if the
+# image lacks en_US.utf8, same convention as the mawk-shim check below. ----
+if ! locale -a 2>/dev/null | grep -qiE '^en_US\.utf-?8$'; then
+  echo "FAIL - $tag: non-C locale self-check: en_US.utf8 not installed -- cannot verify the LC_ALL=C comm fix"
+  fail=1
+else
+  local LOC="$TASKS_DIR/proj--locale-merge-$tag.md"
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: locale-merge-%s\nworktree: .worktrees/locale-merge-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Follow-ups\n\n- item\n  - nested\n- "quoted" thing\n- (parenthetical) note\n\n## Follow-ups\n\n- another item\n' \
+    "$tag" "$tag" > "$LOC"
+  local loc_hash; loc_hash="$(sha256sum "$LOC" | awk '{print $1}')"
+  out="$(LC_ALL=en_US.UTF-8 cmd_lint_sections --fix "$LOC:$loc_hash" 2>&1)"; rc=$?
+  assert_eq "$tag: non-C locale self-check: --fix exits 0 (merge NOT refused)" 0 "$rc"
+  assert_not "$tag: non-C locale self-check: no refusal message" 'content self-check' "$out"
+  assert_eq "$tag: non-C locale self-check: exactly one ## Follow-ups" 1 "$(grep -c '^## Follow-ups$' "$LOC")"
+  assert "$tag: non-C locale self-check: nested bullet survives" '  - nested' "$(cat "$LOC")"
+  assert "$tag: non-C locale self-check: punctuation-leading line survives" '"quoted" thing' "$(cat "$LOC")"
+  assert "$tag: non-C locale self-check: second copy's content survives" 'another item' "$(cat "$LOC")"
+fi
+
 # ---- --fix: lock held by a background holder -> never writes unlocked
 # (spawn_holder pattern from wb-lock-integration.test.sh / wb-append.test.sh,
 # trimmed to what this file needs) ----
@@ -361,6 +407,140 @@ wait "$HPID" 2>/dev/null
 out="$(cmd_lint_sections --fix "$LOCKED:$locked_hash" 2>&1)"; rc=$?
 assert_eq "$tag: --fix after lock release: exit 0" 0 "$rc"
 assert_eq "$tag: --fix after lock release: exactly one heading" 1 "$(grep -c '^## Follow-ups$' "$LOCKED")"
+
+# ---- --fix: write failure (P1 regression) -- `mv` failing after the
+# `printf ... > tmp && mv tmp file` write used to fall straight through to
+# the unconditional "merged" success message and `return 0`. Stub `mv` as
+# a shell function (this suite sources wb.sh into this same shell, so a
+# function named `mv` shadows the command for every call in it) and unset
+# it again right after so nothing downstream is affected. Only run once
+# (gawk pass) -- this is exercising the write-failure branch itself, not
+# anything awk-flavor-dependent. ----
+if [ "$tag" = "gawk" ]; then
+  local WF="$TASKS_DIR/proj--writefail-$tag.md"
+  printf -- '---\nstatus: doing\nrepo: proj\nbranch: writefail-%s\nworktree: .worktrees/writefail-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Follow-ups\n\n- one\n\n## Follow-ups\n\n- two\n' \
+    "$tag" "$tag" > "$WF"
+  local wf_hash wf_before; wf_hash="$(sha256sum "$WF" | awk '{print $1}')"
+  wf_before="$(cat "$WF")"
+
+  mv() { return 1; }
+  out="$(_wb_lint_sections_fix_one "$WF" "$wf_hash" 2>&1)"; rc=$?
+  unset -f mv
+
+  assert_eq "$tag: write failure: fix_one returns non-zero" 1 "$rc"
+  assert "$tag: write failure: message says write failed" 'write failed' "$out"
+  assert "$tag: write failure: message names the file" "$(basename -- "$WF")" "$out"
+  assert_eq "$tag: write failure: file byte-identical to before" "$wf_before" "$(cat "$WF")"
+  shopt -s nullglob
+  local -a wf_tmp_leftover=("$WF".tmp.*)
+  shopt -u nullglob
+  assert_eq "$tag: write failure: no leftover tmp file" 0 "${#wf_tmp_leftover[@]}"
+
+  # lock released -> a following --fix on the same file succeeds
+  out="$(cmd_lint_sections --fix "$WF:$wf_hash" 2>&1)"; rc=$?
+  assert_eq "$tag: write failure: lock was released, following --fix succeeds" 0 "$rc"
+  assert_eq "$tag: write failure: following --fix actually merged" 1 "$(grep -c '^## Follow-ups$' "$WF")"
+fi
+
+# ---- --fix: multiple targets, one with a stale hash -> the valid target
+# is merged, the stale one is skipped with its own message naming the
+# file, and the overall exit is nonzero (R7's per-target independence). ----
+local M1="$TASKS_DIR/proj--multi1-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: multi1-%s\nworktree: .worktrees/multi1-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Follow-ups\n\n- one\n\n## Follow-ups\n\n- two\n' \
+  "$tag" "$tag" > "$M1"
+local M2="$TASKS_DIR/proj--multi2-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: multi2-%s\nworktree: .worktrees/multi2-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Handoffs\n\n\n\n## Handoffs\n\n- second\n' \
+  "$tag" "$tag" > "$M2"
+local m1_hash m2_hash m2_before
+m1_hash="$(sha256sum "$M1" | awk '{print $1}')"
+m2_hash="$(sha256sum "$M2" | awk '{print $1}')"
+printf '\n<!-- concurrent edit -->\n' >> "$M2"   # invalidate M2's reviewed hash
+m2_before="$(cat "$M2")"
+out="$(cmd_lint_sections --fix "$M1:$m1_hash" "$M2:$m2_hash" 2>&1)"; rc=$?
+assert_eq "$tag: multi-target (one stale): overall exit is nonzero" 0 "$([ "$rc" -ne 0 ] && echo 0 || echo 1)"
+assert_eq "$tag: multi-target (one stale): the valid target still merged" 1 "$(grep -c '^## Follow-ups$' "$M1")"
+assert "$tag: multi-target (one stale): stale message names M2" "proj--multi2-$tag\\.md" "$out"
+assert "$tag: multi-target (one stale): stale message says changed since review" 'changed since review' "$out"
+assert_eq "$tag: multi-target (one stale): M2 left untouched" "$m2_before" "$(cat "$M2")"
+
+# ---- --fix: one malformed target (bare path, no :hash) among otherwise
+# valid ones -> whole call is a usage error, NOTHING written to any
+# target (targets are format-validated before anything is locked). ----
+local M4="$TASKS_DIR/proj--multi4-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: multi4-%s\nworktree: .worktrees/multi4-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Done\n\n\n\n## Done\n\n- shipped\n' \
+  "$tag" "$tag" > "$M4"
+local m4_hash m4_before
+m4_hash="$(sha256sum "$M4" | awk '{print $1}')"
+m4_before="$(cat "$M4")"
+out="$(cmd_lint_sections --fix "$M4:$m4_hash" "$M4" 2>&1)"; rc=$?
+assert_eq "$tag: multi-target malformed: exit 1" 1 "$rc"
+assert "$tag: multi-target malformed: usage error, format-validated before anything writes" 'is not <file>:<hash>' "$out"
+assert "$tag: multi-target malformed: message names the malformed target" "$(basename -- "$M4")" "$out"
+assert_eq "$tag: multi-target malformed: valid target left untouched too" "$m4_before" "$(cat "$M4")"
+
+# ---- unknown flag -> exit 1, names the flag ----
+out="$(cmd_lint_sections --bogus 2>&1)"; rc=$?
+assert_eq "$tag: unknown flag: exit 1" 1 "$rc"
+assert "$tag: unknown flag: message" "unknown flag '--bogus'" "$out"
+
+# ---- --fix: a duplicate section where BOTH copies are entirely blank ->
+# merge collapses to exactly one bare heading, correct blank-line layout
+# on both sides, idempotent on a second run. ----
+local BLANK="$TASKS_DIR/proj--blank-handoffs-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: blank-handoffs-%s\nworktree: .worktrees/blank-handoffs-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\n\n\n## Handoffs\n\n\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' \
+  "$tag" "$tag" > "$BLANK"
+findings="$(_wb_lint_sections_findings "$BLANK")"
+assert "$tag: all-blank duplicate Handoffs: dup copies=2 nonempty=0" $'^dup\tHandoffs\t2\t0$' "$findings"
+local blank_hash; blank_hash="$(sha256sum "$BLANK" | awk '{print $1}')"
+out="$(cmd_lint_sections --fix "$BLANK:$blank_hash" 2>&1)"; rc=$?
+assert_eq "$tag: all-blank duplicate: fix exit 0" 0 "$rc"
+assert_eq "$tag: all-blank duplicate: exactly one ## Handoffs" 1 "$(grep -c '^## Handoffs$' "$BLANK")"
+local blank_h_line blank_prev blank_next
+blank_h_line="$(grep -n '^## Handoffs$' "$BLANK" | cut -d: -f1)"
+blank_prev="$(sed -n "$((blank_h_line - 1))p" "$BLANK")"
+blank_next="$(sed -n "$((blank_h_line + 1))p" "$BLANK")"
+assert_eq "$tag: all-blank duplicate: preceded by exactly one blank line" "" "$blank_prev"
+assert_eq "$tag: all-blank duplicate: followed by exactly one blank line" "" "$blank_next"
+local blank_hash2; blank_hash2="$(sha256sum "$BLANK" | awk '{print $1}')"
+out="$(cmd_lint_sections --fix "$BLANK:$blank_hash2" 2>&1)"; rc=$?
+assert_eq "$tag: all-blank duplicate: idempotent second run exit 0" 0 "$rc"
+assert "$tag: all-blank duplicate: idempotent second run reports no findings" 'has no findings' "$out"
+
+# ---- a non-canonical section anchored to the PREAMBLE (appears before
+# the first canonical heading), alongside a duplicate canonical section
+# later in the same file -> after --fix, the preamble-anchored section
+# stays directly after the preamble and before the first canonical
+# heading -- the merge must not relocate it just because SOME other
+# section in the file needed merging. ----
+local NC="$TASKS_DIR/proj--preamble-notes-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: preamble-notes-%s\nworktree: .worktrees/preamble-notes-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Notes\n\nSome notes content.\n\n## Plan\n\nPlan text.\n\n## Plan\n\nMore plan text (dup).\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' \
+  "$tag" "$tag" > "$NC"
+findings="$(_wb_lint_sections_findings "$NC")"
+assert "$tag: preamble Notes: dup Plan copies=2 nonempty=2" $'^dup\tPlan\t2\t2$' "$findings"
+records="$(_wb_lint_sections_records "$NC")"
+assert_eq "$tag: preamble Notes: Notes recorded as non-canonical" 1 \
+  "$(printf '%s\n' "$records" | grep -cE $'^0\tNotes\t')"
+local nc_hash; nc_hash="$(sha256sum "$NC" | awk '{print $1}')"
+out="$(cmd_lint_sections --fix "$NC:$nc_hash" 2>&1)"; rc=$?
+assert_eq "$tag: preamble Notes: fix exit 0" 0 "$rc"
+assert_eq "$tag: preamble Notes: exactly one ## Plan" 1 "$(grep -c '^## Plan$' "$NC")"
+local nc_title_line nc_notes_line nc_plan_line
+nc_title_line="$(grep -n '^# Title$' "$NC" | cut -d: -f1)"
+nc_notes_line="$(grep -n '^## Notes$' "$NC" | cut -d: -f1)"
+nc_plan_line="$(grep -n '^## Plan$' "$NC" | cut -d: -f1)"
+if [ -n "$nc_title_line" ] && [ -n "$nc_notes_line" ] && [ -n "$nc_plan_line" ] \
+  && [ "$nc_title_line" -lt "$nc_notes_line" ] && [ "$nc_notes_line" -lt "$nc_plan_line" ]; then
+  echo "ok   - $tag: preamble Notes: Notes stays directly after the preamble, before Plan"
+else
+  echo "FAIL - $tag: preamble Notes: wrong order (title=$nc_title_line notes=$nc_notes_line plan=$nc_plan_line)"; fail=1
+fi
+local nc_notes_prev nc_plan_prev
+nc_notes_prev="$(sed -n "$((nc_notes_line - 1))p" "$NC")"
+nc_plan_prev="$(sed -n "$((nc_plan_line - 1))p" "$NC")"
+assert_eq "$tag: preamble Notes: blank line before Notes" "" "$nc_notes_prev"
+assert_eq "$tag: preamble Notes: blank line before merged Plan" "" "$nc_plan_prev"
+assert "$tag: preamble Notes: Notes content survives" 'Some notes content\.' "$(cat "$NC")"
+assert "$tag: preamble Notes: both Plan copies merged" 'More plan text \(dup\)\.' "$(cat "$NC")"
 }
 
 # =============================================================================

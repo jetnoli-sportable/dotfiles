@@ -4122,7 +4122,7 @@ _wb_lint_sections_selfcheck() {
   done
   LC_ALL=C sort -o "$b" "$b"
 
-  comm -23 "$a" "$b" > "$c"
+  LC_ALL=C comm -23 "$a" "$b" > "$c"
 
   local expected_hash actual_hash
   expected_hash="$(sha256sum "$c" | awk '{print $1}')"
@@ -4185,7 +4185,7 @@ _wb_lint_sections_diff() {
   while IFS= read -r f; do
     merged="$(_wb_lint_sections_merge "$f")"
     base="$(basename -- "$f")"
-    diff -u --label "a/$base" --label "b/$base" "$f" <(printf '%s\n' "$merged")
+    diff -u --label "a/$base" --label "b/$base" "$f" <(printf '%s\n' "$merged") || [ $? -eq 1 ]
   done < <(_wb_lint_sections_collect "$@" | cut -f1 | uniq)
   return 0
 }
@@ -4263,7 +4263,12 @@ _wb_lint_sections_fix_one() {
     return 1
   fi
 
-  printf '%s\n' "$merged" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  if ! { printf '%s\n' "$merged" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"; }; then
+    rm -f "$file.tmp.$$"
+    echo "wb lint-sections --fix: $(basename -- "$file") write failed — skipped" >&2
+    wb_task_lock_release "$file"
+    return 1
+  fi
   wb_task_lock_release "$file"
   echo "wb lint-sections --fix: merged $(basename -- "$file")"
 }
