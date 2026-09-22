@@ -20,7 +20,7 @@ date: 2026-09-23
 - **Objective:** Each family block on the `wb board --html` Family tab shows a zero-JS inline-SVG dependency graph of its children — columns by dependency depth, critical path and startable-now highlighted, node size from `size:`, solid/dashed border from definedness — plus a critical-path header line and matching fields in `family-rollup.json`.
 - **Authority:** this plan's Product Contract, then the task file's `## Decisions` (2026-09-23 entry supersedes the 2026-07-20 placement/ASCII/rollup items), then the parent task's `## Decisions` for visual encodings, then the chosen mockup `~/code/tasks/dossiers/dotfiles--feat-family-dag-view/mockup-3-graph.html` for look.
 - **Execution profile:** bash only, inside the existing single-pass render; no new process forks per family member (R15 perf rule).
-- **Stop conditions:** stop and surface if the board render regresses past the rebuild plan's 10s ceiling on the real store, or if adding model fields breaks the TSV trailing-empty-field handling in a way that needs a parser redesign.
+- **Stop conditions:** stop and surface if the board render regresses past the rebuild plan's 10s ceiling on the real store or runs more than 10% slower than the pre-U2 baseline (the Verification Contract perf gate), or if adding model fields breaks the TSV trailing-empty-field handling in a way that needs a parser redesign.
 - **Tail ownership:** implementer opens the PR (personal repo → `pgh`), runs `/ce-code-review` then `wb reviewed`.
 
 ---
@@ -47,16 +47,16 @@ The Family tab (shipped in #60/#62) answers "what is this family and what was de
 - R3. Nodes are the family root's direct children; the root is not a node. Only edges between two children of the same family are drawn.
 - R4. Each node gets a column equal to its longest unweighted dependency chain within the family (roots of the graph are column 0).
 - R5. The critical path is the maximum size-weighted chain of remaining work, with weights XS=0.5, S=1, M=2, L=3, XL=5, blank=M, and done=0; ties break deterministically by stem.
-- R6. A node is startable-now when its status is `planned`, it is not in a dependency cycle, and it has zero unmet blockers store-wide (external blockers still count).
+- R6. A node is startable-now when its status is `planned`, it is not in a dependency cycle, and it has zero unmet blockers store-wide (external blockers still count). A node with any unmet blocker outside the family is flagged externally-blocked, so a node with no in-family arrows into it doesn't look free.
 - R7. Cycle members still render: they go in a final column and the edges closing the loop are drawn as flagged back-edges.
 
 **Rendering**
 
 - R8. The region renders in both ladder- and flat-shape family blocks when the family has ≥1 intra-family edge; flat-shape families with zero edges show an empty-state pointing at `depends_on:`; ladder-shape families with zero edges show nothing.
-- R9. Nodes encode status (colour), size (node scale), definedness (solid vs dashed border), critical path (highlighted spine), startable-now (highlight), and in-progress (pulsing ring, suppressed under reduced motion); done nodes stay in place, muted.
+- R9. Nodes encode status (colour), size (node scale, XS through XL), definedness (solid vs dashed border), critical path (highlighted spine), startable-now (static accent outline), in-progress (pulsing ring, suppressed under reduced motion; distinct from the startable outline), and externally-blocked (a small lock marker whose tooltip names the out-of-family blocker stems); done nodes stay in place, muted. Nodes that take part in an in-family edge get START (no in-family predecessor) and END (no in-family successor) tags, as in the mockup; nodes with no in-family edges get neither.
 - R10. A vertical "you are here" frontier line sits before the first column containing a non-done node.
 - R11. The region header states the critical path, its remaining weight in size points, and the startable-now count.
-- R12. Zero JavaScript: every node links to its task file and carries a native tooltip with stem, status, and size.
+- R12. Zero JavaScript: every node links to its task file and carries a native tooltip with stem, status, and size (plus external blockers when present).
 
 **Machine-readable output**
 
@@ -64,7 +64,7 @@ The Family tab (shipped in #60/#62) answers "what is this family and what was de
 
 ### Scope Boundaries
 
-- Not building: ASCII/terminal fallback, hover/cone highlighting (any JS), slack/float per node, date or calendar ETAs, a store-wide or dependency-cone graph view, inferred edges.
+- Not building: ASCII/terminal fallback, date or calendar ETAs, a store-wide or dependency-cone graph view, inferred edges.
 - `wb_board_deps_layer` takes an arbitrary node set so a dependency-cone view later is a caller change, not a rewrite.
 
 #### Deferred to Follow-Up Work
@@ -82,11 +82,11 @@ The Family tab (shipped in #60/#62) answers "what is this family and what was de
 
 - KTD1. **Weights are stored doubled as integers** (XS=1, S=2, M=4, L=6, XL=10) because bash arithmetic is integer-only; display divides by two and prints a trailing `.5` when odd.
 - KTD2. **Graph keys are stems.** `wb_board_render_v2` already feeds the deps helpers an identity stem→stem map (`DG_KEY`), so `DEPS_OF`, `CYCLE_MEMBER`, and `UNMET_COUNT` are all stem-keyed in the v2 path. The new function stays stem-keyed and only the SVG uses anchors, for DOM ids.
-- KTD3. **The layering function is pure and node-set-agnostic**: it takes a node-list array name plus the existing `DEPS_OF`/`CYCLE_MEMBER`/`UNMET_COUNT`/status/size maps and writes out-arrays (layer, in-column order, critical flag, startable flag, back-edge list, critical-path list, remaining weight). It filters edges to the given node set itself, so it never mutates the store-wide graph.
+- KTD3. **The layering function is pure and node-set-agnostic**: it takes a node-list array name plus the existing `DEPS_OF`/`CYCLE_MEMBER`/`UNMET_COUNT`/status/size maps and writes out-arrays (layer, in-column order, critical flag, startable flag, external-blocker list, START/END tag, back-edge list, critical-path list, remaining weight). It filters edges to the given node set itself, so it never mutates the store-wide graph.
 - KTD4. **Cycle handling reuses `CYCLE_MEMBER`, not a second detector.** Kahn's algorithm runs over non-cycle nodes; cycle members go in column max+1, and any in-set edge whose both ends are cycle members is a back-edge. Critical-path computation skips back-edges.
 - KTD5. **Column ordering is one barycenter pass**, left to right: nodes in column k sort by the mean order of their in-set predecessors, ties by stem. Deterministic output keeps render tests stable.
 - KTD6. **Definedness is a 4-signal score**: non-empty Plan section, acceptance/definition-of-done text anywhere in the file, `size:` explicitly set, status past `planned`. Fewer than 3 signals renders a dashed border; done nodes are always solid.
-- KTD7. **The acceptance signal is detected in the existing per-file awk pass** (one new flag field), matching case-insensitive "acceptance criteria", "definition of done", or a `DoD` heading. This adds no second read of any file.
+- KTD7. **The acceptance signal is detected in the existing per-file awk pass** (one new flag field), matching case-insensitive "acceptance criteria", "definition of done", or a `DoD` heading. Match on `tolower($0)`, because the existing `scan_signals()` matching is case-sensitive. This adds no second read of any file.
 - KTD8. **New model fields are appended at the end** of both TSV layers (the read-file record line and the collected row), to avoid renumbering every existing column consumer. The trailing-empty-field hazard in `wb_tsv_split` (flagged in the size-capture task) is covered by tests with blank values in the last positions.
 - KTD9. **The dashed-border convention is introduced fresh.** The old board's "provisional = dashed" convention did not survive the rebuild. Existing dashes mean empty-state boxes (`.scope-empty`, grey) and stale warnings (red). Definedness dashes use a neutral colour so they don't read as warnings. Cycle back-edges use the red dashed treatment on purpose, because they are warnings.
 - KTD10. **Status colours reuse the ladder palette** (`.rung-node` done/active/planned classes: green/mauve/blue) rather than a new palette, so a task reads the same colour on both surfaces.
@@ -119,6 +119,8 @@ cycle members: layer = maxLayer + 1; edges between two cycle members -> back-edg
 critical path = walk best_pred back from argmax ef (tie -> smallest stem)
 remaining     = max ef / 2
 startable[v]  = status==planned && !CYCLE_MEMBER[v] && UNMET_COUNT[v]==0
+extblk[v]     = { d in DEPS_OF[v] : d not in nodes, d not done }
+tag[v]        = START if in-set edges touch v and it has no in-set preds; END if no in-set succs
 order in col  = barycenter of in-set preds' order in earlier cols, tie -> stem
 ```
 
@@ -167,7 +169,7 @@ Geometry: x = column × column width; y = in-column order × row height; SVG hei
 
 ### U3. `wb_board_deps_layer` — layering, critical path, startable
 
-- **Goal:** a pure function computing per-node layer, in-column order, critical flag, and startable flag, plus the family's back-edges, critical-path list, and remaining weight, for any node set.
+- **Goal:** a pure function computing per-node layer, in-column order, critical flag, startable flag, external-blocker list, and START/END tag, plus the family's back-edges, critical-path list, and remaining weight, for any node set.
 - **Requirements:** R3–R7.
 - **Dependencies:** U2 (needs `M_SIZE`).
 - **Files:** `scripts/.config/scripts/tmux/wb-board.sh` (next to `wb_board_deps_validate`/`_cycles`/`_blocking`), `scripts/.config/scripts/tmux/tests/wb-board-deps.test.sh`.
@@ -180,7 +182,8 @@ Geometry: x = column × column width; y = in-column order × row height; SVG hei
   - Done nodes weigh 0: in chain A(done)→B(M)→C(L), remaining is 5 and B is startable.
   - XS weight: a lone XS node gives remaining 0.5 (doubled internal value 1).
   - Blank size is weighted as M.
-  - Edge to a node outside the set (including the family root) is ignored for layering, but an unmet external blocker still makes the node not startable.
+  - Edge to a node outside the set (including the family root) is ignored for layering, but an unmet external blocker still makes the node not startable and lists that stem as an external blocker; a done external dep is not listed.
+  - START/END: in chain A→B→C, A is START and C is END; an isolated node in the same set gets neither tag; a single edge A→B gives A START and B END.
   - Two-node cycle A⇄B plus C→A: A and B go in the final column; the A↔B edges are listed as back-edges; the function terminates and C still has a layer.
   - Ties: two equal-weight parallel branches pick the lexicographically smaller stem, and repeated runs give identical output.
   - Barycenter: in-column order follows predecessor order, not input order.
@@ -194,7 +197,18 @@ Geometry: x = column × column width; y = in-column order × row height; SVG hei
 - **Dependencies:** U3.
 - **Files:** `scripts/.config/scripts/tmux/wb-board.sh` (emitter function plus CSS in the VIEW 4 Family block), `scripts/.config/scripts/tmux/tests/wb-board-render.test.sh`.
 - **Approach:**
-  - Nodes are rounded rects scaled by size, with status classes per KTD10 and a dashed class per KTD6/KTD9. Critical nodes and edges get a highlight class; startable nodes get a ring class. In-progress (`doing`/`review`) nodes get a CSS keyframe pulse wrapped in `prefers-reduced-motion: no-preference`.
+  - Nodes are rounded rects scaled by size (table below), with status classes per KTD10 and a dashed class per KTD6/KTD9. Critical nodes and edges get a highlight class. Startable nodes get a static accent outline (no animation), which stays distinct from the in-progress pulse. In-progress (`doing`/`review`) nodes get a CSS keyframe pulse wrapped in `prefers-reduced-motion: no-preference`.
+  - Externally-blocked nodes get a small lock marker in a corner; its `<title>` names the out-of-family blocker stems.
+  - START/END tags sit above the card as small pill labels, per the mockup.
+  - Node sizes follow the mockup's steps, with XS added one step below S. The board may scale them all by one factor to fit the Family block:
+
+    | Size | Width × height (mockup units) |
+    |---|---|
+    | XS | 104 × 48 |
+    | S | 128 × 58 |
+    | M (and blank) | 152 × 70 |
+    | L | 176 × 84 |
+    | XL | 208 × 104 |
   - Each node is an SVG `<a>` using the same task-file href as `wb_board_v2_task_open_html`, with a `<title>` child (stem · status · size) and the display title truncated to fit, escaped via the out-var helpers.
   - The frontier line goes before the first column holding a non-done node, omitted when every node is done.
   - Edges are Bézier paths with arrow markers; back-edges get the warning class. Marker ids are suffixed by family anchor, so multiple SVGs on one page don't collide.
@@ -203,6 +217,10 @@ Geometry: x = column × column width; y = in-column order × row height; SVG hei
   - A three-node chain renders three node groups, two edge paths, and a header naming the path and "3 pts remaining" (all S).
   - An under-defined planned node carries the dashed class; a done node never does.
   - A `doing` node carries the pulse class, and the CSS gates the animation behind reduced-motion.
+  - A startable node carries the startable-outline class and no animation; a `doing` node never carries it.
+  - A node with an unmet out-of-family blocker shows the lock marker, whose tooltip names the blocker stem.
+  - START and END tags appear on the chain's first and last nodes and nowhere else.
+  - An XS node renders smaller than an S node.
   - A title containing `<`, `&`, and quotes is escaped in both the label and the tooltip.
   - Two families on one page produce distinct marker ids.
   - An all-done family omits the frontier line and reports "0 pts remaining".
@@ -222,7 +240,7 @@ Geometry: x = column × column width; y = in-column order × row height; SVG hei
 - **Patterns to follow:** the existing `fr_json_children` string build, and the Family view's summary-first block comment.
 - **Test scenarios:**
   - A flat family with edges shows the region above "Family tree".
-  - A flat family without edges shows the empty-state mentioning `depends_on:`.
+  - A flat family without edges shows the empty-state ("No dependency data yet — add `depends_on:` to its children to see the graph.").
   - A ladder family with edges shows the region above "Version ladder".
   - A ladder family without edges shows neither.
   - The generated `family-rollup.json` parses with `jq`; a child carries `size`, `layer`, `critical`, and `startable`; the family carries the critical-path array and remaining number; the parent entry has `layer: null`.
