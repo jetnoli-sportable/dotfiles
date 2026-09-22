@@ -201,5 +201,110 @@ assert "regression: beta present, top-level" $'\nbeta\t' "$out"
 assert_not "regression: no sibling markers anywhere" $'\t1$' "$out"
 kill_sessions a b
 
+# --- live parent heads its children, even when it's the least urgent -------
+# The reported bug: the parent's own row was ignored, the earliest-created
+# child anchored unindented, and the parent sat wherever urgency put it.
+# beta is the earliest-created child — the one that used to wrongly anchor.
+mk_task 'meta--rework.md'  meta  ''             2026-09-04
+mk_task 'beta--load.md'    beta  'meta--rework' 2026-09-10
+mk_task 'alpha--runner.md' alpha 'meta--rework' 2026-09-16
+mk_task 'gamma--infra.md'  gamma 'meta--rework' 2026-09-16
+mk_session p meta  rework
+mk_session a beta  load
+mk_session b alpha runner
+mk_session c gamma infra
+wb_session_urgency() { # parent least urgent, a child most urgent
+  case "$1" in
+    "${PREFIX}-p") printf '3\t- no agent\t\t0\n' ;;
+    "${PREFIX}-b") printf '0\t! needs you\t%s:0.0\t1\n' "$1" ;;
+    *)             printf '2\t* working\t%s:0.0\t1\n' "$1" ;;
+  esac
+}
+out="$(collect_combined_rows)"
+formatted="$(collect_combined_rows | wb_format_for_display | strip_ansi)"
+restore_orig_urgency
+assert "live parent: parent row is emitted first" '^meta$' "$(printf '%s\n' "$out" | head -1 | cut -f1)"
+assert_not "live parent: parent row carries no nest marker" $'^meta\t.*\t(1|c[0-9])$' "$out"
+child_count="$(printf '%s\n' "$out" | grep -cE $'\tc1$')"
+[ "$child_count" -eq 3 ] && echo "ok   - live parent: all three children marked c1" || { echo "FAIL - live parent: expected 3 c1 children, got $child_count"; fail=1; }
+assert "live parent: the earliest-created child is indented too" $'^beta\t.*\tc1$' "$out"
+assert_not "live parent: no sibling markers when the parent is live" $'\t1$' "$out"
+beta_line="$(printf '%s\n' "$formatted" | grep -F $'\tbeta\t')"
+assert "live parent: child connector is ' |- '" ' \|- beta--load' "$beta_line"
+assert "live parent: child repo cell still visible (cross-repo)" '^beta' "$beta_line"
+row_total="$(printf '%s\n' "$out" | grep -c .)"
+[ "$row_total" -eq 4 ] && echo "ok   - live parent: each row emitted exactly once" || { echo "FAIL - live parent: expected 4 rows, got $row_total"; fail=1; }
+kill_sessions p a b c
+
+# --- live parent with a single live child still nests ----------------------
+mk_task 'meta--solo.md'   meta  ''           2026-09-01
+mk_task 'alpha--only.md'  alpha 'meta--solo' 2026-09-02
+mk_session p meta  solo
+mk_session a alpha only
+out="$(collect_combined_rows)"
+assert "single child: parent first" '^meta$' "$(printf '%s\n' "$out" | head -1 | cut -f1)"
+assert "single child: child nested as c1" $'\nalpha\t.*\tc1$' "$out"
+kill_sessions p a
+
+# --- a multi-agent child under a live parent: agent rows stack beneath it ---
+mk_task 'meta--stack.md'  meta  ''            2026-09-01
+mk_task 'alpha--busy.md'  alpha 'meta--stack' 2026-09-02
+mk_session p meta  stack
+mk_session a alpha busy
+tmux_claude_panes() {
+  [ "${1:-}" = "${PREFIX}-a" ] || return 0
+  printf '2\t%s:1.0\tworking\ttask-one\n' "${PREFIX}-a"
+  printf '3\t%s:1.1\tidle\ttask-two\n' "${PREFIX}-a"
+}
+out="$(collect_combined_rows)"
+formatted="$(collect_combined_rows | wb_format_for_display | strip_ansi)"
+restore_orig_panes
+lines="$(printf '%s\n' "$out" | cut -f1,9,12 | tr '\t' ' ')"
+expected=$'meta task \nalpha task c1\nalpha agent a1\nalpha agent a1'
+[ "$lines" = "$expected" ] && echo "ok   - stacking: parent, child, then the child's agent rows (a1)" || { echo "FAIL - stacking: unexpected order/markers"; echo "       got: $lines"; fail=1; }
+agent_line="$(printf '%s\n' "$formatted" | grep -F 'task-one')"
+assert "stacking: agent row under a level-1 child is indented past the child connector" \
+  "^ {$((WB_COL_REPO + 2))}   > task-one" "$agent_line"
+kill_sessions p a
+
+# --- nesting depth is capped at WB_NEST_MAX (3); deeper rows clamp, not drop -
+mk_task 'd0--root.md' d0 ''         2026-09-01
+mk_task 'd1--one.md'  d1 'd0--root' 2026-09-01
+mk_task 'd2--two.md'  d2 'd1--one'  2026-09-01
+mk_task 'd3--three.md' d3 'd2--two' 2026-09-01
+mk_task 'd4--four.md' d4 'd3--three' 2026-09-01
+mk_session r d0 root; mk_session s1 d1 one; mk_session s2 d2 two
+mk_session s3 d3 three; mk_session s4 d4 four
+out="$(collect_combined_rows)"
+formatted="$(collect_combined_rows | wb_format_for_display | strip_ansi)"
+lines="$(printf '%s\n' "$out" | cut -f1,12 | tr '\t' ' ')"
+expected=$'d0 \nd1 c1\nd2 c2\nd3 c3\nd4 c3'
+[ "$lines" = "$expected" ] && echo "ok   - depth cap: levels 1..3, the 4th-deep child clamps to c3" || { echo "FAIL - depth cap: unexpected levels"; echo "       got: $lines"; fail=1; }
+assert "depth cap: a level-3 row is indented four spaces before its connector" '     \|- d3--three' "$(printf '%s\n' "$formatted" | grep -F $'\td3\t')"
+kill_sessions r s1 s2 s3 s4
+
+# --- a parent: cycle among live rows terminates, each row once --------------
+mk_task 'cyc--a.md' cyc 'cyc--b' 2026-09-01
+mk_task 'cyc--b.md' cyc 'cyc--a' 2026-09-01
+mk_session ca cyc a; mk_session cb cyc b
+out="$(collect_combined_rows)"
+row_total="$(printf '%s\n' "$out" | grep -c .)"
+[ "$row_total" -eq 2 ] && echo "ok   - cycle: terminates with each row emitted once" || { echo "FAIL - cycle: expected 2 rows, got $row_total"; fail=1; }
+kill_sessions ca cb
+
+# --- parent not live: siblings still group, and a sibling's own live child --
+# --- nests beneath that sibling -------------------------------------------
+mk_task 'beta--sib-anchor.md' beta  'meta--gone'      2026-07-01
+mk_task 'alpha--sib-other.md' alpha 'meta--gone'      2026-07-05
+mk_task 'gamma--grandkid.md'  gamma 'alpha--sib-other' 2026-07-06
+mk_session a beta  sib-anchor
+mk_session b alpha sib-other
+mk_session c gamma grandkid
+out="$(collect_combined_rows)"
+lines="$(printf '%s\n' "$out" | cut -f1,12 | tr '\t' ' ')"
+expected=$'beta \nalpha 1\ngamma c2'
+[ "$lines" = "$expected" ] && echo "ok   - dead parent: sibling grouping unchanged, a sibling's child nests at c2" || { echo "FAIL - dead parent: unexpected grouping"; echo "       got: $lines"; fail=1; }
+kill_sessions a b c
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
