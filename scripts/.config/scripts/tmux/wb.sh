@@ -2762,14 +2762,27 @@ _wb_breakdown_parent_plan_body() {
 # with <body>. Never routes <body> through awk -v — same reasoning as
 # _wb_insert_plan_body: awk's C escape-sequence processing on a -v
 # assignment would mangle a buffer-authored body's backslashes.
+# Trailing blank lines in <body> are dropped and exactly one blank line is
+# re-emitted before the next heading: a heading left flush against the body
+# fails _wb_append_under_heading's blank-line guard, and the next
+# wb_append_handoff then splices in a duplicate "## Handoffs".
 _wb_breakdown_replace_section() {
   local file="$1" heading="$2" body="$3" bodyfile
   bodyfile="$(mktemp)"
   printf '%s\n' "$body" > "$bodyfile"
   awk -v h="## $heading" -v bodyfile="$bodyfile" '
     BEGIN { insec = 0 }
-    $0 == h { print; print ""; while ((getline line < bodyfile) > 0) print line; insec = 1; next }
-    insec && /^## / { insec = 0 }
+    $0 == h {
+      print; print ""
+      nblank = 0
+      while ((getline line < bodyfile) > 0) {
+        if (line == "") { nblank++; continue }
+        for (; nblank > 0; nblank--) print ""
+        print line
+      }
+      insec = 1; next
+    }
+    insec && /^## / { insec = 0; print "" }
     insec { next }
     { print }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
