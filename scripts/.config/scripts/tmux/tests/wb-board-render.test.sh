@@ -236,6 +236,43 @@ worktree: .worktrees/feat/ladder-parent
 EOF
 touch -d "4 days ago" "$FIXTURE_TASKS/ladder-parent.md"
 
+# fix(review) D1 regression: a `parent:` value carrying shell metacharacters.
+# The D1 collect-time guard drops a parent outside [A-Za-z0-9._-], so it never
+# becomes a (phantom) family root and its raw value can never reach the fam-hero
+# data-copy="wb resume <stem>" clipboard text (HTML-escaped is NOT shell-escaped).
+# Without the guard this would add a 6th family AND smuggle `;`/space onto the
+# clipboard. `metachar-child` is planned (shelved), so it can't perturb the
+# active+stale badge.
+mk_task metachar-child planned 3 $'parent: evil; touch /tmp/pwned'
+
+# fix(review) D3 regression: two DISTINCT stems that sanitize to the SAME anchor
+# base — `coll.ide` -> "coll-ide" and `coll-ide` -> "coll-ide". Before D3 they
+# collapsed to one DOM id, so U8's #detail-pool getElementById('detail-'+anchor)
+# mounted the WRONG task's detail block. Both `done` (shelved, excluded from the
+# Shelf list) so they don't perturb the active/stale/shelf assertions.
+mk_task coll.ide done 1
+mk_task coll-ide done 1
+
+# fix(review) D5: exercise the stage-strip DONE branches the stagey/prtask
+# fixtures don't reach — ideate + brainstorm done (awk bits 0/1 fire on
+# docs/ideation/ and docs/brainstorms/ text, wb-board.sh:521-522) and the work
+# stage's status:done branch (wb_board_v2_stage_states, wb-board.sh:~1458).
+cat > "$FIXTURE_TASKS/donestage.md" <<'EOF'
+---
+status: done
+path:
+repo: dotfiles
+branch: feat/donestage
+worktree: .worktrees/feat/donestage
+---
+# Done-stage fixture
+
+## Follow-ups
+
+Ideated in docs/ideation/2026-09-01-x.md, then docs/brainstorms/2026-09-02-y.md.
+EOF
+touch -d "2 days ago" "$FIXTURE_TASKS/donestage.md"
+
 # --- run the full pipeline: collect -> build_model -> render_v2 ----------
 declare -a V2ROWS=()
 declare -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=() \
@@ -680,6 +717,37 @@ assert "R6: a rung mounts the shared detail block on expand" 'function toggleRun
 assert "R6: a rung carries a mount host for its child" '<div class="detail-host" data-anchor="[^"]+"></div><div class="rung-body">' "$render"
 assert "R6: a pre-expanded rung is mounted on load" "querySelectorAll\('\.rung\.expanded > \.detail-host'\)" "$render"
 
+# --- review fixes: D1 (phantom-parent shell-safety), D3 (anchor collision),
+#     D5 (stage-strip DONE branches) --------------------------------------
+# D1: the metachar `parent:` was dropped at collect, so it created no family
+# (still 5, asserted above) and no data-copy smuggled a shell metacharacter.
+if printf '%s' "$render" | grep -E 'data-copy="wb resume [^"]*[;&|$<> ]' >/dev/null 2>&1; then
+  echo "FAIL - D1: a data-copy contains a shell metacharacter (phantom parent leaked)"; fail=1
+else
+  echo "ok   - D1: no data-copy contains a shell metacharacter"
+fi
+assert_eq "D1: a metachar parent: does not create a phantom family" "5" "$fam_badge_count"
+
+# D3: two distinct stems that sanitize to the same base get DISTINCT anchors,
+# so U8's #detail-pool getElementById() can't mount the wrong task's block.
+assert "D3: coll.ide gets an anchor" '.' "${STEM_ANCHOR[coll.ide]:-}"
+assert "D3: coll-ide gets an anchor" '.' "${STEM_ANCHOR[coll-ide]:-}"
+assert_eq "D3: colliding stems get DISTINCT anchors" "yes" \
+  "$([ -n "${STEM_ANCHOR[coll.ide]:-}" ] && [ "${STEM_ANCHOR[coll.ide]:-}" != "${STEM_ANCHOR[coll-ide]:-}" ] && echo yes || echo no)"
+assert_eq "D3: the collision is disambiguated to base + base-2" "coll-ide coll-ide-2" \
+  "$(printf '%s\n%s\n' "${STEM_ANCHOR[coll.ide]}" "${STEM_ANCHOR[coll-ide]}" | sort | tr '\n' ' ' | sed 's/ $//')"
+
+# D5: wb_board_v2_stage_states' DONE branches (a done task renders no card, so
+# call the resolver directly, binding the model arrays under the nameref names
+# it reads). donestage: ideate+brainstorm text (sig bits 0/1) and status:done
+# (work stage) all resolve DONE; plan+review have no done/progress signal but
+# ARE in the default path membership (empty path: => bits 00111), so they show
+# as `p` (pending) => "ddpdp" (ideate d, brainstorm d, plan p, work d, review p).
+declare -n _m_stage_sig=M_STAGE_SIG _m_status=M_STATUS _m_plan_checked=M_PLAN_CHECKED
+donestage_states=""; wb_board_v2_stage_states donestage donestage_states
+unset -n _m_stage_sig _m_status _m_plan_checked
+assert_eq "D5: ideate/brainstorm text + status:done fire the stage DONE branches" "ddpdp" "$donestage_states"
+
 # --- U5: family-rollup.json side-output ----------------------------------
 rollup="$FIXTURE_TASKS/.board-cache/family-rollup.json"
 assert_eq "family-rollup.json is written" "0" "$([ -f "$rollup" ] && echo 0 || echo 1)"
@@ -689,6 +757,32 @@ if command -v jq >/dev/null 2>&1 && [ -f "$rollup" ]; then
   assert_eq "family-rollup.json has one entry per model family" "$fam_badge_count" "$rollup_families"
   ladder_child="$(jq -r '.[] | select(.root=="ladder-parent") | .rungs[0].child' "$rollup" 2>/dev/null)"
   assert_eq "family-rollup.json ladder rung resolves the same child as the HTML" "ladder-parent-child1" "$ladder_child"
+
+  # fix(review) D2: children carry `repo` so a multi-repo /handoff consumer can
+  # route each without re-deriving it.
+  child_repo="$(jq -r '.[] | select(.root=="fam-parent") | .children[0].repo' "$rollup" 2>/dev/null)"
+  assert_eq "D2: rollup children carry repo" "dotfiles" "$child_repo"
+
+  # fix(review) D2: artifacts carry the RESOLVED link (abs path, file:// href,
+  # boolean missing) the HTML uses — not just the raw as-authored path an agent
+  # can't open. (fam-parent's dossiers/*.md fixtures aren't on disk, so missing
+  # is true; abs/href are still resolved.)
+  art_resolved="$(jq -r '.[] | select(.root=="fam-parent") | all(.artifacts[]; (.abs|length>0) and (.href|startswith("file://")) and (.missing|type=="boolean"))' "$rollup" 2>/dev/null)"
+  assert_eq "D2: rollup artifacts carry resolved abs/href/missing" "true" "$art_resolved"
+  # raw path is kept too (additive, back-compat).
+  art_has_path="$(jq -r '.[] | select(.root=="fam-parent") | all(.artifacts[]; .path|length>0)' "$rollup" 2>/dev/null)"
+  assert_eq "D2: rollup artifacts keep the raw path (additive)" "true" "$art_has_path"
+
+  # deep coverage: the two same-basename plan.md artifacts (fam-parent's own and
+  # fam-parent-child1's) both survive as DISTINCT paths — not deduped on basename.
+  plan_paths="$(jq -r '.[] | select(.root=="fam-parent") | [.artifacts[].path] | map(select(endswith("plan.md"))) | unique | length' "$rollup" 2>/dev/null)"
+  assert_eq "deep: same-basename plan.md artifacts kept distinct in the rollup" "2" "$plan_paths"
+
+  # deep coverage: the family's Decisions text is aggregated into the entry.
+  dec_count="$(jq -r '.[] | select(.root=="fam-parent") | .decisions | length' "$rollup" 2>/dev/null)"
+  assert_eq "deep: rollup aggregates the family's decision(s)" "1" "$dec_count"
+  dec_text="$(jq -r '.[] | select(.root=="fam-parent") | .decisions[0].text' "$rollup" 2>/dev/null)"
+  assert "deep: the aggregated decision carries its text" 'Ship it this way|simpler approach|Chose' "$dec_text"
 fi
 
 echo

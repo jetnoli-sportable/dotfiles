@@ -298,27 +298,6 @@ wb_board_deps_blocking() {
   done
 }
 
-# wb_board_escape_replacement <text> — escape <text> for safe use as the
-# REPLACEMENT side of bash's ${var//pattern/replacement} (U7's page-
-# template substitution). An unescaped `&` there means "insert whatever
-# matched the pattern" (mirrors sed's replacement syntax) — silently
-# corrupting every HTML entity (&amp;, &#183;, &lt;, ...) in the value
-# being substituted, since HTML-escaped content is FULL of literal `&`.
-# Backslash is escaped FIRST, or a real backslash already in the text
-# would combine with the newly-inserted `\&` and change meaning.
-#
-# NOTE: the board's own page assembly no longer uses this — it fills the
-# template with wb_board_v2_fill_template below, which appends fragments
-# verbatim instead of running them through a substitution. Kept because it
-# is a general-purpose helper (and the trap it documents is a real one for
-# any future `${var//}` templating), not because the renderer calls it.
-wb_board_escape_replacement() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//&/\\&}"
-  printf '%s' "$s"
-}
-
 # wb_board_v2_fill_template <template> <tokens_assoc_name> <out_var> —
 # substitute every @@TOKEN@@ in <template> with <tokens_assoc>[TOKEN], in a
 # single left-to-right walk of the TEMPLATE, appending each fragment to the
@@ -384,11 +363,34 @@ wb_board_v2_fill_template() {
 # wb_board_collect_rows_v2 below. Was verified byte-identical to that old
 # function's output for every character class it handles (ASCII,
 # punctuation, empty string) before it was removed in U4's cutover.
+# fix(review) D3: unique-by-construction. The sanitizer maps every char outside
+# [A-Za-z0-9_-] to '-', so two DISTINCT stems differing only by '.'-vs-punct
+# (foo.bar vs foo-bar) used to collapse to ONE id — and U8's shared #detail-pool
+# getElementById('detail-'+anchor) would then mount the WRONG task's detail block
+# (same for card-/lane-/fam- ids). Now the first stem to claim a base keeps it
+# byte-identical to before (no collision exists in real/test data today), and a
+# later distinct stem that collides on that base gets a '-2'/'-3'/... suffix.
+# Memoized per stem (WB_BOARD_ANCHOR_FOR) so the anchor is a stable function of
+# the stem within one render — every call site (collect, deps, the ~15 render
+# sites) sees the same value; WB_BOARD_ANCHOR_USED is the cross-stem collision
+# set. Both are reset per render at the top of wb_board_collect_rows_v2.
+declare -gA WB_BOARD_ANCHOR_FOR=() WB_BOARD_ANCHOR_USED=()
 wb_board_v2_anchor() {
   # fix(review) D2A: optional <out_var> so the collect loop can call this as a
   # plain statement (printf -v, no subshell) instead of `$(...)`; stdout
   # fallback keeps existing/test callers working.
-  local __a="${1//[^A-Za-z0-9_-]/-}"
+  local __key="$1" __a __base
+  if [ -n "${WB_BOARD_ANCHOR_FOR["$__key"]+x}" ]; then
+    __a="${WB_BOARD_ANCHOR_FOR["$__key"]}"
+  else
+    __base="${1//[^A-Za-z0-9_-]/-}"; __a="$__base"
+    if [ -n "${WB_BOARD_ANCHOR_USED["$__a"]+x}" ]; then
+      local __n=2
+      while [ -n "${WB_BOARD_ANCHOR_USED["${__base}-${__n}"]+x}" ]; do __n=$((__n + 1)); done
+      __a="${__base}-${__n}"
+    fi
+    WB_BOARD_ANCHOR_FOR["$__key"]="$__a"; WB_BOARD_ANCHOR_USED["$__a"]=1
+  fi
   if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__a"; else printf '%s' "$__a"; fi
 }
 
@@ -686,6 +688,10 @@ wb_board_v2_mtimes() {
 wb_board_collect_rows_v2() {
   local -n _cr_rows="$1" _cr_plan="$2" _cr_done="$3" _cr_handoff="$4" _cr_followups="$5"
   local -n _cr_decisions="$6" _cr_links="$7"
+  # fix(review) D3: reset the anchor uniqueness maps per render so a repeated
+  # render in the same process (the test harness renders several fixtures back to
+  # back) starts fresh rather than carrying a prior store's anchors forward.
+  WB_BOARD_ANCHOR_FOR=(); WB_BOARD_ANCHOR_USED=()
   local -A _mtimes=()
   wb_board_v2_mtimes _mtimes
   local now; now="$(date +%s)"
@@ -710,6 +716,15 @@ wb_board_collect_rows_v2() {
     wb_board_v2_anchor "$stem" anchor
     parent="${t[7]:-}"
     wb_task_own_parent "$parent" "$stem" || parent=""
+    # fix(review) D1: a `parent:` value naming no real file becomes a PHANTOM
+    # family root, and unlike a real stem (guarded at line ~707) it never passed
+    # the [A-Za-z0-9._-] invariant — wb_task_own_parent only self-ref-guards it.
+    # An unsanitized phantom root reaches every family sink (the fam-hero
+    # data-copy `wb resume <stem>` clipboard text is HTML-escaped, not
+    # shell-escaped). Enforce the same invariant here: a parent with an illegal
+    # char is dropped, so the child is simply parentless (its own root) and no
+    # metacharacter can reach any sink. Safe by construction, matching D5.
+    case "$parent" in *[!A-Za-z0-9._-]*) parent="" ;; esac
     title="${t[13]:-}"; [ -n "$title" ] || title="$stem"
     updated="${_mtimes["$f"]:-0}"
     wb_board_v2_age_days "$updated" "$now" age_days
@@ -926,20 +941,6 @@ wb_board_v2_bullet_html() {
   if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$out"; else printf '%s' "$out"; fi
 }
 
-# wb_board_v2_handoff_heading <raw_handoff_text> — the latest Handoff
-# block's own "### <timestamp> — <source>" heading line, minus the "### "
-# marker, or empty. wb_board_v2_read_file already scoped <raw_handoff_text>
-# to just the LAST such block (R16's single pass), so this is just the
-# first line here, no re-filtering.
-wb_board_v2_handoff_heading() {
-  local raw="${1:-}" line
-  while IFS= read -r line; do
-    case "$line" in
-      '### '*) printf '%s' "${line#'### '}"; return 0 ;;
-    esac
-  done <<< "$raw"
-}
-
 # wb_board_v2_handoff_next <raw_handoff_text> — the `/wb-save`-authored
 # "**Next:** ..." line from the latest Handoff block, or empty (a terse
 # `wb pause`/`wb resume`-authored entry has no such field).
@@ -1135,27 +1136,6 @@ wb_board_v2_followups_ul() {
   local __o
   if [ -n "$items" ]; then __o="<ul>$items</ul>"
   else __o='<p style="color:var(--subtext);font-size:14.5px;margin:0;">No follow-ups.</p>'
-  fi
-  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__o"; else printf '%s' "$__o"; fi
-}
-
-# wb_board_v2_handoff_meta <stem> — "Latest handoff · <heading> — "<summary>""
-# for the drilldown/wdrill's meta line, or a placeholder when the task has
-# no Handoffs section at all.
-wb_board_v2_handoff_meta() {
-  local stem="$1" raw heading summary __o __h
-  raw="${_m_handoff_raw[$stem]:-}"
-  if [ -z "$raw" ]; then
-    __o='No handoff logged yet.'
-  else
-    heading="$(wb_board_v2_handoff_heading "$raw")"
-    wb_board_html_escape "$heading" __h
-    __o="Latest handoff &middot; $__h"
-    summary="${_m_handoff_summary[$stem]:-}"
-    if [ -n "$summary" ]; then
-      wb_board_html_escape "$summary" __h
-      __o+=" &mdash; &ldquo;${__h}&rdquo;"
-    fi
   fi
   if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__o"; else printf '%s' "$__o"; fi
 }
@@ -2666,7 +2646,10 @@ wb_board_render_v2() {
       # raw — escape it like id/title so a hand-edited status: never breaks the
       # rollup's JSON validity for a downstream jq consumer.
       local __hs; wb_board_v2_json_escape "${_m_status[$fr_jc_m]:-}" __hs
-      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
+      # fix(review) D2: emit repo so a multi-repo /handoff consumer can route each
+      # child without re-deriving it (_m_repo is already in scope).
+      local __hrepo; wb_board_v2_json_escape "${_m_repo[$fr_jc_m]:-}" __hrepo
+      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"repo\":\"${__hrepo}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
     done
     local fr_json_decisions="" fr_jd_first=1 fr_jd_date fr_jd_text fr_jd_src
     if [ -n "$fr_decisions_full_sorted" ]; then
@@ -2685,7 +2668,16 @@ wb_board_render_v2() {
       wb_board_v2_json_escape "${fr_link_label[$fr_ja_i]}" __h
       wb_board_v2_json_escape "${fr_link_path[$fr_ja_i]}" __h2
       local __hasrc; wb_board_v2_json_escape "${fr_link_source[$fr_ja_i]}" __hasrc
-      fr_json_artifacts+="{\"kind\":\"${fr_link_kind[$fr_ja_i]}\",\"label\":\"${__h}\",\"path\":\"${__h2}\",\"source\":\"${__hasrc}\"}"
+      # fix(review) D2: also emit the RESOLVED link the HTML uses (abs path,
+      # file:// href, missing-on-disk flag), computed at :2639 just above — so a
+      # /handoff-consuming agent gets the same openable path a human gets from
+      # the HTML, not the raw as-authored relative path it can't resolve alone.
+      # `path` stays for back-compat / provenance (additive, per D2 option A).
+      local __habs __href __amiss
+      wb_board_v2_json_escape "${fr_link_abs[$fr_ja_i]}" __habs
+      wb_board_v2_json_escape "${fr_link_href[$fr_ja_i]}" __href
+      [ -n "${fr_link_missing[$fr_ja_i]}" ] && __amiss=true || __amiss=false
+      fr_json_artifacts+="{\"kind\":\"${fr_link_kind[$fr_ja_i]}\",\"label\":\"${__h}\",\"path\":\"${__h2}\",\"abs\":\"${__habs}\",\"href\":\"${__href}\",\"missing\":${__amiss},\"source\":\"${__hasrc}\"}"
     done
     local fr_json_rungs="" fr_jr_first=1 fr_jr_line
     if [ -n "$fr_ladder" ]; then
