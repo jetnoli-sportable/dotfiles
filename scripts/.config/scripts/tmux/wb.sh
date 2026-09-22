@@ -5160,16 +5160,19 @@ cmd_board() {
       M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
       M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
       M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
-      STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=()
+      STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
+      M_SIZE=() M_ACCEPT=()
     # fix(review) P2 follow-up: the 22-name model-array sequence was hand-typed
     # identically at both call sites below (found in PR 1 review) — hoisted to
     # one constant so U5's 2 new trailing arrays only had to be added once,
-    # and any future model field only ever needs adding here.
+    # and any future model field only ever needs adding here. U2 (KTD8) adds
+    # M_SIZE/M_ACCEPT at the END of this list, after M_PR_URL, for the same
+    # reason — both call sites below pick them up automatically.
     local -a WB_BOARD_MODEL_ARGS=(
       M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
       M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
       M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-      FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL
+      FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
     )
     wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
       "${WB_BOARD_MODEL_ARGS[@]}"
