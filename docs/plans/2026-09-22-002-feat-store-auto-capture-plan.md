@@ -58,6 +58,7 @@ The living-task-store loop is detect → distill → apply → propagate. Stages
 **Measure**
 - R10. Every capture event (nudge fired with its source, followed, dismissed, muted, sweep ran/skipped, pending at end) appends one JSON line to a local log outside `~/code/tasks`.
 - R11. At SessionEnd, a still-pending marker or draft is logged as `pending_at_end`. Nothing is written to the task's `## Handoffs`.
+- R18. When `/close-out` closes a task whose `## Decisions` is still empty, and the session confirms nothing was decided, it appends an explicit "no decisions" entry. That makes "empty because nothing was decided" distinguishable from "empty because a decision was missed".
 - R12. A dated graduation-review follow-up (about 2 weeks after merge) is recorded. The log is enough on its own to compute the follow rate and the dismissal rate.
 
 **Sweep**
@@ -89,14 +90,14 @@ The living-task-store loop is detect → distill → apply → propagate. Stages
 
 ### Key Technical Decisions
 
-- KTD1. **Deferred nudge, split across two hooks (D1).** A Stop hook can't inject context without `decision:"block"`, which forces the agent to keep going; without the block its `additionalContext` is discarded. So Stop only sets a marker, and UserPromptSubmit delivers the nudge. Nothing ever blocks a turn.
+- KTD1. **Deferred nudge, split across two hooks (D1).** A Stop hook can't inject context without `decision:"block"`, which forces the agent to keep going; without the block its `additionalContext` is discarded. So Stop only sets a marker, and UserPromptSubmit delivers the nudge. Nothing ever blocks a turn. PreCompact was considered and not used: Stop already fires at every turn boundary, and PreCompact can only allow or block compaction, not inject context.
 - KTD2. **"Already recorded" comes from a PostToolUse(Bash) hook, not a transcript scan.** It matches `tool_input.command` against `wb append` plus the `Decisions` heading using a cheap raw-stdin grep pre-filter (the `pretooluse-guard.sh` pattern). This is exact, costs one grep per Bash call, fires for sub-agents too, and gives the "followed" event for free. The Stop hook then only needs `last_assistant_message` from its stdin, with no JSONL parsing on the hot path.
 - KTD3. **Per-session state under `${XDG_STATE_HOME:-$HOME/.local/state}/wb/capture/<session_id>/`, plus one shared `log.jsonl`.** Keying by `session_id` keeps two sessions on one task file separate, and makes `/clear` (new session_id) naturally orphan the stale marker or draft. The UserPromptSubmit hook stamps the tmux pane option `@wb_capture_sid`, so `/wb-decide` (run via the agent's Bash, which inherits `TMUX_PANE`) can find its own session without a dependency on `claude-notify-hook.sh`. The kill switch is `…/wb/disable-capture`, matching the existing `disable-agent-hook` shape. Nothing is written under `~/code/tasks`, so the tasks-store guard is never involved.
-- KTD4. **The scripts live in `scripts/.config/scripts/tmux/`, and the plugin only registers them (refines D6).** A skills-dir plugin loads from its folder (it isn't cache-copied), so bundling the scripts would have been possible. Keeping them beside the existing hooks buys docgen indexing (the `scripts` source kind), the pre-commit regen trigger (`scripts/.config/scripts/tmux/*.sh`), and the established test conventions. The plugin is `claude/.claude/skills/wb-capture/`, holding `.claude-plugin/plugin.json` and `hooks/hooks.json`. `stow --no-folding -t "$HOME" claude` places it at `~/.claude/skills/wb-capture/`, where Claude Code auto-loads it as `wb-capture@skills-dir`, with no marketplace. Hook commands are shell-form: `"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/capture.sh" <verb>`. The override lets a worktree be tested with `claude --plugin-dir` before merge.
+- KTD4. **The scripts live in `scripts/.config/scripts/tmux/` as `wb-capture.sh` / `wb-capture-sweep.sh`, and the plugin only registers them (refines D6).** They're prefixed `wb-` because `capture.sh` already exists there: it's the weekly-capture doc opener bound to `prefix+N` in `tmux/.config/tmux/tmux.conf`, and it must not be touched. A skills-dir plugin loads from its folder (it isn't cache-copied), so bundling the scripts would have been possible. Keeping them beside the existing hooks buys docgen indexing (the `scripts` source kind), the pre-commit regen trigger (`scripts/.config/scripts/tmux/*.sh`), and the established test conventions. The plugin is `claude/.claude/skills/wb-capture/`, holding `.claude-plugin/plugin.json` and `hooks/hooks.json`. `stow --no-folding -t "$HOME" claude` places it at `~/.claude/skills/wb-capture/`, where Claude Code auto-loads it as `wb-capture@skills-dir`, with no marketplace. Hook commands are shell-form: `"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/wb-capture.sh" <verb>`. The override lets a worktree be tested with `claude --plugin-dir` before merge.
 - KTD5. **Hooks never source `wb.sh` and never write the store.** Only `/wb-decide`, run by the live agent, writes to `~/code/tasks`, by running `wb append` as a separate process. This keeps the 2026-07-10 deletion-incident class (`CODE_DIR` clobbered by `source wb.sh`) out of hook code, and matches the existing split where hooks write transient state and skills write the store.
 - KTD6. **The sweep is a non-bare headless child on the subscription.** It runs as `WB_CAPTURE_SWEEP=1 timeout <T> claude -p --model haiku --no-session-persistence --max-turns 1`, with tools disabled, cwd set to the session state dir (so no repo `CLAUDE.md` or project settings load), and stdin carrying the prompt, the transcript excerpt and the task's `## Decisions`. `--bare` would skip hooks outright, but it needs an API key instead of the subscription, so the recursion guard is our own environment flag, checked first by every capture script. `--no-session-persistence` keeps the child out of `wb_transcripts`. The output contract is the literal `NONE` or a draft body. The draft is written tmp-then-`mv`, so a reader never sees a partial file.
 - KTD7. **One nudge line, with the draft taking precedence.** Phrase nudge: `[wb-capture] Last turn read like a decision ("<matched phrase>"). If it settled something, run /wb-decide; otherwise ignore or /wb-decide dismiss.` Draft nudge: `[wb-capture] A background review drafted an unrecorded decision (<draft path>). Run /wb-decide to review/accept, or /wb-decide dismiss.` Neither restates `@task`, since the agent already has it.
-- KTD8. **Defaults live in `capture.sh`, overridden by an optional untracked `${XDG_CONFIG_HOME:-$HOME/.config}/wb/capture.conf`.** It's parsed as `KEY=value` lines (never sourced). The keys are phrase list, cooldown, sweep N, sweep on/off and sweep timeout. The agent tunes behaviour with plain Read/Edit of one documented file, not a task-store verb, since this isn't task metadata.
+- KTD8. **Defaults live in `wb-capture.sh`, overridden by an optional untracked `${XDG_CONFIG_HOME:-$HOME/.config}/wb/capture.conf`.** It's parsed as `KEY=value` lines (never sourced). The keys are phrase list, cooldown, sweep N, sweep on/off and sweep timeout. The agent tunes behaviour with plain Read/Edit of one documented file, not a task-store verb, since this isn't task metadata.
 - KTD9. **`/wb-decide` is a plain skill** (`claude/.claude/skills/wb-decide/`), not inside the plugin. Plugin skills are namespaced (`/wb-capture:wb-decide`), and a plain skill keeps the short `/wb-decide` that the nudge text and `/wb-save` symmetry rely on.
 
 ### High-Level Technical Design
@@ -107,10 +108,10 @@ Per-turn lifecycle of one wb session (all hooks exit 0; none block):
 sequenceDiagram
   participant U as User
   participant CC as Claude Code
-  participant P as capture.sh hook-prompt
-  participant T as capture.sh hook-posttool
-  participant S as capture.sh hook-stop
-  participant W as capture-sweep.sh (async)
+  participant P as wb-capture.sh hook-prompt
+  participant T as wb-capture.sh hook-posttool
+  participant S as wb-capture.sh hook-stop
+  participant W as wb-capture-sweep.sh (async)
   participant H as claude -p haiku (child)
   participant St as state dir (per session_id)
   U->>CC: prompt
@@ -138,7 +139,7 @@ Per-session state (`…/wb/capture/<session_id>/`):
 | `recorded` | hook-posttool | hook-stop (same turn) |
 | `cooldown` (turns remaining) | hook-stop | counts down in hook-stop |
 | `taskhash` + `unchanged` counter | hook-stop | reset on hash change or after a sweep |
-| `draft` | capture-sweep.sh | `/wb-decide` accept, dismiss |
+| `draft` | wb-capture-sweep.sh | `/wb-decide` accept, dismiss |
 | `muted` | `/wb-decide mute` | `/wb-decide unmute` |
 | `outstanding` (a nudge was delivered, awaiting follow) | hook-prompt | hook-posttool (→ `followed`), dismiss |
 | `ended` (tombstone) | hook-end | reaper removes the whole dir |
@@ -147,11 +148,12 @@ At SessionEnd, `hook-end` logs `pending_at_end` if `marker` or `draft` exists an
 
 ### Assumptions
 
-None beyond those U1 verifies. Each U1 check has a named fallback in U1.
+- Platform behaviour: only what U1 verifies. Each U1 check has a named fallback.
+- The decision-phrase list's precision and recall are unverified. Expect false positives (cheap: one ignorable line, with a cooldown) and misses (which the Haiku sweep backstops). It's tuned against real transcripts during U3 and at the graduation review.
 
 ### Sequencing
 
-U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the skill) depends only on U2's agent-facing verbs. U7 (plugin wiring) needs U3–U5. U8 (docs and follow-up) comes last.
+U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the skill) depends only on U2's agent-facing verbs. U7 (plugin wiring) needs U3–U5. U9 (the close-out marker) is independent and can land at any point. U8 (docs and follow-up) comes last.
 
 ---
 
@@ -170,16 +172,16 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
   4. `docgen.sh` tolerates a `claude/.claude/skills/wb-capture/` directory with no `SKILL.md`. Run it in a `git archive` clean-room copy, never the shared checkout.
   5. Session identity across lifecycle events: does `/clear` issue a new `session_id`, and does SessionEnd fire when the tmux session is killed (`wb pause`/`wb down` use `tmux kill-session`)? Does a `wb resume` (which pre-types `claude --resume <id>`) keep the prior `session_id`?
 - **Execution note:** this is a spike. Probe artifacts live in the scratchpad and are removed; nothing here ships. Kill no processes and stop no units without asking Jet.
-- **Fallbacks:** if check 1 fails, install the same plugin dir from a local-directory marketplace (loads in place per docs). If check 4 fails, move the plugin to a new non-stowed top-level `plugins/wb-capture/`, installed via a local marketplace. If check 3 shows the guard leaking, add `--settings` with hooks disabled if the flag exists; otherwise stop and ask about `--bare` with an API key. If check 2 shows sub-agent tool calls carry a *different* `session_id`, `hook-posttool` also writes a task-scoped `recorded` flag (keyed by the `@task` stem) that `hook-stop` honours. If check 5 shows `/clear` keeps the same `session_id`, `hook-prompt` also clears a pending marker when the transcript path changes.
+- **Fallbacks:** if check 1 fails, install the same plugin dir from a local-directory marketplace (loads in place per docs). If check 4 fails, move the plugin to a new non-stowed top-level `plugins/wb-capture/`, installed via a local marketplace. If check 3 shows the guard leaking, add `--settings` with hooks disabled if the flag exists; otherwise stop and ask about `--bare` with an API key. If check 2 shows sub-agent tool calls carry a *different* `session_id`, `hook-posttool` also writes a task-scoped `recorded` flag (keyed by the `@task` stem) that `hook-stop` honours. If check 2 shows PostToolUse doesn't fire at all for sub-agent tool calls, `hook-prompt` records a hash of the task's `## Decisions` section at turn start, and `hook-stop` treats a changed section as "recorded". Sub-agent Bash calls land in separate sub-agent transcripts, so scanning the parent transcript wouldn't see them. This catches any writer, `store-specialist` included; the cost is that another agent's write in the same turn also suppresses the nudge, which is accepted. If check 5 shows `/clear` keeps the same `session_id`, `hook-prompt` also clears a pending marker when the transcript path changes.
 - **Test scenarios:** Test expectation: none. This is a spike whose output is a findings entry.
 - **Verification:** a Decisions entry states pass/fail per check, with the fallback taken where one was needed.
 
-### U2. Shared capture core (`capture.sh`: state, config, guards, log, agent verbs)
+### U2. Shared capture core (`wb-capture.sh`: state, config, guards, log, agent verbs)
 
 - **Goal:** One script that owns the state dir, config parsing, guard chain, log append and the agent-facing verbs. Every hook and the skill go through it.
 - **Requirements:** R5, R8, R9, R10, R16.
 - **Dependencies:** U1.
-- **Files:** `scripts/.config/scripts/tmux/capture.sh` (new), `scripts/.config/scripts/tmux/tests/capture-core.test.sh` (new).
+- **Files:** `scripts/.config/scripts/tmux/wb-capture.sh` (new), `scripts/.config/scripts/tmux/tests/wb-capture-core.test.sh` (new).
 - **Approach:**
   - Subcommand dispatch in the same shape as `claude-notify-hook.sh` (`case "$1"`). Hook verbs are added in U3–U5. The agent verbs are `clear`, `dismiss`, `mute`, `unmute` and `status`. `clear` drops the marker, draft and outstanding flag without logging; it's used after a successful write, whose `followed` event the PostToolUse hook already logs. `dismiss` does the same clearing but logs `dismissed`. `status` prints the session's pending marker/draft, mute state and log path.
   - Session resolution: from stdin JSON for hooks; from the pane option `@wb_capture_sid` for agent verbs.
@@ -196,14 +198,14 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
   - Config: a missing file gives the defaults. A file with an unknown key or a malformed line is ignored and the valid keys are applied. The file is never executed: a line containing `$(…)` stays literal.
   - Two session_ids with the same `@task` get separate state dirs, and verbs on one don't touch the other.
   - An agent verb with `@wb_capture_sid` unset prints one clear error line and exits 0.
-- **Verification:** `capture-core.test.sh` passes in the Docker sandbox.
+- **Verification:** `wb-capture-core.test.sh` passes in the Docker sandbox.
 
 ### U3. Detect and nudge hooks (`hook-stop`, `hook-posttool`, `hook-prompt`)
 
 - **Goal:** The synchronous nudge loop: detect at Stop, suppress on a recorded decision, deliver at the next prompt.
 - **Requirements:** R1, R2, R3, R4, R10.
 - **Dependencies:** U2.
-- **Files:** `scripts/.config/scripts/tmux/capture.sh` (add verbs), `scripts/.config/scripts/tmux/tests/capture-hooks.test.sh` (new).
+- **Files:** `scripts/.config/scripts/tmux/wb-capture.sh` (add verbs), `scripts/.config/scripts/tmux/tests/wb-capture-hooks.test.sh` (new).
 - **Approach:**
   - `hook-posttool`: raw-stdin grep pre-filter for `wb` plus `append` plus `Decisions` before any jq; then confirm on `.tool_input.command`. Sets `recorded`. If `outstanding` exists, logs `followed` and clears it.
   - `hook-stop`, in order:
@@ -227,14 +229,14 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
   - Output shape: prompt output parses as JSON with `.hookSpecificOutput.hookEventName == "UserPromptSubmit"` and a single-line `additionalContext` (no newline).
   - Nothing pending: prompt emits nothing (empty stdout).
   - Task-hash: an unchanged task file increments the counter, and an external append to the task file resets it to 0.
-- **Verification:** `capture-hooks.test.sh` passes in the sandbox.
+- **Verification:** `wb-capture-hooks.test.sh` passes in the sandbox.
 
-### U4. Haiku sweep (`capture-sweep.sh`)
+### U4. Haiku sweep (`wb-capture-sweep.sh`)
 
 - **Goal:** A propose-only background review that drafts an unrecorded decision when the task file has gone stale.
 - **Requirements:** R13, R14, R15, R16, R10.
 - **Dependencies:** U2, U3 (the task-hash counter).
-- **Files:** `scripts/.config/scripts/tmux/capture-sweep.sh` (new), `scripts/.config/scripts/tmux/tests/capture-sweep.test.sh` (new).
+- **Files:** `scripts/.config/scripts/tmux/wb-capture-sweep.sh` (new), `scripts/.config/scripts/tmux/tests/wb-capture-sweep.test.sh` (new).
 - **Approach:**
   - Guards come from U2, plus: sweep enabled, not muted, `unchanged ≥ N`, and no draft already pending (never stack drafts).
   - Build the excerpt from `transcript_path` with jq: user and assistant text blocks since the last sweep, capped to a byte budget and truncated from the oldest end. Add the task's `## Decisions` section, extracted with awk, never by sourcing `wb.sh`.
@@ -246,25 +248,25 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
   - Fires: `unchanged=N` with a fake `claude` printing a draft writes `draft` atomically (no `.tmp` left behind), logs `sweep_ran{result:draft}` and resets the counter.
   - Nothing found: a fake `claude` printing `NONE` writes no draft and logs `result:none`.
   - Child invocation shape: the fake records `WB_CAPTURE_SWEEP=1`, `--model haiku`, `--no-session-persistence` and `--max-turns 1`, with cwd equal to the session state dir.
-  - Recursion: running `capture-sweep.sh` and every `capture.sh` hook verb with `WB_CAPTURE_SWEEP=1` in the environment does nothing and logs nothing.
+  - Recursion: running `wb-capture-sweep.sh` and every `wb-capture.sh` hook verb with `WB_CAPTURE_SWEEP=1` in the environment does nothing and logs nothing.
   - Timeout or error: a fake `claude` that sleeps past the timeout, or exits non-zero, writes no draft and logs `result:timeout|error`.
   - Skips: sweep disabled, muted, `unchanged < N`, or a draft already pending each log `sweep_skipped` with the reason, and the fake `claude` is never invoked.
   - Excerpt budget: an oversized transcript fixture yields stdin at or under the byte cap, keeping the newest turns.
-- **Verification:** `capture-sweep.test.sh` passes in the sandbox. U1 check 3 recorded the real-child behaviour.
+- **Verification:** `wb-capture-sweep.test.sh` passes in the sandbox. U1 check 3 recorded the real-child behaviour.
 
 ### U5. Session close-out (`hook-end` + stale-state reaper)
 
 - **Goal:** Close out a session's capture state and log anything left pending. This must work both when SessionEnd fires (within its 1.5s budget) and when it never does: `wb pause`/`wb down` end sessions with `tmux kill-session`.
 - **Requirements:** R11, R10.
 - **Dependencies:** U2.
-- **Files:** `scripts/.config/scripts/tmux/capture.sh` (add `hook-end` and the reaper), `scripts/.config/scripts/tmux/tests/capture-hooks.test.sh` (extend).
+- **Files:** `scripts/.config/scripts/tmux/wb-capture.sh` (add `hook-end` and the reaper), `scripts/.config/scripts/tmux/tests/wb-capture-hooks.test.sh` (extend).
 - **Approach:**
   - **`hook-end`:** if `marker` or `draft` exists, log `pending_at_end{marker:bool,draft:bool}`, then write an `ended` tombstone in the session dir. Don't delete here; the reaper does that. There's no jq-heavy work, no network and no task-file access.
   - **Reaper:** runs opportunistically from `hook-prompt` in any wb session, at most once per hour (a stamp file in the capture root).
     - It removes session dirs that carry `ended`, and dirs untouched for 7+ days. A stale dir that still has a marker or draft first logs `pending_orphaned`.
     - It rotates `log.jsonl` to `log.jsonl.1` past a size cap (default 5 MB).
     - Removal is always by explicit per-dir file names under the validated capture root, never a recursive delete of a computed path.
-  - **Sweep interaction:** `capture-sweep.sh` (U4) checks for `ended` before launching the child and again before writing the draft. If the session ended meanwhile, it logs `pending_at_end{draft:true}` instead of writing, so a late draft never lands in a reaped or ended dir.
+  - **Sweep interaction:** `wb-capture-sweep.sh` (U4) checks for `ended` before launching the child and again before writing the draft. If the session ended meanwhile, it logs `pending_at_end{draft:true}` instead of writing, so a late draft never lands in a reaped or ended dir.
 - **Test scenarios:**
   - A pending marker at SessionEnd gives one `pending_at_end` log line and the `ended` tombstone, and the task file is byte-identical, `## Handoffs` included.
   - Nothing pending: only the tombstone is written and nothing is logged.
@@ -272,7 +274,7 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
   - Log rotation: a `log.jsonl` over the cap is moved to `.1`, and the next event starts a new file.
   - Sweep race: `ended` appears while the fake `claude` is running, so no draft file is written and `pending_at_end{draft:true}` is logged.
   - The state-dir path computes to empty or to a path outside the capture root: nothing is removed and it fails open.
-- **Verification:** the extended `capture-hooks.test.sh` passes.
+- **Verification:** the extended `wb-capture-hooks.test.sh` passes.
 
 ### U6. `/wb-decide` skill
 
@@ -281,9 +283,9 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 - **Dependencies:** U2 (the agent verbs and `@wb_capture_sid`).
 - **Files:** `claude/.claude/skills/wb-decide/SKILL.md` (new).
 - **Approach:** mirror `claude/.claude/skills/wb-save/SKILL.md`: trigger-dense `description` frontmatter, `@task` resolution with its two distinct error paths, and a heredoc `wb append "$task_file" Decisions <<EOF` call.
-  - **Default mode:** if `capture.sh status` shows a draft, present it and accept it, or edit it, only if it reflects a real decision. Otherwise compose from session context: what was decided, the rejected alternative, and why, in the task's existing Decisions style.
-  - **After writing:** run `capture.sh clear`, which drops the draft and marker without a `dismissed` event. The write's own `followed` event comes from the PostToolUse hook.
-  - **Other modes:** `dismiss`, `mute` and `unmute` are passthroughs to `capture.sh`.
+  - **Default mode:** if `wb-capture.sh status` shows a draft, present it and accept it, or edit it, only if it reflects a real decision. Otherwise compose from session context: what was decided, the rejected alternative, and why, in the task's existing Decisions style.
+  - **After writing:** run `wb-capture.sh clear`, which drops the draft and marker without a `dismissed` event. The write's own `followed` event comes from the PostToolUse hook.
+  - **Other modes:** `dismiss`, `mute` and `unmute` are passthroughs to `wb-capture.sh`.
   - **Rules restated from `/wb-save`:** never Edit/Write the task file, and a correction is a new entry naming what it supersedes.
 - **Test scenarios:** skills have no automated harness in this repo (as with `/wb-save`). The SKILL.md carries a "Test scenarios" checklist: happy path, draft accept, draft reject → dismiss, mute/unmute, not a wb session, stale `@task`. It's exercised in the live checklist.
 - **Verification:** the skill is listed by docgen after regen and passes the live-checklist rows.
@@ -293,15 +295,15 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 - **Goal:** Register the four hook entries through a tracked, auto-loading plugin.
 - **Requirements:** R17.
 - **Dependencies:** U1 (placement confirmed), U3, U4, U5.
-- **Files:** `claude/.claude/skills/wb-capture/.claude-plugin/plugin.json` (new), `claude/.claude/skills/wb-capture/hooks/hooks.json` (new), `scripts/.config/scripts/tmux/tests/capture-plugin.test.sh` (new).
+- **Files:** `claude/.claude/skills/wb-capture/.claude-plugin/plugin.json` (new), `claude/.claude/skills/wb-capture/hooks/hooks.json` (new), `scripts/.config/scripts/tmux/tests/wb-capture-plugin.test.sh` (new).
 - **Approach:**
   - `plugin.json` holds name, description and author only.
   - `hooks.json` has these entries:
-    - UserPromptSubmit → `capture.sh hook-prompt`
-    - PostToolUse matcher `Bash` → `capture.sh hook-posttool`
-    - Stop → `capture.sh hook-stop`
-    - Stop `async: true` → `capture-sweep.sh`
-    - SessionEnd → `capture.sh hook-end`
+    - UserPromptSubmit → `wb-capture.sh hook-prompt`
+    - PostToolUse matcher `Bash` → `wb-capture.sh hook-posttool`
+    - Stop → `wb-capture.sh hook-stop`
+    - Stop `async: true` → `wb-capture-sweep.sh`
+    - SessionEnd → `wb-capture.sh hook-end`
   - Every command is shell-form `"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/…"`. Short timeouts apply to the sync hooks, matching the existing `timeout: 5` convention.
   - The same hooks must not also be added to `settings.recommended.json`, because plugin and settings hooks both run and would double-fire.
 - **Test scenarios:**
@@ -309,7 +311,7 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
   - Every referenced script path exists (resolved against the repo with `WB_CAPTURE_BIN` pointed at `scripts/.config/scripts/tmux`) and is executable.
   - Exactly one sync Stop entry and one async Stop entry.
   - No capture hook appears in `claude/.claude/settings.recommended.json`.
-- **Verification:** `capture-plugin.test.sh` passes, and `claude --plugin-dir claude/.claude/skills/wb-capture` with `WB_CAPTURE_BIN` set to the worktree's scripts shows the hooks firing in one manual session (recorded in the live checklist).
+- **Verification:** `wb-capture-plugin.test.sh` passes, and `claude --plugin-dir claude/.claude/skills/wb-capture` with `WB_CAPTURE_BIN` set to the worktree's scripts shows the hooks firing in one manual session (recorded in the live checklist).
 
 ### U8. Docs, graduation follow-up, live checklist
 
@@ -319,10 +321,29 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 - **Files:** `docs/guides/wb-decide.md` (new; auto-tiles with the skill), `claude/README.md` (add the plugin and its stow/restart note), generated docs via `docgen.sh` (never hand-edited), and `~/code/tasks/dossiers/dotfiles--feat-store-auto-capture/live-verification.html` (new).
 - **Approach:**
   - **Guide:** what fires when, the one-line nudge forms, the state/log/config/kill-switch paths, a `jq` recipe for follow rate and dismissal rate over `log.jsonl`, and how to disable (kill switch, sweep off, mute).
-  - **Follow-up:** append a dated follow-up to the task file for 2026-10-06, "graduation review: compute follow and dismissal rates from `log.jsonl`; compare empty-Decisions rate on tasks closed since merge against the 31/94 baseline".
+  - **Follow-up:** append a dated follow-up to the task file for 2026-10-06, "graduation review: compute follow and dismissal rates from `log.jsonl`; among tasks closed since merge, count those with an empty `## Decisions` and **no** close-out "no decisions" marker (likely misses) separately from marked ones (nothing to record). Compare the unmarked-empty share against the raw 31/94 baseline, noting that the baseline itself is unqualified, since the marker didn't exist yet".
   - **Checklist:** build the tickable live-verification checklist, split into automated-done and to-verify items, per the verification-checklist norm.
 - **Test scenarios:** Test expectation: none. This unit is docs and a follow-up only.
 - **Verification:** docgen regen succeeds (the pre-commit hook covers the guide and scripts), the guide appears on the Hub skills tile, and the task file shows the dated follow-up.
+
+### U9. Close-out "no decisions" marker
+
+- **Goal:** Make an empty `## Decisions` at close mean "missed" rather than "unknown", so the graduation review measures misses and not tasks that had nothing to decide.
+- **Requirements:** R18, R12.
+- **Dependencies:** none.
+- **Files:** `claude/.claude/skills/close-out/SKILL.md` (modify step 4 "Fill in the closing task's own file", and its test-scenarios list).
+- **Approach:**
+  - In step 4, after folding real Decisions: if `## Decisions` is still empty, the agent reviews the session and asks itself whether anything was actually decided.
+    - If something was, write it (via `/wb-decide` or the same `wb append … Decisions -`).
+    - If not, append a marker entry `### <YYYY-MM-DD HH:MM> — close-out` / `_No decisions: <one-line reason>_` through `wb append <task> Decisions -`.
+  - The marker is always an affirmed judgment by the agent, never written automatically, so an unmarked empty section keeps meaning "nobody checked".
+  - Tasks closed by bare `wb done` without `/close-out` stay unmarked. That's accepted for cut 1 and noted in the guide.
+- **Test scenarios:** the skill has no automated harness. Extend its "Test scenarios" list:
+  - empty Decisions with nothing decided → marker written;
+  - empty Decisions but a decision found in the sweep → a real entry, no marker;
+  - Decisions already populated → no marker;
+  - the marker is written via `wb append`, never Edit.
+- **Verification:** a live `/close-out` on a trivial task writes the marker (a live-checklist row), and the U8 graduation recipe distinguishes marked from unmarked empties.
 
 ---
 
@@ -347,7 +368,7 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 | Recursion via the sweep child | env guard checked first by every capture script, a test covering all verbs, and U1 confirming env inheritance |
 | A false-positive draft duplicates an existing entry | the prompt forbids restating present entries, no stacked drafts, and the agent decides in `/wb-decide` |
 | Docgen doesn't index the plugin dir | accepted; scripts and skill are indexed and the plugin dir is a follow-up (existing docgen task) |
-| Full Docker suite has a drifting env-dependent failure floor | re-baseline via clean-room compare; judge only the new `capture-*.test.sh` files and any newly failing file |
+| Full Docker suite has a drifting env-dependent failure floor | re-baseline via clean-room compare; judge only the new `wb-capture-*.test.sh` files and any newly failing file |
 
 ## Open Questions
 
@@ -359,7 +380,7 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 
 | Gate | Command / action | Applies to |
 |---|---|---|
-| New suites | `docker build -t wb-tests -f scripts/.config/scripts/tmux/tests/Dockerfile .` then `docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests bash scripts/.config/scripts/tmux/tests/<capture-*.test.sh>` | U2–U5, U7 |
+| New suites | `docker build -t wb-tests -f scripts/.config/scripts/tmux/tests/Dockerfile .` then `docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests bash scripts/.config/scripts/tmux/tests/<wb-capture-*.test.sh>` | U2–U5, U7 |
 | Full suite, no regressions | run the full sandbox suite and compare failing files against a clean-room `development` baseline; a failure that also fails on baseline is not a regression | all |
 | Docs regen | `docgen.sh` (the pre-commit hook regenerates on commit); run clean-room if the worktree is shared | U6, U8 |
 | Platform spike | U1 findings entry in the task's `## Decisions` | U1 |
@@ -367,7 +388,7 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 
 ## Definition of Done
 
-- All `capture-*.test.sh` suites pass in the sandbox, and the full suite shows no new failing files versus the clean-room baseline.
+- All `wb-capture-*.test.sh` suites pass in the sandbox, and the full suite shows no new failing files versus the clean-room baseline.
 - U1 findings are recorded, and any fallback taken is reflected in the committed layout.
 - The plugin, scripts, skill and guide are committed. The generated docs have been regenerated, not hand-edited.
 - There are no writes to `~/code/tasks` from any hook script (verified by a repo grep for the task dir in capture scripts), and no `source` of `wb.sh` in them.
