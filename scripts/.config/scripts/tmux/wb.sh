@@ -762,7 +762,12 @@ _wb_lock_trap_append_if_top_level() {
 # manifest (one relative path per line, `#` comments allowed). Defaults to
 # `.env*` at the repo root when the repo has no manifest. Files are copied;
 # directories are symlinked back to the main checkout (e.g. node_modules) so
-# a worktree never needs its own reinstall.
+# a worktree never needs its own reinstall. Idempotent per entry — an entry
+# already present in the worktree is left alone: `ln -s` onto an existing
+# directory symlink would nest a link INSIDE the main checkout's dir, and a
+# `cp -a` would clobber a worktree-local edit (e.g. a tweaked `.env`). That
+# is what makes it safe for cmd_new to call on every run, not just on
+# worktree creation.
 wb_bootstrap() {
   local repo_dir="$1" worktree_path="$2" manifest="$repo_dir/.worktree-bootstrap"
   local -a entries=()
@@ -780,18 +785,23 @@ wb_bootstrap() {
       entries+=("$(basename "$f")")
     done < <(find "$repo_dir" -maxdepth 1 -name '.env*' -print0 2>/dev/null)
   fi
-  local entry src dest
+  # Per-entry failures are tracked, not fatal: a caller's `|| warn` disables
+  # errexit in here, so without the explicit rc only a failing LAST entry
+  # would ever surface.
+  local entry src dest rc=0
   for entry in "${entries[@]}"; do
     src="$repo_dir/$entry"
     [ -e "$src" ] || continue
     dest="$worktree_path/$entry"
-    mkdir -p "$(dirname "$dest")"
+    { [ -e "$dest" ] || [ -L "$dest" ]; } && continue
+    mkdir -p "$(dirname "$dest")" || { rc=1; continue; }
     if [ -d "$src" ]; then
-      ln -s "$src" "$dest"
+      ln -s "$src" "$dest" || rc=1
     else
-      cp -a "$src" "$dest"
+      cp -a "$src" "$dest" || rc=1
     fi
   done
+  return "$rc"
 }
 
 # wb_ensure_repo_ignore <path> [<pattern>] — idempotently register <pattern>
@@ -1543,8 +1553,15 @@ cmd_new() {
     else
       git -C "$repo_dir" worktree add -b "$slug" "$worktree_path"
     fi
-    wb_bootstrap "$repo_dir" "$worktree_path"
   fi
+
+  # Unconditional, for the same self-healing reason as the ignore rule
+  # below: a worktree whose dir already existed (ce-worktree, a manual
+  # `git worktree add`, a half-finished earlier `wb new`) would otherwise
+  # never get bootstrapped. wb_bootstrap skips entries already present, so
+  # re-running it is a no-op. Best-effort for the same `set -e` reason.
+  wb_bootstrap "$repo_dir" "$worktree_path" \
+    || echo "wb new: warning: bootstrap of gitignored files into $worktree_path failed (continuing)" >&2
 
   # Unconditional — not just for the branch above. This is self-healing for
   # a repo's OTHER, older worktrees that predate this feature: every `wb new`
@@ -3885,8 +3902,9 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path"
 # the field right after `size:` when it's missing entirely (priority:/
 # value: land there in TEMPLATE.md's own field order) — every other
 # missing field falls back to wb_set_frontmatter_field's own default
-# (just before the closing `---`). No-op (no write, no lock even taken)
-# when the value already matches. Appends a terse Handoffs entry ONLY for
+# (just before the closing `---`). No write when the value already
+# matches — except `--unset` on a key missing entirely, which inserts it
+# empty (schema backfill; silent, no Handoffs entry). Appends a terse Handoffs entry ONLY for
 # the three structural fields (parent/depends_on/jira) — priority/value/
 # size/tags/path are left silent, matching /wb-save's own signal-over-
 # noise posture for low-stakes board metadata.
@@ -4016,6 +4034,23 @@ cmd_set() {
   local dup_count
   dup_count="$(awk -v key="$field" 'BEGIN{infm=0} /^---$/{infm++; if(infm==2) exit; next} infm==1 && $0 ~ "^" key ":" {c++} END{print c+0}' "$file")"
 
+  local after_key=""
+  case "$field" in
+    priority|value) after_key="size" ;;
+  esac
+
+  # --unset on a key that is MISSING entirely (dup_count 0 — `old` reads
+  # blank either way) materialises it as an empty line instead of no-op'ing:
+  # the schema-backfill path, so every optional key can be made present
+  # through this locked verb. The value didn't change, so no Handoffs entry
+  # even for the structural fields.
+  if [ "$unset_req" -eq 1 ] && [ "$dup_count" -eq 0 ]; then
+    wb_set_frontmatter_field "$file" "$field" "" "$after_key"
+    wb_task_lock_release "$file"
+    echo "wb set: $(basename -- "$file") $field: key added (empty)"
+    exit 0
+  fi
+
   if [ "$old" = "$value" ] && [ "$dup_count" -le 1 ]; then
     wb_task_lock_release "$file"
     if [ "$unset_req" -eq 1 ]; then
@@ -4025,11 +4060,6 @@ cmd_set() {
     fi
     exit 0
   fi
-
-  local after_key=""
-  case "$field" in
-    priority|value) after_key="size" ;;
-  esac
 
   wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
   case "$field" in

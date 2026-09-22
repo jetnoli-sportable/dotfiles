@@ -1,6 +1,6 @@
 ---
 title: 9f recap — editor/tmux ergonomics batch
-status: current
+status: archive
 tile: Six small nvim/tmux items shipped in one PR. What to verify yourself.
 group: recaps
 kind: page

@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="design-notes">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> design-notes</span>
+  <span class="gen">docgen · generated from <b>docs/archive/slice-4b-deep-dive.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-14</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</div>
+    <div class="brand-sub">What 4b would build; the 4a gate resolved early (unused), now superseded by the fix-forward experiment.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#why-4a-and-4b-are-split-at-all">Why 4a and 4b are split at all</a></li>
+      <li><a href="#what-4a-already-shipped-2026-07-07">What 4a already shipped (2026-07-07)</a></li>
+      <li><a href="#the-usage-window-verdict--two-questions-not-one-as-originally-scoped">The usage-window verdict — two questions, not one (as originally scoped)</a></li>
+      <li><a href="#what-slice-4b-actually-builds">What slice 4b actually builds</a></li>
+      <li><a href="#deferred-to-implementation-time-not-decided-yet">Deferred to implementation time (not decided yet)</a></li>
+      <li><a href="#verification-bar-whole-slice-not-just-unit-tests">Verification bar (whole slice, not just unit tests)</a></li>
+      <li><a href="#the-dependency-chain">The dependency chain</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">design-notes · guide</span>
+      <h1>Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</h1>
+      <p class="dek">What 4b would build; the 4a gate resolved early (unused), now superseded by the fix-forward experiment.</p>
+      <div class="meta">
+        <span class="chip mut">archive</span>
+      </div>
+    </header>
+    <article>
+<p>Slice 4b was gated behind a deliberate usage-observation window (4a); that
+window <strong>resolved early, 2026-07-10</strong> (unused — see
+<a href="../ceremonies.html#4a-capture-window-verdict--resolved-early-2026-07-10-unused">Ceremonies</a>).
+4b's original wiring plan is now superseded by the capture fix-forward
+experiment, whose own verdict lands <strong>~2026-07-24</strong>
+(<a href="../ceremonies.html">Ceremonies</a>). This page explains what 4b would have
+built and why it was gated, kept as background for if/when the
+fix-forward experiment's verdict revives it. This page is the source;
+edit <code>docs/slice-4b-deep-dive.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> §4, §8 build-order item 4, §9b · <strong>Plan:</strong> <code>docs/plans/2026-07-07-003-slice-4b-notes-tui-plan.md</code> (status: draft, gated) · <strong>Tracking:</strong> <code>~/code/tasks/dotfiles--agent-task-workflow.md</code> Follow-ups</p>
+<h2 id="why-4a-and-4b-are-split-at-all">Why 4a and 4b are split at all</h2>
+<p>The picker-redesign lesson from building <code>wb</code> itself (2026-07-06): don't
+ratify wiring before usage. <code>wb</code>'s picker went through a real redesign after
+it shipped and got used for a few days — the initial design's assumptions
+didn't survive contact with actually using it. Notes-tui integration applies
+the same discipline: <strong>4a</strong> ships the minimal capture habit with zero
+lifecycle wiring, <strong>4b</strong> builds the real integration only after real usage
+data exists to build it against.</p>
+<h2 id="what-4a-already-shipped-2026-07-07">What 4a already shipped (2026-07-07)</h2>
+<ul>
+<li><code>note.sh</code> sourced into <code>.zshrc</code> — <code>note &quot;thought&quot;</code> / <code>cmd | note</code> capture
+to <code>~/code/notes/inbox.md</code> from anywhere, auto-stamped with cwd, git
+repo+branch, and tmux session.</li>
+<li>No <code>wb</code> wiring, no digest automation — manual <code>notes digest</code> only, for a
+bounded ~1-week observation window (mirrors §1's hook-data clock: ship the
+minimum, watch real behavior, decide from data not guesses).</li>
+<li>Window started 2026-07-07, <strong>resolved early 2026-07-10</strong>: unused (a
+1-byte inbox, measured before the window even closed). 4b's original
+wiring plan is superseded by the capture fix-forward experiment
+(new clock ~2026-07-24) rather than proceeding as originally scoped.</li>
+</ul>
+<h2 id="the-usage-window-verdict--two-questions-not-one-as-originally-scoped">The usage-window verdict — two questions, not one (as originally scoped)</h2>
+<p>The 4a follow-up entry (<code>~/code/tasks/dotfiles--agent-task-workflow.md</code>)
+framed the verdict as answering two things. Question 1 resolved &quot;not
+used,&quot; which made this moot for now — kept here as the reasoning behind
+why 4b was structured the way it was, not as a live decision:</p>
+<ol>
+<li><strong>Is <code>note</code> actually being used?</strong> If capture didn't become a habit, 4b's
+whole premise (wiring a digest into <code>wb done</code>) has nothing to wire —
+the fix is a capture-ergonomics problem, not a 4b problem.</li>
+<li><strong>Is task-end the right review moment, or did day-end win?</strong> 4b's plan
+assumes reviewing captures when a task closes (<code>wb done</code>). If real usage
+shows people naturally reviewing at day-end instead, that's a <strong>different
+hook point</strong> than the plan currently assumes.</li>
+</ol>
+<p>Question 2 is the one worth understanding precisely, because the plan
+document itself says not to execute blindly if the answer comes back
+&quot;day-end&quot;: U3 (see below) is written against <code>wb done</code>, but if day-end wins,
+<strong>U3 needs to be re-shaped to hook the future <code>wb down</code> (§9b) instead</strong> —
+a structural change to which implementation unit does what, not just a
+go/no-go gate on starting 4b at all.</p>
+<h2 id="what-slice-4b-actually-builds">What slice 4b actually builds</h2>
+<p>Four implementation units, in dependency order, spanning two repos
+(<code>~/code/notes-tui</code> and <code>~/code/dotfiles</code>):</p>
+<h3 id="u1--per-capture-inbox-parsing-notes-tui-go">U1 — Per-capture inbox parsing (notes-tui, Go)</h3>
+<p><strong>The actual blocker</strong>, verified 2026-07-06: <code>corpus.Load</code> parses one <code>Note</code>
+per <em>file</em>, not per capture. A whole day's <code>inbox.md</code> — however many times
+you ran <code>note</code> — reads back as a single Note carrying only the <strong>first</strong>
+capture's context stamp. A <code>--context &lt;session&gt;</code> filter is meaningless until
+this is fixed; there's nothing to filter, everything collapses into one row.</p>
+<ul>
+<li>Detect capture-block boundaries as <code>note.sh</code> actually writes them
+(<code>## &lt;timestamp&gt;</code> heading + <code>&lt;!-- ctx: ... --&gt;</code> stamp) and split <code>inbox.md</code>
+into N Notes, each with its own timestamp and context.</li>
+<li>Denote-format files (the daily-notes flow) keep their existing one-note-
+per-file behavior untouched — this only changes inbox parsing.</li>
+<li>Files: <code>~/code/notes-tui/internal/corpus/corpus.go</code> + tests.</li>
+</ul>
+<h3 id="u2----context-filter--session-aware-grouping-notes-tui-go">U2 — <code>--context</code> filter + session-aware grouping (notes-tui, Go)</h3>
+<ul>
+<li><code>notes digest --context &lt;tmux-session&gt;</code> filters to one session's captures.</li>
+<li><code>--by context</code> grouping gains a session dimension — today it only groups
+by repo:branch, which the usage guide has been claiming incorrectly.</li>
+<li>Files: <code>~/code/notes-tui/cmd/notes/digest.go</code> + tests, guide/README updates.</li>
+</ul>
+<h3 id="u3--wb-done-digest-injection-dotfiles-bash">U3 — <code>wb done</code> digest injection (dotfiles, bash)</h3>
+<ul>
+<li>The close-out review buffer opens with the session's digest already
+inline (<code>notes digest --by context --context &quot;$session&quot;</code>), so keepers get
+promoted deliberately with the same <code>- [x] keep</code> convention <code>wb done</code>
+already uses for the task file itself.</li>
+<li><strong>The placement constraint that makes this fiddly:</strong> <code>wb done</code>'s cleanup
+truncates the task file at the <code>## Sweep</code> heading — anything generated
+needs to land <em>above</em> that heading and get stripped on close, mirroring
+how <code>wb_sweep_section</code> already works. Get the ordering wrong and either
+the digest never gets cleaned up, or it gets deleted before the user sees
+it.</li>
+<li>Kept items promote into the task file's <code>## Follow-ups</code> section (the
+plan's recommendation — matches the store-centric model everything else
+in <code>wb</code> uses); promoting into new Denote notes instead is the one
+explicitly open call, deferred to whenever this actually gets built.</li>
+<li>Degrades gracefully when <code>notes</code> isn't on <code>PATH</code> — skip the section, no
+error, <code>wb done</code> still works exactly as it does today.</li>
+<li><strong>This is the unit that moves to <code>wb down</code> if day-end wins the verdict.</strong></li>
+</ul>
+<h3 id="u4--retire-the-interim-update-the-docs">U4 — Retire the interim, update the docs</h3>
+<p>Housekeeping: roadmap status notes, guide pages gain the digest step,
+the 4a follow-up entry in the task store closes out with whatever verdict
+gated the slice in the first place.</p>
+<h2 id="deferred-to-implementation-time-not-decided-yet">Deferred to implementation time (not decided yet)</h2>
+<ul>
+<li>Promotion target if the 4a window's real usage contradicts the
+recommendation (task-file Follow-ups vs. new Denote notes).</li>
+<li>Whether <code>--by context</code> adds the session dimension to the group key by
+default, or only behind a flag — decided at U2 based on how noisy real
+grouped output actually looks.</li>
+</ul>
+<h2 id="verification-bar-whole-slice-not-just-unit-tests">Verification bar (whole slice, not just unit tests)</h2>
+<p>The plan's own bar for &quot;done&quot;: a full <code>wb new</code> → work + <code>note</code> captures →
+<code>wb done</code> cycle where the close-out buffer actually shows both captures, a
+kept one lands in <code>## Follow-ups</code>, the task file carries no leftover
+generated content after close, notes-tui's test suite is green, and the
+daily <code>notes.sh</code> flow is completely untouched by any of this.</p>
+<h2 id="the-dependency-chain">The dependency chain</h2>
+<pre><code>4a capture window (started 2026-07-07)
+        │
+        ▼
+resolved early, 2026-07-10 ── unused (1-byte inbox)
+        │
+        ▼
+capture fix-forward experiment ── verdict ~2026-07-24
+        │
+        ├── changes real usage ──► revive 4b: U1 (corpus split) → U2 (--context
+        │                          flag) → U3 (wb done/down hook) → U4 (docs)
+        │
+        ▼
+9b Day bookends (wb up / wb down) — consumes 4b's session-id capture,
+already landing independently of this gate
+</code></pre>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/archive/slice-4b-deep-dive.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>

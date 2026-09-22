@@ -1,6 +1,6 @@
 ---
 title: Recap — wb-breakdown (split an oversized task into a family)
-status: current
+status: archive
 tile: A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.
 group: recaps
 kind: page
@@ -67,7 +67,7 @@ primitives rather than a guessed API — both PRs land in dependency order.
 ## Where to go next
 
 The roadmap row is
-[detail-wb-breakdown](roadmap.html#detail-wb-breakdown). The store schema
+[detail-wb-breakdown](../roadmap.html#detail-wb-breakdown). The store schema
 gained `jira:` (a task's full ticket URL) and the `breakdown-candidate`
 tag convention — see `~/code/tasks/README.md`. Deferred follow-ups: the
 Jira-watch loop that would auto-tag candidates, family-aware count

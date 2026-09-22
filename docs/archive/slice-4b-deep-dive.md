@@ -1,6 +1,6 @@
 ---
 title: Slice 4b deep dive — notes-tui integration + the 4a usage-window verdict
-status: current
+status: archive
 tile: What 4b would build; the 4a gate resolved early (unused), now superseded by the fix-forward experiment.
 group: design-notes
 kind: page
@@ -9,10 +9,10 @@ updated: 2026-07-14
 
 Slice 4b was gated behind a deliberate usage-observation window (4a); that
 window **resolved early, 2026-07-10** (unused — see
-[Ceremonies](ceremonies.html#4a-capture-window-verdict--resolved-early-2026-07-10-unused)).
+[Ceremonies](../ceremonies.html#4a-capture-window-verdict--resolved-early-2026-07-10-unused)).
 4b's original wiring plan is now superseded by the capture fix-forward
 experiment, whose own verdict lands **~2026-07-24**
-([Ceremonies](ceremonies.html)). This page explains what 4b would have
+([Ceremonies](../ceremonies.html)). This page explains what 4b would have
 built and why it was gated, kept as background for if/when the
 fix-forward experiment's verdict revives it. This page is the source;
 edit `docs/slice-4b-deep-dive.md`, not the rendered `.html`.

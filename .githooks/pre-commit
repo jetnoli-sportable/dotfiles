@@ -28,6 +28,7 @@ cd "$repo_root"
 # from a staged diff here — regenerate by hand after editing those.
 triggers='^docs/[^/]+\.md$'
 triggers+='|^docs/guides/.*\.md$'
+triggers+='|^docs/archive/.*\.md$'
 triggers+='|^docs/docgen\.json$'
 triggers+='|^docs/_templates/.*\.html$'
 triggers+='|^tmux/\.config/tmux/tmux\.conf$'

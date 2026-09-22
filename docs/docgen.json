@@ -2,7 +2,8 @@
   "templates": "docs/_templates",
   "pageDirs": [
     "docs",
-    "docs/guides"
+    "docs/guides",
+    "docs/archive"
   ],
   "exclude": [],
   "hub": {

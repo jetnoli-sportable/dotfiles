@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Day bookends — wb up / wb down</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="design-notes">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> <a href="../roadmap.html">roadmap</a></span>
+  <span class="gen">docgen · generated from <b>docs/archive/roadmap-day-bookends.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-07-14</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Day bookends — wb up / wb down</div>
+    <div class="brand-sub">Startup and shutdown flows, and the &#34;sessions are regenerative&#34; principle.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#the-two-workflows">The two workflows</a></li>
+      <li><a href="#wb-ups-task-selection-decision-10-2026-07-07-review">wb up&#39;s task selection (Decision 10, 2026-07-07 review)</a></li>
+      <li><a href="#wb-downs-dirty-check-decision-7-2026-07-07-review">wb down&#39;s dirty-check (Decision 7, 2026-07-07 review)</a></li>
+      <li><a href="#jira-exclusion">Jira exclusion</a></li>
+      <li><a href="#design-principle-sessions-are-regenerative-not-precious">Design principle: sessions are regenerative, not precious</a></li>
+      <li><a href="#wb-resume-task--an-early-ungated-slice-2026-07-08">wb resume &lt;task&gt; — an early, ungated slice (2026-07-08)</a></li>
+      <li><a href="#wb-down--single-session-shipped---all-still-deferred-2026-09-11">wb down — single-session shipped, --all still deferred (2026-09-11)</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">design-notes · guide</span>
+      <h1>Day bookends — wb up / wb down</h1>
+      <p class="dek">Startup and shutdown flows, and the &#34;sessions are regenerative&#34; principle.</p>
+      <div class="meta">
+        <span class="chip mut">archive</span>
+      </div>
+    </header>
+    <article>
+<p>Two workflows composing the capture/recall pieces already built: <code>wb up</code>
+(startup) and <code>wb down</code> (shutdown). This page is the source; edit
+<code>docs/roadmap-day-bookends.md</code>, not the rendered <code>.html</code>.</p>
+<p><strong>Roadmap:</strong> 9b (superseded — this page is the detail) · <strong>Status:</strong>
+single-task <code>wb down</code> shipped 2026-09-11 (picker-session-lifecycle plan) —
+see the new section below. It resolves the &quot;one genuinely precious piece of
+state&quot; blocker this page originally raised: Claude Code's own transcript
+store on disk turned out to already hold everything slice 4b's session-id
+capture was going to build a hook for, so nothing here was actually gated
+on 4b after all. The <code>--all</code> bulk sweep (<code>wb down --all</code>, this doc's own
+proposed name below) stays deferred — real value once you're closing more
+than one session at a time, not before. <code>wb up</code>'s startup-side review
+buffer is unaffected and still open work. <code>wb resume &lt;task&gt;</code> (single-task
+slice, see below) shipped earlier and needed none of this either.</p>
+<h2 id="the-two-workflows">The two workflows</h2>
+<p><strong>Startup (<code>wb up</code>)</strong> — review yesterday's close-out + parked items + task
+board, propose today's focus, recreate tmux sessions for the chosen tasks.</p>
+<p><strong>Shutdown (<code>wb down</code>)</strong> — sweep every live session, capture a quick status
+into each task file, run the notes digest, then close all sessions cleanly
+so the PC can power off.</p>
+<h2 id="wb-ups-task-selection-decision-10-2026-07-07-review"><code>wb up</code>'s task selection (Decision 10, 2026-07-07 review)</h2>
+<p>Reuses the decision-buffer checkbox convention already shared by <code>wb done</code>'s close-out and the notes-digest promotion: <code>wb up</code> opens a review
+buffer listing yesterday's close-out + parked items + task-board candidates
+as <code>- [ ] pick</code> lines; closing the buffer recreates a session per checked
+task. First-run fallback (no prior close-out to review yet): fall back to a
+plain picker over the task store's <code>planned</code>/<code>doing</code> rows.</p>
+<h2 id="wb-downs-dirty-check-decision-7-2026-07-07-review"><code>wb down</code>'s dirty-check (Decision 7, 2026-07-07 review)</h2>
+<p><code>wb down</code> inherits <code>wb done</code>'s per-session dirty-check-and-abort exactly —
+a dirty worktree aborts that session's wind-down by default, same as a
+single <code>wb done</code>. Owner call: no silent skip-and-report bulk mode for now —
+an override flag can be added later; its exact behavior (skip-dirty-and-
+report vs. force vs. something else) is a decision for whenever that flag
+actually gets built, not now.</p>
+<h2 id="jira-exclusion">Jira exclusion</h2>
+<p>The Jira sprint pull originally listed in <code>wb up</code>'s scope is removed and
+joins <code>/board</code>'s Jira exclusion as its own later, separately-ratified
+addition — same open questions: where the API credential lives, and
+whether Jira-derived text may be persisted into the sync-bound task store.</p>
+<h2 id="design-principle-sessions-are-regenerative-not-precious">Design principle: sessions are regenerative, not precious</h2>
+<p>Because a <code>wb</code> session is fully derived from its task record (repo,
+worktree path, standard 3-window layout), resume = re-running a
+<code>wb new</code>-equivalent from the store — no fragile tmux state snapshotting
+needed. tmux-resurrect/continuum remain an optional complement for raw
+scrollback, but the task store is the source of truth. Concretely: keep
+everything <code>wb</code> creates reconstructable from the task file alone, and give
+<code>wb</code> a <code>down --all</code> / <code>up --resume</code> pair.</p>
+<blockquote>
+<p><strong>The one genuinely precious piece of state — resolved 2026-09-11, not
+the way this page expected.</strong> Each agent pane's Claude session id turned
+out not to need capturing at all: Claude Code already writes one
+<code>.jsonl</code> transcript per conversation under
+<code>~/.claude/projects/&lt;encoded-worktree-path&gt;/</code>, keyed by the exact cwd a
+<code>wb</code> session already runs in. <code>wb down</code>/<code>wb pause</code> read that directory
+directly (<code>wb_transcripts</code> in <code>wb.sh</code>) rather than hooking anything at
+spawn time — no session/window option, no task-file field needed to make
+resume warm. See <a href="../wb-guide.html#session-lifecycle-wb-down-wb-pause-and-warm-resume">the wb guide's session-lifecycle
+section</a>
+for the shipped behavior. <code>up --resume</code>'s bulk case inherits this for
+free whenever it gets built.</p>
+</blockquote>
+<h2 id="wb-resume-task--an-early-ungated-slice-2026-07-08"><code>wb resume &lt;task&gt;</code> — an early, ungated slice (2026-07-08)</h2>
+<p>The full <code>wb up</code>/<code>wb down</code> pair above stays gated on 4b's session-id
+capture, needed for warm-restarting an agent mid-conversation. A
+single-task resume needs none of that: <code>cmd_new</code>
+(<code>scripts/.config/scripts/tmux/wb.sh:222-279</code>) is already idempotent — it
+skips worktree creation when the worktree dir exists, no-ops task-seeding
+when the task file exists, and always <code>tmux_ensure_session</code> + focuses
+regardless of whether the session was already live. Task frontmatter
+(<code>repo:</code>/<code>branch:</code>/<code>worktree:</code>) is already durable, on disk, in a git repo
+— there is nothing new to &quot;track&quot; for this slice.</p>
+<p>So <code>wb resume &lt;task&gt;</code> can ship now as a thin wrapper: fuzzy-match a task by
+slug against the store, read its frontmatter, call the same worktree/session
+logic <code>cmd_new</code> already runs. This is &quot;stage 1&quot; of the crash/reboot-recovery
+need that motivated it — bring a specific task's environment back after a
+shutdown or crash, by name, without retyping <code>&lt;repo&gt; &lt;slug&gt;</code>. <code>wb up</code> later
+becomes &quot;stage 2&quot;: run this same resume logic over every checked task in
+the startup review buffer, plus the session-id warm-restart on top.</p>
+<p>No tmux-resurrect/continuum is installed today (<code>tmux/.config/tmux/tmux.conf</code>
+only lists <code>tpm</code>, <code>tmux-sensible</code>, <code>vim-tmux-navigator</code>, <code>catppuccin-tmux</code>)
+— consistent with this doc's regenerative-sessions principle, this slice
+doesn't need it either.</p>
+<h2 id="wb-down--single-session-shipped---all-still-deferred-2026-09-11"><code>wb down</code> — single-session shipped, <code>--all</code> still deferred (2026-09-11)</h2>
+<p>The picker-session-lifecycle plan shipped this doc's proposed
+<code>down</code>/<code>--all</code> split, but only the first half: <code>wb down [&lt;session&gt;]</code>
+closes one session (activity axis only — <code>status:</code> moves to <code>review</code> when
+the branch has an open PR, otherwise untouched) and keeps the worktree,
+same shape as <code>wb resume</code> above — a single-target primitive, not the
+sweep-every-session shutdown flow this page originally scoped. <code>wb pause</code>
+composes it for the deliberate-shelve case (<code>status: paused</code>).</p>
+<p>Warm resume works exactly as this page hoped, just without ever needing a
+captured session id (see the resolved blockquote above): the picker's
+dormant rows and <code>wb resume</code> both pre-type <code>claude --resume &lt;id&gt;</code> from
+whatever transcript exists on disk for the worktree.</p>
+<p><strong>Still open, unclaimed by this slice:</strong> the <code>--all</code> sweep this page named
+(close every live session, one status write per task) and <code>wb up</code>'s
+startup-side review buffer (Decision 10 above) — both real bulk-flow work,
+now genuinely unblocked by anything session-id-shaped, just not yet built.</p>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/archive/roadmap-day-bookends.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>

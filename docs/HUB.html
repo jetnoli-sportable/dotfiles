@@ -234,7 +234,7 @@
 </head>
 <body data-kind="hub">
 <div class="statusbar" aria-hidden="true">
-  <span><b>23</b> docs</span>
+  <span><b>40</b> docs</span>
   <span>docgen · generated — edit doc frontmatter, not this file</span>
   <span class="right">updated 2026-09-22</span>
 </div>
@@ -535,6 +535,62 @@
   <div class="group-head"><h2>Design notes</h2>
     <span class="group-sub">reached from the roadmap timeline — listed here for direct access</span></div>
   <div class="grid dense">
+    <a class="tile mini" href="archive/roadmap-handoff.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        <span class="chip mut">archive</span></div>
+      <h3>/handoff &amp; /handoff-pane — route a discussion to the right worker</h3>
+      <p>Take what&#39;s being discussed and either switch to the agent already on it, spin up a new task for it, or split a helper agent into this very window.</p>
+      <div class="path">docs/archive/roadmap-handoff.html</div>
+    </a>
+    <a class="tile mini" href="archive/roadmap-board.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        <span class="chip mut">archive</span></div>
+      <h3>/board — task-board visualization</h3>
+      <p>Full HTML board shipped — lifecycle stepper, Pipeline tab, relationships, filters, Key Findings.</p>
+      <div class="path">docs/archive/roadmap-board.html</div>
+    </a>
+    <a class="tile mini" href="archive/roadmap-day-bookends.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Day bookends — wb up / wb down</h3>
+      <p>Startup and shutdown flows, and the &#34;sessions are regenerative&#34; principle.</p>
+      <div class="path">docs/archive/roadmap-day-bookends.html</div>
+    </a>
+    <a class="tile mini" href="archive/slice-4b-deep-dive.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Slice 4b deep dive — notes-tui integration &#43; the 4a usage-window verdict</h3>
+      <p>What 4b would build; the 4a gate resolved early (unused), now superseded by the fix-forward experiment.</p>
+      <div class="path">docs/archive/slice-4b-deep-dive.html</div>
+    </a>
+    <a class="tile mini" href="archive/roadmap-wb-reconcile.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        <span class="chip mut">archive</span></div>
+      <h3>wb reconcile — task-store/git drift detection</h3>
+      <p>Cross-reference the task store against real git state; report drift, never auto-apply.</p>
+      <div class="path">docs/archive/roadmap-wb-reconcile.html</div>
+    </a>
+    <a class="tile mini" href="archive/roadmap-open-questions.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Open Questions — deferred decisions from the 2026-07-07 doc review</h3>
+      <p>Deliberately unresolved decisions and process record. Standing limitations moved to their own page.</p>
+      <div class="path">docs/archive/roadmap-open-questions.html</div>
+    </a>
+    <a class="tile mini" href="archive/roadmap-task-recall.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Task recall — resume any work from any session</h3>
+      <p>Reference a task from anywhere and get a recap &#43; resume options.</p>
+      <div class="path">docs/archive/roadmap-task-recall.html</div>
+    </a>
+    <a class="tile mini" href="archive/roadmap-wb-design.html">
+      <div class="tile-top"><span class="tile-glyph">✎</span>
+        <span class="chip mut">archive</span></div>
+      <h3>wb design — the picker, wb done, and the task record schema</h3>
+      <p>Why wb works the way it does — sort logic, safe wind-down, decision history.</p>
+      <div class="path">docs/archive/roadmap-wb-design.html</div>
+    </a>
   </div>
   
 </section>
@@ -543,6 +599,69 @@
   <div class="group-head"><h2>Recaps</h2>
     <span class="group-sub">point-in-time write-ups of shipped work, newest first</span></div>
   <div class="grid dense">
+    <a class="tile mini" href="archive/2026-07-16-jira-interop-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Recap — Jira ticket interop (emit tasks to Jira tickets)</h3>
+      <p>A human-approved proposal buffer plus a locked write-back verb — turning a wb task or /wb-breakdown family into new Jira tickets (SFB by default, or SW), with each ticket&#39;s URL stamped back into the task.</p>
+      <div class="path">docs/archive/2026-07-16-jira-interop-recap.html</div>
+    </a>
+    <a class="tile mini" href="archive/9g-gpaste-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>9g recap — GPaste clipboard-history manager</h3>
+      <p>GPaste configured, Ctrl&#43;Shift&#43;G opens history. What to verify yourself.</p>
+      <div class="path">docs/archive/9g-gpaste-recap.html</div>
+    </a>
+    <a class="tile mini" href="archive/2026-07-12-tasks-dir-concurrency-safety-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Recap — TASKS_DIR concurrency safety (hook guards &#43; per-task write locks)</h3>
+      <p>Ten units, three layers, four real incidents — how ~/code/tasks got safe for concurrent agents, and what&#39;s still deliberately dormant.</p>
+      <div class="path">docs/archive/2026-07-12-tasks-dir-concurrency-safety-recap.html</div>
+    </a>
+    <a class="tile mini" href="archive/wb-board-display-v2-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>wb board display v2 — recap</h3>
+      <p>Lifecycle stepper, Pipeline tab, dependency relationships, filters, Key Findings — shipped, Docker-verified, ready for review.</p>
+      <div class="path">docs/archive/wb-board-display-v2-recap.html</div>
+    </a>
+    <a class="tile mini" href="archive/2026-07-13-wb-breakdown-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Recap — wb-breakdown (split an oversized task into a family)</h3>
+      <p>A human-approved proposal buffer plus a locked multi-file apply — turning one oversized task or Jira ticket into a session-sized parent/child family.</p>
+      <div class="path">docs/archive/2026-07-13-wb-breakdown-recap.html</div>
+    </a>
+    <a class="tile mini" href="archive/2026-07-12-workflow-push-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Recap — the Hub-v0 &#43; agent-fleet push (2026-07-10 → 12)</h3>
+      <p>Two days, 14 PRs — ideation, an rm -rf incident &#43; full recovery, and a parallel agent fleet. What shipped and where things stand.</p>
+      <div class="path">docs/archive/2026-07-12-workflow-push-recap.html</div>
+    </a>
+    <a class="tile mini" href="archive/pr1-wb-workbench-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>PR #1 recap — wb resume, wb pause, /board, wb reconcile</h3>
+      <p>All four wb workbench extensions shipped. What to verify yourself.</p>
+      <div class="path">docs/archive/pr1-wb-workbench-recap.html</div>
+    </a>
+    <a class="tile mini" href="archive/9f-ergonomics-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>9f recap — editor/tmux ergonomics batch</h3>
+      <p>Six small nvim/tmux items shipped in one PR. What to verify yourself.</p>
+      <div class="path">docs/archive/9f-ergonomics-recap.html</div>
+    </a>
+    <a class="tile mini" href="archive/slice-5-recap.html">
+      <div class="tile-top"><span class="tile-glyph">▪</span>
+        <span class="chip mut">archive</span></div>
+      <h3>Slice 5 recap — the docs platform</h3>
+      <p>What shipped, what to verify yourself, and what&#39;s next. Start here after the PR.</p>
+      <div class="path">docs/archive/slice-5-recap.html</div>
+    </a>
   </div>
   
 </section>

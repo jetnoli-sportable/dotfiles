@@ -1,6 +1,6 @@
 ---
 title: wb design — the picker, wb done, and the task record schema
-status: current
+status: archive
 tile: Why wb works the way it does — sort logic, safe wind-down, decision history.
 group: design-notes
 parent: roadmap
@@ -9,7 +9,7 @@ updated: 2026-07-08
 ---
 
 The design rationale behind `wb` and the task-record schema it's built on —
-distinct from [`wb-guide.md`](wb-guide.html), which is the usage-focused
+distinct from [`wb-guide.md`](../wb-guide.html), which is the usage-focused
 "how do I run it" doc. This page is the "why it works this way" companion:
 sort order, safe-wind-down ordering, and the review decisions that shaped
 both. This page is the source; edit `docs/roadmap-wb-design.md`, not the
@@ -17,7 +17,7 @@ rendered `.html`.
 
 **Roadmap:** §2/§3 (superseded — this page is the detail, `docs/roadmap.md`
 carries only the status row) · **Built:** PR #7, 2026-07-06 · **Usage
-guide:** [`wb-guide.md`](wb-guide.html)
+guide:** [`wb-guide.md`](../wb-guide.html)
 
 ## The picker's row source and sort order
 

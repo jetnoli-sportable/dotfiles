@@ -1,6 +1,6 @@
 ---
 title: Recap — Jira ticket interop (emit tasks to Jira tickets)
-status: current
+status: archive
 tile: A human-approved proposal buffer plus a locked write-back verb — turning a wb task or /wb-breakdown family into new Jira tickets (SFB by default, or SW), with each ticket's URL stamped back into the task.
 group: recaps
 kind: page

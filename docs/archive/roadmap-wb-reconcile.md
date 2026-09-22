@@ -1,6 +1,6 @@
 ---
 title: wb reconcile — task-store/git drift detection
-status: current
+status: archive
 tile: Cross-reference the task store against real git state; report drift, never auto-apply.
 group: design-notes
 parent: roadmap
@@ -77,7 +77,7 @@ represents is already in progress by definition.
 **Shipped 2026-07-08, PR #14:** presence-diff detection and the full
 review flow above (do nothing / remove / discuss / create a task / attach
 to task / merge with task). **Still open:** same-commit duplicate
-flagging — see [Up next](roadmap.html#detail-wb-reconcile-duplicate-gap)
+flagging — see [Up next](../roadmap.html#detail-wb-reconcile-duplicate-gap)
 on the roadmap. The decision-buffer doc above has the full option/tradeoff
 record for both, including why duplicate detection stayed report-only and
 deferred rather than shipping alongside v1.

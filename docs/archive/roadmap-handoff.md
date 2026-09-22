@@ -1,6 +1,6 @@
 ---
 title: /handoff & /handoff-pane — route a discussion to the right worker
-status: current
+status: archive
 tile: Take what's being discussed and either switch to the agent already on it, spin up a new task for it, or split a helper agent into this very window.
 group: design-notes
 parent: roadmap
@@ -281,7 +281,7 @@ requires modifying `wb.sh`, which the pane-mode PR deliberately did not touch.
 A second `wb.sh`-touching follow-up surfaced during the build: **pane-scoped
 `@task` resolution** so a child helper's `/wb-save` targets the child's task
 file rather than the session-scoped parent's. Both are documented as footguns
-in [`handoff-guide.md`](handoff-guide.html) in the meantime. The interim safety
+in [`handoff-guide.md`](../handoff-guide.html) in the meantime. The interim safety
 for the apply-fixes concurrency risk is the requester pausing the parent; the
 durable fix is the cross-cutting "check for uncommitted work before acting"
 convention (a separate multi-agent-coordination initiative), not a
