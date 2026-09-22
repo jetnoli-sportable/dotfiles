@@ -900,16 +900,22 @@ _wb_concepts_paths() {
 }
 
 # _wb_seed_concepts_file <task_file> <worktree_path> — write (or refresh) the
-# untracked `CLAUDE.local.md` pointer that gives every agent in
-# <worktree_path> — including Task-tool sub-agents (D1/U1) — the task
-# family's settled-facts file(s), without copying content. Regenerates on
-# every call so re-running `wb new` on an existing worktree (already
-# idempotent/self-healing, see the queue-ignore call site above) is also the
-# escape hatch for a reparent or a newly-added CONCEPTS.md taking effect —
-# there is no runtime hook re-resolving this on its own. No-ops (leaves any
-# existing file alone) when _wb_concepts_paths finds nothing in the chain;
-# stale-removal for a family that LOSES its last CONCEPTS.md is out of scope
-# (narrow edge case, not the common reparent-adds-facts direction).
+# task family's settled-facts pointer inside <worktree_path>'s untracked
+# `CLAUDE.local.md`, giving every agent there — including Task-tool
+# sub-agents (D1/U1) — the family CONCEPTS.md file(s) without copying
+# content. The pointer lives inside a sentinel-marked managed block
+# (`<!-- wb:concepts start -->` … `<!-- wb:concepts end -->`); only that
+# block is ever wb's to rewrite, so any hand-added local instructions
+# elsewhere in CLAUDE.local.md (the conventional Claude Code local-context
+# file, which wb does not exclusively own) survive a `wb new` / resume —
+# an existing marked block is replaced in place, a marker-less pre-existing
+# file is appended to (never clobbered), and only an absent file is created
+# outright. Regenerating the block on every call is the escape hatch for a
+# reparent or a newly-added CONCEPTS.md taking effect — there is no runtime
+# hook re-resolving this on its own. No-ops (leaves any existing file
+# untouched) when _wb_concepts_paths finds nothing in the chain; stale-
+# removal of the block for a family that LOSES its last CONCEPTS.md is out
+# of scope (narrow edge case, not the common reparent-adds-facts direction).
 _wb_seed_concepts_file() {
   local task_file="$1" worktree_path="$2"
   local -a paths=()
@@ -919,9 +925,15 @@ _wb_seed_concepts_file() {
   done < <(_wb_concepts_paths "$task_file")
   [ "${#paths[@]}" -gt 0 ] || return 0
 
+  local target="$worktree_path/CLAUDE.local.md"
   local family_note; family_note="$(basename "$task_file" .md)"
+
+  # Build the managed block (including its own sentinel markers) into a temp
+  # file, then splice it into $target so only the marked region is touched.
+  local block_file; block_file="$(mktemp)" || return 1
   {
-    printf '# Task-family context (wb, untracked)\n\n'
+    printf '%s\n' '<!-- wb:concepts start -->'
+    printf '# Task-family context (wb, untracked — managed block, edit around it)\n\n'
     printf 'This worktree belongs to the "%s" task family. Treat the family concepts\n' "$family_note"
     printf 'file(s) below as part of AGENTS.md: settled facts, vocabulary and rules\n'
     printf 'that override older dossier docs where they disagree. Listed nearest-\n'
@@ -931,7 +943,36 @@ _wb_seed_concepts_file() {
       printf '@%s\n' "$p"
     done
     printf '\nCoordinator task file: %s\n' "${task_file/#$HOME/\~}"
-  } > "$worktree_path/CLAUDE.local.md"
+    printf '%s\n' '<!-- wb:concepts end -->'
+  } > "$block_file"
+
+  local rc=0
+  if [ -f "$target" ] \
+     && grep -qF '<!-- wb:concepts start -->' "$target" \
+     && grep -qF '<!-- wb:concepts end -->' "$target"; then
+    # Existing marked block: replace it in place, preserve everything else.
+    local tmp; tmp="$(mktemp)" || { rm -f "$block_file"; return 1; }
+    if awk -v bf="$block_file" '
+         /<!-- wb:concepts start -->/ {
+           while ((getline line < bf) > 0) print line
+           close(bf); insec = 1; next
+         }
+         insec && /<!-- wb:concepts end -->/ { insec = 0; next }
+         insec { next }
+         { print }
+       ' "$target" > "$tmp"; then
+      mv "$tmp" "$target" || rc=1
+    else
+      rm -f "$tmp"; rc=1
+    fi
+  elif [ -f "$target" ]; then
+    # Marker-less pre-existing file (user content): append, never clobber.
+    { printf '\n'; cat "$block_file"; } >> "$target" || rc=1
+  else
+    cat "$block_file" > "$target" || rc=1
+  fi
+  rm -f "$block_file"
+  [ "$rc" -eq 0 ] || return 1
 
   wb_ensure_repo_ignore "$worktree_path" "CLAUDE.local.md" \
     || echo "wb new: warning: could not register .git/info/exclude ignore rule for CLAUDE.local.md (continuing)" >&2
