@@ -899,6 +899,20 @@ edit):</p>
 not nvim/gopls, so a few manually-opened editor instances can still make
 the shared Ghostty scope the highest-pressure one. Isolating nvim/gopls is
 a tracked fast-follow, not something this covers yet.</p>
+<h3 id="finding-orphaned-agent-scopes--wb-agents">Finding orphaned agent scopes — <code>wb agents</code></h3>
+<p>Each launch gets its own scope, named <code>wb-agent-&lt;session&gt;-&lt;pane-pid&gt;-&lt;launch-ns&gt;</code>.
+The per-launch suffix means a relaunch in the same pane never collides with an
+old scope. Anything the agent started that outlives it keeps that old scope
+<strong>active</strong>, though: <code>wl-copy</code> serving the clipboard, a <code>go run</code> dev server,
+<code>gopls</code>. So these orphans slowly pile up, each holding a stray process.</p>
+<pre><code>wb agents             # every wb-agent-* scope + the processes inside it
+wb agents --orphans   # only the ones with no claude process left
+</code></pre>
+<p>A scope with no <code>claude</code> process inside is marked <code>ORPHAN</code>. The command is
+read-only. It never stops anything, because an orphan's leftover might be a
+dev server you still want running. It prints a <code>systemctl --user stop &lt;unit&gt;</code>
+line for each orphan so you can check it (<code>systemctl --user status &lt;unit&gt;</code>)
+and run the stop yourself.</p>
 <h2 id="known-rough-edges-not-blocking-worth-knowing">Known rough edges (not blocking, worth knowing)</h2>
 <ul>
 <li><strong>Resolved (2026-09-11):</strong> the picker's auto-refresh used to briefly pause
