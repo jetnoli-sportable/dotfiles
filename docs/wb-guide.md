@@ -79,8 +79,8 @@ untracked task behind.
 ## wb new — start a task
 
 ```
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size S|M|L|XL] <slug>
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size S|M|L|XL] <repo> <slug>
+$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size XS|S|M|L|XL] <slug>
+$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size XS|S|M|L|XL] <repo> <slug>
 ```
 
 The slug becomes the git branch name, the worktree path
@@ -106,7 +106,7 @@ views still to be built on top of the board; nothing renders it yet):
   stem (`<repo>--<slug>`, no `.md`), validated against a real task file at
   creation time. The board renders both directions — a ⛔ count on the
   blocked task, a → count on the blocker — once it's declared.
-- `--size S|M|L|XL` stamps a rough effort bucket into the task's `size:`
+- `--size XS|S|M|L|XL` stamps a rough effort bucket into the task's `size:`
   frontmatter (uppercase, exactly — anything else is rejected before any
   file is touched). Omit it and `size:` is written blank, which every
   reader treats as `M`. Works on `--planned` seeds too. `/wb-breakdown`

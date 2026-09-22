@@ -81,7 +81,7 @@ that sounds off or incomplete here.
   task-file stems; met once the blocker's `status:` is `done`. An
   unresolvable stem or a dependency cycle fails open (renders unblocked,
   surfaces a warning) rather than breaking the board.
-- **`size`** (`README.md#size`) — `S|M|L|XL`, uppercase exactly. Absent or
+- **`size`** (`README.md#size`) — `XS|S|M|L|XL`, uppercase exactly. Absent or
   blank reads as `M`; never manufacture a size the current context doesn't
   justify.
 

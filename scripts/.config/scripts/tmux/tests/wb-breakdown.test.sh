@@ -324,7 +324,12 @@ assert_eq "size with trailing whitespace: size field = S" "S" "$(printf '%s\n' "
 sd_buffer '- size: XXL' '' > "$BUF_DIR/sd-bad-size.md"
 err_sd_bad="$(_wb_breakdown_validate "$BUF_DIR/sd-bad-size.md" 2>&1 1>/dev/null)"; rc_sd_bad=$?
 assert_eq "size XXL: hard parse error (return 2)" 2 "$rc_sd_bad"
-assert "size XXL: error names the child and the enum" "child n=1 \(feat-big-sized\) size 'XXL' is not one of S\|M\|L\|XL" "$err_sd_bad"
+assert "size XXL: error names the child and the enum" "child n=1 \(feat-big-sized\) size 'XXL' is not one of XS\|S\|M\|L\|XL" "$err_sd_bad"
+
+sd_buffer '- size: XS' '' > "$BUF_DIR/sd-xs-size.md"
+out_sd_xs="$(_wb_breakdown_validate "$BUF_DIR/sd-xs-size.md" 2>/dev/null)"; rc_sd_xs=$?
+assert_eq "size XS: accepted" 0 "$rc_sd_xs"
+assert_eq "size XS: size field = XS" "XS" "$(printf '%s\n' "$out_sd_xs" | grep $'^create\t1\t' | awk -F'\t' '{print $7}')"
 
 sd_buffer '- size: l' '' > "$BUF_DIR/sd-lower-size.md"
 err_sd_lower="$(_wb_breakdown_validate "$BUF_DIR/sd-lower-size.md" 2>&1 1>/dev/null)"; rc_sd_lower=$?

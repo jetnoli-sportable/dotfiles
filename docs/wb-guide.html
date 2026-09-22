@@ -336,8 +336,8 @@ silently destroy, it opens the task file in a split for you to mark
 </li>
 </ol>
 <h2 id="wb-new--start-a-task">wb new — start a task</h2>
-<pre><code>$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size S|M|L|XL] &lt;slug&gt;
-$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size S|M|L|XL] &lt;repo&gt; &lt;slug&gt;
+<pre><code>$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size XS|S|M|L|XL] &lt;slug&gt;
+$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size XS|S|M|L|XL] &lt;repo&gt; &lt;slug&gt;
 </code></pre>
 <p>The slug becomes the git branch name, the worktree path
 (<code>.worktrees/&lt;slug&gt;</code>), and — sanitized (<code>/</code> and <code>.</code> → <code>-</code>) — the tmux
@@ -360,7 +360,7 @@ through, comma-separated. Omit it and the task defaults to
 stem (<code>&lt;repo&gt;--&lt;slug&gt;</code>, no <code>.md</code>), validated against a real task file at
 creation time. The board renders both directions — a ⛔ count on the
 blocked task, a → count on the blocker — once it's declared.</li>
-<li><code>--size S|M|L|XL</code> stamps a rough effort bucket into the task's <code>size:</code>
+<li><code>--size XS|S|M|L|XL</code> stamps a rough effort bucket into the task's <code>size:</code>
 frontmatter (uppercase, exactly — anything else is rejected before any
 file is touched). Omit it and <code>size:</code> is written blank, which every
 reader treats as <code>M</code>. Works on <code>--planned</code> seeds too. <code>/wb-breakdown</code>

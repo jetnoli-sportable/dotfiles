@@ -439,6 +439,19 @@ out="$(cmd_set "unset-missing" depends_on --unset 2>&1)"
 assert "--unset missing key: second run is the plain no-op" "depends_on already empty" "$out"
 
 # =============================================================================
+# Scenario: size accepts XS; the enum stays strict uppercase and the error
+# lists every legal value.
+# =============================================================================
+
+mk_task "proj--size-xs.md" size-xs
+out="$(cmd_set "size-xs" size XS 2>&1)"; rc=$?
+assert_eq "size XS: exit 0" 0 "$rc"
+assert "size XS: frontmatter written" '^size: XS$' "$(cat "$TASKS_DIR/proj--size-xs.md")"
+out="$(cmd_set "size-xs" size xs 2>&1)"; rc=$?
+assert_eq "size xs (lowercase): exit 1" 1 "$rc"
+assert "size xs (lowercase): error lists the enum" "size 'xs' is not one of XS\\|S\\|M\\|L\\|XL" "$out"
+
+# =============================================================================
 # Scenario: an empty value behaves exactly like --unset (so a caller passing
 # "" doesn't hit the enum/existence validation either).
 # =============================================================================

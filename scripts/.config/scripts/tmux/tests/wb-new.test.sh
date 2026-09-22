@@ -227,6 +227,12 @@ tmux kill-session -t "=proj--size-l" 2>/dev/null
 size_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-l.md" size)"
 assert_eq "--size L: size: recorded" "L" "$size_val"
 
+# --size XS -> the smallest bucket (added with the family DAG view's
+# critical-path weights) is legal too.
+cmd_new proj size-xs --size XS >/dev/null 2>&1
+tmux kill-session -t "=proj--size-xs" 2>/dev/null
+assert_eq "--size XS: size: recorded" "XS" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-xs.md" size)"
+
 # no --size -> size: key present but blank (blank-fill convention, same as
 # path:/depends_on:) — the fixture TEMPLATE.md has no size: line at all, so
 # this also proves the key gets INSERTED, not just left absent.
@@ -237,7 +243,7 @@ assert_eq "no --size: size: key line was actually inserted" 0 $?
 
 # --size XXL -> loud failure before any worktree/session/task file.
 out="$(cmd_new proj size-bad --size XXL 2>&1)"; code=$?
-assert "--size XXL: clean error naming --size and the enum" "wb new: --size 'XXL' is not one of S\|M\|L\|XL" "$out"
+assert "--size XXL: clean error naming --size and the enum" "wb new: --size 'XXL' is not one of XS\|S\|M\|L\|XL" "$out"
 assert_eq "--size XXL: exit code 1" 1 "$code"
 [ -d "$FIXTURE_CODE/proj/.worktrees/size-bad" ] && { echo "FAIL - --size XXL: worktree should not have been created"; fail=1; } \
   || echo "ok   - --size XXL: no worktree created"
