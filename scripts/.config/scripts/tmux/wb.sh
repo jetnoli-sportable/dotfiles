@@ -4949,12 +4949,15 @@ cmd_done() {
 #   8 ref (task file path, or repo dir for repo rows)
 #   9 kind (task|repo|agent)   10 ucount (claude panes in session)
 #   11 slug (task rows only — real, slash-preserving; used to resume via wb new)
-#   12 sib (set to "1" by wb_parent_subrows on a live sibling sharing a
-#      parent:, so it indents distinctly from an agent-pane sub-row —
-#      empty on every other row kind)
+#   12 nest (set by collect_combined_rows, empty on an unnested row):
+#      "1"  a live sibling sharing a parent: with the group's anchor row
+#      "cN" a live child nested N levels (1..WB_NEST_MAX) under its own
+#           live parent's row
+#      "aN" an agent-pane sub-row whose owning row sits at nesting level N
+#           (empty when the owner is a top-level row)
 # wb_format_for_display (used by render_rows) prepends a pre-rendered,
 # fixed-width display string as a NEW field 1, shifting all of the above by
-# one (repo becomes field 2, ..., sib becomes field 13) — that's the shape
+# one (repo becomes field 2, ..., nest becomes field 13) — that's the shape
 # fzf and picker()'s final `read` actually see. The displayed TYPE column
 # (session/agent/both) isn't a stored field — it's derived at display time
 # from kind + ucount.
@@ -5052,85 +5055,134 @@ collect_live_rows() {
   done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
 }
 
-# wb_emit_with_agents <row> — print <row>, then expand its agent sub-rows
-# via wb_agent_subrows when it has more than one live claude pane. Shared by
-# every emission point in collect_combined_rows (an ungrouped row, a
-# parent-group anchor, or a sibling sub-row) so agent-pane expansion never
-# depends on which path a row took to get emitted.
+# wb_emit_with_agents <row> [level] — print <row>, then expand its agent
+# sub-rows via wb_agent_subrows when it has more than one live claude pane.
+# Shared by every emission point in collect_combined_rows (an ungrouped
+# row, a group anchor, a sibling, or a nested child) so agent-pane
+# expansion never depends on which path a row took to get emitted. A
+# non-zero <level> (the owning row's nesting level) marks each agent
+# sub-row "a<level>" so wb_format_for_display indents it beneath that row
+# rather than at top-level depth.
 wb_emit_with_agents() {
-  local row="$1" repo branch session ref ucount
+  local row="$1" level="${2:-0}" repo branch session ref ucount
   printf '%s\n' "$row"
   local -a f; wb_tsv_split "$row" f
   repo="${f[0]}"; branch="${f[2]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"
-  [ "${ucount:-0}" -gt 1 ] 2>/dev/null && wb_agent_subrows "$repo" "$session" "$ref" "$branch"; true
+  [ "${ucount:-0}" -gt 1 ] 2>/dev/null || return 0
+  if [ "$level" -gt 0 ]; then
+    wb_agent_subrows "$repo" "$session" "$ref" "$branch" | wb_parent_subrows - "a$level"
+  else
+    wb_agent_subrows "$repo" "$session" "$ref" "$branch"
+  fi
 }
 
-# wb_parent_subrows <row> — return <row> with its sibling marker (field 12)
-# set to "1", so wb_format_for_display indents it as a sibling sub-row,
-# distinct from an agent-pane sub-row. Everything else — including kind,
-# still "task" — is untouched: a sibling sub-row is an independently live
-# session, not a pane within one.
+# wb_parent_subrows <row|-> [marker] — return <row> (or every row on stdin,
+# given "-") with its nesting marker (field 12) set to [marker], default
+# "1" (sibling) — see the row schema above for the "cN"/"aN" forms.
+# Everything else — including kind, still "task" on a sibling or child —
+# is untouched: a nested task row is an independently live session, not a
+# pane within one.
 wb_parent_subrows() {
-  awk -F'\t' -v OFS='\t' '{ $12 = "1"; print }' <<< "$1"
+  local marker="${2:-1}"
+  if [ "$1" = - ]; then cat; else printf '%s\n' "$1"; fi |
+    awk -F'\t' -v OFS='\t' -v m="$marker" '{ $12 = m; print }'
+}
+
+# WB_NEST_MAX — deepest nesting level the picker indents a child to. A
+# family deeper than this still nests (nothing is dropped or reordered out
+# of its family); its deeper rows just render at this level. The cap is
+# about NAME-column width, not termination — see _wb_emit_family.
+WB_NEST_MAX=3
+
+# _wb_emit_family <idx> <level> <marker> — emit row <idx> (field 12 set to
+# <marker> when non-empty) plus its agent sub-rows, then recurse into every
+# unconsumed live row whose parent: is <idx>'s own stem, one level deeper
+# (clamped at WB_NEST_MAX), in urgency order. Termination doesn't rely on
+# the cap: <idx> is marked consumed BEFORE recursing and only unconsumed
+# rows are ever visited, so each row is emitted at most once and a parent:
+# cycle (A -> B -> A) just ends where it closes. Reads collect_combined_rows'
+# rows / parent_of / stem_of / consumed through bash's dynamic scoping.
+_wb_emit_family() {
+  local idx="$1" level="$2" marker="$3" row next j
+  consumed[$idx]=1
+  row="${rows[$idx]}"
+  [ -n "$marker" ] && row="$(wb_parent_subrows "$row" "$marker")"
+  wb_emit_with_agents "$row" "$level"
+  [ -n "${stem_of[$idx]}" ] || return 0
+  next=$(( level + 1 )); [ "$next" -le "$WB_NEST_MAX" ] || next="$WB_NEST_MAX"
+  for j in "${!rows[@]}"; do
+    [ -n "${consumed[$j]:-}" ] && continue
+    [ "${parent_of[$j]}" = "${stem_of[$idx]}" ] || continue
+    _wb_emit_family "$j" "$next" "c$next"
+  done
 }
 
 # collect_combined_rows — buffers collect_live_rows' urgency-sorted output
-# into an array (two passes, not a stream): deciding a parent-shared group's
-# anchor by created: date needs to see every live sibling before emitting
-# any of them, the same reason wb_board_render_html buffers its own
-# ROWS=() rather than streaming.
+# into an array (two passes, not a stream): deciding a group's anchor needs
+# to see every live family member before emitting any of them, the same
+# reason wb_board_render_html buffers its own ROWS=() rather than streaming.
 #
 # Pass 1 reads each row's own task file's parent: field once (empty when the
 # row has no task file, no parent set, or the parent equals the row's own
-# stem — self-reference is ignored, same guard U3's children map uses).
-# Pass 2 emits: an unconsumed row whose parent is shared by at least one
-# other unconsumed row picks the earliest-created: sibling as the anchor —
-# stable across refreshes, unlike live urgency rank, which cycles as an
-# agent works — emits it first (even if it isn't the row the scan is
-# currently on), then every other sibling right after as an indented
-# sub-row via wb_parent_subrows, marking the whole group consumed. A row
-# with no shared-parent sibling emits unchanged, exactly as before this
-# grouping existed.
+# stem — self-reference is ignored, same guard U3's children map uses), and
+# indexes live task rows by stem so a parent's own row can be found.
+# Pass 2 emits, for each unconsumed row in urgency order, the family it
+# belongs to — so a family surfaces where its most urgent member would:
+#   - climb to the row's topmost LIVE ancestor (the family root);
+#   - if the root's own parent isn't live but is shared by other unconsumed
+#     rows, those are siblings: the earliest-created: one anchors (stable
+#     across refreshes, unlike live urgency rank, which cycles as an agent
+#     works) and the rest follow as "~" sibling rows;
+#   - each emitted row then pulls its own live children in beneath it via
+#     _wb_emit_family, so a live parent's row always heads its children
+#     (none of them left looking top-level).
+# A row with no live relatives emits unchanged, exactly as before grouping.
 collect_combined_rows() {
   local -a rows=()
   local line
   while IFS= read -r line; do rows+=("$line"); done \
     < <(collect_live_rows | sort -t $'\t' -k4,4n -k1,1 -k2,2)
 
-  local -A parent_of=()
+  local -A parent_of=() stem_of=() idx_of_stem=()
   local i kind ref stem parent
   local -a f
   for i in "${!rows[@]}"; do
     wb_tsv_split "${rows[$i]}" f
-    kind="${f[8]}"; ref="${f[7]}"; parent=""
+    kind="${f[8]}"; ref="${f[7]}"; parent=""; stem=""
     if [ "$kind" = task ] && [ -f "$ref" ]; then
       parent="$(wb_get_frontmatter "$ref" parent)"
       stem="$(basename "$ref" .md)"
       wb_task_own_parent "$parent" "$stem" || parent=""
+      [ -n "${idx_of_stem[$stem]:-}" ] || idx_of_stem[$stem]="$i"
     fi
-    parent_of[$i]="$parent"
+    parent_of[$i]="$parent"; stem_of[$i]="$stem"
   done
 
-  local -A consumed=()
-  local j anchor anchor_created created
+  local -A consumed=() climbed=()
+  local j root up anchor anchor_created created
   local -a group fj
   for i in "${!rows[@]}"; do
     [ -n "${consumed[$i]:-}" ] && continue
-    parent="${parent_of[$i]}"
-    if [ -z "$parent" ]; then
-      wb_emit_with_agents "${rows[$i]}"
-      consumed[$i]=1
-      continue
-    fi
 
-    group=()
-    for j in "${!rows[@]}"; do
-      [ -n "${consumed[$j]:-}" ] && continue
-      [ "${parent_of[$j]}" = "$parent" ] && group+=("$j")
+    # Climb to the topmost live, unconsumed ancestor. climbed[] guards a
+    # parent: cycle among live rows — the climb stops at the first repeat.
+    root="$i"; climbed=([$i]=1)
+    while parent="${parent_of[$root]}"; [ -n "$parent" ]; do
+      up="${idx_of_stem[$parent]:-}"
+      [ -n "$up" ] && [ -z "${consumed[$up]:-}" ] && [ -z "${climbed[$up]:-}" ] || break
+      climbed[$up]=1; root="$up"
     done
+
+    parent="${parent_of[$root]}"
+    group=()
+    if [ -n "$parent" ] && [ -z "${idx_of_stem[$parent]:-}" ]; then
+      for j in "${!rows[@]}"; do
+        [ -n "${consumed[$j]:-}" ] && continue
+        [ "${parent_of[$j]}" = "$parent" ] && group+=("$j")
+      done
+    fi
     if [ "${#group[@]}" -le 1 ]; then
-      wb_emit_with_agents "${rows[$i]}"
-      consumed[$i]=1
+      _wb_emit_family "$root" 0 ""
       continue
     fi
 
@@ -5145,12 +5197,10 @@ collect_combined_rows() {
       fi
     done
 
-    wb_emit_with_agents "${rows[$anchor]}"
-    consumed[$anchor]=1
+    _wb_emit_family "$anchor" 0 ""
     for j in "${group[@]}"; do
-      [ "$j" = "$anchor" ] && continue
-      wb_emit_with_agents "$(wb_parent_subrows "${rows[$j]}")"
-      consumed[$j]=1
+      [ -n "${consumed[$j]:-}" ] && continue
+      _wb_emit_family "$j" 1 "1"
     done
   done
 }
@@ -5273,7 +5323,7 @@ wb_format_for_display() {
         # wb_status_icon above: a Unicode tree glyph reintroduces the
         # cell-width alignment bug this file already moved away from.
         #
-        # Two independent nesting kinds can indent a row here: an agent
+        # Independent nesting kinds can indent a row here: an agent
         # pane within one session (kind, field 9), or a live sibling
         # sharing a parent: (field 12, set by wb_parent_subrows). A
         # sibling is an independently live TASK session, not a pane, so
@@ -5284,10 +5334,23 @@ wb_format_for_display() {
         # Unlike an agent pane (always the same repo as its parent
         # session), a sibling is explicitly cross-repo (R2), so its repo
         # cell stays visible rather than blanked.
+        #
+        # A third kind, a child nested under its own live parent row
+        # ("cN", N = level), gets " |- " rather than " ~ " so "child of
+        # the row above" and "sibling of the row above" read differently.
+        # Each level adds two leading spaces, and an agent sub-row owned by
+        # a nested row ("aN") is indented to match, so the connectors stack.
+        # Children are cross-repo too, so their repo cell stays visible.
+        nest = $(12); lvl = 0
+        if (nest ~ /^[ac][0-9]+$/) lvl = substr(nest, 2) + 0
+        ind = ""; for (k = 1; k < lvl; k++) ind = ind "  "
         if ($9 == "agent") {
-          repo_cell = pad("", w1); name_cell = pad(" > " $2, w2)
-        } else if ($(12) == "1") {
+          if (lvl > 0) ind = ind "  "
+          repo_cell = pad("", w1); name_cell = pad(ind " > " $2, w2)
+        } else if (nest == "1") {
           repo_cell = pad($1, w1); name_cell = pad(" ~ " $2, w2)
+        } else if (nest ~ /^c/) {
+          repo_cell = pad($1, w1); name_cell = pad(ind " |- " $2, w2)
         } else {
           repo_cell = pad($1, w1); name_cell = pad($2, w2)
         }
