@@ -2441,14 +2441,19 @@ wb_board_render_v2() {
   done
   local shelf_chips_html=""
   if [ "${#shelf_paused[@]}" -gt 0 ]; then
-    local sc_i=0 sc_stem sc_h="" sc_sh="" sc_a="" sc_fa=""
+    local sc_i=0 sc_stem sc_h="" sc_sh="" sc_a="" sc_fa="" sc_ra=""
     while IFS= read -r sc_stem; do
       sc_i=$((sc_i + 1)); [ "$sc_i" -gt 12 ] && break
       wb_board_html_escape "${_m_title[$sc_stem]:-$sc_stem}" sc_h
       wb_board_html_escape "$sc_stem" sc_sh
       wb_board_v2_anchor "$sc_stem" sc_a
       wb_board_v2_anchor "${_m_family_root[$sc_stem]:-$sc_stem}" sc_fa
-      shelf_chips_html+="<span class=\"qs-chip shelf copyable\" data-stem=\"$sc_sh\" data-anchor=\"$sc_a\" data-family=\"$sc_fa\" data-copy=\"wb resume $sc_sh\">$sc_h</span>"
+      # fix(review) P1: carry data-repo like the sibling unblocked_chips_html
+      # (both are .qs-chip). Without it, applyRepo()'s data-repo match drops
+      # every shelf chip when any specific repo is picked (empty Shelf row, no
+      # empty-state), since a missing data-repo reads as '' and never matches.
+      wb_board_v2_repo_attr "$sc_stem" sc_ra
+      shelf_chips_html+="<span class=\"qs-chip shelf copyable\" data-stem=\"$sc_sh\" data-anchor=\"$sc_a\" data-family=\"$sc_fa\"${sc_ra} data-copy=\"wb resume $sc_sh\">$sc_h</span>"
     done < <(wb_board_v2_sort_stems_by_title "${shelf_paused[@]}")
     [ "${#shelf_paused[@]}" -gt 12 ] && shelf_chips_html+="<span class=\"qs-chip shelf\" style=\"opacity:.6;\">+$(( ${#shelf_paused[@]} - 12 )) more</span>"
   fi
@@ -2657,7 +2662,11 @@ wb_board_render_v2() {
       # hand-typed `parent:` value (the same "phantom stem" risk noted
       # below) — escape uniformly rather than special-casing index 0.
       wb_board_v2_json_escape "$fr_jc_m" __h2
-      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"status\":\"${_m_status[$fr_jc_m]:-}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
+      # fix(review): status comes from frontmatter and is otherwise interpolated
+      # raw — escape it like id/title so a hand-edited status: never breaks the
+      # rollup's JSON validity for a downstream jq consumer.
+      local __hs; wb_board_v2_json_escape "${_m_status[$fr_jc_m]:-}" __hs
+      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
     done
     local fr_json_decisions="" fr_jd_first=1 fr_jd_date fr_jd_text fr_jd_src
     if [ -n "$fr_decisions_full_sorted" ]; then
@@ -2666,7 +2675,8 @@ wb_board_render_v2() {
         [ "$fr_jd_first" = 1 ] || fr_json_decisions+=","
         fr_jd_first=0
         wb_board_v2_json_escape "$fr_jd_text" __h
-        fr_json_decisions+="{\"date\":\"${fr_jd_date}\",\"text\":\"${__h}\",\"source\":\"${fr_jd_src}\"}"
+        local __hsrc; wb_board_v2_json_escape "$fr_jd_src" __hsrc
+        fr_json_decisions+="{\"date\":\"${fr_jd_date}\",\"text\":\"${__h}\",\"source\":\"${__hsrc}\"}"
       done <<< "$fr_decisions_full_sorted"
     fi
     local fr_json_artifacts="" fr_ja_i
@@ -2674,7 +2684,8 @@ wb_board_render_v2() {
       [ "$fr_ja_i" -gt 0 ] && fr_json_artifacts+=","
       wb_board_v2_json_escape "${fr_link_label[$fr_ja_i]}" __h
       wb_board_v2_json_escape "${fr_link_path[$fr_ja_i]}" __h2
-      fr_json_artifacts+="{\"kind\":\"${fr_link_kind[$fr_ja_i]}\",\"label\":\"${__h}\",\"path\":\"${__h2}\",\"source\":\"${fr_link_source[$fr_ja_i]}\"}"
+      local __hasrc; wb_board_v2_json_escape "${fr_link_source[$fr_ja_i]}" __hasrc
+      fr_json_artifacts+="{\"kind\":\"${fr_link_kind[$fr_ja_i]}\",\"label\":\"${__h}\",\"path\":\"${__h2}\",\"source\":\"${__hasrc}\"}"
     done
     local fr_json_rungs="" fr_jr_first=1 fr_jr_line
     if [ -n "$fr_ladder" ]; then
@@ -2691,7 +2702,8 @@ wb_board_render_v2() {
         fr_jr_first=0
         wb_board_v2_json_escape "$fr_jr_rung" __h
         wb_board_v2_json_escape "$fr_jr_ticket" __h2
-        fr_json_rungs+="{\"rung\":\"${__h}\",\"ticket\":\"${__h2}\",\"child\":\"${fr_jr_child}\",\"status\":\"${fr_jr_cls}\"}"
+        local __hchild; wb_board_v2_json_escape "$fr_jr_child" __hchild
+        fr_json_rungs+="{\"rung\":\"${__h}\",\"ticket\":\"${__h2}\",\"child\":\"${__hchild}\",\"status\":\"${fr_jr_cls}\"}"
       done <<< "$fr_ladder"
     fi
     wb_board_v2_json_escape "${_m_title[$fr_stem]:-$fr_stem}" __h

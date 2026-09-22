@@ -655,6 +655,11 @@ assert "R3: rail rows carry data-repo"   '<div class="rail-row" data-stem="[^"]+
 assert "R3: card slots carry data-repo"  '<div class="card-slot[^"]*"[^>]* data-repo="[^"]+"' "$render"
 assert "R3: roadmap lanes carry data-repo" '<div class="rm-lane[^"]*" id="lane-[^"]+"[^>]* data-repo="[^"]+"' "$render"
 assert "R3: week cards carry data-repo"  '<div class="week-card"[^>]* data-repo="[^"]+"' "$render"
+# Regression (fix(review) P1): the Week view's queue/shelf .qs-chip rows are in
+# applyRepo()'s selector too, so they must carry data-repo like every other
+# filtered surface — else picking any specific repo silently empties the Shelf
+# row. Both the unblocked (planned) and shelf (paused) chip builders must emit it.
+assert "R3: queue/shelf chips carry data-repo" 'class="qs-chip [a-z]+ copyable" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" data-repo="[^"]+"' "$render"
 # R23: the tab badges are store-wide and must NOT move with the filter.
 badge_after="$(printf '%s' "$render" | grep -o 'class="tab-badge">[0-9]*' | head -1 | grep -o '[0-9]*$' || true)"
 assert_eq "R23: the repo filter does not restate the tab badge" "$expected_badge" "$badge_after"
