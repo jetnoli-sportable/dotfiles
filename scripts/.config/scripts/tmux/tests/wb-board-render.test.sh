@@ -787,6 +787,371 @@ if command -v jq >/dev/null 2>&1 && [ -f "$rollup" ]; then
   assert "deep: the aggregated decision carries its text" 'Ship it this way|simpler approach|Chose' "$dec_text"
 fi
 
+# ===========================================================================
+# U4 — wb_board_v2_dag_html: the Dependencies region's SVG emitter. Calls the
+# function directly with hand-built wb_board_deps_layer-shaped output arrays
+# (same style as wb-board-deps.test.sh's DL1..DLn fixtures) plus a minimal
+# set of `_m_*` model maps bound the same way D5 above binds M_STAGE_SIG/
+# M_STATUS/M_PLAN_CHECKED under wb_board_v2_stage_states's nameref names:
+# `declare -n` to this function's expected dynamic-scope names, call, then
+# `unset -n` so later assertions in this file are unaffected.
+# ===========================================================================
+TASK_HREF_PREFIX="file:///tasks/"
+
+# --- DAG1: three-node chain (all S, all planned) — three node groups, two
+# edge paths, header names the path and "3 pts remaining" (3 * S(2)=6 doubled
+# -> 3 pts) -------------------------------------------------------------
+declare -a DAG1_NODES=(a1 a2 a3)
+declare -A DAG1_LAYER=([a1]=0 [a2]=1 [a3]=2)
+declare -A DAG1_ORDER=([a1]=0 [a2]=0 [a3]=0)
+declare -A DAG1_CRIT=([a1]=1 [a2]=1 [a3]=1)
+declare -A DAG1_STARTABLE=([a1]=1 [a2]=0 [a3]=0)
+declare -A DAG1_EXTBLK=()
+declare -A DAG1_TAG=([a1]=START [a2]="" [a3]=END)
+declare -a DAG1_EDGES=("a1 a2" "a2 a3")
+declare -a DAG1_BACKEDGES=()
+declare -a DAG1_CRITPATH=(a1 a2 a3)
+declare -A M_STATUS=([a1]=planned [a2]=planned [a3]=planned)
+declare -A M_TITLE=([a1]="Node A1" [a2]="Node A2" [a3]="Node A3")
+declare -A M_SIZE=([a1]=S [a2]=S [a3]=S)
+declare -A M_ACCEPT=([a1]=0 [a2]=0 [a3]=0)
+declare -A M_PLAN_RAW=([a1]="" [a2]="" [a3]="")
+declare -A M_STEM_ANCHOR=([a1]=anchor-a1 [a2]=anchor-a2 [a3]=anchor-a3)
+declare -n _m_status=M_STATUS _m_title=M_TITLE _m_size=M_SIZE _m_accept=M_ACCEPT \
+  _m_plan_raw=M_PLAN_RAW _m_stem_anchor=M_STEM_ANCHOR
+dag1_html=""
+wb_board_v2_dag_html fam1 DAG1_NODES DAG1_LAYER DAG1_ORDER DAG1_CRIT DAG1_STARTABLE \
+  DAG1_EXTBLK DAG1_TAG DAG1_EDGES DAG1_BACKEDGES DAG1_CRITPATH 6 2 "" dag1_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+# Trailing space distinguishes a real per-node/per-edge class attribute
+# ("dag-node dag-st-planned...") from the wrapper groups' own
+# class="dag-nodes"/class="dag-edges" (no space after the 's').
+dag1_node_groups="$(printf '%s' "$dag1_html" | grep -o 'class="dag-node ' | wc -l || true)"
+assert_eq "U4 DAG1: three node groups" "3" "$dag1_node_groups"
+dag1_edge_paths="$(printf '%s' "$dag1_html" | grep -o 'class="dag-edge ' | wc -l || true)"
+assert_eq "U4 DAG1: two edge paths" "2" "$dag1_edge_paths"
+assert "U4 DAG1: header names the path" 'Critical path.*a1.*a2.*a3' "$dag1_html"
+assert "U4 DAG1: header reports 3 pts remaining" '3 pts remaining' "$dag1_html"
+if printf '%s' "$dag1_html" | grep -F '<script' >/dev/null 2>&1; then
+  echo "FAIL - U4 DAG1: output contains <script"; fail=1
+else
+  echo "ok   - U4 DAG1: output contains no <script"
+fi
+
+# --- DAG2: under-defined planned node is dashed; a done node with the same
+# 0 signals is never dashed (KTD6 — done always solid) -----------------------
+declare -a DAG2_NODES=(u1 d1)
+declare -A DAG2_LAYER=([u1]=0 [d1]=0)
+declare -A DAG2_ORDER=([u1]=0 [d1]=1)
+declare -A DAG2_CRIT=([u1]=0 [d1]=0)
+declare -A DAG2_STARTABLE=([u1]=1 [d1]=0)
+declare -A DAG2_EXTBLK=()
+declare -A DAG2_TAG=([u1]="" [d1]="")
+declare -a DAG2_EDGES=()
+declare -a DAG2_BACKEDGES=()
+declare -a DAG2_CRITPATH=()
+declare -A M2_STATUS=([u1]=planned [d1]=done)
+declare -A M2_TITLE=([u1]="Underdefined" [d1]="Done zero-signal")
+declare -A M2_SIZE=([u1]="" [d1]="")
+declare -A M2_ACCEPT=([u1]=0 [d1]=0)
+declare -A M2_PLAN_RAW=([u1]="" [d1]="")
+declare -A M2_STEM_ANCHOR=([u1]=anchor-u1 [d1]=anchor-d1)
+declare -n _m_status=M2_STATUS _m_title=M2_TITLE _m_size=M2_SIZE _m_accept=M2_ACCEPT \
+  _m_plan_raw=M2_PLAN_RAW _m_stem_anchor=M2_STEM_ANCHOR
+dag2_html=""
+wb_board_v2_dag_html fam2 DAG2_NODES DAG2_LAYER DAG2_ORDER DAG2_CRIT DAG2_STARTABLE \
+  DAG2_EXTBLK DAG2_TAG DAG2_EDGES DAG2_BACKEDGES DAG2_CRITPATH 0 0 "" dag2_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+# dag-dashed appears exactly once (only u1's node — d1 is done, KTD6: done
+# is always solid regardless of signal count), and it's u1's <a> that carries
+# it, not d1's.
+dag2_dashed_count="$(printf '%s' "$dag2_html" | grep -o 'dag-dashed' | wc -l || true)"
+assert_eq "U4 DAG2: dag-dashed appears exactly once (u1 only, d1 never dashed)" "1" "$dag2_dashed_count"
+dag2_u1_tag="$(printf '%s' "$dag2_html" | grep -oE '<a href="[^"]*u1\.md"[^>]*>' || true)"
+dag2_d1_tag="$(printf '%s' "$dag2_html" | grep -oE '<a href="[^"]*d1\.md"[^>]*>' || true)"
+assert "U4 DAG2: u1's own node carries dag-dashed" 'dag-dashed' "$dag2_u1_tag"
+if printf '%s' "$dag2_d1_tag" | grep -F 'dag-dashed' >/dev/null 2>&1; then
+  echo "FAIL - U4 DAG2: d1 (done, 0 signals) incorrectly carries dag-dashed"; fail=1
+else
+  echo "ok   - U4 DAG2: d1 (done, 0 signals) never carries dag-dashed"
+fi
+
+# --- DAG3: a `doing` node carries the pulse class; CSS gates the animation
+# behind reduced-motion; a startable node carries the static outline class
+# and never the pulse; `doing` never carries startable ----------------------
+declare -a DAG3_NODES=(doer readyer)
+declare -A DAG3_LAYER=([doer]=0 [readyer]=0)
+declare -A DAG3_ORDER=([doer]=0 [readyer]=1)
+declare -A DAG3_CRIT=([doer]=0 [readyer]=0)
+declare -A DAG3_STARTABLE=([doer]=0 [readyer]=1)
+declare -A DAG3_EXTBLK=()
+declare -A DAG3_TAG=([doer]="" [readyer]="")
+declare -a DAG3_EDGES=()
+declare -a DAG3_BACKEDGES=()
+declare -a DAG3_CRITPATH=()
+declare -A M3_STATUS=([doer]=doing [readyer]=planned)
+declare -A M3_TITLE=([doer]="Doing thing" [readyer]="Ready thing")
+declare -A M3_SIZE=([doer]=M [readyer]=M)
+declare -A M3_ACCEPT=([doer]=1 [readyer]=0)
+declare -A M3_PLAN_RAW=([doer]="- [x] done bit" [readyer]="")
+declare -A M3_STEM_ANCHOR=([doer]=anchor-doer [readyer]=anchor-readyer)
+declare -n _m_status=M3_STATUS _m_title=M3_TITLE _m_size=M3_SIZE _m_accept=M3_ACCEPT \
+  _m_plan_raw=M3_PLAN_RAW _m_stem_anchor=M3_STEM_ANCHOR
+dag3_html=""
+wb_board_v2_dag_html fam3 DAG3_NODES DAG3_LAYER DAG3_ORDER DAG3_CRIT DAG3_STARTABLE \
+  DAG3_EXTBLK DAG3_TAG DAG3_EDGES DAG3_BACKEDGES DAG3_CRITPATH 4 0 "" dag3_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+assert "U4 DAG3: a doing node carries the pulse-ring class" 'dag-pulse-ring' "$dag3_html"
+# The animation rule itself lives in wb-board.sh's <style> block (emitted
+# once, page-wide), not in this function's per-family HTML fragment — read
+# the source file directly for the CSS gate.
+dag_css="$(sed -n '/^<style>$/,/^<\/style>$/p' "$(dirname "$WB")/wb-board.sh")"
+# grep -E is line-oriented, and the media block spans several lines, so this
+# is a plain bash substring/ordering check rather than a single regex: the
+# ONLY `animation:` declaration in the whole stylesheet is .dag-pulse-ring's,
+# and it must appear between the reduced-motion query's opening and closing
+# braces (i.e. inside the guard, not floating free elsewhere).
+dag_css_media="${dag_css#*'@media (prefers-reduced-motion: no-preference)'}"
+dag_css_media="${dag_css_media%%$'\n  }'*}"
+if [[ "$dag_css_media" == *'dag-pulse-ring'* ]] && [[ "$dag_css_media" == *'animation'* ]]; then
+  echo "ok   - U4 DAG3: the pulse animation is gated behind prefers-reduced-motion: no-preference"
+else
+  echo "FAIL - U4 DAG3: the pulse animation is not gated behind prefers-reduced-motion: no-preference"; fail=1
+fi
+assert "U4 DAG3: a startable node carries the startable-outline class" 'dag-startable-ring' "$dag3_html"
+dag3_pulse_count="$(printf '%s' "$dag3_html" | grep -o 'dag-pulse-ring' | wc -l || true)"
+assert_eq "U4 DAG3: exactly one pulse ring (doer only)" "1" "$dag3_pulse_count"
+dag3_startable_count="$(printf '%s' "$dag3_html" | grep -o 'dag-startable-ring' | wc -l || true)"
+assert_eq "U4 DAG3: exactly one startable ring (readyer only, doer never startable)" "1" "$dag3_startable_count"
+
+# --- DAG4: an out-of-family blocker shows the lock marker with a tooltip
+# naming the blocker stem ---------------------------------------------------
+declare -a DAG4_NODES=(blocked1)
+declare -A DAG4_LAYER=([blocked1]=0)
+declare -A DAG4_ORDER=([blocked1]=0)
+declare -A DAG4_CRIT=([blocked1]=0)
+declare -A DAG4_STARTABLE=([blocked1]=0)
+declare -A DAG4_EXTBLK=([blocked1]="ext-cousin")
+declare -A DAG4_TAG=([blocked1]="")
+declare -a DAG4_EDGES=()
+declare -a DAG4_BACKEDGES=()
+declare -a DAG4_CRITPATH=()
+declare -A M4_STATUS=([blocked1]=planned)
+declare -A M4_TITLE=([blocked1]="Blocked node")
+declare -A M4_SIZE=([blocked1]=M)
+declare -A M4_ACCEPT=([blocked1]=0)
+declare -A M4_PLAN_RAW=([blocked1]="")
+declare -A M4_STEM_ANCHOR=([blocked1]=anchor-blocked1)
+declare -n _m_status=M4_STATUS _m_title=M4_TITLE _m_size=M4_SIZE _m_accept=M4_ACCEPT \
+  _m_plan_raw=M4_PLAN_RAW _m_stem_anchor=M4_STEM_ANCHOR
+dag4_html=""
+wb_board_v2_dag_html fam4 DAG4_NODES DAG4_LAYER DAG4_ORDER DAG4_CRIT DAG4_STARTABLE \
+  DAG4_EXTBLK DAG4_TAG DAG4_EDGES DAG4_BACKEDGES DAG4_CRITPATH 4 0 "" dag4_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+assert "U4 DAG4: lock marker present for an externally-blocked node" 'dag-lock' "$dag4_html"
+assert "U4 DAG4: the lock tooltip names the out-of-family blocker stem" 'blocked by:[^<]*ext-cousin' "$dag4_html"
+
+# --- DAG5: START/END tags appear on the chain's first/last nodes and
+# nowhere else (reuses DAG1's chain-of-3 fixture, already tagged) -----------
+dag5_start_count="$(printf '%s' "$dag1_html" | grep -o '>START<' | wc -l || true)"
+assert_eq "U4 DAG5: exactly one START tag" "1" "$dag5_start_count"
+dag5_end_count="$(printf '%s' "$dag1_html" | grep -o '>END<' | wc -l || true)"
+assert_eq "U4 DAG5: exactly one END tag" "1" "$dag5_end_count"
+
+# --- DAG6: an XS node renders a smaller width attribute than an S node -----
+declare -a DAG6_NODES=(xs1 s1)
+declare -A DAG6_LAYER=([xs1]=0 [s1]=1)
+declare -A DAG6_ORDER=([xs1]=0 [s1]=0)
+declare -A DAG6_CRIT=([xs1]=0 [s1]=0)
+declare -A DAG6_STARTABLE=([xs1]=0 [s1]=0)
+declare -A DAG6_EXTBLK=()
+declare -A DAG6_TAG=([xs1]="" [s1]="")
+declare -a DAG6_EDGES=()
+declare -a DAG6_BACKEDGES=()
+declare -a DAG6_CRITPATH=()
+declare -A M6_STATUS=([xs1]=planned [s1]=planned)
+declare -A M6_TITLE=([xs1]="XS node" [s1]="S node")
+declare -A M6_SIZE=([xs1]=XS [s1]=S)
+declare -A M6_ACCEPT=([xs1]=0 [s1]=0)
+declare -A M6_PLAN_RAW=([xs1]="" [s1]="")
+declare -A M6_STEM_ANCHOR=([xs1]=anchor-xs1 [s1]=anchor-s1)
+declare -n _m_status=M6_STATUS _m_title=M6_TITLE _m_size=M6_SIZE _m_accept=M6_ACCEPT \
+  _m_plan_raw=M6_PLAN_RAW _m_stem_anchor=M6_STEM_ANCHOR
+dag6_html=""
+wb_board_v2_dag_html fam6 DAG6_NODES DAG6_LAYER DAG6_ORDER DAG6_CRIT DAG6_STARTABLE \
+  DAG6_EXTBLK DAG6_TAG DAG6_EDGES DAG6_BACKEDGES DAG6_CRITPATH 0 1 "" dag6_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+xs_w="$(printf '%s' "$dag6_html" | grep -oE 'class="dag-card"[^>]*width="[0-9]+"' | head -1 | grep -oE '[0-9]+"$' | tr -d '"' || true)"
+s_w="$(printf '%s' "$dag6_html" | grep -oE 'class="dag-card"[^>]*width="[0-9]+"' | sed -n '2p' | grep -oE '[0-9]+"$' | tr -d '"' || true)"
+assert_eq "U4 DAG6: XS node width" "104" "$xs_w"
+assert_eq "U4 DAG6: S node width" "128" "$s_w"
+if [ -n "$xs_w" ] && [ -n "$s_w" ] && [ "$xs_w" -lt "$s_w" ]; then
+  echo "ok   - U4 DAG6: XS renders smaller (width attr) than S"
+else
+  echo "FAIL - U4 DAG6: XS ($xs_w) not smaller than S ($s_w)"; fail=1
+fi
+
+# --- DAG7: a title with <, & and quotes is escaped in both the label and
+# the tooltip -----------------------------------------------------------
+declare -a DAG7_NODES=(nasty)
+declare -A DAG7_LAYER=([nasty]=0)
+declare -A DAG7_ORDER=([nasty]=0)
+declare -A DAG7_CRIT=([nasty]=0)
+declare -A DAG7_STARTABLE=([nasty]=0)
+declare -A DAG7_EXTBLK=()
+declare -A DAG7_TAG=([nasty]="")
+declare -a DAG7_EDGES=()
+declare -a DAG7_BACKEDGES=()
+declare -a DAG7_CRITPATH=()
+declare -A M7_STATUS=([nasty]=planned)
+declare -A M7_TITLE=([nasty]='<b>"q" & <i>t</i>')
+declare -A M7_SIZE=([nasty]=M)
+declare -A M7_ACCEPT=([nasty]=0)
+declare -A M7_PLAN_RAW=([nasty]="")
+declare -A M7_STEM_ANCHOR=([nasty]=anchor-nasty)
+declare -n _m_status=M7_STATUS _m_title=M7_TITLE _m_size=M7_SIZE _m_accept=M7_ACCEPT \
+  _m_plan_raw=M7_PLAN_RAW _m_stem_anchor=M7_STEM_ANCHOR
+dag7_html=""
+wb_board_v2_dag_html fam7 DAG7_NODES DAG7_LAYER DAG7_ORDER DAG7_CRIT DAG7_STARTABLE \
+  DAG7_EXTBLK DAG7_TAG DAG7_EDGES DAG7_BACKEDGES DAG7_CRITPATH 0 0 "" dag7_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+assert "U4 DAG7: escaped title reaches the output" '&lt;b&gt;&quot;q&quot; &amp; &lt;i&gt;t&lt;/i&gt;' "$dag7_html"
+if printf '%s' "$dag7_html" | grep -F '<b>"q"' >/dev/null 2>&1; then
+  echo "FAIL - U4 DAG7: raw unescaped title leaked into the output"; fail=1
+else
+  echo "ok   - U4 DAG7: no raw unescaped title leaked"
+fi
+
+# --- DAG12 (review fix 1): a long title is clipped with a single ellipsis
+# and NEVER carries wb_board_v2_clip's long prose-block suffix -------------
+declare -a DAG12_NODES=(longtitle)
+declare -A DAG12_LAYER=([longtitle]=0)
+declare -A DAG12_ORDER=([longtitle]=0)
+declare -A DAG12_CRIT=([longtitle]=0)
+declare -A DAG12_STARTABLE=([longtitle]=0)
+declare -A DAG12_EXTBLK=()
+declare -A DAG12_TAG=([longtitle]="")
+declare -a DAG12_EDGES=()
+declare -a DAG12_BACKEDGES=()
+declare -a DAG12_CRITPATH=()
+declare -A M12_STATUS=([longtitle]=planned)
+declare -A M12_TITLE=([longtitle]="This is a very long title that will not fit on one card at all")
+declare -A M12_SIZE=([longtitle]=XS)
+declare -A M12_ACCEPT=([longtitle]=0)
+declare -A M12_PLAN_RAW=([longtitle]="")
+declare -A M12_STEM_ANCHOR=([longtitle]=anchor-longtitle)
+declare -n _m_status=M12_STATUS _m_title=M12_TITLE _m_size=M12_SIZE _m_accept=M12_ACCEPT \
+  _m_plan_raw=M12_PLAN_RAW _m_stem_anchor=M12_STEM_ANCHOR
+dag12_html=""
+wb_board_v2_dag_html fam12 DAG12_NODES DAG12_LAYER DAG12_ORDER DAG12_CRIT DAG12_STARTABLE \
+  DAG12_EXTBLK DAG12_TAG DAG12_EDGES DAG12_BACKEDGES DAG12_CRITPATH 0 0 "" dag12_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+assert "U4 DAG12: a long title is clipped with a single ellipsis" '&#8230;</text>' "$dag12_html"
+if printf '%s' "$dag12_html" | grep -F '[clipped' >/dev/null 2>&1; then
+  echo "FAIL - U4 DAG12: the long prose-block clip suffix leaked onto a card"; fail=1
+else
+  echo "ok   - U4 DAG12: never carries the prose-block clip suffix"
+fi
+
+# --- DAG8: two calls with different family anchors produce distinct marker
+# ids (dag1 used anchor fam1 above; dag6 used fam6) --------------------------
+dag1_marker="$(printf '%s' "$dag1_html" | grep -oE '<marker id="[^"]*"' | head -1 || true)"
+dag6_marker="$(printf '%s' "$dag6_html" | grep -oE '<marker id="[^"]*"' | head -1 || true)"
+assert "U4 DAG8: fam1's marker id carries its anchor" 'fam1' "$dag1_marker"
+assert "U4 DAG8: fam6's marker id carries its anchor" 'fam6' "$dag6_marker"
+assert_eq "U4 DAG8: marker ids differ across anchors" "yes" "$([ "$dag1_marker" != "$dag6_marker" ] && echo yes || echo no)"
+
+# --- DAG9: an all-done family omits the frontier line and reports "0 pts
+# remaining" ------------------------------------------------------------
+declare -a DAG9_NODES=(fin1 fin2)
+declare -A DAG9_LAYER=([fin1]=0 [fin2]=1)
+declare -A DAG9_ORDER=([fin1]=0 [fin2]=0)
+declare -A DAG9_CRIT=([fin1]=0 [fin2]=0)
+declare -A DAG9_STARTABLE=([fin1]=0 [fin2]=0)
+declare -A DAG9_EXTBLK=()
+declare -A DAG9_TAG=([fin1]=START [fin2]=END)
+declare -a DAG9_EDGES=("fin1 fin2")
+declare -a DAG9_BACKEDGES=()
+declare -a DAG9_CRITPATH=()
+declare -A M9_STATUS=([fin1]=done [fin2]=done)
+declare -A M9_TITLE=([fin1]="Fin one" [fin2]="Fin two")
+declare -A M9_SIZE=([fin1]=M [fin2]=M)
+declare -A M9_ACCEPT=([fin1]=1 [fin2]=1)
+declare -A M9_PLAN_RAW=([fin1]="- [x] done" [fin2]="- [x] done")
+declare -A M9_STEM_ANCHOR=([fin1]=anchor-fin1 [fin2]=anchor-fin2)
+declare -n _m_status=M9_STATUS _m_title=M9_TITLE _m_size=M9_SIZE _m_accept=M9_ACCEPT \
+  _m_plan_raw=M9_PLAN_RAW _m_stem_anchor=M9_STEM_ANCHOR
+dag9_html=""
+wb_board_v2_dag_html fam9 DAG9_NODES DAG9_LAYER DAG9_ORDER DAG9_CRIT DAG9_STARTABLE \
+  DAG9_EXTBLK DAG9_TAG DAG9_EDGES DAG9_BACKEDGES DAG9_CRITPATH 0 1 "" dag9_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+assert "U4 DAG9: an all-done family reports 0 pts remaining" '0 pts remaining' "$dag9_html"
+if printf '%s' "$dag9_html" | grep -F 'dag-frontier' >/dev/null 2>&1; then
+  echo "FAIL - U4 DAG9: an all-done family should omit the frontier line"; fail=1
+else
+  echo "ok   - U4 DAG9: all-done family omits the frontier line"
+fi
+
+# --- DAG10: remaining weight 15 (doubled) displays "7.5 pts" ---------------
+declare -a DAG10_NODES=(only1)
+declare -A DAG10_LAYER=([only1]=0)
+declare -A DAG10_ORDER=([only1]=0)
+declare -A DAG10_CRIT=([only1]=1)
+declare -A DAG10_STARTABLE=([only1]=1)
+declare -A DAG10_EXTBLK=()
+declare -A DAG10_TAG=([only1]="")
+declare -a DAG10_EDGES=()
+declare -a DAG10_BACKEDGES=()
+declare -a DAG10_CRITPATH=(only1)
+declare -A M10_STATUS=([only1]=planned)
+declare -A M10_TITLE=([only1]="Odd weight")
+declare -A M10_SIZE=([only1]=L)
+declare -A M10_ACCEPT=([only1]=0)
+declare -A M10_PLAN_RAW=([only1]="")
+declare -A M10_STEM_ANCHOR=([only1]=anchor-only1)
+declare -n _m_status=M10_STATUS _m_title=M10_TITLE _m_size=M10_SIZE _m_accept=M10_ACCEPT \
+  _m_plan_raw=M10_PLAN_RAW _m_stem_anchor=M10_STEM_ANCHOR
+dag10_html=""
+wb_board_v2_dag_html fam10 DAG10_NODES DAG10_LAYER DAG10_ORDER DAG10_CRIT DAG10_STARTABLE \
+  DAG10_EXTBLK DAG10_TAG DAG10_EDGES DAG10_BACKEDGES DAG10_CRITPATH 15 0 "" dag10_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+assert "U4 DAG10: doubled remaining 15 displays as 7.5 pts" '7\.5 pts remaining' "$dag10_html"
+
+# --- DAG11: a back-edge renders with the warning class ---------------------
+declare -a DAG11_NODES=(cyc1 cyc2 lead)
+declare -A DAG11_LAYER=([cyc1]=1 [cyc2]=1 [lead]=0)
+declare -A DAG11_ORDER=([cyc1]=0 [cyc2]=1 [lead]=0)
+declare -A DAG11_CRIT=([cyc1]=0 [cyc2]=0 [lead]=0)
+declare -A DAG11_STARTABLE=([cyc1]=0 [cyc2]=0 [lead]=1)
+declare -A DAG11_EXTBLK=()
+declare -A DAG11_TAG=([cyc1]="" [cyc2]="" [lead]=START)
+declare -a DAG11_EDGES=("lead cyc1")
+declare -a DAG11_BACKEDGES=("cyc1 cyc2")
+declare -a DAG11_CRITPATH=()
+declare -A M11_STATUS=([cyc1]=planned [cyc2]=planned [lead]=planned)
+declare -A M11_TITLE=([cyc1]="Cyc one" [cyc2]="Cyc two" [lead]="Lead")
+declare -A M11_SIZE=([cyc1]=M [cyc2]=M [lead]=M)
+declare -A M11_ACCEPT=([cyc1]=0 [cyc2]=0 [lead]=0)
+declare -A M11_PLAN_RAW=([cyc1]="" [cyc2]="" [lead]="")
+declare -A M11_STEM_ANCHOR=([cyc1]=anchor-cyc1 [cyc2]=anchor-cyc2 [lead]=anchor-lead)
+declare -n _m_status=M11_STATUS _m_title=M11_TITLE _m_size=M11_SIZE _m_accept=M11_ACCEPT \
+  _m_plan_raw=M11_PLAN_RAW _m_stem_anchor=M11_STEM_ANCHOR
+dag11_html=""
+wb_board_v2_dag_html fam11 DAG11_NODES DAG11_LAYER DAG11_ORDER DAG11_CRIT DAG11_STARTABLE \
+  DAG11_EXTBLK DAG11_TAG DAG11_EDGES DAG11_BACKEDGES DAG11_CRITPATH 0 1 "" dag11_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+assert "U4 DAG11: a back-edge renders with the warning class" 'dag-edge-warn' "$dag11_html"
+
 echo
 if [ "$fail" = 0 ]; then echo "wb-board-render.test.sh: all assertions passed"
 else echo "wb-board-render.test.sh: FAILURES"; fi

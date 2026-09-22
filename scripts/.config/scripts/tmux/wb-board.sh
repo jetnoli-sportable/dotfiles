@@ -637,6 +637,312 @@ wb_board_deps_layer() {
   done
 }
 
+# wb_board_v2_dag_node_dims <size> <w_out> <h_out> — one node's SVG box
+# dimensions for a `size:` value (XS/S/M/L/XL, blank reads as M — same
+# "blank means M" convention wb_board_deps_layer's own weight table uses).
+# Numbers are mockup-3-graph.html's own units, unscaled (1x): the family
+# view's ~15px body type is already close enough that U4's allowed scale
+# factor isn't needed.
+wb_board_v2_dag_node_dims() {
+  case "${1:-}" in
+    XS) printf -v "$2" '%s' 104; printf -v "$3" '%s' 48 ;;
+    S)  printf -v "$2" '%s' 128; printf -v "$3" '%s' 58 ;;
+    L)  printf -v "$2" '%s' 176; printf -v "$3" '%s' 84 ;;
+    XL) printf -v "$2" '%s' 208; printf -v "$3" '%s' 104 ;;
+    *)  printf -v "$2" '%s' 152; printf -v "$3" '%s' 70 ;;   # M / blank
+  esac
+}
+
+# wb_board_v2_dag_html <family_anchor> <nodes_arr> <layer_assoc> <order_assoc>
+#   <critical_assoc> <startable_assoc> <extblk_assoc> <tag_assoc> <edges_arr>
+#   <backedges_arr> <critpath_arr> <remaining_doubled> <maxlayer>
+#   <strip_prefix> <out_var>
+#
+# U4 (family DAG view): turns U3's wb_board_deps_layer output plus model data
+# into the Dependencies region's HTML — a header line naming the critical
+# path/remaining weight/startable count, PLUS a zero-JS inline SVG node-link
+# graph. Does NOT call wb_board_deps_layer itself (KTD3/scope boundary): the
+# caller (U5) calls that once per family and passes ITS out-array NAMES
+# straight through here, unmodified — <layer_assoc>..<critpath_arr> are
+# exactly wb_board_deps_layer's own out_layer/out_order/out_critical/
+# out_startable/out_extblk/out_tag/out_edges/out_backedges/out_critpath, and
+# <remaining_doubled>/<maxlayer> are its out_remaining/out_maxlayer SCALARS
+# (plain values here, not namerefs — U3 already resolved them to numbers).
+#
+# <strip_prefix>: when non-empty and a stem starts with it (followed
+# optionally by a single `-`), that prefix (and the separator) is stripped
+# for the short mono label shown top-left on each card (matching the
+# mockup's "c1"-style short ids) — the FULL stem is always still shown, in
+# the tooltip and the header's path. This function does not know the family
+# root's own name, hence the caller-supplied prefix (documented here per the
+# unit brief) rather than deriving it. Pass "" to show stems unstripped.
+#
+# THIS FUNCTION EMITS ITS OWN `<h2 class="region-label">Dependencies</h2>` —
+# U5 must NOT wrap the result in a second one; it only needs to concatenate
+# <out_var> into the family block at the right place (same convention as
+# every other `wb_board_v2_*_html` region builder in this file).
+#
+# Model data (_m_status/_m_title/_m_size/_m_accept/_m_plan_raw/
+# _m_stem_anchor) is read via ordinary dynamic scoping from the caller's
+# scope (render_v2's own `_m_*` namerefs), exactly like every other
+# `wb_board_v2_*` helper below reads them — NOT a second layer of namerefs.
+# Local variables in this function are prefixed `dh_`, deliberately distinct
+# from `_m_*`/`dl_*`/every other prefix already in use in this file, per the
+# circular-nameref trap documented at length on wb_board_v2_family_root and
+# wb_board_render_v2's own header — this function takes NINE namerefs of its
+# own (nodes/layer/order/critical/startable/extblk/tag/edges/backedges/
+# critpath), so a collision here would be exactly that trap.
+#
+# Layout (KTD11's Plan-ring precedent: bash-computed geometry, literal SVG
+# string, CSS classes only, out-var escaping helpers — no per-node fork):
+#   colW = 208 (widest node, XL) + 64px gap  = 272, uniform for every column
+#   rowH = 104 (tallest node, XL) + 20px gap = 124, uniform for every row
+# so x = layer*colW, y = order*rowH (both plus a fixed margin), regardless
+# of which sizes are actually present in this family — a safe superset of
+# "column width >= widest node present" that keeps every family's grid
+# arithmetic identical and avoids a second pass just to find the family's
+# own local max.
+#
+# Marker ids are suffixed with <family_anchor> (`dag-arrow-<anchor>`) so
+# multiple family SVGs on one page (Family tab renders every family's block,
+# just hidden via `.fam-block{display:none}` until selected) never collide
+# on the same `<marker id>` — the arrowhead uses `fill="context-stroke"`, so
+# one marker id serves every edge class (default/critical/back-edge) in this
+# family's SVG; each family still needs its OWN id since SVG `<marker>` ids
+# are page-global.
+wb_board_v2_dag_html() {
+  local dh_anchor="$1"
+  local -n dh_nodes="$2" dh_layer="$3" dh_order="$4" dh_critical="$5" dh_startable="$6"
+  local -n dh_extblk="$7" dh_tag="$8" dh_edges="$9" dh_backedges="${10}" dh_critpath="${11}"
+  local dh_remaining="${12}" dh_maxlayer="${13}" dh_strip="${14}"
+
+  local dh_out="<h2 class=\"region-label\">Dependencies</h2>"
+
+  if [ "${#dh_nodes[@]}" -eq 0 ]; then
+    dh_out+="<p style=\"color:var(--subtext);\">No children in this family.</p>"
+    printf -v "${15}" '%s' "$dh_out"
+    return 0
+  fi
+
+  # ---- geometry constants (see header comment) ---------------------------
+  local dh_colw=272 dh_rowh=124 dh_marginl=40 dh_margint=40 dh_marginr=28 dh_marginb=40
+
+  # ---- pass 1: per-node geometry + column row-counts + frontier layer ----
+  local -A dh_x=() dh_y=() dh_w=() dh_h=()
+  local -A dh_colcount=()
+  local dh_v dh_w1 dh_h1 dh_l dh_o
+  local dh_frontier_layer=-1 dh_status_v
+  for dh_v in "${dh_nodes[@]}"; do
+    wb_board_v2_dag_node_dims "${_m_size[$dh_v]:-}" dh_w1 dh_h1
+    dh_l="${dh_layer[$dh_v]:-0}"; dh_o="${dh_order[$dh_v]:-0}"
+    dh_w["$dh_v"]="$dh_w1"; dh_h["$dh_v"]="$dh_h1"
+    dh_x["$dh_v"]=$(( dh_marginl + dh_l * dh_colw ))
+    dh_y["$dh_v"]=$(( dh_margint + dh_o * dh_rowh + (dh_rowh - dh_h1) / 2 ))
+    dh_colcount["$dh_l"]=$(( ${dh_colcount[$dh_l]:-0} + 1 ))
+    dh_status_v="${_m_status[$dh_v]:-}"
+    if [ "$dh_status_v" != done ] && { [ "$dh_frontier_layer" -lt 0 ] || [ "$dh_l" -lt "$dh_frontier_layer" ]; }; then
+      dh_frontier_layer="$dh_l"
+    fi
+  done
+  local dh_maxrows=0 dh_ck
+  for dh_ck in "${!dh_colcount[@]}"; do
+    [ "${dh_colcount[$dh_ck]}" -gt "$dh_maxrows" ] && dh_maxrows="${dh_colcount[$dh_ck]}"
+  done
+  local dh_svgw=$(( (dh_maxlayer + 1) * dh_colw + dh_marginl + dh_marginr ))
+  local dh_svgh=$(( dh_maxrows * dh_rowh + dh_margint + dh_marginb ))
+
+  # ---- header line (R11) --------------------------------------------------
+  local dh_head="" dh_pts_whole dh_pts_rem dh_pts
+  dh_pts_whole=$(( dh_remaining / 2 )); dh_pts_rem=$(( dh_remaining % 2 ))
+  if [ "$dh_pts_rem" -eq 0 ]; then dh_pts="$dh_pts_whole"; else dh_pts="${dh_pts_whole}.5"; fi
+  local dh_startable_n=0
+  for dh_v in "${dh_nodes[@]}"; do
+    [ "${dh_startable[$dh_v]:-0}" = 1 ] && dh_startable_n=$(( dh_startable_n + 1 ))
+  done
+  if [ "${#dh_critpath[@]}" -gt 0 ]; then
+    local dh_path_html="" dh_short dh_sh dh_stemh dh_i
+    for (( dh_i=0; dh_i<${#dh_critpath[@]}; dh_i++ )); do
+      dh_v="${dh_critpath[$dh_i]}"
+      dh_short="$dh_v"
+      if [ -n "$dh_strip" ] && [[ "$dh_v" == "$dh_strip"* ]]; then
+        dh_short="${dh_v#"$dh_strip"}"; dh_short="${dh_short#-}"
+        [ -n "$dh_short" ] || dh_short="$dh_v"
+      fi
+      wb_board_html_escape "$dh_short" dh_sh
+      wb_board_html_escape "$dh_v" dh_stemh
+      [ "$dh_i" -gt 0 ] && dh_path_html+="<span class=\"dag-arw\">&#8594;</span>"
+      dh_path_html+="<span class=\"dag-path-hop mono\" title=\"$dh_stemh\">$dh_sh</span>"
+    done
+    dh_head="Critical path: ${dh_path_html} &middot; ${dh_pts} pts remaining &middot; ${dh_startable_n} startable now"
+  else
+    dh_head="${dh_pts} pts remaining &middot; ${dh_startable_n} startable now"
+  fi
+  dh_out+="<div class=\"fam-dag-head\">${dh_head}</div>"
+
+  # ---- frontier line (R10) ------------------------------------------------
+  local dh_frontier_svg=""
+  if [ "$dh_frontier_layer" -ge 0 ]; then
+    local dh_fx=$(( dh_marginl + dh_frontier_layer * dh_colw - dh_colw / 2 - 4 ))
+    dh_frontier_svg="<line class=\"dag-frontier\" x1=\"${dh_fx}\" y1=\"12\" x2=\"${dh_fx}\" y2=\"$(( dh_svgh - 8 ))\"/><text class=\"dag-frontier-lbl\" x=\"${dh_fx}\" y=\"$(( dh_svgh - 14 ))\" text-anchor=\"middle\">&#9656; YOU ARE HERE</text>"
+  fi
+
+  # ---- pass 2: node markup -------------------------------------------------
+  local dh_nodes_svg="" dh_cls dh_st_token dh_dashed dh_sig dh_planraw
+  local dh_short2 dh_sh2 dh_stemh2 dh_titleh dh_title_clip dh_title_raw dh_maxchars dh_href dh_enc
+  local dh_toprowh=22 dh_bottomrowh dh_title_y dh_dot_html dh_status_html
+  local dh_badge_txt dh_status_txt dh_status_h dh_tag_html dh_lock_html dh_pulse_html dh_startable_html
+  local dh_title_tt dh_extblk_h dh_extblk_disp dh_extblk_html
+  for dh_v in "${dh_nodes[@]}"; do
+    dh_w1="${dh_w[$dh_v]}"; dh_h1="${dh_h[$dh_v]}"
+    local dh_nx="${dh_x[$dh_v]}" dh_ny="${dh_y[$dh_v]}"
+    dh_status_v="${_m_status[$dh_v]:-}"
+
+    case "$dh_status_v" in
+      done) dh_cls="dag-st-done"; dh_st_token="green" ;;
+      doing|review) dh_cls="dag-st-active"; dh_st_token="mauve" ;;
+      planned) dh_cls="dag-st-planned"; dh_st_token="blue" ;;
+      *) dh_cls="dag-st-other"; dh_st_token="subtext" ;;
+    esac
+
+    # ---- KTD6: definedness signal count ----
+    dh_sig=0
+    dh_planraw="${_m_plan_raw[$dh_v]:-}"
+    [ -n "${dh_planraw//[[:space:]]/}" ] && dh_sig=$(( dh_sig + 1 ))
+    [ "${_m_accept[$dh_v]:-0}" = 1 ] && dh_sig=$(( dh_sig + 1 ))
+    [ -n "${_m_size[$dh_v]:-}" ] && dh_sig=$(( dh_sig + 1 ))
+    case "$dh_status_v" in doing|review|done) dh_sig=$(( dh_sig + 1 )) ;; esac
+    if [ "$dh_status_v" != done ] && [ "$dh_sig" -lt 3 ]; then dh_dashed=" dag-dashed"; else dh_dashed=""; fi
+
+    [ "${dh_critical[$dh_v]:-0}" = 1 ] && dh_cls+=" dag-crit-node"
+    [ "${dh_startable[$dh_v]:-0}" = 1 ] && dh_cls+=" dag-startable"
+
+    # ---- short label (mono, top-left) ----
+    dh_short2="$dh_v"
+    if [ -n "$dh_strip" ] && [[ "$dh_v" == "$dh_strip"* ]]; then
+      dh_short2="${dh_v#"$dh_strip"}"; dh_short2="${dh_short2#-}"
+      [ -n "$dh_short2" ] || dh_short2="$dh_v"
+    fi
+    wb_board_html_escape "$dh_short2" dh_sh2
+    wb_board_html_escape "$dh_v" dh_stemh2
+
+    # ---- title: card-width-derived clip, single-char ellipsis (review fix
+    # 1 — wb_board_v2_clip is the prose-block clipper with a long
+    # "[clipped — open the task file for the rest]" suffix, which overflows
+    # a card; this is a SHORT, card-specific clip instead). ~7px/char at the
+    # 13px title font, minus ~24px of left/right padding, floored at 4 chars
+    # so even the narrowest (XS) card never collapses to nothing. ----------
+    dh_maxchars=$(( (dh_w1 - 24) / 7 ))
+    [ "$dh_maxchars" -lt 4 ] && dh_maxchars=4
+    dh_title_raw="${_m_title[$dh_v]:-$dh_v}"
+    if [ "${#dh_title_raw}" -gt "$dh_maxchars" ]; then
+      dh_title_clip="${dh_title_raw:0:$(( dh_maxchars - 1 ))}&#8230;"
+      wb_board_html_escape "${dh_title_raw:0:$(( dh_maxchars - 1 ))}" dh_titleh
+      dh_titleh+="&#8230;"
+    else
+      wb_board_html_escape "$dh_title_raw" dh_titleh
+    fi
+
+    # ---- status label (bottom row; review fix 2 — dropped entirely for XS,
+    # which only has room for two rows: id/badge, then title) --------------
+    dh_status_txt="${dh_status_v:-unknown}"
+    wb_board_html_escape "$dh_status_txt" dh_status_h
+
+    # ---- size badge (top-right) ----
+    dh_badge_txt="${_m_size[$dh_v]:-M}"
+
+    # ---- href (same shape as wb_board_v2_task_open_html) ----
+    wb_board_v2_url_escape "$dh_v" dh_enc
+    wb_board_html_escape "$dh_enc" dh_enc
+    dh_href="${TASK_HREF_PREFIX}${dh_enc}.md"
+
+    # ---- tooltip: "stem · status · size" [+ blocked-by] ----
+    dh_title_tt="${dh_stemh2} &middot; ${dh_status_h} &middot; ${dh_badge_txt}"
+    dh_extblk_html=""
+    if [ -n "${dh_extblk[$dh_v]:-}" ]; then
+      dh_extblk_disp="${dh_extblk[$dh_v]// /, }"
+      wb_board_html_escape "$dh_extblk_disp" dh_extblk_h
+      dh_title_tt+="; blocked by: ${dh_extblk_h}"
+      # review fix 3 (round 2): the bottom-right corner collided with the
+      # title on an XS card (only 2 rows there, title runs closer to the
+      # edge). The TOP row has room on every size — id (+ dot, XS only) on
+      # the left, badge on the right, both narrow — so the lock sits
+      # between them, vertically aligned with the badge's own baseline;
+      # never touches the title row, the status row, or the (above-card)
+      # START/END pill.
+      dh_extblk_html="<g class=\"dag-lock\" transform=\"translate($(( dh_w1 - 56 )),8)\"><title>blocked by: ${dh_extblk_h}</title><text x=\"0\" y=\"11\" font-size=\"13\">&#128274;</text></g>"
+    fi
+
+    # ---- START/END tag (above the card) ----
+    dh_tag_html=""
+    if [ -n "${dh_tag[$dh_v]:-}" ]; then
+      local dh_tagtxt="${dh_tag[$dh_v]}" dh_tagw
+      dh_tagw=$(( ${#dh_tagtxt} * 7 + 16 ))
+      dh_tag_html="<g transform=\"translate(${dh_nx},$(( dh_ny - 24 )))\"><rect class=\"dag-tag-rect\" x=\"0\" y=\"0\" width=\"${dh_tagw}\" height=\"16\" rx=\"8\" ry=\"8\"/><text class=\"dag-tag-t\" x=\"$(( dh_tagw / 2 ))\" y=\"12\" text-anchor=\"middle\">${dh_tagtxt}</text></g>"
+    fi
+
+    # ---- in-progress pulse / startable static outline (mutually exclusive
+    # in practice: startable only ever applies to a `planned` node) --------
+    dh_pulse_html=""
+    case "$dh_status_v" in
+      doing|review)
+        dh_pulse_html="<rect class=\"dag-pulse-ring\" x=\"-4\" y=\"-4\" width=\"$(( dh_w1 + 8 ))\" height=\"$(( dh_h1 + 8 ))\" rx=\"17\" ry=\"17\"/>" ;;
+    esac
+    dh_startable_html=""
+    if [ "${dh_startable[$dh_v]:-0}" = 1 ]; then
+      dh_startable_html="<rect class=\"dag-startable-ring\" x=\"-4\" y=\"-4\" width=\"$(( dh_w1 + 8 ))\" height=\"$(( dh_h1 + 8 ))\" rx=\"17\" ry=\"17\"/>"
+    fi
+
+    # ---- review fix 2: three non-overlapping rows — top (id [+ dot for XS]
+    # left, size badge right), title (centred in whatever's left), and a
+    # bottom status row (dot + label) EXCEPT for XS, which only has room for
+    # two rows and drops the status row (keeping the dot, moved up next to
+    # the id) rather than let it collide with the title. ---------------------
+    if [ "${_m_size[$dh_v]:-}" = XS ]; then
+      dh_bottomrowh=0
+      dh_dot_html="<circle class=\"dag-dot\" cx=\"$(( 22 + ${#dh_sh2} * 6 ))\" cy=\"11\" r=\"3.5\"/>"
+      dh_status_html=""
+    else
+      dh_bottomrowh=18
+      dh_dot_html="<circle class=\"dag-dot\" cx=\"16\" cy=\"$(( dh_h1 - 14 ))\" r=\"4\"/>"
+      dh_status_html="<text class=\"dag-status-t\" x=\"26\" y=\"$(( dh_h1 - 10 ))\">${dh_status_h}</text>"
+    fi
+    dh_title_y=$(( dh_toprowh + (dh_h1 - dh_toprowh - dh_bottomrowh) / 2 + 4 ))
+
+    dh_nodes_svg+="${dh_tag_html}<a href=\"${dh_href}\" target=\"_blank\" class=\"dag-node ${dh_cls}${dh_dashed}\" style=\"--st:var(--${dh_st_token})\"><title>${dh_title_tt}</title><g transform=\"translate(${dh_nx},${dh_ny})\">${dh_pulse_html}${dh_startable_html}<rect class=\"dag-card\" x=\"0\" y=\"0\" width=\"${dh_w1}\" height=\"${dh_h1}\" rx=\"14\" ry=\"14\"/><text class=\"dag-id\" x=\"10\" y=\"18\">${dh_sh2}</text><rect class=\"dag-badge\" x=\"$(( dh_w1 - 34 ))\" y=\"8\" width=\"26\" height=\"15\" rx=\"7\" ry=\"7\"/><text class=\"dag-badge-t\" x=\"$(( dh_w1 - 21 ))\" y=\"19\" text-anchor=\"middle\">${dh_badge_txt}</text><text class=\"dag-title\" x=\"$(( dh_w1 / 2 ))\" y=\"${dh_title_y}\" text-anchor=\"middle\">${dh_titleh}</text>${dh_dot_html}${dh_status_html}${dh_extblk_html}</g></a>"
+  done
+
+  # ---- pass 3: edges (drawn behind nodes, so emitted into a group placed
+  # before the nodes group below) -------------------------------------------
+  local dh_edges_svg="" dh_from dh_to dh_x1 dh_y1 dh_x2 dh_y2 dh_dx dh_c1x dh_c2x dh_e dh_ecls
+  local -A dh_crit_pair=()
+  local dh_j
+  for (( dh_j=0; dh_j+1<${#dh_critpath[@]}; dh_j++ )); do
+    dh_crit_pair["${dh_critpath[$dh_j]} ${dh_critpath[$(( dh_j + 1 ))]}"]=1
+  done
+  for dh_e in "${dh_edges[@]}"; do
+    dh_from="${dh_e%% *}"; dh_to="${dh_e#* }"
+    dh_x1=$(( dh_x[$dh_from] + dh_w[$dh_from] )); dh_y1=$(( dh_y[$dh_from] + dh_h[$dh_from] / 2 ))
+    dh_x2="${dh_x[$dh_to]}"; dh_y2=$(( dh_y[$dh_to] + dh_h[$dh_to] / 2 ))
+    dh_dx=$(( dh_x2 - dh_x1 )); dh_c1x=$(( dh_x1 + dh_dx / 2 )); dh_c2x=$(( dh_x2 - dh_dx / 2 ))
+    dh_ecls="dag-edge"
+    [ -n "${dh_crit_pair["$dh_from $dh_to"]:-}" ] && dh_ecls+=" dag-edge-crit"
+    dh_edges_svg+="<path class=\"${dh_ecls}\" d=\"M ${dh_x1} ${dh_y1} C ${dh_c1x} ${dh_y1} ${dh_c2x} ${dh_y2} ${dh_x2} ${dh_y2}\" marker-end=\"url(#dag-arrow-${dh_anchor})\"/>"
+  done
+  for dh_e in "${dh_backedges[@]}"; do
+    dh_from="${dh_e%% *}"; dh_to="${dh_e#* }"
+    dh_x1=$(( dh_x[$dh_from] + dh_w[$dh_from] )); dh_y1=$(( dh_y[$dh_from] + dh_h[$dh_from] / 2 ))
+    dh_x2="${dh_x[$dh_to]}"; dh_y2=$(( dh_y[$dh_to] + dh_h[$dh_to] / 2 ))
+    dh_dx=$(( dh_x2 - dh_x1 )); dh_c1x=$(( dh_x1 + dh_dx / 2 )); dh_c2x=$(( dh_x2 - dh_dx / 2 ))
+    dh_edges_svg+="<path class=\"dag-edge dag-edge-warn\" d=\"M ${dh_x1} ${dh_y1} C ${dh_c1x} ${dh_y1} ${dh_c2x} ${dh_y2} ${dh_x2} ${dh_y2}\" marker-end=\"url(#dag-arrow-${dh_anchor})\"/>"
+  done
+
+  local dh_anchor_h; wb_board_html_escape "$dh_anchor" dh_anchor_h
+  local dh_svg="<div class=\"fam-dag-wrap\"><svg class=\"fam-dag\" viewBox=\"0 0 ${dh_svgw} ${dh_svgh}\" width=\"${dh_svgw}\" height=\"${dh_svgh}\" role=\"img\" aria-label=\"Dependency graph\"><defs><marker id=\"dag-arrow-${dh_anchor_h}\" viewBox=\"0 0 10 10\" refX=\"8.5\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\"><path d=\"M0,0 L10,5 L0,10 z\" fill=\"context-stroke\"/></marker></defs>${dh_frontier_svg}<g class=\"dag-edges\">${dh_edges_svg}</g><g class=\"dag-nodes\">${dh_nodes_svg}</g></svg></div>"
+
+  dh_out+="$dh_svg"
+  printf -v "${15}" '%s' "$dh_out"
+}
+
 # wb_board_v2_fill_template <template> <tokens_assoc_name> <out_var> —
 # substitute every @@TOKEN@@ in <template> with <tokens_assoc>[TOKEN], in a
 # single left-to-right walk of the TEMPLATE, appending each fragment to the
@@ -3938,6 +4244,55 @@ wb_board_render_v2() {
   .rung-grid li .copy-ic { opacity: .5; }
   .rung-grid li:hover .copy-ic { opacity: 1; }
   .fam-today-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mauve); background: rgba(203,166,247,.12); border: 1px solid rgba(203,166,247,.4); padding: 2px 9px; border-radius: 999px; margin-left: 8px; }
+
+  /* ---------- Family DAG (U4) — Dependencies region, inline SVG ----------
+     Colour choices (KTD9/KTD10, documented here so a future pass doesn't
+     re-litigate them):
+       - status ladder REUSES .rung-node's own mapping: done=--green,
+         doing/review (active)=--mauve, planned=--blue, anything else
+         (prospective/unknown)=--subtext (grey) — set per node via the
+         `--st` custom property, same pattern mockup-3-graph.html uses.
+       - critical path (spine edges + node halo) = --peach — free of every
+         status colour above.
+       - startable-now static outline = --yellow — likewise free of the
+         status ladder AND distinct from --peach, so "critical" and
+         "startable" never read as the same signal.
+       - under-defined (KTD6) dashed border = --overlay, a NEUTRAL grey —
+         deliberately NOT --red, so a merely-fuzzy node never reads as a
+         warning (KTD9).
+       - cycle back-edges = --red, dashed, ON PURPOSE — these ARE warnings
+         (KTD9), the one dashed usage in this block that means "danger". */
+  .fam-dag-wrap { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--overlay); border-radius: 12px; background: var(--surface); padding: 10px 6px; }
+  .fam-dag-head { font-size: 14px; color: var(--text); margin: 2px 4px 14px 4px; }
+  .fam-dag-head .dag-arw { color: var(--subtext); padding: 0 3px; }
+  .fam-dag-head .dag-path-hop { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 13px; font-weight: 700; color: var(--peach); }
+  svg.fam-dag { display: block; }
+  .dag-frontier { stroke: var(--blue); stroke-width: 1.6; stroke-dasharray: 2 7; stroke-linecap: round; opacity: .8; }
+  .dag-frontier-lbl { font-family: monospace; font-size: 10px; font-weight: 700; letter-spacing: .1em; fill: var(--blue); }
+  .dag-edge { fill: none; stroke: var(--overlay); stroke-width: 2; opacity: .85; }
+  .dag-edge-crit { stroke: var(--peach); stroke-width: 3; opacity: .95; }
+  .dag-edge-warn { stroke: var(--red); stroke-width: 2; stroke-dasharray: 5 4; opacity: .9; }
+  .dag-node { cursor: pointer; }
+  .dag-card { fill: var(--base); stroke: var(--st); stroke-width: 2; }
+  .dag-node.dag-dashed .dag-card { stroke-dasharray: 7 5; stroke: var(--overlay); }
+  .dag-node.dag-st-done .dag-card { fill: var(--surface); }
+  .dag-node.dag-crit-node .dag-card { stroke: var(--peach); stroke-width: 2.5; }
+  .dag-startable-ring { fill: none; stroke: var(--yellow); stroke-width: 1.6; opacity: .9; }
+  .dag-pulse-ring { fill: none; stroke: var(--mauve); stroke-width: 2; opacity: .35; }
+  @media (prefers-reduced-motion: no-preference) {
+    .dag-pulse-ring { animation: dagPulse 2.2s ease-in-out infinite; }
+  }
+  @keyframes dagPulse { 0%, 100% { opacity: .15; } 50% { opacity: .55; } }
+  .dag-id { font-family: monospace; font-size: 11px; fill: var(--subtext); }
+  .dag-title { font-family: inherit; font-size: 13px; font-weight: 600; fill: var(--text); }
+  .dag-node.dag-st-done .dag-title { fill: var(--subtext); }
+  .dag-badge { fill: none; stroke: var(--st); stroke-width: 1.2; opacity: .85; }
+  .dag-badge-t { font-family: monospace; font-size: 10.5px; font-weight: 700; fill: var(--st); }
+  .dag-dot { fill: var(--st); }
+  .dag-status-t { font-family: inherit; font-size: 10.5px; font-weight: 700; fill: var(--st); }
+  .dag-tag-rect { fill: none; stroke: var(--peach); stroke-width: 1.2; }
+  .dag-tag-t { font-family: monospace; font-size: 9.5px; font-weight: 700; fill: var(--peach); letter-spacing: .08em; }
+  .dag-lock { fill: var(--red); }
 </style>
 </head>
 <body>
