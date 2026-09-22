@@ -4549,25 +4549,31 @@ cmd_board() {
     # per-status counts, per-family membership) passed clean against the
     # real ~301-task store. R16's single collect pass, no tmux/gh/git calls.
     local -a V2ROWS=()
-    local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=()
-    wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW
+    local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=() \
+      M_DECISIONS_RAW=() M_LINKS_RAW=()
+    wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+      M_DECISIONS_RAW M_LINKS_RAW
 
     local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
       M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
       M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
       M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
-      STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=()
-    wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+      STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=()
+    # fix(review) P2 follow-up: the 22-name model-array sequence was hand-typed
+    # identically at both call sites below (found in PR 1 review) — hoisted to
+    # one constant so U5's 2 new trailing arrays only had to be added once,
+    # and any future model field only ever needs adding here.
+    local -a WB_BOARD_MODEL_ARGS=(
       M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
       M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
       M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-      FAMILY_CHILDREN BUCKET_COUNT
+      FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL
+    )
+    wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+      "${WB_BOARD_MODEL_ARGS[@]}"
 
     wb_board_render_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
-      M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
-      M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
-      M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-      FAMILY_CHILDREN BUCKET_COUNT > "$out"
+      "${WB_BOARD_MODEL_ARGS[@]}" M_DECISIONS_RAW M_LINKS_RAW > "$out"
     echo "wb board: wrote $out"
     return 0
   fi
