@@ -2,6 +2,7 @@
 title: "Store auto-capture (decision nudge + Haiku sweep) - Plan"
 type: feat
 date: 2026-09-22
+deepened: 2026-09-22
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 execution: code
@@ -140,8 +141,9 @@ Per-session state (`…/wb/capture/<session_id>/`):
 | `draft` | capture-sweep.sh | `/wb-decide` accept, dismiss |
 | `muted` | `/wb-decide mute` | `/wb-decide unmute` |
 | `outstanding` (a nudge was delivered, awaiting follow) | hook-prompt | hook-posttool (→ `followed`), dismiss |
+| `ended` (tombstone) | hook-end | reaper removes the whole dir |
 
-At SessionEnd, `hook-end` logs `pending_at_end` if `marker` or `draft` exists, then removes that session's directory by its exact computed path, which is never a variable that could be empty.
+At SessionEnd, `hook-end` logs `pending_at_end` if `marker` or `draft` exists and writes an `ended` tombstone. A throttled reaper, run from `hook-prompt`, removes ended or 7-day-stale session dirs and rotates the log (U5). This covers sessions killed with `tmux kill-session`, where SessionEnd may never fire. Session state is per session, so `wb resume` (a cold start with a new session) and `/clear` start clean: mute and cooldown reset, which is accepted for cut 1.
 
 ### Assumptions
 
@@ -163,11 +165,12 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 - **Files:** none committed, apart from a throwaway probe plugin in the session scratchpad. Findings go to the task file via `wb append … Decisions -`.
 - **Approach:** check each of the following.
   1. A skills-dir plugin whose files are stow-style symlinks loads, and its hooks fire. Check with a probe plugin that logs stdin, via `--plugin-dir` and then as a symlinked `~/.claude/skills/<probe>/`, removed afterwards.
-  2. The Stop stdin carries `last_assistant_message` and `transcript_path`, and the PostToolUse(Bash) stdin carries `tool_input.command`, including for sub-agent tool calls.
+  2. The Stop stdin carries `last_assistant_message` and `transcript_path`, and the PostToolUse(Bash) stdin carries `tool_input.command`, including for sub-agent tool calls. Record whether a sub-agent's PostToolUse carries the **parent's** `session_id`.
+  5. Session identity across lifecycle events: does `/clear` issue a new `session_id`, and does SessionEnd fire when the tmux session is killed (`wb pause`/`wb down` use `tmux kill-session`)? `wb resume` cold-starts `claude`, so it always gets a new session.
   3. An `async: true` Stop hook can launch `claude -p --model haiku --no-session-persistence --max-turns 1` with tools disabled. Find the exact flag for "no tools". The child inherits `WB_CAPTURE_SWEEP` and does fire user and plugin hooks (so our guard is what stops recursion). It writes no transcript. It runs inside the parent's `wb-agent-*.scope`: check with `systemd-cgls`, and note peak memory against `MemoryMax`.
   4. `docgen.sh` tolerates a `claude/.claude/skills/wb-capture/` directory with no `SKILL.md`. Run it in a `git archive` clean-room copy, never the shared checkout.
 - **Execution note:** this is a spike. Probe artifacts live in the scratchpad and are removed; nothing here ships. Kill no processes and stop no units without asking Jet.
-- **Fallbacks:** if check 1 fails, install the same plugin dir from a local-directory marketplace (loads in place per docs). If check 4 fails, move the plugin to a new non-stowed top-level `plugins/wb-capture/`, installed via a local marketplace. If check 3 shows the guard leaking, add `--settings` with hooks disabled if the flag exists; otherwise stop and ask about `--bare` with an API key.
+- **Fallbacks:** if check 1 fails, install the same plugin dir from a local-directory marketplace (loads in place per docs). If check 4 fails, move the plugin to a new non-stowed top-level `plugins/wb-capture/`, installed via a local marketplace. If check 3 shows the guard leaking, add `--settings` with hooks disabled if the flag exists; otherwise stop and ask about `--bare` with an API key. If check 2 shows sub-agent tool calls carry a *different* `session_id`, `hook-posttool` also writes a task-scoped `recorded` flag (keyed by the `@task` stem) that `hook-stop` honours. If check 5 shows `/clear` keeps the same `session_id`, `hook-prompt` also clears a pending marker when the transcript path changes.
 - **Test scenarios:** Test expectation: none. This is a spike whose output is a findings entry.
 - **Verification:** a Decisions entry states pass/fail per check, with the fallback taken where one was needed.
 
@@ -249,16 +252,25 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
   - Excerpt budget: an oversized transcript fixture yields stdin at or under the byte cap, keeping the newest turns.
 - **Verification:** `capture-sweep.test.sh` passes in the sandbox. U1 check 3 recorded the real-child behaviour.
 
-### U5. SessionEnd hook (`hook-end`)
+### U5. Session close-out (`hook-end` + stale-state reaper)
 
-- **Goal:** Close out a session's capture state and log anything left pending, within the 1.5s SessionEnd budget.
+- **Goal:** Close out a session's capture state and log anything left pending. This must work both when SessionEnd fires (within its 1.5s budget) and when it never does: `wb pause`/`wb down` end sessions with `tmux kill-session`.
 - **Requirements:** R11, R10.
 - **Dependencies:** U2.
-- **Files:** `scripts/.config/scripts/tmux/capture.sh` (add verb), `scripts/.config/scripts/tmux/tests/capture-hooks.test.sh` (extend).
-- **Approach:** if `marker` or `draft` exists, log `pending_at_end{marker:bool,draft:bool}`, then remove the session's state directory by explicit path. There's no jq-heavy work, no network and no task-file access.
+- **Files:** `scripts/.config/scripts/tmux/capture.sh` (add `hook-end` and the reaper), `scripts/.config/scripts/tmux/tests/capture-hooks.test.sh` (extend).
+- **Approach:**
+  - **`hook-end`:** if `marker` or `draft` exists, log `pending_at_end{marker:bool,draft:bool}`, then write an `ended` tombstone in the session dir. Don't delete here; the reaper does that. There's no jq-heavy work, no network and no task-file access.
+  - **Reaper:** runs opportunistically from `hook-prompt` in any wb session, at most once per hour (a stamp file in the capture root).
+    - It removes session dirs that carry `ended`, and dirs untouched for 7+ days. A stale dir that still has a marker or draft first logs `pending_orphaned`.
+    - It rotates `log.jsonl` to `log.jsonl.1` past a size cap (default 5 MB).
+    - Removal is always by explicit per-dir file names under the validated capture root, never a recursive delete of a computed path.
+  - **Sweep interaction:** `capture-sweep.sh` (U4) checks for `ended` before launching the child and again before writing the draft. If the session ended meanwhile, it logs `pending_at_end{draft:true}` instead of writing, so a late draft never lands in a reaped or ended dir.
 - **Test scenarios:**
-  - A pending marker at SessionEnd gives one `pending_at_end` log line, the session dir is gone, and the task file is byte-identical, `## Handoffs` included.
-  - Nothing pending: the dir is removed and nothing is logged.
+  - A pending marker at SessionEnd gives one `pending_at_end` log line and the `ended` tombstone, and the task file is byte-identical, `## Handoffs` included.
+  - Nothing pending: only the tombstone is written and nothing is logged.
+  - Reaper: an `ended` dir is removed on the next eligible `hook-prompt`. An 8-day-old dir holding a marker logs `pending_orphaned` and is removed. A fresh dir without `ended` is kept. Within the hourly window the reaper doesn't run twice.
+  - Log rotation: a `log.jsonl` over the cap is moved to `.1`, and the next event starts a new file.
+  - Sweep race: `ended` appears while the fake `claude` is running, so no draft file is written and `pending_at_end{draft:true}` is logged.
   - The state-dir path computes to empty or to a path outside the capture root: nothing is removed and it fails open.
 - **Verification:** the extended `capture-hooks.test.sh` passes.
 
@@ -320,6 +332,11 @@ U1 gates everything. U2 (the shared script and state) precedes U3–U5. U6 (the 
 - **Memory:** the sweep child runs inside the agent's `wb-agent-*.scope`, so it counts against that agent's `MemoryMax` (8G). U1 records the observed peak.
 - **Subscription usage:** at most one Haiku call per N stale turns per session, with `--max-turns 1`. The cwd is the state dir, so no repo context loads.
 - **Existing hooks are untouched.** `claude-notify-hook.sh` and the PreToolUse guard stay in `~/.claude/settings.json`, and plugin hooks run alongside them.
+- **Rollout needs a restart.** Hook configuration is snapshotted at session start, so already-running wb sessions get no capture until restarted (or resumed via `wb resume`). After merge: re-run `stow --no-folding -t "$HOME" claude scripts` from the main checkout, because new files need new symlinks, then restart sessions. The kill switch file disables everything instantly without a restart.
+- **Accepted cut-1 behaviours:**
+  - Two agents on one task file each get their own nudges and sweeps, since state is per session.
+  - Another writer's append to the shared task file resets this session's staleness counter and can delay a sweep.
+  - Mute and cooldown don't survive `/clear` or `wb resume`.
 
 ## Risks & Dependencies
 
