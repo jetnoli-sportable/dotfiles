@@ -168,26 +168,12 @@ own header comment in `wb.sh`), so it can't trip that hazard — the thing
 still genuinely forbidden here is a bare `wb new <repo> <slug>` (no
 `--agent`, no `--planned`) or `cmd_new` call, which does reach that code.
 
-**IMPORTANT — the live `~/code/tasks/TEMPLATE.md` currently has NO
-`## Follow-ups` heading** (only `## Plan` / `## Decisions` / `## Done`),
-even though live, in-flight task files (e.g. `~/code/tasks/dotfiles--feat-handoff-v1.md`)
-do have one. If this skill only copies the template verbatim, a
-brand-new task created this way silently lacks the heading
-`handoff.sh`'s R11 bootstrap-gap warning (`handoff_append_followup`) needs
-to append into — that append becomes a silent no-op against a file with no
-matching heading to insert after. **When creating a new task file, always
-check that a `## Follow-ups` heading exists in the body, and add one if it
-doesn't** — immediately before `## Decisions` if that heading exists, or
-at the end of the file if it doesn't either. Do this every time a new file
-is created from the template; never trust that the template already has
-it.
-
-(Aside, not something to fix here: the current `TEMPLATE.md` also has no
-`# Title` placeholder line at all, which means `wb_seed_task`'s own
-title-substitution logic is a no-op against it today. This skill sidesteps
-that by composing the `# <title>` line directly rather than relying on
-template substitution, per the bullet above — but it's worth knowing the
-gap exists if `TEMPLATE.md` is ever revisited.)
+`~/code/tasks/TEMPLATE.md` carries a `## Follow-ups` heading (after
+`## Decisions`, then `## Done`), which is where `handoff.sh`'s R11
+bootstrap-gap warning (`handoff_append_followup`) appends. When composing a
+new task file, keep that heading. Older task files that lack it are still
+fine: the append adds the heading before `## Decisions`, or at EOF when
+there is no `## Decisions` either.
 
 ### 4. Determine `first_action` and write it into the file
 

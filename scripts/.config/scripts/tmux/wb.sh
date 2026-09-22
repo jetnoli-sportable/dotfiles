@@ -3581,8 +3581,7 @@ wb_sweep_section() {
 # "entry heading, blank, message" shape) bakes that into <body> itself.
 #
 # Insertion rule (identical to wb_append_handoff's own pre-extraction
-# behavior, and the missing-heading fallback handoff_append_followup
-# (handoff.sh:84-116) established for "## Follow-ups"):
+# behavior; handoff.sh's handoff_append_followup delegates here too):
 #   - "## <heading>" exists as a real heading (isHeadingLine() below — only
 #     a line preceded by a blank line, or the file's first line, counts;
 #     without this guard, heading-shaped TEXT inside another section's own
@@ -3594,8 +3593,9 @@ wb_sweep_section() {
 #     after the heading line itself. Repeated calls therefore read
 #     oldest-first — load-bearing for /wb-resume (not in scope here), which
 #     needs to find the most recent rich entry reliably.
-#   - "## <heading>" is missing entirely, but "## Decisions" exists as a
-#     real heading — insert a fresh "## <heading>" section immediately
+#   - "## <heading>" is missing entirely (checked over the WHOLE file up
+#     front, not just the part scanned so far), but "## Decisions" exists
+#     as a real heading — insert a fresh "## <heading>" section immediately
 #     before it.
 #   - Neither exists anywhere — append a fresh "## <heading>" section at
 #     EOF.
@@ -3612,8 +3612,17 @@ _wb_append_under_heading() {
   # assignment does no such processing.
   WB_APPEND_TARGET="$target" WB_APPEND_BODY="$body" awk '
     BEGIN { target = ENVIRON["WB_APPEND_TARGET"]; body = ENVIRON["WB_APPEND_BODY"] }
-    function isHeadingLine() { return (prev == "" || NR == 1) }
-    BEGIN { insection = 0; inserted = 0; prev = "" }
+    function isHeadingLine() { return (prev == "" || FNR == 1) }
+    BEGIN { insection = 0; inserted = 0; exists = 0; pass = 0 }
+    # The file is read twice (see the invocation below). Pass 1 only
+    # records whether the target heading exists ANYWHERE, so the
+    # missing-heading fallback in pass 2 cannot fire just because the scan
+    # reached "## Decisions" before the target — true of every target that
+    # follows Decisions in TEMPLATE.md (Done, Follow-ups), which used to
+    # get a duplicate heading spliced in before Decisions. A counter rather
+    # than the usual NR == FNR test, which misfires when the file is empty.
+    FNR == 1 { pass++; prev = "" }
+    pass == 1 { if ($0 == target && isHeadingLine()) exists = 1; prev = $0; next }
     $0 == target && isHeadingLine() { insection = 1 }
     # Leaving an existing target section (any other "## " heading reached
     # while inside it) — insert the body right here, at the end of that
@@ -3627,9 +3636,8 @@ _wb_append_under_heading() {
       inserted = 1; insection = 0
     }
     # Heading missing entirely, but "## Decisions" exists — insert a fresh
-    # target section right before it (the same missing-heading insertion
-    # point handoff_append_followup uses for its own heading).
-    $0 == "## Decisions" && !insection && !inserted && isHeadingLine() {
+    # target section right before it.
+    $0 == "## Decisions" && !exists && !inserted && isHeadingLine() {
       print target
       print ""
       print body
@@ -3651,7 +3659,7 @@ _wb_append_under_heading() {
         print body
       }
     }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  ' "$file" "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
 }
 
 # wb_append_handoff <task_file> <source> <message> — appends a terse,
