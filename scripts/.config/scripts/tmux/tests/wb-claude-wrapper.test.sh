@@ -242,6 +242,17 @@ EOF
   pane_cmd="$(PATH="$DETECT_BIN:$PATH" tmux list-panes -t "=$SESSION" -F '#{pane_current_command}')"
   assert_eq "detection contract: pane_current_command reads 'claude' under real isolation" "claude" "$pane_cmd"
 
+  # Same-pane relaunch while the first scope is still ACTIVE — the real
+  # collision the stubbed systemd-run can't reproduce. Ctrl-Z keeps the first
+  # agent alive in its scope (like an orphaned wl-copy would); with a
+  # PID-only unit name the second launch fails "Unit ... was already loaded".
+  PATH="$DETECT_BIN:$PATH" tmux send-keys -t "$PANE" C-z
+  sleep 1
+  PATH="$DETECT_BIN:$PATH" tmux send-keys -t "$PANE" "PATH=\"$CLAUDE_STUB_DIR:\$PATH\" claude 300" Enter
+  sleep 2
+  n_scopes="$(systemctl --user list-units --type=scope --state=active --no-legend --plain "wb-agent-${SESSION}-*" 2>/dev/null | grep -c .)"
+  assert_eq "same-pane relaunch: second scope starts while the first is still active" "2" "$n_scopes"
+
   detect_cleanup
   trap cleanup EXIT
 else

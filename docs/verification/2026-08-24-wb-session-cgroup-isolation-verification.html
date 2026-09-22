@@ -269,7 +269,7 @@ docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests</code></pre>
         <div class="item-top"><span class="what">Isolated scope appears, with the right limit</span><span class="ref">R1</span></div>
         <pre><code># in a real wb session (wb new / wb resume), start claude, then from another shell:
 systemctl --user list-units 'wb-agent-*'</code></pre>
-        <p class="expect"><strong>Expect:</strong> one active scope named <code>wb-agent-&lt;session&gt;-&lt;pid&gt;</code> with <code>MemoryMax=8G</code> (<code>systemctl --user show wb-agent-&lt;...&gt;.scope -p MemoryMax</code> to confirm the exact value).</p>
+        <p class="expect"><strong>Expect:</strong> one active scope named <code>wb-agent-&lt;session&gt;-&lt;pid&gt;-&lt;launch-ns&gt;</code> with <code>MemoryMax=18G</code> (<code>systemctl --user show wb-agent-&lt;...&gt;.scope -p MemoryMax</code> to confirm the exact value).</p>
       </div>
     </div>
 
