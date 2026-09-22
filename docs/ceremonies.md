@@ -4,7 +4,7 @@ status: current
 tile: Check-in points, not automatic triggers. What each one is for, and what happens when it passes.
 group: workflow
 kind: page
-updated: 2026-09-14
+updated: 2026-09-22
 ---
 
 **Dated clocks** are check-in points, not tasks — "on this date, come back
@@ -15,23 +15,51 @@ recurring reviews beyond today's clocks.
 **2026-09-14 note:** all three clocks below sat unresolved for ~7-8 weeks
 past their dates — the failure mode this page itself warns against, since a
 date in a doc has no trigger. Resolved as part of scoping
-`dotfiles--workflow-strategy-and-ceremonies`; a weekly ceremony (see
-`## Recurring` below, once built) replaces bare dated clocks as the
+`dotfiles--workflow-strategy-and-ceremonies`. The weekly review (see
+`## Recurring` below, shipped 2026-09-15) replaces bare dated clocks as the
 mechanism going forward.
 
 ## Recurring
 
-### Weekly workflow review — not yet built
+### Weekly workflow review — `/weekly-review`
 
-Replaces this page's original "combined calibration ceremony" clock.
-Starts as a manually-invoked skill (not hooked to `wb up`, not calendar-
-nagged) — force it into the workflow incrementally once it's proven useful,
-rather than over-building the trigger up front. Gathers the week's
-evidence (transcript grep for skill usage, tasks-repo git log, `/park`
-ledger, merged PRs) and reviews it in a findings-review buffer: what
-worked, what didn't, one increment to the workflow or skills. First run's
-agenda includes triaging the task store's "doing" backlog. Scoped in
-`dotfiles--workflow-strategy-and-ceremonies`; not yet built.
+Replaces this page's original "combined calibration ceremony" clock, plus
+the retired `/parked-items`. Shipped in #55–#58 and first run for 2026-W38.
+Full usage is in the [weekly-review guide](guides/weekly-review.html).
+
+- **Capture, all week:** [`/park <note>`](guides/park.html) appends to the
+  standing capture doc (`~/code/tasks/weeks/capture.md`, which
+  <kbd>prefix</kbd>+<kbd>N</kbd> opens). Work-shaped items get proposed as
+  `prospective` tasks instead.
+- **Review, weekly:** `/weekly-review`, run from the main dotfiles
+  checkout. It gathers four kinds of evidence in a fixed order: `wb
+  reconcile` drift, unreviewed capture entries, tasks moved and PRs merged
+  since the last record, and skill-usage counts. It sorts each capture
+  entry into one of four kinds (task idea, skill idea, grievance, workflow
+  improvement) and shows at most five suggestions on the review page. It
+  then writes `~/code/tasks/weeks/<ISO>-review.md`. Accepted suggestions
+  become `planned` tasks tagged `weekly-review`.
+- **Trigger:** manual, on purpose. There is no calendar or hook nudge. The
+  only prompt is the "unreviewed capture entries (Nd since last review)"
+  count in the picker status line and at the end of `wb done`. It stays
+  manual until a few real runs show it's worth keeping. If the suggestions
+  keep coming up empty, rethink the ceremony rather than automating it.
+
+### Fortnightly Retro and Sprint planning — fed by the weekly review
+
+Retro and Sprint planning are real meetings, held every two weeks. They
+are not agent ceremonies, and nothing here schedules them. The weekly
+review's job is to make sure both meetings start from captured evidence
+rather than memory. Each week's record has one section for each meeting:
+
+| Captured as | Feeds | Lands in the week record as |
+|---|---|---|
+| Grievance / friction | **Retro** | One line under `## Retro`, plus any "what's working" item settled that round |
+| Workflow improvement | **Retro**, plus **Sprint planning** if it implies a concrete change | Under `## Retro`, plus a planning row when it's actionable |
+| Task idea / skill idea / deferred work | **Sprint planning** | Under `## Sprint planning`: what was seeded (task ref), what was dropped (and why), what an existing task already covered |
+
+To prepare for either meeting, read the last two `weeks/*-review.md`
+records. Their `## Retro` or `## Sprint planning` sections are the agenda.
 
 ## Resolved
 
