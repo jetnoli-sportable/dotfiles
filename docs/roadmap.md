@@ -113,11 +113,11 @@ deliberately set aside.
    `.worktree-bootstrap` manifest, else root `.env*`; `be--monorepo`'s
    `config.hjson` (root + `apps/metrics_server/`) is silently skipped.
    Fix: add that manifest in `be--monorepo`. Found 2026-07-10 during the
-   `/handoff` dry-run — [detail](roadmap-handoff.html).
+   `/handoff` dry-run — [detail](archive/roadmap-handoff.html).
 3. <a id="detail-wb-reconcile-duplicate-gap"></a>**`wb reconcile` duplicate-task detection** —
    two tasks that both have valid worktrees but represent the same real
    work aren't recognized as a finding at all today; the user still has to
-   manually name the merge target — [detail](roadmap-wb-reconcile.html).
+   manually name the merge target — [detail](archive/roadmap-wb-reconcile.html).
 
 ## Live
 
@@ -128,8 +128,8 @@ claim is always a waits-on link — `needs: <item>`, `clock: <date>`, or
 
 | Item | Status | Doc | What it is |
 |---|---|---|---|
-| <a id="detail-task-recall"></a>**Task recall** | queued — needs: boundary-rule | [detail](roadmap-task-recall.html) | Resume any work from any session by referencing it |
-| <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
+| <a id="detail-task-recall"></a>**Task recall** | queued — needs: boundary-rule | [detail](archive/roadmap-task-recall.html) | Resume any work from any session by referencing it |
+| <a id="detail-day-bookends-full"></a>**Day bookends** — full `wb up` / `wb down` | queued — needs: notes-tui-4b | [detail](archive/roadmap-day-bookends.html) | Single-task `wb resume` already shipped (PR #14); full startup/shutdown flow waits on real notes-tui wiring |
 | <a id="detail-notes-tui-4b"></a>**Notes-tui integration, 4b** (real wiring) | queued — clock: 2026-07-24 (fix-forward experiment verdict) | [deep dive](archive/slice-4b-deep-dive.html) · [ceremonies](ceremonies.html) | Original 4b wiring only proceeds if the fix-forward experiment changes real usage |
 | <a id="detail-boundary-rule"></a>**Personal/employer boundary rule** | queued — after: every other follow-up — chosen | [limitations](limitations.html) | Deliberately the final decision; Task recall above already depends on it landing |
 | <a id="detail-second-opinion"></a>**`/second-opinion`** — ask the best available model at high effort, context-aware | proposed — raised 2026-07-11; new skill vs. tweaking an existing `/btw` still undecided | — | Formalizes today's ad-hoc pattern (spawn a top-tier-model subagent, full conversation context, high reasoning effort, to sanity-check a decision) as a reusable skill; no `/btw` skill or alias exists anywhere in this repo, so confirm what that refers to before building |
@@ -157,21 +157,21 @@ against self-killing the calling session (PR #19), and a fix stopping the
 sweep-review buffer from autoformatting itself (PR #27).
 
 - <a id="detail-step-zero"></a>**Step zero** (hooks, alias cleanup) — attention-pipeline hooks wired, dead `n` alias removed.
-- <a id="detail-task-store-frontmatter"></a>**Central task store + frontmatter** — [wb design](roadmap-wb-design.html)
-- <a id="detail-wb-core"></a>**`wb` core** (new / picker / done) — [wb design](roadmap-wb-design.html) · [wb-guide](wb-guide.html) — PR #7
+- <a id="detail-task-store-frontmatter"></a>**Central task store + frontmatter** — [wb design](archive/roadmap-wb-design.html)
+- <a id="detail-wb-core"></a>**`wb` core** (new / picker / done) — [wb design](archive/roadmap-wb-design.html) · [wb-guide](wb-guide.html) — PR #7
 - <a id="detail-notes-tui-4a"></a>**Notes-tui integration, 4a** (capture) — [deep dive](archive/slice-4b-deep-dive.html)
 - <a id="detail-docs-platform"></a>**Docs platform** (generated pages, Hub, INDEX, `/help`) — [docgen](docgen.html) · [slice-5 recap](archive/slice-5-recap.html)
 - <a id="detail-guide-pages-hub"></a>**Per-skill/TUI guide pages + tile dashboard** — `docs/guides/*` · [slice-5 recap](archive/slice-5-recap.html)
 - <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) — glossary, limitations, ceremonies pages, the `/board` tile, the roadmap reshape, and the `wb-save`/`wb-resume`/`wb-done`/`wb-board` skill catalog; U5/U6 artifact index deferred — PR #18
-- <a id="detail-board-html"></a>**`/board`** — full HTML task-board view — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) — PR #14
-- <a id="detail-wb-pause"></a>**`wb pause`** (new status + subcommand + keybind) — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](roadmap-board.html) — PR #14
-- <a id="detail-wb-reconcile-core"></a>**`wb reconcile`** — drift detection + review/apply flow — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](roadmap-wb-reconcile.html) — PR #14
-- <a id="detail-wb-resume"></a>**`wb resume <task>`** (day bookends, single-task) — [detail](roadmap-day-bookends.html) — PR #14
+- <a id="detail-board-html"></a>**`/board`** — full HTML task-board view — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](archive/roadmap-board.html) — PR #14
+- <a id="detail-wb-pause"></a>**`wb pause`** (new status + subcommand + keybind) — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](archive/roadmap-board.html) — PR #14
+- <a id="detail-wb-reconcile-core"></a>**`wb reconcile`** — drift detection + review/apply flow — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](archive/roadmap-wb-reconcile.html) — PR #14
+- <a id="detail-wb-resume"></a>**`wb resume <task>`** (day bookends, single-task) — [detail](archive/roadmap-day-bookends.html) — PR #14
 - <a id="detail-ergonomics-batch"></a>**Editor/tmux ergonomics batch** — [9f recap](archive/9f-ergonomics-recap.html)
 - <a id="detail-gpaste"></a>**GPaste clipboard-history manager** — [9g recap](archive/9g-gpaste-recap.html)
 - <a id="detail-precommit-hook-fix"></a>**`docgen.sh`'s pre-commit hook** — fixed the wrong-repo-from-a-worktree bug, verified with a real divergence test
-- <a id="detail-parent-child"></a>**Task parent/child relationship** (incl. cross-repo/full-stack tasks) — [detail](roadmap-handoff.html) — PR #17
-- <a id="detail-handoff"></a>**`/handoff`** — route something being discussed to the worker that should own it — an already-live tmux session (switch + clipboard) or a freshly spawned one (`wb new --agent` + inject); single-target only — fan-out (one discussion → several linked tasks) still not built, waiting on the parent/child loop — [detail](roadmap-handoff.html) · [guide](handoff-guide.html) — PR #21
+- <a id="detail-parent-child"></a>**Task parent/child relationship** (incl. cross-repo/full-stack tasks) — [detail](archive/roadmap-handoff.html) — PR #17
+- <a id="detail-handoff"></a>**`/handoff`** — route something being discussed to the worker that should own it — an already-live tmux session (switch + clipboard) or a freshly spawned one (`wb new --agent` + inject); single-target only — fan-out (one discussion → several linked tasks) still not built, waiting on the parent/child loop — [detail](archive/roadmap-handoff.html) · [guide](handoff-guide.html) — PR #21
 - <a id="detail-queue"></a>**`/queue`** — per-worktree queue for stashing follow-ups without losing the current thread (`<leader>aq`/`<leader>aQ`, `queue.lua`) — task: `dotfiles--feat-queue-command` — PR #24
 - <a id="detail-xdg-open-fix"></a>**`xdg-open`/Slack fix** — stopped Slack's Electron bug from hijacking the system default-browser handler, wired into `install.sh` — task: `dotfiles--fix-xdg-open-slack-hijack` — PR #28
 - <a id="detail-tasks-concurrency-safety"></a>**Central task-store git/file safety across concurrent agents** — three-layer guard (agent-side "ask" hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — [guide](guides/tasks-store-guards.html) — task: `dotfiles--docs-roadmap-tasks-concurrency-safety`
@@ -183,7 +183,7 @@ Ceremonies (dated clocks, recurring reviews) now live on their own page:
 [Ceremonies](ceremonies.html). Standing workflow constraints now live on
 their own page: [Limitations](limitations.html). Full detail on every
 deferred decision the 2026-07-07 doc review left open:
-[Open Questions](roadmap-open-questions.html).
+[Open Questions](archive/roadmap-open-questions.html).
 
 ## Window management
 

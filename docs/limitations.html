@@ -266,7 +266,7 @@
 decisions. Each entry explains behavior that would otherwise be surprising,
 plus what would actually make it worth revisiting. Deferred <em>decisions</em>
 (things deliberately left unresolved rather than accepted as-is) stay on
-<a href="roadmap-open-questions.html">Open Questions</a>; this page is for the ones
+<a href="archive/roadmap-open-questions.html">Open Questions</a>; this page is for the ones
 that are settled as &quot;acceptable for now.&quot;</p>
 <h2 id="gpastes-gnome-shell-coupling">GPaste's GNOME Shell coupling</h2>
 <p>9g's clipboard-history config (<code>&lt;Ctrl&gt;&lt;Shift&gt;G</code>) is a GNOME Shell extension
@@ -274,7 +274,7 @@ with no Sway equivalent — it isn't a config tweak away from the owner's
 eventual Sway direction, it's a re-pick of the whole tool. <strong>Revisit when</strong>
 the Sway migration is actually scheduled. Detail: <a href="archive/9g-gpaste-recap.html">9g recap</a>.</p>
 <h2 id="credential-guard-is-warn-only-not-a-hard-block">Credential guard is warn-only, not a hard block</h2>
-<p>The <a href="roadmap-wb-design.html"><code>wb</code> design</a>'s credential guard is a
+<p>The <a href="archive/roadmap-wb-design.html"><code>wb</code> design</a>'s credential guard is a
 dismissible warning in the close-out review buffer, not an enforced block,
 and it only matches filenames — it doesn't scan file <em>contents</em> for
 secret-shaped strings. Acceptable while the task store stays local-only
@@ -293,7 +293,7 @@ is deliberately the <em>last</em> follow-up decision in the whole push — made
 only once everything else is in place, not before. Interim guardrails:
 the task store gets no remote; generated <code>INDEX</code>/<code>HUB</code> output carries a
 minimal work-reference redaction guard. Full writeup:
-<a href="roadmap-open-questions.html#personalemployer-boundary-rule-the-final-follow-up">Open Questions</a>.</p>
+<a href="archive/roadmap-open-questions.html#personalemployer-boundary-rule-the-final-follow-up">Open Questions</a>.</p>
 <h2 id="task-store-schema-migration-is-incomplete">Task-store schema migration is incomplete</h2>
 <p>PR #17 (<code>fc95c63</code>) added the <code>parent:</code> field to <code>tasks/README.md</code> and
 <code>TEMPLATE.md</code> and the task parent/child relationship is live — but the
