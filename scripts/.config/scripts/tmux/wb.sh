@@ -3955,6 +3955,17 @@ _wb_lint_trim_blank_array() {
   fi
 }
 
+# _wb_lint_nc_chunk <lines-array-name> <heading-line> <end-line> — prints a
+# non-canonical section (heading + body) verbatim, minus its own trailing
+# blank run: the merge owns the single blank line before the next chunk.
+_wb_lint_nc_chunk() {
+  local -n _wb_lnc_lines="$1"
+  local hline="$2" bend="$3"
+  local -a full_lines=("${_wb_lnc_lines[@]:$((hline - 1)):$((bend - hline + 1))}")
+  local -a trimmed=(); _wb_lint_trim_blank_array full_lines trimmed
+  printf '%s\n' "${trimmed[@]}"
+}
+
 # _wb_lint_sections_merge <file> — prints <file>'s KTD5 merged form to
 # stdout; never writes anything itself (see _wb_lint_sections_fix_one for
 # the write side). Reuses _wb_lint_sections_records's section ranges and
@@ -4001,90 +4012,58 @@ _wb_lint_sections_merge() {
     return 0
   fi
 
-  local -a f0; wb_tsv_split "${records[0]}" f0
-  local first_heading_line="${f0[2]}" first_flush="${f0[6]}"
-
-  # ---- anchor: for each non-canonical record, the most recent canonical
-  # name seen before it in file order, or PREAMBLE if none yet. ----
-  local -a anchor=()
-  local last_canon="PREAMBLE" i
+  # wb_tsv_split forks an awk per call, so each record is split exactly
+  # once here and every later pass reads these parallel arrays.
+  local -a r_canon=() r_name=() r_hline=() r_bstart=() r_bend=() r_flush=()
+  local i
   for i in "${!records[@]}"; do
     local -a rf; wb_tsv_split "${records[$i]}" rf
-    if [ "${rf[0]}" = "1" ]; then
-      last_canon="${rf[1]}"
+    r_canon[$i]="${rf[0]}"; r_name[$i]="${rf[1]}"; r_hline[$i]="${rf[2]}"
+    r_bstart[$i]="${rf[3]}"; r_bend[$i]="${rf[4]}"; r_flush[$i]="${rf[6]}"
+  done
+  local first_heading_line="${r_hline[0]}" first_flush="${r_flush[0]}"
+
+  # One file-order pass: canonical copies' trimmed bodies accumulate per
+  # name (joined by one blank line); each non-canonical record index is
+  # queued under the most recent canonical name before it, or PREAMBLE.
+  local -A canon_seen=() canon_body=() nc_by_anchor=()
+  local last_canon="PREAMBLE"
+  for i in "${!records[@]}"; do
+    if [ "${r_canon[$i]}" != "1" ]; then
+      nc_by_anchor["$last_canon"]+="$i "
+      continue
+    fi
+    local name="${r_name[$i]}" bstart="${r_bstart[$i]}" bend="${r_bend[$i]}"
+    last_canon="$name"
+    canon_seen["$name"]=1
+    local -a body_lines=()
+    if [ "$bstart" -le "$bend" ]; then
+      body_lines=("${all_lines[@]:$((bstart - 1)):$((bend - bstart + 1))}")
+    fi
+    local -a trimmed=()
+    _wb_lint_trim_blank_array body_lines trimmed
+    [ "${#trimmed[@]}" -gt 0 ] || continue
+    local body; body="$(printf '%s\n' "${trimmed[@]}")"
+    if [ -n "${canon_body[$name]:-}" ]; then
+      canon_body["$name"]+=$'\n\n'"$body"
     else
-      anchor[$i]="$last_canon"
+      canon_body["$name"]="$body"
     fi
   done
 
-  # ---- build each canonical name's merged chunk text (heading + merged
-  # body, no leading/trailing blank of its own). ----
-  local -A canon_chunk=()
-  local canon_name
-  for canon_name in Plan Handoffs Decisions Done Follow-ups; do
-    local -a bodies=()
-    for i in "${!records[@]}"; do
-      local -a rf; wb_tsv_split "${records[$i]}" rf
-      [ "${rf[0]}" = "1" ] && [ "${rf[1]}" = "$canon_name" ] || continue
-      local bstart="${rf[3]}" bend="${rf[4]}"
-      local -a body_lines=()
-      if [ "$bstart" -le "$bend" ]; then
-        body_lines=("${all_lines[@]:$((bstart - 1)):$((bend - bstart + 1))}")
-      fi
-      local -a trimmed=()
-      _wb_lint_trim_blank_array body_lines trimmed
-      [ "${#trimmed[@]}" -gt 0 ] && bodies+=("$(printf '%s\n' "${trimmed[@]}")")
-    done
-    [ "${#bodies[@]}" -gt 0 ] || continue
-    local merged_body="${bodies[0]}" k
-    for ((k = 1; k < ${#bodies[@]}; k++)); do
-      merged_body="$merged_body"$'\n\n'"${bodies[$k]}"
-    done
-    canon_chunk["$canon_name"]="## $canon_name"$'\n\n'"$merged_body"
-  done
-  # A canonical name with zero copies never had a body loop entry above
-  # (loop over records found none), so canon_chunk[name] stays unset --
-  # this catches the "at least one copy but all blank" case, where a
-  # heading-only chunk is still required.
-  for canon_name in Plan Handoffs Decisions Done Follow-ups; do
-    [ -n "${canon_chunk[$canon_name]:-}" ] && continue
-    local has_copy=0
-    for i in "${!records[@]}"; do
-      local -a rf; wb_tsv_split "${records[$i]}" rf
-      [ "${rf[0]}" = "1" ] && [ "${rf[1]}" = "$canon_name" ] && has_copy=1 && break
-    done
-    [ "$has_copy" -eq 1 ] && canon_chunk["$canon_name"]="## $canon_name"
-  done
-
-  # _wb_lint_nc_chunk <record-index> — sets NC_CHUNK to that non-canonical
-  # section's verbatim text (heading + body), trailing-blank-trimmed only.
-  _wb_lint_nc_chunk() {
-    local -a rf; wb_tsv_split "${records[$1]}" rf
-    local hline="${rf[2]}" bend="${rf[4]}"
-    local -a full_lines=("${all_lines[@]:$((hline - 1)):$((bend - hline + 1))}")
-    local -a trimmed=(); _wb_lint_trim_blank_array full_lines trimmed
-    NC_CHUNK="$(printf '%s\n' "${trimmed[@]}")"
-  }
-
-  # ---- assemble the ordered chunk list: PREAMBLE-anchored non-canonical
-  # sections first, then each canonical name (in fixed order) followed by
-  # whatever non-canonical sections were anchored to it, in original
-  # relative order. ----
   local -a chunk_list=()
-  local NC_CHUNK
-  for i in "${!records[@]}"; do
-    local -a rf; wb_tsv_split "${records[$i]}" rf
-    if [ "${rf[0]}" = "0" ] && [ "${anchor[$i]}" = "PREAMBLE" ]; then
-      _wb_lint_nc_chunk "$i"; chunk_list+=("$NC_CHUNK")
-    fi
+  local j canon_name
+  for j in ${nc_by_anchor[PREAMBLE]:-}; do
+    chunk_list+=("$(_wb_lint_nc_chunk all_lines "${r_hline[$j]}" "${r_bend[$j]}")")
   done
   for canon_name in Plan Handoffs Decisions Done Follow-ups; do
-    [ -n "${canon_chunk[$canon_name]:-}" ] && chunk_list+=("${canon_chunk[$canon_name]}")
-    for i in "${!records[@]}"; do
-      local -a rf; wb_tsv_split "${records[$i]}" rf
-      if [ "${rf[0]}" = "0" ] && [ "${anchor[$i]:-}" = "$canon_name" ]; then
-        _wb_lint_nc_chunk "$i"; chunk_list+=("$NC_CHUNK")
-      fi
+    if [ -n "${canon_body[$canon_name]:-}" ]; then
+      chunk_list+=("## $canon_name"$'\n\n'"${canon_body[$canon_name]}")
+    elif [ -n "${canon_seen[$canon_name]:-}" ]; then
+      chunk_list+=("## $canon_name")
+    fi
+    for j in ${nc_by_anchor[$canon_name]:-}; do
+      chunk_list+=("$(_wb_lint_nc_chunk all_lines "${r_hline[$j]}" "${r_bend[$j]}")")
     done
   done
 
@@ -4152,13 +4131,19 @@ _wb_lint_sections_selfcheck() {
   [ "$expected_hash" = "$actual_hash" ]
 }
 
-# _wb_lint_sections_machine <file...> — one TSV row per finding across
-# <file...>. Column order (stable, part of the review-page contract KTD7
-# builds on): file path, kind (dup|flush), section name, copies,
-# nonempty-copies, per-file content hash (sha256sum). A file with zero
-# findings contributes no rows -- absence of a file's rows IS "clean",
-# there is no separate "no findings" sentinel row.
-_wb_lint_sections_machine() {
+# _wb_lint_sections_hash <file> — the per-file content hash --machine
+# prints and --fix re-checks before writing (KTD4).
+_wb_lint_sections_hash() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+# _wb_lint_sections_collect <file...> — the one findings pass behind
+# --machine, the human table, and --diff. One TSV row per finding, in a
+# stable column order the review page builds on (KTD7): file path, kind
+# (dup|flush), section name, copies, nonempty-copies, content hash. A file
+# with zero findings contributes no rows -- absence of a file's rows IS
+# "clean", there is no separate "no findings" sentinel row.
+_wb_lint_sections_collect() {
   local f findings hash line
   for f in "$@"; do
     if [ ! -f "$f" ]; then
@@ -4167,7 +4152,7 @@ _wb_lint_sections_machine() {
     fi
     findings="$(_wb_lint_sections_findings "$f")"
     [ -n "$findings" ] || continue
-    hash="$(sha256sum "$f" | awk '{print $1}')"
+    hash="$(_wb_lint_sections_hash "$f")"
     while IFS= read -r line; do
       local -a ff; wb_tsv_split "$line" ff
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "${ff[0]}" "${ff[1]}" "${ff[2]}" "${ff[3]}" "$hash"
@@ -4175,48 +4160,33 @@ _wb_lint_sections_machine() {
   done
 }
 
-# _wb_lint_sections_human <file...> — the plain-text table (cmd_reconcile's
-# own human-vs-machine split/comment convention: detection logic lives in
-# exactly one place -- _wb_lint_sections_findings -- and this is purely a
-# presentation layer over it, same as wb_reconcile_collect vs cmd_reconcile).
+# _wb_lint_sections_human <file...> — the plain-text table over the same
+# rows --machine prints (cmd_reconcile's collect-once, present-twice split).
 _wb_lint_sections_human() {
-  local -a files=("$@")
   local -a rows=()
-  local f findings line
-  for f in "${files[@]}"; do
-    if [ ! -f "$f" ]; then
-      echo "wb lint-sections: $f: no such file" >&2
-      continue
-    fi
-    findings="$(_wb_lint_sections_findings "$f")"
-    [ -n "$findings" ] || continue
-    while IFS= read -r line; do
-      local -a ff; wb_tsv_split "$line" ff
-      rows+=("$(basename -- "$f")"$'\t'"${ff[0]}"$'\t'"${ff[1]}"$'\t'"${ff[2]}"$'\t'"${ff[3]}")
-    done <<< "$findings"
-  done
+  local line
+  while IFS= read -r line; do
+    local -a ff; wb_tsv_split "$line" ff
+    rows+=("$(basename -- "${ff[0]}")"$'\t'"${ff[1]}"$'\t'"${ff[2]}"$'\t'"${ff[3]}"$'\t'"${ff[4]}")
+  done < <(_wb_lint_sections_collect "$@")
   if [ "${#rows[@]}" -eq 0 ]; then
-    echo "wb lint-sections: no findings across ${#files[@]} file(s)"
+    echo "wb lint-sections: no findings across $# file(s)"
     return 0
   fi
   { printf 'FILE\tKIND\tSECTION\tCOPIES\tNONEMPTY\n'; printf '%s\n' "${rows[@]}"; } | column -t -s $'\t'
 }
 
 # _wb_lint_sections_diff <file...> — `diff -u` of original vs merged for
-# every <file> that has a finding; files with none are silently skipped
-# (same "only files with findings" scope as --fix, R4). Always exits 0 --
-# `diff` itself returns 1 when the files differ, which is the expected,
-# non-error outcome here, not a failure.
+# every <file> that has a finding (the same scope --fix acts on, R4).
+# Always exits 0: `diff` returning 1 for "files differ" is the expected
+# outcome here, not a failure.
 _wb_lint_sections_diff() {
-  local f findings merged base
-  for f in "$@"; do
-    [ -f "$f" ] || { echo "wb lint-sections: $f: no such file" >&2; continue; }
-    findings="$(_wb_lint_sections_findings "$f")"
-    [ -n "$findings" ] || continue
+  local f merged base
+  while IFS= read -r f; do
     merged="$(_wb_lint_sections_merge "$f")"
     base="$(basename -- "$f")"
     diff -u --label "a/$base" --label "b/$base" "$f" <(printf '%s\n' "$merged")
-  done
+  done < <(_wb_lint_sections_collect "$@" | cut -f1 | uniq)
   return 0
 }
 
@@ -4272,7 +4242,7 @@ _wb_lint_sections_fix_one() {
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || return $?
 
-  local cur_hash; cur_hash="$(sha256sum "$file" | awk '{print $1}')"
+  local cur_hash; cur_hash="$(_wb_lint_sections_hash "$file")"
   if [ "$cur_hash" != "$expected_hash" ]; then
     echo "wb lint-sections --fix: $(basename -- "$file") changed since review (hash mismatch) — skipped" >&2
     wb_task_lock_release "$file"
@@ -4347,7 +4317,7 @@ cmd_lint_sections() {
   fi
 
   if [ "$machine" -eq 1 ]; then
-    _wb_lint_sections_machine "${files[@]}"
+    _wb_lint_sections_collect "${files[@]}"
   else
     _wb_lint_sections_human "${files[@]}"
   fi
