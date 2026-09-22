@@ -541,6 +541,7 @@ details, incident history, and runbooks live in
 |---|---|
 | `wb sync` | Pull/rebase the task store safely — refuses on a dirty tree or real conflicts instead of guessing. |
 | `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
+| `wb lint-sections [<task>...]` | Find task files with a duplicated canonical section (`## Plan`/`Handoffs`/`Decisions`/`Done`/`Follow-ups`), or a canonical heading flush against prose, which is an early sign of the next duplicate. Read-only by default. `--machine` prints TSV with a content hash per file, and `--diff` previews the merge. `--fix <file>:<hash>…` merges each copy's content into one section in canonical order, under the per-file lock. It accepts only reviewed `<file>:<hash>` targets, so a file that changed since review is skipped, and there is no `--all`. |
 | `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
 | `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |
 

@@ -833,6 +833,10 @@ details, incident history, and runbooks live in
 <td>Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file.</td>
 </tr>
 <tr>
+<td><code>wb lint-sections [&lt;task&gt;...]</code></td>
+<td>Find task files with a duplicated canonical section (<code>## Plan</code>/<code>Handoffs</code>/<code>Decisions</code>/<code>Done</code>/<code>Follow-ups</code>), or a canonical heading flush against prose, which is an early sign of the next duplicate. Read-only by default. <code>--machine</code> prints TSV with a content hash per file, and <code>--diff</code> previews the merge. <code>--fix &lt;file&gt;:&lt;hash&gt;…</code> merges each copy's content into one section in canonical order, under the per-file lock. It accepts only reviewed <code>&lt;file&gt;:&lt;hash&gt;</code> targets, so a file that changed since review is skipped, and there is no <code>--all</code>.</td>
+</tr>
+<tr>
 <td><code>wb unsafe-rewind</code></td>
 <td>The deliberate escape hatch for a genuine history rewind (<code>reset --hard</code> and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself.</td>
 </tr>
