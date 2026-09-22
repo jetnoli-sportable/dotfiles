@@ -1027,14 +1027,17 @@ wb_board_v2_rail_node_html() {
   # R22's click-to-copy moves OFF the row title onto an explicit ⧉ glyph:
   # the primary click on a row now SELECTS (sets scope), and a single click
   # must never both copy and select.
+  local repo_attr repo_badge
+  wb_board_v2_repo_bits "$stem" repo_attr repo_badge
+  right="${repo_badge}${right}"
   local copy_ic="<span class=\"copy-ic copyable\" data-copy=\"wb resume ${stem_h}\" title=\"copy wb resume ${stem_h}\">&#8865;</span>"
   # ...and the other half: an anchor straight to the task's own file.
   local open_ic; wb_board_v2_task_open_html "$stem" open_ic
   copy_ic+="$open_ic"
   local kids="${_m_family_children[$stem]:-}"
   if [ -n "$kids" ]; then
-    printf '<details class="family-node" open><summary data-stem="%s" data-anchor="%s" data-family="%s" data-status="%s" onclick="railSummaryClick(event,this)"><span class="chev">&#9656;</span><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</summary><div class="family-children">' \
-      "$stem_h" "$anchor" "$fam_anchor" "$status_h" "$dot" "$title" "$copy_ic" "$right"
+    printf '<details class="family-node" open><summary data-stem="%s" data-anchor="%s" data-family="%s" data-status="%s"%s onclick="railSummaryClick(event,this)"><span class="chev">&#9656;</span><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</summary><div class="family-children">' \
+      "$stem_h" "$anchor" "$fam_anchor" "$status_h" "$repo_attr" "$dot" "$title" "$copy_ic" "$right"
     local rn_child
     while IFS= read -r rn_child; do
       [ -n "$rn_child" ] || continue
@@ -1042,8 +1045,8 @@ wb_board_v2_rail_node_html() {
     done <<< "$kids"
     printf '</div></details>'
   else
-    printf '<div class="rail-row" data-stem="%s" data-anchor="%s" data-family="%s" data-status="%s" onclick="railPick(event,this)"><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</div>' \
-      "$stem_h" "$anchor" "$fam_anchor" "$status_h" "$dot" "$title" "$copy_ic" "$right"
+    printf '<div class="rail-row" data-stem="%s" data-anchor="%s" data-family="%s" data-status="%s"%s onclick="railPick(event,this)"><span class="dot %s"></span><span class="rail-row-title">%s</span>%s%s</div>' \
+      "$stem_h" "$anchor" "$fam_anchor" "$status_h" "$repo_attr" "$dot" "$title" "$copy_ic" "$right"
   fi
 }
 
@@ -1064,7 +1067,7 @@ wb_board_v2_shelf_items_html() {
   # data-anchor="".) Same class of trap as the nameref-recursion note on
   # wb_board_v2_family_root; out-var names must not collide with the
   # callee's locals.
-  local list="$1" si_stem out="" si_h="" si_a="" si_sh="" si_st="" si_open=""
+  local list="$1" si_stem out="" si_h="" si_a="" si_sh="" si_st="" si_open="" si_ra="" si_rb=""
   while IFS= read -r si_stem; do
     [ -n "$si_stem" ] || continue
     wb_board_html_escape "${_m_title[$si_stem]:-$si_stem}" si_h
@@ -1072,7 +1075,8 @@ wb_board_v2_shelf_items_html() {
     wb_board_html_escape "${_m_status[$si_stem]:-}" si_st
     wb_board_v2_anchor "$si_stem" si_a
     wb_board_v2_task_open_html "$si_stem" si_open
-    out+="<div class=\"shelf-row\" data-stem=\"$si_sh\" data-anchor=\"$si_a\" data-family=\"$si_a\" data-status=\"$si_st\" onclick=\"railPick(event,this)\"><span class=\"shelf-dot\"></span><span class=\"shelf-text\">$si_h</span><span class=\"copy-ic copyable\" data-copy=\"wb resume $si_sh\" title=\"copy wb resume $si_sh\">&#8865;</span>$si_open</div>"
+    wb_board_v2_repo_bits "$si_stem" si_ra si_rb
+    out+="<div class=\"shelf-row\" data-stem=\"$si_sh\" data-anchor=\"$si_a\" data-family=\"$si_a\" data-status=\"$si_st\"$si_ra onclick=\"railPick(event,this)\"><span class=\"shelf-dot\"></span><span class=\"shelf-text\">$si_h</span>$si_rb<span class=\"copy-ic copyable\" data-copy=\"wb resume $si_sh\" title=\"copy wb resume $si_sh\">&#8865;</span>$si_open</div>"
   done <<< "$list"
   printf '%s' "$out"
 }
@@ -1383,13 +1387,22 @@ wb_board_v2_resolve_link() {
 # That is an array lookup, not a `[ -e ]` per call: cheaper, and it is the
 # authoritative answer, since the model IS the set of files that were read.
 wb_board_v2_task_open_html() {
+  # Memoised per stem, like the stage strip and the repo bits: ~800 calls
+  # for ~190 distinct answers, each otherwise doing a percent-encode plus
+  # two HTML escapes.
+  if [ -n "${OPEN_CACHE[${1:-}]+x}" ]; then
+    printf -v "$2" '%s' "${OPEN_CACHE[${1:-}]}"
+    return 0
+  fi
   local __enc __cls="open-ic" __t="open task file"
   if [ -z "${_m_stem_anchor[${1:-}]+x}" ]; then
     __cls="open-ic missing"; __t="no such task file"
   fi
   wb_board_v2_url_escape "${1:-}" __enc
   wb_board_html_escape "$__enc" __enc
-  printf -v "$2" '%s' "<a class=\"${__cls}\" href=\"${TASK_HREF_PREFIX}${__enc}.md\" target=\"_blank\" title=\"${__t}\">&#8599;</a>"
+  local __a="<a class=\"${__cls}\" href=\"${TASK_HREF_PREFIX}${__enc}.md\" target=\"_blank\" title=\"${__t}\">&#8599;</a>"
+  OPEN_CACHE["${1:-}"]="$__a"
+  printf -v "$2" '%s' "$__a"
 }
 
 # ---------------------------------------------------------------------------
@@ -1492,6 +1505,16 @@ wb_board_v2_stage_states() {
 # is reserved for selection/current/TODAY (R24).
 wb_board_v2_stage_strip_html() {
   local __stem="$1" __mini="${3:-}"
+  # Memoised per (stem, mini): a task's strip is identical everywhere it
+  # appears, and it appears in up to four places (its card, its detail
+  # block, a family tree row, a ladder rung). Recomputing it ~450 times
+  # meant ~4500 resolver iterations per render for ~190 distinct answers.
+  # Same cache convention as REPO_ATTR_CACHE.
+  local __ck="${__mini:-f}:$__stem"
+  if [ -n "${STRIP_CACHE[$__ck]+x}" ]; then
+    printf -v "$2" '%s' "${STRIP_CACHE[$__ck]}"
+    return 0
+  fi
   local __states; wb_board_v2_stage_states "$__stem" __states
   local __out="" __i __s __cls __glyph __name
   local -a __names=(ideate brainstorm plan work review)
@@ -1515,6 +1538,7 @@ wb_board_v2_stage_strip_html() {
     __out+="<a class=\"pr-chip\" href=\"${__h}\" target=\"_blank\" title=\"open pull request\">PR #${__n}</a>"
   fi
   [ -z "$__out" ] || __out="<div class=\"stage-strip${__mini:+ mini}\">${__out}</div>"
+  STRIP_CACHE["$__ck"]="$__out"
   printf -v "$2" '%s' "$__out"
 }
 
@@ -1551,6 +1575,54 @@ wb_board_v2_clip() {
     __t="${__t:0:$__max}"$'\n\n[clipped — open the task file for the rest]'
   fi
   printf -v "$3" '%s' "$__t"
+}
+
+# wb_board_v2_repo_attr <stem> <out_var> / wb_board_v2_repo_badge <stem>
+#   <out_var> — ` data-repo="X"` for the rail's repo filter, and the small
+# dim `X` badge that tells you which repo a task belongs to without opening
+# it. Both empty when the task has no `repo:`.
+#
+# Memoised in REPO_ATTR_CACHE / REPO_BADGE_CACHE (declared once in
+# wb_board_render_v2, read here by the same dynamic-scoping convention as
+# the _m_* arrays): these are called at ~800 sites but the real store has
+# only eight distinct repo values, so escaping per call would be eight
+# useful escapes and 790 wasted ones.
+# (The cache key is "k$repo", not "$repo": a bash associative array cannot
+# take an empty subscript, and a task with no `repo:` is a real case.)
+wb_board_v2_repo_attr() {
+  local __r="${_m_repo[${1:-}]:-}" __k
+  __k="k$__r"
+  if [ -z "${REPO_ATTR_CACHE[$__k]+x}" ]; then
+    local __e=""
+    [ -z "$__r" ] || { wb_board_html_escape "$__r" __e; __e=" data-repo=\"$__e\""; }
+    REPO_ATTR_CACHE["$__k"]="$__e"
+  fi
+  printf -v "$2" '%s' "${REPO_ATTR_CACHE[$__k]}"
+}
+wb_board_v2_repo_badge() {
+  local __r="${_m_repo[${1:-}]:-}" __k
+  __k="k$__r"
+  if [ -z "${REPO_BADGE_CACHE[$__k]+x}" ]; then
+    local __e=""
+    # No title= — it would just repeat the badge's own text, and at ~750
+    # badges that is 15KB of the page for nothing.
+    [ -z "$__r" ] || { wb_board_html_escape "$__r" __e; __e="<span class=\"repo-badge mono\">$__e</span>"; }
+    REPO_BADGE_CACHE["$__k"]="$__e"
+  fi
+  printf -v "$2" '%s' "${REPO_BADGE_CACHE[$__k]}"
+}
+
+# wb_board_v2_repo_bits <stem> <attr_out> <badge_out> — both of the above in
+# one call. Most sites want both, and at this scale halving the call count
+# is worth a three-line wrapper.
+wb_board_v2_repo_bits() {
+  local __r="${_m_repo[${1:-}]:-}" __k
+  __k="k$__r"
+  local __discard
+  [ -n "${REPO_ATTR_CACHE[$__k]+x}" ]  || wb_board_v2_repo_attr  "$1" __discard
+  [ -n "${REPO_BADGE_CACHE[$__k]+x}" ] || wb_board_v2_repo_badge "$1" __discard
+  printf -v "$2" '%s' "${REPO_ATTR_CACHE[$__k]}"
+  printf -v "$3" '%s' "${REPO_BADGE_CACHE[$__k]}"
 }
 
 # wb_board_v2_count_li <html> <out_var> — how many <li>s a rendered list
@@ -1601,6 +1673,43 @@ wb_board_v2_now_line() {
   fi
 }
 
+# wb_board_v2_summary_header_html <stem> <out_var> — the "what is this and
+# what happens next" part of a task detail: title, status pill, repo, age,
+# a parent link that scopes the board, the id with open/copy, the lifecycle
+# stage strip (with its PR chip), and the Now line.
+#
+# Factored out of wb_board_v2_detail_html because the Family view needs the
+# SAME summary at the top of a family block, where it is rendered inline
+# rather than mounted — the family root's pool block may be mounted in
+# another view at the time, and a block is a single node that can only be
+# in one place. Sharing the builder is what keeps "the top-level summary"
+# identical to "the expanded summary" instead of a lookalike that drifts.
+wb_board_v2_summary_header_html() {
+  local sh_stem="$1" sh_h sh_open sh_strip sh_badge sh_out
+  wb_board_html_escape "${_m_title[$sh_stem]:-$sh_stem}" sh_h
+  sh_out="<div class=\"detail-head\"><div class=\"detail-title\">${sh_h}</div>"
+  wb_board_html_escape "${_m_status[$sh_stem]:-}" sh_h
+  sh_out+="<span class=\"detail-pill st-${sh_h}\">${sh_h}</span>"
+  wb_board_v2_repo_badge "$sh_stem" sh_badge
+  sh_out+="$sh_badge"
+  wb_board_v2_age_label "${_m_age_days[$sh_stem]:-0}" sh_h
+  sh_out+="<span class=\"detail-age mono\">touched ${sh_h}</span>"
+  local sh_root="${_m_family_root[$sh_stem]:-$sh_stem}"
+  if [ "$sh_root" != "$sh_stem" ]; then
+    local sh_ra; wb_board_v2_anchor "$sh_root" sh_ra
+    wb_board_html_escape "${_m_title[$sh_root]:-$sh_root}" sh_h
+    sh_out+="<span class=\"detail-parent\" onclick=\"setScope('${sh_ra}','')\" title=\"scope the board to this family\">&#8627; ${sh_h}</span>"
+  fi
+  wb_board_html_escape "$sh_stem" sh_h
+  wb_board_v2_task_open_html "$sh_stem" sh_open
+  sh_out+="<span class=\"detail-id mono copyable\" data-copy=\"wb resume ${sh_h}\">${sh_h}</span>${sh_open}</div>"
+  wb_board_v2_stage_strip_html "$sh_stem" sh_strip
+  sh_out+="$sh_strip"
+  wb_board_v2_now_line "$sh_stem" sh_h
+  sh_out+="<div class=\"detail-now\"><span class=\"lbl\">Now</span><span class=\"txt\">${sh_h}</span></div>"
+  printf -v "$2" '%s' "$sh_out"
+}
+
 # wb_board_v2_detail_html <stem> <compact 0|1> <out_var> — one task's whole
 # detail block.
 #
@@ -1630,32 +1739,14 @@ wb_board_v2_detail_html() {
   local d_h d_h2 d_n d_body="" d_sec=""
   local d_status="${_m_status[$d_stem]:-}"
 
-  # ---- header ----
-  wb_board_html_escape "${_m_title[$d_stem]:-$d_stem}" d_h
-  d_body="<div class=\"detail\" id=\"detail-${d_anchor}\" data-stem=\"${d_stem}\" data-anchor=\"${d_anchor}\">"
-  d_body+="<div class=\"detail-head\"><div class=\"detail-title\">${d_h}</div>"
-  wb_board_html_escape "$d_status" d_h
-  d_body+="<span class=\"detail-pill st-${d_h}\">${d_h}</span>"
-  wb_board_v2_age_label "${_m_age_days[$d_stem]:-0}" d_h
-  d_body+="<span class=\"detail-age mono\">touched ${d_h}</span>"
-  local d_root="${_m_family_root[$d_stem]:-$d_stem}"
-  if [ "$d_root" != "$d_stem" ]; then
-    local d_ra; wb_board_v2_anchor "$d_root" d_ra
-    wb_board_html_escape "${_m_title[$d_root]:-$d_root}" d_h
-    d_body+="<span class=\"detail-parent\" onclick=\"setScope('${d_ra}','')\" title=\"scope the board to this family\">&#8627; ${d_h}</span>"
-  fi
-  wb_board_html_escape "$d_stem" d_h
-  local d_open; wb_board_v2_task_open_html "$d_stem" d_open
-  d_body+="<span class=\"detail-id mono copyable\" data-copy=\"wb resume ${d_h}\">${d_h}</span>${d_open}</div>"
-  local d_strip; wb_board_v2_stage_strip_html "$d_stem" d_strip
-  d_body+="$d_strip"
-
-  # ---- the answer line ----
-  wb_board_v2_now_line "$d_stem" d_h
-  d_body+="<div class=\"detail-now\"><span class=\"lbl\">Now</span><span class=\"txt\">${d_h}</span></div>"
+  # ---- header + Now line (shared with the Family view's own top-level
+  #      summary, so the two can never drift apart) ----
+  wb_board_v2_summary_header_html "$d_stem" d_h
+  local d_repo_attr; wb_board_v2_repo_attr "$d_stem" d_repo_attr
+  d_body="<div class=\"detail\" id=\"detail-${d_anchor}\" data-stem=\"${d_stem}\" data-anchor=\"${d_anchor}\"${d_repo_attr}>${d_h}"
 
   # ---- latest handoff: the only section open by default ----
-  local d_hraw=""; wb_board_v2_clip "${_m_handoff_raw[$d_stem]:-}" 2200 d_hraw
+  local d_hraw=""; wb_board_v2_clip "${_m_handoff_raw[$d_stem]:-}" 1600 d_hraw
   if [ -n "$d_hraw" ]; then
     wb_board_html_escape "$d_hraw" d_h
     d_body+="<details class=\"dsec\" open><summary>Latest handoff</summary><pre class=\"dsec-pre\">${d_h}</pre></details>"
@@ -1678,7 +1769,7 @@ wb_board_v2_detail_html() {
     d_body+="<details class=\"dsec\"><summary>Follow-ups <span class=\"n\">${d_n}</span></summary><div class=\"dsec-body\">${d_sec}</div></details>"
 
     if [ "$d_compact" = 0 ]; then
-    local d_draw=""; wb_board_v2_clip "${_m_decisions_raw[$d_stem]:-}" 2200 d_draw
+    local d_draw=""; wb_board_v2_clip "${_m_decisions_raw[$d_stem]:-}" 1600 d_draw
     if [ -n "${d_draw//[[:space:]]/}" ]; then
       wb_board_html_escape "$d_draw" d_h
       d_body+="<details class=\"dsec\"><summary>Decisions</summary><pre class=\"dsec-pre\">${d_h}</pre></details>"
@@ -1841,6 +1932,7 @@ wb_board_render_v2() {
   # TASK_HREF_PREFIX: "file:///abs/path/to/tasks/" — escaped ONCE here and
   # read by wb_board_v2_task_open_html at every task-id site (see its own
   # note), rather than re-escaping $TASKS_DIR a few hundred times.
+  local -A REPO_ATTR_CACHE=() REPO_BADGE_CACHE=() STRIP_CACHE=() OPEN_CACHE=()
   local TASK_HREF_PREFIX
   wb_board_v2_url_escape "${TASKS_DIR:-$HOME/code/tasks}" TASK_HREF_PREFIX
   wb_board_html_escape "$TASK_HREF_PREFIX" TASK_HREF_PREFIX
@@ -1944,7 +2036,34 @@ wb_board_render_v2() {
   # families in a wrapping grid read as "overwhelming") to this same rail
   # nav surface every other view already uses.
   local rail_html
+  # Round 3 item 3: a repo segmented control under the filter box. One chip
+  # per repo when the store has at most 6 of them; beyond that the row would
+  # be longer than the rail is wide, so it collapses to All / dotfiles /
+  # other (`other` = "not dotfiles", i.e. everything work-shaped). The tab
+  # badges stay store-wide (R23) — this filters what you SEE, it does not
+  # restate the counts.
+  local -A REPO_SEEN=()
+  local rf_stem rf_repo
+  for rf_stem in "${!_m_stem_anchor[@]}"; do
+    rf_repo="${_m_repo[$rf_stem]:-}"
+    [ -n "$rf_repo" ] && REPO_SEEN["$rf_repo"]=1
+  done
+  local RF_CAP=6
+  local repo_chips_html="<span class=\"repo-chip selected\" data-repo-pick=\"\" onclick=\"pickRepo(event,this)\">All</span>"
+  if [ "${#REPO_SEEN[@]}" -le "$RF_CAP" ] && [ "${#REPO_SEEN[@]}" -gt 0 ]; then
+    local rf_sorted rf_h
+    while IFS= read -r rf_sorted; do
+      [ -n "$rf_sorted" ] || continue
+      wb_board_html_escape "$rf_sorted" rf_h
+      repo_chips_html+="<span class=\"repo-chip\" data-repo-pick=\"${rf_h}\" onclick=\"pickRepo(event,this)\" title=\"only ${rf_h}\">${rf_h}</span>"
+    done < <(printf '%s\n' "${!REPO_SEEN[@]}" | sort)
+  else
+    repo_chips_html+="<span class=\"repo-chip\" data-repo-pick=\"dotfiles\" onclick=\"pickRepo(event,this)\">dotfiles</span>"
+    repo_chips_html+="<span class=\"repo-chip\" data-repo-pick=\"__other__\" onclick=\"pickRepo(event,this)\" title=\"everything that is not dotfiles\">other</span>"
+  fi
+
   rail_html="<input type=\"text\" id=\"board-filter\" class=\"rail-filter\" placeholder=\"Filter&hellip; (press /)\" autocomplete=\"off\">"
+  rail_html+="<div class=\"repo-chips\" id=\"repo-chips\">${repo_chips_html}</div>"
   rail_html+="<div id=\"rail-tasks\">"
   rail_html+="<div><div class=\"rail-heading\">Doing</div><div class=\"rail-tree\">${rail_doing_html}</div></div>"
   rail_html+="<div class=\"group\" id=\"next-group\"><div class=\"group-head\" onclick=\"toggleGroup('next-group')\"><span class=\"group-caret\">&#9656;</span><span class=\"group-label\">Next &middot; <span class=\"count-blue\">${#next_items[@]}</span></span></div><div class=\"group-body\">${next_html}</div></div>"
@@ -2007,13 +2126,15 @@ wb_board_render_v2() {
     local dk_next; dk_next="$(wb_board_v2_next_line "${_m_plan_raw[$dk_stem]:-}" "${_m_handoff_raw[$dk_stem]:-}" "$dk_bucket")"
     local dk_title; dk_title="$(wb_board_html_escape "${_m_title[$dk_stem]:-$dk_stem}")"
 
-    deck_html+="<div class=\"card-slot${dk_sel_cls}\" data-stem=\"${dk_stem}\" data-anchor=\"${dk_anchor}\" data-family=\"${dk_fam_anchor}\">"
+    local dk_repo_attr dk_repo_badge
+    wb_board_v2_repo_bits "$dk_stem" dk_repo_attr dk_repo_badge
+    deck_html+="<div class=\"card-slot${dk_sel_cls}\" data-stem=\"${dk_stem}\" data-anchor=\"${dk_anchor}\" data-family=\"${dk_fam_anchor}\"${dk_repo_attr}>"
     deck_html+="<div class=\"card${dk_sel_cls}${dk_stale_cls}\" id=\"card-${dk_anchor}\" data-drilldown=\"drilldown-${dk_anchor}\">"
     # The card id gains an "open the task file" anchor beside its existing
     # copy behaviour, and each drilldown heading carries the same link so
     # the expanded detail is one click from the source it summarises.
     local dk_open; wb_board_v2_task_open_html "$dk_stem" dk_open
-    deck_html+="<div class=\"card-top\"><div><div class=\"card-title\">${dk_title}</div><span class=\"card-id mono copyable\" data-copy=\"wb resume ${dk_stem}\">${dk_stem}</span>${dk_open}</div>"
+    deck_html+="<div class=\"card-top\"><div><div class=\"card-title\">${dk_title}</div><span class=\"card-id mono copyable\" data-copy=\"wb resume ${dk_stem}\">${dk_stem}</span>${dk_open}${dk_repo_badge}</div>"
     deck_html+="<div class=\"ring-wrap\"><svg width=\"42\" height=\"42\" viewBox=\"0 0 42 42\"><circle cx=\"21\" cy=\"21\" r=\"17\" fill=\"none\" stroke=\"var(--overlay)\" stroke-width=\"4\"/>${dk_ring_circle}</svg><span class=\"ring-label\">${dk_ring_label}</span></div></div>"
     local dk_strip; wb_board_v2_stage_strip_html "$dk_stem" dk_strip
     deck_html+="$dk_strip"
@@ -2062,17 +2183,18 @@ wb_board_render_v2() {
     # scroll it into view and dim (never hide — a roadmap of one lane is
     # useless) the rest.
     local rm_anchor; wb_board_v2_anchor "$rm_stem" rm_anchor
+    local rm_repo_attr; wb_board_v2_repo_attr "$rm_stem" rm_repo_attr
     if [ -n "$rm_kids" ]; then
       local rm_total=${#rm_members[@]} rm_done=0
       for rm_member in "${rm_members[@]}"; do
         [ "${_m_status[$rm_member]:-}" = done ] && rm_done=$((rm_done + 1))
       done
-      rm_lanes_html+="<div class=\"rm-lane milestone-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\"><span class=\"rm-lane-t\">${rm_title}</span><span class=\"rm-mfrac mono\">${rm_done} / ${rm_total}</span></div></div>"
+      rm_lanes_html+="<div class=\"rm-lane milestone-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"${rm_repo_attr}><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\"><span class=\"rm-lane-t\">${rm_title}</span><span class=\"rm-mfrac mono\">${rm_done} / ${rm_total}</span></div></div>"
       rm_lanes_html+="<div class=\"rm-bracket\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\"></div>"
       rm_lanes_html+="<div class=\"rm-bars\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\">${rm_bars}</div></div>"
     else
       local rm_dot; rm_dot="$(wb_board_v2_dot_class "${_m_status[$rm_stem]}" "${_m_bucket[$rm_stem]}" "${_m_age_days[$rm_stem]:-0}")"
-      rm_lanes_html+="<div class=\"rm-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\"><span class=\"rm-lane-t\">${rm_title}</span></div><div class=\"rm-standalone-meta\"><span class=\"dot ${rm_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "${_m_age_days[$rm_stem]:-0}")</span></div></div>"
+      rm_lanes_html+="<div class=\"rm-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"${rm_repo_attr}><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\"><span class=\"rm-lane-t\">${rm_title}</span></div><div class=\"rm-standalone-meta\"><span class=\"dot ${rm_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "${_m_age_days[$rm_stem]:-0}")</span></div></div>"
       rm_lanes_html+="<div class=\"rm-bars\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\">${rm_bars}</div></div>"
     fi
   done
@@ -2126,7 +2248,7 @@ wb_board_render_v2() {
   for st_stem in "${!_m_stem_anchor[@]}"; do
     [ "${_m_bucket[$st_stem]:-}" = stale ] && stale_stems+=("$st_stem")
   done
-  local rm_stale_rows_html="" week_stale_rows_html="" ss_anchor="" ss_fam_anchor="" ss_open=""
+  local rm_stale_rows_html="" week_stale_rows_html="" ss_anchor="" ss_fam_anchor="" ss_open="" ss_ra=""
   if [ "${#stale_stems[@]}" -gt 0 ]; then
     local ss_stem
     while IFS= read -r ss_stem; do
@@ -2134,7 +2256,8 @@ wb_board_render_v2() {
       wb_board_v2_anchor "${_m_family_root[$ss_stem]:-$ss_stem}" ss_fam_anchor
       wb_board_v2_task_open_html "$ss_stem" ss_open
       rm_stale_rows_html+="<div class=\"rm-stale-row\"><div class=\"rm-lane-label\" title=\"$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")\"><span class=\"dot red\"></span>$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")<span class=\"age-red mono\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div></div>"
-      week_stale_rows_html+="<div class=\"carried-row\" data-stem=\"$ss_stem\" data-anchor=\"$ss_anchor\" data-family=\"$ss_fam_anchor\"><span class=\"dot red\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $ss_stem\">$ss_stem</span>${ss_open}$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")</span><span class=\"age\" style=\"color:var(--red);\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div>"
+      wb_board_v2_repo_attr "$ss_stem" ss_ra
+      week_stale_rows_html+="<div class=\"carried-row\" data-stem=\"$ss_stem\" data-anchor=\"$ss_anchor\" data-family=\"$ss_fam_anchor\"${ss_ra}><span class=\"dot red\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $ss_stem\">$ss_stem</span>${ss_open}$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")</span><span class=\"age\" style=\"color:var(--red);\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div>"
     done < <(wb_board_v2_sort_stems_by_age desc "${stale_stems[@]}")
   fi
 
@@ -2183,7 +2306,7 @@ wb_board_render_v2() {
   # click — 23 always-open full drilldowns made this view 8579px tall. They
   # also carry the scope attributes so a rail pick narrows the week the
   # same way it narrows the deck, and auto-expands the scoped task.
-  local week_cards_html="" wc_anchor="" wc_fam_anchor="" wc_open=""
+  local week_cards_html="" wc_anchor="" wc_fam_anchor="" wc_open="" wc_ra=""
   if [ "${#this_week_stems[@]}" -gt 0 ]; then
     local wc_stem
     while IFS= read -r wc_stem; do
@@ -2193,7 +2316,8 @@ wb_board_render_v2() {
       local wc_title; wc_title="$(wb_board_html_escape "${_m_title[$wc_stem]:-$wc_stem}")"
       local wc_parent_html=""
       [ -n "${_m_stem_parent[$wc_stem]:-}" ] && wc_parent_html=" &middot; <span class=\"parent-chip mono\">child of $(wb_board_html_escape "${_m_stem_parent[$wc_stem]}")</span>"
-      week_cards_html+="<div class=\"week-card\" data-stem=\"${wc_stem}\" data-anchor=\"${wc_anchor}\" data-family=\"${wc_fam_anchor}\" onclick=\"toggleWeekCard(event,this)\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">$(wb_board_html_escape "${_m_status[$wc_stem]:-}")</span><span class=\"wk-caret\">&#9656;</span></div>"
+      wb_board_v2_repo_attr "$wc_stem" wc_ra
+      week_cards_html+="<div class=\"week-card\" data-stem=\"${wc_stem}\" data-anchor=\"${wc_anchor}\" data-family=\"${wc_fam_anchor}\"${wc_ra} onclick=\"toggleWeekCard(event,this)\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">$(wb_board_html_escape "${_m_status[$wc_stem]:-}")</span><span class=\"wk-caret\">&#9656;</span></div>"
       wb_board_v2_task_open_html "$wc_stem" wc_open
       week_cards_html+="<div class=\"meta\"><span class=\"mono copyable\" data-copy=\"wb resume $wc_stem\">$wc_stem</span>${wc_open} &middot; touched $(wb_board_v2_age_label "${_m_age_days[$wc_stem]:-0}")${wc_parent_html}</div>"
       DETAIL_WANT["$wc_stem"]=1
@@ -2216,7 +2340,8 @@ wb_board_render_v2() {
       local cw_title; cw_title="$(wb_board_html_escape "${_m_title[$cw_stem]:-$cw_stem}")"
       local cw_anchor; wb_board_v2_anchor "$cw_stem" cw_anchor
       local cw_open cw_child_open; wb_board_v2_task_open_html "$cw_stem" cw_open
-      family_blocks_html+="<div class=\"family-block\" data-stem=\"$cw_stem\" data-anchor=\"$cw_anchor\" data-family=\"$cw_anchor\"><div class=\"fam-row\"><span class=\"dot ${cw_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cw_stem\">$cw_stem</span>${cw_open}${cw_title}</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cw_stem]:-0}")</span></div><div class=\"fam-kids\">"
+      local cw_ra; wb_board_v2_repo_attr "$cw_stem" cw_ra
+      family_blocks_html+="<div class=\"family-block\" data-stem=\"$cw_stem\" data-anchor=\"$cw_anchor\" data-family=\"$cw_anchor\"${cw_ra}><div class=\"fam-row\"><span class=\"dot ${cw_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cw_stem\">$cw_stem</span>${cw_open}${cw_title}</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cw_stem]:-0}")</span></div><div class=\"fam-kids\">"
       local cw_child cw_pill_cls cw_pill_text
       while IFS= read -r cw_child; do
         [ -n "$cw_child" ] || continue
@@ -2236,13 +2361,14 @@ wb_board_render_v2() {
     fi
   done
   if [ "${#carried_standalone_stems[@]}" -gt 0 ]; then
-    local cl_stem cl_dot cl_anchor cl_fam_anchor cl_open
+    local cl_stem cl_dot cl_anchor cl_fam_anchor cl_open cl_ra
     while IFS= read -r cl_stem; do
       cl_dot="$(wb_board_v2_dot_class "${_m_status[$cl_stem]}" "${_m_bucket[$cl_stem]}" "${_m_age_days[$cl_stem]:-0}")"
       wb_board_v2_anchor "$cl_stem" cl_anchor
       wb_board_v2_anchor "${_m_family_root[$cl_stem]:-$cl_stem}" cl_fam_anchor
       wb_board_v2_task_open_html "$cl_stem" cl_open
-      carried_list_html+="<div class=\"carried-row\" data-stem=\"$cl_stem\" data-anchor=\"$cl_anchor\" data-family=\"$cl_fam_anchor\"><span class=\"dot ${cl_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cl_stem\">$cl_stem</span>${cl_open}$(wb_board_html_escape "${_m_title[$cl_stem]:-$cl_stem}")</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cl_stem]:-0}")</span></div>"
+      wb_board_v2_repo_attr "$cl_stem" cl_ra
+      carried_list_html+="<div class=\"carried-row\" data-stem=\"$cl_stem\" data-anchor=\"$cl_anchor\" data-family=\"$cl_fam_anchor\"${cl_ra}><span class=\"dot ${cl_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cl_stem\">$cl_stem</span>${cl_open}$(wb_board_html_escape "${_m_title[$cl_stem]:-$cl_stem}")</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cl_stem]:-0}")</span></div>"
     done < <(wb_board_v2_sort_stems_by_age asc "${carried_standalone_stems[@]}")
   fi
 
@@ -2251,7 +2377,7 @@ wb_board_render_v2() {
   # is every status:paused task store-wide.
   local unblocked_chips_html=""
   if [ "${#ready_planned[@]}" -gt 0 ]; then
-    local uq_i=0 uq_stem uq_root uq_breadcrumb uq_anchor uq_fam_anchor
+    local uq_i=0 uq_stem uq_root uq_breadcrumb uq_anchor uq_fam_anchor uq_ra
     while IFS= read -r uq_stem; do
       uq_i=$((uq_i + 1)); [ "$uq_i" -gt 12 ] && break
       uq_root="${_m_family_root[$uq_stem]:-$uq_stem}"
@@ -2259,7 +2385,8 @@ wb_board_render_v2() {
       [ "$uq_root" != "$uq_stem" ] && uq_breadcrumb="$(wb_board_html_escape "${_m_title[$uq_root]:-$uq_root}")"
       wb_board_v2_anchor "$uq_stem" uq_anchor
       wb_board_v2_anchor "$uq_root" uq_fam_anchor
-      unblocked_chips_html+="<span class=\"qs-chip planned copyable\" data-stem=\"$uq_stem\" data-anchor=\"$uq_anchor\" data-family=\"$uq_fam_anchor\" data-copy=\"wb resume $uq_stem\">$(wb_board_html_escape "${_m_title[$uq_stem]:-$uq_stem}") <span class=\"breadcrumb\">&#8618; ${uq_breadcrumb}</span></span>"
+      wb_board_v2_repo_attr "$uq_stem" uq_ra
+      unblocked_chips_html+="<span class=\"qs-chip planned copyable\" data-stem=\"$uq_stem\" data-anchor=\"$uq_anchor\" data-family=\"$uq_fam_anchor\"${uq_ra} data-copy=\"wb resume $uq_stem\">$(wb_board_html_escape "${_m_title[$uq_stem]:-$uq_stem}") <span class=\"breadcrumb\">&#8618; ${uq_breadcrumb}</span></span>"
     done < <(wb_board_v2_sort_stems_by_title "${ready_planned[@]}")
     [ "${#ready_planned[@]}" -gt 12 ] && unblocked_chips_html+="<span class=\"qs-chip planned\" style=\"opacity:.6;\">+$(( ${#ready_planned[@]} - 12 )) more</span>"
   fi
@@ -2300,7 +2427,7 @@ wb_board_render_v2() {
   done
   local wk_shelf_rows_html=""
   if [ "${#wk_shelf_stems[@]}" -gt 0 ]; then
-    local ws_stem ws_h="" ws_sh="" ws_a="" ws_fa="" ws_st="" ws_open=""
+    local ws_stem ws_h="" ws_sh="" ws_a="" ws_fa="" ws_st="" ws_open="" ws_ra=""
     while IFS= read -r ws_stem; do
       wb_board_html_escape "${_m_title[$ws_stem]:-$ws_stem}" ws_h
       wb_board_html_escape "$ws_stem" ws_sh
@@ -2308,7 +2435,8 @@ wb_board_render_v2() {
       wb_board_v2_anchor "$ws_stem" ws_a
       wb_board_v2_anchor "${_m_family_root[$ws_stem]:-$ws_stem}" ws_fa
       wb_board_v2_task_open_html "$ws_stem" ws_open
-      wk_shelf_rows_html+="<div class=\"wk-shelf-row\" data-stem=\"$ws_sh\" data-anchor=\"$ws_a\" data-family=\"$ws_fa\"><span class=\"shelf-dot\"></span><span class=\"t\">$ws_h</span><span class=\"st\">$ws_st</span><span class=\"id mono copyable\" data-copy=\"wb resume $ws_sh\">$ws_sh</span>${ws_open}</div>"
+      wb_board_v2_repo_attr "$ws_stem" ws_ra
+      wk_shelf_rows_html+="<div class=\"wk-shelf-row\" data-stem=\"$ws_sh\" data-anchor=\"$ws_a\" data-family=\"$ws_fa\"${ws_ra}><span class=\"shelf-dot\"></span><span class=\"t\">$ws_h</span><span class=\"st\">$ws_st</span><span class=\"id mono copyable\" data-copy=\"wb resume $ws_sh\">$ws_sh</span>${ws_open}</div>"
     done < <(wb_board_v2_sort_stems_by_title "${wk_shelf_stems[@]}")
   fi
 
@@ -2363,7 +2491,7 @@ wb_board_render_v2() {
   # site here would be exactly the per-call fork cost U2's own timing
   # notes warn against. Reused across iterations on purpose (scratch,
   # consumed immediately after each call, never read stale).
-  local __h="" __h2="" __h3="" __h4="" __al="" __open="" __strip="" __ca=""
+  local __h="" __h2="" __h3="" __h4="" __al="" __open="" __strip="" __ca="" __cra="" __crb=""
   local rail_family_html="" fam_blocks_html="" fam_idx=0 fam_json_entries=""
   for fr_stem in "${all_family_roots_sorted[@]}"; do
     fam_idx=$((fam_idx + 1))
@@ -2385,6 +2513,7 @@ wb_board_render_v2() {
     # the raw stem at each site.
     local fr_stem_h; wb_board_html_escape "$fr_stem" fr_stem_h
     local fr_open; wb_board_v2_task_open_html "$fr_stem" fr_open
+    local fr_ra fr_rb; wb_board_v2_repo_bits "$fr_stem" fr_ra fr_rb
     local fr_strip fr_strip_mini
     wb_board_v2_stage_strip_html "$fr_stem" fr_strip
     wb_board_v2_stage_strip_html "$fr_stem" fr_strip_mini mini
@@ -2404,7 +2533,7 @@ wb_board_render_v2() {
     # the rail's own `.dot`/`.rail-row-title` visual language so it reads
     # as "the same sidebar, a different list" rather than a new widget.
     local fam_dot; fam_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
-    rail_family_html+="<div class=\"rail-row fam-rail-row${fam_sel_cls}\" data-fam=\"${fr_anchor}\" data-stem=\"${fr_stem_h}\" data-anchor=\"${fr_anchor}\" data-family=\"${fr_anchor}\" onclick=\"selectFamily('${fr_anchor}')\"><span class=\"dot ${fam_dot}\"></span><span class=\"rail-row-title\">${__h}</span><span class=\"rail-row-age mono\">${fr_done}/${fr_total}</span></div>"
+    rail_family_html+="<div class=\"rail-row fam-rail-row${fam_sel_cls}\"${fr_ra} data-fam=\"${fr_anchor}\" data-stem=\"${fr_stem_h}\" data-anchor=\"${fr_anchor}\" data-family=\"${fr_anchor}\" onclick=\"selectFamily('${fr_anchor}')\"><span class=\"dot ${fam_dot}\"></span><span class=\"rail-row-title\">${__h}</span><span class=\"rail-row-age mono\">${fr_done}/${fr_total}</span></div>"
 
     # Decisions timeline: parent + every child, date-sorted. One `sort`
     # fork per family (bounded to the family count, not the whole store) —
@@ -2527,11 +2656,22 @@ wb_board_render_v2() {
     [ "$fam_idx" -gt 1 ] && fam_json_entries+=","
     fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"$([ -n "$fr_ladder" ] && printf ladder || printf flat)\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}]}"
 
+    # Round 3 item 6: every family block opens with the SAME summary-first
+    # header the Active and Week views show when you expand a task — status,
+    # repo, stage strip, PR, and the Now line for the family's parent task.
+    # Selecting a family used to drop you straight into a tree/ladder with
+    # no answer to "what is this and what's happening on it".
+    #
+    # Rendered INLINE, not mounted from #detail-pool: a pool block is one
+    # node and may already be mounted in another view, and moving it here
+    # would silently empty that slot. Both paths build it from
+    # wb_board_v2_summary_header_html, so they cannot drift.
+    local fr_summary; wb_board_v2_summary_header_html "$fr_stem" fr_summary
+    fam_body_html+="<div class=\"fam-summary detail\">${fr_summary}</div>"
+
     if [ -n "$fr_ladder" ]; then
       # ---- LADDER SHAPE (mockup D) ----
-      fam_body_html+="<h2 class=\"region-label\">Family &middot; ladder view</h2>"
-      wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
-      fam_body_html+="<div class=\"fam-title-row\"><div><h1>${__h}</h1><span class=\"fam-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span></div></div>"
+      fam_body_html+="<h2 class=\"region-label\">Version ladder</h2>"
       fam_body_html+='<div class="ladder">'
       local fr_rung_line fr_rung_i=0
       while IFS= read -r fr_rung_line; do
@@ -2604,7 +2744,7 @@ wb_board_render_v2() {
     else
       # ---- FLAT SHAPE (mockup A) ----
       local fr_dot; fr_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
-      fam_body_html+="<h2 class=\"region-label\">Family view</h2>"
+      fam_body_html+="<h2 class=\"region-label\">Family tree</h2>"
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
       fam_body_html+="<div class=\"fam-hero\"><div class=\"fam-hero-top\"><div><div class=\"fam-hero-title\">${__h}</div><span class=\"fam-hero-id mono copyable\" data-copy=\"wb resume ${fr_stem_h}\">${fr_stem_h}</span>${fr_open}${fr_strip}</div><div class=\"fam-hero-meta\"><span class=\"dot ${fr_dot}\"></span><span class=\"age mono\">${__al}</span></div></div>"
@@ -2614,7 +2754,7 @@ wb_board_render_v2() {
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
       wb_board_html_escape "$fr_p_status" __h2
-      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem_h}\">${__h}</div><span class=\"t-id mono\">${fr_stem_h} &middot; parent</span>${fr_strip_mini}</div>${fr_open}<span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
+      fam_body_html+="<div class=\"fam-tree-row parent-row\"><span class=\"branch\">&#9679;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${fr_stem_h}\">${__h}</div><span class=\"t-id mono\">${fr_stem_h} &middot; parent</span>${fr_rb}${fr_strip_mini}</div>${fr_open}<span class=\"fam-status-pill ${fr_p_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div>"
       local fr_child_row
       while IFS= read -r fr_child_row; do
         [ -n "$fr_child_row" ] || continue
@@ -2627,8 +2767,9 @@ wb_board_render_v2() {
         wb_board_v2_task_open_html "$fr_child_row" __open
         wb_board_v2_stage_strip_html "$fr_child_row" __strip mini
         wb_board_v2_anchor "$fr_child_row" __ca
+        wb_board_v2_repo_bits "$fr_child_row" __cra __crb
         DETAIL_WANT["$fr_child_row"]=1
-        fam_body_html+="<div class=\"fam-tree-row child-row expandable\" data-anchor=\"${__ca}\" onclick=\"toggleFamDetail(event,this)\"><span class=\"fam-caret\">&#9656;</span><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span>${__strip}</div>${__open}<span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div><div class=\"detail-host\" data-anchor=\"${__ca}\"></div>"
+        fam_body_html+="<div class=\"fam-tree-row child-row expandable\" data-anchor=\"${__ca}\"${__cra} onclick=\"toggleFamDetail(event,this)\"><span class=\"fam-caret\">&#9656;</span><span class=\"branch\">&#9492;</span><div><div class=\"t-title copyable\" data-copy=\"wb resume ${__h3}\">${__h}</div><span class=\"t-id mono\">${__h3}</span>${__crb}${__strip}</div>${__open}<span class=\"fam-status-pill ${fr_c_pill_cls}\">${__h2}</span><span class=\"t-age mono\">${__al}</span></div><div class=\"detail-host\" data-anchor=\"${__ca}\"></div>"
       done <<< "$fr_kids"
       fam_body_html+='</div></div>'
 
@@ -2843,6 +2984,20 @@ wb_board_render_v2() {
   .rail-row:hover { background: var(--surface); }
   .filter-hidden { display: none !important; }
   .scope-hidden { display: none !important; }
+  /* Scope, text filter and repo filter each own their own hiding class, so
+     clearing one never resurrects what another hid. */
+  .repo-hidden { display: none !important; }
+
+  .repo-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: -10px; }
+  .repo-chip { font-size: 11.5px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--overlay); color: var(--subtext); cursor: pointer; user-select: none; white-space: nowrap; }
+  .repo-chip:hover { color: var(--text); border-color: var(--subtext); }
+  .repo-chip.selected { background: rgba(203,166,247,.14); border-color: var(--mauve); color: var(--mauve); }
+
+  /* Which repo a task belongs to, everywhere a task is named. Dim on
+     purpose: it is orientation, not content. */
+  .repo-badge { flex: 0 0 auto; font-size: 10.5px; color: var(--subtext); opacity: .7; border: 1px solid var(--overlay); border-radius: 4px; padding: 0 5px; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+  .card-id + .open-ic + .repo-badge { margin-left: 8px; }
+  .detail-head .repo-badge { font-size: 11px; }
 
   /* UX pass (scope model): `.selected` is the picked rail row, `.scoped`
      the family whose subtree the whole board is narrowed to — both mauve,
@@ -3235,6 +3390,9 @@ wb_board_render_v2() {
   .fam-rail-row.selected .rail-row-title { color: var(--mauve); }
   .fam-rail-row.selected .rail-row-age { color: var(--mauve); opacity: .85; }
   .fam-block { display: none; }
+  /* The family's own top-level summary: same component as an expanded task,
+     so a family reads the way a task does. */
+  .fam-summary { margin: 0 2px 22px 2px; }
 
   .fam-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 2px 2px 20px 2px; flex-wrap: wrap; }
   .fam-title-row h1 { margin: 0; font-size: 25px; font-weight: 650; letter-spacing: -0.01em; color: var(--text); }
@@ -3449,7 +3607,46 @@ wb_board_render_v2() {
     s.classList.toggle('open');
     LS.set('wbBoard.rmStrip', s.classList.contains('open') ? '1' : '0');
   }
-  function toggleRung(id) { document.getElementById(id).classList.toggle('expanded'); }
+  // A rung expands into the SAME summary-first block as everything else —
+  // its own body (decisions/artifacts for that rung) stays underneath.
+  function toggleRung(id) {
+    var r = document.getElementById(id);
+    if (!r) return;
+    var host = r.querySelector(':scope > .detail-host');
+    if (r.classList.toggle('expanded')) {
+      if (host) mountDetail(host.getAttribute('data-anchor'), host);
+    } else {
+      unmountHost(host);
+    }
+  }
+
+  // ---- repo filter (a task's `repo:`) -------------------------------
+  var REPO = '';
+  function pickRepo(ev, el) {
+    if (ev) ev.stopPropagation();
+    REPO = el.getAttribute('data-repo-pick') || '';
+    LS.set('wbBoard.repo', REPO);
+    applyRepo();
+  }
+  function repoOk(el) {
+    if (!REPO) return true;
+    var r = el.getAttribute('data-repo') || '';
+    if (REPO === '__other__') return r !== 'dotfiles';
+    return r === REPO;
+  }
+  // Composes with scope and the text filter by owning its OWN class: each
+  // of the three hides independently and `display:none` needs only one of
+  // them to be true, so clearing one never resurrects what another hid.
+  function applyRepo() {
+    document.querySelectorAll('#repo-chips .repo-chip').forEach(function(c){
+      c.classList.toggle('selected', (c.getAttribute('data-repo-pick') || '') === REPO);
+    });
+    var sel = '#rail-tasks [data-repo], #rail-families [data-repo], #deckRow .card-slot,' +
+              ' .rm-lane, .week-card, .family-block, .carried-row, .qs-chip, .wk-shelf-row, .fam-tree-row';
+    document.querySelectorAll(sel).forEach(function(el){
+      el.classList.toggle('repo-hidden', !repoOk(el));
+    });
+  }
 
   // ---- U8: the shared summary-first detail block --------------------
   // Every task has exactly ONE detail node, parked in #detail-pool. Mounting
@@ -3814,6 +4011,11 @@ wb_board_render_v2() {
   (function(){
     var s = document.getElementById('rm-strip');
     if (s && LS.get('wbBoard.rmStrip', '0') === '1') s.classList.add('open');
+    // The ladder's "now" rung renders pre-expanded; mount its block so it
+    // is not an open rung with an empty summary slot.
+    document.querySelectorAll('.rung.expanded > .detail-host').forEach(function(h){
+      mountDetail(h.getAttribute('data-anchor'), h);
+    });
     var saved = LS.get('wbBoard.scope', '');
     if (saved) {
       try {
@@ -3828,6 +4030,9 @@ wb_board_render_v2() {
         SCOPE.family = fam; SCOPE.task = task;
       } catch (err) {}
     }
+    REPO = LS.get('wbBoard.repo', '');
+    if (REPO && !document.querySelector('#repo-chips [data-repo-pick="' + REPO + '"]')) REPO = '';
+    applyRepo();
     var view = LS.get('wbBoard.view', 'active');
     if (!document.getElementById('view-' + view)) view = 'active';
     showView(view);

@@ -310,7 +310,7 @@ assert "B: j/k walk the rail rows, not the deck"            'function moveRailCu
 # (C) Active: each drilldown is emitted INSIDE its own card's slot, so it
 # opens in place; the batched trailing drilldown block is gone.
 assert "C: cards are wrapped in a per-card .card-slot with scope attrs" \
-  '<div class="card-slot[^"]*" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+">' "$render"
+  '<div class="card-slot[^"]*" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+"[^>]*>' "$render"
 # NB: every count below ends in `|| true`. wb.sh (sourced above) turns on
 # errexit, so a grep that finds nothing aborts this whole file silently —
 # which is exactly what happened when U8 removed the inline drilldown and
@@ -388,7 +388,7 @@ assert "D: the TODAY marker survives a scope" 'class="rm-today-line"' "$render"
 # (E) Week: cards collapse by default and carry the scope attrs; the
 # shelved count is a real toggle over a compact list.
 assert "E: week cards carry the scope attrs and a toggle click" \
-  '<div class="week-card" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+" onclick="toggleWeekCard' "$render"
+  '<div class="week-card" data-stem="[^"]+" data-anchor="[^"]+" data-family="[^"]+"[^>]* onclick="toggleWeekCard' "$render"
 if printf '%s' "$render" | grep -E 'class="week-card expanded"' >/dev/null 2>&1; then
   echo "FAIL - E: week cards render collapsed, not pre-expanded"; fail=1
 else
@@ -553,7 +553,7 @@ dup="$(printf '%s' "$render" | grep -o 'id="detail-alpha"' | wc -l || true)"
 assert_eq "U8: exactly one block per task, not one per view" "1" "$dup"
 # Block anatomy: header (title/status/age/id), the Now line, and sections
 # with counts — Latest handoff open, everything else collapsed.
-assert "U8: header carries title, status pill and age" 'class="detail-head"><div class="detail-title">[^<]+</div><span class="detail-pill st-[a-z]+">[a-z]+</span><span class="detail-age mono">touched ' "$render"
+assert "U8: header carries title, status pill and age" 'class="detail-head"><div class="detail-title">[^<]+</div><span class="detail-pill st-[a-z]+">[a-z]+</span>.*<span class="detail-age mono">touched ' "$render"
 assert "U8: the block leads with a Now line"          'class="detail-now"><span class="lbl">Now</span><span class="txt">' "$render"
 assert "U8: Latest handoff is the one open section"   '<details class="dsec" open><summary>Latest handoff</summary>' "$render"
 assert "U8: Plan is collapsed and shows checked/total" '<details class="dsec"><summary>Plan <span class="n">[0-9]+/[0-9]+</span>' "$render"
@@ -565,13 +565,52 @@ assert "U8: a child block links back to its family scope" 'class="detail-parent"
 assert "U8: the stage strip appears inside the detail header too" 'class="detail-now"' "$render"
 # Family: child rows are the expand hook and carry the caret.
 assert "U8: family child rows are expandable and carry a caret" \
-  '<div class="fam-tree-row child-row expandable" data-anchor="[^"]+" onclick="toggleFamDetail\(event,this\)"><span class="fam-caret">' "$render"
+  '<div class="fam-tree-row child-row expandable" data-anchor="[^"]+"[^>]* onclick="toggleFamDetail\(event,this\)"><span class="fam-caret">' "$render"
 assert "U8: each family child row is followed by its own mount host" \
   '</div><div class="detail-host" data-anchor="[^"]+"></div>' "$render"
 assert "U8: only one detail is open per family block" 'querySelectorAll\(.\.detail-host\.open.\)\.forEach\(unmountHost\)' "$render"
 # Long raw text is clipped before escaping (a CPU lever as much as a size
 # one) and says so rather than silently ending mid-sentence.
 assert "U8: over-long raw text is clipped with a marker" 'clipped &mdash; open the task file for the rest|clipped — open the task file for the rest' "$render"
+
+# =========================================================================
+# Round 3, items 3/4/6: repo filter, repo badges, family top-level summary.
+# =========================================================================
+# The fixture store has 2 repos (dotfiles + the `repo:` the mk_task helper
+# writes), so it takes the "one chip per repo" branch rather than the
+# All/dotfiles/other fallback.
+assert "R3: the rail carries a repo segmented control" 'class="repo-chips" id="repo-chips"' "$render"
+assert "R3: All is the default selection"              'class="repo-chip selected" data-repo-pick=""' "$render"
+assert "R3: a chip exists for a repo present in the store" 'class="repo-chip" data-repo-pick="dotfiles"' "$render"
+assert "R3: the repo filter persists"                  "wbBoard.repo" "$render"
+assert "R3: the repo filter owns its own hiding class"  "classList.toggle\('repo-hidden', !repoOk\(el\)\)" "$render"
+# Composition: three independent hiding classes, so clearing one never
+# resurrects what another hid.
+assert "R3: repo/scope/text filters each hide independently" '\.repo-hidden \{ display: none' "$render"
+# data-repo has to be on the things being filtered, not just the rail.
+assert "R3: rail rows carry data-repo"   '<div class="rail-row" data-stem="[^"]+"[^>]* data-repo="[^"]+"' "$render"
+assert "R3: card slots carry data-repo"  '<div class="card-slot[^"]*"[^>]* data-repo="[^"]+"' "$render"
+assert "R3: roadmap lanes carry data-repo" '<div class="rm-lane[^"]*" id="lane-[^"]+"[^>]* data-repo="[^"]+"' "$render"
+assert "R3: week cards carry data-repo"  '<div class="week-card"[^>]* data-repo="[^"]+"' "$render"
+# R23: the tab badges are store-wide and must NOT move with the filter.
+badge_after="$(printf '%s' "$render" | grep -o 'class="tab-badge">[0-9]*' | head -1 | grep -o '[0-9]*$' || true)"
+assert_eq "R23: the repo filter does not restate the tab badge" "$expected_badge" "$badge_after"
+
+# Item 4: which repo a task belongs to, wherever a task is named.
+assert "R4: rail rows show a repo badge"    '<span class="repo-badge mono">' "$render"
+assert "R4: cards show a repo badge in the id row" 'class="card-id mono copyable"[^>]*>[^<]*</span><a class="open-ic[^>]*>[^<]*</a><span class="repo-badge mono">' "$render"
+assert "R4: the detail header shows a repo badge" 'class="detail-pill st-[a-z]+">[a-z]+</span><span class="repo-badge mono">' "$render"
+
+# Item 6: a family block opens with the SAME summary component an expanded
+# task uses, built by the same helper so the two cannot drift.
+assert "R6: a family block leads with a summary-first header" '<div class="fam-summary detail"><div class="detail-head">' "$render"
+assert "R6: that summary carries the Now line too" '<div class="fam-summary detail">.*<div class="detail-now"><span class="lbl">Now</span>' "$render"
+fam_summaries="$(printf '%s' "$render" | grep -o 'class="fam-summary detail"' | wc -l || true)"
+assert_eq "R6: one top-level summary per family" "$fam_badge_count" "$fam_summaries"
+# A ladder rung expands into the shared block, like every other expansion.
+assert "R6: a rung mounts the shared detail block on expand" 'function toggleRung' "$render"
+assert "R6: a rung carries a mount host for its child" '<div class="detail-host" data-anchor="[^"]+"></div><div class="rung-body">' "$render"
+assert "R6: a pre-expanded rung is mounted on load" "querySelectorAll\('\.rung\.expanded > \.detail-host'\)" "$render"
 
 # --- U5: family-rollup.json side-output ----------------------------------
 rollup="$FIXTURE_TASKS/.board-cache/family-rollup.json"
