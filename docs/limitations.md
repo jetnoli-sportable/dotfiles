@@ -11,7 +11,7 @@ Standing, by-design properties of the workflow — not bugs, not deferred
 decisions. Each entry explains behavior that would otherwise be surprising,
 plus what would actually make it worth revisiting. Deferred *decisions*
 (things deliberately left unresolved rather than accepted as-is) stay on
-[Open Questions](roadmap-open-questions.html); this page is for the ones
+[Open Questions](archive/roadmap-open-questions.html); this page is for the ones
 that are settled as "acceptable for now."
 
 ## GPaste's GNOME Shell coupling
@@ -23,7 +23,7 @@ the Sway migration is actually scheduled. Detail: [9g recap](archive/9g-gpaste-r
 
 ## Credential guard is warn-only, not a hard block
 
-The [`wb` design](roadmap-wb-design.html)'s credential guard is a
+The [`wb` design](archive/roadmap-wb-design.html)'s credential guard is a
 dismissible warning in the close-out review buffer, not an enforced block,
 and it only matches filenames — it doesn't scan file *contents* for
 secret-shaped strings. Acceptable while the task store stays local-only
@@ -46,7 +46,7 @@ is deliberately the *last* follow-up decision in the whole push — made
 only once everything else is in place, not before. Interim guardrails:
 the task store gets no remote; generated `INDEX`/`HUB` output carries a
 minimal work-reference redaction guard. Full writeup:
-[Open Questions](roadmap-open-questions.html#personalemployer-boundary-rule-the-final-follow-up).
+[Open Questions](archive/roadmap-open-questions.html#personalemployer-boundary-rule-the-final-follow-up).
 
 ## Task-store schema migration is incomplete
 

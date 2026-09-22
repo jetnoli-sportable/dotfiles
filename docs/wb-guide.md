@@ -374,7 +374,7 @@ back to copying whatever `.env*` files exist at the repo root.
 
 `~/code/tasks` is a plain git repo pushed to a personal GitHub remote
 (recovered and given its first-ever remote after the 2026-07-10
-directory-deletion incident — see `docs/roadmap-handoff.md` if you want
+directory-deletion incident — see `docs/archive/roadmap-handoff.md` if you want
 that story). One markdown file per task, named `<repo>--<slug>.md`,
 seeded from `TEMPLATE.md`:
 

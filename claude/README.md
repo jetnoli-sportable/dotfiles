@@ -48,7 +48,7 @@ paths/vocabulary in the invocation prompt instead.
   - a `permissions.allow` rule that pre-authorizes reads under
     `~/code/tasks/`, so spawned agents (`/handoff`, `wb new --agent`) never
     hit the "Do you want to proceed?" read-outside-cwd prompt for that path
-    (`docs/roadmap-handoff.md`, "Dry-run findings", finding 4). Its exact
+    (`docs/archive/roadmap-handoff.md`, "Dry-run findings", finding 4). Its exact
     `Read(...)` glob syntax was pattern-matched against other
     `permissions.allow` rules already on this machine (not verified against
     the installed Claude Code version's own docs) — smoke-test after
