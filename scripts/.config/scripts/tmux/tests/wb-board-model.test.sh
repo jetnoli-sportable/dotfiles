@@ -299,6 +299,23 @@ acceptance on its own with no "criteria" after it.
 EOF
 touch -d "1 days ago" "$FIXTURE_TASKS/lowercase-dod.md"
 
+# A bare "## DoD" heading (no spelled-out phrase anywhere) is the third
+# accepted shape of the acceptance signal.
+cat > "$FIXTURE_TASKS/dod-heading-only.md" <<'EOF2'
+---
+status: planned
+path:
+repo: dotfiles
+branch: feat/dod-heading-only
+worktree: .worktrees/feat/dod-heading-only
+---
+# DoD heading only fixture
+
+## DoD
+- it renders
+EOF2
+touch -d "1 days ago" "$FIXTURE_TASKS/dod-heading-only.md"
+
 cat > "$FIXTURE_TASKS/bare-acceptance-word.md" <<'EOF'
 ---
 status: doing
@@ -438,6 +455,7 @@ assert_eq "'Definition of Done' in a Follow-ups bullet (not Plan) -> M_ACCEPT=1"
   "1" "${M_ACCEPT[dod-in-followups]:-}"
 
 assert_eq "lowercase 'definition of done' matches -> M_ACCEPT=1" "1" "${M_ACCEPT[lowercase-dod]:-}"
+assert_eq "a bare '## DoD' heading -> M_ACCEPT=1" "1" "${M_ACCEPT[dod-heading-only]:-}"
 assert_eq "the bare word 'acceptance' alone (no 'criteria') does not match" \
   "0" "${M_ACCEPT[bare-acceptance-word]:-}"
 

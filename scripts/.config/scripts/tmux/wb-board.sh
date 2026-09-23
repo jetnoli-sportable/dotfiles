@@ -697,6 +697,22 @@ wb_board_deps_layer() {
   done
 }
 
+# wb_board_v2_dag_short_label <stem> <strip_prefix> <out_var> — the short id
+# a DAG card and the critical-path header show. Children usually share their
+# root's stem prefix (`<root>-<child>`), which is dropped; when they don't
+# (most families whose root was named separately), the `<repo>--` segment is
+# dropped instead, so sibling labels still differ in their first characters.
+wb_board_v2_dag_short_label() {
+  local __sl="$1"
+  if [ -n "$2" ] && [[ "$1" == "$2"* ]]; then
+    __sl="${1#"$2"}"; __sl="${__sl#-}"
+  elif [[ "$1" == *--* ]]; then
+    __sl="${1#*--}"
+  fi
+  [ -n "$__sl" ] || __sl="$1"
+  printf -v "$3" '%s' "$__sl"
+}
+
 # wb_board_v2_dag_node_dims <size> <w_out> <h_out> — one node's SVG box
 # dimensions for a `size:` value (XS/S/M/L/XL, blank reads as M — same
 # "blank means M" convention wb_board_deps_layer's own weight table uses).
@@ -823,11 +839,7 @@ wb_board_v2_dag_html() {
     local dh_path_html="" dh_short dh_sh dh_stemh dh_i
     for (( dh_i=0; dh_i<${#dh_critpath[@]}; dh_i++ )); do
       dh_v="${dh_critpath[$dh_i]}"
-      dh_short="$dh_v"
-      if [ -n "$dh_strip" ] && [[ "$dh_v" == "$dh_strip"* ]]; then
-        dh_short="${dh_v#"$dh_strip"}"; dh_short="${dh_short#-}"
-        [ -n "$dh_short" ] || dh_short="$dh_v"
-      fi
+      wb_board_v2_dag_short_label "$dh_v" "$dh_strip" dh_short
       wb_board_html_escape "$dh_short" dh_sh
       wb_board_html_escape "$dh_v" dh_stemh
       [ "$dh_i" -gt 0 ] && dh_path_html+="<span class=\"dag-arw\">&#8594;</span>"
@@ -845,7 +857,9 @@ wb_board_v2_dag_html() {
   # unfinished work (0): there is no done region to its left, and the line
   # would land left of the first column, outside the drawing.
   if [ "$dh_frontier_layer" -gt 0 ]; then
-    local dh_fx=$(( dh_marginl + dh_frontier_layer * dh_colw - dh_colw / 2 - 4 ))
+    # Midway through the gap between the previous column's widest card (XL,
+    # 208) and this column's left edge, so it never cuts through a card.
+    local dh_fx=$(( dh_marginl + dh_frontier_layer * dh_colw - (dh_colw - 208) / 2 ))
     dh_frontier_svg="<line class=\"dag-frontier\" x1=\"${dh_fx}\" y1=\"12\" x2=\"${dh_fx}\" y2=\"$(( dh_svgh - 8 ))\"/><text class=\"dag-frontier-lbl\" x=\"${dh_fx}\" y=\"$(( dh_svgh - 14 ))\" text-anchor=\"middle\">&#9656; YOU ARE HERE</text>"
   fi
 
@@ -882,11 +896,7 @@ wb_board_v2_dag_html() {
     [ "${dh_startable[$dh_v]:-0}" = 1 ] && dh_cls+=" dag-startable"
 
     # ---- short label (mono, top-left) ----
-    dh_short2="$dh_v"
-    if [ -n "$dh_strip" ] && [[ "$dh_v" == "$dh_strip"* ]]; then
-      dh_short2="${dh_v#"$dh_strip"}"; dh_short2="${dh_short2#-}"
-      [ -n "$dh_short2" ] || dh_short2="$dh_v"
-    fi
+    wb_board_v2_dag_short_label "$dh_v" "$dh_strip" dh_short2
     # Real stems run long (`doc-review-skeptic-lens`, or a whole
     # `<repo>--<slug>` when the child doesn't share the root's prefix), so
     # the id gets the same single-ellipsis clip as the title, sized to the
@@ -926,7 +936,9 @@ wb_board_v2_dag_html() {
     wb_board_html_escape "$dh_status_txt" dh_status_h
 
     # ---- size badge (top-right) ----
-    dh_badge_txt="${_m_size[$dh_v]:-M}"
+    # Only enum values reach the SVG: a hand-edited size: is otherwise raw
+    # frontmatter text interpolated into markup.
+    case "${_m_size[$dh_v]:-}" in XS|S|M|L|XL) dh_badge_txt="${_m_size[$dh_v]}" ;; *) dh_badge_txt=M ;; esac
 
     wb_board_v2_task_href "$dh_v" dh_href
 

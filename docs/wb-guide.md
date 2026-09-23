@@ -534,7 +534,7 @@ a → b → c · 7.5 pts remaining · 2 startable now`.
 
 | Encoding | Meaning |
 |---|---|
-| Fill colour | Status — green done (muted), mauve doing/review, blue planned, grey anything else |
+| Outline and dot colour | Status — green done (muted), mauve doing/review, blue planned, grey anything else |
 | Card size | `size:` — XS, S, M, L, XL (blank draws as M) |
 | Dashed grey outline | Under-defined: fewer than 3 of the 4 signals (a non-empty Plan, acceptance criteria or a definition of done anywhere in the file, `size:` set, status past `planned`). Done tasks are always solid |
 | Peach spine | The critical path — the longest chain of remaining work, weighting XS 0.5, S 1, M 2, L 3, XL 5, done 0 |

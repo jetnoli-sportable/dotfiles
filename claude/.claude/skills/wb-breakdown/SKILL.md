@@ -308,7 +308,7 @@ Rules worth restating because the parser enforces them exactly:
   default — parallel is the norm, a dependency is the exception, and a
   blank `size:` already reads as `M` at load, so blank costs nothing and
   never manufactures false precision.
-- `size` must be exactly one of `S`, `M`, `L`, `XL` (uppercase) or blank.
+- `size` must be exactly one of `XS`, `S`, `M`, `L`, `XL` (uppercase) or blank.
   Anything else (`XXL`, `medium`, lowercase `l`) is a hard parse error
   that aborts the **whole** apply before any write, like the other
   structural guards — not a per-item skip.
