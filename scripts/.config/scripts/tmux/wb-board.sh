@@ -870,7 +870,9 @@ wb_board_v2_dag_html() {
     # ---- KTD6: definedness signal count ----
     dh_sig=0
     dh_planraw="${_m_plan_raw[$dh_v]:-}"
-    [ -n "${dh_planraw//[[:space:]]/}" ] && dh_sig=$(( dh_sig + 1 ))
+    # A glob test, not `${x//[[:space:]]/}`: bash's class-substitution is
+    # quadratic in practice (~300ms on a 12KB Plan), and this runs per node.
+    [[ "$dh_planraw" == *[![:space:]]* ]] && dh_sig=$(( dh_sig + 1 ))
     [ "${_m_accept[$dh_v]:-0}" = 1 ] && dh_sig=$(( dh_sig + 1 ))
     [ -n "${_m_size[$dh_v]:-}" ] && dh_sig=$(( dh_sig + 1 ))
     case "$dh_status_v" in doing|review|done) dh_sig=$(( dh_sig + 1 )) ;; esac
