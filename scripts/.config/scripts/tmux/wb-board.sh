@@ -842,7 +842,10 @@ wb_board_v2_dag_html() {
 
   # ---- frontier line (R10) ------------------------------------------------
   local dh_frontier_svg=""
-  if [ "$dh_frontier_layer" -ge 0 ]; then
+  # Omitted when every node is done (-1) AND when column 0 already holds
+  # unfinished work (0): there is no done region to its left, and the line
+  # would land left of the first column, outside the drawing.
+  if [ "$dh_frontier_layer" -gt 0 ]; then
     local dh_fx=$(( dh_marginl + dh_frontier_layer * dh_colw - dh_colw / 2 - 4 ))
     dh_frontier_svg="<line class=\"dag-frontier\" x1=\"${dh_fx}\" y1=\"12\" x2=\"${dh_fx}\" y2=\"$(( dh_svgh - 8 ))\"/><text class=\"dag-frontier-lbl\" x=\"${dh_fx}\" y=\"$(( dh_svgh - 14 ))\" text-anchor=\"middle\">&#9656; YOU ARE HERE</text>"
   fi
@@ -883,7 +886,20 @@ wb_board_v2_dag_html() {
       dh_short2="${dh_v#"$dh_strip"}"; dh_short2="${dh_short2#-}"
       [ -n "$dh_short2" ] || dh_short2="$dh_v"
     fi
+    # Real stems run long (`doc-review-skeptic-lens`, or a whole
+    # `<repo>--<slug>` when the child doesn't share the root's prefix), so
+    # the id gets the same single-ellipsis clip as the title, sized to the
+    # gap between the left padding and the size badge (and the lock / XS dot
+    # when those share the top row). ~7px per char at the 11px mono size.
+    local dh_id_right=$(( dh_w1 - 40 ))
+    [ -n "${dh_extblk[$dh_v]:-}" ] && dh_id_right=$(( dh_w1 - 60 ))
+    [ "${_m_size[$dh_v]:-}" = XS ] && dh_id_right=$(( dh_id_right - 14 ))
+    local dh_id_max=$(( (dh_id_right - 10) / 7 ))
+    [ "$dh_id_max" -lt 3 ] && dh_id_max=3
+    local dh_id_clipped=0
+    if [ "${#dh_short2}" -gt "$dh_id_max" ]; then dh_short2="${dh_short2:0:$(( dh_id_max - 1 ))}"; dh_id_clipped=1; fi
     wb_board_html_escape "$dh_short2" dh_sh2
+    [ "$dh_id_clipped" = 1 ] && dh_sh2+="&#8230;"
     wb_board_html_escape "$dh_v" dh_stemh2
 
     # ---- title: card-width-derived clip, single-char ellipsis (review fix
@@ -960,7 +976,7 @@ wb_board_v2_dag_html() {
     # the id) rather than let it collide with the title. ---------------------
     if [ "${_m_size[$dh_v]:-}" = XS ]; then
       dh_bottomrowh=0
-      dh_dot_html="<circle class=\"dag-dot\" cx=\"$(( 22 + ${#dh_sh2} * 6 ))\" cy=\"11\" r=\"3.5\"/>"
+      dh_dot_html="<circle class=\"dag-dot\" cx=\"$(( 22 + (${#dh_short2} + dh_id_clipped) * 6 ))\" cy=\"11\" r=\"3.5\"/>"
       dh_status_html=""
     else
       dh_bottomrowh=18
@@ -4405,7 +4421,7 @@ wb_board_render_v2() {
          warning (KTD9).
        - cycle back-edges = --red, dashed, ON PURPOSE — these ARE warnings
          (KTD9), the one dashed usage in this block that means "danger". */
-  .fam-dag-wrap { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--overlay); border-radius: 12px; background: var(--surface); padding: 10px 6px; }
+  .fam-dag-wrap { margin-bottom: 28px; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--overlay); border-radius: 12px; background: var(--surface); padding: 10px 6px; }
   .fam-dag-head { font-size: 14px; color: var(--text); margin: 2px 4px 14px 4px; }
   .fam-dag-head .dag-arw { color: var(--subtext); padding: 0 3px; }
   .fam-dag-head .dag-path-hop { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 13px; font-weight: 700; color: var(--peach); }

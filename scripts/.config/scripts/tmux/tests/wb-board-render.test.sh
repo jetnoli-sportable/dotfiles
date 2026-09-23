@@ -1240,6 +1240,59 @@ else
   echo "ok   - U4 DAG9: all-done family omits the frontier line"
 fi
 
+# --- DAG9b: the frontier sits before the first unfinished column, and is
+# omitted when column 0 already holds unfinished work (no done region to its
+# left). A long short-id is clipped with a single ellipsis. -----------------
+declare -a DAG9B_NODES=(fin1 todo2)
+declare -A DAG9B_LAYER=([fin1]=0 [todo2]=1)
+declare -A DAG9B_ORDER=([fin1]=0 [todo2]=0)
+declare -A DAG9B_CRIT=([fin1]=0 [todo2]=1)
+declare -A DAG9B_STARTABLE=([fin1]=0 [todo2]=1)
+declare -A DAG9B_EXTBLK=()
+declare -A DAG9B_TAG=([fin1]=START [todo2]=END)
+declare -a DAG9B_EDGES=("fin1 todo2")
+declare -a DAG9B_BACKEDGES=()
+declare -a DAG9B_CRITPATH=(todo2)
+declare -A M9B_STATUS=([fin1]=done [todo2]=planned)
+declare -A M9B_TITLE=([fin1]="Fin one" [todo2]="Todo two")
+declare -A M9B_SIZE=([fin1]=M [todo2]=S)
+declare -A M9B_ACCEPT=([fin1]=1 [todo2]=1)
+declare -A M9B_PLAN_RAW=([fin1]="- [x] done" [todo2]="- [ ] todo")
+declare -A M9B_STEM_ANCHOR=([fin1]=anchor-fin1 [todo2]=anchor-todo2)
+declare -n _m_status=M9B_STATUS _m_title=M9B_TITLE _m_size=M9B_SIZE _m_accept=M9B_ACCEPT \
+  _m_plan_raw=M9B_PLAN_RAW _m_stem_anchor=M9B_STEM_ANCHOR
+dag9b_html=""
+wb_board_v2_dag_html fam9b DAG9B_NODES DAG9B_LAYER DAG9B_ORDER DAG9B_CRIT DAG9B_STARTABLE \
+  DAG9B_EXTBLK DAG9B_TAG DAG9B_EDGES DAG9B_BACKEDGES DAG9B_CRITPATH 2 1 "" dag9b_html
+M9B_STATUS[fin1]=planned
+dag9c_html=""
+wb_board_v2_dag_html fam9c DAG9B_NODES DAG9B_LAYER DAG9B_ORDER DAG9B_CRIT DAG9B_STARTABLE \
+  DAG9B_EXTBLK DAG9B_TAG DAG9B_EDGES DAG9B_BACKEDGES DAG9B_CRITPATH 6 1 "" dag9c_html
+declare -a DAG9D_NODES=(proj--a-very-long-child-stem-that-overflows)
+declare -A DAG9D_LAYER=([proj--a-very-long-child-stem-that-overflows]=0)
+declare -A DAG9D_ORDER=([proj--a-very-long-child-stem-that-overflows]=0)
+declare -A DAG9D_CRIT=() DAG9D_STARTABLE=() DAG9D_EXTBLK=() DAG9D_TAG=()
+declare -a DAG9D_EDGES=() DAG9D_BACKEDGES=() DAG9D_CRITPATH=()
+M9B_STATUS[proj--a-very-long-child-stem-that-overflows]=planned
+M9B_SIZE[proj--a-very-long-child-stem-that-overflows]=S
+dag9d_html=""
+wb_board_v2_dag_html fam9d DAG9D_NODES DAG9D_LAYER DAG9D_ORDER DAG9D_CRIT DAG9D_STARTABLE \
+  DAG9D_EXTBLK DAG9D_TAG DAG9D_EDGES DAG9D_BACKEDGES DAG9D_CRITPATH 2 0 "" dag9d_html
+unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
+
+assert "U4 DAG9b: frontier drawn before the first unfinished column" 'class="dag-frontier"' "$dag9b_html"
+if printf '%s' "$dag9c_html" | grep -F 'dag-frontier' >/dev/null 2>&1; then
+  echo "FAIL - U4 DAG9b: unfinished column 0 should omit the frontier line"; fail=1
+else
+  echo "ok   - U4 DAG9b: unfinished column 0 omits the frontier line"
+fi
+assert "U4 DAG9b: a long short-id is clipped with an ellipsis" 'class="dag-id"[^>]*>proj--a-v[^<]*&#8230;</text>' "$dag9d_html"
+if printf '%s' "$dag9d_html" | grep -F 'that-overflows</text>' >/dev/null 2>&1; then
+  echo "FAIL - U4 DAG9b: the full long stem should not appear as the id label"; fail=1
+else
+  echo "ok   - U4 DAG9b: the full long stem is not rendered as the id label"
+fi
+
 # --- DAG10: remaining weight 15 (doubled) displays "7.5 pts" ---------------
 declare -a DAG10_NODES=(only1)
 declare -A DAG10_LAYER=([only1]=0)
