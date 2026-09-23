@@ -17,8 +17,13 @@ FROM ubuntu:24.04
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-       bash zsh git tmux gawk coreutils grep sed ca-certificates bsdextrautils jq \
+       bash zsh git tmux gawk coreutils grep sed ca-certificates bsdextrautils jq locales \
     && rm -rf /var/lib/apt/lists/*
+
+# en_US.UTF-8 is needed to regression-test the lint-sections self-check
+# under a non-C locale (comm's collation must match the LC_ALL=C-sorted
+# inputs it's fed — see wb-lint-sections.test.sh's locale scenario).
+RUN locale-gen en_US.UTF-8
 
 # HOME has no code/ dir at all in the image — even a fresh CODE_DIR-shaped
 # bug can't reach real data, since there is none to reach.

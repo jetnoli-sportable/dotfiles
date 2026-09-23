@@ -54,6 +54,19 @@
 #                                    "-" reads a multi-line body from stdin instead — the
 #                                    agent-mediated write path /wb-save, /handoff, and
 #                                    /weekly-review use instead of Edit-tool task writes
+#   wb lint-sections [<task>...] [--machine]
+#                                    report duplicate/flush ## Plan|Handoffs|Decisions|
+#                                    Done|Follow-ups headings (no refs -> whole store);
+#                                    --machine emits stable TSV: file, kind (dup|flush),
+#                                    section, copies, nonempty-copies, content hash.
+#                                    Read-only, exit 0 whether or not findings exist.
+#   wb lint-sections --diff [<task>...]
+#                                    unified diff of the merged form for every file
+#                                    with a finding (read-only)
+#   wb lint-sections --fix <file>:<hash> [<file>:<hash> ...]
+#                                    merge duplicate/flush sections and write, under the
+#                                    per-task lock, for exactly the reviewed targets
+#                                    given -- no --all; a stale hash skips that target
 #   wb week path                     print the standing weekly-capture doc's path,
 #                                    creating it from the four-section template
 #                                    (What's working|What's not working|New ideas|Notes)
@@ -2762,14 +2775,27 @@ _wb_breakdown_parent_plan_body() {
 # with <body>. Never routes <body> through awk -v — same reasoning as
 # _wb_insert_plan_body: awk's C escape-sequence processing on a -v
 # assignment would mangle a buffer-authored body's backslashes.
+# Trailing blank lines in <body> are dropped and exactly one blank line is
+# re-emitted before the next heading: a heading left flush against the body
+# fails _wb_append_under_heading's blank-line guard, and the next
+# wb_append_handoff then splices in a duplicate "## Handoffs".
 _wb_breakdown_replace_section() {
   local file="$1" heading="$2" body="$3" bodyfile
   bodyfile="$(mktemp)"
   printf '%s\n' "$body" > "$bodyfile"
   awk -v h="## $heading" -v bodyfile="$bodyfile" '
     BEGIN { insec = 0 }
-    $0 == h { print; print ""; while ((getline line < bodyfile) > 0) print line; insec = 1; next }
-    insec && /^## / { insec = 0 }
+    $0 == h {
+      print; print ""
+      nblank = 0
+      while ((getline line < bodyfile) > 0) {
+        if (line == "") { nblank++; continue }
+        for (; nblank > 0; nblank--) print ""
+        print line
+      }
+      insec = 1; next
+    }
+    insec && /^## / { insec = 0; print "" }
     insec { next }
     { print }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
@@ -3766,6 +3792,540 @@ cmd_append() {
   _wb_append_under_heading "$file" "$heading" "$body"
   wb_task_lock_release "$file"
   echo "wb append: appended under \"## $heading\" in $(basename -- "$file")"
+}
+
+# ---------------------------------------------------------------------------
+# wb lint-sections — detect (U2) and merge (U3) duplicate/flush canonical
+# section headings (## Plan/Handoffs/Decisions/Done/Follow-ups) left behind
+# by the append/breakdown writer bugs this feature exists to clean up after
+# (see docs/plans/2026-09-23-001-fix-tasks-store-dedupe-headings-plan.md).
+# Read-only by default (--machine too); only --fix writes, and only under
+# the per-task lock with an explicit reviewed <file>:<hash> target — there
+# is deliberately no --all (KTD4/KTD7: a review page drives every write).
+# ---------------------------------------------------------------------------
+
+# _wb_lint_sections_records <file> — one TSV record per section (canonical
+# or not) found in <file>, in file order. Fields:
+#   1 canonical(0|1)  2 name  3 heading_line  4 body_start  5 body_end
+#   6 nonblank_count  7 flush(0|1)
+# <name> is the bare heading text (canonical: one of Plan/Handoffs/
+# Decisions/Done/Follow-ups; non-canonical: whatever followed "## ",
+# e.g. "Follow-ups (superseded -- see ## Decisions)" -- KTD2 is explicit
+# these near-miss headings must never collapse into a canonical bucket).
+# The preamble (frontmatter + everything before the first heading) is NOT
+# a record; callers derive it as lines 1..(first record's heading_line -
+# 1), or the whole file when there are zero records.
+#
+# Heading rule (KTD2), POSIX-only (proven under mawk 1.3.4, KTD6 -- no
+# ENDFILE/gensub/arrays-of-arrays/length(array)/\y):
+#   - "## <name>" is CANONICAL iff, after trimming ONLY trailing
+#     whitespace, it is string-equal to one of the five exact strings --
+#     never a prefix/regex match -- and it is outside a fenced code block.
+#     It counts as a heading regardless of what the previous line was.
+#   - any other "## " line is a boundary only outside a fence AND when the
+#     previous line is blank or this is line 1 -- the exact isHeadingLine()
+#     guard _wb_append_under_heading uses, so heading-shaped prose inside a
+#     section body (e.g. a Plan paragraph quoting "## Decisions") is never
+#     mistaken for a real heading.
+#   - "blank" means an EXACTLY empty line ("") throughout this feature,
+#     the same convention isHeadingLine()/_wb_append_under_heading use --
+#     never a whitespace-only line.
+#   - a leading "---" ... "---" frontmatter block (only recognized when
+#     line 1 is exactly "---") is inert: nothing inside it is a heading or
+#     a fence toggle, and it is part of the preamble.
+#   - a fence-delimiter line (trimmed-leading text starting "```" or
+#     "~~~") toggles fence state; nothing inside a fence is ever a heading.
+_wb_lint_sections_records() {
+  awk '
+    function is_canonical(t,    i) {
+      for (i = 1; i <= 5; i++) { if (t == canon[i]) return 1 }
+      return 0
+    }
+    function close_section(end_line) {
+      if (cur_heading_line > 0) {
+        printf "%d\t%s\t%d\t%d\t%d\t%d\t%d\n", cur_canonical, cur_name, cur_heading_line, cur_heading_line + 1, end_line, cur_nonblank, cur_flush
+      }
+    }
+    BEGIN {
+      canon[1] = "## Plan"; canon[2] = "## Handoffs"; canon[3] = "## Decisions"
+      canon[4] = "## Done"; canon[5] = "## Follow-ups"
+      in_fm = 0
+      in_fence = 0
+      prev = ""
+      cur_heading_line = 0
+    }
+    {
+      raw = $0
+      trimmed = raw
+      sub(/[ \t]+$/, "", trimmed)
+
+      if (FNR == 1 && raw == "---") { in_fm = 1; prev = raw; next }
+      if (in_fm) {
+        if (raw == "---") { in_fm = 0 }
+        prev = raw
+        next
+      }
+
+      lead = raw
+      sub(/^[ \t]+/, "", lead)
+      is_fence_delim = 0
+      if (substr(lead, 1, 3) == "```") is_fence_delim = 1
+      if (substr(lead, 1, 3) == "~~~") is_fence_delim = 1
+
+      is_can = 0
+      if (!in_fence && is_canonical(trimmed)) is_can = 1
+
+      is_other = 0
+      if (!in_fence && !is_can && raw ~ /^## / && (prev == "" || FNR == 1)) is_other = 1
+
+      if (is_can || is_other) {
+        close_section(FNR - 1)
+        cur_heading_line = FNR
+        if (is_can) { cur_canonical = 1; cur_name = trimmed } else { cur_canonical = 0; cur_name = raw }
+        sub(/^## /, "", cur_name)
+        sub(/[ \t]+$/, "", cur_name)
+        cur_nonblank = 0
+        if (prev != "") { cur_flush = 1 } else { cur_flush = 0 }
+      } else if (cur_heading_line > 0) {
+        if (raw != "") cur_nonblank++
+      }
+
+      if (is_fence_delim) { in_fence = 1 - in_fence }
+      prev = raw
+    }
+    END { close_section(NR) }
+  ' "$1"
+}
+
+# _wb_lint_sections_findings <file> — one TSV row per finding:
+#   kind(dup|flush) <TAB> section-name <TAB> copies <TAB> nonempty-copies
+# Grouped by canonical name (only names that actually occur), in canonical
+# order. "dup" fires when copies > 1; "flush" fires when ANY copy of that
+# name has a non-blank previous line -- both can fire for the same name
+# (e.g. the flush copy's OWN duplicate), as two separate rows, since they
+# are independent findings sharing the same group-level copies/nonempty
+# stats (there is no per-copy column in the shared --machine contract).
+_wb_lint_sections_findings() {
+  local file="$1"
+  local -a records=()
+  mapfile -t records < <(_wb_lint_sections_records "$file")
+  [ "${#records[@]}" -gt 0 ] || return 0
+
+  local -A copies=() nonempty=() any_flush=()
+  local i
+  for i in "${!records[@]}"; do
+    local -a rf; wb_tsv_split "${records[$i]}" rf
+    [ "${rf[0]}" = "1" ] || continue
+    local name="${rf[1]}" nb="${rf[5]}" fl="${rf[6]}"
+    copies["$name"]=$(( ${copies["$name"]:-0} + 1 ))
+    [ "$nb" != "0" ] && nonempty["$name"]=$(( ${nonempty["$name"]:-0} + 1 ))
+    [ "$fl" = "1" ] && any_flush["$name"]=1
+  done
+
+  local name
+  for name in Plan Handoffs Decisions Done Follow-ups; do
+    [ -n "${copies[$name]:-}" ] || continue
+    if [ "${copies[$name]}" -gt 1 ]; then
+      printf 'dup\t%s\t%s\t%s\n' "$name" "${copies[$name]}" "${nonempty[$name]:-0}"
+    fi
+    if [ "${any_flush[$name]:-0}" = "1" ]; then
+      printf 'flush\t%s\t%s\t%s\n' "$name" "${copies[$name]}" "${nonempty[$name]:-0}"
+    fi
+  done
+}
+
+# _wb_lint_trim_blank_array <in-array-name> <out-array-name> — strips
+# leading and trailing EXACTLY-EMPTY elements from the named array
+# (nameref), keeping interior ones untouched; <out-array-name> is set to
+# the trimmed copy (possibly empty). Shared by the merge's per-copy body
+# trim and its non-canonical-section trailing-blank normalization (both
+# R6's "exactly one blank line before every canonical heading" and its own
+# comment above require knowing exactly how many blank lines a chunk has
+# at each end, not just "whitespace-ish").
+_wb_lint_trim_blank_array() {
+  local -n _wb_ltba_in="$1" _wb_ltba_out="$2"
+  local -a _wb_ltba_tmp=("${_wb_ltba_in[@]}")
+  local i=0 j=$((${#_wb_ltba_tmp[@]} - 1))
+  while [ "$i" -le "$j" ] && [ -z "${_wb_ltba_tmp[$i]}" ]; do i=$((i + 1)); done
+  while [ "$j" -ge "$i" ] && [ -z "${_wb_ltba_tmp[$j]}" ]; do j=$((j - 1)); done
+  if [ "$i" -gt "$j" ]; then
+    _wb_ltba_out=()
+  else
+    _wb_ltba_out=("${_wb_ltba_tmp[@]:$i:$((j - i + 1))}")
+  fi
+}
+
+# _wb_lint_nc_chunk <lines-array-name> <heading-line> <end-line> — prints a
+# non-canonical section (heading + body) verbatim, minus its own trailing
+# blank run: the merge owns the single blank line before the next chunk.
+_wb_lint_nc_chunk() {
+  local -n _wb_lnc_lines="$1"
+  local hline="$2" bend="$3"
+  local -a full_lines=("${_wb_lnc_lines[@]:$((hline - 1)):$((bend - hline + 1))}")
+  local -a trimmed=(); _wb_lint_trim_blank_array full_lines trimmed
+  printf '%s\n' "${trimmed[@]}"
+}
+
+# _wb_lint_sections_merge <file> — prints <file>'s KTD5 merged form to
+# stdout; never writes anything itself (see _wb_lint_sections_fix_one for
+# the write side). Reuses _wb_lint_sections_records's section ranges and
+# works entirely in bash ARRAYS of lines (never awk -v / string-newline
+# arithmetic) so blank-line counting at each boundary is exact, matching
+# the KTD6 "bodies/content never go through awk -v" rule and this feature's
+# own "blank means exactly empty" convention.
+#
+# Layout (KTD5/R6):
+#   - preamble (lines 1..first-heading-line-1) is reproduced BYTE-IDENTICAL
+#     -- including however many trailing blank lines it already had --
+#     UNLESS the first heading is itself a flush finding (no blank line at
+#     all before it), in which case exactly one blank line is inserted so
+#     R6 holds for that heading too. This is the only place a blank count
+#     is preserved rather than normalized; see the plan's Execution
+#     Note / this unit's final report for why.
+#   - each canonical name that occurs at least once gets exactly one
+#     merged section, in fixed Plan/Handoffs/Decisions/Done/Follow-ups
+#     order: "## <name>", then (if any copy has non-blank content) one
+#     blank line and the non-blank-only copies' bodies -- each individually
+#     leading/trailing-blank-trimmed -- joined by one blank line each. A
+#     name with zero copies is simply omitted (never synthesized).
+#   - every non-canonical section is reproduced verbatim (its OWN interior
+#     formatting untouched, only its own trailing blank run normalized away
+#     since the space before whatever comes next is now this function's
+#     job, not the original author's) immediately after whichever
+#     canonical name -- or the preamble, if none preceded it yet -- it
+#     originally followed in the source file (KTD5). Multiple non-canonical
+#     sections anchored to the same name keep their original relative
+#     order.
+#   - every chunk-to-chunk transition after the preamble gets EXACTLY one
+#     blank line, unconditionally: every chunk (canonical or not) starts
+#     with a heading line (never blank) and has had its own trailing blanks
+#     trimmed, so there is never a double blank to guard against there.
+_wb_lint_sections_merge() {
+  local file="$1"
+  local -a all_lines=()
+  mapfile -t all_lines < "$file"
+
+  local -a records=()
+  mapfile -t records < <(_wb_lint_sections_records "$file")
+  if [ "${#records[@]}" -eq 0 ]; then
+    printf '%s\n' "${all_lines[@]}"
+    return 0
+  fi
+
+  # wb_tsv_split forks an awk per call, so each record is split exactly
+  # once here and every later pass reads these parallel arrays.
+  local -a r_canon=() r_name=() r_hline=() r_bstart=() r_bend=() r_flush=()
+  local i
+  for i in "${!records[@]}"; do
+    local -a rf; wb_tsv_split "${records[$i]}" rf
+    r_canon[$i]="${rf[0]}"; r_name[$i]="${rf[1]}"; r_hline[$i]="${rf[2]}"
+    r_bstart[$i]="${rf[3]}"; r_bend[$i]="${rf[4]}"; r_flush[$i]="${rf[6]}"
+  done
+  local first_heading_line="${r_hline[0]}" first_flush="${r_flush[0]}"
+
+  # One file-order pass: canonical copies' trimmed bodies accumulate per
+  # name (joined by one blank line); each non-canonical record index is
+  # queued under the most recent canonical name before it, or PREAMBLE.
+  local -A canon_seen=() canon_body=() nc_by_anchor=()
+  local last_canon="PREAMBLE"
+  for i in "${!records[@]}"; do
+    if [ "${r_canon[$i]}" != "1" ]; then
+      nc_by_anchor["$last_canon"]+="$i "
+      continue
+    fi
+    local name="${r_name[$i]}" bstart="${r_bstart[$i]}" bend="${r_bend[$i]}"
+    last_canon="$name"
+    canon_seen["$name"]=1
+    local -a body_lines=()
+    if [ "$bstart" -le "$bend" ]; then
+      body_lines=("${all_lines[@]:$((bstart - 1)):$((bend - bstart + 1))}")
+    fi
+    local -a trimmed=()
+    _wb_lint_trim_blank_array body_lines trimmed
+    [ "${#trimmed[@]}" -gt 0 ] || continue
+    local body; body="$(printf '%s\n' "${trimmed[@]}")"
+    if [ -n "${canon_body[$name]:-}" ]; then
+      canon_body["$name"]+=$'\n\n'"$body"
+    else
+      canon_body["$name"]="$body"
+    fi
+  done
+
+  local -a chunk_list=()
+  local j canon_name
+  for j in ${nc_by_anchor[PREAMBLE]:-}; do
+    chunk_list+=("$(_wb_lint_nc_chunk all_lines "${r_hline[$j]}" "${r_bend[$j]}")")
+  done
+  for canon_name in Plan Handoffs Decisions Done Follow-ups; do
+    if [ -n "${canon_body[$canon_name]:-}" ]; then
+      chunk_list+=("## $canon_name"$'\n\n'"${canon_body[$canon_name]}")
+    elif [ -n "${canon_seen[$canon_name]:-}" ]; then
+      chunk_list+=("## $canon_name")
+    fi
+    for j in ${nc_by_anchor[$canon_name]:-}; do
+      chunk_list+=("$(_wb_lint_nc_chunk all_lines "${r_hline[$j]}" "${r_bend[$j]}")")
+    done
+  done
+
+  # ---- preamble, byte-identical, plus exactly one blank line ONLY when
+  # the first heading was itself a flush finding (see function header). ----
+  local -a output_lines=()
+  if [ "$first_heading_line" -gt 1 ]; then
+    output_lines=("${all_lines[@]:0:$((first_heading_line - 1))}")
+    [ "$first_flush" = "1" ] && output_lines+=("")
+  fi
+
+  local first=1 c
+  for c in "${chunk_list[@]}"; do
+    local -a clines=(); mapfile -t clines <<< "$c"
+    if [ "$first" -eq 1 ] && [ "${#output_lines[@]}" -eq 0 ]; then
+      output_lines=("${clines[@]}")
+    elif [ "$first" -eq 1 ]; then
+      output_lines+=("${clines[@]}")
+    else
+      output_lines+=("" "${clines[@]}")
+    fi
+    first=0
+  done
+
+  printf '%s\n' "${output_lines[@]}"
+}
+
+# _wb_lint_sections_selfcheck <file> <merged-text> — refuses (exit 1) when
+# the merge would drop content: the multiset of <file>'s non-blank lines
+# must equal <merged-text>'s non-blank lines, plus exactly the duplicate
+# canonical heading lines the merge is EXPECTED to drop (copies - 1 of
+# "## <name>" for every canonical name with copies > 1). `comm` compares
+# sorted multisets correctly (a linear merge, not set dedup), so this is a
+# real per-occurrence accounting check, not just "same set of distinct
+# lines".
+_wb_lint_sections_selfcheck() {
+  local file="$1" merged="$2"
+  local a b c; a="$(mktemp)"; b="$(mktemp)"; c="$(mktemp)"
+
+  LC_ALL=C awk '$0 != ""' "$file" | LC_ALL=C sort > "$a"
+
+  local -a records=(); mapfile -t records < <(_wb_lint_sections_records "$file")
+  local -A dupcount=()
+  local i
+  for i in "${!records[@]}"; do
+    local -a rf; wb_tsv_split "${records[$i]}" rf
+    [ "${rf[0]}" = "1" ] || continue
+    dupcount["${rf[1]}"]=$(( ${dupcount["${rf[1]}"]:-0} + 1 ))
+  done
+  : > "$b"
+  local name cnt k
+  for name in "${!dupcount[@]}"; do
+    cnt="${dupcount[$name]}"
+    [ "$cnt" -gt 1 ] || continue
+    for ((k = 1; k < cnt; k++)); do printf '## %s\n' "$name" >> "$b"; done
+  done
+  LC_ALL=C sort -o "$b" "$b"
+
+  LC_ALL=C comm -23 "$a" "$b" > "$c"
+
+  local expected_hash actual_hash
+  expected_hash="$(sha256sum "$c" | awk '{print $1}')"
+  actual_hash="$(printf '%s\n' "$merged" | LC_ALL=C awk '$0 != ""' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
+  rm -f "$a" "$b" "$c"
+  [ "$expected_hash" = "$actual_hash" ]
+}
+
+# _wb_lint_sections_hash <file> — the per-file content hash --machine
+# prints and --fix re-checks before writing (KTD4).
+_wb_lint_sections_hash() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+# _wb_lint_sections_collect <file...> — the one findings pass behind
+# --machine, the human table, and --diff. One TSV row per finding, in a
+# stable column order the review page builds on (KTD7): file path, kind
+# (dup|flush), section name, copies, nonempty-copies, content hash. A file
+# with zero findings contributes no rows -- absence of a file's rows IS
+# "clean", there is no separate "no findings" sentinel row.
+_wb_lint_sections_collect() {
+  local f findings hash line
+  for f in "$@"; do
+    if [ ! -f "$f" ]; then
+      echo "wb lint-sections: $f: no such file" >&2
+      continue
+    fi
+    findings="$(_wb_lint_sections_findings "$f")"
+    [ -n "$findings" ] || continue
+    hash="$(_wb_lint_sections_hash "$f")"
+    while IFS= read -r line; do
+      local -a ff; wb_tsv_split "$line" ff
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "${ff[0]}" "${ff[1]}" "${ff[2]}" "${ff[3]}" "$hash"
+    done <<< "$findings"
+  done
+}
+
+# _wb_lint_sections_human <file...> — the plain-text table over the same
+# rows --machine prints (cmd_reconcile's collect-once, present-twice split).
+_wb_lint_sections_human() {
+  local -a rows=()
+  local line
+  while IFS= read -r line; do
+    local -a ff; wb_tsv_split "$line" ff
+    rows+=("$(basename -- "${ff[0]}")"$'\t'"${ff[1]}"$'\t'"${ff[2]}"$'\t'"${ff[3]}"$'\t'"${ff[4]}")
+  done < <(_wb_lint_sections_collect "$@")
+  if [ "${#rows[@]}" -eq 0 ]; then
+    echo "wb lint-sections: no findings across $# file(s)"
+    return 0
+  fi
+  { printf 'FILE\tKIND\tSECTION\tCOPIES\tNONEMPTY\n'; printf '%s\n' "${rows[@]}"; } | column -t -s $'\t'
+}
+
+# _wb_lint_sections_diff <file...> — `diff -u` of original vs merged for
+# every <file> that has a finding (the same scope --fix acts on, R4).
+# Always exits 0: `diff` returning 1 for "files differ" is the expected
+# outcome here, not a failure.
+_wb_lint_sections_diff() {
+  local f merged base
+  while IFS= read -r f; do
+    merged="$(_wb_lint_sections_merge "$f")"
+    base="$(basename -- "$f")"
+    diff -u --label "a/$base" --label "b/$base" "$f" <(printf '%s\n' "$merged") || [ $? -eq 1 ]
+  done < <(_wb_lint_sections_collect "$@" | cut -f1 | uniq)
+  return 0
+}
+
+# _wb_lint_sections_fix <target...> — <target> is "<file>:<hash>"; there is
+# NO --all (KTD4/KTD7 -- every write must trace to a reviewed hash). All
+# targets are format-validated BEFORE anything is locked or written: one
+# malformed target refuses the whole call with nothing written, per R7's
+# usage-error contract. Each valid target is then processed independently
+# (lock, re-hash, merge, self-check, write, unlock) -- a stale hash or a
+# self-check trip skips just that target, named in a message, and the
+# final exit status reports whether ANY target was skipped.
+_wb_lint_sections_fix() {
+  local -a targets=("$@")
+  if [ "${#targets[@]}" -eq 0 ]; then
+    echo "usage: wb lint-sections --fix <file>:<hash> [<file>:<hash> ...]   (no --all -- every target must be an explicit reviewed file:hash pair)" >&2
+    return 1
+  fi
+
+  local t
+  for t in "${targets[@]}"; do
+    case "$t" in
+      *:*) ;;
+      *)
+        echo "wb lint-sections --fix: '$t' is not <file>:<hash> — usage error, nothing written" >&2
+        return 1
+        ;;
+    esac
+    if [ -z "${t%:*}" ] || [ -z "${t##*:}" ]; then
+      echo "wb lint-sections --fix: '$t' is not <file>:<hash> — usage error, nothing written" >&2
+      return 1
+    fi
+  done
+
+  local any_skipped=0
+  for t in "${targets[@]}"; do
+    _wb_lint_sections_fix_one "${t%:*}" "${t##*:}" || any_skipped=1
+  done
+  return "$any_skipped"
+}
+
+# _wb_lint_sections_fix_one <file-part> <expected-hash> — resolves
+# <file-part> via _wb_append_resolve_task (the same resolver `wb append`
+# uses), then follows cmd_append's own lock idiom exactly
+# (_wb_lock_trap_append_if_top_level for the crash backstop,
+# wb_task_lock_acquire_guarded, then release on every exit path).
+_wb_lint_sections_fix_one() {
+  local file_part="$1" expected_hash="$2" file
+  file="$(_wb_append_resolve_task "$file_part")" || {
+    echo "wb lint-sections --fix: no task matches '$file_part' — skipped" >&2
+    return 1
+  }
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || return $?
+
+  local cur_hash; cur_hash="$(_wb_lint_sections_hash "$file")"
+  if [ "$cur_hash" != "$expected_hash" ]; then
+    echo "wb lint-sections --fix: $(basename -- "$file") changed since review (hash mismatch) — skipped" >&2
+    wb_task_lock_release "$file"
+    return 1
+  fi
+
+  local findings; findings="$(_wb_lint_sections_findings "$file")"
+  if [ -z "$findings" ]; then
+    echo "wb lint-sections --fix: $(basename -- "$file") has no findings — untouched"
+    wb_task_lock_release "$file"
+    return 0
+  fi
+
+  local merged; merged="$(_wb_lint_sections_merge "$file")"
+  if ! _wb_lint_sections_selfcheck "$file" "$merged"; then
+    echo "wb lint-sections --fix: $(basename -- "$file") failed the content self-check — refusing to write" >&2
+    wb_task_lock_release "$file"
+    return 1
+  fi
+
+  if ! { printf '%s\n' "$merged" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"; }; then
+    rm -f "$file.tmp.$$"
+    echo "wb lint-sections --fix: $(basename -- "$file") write failed — skipped" >&2
+    wb_task_lock_release "$file"
+    return 1
+  fi
+  wb_task_lock_release "$file"
+  echo "wb lint-sections --fix: merged $(basename -- "$file")"
+}
+
+# cmd_lint_sections [<task-ref>...] [--machine] [--diff [<task-ref>...]]
+#                    [--fix <file>:<hash> ...]
+# No refs -> the whole store (wb_task_files, same TEMPLATE/README skip
+# list every other store-wide verb uses); refs -> resolved the same way
+# `wb append` resolves its <task-ref> (_wb_append_resolve_task: exact path/
+# basename fast path, then the fail-loud fuzzy fallback). Exit 0 whether or
+# not findings exist; nonzero only on errors (bad ref, bad --fix usage, a
+# --fix target skipped).
+cmd_lint_sections() {
+  local machine=0 diffmode=0 fixmode=0
+  local -a fix_targets=() refs=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --machine) machine=1; shift ;;
+      --diff) diffmode=1; shift ;;
+      --fix)
+        fixmode=1; shift
+        while [ $# -gt 0 ]; do fix_targets+=("$1"); shift; done
+        ;;
+      -*)
+        echo "wb lint-sections: unknown flag '$1'" >&2
+        exit 1
+        ;;
+      *) refs+=("$1"); shift ;;
+    esac
+  done
+
+  if [ "$fixmode" -eq 1 ]; then
+    _wb_lint_sections_fix "${fix_targets[@]}"
+    exit $?
+  fi
+
+  local -a files=()
+  if [ "${#refs[@]}" -gt 0 ]; then
+    local r resolved
+    for r in "${refs[@]}"; do
+      resolved="$(_wb_append_resolve_task "$r")" || exit 1
+      files+=("$resolved")
+    done
+  else
+    mapfile -t files < <(wb_task_files)
+  fi
+
+  if [ "$diffmode" -eq 1 ]; then
+    _wb_lint_sections_diff "${files[@]}"
+    exit 0
+  fi
+
+  if [ "$machine" -eq 1 ]; then
+    _wb_lint_sections_collect "${files[@]}"
+  else
+    _wb_lint_sections_human "${files[@]}"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -5796,6 +6356,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
+    lint-sections) shift; cmd_lint_sections "$@" ;;
     week)        shift; cmd_week "$@" ;;
     status)      shift; cmd_status "$@" ;;
     set)         shift; cmd_set "$@" ;;

@@ -1582,5 +1582,49 @@ else
   fi
 fi
 
+# =============================================================================
+# Plan rewrite keeps the heading gap (docs/plans/2026-09-23-001 U1): the
+# rewritten ## Plan body must never end flush against the next heading, or
+# _wb_append_under_heading's blank-line guard reads that heading as prose
+# and the breakdown's auto-handoff splices in a second ## Handoffs.
+# =============================================================================
+
+gap_file="$TASKS_DIR/proj--gap-parent.md"
+cp "$TASKS_DIR/TEMPLATE.md" "$gap_file"
+_wb_breakdown_replace_section "$gap_file" "Plan" "Rewritten plan line one."$'\nline two.\n\n\n'
+assert_eq "gap: line before ## Handoffs is blank after a Plan rewrite" "" \
+  "$(awk '$0 == "## Handoffs" { print prev; exit } { prev = $0 }' "$gap_file")"
+assert_eq "gap: exactly one blank line (no stacked blanks) before ## Handoffs" "line two." \
+  "$(awk '$0 == "## Handoffs" { print p2; exit } { p2 = p1; p1 = $0 }' "$gap_file")"
+
+wb_append_handoff "$gap_file" "wb breakdown" "Broke down into children."
+assert_eq "gap: auto-handoff after a rewrite leaves one ## Handoffs" "1" \
+  "$(grep -c '^## Handoffs$' "$gap_file")"
+assert_eq "gap: auto-handoff entry lands under the original ## Handoffs (before ## Decisions)" "yes" \
+  "$(awk '$0 == "## Handoffs" { inh = 1; next } /^## / { inh = 0 } inh && /Broke down into children/ { print "yes"; exit }' "$gap_file")"
+
+gap_before="$(cat "$gap_file")"
+_wb_breakdown_replace_section "$gap_file" "Plan" "$(printf 'Rewritten plan line one.\nline two.\n')"
+assert_eq "gap: re-apply with an identical body is byte-identical" "$gap_before" "$(cat "$gap_file")"
+
+gap_eof="$TASKS_DIR/proj--gap-eof.md"
+printf '# Title\n\n## Notes\n\nkeep me\n\n## Plan\n\nold plan\n' > "$gap_eof"
+_wb_breakdown_replace_section "$gap_eof" "Plan" "new plan at eof"
+assert_eq "gap: Plan as the last section ends with the body, nothing added" \
+  "$(printf '# Title\n\n## Notes\n\nkeep me\n\n## Plan\n\nnew plan at eof')" "$(cat "$gap_eof")"
+
+gap_bs="$TASKS_DIR/proj--gap-backslash.md"
+cp "$TASKS_DIR/TEMPLATE.md" "$gap_bs"
+# shellcheck disable=SC2016
+gap_bs_body='tab\tstays \K literal
+mid-paragraph line follows
+## Decisions
+still the plan body'
+_wb_breakdown_replace_section "$gap_bs" "Plan" "$gap_bs_body"
+assert_eq "gap: a body with no trailing newline (the \$(...) caller shape) still gets a blank before ## Handoffs" "" \
+  "$(awk '$0 == "## Handoffs" { print prev; exit } { prev = $0 }' "$gap_bs")"
+assert_eq "gap: backslashes and a heading-shaped body line survive byte-for-byte" "$gap_bs_body" \
+  "$(awk '$0 == "## Plan" { inp = 1; getline; next } inp && $0 == "" { exit } inp { print }' "$gap_bs")"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS"
 exit "$fail"
