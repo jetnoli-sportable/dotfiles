@@ -3331,70 +3331,9 @@ wb_board_render_v2() {
     local -a fd_edges=() fd_backedges=() fd_critpath=()
     local fd_remaining=0 fd_maxlayer=-1
 
-    # perf (R15's <=10s render, verification's 12.6s ceiling): wb_board_deps_layer
-    # forks `sort` at least twice per call (the edge list + one per DAG column),
-    # and on the real store only 13/35 families have any in-family edge at all —
-    # calling it unconditionally for every family measured ~2s of the ~13.3s
-    # total (11.3s without it), enough to blow the ceiling. So: cheaply detect
-    # (no fork, plain bash loops only) whether this family has ANY in-set edge
-    # or ANY cycle-member node first, and only pay U3's real cost when either
-    # is true. When neither is true the FAST PATH below reproduces exactly what
-    # wb_board_deps_layer itself would compute for that shape of input (verified
-    # against its own header comment): zero edges + zero cycle members means
-    # every node enters Kahn as a root with no predecessor (layer 0 for all),
-    # and the "critical path" degenerates to a single node — the one with the
-    # highest doubled weight, ties broken by smallest stem (same KTD1 weight
-    # table, same tie-break U3 uses).
-    local -A fd_inset=()
-    local fd_n
-    for fd_n in "${fd_nodes[@]}"; do fd_inset["$fd_n"]=1; done
-    local fd_has_edge=0 fd_has_cycle=0 fd_dep
-    for fd_n in "${fd_nodes[@]}"; do
-      [ -n "${CYCLE_MEMBER[$fd_n]:-}" ] && fd_has_cycle=1
-      if [ "$fd_has_edge" -eq 0 ] && [ -n "${DEPS_OF[$fd_n]:-}" ]; then
-        while IFS= read -r fd_dep; do
-          [ -n "$fd_dep" ] || continue
-          if [ -n "${fd_inset[$fd_dep]:-}" ]; then fd_has_edge=1; break; fi
-        done <<< "${DEPS_OF[$fd_n]}"
-      fi
-      [ "$fd_has_edge" -eq 1 ] && [ "$fd_has_cycle" -eq 1 ] && break
-    done
-
-    if [ "$fd_has_edge" -eq 0 ] && [ "$fd_has_cycle" -eq 0 ]; then
-      local fd_best_w=-1 fd_best_stem="" fd_w
-      for fd_n in "${fd_nodes[@]}"; do
-        fd_layer["$fd_n"]=0
-        fd_order["$fd_n"]=0
-        fd_critical["$fd_n"]=0
-        if [ "${_m_status[$fd_n]:-}" = planned ] && [ "${UNMET_COUNT[$fd_n]:-0}" -eq 0 ]; then
-          fd_startable["$fd_n"]=1
-        else
-          fd_startable["$fd_n"]=0
-        fi
-        fd_tag["$fd_n"]=""
-        if [ "${_m_status[$fd_n]:-}" = done ]; then
-          fd_w=0
-        else
-          case "${_m_size[$fd_n]:-}" in
-            XS) fd_w=1 ;; S) fd_w=2 ;; M) fd_w=4 ;; L) fd_w=6 ;; XL) fd_w=10 ;; *) fd_w=4 ;;
-          esac
-        fi
-        if [ "$fd_w" -gt "$fd_best_w" ] || \
-           { [ "$fd_w" -eq "$fd_best_w" ] && { [ -z "$fd_best_stem" ] || [[ "$fd_n" < "$fd_best_stem" ]]; }; }; then
-          fd_best_w="$fd_w"; fd_best_stem="$fd_n"
-        fi
-      done
-      fd_maxlayer=0
-      fd_remaining="$fd_best_w"
-      if [ "$fd_best_w" -gt 0 ] && [ -n "$fd_best_stem" ]; then
-        fd_critpath=("$fd_best_stem")
-        fd_critical["$fd_best_stem"]=1
-      fi
-    else
-      wb_board_deps_layer fd_nodes DEPS_OF CYCLE_MEMBER UNMET_COUNT _m_status _m_size \
-        fd_layer fd_order fd_critical fd_startable fd_extblk fd_tag fd_edges fd_backedges \
-        fd_critpath fd_remaining fd_maxlayer
-    fi
+    wb_board_deps_layer fd_nodes DEPS_OF CYCLE_MEMBER UNMET_COUNT _m_status _m_size \
+      fd_layer fd_order fd_critical fd_startable fd_extblk fd_tag fd_edges fd_backedges \
+      fd_critpath fd_remaining fd_maxlayer
     local fd_edge_count=$(( ${#fd_edges[@]} + ${#fd_backedges[@]} ))
     # U4's HTML region, built now (needs fr_anchor, computed above) so it's
     # ready to splice in right after fam-summary below regardless of which
@@ -3523,15 +3462,15 @@ wb_board_render_v2() {
       # read as layer 0 instead. Its `size:` is still emitted raw, same as
       # every child.
       local __hsize; wb_board_v2_json_escape "${_m_size[$fr_jc_m]:-}" __hsize
-      local fr_jc_layer_json fr_jc_crit_json fr_jc_start_json
+      local fr_jc_layer_json fr_jc_crit_json fr_jc_start_json fr_jc_parent_json
       if [ "$fr_jc_i" = 0 ]; then
-        fr_jc_layer_json="null"; fr_jc_crit_json="false"; fr_jc_start_json="false"
+        fr_jc_layer_json="null"; fr_jc_crit_json="false"; fr_jc_start_json="false"; fr_jc_parent_json="true"
       else
-        fr_jc_layer_json="${fd_layer[$fr_jc_m]:-0}"
+        fr_jc_layer_json="${fd_layer[$fr_jc_m]:-0}"; fr_jc_parent_json="false"
         [ "${fd_critical[$fr_jc_m]:-0}" = 1 ] && fr_jc_crit_json="true" || fr_jc_crit_json="false"
         [ "${fd_startable[$fr_jc_m]:-0}" = 1 ] && fr_jc_start_json="true" || fr_jc_start_json="false"
       fi
-      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"repo\":\"${__hrepo}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false),\"size\":\"${__hsize}\",\"layer\":${fr_jc_layer_json},\"critical\":${fr_jc_crit_json},\"startable\":${fr_jc_start_json}}"
+      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"repo\":\"${__hrepo}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":${fr_jc_parent_json},\"size\":\"${__hsize}\",\"layer\":${fr_jc_layer_json},\"critical\":${fr_jc_crit_json},\"startable\":${fr_jc_start_json}}"
     done
     local fr_json_decisions="" fr_jd_first=1 fr_jd_date fr_jd_text fr_jd_src
     if [ -n "$fr_decisions_full_sorted" ]; then
@@ -3583,7 +3522,8 @@ wb_board_render_v2() {
     wb_board_v2_json_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
     wb_board_v2_json_escape "$fr_stem" __h2
     [ "$fam_idx" -gt 1 ] && fam_json_entries+=","
-    fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"$([ -n "$fr_ladder" ] && printf ladder || printf flat)\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}],\"critical_path\":[${fd_json_critpath}],\"remaining\":${fd_remaining_json}}"
+    local fr_shape_json=flat; [ -n "$fr_ladder" ] && fr_shape_json=ladder
+    fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"${fr_shape_json}\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}],\"critical_path\":[${fd_json_critpath}],\"remaining\":${fd_remaining_json}}"
 
     # Round 3 item 6: every family block opens with the SAME summary-first
     # header the Active and Week views show when you expand a task — status,
