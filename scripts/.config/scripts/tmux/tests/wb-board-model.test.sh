@@ -220,6 +220,131 @@ parent: parent-a
 EOF
 touch -d "1 days ago" "$FIXTURE_TASKS/parent-a--child-b.md"
 
+# --- U2/R2: size + acceptance-signal fixtures ----------------------------
+# size: L + an "## Acceptance criteria" heading -> M_SIZE=L, M_ACCEPT=1.
+cat > "$FIXTURE_TASKS/size-accept.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/size-accept
+worktree: .worktrees/feat/size-accept
+size: L
+---
+# Size and accept fixture
+
+## Acceptance criteria
+- must do the thing
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/size-accept.md"
+
+# Blank size:, no acceptance text -> M_SIZE empty, M_ACCEPT=0. Also the
+# trailing-empty-field hazard (KTD8): size/accept are the LAST two fields of
+# both TSV layers, and this fixture pins one of them (accept_sig) to its
+# falsy "0" default while size is truly empty, so an off-by-one in the new
+# tab positions would corrupt PR_URL (an EARLIER field, checked below) or
+# leave M_TAGS/M_TITLE misaligned (also checked below) rather than just this
+# fixture's own two new fields.
+cat > "$FIXTURE_TASKS/blank-size-no-accept.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/blank-size-no-accept
+worktree: .worktrees/feat/blank-size-no-accept
+size:
+tags: solo
+---
+# Blank size no accept fixture
+
+See https://github.com/acme/repo/pull/42 for the PR.
+
+## Done
+- shipped it, no accept language here
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/blank-size-no-accept.md"
+
+# "Definition of Done" in a Follow-ups bullet (not the Plan section) still
+# sets M_ACCEPT=1 — KTD7's "matched anywhere in the file body" requirement.
+cat > "$FIXTURE_TASKS/dod-in-followups.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/dod-in-followups
+worktree: .worktrees/feat/dod-in-followups
+---
+# DoD in follow-ups fixture
+
+## Follow-ups
+- write up a Definition of Done for the next phase
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/dod-in-followups.md"
+
+# Lowercase "definition of done" matches; the bare word "acceptance" alone
+# (no "criteria") must NOT match.
+cat > "$FIXTURE_TASKS/lowercase-dod.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/lowercase-dod
+worktree: .worktrees/feat/lowercase-dod
+---
+# Lowercase dod fixture
+
+## Notes
+lowercase definition of done mention here, and separately the word
+acceptance on its own with no "criteria" after it.
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/lowercase-dod.md"
+
+# A bare "## DoD" heading (no spelled-out phrase anywhere) is the third
+# accepted shape of the acceptance signal.
+cat > "$FIXTURE_TASKS/dod-heading-only.md" <<'EOF2'
+---
+status: planned
+path:
+repo: dotfiles
+branch: feat/dod-heading-only
+worktree: .worktrees/feat/dod-heading-only
+---
+# DoD heading only fixture
+
+## DoD
+- it renders
+EOF2
+touch -d "1 days ago" "$FIXTURE_TASKS/dod-heading-only.md"
+
+cat > "$FIXTURE_TASKS/bare-acceptance-word.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/bare-acceptance-word
+worktree: .worktrees/feat/bare-acceptance-word
+---
+# Bare acceptance word fixture
+
+## Notes
+We need broad market acceptance before shipping this.
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/bare-acceptance-word.md"
+
+# size: XS round-trip (2026-09-23's XS addition to the size: enum).
+cat > "$FIXTURE_TASKS/size-xs.md" <<'EOF'
+---
+status: planned
+path:
+repo: dotfiles
+branch: feat/size-xs
+worktree: .worktrees/feat/size-xs
+size: XS
+---
+# Size XS fixture
+EOF
+touch -d "1 days ago" "$FIXTURE_TASKS/size-xs.md"
+
 # --- run the collector ---------------------------------------------------
 declare -a V2ROWS=()
 declare -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=() \
@@ -231,12 +356,13 @@ declare -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
   M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
   M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
   M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
-  STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=()
+  STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
+  M_SIZE=() M_ACCEPT=()
 wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
   M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
   M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
   M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL
+  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
 
 # --- R16: no tmux/gh/git shell-outs during collect -----------------------
 assert_eq "R16: no tmux/gh/git calls during collect" "" "$(cat "$FIXTURE_TRACE" 2>/dev/null || true)"
@@ -306,6 +432,34 @@ assert "M_LINKS_RAW captures a doc path cited outside Decisions (Plan prose)" "d
 # a byte-exact "".
 no_links_trimmed="$(printf '%s' "${M_LINKS_RAW[no-handoff-task]:-}" | grep -c . || true)"
 assert_eq "M_LINKS_RAW has no non-blank lines for a task with no cited doc paths" "0" "$no_links_trimmed"
+
+# --- U2/R2: M_SIZE + M_ACCEPT (KTD7/KTD8) ---------------------------------
+assert_eq "size: L + '## Acceptance criteria' heading -> M_SIZE=L" "L" "${M_SIZE[size-accept]:-}"
+assert_eq "size: L + '## Acceptance criteria' heading -> M_ACCEPT=1" "1" "${M_ACCEPT[size-accept]:-}"
+
+assert_eq "blank size: -> M_SIZE empty" "" "${M_SIZE[blank-size-no-accept]:-}"
+assert_eq "no acceptance text -> M_ACCEPT=0" "0" "${M_ACCEPT[blank-size-no-accept]:-}"
+# Trailing-empty-field hazard: size/accept are the LAST two fields of both
+# TSV layers. An earlier field (PR URL, from the read-file layer) and
+# M_TAGS/M_TITLE (from the collect-row layer) must still parse correctly
+# after the insertion — a misaligned tab here would corrupt these, not just
+# the new fields themselves.
+assert_eq "trailing-field hazard: PR URL still parses after size/accept insertion" \
+  "https://github.com/acme/repo/pull/42" "${M_PR_URL[blank-size-no-accept]:-}"
+assert_eq "trailing-field hazard: M_TAGS still parses after size/accept insertion" \
+  "solo" "${M_TAGS[blank-size-no-accept]:-}"
+assert_eq "trailing-field hazard: M_TITLE still parses after size/accept insertion" \
+  "Blank size no accept fixture" "${M_TITLE[blank-size-no-accept]:-}"
+
+assert_eq "'Definition of Done' in a Follow-ups bullet (not Plan) -> M_ACCEPT=1" \
+  "1" "${M_ACCEPT[dod-in-followups]:-}"
+
+assert_eq "lowercase 'definition of done' matches -> M_ACCEPT=1" "1" "${M_ACCEPT[lowercase-dod]:-}"
+assert_eq "a bare '## DoD' heading -> M_ACCEPT=1" "1" "${M_ACCEPT[dod-heading-only]:-}"
+assert_eq "the bare word 'acceptance' alone (no 'criteria') does not match" \
+  "0" "${M_ACCEPT[bare-acceptance-word]:-}"
+
+assert_eq "size: XS round-trips" "XS" "${M_SIZE[size-xs]:-}"
 
 echo
 if [ "$fail" = 0 ]; then

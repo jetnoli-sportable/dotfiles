@@ -5,6 +5,12 @@
 # wb.sh verbatim (parent task parked item 4) so the board rewrite doesn't grow the
 # already-5600-line wb.sh further.
 
+# The family dependency graph lives in its own module. Resolved from this
+# file's real location, not wb.sh's SCRIPT_DIR: that is the stow symlink
+# directory, which has no link for a newly added file until the next restow.
+# shellcheck source=wb-board-dag.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-board-dag.sh"
+
 # ---------------------------------------------------------------------------
 # /board (wb board --html) — 6 status tabs, timeline window, live-session
 # badges. `wb board` with no flag keeps the plain-text table below unchanged.
@@ -471,7 +477,10 @@ wb_board_v2_family_root() {
 # always wants all seven:
 #   1 the frontmatter/plan-count TSV line: status \t repo \t worktree \t
 #     branch \t path \t deps \t reviewed \t parent \t tags \t created \t
-#     closed \t plan_checked \t plan_total \t title
+#     closed \t plan_checked \t plan_total \t title \t <stage signal bits
+#     "ibpwr" (U7)> \t pr_url \t size \t accept_sig — size/accept_sig (U2,
+#     KTD8) are APPENDED AT THE END, after pr_url, so no earlier positional
+#     reader needs renumbering
 #   2 raw Plan section text
 #   3 raw Done section text
 #   4 raw Handoff text — the LAST "### " block under "## Handoffs" (heading
@@ -510,6 +519,24 @@ wb_board_v2_read_file() {
         s = substr(s, RSTART + RLENGTH)
       }
     }
+    # wb_board_v2_scan_accept (U2, KTD7) — the acceptance-criteria/
+    # definition-of-done signal that feeds M_ACCEPT. Matched case-
+    # insensitively (`tolower($0)`), unlike scan_signals below (whose
+    # fixed markers are literal paths/commands and stay case-sensitive on
+    # purpose) — a hand-written "Acceptance Criteria" or "Definition of
+    # Done" heading is exactly the kind of prose that varies in casing.
+    # Matched ANYWHERE in the file body (not confined to "## Plan" the way
+    # plan_checked/plan_total are), per KTD7 — a Follow-ups bullet naming
+    # "Definition of Done" is just as real a signal as a dedicated section.
+    # The bare word "acceptance" alone must NOT match (too many false
+    # positives — "acceptance" appears in ordinary prose unrelated to a
+    # criteria list); only the two full phrases, or a "## DoD"-shaped
+    # heading, count.
+    function scan_accept(line,    lc) {
+      lc = tolower(line)
+      if (index(lc, "acceptance criteria") || index(lc, "definition of done")) accept_sig = 1
+      else if (lc ~ /^##[ \t]*dod([ \t]|$)/) accept_sig = 1
+    }
     # Lifecycle-stage signals (U7). wb-lifecycle.sh owns the stage MODEL
     # (order, the four states, the resolver) and this reuses it, but its
     # detectors shell out to git/tmux/gh once per task, which R16 forbids in
@@ -534,10 +561,11 @@ wb_board_v2_read_file() {
       SOH = sprintf("%c", 1)
       status=""; repo=""; worktree=""; branch=""; path=""; deps=""
       reviewed=""; parent=""; tags=""; created=""; closed=""; title=""
+      size=""
       infm = 0; donefm = 0; cursec = ""; handoff_capturing = 0; title_found = 0
       plan_checked = 0; plan_total = 0
       sig_ideate = 0; sig_brainstorm = 0; sig_plan = 0; sig_work = 0
-      sig_review = 0; pr_url = ""
+      sig_review = 0; pr_url = ""; accept_sig = 0
       prre = "https://github\\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+"
       # dossiers/*.md|html, docs/{plans,brainstorms,solutions,ideation}/*.md|html,
       # logs/decisions/*.md|html, or a claude.ai URL — same path shapes
@@ -555,7 +583,7 @@ wb_board_v2_read_file() {
     # TSV below, so it is neutralised at capture (a tab in a markdown H1 is
     # not meaningful text anyway).
     !title_found && /^# / { title = $0; sub(/^# /, "", title); gsub(/\t/, " ", title); title_found = 1 }
-    { extract_links($0); scan_signals($0) }
+    { extract_links($0); scan_signals($0); scan_accept($0) }
     /^---$/ { infm++; if (infm == 2) donefm = 1; next }
     infm == 1 && !donefm {
       if ($0 ~ /^status:/)      { s=$0; sub(/^status:[ \t]*/,"",s);      status=clip(s) }
@@ -569,6 +597,7 @@ wb_board_v2_read_file() {
       if ($0 ~ /^tags:/)        { s=$0; sub(/^tags:[ \t]*/,"",s);        tags=clip(s) }
       if ($0 ~ /^created:/)     { s=$0; sub(/^created:[ \t]*/,"",s);     created=clip(s) }
       if ($0 ~ /^closed:/)      { s=$0; sub(/^closed:[ \t]*/,"",s);      closed=clip(s) }
+      if ($0 ~ /^size:/)        { s=$0; sub(/^size:[ \t]*/,"",s);        size=clip(s) }
       next
     }
     donefm && /^## / {
@@ -590,10 +619,15 @@ wb_board_v2_read_file() {
       next
     }
     END {
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s%s%s%s\t%s", \
+      # U2 (KTD8): size and accept_sig are APPENDED AT THE END of this TSV
+      # line, after pr_url -- never inserted earlier -- so no existing
+      # positional consumer (wb_board_collect_rows_v2 t[] indices) needs
+      # renumbering.
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s%s%s%s\t%s\t%s\t%s", \
         status, repo, worktree, branch, path, deps, reviewed, parent, tags, \
         created, closed, plan_checked, plan_total, title, \
-        sig_ideate, sig_brainstorm, sig_plan, sig_work, sig_review, pr_url
+        sig_ideate, sig_brainstorm, sig_plan, sig_work, sig_review, pr_url, \
+        size, accept_sig
       printf "%s%s%s%s%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, followups_text, SOH, decisions_text, SOH, links_text, ""
     }
   ' "$1"
@@ -655,7 +689,10 @@ wb_board_v2_mtimes() {
 #   8 closed  9 updated(mtime epoch)  10 taskfile  11 anchor  12 parent(stem,
 #   self-ref guarded)  13 depends_on(raw)  14 tags(raw frontmatter value —
 #   parse with _wb_tags_parse, D3 residual)  15 plan_checked  16 plan_total
-#   17 age_days  18 bucket(active|stale|shelved)
+#   17 age_days  18 bucket(active|stale|shelved)  19 stage_sig  20 pr_url
+#   21 size (raw size: frontmatter value, U2)  22 accept_sig (0/1, U2/KTD7) —
+#   size/accept_sig are APPENDED AT THE END (KTD8), after the pre-existing
+#   stage_sig/pr_url fields, so no earlier positional consumer is renumbered
 # and, in the SAME loop iteration (never a second pass/re-read over the file
 # list — R16), fills the six text-block arrays keyed by stem with the raw
 # Plan/Done/Handoff/Follow-ups/Decisions section text and the doc/artifact-
@@ -705,6 +742,7 @@ wb_board_collect_rows_v2() {
     # t: 0 status 1 repo 2 worktree 3 branch 4 path 5 deps 6 reviewed
     #    7 parent 8 tags 9 created 10 closed 11 plan_checked 12 plan_total
     #    13 title 14 stage signal bits "ibpwr" (U7) 15 first PR url
+    #    16 size (raw size: frontmatter value, U2) 17 accept_sig (0/1, U2/KTD7)
     stem="${f##*/}"; stem="${stem%.md}"
     # fix(review) D5: enforce the stem invariant [A-Za-z0-9._-] once, here, so
     # every downstream use (HTML text, data-copy, the copied `wb resume <id>`
@@ -747,10 +785,10 @@ wb_board_collect_rows_v2() {
     # renderer only ever reads through the resolver anyway.
     wb_board_v2_stage_path_bits "${t[4]:-}" path_bits
     stage_sig="${stage_sig}${path_bits}"
-    printf -v record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    printf -v record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
       "$stem" "${t[0]:-}" "${t[1]:-}" "${t[3]:-}" "${t[2]:-}" "$title" "${t[9]:-}" "${t[10]:-}" \
       "$updated" "$f" "$anchor" "$parent" "${t[5]:-}" "${t[8]:-}" "${t[11]:-0}" "${t[12]:-0}" \
-      "$age_days" "$bucket" "$stage_sig" "${t[15]:-}"
+      "$age_days" "$bucket" "$stage_sig" "${t[15]:-}" "${t[16]:-}" "${t[17]:-0}"
     _cr_rows+=("$record")
   done < <(wb_task_files)
 }
@@ -775,12 +813,19 @@ wb_board_collect_rows_v2() {
 #     M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
 #     M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
 #     M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
-#     STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=()
+#     STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
+#     M_SIZE=() M_ACCEPT=()
 #   wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
 #     M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
 #     M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
 #     M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-#     FAMILY_CHILDREN BUCKET_COUNT
+#     FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
+#
+# NOTE: this comment block already listed only 22 of the function's real
+# positional args before U2 (M_STAGE_SIG/M_PR_URL, added later, were never
+# folded back in) — count the `local -n` lines below for the true arg
+# count/order, not this usage sketch. U2 adds M_SIZE (30) and M_ACCEPT (31)
+# at the END, after the pre-existing M_STAGE_SIG(28)/M_PR_URL(29), per KTD8.
 wb_board_build_model() {
   local -n _bm_rows="$1" _bm_plan="$2" _bm_done="$3" _bm_handoff="$4" _bm_followups="$5"
   local -n _status="$6" _repo="$7" _branch="$8" _worktree="$9" _title="${10}"
@@ -789,6 +834,7 @@ wb_board_build_model() {
   local -n _bucket="${21}" _handoff_summary="${22}" _family_root="${23}"
   local -n _stem_parent="${24}" _stem_anchor="${25}" _family_children="${26}" _bucket_count="${27}"
   local -n _stage_sig="${28}" _pr_url="${29}"
+  local -n _size="${30}" _accept="${31}"
 
   local row stem anchor
   local -a f
@@ -802,6 +848,10 @@ wb_board_build_model() {
     _plan_checked["$stem"]="${f[14]}"; _plan_total["$stem"]="${f[15]}"
     _age_days["$stem"]="${f[16]}"; _bucket["$stem"]="${f[17]}"
     _stage_sig["$stem"]="${f[18]}"; _pr_url["$stem"]="${f[19]}"
+    # U2 (KTD8): size/accept sit at the END of the row layout (indices 20/21),
+    # after the pre-existing stage_sig/pr_url — see the row-layout comment on
+    # wb_board_collect_rows_v2 above.
+    _size["$stem"]="${f[20]:-}"; _accept["$stem"]="${f[21]:-0}"
     _stem_anchor["$stem"]="$anchor"
     [ -n "${f[11]}" ] && _stem_parent["$stem"]="${f[11]}"
     _bucket_count["${f[17]}"]=$(( ${_bucket_count["${f[17]}"]:-0} + 1 ))
@@ -1366,6 +1416,16 @@ wb_board_v2_resolve_link() {
 # same way a missing artifact is, rather than looking like a live link.
 # That is an array lookup, not a `[ -e ]` per call: cheaper, and it is the
 # authoritative answer, since the model IS the set of files that were read.
+# wb_board_v2_task_href <stem> <out_var> — the HTML-attribute-safe href to a
+# task's .md file (percent-encode the stem, then HTML-escape the result),
+# shared by the open-icon link below and the family DAG's node links.
+wb_board_v2_task_href() {
+  local __th
+  wb_board_v2_url_escape "${1:-}" __th
+  wb_board_html_escape "$__th" __th
+  printf -v "$2" '%s' "${TASK_HREF_PREFIX}${__th}.md"
+}
+
 wb_board_v2_task_open_html() {
   # Memoised per stem, like the stage strip and the repo bits: ~800 calls
   # for ~190 distinct answers, each otherwise doing a percent-encode plus
@@ -1378,9 +1438,8 @@ wb_board_v2_task_open_html() {
   if [ -z "${_m_stem_anchor[${1:-}]+x}" ]; then
     __cls="open-ic missing"; __t="no such task file"
   fi
-  wb_board_v2_url_escape "${1:-}" __enc
-  wb_board_html_escape "$__enc" __enc
-  local __a="<a class=\"${__cls}\" href=\"${TASK_HREF_PREFIX}${__enc}.md\" target=\"_blank\" title=\"${__t}\">&#8599;</a>"
+  wb_board_v2_task_href "${1:-}" __enc
+  local __a="<a class=\"${__cls}\" href=\"${__enc}\" target=\"_blank\" title=\"${__t}\">&#8599;</a>"
   OPEN_CACHE["${1:-}"]="$__a"
   printf -v "$2" '%s' "$__a"
 }
@@ -1873,18 +1932,19 @@ wb_board_v2_json_escape() {
   printf -v "$2" '%s' "$s"
 }
 
-# wb_board_render_v2 <27 model array names, exactly wb_board_build_model's
-# own output-array list, PLUS M_DECISIONS_RAW M_LINKS_RAW (U5, PR2 — the
-# Family view's own raw text, never touched by build_model since they carry
-# no per-field model derivation, just pass-through text like M_PLAN_RAW)> —
-# the ratified 3-view (Active/Roadmap/Week) HTML page (U3) plus the Family
-# view (U6). Deliberately takes the SAME 27 names cmd_board's --html branch
-# already builds for wb_board_build_model, in the SAME order, plus the 2
-# trailing raw arrays, so a caller does:
+# wb_board_render_v2 <31 model array names, exactly wb_board_build_model's
+# own output-array list (U2 grew this from 29 to 31 — see that function's
+# header), PLUS M_DECISIONS_RAW M_LINKS_RAW (U5, PR2 — the Family view's own
+# raw text, never touched by build_model since they carry no per-field model
+# derivation, just pass-through text like M_PLAN_RAW)> — the ratified 3-view
+# (Active/Roadmap/Week) HTML page (U3) plus the Family view (U6).
+# Deliberately takes the SAME names cmd_board's --html branch already builds
+# for wb_board_build_model, in the SAME order, plus the 2 trailing raw
+# arrays, so a caller does:
 #   wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
 #     M_DECISIONS_RAW M_LINKS_RAW
-#   wb_board_build_model V2ROWS M_PLAN_RAW ... BUCKET_COUNT
-#   wb_board_render_v2   V2ROWS M_PLAN_RAW ... BUCKET_COUNT M_DECISIONS_RAW M_LINKS_RAW
+#   wb_board_build_model V2ROWS M_PLAN_RAW ... M_SIZE M_ACCEPT
+#   wb_board_render_v2   V2ROWS M_PLAN_RAW ... M_SIZE M_ACCEPT M_DECISIONS_RAW M_LINKS_RAW
 # — one collect, one model build, one render, over the SAME arrays (R16:
 # no second file read). Nameref parameter names are prefixed `_m_`
 # (model), never bare (`_status`, `_stem_anchor`, ...) precisely because
@@ -1905,7 +1965,14 @@ wb_board_render_v2() {
   local -n _m_bucket="${21}" _m_handoff_summary="${22}" _m_family_root="${23}"
   local -n _m_stem_parent="${24}" _m_stem_anchor="${25}" _m_family_children="${26}" _m_bucket_count="${27}"
   local -n _m_stage_sig="${28}" _m_pr_url="${29}"
-  local -n _m_decisions_raw="${30}" _m_links_raw="${31}"
+  # U2: M_SIZE/M_ACCEPT, the same trailing pair wb_board_build_model now
+  # produces (positions 30/31 there) — render_v2 takes the identical 31-name
+  # sequence build_model does, in the same order (see this function's own
+  # header note), so these land at the same positions here too. Not yet read
+  # by anything below (later units use them) — this unit only threads them
+  # through.
+  local -n _m_size="${30}" _m_accept="${31}"
+  local -n _m_decisions_raw="${32}" _m_links_raw="${33}"
 
   local now; now="$(date +%s)"
 
@@ -2552,6 +2619,52 @@ wb_board_render_v2() {
     local fr_total=${#fr_members[@]} fr_done=0 fr_m
     for fr_m in "${fr_members[@]}"; do [ "${_m_status[$fr_m]:-}" = done ] && fr_done=$((fr_done + 1)); done
 
+    # U5 (family DAG view): build the child node list (fr_members minus index
+    # 0, the root — R3) and call wb_board_deps_layer (U3) ONCE per family.
+    # DEPS_OF/CYCLE_MEMBER/UNMET_COUNT are the store-wide, stem-keyed maps
+    # this function already builds above (R19); _m_status/_m_size are
+    # render_v2's own model namerefs — passing a nameref-to-a-nameref as an
+    # argument here is ordinary bash indirection, not the circular-nameref
+    # trap (that trap is same-NAME collision, and dl_status/dl_size inside
+    # wb_board_deps_layer are differently named). fd_* out-arrays are
+    # `local` INSIDE this `for` loop body, so bash re-declares (and thus
+    # resets) them fresh every family iteration — U3 also resets its own
+    # outputs unconditionally at its own top, so no value can ever leak
+    # from one family into the next either way. Called unconditionally
+    # (every family, edges or not) because the rollup JSON below (R13)
+    # always needs layer/critical/startable/remaining/critical_path, even
+    # for a zero-edge family — only the HTML region itself (below) is
+    # gated on there being >=1 edge to draw (R8).
+    local -a fd_nodes=("${fr_members[@]:1}")
+    local -A fd_layer=() fd_order=() fd_critical=() fd_startable=() fd_extblk=() fd_tag=()
+    local -a fd_edges=() fd_backedges=() fd_critpath=()
+    local fd_remaining=0 fd_maxlayer=-1
+
+    wb_board_deps_layer fd_nodes DEPS_OF CYCLE_MEMBER UNMET_COUNT _m_status _m_size \
+      fd_layer fd_order fd_critical fd_startable fd_extblk fd_tag fd_edges fd_backedges \
+      fd_critpath fd_remaining fd_maxlayer
+    local fd_edge_count=$(( ${#fd_edges[@]} + ${#fd_backedges[@]} ))
+    # U4's HTML region, built now (needs fr_anchor, computed above) so it's
+    # ready to splice in right after fam-summary below regardless of which
+    # shape (ladder/flat) follows it (R8: same region, both shapes).
+    local fd_dag_html=""
+    if [ "$fd_edge_count" -gt 0 ]; then
+      wb_board_v2_dag_html "$fr_anchor" fd_nodes fd_layer fd_order fd_critical fd_startable \
+        fd_extblk fd_tag fd_edges fd_backedges fd_critpath "$fd_remaining" "$fd_maxlayer" \
+        "$fr_stem" fd_dag_html
+    fi
+    # R13 rollup fields: remaining in size POINTS (doubled/2, ".5" when odd —
+    # same convention wb_board_v2_dag_html's own header line uses), and the
+    # critical-path stem array, JSON-escaped.
+    local fd_pts_whole=$(( fd_remaining / 2 )) fd_pts_rem=$(( fd_remaining % 2 )) fd_remaining_json
+    if [ "$fd_pts_rem" -eq 0 ]; then fd_remaining_json="$fd_pts_whole"; else fd_remaining_json="${fd_pts_whole}.5"; fi
+    local fd_json_critpath="" fd_cp_i __hcp
+    for fd_cp_i in "${!fd_critpath[@]}"; do
+      [ "$fd_cp_i" -gt 0 ] && fd_json_critpath+=","
+      wb_board_v2_json_escape "${fd_critpath[$fd_cp_i]}" __hcp
+      fd_json_critpath+="\"${__hcp}\""
+    done
+
     local fam_sel_cls=""
     [ "$fam_idx" = 1 ] && fam_sel_cls=" selected"
     wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
@@ -2649,7 +2762,24 @@ wb_board_render_v2() {
       # fix(review) D2: emit repo so a multi-repo /handoff consumer can route each
       # child without re-deriving it (_m_repo is already in scope).
       local __hrepo; wb_board_v2_json_escape "${_m_repo[$fr_jc_m]:-}" __hrepo
-      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"repo\":\"${__hrepo}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
+      # U5 (family DAG view, R13): size/layer/critical/startable. The ROOT
+      # (index 0) is never a wb_board_deps_layer node (R3 — fd_nodes is
+      # fr_members MINUS the root), so it never has an fd_layer/fd_critical/
+      # fd_startable entry to look up — its layer is the literal JSON `null`
+      # and critical/startable are `false`, per the unit brief, rather than
+      # falling through to a fd_*[$fr_jc_m]:-0 default that would silently
+      # read as layer 0 instead. Its `size:` is still emitted raw, same as
+      # every child.
+      local __hsize; wb_board_v2_json_escape "${_m_size[$fr_jc_m]:-}" __hsize
+      local fr_jc_layer_json fr_jc_crit_json fr_jc_start_json fr_jc_parent_json
+      if [ "$fr_jc_i" = 0 ]; then
+        fr_jc_layer_json="null"; fr_jc_crit_json="false"; fr_jc_start_json="false"; fr_jc_parent_json="true"
+      else
+        fr_jc_layer_json="${fd_layer[$fr_jc_m]:-0}"; fr_jc_parent_json="false"
+        [ "${fd_critical[$fr_jc_m]:-0}" = 1 ] && fr_jc_crit_json="true" || fr_jc_crit_json="false"
+        [ "${fd_startable[$fr_jc_m]:-0}" = 1 ] && fr_jc_start_json="true" || fr_jc_start_json="false"
+      fi
+      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"repo\":\"${__hrepo}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":${fr_jc_parent_json},\"size\":\"${__hsize}\",\"layer\":${fr_jc_layer_json},\"critical\":${fr_jc_crit_json},\"startable\":${fr_jc_start_json}}"
     done
     local fr_json_decisions="" fr_jd_first=1 fr_jd_date fr_jd_text fr_jd_src
     if [ -n "$fr_decisions_full_sorted" ]; then
@@ -2701,7 +2831,8 @@ wb_board_render_v2() {
     wb_board_v2_json_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
     wb_board_v2_json_escape "$fr_stem" __h2
     [ "$fam_idx" -gt 1 ] && fam_json_entries+=","
-    fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"$([ -n "$fr_ladder" ] && printf ladder || printf flat)\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}]}"
+    local fr_shape_json=flat; [ -n "$fr_ladder" ] && fr_shape_json=ladder
+    fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"${fr_shape_json}\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}],\"critical_path\":[${fd_json_critpath}],\"remaining\":${fd_remaining_json}}"
 
     # Round 3 item 6: every family block opens with the SAME summary-first
     # header the Active and Week views show when you expand a task — status,
@@ -2715,6 +2846,16 @@ wb_board_render_v2() {
     # wb_board_v2_summary_header_html, so they cannot drift.
     local fr_summary; wb_board_v2_summary_header_html "$fr_stem" fr_summary
     fam_body_html+="<div class=\"fam-summary detail\">${fr_summary}</div>"
+
+    # U5 (family DAG view, R8): the Dependencies region sits right after the
+    # summary header and BEFORE the ladder/flat branch below, so both shapes
+    # share the identical region rather than each needing its own copy — a
+    # family with zero intra-family edges renders neither (ladder shape) or
+    # a `depends_on:` empty-state instead (flat shape only, inside that
+    # branch, right before "Family tree" — see below).
+    if [ "$fd_edge_count" -gt 0 ]; then
+      fam_body_html+="$fd_dag_html"
+    fi
 
     if [ -n "$fr_ladder" ]; then
       # ---- LADDER SHAPE (mockup D) ----
@@ -2791,6 +2932,14 @@ wb_board_render_v2() {
     else
       # ---- FLAT SHAPE (mockup A) ----
       local fr_dot; fr_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
+      # U5 (family DAG view, R8): a flat family with zero intra-family edges
+      # gets an empty-state here instead of the Dependencies region (which
+      # was skipped above) — reuses .scope-empty (the same dashed-grey
+      # empty-state class the Active view's repo-filter panel uses) rather
+      # than inventing a new visual language for "nothing here yet".
+      if [ "$fd_edge_count" -eq 0 ]; then
+        fam_body_html+='<div class="scope-empty">No dependency data yet &mdash; add <code>depends_on:</code> to its children to see the graph.</div>'
+      fi
       fam_body_html+="<h2 class=\"region-label\">Family tree</h2>"
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
@@ -3547,6 +3696,55 @@ wb_board_render_v2() {
   .rung-grid li .copy-ic { opacity: .5; }
   .rung-grid li:hover .copy-ic { opacity: 1; }
   .fam-today-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--mauve); background: rgba(203,166,247,.12); border: 1px solid rgba(203,166,247,.4); padding: 2px 9px; border-radius: 999px; margin-left: 8px; }
+
+  /* ---------- Family DAG (U4) — Dependencies region, inline SVG ----------
+     Colour choices (KTD9/KTD10, documented here so a future pass doesn't
+     re-litigate them):
+       - status ladder REUSES .rung-node's own mapping: done=--green,
+         doing/review (active)=--mauve, planned=--blue, anything else
+         (prospective/unknown)=--subtext (grey) — set per node via the
+         `--st` custom property, same pattern mockup-3-graph.html uses.
+       - critical path (spine edges + node halo) = --peach — free of every
+         status colour above.
+       - startable-now static outline = --yellow — likewise free of the
+         status ladder AND distinct from --peach, so "critical" and
+         "startable" never read as the same signal.
+       - under-defined (KTD6) dashed border = --overlay, a NEUTRAL grey —
+         deliberately NOT --red, so a merely-fuzzy node never reads as a
+         warning (KTD9).
+       - cycle back-edges = --red, dashed, ON PURPOSE — these ARE warnings
+         (KTD9), the one dashed usage in this block that means "danger". */
+  .fam-dag-wrap { margin-bottom: 28px; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--overlay); border-radius: 12px; background: var(--surface); padding: 10px 6px; }
+  .fam-dag-head { font-size: 14px; color: var(--text); margin: 2px 4px 14px 4px; }
+  .fam-dag-head .dag-arw { color: var(--subtext); padding: 0 3px; }
+  .fam-dag-head .dag-path-hop { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 13px; font-weight: 700; color: var(--peach); }
+  svg.fam-dag { display: block; }
+  .dag-frontier { stroke: var(--blue); stroke-width: 1.6; stroke-dasharray: 2 7; stroke-linecap: round; opacity: .8; }
+  .dag-frontier-lbl { font-family: monospace; font-size: 10px; font-weight: 700; letter-spacing: .1em; fill: var(--blue); }
+  .dag-edge { fill: none; stroke: var(--overlay); stroke-width: 2; opacity: .85; }
+  .dag-edge-crit { stroke: var(--peach); stroke-width: 3; opacity: .95; }
+  .dag-edge-warn { stroke: var(--red); stroke-width: 2; stroke-dasharray: 5 4; opacity: .9; }
+  .dag-node { cursor: pointer; }
+  .dag-card { fill: var(--base); stroke: var(--st); stroke-width: 2; }
+  .dag-node.dag-dashed .dag-card { stroke-dasharray: 7 5; stroke: var(--overlay); }
+  .dag-node.dag-st-done .dag-card { fill: var(--surface); }
+  .dag-node.dag-crit-node .dag-card { stroke: var(--peach); stroke-width: 2.5; }
+  .dag-startable-ring { fill: none; stroke: var(--yellow); stroke-width: 1.6; opacity: .9; }
+  .dag-pulse-ring { fill: none; stroke: var(--mauve); stroke-width: 2; opacity: .35; }
+  @media (prefers-reduced-motion: no-preference) {
+    .dag-pulse-ring { animation: dagPulse 2.2s ease-in-out infinite; }
+  }
+  @keyframes dagPulse { 0%, 100% { opacity: .15; } 50% { opacity: .55; } }
+  .dag-id { font-family: monospace; font-size: 11px; fill: var(--subtext); }
+  .dag-title { font-family: inherit; font-size: 13px; font-weight: 600; fill: var(--text); }
+  .dag-node.dag-st-done .dag-title { fill: var(--subtext); }
+  .dag-badge { fill: none; stroke: var(--st); stroke-width: 1.2; opacity: .85; }
+  .dag-badge-t { font-family: monospace; font-size: 10.5px; font-weight: 700; fill: var(--st); }
+  .dag-dot { fill: var(--st); }
+  .dag-status-t { font-family: inherit; font-size: 10.5px; font-weight: 700; fill: var(--st); }
+  .dag-tag-rect { fill: none; stroke: var(--peach); stroke-width: 1.2; }
+  .dag-tag-t { font-family: monospace; font-size: 9.5px; font-weight: 700; fill: var(--peach); letter-spacing: .08em; }
+  .dag-lock { fill: var(--red); }
 </style>
 </head>
 <body>

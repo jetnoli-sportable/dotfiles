@@ -497,13 +497,13 @@ wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; echo "${s//:/-}"; }
 # WB_SIZE_VALUES / _wb_valid_size <value> — the `size:` frontmatter enum,
 # defined ONCE as the `|`-joined literal (it doubles as the text of every
 # "not one of …" error) and checked by anchoring it as a regex alternation.
-# Legal: one of the strict, uppercase S|M|L|XL, or empty (blank means
+# Legal: one of the strict, uppercase XS|S|M|L|XL, or empty (blank means
 # "unset", which every reader treats as M — see ~/code/tasks/README.md
 # "Size"). Shared by cmd_new's --size and _wb_breakdown_validate's per-child
 # `- size:` bullet. Lowercase is deliberately rejected rather than
 # normalized (kept strict; normalization is a trivial follow-up if it ever
 # proves annoying in practice).
-WB_SIZE_VALUES="S|M|L|XL"
+WB_SIZE_VALUES="XS|S|M|L|XL"
 _wb_valid_size() {
   [ -n "$1" ] || return 0
   [[ "$1" =~ ^($WB_SIZE_VALUES)$ ]]
@@ -1250,7 +1250,7 @@ _wb_insert_plan_body() {
 # text) and landed via _wb_insert_plan_body — see that function's own
 # comment for why this never touches awk -v.
 #
-# Optional trailing <size> (S|M|L|XL, already validated by the caller) and
+# Optional trailing <size> (XS|S|M|L|XL, already validated by the caller) and
 # <depends_on> (comma-joined, already-resolved `<repo>--<slug>` stems —
 # _wb_breakdown_execute does the raw-slug → stem resolution) are written
 # via wb_set_frontmatter ONLY when non-empty, so an unset value leaves the
@@ -1361,7 +1361,7 @@ cmd_new() {
   # a foreach that only matches literal tokens (like --agent); the value
   # would fall into the else branch and corrupt the positional repo/slug
   # count.
-  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size S|M|L|XL] <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size S|M|L|XL] <repo> <slug>"
+  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <repo> <slug>"
   local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 prospective_flag=0 jira_url="" title_override="" size_value=""
   local -a depends_on_stems=()
   local -a args=()
@@ -1501,7 +1501,7 @@ cmd_new() {
   local depends_on_joined=""
   [ "${#depends_on_stems[@]}" -eq 0 ] || depends_on_joined="$(IFS=,; echo "${depends_on_stems[*]}")"
 
-  # --size: strict uppercase S|M|L|XL enum (_wb_valid_size, shared with the
+  # --size: strict uppercase XS|S|M|L|XL enum (_wb_valid_size, shared with the
   # breakdown buffer's per-child `- size:` bullet), checked BEFORE anything
   # is created — same fail-loud-first convention as --path/--depends-on.
   if ! _wb_valid_size "$size_value"; then
@@ -2577,7 +2577,7 @@ _wb_breakdown_validate() {
     title="$(_wb_bd_bullet "$b" goal)"
     # `- size:` / `- depends_on:` are optional sibling bullets of `- goal:`
     # (D1). A missing or blank bullet is fine (blank size reads as M); a
-    # NON-empty size outside the S|M|L|XL enum is a hard parse error —
+    # NON-empty size outside the XS|S|M|L|XL enum is a hard parse error —
     # whole-apply abort, like the block's other structural guards — never a
     # silently-dropped value. depends_on is passed through RAW here; the
     # execute side resolves slugs to stems (_wb_bd_resolve_deps).
@@ -5160,16 +5160,19 @@ cmd_board() {
       M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
       M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
       M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
-      STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=()
+      STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
+      M_SIZE=() M_ACCEPT=()
     # fix(review) P2 follow-up: the 22-name model-array sequence was hand-typed
     # identically at both call sites below (found in PR 1 review) — hoisted to
     # one constant so U5's 2 new trailing arrays only had to be added once,
-    # and any future model field only ever needs adding here.
+    # and any future model field only ever needs adding here. U2 (KTD8) adds
+    # M_SIZE/M_ACCEPT at the END of this list, after M_PR_URL, for the same
+    # reason — both call sites below pick them up automatically.
     local -a WB_BOARD_MODEL_ARGS=(
       M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
       M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
       M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-      FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL
+      FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
     )
     wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
       "${WB_BOARD_MODEL_ARGS[@]}"

@@ -255,7 +255,7 @@ shape; see `scripts/.config/scripts/tmux/wb.sh`, search
 <!-- wb-breakdown: block=child n=1 parent=<parent-stem> repo=<repo> -->
 - [x] create child: `<raw-slug>`
 - goal: <one-line goal, editable — becomes the child's title>
-- size: <S|M|L|XL or blank — see "size/depends_on" rule below>
+- size: <XS|S|M|L|XL or blank — see "size/depends_on" rule below>
 - depends_on: <blank, or `<sibling-raw-slug>`, `<repo>--<slug>`, … comma-separated>
 <!-- wb-breakdown: begin-plan n=1 -->
 <child's plan body, verbatim markdown, written into the child's ## Plan>
@@ -308,7 +308,7 @@ Rules worth restating because the parser enforces them exactly:
   default — parallel is the norm, a dependency is the exception, and a
   blank `size:` already reads as `M` at load, so blank costs nothing and
   never manufactures false precision.
-- `size` must be exactly one of `S`, `M`, `L`, `XL` (uppercase) or blank.
+- `size` must be exactly one of `XS`, `S`, `M`, `L`, `XL` (uppercase) or blank.
   Anything else (`XXL`, `medium`, lowercase `l`) is a hard parse error
   that aborts the **whole** apply before any write, like the other
   structural guards — not a per-item skip.
@@ -471,7 +471,7 @@ sibling skills.
   skill.
 - `~/code/tasks/README.md` documents the `jira:` frontmatter field, the
   `breakdown-candidate` tag convention this skill reads/writes, and the
-  `size:` field ("Size" section: `S|M|L|XL`, absent/blank reads as `M`, no
+  `size:` field ("Size" section: `XS|S|M|L|XL`, absent/blank reads as `M`, no
   retroactive backfill of older task files).
 - The Jira-watch loop that would auto-tag candidates
   (`dotfiles--loop-jira-watch`) and bash-side `wb new <ticket>`
