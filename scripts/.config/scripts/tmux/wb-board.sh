@@ -707,7 +707,8 @@ wb_board_v2_dag_short_label() {
   if [ -n "$2" ] && [[ "$1" == "$2"* ]]; then
     __sl="${1#"$2"}"; __sl="${__sl#-}"
   elif [[ "$1" == *--* ]]; then
-    __sl="${1#*--}"
+    # Through the LAST `--`: repo names can contain one (`be--monorepo`).
+    __sl="${1##*--}"
   fi
   [ -n "$__sl" ] || __sl="$1"
   printf -v "$3" '%s' "$__sl"

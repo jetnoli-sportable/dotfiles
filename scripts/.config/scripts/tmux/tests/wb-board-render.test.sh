@@ -1298,14 +1298,14 @@ fi
 
 # --- DAG9e: short labels drop <repo>-- when the child doesn't share the
 # root's stem prefix; every size maps to its documented card width. --------
-declare -a DAG9E_NODES=(proj--alpha-one proj--beta-two proj--gamma-three)
-declare -A DAG9E_LAYER=([proj--alpha-one]=0 [proj--beta-two]=0 [proj--gamma-three]=0)
-declare -A DAG9E_ORDER=([proj--alpha-one]=0 [proj--beta-two]=1 [proj--gamma-three]=2)
+declare -a DAG9E_NODES=(proj--alpha-one proj--beta-two be--mono--gamma-three)
+declare -A DAG9E_LAYER=([proj--alpha-one]=0 [proj--beta-two]=0 [be--mono--gamma-three]=0)
+declare -A DAG9E_ORDER=([proj--alpha-one]=0 [proj--beta-two]=1 [be--mono--gamma-three]=2)
 declare -A DAG9E_CRIT=() DAG9E_STARTABLE=() DAG9E_EXTBLK=() DAG9E_TAG=()
 declare -a DAG9E_EDGES=() DAG9E_BACKEDGES=() DAG9E_CRITPATH=()
-declare -A M9E_STATUS=([proj--alpha-one]=planned [proj--beta-two]=planned [proj--gamma-three]=planned)
+declare -A M9E_STATUS=([proj--alpha-one]=planned [proj--beta-two]=planned [be--mono--gamma-three]=planned)
 declare -A M9E_TITLE=() M9E_ACCEPT=() M9E_PLAN_RAW=() M9E_STEM_ANCHOR=()
-declare -A M9E_SIZE=([proj--alpha-one]=L [proj--beta-two]=M [proj--gamma-three]=XL)
+declare -A M9E_SIZE=([proj--alpha-one]=L [proj--beta-two]=M [be--mono--gamma-three]=XL)
 declare -n _m_status=M9E_STATUS _m_title=M9E_TITLE _m_size=M9E_SIZE _m_accept=M9E_ACCEPT \
   _m_plan_raw=M9E_PLAN_RAW _m_stem_anchor=M9E_STEM_ANCHOR
 dag9e_html=""
@@ -1313,6 +1313,7 @@ wb_board_v2_dag_html fam9e DAG9E_NODES DAG9E_LAYER DAG9E_ORDER DAG9E_CRIT DAG9E_
   DAG9E_EXTBLK DAG9E_TAG DAG9E_EDGES DAG9E_BACKEDGES DAG9E_CRITPATH 14 0 "proj--root" dag9e_html
 unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
 assert "U4 DAG9e: a child without the root prefix drops its <repo>-- segment" 'class="dag-id"[^>]*>alpha-one</text>' "$dag9e_html"
+assert "U4 DAG9e: a repo name containing -- is dropped whole" 'class="dag-id"[^>]*>gamma-three</text>' "$dag9e_html"
 assert "U4 DAG9e: L card is 176 wide" 'class="dag-card" x="0" y="0" width="176" height="84"' "$dag9e_html"
 assert "U4 DAG9e: M card is 152 wide" 'class="dag-card" x="0" y="0" width="152" height="70"' "$dag9e_html"
 assert "U4 DAG9e: XL card is 208 wide" 'class="dag-card" x="0" y="0" width="208" height="104"' "$dag9e_html"
