@@ -392,8 +392,7 @@ wb_board_deps_blocking() {
 # through `sort -u` specifically to avoid a subprocess fork: U5 (family DAG
 # view) calls wb_board_deps_layer once per family on the real store, and
 # `sort` forked twice per call (this dedupe + one more per DAG column,
-# below) was measured adding ~2s to a ~11.5s render — see U5's own perf
-# note at its call site.
+# below) was measured adding ~2s to a ~11.5s render.
 wb_board_v2_bash_sort_lines() {
   local -n bsl_arr="$1"
   local bsl_i bsl_j bsl_key
@@ -852,7 +851,7 @@ wb_board_v2_dag_html() {
 
   # ---- pass 2: node markup -------------------------------------------------
   local dh_nodes_svg="" dh_cls dh_st_token dh_dashed dh_sig dh_planraw
-  local dh_short2 dh_sh2 dh_stemh2 dh_titleh dh_title_clip dh_title_raw dh_maxchars dh_href dh_enc
+  local dh_short2 dh_sh2 dh_stemh2 dh_titleh dh_title_clip dh_title_raw dh_maxchars dh_href
   local dh_toprowh=22 dh_bottomrowh dh_title_y dh_dot_html dh_status_html
   local dh_badge_txt dh_status_txt dh_status_h dh_tag_html dh_lock_html dh_pulse_html dh_startable_html
   local dh_title_tt dh_extblk_h dh_extblk_disp dh_extblk_html
@@ -902,10 +901,10 @@ wb_board_v2_dag_html() {
     [ "$dh_id_clipped" = 1 ] && dh_sh2+="&#8230;"
     wb_board_html_escape "$dh_v" dh_stemh2
 
-    # ---- title: card-width-derived clip, single-char ellipsis (review fix
-    # 1 — wb_board_v2_clip is the prose-block clipper with a long
-    # "[clipped — open the task file for the rest]" suffix, which overflows
-    # a card; this is a SHORT, card-specific clip instead). ~7px/char at the
+    # ---- title: card-width-derived clip, single-char ellipsis. Not
+    # wb_board_v2_clip: that is the prose-block clipper, and its long
+    # "[clipped — open the task file for the rest]" suffix would overflow a
+    # card. ~7px/char at the
     # 13px title font, minus ~24px of left/right padding, floored at 4 chars
     # so even the narrowest (XS) card never collapses to nothing. ----------
     dh_maxchars=$(( (dh_w1 - 24) / 7 ))
@@ -919,18 +918,15 @@ wb_board_v2_dag_html() {
       wb_board_html_escape "$dh_title_raw" dh_titleh
     fi
 
-    # ---- status label (bottom row; review fix 2 — dropped entirely for XS,
-    # which only has room for two rows: id/badge, then title) --------------
+    # ---- status label (bottom row; dropped entirely for XS, which only has
+    # room for two rows: id/badge, then title) -----------------------------
     dh_status_txt="${dh_status_v:-unknown}"
     wb_board_html_escape "$dh_status_txt" dh_status_h
 
     # ---- size badge (top-right) ----
     dh_badge_txt="${_m_size[$dh_v]:-M}"
 
-    # ---- href (same shape as wb_board_v2_task_open_html) ----
-    wb_board_v2_url_escape "$dh_v" dh_enc
-    wb_board_html_escape "$dh_enc" dh_enc
-    dh_href="${TASK_HREF_PREFIX}${dh_enc}.md"
+    wb_board_v2_task_href "$dh_v" dh_href
 
     # ---- tooltip: "stem · status · size" [+ blocked-by] ----
     dh_title_tt="${dh_stemh2} &middot; ${dh_status_h} &middot; ${dh_badge_txt}"
@@ -939,13 +935,10 @@ wb_board_v2_dag_html() {
       dh_extblk_disp="${dh_extblk[$dh_v]// /, }"
       wb_board_html_escape "$dh_extblk_disp" dh_extblk_h
       dh_title_tt+="; blocked by: ${dh_extblk_h}"
-      # review fix 3 (round 2): the bottom-right corner collided with the
-      # title on an XS card (only 2 rows there, title runs closer to the
-      # edge). The TOP row has room on every size — id (+ dot, XS only) on
-      # the left, badge on the right, both narrow — so the lock sits
-      # between them, vertically aligned with the badge's own baseline;
-      # never touches the title row, the status row, or the (above-card)
-      # START/END pill.
+      # In the TOP row, between the id and the badge: a bottom corner
+      # collides with the title on an XS card (only two rows there), while
+      # the top row has room on every size and never touches the title,
+      # status, or the above-card START/END pill.
       dh_extblk_html="<g class=\"dag-lock\" transform=\"translate($(( dh_w1 - 56 )),8)\"><title>blocked by: ${dh_extblk_h}</title><text x=\"0\" y=\"11\" font-size=\"13\">&#128274;</text></g>"
     fi
 
@@ -969,7 +962,7 @@ wb_board_v2_dag_html() {
       dh_startable_html="<rect class=\"dag-startable-ring\" x=\"-4\" y=\"-4\" width=\"$(( dh_w1 + 8 ))\" height=\"$(( dh_h1 + 8 ))\" rx=\"17\" ry=\"17\"/>"
     fi
 
-    # ---- review fix 2: three non-overlapping rows — top (id [+ dot for XS]
+    # ---- three non-overlapping rows — top (id [+ dot for XS]
     # left, size badge right), title (centred in whatever's left), and a
     # bottom status row (dot + label) EXCEPT for XS, which only has room for
     # two rows and drops the status row (keeping the dot, moved up next to
@@ -2132,6 +2125,16 @@ wb_board_v2_resolve_link() {
 # same way a missing artifact is, rather than looking like a live link.
 # That is an array lookup, not a `[ -e ]` per call: cheaper, and it is the
 # authoritative answer, since the model IS the set of files that were read.
+# wb_board_v2_task_href <stem> <out_var> — the HTML-attribute-safe href to a
+# task's .md file (percent-encode the stem, then HTML-escape the result),
+# shared by the open-icon link below and the family DAG's node links.
+wb_board_v2_task_href() {
+  local __th
+  wb_board_v2_url_escape "${1:-}" __th
+  wb_board_html_escape "$__th" __th
+  printf -v "$2" '%s' "${TASK_HREF_PREFIX}${__th}.md"
+}
+
 wb_board_v2_task_open_html() {
   # Memoised per stem, like the stage strip and the repo bits: ~800 calls
   # for ~190 distinct answers, each otherwise doing a percent-encode plus
@@ -2144,9 +2147,8 @@ wb_board_v2_task_open_html() {
   if [ -z "${_m_stem_anchor[${1:-}]+x}" ]; then
     __cls="open-ic missing"; __t="no such task file"
   fi
-  wb_board_v2_url_escape "${1:-}" __enc
-  wb_board_html_escape "$__enc" __enc
-  local __a="<a class=\"${__cls}\" href=\"${TASK_HREF_PREFIX}${__enc}.md\" target=\"_blank\" title=\"${__t}\">&#8599;</a>"
+  wb_board_v2_task_href "${1:-}" __enc
+  local __a="<a class=\"${__cls}\" href=\"${__enc}\" target=\"_blank\" title=\"${__t}\">&#8599;</a>"
   OPEN_CACHE["${1:-}"]="$__a"
   printf -v "$2" '%s' "$__a"
 }
