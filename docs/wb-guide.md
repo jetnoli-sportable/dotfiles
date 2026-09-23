@@ -542,7 +542,7 @@ a → b → c · 7.5 pts remaining · 2 startable now`.
 | Pulsing ring | In progress (`doing` or `review`); the ring stays still if your system asks for reduced motion |
 | 🔒 | Blocked by a task outside the family — hover for which |
 | START / END | No in-family predecessor / nothing in the family depends on it |
-| "You are here" line | Sits before the first column that still has unfinished work |
+| "You are here" line | Sits before the first column that still has unfinished work, once there are finished columns to its left |
 | Red dashed edge | A dependency cycle — the loop still renders, members in the last column |
 
 Every card links to its task file and has a hover tooltip (stem, status,
