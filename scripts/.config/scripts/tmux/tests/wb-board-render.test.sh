@@ -167,7 +167,11 @@ mk_repo_task rf-xray-1 xray
 # `parent:`, independent of status/bucket.
 mk_task fam-parent paused 3
 mk_task fam-parent-child1 planned 3 $'parent: fam-parent'
-mk_task fam-parent-child2 planned 3 $'parent: fam-parent'
+# U5 (family DAG view): child2 depends on child1 — this family's ONE
+# intra-family edge, exercised by the "flat family with edges" scenario
+# below (fam-parent's own edge count is otherwise 0, same as every other
+# flat fixture in this file).
+mk_task fam-parent-child2 planned 3 $'parent: fam-parent\ndepends_on: fam-parent-child1'
 cat >> "$FIXTURE_TASKS/fam-parent.md" <<'EOF'
 
 ## Decisions
@@ -213,6 +217,14 @@ mk_task xss-parent-child1 planned 3 $'parent: xss-parent'
 # hand-typed `parent:` with a typo, or a parent that was deleted) and the
 # only way to exercise the "no such task file" branch on an open link.
 mk_task ghost-child planned 3 $'parent: ghost-parent'
+# U5 (family DAG view): a second child, real edge FROM ghost-child (via
+# depends_on ghost-child,ghost-parent — two deps, one in-family, one to the
+# family's own (phantom) root). Covers two scenarios at once: (1) a family
+# whose root is a phantom stem still renders its children's graph (R3 never
+# needed the root's own row, only fr_members[1:]); (2) an edge to the
+# family root itself is NOT drawn (R3 — the root is never a node), so this
+# family's rendered edge count must be exactly 1, not 2.
+mk_task ghost-child2 planned 3 $'parent: ghost-parent\ndepends_on: ghost-child,ghost-parent'
 
 mk_task ladder-parent-child1 planned 4 $'parent: ladder-parent'
 cat > "$FIXTURE_TASKS/ladder-parent.md" <<'EOF'
@@ -235,6 +247,33 @@ worktree: .worktrees/feat/ladder-parent
 | v0.2 | T-2 | not yet created | not started |
 EOF
 touch -d "4 days ago" "$FIXTURE_TASKS/ladder-parent.md"
+
+# U5 (family DAG view): a SECOND ladder family, distinct from ladder-parent
+# above, whose two real rungs' children carry a depends_on edge — ladder-
+# parent itself stays edge-free (0 edges) so it keeps covering the "ladder
+# family without edges shows neither region nor empty-state" scenario.
+mk_task ladder2-parent-child1 planned 4 $'parent: ladder2-parent'
+mk_task ladder2-parent-child2 planned 4 $'parent: ladder2-parent\ndepends_on: ladder2-parent-child1'
+cat > "$FIXTURE_TASKS/ladder2-parent.md" <<'EOF'
+---
+status: paused
+path:
+repo: dotfiles
+branch: feat/ladder2-parent
+worktree: .worktrees/feat/ladder2-parent
+---
+# Ladder2 parent (with dependency edges)
+
+## Plan
+
+### Version ladder status
+
+| Rung | Ticket(s) | wb task | Status |
+|---|---|---|---|
+| v0.1 | T-1 | `ladder2-parent-child1` | planned |
+| v0.2 | T-2 | `ladder2-parent-child2` | planned |
+EOF
+touch -d "4 days ago" "$FIXTURE_TASKS/ladder2-parent.md"
 
 # fix(review) D1 regression: a `parent:` value carrying shell metacharacters.
 # The D1 collect-time guard drops a parent outside [A-Za-z0-9._-], so it never
@@ -321,7 +360,7 @@ fam_badge_count=0
 for s in "${!FAMILY_CHILDREN[@]}"; do [ -n "${FAMILY_CHILDREN[$s]:-}" ] && fam_badge_count=$((fam_badge_count + 1)); done
 fam_badge="$(printf '%s' "$render" | grep -oE '>Family <span class="tab-badge">[0-9]+<' | grep -oE '[0-9]+')"
 assert_eq "R23: Family tab badge equals the model's family count" "$fam_badge_count" "$fam_badge"
-assert_eq "Family fixture sanity — 5 families (alpha, fam-parent, xss-parent, ladder-parent, ghost-parent)" "5" "$fam_badge_count"
+assert_eq "Family fixture sanity — 6 families (alpha, fam-parent, xss-parent, ladder-parent, ladder2-parent, ghost-parent)" "6" "$fam_badge_count"
 
 # UX follow-up: family selection moved from a top-of-page chip grid to a
 # rail-row list (#rail-families), toggled with #rail-tasks by showView().
@@ -728,7 +767,7 @@ if printf '%s' "$render" | grep -E 'data-copy="wb resume [^"]*[;&|$<> ]' >/dev/n
 else
   echo "ok   - D1: no data-copy contains a shell metacharacter"
 fi
-assert_eq "D1: a metachar parent: does not create a phantom family" "5" "$fam_badge_count"
+assert_eq "D1: a metachar parent: does not create a phantom family" "6" "$fam_badge_count"
 
 # D3: two distinct stems that sanitize to the same base get DISTINCT anchors,
 # so U8's #detail-pool getElementById() can't mount the wrong task's block.
@@ -749,6 +788,67 @@ declare -n _m_stage_sig=M_STAGE_SIG _m_status=M_STATUS _m_plan_checked=M_PLAN_CH
 donestage_states=""; wb_board_v2_stage_states donestage donestage_states
 unset -n _m_stage_sig _m_status _m_plan_checked
 assert_eq "D5: ideate/brainstorm text + status:done fire the stage DONE branches" "ddpdp" "$donestage_states"
+
+# --- U5: Dependencies region wiring (R8) -----------------------------------
+# fam_block <anchor> extracts one family's own <div class="fam-block" id="fam-
+# <anchor>">...</div> slice out of the full render — grep -Pzo (null-delimited,
+# PCRE, (?s) so `.` spans real newlines) with a non-greedy `.*?` up to the NEXT
+# family block's own id, so a match can never spill into another family's
+# markup, no matter how the whole page happens to be laid out on-disk (single
+# giant line vs many).
+fam_block() { # <anchor>
+  printf '%s' "$render" \
+    | grep -Pzo "(?s)<div class=\"fam-block\" id=\"fam-$1\".*?(?=<div class=\"fam-block\" id=\"fam-|\z)" \
+    | tr -d '\0'
+}
+
+flat_with_edges="$(fam_block fam-parent)"
+assert "U5: flat family WITH edges shows the Dependencies region" 'class="fam-dag"' "$flat_with_edges"
+assert "U5: flat family WITH edges — region sits above Family tree" \
+  'region-label">Dependencies</h2>.*Family tree' "$flat_with_edges"
+# NB: `class="scope-empty"` (the actual empty-state div's class attribute),
+# never bare `scope-empty` — the page's shared <script> block (page-wide,
+# trailing every family block, including whichever family sorts last) also
+# contains the LITERAL STRING 'active-scope-empty' (an unrelated
+# getElementById id, the Active view's own separate empty-state element),
+# which a substring-only check would false-positive on whenever this
+# family happens to be last in title-sort order.
+if printf '%s' "$flat_with_edges" | grep -F 'class="scope-empty"' >/dev/null 2>&1; then
+  echo "FAIL - U5: flat family WITH edges should not show the empty-state"; fail=1
+else
+  echo "ok   - U5: flat family WITH edges shows no empty-state"
+fi
+
+flat_no_edges="$(fam_block xss-parent)"
+if printf '%s' "$flat_no_edges" | grep -F 'class="fam-dag"' >/dev/null 2>&1; then
+  echo "FAIL - U5: flat family WITHOUT edges should not render a dag SVG"; fail=1
+else
+  echo "ok   - U5: flat family WITHOUT edges renders no dag SVG"
+fi
+assert "U5: flat family WITHOUT edges shows the depends_on: empty-state" \
+  'scope-empty">No dependency data yet.*<code>depends_on:</code>' "$flat_no_edges"
+
+ladder_with_edges="$(fam_block ladder2-parent)"
+assert "U5: ladder family WITH edges shows the Dependencies region" 'class="fam-dag"' "$ladder_with_edges"
+assert "U5: ladder family WITH edges — region sits above Version ladder" \
+  'region-label">Dependencies</h2>.*Version ladder' "$ladder_with_edges"
+
+ladder_no_edges="$(fam_block ladder-parent)"
+if printf '%s' "$ladder_no_edges" | grep -F 'class="fam-dag"' >/dev/null 2>&1; then
+  echo "FAIL - U5: ladder family WITHOUT edges should not render a dag SVG"; fail=1
+else
+  echo "ok   - U5: ladder family WITHOUT edges renders no dag SVG"
+fi
+if printf '%s' "$ladder_no_edges" | grep -F 'class="scope-empty"' >/dev/null 2>&1; then
+  echo "FAIL - U5: ladder family WITHOUT edges should show neither region nor empty-state"; fail=1
+else
+  echo "ok   - U5: ladder family WITHOUT edges shows no empty-state either (R8: ladder shape never shows it)"
+fi
+
+ghost_block="$(fam_block ghost-parent)"
+assert "U5: a phantom-root family still renders its children's graph" 'class="fam-dag"' "$ghost_block"
+ghost_edge_count="$(printf '%s' "$ghost_block" | grep -o 'class="dag-edge ' | wc -l || true)"
+assert_eq "U5: phantom-root family — exactly 1 rendered edge (child->child, not child->root)" "1" "$ghost_edge_count"
 
 # --- U5: family-rollup.json side-output ----------------------------------
 rollup="$FIXTURE_TASKS/.board-cache/family-rollup.json"
@@ -785,6 +885,46 @@ if command -v jq >/dev/null 2>&1 && [ -f "$rollup" ]; then
   assert_eq "deep: rollup aggregates the family's decision(s)" "1" "$dec_count"
   dec_text="$(jq -r '.[] | select(.root=="fam-parent") | .decisions[0].text' "$rollup" 2>/dev/null)"
   assert "deep: the aggregated decision carries its text" 'Ship it this way|simpler approach|Chose' "$dec_text"
+
+  # --- U5: family-rollup.json — size/layer/critical/startable/critical_path/
+  # remaining (R13). fam-parent-child2 depends_on fam-parent-child1, a
+  # 2-node chain, so child1 is layer 0/critical/startable, child2 is layer
+  # 1/critical/not-startable (blocked by child1) -----------------------------
+  c1_layer="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.id=="fam-parent-child1") | .layer' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup child1 (chain start) is layer 0" "0" "$c1_layer"
+  c2_layer="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.id=="fam-parent-child2") | .layer' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup child2 (chain end) is layer 1" "1" "$c2_layer"
+  c1_critical="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.id=="fam-parent-child1") | .critical' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup child1 is on the critical path" "true" "$c1_critical"
+  c1_startable="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.id=="fam-parent-child1") | .startable' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup child1 (no blocker) is startable" "true" "$c1_startable"
+  c2_startable="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.id=="fam-parent-child2") | .startable' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup child2 (blocked by child1) is not startable" "false" "$c2_startable"
+  c1_size="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.id=="fam-parent-child1") | .size' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup child carries size (blank when unset)" "" "$c1_size"
+  parent_layer="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.is_parent==true) | .layer' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup parent entry has layer: null" "null" "$parent_layer"
+  parent_critical="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.is_parent==true) | .critical' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup parent entry critical is false" "false" "$parent_critical"
+  parent_startable="$(jq -r '.[] | select(.root=="fam-parent") | .children[] | select(.is_parent==true) | .startable' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup parent entry startable is false" "false" "$parent_startable"
+  fam_parent_critpath="$(jq -r '.[] | select(.root=="fam-parent") | .critical_path | join(",")' "$rollup" 2>/dev/null)"
+  assert_eq "R13: rollup critical_path names the 2-node chain in order" "fam-parent-child1,fam-parent-child2" "$fam_parent_critpath"
+  fam_parent_remaining="$(jq -r '.[] | select(.root=="fam-parent") | .remaining' "$rollup" 2>/dev/null)"
+  assert "R13: rollup remaining is a bare JSON number" '^[0-9]+(\.5)?$' "$fam_parent_remaining"
+
+  # A zero-edge family still gets defaulted, well-typed fields (no edges ->
+  # no critical path, layer 0 for its lone child, remaining is its own weight).
+  xss_child_layer="$(jq -r '.[] | select(.root=="xss-parent") | .children[] | select(.is_parent==false) | .layer' "$rollup" 2>/dev/null)"
+  assert_eq "R13: zero-edge family's lone child still gets layer 0" "0" "$xss_child_layer"
+  xss_critpath_len="$(jq -r '.[] | select(.root=="xss-parent") | .critical_path | length' "$rollup" 2>/dev/null)"
+  assert_eq "R13: zero-edge family's critical_path can still be non-empty (lone node's own weight)" "1" "$xss_critpath_len"
+
+  # ghost-parent: phantom root, two children, ghost-child -> ghost-child2 is
+  # the only real edge (the ghost-child2 -> ghost-parent edge is to the root,
+  # never a node — R3).
+  ghost_edges="$(jq -r '.[] | select(.root=="ghost-parent") | .critical_path | join(",")' "$rollup" 2>/dev/null)"
+  assert_eq "R13: phantom-root family's critical_path is the real in-family chain" "ghost-child,ghost-child2" "$ghost_edges"
 fi
 
 # ===========================================================================

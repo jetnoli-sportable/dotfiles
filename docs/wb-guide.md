@@ -95,8 +95,8 @@ through `wb done`.
 
 `--path`, `--depends-on` and `--size` are optional, board-only metadata —
 they don't change how the task itself runs, only how `wb board --html`
-displays it (`--size` is captured now for the family DAG / critical-path
-views still to be built on top of the board; nothing renders it yet):
+displays it (`--size` sets a node's scale and weight in the Family tab's
+Dependencies graph — see below):
 
 - `--path <stages>` declares which of the five lifecycle stages
   (`ideate,brainstorm,plan,work,review`) this task intends to pass
@@ -522,6 +522,35 @@ comma-separated subset of the five stage names, validated against unknown
 names before anything is created) and repeatable `--depends-on <stem>` (each
 validated against a real task file). Both are optional — every task still
 gets the `plan,work,review` default when `--path` is omitted.
+
+**Family tab — the Dependencies graph.** Each family block (a parent and
+its direct children) opens with a **Dependencies** region whenever at least
+one child has a `depends_on:` pointing at a sibling. It's a static
+node-link graph, with no scripting, laid out left to right by dependency
+depth: a task sits one column right of the deepest sibling it waits on.
+The parent itself isn't a node, and edges to tasks outside the family
+aren't drawn. A header line above it reads, for example, `Critical path:
+a → b → c · 7.5 pts remaining · 2 startable now`.
+
+| Encoding | Meaning |
+|---|---|
+| Fill colour | Status — green done (muted), mauve doing/review, blue planned, grey anything else |
+| Card size | `size:` — XS, S, M, L, XL (blank draws as M) |
+| Dashed grey outline | Under-defined: fewer than 3 of the 4 signals (a non-empty Plan, acceptance criteria or a definition of done anywhere in the file, `size:` set, status past `planned`). Done tasks are always solid |
+| Peach spine | The critical path — the longest chain of remaining work, weighting XS 0.5, S 1, M 2, L 3, XL 5, done 0 |
+| Yellow outline | Startable now — `planned`, and every blocker (in or out of the family) is done |
+| Pulsing ring | In progress (`doing` or `review`); the ring stays still if your system asks for reduced motion |
+| 🔒 | Blocked by a task outside the family — hover for which |
+| START / END | No in-family predecessor / nothing in the family depends on it |
+| "You are here" line | Sits before the first column that still has unfinished work |
+| Red dashed edge | A dependency cycle — the loop still renders, members in the last column |
+
+Every card links to its task file and has a hover tooltip (stem, status,
+size). A flat family with no in-family edges shows a "no dependency data
+yet — add `depends_on:`" note instead; a version-ladder family with none
+shows nothing extra. The same per-child `size`, `layer`, `critical` and
+`startable` fields, plus each family's `critical_path` and `remaining`,
+land in `~/code/tasks/.board-cache/family-rollup.json`.
 
 **Review-stamp convention.** After any `/ce-code-review` pass completes
 inside a `wb` session, run `wb reviewed` — it stamps the task's `reviewed:`

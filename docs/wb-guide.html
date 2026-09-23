@@ -349,8 +349,8 @@ also how you resume a task after the session got closed without going
 through <code>wb done</code>.</p>
 <p><code>--path</code>, <code>--depends-on</code> and <code>--size</code> are optional, board-only metadata —
 they don't change how the task itself runs, only how <code>wb board --html</code>
-displays it (<code>--size</code> is captured now for the family DAG / critical-path
-views still to be built on top of the board; nothing renders it yet):</p>
+displays it (<code>--size</code> sets a node's scale and weight in the Family tab's
+Dependencies graph — see below):</p>
 <ul>
 <li><code>--path &lt;stages&gt;</code> declares which of the five lifecycle stages
 (<code>ideate,brainstorm,plan,work,review</code>) this task intends to pass
@@ -805,6 +805,69 @@ comma-separated subset of the five stage names, validated against unknown
 names before anything is created) and repeatable <code>--depends-on &lt;stem&gt;</code> (each
 validated against a real task file). Both are optional — every task still
 gets the <code>plan,work,review</code> default when <code>--path</code> is omitted.</p>
+<p><strong>Family tab — the Dependencies graph.</strong> Each family block (a parent and
+its direct children) opens with a <strong>Dependencies</strong> region whenever at least
+one child has a <code>depends_on:</code> pointing at a sibling. It's a static
+node-link graph, with no scripting, laid out left to right by dependency
+depth: a task sits one column right of the deepest sibling it waits on.
+The parent itself isn't a node, and edges to tasks outside the family
+aren't drawn. A header line above it reads, for example, <code>Critical path: a → b → c · 7.5 pts remaining · 2 startable now</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Encoding</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fill colour</td>
+<td>Status — green done (muted), mauve doing/review, blue planned, grey anything else</td>
+</tr>
+<tr>
+<td>Card size</td>
+<td><code>size:</code> — XS, S, M, L, XL (blank draws as M)</td>
+</tr>
+<tr>
+<td>Dashed grey outline</td>
+<td>Under-defined: fewer than 3 of the 4 signals (a non-empty Plan, acceptance criteria or a definition of done anywhere in the file, <code>size:</code> set, status past <code>planned</code>). Done tasks are always solid</td>
+</tr>
+<tr>
+<td>Peach spine</td>
+<td>The critical path — the longest chain of remaining work, weighting XS 0.5, S 1, M 2, L 3, XL 5, done 0</td>
+</tr>
+<tr>
+<td>Yellow outline</td>
+<td>Startable now — <code>planned</code>, and every blocker (in or out of the family) is done</td>
+</tr>
+<tr>
+<td>Pulsing ring</td>
+<td>In progress (<code>doing</code> or <code>review</code>); the ring stays still if your system asks for reduced motion</td>
+</tr>
+<tr>
+<td>🔒</td>
+<td>Blocked by a task outside the family — hover for which</td>
+</tr>
+<tr>
+<td>START / END</td>
+<td>No in-family predecessor / nothing in the family depends on it</td>
+</tr>
+<tr>
+<td>&quot;You are here&quot; line</td>
+<td>Sits before the first column that still has unfinished work</td>
+</tr>
+<tr>
+<td>Red dashed edge</td>
+<td>A dependency cycle — the loop still renders, members in the last column</td>
+</tr>
+</tbody>
+</table>
+<p>Every card links to its task file and has a hover tooltip (stem, status,
+size). A flat family with no in-family edges shows a &quot;no dependency data
+yet — add <code>depends_on:</code>&quot; note instead; a version-ladder family with none
+shows nothing extra. The same per-child <code>size</code>, <code>layer</code>, <code>critical</code> and
+<code>startable</code> fields, plus each family's <code>critical_path</code> and <code>remaining</code>,
+land in <code>~/code/tasks/.board-cache/family-rollup.json</code>.</p>
 <p><strong>Review-stamp convention.</strong> After any <code>/ce-code-review</code> pass completes
 inside a <code>wb</code> session, run <code>wb reviewed</code> — it stamps the task's <code>reviewed:</code>
 field, which is what makes the Review stage (and the unreviewed-count

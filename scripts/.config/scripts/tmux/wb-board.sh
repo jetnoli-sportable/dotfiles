@@ -383,6 +383,58 @@ wb_board_deps_blocking() {
 # scrambled node list and checks the resulting order tracks predecessors,
 # not the input.
 #
+# wb_board_v2_bash_sort_lines <arr_name> — in-place ascending sort of an
+# array of plain lines by whole-line bash string comparison (`[[ a < b ]]`,
+# the SAME collation convention this file's own tie-breaks already use
+# elsewhere, e.g. wb_board_deps_layer's `dl_best_p`/`dl_best_stem` picks).
+# Pure bash (insertion sort — fine for the tiny per-family edge counts this
+# is called on; O(n^2) never matters at n<~50), used instead of piping
+# through `sort -u` specifically to avoid a subprocess fork: U5 (family DAG
+# view) calls wb_board_deps_layer once per family on the real store, and
+# `sort` forked twice per call (this dedupe + one more per DAG column,
+# below) was measured adding ~2s to a ~11.5s render — see U5's own perf
+# note at its call site.
+wb_board_v2_bash_sort_lines() {
+  local -n bsl_arr="$1"
+  local bsl_i bsl_j bsl_key
+  for (( bsl_i=1; bsl_i<${#bsl_arr[@]}; bsl_i++ )); do
+    bsl_key="${bsl_arr[$bsl_i]}"
+    bsl_j=$((bsl_i - 1))
+    while [ "$bsl_j" -ge 0 ] && [[ "${bsl_arr[$bsl_j]}" > "$bsl_key" ]]; do
+      bsl_arr[$((bsl_j + 1))]="${bsl_arr[$bsl_j]}"
+      bsl_j=$((bsl_j - 1))
+    done
+    bsl_arr[$((bsl_j + 1))]="$bsl_key"
+  done
+}
+
+# wb_board_v2_bash_sort_keyed <arr_name> — in-place ascending sort of an
+# array of "$numeric_key\t$value" lines: numeric key first (matching
+# `sort -k1,1n`), value (bash string comparison) breaks ties (matching
+# `sort -k2,2`) — the exact two-key order wb_board_deps_layer's own
+# barycenter column sort needs. Same fork-avoidance rationale as
+# wb_board_v2_bash_sort_lines above.
+wb_board_v2_bash_sort_keyed() {
+  local -n bsk_arr="$1"
+  local bsk_i bsk_j bsk_key bsk_keynum bsk_keyval bsk_curnum bsk_curval
+  for (( bsk_i=1; bsk_i<${#bsk_arr[@]}; bsk_i++ )); do
+    bsk_key="${bsk_arr[$bsk_i]}"
+    bsk_keynum="${bsk_key%%$'\t'*}"; bsk_keyval="${bsk_key#*$'\t'}"
+    bsk_j=$((bsk_i - 1))
+    while [ "$bsk_j" -ge 0 ]; do
+      bsk_curnum="${bsk_arr[$bsk_j]%%$'\t'*}"; bsk_curval="${bsk_arr[$bsk_j]#*$'\t'}"
+      if [ "$bsk_curnum" -gt "$bsk_keynum" ] || \
+         { [ "$bsk_curnum" -eq "$bsk_keynum" ] && [[ "$bsk_curval" > "$bsk_keyval" ]]; }; then
+        bsk_arr[$((bsk_j + 1))]="${bsk_arr[$bsk_j]}"
+        bsk_j=$((bsk_j - 1))
+      else
+        break
+      fi
+    done
+    bsk_arr[$((bsk_j + 1))]="$bsk_key"
+  done
+}
+
 # Design choice (documented per the plan's instruction): when all in-set
 # critical-path-eligible work is already done, <out_remaining> is 0 and
 # <out_critpath> is left EMPTY rather than reporting the longest all-zero
@@ -420,7 +472,16 @@ wb_board_deps_layer() {
   done
   local -a dl_all_edges=()
   if [ "${#dl_raw_edges[@]}" -gt 0 ]; then
-    mapfile -t dl_all_edges < <(printf '%s\n' "${dl_raw_edges[@]}" | sort -u)
+    # dedupe (a hand-authored depends_on: can repeat the same pair) then sort
+    # — pure bash, no `sort -u` fork (see wb_board_v2_bash_sort_lines's header).
+    local -A dl_edge_seen=()
+    local dl_re
+    for dl_re in "${dl_raw_edges[@]}"; do
+      [ -n "${dl_edge_seen[$dl_re]:-}" ] && continue
+      dl_edge_seen["$dl_re"]=1
+      dl_all_edges+=("$dl_re")
+    done
+    wb_board_v2_bash_sort_lines dl_all_edges
   fi
 
   # ---- classify each in-set edge: back-edge (both ends cycle members, KTD4)
@@ -626,8 +687,8 @@ wb_board_deps_layer() {
         dl_keyed+=("$dl_key"$'\t'"$dl_v")
       done
     fi
-    local -a dl_sorted_col=()
-    mapfile -t dl_sorted_col < <(printf '%s\n' "${dl_keyed[@]}" | sort -t$'\t' -k1,1n -k2,2)
+    local -a dl_sorted_col=("${dl_keyed[@]}")
+    wb_board_v2_bash_sort_keyed dl_sorted_col
     local dl_idx=0
     for dl_e in "${dl_sorted_col[@]}"; do
       dl_v="${dl_e#*$'\t'}"
@@ -3249,6 +3310,113 @@ wb_board_render_v2() {
     local fr_total=${#fr_members[@]} fr_done=0 fr_m
     for fr_m in "${fr_members[@]}"; do [ "${_m_status[$fr_m]:-}" = done ] && fr_done=$((fr_done + 1)); done
 
+    # U5 (family DAG view): build the child node list (fr_members minus index
+    # 0, the root — R3) and call wb_board_deps_layer (U3) ONCE per family.
+    # DEPS_OF/CYCLE_MEMBER/UNMET_COUNT are the store-wide, stem-keyed maps
+    # this function already builds above (R19); _m_status/_m_size are
+    # render_v2's own model namerefs — passing a nameref-to-a-nameref as an
+    # argument here is ordinary bash indirection, not the circular-nameref
+    # trap (that trap is same-NAME collision, and dl_status/dl_size inside
+    # wb_board_deps_layer are differently named). fd_* out-arrays are
+    # `local` INSIDE this `for` loop body, so bash re-declares (and thus
+    # resets) them fresh every family iteration — U3 also resets its own
+    # outputs unconditionally at its own top, so no value can ever leak
+    # from one family into the next either way. Called unconditionally
+    # (every family, edges or not) because the rollup JSON below (R13)
+    # always needs layer/critical/startable/remaining/critical_path, even
+    # for a zero-edge family — only the HTML region itself (below) is
+    # gated on there being >=1 edge to draw (R8).
+    local -a fd_nodes=("${fr_members[@]:1}")
+    local -A fd_layer=() fd_order=() fd_critical=() fd_startable=() fd_extblk=() fd_tag=()
+    local -a fd_edges=() fd_backedges=() fd_critpath=()
+    local fd_remaining=0 fd_maxlayer=-1
+
+    # perf (R15's <=10s render, verification's 12.6s ceiling): wb_board_deps_layer
+    # forks `sort` at least twice per call (the edge list + one per DAG column),
+    # and on the real store only 13/35 families have any in-family edge at all —
+    # calling it unconditionally for every family measured ~2s of the ~13.3s
+    # total (11.3s without it), enough to blow the ceiling. So: cheaply detect
+    # (no fork, plain bash loops only) whether this family has ANY in-set edge
+    # or ANY cycle-member node first, and only pay U3's real cost when either
+    # is true. When neither is true the FAST PATH below reproduces exactly what
+    # wb_board_deps_layer itself would compute for that shape of input (verified
+    # against its own header comment): zero edges + zero cycle members means
+    # every node enters Kahn as a root with no predecessor (layer 0 for all),
+    # and the "critical path" degenerates to a single node — the one with the
+    # highest doubled weight, ties broken by smallest stem (same KTD1 weight
+    # table, same tie-break U3 uses).
+    local -A fd_inset=()
+    local fd_n
+    for fd_n in "${fd_nodes[@]}"; do fd_inset["$fd_n"]=1; done
+    local fd_has_edge=0 fd_has_cycle=0 fd_dep
+    for fd_n in "${fd_nodes[@]}"; do
+      [ -n "${CYCLE_MEMBER[$fd_n]:-}" ] && fd_has_cycle=1
+      if [ "$fd_has_edge" -eq 0 ] && [ -n "${DEPS_OF[$fd_n]:-}" ]; then
+        while IFS= read -r fd_dep; do
+          [ -n "$fd_dep" ] || continue
+          if [ -n "${fd_inset[$fd_dep]:-}" ]; then fd_has_edge=1; break; fi
+        done <<< "${DEPS_OF[$fd_n]}"
+      fi
+      [ "$fd_has_edge" -eq 1 ] && [ "$fd_has_cycle" -eq 1 ] && break
+    done
+
+    if [ "$fd_has_edge" -eq 0 ] && [ "$fd_has_cycle" -eq 0 ]; then
+      local fd_best_w=-1 fd_best_stem="" fd_w
+      for fd_n in "${fd_nodes[@]}"; do
+        fd_layer["$fd_n"]=0
+        fd_order["$fd_n"]=0
+        fd_critical["$fd_n"]=0
+        if [ "${_m_status[$fd_n]:-}" = planned ] && [ "${UNMET_COUNT[$fd_n]:-0}" -eq 0 ]; then
+          fd_startable["$fd_n"]=1
+        else
+          fd_startable["$fd_n"]=0
+        fi
+        fd_tag["$fd_n"]=""
+        if [ "${_m_status[$fd_n]:-}" = done ]; then
+          fd_w=0
+        else
+          case "${_m_size[$fd_n]:-}" in
+            XS) fd_w=1 ;; S) fd_w=2 ;; M) fd_w=4 ;; L) fd_w=6 ;; XL) fd_w=10 ;; *) fd_w=4 ;;
+          esac
+        fi
+        if [ "$fd_w" -gt "$fd_best_w" ] || \
+           { [ "$fd_w" -eq "$fd_best_w" ] && { [ -z "$fd_best_stem" ] || [[ "$fd_n" < "$fd_best_stem" ]]; }; }; then
+          fd_best_w="$fd_w"; fd_best_stem="$fd_n"
+        fi
+      done
+      fd_maxlayer=0
+      fd_remaining="$fd_best_w"
+      if [ "$fd_best_w" -gt 0 ] && [ -n "$fd_best_stem" ]; then
+        fd_critpath=("$fd_best_stem")
+        fd_critical["$fd_best_stem"]=1
+      fi
+    else
+      wb_board_deps_layer fd_nodes DEPS_OF CYCLE_MEMBER UNMET_COUNT _m_status _m_size \
+        fd_layer fd_order fd_critical fd_startable fd_extblk fd_tag fd_edges fd_backedges \
+        fd_critpath fd_remaining fd_maxlayer
+    fi
+    local fd_edge_count=$(( ${#fd_edges[@]} + ${#fd_backedges[@]} ))
+    # U4's HTML region, built now (needs fr_anchor, computed above) so it's
+    # ready to splice in right after fam-summary below regardless of which
+    # shape (ladder/flat) follows it (R8: same region, both shapes).
+    local fd_dag_html=""
+    if [ "$fd_edge_count" -gt 0 ]; then
+      wb_board_v2_dag_html "$fr_anchor" fd_nodes fd_layer fd_order fd_critical fd_startable \
+        fd_extblk fd_tag fd_edges fd_backedges fd_critpath "$fd_remaining" "$fd_maxlayer" \
+        "$fr_stem" fd_dag_html
+    fi
+    # R13 rollup fields: remaining in size POINTS (doubled/2, ".5" when odd —
+    # same convention wb_board_v2_dag_html's own header line uses), and the
+    # critical-path stem array, JSON-escaped.
+    local fd_pts_whole=$(( fd_remaining / 2 )) fd_pts_rem=$(( fd_remaining % 2 )) fd_remaining_json
+    if [ "$fd_pts_rem" -eq 0 ]; then fd_remaining_json="$fd_pts_whole"; else fd_remaining_json="${fd_pts_whole}.5"; fi
+    local fd_json_critpath="" fd_cp_i __hcp
+    for fd_cp_i in "${!fd_critpath[@]}"; do
+      [ "$fd_cp_i" -gt 0 ] && fd_json_critpath+=","
+      wb_board_v2_json_escape "${fd_critpath[$fd_cp_i]}" __hcp
+      fd_json_critpath+="\"${__hcp}\""
+    done
+
     local fam_sel_cls=""
     [ "$fam_idx" = 1 ] && fam_sel_cls=" selected"
     wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
@@ -3346,7 +3514,24 @@ wb_board_render_v2() {
       # fix(review) D2: emit repo so a multi-repo /handoff consumer can route each
       # child without re-deriving it (_m_repo is already in scope).
       local __hrepo; wb_board_v2_json_escape "${_m_repo[$fr_jc_m]:-}" __hrepo
-      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"repo\":\"${__hrepo}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false)}"
+      # U5 (family DAG view, R13): size/layer/critical/startable. The ROOT
+      # (index 0) is never a wb_board_deps_layer node (R3 — fd_nodes is
+      # fr_members MINUS the root), so it never has an fd_layer/fd_critical/
+      # fd_startable entry to look up — its layer is the literal JSON `null`
+      # and critical/startable are `false`, per the unit brief, rather than
+      # falling through to a fd_*[$fr_jc_m]:-0 default that would silently
+      # read as layer 0 instead. Its `size:` is still emitted raw, same as
+      # every child.
+      local __hsize; wb_board_v2_json_escape "${_m_size[$fr_jc_m]:-}" __hsize
+      local fr_jc_layer_json fr_jc_crit_json fr_jc_start_json
+      if [ "$fr_jc_i" = 0 ]; then
+        fr_jc_layer_json="null"; fr_jc_crit_json="false"; fr_jc_start_json="false"
+      else
+        fr_jc_layer_json="${fd_layer[$fr_jc_m]:-0}"
+        [ "${fd_critical[$fr_jc_m]:-0}" = 1 ] && fr_jc_crit_json="true" || fr_jc_crit_json="false"
+        [ "${fd_startable[$fr_jc_m]:-0}" = 1 ] && fr_jc_start_json="true" || fr_jc_start_json="false"
+      fi
+      fr_json_children+="{\"id\":\"${__h2}\",\"title\":\"${__h}\",\"repo\":\"${__hrepo}\",\"status\":\"${__hs}\",\"age_days\":${_m_age_days[$fr_jc_m]:-0},\"is_parent\":$([ "$fr_jc_i" = 0 ] && printf true || printf false),\"size\":\"${__hsize}\",\"layer\":${fr_jc_layer_json},\"critical\":${fr_jc_crit_json},\"startable\":${fr_jc_start_json}}"
     done
     local fr_json_decisions="" fr_jd_first=1 fr_jd_date fr_jd_text fr_jd_src
     if [ -n "$fr_decisions_full_sorted" ]; then
@@ -3398,7 +3583,7 @@ wb_board_render_v2() {
     wb_board_v2_json_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
     wb_board_v2_json_escape "$fr_stem" __h2
     [ "$fam_idx" -gt 1 ] && fam_json_entries+=","
-    fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"$([ -n "$fr_ladder" ] && printf ladder || printf flat)\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}]}"
+    fam_json_entries+="{\"root\":\"${__h2}\",\"title\":\"${__h}\",\"shape\":\"$([ -n "$fr_ladder" ] && printf ladder || printf flat)\",\"children\":[${fr_json_children}],\"decisions\":[${fr_json_decisions}],\"artifacts\":[${fr_json_artifacts}],\"rungs\":[${fr_json_rungs}],\"critical_path\":[${fd_json_critpath}],\"remaining\":${fd_remaining_json}}"
 
     # Round 3 item 6: every family block opens with the SAME summary-first
     # header the Active and Week views show when you expand a task — status,
@@ -3412,6 +3597,16 @@ wb_board_render_v2() {
     # wb_board_v2_summary_header_html, so they cannot drift.
     local fr_summary; wb_board_v2_summary_header_html "$fr_stem" fr_summary
     fam_body_html+="<div class=\"fam-summary detail\">${fr_summary}</div>"
+
+    # U5 (family DAG view, R8): the Dependencies region sits right after the
+    # summary header and BEFORE the ladder/flat branch below, so both shapes
+    # share the identical region rather than each needing its own copy — a
+    # family with zero intra-family edges renders neither (ladder shape) or
+    # a `depends_on:` empty-state instead (flat shape only, inside that
+    # branch, right before "Family tree" — see below).
+    if [ "$fd_edge_count" -gt 0 ]; then
+      fam_body_html+="$fd_dag_html"
+    fi
 
     if [ -n "$fr_ladder" ]; then
       # ---- LADDER SHAPE (mockup D) ----
@@ -3488,6 +3683,14 @@ wb_board_render_v2() {
     else
       # ---- FLAT SHAPE (mockup A) ----
       local fr_dot; fr_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
+      # U5 (family DAG view, R8): a flat family with zero intra-family edges
+      # gets an empty-state here instead of the Dependencies region (which
+      # was skipped above) — reuses .scope-empty (the same dashed-grey
+      # empty-state class the Active view's repo-filter panel uses) rather
+      # than inventing a new visual language for "nothing here yet".
+      if [ "$fd_edge_count" -eq 0 ]; then
+        fam_body_html+='<div class="scope-empty">No dependency data yet &mdash; add <code>depends_on:</code> to its children to see the graph.</div>'
+      fi
       fam_body_html+="<h2 class=\"region-label\">Family tree</h2>"
       wb_board_html_escape "${_m_title[$fr_stem]:-$fr_stem}" __h
       wb_board_v2_age_label "${_m_age_days[$fr_stem]:-0}" __al
