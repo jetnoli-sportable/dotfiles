@@ -159,7 +159,7 @@ assert_eq "invalid sids log nothing" 0 "$(logn)"
 
 echo "# config"
 cfg_get() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }
-DEFAULT_PHRASES='we decided|decided to|going with|let'"'"'s go with|we'"'"'ll go with|settled on|the decision is|chose |opting for|instead of|rather than|ruled out|rejected'
+DEFAULT_PHRASES='we decided|decided to|going with|let'"'"'s go with|we'"'"'ll go with|i'"'"'ll go with|went with|settled on|the decision is|chose |opting for|ruled out'
 new_scenario; run_wb /dev/null _config
 assert_eq "default cooldown" 3 "$(cfg_get cooldown)"
 assert_eq "default sweep_every" 4 "$(cfg_get sweep_every)"

@@ -6,9 +6,20 @@
 #
 # Verbs:
 #   hook-prompt | hook-posttool | hook-stop | hook-end
-#                  Claude Code hook entry points (stdin JSON, session_id from
-#                  `.session_id`). Stubbed as silent no-ops here; filled in by
-#                  later units.
+#                  Claude Code hook entry points (stdin JSON read once, session_id
+#                  from `.session_id`; all exit 0, silent on failure).
+#     hook-posttool  (PostToolUse/Bash) a `wb append … Decisions` command sets
+#                  `recorded`; if `outstanding`, logs `followed` and clears it.
+#     hook-stop      (Stop) recorded -> clear, no marker; else (not muted,
+#                  cooldown 0) phrase-match last_assistant_message -> `marker`
+#                  + cooldown. Decrements cooldown; updates taskhash/unchanged
+#                  (skipped after a synthetic prompt).
+#     hook-prompt    (UserPromptSubmit) stamps @wb_capture_sid; delivers one
+#                  nudge line (draft beats marker) as additionalContext, writes
+#                  `outstanding`, logs nudge_fired. `<task-notification>` prompts
+#                  (synthetic, from finished background sub-agents) deliver
+#                  nothing and set `synthetic`.
+#     hook-end       stub (later unit).
 #   clear          agent verb: drop marker, draft and outstanding flag. Logs
 #                  nothing (the PostToolUse hook already logs `followed`).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
@@ -25,7 +36,8 @@
 # Paths:
 #   state root   ${XDG_STATE_HOME:-$HOME/.local/state}/wb/capture/
 #   per session  <root>/<session_id>/   (marker recorded cooldown taskhash
-#                                        unchanged draft muted outstanding ended)
+#                                        unchanged draft muted outstanding ended
+#                                        synthetic nudged_draft taskpath)
 #   event log    <root>/log.jsonl       (one compact JSON line per event:
 #                                        ts, session_id, task, event[, source])
 #   kill switch  ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-capture
@@ -53,7 +65,10 @@
 # can never block or fail Claude.
 set -uo pipefail
 
-DEFAULT_PHRASES="we decided|decided to|going with|let's go with|we'll go with|settled on|the decision is|chose |opting for|instead of|rather than|ruled out|rejected"
+# Kept deliberately strong: measured 2026-10-09 over 1382 recent assistant messages,
+# "instead of"/"rather than"/"rejected" matched ~9% of all messages (ordinary prose);
+# this list matches <1%. Recall gaps are the Haiku sweep's job.
+DEFAULT_PHRASES="we decided|decided to|going with|let's go with|we'll go with|i'll go with|went with|settled on|the decision is|chose |opting for|ruled out"
 DEFAULT_COOLDOWN=3
 DEFAULT_SWEEP_EVERY=4
 DEFAULT_SWEEP=on
@@ -72,6 +87,8 @@ fail_open() { echo "wb-capture: $*" >&2; exit 0; }
 quiet_exit() { exit 0; }
 
 TASK_STEM=""
+TASK_PATH=""
+INPUT=""
 
 # guard_chain — recursion flag, kill switch, tmux, @task, jq. Sets TASK_STEM.
 guard_chain() {
@@ -85,6 +102,7 @@ guard_chain() {
   task="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
   [ -n "$task" ] || quiet_exit
   command -v jq >/dev/null 2>&1 || quiet_exit
+  TASK_PATH="$task"
   task="${task##*/}"
   TASK_STEM="${task%.md}"
 }
@@ -102,11 +120,122 @@ session_dir() {
 # pane_sid — session id recorded on this pane by hook-prompt (agent verbs).
 pane_sid() { tmux show -pv @wb_capture_sid 2>/dev/null || true; }
 
-# stdin_sid — session id from hook stdin JSON (hook verbs). Guarded so a
-# manual, stdin-less invocation can't hang on the read.
-stdin_sid() {
-  [ -t 0 ] && return 0
-  jq -r '.session_id // empty' 2>/dev/null || true
+# read_input — slurp hook stdin once into INPUT (guarded: a manual, tty
+# invocation can't hang). jq_in <filter> parses fields out of INPUT.
+read_input() { [ -t 0 ] || INPUT="$(cat 2>/dev/null || true)"; }
+jq_in() { printf '%s' "$INPUT" | jq -r "$1" 2>/dev/null || true; }
+
+# hook_session_dir — sid + validated dir from INPUT; sets SID, SDIR or exits 0.
+hook_session_dir() {
+  SID="$(jq_in '.session_id // empty')"
+  SDIR="$(session_dir "$SID")" || quiet_exit
+}
+
+# read_num <file> — integer contents or 0.
+read_num() {
+  local v; v="$(cat "$1" 2>/dev/null || true)"
+  [[ "$v" =~ ^[0-9]+$ ]] && echo "$v" || echo 0
+}
+
+# hook_posttool — a `wb append … Decisions` Bash command marks the turn recorded.
+hook_posttool() {
+  # cheap pre-filter on the raw JSON, before any jq
+  case "$INPUT" in *wb*) ;; *) return 0 ;; esac
+  case "$INPUT" in *append*) ;; *) return 0 ;; esac
+  case "$INPUT" in *Decisions*) ;; *) return 0 ;; esac
+  local cmd re
+  cmd="$(jq_in '.tool_input.command // empty')"
+  local q="'\""
+  re='(^|[;&|(]|\$\()[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*([^[:space:];&|]*/)?wb[[:space:]]+append[[:space:]]([^;&|]*[[:space:]'"$q"'])?Decisions([[:space:]'"$q"']|$)'
+  [[ "$cmd" =~ $re ]] || return 0
+  hook_session_dir
+  mkdir -p "$SDIR" 2>/dev/null || return 0
+  : >"$SDIR/recorded"
+  if [ -e "$SDIR/outstanding" ]; then
+    log_event "$SID" followed "$(cat "$SDIR/outstanding" 2>/dev/null)"
+    remove_named "$SDIR" outstanding
+  fi
+}
+
+# hook_stop — detect (phrase match), suppress when recorded, maintain counters.
+hook_stop() {
+  hook_session_dir
+  mkdir -p "$SDIR" 2>/dev/null || return 0
+  load_config
+  local msg cd matched="" p
+  msg="$(jq_in '.last_assistant_message // empty')"
+  cd="$(read_num "$SDIR/cooldown")"
+  if [ -e "$SDIR/recorded" ]; then
+    remove_named "$SDIR" recorded
+  elif [ "$cd" -gt 0 ]; then
+    : # cooldown turn: suppressed
+  elif [ ! -e "$SDIR/muted" ] && [ -n "$msg" ]; then
+    local IFS='|' lmsg="${msg,,}"
+    for p in $CFG_PHRASES; do
+      [ -n "$p" ] || continue
+      if [[ "$lmsg" == *"${p,,}"* ]]; then matched="$p"; break; fi
+    done
+    unset IFS
+  fi
+  if [ -n "$matched" ]; then
+    printf '%s' "$matched" >"$SDIR/marker"
+    printf '%s\n' "$CFG_COOLDOWN" >"$SDIR/cooldown"
+  elif [ "$cd" -gt 0 ]; then
+    printf '%s\n' "$((cd - 1))" >"$SDIR/cooldown"
+  fi
+  # task-hash / unchanged counter
+  local h="" old un
+  [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] && h="$(sha1sum <"$TASK_PATH" 2>/dev/null | cut -d' ' -f1)"
+  old="$(cat "$SDIR/taskhash" 2>/dev/null || true)"
+  un="$(read_num "$SDIR/unchanged")"
+  if [ -n "$h" ] && [ "$h" = "$old" ]; then
+    if [ -e "$SDIR/synthetic" ]; then :; else un=$((un + 1)); fi
+  else
+    [ -n "$h" ] && printf '%s\n' "$h" >"$SDIR/taskhash" || remove_named "$SDIR" taskhash
+    un=0
+  fi
+  printf '%s\n' "$un" >"$SDIR/unchanged"
+  printf '%s\n' "$TASK_PATH" >"$SDIR/taskpath"
+  remove_named "$SDIR" synthetic
+}
+
+# hook_prompt — stamp the pane, deliver at most one nudge line.
+hook_prompt() {
+  hook_session_dir
+  tmux set -p @wb_capture_sid "$SID" >/dev/null 2>&1 || true
+  mkdir -p "$SDIR" 2>/dev/null || return 0
+  local prompt
+  prompt="$(jq_in '.prompt // empty')"
+  case "$prompt" in
+    '<task-notification>'*) : >"$SDIR/synthetic"; return 0 ;;
+  esac
+  # a real prompt starts a new turn: a `recorded` left by a turn that never
+  # reached Stop (interrupted) must not suppress this turn's marker
+  remove_named "$SDIR" synthetic recorded
+  local line="" source="" dh="" phrase
+  if [ -f "$SDIR/draft" ]; then
+    dh="$(sha1sum <"$SDIR/draft" 2>/dev/null | cut -d' ' -f1)"
+    if [ -n "$dh" ] && [ "$dh" != "$(cat "$SDIR/nudged_draft" 2>/dev/null || true)" ]; then
+      line="[wb-capture] A background review drafted an unrecorded decision ($SDIR/draft). Run /wb-decide to review/accept, or /wb-decide dismiss."
+      source=sweep
+      printf '%s\n' "$dh" >"$SDIR/nudged_draft"
+    fi
+  fi
+  if [ -z "$line" ] && [ -f "$SDIR/marker" ]; then
+    phrase="$(tr -d '\000-\037\177' <"$SDIR/marker" 2>/dev/null || true)"
+    if [ -n "$phrase" ]; then
+      line="[wb-capture] Last turn read like a decision (\"$phrase\"). If it settled something, run /wb-decide; otherwise ignore or /wb-decide dismiss."
+      source=phrase
+    fi
+  fi
+  # a draft nudge (or a draft already nudged) supersedes any stale marker
+  [ -f "$SDIR/draft" ] && remove_named "$SDIR" marker
+  [ -n "$line" ] || { remove_named "$SDIR" marker; return 0; }
+  remove_named "$SDIR" marker
+  jq -nc --arg c "$line" \
+    '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$c}}' 2>/dev/null || return 0
+  printf '%s' "$source" >"$SDIR/outstanding"
+  log_event "$SID" nudge_fired "$source"
 }
 
 # log_event <sid> <event> [source] — append one compact JSON line.
@@ -213,8 +342,16 @@ case "$verb" in
     ;;
   status)  cmd_status ;;
   _config) cmd_config ;;
-  hook-prompt|hook-posttool|hook-stop|hook-end)
-    : # implemented in later units (U3-U5)
+  hook-prompt|hook-posttool|hook-stop)
+    read_input
+    case "$verb" in
+      hook-prompt)   hook_prompt ;;
+      hook-posttool) hook_posttool ;;
+      hook-stop)     hook_stop ;;
+    esac
+    ;;
+  hook-end)
+    : # implemented in a later unit (U5)
     ;;
 esac
 
