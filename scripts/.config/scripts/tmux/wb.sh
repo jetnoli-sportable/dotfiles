@@ -1354,6 +1354,75 @@ wb_layout_session() {
   tmux select-window -t "=$session:1"
 }
 
+# _wb_new_start_point <repo_dir> <repo> <own_task_file> <parent_ref>
+# <depends_on_csv> — print the ref a freshly created `wb new` branch should
+# start from, or nothing (git's implicit HEAD, the old behavior). A bare
+# `worktree add -b` bases every new branch on whatever the main checkout's
+# HEAD happens to be: a local default branch that often hasn't been pulled
+# since the last merge (handoffs repeatedly came up several PRs behind), and
+# never the commits a stacked task's blocker/parent has that it needs.
+#   1. Stacked: the first depends_on blocker, then the parent, that is in this
+#      same repo, not `done` (its commits are merged — the default branch has
+#      them), and whose `branch:` exists locally or as origin/<branch>.
+#      Explicit --depends-on/--parent win; otherwise the task file's own
+#      frontmatter, since the usual path is `wb new --planned --depends-on …`
+#      first and a plain `wb new` to start it later.
+#   2. Otherwise origin/<default> after a fetch. The default is resolved the
+#      same way as `wb sync` (origin/HEAD symref, then ls-remote), never
+#      hard-coded — Sportable repos use dev/development/main. A failed fetch
+#      warns and still uses the last-fetched remote-tracking ref, which is no
+#      staler than a local default branch that's only ever pulled from it.
+#   3. No origin, or no resolvable default: print nothing.
+_wb_new_start_point() {
+  local repo_dir="$1" repo="$2" own_file="$3" parent_ref="$4" deps_csv="$5"
+  if [ -f "$own_file" ]; then
+    [ -n "$deps_csv" ] || deps_csv="$(wb_get_frontmatter "$own_file" depends_on)"
+    [ -n "$parent_ref" ] || parent_ref="$(wb_get_frontmatter "$own_file" parent)"
+  fi
+  local -a cands=()
+  [ -z "$deps_csv" ] || IFS=',' read -r -a cands <<< "$deps_csv"
+  [ -z "$parent_ref" ] || cands+=("$parent_ref")
+
+  local stem f br
+  for stem in "${cands[@]}"; do
+    read -r stem <<< "$stem"
+    f="$TASKS_DIR/$stem.md"
+    [ -n "$stem" ] && [ -f "$f" ] || continue
+    [ "$(wb_get_frontmatter "$f" repo)" = "$repo" ] || continue
+    [ "$(wb_get_frontmatter "$f" status)" != done ] || continue
+    br="$(wb_get_frontmatter "$f" branch)"
+    read -r br <<< "$br"
+    [ -n "$br" ] || continue
+    if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$br"; then
+      printf '%s\n' "$br"; return 0
+    elif git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$br"; then
+      printf 'origin/%s\n' "$br"; return 0
+    fi
+  done
+
+  git -C "$repo_dir" remote get-url origin >/dev/null 2>&1 || return 0
+  local def
+  def="$(git -C "$repo_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  def="${def#origin/}"
+  if [ -z "$def" ]; then
+    def="$(GIT_TERMINAL_PROMPT=0 git -C "$repo_dir" ls-remote --symref origin HEAD 2>/dev/null \
+      | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
+  fi
+  if [ -z "$def" ]; then
+    echo "wb new: warning: could not determine origin's default branch for $repo_dir — branching from local HEAD" >&2
+    return 0
+  fi
+  # timeout bounds an unreachable remote or a stalled SSH auth, so a handoff
+  # spawn never hangs here.
+  local -a to=()
+  command -v timeout >/dev/null 2>&1 && to=(timeout 30)
+  if ! GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin "$def" 2>/dev/null; then
+    echo "wb new: warning: git fetch origin $def failed — branching from the last-fetched origin/$def" >&2
+  fi
+  git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$def" || return 0
+  printf 'origin/%s\n' "$def"
+}
+
 cmd_new() {
   # Index/shift case parser, not a single-token foreach: --parent/--path take
   # their value as a separate following argument, and --depends-on is
@@ -1564,7 +1633,18 @@ cmd_new() {
     if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$slug"; then
       git -C "$repo_dir" worktree add "$worktree_path" "$slug"
     else
-      git -C "$repo_dir" worktree add -b "$slug" "$worktree_path"
+      local own_file="${_WB_TASK_FILE_OVERRIDE:-$(wb_task_file "$repo" "$disp_slug")}"
+      local start_point
+      start_point="$(_wb_new_start_point "$repo_dir" "$repo" "$own_file" "$parent_ref" "$depends_on_joined")"
+      if [ -n "$start_point" ]; then
+        echo "wb new: branching $slug from $start_point" >&2
+        # --no-track: branching from origin/<x> would otherwise make that
+        # remote branch the new branch's upstream, so a bare `git pull` /
+        # `git push` would target the default (or parent) branch.
+        git -C "$repo_dir" worktree add --no-track -b "$slug" "$worktree_path" "$start_point"
+      else
+        git -C "$repo_dir" worktree add -b "$slug" "$worktree_path"
+      fi
     fi
   fi
 
