@@ -137,6 +137,16 @@ read_num() {
   [[ "$v" =~ ^[0-9]+$ ]] && echo "$v" || echo 0
 }
 
+# lock_session <dir> / unlock_session — flock on <dir>/.lock (fd 9) guarding the
+# unchanged/taskhash counters, which the sync hook-stop and the async sweep both
+# read-modify-write. Fails open: no flock (or no writable lock file) = no lock.
+lock_session() {
+  command -v flock >/dev/null 2>&1 || return 0
+  { exec 9>"$1/.lock"; } 2>/dev/null || return 0
+  flock 9 2>/dev/null || true
+}
+unlock_session() { exec 9>&-; }
+
 # hook_posttool — a `wb append … Decisions` Bash command marks the turn recorded.
 hook_posttool() {
   # cheap pre-filter on the raw JSON, before any jq
@@ -183,7 +193,8 @@ hook_stop() {
   elif [ "$cd" -gt 0 ]; then
     printf '%s\n' "$((cd - 1))" >"$SDIR/cooldown"
   fi
-  # task-hash / unchanged counter
+  # task-hash / unchanged counter (locked: races with the async sweep)
+  lock_session "$SDIR"
   local h="" old un
   [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] && h="$(sha1sum <"$TASK_PATH" 2>/dev/null | cut -d' ' -f1)"
   old="$(cat "$SDIR/taskhash" 2>/dev/null || true)"
@@ -195,6 +206,7 @@ hook_stop() {
     un=0
   fi
   printf '%s\n' "$un" >"$SDIR/unchanged"
+  unlock_session
   printf '%s\n' "$TASK_PATH" >"$SDIR/taskpath"
   remove_named "$SDIR" synthetic
 }
@@ -238,15 +250,18 @@ hook_prompt() {
   log_event "$SID" nudge_fired "$source"
 }
 
-# log_event <sid> <event> [source] — append one compact JSON line.
+# log_event <sid> <event> [source] [extra-json] — append one compact JSON line.
+# extra-json is an optional compact JSON object merged into the line (e.g.
+# '{"result":"draft"}'); an invalid one drops the line rather than the hook.
 log_event() {
-  local sid="$1" event="$2" source="${3:-}" ts line
+  local sid="$1" event="$2" source="${3:-}" extra="${4:-}" ts line
+  [ -n "$extra" ] || extra='{}'
   ts="$(date +%Y-%m-%dT%H:%M:%S%z)"
   ts="${ts%??}:${ts: -2}"
   line="$(jq -nc --arg ts "$ts" --arg sid "$sid" --arg task "$TASK_STEM" \
-    --arg event "$event" --arg source "$source" \
+    --arg event "$event" --arg source "$source" --argjson extra "$extra" \
     '{ts:$ts,session_id:$sid,task:$task,event:$event}
-     + (if $source == "" then {} else {source:$source} end)' 2>/dev/null)" || return 0
+     + (if $source == "" then {} else {source:$source} end) + $extra' 2>/dev/null)" || return 0
   [ -n "$line" ] || return 0
   mkdir -p "$CAPTURE_ROOT" 2>/dev/null || return 0
   printf '%s\n' "$line" >>"$LOG_FILE" 2>/dev/null || true
@@ -320,39 +335,43 @@ cmd_config() {
     "$CFG_PHRASES" "$CFG_COOLDOWN" "$CFG_SWEEP_EVERY" "$CFG_SWEEP" "$CFG_SWEEP_TIMEOUT"
 }
 
-verb="${1:-}"
-case "$verb" in
-  clear|dismiss|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
-  *) exit 0 ;;
-esac
+# Source-able as a library (wb-capture-sweep.sh): dispatch only when executed.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  verb="${1:-}"
+  case "$verb" in
+    clear|dismiss|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
+    *) exit 0 ;;
+  esac
 
-guard_chain
+  guard_chain
 
-case "$verb" in
-  clear)   cmd_clear_or_dismiss "" ;;
-  dismiss) cmd_clear_or_dismiss dismissed ;;
-  mute)
-    agent_session_dir
-    mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/muted" && log_event "$SID" muted
-    ;;
-  unmute)
-    agent_session_dir
-    remove_named "$SDIR" muted
-    log_event "$SID" unmuted
-    ;;
-  status)  cmd_status ;;
-  _config) cmd_config ;;
-  hook-prompt|hook-posttool|hook-stop)
-    read_input
-    case "$verb" in
-      hook-prompt)   hook_prompt ;;
-      hook-posttool) hook_posttool ;;
-      hook-stop)     hook_stop ;;
-    esac
-    ;;
-  hook-end)
-    : # implemented in a later unit (U5)
-    ;;
-esac
+  case "$verb" in
+    clear)   cmd_clear_or_dismiss "" ;;
+    dismiss) cmd_clear_or_dismiss dismissed ;;
+    mute)
+      agent_session_dir
+      mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/muted" && log_event "$SID" muted
+      ;;
+    unmute)
+      agent_session_dir
+      remove_named "$SDIR" muted
+      log_event "$SID" unmuted
+      ;;
+    status)  cmd_status ;;
+    _config) cmd_config ;;
+    hook-prompt|hook-posttool|hook-stop)
+      read_input
+      case "$verb" in
+        hook-prompt)   hook_prompt ;;
+        hook-posttool) hook_posttool ;;
+        hook-stop)     hook_stop ;;
+      esac
+      ;;
+    hook-end)
+      : # implemented in a later unit (U5)
+      ;;
+  esac
 
-exit 0
+
+  exit 0
+fi
