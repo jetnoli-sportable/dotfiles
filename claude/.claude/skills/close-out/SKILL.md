@@ -110,6 +110,24 @@ If the task file already has this filled in from earlier in the session
 (e.g. a mid-session `/wb-save` already wrote rich `## Decisions` content),
 don't duplicate — extend only where the sweep in step 2 added something new.
 
+After folding real Decisions, if `## Decisions` is **still empty**, review the
+session and decide whether anything was actually decided:
+
+- **Yes** — write it now (via `/wb-decide`, or the same `wb append <task>
+  Decisions -`), as a real entry. No marker.
+- **No** — append a marker entry through `wb append <task> Decisions -`:
+
+  ```
+  ### <YYYY-MM-DD HH:MM> — close-out
+  _No decisions: <one-line reason>_
+  ```
+
+The marker is always an affirmed judgment by the agent, never automatic —
+an unmarked empty `## Decisions` keeps meaning "nobody checked", which is
+what the graduation review counts as a likely miss versus a marked "nothing
+to record". Tasks closed by bare `wb done` without `/close-out` stay
+unmarked (accepted). Never Edit the task file for this; `wb append` only.
+
 ### 5. Check for other active or pending work tied to this task
 
 Before handing off to `wb done`, look for anything that would make winding
@@ -186,6 +204,12 @@ never whether the record gets written first.
   removed, task stays open.
 - **Other live window in the session** — step 5 surfaces it before the
   wind-down launches, especially when `--close` was also requested.
+- **Empty Decisions, nothing decided** — step 4 appends the
+  `### <timestamp> — close-out` / `_No decisions: <reason>_` marker.
+- **Empty Decisions, but the sweep found a decision** — a real entry is
+  written; no marker.
+- **Decisions already populated** — no marker.
+- **Marker write path** — always `wb append <task> Decisions -`, never Edit.
 
 ## Notes
 
