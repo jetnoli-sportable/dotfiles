@@ -208,6 +208,151 @@ prompt "real prompt"
 assert_match "next real prompt nudges" 'going with|decided to|we decided' "$OUT"
 assert_nofile "real prompt removes stale synthetic" "$D/synthetic"
 
+echo "# hook-end: pending marker -> pending_at_end + tombstone, task untouched"
+new_scenario
+stop "we decided A"
+SUM1="$(sha1sum <"$FAKE_TASK")"
+hook hook-end '{"session_id":"sid-aaa","reason":"other"}'
+assert_eq "end exit" 0 "$RC"
+assert_eq "one pending_at_end" 1 "$(count_ev pending_at_end)"
+assert_eq "marker true" true "$(jq -r 'select(.event=="pending_at_end")|.marker' "$LOG")"
+assert_eq "draft false" false "$(jq -r 'select(.event=="pending_at_end")|.draft' "$LOG")"
+assert_eq "session_id logged" sid-aaa "$(jq -r 'select(.event=="pending_at_end")|.session_id' "$LOG")"
+assert_file "ended tombstone" "$D/ended"
+assert_file "marker not deleted by hook-end" "$D/marker"
+assert_eq "task byte-identical" "$SUM1" "$(sha1sum <"$FAKE_TASK")"
+
+echo "# hook-end: draft only"
+new_scenario
+mkdir -p "$D"; echo body >"$D/draft"
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_eq "draft true" true "$(jq -r 'select(.event=="pending_at_end")|.draft' "$LOG")"
+assert_eq "marker false" false "$(jq -r 'select(.event=="pending_at_end")|.marker' "$LOG")"
+
+echo "# hook-end: nothing pending -> tombstone only, no log"
+new_scenario
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_file "tombstone" "$D/ended"
+assert_nofile "nothing logged" "$LOG"
+hook hook-end 'not json'; assert_eq "bad json exit" 0 "$RC"
+
+echo "# resumed session (same session_id) sheds its tombstone on the next prompt"
+new_scenario
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_file "tombstone written" "$D/ended"
+prompt "back again"
+assert_nofile "tombstone cleared on resume" "$D/ended"
+
+# mkold <sid> [file...] — session dir with files, all backdated 8 days.
+mkold() {
+  local sid="$1" f; shift; mkdir -p "$CAP/$sid"
+  for f in "$@"; do echo x >"$CAP/$sid/$f"; done
+  touch -d '8 days ago' "$CAP/$sid"/* "$CAP/$sid" 2>/dev/null
+}
+
+echo "# reaper: ended dir removed on next eligible hook-prompt"
+new_scenario
+mkdir -p "$CAP/sid-done"; touch "$CAP/sid-done/ended" "$CAP/sid-done/unchanged"
+prompt "hi"
+assert_eq "prompt exit" 0 "$RC"
+assert_nofile "ended dir removed" "$CAP/sid-done"
+assert_file "stamp written" "$CAP/.reaped"
+assert_file "current session dir kept" "$D"
+
+echo "# reaper: 8-day-old dir with marker logs pending_orphaned and is removed"
+new_scenario
+mkold sid-old marker taskpath cooldown
+printf '%s\n' "$H/tasks/dotfiles--feat-old.md" >"$CAP/sid-old/taskpath"; touch -d '8 days ago' "$CAP/sid-old/taskpath" "$CAP/sid-old"
+prompt "hi"
+assert_nofile "stale dir removed" "$CAP/sid-old"
+assert_eq "one pending_orphaned" 1 "$(count_ev pending_orphaned)"
+assert_eq "orphan sid" sid-old "$(jq -r 'select(.event=="pending_orphaned")|.session_id' "$LOG")"
+assert_eq "orphan task stem" dotfiles--feat-old "$(jq -r 'select(.event=="pending_orphaned")|.task' "$LOG")"
+assert_eq "orphan marker true" true "$(jq -r 'select(.event=="pending_orphaned")|.marker' "$LOG")"
+
+echo "# reaper: stale dir with nothing pending -> removed, no orphan log"
+new_scenario
+mkold sid-old2 unchanged
+prompt "hi"
+assert_nofile "removed" "$CAP/sid-old2"
+assert_eq "no orphan log" 0 "$(count_ev pending_orphaned)"
+
+echo "# reaper: fresh un-ended dir kept; current session never removed"
+new_scenario
+mkdir -p "$CAP/sid-fresh"; touch "$CAP/sid-fresh/marker"
+mkold sid-aaa marker ended   # current session: old AND ended
+prompt "hi"
+assert_file "fresh dir kept" "$CAP/sid-fresh/marker"
+assert_file "current dir kept" "$D"
+assert_nofile "current dir's tombstone shed (session is alive)" "$D/ended"
+
+echo "# reaper: hourly throttle"
+new_scenario
+prompt "one"
+mkdir -p "$CAP/sid-d2"; touch "$CAP/sid-d2/ended"
+prompt "two"
+assert_file "second ended dir survives inside the window" "$CAP/sid-d2/ended"
+touch -d '2 hours ago' "$CAP/.reaped"
+prompt "three"
+assert_nofile "removed once stamp aged" "$CAP/sid-d2"
+
+echo "# reaper: known files + draft.tmp.* + .lock removed; unknown file blocks rmdir"
+new_scenario
+mkdir -p "$CAP/sid-tmp" "$CAP/sid-unk"
+touch "$CAP/sid-tmp/ended" "$CAP/sid-tmp/draft.tmp.123" "$CAP/sid-tmp/.lock" "$CAP/sid-tmp/sweep_offset"
+touch "$CAP/sid-unk/ended" "$CAP/sid-unk/mystery"
+prompt "hi"
+assert_nofile "tmp/lock dir gone" "$CAP/sid-tmp"
+assert_file "unknown file left" "$CAP/sid-unk/mystery"
+assert_nofile "known file still removed" "$CAP/sid-unk/ended"
+
+echo "# reaper: invalid names and symlinks untouched"
+new_scenario
+mkdir -p "$CAP/not valid!" "$H/target"
+touch "$CAP/not valid!/ended" "$H/target/ended" "$H/target/marker"
+ln -s "$H/target" "$CAP/linkdir"
+prompt "hi"
+assert_file "invalid-name dir kept" "$CAP/not valid!/ended"
+assert_file "symlink kept" "$CAP/linkdir"
+assert_file "symlink target ended intact" "$H/target/ended"
+assert_file "symlink target marker intact" "$H/target/marker"
+
+echo "# log rotation"
+new_scenario
+mkdir -p "$CAP"; printf '%s\n' '{"event":"old"}' '{"event":"old2"}' >"$LOG"
+EXTRA_ENV=(WB_CAPTURE_LOG_MAX=10)
+prompt "hi"
+assert_file "rotated to .1" "$LOG.1"
+assert_eq "rotated content" 2 "$(wc -l <"$LOG.1" | tr -d ' ')"
+assert_nofile "log reset" "$LOG"
+stop "we decided A"; prompt "again"
+assert_file "next event starts new log" "$LOG"
+assert_eq "new log excludes old" 0 "$(grep -c old "$LOG")"
+new_scenario
+mkdir -p "$CAP"; echo '{"event":"keep"}' >"$LOG"
+prompt "hi"
+assert_nofile "under cap: not rotated" "$LOG.1"
+
+echo "# reaper fail-open on odd capture root"
+new_scenario
+echo notadir >"$H/afile"; mkdir -p "$H/outside"; touch "$H/outside/ended"
+EXTRA_ENV=(XDG_STATE_HOME="$H/afile")
+prompt "hi"
+assert_eq "exit 0 with file as state home" 0 "$RC"
+assert_file "outside untouched" "$H/outside/ended"
+EXTRA_ENV=(XDG_STATE_HOME="/nonexistent-wbtest/zz")
+prompt "hi"
+assert_eq "exit 0 with unwritable state home" 0 "$RC"
+
+echo "# reaper does not change nudge output"
+new_scenario
+stop "we decided A"
+mkdir -p "$CAP/sid-gone"; touch "$CAP/sid-gone/ended"
+prompt "go"
+assert_nofile "reaper ran" "$CAP/sid-gone"
+assert_eq "stdout is one JSON line" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
+assert_eq "valid nudge json" UserPromptSubmit "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.hookEventName)"
+
 echo "# guards short-circuit hook verbs"
 new_scenario; EXTRA_ENV=(WB_CAPTURE_SWEEP=1)
 stop "we decided A"; assert_eq "no output" "" "$OUT"; assert_nofile "no state" "$CAP"

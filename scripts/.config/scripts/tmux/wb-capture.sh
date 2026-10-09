@@ -19,7 +19,10 @@
 #                  `outstanding`, logs nudge_fired. `<task-notification>` prompts
 #                  (synthetic, from finished background sub-agents) deliver
 #                  nothing and set `synthetic`.
-#     hook-end       stub (later unit).
+#     hook-end       (SessionEnd, 1.5s budget: one jq parse, no network, no task
+#                  file) if `marker` or `draft` exists logs `pending_at_end`
+#                  {marker,draft}; always writes the `ended` tombstone. Deletes
+#                  nothing — the reaper does that.
 #   clear          agent verb: drop marker, draft and outstanding flag. Logs
 #                  nothing (the PostToolUse hook already logs `followed`).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
@@ -37,11 +40,28 @@
 #   state root   ${XDG_STATE_HOME:-$HOME/.local/state}/wb/capture/
 #   per session  <root>/<session_id>/   (marker recorded cooldown taskhash
 #                                        unchanged draft muted outstanding ended
-#                                        synthetic nudged_draft taskpath)
+#                                        synthetic nudged_draft taskpath
+#                                        sweep_offset .lock draft.tmp.*)
 #   event log    <root>/log.jsonl       (one compact JSON line per event:
 #                                        ts, session_id, task, event[, source])
+#   reaper stamp <root>/.reaped          (mtime = last reap; at most one per hour)
+#   log rotation <root>/log.jsonl.1      (previous log; see reaper)
 #   kill switch  ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-capture
 #                (touch it and every verb becomes a silent no-op)
+#
+# Reaper (reap_stale, run by hook-prompt AFTER its nudge output is emitted, so it
+# can't delay or alter it; at most once per hour, throttled by the mtime of
+# <root>/.reaped, which is touched before the work starts). For each real,
+# non-symlink subdir of the root whose name passes session_dir validation and
+# that isn't the current session: remove it if it holds `ended`, or if nothing in
+# it was modified in the last 7 days (find -newermt on the dir + its files).
+# A stale, un-ended dir still holding marker/draft first logs `pending_orphaned`.
+# Removal is by explicit file names (+ draft.tmp.* glob) inside the validated dir,
+# then rmdir — unknown leftovers keep the dir (never forced). A dir whose .lock
+# is held (flock -n fails) is skipped until the next reap; no lock is held across
+# the whole run. log.jsonl over WB_CAPTURE_LOG_MAX bytes (default 5242880) is
+# mv'd to log.jsonl.1 (replacing an older one). The root must be non-empty, not /,
+# and end in /wb/capture, else the reaper does nothing (fail open).
 #
 # Config (KTD8): defaults below, overridden by the optional untracked file
 # ${XDG_CONFIG_HOME:-$HOME/.config}/wb/capture.conf — `KEY=value` lines, parsed
@@ -211,11 +231,21 @@ hook_stop() {
   remove_named "$SDIR" synthetic
 }
 
-# hook_prompt — stamp the pane, deliver at most one nudge line.
+# hook_prompt — nudge, then (cheaply, once an hour) reap stale state.
 hook_prompt() {
+  hook_prompt_nudge
+  reap_stale
+}
+
+# hook_prompt_nudge — stamp the pane, deliver at most one nudge line.
+hook_prompt_nudge() {
   hook_session_dir
   tmux set -p @wb_capture_sid "$SID" >/dev/null 2>&1 || true
   mkdir -p "$SDIR" 2>/dev/null || return 0
+  # a prompt means the session is alive: a resumed session (`claude --resume`
+  # keeps its session_id) must shed the tombstone its SessionEnd left, or the
+  # sweep would skip it forever
+  remove_named "$SDIR" ended
   local prompt
   prompt="$(jq_in '.prompt // empty')"
   case "$prompt" in
@@ -248,6 +278,75 @@ hook_prompt() {
     '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$c}}' 2>/dev/null || return 0
   printf '%s' "$source" >"$SDIR/outstanding"
   log_event "$SID" nudge_fired "$source"
+}
+
+# hook_end — SessionEnd: record anything left pending, drop the tombstone.
+hook_end() {
+  hook_session_dir
+  mkdir -p "$SDIR" 2>/dev/null || return 0
+  local m=false d=false
+  [ -e "$SDIR/marker" ] && m=true
+  [ -e "$SDIR/draft" ] && d=true
+  if [ "$m" = true ] || [ "$d" = true ]; then
+    log_event "$SID" pending_at_end "" "{\"marker\":$m,\"draft\":$d}"
+  fi
+  : >"$SDIR/ended" 2>/dev/null || true
+}
+
+# reap_dir <dir> — remove a validated session dir by explicit names, then rmdir.
+reap_dir() {
+  local d="$1" f
+  remove_named "$d" marker recorded cooldown taskhash unchanged draft muted \
+    outstanding ended synthetic nudged_draft taskpath sweep_offset .lock
+  for f in "$d"/draft.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
+  rmdir -- "$d" 2>/dev/null || true
+}
+
+# reap_stale — see header. Never fails the hook.
+reap_stale() {
+  local root="$CAPTURE_ROOT" stamp
+  case "$root" in ''|/) return 0 ;; */wb/capture) ;; *) return 0 ;; esac
+  [ -d "$root" ] && [ ! -L "$root" ] || return 0
+  stamp="$root/.reaped"
+  if [ -e "$stamp" ] && [ -n "$(find "$stamp" -maxdepth 0 -mmin -60 2>/dev/null)" ]; then
+    return 0
+  fi
+  : >"$stamp" 2>/dev/null || return 0
+  # rotate the log
+  local max="${WB_CAPTURE_LOG_MAX:-5242880}" size
+  [[ "$max" =~ ^[0-9]+$ ]] || max=5242880
+  if [ -f "$LOG_FILE" ]; then
+    size="$(wc -c <"$LOG_FILE" 2>/dev/null | tr -d ' ')"
+    [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt "$max" ] && mv -f -- "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null
+  fi
+  local d name sdir stale pm pd saved_stem="$TASK_STEM" tp
+  for d in "$root"/*/; do
+    d="${d%/}"; name="${d##*/}"
+    [ -d "$d" ] && [ ! -L "$d" ] || continue
+    sdir="$(session_dir "$name")" || continue
+    [ "$name" != "${SID:-}" ] || continue
+    stale=0
+    if [ ! -e "$sdir/ended" ]; then
+      [ -z "$(find "$sdir" -maxdepth 1 -newermt '7 days ago' -print -quit 2>/dev/null)" ] || continue
+      stale=1
+    fi
+    if command -v flock >/dev/null 2>&1; then
+      { exec 8>"$sdir/.lock"; } 2>/dev/null || continue
+      flock -n 8 2>/dev/null || { exec 8>&-; continue; }
+    fi
+    if [ "$stale" = 1 ] && { [ -e "$sdir/marker" ] || [ -e "$sdir/draft" ]; }; then
+      pm=false; pd=false
+      [ -e "$sdir/marker" ] && pm=true
+      [ -e "$sdir/draft" ] && pd=true
+      tp="$(head -n1 "$sdir/taskpath" 2>/dev/null || true)"; tp="${tp##*/}"
+      TASK_STEM="${tp%.md}"
+      log_event "$name" pending_orphaned "" "{\"marker\":$pm,\"draft\":$pd}"
+      TASK_STEM="$saved_stem"
+    fi
+    reap_dir "$sdir"
+    exec 8>&- 2>/dev/null
+  done
+  return 0
 }
 
 # log_event <sid> <event> [source] [extra-json] — append one compact JSON line.
@@ -368,7 +467,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       esac
       ;;
     hook-end)
-      : # implemented in a later unit (U5)
+      read_input
+      hook_end
       ;;
   esac
 
