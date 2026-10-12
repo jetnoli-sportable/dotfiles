@@ -1,0 +1,55 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/wb-capture.sh\" hook-prompt",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/wb-capture.sh\" hook-posttool",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/wb-capture.sh\" hook-stop",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/wb-capture-sweep.sh\"",
+            "async": true,
+            "timeout": 180
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/wb-capture.sh\" hook-end",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

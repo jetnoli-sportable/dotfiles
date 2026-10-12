@@ -1,0 +1,7 @@
+{
+  "name": "wb-capture",
+  "description": "Decision auto-capture for wb sessions: nudges the agent to /wb-decide when a turn reads like an unrecorded decision, plus a propose-only background Haiku sweep. Hooks only; logic lives in ~/.config/scripts/tmux/wb-capture*.sh.",
+  "author": {
+    "name": "jetnoli-sportable"
+  }
+}
