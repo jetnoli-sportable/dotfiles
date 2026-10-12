@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>wb-decide</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="skills">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="gen">docgen · generated from <b>docs/guides/wb-decide.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-10-12</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">wb-decide</div>
+    <div class="brand-sub">Record a decision into ## Decisions — and the hooks that nudge you to when one goes by unrecorded.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">skills · guide</span>
+      <h1>wb-decide</h1>
+      <p class="dek">Record a decision into ## Decisions — and the hooks that nudge you to when one goes by unrecorded.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p><code>/wb-decide</code> is the &quot;record&quot; half of decision auto-capture. Decisions made
+in a wb session used to vanish unless someone remembered to write them
+into the task file's <code>## Decisions</code> section. The <code>wb-capture</code> plugin
+(<code>claude/.claude/skills/wb-capture/</code>, hooks only) watches each turn and,
+when one read like a decision, injects a one-line nudge into your next
+prompt. The live agent — the only one holding the whole conversation —
+then decides whether something was really settled and, if so, appends it
+via <code>wb append … Decisions</code>. Hooks never write the task store; the skill
+does.</p>
+<p><strong>What fires when (one turn, in plain words):</strong></p>
+<ol>
+<li>You send a prompt. If a nudge is queued, one line is added to that
+prompt's context and logged as <code>nudge_fired</code>. (Prompts that are just a
+<code>&lt;task-notification&gt;</code> from a finished background sub-agent get nothing.)</li>
+<li>Claude replies. If it ran <code>wb append … Decisions</code>, that is logged as
+<code>followed</code> and nothing further is queued.</li>
+<li>When the turn ends, the reply is phrase-matched against a short list
+(&quot;we decided&quot;, &quot;going with&quot;, &quot;settled on&quot;, …). A hit queues a nudge for
+the next prompt, then a cooldown (3 turns) keeps it from nagging. A
+nudge that was delivered but not acted on by the end of its turn is
+logged <code>ignored</code>.</li>
+<li>Also at turn end, an async background Haiku &quot;sweep&quot; looks at the recent
+transcript if the task file has gone 4 turns unchanged. If it finds an
+unrecorded decision it writes a draft; the next prompt gets a nudge
+pointing at it. It is propose-only, tool-less, and skips itself when
+muted, when a draft is already pending, or when nothing new was said.</li>
+<li>Session end writes a tombstone (and logs <code>pending_at_end</code> if something
+was still unrecorded); an hourly reaper cleans up old state dirs.</li>
+</ol>
+<p>Every nudge resolves exactly once: <code>followed</code>, <code>dismissed</code> or <code>ignored</code>.</p>
+<p><strong>The two nudge lines</strong> (what Claude sees, verbatim):</p>
+<pre><code>[wb-capture] Last turn read like a decision (&quot;&lt;matched phrase&gt;&quot;). If it settled something, run /wb-decide; otherwise ignore or /wb-decide dismiss.
+[wb-capture] A background review drafted an unrecorded decision (&lt;state dir&gt;/draft). Run /wb-decide to review/accept, or /wb-decide dismiss.
+</code></pre>
+<p>The first is <code>source=phrase</code>, the second <code>source=sweep</code>. A draft nudge
+beats a phrase nudge when both are pending.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>In any wb session, after something is actually settled:</p>
+<pre><code>/wb-decide
+</code></pre>
+<p>or <code>/wb-decide &lt;one-line hint&gt;</code> to say which decision. Claude reads the
+task's existing <code>## Decisions</code> for style, composes decided / rejected /
+why, appends it with <code>wb append</code>, and confirms:</p>
+<pre><code>Recorded to ## Decisions.
+</code></pre>
+<p>Check the machinery any time:</p>
+<pre><code>/wb-decide status
+</code></pre>
+<h2 id="reference">Reference</h2>
+<p><strong>Modes of <code>/wb-decide</code></strong></p>
+<table>
+<thead>
+<tr>
+<th>Invocation</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/wb-decide [hint]</code></td>
+<td>Compose a new entry from the conversation (or accept a pending draft) and <code>wb append</code> it under <code>## Decisions</code>, then clear capture state. If nothing was actually decided it says so and dismisses instead of writing.</td>
+</tr>
+<tr>
+<td>draft pending</td>
+<td>Claude shows the sweep's draft; accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed.</td>
+</tr>
+<tr>
+<td><code>/wb-decide dismiss</code></td>
+<td>Drop the pending marker/draft, log <code>dismissed</code>. Quiet no-op if nothing was pending.</td>
+</tr>
+<tr>
+<td><code>/wb-decide mute</code> / <code>unmute</code></td>
+<td>Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged.</td>
+</tr>
+<tr>
+<td><code>/wb-decide status</code></td>
+<td>Print pending marker/draft (with paths), mute state, and the log path.</td>
+</tr>
+</tbody>
+</table>
+<p>Entries are append-only; a correction is a new entry naming the one it
+supersedes.</p>
+<p><strong>Paths</strong></p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>State root</td>
+<td><code>~/.local/state/wb/capture/</code> (honours <code>XDG_STATE_HOME</code>)</td>
+</tr>
+<tr>
+<td>Per-session state</td>
+<td><code>~/.local/state/wb/capture/&lt;session_id&gt;/</code> (marker, draft, muted, cooldown, ended, …)</td>
+</tr>
+<tr>
+<td>Event log</td>
+<td><code>~/.local/state/wb/capture/log.jsonl</code> (rotated to <code>log.jsonl.1</code> above 5 MB)</td>
+</tr>
+<tr>
+<td>Config (optional, untracked)</td>
+<td><code>~/.config/wb/capture.conf</code></td>
+</tr>
+<tr>
+<td>Kill switch</td>
+<td><code>~/.local/state/wb/disable-capture</code></td>
+</tr>
+<tr>
+<td>Script</td>
+<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear</code>, <code>dismiss</code>, <code>mute</code>, <code>unmute</code>, <code>status</code>); sweep in <code>wb-capture-sweep.sh</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Config keys</strong> — <code>KEY=value</code> lines in <code>capture.conf</code>, parsed line by line
+(never sourced), unknown keys and bad values ignored/defaulted:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>phrases</code></td>
+<td>strong list: <code>we decided|decided to|going with|let's go with|we'll go with|i'll go with|went with|settled on|the decision is|chose |opting for|ruled out</code></td>
+<td><code>|</code>-separated, case-insensitive fixed strings</td>
+</tr>
+<tr>
+<td><code>cooldown</code></td>
+<td><code>3</code></td>
+<td>turns between phrase nudges</td>
+</tr>
+<tr>
+<td><code>sweep_every</code></td>
+<td><code>4</code></td>
+<td>unchanged turns before a sweep</td>
+</tr>
+<tr>
+<td><code>sweep</code></td>
+<td><code>on</code></td>
+<td><code>on</code> / <code>off</code> — the Haiku background sweep</td>
+</tr>
+<tr>
+<td><code>sweep_timeout</code></td>
+<td><code>60</code></td>
+<td>seconds for the sweep child</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Log events</strong> (<code>log.jsonl</code>, one JSON object per line: <code>ts</code>, <code>session_id</code>,
+<code>task</code>, <code>event</code>, optional <code>source</code>): <code>nudge_fired{source}</code>,
+<code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code>, <code>muted</code>, <code>unmuted</code>,
+<code>sweep_ran{result: none|draft|error|timeout}</code>,
+<code>sweep_skipped{reason: disabled|muted|draft_pending|no_new_content}</code>,
+<code>pending_at_end{marker,draft}</code> (from SessionEnd; the sweep logs it as just
+<code>{draft:true}</code> when the session ended while Haiku was still running),
+<code>pending_orphaned</code>.</p>
+<p><strong>Measuring it</strong> — follow / dismissal / ignored rate overall and per source,
+plus sweep result counts (dismissals carry no source, so they're overall only):</p>
+<pre><code class="language-bash">jq -s '. as $all
+| def pct($a;$b): if $b == 0 then null else (($a * 1000 / $b | round) / 10) end;
+{
+  by_source: (
+    [.[] | select(.event == &quot;nudge_fired&quot;)] | group_by(.source)
+    | map({ source: .[0].source, fired: length })
+    | map(. as $r | $r + {
+        followed: ([$all[] | select(.event == &quot;followed&quot; and .source == $r.source)] | length),
+        ignored:  ([$all[] | select(.event == &quot;ignored&quot;  and .source == $r.source)] | length) }
+      | . + { follow_pct: pct(.followed; .fired), ignored_pct: pct(.ignored; .fired) })
+  ),
+  overall: ( ([.[] | select(.event == &quot;nudge_fired&quot;)] | length) as $n
+    | { fired: $n,
+        followed_pct:  pct([.[] | select(.event == &quot;followed&quot;)]  | length; $n),
+        dismissed_pct: pct([.[] | select(.event == &quot;dismissed&quot;)] | length; $n),
+        ignored_pct:   pct([.[] | select(.event == &quot;ignored&quot;)]   | length; $n) } ),
+  sweep_results: ([.[] | select(.event == &quot;sweep_ran&quot;)] | group_by(.result) | map({(.[0].result): length}) | add)
+}' ~/.local/state/wb/capture/log.jsonl
+</code></pre>
+<p><strong>Close-out interaction.</strong> <code>/close-out</code> step 4: if <code>## Decisions</code> is still
+empty at wind-down, the agent either writes a real entry or appends an
+affirmed marker (<code>### &lt;timestamp&gt; — close-out</code> / <code>_No decisions: &lt;reason&gt;_</code>)
+via <code>wb append</code>. An unmarked empty section keeps meaning &quot;nobody checked&quot;.
+Tasks closed with bare <code>wb done</code> (no <code>/close-out</code>) are left unmarked.</p>
+<p><strong>Rollout.</strong> Stow (<code>stow --no-folding -t &quot;$HOME&quot; claude scripts</code> from the
+main checkout after fast-forwarding) and restart Claude sessions. The
+plugin loads automatically as <code>wb-capture@skills-dir</code>. Already-running
+sessions don't get the hooks; editing the scripts takes effect live, but
+adding or removing a hook entry needs a restart.</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li>Phrase matching is deliberately conservative (&lt;1% of messages); decisions
+phrased differently are the sweep's job, and the sweep only runs after 4
+unchanged turns.</li>
+<li>Phrase nudges are hints — many will be non-decisions; that's what
+<code>dismissed</code> and <code>ignored</code> measure.</li>
+<li>Only works inside a wb tmux session with <code>@task</code> set; elsewhere every
+verb is a silent no-op.</li>
+<li>Hooks can't force the agent to act; a nudge may simply be ignored.</li>
+<li><code>/clear</code> and <code>wb resume</code> session-id behaviour is still being confirmed
+live (see the dossier's live-verification checklist).</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<p>A graduation review (merge date + 14 days) decides, from the log numbers
+above, whether to keep, retune the phrase list, or drop the feature.</p>
+<p>To turn it off, in order of bluntness:</p>
+<ul>
+<li><strong>Kill switch (all sessions, instant):</strong> <code>touch ~/.local/state/wb/disable-capture</code>;
+<code>rm</code> the file to re-enable.</li>
+<li><strong>Sweep only:</strong> <code>sweep=off</code> in <code>~/.config/wb/capture.conf</code>.</li>
+<li><strong>One session:</strong> <code>/wb-decide mute</code> (and <code>/wb-decide unmute</code>).</li>
+<li><strong>Removal:</strong> delete the plugin dir and restart sessions.</li>
+</ul>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guides/wb-decide.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>
