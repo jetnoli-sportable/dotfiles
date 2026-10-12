@@ -13,7 +13,10 @@
 #     hook-stop      (Stop) recorded -> clear, no marker; else (not muted,
 #                  cooldown 0) phrase-match last_assistant_message -> `marker`
 #                  + cooldown. Decrements cooldown; updates taskhash/unchanged
-#                  (skipped after a synthetic prompt).
+#                  (skipped after a synthetic prompt). A nudge still
+#                  `outstanding` at the end of its (real) turn logs `ignored`,
+#                  so every nudge resolves exactly once: followed | dismissed |
+#                  ignored.
 #     hook-prompt    (UserPromptSubmit) stamps @wb_capture_sid; delivers one
 #                  nudge line (draft beats marker) as additionalContext, writes
 #                  `outstanding`, logs nudge_fired. `<task-notification>` prompts
@@ -228,7 +231,20 @@ hook_stop() {
   printf '%s\n' "$un" >"$SDIR/unchanged"
   unlock_session
   printf '%s\n' "$TASK_PATH" >"$SDIR/taskpath"
+  # the agent had this turn to act on the nudge delivered at its prompt; a turn
+  # that ends with neither a Decisions append (followed) nor a dismiss resolves
+  # it as ignored, so a later unrelated append can't be counted as followed.
+  # A synthetic turn isn't the agent's real turn yet.
+  if [ -e "$SDIR/outstanding" ] && [ ! -e "$SDIR/synthetic" ]; then
+    resolve_ignored
+  fi
   remove_named "$SDIR" synthetic
+}
+
+# resolve_ignored — log the outstanding nudge as ignored and clear it.
+resolve_ignored() {
+  log_event "$SID" ignored "$(cat "$SDIR/outstanding" 2>/dev/null)"
+  remove_named "$SDIR" outstanding
 }
 
 # hook_prompt — nudge, then (cheaply, once an hour) reap stale state.
@@ -254,6 +270,8 @@ hook_prompt_nudge() {
   # a real prompt starts a new turn: a `recorded` left by a turn that never
   # reached Stop (interrupted) must not suppress this turn's marker
   remove_named "$SDIR" synthetic recorded
+  # likewise a nudge from a turn that never reached Stop
+  [ -e "$SDIR/outstanding" ] && resolve_ignored
   local line="" source="" dh="" phrase
   if [ -f "$SDIR/draft" ]; then
     dh="$(sha1sum <"$SDIR/draft" 2>/dev/null | cut -d' ' -f1)"

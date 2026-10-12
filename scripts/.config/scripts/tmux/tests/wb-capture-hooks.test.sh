@@ -116,6 +116,46 @@ assert_eq "followed source" phrase "$(jq -r 'select(.event=="followed")|.source'
 assert_nofile "outstanding cleared" "$D/outstanding"
 posttool 'wb append x Decisions -'
 assert_eq "followed still once" 1 "$(count_ev followed)"
+stop "done"
+assert_eq "followed turn: no ignored" 0 "$(count_ev ignored)"
+
+echo "# ignored: nudge turn ends with no append or dismiss"
+new_scenario
+stop "we decided to use B"; prompt "go"
+assert_file "outstanding after delivery" "$D/outstanding"
+stop "ok, carrying on with the refactor"
+assert_eq "ignored logged once" 1 "$(count_ev ignored)"
+assert_eq "ignored source" phrase "$(jq -r 'select(.event=="ignored")|.source' "$LOG")"
+assert_nofile "outstanding cleared" "$D/outstanding"
+prompt "next"; posttool 'wb append x Decisions -'
+assert_eq "later unrelated append is not 'followed'" 0 "$(count_ev followed)"
+stop "fine"
+assert_eq "still one ignored" 1 "$(count_ev ignored)"
+
+echo "# dismissed in the nudge turn: no ignored"
+new_scenario
+stop "we decided to use B"; prompt "go"
+hook dismiss ''
+assert_eq "dismissed logged" 1 "$(count_ev dismissed)"
+stop "dismissed it"
+assert_eq "no ignored after dismiss" 0 "$(count_ev ignored)"
+
+echo "# synthetic turn doesn't resolve; the next real turn does"
+new_scenario
+stop "we decided to use B"; prompt "go"
+prompt "<task-notification><task-id>x</task-id></task-notification>"
+stop "background agent finished"
+assert_eq "synthetic Stop: not ignored yet" 0 "$(count_ev ignored)"
+assert_file "still outstanding" "$D/outstanding"
+stop "real turn ends"
+assert_eq "real Stop: ignored" 1 "$(count_ev ignored)"
+
+echo "# stale outstanding (nudge turn never reached Stop) resolved at the next real prompt"
+new_scenario
+stop "we decided to use B"; prompt "go"
+prompt "interrupted, asking again"
+assert_eq "stale nudge -> ignored" 1 "$(count_ev ignored)"
+assert_nofile "stale outstanding cleared" "$D/outstanding"
 
 echo "# sub-agent posttool"
 new_scenario
