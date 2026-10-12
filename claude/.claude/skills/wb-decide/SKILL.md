@@ -133,7 +133,9 @@ After a *successful* write:
 
 `clear` drops the marker and draft without logging a `dismissed` event (the
 `followed` event is logged by the plugin's PostToolUse hook when it sees the
-`wb append … Decisions` call). Then one line: `Recorded to ## Decisions.`
+`wb append … Decisions` call; if that hook missed it, `clear` logs `followed`
+for a still-outstanding nudge). Only run it after a successful write. Then one
+line: `Recorded to ## Decisions.`
 
 ## Test scenarios (behavior to follow for each)
 

@@ -170,6 +170,25 @@ posttool 'echo wb append; cat Decisions.md'; assert_nofile "echo mention" "$D/re
 posttool 'ls -la';                 assert_nofile "unrelated" "$D/recorded"
 assert_eq "exit 0" 0 "$RC"
 posttool 'cd x && wb append t.md Decisions -'; assert_file "chained wb append" "$D/recorded"
+posttool $'session=$(tmux display-message -p \'#S\')\ntask_file=$(tmux show -t "=$session:" -v @task)\nwb append "$task_file" Decisions - <<\'EOF\'\n### t\n- x\nEOF'
+assert_file "multi-line /wb-decide shape" "$D/recorded"
+new_scenario
+posttool $'cd /tmp\nwb append "$t" Decisions - <<EOF\nbody\nEOF'; assert_file "append on a later line" "$D/recorded"
+new_scenario
+posttool $'wb append x Handoffs - <<EOF\nsee ## Decisions above\nEOF'; assert_nofile "Handoffs heredoc mentioning Decisions" "$D/recorded"
+
+echo "# clear resolves an outstanding nudge the posttool hook missed"
+new_scenario
+stop "we decided to use B"; prompt "go"
+hook clear ''
+assert_eq "clear -> followed" 1 "$(count_ev followed)"
+assert_eq "clear followed source" phrase "$(jq -r 'select(.event=="followed")|.source' "$LOG")"
+stop "recorded"
+assert_eq "no ignored after clear" 0 "$(count_ev ignored)"
+new_scenario
+stop "we decided to use B"; prompt "go"
+posttool 'wb append x Decisions -'; hook clear ''
+assert_eq "posttool + clear: followed once" 1 "$(count_ev followed)"
 
 echo "# cooldown"
 new_scenario
@@ -209,8 +228,9 @@ stop "we decided A"; assert_nofile "muted: no marker" "$D/marker"
 
 echo "# newline in phrase config stays one line"
 new_scenario
-printf 'phrases=we decided|bar\n' >"$CFG/wb/capture.conf"
+mkdir -p "$CFG/wb"; printf 'phrases=we decided|bar\n' >"$CFG/wb/capture.conf"
 stop "bar"; prompt "x"
+assert_match "configured phrase nudged" '\("bar"\)' "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
 assert_eq "single line" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
 
 echo "# task-hash"
@@ -269,6 +289,14 @@ hook hook-end '{"session_id":"sid-aaa"}'
 assert_eq "draft true" true "$(jq -r 'select(.event=="pending_at_end")|.draft' "$LOG")"
 assert_eq "marker false" false "$(jq -r 'select(.event=="pending_at_end")|.marker' "$LOG")"
 
+echo "# hook-end: outstanding nudge (turn never reached Stop) -> ignored once"
+new_scenario
+stop "we decided A"; prompt "go"
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_eq "end -> ignored" 1 "$(count_ev ignored)"
+assert_eq "end ignored source" phrase "$(jq -r 'select(.event=="ignored")|.source' "$LOG")"
+assert_nofile "outstanding cleared at end" "$D/outstanding"
+
 echo "# hook-end: nothing pending -> tombstone only, no log"
 new_scenario
 hook hook-end '{"session_id":"sid-aaa"}'
@@ -309,6 +337,16 @@ assert_eq "one pending_orphaned" 1 "$(count_ev pending_orphaned)"
 assert_eq "orphan sid" sid-old "$(jq -r 'select(.event=="pending_orphaned")|.session_id' "$LOG")"
 assert_eq "orphan task stem" dotfiles--feat-old "$(jq -r 'select(.event=="pending_orphaned")|.task' "$LOG")"
 assert_eq "orphan marker true" true "$(jq -r 'select(.event=="pending_orphaned")|.marker' "$LOG")"
+
+echo "# reaper: dir holding an outstanding nudge logs ignored before removal"
+new_scenario
+mkold sid-out outstanding
+printf 'sweep' >"$CAP/sid-out/outstanding"; touch -d '8 days ago' "$CAP/sid-out/outstanding" "$CAP/sid-out"
+prompt "hi"
+assert_nofile "removed" "$CAP/sid-out"
+assert_eq "one ignored" 1 "$(count_ev ignored)"
+assert_eq "ignored sid" sid-out "$(jq -r 'select(.event=="ignored")|.session_id' "$LOG")"
+assert_eq "ignored source" sweep "$(jq -r 'select(.event=="ignored")|.source' "$LOG")"
 
 echo "# reaper: stale dir with nothing pending -> removed, no orphan log"
 new_scenario

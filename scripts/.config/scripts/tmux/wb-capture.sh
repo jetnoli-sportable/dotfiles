@@ -178,6 +178,9 @@ hook_posttool() {
   case "$INPUT" in *Decisions*) ;; *) return 0 ;; esac
   local cmd re
   cmd="$(jq_in '.tool_input.command // empty')"
+  # a newline separates commands too (multi-line Bash calls, as /wb-decide makes),
+  # and must stop the match from running on into a heredoc body
+  cmd="${cmd//$'\n'/;}"
   local q="'\""
   re='(^|[;&|(]|\$\()[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*([^[:space:];&|]*/)?wb[[:space:]]+append[[:space:]]([^;&|]*[[:space:]'"$q"'])?Decisions([[:space:]'"$q"']|$)'
   [[ "$cmd" =~ $re ]] || return 0
@@ -308,6 +311,8 @@ hook_end() {
   if [ "$m" = true ] || [ "$d" = true ]; then
     log_event "$SID" pending_at_end "" "{\"marker\":$m,\"draft\":$d}"
   fi
+  # a nudge whose turn never reached Stop gets no later prompt to resolve it
+  [ -e "$SDIR/outstanding" ] && resolve_ignored
   : >"$SDIR/ended" 2>/dev/null || true
 }
 
@@ -352,15 +357,19 @@ reap_stale() {
       { exec 8>"$sdir/.lock"; } 2>/dev/null || continue
       flock -n 8 2>/dev/null || { exec 8>&-; continue; }
     fi
+    tp="$(head -n1 "$sdir/taskpath" 2>/dev/null || true)"; tp="${tp##*/}"
+    TASK_STEM="${tp%.md}"
     if [ "$stale" = 1 ] && { [ -e "$sdir/marker" ] || [ -e "$sdir/draft" ]; }; then
       pm=false; pd=false
       [ -e "$sdir/marker" ] && pm=true
       [ -e "$sdir/draft" ] && pd=true
-      tp="$(head -n1 "$sdir/taskpath" 2>/dev/null || true)"; tp="${tp##*/}"
-      TASK_STEM="${tp%.md}"
       log_event "$name" pending_orphaned "" "{\"marker\":$pm,\"draft\":$pd}"
-      TASK_STEM="$saved_stem"
     fi
+    # an unresolved nudge is ignored, not silently dropped with the dir
+    if [ -e "$sdir/outstanding" ]; then
+      log_event "$name" ignored "$(cat "$sdir/outstanding" 2>/dev/null)"
+    fi
+    TASK_STEM="$saved_stem"
     reap_dir "$sdir"
     exec 8>&- 2>/dev/null
   done
@@ -431,6 +440,11 @@ cmd_clear_or_dismiss() { # <log-event|"">
   agent_session_dir
   local pending=0 f
   for f in marker draft outstanding; do [ -e "$SDIR/$f" ] && pending=1; done
+  # clear runs only after /wb-decide's write; if hook-posttool missed that
+  # command, the nudge still resolves (as followed) instead of vanishing
+  if [ -z "$1" ] && [ -e "$SDIR/outstanding" ]; then
+    log_event "$SID" followed "$(cat "$SDIR/outstanding" 2>/dev/null)"
+  fi
   remove_named "$SDIR" marker draft outstanding
   if [ "$1" = dismissed ] && [ "$pending" = 1 ]; then log_event "$SID" dismissed; fi
 }

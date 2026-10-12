@@ -126,12 +126,17 @@ run_wb /dev/null dismiss
 assert_eq "dismiss nothing pending: quiet" "" "$OUT"
 assert_eq "dismiss nothing pending: no new log" 1 "$(logn)"
 
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft" "$D/outstanding"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft"; printf sweep >"$D/outstanding"
 run_wb /dev/null clear; assert_eq "clear exit" 0 "$RC"
 assert_nofile "clear removes marker" "$D/marker"
 assert_nofile "clear removes draft" "$D/draft"
 assert_nofile "clear removes outstanding" "$D/outstanding"
-assert_eq "clear logs nothing" 0 "$(logn)"
+assert_eq "clear resolves outstanding: one log line" 1 "$(logn)"
+assert_eq "clear logs followed, not dismissed" followed "$(jq -r .event "$LOG")"
+assert_eq "clear keeps the nudge source" sweep "$(jq -r .source "$LOG")"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft"
+run_wb /dev/null clear
+assert_eq "clear with no outstanding logs nothing" 0 "$(logn)"
 
 echo "# session isolation"
 new_scenario; A="$(sdir sid-aaa)"; B="$(sdir sid-bbb)"; mkdir -p "$A" "$B"; touch "$A/marker" "$B/marker"
