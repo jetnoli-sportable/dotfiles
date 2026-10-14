@@ -1354,6 +1354,137 @@ wb_layout_session() {
   tmux select-window -t "=$session:1"
 }
 
+# _wb_new_interactive — true when `wb new` can put a question to a person.
+# Agents (the Bash tool) and handoff.sh's agent spawns have no terminal, so
+# they get the default answer instead of a menu nobody will see. A function,
+# not an inline test, so tests can force the menu on.
+_wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
+
+# _wb_new_start_point <repo_dir> <repo> <slug> <own_task_file> <depends_on_csv>
+# — print the ref a freshly created `wb new` branch should start from, or
+# nothing (git's implicit HEAD, the old behavior). A bare `worktree add -b`
+# bases every new branch on whatever the main checkout's HEAD happens to be:
+# a local default branch that often hasn't been pulled since the last merge
+# (handoffs repeatedly came up several PRs behind), and never the commits of
+# a blocker the task needs.
+#   - Only depends_on stacks. parent: is a family umbrella, not a predecessor
+#     whose commits a child needs; a child that really builds on its parent
+#     lists the parent in depends_on as well. Explicit --depends-on wins,
+#     otherwise the task file's own depends_on: (`wb new --planned
+#     --depends-on …` now, a plain `wb new` to start it later).
+#   - A blocker is usable when it is in this repo, not `done` (its commits
+#     are merged — the default branch has them), and its `branch:` exists
+#     locally or as origin/<branch>.
+#   - The default branch is always fetched first: it is the fallback, and
+#     each blocker's staleness is measured against it. It is resolved the
+#     same way as `wb sync` (origin/HEAD symref, then ls-remote), never
+#     hard-coded — Sportable repos use dev/development/main.
+#   - Usable blockers: with a terminal, a menu of each blocker (ahead/behind
+#     the default) plus the latest default; without one, the first blocker.
+#     A chosen blocker that is behind the default gets a rebase nudge — it is
+#     never rebased for you, its own worktree may be mid-work.
+#   - No usable blocker: origin/<default>. No origin, or no resolvable
+#     default: print nothing.
+_wb_new_start_point() {
+  local repo_dir="$1" repo="$2" slug="$3" own_file="$4" deps_csv="$5"
+  if [ -z "$deps_csv" ] && [ -f "$own_file" ]; then
+    deps_csv="$(wb_get_frontmatter "$own_file" depends_on)"
+  fi
+
+  local def=""
+  if git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
+    def="$(git -C "$repo_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+    def="${def#origin/}"
+    if [ -z "$def" ]; then
+      def="$(GIT_TERMINAL_PROMPT=0 git -C "$repo_dir" ls-remote --symref origin HEAD 2>/dev/null \
+        | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
+    fi
+    if [ -z "$def" ]; then
+      echo "wb new: warning: could not determine origin's default branch for $repo_dir — branching from local HEAD" >&2
+    else
+      # timeout bounds an unreachable remote or a stalled SSH auth, so a
+      # handoff spawn never hangs here.
+      local -a to=()
+      command -v timeout >/dev/null 2>&1 && to=(timeout 30)
+      local fetched=1
+      GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin "$def" 2>/dev/null || fetched=0
+      if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$def"; then
+        [ "$fetched" = 1 ] \
+          || echo "wb new: warning: git fetch origin $def failed — using the last-fetched origin/$def" >&2
+      else
+        echo "wb new: warning: git fetch origin $def failed and there is no cached origin/$def — branching from local HEAD" >&2
+        def=""
+      fi
+    fi
+  fi
+
+  local -a stems=() refs=() behinds=() aheads=()
+  local -a cands=()
+  [ -z "$deps_csv" ] || IFS=',' read -r -a cands <<< "$deps_csv"
+  local stem f br ref counts
+  for stem in "${cands[@]}"; do
+    read -r stem <<< "$stem"
+    f="$TASKS_DIR/$stem.md"
+    [ -n "$stem" ] && [ -f "$f" ] || continue
+    [ "$(wb_get_frontmatter "$f" repo)" = "$repo" ] || continue
+    [ "$(wb_get_frontmatter "$f" status)" != done ] || continue
+    br="$(wb_get_frontmatter "$f" branch)"
+    read -r br <<< "$br"
+    [ -n "$br" ] || continue
+    if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$br"; then
+      ref="$br"
+    elif git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$br"; then
+      ref="origin/$br"
+    else
+      continue
+    fi
+    counts=""
+    [ -z "$def" ] || counts="$(git -C "$repo_dir" rev-list --left-right --count "origin/$def...$ref" 2>/dev/null || true)"
+    stems+=("$stem"); refs+=("$ref")
+    behinds+=("$(awk '{print $1}' <<< "$counts")"); aheads+=("$(awk '{print $2}' <<< "$counts")")
+  done
+
+  if [ "${#refs[@]}" -eq 0 ]; then
+    [ -z "$def" ] || printf 'origin/%s\n' "$def"
+    return 0
+  fi
+
+  local pick=0 i n="${#refs[@]}"
+  if _wb_new_interactive; then
+    echo "wb new: $slug depends on unmerged work — branch from:" >&2
+    for ((i = 0; i < n; i++)); do
+      printf '  %d) %s  (%s%s)\n' "$((i + 1))" "${refs[$i]}" "${stems[$i]}" \
+        "${def:+, ${aheads[$i]:-?} ahead / ${behinds[$i]:-?} behind origin/$def}" >&2
+    done
+    [ -z "$def" ] || printf '  %d) origin/%s  (latest)\n' "$((n + 1))" "$def" >&2
+    local max=$n ans
+    [ -z "$def" ] || max=$((n + 1))
+    while :; do
+      read -r -p "Choice [1]: " ans || { ans=1; echo >&2; }
+      [ -n "$ans" ] || ans=1
+      case "$ans" in
+        *[!0-9]*) ;;
+        *) if [ "$ans" -ge 1 ] && [ "$ans" -le "$max" ]; then break; fi ;;
+      esac
+      echo "wb new: enter a number from 1 to $max" >&2
+    done
+    if [ "$ans" -gt "$n" ]; then
+      printf 'origin/%s\n' "$def"
+      return 0
+    fi
+    pick=$((ans - 1))
+  else
+    for ((i = 1; i < n; i++)); do
+      echo "wb new: note: $slug also depends on ${stems[$i]} (${refs[$i]}), which is not in its start point — merge it in if needed" >&2
+    done
+  fi
+
+  if [ -n "$def" ] && [ "${behinds[$pick]:-0}" != 0 ]; then
+    echo "wb new: note: ${refs[$pick]} (${stems[$pick]}) is ${behinds[$pick]} commit(s) behind origin/$def — consider rebasing it onto origin/$def, then $slug onto it" >&2
+  fi
+  printf '%s\n' "${refs[$pick]}"
+}
+
 cmd_new() {
   # Index/shift case parser, not a single-token foreach: --parent/--path take
   # their value as a separate following argument, and --depends-on is
@@ -1541,6 +1672,11 @@ cmd_new() {
     # creation path). Explicit wins; no blank-fill here — wb_seed_task_planned
     # deliberately leaves the template's own blank size: line as-is.
     [ -z "$size_value" ] || wb_set_frontmatter "$task_file" size "$size_value"
+    # --depends-on/--path: same explicit-wins rule. depends_on: is what a
+    # later plain `wb new` reads to stack the branch on its blocker
+    # (_wb_new_start_point), so dropping it here silently unstacks it.
+    [ -z "$depends_on_joined" ] || wb_set_frontmatter "$task_file" depends_on "$depends_on_joined"
+    [ -z "$path_stages" ] || wb_set_frontmatter "$task_file" path "$path_stages"
     if [ -n "$jira_url" ]; then
       wb_set_frontmatter "$task_file" jira "$jira_url"
       # Consume stdin regardless (a caller always pipes a body), but only
@@ -1564,7 +1700,18 @@ cmd_new() {
     if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$slug"; then
       git -C "$repo_dir" worktree add "$worktree_path" "$slug"
     else
-      git -C "$repo_dir" worktree add -b "$slug" "$worktree_path"
+      local own_file="${_WB_TASK_FILE_OVERRIDE:-$(wb_task_file "$repo" "$disp_slug")}"
+      local start_point
+      start_point="$(_wb_new_start_point "$repo_dir" "$repo" "$slug" "$own_file" "$depends_on_joined")"
+      if [ -n "$start_point" ]; then
+        echo "wb new: branching $slug from $start_point" >&2
+        # --no-track: branching from origin/<x> would otherwise make that
+        # remote branch the new branch's upstream, so a bare `git pull` /
+        # `git push` would target the default (or parent) branch.
+        git -C "$repo_dir" worktree add --no-track -b "$slug" "$worktree_path" "$start_point"
+      else
+        git -C "$repo_dir" worktree add -b "$slug" "$worktree_path"
+      fi
     fi
   fi
 
