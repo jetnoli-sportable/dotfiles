@@ -94,16 +94,25 @@ also how you resume a task after the session got closed without going
 through `wb done`.
 
 **Where a new branch starts.** When the slug's branch doesn't exist yet,
-`wb new` stacks it on the first `--depends-on` blocker (then `--parent`)
-that is in the same repo, isn't `done`, and has a `branch:` that exists
-locally or on origin — falling back to the task file's own `depends_on:` /
-`parent:` when no flag is passed, so `wb new --planned --depends-on …` now
-and a plain `wb new` later still stacks. With nothing to stack on it fetches
-and starts from `origin/<default>` (resolved from origin/HEAD, never
-hard-coded), not the main checkout's possibly-stale HEAD; a failed fetch
-warns and uses the last-fetched ref. It prints `wb new: branching <slug>
-from <ref>`, and the new branch gets no upstream. An already-existing branch
-is attached as-is.
+`wb new` first fetches `origin/<default>` (resolved from origin/HEAD, never
+hard-coded; a failed fetch warns and uses the last-fetched ref). Only
+`depends_on` decides the start point — `parent` never does, since a parent is
+a family umbrella; a child that builds on its parent lists it in
+`--depends-on` too. A blocker counts when it's in the same repo, isn't
+`done`, and its `branch:` exists locally or on origin; `--depends-on` wins,
+otherwise the task file's own `depends_on:` (so `wb new --planned
+--depends-on …` now and a plain `wb new` later still stacks).
+
+- **No usable blocker:** the branch starts from the latest `origin/<default>`.
+- **In a terminal:** a menu lists each blocker's branch with how far it is
+  ahead of / behind `origin/<default>`, plus the latest default; Enter picks
+  the first blocker.
+- **No terminal** (agents, handoff spawns): the first blocker, with a note
+  naming any other blocker that isn't included.
+
+A chosen blocker that is behind `origin/<default>` gets a rebase nudge; it
+is never rebased for you. `wb new` prints `branching <slug> from <ref>`, the
+new branch gets no upstream, and an already-existing branch is attached as-is.
 
 `--path`, `--depends-on` and `--size` are otherwise board-only metadata —
 they don't change how the task itself runs, only how `wb board --html`

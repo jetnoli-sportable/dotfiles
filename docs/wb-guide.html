@@ -348,15 +348,24 @@ worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through <code>wb done</code>.</p>
 <p><strong>Where a new branch starts.</strong> When the slug's branch doesn't exist yet,
-<code>wb new</code> stacks it on the first <code>--depends-on</code> blocker (then <code>--parent</code>)
-that is in the same repo, isn't <code>done</code>, and has a <code>branch:</code> that exists
-locally or on origin — falling back to the task file's own <code>depends_on:</code> /
-<code>parent:</code> when no flag is passed, so <code>wb new --planned --depends-on …</code> now
-and a plain <code>wb new</code> later still stacks. With nothing to stack on it fetches
-and starts from <code>origin/&lt;default&gt;</code> (resolved from origin/HEAD, never
-hard-coded), not the main checkout's possibly-stale HEAD; a failed fetch
-warns and uses the last-fetched ref. It prints <code>wb new: branching &lt;slug&gt; from &lt;ref&gt;</code>, and the new branch gets no upstream. An already-existing branch
-is attached as-is.</p>
+<code>wb new</code> first fetches <code>origin/&lt;default&gt;</code> (resolved from origin/HEAD, never
+hard-coded; a failed fetch warns and uses the last-fetched ref). Only
+<code>depends_on</code> decides the start point — <code>parent</code> never does, since a parent is
+a family umbrella; a child that builds on its parent lists it in
+<code>--depends-on</code> too. A blocker counts when it's in the same repo, isn't
+<code>done</code>, and its <code>branch:</code> exists locally or on origin; <code>--depends-on</code> wins,
+otherwise the task file's own <code>depends_on:</code> (so <code>wb new --planned --depends-on …</code> now and a plain <code>wb new</code> later still stacks).</p>
+<ul>
+<li><strong>No usable blocker:</strong> the branch starts from the latest <code>origin/&lt;default&gt;</code>.</li>
+<li><strong>In a terminal:</strong> a menu lists each blocker's branch with how far it is
+ahead of / behind <code>origin/&lt;default&gt;</code>, plus the latest default; Enter picks
+the first blocker.</li>
+<li><strong>No terminal</strong> (agents, handoff spawns): the first blocker, with a note
+naming any other blocker that isn't included.</li>
+</ul>
+<p>A chosen blocker that is behind <code>origin/&lt;default&gt;</code> gets a rebase nudge; it
+is never rebased for you. <code>wb new</code> prints <code>branching &lt;slug&gt; from &lt;ref&gt;</code>, the
+new branch gets no upstream, and an already-existing branch is attached as-is.</p>
 <p><code>--path</code>, <code>--depends-on</code> and <code>--size</code> are otherwise board-only metadata —
 they don't change how the task itself runs, only how <code>wb board --html</code>
 displays it (<code>--size</code> sets a node's scale and weight in the Family tab's

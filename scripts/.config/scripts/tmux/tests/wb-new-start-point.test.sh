@@ -73,7 +73,8 @@ REMOTE_TIP="$(git -C "$BARE" rev-parse development)"
 LOCAL_TIP="$(git -C "$PROJ" rev-parse development)"
 [ "$REMOTE_TIP" != "$LOCAL_TIP" ] || { echo "FAIL - fixture: local should be behind origin"; exit 1; }
 
-# a stacked blocker: local branch feat-a with one commit of its own
+# a stacked blocker: local branch feat-a with one commit of its own, cut from
+# the stale local default, so it is one commit behind origin/development
 git -C "$PROJ" branch -q feat-a
 git -C "$PROJ" worktree add -q "$FIXTURE_GIT/feat-a-wt" feat-a
 gitc -C "$FIXTURE_GIT/feat-a-wt" commit -q --allow-empty -m "feat-a work"
@@ -109,6 +110,8 @@ export CLAUDE_PROJECTS_DIR="$FIXTURE_PROJECTS"
 # shellcheck disable=SC1090
 source "$WB"
 set +e
+# No menu unless a test asks for one — even when this file runs in a terminal.
+_wb_new_interactive() { return 1; }
 
 # cmd_new ends in tmux_focus -> `tmux attach`, which fails without a client;
 # side effects (the branch's commit / upstream) are the real assertions.
@@ -122,23 +125,51 @@ assert_eq "plain: branched from the freshly fetched origin tip" "$REMOTE_TIP" "$
 assert "plain: says where it branched from" 'wb new: branching plain from origin/development' "$out"
 assert_eq "plain: no upstream set to origin/development (--no-track)" "" "$(upstream plain)"
 
-# --- --depends-on: stacks on the blocker's local branch ---------------------
-new --depends-on proj--feat-a proj stacked-dep >/dev/null
+# --- --depends-on: stacks on the blocker's local branch, nudges a rebase ----
+out="$(new --depends-on proj--feat-a proj stacked-dep)"
 assert_eq "--depends-on: stacked on the blocker's branch" "$FEAT_A_TIP" "$(tip stacked-dep)"
+assert "--depends-on: stale blocker gets a rebase nudge" \
+  'feat-a \(proj--feat-a\) is 1 commit\(s\) behind origin/development — consider rebasing' "$out"
 
-# --- --parent: stacks on the parent's branch --------------------------------
-new --parent proj--feat-a proj stacked-parent >/dev/null
-assert_eq "--parent: stacked on the parent's branch" "$FEAT_A_TIP" "$(tip stacked-parent)"
+# --- --parent alone never stacks: a parent is an umbrella, not a blocker ----
+new --parent proj--feat-a proj child-of-parent >/dev/null
+assert_eq "--parent alone: branched from origin/<default>, not the parent" "$REMOTE_TIP" "$(tip child-of-parent)"
 
-# --- planned first, started later: reads parent/depends_on from the file ----
-task proj--later planned proj "" "" proj--feat-a
+# --- planned first (real --planned path), started later ---------------------
+new --planned --depends-on proj--feat-a proj later >/dev/null
+assert_eq "planned: --depends-on persisted to the task file" "proj--feat-a" \
+  "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--later.md" depends_on)"
 new proj later >/dev/null
 assert_eq "planned-then-started: depends_on read from the task file" "$FEAT_A_TIP" "$(tip later)"
 
-# --- depends_on wins over parent; skips done / branchless / cross-repo ------
+# --- first usable depends_on entry; parent ignored; skips done / branchless /
+# cross-repo ------------------------------------------------------------------
 task proj--order planned proj "" proj--feat-remote "proj--shipped,proj--no-branch,other--feat-a,proj--feat-a"
 new proj order >/dev/null
-assert_eq "order: first usable depends_on entry wins over parent" "$FEAT_A_TIP" "$(tip order)"
+assert_eq "order: first usable depends_on entry wins, parent ignored" "$FEAT_A_TIP" "$(tip order)"
+
+# --- two usable blockers, no terminal: first one, and a note about the other -
+out="$(new --depends-on proj--feat-a --depends-on proj--feat-remote proj two-blockers)"
+assert_eq "two blockers: stacked on the first" "$FEAT_A_TIP" "$(tip two-blockers)"
+assert "two blockers: notes the one left out" 'also depends on proj--feat-remote \(origin/feat-remote\)' "$out"
+
+# --- with a terminal: a menu of the blockers plus the latest default --------
+_wb_new_interactive() { return 0; }
+out="$(printf '\n' | new --depends-on proj--feat-a proj menu-default)"
+assert_eq "menu: Enter picks the blocker" "$FEAT_A_TIP" "$(tip menu-default)"
+assert "menu: shows ahead/behind for the blocker" '1\) feat-a  \(proj--feat-a, 1 ahead / 1 behind origin/development\)' "$out"
+assert "menu: offers the latest default" '2\) origin/development  \(latest\)' "$out"
+out="$(printf '2\n' | new --depends-on proj--feat-a proj menu-latest)"
+assert_eq "menu: last option branches from origin/<default>" "$REMOTE_TIP" "$(tip menu-latest)"
+if printf '%s' "$out" | grep -q 'consider rebasing'; then
+  echo "FAIL - menu: no rebase nudge when the default was chosen"; fail=1
+else
+  echo "ok   - menu: no rebase nudge when the default was chosen"
+fi
+out="$(printf 'x\n9\n1\n' | new --depends-on proj--feat-a proj menu-retry)"
+assert_eq "menu: re-asks on bad input, then honors the choice" "$FEAT_A_TIP" "$(tip menu-retry)"
+assert "menu: says what input it wants" 'enter a number from 1 to 2' "$out"
+_wb_new_interactive() { return 1; }
 
 # --- blocker branch only on origin: uses origin/<branch> --------------------
 new --depends-on proj--feat-remote proj stacked-remote >/dev/null
