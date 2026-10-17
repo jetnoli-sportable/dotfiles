@@ -244,6 +244,17 @@ assert "injection: payload text reached the new pane" "PANE-INJECT-MARKER-eph" "
 # ephemeral path did NOT block on / enter the permission poll.
 refute "ephemeral: no permission handshake was attempted" "permission prompt" "$out"
 
+# payload that starts with `-` must land verbatim (send-keys needs `--` so tmux
+# does not parse it as flags; `-D...` would otherwise be an unknown-flag error).
+WTD="$(mk_worktree wtd)"
+SD="hp-dash-$$"
+FIXD="$(mk_pane_session "$SD" "$STUB_BOOT" "$WTD")"
+run_pane "$FIXD" --pane "-DASH-LEAD-MARKER --not-a-flag"
+NEWPANED="$(printf '%s' "$out" | grep -oE '%[0-9]+' | head -1)"
+sleep 1
+panetextd="$(tmux capture-pane -ep -t "$NEWPANED" 2>/dev/null | tail -n 20)"
+assert "dash payload: text starting with '-' landed verbatim in the new pane" "^-DASH-LEAD-MARKER --not-a-flag" "$panetextd"
+
 # ===========================================================================
 # Split direction is the flippable constant (KTD6)
 # ===========================================================================
@@ -402,11 +413,11 @@ else
 fi
 
 # injection shape: payload via one send-keys -l, Enter via a SEPARATE call.
-if grep -qF 'tmux send-keys -t "$pane" -l "$payload"' "$HANDOFF" \
+if grep -qF 'tmux send-keys -t "$pane" -l -- "$payload"' "$HANDOFF" \
    && grep -qF 'tmux send-keys -t "$pane" Enter' "$HANDOFF"; then
   echo "ok   - pane injection: payload via send-keys -l, Enter via a separate call"
 else
-  echo "FAIL - pane injection: expected a separate '-l \"\$payload\"' line and an 'Enter' line"
+  echo "FAIL - pane injection: expected a separate '-l -- \"\$payload\"' line and an 'Enter' line"
   fail=1
 fi
 
@@ -419,7 +430,7 @@ else
 fi
 
 # resend-Enter guard: at least two Enter sends follow the payload injection.
-enter_after_payload="$(awk '/-l "\$payload"/{f=1} f && /send-keys -t "\$pane" Enter/{c++} END{print c+0}' "$HANDOFF")"
+enter_after_payload="$(awk '/-l -- "\$payload"/{f=1} f && /send-keys -t "\$pane" Enter/{c++} END{print c+0}' "$HANDOFF")"
 if [ "$enter_after_payload" -ge 2 ]; then
   echo "ok   - pane injection resends Enter after a pause (dropped-first-Enter guard)"
 else
