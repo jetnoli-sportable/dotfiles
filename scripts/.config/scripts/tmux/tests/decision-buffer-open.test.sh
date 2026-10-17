@@ -389,6 +389,10 @@ rc_split=$?
 assert_eq "tmux open, split ok: exits 0" "0" "$rc_split"
 assert_eq "tmux open, split ok: records the split pane id" "%7" "$(state_field "$SPLIT_SF" pane_id)"
 assert_eq "tmux open, split ok: state rewritten as closed after the wait" "1" "$(state_field "$SPLIT_SF" closed)"
+# The stub prints a pane id whatever flags it gets; real tmux prints one
+# only for -P -F '#{pane_id}', so assert the flags or the empty-pane_id
+# hang could come back with this suite still green.
+assert "tmux open, split ok: asks split-window to print the pane id" '^split-window .*-P -F #\{pane_id\}' "$(grep '^split-window' "$SPLIT_LOG")"
 assert_eq "tmux open, split ok: never opens a new window" "0" "$(grep -c '^new-window' "$SPLIT_LOG" || true)"
 split_chan="$(chan_signalled_by "$SPLIT_LOG" split-window)"
 assert "tmux open, split ok: waits on the channel the split pane signals" "^wait-for ${split_chan}\$" "$(grep '^wait-for' "$SPLIT_LOG")"
@@ -409,6 +413,7 @@ assert_eq "tmux open, split fails: records the new window's pane id, never empty
 # here"), so the window must be addressed by the caller pane's window id.
 assert "tmux open, split fails: resolves the caller pane's window" '^display-message -p -t %0 #\{window_id\}' "$(cat "$FALLBACK_LOG")"
 assert "tmux open, split fails: new window opens right after the caller's window" '^new-window -a .*-t @3 ' "$(grep '^new-window' "$FALLBACK_LOG")"
+assert "tmux open, split fails: asks new-window to print the pane id" '^new-window .*-P -F #\{pane_id\}' "$(grep '^new-window' "$FALLBACK_LOG")"
 assert "tmux open, split fails: new window runs the same review-buffer command" "WB_REVIEW_BUFFER=1 .*$(basename "$FALLBACK_DOC"); tmux wait-for -S " "$(grep '^new-window' "$FALLBACK_LOG")"
 fb_chan="$(chan_signalled_by "$FALLBACK_LOG" new-window)"
 assert "tmux open, split fails: waits on the channel the new window signals" "^wait-for ${fb_chan}\$" "$(grep '^wait-for' "$FALLBACK_LOG")"
