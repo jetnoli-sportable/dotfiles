@@ -74,3 +74,13 @@ them without a deliberate reason.
   OWNED-ELSEWHERE (SW-6513), 4 NEEDS-A-PLAN (rugby nil-interface, TimeCorrector
   mutex, double-persist, delete-or-wire). It did NOT call the nil-interface or
   the mutex quick. — calibration
+
+## 2026-10-17 (dotfiles-scoped batch run — 51 planned + 38 files' Follow-ups → 7 PRs)
+
+- 2026-10-17 — Sizing worked: the classifiers fanned out to four parallel Sonnet agents (two over planned tasks, two over Follow-ups). The result was 9 QUICK-WIN, 3 OWNED-ELSEWHERE, about 40 ALREADY-DONE (nearly all Follow-ups bullets) and about 45 NEEDS-A-PLAN. Follow-ups blocks are mostly a journal: over 80% of bullets were done, promoted, or status notes. Run step-3 reconcile hard there. — batch run
+- 2026-10-17 — All 7 picks shipped as PRs (#74-#80) with no design surprise. That confirms "well-defined medium effort" (written fix direction + named test) as a valid QUICK-WIN band for agent execution, even though none were auto-lane eligible. — batch run
+- 2026-10-17 — Calibration miss, though the agent caught it: I pre-settled the lint-sections fence fork as "toggle only on a whole trimmed-line ``` match". The implementer correctly refused, because a ```bash opener would never open a fence and every real block would invert. An "A or B" fork pre-settled by the orchestrator without reading the code is still an open choice. Let the implementer settle it against the code and record it as a Decision. — fix-wb-lint-sections-hardening (#79)
+- 2026-10-17 — Two status-review traps:
+  (a) `wb done`/`wb status` hygiene: two planned tasks had already shipped (wb-save-resume-next-action, #43) or were fixed in an open PR (fix-wb-new-agent-stale-base, #73). ALREADY-DONE also covers tasks that are planned-but-shipped, so check `git log --grep` per planned task.
+  (b) `wb status <task> review` is refused once `wb new` has created a live session for the task. The orchestrator must flip each task with `wb down <session> --keep-session`, which sets review when the PR is open, doesn't kill the session, and is non-destructive. Don't brief subagents to run `wb status`. — batch run
+- 2026-10-17 — Parallelism hazard was smaller than feared: two PRs both editing wb.sh, in different functions, plus four PRs carrying docgen-regenerated INDEX/HUB/try-it drift, merged cleanly (`git merge-tree` dry run). Check with merge-tree before serializing on "same file" alone; serialize only on same-function or adjacent hunks. — batch run
