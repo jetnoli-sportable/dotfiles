@@ -93,7 +93,32 @@ worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through `wb done`.
 
-`--path`, `--depends-on` and `--size` are optional, board-only metadata —
+**Where a new branch starts.** When the slug's branch doesn't exist yet,
+`wb new` first fetches `origin/<default>` (resolved from origin/HEAD, never
+hard-coded; a failed fetch warns and uses the last-fetched ref). Only
+`depends_on` decides the start point — `parent` never does, since a parent is
+a family umbrella; a child that builds on its parent lists it in
+`--depends-on` too. A blocker counts when it's in the same repo, isn't
+`done`, its `branch:` exists locally or on origin, and that branch has no
+merged PR (a merged blocker whose task isn't `done` yet is skipped with a
+note to branch from the latest default instead; if `gh` can't tell, the
+blocker still counts); `--depends-on` wins,
+otherwise the task file's own `depends_on:` (so `wb new --planned
+--depends-on …` now and a plain `wb new` later still stacks).
+
+- **No usable blocker:** the branch starts from the latest `origin/<default>`.
+- **In a terminal:** a menu lists each blocker's branch with how far it is
+  ahead of / behind `origin/<default>`, plus the latest default; Enter picks
+  the first blocker. A menu with only one entry (a single blocker in a repo
+  with no origin) is skipped.
+- **No terminal** (agents, handoff spawns): the first blocker, with a note
+  naming any other blocker whose commits it doesn't already contain.
+
+A chosen blocker that is behind `origin/<default>` gets a rebase nudge; it
+is never rebased for you. `wb new` prints `branching <slug> from <ref>`, the
+new branch gets no upstream, and an already-existing branch is attached as-is.
+
+`--path`, `--depends-on` and `--size` are otherwise board-only metadata —
 they don't change how the task itself runs, only how `wb board --html`
 displays it (`--size` sets a node's scale and weight in the Family tab's
 Dependencies graph — see below):
@@ -649,6 +674,10 @@ and run the stop yourself.
 - Two people (or two panes) running `wb done` on the exact same session at
   the exact same time can still race each other. Unlikely on a
   single-operator machine, but worth knowing.
+- `wb new`'s start-point menu reads a leading-zero answer as octal: `08` or
+  `09` errors out (the branch then starts from local HEAD) and `010` picks
+  option 8. It only bites with eight or more blockers, so it's left as is —
+  type the plain number.
 
 ## Next steps
 
