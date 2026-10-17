@@ -519,5 +519,34 @@ mk_task 'proj--stage-parent.md' doing NOSUCHREPO somebranch
 assert "stage_state: session-less parent (placeholder repo) -> plan pending, no crash" '^pending$' \
   "$(wb_lifecycle_stage_state plan NOSUCHREPO somebranch .worktrees/x "$FIXTURE_TASKS/proj--stage-parent.md" doing '' "$default_path")"
 
+# --- pinned error text (byte-exact): every verb that resolves a session via
+# the shared helper must keep its own "wb <verb>:" prefix on all three errors.
+assert_eq() { # <desc> <expected> <actual>
+  if [ "$2" = "$3" ]; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1"
+    echo "       expected: $2"
+    echo "       got:      $3"
+    fail=1
+  fi
+}
+# reviewed
+out="$(unset TMUX; cmd_reviewed 2>&1)"
+assert_eq "reviewed: no session arg + no TMUX -> exact error" \
+  "wb reviewed: run inside the target session, or pass a session name" "$out"
+tmux new-session -d -s "${PREFIX}-pinbare" 2>/dev/null
+out="$(cmd_reviewed "${PREFIX}-pinbare" 2>&1)"
+assert_eq "reviewed: bare session -> exact error" \
+  "wb reviewed: ${PREFIX}-pinbare has no @wb_repo/@wb_slug — not a wb task session" "$out"
+tmux kill-session -t "=${PREFIX}-pinbare" 2>/dev/null || true
+tmux new-session -d -s "${PREFIX}-pinghost" 2>/dev/null
+tmux set-option -t "=${PREFIX}-pinghost:" @wb_repo proj >/dev/null
+tmux set-option -t "=${PREFIX}-pinghost:" @wb_slug feat/pin-nonexistent >/dev/null
+out="$(cmd_reviewed "${PREFIX}-pinghost" 2>&1)"
+assert_eq "reviewed: missing task file -> exact error" \
+  "wb reviewed: no task file for ${PREFIX}-pinghost ($FIXTURE_TASKS/proj--feat-pin-nonexistent.md)" "$out"
+tmux kill-session -t "=${PREFIX}-pinghost" 2>/dev/null || true
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
