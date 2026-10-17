@@ -34,7 +34,7 @@ Work starts with a one-week prototype: the real reader's first slice plus the pa
 Jet runs many Claude sessions in parallel through wb, the bash workbench under `scripts/.config/scripts/tmux/`. Three things work against them:
 
 - **Linux only.** wb depends on Linux-only behaviour in about thirty places. Examples: `flock`, `date -d`, `stat -c`, `/proc/<pid>/cmdline` in the lock layer, and bash 4+ features. macOS ships bash 3.2.
-- **Hard to reason about.** `wb.sh` is about 6,400 lines. Three separate awk-based frontmatter writers each encode the task-file format. The board takes about 11 seconds to render over roughly 360 task files.
+- **Hard to reason about.** `wb.sh` is about 6,900 lines. Three separate awk-based frontmatter writers each encode the task-file format. The board takes about 11 seconds to render over roughly 360 task files.
 - **The HTML board doesn't fit how Jet works.** `wb board --html` is a store-wide page that Jet doesn't use. What they actually reach for is one task or one family.
 
 The cost shows up each time Jet returns to a task. They rebuild its picture by hand:
@@ -121,7 +121,7 @@ flowchart LR
 
 - wb's day-to-day verbs and the task page work on Jet's Mac.
 - Jet says yes at the end of the prototype week, and goes on opening the task page during real sessions instead of scrolling for context.
-- The task-store logic lives in one typed component, and `wb.sh` is substantially smaller than its current ~6,400 lines.
+- The task-store logic lives in one typed component, and `wb.sh` is substantially smaller than its current ~6,900 lines.
 
 ### Scope Boundaries
 
@@ -152,7 +152,7 @@ flowchart LR
 - Whether `size`, `priority` and `value` are required with an empty default, or optional.
 - Whether `closed:` may be backfilled as an empty key. Today only `wb done` writes it.
 - How the `store-specialist` subagent relates to the Go store.
-- The deletion candidate list. Starting points from the adversarial read: `unsafe-rewind`, `install-hooks`, `agents --orphans`, the lock orphan auto-clear, the sweep buffer, `wb new`'s flags. `lint-sections` landed in #71 two days ago and is probably not a candidate.
+- The deletion candidate list. Starting points from the adversarial read: `unsafe-rewind`, `install-hooks`, `agents --orphans`, the lock orphan auto-clear, the sweep buffer, `wb new`'s flags. `lint-sections` landed in #71 on 2026-09-23 and is probably not a candidate.
 - The R16 convention for recording artifacts and decision reversals.
 - How R14's page refreshes: regenerate on change, or a local read-only server.
 - Where the Go code lives (this repo or its own module), following the existing Go tools' conventions.
@@ -162,6 +162,6 @@ flowchart LR
 - `~/code/tasks/dossiers/dotfiles--wb-future-direction/brainstorm-scratch/adversarial-bash-vs-go.md`: complexity split, deletion candidates, strangler sequencing.
 - `~/code/tasks/dossiers/dotfiles--wb-future-direction/brainstorm-scratch/wb-grounding.md`: command surface, skill × verb usage, hooks, locks, portability gaps.
 - `~/code/tasks/dossiers/dotfiles--wb-future-direction/brainstorm-scratch/pov-build-order.md`: per-direction assessment behind B'.
-- `scripts/.config/scripts/tmux/wb.sh` (frontmatter readers and writers around line 142; the `/proc` lock check around line 609) and `scripts/.config/scripts/tmux/wb-locks.sh` (side-car flock).
+- `scripts/.config/scripts/tmux/wb.sh` (frontmatter readers and writers around line 142; the `/proc` lock check around lines 646–675) and `scripts/.config/scripts/tmux/wb-locks.sh` (side-car flock).
 - `~/code/tasks/dossiers/dotfiles--spare-token-lanes/tools/build-index.py`: a working per-family page generated from task files.
 - Existing Go tools: `~/code/docgen` (Go 1.24, goldmark), `~/code/notes-tui` and `~/code/replay-tui` (Go 1.24, cobra).

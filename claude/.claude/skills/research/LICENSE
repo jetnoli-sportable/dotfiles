@@ -1,4 +1,5 @@
 Vendored from github.com/mattpocock/skills (skills/engineering/research, commit 49dd158) on 2026-10-18.
+Local change: added `disable-model-invocation: true` (2026-10-18), so it runs only as /research.
 
 MIT License
 
