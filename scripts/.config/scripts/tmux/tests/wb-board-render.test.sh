@@ -4,8 +4,9 @@
 # deleted the old 955-line wb-board-html.test.sh; this restores a floor of
 # render-output coverage: the pipeline runs, emits all three view containers,
 # and the tab badge equals the active+stale bucket count (R23). Fuller
-# coverage (R21 stale=red, R22 copy ids, escaping, per-view card counts, the
-# parent-cycle regression) is a tracked follow-up — see the task's Follow-ups.
+# coverage (R21 stale=red, R22 copy ids, escaping, per-view card counts) is a
+# tracked follow-up — see the task's Follow-ups. The parent-cycle regression
+# (RAIL_SEEN guard) now lives at the bottom of this file.
 #
 # Same convention as wb-board-model.test.sh (source wb.sh, fixture TASKS_DIR,
 # tmux/gh/git shims, plain assert helpers) — no bats.
@@ -1369,6 +1370,65 @@ wb_board_v2_dag_html fam11 DAG11_NODES DAG11_LAYER DAG11_ORDER DAG11_CRIT DAG11_
 unset -n _m_status _m_title _m_size _m_accept _m_plan_raw _m_stem_anchor
 
 assert "U4 DAG11: a back-edge renders with the warning class" 'dag-edge-warn' "$dag11_html"
+
+# --- parent-cycle regression: RAIL_SEEN guard in wb_board_v2_rail_node_html --
+# A hand-edited parent: loop must render each stem once, not recurse forever.
+# The fixture has to actually REACH the rail walk: a doing task in the loop
+# makes wb_board_v2_family_root fail open to a cycle member, which lands in
+# ACTIVE_FAMILY_ROOTS, so the rail recurses cyc-a -> cyc-b -> cyc-a... A
+# `cyc-tail` hanging off the loop (parent: cyc-a) is the tail-cycle shape.
+# Own fixture store so the main fixtures' counts above stay untouched. The
+# render runs in a subshell with FUNCNEST set so a missing guard fails fast
+# (recursion error) instead of hanging the suite.
+CYC_TASKS="$(mktemp -d -t wb-board-render-cyc.XXXXXX)"
+mk_cyc() { # <stem> <parent>
+  printf -- '---\nstatus: doing\npath:\nrepo: dotfiles\nbranch: feat/%s\nworktree: .worktrees/feat/%s\nparent: %s\n---\n# Cycle fixture %s\n' \
+    "$1" "$1" "$2" "$1" > "$CYC_TASKS/$1.md"
+  touch -d "1 days ago" "$CYC_TASKS/$1.md"
+}
+mk_cyc cyc-a cyc-b
+mk_cyc cyc-b cyc-a
+mk_cyc cyc-tail cyc-a
+cyc_render="$(
+  TASKS_DIR="$CYC_TASKS"
+  FUNCNEST=300
+  declare -a V2ROWS=()
+  declare -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=() \
+    M_DECISIONS_RAW=() M_LINKS_RAW=()
+  wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+    M_DECISIONS_RAW M_LINKS_RAW
+  declare -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
+    M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
+    M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
+    M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
+    STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
+    M_SIZE=() M_ACCEPT=()
+  wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+    M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
+    M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
+    M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
+    FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
+  wb_board_render_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
+    M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
+    M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
+    M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
+    FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT \
+    M_DECISIONS_RAW M_LINKS_RAW
+  echo "cyc-render-rc=$?"
+)"
+rm -rf "$CYC_TASKS"
+# Rail nodes as "<stem> <family>" pairs (family-node <summary> or leaf
+# rail-row). The Doing tree is built per active family root in a $(...)
+# subshell, so RAIL_SEEN is per root: the loop yields cyc-a as a root and
+# cyc-b as a root (the fail-open picks a different member per start), and
+# within each tree every stem must appear exactly once.
+cyc_pairs="$(printf '%s' "$cyc_render" | grep -oE '<(summary|div class="rail-row") data-stem="[^"]*" data-anchor="[^"]*" data-family="[^"]*"' \
+  | sed -E 's/.*data-stem="([^"]*)".*data-family="([^"]*)"/\1 \2/' | sort)"
+cyc_dups="$(printf '%s\n' "$cyc_pairs" | uniq -d)"
+assert "parent-cycle: render terminates and exits 0" 'cyc-render-rc=0' "$cyc_render"
+assert "parent-cycle: render emits closing </html>" '</html>' "$cyc_render"
+assert_eq "parent-cycle: no stem rendered twice within one rail tree" "" "$cyc_dups"
+assert_eq "parent-cycle: rail reached the loop (a, b, tail under each of the two roots)" "6" "$(printf '%s\n' "$cyc_pairs" | /usr/bin/grep -c '^cyc-')"
 
 echo
 if [ "$fail" = 0 ]; then echo "wb-board-render.test.sh: all assertions passed"
