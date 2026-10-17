@@ -3105,8 +3105,9 @@ _wb_breakdown_execute() {
     local deps; deps="$(_wb_bd_resolve_deps "$repo" "$deps_raw")"
     # Advisory only (D2 fail-open): warn, never abort, on a resolved dep
     # that is neither a checked sibling in this buffer nor an existing file.
-    local dep
-    for dep in ${deps//,/ }; do
+    local dep; local -a _dep_arr=()
+    IFS=, read -r -a _dep_arr <<<"$deps"
+    for dep in "${_dep_arr[@]}"; do
       case "$all_create_stems" in *" $dep "*) continue ;; esac
       [ -f "$TASKS_DIR/$dep.md" ] \
         || echo "wb breakdown --apply: warning: child n=$n ($raw) depends_on '$dep' matches neither a checked child in this buffer nor an existing task file (kept as-is; the board fails open on dangling deps)" >&2
