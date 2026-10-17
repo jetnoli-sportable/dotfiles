@@ -339,7 +339,8 @@ silently destroy, it opens the task file in a split for you to mark
 <pre><code>$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size XS|S|M|L|XL] &lt;slug&gt;
 $ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size XS|S|M|L|XL] &lt;repo&gt; &lt;slug&gt;
 </code></pre>
-<p>The slug becomes the git branch name, the worktree path
+<p>The slug becomes the git branch name (unless the task file already names a
+branch — see below), the worktree path
 (<code>.worktrees/&lt;slug&gt;</code>), and — sanitized (<code>/</code> and <code>.</code> → <code>-</code>) — the tmux
 session name and task filename. A slug like <code>feat/onboarding</code> is completely
 fine; it becomes session <code>reponame--feat-onboarding</code>.</p>
@@ -352,11 +353,30 @@ never reads stdin, so it is safe inside <code>while read … done &lt; file</cod
 The body lands only on a newly created file; re-running against an existing
 task never touches its body. (Breaking change: callers that used to pipe a
 body into <code>wb new --planned --jira</code> now need <code>--body -</code>.)</p>
+<p><strong>A pre-set <code>branch:</code> wins.</strong> Seeding tools often fill the task file's <code>branch:</code> with a name like
+<code>feat/onboarding</code> before <code>wb new</code> ever runs. <code>wb new</code> adopts it as the git
+branch — every branch-keyed lookup (PR chips, the open-PR check in <code>wb down</code>,
+<code>wb done</code>'s merged check, a dependent task's stacking) reads that field, so
+the branch has to actually exist under that name. The worktree directory,
+session and task filename stay slug-based. In order:</p>
+<ul>
+<li><strong>Not a valid branch name</strong> (<code>git check-ref-format --branch</code>): stops with
+an error before anything is created.</li>
+<li><strong>Checked out in another worktree:</strong> refused, naming that worktree.</li>
+<li><strong>Exists locally:</strong> attached as-is.</li>
+<li><strong>Exists only on origin</strong> (fetched on demand): checked out tracking it.</li>
+<li><strong>Otherwise:</strong> created from the start point below.</li>
+<li><strong>Blank <code>branch:</code>:</strong> unchanged — the slug is the branch, and the field is
+filled in.</li>
+</ul>
+<p>If a seeded value is wrong, fix it before starting the task:
+<code>wb set &lt;task&gt; branch &lt;name&gt;</code> (validated the same way; allowed on any task
+without a live session, like the other <code>wb set</code> fields).</p>
 <p>Re-running <code>wb new</code> on the same slug is safe — it reuses the existing
 worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through <code>wb done</code>.</p>
-<p><strong>Where a new branch starts.</strong> When the slug's branch doesn't exist yet,
+<p><strong>Where a new branch starts.</strong> When the branch doesn't exist yet,
 <code>wb new</code> first fetches <code>origin/&lt;default&gt;</code> (resolved from origin/HEAD, never
 hard-coded; a failed fetch warns and uses the last-fetched ref). Only
 <code>depends_on</code> decides the start point — <code>parent</code> never does, since a parent is

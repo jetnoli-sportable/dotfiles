@@ -125,6 +125,19 @@ check "live-agent: session with a real claude pane -> true" true \
 eval "$ORIG_PANES"
 kill_session withagent
 
+# --- wb_board_live_session_for: adopted branch (@wb_branch) vs legacy @wb_slug
+mk_session adopted proj feat-x            # @wb_slug = worktree slug
+tmux set-option -t "=${PREFIX}-adopted:" @wb_branch feat/x >/dev/null
+assert "live-session-for: adopted task found by real branch via @wb_branch" "^${PREFIX}-adopted\$" \
+  "$(wb_board_live_session_for proj feat/x)"
+assert "live-session-for: @wb_branch wins over @wb_slug (slug no longer matches)" '^NONE$' \
+  "$(wb_board_live_session_for proj feat-x; echo NONE)"
+kill_session adopted
+mk_session legacy proj feat/legacy        # only @wb_slug, pre-@wb_branch session
+assert "live-session-for: falls back to @wb_slug when @wb_branch unset" "^${PREFIX}-legacy\$" \
+  "$(wb_board_live_session_for proj feat/legacy)"
+kill_session legacy
+
 # =============================================================================
 # signals 3/4: wb_lifecycle_has_plan / wb_lifecycle_has_brainstorm
 # =============================================================================
