@@ -9,6 +9,11 @@
 #                                    same worktree-less/session-less path as --planned,
 #                                    but status: prospective (captured, not yet judged
 #                                    as work) — /park's work-shaped capture path
+#   wb new --planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>] ...
+#                                    --body - reads the ## Plan body from stdin, --body-file
+#                                    <path> from a file (mutually exclusive, planned/
+#                                    prospective only; new files only). Without one of them
+#                                    stdin is never read.
 #   wb                               the picker (replaces s + ca)
 #   wb help                          this verb list (also --help/-h); any other unknown
 #                                    token exits 2 rather than opening the picker
@@ -1235,10 +1240,10 @@ wb_seed_task_planned() {
 # values never carry backslashes. Writing <body> to a temp file with `printf
 # '%s'` (which never interprets backslashes in the value) and reading it back
 # with awk's `getline` (which reads literal lines, no escape processing)
-# avoids the mangling entirely. No-op when <body> is empty.
+# avoids the mangling entirely. No-op when <body> is empty or whitespace-only.
 _wb_insert_plan_body() {
   local file="$1" body="$2"
-  [ -n "$body" ] || return 0
+  [[ $body == *[![:space:]]* ]] || return 0
   local bodyfile; bodyfile="$(mktemp)"
   printf '%s\n' "$body" > "$bodyfile"
   awk -v bodyfile="$bodyfile" '
@@ -1534,8 +1539,9 @@ cmd_new() {
   # a foreach that only matches literal tokens (like --agent); the value
   # would fall into the else branch and corrupt the positional repo/slug
   # count.
-  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <repo> <slug>"
+  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <repo> <slug>"
   local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 prospective_flag=0 jira_url="" title_override="" size_value=""
+  local body_stdin=0 body_file=""
   local -a depends_on_stems=()
   local -a args=()
   while [ $# -gt 0 ]; do
@@ -1559,6 +1565,19 @@ cmd_new() {
           ''|--*) echo "wb new: --title requires a value" >&2; exit 1 ;;
         esac
         title_override="$2"; shift 2 ;;
+      # --body - / --body-file <path>: the ONLY ways a planned/prospective
+      # seed gets a ## Plan body. wb new never reads stdin implicitly — a
+      # non-tty stdin it did not ask for (a `while read … done < file` loop,
+      # a heredoc meant for something else) is left untouched.
+      --body)
+        [ "${2-}" = "-" ] \
+          || { echo "wb new: --body only accepts '-' (read the body from stdin); use --body-file <path> for a file" >&2; exit 1; }
+        body_stdin=1; shift 2 ;;
+      --body-file)
+        case "${2-}" in
+          ''|--*) echo "wb new: --body-file requires a path" >&2; exit 1 ;;
+        esac
+        body_file="$2"; shift 2 ;;
       --parent)
         case "${2-}" in
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
@@ -1599,6 +1618,21 @@ cmd_new() {
 
   if [ -n "$title_override" ] && [ "$planned_flag" != 1 ]; then
     echo "wb new: --title is only valid together with --planned (only a fresh, worktree-less seed has a title left to set)" >&2
+    exit 1
+  fi
+
+  if [ "$body_stdin" = 1 ] && [ -n "$body_file" ]; then
+    echo "wb new: --body - and --body-file are mutually exclusive" >&2
+    exit 1
+  fi
+
+  if { [ "$body_stdin" = 1 ] || [ -n "$body_file" ]; } && [ "$planned_flag" != 1 ]; then
+    echo "wb new: --body/--body-file are only valid together with --planned or --prospective (only a worktree-less seed has a ## Plan body to fill)" >&2
+    exit 1
+  fi
+
+  if [ -n "$body_file" ] && { [ ! -f "$body_file" ] || [ ! -r "$body_file" ]; }; then
+    echo "wb new: --body-file '$body_file' is not a readable file" >&2
     exit 1
   fi
 
@@ -1698,9 +1732,10 @@ cmd_new() {
     # a caller capturing `$(wb new --planned ...)` needs), mirroring
     # wb_seed_task_planned's own `echo "$file"` convention.
     #
+    # A `## Plan` body (--body -/--body-file, jira or not) lands on a new file, and
     # --jira <url> extends this path (KTD3) for wb-breakdown's ticket-parent
-    # seeding: stamps `jira:` and, if piped, lands a stdin `## Plan` body —
-    # an extension of this same locked seed, never a duplicate path.
+    # seeding: stamps `jira:` — an extension of this same locked seed, never
+    # a duplicate path.
     # wb_seed_task_planned's own fill-blanks-only semantics already give
     # KTD9's find-or-create behavior for free (an existing task at this
     # stem is reused, never overwritten).
@@ -1719,16 +1754,24 @@ cmd_new() {
     # (_wb_new_start_point), so dropping it here silently unstacks it.
     [ -z "$depends_on_joined" ] || wb_set_frontmatter "$task_file" depends_on "$depends_on_joined"
     [ -z "$path_stages" ] || wb_set_frontmatter "$task_file" path "$path_stages"
-    if [ -n "$jira_url" ]; then
-      wb_set_frontmatter "$task_file" jira "$jira_url"
-      # Consume stdin regardless (a caller always pipes a body), but only
-      # land it on a genuinely NEW file — KTD9's "reused fill-blanks-only,
-      # never overwritten" covers the body too, not just frontmatter.
-      # Re-running against an already-seeded ticket must never duplicate
-      # the body under ## Plan.
-      local ticket_body; ticket_body="$(cat)"
-      [ "$was_new" = 1 ] && _wb_insert_plan_body "$task_file" "$ticket_body"
+    [ -z "$jira_url" ] || wb_set_frontmatter "$task_file" jira "$jira_url"
+    # The ## Plan body comes ONLY from an explicit --body - (stdin) or
+    # --body-file <path>; without either flag stdin is never touched (an
+    # implicit read hung/swallowed input for non-tty callers such as a
+    # `while read … done < file` loop). The body lands only on a genuinely
+    # NEW file — KTD9's "reused fill-blanks-only, never overwritten" covers
+    # the body too, so re-running against an already-seeded task never
+    # duplicates it under ## Plan. --body - still consumes stdin on an
+    # existing file. Empty/whitespace-only input inserts nothing
+    # (_wb_insert_plan_body's own guard).
+    local ticket_body=""
+    if [ "$body_stdin" = 1 ]; then
+      ticket_body="$(cat)"
+    elif [ -n "$body_file" ]; then
+      ticket_body="$(cat "$body_file")" \
+        || { wb_task_lock_release "$task_file"; echo "wb new: could not read --body-file '$body_file'" >&2; exit 1; }
     fi
+    [ "$was_new" = 1 ] && [ -n "$ticket_body" ] && _wb_insert_plan_body "$task_file" "$ticket_body"
     wb_task_lock_release "$task_file"
     echo "$task_file"
     return 0

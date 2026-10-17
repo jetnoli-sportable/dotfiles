@@ -112,6 +112,7 @@ search `cmd_new`'s `--planned` branch, extended with `--jira`/`--title`):
 ```bash
 wb new --planned --jira "https://sportable.atlassian.net/browse/SFB-1234" \
   --title "Ticket summary text here" \
+  --body - \
   proj feat-ticket-slug <<'EOF'
 <ticket description, rendered to markdown>
 EOF
@@ -122,8 +123,10 @@ parent's title falls back to a mechanical slug-derived form
 (`feat-ticket-slug` → "feat ticket slug"), which is never what you want for
 a ticket-seeded parent. The description lands under the seeded parent's
 `## Plan`, exactly like the stdin body path `wb_seed_planned_child` uses
-for children — and, matching KTD9's find-or-create guarantee, both the
-title and the body land ONLY on a genuinely new file; re-running this same
+for children. **`--body -` is required to pass the description** (or
+`--body-file <path>`): `wb new` never reads stdin implicitly, so a heredoc
+without the flag is silently ignored. Matching KTD9's find-or-create
+guarantee, both the title and the body land ONLY on a genuinely new file; re-running this same
 command against an already-seeded ticket reuses the existing parent
 untouched (fill-blanks-only applies to frontmatter only — an existing
 file's title/body are never overwritten). Once the parent exists, continue

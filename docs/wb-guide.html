@@ -343,6 +343,15 @@ $ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--siz
 (<code>.worktrees/&lt;slug&gt;</code>), and — sanitized (<code>/</code> and <code>.</code> → <code>-</code>) — the tmux
 session name and task filename. A slug like <code>feat/onboarding</code> is completely
 fine; it becomes session <code>reponame--feat-onboarding</code>.</p>
+<p><code>wb new --planned|--prospective [--jira &lt;url&gt;] [--title &lt;text&gt;] [--body -|--body-file &lt;path&gt;] &lt;repo&gt; &lt;slug&gt;</code>
+seeds a worktree-less task file (no worktree, no session). Its <code>## Plan</code>
+body comes only from an explicit <code>--body -</code> (read from stdin, e.g. a
+heredoc) or <code>--body-file &lt;path&gt;</code> — the two are mutually exclusive and are
+errors outside <code>--planned</code>/<code>--prospective</code>. Without one of them <code>wb new</code>
+never reads stdin, so it is safe inside <code>while read … done &lt; file</code> loops.
+The body lands only on a newly created file; re-running against an existing
+task never touches its body. (Breaking change: callers that used to pipe a
+body into <code>wb new --planned --jira</code> now need <code>--body -</code>.)</p>
 <p>Re-running <code>wb new</code> on the same slug is safe — it reuses the existing
 worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
