@@ -93,7 +93,7 @@ mk_session a alpha child-a
 mk_session b beta  child-b
 
 out="$(collect_combined_rows)"
-assert "two siblings: earlier-created sibling (beta) is the anchor" $'^beta\t' "$out"
+assert "two siblings: earlier-created sibling (beta) is the anchor" $'^beta\t' "$(printf '%s\n' "$out" | head -1)"
 assert "two siblings: other sibling (alpha) carries the sibling marker" $'\nalpha\t.*\t1$' "$out"
 assert_not "two siblings: anchor row has no sibling marker" $'^beta\t.*\t1$' "$out"
 
@@ -113,7 +113,7 @@ mk_session c gamma child-e
 
 out="$(collect_combined_rows)"
 sib_count="$(printf '%s\n' "$out" | grep -cE $'\t1$')"
-assert "three siblings: anchor is the earliest-created (beta)" $'^beta\t' "$out"
+assert "three siblings: anchor is the earliest-created (beta)" $'^beta\t' "$(printf '%s\n' "$out" | head -1)"
 [ "$sib_count" -eq 2 ] && echo "ok   - three siblings: exactly two sibling sub-rows" || { echo "FAIL - three siblings: expected 2 sibling sub-rows, got $sib_count"; fail=1; }
 kill_sessions a b c
 
@@ -144,7 +144,7 @@ mk_task 'alpha--lone.md' alpha 'meta--nobody-else' 2026-07-01
 mk_session lone alpha lone
 
 out="$(collect_combined_rows)"
-assert "lone sibling: renders as a normal top-level row" $'^alpha\t' "$out"
+assert "lone sibling: renders as a normal top-level row" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
 assert_not "lone sibling: no sibling marker" $'\t1$' "$out"
 kill_sessions lone
 
@@ -153,7 +153,7 @@ mk_task 'alpha--noparent.md' alpha '' 2026-07-01
 mk_session noparent alpha noparent
 
 out="$(collect_combined_rows)"
-assert "no parent: renders unchanged" $'^alpha\t' "$out"
+assert "no parent: renders unchanged" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
 assert_not "no parent: no sibling marker" $'\t1$' "$out"
 kill_sessions noparent
 
@@ -162,7 +162,7 @@ mk_task 'alpha--self.md' alpha 'alpha--self' 2026-07-01
 mk_session self alpha self
 
 out="$(collect_combined_rows)"
-assert "self-reference: renders as a normal top-level row" $'^alpha\t' "$out"
+assert "self-reference: renders as a normal top-level row" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
 assert_not "self-reference: does not carry a sibling marker" $'\t1$' "$out"
 kill_sessions self
 
@@ -201,7 +201,7 @@ mk_session a alpha regress-a
 mk_session b beta  regress-b
 
 out="$(collect_combined_rows)"
-assert "regression: alpha present, top-level" $'^alpha\t' "$out"
+assert "regression: alpha present, top-level" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
 assert "regression: beta present, top-level" $'\nbeta\t' "$out"
 assert_not "regression: no sibling markers anywhere" $'\t1$' "$out"
 kill_sessions a b
