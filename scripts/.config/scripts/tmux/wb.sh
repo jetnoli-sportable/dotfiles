@@ -4572,7 +4572,7 @@ cmd_status() {
   esac
 
   local file
-  file="$(_wb_append_resolve_task "$query")" || exit 1
+  file="$(_wb_append_resolve_task "$query" "wb status")" || exit 1
 
   # Refuse when a live session's @task already points at this file — this
   # verb is for store-only tasks; a live session must route the change
@@ -4766,7 +4766,7 @@ cmd_set() {
   _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
 
   local file
-  file="$(_wb_append_resolve_task "$query")" || exit 1
+  file="$(_wb_append_resolve_task "$query" "wb set")" || exit 1
 
   # Refuse when a live session's @task already points at this file — this
   # verb is for store-only tasks.
