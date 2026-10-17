@@ -99,7 +99,10 @@ hard-coded; a failed fetch warns and uses the last-fetched ref). Only
 `depends_on` decides the start point — `parent` never does, since a parent is
 a family umbrella; a child that builds on its parent lists it in
 `--depends-on` too. A blocker counts when it's in the same repo, isn't
-`done`, and its `branch:` exists locally or on origin; `--depends-on` wins,
+`done`, its `branch:` exists locally or on origin, and that branch has no
+merged PR (a merged blocker whose task isn't `done` yet is skipped with a
+note to branch from the latest default instead; if `gh` can't tell, the
+blocker still counts); `--depends-on` wins,
 otherwise the task file's own `depends_on:` (so `wb new --planned
 --depends-on …` now and a plain `wb new` later still stacks).
 
@@ -108,7 +111,7 @@ otherwise the task file's own `depends_on:` (so `wb new --planned
   ahead of / behind `origin/<default>`, plus the latest default; Enter picks
   the first blocker.
 - **No terminal** (agents, handoff spawns): the first blocker, with a note
-  naming any other blocker that isn't included.
+  naming any other blocker whose commits it doesn't already contain.
 
 A chosen blocker that is behind `origin/<default>` gets a rebase nudge; it
 is never rebased for you. `wb new` prints `branching <slug> from <ref>`, the
@@ -670,6 +673,10 @@ and run the stop yourself.
 - Two people (or two panes) running `wb done` on the exact same session at
   the exact same time can still race each other. Unlikely on a
   single-operator machine, but worth knowing.
+- `wb new`'s start-point menu reads a leading-zero answer as octal: `08` or
+  `09` errors out (the branch then starts from local HEAD) and `010` picks
+  option 8. It only bites with eight or more blockers, so it's left as is —
+  type the plain number.
 
 ## Next steps
 

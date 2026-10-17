@@ -1373,8 +1373,11 @@ _wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
 #     otherwise the task file's own depends_on: (`wb new --planned
 #     --depends-on …` now, a plain `wb new` to start it later).
 #   - A blocker is usable when it is in this repo, not `done` (its commits
-#     are merged — the default branch has them), and its `branch:` exists
-#     locally or as origin/<branch>.
+#     are merged — the default branch has them), its `branch:` exists
+#     locally or as origin/<branch>, and that branch has no merged PR. A
+#     blocker whose PR merged before its task was marked done would start
+#     the branch on pre-squash copies of commits the default already has,
+#     so it is skipped with a note pointing at the latest default.
 #   - The default branch is always fetched first: it is the fallback, and
 #     each blocker's staleness is measured against it. It is resolved the
 #     same way as `wb sync` (origin/HEAD symref, then ls-remote), never
@@ -1391,21 +1394,21 @@ _wb_new_start_point() {
     deps_csv="$(wb_get_frontmatter "$own_file" depends_on)"
   fi
 
+  # timeout bounds an unreachable remote or a stalled SSH auth, so a handoff
+  # spawn never hangs on the ls-remote or the fetch.
+  local -a to=()
+  command -v timeout >/dev/null 2>&1 && to=(timeout 30)
   local def=""
   if git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
     def="$(git -C "$repo_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
     def="${def#origin/}"
     if [ -z "$def" ]; then
-      def="$(GIT_TERMINAL_PROMPT=0 git -C "$repo_dir" ls-remote --symref origin HEAD 2>/dev/null \
+      def="$(GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" ls-remote --symref origin HEAD 2>/dev/null \
         | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
     fi
     if [ -z "$def" ]; then
       echo "wb new: warning: could not determine origin's default branch for $repo_dir — branching from local HEAD" >&2
     else
-      # timeout bounds an unreachable remote or a stalled SSH auth, so a
-      # handoff spawn never hangs here.
-      local -a to=()
-      command -v timeout >/dev/null 2>&1 && to=(timeout 30)
       local fetched=1
       GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin "$def" 2>/dev/null || fetched=0
       if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$def"; then
@@ -1436,6 +1439,12 @@ _wb_new_start_point() {
     elif git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$br"; then
       ref="origin/$br"
     else
+      continue
+    fi
+    # "unknown" (no gh, no auth, offline) keeps the blocker: a wrong skip
+    # would silently drop commits the task needs.
+    if [ -n "$def" ] && [ "$(wb_pr_merge_status "$repo_dir" "$br")" = merged ]; then
+      echo "wb new: note: $stem's PR ($br) is already merged — its work is in origin/$def, so branch from the latest origin/$def instead (and \`wb done\` $stem)" >&2
       continue
     fi
     counts=""
@@ -1475,6 +1484,8 @@ _wb_new_start_point() {
     pick=$((ans - 1))
   else
     for ((i = 1; i < n; i++)); do
+      # Already inside the first blocker (stacked on it): nothing to merge.
+      git -C "$repo_dir" merge-base --is-ancestor "${refs[$i]}" "${refs[0]}" 2>/dev/null && continue
       echo "wb new: note: $slug also depends on ${stems[$i]} (${refs[$i]}), which is not in its start point — merge it in if needed" >&2
     done
   fi

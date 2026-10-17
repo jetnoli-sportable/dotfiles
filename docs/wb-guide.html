@@ -353,7 +353,10 @@ hard-coded; a failed fetch warns and uses the last-fetched ref). Only
 <code>depends_on</code> decides the start point — <code>parent</code> never does, since a parent is
 a family umbrella; a child that builds on its parent lists it in
 <code>--depends-on</code> too. A blocker counts when it's in the same repo, isn't
-<code>done</code>, and its <code>branch:</code> exists locally or on origin; <code>--depends-on</code> wins,
+<code>done</code>, its <code>branch:</code> exists locally or on origin, and that branch has no
+merged PR (a merged blocker whose task isn't <code>done</code> yet is skipped with a
+note to branch from the latest default instead; if <code>gh</code> can't tell, the
+blocker still counts); <code>--depends-on</code> wins,
 otherwise the task file's own <code>depends_on:</code> (so <code>wb new --planned --depends-on …</code> now and a plain <code>wb new</code> later still stacks).</p>
 <ul>
 <li><strong>No usable blocker:</strong> the branch starts from the latest <code>origin/&lt;default&gt;</code>.</li>
@@ -361,7 +364,7 @@ otherwise the task file's own <code>depends_on:</code> (so <code>wb new --planne
 ahead of / behind <code>origin/&lt;default&gt;</code>, plus the latest default; Enter picks
 the first blocker.</li>
 <li><strong>No terminal</strong> (agents, handoff spawns): the first blocker, with a note
-naming any other blocker that isn't included.</li>
+naming any other blocker whose commits it doesn't already contain.</li>
 </ul>
 <p>A chosen blocker that is behind <code>origin/&lt;default&gt;</code> gets a rebase nudge; it
 is never rebased for you. <code>wb new</code> prints <code>branching &lt;slug&gt; from &lt;ref&gt;</code>, the
@@ -1011,6 +1014,10 @@ teardown later, that's a small follow-up flag to add.</li>
 <li>Two people (or two panes) running <code>wb done</code> on the exact same session at
 the exact same time can still race each other. Unlikely on a
 single-operator machine, but worth knowing.</li>
+<li><code>wb new</code>'s start-point menu reads a leading-zero answer as octal: <code>08</code> or
+<code>09</code> errors out (the branch then starts from local HEAD) and <code>010</code> picks
+option 8. It only bites with eight or more blockers, so it's left as is —
+type the plain number.</li>
 </ul>
 <h2 id="next-steps">Next steps</h2>
 <h3 id="finding-parked-items-and-follow-ups">Finding parked items and follow-ups</h3>

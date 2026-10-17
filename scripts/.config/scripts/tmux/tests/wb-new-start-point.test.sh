@@ -102,6 +102,12 @@ task proj--feat-remote   doing   proj   feat-remote
 task proj--shipped       done    proj   feat-a
 task proj--no-branch     doing   proj   does-not-exist
 task other--feat-a       doing   other  feat-a
+# feat-base sits under feat-a (feat-a is stacked on it); feat-merged's PR merged
+# but its task was never marked done
+git -C "$PROJ" branch -q feat-base feat-a~1
+git -C "$PROJ" branch -q feat-merged feat-a
+task proj--feat-base     doing   proj   feat-base
+task proj--feat-merged   review  proj   feat-merged
 
 export CODE_DIR="$FIXTURE_CODE"
 export TASKS_DIR="$FIXTURE_TASKS"
@@ -112,6 +118,8 @@ source "$WB"
 set +e
 # No menu unless a test asks for one — even when this file runs in a terminal.
 _wb_new_interactive() { return 1; }
+# No network: only feat-merged has a merged PR.
+wb_pr_merge_status() { if [ "$2" = feat-merged ]; then echo merged; else echo not-merged; fi; }
 
 # cmd_new ends in tmux_focus -> `tmux attach`, which fails without a client;
 # side effects (the branch's commit / upstream) are the real assertions.
@@ -152,6 +160,21 @@ assert_eq "order: first usable depends_on entry wins, parent ignored" "$FEAT_A_T
 out="$(new --depends-on proj--feat-a --depends-on proj--feat-remote proj two-blockers)"
 assert_eq "two blockers: stacked on the first" "$FEAT_A_TIP" "$(tip two-blockers)"
 assert "two blockers: notes the one left out" 'also depends on proj--feat-remote \(origin/feat-remote\)' "$out"
+
+# --- second blocker already inside the first: no "merge it in" note -------
+out="$(new --depends-on proj--feat-a --depends-on proj--feat-base proj contains-base)"
+assert_eq "contained blocker: stacked on the first" "$FEAT_A_TIP" "$(tip contains-base)"
+if printf '%s' "$out" | grep -q 'also depends on proj--feat-base'; then
+  echo "FAIL - contained blocker: no note for a blocker the start point already has"; fail=1
+else
+  echo "ok   - contained blocker: no note for a blocker the start point already has"
+fi
+
+# --- blocker whose PR merged (task not yet done): skipped, latest default ---
+out="$(new --depends-on proj--feat-merged proj after-merged)"
+assert_eq "merged-PR blocker: branched from origin/<default>" "$REMOTE_TIP" "$(tip after-merged)"
+assert "merged-PR blocker: says to branch from the latest default" \
+  "proj--feat-merged's PR \\(feat-merged\\) is already merged — its work is in origin/development, so branch from the latest origin/development instead" "$out"
 
 # --- with a terminal: a menu of the blockers plus the latest default --------
 _wb_new_interactive() { return 0; }
