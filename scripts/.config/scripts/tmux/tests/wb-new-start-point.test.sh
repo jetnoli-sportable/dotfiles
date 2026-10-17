@@ -238,6 +238,90 @@ assert "unreachable origin: warns about the failed fetch" 'warning: git fetch or
 assert_eq "unreachable origin: still branches from cached origin/development" "$REMOTE_TIP2" "$(tip offline)"
 git -C "$PROJ" remote set-url origin "$BARE"
 
+# --- a task's pre-set branch: is adopted as the git branch ------------------
+# Seeding tools fill branch: (usually feat/…, fix/… — slash names) long before
+# `wb new`; the git branch must BE that name, or every branch-keyed lookup
+# (PR badge, wb down's open-PR check, a dependent's stacking) misses.
+fm() { wb_get_frontmatter "$FIXTURE_TASKS/$1.md" "$2"; }
+has_branch() { git -C "$PROJ" show-ref --verify --quiet "refs/heads/$1"; }
+task proj--adopt planned proj feat/adopt
+out="$(new proj adopt)"
+assert_eq "adopt: git branch is the pre-set name, from fresh origin" "$REMOTE_TIP2" "$(tip feat/adopt)"
+assert "adopt: says where it branched from" 'wb new: branching feat/adopt from origin/development' "$out"
+has_branch adopt && { echo "FAIL - adopt: no second, slug-named branch"; fail=1; } || echo "ok   - adopt: no second, slug-named branch"
+assert_eq "adopt: branch: left as the pre-set name" "feat/adopt" "$(fm proj--adopt branch)"
+assert_eq "adopt: worktree dir stays slug-based" ".worktrees/adopt" "$(fm proj--adopt worktree)"
+assert_eq "adopt: worktree is on the adopted branch" "feat/adopt" "$(git -C "$PROJ/.worktrees/adopt" rev-parse --abbrev-ref HEAD)"
+assert_eq "adopt: planned flips to doing" "doing" "$(fm proj--adopt status)"
+assert_eq "adopt: no upstream (--no-track)" "" "$(upstream feat/adopt)"
+
+# --- a dependent stacks on the ADOPTED branch (what #73 reads from branch:) --
+gitc -C "$PROJ/.worktrees/adopt" commit -q --allow-empty -m "adopt work"
+ADOPT_TIP="$(tip feat/adopt)"
+new --planned --depends-on proj--adopt proj after-adopt >/dev/null
+new proj after-adopt >/dev/null
+assert_eq "adopt: dependent stacks on the adopted branch's commits" "$ADOPT_TIP" "$(tip after-adopt)"
+
+# --- the pre-set branch also gets #73's depends_on stacking itself ----------
+task proj--adopt-stacked planned proj feat/adopt-stacked "" proj--feat-a
+new proj adopt-stacked >/dev/null
+assert_eq "adopt + depends_on: adopted branch cut from the blocker" "$FEAT_A_TIP" "$(tip feat/adopt-stacked)"
+
+# --- pre-set branch already exists locally: attached as-is ------------------
+git -C "$PROJ" branch -q feat/local-existing "$LOCAL_TIP"
+task proj--adopt-local planned proj feat/local-existing
+out="$(new proj adopt-local)"
+assert_eq "existing local branch: attached unchanged" "$LOCAL_TIP" "$(tip feat/local-existing)"
+assert_eq "existing local branch: worktree is on it" "feat/local-existing" "$(git -C "$PROJ/.worktrees/adopt-local" rev-parse --abbrev-ref HEAD)"
+has_branch adopt-local && { echo "FAIL - existing local branch: no slug-named branch"; fail=1; } || echo "ok   - existing local branch: no slug-named branch"
+
+# --- pre-set branch exists only on origin: checked out tracking it ----------
+# Pushed AFTER proj's last fetch, so this also covers the targeted fetch.
+git -C "$SEED" checkout -q -b feat/only-remote development
+gitc -C "$SEED" commit -q --allow-empty -m "only-remote work"
+git -C "$SEED" push -q origin feat/only-remote
+ONLY_REMOTE_TIP="$(git -C "$BARE" rev-parse feat/only-remote)"
+git -C "$PROJ" show-ref --verify --quiet refs/remotes/origin/feat/only-remote \
+  && { echo "FAIL - fixture: feat/only-remote should not be fetched yet"; fail=1; }
+task proj--adopt-remote planned proj feat/only-remote
+out="$(new proj adopt-remote)"
+assert_eq "remote-only branch: checked out at origin's tip" "$ONLY_REMOTE_TIP" "$(tip feat/only-remote)"
+assert_eq "remote-only branch: tracks origin/<branch>" "origin/feat/only-remote" "$(upstream feat/only-remote)"
+assert "remote-only branch: says it attached" 'attaching adopt-remote to existing origin/feat/only-remote' "$out"
+
+# --- invalid ref name: clear error, nothing created -------------------------
+task proj--adopt-bad planned proj 'bad..name'
+out="$(new proj adopt-bad)"
+assert "invalid ref: names the problem" "'bad\.\.name'.*not a valid git branch name" "$out"
+[ -d "$PROJ/.worktrees/adopt-bad" ] && { echo "FAIL - invalid ref: no worktree created"; fail=1; } || echo "ok   - invalid ref: no worktree created"
+assert_eq "invalid ref: task not flipped to doing" "planned" "$(fm proj--adopt-bad status)"
+
+# --- checked out in another worktree: refused, naming it --------------------
+task proj--adopt-busy planned proj feat-a
+out="$(new proj adopt-busy)"
+assert "checked out elsewhere: refused" "branch 'feat-a' is already checked out at $FIXTURE_GIT/feat-a-wt" "$out"
+[ -d "$PROJ/.worktrees/adopt-busy" ] && { echo "FAIL - checked out elsewhere: no worktree created"; fail=1; } || echo "ok   - checked out elsewhere: no worktree created"
+assert_eq "checked out elsewhere: task not flipped to doing" "planned" "$(fm proj--adopt-busy status)"
+
+# --- blank branch: unchanged — slug-named branch, field filled --------------
+task proj--adopt-blank planned proj ""
+new proj adopt-blank >/dev/null
+assert_eq "blank branch: slug-named branch from origin" "$REMOTE_TIP2" "$(tip adopt-blank)"
+assert_eq "blank branch: branch: filled with the slug" "adopt-blank" "$(fm proj--adopt-blank branch)"
+
+# --- resume/picker re-entry of an adopted task ------------------------------
+# cmd_resume and the picker pass the BRANCH as <slug> plus the task file; the
+# worktree dir and session must still be the slug-based ones from the first
+# `wb new`, not a nested .worktrees/feat/… and a differently named session.
+git -C "$PROJ" worktree remove "$PROJ/.worktrees/adopt"
+tmux kill-session -t "=proj--adopt" 2>/dev/null
+_WB_TASK_FILE_OVERRIDE="$FIXTURE_TASKS/proj--adopt.md" cmd_new proj feat/adopt >/dev/null 2>&1
+unset _WB_TASK_FILE_OVERRIDE
+assert_eq "resume: worktree recreated at the slug-based dir, on the adopted branch" "feat/adopt" \
+  "$(git -C "$PROJ/.worktrees/adopt" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+[ -d "$PROJ/.worktrees/feat" ] && { echo "FAIL - resume: no nested .worktrees/feat"; fail=1; } || echo "ok   - resume: no nested .worktrees/feat"
+tmux has-session -t "=proj--adopt" 2>/dev/null && echo "ok   - resume: session is the slug-named one" || { echo "FAIL - resume: session is the slug-named one"; fail=1; }
+
 # --- no origin at all: old behavior (local HEAD), silently ------------------
 mkdir -p "$FIXTURE_CODE/solo"
 git init -q -b development "$FIXTURE_CODE/solo"

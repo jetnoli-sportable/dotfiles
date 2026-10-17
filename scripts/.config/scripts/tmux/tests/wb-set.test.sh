@@ -205,6 +205,34 @@ out="$(cmd_set "set-h" bogus-field foo 2>&1)"; rc=$?
 assert_eq "refuses unknown field: exit 1" 1 "$rc"
 assert "refuses unknown field: message" "unknown field" "$out"
 
+out="$(cmd_set "set-h" worktree .worktrees/x 2>&1)"; rc=$?
+assert_eq "refuses worktree: exit 1" 1 "$rc"
+assert "refuses worktree: message" "not settable via" "$out"
+
+# =============================================================================
+# Scenario: branch is settable (a seeded slash name `wb new` adopts as the git
+# branch), validated as a real branch name, logged in Handoffs like the other
+# structural fields.
+# =============================================================================
+
+mk_task "proj--set-br.md" set-br
+out="$(cmd_set "set-br" branch feat/set-br 2>&1)"; rc=$?
+assert_eq "branch valid: exit 0" 0 "$rc"
+assert "branch valid: confirmation" "proj--set-br\.md branch 'set-br' -> 'feat/set-br'" "$out"
+assert_eq "branch valid: frontmatter updated" "feat/set-br" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-br.md" branch)"
+assert "branch valid: Handoffs entry appended" '`branch:` set to `feat/set-br`' "$(cat "$TASKS_DIR/proj--set-br.md")"
+
+for bad in 'has space' 'a..b' '-lead' 'trail/' 'x.lock' '@{-1}' 'we?ird'; do
+  out="$(cmd_set "set-br" branch "$bad" 2>&1)"; rc=$?
+  assert_eq "branch invalid '$bad': exit 1" 1 "$rc"
+  assert "branch invalid '$bad': message" "not a valid git branch name" "$out"
+done
+assert_eq "branch invalid: file untouched" "feat/set-br" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-br.md" branch)"
+
+out="$(cmd_set "set-br" branch --unset 2>&1)"; rc=$?
+assert_eq "branch --unset: exit 0" 0 "$rc"
+assert_eq "branch --unset: cleared" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-br.md" branch)"
+
 # =============================================================================
 # Scenario: no-op when unchanged.
 # =============================================================================

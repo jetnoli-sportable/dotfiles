@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # wb (workbench) — session-per-worktree + the unified picker.
 #   wb new [--agent] <slug>          from inside a repo
-#   wb new [--agent] <repo> <slug>   from anywhere
+#   wb new [--agent] <repo> <slug>   from anywhere (a task file's pre-set branch: is adopted as
+#                                    the git branch; the worktree dir stays slug-named)
 #   wb new --planned <repo> <slug>   seed a worktree-less task file only (status stays
 #                                    planned) — no worktree, no tmux session; the
 #                                    locked creation path agent-mediated skills use
@@ -32,7 +33,7 @@
 #                                    set one board-metadata frontmatter field on a store-only
 #                                    task, under the per-task lock — same live-session refusal
 #                                    as wb status; status/created/closed/reviewed/claude_sessions/
-#                                    repo/branch/worktree are refused (use their own verb instead)
+#                                    repo/worktree are refused (use their own verb instead)
 #                                    fields: @@WB_SET_FIELDS@@
 #   wb pr-open [<session>]           exit 0 if the session's branch has an open PR, 1 otherwise
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
@@ -1532,6 +1533,79 @@ _wb_new_start_point() {
   printf '%s\n' "${refs[$pick]}"
 }
 
+# _wb_new_checked_out_at <repo_dir> <branch> — print the path of the worktree
+# (the main checkout included) that has <branch> checked out, or nothing.
+_wb_new_checked_out_at() {
+  git -C "$1" worktree list --porcelain 2>/dev/null | awk -v ref="refs/heads/$2" '
+    $1 == "worktree" { sub(/^worktree /, ""); path = $0 }
+    $1 == "branch" && $2 == ref { print path; exit }'
+}
+
+# _wb_new_add_worktree <repo_dir> <repo> <slug> <branch> <worktree_path>
+#   <own_task_file> <depends_on_csv> — create <worktree_path> on <branch>.
+# <branch> is the task file's pre-set `branch:` when it has one (seeding
+# tools — wb breakdown, /handoff, weekly-review — fill it with names like
+# feat/foo or fix/foo long before `wb new` runs), otherwise the slug. Every
+# branch-keyed lookup (PR badges, the open-PR check in `wb down`, `wb done`'s
+# merged check, a dependent's stacking in _wb_new_start_point) reads that
+# `branch:`, so the git branch has to BE that name — creating a second,
+# slug-named branch left the field pointing at nothing.
+#   - Invalid ref name: stop before anything is created.
+#   - Already checked out in another worktree: refuse, naming it.
+#   - Exists locally: attach as-is.
+#   - Adopted (<branch> differs from the slug) and it exists only on origin:
+#     check it out tracking origin/<branch> — someone already pushed work
+#     under the name the task claims. Not done for a slug-named branch: a
+#     leftover remote branch from a finished task must not be resurrected by
+#     starting a fresh task under the same slug.
+#   - Otherwise a new branch from _wb_new_start_point.
+# The worktree directory stays slug-based either way.
+_wb_new_add_worktree() {
+  local repo_dir="$1" repo="$2" slug="$3" branch="$4" worktree_path="$5" own_file="$6" deps_csv="$7"
+
+  git -C "$repo_dir" check-ref-format --branch "$branch" >/dev/null 2>&1 \
+    || { echo "wb new: branch '$branch' (the task's branch: field) is not a valid git branch name — fix it with \`wb set <task> branch <name>\`" >&2; return 1; }
+
+  local elsewhere; elsewhere="$(_wb_new_checked_out_at "$repo_dir" "$branch")"
+  if [ -n "$elsewhere" ]; then
+    echo "wb new: branch '$branch' is already checked out at $elsewhere — use that worktree, or point the task at another branch (\`wb set <task> branch <name>\`)" >&2
+    return 1
+  fi
+
+  if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$repo_dir" worktree add "$worktree_path" "$branch"
+    return
+  fi
+
+  if [ "$branch" != "$slug" ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
+    if ! git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      # Not in the last fetch — it may have been pushed since. Fetch just this
+      # one branch, bounded like the default-branch fetch.
+      local -a to=()
+      command -v timeout >/dev/null 2>&1 && to=(timeout 30)
+      GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin \
+        "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || true
+    fi
+    if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      echo "wb new: attaching $slug to existing origin/$branch" >&2
+      git -C "$repo_dir" worktree add --track -b "$branch" "$worktree_path" "origin/$branch"
+      return
+    fi
+  fi
+
+  local start_point
+  start_point="$(_wb_new_start_point "$repo_dir" "$repo" "$branch" "$own_file" "$deps_csv")"
+  if [ -n "$start_point" ]; then
+    echo "wb new: branching $branch from $start_point" >&2
+    # --no-track: branching from origin/<x> would otherwise make that
+    # remote branch the new branch's upstream, so a bare `git pull` /
+    # `git push` would target the default (or parent) branch.
+    git -C "$repo_dir" worktree add --no-track -b "$branch" "$worktree_path" "$start_point"
+  else
+    git -C "$repo_dir" worktree add -b "$branch" "$worktree_path"
+  fi
+}
+
 cmd_new() {
   # Index/shift case parser, not a single-token foreach: --parent/--path take
   # their value as a separate following argument, and --depends-on is
@@ -1777,27 +1851,32 @@ cmd_new() {
     return 0
   fi
 
-  local session="${repo}--${disp_slug}"
-  local worktree_rel=".worktrees/$slug"
+  # The git branch is the task file's pre-set `branch:` when there is one
+  # (see _wb_new_add_worktree), else the slug. The worktree directory and the
+  # session name stay slug-based — except on a resume/picker re-entry
+  # (_WB_TASK_FILE_OVERRIDE), which passes the BRANCH as <slug>: there the
+  # task file's own worktree: names the directory, or an adopted
+  # feat/foo-style branch would resolve to a different path and session than
+  # the ones the task was started under.
+  local own_file="${_WB_TASK_FILE_OVERRIDE:-$(wb_task_file "$repo" "$disp_slug")}"
+  local branch="$slug" wt_slug="$slug" preset wt_field
+  if [ -f "$own_file" ]; then
+    preset="$(wb_get_frontmatter "$own_file" branch)"
+    read -r preset <<< "$preset"
+    [ -z "$preset" ] || branch="$preset"
+    if [ -n "${_WB_TASK_FILE_OVERRIDE:-}" ]; then
+      wt_field="$(wb_get_frontmatter "$own_file" worktree)"
+      read -r wt_field <<< "$wt_field"
+      case "$wt_field" in .worktrees/?*) wt_slug="${wt_field#.worktrees/}" ;; esac
+    fi
+  fi
+  local session="${repo}--$(wb_sanitize "$wt_slug")"
+  local worktree_rel=".worktrees/$wt_slug"
   local worktree_path="$repo_dir/$worktree_rel"
 
   if [ ! -d "$worktree_path" ]; then
-    if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$slug"; then
-      git -C "$repo_dir" worktree add "$worktree_path" "$slug"
-    else
-      local own_file="${_WB_TASK_FILE_OVERRIDE:-$(wb_task_file "$repo" "$disp_slug")}"
-      local start_point
-      start_point="$(_wb_new_start_point "$repo_dir" "$repo" "$slug" "$own_file" "$depends_on_joined")"
-      if [ -n "$start_point" ]; then
-        echo "wb new: branching $slug from $start_point" >&2
-        # --no-track: branching from origin/<x> would otherwise make that
-        # remote branch the new branch's upstream, so a bare `git pull` /
-        # `git push` would target the default (or parent) branch.
-        git -C "$repo_dir" worktree add --no-track -b "$slug" "$worktree_path" "$start_point"
-      else
-        git -C "$repo_dir" worktree add -b "$slug" "$worktree_path"
-      fi
-    fi
+    _wb_new_add_worktree "$repo_dir" "$repo" "$slug" "$branch" "$worktree_path" "$own_file" "$depends_on_joined" \
+      || exit 1
   fi
 
   # Unconditional, for the same self-healing reason as the ignore rule
@@ -1857,7 +1936,7 @@ cmd_new() {
   # exists — a trailing colon keeps the exact match (lib.sh's =name convention)
   # while giving it a valid target-pane shape.
   tmux set-option -t "=$session:" @wb_repo "$repo" >/dev/null
-  tmux set-option -t "=$session:" @wb_slug "$slug" >/dev/null
+  tmux set-option -t "=$session:" @wb_slug "$wt_slug" >/dev/null
   tmux set-option -t "=$session:" @task "$task_file" >/dev/null
   if [ "$is_new" = 1 ]; then
     # R9/U4: resolve what the agent window should pre-type. Only ever
@@ -4841,16 +4920,18 @@ _wb_tags_merge() {
 # (status: -> wb status/wb done, reviewed: -> wb reviewed, jira: creation ->
 # /wb-jira-create's `wb jira-set`, though jira: itself stays editable here
 # for a plain URL correction) and every field the tooling derives/stamps
-# itself (created/closed/claude_sessions/repo/branch/worktree).
-WB_SET_FIELDS="priority value size parent depends_on jira tags path"
+# itself (created/closed/claude_sessions/repo/worktree). branch: is settable
+# because seeding tools pre-fill it and `wb new` adopts it as the git branch —
+# a stale value has to be correctable before the worktree exists.
+WB_SET_FIELDS="priority value size parent depends_on jira tags path branch"
 
 # cmd_set <task-ref> <field> <value> — resolves <task-ref> the same way
 # cmd_status does (_wb_append_resolve_task), refuses a field this verb
 # doesn't own with a message naming the right verb (status:) or simply
 # saying it isn't settable here (created/closed/reviewed/claude_sessions/
-# repo/branch/worktree), refuses an unknown field, validates the value for
+# repo/worktree), refuses an unknown field, validates the value for
 # the fields that have an enum or a must-exist-in-$TASKS_DIR constraint
-# (priority/value/size/parent/depends_on/jira — same fail-loud-before-any-
+# (priority/value/size/parent/depends_on/jira/branch — same fail-loud-before-any-
 # write convention `wb new`'s --size/--depends-on validation uses), then
 # rewrites just that one frontmatter line under the per-task lock. Inserts
 # the field right after `size:` when it's missing entirely (priority:/
@@ -4859,7 +4940,7 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path"
 # (just before the closing `---`). No write when the value already
 # matches — except `--unset` on a key missing entirely, which inserts it
 # empty (schema backfill; silent, no Handoffs entry). Appends a terse Handoffs entry ONLY for
-# the three structural fields (parent/depends_on/jira) — priority/value/
+# the four structural fields (parent/depends_on/jira/branch) — priority/value/
 # size/tags/path are left silent, matching /wb-save's own signal-over-
 # noise posture for low-stakes board metadata.
 cmd_set() {
@@ -4874,11 +4955,11 @@ cmd_set() {
       echo "wb set: 'status' is not settable via \`wb set\` — use \`wb status\`/\`wb done\` instead" >&2
       exit 1
       ;;
-    created|closed|reviewed|claude_sessions|repo|branch|worktree)
+    created|closed|reviewed|claude_sessions|repo|worktree)
       echo "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)" >&2
       exit 1
       ;;
-    priority|value|size|parent|depends_on|jira|tags|path)
+    priority|value|size|parent|depends_on|jira|tags|path|branch)
       ;;
     *)
       echo "wb set: unknown field '$field' (allowed: $WB_SET_FIELDS)" >&2
@@ -4942,6 +5023,15 @@ cmd_set() {
           https://*) ;;
           *) echo "wb set: jira '$value' must start with https://" >&2; exit 1 ;;
         esac
+        ;;
+      branch)
+        # The name `wb new` will adopt as the git branch. `--branch` also
+        # expands @{-N} to a previous branch — reject any value it rewrites.
+        # -C /: the check needs no repo, and must not depend on the caller's
+        # cwd being one.
+        local _wb_set_ref
+        _wb_set_ref="$(git -C / check-ref-format --branch "$value" 2>/dev/null)" && [ "$_wb_set_ref" = "$value" ] \
+          || { echo "wb set: branch '$value' is not a valid git branch name" >&2; exit 1; }
         ;;
       tags|path) ;;   # free text — no enum, no existence check
     esac
@@ -5017,7 +5107,7 @@ cmd_set() {
 
   wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
   case "$field" in
-    parent|depends_on|jira)
+    parent|depends_on|jira|branch)
       if [ "$unset_req" -eq 1 ]; then
         wb_append_handoff "$file" "wb set" "\`$field:\` cleared via \`wb set --unset\` (was \`$old\`)."
       else

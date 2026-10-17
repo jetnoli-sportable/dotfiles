@@ -83,7 +83,8 @@ $ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size XS|S|M|L|X
 $ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size XS|S|M|L|XL] <repo> <slug>
 ```
 
-The slug becomes the git branch name, the worktree path
+The slug becomes the git branch name (unless the task file already names a
+branch — see below), the worktree path
 (`.worktrees/<slug>`), and — sanitized (`/` and `.` → `-`) — the tmux
 session name and task filename. A slug like `feat/onboarding` is completely
 fine; it becomes session `reponame--feat-onboarding`.
@@ -98,12 +99,32 @@ The body lands only on a newly created file; re-running against an existing
 task never touches its body. (Breaking change: callers that used to pipe a
 body into `wb new --planned --jira` now need `--body -`.)
 
+**A pre-set `branch:` wins.** Seeding tools often fill the task file's `branch:` with a name like
+`feat/onboarding` before `wb new` ever runs. `wb new` adopts it as the git
+branch — every branch-keyed lookup (PR chips, the open-PR check in `wb down`,
+`wb done`'s merged check, a dependent task's stacking) reads that field, so
+the branch has to actually exist under that name. The worktree directory,
+session and task filename stay slug-based. In order:
+
+- **Not a valid branch name** (`git check-ref-format --branch`): stops with
+  an error before anything is created.
+- **Checked out in another worktree:** refused, naming that worktree.
+- **Exists locally:** attached as-is.
+- **Exists only on origin** (fetched on demand): checked out tracking it.
+- **Otherwise:** created from the start point below.
+- **Blank `branch:`:** unchanged — the slug is the branch, and the field is
+  filled in.
+
+If a seeded value is wrong, fix it before starting the task:
+`wb set <task> branch <name>` (validated the same way; allowed on any task
+without a live session, like the other `wb set` fields).
+
 Re-running `wb new` on the same slug is safe — it reuses the existing
 worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through `wb done`.
 
-**Where a new branch starts.** When the slug's branch doesn't exist yet,
+**Where a new branch starts.** When the branch doesn't exist yet,
 `wb new` first fetches `origin/<default>` (resolved from origin/HEAD, never
 hard-coded; a failed fetch warns and uses the last-fetched ref). Only
 `depends_on` decides the start point — `parent` never does, since a parent is
