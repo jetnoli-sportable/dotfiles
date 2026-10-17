@@ -34,7 +34,7 @@ then writes `~/code/tasks/weeks/<ISO>-review.md` once you close the page.
 
 | Evidence step | Source |
 |---|---|
-| 1. Reconcile | `wb reconcile --machine` — task-store/git drift |
+| 1. Reconcile | `wb reconcile --machine` — task-store/git drift, plus report-only duplicate task claims (shared jira key, branch or worktree; doubled repo prefix) |
 | 2. Capture doc | `wb week record` — rolls up every unreviewed entry, marks it reviewed |
 | 3. Moved/merged | Last record's seeded tasks, checked against `status: done` / merged PRs |
 | 4. Skill usage | `scripts/.config/scripts/skill-usage.sh` — reproducible counts, stated blind spots |
