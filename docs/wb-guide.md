@@ -455,9 +455,9 @@ row of **repo chips**: `All`, then the five repos with the most tasks
 (`dotfiles` pinned first when present), then `other` — a real set of the
 remaining repos, plus tasks with no `repo:` at all. Below that, the rail
 shows a **Doing** tree — "All doing" first, then each family with active
-work as a collapsible node, its children nested — and two collapsed groups,
-**Next** (planned tasks) and **Shelf** (paused and prospective ones), with
-counts. Picking a row *scopes* the board: Active narrows to that task or
+work as a collapsible node, its children nested — and two groups,
+**Next** (planned tasks, collapsed by default) and **Shelf** (paused and
+prospective ones, expanded by default), with counts. Picking a row *scopes* the board: Active narrows to that task or
 family, Roadmap outlines the lane and dims the rest (never hides it — a
 roadmap of one lane is useless), Week auto-expands the picked task. "All
 doing" (or `a`) clears the scope. On the **Family** view the rail swaps to
