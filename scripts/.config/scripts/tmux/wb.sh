@@ -1235,10 +1235,10 @@ wb_seed_task_planned() {
 # values never carry backslashes. Writing <body> to a temp file with `printf
 # '%s'` (which never interprets backslashes in the value) and reading it back
 # with awk's `getline` (which reads literal lines, no escape processing)
-# avoids the mangling entirely. No-op when <body> is empty.
+# avoids the mangling entirely. No-op when <body> is empty or whitespace-only.
 _wb_insert_plan_body() {
   local file="$1" body="$2"
-  [ -n "$body" ] || return 0
+  [[ $body == *[![:space:]]* ]] || return 0
   local bodyfile; bodyfile="$(mktemp)"
   printf '%s\n' "$body" > "$bodyfile"
   awk -v bodyfile="$bodyfile" '
@@ -1698,9 +1698,10 @@ cmd_new() {
     # a caller capturing `$(wb new --planned ...)` needs), mirroring
     # wb_seed_task_planned's own `echo "$file"` convention.
     #
+    # A piped stdin `## Plan` body lands on a new file (jira or not), and
     # --jira <url> extends this path (KTD3) for wb-breakdown's ticket-parent
-    # seeding: stamps `jira:` and, if piped, lands a stdin `## Plan` body —
-    # an extension of this same locked seed, never a duplicate path.
+    # seeding: stamps `jira:` — an extension of this same locked seed, never
+    # a duplicate path.
     # wb_seed_task_planned's own fill-blanks-only semantics already give
     # KTD9's find-or-create behavior for free (an existing task at this
     # stem is reused, never overwritten).
@@ -1719,13 +1720,17 @@ cmd_new() {
     # (_wb_new_start_point), so dropping it here silently unstacks it.
     [ -z "$depends_on_joined" ] || wb_set_frontmatter "$task_file" depends_on "$depends_on_joined"
     [ -z "$path_stages" ] || wb_set_frontmatter "$task_file" path "$path_stages"
-    if [ -n "$jira_url" ]; then
-      wb_set_frontmatter "$task_file" jira "$jira_url"
-      # Consume stdin regardless (a caller always pipes a body), but only
-      # land it on a genuinely NEW file — KTD9's "reused fill-blanks-only,
-      # never overwritten" covers the body too, not just frontmatter.
-      # Re-running against an already-seeded ticket must never duplicate
-      # the body under ## Plan.
+    [ -z "$jira_url" ] || wb_set_frontmatter "$task_file" jira "$jira_url"
+    # A piped stdin body lands under ## Plan on every planned/prospective
+    # create, not just --jira ones (a non-jira `wb new --planned … <<BODY`
+    # used to discard it). Only read a non-tty stdin so an interactive
+    # `wb new --planned` never blocks on `cat`. Consume it regardless, but
+    # only land it on a genuinely NEW file — KTD9's "reused fill-blanks-only,
+    # never overwritten" covers the body too, not just frontmatter.
+    # Re-running against an already-seeded task must never duplicate the
+    # body under ## Plan. Empty/whitespace-only input inserts nothing
+    # (_wb_insert_plan_body's own guard).
+    if [ ! -t 0 ]; then
       local ticket_body; ticket_body="$(cat)"
       [ "$was_new" = 1 ] && _wb_insert_plan_body "$task_file" "$ticket_body"
     fi

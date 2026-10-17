@@ -499,4 +499,63 @@ tmux has-session -t "=proj--boot-fail" 2>/dev/null
 assert_eq "failing bootstrap entry: wb new still created the session" 0 $?
 tmux kill-session -t "=proj--boot-fail" 2>/dev/null
 
+# --- planned/prospective: piped stdin body lands under ## Plan (no --jira) ---
+# The fixture TEMPLATE has no "## Plan" heading (nothing above needed one);
+# the real TEMPLATE.md does, so give this block one.
+printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\nparent:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n\n## Done\n' \
+  > "$FIXTURE_TASKS/TEMPLATE.md"
+plan_body() { # <file> — the text between "## Plan" and the next "## " heading
+  awk '/^## Plan$/ {on=1; next} /^## / {on=0} on' "$1"
+}
+
+printf 'step one\nstep two with \\n and C:\\keep\n' | cmd_new --planned proj body-planned >/dev/null 2>&1
+assert "--planned piped body (no --jira): lands under ## Plan" 'step one' "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
+assert "--planned piped body: backslashes preserved verbatim" 'step two with \\n and C:\\keep' "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
+assert_eq "--planned piped body: no jira: stamped" "" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-planned.md" jira)"
+
+# re-run against the existing stem with a different body -> untouched
+# (compare the ## Plan body only: a re-run legitimately blank-fills schema
+# keys like reviewed:, which is frontmatter, not the body under test)
+before="$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
+printf 'REPLACEMENT body\n' | cmd_new --planned proj body-planned >/dev/null 2>&1
+assert_eq "--planned re-run on existing stem: body untouched (not duplicated/overwritten)" "$before" "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
+
+# --prospective shares the path -> same behavior, status stays prospective
+printf 'prospective body line\n' | cmd_new --prospective proj body-prospective >/dev/null 2>&1
+assert "--prospective piped body: lands under ## Plan" 'prospective body line' "$(plan_body "$FIXTURE_TASKS/proj--body-prospective.md")"
+assert_eq "--prospective piped body: status prospective" "prospective" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-prospective.md" status)"
+
+# --jira + body still works
+printf 'jira body line\n' | cmd_new --planned --jira https://x.atlassian.net/browse/SFB-1 proj body-jira >/dev/null 2>&1
+assert "--planned --jira piped body: lands under ## Plan" 'jira body line' "$(plan_body "$FIXTURE_TASKS/proj--body-jira.md")"
+assert_eq "--planned --jira piped body: jira: stamped" "https://x.atlassian.net/browse/SFB-1" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-jira.md" jira)"
+
+# --depends-on / --path alongside a piped body (the #73 half, end to end)
+printf 'dep body\n' | cmd_new --planned --depends-on proj--existing --path work proj body-dep >/dev/null 2>&1
+assert "--planned --depends-on + body: body lands" 'dep body' "$(plan_body "$FIXTURE_TASKS/proj--body-dep.md")"
+assert_eq "--planned --depends-on + body: depends_on: written" "proj--existing" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-dep.md" depends_on)"
+assert_eq "--planned --path + body: path: written" "work" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-dep.md" path)"
+
+# empty / whitespace-only stdin inserts nothing
+cmd_new --planned proj body-empty </dev/null >/dev/null 2>&1
+assert_eq "--planned </dev/null: Plan section empty" "" "$(plan_body "$FIXTURE_TASKS/proj--body-empty.md" | tr -d '[:space:]')"
+printf '  \n\n\t\n' | cmd_new --planned proj body-ws >/dev/null 2>&1
+assert_eq "--planned whitespace-only stdin: Plan section stays empty" "" "$(plan_body "$FIXTURE_TASKS/proj--body-ws.md" | tr -d '[:space:]')"
+
+# a never-closing, non-tty stdin must not be assumed absent: a body piped
+# from a slow writer is still read to EOF (here: writer finishes after a beat)
+( sleep 1; printf 'slow body\n' ) | cmd_new --planned proj body-slow >/dev/null 2>&1
+assert "--planned slow piped body: read to EOF" 'slow body' "$(plan_body "$FIXTURE_TASKS/proj--body-slow.md")"
+
+# interactive (tty) stdin: never read, never blocks. Needs a pty — `script`
+# provides one; stdin there is a tty, so cat would hang until the timeout.
+if command -v script >/dev/null 2>&1; then
+  timeout 20 script -qec "bash -c 'source \"$WB\" >/dev/null 2>&1; cmd_new --planned proj body-tty >/dev/null 2>&1; echo done-tty'" /dev/null </dev/null > "$FIXTURE_BIN/tty.out" 2>&1
+  assert "--planned on a tty stdin: returns without blocking" 'done-tty' "$(cat "$FIXTURE_BIN/tty.out")"
+  [ -f "$FIXTURE_TASKS/proj--body-tty.md" ] && echo "ok   - --planned on a tty stdin: task file created" \
+    || { echo "FAIL - --planned on a tty stdin: task file created"; fail=1; }
+else
+  echo "skip - no script(1) available for the tty-stdin check"
+fi
+
 exit "$fail"
