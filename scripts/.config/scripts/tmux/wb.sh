@@ -3715,7 +3715,7 @@ wb_append_handoff() {
 # instead of an Edit-tool write that bypasses every lock this plan built.
 # ---------------------------------------------------------------------------
 
-# _wb_append_resolve_task <query> — the file cmd_append should write into.
+# _wb_append_resolve_task <query> [<verb-label>] — the file cmd_append should write into.
 # Two-stage resolution:
 #   1. Exact fast path: <query> already names a real file directly (as
 #      given, or as "$TASKS_DIR/<query>", or "$TASKS_DIR/<query>.md") —
@@ -3732,7 +3732,7 @@ wb_append_handoff() {
 #      task file's basename — 0 or 2+ matches both fail loudly rather than
 #      guessing, never silently picking one.
 _wb_append_resolve_task() {
-  local query="${1:-}"
+  local query="${1:-}" verb="${2:-wb append}"
   [ -n "$query" ] || return 1
 
   if [ -f "$query" ]; then
@@ -3748,7 +3748,7 @@ _wb_append_resolve_task() {
     return 0
   fi
 
-  _wb_resolve_task_fuzzy "$query" "wb append"
+  _wb_resolve_task_fuzzy "$query" "$verb"
 }
 
 # cmd_append <task-ref> <heading> [<body>|-] — resolve <task-ref>
@@ -4234,7 +4234,7 @@ _wb_lint_sections_fix() {
 # wb_task_lock_acquire_guarded, then release on every exit path).
 _wb_lint_sections_fix_one() {
   local file_part="$1" expected_hash="$2" file
-  file="$(_wb_append_resolve_task "$file_part")" || {
+  file="$(_wb_append_resolve_task "$file_part" "wb lint-sections --fix")" || {
     echo "wb lint-sections --fix: no task matches '$file_part' — skipped" >&2
     return 1
   }
@@ -4309,7 +4309,7 @@ cmd_lint_sections() {
   if [ "${#refs[@]}" -gt 0 ]; then
     local r resolved
     for r in "${refs[@]}"; do
-      resolved="$(_wb_append_resolve_task "$r")" || exit 1
+      resolved="$(_wb_append_resolve_task "$r" "wb lint-sections")" || exit 1
       files+=("$resolved")
     done
   else
@@ -4369,7 +4369,7 @@ cmd_status() {
   esac
 
   local file
-  file="$(_wb_append_resolve_task "$query")" || exit 1
+  file="$(_wb_append_resolve_task "$query" "wb status")" || exit 1
 
   # Refuse when a live session's @task already points at this file — this
   # verb is for store-only tasks; a live session must route the change
@@ -4563,7 +4563,7 @@ cmd_set() {
   _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
 
   local file
-  file="$(_wb_append_resolve_task "$query")" || exit 1
+  file="$(_wb_append_resolve_task "$query" "wb set")" || exit 1
 
   # Refuse when a live session's @task already points at this file — this
   # verb is for store-only tasks.
