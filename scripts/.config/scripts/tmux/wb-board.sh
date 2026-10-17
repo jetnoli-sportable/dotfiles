@@ -957,7 +957,11 @@ wb_board_v2_age_label() {
 # the em-dash label instead, matching the mockup's no-Plan ring.
 wb_board_v2_ring_offset() {
   local checked="${1:-0}" total="${2:-0}"
-  [ "$total" -gt 0 ] || return 0
+  if [ "$total" -le 0 ]; then
+    # Empty total prints nothing; mirror that for the out-var form.
+    [ -z "${3:-}" ] || printf -v "$3" '%s' ''
+    return 0
+  fi
   local off=$(( 1068 * (total - checked) / total ))
   # perf(wb-board): optional <out_var> ($3), same convention as the helpers above.
   if [ -n "${3:-}" ]; then printf -v "$3" '%d.%d' $((off / 10)) $((off % 10))

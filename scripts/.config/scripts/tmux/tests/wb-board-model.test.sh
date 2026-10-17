@@ -472,6 +472,41 @@ assert_eq "tsv_split: empty string -> no fields" "0" "${#_tsv[@]}"
 wb_tsv_split $'x\ty\n\nz' _tsv
 assert_eq "tsv_split: blank line in a multi-line record adds no fields" "3|x|y|z" "${#_tsv[@]}|${_tsv[0]}|${_tsv[1]}|${_tsv[2]}"
 
+# Bytes the awk version passed through untouched: CR, backslash, valid
+# multibyte, and (under a UTF-8 locale) a line ending in an incomplete UTF-8
+# sequence, which a plain `read` loop would merge into / drop from the record
+# stream. The incomplete-byte cases run under a real UTF-8 locale when the
+# image has one, and under C regardless.
+wb_tsv_split $'a\rb\t\\c\td\xc3\xa9\t' _tsv
+assert_eq "tsv_split: CR, backslash, valid multibyte pass through" \
+  "4|a"$'\r'"b|\\c|d"$'\xc3\xa9'"|" "${#_tsv[@]}|${_tsv[0]}|${_tsv[1]}|${_tsv[2]}|${_tsv[3]}"
+for _loc in C en_US.UTF-8 C.UTF-8; do
+  [ "$_loc" = C ] || locale -a 2>/dev/null | /usr/bin/grep -qix "${_loc/UTF-8/utf8}\|$_loc" || continue
+  _saved_lc="${LC_ALL-}"; _had_lc="${LC_ALL+x}"
+  export LC_ALL="$_loc"
+  {
+    wb_tsv_split $'a\tb\xc3' _t
+    assert_eq "tsv_split [$_loc]: trailing incomplete UTF-8 byte keeps both fields" "2|a|b"$'\xc3' "${#_t[@]}|${_t[0]}|${_t[1]}"
+    wb_tsv_split $'\xc3' _t
+    assert_eq "tsv_split [$_loc]: a lone incomplete byte is one field" "1|"$'\xc3' "${#_t[@]}|${_t[0]}"
+    wb_tsv_split $'x\ny\xe2\x80' _t
+    assert_eq "tsv_split [$_loc]: incomplete 3-byte tail on the last line keeps the record" "2|x|y"$'\xe2\x80' "${#_t[@]}|${_t[0]}|${_t[1]}"
+    wb_tsv_split $'\r\xf0\x9f\n\xffa' _t
+    assert_eq "tsv_split [$_loc]: incomplete bytes before a newline do not merge records" "2|"$'\r\xf0\x9f'"|"$'\xffa' "${#_t[@]}|${_t[0]}|${_t[1]}"
+    assert_eq "tsv_split [$_loc]: LC_ALL is restored after the call" "$_loc" "$LC_ALL"
+  }
+  if [ -n "$_had_lc" ]; then export LC_ALL="$_saved_lc"; else unset LC_ALL; fi
+done
+
+# wb_board_v2_ring_offset: stdout and out-var forms agree, including the
+# empty-total path (prints nothing / sets the out-var empty, never leaves it stale).
+_ro="stale"
+wb_board_v2_ring_offset 0 0 _ro
+assert_eq "ring_offset: total<=0 sets the out-var empty (not stale)" "" "$_ro"
+assert_eq "ring_offset: total<=0 prints nothing" "" "$(wb_board_v2_ring_offset 0 0)"
+wb_board_v2_ring_offset 1 4 _ro
+assert_eq "ring_offset: out-var matches stdout" "$(wb_board_v2_ring_offset 1 4)" "$_ro"
+
 # wb_board_v2_fill_template: a far-from-the-start first token (the real page's
 # static CSS/JS head), multibyte head text, an unknown token left literal, and
 # a literal `@@` inside a substituted value that must not be rescanned.
