@@ -152,5 +152,97 @@ fi
 
 rm -rf "$CLEAN_CODE" "$CLEAN_TASKS"
 
+# =============================================================================
+# Duplicate detection (report-only, third finding kind): same jira on 2+
+# non-done tasks, same branch/worktree claimed twice in one repo, doubled repo
+# prefix in a task filename. Done tasks and legit same-base branches are NOT
+# flagged. Uses its own fixture store; no git repos needed (frontmatter only),
+# so wb_reconcile_repos yields nothing and orphan/missing stay empty.
+# =============================================================================
+DUP_TASKS="$(mktemp -d -t wb-reconcile-dup-tasks.XXXXXX)"
+DUP_CODE="$(mktemp -d -t wb-reconcile-dup-code.XXXXXX)"
+TASKS_DIR="$DUP_TASKS"
+CODE_DIR="$DUP_CODE"
+wb_reconcile_repos() { :; }
+mk_dup() { # <file> <status> <repo> <branch> <worktree> <jira>
+  printf -- '---\nstatus: %s\npath:\nrepo: %s\nbranch: %s\nworktree: %s\njira: %s\ntags: []\ncreated: 2026-10-01\nclosed:\n---\n# T\n' \
+    "$2" "$3" "$4" "$5" "$6" > "$DUP_TASKS/$1"
+}
+# (a) same jira: one bare key, one URL form of the same key -> flagged once
+mk_dup 'proj--jira-a.md' doing proj branch-ja '.worktrees/ja' 'SFB-100'
+mk_dup 'proj--jira-b.md' planned proj branch-jb '.worktrees/jb' 'https://x.atlassian.net/browse/SFB-100'
+# (b) same branch / same worktree, same repo
+mk_dup 'proj--br-a.md' doing proj shared-branch '.worktrees/wt-a' ''
+mk_dup 'proj--br-b.md' paused proj shared-branch '.worktrees/wt-b' ''
+mk_dup 'proj--wt-a.md' doing proj branch-w1 '.worktrees/shared-wt' ''
+mk_dup 'proj--wt-b.md' doing proj branch-w2 '.worktrees/shared-wt' ''
+# (c) doubled repo prefix in the filename
+mk_dup 'proj--proj--stutter.md' planned proj stutter-br '.worktrees/stutter' ''
+# negatives: same branch name in a DIFFERENT repo; a done task sharing
+# jira/branch/worktree with a live one; a doubled-prefix done file
+mk_dup 'other--br-a.md' doing other shared-branch '.worktrees/other-a' ''
+mk_dup 'proj--old-done.md' done proj shared-branch '.worktrees/shared-wt' 'SFB-100'
+mk_dup 'proj--proj--old-stutter.md' done proj old-stutter-br '.worktrees/old-stutter' ''
+mk_dup 'proj--solo.md' doing proj solo-br '.worktrees/solo' 'SFB-200'
+
+# every fixture worktree exists on disk, so no "missing" rows muddy the output
+for wt in ja jb wt-a wt-b shared-wt stutter other-a old-stutter solo; do
+  mkdir -p "$DUP_CODE/proj/.worktrees/$wt" "$DUP_CODE/other/.worktrees/$wt"
+done
+out_d="$(cmd_reconcile --machine 2>&1)"; rc_d=$?
+[ "$rc_d" -eq 0 ] || { echo "FAIL - dup machine mode exit code $rc_d"; fail=1; }
+assert "dup machine: jira class, key normalised across bare key and URL, both tasks listed" \
+  '^duplicate	jira	proj	SFB-100	.*proj--jira-a\.md,.*proj--jira-b\.md$' "$out_d"
+assert "dup machine: branch class (same repo)" \
+  '^duplicate	branch	proj	shared-branch	.*proj--br-a\.md,.*proj--br-b\.md$' "$out_d"
+assert "dup machine: worktree class (same repo)" \
+  '^duplicate	worktree	proj	\.worktrees/shared-wt	.*proj--wt-a\.md,.*proj--wt-b\.md$' "$out_d"
+assert "dup machine: prefix class" \
+  '^duplicate	prefix	proj	proj--proj--stutter	.*proj--proj--stutter\.md$' "$out_d"
+assert "dup machine: exactly 4 duplicate rows" '^4$' "$(printf '%s\n' "$out_d" | /usr/bin/grep -c '^duplicate	')"
+for neg in 'other--br-a' 'old-done' 'old-stutter' 'proj--solo' 'SFB-200'; do
+  if printf '%s' "$out_d" | /usr/bin/grep -q "$neg"; then
+    echo "FAIL - dup negative: '$neg' must not be flagged"; fail=1
+  else
+    echo "ok   - dup negative: '$neg' not flagged (other repo / done / unique)"
+  fi
+done
+
+out_dh="$(cmd_reconcile 2>&1)"; rc_dh=$?
+[ "$rc_dh" -eq 0 ] || { echo "FAIL - dup human mode exit code $rc_dh"; fail=1; }
+assert "dup human: section header" 'Duplicate task claims \(report-only\):' "$out_dh"
+assert "dup human: header row" 'CLASS +REPO +KEY +TASKS' "$out_dh"
+assert "dup human: jira row lists basenames, comma-joined" 'jira +proj +SFB-100 +proj--jira-a, proj--jira-b' "$out_dh"
+assert "dup human: prefix row" 'prefix +proj +proj--proj--stutter +proj--proj--stutter' "$out_dh"
+if printf '%s' "$out_dh" | /usr/bin/grep -q 'no drift found'; then
+  echo "FAIL - dup human: duplicates present but 'no drift found' printed"; fail=1
+else
+  echo "ok   - dup human: not reported as no-drift"
+fi
+
+# Only-live-unique store: no duplicates -> existing 'no drift found' output.
+rm -f "$DUP_TASKS"/proj--jira-b.md "$DUP_TASKS"/proj--br-b.md "$DUP_TASKS"/proj--wt-b.md "$DUP_TASKS"/proj--proj--stutter.md
+assert "dup cleared: human mode back to no drift" 'no drift found' "$(cmd_reconcile 2>&1)"
+if [ -z "$(cmd_reconcile --machine 2>&1)" ]; then
+  echo "ok   - dup cleared: machine mode prints nothing"
+else
+  echo "FAIL - dup cleared: machine mode not empty"; fail=1
+fi
+
+# The review-doc generator never sees duplicate rows (they have no action).
+mk_dup 'proj--jira-b.md' planned proj branch-jb '.worktrees/jb' 'SFB-100'
+mk_dup 'proj--ghost2.md' doing proj ghost2-br '.worktrees/ghost2' ''   # missing worktree -> a real review finding
+REVIEW_PATH="$DUP_TASKS/review.md"
+wb_reconcile_report_path() { printf '%s\n' "$REVIEW_PATH"; }
+wb_open_buffer() { :; }
+wb_reconcile_generate_review >/dev/null 2>&1
+if /usr/bin/grep -q 'ghost2' "$REVIEW_PATH" && ! /usr/bin/grep -qi 'duplicate\|SFB-100\|jira-b' "$REVIEW_PATH"; then
+  echo "ok   - review doc excludes duplicate findings (still has the real missing one)"
+else
+  echo "FAIL - review doc must hold the missing finding and no duplicate findings"; fail=1
+fi
+
+rm -rf "$DUP_TASKS" "$DUP_CODE"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
