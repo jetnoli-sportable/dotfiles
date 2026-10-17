@@ -5096,26 +5096,6 @@ cmd_set() {
   # verb is for store-only tasks.
   _wb_refuse_if_live_session "$file" "wb set"
 
-  # branch: with a worktree already on disk — every branch-keyed lookup (PR
-  # badge, wb down, wb done) follows the field, while resume reattaches the
-  # existing dir without checking its branch. So the only legal value is the
-  # branch actually checked out there (the real repair case: field says
-  # feat/x, worktree is on feat-x). No worktree dir: free to change.
-  if [ "$field" = "branch" ]; then
-    local _wb_set_repo _wb_set_wt _wb_set_dir _wb_set_cur
-    _wb_set_repo="$(wb_get_frontmatter "$file" repo)"; read -r _wb_set_repo <<< "$_wb_set_repo"
-    _wb_set_wt="$(wb_get_frontmatter "$file" worktree)"; read -r _wb_set_wt <<< "$_wb_set_wt"
-    if [ -n "$_wb_set_repo" ] && _wb_safe_worktree_field "$_wb_set_wt" \
-        && [ -d "$CODE_DIR/$_wb_set_repo/$_wb_set_wt" ]; then
-      _wb_set_dir="$CODE_DIR/$_wb_set_repo/$_wb_set_wt"
-      _wb_set_cur="$(git -C "$_wb_set_dir" symbolic-ref -q --short HEAD 2>/dev/null || true)"
-      if [ "$value" != "$_wb_set_cur" ]; then
-        echo "wb set: $(basename -- "$file") already has a worktree at $_wb_set_wt, checked out on '${_wb_set_cur:-(detached HEAD)}' — branch: can only be set to that branch (or remove the worktree first)" >&2
-        exit 1
-      fi
-    fi
-  fi
-
   # Locked BEFORE `old` is read — not just before the write. For every
   # field except tags, `old` is used only for the no-op check and the
   # confirmation message, so a stale unlocked read was harmless (the
@@ -5132,6 +5112,29 @@ cmd_set() {
 
   local old
   old="$(wb_get_frontmatter "$file" "$field")"
+
+  # branch: with a worktree already on disk — every branch-keyed lookup (PR
+  # badge, wb down, wb done) follows the field, while resume reattaches the
+  # existing dir without checking its branch. So the only legal value is the
+  # branch actually checked out there (the real repair case: field says
+  # feat/x, worktree is on feat-x). No worktree dir: free to change. Runs under the task lock, and a
+  # no-op set (value already equals branch:) skips it — re-asserting the
+  # current value is always legal.
+  if [ "$field" = "branch" ] && [ "$value" != "$old" ]; then
+    local _wb_set_repo _wb_set_wt _wb_set_dir _wb_set_cur
+    _wb_set_repo="$(wb_get_frontmatter "$file" repo)"; read -r _wb_set_repo <<< "$_wb_set_repo"
+    _wb_set_wt="$(wb_get_frontmatter "$file" worktree)"; read -r _wb_set_wt <<< "$_wb_set_wt"
+    if [ -n "$_wb_set_repo" ] && _wb_safe_worktree_field "$_wb_set_wt" \
+        && [ -d "$CODE_DIR/$_wb_set_repo/$_wb_set_wt" ]; then
+      _wb_set_dir="$CODE_DIR/$_wb_set_repo/$_wb_set_wt"
+      _wb_set_cur="$(git -C "$_wb_set_dir" symbolic-ref -q --short HEAD 2>/dev/null || true)"
+      if [ "$value" != "$_wb_set_cur" ]; then
+        echo "wb set: $(basename -- "$file") already has a worktree at $_wb_set_wt, checked out on '${_wb_set_cur:-(detached HEAD)}' — branch: can only be set to that branch (or remove the worktree first)" >&2
+        wb_task_lock_release "$file"
+        exit 1
+      fi
+    fi
+  fi
 
   # R26: `tags:` is additive, never a replace — merge the argv value into
   # whatever the file already has (bare-scalar, list, or blank), canonical

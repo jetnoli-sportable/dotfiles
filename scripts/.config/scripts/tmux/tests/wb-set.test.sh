@@ -258,6 +258,17 @@ out="$(cmd_set "set-wt" branch feat-x 2>&1)"; rc=$?
 assert_eq "branch w/ worktree, match: exit 0" 0 "$rc"
 assert_eq "branch w/ worktree, match: frontmatter updated" "feat-x" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-wt.md" branch)"
 
+# no-op re-assert of the current branch: succeeds even though the worktree is
+# on another branch (field feat/x, worktree on feat-x) — nothing changes, so no
+# guard, no Handoffs entry.
+wb_set_frontmatter "$TASKS_DIR/proj--set-wt.md" branch feat/x
+h_before="$(/usr/bin/grep -c 'via `wb set`' "$TASKS_DIR/proj--set-wt.md" || true)"
+out="$(cmd_set "set-wt" branch feat/x 2>&1)"; rc=$?
+assert_eq "branch w/ worktree, no-op (same value): exit 0" 0 "$rc"
+assert "branch w/ worktree, no-op: message says already" "already 'feat/x'" "$out"
+assert_eq "branch w/ worktree, no-op: no Handoffs entry added" "$h_before" "$(/usr/bin/grep -c 'via `wb set`' "$TASKS_DIR/proj--set-wt.md" || true)"
+assert_eq "branch w/ worktree, no-op: field unchanged" "feat/x" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-wt.md" branch)"
+
 # =============================================================================
 # Scenario: no-op when unchanged.
 # =============================================================================
