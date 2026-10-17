@@ -99,6 +99,11 @@
         }
       },
       {
+        "kind": "agents",
+        "path": "claude/.claude/agents",
+        "tags": "claude"
+      },
+      {
         "kind": "scripts",
         "path": "scripts/.config/scripts/tmux",
         "tags": "tmux"
