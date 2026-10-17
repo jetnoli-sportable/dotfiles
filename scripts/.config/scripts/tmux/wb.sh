@@ -41,7 +41,9 @@
 #   wb reconcile                     report task-store/git worktree drift (detection only, read-only)
 #   wb reconcile --machine           the same drift, as parseable TSV (read-only) — the
 #                                    fifth field's meaning differs by kind (orphan: merge
-#                                    status; missing: task-file path), see wb_reconcile_collect
+#                                    status; missing: task-file path), see wb_reconcile_collect;
+#                                    duplicate rows (see wb_reconcile_collect_duplicates)
+#                                    follow the orphan/missing rows
 #   wb breakdown --apply <buffer>    execute an approved /wb-breakdown proposal buffer:
 #                                    create the children, migrate the worktree, move
 #                                    follow-ups — the feature's only task-store write path
@@ -2023,6 +2025,110 @@ wb_reconcile_collect() {
   done < <(wb_task_files)
 }
 
+# wb_reconcile_collect_duplicates — one TSV line per duplicate finding, in a
+# SINGLE awk pass over every task file's frontmatter (no per-file fork: this
+# runs on every /weekly-review over the whole store). Report-only; kept apart
+# from wb_reconcile_collect so the review-doc generator, whose actions only
+# make sense for orphan/missing rows, never sees these. Done tasks are
+# ignored throughout (a finished task legitimately keeps its old branch/jira).
+# Fields: kind=duplicate  class  repo  key  task-file path(s), comma-joined
+#   class jira:     key = the Jira key, on 2+ non-done tasks (any repos; repo
+#                   = the distinct repos, comma-joined)
+#   class branch:   key = branch, claimed by 2+ non-done tasks of one repo
+#   class worktree: key = worktree(rel), same rule as branch
+#   class prefix:   key = task-file basename whose name doubles its repo
+#                   prefix (<repo>--<repo>--...); one path
+# Same-commit sharing is deliberately NOT flagged: two branches can
+# legitimately share a base commit before diverging.
+wb_reconcile_collect_duplicates() {
+  local -a files=()
+  mapfile -t files < <(wb_task_files)
+  [ "${#files[@]}" -gt 0 ] || return 0
+  awk '
+    function val(line, key,    v) {
+      v = line; sub("^" key ":[ \t]*", "", v)
+      sub(/[ \t]+#.*$/, "", v); sub(/^#.*$/, "", v); sub(/[ \t]+$/, "", v)
+      return v
+    }
+    # explicit if/else: mawk creates arr[k] before the RHS ternary runs
+    function addm(arr, k, i) { if (k in arr) arr[k] = arr[k] " " i; else arr[k] = i }
+    # Same family: one is the other parent: (stem), or they share a parent.
+    function fam(x, y) {
+      return (tpar[x] != "" && tpar[x] == tstem[y]) || (tpar[y] != "" && tpar[y] == tstem[x]) \
+          || (tpar[x] != "" && tpar[x] == tpar[y])
+    }
+    # Report a group of task indices only when 2+ of them have a partner
+    # outside their own family; the report lists exactly those tasks.
+    function group(cls, repos, key, mem,    n, m, i, j, keep, list, nk, rl, r) {
+      n = split(mem, m, " ")
+      for (i = 1; i <= n; i++) for (j = 1; j <= n; j++)
+        if (i != j && !fam(m[i], m[j])) keep[m[i]] = 1
+      nk = 0; list = ""; rl = ""
+      for (i = 1; i <= n; i++) {
+        if (!(m[i] in keep)) continue
+        nk++; list = (list == "" ? tfile[m[i]] : list "," tfile[m[i]])
+        r = trepo[m[i]]
+        if (index("," rl ",", "," r ",") == 0) rl = (rl == "" ? r : rl "," r)
+      }
+      if (nk < 2) return
+      printf "duplicate\t%s\t%s\t%s\t%s\n", cls, (repos == "" ? rl : repos), key, list
+    }
+    function flush(    base, jk, k, v, nt, toks, t, seenk, idx) {
+      if (file == "" || status == "done") return
+      base = file; sub(/^.*\//, "", base); sub(/\.md$/, "", base)
+      idx = ++ntask
+      tfile[idx] = file; tstem[idx] = base; trepo[idx] = repo
+      v = parent; gsub("[\"\047]", "", v); sub(/\.md$/, "", v); tpar[idx] = v
+      if (repo != "" && index(base, repo "--" repo "--") == 1)
+        printf "duplicate\tprefix\t%s\t%s\t%s\n", repo, base, file
+      if (jira != "") {
+        # A jira: value may carry several keys ("SFB-1, SFB-2"), quotes, or
+        # URLs: strip quotes, split on commas/whitespace, normalise each
+        # token to its KEY-N, and count every distinct key on its own.
+        v = jira; gsub("[\"\047]", "", v)
+        nt = split(v, toks, /[, \t]+/)
+        delete seenk
+        for (t = 1; t <= nt; t++) {
+          if (toks[t] == "") continue
+          jk = toks[t]
+          if (match(jk, /[A-Za-z][A-Za-z0-9]*-[0-9]+/)) jk = toupper(substr(jk, RSTART, RLENGTH))
+          if (jk in seenk) continue
+          seenk[jk] = 1
+          if (!(jk in jm)) jorder[++nj] = jk
+          addm(jm, jk, idx)
+        }
+      }
+      if (repo != "" && branch != "") {
+        k = repo SUBSEP branch
+        if (!(k in bm)) border[++nb] = k
+        addm(bm, k, idx)
+      }
+      if (repo != "" && worktree != "") {
+        k = repo SUBSEP worktree
+        if (!(k in wm)) worder[++nw] = k
+        addm(wm, k, idx)
+      }
+    }
+    FNR == 1 { flush(); file = FILENAME; status = repo = branch = worktree = jira = parent = ""; infm = ($0 == "---") }
+    # frontmatter opens only on line 1 (like the other wb.sh parsers); a later --- is body
+    /^---$/ { if (infm == 1 && FNR > 1) infm = 2; next }
+    infm == 1 {
+      if ($0 ~ /^status:/)        status   = val($0, "status")
+      else if ($0 ~ /^repo:/)     repo     = val($0, "repo")
+      else if ($0 ~ /^branch:/)   branch   = val($0, "branch")
+      else if ($0 ~ /^worktree:/) worktree = val($0, "worktree")
+      else if ($0 ~ /^jira:/)     jira     = val($0, "jira")
+      else if ($0 ~ /^parent:/)   parent   = val($0, "parent")
+    }
+    END {
+      flush()
+      for (i = 1; i <= nj; i++) { k = jorder[i]; group("jira", "", k, jm[k]) }
+      for (i = 1; i <= nb; i++) { k = border[i]; split(k, a, SUBSEP); group("branch", a[1], a[2], bm[k]) }
+      for (i = 1; i <= nw; i++) { k = worder[i]; split(k, a, SUBSEP); group("worktree", a[1], a[2], wm[k]) }
+    }
+  ' "${files[@]}"
+}
+
 cmd_reconcile() {
   case "${1:-}" in
     --review)  shift; wb_reconcile_generate_review "$@"; return ;;
@@ -2035,12 +2141,15 @@ cmd_reconcile() {
     # orphan rows carry a merge status there, missing rows a task-file path
     # — a caller that assumes a single field-five meaning misreads one kind
     # as the other. Read-only, same as the human-readable mode below.
-    --machine) shift; wb_reconcile_collect; return ;;
+    # duplicate rows (a third kind, report-only) follow: field two is the
+    # class (jira|branch|worktree|prefix) and the fifth a comma-joined list
+    # of task-file paths — see wb_reconcile_collect_duplicates.
+    --machine) shift; wb_reconcile_collect; wb_reconcile_collect_duplicates; return ;;
   esac
 
-  local -a orphan_rows=() missing_rows=()
-  local line kind repo branch worktree extra
-  local -a f
+  local -a orphan_rows=() missing_rows=() dup_rows=()
+  local line kind repo branch worktree extra tf dtasks=""
+  local -a f tfs
   while IFS= read -r line; do
     wb_tsv_split "$line" f
     kind="${f[0]}"; repo="${f[1]}"; branch="${f[2]}"; worktree="${f[3]}"; extra="${f[4]}"
@@ -2050,8 +2159,16 @@ cmd_reconcile() {
       missing_rows+=("$repo"$'\t'"$worktree"$'\t'"$(basename "$extra" .md)")
     fi
   done < <(wb_reconcile_collect)
+  while IFS= read -r line; do
+    wb_tsv_split "$line" f
+    # f = duplicate <class> <repo> <key> <comma-joined task paths>
+    IFS=, read -r -a tfs <<<"${f[4]}"
+    dtasks=""
+    for tf in "${tfs[@]}"; do dtasks+="${dtasks:+, }$(basename "$tf" .md)"; done
+    dup_rows+=("${f[1]}"$'\t'"${f[2]}"$'\t'"${f[3]}"$'\t'"$dtasks")
+  done < <(wb_reconcile_collect_duplicates)
 
-  if [ "${#orphan_rows[@]}" -eq 0 ] && [ "${#missing_rows[@]}" -eq 0 ]; then
+  if [ "${#orphan_rows[@]}" -eq 0 ] && [ "${#missing_rows[@]}" -eq 0 ] && [ "${#dup_rows[@]}" -eq 0 ]; then
     echo "wb reconcile: no drift found"
     return 0
   fi
@@ -2059,12 +2176,18 @@ cmd_reconcile() {
   if [ "${#orphan_rows[@]}" -gt 0 ]; then
     echo "Orphaned worktrees (no matching task file):"
     { printf 'REPO\tBRANCH\tWORKTREE\tMERGE-STATUS\n'; printf '%s\n' "${orphan_rows[@]}"; } | column -t -s $'\t'
-    [ "${#missing_rows[@]}" -gt 0 ] && echo
+    { [ "${#missing_rows[@]}" -gt 0 ] || [ "${#dup_rows[@]}" -gt 0 ]; } && echo
   fi
 
   if [ "${#missing_rows[@]}" -gt 0 ]; then
     echo "Tasks referencing a missing worktree:"
     { printf 'REPO\tWORKTREE\tTASK\n'; printf '%s\n' "${missing_rows[@]}"; } | column -t -s $'\t'
+    [ "${#dup_rows[@]}" -gt 0 ] && echo
+  fi
+
+  if [ "${#dup_rows[@]}" -gt 0 ]; then
+    echo "Duplicate task claims (report-only):"
+    { printf 'CLASS\tREPO\tKEY\tTASKS\n'; printf '%s\n' "${dup_rows[@]}"; } | column -t -s $'\t'
   fi
 }
 
@@ -4572,7 +4695,7 @@ cmd_status() {
   esac
 
   local file
-  file="$(_wb_append_resolve_task "$query")" || exit 1
+  file="$(_wb_append_resolve_task "$query" "wb status")" || exit 1
 
   # Refuse when a live session's @task already points at this file — this
   # verb is for store-only tasks; a live session must route the change
@@ -4766,7 +4889,7 @@ cmd_set() {
   _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
 
   local file
-  file="$(_wb_append_resolve_task "$query")" || exit 1
+  file="$(_wb_append_resolve_task "$query" "wb set")" || exit 1
 
   # Refuse when a live session's @task already points at this file — this
   # verb is for store-only tasks.
