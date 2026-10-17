@@ -499,56 +499,110 @@ tmux has-session -t "=proj--boot-fail" 2>/dev/null
 assert_eq "failing bootstrap entry: wb new still created the session" 0 $?
 tmux kill-session -t "=proj--boot-fail" 2>/dev/null
 
-# --- planned/prospective: piped stdin body lands under ## Plan (no --jira) ---
-# The fixture TEMPLATE has no "## Plan" heading (nothing above needed one);
-# the real TEMPLATE.md does, so give this block one.
+# --- planned/prospective: --body - / --body-file land under ## Plan ----------
+# wb new NEVER reads stdin implicitly; the body comes only from --body - or
+# --body-file. The fixture TEMPLATE has no "## Plan" heading (nothing above
+# needed one); the real TEMPLATE.md does, so give this block one.
 printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\nparent:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n\n## Done\n' \
   > "$FIXTURE_TASKS/TEMPLATE.md"
 plan_body() { # <file> — the text between "## Plan" and the next "## " heading
   awk '/^## Plan$/ {on=1; next} /^## / {on=0} on' "$1"
 }
 
-printf 'step one\nstep two with \\n and C:\\keep\n' | cmd_new --planned proj body-planned >/dev/null 2>&1
-assert "--planned piped body (no --jira): lands under ## Plan" 'step one' "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
-assert "--planned piped body: backslashes preserved verbatim" 'step two with \\n and C:\\keep' "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
-assert_eq "--planned piped body: no jira: stamped" "" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-planned.md" jira)"
+printf 'step one\nstep two with \\n and C:\\keep\n' | cmd_new --planned --body - proj body-planned >/dev/null 2>&1
+assert "--planned --body -: lands under ## Plan" 'step one' "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
+assert "--planned --body -: backslashes preserved verbatim" 'step two with \\n and C:\\keep' "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
+assert_eq "--planned --body -: no jira: stamped" "" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-planned.md" jira)"
 
 # re-run against the existing stem with a different body -> untouched
 # (compare the ## Plan body only: a re-run legitimately blank-fills schema
 # keys like reviewed:, which is frontmatter, not the body under test)
 before="$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
-printf 'REPLACEMENT body\n' | cmd_new --planned proj body-planned >/dev/null 2>&1
-assert_eq "--planned re-run on existing stem: body untouched (not duplicated/overwritten)" "$before" "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
+printf 'REPLACEMENT body\n' | cmd_new --planned --body - proj body-planned >/dev/null 2>&1
+assert_eq "--planned --body - re-run on existing stem: body untouched (not duplicated/overwritten)" "$before" "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
+printf 'REPLACEMENT file body\n' > "$FIXTURE_BIN/repl.md"
+cmd_new --planned --body-file "$FIXTURE_BIN/repl.md" proj body-planned >/dev/null 2>&1
+assert_eq "--planned --body-file re-run on existing stem: body untouched" "$before" "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"
 
 # --prospective shares the path -> same behavior, status stays prospective
-printf 'prospective body line\n' | cmd_new --prospective proj body-prospective >/dev/null 2>&1
-assert "--prospective piped body: lands under ## Plan" 'prospective body line' "$(plan_body "$FIXTURE_TASKS/proj--body-prospective.md")"
-assert_eq "--prospective piped body: status prospective" "prospective" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-prospective.md" status)"
+printf 'prospective body line\n' | cmd_new --prospective --body - proj body-prospective >/dev/null 2>&1
+assert "--prospective --body -: lands under ## Plan" 'prospective body line' "$(plan_body "$FIXTURE_TASKS/proj--body-prospective.md")"
+assert_eq "--prospective --body -: status prospective" "prospective" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-prospective.md" status)"
 
-# --jira + body still works
-printf 'jira body line\n' | cmd_new --planned --jira https://x.atlassian.net/browse/SFB-1 proj body-jira >/dev/null 2>&1
-assert "--planned --jira piped body: lands under ## Plan" 'jira body line' "$(plan_body "$FIXTURE_TASKS/proj--body-jira.md")"
-assert_eq "--planned --jira piped body: jira: stamped" "https://x.atlassian.net/browse/SFB-1" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-jira.md" jira)"
+# --jira + --body -
+printf 'jira body line\n' | cmd_new --planned --jira https://x.atlassian.net/browse/SFB-1 --body - proj body-jira >/dev/null 2>&1
+assert "--planned --jira --body -: lands under ## Plan" 'jira body line' "$(plan_body "$FIXTURE_TASKS/proj--body-jira.md")"
+assert_eq "--planned --jira --body -: jira: stamped" "https://x.atlassian.net/browse/SFB-1" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-jira.md" jira)"
 
-# --depends-on / --path alongside a piped body (the #73 half, end to end)
-printf 'dep body\n' | cmd_new --planned --depends-on proj--existing --path work proj body-dep >/dev/null 2>&1
+# --depends-on / --path alongside a body (the #73 half, end to end)
+printf 'dep body\n' | cmd_new --planned --depends-on proj--existing --path work --body - proj body-dep >/dev/null 2>&1
 assert "--planned --depends-on + body: body lands" 'dep body' "$(plan_body "$FIXTURE_TASKS/proj--body-dep.md")"
 assert_eq "--planned --depends-on + body: depends_on: written" "proj--existing" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-dep.md" depends_on)"
 assert_eq "--planned --path + body: path: written" "work" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-dep.md" path)"
 
-# empty / whitespace-only stdin inserts nothing
-cmd_new --planned proj body-empty </dev/null >/dev/null 2>&1
-assert_eq "--planned </dev/null: Plan section empty" "" "$(plan_body "$FIXTURE_TASKS/proj--body-empty.md" | tr -d '[:space:]')"
-printf '  \n\n\t\n' | cmd_new --planned proj body-ws >/dev/null 2>&1
-assert_eq "--planned whitespace-only stdin: Plan section stays empty" "" "$(plan_body "$FIXTURE_TASKS/proj--body-ws.md" | tr -d '[:space:]')"
+# --body-file (with and without --jira, and --prospective)
+printf 'file body one\nfile body two\n' > "$FIXTURE_BIN/body.md"
+cmd_new --planned --body-file "$FIXTURE_BIN/body.md" proj body-file >/dev/null 2>&1
+assert "--planned --body-file: lands under ## Plan" 'file body two' "$(plan_body "$FIXTURE_TASKS/proj--body-file.md")"
+cmd_new --planned --jira https://x.atlassian.net/browse/SFB-2 --body-file "$FIXTURE_BIN/body.md" proj body-file-jira >/dev/null 2>&1
+assert "--planned --jira --body-file: lands under ## Plan" 'file body one' "$(plan_body "$FIXTURE_TASKS/proj--body-file-jira.md")"
+cmd_new --prospective --body-file "$FIXTURE_BIN/body.md" proj body-file-prosp >/dev/null 2>&1
+assert "--prospective --body-file: lands under ## Plan" 'file body one' "$(plan_body "$FIXTURE_TASKS/proj--body-file-prosp.md")"
+err_missing="$(cmd_new --planned --body-file "$FIXTURE_BIN/no-such-file.md" proj body-file-missing 2>&1 1>/dev/null)"; rc_missing=$?
+assert_eq "--body-file missing: exit 1" 1 "$rc_missing"
+assert "--body-file missing: clear error" 'not a readable file' "$err_missing"
+assert_eq "--body-file missing: no task file created" "" "$([ -f "$FIXTURE_TASKS/proj--body-file-missing.md" ] && echo exists)"
 
-# a never-closing, non-tty stdin must not be assumed absent: a body piped
-# from a slow writer is still read to EOF (here: writer finishes after a beat)
-( sleep 1; printf 'slow body\n' ) | cmd_new --planned proj body-slow >/dev/null 2>&1
-assert "--planned slow piped body: read to EOF" 'slow body' "$(plan_body "$FIXTURE_TASKS/proj--body-slow.md")"
+# empty / whitespace-only body inserts nothing
+cmd_new --planned --body - proj body-empty </dev/null >/dev/null 2>&1
+assert_eq "--planned --body - </dev/null: Plan section empty" "" "$(plan_body "$FIXTURE_TASKS/proj--body-empty.md" | tr -d '[:space:]')"
+printf '  \n\n\t\n' | cmd_new --planned --body - proj body-ws >/dev/null 2>&1
+assert_eq "--planned --body - whitespace-only: Plan section stays empty" "" "$(plan_body "$FIXTURE_TASKS/proj--body-ws.md" | tr -d '[:space:]')"
 
-# interactive (tty) stdin: never read, never blocks. Needs a pty — `script`
-# provides one; stdin there is a tty, so cat would hang until the timeout.
+# a slow writer is still read to EOF under --body -
+( sleep 1; printf 'slow body\n' ) | cmd_new --planned --body - proj body-slow >/dev/null 2>&1
+assert "--planned --body - slow piped body: read to EOF" 'slow body' "$(plan_body "$FIXTURE_TASKS/proj--body-slow.md")"
+
+# NO body flag: piped stdin is never read and never lands in the file.
+printf 'ignored body\n' | cmd_new --planned proj body-noflag >/dev/null 2>&1
+assert_eq "--planned without --body: piped stdin ignored (Plan empty)" "" "$(plan_body "$FIXTURE_TASKS/proj--body-noflag.md" | tr -d '[:space:]')"
+printf 'ignored jira body\n' | cmd_new --planned --jira https://x.atlassian.net/browse/SFB-3 proj body-noflag-jira >/dev/null 2>&1
+assert_eq "--planned --jira without --body: piped stdin ignored (Plan empty)" "" "$(plan_body "$FIXTURE_TASKS/proj--body-noflag-jira.md" | tr -d '[:space:]')"
+
+# ...and is left unread for the caller: a `while read` loop calling
+# `wb new --planned` per line must process ALL its lines (the old implicit
+# `cat` swallowed everything after line one).
+printf 'loop-a\nloop-b\nloop-c\n' > "$FIXTURE_BIN/loop.txt"
+loop_seen=""
+while read -r loop_slug; do
+  cmd_new --planned proj "body-$loop_slug" >/dev/null 2>&1
+  loop_seen="$loop_seen $loop_slug"
+done < "$FIXTURE_BIN/loop.txt"
+assert_eq "while-read loop calling wb new --planned: every line processed" " loop-a loop-b loop-c" "$loop_seen"
+assert_eq "while-read loop: all three task files created" "3" "$(ls "$FIXTURE_TASKS"/proj--body-loop-*.md 2>/dev/null | wc -l | tr -d ' ')"
+
+# the unread stdin is still fully readable by the caller afterwards
+remaining="$(printf 'caller-line-1\ncaller-line-2\n' | { cmd_new --planned proj body-unread >/dev/null 2>&1; cat; })"
+assert_eq "--planned without --body: stdin still readable by the caller afterwards" $'caller-line-1\ncaller-line-2' "$remaining"
+
+# validation errors
+err_np="$(cmd_new --body - proj body-nonplanned </dev/null 2>&1 1>/dev/null)"; rc_np=$?
+assert_eq "--body without --planned: exit 1" 1 "$rc_np"
+assert "--body without --planned: clear error" 'only valid together with --planned' "$err_np"
+err_npf="$(cmd_new --body-file "$FIXTURE_BIN/body.md" proj body-nonplanned 2>&1 1>/dev/null)"; rc_npf=$?
+assert_eq "--body-file without --planned: exit 1" 1 "$rc_npf"
+assert "--body-file without --planned: clear error" 'only valid together with --planned' "$err_npf"
+assert_eq "--body without --planned: no task file created" "" "$([ -f "$FIXTURE_TASKS/proj--body-nonplanned.md" ] && echo exists)"
+err_both="$(cmd_new --planned --body - --body-file "$FIXTURE_BIN/body.md" proj body-both </dev/null 2>&1 1>/dev/null)"; rc_both=$?
+assert_eq "--body - with --body-file: exit 1" 1 "$rc_both"
+assert "--body - with --body-file: mutually exclusive error" 'mutually exclusive' "$err_both"
+assert_eq "--body - with --body-file: no task file created" "" "$([ -f "$FIXTURE_TASKS/proj--body-both.md" ] && echo exists)"
+err_bv="$(cmd_new --planned --body notdash proj body-badval 2>&1 1>/dev/null)"; rc_bv=$?
+assert_eq "--body <not ->: exit 1" 1 "$rc_bv"
+assert "--body <not ->: points at --body-file" 'body-file' "$err_bv"
+
+# interactive (tty) stdin: never read (no body flag), never blocks. Needs a
+# pty — `script` provides one.
 if command -v script >/dev/null 2>&1; then
   timeout 20 script -qec "bash -c 'source \"$WB\" >/dev/null 2>&1; cmd_new --planned proj body-tty >/dev/null 2>&1; echo done-tty'" /dev/null </dev/null > "$FIXTURE_BIN/tty.out" 2>&1
   assert "--planned on a tty stdin: returns without blocking" 'done-tty' "$(cat "$FIXTURE_BIN/tty.out")"

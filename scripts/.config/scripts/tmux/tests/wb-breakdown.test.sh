@@ -151,13 +151,13 @@ fi
 jira_body='ticket description line 1
 ticket description line 2 with a \K escape'
 out3="$(printf '%s\n' "$jira_body" \
-  | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-1234' proj feat-ticket-parent 2>&1)"
+  | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-1234' --body - proj feat-ticket-parent 2>&1)"
 ticket_file="$TASKS_DIR/proj--feat-ticket-parent.md"
 assert_eq "ticket-parent: prints the resolved file path" "$ticket_file" "$out3"
 assert_eq "ticket-parent: jira: stores the full URL" "https://sportable.atlassian.net/browse/SFB-1234" "$(wb_get_frontmatter "$ticket_file" jira)"
 assert_eq "ticket-parent: status: planned" "planned" "$(wb_get_frontmatter "$ticket_file" status)"
 assert_eq "ticket-parent: worktree: stays blank" "" "$(wb_get_frontmatter "$ticket_file" worktree)"
-assert "ticket-parent: stdin plan body lands under ## Plan" "ticket description line 1" "$(cat "$ticket_file")"
+assert "ticket-parent: --body - plan body lands under ## Plan" "ticket description line 1" "$(cat "$ticket_file")"
 assert "ticket-parent: body byte-identical incl. backslash sequence" 'ticket description line 2 with a \\K escape' "$(cat "$ticket_file")"
 
 # --- regression: --title actually sets the ticket-parent's title -----------
@@ -165,7 +165,7 @@ assert "ticket-parent: body byte-identical incl. backslash sequence" 'ticket des
 # title", but cmd_new's --jira path never threaded any title through —
 # wb_seed_task_planned unconditionally used the slug-derived form.)
 out_title="$(printf 'body\n' \
-  | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-5678' --title 'Fix the flaky dashboard chart' proj feat-ticket-titled 2>&1)"
+  | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-5678' --title 'Fix the flaky dashboard chart' --body - proj feat-ticket-titled 2>&1)"
 ticket_titled="$TASKS_DIR/proj--feat-ticket-titled.md"
 assert_eq "ticket-parent --title: sets the H1 heading from the ticket summary" "Fix the flaky dashboard chart" "$(wb_task_title "$ticket_titled")"
 
@@ -177,7 +177,7 @@ assert_eq "ticket-parent --title: sets the H1 heading from the ticket summary" "
 # the assertion to what the fix actually claims: the body doesn't duplicate.)
 before_plan_reseed="$(wb_board_section "$ticket_file" "Plan")"
 out_reseed="$(printf '%s\n' "$jira_body" \
-  | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-1234' proj feat-ticket-parent 2>&1)"
+  | cmd_new --planned --jira 'https://sportable.atlassian.net/browse/SFB-1234' --body - proj feat-ticket-parent 2>&1)"
 assert_eq "ticket-parent re-run: ## Plan section unchanged (body not duplicated)" "$before_plan_reseed" "$(wb_board_section "$ticket_file" "Plan")"
 body_occurrences="$(grep -c 'ticket description line 1' "$ticket_file")"
 assert_eq "ticket-parent re-run: body appears exactly once" 1 "$body_occurrences"

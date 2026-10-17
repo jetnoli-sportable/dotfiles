@@ -88,6 +88,16 @@ The slug becomes the git branch name, the worktree path
 session name and task filename. A slug like `feat/onboarding` is completely
 fine; it becomes session `reponame--feat-onboarding`.
 
+`wb new --planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>] <repo> <slug>`
+seeds a worktree-less task file (no worktree, no session). Its `## Plan`
+body comes only from an explicit `--body -` (read from stdin, e.g. a
+heredoc) or `--body-file <path>` — the two are mutually exclusive and are
+errors outside `--planned`/`--prospective`. Without one of them `wb new`
+never reads stdin, so it is safe inside `while read … done < file` loops.
+The body lands only on a newly created file; re-running against an existing
+task never touches its body. (Breaking change: callers that used to pipe a
+body into `wb new --planned --jira` now need `--body -`.)
+
 Re-running `wb new` on the same slug is safe — it reuses the existing
 worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
