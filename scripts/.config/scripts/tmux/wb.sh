@@ -2050,9 +2050,35 @@ wb_reconcile_collect_duplicates() {
       sub(/[ \t]+#.*$/, "", v); sub(/^#.*$/, "", v); sub(/[ \t]+$/, "", v)
       return v
     }
-    function flush(    base, jk, k, v, nt, toks, t, seenk) {
+    # explicit if/else: mawk creates arr[k] before the RHS ternary runs
+    function addm(arr, k, i) { if (k in arr) arr[k] = arr[k] " " i; else arr[k] = i }
+    # Same family: one is the other parent: (stem), or they share a parent.
+    function fam(x, y) {
+      return (tpar[x] != "" && tpar[x] == tstem[y]) || (tpar[y] != "" && tpar[y] == tstem[x]) \
+          || (tpar[x] != "" && tpar[x] == tpar[y])
+    }
+    # Report a group of task indices only when 2+ of them have a partner
+    # outside their own family; the report lists exactly those tasks.
+    function group(cls, repos, key, mem,    n, m, i, j, keep, list, nk, rl, r) {
+      n = split(mem, m, " ")
+      for (i = 1; i <= n; i++) for (j = 1; j <= n; j++)
+        if (i != j && !fam(m[i], m[j])) keep[m[i]] = 1
+      nk = 0; list = ""; rl = ""
+      for (i = 1; i <= n; i++) {
+        if (!(m[i] in keep)) continue
+        nk++; list = (list == "" ? tfile[m[i]] : list "," tfile[m[i]])
+        r = trepo[m[i]]
+        if (index("," rl ",", "," r ",") == 0) rl = (rl == "" ? r : rl "," r)
+      }
+      if (nk < 2) return
+      printf "duplicate\t%s\t%s\t%s\t%s\n", cls, (repos == "" ? rl : repos), key, list
+    }
+    function flush(    base, jk, k, v, nt, toks, t, seenk, idx) {
       if (file == "" || status == "done") return
       base = file; sub(/^.*\//, "", base); sub(/\.md$/, "", base)
+      idx = ++ntask
+      tfile[idx] = file; tstem[idx] = base; trepo[idx] = repo
+      v = parent; gsub("[\"\047]", "", v); sub(/\.md$/, "", v); tpar[idx] = v
       if (repo != "" && index(base, repo "--" repo "--") == 1)
         printf "duplicate\tprefix\t%s\t%s\t%s\n", repo, base, file
       if (jira != "") {
@@ -2068,26 +2094,22 @@ wb_reconcile_collect_duplicates() {
           if (match(jk, /[A-Za-z][A-Za-z0-9]*-[0-9]+/)) jk = toupper(substr(jk, RSTART, RLENGTH))
           if (jk in seenk) continue
           seenk[jk] = 1
-          if (!(jk in jfiles)) jorder[++nj] = jk
-          if (jk in jfiles) jfiles[jk] = jfiles[jk] "," file; else jfiles[jk] = file
-          jn[jk]++
-          if (index("," jrepos[jk] ",", "," repo ",") == 0) jrepos[jk] = (jrepos[jk] == "" ? repo : jrepos[jk] "," repo)
+          if (!(jk in jm)) jorder[++nj] = jk
+          addm(jm, jk, idx)
         }
       }
       if (repo != "" && branch != "") {
         k = repo SUBSEP branch
-        if (!(k in bfiles)) border[++nb] = k
-        if (k in bfiles) bfiles[k] = bfiles[k] "," file; else bfiles[k] = file
-        bn[k]++
+        if (!(k in bm)) border[++nb] = k
+        addm(bm, k, idx)
       }
       if (repo != "" && worktree != "") {
         k = repo SUBSEP worktree
-        if (!(k in wfiles)) worder[++nw] = k
-        if (k in wfiles) wfiles[k] = wfiles[k] "," file; else wfiles[k] = file
-        wn[k]++
+        if (!(k in wm)) worder[++nw] = k
+        addm(wm, k, idx)
       }
     }
-    FNR == 1 { flush(); file = FILENAME; status = repo = branch = worktree = jira = ""; infm = 0 }
+    FNR == 1 { flush(); file = FILENAME; status = repo = branch = worktree = jira = parent = ""; infm = 0 }
     /^---$/ { infm++; next }
     infm == 1 {
       if ($0 ~ /^status:/)        status   = val($0, "status")
@@ -2095,15 +2117,13 @@ wb_reconcile_collect_duplicates() {
       else if ($0 ~ /^branch:/)   branch   = val($0, "branch")
       else if ($0 ~ /^worktree:/) worktree = val($0, "worktree")
       else if ($0 ~ /^jira:/)     jira     = val($0, "jira")
+      else if ($0 ~ /^parent:/)   parent   = val($0, "parent")
     }
     END {
       flush()
-      for (i = 1; i <= nj; i++) { k = jorder[i]
-        if (jn[k] > 1) printf "duplicate\tjira\t%s\t%s\t%s\n", jrepos[k], k, jfiles[k] }
-      for (i = 1; i <= nb; i++) { k = border[i]
-        if (bn[k] > 1) { split(k, a, SUBSEP); printf "duplicate\tbranch\t%s\t%s\t%s\n", a[1], a[2], bfiles[k] } }
-      for (i = 1; i <= nw; i++) { k = worder[i]
-        if (wn[k] > 1) { split(k, a, SUBSEP); printf "duplicate\tworktree\t%s\t%s\t%s\n", a[1], a[2], wfiles[k] } }
+      for (i = 1; i <= nj; i++) { k = jorder[i]; group("jira", "", k, jm[k]) }
+      for (i = 1; i <= nb; i++) { k = border[i]; split(k, a, SUBSEP); group("branch", a[1], a[2], bm[k]) }
+      for (i = 1; i <= nw; i++) { k = worder[i]; split(k, a, SUBSEP); group("worktree", a[1], a[2], wm[k]) }
     }
   ' "${files[@]}"
 }

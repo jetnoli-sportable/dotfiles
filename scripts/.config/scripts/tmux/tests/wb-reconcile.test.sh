@@ -164,9 +164,9 @@ DUP_CODE="$(mktemp -d -t wb-reconcile-dup-code.XXXXXX)"
 TASKS_DIR="$DUP_TASKS"
 CODE_DIR="$DUP_CODE"
 wb_reconcile_repos() { :; }
-mk_dup() { # <file> <status> <repo> <branch> <worktree> <jira>
-  printf -- '---\nstatus: %s\npath:\nrepo: %s\nbranch: %s\nworktree: %s\njira: %s\ntags: []\ncreated: 2026-10-01\nclosed:\n---\n# T\n' \
-    "$2" "$3" "$4" "$5" "$6" > "$DUP_TASKS/$1"
+mk_dup() { # <file> <status> <repo> <branch> <worktree> <jira> [parent]
+  printf -- '---\nstatus: %s\npath:\nrepo: %s\nbranch: %s\nworktree: %s\njira: %s\ntags: []\nparent: %s\ncreated: 2026-10-01\nclosed:\n---\n# T\n' \
+    "$2" "$3" "$4" "$5" "$6" "${7:-}" > "$DUP_TASKS/$1"
 }
 # (a) same jira: one bare key, one URL form of the same key -> flagged once
 mk_dup 'proj--jira-a.md' doing proj branch-ja '.worktrees/ja' 'SFB-100'
@@ -191,8 +191,21 @@ mk_dup 'proj--multi-a.md' doing proj branch-ma '.worktrees/ma' 'SFB-300, SFB-301
 mk_dup 'proj--multi-b.md' doing proj branch-mb '.worktrees/mb' 'SFB-301'
 mk_dup 'proj--multi-c.md' doing proj branch-mc '.worktrees/mc' '"SFB-302"'
 mk_dup 'proj--multi-d.md' doing proj branch-md '.worktrees/md' 'SFB-302'
+# (e) families are not duplicates: a child sharing its parent's jira, a child
+# that took over the parent's worktree, and two siblings sharing a branch.
+# fam-c is unrelated and also shares the jira key, so that key still reports
+# (fam-p, fam-c1 are paired through fam-c; fam-c2 sibling of fam-c1 is not).
+mk_dup 'proj--fam-p.md' doing proj branch-fp '.worktrees/fp' 'SFB-400'
+mk_dup 'proj--fam-c1.md' doing proj branch-fc1 '.worktrees/fp-mig' 'SFB-400' 'proj--fam-p'
+mk_dup 'proj--fam-c2.md' doing proj branch-fc1 '.worktrees/fc2' '' 'proj--fam-p'
+mk_dup 'proj--fam-x.md' doing proj branch-fx '.worktrees/fx' 'SFB-401'
+mk_dup 'proj--fam-y.md' doing proj branch-fy '.worktrees/fy' 'SFB-401' 'proj--fam-x'
+mk_dup 'proj--fam-z.md' doing proj branch-fz '.worktrees/fz' 'SFB-402' 'proj--fam-x'
+mk_dup 'proj--fam-w.md' doing proj branch-fw '.worktrees/fw' 'SFB-402' 'proj--fam-x'
+mk_dup 'proj--fam-u.md' doing proj branch-fu '.worktrees/fu' 'SFB-403' 'proj--fam-q'
+mk_dup 'proj--fam-v.md' doing proj branch-fv '.worktrees/fv' 'SFB-403'
 # every fixture worktree exists on disk, so no "missing" rows muddy the output
-for wt in ma mb mc md ja jb wt-a wt-b shared-wt stutter other-a old-stutter solo; do
+for wt in fp fp-mig fc2 fx fy fz fw fu fv ma mb mc md ja jb wt-a wt-b shared-wt stutter other-a old-stutter solo; do
   mkdir -p "$DUP_CODE/proj/.worktrees/$wt" "$DUP_CODE/other/.worktrees/$wt"
 done
 out_d="$(cmd_reconcile --machine 2>&1)"; rc_d=$?
@@ -221,7 +234,10 @@ check_dup_machine() { # <label> <output>
   assert "dup machine [$1]: quoted jira matches the bare key" \
     '^duplicate	jira	proj	SFB-302	/[^,]*proj--multi-c\.md,/[^,]*proj--multi-d\.md$' "$2"
   assert "dup machine [$1]: unshared first key SFB-300 not flagged" '^0$' "$(printf '%s\n' "$2" | /usr/bin/grep -c 'SFB-300	')"
-  assert "dup machine [$1]: exactly 6 duplicate rows" '^6$' "$(printf '%s\n' "$2" | /usr/bin/grep -c '^duplicate	')"
+  assert "dup machine [$1]: same-family jira (parent/child, siblings) not flagged" '^0$' "$(printf '%s\n' "$2" | /usr/bin/grep -cE 'SFB-40[012]|fam-p|fam-c|fam-[xyzw]')"
+  assert "dup machine [$1]: unrelated tasks sharing a key still flagged" \
+    '^duplicate	jira	proj	SFB-403	/[^,]*proj--fam-u\.md,/[^,]*proj--fam-v\.md$' "$2"
+  assert "dup machine [$1]: exactly 7 duplicate rows" '^7$' "$(printf '%s\n' "$2" | /usr/bin/grep -c '^duplicate	')"
 }
 check_dup_machine default "$out_d"
 check_dup_machine mawk "$out_dm"
@@ -246,7 +262,7 @@ else
 fi
 
 # Only-live-unique store: no duplicates -> existing 'no drift found' output.
-rm -f "$DUP_TASKS"/proj--multi-[bcd].md "$DUP_TASKS"/proj--jira-b.md "$DUP_TASKS"/proj--br-b.md "$DUP_TASKS"/proj--wt-b.md "$DUP_TASKS"/proj--proj--stutter.md
+rm -f "$DUP_TASKS"/proj--multi-[bcd].md "$DUP_TASKS"/proj--fam-*.md "$DUP_TASKS"/proj--jira-b.md "$DUP_TASKS"/proj--br-b.md "$DUP_TASKS"/proj--wt-b.md "$DUP_TASKS"/proj--proj--stutter.md
 assert "dup cleared: human mode back to no drift" 'no drift found' "$(cmd_reconcile 2>&1)"
 if [ -z "$(cmd_reconcile --machine 2>&1)" ]; then
   echo "ok   - dup cleared: machine mode prints nothing"
