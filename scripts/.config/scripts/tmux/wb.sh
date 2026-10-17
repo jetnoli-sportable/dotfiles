@@ -4419,7 +4419,9 @@ _wb_lint_sections_fix() {
 # wb_task_lock_acquire_guarded, then release on every exit path).
 _wb_lint_sections_fix_one() {
   local file_part="$1" expected_hash="$2" file
-  file="$(_wb_append_resolve_task "$file_part" "wb lint-sections --fix")" || {
+  # Resolver stderr is silenced so an unresolved ref prints exactly one
+  # line (ours), not the resolver's own "no task matches" plus ours.
+  file="$(_wb_append_resolve_task "$file_part" "wb lint-sections --fix" 2>/dev/null)" || {
     echo "wb lint-sections --fix: '$file_part' did not resolve — skipped" >&2
     return 1
   }

@@ -608,7 +608,8 @@ assert_eq "$tag: info-string and longer fences: only one real Done record" 1 \
 # not the resolver's `wb append` default ----
 out="$(cmd_lint_sections --fix "zzz-no-such-task-$tag:abc123" 2>&1)"; rc=$?
 assert_eq "$tag: unresolved --fix target: exit 1" 1 "$rc"
-assert "$tag: unresolved --fix target: error carries the --fix verb" 'wb lint-sections --fix: no task matches' "$out"
+assert "$tag: unresolved --fix target: error carries the --fix verb" "wb lint-sections --fix: 'zzz-no-such-task-$tag' did not resolve" "$out"
+assert_eq "$tag: unresolved --fix target: exactly one stderr line" 1 "$(cmd_lint_sections --fix "zzz-no-such-task-$tag:abc123" 2>&1 >/dev/null | grep -c .)"
 assert_not "$tag: unresolved --fix target: never says wb append" 'wb append' "$out"
 out="$(cmd_lint_sections "zzz-no-such-task-$tag" --machine 2>&1)"; rc=$?
 assert_eq "$tag: unresolved ref: exit 1" 1 "$rc"
