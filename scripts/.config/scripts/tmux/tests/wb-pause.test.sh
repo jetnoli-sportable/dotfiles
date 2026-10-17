@@ -124,5 +124,34 @@ assert "missing task file: non-zero exit" '^' "$rc-fail"; [ "$rc" -ne 0 ] || { e
 assert "missing task file: clear error" 'no task file' "$out"
 tmux kill-session -t "=${SESSION}-ghost" 2>/dev/null || true
 
+# --- pinned error text (byte-exact): every verb that resolves a session via
+# the shared helper must keep its own "wb <verb>:" prefix on all three errors.
+assert_eq() { # <desc> <expected> <actual>
+  if [ "$2" = "$3" ]; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1"
+    echo "       expected: $2"
+    echo "       got:      $3"
+    fail=1
+  fi
+}
+# pause
+out="$(unset TMUX; cmd_pause 2>&1)"
+assert_eq "pause: no session arg + no TMUX -> exact error" \
+  "wb pause: run inside the target session, or pass a session name" "$out"
+tmux new-session -d -s "${SESSION}-pinbare" 2>/dev/null
+out="$(cmd_pause "${SESSION}-pinbare" 2>&1)"
+assert_eq "pause: bare session -> exact error" \
+  "wb pause: ${SESSION}-pinbare has no @wb_repo/@wb_slug — not a wb task session" "$out"
+tmux kill-session -t "=${SESSION}-pinbare" 2>/dev/null || true
+tmux new-session -d -s "${SESSION}-pinghost" 2>/dev/null
+tmux set-option -t "=${SESSION}-pinghost:" @wb_repo proj >/dev/null
+tmux set-option -t "=${SESSION}-pinghost:" @wb_slug feat/pin-nonexistent >/dev/null
+out="$(cmd_pause "${SESSION}-pinghost" 2>&1)"
+assert_eq "pause: missing task file -> exact error" \
+  "wb pause: no task file for ${SESSION}-pinghost ($FIXTURE/proj--feat-pin-nonexistent.md)" "$out"
+tmux kill-session -t "=${SESSION}-pinghost" 2>/dev/null || true
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

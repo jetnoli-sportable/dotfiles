@@ -185,5 +185,51 @@ assert "wb pr-open: probe failure -> exit 1" '^1$' "$rc"
 assert "wb pr-open: probe failure surfaces the diagnostic" 'gh unavailable' "$out"
 tmux kill-session -t "=${SESSION}-pr" 2>/dev/null || true
 
+# --- pinned error text (byte-exact): every verb that resolves a session via
+# the shared helper must keep its own "wb <verb>:" prefix on all three errors.
+assert_eq() { # <desc> <expected> <actual>
+  if [ "$2" = "$3" ]; then
+    echo "ok   - $1"
+  else
+    echo "FAIL - $1"
+    echo "       expected: $2"
+    echo "       got:      $3"
+    fail=1
+  fi
+}
+# down
+out="$(unset TMUX; cmd_down 2>&1)"
+assert_eq "down: no session arg + no TMUX -> exact error" \
+  "wb down: run inside the target session, or pass a session name" "$out"
+tmux new-session -d -s "${SESSION}-pinbare" 2>/dev/null
+out="$(cmd_down "${SESSION}-pinbare" 2>&1)"
+assert_eq "down: bare session -> exact error" \
+  "wb down: ${SESSION}-pinbare has no @wb_repo/@wb_slug — not a wb task session" "$out"
+tmux kill-session -t "=${SESSION}-pinbare" 2>/dev/null || true
+tmux new-session -d -s "${SESSION}-pinghost" 2>/dev/null
+tmux set-option -t "=${SESSION}-pinghost:" @wb_repo proj >/dev/null
+tmux set-option -t "=${SESSION}-pinghost:" @wb_slug feat/pin-nonexistent >/dev/null
+out="$(cmd_down "${SESSION}-pinghost" 2>&1)"
+assert_eq "down: missing task file -> exact error" \
+  "wb down: no task file for ${SESSION}-pinghost ($FIXTURE/proj--feat-pin-nonexistent.md)" "$out"
+tmux kill-session -t "=${SESSION}-pinghost" 2>/dev/null || true
+
+# pr-open
+out="$(unset TMUX; cmd_pr_open 2>&1)"
+assert_eq "pr-open: no session arg + no TMUX -> exact error" \
+  "wb pr-open: run inside the target session, or pass a session name" "$out"
+tmux new-session -d -s "${SESSION}-pinbare" 2>/dev/null
+out="$(cmd_pr_open "${SESSION}-pinbare" 2>&1)"
+assert_eq "pr-open: bare session -> exact error" \
+  "wb pr-open: ${SESSION}-pinbare has no @wb_repo/@wb_slug — not a wb task session" "$out"
+tmux kill-session -t "=${SESSION}-pinbare" 2>/dev/null || true
+tmux new-session -d -s "${SESSION}-pinghost" 2>/dev/null
+tmux set-option -t "=${SESSION}-pinghost:" @wb_repo proj >/dev/null
+tmux set-option -t "=${SESSION}-pinghost:" @wb_slug feat/pin-nonexistent >/dev/null
+out="$(cmd_pr_open "${SESSION}-pinghost" 2>&1)"
+assert_eq "pr-open: missing task file -> exact error" \
+  "wb pr-open: no task file for ${SESSION}-pinghost ($FIXTURE/proj--feat-pin-nonexistent.md)" "$out"
+tmux kill-session -t "=${SESSION}-pinghost" 2>/dev/null || true
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
