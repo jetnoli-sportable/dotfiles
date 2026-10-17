@@ -213,7 +213,13 @@ still open with the wait still live.
 - It never decides content-shape questions (three-reopen cap, tick
   parsing, `Closing because:` precedence). It hands back a `reopen_count`
   and an exit code; the calling skill's own parse rules do the rest.
-- It never retries a failed `tmux split-window`/`gnome-terminal` spawn —
-  a spawn failure surfaces as a non-zero exit and an stderr message, for
-  the caller to fall back to the next tier (`--tmux` failing outside tmux
-  → try `--terminal`; that failing → `--manual`).
+- It never retries a failed spawn the same way. The one in-mode fallback:
+  when `--tmux`'s `split-window` returns no pane (the caller window is
+  already too narrow — "no space for a new pane"), it opens the buffer in
+  a new window right after the caller's (`new-window -a`), which never
+  needs space, with the same command and wait-channel, and records that
+  window's `pane_id`. If that also fails, it never waits on a pane that
+  doesn't exist: it prints an error, writes no state file, and exits 1.
+  Any spawn failure surfaces as a non-zero exit and an stderr message, for
+  the caller to fall back to the next tier (`--tmux` failing → try
+  `--terminal`; that failing → `--manual`).

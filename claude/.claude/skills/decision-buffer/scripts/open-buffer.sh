@@ -36,8 +36,8 @@
 #
 # Exit codes: 0 on a normal close, a treated-as-closed reattach outcome, or
 # a manual-mode print. Non-zero only for usage errors (2) and the
-# already-waiting / nothing-to-reattach / reattach-outside-tmux refusals
-# (1) — never for "buffer closed with ticks unresolved", which is a
+# already-waiting / nothing-to-reattach / reattach-outside-tmux /
+# no-pane-could-be-opened refusals (1) — never for "buffer closed with ticks unresolved", which is a
 # parsing question for the caller, not this script's concern.
 
 set -uo pipefail
@@ -195,7 +195,7 @@ prepare_open() {
 # ---------------------------------------------------------------------------
 
 mode_tmux() {
-  local path sf chan pane_id quoted_path
+  local path sf chan pane_id quoted_path pane_cmd caller_window
   path="$(abs_path "$1")"
 
   if [ -z "${TMUX:-}" ]; then
@@ -216,8 +216,31 @@ mode_tmux() {
   # the trailing `; tmux wait-for -S $chan` and hanging the wait below
   # forever with no timeout.
   quoted_path="$(printf '%q' "$path")"
-  pane_id="$(tmux split-window -h -P -F '#{pane_id}' -t "$TMUX_PANE" \
-    "WB_REVIEW_BUFFER=1 ${EDITOR:-nvim} $quoted_path; tmux wait-for -S $chan")"
+  pane_cmd="WB_REVIEW_BUFFER=1 ${EDITOR:-nvim} $quoted_path; tmux wait-for -S $chan"
+  pane_id="$(tmux split-window -h -P -F '#{pane_id}' -t "$TMUX_PANE" "$pane_cmd")"
+
+  # A split fails when earlier review panes already left the caller window
+  # too narrow ("no space for a new pane") — a `wb done` batch once stalled
+  # an hour waiting on a pane that never existed. A new window in the same
+  # session never needs space, so fall back to one rather than fail the
+  # whole batch on a layout problem. new-window rejects a pane id as its
+  # target ("can't specify pane here"), so resolve the caller's window first.
+  if [ -z "$pane_id" ]; then
+    echo "$SCRIPT_NAME: split-window failed for $path — opening it in a new window instead" >&2
+    caller_window="$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')"
+    if [ -n "$caller_window" ]; then
+      pane_id="$(tmux new-window -a -P -F '#{pane_id}' -t "$caller_window" "$pane_cmd")"
+    fi
+  fi
+
+  # Never wait on a pane that doesn't exist: nothing would ever signal the
+  # channel. No state file has been written yet, so there is nothing to
+  # clean up beyond the @claude_blocked mark.
+  if [ -z "$pane_id" ]; then
+    echo "$SCRIPT_NAME: could not open a pane for $path (split-window and new-window both failed) — not waiting" >&2
+    tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
+    exit 1
+  fi
 
   write_state "$sf" "$chan" "$pane_id" "tmux" "$$" "$OPEN_HASH" "$OPEN_REOPEN"
 

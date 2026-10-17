@@ -8,13 +8,15 @@
 # fixture-dir + assert-helper convention as the sibling suites otherwise.
 #
 # The --reattach decision tree (R18 / mechanism.md's "Reattach decision
-# tree") is driven by a fake `tmux` executable placed first on PATH for the
-# duration of just those invocations. The stub covers ONLY the
-# `tmux list-panes -a -F '#{pane_id} #{pane_current_command}'` parsing (plus
-# no-op `wait-for`/`set` calls, logged so tests can assert whether wait-for
-# was actually invoked) — it does not fake `split-window`, so --tmux/
-# --terminal happy-path opens are NOT covered here; those are the documented
-# manual smoke checks from U1/U4's own Verification sections.
+# tree") and the --tmux open's pane-creation paths are driven by a fake
+# `tmux` executable placed first on PATH for the duration of just those
+# invocations. The stub covers the `tmux list-panes -a -F '#{pane_id}
+# #{pane_current_command}'` parsing, `split-window`/`new-window` returning a
+# canned pane id (or failing on request, the way a too-narrow window makes a
+# real split fail), and no-op `wait-for`/`set` calls, all logged so tests
+# can assert whether wait-for was actually invoked. It is not a working
+# tmux: a real interactive pane is still the documented manual smoke check
+# from U1/U4's own Verification sections, and --terminal is not covered.
 #
 # Run: bash scripts/.config/scripts/tmux/tests/decision-buffer-open.test.sh
 set -uo pipefail
@@ -67,19 +69,34 @@ state_field() {
 mkdir -p "$FIXTURE/bin" "$FIXTURE/docs"
 
 # ---------------------------------------------------------------------------
-# fake `tmux` for --reattach's decision-tree tests
+# fake `tmux` for --reattach's decision-tree and --tmux open tests
 # ---------------------------------------------------------------------------
 # Logs every invocation (space-joined args) to $TMUX_STUB_LOG so tests can
 # assert whether wait-for was actually reached; for `list-panes`, cats
 # $TMUX_STUB_PANES (the canned `#{pane_id} #{pane_current_command}` table
-# for that scenario). Every other subcommand (`wait-for`, `set`, ...) is a
-# no-op that exits 0 immediately — this is a DECISION-tree stub, not a
-# working tmux, so a real `wait-for` block never happens here.
+# for that scenario). `display-message` prints @3 (the caller pane's
+# window id), `split-window` prints %7 and `new-window` prints %8,
+# unless $TMUX_STUB_SPLIT_FAIL / $TMUX_STUB_NEWWINDOW_FAIL is set, in which
+# case they print tmux's own error to stderr and exit 1 with no pane id.
+# Every other subcommand (`wait-for`, `set`, ...) is a no-op that exits 0
+# immediately — this is a DECISION-tree stub, not a working tmux, so a real
+# `wait-for` block never happens here.
 cat > "$FIXTURE/bin/tmux" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${TMUX_STUB_LOG:?TMUX_STUB_LOG not set}"
 case "${1:-}" in
   list-panes) cat "${TMUX_STUB_PANES:?TMUX_STUB_PANES not set}" ;;
+  display-message) echo "@3" ;;
+  split-window)
+    if [ -n "${TMUX_STUB_SPLIT_FAIL:-}" ]; then
+      echo "size or position no space for a new pane" >&2; exit 1
+    fi
+    echo "%7" ;;
+  new-window)
+    if [ -n "${TMUX_STUB_NEWWINDOW_FAIL:-}" ]; then
+      echo "create window failed: index in use" >&2; exit 1
+    fi
+    echo "%8" ;;
   *) exit 0 ;;
 esac
 STUB
@@ -345,6 +362,71 @@ assert_eq "carry-forward from closed=1: new record is itself marked open (closed
 printf 'this is now different content\n' > "$CARRY_DOC"
 bash "$SCRIPT" --manual "$CARRY_DOC" >/dev/null 2>&1
 assert_eq "carry-forward from closed=1: reopen_count resets to 0 on new content" "0" "$(state_field "$CARRY_SF" reopen_count)"
+
+# ===========================================================================
+# --tmux open: pane creation. A real `wb done` batch stalled for an hour
+# when earlier review panes had already split the caller window too narrow:
+# split-window failed with "no space for a new pane", the script still
+# wrote pane_id= (empty) and blocked on wait-for for a pane that never
+# existed. Every scenario here asserts the waited channel is the one the
+# created pane signals, so a wait can only happen on a pane that exists.
+# ===========================================================================
+
+# chan_signalled_by <log> <subcommand> — the channel named in the
+# `wait-for -S <chan>` tail of the pane command passed to that subcommand.
+chan_signalled_by() {
+  grep "^$2 " "$1" | head -1 | sed -n 's/.*tmux wait-for -S \([^ ]*\).*/\1/p'
+}
+
+# --- split succeeds -> waits on the split pane's channel, no new-window ----
+SPLIT_DOC="$FIXTURE/docs/split-ok.md"
+printf '# doc\n' > "$SPLIT_DOC"
+SPLIT_SF="$(state_path_for "$SPLIT_DOC")"
+SPLIT_LOG="$FIXTURE/tmux-calls-split-ok.log"
+PATH="$FIXTURE/bin:$PATH" TMUX="fake-session" TMUX_PANE="%0" TMUX_STUB_LOG="$SPLIT_LOG" \
+  bash "$SCRIPT" --tmux "$SPLIT_DOC" >/dev/null 2>&1
+rc_split=$?
+assert_eq "tmux open, split ok: exits 0" "0" "$rc_split"
+assert_eq "tmux open, split ok: records the split pane id" "%7" "$(state_field "$SPLIT_SF" pane_id)"
+assert_eq "tmux open, split ok: state rewritten as closed after the wait" "1" "$(state_field "$SPLIT_SF" closed)"
+assert_eq "tmux open, split ok: never opens a new window" "0" "$(grep -c '^new-window' "$SPLIT_LOG" || true)"
+split_chan="$(chan_signalled_by "$SPLIT_LOG" split-window)"
+assert "tmux open, split ok: waits on the channel the split pane signals" "^wait-for ${split_chan}\$" "$(grep '^wait-for' "$SPLIT_LOG")"
+
+# --- split fails (no space) -> falls back to a new window in the same
+#     session, records ITS pane id, keeps the same wait-channel contract ---
+FALLBACK_DOC="$FIXTURE/docs/split-no-space.md"
+printf '# doc\n' > "$FALLBACK_DOC"
+FALLBACK_SF="$(state_path_for "$FALLBACK_DOC")"
+FALLBACK_LOG="$FIXTURE/tmux-calls-split-fail.log"
+out_fb="$(PATH="$FIXTURE/bin:$PATH" TMUX="fake-session" TMUX_PANE="%0" TMUX_STUB_LOG="$FALLBACK_LOG" \
+  TMUX_STUB_SPLIT_FAIL=1 bash "$SCRIPT" --tmux "$FALLBACK_DOC" 2>&1)"
+rc_fb=$?
+assert_eq "tmux open, split fails: exits 0 (buffer opened in a new window instead)" "0" "$rc_fb"
+assert "tmux open, split fails: tells the human it fell back to a new window" 'new window' "$out_fb"
+assert_eq "tmux open, split fails: records the new window's pane id, never empty" "%8" "$(state_field "$FALLBACK_SF" pane_id)"
+# Real tmux rejects a pane id as new-window's target ("can't specify pane
+# here"), so the window must be addressed by the caller pane's window id.
+assert "tmux open, split fails: resolves the caller pane's window" '^display-message -p -t %0 #\{window_id\}' "$(cat "$FALLBACK_LOG")"
+assert "tmux open, split fails: new window opens right after the caller's window" '^new-window -a .*-t @3 ' "$(grep '^new-window' "$FALLBACK_LOG")"
+assert "tmux open, split fails: new window runs the same review-buffer command" "WB_REVIEW_BUFFER=1 .*$(basename "$FALLBACK_DOC"); tmux wait-for -S " "$(grep '^new-window' "$FALLBACK_LOG")"
+fb_chan="$(chan_signalled_by "$FALLBACK_LOG" new-window)"
+assert "tmux open, split fails: waits on the channel the new window signals" "^wait-for ${fb_chan}\$" "$(grep '^wait-for' "$FALLBACK_LOG")"
+
+# --- split AND new-window both fail -> loud non-zero exit, no wait, no
+#     state file with an empty pane_id left behind ---------------------------
+NOPANE_DOC="$FIXTURE/docs/no-pane-at-all.md"
+printf '# doc\n' > "$NOPANE_DOC"
+NOPANE_SF="$(state_path_for "$NOPANE_DOC")"
+NOPANE_LOG="$FIXTURE/tmux-calls-no-pane.log"
+out_np="$(PATH="$FIXTURE/bin:$PATH" TMUX="fake-session" TMUX_PANE="%0" TMUX_STUB_LOG="$NOPANE_LOG" \
+  TMUX_STUB_SPLIT_FAIL=1 TMUX_STUB_NEWWINDOW_FAIL=1 bash "$SCRIPT" --tmux "$NOPANE_DOC" 2>&1)"
+rc_np=$?
+assert_eq "tmux open, no pane at all: exits 1" "1" "$rc_np"
+assert "tmux open, no pane at all: error names the document" "could not open a pane .*$(basename "$NOPANE_DOC")" "$out_np"
+assert_eq "tmux open, no pane at all: never calls wait-for" "0" "$(grep -c '^wait-for' "$NOPANE_LOG" || true)"
+assert_eq "tmux open, no pane at all: leaves no state file" "" "$([ -f "$NOPANE_SF" ] && echo present)"
+assert "tmux open, no pane at all: clears the caller pane's @claude_blocked mark" '^set -pu -t %0 @claude_blocked' "$(cat "$NOPANE_LOG")"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
