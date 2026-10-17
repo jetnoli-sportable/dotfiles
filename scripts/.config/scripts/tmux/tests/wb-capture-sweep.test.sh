@@ -136,6 +136,7 @@ assert_match "--max-turns" '^\[--max-turns\]$' "$ARGV"
 assert_match "max-turns 1" '^\[1\]$' "$ARGV"
 assert_match "--tools" '^\[--tools\]$' "$ARGV"
 assert_match "tools empty-string arg" '^\[\]$' "$ARGV"
+assert_match "--strict-mcp-config (no MCP servers loaded)" '^\[--strict-mcp-config\]$' "$ARGV"
 assert_eq "env stripped/set" "SWEEP=1 TMUX=unset PANE=unset" "$(cat "$OUTDIR/env")"
 assert_eq "cwd is capture root" "$(cd "$CAP" && pwd -P)" "$(cat "$OUTDIR/cwd")"
 
@@ -158,10 +159,12 @@ sweep
 assert_nofile "timeout: no draft" "$D/draft"
 assert_eq "timeout result" timeout "$(last_field sweep_ran result)"
 assert_eq "timeout: counter reset" 0 "$(cat "$D/unchanged")"
+assert_nofile "timeout: sweep_offset unchanged (content retried)" "$D/sweep_offset"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail)
 sweep
 assert_nofile "error: no draft" "$D/draft"
 assert_eq "error result" error "$(last_field sweep_ran result)"
+assert_nofile "error: sweep_offset unchanged (content retried)" "$D/sweep_offset"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=empty)
 sweep
 assert_eq "empty output is error" error "$(last_field sweep_ran result)"
@@ -192,6 +195,27 @@ assert_eq "below threshold: counter kept" 3 "$(cat "$D/unchanged")"
 new_scenario; set_conf sweep_every=2; printf '2\n' >"$D/unchanged"
 sweep
 assert_eq "sweep_every honoured" draft "$(last_field sweep_ran result)"
+
+echo "# no new content: only tool calls / nothing since the last sweep"
+new_scenario
+{
+  jq -nc '{type:"assistant",message:{content:[{type:"tool_use",id:"1",name:"Bash",input:{command:"x"}}]}}'
+  jq -nc '{type:"user",message:{content:[{type:"tool_result",tool_use_id:"1",content:"out"}]}}'
+} >"$TRANSCRIPT"
+sweep
+assert_eq "tool-only: invoked" 0 "$(invocations)"
+assert_eq "tool-only: event" sweep_skipped "$(events)"
+assert_eq "tool-only: reason" no_new_content "$(last_field sweep_skipped reason)"
+assert_eq "tool-only: offset advanced past it" 2 "$(cat "$D/sweep_offset")"
+assert_nofile "tool-only: no draft" "$D/draft"
+assert_eq "tool-only: counter reset" 0 "$(cat "$D/unchanged")"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
+sweep                                   # consumes the fixture (offset 3)
+printf '4\n' >"$D/unchanged"; : >"$OUTDIR/invocations"
+sweep                                   # nothing new since the last sweep_offset
+assert_eq "nothing new: no second child" 0 "$(invocations)"
+assert_eq "nothing new: reason" no_new_content "$(last_field sweep_skipped reason)"
+assert_eq "nothing new: offset kept" 3 "$(cat "$D/sweep_offset")"
 
 echo "# excerpt content"
 new_scenario
@@ -273,6 +297,43 @@ assert_file "concurrent: draft written" "$D/draft"
 assert_eq "concurrent: counter reset after sweep" 0 "$(cat "$D/unchanged")"
 assert_eq "concurrent: one sweep" 1 "$(invocations)"
 assert_file "lock file" "$D/.lock"
+# deterministic: the TEST holds the session lock, hooks start with zero delay,
+# and must not touch the counter until it is released (a no-op flock fails this)
+mk_hook_env() { # rebuild envv + payloads for the CURRENT scenario
+  envv=(HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG" PATH="$FAKEBIN:$PATH"
+    FAKE_TASK="$FAKE_TASK" FAKE_CLAUDE_OUT="$OUTDIR" FAKE_ENDED_PATH="$D/ended" TMUX=fake,1,0 TMUX_PANE=%1)
+  jq -nc --arg tp "$TRANSCRIPT" '{session_id:"sid-aaa",transcript_path:$tp}' >"$H/sw.json"
+  printf '%s' "$STOPJSON" >"$H/st.json"
+}
+hold_lock() { # <secs> — hold <dir>/.lock in the background; returns once held
+  rm -f "$H/held"
+  flock "$D/.lock" "$REAL_BASH" -c ': >"$1"; sleep "$2"' _ "$H/held" "$1" &
+  HOLDER=$!
+  for _ in $(seq 1 100); do [ -e "$H/held" ] && break; sleep 0.05; done
+  assert_file "test holds the lock" "$H/held"
+}
+new_scenario
+sha1sum <"$FAKE_TASK" | cut -d' ' -f1 >"$D/taskhash"; printf '3\n' >"$D/unchanged"
+mk_hook_env
+hold_lock 2
+env "${envv[@]}" "$REAL_BASH" "$CAPTURE" hook-stop <"$H/st.json" >/dev/null 2>&1 &
+p2=$!
+sleep 0.7
+assert_eq "locked: hook-stop has not bumped the counter" 3 "$(cat "$D/unchanged")"
+wait $HOLDER $p2
+assert_eq "released: hook-stop bumped the counter" 4 "$(cat "$D/unchanged")"
+new_scenario; mk_hook_env                 # unchanged=4 (>= sweep_every) from new_scenario
+hold_lock 2
+env "${envv[@]}" WB_CAPTURE_SWEEP_DELAY=0 FAKE_CLAUDE_MODE=draft "$REAL_BASH" "$SWEEP" <"$H/sw.json" >/dev/null 2>&1 &
+p1=$!
+sleep 0.7
+assert_eq "locked: sweep has not reset the counter" 4 "$(cat "$D/unchanged")"
+assert_eq "locked: sweep has not run the child" 0 "$(invocations)"
+assert_nofile "locked: no draft yet" "$D/draft"
+wait $HOLDER $p1
+assert_eq "released: sweep reset the counter" 0 "$(cat "$D/unchanged")"
+assert_eq "released: sweep ran the child" 1 "$(invocations)"
+assert_file "released: draft written" "$D/draft"
 # back-to-back: stop then sweep
 new_scenario
 sha1sum <"$FAKE_TASK" | cut -d' ' -f1 >"$D/taskhash"; printf '3\n' >"$D/unchanged"

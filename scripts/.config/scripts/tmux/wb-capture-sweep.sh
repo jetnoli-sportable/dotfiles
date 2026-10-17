@@ -102,7 +102,7 @@ PROMPT
   printf '%s\n\n=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$decisions" "$excerpt"
 } | (cd "$CAPTURE_ROOT" && env -u TMUX -u TMUX_PANE WB_CAPTURE_SWEEP=1 \
       timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p --model haiku \
-      --no-session-persistence --max-turns 1 --tools "" 2>/dev/null))"
+      --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config 2>/dev/null))"
 rc=$?
 out="${out#"${out%%[![:space:]]*}"}"
 out="${out%"${out##*[![:space:]]}"}"

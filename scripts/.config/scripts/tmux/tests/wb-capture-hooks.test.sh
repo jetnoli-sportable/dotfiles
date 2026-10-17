@@ -338,6 +338,16 @@ assert_eq "orphan sid" sid-old "$(jq -r 'select(.event=="pending_orphaned")|.ses
 assert_eq "orphan task stem" dotfiles--feat-old "$(jq -r 'select(.event=="pending_orphaned")|.task' "$LOG")"
 assert_eq "orphan marker true" true "$(jq -r 'select(.event=="pending_orphaned")|.marker' "$LOG")"
 
+echo "# reaper: stale dir holding only a draft logs pending_orphaned (draft:true) and is removed"
+new_scenario
+mkold sid-dr draft
+prompt "hi"
+assert_nofile "draft-only dir removed" "$CAP/sid-dr"
+assert_eq "one pending_orphaned" 1 "$(count_ev pending_orphaned)"
+assert_eq "orphan sid" sid-dr "$(jq -r 'select(.event=="pending_orphaned")|.session_id' "$LOG")"
+assert_eq "orphan draft true" true "$(jq -r 'select(.event=="pending_orphaned")|.draft' "$LOG")"
+assert_eq "orphan marker false" false "$(jq -r 'select(.event=="pending_orphaned")|.marker' "$LOG")"
+
 echo "# reaper: dir holding an outstanding nudge logs ignored before removal"
 new_scenario
 mkold sid-out outstanding

@@ -371,7 +371,7 @@ reap_stale() {
     fi
     TASK_STEM="$saved_stem"
     reap_dir "$sdir"
-    exec 8>&- 2>/dev/null
+    exec 8>&-
   done
   return 0
 }
