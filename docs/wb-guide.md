@@ -478,6 +478,16 @@ until a human or agent happens to touch that file again.
 `scratch/tasks/`, and worktree setup checks it for existing context before
 starting from scratch.
 
+**`wb set <task> tags` adds to the existing list; it never replaces it.**
+This is deliberate (R26, `_wb_tags_merge` in `wb.sh`): it suits lane tagging,
+where you only ever add a tag such as `research`. Removing a tag therefore
+takes two steps: clear the list, then set it again without that tag:
+
+```
+wb set <task> tags --unset
+wb set <task> tags "[coding-ui, contract-test, tests]"
+```
+
 The planned/backlog tasks the presence-only picker hides are one command
 away:
 
