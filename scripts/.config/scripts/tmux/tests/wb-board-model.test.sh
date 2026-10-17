@@ -220,6 +220,12 @@ parent: parent-a
 EOF
 touch -d "1 days ago" "$FIXTURE_TASKS/parent-a--child-b.md"
 
+# Self-referential parent: a hand-edited `parent:` naming the task's own stem.
+# wb new refuses to write one (wb-new.test.sh), so this is the READ-BACK guard
+# in wb_board_collect_rows_v2 (wb_task_own_parent -> parent="") on a file that
+# already exists on disk.
+mk_task selfref-task planned 3 $'parent: selfref-task'
+
 # --- U2/R2: size + acceptance-signal fixtures ----------------------------
 # size: L + an "## Acceptance criteria" heading -> M_SIZE=L, M_ACCEPT=1.
 cat > "$FIXTURE_TASKS/size-accept.md" <<'EOF'
@@ -418,6 +424,13 @@ assert_eq "tags: csv and list form agree with each other" "$csv_tokens" "$list_t
 assert "Family: child appears in parent's children list" "child-b" "${FAMILY_CHILDREN[parent-a]:-}"
 assert_eq "Family: child's family root resolves to the parent" "parent-a" "${M_FAMILY_ROOT[parent-a--child-b]:-}"
 assert_eq "Family: root task's family root is itself" "parent-a" "${M_FAMILY_ROOT[parent-a]:-}"
+
+# Self-referential parent: dropped on the collect read-back path, so the task is
+# a parentless root and never lists itself as its own child.
+assert_eq "Self-ref: M_PARENT is dropped (collect read-back guard)" "" "${M_PARENT[selfref-task]:-}"
+assert_eq "Self-ref: STEM_PARENT has no entry" "" "${STEM_PARENT[selfref-task]:-}"
+assert_eq "Self-ref: family root is the task itself" "selfref-task" "${M_FAMILY_ROOT[selfref-task]:-}"
+assert_eq "Self-ref: task is not its own child in FAMILY_CHILDREN" "" "${FAMILY_CHILDREN[selfref-task]:-}"
 
 # --- U5: Decisions/links raw-text round-trip through the collect pass ----
 assert "M_DECISIONS_RAW captures the dated entry" "2026-01-02 . Chose the simple approach" "${M_DECISIONS_RAW[parent-a]:-}"
