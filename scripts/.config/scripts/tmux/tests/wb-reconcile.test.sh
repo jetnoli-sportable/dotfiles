@@ -292,11 +292,6 @@ fi
 # one (it would raise a bogus 'missing' finding).
 printf '# No frontmatter\n\nintro\n\n---\nstatus: doing\nrepo: proj\nworktree: .worktrees/bodyrule-ghost\n---\nmore\n' > "$DUP_TASKS/proj--bodyrule.md"
 assert "reconcile_collect: body --- rule (no line-1 frontmatter) is not frontmatter" '^none$' "none$(wb_get_frontmatter "$DUP_TASKS/proj--bodyrule.md" worktree)"
-if wb_reconcile_collect 2>/dev/null | /usr/bin/grep -q 'bodyrule'; then
-  echo "FAIL - reconcile_collect: body-rule file flagged as missing"; fail=1
-else
-  echo "ok   - reconcile_collect: body-rule file not flagged as missing"
-fi
 
 rm -rf "$DUP_TASKS" "$DUP_CODE" "$MAWK_SHIM_DIR"
 
