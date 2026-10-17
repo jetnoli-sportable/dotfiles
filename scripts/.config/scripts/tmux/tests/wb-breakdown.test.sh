@@ -1631,5 +1631,18 @@ assert_eq "gap: a body with no trailing newline (the \$(...) caller shape) still
 assert_eq "gap: backslashes and a heading-shaped body line survive byte-for-byte" "$gap_bs_body" \
   "$(awk '$0 == "## Plan" { inp = 1; getline; next } inp && $0 == "" { exit } inp { print }' "$gap_bs")"
 
+# --- hardening: replace_section touches only the FIRST matching heading -----
+# A second "## Plan" copy (the duplicate shape `wb lint-sections` merges) used
+# to re-match once bodyfile was drained, re-emitting the heading bare and
+# dropping the copy's original content.
+hd_dup="$TASKS_DIR/proj--hardening-dup-plan.md"
+printf '# Title\n\n## Plan\n\nfirst old plan\n\n## Handoffs\n\n\n\n## Plan\n\nsecond plan content\n\n## Follow-ups\n' > "$hd_dup"
+_wb_breakdown_replace_section "$hd_dup" "Plan" "new plan"
+assert_eq "hardening: first ## Plan body replaced" "yes" \
+  "$(awk '$0 == "## Plan" { n++; getline; getline; if (n == 1 && $0 == "new plan") print "yes"; exit }' "$hd_dup")"
+assert_eq "hardening: second ## Plan copy keeps its original content" "1" "$(grep -c '^second plan content$' "$hd_dup")"
+assert_eq "hardening: both ## Plan headings still present (none dropped or bare)" "2" "$(grep -c '^## Plan$' "$hd_dup")"
+assert_eq "hardening: first ## Plan's old body is gone" "0" "$(grep -c '^first old plan$' "$hd_dup")"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS"
 exit "$fail"
