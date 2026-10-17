@@ -4,6 +4,7 @@
 > human half (table) below. Consumers: `prefix+?` picker (help.sh), /help skill.
 
 ```jsonl
+{"id":"agent-store-specialist","kind":"agent","name":"store-specialist","oneliner":"The family's single expert on the ~/code/tasks store — retrieves a distilled answer with `file#section` pointers, or applies a caller-suppl…","source":"claude/.claude/agents/store-specialist.md:1","invoke":"@agent-store-specialist","guide":"","tags":["claude"]}
 {"id":"zsh-alias-N","kind":"alias","name":"N","oneliner":"notes picker / daily note in the persistent notes session (notes.sh)","source":"zsh/.zshrc:91","invoke":"N","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-ca","kind":"alias","name":"ca","oneliner":"legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it","source":"zsh/.zshrc:93","invoke":"ca","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-fd","kind":"alias","name":"fd","oneliner":"fdfind","source":"zsh/.zshrc:83","invoke":"fd","guide":"","tags":["zsh"]}
@@ -284,6 +285,7 @@
 
 | name | kind | what | invoke | source | guide |
 |---|---|---|---|---|---|
+| store-specialist | agent | The family's single expert on the ~/code/tasks store — retrieves a distilled answer with `file#section` pointers, or applies a caller-suppl… | @agent-store-specialist | claude/.claude/agents/store-specialist.md:1 |  |
 | N | alias | notes picker / daily note in the persistent notes session (notes.sh) | N | zsh/.zshrc:91 |  |
 | ca | alias | legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it | ca | zsh/.zshrc:93 |  |
 | fd | alias | fdfind | fd | zsh/.zshrc:83 |  |
