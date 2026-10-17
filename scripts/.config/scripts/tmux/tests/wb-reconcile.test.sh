@@ -204,8 +204,11 @@ mk_dup 'proj--fam-z.md' doing proj branch-fz '.worktrees/fz' 'SFB-402' 'proj--fa
 mk_dup 'proj--fam-w.md' doing proj branch-fw '.worktrees/fw' 'SFB-402' 'proj--fam-x'
 mk_dup 'proj--fam-u.md' doing proj branch-fu '.worktrees/fu' 'SFB-403' 'proj--fam-q'
 mk_dup 'proj--fam-v.md' doing proj branch-fv '.worktrees/fv' 'SFB-403'
+# (f) a file with no leading frontmatter: a later --- rule in the body must not
+# open a fake frontmatter block whose fields then count as a branch claim
+printf '# Notes\n\n---\nstatus: doing\nrepo: proj\nbranch: shared-branch\nworktree: .worktrees/nofm\n---\nbody\n' > "$DUP_TASKS/proj--nofm.md"
 # every fixture worktree exists on disk, so no "missing" rows muddy the output
-for wt in fp fp-mig fc2 fx fy fz fw fu fv ma mb mc md ja jb wt-a wt-b shared-wt stutter other-a old-stutter solo; do
+for wt in nofm fp fp-mig fc2 fx fy fz fw fu fv ma mb mc md ja jb wt-a wt-b shared-wt stutter other-a old-stutter solo; do
   mkdir -p "$DUP_CODE/proj/.worktrees/$wt" "$DUP_CODE/other/.worktrees/$wt"
 done
 out_d="$(cmd_reconcile --machine 2>&1)"; rc_d=$?
@@ -237,6 +240,7 @@ check_dup_machine() { # <label> <output>
   assert "dup machine [$1]: same-family jira (parent/child, siblings) not flagged" '^0$' "$(printf '%s\n' "$2" | /usr/bin/grep -cE 'SFB-40[012]|fam-p|fam-c|fam-[xyzw]')"
   assert "dup machine [$1]: unrelated tasks sharing a key still flagged" \
     '^duplicate	jira	proj	SFB-403	/[^,]*proj--fam-u\.md,/[^,]*proj--fam-v\.md$' "$2"
+  assert "dup machine [$1]: body --- without line-1 frontmatter is not parsed" '^0$' "$(printf '%s\n' "$2" | /usr/bin/grep -c 'nofm')"
   assert "dup machine [$1]: exactly 7 duplicate rows" '^7$' "$(printf '%s\n' "$2" | /usr/bin/grep -c '^duplicate	')"
 }
 check_dup_machine default "$out_d"
@@ -262,7 +266,7 @@ else
 fi
 
 # Only-live-unique store: no duplicates -> existing 'no drift found' output.
-rm -f "$DUP_TASKS"/proj--multi-[bcd].md "$DUP_TASKS"/proj--fam-*.md "$DUP_TASKS"/proj--jira-b.md "$DUP_TASKS"/proj--br-b.md "$DUP_TASKS"/proj--wt-b.md "$DUP_TASKS"/proj--proj--stutter.md
+rm -f "$DUP_TASKS"/proj--multi-[bcd].md "$DUP_TASKS"/proj--fam-*.md "$DUP_TASKS"/proj--nofm.md "$DUP_TASKS"/proj--jira-b.md "$DUP_TASKS"/proj--br-b.md "$DUP_TASKS"/proj--wt-b.md "$DUP_TASKS"/proj--proj--stutter.md
 assert "dup cleared: human mode back to no drift" 'no drift found' "$(cmd_reconcile 2>&1)"
 if [ -z "$(cmd_reconcile --machine 2>&1)" ]; then
   echo "ok   - dup cleared: machine mode prints nothing"

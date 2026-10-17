@@ -2109,8 +2109,9 @@ wb_reconcile_collect_duplicates() {
         addm(wm, k, idx)
       }
     }
-    FNR == 1 { flush(); file = FILENAME; status = repo = branch = worktree = jira = parent = ""; infm = 0 }
-    /^---$/ { infm++; next }
+    FNR == 1 { flush(); file = FILENAME; status = repo = branch = worktree = jira = parent = ""; infm = ($0 == "---") }
+    # frontmatter opens only on line 1 (like the other wb.sh parsers); a later --- is body
+    /^---$/ { if (infm == 1 && FNR > 1) infm = 2; next }
     infm == 1 {
       if ($0 ~ /^status:/)        status   = val($0, "status")
       else if ($0 ~ /^repo:/)     repo     = val($0, "repo")
