@@ -115,7 +115,8 @@ wb_board_first_nonblank_line() {
   # stdout fallback preserves existing callers.
   local line __r=""
   while IFS= read -r line; do
-    if [ -n "${line//[[:space:]]/}" ]; then __r="$line"; break; fi
+    # A glob test, not `${line//[[:space:]]/}` (quadratic class substitution).
+    if [[ "$line" == *[![:space:]]* ]]; then __r="$line"; break; fi
   done <<< "$1"
   if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__r"; else printf '%s' "$__r"; fi
 }
@@ -330,7 +331,10 @@ wb_board_v2_fill_template() {
       *) __out+="$__rest"; __rest=""; break ;;
     esac
     __head="${__rest%%@@*}"
-    __rest="${__rest#*@@}"
+    # Skip past <head>@@ by offset, not `${__rest#*@@}`: that shortest-prefix
+    # strip is quadratic in how far the first `@@` sits from the start (the
+    # static CSS/JS head is ~50KB, so the one strip cost ~0.6s on its own).
+    __rest="${__rest:$(( ${#__head} + 2 ))}"
     case "$__rest" in
       *'@@'*)
         __name="${__rest%%@@*}"
@@ -339,7 +343,7 @@ wb_board_v2_fill_template() {
         # `@@`, and is passed through.
         if [[ "$__name" =~ ^[A-Z0-9_]+$ ]] && [ -n "${__tok[$__name]+x}" ]; then
           __out+="$__head${__tok[$__name]}"
-          __rest="${__rest#*@@}"
+          __rest="${__rest:$(( ${#__name} + 2 ))}"
         else
           __out+="${__head}@@"
         fi
@@ -434,7 +438,7 @@ wb_board_v2_bucket() {
   if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$__b"; else printf '%s' "$__b"; fi
 }
 
-# wb_board_v2_family_root <stem> <stem_parent_arrayname> — walks the
+# wb_board_v2_family_root <stem> <stem_parent_arrayname> [<out_var>] — walks the
 # parent: chain (STEM_PARENT, built by the same single pass below) to its
 # root ancestor, bounded to 50 hops so a hand-edited parent: cycle can never
 # spin the render loop forever (fail-open to the stem itself, same
@@ -458,7 +462,10 @@ wb_board_v2_family_root() {
     cur="${_fr_sp["$cur"]}"
     hops=$((hops + 1))
   done
-  printf '%s' "$cur"
+  # perf(wb-board): optional <out_var> ($3, D2A's convention) — the model
+  # pass calls this once per task, so a `$(...)` subshell here was one fork
+  # per task; stdout fallback preserves every other call site.
+  if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$cur"; else printf '%s' "$cur"; fi
 }
 
 # wb_board_v2_read_file <file> — THE single-read primitive (R16): one awk
@@ -862,8 +869,10 @@ wb_board_build_model() {
   done
 
   # Family roots + children map, from STEM_PARENT (just populated above).
+  local __fr_out
   for stem in "${!_stem_anchor[@]}"; do
-    _family_root["$stem"]="$(wb_board_v2_family_root "$stem" _stem_parent)"
+    wb_board_v2_family_root "$stem" _stem_parent __fr_out
+    _family_root["$stem"]="$__fr_out"
     if [ -n "${_stem_parent["$stem"]:-}" ]; then
       _family_children["${_stem_parent["$stem"]}"]+="$stem"$'\n'
     fi
@@ -896,7 +905,7 @@ wb_board_build_model() {
 #     across all views") so a small badge is added to each view-tab.
 # ===========================================================================
 
-# wb_board_v2_dot_class <status> <bucket> <age_days> — the rail/card
+# wb_board_v2_dot_class <status> <bucket> <age_days> [<out_var>] — the rail/card
 # freshness dot color: doing/review tasks grade green (touched today) ->
 # yellow (touched this week) -> red (stale bucket, R21's 14+ day rule);
 # planned tasks are blue, paused/prospective/done fall to the neutral
@@ -905,18 +914,22 @@ wb_board_build_model() {
 # purely via CSS (`.card.selected .ring-stroke`), never by this function
 # choosing it.
 wb_board_v2_dot_class() {
-  local status="$1" bucket="$2" age_days="$3"
+  local status="$1" bucket="$2" age_days="$3" __d
   case "$status" in
     doing|review)
-      if [ "$bucket" = stale ]; then printf 'red'
-      elif [ "${age_days:-0}" -le 0 ]; then printf 'green'
-      else printf 'yellow'
+      if [ "$bucket" = stale ]; then __d='red'
+      elif [ "${age_days:-0}" -le 0 ]; then __d='green'
+      else __d='yellow'
       fi
       ;;
-    planned) printf 'blue' ;;
-    paused|prospective) printf 'peach' ;;
-    *) printf 'muted' ;;
+    planned) __d='blue' ;;
+    paused|prospective) __d='peach' ;;
+    *) __d='muted' ;;
   esac
+  # perf(wb-board): optional <out_var> ($4, D2A's convention) — called once
+  # per task per view, so a `$(...)` subshell here was a fork each time;
+  # stdout fallback preserves every other call site.
+  if [ -n "${4:-}" ]; then printf -v "$4" '%s' "$__d"; else printf '%s' "$__d"; fi
 }
 
 # wb_board_v2_age_label <age_days> — "today" for 0 (or negative — a task
@@ -946,7 +959,9 @@ wb_board_v2_ring_offset() {
   local checked="${1:-0}" total="${2:-0}"
   [ "$total" -gt 0 ] || return 0
   local off=$(( 1068 * (total - checked) / total ))
-  printf '%d.%d' $((off / 10)) $((off % 10))
+  # perf(wb-board): optional <out_var> ($3), same convention as the helpers above.
+  if [ -n "${3:-}" ]; then printf -v "$3" '%d.%d' $((off / 10)) $((off % 10))
+  else printf '%d.%d' $((off / 10)) $((off % 10)); fi
 }
 
 # wb_board_v2_checklist_html <raw_plan_text> — the drilldown Plan column's
@@ -991,36 +1006,45 @@ wb_board_v2_bullet_html() {
   if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$out"; else printf '%s' "$out"; fi
 }
 
-# wb_board_v2_handoff_next <raw_handoff_text> — the `/wb-save`-authored
+# wb_board_v2_handoff_next <raw_handoff_text> [<out_var>] — the `/wb-save`-authored
 # "**Next:** ..." line from the latest Handoff block, or empty (a terse
 # `wb pause`/`wb resume`-authored entry has no such field).
 wb_board_v2_handoff_next() {
-  local raw="${1:-}" line trimmed
+  local raw="${1:-}" line trimmed __hn=""
   while IFS= read -r line; do
     trimmed="${line#"${line%%[![:space:]]*}"}"
     case "$trimmed" in
-      '**Next:**'*) printf '%s' "${trimmed#'**Next:**'}"; return 0 ;;
+      '**Next:**'*) __hn="${trimmed#'**Next:**'}"; break ;;
     esac
   done <<< "$raw"
+  # perf(wb-board): optional <out_var> ($2, D2A's convention) so the per-card
+  # caller below needs no `$(...)` subshell; stdout fallback unchanged.
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__hn"; else printf '%s' "$__hn"; fi
 }
 
-# wb_board_v2_next_line <raw_plan_text> <raw_handoff_text> <bucket> — the
+# wb_board_v2_next_line <raw_plan_text> <raw_handoff_text> <bucket> [<out_var>] — the
 # Active/Week card's bold "Next:" line: the first still-open Plan item,
 # else the latest handoff's "**Next:**" field, else a bucket-aware
 # fallback ("resume or drop" for a stale card, matching the mockup's own
 # no-signal stale cards; "triage next steps" otherwise).
 wb_board_v2_next_line() {
-  local plan_raw="${1:-}" handoff_raw="${2:-}" bucket="${3:-}" line trimmed
+  local plan_raw="${1:-}" handoff_raw="${2:-}" bucket="${3:-}" line trimmed __nl="" __found=0
   while IFS= read -r line; do
     trimmed="${line#"${line%%[![:space:]]*}"}"
     case "$trimmed" in
-      '- [ ]'*) printf '%s' "${trimmed#'- [ ] '}"; return 0 ;;
+      '- [ ]'*) __nl="${trimmed#'- [ ] '}"; __found=1; break ;;
     esac
   done <<< "$plan_raw"
-  local n; n="$(wb_board_v2_handoff_next "$handoff_raw")"
-  n="${n# }"
-  if [ -n "$n" ]; then printf '%s' "$n"; return 0; fi
-  if [ "$bucket" = stale ]; then printf 'resume or drop'; else printf 'triage next steps'; fi
+  if [ "$__found" = 0 ]; then
+    local n; wb_board_v2_handoff_next "$handoff_raw" n
+    n="${n# }"
+    if [ -n "$n" ]; then __nl="$n"
+    elif [ "$bucket" = stale ]; then __nl='resume or drop'
+    else __nl='triage next steps'
+    fi
+  fi
+  # perf(wb-board): optional <out_var> ($4), same convention as above.
+  if [ -n "${4:-}" ]; then printf -v "$4" '%s' "$__nl"; else printf '%s' "$__nl"; fi
 }
 
 # wb_board_v2_rail_node_html <stem> — recursive rail entry for <stem>: a
@@ -1051,14 +1075,15 @@ wb_board_v2_rail_node_html() {
   # scoping convention as the _m_* arrays. Render each stem at most once.
   [ -n "${RAIL_SEEN[$stem]:-}" ] && return 0
   RAIL_SEEN["$stem"]=1
-  local status="${_m_status[$stem]:-}" bucket="${_m_bucket[$stem]:-}" age="${_m_age_days[$stem]:-0}"
-  local dot; dot="$(wb_board_v2_dot_class "$status" "$bucket" "$age")"
-  local title; title="$(wb_board_html_escape "${_m_title[$stem]:-$stem}")"
+  local status="${_m_status[$stem]:-}" bucket="${_m_bucket[$stem]:-}" age="${_m_age_days[$stem]:-0}" __a1
+  local dot; wb_board_v2_dot_class "$status" "$bucket" "$age" dot
+  local title; wb_board_html_escape "${_m_title[$stem]:-$stem}" title
   local right
   if [ "$status" = planned ]; then
     right='<span class="rail-pill">planned</span>'
   else
-    right="<span class=\"rail-row-age mono\">$(wb_board_v2_age_label "$age")</span>"
+    wb_board_v2_age_label "$age" __a1
+    right="<span class=\"rail-row-age mono\">${__a1}</span>"
   fi
   # UX pass (scope model): every rail node carries the three attributes the
   # client-side SCOPE reads — data-stem (the `wb resume` id), data-anchor
@@ -1190,7 +1215,7 @@ wb_board_v2_followups_ul() {
   if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__o"; else printf '%s' "$__o"; fi
 }
 
-# wb_board_v2_roadmap_bar <stem> — "<track>\t<bar_html>" for one Roadmap
+# wb_board_v2_roadmap_bar <stem> [<out_var>] — "<track>\t<bar_html>" for one Roadmap
 # lane member, or empty when <stem> doesn't place on the grid at all
 # (done tasks; paused/prospective tasks; and STALE ones — a stale task
 # surfaces only via the Stale toggle, R21, never desaturated into a lane
@@ -1207,12 +1232,15 @@ wb_board_v2_followups_ul() {
 # by readiness (no unmet blocker -> next, else -> later, tagged with the
 # blocker).
 wb_board_v2_roadmap_bar() {
-  local stem="$1"
+  local stem="$1" __rb=""
   local status="${_m_status[$stem]:-}" bucket="${_m_bucket[$stem]:-}" age="${_m_age_days[$stem]:-0}"
   local anchor="${_m_stem_anchor[$stem]:-}"
-  local title_attr; title_attr="$(wb_board_html_escape "${_m_title[$stem]:-$stem}")"
+  local title_attr; wb_board_html_escape "${_m_title[$stem]:-$stem}" title_attr
   if [ "$status" = doing ] || [ "$status" = review ]; then
-    [ "$bucket" = stale ] && return 0
+    if [ "$bucket" = stale ]; then
+      if [ -n "${2:-}" ]; then printf -v "$2" '%s' ""; fi
+      return 0
+    fi
     local track=4
     [ "$age" -gt 6 ] && track=3
     # UX pass: the bar carries the task's own title (it used to read only
@@ -1224,17 +1252,21 @@ wb_board_v2_roadmap_bar() {
     # bare text node either overruns the bar's padding (and, on a ready
     # bar, the "ready" tag) or forces the bar to grow. One span per label
     # is what keeps every bar exactly one line tall with a clean ellipsis.
-    printf '%s\t<div class="rm-bar active-bar" data-anchor="%s" title="%s &mdash; doing &middot; %s"><span class="rm-bar-t">%s</span><span class="rm-bar-age">%s</span></div>' \
-      "$track" "$anchor" "$title_attr" "$(wb_board_v2_age_label "$age")" "$title_attr" "$(wb_board_v2_age_label "$age")"
+    local age_l; wb_board_v2_age_label "$age" age_l
+    printf -v __rb '%s\t<div class="rm-bar active-bar" data-anchor="%s" title="%s &mdash; doing &middot; %s"><span class="rm-bar-t">%s</span><span class="rm-bar-age">%s</span></div>' \
+      "$track" "$anchor" "$title_attr" "$age_l" "$title_attr" "$age_l"
   elif [ "$status" = planned ]; then
     if [ -n "${UNMET_COUNT[$stem]:-}" ]; then   # fix(review) D4: keyed by stem, not anchor
-      local blockers_attr; blockers_attr="$(wb_board_html_escape "${BLOCKER_NAMES[$stem]:-}")"
-      printf '6\t<div class="rm-bar blocked-bar" data-anchor="%s" title="%s &mdash; blocked after: %s"><span class="lock-ic">&#128274;</span><span class="rm-bar-t">%s</span><span class="rm-after-tag">after: %s</span></div>' \
+      local blockers_attr; wb_board_html_escape "${BLOCKER_NAMES[$stem]:-}" blockers_attr
+      printf -v __rb '6\t<div class="rm-bar blocked-bar" data-anchor="%s" title="%s &mdash; blocked after: %s"><span class="lock-ic">&#128274;</span><span class="rm-bar-t">%s</span><span class="rm-after-tag">after: %s</span></div>' \
         "$anchor" "$title_attr" "$blockers_attr" "$title_attr" "$blockers_attr"
     else
-      printf '5\t<div class="rm-bar ready-bar" data-anchor="%s" title="%s"><span class="rm-bar-t">%s</span></div>' "$anchor" "$title_attr" "$title_attr"
+      printf -v __rb '5\t<div class="rm-bar ready-bar" data-anchor="%s" title="%s"><span class="rm-bar-t">%s</span></div>' "$anchor" "$title_attr" "$title_attr"
     fi
   fi
+  # perf(wb-board): optional <out_var> ($2, D2A's convention) so the lane loop
+  # needs no `$(...)` subshell per member; stdout fallback unchanged.
+  if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__rb"; else printf '%s' "$__rb"; fi
 }
 
 # ===========================================================================
@@ -1809,7 +1841,8 @@ wb_board_v2_detail_html() {
 
     if [ "$d_compact" = 0 ]; then
     local d_draw=""; wb_board_v2_clip "${_m_decisions_raw[$d_stem]:-}" 1600 d_draw
-    if [ -n "${d_draw//[[:space:]]/}" ]; then
+    # A glob test, not `${d_draw//[[:space:]]/}` (quadratic class substitution).
+    if [[ "$d_draw" == *[![:space:]]* ]]; then
       wb_board_html_escape "$d_draw" d_h
       d_body+="<details class=\"dsec\"><summary>Decisions</summary><pre class=\"dsec-pre\">${d_h}</pre></details>"
     fi
@@ -1975,6 +2008,9 @@ wb_board_render_v2() {
   local -n _m_decisions_raw="${32}" _m_links_raw="${33}"
 
   local now; now="$(date +%s)"
+  # Scratch out-vars for the hoisted `$(...)`-free helper calls below (see
+  # wb_board_html_escape / _age_label / _ring_offset's out_var notes).
+  local __e1 __e2 __a1 __r1
 
   # TASK_HREF_PREFIX: "file:///abs/path/to/tasks/" — escaped ONCE here and
   # read by wb_board_v2_task_open_html at every task-id site (see its own
@@ -2197,7 +2233,7 @@ wb_board_render_v2() {
     wb_board_v2_anchor "${_m_family_root[$dk_stem]:-$dk_stem}" dk_fam_anchor
     local dk_bucket="${_m_bucket[$dk_stem]}"
     local dk_age="${_m_age_days[$dk_stem]:-0}"
-    local dk_dot; dk_dot="$(wb_board_v2_dot_class "${_m_status[$dk_stem]}" "$dk_bucket" "$dk_age")"
+    local dk_dot; wb_board_v2_dot_class "${_m_status[$dk_stem]}" "$dk_bucket" "$dk_age" dk_dot
     local dk_sel_cls="" dk_stale_cls=""
     [ "$dk_idx" = 1 ] && dk_sel_cls=" selected"
     [ "$dk_bucket" = stale ] && dk_stale_cls=" stale"
@@ -2205,16 +2241,18 @@ wb_board_render_v2() {
     local dk_ring_label="&mdash;" dk_ring_circle=""
     if [ "$dk_total" -gt 0 ]; then
       dk_ring_label="$dk_checked/$dk_total"
-      dk_ring_circle="<circle class=\"ring-stroke\" cx=\"21\" cy=\"21\" r=\"17\" fill=\"none\" stroke=\"var(--${dk_dot})\" stroke-width=\"4\" stroke-dasharray=\"106.8\" stroke-dashoffset=\"$(wb_board_v2_ring_offset "$dk_checked" "$dk_total")\" stroke-linecap=\"round\" transform=\"rotate(-90 21 21)\"/>"
+      wb_board_v2_ring_offset "$dk_checked" "$dk_total" __r1
+      dk_ring_circle="<circle class=\"ring-stroke\" cx=\"21\" cy=\"21\" r=\"17\" fill=\"none\" stroke=\"var(--${dk_dot})\" stroke-width=\"4\" stroke-dasharray=\"106.8\" stroke-dashoffset=\"${__r1}\" stroke-linecap=\"round\" transform=\"rotate(-90 21 21)\"/>"
     fi
     local dk_quote_html
     if [ -n "${_m_handoff_summary[$dk_stem]:-}" ]; then
-      dk_quote_html="<div class=\"quote\">&ldquo;$(wb_board_html_escape "${_m_handoff_summary[$dk_stem]}")&rdquo;</div>"
+      wb_board_html_escape "${_m_handoff_summary[$dk_stem]}" __e1
+      dk_quote_html="<div class=\"quote\">&ldquo;${__e1}&rdquo;</div>"
     else
       dk_quote_html='<div class="quote placeholder">No handoff logged yet.</div>'
     fi
-    local dk_next; dk_next="$(wb_board_v2_next_line "${_m_plan_raw[$dk_stem]:-}" "${_m_handoff_raw[$dk_stem]:-}" "$dk_bucket")"
-    local dk_title; dk_title="$(wb_board_html_escape "${_m_title[$dk_stem]:-$dk_stem}")"
+    local dk_next; wb_board_v2_next_line "${_m_plan_raw[$dk_stem]:-}" "${_m_handoff_raw[$dk_stem]:-}" "$dk_bucket" dk_next
+    local dk_title; wb_board_html_escape "${_m_title[$dk_stem]:-$dk_stem}" dk_title
 
     local dk_repo_attr dk_repo_badge
     wb_board_v2_repo_bits "$dk_stem" dk_repo_attr dk_repo_badge
@@ -2229,8 +2267,10 @@ wb_board_render_v2() {
     local dk_strip; wb_board_v2_stage_strip_html "$dk_stem" dk_strip
     deck_html+="$dk_strip"
     deck_html+="${dk_quote_html}"
-    deck_html+="<div class=\"next-line\">Next: <b>$(wb_board_html_escape "$dk_next")</b></div>"
-    deck_html+="<div class=\"card-foot\"><span class=\"dot ${dk_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "$dk_age")</span><span class=\"card-caret\" title=\"expand\">&#9656;</span></div>"
+    wb_board_html_escape "$dk_next" __e1
+    deck_html+="<div class=\"next-line\">Next: <b>${__e1}</b></div>"
+    wb_board_v2_age_label "$dk_age" __a1
+    deck_html+="<div class=\"card-foot\"><span class=\"dot ${dk_dot}\"></span><span class=\"mono\">${__a1}</span><span class=\"card-caret\" title=\"expand\">&#9656;</span></div>"
     deck_html+="</div>"
 
     # U8: the expanded detail is no longer built here. Every task has ONE
@@ -2258,7 +2298,7 @@ wb_board_render_v2() {
     fi
     local rm_bars="" rm_min_track=99 rm_max_track=0 rm_member rm_bar_line rm_track rm_bar_html
     for rm_member in "${rm_members[@]}"; do
-      rm_bar_line="$(wb_board_v2_roadmap_bar "$rm_member")"
+      wb_board_v2_roadmap_bar "$rm_member" rm_bar_line
       [ -n "$rm_bar_line" ] || continue
       rm_track="${rm_bar_line%%$'\t'*}"
       rm_bar_html="${rm_bar_line#*$'\t'}"
@@ -2268,7 +2308,7 @@ wb_board_render_v2() {
     done
     [ -n "$rm_bars" ] || continue
     local rm_span_end=$((rm_max_track + 1))
-    local rm_title; rm_title="$(wb_board_html_escape "${_m_title[$rm_stem]:-$rm_stem}")"
+    local rm_title; wb_board_html_escape "${_m_title[$rm_stem]:-$rm_stem}" rm_title
     # UX pass: the lane names its family so setScope() can outline it,
     # scroll it into view and dim (never hide — a roadmap of one lane is
     # useless) the rest.
@@ -2283,8 +2323,9 @@ wb_board_render_v2() {
       rm_lanes_html+="<div class=\"rm-bracket\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\"></div>"
       rm_lanes_html+="<div class=\"rm-bars\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\">${rm_bars}</div></div>"
     else
-      local rm_dot; rm_dot="$(wb_board_v2_dot_class "${_m_status[$rm_stem]}" "${_m_bucket[$rm_stem]}" "${_m_age_days[$rm_stem]:-0}")"
-      rm_lanes_html+="<div class=\"rm-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"${rm_repo_attr}><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\"><span class=\"rm-lane-t\">${rm_title}</span></div><div class=\"rm-standalone-meta\"><span class=\"dot ${rm_dot}\"></span><span class=\"mono\">$(wb_board_v2_age_label "${_m_age_days[$rm_stem]:-0}")</span></div></div>"
+      local rm_dot; wb_board_v2_dot_class "${_m_status[$rm_stem]}" "${_m_bucket[$rm_stem]}" "${_m_age_days[$rm_stem]:-0}" rm_dot
+      wb_board_v2_age_label "${_m_age_days[$rm_stem]:-0}" __a1
+      rm_lanes_html+="<div class=\"rm-lane\" id=\"lane-${rm_anchor}\" data-family=\"${rm_anchor}\" data-anchor=\"${rm_anchor}\"${rm_repo_attr}><div class=\"rm-lane-label\" title=\"${rm_title}\"><div class=\"rm-title-row\"><span class=\"rm-lane-t\">${rm_title}</span></div><div class=\"rm-standalone-meta\"><span class=\"dot ${rm_dot}\"></span><span class=\"mono\">${__a1}</span></div></div>"
       rm_lanes_html+="<div class=\"rm-bars\" style=\"grid-column: ${rm_min_track} / ${rm_span_end};\">${rm_bars}</div></div>"
     fi
   done
@@ -2308,7 +2349,8 @@ wb_board_render_v2() {
     local rp_i=0 rp_stem
     while IFS= read -r rp_stem; do
       rp_i=$((rp_i + 1)); [ "$rp_i" -gt "$RM_CAP" ] && break
-      ready_html+="<span class=\"rm-ready-pill copyable\" data-copy=\"wb resume $rp_stem\">$(wb_board_html_escape "${_m_title[$rp_stem]:-$rp_stem}")</span>"
+      wb_board_html_escape "${_m_title[$rp_stem]:-$rp_stem}" __e1
+      ready_html+="<span class=\"rm-ready-pill copyable\" data-copy=\"wb resume $rp_stem\">${__e1}</span>"
     done < <(wb_board_v2_sort_stems_by_title "${ready_planned[@]}")
     [ "${#ready_planned[@]}" -gt "$RM_CAP" ] && ready_html+="<span class=\"rm-ready-pill\" style=\"opacity:.6;\">+$(( ${#ready_planned[@]} - RM_CAP )) more</span>"
   fi
@@ -2316,7 +2358,9 @@ wb_board_render_v2() {
     local bp_i=0 bp_stem bp_anchor
     while IFS= read -r bp_stem; do
       bp_i=$((bp_i + 1)); [ "$bp_i" -gt "$RM_CAP" ] && break
-      blocked_html+="<span class=\"rm-blocked-pill\"><span class=\"lock-ic\">&#128274;</span>$(wb_board_html_escape "${_m_title[$bp_stem]:-$bp_stem}")<span class=\"after-inline\">after: $(wb_board_html_escape "${BLOCKER_NAMES[$bp_stem]:-}")</span></span>"
+      wb_board_html_escape "${_m_title[$bp_stem]:-$bp_stem}" __e1
+      wb_board_html_escape "${BLOCKER_NAMES[$bp_stem]:-}" __e2
+      blocked_html+="<span class=\"rm-blocked-pill\"><span class=\"lock-ic\">&#128274;</span>${__e1}<span class=\"after-inline\">after: ${__e2}</span></span>"
     done < <(wb_board_v2_sort_stems_by_title "${blocked_planned[@]}")
     [ "${#blocked_planned[@]}" -gt "$RM_CAP" ] && blocked_html+="<span class=\"rm-blocked-pill\" style=\"opacity:.6;\">+$(( ${#blocked_planned[@]} - RM_CAP )) more</span>"
   fi
@@ -2345,9 +2389,14 @@ wb_board_render_v2() {
       wb_board_v2_anchor "$ss_stem" ss_anchor
       wb_board_v2_anchor "${_m_family_root[$ss_stem]:-$ss_stem}" ss_fam_anchor
       wb_board_v2_task_open_html "$ss_stem" ss_open
-      rm_stale_rows_html+="<div class=\"rm-stale-row\"><div class=\"rm-lane-label\" title=\"$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")\"><span class=\"dot red\"></span>$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")<span class=\"age-red mono\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div></div>"
+      wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}" __e1
+      wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}" __e2
+      wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}" __a1
+      rm_stale_rows_html+="<div class=\"rm-stale-row\"><div class=\"rm-lane-label\" title=\"${__e1}\"><span class=\"dot red\"></span>${__e2}<span class=\"age-red mono\">${__a1}</span></div></div>"
       wb_board_v2_repo_attr "$ss_stem" ss_ra
-      week_stale_rows_html+="<div class=\"carried-row\" data-stem=\"$ss_stem\" data-anchor=\"$ss_anchor\" data-family=\"$ss_fam_anchor\"${ss_ra}><span class=\"dot red\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $ss_stem\">$ss_stem</span>${ss_open}$(wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}")</span><span class=\"age\" style=\"color:var(--red);\">$(wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}")</span></div>"
+      wb_board_html_escape "${_m_title[$ss_stem]:-$ss_stem}" __e1
+      wb_board_v2_age_label "${_m_age_days[$ss_stem]:-0}" __a1
+      week_stale_rows_html+="<div class=\"carried-row\" data-stem=\"$ss_stem\" data-anchor=\"$ss_anchor\" data-family=\"$ss_fam_anchor\"${ss_ra}><span class=\"dot red\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $ss_stem\">$ss_stem</span>${ss_open}${__e1}</span><span class=\"age\" style=\"color:var(--red);\">${__a1}</span></div>"
     done < <(wb_board_v2_sort_stems_by_age desc "${stale_stems[@]}")
   fi
 
@@ -2402,14 +2451,19 @@ wb_board_render_v2() {
     while IFS= read -r wc_stem; do
       wb_board_v2_anchor "$wc_stem" wc_anchor
       wb_board_v2_anchor "${_m_family_root[$wc_stem]:-$wc_stem}" wc_fam_anchor
-      local wc_dot; wc_dot="$(wb_board_v2_dot_class "${_m_status[$wc_stem]}" "${_m_bucket[$wc_stem]}" "${_m_age_days[$wc_stem]:-0}")"
-      local wc_title; wc_title="$(wb_board_html_escape "${_m_title[$wc_stem]:-$wc_stem}")"
+      local wc_dot; wb_board_v2_dot_class "${_m_status[$wc_stem]}" "${_m_bucket[$wc_stem]}" "${_m_age_days[$wc_stem]:-0}" wc_dot
+      local wc_title; wb_board_html_escape "${_m_title[$wc_stem]:-$wc_stem}" wc_title
       local wc_parent_html=""
-      [ -n "${_m_stem_parent[$wc_stem]:-}" ] && wc_parent_html=" &middot; <span class=\"parent-chip mono\">child of $(wb_board_html_escape "${_m_stem_parent[$wc_stem]}")</span>"
+      if [ -n "${_m_stem_parent[$wc_stem]:-}" ]; then
+        wb_board_html_escape "${_m_stem_parent[$wc_stem]}" __e1
+        wc_parent_html=" &middot; <span class=\"parent-chip mono\">child of ${__e1}</span>"
+      fi
       wb_board_v2_repo_attr "$wc_stem" wc_ra
-      week_cards_html+="<div class=\"week-card\" data-stem=\"${wc_stem}\" data-anchor=\"${wc_anchor}\" data-family=\"${wc_fam_anchor}\"${wc_ra} onclick=\"toggleWeekCard(event,this)\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">$(wb_board_html_escape "${_m_status[$wc_stem]:-}")</span><span class=\"wk-caret\">&#9656;</span></div>"
+      wb_board_html_escape "${_m_status[$wc_stem]:-}" __e1
+      week_cards_html+="<div class=\"week-card\" data-stem=\"${wc_stem}\" data-anchor=\"${wc_anchor}\" data-family=\"${wc_fam_anchor}\"${wc_ra} onclick=\"toggleWeekCard(event,this)\"><div class=\"top-row\"><span class=\"dot ${wc_dot}\"></span><span class=\"title\">${wc_title}</span><span class=\"week-badge\">${__e1}</span><span class=\"wk-caret\">&#9656;</span></div>"
       wb_board_v2_task_open_html "$wc_stem" wc_open
-      week_cards_html+="<div class=\"meta\"><span class=\"mono copyable\" data-copy=\"wb resume $wc_stem\">$wc_stem</span>${wc_open} &middot; touched $(wb_board_v2_age_label "${_m_age_days[$wc_stem]:-0}")${wc_parent_html}</div>"
+      wb_board_v2_age_label "${_m_age_days[$wc_stem]:-0}" __a1
+      week_cards_html+="<div class=\"meta\"><span class=\"mono copyable\" data-copy=\"wb resume $wc_stem\">$wc_stem</span>${wc_open} &middot; touched ${__a1}${wc_parent_html}</div>"
       DETAIL_WANT["$wc_stem"]=1
       week_cards_html+="<div class=\"detail-host\" data-anchor=\"${wc_anchor}\"></div></div>"
     done < <(wb_board_v2_sort_stems_by_age asc "${this_week_stems[@]}")
@@ -2426,12 +2480,13 @@ wb_board_render_v2() {
     local cw_kids="${_m_family_children[$cw_stem]:-}"
     if [ -n "$cw_kids" ]; then
       [ -n "${THIS_WEEK_SET[$cw_stem]:-}" ] && continue
-      local cw_dot; cw_dot="$(wb_board_v2_dot_class "${_m_status[$cw_stem]}" "${_m_bucket[$cw_stem]}" "${_m_age_days[$cw_stem]:-0}")"
-      local cw_title; cw_title="$(wb_board_html_escape "${_m_title[$cw_stem]:-$cw_stem}")"
+      local cw_dot; wb_board_v2_dot_class "${_m_status[$cw_stem]}" "${_m_bucket[$cw_stem]}" "${_m_age_days[$cw_stem]:-0}" cw_dot
+      local cw_title; wb_board_html_escape "${_m_title[$cw_stem]:-$cw_stem}" cw_title
       local cw_anchor; wb_board_v2_anchor "$cw_stem" cw_anchor
       local cw_open cw_child_open; wb_board_v2_task_open_html "$cw_stem" cw_open
       local cw_ra; wb_board_v2_repo_attr "$cw_stem" cw_ra
-      family_blocks_html+="<div class=\"family-block\" data-stem=\"$cw_stem\" data-anchor=\"$cw_anchor\" data-family=\"$cw_anchor\"${cw_ra}><div class=\"fam-row\"><span class=\"dot ${cw_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cw_stem\">$cw_stem</span>${cw_open}${cw_title}</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cw_stem]:-0}")</span></div><div class=\"fam-kids\">"
+      wb_board_v2_age_label "${_m_age_days[$cw_stem]:-0}" __a1
+      family_blocks_html+="<div class=\"family-block\" data-stem=\"$cw_stem\" data-anchor=\"$cw_anchor\" data-family=\"$cw_anchor\"${cw_ra}><div class=\"fam-row\"><span class=\"dot ${cw_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cw_stem\">$cw_stem</span>${cw_open}${cw_title}</span><span class=\"age\">${__a1}</span></div><div class=\"fam-kids\">"
       local cw_child cw_pill_cls cw_pill_text
       while IFS= read -r cw_child; do
         [ -n "$cw_child" ] || continue
@@ -2441,7 +2496,10 @@ wb_board_render_v2() {
           *) cw_pill_cls="planned"; cw_pill_text="${_m_status[$cw_child]:-}" ;;
         esac
         wb_board_v2_task_open_html "$cw_child" cw_child_open
-        family_blocks_html+="<div class=\"fam-kid-row\"><span class=\"title copyable\" data-copy=\"wb resume $cw_child\">$(wb_board_html_escape "${_m_title[$cw_child]:-$cw_child}")</span>${cw_child_open}<span class=\"right\"><span class=\"pill ${cw_pill_cls}\">$(wb_board_html_escape "$cw_pill_text")</span><span class=\"age mono\">$(wb_board_v2_age_label "${_m_age_days[$cw_child]:-0}")</span></span></div>"
+        wb_board_html_escape "${_m_title[$cw_child]:-$cw_child}" __e1
+        wb_board_html_escape "$cw_pill_text" __e2
+        wb_board_v2_age_label "${_m_age_days[$cw_child]:-0}" __a1
+        family_blocks_html+="<div class=\"fam-kid-row\"><span class=\"title copyable\" data-copy=\"wb resume $cw_child\">${__e1}</span>${cw_child_open}<span class=\"right\"><span class=\"pill ${cw_pill_cls}\">${__e2}</span><span class=\"age mono\">${__a1}</span></span></div>"
       done <<< "$cw_kids"
       family_blocks_html+='</div></div>'
     else
@@ -2453,12 +2511,14 @@ wb_board_render_v2() {
   if [ "${#carried_standalone_stems[@]}" -gt 0 ]; then
     local cl_stem cl_dot cl_anchor cl_fam_anchor cl_open cl_ra
     while IFS= read -r cl_stem; do
-      cl_dot="$(wb_board_v2_dot_class "${_m_status[$cl_stem]}" "${_m_bucket[$cl_stem]}" "${_m_age_days[$cl_stem]:-0}")"
+      wb_board_v2_dot_class "${_m_status[$cl_stem]}" "${_m_bucket[$cl_stem]}" "${_m_age_days[$cl_stem]:-0}" cl_dot
       wb_board_v2_anchor "$cl_stem" cl_anchor
       wb_board_v2_anchor "${_m_family_root[$cl_stem]:-$cl_stem}" cl_fam_anchor
       wb_board_v2_task_open_html "$cl_stem" cl_open
       wb_board_v2_repo_attr "$cl_stem" cl_ra
-      carried_list_html+="<div class=\"carried-row\" data-stem=\"$cl_stem\" data-anchor=\"$cl_anchor\" data-family=\"$cl_fam_anchor\"${cl_ra}><span class=\"dot ${cl_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cl_stem\">$cl_stem</span>${cl_open}$(wb_board_html_escape "${_m_title[$cl_stem]:-$cl_stem}")</span><span class=\"age\">$(wb_board_v2_age_label "${_m_age_days[$cl_stem]:-0}")</span></div>"
+      wb_board_html_escape "${_m_title[$cl_stem]:-$cl_stem}" __e1
+      wb_board_v2_age_label "${_m_age_days[$cl_stem]:-0}" __a1
+      carried_list_html+="<div class=\"carried-row\" data-stem=\"$cl_stem\" data-anchor=\"$cl_anchor\" data-family=\"$cl_fam_anchor\"${cl_ra}><span class=\"dot ${cl_dot}\"></span><span class=\"row-title\"><span class=\"id mono copyable\" data-copy=\"wb resume $cl_stem\">$cl_stem</span>${cl_open}${__e1}</span><span class=\"age\">${__a1}</span></div>"
     done < <(wb_board_v2_sort_stems_by_age asc "${carried_standalone_stems[@]}")
   fi
 
@@ -2472,11 +2532,14 @@ wb_board_render_v2() {
       uq_i=$((uq_i + 1)); [ "$uq_i" -gt 12 ] && break
       uq_root="${_m_family_root[$uq_stem]:-$uq_stem}"
       uq_breadcrumb="top-level"
-      [ "$uq_root" != "$uq_stem" ] && uq_breadcrumb="$(wb_board_html_escape "${_m_title[$uq_root]:-$uq_root}")"
+      if [ "$uq_root" != "$uq_stem" ]; then
+        wb_board_html_escape "${_m_title[$uq_root]:-$uq_root}" uq_breadcrumb
+      fi
       wb_board_v2_anchor "$uq_stem" uq_anchor
       wb_board_v2_anchor "$uq_root" uq_fam_anchor
       wb_board_v2_repo_attr "$uq_stem" uq_ra
-      unblocked_chips_html+="<span class=\"qs-chip planned copyable\" data-stem=\"$uq_stem\" data-anchor=\"$uq_anchor\" data-family=\"$uq_fam_anchor\"${uq_ra} data-copy=\"wb resume $uq_stem\">$(wb_board_html_escape "${_m_title[$uq_stem]:-$uq_stem}") <span class=\"breadcrumb\">&#8618; ${uq_breadcrumb}</span></span>"
+      wb_board_html_escape "${_m_title[$uq_stem]:-$uq_stem}" __e1
+      unblocked_chips_html+="<span class=\"qs-chip planned copyable\" data-stem=\"$uq_stem\" data-anchor=\"$uq_anchor\" data-family=\"$uq_fam_anchor\"${uq_ra} data-copy=\"wb resume $uq_stem\">${__e1} <span class=\"breadcrumb\">&#8618; ${uq_breadcrumb}</span></span>"
     done < <(wb_board_v2_sort_stems_by_title "${ready_planned[@]}")
     [ "${#ready_planned[@]}" -gt 12 ] && unblocked_chips_html+="<span class=\"qs-chip planned\" style=\"opacity:.6;\">+$(( ${#ready_planned[@]} - 12 )) more</span>"
   fi
@@ -2673,7 +2736,7 @@ wb_board_render_v2() {
     # list, the same nav surface Active/Roadmap/Week already use. Reuses
     # the rail's own `.dot`/`.rail-row-title` visual language so it reads
     # as "the same sidebar, a different list" rather than a new widget.
-    local fam_dot; fam_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
+    local fam_dot; wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}" fam_dot
     rail_family_html+="<div class=\"rail-row fam-rail-row${fam_sel_cls}\"${fr_ra} data-fam=\"${fr_anchor}\" data-stem=\"${fr_stem_h}\" data-anchor=\"${fr_anchor}\" data-family=\"${fr_anchor}\" onclick=\"selectFamily('${fr_anchor}')\"><span class=\"dot ${fam_dot}\"></span><span class=\"rail-row-title\">${__h}</span><span class=\"rail-row-age mono\">${fr_done}/${fr_total}</span></div>"
 
     # Decisions timeline: parent + every child, date-sorted. One `sort`
@@ -2931,7 +2994,7 @@ wb_board_render_v2() {
       fam_body_html+='</div>'
     else
       # ---- FLAT SHAPE (mockup A) ----
-      local fr_dot; fr_dot="$(wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}")"
+      local fr_dot; wb_board_v2_dot_class "${_m_status[$fr_stem]:-}" "${_m_bucket[$fr_stem]:-}" "${_m_age_days[$fr_stem]:-0}" fr_dot
       # U5 (family DAG view, R8): a flat family with zero intra-family edges
       # gets an empty-state here instead of the Dependencies region (which
       # was skipped above) — reuses .scope-empty (the same dashed-grey
