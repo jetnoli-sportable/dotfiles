@@ -113,7 +113,7 @@ alternatives for a specific shape of the problem.
     <p>Gathers reconcile drift, unreviewed capture entries, tasks moved, PRs merged and skill usage, shows at most a handful of suggestions on the review page, and writes <code>weeks/&lt;iso&gt;-review.md</code>. Accepted suggestions become <code>planned</code> tasks. <a href="guides/weekly-review.html">guide</a></p></div>
   <div class="wwa-card"><h3>See everything</h3>
     <p class="use">wb board --html</p>
-    <p>Writes <a href="../logs/board.html">logs/board.html</a> with four views: <b>Active</b>, <b>Roadmap</b>, <b>Week</b> and <b>Family</b> (per-family ladder, plus a <code>family-rollup.json</code> side output). It is generated on demand.</p></div>
+    <p>Writes <a href="../logs/board.html">logs/board.html</a> with four views: <b>Active</b>, <b>Roadmap</b>, <b>Week</b> and <b>Family</b> (per-family ladder and a Dependencies graph, plus a <code>family-rollup.json</code> side output). A left rail has a text filter, repo chips, a Doing tree and Next/Shelf groups; keys <kbd>1</kbd>-<kbd>4</kbd>, <kbd>j</kbd>/<kbd>k</kbd>, <kbd>Enter</kbd>, <kbd>a</kbd>, <kbd>/</kbd> and <kbd>Esc</kbd> drive it. It is generated on demand. <a href="wb-guide.html">guide</a></p></div>
   <div class="wwa-card"><h3>Ask the task store something</h3>
     <p class="use">store-specialist (subagent)</p>
     <p>For an agent that needs "what does the store say about X" with <code>file#section</code> pointers, or needs to write a decision or frontmatter change back through the locked <code>wb</code> verbs rather than a hand edit. New in #63.</p></div>
@@ -260,7 +260,7 @@ into task files, and distinct transcripts that ran it through Bash.
 |---|---|---|
 | [where-we-are](where-we-are.html) (this page) | 2026-09-22 | <span class="chip ok">keep</span>: the strategy page |
 | [try-it](try-it.html) · [ceremonies](ceremonies.html) · guides: [weekly-review](guides/weekly-review.html) · [park](guides/park.html) · [review-page](guides/review-page.html) · [decision-buffer](guides/decision-buffer.html) | 2026-09-09 → 09-22 | <span class="chip ok">keep</span> |
-| [wb-guide](wb-guide.html) | 2026-08-24 | <span class="chip warn">keep · stale</span>: its board section still describes v2, before the #59/#62 rebuild |
+| [wb-guide](wb-guide.html) | 2026-08-24 | <span class="chip ok">keep</span>: its board section was rewritten for the rebuilt four-view board |
 | [roadmap](roadmap.html) | 2026-07-18 | <span class="chip warn">keep · stale</span>: long-form history; this page supersedes its "Up next" |
 | [handoff-guide](handoff-guide.html) | 2026-07-19 | <span class="chip warn">keep · stale</span>: still documents pane mode, whose skill was removed in #52 |
 | [setup](setup.html) · [glossary](glossary.html) · [limitations](limitations.html) · [docgen](docgen.html) · [guide-format](guide-format.html) | 2026-07-07 → 07-14 | <span class="chip ok">keep</span> |
@@ -278,7 +278,7 @@ for word, in `docs/archive/`.
 
 <div class="wwa-cards">
   <div class="wwa-card"><h3>Board <span class="chip ok">shipped</span></h3>
-    <p>The interim text <code>wb board</code>, then the v1 HTML board, then v2 (stepper, Pipeline, relationships, Key Findings), then the rebuild into the four views (#59, #62). Jira stays excluded. Nothing is open. <a href="archive/roadmap-board.html">archived note</a></p></div>
+    <p>The interim text <code>wb board</code>, then the v1 HTML board, then v2 (stepper, Pipeline, relationships, Key Findings), then the rebuild into the four views (#59, #62) and the Family Dependencies graph (#72). Jira stays excluded. Nothing is open. <a href="archive/roadmap-board.html">archived note</a></p></div>
   <div class="wwa-card"><h3>Day bookends <span class="chip warn">partly open</span></h3>
     <p>Single-session <code>wb down</code> and <code>wb resume</code> shipped. The "precious session id" worry went away: transcripts on disk already make resume warm. Still open: the <code>wb down --all</code> sweep and <code>wb up</code>'s startup review buffer. The weekly review now covers the start of the week. Principle: sessions can always be rebuilt from the task file. <a href="archive/roadmap-day-bookends.html">archived note</a></p></div>
   <div class="wwa-card"><h3>Handoff <span class="chip warn">partly open</span></h3>
@@ -357,6 +357,7 @@ decisions written down.
 | PR | What |
 |---|---|
 | #63 | `store-specialist` subagent: a task-store retriever and mechanical writer |
+| #72 | Family-tab Dependencies graph on the board |
 | #62 | Board Family view (re-landed) + UX pass driven by the side rail |
 | #61 | Per-family `CONCEPTS.md` seeded automatically into every worktree agent |
 | #59 | `wb board` rebuilt as the Active/Roadmap/Week renderer |

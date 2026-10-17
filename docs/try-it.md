@@ -4,7 +4,7 @@ status: current
 tile: One row per roadmap feature that has a real, runnable example — command and expected result lifted straight from that feature's own guide or recap. Auto-generated; never hand-edit — rerun build-try-it.sh + docgen.sh.
 group: where-we-are
 kind: page
-updated: 2026-09-23
+updated: 2026-10-17
 ---
 
 Generated from [the roadmap](roadmap.html): every item there that links to a
@@ -20,3 +20,4 @@ isn't real — check the roadmap for its actual status.
 |---|---|---|---|
 | `wb` core | Built | `tmux source-file ~/.config/tmux/tmux.conf` | — |
 | `/handoff` | Built | `/handoff` | The skill infers `repo`/`slug` from context (checking `~/code/tasks/` for a |
+| Board display v2 | Built | `tmux source-file ~/.config/tmux/tmux.conf` | — |
