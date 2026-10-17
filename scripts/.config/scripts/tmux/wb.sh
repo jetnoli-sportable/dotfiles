@@ -3460,6 +3460,29 @@ cmd_breakdown() {
 # paused task never has a live session left behind (the exact conflation
 # the two-axis model exists to rule out).
 
+# _wb_resolve_session_and_task <verb> <session-var> <task-file-var> [<arg>]
+# — the session/task-file resolution cmd_down, cmd_pr_open, cmd_pause and
+# cmd_reviewed all open with: take the session from <arg>, or from the
+# current tmux session when <arg> is empty (refusing outside tmux), resolve
+# its task file via wb_session_task_file, and require the file to exist.
+# Results land in the caller's variables named by <session-var> and
+# <task-file-var> (namerefs, not `$(...)`: the failure paths `exit 1`, and
+# inside a command substitution that would only end the subshell). Every
+# error is prefixed "wb <verb>:" and is the exact text each verb printed
+# before this was extracted — tests pin it byte-for-byte.
+_wb_resolve_session_and_task() {
+  local _wb_rst_verb="$1"
+  local -n _wb_rst_session="$2" _wb_rst_task="$3"
+  _wb_rst_session="${4:-}"
+  if [ -z "$_wb_rst_session" ]; then
+    [ -n "${TMUX:-}" ] || { echo "wb $_wb_rst_verb: run inside the target session, or pass a session name" >&2; exit 1; }
+    _wb_rst_session="$(tmux display-message -p '#S')"
+  fi
+  _wb_rst_task="$(wb_session_task_file "$_wb_rst_session")" \
+    || { echo "wb $_wb_rst_verb: $_wb_rst_session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
+  [ -f "$_wb_rst_task" ] || { echo "wb $_wb_rst_verb: no task file for $_wb_rst_session ($_wb_rst_task)" >&2; exit 1; }
+}
+
 # cmd_down [--keep-session] [<session>] — close <session> (or the current
 # one) while leaving the worktree untouched: snapshot every conversation
 # id currently on disk for the worktree into claude_sessions: (record-only,
@@ -3483,16 +3506,8 @@ cmd_down() {
     esac
   done
 
-  local session="${args[0]:-}"
-  if [ -z "$session" ]; then
-    [ -n "${TMUX:-}" ] || { echo "wb down: run inside the target session, or pass a session name" >&2; exit 1; }
-    session="$(tmux display-message -p '#S')"
-  fi
-
-  local task_file
-  task_file="$(wb_session_task_file "$session")" \
-    || { echo "wb down: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-  [ -f "$task_file" ] || { echo "wb down: no task file for $session ($task_file)" >&2; exit 1; }
+  local session task_file
+  _wb_resolve_session_and_task down session task_file "${args[0]:-}"
 
   local repo branch worktree_rel worktree_path
   repo="$(wb_get_frontmatter "$task_file" repo)"
@@ -3532,16 +3547,8 @@ cmd_down() {
 # wb_branch_has_open_pr shares with wb_pr_merge_status) can ask the
 # question without shelling out to `gh` directly.
 cmd_pr_open() {
-  local session="${1:-}"
-  if [ -z "$session" ]; then
-    [ -n "${TMUX:-}" ] || { echo "wb pr-open: run inside the target session, or pass a session name" >&2; exit 1; }
-    session="$(tmux display-message -p '#S')"
-  fi
-
-  local task_file
-  task_file="$(wb_session_task_file "$session")" \
-    || { echo "wb pr-open: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-  [ -f "$task_file" ] || { echo "wb pr-open: no task file for $session ($task_file)" >&2; exit 1; }
+  local session task_file
+  _wb_resolve_session_and_task pr-open session task_file "${1:-}"
 
   local repo branch
   repo="$(wb_get_frontmatter "$task_file" repo)"
@@ -3560,16 +3567,8 @@ cmd_pr_open() {
 # dirty-worktree check: that check guards worktree REMOVAL, and neither
 # `wb pause` nor `wb down` ever removes the worktree.
 cmd_pause() {
-  local session="${1:-}"
-  if [ -z "$session" ]; then
-    [ -n "${TMUX:-}" ] || { echo "wb pause: run inside the target session, or pass a session name" >&2; exit 1; }
-    session="$(tmux display-message -p '#S')"
-  fi
-
-  local task_file
-  task_file="$(wb_session_task_file "$session")" \
-    || { echo "wb pause: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-  [ -f "$task_file" ] || { echo "wb pause: no task file for $session ($task_file)" >&2; exit 1; }
+  local session task_file
+  _wb_resolve_session_and_task pause session task_file "${1:-}"
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
@@ -3605,16 +3604,8 @@ cmd_pause() {
 # further commits after being stamped still shows reviewed done. See
 # logs/decisions/2026-07-11-wb-board-lifecycle-detection.md.
 cmd_reviewed() {
-  local session="${1:-}"
-  if [ -z "$session" ]; then
-    [ -n "${TMUX:-}" ] || { echo "wb reviewed: run inside the target session, or pass a session name" >&2; exit 1; }
-    session="$(tmux display-message -p '#S')"
-  fi
-
-  local task_file
-  task_file="$(wb_session_task_file "$session")" \
-    || { echo "wb reviewed: $session has no @wb_repo/@wb_slug — not a wb task session" >&2; exit 1; }
-  [ -f "$task_file" ] || { echo "wb reviewed: no task file for $session ($task_file)" >&2; exit 1; }
+  local session task_file
+  _wb_resolve_session_and_task reviewed session task_file "${1:-}"
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
