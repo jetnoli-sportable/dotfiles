@@ -94,7 +94,7 @@ mk_session b beta  child-b
 
 out="$(collect_combined_rows)"
 assert "two siblings: earlier-created sibling (beta) is the anchor" $'^beta\t' "$(printf '%s\n' "$out" | head -1)"
-assert "two siblings: other sibling (alpha) carries the sibling marker" $'\nalpha\t.*\t1$' "$out"
+assert "two siblings: other sibling (alpha) carries the sibling marker" $'^alpha\t.*\t1$' "$(printf '%s\n' "$out" | sed -n 2p)"
 assert_not "two siblings: anchor row has no sibling marker" $'^beta\t.*\t1$' "$out"
 
 formatted="$(collect_combined_rows | wb_format_for_display | strip_ansi)"
@@ -202,7 +202,7 @@ mk_session b beta  regress-b
 
 out="$(collect_combined_rows)"
 assert "regression: alpha present, top-level" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
-assert "regression: beta present, top-level" $'\nbeta\t' "$out"
+assert "regression: beta present, top-level" $'^beta\t' "$(printf '%s\n' "$out" | sed -n 2p)"
 assert_not "regression: no sibling markers anywhere" $'\t1$' "$out"
 kill_sessions a b
 
@@ -248,7 +248,7 @@ mk_session p meta  solo
 mk_session a alpha only
 out="$(collect_combined_rows)"
 assert "single child: parent first" '^meta$' "$(printf '%s\n' "$out" | head -1 | cut -f1)"
-assert "single child: child nested as c1" $'\nalpha\t.*\tc1$' "$out"
+assert "single child: child nested as c1" $'^alpha\t.*\tc1$' "$(printf '%s\n' "$out" | sed -n 2p)"
 kill_sessions p a
 
 # --- a multi-agent child under a live parent: agent rows stack beneath it ---
