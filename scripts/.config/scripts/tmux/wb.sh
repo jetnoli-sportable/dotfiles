@@ -598,7 +598,15 @@ wb_session_task_file() {
 # line has no fields (NF=0), every other line yields all its tab-separated
 # fields including empty ones — and splits with ${%%}/${#} slicing rather than
 # `IFS=$'\t' read`, for the whitespace-collapsing reason above.
+#
+# The walk runs under a function-local LC_ALL=C (restored on return): in a
+# UTF-8 locale bash's `read` mishandles a line that carries an incomplete
+# multibyte sequence (a stray lead byte before the newline), merging or
+# dropping the record where awk kept it. Bytewise, tab and newline are plain
+# ASCII, so C-locale slicing is exact for every input and a no-op for valid
+# UTF-8. (A `read ... || [ -n ]` retry was tried and still diverged.)
 wb_tsv_split() {
+  local LC_ALL=C
   local -n _wb_tsv_out="$2"
   local _wb_tsv_line _wb_tsv_rest
   _wb_tsv_out=()
@@ -2928,7 +2936,7 @@ _wb_breakdown_validate() {
 
     confirmed_child_stems+=("$repo--$disp_slug")
     # 8 tab fields: create⇥n⇥repo⇥raw⇥disp⇥title⇥size⇥deps_raw. The last two
-    # are usually empty — wb_tsv_split (awk -F'\t') keeps trailing empty
+    # are usually empty — wb_tsv_split keeps trailing empty
     # fields in place, so the execute side's f[6]/f[7] reads stay positional.
     printf 'create\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$repo" "$raw_slug" "$disp_slug" "$title" "$size" "$deps_raw"
   done
@@ -4321,8 +4329,8 @@ _wb_lint_sections_merge() {
     return 0
   fi
 
-  # wb_tsv_split forks an awk per call, so each record is split exactly
-  # once here and every later pass reads these parallel arrays.
+  # Each record is split exactly once here and every later pass reads
+  # these parallel arrays.
   local -a r_canon=() r_name=() r_hline=() r_bstart=() r_bend=() r_flush=()
   local i
   for i in "${!records[@]}"; do
