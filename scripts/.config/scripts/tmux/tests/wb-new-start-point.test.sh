@@ -139,6 +139,19 @@ assert_eq "--depends-on: stacked on the blocker's branch" "$FEAT_A_TIP" "$(tip s
 assert "--depends-on: stale blocker gets a rebase nudge" \
   'feat-a \(proj--feat-a\) is 1 commit\(s\) behind origin/development — consider rebasing' "$out"
 
+# --- up-to-date blocker: stacks, no rebase nudge ----------------------------
+# cut from the origin tip the first `wb new` above fetched
+FRESH_TIP="$(gitc -C "$PROJ" commit-tree "$REMOTE_TIP^{tree}" -p "$REMOTE_TIP" -m "feat-fresh work")"
+git -C "$PROJ" branch -q feat-fresh "$FRESH_TIP"
+task proj--feat-fresh doing proj feat-fresh
+out="$(new --depends-on proj--feat-fresh proj after-fresh)"
+assert_eq "up-to-date blocker: stacked on the blocker's branch" "$FRESH_TIP" "$(tip after-fresh)"
+if printf '%s' "$out" | grep -q 'consider rebasing'; then
+  echo "FAIL - up-to-date blocker: no rebase nudge"; fail=1
+else
+  echo "ok   - up-to-date blocker: no rebase nudge"
+fi
+
 # --- --parent alone never stacks: a parent is an umbrella, not a blocker ----
 new --parent proj--feat-a proj child-of-parent >/dev/null
 assert_eq "--parent alone: branched from origin/<default>, not the parent" "$REMOTE_TIP" "$(tip child-of-parent)"
@@ -236,6 +249,22 @@ if printf '%s' "$out" | grep -q 'branching\|warning: could not determine'; then
   echo "FAIL - no origin: should be silent about the start-point"; fail=1
 else
   echo "ok   - no origin: silent about the start-point"
+fi
+
+# --- no origin, with a blocker: the menu has no "latest" option -------------
+SOLO_FEAT_TIP="$(gitc -C "$FIXTURE_CODE/solo" commit-tree "$SOLO_TIP^{tree}" -p "$SOLO_TIP" -m "solo-feat work")"
+git -C "$FIXTURE_CODE/solo" branch -q solo-feat "$SOLO_FEAT_TIP"
+task solo--feat doing solo solo-feat
+_wb_new_interactive() { return 0; }
+out="$(printf '2\n1\n' | new --depends-on solo--feat solo solo-menu)"
+_wb_new_interactive() { return 1; }
+assert_eq "no-origin menu: stacked on the blocker" "$SOLO_FEAT_TIP" "$(git -C "$FIXTURE_CODE/solo" rev-parse solo-menu)"
+assert "no-origin menu: lists the blocker without ahead/behind" '1\) solo-feat  \(solo--feat\)' "$out"
+assert "no-origin menu: rejects the missing latest option" 'enter a number from 1 to 1' "$out"
+if printf '%s' "$out" | grep -q '(latest)'; then
+  echo "FAIL - no-origin menu: no latest-default option"; fail=1
+else
+  echo "ok   - no-origin menu: no latest-default option"
 fi
 
 exit "$fail"
