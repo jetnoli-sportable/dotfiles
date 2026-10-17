@@ -21,6 +21,14 @@ first evidence step, replacing `/parked-items`' reconciliation). Parse per
 row's fifth field is a merge status, a `missing` row's fifth field is a task-file path —
 NOT the same meaning, don't conflate them.
 
+Rows of a third kind, `duplicate`, follow the orphan/missing rows: `duplicate  <class>
+<repo>  <key>  <task-file paths, comma-joined>` where class is `jira` (same Jira key on 2+
+live tasks), `branch`/`worktree` (one repo, claimed twice), or `prefix` (task filename
+doubles its repo, `<repo>--<repo>--…`). Report-only — never merge or close on the
+strength of one. Carry each into the Retro as a one-line hygiene item naming the
+task files involved (no review-page row unless it implies a concrete action worth a
+verdict); an empty set needs no mention.
+
 **2. The capture doc's unreviewed entries** — mint this week's record, which rolls up
 every `- [ ]` entry per section and marks it reviewed in the same call:
 
