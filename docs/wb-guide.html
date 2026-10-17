@@ -362,7 +362,8 @@ otherwise the task file's own <code>depends_on:</code> (so <code>wb new --planne
 <li><strong>No usable blocker:</strong> the branch starts from the latest <code>origin/&lt;default&gt;</code>.</li>
 <li><strong>In a terminal:</strong> a menu lists each blocker's branch with how far it is
 ahead of / behind <code>origin/&lt;default&gt;</code>, plus the latest default; Enter picks
-the first blocker.</li>
+the first blocker. A menu with only one entry (a single blocker in a repo
+with no origin) is skipped.</li>
 <li><strong>No terminal</strong> (agents, handoff spawns): the first blocker, with a note
 naming any other blocker whose commits it doesn't already contain.</li>
 </ul>

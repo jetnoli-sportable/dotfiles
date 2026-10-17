@@ -251,20 +251,18 @@ else
   echo "ok   - no origin: silent about the start-point"
 fi
 
-# --- no origin, with a blocker: the menu has no "latest" option -------------
+# --- no origin, one blocker: a one-entry menu is skipped -------------------
 SOLO_FEAT_TIP="$(gitc -C "$FIXTURE_CODE/solo" commit-tree "$SOLO_TIP^{tree}" -p "$SOLO_TIP" -m "solo-feat work")"
 git -C "$FIXTURE_CODE/solo" branch -q solo-feat "$SOLO_FEAT_TIP"
 task solo--feat doing solo solo-feat
 _wb_new_interactive() { return 0; }
-out="$(printf '2\n1\n' | new --depends-on solo--feat solo solo-menu)"
+out="$(new --depends-on solo--feat solo solo-menu </dev/null)"
 _wb_new_interactive() { return 1; }
-assert_eq "no-origin menu: stacked on the blocker" "$SOLO_FEAT_TIP" "$(git -C "$FIXTURE_CODE/solo" rev-parse solo-menu)"
-assert "no-origin menu: lists the blocker without ahead/behind" '1\) solo-feat  \(solo--feat\)' "$out"
-assert "no-origin menu: rejects the missing latest option" 'enter a number from 1 to 1' "$out"
-if printf '%s' "$out" | grep -q '(latest)'; then
-  echo "FAIL - no-origin menu: no latest-default option"; fail=1
+assert_eq "no-origin, one blocker: stacked on the blocker" "$SOLO_FEAT_TIP" "$(git -C "$FIXTURE_CODE/solo" rev-parse solo-menu)"
+if printf '%s' "$out" | grep -q 'Choice\|branch from:'; then
+  echo "FAIL - no-origin, one blocker: no one-entry menu"; fail=1
 else
-  echo "ok   - no-origin menu: no latest-default option"
+  echo "ok   - no-origin, one blocker: no one-entry menu"
 fi
 
 exit "$fail"

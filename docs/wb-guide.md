@@ -109,7 +109,8 @@ otherwise the task file's own `depends_on:` (so `wb new --planned
 - **No usable blocker:** the branch starts from the latest `origin/<default>`.
 - **In a terminal:** a menu lists each blocker's branch with how far it is
   ahead of / behind `origin/<default>`, plus the latest default; Enter picks
-  the first blocker.
+  the first blocker. A menu with only one entry (a single blocker in a repo
+  with no origin) is skipped.
 - **No terminal** (agents, handoff spawns): the first blocker, with a note
   naming any other blocker whose commits it doesn't already contain.
 

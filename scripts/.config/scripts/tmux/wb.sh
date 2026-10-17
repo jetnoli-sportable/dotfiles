@@ -1383,7 +1383,8 @@ _wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
 #     same way as `wb sync` (origin/HEAD symref, then ls-remote), never
 #     hard-coded — Sportable repos use dev/development/main.
 #   - Usable blockers: with a terminal, a menu of each blocker (ahead/behind
-#     the default) plus the latest default; without one, the first blocker.
+#     the default) plus the latest default; without one, or when the menu
+#     would have a single entry, the first blocker.
 #     A chosen blocker that is behind the default gets a rebase nudge — it is
 #     never rebased for you, its own worktree may be mid-work.
 #   - No usable blocker: origin/<default>. No origin, or no resolvable
@@ -1459,7 +1460,9 @@ _wb_new_start_point() {
   fi
 
   local pick=0 i n="${#refs[@]}"
-  if _wb_new_interactive; then
+  # A menu needs two choices: one blocker and no default (no origin) is not
+  # a question.
+  if _wb_new_interactive && { [ "$n" -gt 1 ] || [ -n "$def" ]; }; then
     echo "wb new: $slug depends on unmerged work — branch from:" >&2
     for ((i = 0; i < n; i++)); do
       printf '  %d) %s  (%s%s)\n' "$((i + 1))" "${refs[$i]}" "${stems[$i]}" \
