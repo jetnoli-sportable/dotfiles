@@ -34,7 +34,10 @@ wb_board_live_session_for() {
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     r="$(tmux show -t "=$s:" -v @wb_repo 2>/dev/null || true)"
-    b="$(tmux show -t "=$s:" -v @wb_slug 2>/dev/null || true)"
+    # @wb_branch is the real git branch (set by cmd_new); older sessions only
+    # have @wb_slug, which equals the branch for non-adopted tasks.
+    b="$(tmux show -t "=$s:" -v @wb_branch 2>/dev/null || true)"
+    [ -n "$b" ] || b="$(tmux show -t "=$s:" -v @wb_slug 2>/dev/null || true)"
     if [ "$r" = "$repo" ] && [ "$b" = "$branch" ]; then
       printf '%s' "$s"
       return 0

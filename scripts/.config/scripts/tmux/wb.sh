@@ -1981,6 +1981,10 @@ cmd_new() {
   # while giving it a valid target-pane shape.
   tmux set-option -t "=$session:" @wb_repo "$repo" >/dev/null
   tmux set-option -t "=$session:" @wb_slug "$wt_slug" >/dev/null
+  # The real git branch, for branch-keyed lookups (wb_board_live_session_for):
+  # @wb_slug is the worktree slug, which differs from branch: on an adopted
+  # task (feat/x in .worktrees/feat-x or a stem-named dir).
+  tmux set-option -t "=$session:" @wb_branch "$branch" >/dev/null
   tmux set-option -t "=$session:" @task "$task_file" >/dev/null
   if [ "$is_new" = 1 ]; then
     # R9/U4: resolve what the agent window should pre-type. Only ever
