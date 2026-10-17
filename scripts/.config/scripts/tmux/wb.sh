@@ -150,6 +150,9 @@ WB_COL_STATUS=9   # status label width, after the icon + one space
 wb_get_frontmatter_text() {
   awk -v key="$1" '
     BEGIN { infm = 0 }
+    # frontmatter opens only on line 1 (like the duplicate scan); a task file
+    # with no frontmatter but a body --- rule must read as having none
+    NR == 1 && $0 != "---" { exit }
     /^---$/ { infm++; if (infm == 2) exit; next }
     infm == 1 && $0 ~ "^" key ":" { sub("^" key ":[ \t]*", ""); print; exit }
   '
