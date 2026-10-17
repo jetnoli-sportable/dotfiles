@@ -234,6 +234,31 @@ assert_eq "branch --unset: exit 0" 0 "$rc"
 assert_eq "branch --unset: cleared" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-br.md" branch)"
 
 # =============================================================================
+# Scenario: branch on a task whose worktree dir already exists — only the
+# branch actually checked out there is accepted (the repair case: field says
+# feat/x, worktree is on feat-x); anything else is refused naming it.
+# =============================================================================
+
+git init -q -b development "$CODE_DIR/proj"
+git -c user.email=t@t -c user.name=t -C "$CODE_DIR/proj" commit -q --allow-empty -m init
+git -C "$CODE_DIR/proj" worktree add -q -b feat-x "$CODE_DIR/proj/.worktrees/set-wt"
+mk_task "proj--set-wt.md" set-wt
+wb_set_frontmatter "$TASKS_DIR/proj--set-wt.md" branch feat/x
+
+out="$(cmd_set "set-wt" branch feat/y 2>&1)"; rc=$?
+assert_eq "branch w/ worktree, mismatch: exit 1" 1 "$rc"
+assert "branch w/ worktree, mismatch: names the checked-out branch" "checked out on 'feat-x'" "$out"
+assert_eq "branch w/ worktree, mismatch: file untouched" "feat/x" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-wt.md" branch)"
+
+out="$(cmd_set "set-wt" branch --unset 2>&1)"; rc=$?
+assert_eq "branch w/ worktree, --unset: exit 1" 1 "$rc"
+assert_eq "branch w/ worktree, --unset: file untouched" "feat/x" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-wt.md" branch)"
+
+out="$(cmd_set "set-wt" branch feat-x 2>&1)"; rc=$?
+assert_eq "branch w/ worktree, match: exit 0" 0 "$rc"
+assert_eq "branch w/ worktree, match: frontmatter updated" "feat-x" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-wt.md" branch)"
+
+# =============================================================================
 # Scenario: no-op when unchanged.
 # =============================================================================
 

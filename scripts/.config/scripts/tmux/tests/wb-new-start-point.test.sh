@@ -322,6 +322,50 @@ assert_eq "resume: worktree recreated at the slug-based dir, on the adopted bran
 [ -d "$PROJ/.worktrees/feat" ] && { echo "FAIL - resume: no nested .worktrees/feat"; fail=1; } || echo "ok   - resume: no nested .worktrees/feat"
 tmux has-session -t "=proj--adopt" 2>/dev/null && echo "ok   - resume: session is the slug-named one" || { echo "FAIL - resume: session is the slug-named one"; fail=1; }
 
+# --- resume/picker re-entry hardening --------------------------------------
+reenter() { # <stem> <branch> — the resume/picker call shape
+  local repo="${1%%--*}"
+  _WB_TASK_FILE_OVERRIDE="$FIXTURE_TASKS/$1.md" cmd_new "$repo" "$2" 2>&1
+  unset _WB_TASK_FILE_OVERRIDE
+}
+# a worktree: that climbs out of .worktrees/ is ignored with a warning
+task proj--trav planned proj feat/trav
+wb_set_frontmatter "$FIXTURE_TASKS/proj--trav.md" worktree ".worktrees/../../escape"
+out="$(reenter proj--trav feat/trav)"
+assert "traversal worktree: warns and falls back" "warning: ignoring worktree: '\.worktrees/\.\./\.\./escape'" "$out"
+[ -e "$FIXTURE_CODE/escape" ] && { echo "FAIL - traversal worktree: nothing created outside .worktrees"; fail=1; } || echo "ok   - traversal worktree: nothing created outside .worktrees"
+assert_eq "traversal worktree: slug-derived dir, on the adopted branch" "feat/trav" \
+  "$(git -C "$PROJ/.worktrees/trav" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+assert_eq "traversal worktree: field rewritten to the safe path" ".worktrees/trav" "$(fm proj--trav worktree)"
+
+# blank worktree: + preset branch: dir/session come from the task file stem
+task proj--blankwt planned proj feat/blankwt
+reenter proj--blankwt feat/blankwt >/dev/null
+assert_eq "blank worktree: stem-slug dir, on the preset branch" "feat/blankwt" \
+  "$(git -C "$PROJ/.worktrees/blankwt" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+[ -d "$PROJ/.worktrees/feat" ] && { echo "FAIL - blank worktree: no nested .worktrees/feat"; fail=1; } || echo "ok   - blank worktree: no nested .worktrees/feat"
+tmux has-session -t "=proj--blankwt" 2>/dev/null && echo "ok   - blank worktree: session is stem-named" || { echo "FAIL - blank worktree: session is stem-named"; fail=1; }
+
+# ...and the remote-only adopt (tracking) applies on that path too
+git -C "$SEED" checkout -q -b feat/blankwt-remote development
+gitc -C "$SEED" commit -q --allow-empty -m "blankwt-remote work"
+git -C "$SEED" push -q origin feat/blankwt-remote
+BLANK_REMOTE_TIP="$(git -C "$BARE" rev-parse feat/blankwt-remote)"
+task proj--blankwt-remote planned proj feat/blankwt-remote
+reenter proj--blankwt-remote feat/blankwt-remote >/dev/null
+assert_eq "blank worktree + remote-only branch: checked out at origin's tip" "$BLANK_REMOTE_TIP" "$(tip feat/blankwt-remote)"
+assert_eq "blank worktree + remote-only branch: tracks origin/<branch>" "origin/feat/blankwt-remote" "$(upstream feat/blankwt-remote)"
+
+# --- could not check origin for the pre-set branch: abort, create nothing ---
+git -C "$PROJ" remote set-url origin "$FIXTURE_GIT/gone.git"
+task proj--adopt-offline planned proj feat/offline
+out="$(new proj adopt-offline)"
+assert "offline adopt: says it could not reach origin" "couldn't reach origin to check for branch 'feat/offline'" "$out"
+[ -d "$PROJ/.worktrees/adopt-offline" ] && { echo "FAIL - offline adopt: no worktree created"; fail=1; } || echo "ok   - offline adopt: no worktree created"
+has_branch feat/offline && { echo "FAIL - offline adopt: no local branch cut"; fail=1; } || echo "ok   - offline adopt: no local branch cut"
+assert_eq "offline adopt: task not flipped to doing" "planned" "$(fm proj--adopt-offline status)"
+git -C "$PROJ" remote set-url origin "$BARE"
+
 # --- no origin at all: old behavior (local HEAD), silently ------------------
 mkdir -p "$FIXTURE_CODE/solo"
 git init -q -b development "$FIXTURE_CODE/solo"

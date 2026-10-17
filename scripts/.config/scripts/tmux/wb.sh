@@ -1541,6 +1541,18 @@ _wb_new_checked_out_at() {
     $1 == "branch" && $2 == ref { print path; exit }'
 }
 
+# _wb_safe_worktree_field <value> — 0 when a task file's `worktree:` is a
+# well-formed `.worktrees/<name>` path: safe charset only and no `.`/`..`/empty
+# segment, so it cannot climb out of .worktrees/. Anything else (absolute
+# paths, `.worktrees/../../x`) is untrusted and callers fall back to the
+# slug-derived path.
+_wb_safe_worktree_field() {
+  case "$1" in .worktrees/?*) ;; *) return 1 ;; esac
+  case "$1" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
+  case "/$1/" in *//*|*/../*|*/./*) return 1 ;; esac
+  return 0
+}
+
 # _wb_new_add_worktree <repo_dir> <repo> <slug> <branch> <worktree_path>
 #   <own_task_file> <depends_on_csv> — create <worktree_path> on <branch>.
 # <branch> is the task file's pre-set `branch:` when it has one (seeding
@@ -1579,12 +1591,25 @@ _wb_new_add_worktree() {
 
   if [ "$branch" != "$slug" ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
     if ! git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-      # Not in the last fetch — it may have been pushed since. Fetch just this
-      # one branch, bounded like the default-branch fetch.
+      # Not in the last fetch — it may have been pushed since. Ask origin
+      # (bounded like the default-branch fetch), telling "not on origin"
+      # (ls-remote --exit-code rc 2: fine, cut a new branch) apart from
+      # "couldn't check" (offline / auth / timeout): guessing there would
+      # silently cut a divergent local branch under a name that may already
+      # exist on origin, so abort before creating anything.
       local -a to=()
       command -v timeout >/dev/null 2>&1 && to=(timeout 30)
-      GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin \
-        "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || true
+      local lsrc=0
+      GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" ls-remote --exit-code --heads origin \
+        "refs/heads/$branch" >/dev/null 2>&1 || lsrc=$?
+      if [ "$lsrc" -eq 0 ]; then
+        GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin \
+          "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || lsrc=1
+      fi
+      if [ "$lsrc" -ne 0 ] && [ "$lsrc" -ne 2 ]; then
+        echo "wb new: couldn't reach origin to check for branch '$branch'; retry when online, or clear branch: / set it to a new name (\`wb set <task> branch <name>\`)" >&2
+        return 1
+      fi
     fi
     if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
       echo "wb new: attaching $slug to existing origin/$branch" >&2
@@ -1859,15 +1884,31 @@ cmd_new() {
   # feat/foo-style branch would resolve to a different path and session than
   # the ones the task was started under.
   local own_file="${_WB_TASK_FILE_OVERRIDE:-$(wb_task_file "$repo" "$disp_slug")}"
-  local branch="$slug" wt_slug="$slug" preset wt_field
+  local branch="$slug" wt_slug="$slug" add_slug="$slug" preset wt_field wt_unsafe=0
   if [ -f "$own_file" ]; then
     preset="$(wb_get_frontmatter "$own_file" branch)"
     read -r preset <<< "$preset"
     [ -z "$preset" ] || branch="$preset"
     if [ -n "${_WB_TASK_FILE_OVERRIDE:-}" ]; then
+      # The override path's <slug> argument is the BRANCH, so derive the real
+      # slug from the task file's own stem (<repo>--<slug>.md): it names the
+      # directory/session when worktree: is blank or unusable, and is what
+      # _wb_new_add_worktree compares against the branch — making picker/
+      # resume re-entry identical to `wb new <repo> <slug>` (adoption,
+      # remote tracking included).
+      local stem_slug; stem_slug="$(basename -- "$own_file" .md)"
+      stem_slug="${stem_slug#"${repo}--"}"
+      [ -z "$stem_slug" ] || { wt_slug="$stem_slug"; add_slug="$stem_slug"; }
       wt_field="$(wb_get_frontmatter "$own_file" worktree)"
       read -r wt_field <<< "$wt_field"
-      case "$wt_field" in .worktrees/?*) wt_slug="${wt_field#.worktrees/}" ;; esac
+      if [ -z "$wt_field" ]; then
+        :
+      elif _wb_safe_worktree_field "$wt_field"; then
+        wt_slug="${wt_field#.worktrees/}"
+      else
+        wt_unsafe=1
+        echo "wb new: warning: ignoring worktree: '$wt_field' (must be .worktrees/<name>, no '..' segments) — using .worktrees/$wt_slug" >&2
+      fi
     fi
   fi
   local session="${repo}--$(wb_sanitize "$wt_slug")"
@@ -1875,7 +1916,7 @@ cmd_new() {
   local worktree_path="$repo_dir/$worktree_rel"
 
   if [ ! -d "$worktree_path" ]; then
-    _wb_new_add_worktree "$repo_dir" "$repo" "$slug" "$branch" "$worktree_path" "$own_file" "$depends_on_joined" \
+    _wb_new_add_worktree "$repo_dir" "$repo" "$add_slug" "$branch" "$worktree_path" "$own_file" "$depends_on_joined" \
       || exit 1
   fi
 
@@ -1918,6 +1959,9 @@ cmd_new() {
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$path_stages" "$depends_on_joined" "$size_value")"
+  # An unsafe worktree: was ignored above; fix the field too, since wb down /
+  # wb done would otherwise build a teardown path from it.
+  [ "$wt_unsafe" = 0 ] || wb_set_frontmatter "$task_file" worktree "$worktree_rel"
   wb_task_lock_release "$task_file"
 
   # Task-family CONCEPTS.md seed (D2 pivot from a hook to seed-automation —
@@ -5044,6 +5088,26 @@ cmd_set() {
   # Refuse when a live session's @task already points at this file — this
   # verb is for store-only tasks.
   _wb_refuse_if_live_session "$file" "wb set"
+
+  # branch: with a worktree already on disk — every branch-keyed lookup (PR
+  # badge, wb down, wb done) follows the field, while resume reattaches the
+  # existing dir without checking its branch. So the only legal value is the
+  # branch actually checked out there (the real repair case: field says
+  # feat/x, worktree is on feat-x). No worktree dir: free to change.
+  if [ "$field" = "branch" ]; then
+    local _wb_set_repo _wb_set_wt _wb_set_dir _wb_set_cur
+    _wb_set_repo="$(wb_get_frontmatter "$file" repo)"; read -r _wb_set_repo <<< "$_wb_set_repo"
+    _wb_set_wt="$(wb_get_frontmatter "$file" worktree)"; read -r _wb_set_wt <<< "$_wb_set_wt"
+    if [ -n "$_wb_set_repo" ] && _wb_safe_worktree_field "$_wb_set_wt" \
+        && [ -d "$CODE_DIR/$_wb_set_repo/$_wb_set_wt" ]; then
+      _wb_set_dir="$CODE_DIR/$_wb_set_repo/$_wb_set_wt"
+      _wb_set_cur="$(git -C "$_wb_set_dir" symbolic-ref -q --short HEAD 2>/dev/null || true)"
+      if [ "$value" != "$_wb_set_cur" ]; then
+        echo "wb set: $(basename -- "$file") already has a worktree at $_wb_set_wt, checked out on '${_wb_set_cur:-(detached HEAD)}' — branch: can only be set to that branch (or remove the worktree first)" >&2
+        exit 1
+      fi
+    fi
+  fi
 
   # Locked BEFORE `old` is read — not just before the write. For every
   # field except tags, `old` is used only for the no-op check and the
