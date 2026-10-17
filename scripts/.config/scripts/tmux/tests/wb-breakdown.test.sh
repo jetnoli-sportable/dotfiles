@@ -1631,5 +1631,65 @@ assert_eq "gap: a body with no trailing newline (the \$(...) caller shape) still
 assert_eq "gap: backslashes and a heading-shaped body line survive byte-for-byte" "$gap_bs_body" \
   "$(awk '$0 == "## Plan" { inp = 1; getline; next } inp && $0 == "" { exit } inp { print }' "$gap_bs")"
 
+# --- hardening: replace_section touches only the FIRST matching heading -----
+# A second "## Plan" copy (the duplicate shape `wb lint-sections` merges) used
+# to re-match once bodyfile was drained, re-emitting the heading bare and
+# dropping the copy's original content.
+hd_dup="$TASKS_DIR/proj--hardening-dup-plan.md"
+printf '# Title\n\n## Plan\n\nfirst old plan\n\n## Handoffs\n\n\n\n## Plan\n\nsecond plan content\n\n## Follow-ups\n' > "$hd_dup"
+_wb_breakdown_replace_section "$hd_dup" "Plan" "new plan"
+assert_eq "hardening: first ## Plan body replaced" "yes" \
+  "$(awk '$0 == "## Plan" { n++; getline; getline; if (n == 1 && $0 == "new plan") print "yes"; exit }' "$hd_dup")"
+assert_eq "hardening: second ## Plan copy keeps its original content" "1" "$(grep -c '^second plan content$' "$hd_dup")"
+assert_eq "hardening: both ## Plan headings still present (none dropped or bare)" "2" "$(grep -c '^## Plan$' "$hd_dup")"
+assert_eq "hardening: first ## Plan's old body is gone" "0" "$(grep -c '^first old plan$' "$hd_dup")"
+
+# --- hardening: dangling-dep advisory loop never globs/word-splits a token --
+# _wb_bd_resolve_deps already restricts tokens to [A-Za-z0-9_.-], so a real
+# buffer can't carry a glob char into the loop; stub the resolver (declare -f
+# saved/restored) to hand it one, and run from a cwd holding a decoy file the
+# old unquoted `for dep in ${deps//,/ }` would have expanded `*` into.
+git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-hd-glob ".worktrees/feat-hd-glob" >/dev/null 2>&1
+mk_u3_parent proj--feat-hd-glob feat-hd-glob .worktrees/feat-hd-glob
+HD_BUF="$(mktemp -d -t wb-breakdown-hd.XXXXXX)"
+cat > "$HD_BUF/hd-glob.md" <<'EOF'
+# wb breakdown — proj--feat-hd-glob
+
+<!-- wb-breakdown: block=approve parent=proj--feat-hd-glob -->
+- [x] Approve — apply everything ticked below
+
+## child 1 — one
+<!-- wb-breakdown: block=child n=1 parent=proj--feat-hd-glob repo=proj -->
+- [x] create child: `feat-hd-glob-one`
+- goal: glob dep
+- size:
+- depends_on: `placeholder`
+<!-- wb-breakdown: begin-plan n=1 -->
+one body
+<!-- wb-breakdown: end-plan -->
+
+## parent edits
+<!-- wb-breakdown: block=parent parent=proj--feat-hd-glob -->
+- [ ] migrate branch/worktree + re-aim @task → continuing child: `___`
+- [ ] rewrite parent ## Plan as below
+<!-- wb-breakdown: begin-plan parent -->
+unused
+<!-- wb-breakdown: end-plan -->
+EOF
+hd_cwd="$(mktemp -d -t wb-breakdown-globcwd.XXXXXX)"
+: > "$hd_cwd/decoy-glob-victim"
+hd_orig_resolve="$(declare -f _wb_bd_resolve_deps)"
+_wb_bd_resolve_deps() { printf '*'; }
+out_hd_glob="$(cd "$hd_cwd" && cmd_breakdown --apply "$HD_BUF/hd-glob.md" 2>&1)"; rc_hd_glob=$?
+eval "$hd_orig_resolve"
+rm -f "$hd_cwd/decoy-glob-victim"; rmdir "$hd_cwd"; rm -rf "$HD_BUF"
+assert_eq "hardening glob dep: apply exits 0 (advisory only)" 0 "$rc_hd_glob"
+assert "hardening glob dep: warning names the literal token" "depends_on '\*' matches neither" "$out_hd_glob"
+if printf '%s' "$out_hd_glob" | grep -q "decoy-glob-victim"; then
+  echo "FAIL - hardening glob dep: token was glob-expanded against cwd"; fail=1
+else
+  echo "ok   - hardening glob dep: no cwd file name leaks into the warning"
+fi
+
 [ "$fail" -eq 0 ] && echo "ALL PASS"
 exit "$fail"

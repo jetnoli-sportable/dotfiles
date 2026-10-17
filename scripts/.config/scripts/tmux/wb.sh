@@ -2940,13 +2940,18 @@ _wb_breakdown_parent_plan_body() {
 # re-emitted before the next heading: a heading left flush against the body
 # fails _wb_append_under_heading's blank-line guard, and the next
 # wb_append_handoff then splices in a duplicate "## Handoffs".
+# Only the FIRST "## <heading>" is replaced: a second copy (the duplicate-
+# heading shape `wb lint-sections` exists to merge) is left untouched --
+# re-matching it after bodyfile is drained would re-emit the heading bare and
+# drop that copy's original content.
 _wb_breakdown_replace_section() {
   local file="$1" heading="$2" body="$3" bodyfile
   bodyfile="$(mktemp)"
   printf '%s\n' "$body" > "$bodyfile"
   awk -v h="## $heading" -v bodyfile="$bodyfile" '
-    BEGIN { insec = 0 }
-    $0 == h {
+    BEGIN { insec = 0; replaced = 0 }
+    $0 == h && !replaced {
+      replaced = 1
       print; print ""
       nblank = 0
       while ((getline line < bodyfile) > 0) {
@@ -3100,8 +3105,9 @@ _wb_breakdown_execute() {
     local deps; deps="$(_wb_bd_resolve_deps "$repo" "$deps_raw")"
     # Advisory only (D2 fail-open): warn, never abort, on a resolved dep
     # that is neither a checked sibling in this buffer nor an existing file.
-    local dep
-    for dep in ${deps//,/ }; do
+    local dep; local -a _dep_arr=()
+    IFS=, read -r -a _dep_arr <<<"$deps"
+    for dep in "${_dep_arr[@]}"; do
       case "$all_create_stems" in *" $dep "*) continue ;; esac
       [ -f "$TASKS_DIR/$dep.md" ] \
         || echo "wb breakdown --apply: warning: child n=$n ($raw) depends_on '$dep' matches neither a checked child in this buffer nor an existing task file (kept as-is; the board fails open on dangling deps)" >&2
@@ -3876,7 +3882,7 @@ wb_append_handoff() {
 # instead of an Edit-tool write that bypasses every lock this plan built.
 # ---------------------------------------------------------------------------
 
-# _wb_append_resolve_task <query> — the file cmd_append should write into.
+# _wb_append_resolve_task <query> [<verb-label>] — the file cmd_append should write into.
 # Two-stage resolution:
 #   1. Exact fast path: <query> already names a real file directly (as
 #      given, or as "$TASKS_DIR/<query>", or "$TASKS_DIR/<query>.md") —
@@ -3893,7 +3899,7 @@ wb_append_handoff() {
 #      task file's basename — 0 or 2+ matches both fail loudly rather than
 #      guessing, never silently picking one.
 _wb_append_resolve_task() {
-  local query="${1:-}"
+  local query="${1:-}" verb="${2:-wb append}"
   [ -n "$query" ] || return 1
 
   if [ -f "$query" ]; then
@@ -3909,7 +3915,7 @@ _wb_append_resolve_task() {
     return 0
   fi
 
-  _wb_resolve_task_fuzzy "$query" "wb append"
+  _wb_resolve_task_fuzzy "$query" "$verb"
 }
 
 # cmd_append <task-ref> <heading> [<body>|-] — resolve <task-ref>
@@ -3994,8 +4000,11 @@ cmd_append() {
 #   - a leading "---" ... "---" frontmatter block (only recognized when
 #     line 1 is exactly "---") is inert: nothing inside it is a heading or
 #     a fence toggle, and it is part of the preamble.
-#   - a fence-delimiter line (trimmed-leading text starting "```" or
-#     "~~~") toggles fence state; nothing inside a fence is ever a heading.
+#   - a fence opens on a trimmed-leading run of 3+ "`" or "~" (a backtick
+#     opener's info string may not itself contain a backtick, so an inline
+#     "```code``` ..." line opens nothing) and closes only on a line that
+#     is nothing but a run of the SAME char, at least as long as the
+#     opener's; nothing inside a fence is ever a heading.
 _wb_lint_sections_records() {
   awk '
     function is_canonical(t,    i) {
@@ -4011,7 +4020,7 @@ _wb_lint_sections_records() {
       canon[1] = "## Plan"; canon[2] = "## Handoffs"; canon[3] = "## Decisions"
       canon[4] = "## Done"; canon[5] = "## Follow-ups"
       in_fm = 0
-      in_fence = 0
+      in_fence = 0; fence_ch = ""; fence_len = 0
       prev = ""
       cur_heading_line = 0
     }
@@ -4029,15 +4038,23 @@ _wb_lint_sections_records() {
 
       lead = raw
       sub(/^[ \t]+/, "", lead)
-      is_fence_delim = 0
-      if (substr(lead, 1, 3) == "```") is_fence_delim = 1
-      if (substr(lead, 1, 3) == "~~~") is_fence_delim = 1
+      was_in_fence = in_fence
+      fch = substr(lead, 1, 1)
+      if ((fch == "`" || fch == "~") && match(lead, "^" fch "+") && RLENGTH >= 3) {
+        frun = RLENGTH
+        frest = substr(lead, frun + 1)
+        if (in_fence) {
+          if (fch == fence_ch && frun >= fence_len && frest ~ /^[ \t]*$/) in_fence = 0
+        } else if (fch == "~" || index(frest, "`") == 0) {
+          in_fence = 1; fence_ch = fch; fence_len = frun
+        }
+      }
 
       is_can = 0
-      if (!in_fence && is_canonical(trimmed)) is_can = 1
+      if (!was_in_fence && is_canonical(trimmed)) is_can = 1
 
       is_other = 0
-      if (!in_fence && !is_can && raw ~ /^## / && (prev == "" || FNR == 1)) is_other = 1
+      if (!was_in_fence && !is_can && raw ~ /^## / && (prev == "" || FNR == 1)) is_other = 1
 
       if (is_can || is_other) {
         close_section(FNR - 1)
@@ -4051,7 +4068,6 @@ _wb_lint_sections_records() {
         if (raw != "") cur_nonblank++
       }
 
-      if (is_fence_delim) { in_fence = 1 - in_fence }
       prev = raw
     }
     END { close_section(NR) }
@@ -4264,16 +4280,24 @@ _wb_lint_sections_selfcheck() {
   local file="$1" merged="$2"
   local a b c; a="$(mktemp)"; b="$(mktemp)"; c="$(mktemp)"
 
-  LC_ALL=C awk '$0 != ""' "$file" | LC_ALL=C sort > "$a"
-
   local -a records=(); mapfile -t records < <(_wb_lint_sections_records "$file")
   local -A dupcount=()
-  local i
+  local i canon_lines=" "
   for i in "${!records[@]}"; do
     local -a rf; wb_tsv_split "${records[$i]}" rf
     [ "${rf[0]}" = "1" ] || continue
     dupcount["${rf[1]}"]=$(( ${dupcount["${rf[1]}"]:-0} + 1 ))
+    canon_lines+="${rf[2]} "
   done
+
+  # The merge re-emits every canonical heading as a bare "## <name>", so a
+  # canonical heading line with trailing whitespace is compared trimmed on
+  # this (original) side too -- else it could never match and --fix would
+  # always refuse such a file.
+  LC_ALL=C awk -v canon="$canon_lines" '
+    index(canon, " " FNR " ") { sub(/[ \t]+$/, "") }
+    $0 != ""' "$file" | LC_ALL=C sort > "$a"
+
   : > "$b"
   local name cnt k
   for name in "${!dupcount[@]}"; do
@@ -4395,8 +4419,10 @@ _wb_lint_sections_fix() {
 # wb_task_lock_acquire_guarded, then release on every exit path).
 _wb_lint_sections_fix_one() {
   local file_part="$1" expected_hash="$2" file
-  file="$(_wb_append_resolve_task "$file_part")" || {
-    echo "wb lint-sections --fix: no task matches '$file_part' — skipped" >&2
+  # Resolver stderr is silenced so an unresolved ref prints exactly one
+  # line (ours), not the resolver's own "no task matches" plus ours.
+  file="$(_wb_append_resolve_task "$file_part" "wb lint-sections --fix" 2>/dev/null)" || {
+    echo "wb lint-sections --fix: '$file_part' did not resolve — skipped" >&2
     return 1
   }
 
@@ -4424,7 +4450,23 @@ _wb_lint_sections_fix_one() {
     return 1
   fi
 
-  if ! { printf '%s\n' "$merged" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"; }; then
+  # The lock only fences wb's own writers; an unlocked one (an Edit-tool
+  # write) can land between the hash check above and here, so re-hash
+  # immediately before the mv rather than trusting the earlier check.
+  if ! printf '%s\n' "$merged" > "$file.tmp.$$"; then
+    rm -f "$file.tmp.$$"
+    echo "wb lint-sections --fix: $(basename -- "$file") write failed — skipped" >&2
+    wb_task_lock_release "$file"
+    return 1
+  fi
+  cur_hash="$(_wb_lint_sections_hash "$file")"
+  if [ "$cur_hash" != "$expected_hash" ]; then
+    rm -f "$file.tmp.$$"
+    echo "wb lint-sections --fix: $(basename -- "$file") changed during the merge (hash mismatch) — skipped" >&2
+    wb_task_lock_release "$file"
+    return 1
+  fi
+  if ! mv "$file.tmp.$$" "$file"; then
     rm -f "$file.tmp.$$"
     echo "wb lint-sections --fix: $(basename -- "$file") write failed — skipped" >&2
     wb_task_lock_release "$file"
@@ -4470,7 +4512,7 @@ cmd_lint_sections() {
   if [ "${#refs[@]}" -gt 0 ]; then
     local r resolved
     for r in "${refs[@]}"; do
-      resolved="$(_wb_append_resolve_task "$r")" || exit 1
+      resolved="$(_wb_append_resolve_task "$r" "wb lint-sections")" || exit 1
       files+=("$resolved")
     done
   else
