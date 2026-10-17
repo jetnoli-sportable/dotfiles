@@ -588,9 +588,27 @@ wb_session_task_file() {
 # to, so a run of consecutive tabs (an empty field, e.g. an idle row's empty
 # target) gets silently collapsed into one delimiter and every field after
 # it shifts left. awk's -F'\t' has no such behavior — fields stay put.
+#
+# perf(wb-board): pure-bash split, no awk fork. This runs twice per task in
+# the board's collect + model passes (~700 awk execs on the real store), and
+# an awk exec from a large bash costs more than the whole string walk. It
+# keeps awk's record semantics exactly — one record per input line, an empty
+# line has no fields (NF=0), every other line yields all its tab-separated
+# fields including empty ones — and splits with ${%%}/${#} slicing rather than
+# `IFS=$'\t' read`, for the whitespace-collapsing reason above.
 wb_tsv_split() {
   local -n _wb_tsv_out="$2"
-  mapfile -t _wb_tsv_out < <(awk -F'\t' '{ for (i = 1; i <= NF; i++) print $i }' <<< "$1")
+  local _wb_tsv_line _wb_tsv_rest
+  _wb_tsv_out=()
+  while IFS= read -r _wb_tsv_line; do
+    [ -n "$_wb_tsv_line" ] || continue
+    _wb_tsv_rest="$_wb_tsv_line"
+    while [[ "$_wb_tsv_rest" == *$'\t'* ]]; do
+      _wb_tsv_out+=("${_wb_tsv_rest%%$'\t'*}")
+      _wb_tsv_rest="${_wb_tsv_rest#*$'\t'}"
+    done
+    _wb_tsv_out+=("$_wb_tsv_rest")
+  done <<< "$1"
 }
 
 # ---------------------------------------------------------------------------

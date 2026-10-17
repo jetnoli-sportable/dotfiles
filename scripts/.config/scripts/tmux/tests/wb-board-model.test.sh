@@ -461,6 +461,26 @@ assert_eq "the bare word 'acceptance' alone (no 'criteria') does not match" \
 
 assert_eq "size: XS round-trips" "XS" "${M_SIZE[size-xs]:-}"
 
+# perf(wb-board): wb_tsv_split is a pure-bash split now (no awk fork per call);
+# pin the awk-era semantics it has to keep — empty fields (including a
+# trailing one) survive, an empty record has no fields, a blank line inside a
+# multi-line record contributes none.
+wb_tsv_split "a"$'\t\t'"b"$'\t' _tsv
+assert_eq "tsv_split keeps empty + trailing-empty fields" "4|a||b|" "${#_tsv[@]}|${_tsv[0]}|${_tsv[1]}|${_tsv[2]}|${_tsv[3]}"
+wb_tsv_split "" _tsv
+assert_eq "tsv_split: empty string -> no fields" "0" "${#_tsv[@]}"
+wb_tsv_split $'x\ty\n\nz' _tsv
+assert_eq "tsv_split: blank line in a multi-line record adds no fields" "3|x|y|z" "${#_tsv[@]}|${_tsv[0]}|${_tsv[1]}|${_tsv[2]}"
+
+# wb_board_v2_fill_template: a far-from-the-start first token (the real page's
+# static CSS/JS head), multibyte head text, an unknown token left literal, and
+# a literal `@@` inside a substituted value that must not be rescanned.
+_pad="$(printf 'caf\xc3\xa9 \xe2\x80\x94 %.0s' $(seq 400))"
+declare -A _toks=([A]='va@@B@@lue' [B]='SHOULD-NOT-APPEAR')
+wb_board_v2_fill_template "${_pad}@@A@@ mid @@NOPE@@ end @@B@@ tail @@" _toks _filled
+assert_eq "fill_template substitutes in one walk, leaves unknown tokens literal" \
+  "${_pad}va@@B@@lue mid @@NOPE@@ end SHOULD-NOT-APPEAR tail @@" "$_filled"
+
 echo
 if [ "$fail" = 0 ]; then
   echo "wb-board-model.test.sh: all assertions passed"
