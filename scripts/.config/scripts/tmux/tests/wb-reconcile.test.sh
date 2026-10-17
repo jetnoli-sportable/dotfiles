@@ -185,8 +185,14 @@ mk_dup 'proj--old-done.md' done proj shared-branch '.worktrees/shared-wt' 'SFB-1
 mk_dup 'proj--proj--old-stutter.md' done proj old-stutter-br '.worktrees/old-stutter' ''
 mk_dup 'proj--solo.md' doing proj solo-br '.worktrees/solo' 'SFB-200'
 
+# (d) multi-key and quoted jira values: "SFB-300, SFB-301" pairs with a task on
+# either key; a quoted "SFB-302" matches a bare SFB-302
+mk_dup 'proj--multi-a.md' doing proj branch-ma '.worktrees/ma' 'SFB-300, SFB-301'
+mk_dup 'proj--multi-b.md' doing proj branch-mb '.worktrees/mb' 'SFB-301'
+mk_dup 'proj--multi-c.md' doing proj branch-mc '.worktrees/mc' '"SFB-302"'
+mk_dup 'proj--multi-d.md' doing proj branch-md '.worktrees/md' 'SFB-302'
 # every fixture worktree exists on disk, so no "missing" rows muddy the output
-for wt in ja jb wt-a wt-b shared-wt stutter other-a old-stutter solo; do
+for wt in ma mb mc md ja jb wt-a wt-b shared-wt stutter other-a old-stutter solo; do
   mkdir -p "$DUP_CODE/proj/.worktrees/$wt" "$DUP_CODE/other/.worktrees/$wt"
 done
 out_d="$(cmd_reconcile --machine 2>&1)"; rc_d=$?
@@ -210,7 +216,12 @@ check_dup_machine() { # <label> <output>
     '^duplicate	worktree	proj	\.worktrees/shared-wt	/[^,]*proj--wt-a\.md,/[^,]*proj--wt-b\.md$' "$2"
   assert "dup machine [$1]: prefix class" \
     '^duplicate	prefix	proj	proj--proj--stutter	/[^,]*proj--proj--stutter\.md$' "$2"
-  assert "dup machine [$1]: exactly 4 duplicate rows" '^4$' "$(printf '%s\n' "$2" | /usr/bin/grep -c '^duplicate	')"
+  assert "dup machine [$1]: multi-key jira pairs on the shared second key" \
+    '^duplicate	jira	proj	SFB-301	/[^,]*proj--multi-a\.md,/[^,]*proj--multi-b\.md$' "$2"
+  assert "dup machine [$1]: quoted jira matches the bare key" \
+    '^duplicate	jira	proj	SFB-302	/[^,]*proj--multi-c\.md,/[^,]*proj--multi-d\.md$' "$2"
+  assert "dup machine [$1]: unshared first key SFB-300 not flagged" '^0$' "$(printf '%s\n' "$2" | /usr/bin/grep -c 'SFB-300	')"
+  assert "dup machine [$1]: exactly 6 duplicate rows" '^6$' "$(printf '%s\n' "$2" | /usr/bin/grep -c '^duplicate	')"
 }
 check_dup_machine default "$out_d"
 check_dup_machine mawk "$out_dm"
@@ -235,7 +246,7 @@ else
 fi
 
 # Only-live-unique store: no duplicates -> existing 'no drift found' output.
-rm -f "$DUP_TASKS"/proj--jira-b.md "$DUP_TASKS"/proj--br-b.md "$DUP_TASKS"/proj--wt-b.md "$DUP_TASKS"/proj--proj--stutter.md
+rm -f "$DUP_TASKS"/proj--multi-[bcd].md "$DUP_TASKS"/proj--jira-b.md "$DUP_TASKS"/proj--br-b.md "$DUP_TASKS"/proj--wt-b.md "$DUP_TASKS"/proj--proj--stutter.md
 assert "dup cleared: human mode back to no drift" 'no drift found' "$(cmd_reconcile 2>&1)"
 if [ -z "$(cmd_reconcile --machine 2>&1)" ]; then
   echo "ok   - dup cleared: machine mode prints nothing"

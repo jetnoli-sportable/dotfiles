@@ -2050,18 +2050,29 @@ wb_reconcile_collect_duplicates() {
       sub(/[ \t]+#.*$/, "", v); sub(/^#.*$/, "", v); sub(/[ \t]+$/, "", v)
       return v
     }
-    function flush(    base, jk, k) {
+    function flush(    base, jk, k, v, nt, toks, t, seenk) {
       if (file == "" || status == "done") return
       base = file; sub(/^.*\//, "", base); sub(/\.md$/, "", base)
       if (repo != "" && index(base, repo "--" repo "--") == 1)
         printf "duplicate\tprefix\t%s\t%s\t%s\n", repo, base, file
       if (jira != "") {
-        jk = jira
-        if (match(jira, /[A-Za-z][A-Za-z0-9]*-[0-9]+/)) jk = toupper(substr(jira, RSTART, RLENGTH))
-        if (!(jk in jfiles)) jorder[++nj] = jk
-        if (jk in jfiles) jfiles[jk] = jfiles[jk] "," file; else jfiles[jk] = file
-        jn[jk]++
-        if (index("," jrepos[jk] ",", "," repo ",") == 0) jrepos[jk] = (jrepos[jk] == "" ? repo : jrepos[jk] "," repo)
+        # A jira: value may carry several keys ("SFB-1, SFB-2"), quotes, or
+        # URLs: strip quotes, split on commas/whitespace, normalise each
+        # token to its KEY-N, and count every distinct key on its own.
+        v = jira; gsub("[\"\047]", "", v)
+        nt = split(v, toks, /[, \t]+/)
+        delete seenk
+        for (t = 1; t <= nt; t++) {
+          if (toks[t] == "") continue
+          jk = toks[t]
+          if (match(jk, /[A-Za-z][A-Za-z0-9]*-[0-9]+/)) jk = toupper(substr(jk, RSTART, RLENGTH))
+          if (jk in seenk) continue
+          seenk[jk] = 1
+          if (!(jk in jfiles)) jorder[++nj] = jk
+          if (jk in jfiles) jfiles[jk] = jfiles[jk] "," file; else jfiles[jk] = file
+          jn[jk]++
+          if (index("," jrepos[jk] ",", "," repo ",") == 0) jrepos[jk] = (jrepos[jk] == "" ? repo : jrepos[jk] "," repo)
+        }
       }
       if (repo != "" && branch != "") {
         k = repo SUBSEP branch
