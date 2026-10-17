@@ -541,6 +541,79 @@ assert_eq "$tag: preamble Notes: blank line before Notes" "" "$nc_notes_prev"
 assert_eq "$tag: preamble Notes: blank line before merged Plan" "" "$nc_plan_prev"
 assert "$tag: preamble Notes: Notes content survives" 'Some notes content\.' "$(cat "$NC")"
 assert "$tag: preamble Notes: both Plan copies merged" 'More plan text \(dup\)\.' "$(cat "$NC")"
+
+# =============================================================================
+# Hardening (PR #71 review residuals)
+# =============================================================================
+
+# ---- re-hash just before the mv: a write that lands after the lock-time
+# hash check (an UNLOCKED writer) must make --fix skip, not overwrite it.
+# Simulated by stubbing the self-check (it runs between the hash check and
+# the write) to append a line, then defer to the real one. ----
+local RACE="$TASKS_DIR/proj--race-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: race-%s\nworktree: .worktrees/race-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Follow-ups\n\n- one\n\n## Follow-ups\n\n- two\n' \
+  "$tag" "$tag" > "$RACE"
+local race_hash; race_hash="$(sha256sum "$RACE" | awk '{print $1}')"
+local orig_selfcheck_def; orig_selfcheck_def="$(declare -f _wb_lint_sections_selfcheck)"
+_wb_lint_sections_selfcheck() { printf -- '- unlocked writer line\n' >> "$RACE"; return 0; }
+out="$(_wb_lint_sections_fix_one "$RACE" "$race_hash" 2>&1)"; rc=$?
+eval "$orig_selfcheck_def"
+assert_eq "$tag: re-hash before mv: fix_one returns non-zero" 1 "$rc"
+assert "$tag: re-hash before mv: message says changed during the merge" 'changed during the merge' "$out"
+assert "$tag: re-hash before mv: the unlocked writer's line survives" 'unlocked writer line' "$(cat "$RACE")"
+assert_eq "$tag: re-hash before mv: still two ## Follow-ups (nothing merged)" 2 "$(grep -c '^## Follow-ups$' "$RACE")"
+assert_eq "$tag: re-hash before mv: no temp file left behind" 0 "$(ls "$TASKS_DIR" | grep -c "race-$tag\.md\.tmp")"
+
+# ---- self-check: a canonical heading with trailing whitespace is
+# normalized on the original side too, so --fix no longer always refuses ----
+local TW="$TASKS_DIR/proj--trailing-ws-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: trailing-ws-%s\nworktree: .worktrees/trailing-ws-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Follow-ups  \n\n- one\n\n## Follow-ups\n\n- two\n' \
+  "$tag" "$tag" > "$TW"
+local tw_hash; tw_hash="$(sha256sum "$TW" | awk '{print $1}')"
+out="$(cmd_lint_sections --fix "$TW:$tw_hash" 2>&1)"; rc=$?
+assert_eq "$tag: trailing-whitespace heading: --fix exits 0" 0 "$rc"
+assert_not "$tag: trailing-whitespace heading: not refused by the self-check" 'content self-check' "$out"
+assert_eq "$tag: trailing-whitespace heading: one bare ## Follow-ups" 1 "$(grep -c '^## Follow-ups$' "$TW")"
+assert_eq "$tag: trailing-whitespace heading: no trailing-space heading left" 0 "$(grep -c '^## Follow-ups  $' "$TW")"
+assert "$tag: trailing-whitespace heading: both copies' content survives" '^- one$' "$(cat "$TW")"
+assert "$tag: trailing-whitespace heading: second copy's content survives" '^- two$' "$(cat "$TW")"
+
+# ---- fence logic: an inline "```code``` ..." line is not a fence opener
+# (it used to toggle, hiding every later heading, so a duplicate went
+# unseen); a real "```bash" opener still hides headings until its bare
+# closer; a closer must be a bare run of the same char, long enough ----
+local INL="$TASKS_DIR/proj--inline-fence-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: inline-fence-%s\nworktree: .worktrees/inline-fence-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\n```code``` is how to quote inline.\n\n## Follow-ups\n\n- one\n\n## Follow-ups\n\n- two\n' \
+  "$tag" "$tag" > "$INL"
+findings="$(_wb_lint_sections_findings "$INL")"
+assert "$tag: inline triple-backtick line: later dup Follow-ups still found" $'^dup\tFollow-ups\t2\t2$' "$findings"
+local inl_hash; inl_hash="$(sha256sum "$INL" | awk '{print $1}')"
+out="$(cmd_lint_sections --fix "$INL:$inl_hash" 2>&1)"; rc=$?
+assert_eq "$tag: inline triple-backtick line: --fix exits 0" 0 "$rc"
+assert_eq "$tag: inline triple-backtick line: merged to one ## Follow-ups" 1 "$(grep -c '^## Follow-ups$' "$INL")"
+assert "$tag: inline triple-backtick line: inline text preserved" '```code``` is how to quote inline\.' "$(cat "$INL")"
+
+local FINFO="$TASKS_DIR/proj--fence-info-$tag.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: fence-info-%s\nworktree: .worktrees/fence-info-%s\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\n```bash\n## Decisions\n```\n\n````md\n```\n## Done\n```\n````\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' \
+  "$tag" "$tag" > "$FINFO"
+findings="$(_wb_lint_sections_findings "$FINFO")"
+assert_eq "$tag: info-string and longer fences: headings inside stay hidden, no findings" "" "$findings"
+records="$(_wb_lint_sections_records "$FINFO")"
+assert_eq "$tag: info-string and longer fences: only one real Decisions record" 1 \
+  "$(printf '%s\n' "$records" | grep -cE '^1	Decisions	')"
+assert_eq "$tag: info-string and longer fences: only one real Done record" 1 \
+  "$(printf '%s\n' "$records" | grep -cE '^1	Done	')"
+
+# ---- error prefix: a --fix / ref that doesn't resolve names its own verb,
+# not the resolver's `wb append` default ----
+out="$(cmd_lint_sections --fix "zzz-no-such-task-$tag:abc123" 2>&1)"; rc=$?
+assert_eq "$tag: unresolved --fix target: exit 1" 1 "$rc"
+assert "$tag: unresolved --fix target: error carries the --fix verb" 'wb lint-sections --fix: no task matches' "$out"
+assert_not "$tag: unresolved --fix target: never says wb append" 'wb append' "$out"
+out="$(cmd_lint_sections "zzz-no-such-task-$tag" --machine 2>&1)"; rc=$?
+assert_eq "$tag: unresolved ref: exit 1" 1 "$rc"
+assert "$tag: unresolved ref: error carries the lint-sections verb" 'wb lint-sections: no task matches' "$out"
+assert_not "$tag: unresolved ref: never says wb append" 'wb append' "$out"
 }
 
 # =============================================================================
