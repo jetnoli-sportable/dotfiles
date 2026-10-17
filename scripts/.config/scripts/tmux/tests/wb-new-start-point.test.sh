@@ -375,6 +375,25 @@ fi
 assert "slash-slug re-entry: cuts a fresh branch like plain wb new" 'wb new: branching feat/slashy from origin/development' "$out"
 [ "$(tip feat/slashy)" != "$SLASHY_REMOTE_TIP" ] && echo "ok   - slash-slug re-entry: branch is not at the leftover remote tip" || { echo "FAIL - slash-slug re-entry: branch is not at the leftover remote tip"; fail=1; }
 
+# --- stale cached origin/<branch> (deleted on origin): not resurrected -------
+git -C "$SEED" checkout -q -b feat/stale development
+gitc -C "$SEED" commit -q --allow-empty -m "stale work"
+git -C "$SEED" push -q origin feat/stale
+git -C "$PROJ" fetch -q origin
+STALE_TIP="$(git -C "$PROJ" rev-parse refs/remotes/origin/feat/stale)"
+git -C "$BARE" branch -q -D feat/stale
+git -C "$PROJ" show-ref --verify --quiet refs/remotes/origin/feat/stale \
+  || { echo "FAIL - fixture: stale origin/feat/stale should still be cached"; fail=1; }
+task proj--adopt-stale planned proj feat/stale
+out="$(new proj adopt-stale)"
+if printf '%s' "$out" | grep -q 'attaching .* to existing origin/'; then
+  echo "FAIL - stale cached ref: must not be adopted"; fail=1
+else
+  echo "ok   - stale cached ref: not adopted"
+fi
+assert "stale cached ref: branch cut fresh from the start point" 'wb new: branching feat/stale from origin/development' "$out"
+[ "$(tip feat/stale)" != "$STALE_TIP" ] && echo "ok   - stale cached ref: branch is not at the stale tip" || { echo "FAIL - stale cached ref: branch is not at the stale tip"; fail=1; }
+
 # --- could not check origin for the pre-set branch: abort, create nothing ---
 git -C "$PROJ" remote set-url origin "$FIXTURE_GIT/gone.git"
 task proj--adopt-offline planned proj feat/offline

@@ -1593,28 +1593,28 @@ _wb_new_add_worktree() {
   # stem slug (already sanitized, feat-x) while plain `wb new` passes the raw
   # name (feat/x) — both name the same task, so neither counts as adopted.
   if [ "$(wb_sanitize "$branch")" != "$(wb_sanitize "$slug")" ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
-    if ! git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-      # Not in the last fetch — it may have been pushed since. Ask origin
-      # (bounded like the default-branch fetch), telling "not on origin"
-      # (ls-remote --exit-code rc 2: fine, cut a new branch) apart from
-      # "couldn't check" (offline / auth / timeout): guessing there would
-      # silently cut a divergent local branch under a name that may already
-      # exist on origin, so abort before creating anything.
-      local -a to=()
-      command -v timeout >/dev/null 2>&1 && to=(timeout 30)
-      local lsrc=0
-      GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" ls-remote --exit-code --heads origin \
-        "refs/heads/$branch" >/dev/null 2>&1 || lsrc=$?
-      if [ "$lsrc" -eq 0 ]; then
-        GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin \
-          "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || lsrc=1
-      fi
-      if [ "$lsrc" -ne 0 ] && [ "$lsrc" -ne 2 ]; then
-        echo "wb new: couldn't reach origin to check for branch '$branch'; retry when online, or clear branch: / set it to a new name (\`wb set <task> branch <name>\`)" >&2
-        return 1
-      fi
+    # Always ask origin, even when refs/remotes/origin/<branch> is cached: a
+    # cached ref can be stale (branch deleted/merged on origin since the last
+    # fetch) and must not be resurrected. Bounded like the default-branch
+    # fetch, telling "not on origin" (ls-remote --exit-code rc 2: fine, cut a
+    # new branch) apart from "couldn't check" (offline / auth / timeout):
+    # guessing there would silently cut a divergent local branch under a name
+    # that may already exist on origin, so abort before creating anything.
+    local -a to=()
+    command -v timeout >/dev/null 2>&1 && to=(timeout 30)
+    local lsrc=0
+    GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" ls-remote --exit-code --heads origin \
+      "refs/heads/$branch" >/dev/null 2>&1 || lsrc=$?
+    if [ "$lsrc" -eq 0 ] && ! git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      # On origin but not in the last fetch — pushed since.
+      GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin \
+        "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || lsrc=1
     fi
-    if git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    if [ "$lsrc" -ne 0 ] && [ "$lsrc" -ne 2 ]; then
+      echo "wb new: couldn't reach origin to check for branch '$branch'; retry when online, or clear branch: / set it to a new name (\`wb set <task> branch <name>\`)" >&2
+      return 1
+    fi
+    if [ "$lsrc" -eq 0 ] && git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
       echo "wb new: attaching $slug to existing origin/$branch" >&2
       git -C "$repo_dir" worktree add --track -b "$branch" "$worktree_path" "origin/$branch"
       return
