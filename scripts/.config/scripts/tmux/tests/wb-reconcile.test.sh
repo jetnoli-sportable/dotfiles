@@ -191,15 +191,29 @@ for wt in ja jb wt-a wt-b shared-wt stutter other-a old-stutter solo; do
 done
 out_d="$(cmd_reconcile --machine 2>&1)"; rc_d=$?
 [ "$rc_d" -eq 0 ] || { echo "FAIL - dup machine mode exit code $rc_d"; fail=1; }
-assert "dup machine: jira class, key normalised across bare key and URL, both tasks listed" \
-  '^duplicate	jira	proj	SFB-100	.*proj--jira-a\.md,.*proj--jira-b\.md$' "$out_d"
-assert "dup machine: branch class (same repo)" \
-  '^duplicate	branch	proj	shared-branch	.*proj--br-a\.md,.*proj--br-b\.md$' "$out_d"
-assert "dup machine: worktree class (same repo)" \
-  '^duplicate	worktree	proj	\.worktrees/shared-wt	.*proj--wt-a\.md,.*proj--wt-b\.md$' "$out_d"
-assert "dup machine: prefix class" \
-  '^duplicate	prefix	proj	proj--proj--stutter	.*proj--proj--stutter\.md$' "$out_d"
-assert "dup machine: exactly 4 duplicate rows" '^4$' "$(printf '%s\n' "$out_d" | /usr/bin/grep -c '^duplicate	')"
+# Row-shape assertions run under the default awk AND a PATH-shimmed mawk (the
+# live `wb` runs mawk; a leading-comma bug in the path list only shows there).
+# Path lists must start with `/`, never `,` — hence [^,]* before each basename.
+MAWK_SHIM_DIR="$(mktemp -d -t wb-reconcile-mawk-shim.XXXXXX)"
+if [ ! -x /usr/bin/mawk ]; then
+  echo "FAIL - mawk shim: /usr/bin/mawk not found, cannot verify mawk behaviour"; fail=1
+else
+  ln -s /usr/bin/mawk "$MAWK_SHIM_DIR/awk"
+fi
+out_dm="$(PATH="$MAWK_SHIM_DIR:$PATH" cmd_reconcile --machine 2>&1)"
+check_dup_machine() { # <label> <output>
+  assert "dup machine [$1]: jira class, key normalised across bare key and URL, both tasks listed, no leading comma" \
+    '^duplicate	jira	proj	SFB-100	/[^,]*proj--jira-a\.md,/[^,]*proj--jira-b\.md$' "$2"
+  assert "dup machine [$1]: branch class (same repo)" \
+    '^duplicate	branch	proj	shared-branch	/[^,]*proj--br-a\.md,/[^,]*proj--br-b\.md$' "$2"
+  assert "dup machine [$1]: worktree class (same repo)" \
+    '^duplicate	worktree	proj	\.worktrees/shared-wt	/[^,]*proj--wt-a\.md,/[^,]*proj--wt-b\.md$' "$2"
+  assert "dup machine [$1]: prefix class" \
+    '^duplicate	prefix	proj	proj--proj--stutter	/[^,]*proj--proj--stutter\.md$' "$2"
+  assert "dup machine [$1]: exactly 4 duplicate rows" '^4$' "$(printf '%s\n' "$2" | /usr/bin/grep -c '^duplicate	')"
+}
+check_dup_machine default "$out_d"
+check_dup_machine mawk "$out_dm"
 for neg in 'other--br-a' 'old-done' 'old-stutter' 'proj--solo' 'SFB-200'; do
   if printf '%s' "$out_d" | /usr/bin/grep -q "$neg"; then
     echo "FAIL - dup negative: '$neg' must not be flagged"; fail=1
@@ -242,7 +256,7 @@ else
   echo "FAIL - review doc must hold the missing finding and no duplicate findings"; fail=1
 fi
 
-rm -rf "$DUP_TASKS" "$DUP_CODE"
+rm -rf "$DUP_TASKS" "$DUP_CODE" "$MAWK_SHIM_DIR"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

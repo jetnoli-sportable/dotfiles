@@ -2059,19 +2059,21 @@ wb_reconcile_collect_duplicates() {
         jk = jira
         if (match(jira, /[A-Za-z][A-Za-z0-9]*-[0-9]+/)) jk = toupper(substr(jira, RSTART, RLENGTH))
         if (!(jk in jfiles)) jorder[++nj] = jk
-        jfiles[jk] = (jk in jfiles ? jfiles[jk] "," : "") file
+        if (jk in jfiles) jfiles[jk] = jfiles[jk] "," file; else jfiles[jk] = file
         jn[jk]++
         if (index("," jrepos[jk] ",", "," repo ",") == 0) jrepos[jk] = (jrepos[jk] == "" ? repo : jrepos[jk] "," repo)
       }
       if (repo != "" && branch != "") {
         k = repo SUBSEP branch
         if (!(k in bfiles)) border[++nb] = k
-        bfiles[k] = (k in bfiles ? bfiles[k] "," : "") file; bn[k]++
+        if (k in bfiles) bfiles[k] = bfiles[k] "," file; else bfiles[k] = file
+        bn[k]++
       }
       if (repo != "" && worktree != "") {
         k = repo SUBSEP worktree
         if (!(k in wfiles)) worder[++nw] = k
-        wfiles[k] = (k in wfiles ? wfiles[k] "," : "") file; wn[k]++
+        if (k in wfiles) wfiles[k] = wfiles[k] "," file; else wfiles[k] = file
+        wn[k]++
       }
     }
     FNR == 1 { flush(); file = FILENAME; status = repo = branch = worktree = jira = ""; infm = 0 }
