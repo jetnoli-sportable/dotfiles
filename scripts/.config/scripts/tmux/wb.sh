@@ -1589,7 +1589,10 @@ _wb_new_add_worktree() {
     return
   fi
 
-  if [ "$branch" != "$slug" ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
+  # Compare sanitized forms: a resume/picker re-entry passes the task file's
+  # stem slug (already sanitized, feat-x) while plain `wb new` passes the raw
+  # name (feat/x) — both name the same task, so neither counts as adopted.
+  if [ "$(wb_sanitize "$branch")" != "$(wb_sanitize "$slug")" ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
     if ! git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
       # Not in the last fetch — it may have been pushed since. Ask origin
       # (bounded like the default-branch fetch), telling "not on origin"

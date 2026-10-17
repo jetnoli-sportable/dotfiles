@@ -356,6 +356,25 @@ reenter proj--blankwt-remote feat/blankwt-remote >/dev/null
 assert_eq "blank worktree + remote-only branch: checked out at origin's tip" "$BLANK_REMOTE_TIP" "$(tip feat/blankwt-remote)"
 assert_eq "blank worktree + remote-only branch: tracks origin/<branch>" "origin/feat/blankwt-remote" "$(upstream feat/blankwt-remote)"
 
+# --- slash-slug task re-entry behaves like plain `wb new proj feat/slashy` ---
+# Stem slug (feat-slashy) is the sanitized form of the branch (feat/slashy), so
+# the branch is slug-named: a leftover origin/feat/slashy must NOT be resurrected
+# (the same rule plain `wb new proj feat/slashy` follows), not tracked as adopted.
+git -C "$SEED" checkout -q -b feat/slashy development
+gitc -C "$SEED" commit -q --allow-empty -m "slashy leftover"
+git -C "$SEED" push -q origin feat/slashy
+SLASHY_REMOTE_TIP="$(git -C "$BARE" rev-parse feat/slashy)"
+git -C "$PROJ" fetch -q origin
+task proj--feat-slashy planned proj feat/slashy
+out="$(reenter proj--feat-slashy feat/slashy)"
+if printf '%s' "$out" | grep -q 'attaching .* to existing origin/'; then
+  echo "FAIL - slash-slug re-entry: must not track the leftover remote branch"; fail=1
+else
+  echo "ok   - slash-slug re-entry: does not track the leftover remote branch"
+fi
+assert "slash-slug re-entry: cuts a fresh branch like plain wb new" 'wb new: branching feat/slashy from origin/development' "$out"
+[ "$(tip feat/slashy)" != "$SLASHY_REMOTE_TIP" ] && echo "ok   - slash-slug re-entry: branch is not at the leftover remote tip" || { echo "FAIL - slash-slug re-entry: branch is not at the leftover remote tip"; fail=1; }
+
 # --- could not check origin for the pre-set branch: abort, create nothing ---
 git -C "$PROJ" remote set-url origin "$FIXTURE_GIT/gone.git"
 task proj--adopt-offline planned proj feat/offline
