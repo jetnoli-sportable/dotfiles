@@ -312,7 +312,7 @@ assert "append_followup: the line appears under the appended heading" \
 # call — never combined, never an embedded newline. Fixed-string (-F)
 # matches against known-exact source lines, not regex, so $ and " need no
 # escaping gymnastics.
-pointer_line='tmux send-keys -t "$target" -l "$pointer"'
+pointer_line='tmux send-keys -t "$target" -l -- "$pointer"'
 enter_line='tmux send-keys -t "$target" Enter'
 if grep -qF -- "$pointer_line" "$HANDOFF" && grep -qF -- "$enter_line" "$HANDOFF"; then
   echo "ok   - injection shape: pointer sent via send-keys -l, Enter via a separate send-keys call"
@@ -335,7 +335,7 @@ fi
 # reproduce a real TUI's render timing). Fix is a bounded, safe-as-a-no-op
 # resend: a second Enter after a short pause. Assert the pointer-injection
 # block sends Enter twice with a sleep between, not just once.
-enter_count_after_pointer="$(awk '/-l "\$pointer"/{found=1} found && /send-keys -t "\$target" Enter/{c++} END{print c+0}' "$HANDOFF")"
+enter_count_after_pointer="$(awk '/-l -- "\$pointer"/{found=1} found && /send-keys -t "\$target" Enter/{c++} END{print c+0}' "$HANDOFF")"
 if [ "$enter_count_after_pointer" -ge 2 ]; then
   echo "ok   - dropped-Enter regression: pointer injection resends Enter after a pause, not just once"
 else

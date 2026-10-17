@@ -227,7 +227,7 @@ if [ "$mode" = "pane" ]; then
   # the first-Enter-dropped-mid-TUI-transition case documented at the spawn
   # injector above. The payload is opaque here (posture-blind, KTD7) — the
   # skill composed it. Never sends /model (R7).
-  tmux send-keys -t "$pane" -l "$payload"
+  tmux send-keys -t "$pane" -l -- "$payload"
   tmux send-keys -t "$pane" Enter
   sleep 1
   tmux send-keys -t "$pane" Enter
@@ -388,7 +388,7 @@ fi
 # one literal-flag send-keys call, Enter as a SEPARATE call — never
 # combined into one call, never a literal embedded newline (premature-
 # submission risk). Never sends `/model` to the pane (R7).
-tmux send-keys -t "$target" -l "$pointer"
+tmux send-keys -t "$target" -l -- "$pointer"
 tmux send-keys -t "$target" Enter
 # The very first Enter sent right as the boot-ready anchor first appears can
 # be silently dropped — observed live (2026-07-11 smoke test): the TUI was
