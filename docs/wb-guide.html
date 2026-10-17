@@ -733,96 +733,73 @@ the plain-text table above. Open it with <code>xdg-open logs/board.html</code>, 
 an agent to run <code>wb board --html</code> and relay the path (the <code>/wb-board</code> skill
 was removed 2026-09-14 — zero measured usage, agents were already just
 shelling out to <code>wb board</code> manually and relaying the result).</p>
-<p><strong>Pipeline tab, first and default.</strong> One row per task that isn't <code>done</code> yet,
-regardless of the today/week window — a task untouched for two weeks still
-shows up here, since the point is a complete in-flight surface, not a
-recency filter. Five stage columns (<strong>Ideate · Brainstorm · Plan · Work ·
-Review</strong>) each render one of four states:</p>
-<table>
-<thead>
-<tr>
-<th>Glyph</th>
-<th>State</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>✓</td>
-<td>done</td>
-<td>The stage's artifact exists (a doc, a stamped <code>reviewed:</code> date, or — for Work — the task is closed with no open PR)</td>
-</tr>
-<tr>
-<td>◑</td>
-<td>in progress</td>
-<td>Work only: real changes exist, or a PR is open in any state</td>
-</tr>
-<tr>
-<td>○</td>
-<td>pending</td>
-<td>Declared (or defaulted) into the task's intended path, nothing has happened yet</td>
-</tr>
-<tr>
-<td>· (faint)</td>
-<td>n/a</td>
-<td>Not part of this task's intended path, and nothing has fired to upgrade it</td>
-</tr>
-</tbody>
-</table>
-<p>A stage's state is <strong>computed live</strong> every render, never stored — a task's
-<code>path:</code> frontmatter field declares which stages it intends to go through
-(defaults to <code>plan,work,review</code> when absent), but a real signal always wins
-even for an undeclared stage: if a plan doc shows up for a task that never
-declared <code>plan</code> in its path, that stage renders done anyway. Stage cells
-link to their backing artifact (the doc, or the PR) when one exists on disk;
-a task whose worktree is gone but whose branch still carries the doc shows
-an unlinked glyph with a tooltip naming it, rather than losing the signal.</p>
-<p><strong>Live and Stale tabs</strong>, next to Pipeline: <strong>Live</strong> narrows to every task
-(or untracked worktree) with a currently-running tmux session — the same
-green dot Pipeline/bucket rows already show, isolated into its own list.
-<strong>Stale</strong> narrows to in-flight tasks whose <code>created</code>/<code>closed</code>/<code>updated</code> all
-predate a 14-day threshold (<code>WB_STALE_DAYS</code> in <code>wb.sh</code>) — the ones you
-started and haven't touched in a while. Both are window-independent, like
-Pipeline.</p>
-<p><strong>Every detail card</strong> (bucket tabs and Pipeline alike, done tasks included)
-shows the same stepper as a two-zone card: identity (title, status, repo ·
-branch) on the left, live-agent badge / worktree indicator / PR chip on the
-right. Doc stages list every matching artifact as a chip, not just the
-newest.</p>
+<p>The page is one static file with a small inline script — everything it
+shows is computed from the task files at render time, with no git/gh/tmux
+calls of its own, so a render is quick even on a few hundred tasks. It has
+two parts: a <strong>left rail</strong> that scopes everything, and four <strong>views</strong> in the
+main pane.</p>
+<p><strong>The rail.</strong> A text box (<code>/</code> focuses it) sits at the top and narrows the
+rail <em>and</em> the main pane of every view by title as you type. Under it is a
+row of <strong>repo chips</strong>: <code>All</code>, then the five repos with the most tasks
+(<code>dotfiles</code> pinned first when present), then <code>other</code> — a real set of the
+remaining repos, plus tasks with no <code>repo:</code> at all. Below that, the rail
+shows a <strong>Doing</strong> tree — &quot;All doing&quot; first, then each family with active
+work as a collapsible node, its children nested — and two groups,
+<strong>Next</strong> (planned tasks, collapsed by default) and <strong>Shelf</strong> (paused and
+prospective ones, expanded by default), with counts. Picking a row <em>scopes</em> the board: Active narrows to that task or
+family, Roadmap outlines the lane and dims the rest (never hides it — a
+roadmap of one lane is useless), Week auto-expands the picked task. &quot;All
+doing&quot; (or <code>a</code>) clears the scope. On the <strong>Family</strong> view the rail swaps to
+a flat list of families instead, and picking one shows just that family.
+The selected view, scope and repo chip are remembered in <code>localStorage</code>,
+so a re-render lands where you left it.</p>
+<p><strong>Keys.</strong> <code>1</code>–<code>4</code> switch views, <code>j</code>/<code>k</code> move a cursor down/up the rail,
+<code>Enter</code> picks the cursor row, <code>a</code> clears the scope, <code>/</code> focuses the filter
+(<code>Esc</code> clears it and blurs; <code>Esc</code> elsewhere drops the cursor). A legend in
+the page caption lists them. Each view tab carries a count badge.</p>
+<p><strong>Active (<code>1</code>, default).</strong> One card per task whose status is <code>doing</code> or
+<code>review</code>, ordered freshest first. A task untouched for <strong>14+ days</strong> is
+<em>stale</em>: it still gets a card, in full contrast with a red dot and age
+(never desaturated), but sorts after the fresh ones. Each card shows the
+title, status, repo, age, and the <strong>lifecycle strip</strong> — <strong>ideate ·
+brainstorm · plan · work · review</strong>, each rendered ✓ done, ● in progress
+(work only) or ○ pending, with n/a stages omitted entirely — plus a PR chip
+when one exists. Click a card to expand a drilldown in place beneath it:
+a &quot;Now&quot; line, the latest handoff, and collapsed Plan (checked/total), Done,
+Follow-ups, Decisions and Artifacts sections with counts. Task ids are
+click-to-copy (<code>wb resume &lt;stem&gt;</code>) and link to the task file.</p>
+<p>The strip's state is <strong>computed live</strong> every render, never stored — a
+task's <code>path:</code> frontmatter declares which stages it intends to go through
+(defaults to <code>plan,work,review</code>), but a real signal always wins even for an
+undeclared stage: a plan doc that shows up for a task that never declared
+<code>plan</code> still renders that stage done.</p>
+<p><strong>Roadmap (<code>2</code>).</strong> A grid of lanes against five columns — <em>2 wks ago ·
+last wk · THIS WEEK · next · later</em> — with a &quot;Today&quot; line. One lane per
+family with active work (a milestone lane showing <code>done / total</code> with a
+bar per member) or per standalone active task. Above the lanes a
+collapsible readiness strip reads <strong>Ready now · N · Blocked · N</strong>: every
+planned task store-wide, split by whether its <code>depends_on:</code> blockers are
+all <code>done</code>. Open it for the pills (each capped at 8 with a &quot;+N more&quot;
+tail); a blocked pill names what it is waiting on. Stale tasks collapse
+into a <strong>Stale · N doing, needs review</strong> toggle below the grid.</p>
+<p><strong>Week (<code>3</code>).</strong> Headed by the ISO week and its date range with
+active/stale counts. <strong>This week</strong> lists active tasks updated since
+Monday as collapsed cards (click to expand the same drilldown);
+<strong>Carried over</strong> groups older active work by family, with stale tasks
+behind a toggle; <strong>Queue &amp; shelf</strong> closes it with &quot;Unblocked next&quot; and
+&quot;Shelf&quot; chips (the shelf count excludes done).</p>
+<p><strong>Family (<code>4</code>).</strong> One block per family — a parent and its children. Each
+opens with the same summary header as an expanded Active card, then the
+Dependencies graph (below), then either a <strong>version ladder</strong> (when the
+parent's Plan carries a <code>### Version ladder status</code> table: one rung per
+version, with its tickets and wb tasks) or a plain <strong>family tree</strong> of the
+parent and its children, each child expandable in place.</p>
 <p><strong>Relationships.</strong> A task can declare <code>depends_on: &lt;repo&gt;--&lt;slug&gt;[,...]</code> —
-comma-separated blocker stems, met once the blocker's <code>status:</code> is <code>done</code>. A
-blocked task renders dimmed with a ⛔ count (tooltip names the blockers); its
-blocker shows a → count of tasks waiting on it — both directions visible at
-once, independently. A dangling stem or a dependency cycle fails open (fail
-loud would be worse: it renders the task unblocked with a visible warning
-naming the problem) rather than breaking the render. A parent task (via
-<code>parent:</code>) shows an <code>n/m children done</code> counter and a ready-to-close hint
-once every child is done — the parent's own status pill is never touched by
-this.</p>
-<p><strong>Filters.</strong> The header carries the today/week window as a segmented
-control, plus two independent, AND-composing dropdown filters: <strong>Repo</strong>
-(every repo present in the store) and <strong>Family</strong> (a parent and its
-children — only appears at all once the store has at least one parent/child
-pair). Both default to &quot;All&quot;; picking a specific option narrows every tab's
-table and cards at once, never Key Findings (below). A third, simpler
-<strong>Dormant only</strong> checkbox sits next to them (U6) — every row also carries a
-derived <code>active</code>/<code>dormant</code>/<code>cold</code> activity value (the same rule the
-picker's dormant rows use: no live session, but a Claude transcript still
-on disk), and the toggle narrows to just the dormant ones, AND-composing
-with Repo/Family the same way those two already compose with each other.</p>
-<p><strong>Sorting.</strong> Click a <strong>Status</strong> or <strong>Repo</strong> column header to sort that
-table by it — the one deliberate exception to the page otherwise being
-CSS-only/no-JS (a small inline script; everything else stays radio+CSS
-driven).</p>
-<p><strong>Key Findings</strong>, at the bottom of every tab, is board-global and explicitly
-tagged <em>board-wide · ignores filters</em> — no repo/family filter narrows it,
-since it's meant to answer &quot;what needs attention across everything,&quot; not
-&quot;what's in this slice.&quot; Six starter insights, each omitted when empty
-(never an empty heading): the task blocking the most others, parents ready
-to close, a count of done-but-unreviewed tasks, the oldest in-flight task,
-tasks whose status maps to no known bucket, and branchless tasks whose stem
-already matches a doc in this repo's own <code>docs/</code> tree (a &quot;wrote the plan,
-haven't started the branch yet&quot; pattern that's otherwise invisible).</p>
+comma-separated blocker stems, met once the blocker's <code>status:</code> is <code>done</code>.
+A dangling stem or a dependency cycle fails open (the task renders
+unblocked, with a warning naming the problem) rather than breaking the
+render. The effects show up in the Roadmap's Ready/Blocked strip, the Week
+view's &quot;Unblocked next&quot; chips, and the Family graph below.</p>
 <p><strong>Creating a task with intent:</strong> <code>wb new</code> accepts <code>--path &lt;stages&gt;</code> (a
 comma-separated subset of the five stage names, validated against unknown
 names before anything is created) and repeatable <code>--depends-on &lt;stem&gt;</code> (each

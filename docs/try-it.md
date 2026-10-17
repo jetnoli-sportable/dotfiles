@@ -20,3 +20,4 @@ isn't real — check the roadmap for its actual status.
 |---|---|---|---|
 | `wb` core | Built | `tmux source-file ~/.config/tmux/tmux.conf` | — |
 | `/handoff` | Built | `/handoff` | The skill infers `repo`/`slug` from context (checking `~/code/tasks/` for a |
+| Board display v2 | Built | `tmux source-file ~/.config/tmux/tmux.conf` | — |

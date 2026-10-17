@@ -301,7 +301,8 @@ since the task template's <code>## Decisions</code> section still refers to &quo
 <code>## Decisions</code> section links to <code>logs/decisions/*.md</code> — this is the
 finding that section exists to satisfy.</li>
 <li><strong>F5 — at-a-glance board (done/planned/todo).</strong> Resolved: task-file
-frontmatter + <code>wb board</code>.</li>
+frontmatter + <code>wb board</code> (since rebuilt as the four-view board; see the
+<a href="wb-guide.html">wb guide</a>).</li>
 <li><strong>F6 — attention routing (agents pull you, don't poll them).</strong> Resolved:
 the hook → marker → count → jump/preview pipeline, shipped first of all
 of these.</li>
@@ -457,7 +458,7 @@ sweep-review buffer from autoformatting itself (PR #27).</p>
 <li><a id="detail-xdg-open-fix"></a><strong><code>xdg-open</code>/Slack fix</strong> — stopped Slack's Electron bug from hijacking the system default-browser handler, wired into <code>install.sh</code> — task: <code>dotfiles--fix-xdg-open-slack-hijack</code> — PR #28</li>
 <li><a id="detail-tasks-concurrency-safety"></a><strong>Central task-store git/file safety across concurrent agents</strong> — three-layer guard (agent-side &quot;ask&quot; hook, git-side refuse hook, per-task-file lock) closing four real incidents; git-side hook ships installed but dormant until a human runs the X7 replay — <a href="guides/tasks-store-guards.html">guide</a> — task: <code>dotfiles--docs-roadmap-tasks-concurrency-safety</code></li>
 <li><a id="detail-wb-breakdown"></a><strong><code>wb breakdown</code></strong> — split one oversized task or Jira ticket into a linked parent/child family via a human-approved proposal buffer + a locked multi-file apply; built on the concurrency-safety work's lock primitives, lands after that PR — <a href="archive/2026-07-13-wb-breakdown-recap.html">recap</a> — task: <code>dotfiles--feat-wb-breakdown-skill</code></li>
-<li><a id="detail-board-v2"></a><strong>Board display v2</strong> — lifecycle stage stepper, Pipeline/Live/Stale tabs, dependency + parent/child relationships, repo/family filters, Key Findings, column sorting (the parent/family progress view lives here) — <a href="archive/wb-board-display-v2-recap.html">recap</a> — PR #30</li>
+<li><a id="detail-board-v2"></a><strong>Board display v2</strong> — lifecycle stage stepper, Pipeline/Live/Stale tabs, dependency + parent/child relationships, repo/family filters, Key Findings, column sorting (the parent/family progress view lives here) — <a href="archive/wb-board-display-v2-recap.html">recap</a> — PR #30. <em>Since rebuilt (#59, #62, #72): the board is now four views (Active / Roadmap / Week / Family) with a left rail (text filter, repo chips, Doing tree, Next and Shelf groups), keyboard navigation and a Family-tab Dependencies graph; the v2 tabs, dropdowns, Dormant toggle, sorting and Key Findings are gone. See the <a href="wb-guide.html">wb guide</a>.</em></li>
 <li><a id="detail-jira-integration"></a><strong>Jira interop — emit</strong> (Phase 1) — <code>/wb-jira-create</code> files a task or <code>/wb-breakdown</code> family as Jira tickets (SFB default, or SW) over the Atlassian MCP behind an approval buffer; <code>wb jira-set</code> stamps each URL back. Verified live 2026-09-07; PR #44 added checkbox-select for Project/type. Phase 2 (sprint pull) deferred to task <code>dotfiles--loop-jira-watch</code> — <a href="archive/2026-07-16-jira-interop-recap.html">recap</a> · <a href="verification/2026-07-16-jira-emit-verification.html">verification</a> — task: <code>dotfiles--feat-jira-integration</code> — PR #32</li>
 </ul>
 <p>Ceremonies (dated clocks, recurring reviews) now live on their own page:
