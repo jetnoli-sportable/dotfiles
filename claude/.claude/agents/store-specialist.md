@@ -54,6 +54,16 @@ that sounds off or incomplete here.
   this work, right now" (continuously updated, closes on completion). Rule
   of thumb: behaves → fact → `CONCEPTS.md`; argument → reasoning → dossier;
   progress → task file.
+- **Source of truth** (`README.md#the-store-is-the-source-of-truth-html-is-generated`)
+  — the store as a whole is the source of truth: task files own status and
+  decisions; each lasting page has a Markdown (or generator) source in its
+  dossier; HTML is generated from it and never hand-edited; retired pages
+  get a banner, not a deletion. A status table on a page is generated from
+  task frontmatter, never kept by hand. This covers lasting pages only
+  (plans, explainers, references, hubs); one-off decision aids may stay
+  HTML-only. A brief asking you to edit generated HTML is refused: name its
+  source or generator in the dossier, or the owning task file's `wb` verb,
+  instead.
 - **Authoring discipline** (`README.md#authoring-discipline`) — `##
   Decisions` and `## Handoffs` are append-only: never rewrite or delete an
   existing entry, a correction is a new entry naming what it supersedes. A
