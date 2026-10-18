@@ -290,24 +290,41 @@ pointing at it. It is propose-only, tool-less, and skips itself when
 muted, when a draft is already pending, when nothing new was said, or
 after 3 failed runs in a row (<code>claude</code> missing, logged out or rate-limited).
 A draft nudge that is ignored is delivered once more; ignored a second
-time, the draft is discarded (logged <code>draft_discarded</code>) and sweeping
-resumes.</li>
+time, the draft is <strong>parked</strong> (logged <code>draft_parked</code>), not deleted, and
+sweeping resumes. A draft is only ever removed by your accept or dismiss.</li>
 <li>Session end writes a tombstone (and logs <code>pending_at_end</code> if something
-was still unrecorded); an hourly reaper cleans up old state dirs.</li>
+was still unrecorded) and parks a pending draft; an hourly reaper cleans
+up old state dirs, parking any draft it finds first.</li>
 </ol>
 <p>Every nudge resolves exactly once: <code>followed</code>, <code>dismissed</code> or <code>ignored</code>.</p>
+<p><strong>A review over several messages.</strong> When <code>/wb-decide</code> runs <code>status</code> with a
+draft nudge pending, the draft is marked <em>under review</em>: while you and
+Claude go back and forth (questions, edits), the nudge carries over to the
+next turn instead of counting as ignored, and nothing new nudges. It
+resolves once, when the entry is recorded (<code>followed</code>) or dismissed. After
+four carried turns with neither, the review counts as abandoned and is
+struck like an ignored nudge.</p>
+<p><strong>Parked drafts.</strong> A parked draft waits in
+<code>~/.local/state/wb/capture/parked/&lt;task&gt;/</code> (it outlives the session) until
+you decide. <code>/wb-decide status</code> lists them (<code>parked: &lt;path&gt;</code>), <code>/wb-decide parked</code> walks through them one at a time, and <code>/close-out</code> asks about each
+before a task winds down. Accepting records it and runs <code>wb-capture.sh unpark &lt;path&gt;</code>; rejecting runs <code>wb-capture.sh dismiss &lt;path&gt;</code>. Phrase
+nudges carry no draft, so ignoring one parks nothing.</p>
 <p><strong>The two nudge lines</strong> (what Claude sees, verbatim):</p>
 <pre><code>[wb-capture] Last turn read like a decision (&quot;&lt;matched phrase&gt;&quot;). If it settled something, run /wb-decide; otherwise ignore or /wb-decide dismiss.
 [wb-capture] A background review drafted an unrecorded decision (&lt;state dir&gt;/draft). Run /wb-decide to review/accept, or /wb-decide dismiss.
 </code></pre>
 <p>The first is <code>source=phrase</code>, the second <code>source=sweep</code>. A draft nudge
 beats a phrase nudge when both are pending.</p>
-<p><strong>Stale drafts.</strong> The sweep takes a snapshot of the task file, then waits up
-to a minute for Haiku. If the task file changed in that window (usually
-<code>/wb-decide</code> recording the very decision being drafted) the draft is still
-kept, but flagged possibly stale: the nudge says the task file changed while
-the draft was written so it may already be recorded, and <code>/wb-decide status</code>
-lists the <code>## Decisions</code> entries added since. Claude shows you the draft next
+<p><strong>Stale drafts.</strong> The sweep snapshots the task's <code>## Decisions</code> section (the
+exact text Haiku is shown), then waits up to a minute for Haiku. Edits
+elsewhere in the task file don't count. If <code>## Decisions</code> changed in that
+window (usually <code>/wb-decide</code> recording the very decision being drafted), the
+answer is thrown away and Haiku is asked once more against the current
+section, so it either answers NONE or drafts something genuinely new
+(<code>sweep_ran</code> logs <code>rerun: true</code>). Only if the section changes <em>again</em> during
+that rerun is the draft kept but flagged possibly stale: the nudge says it
+may already be recorded, and <code>/wb-decide status</code> lists the <code>## Decisions</code>
+entries added since. Claude shows you the draft next
 to those entries and asks whether it is a duplicate; if so it dismisses it.
 The events that resolve a stale draft's nudge carry <code>&quot;stale&quot;:true</code>, so
 dismissals of duplicates don't distort the graduation review's <code>dismissed</code>
@@ -352,7 +369,11 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td><code>/wb-decide status</code></td>
-<td>Print pending marker/draft (with paths), mute state, and the log path; for a stale draft, a warning plus the Decisions entries added since the snapshot.</td>
+<td>Print pending marker/draft (with paths), mute state, the log path, and this task's parked drafts; for a stale draft, a warning plus the Decisions entries added since the snapshot. Also marks a pending draft as under review.</td>
+</tr>
+<tr>
+<td><code>/wb-decide parked</code></td>
+<td>Walk this task's parked drafts one at a time: accept/edit (record, then <code>unpark &lt;path&gt;</code>) or reject (<code>dismiss &lt;path&gt;</code>).</td>
 </tr>
 </tbody>
 </table>
@@ -391,8 +412,12 @@ exactly <code>EOF</code> can't end it early.</p>
 <td><code>~/.local/state/wb/disable-capture</code></td>
 </tr>
 <tr>
+<td>Parked drafts</td>
+<td><code>~/.local/state/wb/capture/parked/&lt;task-stem&gt;/&lt;timestamp&gt;-&lt;session&gt;.md</code> (a <code>.stale</code> sidecar marks a stale one)</td>
+</tr>
+<tr>
 <td>Script</td>
-<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear</code>, <code>dismiss</code>, <code>mute</code>, <code>unmute</code>, <code>status</code>); sweep in <code>wb-capture-sweep.sh</code></td>
+<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear</code>, <code>dismiss [&lt;parked path&gt;]</code>, <code>unpark &lt;parked path&gt;</code>, <code>mute</code>, <code>unmute</code>, <code>status</code>); sweep in <code>wb-capture-sweep.sh</code></td>
 </tr>
 </tbody>
 </table>
@@ -442,11 +467,13 @@ exactly <code>EOF</code> can't end it early.</p>
 <p><strong>Log events</strong> (<code>log.jsonl</code>, one JSON object per line: <code>ts</code>, <code>session_id</code>,
 <code>task</code>, <code>event</code>, optional <code>source</code>): <code>nudge_fired{source}</code>,
 <code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code>, <code>muted</code>, <code>unmuted</code>,
-<code>sweep_ran{result: none|draft|error|timeout}</code> (<code>stale: true</code> added when the
-task file changed during a draft sweep; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
-<code>draft_discarded</code> carry <code>stale: true</code> too when they resolve a stale draft),
+<code>sweep_ran{result: none|draft|error|timeout}</code> (<code>rerun: true</code> when <code>## Decisions</code>
+changed during the first run and Haiku was asked again; <code>stale: true</code> when it
+changed again during the rerun; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
+<code>draft_parked</code> carry <code>stale: true</code> too when they resolve a stale draft),
 <code>sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}</code>,
-<code>draft_discarded{reason: ignored_twice}</code>,
+<code>draft_parked{reason: ignored_twice|session_end|reaped}</code>, and <code>followed</code> /
+<code>dismissed</code> with <code>source: parked</code> when a parked draft is accepted or rejected,
 <code>pending_at_end{marker,draft}</code> (from SessionEnd; the sweep logs it as just
 <code>{draft:true}</code> when the session ended while Haiku was still running),
 <code>pending_orphaned</code>.</p>
