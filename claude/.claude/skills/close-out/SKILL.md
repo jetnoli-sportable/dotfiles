@@ -132,10 +132,14 @@ session and decide whether anything was actually decided:
 
 - **Yes** — write it now (via `/wb-decide`, or the same `wb append <task>
   Decisions -`), as a real entry. No marker.
-- **No** — first run `~/.config/scripts/tmux/wb-capture.sh dismiss`, so no nudge
-  is still outstanding when the marker lands (otherwise the marker append would be
-  logged `followed`, inflating the follow rate; a dismiss of a phrase nudge keeps
-  any pending draft, which you already routed above). Then append a marker entry
+- **No** — first re-run `~/.config/scripts/tmux/wb-capture.sh status` immediately
+  before dismissing: a sweep may have landed a draft since the check above. If it
+  prints `draft: present`, route that draft through `/wb-decide`'s draft-review path
+  first (a real decision then means the answer is "Yes" after all). Then run
+  `~/.config/scripts/tmux/wb-capture.sh dismiss`, so no nudge is still outstanding
+  when the marker lands (otherwise the marker append would be logged `followed`,
+  inflating the follow rate; a dismiss of a phrase nudge keeps any pending draft,
+  which you already routed). Then append a marker entry
   through `wb append <task> Decisions -`:
 
   ```
