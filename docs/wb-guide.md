@@ -79,8 +79,8 @@ untracked task behind.
 ## wb new — start a task
 
 ```
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size XS|S|M|L|XL] <slug>
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size XS|S|M|L|XL] <repo> <slug>
+$ wb new [--agent] [--depends-on <stem>]... <slug>
+$ wb new [--agent] [--depends-on <stem>]... <repo> <slug>
 ```
 
 The slug becomes the git branch name (unless the task file already names a
@@ -149,24 +149,18 @@ A chosen blocker that is behind `origin/<default>` gets a rebase nudge; it
 is never rebased for you. `wb new` prints `branching <slug> from <ref>`, the
 new branch gets no upstream, and an already-existing branch is attached as-is.
 
-`--path`, `--depends-on` and `--size` are otherwise board-only metadata —
-they don't change how the task itself runs, only how `wb board --html`
-displays it (`--size` sets a node's scale and weight in the Family tab's
-Dependencies graph — see below):
+`--depends-on <stem>` (repeatable) names a blocking task by its file stem
+(`<repo>--<slug>`, no `.md`), validated against a real task file at
+creation time. Beyond picking the start point, the board renders both
+directions — a ⛔ count on the blocked task, a → count on the blocker —
+once it's declared.
 
-- `--path <stages>` declares which of the five lifecycle stages
-  (`ideate,brainstorm,plan,work,review`) this task intends to pass
-  through, comma-separated. Omit it and the task defaults to
-  `plan,work,review`. Unknown stage names are rejected up front.
-- `--depends-on <stem>` (repeatable) names a blocking task by its file
-  stem (`<repo>--<slug>`, no `.md`), validated against a real task file at
-  creation time. The board renders both directions — a ⛔ count on the
-  blocked task, a → count on the blocker — once it's declared.
-- `--size XS|S|M|L|XL` stamps a rough effort bucket into the task's `size:`
-  frontmatter (uppercase, exactly — anything else is rejected before any
-  file is touched). Omit it and `size:` is written blank, which every
-  reader treats as `M`. Works on `--planned` seeds too. `/wb-breakdown`
-  buffers carry the same field per child as a `- size:` bullet.
+`path:` (which of the five lifecycle stages the task intends to pass
+through) and `size:` (a rough XS–XL effort bucket) are board-only metadata,
+set after creation with `wb set <task> path <stages>` and
+`wb set <task> size <bucket>`. A blank `path:` reads as `plan,work,review`
+and a blank `size:` as `M`. `/wb-breakdown` buffers carry `size` per child
+as a `- size:` bullet.
 
 | Window | Name | What's in it |
 |---|---|---|
@@ -585,11 +579,10 @@ unblocked, with a warning naming the problem) rather than breaking the
 render. The effects show up in the Roadmap's Ready/Blocked strip, the Week
 view's "Unblocked next" chips, and the Family graph below.
 
-**Creating a task with intent:** `wb new` accepts `--path <stages>` (a
-comma-separated subset of the five stage names, validated against unknown
-names before anything is created) and repeatable `--depends-on <stem>` (each
-validated against a real task file). Both are optional — every task still
-gets the `plan,work,review` default when `--path` is omitted.
+**Creating a task with intent:** `wb new` accepts repeatable
+`--depends-on <stem>` (each validated against a real task file). Declare
+the stages afterwards with `wb set <task> path <stages>`; a task with no
+`path:` gets the `plan,work,review` default.
 
 **Family tab — the Dependencies graph.** Each family block (a parent and
 its direct children) opens with a **Dependencies** region whenever at least

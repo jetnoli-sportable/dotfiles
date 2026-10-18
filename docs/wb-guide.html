@@ -336,8 +336,8 @@ silently destroy, it opens the task file in a split for you to mark
 </li>
 </ol>
 <h2 id="wb-new--start-a-task">wb new — start a task</h2>
-<pre><code>$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size XS|S|M|L|XL] &lt;slug&gt;
-$ wb new [--agent] [--path &lt;stages&gt;] [--depends-on &lt;stem&gt;]... [--size XS|S|M|L|XL] &lt;repo&gt; &lt;slug&gt;
+<pre><code>$ wb new [--agent] [--depends-on &lt;stem&gt;]... &lt;slug&gt;
+$ wb new [--agent] [--depends-on &lt;stem&gt;]... &lt;repo&gt; &lt;slug&gt;
 </code></pre>
 <p>The slug becomes the git branch name (unless the task file already names a
 branch — see below), the worktree path
@@ -399,25 +399,17 @@ naming any other blocker whose commits it doesn't already contain.</li>
 <p>A chosen blocker that is behind <code>origin/&lt;default&gt;</code> gets a rebase nudge; it
 is never rebased for you. <code>wb new</code> prints <code>branching &lt;slug&gt; from &lt;ref&gt;</code>, the
 new branch gets no upstream, and an already-existing branch is attached as-is.</p>
-<p><code>--path</code>, <code>--depends-on</code> and <code>--size</code> are otherwise board-only metadata —
-they don't change how the task itself runs, only how <code>wb board --html</code>
-displays it (<code>--size</code> sets a node's scale and weight in the Family tab's
-Dependencies graph — see below):</p>
-<ul>
-<li><code>--path &lt;stages&gt;</code> declares which of the five lifecycle stages
-(<code>ideate,brainstorm,plan,work,review</code>) this task intends to pass
-through, comma-separated. Omit it and the task defaults to
-<code>plan,work,review</code>. Unknown stage names are rejected up front.</li>
-<li><code>--depends-on &lt;stem&gt;</code> (repeatable) names a blocking task by its file
-stem (<code>&lt;repo&gt;--&lt;slug&gt;</code>, no <code>.md</code>), validated against a real task file at
-creation time. The board renders both directions — a ⛔ count on the
-blocked task, a → count on the blocker — once it's declared.</li>
-<li><code>--size XS|S|M|L|XL</code> stamps a rough effort bucket into the task's <code>size:</code>
-frontmatter (uppercase, exactly — anything else is rejected before any
-file is touched). Omit it and <code>size:</code> is written blank, which every
-reader treats as <code>M</code>. Works on <code>--planned</code> seeds too. <code>/wb-breakdown</code>
-buffers carry the same field per child as a <code>- size:</code> bullet.</li>
-</ul>
+<p><code>--depends-on &lt;stem&gt;</code> (repeatable) names a blocking task by its file stem
+(<code>&lt;repo&gt;--&lt;slug&gt;</code>, no <code>.md</code>), validated against a real task file at
+creation time. Beyond picking the start point, the board renders both
+directions — a ⛔ count on the blocked task, a → count on the blocker —
+once it's declared.</p>
+<p><code>path:</code> (which of the five lifecycle stages the task intends to pass
+through) and <code>size:</code> (a rough XS–XL effort bucket) are board-only metadata,
+set after creation with <code>wb set &lt;task&gt; path &lt;stages&gt;</code> and
+<code>wb set &lt;task&gt; size &lt;bucket&gt;</code>. A blank <code>path:</code> reads as <code>plan,work,review</code>
+and a blank <code>size:</code> as <code>M</code>. <code>/wb-breakdown</code> buffers carry <code>size</code> per child
+as a <code>- size:</code> bullet.</p>
 <table>
 <thead>
 <tr>
@@ -836,11 +828,10 @@ A dangling stem or a dependency cycle fails open (the task renders
 unblocked, with a warning naming the problem) rather than breaking the
 render. The effects show up in the Roadmap's Ready/Blocked strip, the Week
 view's &quot;Unblocked next&quot; chips, and the Family graph below.</p>
-<p><strong>Creating a task with intent:</strong> <code>wb new</code> accepts <code>--path &lt;stages&gt;</code> (a
-comma-separated subset of the five stage names, validated against unknown
-names before anything is created) and repeatable <code>--depends-on &lt;stem&gt;</code> (each
-validated against a real task file). Both are optional — every task still
-gets the <code>plan,work,review</code> default when <code>--path</code> is omitted.</p>
+<p><strong>Creating a task with intent:</strong> <code>wb new</code> accepts repeatable
+<code>--depends-on &lt;stem&gt;</code> (each validated against a real task file). Declare
+the stages afterwards with <code>wb set &lt;task&gt; path &lt;stages&gt;</code>; a task with no
+<code>path:</code> gets the <code>plan,work,review</code> default.</p>
 <p><strong>Family tab — the Dependencies graph.</strong> Each family block (a parent and
 its direct children) opens with a <strong>Dependencies</strong> region whenever at least
 one child has a <code>depends_on:</code> pointing at a sibling. It's a static
