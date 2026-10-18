@@ -37,6 +37,8 @@
 #                                    fields: @@WB_SET_FIELDS@@
 #   wb pr-open [<session>]           exit 0 if the session's branch has an open PR, 1 otherwise
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
+#   wb task-file [--edit]            print the current session's task file path (via @task);
+#                                    --edit opens it in $EDITOR instead (what prefix+t runs)
 #   wb agents [--orphans]            list the claude() wrapper's wb-agent-* systemd scopes and
 #                                    what's inside each; ORPHAN = no claude process left (a
 #                                    detached wl-copy / dev server keeps it alive). Read-only:
@@ -6574,6 +6576,61 @@ _mode_header() {
   wb_status_line "$(cat "${1:-}" 2>/dev/null || echo normal)" "$(cat "${2:-}" 2>/dev/null || echo live)"
 }
 
+# cmd_task_file [--edit] — resolve the CURRENT tmux session's task file and
+# either print its path (default: composable, so `nvim "$(wb task-file)"` and
+# scripts both work) or open it in $EDITOR (--edit, what prefix+t uses).
+#
+# Resolution is wb_session_task_file's @task-first lookup — the same one
+# /wb-save and /wb-resume use — never a cwd- or branch-derived guess, so a
+# session migrated by `wb breakdown --apply` opens its OWN file rather than
+# its parent's. That resolver's repo/slug fallback only BUILDS a path and
+# doesn't check it exists, hence the explicit -f test below.
+#
+# Under --edit the error paths hold the terminal: prefix+t runs this in a
+# `new-window` that closes the instant the command returns, so an unheld
+# message is overdrawn before it can be read (same convention as _rename).
+# Printing mode stays quiet and script-friendly.
+cmd_task_file() {
+  local edit=0
+  [ "${1:-}" = --edit ] && edit=1
+
+  _tf_fail() {
+    echo "wb task-file: $1" >&2
+    [ "$edit" = 1 ] && read -rn1 -p "wb task-file: press any key "
+    return 1
+  }
+
+  if [ -z "${TMUX:-}" ]; then
+    _tf_fail "not inside tmux — there's no session to resolve a task from"
+    return 1
+  fi
+
+  local session task_file
+  session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  if [ -z "$session" ]; then
+    _tf_fail "could not determine the current tmux session"
+    return 1
+  fi
+
+  # Ends in the same "not a wb task session" wording that
+  # _wb_resolve_session_and_task (pause/down/reviewed) and cmd_done use, so
+  # the verbs report an identical failure identically.
+  if ! task_file="$(wb_session_task_file "$session")" || [ -z "$task_file" ]; then
+    _tf_fail "$session has no @task/@wb_repo — not a wb task session"
+    return 1
+  fi
+  if [ ! -f "$task_file" ]; then
+    _tf_fail "no task file at $task_file (resolved from $session) — it may have been moved or deleted"
+    return 1
+  fi
+
+  if [ "$edit" = 1 ]; then
+    "${EDITOR:-nvim}" "$task_file"
+  else
+    printf '%s\n' "$task_file"
+  fi
+}
+
 # _rename <session> — prompt for a new tmux session name (bound to `r`).
 # Cosmetic only: wb's task linkage lives on the session object via
 # @wb_repo/@wb_slug (session-scoped tmux options), which survive a rename,
@@ -6705,6 +6762,16 @@ _ctrl_x() {
   case "$kind" in
     task)
       if [ -n "$session" ]; then
+        # Never run the wind-down from inside the doomed worktree. tmux.conf's
+        # `bind m`/`bind a` anchor the picker at $HOME, which covers the
+        # keybind path — but `wb` is also a zsh alias run from an ordinary
+        # shell, and that shell's cwd IS commonly the worktree ctrl-x is about
+        # to tear down. cmd_done itself is cwd-independent (its removal is
+        # `git -C "$repo_dir" worktree remove "$worktree_path"`, both
+        # absolute), so this only protects THIS process from ending up with a
+        # deleted cwd mid-teardown. Guarded so a missing $HOME can't abort the
+        # wind-down under set -e.
+        cd "$HOME" 2>/dev/null || true
         if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
           cmd_done "$session"
           echo "wb: not closing '$session' via ctrl-x — it's your current session; run 'wb done --close' yourself once you're ready to leave it" >&2
@@ -6907,6 +6974,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     down)        shift; cmd_down "$@" ;;
     pr-open)     shift; cmd_pr_open "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
+    task-file)   shift; cmd_task_file "$@" ;;
     agents)      shift; cmd_agents "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     sync)          shift; cmd_sync "$@" ;;
