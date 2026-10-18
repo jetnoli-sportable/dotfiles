@@ -31,7 +31,7 @@ WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
 FIXTURE_STATE="$(mktemp -d -t wb-done-state.XXXXXX)"   # XDG_STATE_HOME: wb-capture's shelved drafts + log
-SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta)
+SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta kappa)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
   rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_STATE"
@@ -324,6 +324,31 @@ out="$(cmd_done proj--iota --leave-shelved 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   - --leave-shelved (store-only): exits 0" || { echo "FAIL - --leave-shelved (store-only): exit $rc: $out"; fail=1; }
 assert "--leave-shelved (store-only): task done" '^done$' "$(wb_get_frontmatter "$iota_file" status)"
 [ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 2 ] && echo "ok   - --leave-shelved (store-only): logged" || { echo "FAIL - --leave-shelved (store-only): log line count"; fail=1; }
+
+# --- end-to-end: the shelved draft comes from the REAL wb-capture.sh hook-end path, ---
+# --- the guard refuses, `wb-capture.sh dismiss <path>` resolves it, wb done proceeds ---
+CAPTURE="$(dirname "$WB")/wb-capture.sh"
+kappa_session="$(session_for kappa)"; kappa_file="$FIXTURE_TASKS/proj--kappa.md"
+tmux set-option -t "=$kappa_session:" @task "$kappa_file" >/dev/null
+kappa_pane="$(tmux display-message -p -t "=$kappa_session:" '#{pane_id}')"
+kappa_tmux="$(tmux display-message -p -t "=$kappa_session:" '#{socket_path},#{pid},0')"
+mkdir -p "$CAPROOT/sid-kappa"; printf '### Chose K\n- decided: K\n' >"$CAPROOT/sid-kappa/draft"
+kcap() { TMUX="$kappa_tmux" TMUX_PANE="$kappa_pane" bash "$CAPTURE" "$@"; }
+printf '{"session_id":"sid-kappa"}' | kcap hook-end
+kappa_draft="$(ls "$CAPROOT"/shelved/proj--kappa/*-sid-kappa.md 2>/dev/null | head -1)"
+[ -n "$kappa_draft" ] && echo "ok   - e2e: hook-end shelved the draft under the task stem" || { echo "FAIL - e2e: no shelved draft produced"; fail=1; }
+kappa_before="$(cat "$kappa_file")"
+out="$(cmd_done "$kappa_session" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - e2e: wb done refuses the real shelved draft" || { echo "FAIL - e2e: wb done exit $rc"; fail=1; }
+assert "e2e: refusal names the draft" "sid-kappa\\.md" "$out"
+[ "$(cat "$kappa_file")" = "$kappa_before" ] && echo "ok   - e2e: task file untouched by the refusal" || { echo "FAIL - e2e: task file changed"; fail=1; }
+tmux set-option -p -t "$kappa_pane" @wb_capture_sid sid-kappa >/dev/null
+kcap dismiss "$kappa_draft"
+[ ! -e "$kappa_draft" ] && echo "ok   - e2e: dismiss <path> removed the shelved draft" || { echo "FAIL - e2e: draft still present"; fail=1; }
+assert "e2e: shelved_dismissed logged" '"event":"shelved_dismissed"' "$(cat "$CAPROOT/log.jsonl" 2>/dev/null)"
+out="$(cmd_done "$kappa_session" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - e2e: wb done proceeds once dismissed" || { echo "FAIL - e2e: wb done exit $rc: $out"; fail=1; }
+assert "e2e: task flipped to done" '^done$' "$(status_of kappa)"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
