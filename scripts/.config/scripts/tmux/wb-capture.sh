@@ -112,8 +112,10 @@
 # non-symlink subdir of the root whose name passes session_dir validation and
 # that isn't the current session (and isn't `shelved`): remove it if it holds `ended`, or if nothing in
 # it was modified in the last 7 days (find -newermt on the dir + its files).
-# A stale, un-ended dir still holding marker/draft first logs `pending_orphaned`;
-# a draft is shelved (reason reaped) before the dir goes.
+# A stale, un-ended dir still holding marker/draft logs `pending_orphaned`, once the
+# dir is really going: an outstanding nudge is logged `ignored` and removed first, a
+# draft is shelved (reason reaped), and only then is `pending_orphaned` logged. A dir
+# kept because shelving failed logs neither again on the retry.
 # Removal is by explicit file names (+ draft.tmp.* glob) inside the validated dir,
 # then rmdir — unknown leftovers keep the dir (never forced). A dir whose .lock
 # is held (flock -n fails) is skipped until the next reap; no lock is held across
@@ -494,7 +496,7 @@ reap_stale() {
     size="$(wc -c <"$LOG_FILE" 2>/dev/null | tr -d ' ')"
     [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt "$max" ] && mv -f -- "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null
   fi
-  local d name sdir stale pm pd osrc saved_stem="$TASK_STEM" tp SDIR  # SDIR: stale_extra reads it
+  local d name sdir stale pm pd osrc orphan saved_stem="$TASK_STEM" tp SDIR  # SDIR: stale_extra reads it
   for d in "$root"/*/; do
     d="${d%/}"; name="${d##*/}"
     [ -d "$d" ] && [ ! -L "$d" ] || continue
@@ -511,23 +513,28 @@ reap_stale() {
     fi
     tp="$(head -n1 "$sdir/taskpath" 2>/dev/null || true)"; tp="${tp##*/}"
     TASK_STEM="${tp%.md}"
+    orphan=""
     if [ "$stale" = 1 ] && { [ -e "$sdir/marker" ] || [ -e "$sdir/draft" ]; }; then
       pm=false; pd=false
       [ -e "$sdir/marker" ] && pm=true
       [ -e "$sdir/draft" ] && pd=true
-      log_event "$name" pending_orphaned "" "{\"marker\":$pm,\"draft\":$pd}"
+      orphan="{\"marker\":$pm,\"draft\":$pd}"
     fi
-    # an unresolved nudge is ignored, not silently dropped with the dir
+    # an unresolved nudge is ignored, not silently dropped with the dir; removing
+    # `outstanding` here resolves it once even if the dir is kept and reaped again
     if [ -e "$sdir/outstanding" ]; then
       SDIR="$sdir"
       osrc="$(cat "$sdir/outstanding" 2>/dev/null)"
       log_event "$name" ignored "$osrc" "$(stale_extra "$osrc")"
+      remove_named "$sdir" outstanding
     fi
     SDIR="$sdir"
     # a draft that can't be shelved keeps its dir: retried on the next reap
     if [ -e "$sdir/draft" ] && ! shelve_draft "$name" reaped; then
       TASK_STEM="$saved_stem"; exec 8>&-; continue
     fi
+    # logged only once the dir is really going (a kept dir would log it every retry)
+    [ -z "$orphan" ] || log_event "$name" pending_orphaned "" "$orphan"
     TASK_STEM="$saved_stem"
     reap_dir "$sdir"
     exec 8>&-

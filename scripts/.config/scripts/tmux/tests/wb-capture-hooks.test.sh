@@ -405,12 +405,30 @@ assert_eq "reaper: shelved under the session's task" "rv draft" "$(cat "$CAP"/sh
 echo "# reaper: a draft it cannot shelve keeps its dir (retried next reap), never deleted"
 new_scenario
 mkdir -p "$CAP/sid-pf" "$CAP/shelved"; printf 'pf draft\n' >"$CAP/sid-pf/draft"
+printf 'sweep' >"$CAP/sid-pf/outstanding"
 printf '%s\n' "$H/tasks/dotfiles--feat-pf.md" >"$CAP/sid-pf/taskpath"
 : >"$CAP/shelved/dotfiles--feat-pf"     # a FILE where the shelved dir must go: mkdir fails
 touch -d '8 days ago' "$CAP/sid-pf"/* "$CAP/sid-pf"
 prompt "hi"
 assert_eq "unshelvable draft kept in place" "pf draft" "$(cat "$CAP/sid-pf/draft" 2>/dev/null)"
 assert_eq "no draft_shelved logged" 0 "$(count_ev draft_shelved)"
+assert_eq "kept dir: nudge ignored once" 1 "$(count_ev ignored)"
+assert_nofile "kept dir: outstanding resolved" "$CAP/sid-pf/outstanding"
+assert_eq "kept dir: no pending_orphaned yet" 0 "$(count_ev pending_orphaned)"
+# second reap, still blocked: neither event repeats
+touch -d '8 days ago' "$CAP/sid-pf"/* "$CAP/sid-pf/.lock" "$CAP/sid-pf" 2>/dev/null; touch -d '2 hours ago' "$CAP/.reaped"
+prompt "again"
+assert_file "still kept" "$CAP/sid-pf/draft"
+assert_eq "still ignored once" 1 "$(count_ev ignored)"
+assert_eq "still no pending_orphaned" 0 "$(count_ev pending_orphaned)"
+# third reap, blocker gone: shelved, pending_orphaned logged once, no second ignored
+rm -f "$CAP/shelved/dotfiles--feat-pf"
+touch -d '8 days ago' "$CAP/sid-pf"/* "$CAP/sid-pf/.lock" "$CAP/sid-pf" 2>/dev/null; touch -d '2 hours ago' "$CAP/.reaped"
+prompt "third"
+assert_nofile "dir reaped once shelving works" "$CAP/sid-pf"
+assert_eq "shelved on the retry" 1 "$(count_ev draft_shelved)"
+assert_eq "exactly one ignored across all reaps" 1 "$(count_ev ignored)"
+assert_eq "exactly one pending_orphaned across all reaps" 1 "$(count_ev pending_orphaned)"
 
 echo "# shelving: nothing is shelved twice and the sweep is unblocked"
 new_scenario; PK="$CAP/shelved/dotfiles--feat-x"
