@@ -1,18 +1,15 @@
 # review-page: spec format and close contract
 
 The mechanism this skill uses in place of a markdown buffer, for a batch too
-large or too structured for one — more than ~25 rows, or when what's needed is
-per-row defaults (a suggested verdict per item), free-text grouping, AND
-per-row questions all at once. A markdown buffer with 40+ checkbox blocks is
+large or too structured for one. A markdown buffer with 40+ checkbox blocks is
 unreadable and slow to scan; this shape trades the nvim buffer for a
 locally-served HTML page with filtering, keyboard navigation, and a submit
 button, while keeping the same open/wait/parse contract as decision-buffer's
 own shapes.
 
-Use `decision-buffer`'s `findings-review.md` or `code-review-triage.md`
-instead for a small batch (under ~25 items) with no grouping/defaults need —
-this shape's extra machinery (a local HTTP server, a spec file, a browser tab)
-isn't worth it below that size.
+Which tool fits a batch (this page, `decision-page`, or a `decision-buffer`
+doc) is decided by `claude/.claude/skills/decision-page/SKILL.md` ("When to
+use").
 
 ## Mechanism (differs from the nvim-buffer shapes)
 

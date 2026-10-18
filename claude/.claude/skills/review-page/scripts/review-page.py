@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """review-page.py — the "review-page" shape's mechanism: a self-contained,
-locally-served HTML review table for a batch of items too large for a
-markdown buffer (>~25 rows, or needing defaults + grouping + questions).
+locally-served HTML review page for a big batch of items answered from one
+shared verdict list (decision-page/SKILL.md owns the which-tool rule).
 
 Mirrors the decision-buffer skill's scripts/open-buffer.sh contract (see
 claude/.claude/skills/decision-buffer/references/mechanism.md) rather than
