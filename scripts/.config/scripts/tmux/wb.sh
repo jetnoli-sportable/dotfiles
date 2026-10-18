@@ -3851,52 +3851,26 @@ cmd_unsafe_rewind() {
 
 # wb_open_buffer <path> — open <path> in nvim, blocking until closed. Thin
 # shim over the shared decision-buffer script
-# (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which now owns
-# the tmux-split + wait-for recipe (and its channel-uniqueness rule) for
-# every caller of it — decision-buffer, wb-done, parked-items, wb.sh's own
+# (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which owns the
+# tmux-split + wait-for recipe (and its channel-uniqueness rule) for every
+# caller of it — decision-buffer, wb-done, parked-items, wb.sh's own
 # internal callers below. See
 # ~/.claude/skills/decision-buffer/references/mechanism.md for the full
-# contract. This function keeps its own signature and blocking behavior
-# unchanged so its four internal callers elsewhere in this file need no
-# change. If the shared script is missing or not executable (a stale,
-# un-restowed environment), fall back to the original inline recipe this
-# function used before the script existed.
+# contract. A missing or non-executable script (a stale, un-restowed
+# environment) is a hard error naming the stow command.
 wb_open_buffer() {
   local path="$1"
   local script="$HOME/.claude/skills/decision-buffer/scripts/open-buffer.sh"
 
-  if [ -x "$script" ]; then
-    if [ -n "${TMUX:-}" ]; then
-      "$script" --tmux "$path"
-    else
-      "$script" --direct "$path"
-    fi
-    return
+  if [ ! -x "$script" ]; then
+    echo "wb_open_buffer: $script missing or not executable — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
+    return 1
   fi
 
-  echo "wb_open_buffer: $script missing or not executable — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
-
-  # Fallback: the original inline recipe, unchanged. WB_REVIEW_BUFFER=1
-  # tells conform.nvim (nvim/.config/nvim/lua/plugins/index.lua) to skip
-  # format-on-save for this one-shot checkbox-review pass — the target file
-  # itself may be persistent (a central-store task file), but the review
-  # pass is brief and shouldn't run Prettier over the whole file. Same
-  # env-var-signal convention as WB_AUTO_RESTORE (wb.sh:265), set
-  # unconditionally on both branches: a non-nvim $EDITOR just never reads
-  # it, so no "is this nvim" guard is needed.
   if [ -n "${TMUX:-}" ]; then
-    local chan="wb-buffer-done-$$-$RANDOM"
-    # printf %q, not a hand-wrapped '$path' — a path containing a literal
-    # single quote would prematurely close the quoted command string below,
-    # breaking the trailing `; tmux wait-for -S $chan` and hanging the wait
-    # forever with no timeout. Same fix as open-buffer.sh's mode_tmux.
-    local quoted_path; quoted_path="$(printf '%q' "$path")"
-    tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer 2>/dev/null || true
-    tmux split-window -h -t "$TMUX_PANE" "WB_REVIEW_BUFFER=1 ${EDITOR:-nvim} $quoted_path; tmux wait-for -S $chan"
-    tmux wait-for "$chan"
-    tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
+    "$script" --tmux "$path"
   else
-    WB_REVIEW_BUFFER=1 "${EDITOR:-nvim}" "$path"
+    "$script" --direct "$path"
   fi
 }
 
