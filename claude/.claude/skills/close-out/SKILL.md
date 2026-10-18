@@ -116,12 +116,15 @@ If it prints `draft: present`, that is this session's own pending draft (a sweep
 that landed during or just before the close-out). Route it through `/wb-decide`'s
 draft-review path before winding down: show it, then either accept/edit it
 (`wb append <task> Decisions -`, then `wb-capture.sh clear --draft`) or
-`wb-capture.sh dismiss`. `wb done` refuses while a live draft remains, so skipping
+`wb-capture.sh dismiss` (then re-run `status`: if it still prints `draft: present`,
+a phrase nudge was outstanding and `dismiss` kept the draft, so run `dismiss`
+again). `wb done` refuses while a live draft remains, so skipping
 this only defers it.
 
 For each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
-(→ after any confirmation, `wb-capture.sh accept --begin <path>` immediately
-before `wb append <task> Decisions -`, then `wb-capture.sh accept <path>`; the
+(→ the full sequence is `/wb-decide` step 2b: after any confirmation, run
+`accept --begin <path>`, the `wb append <task> Decisions -` and `accept <path>` in
+ONE Bash call, skipping the final `accept <path>` if the append is abandoned; the
 `--begin` right before the append keeps the record from being counted as an
 answer to a live nudge) or dismiss
 (→ `wb-capture.sh dismiss <path>`). Never drop one silently; a `(stale)` one may

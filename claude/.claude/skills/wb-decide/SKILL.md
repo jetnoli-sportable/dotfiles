@@ -104,7 +104,10 @@ On that path, Read the draft and present it to the user, then run
 nudge is outstanding). Accept it as-is, or edit it first, **only if it reflects
 a real decision made in this session** — a Haiku draft sees a transcript excerpt
 and can be wrong or already-recorded. If it doesn't, run
-`~/.config/scripts/tmux/wb-capture.sh dismiss`, say so in one line, and stop.
+`~/.config/scripts/tmux/wb-capture.sh dismiss`, then re-run `status`: if it still
+prints `draft: present` (a phrase nudge was outstanding, so `dismiss` kept the
+draft), run `dismiss` again — the first only resolved that nudge. Say so in one
+line, and stop.
 
 If `status` also says the draft **may already be recorded** (the task file
 changed while it was being written — usually a `/wb-decide` that landed
@@ -112,7 +115,8 @@ meanwhile), it prints the `### ` headings of the Decisions entries added
 since. Show the user the draft next to those entries (Read them from
 `## Decisions`) and ask whether the draft duplicates one. If it does, run
 `wb-capture.sh dismiss` (the log tags it stale, so it doesn't count against
-the nudge) and say so in one line; if not, accept or edit as usual.
+the nudge; re-run `status` and `dismiss` again if the draft is still present,
+as above) and say so in one line; if not, accept or edit as usual.
 
 Otherwise go straight to composing (step 3) and **leave the draft alone** (do
 not dismiss it): a phrase nudge sent you here, the user's hint names a
@@ -250,7 +254,9 @@ line: `Recorded to ## Decisions.`
   before the append) → `wb append` → `accept <path>`, reject → `dismiss <path>`; a closed task's
   drafts take `--task <stem>` on each; never a hand `rm`.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
-  is already recorded) — `wb-capture.sh dismiss`, say so, no write.
+  is already recorded) — `wb-capture.sh dismiss`, then `status`; if it still
+  prints `draft: present` (a phrase nudge was outstanding, so dismiss kept the
+  draft), `dismiss` again; say so, no write.
 - [ ] **Nothing decided:** phrase-match nudge but nothing was settled —
   say so, `dismiss`, no write.
 - [ ] **mute / unmute:** `/wb-decide mute` and `/wb-decide unmute` pass

@@ -51,8 +51,11 @@ seeded, then check each: `status: done`? A merged PR (`gh pr list --state merged
 opens by checking whether last week's accepted increments actually shipped, not just
 trusting the plan. Also run `~/.config/scripts/tmux/wb-capture.sh shelved --all`
 and surface any shelved decision drafts whose task is `done` (left by `wb done
---leave-shelved` or a late sweep) as a Retro line; each is resolvable with
-`wb-capture.sh dismiss|accept --task <stem> <path>`.
+--leave-shelved` or a late sweep) as a Retro line. Resolve each `<stem>:` group to
+`~/code/tasks/<stem>.md` and read its `status:`; a stem with no task file (notably
+`_unknown`, drafts whose task wasn't known when they were shelved) is reported as
+unattributable, and is accepted or dismissed only after Jet has looked at it. Each
+draft is resolvable with `wb-capture.sh dismiss|accept --task <stem> <path>`.
 
 **4. Skill-usage counts** — reproducible per-skill counts with stated blind spots (R29):
 
