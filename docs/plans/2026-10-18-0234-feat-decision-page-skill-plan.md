@@ -14,7 +14,7 @@ task: dotfiles--feat-decision-artifact-skill
 
 - **Objective:** When a batch of about 4-25 decisions each needs its own options and evidence, Jet gets one page to work through at their own pace, opened as a plain local file or optionally on claude.ai, and returns every answer to the session with one paste. Any session can produce that page in one step.
 - **Means:** a new `decision-page` skill: a JSON spec, a Python generator, and an HTML template that renders the spec in the browser (KTD1).
-- **Authority:** the task file's `## Decisions` (dotfiles--feat-decision-artifact-skill, 2026-10-18) outranks this plan. This plan outranks the reference page (`~/code/tasks/dossiers/dotfiles--wb-future-direction/deletion-audit.html`), which is a pattern to generalise, not a spec.
+- **Authority:** the task file's `## Decisions` (dotfiles--feat-decision-artifact-skill, 2026-10-18) outranks this plan. This plan outranks the approved UX mockup (`~/code/tasks/dossiers/dotfiles--feat-decision-artifact-skill/mockups/decision-page-converged.html`), which outranks the original deletion-audit page it grew from.
 - **Stop conditions:** stop and report if snap Chromium cannot keep localStorage for a `file://` page under `~/code/tasks/dossiers/`, because that would leave the local default with no way to save progress. Stop if any unit would require touching `wb.sh`.
 - **Execution profile:** `ce-work` in the `feat-decision-artifact-skill` worktree. One PR to `development`. Jet merges, then the main checkout is re-stowed so the new skill goes live.
 
@@ -49,16 +49,23 @@ The page was hand-built for that one audit, so the next batch would mean writing
 **Building the page**
 
 - R3. The agent writes a JSON spec into the task dossier. One generator command validates it and writes a self-contained HTML page beside it. When the session has no task and Jet declines to create one, the spec and page go to `~/code/tasks/dossiers/<repo>--<slug>/` without a task file, and the agent says so in chat.
-- R4. The page offers what the reference page offers:
-  - one card per item with labelled facts, an optional shift note and an optional tag;
-  - radio options with exactly one marked RECOMMENDED, real alternatives, and Defer, plus a control that clears the choice back to unanswered;
-  - a notes box on every open item;
-  - read-only cards for already-decided items, with no options and no notes box;
-  - a sticky index with a progress dot per item and an answered counter;
-  - a global notes box;
-  - Copy answers.
+- R4. The page matches the converged mockup Jet approved on 2026-10-18 (`~/code/tasks/dossiers/dotfiles--feat-decision-artifact-skill/mockups/decision-page-converged.html`):
+  - **An overview band at the top.** It has three parts:
+    - a strip showing where this batch sits in the parent task's plan, with done, current and upcoming stages;
+    - an at-a-glance table listing each open item, its short question, the recommended option and Jet's live pick;
+    - already-decided items as compact one-liners with their dates, plus the answered counter.
+  - **A collapsible sticky left index** with a progress dot per item, so Jet can widen the content to focus on it.
+  - **One card per open item:** title and tag, "The question", optional artifact chips, why it matters, how it works today, an evidence summary with the full evidence collapsed, the optional shift note, the optional earlier note and reply, the recommendation with its reason, the options, and a notes box.
+  - **Options:** exactly one marked RECOMMENDED, real alternatives, and Defer. Each option shows Pros, Cost, Risk and Trade-off lines, with a muted "None stated" where the spec gives nothing. A Clear choice control returns the item to unanswered.
+  - **A closing block** with global notes and Copy answers.
 
   It uses a wide layout, works in light and dark themes, and works at phone width.
+- R14. The page can be driven from the keyboard without losing the full-page view:
+  - `j`/`k` step through the overview, then each card, then the closing block.
+  - `1`–`9` pick an option and `a` takes the recommended one. `c` clears and `n` focuses the notes box.
+  - `[` collapses the index and `?` lists the keys.
+  - Enter on the overview jumps to the first unanswered item. Enter on the closing block copies the answers.
+  - No key fires while Jet is typing in a text box.
 - R5. Opened as a local `file://` page with no network, the page works fully. Answers survive a reload in the same browser, and no two pages or rounds share saved answers.
 - R6. The same file can be published to claude.ai as an Artifact. Answers then also save to the artifact's database, so Jet can answer from another device.
 
@@ -101,7 +108,7 @@ Considered and not built:
 - KTD2. **Saved answers are keyed by page, round and spec version.** The localStorage key is `decision-page:<slug>:r<round>:<spec_hash8>`, where `spec_hash8` is the first 8 hex characters of a SHA-256 of the canonical spec JSON. Chromium may give every `file://` page the same storage origin, so a fixed key like the reference's `wb-del-audit` would collide across pages. Every read and write is wrapped in try/catch, and the page still renders when storage is unavailable.
 - KTD3. **Copy answers emits readable markdown followed by one fenced JSON block, and the JSON is authoritative.**
   - The markdown lists each item's title, the chosen option's display name and the note, for Jet to read.
-  - The JSON carries `slug`, `round`, `spec_hash`, `global_note`, the ids of already-decided items, and `items: [{id, choice, note}]`, where `choice` is the option id or null.
+  - The JSON carries `slug`, `round`, `spec_hash`, `global_note`, `fixed` (the ids of the `decided[]` entries), and `items: [{id, choice, note}]`, where `choice` is the option id or null.
   - The agent parses only the JSON, matches by id, and compares `spec_hash` with the spec file in the dossier.
   - On a mismatch the page was regenerated after Jet opened it, so a reloaded page would start empty. The agent records nothing yet. It lists the pasted answers whose item id and option id still exist in the current spec for Jet to confirm in chat, and names the answers that no longer map.
   - Notes appear in full only inside the JSON. In the markdown they are indented, so a note that contains newlines can't forge a sibling item.
@@ -110,8 +117,11 @@ Considered and not built:
   - Item ids are unique, option ids are unique within an item, and `_global` is reserved.
   - `round` is an integer of at least 1.
   - Every open item has exactly one `rec` option, the recommended option is not the Defer option, and an option with id `defer` is present.
-  - Items marked `fixed` have no options.
-  - `facts` is a list of `[label, html]` pairs.
+  - Every open item has `question`, `why_it_matters` and `recommendation`, and every option has `name`.
+  - `decided[]` entries carry `decision` and `date` and have no options.
+  - `context.stages[]` states are each one of done, current, upcoming or later, with at most one current.
+
+  These are optional and never refused when missing: `artifacts`, `today_full`, `evidence_full`, `shift` and `prior`, plus each option's `pros`, `cost`, `risk` and `trade`. A missing option field renders as "None stated", so a spec writer never has to invent a risk to satisfy the generator.
 
   This enforces the code-review-triage-needs-options rule (recommended choice plus real alternatives plus Defer) in code rather than by instruction.
 - KTD5. **The spec is the source, kept in the dossier.** The agent writes `<dossier>/<slug>.json`, or `<slug>-r<N>.json` for round N of 2 or more. By default the generator writes the HTML beside it with the same stem. This meets the task-store rule that pages are generated from a source in the dossier, and lets a later session regenerate the page.
@@ -149,15 +159,17 @@ flowchart TB
 The spec and the copied answers are the two contracts other code and other sessions depend on. Their shape, as directional guidance:
 
 ~~~text
-spec (dossier/<slug>[-rN].json)
+spec (dossier/<slug>[-rN].json)  — the converged mockup's header comment is the full field reference
   title, slug, round, lede (html), stats? (list of html strings)
+  context?: {task, here, stages[]: {name, state, note?}}   # state: done|current|upcoming|later
+  decided[]: {id, title, decision, date, evidence?}        # compact one-liners in the overview band
   items[]:
-    id, group, title, fixed?            # fixed = already decided, read-only, no options
-    tag?: {label, tone}                 # tone in keep | tweak | delete | neutral
-    facts: [[label, html], ...]         # e.g. What it is / Why it exists / Evidence
-    shift?: html                        # yellow "the evidence changed the answer" note
-    prior?: {note, reply}               # round 2+ only
-    options[]: {v, name, why?, rec?}    # exactly one rec; one v == "defer"
+    id, group, title, tag?: {label, tone}
+    question, short_q, why_it_matters, today, today_full?
+    evidence_summary, evidence_full?, shift?, prior?: {note, reply}
+    recommendation, artifacts?: [{label, path, kind}]       # kind: file|skill|task|dossier|pr|doc
+    options[]: {v, name, short, changes, pros?, cost?, risk?, trade?, rec?}
+                                        # exactly one rec; one v == "defer"; missing pros/cost/risk/trade = "None stated"
 
 copied answers (tail of the clipboard text)
   ```json
@@ -193,9 +205,9 @@ docs/guides/decision-page.md
 
 ### U1. Page template
 
-**Goal:** a reusable page that renders any valid spec with everything the reference page offers, saves answers locally, and builds the copy-answers text.
+**Goal:** a reusable page that renders any valid spec with the approved UX (R4, R14), saves answers locally, and builds the copy-answers text.
 
-**Requirements:** R4, R5, R6, R7, R8, R12; KTD1, KTD2, KTD3, KTD6, KTD7, KTD9.
+**Requirements:** R4, R5, R6, R7, R8, R12, R14; KTD1, KTD2, KTD3, KTD6, KTD7, KTD9.
 
 **Dependencies:** none.
 
@@ -204,11 +216,11 @@ docs/guides/decision-page.md
 - Tests live in `claude/.claude/skills/decision-page/scripts/decision-page.test.sh` (U2) and the browser checklist (Verification Contract).
 
 **Approach:**
-1. Start from the reference page's CSS and markup: tokens on `:root`, dark mode under both the media query and `[data-theme]`, the wide `.wrap` grid with the sticky `nav`, and the 860px breakpoint. Swap the Google Fonts link for system font stacks (KTD7).
-2. Generalise the card:
-   - `facts` pairs replace the fixed what/why/evidence rows.
-   - `tag` replaces the verdict pill, with `tone` mapped to the existing pill colours.
-   - `prior` renders as a callout like `shift`, styled differently.
+1. Start from the converged mockup (`~/code/tasks/dossiers/dotfiles--feat-decision-artifact-skill/mockups/decision-page-converged.html`), which is the approved UX. It already has these, and the template keeps them as they are:
+   - the overview band, the collapsible index, the card order and the option trade-off lines;
+   - the keyboard handler covering the overview, the cards and the closing block;
+   - the light and dark tokens and the system fonts.
+2. Replace the mockup's embedded `SPEC` constant with the generator placeholder (KTD1). Point its localStorage key and copy output at the KTD2 and KTD3 shapes.
 3. Build DOM ids from the item's index rather than by joining the raw ids. The reference's `c-<id>-<v>` scheme collides when ids contain `-`.
 4. Count progress only from choices that match an option in the current spec.
 5. Add a per-item "Clear choice" control that unsets the radio, removes the saved choice, and empties the progress dot (R4, R8).
@@ -217,10 +229,12 @@ docs/guides/decision-page.md
 8. Build the copy-answers text in the KTD3 shape, with a fallback that selects a read-only textarea when clipboard writing fails.
 9. A `<title>` and a meta description placeholder are filled by the generator.
 
-**Patterns to follow:** the reference page (`~/code/tasks/dossiers/dotfiles--wb-future-direction/deletion-audit.html`), especially `render`, `card`, `fill`, `persist` and the copy handler. The memory rule html-docs-use-wide-layout.
+**Patterns to follow:** the converged mockup above, and the original deletion-audit page (`~/code/tasks/dossiers/dotfiles--wb-future-direction/deletion-audit.html`) for its `persist`/`onSnapshot` db path. The memory rule html-docs-use-wide-layout.
 
 **Test scenarios:** (run under node by U2's test script against the core script block, except where marked browser checklist)
-- With the fixture (2 fixed and 11 open items), the answered-count total is 11, and the fixed items are absent from the copy-answers `items`.
+- With the fixture (1 decided and 4 open items), the answered-count total is 4, and the decided item is absent from the copy-answers `items` and listed in `fixed`.
+- An option with no `cost` renders "None stated" in its Cost line.
+- Browser checklist: `j` from the last card lands on the closing block, `k` from the first card lands on the overview, Enter on the overview jumps to the first unanswered item, `a` takes the recommended option, and `[` collapses the index.
 - An item with id `a-b` and option `c`, beside an item `a` with option `b-c`, gets distinct DOM ids from the id builder.
 - A saved choice whose option id is no longer in the spec doesn't count toward "answered", and copies as `choice: null`.
 - Copy answers with nothing answered still gives `items` with `choice: null` for every open item, plus an empty `global_note`.
@@ -248,7 +262,7 @@ docs/guides/decision-page.md
 3. Validate per KTD4, collecting every problem before exiting 2. Messages start with `decision-page.py:`, as review-page's do.
 4. Compute `spec_hash` over the canonical JSON (sorted keys, compact). Escape the JSON per KTD1, substitute it into the template, and HTML-escape the `<title>`.
 5. Open the page per KTD8, then print the output path and the hash.
-6. Fixture: convert the reference page's `ITEMS` (the deletion audit, version 2) into the spec format, keeping its two fixed items, eleven open items, `shift` notes and HTML. It is both the test input and proof that the generator reproduces a page Jet has used.
+6. Fixture: lift the converged mockup's embedded `SPEC` (1 decided item and 4 open items from the deletion audit, with shift, prior, artifacts and trade-off fields) into `fixtures/example-spec.json`. It is both the test input and proof that the generator reproduces the page Jet approved.
 7. Test harness style matches `claude/.claude/skills/review-page/scripts/review-page.test.sh`: `set -uo pipefail`, a mktemp dir with an EXIT trap, `pass`/`fail` helpers, and final "ALL TESTS PASSED" or "SOME TESTS FAILED".
 8. The test extracts U1's core script block from the generated page and runs U1's node scenarios against it. All node checks are skipped with a printed note when `node` is absent.
 
@@ -264,6 +278,8 @@ docs/guides/decision-page.md
 - Rejections, each exiting 2 with a message naming the item:
   - an open item with no `rec`;
   - an open item with two `rec` options;
+  - an open item with no `question` or no `recommendation`;
+  - a `context` with two `current` stages;
   - an open item with no `defer` option;
   - `rec` on the `defer` option;
   - duplicate item ids;
@@ -271,14 +287,15 @@ docs/guides/decision-page.md
   - an item id `_global`;
   - an id with an uppercase letter or a space;
   - `round: 0`;
-  - a `fixed` item that has options.
+  - a `decided[]` entry that has options.
+- A spec whose items have no `artifacts` and no option `cost`/`risk` generates without error.
 - A spec with three separate problems reports all three in one run.
 - A spec whose text contains `</script><script>alert(1)</script>` is embedded so that the generated file has no second script element, checked by counting `<script` occurrences.
 - Missing `--spec`, an unreadable file, or invalid JSON each exit 2.
 - U1's node scenarios pass against the fixture page's core script block.
 - An output path under `/tmp` without `--no-open` writes the file, skips opening, and prints why.
 
-**Verification:** `decision-page.test.sh` prints ALL TESTS PASSED, and the fixture page opened from a non-hidden path under `$HOME` looks like the reference page.
+**Verification:** `decision-page.test.sh` prints ALL TESTS PASSED, and the fixture page opened from a non-hidden path under `$HOME` looks like the converged mockup.
 
 ### U3. Skill instructions, reference and ledger
 
