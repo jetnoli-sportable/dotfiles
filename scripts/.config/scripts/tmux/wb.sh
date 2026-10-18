@@ -5064,10 +5064,28 @@ cmd_done() {
     echo "wb done: wb-capture.sh unavailable next to wb.sh; skipping the decision-draft guard" >&2
   fi
   if [ "${#shelved_drafts[@]}" -gt 0 ] && [ "$leave_shelved" = 0 ]; then
+    # two kinds, told apart by the path shape the verb prints (the layout stays
+    # wb-capture.sh's): a live session's draft ends in /draft (…/<sid>/draft),
+    # a shelved one in <stamp>-<sid>.md. They need different remedies.
+    local -a refusal_shelved=() refusal_session=()
+    local sd
+    for sf in "${shelved_drafts[@]}"; do
+      case "$sf" in
+        */draft) refusal_session+=("$sf") ;;
+        *)       refusal_shelved+=("$sf") ;;
+      esac
+    done
     {
       echo "wb done: ${#shelved_drafts[@]} decision draft(s) (shelved, or pending in a live session) for $task_stem would be stranded (nothing changed):"
-      for sf in "${shelved_drafts[@]}"; do echo "  $sf"; done
-      echo "wb done: run /close-out or /wb-decide shelved first to accept or dismiss them, or re-run with --leave-shelved to close anyway"
+      for sf in "${refusal_shelved[@]}"; do echo "  shelved: $sf"; done
+      for sf in "${refusal_session[@]}"; do
+        sd="${sf%/draft}"
+        echo "  pending in session ${sd##*/}: $sf"
+      done
+      [ "${#refusal_shelved[@]}" -eq 0 ] \
+        || echo "wb done: shelved: run /close-out or /wb-decide shelved first to accept or dismiss them, or re-run with --leave-shelved to close anyway"
+      [ "${#refusal_session[@]}" -eq 0 ] \
+        || echo "wb done: pending in a session: resolve it with /wb-decide in that session, or re-run with --leave-shelved (SessionEnd or the reaper will shelve it; resolve it later with --task)"
     } >&2
     exit 1
   fi

@@ -284,6 +284,8 @@ assert "shelved guard: names the second draft" "$CAPROOT/shelved/proj--eta/20261
 assert "shelved guard: counts drafts, not sidecars" '2 decision draft' "$out"
 assert "shelved guard: points at /close-out and /wb-decide shelved" '/close-out or /wb-decide shelved' "$out"
 assert "shelved guard: points at --leave-shelved" '\-\-leave-shelved' "$out"
+assert "shelved guard: labels the shelved drafts" 'shelved: .*20261018T100000-sid-a\.md' "$out"
+case "$out" in *"pending in session"*|*"pending in a session"*) echo "FAIL - shelved guard: shelved-only refusal mentions a session draft"; fail=1 ;; *) echo "ok   - shelved guard: no session-draft remedy when none is pending" ;; esac
 assert "shelved guard: says nothing changed" 'nothing changed' "$out"
 [ -d "$FIXTURE_CODE/proj/.worktrees/eta" ] && echo "ok   - shelved guard: worktree untouched" || { echo "FAIL - shelved guard: worktree removed"; fail=1; }
 assert "shelved guard: task not flipped" '^doing$' "$(status_of eta)"
@@ -361,6 +363,10 @@ out="$(cmd_done "$lambda_session" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && echo "ok   - live draft guard: non-zero exit" || { echo "FAIL - live draft guard: exit $rc"; fail=1; }
 assert "live draft guard: names the live draft" "$CAPROOT/sid-live/draft" "$out"
 assert "live draft guard: counts only this task's draft" '1 decision draft' "$out"
+assert "live draft guard: names the owning session" 'pending in session sid-live: ' "$out"
+assert "live draft guard: remedy is resolve in that session or --leave-shelved" 'resolve it with /wb-decide in that session, or re-run with --leave-shelved' "$out"
+assert "live draft guard: remedy names SessionEnd/reaper and --task" 'SessionEnd or the reaper will shelve it; resolve it later with --task' "$out"
+case "$out" in *"/close-out or /wb-decide shelved"*) echo "FAIL - live draft guard: offered the shelved remedy for a session draft"; fail=1 ;; *) echo "ok   - live draft guard: no shelved remedy for a session draft" ;; esac
 case "$out" in *sid-otherlive*) echo "FAIL - live draft guard: named another task's live draft"; fail=1 ;; *) echo "ok   - live draft guard: another task's live draft ignored" ;; esac
 assert "live draft guard: says nothing changed" 'nothing changed' "$out"
 [ "$(cat "$lambda_file")" = "$lambda_before" ] && echo "ok   - live draft guard: task file byte-identical" || { echo "FAIL - live draft guard: task file changed"; fail=1; }
