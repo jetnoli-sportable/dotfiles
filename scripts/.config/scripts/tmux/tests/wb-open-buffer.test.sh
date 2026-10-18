@@ -52,9 +52,13 @@ err="$(env -u TMUX -u TMUX_PANE HOME="$EMPTY_HOME" EDITOR="$FIXTURE/fake-editor.
   echo "rc=$?"
 ' 2>&1)"
 assert "missing script: returns non-zero" 'rc=1' "$err"
+# shellcheck disable=SC2016  # a literal $HOME in the expected message
 assert "missing script: names the stow command" 'stow --no-folding -t "\$HOME" claude' "$err"
-[ ! -e "$ENV_CAPTURE" ] && echo "ok   - missing script: editor never ran" \
-  || { echo "FAIL - missing script: editor ran anyway"; fail=1; }
+if [ -e "$ENV_CAPTURE" ]; then
+  echo "FAIL - missing script: editor ran anyway"; fail=1
+else
+  echo "ok   - missing script: editor never ran"
+fi
 
 # --- script stowed, non-tmux: --direct, WB_REVIEW_BUFFER=1 reaches the editor
 STOWED_HOME="$FIXTURE/home-stowed"
