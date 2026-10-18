@@ -265,6 +265,29 @@ or *finished* agent sorts first among live rows.
 > one, exactly." If a stray agent in a shared session gets annoying to
 > track, press <kbd>b</kbd> on it to give it its own session.
 
+## prefix+t — open this session's task file
+
+From inside any wb session, <kbd>prefix</kbd>+<kbd>t</kbd> opens that
+session's task file in `$EDITOR` in a new window. No picker, no typing a
+path — it's the fastest way to reread the plan or jot a note mid-task.
+
+It resolves through the session's `@task` option (the same lookup
+`/wb-save` and `/wb-resume` use), *not* the working directory or branch
+name. That matters after `wb breakdown --apply` migrates a session to a
+child task: `@task` gets re-pointed at the child, so `prefix+t` opens the
+child's file rather than the parent's.
+
+The same resolution is available as a command, which prints the path
+instead of opening it — handy in scripts and one-liners:
+
+```sh
+wb task-file            # -> /home/you/code/tasks/dotfiles--my-thing.md
+nvim "$(wb task-file)"  # equivalent to prefix+t
+```
+
+Outside a wb session (no `@task` and no `@wb_repo`/`@wb_slug`), both forms fail with
+`not a wb task session` rather than guessing a file from your cwd.
+
 ## Session lifecycle: wb down, wb pause, and warm resume
 
 Two axes, kept deliberately separate:
