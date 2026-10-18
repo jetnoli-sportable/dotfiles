@@ -4710,7 +4710,6 @@ cmd_status() {
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || exit $?
   wb_set_frontmatter_field "$file" status "$new"
-  wb_append_handoff "$file" "wb status" "Status set to \`$new\` via \`wb status\` (store-only)."
   wb_task_lock_release "$file"
   echo "wb status: $(basename -- "$file") $old -> $new"
 }
@@ -4797,10 +4796,8 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path branch"
 # missing field falls back to wb_set_frontmatter_field's own default
 # (just before the closing `---`). No write when the value already
 # matches — except `--unset` on a key missing entirely, which inserts it
-# empty (schema backfill; silent, no Handoffs entry). Appends a terse Handoffs entry ONLY for
-# the four structural fields (parent/depends_on/jira/branch) — priority/value/
-# size/tags/path are left silent, matching /wb-save's own signal-over-
-# noise posture for low-stakes board metadata.
+# empty (schema backfill). Never appends a Handoffs entry: a frontmatter
+# change is its own record.
 cmd_set() {
   local query="${1:-}" field="${2:-}" value="${3:-}"
   if [ -z "$query" ] || [ -z "$field" ] || [ "$#" -lt 3 ]; then
@@ -4987,15 +4984,6 @@ cmd_set() {
   fi
 
   wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
-  case "$field" in
-    parent|depends_on|jira|branch)
-      if [ "$unset_req" -eq 1 ]; then
-        wb_append_handoff "$file" "wb set" "\`$field:\` cleared via \`wb set --unset\` (was \`$old\`)."
-      else
-        wb_append_handoff "$file" "wb set" "\`$field:\` set to \`$value\` via \`wb set\` (was \`$old\`)."
-      fi
-      ;;
-  esac
   wb_task_lock_release "$file"
   if [ "$unset_req" -eq 1 ]; then
     echo "wb set: $(basename -- "$file") $field '$old' -> (cleared)"

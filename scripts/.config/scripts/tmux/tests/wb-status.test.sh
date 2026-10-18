@@ -25,6 +25,15 @@ assert() { # <desc> <expected-regex> <actual>
     fail=1
   fi
 }
+assert_not() { # <desc> <regex> <actual> — passes when <regex> does NOT match
+  if printf '%s' "$3" | grep -qE "$2"; then
+    echo "FAIL - $1"
+    echo "       unexpected match: $2"
+    fail=1
+  else
+    echo "ok   - $1"
+  fi
+}
 assert_eq() { # <desc> <expected> <actual>
   if [ "$2" = "$3" ]; then
     echo "ok   - $1"
@@ -63,9 +72,7 @@ assert "planned->paused: confirmation names old -> new" 'proj--status-a\.md plan
 content="$(cat "$TASKS_DIR/proj--status-a.md")"
 assert "planned->paused: frontmatter status updated" '^status: paused$' "$content"
 
-# Handoffs entry appended
-assert "planned->paused: Handoffs entry appended" 'wb status \(auto\)' "$content"
-assert "planned->paused: Handoffs entry message" 'Status set to `paused` via `wb status`' "$content"
+assert_not "planned->paused: no Handoffs entry appended" 'wb status \(auto\)' "$content"
 
 # =============================================================================
 # Scenario: `prospective` (R25) is accepted by the enum.

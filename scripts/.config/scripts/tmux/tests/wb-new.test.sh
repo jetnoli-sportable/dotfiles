@@ -397,8 +397,8 @@ assert "resume with a transcript: pre-types claude --resume <id>" 'claude --resu
 tmux kill-session -t "=proj--feat-warm" 2>/dev/null
 
 # Regression (post-PR#52): an existing task with a Handoffs entry from an
-# AUTO verb (wb set/wb status/wb breakdown all stamp "### ... (auto)" the
-# same way wb pause does) but NO claude_sessions: field and NO transcript on
+# AUTO verb (wb breakdown stamps "### ... (auto)" the same way wb pause
+# does; older files also carry the retired wb set/wb status stamps) but NO claude_sessions: field and NO transcript on
 # disk must NOT pre-type `claude --continue` — there is nothing to
 # continue. This is exactly last night's misfire: a brand-new task
 # re-parented by `wb set` before its first `wb new --agent` used to get a
