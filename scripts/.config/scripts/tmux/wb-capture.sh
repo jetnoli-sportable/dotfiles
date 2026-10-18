@@ -91,11 +91,13 @@
 # resolves it ignored and strikes as usual. SessionEnd and the reaper still
 # resolve it ignored, then shelve the draft (a draft the reaper can't shelve keeps
 # its dir until a later reap succeeds).
-# Stale drafts: the sweep snapshots the task file, then waits up to a minute for
-# Haiku. If the file changed meanwhile (typically /wb-decide recording the very
-# decision being drafted) the draft is still written — the user decides — plus
+# Stale drafts: the sweep snapshots `## Decisions` (the text Haiku sees), then
+# waits up to a minute for Haiku. If that section changed meanwhile (typically
+# /wb-decide recording the very decision being drafted) the answer is discarded
+# and the child reruns once on a fresh snapshot. Only if the section changes a
+# second time during the rerun is the draft written — the user decides — plus
 # `draft_stale`, holding how many `### ` entries `## Decisions` had at the
-# snapshot. The draft nudge and `status` then warn it may already be recorded
+# re-snapshot. The draft nudge and `status` then warn it may already be recorded
 # (status lists the entries added since). Staleness is not carried in
 # `outstanding`: a nudge, once resolved, is tagged `"stale":true` in its
 # followed | dismissed | ignored | draft_shelved event whenever its source is
