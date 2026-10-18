@@ -63,6 +63,7 @@ The page was hand-built for that one audit, so the next batch would mean writing
 - R14. The page can be driven from the keyboard without losing the full-page view:
   - `j`/`k` step through the overview, then each card, then the closing block.
   - `1`–`9` pick an option and `a` takes the recommended one. `c` clears and `n` focuses the notes box.
+  - `e` expands or collapses the current card's evidence, and `E` does it for every card.
   - `[` collapses the index and `?` lists the keys.
   - Enter on the overview jumps to the first unanswered item. Enter on the closing block copies the answers.
   - No key fires while Jet is typing in a text box.
