@@ -232,8 +232,8 @@ hook dismiss ''
 assert_nofile "dismiss removes strikes" "$D/draft_strikes"; assert_nofile "dismiss removes draft" "$D/draft"
 new_scenario
 mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; stop "x"
-hook clear ''
-assert_nofile "clear removes strikes" "$D/draft_strikes"
+hook clear '' --draft
+assert_nofile "clear --draft removes strikes" "$D/draft_strikes"
 
 echo "# stale drafts: nudge wording, resolution events tagged, cleanup"
 stale_draft() { # creates a stale draft for the scenario
@@ -270,9 +270,10 @@ posttool 'wb append x Decisions -'
 assert_eq "stale followed tagged" true "$(stale_flag followed)"
 # followed via clear verb
 new_scenario; stale_draft; prompt "go"
-hook clear ''
+hook clear '' --draft
 assert_eq "stale clear-followed tagged" true "$(stale_flag followed)"
-assert_nofile "clear removes draft_stale" "$D/draft_stale"
+assert_nofile "clear --draft removes draft_stale" "$D/draft_stale"
+assert_nofile "clear --draft removes the draft" "$D/draft"
 # dismissed
 new_scenario; stale_draft; prompt "go"
 hook dismiss ''
@@ -429,6 +430,38 @@ assert_nofile "phrase dismiss removes outstanding" "$D/outstanding"
 assert_nofile "phrase dismiss removes marker" "$D/marker"
 assert_eq "phrase dismiss logs one dismissed" 1 "$(count_ev dismissed)"
 assert_eq "phrase dismissed not tagged stale" none "$(stale_flag dismissed)"
+
+echo "# plain clear keeps an unreviewed draft; clear --draft is the draft-accept path"
+new_scenario; mkdir -p "$D"
+printf 'draft\n' >"$D/draft"; printf '3\n' >"$D/draft_stale"; printf '1\n' >"$D/draft_strikes"
+printf 'phrase' >"$D/outstanding"; printf 'going with' >"$D/marker"; printf 'h\n' >"$D/nudged_draft"
+hook clear ''
+assert_eq "clear exit" 0 "$RC"
+assert_file "plain clear keeps the draft" "$D/draft"
+assert_file "plain clear keeps draft_stale" "$D/draft_stale"
+assert_file "plain clear keeps draft_strikes" "$D/draft_strikes"
+assert_file "plain clear keeps nudged_draft" "$D/nudged_draft"
+assert_nofile "plain clear removes marker" "$D/marker"
+assert_nofile "plain clear removes outstanding" "$D/outstanding"
+assert_eq "plain clear logs followed for the live nudge" 1 "$(count_ev followed)"
+# a draft written mid-turn survives the phrase path and is nudged on the next real prompt
+new_scenario; mkdir -p "$D"
+stop "we decided to use B"; prompt "go"
+printf '### X\n- d\n' >"$D/draft"
+hook clear ''
+assert_file "draft written mid-turn survives the phrase-path clear" "$D/draft"
+prompt "next"
+assert_eq "...and is nudged on the next prompt" sweep "$(cat "$D/outstanding" 2>/dev/null)"
+assert_eq "...as a sweep nudge_fired" sweep "$(jq -r 'select(.event=="nudge_fired")|.source' "$LOG" | tail -n1)"
+# clear --draft removes the draft
+new_scenario; mkdir -p "$D"
+printf 'draft\n' >"$D/draft"; printf '3\n' >"$D/draft_stale"; printf '1\n' >"$D/draft_strikes"; printf 'sweep' >"$D/outstanding"
+hook clear '' --draft
+assert_nofile "clear --draft removes the draft" "$D/draft"
+assert_nofile "clear --draft removes draft_stale" "$D/draft_stale"
+assert_nofile "clear --draft removes draft_strikes" "$D/draft_strikes"
+assert_nofile "clear --draft removes outstanding" "$D/outstanding"
+assert_eq "clear --draft logs followed once" 1 "$(count_ev followed)"
 
 echo "# engagement marker: dismiss ends the review, one dismissed"
 new_scenario

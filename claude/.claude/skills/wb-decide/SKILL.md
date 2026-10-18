@@ -188,17 +188,23 @@ and lands the block at the END of the section.
 
 ### 5. Clear the capture state, then confirm
 
-After a *successful* write:
+After a *successful* write, pick the form by what you just recorded:
 
 ```bash
+# you recorded the session's own pending draft (draft accept / draft edit + accept):
+~/.config/scripts/tmux/wb-capture.sh clear --draft
+# you composed from the conversation (phrase nudge, hinted run, no nudge at all):
 ~/.config/scripts/tmux/wb-capture.sh clear
 ```
 
-`clear` drops the marker, the draft (even one you didn't review — a recorded
-decision usually makes it stale) and the outstanding-nudge flag, without
-logging a `dismissed` event (the
+Plain `clear` drops the marker, the reviewing flag and the outstanding-nudge flag,
+and **keeps** a pending sweep draft: you didn't review it, so it isn't yours to
+delete, and it gets nudged at the next real prompt (a duplicate costs the user one
+`/wb-decide dismiss`, and `status` lists the Decisions entries added since). `clear
+--draft` does the same and also removes the draft and its stale/strike state,
+because that draft is what just got recorded. Neither logs a `dismissed` event (the
 `followed` event is logged by the plugin's PostToolUse hook when it sees the
-`wb append … Decisions` call; if that hook missed it, `clear` logs `followed`
+`wb append … Decisions` call; if that hook missed it, either form logs `followed`
 for a still-outstanding nudge). Only run it after a successful write. Then one
 line: `Recorded to ## Decisions.`
 
@@ -206,15 +212,15 @@ line: `Recorded to ## Decisions.`
 
 - [ ] **Happy path:** a real decision was made, `/wb-decide` run — read
   `@task`, read `## Decisions` for style, compose decided/rejected/why,
-  `wb append` it, `wb-capture.sh clear`, confirm in one line.
+  `wb append` it, plain `wb-capture.sh clear`, confirm in one line.
 - [ ] **Draft accept:** `status` shows a draft that matches a real decision —
-  present it, append it as-is via `wb append`, `clear`.
+  present it, append it as-is via `wb append`, `clear --draft`.
 - [ ] **Draft edit + accept:** draft is roughly right but misses the
   rejected alternative or the why — edit it from session context, append the
-  edited version, `clear`.
+  edited version, `clear --draft`.
 - [ ] **Phrase nudge or hinted run with a draft pending:** skip the draft
   path, compose from the conversation, leave the draft untouched (no dismiss);
-  `clear` after the write removes it.
+  plain `clear` after the write keeps it, so it stays pending and is nudged again.
 - [ ] **Stale draft:** `status` says the draft may already be recorded and
   lists newer Decisions entries — show the draft beside them and ask; a
   duplicate gets `dismiss` (say so), a distinct one is accepted/edited as usual.

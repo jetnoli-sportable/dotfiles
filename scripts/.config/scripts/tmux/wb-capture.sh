@@ -29,8 +29,12 @@
 #                  {marker,draft}; resolves an outstanding nudge as ignored;
 #                  shelves a remaining draft (reason session_end); always writes
 #                  the `ended` tombstone. Deletes nothing else — the reaper does.
-#   clear          agent verb: drop marker, draft, draft_strikes, draft_stale,
-#                  reviewing and outstanding flag. Logs nothing (the PostToolUse hook already logs `followed`).
+#   clear          agent verb: drop marker, reviewing and the outstanding flag; logs
+#                  `followed` if a nudge was still outstanding. It KEEPS an unreviewed
+#                  sweep draft (draft, draft_stale, draft_strikes, nudged_draft), so the
+#                  phrase path of /wb-decide can't delete a draft the user never saw.
+#   clear --draft  the draft-accept path: same, and also removes the draft and its
+#                  draft_stale / draft_strikes (the draft is what just got recorded).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
 #                  when nothing was pending. When the outstanding nudge is a PHRASE
 #                  nudge it removes only marker + outstanding and keeps any sweep
@@ -93,7 +97,7 @@
 # never deleted without the user's explicit accept or dismiss. SessionEnd
 # shelves a remaining draft (reason session_end) and the reaper shelves one it finds
 # in a dir it is about to remove (reason reaped). The strike count is dropped
-# whenever the draft goes away another way (followed, dismiss, clear) or the sweep
+# whenever the draft goes away another way (followed, dismiss, clear --draft) or the sweep
 # writes a new draft. Phrase-nudge ignores don't strike and shelve nothing (no data);
 # SessionEnd resolves an outstanding nudge as ignored without striking.
 # Engagement marker: `review` creates `reviewing` while a sweep draft nudge is
@@ -644,7 +648,9 @@ agent_session_dir() {
   SDIR="$(session_dir "$SID")" || fail_open "invalid session id on pane; nothing changed"
 }
 
-cmd_clear_or_dismiss() { # <log-event|"">
+cmd_clear_or_dismiss() { # <log-event|""> [--draft]
+  local drop_draft=0
+  [ "${2:-}" = --draft ] && drop_draft=1
   agent_session_dir
   local pending=0 f
   for f in marker draft outstanding; do [ -e "$SDIR/$f" ] && pending=1; done
@@ -661,6 +667,10 @@ cmd_clear_or_dismiss() { # <log-event|"">
   if [ "$1" = dismissed ] && [ "$dsrc" = phrase ]; then
     # a phrase nudge never showed the sweep draft: dismissing it leaves the draft alone
     remove_named "$SDIR" marker outstanding
+  elif [ -z "$1" ] && [ "$drop_draft" = 0 ]; then
+    # plain clear (the phrase/hinted path): the draft was not what got recorded and
+    # may be unseen, so it stays pending (never deleted without accept or dismiss)
+    remove_named "$SDIR" marker outstanding reviewing
   else
     remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding reviewing
   fi
@@ -765,7 +775,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   guard_chain
 
   case "$verb" in
-    clear)   cmd_clear_or_dismiss "" ;;
+    clear)   cmd_clear_or_dismiss "" "${2:-}" ;;
     dismiss)
       if [ -n "${2:-}" ]; then cmd_shelved shelved_dismissed "$2"; else cmd_clear_or_dismiss dismissed; fi
       ;;
