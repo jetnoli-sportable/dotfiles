@@ -24,16 +24,26 @@
 #                  nothing and set `synthetic`.
 #     hook-end       (SessionEnd, 1.5s budget: one jq parse, no network, no task
 #                  file) if `marker` or `draft` exists logs `pending_at_end`
-#                  {marker,draft}; always writes the `ended` tombstone. Deletes
-#                  nothing — the reaper does that.
-#   clear          agent verb: drop marker, draft, draft_strikes, draft_stale and
-#                  outstanding flag. Logs nothing (the PostToolUse hook already logs `followed`).
+#                  {marker,draft}; resolves an outstanding nudge as ignored;
+#                  parks a remaining draft (reason session_end); always writes
+#                  the `ended` tombstone. Deletes nothing else — the reaper does.
+#   clear          agent verb: drop marker, draft, draft_strikes, draft_stale,
+#                  reviewing and outstanding flag. Logs nothing (the PostToolUse hook already logs `followed`).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
 #                  when nothing was pending.
+#   dismiss <path> dismiss one PARKED draft: delete it, log `dismissed` source
+#                  `parked`. <path> must be a parked draft of this task.
+#   unpark <path>  after /wb-decide recorded a parked draft: delete it, log
+#                  `followed` source `parked`. Same path rule; a path outside
+#                  the parked dir exits 1 with a message on stderr.
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
-#   status         print pending marker/draft (with paths), mute state, and the
-#                  log path — human-readable lines. A stale draft adds a warning
-#                  line plus the `### ` headings recorded since its snapshot.
+#   status         print pending marker/draft (with paths), mute state, the
+#                  log path, then this task's parked drafts (one `parked: <path>`
+#                  line each, `(stale)` when marked; `parked: none`) —
+#                  human-readable lines. A stale draft adds a warning line plus
+#                  the `### ` headings recorded since its snapshot. A draft whose
+#                  nudge (source sweep) is outstanding is also marked `reviewing`:
+#                  the user is mid-review, see "Engagement marker".
 #   _config        TEST-ONLY: print the resolved config as key=value lines.
 #
 # Agent verbs find their session via the tmux PANE option @wb_capture_sid
@@ -46,8 +56,13 @@
 #                                        unchanged draft muted outstanding ended
 #                                        synthetic nudged_draft taskpath
 #                                        sweep_offset draft_strikes
-#                                        sweep_failures draft_stale .lock
+#                                        sweep_failures draft_stale reviewing .lock
 #                                        draft.tmp.* draft_stale.tmp.*)
+#   parked drafts <root>/parked/<task-stem>/<YYYYmmddTHHMMSS>-<sid>.md  (per TASK,
+#                                        outlives the session dir; a sidecar
+#                                        <name>.md.stale marks a stale draft;
+#                                        <root>/parked/_unknown/ when the task
+#                                        is not known)
 #   event log    <root>/log.jsonl       (one compact JSON line per event:
 #                                        ts, session_id, task, event[, source])
 #   reaper stamp <root>/.reaped          (mtime = last reap; at most one per hour)
@@ -57,12 +72,25 @@
 #
 # Draft strikes: a draft nudge (source sweep) that resolves `ignored` gets one more
 # chance — `nudged_draft` is dropped so the same draft is nudged again on the next
-# real prompt, and `draft_strikes` records 1. A second ignore discards the draft
-# (draft, nudged_draft, draft_strikes removed) and logs `draft_discarded`
-# {"reason":"ignored_twice"}, which lets the sweep run again. The strike count is
-# dropped whenever the draft goes away another way (followed, dismiss, clear) or
-# the sweep writes a new draft. Phrase-nudge ignores don't strike; SessionEnd
-# resolves an outstanding nudge as ignored without striking.
+# real prompt, and `draft_strikes` records 1. A second ignore PARKS the draft: it
+# moves to <root>/parked/<task-stem>/ and logs `draft_parked` {"reason":
+# "ignored_twice"}; draft, nudged_draft, draft_strikes, draft_stale and reviewing
+# are removed from the session dir, which lets the sweep run again. A draft is
+# never deleted without the user's explicit accept (unpark) or dismiss. SessionEnd
+# parks a remaining draft (reason session_end) and the reaper parks one it finds
+# in a dir it is about to remove (reason reaped). The strike count is dropped
+# whenever the draft goes away another way (followed, dismiss, clear) or the sweep
+# writes a new draft. Phrase-nudge ignores don't strike and park nothing (no data);
+# SessionEnd resolves an outstanding nudge as ignored without striking.
+# Engagement marker: `status` touches `reviewing` while a sweep draft nudge is
+# outstanding, meaning the user is mid-review over several messages. While it
+# exists the Stop hook and the next prompt keep `outstanding` (carry it to the next
+# turn) instead of resolving it ignored, and no new nudge fires, so the review
+# resolves exactly once: followed (posttool) or dismissed (dismiss/clear). After
+# REVIEW_MAX_TURNS carried Stops the review counts as abandoned: the next Stop
+# resolves it ignored and strikes as usual. SessionEnd and the reaper still
+# resolve it ignored, then park the draft (a draft the reaper can't park keeps
+# its dir until a later reap succeeds).
 # Stale drafts: the sweep snapshots the task file, then waits up to a minute for
 # Haiku. If the file changed meanwhile (typically /wb-decide recording the very
 # decision being drafted) the draft is still written — the user decides — plus
@@ -70,7 +98,7 @@
 # snapshot. The draft nudge and `status` then warn it may already be recorded
 # (status lists the entries added since). Staleness is not carried in
 # `outstanding`: a nudge, once resolved, is tagged `"stale":true` in its
-# followed | dismissed | ignored | draft_discarded event whenever its source is
+# followed | dismissed | ignored | draft_parked event whenever its source is
 # `sweep` and `draft_stale` exists (it lives exactly as long as `draft`, so it is
 # still there at every resolution). Phrase nudges are never tagged.
 # `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
@@ -80,9 +108,10 @@
 # can't delay or alter it; at most once per hour, throttled by the mtime of
 # <root>/.reaped, which is touched before the work starts). For each real,
 # non-symlink subdir of the root whose name passes session_dir validation and
-# that isn't the current session: remove it if it holds `ended`, or if nothing in
+# that isn't the current session (and isn't `parked`): remove it if it holds `ended`, or if nothing in
 # it was modified in the last 7 days (find -newermt on the dir + its files).
-# A stale, un-ended dir still holding marker/draft first logs `pending_orphaned`.
+# A stale, un-ended dir still holding marker/draft first logs `pending_orphaned`;
+# a draft is parked (reason reaped) before the dir goes.
 # Removal is by explicit file names (+ draft.tmp.* glob) inside the validated dir,
 # then rmdir — unknown leftovers keep the dir (never forced). A dir whose .lock
 # is held (flock -n fails) is skipped until the next reap; no lock is held across
@@ -123,6 +152,8 @@ DEFAULT_SWEEP_EVERY=4
 DEFAULT_SWEEP=on
 DEFAULT_SWEEP_TIMEOUT=60
 DEFAULT_SWEEP_MAX_FAILURES=3
+# Stops a draft review may carry its nudge before it counts as abandoned
+REVIEW_MAX_TURNS=4
 
 STATE_BASE="${XDG_STATE_HOME:-$HOME/.local/state}/wb"
 CAPTURE_ROOT="$STATE_BASE/capture"
@@ -197,6 +228,27 @@ lock_session() {
 }
 unlock_session() { exec 9>&-; }
 
+# strip_heredocs — stdin -> stdout with heredoc bodies and terminators dropped
+# (the line holding the `<<WORD` operator stays). Handles <<WORD, <<'WORD',
+# <<"WORD", <<\WORD and the <<- forms (tab-stripped terminator); `<<<` here-strings
+# aren't heredocs. An unterminated heredoc drops the rest, as the shell reads it.
+strip_heredocs() {
+  local line term="" dash=0 q="'\"" re
+  re='(^|[^<])<<(-?)[[:space:]]*\\?['"$q"']?([A-Za-z_][A-Za-z0-9_]*)'
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -n "$term" ]; then
+      [ "$dash" = 1 ] && line="${line#"${line%%[!$'\t']*}"}"
+      [ "$line" = "$term" ] && term=""
+      continue
+    fi
+    printf '%s\n' "$line"
+    if [[ "$line" =~ $re ]]; then
+      term="${BASH_REMATCH[3]}"; dash=0
+      [ -n "${BASH_REMATCH[2]}" ] && dash=1
+    fi
+  done
+}
+
 # hook_posttool — a `wb append … Decisions` Bash command marks the turn recorded.
 hook_posttool() {
   # cheap pre-filter on the raw JSON, before any jq
@@ -207,6 +259,7 @@ hook_posttool() {
   cmd="$(jq_in '.tool_input.command // empty')"
   # a newline separates commands too (multi-line Bash calls, as /wb-decide makes),
   # and must stop the match from running on into a heredoc body
+  cmd="$(strip_heredocs <<<"$cmd")"
   cmd="${cmd//$'\n'/;}"
   local q="'\""
   re='(^|[;&|(]|\$\()[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*([^[:space:];&|]*/)?wb[[:space:]]+append[[:space:]]([^;&|]*[[:space:]'"$q"'])?Decisions([[:space:]'"$q"']|$)'
@@ -220,6 +273,7 @@ hook_posttool() {
     remove_named "$SDIR" outstanding
     [ "$osrc" = sweep ] && remove_named "$SDIR" draft_strikes
   fi
+  remove_named "$SDIR" reviewing
 }
 
 # hook_stop — detect (phrase match), suppress when recorded, maintain counters.
@@ -267,8 +321,18 @@ hook_stop() {
   # that ends with neither a Decisions append (followed) nor a dismiss resolves
   # it as ignored, so a later unrelated append can't be counted as followed.
   # A synthetic turn isn't the agent's real turn yet.
+  # A review in progress (`reviewing`, set by status) carries the nudge instead,
+  # for at most REVIEW_MAX_TURNS Stops: an abandoned review would otherwise hold
+  # the nudge (and block phrase nudges and the sweep) for the rest of the session.
   if [ -e "$SDIR/outstanding" ] && [ ! -e "$SDIR/synthetic" ]; then
-    resolve_ignored
+    local rv
+    rv="$(read_num "$SDIR/reviewing")"
+    if [ -e "$SDIR/reviewing" ] && [ "$rv" -lt "$REVIEW_MAX_TURNS" ]; then
+      printf '%s\n' "$((rv + 1))" >"$SDIR/reviewing"
+    else
+      remove_named "$SDIR" reviewing
+      resolve_ignored
+    fi
   fi
   remove_named "$SDIR" synthetic
 }
@@ -290,6 +354,25 @@ decision_headings() {
   awk '/^## Decisions[[:space:]]*$/ { f = 1; next } /^## / { f = 0 } f && /^### /' "$1" 2>/dev/null
 }
 
+# park_draft <sid> <reason> — move SDIR's draft to the per-task parked dir
+# (verbatim, <YYYYmmddTHHMMSS>-<sid>.md; a `.stale` sidecar when draft_stale
+# exists), log `draft_parked`, then drop the draft's session state. TASK_STEM
+# empty -> parked/_unknown. If the move fails nothing is removed (never lose it).
+park_draft() {
+  local sid="$1" reason="$2" stem="${TASK_STEM:-_unknown}" dir dest ts n=0
+  [ -f "$SDIR/draft" ] || return 0
+  case "$stem" in .|..|*/*) stem=_unknown ;; esac
+  dir="$CAPTURE_ROOT/parked/$stem"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  ts="$(date +%Y%m%dT%H%M%S)"
+  dest="$dir/$ts-$sid.md"
+  while [ -e "$dest" ]; do n=$((n + 1)); dest="$dir/$ts-$sid-$n.md"; done
+  mv -- "$SDIR/draft" "$dest" 2>/dev/null || return 1
+  [ -e "$SDIR/draft_stale" ] && : >"$dest.stale" 2>/dev/null
+  log_event "$sid" draft_parked "" "$(stale_extra sweep "{\"reason\":\"$reason\"}")"
+  remove_named "$SDIR" draft nudged_draft draft_strikes draft_stale reviewing
+}
+
 # resolve_ignored [nostrike] — log the outstanding nudge as ignored and clear it.
 # An ignored draft nudge strikes the draft (see "Draft strikes" in the header);
 # `nostrike` (SessionEnd) leaves the draft's state alone.
@@ -299,8 +382,7 @@ resolve_ignored() {
   remove_named "$SDIR" outstanding
   if [ "$src" = sweep ] && [ "${1:-}" != nostrike ] && [ -f "$SDIR/draft" ]; then
     if [ "$(read_num "$SDIR/draft_strikes")" -ge 1 ]; then
-      log_event "$SID" draft_discarded "" "$(stale_extra sweep '{"reason":"ignored_twice"}')"
-      remove_named "$SDIR" draft nudged_draft draft_strikes draft_stale
+      park_draft "$SID" ignored_twice
     else
       # first ignore: drop the nudged-hash so the same draft is nudged once more
       remove_named "$SDIR" nudged_draft
@@ -333,6 +415,11 @@ hook_prompt_nudge() {
   # reached Stop (interrupted) must not suppress this turn's marker
   remove_named "$SDIR" synthetic recorded
   # likewise a nudge from a turn that never reached Stop
+  # (unless the user is mid-review: that nudge carries on, and nothing new fires)
+  if [ -e "$SDIR/reviewing" ] && [ -e "$SDIR/outstanding" ]; then
+    remove_named "$SDIR" marker
+    return 0
+  fi
   [ -e "$SDIR/outstanding" ] && resolve_ignored
   local line="" source="" dh="" phrase
   if [ -f "$SDIR/draft" ]; then
@@ -373,6 +460,8 @@ hook_end() {
   fi
   # a nudge whose turn never reached Stop gets no later prompt to resolve it
   [ -e "$SDIR/outstanding" ] && resolve_ignored nostrike
+  # a draft never dies with the session: park it for the user's later accept/dismiss
+  [ -e "$SDIR/draft" ] && park_draft "$SID" session_end
   : >"$SDIR/ended" 2>/dev/null || true
 }
 
@@ -381,7 +470,7 @@ reap_dir() {
   local d="$1" f
   remove_named "$d" marker recorded cooldown taskhash unchanged draft muted \
     outstanding ended synthetic nudged_draft taskpath sweep_offset draft_strikes \
-    sweep_failures draft_stale .lock
+    sweep_failures draft_stale reviewing .lock
   for f in "$d"/draft.tmp.* "$d"/draft_stale.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
   rmdir -- "$d" 2>/dev/null || true
 }
@@ -408,7 +497,7 @@ reap_stale() {
     d="${d%/}"; name="${d##*/}"
     [ -d "$d" ] && [ ! -L "$d" ] || continue
     sdir="$(session_dir "$name")" || continue
-    [ "$name" != "${SID:-}" ] || continue
+    [ "$name" != "${SID:-}" ] && [ "$name" != parked ] || continue
     stale=0
     if [ ! -e "$sdir/ended" ]; then
       [ -z "$(find "$sdir" -maxdepth 1 -newermt '7 days ago' -print -quit 2>/dev/null)" ] || continue
@@ -431,6 +520,11 @@ reap_stale() {
       SDIR="$sdir"
       osrc="$(cat "$sdir/outstanding" 2>/dev/null)"
       log_event "$name" ignored "$osrc" "$(stale_extra "$osrc")"
+    fi
+    SDIR="$sdir"
+    # a draft that can't be parked keeps its dir: retried on the next reap
+    if [ -e "$sdir/draft" ] && ! park_draft "$name" reaped; then
+      TASK_STEM="$saved_stem"; exec 8>&-; continue
     fi
     TASK_STEM="$saved_stem"
     reap_dir "$sdir"
@@ -515,7 +609,7 @@ cmd_clear_or_dismiss() { # <log-event|"">
   local dsrc=sweep dx
   [ -e "$SDIR/outstanding" ] && dsrc="$(cat "$SDIR/outstanding" 2>/dev/null)"
   dx="$(stale_extra "$dsrc")"
-  remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding
+  remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding reviewing
   if [ "$1" = dismissed ] && [ "$pending" = 1 ]; then log_event "$SID" dismissed "" "$dx"; fi
 }
 
@@ -537,6 +631,45 @@ cmd_status() {
   if [ -e "$SDIR/muted" ]; then echo "muted: yes"; else echo "muted: no"; fi
   echo "session: $SID"
   echo "log: $LOG_FILE"
+  # a draft whose sweep nudge is outstanding is being reviewed: carry the nudge
+  # across turns (see "Engagement marker"); phrase nudges don't count
+  if [ -e "$SDIR/draft" ] && [ "$(cat "$SDIR/outstanding" 2>/dev/null)" = sweep ]; then
+    : >"$SDIR/reviewing" 2>/dev/null || true
+  fi
+  local pf n=0 stem="${TASK_STEM:-_unknown}"
+  local -a dirs=("$CAPTURE_ROOT/parked/$stem")
+  [ "$stem" = _unknown ] || dirs+=("$CAPTURE_ROOT/parked/_unknown")
+  local pd
+  for pd in "${dirs[@]}"; do
+    for pf in "$pd"/*.md; do
+      [ -f "$pf" ] || continue
+      n=$((n + 1))
+      if [ -e "$pf.stale" ]; then echo "parked: $pf (stale)"; else echo "parked: $pf"; fi
+    done
+  done
+  [ "$n" -gt 0 ] || echo "parked: none"
+}
+
+# cmd_parked <followed|dismissed> <path> — resolve one parked draft: delete it
+# (and its .stale sidecar), log the event with source `parked` (+ stale:true when
+# marked). <path> must be a regular, non-symlink draft directly inside this
+# task's parked dir (or parked/_unknown); anything else: stderr + exit 1.
+cmd_parked() {
+  agent_session_dir
+  local ev="$1" p="${2:-}" d ok=0 rest
+  for d in "$CAPTURE_ROOT/parked/${TASK_STEM:-_unknown}" "$CAPTURE_ROOT/parked/_unknown"; do
+    case "$p" in "$d"/*) rest="${p#"$d"/}"; ok=1; break ;; esac
+  done
+  if [ "$ok" = 1 ] && [[ "$rest" =~ ^[A-Za-z0-9._-]+\.md$ ]] && [[ "$rest" != *..* ]] \
+     && [ -f "$p" ] && [ ! -L "$p" ]; then
+    local x=""
+    [ -e "$p.stale" ] && x='{"stale":true}'
+    rm -f -- "$p" "$p.stale" 2>/dev/null || true
+    log_event "$SID" "$ev" parked "$x"
+    return 0
+  fi
+  echo "wb-capture: not a parked draft of this task: ${p:-<empty>} (nothing changed)" >&2
+  exit 1
 }
 
 cmd_config() {
@@ -550,7 +683,7 @@ cmd_config() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   verb="${1:-}"
   case "$verb" in
-    clear|dismiss|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
+    clear|dismiss|unpark|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
     *) exit 0 ;;
   esac
 
@@ -558,7 +691,10 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 
   case "$verb" in
     clear)   cmd_clear_or_dismiss "" ;;
-    dismiss) cmd_clear_or_dismiss dismissed ;;
+    dismiss)
+      if [ -n "${2:-}" ]; then cmd_parked dismissed "$2"; else cmd_clear_or_dismiss dismissed; fi
+      ;;
+    unpark)  cmd_parked followed "${2:-}" ;;
     mute)
       agent_session_dir
       mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/muted" && log_event "$SID" muted

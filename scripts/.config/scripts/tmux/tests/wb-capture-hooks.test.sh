@@ -157,8 +157,8 @@ prompt "interrupted, asking again"
 assert_eq "stale nudge -> ignored" 1 "$(count_ev ignored)"
 assert_nofile "stale outstanding cleared" "$D/outstanding"
 
-echo "# draft strikes: first ignore re-nudges the same draft, second discards it"
-new_scenario
+echo "# draft strikes: first ignore re-nudges the same draft, second parks it"
+new_scenario; PK="$CAP/parked/dotfiles--feat-x"
 mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
 prompt "go"; assert_eq "draft nudge fired" sweep "$(cat "$D/outstanding")"
 stop "carrying on"
@@ -171,13 +171,17 @@ assert_match "same draft nudged again" 'background review drafted' "$OUT"
 assert_eq "second nudge outstanding" sweep "$(cat "$D/outstanding")"
 stop "still carrying on"
 assert_eq "ignored twice" 2 "$(count_ev ignored)"
-assert_nofile "draft discarded" "$D/draft"
+assert_nofile "draft left the session dir (sweep unblocked)" "$D/draft"
 assert_nofile "nudged_draft gone" "$D/nudged_draft"
 assert_nofile "strikes gone" "$D/draft_strikes"
-assert_eq "draft_discarded logged once" 1 "$(count_ev draft_discarded)"
-assert_eq "discard reason" ignored_twice "$(jq -r 'select(.event=="draft_discarded")|.reason' "$LOG")"
+assert_eq "draft_parked logged once" 1 "$(count_ev draft_parked)"
+assert_eq "park reason" ignored_twice "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
+assert_eq "never discarded" 0 "$(count_ev draft_discarded)"
+assert_eq "one parked file" 1 "$(ls "$PK" | wc -l | tr -d ' ')"
+assert_match "parked name sorts by time, carries sid" '^[0-9]{8}T[0-9]{6}-sid-aaa\.md$' "$(ls "$PK")"
+assert_eq "parked content verbatim" $'### Chose B\n- decided: B' "$(cat "$PK"/*.md)"
 prompt "after"; assert_eq "nothing left to nudge" "" "$OUT"
-assert_eq "no further discard" 1 "$(count_ev draft_discarded)"
+assert_eq "no further park" 1 "$(count_ev draft_parked)"
 
 echo "# draft strikes: stale outstanding at the next prompt strikes too"
 new_scenario
@@ -196,8 +200,25 @@ new_scenario
 mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"
 hook hook-end '{"session_id":"sid-aaa"}'
 assert_eq "end -> ignored" 1 "$(count_ev ignored)"
-assert_file "draft kept at end" "$D/draft"
 assert_nofile "no strike at end" "$D/draft_strikes"
+assert_eq "end parks the draft" 1 "$(count_ev draft_parked)"
+assert_eq "end park reason" session_end "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
+assert_nofile "draft left the session dir at end" "$D/draft"
+assert_eq "parked file exists" 1 "$(ls "$CAP/parked/dotfiles--feat-x" | wc -l | tr -d ' ')"
+assert_eq "pending_at_end still logged" 1 "$(count_ev pending_at_end)"
+assert_file "ended tombstone" "$D/ended"
+# SessionEnd with a draft never nudged: parked, no ignored
+new_scenario
+mkdir -p "$D"; printf 'quiet draft\n' >"$D/draft"
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_eq "un-nudged end: no ignored" 0 "$(count_ev ignored)"
+assert_eq "un-nudged end: parked" 1 "$(count_ev draft_parked)"
+# a marker alone parks nothing
+new_scenario
+stop "we decided to use B"
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_eq "marker is not parked" 0 "$(count_ev draft_parked)"
+assert_nofile "no parked dir for a marker" "$CAP/parked"
 
 echo "# draft strikes: followed / dismiss / clear reset the count"
 new_scenario
@@ -239,9 +260,10 @@ assert_eq "stale ignored tagged" true "$(stale_flag ignored)"
 assert_file "draft_stale kept after first ignore" "$D/draft_stale"
 prompt "go"; stop "carry on"
 assert_eq "stale second ignored tagged" 2 "$(jq -r 'select(.event=="ignored" and .stale==true)|.event' "$LOG" | wc -l | tr -d ' ')"
-assert_eq "stale draft_discarded tagged" true "$(stale_flag draft_discarded)"
-assert_eq "draft_discarded keeps reason" ignored_twice "$(jq -r 'select(.event=="draft_discarded")|.reason' "$LOG")"
+assert_eq "stale draft_parked tagged" true "$(stale_flag draft_parked)"
+assert_eq "draft_parked keeps reason" ignored_twice "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
 assert_nofile "two strikes removes draft_stale" "$D/draft_stale"
+assert_eq "stale parked file has a stale marker" 1 "$(ls "$CAP"/parked/dotfiles--feat-x/*.stale | wc -l | tr -d ' ')"
 # followed (posttool)
 new_scenario; stale_draft; prompt "go"
 posttool 'wb append x Decisions -'
@@ -269,7 +291,8 @@ assert_eq "stale end-ignored tagged" true "$(stale_flag ignored)"
 new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"
 prompt "go"; stop "x"; prompt "go"; stop "x"
 assert_eq "plain ignored untagged" none "$(stale_flag ignored)"
-assert_eq "plain draft_discarded untagged" none "$(stale_flag draft_discarded)"
+assert_eq "plain draft_parked untagged" none "$(stale_flag draft_parked)"
+assert_eq "plain parked file has no stale marker" 0 "$(ls "$CAP"/parked/dotfiles--feat-x/*.stale 2>/dev/null | wc -l | tr -d ' ')"
 new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; posttool 'wb append x Decisions -'
 assert_eq "plain followed untagged" none "$(stale_flag followed)"
 new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"; hook dismiss ''
@@ -281,6 +304,121 @@ stop "we decided to use B"; prompt "go"
 assert_eq "phrase nudge beside stale draft" phrase "$(cat "$D/outstanding")"
 stop "ok"
 assert_eq "phrase ignore untagged" none "$(stale_flag ignored)"
+
+echo "# engagement marker: a review spanning several turns resolves once"
+new_scenario
+mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"; assert_eq "sweep nudge outstanding" sweep "$(cat "$D/outstanding")"
+hook status ''
+assert_file "status marks the draft under review" "$D/reviewing"
+stop "here is the draft, shall I record it?"
+assert_eq "Stop while reviewing: not ignored" 0 "$(count_ev ignored)"
+assert_file "nudge carried to the next turn" "$D/outstanding"
+prompt "tweak the wording please"
+assert_eq "prompt while reviewing: not ignored" 0 "$(count_ev ignored)"
+assert_eq "no re-nudge while reviewing" "" "$OUT"
+assert_eq "still one nudge_fired" 1 "$(count_ev nudge_fired)"
+stop "reworded"
+assert_eq "second Stop: still not ignored" 0 "$(count_ev ignored)"
+posttool 'wb append x Decisions -'
+assert_eq "exactly one followed" 1 "$(count_ev followed)"
+assert_eq "zero ignored" 0 "$(count_ev ignored)"
+assert_eq "zero draft_parked" 0 "$(count_ev draft_parked)"
+assert_eq "zero draft_discarded" 0 "$(count_ev draft_discarded)"
+assert_nofile "followed removes reviewing" "$D/reviewing"
+assert_nofile "followed clears outstanding" "$D/outstanding"
+
+echo "# engagement marker: an abandoned review stops carrying after REVIEW_MAX_TURNS Stops"
+new_scenario
+mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"; hook status ''
+for t in 1 2 3 4; do stop "turn $t"; prompt "something else $t"; done
+assert_eq "4 carried Stops: not ignored yet" 0 "$(count_ev ignored)"
+stop "turn 5"
+assert_eq "5th Stop resolves ignored once" 1 "$(count_ev ignored)"
+assert_nofile "cap removes reviewing" "$D/reviewing"
+assert_eq "cap strikes the draft (kept, not parked)" 1 "$(cat "$D/draft_strikes" 2>/dev/null)"
+assert_file "draft still there" "$D/draft"
+prompt "next"
+assert_eq "struck draft re-nudged after the cap" sweep "$(cat "$D/outstanding" 2>/dev/null)"
+
+echo "# engagement marker: dismiss ends the review, one dismissed"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"
+prompt "go"; hook status ''; stop "reviewing"
+hook dismiss ''
+assert_eq "exactly one dismissed" 1 "$(count_ev dismissed)"
+assert_eq "no ignored" 0 "$(count_ev ignored)"
+assert_nofile "dismiss removes reviewing" "$D/reviewing"
+hook clear ''
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; hook status ''
+hook clear ''
+assert_nofile "clear removes reviewing" "$D/reviewing"
+
+echo "# engagement marker: not set for a phrase nudge or an un-nudged draft"
+new_scenario
+stop "we decided to use B"; prompt "go"
+hook status ''
+assert_nofile "phrase nudge: no reviewing" "$D/reviewing"
+stop "ok"
+assert_eq "phrase nudge still ignored normally" 1 "$(count_ev ignored)"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"
+hook status ''
+assert_nofile "draft not yet nudged: no reviewing" "$D/reviewing"
+new_scenario
+hook status ''
+assert_nofile "nothing pending: no reviewing" "$D/reviewing"
+
+echo "# engagement marker: a phrase nudge cannot displace an outstanding sweep nudge under review"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"
+prompt "go"; hook status ''
+stop "we decided to use B"
+prompt "next"
+assert_eq "outstanding still sweep" sweep "$(cat "$D/outstanding")"
+assert_eq "no second nudge_fired" 1 "$(count_ev nudge_fired)"
+
+echo "# engagement marker: SessionEnd resolves ignored (once) then parks, even while reviewing"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"
+prompt "go"; hook status ''; stop "reviewing"
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_eq "end: one ignored" 1 "$(count_ev ignored)"
+assert_eq "end: parked" 1 "$(count_ev draft_parked)"
+assert_eq "end: park reason" session_end "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
+assert_nofile "end: reviewing removed" "$D/reviewing"
+assert_nofile "end: outstanding removed" "$D/outstanding"
+
+echo "# engagement marker: the reaper resolves ignored (once) then parks, even while reviewing"
+new_scenario
+mkdir -p "$CAP/sid-rv"; printf 'sweep' >"$CAP/sid-rv/outstanding"; printf 'rv draft\n' >"$CAP/sid-rv/draft"; : >"$CAP/sid-rv/reviewing"
+printf '%s\n' "$H/tasks/dotfiles--feat-rv.md" >"$CAP/sid-rv/taskpath"
+touch -d '8 days ago' "$CAP/sid-rv"/* "$CAP/sid-rv"
+prompt "hi"
+assert_nofile "reaped dir gone (reviewing removed too)" "$CAP/sid-rv"
+assert_eq "reaper: one ignored" 1 "$(count_ev ignored)"
+assert_eq "reaper: parked" 1 "$(count_ev draft_parked)"
+assert_eq "reaper: parked under the session's task" "rv draft" "$(cat "$CAP"/parked/dotfiles--feat-rv/*-sid-rv.md)"
+
+echo "# reaper: a draft it cannot park keeps its dir (retried next reap), never deleted"
+new_scenario
+mkdir -p "$CAP/sid-pf" "$CAP/parked"; printf 'pf draft\n' >"$CAP/sid-pf/draft"
+printf '%s\n' "$H/tasks/dotfiles--feat-pf.md" >"$CAP/sid-pf/taskpath"
+: >"$CAP/parked/dotfiles--feat-pf"     # a FILE where the parked dir must go: mkdir fails
+touch -d '8 days ago' "$CAP/sid-pf"/* "$CAP/sid-pf"
+prompt "hi"
+assert_eq "unparkable draft kept in place" "pf draft" "$(cat "$CAP/sid-pf/draft" 2>/dev/null)"
+assert_eq "no draft_parked logged" 0 "$(count_ev draft_parked)"
+
+echo "# parking: nothing is parked twice and the sweep is unblocked"
+new_scenario; PK="$CAP/parked/dotfiles--feat-x"
+mkdir -p "$D"; printf 'one\n' >"$D/draft"
+prompt "go"; stop "x"; prompt "go"; stop "x"
+printf 'two\n' >"$D/draft"
+prompt "go"; stop "x"; prompt "go"; stop "x"
+assert_eq "two drafts parked separately" 2 "$(ls "$PK"/*.md | wc -l | tr -d ' ')"
 
 echo "# sub-agent posttool"
 new_scenario
@@ -297,6 +435,40 @@ assert_eq "exit 0" 0 "$RC"
 posttool 'cd x && wb append t.md Decisions -'; assert_file "chained wb append" "$D/recorded"
 posttool $'session=$(tmux display-message -p \'#S\')\ntask_file=$(tmux show -t "=$session:" -v @task)\nwb append "$task_file" Decisions - <<\'WB_DECISION_END\'\n### t\n- x\nWB_DECISION_END'
 assert_file "multi-line /wb-decide shape" "$D/recorded"
+
+echo "# heredoc bodies are not commands"
+new_scenario
+stop "we decided to use B"; prompt "go"
+posttool $'cat > notes.md <<\'EOF\'\nwb append "$t" Decisions -\nEOF'
+assert_nofile "heredoc body line does not set recorded" "$D/recorded"
+assert_eq "no followed from a heredoc body" 0 "$(count_ev followed)"
+assert_file "nudge still outstanding" "$D/outstanding"
+for op in '<<EOF' '<<"EOF"' "<<-EOF" "<<-'EOF'" "<< EOF" '<<\EOF'; do
+  new_scenario
+  posttool "cat > n.md $op"$'\nwb append x Decisions -\nEOF'
+  assert_nofile "body of [$op] not matched" "$D/recorded"
+done
+new_scenario
+posttool $'cat > n.md <<-EOF\n\twb append x Decisions -\n\tEOF\ntrue'
+assert_nofile "<<- body with tab-indented terminator" "$D/recorded"
+new_scenario
+posttool $'cat > n.md <<EOF\nbody\nEOF\nwb append x Decisions -'
+assert_file "command after the terminator still matches" "$D/recorded"
+new_scenario
+posttool $'wb append x Decisions - <<\'WB_DECISION_END\'\n### t\n- x\nWB_DECISION_END'
+assert_file "operator line itself still matches" "$D/recorded"
+new_scenario
+posttool $'grep x <<< "wb append y Decisions -"'
+assert_nofile "here-string is not a heredoc but is not a command either" "$D/recorded"
+new_scenario
+posttool $'cat <<<foo\nwb append x Decisions -'
+assert_file "here-string does not swallow following lines" "$D/recorded"
+new_scenario
+posttool $'cat > n.md <<\'EOF\'\nwb append x Decisions -\nnever terminated'
+assert_eq "unterminated heredoc: exit 0" 0 "$RC"
+assert_nofile "unterminated heredoc body not matched" "$D/recorded"
+posttool $'cat <<EOF'
+assert_eq "bare heredoc: exit 0" 0 "$RC"
 new_scenario
 posttool $'cd /tmp\nwb append "$t" Decisions - <<EOF\nbody\nEOF'; assert_file "append on a later line" "$D/recorded"
 new_scenario
@@ -469,10 +641,26 @@ new_scenario
 mkold sid-dr draft
 prompt "hi"
 assert_nofile "draft-only dir removed" "$CAP/sid-dr"
+assert_eq "reaper parked the draft" 1 "$(count_ev draft_parked)"
+assert_eq "reaper park reason" reaped "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
+assert_eq "reaper park under _unknown (no taskpath)" 1 "$(ls "$CAP/parked/_unknown" | wc -l | tr -d ' ')"
 assert_eq "one pending_orphaned" 1 "$(count_ev pending_orphaned)"
 assert_eq "orphan sid" sid-dr "$(jq -r 'select(.event=="pending_orphaned")|.session_id' "$LOG")"
 assert_eq "orphan draft true" true "$(jq -r 'select(.event=="pending_orphaned")|.draft' "$LOG")"
 assert_eq "orphan marker false" false "$(jq -r 'select(.event=="pending_orphaned")|.marker' "$LOG")"
+assert_nofile "reaper never treats parked/ as a session dir" "$CAP/parked/.lock"
+# a draft whose session recorded its task parks under that task
+new_scenario
+mkold sid-dt draft taskpath
+printf '%s\n' "$H/tasks/dotfiles--feat-old.md" >"$CAP/sid-dt/taskpath"; touch -d '8 days ago' "$CAP/sid-dt/taskpath" "$CAP/sid-dt"
+echo "orphan draft" >"$CAP/sid-dt/draft"; touch -d '8 days ago' "$CAP/sid-dt/draft" "$CAP/sid-dt"
+prompt "hi"
+assert_eq "reaper parks under the session's task" "orphan draft" "$(cat "$CAP"/parked/dotfiles--feat-old/*-sid-dt.md)"
+# a phrase marker is not parked
+new_scenario
+mkold sid-mk marker
+prompt "hi"
+assert_eq "marker-only reap parks nothing" 0 "$(count_ev draft_parked)"
 
 echo "# reaper: dir holding an outstanding nudge logs ignored before removal"
 new_scenario

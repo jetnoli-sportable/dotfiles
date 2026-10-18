@@ -133,6 +133,69 @@ new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo 0 >"$D/draft_stale"
 run_wb /dev/null status
 assert_eq "draft_stale without draft: no warning" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'may already')"
 
+echo "# status marks a nudged draft as under review"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"
+run_wb /dev/null status
+assert_nofile "un-nudged draft: not reviewing" "$D/reviewing"
+printf 'sweep' >"$D/outstanding"
+run_wb /dev/null status
+assert_file "sweep nudge outstanding: reviewing" "$D/reviewing"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"; printf 'phrase' >"$D/outstanding"
+run_wb /dev/null status
+assert_nofile "phrase nudge: not reviewing" "$D/reviewing"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'sweep' >"$D/outstanding"
+run_wb /dev/null status
+assert_nofile "no draft: not reviewing" "$D/reviewing"
+
+echo "# parked drafts: status lists, unpark / dismiss <path> delete + log"
+new_scenario; D="$(sdir sid-aaa)"; PK="$CAP/parked/dotfiles--feat-x"; mkdir -p "$D" "$PK"
+run_wb /dev/null status
+assert_match "no parked drafts" 'parked: none' "$OUT"
+printf 'one\n' >"$PK/20261018T100000-sid-aaa.md"
+printf 'two\n' >"$PK/20261018T110000-sid-bbb.md"; : >"$PK/20261018T110000-sid-bbb.md.stale"
+mkdir -p "$CAP/parked/other--task"; printf 'x\n' >"$CAP/parked/other--task/20261018T090000-sid-ccc.md"
+run_wb /dev/null status
+assert_match "lists first path" "parked: $PK/20261018T100000-sid-aaa.md\$" "$OUT"
+assert_match "lists stale one marked" "parked: $PK/20261018T110000-sid-bbb.md \\(stale\\)" "$OUT"
+assert_eq "other task's drafts not listed" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'other--task')"
+run_wb /dev/null unpark "$PK/20261018T100000-sid-aaa.md"
+assert_eq "unpark exit" 0 "$RC"
+assert_nofile "unpark deletes the draft" "$PK/20261018T100000-sid-aaa.md"
+assert_eq "unpark logs followed" followed "$(jq -r .event "$LOG")"
+assert_eq "unpark source parked" parked "$(jq -r .source "$LOG")"
+assert_eq "unpark untagged when not stale" null "$(jq -r '.stale // null' "$LOG")"
+run_wb /dev/null dismiss "$PK/20261018T110000-sid-bbb.md"
+assert_eq "dismiss <path> exit" 0 "$RC"
+assert_nofile "dismiss <path> deletes the draft" "$PK/20261018T110000-sid-bbb.md"
+assert_nofile "dismiss <path> deletes the stale marker" "$PK/20261018T110000-sid-bbb.md.stale"
+assert_eq "dismiss <path> logs dismissed" dismissed "$(jq -r 'select(.event=="dismissed")|.event' "$LOG")"
+assert_eq "dismiss <path> source parked" parked "$(jq -r 'select(.event=="dismissed")|.source' "$LOG")"
+assert_eq "dismiss <path> tagged stale" true "$(jq -r 'select(.event=="dismissed")|.stale' "$LOG")"
+assert_file "other task's draft untouched" "$CAP/parked/other--task/20261018T090000-sid-ccc.md"
+run_wb /dev/null status
+assert_match "all resolved" 'parked: none' "$OUT"
+
+echo "# parked drafts: paths outside the parked dir are refused"
+new_scenario; D="$(sdir sid-aaa)"; PK="$CAP/parked/dotfiles--feat-x"; mkdir -p "$D" "$PK"
+printf 'keep\n' >"$H/victim.md"; printf 'keep\n' >"$CAP/parked/other--task.md"
+mkdir -p "$CAP/parked/other--task"; printf 'keep\n' >"$CAP/parked/other--task/20261018T090000-sid-ccc.md"
+ln -s "$H/victim.md" "$PK/20261018T120000-sid-link.md"
+for bad in "$H/victim.md" "$PK/../../../../victim.md" "$PK/../other--task/20261018T090000-sid-ccc.md" \
+           "$CAP/parked/other--task/20261018T090000-sid-ccc.md" "$PK/20261018T120000-sid-link.md" \
+           "$PK/missing.md" "$PK" "" "$PK/sub/x.md"; do
+  for v in unpark dismiss; do
+    run_wb /dev/null "$v" "$bad"
+    if [ "$v" = unpark ] || [ -n "$bad" ]; then
+      [ "$RC" -ne 0 ] && ok "$v refuses [$bad]" || bad "$v refuses [$bad]" "exit 0"
+      assert_match "$v refusal explains on stderr" 'wb-capture:' "$OUT"
+    fi
+  done
+done
+assert_file "victim untouched" "$H/victim.md"
+assert_file "sibling task's draft untouched" "$CAP/parked/other--task/20261018T090000-sid-ccc.md"
+assert_file "symlink untouched" "$PK/20261018T120000-sid-link.md"
+assert_eq "nothing logged by refusals" 0 "$(logn)"
+
 echo "# dismiss / clear"
 new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft" "$D/outstanding" "$D/muted"
 run_wb /dev/null dismiss; assert_eq "dismiss exit" 0 "$RC"

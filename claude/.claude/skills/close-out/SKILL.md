@@ -13,9 +13,8 @@ threads, then the wind-down, in that order, because the sweep has to happen
 
 > **Store-only field/status edits:** never Edit/Write a task file's frontmatter by
 > hand — `wb status <task-ref> <planned|paused|doing|review>` flips status and
-> `wb set <task-ref> <field> <value>` (fields: priority value size parent
-> depends_on jira pr tags path branch) writes any other frontmatter field under the task
-> lock, both refusing when a live session owns the task.
+> `wb set <task-ref> <field> <value>` (any field `wb help` lists) writes any
+> other frontmatter field under the task lock, both refusing when a live session owns the task.
 
 ## Scope — what this does and doesn't do
 
@@ -109,6 +108,14 @@ don't need a mirror entry here — they live in their own ledger).
 If the task file already has this filled in from earlier in the session
 (e.g. a mid-session `/wb-save` already wrote rich `## Decisions` content),
 don't duplicate — extend only where the sweep in step 2 added something new.
+
+Then check for **parked decision drafts** — background-drafted decisions nobody
+accepted or dismissed. Run `~/.config/scripts/tmux/wb-capture.sh status`; for
+each `parked:` line listed, Read it, show it to the user, and ask: accept/edit
+(→ `wb append <task> Decisions -`, then `wb-capture.sh unpark <path>`) or
+dismiss (→ `wb-capture.sh dismiss <path>`). Never drop one silently; a
+`(stale)` one may already be recorded, so compare it with the newest
+`## Decisions` entries first.
 
 After folding real Decisions, if `## Decisions` is **still empty**, review the
 session and decide whether anything was actually decided:
