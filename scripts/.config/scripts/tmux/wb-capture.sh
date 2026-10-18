@@ -31,11 +31,12 @@
 #                  reviewing and outstanding flag. Logs nothing (the PostToolUse hook already logs `followed`).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
 #                  when nothing was pending.
-#   dismiss <path> dismiss one SHELVED draft: delete it, log `dismissed` source
-#                  `shelved`. <path> must be a shelved draft of this task.
+#   dismiss <path> dismiss one SHELVED draft: delete it, log `shelved_dismissed`
+#                  (no source). <path> must be a shelved draft of this task.
 #   accept <path>  after /wb-decide recorded a shelved draft: delete it, log
-#                  `followed` source `shelved`. Same path rule; a path outside
-#                  the shelved dir exits 1 with a message on stderr.
+#                  `shelved_accepted` (no source). Same path rule; a path outside
+#                  the shelved dir exits 1 with a message on stderr. (`followed`
+#                  and `dismissed` mean only "a nudge resolved".)
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
 #   status         print pending marker/draft (with paths), mute state, the
 #                  log path, then this task's shelved drafts (one `shelved: <path>`
@@ -659,8 +660,8 @@ cmd_status() {
   [ "$n" -gt 0 ] || echo "shelved: none"
 }
 
-# cmd_shelved <followed|dismissed> <path> — resolve one shelved draft: delete it
-# (and its .stale sidecar), log the event with source `shelved` (+ stale:true when
+# cmd_shelved <shelved_accepted|shelved_dismissed> <path> — resolve one shelved
+# draft: delete it (and its .stale sidecar), log the event (+ stale:true when
 # marked). <path> must be a regular, non-symlink draft directly inside this
 # task's shelved dir (or shelved/_unknown); anything else: stderr + exit 1.
 cmd_shelved() {
@@ -674,7 +675,7 @@ cmd_shelved() {
     local x=""
     [ -e "$p.stale" ] && x='{"stale":true}'
     rm -f -- "$p" "$p.stale" 2>/dev/null || true
-    log_event "$SID" "$ev" shelved "$x"
+    log_event "$SID" "$ev" "" "$x"
     return 0
   fi
   echo "wb-capture: not a shelved draft of this task: ${p:-<empty>} (nothing changed)" >&2
@@ -701,9 +702,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "$verb" in
     clear)   cmd_clear_or_dismiss "" ;;
     dismiss)
-      if [ -n "${2:-}" ]; then cmd_shelved dismissed "$2"; else cmd_clear_or_dismiss dismissed; fi
+      if [ -n "${2:-}" ]; then cmd_shelved shelved_dismissed "$2"; else cmd_clear_or_dismiss dismissed; fi
       ;;
-    accept)  cmd_shelved followed "${2:-}" ;;
+    accept)  cmd_shelved shelved_accepted "${2:-}" ;;
     mute)
       agent_session_dir
       mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/muted" && log_event "$SID" muted
