@@ -309,8 +309,8 @@ echo "# engagement marker: a review spanning several turns resolves once"
 new_scenario
 mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
 prompt "go"; assert_eq "sweep nudge outstanding" sweep "$(cat "$D/outstanding")"
-hook status ''
-assert_file "status marks the draft under review" "$D/reviewing"
+hook review ''
+assert_file "review marks the draft under review" "$D/reviewing"
 stop "here is the draft, shall I record it?"
 assert_eq "Stop while reviewing: not ignored" 0 "$(count_ev ignored)"
 assert_file "nudge carried to the next turn" "$D/outstanding"
@@ -331,7 +331,7 @@ assert_nofile "followed clears outstanding" "$D/outstanding"
 echo "# engagement marker: an abandoned review stops carrying after REVIEW_MAX_TURNS Stops"
 new_scenario
 mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
-prompt "go"; hook status ''
+prompt "go"; hook review ''
 for t in 1 2 3 4; do stop "turn $t"; prompt "something else $t"; done
 assert_eq "4 carried Stops: not ignored yet" 0 "$(count_ev ignored)"
 stop "turn 5"
@@ -342,39 +342,64 @@ assert_file "draft still there" "$D/draft"
 prompt "next"
 assert_eq "struck draft re-nudged after the cap" sweep "$(cat "$D/outstanding" 2>/dev/null)"
 
+echo "# engagement marker: a plain status does not start a review (status is read-only)"
+new_scenario
+mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"; hook status ''
+assert_nofile "status leaves no reviewing" "$D/reviewing"
+posttool 'wb append x Decisions -'
+assert_eq "unrelated append after status: one followed" 1 "$(count_ev followed)"
+assert_nofile "followed: outstanding cleared" "$D/outstanding"
+new_scenario
+mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"; hook status ''; stop "an unrelated turn"
+assert_eq "Stop after plain status resolves ignored (no carried review)" 1 "$(count_ev ignored)"
+assert_nofile "no reviewing after the Stop" "$D/reviewing"
+assert_eq "first ignore strikes the draft" 1 "$(cat "$D/draft_strikes" 2>/dev/null)"
+
+echo "# engagement marker: a second review doesn't reset the carried-Stop counter"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"
+prompt "go"; hook review ''; stop "one"; stop "two"
+assert_eq "two carried Stops" 2 "$(cat "$D/reviewing")"
+hook review ''
+assert_eq "review again: counter kept" 2 "$(cat "$D/reviewing")"
+stop "three"
+assert_eq "counter continues" 3 "$(cat "$D/reviewing")"
+
 echo "# engagement marker: dismiss ends the review, one dismissed"
 new_scenario
 mkdir -p "$D"; printf 'draft\n' >"$D/draft"
-prompt "go"; hook status ''; stop "reviewing"
+prompt "go"; hook review ''; stop "reviewing"
 hook dismiss ''
 assert_eq "exactly one dismissed" 1 "$(count_ev dismissed)"
 assert_eq "no ignored" 0 "$(count_ev ignored)"
 assert_nofile "dismiss removes reviewing" "$D/reviewing"
 hook clear ''
 new_scenario
-mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; hook status ''
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; hook review ''
 hook clear ''
 assert_nofile "clear removes reviewing" "$D/reviewing"
 
 echo "# engagement marker: not set for a phrase nudge or an un-nudged draft"
 new_scenario
 stop "we decided to use B"; prompt "go"
-hook status ''
+hook review ''
 assert_nofile "phrase nudge: no reviewing" "$D/reviewing"
 stop "ok"
 assert_eq "phrase nudge still ignored normally" 1 "$(count_ev ignored)"
 new_scenario
 mkdir -p "$D"; printf 'draft\n' >"$D/draft"
-hook status ''
+hook review ''
 assert_nofile "draft not yet nudged: no reviewing" "$D/reviewing"
 new_scenario
-hook status ''
+hook review ''
 assert_nofile "nothing pending: no reviewing" "$D/reviewing"
 
 echo "# engagement marker: a phrase nudge cannot displace an outstanding sweep nudge under review"
 new_scenario
 mkdir -p "$D"; printf 'draft\n' >"$D/draft"
-prompt "go"; hook status ''
+prompt "go"; hook review ''
 stop "we decided to use B"
 prompt "next"
 assert_eq "outstanding still sweep" sweep "$(cat "$D/outstanding")"
@@ -383,7 +408,7 @@ assert_eq "no second nudge_fired" 1 "$(count_ev nudge_fired)"
 echo "# engagement marker: SessionEnd resolves ignored (once) then shelves, even while reviewing"
 new_scenario
 mkdir -p "$D"; printf 'draft\n' >"$D/draft"
-prompt "go"; hook status ''; stop "reviewing"
+prompt "go"; hook review ''; stop "reviewing"
 hook hook-end '{"session_id":"sid-aaa"}'
 assert_eq "end: one ignored" 1 "$(count_ev ignored)"
 assert_eq "end: shelved" 1 "$(count_ev draft_shelved)"

@@ -133,19 +133,26 @@ new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo 0 >"$D/draft_stale"
 run_wb /dev/null status
 assert_eq "draft_stale without draft: no warning" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'may already')"
 
-echo "# status marks a nudged draft as under review"
+echo "# status is read-only; review marks a nudged sweep draft as under review"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"; printf 'sweep' >"$D/outstanding"
+run_wb /dev/null status
+assert_nofile "status never marks reviewing" "$D/reviewing"
+run_wb /dev/null review
+assert_eq "review exit" 0 "$RC"
+assert_eq "review silent" "" "$OUT"
+assert_file "sweep nudge outstanding: review marks reviewing" "$D/reviewing"
+printf '3\n' >"$D/reviewing"
+run_wb /dev/null review
+assert_eq "second review keeps the carried-Stop counter" 3 "$(cat "$D/reviewing")"
 new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"
-run_wb /dev/null status
-assert_nofile "un-nudged draft: not reviewing" "$D/reviewing"
-printf 'sweep' >"$D/outstanding"
-run_wb /dev/null status
-assert_file "sweep nudge outstanding: reviewing" "$D/reviewing"
+run_wb /dev/null review
+assert_nofile "un-nudged draft: review is a no-op" "$D/reviewing"
 new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"; printf 'phrase' >"$D/outstanding"
-run_wb /dev/null status
-assert_nofile "phrase nudge: not reviewing" "$D/reviewing"
+run_wb /dev/null review
+assert_nofile "phrase nudge: review is a no-op" "$D/reviewing"
 new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'sweep' >"$D/outstanding"
-run_wb /dev/null status
-assert_nofile "no draft: not reviewing" "$D/reviewing"
+run_wb /dev/null review
+assert_nofile "no draft: review is a no-op" "$D/reviewing"
 
 echo "# shelved drafts: status lists, accept / dismiss <path> delete + log"
 new_scenario; D="$(sdir sid-aaa)"; PK="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$D" "$PK"

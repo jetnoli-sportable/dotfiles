@@ -53,10 +53,12 @@ If the argument is exactly `dismiss`, `mute`, `unmute` or `status`, run:
 ~/.config/scripts/tmux/wb-capture.sh <verb>
 ```
 
-Report its output in one line (or say it printed nothing — a silent no-op)
-and stop. Nothing else in this skill applies. The argument `shelved` is not a
-passthrough: run step 1, then follow step 2b. Any other argument is a
-free-text hint for the default mode below.
+Report its output (or say it printed nothing — a silent no-op) and stop. For
+`status`, relay **every** `shelved:` line verbatim (path and any `(stale)`
+marker) — don't compress them into a count or a one-line summary; the user
+needs the paths to pick one. Nothing else in this skill applies. The argument
+`shelved` is not a passthrough: run step 1, then follow step 2b. Any other
+argument is a free-text hint for the default mode below.
 
 ### 1. Locate the task file via `@task`
 
@@ -80,11 +82,14 @@ task_file=$(tmux show -t "=$session:" -v @task)
 ~/.config/scripts/tmux/wb-capture.sh status
 ```
 
-Running `status` also marks a pending draft as **under review**: the nudge
-carries over to the next turn instead of counting as ignored, so a review that
-spans several messages (edits, questions) is fine and resolves once. After
-four carried turns with no record or dismiss it counts as abandoned and is
-struck like an ignored nudge (still shelved, never deleted).
+`status` is read-only. A draft is marked **under review** by a separate
+`~/.config/scripts/tmux/wb-capture.sh review`, which the draft-review path below
+runs right after it shows the draft: the nudge then carries over to the next
+turn instead of counting as ignored, so a review that spans several messages
+(edits, questions) is fine and resolves once. After four carried turns with no
+record or dismiss it counts as abandoned and is struck like an ignored nudge
+(still shelved, never deleted). Run `review` only on that path, never for a
+bare `status` check or any other path through this skill.
 
 Take the **draft-review path** only when a draft is present (status names a
 draft file) **and** one of these holds:
@@ -93,9 +98,10 @@ draft file) **and** one of these holds:
   you here, or
 - the user ran `/wb-decide` with no hint.
 
-On that path, Read the draft and present it to the user. Accept it as-is, or
-edit it first, **only if it reflects a real decision made in this session** —
-a Haiku draft sees a transcript excerpt and can be wrong or already-recorded.
+On that path, Read the draft and present it to the user, then run
+`~/.config/scripts/tmux/wb-capture.sh review` (a quiet no-op unless the draft's
+nudge is outstanding). Accept it as-is, or edit it first, **only if it reflects
+a real decision made in this session** — a Haiku draft sees a transcript excerpt and can be wrong or already-recorded.
 If it doesn't, run `~/.config/scripts/tmux/wb-capture.sh dismiss`, say so in
 one line, and stop.
 
@@ -207,9 +213,10 @@ line: `Recorded to ## Decisions.`
 - [ ] **Stale draft:** `status` says the draft may already be recorded and
   lists newer Decisions entries — show the draft beside them and ask; a
   duplicate gets `dismiss` (say so), a distinct one is accepted/edited as usual.
-- [ ] **Multi-message review:** `status` marked the draft under review; the
-  user asks questions / requests edits over several turns — the nudge isn't
-  counted ignored, one `followed` (or `dismissed`) results.
+- [ ] **Multi-message review:** the draft-review path ran `review` after
+  showing the draft (a bare `status` never does); the user asks questions /
+  requests edits over several turns — the nudge isn't counted ignored, one
+  `followed` (or `dismissed`) results.
 - [ ] **Shelved drafts:** `status` lists `shelved:` lines; `/wb-decide shelved`
   reviews them one at a time — accept/edit → `wb append` → `accept <path>`,
   reject → `dismiss <path>`; never a hand `rm`.

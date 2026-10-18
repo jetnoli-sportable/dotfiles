@@ -42,9 +42,11 @@
 #                  log path, then this task's shelved drafts (one `shelved: <path>`
 #                  line each, `(stale)` when marked; `shelved: none`) —
 #                  human-readable lines. A stale draft adds a warning line plus
-#                  the `### ` headings recorded since its snapshot. A draft whose
-#                  nudge (source sweep) is outstanding is also marked `reviewing`:
-#                  the user is mid-review, see "Engagement marker".
+#                  the `### ` headings recorded since its snapshot. Read-only.
+#   review         mark the session's draft as under review (see "Engagement
+#                  marker"): creates `reviewing` only if absent, and only when a
+#                  draft exists and its sweep nudge is `outstanding`; otherwise a
+#                  quiet no-op. Called by /wb-decide's draft-review path only.
 #   _config        TEST-ONLY: print the resolved config as key=value lines.
 #
 # Agent verbs find their session via the tmux PANE option @wb_capture_sid
@@ -83,9 +85,12 @@
 # whenever the draft goes away another way (followed, dismiss, clear) or the sweep
 # writes a new draft. Phrase-nudge ignores don't strike and shelve nothing (no data);
 # SessionEnd resolves an outstanding nudge as ignored without striking.
-# Engagement marker: `status` touches `reviewing` while a sweep draft nudge is
-# outstanding, meaning the user is mid-review over several messages. While it
-# exists the Stop hook and the next prompt keep `outstanding` (carry it to the next
+# Engagement marker: `review` creates `reviewing` while a sweep draft nudge is
+# outstanding, meaning the user is mid-review over several messages. It never
+# truncates an existing file: `reviewing` holds the carried-Stop counter, and a
+# repeated `review` must not reset it. Only /wb-decide's draft-review path calls
+# it (`status` is read-only, so a bare status check or a close-out sweep can't
+# put an unrelated session under review). While it exists the Stop hook and the next prompt keep `outstanding` (carry it to the next
 # turn) instead of resolving it ignored, and no new nudge fires, so the review
 # resolves exactly once: followed (posttool) or dismissed (dismiss/clear). After
 # REVIEW_MAX_TURNS carried Stops the review counts as abandoned: the next Stop
@@ -326,7 +331,7 @@ hook_stop() {
   # that ends with neither a Decisions append (followed) nor a dismiss resolves
   # it as ignored, so a later unrelated append can't be counted as followed.
   # A synthetic turn isn't the agent's real turn yet.
-  # A review in progress (`reviewing`, set by status) carries the nudge instead,
+  # A review in progress (`reviewing`, set by `review`) carries the nudge instead,
   # for at most REVIEW_MAX_TURNS Stops: an abandoned review would otherwise hold
   # the nudge (and block phrase nudges and the sweep) for the rest of the session.
   if [ -e "$SDIR/outstanding" ] && [ ! -e "$SDIR/synthetic" ]; then
@@ -641,11 +646,6 @@ cmd_status() {
   if [ -e "$SDIR/muted" ]; then echo "muted: yes"; else echo "muted: no"; fi
   echo "session: $SID"
   echo "log: $LOG_FILE"
-  # a draft whose sweep nudge is outstanding is being reviewed: carry the nudge
-  # across turns (see "Engagement marker"); phrase nudges don't count
-  if [ -e "$SDIR/draft" ] && [ "$(cat "$SDIR/outstanding" 2>/dev/null)" = sweep ]; then
-    : >"$SDIR/reviewing" 2>/dev/null || true
-  fi
   local pf n=0 stem="${TASK_STEM:-_unknown}"
   local -a dirs=("$CAPTURE_ROOT/shelved/$stem")
   [ "$stem" = _unknown ] || dirs+=("$CAPTURE_ROOT/shelved/_unknown")
@@ -658,6 +658,17 @@ cmd_status() {
     done
   done
   [ "$n" -gt 0 ] || echo "shelved: none"
+}
+
+# cmd_review — mark the pending sweep draft as under review (see "Engagement
+# marker"). Only when a draft exists and its sweep nudge is outstanding (phrase
+# nudges don't count); never truncates an existing marker (it holds the counter).
+cmd_review() {
+  agent_session_dir
+  [ -e "$SDIR/reviewing" ] && return 0
+  if [ -e "$SDIR/draft" ] && [ "$(cat "$SDIR/outstanding" 2>/dev/null)" = sweep ]; then
+    : >"$SDIR/reviewing" 2>/dev/null || true
+  fi
 }
 
 # cmd_shelved <shelved_accepted|shelved_dismissed> <path> — resolve one shelved
@@ -693,7 +704,7 @@ cmd_config() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   verb="${1:-}"
   case "$verb" in
-    clear|dismiss|accept|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
+    clear|dismiss|accept|review|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
     *) exit 0 ;;
   esac
 
@@ -714,6 +725,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       remove_named "$SDIR" muted
       log_event "$SID" unmuted
       ;;
+    review)  cmd_review ;;
     status)  cmd_status ;;
     _config) cmd_config ;;
     hook-prompt|hook-posttool|hook-stop)
