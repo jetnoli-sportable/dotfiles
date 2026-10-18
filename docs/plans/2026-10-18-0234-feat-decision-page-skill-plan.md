@@ -19,7 +19,7 @@ task: dotfiles--feat-decision-artifact-skill
   - review-page's page moved onto the same kit, with its local server and Submit flow kept (KTD11).
 - **Authority:** the task file's `## Decisions` (dotfiles--feat-decision-artifact-skill, 2026-10-18) outranks this plan. This plan outranks the approved UX mockups (`~/code/tasks/dossiers/dotfiles--feat-decision-artifact-skill/mockups/decision-page-converged.html` and `review-page-converged.html`), which outrank the original deletion-audit page it grew from.
 - **Stop conditions:** stop and report if snap Chromium cannot keep localStorage for a `file://` page under `~/code/tasks/dossiers/`, because that would leave the local default with no way to save progress. Stop if any unit would require touching `wb.sh`. Stop and report if review-page's test suite can't be kept passing without breaking `/weekly-review` or `/wb-breakdown`.
-- **Execution profile:** `ce-work` in the `feat-decision-artifact-skill` worktree. Commit per unit, in dependency order: U5, U1, U2, U3, U6, U4. One PR to `development`. If the diff passes roughly 1,500 lines, split it into two stacked PRs: kit plus decision-page, then review-page. Jet merges, then the main checkout is re-stowed so the new skill goes live.
+- **Execution profile:** `ce-work` in the `feat-decision-artifact-skill` worktree. Commit per unit, in dependency order: U5, U1, U2, U3, U6, U4. One PR to `development`. If the diff passes roughly 1,500 lines, split it into two stacked PRs: U5, U1, U2 and U3 first, then U6 and U4, so the routing edits land once both pages exist. Jet merges, then the main checkout is re-stowed so the new skill goes live.
 
 ---
 
@@ -96,7 +96,7 @@ The decision page was hand-built for that one audit, so the next batch would mea
   - **An overview band at the top:** a "where this sits" strip, compact at-a-glance counts with verdict chips, a plain statement that untouched rows accept their suggestion, and the intro with the rest collapsible.
   - **A collapsible left sidebar,** trimmed to five things: progress, "needs you" remaining with a jump to the next one, overrides, verdict tallies you can click to filter, and search with an area filter. It has no per-row list.
   - **Rows grouped by area,** each area with "Agree to all in this area". Each row shows its task as a chip, a one-line summary, the suggested verdict with its reason always visible, the verdict control, Agree, and Note/Group toggles. Evidence and details are collapsed.
-  - **"Needs you" rows are flagged in place.** Rows answering an earlier note carry an earlier-note marker.
+  - **"Needs you" rows are flagged in place.** Rows whose spec gives a `prior` note carry an earlier-note marker.
   - **A close-out block at the end of the content column,** never fixed to the screen and never overlapped by the sidebar. It holds accept-remaining-defaults, global questions, Submit and Copy JSON.
   - **Calm buttons.** Accent colour is kept for the selected verdict, Submit and progress. Every other button is neutral and readable.
 - R16. The review page can be driven from the keyboard:
@@ -105,7 +105,7 @@ The decision page was hand-built for that one audit, so the next batch would mea
   - `e`/`E` expand or collapse evidence, `u` jumps to the next "needs you" row, `[` collapses the sidebar and `?` lists the keys.
   - Enter on the overview jumps to the first "needs you" row, and Enter on the close-out block submits.
   - No key fires while Jet is typing.
-- R17. review-page keeps its job. An untouched row accepts its suggestion while accept-defaults is ticked, a row with no suggestion is never defaulted, and Submit returns the answers to the waiting agent. Any change to its spec or answers format updates `/weekly-review`, `/wb-breakdown` and review-page's reference doc in the same sweep.
+- R17. review-page keeps its job, and every feature its callers rely on carries over (KTD11's list). An untouched row accepts its suggestion while accept-defaults is ticked, a row with no suggestion is never defaulted, and Submit returns the answers to the waiting agent. Any change to its spec or answers format updates `/weekly-review`, `/wb-breakdown` and review-page's reference doc in the same sweep.
 - R18. The two pages share one look and one key map. They use the same tokens, sidebar behaviour, overview band and closing-block placement, and a key never means different things on the two pages.
 
 ### Scope Boundaries
@@ -156,7 +156,7 @@ Considered and not built:
 - KTD7. **No external requests.** The template uses system font stacks instead of the reference's Google Fonts link, so the page works offline and stays self-contained.
 - KTD8. **Opening the page reuses review-page's browser launch order** (`/snap/bin/chromium`, then `xdg-open`, then `webbrowser`; see `open_browser` in `review-page.py`). The generator refuses to open the page itself, but still writes it and prints the path, when the path is under `/tmp` or has a hidden directory component. Snap Chromium can't read either location (memory: snap-chromium-hidden-dirs). A `--no-open` flag serves tests.
 - KTD9. **Round-2 items can carry a `prior: {note, reply}` field**, shown as a callout under the title, so a re-asked item shows Jet's earlier note and the agent's reply (R12). The skill's reference doc says the agent may also write a companion explainer when a reply is too long for a callout.
-- KTD10. **One shared page kit, copied into each page at build time.** `claude/.claude/skills/_shared/page-kit/` holds `kit.css` and `kit.js`. Both generators read them and paste them into the page, so every page is still a single self-contained file (KTD7). The kit owns:
+- KTD10. **One shared page kit, copied into each page at build time.** `claude/.claude/skills/decision-page/kit/` holds `kit.css` and `kit.js`. It can't sit in a folder of its own under `skills/`: docgen's skill parser fails the pre-commit hook on any folder there without a `SKILL.md`. That was reproduced on 2026-10-18. review-page reads the kit from decision-page's folder. Both generators read them and paste them into the page, so every page is still a single self-contained file (KTD7). The kit owns:
   - the colour tokens for light and dark themes;
   - the wide layout and the collapsible sidebar;
   - the overview band: the stage strip and the at-a-glance container;
@@ -164,8 +164,29 @@ Considered and not built:
   - storage helpers wrapped in try/catch, and copy with a textarea fallback;
   - the keyboard engine: navigation stops across the overview, items and closing block; the typing guard; the legend; and the shared keys `j`/`k`, Enter, `e`/`E`, `n`, `[` and `?`.
 
-  Each page registers its own keys on top: decision-page adds `1`–`9`, `a` and `c`; review-page adds `1`–`9`, `a`, `g`/`t` and `u`. The kit refuses a page key that's already taken, which is how R18's one-meaning rule is enforced in code. `_shared` has no `SKILL.md`, so docgen doesn't index it as a skill. U5 confirms this.
-- KTD11. **review-page keeps its server, CLI and answers format. Only the page changes.** The local server's Submit POST, `answers.json`, the state file, `--reattach` and `--timeout` stay as they are. The UX needs one new spec field, an optional `context` with the same shape as decision-page's, for the stage strip. Because the change is additive, `/weekly-review` and `/wb-breakdown` need no edits. Jet allowed contract changes (R17), so if the build finds that a breaking change makes the flow clearly better, it updates those callers in the same unit.
+  Each page registers its own keys on top: decision-page adds `1`–`9`, `a` and `c`; review-page adds `1`–`9`, `a`, `g`/`t` and `u`. The kit refuses a page key that's already taken, which is how R18's one-meaning rule is enforced in code.
+
+  Both generators find their template and the kit through `os.path.realpath(__file__)`, which resolves to the repo copy behind the stow symlink. Each script is installed as its own symlink (`stow --no-folding`), so a new template or kit file isn't linked until Jet re-stows. Resolving the real path means the live `/weekly-review` and `/wb-breakdown` keep working in that gap. If a file is still missing, the generator fails with a message naming `stow --no-folding -t "$HOME" claude`.
+- KTD11. **review-page keeps its server, CLI and answers format. The page is rewritten to render in the browser on the kit.** These stay exactly as they are:
+  - the Submit POST and its `spec_hash` 409 check, `answers.json`, the state file, and `--reattach`/`--timeout`;
+  - the answers payload `{spec_hash, accept_defaults, global_note, untouched_count, items[{id, verdict, suggested, touched, group, note, fields, fields_changed}]}`. An untouched row carries `verdict = suggested` and `touched: false`, and the agent applies `accept_defaults`.
+
+  The mockup's own `answers()`/`eff()` shape and its hard-coded stages, round and first-area marker are dropped in favour of the real contract and spec fields.
+
+  Today's page is built in Python on the server. The new page builds itself in the browser from the embedded spec, like decision-page, so it shares the kit. That makes this a rendering rewrite, and these features carry over:
+  - `description` rendered as block markdown inside the collapsed details. Port `md_block`/`esc` to the page script;
+  - editable `fields`, returned as `item.fields` and `fields_changed`, where editing marks the row touched;
+  - spec-level `sections` as collapsible context panels;
+  - `links` as real anchors;
+  - the existing "needs you" rule: no suggestion, or a reason containing "unclear".
+
+  `hide_columns` is retired if a grep of the callers shows nothing sets it. Otherwise it maps onto hiding the matching row control.
+
+  New spec fields are optional and additive:
+  - `context`, with the same shape as decision-page's, for the stage strip;
+  - item-level `prior: {note, reply}` for the earlier-note marker, matching KTD9. With no `prior`, no marker renders.
+
+  So `/weekly-review` needs no edit. `/wb-breakdown` needs none either, provided `fields` and `description` carry over as listed. Jet allowed contract changes (R17): if a breaking change proves clearly better, U6 updates those callers in the same unit.
 - KTD12. **review-page's template moves out of the inline Python string** into `review-page/templates/page.html`, using the same single-placeholder substitution as KTD1. This removes the doubled braces.
 
 
@@ -227,15 +248,12 @@ copied answers (tail of the clipboard text)
 ## Output Structure
 
 ```text
-claude/.claude/skills/_shared/page-kit/
-  kit.css
-  kit.js
-  page-kit.test.sh
 claude/.claude/skills/review-page/
   templates/page.html            (new; replaces the inline PAGE_TEMPLATE)
   scripts/review-page.py         (modified)
   scripts/review-page.test.sh    (modified)
 claude/.claude/skills/decision-page/
+  kit/kit.css, kit/kit.js, kit/page-kit.test.sh   (shared with review-page, KTD10)
   SKILL.md
   learnings.md
   references/spec-and-answers.md
@@ -261,9 +279,9 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 **Dependencies:** none.
 
 **Files:**
-- Create `claude/.claude/skills/_shared/page-kit/kit.css`.
-- Create `claude/.claude/skills/_shared/page-kit/kit.js`.
-- Create `claude/.claude/skills/_shared/page-kit/page-kit.test.sh`.
+- Create `claude/.claude/skills/decision-page/kit/kit.css`.
+- Create `claude/.claude/skills/decision-page/kit/kit.js`.
+- Create `claude/.claude/skills/decision-page/kit/page-kit.test.sh`.
 
 **Approach:**
 1. Extract the parts the two converged mockups share (`mockups/decision-page-converged.html`, `mockups/review-page-converged.html`):
@@ -279,7 +297,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
    - `registerKey(key, handler, label)`, which refuses a key that's already registered;
    - the typing guard and the legend.
    Keep its DOM-free functions (the stop arithmetic and the key registry) separately callable, so the test can run them under node.
-3. Confirm docgen ignores `_shared/` (it has no `SKILL.md`). If it doesn't, move the kit under the decision-page skill and have review-page read it from there.
+3. Check the kit's location with a clean-room docgen run (memory: clean-room-regen-in-shared-worktree). The decision-page folder will have a `SKILL.md` after U3. Until then, commit the kit together with U3's SKILL.md, or confirm that docgen tolerates a skill folder whose `SKILL.md` lands later in the same PR.
 
 **Test scenarios:** (`page-kit.test.sh`, under node, skipped with a note when `node` is absent)
 - Stop arithmetic: from the overview, `j` goes to item 0; from the last item, `j` goes to the closing block; from the closing block, `j` stays put; from item 0, `k` goes to the overview.
@@ -344,7 +362,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 
 **Approach:**
 1. Use stdlib-only Python 3 and `argparse`.
-2. Take `--spec`, plus optional `--out` (default: the spec path with `.html`), `--no-open` and `--force-open`. The script loads the template relative to its own directory.
+2. Take `--spec`, plus optional `--out` (default: the spec path with `.html`), `--no-open` and `--force-open`. The script finds the template and the kit through `os.path.realpath(__file__)` (KTD10).
 3. Validate per KTD4, collecting every problem before exiting 2. Messages start with `decision-page.py:`, as review-page's do.
 4. Compute `spec_hash` over the canonical JSON (sorted keys, compact). Paste in the kit's CSS and JS (KTD10), escape the JSON per KTD1, substitute it into the template, and HTML-escape the `<title>`.
 5. Open the page per KTD8, then print the output path and the hash.
@@ -438,19 +456,29 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 - Modify `claude/.claude/skills/review-page/fixtures/example-spec.json`: add an optional `context`.
 - Modify `claude/.claude/skills/review-page/references/spec-and-close-contract.md`: document `context` and the key map.
 - Modify `claude/.claude/skills/review-page/SKILL.md`: add a short "The page" section with the keys.
+- Only if step 4 finds a breaking change worthwhile: modify `/weekly-review`'s and `/wb-breakdown`'s `SKILL.md` and their reference docs.
 
 **Approach:**
 1. Start from `mockups/review-page-converged.html`, which is the approved UX, and swap its shared parts for the kit, as in U1.
-2. Move rendering out of the inline `PAGE_TEMPLATE` string (KTD12). Keep the spec-to-page data flow, the submit payload shape, and the `spec_hash` 409 check unchanged.
-3. Add the optional `context` field (KTD11). A spec without it renders without the strip.
-4. Before deciding the change is additive, re-read `/weekly-review`'s and `/wb-breakdown`'s use of the spec and answers. If a breaking change turns out to be worth it, update both skills and the reference doc in this unit (R17).
+2. Move rendering out of the inline `PAGE_TEMPLATE` string (KTD12) and into the page script.
+   - Port `md_block`/`esc`, and render every feature on KTD11's carry-over list.
+   - Replace the mockup's `answers()`/`eff()` with the existing payload builder. Keep the submit payload shape, `spec_hash` and the 409 check unchanged.
+   - Find the template and kit through `os.path.realpath(__file__)` (KTD10).
+3. Add the optional `context` and item-level `prior` fields (KTD11). A spec without them renders with no strip and no markers.
+4. Before treating the change as additive, re-read how `/weekly-review` and `/wb-breakdown` use the spec and answers. If a breaking change turns out to be worth it, update both skills and the reference doc in this unit (R17).
 
 **Execution note:** run the existing `review-page.test.sh` before touching anything, and keep it passing throughout. It is the safety net for the server and close-contract behaviour.
 
 **Test scenarios:**
-- The existing suite passes. Its markup checks are updated only where the markup changed, and its submit, reattach and timeout checks are unchanged.
-- A spec with `context` renders the stage strip, and one without it renders no strip and no error.
-- A submit where every row is untouched and accept-defaults is ticked gives every suggested row its suggestion, and leaves no-suggestion rows unresolved.
+- The server, submit, 409/403/415, reattach and timeout tests pass unchanged.
+- These page-markup greps no longer apply, because those elements are now built in the browser: `details-item-1`, `data-field-key`, `meta-k`, the `md-*` classes, the `&#39;` escape, `page-section`, and the `.col-group` hide rule. They are replaced by node tests of the extracted page functions, run against the fixture:
+  - the markdown renderer produces lists, code blocks and headings, and escapes `'` and `<`;
+  - editable `fields` are rendered, and editing one sets `fields_changed` and `touched`;
+  - `sections` render as context panels;
+  - `links` render as anchors.
+- A node test of the page's payload builder: with every row untouched and accept-defaults ticked, each row carries `verdict = suggested` and `touched: false`, `untouched_count` equals the row count, and a no-suggestion row has `verdict = ""`. It is never defaulted.
+- A row whose reason contains "unclear" is flagged "needs you".
+- A spec with `context` and a `prior` renders the stage strip and the marker, and one without them renders neither and raises no error.
 - The generated page's script passes `node --check`.
 - Browser checklist: `g` opens the group tag; `j` from the last row lands on the close-out block; the sidebar never overlaps the close-out block at the bottom of the page; and "Agree to all in this area" agrees only that area's rows.
 
@@ -470,6 +498,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 - Modify `claude/.claude/skills/review-page/SKILL.md` (the "When to use (vs decision-buffer)" section and the frontmatter description's NOT-for clause).
 - Modify `claude/.claude/CLAUDE.md` ("Design decisions → decision-buffer" section: one sentence naming decision-page and review-page as the page-based options).
 - Modify `docs/where-we-are.md` (the skill cards near `/decision-buffer` and `/review-page`: add a `/decision-page` card).
+- Modify `claude/.claude/skills/review-page/references/spec-and-close-contract.md`: replace its "more than ~25 rows" and "under ~25 items" routing sentences with a pointer to `decision-page/SKILL.md`.
 - Modify `docs/guides/review-page.md` (its "How it differs from decision-buffer" table and the sentence after it, which carry the ≳25-row figure). The decision-buffer guide has no routing statement and stays unchanged.
 - Create `docs/guides/decision-page.md` (frontmatter as in `docs/guides/review-page.md`, with `group: skills`).
 
@@ -490,10 +519,10 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 
 | Check | How | Done signal |
 |---|---|---|
-| Page kit | `bash claude/.claude/skills/_shared/page-kit/page-kit.test.sh` | ALL TESTS PASSED, exit 0 |
+| Page kit | `bash claude/.claude/skills/decision-page/kit/page-kit.test.sh` | ALL TESTS PASSED, exit 0 |
 | Generator and validation | `bash claude/.claude/skills/decision-page/scripts/decision-page.test.sh` | ALL TESTS PASSED, exit 0 |
 | review-page behaviour | `bash claude/.claude/skills/review-page/scripts/review-page.test.sh` | ALL TESTS PASSED, exit 0 |
-| Docgen | the `.githooks/pre-commit` run on the U3 and U4 commits. To re-check, use a `git archive` clean-room, never a checkout or reset in this shared worktree (memory: clean-room-regen-in-shared-worktree) | `docs/INDEX.md` lists `skill-decision-page`. No hook failure |
+| Docgen | the `.githooks/pre-commit` run on the U3, U4 and U6 commits. To re-check, use a `git archive` clean-room, never a checkout or reset in this shared worktree (memory: clean-room-regen-in-shared-worktree) | `docs/INDEX.md` lists `skill-decision-page`. No hook failure |
 | Browser checks (Jet, manual) | Generate the fixture into a non-hidden path under `$HOME` (for example the task dossier). Hand off as a tickable HTML checklist in `~/code/tasks/dossiers/dotfiles--feat-decision-artifact-skill/` (memory: verification-checklist-html-norm) | Jet ticks every item |
 | Optional publish smoke | Publish the fixture page as an Artifact with `capabilities: {db: {}}`, answer one item, then run one `ArtifactData` list of `decisions-r1` | The doc for that item is present |
 
@@ -513,5 +542,5 @@ Browser checklist items:
 
 - U1–U6 landed. `page-kit.test.sh`, `decision-page.test.sh` and `review-page.test.sh` pass. The docgen hook ran clean on the commits that touched `SKILL.md` and `docs/*.md`.
 - The browser checklist is published to the task dossier, and Jet has been asked to tick it. The local-storage stop condition in the Goal Capsule didn't fire, or it was reported.
-- No dead code from abandoned approaches remains in the diff, and no file outside the Files lists changed except generated docs.
+- No dead code from abandoned approaches remains in the diff, and no file outside the Files lists changed except U6's conditional caller edits and generated docs.
 - The task file's `## Done` records what shipped, through `wb append`. After merge, Jet is asked about re-stowing the main checkout.
