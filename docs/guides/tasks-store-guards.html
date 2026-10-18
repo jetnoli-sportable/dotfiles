@@ -451,7 +451,7 @@ env var, but every next command re-reads the filesystem.</p>
 <td><code>disable-git-hook</code></td>
 <td>L2 refusing</td>
 <td>first check in <code>reference-transaction</code>, before the <code>&quot;prepared&quot;</code>-state gate</td>
-<td><strong>Ships pre-created</strong> by <code>wb install-hooks</code> — the hook installs but stays dormant — unless the <code>replay-passed</code> marker already exists. Removed only by hand (<code>rm</code>), only after a human reads the X7 replay output and is satisfied. Recreate it any time for an emergency rollback.</td>
+<td><strong>Ships pre-created</strong> by <code>wb install-hooks</code> — the hook installs but stays dormant — unless the <code>replay-passed</code> marker already exists. Removed only by hand (<code>rm</code>). Recreate it any time for an emergency rollback.</td>
 </tr>
 <tr>
 <td><code>disable-locks</code></td>
@@ -531,25 +531,16 @@ After pasting, <strong>restart every already-running Claude Code session</strong
 hook config is snapshotted at session start, so a running session won't
 see the new entry until it restarts.</li>
 </ol>
-<p>Enabling the git guard is a separate, later, deliberately manual act —
-never bundled into <code>wb install-hooks</code> itself:</p>
+<p>Enabling the git guard is a separate, deliberately manual act — never
+bundled into <code>wb install-hooks</code> itself. Once per host:</p>
 <ol start="4">
-<li>Run <code>replay-refusals.sh --repo &lt;path&gt;</code> (read-only, mutates nothing) —
-it walks <code>$TASKS_DIR</code>'s real reflog history and approximates, per ref
-transition, what <code>reference-transaction</code> would have refused. It prints
-a report; <strong>you</strong> read it and judge whether the refusals are exactly
-the known incidents and nothing else. The script has no way to make
-that call itself.</li>
-<li>Only once you're satisfied, run it again with <code>--record-pass</code>. This
-writes the <code>replay-passed</code> marker — which does <strong>one thing only</strong>: it
-stops a future <code>wb install-hooks</code> re-run from re-creating the
-<code>disable-git-hook</code> switch file. <strong>Writing this marker is not the same
-as enabling the hook</strong> — treat it as a separate, sequential decision
-from the next step, not a shortcut to it.</li>
-<li>The actual enablement act is a manual
-<code>rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook</code>. Nothing
-automates this step; it is a human, one-time decision performed once
-per host, after step 5.</li>
+<li><code>rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook</code> turns
+the guard on.</li>
+<li><code>touch ${XDG_STATE_HOME:-$HOME/.local/state}/wb/replay-passed</code> records
+that you enabled it on purpose. The marker does <strong>one thing only</strong>: it
+stops a future <code>wb install-hooks</code> re-run from re-creating the switch
+file. (Its name comes from the retired replay tool that used to write
+it; existing hosts already carry it.)</li>
 </ol>
 <h2 id="what-this-deliberately-doesnt-do">What this deliberately doesn't do</h2>
 <ul>

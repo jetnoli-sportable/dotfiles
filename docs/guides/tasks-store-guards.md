@@ -124,7 +124,7 @@ env var, but every next command re-reads the filesystem.
 | Switch file | Turns off | Where it's checked | Notes |
 |---|---|---|---|
 | `disable-agent-hook` | L1 asking | first line of `pretooluse-guard.sh`, before stdin is even read | Use if the hook misfires on safe commands. |
-| `disable-git-hook` | L2 refusing | first check in `reference-transaction`, before the `"prepared"`-state gate | **Ships pre-created** by `wb install-hooks` — the hook installs but stays dormant — unless the `replay-passed` marker already exists. Removed only by hand (`rm`), only after a human reads the X7 replay output and is satisfied. Recreate it any time for an emergency rollback. |
+| `disable-git-hook` | L2 refusing | first check in `reference-transaction`, before the `"prepared"`-state gate | **Ships pre-created** by `wb install-hooks` — the hook installs but stays dormant — unless the `replay-passed` marker already exists. Removed only by hand (`rm`). Recreate it any time for an emergency rollback. |
 | `disable-locks` | L3 locking | first line of `wb_task_lock_acquire` in `wb-locks.sh` | Manual escape if lock infrastructure itself ever breaks; acquire becomes an instant no-op success. |
 
 ## Runbook — lock contention (exit 75)
@@ -204,25 +204,16 @@ host needs — safe to re-run any time:
    hook config is snapshotted at session start, so a running session won't
    see the new entry until it restarts.
 
-Enabling the git guard is a separate, later, deliberately manual act —
-never bundled into `wb install-hooks` itself:
+Enabling the git guard is a separate, deliberately manual act — never
+bundled into `wb install-hooks` itself. Once per host:
 
-4. Run `replay-refusals.sh --repo <path>` (read-only, mutates nothing) —
-   it walks `$TASKS_DIR`'s real reflog history and approximates, per ref
-   transition, what `reference-transaction` would have refused. It prints
-   a report; **you** read it and judge whether the refusals are exactly
-   the known incidents and nothing else. The script has no way to make
-   that call itself.
-5. Only once you're satisfied, run it again with `--record-pass`. This
-   writes the `replay-passed` marker — which does **one thing only**: it
-   stops a future `wb install-hooks` re-run from re-creating the
-   `disable-git-hook` switch file. **Writing this marker is not the same
-   as enabling the hook** — treat it as a separate, sequential decision
-   from the next step, not a shortcut to it.
-6. The actual enablement act is a manual
-   `rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook`. Nothing
-   automates this step; it is a human, one-time decision performed once
-   per host, after step 5.
+4. `rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook` turns
+   the guard on.
+5. `touch ${XDG_STATE_HOME:-$HOME/.local/state}/wb/replay-passed` records
+   that you enabled it on purpose. The marker does **one thing only**: it
+   stops a future `wb install-hooks` re-run from re-creating the switch
+   file. (Its name comes from the retired replay tool that used to write
+   it; existing hosts already carry it.)
 
 ## What this deliberately doesn't do
 
