@@ -1632,7 +1632,7 @@ assert_eq "gap: backslashes and a heading-shaped body line survive byte-for-byte
   "$(awk '$0 == "## Plan" { inp = 1; getline; next } inp && $0 == "" { exit } inp { print }' "$gap_bs")"
 
 # --- hardening: replace_section touches only the FIRST matching heading -----
-# A second "## Plan" copy (the duplicate shape `wb lint-sections` merges) used
+# A second "## Plan" copy (a duplicated heading) used
 # to re-match once bodyfile was drained, re-emitting the heading bare and
 # dropping the copy's original content.
 hd_dup="$TASKS_DIR/proj--hardening-dup-plan.md"
