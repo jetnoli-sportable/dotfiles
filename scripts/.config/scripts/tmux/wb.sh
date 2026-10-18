@@ -4260,6 +4260,9 @@ cmd_set() {
         # Each entry is trimmed and the list re-joined with ", ", so readers
         # split on ',' and strip. An empty entry (",," or a trailing comma)
         # is refused rather than dropped — `read -a` would drop it silently.
+        # The single-line check runs on the raw value first: the per-entry
+        # `read -r` trim keeps only an entry's first line.
+        _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
         local _wb_set_rest="$value," _wb_set_pr _wb_set_prs=""
         while [ -n "$_wb_set_rest" ]; do
           _wb_set_pr="${_wb_set_rest%%,*}"; _wb_set_rest="${_wb_set_rest#*,}"

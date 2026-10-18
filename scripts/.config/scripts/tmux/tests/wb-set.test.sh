@@ -422,6 +422,25 @@ for bad in "http://github.com/o/r/pull/1" "https://github.com/o/r/issues/1" \
   assert_eq "pr invalid '$bad': file untouched" "$before" "$(cat "$TASKS_DIR/proj--pr-a.md")"
 done
 
+before="$(cat "$TASKS_DIR/proj--pr-a.md")"
+out="$(cmd_set "pr-a" pr "$PR1"$'\n'"$PR2" 2>&1)"; rc=$?
+assert_eq "pr embedded newline: exit 1" 1 "$rc"
+assert "pr embedded newline: message" "single line" "$out"
+assert_eq "pr embedded newline: file untouched" "$before" "$(cat "$TASKS_DIR/proj--pr-a.md")"
+
+# --unset on a file with no pr: key backfills it empty right after jira:;
+# with no jira: either, a set lands before the closing ---.
+mk_template_task_pr "proj--pr-b.md" pr-b
+out="$(cmd_set "pr-b" pr --unset 2>&1)"; rc=$?
+assert_eq "pr backfill: exit 0" 0 "$rc"
+assert_eq "pr backfill: empty key right after jira:" "pr: " \
+  "$(grep -A1 '^jira:' "$TASKS_DIR/proj--pr-b.md" | tail -1)"
+mk_task "proj--pr-c.md" pr-c
+out="$(cmd_set "pr-c" pr "$PR1" 2>&1)"; rc=$?
+assert_eq "pr no jira: exit 0" 0 "$rc"
+assert_eq "pr no jira: inserted before closing ---" "pr: $PR1" \
+  "$(awk '/^---$/{n++; if(n==2){print prev; exit}} {prev=$0}' "$TASKS_DIR/proj--pr-c.md")"
+
 out="$(cmd_set "pr-a" pr --unset 2>&1)"; rc=$?
 assert_eq "pr unset: exit 0" 0 "$rc"
 assert "pr unset: confirmation" "pr '.*' -> \(cleared\)" "$out"
