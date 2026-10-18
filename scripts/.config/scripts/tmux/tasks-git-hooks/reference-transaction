@@ -32,8 +32,9 @@ state="${1:-}"
 
 # X4 kill-switch, checked before anything else (even the state gate). Ships
 # pre-created by `wb install-hooks`, so this hook installs but stays
-# dormant until a human deliberately deletes the file. We only implement
-# the check.
+# dormant until a human deliberately deletes the file and touches the
+# replay-passed marker beside it (without the marker, the next
+# `wb install-hooks` re-creates the switch). We only implement the check.
 kill_switch="${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook"
 if [ -e "$kill_switch" ]; then
   exit 0

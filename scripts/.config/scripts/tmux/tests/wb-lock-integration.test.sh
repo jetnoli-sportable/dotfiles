@@ -497,5 +497,34 @@ fi
 assert "cmd_done: task flipped to done" '^status: done$' "$(cat "$DONE_TASK_FILE")"
 
 # =============================================================================
+# Scenario: dead-pid retry — the holder recorded in the lock file is a pid
+# that is already gone, so wb_task_lock_acquire_guarded retries once and
+# wins when the flock frees. The recorded pid is rewritten in place (same
+# inode, so the real holder keeps its flock) to a reaped pid; the real
+# holder then releases at the end of its hold, inside the retry's own
+# `flock -w 1` window.
+# =============================================================================
+
+DEADPID_TASK="$TASKS_DIR/proj--dead-pid.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: dead-pid\nworktree: .worktrees/dead-pid\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
+  > "$DEADPID_TASK"
+
+# hold 1.9s: the first `flock -w 1` must fail (starts <0.9s after the
+# holder acquired) and the retry's own 1s window must cover the release.
+deadpid_holder="$(spawn_holder "$DEADPID_TASK" 1.9 "dead-pid-session")"
+_wait_for_holder "$DEADPID_TASK" "$deadpid_holder"
+sh -c 'exit 0' & gone_pid=$!; wait "$gone_pid"
+deadpid_lockfile="$(_wb_lock_path_for "$DEADPID_TASK")"
+deadpid_content="$(awk -v p="$gone_pid" '{ if ($0 ~ /^pid: /) print "pid: " p; else print }' "$deadpid_lockfile")"
+printf '%s\n' "$deadpid_content" > "$deadpid_lockfile"
+
+deadpid_err="$(wb_task_lock_acquire_guarded "$DEADPID_TASK" 2>&1 1>/dev/null)"
+deadpid_rc=$?
+assert_eq "dead-pid holder: retried and won -> exit 0" 0 "$deadpid_rc"
+assert_eq "dead-pid holder: exactly ONE contention message (the first attempt)" 1 "$(grep -oc 'contended on' <<< "$deadpid_err")"
+wb_task_lock_release "$DEADPID_TASK"
+wait "$deadpid_holder" 2>/dev/null
+
+# =============================================================================
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

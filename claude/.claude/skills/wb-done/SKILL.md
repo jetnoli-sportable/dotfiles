@@ -19,8 +19,8 @@ the dirty-worktree fail-fast (`wb.sh:1578-1586`) skips it. `wb_open_buffer`
 itself (`wb.sh:2785-2803`) is a thin shim over the shared
 `claude/.claude/skills/decision-buffer/scripts/open-buffer.sh` script: it
 calls `open-buffer.sh --tmux <path>` when `$TMUX` is set (or `--direct
-<path>` when it isn't), falling back to its own original inline
-tmux-split-plus-wait-for recipe only if the script is missing or not
+<path>` when it isn't), and fails hard (exit 1, naming
+`stow --no-folding -t "$HOME" claude`) if the script is missing or not
 executable.
 
 That underlying wait is an **untimed, blocking wait** for a human to
