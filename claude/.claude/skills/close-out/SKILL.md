@@ -132,7 +132,11 @@ session and decide whether anything was actually decided:
 
 - **Yes** — write it now (via `/wb-decide`, or the same `wb append <task>
   Decisions -`), as a real entry. No marker.
-- **No** — append a marker entry through `wb append <task> Decisions -`:
+- **No** — first run `~/.config/scripts/tmux/wb-capture.sh dismiss`, so no nudge
+  is still outstanding when the marker lands (otherwise the marker append would be
+  logged `followed`, inflating the follow rate; a dismiss of a phrase nudge keeps
+  any pending draft, which you already routed above). Then append a marker entry
+  through `wb append <task> Decisions -`:
 
   ```
   ### <YYYY-MM-DD HH:MM> — close-out
@@ -221,8 +225,9 @@ never whether the record gets written first.
   removed, task stays open.
 - **Other live window in the session** — step 5 surfaces it before the
   wind-down launches, especially when `--close` was also requested.
-- **Empty Decisions, nothing decided** — step 4 appends the
-  `### <timestamp> — close-out` / `_No decisions: <reason>_` marker.
+- **Empty Decisions, nothing decided** — step 4 runs `wb-capture.sh dismiss`,
+  then appends the `### <timestamp> — close-out` / `_No decisions: <reason>_`
+  marker.
 - **`draft: present` at close-out** — step 4 routes it through `/wb-decide`'s
   draft-review path (`clear --draft` after recording, or `dismiss`) before the
   wind-down.
