@@ -478,10 +478,10 @@ hook_prompt_nudge() {
     fi
   fi
   remove_named "$SDIR" marker
+  [ -n "$line" ] || return 0
   jq -nc --arg c "$line" \
     '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$c}}' 2>/dev/null || return 0
   printf '%s' "$source" >"$SDIR/outstanding"
-  [ -n "$line" ] || return 0
   log_event "$SID" nudge_fired "$source"
 }
 
@@ -529,10 +529,10 @@ reap_stale() {
     size="$(wc -c <"$LOG_FILE" 2>/dev/null | tr -d ' ')"
     [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt "$max" ] && mv -f -- "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null
   fi
-  local d name sdir stale pm pd osrc orphan saved_stem="$TASK_STEM" tp SDIR  # SDIR: stale_extra reads it
   load_config
   local grace=$(( 2 * CFG_SWEEP_TIMEOUT + 60 )) cutoff
   cutoff=$(( $(date +%s) - grace )) 2>/dev/null || cutoff=""
+  local d name sdir stale pm pd osrc orphan saved_stem="$TASK_STEM" tp SDIR  # SDIR: stale_extra reads it
   for d in "$root"/*/; do
     d="${d%/}"; name="${d##*/}"
     [ -d "$d" ] && [ ! -L "$d" ] || continue
