@@ -226,8 +226,7 @@ concurrency-safety pieces the 2026-07-11/12 plan added on top of them:
   git hook that refuses history-orphaning ref updates), and
   `replay-refusals.sh` (read-only X7 replay tool for the git hook's
   enablement gate).
-- New `wb` verbs: `wb sync`, `wb unsafe-rewind`, `wb append`,
-  `wb install-hooks`.
+- New `wb` verbs: `wb unsafe-rewind`, `wb append`, `wb install-hooks`.
 
 Full reference — the three-layer model, coverage matrix, a command traced
 through all three layers, kill switches, and runbooks for lock contention,

@@ -84,7 +84,7 @@ assert_eq "reset --hard scoped: exit 0" "0" "$RC"
 assert "reset --hard scoped: permissionDecision ask" '"permissionDecision": *"ask"' "$OUT"
 assert "reset --hard scoped: names the matched command" 'git reset --hard' "$OUT"
 assert "reset --hard scoped: names past incidents" 'past incidents' "$OUT"
-assert "reset --hard scoped: names wb sync" 'wb sync' "$OUT"
+assert "reset --hard scoped: names the ff-only pull" 'pull --ff-only' "$OUT"
 assert "reset --hard scoped: names wb unsafe-rewind" 'wb unsafe-rewind' "$OUT"
 assert "reset --hard scoped: notes git-side hook still has a say" 'git-side' "$OUT"
 

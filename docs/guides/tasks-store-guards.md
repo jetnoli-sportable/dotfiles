@@ -71,8 +71,8 @@ An agent session runs `git reset --hard origin/development` from inside
    `reset[[:space:]]+--hard`; H4's directory resolution (explicit `-C`/
    `--git-dir`, an in-command `cd`, else the hook payload's `cwd`) scopes
    it to `$HOME/code/tasks`. It emits `permissionDecision: "ask"`, naming
-   the matched command, the incident precedent, and `wb sync`/`wb
-   unsafe-rewind` as the intended alternatives — and states explicitly
+   the matched command, the incident precedent, and `git -C ~/code/tasks
+   pull --ff-only`/`wb unsafe-rewind` as the intended alternatives — and states explicitly
    that approving here does not bypass L2.
 2. **Operator approves.** The Bash tool call actually runs.
 3. **git invokes L2.** Because `wb install-hooks` pointed
@@ -103,12 +103,15 @@ An agent session runs `git reset --hard origin/development` from inside
    need their own sentinel), and allows exactly one transaction. The TTL
    is 120 seconds either way.
 
-## The paved path: `wb sync`
+## The paved path: `git pull --ff-only`
 
-`wb sync` removes the reason to reach for `git reset --hard` in the first
-place: it fetches, checks for a clean fast-forward, and refuses loudly on
-anything else. It's the alternative L1's own "ask" message points you at —
-reach for it before a raw rewind, not after.
+`git -C ~/code/tasks pull --ff-only` removes the reason to reach for
+`git reset --hard` in the first place: it fetches and fast-forwards, and
+refuses on anything that isn't a clean fast-forward. It's the alternative
+L1's own "ask" message points you at — reach for it before a raw rewind,
+not after. If it refuses because the store has diverged, merge or rebase
+by hand; never reset to the remote, which silently drops your local
+commits.
 
 ## Kill switches
 

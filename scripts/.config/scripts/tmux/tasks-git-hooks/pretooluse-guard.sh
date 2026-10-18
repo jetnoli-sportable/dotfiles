@@ -275,7 +275,7 @@ handle_bash() {
   fi
 
   emit_decision "ask" \
-    "Matched dangerous git command: \`$matched_inv\` -- scoped to \$HOME/code/tasks, the shared multi-agent task store. This mirrors two real past incidents where a raw destructive git command in that directory silently orphaned another session's unpushed commits. Prefer \`wb sync\` or \`wb unsafe-rewind\` instead of running this directly. Approving here does NOT bypass the separate git-side reference-transaction hook -- it still gets its own say."
+    "Matched dangerous git command: \`$matched_inv\` -- scoped to \$HOME/code/tasks, the shared multi-agent task store. This mirrors two real past incidents where a raw destructive git command in that directory silently orphaned another session's unpushed commits. Prefer \`git -C ~/code/tasks pull --ff-only\` or \`wb unsafe-rewind\` instead of running this directly. Approving here does NOT bypass the separate git-side reference-transaction hook -- it still gets its own say."
   exit 0
 }
 

@@ -284,7 +284,7 @@ assert "development deletion refused: branch still exists" "development" "$dev_s
 # unrelated $TASKS_DIR-derived path) -- the hook resolves the sentinel via
 # `git rev-parse --git-common-dir` against the repo it's actually invoked
 # for, matching how a real `wb unsafe-rewind` writes it for the SAME repo
-# `wb sync`/an agent's git command later operates on. A prior version of
+# an agent's git command later operates on. A prior version of
 # this test (and of the hook) used a TASKS_DIR env-var override pointed at
 # an unrelated directory here -- exactly the sentinel-forgery shape a
 # security review flagged: any Bash command could redirect TASKS_DIR to an

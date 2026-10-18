@@ -247,7 +247,7 @@
       <li><a href="#overview">Overview</a></li>
       <li><a href="#coverage-matrix--who-is-stopped-where">Coverage matrix — who is stopped, where</a></li>
       <li><a href="#walkthrough--one-dangerous-command-traced-through-all-three-layers">Walkthrough — one dangerous command, traced through all three layers</a></li>
-      <li><a href="#the-paved-path-wb-sync">The paved path: wb sync</a></li>
+      <li><a href="#the-paved-path-git-pull---ff-only">The paved path: git pull --ff-only</a></li>
       <li><a href="#kill-switches">Kill switches</a></li>
       <li><a href="#runbook--lock-contention-exit-75">Runbook — lock contention (exit 75)</a></li>
       <li><a href="#runbook--refused-rewind-aftermath">Runbook — refused-rewind aftermath</a></li>
@@ -386,7 +386,7 @@ four) is covered.</p>
 <code>reset[[:space:]]+--hard</code>; H4's directory resolution (explicit <code>-C</code>/
 <code>--git-dir</code>, an in-command <code>cd</code>, else the hook payload's <code>cwd</code>) scopes
 it to <code>$HOME/code/tasks</code>. It emits <code>permissionDecision: &quot;ask&quot;</code>, naming
-the matched command, the incident precedent, and <code>wb sync</code>/<code>wb unsafe-rewind</code> as the intended alternatives — and states explicitly
+the matched command, the incident precedent, and <code>git -C ~/code/tasks pull --ff-only</code>/<code>wb unsafe-rewind</code> as the intended alternatives — and states explicitly
 that approving here does not bypass L2.</li>
 <li><strong>Operator approves.</strong> The Bash tool call actually runs.</li>
 <li><strong>git invokes L2.</strong> Because <code>wb install-hooks</code> pointed
@@ -417,11 +417,14 @@ git porcelain command's multiple internal <code>&quot;prepared&quot;</code> call
 need their own sentinel), and allows exactly one transaction. The TTL
 is 120 seconds either way.</li>
 </ol>
-<h2 id="the-paved-path-wb-sync">The paved path: <code>wb sync</code></h2>
-<p><code>wb sync</code> removes the reason to reach for <code>git reset --hard</code> in the first
-place: it fetches, checks for a clean fast-forward, and refuses loudly on
-anything else. It's the alternative L1's own &quot;ask&quot; message points you at —
-reach for it before a raw rewind, not after.</p>
+<h2 id="the-paved-path-git-pull---ff-only">The paved path: <code>git pull --ff-only</code></h2>
+<p><code>git -C ~/code/tasks pull --ff-only</code> removes the reason to reach for
+<code>git reset --hard</code> in the first place: it fetches and fast-forwards, and
+refuses on anything that isn't a clean fast-forward. It's the alternative
+L1's own &quot;ask&quot; message points you at — reach for it before a raw rewind,
+not after. If it refuses because the store has diverged, merge or rebase
+by hand; never reset to the remote, which silently drops your local
+commits.</p>
 <h2 id="kill-switches">Kill switches</h2>
 <p>Each layer checks its own switch file, under
 <code>${XDG_STATE_HOME:-$HOME/.local/state}/wb/</code>, before doing anything else —

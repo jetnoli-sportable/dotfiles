@@ -49,7 +49,6 @@
 #   wb breakdown --apply <buffer>    execute an approved /wb-breakdown proposal buffer:
 #                                    create the children, migrate the worktree, move
 #                                    follow-ups — the feature's only task-store write path
-#   wb sync                          fetch + fast-forward-only merge for $TASKS_DIR (refuses on dirty tree, divergence, or the wrong branch)
 #   wb unsafe-rewind "<reason>"      write a time-limited escape-hatch sentinel a git hook honors for a deliberate rewind
 #   wb append <task> <heading> [<body>|-]
 #                                    append <body> under "## <heading>" in <task>'s file,
@@ -1332,8 +1331,8 @@ _wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
 #     the branch on pre-squash copies of commits the default already has,
 #     so it is skipped with a note pointing at the latest default.
 #   - The default branch is always fetched first: it is the fallback, and
-#     each blocker's staleness is measured against it. It is resolved the
-#     same way as `wb sync` (origin/HEAD symref, then ls-remote), never
+#     each blocker's staleness is measured against it. It is resolved from
+#     the origin/HEAD symref, then ls-remote, never
 #     hard-coded — Sportable repos use dev/development/main.
 #   - Usable blockers: with a terminal, a menu of each blocker (ahead/behind
 #     the default) plus the latest default; without one, or when the menu
@@ -3798,19 +3797,12 @@ cmd_jira_set() {
 }
 
 # ---------------------------------------------------------------------------
-# wb sync — the paved path for pulling shared $TASKS_DIR changes: fetch, then
-# fast-forward-only merge, refusing loudly on anything that isn't a clean
-# fast-forward. Exists so nobody reaches for `git reset --hard
-# origin/<branch>` (or a force-push) to "fix" a stuck TASKS_DIR — that IS
-# the anti-pattern that caused the 2026-07-10 incident this concurrency-
-# safety effort responds to. This command NEVER pushes, under any
-# circumstance.
+# Shared git guard
 # ---------------------------------------------------------------------------
 
 # _wb_git_dirty_guard <path> <verb-label> — fail loud (exit 1, naming
 # <verb-label>) if <path>'s git status is non-empty; silent no-op
-# otherwise. Shared by cmd_sync and cmd_done, which used to hand-duplicate
-# this exact guard (only the path and the verb name differed).
+# otherwise. Used by cmd_done.
 _wb_git_dirty_guard() {
   local path="$1" verb="$2" dirty
   dirty="$(git -C "$path" status --porcelain 2>/dev/null || true)"
@@ -3818,84 +3810,6 @@ _wb_git_dirty_guard() {
     echo "$verb: $path is dirty:" >&2
     echo "$dirty" >&2
     echo "commit or stash, then re-run" >&2
-    exit 1
-  fi
-}
-
-# cmd_sync — guard order: fetch (loud abort on failure) -> dirty-tree guard
-# -> branch/detached-HEAD guard -> ahead/behind decision (ff-merge / no-op /
-# refuse-diverged).
-cmd_sync() {
-  # 1. fetch FIRST — never compare against a possibly-stale local
-  # origin/<branch> ref. A failed fetch (offline, no SSH agent, unreachable
-  # remote, ...) aborts loudly, not a silent no-op against stale refs.
-  if ! git -C "$TASKS_DIR" fetch origin; then
-    echo "wb sync: git fetch origin failed for $TASKS_DIR — offline, no SSH agent, or the remote is unreachable; aborting without comparing refs" >&2
-    exit 1
-  fi
-
-  # 2. dirty-tree guard.
-  _wb_git_dirty_guard "$TASKS_DIR" "wb sync"
-
-  # 3. branch guard — refuse on a detached HEAD or on any branch other than
-  # the remote's own tracked default branch. Deliberately NOT hardcoded to
-  # "development" or "main" — that's a per-repo convention, and this task
-  # store's default branch is whatever origin/HEAD actually says, not an
-  # assumption baked into this script. Prefer the locally-cached
-  # refs/remotes/origin/HEAD symref (set by `git clone`); fall back to
-  # asking the remote directly (`ls-remote --symref`, same primitive) when
-  # that symref was never established — e.g. a checkout built by `init` +
-  # `remote add` + `fetch` rather than `clone` (confirmed against a real
-  # ~/code/tasks checkout, which hit exactly this fallback path).
-  local expected_branch
-  expected_branch="$(git -C "$TASKS_DIR" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-  expected_branch="${expected_branch#origin/}"
-  if [ -z "$expected_branch" ]; then
-    expected_branch="$(git -C "$TASKS_DIR" ls-remote --symref origin HEAD 2>/dev/null \
-      | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
-  fi
-  if [ -z "$expected_branch" ]; then
-    echo "wb sync: could not determine origin's default branch for $TASKS_DIR (no origin/HEAD symref, and ls-remote --symref failed) — refusing to guess" >&2
-    exit 1
-  fi
-
-  local current_ref
-  current_ref="$(git -C "$TASKS_DIR" symbolic-ref -q HEAD 2>/dev/null || true)"
-  if [ -z "$current_ref" ]; then
-    echo "wb sync: $TASKS_DIR has a detached HEAD — refusing to fast-forward-merge into a detached state; check out $expected_branch first" >&2
-    exit 1
-  fi
-  local current_branch="${current_ref#refs/heads/}"
-  if [ "$current_branch" != "$expected_branch" ]; then
-    echo "wb sync: $TASKS_DIR is on '$current_branch', not '$expected_branch' (the tracked default branch) — refusing to fast-forward-merge into the wrong branch" >&2
-    exit 1
-  fi
-
-  # 4. ahead/behind decision.
-  local counts ahead behind
-  counts="$(git -C "$TASKS_DIR" rev-list --left-right --count "HEAD...origin/$expected_branch" 2>/dev/null)" || {
-    echo "wb sync: could not compare $TASKS_DIR against origin/$expected_branch after fetch" >&2
-    exit 1
-  }
-  ahead="$(printf '%s' "$counts" | awk '{print $1}')"
-  behind="$(printf '%s' "$counts" | awk '{print $2}')"
-  ahead="${ahead:-0}"
-  behind="${behind:-0}"
-
-  if [ "$ahead" -eq 0 ] && [ "$behind" -eq 0 ]; then
-    echo "wb sync: $TASKS_DIR already up to date with origin/$expected_branch"
-  elif [ "$ahead" -eq 0 ]; then
-    git -C "$TASKS_DIR" merge --ff-only "origin/$expected_branch"
-    echo "wb sync: pulled $behind commit(s) — $TASKS_DIR now matches origin/$expected_branch"
-  elif [ "$behind" -eq 0 ]; then
-    echo "wb sync: $TASKS_DIR is $ahead commit(s) ahead of origin/$expected_branch — nothing to pull, consider pushing (wb sync never pushes)"
-  else
-    echo "wb sync: $TASKS_DIR has DIVERGED from origin/$expected_branch ($ahead ahead, $behind behind) — refusing to auto-merge" >&2
-    echo "wb sync: resolve by hand, e.g.:" >&2
-    echo "  git -C \"$TASKS_DIR\" log --oneline HEAD..origin/$expected_branch    # see what's incoming" >&2
-    echo "  git -C \"$TASKS_DIR\" log --oneline origin/$expected_branch..HEAD    # see what's local-only" >&2
-    echo "  git -C \"$TASKS_DIR\" merge origin/$expected_branch                  # or: git -C \"$TASKS_DIR\" rebase origin/$expected_branch" >&2
-    echo "wb sync: do NOT run 'git reset --hard origin/$expected_branch' (or force-push) to make this go away — that SILENTLY DISCARDS your local commits and is the exact anti-pattern this command exists to prevent" >&2
     exit 1
   fi
 }
@@ -6770,7 +6684,6 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     pr-open)     shift; cmd_pr_open "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
-    sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
     lint-sections) shift; cmd_lint_sections "$@" ;;
