@@ -35,7 +35,11 @@ does.
    transcript if the task file has gone 4 turns unchanged. If it finds an
    unrecorded decision it writes a draft; the next prompt gets a nudge
    pointing at it. It is propose-only, tool-less, and skips itself when
-   muted, when a draft is already pending, or when nothing new was said.
+   muted, when a draft is already pending, when nothing new was said, or
+   after 3 failed runs in a row (`claude` missing, logged out or rate-limited).
+   A draft nudge that is ignored is delivered once more; ignored a second
+   time, the draft is discarded (logged `draft_discarded`) and sweeping
+   resumes.
 5. Session end writes a tombstone (and logs `pending_at_end` if something
    was still unrecorded); an hourly reaper cleans up old state dirs.
 
@@ -80,13 +84,16 @@ Check the machinery any time:
 | Invocation | What it does |
 |---|---|
 | `/wb-decide [hint]` | Compose a new entry from the conversation (or accept a pending draft) and `wb append` it under `## Decisions`, then clear capture state. If nothing was actually decided it says so and dismisses instead of writing. |
-| draft pending | Claude shows the sweep's draft; accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. |
+| draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone (a later `clear` still removes it). |
 | `/wb-decide dismiss` | Drop the pending marker/draft, log `dismissed`. Quiet no-op if nothing was pending. |
 | `/wb-decide mute` / `unmute` | Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged. |
 | `/wb-decide status` | Print pending marker/draft (with paths), mute state, and the log path. |
 
-Entries are append-only; a correction is a new entry naming the one it
-supersedes.
+Entries are append-only; a correction is a new entry carrying a
+`(supersedes: <date> "<title fragment>")` line that names the one it replaces
+(the date plus a quoted substring of its title). The write uses a
+`<<'WB_DECISION_END'` heredoc rather than `<<'EOF'`, so a draft line reading
+exactly `EOF` can't end it early.
 
 **Paths**
 
@@ -109,12 +116,14 @@ supersedes.
 | `sweep_every` | `4` | unchanged turns before a sweep |
 | `sweep` | `on` | `on` / `off` — the Haiku background sweep |
 | `sweep_timeout` | `60` | seconds for the sweep child |
+| `sweep_max_failures` | `3` | consecutive failed sweeps before the sweep stops for the session (`0` = never stop) |
 
 **Log events** (`log.jsonl`, one JSON object per line: `ts`, `session_id`,
 `task`, `event`, optional `source`): `nudge_fired{source}`,
 `followed{source}`, `dismissed`, `ignored{source}`, `muted`, `unmuted`,
 `sweep_ran{result: none|draft|error|timeout}`,
-`sweep_skipped{reason: disabled|muted|draft_pending|no_new_content}`,
+`sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}`,
+`draft_discarded{reason: ignored_twice}`,
 `pending_at_end{marker,draft}` (from SessionEnd; the sweep logs it as just
 `{draft:true}` when the session ended while Haiku was still running),
 `pending_orphaned`.

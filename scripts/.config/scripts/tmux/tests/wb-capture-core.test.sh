@@ -170,6 +170,7 @@ assert_eq "default cooldown" 3 "$(cfg_get cooldown)"
 assert_eq "default sweep_every" 4 "$(cfg_get sweep_every)"
 assert_eq "default sweep" on "$(cfg_get sweep)"
 assert_eq "default sweep_timeout" 60 "$(cfg_get sweep_timeout)"
+assert_eq "default sweep_max_failures" 3 "$(cfg_get sweep_max_failures)"
 assert_eq "default phrases" "$DEFAULT_PHRASES" "$(cfg_get phrases)"
 
 new_scenario; mkdir -p "$CFG/wb"
@@ -182,6 +183,7 @@ this line is malformed
 sweep_every=abc
 sweep=off
 sweep_timeout=90
+sweep_max_failures=5
 phrases=we agreed|\$(touch $H/pwned)
 CONF
 run_wb /dev/null _config
@@ -189,6 +191,7 @@ assert_eq "cooldown applied" 7 "$(cfg_get cooldown)"
 assert_eq "non-integer falls back" 4 "$(cfg_get sweep_every)"
 assert_eq "sweep applied" off "$(cfg_get sweep)"
 assert_eq "timeout applied" 90 "$(cfg_get sweep_timeout)"
+assert_eq "sweep_max_failures applied" 5 "$(cfg_get sweep_max_failures)"
 assert_eq "command substitution stays literal" "we agreed|\$(touch $H/pwned)" "$(cfg_get phrases)"
 assert_nofile "payload never executed" "$H/pwned"
 assert_eq "unknown key ignored" "" "$(cfg_get bogus_key)"
@@ -197,6 +200,9 @@ assert_nofile "_config writes no state" "$CAP"
 new_scenario; mkdir -p "$CFG/wb"; printf 'sweep=maybe\ncooldown=-2\n' >"$CFG/wb/capture.conf"
 run_wb /dev/null _config
 assert_eq "bad sweep value -> default" on "$(cfg_get sweep)"
+new_scenario; mkdir -p "$CFG/wb"; printf 'sweep_max_failures=many\n' >"$CFG/wb/capture.conf"
+run_wb /dev/null _config
+assert_eq "bad sweep_max_failures -> default" 3 "$(cfg_get sweep_max_failures)"
 assert_eq "negative cooldown -> default" 3 "$(cfg_get cooldown)"
 
 if [ "$fail" -eq 0 ]; then echo "ALL PASSED"; else echo "FAILED"; fi

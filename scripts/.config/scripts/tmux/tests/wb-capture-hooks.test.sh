@@ -157,6 +157,63 @@ prompt "interrupted, asking again"
 assert_eq "stale nudge -> ignored" 1 "$(count_ev ignored)"
 assert_nofile "stale outstanding cleared" "$D/outstanding"
 
+echo "# draft strikes: first ignore re-nudges the same draft, second discards it"
+new_scenario
+mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"; assert_eq "draft nudge fired" sweep "$(cat "$D/outstanding")"
+stop "carrying on"
+assert_eq "ignored once" 1 "$(count_ev ignored)"
+assert_eq "strike recorded" 1 "$(cat "$D/draft_strikes")"
+assert_nofile "nudged_draft dropped" "$D/nudged_draft"
+assert_file "draft kept after first ignore" "$D/draft"
+prompt "next"
+assert_match "same draft nudged again" 'background review drafted' "$OUT"
+assert_eq "second nudge outstanding" sweep "$(cat "$D/outstanding")"
+stop "still carrying on"
+assert_eq "ignored twice" 2 "$(count_ev ignored)"
+assert_nofile "draft discarded" "$D/draft"
+assert_nofile "nudged_draft gone" "$D/nudged_draft"
+assert_nofile "strikes gone" "$D/draft_strikes"
+assert_eq "draft_discarded logged once" 1 "$(count_ev draft_discarded)"
+assert_eq "discard reason" ignored_twice "$(jq -r 'select(.event=="draft_discarded")|.reason' "$LOG")"
+prompt "after"; assert_eq "nothing left to nudge" "" "$OUT"
+assert_eq "no further discard" 1 "$(count_ev draft_discarded)"
+
+echo "# draft strikes: stale outstanding at the next prompt strikes too"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"
+prompt "go"; prompt "again, never reached Stop"
+assert_eq "strike via prompt" 1 "$(cat "$D/draft_strikes")"
+assert_match "re-nudged in the same prompt" 'background review drafted' "$OUT"
+
+echo "# draft strikes: phrase-nudge ignores don't strike"
+new_scenario
+stop "we decided to use B"; prompt "go"; stop "ok"
+assert_nofile "no strikes for a phrase ignore" "$D/draft_strikes"
+
+echo "# draft strikes: SessionEnd resolves ignored without striking"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_eq "end -> ignored" 1 "$(count_ev ignored)"
+assert_file "draft kept at end" "$D/draft"
+assert_nofile "no strike at end" "$D/draft_strikes"
+
+echo "# draft strikes: followed / dismiss / clear reset the count"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; stop "x"; prompt "go"
+assert_file "struck once" "$D/draft_strikes"
+posttool 'wb append x Decisions -'
+assert_nofile "followed resets strikes" "$D/draft_strikes"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; stop "x"
+hook dismiss ''
+assert_nofile "dismiss removes strikes" "$D/draft_strikes"; assert_nofile "dismiss removes draft" "$D/draft"
+new_scenario
+mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; stop "x"
+hook clear ''
+assert_nofile "clear removes strikes" "$D/draft_strikes"
+
 echo "# sub-agent posttool"
 new_scenario
 hook hook-posttool '{"session_id":"sid-aaa","agent_id":"sub1","tool_name":"Bash","tool_input":{"command":"wb append t.md Decisions -"}}'
@@ -170,7 +227,7 @@ posttool 'echo wb append; cat Decisions.md'; assert_nofile "echo mention" "$D/re
 posttool 'ls -la';                 assert_nofile "unrelated" "$D/recorded"
 assert_eq "exit 0" 0 "$RC"
 posttool 'cd x && wb append t.md Decisions -'; assert_file "chained wb append" "$D/recorded"
-posttool $'session=$(tmux display-message -p \'#S\')\ntask_file=$(tmux show -t "=$session:" -v @task)\nwb append "$task_file" Decisions - <<\'EOF\'\n### t\n- x\nEOF'
+posttool $'session=$(tmux display-message -p \'#S\')\ntask_file=$(tmux show -t "=$session:" -v @task)\nwb append "$task_file" Decisions - <<\'WB_DECISION_END\'\n### t\n- x\nWB_DECISION_END'
 assert_file "multi-line /wb-decide shape" "$D/recorded"
 new_scenario
 posttool $'cd /tmp\nwb append "$t" Decisions - <<EOF\nbody\nEOF'; assert_file "append on a later line" "$D/recorded"
@@ -209,6 +266,7 @@ assert_eq "one line" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
 assert_nofile "marker cleared" "$D/marker"
 assert_file "draft stays" "$D/draft"
 assert_eq "nudge source sweep" sweep "$(jq -r 'select(.event=="nudge_fired")|.source' "$LOG")"
+posttool 'wb append x Decisions -'     # followed: no strike, hash still matches
 prompt "again"
 assert_eq "same draft not re-nudged" "" "$OUT"
 echo "changed body" >"$D/draft"
@@ -387,7 +445,8 @@ assert_nofile "removed once stamp aged" "$CAP/sid-d2"
 echo "# reaper: known files + draft.tmp.* + .lock removed; unknown file blocks rmdir"
 new_scenario
 mkdir -p "$CAP/sid-tmp" "$CAP/sid-unk"
-touch "$CAP/sid-tmp/ended" "$CAP/sid-tmp/draft.tmp.123" "$CAP/sid-tmp/.lock" "$CAP/sid-tmp/sweep_offset"
+touch "$CAP/sid-tmp/ended" "$CAP/sid-tmp/draft.tmp.123" "$CAP/sid-tmp/.lock" "$CAP/sid-tmp/sweep_offset" \
+  "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures"
 touch "$CAP/sid-unk/ended" "$CAP/sid-unk/mystery"
 prompt "hi"
 assert_nofile "tmp/lock dir gone" "$CAP/sid-tmp"

@@ -26,8 +26,8 @@
 #                  file) if `marker` or `draft` exists logs `pending_at_end`
 #                  {marker,draft}; always writes the `ended` tombstone. Deletes
 #                  nothing — the reaper does that.
-#   clear          agent verb: drop marker, draft and outstanding flag. Logs
-#                  nothing (the PostToolUse hook already logs `followed`).
+#   clear          agent verb: drop marker, draft, draft_strikes and outstanding
+#                  flag. Logs nothing (the PostToolUse hook already logs `followed`).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
 #                  when nothing was pending.
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
@@ -44,13 +44,25 @@
 #   per session  <root>/<session_id>/   (marker recorded cooldown taskhash
 #                                        unchanged draft muted outstanding ended
 #                                        synthetic nudged_draft taskpath
-#                                        sweep_offset .lock draft.tmp.*)
+#                                        sweep_offset draft_strikes
+#                                        sweep_failures .lock draft.tmp.*)
 #   event log    <root>/log.jsonl       (one compact JSON line per event:
 #                                        ts, session_id, task, event[, source])
 #   reaper stamp <root>/.reaped          (mtime = last reap; at most one per hour)
 #   log rotation <root>/log.jsonl.1      (previous log; see reaper)
 #   kill switch  ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-capture
 #                (touch it and every verb becomes a silent no-op)
+#
+# Draft strikes: a draft nudge (source sweep) that resolves `ignored` gets one more
+# chance — `nudged_draft` is dropped so the same draft is nudged again on the next
+# real prompt, and `draft_strikes` records 1. A second ignore discards the draft
+# (draft, nudged_draft, draft_strikes removed) and logs `draft_discarded`
+# {"reason":"ignored_twice"}, which lets the sweep run again. The strike count is
+# dropped whenever the draft goes away another way (followed, dismiss, clear) or
+# the sweep writes a new draft. Phrase-nudge ignores don't strike; SessionEnd
+# resolves an outstanding nudge as ignored without striking.
+# `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
+# sweeps; at sweep_max_failures the sweep skips with reason `backoff`.
 #
 # Reaper (reap_stale, run by hook-prompt AFTER its nudge output is emitted, so it
 # can't delay or alter it; at most once per hour, throttled by the mtime of
@@ -77,6 +89,8 @@
 #   sweep_every    integer, unchanged turns before a sweep (default 4)
 #   sweep          on|off, Haiku background sweep          (default on)
 #   sweep_timeout  integer seconds for the sweep child     (default 60)
+#   sweep_max_failures  integer, consecutive failed sweeps before the sweep
+#                  backs off for the session; 0 = never back off (default 3)
 # A non-integer / non-on|off value falls back to the default.
 #
 # Guards (R5), checked in order before any state is touched: WB_CAPTURE_SWEEP
@@ -96,6 +110,7 @@ DEFAULT_COOLDOWN=3
 DEFAULT_SWEEP_EVERY=4
 DEFAULT_SWEEP=on
 DEFAULT_SWEEP_TIMEOUT=60
+DEFAULT_SWEEP_MAX_FAILURES=3
 
 STATE_BASE="${XDG_STATE_HOME:-$HOME/.local/state}/wb"
 CAPTURE_ROOT="$STATE_BASE/capture"
@@ -188,8 +203,10 @@ hook_posttool() {
   mkdir -p "$SDIR" 2>/dev/null || return 0
   : >"$SDIR/recorded"
   if [ -e "$SDIR/outstanding" ]; then
-    log_event "$SID" followed "$(cat "$SDIR/outstanding" 2>/dev/null)"
+    local osrc; osrc="$(cat "$SDIR/outstanding" 2>/dev/null)"
+    log_event "$SID" followed "$osrc"
     remove_named "$SDIR" outstanding
+    [ "$osrc" = sweep ] && remove_named "$SDIR" draft_strikes
   fi
 }
 
@@ -244,10 +261,23 @@ hook_stop() {
   remove_named "$SDIR" synthetic
 }
 
-# resolve_ignored — log the outstanding nudge as ignored and clear it.
+# resolve_ignored [nostrike] — log the outstanding nudge as ignored and clear it.
+# An ignored draft nudge strikes the draft (see "Draft strikes" in the header);
+# `nostrike` (SessionEnd) leaves the draft's state alone.
 resolve_ignored() {
-  log_event "$SID" ignored "$(cat "$SDIR/outstanding" 2>/dev/null)"
+  local src; src="$(cat "$SDIR/outstanding" 2>/dev/null)"
+  log_event "$SID" ignored "$src"
   remove_named "$SDIR" outstanding
+  if [ "$src" = sweep ] && [ "${1:-}" != nostrike ] && [ -f "$SDIR/draft" ]; then
+    if [ "$(read_num "$SDIR/draft_strikes")" -ge 1 ]; then
+      remove_named "$SDIR" draft nudged_draft draft_strikes
+      log_event "$SID" draft_discarded "" '{"reason":"ignored_twice"}'
+    else
+      # first ignore: drop the nudged-hash so the same draft is nudged once more
+      remove_named "$SDIR" nudged_draft
+      printf '1\n' >"$SDIR/draft_strikes"
+    fi
+  fi
 }
 
 # hook_prompt — nudge, then (cheaply, once an hour) reap stale state.
@@ -312,7 +342,7 @@ hook_end() {
     log_event "$SID" pending_at_end "" "{\"marker\":$m,\"draft\":$d}"
   fi
   # a nudge whose turn never reached Stop gets no later prompt to resolve it
-  [ -e "$SDIR/outstanding" ] && resolve_ignored
+  [ -e "$SDIR/outstanding" ] && resolve_ignored nostrike
   : >"$SDIR/ended" 2>/dev/null || true
 }
 
@@ -320,7 +350,8 @@ hook_end() {
 reap_dir() {
   local d="$1" f
   remove_named "$d" marker recorded cooldown taskhash unchanged draft muted \
-    outstanding ended synthetic nudged_draft taskpath sweep_offset .lock
+    outstanding ended synthetic nudged_draft taskpath sweep_offset draft_strikes \
+    sweep_failures .lock
   for f in "$d"/draft.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
   rmdir -- "$d" 2>/dev/null || true
 }
@@ -406,6 +437,7 @@ load_config() {
   CFG_SWEEP_EVERY="$DEFAULT_SWEEP_EVERY"
   CFG_SWEEP="$DEFAULT_SWEEP"
   CFG_SWEEP_TIMEOUT="$DEFAULT_SWEEP_TIMEOUT"
+  CFG_SWEEP_MAX_FAILURES="$DEFAULT_SWEEP_MAX_FAILURES"
   [ -r "$CONF_FILE" ] || return 0
   local line key val
   while IFS= read -r line || [ -n "$line" ]; do
@@ -420,6 +452,7 @@ load_config() {
       sweep_every)   [[ "$val" =~ ^[0-9]+$ ]] && CFG_SWEEP_EVERY="$val" ;;
       sweep)         case "$val" in on|off) CFG_SWEEP="$val" ;; esac ;;
       sweep_timeout) [[ "$val" =~ ^[0-9]+$ ]] && CFG_SWEEP_TIMEOUT="$val" ;;
+      sweep_max_failures) [[ "$val" =~ ^[0-9]+$ ]] && CFG_SWEEP_MAX_FAILURES="$val" ;;
     esac
   done <"$CONF_FILE"
   return 0
@@ -445,7 +478,7 @@ cmd_clear_or_dismiss() { # <log-event|"">
   if [ -z "$1" ] && [ -e "$SDIR/outstanding" ]; then
     log_event "$SID" followed "$(cat "$SDIR/outstanding" 2>/dev/null)"
   fi
-  remove_named "$SDIR" marker draft outstanding
+  remove_named "$SDIR" marker draft draft_strikes outstanding
   if [ "$1" = dismissed ] && [ "$pending" = 1 ]; then log_event "$SID" dismissed; fi
 }
 
@@ -462,8 +495,9 @@ cmd_status() {
 
 cmd_config() {
   load_config
-  printf 'phrases=%s\ncooldown=%s\nsweep_every=%s\nsweep=%s\nsweep_timeout=%s\n' \
-    "$CFG_PHRASES" "$CFG_COOLDOWN" "$CFG_SWEEP_EVERY" "$CFG_SWEEP" "$CFG_SWEEP_TIMEOUT"
+  printf 'phrases=%s\ncooldown=%s\nsweep_every=%s\nsweep=%s\nsweep_timeout=%s\nsweep_max_failures=%s\n' \
+    "$CFG_PHRASES" "$CFG_COOLDOWN" "$CFG_SWEEP_EVERY" "$CFG_SWEEP" "$CFG_SWEEP_TIMEOUT" \
+    "$CFG_SWEEP_MAX_FAILURES"
 }
 
 # Source-able as a library (wb-capture-sweep.sh): dispatch only when executed.

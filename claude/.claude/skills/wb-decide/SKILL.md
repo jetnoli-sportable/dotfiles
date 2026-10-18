@@ -30,8 +30,8 @@ whenever a real decision has been made and isn't recorded yet.
   takes the per-task lock and can only add a block, never touch existing
   bytes.
 - **Append-only.** `## Decisions` is a log. A correction is a *new* entry
-  that names which earlier entry it supersedes — never a rewrite of the old
-  one.
+  that carries a `(supersedes: <date> "<title fragment>")` marker naming the
+  earlier entry — never a rewrite of the old one.
 - **Don't restate** decisions already recorded in `## Decisions`.
 - **Don't record non-decisions.** A phrase match ("we'll go with…") is only a
   hint. If nothing was actually settled, dismiss instead of writing.
@@ -80,13 +80,23 @@ task_file=$(tmux show -t "=$session:" -v @task)
 ~/.config/scripts/tmux/wb-capture.sh status
 ```
 
-- **A draft is present** (status names a draft file): Read it and present it
-  to the user. Accept it as-is, or edit it first, **only if it reflects a
-  real decision made in this session** — a Haiku draft sees a transcript
-  excerpt and can be wrong or already-recorded. If it doesn't, run
-  `~/.config/scripts/tmux/wb-capture.sh dismiss`, say so in one line, and
-  stop.
-- **No draft**: compose from session context (step 3).
+Take the **draft-review path** only when a draft is present (status names a
+draft file) **and** one of these holds:
+
+- the draft nudge (`[wb-capture] A background review drafted …`) is what sent
+  you here, or
+- the user ran `/wb-decide` with no hint.
+
+On that path, Read the draft and present it to the user. Accept it as-is, or
+edit it first, **only if it reflects a real decision made in this session** —
+a Haiku draft sees a transcript excerpt and can be wrong or already-recorded.
+If it doesn't, run `~/.config/scripts/tmux/wb-capture.sh dismiss`, say so in
+one line, and stop.
+
+Otherwise go straight to composing (step 3) and **leave the draft alone** (do
+not dismiss it): a phrase nudge sent you here, the user's hint names a
+specific decision, or there is no draft. A draft you skipped stays pending;
+the hooks re-nudge it once more if it is ignored, then discard it.
 
 ### 3. Compose the entry
 
@@ -101,8 +111,13 @@ followed by bullets. Cover:
 
 Draw it from what actually happened in this conversation (use the user's
 hint, if any, to pick which decision), never generic filler. If it corrects
-or replaces an earlier entry, name that entry ("Supersedes the 2026-10-01
-14:20 — … entry") rather than rewriting it.
+or replaces an earlier entry, add a line `(supersedes: <date> "<title
+fragment>")` right under the heading, rather than rewriting the old entry —
+e.g. `(supersedes: 2026-10-01 "Store-wide board")`. The marker names the earlier
+entry by its date and a quoted substring of its title (the text after
+`<date> — `); read `## Decisions` first and quote the fragment from the real
+text. Zero or several matches read as unresolved, so make the fragment
+specific.
 
 If nothing was actually decided, say so plainly, run
 `~/.config/scripts/tmux/wb-capture.sh dismiss`, and stop — no write.
@@ -110,13 +125,16 @@ If nothing was actually decided, say so plainly, run
 ### 4. Append with `wb append`
 
 ```bash
-wb append "$task_file" Decisions - <<'EOF'
+wb append "$task_file" Decisions - <<'WB_DECISION_END'
 ### 2026-10-09 15:30 — <short title>
 - Decided: ...
 - Rejected: ... (<why not>)
 - Why: ...
-EOF
+WB_DECISION_END
 ```
+
+The delimiter is deliberately unusual: a draft or entry line reading exactly
+`EOF` would end a plain `<<'EOF'` heredoc early and truncate the entry.
 
 Use the real current time (`date '+%Y-%m-%d %H:%M'`) in the heading — the
 quoted heredoc doesn't expand `$(…)`, so compute it first and paste it in.
@@ -131,7 +149,9 @@ After a *successful* write:
 ~/.config/scripts/tmux/wb-capture.sh clear
 ```
 
-`clear` drops the marker and draft without logging a `dismissed` event (the
+`clear` drops the marker, the draft (even one you didn't review — a recorded
+decision usually makes it stale) and the outstanding-nudge flag, without
+logging a `dismissed` event (the
 `followed` event is logged by the plugin's PostToolUse hook when it sees the
 `wb append … Decisions` call; if that hook missed it, `clear` logs `followed`
 for a still-outstanding nudge). Only run it after a successful write. Then one
@@ -147,6 +167,9 @@ line: `Recorded to ## Decisions.`
 - [ ] **Draft edit + accept:** draft is roughly right but misses the
   rejected alternative or the why — edit it from session context, append the
   edited version, `clear`.
+- [ ] **Phrase nudge or hinted run with a draft pending:** skip the draft
+  path, compose from the conversation, leave the draft untouched (no dismiss);
+  `clear` after the write removes it.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
   is already recorded) — `wb-capture.sh dismiss`, say so, no write.
 - [ ] **Nothing decided:** phrase-match nudge but nothing was settled —
@@ -161,8 +184,8 @@ line: `Recorded to ## Decisions.`
 - [ ] **Stale `@task` (file missing):** distinct error naming the path
   (`wb-decide: no task file at <task_file> (from this session's @task) — it
   may have been moved or deleted`), no write.
-- [ ] **Correction supersedes an earlier entry:** new entry naming the
-  entry it supersedes; the old entry is untouched.
+- [ ] **Correction supersedes an earlier entry:** new entry carrying a
+  `(supersedes: <date> "<title fragment>")` line; the old entry is untouched.
 
 ## Notes
 

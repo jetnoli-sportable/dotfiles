@@ -196,6 +196,58 @@ new_scenario; set_conf sweep_every=2; printf '2\n' >"$D/unchanged"
 sweep
 assert_eq "sweep_every honoured" draft "$(last_field sweep_ran result)"
 
+echo "# backoff: 3 consecutive failures stop the sweep for the session"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail)
+for i in 1 2 3; do printf '4\n' >"$D/unchanged"; add_turn "q$i" "a$i"; sweep; done
+assert_eq "3 failures counted" 3 "$(cat "$D/sweep_failures")"
+assert_eq "3 child invocations" 3 "$(invocations)"
+printf '4\n' >"$D/unchanged"; add_turn q4 a4; sweep
+assert_eq "4th: child not invoked" 3 "$(invocations)"
+assert_eq "4th: skipped" sweep_skipped "$(events | awk '{print $NF}')"
+assert_eq "4th: reason backoff" backoff "$(last_field sweep_skipped reason)"
+assert_eq "4th: counter reset" 0 "$(cat "$D/unchanged")"
+assert_eq "failures kept (session-scoped)" 3 "$(cat "$D/sweep_failures")"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=sleep); set_conf sweep_timeout=1
+for i in 1 2 3; do printf '4\n' >"$D/unchanged"; add_turn "q$i" "a$i"; sweep; done
+assert_eq "timeouts count as failures" 3 "$(cat "$D/sweep_failures")"
+
+echo "# backoff: a success resets the count"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail)
+for i in 1 2; do printf '4\n' >"$D/unchanged"; add_turn "q$i" "a$i"; sweep; done
+assert_eq "2 failures" 2 "$(cat "$D/sweep_failures")"
+EXTRA_ENV+=(FAKE_CLAUDE_MODE=none); printf '4\n' >"$D/unchanged"; add_turn q3 a3; sweep
+assert_nofile "NONE resets failures" "$D/sweep_failures"
+EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail)
+for i in 4 5 6; do printf '4\n' >"$D/unchanged"; add_turn "q$i" "a$i"; sweep; done
+printf '4\n' >"$D/unchanged"; add_turn q7 a7; sweep
+assert_eq "backoff only after 3 more in a row" backoff "$(last_field sweep_skipped reason)"
+new_scenario
+printf '2\n' >"$D/sweep_failures"; sweep
+assert_nofile "draft resets failures" "$D/sweep_failures"
+
+echo "# backoff: sweep_max_failures config"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail); set_conf sweep_max_failures=1
+sweep; printf '4\n' >"$D/unchanged"; add_turn q2 a2; sweep
+assert_eq "max 1: second sweep backs off" backoff "$(last_field sweep_skipped reason)"
+assert_eq "max 1: one invocation" 1 "$(invocations)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail); set_conf sweep_max_failures=0
+printf '9\n' >"$D/sweep_failures"; sweep
+assert_eq "max 0: never backs off" error "$(last_field sweep_ran result)"
+new_scenario; set_conf sweep_max_failures=abc; printf '3\n' >"$D/sweep_failures"; sweep
+assert_eq "invalid max falls back to 3" backoff "$(last_field sweep_skipped reason)"
+
+echo "# draft strikes: after a discard the sweep runs again (no draft_pending skip)"
+new_scenario
+sweep; assert_file "draft written" "$D/draft"
+run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop        # nudge, ignored: strike 1
+run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop        # re-nudge, ignored: discarded
+assert_nofile "draft discarded" "$D/draft"
+printf '4\n' >"$D/unchanged"; add_turn q2 a2; sweep
+assert_eq "sweep ran after discard" 1 "$(jq -r 'select(.event=="draft_discarded")|.event' "$LOG" | wc -l | tr -d ' ')"
+assert_eq "no draft_pending skip" "" "$(last_field sweep_skipped reason)"
+assert_file "new draft written" "$D/draft"
+assert_nofile "new draft starts with no strikes" "$D/draft_strikes"
+
 echo "# no new content: only tool calls / nothing since the last sweep"
 new_scenario
 {

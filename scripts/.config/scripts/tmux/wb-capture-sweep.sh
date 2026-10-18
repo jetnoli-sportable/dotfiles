@@ -6,6 +6,8 @@
 # task file has gone stale (`unchanged >= sweep_every`) it asks a headless
 # Haiku child whether the recent transcript holds an unrecorded decision and,
 # if so, writes a per-session `draft` (never the task file — KTD5/R14).
+# `sweep_max_failures` (default 3) consecutive error/timeout results stop the
+# sweep for the session (skip reason `backoff`); a draft or NONE resets the count.
 #
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
@@ -40,6 +42,8 @@ reason=""
 if [ "$CFG_SWEEP" = off ]; then reason=disabled
 elif [ -e "$SDIR/muted" ]; then reason=muted
 elif [ -e "$SDIR/draft" ]; then reason=draft_pending
+elif [ "$CFG_SWEEP_MAX_FAILURES" -gt 0 ] && \
+     [ "$(read_num "$SDIR/sweep_failures")" -ge "$CFG_SWEEP_MAX_FAILURES" ]; then reason=backoff
 fi
 unlock_session
 if [ -n "$reason" ]; then
@@ -125,5 +129,13 @@ if [ "$result" = draft ]; then
   if printf '%s\n' "$out" >"$tmp" 2>/dev/null && mv -f "$tmp" "$SDIR/draft" 2>/dev/null; then :
   else rm -f -- "$tmp" 2>/dev/null; result=error; fi
 fi
+
+# consecutive failures (claude missing / logged out / rate-limited) back the sweep
+# off for the rest of the session; any clean run (draft or none) resets the count
+case "$result" in
+  error|timeout) printf '%s\n' "$(( $(read_num "$SDIR/sweep_failures") + 1 ))" >"$SDIR/sweep_failures" ;;
+  *) remove_named "$SDIR" sweep_failures ;;
+esac
+[ "$result" = draft ] && remove_named "$SDIR" draft_strikes
 log_event "$SID" sweep_ran "" "$(jq -nc --arg r "$result" '{result:$r}')"
 exit 0
