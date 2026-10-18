@@ -19,9 +19,8 @@ carries the context and instructions the routed worker will need before
 
 > **Store-only field/status edits:** never Edit/Write a task file's frontmatter by
 > hand — `wb status <task-ref> <planned|paused|doing|review>` flips status and
-> `wb set <task-ref> <field> <value>` (fields: priority value size parent
-> depends_on jira pr tags path branch) writes any other frontmatter field under the task
-> lock, both refusing when a live session owns the task.
+> `wb set <task-ref> <field> <value>` (any field `wb help` lists) writes any
+> other frontmatter field under the task lock, both refusing when a live session owns the task.
 
 ## Scope — what this does and doesn't do
 
