@@ -28,7 +28,8 @@ mode):
 | `--manual` | decision-buffer et al., headless (no tmux, no terminal spawn) | no — prints a copyable `! nvim <path>` command and returns immediately | yes (records the offer was made) | no |
 | `--direct` | `wb.sh`'s own non-agent callers (`wb reconcile --review`, sweep-review call sites) | yes, synchronously in the calling shell | **no** | no |
 | `--reattach` | any caller resuming an interrupted `--tmux` wait | yes (`tmux wait-for` again), or returns immediately if the wait shouldn't resume | rewrites nothing; only deletes the state file on completion | yes, while re-waiting |
-| `review-page` — a separate skill now, not a mode of this script; see `claude/.claude/skills/review-page/SKILL.md` | large batches (≳25 rows) served as HTML instead of an nvim buffer | yes (blocks until the page POSTs `/submit`) | yes, same field set, `mode=review-page`, `pane_id` always empty | no — there is no tmux pane to mark, only a local HTTP server and a browser tab |
+| `review-page` — a separate skill now, not a mode of this script; see `claude/.claude/skills/review-page/SKILL.md` (routing rule: `claude/.claude/skills/decision-page/SKILL.md`) | big batches answered from one shared verdict list, served as HTML instead of an nvim buffer | yes (blocks until the page POSTs `/submit`) | yes, same field set, `mode=review-page`, `pane_id` always empty | no — there is no tmux pane to mark, only a local HTTP server and a browser tab |
+| `decision-page` — a separate skill, not a mode of this script; see `claude/.claude/skills/decision-page/SKILL.md` | a batch of about 4-25 decisions, each with its own options and evidence, as a self-contained HTML page | no — returns at once; Jet pastes the Copy answers result back | no state file | no wait, copy-answers return |
 
 `--direct` exists only to reproduce `wb_open_buffer()`'s pre-existing
 non-tmux branch (`scripts/.config/scripts/tmux/wb.sh:2800-2802`) exactly —

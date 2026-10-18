@@ -86,7 +86,10 @@ alternatives for a specific shape of the problem.
     <p>Appends to the standing capture doc (<code>~/code/tasks/weeks/capture.md</code>), which the weekly review rolls up. If it's shaped like work, it's proposed as a <code>prospective</code> task instead. <kbd>prefix</kbd>+<kbd>N</kbd> opens the capture doc directly. <a href="guides/park.html">guide</a></p></div>
   <div class="wwa-card"><h3>Make a settled choice</h3>
     <p class="use">/decision-buffer</p>
-    <p>Once the direction is agreed in chat and what's left needs a written answer. Six shapes: choice, findings-review, interview, paste-target, confirm-facts, code-review triage. Past ~25 rows, use <code>/review-page</code> instead. <a href="guides/decision-buffer.html">guide</a></p></div>
+    <p>Once the direction is agreed in chat and what's left needs a written answer. Six shapes: choice, findings-review, interview, paste-target, confirm-facts, code-review triage. For a batch with options per item, see <code>/decision-page</code>; for a big shared-verdict batch, <code>/review-page</code>. <a href="guides/decision-buffer.html">guide</a></p></div>
+  <div class="wwa-card"><h3>Decide a batch on a page</h3>
+    <p class="use">/decision-page</p>
+    <p>A self-contained HTML page for about 4-25 decisions, each with its own options and evidence, answered at your own pace and returned with one Copy answers paste. <a href="guides/decision-page.html">guide</a></p></div>
   <div class="wwa-card"><h3>Review a big batch</h3>
     <p class="use">/review-page</p>
     <p>A local HTML page with evidence per row, a suggested verdict, grouping and questions. Use it for audits, prune lists and triage, where an nvim buffer becomes unreadable. <a href="guides/review-page.html">guide</a></p></div>

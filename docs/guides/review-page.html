@@ -241,12 +241,13 @@
 <div class="shell">
   <nav class="toc">
     <div class="brand">review-page</div>
-    <div class="brand-sub">Serve a large batch review (25&#43; rows) as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.</div>
+    <div class="brand-sub">Serve a big batch review answered from one shared verdict list as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.</div>
     <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#overview">Overview</a></li>
       <li><a href="#try-it">Try it</a></li>
       <li><a href="#how-it-differs-from-decision-buffer">How it differs from decision-buffer</a></li>
+      <li><a href="#on-the-page">On the page</a></li>
       <li><a href="#the-close-rule">The close rule</a></li>
     </ul>
   </nav>
@@ -254,7 +255,7 @@
     <header class="doc guide-banner">
       <span class="eyebrow">skills · guide</span>
       <h1>review-page</h1>
-      <p class="dek">Serve a large batch review (25&#43; rows) as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.</p>
+      <p class="dek">Serve a big batch review answered from one shared verdict list as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
@@ -311,7 +312,7 @@ Ctrl-C the script if it's still running.</p>
 <tr>
 <td>Scale</td>
 <td>small batches, a handful of options/questions</td>
-<td>large batches, ≳25 rows</td>
+<td>big batches answered from one shared verdict list</td>
 </tr>
 <tr>
 <td>Untouched-row default</td>
@@ -321,7 +322,7 @@ Ctrl-C the script if it's still running.</p>
 <tr>
 <td>Per-row extras</td>
 <td>none needed at that scale</td>
-<td>evidence toggle, dependency chips, free-text grouping, Agree button</td>
+<td>evidence toggle, dependency chips, free-text grouping, agree key</td>
 </tr>
 <tr>
 <td>Opting out</td>
@@ -330,10 +331,21 @@ Ctrl-C the script if it's still running.</p>
 </tr>
 </tbody>
 </table>
-<p>Use <code>decision-buffer</code> instead for a settled 2-4 option choice or a short
-interview — the review-page machinery (spec file, HTTP server, filters) is
-overkill below its threshold. See <code>claude/.claude/skills/review-page/SKILL.md</code>
-for the fuller when-to-use guidance and the exact spec-writing rules.</p>
+<p>Which tool fits a batch is decided by the shape of each item's answer, not by
+count alone; the rule is owned by <code>claude/.claude/skills/decision-page/SKILL.md</code>.
+Items that each have their own options go to <code>decision-page</code> or a
+<code>decision-buffer</code> choice doc. See <code>claude/.claude/skills/review-page/SKILL.md</code>
+for the exact spec-writing rules.</p>
+<h2 id="on-the-page">On the page</h2>
+<p>One card per row, grouped by area, with a collapsible sidebar and an overview
+band first; the close-out block (accept defaults, global questions, Submit) is
+at the end. It shares its look and keys with <code>decision-page</code>. Keys, none active
+while typing: <code>j</code> <code>k</code> move between overview, rows and close-out; <code>a</code> agrees
+with the suggestion (again to undo); <code>1</code>-<code>9</code> pick a verdict; <code>c</code> clears the
+row; <code>n</code> note; <code>g</code> / <code>t</code> group tag; <code>e</code> / <code>o</code> expand / collapse evidence, <code>E</code>
+does every row; <code>u</code> next row that needs you; <code>/</code> search; <code>[</code> toggle the
+sidebar; <code>Enter</code> jumps to the first row that needs you (or Submits on the
+close-out block); <code>?</code> lists the keys. The old <code>A</code> and <code>d</code> / <code>D</code> keys are gone.</p>
 <h2 id="the-close-rule">The close rule</h2>
 <ol>
 <li>A <strong>row note</strong> or the page's <strong>global questions box</strong> must be answered
@@ -344,7 +356,7 @@ Agree.</li>
 <li>A row with <strong>no suggestion at all</strong> (empty <code>suggested</code>) and left
 untouched is <strong>unresolved</strong> — there's nothing to silently accept, so it
 gets re-asked rather than defaulted or skipped.</li>
-<li>The footer's &quot;accept remaining defaults for untouched rows&quot; checkbox is
+<li>The close-out block's &quot;accept remaining defaults for untouched rows&quot; checkbox is
 pre-ticked by default (a spec can turn this off with
 <code>&quot;accept_defaults_default&quot;: false</code>); unticking it flips untouched rows
 back to &quot;apply nothing&quot; — Submit only warns in that case.</li>

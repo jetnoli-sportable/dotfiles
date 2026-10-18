@@ -58,7 +58,8 @@ the one selected, never inline a template here:
 | Paste target | `references/shapes/paste-target.md` | An async execute-and-paste loop |
 | Confirm-facts | `references/shapes/confirm-facts.md` | Ticking a small batch of true/false statements |
 | Code-review triage | `references/shapes/code-review-triage.md` | Per finding: recommended fix, alternatives, then Defer / Skip |
-| Large reviews (≳25 rows) → the `review-page` skill (`claude/.claude/skills/review-page/SKILL.md`) | — | A large batch needing per-row defaults, grouping, and questions at once — served as an HTML page, not an nvim buffer. Not a shape of this skill; hand off to review-page instead. |
+| Batch where each item has its own options and evidence (about 4-25) → the `decision-page` skill (`claude/.claude/skills/decision-page/SKILL.md`, owner of the routing rule) | — | Not a shape of this skill; hand off to decision-page, a self-contained HTML page answered at Jet's own pace and returned with one Copy answers paste. |
+| Big batch answered from one shared verdict list → the `review-page` skill (`claude/.claude/skills/review-page/SKILL.md`) | — | Per-row suggested verdicts, grouping and questions, served as an HTML page, not an nvim buffer. Not a shape of this skill; hand off to review-page. Which of the three tools to pick is decided by `decision-page/SKILL.md` "When to use". |
 
 ## 3. Every question states why, and its stage
 

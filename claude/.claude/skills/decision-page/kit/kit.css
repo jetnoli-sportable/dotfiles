@@ -1,0 +1,113 @@
+/* kit.css: the look both decision-page and review-page share. Pasted verbatim
+   into each page's <style> by its generator, then the page's own CSS follows.
+   Page-specific styling (decision cards and options, review rows and verdict
+   controls) stays in each page's template, never here.
+
+   Page skeleton the kit expects (DOM order matters for the grid):
+     <div class="wrap" id="wrap">
+       <header class="top">...</header>
+       <section class="band" id="band" tabindex="-1">...</section>
+       <nav|aside class="sidebar" id="sb">...</nav|aside>      column 1
+       <main id="main">...</main>                               column 2
+       <section class="closing item" id="finish" tabindex="-1"> column 2, in flow
+     </div>
+     <div id="legend" hidden role="dialog">  (Kit.init fills it)
+   In the sidebar, mark content that shows only when expanded with .full and
+   content that shows only when collapsed with .rail. Give every navigable
+   card/row the class .item so the current-stop ring applies. */
+:root{--bg:#f6f7f5;--panel:#fff;--fg:#1d2420;--muted:#5d6862;--line:#d9ded9;--accent:#2f6b4f;--accent-soft:#e3efe8;--warn:#9a5a12;--warn-soft:#f8ecd9;--del:#a23b2c;--del-soft:#f6e2de;--code-bg:#eef1ee;--info:#2c5a8a;--info-soft:#e3ecf6;--pur:#6a4a9a;--pur-soft:#ece6f6;--gray:#55605a;--gray-soft:#e8ebe8;--on-accent:#fff;
+--f-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--f-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#141917;--panel:#1b2220;--fg:#e3e8e4;--muted:#9aa69f;--line:#2d3733;--accent:#7cc4a0;--accent-soft:#1f3a2e;--warn:#e2a85c;--warn-soft:#3a2c19;--del:#ec8a7a;--del-soft:#3c221e;--code-bg:#232c29;--info:#8fb8e6;--info-soft:#1d2c3f;--pur:#bda4ea;--pur-soft:#2d2640;--gray:#a9b4ad;--gray-soft:#27302c;--on-accent:#10201a;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 var(--f-body);padding:0 16px 64px}
+h1{font-size:1.75rem;margin:0;letter-spacing:-.01em}
+code{font-family:var(--f-mono);font-size:.85em;background:var(--code-bg);padding:1px 5px;border-radius:3px;overflow-wrap:anywhere}
+kbd{font-family:var(--f-mono);font-size:.78em;background:var(--code-bg);border:1px solid var(--line);border-radius:3px;padding:0 4px}
+.hint{font-size:.72rem;color:var(--muted)}
+/* layout: wide two-column grid, about 85% of the viewport; collapsing the sidebar widens the content */
+.cap{font-size:.75rem;color:var(--muted);padding:8px 0;text-transform:uppercase;letter-spacing:.08em;width:min(100%,max(85vw,320px));margin:0 auto}
+.wrap{width:min(100%,max(85vw,320px));max-width:1500px;margin:0 auto;display:grid;grid-template-columns:270px minmax(0,1fr);gap:28px;align-items:start}
+header.top{grid-column:1/-1;display:grid;gap:10px}
+main{display:grid;gap:28px;min-width:0}
+/* sidebar: sticky, collapsible; .full shows when expanded, .rail when collapsed */
+.sidebar{position:sticky;top:16px;display:grid;gap:12px;font-size:.88rem;max-height:calc(100vh - 32px);overflow:auto;min-width:0}
+.sidebar h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 4px}
+.sidebar a{display:flex;gap:8px;align-items:center;color:var(--fg);text-decoration:none;padding:3px 6px;border-radius:4px}
+.sidebar a:hover,.sidebar a:focus-visible{background:var(--accent-soft);outline:none}
+.sidebar a.cur{background:var(--accent-soft);font-weight:600}
+.prog{font-weight:600;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.bar2{height:6px;background:var(--line);border-radius:3px;margin-top:6px;overflow:hidden}.bar2>i{display:block;height:100%;background:var(--accent);width:0}
+.sb-toggle{width:100%;padding:5px 8px;font-size:.78rem;display:flex;justify-content:space-between;gap:6px}
+.dot{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--muted);flex:none;display:inline-block}
+.dot.done{background:var(--accent);border-color:var(--accent)}
+.rail{display:none}
+/* collapsed state: wider content, narrow rail (desktop only; phones always show the full sidebar) */
+@media (min-width:861px){
+.wrap.sb-collapsed{width:min(100%,max(96vw,320px));max-width:2200px;grid-template-columns:56px minmax(0,1fr);gap:20px}
+.sb-collapsed .sidebar{gap:8px}
+.sb-collapsed .sidebar .full{display:none}
+.sb-collapsed .rail{display:grid;gap:6px;justify-items:center;font-size:.78rem;font-weight:700}
+.sb-collapsed .prog{padding:6px 4px;text-align:center}
+.sb-collapsed .sb-toggle{justify-content:center;padding:5px 0}
+.sb-collapsed .sidebar a{justify-content:center;padding:6px 0}
+}
+/* overview band: stage strip + page-supplied at-a-glance content */
+.band{grid-column:1/-1;display:grid;gap:16px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 20px;min-width:0;scroll-margin-top:16px}
+.band h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 6px}
+.bandgrid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}
+.stages{display:flex;gap:6px;list-style:none;margin:0;padding:0;flex-wrap:wrap}
+.stages li{flex:1 1 130px;min-width:120px;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:.84rem;display:grid;gap:2px;align-content:start}
+.stages .n{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.stages li.done{background:var(--accent-soft);border-color:transparent}.stages li.done .n{color:var(--accent)}
+.stages li.current{border:2px solid var(--accent);font-weight:600}.stages li.current .n{color:var(--accent)}
+.stages li.later{border-style:dashed;opacity:.85}
+.here{font-size:.72rem;font-weight:700;color:var(--on-accent);background:var(--accent);border-radius:99px;padding:1px 8px;justify-self:start;margin-top:2px}
+/* the current keyboard stop */
+.item.cur,.band.cur,.closing.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+/* artifact chips */
+.arts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.8rem}
+.k{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.arts .k{margin-right:2px}
+.chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:99px;padding:1px 10px 1px 4px;background:var(--bg);color:var(--fg);text-decoration:none;max-width:100%;font-size:.8rem}
+a.chip:hover{border-color:var(--accent)}
+.chip .kind{font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:var(--code-bg);color:var(--muted);border-radius:99px;padding:0 7px}
+.chip .lbl{font-weight:600}.chip .path{color:var(--muted);font-family:var(--f-mono);font-size:.9em;overflow-wrap:anywhere}
+/* callouts: <div class="callout warn|info|accent"><span class="k">Label</span>...</div> */
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:8px 12px;border-radius:0 6px 6px 0;font-size:.92rem;display:grid;gap:6px}
+.callout .k{display:block;color:var(--accent)}
+.callout.warn{border-color:var(--warn);background:var(--warn-soft)}.callout.warn .k{color:var(--warn)}
+.callout.info{border-color:var(--info);background:var(--info-soft)}.callout.info .k{color:var(--info)}
+/* collapsible evidence */
+details.ev{border:1px solid var(--line);border-radius:6px;padding:6px 10px;margin-top:4px}
+details.ev summary{cursor:pointer;font-size:.88rem;font-weight:600}
+details.ev>div,details.ev>.b{margin-top:6px}
+/* form basics */
+textarea{width:100%;min-height:3.2em;font:inherit;font-size:.92rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;resize:vertical}
+input[type=search],input[type=text],select{width:100%;font:inherit;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+/* buttons: neutral by default; accent only for .primary (and what a page marks selected) */
+button{font:inherit;font-weight:600;font-size:.88rem;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+button:hover:not([disabled]){border-color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button.ghost{background:transparent}
+button.sm{padding:3px 10px;font-size:.8rem}
+button.link{border:0;padding:2px 6px;font-size:.8rem;text-decoration:underline;background:transparent}
+button[disabled]{opacity:.4;cursor:default}
+button.link[disabled]{text-decoration:none}
+button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+/* closing block: in the content column, in normal flow, never fixed and never under the sidebar */
+.closing{grid-column:2;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 20px;display:grid;gap:12px;min-width:0;scroll-margin-top:16px}
+.closing h2{margin:0;font-size:1.1rem}
+/* keyboard legend */
+#legend{position:fixed;right:16px;bottom:16px;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px;font-size:.85rem;box-shadow:0 4px 18px rgba(0,0,0,.18);display:grid;gap:4px;max-width:calc(100vw - 32px)}
+#legend[hidden]{display:none}#legend b{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+/* phone width: one column, sidebar flows above the content, collapse is moot */
+@media (max-width:860px){
+.wrap{grid-template-columns:minmax(0,1fr);width:100%}
+.closing{grid-column:1}
+.sidebar{position:static;max-height:none}
+.prog{position:sticky;top:0;z-index:5}
+.sb-toggle{display:none}
+.bandgrid{grid-template-columns:minmax(0,1fr)}
+}

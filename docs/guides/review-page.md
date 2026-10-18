@@ -1,7 +1,7 @@
 ---
 title: review-page
 status: current
-tile: Serve a large batch review (25+ rows) as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.
+tile: Serve a big batch review answered from one shared verdict list as a local HTML page with defaults, grouping, and questions — instead of an unreadable nvim buffer.
 group: skills
 kind: guide
 updated: 2026-09-14
@@ -53,15 +53,28 @@ Ctrl-C the script if it's still running.
 | | `decision-buffer` (six nvim shapes) | `review-page` |
 |---|---|---|
 | Surface | markdown buffer in nvim, opened in a tmux split | HTML page served on `127.0.0.1`, opened in a browser tab |
-| Scale | small batches, a handful of options/questions | large batches, ≳25 rows |
+| Scale | small batches, a handful of options/questions | big batches answered from one shared verdict list |
 | Untouched-row default | **nothing applies** — silence is never consent | **the suggested verdict applies** — silence is consent unless a note says otherwise |
-| Per-row extras | none needed at that scale | evidence toggle, dependency chips, free-text grouping, Agree button |
+| Per-row extras | none needed at that scale | evidence toggle, dependency chips, free-text grouping, agree key |
 | Opting out | leave everything unmarked | change the verdict, or leave a row/global note |
 
-Use `decision-buffer` instead for a settled 2-4 option choice or a short
-interview — the review-page machinery (spec file, HTTP server, filters) is
-overkill below its threshold. See `claude/.claude/skills/review-page/SKILL.md`
-for the fuller when-to-use guidance and the exact spec-writing rules.
+Which tool fits a batch is decided by the shape of each item's answer, not by
+count alone; the rule is owned by `claude/.claude/skills/decision-page/SKILL.md`.
+Items that each have their own options go to `decision-page` or a
+`decision-buffer` choice doc. See `claude/.claude/skills/review-page/SKILL.md`
+for the exact spec-writing rules.
+
+## On the page
+
+One card per row, grouped by area, with a collapsible sidebar and an overview
+band first; the close-out block (accept defaults, global questions, Submit) is
+at the end. It shares its look and keys with `decision-page`. Keys, none active
+while typing: `j` `k` move between overview, rows and close-out; `a` agrees
+with the suggestion (again to undo); `1`-`9` pick a verdict; `c` clears the
+row; `n` note; `g` / `t` group tag; `e` / `o` expand / collapse evidence, `E`
+does every row; `u` next row that needs you; `/` search; `[` toggle the
+sidebar; `Enter` jumps to the first row that needs you (or Submits on the
+close-out block); `?` lists the keys. The old `A` and `d` / `D` keys are gone.
 
 ## The close rule
 
@@ -73,7 +86,7 @@ for the fuller when-to-use guidance and the exact spec-writing rules.
 3. A row with **no suggestion at all** (empty `suggested`) and left
    untouched is **unresolved** — there's nothing to silently accept, so it
    gets re-asked rather than defaulted or skipped.
-4. The footer's "accept remaining defaults for untouched rows" checkbox is
+4. The close-out block's "accept remaining defaults for untouched rows" checkbox is
    pre-ticked by default (a spec can turn this off with
    `"accept_defaults_default": false`); unticking it flips untouched rows
    back to "apply nothing" — Submit only warns in that case.

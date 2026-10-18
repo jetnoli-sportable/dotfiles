@@ -4,11 +4,12 @@ description: Serve a large batch of items — a task-store triage, a piece/skill
   audit, a prune list, a wb-breakdown proposal, a weekly review — as a
   locally-served HTML page with per-row evidence, a suggested verdict, free-text
   grouping, and per-row/global questions, instead of an unreadable 40+-checkbox
-  nvim buffer. Use when Jet says "audit page", "review page", "put this on a
-  page", "this is too big for a buffer", "let's go through these one by one", or
-  when a review exceeds ~25 rows or needs defaults + grouping + questions at
-  once. NOT for a settled choice between 2-4 options or a short interview —
-  those stay in the `decision-buffer` skill.
+  nvim buffer. Use when every item is answered from the same short verdict list
+  and most suggestions are expected to be right (roughly 15 or more items), or
+  when /weekly-review or /wb-breakdown calls for it. NOT for items that each
+  have their own options and evidence (use `decision-page`), nor a settled
+  choice or short interview (use `decision-buffer`). A trigger phrase like
+  "audit page" does not override the answer shape.
 ---
 
 # review-page
@@ -19,13 +20,20 @@ became clear the review-page mechanism — a spec file, an HTTP server, a
 browser tab — is a genuinely different beast from the other six nvim-buffer
 shapes, not just another entry in their table.
 
-## When to use (vs decision-buffer)
+## When to use (vs decision-buffer and decision-page)
 
-Use `review-page` when a batch is too large or too structured for a markdown
-buffer: **more than ~25 rows**, or when what's needed is per-row defaults (a
-suggested verdict per item), free-text grouping, AND per-row questions all at
-once. A markdown buffer with 40+ checkbox blocks is unreadable and slow to
-scan.
+The shape of each item's answer picks the tool; trigger phrases never override
+it. Use `review-page` when every item is answered from the same short verdict
+list and most suggestions are expected to be right, roughly 15 or more items.
+For fewer, use a `decision-buffer` findings-review doc. When each item has
+options written for it, use a `decision-buffer` choice doc (1-3 decisions) or
+`decision-page` (about 4-25). The full rule, including the split for batches
+over 25 and the shape-wins-over-trigger-phrase handling, is owned by
+`claude/.claude/skills/decision-page/SKILL.md` ("When to use"); read it there
+rather than here.
+
+A skill whose own flow fixes its presentation tool keeps it: `/weekly-review`
+and `/wb-breakdown` both use review-page regardless of size.
 
 Typical uses:
 
@@ -34,25 +42,7 @@ Typical uses:
 - Piece/skill audits (reviewing every skill or workflow piece for
   keep/merge/retire)
 - Prune lists (files, branches, dependencies flagged for removal)
-- `wb-breakdown` proposals with many candidate child tasks
-- The weekly review (`/weekly-review` and similar recurring sweeps)
-
-Stay in `decision-buffer` instead for:
-
-- **A settled choice between 2-4 named options** — that's the `choice` shape;
-  a review page's per-row machinery (evidence toggles, grouping, filters) is
-  overkill for one decision.
-- **A short interview** (free-text answers to a handful of open questions) —
-  that's the `interview` shape; there's no batch of rows to triage.
-- Any batch under ~25 items with no need for defaults/grouping/per-row
-  questions — `findings-review` or `code-review-triage` handle those fine in
-  an nvim buffer.
-
-The ~25-row threshold is a guideline, not a hard gate — a 15-row batch that
-genuinely needs per-row grouping and questions can still justify a page; a
-30-row batch that's just a flat agree/disagree list might still fit
-`findings-review`. Use judgement, and when in doubt, ask which the user
-prefers.
+- `wb-breakdown` proposals and the weekly review (fixed by those skills)
 
 ## Align first
 
@@ -154,6 +144,31 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
   `review-page.py --reattach /path/to/answers.json` (also backgrounded; see
   `references/spec-and-close-contract.md`), or just kill the process and
   re-run with a fresh `--spec`/`--out`.
+
+## The page
+
+The page opens on an overview band (where this sits, counts, the intro), with a
+collapsible sidebar and one card per row, grouped by area; the close-out block
+(accept defaults, global questions, Submit) is at the end. It shares its look
+and key map with `decision-page`. Keyboard, none of it active while typing:
+
+| Key | Does |
+|---|---|
+| `j` / `k` | next / previous: overview, each row, close-out |
+| `a` | agree with the suggestion (again to undo) |
+| `1`-`9` | pick a verdict |
+| `c` | clear the row back to untouched |
+| `n` | note (global questions on the close-out block) |
+| `g` / `t` | group tag |
+| `e` / `o` | expand / collapse evidence and details; `E` does every row |
+| `u` | jump to the next row that needs you |
+| `/` | search |
+| `[` | collapse / expand the sidebar |
+| `Enter` | overview: first row that needs you; close-out: Submit |
+| `?` | list the keys |
+
+The old `A` and `d` / `D` keys are retired. Spec additions (`context`, row
+`prior`) and the full key map are in `references/spec-and-close-contract.md`.
 
 ## Close contract
 

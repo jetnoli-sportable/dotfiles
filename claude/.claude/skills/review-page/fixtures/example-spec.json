@@ -1,6 +1,25 @@
 {
   "title": "Example Review \u2014 3 fixture rows",
   "intro_md": "Fixture spec for trying the review-page mechanism. **Leaving a row alone accepts its suggestion** \u2014 opt out with a changed verdict, a row note, or the questions box below. Submit posts your answers to this run's terminal.",
+  "context": {
+    "task": "dotfiles--example-task",
+    "here": "this page",
+    "stages": [
+      {
+        "name": "Round 1",
+        "state": "done"
+      },
+      {
+        "name": "Round 2",
+        "state": "current",
+        "note": "this page"
+      },
+      {
+        "name": "Apply the verdicts",
+        "state": "upcoming"
+      }
+    ]
+  },
   "accept_defaults_default": true,
   "verdicts": [
     {
@@ -77,7 +96,11 @@
           "depended_on_by": [
             "row-3"
           ],
-          "links": []
+          "links": [],
+          "prior": {
+            "note": "Why defer instead of applying now?",
+            "reply": "It touches call sites in three other scripts, so I kept it for a dedicated pass."
+          }
         },
         {
           "id": "row-3",

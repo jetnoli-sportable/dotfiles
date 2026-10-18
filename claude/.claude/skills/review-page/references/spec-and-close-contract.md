@@ -1,18 +1,15 @@
 # review-page: spec format and close contract
 
 The mechanism this skill uses in place of a markdown buffer, for a batch too
-large or too structured for one — more than ~25 rows, or when what's needed is
-per-row defaults (a suggested verdict per item), free-text grouping, AND
-per-row questions all at once. A markdown buffer with 40+ checkbox blocks is
+large or too structured for one. A markdown buffer with 40+ checkbox blocks is
 unreadable and slow to scan; this shape trades the nvim buffer for a
 locally-served HTML page with filtering, keyboard navigation, and a submit
 button, while keeping the same open/wait/parse contract as decision-buffer's
 own shapes.
 
-Use `decision-buffer`'s `findings-review.md` or `code-review-triage.md`
-instead for a small batch (under ~25 items) with no grouping/defaults need —
-this shape's extra machinery (a local HTTP server, a spec file, a browser tab)
-isn't worth it below that size.
+Which tool fits a batch (this page, `decision-page`, or a `decision-buffer`
+doc) is decided by `claude/.claude/skills/decision-page/SKILL.md` ("When to
+use").
 
 ## Mechanism (differs from the nvim-buffer shapes)
 
@@ -85,7 +82,16 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
 ```json
 {
   "title": "Short page title",
-  "intro_md": "Short 'how to read this' block — markdown-ish (**bold**, `code`, newlines).",
+  "intro_md": "Short 'how to read this' block. Paragraphs split at blank lines: the first shows, the rest fold away.",
+  "context": {
+    "task": "repo--task-slug",
+    "here": "this page",
+    "stages": [
+      {"name": "Round 1", "state": "done"},
+      {"name": "Round 2", "state": "current", "note": "this page"},
+      {"name": "Apply the verdicts", "state": "upcoming"}
+    ]
+  },
   "verdicts": [
     {"id": "apply", "label": "Apply", "color": "#a6e3a1"},
     {"id": "defer", "label": "Defer", "color": "#f9e2af"},
@@ -107,7 +113,8 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
           "suggested_reason": "Why this verdict is pre-selected — state 'unclear' explicitly if genuinely unclear.",
           "depends_on": ["item-0"],
           "depended_on_by": ["item-2"],
-          "links": [{"label": "PR #12", "href": "https://..."}]
+          "links": [{"label": "PR #12", "href": "https://..."}],
+          "prior": {"note": "Jet's note from the earlier round.", "reply": "The answer, shown under the note."}
         }
       ]
     }
@@ -119,32 +126,70 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
 **Richer rows (added 2026-09-14, first use: the wb-breakdown proposal page).** All optional, per item unless noted:
 
 - `meta`: list of `[label, value]` pairs (or a dict). Rendered as compact monospace chips under the title — structured facts the reviewer should see without expanding anything (size, slug, stage path, deps count). Empty values are dropped; list values join with ", ".
-- `description`: a long markdown body (paragraphs, `- ` bullets, `1.` lists, `#`..`####` headings, ``` fences, inline **bold**/`code`). Rendered in a collapsed **details** row under the item; toggled by the row's "details ▸" button, `d` on the focused row, `D` / the "expand all details" button for every visible row. Use it for the thing the verdict is really about (a proposed child's Plan body, a finding's full write-up) — evidence stays the short, checkable list.
-- `fields`: list of `{key, label, value, placeholder, wide}` — editable text inputs shown at the top of the details row. Their current values come back in answers under `item.fields` (`{key: value}`) with `item.fields_changed` true when any differs from what the spec set; editing a field marks the row touched. This is how a page can drive a downstream grammar (e.g. a breakdown child's slug/goal/size) without a second buffer.
-- Spec-level `sections`: list of `{title, md, open}` rendered as collapsible panels between the intro box and the first table — a directions summary, a glossary, "how your answers map onto the apply step". Closed unless `open: true`. Not a substitute for `intro_md`'s six lines; it is where the longer context lives.
-- Spec-level `hide_columns`: list of column keys among `what`, `evidence`, `deps`, `group`, `note` to hide when a review does not use them, freeing width for the rest.
+- `description`: a long markdown body (paragraphs, `- ` bullets, `1.` lists, `#`..`####` headings, ``` fences, inline **bold**/`code`). Rendered inside the row's collapsed **Evidence and details** block (open it with `e`/`o`, Enter on the row, or `E` for every visible row). Use it for the thing the verdict is really about (a proposed child's Plan body, a finding's full write-up) — evidence stays the short, checkable list.
+- `fields`: list of `{key, label, value, placeholder, wide}` — editable text inputs shown at the top of the details block. Their current values come back in answers under `item.fields` (`{key: value}`) with `item.fields_changed` true when any differs from what the spec set; editing a field marks the row touched. This is how a page can drive a downstream grammar (e.g. a breakdown child's slug/goal/size) without a second buffer.
+- `prior`: `{note, reply}` — an earlier note of Jet's on this row and the answer to it. The row gets an "Earlier note" marker and shows both under the suggestion. With no `prior`, no marker renders.
+- Spec-level `context`: `{task, here, stages: [{name, state, note?}]}`, the same shape as decision-page's. `state` is one of `done`, `current`, `upcoming`, `later`; at most one stage is `current`. Rendered as the "Where this sits" strip at the top of the overview band. Without it, no strip renders.
+- Spec-level `sections`: list of `{title, md, open}` rendered as collapsible panels between the title and the overview band — a directions summary, a glossary, "how your answers map onto the apply step". Closed unless `open: true`. Not a substitute for `intro_md`'s six lines; it is where the longer context lives.
+- Per-verdict `color` is no longer used: verdict colours come from the page's theme tokens so they stay readable in light and dark. A long `label` is cut at " — " or " (" for the button, and the full label shows on hover.
+- Spec-level `hide_columns` is retired: the page is no longer a table, and no caller ever set it. A spec that still carries it renders normally; the key is ignored.
 
 Every `item.id` must be unique across the whole spec (dep chips and row anchors
 are keyed on it). `suggested` may be `""` (no default) — the page then leaves no
 verdict pre-selected and counts that row as "needs me" automatically.
 
-Each row also has an **Agree ✓** button beside the verdict radios, for the
+Each row also has an **Agree** button beside the verdict buttons, for the
 common case of reviewing many rows where the suggested verdict is simply
-right — clicking it sets `verdict=suggested` and `touched=true` (a subtle
-green left accent marks the row), and clicking again untouches it. Keyboard:
-`a` agrees with the keyboard-focused row, `A` (shift) agrees with every
-currently *visible* (filtered) row at once. **The Agree button is a
-convenience, not a requirement** — see the contract below: leaving a row
-alone already accepts its suggestion, Agree just marks it touched so it
-doesn't read as something you missed. A sticky footer badge ("untouched: N")
-tracks rows never interacted with — including via Agree — purely as a
-visibility aid, not a warning. The footer's "accept remaining defaults for
-untouched rows" checkbox is **pre-ticked by default** (`accept_defaults_default`
-defaults to `true`; set it to `false` in the spec to require an explicit
-tick). Submit only warns when that checkbox has been unticked AND N>0 — the
-opposite direction from what you might expect from an nvim decision-buffer,
-where silence means nothing happens. Here, silence means "I accept the
-suggestion" (see Close semantics below).
+right — clicking it marks the row agreed (`verdict=suggested`, `touched=true`),
+and clicking again undoes it; it is disabled on a row with no suggestion.
+**Agree to all in this area** agrees every row of that area that has a
+suggestion and does not need you (a row with no suggestion, or whose reason
+says "unclear", is skipped). **The Agree button is a convenience, not a
+requirement** — see the contract below: leaving a row alone already accepts its
+suggestion, Agree just marks it reviewed so it doesn't read as something you
+missed. The sidebar's progress counts rows that were agreed or answered; its
+"Needs you" box counts rows that still need you and `u` jumps to the next one.
+The close-out block's "Accept remaining defaults" checkbox is **pre-ticked by
+default** (`accept_defaults_default` defaults to `true`; set it to `false` in
+the spec to require an explicit tick; a choice saved in the browser for this
+spec wins on reload). Submit only warns when that checkbox has been unticked
+AND some rows are untouched — the opposite direction from what you might expect
+from an nvim decision-buffer, where silence means nothing happens. Here,
+silence means "I accept the suggestion" (see Close semantics below).
+
+A row **needs you** when its `suggested` is empty or its `suggested_reason`
+contains "unclear"; the flag clears once the row is agreed or answered.
+
+## The page: layout and keys
+
+Rendered in the browser on the page kit shared with decision-page
+(`decision-page/kit/`), so the two pages use one look and one key map; a key
+never means different things on the two.
+
+- **Overview band** at the top: the "Where this sits" strip (from `context`), at-a-glance counts with a chip per suggested verdict, a plain statement of what untouched rows do, and the intro (first paragraph, the rest and `close_rule` folded).
+- **Collapsible left sidebar** (`[`): progress, needs you (with next), overrides, verdict tallies (click one to filter by final verdict), and search with an area filter.
+- **Rows grouped by area**, each area with its `note` and "Agree to all in this area". A row shows its task title, `where`, `meta` chips, dependency chips, links, the suggested verdict with its reason, the verdict control, Agree, and Note / Group toggles. Evidence, `description` and `fields` are collapsed.
+- **Close-out block** at the end of the content column: accept remaining defaults, the global questions box, Submit and Copy JSON. It is never fixed to the screen, so the sidebar never overlaps it.
+
+| Key | Does |
+|---|---|
+| `j` / `k` | next / previous stop: overview, each visible row, the close-out block |
+| `Enter` | on the overview: first row that needs you; on a row: toggle its details; on the close-out block: Submit |
+| `1`-`9` | pick the n-th verdict |
+| `a` | agree with the suggestion (again to undo) |
+| `c` | clear the row back to untouched (verdict, agree, group, note, and edited fields) |
+| `n` | open the note (the global questions box on the close-out block) |
+| `g` / `t` | open the group tag |
+| `e` / `o` | toggle this row's evidence and details |
+| `E` | expand / collapse every visible row's details |
+| `u` | jump to the next row that needs you |
+| `/` | focus search |
+| `[` | collapse / expand the sidebar |
+| `?` / `Esc` | show / hide the key list; leave a text box |
+
+No key fires while typing in a text box. **Retired keys** (they now mean nothing): `A` (agree with every visible row — replaced by the per-area button), `d` / `D` (details — now `e` / `E`). The filters "needs me", "touched only", "untouched only" and "suggested verdict", the "same as above" group button and the sticky footer are gone with the table layout.
+
+Progress is saved in the browser under `review-page:<spec_hash>`, so reloading the tab keeps answers and two different reviews never share them.
 
 ## Answers format (`answers.json`, written by the script, read by the agent)
 
@@ -152,7 +197,7 @@ suggestion" (see Close semantics below).
 {
   "spec_hash": "sha256 of the exact spec.json bytes the page was rendered from",
   "accept_defaults": true,
-  "global_note": "free text from the footer's 'questions for the agent' box, or empty",
+  "global_note": "free text from the close-out block's 'questions for the agent' box, or empty",
   "untouched_count": 0,
   "items": [
     {
@@ -168,6 +213,14 @@ suggestion" (see Close semantics below).
   ]
 }
 ```
+
+**`touched` reflects what the row holds now, not whether it was ever edited**
+(Jet, 2026-10-18). A row is touched while it holds a picked verdict, an Agree,
+a group tag, a note, or a field that differs from the spec. Clear all of those,
+by hand or with `c`, and the row reads `touched: false` again. This only changes
+the outcome when `accept_defaults` is false. Same reasoning as the auto-capture
+sweep's staleness check (`dotfiles--feat-store-auto-capture` D12): compare the
+content that carries the decision, not an "edited at all" flag.
 
 `spec_hash` lets the agent confirm the answers correspond to the spec it wrote —
 compare it against a fresh hash of the spec file; a mismatch means the page was
@@ -199,7 +252,7 @@ accepts its suggestion") so it's never assumed from memory.
    back to the user and re-ask rather than silently skipping or applying
    anything.
 4. **`accept_defaults=false` (spec set `accept_defaults_default: false`, or
-   the user unticked the footer checkbox) → only `touched` rows apply.**
+   the user unticked the close-out checkbox) → only `touched` rows apply.**
    Untouched rows get no action at all — not even their `suggested` default.
    This is the one case where silence is read as "not yet decided," not as
    consent — it only applies when the checkbox is explicitly off.
@@ -208,8 +261,7 @@ accepts its suggestion") so it's never assumed from memory.
    result — it usually means the user looked and left without deciding, not
    that they agreed with every default.
 
-`group` values are free text the user chose per row (via the "same as ↑"
-button or by typing) — treat rows sharing a non-empty `group` value as a
+`group` values are free text the user chose per row (by typing, with earlier tags offered as suggestions) — treat rows sharing a non-empty `group` value as a
 cluster the user intends to be handled together, but don't infer meaning
 beyond "these belong together" from the text itself.
 

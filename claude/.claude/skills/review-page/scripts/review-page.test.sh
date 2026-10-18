@@ -7,11 +7,11 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TMPDIR="$(mktemp -d)"
-SPEC="$TMPDIR/spec.json"
-OUT="$TMPDIR/answers.json"
+WORK="$(mktemp -d)"
+SPEC="$WORK/spec.json"
+OUT="$WORK/answers.json"
 STATE="$OUT.buffer-state"
-LOG="$TMPDIR/server.log"
+LOG="$WORK/server.log"
 PORT=58732
 
 FAIL=0
@@ -23,7 +23,7 @@ cleanup() {
   [ -n "${SERVER2_PID:-}" ] && kill "$SERVER2_PID" 2>/dev/null
   [ -n "${SERVER3_PID:-}" ] && kill "$SERVER3_PID" 2>/dev/null
   [ -n "${REATTACH2_PID:-}" ] && kill "$REATTACH2_PID" 2>/dev/null
-  rm -rf "$TMPDIR"
+  rm -rf "$WORK"
 }
 trap cleanup EXIT
 
@@ -32,7 +32,8 @@ cat > "$SPEC" <<'EOF'
   "title": "Fixture Review",
   "intro_md": "Test fixture — **three** items.",
   "sections": [{"title": "Fixture section", "md": "## Directions\n- alpha\n- beta", "open": true}],
-  "hide_columns": ["group"],
+  "context": {"task": "fixture--task", "here": "this page", "stages": [
+    {"name": "Round 1", "state": "done"}, {"name": "Round 2", "state": "current"}, {"name": "Apply", "state": "upcoming"}]},
   "verdicts": [
     {"id": "apply", "label": "Apply", "color": "#a6e3a1"},
     {"id": "defer", "label": "Defer", "color": "#f9e2af"},
@@ -69,7 +70,8 @@ cat > "$SPEC" <<'EOF'
           "suggested_reason": "unclear priority",
           "depends_on": ["item-1"],
           "depended_on_by": [],
-          "links": [{"label": "PR", "href": "https://example.com"}]
+          "links": [{"label": "PR", "href": "https://example.com"}],
+          "prior": {"note": "why defer?", "reply": "it touches call sites"}
         },
         {
           "id": "item-3",
@@ -113,45 +115,183 @@ fi
 pass "server came up"
 
 BODY="$(curl -s "http://127.0.0.1:$PORT/")"
-if echo "$BODY" | grep -q 'id="details-item-1"' && echo "$BODY" | grep -q 'data-field-key="slug"' && echo "$BODY" | grep -q '<span class="meta-k">size</span> M' && echo "$BODY" | grep -q "<ul class='md-ul'><li>step one</li>"; then
-  pass "details row, editable field, meta chip and block-markdown render"
-else
-  fail "details/fields/meta/markdown missing from page"
-fi
-if echo "$BODY" | grep -q "that&#39;s tricky"; then
-  pass "esc() escapes a single quote as &#39;"
-else
-  fail "esc() did not escape a single quote in item-1's 'what' field"
-fi
-if echo "$BODY" | grep -q "id=\"details-item-2\""; then
-  fail "item-2 has no description/fields but got a details row"
-else
-  pass "no details row for an item without description/fields"
-fi
-if echo "$BODY" | grep -q '<details class="page-section" open><summary>Fixture section</summary>' \
-   && echo "$BODY" | grep -q "<ul class='md-ul'><li>alpha</li><li>beta</li></ul>"; then
-  pass "sections panel renders with block markdown"
-else
-  fail "sections panel missing or mis-rendered"
-fi
-if echo "$BODY" | grep -q '\.review-table \.col-group { display: none; }'; then
-  pass "hide_columns emits the column CSS rule"
-else
-  fail "hide_columns CSS rule missing"
-fi
-if echo "$BODY" | grep -q "<h5 class='md-h'>Plan</h5>" \
-   && echo "$BODY" | grep -q "<ol class='md-ol'><li>first</li><li>second</li></ol>" \
-   && echo "$BODY" | grep -q "<pre class='md-pre'>code here</pre>" \
-   && echo "$BODY" | grep -q "<li>after fence bullet</li>"; then
-  pass "md_block renders heading, ordered list, fence; an unclosed fence does not swallow the tail"
-else
-  fail "md_block heading/ol/fence/unclosed-fence rendering wrong"
-fi
-if echo "$BODY" | grep -q '<title>Fixture Review</title>'; then
+PAGE="$WORK/page.html"
+printf '%s' "$BODY" > "$PAGE"
+if [[ "$BODY" == *'<title>Fixture Review</title>'* ]]; then
   pass "GET / returns 200 with title present"
 else
   fail "title not found in page body"
 fi
+if ! /usr/bin/grep -q '{{[A-Z_]*}}' "$PAGE"; then pass "page has no unfilled placeholders"; else fail "page still holds an unfilled placeholder"; fi
+
+# --- page script under node (the page renders in the browser from the embedded spec) -------------
+if ! command -v node >/dev/null 2>&1; then
+  echo "SKIP: node not found; page script checks not run"
+else
+  KIT_JS="$(dirname "$SCRIPT_DIR")/../decision-page/kit/kit.js"
+  python3 - "$PAGE" "$WORK" <<'PY'
+import re, sys
+html = open(sys.argv[1], encoding="utf-8").read()
+for n, m in enumerate(re.finditer(r'<script(?![^>]*application/json)[^>]*>(.*?)</script>', html, re.S)):
+    open("%s/inline-%d.js" % (sys.argv[2], n), "w", encoding="utf-8").write(m.group(1))
+core = re.search(r'// CORE:BEGIN.*?// CORE:END', html, re.S)
+open("%s/core.js" % sys.argv[2], "w", encoding="utf-8").write(core.group(0) + "\nif (typeof module !== 'undefined') module.exports = RP;\n" if core else "")
+PY
+  bad=""
+  for f in "$WORK"/inline-*.js; do node --check "$f" 2>"$WORK/syntax.err" || bad="$bad $(basename "$f"): $(head -3 "$WORK/syntax.err")"; done
+  if [ -z "$bad" ] && ls "$WORK"/inline-*.js >/dev/null 2>&1; then pass "the page's inline scripts pass node --check"; else fail "inline script syntax:$bad"; fi
+
+  # check <name> <js>: runs with RP (the page's core block), Kit, the fixture spec (raw, and normalized as spec) and assert in scope; must print OK
+  check() {
+    local out
+    out="$(KIT="$KIT_JS" CORE="$WORK/core.js" SPECFILE="$SPEC" PAGE="$PAGE" node -e "
+      const assert=require('assert'),fs=require('fs');
+      globalThis.Kit=require(process.env.KIT);
+      const RP=require(process.env.CORE);
+      const raw=JSON.parse(fs.readFileSync(process.env.SPECFILE,'utf8'));
+      const spec=RP.normalize(raw), H='ab12';
+      const byId=id=>spec.items.find(i=>i.id===id);
+      $2
+      console.log('OK')" 2>&1)"
+    if [ "$out" = "OK" ]; then pass "$1"; else fail "$1: $out"; fi
+  }
+
+  check "page embeds the spec so it round-trips through JSON.parse" "
+    const html=fs.readFileSync(process.env.PAGE,'utf8');
+    const m=html.match(/<script id=\"spec\" type=\"application\/json\">([\s\S]*?)<\/script>/);
+    assert.deepStrictEqual(JSON.parse(m[1]),raw)"
+
+  check "markdown renders headings, ordered and bullet lists, fences; ' and < are escaped; an unclosed fence keeps the tail" "
+    const h=RP.mdBlock(byId('item-1').description);
+    assert.ok(h.includes('<h5 class=\"md-h\">Plan</h5>'),h);
+    assert.ok(h.includes('<ul class=\"md-ul\"><li>step one</li><li>step two</li></ul>'));
+    assert.ok(h.includes('<ol class=\"md-ol\"><li>first</li><li>second</li></ol>'));
+    assert.ok(h.includes('<pre class=\"md-pre\">code here</pre>'));
+    assert.ok(RP.mdBlock('it\'s <b>x</b>').includes('it&#39;s &lt;b&gt;x&lt;/b&gt;'));
+    const u=RP.mdBlock('intro\n\`\`\`\nnever closed\n- after bullet');
+    assert.ok(u.includes('<li>after bullet</li>')&&!u.includes('<pre'),u)"
+
+  check "editable fields render in the details panel; editing one sets touched and fields_changed" "
+    const i=byId('item-1'), html=RP.rowHtml(spec,i);
+    assert.ok(html.includes('data-field-key=\"slug\"')&&html.includes('value=\"feat/one\"'),html);
+    const st=RP.loadState({});
+    let a=RP.buildAnswers(spec,H,st).items.find(x=>x.id==='item-1');
+    assert.strictEqual(a.touched,false);assert.strictEqual(a.fields_changed,false);assert.deepStrictEqual(a.fields,{slug:'feat/one'});
+    st.items['item-1']={fields:{slug:'feat/two'}};
+    a=RP.buildAnswers(spec,H,st).items.find(x=>x.id==='item-1');
+    assert.strictEqual(a.touched,true);assert.strictEqual(a.fields_changed,true);assert.deepStrictEqual(a.fields,{slug:'feat/two'})"
+
+  check "sections render as collapsible panels with block markdown, open only when asked" "
+    const h=RP.sectionsHtml(spec);
+    assert.ok(h.includes('<details class=\"ev page-section\" open><summary>Fixture section</summary>'),h);
+    assert.ok(h.includes('<ul class=\"md-ul\"><li>alpha</li><li>beta</li></ul>'));
+    assert.ok(!RP.sectionsHtml({sections:[{title:'t',md:'x'}]}).includes(' open'))"
+
+  check "links render as real anchors" "
+    const h=RP.rowHtml(spec,byId('item-2'));
+    assert.ok(h.includes('<a href=\"https://example.com\" target=\"_blank\" rel=\"noopener\">PR</a>'),h)"
+
+  check "links: only http, https, file and # hrefs become anchors; javascript: and others render as plain escaped text" "
+    const mk=l=>RP.rowHtml(spec,{...byId('item-2'),links:[l]});
+    for(const ok of ['http://a.test','HTTPS://a.test','  file:///tmp/x','#r1'])assert.ok(mk({label:'L',href:ok}).includes('<a href='),ok);
+    for(const bad of ['javascript:alert(1)',' JaVaScript:alert(1)','data:text/html,x','//evil.test','','/rel'])
+      {const h=mk({label:'<L>',href:bad});assert.ok(!h.includes('<a href=')&&h.includes('<span>&lt;L&gt;</span>'),bad+' '+h)}"
+
+  check "meta pairs render as chips, where as a chip, and depends_on / depended_on_by as chips that point at the named row" "
+    const h1=RP.rowHtml(spec,byId('item-1')), h2=RP.rowHtml(spec,byId('item-2'));
+    assert.ok(h1.includes('<span class=\"meta-chip\"><span class=\"meta-k\">size</span> M</span>')&&h1.includes('owner'),h1);
+    assert.ok(h1.includes('foo.py:10'));
+    assert.ok(h1.includes('data-dep=\"item-2\"')&&h1.includes('href=\"#r1\"'),'depended_on_by chip');
+    assert.ok(h2.includes('data-dep=\"item-1\"')&&h2.includes('href=\"#r0\"'),'depends_on chip')"
+
+  check "intro and close_rule sit in the band, each area's note under its heading" "
+    const b=RP.bandHtml(spec);
+    assert.ok(b.includes('Test fixture')&&b.includes('accept_defaults=false means only touched rows apply.'),b);
+    assert.ok(RP.mainHtml(spec).includes('<p class=\"note\">First area.</p>'))"
+
+  check "a spec with accept_defaults_default false renders the box unticked and posts accept_defaults false; a saved choice wins" "
+    const off=RP.normalize({...raw,accept_defaults_default:false});
+    assert.ok(!RP.closingHtml(RP.acceptOf(off,RP.loadState({}))).includes(' checked'));
+    assert.ok(RP.closingHtml(RP.acceptOf(spec,RP.loadState({}))).includes(' checked'));
+    assert.strictEqual(RP.buildAnswers(off,H,RP.loadState({})).accept_defaults,false);
+    assert.strictEqual(RP.buildAnswers(spec,H,RP.loadState({})).accept_defaults,true);
+    assert.strictEqual(RP.acceptOf(off,RP.loadState({accept:true})),true);
+    assert.strictEqual(RP.buildAnswers(spec,H,RP.loadState({accept:false})).accept_defaults,false)"
+
+  check "payload with every row untouched: verdict = suggested, touched false, untouched_count = rows, a no-suggestion row keeps an empty verdict" "
+    const p=RP.buildAnswers(spec,H,RP.loadState({}));
+    assert.deepStrictEqual(Object.keys(p),['spec_hash','accept_defaults','global_note','untouched_count','items']);
+    assert.strictEqual(p.spec_hash,H);assert.strictEqual(p.untouched_count,3);assert.strictEqual(p.items.length,3);
+    for(const i of p.items){assert.strictEqual(i.touched,false);assert.strictEqual(i.verdict,i.suggested);
+      assert.deepStrictEqual(Object.keys(i),['id','verdict','suggested','touched','group','note','fields','fields_changed'])}
+    assert.strictEqual(p.items[2].verdict,'');assert.strictEqual(p.items[2].suggested,'')"
+
+  check "touched rows: a pick, an agree, a group and a note each mark the row touched; a note keeps the suggested verdict; a stale verdict is ignored" "
+    const st=RP.loadState({items:{'item-1':{verdict:'skip'},'item-2':{note:'why?'},'item-3':{agreed:true,verdict:'gone'}}});
+    const p=RP.buildAnswers(spec,H,st), by=id=>p.items.find(i=>i.id===id);
+    assert.strictEqual(by('item-1').verdict,'skip');assert.strictEqual(by('item-1').touched,true);
+    assert.strictEqual(by('item-2').verdict,'defer');assert.strictEqual(by('item-2').touched,true);assert.strictEqual(by('item-2').note,'why?');
+    assert.strictEqual(by('item-3').touched,true);assert.strictEqual(by('item-3').verdict,'');
+    assert.strictEqual(p.untouched_count,0);
+    assert.strictEqual(RP.touched(spec,byId('item-1'),{group:'g1'}),true)"
+
+  check "a row with no suggestion or an 'unclear' reason is flagged needs you; resolving it clears the flag" "
+    assert.ok(RP.needsYou(byId('item-2'))&&RP.needsYou(byId('item-3'))&&!RP.needsYou(byId('item-1')));
+    assert.strictEqual(RP.stats(spec,RP.loadState({})).need,2);
+    assert.strictEqual(RP.stats(spec,RP.loadState({items:{'item-3':{verdict:'skip'},'item-2':{agreed:true}}})).need,0)"
+
+  check "Agree-all in an area skips rows that need you" "
+    const left=RP.areaStats(spec,0,RP.loadState({})).left.map(i=>i.id);
+    assert.deepStrictEqual(left,['item-1'])"
+
+  check "a spec with context and a prior renders the stage strip and the earlier-note marker; one without renders neither" "
+    assert.ok(RP.bandHtml(spec).includes('class=\"stages\"')&&RP.bandHtml(spec).includes('You are here: this page'));
+    assert.ok(RP.rowHtml(spec,byId('item-2')).includes('Earlier note')&&RP.rowHtml(spec,byId('item-2')).includes('it touches call sites'));
+    assert.ok(!RP.rowHtml(spec,byId('item-1')).includes('Earlier note'));
+    const bare=RP.normalize({...raw,context:undefined,areas:raw.areas.map(a=>({...a,items:a.items.map(({prior,...r})=>r)}))});
+    assert.ok(!RP.bandHtml(bare).includes('stages'));
+    assert.ok(!RP.mainHtml(bare).includes('Earlier note'))"
+
+  check "two specs never share saved answers: the storage key carries the spec hash" "
+    assert.notStrictEqual(RP.stateKey('aaa'),RP.stateKey('bbb'));
+    assert.strictEqual(RP.stateKey('aaa'),'review-page:aaa');
+    assert.deepStrictEqual(RP.loadState('junk'),{items:{},gq:'',accept:undefined})"
+
+  check "a spec holding only ids renders with no undefined text" "
+    const min=RP.normalize({areas:[{items:[{id:'x'},{}]}]});
+    const all=RP.bandHtml(min)+RP.sidebarHtml(min)+RP.mainHtml(min)+RP.glanceHtml(min,RP.loadState({}))+RP.closingHtml(true);
+    assert.ok(!/undefined|null|NaN/.test(all),all.match(/.{20}(undefined|null|NaN).{20}/));
+    assert.strictEqual(min.items[1].id,'item-2')"
+fi
+
+# duplicate item ids across areas are refused (exit 2, each id listed); ids that are absent are not checked
+cat > "$WORK/dup.json" <<'EOF'
+{"areas": [{"id": "a", "items": [{"id": "row-1"}, {"id": "row-2"}, {}]},
+           {"id": "b", "items": [{"id": "row-1"}, {"id": "row-2"}, {"id": "row-2"}, {}]}]}
+EOF
+python3 "$SCRIPT_DIR/review-page.py" --spec "$WORK/dup.json" --out "$WORK/dup-answers.json" --port 58739 > "$WORK/dup.out" 2> "$WORK/dup.err"
+DUP_RC=$?
+if [ "$DUP_RC" -eq 2 ] && /usr/bin/grep -q 'item "row-1": duplicate id' "$WORK/dup.err" \
+   && /usr/bin/grep -q 'item "row-2": duplicate id' "$WORK/dup.err" && [ "$(wc -l < "$WORK/dup.err")" -eq 2 ] \
+   && [ ! -e "$WORK/dup-answers.json.buffer-state" ]; then
+  pass "duplicate item ids exit 2, name each id once, and start no server"
+else
+  fail "duplicate item ids: exit $DUP_RC, stderr: $(cat "$WORK/dup.err")"
+fi
+
+# the spec text can never end the <script> it is embedded in
+python3 - "$SCRIPT_DIR" "$WORK/xss.html" <<'PY'
+import importlib.util, sys
+sp = importlib.util.spec_from_file_location("rp", sys.argv[1] + "/review-page.py")
+m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+base = m.render_page({"areas": []}, "t", "h")
+page = m.render_page({"areas": [{"id": "a", "items": [{"id": "x", "what": "</script><script>alert(1)</script> <!-- {{TITLE}}"}]}]}, "t", "h")
+open(sys.argv[2], "w").write(page)
+ok = (page.count("<script") == base.count("<script") and "<!-- {{" not in page
+      and "<title>t</title>" in page and "\\u003c!-- {{TITLE}}" in page)  # the placeholder text stays literal inside the JSON
+sys.exit(0 if ok else 1)
+PY
+if [ $? -eq 0 ]; then pass "spec text with </script>, <!-- and a placeholder adds no script element and is not substituted"; else fail "script-escape guard"; fi
 
 SPEC_HASH="$(sha256sum "$SPEC" | awk '{print $1}')"
 
@@ -259,10 +399,10 @@ fi
 # Case 2: closed=0, caller_pid alive — a fresh server that hasn't been
 # POSTed to yet. --reattach (from a second, independent process) must
 # block until the POST lands, then exit 0 with the answers path.
-SPEC2="$TMPDIR/spec2.json"
-OUT2="$TMPDIR/answers2.json"
+SPEC2="$WORK/spec2.json"
+OUT2="$WORK/answers2.json"
 STATE2="$OUT2.buffer-state"
-LOG2="$TMPDIR/server2.log"
+LOG2="$WORK/server2.log"
 PORT2=58733
 cat > "$SPEC2" <<'EOF'
 {"title": "Reattach fixture", "areas": [{"id": "a", "title": "A", "items": [
@@ -293,7 +433,7 @@ else
 
   # Start the reattach wait in the background — it must not return before
   # the POST below lands.
-  REATTACH2_OUTFILE="$TMPDIR/reattach2.out"
+  REATTACH2_OUTFILE="$WORK/reattach2.out"
   python3 "$SCRIPT_DIR/review-page.py" --reattach "$OUT2" > "$REATTACH2_OUTFILE" 2>&1 &
   REATTACH2_PID=$!
 
@@ -305,7 +445,7 @@ else
   fi
 
   SPEC2_HASH="$(sha256sum "$SPEC2" | awk '{print $1}')"
-  SUBMIT2_PAYLOAD="$TMPDIR/submit2.json"
+  SUBMIT2_PAYLOAD="$WORK/submit2.json"
   cat > "$SUBMIT2_PAYLOAD" <<EOF
 {"spec_hash": "$SPEC2_HASH", "items": [{"id": "only-item", "verdict": "apply", "touched": true}]}
 EOF
@@ -338,9 +478,9 @@ fi
 
 # Case 3: closed=0, caller_pid dead — the server was killed before anyone
 # submitted. --reattach must report the death (exit 3), not hang.
-SPEC3="$TMPDIR/spec3.json"
-OUT3="$TMPDIR/answers3.json"
-LOG3="$TMPDIR/server3.log"
+SPEC3="$WORK/spec3.json"
+OUT3="$WORK/answers3.json"
+LOG3="$WORK/server3.log"
 PORT3=58734
 cp "$SPEC2" "$SPEC3"
 
@@ -380,10 +520,10 @@ fi
 
 # A server given --timeout 1 with no POST ever sent must give up rather than
 # wait forever: exit 4, write no answers.json, leave the state file closed=0.
-SPEC4="$TMPDIR/spec4.json"
-OUT4="$TMPDIR/answers4.json"
+SPEC4="$WORK/spec4.json"
+OUT4="$WORK/answers4.json"
 STATE4="$OUT4.buffer-state"
-LOG4="$TMPDIR/server4.log"
+LOG4="$WORK/server4.log"
 PORT4=58735
 cp "$SPEC2" "$SPEC4"
 

@@ -1,0 +1,359 @@
+{
+  "title": "wb deletion audit",
+  "slug": "wb-deletion-audit",
+  "round": 1,
+  "lede": "Before the wb task-store layer moves to Go, each feature below gets <strong>one decision from you</strong>: keep it, tweak it, or delete it. Your choices save as you click. When you are done, press <em>Copy answers</em> and paste the result into chat.",
+  "stats": [
+    "wb.sh today: <b>6,941</b> lines"
+  ],
+  "context": {
+    "task": "dotfiles--wb-future-direction",
+    "here": "deletion audit",
+    "stages": [
+      {
+        "name": "Brainstorm",
+        "state": "done"
+      },
+      {
+        "name": "Requirements doc",
+        "state": "done"
+      },
+      {
+        "name": "Phase 1 plan: deletion pass",
+        "state": "current",
+        "note": "this page"
+      },
+      {
+        "name": "R16 task-file conventions",
+        "state": "upcoming"
+      },
+      {
+        "name": "B′ prototype week",
+        "state": "upcoming"
+      },
+      {
+        "name": "Go-owned writes",
+        "state": "later"
+      },
+      {
+        "name": "Sessions, tmux and PR data on the live page",
+        "state": "later"
+      }
+    ]
+  },
+  "decided": [
+    {
+      "id": "done-review",
+      "title": "wb done opens the task file for review",
+      "decision": "No by default. By default <code>wb done</code> doesn't open anything, it just closes. The buffer becomes opt-in through a flag, proposed as <code>wb done --review</code>.",
+      "date": "2026-10-18"
+    }
+  ],
+  "items": [
+    {
+      "id": "sweep",
+      "group": "wb done",
+      "title": "Gitignored-file sweep at wb done",
+      "tag": {
+        "label": "Recommend: tweak",
+        "tone": "tweak"
+      },
+      "question": "What should <code>wb done</code> do with the gitignored files in a worktree before it deletes the worktree?",
+      "short_q": "What happens to gitignored files at wb done?",
+      "why_it_matters": "<code>git worktree remove --force</code> deletes gitignored files with no warning. Logs, scratch notes and repro data often live only there, so a wrong answer means silent data loss with no way back.",
+      "today": "Before deleting the worktree, <code>wb done</code> lists the gitignored files in it as <code>- [ ] keep</code> lines. The ones you tick are copied into the task's dossier.",
+      "evidence_summary": "It has saved real work once (logs and session data for <code>be--monorepo--su-4696</code>); most ignored files today are regenerable or bootstrap copies.",
+      "evidence_full": "It has saved real work once: the kernel, supervisor and rabbit logs plus session data for <code>be--monorepo--su-4696</code>, now in that task's dossier. In today's worktrees the ignored files are mostly regenerable or bootstrap copies, such as <code>config.hjson</code>, <code>node_modules</code> and test outputs. The valuable minority is <code>logs/</code>, <code>scratch/</code>, <code>investigate.json</code> and <code>session-data_*</code>. It needs <code>grep -oP</code> and <code>realpath -m</code>, which fail on macOS, and one run stranded a <code>## Sweep</code> section in a task file.",
+      "shift": "The first pass said delete, because only 1 of 120 done tasks kept a file. The value pass says keep it with a tweak: deleting it means silent data loss with no way back, and the one save it made was a whole investigation's evidence.",
+      "recommendation": "Make it automatic, with an allowlist: deleting would mean silent data loss, and keeping the interactive list conflicts with your decision that <code>wb done</code> doesn't open by default.",
+      "artifacts": [
+        {
+          "label": "wb.sh",
+          "path": "wb.sh",
+          "kind": "file"
+        },
+        {
+          "label": "wb-done",
+          "path": "wb-done skill",
+          "kind": "skill"
+        },
+        {
+          "label": "close-out",
+          "path": "close-out skill",
+          "kind": "skill"
+        },
+        {
+          "label": "be--monorepo--su-4696",
+          "path": "/home/jetnoli/code/tasks/dossiers/be--monorepo--su-4696",
+          "kind": "dossier"
+        }
+      ],
+      "options": [
+        {
+          "v": "tweak-auto",
+          "name": "Make it automatic, with an allowlist",
+          "short": "Automatic, allowlist",
+          "rec": true,
+          "changes": "Copy <code>logs/</code>, <code>scratch/</code>, <code>*.md</code>, <code>*.json</code>, <code>*.log</code> and <code>session-data_*</code> into the dossier, skipping anything credential-shaped and anything over a size cap. Print what was kept and what was skipped. The interactive tick list runs only under <code>--review</code>. No buffer and no task-file writes by default.",
+          "pros": "Logs, scratch and session data survive without a tick list, and nothing opens by default.",
+          "cost": null,
+          "risk": null,
+          "trade": "The interactive tick list moves behind <code>--review</code>."
+        },
+        {
+          "v": "tweak-list",
+          "name": "Print only, copy nothing by default",
+          "short": "Print only",
+          "changes": "List the ignored files so you can see what is about to go. Copying happens only under <code>--review</code>.",
+          "pros": "You can see what is about to go. Cheaper.",
+          "cost": "A forgotten log is still lost.",
+          "risk": null,
+          "trade": "Cheaper, but nothing is saved unless you run with <code>--review</code>."
+        },
+        {
+          "v": "keep",
+          "name": "Keep as it is",
+          "short": "Keep as is",
+          "changes": "Interactive every time.",
+          "pros": null,
+          "cost": "Interactive every time.",
+          "risk": "Conflicts with your decision that wb done doesn't open by default.",
+          "trade": null
+        },
+        {
+          "v": "delete",
+          "name": "Delete",
+          "short": "Delete",
+          "changes": "Gitignored files die with the worktree.",
+          "pros": "Removes a step that needs <code>grep -oP</code> and <code>realpath -m</code>, which fail on macOS.",
+          "cost": "Gitignored files die with the worktree.",
+          "risk": "Silent data loss with no way back.",
+          "trade": null
+        },
+        {
+          "v": "defer",
+          "name": "Defer",
+          "short": "Defer",
+          "changes": "Decide when wb done moves to Go.",
+          "pros": null,
+          "cost": null,
+          "risk": null,
+          "trade": "Decide when <code>wb done</code> moves to Go."
+        }
+      ]
+    },
+    {
+      "id": "lock-orphan",
+      "group": "Safety guards",
+      "title": "Lock orphan auto-clear",
+      "tag": {
+        "label": "Recommend: delete",
+        "tone": "delete"
+      },
+      "question": "Should wb keep its orphan-detection layer that sits on top of the per-task lock (the lock that stops two wb processes writing the same task at once)?",
+      "short_q": "Keep the orphan-detection layer on the task lock?",
+      "why_it_matters": "The layer exists for fear of a crashed lock holder leaving a task wedged, but that case never reaches it. It is the hardest-to-port code in wb, the only <code>/proc</code> use plus a <code>date -d</code>, and the task-store layer is moving to Go.",
+      "today": "When a lock is contended, it checks whether the holder is an orphan, and if so tries to take the lock once more. It came from the July concurrency-safety plan.",
+      "today_full": "It decides the holder is an orphan when it is alive, wb-shaped according to <code>/proc/&lt;pid&gt;/cmdline</code>, held for more than 60 s, and its tmux session gone. If so, it tries to take the lock once more. (Corrected 2026-10-18: it never deletes the lock or stops the holder, so that second try only succeeds if the lock was freed in the meantime.)",
+      "evidence_summary": "It has never fired in 60 days of transcripts. About 125 lines plus about 90 test lines.",
+      "evidence_full": "It has never fired. Every contention message in 60 days of transcripts is a test fixture. A crashed holder never reaches this code, because the kernel releases a flock when its process dies, and a separate <code>kill -0</code> retry already covers that case. The only case it handles is a holder that is alive but stuck, and there a loud exit naming the holder is acceptable. It is the only <code>/proc</code> use in wb, plus a <code>date -d</code>. About 125 lines, plus about 90 test lines.",
+      "recommendation": "Delete the orphan layer: it has never fired, the crashed-holder case is already covered without it, and it is the hardest code to port.",
+      "artifacts": [
+        {
+          "label": "wb.sh",
+          "path": "wb.sh",
+          "kind": "file"
+        }
+      ],
+      "options": [
+        {
+          "v": "delete",
+          "name": "Delete the orphan layer; keep the plain lock and the dead-pid retry",
+          "short": "Delete the layer",
+          "rec": true,
+          "changes": "Removes the orphan layer. The lock itself stays, because it fixed a real lost write.",
+          "pros": "Removes the hardest-to-port code: about 125 lines plus about 90 test lines, and the only <code>/proc</code> use.",
+          "cost": "A holder that is alive but stuck gets a loud exit naming it, which is judged acceptable.",
+          "risk": null,
+          "trade": "The plain lock and the dead-pid retry stay."
+        },
+        {
+          "v": "message",
+          "name": "Shrink to a message only",
+          "short": "Message only",
+          "changes": "On contention, print the holder plus a 'probably orphaned' hint, and never auto-clear.",
+          "pros": null,
+          "cost": null,
+          "risk": null,
+          "trade": "Never auto-clears; only prints the holder and a hint."
+        },
+        {
+          "v": "keep",
+          "name": "Keep and port",
+          "short": "Keep and port",
+          "changes": "The layer stays and gets ported to Go.",
+          "pros": null,
+          "cost": "Go would need a portable replacement for the <code>/proc</code> check, such as <code>ps</code>.",
+          "risk": null,
+          "trade": null
+        },
+        {
+          "v": "defer",
+          "name": "Defer",
+          "short": "Defer",
+          "changes": "Nothing changes now.",
+          "pros": null,
+          "cost": null,
+          "risk": null,
+          "trade": null
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "group": "Store hygiene",
+      "title": "wb sync",
+      "tag": {
+        "label": "Recommend: delete",
+        "tone": "delete"
+      },
+      "question": "Should <code>wb sync</code>, the command that fetches the task store and fast-forward merges it, be deleted?",
+      "short_q": "Delete wb sync?",
+      "why_it_matters": "It was added so that no agent reaches for <code>git reset --hard</code>. The pre-tool-use guard's refusal message names it, so deleting it means the guard's text must change in the same commit.",
+      "today": "A safe way to pull the store's GitHub remote: it fetches the task store and fast-forward merges it. Nothing runs it automatically.",
+      "evidence_summary": "No real runs, apart from about 8 in one be--monorepo spike.",
+      "evidence_full": "No real runs, apart from about 8 in one be--monorepo spike. Nothing runs it automatically. The Mac decision says each machine has its own store and they <em>never</em> sync, so the only other writer is this same machine. The pre-tool-use guard's refusal message names it. It's about 100 portable lines plus a 222-line test.",
+      "recommendation": "Delete it: it has had no real use, and with one store per machine nothing else writes to the store. Confidence is medium-low.",
+      "artifacts": [
+        {
+          "label": "wb.sh",
+          "path": "wb.sh",
+          "kind": "file"
+        },
+        {
+          "label": "guards guide",
+          "path": "guards guide",
+          "kind": "doc"
+        },
+        {
+          "label": "wb-guide",
+          "path": "wb-guide (sync row)",
+          "kind": "doc"
+        }
+      ],
+      "options": [
+        {
+          "v": "delete",
+          "name": "Delete; guard text says <code>git -C ~/code/tasks pull --ff-only</code>",
+          "short": "Delete",
+          "rec": true,
+          "changes": "Edit the guard message, the guards guide and the wb-guide row in the same change.",
+          "pros": "Removes about 100 portable lines plus a 222-line test.",
+          "cost": "The guard message, the guards guide and the wb-guide row must change in the same change.",
+          "risk": "Confidence is medium-low.",
+          "trade": "The guard text points at <code>git -C ~/code/tasks pull --ff-only</code> instead."
+        },
+        {
+          "v": "keep",
+          "name": "Keep",
+          "short": "Keep",
+          "changes": "Nothing changes.",
+          "pros": "It's portable and cheap.",
+          "cost": null,
+          "risk": null,
+          "trade": "Its value is mostly as the guard's suggested alternative."
+        },
+        {
+          "v": "defer",
+          "name": "Defer",
+          "short": "Defer",
+          "changes": "Nothing changes now.",
+          "pros": null,
+          "cost": null,
+          "risk": null,
+          "trade": null
+        }
+      ]
+    },
+    {
+      "id": "auto-stamps",
+      "group": "Store hygiene",
+      "title": "\"(auto)\" stamps in ## Handoffs",
+      "tag": {
+        "label": "Recommend: tweak",
+        "tone": "tweak"
+      },
+      "question": "Which of the <code>(auto)</code> stamps that wb verbs write into a task's <code>## Handoffs</code> should we keep?",
+      "short_q": "Which (auto) Handoffs stamps stay?",
+      "why_it_matters": "<code>/wb-resume</code> uses the stamps to notice that something happened after the last <code>/wb-save</code>, and then asks before picking up the old plan. Drop the wrong ones and that check stops working.",
+      "today": "wb verbs append <code>### &lt;time&gt; — &lt;verb&gt; (auto)</code> plus one line to the task's Handoffs.",
+      "evidence_summary": "368 stamps in 215 files. wb-resume only checks whether any stamp exists after the last save; it never reads what they say.",
+      "evidence_full": "368 stamps in 215 files: resume 111, done 98, set 95, status 30, down 25, breakdown 8. wb-resume only checks whether any stamp exists after the last save; it never reads what they say. The set and status stamps (125) repeat what the frontmatter already shows, and git history on the store records the change anyway.",
+      "prior": {
+        "note": "I need more context: what actually reads these stamps, and what breaks if they go?",
+        "reply": "Only <code>/wb-resume</code> reads them, and only to ask: is there any stamp after the last <code>/wb-save</code>? It never reads their text. Dropping the set/status stamps keeps that check working because resume/down/pause/done/breakdown still stamp. Dropping all of them means wb-resume must compare against the store git log instead."
+      },
+      "recommendation": "Drop the set and status stamps and keep the lifecycle ones: the 125 set and status stamps repeat the frontmatter, and the lifecycle stamps keep wb-resume's gap check working.",
+      "artifacts": [
+        {
+          "label": "wb-resume",
+          "path": "wb-resume skill",
+          "kind": "skill"
+        },
+        {
+          "label": "wb-save",
+          "path": "wb-save skill",
+          "kind": "skill"
+        },
+        {
+          "label": "wb.sh",
+          "path": "wb.sh",
+          "kind": "file"
+        }
+      ],
+      "options": [
+        {
+          "v": "lifecycle-only",
+          "name": "Drop the set and status stamps; keep the lifecycle ones",
+          "short": "Drop set/status, keep lifecycle",
+          "rec": true,
+          "changes": "Resume, down, pause, done and breakdown keep stamping, so wb-resume's gap check keeps working.",
+          "pros": "A field change no longer rewrites the body, and wb-resume's gap check keeps working.",
+          "cost": null,
+          "risk": null,
+          "trade": null
+        },
+        {
+          "v": "drop-all",
+          "name": "Drop all stamps",
+          "short": "Drop all",
+          "changes": "wb-resume compares the last save against the store's git log or file mtime instead.",
+          "pros": "Less noise.",
+          "cost": "A change to the wb-resume skill.",
+          "risk": null,
+          "trade": "wb-resume compares against the store's git log or file mtime instead of stamps."
+        },
+        {
+          "v": "keep",
+          "name": "Keep as they are",
+          "short": "Keep",
+          "changes": "Nothing changes.",
+          "pros": null,
+          "cost": null,
+          "risk": null,
+          "trade": null
+        },
+        {
+          "v": "defer",
+          "name": "Defer",
+          "short": "Defer",
+          "changes": "Nothing changes now.",
+          "pros": null,
+          "cost": null,
+          "risk": null,
+          "trade": null
+        }
+      ]
+    }
+  ]
+}
