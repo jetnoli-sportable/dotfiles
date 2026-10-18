@@ -40,6 +40,9 @@ does.
    A draft nudge that is ignored is delivered once more; ignored a second
    time, the draft is **shelved** (logged `draft_shelved`), not deleted, and
    sweeping resumes. A draft is only ever removed by your accept or dismiss.
+   If two sweeps overlap and a second draft arrives while one is already
+   there, the older one is shelved (reason `superseded`) before the new one
+   is written, never overwritten.
 5. Session end writes a tombstone (and logs `pending_at_end` if something
    was still unrecorded) and shelves a pending draft; an hourly reaper cleans
    up old state dirs, shelving any draft it finds first. A sweep draft that
@@ -66,23 +69,40 @@ shelved` walks through them one at a time, and `/close-out` asks about each
 before a task winds down. Rejecting runs `wb-capture.sh dismiss <path>`.
 Phrase nudges carry no draft, so ignoring one shelves nothing.
 
-Accepting is **two-phase**: `wb-capture.sh accept --begin <path>`, then `wb
-append <task> Decisions -`, then `wb-capture.sh accept <path>`. Recording a
+A shelved draft whose task is already closed is still resolvable from any wb
+session: `wb-capture.sh shelved --task <stem>` lists one task's drafts,
+`wb-capture.sh shelved --all` lists every task's grouped by task, and
+`dismiss --task <stem> <path>` / `accept [--begin] --task <stem> <path>`
+resolve one (accepting records it into *that* task's `## Decisions`).
+Drafts left behind by `wb done --leave-shelved` are reachable this way, and
+`/weekly-review` runs `shelved --all` to surface the ones whose task is done.
+
+Accepting is **two-phase**: `wb-capture.sh accept --begin <path>` immediately
+before `wb append <task> Decisions -` (after any confirmation or editing), then
+`wb-capture.sh accept <path>`. Recording a
 shelved draft is an ordinary `wb append … Decisions`, which the PostToolUse
 hook would otherwise count as the answer to whatever *other* nudge is live
 in the session (marking it `followed` and wiping its strikes and review
 state). The `--begin` call leaves a one-shot flag; the hook consumes it, notes
 the turn as recorded and leaves the live nudge alone; the final `accept`
-deletes the draft and logs `shelved_accepted`. An abandoned accept just
-leaves the draft shelved: the flag is dropped by the next real prompt.
+deletes the draft and logs `shelved_accepted` (it does not touch the flag, so
+all three commands in one Bash call still work: PostToolUse fires after the
+whole call). An abandoned accept just leaves the draft shelved: the flag is
+dropped by the next real prompt.
 
-**`wb done` won't strand shelved drafts.** A shelved draft only gets reviewed
-by `/close-out` or `/wb-decide shelved`, so `wb done` refuses (before it
-touches anything, including a store-only close) while `shelved/<task>/`
-holds any draft. It prints each path and the ways forward: run `/close-out`
+**`wb done` won't strand decision drafts.** A shelved draft only gets reviewed
+by `/close-out` or `/wb-decide shelved`, and a draft still pending in a live
+session of the task would be shelved by SessionEnd right after the close, so
+`wb done` refuses (before it touches anything, including a store-only close)
+while `shelved/<task>/` holds any draft or a live session dir whose `taskpath`
+is this task holds a `draft`. It asks `wb-capture.sh pending-for-task` rather
+than reading the state dir itself. It prints each path and the ways forward: run `/close-out`
 or `/wb-decide shelved`, or re-run `wb done --leave-shelved` to close anyway.
 `--leave-shelved` closes, logs one `shelved_left{count}` line to the capture
-log and notes the left drafts in the task's `wb done` Handoffs entry. (A
+log (via `wb-capture.sh log-shelved-left`) and notes the left drafts in the
+task's `wb done` Handoffs entry; `/close-out` routes a `draft: present` line
+through the draft-review path first, so a bare `wb done` is the only way to hit
+the refusal for a live draft. (A
 `wb done` invoked through `/wb-done` relays the refusal; it never adds
 `--leave-shelved` on its own.)
 
@@ -140,11 +160,11 @@ Check the machinery any time:
 | Invocation | What it does |
 |---|---|
 | `/wb-decide [hint]` | Compose a new entry from the conversation (or accept a pending draft) and `wb append` it under `## Decisions`, then clear capture state. If nothing was actually decided it says so and dismisses instead of writing. |
-| draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone (a later `clear` still removes it). |
+| draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone; its closing plain `clear` keeps the draft, which gets nudged again. Only the draft-accept path runs `clear --draft`, which removes it. |
 | `/wb-decide dismiss` | Drop the pending marker/draft, log `dismissed`. Quiet no-op if nothing was pending. |
 | `/wb-decide mute` / `unmute` | Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged. |
 | `/wb-decide status` | Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts (every `shelved:` line is relayed verbatim); for a stale draft, a warning plus the Decisions entries added since the snapshot. Read-only. |
-| `/wb-decide shelved` | Walk this task's shelved drafts one at a time: accept/edit (`accept --begin <path>`, record, then `accept <path>`) or reject (`dismiss <path>`). |
+| `/wb-decide shelved` | Walk this task's shelved drafts one at a time: accept/edit (`accept --begin <path>` right before the record, then `accept <path>`) or reject (`dismiss <path>`). A closed task's drafts take `--task <stem>` on each. |
 
 Entries are append-only; a correction is a new entry carrying a
 `(supersedes: <date> "<title fragment>")` line that names the one it replaces
@@ -162,7 +182,7 @@ exactly `EOF` can't end it early.
 | Config (optional, untracked) | `~/.config/wb/capture.conf` |
 | Kill switch | `~/.local/state/wb/disable-capture` |
 | Shelved drafts | `~/.local/state/wb/capture/shelved/<task-stem>/<timestamp>-<session>.md` (a `.stale` sidecar marks a stale one) |
-| Script | `~/.config/scripts/tmux/wb-capture.sh` (verbs: `hook-*`, `clear`, `dismiss [<shelved path>]`, `accept [--begin] <shelved path>`, `review`, `mute`, `unmute`, `status`); sweep in `wb-capture-sweep.sh` |
+| Script | `~/.config/scripts/tmux/wb-capture.sh` (verbs: `hook-*`, `clear [--draft]`, `dismiss [--task <stem>] [<shelved path>]`, `accept [--begin] [--task <stem>] <shelved path>`, `review`, `mute`, `unmute`, `status`; store verbs that need no session: `shelved [--all | --task <stem>]`, `pending-for-task <task-file>`, `log-shelved-left <stem> <count>`); sweep in `wb-capture-sweep.sh` |
 
 **Config keys** — `KEY=value` lines in `capture.conf`, parsed line by line
 (never sourced), unknown keys and bad values ignored/defaulted:
@@ -227,7 +247,10 @@ jq -s '. as $all
 **Close-out interaction.** `/close-out` step 4: if `## Decisions` is still
 empty at wind-down, the agent either writes a real entry or appends an
 affirmed marker (`### <timestamp> — close-out` / `_No decisions: <reason>_`)
-via `wb append`. An unmarked empty section keeps meaning "nobody checked".
+via `wb append`, after running `wb-capture.sh dismiss` so no nudge is
+outstanding when the marker lands (otherwise it would be logged `followed`).
+A pending draft is routed through the draft-review path first. An unmarked
+empty section keeps meaning "nobody checked".
 Tasks closed with bare `wb done` (no `/close-out`) are left unmarked.
 
 **Rollout.** Stow (`stow --no-folding -t "$HOME" claude scripts` from the

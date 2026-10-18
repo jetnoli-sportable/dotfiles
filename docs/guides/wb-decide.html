@@ -291,7 +291,10 @@ muted, when a draft is already pending, when nothing new was said, or
 after 3 failed runs in a row (<code>claude</code> missing, logged out or rate-limited).
 A draft nudge that is ignored is delivered once more; ignored a second
 time, the draft is <strong>shelved</strong> (logged <code>draft_shelved</code>), not deleted, and
-sweeping resumes. A draft is only ever removed by your accept or dismiss.</li>
+sweeping resumes. A draft is only ever removed by your accept or dismiss.
+If two sweeps overlap and a second draft arrives while one is already
+there, the older one is shelved (reason <code>superseded</code>) before the new one
+is written, never overwritten.</li>
 <li>Session end writes a tombstone (and logs <code>pending_at_end</code> if something
 was still unrecorded) and shelves a pending draft; an hourly reaper cleans
 up old state dirs, shelving any draft it finds first. A sweep draft that
@@ -314,21 +317,38 @@ checking state never puts a session under review.</p>
 you decide. <code>/wb-decide status</code> lists them (<code>shelved: &lt;path&gt;</code>), <code>/wb-decide shelved</code> walks through them one at a time, and <code>/close-out</code> asks about each
 before a task winds down. Rejecting runs <code>wb-capture.sh dismiss &lt;path&gt;</code>.
 Phrase nudges carry no draft, so ignoring one shelves nothing.</p>
-<p>Accepting is <strong>two-phase</strong>: <code>wb-capture.sh accept --begin &lt;path&gt;</code>, then <code>wb append &lt;task&gt; Decisions -</code>, then <code>wb-capture.sh accept &lt;path&gt;</code>. Recording a
+<p>A shelved draft whose task is already closed is still resolvable from any wb
+session: <code>wb-capture.sh shelved --task &lt;stem&gt;</code> lists one task's drafts,
+<code>wb-capture.sh shelved --all</code> lists every task's grouped by task, and
+<code>dismiss --task &lt;stem&gt; &lt;path&gt;</code> / <code>accept [--begin] --task &lt;stem&gt; &lt;path&gt;</code>
+resolve one (accepting records it into <em>that</em> task's <code>## Decisions</code>).
+Drafts left behind by <code>wb done --leave-shelved</code> are reachable this way, and
+<code>/weekly-review</code> runs <code>shelved --all</code> to surface the ones whose task is done.</p>
+<p>Accepting is <strong>two-phase</strong>: <code>wb-capture.sh accept --begin &lt;path&gt;</code> immediately
+before <code>wb append &lt;task&gt; Decisions -</code> (after any confirmation or editing), then
+<code>wb-capture.sh accept &lt;path&gt;</code>. Recording a
 shelved draft is an ordinary <code>wb append … Decisions</code>, which the PostToolUse
 hook would otherwise count as the answer to whatever <em>other</em> nudge is live
 in the session (marking it <code>followed</code> and wiping its strikes and review
 state). The <code>--begin</code> call leaves a one-shot flag; the hook consumes it, notes
 the turn as recorded and leaves the live nudge alone; the final <code>accept</code>
-deletes the draft and logs <code>shelved_accepted</code>. An abandoned accept just
-leaves the draft shelved: the flag is dropped by the next real prompt.</p>
-<p><strong><code>wb done</code> won't strand shelved drafts.</strong> A shelved draft only gets reviewed
-by <code>/close-out</code> or <code>/wb-decide shelved</code>, so <code>wb done</code> refuses (before it
-touches anything, including a store-only close) while <code>shelved/&lt;task&gt;/</code>
-holds any draft. It prints each path and the ways forward: run <code>/close-out</code>
+deletes the draft and logs <code>shelved_accepted</code> (it does not touch the flag, so
+all three commands in one Bash call still work: PostToolUse fires after the
+whole call). An abandoned accept just leaves the draft shelved: the flag is
+dropped by the next real prompt.</p>
+<p><strong><code>wb done</code> won't strand decision drafts.</strong> A shelved draft only gets reviewed
+by <code>/close-out</code> or <code>/wb-decide shelved</code>, and a draft still pending in a live
+session of the task would be shelved by SessionEnd right after the close, so
+<code>wb done</code> refuses (before it touches anything, including a store-only close)
+while <code>shelved/&lt;task&gt;/</code> holds any draft or a live session dir whose <code>taskpath</code>
+is this task holds a <code>draft</code>. It asks <code>wb-capture.sh pending-for-task</code> rather
+than reading the state dir itself. It prints each path and the ways forward: run <code>/close-out</code>
 or <code>/wb-decide shelved</code>, or re-run <code>wb done --leave-shelved</code> to close anyway.
 <code>--leave-shelved</code> closes, logs one <code>shelved_left{count}</code> line to the capture
-log and notes the left drafts in the task's <code>wb done</code> Handoffs entry. (A
+log (via <code>wb-capture.sh log-shelved-left</code>) and notes the left drafts in the
+task's <code>wb done</code> Handoffs entry; <code>/close-out</code> routes a <code>draft: present</code> line
+through the draft-review path first, so a bare <code>wb done</code> is the only way to hit
+the refusal for a live draft. (A
 <code>wb done</code> invoked through <code>/wb-done</code> relays the refusal; it never adds
 <code>--leave-shelved</code> on its own.)</p>
 <p><strong>The two nudge lines</strong> (what Claude sees, verbatim):</p>
@@ -379,7 +399,7 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td>draft pending</td>
-<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone (a later <code>clear</code> still removes it).</td>
+<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again. Only the draft-accept path runs <code>clear --draft</code>, which removes it.</td>
 </tr>
 <tr>
 <td><code>/wb-decide dismiss</code></td>
@@ -395,7 +415,7 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td><code>/wb-decide shelved</code></td>
-<td>Walk this task's shelved drafts one at a time: accept/edit (<code>accept --begin &lt;path&gt;</code>, record, then <code>accept &lt;path&gt;</code>) or reject (<code>dismiss &lt;path&gt;</code>).</td>
+<td>Walk this task's shelved drafts one at a time: accept/edit (<code>accept --begin &lt;path&gt;</code> right before the record, then <code>accept &lt;path&gt;</code>) or reject (<code>dismiss &lt;path&gt;</code>). A closed task's drafts take <code>--task &lt;stem&gt;</code> on each.</td>
 </tr>
 </tbody>
 </table>
@@ -439,7 +459,7 @@ exactly <code>EOF</code> can't end it early.</p>
 </tr>
 <tr>
 <td>Script</td>
-<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear</code>, <code>dismiss [&lt;shelved path&gt;]</code>, <code>accept [--begin] &lt;shelved path&gt;</code>, <code>review</code>, <code>mute</code>, <code>unmute</code>, <code>status</code>); sweep in <code>wb-capture-sweep.sh</code></td>
+<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear [--draft]</code>, <code>dismiss [--task &lt;stem&gt;] [&lt;shelved path&gt;]</code>, <code>accept [--begin] [--task &lt;stem&gt;] &lt;shelved path&gt;</code>, <code>review</code>, <code>mute</code>, <code>unmute</code>, <code>status</code>; store verbs that need no session: `shelved [--all</td>
 </tr>
 </tbody>
 </table>
@@ -533,7 +553,10 @@ apart because nothing nudges a shelved draft):</p>
 <p><strong>Close-out interaction.</strong> <code>/close-out</code> step 4: if <code>## Decisions</code> is still
 empty at wind-down, the agent either writes a real entry or appends an
 affirmed marker (<code>### &lt;timestamp&gt; — close-out</code> / <code>_No decisions: &lt;reason&gt;_</code>)
-via <code>wb append</code>. An unmarked empty section keeps meaning &quot;nobody checked&quot;.
+via <code>wb append</code>, after running <code>wb-capture.sh dismiss</code> so no nudge is
+outstanding when the marker lands (otherwise it would be logged <code>followed</code>).
+A pending draft is routed through the draft-review path first. An unmarked
+empty section keeps meaning &quot;nobody checked&quot;.
 Tasks closed with bare <code>wb done</code> (no <code>/close-out</code>) are left unmarked.</p>
 <p><strong>Rollout.</strong> Stow (<code>stow --no-folding -t &quot;$HOME&quot; claude scripts</code> from the
 main checkout after fast-forwarding) and restart Claude sessions. The
