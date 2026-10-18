@@ -294,7 +294,10 @@ time, the draft is <strong>shelved</strong> (logged <code>draft_shelved</code>),
 sweeping resumes. A draft is only ever removed by your accept or dismiss.
 If two sweeps overlap and a second draft arrives while one is already
 there, the older one is shelved (reason <code>superseded</code>) before the new one
-is written, never overwritten.</li>
+is written, never overwritten. The exception is a draft you are looking at
+(under review, or its draft nudge still outstanding): that one is left
+exactly as it is, and the <em>new</em> answer is shelved instead (also reason
+<code>superseded</code>), so a review is never pulled out from under you.</li>
 <li>Session end writes a tombstone (and logs <code>pending_at_end</code> if something
 was still unrecorded) and shelves a pending draft; an hourly reaper cleans
 up old state dirs, shelving any draft it finds first. A sweep draft that
@@ -318,7 +321,11 @@ you decide. <code>/wb-decide status</code> lists them (<code>shelved: &lt;path&g
 before a task winds down. Rejecting runs <code>wb-capture.sh dismiss &lt;path&gt;</code>.
 Phrase nudges carry no draft, so ignoring one shelves nothing.</p>
 <p>A shelved draft whose task is already closed is still resolvable from any wb
-session: <code>wb-capture.sh shelved --task &lt;stem&gt;</code> lists one task's drafts,
+session, or from none: path-carrying <code>accept</code>/<code>dismiss</code> ignore the kill switch and
+need no <code>@task</code>. The stem comes from <code>--task</code>, else the session's task, else the
+command exits 1 with a message. With no session the event is logged with an empty
+<code>session_id</code> and <code>accept --begin</code> writes no flag (the hooks are inert, so there is
+nothing to protect). <code>wb-capture.sh shelved --task &lt;stem&gt;</code> lists one task's drafts,
 <code>wb-capture.sh shelved --all</code> lists every task's grouped by task, and
 <code>dismiss --task &lt;stem&gt; &lt;path&gt;</code> / <code>accept [--begin] --task &lt;stem&gt; &lt;path&gt;</code>
 resolve one (accepting records it into <em>that</em> task's <code>## Decisions</code>).
@@ -342,8 +349,12 @@ session of the task would be shelved by SessionEnd right after the close, so
 <code>wb done</code> refuses (before it touches anything, including a store-only close)
 while <code>shelved/&lt;task&gt;/</code> holds any draft or a live session dir whose <code>taskpath</code>
 is this task holds a <code>draft</code>. It asks <code>wb-capture.sh pending-for-task</code> rather
-than reading the state dir itself. It prints each path and the ways forward: run <code>/close-out</code>
-or <code>/wb-decide shelved</code>, or re-run <code>wb done --leave-shelved</code> to close anyway.
+than reading the state dir itself. It prints each path, labelled by kind, with that
+kind's way forward. A shelved draft (<code>shelved: &lt;path&gt;</code>): run <code>/close-out</code> or
+<code>/wb-decide shelved</code>, or re-run <code>wb done --leave-shelved</code> to close anyway. A live
+session's pending draft (<code>pending in session &lt;sid&gt;: &lt;path&gt;</code>): resolve it with
+<code>/wb-decide</code> in that session, or re-run with <code>--leave-shelved</code> (SessionEnd or the
+reaper shelves it later, and <code>--task &lt;stem&gt;</code> resolves it then).
 <code>--leave-shelved</code> closes, logs one <code>shelved_left{count}</code> line to the capture
 log (via <code>wb-capture.sh log-shelved-left</code>) and notes the left drafts in the
 task's <code>wb done</code> Handoffs entry; <code>/close-out</code> routes a <code>draft: present</code> line
@@ -497,7 +508,7 @@ exactly <code>EOF</code> can't end it early.</p>
 <tr>
 <td><code>sweep_timeout</code></td>
 <td><code>60</code></td>
-<td>seconds for the sweep child</td>
+<td>seconds for the sweep child (<code>0</code> means the default 60; the reaper's grace for an ended session, 2 x timeout + 60s, uses the same fallback)</td>
 </tr>
 <tr>
 <td><code>sweep_max_failures</code></td>
@@ -515,7 +526,7 @@ changed during the first run and Haiku was asked again; <code>stale: true</code>
 changed again during the rerun; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
 <code>draft_shelved</code> carry <code>stale: true</code> too when they resolve a stale draft),
 <code>sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}</code>,
-<code>draft_shelved{reason: ignored_twice|session_end|reaped}</code>,
+<code>draft_shelved{reason: ignored_twice|session_end|reaped|superseded}</code>,
 <code>shelved_accepted</code> / <code>shelved_dismissed</code> (a shelved draft accepted or
 rejected; no <code>source</code>, and <code>stale: true</code> when it was a stale one, so they
 never count toward the nudge follow rate), <code>shelved_left{count}</code> (logged by
@@ -582,7 +593,8 @@ above, whether to keep, retune the phrase list, or drop the feature.</p>
 <p>To turn it off, in order of bluntness:</p>
 <ul>
 <li><strong>Kill switch (all sessions, instant):</strong> <code>touch ~/.local/state/wb/disable-capture</code>;
-<code>rm</code> the file to re-enable.</li>
+<code>rm</code> the file to re-enable. (Resolving a shelved draft by path or <code>--task</code> still
+works with it on: that is cleanup of existing drafts, not capture.)</li>
 <li><strong>Sweep only:</strong> <code>sweep=off</code> in <code>~/.config/wb/capture.conf</code>.</li>
 <li><strong>One session:</strong> <code>/wb-decide mute</code> (and <code>/wb-decide unmute</code>).</li>
 <li><strong>Removal:</strong> delete the plugin dir and restart sessions.</li>
