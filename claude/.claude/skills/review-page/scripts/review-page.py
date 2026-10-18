@@ -44,7 +44,6 @@ import subprocess
 import sys
 import threading
 import time
-import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -210,28 +209,6 @@ def mode_reattach(out_path: str):
 DEFAULT_PORT = 8765  # stable, bookmarkable; a second concurrent page falls forward
 
 
-def open_browser(url: str):
-    chromium = "/snap/bin/chromium"
-    if os.path.exists(chromium):
-        subprocess.Popen(
-            [chromium, url],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return
-    if shutil.which("xdg-open"):
-        subprocess.Popen(
-            ["xdg-open", url],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return
-    try:
-        webbrowser.open(url)
-    except Exception:
-        print("review-page.py: no browser opener found — open manually: %s" % url)
-
-
 # ---------------------------------------------------------------------------
 # HTML rendering
 # ---------------------------------------------------------------------------
@@ -241,12 +218,14 @@ TEMPLATE = SKILL_DIR / "templates" / "page.html"
 KIT_DIR = SKILL_DIR.parent / "decision-page" / "kit"  # the page kit both pages share
 KIT_CSS = KIT_DIR / "kit.css"
 KIT_JS = KIT_DIR / "kit.js"
+PAGEKIT = KIT_DIR / "pagekit.py"  # helpers shared with decision-page.py
 
-
-def script_safe(js: str) -> str:
-    """Keep spec text from ending or confusing the <script> it sits in: every
-    "<" becomes \\u003c, which still parses back to the same text."""
-    return js.replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+sys.path.insert(0, str(KIT_DIR))
+try:
+    from pagekit import open_browser, script_safe
+except ImportError:
+    sys.stderr.write('review-page.py: missing %s; run: stow --no-folding -t "$HOME" claude\n' % PAGEKIT)
+    sys.exit(1)
 
 
 def duplicate_ids(spec) -> list:
@@ -480,7 +459,7 @@ def main():
 
     url = "http://127.0.0.1:%d/" % port
     print("review-page.py: serving %s" % url)
-    open_browser(url)
+    open_browser(url, "review-page.py: no browser opener found — open manually: %s" % url)
 
     answers = run_server(httpd, out_path, timeout=args.timeout)
 

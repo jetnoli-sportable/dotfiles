@@ -18,10 +18,7 @@ import html
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
-import webbrowser
 from pathlib import Path
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -31,6 +28,14 @@ SKILL_DIR = Path(os.path.realpath(__file__)).parent.parent  # resolves the stow 
 TEMPLATE = SKILL_DIR / "templates" / "page.html"
 KIT_CSS = SKILL_DIR / "kit" / "kit.css"
 KIT_JS = SKILL_DIR / "kit" / "kit.js"
+PAGEKIT = SKILL_DIR / "kit" / "pagekit.py"  # helpers shared with review-page.py
+
+sys.path.insert(0, str(PAGEKIT.parent))
+try:
+    from pagekit import open_browser, script_safe, unopenable_reason
+except ImportError:
+    sys.stderr.write('decision-page.py: missing %s; run: stow --no-folding -t "$HOME" claude\n' % PAGEKIT)
+    sys.exit(1)
 
 
 def die(msg: str, code: int = 2):
@@ -156,20 +161,25 @@ def validate(spec) -> list:
     return probs
 
 
+SUSPECT_RE = re.compile(r"<script|\son[a-z]+\s*=", re.I)
+
+
+def suspect_fields(v, path="") -> list:
+    """JSON paths of string values that look like live script (a <script tag or an
+    inline on...= handler). Most fields are inserted as HTML, so quoted untrusted
+    text must be escaped; this only warns."""
+    if isinstance(v, str):
+        return [path or "$"] if SUSPECT_RE.search(v) else []
+    kids = enumerate(v) if isinstance(v, list) else v.items() if isinstance(v, dict) else ()
+    return [p for k, x in kids for p in suspect_fields(x, "%s[%d]" % (path, k) if isinstance(k, int) else "%s.%s" % (path, k) if path else k)]
+
+
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
 
 def canonical(spec) -> str:
     return json.dumps(spec, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def script_safe(js: str) -> str:
-    """Keep spec text from ending or confusing the <script> it sits in.
-
-    Every "<" becomes \\u003c, which covers "</script", "<script" and "<!--" and still
-    parses back to the same text."""
-    return js.replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
 
 def render(spec) -> tuple:
@@ -195,32 +205,6 @@ def render(spec) -> tuple:
 # Opening
 # ---------------------------------------------------------------------------
 
-def unopenable_reason(path: str):
-    """Snap Chromium can't read /tmp or hidden directories; say why, or None."""
-    parent = os.path.dirname(os.path.abspath(path))
-    if parent == "/tmp" or parent.startswith("/tmp/"):
-        return "under /tmp, which snap Chromium can't read"
-    hidden = [p for p in parent.split(os.sep) if p.startswith(".") and p not in (".", "..")]
-    if hidden:
-        return "inside hidden directory %s, which snap Chromium can't read" % hidden[0]
-    return None
-
-
-def open_browser(url: str):
-    chromium = "/snap/bin/chromium"
-    if os.path.exists(chromium):
-        argv = [chromium, url]
-    elif shutil.which("xdg-open"):
-        argv = ["xdg-open", url]
-    else:
-        try:
-            webbrowser.open(url)
-        except Exception:
-            print("decision-page.py: no browser opener found; open manually: %s" % url)
-        return
-    subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-
-
 def main():
     ap = argparse.ArgumentParser(prog="decision-page.py", description="Generate a decision page from a JSON spec.")
     ap.add_argument("--spec", required=True, help="path to the spec JSON")
@@ -242,6 +226,9 @@ def main():
             print("decision-page.py: " + p, file=sys.stderr)
         sys.exit(2)
 
+    for path in suspect_fields(spec):
+        print("decision-page.py: warning: %s contains <script or an inline on...= handler; escape quoted untrusted text (references/spec-and-answers.md)" % path, file=sys.stderr)
+
     for p in (TEMPLATE, KIT_CSS, KIT_JS):
         if not p.is_file():
             die('missing %s; run: stow --no-folding -t "$HOME" claude' % p, 1)
@@ -259,7 +246,7 @@ def main():
     elif reason:
         print("not opened: %s is %s. Open it from a non-hidden path under $HOME." % (out, reason))
     else:
-        open_browser(Path(out).as_uri())
+        open_browser(Path(out).as_uri(), "decision-page.py: no browser opener found; open manually: %s" % Path(out).as_uri())
         print("opened: %s" % out)
 
 

@@ -77,6 +77,11 @@ field-by-field source of truth. The rules that matter most:
   the page shows "None stated".
 - **Put what is already settled in `decided[]`**, so Jet sees why the open items
   are shaped as they are.
+- **Escape quoted untrusted text.** Most fields are inserted as raw HTML, so
+  an issue title, file excerpt or log line you quote must have its `<` written
+  as `&lt;` first (the rule is under "Spec fields" in
+  `references/spec-and-answers.md`). The generator warns on stderr when a field
+  holds `<script` or an `on...=` attribute, but it does not stop you.
 - Keep `title`, `lede` and `stats` short; the per-item detail carries the rest.
 
 ## Generate and open

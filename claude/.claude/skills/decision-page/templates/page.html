@@ -94,6 +94,19 @@ const DP = (() => {
   const choiceOf = (item, state) => { const v = (state[item.id] || {}).choice; return validChoice(item, v) ? v : null; };
   const answeredCount = (spec, state) => spec.items.filter(i => choiceOf(i, state) !== null).length;
   const firstOpen = (spec, state) => Math.max(0, spec.items.findIndex(i => choiceOf(i, state) === null));
+  // Folds db docs ({id, data}) into the answers. Skips ids that are neither a known item id nor '_global',
+  // and ids with a save pending (an unsaved edit must not be overwritten). A remote clear gives choice null.
+  // Returns the new state and the ids that changed; it never mutates its inputs.
+  function mergeSnapshot(state, docs, pending, knownIds) {
+    const next = { ...state }, changed = [];
+    for (const d of docs) {
+      if ((d.id !== '_global' && !knownIds.includes(d.id)) || pending.has(d.id)) continue;
+      const v = d.data || {}, old = state[d.id] || {}, merged = { choice: v.choice || null, note: v.note || '' };
+      if ((old.choice || null) === merged.choice && (old.note || '') === merged.note) continue;
+      next[d.id] = merged; changed.push(d.id);
+    }
+    return { state: next, changed };
+  }
   const recOf = i => i.options.find(o => o.rec);
 
   const sec = (k, v) => v ? `<div class="sec"><span class="k">${k}</span><div>${v}</div></div>` : '';
@@ -159,7 +172,7 @@ const DP = (() => {
     return L.join('\n');
   }
 
-  return { id, normalize, storageKey, collection, answeredCount, firstOpen, choiceOf, cardHtml, mainHtml, bandHtml, sidebarHtml, answersJson, buildAnswers };
+  return { id, normalize, storageKey, collection, answeredCount, firstOpen, mergeSnapshot, choiceOf, cardHtml, mainHtml, bandHtml, sidebarHtml, answersJson, buildAnswers };
 })();
 // CORE:END
 </script>
@@ -313,14 +326,8 @@ setSave(savedText());
   if (!db) return;
   setSave(savedText());
   db.collection(COLL).onSnapshot(snap => {
-    let changed = false;
-    for (const d of snap.docs) {
-      if ((d.id !== '_global' && !items.some(i => i.id === d.id)) || pending.has(d.id)) continue;
-      const v = d.data(), old = state[d.id] || {}, next = { choice: v.choice || null, note: v.note || '' };
-      if ((old.choice || null) === next.choice && (old.note || '') === next.note) continue;
-      state[d.id] = next; changed = true;
-    }
-    if (changed) fill();
+    const m = DP.mergeSnapshot(state, snap.docs.map(d => ({ id: d.id, data: d.data() })), pending, items.map(i => i.id));
+    if (m.changed.length) { Object.assign(state, m.state); fill(); }
     setSave('Synced across your devices. Press Copy answers to send them to Claude.');
   }, () => setSave("Couldn't load saved answers. Use Copy answers instead."));
 })();
