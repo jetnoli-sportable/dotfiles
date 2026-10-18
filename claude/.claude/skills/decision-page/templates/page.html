@@ -1,0 +1,315 @@
+<!doctype html>
+<!--
+decision-page template. decision-page.py fills the double-brace placeholders: the title, the meta
+description, the spec hash, the shared kit's CSS and JS (kit/), and the spec JSON. The page renders
+its cards from that JSON in the browser. Spec fields are listed in the skill's reference doc.
+-->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="{{DESCRIPTION}}">
+<title>{{TITLE}}</title>
+<style>
+{{KIT_CSS}}
+/* decision-page only: the kit owns tokens, layout, sidebar, band frame, callouts, chips, buttons */
+.lede{max-width:80ch;color:var(--muted);margin:0}.lede strong{color:var(--fg)}
+.stats{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:.9rem;color:var(--muted)}.stats b{color:var(--fg)}
+table.glance{width:100%;border-collapse:collapse;font-size:.88rem}
+.glance th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:4px 8px;border-bottom:1px solid var(--line)}
+.glance td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.glance tr[data-go]{cursor:pointer}.glance tr[data-go]:hover td,.glance tr.cur td{background:var(--accent-soft)}
+.glance a{color:var(--fg);font-weight:600;text-decoration:none}.glance a:hover{text-decoration:underline}
+.glance .pick{font-weight:600}.glance .pick.none{color:var(--muted);font-weight:400}
+.decided ul{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:.88rem}
+.decided li{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.decided .when{color:var(--muted);font-size:.78rem;font-family:var(--f-mono)}
+.progline{display:flex;align-items:center;gap:12px;font-weight:600;font-size:.9rem}.progline .bar2{flex:1;margin:0;max-width:340px}
+section.group{display:grid;gap:16px}
+section.group>h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0}
+article{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 20px;display:grid;gap:12px;min-width:0;scroll-margin-top:16px}
+article h3{margin:0;font-size:1.12rem;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.pill{font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;background:var(--gray-soft);color:var(--gray)}
+.pill.keep{background:var(--accent-soft);color:var(--accent)}.pill.tweak{background:var(--warn-soft);color:var(--warn)}.pill.delete{background:var(--del-soft);color:var(--del)}
+.sec{display:grid;gap:2px}.q{font-size:1.05rem;font-weight:600}
+fieldset{border:0;padding:0;margin:0;display:grid;gap:6px;min-width:0}
+.lg{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;font-weight:600;font-size:.85rem}
+label.opt{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:6px;cursor:pointer}
+label.opt:hover{border-color:var(--accent)}
+label.opt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+label.opt:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+label.opt input{margin-top:4px;accent-color:var(--accent)}
+.opt .name{font-weight:600}
+.opt .rec{background:var(--accent);color:var(--on-accent);font-weight:700;font-size:.68rem;letter-spacing:.05em;margin-left:8px;padding:1px 7px;border-radius:99px;vertical-align:1px}
+.opt .lab{display:block;color:var(--muted);font-size:.9rem}.opt .lab b{color:var(--fg);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;margin-right:4px;display:inline-block;min-width:5.2em}
+.opt .lab.none{opacity:.7;font-style:italic}
+.opt .chg{display:block;font-size:.92rem;margin:2px 0 4px}
+.nl{font-size:.8rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+#saveState{font-size:.85rem;color:var(--muted)}
+#copyOut{font-family:var(--f-mono);font-size:.8rem;min-height:12em}
+@media (max-width:860px){.glance .qc,.glance th.qc{display:none}}
+</style></head><body>
+<div class="cap" id="cap"></div>
+<div class="wrap" id="wrap">
+<header class="top"><h1 id="ttl"></h1><p class="lede" id="lede"></p><div class="stats" id="stats"></div></header>
+<section class="band" id="band" aria-label="Overview" tabindex="-1"></section>
+<aside class="sidebar" id="sb" aria-label="Items"></aside>
+<main id="main"></main>
+<section class="closing item" id="finish" tabindex="-1" aria-label="Closing">
+<h2>Anything else</h2>
+<textarea id="global" aria-label="Anything else" placeholder="Notes on the whole list: things missing, ordering, questions"></textarea>
+<div class="bar"><button id="copyBtn" class="primary" type="button">Copy answers</button><span id="saveState"></span></div>
+<textarea id="copyOut" aria-label="Answers text" hidden readonly></textarea>
+</section>
+</div>
+<div id="legend" hidden role="dialog" aria-label="Keyboard shortcuts"></div>
+<script id="spec" type="application/json">{{SPEC_JSON}}</script>
+<script>
+{{KIT_JS}}
+</script>
+<script>
+// CORE:BEGIN decision-page logic with no DOM access. The test runs this block under node.
+const DP = (() => {
+  const esc = s => Kit.esc(s), strip = s => Kit.strip(s);
+  // DOM ids are built from indexes, never from raw spec ids: "a-b"+"c" and "a"+"b-c" would collide.
+  const id = { item: k => `i${k}`, opt: (k, m) => `i${k}-o${m}`, note: k => `i${k}-n`, name: k => `c${k}` };
+
+  // Fills the optional-field fallbacks (KTD4) so rendering never meets undefined.
+  function normalize(spec) {
+    return {
+      ...spec,
+      title: spec.title || spec.slug,
+      decided: (spec.decided || []).map(d => ({ ...d, title: d.title || d.id })),
+      items: (spec.items || []).map(i => ({
+        ...i,
+        title: i.title || i.id,
+        group: i.group || 'Decisions',
+        short_q: i.short_q || strip(i.question),
+        options: (i.options || []).map(o => ({ ...o, short: o.short || strip(o.name) })),
+      })),
+    };
+  }
+
+  const storageKey = (spec, hash) => `decision-page:${spec.slug}:r${spec.round}:${hash}`;
+  const collection = (spec, hash) => `decisions-r${spec.round}-${hash}`;
+  const validChoice = (item, v) => item.options.some(o => o.v === v);
+  const choiceOf = (item, state) => { const v = (state[item.id] || {}).choice; return validChoice(item, v) ? v : null; };
+  const answeredCount = (spec, state) => spec.items.filter(i => choiceOf(i, state) !== null).length;
+  const firstOpen = (spec, state) => Math.max(0, spec.items.findIndex(i => choiceOf(i, state) === null));
+  const recOf = i => i.options.find(o => o.rec);
+
+  const sec = (k, v) => v ? `<div class="sec"><span class="k">${k}</span><div>${v}</div></div>` : '';
+  const tl = (k, v) => v ? `<span class="lab"><b>${k}</b>${v}</span>` : `<span class="lab none"><b>${k}</b>None stated</span>`;
+  const details = (summary, body) => `<details class="ev"><summary>${summary}</summary><div>${body}</div></details>`;
+
+  function cardHtml(i, k) {
+    const tag = i.tag ? `<span class="pill ${esc(i.tag.tone)}">${esc(i.tag.label)}</span>` : '';
+    const arts = (i.artifacts || []).length ? `<div class="arts"><span class="k">Artifacts</span>${i.artifacts.map(Kit.chip).join('')}</div>` : '';
+    const shift = i.shift ? `<div class="callout warn"><span class="k">The evidence changed the answer</span>${i.shift}</div>` : '';
+    const prior = i.prior ? `<div class="callout info"><span class="k">Your earlier note</span><div>${esc(i.prior.note)}</div><span class="k">Reply</span><div>${i.prior.reply || ''}</div></div>` : '';
+    const today = sec('How it works today', (i.today || '') + (i.today_full ? details('How it works, in full', i.today_full) : ''));
+    const evidence = sec('Evidence', (i.evidence_summary ? `<div>${i.evidence_summary}</div>` : '') + (i.evidence_full ? details('Full evidence', i.evidence_full) : ''));
+    const opts = i.options.map((o, m) => `
+   <label class="opt"><input type="radio" name="${id.name(k)}" id="${id.opt(k, m)}" value="${esc(o.v)}"><span><span class="name">${o.name}</span>${o.rec ? '<span class="rec">RECOMMENDED</span>' : ''}${o.changes ? `<span class="chg">${o.changes}</span>` : ''}${tl('Pros', o.pros)}${tl('Cost', o.cost)}${tl('Risk', o.risk)}${tl('Trade-off', o.trade)}</span></label>`).join('');
+    return `<article class="item" id="${id.item(k)}" tabindex="-1"><h3>${i.title} ${tag}</h3>`
+      + `<div class="sec"><span class="k">The question</span><div class="q">${i.question}</div></div>`
+      + arts + sec('Why it matters', i.why_it_matters) + today + evidence + shift + prior
+      + `<div class="callout"><span class="k">Recommendation</span>${i.recommendation}</div>`
+      + `<fieldset><div class="lg"><span>Your decision</span><button type="button" class="link" data-clear="${k}" disabled>Clear choice</button></div>${opts}</fieldset>`
+      + `<label class="nl" for="${id.note(k)}">Questions / notes</label><textarea id="${id.note(k)}" data-note="${k}" placeholder="Optional: a question, a different tweak, a condition"></textarea></article>`;
+  }
+
+  const groupsOf = spec => [...new Set(spec.items.map(i => i.group))];
+  const mainHtml = spec => groupsOf(spec).map(g => `<section class="group"><h2>${esc(g)}</h2>${spec.items.map((i, k) => i.group === g ? cardHtml(i, k) : '').join('')}</section>`).join('');
+
+  function bandHtml(spec) {
+    const c = spec.context, show = c && (c.stages || []).length;
+    const rows = spec.items.map((i, k) => `<tr data-go="${k}" tabindex="0"><td><span class="dot" data-gdot="${k}"></span></td><td><a href="#${id.item(k)}">${strip(i.title)}</a></td><td class="qc">${esc(i.short_q)}</td><td>${esc((recOf(i) || {}).short)}</td><td class="pick none" data-gpick="${k}">Not yet</td></tr>`).join('');
+    const glance = `<div><h2>At a glance</h2><table class="glance"><thead><tr><th></th><th>Item</th><th class="qc">Question</th><th>Recommended</th><th>Your pick</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    const dec = spec.decided.length ? `<div class="decided"><h2>Already decided</h2><ul>${spec.decided.map(d => `<li><span class="dot done"></span><span><b>${strip(d.title)}:</b> ${d.decision}</span><span class="when">${esc(d.date)}</span></li>`).join('')}</ul></div>` : '';
+    const prog = `<div class="progline"><span id="bandCnt"></span><div class="bar2"><i id="bandFill"></i></div></div>`;
+    return (show ? Kit.stageStrip(c) : '') + `<div class="bandgrid">${glance}<div style="display:grid;gap:16px;align-content:start">${dec}${prog}</div></div>`;
+  }
+
+  function sidebarHtml(spec) {
+    const links = g => spec.items.map((i, k) => i.group === g ? `<a href="#${id.item(k)}" title="${esc(strip(i.title))}"><span class="dot" data-dot="${k}"></span><span class="full">${strip(i.title)}</span></a>` : '').join('');
+    return `<button type="button" class="ghost sb-toggle" aria-expanded="true" aria-controls="sb" title="Collapse or expand the index ( [ )"><span class="tl">Hide index</span><span>[</span></button>`
+      + `<div class="prog"><span class="full" id="cnt"></span><span class="rail" id="cntShort"></span><div class="bar2"><i id="fill"></i></div><div class="hint full"><kbd>j</kbd><kbd>k</kbd> move · <kbd>1</kbd>-<kbd>9</kbd> pick · <kbd>a</kbd> recommended · <kbd>?</kbd> keys</div></div>`
+      + groupsOf(spec).map(g => `<div><h2 class="full">${esc(g)}</h2>${links(g)}</div>`).join('');
+  }
+
+  const noteLines = s => String(s).split('\n').map(l => '    ' + l);
+  // The JSON block is authoritative (KTD3); the markdown is for reading, with notes indented so they can't forge a sibling item.
+  function answersJson(spec, hash, state) {
+    return {
+      slug: spec.slug, round: spec.round, spec_hash: hash,
+      global_note: (state._global || {}).note || '',
+      fixed: spec.decided.map(d => d.id),
+      items: spec.items.map(i => ({ id: i.id, choice: choiceOf(i, state), note: (state[i.id] || {}).note || '' })),
+    };
+  }
+  function buildAnswers(spec, hash, state) {
+    const j = answersJson(spec, hash, state);
+    const L = [`# ${strip(spec.title)}: answers (round ${spec.round})`, ''];
+    spec.items.forEach((i, k) => {
+      const o = i.options.find(o => o.v === j.items[k].choice);
+      L.push(`- ${strip(i.title)}: ${o ? strip(o.name) : '(no answer)'}`);
+      if (j.items[k].note.trim()) L.push(...noteLines(j.items[k].note));
+    });
+    if (j.global_note.trim()) L.push('', 'Anything else:', ...noteLines(j.global_note));
+    L.push('', '```json', JSON.stringify(j, null, 2), '```');
+    return L.join('\n');
+  }
+
+  return { id, normalize, storageKey, collection, answeredCount, firstOpen, choiceOf, cardHtml, mainHtml, bandHtml, sidebarHtml, answersJson, buildAnswers };
+})();
+// CORE:END
+</script>
+<script>
+const SPEC = DP.normalize(JSON.parse(document.getElementById('spec').textContent));
+const HASH = '{{SPEC_HASH}}';
+const KEY = DP.storageKey(SPEC, HASH), COLL = DP.collection(SPEC, HASH);
+const $ = (s, r = document) => r.querySelector(s);
+const store = Kit.store();
+const state = store.get(KEY, {});
+const items = SPEC.items, saveTimer = {};
+let db = null, localOk = true;
+
+function setSave(t) { $('#saveState').textContent = t; }
+const savedText = () => !localOk ? 'Could not save in this browser (site data is blocked). Use Copy answers.'
+  : db ? 'Saved. Claude can read your answers.' : 'Saved in this browser only. Use Copy answers to send them to Claude.';
+
+function persist(itemId, delay = 0) {
+  clearTimeout(saveTimer[itemId]);
+  saveTimer[itemId] = setTimeout(async () => {
+    localOk = store.set(KEY, state);
+    if (!db) { setSave(savedText()); return; }
+    setSave('Saving…');
+    const s = state[itemId] || {};
+    try { await db.doc(COLL + '/' + itemId).set({ choice: s.choice || '', note: s.note || '', updatedAt: new Date().toISOString() }); setSave(savedText()); }
+    catch (err) { setSave("Couldn't save to the page (" + (err?.code || 'error') + '). Use Copy answers instead.'); }
+  }, delay);
+}
+
+function paint() {
+  const n = DP.answeredCount(SPEC, state), pct = (items.length ? 100 * n / items.length : 0) + '%';
+  $('#cnt').textContent = $('#bandCnt').textContent = `${n} of ${items.length} answered`;
+  $('#cntShort').textContent = `${n}/${items.length}`;
+  $('#fill').style.width = $('#bandFill').style.width = pct;
+  items.forEach((i, k) => {
+    const ch = DP.choiceOf(i, state), o = i.options.find(o => o.v === ch), p = $(`[data-gpick="${k}"]`);
+    $(`[data-dot="${k}"]`).classList.toggle('done', !!o);
+    $(`[data-gdot="${k}"]`).classList.toggle('done', !!o);
+    $(`[data-clear="${k}"]`).disabled = !o;
+    p.textContent = o ? o.short : 'Not yet';
+    p.classList.toggle('none', !o);
+  });
+}
+
+// Puts saved answers into the controls. A note box being typed in keeps its text.
+function fill() {
+  items.forEach((i, k) => {
+    const ch = DP.choiceOf(i, state), s = state[i.id] || {};
+    i.options.forEach((o, m) => { document.getElementById(DP.id.opt(k, m)).checked = o.v === ch; });
+    const n = document.getElementById(DP.id.note(k));
+    if (document.activeElement !== n) n.value = s.note || '';
+  });
+  const g = $('#global');
+  if (document.activeElement !== g) g.value = (state._global || {}).note || '';
+  paint();
+}
+
+function render() {
+  $('#cap').textContent = `Decision page · round ${SPEC.round}`;
+  $('#ttl').textContent = SPEC.title;
+  $('#lede').innerHTML = SPEC.lede || '';
+  $('#lede').hidden = !SPEC.lede;
+  $('#stats').innerHTML = (SPEC.stats || []).map(s => `<span>${s}</span>`).join('');
+  $('#band').innerHTML = DP.bandHtml(SPEC);
+  $('#sb').innerHTML = DP.sidebarHtml(SPEC);
+  $('#main').innerHTML = DP.mainHtml(SPEC);
+}
+render();
+fill();
+
+const idxOf = stop => +stop.slice(1);
+const pick = (k, m) => {
+  const o = items[k].options[m];
+  if (!o) return;
+  const r = document.getElementById(DP.id.opt(k, m));
+  r.checked = true;
+  r.dispatchEvent(new Event('change', { bubbles: true }));
+};
+
+$('#main').addEventListener('change', e => {
+  const t = e.target;
+  if (t.type !== 'radio') return;
+  const i = items[+t.name.slice(1)];
+  (state[i.id] ||= {}).choice = t.value;
+  persist(i.id); paint();
+});
+$('#main').addEventListener('input', e => {
+  if (e.target.dataset.note === undefined) return;
+  const i = items[+e.target.dataset.note];
+  (state[i.id] ||= {}).note = e.target.value;
+  persist(i.id, 600);
+});
+$('#main').addEventListener('click', e => {
+  const b = e.target.closest('[data-clear]');
+  if (!b) return;
+  const k = +b.dataset.clear, i = items[k];
+  (state[i.id] ||= {}).choice = null;
+  items[k].options.forEach((o, m) => { document.getElementById(DP.id.opt(k, m)).checked = false; });
+  persist(i.id); paint();
+});
+$('#global').addEventListener('input', e => { (state._global ||= {}).note = e.target.value; persist('_global', 600); });
+$('#copyBtn').addEventListener('click', async () => {
+  const ok = await Kit.copy(DP.buildAnswers(SPEC, HASH, state), $('#copyOut'));
+  setSave(ok ? 'Copied to the clipboard.' : 'Clipboard blocked. Select the text below and copy it.');
+});
+
+const ctl = Kit.init({
+  items: () => items.map((_, k) => DP.id.item(k)),
+  sidebarName: 'index',
+  sidebarKey: 'decision-page:index-collapsed',
+  onCur(stop, scroll) {
+    if (stop === 'band' || stop === 'finish') return;
+    const k = idxOf(stop), l = $(`#sb a[href="#${stop}"]`), r = $(`tr[data-go="${k}"]`);
+    l.classList.add('cur'); r.classList.add('cur');
+    if (scroll) l.scrollIntoView({ block: 'nearest' });
+  },
+  enterOverview: () => ctl.setCur(items.length ? DP.id.item(DP.firstOpen(SPEC, state)) : 'finish', true),
+  enterClosing: () => $('#copyBtn').click(),
+  notes(stop) {
+    const n = stop === 'finish' ? $('#global') : stop === 'band' ? null : document.getElementById(DP.id.note(idxOf(stop)));
+    if (n) { n.focus(); n.scrollIntoView({ block: 'center' }); }
+  },
+});
+const go = k => ctl.setCur(DP.id.item(k), true);
+$('#band').addEventListener('click', e => { const r = e.target.closest('tr[data-go]'); if (r) { e.preventDefault(); go(+r.dataset.go); } });
+$('#band').addEventListener('keydown', e => { if (e.key !== 'Enter') return; const r = e.target.closest('tr[data-go]'); if (r) { e.preventDefault(); go(+r.dataset.go); } });
+$('#sb').addEventListener('click', e => { const a = e.target.closest('a[href^="#"]'); if (a) { e.preventDefault(); ctl.setCur(a.getAttribute('href').slice(1), true); } });
+const follow = e => { const a = e.target.closest('article'); if (a && a.id !== ctl.cur()) ctl.setCur(a.id, false); };
+$('#main').addEventListener('focusin', follow);
+$('#main').addEventListener('click', follow);
+
+Kit.registerKey(['1', '2', '3', '4', '5', '6', '7', '8', '9'], (e, c) => c.isItem ? pick(idxOf(c.cur), +e.key - 1) : false, 'pick an option');
+Kit.registerKey('a', (e, c) => { if (!c.isItem) return false; const k = idxOf(c.cur); pick(k, items[k].options.findIndex(o => o.rec)); }, 'take the recommended option');
+Kit.registerKey('c', (e, c) => { if (!c.isItem) return false; const b = $(`[data-clear="${idxOf(c.cur)}"]`); if (!b.disabled) b.click(); }, 'clear the choice');
+
+if (items.length) ctl.setCur(DP.id.item(DP.firstOpen(SPEC, state)), false);
+setSave(savedText());
+
+// Published as an Artifact with the db capability: save there too, and let it win over this browser's copy.
+(async () => {
+  try { db = await window.claude?.use?.('db'); } catch { db = null; }
+  if (!db) return;
+  setSave(savedText());
+  db.collection(COLL).onSnapshot(snap => {
+    for (const d of snap.docs) {
+      if (d.id !== '_global' && !items.some(i => i.id === d.id)) continue;
+      const v = d.data();
+      state[d.id] = { choice: v.choice || null, note: v.note || '' };
+    }
+    fill(); setSave('Synced. Claude can read your answers.');
+  }, () => setSave("Couldn't load saved answers. Use Copy answers instead."));
+})();
+</script></body></html>
