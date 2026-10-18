@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
   <span class="gen">docgen · generated from <b>docs/guides/wb-decide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-10-12</span>
+  <span class="right">updated 2026-10-18</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -294,21 +294,43 @@ time, the draft is <strong>shelved</strong> (logged <code>draft_shelved</code>),
 sweeping resumes. A draft is only ever removed by your accept or dismiss.</li>
 <li>Session end writes a tombstone (and logs <code>pending_at_end</code> if something
 was still unrecorded) and shelves a pending draft; an hourly reaper cleans
-up old state dirs, shelving any draft it finds first.</li>
+up old state dirs, shelving any draft it finds first. A sweep draft that
+finishes <em>after</em> the session ended is written and shelved too (reason
+<code>session_end</code>), not thrown away.</li>
 </ol>
 <p>Every nudge resolves exactly once: <code>followed</code>, <code>dismissed</code> or <code>ignored</code>.</p>
-<p><strong>A review over several messages.</strong> When <code>/wb-decide</code> runs <code>status</code> with a
-draft nudge pending, the draft is marked <em>under review</em>: while you and
-Claude go back and forth (questions, edits), the nudge carries over to the
-next turn instead of counting as ignored, and nothing new nudges. It
-resolves once, when the entry is recorded (<code>followed</code>) or dismissed. After
-four carried turns with neither, the review counts as abandoned and is
-struck like an ignored nudge.</p>
+<p><strong>A review over several messages.</strong> When <code>/wb-decide</code> shows you a pending
+draft it runs <code>wb-capture.sh review</code>, which marks the draft <em>under review</em>:
+while you and Claude go back and forth (questions, edits), the nudge carries
+over to the next turn instead of counting as ignored, and nothing new
+nudges. It resolves once, when the entry is recorded (<code>followed</code>) or
+dismissed. After four carried turns with neither, the review counts as
+abandoned and is struck like an ignored nudge. Only that draft-review path
+calls <code>review</code> (and only while the draft's sweep nudge is outstanding; a
+repeat call never resets the turn count). <code>status</code> is read-only, so just
+checking state never puts a session under review.</p>
 <p><strong>Shelved drafts.</strong> A shelved draft waits in
 <code>~/.local/state/wb/capture/shelved/&lt;task&gt;/</code> (it outlives the session) until
 you decide. <code>/wb-decide status</code> lists them (<code>shelved: &lt;path&gt;</code>), <code>/wb-decide shelved</code> walks through them one at a time, and <code>/close-out</code> asks about each
-before a task winds down. Accepting records it and runs <code>wb-capture.sh accept &lt;path&gt;</code>; rejecting runs <code>wb-capture.sh dismiss &lt;path&gt;</code>. Phrase
-nudges carry no draft, so ignoring one shelves nothing.</p>
+before a task winds down. Rejecting runs <code>wb-capture.sh dismiss &lt;path&gt;</code>.
+Phrase nudges carry no draft, so ignoring one shelves nothing.</p>
+<p>Accepting is <strong>two-phase</strong>: <code>wb-capture.sh accept --begin &lt;path&gt;</code>, then <code>wb append &lt;task&gt; Decisions -</code>, then <code>wb-capture.sh accept &lt;path&gt;</code>. Recording a
+shelved draft is an ordinary <code>wb append … Decisions</code>, which the PostToolUse
+hook would otherwise count as the answer to whatever <em>other</em> nudge is live
+in the session (marking it <code>followed</code> and wiping its strikes and review
+state). The <code>--begin</code> call leaves a one-shot flag; the hook consumes it, notes
+the turn as recorded and leaves the live nudge alone; the final <code>accept</code>
+deletes the draft and logs <code>shelved_accepted</code>. An abandoned accept just
+leaves the draft shelved: the flag is dropped by the next real prompt.</p>
+<p><strong><code>wb done</code> won't strand shelved drafts.</strong> A shelved draft only gets reviewed
+by <code>/close-out</code> or <code>/wb-decide shelved</code>, so <code>wb done</code> refuses (before it
+touches anything, including a store-only close) while <code>shelved/&lt;task&gt;/</code>
+holds any draft. It prints each path and the ways forward: run <code>/close-out</code>
+or <code>/wb-decide shelved</code>, or re-run <code>wb done --leave-shelved</code> to close anyway.
+<code>--leave-shelved</code> closes, logs one <code>shelved_left{count}</code> line to the capture
+log and notes the left drafts in the task's <code>wb done</code> Handoffs entry. (A
+<code>wb done</code> invoked through <code>/wb-done</code> relays the refusal; it never adds
+<code>--leave-shelved</code> on its own.)</p>
 <p><strong>The two nudge lines</strong> (what Claude sees, verbatim):</p>
 <pre><code>[wb-capture] Last turn read like a decision (&quot;&lt;matched phrase&gt;&quot;). If it settled something, run /wb-decide; otherwise ignore or /wb-decide dismiss.
 [wb-capture] A background review drafted an unrecorded decision (&lt;state dir&gt;/draft). Run /wb-decide to review/accept, or /wb-decide dismiss.
@@ -369,11 +391,11 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td><code>/wb-decide status</code></td>
-<td>Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts; for a stale draft, a warning plus the Decisions entries added since the snapshot. Also marks a pending draft as under review.</td>
+<td>Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts (every <code>shelved:</code> line is relayed verbatim); for a stale draft, a warning plus the Decisions entries added since the snapshot. Read-only.</td>
 </tr>
 <tr>
 <td><code>/wb-decide shelved</code></td>
-<td>Walk this task's shelved drafts one at a time: accept/edit (record, then <code>accept &lt;path&gt;</code>) or reject (<code>dismiss &lt;path&gt;</code>).</td>
+<td>Walk this task's shelved drafts one at a time: accept/edit (<code>accept --begin &lt;path&gt;</code>, record, then <code>accept &lt;path&gt;</code>) or reject (<code>dismiss &lt;path&gt;</code>).</td>
 </tr>
 </tbody>
 </table>
@@ -417,7 +439,7 @@ exactly <code>EOF</code> can't end it early.</p>
 </tr>
 <tr>
 <td>Script</td>
-<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear</code>, <code>dismiss [&lt;shelved path&gt;]</code>, <code>accept &lt;shelved path&gt;</code>, <code>mute</code>, <code>unmute</code>, <code>status</code>); sweep in <code>wb-capture-sweep.sh</code></td>
+<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear</code>, <code>dismiss [&lt;shelved path&gt;]</code>, <code>accept [--begin] &lt;shelved path&gt;</code>, <code>review</code>, <code>mute</code>, <code>unmute</code>, <code>status</code>); sweep in <code>wb-capture-sweep.sh</code></td>
 </tr>
 </tbody>
 </table>
@@ -466,19 +488,26 @@ exactly <code>EOF</code> can't end it early.</p>
 </table>
 <p><strong>Log events</strong> (<code>log.jsonl</code>, one JSON object per line: <code>ts</code>, <code>session_id</code>,
 <code>task</code>, <code>event</code>, optional <code>source</code>): <code>nudge_fired{source}</code>,
-<code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code>, <code>muted</code>, <code>unmuted</code>,
+<code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code> (these three mean only &quot;a
+nudge resolved&quot;), <code>muted</code>, <code>unmuted</code>,
 <code>sweep_ran{result: none|draft|error|timeout}</code> (<code>rerun: true</code> when <code>## Decisions</code>
 changed during the first run and Haiku was asked again; <code>stale: true</code> when it
 changed again during the rerun; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
 <code>draft_shelved</code> carry <code>stale: true</code> too when they resolve a stale draft),
 <code>sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}</code>,
-<code>draft_shelved{reason: ignored_twice|session_end|reaped}</code>, and <code>followed</code> /
-<code>dismissed</code> with <code>source: shelved</code> when a shelved draft is accepted or rejected,
+<code>draft_shelved{reason: ignored_twice|session_end|reaped}</code>,
+<code>shelved_accepted</code> / <code>shelved_dismissed</code> (a shelved draft accepted or
+rejected; no <code>source</code>, and <code>stale: true</code> when it was a stale one, so they
+never count toward the nudge follow rate), <code>shelved_left{count}</code> (logged by
+<code>wb done --leave-shelved</code>; its <code>session_id</code> is empty and it carries no <code>source</code>),
 <code>pending_at_end{marker,draft}</code> (from SessionEnd; the sweep logs it as just
-<code>{draft:true}</code> when the session ended while Haiku was still running),
-<code>pending_orphaned</code>.</p>
+<code>{draft:true}</code> when the session ended while Haiku was still running, and
+shelves the draft right after), <code>pending_orphaned</code> (the reaper logs it only
+once the dir is really removed, after its <code>ignored</code> and <code>draft_shelved</code>).</p>
 <p><strong>Measuring it</strong> — follow / dismissal / ignored rate overall and per source,
-plus sweep result counts (dismissals carry no source, so they're overall only):</p>
+plus sweep result counts (dismissals carry no source, so they're overall only)
+and a shelved-draft rollup (how many were shelved, accepted, dismissed; kept
+apart because nothing nudges a shelved draft):</p>
 <pre><code class="language-bash">jq -s '. as $all
 | def pct($a;$b): if $b == 0 then null else (($a * 1000 / $b | round) / 10) end;
 {
@@ -495,7 +524,10 @@ plus sweep result counts (dismissals carry no source, so they're overall only):<
         followed_pct:  pct([.[] | select(.event == &quot;followed&quot;)]  | length; $n),
         dismissed_pct: pct([.[] | select(.event == &quot;dismissed&quot;)] | length; $n),
         ignored_pct:   pct([.[] | select(.event == &quot;ignored&quot;)]   | length; $n) } ),
-  sweep_results: ([.[] | select(.event == &quot;sweep_ran&quot;)] | group_by(.result) | map({(.[0].result): length}) | add)
+  sweep_results: ([.[] | select(.event == &quot;sweep_ran&quot;)] | group_by(.result) | map({(.[0].result): length}) | add),
+  shelved: { shelved:   ([$all[] | select(.event == &quot;draft_shelved&quot;)]     | length),
+             accepted:  ([$all[] | select(.event == &quot;shelved_accepted&quot;)]  | length),
+             dismissed: ([$all[] | select(.event == &quot;shelved_dismissed&quot;)] | length) }
 }' ~/.local/state/wb/capture/log.jsonl
 </code></pre>
 <p><strong>Close-out interaction.</strong> <code>/close-out</code> step 4: if <code>## Decisions</code> is still
