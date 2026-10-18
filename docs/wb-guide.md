@@ -291,7 +291,7 @@ wb task-file            # -> /home/you/code/tasks/dotfiles--my-thing.md
 nvim "$(wb task-file)"  # equivalent to prefix+t
 ```
 
-Outside a wb session (no `@task`), both forms fail with
+Outside a wb session (no `@task` and no `@wb_repo`/`@wb_slug`), both forms fail with
 `not a wb task session` rather than guessing a file from your cwd.
 
 ## Session lifecycle: wb down, wb pause, and warm resume
