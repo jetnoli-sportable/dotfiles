@@ -178,7 +178,8 @@
 # <root>/.reaped, which is touched before the work starts). For each real,
 # non-symlink subdir of the root whose name passes session_dir validation and
 # that isn't the current session (and isn't `shelved`): remove it if it holds `ended`
-# and that file is older than a grace period of 2 x sweep_timeout + 60 seconds (an
+# and that file is older than a grace period of 2 x sweep_timeout + 60 seconds (the
+# timeout is the sweep's effective one: sweep_timeout=0 means the default 60, so 180s; an
 # async sweep may still be running its Haiku child and shelve a late draft; if the age
 # can't be computed the dir waits for the next reap), or if nothing in
 # it was modified in the last 7 days (find -newermt on the dir + its files).
@@ -599,7 +600,11 @@ reap_stale() {
     [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt "$max" ] && mv -f -- "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null
   fi
   load_config
-  local grace=$(( 2 * CFG_SWEEP_TIMEOUT + 60 )) cutoff
+  # the sweep runs its child for DEFAULT_SWEEP_TIMEOUT when sweep_timeout is 0, so the
+  # grace is built from that same effective timeout (0 would otherwise shrink it to 60s)
+  local eff_timeout="$CFG_SWEEP_TIMEOUT"
+  [ "$eff_timeout" -gt 0 ] 2>/dev/null || eff_timeout="$DEFAULT_SWEEP_TIMEOUT"
+  local grace=$(( 2 * eff_timeout + 60 )) cutoff
   cutoff=$(( $(date +%s) - grace )) 2>/dev/null || cutoff=""
   local d name sdir stale pm pd osrc orphan saved_stem="$TASK_STEM" tp SDIR  # SDIR: stale_extra reads it
   for d in "$root"/*/; do

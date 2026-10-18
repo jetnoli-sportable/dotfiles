@@ -873,6 +873,16 @@ touch -d '2 hours ago' "$CAP/.reaped"
 prompt "again"
 assert_file "grace scales with sweep_timeout (10 min < 2x600+60s)" "$CAP/sid-ge/ended"
 
+echo "# reaper: sweep_timeout=0 uses the sweep's default timeout for the grace (2x60+60 = 180s)"
+new_scenario
+mkdir -p "$CFG/wb"; printf 'sweep_timeout=0\n' >"$CFG/wb/capture.conf"
+mkdir -p "$CAP/sid-z1" "$CAP/sid-z2"
+touch -d '100 seconds ago' "$CAP/sid-z1/ended"; touch -d '400 seconds ago' "$CAP/sid-z2/ended"
+touch -d '2 hours ago' "$CAP/.reaped" 2>/dev/null || { mkdir -p "$CAP"; touch -d '2 hours ago' "$CAP/.reaped"; }
+prompt "hi"
+assert_file "timeout 0: a dir ended 100s ago survives (grace 180s, not 60s)" "$CAP/sid-z1/ended"
+assert_nofile "timeout 0: a dir ended 400s ago is reaped" "$CAP/sid-z2"
+
 echo "# reaper: hourly throttle"
 new_scenario
 prompt "one"
