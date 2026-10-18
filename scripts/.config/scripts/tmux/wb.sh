@@ -182,8 +182,8 @@ wb_set_frontmatter() {
 # already duplicated). Extracted from cmd_status's original inline awk (the
 # ONE comment-preserving frontmatter rewrite); shared by cmd_status
 # (status:, never needs after_key — the key always exists) and cmd_set
-# (priority:/value:/size:/parent:/depends_on:/jira:/tags:/path:, some of
-# which land after size: on a pre-schema task file that predates them).
+# (priority:/value:/size:/parent:/depends_on:/jira:/pr:/tags:/path:, some of
+# which land after size: or jira: on a pre-schema task file that predates them).
 # _wb_refuse_if_live_session <task-file> <verb> — exit 1 when any live tmux
 # session's @task points at <task-file>. Store-only verbs (wb status, wb set)
 # share this so the refusal text and scan never drift between them.
@@ -4153,8 +4153,10 @@ _wb_tags_merge() {
 # for a plain URL correction) and every field the tooling derives/stamps
 # itself (created/closed/claude_sessions/repo/worktree). branch: is settable
 # because seeding tools pre-fill it and `wb new` adopts it as the git branch —
-# a stale value has to be correctable before the worktree exists.
-WB_SET_FIELDS="priority value size parent depends_on jira tags path branch"
+# a stale value has to be correctable before the worktree exists. pr: is the
+# task's GitHub PR URLs, read by generated status pages (e.g. a ladder's
+# per-ticket Status cell) — a task often spans several PRs across repos.
+WB_SET_FIELDS="priority value size parent depends_on jira pr tags path branch"
 
 # cmd_set <task-ref> <field> <value> — resolves <task-ref> the same way
 # cmd_status does (_wb_append_resolve_task), refuses a field this verb
@@ -4162,7 +4164,7 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path branch"
 # saying it isn't settable here (created/closed/reviewed/claude_sessions/
 # repo/worktree), refuses an unknown field, validates the value for
 # the fields that have an enum or a must-exist-in-$TASKS_DIR constraint
-# (priority/value/size/parent/depends_on/jira/branch — same fail-loud-before-any-
+# (priority/value/size/parent/depends_on/jira/pr/branch — same fail-loud-before-any-
 # write convention `wb new`'s --depends-on validation uses), then
 # rewrites just that one frontmatter line under the per-task lock. Inserts
 # the field right after `size:` when it's missing entirely (priority:/
@@ -4188,7 +4190,7 @@ cmd_set() {
       echo "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)" >&2
       exit 1
       ;;
-    priority|value|size|parent|depends_on|jira|tags|path|branch)
+    priority|value|size|parent|depends_on|jira|pr|tags|path|branch)
       ;;
     *)
       echo "wb set: unknown field '$field' (allowed: $WB_SET_FIELDS)" >&2
@@ -4252,6 +4254,21 @@ cmd_set() {
           https://*) ;;
           *) echo "wb set: jira '$value' must start with https://" >&2; exit 1 ;;
         esac
+        ;;
+      pr)
+        # Comma-separated full GitHub PR URLs, in the order they were opened.
+        # Each entry is trimmed and the list re-joined with ", ", so readers
+        # split on ',' and strip. An empty entry (",," or a trailing comma)
+        # is refused rather than dropped — `read -a` would drop it silently.
+        local _wb_set_rest="$value," _wb_set_pr _wb_set_prs=""
+        while [ -n "$_wb_set_rest" ]; do
+          _wb_set_pr="${_wb_set_rest%%,*}"; _wb_set_rest="${_wb_set_rest#*,}"
+          read -r _wb_set_pr <<< "$_wb_set_pr"
+          [[ "$_wb_set_pr" =~ ^https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+$ ]] \
+            || { echo "wb set: pr '${_wb_set_pr:-(empty entry)}' is not a full GitHub PR URL (https://github.com/<owner>/<repo>/pull/<n>)" >&2; exit 1; }
+          _wb_set_prs="${_wb_set_prs:+$_wb_set_prs, }$_wb_set_pr"
+        done
+        value="$_wb_set_prs"
         ;;
       branch)
         # The name `wb new` will adopt as the git branch. `--branch` also
@@ -4333,6 +4350,7 @@ cmd_set() {
   local after_key=""
   case "$field" in
     priority|value) after_key="size" ;;
+    pr) after_key="jira" ;;
   esac
 
   # --unset on a key that is MISSING entirely (dup_count 0 — `old` reads

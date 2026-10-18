@@ -381,6 +381,54 @@ assert_eq "jira invalid scheme: exit 1" 1 "$rc"
 assert "jira invalid scheme: message" "must start with https://" "$out"
 
 # =============================================================================
+# Scenario: pr — optional list of full GitHub PR URLs (comma-separated, in the
+# order they were opened). Missing key lands right after jira:; entries are
+# trimmed and re-joined with ", "; anything that isn't a PR URL is refused
+# before any write.
+# =============================================================================
+
+PR1="https://github.com/jetnoli-sportable/dotfiles/pull/95"
+PR2="https://github.com/sportable/be--monorepo/pull/1234"
+
+mk_template_task_pr() { # <file> <branch> — TEMPLATE.md-shaped, no pr: line, priority already set
+  printf -- '---\nstatus: planned\npath:\nrepo: proj\nbranch: %s\nworktree:\nparent:\ndepends_on:\nsize:\npriority: P1\nvalue:\ntags: []\njira:\ncreated: 2026-07-01\nclosed:\nreviewed:\nclaude_sessions:\n---\n# Title\n' \
+    "$2" > "$TASKS_DIR/$1"
+}
+
+mk_template_task_pr "proj--pr-a.md" pr-a
+out="$(cmd_set "pr-a" pr "$PR1" 2>&1)"; rc=$?
+assert_eq "pr single: exit 0" 0 "$rc"
+content="$(cat "$TASKS_DIR/proj--pr-a.md")"
+assert_eq "pr single: value stored" "$PR1" "$(wb_get_frontmatter "$TASKS_DIR/proj--pr-a.md" pr)"
+assert_eq "pr single: inserted right after jira:" "pr: $PR1" "$(printf '%s\n' "$content" | grep -A1 '^jira:' | tail -1)"
+assert_eq "pr single: priority: untouched (no pr/priority prefix clash)" "P1" "$(wb_get_frontmatter "$TASKS_DIR/proj--pr-a.md" priority)"
+assert_eq "pr single: exactly one pr: line" "1" "$(printf '%s\n' "$content" | grep -c '^pr:')"
+
+out="$(cmd_set "pr-a" pr " $PR1 ,$PR2" 2>&1)"; rc=$?
+assert_eq "pr list: exit 0" 0 "$rc"
+assert_eq "pr list: entries trimmed, joined with ', '" "$PR1, $PR2" "$(wb_get_frontmatter "$TASKS_DIR/proj--pr-a.md" pr)"
+
+out="$(cmd_set "pr-a" pr "$PR1,$PR2" 2>&1)"; rc=$?
+assert_eq "pr list same value: exit 0" 0 "$rc"
+assert "pr list same value: no-op" "pr already" "$out"
+
+for bad in "http://github.com/o/r/pull/1" "https://github.com/o/r/issues/1" \
+           "https://gitlab.com/o/r/pull/1" "https://github.com/o/r/pull/1/files" \
+           "github.com/o/r/pull/1" "$PR1," "$PR1,,$PR2"; do
+  before="$(cat "$TASKS_DIR/proj--pr-a.md")"
+  out="$(cmd_set "pr-a" pr "$bad" 2>&1)"; rc=$?
+  assert_eq "pr invalid '$bad': exit 1" 1 "$rc"
+  assert "pr invalid '$bad': message" "is not a full GitHub PR URL" "$out"
+  assert_eq "pr invalid '$bad': file untouched" "$before" "$(cat "$TASKS_DIR/proj--pr-a.md")"
+done
+
+out="$(cmd_set "pr-a" pr --unset 2>&1)"; rc=$?
+assert_eq "pr unset: exit 0" 0 "$rc"
+assert "pr unset: confirmation" "pr '.*' -> \(cleared\)" "$out"
+assert_eq "pr unset: cleared" "" "$(wb_get_frontmatter "$TASKS_DIR/proj--pr-a.md" pr)"
+assert_eq "pr unset: key kept" "1" "$(grep -c '^pr:' "$TASKS_DIR/proj--pr-a.md")"
+
+# =============================================================================
 # Scenario: wb_set_frontmatter_field / cmd_set dedupe regression — a
 # TEMPLATE.md-shaped file already ships an empty `priority:`/`value:` line
 # right after `size:`. The `after_key=size` insertion path must not fire

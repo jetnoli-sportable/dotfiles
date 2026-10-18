@@ -14,7 +14,7 @@ threads, then the wind-down, in that order, because the sweep has to happen
 > **Store-only field/status edits:** never Edit/Write a task file's frontmatter by
 > hand — `wb status <task-ref> <planned|paused|doing|review>` flips status and
 > `wb set <task-ref> <field> <value>` (fields: priority value size parent
-> depends_on jira tags path) writes any other frontmatter field under the task
+> depends_on jira pr tags path branch) writes any other frontmatter field under the task
 > lock, both refusing when a live session owns the task.
 
 ## Scope — what this does and doesn't do
