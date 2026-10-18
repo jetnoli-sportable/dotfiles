@@ -686,7 +686,7 @@ not nvim/gopls, so a few manually-opened editor instances can still make
 the shared Ghostty scope the highest-pressure one. Isolating nvim/gopls is
 a tracked fast-follow, not something this covers yet.
 
-### Finding orphaned agent scopes — `wb agents`
+### Finding orphaned agent scopes
 
 Each launch gets its own scope, named `wb-agent-<session>-<pane-pid>-<launch-ns>`.
 The per-launch suffix means a relaunch in the same pane never collides with an
@@ -694,16 +694,17 @@ old scope. Anything the agent started that outlives it keeps that old scope
 **active**, though: `wl-copy` serving the clipboard, a `go run` dev server,
 `gopls`. So these orphans slowly pile up, each holding a stray process.
 
+List them with systemd directly:
+
 ```
-wb agents             # every wb-agent-* scope + the processes inside it
-wb agents --orphans   # only the ones with no claude process left
+systemctl --user list-units 'wb-agent-*'    # every wb-agent-* scope
+systemctl --user status <unit>              # what's still running inside one
+systemctl --user stop <unit>                # stop it, once you've checked
 ```
 
-A scope with no `claude` process inside is marked `ORPHAN`. The command is
-read-only. It never stops anything, because an orphan's leftover might be a
-dev server you still want running. It prints a `systemctl --user stop <unit>`
-line for each orphan so you can check it (`systemctl --user status <unit>`)
-and run the stop yourself.
+A scope with no `claude` process left in its `status` tree is an orphan.
+Check before stopping it, because its leftover might be a dev server you
+still want running.
 
 ## Known rough edges (not blocking, worth knowing)
 
