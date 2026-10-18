@@ -292,6 +292,14 @@ new_scenario
 sweep
 assert_nofile "no overlap: nothing shelved" "$CAP/shelved"
 assert_eq "no overlap: no draft_shelved" 0 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
+# the older draft can't be shelved (shelved/ is a plain file, so mkdir fails): it
+# stays, this answer is dropped as an error, and the excerpt is NOT consumed
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
+mkdir -p "$CAP"; : >"$CAP/shelved"
+sweep
+assert_match "shelve failed: the older draft stays in place" 'OVERLAP_FIRST_DRAFT' "$(cat "$D/draft")"
+assert_eq "shelve failed: sweep_ran logs error" error "$(last_field sweep_ran result)"
+assert_nofile "shelve failed: sweep_offset unchanged (content retried)" "$D/sweep_offset"
 
 echo "# stale draft: task file changed during the child call"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)

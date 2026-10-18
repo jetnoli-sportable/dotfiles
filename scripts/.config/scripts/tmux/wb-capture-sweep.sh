@@ -165,9 +165,6 @@ if [ "$result" = draft ] && [ ! -e "$SDIR/ended" ] && [ -n "$snap_hash" ] && \
   run_child
 fi
 
-# the excerpt was consumed unless the child failed (retry that content next time)
-case "$result" in none|draft) printf '%s\n' "$total" >"$SDIR/sweep_offset" ;; esac
-
 # an overlapping sweep may have written a draft while this child ran (the
 # draft_pending check above came before the call). Never overwrite it unseen: shelve
 # it first (reason `superseded`), then write this one. If it can't be shelved it
@@ -197,6 +194,11 @@ if [ "$result" = draft ]; then
   # a failed shelve leaves the draft in the session dir for the reaper to shelve
   [ "$late" = true ] && [ "$result" = draft ] && shelve_draft "$SID" session_end
 fi
+
+# the excerpt was consumed unless the sweep failed (retry that content next time).
+# Written only now, after the superseded shelve and the draft write, so a failure
+# in either (result flipped to error) leaves the offset where it was
+case "$result" in none|draft) printf '%s\n' "$total" >"$SDIR/sweep_offset" ;; esac
 
 # consecutive failures (claude missing / logged out / rate-limited) back the sweep
 # off for the rest of the session; any clean run (draft or none) resets the count
