@@ -16,6 +16,9 @@
 # NONE/error/timeout are handled as usual; a rerun draft is written fresh unless
 # the section changed AGAIN, in which case it is written plus `draft_stale` = the
 # re-snapshot's `### ` entry count (see "Stale drafts" in wb-capture.sh).
+# A draft that arrives after SessionEnd (`ended` exists) is written, logged
+# `pending_at_end` {draft:true} and then shelved (reason session_end) like any draft
+# a session leaves behind; the rerun is skipped for an ended session.
 #
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
@@ -161,10 +164,14 @@ fi
 # the excerpt was consumed unless the child failed (retry that content next time)
 case "$result" in none|draft) printf '%s\n' "$total" >"$SDIR/sweep_offset" ;; esac
 
+late=false
 if [ "$result" = draft ]; then
+  # the session ended while Haiku ran: SessionEnd already came and went, so nothing
+  # else will nudge this draft. Write it as usual, then shelve it (below) so the
+  # user can still accept or dismiss it later instead of losing it
   if [ -e "$SDIR/ended" ]; then
+    late=true
     log_event "$SID" pending_at_end "" '{"draft":true}'
-    exit 0
   fi
   # still moved during the (re)run: keep the draft, flag it possibly stale
   if [ -n "$snap_hash" ] && [ "$snap_hash" != "$(section_hash)" ]; then stale=true; fi
@@ -175,6 +182,8 @@ if [ "$result" = draft ]; then
   fi
   if printf '%s\n' "$out" >"$tmp" 2>/dev/null && mv -f "$tmp" "$SDIR/draft" 2>/dev/null; then :
   else rm -f -- "$tmp" "$stmp" 2>/dev/null; remove_named "$SDIR" draft_stale; stale=false; result=error; fi
+  # a failed shelve leaves the draft in the session dir for the reaper to shelve
+  [ "$late" = true ] && [ "$result" = draft ] && shelve_draft "$SID" session_end
 fi
 
 # consecutive failures (claude missing / logged out / rate-limited) back the sweep

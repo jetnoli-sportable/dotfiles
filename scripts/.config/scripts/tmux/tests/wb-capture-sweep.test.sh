@@ -54,6 +54,9 @@ case "$mode" in
     printf '## Handoffs\nsaved mid-call\n' >>"$FAKE_TASK"
     printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
+  touch-ended-edit) # session ends AND the task's Decisions change while "thinking"
+    : >"$FAKE_ENDED_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
+    printf '### late\n- decided: x\n' ;;
 esac
 exit 0
 FAKE
@@ -448,10 +451,26 @@ assert_eq "ended: invoked" 0 "$(invocations)"; assert_nofile "ended: no log" "$L
 assert_nofile "ended: no draft" "$D/draft"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=touch-ended)
 sweep
-assert_nofile "ended mid-run: no draft" "$D/draft"
+PK="$CAP/shelved/dotfiles--feat-x"
+assert_nofile "ended mid-run: draft not left in the session dir" "$D/draft"
 assert_eq "ended mid-run: no tmp" "" "$(ls "$D" | grep 'tmp' || true)"
-assert_eq "pending_at_end logged" pending_at_end "$(events)"
+assert_eq "ended mid-run: logs" "pending_at_end draft_shelved sweep_ran" "$(events)"
 assert_eq "pending_at_end draft:true" true "$(last_field pending_at_end draft)"
+assert_eq "ended mid-run: shelved with reason session_end" session_end "$(last_field draft_shelved reason)"
+assert_eq "ended mid-run: one shelved file" 1 "$(ls "$PK"/*.md 2>/dev/null | wc -l | tr -d ' ')"
+assert_match "ended mid-run: shelved draft is the answer" '^### late' "$(cat "$PK"/*.md)"
+assert_eq "ended mid-run: no .stale sidecar" 0 "$(ls "$PK"/*.stale 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "ended mid-run: no rerun" 1 "$(invocations)"
+assert_eq "ended mid-run: sweep_ran result draft" draft "$(last_field sweep_ran result)"
+assert_nofile "ended mid-run: draft_stale cleaned" "$D/draft_stale"
+# the same, with Decisions changing too: shelved with a .stale sidecar, still no rerun
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=touch-ended-edit); PK="$CAP/shelved/dotfiles--feat-x"
+sweep
+assert_eq "ended+edited: no rerun (ended skips it)" 1 "$(invocations)"
+assert_eq "ended+edited: shelved" 1 "$(ls "$PK"/*.md 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "ended+edited: .stale sidecar" 1 "$(ls "$PK"/*.stale 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "ended+edited: draft_shelved tagged stale" true "$(last_field draft_shelved stale)"
+assert_nofile "ended+edited: draft not left behind" "$D/draft"
 
 echo "# decisions extraction"
 new_scenario
