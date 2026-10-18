@@ -33,7 +33,13 @@ printf '[%s]\n' "$@" >"$o/argv"
 printf 'SWEEP=%s TMUX=%s PANE=%s\n' "${WB_CAPTURE_SWEEP-unset}" "${TMUX-unset}" "${TMUX_PANE-unset}" >"$o/env"
 pwd >"$o/cwd"
 cat >"$o/stdin"
-case "${FAKE_CLAUDE_MODE:-draft}" in
+mode="${FAKE_CLAUDE_MODE:-draft}"
+if [ -n "${FAKE_CLAUDE_SEQ:-}" ]; then # comma list, one mode per invocation (last repeats)
+  IFS=, read -ra seq <<<"$FAKE_CLAUDE_SEQ"
+  i=$(( $(wc -l <"$o/invocations") - 1 )); [ "$i" -ge "${#seq[@]}" ] && i=$(( ${#seq[@]} - 1 ))
+  mode="${seq[$i]}"
+fi
+case "$mode" in
   draft) printf '### Chose B over A\n- decided: B\n- rejected: A\n- why: simpler\n' ;;
   none)  printf 'NONE\n' ;;
   none-padded) printf '\n  NONE  \n\n' ;;
@@ -43,6 +49,9 @@ case "${FAKE_CLAUDE_MODE:-draft}" in
   sleep) exec sleep 5 ;;
   edit-task) # a decision is recorded while "thinking" (task file changes mid-call)
     sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
+    printf '### Chose B over A\n- decided: B\n' ;;
+  edit-handoffs) # a write OUTSIDE ## Decisions while "thinking"
+    printf '## Handoffs\nsaved mid-call\n' >>"$FAKE_TASK"
     printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
 esac
@@ -260,7 +269,9 @@ sweep
 assert_file "stale: draft still written" "$D/draft"
 assert_match "stale: draft body" '^### Chose B over A' "$(cat "$D/draft")"
 assert_file "stale: draft_stale written" "$D/draft_stale"
-assert_eq "stale: snapshot entry count" 1 "$(cat "$D/draft_stale")"
+assert_eq "stale: re-snapshot entry count (Existing + first edit)" 2 "$(cat "$D/draft_stale")"
+assert_eq "stale: child ran twice (one rerun)" 2 "$(invocations)"
+assert_eq "stale: rerun logged" true "$(last_field sweep_ran rerun)"
 assert_eq "stale: no tmp left" "" "$(ls "$D" | grep 'tmp' || true)"
 assert_eq "stale: one sweep_ran" sweep_ran "$(events)"
 assert_eq "stale: result draft" draft "$(last_field sweep_ran result)"
@@ -296,7 +307,7 @@ assert_nofile "none: no draft_stale" "$D/draft_stale"
 echo "# stale draft: count is of the snapshot, task without Decisions entries"
 new_scenario; printf '# task\n## Decisions\n## Done\n' >"$FAKE_TASK"; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
 sweep
-assert_eq "empty section: count 0" 0 "$(cat "$D/draft_stale")"
+assert_eq "empty section: count of the re-snapshot" 1 "$(cat "$D/draft_stale")"
 
 echo "# stale draft: a new stale draft after a discard is flagged afresh"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
@@ -305,7 +316,67 @@ run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop; run "$CAPTURE" hook-prompt
 assert_nofile "discarded: draft_stale gone" "$D/draft_stale"
 printf '4\n' >"$D/unchanged"; add_turn q2 a2; sweep
 assert_file "re-sweep: draft_stale again" "$D/draft_stale"
-assert_eq "re-sweep: count includes the entry recorded earlier" 2 "$(cat "$D/draft_stale")"
+assert_eq "re-sweep: count of its own re-snapshot" 4 "$(cat "$D/draft_stale")"
+
+echo "# rerun: write outside ## Decisions during the child run is NOT stale"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-handoffs)
+sweep
+assert_file "handoffs: draft written" "$D/draft"
+assert_nofile "handoffs: not stale" "$D/draft_stale"
+assert_eq "handoffs: child called once" 1 "$(invocations)"
+assert_eq "handoffs: no stale field" null "$(last_field sweep_ran stale)"
+assert_eq "handoffs: no rerun field" null "$(last_field sweep_ran rerun)"
+
+echo "# rerun: Decisions edited in run 1 only -> rerun, draft fresh"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,draft)
+sweep
+assert_eq "rerun: child called twice" 2 "$(invocations)"
+assert_file "rerun: draft written" "$D/draft"
+assert_nofile "rerun: not stale" "$D/draft_stale"
+assert_eq "rerun: logged" true "$(last_field sweep_ran rerun)"
+assert_eq "rerun: no stale field" null "$(last_field sweep_ran stale)"
+assert_eq "rerun: result draft" draft "$(last_field sweep_ran result)"
+assert_match "rerun: second prompt carries the recorded entry" 'Recorded meanwhile' "$(cat "$OUTDIR/stdin")"
+assert_eq "rerun: one sweep_ran" sweep_ran "$(events)"
+
+echo "# rerun: rerun answers NONE -> no draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,none)
+sweep
+assert_eq "rerun-none: child called twice" 2 "$(invocations)"
+assert_nofile "rerun-none: no draft" "$D/draft"
+assert_nofile "rerun-none: no draft_stale" "$D/draft_stale"
+assert_eq "rerun-none: result none" none "$(last_field sweep_ran result)"
+assert_eq "rerun-none: rerun logged" true "$(last_field sweep_ran rerun)"
+assert_eq "rerun-none: offset advanced" 3 "$(cat "$D/sweep_offset")"
+
+echo "# rerun: section changes during both runs -> stale draft (re-snapshot count)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task)
+sweep
+assert_eq "both: child called twice, never thrice" 2 "$(invocations)"
+assert_file "both: draft written" "$D/draft"
+assert_eq "both: draft_stale is the re-snapshot count" 2 "$(cat "$D/draft_stale")"
+assert_eq "both: rerun true" true "$(last_field sweep_ran rerun)"
+assert_eq "both: stale true" true "$(last_field sweep_ran stale)"
+
+echo "# rerun: rerun times out / errors -> no draft, counts as a failure"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,sleep); set_conf sweep_timeout=1
+sweep
+assert_nofile "rerun-timeout: no draft" "$D/draft"
+assert_eq "rerun-timeout: result" timeout "$(last_field sweep_ran result)"
+assert_eq "rerun-timeout: rerun logged" true "$(last_field sweep_ran rerun)"
+assert_eq "rerun-timeout: failure counted" 1 "$(cat "$D/sweep_failures")"
+assert_nofile "rerun-timeout: offset not advanced" "$D/sweep_offset"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,fail)
+sweep
+assert_nofile "rerun-error: no draft" "$D/draft"
+assert_eq "rerun-error: result" error "$(last_field sweep_ran result)"
+assert_eq "rerun-error: failure counted" 1 "$(cat "$D/sweep_failures")"
+
+echo "# rerun: a first NONE/error answer is never rerun"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=none)
+sweep
+assert_eq "no-rerun on none: called once" 1 "$(invocations)"
+assert_eq "no-rerun on none: no rerun field" null "$(last_field sweep_ran rerun)"
 
 echo "# no new content: only tool calls / nothing since the last sweep"
 new_scenario

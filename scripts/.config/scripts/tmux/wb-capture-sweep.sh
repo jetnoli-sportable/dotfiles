@@ -8,10 +8,14 @@
 # if so, writes a per-session `draft` (never the task file — KTD5/R14).
 # `sweep_max_failures` (default 3) consecutive error/timeout results stop the
 # sweep for the session (skip reason `backoff`); a draft or NONE resets the count.
-# The task file is hashed when `## Decisions` is snapshotted; a draft that comes
-# back after the file changed (e.g. /wb-decide recorded it meanwhile) is still
-# written, plus `draft_stale` = the snapshot's `### ` entry count (see "Stale
-# drafts" in wb-capture.sh).
+# Staleness is judged on the `## Decisions` section only (the exact text the
+# prompt is built from), hashed at snapshot time; edits elsewhere in the task
+# file (Handoffs, frontmatter) never count. If a draft comes back and that section
+# changed meanwhile (e.g. /wb-decide recorded it), the answer is discarded and the
+# child is re-run ONCE against a fresh snapshot (log `rerun:true`). The rerun's
+# NONE/error/timeout are handled as usual; a rerun draft is written fresh unless
+# the section changed AGAIN, in which case it is written plus `draft_stale` = the
+# re-snapshot's `### ` entry count (see "Stale drafts" in wb-capture.sh).
 #
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
@@ -78,20 +82,37 @@ if [ -z "$excerpt" ]; then
   exit 0
 fi
 
+# the one extraction of `## Decisions`: the prompt is built from it AND the
+# staleness hash is taken over it, so the two can never diverge
+decisions_section() {
+  [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] || return 0
+  awk '
+    /^## Decisions[[:space:]]*$/ { f = 1; print; next }
+    /^## / { f = 0 }
+    f' "$TASK_PATH" 2>/dev/null || true
+}
+# hash_text <text> — the hash compared across the run; section_hash re-reads the file
+hash_text() { printf '%s' "$1" | sha1sum 2>/dev/null | cut -d' ' -f1; }
+section_hash() { [ -f "$TASK_PATH" ] && hash_text "$(decisions_section)"; }
+
+# snapshot: decisions text + its hash + `### ` entry count
 decisions="" snap_hash="" snap_count=0
-[ -f "$TASK_PATH" ] && snap_hash="$(sha1sum <"$TASK_PATH" 2>/dev/null | cut -d' ' -f1)"
-[ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] && snap_count="$(decision_headings "$TASK_PATH" | wc -l | tr -d ' ')"
-[ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] && decisions="$(awk '
-  /^## Decisions[[:space:]]*$/ { f = 1; print; next }
-  /^## / { f = 0 }
-  f' "$TASK_PATH" 2>/dev/null || true)"
-[ -n "$decisions" ] || decisions="(no ## Decisions section / no entries recorded)"
+take_snapshot() {
+  snap_hash="" snap_count=0
+  decisions="$(decisions_section)"
+  # hash the very text the prompt carries (one read), not a second read of the file
+  [ -f "$TASK_PATH" ] && snap_hash="$(hash_text "$decisions")"
+  [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] && snap_count="$(printf '%s\n' "$decisions" | grep -c '^### ' || true)"
+  [ -n "$decisions" ] || decisions="(no ## Decisions section / no entries recorded)"
+}
 
 # --- child ------------------------------------------------------------------
 timeout_s="$CFG_SWEEP_TIMEOUT"; [ "$timeout_s" -gt 0 ] || timeout_s="$DEFAULT_SWEEP_TIMEOUT"
 mkdir -p "$CAPTURE_ROOT" 2>/dev/null || exit 0
-out="$({
-  cat <<'PROMPT'
+# run_child — asks Haiku about $excerpt vs $decisions; sets out, rc, result
+run_child() {
+  out="$({
+    cat <<'PROMPT'
 You are reviewing an excerpt of a coding-session transcript against the
 Decisions already recorded for the task being worked on.
 
@@ -109,18 +130,32 @@ unsure. No preamble, no commentary.
 
 === RECORDED DECISIONS (do not repeat these) ===
 PROMPT
-  printf '%s\n\n=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$decisions" "$excerpt"
-} | (cd "$CAPTURE_ROOT" && env -u TMUX -u TMUX_PANE WB_CAPTURE_SWEEP=1 \
-      timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p --model haiku \
-      --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config 2>/dev/null))"
-rc=$?
-out="${out#"${out%%[![:space:]]*}"}"
-out="${out%"${out##*[![:space:]]}"}"
+    printf '%s\n\n=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$decisions" "$excerpt"
+  } | (cd "$CAPTURE_ROOT" && env -u TMUX -u TMUX_PANE WB_CAPTURE_SWEEP=1 \
+        timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p --model haiku \
+        --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config 2>/dev/null))"
+  rc=$?
+  out="${out#"${out%%[![:space:]]*}"}"
+  out="${out%"${out##*[![:space:]]}"}"
+  result=draft
+  if [ "$rc" -eq 124 ]; then result=timeout
+  elif [ "$rc" -ne 0 ] || [ -z "$out" ]; then result=error
+  elif [[ "${out,,}" =~ ^none[.!]?$ ]]; then result=none   # models vary: "None.", "NONE"
+  fi
+}
 
-result=draft stale=false
-if [ "$rc" -eq 124 ]; then result=timeout
-elif [ "$rc" -ne 0 ] || [ -z "$out" ]; then result=error
-elif [[ "${out,,}" =~ ^none[.!]?$ ]]; then result=none   # models vary: "None.", "NONE"
+stale=false rerun=false
+take_snapshot
+run_child
+
+# a draft whose `## Decisions` changed while the child ran (e.g. /wb-decide
+# recorded it meanwhile) may duplicate that entry: discard it and ask once more
+# against the current section. Only the draft path reruns, and only once.
+if [ "$result" = draft ] && [ ! -e "$SDIR/ended" ] && [ -n "$snap_hash" ] && \
+   [ "$snap_hash" != "$(section_hash)" ]; then
+  rerun=true
+  take_snapshot
+  run_child
 fi
 
 # the excerpt was consumed unless the child failed (retry that content next time)
@@ -131,10 +166,8 @@ if [ "$result" = draft ]; then
     log_event "$SID" pending_at_end "" '{"draft":true}'
     exit 0
   fi
-  # the task file moved while the child ran: keep the draft, flag it possibly stale
-  stale=false
-  if [ -n "$snap_hash" ] && \
-     [ "$snap_hash" != "$(sha1sum <"$TASK_PATH" 2>/dev/null | cut -d' ' -f1)" ]; then stale=true; fi
+  # still moved during the (re)run: keep the draft, flag it possibly stale
+  if [ -n "$snap_hash" ] && [ "$snap_hash" != "$(section_hash)" ]; then stale=true; fi
   remove_named "$SDIR" draft_stale
   tmp="$SDIR/draft.tmp.$$"; stmp="$SDIR/draft_stale.tmp.$$"
   if [ "$stale" = true ]; then
@@ -151,7 +184,7 @@ case "$result" in
   *) remove_named "$SDIR" sweep_failures ;;
 esac
 [ "$result" = draft ] && remove_named "$SDIR" draft_strikes
-extra="$(jq -nc --arg r "$result" '{result:$r}')"
-[ "$stale" = true ] && extra="$(jq -nc --arg r "$result" '{result:$r,stale:true}')"
+extra="$(jq -nc --arg r "$result" --argjson rr "$rerun" --argjson st "$stale" \
+  '{result:$r} + (if $rr then {rerun:true} else {} end) + (if $st then {stale:true} else {} end)')"
 log_event "$SID" sweep_ran "" "$extra"
 exit 0
