@@ -403,7 +403,9 @@ assert_nofile "begin on a bad path writes no flag" "$D/shelved_accept"
 hook accept '' --begin ""
 assert_eq "begin with no path exits 1" 1 "$RC"
 hook accept '' --begin "$SF"; hook accept '' "$SF"
-assert_nofile "accept <path> drops a leftover flag" "$D/shelved_accept"
+assert_file "accept <path> leaves the flag for the hook to consume" "$D/shelved_accept"
+posttool 'wb append x Decisions -'
+assert_nofile "...and the append consumes it" "$D/shelved_accept"
 hook accept '' --begin "$PK/20261018T110000-sid-old.md"; hook dismiss '' "$PK/20261018T110000-sid-old.md"
 assert_nofile "dismiss <path> drops a leftover flag" "$D/shelved_accept"
 assert_eq "dismiss <path> logs shelved_dismissed" 1 "$(count_ev shelved_dismissed)"
@@ -417,6 +419,25 @@ new_scenario
 mkdir -p "$CAP/sid-sa"; printf 'x' >"$CAP/sid-sa/shelved_accept"; touch -d '8 days ago' "$CAP/sid-sa"/* "$CAP/sid-sa"
 prompt "hi"
 assert_nofile "reaper removes a dir holding only the flag" "$CAP/sid-sa"
+
+echo "# two-phase accept in ONE command sequence: accept <path> must not drop the flag before posttool"
+new_scenario; PK="$CAP/shelved/dotfiles--feat-x"; SF="$PK/20261018T100000-sid-old.md"
+mkdir -p "$D" "$PK"; printf 'live draft\n' >"$D/draft"; printf 'shelved one\n' >"$SF"
+prompt "go"; hook review ''
+assert_eq "sweep nudge outstanding" sweep "$(cat "$D/outstanding")"
+# the whole sequence runs in one Bash call; the verbs run first, the hook fires afterwards
+hook accept '' --begin "$SF"
+hook accept '' "$SF"
+assert_eq "accept logged shelved_accepted" 1 "$(count_ev shelved_accepted)"
+assert_file "the flag survives accept <path>" "$D/shelved_accept"
+posttool "wb-capture.sh accept --begin $SF; wb append x Decisions - <<'EOF'
+### t
+EOF
+wb-capture.sh accept $SF"
+assert_eq "no followed for the shelved record" 0 "$(count_ev followed)"
+assert_nofile "the hook consumed the flag" "$D/shelved_accept"
+assert_eq "live nudge still outstanding" sweep "$(cat "$D/outstanding" 2>/dev/null)"
+assert_file "review state kept" "$D/reviewing"
 
 echo "# dismiss of a PHRASE nudge leaves an unseen sweep draft alone"
 new_scenario; mkdir -p "$D"

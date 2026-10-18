@@ -48,8 +48,9 @@
 #                  append … Decisions`: same path rule, writes the one-shot
 #                  `shelved_accept` flag and nothing else (see "Two-phase accept").
 #   accept <path>  second half, after /wb-decide recorded a shelved draft: delete
-#                  it, log `shelved_accepted` (no source), drop a leftover
-#                  `shelved_accept` flag. A path outside the shelved dir exits 1
+#                  it, log `shelved_accepted` (no source). It leaves the
+#                  `shelved_accept` flag alone: hook-posttool consumes it when the
+#                  Bash call holding the append finishes. A path outside the shelved dir exits 1
 #                  with a message on stderr. (`followed` and `dismissed` mean only
 #                  "a nudge resolved".)
 #   accept|dismiss ... --task <stem> ...
@@ -136,13 +137,16 @@
 # its dir until a later reap succeeds).
 # Two-phase accept: accepting a shelved draft runs a `wb append … Decisions`, which
 # hook-posttool would count as the answer to whatever nudge is live in the session
-# (a different, unrelated one). So /wb-decide runs `accept --begin <path>` first,
-# which writes `shelved_accept`; hook-posttool, on the next matching append, consumes
+# (a different, unrelated one). So /wb-decide runs `accept --begin <path>` immediately
+# before the append (after any user confirmation), which writes `shelved_accept`;
+# hook-posttool, once the Bash call holding the matching append finishes, consumes
 # that flag, sets `recorded`, and otherwise leaves `outstanding`, `draft_strikes` and
 # `reviewing` alone. `accept <path>` then deletes the draft and logs `shelved_accepted`.
-# The flag is one-shot and turn-scoped: a real prompt, `dismiss <path>`, the
-# reaper and `accept <path>` all drop it, so an abandoned accept can't swallow a later
-# append.
+# It deliberately does NOT drop the flag: PostToolUse runs after the WHOLE Bash call, so
+# `accept --begin p; wb append …; accept p` in one command would otherwise lose the flag
+# before the hook saw the append and log a spurious `followed`. The flag is one-shot and
+# turn-scoped: only the hook, a real prompt, `dismiss <path>` and the reaper drop it, so
+# an abandoned accept can't swallow a later append.
 # Stale drafts: the sweep snapshots `## Decisions` (the text Haiku sees), then
 # waits up to a minute for Haiku. If that section changed meanwhile (typically
 # /wb-decide recording the very decision being drafted) the answer is discarded
@@ -760,14 +764,15 @@ shelved_draft_path() {
 
 # cmd_shelved <shelved_accepted|shelved_dismissed> <path> — resolve one shelved
 # draft: delete it (and its .stale sidecar), log the event (+ stale:true when
-# marked), drop a leftover `shelved_accept` flag. Path rule: shelved_draft_path.
+# marked). A dismiss drops a leftover `shelved_accept` flag; an accept leaves it for
+# hook-posttool to consume (see "Two-phase accept"). Path rule: shelved_draft_path.
 cmd_shelved() {
   agent_session_dir
   local ev="$1" p="${2:-}" x=""
   shelved_draft_path "$p"
   [ -e "$p.stale" ] && x='{"stale":true}'
   rm -f -- "$p" "$p.stale" 2>/dev/null || true
-  remove_named "$SDIR" shelved_accept
+  [ "$ev" = shelved_dismissed ] && remove_named "$SDIR" shelved_accept
   log_event "$SID" "$ev" "" "$x"
 }
 

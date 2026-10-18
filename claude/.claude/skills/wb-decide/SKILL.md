@@ -130,11 +130,15 @@ a time**: Read the draft (and for a stale one compare it with the newest
 `## Decisions` entries), then
 
 - **accept / edit** — three commands, in this order, so the record isn't mistaken
-  for an answer to whatever nudge is live in this session: first
-  `~/.config/scripts/tmux/wb-capture.sh accept --begin <path>` (writes a one-shot
-  flag, changes nothing else), then compose and `wb append` as in steps 3-4, then
+  for an answer to whatever nudge is live in this session. Do any user
+  confirmation or editing FIRST, then run
+  `~/.config/scripts/tmux/wb-capture.sh accept --begin <path>` immediately before
+  the `wb append` (it writes a one-shot flag, changes nothing else; the append's
+  PostToolUse hook consumes the flag, and a real prompt in between would expire
+  it), then compose and `wb append` as in steps 3-4, then
   `~/.config/scripts/tmux/wb-capture.sh accept <path>` (deletes the draft, logs
-  `shelved_accepted`). If the append is abandoned, skip the last command: the
+  `shelved_accepted`; it does not touch the flag, so running all three in one
+  command sequence is safe). If the append is abandoned, skip the last command: the
   draft stays shelved and the flag expires with the turn;
 - **reject** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (deletes it,
   logs `shelved_dismissed`).
@@ -238,8 +242,8 @@ line: `Recorded to ## Decisions.`
   requests edits over several turns — the nudge isn't counted ignored, one
   `followed` (or `dismissed`) results.
 - [ ] **Shelved drafts:** `status` lists `shelved:` lines; `/wb-decide shelved`
-  reviews them one at a time — accept/edit → `accept --begin <path>` →
-  `wb append` → `accept <path>`, reject → `dismiss <path>`; a closed task's
+  reviews them one at a time — accept/edit → `accept --begin <path>` (right
+  before the append) → `wb append` → `accept <path>`, reject → `dismiss <path>`; a closed task's
   drafts take `--task <stem>` on each; never a hand `rm`.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
   is already recorded) — `wb-capture.sh dismiss`, say so, no write.

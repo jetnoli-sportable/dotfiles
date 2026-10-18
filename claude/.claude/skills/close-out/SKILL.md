@@ -120,9 +120,10 @@ draft-review path before winding down: show it, then either accept/edit it
 this only defers it.
 
 For each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
-(→ `wb-capture.sh accept --begin <path>`, then `wb append <task> Decisions -`,
-then `wb-capture.sh accept <path>`; the `--begin` first keeps the record from
-being counted as an answer to a live nudge) or dismiss
+(→ after any confirmation, `wb-capture.sh accept --begin <path>` immediately
+before `wb append <task> Decisions -`, then `wb-capture.sh accept <path>`; the
+`--begin` right before the append keeps the record from being counted as an
+answer to a live nudge) or dismiss
 (→ `wb-capture.sh dismiss <path>`). Never drop one silently; a `(stale)` one may
 already be recorded, so compare it with the newest `## Decisions` entries first.
 
