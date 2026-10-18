@@ -58,10 +58,19 @@
 #   accept|dismiss ... --task <stem> ...
 #                  resolve a shelved draft of ANOTHER task (typically one already
 #                  closed): `dismiss --task <stem> <path>`, `accept --begin --task
-#                  <stem> <path>`, `accept --task <stem> <path>`. Still run from a wb
-#                  session (the log line and the one-shot flag use its session), but
-#                  path validation uses shelved/<stem>/ instead of this task's dir,
-#                  and the logged event's `task` is <stem>.
+#                  <stem> <path>`, `accept --task <stem> <path>`. Path validation uses
+#                  shelved/<stem>/ instead of this task's dir, and the logged event's
+#                  `task` is <stem>.
+#   Every path-carrying accept/dismiss (a <path> or --task; `accept` always) works
+#                  WITHOUT a wb session: it ignores the kill switch and the tmux / @task /
+#                  capture-session requirements (only WB_CAPTURE_SWEEP still silences it).
+#                  The stem comes from --task, else the session's @task, else it exits 1 with
+#                  a message (never a silent exit 0). Sessionless, the event is logged with an
+#                  empty session_id (no jq: the file is still removed, the log line skipped)
+#                  and `accept --begin` writes no flag (the hooks are inert, nothing to
+#                  protect). With a session and capture enabled the flag is written and the
+#                  session id logged, as always. A bare `dismiss` (no path, no --task) is a
+#                  session verb and keeps the guards.
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
 #   status         print pending marker/draft (with paths), mute state, the
 #                  log path, then this task's shelved drafts (one `shelved: <path>`
@@ -201,7 +210,8 @@
 #
 # Guards (R5), checked in order before any state is touched: WB_CAPTURE_SWEEP
 # set (recursion flag for the headless sweep child), kill switch, not in tmux,
-# no @task on the tmux session, jq missing. Every one exits 0 silently.
+# no @task on the tmux session, jq missing. Every one exits 0 silently. Exception:
+# a path-carrying accept/dismiss (see above) applies only the recursion flag.
 #
 # Never sources wb.sh and never writes under ~/code/tasks (KTD5): @task is read
 # straight from the tmux session option. No `-e`; every path exits 0 so a hook
@@ -766,26 +776,59 @@ shelved_draft_path() {
   exit 1
 }
 
+# resolve_shelved_context — context for a path-carrying accept/dismiss, which works
+# with or without a wb session (see "accept|dismiss ... --task" in the header). Sets
+# SID/SDIR only when a session is really available (tmux, a task on it, a recorded
+# capture session id, no kill switch); otherwise both stay empty. TASK_STEM is the
+# --task stem, else the session's @task stem; neither -> stderr + exit 1.
+resolve_shelved_context() {
+  SID="" SDIR=""
+  local session task sid
+  if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
+    session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+    if [ -n "$session" ]; then
+      task="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+      if [ -n "$task" ]; then
+        TASK_PATH="$task"; task="${task##*/}"; TASK_STEM="${task%.md}"
+        sid="$(pane_sid)"
+        # hooks are inert under the kill switch: nothing to protect, nothing to log against
+        if [ ! -e "$KILL_SWITCH" ] && [ -n "$sid" ]; then
+          SDIR="$(session_dir "$sid")" && SID="$sid" || SDIR=""
+        fi
+      fi
+    fi
+  fi
+  [ -n "$R_TASK" ] && TASK_STEM="$R_TASK"
+  if ! stem_ok "$TASK_STEM"; then
+    echo "wb-capture: no task to resolve against: pass --task <stem> or run from a wb task session (nothing changed)" >&2
+    exit 1
+  fi
+}
+
 # cmd_shelved <shelved_accepted|shelved_dismissed> <path> — resolve one shelved
 # draft: delete it (and its .stale sidecar), log the event (+ stale:true when
-# marked). A dismiss drops a leftover `shelved_accept` flag; an accept leaves it for
-# hook-posttool to consume (see "Two-phase accept"). Path rule: shelved_draft_path.
+# marked; session_id empty when sessionless). A dismiss drops a leftover
+# `shelved_accept` flag; an accept leaves it for hook-posttool to consume (see
+# "Two-phase accept"). Path rule: shelved_draft_path.
 cmd_shelved() {
-  agent_session_dir
+  resolve_shelved_context
   local ev="$1" p="${2:-}" x=""
   shelved_draft_path "$p"
   [ -e "$p.stale" ] && x='{"stale":true}'
   rm -f -- "$p" "$p.stale" 2>/dev/null || true
-  [ "$ev" = shelved_dismissed ] && remove_named "$SDIR" shelved_accept
+  [ "$ev" = shelved_dismissed ] && [ -n "$SDIR" ] && remove_named "$SDIR" shelved_accept
   log_event "$SID" "$ev" "" "$x"
 }
 
 # cmd_accept_begin <path> — first phase of accepting a shelved draft (see "Two-phase
-# accept"): validate the path, then write the one-shot `shelved_accept` flag.
+# accept"): validate the path, then write the one-shot `shelved_accept` flag (only
+# when a session is available: with none, the hooks are inert and there is nothing
+# for the flag to protect).
 cmd_accept_begin() {
-  agent_session_dir
+  resolve_shelved_context
   shelved_draft_path "${1:-}"
-  mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/shelved_accept"
+  [ -n "$SDIR" ] && mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/shelved_accept"
+  return 0
 }
 
 # stem_ok <stem> — a safe single path component (no slash, not . or ..).
@@ -916,19 +959,28 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       exit 0 ;;
   esac
 
+  # path-carrying accept/dismiss: resolve a shelved draft by path, with or without a
+  # wb session, so they skip the kill switch / tmux / @task guards (only the
+  # recursion flag applies; jq is needed only for the log line, which log_event skips
+  # without it). A bare `dismiss` still goes through the guard chain below.
+  case "$verb" in
+    dismiss|accept)
+      parse_resolve_args "${@:2}"
+      if [ "$verb" = accept ] || [ -n "$R_PATH" ] || [ -n "$R_TASK" ]; then
+        [ -n "${WB_CAPTURE_SWEEP:-}" ] && quiet_exit
+        if [ "$verb" = dismiss ]; then cmd_shelved shelved_dismissed "$R_PATH"
+        elif [ "$R_BEGIN" = 1 ]; then cmd_accept_begin "$R_PATH"
+        else cmd_shelved shelved_accepted "$R_PATH"
+        fi
+        exit 0
+      fi ;;
+  esac
+
   guard_chain
 
   case "$verb" in
     clear)   cmd_clear_or_dismiss "" "${2:-}" ;;
-    dismiss|accept)
-      parse_resolve_args "${@:2}"
-      [ -n "$R_TASK" ] && TASK_STEM="$R_TASK"
-      if [ "$verb" = dismiss ]; then
-        if [ -n "$R_PATH" ] || [ -n "$R_TASK" ]; then cmd_shelved shelved_dismissed "$R_PATH"; else cmd_clear_or_dismiss dismissed; fi
-      elif [ "$R_BEGIN" = 1 ]; then cmd_accept_begin "$R_PATH"
-      else cmd_shelved shelved_accepted "$R_PATH"
-      fi
-      ;;
+    dismiss) cmd_clear_or_dismiss dismissed ;;
     mute)
       agent_session_dir
       mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/muted" && log_event "$SID" muted

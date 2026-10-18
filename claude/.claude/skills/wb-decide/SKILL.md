@@ -41,7 +41,8 @@ whenever a real decision has been made and isn't recorded yet.
   switch: `~/.local/state/wb/disable-capture`). Before the first prompt of a
   session they print `wb-capture: no capture session recorded on this pane
   yet (@wb_capture_sid unset)`. Relay whatever they print; don't treat the
-  silence or that message as a failure.
+  silence or that message as a failure. Exception: `accept`/`dismiss` that carry a
+  shelved `<path>` or `--task <stem>` work with no wb session at all (see step 2b).
 
 ## What to do
 
@@ -144,7 +145,10 @@ a time**: Read the draft (and for a stale one compare it with the newest
   logs `shelved_dismissed`).
 
 A shelved draft of a task that is already closed (or any other task) is still
-resolvable from this session: `wb-capture.sh shelved --task <stem>` lists one
+resolvable from this session, or from no wb session at all (path-carrying
+`accept`/`dismiss` ignore the kill switch and need no `@task`; without a session they
+log with an empty session id, and `accept --begin` writes no flag, as there is
+nothing to protect; with no `--task` and no `@task` they exit 1 with a message): `wb-capture.sh shelved --task <stem>` lists one
 task's drafts (`shelved --all` lists every task's, grouped), and
 `dismiss --task <stem> <path>`, `accept --begin --task <stem> <path>` and
 `accept --task <stem> <path>` resolve one. Drafts left behind by `wb done

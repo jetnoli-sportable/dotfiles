@@ -408,5 +408,82 @@ run_wb /dev/null accept --task closed--task "$PX/20261018T100000-sid-x.md"
 assert_nofile "accept --task deletes the stale sidecar too" "$PX/20261018T100000-sid-x.md.stale"
 assert_eq "accept --task logs shelved_accepted, stale-tagged" "true" "$(jq -r 'select(.event=="shelved_accepted" and .task=="closed--task" and .stale==true)|.stale' "$LOG" | tail -n1)"
 
+echo "# path-carrying accept / dismiss work without a session (kill switch, no @task, no tmux, no jq)"
+sl_setup() { # fresh scenario with three shelved drafts of closed--task
+  new_scenario; D="$(sdir sid-aaa)"; PX="$CAP/shelved/closed--task"; mkdir -p "$D" "$PX"
+  printf 'a\n' >"$PX/20261018T100000-sid-a.md"; printf 'b\n' >"$PX/20261018T110000-sid-b.md"
+  : >"$PX/20261018T110000-sid-b.md.stale"; printf 'c\n' >"$PX/20261018T120000-sid-c.md"
+}
+sl_setup; mkdir -p "$STATE/wb"; touch "$STATE/wb/disable-capture"
+run_wb /dev/null dismiss --task closed--task "$PX/20261018T100000-sid-a.md"
+assert_eq "kill switch: dismiss --task exit" 0 "$RC"
+assert_nofile "kill switch: dismiss --task still deletes the draft" "$PX/20261018T100000-sid-a.md"
+assert_eq "kill switch: dismiss --task still logs shelved_dismissed" 1 "$(jq -r 'select(.event=="shelved_dismissed")|.event' "$LOG" 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "kill switch: the event has an empty session_id" "" "$(jq -r 'select(.event=="shelved_dismissed")|.session_id' "$LOG")"
+assert_eq "kill switch: the event task is the --task stem" closed--task "$(jq -r 'select(.event=="shelved_dismissed")|.task' "$LOG")"
+run_wb /dev/null accept --begin --task closed--task "$PX/20261018T120000-sid-c.md"
+assert_eq "kill switch: accept --begin exit" 0 "$RC"
+assert_nofile "kill switch: accept --begin writes no flag" "$D/shelved_accept"
+run_wb /dev/null accept --task closed--task "$PX/20261018T120000-sid-c.md"
+assert_nofile "kill switch: accept --task deletes the draft" "$PX/20261018T120000-sid-c.md"
+assert_eq "kill switch: accept logs shelved_accepted" 1 "$(jq -r 'select(.event=="shelved_accepted")|.event' "$LOG" | wc -l | tr -d ' ')"
+run_wb /dev/null mute; assert_eq "kill switch: a bare session verb is still a silent no-op" "0:" "$RC:$OUT"
+
+sl_setup; FAKE_TASK=""
+run_wb /dev/null accept --task closed--task "$PX/20261018T100000-sid-a.md"
+assert_eq "no @task: accept --task exit" 0 "$RC"
+assert_nofile "no @task: accept --task deletes the draft" "$PX/20261018T100000-sid-a.md"
+assert_eq "no @task: logged with empty session_id" "" "$(jq -r 'select(.event=="shelved_accepted")|.session_id' "$LOG")"
+run_wb /dev/null accept --begin --task closed--task "$PX/20261018T120000-sid-c.md"
+assert_eq "no @task: accept --begin exit" 0 "$RC"
+assert_nofile "no @task: accept --begin writes no flag" "$D/shelved_accept"
+EXTRA_ENV=(TMUX= TMUX_PANE=)
+run_wb /dev/null dismiss --task closed--task "$PX/20261018T120000-sid-c.md"
+assert_eq "no tmux at all: dismiss --task exit" 0 "$RC"
+assert_nofile "no tmux at all: dismiss --task deletes the draft" "$PX/20261018T120000-sid-c.md"
+EXTRA_ENV=()
+
+# no stem anywhere: exit 1 with a message, nothing deleted, nothing logged (never a silent 0)
+sl_setup; FAKE_TASK=""
+run_wb /dev/null dismiss "$PX/20261018T100000-sid-a.md"
+assert_eq "no stem: dismiss <path> exits 1" 1 "$RC"
+assert_match "no stem: dismiss says what to pass" 'pass --task <stem>' "$OUT"
+assert_file "no stem: dismiss leaves the draft" "$PX/20261018T100000-sid-a.md"
+run_wb /dev/null accept "$PX/20261018T100000-sid-a.md"
+assert_eq "no stem: accept <path> exits 1" 1 "$RC"
+run_wb /dev/null accept --begin "$PX/20261018T100000-sid-a.md"
+assert_eq "no stem: accept --begin exits 1" 1 "$RC"
+assert_match "no stem: accept --begin has a message" 'pass --task <stem>' "$OUT"
+assert_file "no stem: draft untouched" "$PX/20261018T100000-sid-a.md"
+assert_eq "no stem: nothing logged" 0 "$(logn)"
+sl_setup; mkdir -p "$STATE/wb"; touch "$STATE/wb/disable-capture"; FAKE_TASK=""
+run_wb /dev/null dismiss "$PX/20261018T100000-sid-a.md"
+assert_eq "kill switch + no stem: still exits 1 (not silent 0)" 1 "$RC"
+
+# the recursion flag still silences it; no jq still does the file op but skips the log
+sl_setup; EXTRA_ENV=(WB_CAPTURE_SWEEP=1)
+run_wb /dev/null dismiss --task closed--task "$PX/20261018T100000-sid-a.md"
+assert_eq "recursion flag: exit 0, no output" "0:" "$RC:$OUT"
+assert_file "recursion flag: draft untouched" "$PX/20261018T100000-sid-a.md"
+sl_setup; RUN_PATH="$FAKEBIN:$NOJQ_BIN"
+run_wb /dev/null dismiss --task closed--task "$PX/20261018T100000-sid-a.md"
+assert_eq "no jq: dismiss --task exit" 0 "$RC"
+assert_nofile "no jq: the draft is still deleted" "$PX/20261018T100000-sid-a.md"
+assert_eq "no jq: the log line is skipped" 0 "$(logn)"
+RUN_PATH=""; EXTRA_ENV=()
+
+# with a session and capture enabled nothing changes: flag written, session id logged
+sl_setup
+run_wb /dev/null accept --begin --task closed--task "$PX/20261018T120000-sid-c.md"
+assert_file "session: accept --begin still writes the flag" "$D/shelved_accept"
+run_wb /dev/null dismiss --task closed--task "$PX/20261018T100000-sid-a.md"
+assert_eq "session: the logged event carries the session id" sid-aaa "$(jq -r 'select(.event=="shelved_dismissed")|.session_id' "$LOG")"
+assert_nofile "session: dismiss <path> drops the leftover flag" "$D/shelved_accept"
+# a session whose @task gives the stem needs no --task
+sl_setup; FAKE_TASK="$H/tasks/closed--task.md"
+run_wb /dev/null dismiss "$PX/20261018T100000-sid-a.md"
+assert_eq "stem from @task: dismiss <path> exit" 0 "$RC"
+assert_nofile "stem from @task: draft deleted" "$PX/20261018T100000-sid-a.md"
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASSED"; else echo "FAILED"; fi
 exit "$fail"
