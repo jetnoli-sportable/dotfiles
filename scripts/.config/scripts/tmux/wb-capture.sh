@@ -32,7 +32,10 @@
 #   clear          agent verb: drop marker, draft, draft_strikes, draft_stale,
 #                  reviewing and outstanding flag. Logs nothing (the PostToolUse hook already logs `followed`).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
-#                  when nothing was pending.
+#                  when nothing was pending. When the outstanding nudge is a PHRASE
+#                  nudge it removes only marker + outstanding and keeps any sweep
+#                  draft (never shown to the user), draft_stale, draft_strikes,
+#                  reviewing and nudged_draft; the event is not tagged stale.
 #   dismiss <path> dismiss one SHELVED draft: delete it, log `shelved_dismissed`
 #                  (no source). <path> must be a shelved draft of this task.
 #   accept --begin <path>
@@ -526,6 +529,9 @@ reap_stale() {
     [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt "$max" ] && mv -f -- "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null
   fi
   local d name sdir stale pm pd osrc orphan saved_stem="$TASK_STEM" tp SDIR  # SDIR: stale_extra reads it
+  load_config
+  local grace=$(( 2 * CFG_SWEEP_TIMEOUT + 60 )) cutoff
+  cutoff=$(( $(date +%s) - grace )) 2>/dev/null || cutoff=""
   for d in "$root"/*/; do
     d="${d%/}"; name="${d##*/}"
     [ -d "$d" ] && [ ! -L "$d" ] || continue

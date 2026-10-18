@@ -417,6 +417,19 @@ mkdir -p "$CAP/sid-sa"; printf 'x' >"$CAP/sid-sa/shelved_accept"; touch -d '8 da
 prompt "hi"
 assert_nofile "reaper removes a dir holding only the flag" "$CAP/sid-sa"
 
+echo "# dismiss of a PHRASE nudge leaves an unseen sweep draft alone"
+new_scenario; mkdir -p "$D"
+printf 'draft\n' >"$D/draft"; printf '3\n' >"$D/draft_stale"; printf '1\n' >"$D/draft_strikes"
+printf 'phrase' >"$D/outstanding"; printf 'going with' >"$D/marker"
+hook dismiss ''
+assert_file "phrase dismiss keeps the draft" "$D/draft"
+assert_file "phrase dismiss keeps draft_stale" "$D/draft_stale"
+assert_file "phrase dismiss keeps draft_strikes" "$D/draft_strikes"
+assert_nofile "phrase dismiss removes outstanding" "$D/outstanding"
+assert_nofile "phrase dismiss removes marker" "$D/marker"
+assert_eq "phrase dismiss logs one dismissed" 1 "$(count_ev dismissed)"
+assert_eq "phrase dismissed not tagged stale" none "$(stale_flag dismissed)"
+
 echo "# engagement marker: dismiss ends the review, one dismissed"
 new_scenario
 mkdir -p "$D"; printf 'draft\n' >"$D/draft"
