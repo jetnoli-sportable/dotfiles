@@ -33,10 +33,15 @@
 #                  when nothing was pending.
 #   dismiss <path> dismiss one SHELVED draft: delete it, log `shelved_dismissed`
 #                  (no source). <path> must be a shelved draft of this task.
-#   accept <path>  after /wb-decide recorded a shelved draft: delete it, log
-#                  `shelved_accepted` (no source). Same path rule; a path outside
-#                  the shelved dir exits 1 with a message on stderr. (`followed`
-#                  and `dismissed` mean only "a nudge resolved".)
+#   accept --begin <path>
+#                  first half of accepting a shelved draft, run BEFORE the `wb
+#                  append … Decisions`: same path rule, writes the one-shot
+#                  `shelved_accept` flag and nothing else (see "Two-phase accept").
+#   accept <path>  second half, after /wb-decide recorded a shelved draft: delete
+#                  it, log `shelved_accepted` (no source), drop a leftover
+#                  `shelved_accept` flag. A path outside the shelved dir exits 1
+#                  with a message on stderr. (`followed` and `dismissed` mean only
+#                  "a nudge resolved".)
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
 #   status         print pending marker/draft (with paths), mute state, the
 #                  log path, then this task's shelved drafts (one `shelved: <path>`
@@ -59,7 +64,8 @@
 #                                        unchanged draft muted outstanding ended
 #                                        synthetic nudged_draft taskpath
 #                                        sweep_offset draft_strikes
-#                                        sweep_failures draft_stale reviewing .lock
+#                                        sweep_failures draft_stale reviewing
+#                                        shelved_accept .lock
 #                                        draft.tmp.* draft_stale.tmp.*)
 #   shelved drafts <root>/shelved/<task-stem>/<YYYYmmddTHHMMSS>-<sid>.md  (per TASK,
 #                                        outlives the session dir; a sidecar
@@ -97,6 +103,15 @@
 # resolves it ignored and strikes as usual. SessionEnd and the reaper still
 # resolve it ignored, then shelve the draft (a draft the reaper can't shelve keeps
 # its dir until a later reap succeeds).
+# Two-phase accept: accepting a shelved draft runs a `wb append … Decisions`, which
+# hook-posttool would count as the answer to whatever nudge is live in the session
+# (a different, unrelated one). So /wb-decide runs `accept --begin <path>` first,
+# which writes `shelved_accept`; hook-posttool, on the next matching append, consumes
+# that flag, sets `recorded`, and otherwise leaves `outstanding`, `draft_strikes` and
+# `reviewing` alone. `accept <path>` then deletes the draft and logs `shelved_accepted`.
+# The flag is one-shot and turn-scoped: a real prompt, `dismiss <path>`, the
+# reaper and `accept <path>` all drop it, so an abandoned accept can't swallow a later
+# append.
 # Stale drafts: the sweep snapshots `## Decisions` (the text Haiku sees), then
 # waits up to a minute for Haiku. If that section changed meanwhile (typically
 # /wb-decide recording the very decision being drafted) the answer is discarded
@@ -277,6 +292,12 @@ hook_posttool() {
   hook_session_dir
   mkdir -p "$SDIR" 2>/dev/null || return 0
   : >"$SDIR/recorded"
+  # the append that records a shelved draft (accept --begin ran first) answers no
+  # live nudge: consume the flag and leave the nudge/review state as it was
+  if [ -e "$SDIR/shelved_accept" ]; then
+    remove_named "$SDIR" shelved_accept
+    return 0
+  fi
   if [ -e "$SDIR/outstanding" ]; then
     local osrc; osrc="$(cat "$SDIR/outstanding" 2>/dev/null)"
     log_event "$SID" followed "$osrc" "$(stale_extra "$osrc")"
@@ -423,7 +444,7 @@ hook_prompt_nudge() {
   esac
   # a real prompt starts a new turn: a `recorded` left by a turn that never
   # reached Stop (interrupted) must not suppress this turn's marker
-  remove_named "$SDIR" synthetic recorded
+  remove_named "$SDIR" synthetic recorded shelved_accept
   # likewise a nudge from a turn that never reached Stop
   # (unless the user is mid-review: that nudge carries on, and nothing new fires)
   if [ -e "$SDIR/reviewing" ] && [ -e "$SDIR/outstanding" ]; then
@@ -480,7 +501,7 @@ reap_dir() {
   local d="$1" f
   remove_named "$d" marker recorded cooldown taskhash unchanged draft muted \
     outstanding ended synthetic nudged_draft taskpath sweep_offset draft_strikes \
-    sweep_failures draft_stale reviewing .lock
+    sweep_failures draft_stale reviewing shelved_accept .lock
   for f in "$d"/draft.tmp.* "$d"/draft_stale.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
   rmdir -- "$d" 2>/dev/null || true
 }
@@ -671,26 +692,41 @@ cmd_review() {
   fi
 }
 
-# cmd_shelved <shelved_accepted|shelved_dismissed> <path> — resolve one shelved
-# draft: delete it (and its .stale sidecar), log the event (+ stale:true when
-# marked). <path> must be a regular, non-symlink draft directly inside this
-# task's shelved dir (or shelved/_unknown); anything else: stderr + exit 1.
-cmd_shelved() {
-  agent_session_dir
-  local ev="$1" p="${2:-}" d ok=0 rest
+# shelved_draft_path <path> — succeed iff <path> is a regular, non-symlink draft
+# directly inside this task's shelved dir (or shelved/_unknown); else stderr +
+# exit 1 (nothing changed).
+shelved_draft_path() {
+  local p="${1:-}" d ok=0 rest
   for d in "$CAPTURE_ROOT/shelved/${TASK_STEM:-_unknown}" "$CAPTURE_ROOT/shelved/_unknown"; do
     case "$p" in "$d"/*) rest="${p#"$d"/}"; ok=1; break ;; esac
   done
   if [ "$ok" = 1 ] && [[ "$rest" =~ ^[A-Za-z0-9._-]+\.md$ ]] && [[ "$rest" != *..* ]] \
      && [ -f "$p" ] && [ ! -L "$p" ]; then
-    local x=""
-    [ -e "$p.stale" ] && x='{"stale":true}'
-    rm -f -- "$p" "$p.stale" 2>/dev/null || true
-    log_event "$SID" "$ev" "" "$x"
     return 0
   fi
   echo "wb-capture: not a shelved draft of this task: ${p:-<empty>} (nothing changed)" >&2
   exit 1
+}
+
+# cmd_shelved <shelved_accepted|shelved_dismissed> <path> — resolve one shelved
+# draft: delete it (and its .stale sidecar), log the event (+ stale:true when
+# marked), drop a leftover `shelved_accept` flag. Path rule: shelved_draft_path.
+cmd_shelved() {
+  agent_session_dir
+  local ev="$1" p="${2:-}" x=""
+  shelved_draft_path "$p"
+  [ -e "$p.stale" ] && x='{"stale":true}'
+  rm -f -- "$p" "$p.stale" 2>/dev/null || true
+  remove_named "$SDIR" shelved_accept
+  log_event "$SID" "$ev" "" "$x"
+}
+
+# cmd_accept_begin <path> — first phase of accepting a shelved draft (see "Two-phase
+# accept"): validate the path, then write the one-shot `shelved_accept` flag.
+cmd_accept_begin() {
+  agent_session_dir
+  shelved_draft_path "${1:-}"
+  mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/shelved_accept"
 }
 
 cmd_config() {
@@ -715,7 +751,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     dismiss)
       if [ -n "${2:-}" ]; then cmd_shelved shelved_dismissed "$2"; else cmd_clear_or_dismiss dismissed; fi
       ;;
-    accept)  cmd_shelved shelved_accepted "${2:-}" ;;
+    accept)
+      if [ "${2:-}" = --begin ]; then cmd_accept_begin "${3:-}"; else cmd_shelved shelved_accepted "${2:-}"; fi
+      ;;
     mute)
       agent_session_dir
       mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/muted" && log_event "$SID" muted

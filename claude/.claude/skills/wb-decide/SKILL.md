@@ -101,9 +101,9 @@ draft file) **and** one of these holds:
 On that path, Read the draft and present it to the user, then run
 `~/.config/scripts/tmux/wb-capture.sh review` (a quiet no-op unless the draft's
 nudge is outstanding). Accept it as-is, or edit it first, **only if it reflects
-a real decision made in this session** — a Haiku draft sees a transcript excerpt and can be wrong or already-recorded.
-If it doesn't, run `~/.config/scripts/tmux/wb-capture.sh dismiss`, say so in
-one line, and stop.
+a real decision made in this session** — a Haiku draft sees a transcript excerpt
+and can be wrong or already-recorded. If it doesn't, run
+`~/.config/scripts/tmux/wb-capture.sh dismiss`, say so in one line, and stop.
 
 If `status` also says the draft **may already be recorded** (the task file
 changed while it was being written — usually a `/wb-decide` that landed
@@ -129,10 +129,15 @@ When the user asks (`/wb-decide shelved`, "what's shelved"), review them **one a
 a time**: Read the draft (and for a stale one compare it with the newest
 `## Decisions` entries), then
 
-- **accept / edit** — compose and `wb append` as in steps 3-4, then
-  `~/.config/scripts/tmux/wb-capture.sh accept <path>` (deletes it, logs `followed`);
+- **accept / edit** — three commands, in this order, so the record isn't mistaken
+  for an answer to whatever nudge is live in this session: first
+  `~/.config/scripts/tmux/wb-capture.sh accept --begin <path>` (writes a one-shot
+  flag, changes nothing else), then compose and `wb append` as in steps 3-4, then
+  `~/.config/scripts/tmux/wb-capture.sh accept <path>` (deletes the draft, logs
+  `shelved_accepted`). If the append is abandoned, skip the last command: the
+  draft stays shelved and the flag expires with the turn;
 - **reject** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (deletes it,
-  logs `dismissed`).
+  logs `shelved_dismissed`).
 
 Never delete a shelved file by hand; `accept`/`dismiss` refuse any path outside
 this task's shelved dir. Step 5's `clear` is for the
@@ -218,8 +223,8 @@ line: `Recorded to ## Decisions.`
   requests edits over several turns — the nudge isn't counted ignored, one
   `followed` (or `dismissed`) results.
 - [ ] **Shelved drafts:** `status` lists `shelved:` lines; `/wb-decide shelved`
-  reviews them one at a time — accept/edit → `wb append` → `accept <path>`,
-  reject → `dismiss <path>`; never a hand `rm`.
+  reviews them one at a time — accept/edit → `accept --begin <path>` →
+  `wb append` → `accept <path>`, reject → `dismiss <path>`; never a hand `rm`.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
   is already recorded) — `wb-capture.sh dismiss`, say so, no write.
 - [ ] **Nothing decided:** phrase-match nudge but nothing was settled —

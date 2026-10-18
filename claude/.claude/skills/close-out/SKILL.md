@@ -112,10 +112,11 @@ don't duplicate — extend only where the sweep in step 2 added something new.
 Then check for **shelved decision drafts** — background-drafted decisions nobody
 accepted or dismissed. Run `~/.config/scripts/tmux/wb-capture.sh status`; for
 each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
-(→ `wb append <task> Decisions -`, then `wb-capture.sh accept <path>`) or
-dismiss (→ `wb-capture.sh dismiss <path>`). Never drop one silently; a
-`(stale)` one may already be recorded, so compare it with the newest
-`## Decisions` entries first.
+(→ `wb-capture.sh accept --begin <path>`, then `wb append <task> Decisions -`,
+then `wb-capture.sh accept <path>`; the `--begin` first keeps the record from
+being counted as an answer to a live nudge) or dismiss
+(→ `wb-capture.sh dismiss <path>`). Never drop one silently; a `(stale)` one may
+already be recorded, so compare it with the newest `## Decisions` entries first.
 
 After folding real Decisions, if `## Decisions` is **still empty**, review the
 session and decide whether anything was actually decided:

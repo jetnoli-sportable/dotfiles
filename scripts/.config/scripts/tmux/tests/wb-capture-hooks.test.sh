@@ -48,14 +48,14 @@ new_scenario() {
   EXTRA_ENV=()
 }
 
-# hook <verb> <json> — sets OUT, RC.
+# hook <verb> <json> [args...] — sets OUT, RC.
 hook() {
-  local verb="$1" json="$2"
+  local verb="$1" json="$2"; shift 2
   printf '%s' "$json" >"$H/stdin.json"
   local -a envv=(HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG"
     PATH="$FAKEBIN:$PATH" FAKE_TASK="$FAKE_TASK" FAKE_SID="$FAKE_SID"
     FAKE_TMUX_CALLS="$H/tmux-calls" TMUX=fake,1,0 TMUX_PANE=%1)
-  OUT="$(env "${envv[@]}" "${EXTRA_ENV[@]}" "$REAL_BASH" "$SCRIPT" "$verb" <"$H/stdin.json" 2>"$H/stderr")"
+  OUT="$(env "${envv[@]}" "${EXTRA_ENV[@]}" "$REAL_BASH" "$SCRIPT" "$verb" "$@" <"$H/stdin.json" 2>"$H/stderr")"
   RC=$?
 }
 stop()    { hook hook-stop "$(jq -nc --arg m "$1" '{session_id:"sid-aaa",last_assistant_message:$m}')"; }
@@ -366,6 +366,56 @@ hook review ''
 assert_eq "review again: counter kept" 2 "$(cat "$D/reviewing")"
 stop "three"
 assert_eq "counter continues" 3 "$(cat "$D/reviewing")"
+
+echo "# two-phase accept: recording a shelved draft doesn't resolve the live nudge"
+new_scenario; PK="$CAP/shelved/dotfiles--feat-x"; SF="$PK/20261018T100000-sid-old.md"
+mkdir -p "$D" "$PK"; printf 'live draft\n' >"$D/draft"; printf 'shelved one\n' >"$SF"
+prompt "go"; hook review ''; printf '1\n' >"$D/draft_strikes"
+assert_eq "sweep nudge outstanding" sweep "$(cat "$D/outstanding")"
+hook accept '' --begin "$SF"
+assert_eq "begin exit" 0 "$RC"
+assert_file "begin writes the one-shot flag" "$D/shelved_accept"
+assert_file "begin leaves the draft" "$SF"
+assert_eq "begin logs nothing" 0 "$(count_ev shelved_accepted)"
+posttool 'wb append x Decisions -'
+assert_file "append marks the turn recorded" "$D/recorded"
+assert_nofile "append consumes the flag" "$D/shelved_accept"
+assert_eq "live nudge still outstanding" sweep "$(cat "$D/outstanding" 2>/dev/null)"
+assert_eq "no followed for the shelved record" 0 "$(count_ev followed)"
+assert_file "review state kept" "$D/reviewing"
+assert_eq "draft_strikes kept" 1 "$(cat "$D/draft_strikes" 2>/dev/null)"
+hook accept '' "$SF"
+assert_eq "accept exit" 0 "$RC"
+assert_nofile "accept deletes the shelved draft" "$SF"
+assert_eq "one shelved_accepted" 1 "$(count_ev shelved_accepted)"
+assert_eq "still no followed" 0 "$(count_ev followed)"
+assert_eq "live nudge untouched by accept" sweep "$(cat "$D/outstanding" 2>/dev/null)"
+posttool 'wb append x Decisions -'
+assert_eq "the next, unrelated append follows normally" 1 "$(count_ev followed)"
+assert_nofile "...and resolves the nudge" "$D/outstanding"
+# a leftover flag is dropped by accept <path>, dismiss <path> and a real prompt; a bad path writes none
+new_scenario; PK="$CAP/shelved/dotfiles--feat-x"; SF="$PK/20261018T100000-sid-old.md"
+mkdir -p "$D" "$PK"; printf 'x\n' >"$SF"; printf 'y\n' >"$PK/20261018T110000-sid-old.md"
+hook accept '' --begin "$PK/nope.md"
+assert_eq "begin on a bad path exits 1" 1 "$RC"
+assert_nofile "begin on a bad path writes no flag" "$D/shelved_accept"
+hook accept '' --begin ""
+assert_eq "begin with no path exits 1" 1 "$RC"
+hook accept '' --begin "$SF"; hook accept '' "$SF"
+assert_nofile "accept <path> drops a leftover flag" "$D/shelved_accept"
+hook accept '' --begin "$PK/20261018T110000-sid-old.md"; hook dismiss '' "$PK/20261018T110000-sid-old.md"
+assert_nofile "dismiss <path> drops a leftover flag" "$D/shelved_accept"
+assert_eq "dismiss <path> logs shelved_dismissed" 1 "$(count_ev shelved_dismissed)"
+new_scenario; PK="$CAP/shelved/dotfiles--feat-x"; SF="$PK/20261018T100000-sid-old.md"
+mkdir -p "$D" "$PK"; printf 'x\n' >"$SF"
+hook accept '' --begin "$SF"; assert_file "flag set" "$D/shelved_accept"
+prompt "a new turn"
+assert_nofile "a real prompt drops an abandoned flag" "$D/shelved_accept"
+assert_file "abandoned accept leaves the shelved draft" "$SF"
+new_scenario
+mkdir -p "$CAP/sid-sa"; printf 'x' >"$CAP/sid-sa/shelved_accept"; touch -d '8 days ago' "$CAP/sid-sa"/* "$CAP/sid-sa"
+prompt "hi"
+assert_nofile "reaper removes a dir holding only the flag" "$CAP/sid-sa"
 
 echo "# engagement marker: dismiss ends the review, one dismissed"
 new_scenario
