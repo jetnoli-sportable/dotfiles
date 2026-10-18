@@ -30,10 +30,11 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
-SLUGS=(alpha beta gamma dirty delta epsilon zeta)
+FIXTURE_STATE="$(mktemp -d -t wb-done-state.XXXXXX)"   # XDG_STATE_HOME: wb-capture's shelved drafts + log
+SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
-  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS"
+  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_STATE"
   for slug in "${SLUGS[@]}"; do tmux kill-session -t "=$(session_for "$slug")" 2>/dev/null || true; done
 ' EXIT
 
@@ -123,6 +124,8 @@ source "$WB"
 set +e   # wb.sh sets -e; this test intentionally captures non-zero exits
 TASKS_DIR="$FIXTURE_TASKS"
 CODE_DIR="$FIXTURE_CODE"
+export XDG_STATE_HOME="$FIXTURE_STATE"
+CAPROOT="$FIXTURE_STATE/wb/capture"
 wb_open_buffer() { :; }   # no interactive nvim in a test run
 
 status_of() { wb_get_frontmatter "$FIXTURE_TASKS/proj--$1.md" status; }   # <task-file-slug>; reuses wb.sh's own frontmatter reader
@@ -264,6 +267,63 @@ assert "U10 nudge: fires for repo: docgen" 'docgen is roadmap-tracked.*docs/road
   || echo "ok   - U10 nudge: zeta's real worktree removed (repo_dir resolved correctly)"
 status_of_docgen_zeta() { wb_get_frontmatter "$FIXTURE_TASKS/docgen--zeta.md" status; }
 assert "U10 nudge: zeta task flipped to done" '^done$' "$(status_of_docgen_zeta)"
+
+# --- shelved-draft guard (D13 #6): wb done refuses while wb-capture holds ----
+# --- shelved decision drafts for the task, unless --leave-shelved ------------
+eta_session="$(session_for eta)"; eta_file="$FIXTURE_TASKS/proj--eta.md"
+mkdir -p "$CAPROOT/shelved/proj--eta" "$CAPROOT/shelved/proj--other"
+printf '### Chose B\n- decided: B\n' >"$CAPROOT/shelved/proj--eta/20261018T100000-sid-a.md"
+printf '### Chose C\n' >"$CAPROOT/shelved/proj--eta/20261018T110000-sid-b.md"
+: >"$CAPROOT/shelved/proj--eta/20261018T110000-sid-b.md.stale"
+printf 'x\n' >"$CAPROOT/shelved/proj--other/20261018T090000-sid-z.md"
+eta_before="$(cat "$eta_file")"
+out="$(cmd_done "$eta_session" --close 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - shelved guard: non-zero exit" || { echo "FAIL - shelved guard: exit $rc"; fail=1; }
+assert "shelved guard: names the first draft" "$CAPROOT/shelved/proj--eta/20261018T100000-sid-a\\.md" "$out"
+assert "shelved guard: names the second draft" "$CAPROOT/shelved/proj--eta/20261018T110000-sid-b\\.md" "$out"
+assert "shelved guard: counts drafts, not sidecars" '2 shelved decision draft' "$out"
+assert "shelved guard: points at /close-out and /wb-decide shelved" '/close-out or /wb-decide shelved' "$out"
+assert "shelved guard: points at --leave-shelved" '\-\-leave-shelved' "$out"
+assert "shelved guard: says nothing changed" 'nothing changed' "$out"
+[ -d "$FIXTURE_CODE/proj/.worktrees/eta" ] && echo "ok   - shelved guard: worktree untouched" || { echo "FAIL - shelved guard: worktree removed"; fail=1; }
+assert "shelved guard: task not flipped" '^doing$' "$(status_of eta)"
+[ "$(cat "$eta_file")" = "$eta_before" ] && echo "ok   - shelved guard: task file byte-identical" || { echo "FAIL - shelved guard: task file changed"; fail=1; }
+tmux has-session -t "=$eta_session" 2>/dev/null && echo "ok   - shelved guard: session survives (--close did not run)" || { echo "FAIL - shelved guard: session killed"; fail=1; }
+[ -f "$CAPROOT/shelved/proj--eta/20261018T100000-sid-a.md" ] && echo "ok   - shelved guard: drafts untouched" || { echo "FAIL - shelved guard: draft removed"; fail=1; }
+[ ! -e "$CAPROOT/log.jsonl" ] && echo "ok   - shelved guard: refusal logs nothing" || { echo "FAIL - shelved guard: refusal wrote a log"; fail=1; }
+
+out="$(cmd_done "$eta_session" --leave-shelved 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - --leave-shelved: exits 0" || { echo "FAIL - --leave-shelved: exit $rc: $out"; fail=1; }
+assert "--leave-shelved: task flipped to done" '^done$' "$(status_of eta)"
+[ -d "$FIXTURE_CODE/proj/.worktrees/eta" ] && { echo "FAIL - --leave-shelved: worktree not removed"; fail=1; } || echo "ok   - --leave-shelved: worktree removed"
+[ -f "$CAPROOT/shelved/proj--eta/20261018T100000-sid-a.md" ] && echo "ok   - --leave-shelved: drafts left in place" || { echo "FAIL - --leave-shelved: a draft was removed"; fail=1; }
+assert "--leave-shelved: logs shelved_left with the count" '"event":"shelved_left".*"count":2|"count":2.*"event":"shelved_left"' "$(cat "$CAPROOT/log.jsonl" 2>/dev/null)"
+assert "--leave-shelved: log line names the task" '"task":"proj--eta"' "$(cat "$CAPROOT/log.jsonl" 2>/dev/null)"
+[ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 1 ] && echo "ok   - --leave-shelved: exactly one log line" || { echo "FAIL - --leave-shelved: log line count"; fail=1; }
+assert "--leave-shelved: handoff line records the left drafts" 'left in .*shelved/proj--eta' "$(cat "$eta_file")"
+
+# an empty (or non-draft-only) shelved dir, and a dir for another task, don't block
+theta_session="$(session_for theta)"
+mkdir -p "$CAPROOT/shelved/proj--theta"; printf 'n\n' >"$CAPROOT/shelved/proj--theta/notes.txt"
+out="$(cmd_done "$theta_session" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - shelved guard: empty shelved dir does not block" || { echo "FAIL - shelved guard: empty dir blocked: $out"; fail=1; }
+assert "shelved guard: empty dir -> done" '^done$' "$(status_of theta)"
+[ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 1 ] && echo "ok   - shelved guard: nothing left, nothing logged" || { echo "FAIL - shelved guard: spurious log line"; fail=1; }
+assert "shelved guard: plain close keeps the plain handoff line" 'Session closed via `wb done`\.$' "$(cat "$FIXTURE_TASKS/proj--theta.md")"
+
+# store-only close (no live session) is guarded too, before any mutation
+iota_file="$FIXTURE_TASKS/proj--iota.md"
+printf -- '---\nstatus: planned\nrepo: proj\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' >"$iota_file"
+mkdir -p "$CAPROOT/shelved/proj--iota"; printf 'd\n' >"$CAPROOT/shelved/proj--iota/20261018T100000-sid-i.md"
+iota_before="$(cat "$iota_file")"
+out="$(cmd_done proj--iota 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - shelved guard (store-only): non-zero exit" || { echo "FAIL - shelved guard (store-only): exit $rc"; fail=1; }
+assert "shelved guard (store-only): names the draft" "shelved/proj--iota/20261018T100000-sid-i\\.md" "$out"
+[ "$(cat "$iota_file")" = "$iota_before" ] && echo "ok   - shelved guard (store-only): task file byte-identical" || { echo "FAIL - shelved guard (store-only): task file changed"; fail=1; }
+out="$(cmd_done proj--iota --leave-shelved 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - --leave-shelved (store-only): exits 0" || { echo "FAIL - --leave-shelved (store-only): exit $rc: $out"; fail=1; }
+assert "--leave-shelved (store-only): task done" '^done$' "$(wb_get_frontmatter "$iota_file" status)"
+[ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 2 ] && echo "ok   - --leave-shelved (store-only): logged" || { echo "FAIL - --leave-shelved (store-only): log line count"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

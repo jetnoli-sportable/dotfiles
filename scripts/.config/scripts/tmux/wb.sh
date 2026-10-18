@@ -20,7 +20,10 @@
 #                                    token exits 2 rather than opening the picker
 #   wb board                         task-store status table (interim /board); --html writes the
 #                                    ratified 3-view page to logs/board.html (feat-board-build)
-#   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
+#   wb done [--close] [--leave-shelved] [<session>]
+#                                    safe wind-down (defaults to the current session); --close also kills the tmux
+#                                    session; refuses while shelved decision drafts (wb-capture) remain for the
+#                                    task unless --leave-shelved
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
@@ -4978,16 +4981,32 @@ cmd_board() {
   } | column -t -s $'\t'
 }
 
+# _wb_log_shelved_left <capture-root> <task-stem> <count> — best-effort one line in
+# wb-capture's event log recording that `wb done --leave-shelved` left drafts
+# behind on purpose; same compact shape as wb-capture.sh's log_event. Never fails.
+_wb_log_shelved_left() {
+  local root="$1" stem="$2" count="$3" ts line
+  command -v jq >/dev/null 2>&1 || return 0
+  ts="$(date +%Y-%m-%dT%H:%M:%S%z)"; ts="${ts%??}:${ts: -2}"
+  line="$(jq -nc --arg ts "$ts" --arg task "$stem" --argjson count "$count" \
+    '{ts:$ts,session_id:"",task:$task,event:"shelved_left",count:$count}' 2>/dev/null)" || return 0
+  [ -n "$line" ] || return 0
+  mkdir -p "$root" 2>/dev/null || return 0
+  printf '%s\n' "$line" >>"$root/log.jsonl" 2>/dev/null || true
+  return 0
+}
+
 cmd_done() {
   # Index/shift case parser, not a single-token foreach — mirrors cmd_new's
   # --parent handling so --close can appear before, after, or without the
   # optional session positional.
-  local close=0
+  local close=0 leave_shelved=0
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --close) close=1; shift ;;
-      *)       args+=("$1"); shift ;;
+      --close)         close=1; shift ;;
+      --leave-shelved) leave_shelved=1; shift ;;
+      *)               args+=("$1"); shift ;;
     esac
   done
 
@@ -5029,6 +5048,26 @@ cmd_done() {
   # close too, and a conditionally-scoped local would be unbound there
   # under set -u.
   local repo; repo="$(wb_get_frontmatter "$task_file" repo)"
+
+  # Shelved-draft guard: wb-capture shelves an unreviewed decision draft under
+  # <capture root>/shelved/<task-stem>/ (outliving the session), where only
+  # /close-out or /wb-decide shelved can accept or dismiss it. Closing the task
+  # first would strand it, so refuse — before any mutation, store-only closes
+  # included — unless --leave-shelved says leaving them is deliberate.
+  local capture_root="${XDG_STATE_HOME:-$HOME/.local/state}/wb/capture"
+  local -a shelved_drafts=()
+  local sf
+  for sf in "$capture_root/shelved/$task_stem"/*.md; do
+    if [ -f "$sf" ]; then shelved_drafts+=("$sf"); fi
+  done
+  if [ "${#shelved_drafts[@]}" -gt 0 ] && [ "$leave_shelved" = 0 ]; then
+    {
+      echo "wb done: ${#shelved_drafts[@]} shelved decision draft(s) for $task_stem would be stranded (nothing changed):"
+      for sf in "${shelved_drafts[@]}"; do echo "  $sf"; done
+      echo "wb done: run /close-out or /wb-decide shelved first to accept or dismiss them, or re-run with --leave-shelved to close anyway"
+    } >&2
+    exit 1
+  fi
 
   local repo_dir worktree_path
   if [ "$store_only" = 0 ]; then
@@ -5184,8 +5223,15 @@ cmd_done() {
   # stale the instant the worktree is removed — blank it rather than let a
   # future reader mistake a done task for one with a warm history.
   wb_set_frontmatter "$task_file" claude_sessions ""
-  wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
+  local done_note='Session closed via `wb done`.'
+  if [ "${#shelved_drafts[@]}" -gt 0 ]; then
+    done_note="Session closed via \`wb done\` (--leave-shelved: ${#shelved_drafts[@]} shelved decision draft(s) left in $capture_root/shelved/$task_stem/)."
+  fi
+  wb_append_handoff "$task_file" "wb done" "$done_note"
   wb_task_lock_release "$task_file"
+  if [ "${#shelved_drafts[@]}" -gt 0 ]; then
+    _wb_log_shelved_left "$capture_root" "$task_stem" "${#shelved_drafts[@]}"
+  fi
 
   if [ "$store_only" = 1 ]; then
     echo "wb done: $task_file closed (store-only — no live session or worktree to tear down)"
