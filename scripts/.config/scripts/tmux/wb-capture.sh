@@ -25,21 +25,21 @@
 #     hook-end       (SessionEnd, 1.5s budget: one jq parse, no network, no task
 #                  file) if `marker` or `draft` exists logs `pending_at_end`
 #                  {marker,draft}; resolves an outstanding nudge as ignored;
-#                  parks a remaining draft (reason session_end); always writes
+#                  shelves a remaining draft (reason session_end); always writes
 #                  the `ended` tombstone. Deletes nothing else — the reaper does.
 #   clear          agent verb: drop marker, draft, draft_strikes, draft_stale,
 #                  reviewing and outstanding flag. Logs nothing (the PostToolUse hook already logs `followed`).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
 #                  when nothing was pending.
-#   dismiss <path> dismiss one PARKED draft: delete it, log `dismissed` source
-#                  `parked`. <path> must be a parked draft of this task.
-#   unpark <path>  after /wb-decide recorded a parked draft: delete it, log
-#                  `followed` source `parked`. Same path rule; a path outside
-#                  the parked dir exits 1 with a message on stderr.
+#   dismiss <path> dismiss one SHELVED draft: delete it, log `dismissed` source
+#                  `shelved`. <path> must be a shelved draft of this task.
+#   accept <path>  after /wb-decide recorded a shelved draft: delete it, log
+#                  `followed` source `shelved`. Same path rule; a path outside
+#                  the shelved dir exits 1 with a message on stderr.
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
 #   status         print pending marker/draft (with paths), mute state, the
-#                  log path, then this task's parked drafts (one `parked: <path>`
-#                  line each, `(stale)` when marked; `parked: none`) —
+#                  log path, then this task's shelved drafts (one `shelved: <path>`
+#                  line each, `(stale)` when marked; `shelved: none`) —
 #                  human-readable lines. A stale draft adds a warning line plus
 #                  the `### ` headings recorded since its snapshot. A draft whose
 #                  nudge (source sweep) is outstanding is also marked `reviewing`:
@@ -58,10 +58,10 @@
 #                                        sweep_offset draft_strikes
 #                                        sweep_failures draft_stale reviewing .lock
 #                                        draft.tmp.* draft_stale.tmp.*)
-#   parked drafts <root>/parked/<task-stem>/<YYYYmmddTHHMMSS>-<sid>.md  (per TASK,
+#   shelved drafts <root>/shelved/<task-stem>/<YYYYmmddTHHMMSS>-<sid>.md  (per TASK,
 #                                        outlives the session dir; a sidecar
 #                                        <name>.md.stale marks a stale draft;
-#                                        <root>/parked/_unknown/ when the task
+#                                        <root>/shelved/_unknown/ when the task
 #                                        is not known)
 #   event log    <root>/log.jsonl       (one compact JSON line per event:
 #                                        ts, session_id, task, event[, source])
@@ -72,15 +72,15 @@
 #
 # Draft strikes: a draft nudge (source sweep) that resolves `ignored` gets one more
 # chance — `nudged_draft` is dropped so the same draft is nudged again on the next
-# real prompt, and `draft_strikes` records 1. A second ignore PARKS the draft: it
-# moves to <root>/parked/<task-stem>/ and logs `draft_parked` {"reason":
+# real prompt, and `draft_strikes` records 1. A second ignore SHELVES the draft: it
+# moves to <root>/shelved/<task-stem>/ and logs `draft_shelved` {"reason":
 # "ignored_twice"}; draft, nudged_draft, draft_strikes, draft_stale and reviewing
 # are removed from the session dir, which lets the sweep run again. A draft is
-# never deleted without the user's explicit accept (unpark) or dismiss. SessionEnd
-# parks a remaining draft (reason session_end) and the reaper parks one it finds
+# never deleted without the user's explicit accept or dismiss. SessionEnd
+# shelves a remaining draft (reason session_end) and the reaper shelves one it finds
 # in a dir it is about to remove (reason reaped). The strike count is dropped
 # whenever the draft goes away another way (followed, dismiss, clear) or the sweep
-# writes a new draft. Phrase-nudge ignores don't strike and park nothing (no data);
+# writes a new draft. Phrase-nudge ignores don't strike and shelve nothing (no data);
 # SessionEnd resolves an outstanding nudge as ignored without striking.
 # Engagement marker: `status` touches `reviewing` while a sweep draft nudge is
 # outstanding, meaning the user is mid-review over several messages. While it
@@ -89,7 +89,7 @@
 # resolves exactly once: followed (posttool) or dismissed (dismiss/clear). After
 # REVIEW_MAX_TURNS carried Stops the review counts as abandoned: the next Stop
 # resolves it ignored and strikes as usual. SessionEnd and the reaper still
-# resolve it ignored, then park the draft (a draft the reaper can't park keeps
+# resolve it ignored, then shelve the draft (a draft the reaper can't shelve keeps
 # its dir until a later reap succeeds).
 # Stale drafts: the sweep snapshots the task file, then waits up to a minute for
 # Haiku. If the file changed meanwhile (typically /wb-decide recording the very
@@ -98,7 +98,7 @@
 # snapshot. The draft nudge and `status` then warn it may already be recorded
 # (status lists the entries added since). Staleness is not carried in
 # `outstanding`: a nudge, once resolved, is tagged `"stale":true` in its
-# followed | dismissed | ignored | draft_parked event whenever its source is
+# followed | dismissed | ignored | draft_shelved event whenever its source is
 # `sweep` and `draft_stale` exists (it lives exactly as long as `draft`, so it is
 # still there at every resolution). Phrase nudges are never tagged.
 # `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
@@ -108,10 +108,10 @@
 # can't delay or alter it; at most once per hour, throttled by the mtime of
 # <root>/.reaped, which is touched before the work starts). For each real,
 # non-symlink subdir of the root whose name passes session_dir validation and
-# that isn't the current session (and isn't `parked`): remove it if it holds `ended`, or if nothing in
+# that isn't the current session (and isn't `shelved`): remove it if it holds `ended`, or if nothing in
 # it was modified in the last 7 days (find -newermt on the dir + its files).
 # A stale, un-ended dir still holding marker/draft first logs `pending_orphaned`;
-# a draft is parked (reason reaped) before the dir goes.
+# a draft is shelved (reason reaped) before the dir goes.
 # Removal is by explicit file names (+ draft.tmp.* glob) inside the validated dir,
 # then rmdir — unknown leftovers keep the dir (never forced). A dir whose .lock
 # is held (flock -n fails) is skipped until the next reap; no lock is held across
@@ -354,22 +354,22 @@ decision_headings() {
   awk '/^## Decisions[[:space:]]*$/ { f = 1; next } /^## / { f = 0 } f && /^### /' "$1" 2>/dev/null
 }
 
-# park_draft <sid> <reason> — move SDIR's draft to the per-task parked dir
+# shelve_draft <sid> <reason> — move SDIR's draft to the per-task shelved dir
 # (verbatim, <YYYYmmddTHHMMSS>-<sid>.md; a `.stale` sidecar when draft_stale
-# exists), log `draft_parked`, then drop the draft's session state. TASK_STEM
-# empty -> parked/_unknown. If the move fails nothing is removed (never lose it).
-park_draft() {
+# exists), log `draft_shelved`, then drop the draft's session state. TASK_STEM
+# empty -> shelved/_unknown. If the move fails nothing is removed (never lose it).
+shelve_draft() {
   local sid="$1" reason="$2" stem="${TASK_STEM:-_unknown}" dir dest ts n=0
   [ -f "$SDIR/draft" ] || return 0
   case "$stem" in .|..|*/*) stem=_unknown ;; esac
-  dir="$CAPTURE_ROOT/parked/$stem"
+  dir="$CAPTURE_ROOT/shelved/$stem"
   mkdir -p "$dir" 2>/dev/null || return 1
   ts="$(date +%Y%m%dT%H%M%S)"
   dest="$dir/$ts-$sid.md"
   while [ -e "$dest" ]; do n=$((n + 1)); dest="$dir/$ts-$sid-$n.md"; done
   mv -- "$SDIR/draft" "$dest" 2>/dev/null || return 1
   [ -e "$SDIR/draft_stale" ] && : >"$dest.stale" 2>/dev/null
-  log_event "$sid" draft_parked "" "$(stale_extra sweep "{\"reason\":\"$reason\"}")"
+  log_event "$sid" draft_shelved "" "$(stale_extra sweep "{\"reason\":\"$reason\"}")"
   remove_named "$SDIR" draft nudged_draft draft_strikes draft_stale reviewing
 }
 
@@ -382,7 +382,7 @@ resolve_ignored() {
   remove_named "$SDIR" outstanding
   if [ "$src" = sweep ] && [ "${1:-}" != nostrike ] && [ -f "$SDIR/draft" ]; then
     if [ "$(read_num "$SDIR/draft_strikes")" -ge 1 ]; then
-      park_draft "$SID" ignored_twice
+      shelve_draft "$SID" ignored_twice
     else
       # first ignore: drop the nudged-hash so the same draft is nudged once more
       remove_named "$SDIR" nudged_draft
@@ -460,8 +460,8 @@ hook_end() {
   fi
   # a nudge whose turn never reached Stop gets no later prompt to resolve it
   [ -e "$SDIR/outstanding" ] && resolve_ignored nostrike
-  # a draft never dies with the session: park it for the user's later accept/dismiss
-  [ -e "$SDIR/draft" ] && park_draft "$SID" session_end
+  # a draft never dies with the session: shelve it for the user's later accept/dismiss
+  [ -e "$SDIR/draft" ] && shelve_draft "$SID" session_end
   : >"$SDIR/ended" 2>/dev/null || true
 }
 
@@ -497,7 +497,7 @@ reap_stale() {
     d="${d%/}"; name="${d##*/}"
     [ -d "$d" ] && [ ! -L "$d" ] || continue
     sdir="$(session_dir "$name")" || continue
-    [ "$name" != "${SID:-}" ] && [ "$name" != parked ] || continue
+    [ "$name" != "${SID:-}" ] && [ "$name" != shelved ] || continue
     stale=0
     if [ ! -e "$sdir/ended" ]; then
       [ -z "$(find "$sdir" -maxdepth 1 -newermt '7 days ago' -print -quit 2>/dev/null)" ] || continue
@@ -522,8 +522,8 @@ reap_stale() {
       log_event "$name" ignored "$osrc" "$(stale_extra "$osrc")"
     fi
     SDIR="$sdir"
-    # a draft that can't be parked keeps its dir: retried on the next reap
-    if [ -e "$sdir/draft" ] && ! park_draft "$name" reaped; then
+    # a draft that can't be shelved keeps its dir: retried on the next reap
+    if [ -e "$sdir/draft" ] && ! shelve_draft "$name" reaped; then
       TASK_STEM="$saved_stem"; exec 8>&-; continue
     fi
     TASK_STEM="$saved_stem"
@@ -637,27 +637,27 @@ cmd_status() {
     : >"$SDIR/reviewing" 2>/dev/null || true
   fi
   local pf n=0 stem="${TASK_STEM:-_unknown}"
-  local -a dirs=("$CAPTURE_ROOT/parked/$stem")
-  [ "$stem" = _unknown ] || dirs+=("$CAPTURE_ROOT/parked/_unknown")
+  local -a dirs=("$CAPTURE_ROOT/shelved/$stem")
+  [ "$stem" = _unknown ] || dirs+=("$CAPTURE_ROOT/shelved/_unknown")
   local pd
   for pd in "${dirs[@]}"; do
     for pf in "$pd"/*.md; do
       [ -f "$pf" ] || continue
       n=$((n + 1))
-      if [ -e "$pf.stale" ]; then echo "parked: $pf (stale)"; else echo "parked: $pf"; fi
+      if [ -e "$pf.stale" ]; then echo "shelved: $pf (stale)"; else echo "shelved: $pf"; fi
     done
   done
-  [ "$n" -gt 0 ] || echo "parked: none"
+  [ "$n" -gt 0 ] || echo "shelved: none"
 }
 
-# cmd_parked <followed|dismissed> <path> — resolve one parked draft: delete it
-# (and its .stale sidecar), log the event with source `parked` (+ stale:true when
+# cmd_shelved <followed|dismissed> <path> — resolve one shelved draft: delete it
+# (and its .stale sidecar), log the event with source `shelved` (+ stale:true when
 # marked). <path> must be a regular, non-symlink draft directly inside this
-# task's parked dir (or parked/_unknown); anything else: stderr + exit 1.
-cmd_parked() {
+# task's shelved dir (or shelved/_unknown); anything else: stderr + exit 1.
+cmd_shelved() {
   agent_session_dir
   local ev="$1" p="${2:-}" d ok=0 rest
-  for d in "$CAPTURE_ROOT/parked/${TASK_STEM:-_unknown}" "$CAPTURE_ROOT/parked/_unknown"; do
+  for d in "$CAPTURE_ROOT/shelved/${TASK_STEM:-_unknown}" "$CAPTURE_ROOT/shelved/_unknown"; do
     case "$p" in "$d"/*) rest="${p#"$d"/}"; ok=1; break ;; esac
   done
   if [ "$ok" = 1 ] && [[ "$rest" =~ ^[A-Za-z0-9._-]+\.md$ ]] && [[ "$rest" != *..* ]] \
@@ -665,10 +665,10 @@ cmd_parked() {
     local x=""
     [ -e "$p.stale" ] && x='{"stale":true}'
     rm -f -- "$p" "$p.stale" 2>/dev/null || true
-    log_event "$SID" "$ev" parked "$x"
+    log_event "$SID" "$ev" shelved "$x"
     return 0
   fi
-  echo "wb-capture: not a parked draft of this task: ${p:-<empty>} (nothing changed)" >&2
+  echo "wb-capture: not a shelved draft of this task: ${p:-<empty>} (nothing changed)" >&2
   exit 1
 }
 
@@ -683,7 +683,7 @@ cmd_config() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   verb="${1:-}"
   case "$verb" in
-    clear|dismiss|unpark|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
+    clear|dismiss|accept|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
     *) exit 0 ;;
   esac
 
@@ -692,9 +692,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "$verb" in
     clear)   cmd_clear_or_dismiss "" ;;
     dismiss)
-      if [ -n "${2:-}" ]; then cmd_parked dismissed "$2"; else cmd_clear_or_dismiss dismissed; fi
+      if [ -n "${2:-}" ]; then cmd_shelved dismissed "$2"; else cmd_clear_or_dismiss dismissed; fi
       ;;
-    unpark)  cmd_parked followed "${2:-}" ;;
+    accept)  cmd_shelved followed "${2:-}" ;;
     mute)
       agent_session_dir
       mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/muted" && log_event "$SID" muted

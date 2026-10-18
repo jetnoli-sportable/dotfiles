@@ -258,7 +258,7 @@ run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop        # nudge, ignored: st
 run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop        # re-nudge, ignored: discarded
 assert_nofile "draft discarded" "$D/draft"
 printf '4\n' >"$D/unchanged"; add_turn q2 a2; sweep
-assert_eq "sweep ran after park" 1 "$(jq -r 'select(.event=="draft_parked")|.event' "$LOG" | wc -l | tr -d ' ')"
+assert_eq "sweep ran after shelve" 1 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
 assert_eq "no draft_pending skip" "" "$(last_field sweep_skipped reason)"
 assert_file "new draft written" "$D/draft"
 assert_nofile "new draft starts with no strikes" "$D/draft_strikes"

@@ -157,8 +157,8 @@ prompt "interrupted, asking again"
 assert_eq "stale nudge -> ignored" 1 "$(count_ev ignored)"
 assert_nofile "stale outstanding cleared" "$D/outstanding"
 
-echo "# draft strikes: first ignore re-nudges the same draft, second parks it"
-new_scenario; PK="$CAP/parked/dotfiles--feat-x"
+echo "# draft strikes: first ignore re-nudges the same draft, second shelves it"
+new_scenario; PK="$CAP/shelved/dotfiles--feat-x"
 mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
 prompt "go"; assert_eq "draft nudge fired" sweep "$(cat "$D/outstanding")"
 stop "carrying on"
@@ -174,14 +174,14 @@ assert_eq "ignored twice" 2 "$(count_ev ignored)"
 assert_nofile "draft left the session dir (sweep unblocked)" "$D/draft"
 assert_nofile "nudged_draft gone" "$D/nudged_draft"
 assert_nofile "strikes gone" "$D/draft_strikes"
-assert_eq "draft_parked logged once" 1 "$(count_ev draft_parked)"
-assert_eq "park reason" ignored_twice "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
+assert_eq "draft_shelved logged once" 1 "$(count_ev draft_shelved)"
+assert_eq "shelve reason" ignored_twice "$(jq -r 'select(.event=="draft_shelved")|.reason' "$LOG")"
 assert_eq "never discarded" 0 "$(count_ev draft_discarded)"
-assert_eq "one parked file" 1 "$(ls "$PK" | wc -l | tr -d ' ')"
-assert_match "parked name sorts by time, carries sid" '^[0-9]{8}T[0-9]{6}-sid-aaa\.md$' "$(ls "$PK")"
-assert_eq "parked content verbatim" $'### Chose B\n- decided: B' "$(cat "$PK"/*.md)"
+assert_eq "one shelved file" 1 "$(ls "$PK" | wc -l | tr -d ' ')"
+assert_match "shelved name sorts by time, carries sid" '^[0-9]{8}T[0-9]{6}-sid-aaa\.md$' "$(ls "$PK")"
+assert_eq "shelved content verbatim" $'### Chose B\n- decided: B' "$(cat "$PK"/*.md)"
 prompt "after"; assert_eq "nothing left to nudge" "" "$OUT"
-assert_eq "no further park" 1 "$(count_ev draft_parked)"
+assert_eq "no further shelve" 1 "$(count_ev draft_shelved)"
 
 echo "# draft strikes: stale outstanding at the next prompt strikes too"
 new_scenario
@@ -201,24 +201,24 @@ mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"
 hook hook-end '{"session_id":"sid-aaa"}'
 assert_eq "end -> ignored" 1 "$(count_ev ignored)"
 assert_nofile "no strike at end" "$D/draft_strikes"
-assert_eq "end parks the draft" 1 "$(count_ev draft_parked)"
-assert_eq "end park reason" session_end "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
+assert_eq "end shelves the draft" 1 "$(count_ev draft_shelved)"
+assert_eq "end shelve reason" session_end "$(jq -r 'select(.event=="draft_shelved")|.reason' "$LOG")"
 assert_nofile "draft left the session dir at end" "$D/draft"
-assert_eq "parked file exists" 1 "$(ls "$CAP/parked/dotfiles--feat-x" | wc -l | tr -d ' ')"
+assert_eq "shelved file exists" 1 "$(ls "$CAP/shelved/dotfiles--feat-x" | wc -l | tr -d ' ')"
 assert_eq "pending_at_end still logged" 1 "$(count_ev pending_at_end)"
 assert_file "ended tombstone" "$D/ended"
-# SessionEnd with a draft never nudged: parked, no ignored
+# SessionEnd with a draft never nudged: shelved, no ignored
 new_scenario
 mkdir -p "$D"; printf 'quiet draft\n' >"$D/draft"
 hook hook-end '{"session_id":"sid-aaa"}'
 assert_eq "un-nudged end: no ignored" 0 "$(count_ev ignored)"
-assert_eq "un-nudged end: parked" 1 "$(count_ev draft_parked)"
-# a marker alone parks nothing
+assert_eq "un-nudged end: shelved" 1 "$(count_ev draft_shelved)"
+# a marker alone shelves nothing
 new_scenario
 stop "we decided to use B"
 hook hook-end '{"session_id":"sid-aaa"}'
-assert_eq "marker is not parked" 0 "$(count_ev draft_parked)"
-assert_nofile "no parked dir for a marker" "$CAP/parked"
+assert_eq "marker is not shelved" 0 "$(count_ev draft_shelved)"
+assert_nofile "no shelved dir for a marker" "$CAP/shelved"
 
 echo "# draft strikes: followed / dismiss / clear reset the count"
 new_scenario
@@ -260,10 +260,10 @@ assert_eq "stale ignored tagged" true "$(stale_flag ignored)"
 assert_file "draft_stale kept after first ignore" "$D/draft_stale"
 prompt "go"; stop "carry on"
 assert_eq "stale second ignored tagged" 2 "$(jq -r 'select(.event=="ignored" and .stale==true)|.event' "$LOG" | wc -l | tr -d ' ')"
-assert_eq "stale draft_parked tagged" true "$(stale_flag draft_parked)"
-assert_eq "draft_parked keeps reason" ignored_twice "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
+assert_eq "stale draft_shelved tagged" true "$(stale_flag draft_shelved)"
+assert_eq "draft_shelved keeps reason" ignored_twice "$(jq -r 'select(.event=="draft_shelved")|.reason' "$LOG")"
 assert_nofile "two strikes removes draft_stale" "$D/draft_stale"
-assert_eq "stale parked file has a stale marker" 1 "$(ls "$CAP"/parked/dotfiles--feat-x/*.stale | wc -l | tr -d ' ')"
+assert_eq "stale shelved file has a stale marker" 1 "$(ls "$CAP"/shelved/dotfiles--feat-x/*.stale | wc -l | tr -d ' ')"
 # followed (posttool)
 new_scenario; stale_draft; prompt "go"
 posttool 'wb append x Decisions -'
@@ -291,8 +291,8 @@ assert_eq "stale end-ignored tagged" true "$(stale_flag ignored)"
 new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"
 prompt "go"; stop "x"; prompt "go"; stop "x"
 assert_eq "plain ignored untagged" none "$(stale_flag ignored)"
-assert_eq "plain draft_parked untagged" none "$(stale_flag draft_parked)"
-assert_eq "plain parked file has no stale marker" 0 "$(ls "$CAP"/parked/dotfiles--feat-x/*.stale 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "plain draft_shelved untagged" none "$(stale_flag draft_shelved)"
+assert_eq "plain shelved file has no stale marker" 0 "$(ls "$CAP"/shelved/dotfiles--feat-x/*.stale 2>/dev/null | wc -l | tr -d ' ')"
 new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; posttool 'wb append x Decisions -'
 assert_eq "plain followed untagged" none "$(stale_flag followed)"
 new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"; hook dismiss ''
@@ -323,7 +323,7 @@ assert_eq "second Stop: still not ignored" 0 "$(count_ev ignored)"
 posttool 'wb append x Decisions -'
 assert_eq "exactly one followed" 1 "$(count_ev followed)"
 assert_eq "zero ignored" 0 "$(count_ev ignored)"
-assert_eq "zero draft_parked" 0 "$(count_ev draft_parked)"
+assert_eq "zero draft_shelved" 0 "$(count_ev draft_shelved)"
 assert_eq "zero draft_discarded" 0 "$(count_ev draft_discarded)"
 assert_nofile "followed removes reviewing" "$D/reviewing"
 assert_nofile "followed clears outstanding" "$D/outstanding"
@@ -337,7 +337,7 @@ assert_eq "4 carried Stops: not ignored yet" 0 "$(count_ev ignored)"
 stop "turn 5"
 assert_eq "5th Stop resolves ignored once" 1 "$(count_ev ignored)"
 assert_nofile "cap removes reviewing" "$D/reviewing"
-assert_eq "cap strikes the draft (kept, not parked)" 1 "$(cat "$D/draft_strikes" 2>/dev/null)"
+assert_eq "cap strikes the draft (kept, not shelved)" 1 "$(cat "$D/draft_strikes" 2>/dev/null)"
 assert_file "draft still there" "$D/draft"
 prompt "next"
 assert_eq "struck draft re-nudged after the cap" sweep "$(cat "$D/outstanding" 2>/dev/null)"
@@ -380,18 +380,18 @@ prompt "next"
 assert_eq "outstanding still sweep" sweep "$(cat "$D/outstanding")"
 assert_eq "no second nudge_fired" 1 "$(count_ev nudge_fired)"
 
-echo "# engagement marker: SessionEnd resolves ignored (once) then parks, even while reviewing"
+echo "# engagement marker: SessionEnd resolves ignored (once) then shelves, even while reviewing"
 new_scenario
 mkdir -p "$D"; printf 'draft\n' >"$D/draft"
 prompt "go"; hook status ''; stop "reviewing"
 hook hook-end '{"session_id":"sid-aaa"}'
 assert_eq "end: one ignored" 1 "$(count_ev ignored)"
-assert_eq "end: parked" 1 "$(count_ev draft_parked)"
-assert_eq "end: park reason" session_end "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
+assert_eq "end: shelved" 1 "$(count_ev draft_shelved)"
+assert_eq "end: shelve reason" session_end "$(jq -r 'select(.event=="draft_shelved")|.reason' "$LOG")"
 assert_nofile "end: reviewing removed" "$D/reviewing"
 assert_nofile "end: outstanding removed" "$D/outstanding"
 
-echo "# engagement marker: the reaper resolves ignored (once) then parks, even while reviewing"
+echo "# engagement marker: the reaper resolves ignored (once) then shelves, even while reviewing"
 new_scenario
 mkdir -p "$CAP/sid-rv"; printf 'sweep' >"$CAP/sid-rv/outstanding"; printf 'rv draft\n' >"$CAP/sid-rv/draft"; : >"$CAP/sid-rv/reviewing"
 printf '%s\n' "$H/tasks/dotfiles--feat-rv.md" >"$CAP/sid-rv/taskpath"
@@ -399,26 +399,26 @@ touch -d '8 days ago' "$CAP/sid-rv"/* "$CAP/sid-rv"
 prompt "hi"
 assert_nofile "reaped dir gone (reviewing removed too)" "$CAP/sid-rv"
 assert_eq "reaper: one ignored" 1 "$(count_ev ignored)"
-assert_eq "reaper: parked" 1 "$(count_ev draft_parked)"
-assert_eq "reaper: parked under the session's task" "rv draft" "$(cat "$CAP"/parked/dotfiles--feat-rv/*-sid-rv.md)"
+assert_eq "reaper: shelved" 1 "$(count_ev draft_shelved)"
+assert_eq "reaper: shelved under the session's task" "rv draft" "$(cat "$CAP"/shelved/dotfiles--feat-rv/*-sid-rv.md)"
 
-echo "# reaper: a draft it cannot park keeps its dir (retried next reap), never deleted"
+echo "# reaper: a draft it cannot shelve keeps its dir (retried next reap), never deleted"
 new_scenario
-mkdir -p "$CAP/sid-pf" "$CAP/parked"; printf 'pf draft\n' >"$CAP/sid-pf/draft"
+mkdir -p "$CAP/sid-pf" "$CAP/shelved"; printf 'pf draft\n' >"$CAP/sid-pf/draft"
 printf '%s\n' "$H/tasks/dotfiles--feat-pf.md" >"$CAP/sid-pf/taskpath"
-: >"$CAP/parked/dotfiles--feat-pf"     # a FILE where the parked dir must go: mkdir fails
+: >"$CAP/shelved/dotfiles--feat-pf"     # a FILE where the shelved dir must go: mkdir fails
 touch -d '8 days ago' "$CAP/sid-pf"/* "$CAP/sid-pf"
 prompt "hi"
-assert_eq "unparkable draft kept in place" "pf draft" "$(cat "$CAP/sid-pf/draft" 2>/dev/null)"
-assert_eq "no draft_parked logged" 0 "$(count_ev draft_parked)"
+assert_eq "unshelvable draft kept in place" "pf draft" "$(cat "$CAP/sid-pf/draft" 2>/dev/null)"
+assert_eq "no draft_shelved logged" 0 "$(count_ev draft_shelved)"
 
-echo "# parking: nothing is parked twice and the sweep is unblocked"
-new_scenario; PK="$CAP/parked/dotfiles--feat-x"
+echo "# shelving: nothing is shelved twice and the sweep is unblocked"
+new_scenario; PK="$CAP/shelved/dotfiles--feat-x"
 mkdir -p "$D"; printf 'one\n' >"$D/draft"
 prompt "go"; stop "x"; prompt "go"; stop "x"
 printf 'two\n' >"$D/draft"
 prompt "go"; stop "x"; prompt "go"; stop "x"
-assert_eq "two drafts parked separately" 2 "$(ls "$PK"/*.md | wc -l | tr -d ' ')"
+assert_eq "two drafts shelved separately" 2 "$(ls "$PK"/*.md | wc -l | tr -d ' ')"
 
 echo "# sub-agent posttool"
 new_scenario
@@ -641,26 +641,26 @@ new_scenario
 mkold sid-dr draft
 prompt "hi"
 assert_nofile "draft-only dir removed" "$CAP/sid-dr"
-assert_eq "reaper parked the draft" 1 "$(count_ev draft_parked)"
-assert_eq "reaper park reason" reaped "$(jq -r 'select(.event=="draft_parked")|.reason' "$LOG")"
-assert_eq "reaper park under _unknown (no taskpath)" 1 "$(ls "$CAP/parked/_unknown" | wc -l | tr -d ' ')"
+assert_eq "reaper shelved the draft" 1 "$(count_ev draft_shelved)"
+assert_eq "reaper shelve reason" reaped "$(jq -r 'select(.event=="draft_shelved")|.reason' "$LOG")"
+assert_eq "reaper shelve under _unknown (no taskpath)" 1 "$(ls "$CAP/shelved/_unknown" | wc -l | tr -d ' ')"
 assert_eq "one pending_orphaned" 1 "$(count_ev pending_orphaned)"
 assert_eq "orphan sid" sid-dr "$(jq -r 'select(.event=="pending_orphaned")|.session_id' "$LOG")"
 assert_eq "orphan draft true" true "$(jq -r 'select(.event=="pending_orphaned")|.draft' "$LOG")"
 assert_eq "orphan marker false" false "$(jq -r 'select(.event=="pending_orphaned")|.marker' "$LOG")"
-assert_nofile "reaper never treats parked/ as a session dir" "$CAP/parked/.lock"
-# a draft whose session recorded its task parks under that task
+assert_nofile "reaper never treats shelved/ as a session dir" "$CAP/shelved/.lock"
+# a draft whose session recorded its task shelves under that task
 new_scenario
 mkold sid-dt draft taskpath
 printf '%s\n' "$H/tasks/dotfiles--feat-old.md" >"$CAP/sid-dt/taskpath"; touch -d '8 days ago' "$CAP/sid-dt/taskpath" "$CAP/sid-dt"
 echo "orphan draft" >"$CAP/sid-dt/draft"; touch -d '8 days ago' "$CAP/sid-dt/draft" "$CAP/sid-dt"
 prompt "hi"
-assert_eq "reaper parks under the session's task" "orphan draft" "$(cat "$CAP"/parked/dotfiles--feat-old/*-sid-dt.md)"
-# a phrase marker is not parked
+assert_eq "reaper shelves under the session's task" "orphan draft" "$(cat "$CAP"/shelved/dotfiles--feat-old/*-sid-dt.md)"
+# a phrase marker is not shelved
 new_scenario
 mkold sid-mk marker
 prompt "hi"
-assert_eq "marker-only reap parks nothing" 0 "$(count_ev draft_parked)"
+assert_eq "marker-only reap shelves nothing" 0 "$(count_ev draft_shelved)"
 
 echo "# reaper: dir holding an outstanding nudge logs ignored before removal"
 new_scenario

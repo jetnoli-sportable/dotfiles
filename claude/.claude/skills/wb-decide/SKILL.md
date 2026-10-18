@@ -1,6 +1,6 @@
 ---
 name: wb-decide
-description: Record a decision made in this session into the current task file's `## Decisions` section — what was decided, the rejected alternative(s), and why — or accept/edit/dismiss a background-drafted one. Use when the user types `/wb-decide` (optionally with a one-line hint), or says "record that decision", "log this decision", "note that we decided", "write that down in Decisions"; also when a `[wb-capture] …` nudge line shows up in context pointing here. Subcommands `/wb-decide parked` (review parked drafts), `/wb-decide dismiss`, `/wb-decide mute`, `/wb-decide unmute`, `/wb-decide status` control the auto-capture nudge. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only via `wb append`; never Edit/Write the task file.
+description: Record a decision made in this session into the current task file's `## Decisions` section — what was decided, the rejected alternative(s), and why — or accept/edit/dismiss a background-drafted one. Use when the user types `/wb-decide` (optionally with a one-line hint), or says "record that decision", "log this decision", "note that we decided", "write that down in Decisions"; also when a `[wb-capture] …` nudge line shows up in context pointing here. Subcommands `/wb-decide shelved` (review shelved drafts), `/wb-decide dismiss`, `/wb-decide mute`, `/wb-decide unmute`, `/wb-decide status` control the auto-capture nudge. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only via `wb append`; never Edit/Write the task file.
 ---
 
 # wb-decide
@@ -54,7 +54,7 @@ If the argument is exactly `dismiss`, `mute`, `unmute` or `status`, run:
 ```
 
 Report its output in one line (or say it printed nothing — a silent no-op)
-and stop. Nothing else in this skill applies. The argument `parked` is not a
+and stop. Nothing else in this skill applies. The argument `shelved` is not a
 passthrough: run step 1, then follow step 2b. Any other argument is a
 free-text hint for the default mode below.
 
@@ -84,7 +84,7 @@ Running `status` also marks a pending draft as **under review**: the nudge
 carries over to the next turn instead of counting as ignored, so a review that
 spans several messages (edits, questions) is fine and resolves once. After
 four carried turns with no record or dismiss it counts as abandoned and is
-struck like an ignored nudge (still parked, never deleted).
+struck like an ignored nudge (still shelved, never deleted).
 
 Take the **draft-review path** only when a draft is present (status names a
 draft file) **and** one of these holds:
@@ -110,27 +110,27 @@ the nudge) and say so in one line; if not, accept or edit as usual.
 Otherwise go straight to composing (step 3) and **leave the draft alone** (do
 not dismiss it): a phrase nudge sent you here, the user's hint names a
 specific decision, or there is no draft. A draft you skipped stays pending;
-the hooks re-nudge it once more if it is ignored, then park it (see
+the hooks re-nudge it once more if it is ignored, then shelve it (see
 step 2b) — a draft is never deleted without the user's accept or dismiss.
 
-### 2b. Parked drafts
+### 2b. Shelved drafts
 
-`status` ends with one `parked: <path>` line per parked draft of this task
-(`(stale)` = the task file changed while it was drafted), or `parked: none`. A
-draft gets parked when its nudge was ignored twice, or the session ended or was
-reaped with it pending; nothing nudges a parked draft, so it waits for the user.
-When the user asks (`/wb-decide parked`, "what's parked"), review them **one at
+`status` ends with one `shelved: <path>` line per shelved draft of this task
+(`(stale)` = the task file changed while it was drafted), or `shelved: none`. A
+draft gets shelved when its nudge was ignored twice, or the session ended or was
+reaped with it pending; nothing nudges a shelved draft, so it waits for the user.
+When the user asks (`/wb-decide shelved`, "what's shelved"), review them **one at
 a time**: Read the draft (and for a stale one compare it with the newest
 `## Decisions` entries), then
 
 - **accept / edit** — compose and `wb append` as in steps 3-4, then
-  `~/.config/scripts/tmux/wb-capture.sh unpark <path>` (deletes it, logs `followed`);
+  `~/.config/scripts/tmux/wb-capture.sh accept <path>` (deletes it, logs `followed`);
 - **reject** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (deletes it,
   logs `dismissed`).
 
-Never delete a parked file by hand; `unpark`/`dismiss` refuse any path outside
-this task's parked dir. Step 5's `clear` is for the
-session's own pending draft, not parked ones.
+Never delete a shelved file by hand; `accept`/`dismiss` refuse any path outside
+this task's shelved dir. Step 5's `clear` is for the
+session's own pending draft, not shelved ones.
 
 ### 3. Compose the entry
 
@@ -210,8 +210,8 @@ line: `Recorded to ## Decisions.`
 - [ ] **Multi-message review:** `status` marked the draft under review; the
   user asks questions / requests edits over several turns — the nudge isn't
   counted ignored, one `followed` (or `dismissed`) results.
-- [ ] **Parked drafts:** `status` lists `parked:` lines; `/wb-decide parked`
-  reviews them one at a time — accept/edit → `wb append` → `unpark <path>`,
+- [ ] **Shelved drafts:** `status` lists `shelved:` lines; `/wb-decide shelved`
+  reviews them one at a time — accept/edit → `wb append` → `accept <path>`,
   reject → `dismiss <path>`; never a hand `rm`.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
   is already recorded) — `wb-capture.sh dismiss`, say so, no write.

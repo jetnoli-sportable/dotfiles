@@ -38,11 +38,11 @@ does.
    muted, when a draft is already pending, when nothing new was said, or
    after 3 failed runs in a row (`claude` missing, logged out or rate-limited).
    A draft nudge that is ignored is delivered once more; ignored a second
-   time, the draft is **parked** (logged `draft_parked`), not deleted, and
+   time, the draft is **shelved** (logged `draft_shelved`), not deleted, and
    sweeping resumes. A draft is only ever removed by your accept or dismiss.
 5. Session end writes a tombstone (and logs `pending_at_end` if something
-   was still unrecorded) and parks a pending draft; an hourly reaper cleans
-   up old state dirs, parking any draft it finds first.
+   was still unrecorded) and shelves a pending draft; an hourly reaper cleans
+   up old state dirs, shelving any draft it finds first.
 
 Every nudge resolves exactly once: `followed`, `dismissed` or `ignored`.
 
@@ -54,13 +54,13 @@ resolves once, when the entry is recorded (`followed`) or dismissed. After
 four carried turns with neither, the review counts as abandoned and is
 struck like an ignored nudge.
 
-**Parked drafts.** A parked draft waits in
-`~/.local/state/wb/capture/parked/<task>/` (it outlives the session) until
-you decide. `/wb-decide status` lists them (`parked: <path>`), `/wb-decide
-parked` walks through them one at a time, and `/close-out` asks about each
+**Shelved drafts.** A shelved draft waits in
+`~/.local/state/wb/capture/shelved/<task>/` (it outlives the session) until
+you decide. `/wb-decide status` lists them (`shelved: <path>`), `/wb-decide
+shelved` walks through them one at a time, and `/close-out` asks about each
 before a task winds down. Accepting records it and runs `wb-capture.sh
-unpark <path>`; rejecting runs `wb-capture.sh dismiss <path>`. Phrase
-nudges carry no draft, so ignoring one parks nothing.
+accept <path>`; rejecting runs `wb-capture.sh dismiss <path>`. Phrase
+nudges carry no draft, so ignoring one shelves nothing.
 
 **The two nudge lines** (what Claude sees, verbatim):
 
@@ -119,8 +119,8 @@ Check the machinery any time:
 | draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone (a later `clear` still removes it). |
 | `/wb-decide dismiss` | Drop the pending marker/draft, log `dismissed`. Quiet no-op if nothing was pending. |
 | `/wb-decide mute` / `unmute` | Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged. |
-| `/wb-decide status` | Print pending marker/draft (with paths), mute state, the log path, and this task's parked drafts; for a stale draft, a warning plus the Decisions entries added since the snapshot. Also marks a pending draft as under review. |
-| `/wb-decide parked` | Walk this task's parked drafts one at a time: accept/edit (record, then `unpark <path>`) or reject (`dismiss <path>`). |
+| `/wb-decide status` | Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts; for a stale draft, a warning plus the Decisions entries added since the snapshot. Also marks a pending draft as under review. |
+| `/wb-decide shelved` | Walk this task's shelved drafts one at a time: accept/edit (record, then `accept <path>`) or reject (`dismiss <path>`). |
 
 Entries are append-only; a correction is a new entry carrying a
 `(supersedes: <date> "<title fragment>")` line that names the one it replaces
@@ -137,8 +137,8 @@ exactly `EOF` can't end it early.
 | Event log | `~/.local/state/wb/capture/log.jsonl` (rotated to `log.jsonl.1` above 5 MB) |
 | Config (optional, untracked) | `~/.config/wb/capture.conf` |
 | Kill switch | `~/.local/state/wb/disable-capture` |
-| Parked drafts | `~/.local/state/wb/capture/parked/<task-stem>/<timestamp>-<session>.md` (a `.stale` sidecar marks a stale one) |
-| Script | `~/.config/scripts/tmux/wb-capture.sh` (verbs: `hook-*`, `clear`, `dismiss [<parked path>]`, `unpark <parked path>`, `mute`, `unmute`, `status`); sweep in `wb-capture-sweep.sh` |
+| Shelved drafts | `~/.local/state/wb/capture/shelved/<task-stem>/<timestamp>-<session>.md` (a `.stale` sidecar marks a stale one) |
+| Script | `~/.config/scripts/tmux/wb-capture.sh` (verbs: `hook-*`, `clear`, `dismiss [<shelved path>]`, `accept <shelved path>`, `mute`, `unmute`, `status`); sweep in `wb-capture-sweep.sh` |
 
 **Config keys** — `KEY=value` lines in `capture.conf`, parsed line by line
 (never sourced), unknown keys and bad values ignored/defaulted:
@@ -158,10 +158,10 @@ exactly `EOF` can't end it early.
 `sweep_ran{result: none|draft|error|timeout}` (`rerun: true` when `## Decisions`
 changed during the first run and Haiku was asked again; `stale: true` when it
 changed again during the rerun; `followed`, `dismissed`, `ignored` and
-`draft_parked` carry `stale: true` too when they resolve a stale draft),
+`draft_shelved` carry `stale: true` too when they resolve a stale draft),
 `sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}`,
-`draft_parked{reason: ignored_twice|session_end|reaped}`, and `followed` /
-`dismissed` with `source: parked` when a parked draft is accepted or rejected,
+`draft_shelved{reason: ignored_twice|session_end|reaped}`, and `followed` /
+`dismissed` with `source: shelved` when a shelved draft is accepted or rejected,
 `pending_at_end{marker,draft}` (from SessionEnd; the sweep logs it as just
 `{draft:true}` when the session ended while Haiku was still running),
 `pending_orphaned`.

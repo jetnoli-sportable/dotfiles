@@ -109,10 +109,10 @@ If the task file already has this filled in from earlier in the session
 (e.g. a mid-session `/wb-save` already wrote rich `## Decisions` content),
 don't duplicate — extend only where the sweep in step 2 added something new.
 
-Then check for **parked decision drafts** — background-drafted decisions nobody
+Then check for **shelved decision drafts** — background-drafted decisions nobody
 accepted or dismissed. Run `~/.config/scripts/tmux/wb-capture.sh status`; for
-each `parked:` line listed, Read it, show it to the user, and ask: accept/edit
-(→ `wb append <task> Decisions -`, then `wb-capture.sh unpark <path>`) or
+each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
+(→ `wb append <task> Decisions -`, then `wb-capture.sh accept <path>`) or
 dismiss (→ `wb-capture.sh dismiss <path>`). Never drop one silently; a
 `(stale)` one may already be recorded, so compare it with the newest
 `## Decisions` entries first.
