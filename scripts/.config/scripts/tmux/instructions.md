@@ -221,11 +221,9 @@ concurrency-safety pieces the 2026-07-11/12 plan added on top of them:
 
 - `wb-locks.sh` — the per-task-file `flock` side-car lock module, sourced
   by `wb.sh` and `handoff.sh`.
-- `tasks-git-hooks/` — three scripts: `pretooluse-guard.sh` (Claude Code
-  `PreToolUse` "ask" hook), `reference-transaction` (the `core.hooksPath`
-  git hook that refuses history-orphaning ref updates), and
-  `replay-refusals.sh` (read-only X7 replay tool for the git hook's
-  enablement gate).
+- `tasks-git-hooks/` — two scripts: `pretooluse-guard.sh` (Claude Code
+  `PreToolUse` "ask" hook) and `reference-transaction` (the
+  `core.hooksPath` git hook that refuses history-orphaning ref updates).
 - New `wb` verbs: `wb unsafe-rewind`, `wb append`, `wb install-hooks`.
 
 Full reference — the three-layer model, coverage matrix, a command traced

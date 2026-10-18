@@ -5219,15 +5219,15 @@ cmd_week() {
 # checkout of $TASKS_DIR needs to actually find the file at runtime, not a
 # dotfiles-repo-relative path), hardens gc/reflog retention (X5) so a
 # sentinel-blessed rewind stays recoverable by policy rather than GC luck,
-# pre-creates the git-hook kill-switch (X4) unless the X7 replay tool has
-# already recorded an accepting run, and VERIFIES (never edits — Decision
+# pre-creates the git-hook kill-switch (X4) unless the operator has marked
+# the hook as deliberately enabled, and VERIFIES (never edits — Decision
 # 4A) the live ~/.claude/settings.json's PreToolUse entry against the
 # tracked reference copy in claude/.claude/settings.recommended.json.
 # ---------------------------------------------------------------------------
 
 # cmd_install_hooks — no arguments. Every step is safe to re-run: git config
 # writes are naturally idempotent for a single value, the switch file is
-# only ever created when both the replay marker is absent AND it isn't
+# only ever created when both the enabled marker is absent AND it isn't
 # already there, and the settings check only ever reads.
 cmd_install_hooks() {
   local hooks_dir="$HOME/.config/scripts/tmux/tasks-git-hooks"
@@ -5257,12 +5257,13 @@ cmd_install_hooks() {
   [ "$cur" = "$reflog_span" ] || changed=1
   git -C "$TASKS_DIR" config gc.reflogExpireUnreachable "$reflog_span"
 
-  # 3. X4 kill-switch: pre-create disable-git-hook UNLESS the X7 replay
-  # tool has already left its replay-passed marker — checked FIRST, every
-  # run, so an idempotent re-run after a human deliberately enabled the
-  # hook (rm'd the switch post-replay) never silently re-disables it. Never
-  # remove an existing switch file here — that's the replay tool's/
-  # operator's job elsewhere, not this verb's.
+  # 3. X4 kill-switch: pre-create disable-git-hook UNLESS the optional
+  # replay-passed marker exists — checked FIRST, every run, so an
+  # idempotent re-run after a human deliberately enabled the hook (rm'd the
+  # switch, touched the marker) never silently re-disables it. The marker
+  # is hand-made (`touch`); its name predates the retired replay tool that
+  # used to write it. Never remove an existing switch file here — that's
+  # the operator's job, not this verb's.
   local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
   local wb_state_dir="$state_home/wb"
   local replay_marker="$wb_state_dir/replay-passed"
@@ -5277,7 +5278,7 @@ cmd_install_hooks() {
     else
       : > "$switch_file"
       changed=1
-      switch_msg="git-hook switch file created (hook installed but dormant until the X7 replay passes)"
+      switch_msg="git-hook switch file created (hook installed but dormant — to enable: rm $switch_file && touch $replay_marker)"
     fi
   fi
 
