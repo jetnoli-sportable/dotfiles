@@ -295,20 +295,21 @@ for word, in `docs/archive/`.
 
 ## Architecture direction
 
-**One schema owner for the task store.** Today every `wb` verb, skill and
-agent reads and writes frontmatter its own way. The ratified order (parked
-item 7, 2026-09-14) is:
+**A Go store package plus bash glue, cleanup first.** Settled by Jet on
+2026-10-17 in `dotfiles--wb-future-direction`, which replaced the old
+schema-owner family (`dotfiles--feat-task-store-schema-owner` and
+`dotfiles--feat-task-store-json-read`, both now closed).
 
-1. **`--json` on `wb` read commands.** Agents stop scraping human-formatted output. → `dotfiles--feat-task-store-json-read` <span class="chip acc">planned</span>
-2. **A single frontmatter read/write module** that every verb goes through. The `store-specialist` subagent (#63) is already a partial single owner on the agent side; this step decides how the two relate.
-3. **The schema migration**, run through that module. It's much smaller than it was: every `status:` value is now valid. The empty-key backfill for `parent`/`closed`/`depends_on` is in the quick-fix batch. What's left is deciding whether `size`/`priority`/`value` (missing from ~70–75% of files) are required with empty defaults or genuinely optional.
-4. **Read-only HTTP** over the store.
-5. **MCP last**, and only for mutating operations.
+- **Shape:** a hybrid, not a full rewrite. A Go package owns everything
+  that touches the task files (parse, model, JSON and board reads). Bash
+  stays where it fits: tmux, worktree and fzf glue.
+- **Order:** delete features first (the 2026-10-18 deletion pass,
+  `dotfiles--wb-deletion-pass`), then the Go store and task page.
+- **Plan:** `docs/plans/2026-10-17-2223-feat-wb-go-store-and-task-page-plan.md`.
 
-All of this is held by the parent task `dotfiles--feat-task-store-schema-owner`,
-which gets split with `/wb-breakdown` as each step comes up. **Already fixed:**
-the `CODE_DIR` sourcing hazard behind the 2026-07-10 deletion incident.
-`wb.sh` now only sets it if unset (`CODE_DIR="${CODE_DIR:-$HOME/code}"`).
+**Already fixed:** the `CODE_DIR` sourcing hazard behind the 2026-07-10
+deletion incident. `wb.sh` now only sets it if unset
+(`CODE_DIR="${CODE_DIR:-$HOME/code}"`).
 
 ## Next up
 

@@ -755,20 +755,21 @@ for word, in <code>docs/archive/</code>.</p>
     <p><code>~/code/tasks</code> and <code>~/code/notes</code> stay separate repos (the "everything is a note" north star is parked). The "(F4)" mystery was traced. The <b>personal/employer boundary rule</b> is deliberately left as the last decision. <a href="archive/roadmap-open-questions.html">archived note</a></p></div>
 </div>
 <h2 id="architecture-direction">Architecture direction</h2>
-<p><strong>One schema owner for the task store.</strong> Today every <code>wb</code> verb, skill and
-agent reads and writes frontmatter its own way. The ratified order (parked
-item 7, 2026-09-14) is:</p>
-<ol>
-<li><strong><code>--json</code> on <code>wb</code> read commands.</strong> Agents stop scraping human-formatted output. → <code>dotfiles--feat-task-store-json-read</code> <span class="chip acc">planned</span></li>
-<li><strong>A single frontmatter read/write module</strong> that every verb goes through. The <code>store-specialist</code> subagent (#63) is already a partial single owner on the agent side; this step decides how the two relate.</li>
-<li><strong>The schema migration</strong>, run through that module. It's much smaller than it was: every <code>status:</code> value is now valid. The empty-key backfill for <code>parent</code>/<code>closed</code>/<code>depends_on</code> is in the quick-fix batch. What's left is deciding whether <code>size</code>/<code>priority</code>/<code>value</code> (missing from ~70–75% of files) are required with empty defaults or genuinely optional.</li>
-<li><strong>Read-only HTTP</strong> over the store.</li>
-<li><strong>MCP last</strong>, and only for mutating operations.</li>
-</ol>
-<p>All of this is held by the parent task <code>dotfiles--feat-task-store-schema-owner</code>,
-which gets split with <code>/wb-breakdown</code> as each step comes up. <strong>Already fixed:</strong>
-the <code>CODE_DIR</code> sourcing hazard behind the 2026-07-10 deletion incident.
-<code>wb.sh</code> now only sets it if unset (<code>CODE_DIR=&quot;${CODE_DIR:-$HOME/code}&quot;</code>).</p>
+<p><strong>A Go store package plus bash glue, cleanup first.</strong> Settled by Jet on
+2026-10-17 in <code>dotfiles--wb-future-direction</code>, which replaced the old
+schema-owner family (<code>dotfiles--feat-task-store-schema-owner</code> and
+<code>dotfiles--feat-task-store-json-read</code>, both now closed).</p>
+<ul>
+<li><strong>Shape:</strong> a hybrid, not a full rewrite. A Go package owns everything
+that touches the task files (parse, model, JSON and board reads). Bash
+stays where it fits: tmux, worktree and fzf glue.</li>
+<li><strong>Order:</strong> delete features first (the 2026-10-18 deletion pass,
+<code>dotfiles--wb-deletion-pass</code>), then the Go store and task page.</li>
+<li><strong>Plan:</strong> <code>docs/plans/2026-10-17-2223-feat-wb-go-store-and-task-page-plan.md</code>.</li>
+</ul>
+<p><strong>Already fixed:</strong> the <code>CODE_DIR</code> sourcing hazard behind the 2026-07-10
+deletion incident. <code>wb.sh</code> now only sets it if unset
+(<code>CODE_DIR=&quot;${CODE_DIR:-$HOME/code}&quot;</code>).</p>
 <h2 id="next-up">Next up</h2>
 <p>The old &quot;Next up&quot; list, re-checked 2026-09-22. None of the three items had
 landed. Each is now either in the quick-fix batch or a task with its open

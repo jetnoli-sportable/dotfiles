@@ -26,6 +26,15 @@ assert() { # <desc> <expected-regex> <actual>
     fail=1
   fi
 }
+assert_not() { # <desc> <regex> <actual> — passes when <regex> does NOT match
+  if printf '%s' "$3" | grep -qE "$2"; then
+    echo "FAIL - $1"
+    echo "       unexpected match: $2"
+    fail=1
+  else
+    echo "ok   - $1"
+  fi
+}
 assert_eq() { # <desc> <expected> <actual>
   if [ "$2" = "$3" ]; then
     echo "ok   - $1"
@@ -130,7 +139,7 @@ out="$(cmd_set "set-e" parent proj--set-parent 2>&1)"; rc=$?
 assert_eq "parent exists: exit 0" 0 "$rc"
 content="$(cat "$TASKS_DIR/proj--set-e.md")"
 assert "parent exists: frontmatter updated" '^parent: proj--set-parent$' "$content"
-assert "parent exists: Handoffs entry appended (structural)" 'wb set \(auto\)' "$content"
+assert_not "parent exists: no Handoffs entry appended" 'wb set \(auto\)' "$content"
 
 out="$(cmd_set "set-e" parent proj--nonexistent 2>&1)"; rc=$?
 assert_eq "parent missing: exit 1" 1 "$rc"
@@ -174,7 +183,7 @@ out="$(cmd_set "set-f" depends_on "proj--set-dep1,proj--set-dep2" 2>&1)"; rc=$?
 assert_eq "depends_on valid list: exit 0" 0 "$rc"
 content="$(cat "$TASKS_DIR/proj--set-f.md")"
 assert "depends_on valid list: frontmatter updated" '^depends_on: proj--set-dep1,proj--set-dep2$' "$content"
-assert "depends_on valid list: Handoffs entry appended (structural)" 'wb set \(auto\)' "$content"
+assert_not "depends_on valid list: no Handoffs entry appended" 'wb set \(auto\)' "$content"
 
 mk_task "proj--set-g.md" set-g
 out="$(cmd_set "set-g" depends_on "proj--set-dep1,proj--nonexistent" 2>&1)"; rc=$?
@@ -211,8 +220,7 @@ assert "refuses worktree: message" "not settable via" "$out"
 
 # =============================================================================
 # Scenario: branch is settable (a seeded slash name `wb new` adopts as the git
-# branch), validated as a real branch name, logged in Handoffs like the other
-# structural fields.
+# branch), validated as a real branch name.
 # =============================================================================
 
 mk_task "proj--set-br.md" set-br
@@ -220,7 +228,7 @@ out="$(cmd_set "set-br" branch feat/set-br 2>&1)"; rc=$?
 assert_eq "branch valid: exit 0" 0 "$rc"
 assert "branch valid: confirmation" "proj--set-br\.md branch 'set-br' -> 'feat/set-br'" "$out"
 assert_eq "branch valid: frontmatter updated" "feat/set-br" "$(wb_get_frontmatter "$TASKS_DIR/proj--set-br.md" branch)"
-assert "branch valid: Handoffs entry appended" '`branch:` set to `feat/set-br`' "$(cat "$TASKS_DIR/proj--set-br.md")"
+assert_not "branch valid: no Handoffs entry appended" 'wb set \(auto\)' "$(cat "$TASKS_DIR/proj--set-br.md")"
 
 for bad in 'has space' 'a..b' '-lead' 'trail/' 'x.lock' '@{-1}' 'we?ird'; do
   out="$(cmd_set "set-br" branch "$bad" 2>&1)"; rc=$?
@@ -283,9 +291,8 @@ after_mtime="$(stat -c %Y "$TASKS_DIR/proj--set-i.md" 2>/dev/null || stat -f %m 
 assert_eq "no-op: file not rewritten (mtime unchanged)" "$before_mtime" "$after_mtime"
 
 # =============================================================================
-# Scenario: structural vs noise Handoffs — priority/value/size/tags changes
-# append no Handoffs entry (covered above for priority; spot-check size and
-# tags here), while jira (structural) does.
+# Scenario: no field appends a Handoffs entry — spot-check size, tags and
+# jira (priority is covered above).
 # =============================================================================
 
 mk_task "proj--set-j.md" set-j
@@ -310,7 +317,7 @@ fi
 out="$(cmd_set "set-j" jira "https://example.atlassian.net/browse/SFB-2" 2>&1)"; rc=$?
 assert_eq "jira structural: exit 0" 0 "$rc"
 content="$(cat "$TASKS_DIR/proj--set-j.md")"
-assert "jira structural: Handoffs entry appended" 'wb set \(auto\)' "$content"
+assert_not "jira: no Handoffs entry appended" 'wb set \(auto\)' "$content"
 
 # =============================================================================
 # Scenario: R26 canonical `tags:` — list form, idempotent across input
@@ -449,11 +456,10 @@ assert_eq "--unset parent: exit 0" 0 "$rc"
 assert "--unset parent: confirmation says cleared" "parent 'proj--unset-mum' -> \\(cleared\\)" "$out"
 content="$(cat "$TASKS_DIR/proj--unset-parent.md")"
 assert "--unset parent: frontmatter value is empty" '^parent:[[:space:]]*$' "$content"
-assert "--unset parent: Handoffs records the clear" 'cleared via .wb set --unset.' "$content"
+assert_not "--unset parent: no Handoffs entry appended" 'wb set \(auto\)' "$content"
 
 # =============================================================================
-# Scenario: --unset on a noise field writes no Handoffs entry, matching the
-# same signal-over-noise split cmd_set already applies to real values.
+# Scenario: --unset on priority writes no Handoffs entry either.
 # =============================================================================
 
 mk_task "proj--unset-prio.md" unset-prio
@@ -482,8 +488,7 @@ assert_eq "--unset no-op: file untouched" "$before" "$(cat "$TASKS_DIR/proj--uns
 # =============================================================================
 # Scenario: --unset on a field whose key is MISSING entirely materialises it
 # as an empty line (the schema-backfill path: every optional key present,
-# value blank). Nothing semantically changed, so no Handoffs entry even for
-# a structural field.
+# value blank).
 # =============================================================================
 
 mk_task "proj--unset-missing.md" unset-missing

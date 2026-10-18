@@ -31,9 +31,10 @@ set -uo pipefail
 state="${1:-}"
 
 # X4 kill-switch, checked before anything else (even the state gate). Ships
-# pre-created by a later rollout unit, so this hook installs but stays
-# dormant until a human deliberately deletes the file after validating this
-# logic against real repo history (X7 replay). We only implement the check.
+# pre-created by `wb install-hooks`, so this hook installs but stays
+# dormant until a human deliberately deletes the file and touches the
+# replay-passed marker beside it (without the marker, the next
+# `wb install-hooks` re-creates the switch). We only implement the check.
 kill_switch="${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook"
 if [ -e "$kill_switch" ]; then
   exit 0

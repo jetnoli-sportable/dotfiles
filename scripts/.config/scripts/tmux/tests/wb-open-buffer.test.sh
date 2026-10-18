@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests for `wb_open_buffer`'s WB_REVIEW_BUFFER=1 env-var signal
-# (dotfiles--fix-wb-sweep-buffer-autoformat) — the tmux branch needs a real
-# attached client to exercise end-to-end, but the non-tmux $EDITOR fallback
-# branch (wb.sh:896) doesn't: a fixture $EDITOR that just dumps its own
-# environment lets us call the real, unstubbed wb_open_buffer and assert
-# the flag actually reached the child process, closing the gap every other
-# wb_open_buffer-touching test leaves open by stubbing it to a no-op.
+# Tests for `wb_open_buffer`: a missing shared open-buffer.sh is a hard error
+# naming the stow command, and the non-tmux path hands off to the script's
+# --direct mode with the WB_REVIEW_BUFFER=1 env-var signal
+# (dotfiles--fix-wb-sweep-buffer-autoformat) reaching the editor. A fixture
+# $EDITOR that just dumps its own environment lets us call the real,
+# unstubbed wb_open_buffer; a fixture $HOME controls whether the script is
+# "stowed".
 # Run: bash scripts/.config/scripts/tmux/tests/wb-open-buffer.test.sh
 set -uo pipefail
 
@@ -40,12 +40,35 @@ chmod +x "$FIXTURE/fake-editor.sh"
 SCRATCH="$FIXTURE/scratch.md"
 echo "placeholder" > "$SCRATCH"
 
-# --- non-tmux fallback branch: WB_REVIEW_BUFFER=1 must reach the editor ------
-env -u TMUX -u TMUX_PANE EDITOR="$FIXTURE/fake-editor.sh" bash -c '
+REPO_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)/claude/.claude/skills/decision-buffer/scripts/open-buffer.sh"
+
+# --- script missing: hard error naming the stow command, editor never runs --
+EMPTY_HOME="$FIXTURE/home-empty"
+mkdir -p "$EMPTY_HOME"
+err="$(env -u TMUX -u TMUX_PANE HOME="$EMPTY_HOME" EDITOR="$FIXTURE/fake-editor.sh" bash -c '
+  source "'"$WB"'"
+  set +e
+  wb_open_buffer "'"$SCRATCH"'"
+  echo "rc=$?"
+' 2>&1)"
+assert "missing script: returns non-zero" 'rc=1' "$err"
+# shellcheck disable=SC2016  # a literal $HOME in the expected message
+assert "missing script: names the stow command" 'stow --no-folding -t "\$HOME" claude' "$err"
+if [ -e "$ENV_CAPTURE" ]; then
+  echo "FAIL - missing script: editor ran anyway"; fail=1
+else
+  echo "ok   - missing script: editor never ran"
+fi
+
+# --- script stowed, non-tmux: --direct, WB_REVIEW_BUFFER=1 reaches the editor
+STOWED_HOME="$FIXTURE/home-stowed"
+mkdir -p "$STOWED_HOME/.claude/skills/decision-buffer/scripts"
+ln -s "$REPO_SCRIPT" "$STOWED_HOME/.claude/skills/decision-buffer/scripts/open-buffer.sh"
+env -u TMUX -u TMUX_PANE HOME="$STOWED_HOME" EDITOR="$FIXTURE/fake-editor.sh" bash -c '
   source "'"$WB"'"
   wb_open_buffer "'"$SCRATCH"'"
 '
-assert "non-tmux branch: WB_REVIEW_BUFFER=1 reached the editor process" \
+assert "non-tmux: WB_REVIEW_BUFFER=1 reached the editor process" \
   '^WB_REVIEW_BUFFER=1$' "$(cat "$ENV_CAPTURE" 2>/dev/null)"
 
 echo

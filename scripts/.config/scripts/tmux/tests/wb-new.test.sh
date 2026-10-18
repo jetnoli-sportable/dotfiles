@@ -128,7 +128,7 @@ assert_eq "self-referential --parent: exit code 1" 1 "$code"
 parent_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--self-ref.md" parent)"
 assert_eq "self-referential --parent: parent: was never set" "" "$parent_val"
 
-# --- U3: --path / --depends-on (wb-board-display, R5/R19) -------------------
+# --- U3: --depends-on, blank-filled path: (wb-board-display, R5/R19) --------
 
 # no flags at all -> path: is blank (not a literal default string), and the
 # key line itself is actually present (blank-fill convention, not just
@@ -144,26 +144,14 @@ assert_eq "no flags: depends_on: is blank" "" "$depends_val"
 grep -qE '^depends_on:' "$FIXTURE_TASKS/proj--path-none.md"
 assert_eq "no flags: depends_on: key line was actually inserted" 0 $?
 
-# --path work,review -> stored exactly as passed, no reordering/dedup (that's
-# the render-time parser's job, not creation-time's).
-cmd_new proj path-wr --path work,review >/dev/null 2>&1
-tmux kill-session -t "=proj--path-wr" 2>/dev/null
-path_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--path-wr.md" path)"
-assert_eq "--path work,review: path: stored exactly" "work,review" "$path_val"
-
-# --path bogus -> loud failure, exit non-zero, NOTHING created (worktree dir,
-# task file, tmux session — all three).
-out="$(cmd_new proj path-bad --path bogus 2>&1)"; code=$?
-assert "--path bogus: clean error naming the bad token" \
-  "wb new: --path has unknown stage 'bogus'" "$out"
-assert_eq "--path bogus: exit code 1" 1 "$code"
-[ -d "$FIXTURE_CODE/proj/.worktrees/path-bad" ] && { echo "FAIL - --path bogus: worktree should not have been created"; fail=1; } \
-  || echo "ok   - --path bogus: no worktree created"
-[ -f "$FIXTURE_TASKS/proj--path-bad.md" ] && { echo "FAIL - --path bogus: task file should not have been created"; fail=1; } \
-  || echo "ok   - --path bogus: no task file created"
-tmux has-session -t "=proj--path-bad" 2>/dev/null \
-  && { echo "FAIL - --path bogus: tmux session should not have been created"; fail=1; } \
-  || echo "ok   - --path bogus: no tmux session created"
+# --path / --size were removed from wb new (wb set covers both): either flag
+# now fails the positional count, and nothing is created.
+for flag in --path --size; do
+  out="$(cmd_new "$flag" X proj flag-gone 2>&1)"; code=$?
+  assert_eq "$flag: no longer accepted (exit 1)" 1 "$code"
+  [ -f "$FIXTURE_TASKS/proj--flag-gone.md" ] && { echo "FAIL - $flag: task file should not have been created"; fail=1; } \
+    || echo "ok   - $flag: no task file created"
+done
 
 # --depends-on <real-stem> -> depends_on: written with that stem.
 cmd_new proj dep-one --depends-on proj--existing >/dev/null 2>&1
@@ -219,67 +207,15 @@ tmux kill-session -t "=proj--dep-done" 2>/dev/null
 depends_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--dep-done.md" depends_on)"
 assert_eq "--depends-on <done stem>: accepted, recorded" "proj--done-task" "$depends_val"
 
-# --- size-depends-capture U5: --size ----------------------------------------
+# --- size-depends-capture U5: blank-filled size: ---------------------------
 
-# --size L -> size: L written; validated via the shared _wb_valid_size enum.
-cmd_new proj size-l --size L >/dev/null 2>&1
-tmux kill-session -t "=proj--size-l" 2>/dev/null
-size_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-l.md" size)"
-assert_eq "--size L: size: recorded" "L" "$size_val"
-
-# --size XS -> the smallest bucket (added with the family DAG view's
-# critical-path weights) is legal too.
-cmd_new proj size-xs --size XS >/dev/null 2>&1
-tmux kill-session -t "=proj--size-xs" 2>/dev/null
-assert_eq "--size XS: size: recorded" "XS" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-xs.md" size)"
-
-# no --size -> size: key present but blank (blank-fill convention, same as
+# size: key present but blank (blank-fill convention, same as
 # path:/depends_on:) — the fixture TEMPLATE.md has no size: line at all, so
 # this also proves the key gets INSERTED, not just left absent.
 size_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--path-none.md" size)"
-assert_eq "no --size: size: is blank" "" "$size_val"
+assert_eq "no flags: size: is blank" "" "$size_val"
 grep -qE '^size:' "$FIXTURE_TASKS/proj--path-none.md"
-assert_eq "no --size: size: key line was actually inserted" 0 $?
-
-# --size XXL -> loud failure before any worktree/session/task file.
-out="$(cmd_new proj size-bad --size XXL 2>&1)"; code=$?
-assert "--size XXL: clean error naming --size and the enum" "wb new: --size 'XXL' is not one of XS\|S\|M\|L\|XL" "$out"
-assert_eq "--size XXL: exit code 1" 1 "$code"
-[ -d "$FIXTURE_CODE/proj/.worktrees/size-bad" ] && { echo "FAIL - --size XXL: worktree should not have been created"; fail=1; } \
-  || echo "ok   - --size XXL: no worktree created"
-[ -f "$FIXTURE_TASKS/proj--size-bad.md" ] && { echo "FAIL - --size XXL: task file should not have been created"; fail=1; } \
-  || echo "ok   - --size XXL: no task file created"
-tmux has-session -t "=proj--size-bad" 2>/dev/null \
-  && { echo "FAIL - --size XXL: tmux session should not have been created"; fail=1; } \
-  || echo "ok   - --size XXL: no tmux session created"
-
-# lowercase is rejected too (strict uppercase enum, no normalization).
-out="$(cmd_new proj size-lower --size m 2>&1)"; code=$?
-assert_eq "--size m (lowercase): exit code 1" 1 "$code"
-[ -f "$FIXTURE_TASKS/proj--size-lower.md" ] && { echo "FAIL - --size m: task file should not have been created"; fail=1; } \
-  || echo "ok   - --size m: no task file created"
-
-# --size with no value / followed by another flag -> "requires a value".
-out="$(cmd_new proj size-noval --size 2>&1)"; code=$?
-assert "--size with no value: requires-a-value error" "wb new: --size requires a value" "$out"
-assert_eq "--size with no value: exit code 1" 1 "$code"
-out="$(cmd_new proj size-flag --size --agent 2>&1)"; code=$?
-assert "--size followed by a flag: requires-a-value error" "wb new: --size requires a value" "$out"
-assert_eq "--size followed by a flag: exit code 1" 1 "$code"
-
-# --size composes with --depends-on / --path (regression: neither changes).
-cmd_new proj size-combo --size XL --path work,review --depends-on proj--existing >/dev/null 2>&1
-tmux kill-session -t "=proj--size-combo" 2>/dev/null
-assert_eq "--size + --path + --depends-on: size: XL" "XL" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-combo.md" size)"
-assert_eq "--size + --path + --depends-on: path: unchanged behavior" "work,review" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-combo.md" path)"
-assert_eq "--size + --path + --depends-on: depends_on: unchanged behavior" "proj--existing" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-combo.md" depends_on)"
-
-# --planned --size S -> honored on the worktree-less path too (R7: every
-# creation path). No blank-fill there: a planned seed without --size leaves
-# the template's own (absent, in this fixture) size: line alone.
-cmd_new --planned --size S proj size-planned >/dev/null 2>&1
-assert_eq "--planned --size S: size: S on the planned path" "S" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-planned.md" size)"
-assert_eq "--planned --size S: status stays planned" "planned" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-planned.md" status)"
+assert_eq "no flags: size: key line was actually inserted" 0 $?
 
 # --prospective (R25/KTD4) -> same worktree-less/session-less path as
 # --planned, but status: prospective instead of status: planned, and no
@@ -308,29 +244,16 @@ tmux kill-session -t "=proj--prospective-a" 2>/dev/null
 assert_eq "existing prospective: flag-less re-run does not advance status" \
   "prospective" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--prospective-a.md" status)"
 
-# existing task file with size: already set -> a flag-less re-run does NOT
-# overwrite it; an explicit --size <other> DOES.
-cmd_new proj size-existing --size L >/dev/null 2>&1
-tmux kill-session -t "=proj--size-existing" 2>/dev/null
-cmd_new proj size-existing >/dev/null 2>&1
-tmux kill-session -t "=proj--size-existing" 2>/dev/null
-assert_eq "existing size: flag-less re-run does not overwrite" "L" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-existing.md" size)"
-cmd_new proj size-existing --size S >/dev/null 2>&1
-tmux kill-session -t "=proj--size-existing" 2>/dev/null
-assert_eq "existing size: explicit --size overwrites" "S" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--size-existing.md" size)"
-
-# existing task file with path: already set -> a flag-less `wb new` re-run
-# does NOT overwrite it; --path <other> on the same file DOES overwrite it.
-cmd_new proj path-existing --path work,review >/dev/null 2>&1
-tmux kill-session -t "=proj--path-existing" 2>/dev/null
-cmd_new proj path-existing >/dev/null 2>&1
-tmux kill-session -t "=proj--path-existing" 2>/dev/null
-path_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--path-existing.md" path)"
-assert_eq "existing path: flag-less re-run does not overwrite" "work,review" "$path_val"
-cmd_new proj path-existing --path plan >/dev/null 2>&1
-tmux kill-session -t "=proj--path-existing" 2>/dev/null
-path_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--path-existing.md" path)"
-assert_eq "existing path: explicit --path overwrites" "plan" "$path_val"
+# existing task file with size:/path: already set (as `wb set` would) -> a
+# `wb new` re-run blank-fills only, never overwrites either.
+cmd_new proj meta-existing >/dev/null 2>&1
+tmux kill-session -t "=proj--meta-existing" 2>/dev/null
+wb_set_frontmatter "$FIXTURE_TASKS/proj--meta-existing.md" size L
+wb_set_frontmatter "$FIXTURE_TASKS/proj--meta-existing.md" path work,review
+cmd_new proj meta-existing >/dev/null 2>&1
+tmux kill-session -t "=proj--meta-existing" 2>/dev/null
+assert_eq "existing size: re-run does not overwrite" "L" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--meta-existing.md" size)"
+assert_eq "existing path: re-run does not overwrite" "work,review" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--meta-existing.md" path)"
 
 # a task file predating path:/depends_on: entirely (no lines for them at all
 # in its frontmatter, not even blank ones) -> a flag-less `wb new` backfills
@@ -349,12 +272,10 @@ assert_eq "pre-existing file with no path:/depends_on: lines: depends_on: backfi
 grep -qE '^depends_on:' "$FIXTURE_TASKS/proj--legacy.md"
 assert_eq "pre-existing file with no path:/depends_on: lines: depends_on: key line inserted" 0 $?
 
-# --- regression: --parent and --agent still work alongside --path/--depends-on ---
-cmd_new --agent --parent proj--existing --path work --depends-on proj--existing proj combo-a >/dev/null 2>&1
+# --- regression: --parent and --agent still work alongside --depends-on ---
+cmd_new --agent --parent proj--existing --depends-on proj--existing proj combo-a >/dev/null 2>&1
 parent_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--combo-a.md" parent)"
 assert_eq "combined flags: parent: recorded" "proj--existing" "$parent_val"
-path_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--combo-a.md" path)"
-assert_eq "combined flags: path: recorded" "work" "$path_val"
 depends_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--combo-a.md" depends_on)"
 assert_eq "combined flags: depends_on: recorded" "proj--existing" "$depends_val"
 tmux has-session -t "=proj--combo-a:agent" 2>/dev/null
@@ -397,8 +318,8 @@ assert "resume with a transcript: pre-types claude --resume <id>" 'claude --resu
 tmux kill-session -t "=proj--feat-warm" 2>/dev/null
 
 # Regression (post-PR#52): an existing task with a Handoffs entry from an
-# AUTO verb (wb set/wb status/wb breakdown all stamp "### ... (auto)" the
-# same way wb pause does) but NO claude_sessions: field and NO transcript on
+# AUTO verb (wb breakdown stamps "### ... (auto)" the same way wb pause
+# does; older files also carry the retired wb set/wb status stamps) but NO claude_sessions: field and NO transcript on
 # disk must NOT pre-type `claude --continue` — there is nothing to
 # continue. This is exactly last night's misfire: a brand-new task
 # re-parented by `wb set` before its first `wb new --agent` used to get a
@@ -534,11 +455,10 @@ printf 'jira body line\n' | cmd_new --planned --jira https://x.atlassian.net/bro
 assert "--planned --jira --body -: lands under ## Plan" 'jira body line' "$(plan_body "$FIXTURE_TASKS/proj--body-jira.md")"
 assert_eq "--planned --jira --body -: jira: stamped" "https://x.atlassian.net/browse/SFB-1" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-jira.md" jira)"
 
-# --depends-on / --path alongside a body (the #73 half, end to end)
-printf 'dep body\n' | cmd_new --planned --depends-on proj--existing --path work --body - proj body-dep >/dev/null 2>&1
+# --depends-on alongside a body (the #73 half, end to end)
+printf 'dep body\n' | cmd_new --planned --depends-on proj--existing --body - proj body-dep >/dev/null 2>&1
 assert "--planned --depends-on + body: body lands" 'dep body' "$(plan_body "$FIXTURE_TASKS/proj--body-dep.md")"
 assert_eq "--planned --depends-on + body: depends_on: written" "proj--existing" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-dep.md" depends_on)"
-assert_eq "--planned --path + body: path: written" "work" "$(wb_get_frontmatter "$FIXTURE_TASKS/proj--body-dep.md" path)"
 
 # --body-file (with and without --jira, and --prospective)
 printf 'file body one\nfile body two\n' > "$FIXTURE_BIN/body.md"

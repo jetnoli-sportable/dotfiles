@@ -39,10 +39,6 @@
 #   wb reviewed [<session>]          stamp a task's reviewed: field (marks /ce-code-review done)
 #   wb task-file [--edit]            print the current session's task file path (via @task);
 #                                    --edit opens it in $EDITOR instead (what prefix+t runs)
-#   wb agents [--orphans]            list the claude() wrapper's wb-agent-* systemd scopes and
-#                                    what's inside each; ORPHAN = no claude process left (a
-#                                    detached wl-copy / dev server keeps it alive). Read-only:
-#                                    prints the systemctl stop line, never stops anything
 #   wb jira-set <repo>--<slug> <url> stamp a created Jira ticket URL into a task's jira: field
 #                                    (locked, idempotent-or-refuse) — the /wb-jira-create emit
 #                                    flow's only task-store write; never re-derives the URL
@@ -55,7 +51,6 @@
 #   wb breakdown --apply <buffer>    execute an approved /wb-breakdown proposal buffer:
 #                                    create the children, migrate the worktree, move
 #                                    follow-ups — the feature's only task-store write path
-#   wb sync                          fetch + fast-forward-only merge for $TASKS_DIR (refuses on dirty tree, divergence, or the wrong branch)
 #   wb unsafe-rewind "<reason>"      write a time-limited escape-hatch sentinel a git hook honors for a deliberate rewind
 #   wb append <task> <heading> [<body>|-]
 #                                    append <body> under "## <heading>" in <task>'s file,
@@ -64,19 +59,6 @@
 #                                    "-" reads a multi-line body from stdin instead — the
 #                                    agent-mediated write path /wb-save, /handoff, and
 #                                    /weekly-review use instead of Edit-tool task writes
-#   wb lint-sections [<task>...] [--machine]
-#                                    report duplicate/flush ## Plan|Handoffs|Decisions|
-#                                    Done|Follow-ups headings (no refs -> whole store);
-#                                    --machine emits stable TSV: file, kind (dup|flush),
-#                                    section, copies, nonempty-copies, content hash.
-#                                    Read-only, exit 0 whether or not findings exist.
-#   wb lint-sections --diff [<task>...]
-#                                    unified diff of the merged form for every file
-#                                    with a finding (read-only)
-#   wb lint-sections --fix <file>:<hash> [<file>:<hash> ...]
-#                                    merge duplicate/flush sections and write, under the
-#                                    per-task lock, for exactly the reviewed targets
-#                                    given -- no --all; a stale hash skips that target
 #   wb week path                     print the standing weekly-capture doc's path,
 #                                    creating it from the four-section template
 #                                    (What's working|What's not working|New ideas|Notes)
@@ -512,7 +494,7 @@ wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; echo "${s//:/-}"; }
 # "not one of …" error) and checked by anchoring it as a regex alternation.
 # Legal: one of the strict, uppercase XS|S|M|L|XL, or empty (blank means
 # "unset", which every reader treats as M — see ~/code/tasks/README.md
-# "Size"). Shared by cmd_new's --size and _wb_breakdown_validate's per-child
+# "Size"). Shared by cmd_set and _wb_breakdown_validate's per-child
 # `- size:` bullet. Lowercase is deliberately rejected rather than
 # normalized (kept strict; normalization is a trivial follow-up if it ever
 # proves annoying in practice).
@@ -633,81 +615,13 @@ wb_tsv_split() {
 }
 
 # ---------------------------------------------------------------------------
-# Lock integration (U3) — the L2-L5 caller-side orphan-check-and-retry layer
-# built on top of wb-locks.sh's (U1) generic, liveness-agnostic primitives
-# and lib.sh's (U2) tmux_session_agent_state. Lives here, not in
-# wb-locks.sh: the orphan decision needs wb/claude process-shape and tmux
-# session-liveness knowledge, both wb-specific — wb-locks.sh itself stays a
-# generic lock module with zero tmux/claude awareness. Every cmd_*/
-# wb_reconcile_action_* call site below uses wb_task_lock_acquire_guarded
-# instead of calling wb_task_lock_acquire directly, so the four-condition
-# check lives in exactly one place instead of being duplicated at every one
-# of this file's locking call sites.
+# Lock integration (U3) — the caller-side dead-holder retry layer built on
+# top of wb-locks.sh's (U1) generic, liveness-agnostic primitives. Every
+# cmd_*/wb_reconcile_action_* call site below (and handoff.sh's own write
+# site) uses wb_task_lock_acquire_guarded instead of calling
+# wb_task_lock_acquire directly, so the retry decision lives in exactly one
+# place.
 # ---------------------------------------------------------------------------
-
-# _wb_lock_cmdline_wb_shaped <pid> — true when /proc/<pid>/cmdline looks like
-# a wb.sh/handoff.sh/claude process, not an unrelated process that happens to
-# have been assigned this pid after the real holder exited (PID-reuse guard,
-# L2's process-identity condition). /proc/<pid>/cmdline is NUL-separated;
-# `tr` folds that into plain spaces for a simple substring match.
-_wb_lock_cmdline_wb_shaped() {
-  local pid="$1" cmdline
-  [ -r "/proc/$pid/cmdline" ] || return 1
-  cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
-  [ -n "$cmdline" ] || return 1
-  case "$cmdline" in
-    *wb.sh*|*handoff.sh*|*claude*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# _wb_lock_holder_is_orphan <task_file> <pid> — L2's four-condition orphan
-# predicate. Only ever evaluated AFTER wb_task_lock_acquire has already lost
-# a contended acquire, and only for a holder pid the caller has already
-# confirmed is still alive (kill -0 succeeded there — a gone pid means the
-# kernel already dropped the flock on process death, the cheaper case
-# handled directly by the caller, never reaching here). <pid> is passed in
-# by the caller (wb_task_lock_acquire_guarded), which already read it off
-# the lock file to make that liveness check — reading it a second time here
-# would be the same field read twice on every contended acquire, the exact
-# path this whole guard exists to handle quickly. Orphan (safe to clear and
-# retry once) only when ALL FOUR hold simultaneously:
-#   1. the recorded holder pid is alive (the caller's own precondition for
-#      calling this at all — see above).
-#   2. `/proc/<pid>/cmdline` looks wb/claude-shaped (PID-reuse guard).
-#   3. the recorded acquire timestamp is >60s old — a generous multiple of
-#      any legitimate wb chain, so a session mid-spawn is never mistaken for
-#      dead (incident 1's exact danger zone).
-#   4. the holder's OWN recorded tmux_session (never the TARGET task's own
-#      session, which legitimately doesn't exist yet during a handoff spawn
-#      — signaling the healthy winner there is incident 1's guard-as-weapon
-#      scenario) comes back `dead` from tmux_session_agent_state (U2) — no
-#      such session exists at all for the holder anymore.
-# An empty recorded tmux_session field, or a `tmux_session_agent_state`
-# result of `alive`/`unknown`, both fail this check outright (conditions 3/4
-# folded together below) — L3/L5: anything less than a confirmed-dead
-# holder session never auto-clears. Reads holder-info fields via
-# wb-locks.sh's public wb_task_lock_holder_field, never its internal
-# _wb_lock_path_for/_wb_lock_field accessors directly.
-_wb_lock_holder_is_orphan() {
-  local task_file="$1" pid="$2" ts tmux_session state now held_epoch elapsed
-
-  tmux_session="$(wb_task_lock_holder_field "$task_file" tmux_session)"
-  [ -n "$tmux_session" ] || return 1   # empty -> unknown, never killable
-
-  state="$(tmux_session_agent_state "$tmux_session")"
-  [ "$state" = dead ] || return 1      # alive/unknown -> halt, no clearing (L3/L5)
-
-  _wb_lock_cmdline_wb_shaped "$pid" || return 1
-
-  ts="$(wb_task_lock_holder_field "$task_file" acquired)"
-  now="$(date +%s)"
-  held_epoch="$(date -d "$ts" +%s 2>/dev/null)" || held_epoch="$now"
-  elapsed=$(( now - held_epoch ))
-  [ "$elapsed" -gt 60 ] || return 1
-
-  return 0
-}
 
 # wb_task_lock_acquire_guarded <task_file> — the ONE call site every cmd_*
 # verb, wb_reconcile_action_*, and handoff.sh's own write site uses instead
@@ -721,21 +635,14 @@ _wb_lock_holder_is_orphan() {
 # `_wb_lock_path_for`/`_wb_lock_field` accessors directly), and decides:
 #   - holder pid already gone (`kill -0` fails) -> the kernel already
 #     dropped the flock on process death; retry once — the cheap, common
-#     crash case (L2's "if the PID is gone" clause).
-#   - holder pid alive AND _wb_lock_holder_is_orphan confirms all four L2
-#     conditions -> retry once. The already-read `holder_pid` is passed
-#     straight into that check (rather than having it re-read the same
-#     field a second time) — this whole path exists to resolve a contended
-#     acquire quickly.
-#   - anything else (alive session, unknown state, missing/empty holder
-#     info) -> never retries. wb_task_lock_acquire's own failure — which
-#     already printed the one L4 stderr message naming the holder — stands
-#     unmodified; this function never prints a second message of its own.
-# The retry itself is just another `wb_task_lock_acquire` call: wb-locks.sh
-# is not touched by this unit, so there is no standalone non-blocking
-# `flock -n` entry point to call directly — a retry against a lock that's
-# actually free (the whole premise of clearing it here) returns effectively
-# instantly through the existing `flock -w 1` path regardless.
+#     crash case.
+#   - anything else (live holder, missing/empty holder info) -> never
+#     retries. wb_task_lock_acquire's own failure — which already printed
+#     the one L4 stderr message naming the holder — stands unmodified; this
+#     function never prints a second message of its own.
+# The retry itself is just another `wb_task_lock_acquire` call: a retry
+# against a lock that's actually free returns effectively instantly through
+# the existing `flock -w 1` path.
 wb_task_lock_acquire_guarded() {
   local task_file="$1"
   wb_task_lock_acquire "$task_file" && return 0
@@ -744,11 +651,6 @@ wb_task_lock_acquire_guarded() {
   local holder_pid; holder_pid="$(wb_task_lock_holder_field "$task_file" pid)"
 
   if [ -n "$holder_pid" ] && ! kill -0 "$holder_pid" 2>/dev/null; then
-    wb_task_lock_acquire "$task_file"
-    return $?
-  fi
-
-  if [ -n "$holder_pid" ] && _wb_lock_holder_is_orphan "$task_file" "$holder_pid"; then
     wb_task_lock_acquire "$task_file"
     return $?
   fi
@@ -1060,12 +962,12 @@ _wb_fill_frontmatter() {
 }
 
 # wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<file_override>]
-# [<path_stages>] [<depends_on_csv>] [<size>] — find-or-create the task file for a
+# [<depends_on_csv>] — find-or-create the task file for a
 # repo+slug pair, filling blank frontmatter fields and bumping
 # planned->doing. Never overwrites a field that's already set, UNLESS the
-# caller explicitly passed a value for it (parent/path/depends_on) — an
+# caller explicitly passed a value for it (parent/depends_on) — an
 # explicit value always wins, same precedent `parent:` already set below.
-# <parent_ref>/<file_override>/<path_stages>/<depends_on_csv> are all
+# <parent_ref>/<file_override>/<depends_on_csv> are all
 # optional (default to empty) so wb_reconcile_action_create_task's
 # pre-existing 3/4-arg calls keep working unchanged — it never sets
 # `parent:`. <file_override> is KTD7's directional escape hatch for `wb
@@ -1075,7 +977,7 @@ _wb_fill_frontmatter() {
 # cmd_resume already knows the real (child) file from its own stem-based
 # lookup and passes it straight through here instead.
 wb_seed_task() {
-  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}" path_stages="${6:-}" depends_on="${7:-}" size="${8:-}"
+  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}" depends_on="${6:-}"
   local file
   if [ -n "$file_override" ]; then
     file="$file_override"
@@ -1145,20 +1047,18 @@ wb_seed_task() {
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
 
-  # path:/depends_on:/size: — same "explicit wins, otherwise blank-fill"
-  # rule as parent: above, but the blank-fill half always runs (unlike
-  # parent:, which has no inferred value and simply stays absent with no
-  # --parent): every seeded task file must carry all three keys, even when
-  # the caller never passed one, per the schema's blank-fill convention
-  # (mirrors reviewed: above). wb_set_frontmatter itself inserts the key
-  # when TEMPLATE.md (or a pre-existing file) has no line for it yet, so
-  # this is correct whether or not the template has caught up to carrying
-  # the blank lines. A blank size: reads as M at load, so blank-filling it
-  # never manufactures a value; cmd_new has already validated a non-empty
-  # --size against _wb_valid_size.
-  _wb_fill_frontmatter "$file" path "$path_stages"
+  # path:/depends_on:/size: — every seeded task file must carry all three
+  # keys, per the schema's blank-fill convention (mirrors reviewed: above);
+  # depends_on: additionally takes an explicit value the same way parent:
+  # does. path:/size: are only ever set later, through `wb set`.
+  # wb_set_frontmatter itself inserts the key when TEMPLATE.md (or a
+  # pre-existing file) has no line for it yet, so this is correct whether
+  # or not the template has caught up to carrying the blank lines. A blank
+  # size: reads as M at load, so blank-filling it never manufactures a
+  # value.
+  _wb_fill_frontmatter "$file" path ""
   _wb_fill_frontmatter "$file" depends_on "$depends_on"
-  _wb_fill_frontmatter "$file" size "$size"
+  _wb_fill_frontmatter "$file" size ""
 
   echo "$file"
 }
@@ -1418,8 +1318,8 @@ _wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
 #     the branch on pre-squash copies of commits the default already has,
 #     so it is skipped with a note pointing at the latest default.
 #   - The default branch is always fetched first: it is the fallback, and
-#     each blocker's staleness is measured against it. It is resolved the
-#     same way as `wb sync` (origin/HEAD symref, then ls-remote), never
+#     each blocker's staleness is measured against it. It is resolved from
+#     the origin/HEAD symref, then ls-remote, never
 #     hard-coded — Sportable repos use dev/development/main.
 #   - Usable blockers: with a terminal, a menu of each blocker (ahead/behind
 #     the default) plus the latest default; without one, or when the menu
@@ -1640,14 +1540,14 @@ _wb_new_add_worktree() {
 }
 
 cmd_new() {
-  # Index/shift case parser, not a single-token foreach: --parent/--path take
-  # their value as a separate following argument, and --depends-on is
+  # Index/shift case parser, not a single-token foreach: --parent takes
+  # its value as a separate following argument, and --depends-on is
   # repeatable (accumulates into an array) — none of that can be detected by
   # a foreach that only matches literal tokens (like --agent); the value
   # would fall into the else branch and corrupt the positional repo/slug
   # count.
-  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <repo> <slug>"
-  local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 prospective_flag=0 jira_url="" title_override="" size_value=""
+  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--depends-on <repo>--<slug>]... <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--depends-on <repo>--<slug>]... <repo> <slug>"
+  local agent_flag=0 parent_ref="" planned_flag=0 prospective_flag=0 jira_url="" title_override=""
   local body_stdin=0 body_file=""
   local -a depends_on_stems=()
   local -a args=()
@@ -1690,21 +1590,11 @@ cmd_new() {
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
         esac
         parent_ref="$2"; shift 2 ;;
-      --path)
-        case "${2-}" in
-          ''|--*) echo "wb new: --path requires a value" >&2; exit 1 ;;
-        esac
-        path_stages="$2"; shift 2 ;;
       --depends-on)
         case "${2-}" in
           ''|--*) echo "wb new: --depends-on requires a value" >&2; exit 1 ;;
         esac
         depends_on_stems+=("$2"); shift 2 ;;
-      --size)
-        case "${2-}" in
-          ''|--*) echo "wb new: --size requires a value (one of $WB_SIZE_VALUES)" >&2; exit 1 ;;
-        esac
-        size_value="$2"; shift 2 ;;
       *)        args+=("$1"); shift ;;
     esac
   done
@@ -1771,27 +1661,6 @@ cmd_new() {
       || { echo "wb new: --parent cannot be the task's own reference" >&2; exit 1; }
   fi
 
-  # --path: split on commas and validate every token against the lifecycle
-  # pipeline's known stage names (WB_LIFECYCLE_STAGES, wb-lifecycle.sh)
-  # BEFORE anything is created — deliberately the opposite of
-  # wb_lifecycle_parse_path's render-time tolerance (unknown stages there
-  # are silently dropped; here an unknown stage is a hard, loud failure).
-  if [ -n "$path_stages" ]; then
-    local -a wb_valid_stages=("${WB_LIFECYCLE_STAGES[@]}")
-    local valid_csv; valid_csv="$(IFS=,; echo "${wb_valid_stages[*]}")"
-    local -a _wb_path_tokens
-    IFS=',' read -r -a _wb_path_tokens <<< "$path_stages"
-    local token stage ok
-    for token in "${_wb_path_tokens[@]}"; do
-      ok=0
-      for stage in "${wb_valid_stages[@]}"; do
-        [ "$token" = "$stage" ] && { ok=1; break; }
-      done
-      [ "$ok" = 1 ] \
-        || { echo "wb new: --path has unknown stage '$token' (valid: $valid_csv)" >&2; exit 1; }
-    done
-  fi
-
   # --depends-on: each value must be a real, pre-existing task-file stem in
   # $TASKS_DIR (mirrors wb_resolve_parent_ref's fail-loud pattern, but
   # written inline here so the error names --depends-on rather than reusing
@@ -1814,13 +1683,6 @@ cmd_new() {
   done
   local depends_on_joined=""
   [ "${#depends_on_stems[@]}" -eq 0 ] || depends_on_joined="$(IFS=,; echo "${depends_on_stems[*]}")"
-
-  # --size: strict uppercase XS|S|M|L|XL enum (_wb_valid_size, shared with the
-  # breakdown buffer's per-child `- size:` bullet), checked BEFORE anything
-  # is created — same fail-loud-first convention as --path/--depends-on.
-  if ! _wb_valid_size "$size_value"; then
-    echo "wb new: --size '$size_value' is not one of $WB_SIZE_VALUES" >&2; exit 1
-  fi
 
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
@@ -1852,15 +1714,10 @@ cmd_new() {
     wb_task_lock_acquire_guarded "$task_file" || exit $?
     local seed_status="planned"; [ "$prospective_flag" = 1 ] && seed_status="prospective"
     task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref" "$title_override" "$seed_status")"
-    # --size is honored on the planned path too (R7: settable on EVERY
-    # creation path). Explicit wins; no blank-fill here — wb_seed_task_planned
-    # deliberately leaves the template's own blank size: line as-is.
-    [ -z "$size_value" ] || wb_set_frontmatter "$task_file" size "$size_value"
-    # --depends-on/--path: same explicit-wins rule. depends_on: is what a
-    # later plain `wb new` reads to stack the branch on its blocker
+    # --depends-on: explicit wins. depends_on: is what a later plain
+    # `wb new` reads to stack the branch on its blocker
     # (_wb_new_start_point), so dropping it here silently unstacks it.
     [ -z "$depends_on_joined" ] || wb_set_frontmatter "$task_file" depends_on "$depends_on_joined"
-    [ -z "$path_stages" ] || wb_set_frontmatter "$task_file" path "$path_stages"
     [ -z "$jira_url" ] || wb_set_frontmatter "$task_file" jira "$jira_url"
     # The ## Plan body comes ONLY from an explicit --body - (stdin) or
     # --body-file <path>; without either flag stdin is never touched (an
@@ -1966,7 +1823,7 @@ cmd_new() {
   fi
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$path_stages" "$depends_on_joined" "$size_value")"
+  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$depends_on_joined")"
   # An unsafe worktree: was ignored above; fix the field too, since wb down /
   # wb done would otherwise build a teardown path from it.
   [ "$wt_unsafe" = 0 ] || wb_set_frontmatter "$task_file" worktree "$worktree_rel"
@@ -3267,8 +3124,8 @@ _wb_breakdown_parent_plan_body() {
 # re-emitted before the next heading: a heading left flush against the body
 # fails _wb_append_under_heading's blank-line guard, and the next
 # wb_append_handoff then splices in a duplicate "## Handoffs".
-# Only the FIRST "## <heading>" is replaced: a second copy (the duplicate-
-# heading shape `wb lint-sections` exists to merge) is left untouched --
+# Only the FIRST "## <heading>" is replaced: a second copy (a duplicated
+# heading) is left untouched --
 # re-matching it after bodyfile is drained would re-emit the heading bare and
 # drop that copy's original content.
 _wb_breakdown_replace_section() {
@@ -3884,19 +3741,12 @@ cmd_jira_set() {
 }
 
 # ---------------------------------------------------------------------------
-# wb sync — the paved path for pulling shared $TASKS_DIR changes: fetch, then
-# fast-forward-only merge, refusing loudly on anything that isn't a clean
-# fast-forward. Exists so nobody reaches for `git reset --hard
-# origin/<branch>` (or a force-push) to "fix" a stuck TASKS_DIR — that IS
-# the anti-pattern that caused the 2026-07-10 incident this concurrency-
-# safety effort responds to. This command NEVER pushes, under any
-# circumstance.
+# Shared git guard
 # ---------------------------------------------------------------------------
 
 # _wb_git_dirty_guard <path> <verb-label> — fail loud (exit 1, naming
 # <verb-label>) if <path>'s git status is non-empty; silent no-op
-# otherwise. Shared by cmd_sync and cmd_done, which used to hand-duplicate
-# this exact guard (only the path and the verb name differed).
+# otherwise. Used by cmd_done.
 _wb_git_dirty_guard() {
   local path="$1" verb="$2" dirty
   dirty="$(git -C "$path" status --porcelain 2>/dev/null || true)"
@@ -3904,84 +3754,6 @@ _wb_git_dirty_guard() {
     echo "$verb: $path is dirty:" >&2
     echo "$dirty" >&2
     echo "commit or stash, then re-run" >&2
-    exit 1
-  fi
-}
-
-# cmd_sync — guard order: fetch (loud abort on failure) -> dirty-tree guard
-# -> branch/detached-HEAD guard -> ahead/behind decision (ff-merge / no-op /
-# refuse-diverged).
-cmd_sync() {
-  # 1. fetch FIRST — never compare against a possibly-stale local
-  # origin/<branch> ref. A failed fetch (offline, no SSH agent, unreachable
-  # remote, ...) aborts loudly, not a silent no-op against stale refs.
-  if ! git -C "$TASKS_DIR" fetch origin; then
-    echo "wb sync: git fetch origin failed for $TASKS_DIR — offline, no SSH agent, or the remote is unreachable; aborting without comparing refs" >&2
-    exit 1
-  fi
-
-  # 2. dirty-tree guard.
-  _wb_git_dirty_guard "$TASKS_DIR" "wb sync"
-
-  # 3. branch guard — refuse on a detached HEAD or on any branch other than
-  # the remote's own tracked default branch. Deliberately NOT hardcoded to
-  # "development" or "main" — that's a per-repo convention, and this task
-  # store's default branch is whatever origin/HEAD actually says, not an
-  # assumption baked into this script. Prefer the locally-cached
-  # refs/remotes/origin/HEAD symref (set by `git clone`); fall back to
-  # asking the remote directly (`ls-remote --symref`, same primitive) when
-  # that symref was never established — e.g. a checkout built by `init` +
-  # `remote add` + `fetch` rather than `clone` (confirmed against a real
-  # ~/code/tasks checkout, which hit exactly this fallback path).
-  local expected_branch
-  expected_branch="$(git -C "$TASKS_DIR" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-  expected_branch="${expected_branch#origin/}"
-  if [ -z "$expected_branch" ]; then
-    expected_branch="$(git -C "$TASKS_DIR" ls-remote --symref origin HEAD 2>/dev/null \
-      | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
-  fi
-  if [ -z "$expected_branch" ]; then
-    echo "wb sync: could not determine origin's default branch for $TASKS_DIR (no origin/HEAD symref, and ls-remote --symref failed) — refusing to guess" >&2
-    exit 1
-  fi
-
-  local current_ref
-  current_ref="$(git -C "$TASKS_DIR" symbolic-ref -q HEAD 2>/dev/null || true)"
-  if [ -z "$current_ref" ]; then
-    echo "wb sync: $TASKS_DIR has a detached HEAD — refusing to fast-forward-merge into a detached state; check out $expected_branch first" >&2
-    exit 1
-  fi
-  local current_branch="${current_ref#refs/heads/}"
-  if [ "$current_branch" != "$expected_branch" ]; then
-    echo "wb sync: $TASKS_DIR is on '$current_branch', not '$expected_branch' (the tracked default branch) — refusing to fast-forward-merge into the wrong branch" >&2
-    exit 1
-  fi
-
-  # 4. ahead/behind decision.
-  local counts ahead behind
-  counts="$(git -C "$TASKS_DIR" rev-list --left-right --count "HEAD...origin/$expected_branch" 2>/dev/null)" || {
-    echo "wb sync: could not compare $TASKS_DIR against origin/$expected_branch after fetch" >&2
-    exit 1
-  }
-  ahead="$(printf '%s' "$counts" | awk '{print $1}')"
-  behind="$(printf '%s' "$counts" | awk '{print $2}')"
-  ahead="${ahead:-0}"
-  behind="${behind:-0}"
-
-  if [ "$ahead" -eq 0 ] && [ "$behind" -eq 0 ]; then
-    echo "wb sync: $TASKS_DIR already up to date with origin/$expected_branch"
-  elif [ "$ahead" -eq 0 ]; then
-    git -C "$TASKS_DIR" merge --ff-only "origin/$expected_branch"
-    echo "wb sync: pulled $behind commit(s) — $TASKS_DIR now matches origin/$expected_branch"
-  elif [ "$behind" -eq 0 ]; then
-    echo "wb sync: $TASKS_DIR is $ahead commit(s) ahead of origin/$expected_branch — nothing to pull, consider pushing (wb sync never pushes)"
-  else
-    echo "wb sync: $TASKS_DIR has DIVERGED from origin/$expected_branch ($ahead ahead, $behind behind) — refusing to auto-merge" >&2
-    echo "wb sync: resolve by hand, e.g.:" >&2
-    echo "  git -C \"$TASKS_DIR\" log --oneline HEAD..origin/$expected_branch    # see what's incoming" >&2
-    echo "  git -C \"$TASKS_DIR\" log --oneline origin/$expected_branch..HEAD    # see what's local-only" >&2
-    echo "  git -C \"$TASKS_DIR\" merge origin/$expected_branch                  # or: git -C \"$TASKS_DIR\" rebase origin/$expected_branch" >&2
-    echo "wb sync: do NOT run 'git reset --hard origin/$expected_branch' (or force-push) to make this go away — that SILENTLY DISCARDS your local commits and is the exact anti-pattern this command exists to prevent" >&2
     exit 1
   fi
 }
@@ -4023,52 +3795,26 @@ cmd_unsafe_rewind() {
 
 # wb_open_buffer <path> — open <path> in nvim, blocking until closed. Thin
 # shim over the shared decision-buffer script
-# (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which now owns
-# the tmux-split + wait-for recipe (and its channel-uniqueness rule) for
-# every caller of it — decision-buffer, wb-done, parked-items, wb.sh's own
+# (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which owns the
+# tmux-split + wait-for recipe (and its channel-uniqueness rule) for every
+# caller of it — decision-buffer, wb-done, parked-items, wb.sh's own
 # internal callers below. See
 # ~/.claude/skills/decision-buffer/references/mechanism.md for the full
-# contract. This function keeps its own signature and blocking behavior
-# unchanged so its four internal callers elsewhere in this file need no
-# change. If the shared script is missing or not executable (a stale,
-# un-restowed environment), fall back to the original inline recipe this
-# function used before the script existed.
+# contract. A missing or non-executable script (a stale, un-restowed
+# environment) is a hard error naming the stow command.
 wb_open_buffer() {
   local path="$1"
   local script="$HOME/.claude/skills/decision-buffer/scripts/open-buffer.sh"
 
-  if [ -x "$script" ]; then
-    if [ -n "${TMUX:-}" ]; then
-      "$script" --tmux "$path"
-    else
-      "$script" --direct "$path"
-    fi
-    return
+  if [ ! -x "$script" ]; then
+    echo "wb_open_buffer: $script missing or not executable — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
+    return 1
   fi
 
-  echo "wb_open_buffer: $script missing or not executable — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
-
-  # Fallback: the original inline recipe, unchanged. WB_REVIEW_BUFFER=1
-  # tells conform.nvim (nvim/.config/nvim/lua/plugins/index.lua) to skip
-  # format-on-save for this one-shot checkbox-review pass — the target file
-  # itself may be persistent (a central-store task file), but the review
-  # pass is brief and shouldn't run Prettier over the whole file. Same
-  # env-var-signal convention as WB_AUTO_RESTORE (wb.sh:265), set
-  # unconditionally on both branches: a non-nvim $EDITOR just never reads
-  # it, so no "is this nvim" guard is needed.
   if [ -n "${TMUX:-}" ]; then
-    local chan="wb-buffer-done-$$-$RANDOM"
-    # printf %q, not a hand-wrapped '$path' — a path containing a literal
-    # single quote would prematurely close the quoted command string below,
-    # breaking the trailing `; tmux wait-for -S $chan` and hanging the wait
-    # forever with no timeout. Same fix as open-buffer.sh's mode_tmux.
-    local quoted_path; quoted_path="$(printf '%q' "$path")"
-    tmux set -p -t "$TMUX_PANE" @claude_blocked nvim-buffer 2>/dev/null || true
-    tmux split-window -h -t "$TMUX_PANE" "WB_REVIEW_BUFFER=1 ${EDITOR:-nvim} $quoted_path; tmux wait-for -S $chan"
-    tmux wait-for "$chan"
-    tmux set -pu -t "$TMUX_PANE" @claude_blocked 2>/dev/null || true
+    "$script" --tmux "$path"
   else
-    WB_REVIEW_BUFFER=1 "${EDITOR:-nvim}" "$path"
+    "$script" --direct "$path"
   fi
 }
 
@@ -4280,576 +4026,6 @@ cmd_append() {
 }
 
 # ---------------------------------------------------------------------------
-# wb lint-sections — detect (U2) and merge (U3) duplicate/flush canonical
-# section headings (## Plan/Handoffs/Decisions/Done/Follow-ups) left behind
-# by the append/breakdown writer bugs this feature exists to clean up after
-# (see docs/plans/2026-09-23-001-fix-tasks-store-dedupe-headings-plan.md).
-# Read-only by default (--machine too); only --fix writes, and only under
-# the per-task lock with an explicit reviewed <file>:<hash> target — there
-# is deliberately no --all (KTD4/KTD7: a review page drives every write).
-# ---------------------------------------------------------------------------
-
-# _wb_lint_sections_records <file> — one TSV record per section (canonical
-# or not) found in <file>, in file order. Fields:
-#   1 canonical(0|1)  2 name  3 heading_line  4 body_start  5 body_end
-#   6 nonblank_count  7 flush(0|1)
-# <name> is the bare heading text (canonical: one of Plan/Handoffs/
-# Decisions/Done/Follow-ups; non-canonical: whatever followed "## ",
-# e.g. "Follow-ups (superseded -- see ## Decisions)" -- KTD2 is explicit
-# these near-miss headings must never collapse into a canonical bucket).
-# The preamble (frontmatter + everything before the first heading) is NOT
-# a record; callers derive it as lines 1..(first record's heading_line -
-# 1), or the whole file when there are zero records.
-#
-# Heading rule (KTD2), POSIX-only (proven under mawk 1.3.4, KTD6 -- no
-# ENDFILE/gensub/arrays-of-arrays/length(array)/\y):
-#   - "## <name>" is CANONICAL iff, after trimming ONLY trailing
-#     whitespace, it is string-equal to one of the five exact strings --
-#     never a prefix/regex match -- and it is outside a fenced code block.
-#     It counts as a heading regardless of what the previous line was.
-#   - any other "## " line is a boundary only outside a fence AND when the
-#     previous line is blank or this is line 1 -- the exact isHeadingLine()
-#     guard _wb_append_under_heading uses, so heading-shaped prose inside a
-#     section body (e.g. a Plan paragraph quoting "## Decisions") is never
-#     mistaken for a real heading.
-#   - "blank" means an EXACTLY empty line ("") throughout this feature,
-#     the same convention isHeadingLine()/_wb_append_under_heading use --
-#     never a whitespace-only line.
-#   - a leading "---" ... "---" frontmatter block (only recognized when
-#     line 1 is exactly "---") is inert: nothing inside it is a heading or
-#     a fence toggle, and it is part of the preamble.
-#   - a fence opens on a trimmed-leading run of 3+ "`" or "~" (a backtick
-#     opener's info string may not itself contain a backtick, so an inline
-#     "```code``` ..." line opens nothing) and closes only on a line that
-#     is nothing but a run of the SAME char, at least as long as the
-#     opener's; nothing inside a fence is ever a heading.
-_wb_lint_sections_records() {
-  awk '
-    function is_canonical(t,    i) {
-      for (i = 1; i <= 5; i++) { if (t == canon[i]) return 1 }
-      return 0
-    }
-    function close_section(end_line) {
-      if (cur_heading_line > 0) {
-        printf "%d\t%s\t%d\t%d\t%d\t%d\t%d\n", cur_canonical, cur_name, cur_heading_line, cur_heading_line + 1, end_line, cur_nonblank, cur_flush
-      }
-    }
-    BEGIN {
-      canon[1] = "## Plan"; canon[2] = "## Handoffs"; canon[3] = "## Decisions"
-      canon[4] = "## Done"; canon[5] = "## Follow-ups"
-      in_fm = 0
-      in_fence = 0; fence_ch = ""; fence_len = 0
-      prev = ""
-      cur_heading_line = 0
-    }
-    {
-      raw = $0
-      trimmed = raw
-      sub(/[ \t]+$/, "", trimmed)
-
-      if (FNR == 1 && raw == "---") { in_fm = 1; prev = raw; next }
-      if (in_fm) {
-        if (raw == "---") { in_fm = 0 }
-        prev = raw
-        next
-      }
-
-      lead = raw
-      sub(/^[ \t]+/, "", lead)
-      was_in_fence = in_fence
-      fch = substr(lead, 1, 1)
-      if ((fch == "`" || fch == "~") && match(lead, "^" fch "+") && RLENGTH >= 3) {
-        frun = RLENGTH
-        frest = substr(lead, frun + 1)
-        if (in_fence) {
-          if (fch == fence_ch && frun >= fence_len && frest ~ /^[ \t]*$/) in_fence = 0
-        } else if (fch == "~" || index(frest, "`") == 0) {
-          in_fence = 1; fence_ch = fch; fence_len = frun
-        }
-      }
-
-      is_can = 0
-      if (!was_in_fence && is_canonical(trimmed)) is_can = 1
-
-      is_other = 0
-      if (!was_in_fence && !is_can && raw ~ /^## / && (prev == "" || FNR == 1)) is_other = 1
-
-      if (is_can || is_other) {
-        close_section(FNR - 1)
-        cur_heading_line = FNR
-        if (is_can) { cur_canonical = 1; cur_name = trimmed } else { cur_canonical = 0; cur_name = raw }
-        sub(/^## /, "", cur_name)
-        sub(/[ \t]+$/, "", cur_name)
-        cur_nonblank = 0
-        if (prev != "") { cur_flush = 1 } else { cur_flush = 0 }
-      } else if (cur_heading_line > 0) {
-        if (raw != "") cur_nonblank++
-      }
-
-      prev = raw
-    }
-    END { close_section(NR) }
-  ' "$1"
-}
-
-# _wb_lint_sections_findings <file> — one TSV row per finding:
-#   kind(dup|flush) <TAB> section-name <TAB> copies <TAB> nonempty-copies
-# Grouped by canonical name (only names that actually occur), in canonical
-# order. "dup" fires when copies > 1; "flush" fires when ANY copy of that
-# name has a non-blank previous line -- both can fire for the same name
-# (e.g. the flush copy's OWN duplicate), as two separate rows, since they
-# are independent findings sharing the same group-level copies/nonempty
-# stats (there is no per-copy column in the shared --machine contract).
-_wb_lint_sections_findings() {
-  local file="$1"
-  local -a records=()
-  mapfile -t records < <(_wb_lint_sections_records "$file")
-  [ "${#records[@]}" -gt 0 ] || return 0
-
-  local -A copies=() nonempty=() any_flush=()
-  local i
-  for i in "${!records[@]}"; do
-    local -a rf; wb_tsv_split "${records[$i]}" rf
-    [ "${rf[0]}" = "1" ] || continue
-    local name="${rf[1]}" nb="${rf[5]}" fl="${rf[6]}"
-    copies["$name"]=$(( ${copies["$name"]:-0} + 1 ))
-    [ "$nb" != "0" ] && nonempty["$name"]=$(( ${nonempty["$name"]:-0} + 1 ))
-    [ "$fl" = "1" ] && any_flush["$name"]=1
-  done
-
-  local name
-  for name in Plan Handoffs Decisions Done Follow-ups; do
-    [ -n "${copies[$name]:-}" ] || continue
-    if [ "${copies[$name]}" -gt 1 ]; then
-      printf 'dup\t%s\t%s\t%s\n' "$name" "${copies[$name]}" "${nonempty[$name]:-0}"
-    fi
-    if [ "${any_flush[$name]:-0}" = "1" ]; then
-      printf 'flush\t%s\t%s\t%s\n' "$name" "${copies[$name]}" "${nonempty[$name]:-0}"
-    fi
-  done
-}
-
-# _wb_lint_trim_blank_array <in-array-name> <out-array-name> — strips
-# leading and trailing EXACTLY-EMPTY elements from the named array
-# (nameref), keeping interior ones untouched; <out-array-name> is set to
-# the trimmed copy (possibly empty). Shared by the merge's per-copy body
-# trim and its non-canonical-section trailing-blank normalization (both
-# R6's "exactly one blank line before every canonical heading" and its own
-# comment above require knowing exactly how many blank lines a chunk has
-# at each end, not just "whitespace-ish").
-_wb_lint_trim_blank_array() {
-  local -n _wb_ltba_in="$1" _wb_ltba_out="$2"
-  local -a _wb_ltba_tmp=("${_wb_ltba_in[@]}")
-  local i=0 j=$((${#_wb_ltba_tmp[@]} - 1))
-  while [ "$i" -le "$j" ] && [ -z "${_wb_ltba_tmp[$i]}" ]; do i=$((i + 1)); done
-  while [ "$j" -ge "$i" ] && [ -z "${_wb_ltba_tmp[$j]}" ]; do j=$((j - 1)); done
-  if [ "$i" -gt "$j" ]; then
-    _wb_ltba_out=()
-  else
-    _wb_ltba_out=("${_wb_ltba_tmp[@]:$i:$((j - i + 1))}")
-  fi
-}
-
-# _wb_lint_nc_chunk <lines-array-name> <heading-line> <end-line> — prints a
-# non-canonical section (heading + body) verbatim, minus its own trailing
-# blank run: the merge owns the single blank line before the next chunk.
-_wb_lint_nc_chunk() {
-  local -n _wb_lnc_lines="$1"
-  local hline="$2" bend="$3"
-  local -a full_lines=("${_wb_lnc_lines[@]:$((hline - 1)):$((bend - hline + 1))}")
-  local -a trimmed=(); _wb_lint_trim_blank_array full_lines trimmed
-  printf '%s\n' "${trimmed[@]}"
-}
-
-# _wb_lint_sections_merge <file> — prints <file>'s KTD5 merged form to
-# stdout; never writes anything itself (see _wb_lint_sections_fix_one for
-# the write side). Reuses _wb_lint_sections_records's section ranges and
-# works entirely in bash ARRAYS of lines (never awk -v / string-newline
-# arithmetic) so blank-line counting at each boundary is exact, matching
-# the KTD6 "bodies/content never go through awk -v" rule and this feature's
-# own "blank means exactly empty" convention.
-#
-# Layout (KTD5/R6):
-#   - preamble (lines 1..first-heading-line-1) is reproduced BYTE-IDENTICAL
-#     -- including however many trailing blank lines it already had --
-#     UNLESS the first heading is itself a flush finding (no blank line at
-#     all before it), in which case exactly one blank line is inserted so
-#     R6 holds for that heading too. This is the only place a blank count
-#     is preserved rather than normalized; see the plan's Execution
-#     Note / this unit's final report for why.
-#   - each canonical name that occurs at least once gets exactly one
-#     merged section, in fixed Plan/Handoffs/Decisions/Done/Follow-ups
-#     order: "## <name>", then (if any copy has non-blank content) one
-#     blank line and the non-blank-only copies' bodies -- each individually
-#     leading/trailing-blank-trimmed -- joined by one blank line each. A
-#     name with zero copies is simply omitted (never synthesized).
-#   - every non-canonical section is reproduced verbatim (its OWN interior
-#     formatting untouched, only its own trailing blank run normalized away
-#     since the space before whatever comes next is now this function's
-#     job, not the original author's) immediately after whichever
-#     canonical name -- or the preamble, if none preceded it yet -- it
-#     originally followed in the source file (KTD5). Multiple non-canonical
-#     sections anchored to the same name keep their original relative
-#     order.
-#   - every chunk-to-chunk transition after the preamble gets EXACTLY one
-#     blank line, unconditionally: every chunk (canonical or not) starts
-#     with a heading line (never blank) and has had its own trailing blanks
-#     trimmed, so there is never a double blank to guard against there.
-_wb_lint_sections_merge() {
-  local file="$1"
-  local -a all_lines=()
-  mapfile -t all_lines < "$file"
-
-  local -a records=()
-  mapfile -t records < <(_wb_lint_sections_records "$file")
-  if [ "${#records[@]}" -eq 0 ]; then
-    printf '%s\n' "${all_lines[@]}"
-    return 0
-  fi
-
-  # Each record is split exactly once here and every later pass reads
-  # these parallel arrays.
-  local -a r_canon=() r_name=() r_hline=() r_bstart=() r_bend=() r_flush=()
-  local i
-  for i in "${!records[@]}"; do
-    local -a rf; wb_tsv_split "${records[$i]}" rf
-    r_canon[$i]="${rf[0]}"; r_name[$i]="${rf[1]}"; r_hline[$i]="${rf[2]}"
-    r_bstart[$i]="${rf[3]}"; r_bend[$i]="${rf[4]}"; r_flush[$i]="${rf[6]}"
-  done
-  local first_heading_line="${r_hline[0]}" first_flush="${r_flush[0]}"
-
-  # One file-order pass: canonical copies' trimmed bodies accumulate per
-  # name (joined by one blank line); each non-canonical record index is
-  # queued under the most recent canonical name before it, or PREAMBLE.
-  local -A canon_seen=() canon_body=() nc_by_anchor=()
-  local last_canon="PREAMBLE"
-  for i in "${!records[@]}"; do
-    if [ "${r_canon[$i]}" != "1" ]; then
-      nc_by_anchor["$last_canon"]+="$i "
-      continue
-    fi
-    local name="${r_name[$i]}" bstart="${r_bstart[$i]}" bend="${r_bend[$i]}"
-    last_canon="$name"
-    canon_seen["$name"]=1
-    local -a body_lines=()
-    if [ "$bstart" -le "$bend" ]; then
-      body_lines=("${all_lines[@]:$((bstart - 1)):$((bend - bstart + 1))}")
-    fi
-    local -a trimmed=()
-    _wb_lint_trim_blank_array body_lines trimmed
-    [ "${#trimmed[@]}" -gt 0 ] || continue
-    local body; body="$(printf '%s\n' "${trimmed[@]}")"
-    if [ -n "${canon_body[$name]:-}" ]; then
-      canon_body["$name"]+=$'\n\n'"$body"
-    else
-      canon_body["$name"]="$body"
-    fi
-  done
-
-  local -a chunk_list=()
-  local j canon_name
-  for j in ${nc_by_anchor[PREAMBLE]:-}; do
-    chunk_list+=("$(_wb_lint_nc_chunk all_lines "${r_hline[$j]}" "${r_bend[$j]}")")
-  done
-  for canon_name in Plan Handoffs Decisions Done Follow-ups; do
-    if [ -n "${canon_body[$canon_name]:-}" ]; then
-      chunk_list+=("## $canon_name"$'\n\n'"${canon_body[$canon_name]}")
-    elif [ -n "${canon_seen[$canon_name]:-}" ]; then
-      chunk_list+=("## $canon_name")
-    fi
-    for j in ${nc_by_anchor[$canon_name]:-}; do
-      chunk_list+=("$(_wb_lint_nc_chunk all_lines "${r_hline[$j]}" "${r_bend[$j]}")")
-    done
-  done
-
-  # ---- preamble, byte-identical, plus exactly one blank line ONLY when
-  # the first heading was itself a flush finding (see function header). ----
-  local -a output_lines=()
-  if [ "$first_heading_line" -gt 1 ]; then
-    output_lines=("${all_lines[@]:0:$((first_heading_line - 1))}")
-    [ "$first_flush" = "1" ] && output_lines+=("")
-  fi
-
-  local first=1 c
-  for c in "${chunk_list[@]}"; do
-    local -a clines=(); mapfile -t clines <<< "$c"
-    if [ "$first" -eq 1 ] && [ "${#output_lines[@]}" -eq 0 ]; then
-      output_lines=("${clines[@]}")
-    elif [ "$first" -eq 1 ]; then
-      output_lines+=("${clines[@]}")
-    else
-      output_lines+=("" "${clines[@]}")
-    fi
-    first=0
-  done
-
-  printf '%s\n' "${output_lines[@]}"
-}
-
-# _wb_lint_sections_selfcheck <file> <merged-text> — refuses (exit 1) when
-# the merge would drop content: the multiset of <file>'s non-blank lines
-# must equal <merged-text>'s non-blank lines, plus exactly the duplicate
-# canonical heading lines the merge is EXPECTED to drop (copies - 1 of
-# "## <name>" for every canonical name with copies > 1). `comm` compares
-# sorted multisets correctly (a linear merge, not set dedup), so this is a
-# real per-occurrence accounting check, not just "same set of distinct
-# lines".
-_wb_lint_sections_selfcheck() {
-  local file="$1" merged="$2"
-  local a b c; a="$(mktemp)"; b="$(mktemp)"; c="$(mktemp)"
-
-  local -a records=(); mapfile -t records < <(_wb_lint_sections_records "$file")
-  local -A dupcount=()
-  local i canon_lines=" "
-  for i in "${!records[@]}"; do
-    local -a rf; wb_tsv_split "${records[$i]}" rf
-    [ "${rf[0]}" = "1" ] || continue
-    dupcount["${rf[1]}"]=$(( ${dupcount["${rf[1]}"]:-0} + 1 ))
-    canon_lines+="${rf[2]} "
-  done
-
-  # The merge re-emits every canonical heading as a bare "## <name>", so a
-  # canonical heading line with trailing whitespace is compared trimmed on
-  # this (original) side too -- else it could never match and --fix would
-  # always refuse such a file.
-  LC_ALL=C awk -v canon="$canon_lines" '
-    index(canon, " " FNR " ") { sub(/[ \t]+$/, "") }
-    $0 != ""' "$file" | LC_ALL=C sort > "$a"
-
-  : > "$b"
-  local name cnt k
-  for name in "${!dupcount[@]}"; do
-    cnt="${dupcount[$name]}"
-    [ "$cnt" -gt 1 ] || continue
-    for ((k = 1; k < cnt; k++)); do printf '## %s\n' "$name" >> "$b"; done
-  done
-  LC_ALL=C sort -o "$b" "$b"
-
-  LC_ALL=C comm -23 "$a" "$b" > "$c"
-
-  local expected_hash actual_hash
-  expected_hash="$(sha256sum "$c" | awk '{print $1}')"
-  actual_hash="$(printf '%s\n' "$merged" | LC_ALL=C awk '$0 != ""' | LC_ALL=C sort | sha256sum | awk '{print $1}')"
-  rm -f "$a" "$b" "$c"
-  [ "$expected_hash" = "$actual_hash" ]
-}
-
-# _wb_lint_sections_hash <file> — the per-file content hash --machine
-# prints and --fix re-checks before writing (KTD4).
-_wb_lint_sections_hash() {
-  sha256sum "$1" | awk '{print $1}'
-}
-
-# _wb_lint_sections_collect <file...> — the one findings pass behind
-# --machine, the human table, and --diff. One TSV row per finding, in a
-# stable column order the review page builds on (KTD7): file path, kind
-# (dup|flush), section name, copies, nonempty-copies, content hash. A file
-# with zero findings contributes no rows -- absence of a file's rows IS
-# "clean", there is no separate "no findings" sentinel row.
-_wb_lint_sections_collect() {
-  local f findings hash line
-  for f in "$@"; do
-    if [ ! -f "$f" ]; then
-      echo "wb lint-sections: $f: no such file" >&2
-      continue
-    fi
-    findings="$(_wb_lint_sections_findings "$f")"
-    [ -n "$findings" ] || continue
-    hash="$(_wb_lint_sections_hash "$f")"
-    while IFS= read -r line; do
-      local -a ff; wb_tsv_split "$line" ff
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "${ff[0]}" "${ff[1]}" "${ff[2]}" "${ff[3]}" "$hash"
-    done <<< "$findings"
-  done
-}
-
-# _wb_lint_sections_human <file...> — the plain-text table over the same
-# rows --machine prints (cmd_reconcile's collect-once, present-twice split).
-_wb_lint_sections_human() {
-  local -a rows=()
-  local line
-  while IFS= read -r line; do
-    local -a ff; wb_tsv_split "$line" ff
-    rows+=("$(basename -- "${ff[0]}")"$'\t'"${ff[1]}"$'\t'"${ff[2]}"$'\t'"${ff[3]}"$'\t'"${ff[4]}")
-  done < <(_wb_lint_sections_collect "$@")
-  if [ "${#rows[@]}" -eq 0 ]; then
-    echo "wb lint-sections: no findings across $# file(s)"
-    return 0
-  fi
-  { printf 'FILE\tKIND\tSECTION\tCOPIES\tNONEMPTY\n'; printf '%s\n' "${rows[@]}"; } | column -t -s $'\t'
-}
-
-# _wb_lint_sections_diff <file...> — `diff -u` of original vs merged for
-# every <file> that has a finding (the same scope --fix acts on, R4).
-# Always exits 0: `diff` returning 1 for "files differ" is the expected
-# outcome here, not a failure.
-_wb_lint_sections_diff() {
-  local f merged base
-  while IFS= read -r f; do
-    merged="$(_wb_lint_sections_merge "$f")"
-    base="$(basename -- "$f")"
-    diff -u --label "a/$base" --label "b/$base" "$f" <(printf '%s\n' "$merged") || [ $? -eq 1 ]
-  done < <(_wb_lint_sections_collect "$@" | cut -f1 | uniq)
-  return 0
-}
-
-# _wb_lint_sections_fix <target...> — <target> is "<file>:<hash>"; there is
-# NO --all (KTD4/KTD7 -- every write must trace to a reviewed hash). All
-# targets are format-validated BEFORE anything is locked or written: one
-# malformed target refuses the whole call with nothing written, per R7's
-# usage-error contract. Each valid target is then processed independently
-# (lock, re-hash, merge, self-check, write, unlock) -- a stale hash or a
-# self-check trip skips just that target, named in a message, and the
-# final exit status reports whether ANY target was skipped.
-_wb_lint_sections_fix() {
-  local -a targets=("$@")
-  if [ "${#targets[@]}" -eq 0 ]; then
-    echo "usage: wb lint-sections --fix <file>:<hash> [<file>:<hash> ...]   (no --all -- every target must be an explicit reviewed file:hash pair)" >&2
-    return 1
-  fi
-
-  local t
-  for t in "${targets[@]}"; do
-    case "$t" in
-      *:*) ;;
-      *)
-        echo "wb lint-sections --fix: '$t' is not <file>:<hash> — usage error, nothing written" >&2
-        return 1
-        ;;
-    esac
-    if [ -z "${t%:*}" ] || [ -z "${t##*:}" ]; then
-      echo "wb lint-sections --fix: '$t' is not <file>:<hash> — usage error, nothing written" >&2
-      return 1
-    fi
-  done
-
-  local any_skipped=0
-  for t in "${targets[@]}"; do
-    _wb_lint_sections_fix_one "${t%:*}" "${t##*:}" || any_skipped=1
-  done
-  return "$any_skipped"
-}
-
-# _wb_lint_sections_fix_one <file-part> <expected-hash> — resolves
-# <file-part> via _wb_append_resolve_task (the same resolver `wb append`
-# uses), then follows cmd_append's own lock idiom exactly
-# (_wb_lock_trap_append_if_top_level for the crash backstop,
-# wb_task_lock_acquire_guarded, then release on every exit path).
-_wb_lint_sections_fix_one() {
-  local file_part="$1" expected_hash="$2" file
-  # Resolver stderr is silenced so an unresolved ref prints exactly one
-  # line (ours), not the resolver's own "no task matches" plus ours.
-  file="$(_wb_append_resolve_task "$file_part" "wb lint-sections --fix" 2>/dev/null)" || {
-    echo "wb lint-sections --fix: '$file_part' did not resolve — skipped" >&2
-    return 1
-  }
-
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  wb_task_lock_acquire_guarded "$file" || return $?
-
-  local cur_hash; cur_hash="$(_wb_lint_sections_hash "$file")"
-  if [ "$cur_hash" != "$expected_hash" ]; then
-    echo "wb lint-sections --fix: $(basename -- "$file") changed since review (hash mismatch) — skipped" >&2
-    wb_task_lock_release "$file"
-    return 1
-  fi
-
-  local findings; findings="$(_wb_lint_sections_findings "$file")"
-  if [ -z "$findings" ]; then
-    echo "wb lint-sections --fix: $(basename -- "$file") has no findings — untouched"
-    wb_task_lock_release "$file"
-    return 0
-  fi
-
-  local merged; merged="$(_wb_lint_sections_merge "$file")"
-  if ! _wb_lint_sections_selfcheck "$file" "$merged"; then
-    echo "wb lint-sections --fix: $(basename -- "$file") failed the content self-check — refusing to write" >&2
-    wb_task_lock_release "$file"
-    return 1
-  fi
-
-  # The lock only fences wb's own writers; an unlocked one (an Edit-tool
-  # write) can land between the hash check above and here, so re-hash
-  # immediately before the mv rather than trusting the earlier check.
-  if ! printf '%s\n' "$merged" > "$file.tmp.$$"; then
-    rm -f "$file.tmp.$$"
-    echo "wb lint-sections --fix: $(basename -- "$file") write failed — skipped" >&2
-    wb_task_lock_release "$file"
-    return 1
-  fi
-  cur_hash="$(_wb_lint_sections_hash "$file")"
-  if [ "$cur_hash" != "$expected_hash" ]; then
-    rm -f "$file.tmp.$$"
-    echo "wb lint-sections --fix: $(basename -- "$file") changed during the merge (hash mismatch) — skipped" >&2
-    wb_task_lock_release "$file"
-    return 1
-  fi
-  if ! mv "$file.tmp.$$" "$file"; then
-    rm -f "$file.tmp.$$"
-    echo "wb lint-sections --fix: $(basename -- "$file") write failed — skipped" >&2
-    wb_task_lock_release "$file"
-    return 1
-  fi
-  wb_task_lock_release "$file"
-  echo "wb lint-sections --fix: merged $(basename -- "$file")"
-}
-
-# cmd_lint_sections [<task-ref>...] [--machine] [--diff [<task-ref>...]]
-#                    [--fix <file>:<hash> ...]
-# No refs -> the whole store (wb_task_files, same TEMPLATE/README skip
-# list every other store-wide verb uses); refs -> resolved the same way
-# `wb append` resolves its <task-ref> (_wb_append_resolve_task: exact path/
-# basename fast path, then the fail-loud fuzzy fallback). Exit 0 whether or
-# not findings exist; nonzero only on errors (bad ref, bad --fix usage, a
-# --fix target skipped).
-cmd_lint_sections() {
-  local machine=0 diffmode=0 fixmode=0
-  local -a fix_targets=() refs=()
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --machine) machine=1; shift ;;
-      --diff) diffmode=1; shift ;;
-      --fix)
-        fixmode=1; shift
-        while [ $# -gt 0 ]; do fix_targets+=("$1"); shift; done
-        ;;
-      -*)
-        echo "wb lint-sections: unknown flag '$1'" >&2
-        exit 1
-        ;;
-      *) refs+=("$1"); shift ;;
-    esac
-  done
-
-  if [ "$fixmode" -eq 1 ]; then
-    _wb_lint_sections_fix "${fix_targets[@]}"
-    exit $?
-  fi
-
-  local -a files=()
-  if [ "${#refs[@]}" -gt 0 ]; then
-    local r resolved
-    for r in "${refs[@]}"; do
-      resolved="$(_wb_append_resolve_task "$r" "wb lint-sections")" || exit 1
-      files+=("$resolved")
-    done
-  else
-    mapfile -t files < <(wb_task_files)
-  fi
-
-  if [ "$diffmode" -eq 1 ]; then
-    _wb_lint_sections_diff "${files[@]}"
-    exit 0
-  fi
-
-  if [ "$machine" -eq 1 ]; then
-    _wb_lint_sections_collect "${files[@]}"
-  else
-    _wb_lint_sections_human "${files[@]}"
-  fi
-}
-
-# ---------------------------------------------------------------------------
 # wb status — set a STORE-ONLY task's status: field directly (no live
 # session to route the change through `wb pause`/`wb down`/`wb resume`).
 # ---------------------------------------------------------------------------
@@ -4908,7 +4084,6 @@ cmd_status() {
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || exit $?
   wb_set_frontmatter_field "$file" status "$new"
-  wb_append_handoff "$file" "wb status" "Status set to \`$new\` via \`wb status\` (store-only)."
   wb_task_lock_release "$file"
   echo "wb status: $(basename -- "$file") $old -> $new"
 }
@@ -4988,17 +4163,15 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path branch"
 # repo/worktree), refuses an unknown field, validates the value for
 # the fields that have an enum or a must-exist-in-$TASKS_DIR constraint
 # (priority/value/size/parent/depends_on/jira/branch — same fail-loud-before-any-
-# write convention `wb new`'s --size/--depends-on validation uses), then
+# write convention `wb new`'s --depends-on validation uses), then
 # rewrites just that one frontmatter line under the per-task lock. Inserts
 # the field right after `size:` when it's missing entirely (priority:/
 # value: land there in TEMPLATE.md's own field order) — every other
 # missing field falls back to wb_set_frontmatter_field's own default
 # (just before the closing `---`). No write when the value already
 # matches — except `--unset` on a key missing entirely, which inserts it
-# empty (schema backfill; silent, no Handoffs entry). Appends a terse Handoffs entry ONLY for
-# the four structural fields (parent/depends_on/jira/branch) — priority/value/
-# size/tags/path are left silent, matching /wb-save's own signal-over-
-# noise posture for low-stakes board metadata.
+# empty (schema backfill). Never appends a Handoffs entry: a frontmatter
+# change is its own record.
 cmd_set() {
   local query="${1:-}" field="${2:-}" value="${3:-}"
   if [ -z "$query" ] || [ -z "$field" ] || [ "$#" -lt 3 ]; then
@@ -5185,15 +4358,6 @@ cmd_set() {
   fi
 
   wb_set_frontmatter_field "$file" "$field" "$value" "$after_key"
-  case "$field" in
-    parent|depends_on|jira|branch)
-      if [ "$unset_req" -eq 1 ]; then
-        wb_append_handoff "$file" "wb set" "\`$field:\` cleared via \`wb set --unset\` (was \`$old\`)."
-      else
-        wb_append_handoff "$file" "wb set" "\`$field:\` set to \`$value\` via \`wb set\` (was \`$old\`)."
-      fi
-      ;;
-  esac
   wb_task_lock_release "$file"
   if [ "$unset_req" -eq 1 ]; then
     echo "wb set: $(basename -- "$file") $field '$old' -> (cleared)"
@@ -5474,15 +4638,15 @@ cmd_week() {
 # checkout of $TASKS_DIR needs to actually find the file at runtime, not a
 # dotfiles-repo-relative path), hardens gc/reflog retention (X5) so a
 # sentinel-blessed rewind stays recoverable by policy rather than GC luck,
-# pre-creates the git-hook kill-switch (X4) unless the X7 replay tool has
-# already recorded an accepting run, and VERIFIES (never edits — Decision
+# pre-creates the git-hook kill-switch (X4) unless the operator has marked
+# the hook as deliberately enabled, and VERIFIES (never edits — Decision
 # 4A) the live ~/.claude/settings.json's PreToolUse entry against the
 # tracked reference copy in claude/.claude/settings.recommended.json.
 # ---------------------------------------------------------------------------
 
 # cmd_install_hooks — no arguments. Every step is safe to re-run: git config
 # writes are naturally idempotent for a single value, the switch file is
-# only ever created when both the replay marker is absent AND it isn't
+# only ever created when both the enabled marker is absent AND it isn't
 # already there, and the settings check only ever reads.
 cmd_install_hooks() {
   local hooks_dir="$HOME/.config/scripts/tmux/tasks-git-hooks"
@@ -5512,12 +4676,13 @@ cmd_install_hooks() {
   [ "$cur" = "$reflog_span" ] || changed=1
   git -C "$TASKS_DIR" config gc.reflogExpireUnreachable "$reflog_span"
 
-  # 3. X4 kill-switch: pre-create disable-git-hook UNLESS the X7 replay
-  # tool has already left its replay-passed marker — checked FIRST, every
-  # run, so an idempotent re-run after a human deliberately enabled the
-  # hook (rm'd the switch post-replay) never silently re-disables it. Never
-  # remove an existing switch file here — that's the replay tool's/
-  # operator's job elsewhere, not this verb's.
+  # 3. X4 kill-switch: pre-create disable-git-hook UNLESS the optional
+  # replay-passed marker exists — checked FIRST, every run, so an
+  # idempotent re-run after a human deliberately enabled the hook (rm'd the
+  # switch, touched the marker) never silently re-disables it. The marker
+  # is hand-made (`touch`); its name predates the retired replay tool that
+  # used to write it. Never remove an existing switch file here — that's
+  # the operator's job, not this verb's.
   local state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
   local wb_state_dir="$state_home/wb"
   local replay_marker="$wb_state_dir/replay-passed"
@@ -5532,7 +4697,7 @@ cmd_install_hooks() {
     else
       : > "$switch_file"
       changed=1
-      switch_msg="git-hook switch file created (hook installed but dormant until the X7 replay passes)"
+      switch_msg="git-hook switch file created (hook installed but dormant — to enable: rm $switch_file && touch $replay_marker)"
     fi
   fi
 
@@ -6877,60 +6042,6 @@ picker() {
 }
 
 # ---------------------------------------------------------------------------
-# wb agents — list claude() wrapper scopes, flag orphans (read-only)
-# ---------------------------------------------------------------------------
-
-# cmd_agents [--orphans] — one row per loaded wb-agent-* systemd scope (the
-# per-launch cgroups zsh/.zshrc's claude() wrapper creates) with the
-# processes still inside it. A scope whose cgroup holds no `claude` process
-# is ORPHAN: something the agent launched (wl-copy, a `go run` dev server,
-# gopls) outlived it and keeps the scope active. Detection only — it never
-# stops anything (an orphan's leftover may be a server you still want), it
-# prints the `systemctl --user stop` line for the human to run. WB_CGROUP_ROOT
-# / WB_PROC_ROOT exist so the test can point at a fixture tree.
-cmd_agents() {
-  local only_orphans=0
-  case "${1:-}" in
-    --orphans) only_orphans=1 ;;
-    '') ;;
-    *) echo "wb agents: unknown flag '$1' (usage: wb agents [--orphans])" >&2; exit 2 ;;
-  esac
-  command -v systemctl >/dev/null 2>&1 || { echo "wb agents: systemctl not found — no systemd --user scopes to list" >&2; exit 1; }
-
-  local cg_root="${WB_CGROUP_ROOT:-/sys/fs/cgroup}" proc_root="${WB_PROC_ROOT:-/proc}"
-  local unit cg pid comm procs state n_total=0 n_orphan=0
-  local -a orphans=()
-  printf '%-7s %-72s %s\n' STATE SCOPE PROCESSES
-  while read -r unit _; do
-    [ -n "$unit" ] || continue
-    cg="$(systemctl --user show -p ControlGroup --value "$unit" 2>/dev/null)"
-    procs=""
-    if [ -n "$cg" ] && [ -r "$cg_root$cg/cgroup.procs" ]; then
-      # `if`, not `&&`: a pid that exits between the cgroup.procs read and
-      # the comm read is routine, and a trailing false `&&` would fail the
-      # loop -> the pipeline (pipefail) -> the whole scan (set -e).
-      procs="$(while read -r pid; do
-                 if comm="$(cat "$proc_root/$pid/comm" 2>/dev/null)"; then printf '%s\n' "$comm"; fi
-               done < "$cg_root$cg/cgroup.procs" | sort | uniq -c | awk '{printf "%s:%s ", $2, $1}')"
-    fi
-    if printf '%s' "$procs" | grep -qE '(^| )claude:'; then
-      state=live
-    else
-      state=ORPHAN; n_orphan=$((n_orphan + 1)); orphans+=("$unit")
-    fi
-    n_total=$((n_total + 1))
-    [ "$only_orphans" = 1 ] && [ "$state" = live ] && continue
-    printf '%-7s %-72s %s\n' "$state" "$unit" "${procs:-(empty)}"
-  done < <(systemctl --user list-units --type=scope --all --no-legend --plain 'wb-agent-*' 2>/dev/null)
-
-  printf '\n%s scope(s), %s orphaned (no claude process inside).\n' "$n_total" "$n_orphan"
-  if [ "$n_orphan" -gt 0 ]; then
-    echo "Inspect first (systemctl --user status <unit>); if the leftovers are junk, stop them yourself:"
-    for unit in "${orphans[@]}"; do printf '  systemctl --user stop %s\n' "$unit"; done
-  fi
-}
-
-# ---------------------------------------------------------------------------
 # wb help — the verb list
 # ---------------------------------------------------------------------------
 
@@ -6975,12 +6086,9 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     pr-open)     shift; cmd_pr_open "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
     task-file)   shift; cmd_task_file "$@" ;;
-    agents)      shift; cmd_agents "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
-    sync)          shift; cmd_sync "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
-    lint-sections) shift; cmd_lint_sections "$@" ;;
     week)        shift; cmd_week "$@" ;;
     status)      shift; cmd_status "$@" ;;
     set)         shift; cmd_set "$@" ;;

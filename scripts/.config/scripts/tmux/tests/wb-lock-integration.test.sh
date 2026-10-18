@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # Integration tests for U3 (lock integration across all write chains) — the
 # plan's highest-risk unit: wiring U1's wb_task_lock_acquire/release into
-# every real wb.sh/handoff.sh write burst, plus the L2-L5 caller-side
-# orphan-check-and-retry wrapper (wb_task_lock_acquire_guarded) built on top
-# of U2's tmux_session_agent_state. Unlike wb-locks.test.sh (U1, unit tests
+# every real wb.sh/handoff.sh write burst, plus the caller-side dead-holder
+# retry wrapper (wb_task_lock_acquire_guarded). Unlike wb-locks.test.sh (U1, unit tests
 # against wb-locks.sh alone), this sources the REAL wb.sh so every scenario
 # below exercises the actual wrapper + the real cmd_*/wb_reconcile_action_*
 # lock bursts, not a hand-rolled stand-in.
 #
-# Real concurrent background processes, SIGKILL-adjacent liveness edge
-# cases (a still-running-but-lock-free "orphan"), and flock contention
-# timing — run ONLY inside this repo's Docker test sandbox, never bare on
+# Real concurrent background processes and flock contention timing — run ONLY inside this repo's Docker test sandbox, never bare on
 # the host:
 #   docker build -t wb-tests -f scripts/.config/scripts/tmux/tests/Dockerfile . -q
 #   docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests \
@@ -37,11 +34,6 @@ exec "$REAL_TMUX" -L "$SOCK" "\$@"
 EOF
 chmod +x "$STUB_BIN/tmux"
 PATH="$STUB_BIN:$PATH"
-
-CLAUDE_STUB_DIR="$FIXTURE/claude-bin"
-mkdir -p "$CLAUDE_STUB_DIR"
-cp "$(command -v sleep)" "$CLAUDE_STUB_DIR/claude"
-chmod +x "$CLAUDE_STUB_DIR/claude"
 
 cleanup() {
   for pid in "${HOLDER_PIDS[@]:-}"; do
@@ -106,14 +98,11 @@ source "$WB"
 set +e   # wb.sh sets -e; this suite intentionally captures non-zero exits
 
 # =============================================================================
-# Shared helpers for the L2-L5 (orphan-check) scenarios below.
+# Shared helpers for the contention scenarios below.
 # =============================================================================
 
 # HOLDER_SCRIPT — a real, separate background process used to simulate a
-# lock holder with a controllable recorded identity. Filename deliberately
-# contains "wb.sh" so /proc/<pid>/cmdline satisfies wb.sh's
-# _wb_lock_cmdline_wb_shaped process-identity check exactly like a real
-# wb.sh subprocess would.
+# lock holder with a controllable recorded identity.
 #
 # `exec >>"$HOLDER_LOG" 2>&1` as its very FIRST line is load-bearing, not
 # cosmetic logging: every holder here is launched from INSIDE a command
@@ -134,29 +123,23 @@ cat > "$HOLDER_SCRIPT" <<'EOF'
 #!/usr/bin/env bash
 exec >>"$HOLDER_LOG" 2>&1
 source "$WB_LOCKS"
-task_file="$1"; hold_secs="${2:-30}"; release_after_hold="${3:-0}"
+task_file="$1"; hold_secs="${2:-30}"
 wb_task_lock_acquire "$task_file" || exit 1
 sleep "$hold_secs"
-if [ "$release_after_hold" = 1 ]; then
-  wb_task_lock_release "$task_file"
-  sleep 60   # stay alive (kill -0 still succeeds) with the flock now free
-fi
 EOF
 chmod +x "$HOLDER_SCRIPT"
 export HOLDER_LOG
 
-# spawn_holder <task_file> <hold_secs> <tmux_session_name> [<release_after_hold>]
+# spawn_holder <task_file> <hold_secs> <tmux_session_name>
 # — launches HOLDER_SCRIPT as a genuinely separate process (via `exec`, so
 # the forked subshell's own pid IS the holder's pid) with a per-call `tmux`
 # stub prepended to PATH that answers `tmux display -p '#S'` with
 # <tmux_session_name> — this is what wb-locks.sh's own
 # _wb_lock_own_tmux_session records as the holder's own identity at acquire
 # time, independent of whether <tmux_session_name> corresponds to a real
-# tmux session on the fixture socket (the L2/L5 scenarios below control
-# both independently: what name gets recorded, and whether a same-named
-# session genuinely exists). Echoes the holder's pid.
+# tmux session on the fixture socket. Echoes the holder's pid.
 spawn_holder() {
-  local task_file="$1" hold_secs="$2" session_name="$3" release_after="${4:-0}"
+  local task_file="$1" hold_secs="$2" session_name="$3"
   local stubdir; stubdir="$(mktemp -d -t wb-lock-integ-holderstub.XXXXXX)"
   ALL_TMP+=("$stubdir")
   cat > "$stubdir/tmux" <<STUBEOF
@@ -170,7 +153,7 @@ STUBEOF
   chmod +x "$stubdir/tmux"
   (
     export PATH="$stubdir:$PATH" TMUX="fake,1,0" TMUX_PANE="%9"
-    exec bash "$HOLDER_SCRIPT" "$task_file" "$hold_secs" "$release_after"
+    exec bash "$HOLDER_SCRIPT" "$task_file" "$hold_secs"
   ) &
   local pid=$!
   HOLDER_PIDS+=("$pid")
@@ -196,20 +179,6 @@ _wait_for_holder() {
     waited=$((waited + 1))
   done
   return 1
-}
-
-# _patch_acquired_timestamp <lockfile> <seconds_ago> — rewrites the
-# `acquired:` line IN PLACE via a same-inode truncating `>` redirect — never
-# `mv`/`sed -i`'s default rename-based edit, which would swap in a FRESH,
-# lock-free inode at the same path out from under the real holder's still-
-# open fd, silently breaking the very contention this test is simulating
-# (the holder's flock lives on the OLD inode; a renamed-in replacement
-# carries no lock at all).
-_patch_acquired_timestamp() {
-  local lockfile="$1" seconds_ago="$2" new_ts content
-  new_ts="$(date -u -d "@$(( $(date +%s) - seconds_ago ))" +%Y-%m-%dT%H:%M:%SZ)"
-  content="$(awk -v ts="$new_ts" '{ if ($0 ~ /^acquired: /) print "acquired: " ts; else print }' "$lockfile")"
-  printf '%s\n' "$content" > "$lockfile"
 }
 
 # =============================================================================
@@ -528,91 +497,33 @@ fi
 assert "cmd_done: task flipped to done" '^status: done$' "$(cat "$DONE_TASK_FILE")"
 
 # =============================================================================
-# Scenario L2 (kill path) — a recorded holder with a DEAD tmux session
-# (never created for real) but a YOUNG (<60s) acquire timestamp must NOT be
-# cleared: the wrapper must halt exactly like an ordinary contention, with
-# no retry attempted (proven by exactly ONE "contended on" message).
+# Scenario: dead-pid retry — the holder recorded in the lock file is a pid
+# that is already gone, so wb_task_lock_acquire_guarded retries once and
+# wins when the flock frees. The recorded pid is rewritten in place (same
+# inode, so the real holder keeps its flock) to a reaped pid; the real
+# holder then releases at the end of its hold, inside the retry's own
+# `flock -w 1` window.
 # =============================================================================
 
-L2_YOUNG_TASK="$TASKS_DIR/proj--l2-young.md"
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: l2-young\nworktree: .worktrees/l2-young\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
-  > "$L2_YOUNG_TASK"
+DEADPID_TASK="$TASKS_DIR/proj--dead-pid.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: dead-pid\nworktree: .worktrees/dead-pid\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
+  > "$DEADPID_TASK"
 
-l2young_holder="$(spawn_holder "$L2_YOUNG_TASK" 3 "l2-young-dead-session")"
-_wait_for_holder "$L2_YOUNG_TASK" "$l2young_holder"   # let it actually acquire (and record a fresh, young timestamp) first
-l2young_err="$(wb_task_lock_acquire_guarded "$L2_YOUNG_TASK" 2>&1 1>/dev/null)"
-l2young_rc=$?
-assert_eq "L2 young-timestamp dead-session: exit 75 (NOT cleared)" 75 "$l2young_rc"
-l2young_contend_count="$(grep -oc 'contended on' <<< "$l2young_err")"
-assert_eq "L2 young-timestamp dead-session: exactly ONE contention message (no retry attempted — mid-spawn protection)" 1 "$l2young_contend_count"
-wait "$l2young_holder" 2>/dev/null
+# hold 1.9s: the first `flock -w 1` must fail (starts <0.9s after the
+# holder acquired) and the retry's own 1s window must cover the release.
+deadpid_holder="$(spawn_holder "$DEADPID_TASK" 1.9 "dead-pid-session")"
+_wait_for_holder "$DEADPID_TASK" "$deadpid_holder"
+sh -c 'exit 0' & gone_pid=$!; wait "$gone_pid"
+deadpid_lockfile="$(_wb_lock_path_for "$DEADPID_TASK")"
+deadpid_content="$(awk -v p="$gone_pid" '{ if ($0 ~ /^pid: /) print "pid: " p; else print }' "$deadpid_lockfile")"
+printf '%s\n' "$deadpid_content" > "$deadpid_lockfile"
 
-# =============================================================================
-# Scenario L2 (kill path, positive) — a recorded holder with a DEAD tmux
-# session, an OLD (>60s, synthetically patched) acquire timestamp, a
-# confirmed wb/claude-shaped /proc/<pid>/cmdline, and its own recorded pane
-# confirmed gone: cleared, and the lock is successfully retried.
-# =============================================================================
-
-L2_OLD_TASK="$TASKS_DIR/proj--l2-old.md"
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: l2-old\nworktree: .worktrees/l2-old\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
-  > "$L2_OLD_TASK"
-
-# hold_secs=1.5 (> the wrapper's own first `flock -w 1` timeout, so that
-# FIRST attempt genuinely contends and returns 75) then release-but-stay-
-# alive (kill -0 keeps succeeding with the flock now actually free — the
-# "zombie/orphaned wb subprocess" shape L2 describes, without needing an
-# actual OS zombie).
-l2old_holder="$(spawn_holder "$L2_OLD_TASK" 1.5 "l2-old-dead-session" 1)"
-_wait_for_holder "$L2_OLD_TASK" "$l2old_holder"   # let it actually acquire + write its holder info first
-l2old_lockfile="$(_wb_lock_path_for "$L2_OLD_TASK")"
-_patch_acquired_timestamp "$l2old_lockfile" 65
-
-start_ns=$(date +%s%N)
-l2old_err="$(wb_task_lock_acquire_guarded "$L2_OLD_TASK" 2>&1 1>/dev/null)"
-l2old_rc=$?
-end_ns=$(date +%s%N)
-l2old_elapsed_ms=$(( (end_ns - start_ns) / 1000000 ))
-
-assert_eq "L2 old-timestamp dead-session: cleared and retried -> exit 0" 0 "$l2old_rc"
-l2old_contend_count="$(grep -oc 'contended on' <<< "$l2old_err")"
-assert_eq "L2 old-timestamp dead-session: exactly ONE contention message (the original failed attempt; no second halt message)" 1 "$l2old_contend_count"
-echo "info - L2 old-timestamp dead-session: guarded acquire took ${l2old_elapsed_ms}ms (expected roughly 1000-2500ms: one failed 1s attempt, then a retry that unblocks once the holder actually releases)"
-wb_task_lock_release "$L2_OLD_TASK"
-kill "$l2old_holder" 2>/dev/null
-wait "$l2old_holder" 2>/dev/null
-
-# =============================================================================
-# Scenario L5 — a recorded holder whose OWN recorded tmux session is
-# confirmed ALIVE (a real session on the fixture socket, `:agent` window
-# running the claude stub): exit 75, no clearing attempted at all — the
-# wrapper must not even run the orphan-check's deeper conditions, only the
-# top-level tmux-state check.
-# =============================================================================
-
-L5_ALIVE_SESSION="wb-lock-integ-l5-alive-$$"
-tmux new-session -d -s "$L5_ALIVE_SESSION" 2>/dev/null
-FIXTURE_SESSIONS+=("$L5_ALIVE_SESSION")
-tmux new-window -t "=$L5_ALIVE_SESSION" -n agent 2>/dev/null
-sleep 2   # let the fresh window's shell settle before send-keys
-tmux send-keys -t "=$L5_ALIVE_SESSION:agent" "PATH=\"$CLAUDE_STUB_DIR:\$PATH\" claude 300" Enter
-sleep 2   # give tmux a beat to report the updated pane_current_command
-
-L5_TASK="$TASKS_DIR/proj--l5-alive.md"
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: l5-alive\nworktree: .worktrees/l5-alive\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
-  > "$L5_TASK"
-
-l5_holder="$(spawn_holder "$L5_TASK" 3 "$L5_ALIVE_SESSION")"
-_wait_for_holder "$L5_TASK" "$l5_holder"
-l5_err="$(wb_task_lock_acquire_guarded "$L5_TASK" 2>&1 1>/dev/null)"
-l5_rc=$?
-assert_eq "L5 alive holder session: exit 75, never force-broken" 75 "$l5_rc"
-l5_contend_count="$(grep -oc 'contended on' <<< "$l5_err")"
-assert_eq "L5 alive holder session: exactly ONE contention message (no retry attempted at all)" 1 "$l5_contend_count"
-[ -s "$L5_TASK" ] && ! grep -q '^status: done$' "$L5_TASK" \
-  && echo "ok   - L5 alive holder session: task file untouched" \
-  || { echo "FAIL - L5 alive holder session: task file unexpectedly modified"; fail=1; }
-wait "$l5_holder" 2>/dev/null
+deadpid_err="$(wb_task_lock_acquire_guarded "$DEADPID_TASK" 2>&1 1>/dev/null)"
+deadpid_rc=$?
+assert_eq "dead-pid holder: retried and won -> exit 0" 0 "$deadpid_rc"
+assert_eq "dead-pid holder: exactly ONE contention message (the first attempt)" 1 "$(grep -oc 'contended on' <<< "$deadpid_err")"
+wb_task_lock_release "$DEADPID_TASK"
+wait "$deadpid_holder" 2>/dev/null
 
 # =============================================================================
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"

@@ -389,8 +389,8 @@ _wb_lifecycle_trim() {
 # canonical order. Render-tolerant (R4): comma-separated, whitespace-
 # tolerant, an optional surrounding `[...]` is stripped, unknown stage
 # tokens are silently ignored, duplicates are dropped — a hand-edited
-# `path:` must never crash the `set -euo pipefail` render; loud validation
-# on write lives only in `wb new --path` (U3). Absent or blank (the two are
+# `path:` must never crash the `set -euo pipefail` render (`wb set path`
+# writes free text, with no validation on write). Absent or blank (the two are
 # indistinguishable through wb_get_frontmatter, and both mean "not
 # declared" — "no stages at all" is deliberately inexpressible) yields the
 # default `plan,work,review`, the ~90% real shape.

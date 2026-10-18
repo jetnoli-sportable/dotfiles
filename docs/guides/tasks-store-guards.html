@@ -247,7 +247,7 @@
       <li><a href="#overview">Overview</a></li>
       <li><a href="#coverage-matrix--who-is-stopped-where">Coverage matrix — who is stopped, where</a></li>
       <li><a href="#walkthrough--one-dangerous-command-traced-through-all-three-layers">Walkthrough — one dangerous command, traced through all three layers</a></li>
-      <li><a href="#the-paved-path-wb-sync">The paved path: wb sync</a></li>
+      <li><a href="#the-paved-path-git-pull---ff-only">The paved path: git pull --ff-only</a></li>
       <li><a href="#kill-switches">Kill switches</a></li>
       <li><a href="#runbook--lock-contention-exit-75">Runbook — lock contention (exit 75)</a></li>
       <li><a href="#runbook--refused-rewind-aftermath">Runbook — refused-rewind aftermath</a></li>
@@ -386,7 +386,7 @@ four) is covered.</p>
 <code>reset[[:space:]]+--hard</code>; H4's directory resolution (explicit <code>-C</code>/
 <code>--git-dir</code>, an in-command <code>cd</code>, else the hook payload's <code>cwd</code>) scopes
 it to <code>$HOME/code/tasks</code>. It emits <code>permissionDecision: &quot;ask&quot;</code>, naming
-the matched command, the incident precedent, and <code>wb sync</code>/<code>wb unsafe-rewind</code> as the intended alternatives — and states explicitly
+the matched command, the incident precedent, and <code>git -C ~/code/tasks pull --ff-only</code>/<code>wb unsafe-rewind</code> as the intended alternatives — and states explicitly
 that approving here does not bypass L2.</li>
 <li><strong>Operator approves.</strong> The Bash tool call actually runs.</li>
 <li><strong>git invokes L2.</strong> Because <code>wb install-hooks</code> pointed
@@ -417,11 +417,14 @@ git porcelain command's multiple internal <code>&quot;prepared&quot;</code> call
 need their own sentinel), and allows exactly one transaction. The TTL
 is 120 seconds either way.</li>
 </ol>
-<h2 id="the-paved-path-wb-sync">The paved path: <code>wb sync</code></h2>
-<p><code>wb sync</code> removes the reason to reach for <code>git reset --hard</code> in the first
-place: it fetches, checks for a clean fast-forward, and refuses loudly on
-anything else. It's the alternative L1's own &quot;ask&quot; message points you at —
-reach for it before a raw rewind, not after.</p>
+<h2 id="the-paved-path-git-pull---ff-only">The paved path: <code>git pull --ff-only</code></h2>
+<p><code>git -C ~/code/tasks pull --ff-only</code> removes the reason to reach for
+<code>git reset --hard</code> in the first place: it fetches and fast-forwards, and
+refuses on anything that isn't a clean fast-forward. It's the alternative
+L1's own &quot;ask&quot; message points you at — reach for it before a raw rewind,
+not after. If it refuses because the store has diverged, merge or rebase
+by hand; never reset to the remote, which silently drops your local
+commits.</p>
 <h2 id="kill-switches">Kill switches</h2>
 <p>Each layer checks its own switch file, under
 <code>${XDG_STATE_HOME:-$HOME/.local/state}/wb/</code>, before doing anything else —
@@ -448,7 +451,7 @@ env var, but every next command re-reads the filesystem.</p>
 <td><code>disable-git-hook</code></td>
 <td>L2 refusing</td>
 <td>first check in <code>reference-transaction</code>, before the <code>&quot;prepared&quot;</code>-state gate</td>
-<td><strong>Ships pre-created</strong> by <code>wb install-hooks</code> — the hook installs but stays dormant — unless the <code>replay-passed</code> marker already exists. Removed only by hand (<code>rm</code>), only after a human reads the X7 replay output and is satisfied. Recreate it any time for an emergency rollback.</td>
+<td><strong>Ships pre-created</strong> by <code>wb install-hooks</code> — the hook installs but stays dormant — unless the <code>replay-passed</code> marker already exists. Removed only by hand (<code>rm</code>). Recreate it any time for an emergency rollback.</td>
 </tr>
 <tr>
 <td><code>disable-locks</code></td>
@@ -480,14 +483,12 @@ tmux pane/session no longer exists), never just because &quot;the command is
 taking a while.&quot; <code>wb_task_lock_acquire_guarded</code> (the wrapper every
 <code>cmd_*</code>/<code>wb_reconcile_action_*</code> call site actually uses) already
 automates the safe half of this: on a lost contention it checks whether
-the holder PID is gone outright (kernel already dropped the flock — an
-instant, automatic retry) or whether all four orphan conditions hold at
-once (PID alive but confirmed wb/claude-shaped via <code>/proc/&lt;pid&gt;/cmdline</code>,
-held &gt;60s, and the holder's <em>own</em> recorded tmux session confirmed <code>dead</code>
-via <code>tmux_session_agent_state</code>) before ever retrying on your behalf.
-Anything less — an alive holder, an <code>unknown</code> tmux state, a missing
+the holder PID is gone outright (the kernel already dropped the flock),
+and if so retries once, instantly. Anything else — a holder PID that is
+still alive, even one whose own tmux session is gone, or a missing
 holder field — never auto-clears; it halts, which is what puts you in
-this runbook in the first place.</li>
+this runbook in the first place. A live PID whose session is gone is
+the case to check by hand before you <code>rm</code> the lock.</li>
 </ul>
 <h2 id="runbook--refused-rewind-aftermath">Runbook — refused-rewind aftermath</h2>
 <p>A refused <code>reset --hard</code> (or any other rewind-shaped ref update L2 vetoes)
@@ -528,25 +529,16 @@ After pasting, <strong>restart every already-running Claude Code session</strong
 hook config is snapshotted at session start, so a running session won't
 see the new entry until it restarts.</li>
 </ol>
-<p>Enabling the git guard is a separate, later, deliberately manual act —
-never bundled into <code>wb install-hooks</code> itself:</p>
+<p>Enabling the git guard is a separate, deliberately manual act — never
+bundled into <code>wb install-hooks</code> itself. Once per host:</p>
 <ol start="4">
-<li>Run <code>replay-refusals.sh --repo &lt;path&gt;</code> (read-only, mutates nothing) —
-it walks <code>$TASKS_DIR</code>'s real reflog history and approximates, per ref
-transition, what <code>reference-transaction</code> would have refused. It prints
-a report; <strong>you</strong> read it and judge whether the refusals are exactly
-the known incidents and nothing else. The script has no way to make
-that call itself.</li>
-<li>Only once you're satisfied, run it again with <code>--record-pass</code>. This
-writes the <code>replay-passed</code> marker — which does <strong>one thing only</strong>: it
-stops a future <code>wb install-hooks</code> re-run from re-creating the
-<code>disable-git-hook</code> switch file. <strong>Writing this marker is not the same
-as enabling the hook</strong> — treat it as a separate, sequential decision
-from the next step, not a shortcut to it.</li>
-<li>The actual enablement act is a manual
-<code>rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook</code>. Nothing
-automates this step; it is a human, one-time decision performed once
-per host, after step 5.</li>
+<li><code>rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook</code> turns
+the guard on.</li>
+<li><code>touch ${XDG_STATE_HOME:-$HOME/.local/state}/wb/replay-passed</code> records
+that you enabled it on purpose. The marker does <strong>one thing only</strong>: it
+stops a future <code>wb install-hooks</code> re-run from re-creating the switch
+file. (Its name comes from the retired replay tool that used to write
+it; existing hosts already carry it.)</li>
 </ol>
 <h2 id="what-this-deliberately-doesnt-do">What this deliberately doesn't do</h2>
 <ul>

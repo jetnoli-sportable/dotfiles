@@ -79,8 +79,8 @@ untracked task behind.
 ## wb new — start a task
 
 ```
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size XS|S|M|L|XL] <slug>
-$ wb new [--agent] [--path <stages>] [--depends-on <stem>]... [--size XS|S|M|L|XL] <repo> <slug>
+$ wb new [--agent] [--depends-on <stem>]... <slug>
+$ wb new [--agent] [--depends-on <stem>]... <repo> <slug>
 ```
 
 The slug becomes the git branch name (unless the task file already names a
@@ -149,24 +149,18 @@ A chosen blocker that is behind `origin/<default>` gets a rebase nudge; it
 is never rebased for you. `wb new` prints `branching <slug> from <ref>`, the
 new branch gets no upstream, and an already-existing branch is attached as-is.
 
-`--path`, `--depends-on` and `--size` are otherwise board-only metadata —
-they don't change how the task itself runs, only how `wb board --html`
-displays it (`--size` sets a node's scale and weight in the Family tab's
-Dependencies graph — see below):
+`--depends-on <stem>` (repeatable) names a blocking task by its file stem
+(`<repo>--<slug>`, no `.md`), validated against a real task file at
+creation time. Beyond picking the start point, the board renders both
+directions — a ⛔ count on the blocked task, a → count on the blocker —
+once it's declared.
 
-- `--path <stages>` declares which of the five lifecycle stages
-  (`ideate,brainstorm,plan,work,review`) this task intends to pass
-  through, comma-separated. Omit it and the task defaults to
-  `plan,work,review`. Unknown stage names are rejected up front.
-- `--depends-on <stem>` (repeatable) names a blocking task by its file
-  stem (`<repo>--<slug>`, no `.md`), validated against a real task file at
-  creation time. The board renders both directions — a ⛔ count on the
-  blocked task, a → count on the blocker — once it's declared.
-- `--size XS|S|M|L|XL` stamps a rough effort bucket into the task's `size:`
-  frontmatter (uppercase, exactly — anything else is rejected before any
-  file is touched). Omit it and `size:` is written blank, which every
-  reader treats as `M`. Works on `--planned` seeds too. `/wb-breakdown`
-  buffers carry the same field per child as a `- size:` bullet.
+`path:` (which of the five lifecycle stages the task intends to pass
+through) and `size:` (a rough XS–XL effort bucket) are board-only metadata,
+set after creation with `wb set <task> path <stages>` and
+`wb set <task> size <bucket>`. A blank `path:` reads as `plan,work,review`
+and a blank `size:` as `M`. `/wb-breakdown` buffers carry `size` per child
+as a `- size:` bullet.
 
 | Window | Name | What's in it |
 |---|---|---|
@@ -608,11 +602,10 @@ unblocked, with a warning naming the problem) rather than breaking the
 render. The effects show up in the Roadmap's Ready/Blocked strip, the Week
 view's "Unblocked next" chips, and the Family graph below.
 
-**Creating a task with intent:** `wb new` accepts `--path <stages>` (a
-comma-separated subset of the five stage names, validated against unknown
-names before anything is created) and repeatable `--depends-on <stem>` (each
-validated against a real task file). Both are optional — every task still
-gets the `plan,work,review` default when `--path` is omitted.
+**Creating a task with intent:** `wb new` accepts repeatable
+`--depends-on <stem>` (each validated against a real task file). Declare
+the stages afterwards with `wb set <task> path <stages>`; a task with no
+`path:` gets the `plan,work,review` default.
 
 **Family tab — the Dependencies graph.** Each family block (a parent and
 its direct children) opens with a **Dependencies** region whenever at least
@@ -659,9 +652,7 @@ details, incident history, and runbooks live in
 
 | Verb | What it's for |
 |---|---|
-| `wb sync` | Pull/rebase the task store safely — refuses on a dirty tree or real conflicts instead of guessing. |
 | `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
-| `wb lint-sections [<task>...]` | Find task files with a duplicated canonical section (`## Plan`/`Handoffs`/`Decisions`/`Done`/`Follow-ups`), or a canonical heading flush against prose, which is an early sign of the next duplicate. Read-only by default. `--machine` prints TSV with a content hash per file, and `--diff` previews the merge. `--fix <file>:<hash>…` merges each copy's content into one section in canonical order, under the per-file lock. It accepts only reviewed `<file>:<hash>` targets, so a file that changed since review is skipped, and there is no `--all`. |
 | `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
 | `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |
 
@@ -709,7 +700,7 @@ not nvim/gopls, so a few manually-opened editor instances can still make
 the shared Ghostty scope the highest-pressure one. Isolating nvim/gopls is
 a tracked fast-follow, not something this covers yet.
 
-### Finding orphaned agent scopes — `wb agents`
+### Finding orphaned agent scopes
 
 Each launch gets its own scope, named `wb-agent-<session>-<pane-pid>-<launch-ns>`.
 The per-launch suffix means a relaunch in the same pane never collides with an
@@ -717,16 +708,17 @@ old scope. Anything the agent started that outlives it keeps that old scope
 **active**, though: `wl-copy` serving the clipboard, a `go run` dev server,
 `gopls`. So these orphans slowly pile up, each holding a stray process.
 
+List them with systemd directly:
+
 ```
-wb agents             # every wb-agent-* scope + the processes inside it
-wb agents --orphans   # only the ones with no claude process left
+systemctl --user list-units 'wb-agent-*'    # every wb-agent-* scope
+systemctl --user status <unit>              # what's still running inside one
+systemctl --user stop <unit>                # stop it, once you've checked
 ```
 
-A scope with no `claude` process inside is marked `ORPHAN`. The command is
-read-only. It never stops anything, because an orphan's leftover might be a
-dev server you still want running. It prints a `systemctl --user stop <unit>`
-line for each orphan so you can check it (`systemctl --user status <unit>`)
-and run the stop yourself.
+A scope with no `claude` process left in its `status` tree is an orphan.
+Check before stopping it, because its leftover might be a dev server you
+still want running.
 
 ## Known rough edges (not blocking, worth knowing)
 

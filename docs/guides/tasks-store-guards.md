@@ -71,8 +71,8 @@ An agent session runs `git reset --hard origin/development` from inside
    `reset[[:space:]]+--hard`; H4's directory resolution (explicit `-C`/
    `--git-dir`, an in-command `cd`, else the hook payload's `cwd`) scopes
    it to `$HOME/code/tasks`. It emits `permissionDecision: "ask"`, naming
-   the matched command, the incident precedent, and `wb sync`/`wb
-   unsafe-rewind` as the intended alternatives — and states explicitly
+   the matched command, the incident precedent, and `git -C ~/code/tasks
+   pull --ff-only`/`wb unsafe-rewind` as the intended alternatives — and states explicitly
    that approving here does not bypass L2.
 2. **Operator approves.** The Bash tool call actually runs.
 3. **git invokes L2.** Because `wb install-hooks` pointed
@@ -103,12 +103,15 @@ An agent session runs `git reset --hard origin/development` from inside
    need their own sentinel), and allows exactly one transaction. The TTL
    is 120 seconds either way.
 
-## The paved path: `wb sync`
+## The paved path: `git pull --ff-only`
 
-`wb sync` removes the reason to reach for `git reset --hard` in the first
-place: it fetches, checks for a clean fast-forward, and refuses loudly on
-anything else. It's the alternative L1's own "ask" message points you at —
-reach for it before a raw rewind, not after.
+`git -C ~/code/tasks pull --ff-only` removes the reason to reach for
+`git reset --hard` in the first place: it fetches and fast-forwards, and
+refuses on anything that isn't a clean fast-forward. It's the alternative
+L1's own "ask" message points you at — reach for it before a raw rewind,
+not after. If it refuses because the store has diverged, merge or rebase
+by hand; never reset to the remote, which silently drops your local
+commits.
 
 ## Kill switches
 
@@ -121,7 +124,7 @@ env var, but every next command re-reads the filesystem.
 | Switch file | Turns off | Where it's checked | Notes |
 |---|---|---|---|
 | `disable-agent-hook` | L1 asking | first line of `pretooluse-guard.sh`, before stdin is even read | Use if the hook misfires on safe commands. |
-| `disable-git-hook` | L2 refusing | first check in `reference-transaction`, before the `"prepared"`-state gate | **Ships pre-created** by `wb install-hooks` — the hook installs but stays dormant — unless the `replay-passed` marker already exists. Removed only by hand (`rm`), only after a human reads the X7 replay output and is satisfied. Recreate it any time for an emergency rollback. |
+| `disable-git-hook` | L2 refusing | first check in `reference-transaction`, before the `"prepared"`-state gate | **Ships pre-created** by `wb install-hooks` — the hook installs but stays dormant — unless the `replay-passed` marker already exists. Removed only by hand (`rm`). Recreate it any time for an emergency rollback. |
 | `disable-locks` | L3 locking | first line of `wb_task_lock_acquire` in `wb-locks.sh` | Manual escape if lock infrastructure itself ever breaks; acquire becomes an instant no-op success. |
 
 ## Runbook — lock contention (exit 75)
@@ -148,14 +151,12 @@ The message carries an explicit addressee split, and it matters:
   taking a while." `wb_task_lock_acquire_guarded` (the wrapper every
   `cmd_*`/`wb_reconcile_action_*` call site actually uses) already
   automates the safe half of this: on a lost contention it checks whether
-  the holder PID is gone outright (kernel already dropped the flock — an
-  instant, automatic retry) or whether all four orphan conditions hold at
-  once (PID alive but confirmed wb/claude-shaped via `/proc/<pid>/cmdline`,
-  held >60s, and the holder's *own* recorded tmux session confirmed `dead`
-  via `tmux_session_agent_state`) before ever retrying on your behalf.
-  Anything less — an alive holder, an `unknown` tmux state, a missing
+  the holder PID is gone outright (the kernel already dropped the flock),
+  and if so retries once, instantly. Anything else — a holder PID that is
+  still alive, even one whose own tmux session is gone, or a missing
   holder field — never auto-clears; it halts, which is what puts you in
-  this runbook in the first place.
+  this runbook in the first place. A live PID whose session is gone is
+  the case to check by hand before you `rm` the lock.
 
 ## Runbook — refused-rewind aftermath
 
@@ -201,25 +202,16 @@ host needs — safe to re-run any time:
    hook config is snapshotted at session start, so a running session won't
    see the new entry until it restarts.
 
-Enabling the git guard is a separate, later, deliberately manual act —
-never bundled into `wb install-hooks` itself:
+Enabling the git guard is a separate, deliberately manual act — never
+bundled into `wb install-hooks` itself. Once per host:
 
-4. Run `replay-refusals.sh --repo <path>` (read-only, mutates nothing) —
-   it walks `$TASKS_DIR`'s real reflog history and approximates, per ref
-   transition, what `reference-transaction` would have refused. It prints
-   a report; **you** read it and judge whether the refusals are exactly
-   the known incidents and nothing else. The script has no way to make
-   that call itself.
-5. Only once you're satisfied, run it again with `--record-pass`. This
-   writes the `replay-passed` marker — which does **one thing only**: it
-   stops a future `wb install-hooks` re-run from re-creating the
-   `disable-git-hook` switch file. **Writing this marker is not the same
-   as enabling the hook** — treat it as a separate, sequential decision
-   from the next step, not a shortcut to it.
-6. The actual enablement act is a manual
-   `rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook`. Nothing
-   automates this step; it is a human, one-time decision performed once
-   per host, after step 5.
+4. `rm ${XDG_STATE_HOME:-$HOME/.local/state}/wb/disable-git-hook` turns
+   the guard on.
+5. `touch ${XDG_STATE_HOME:-$HOME/.local/state}/wb/replay-passed` records
+   that you enabled it on purpose. The marker does **one thing only**: it
+   stops a future `wb install-hooks` re-run from re-creating the switch
+   file. (Its name comes from the retired replay tool that used to write
+   it; existing hosts already carry it.)
 
 ## What this deliberately doesn't do
 
