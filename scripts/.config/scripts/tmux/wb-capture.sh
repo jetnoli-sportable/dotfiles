@@ -41,7 +41,8 @@
 #                  draft (never shown to the user), draft_stale, draft_strikes,
 #                  reviewing and nudged_draft; the event is not tagged stale.
 #   dismiss <path> dismiss one SHELVED draft: delete it, log `shelved_dismissed`
-#                  (no source). <path> must be a shelved draft of this task.
+#                  (no source). <path> must be a shelved draft of this task, or of
+#                  the task named by `--task <stem>` (below).
 #   accept --begin <path>
 #                  first half of accepting a shelved draft, run BEFORE the `wb
 #                  append … Decisions`: same path rule, writes the one-shot
@@ -51,12 +52,33 @@
 #                  `shelved_accept` flag. A path outside the shelved dir exits 1
 #                  with a message on stderr. (`followed` and `dismissed` mean only
 #                  "a nudge resolved".)
+#   accept|dismiss ... --task <stem> ...
+#                  resolve a shelved draft of ANOTHER task (typically one already
+#                  closed): `dismiss --task <stem> <path>`, `accept --begin --task
+#                  <stem> <path>`, `accept --task <stem> <path>`. Still run from a wb
+#                  session (the log line and the one-shot flag use its session), but
+#                  path validation uses shelved/<stem>/ instead of this task's dir,
+#                  and the logged event's `task` is <stem>.
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
 #   status         print pending marker/draft (with paths), mute state, the
 #                  log path, then this task's shelved drafts (one `shelved: <path>`
 #                  line each, `(stale)` when marked; `shelved: none`) —
 #                  human-readable lines. A stale draft adds a warning line plus
 #                  the `### ` headings recorded since its snapshot. Read-only.
+#   shelved [--all | --task <stem>]
+#                  store verb, read-only, needs no tmux session or @task (honours only
+#                  WB_CAPTURE_SWEEP): list shelved drafts, one path per line with a
+#                  `(stale)` suffix when marked. `--task` lists one task's; `--all` groups
+#                  every task as `<stem>:` then indented paths; bare `shelved` lists the
+#                  current session's task (error when it has none).
+#   pending-for-task <task-file>
+#                  store verb, read-only: every shelved draft for that task's stem AND
+#                  every live session draft (<root>/<sid>/draft) whose `taskpath` first
+#                  line is that file; one path per line, nothing when none. This is what
+#                  `wb done`'s guard asks, so wb.sh never learns the capture layout.
+#   log-shelved-left <stem> <count>
+#                  store verb: append the `shelved_left` event (session_id empty) that `wb
+#                  done --leave-shelved` records. Needs jq, else a silent no-op.
 #   review         mark the session's draft as under review (see "Engagement
 #                  marker"): creates `reviewing` only if absent, and only when a
 #                  draft exists and its sweep nudge is `outstanding`; otherwise a
@@ -757,6 +779,105 @@ cmd_accept_begin() {
   mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/shelved_accept"
 }
 
+# stem_ok <stem> — a safe single path component (no slash, not . or ..).
+stem_ok() {
+  case "${1:-}" in ''|.|..|*/*) return 1 ;; esac
+  [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+# shelved_paths <stem> — the shelved drafts of one task, one path per line.
+shelved_paths() {
+  local pf
+  for pf in "$CAPTURE_ROOT/shelved/$1"/*.md; do
+    [ -f "$pf" ] && [ ! -L "$pf" ] && printf '%s\n' "$pf"
+  done
+  return 0
+}
+
+# list_shelved_for <stem> <indent> — shelved_paths with the `(stale)` suffix.
+list_shelved_for() {
+  local pf
+  while IFS= read -r pf; do
+    [ -n "$pf" ] || continue
+    if [ -e "$pf.stale" ]; then printf '%s%s (stale)\n' "$2" "$pf"; else printf '%s%s\n' "$2" "$pf"; fi
+  done < <(shelved_paths "$1")
+}
+
+# cmd_list_shelved [--all | --task <stem>] — see "shelved" in the header. Read-only.
+cmd_list_shelved() {
+  local d stem out
+  case "${1:-}" in
+    --all)
+      for d in "$CAPTURE_ROOT"/shelved/*/; do
+        d="${d%/}"; stem="${d##*/}"
+        [ -d "$d" ] && [ ! -L "$d" ] && stem_ok "$stem" || continue
+        out="$(list_shelved_for "$stem" '  ')"
+        [ -n "$out" ] || continue
+        printf '%s:\n%s\n' "$stem" "$out"
+      done ;;
+    --task)
+      stem_ok "${2:-}" || { echo "wb-capture: shelved --task needs a task stem" >&2; exit 1; }
+      list_shelved_for "$2" '' ;;
+    '')
+      # the current session's task, resolved without the guard chain's silent exits
+      local session task
+      if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
+        session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+        task="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+        task="${task##*/}"; stem="${task%.md}"
+      fi
+      stem_ok "${stem:-}" || { echo "wb-capture: shelved: not in a wb task session; pass --all or --task <stem>" >&2; exit 1; }
+      list_shelved_for "$stem" '' ;;
+    *) echo "usage: wb-capture.sh shelved [--all | --task <stem>]" >&2; exit 1 ;;
+  esac
+}
+
+# cmd_pending_for_task <task-file> — see "pending-for-task" in the header.
+cmd_pending_for_task() {
+  local tf="${1:-}" stem d name tp
+  [ -n "$tf" ] || { echo "usage: wb-capture.sh pending-for-task <task-file>" >&2; exit 1; }
+  stem="${tf##*/}"; stem="${stem%.md}"
+  stem_ok "$stem" || exit 0
+  shelved_paths "$stem"
+  for d in "$CAPTURE_ROOT"/*/; do
+    d="${d%/}"; name="${d##*/}"
+    [ "$name" != shelved ] && session_dir "$name" >/dev/null || continue
+    [ -d "$d" ] && [ ! -L "$d" ] && [ -f "$d/draft" ] || continue
+    tp="$(head -n1 "$d/taskpath" 2>/dev/null || true)"
+    [ -n "$tp" ] || continue
+    if [ "$tp" = "$tf" ] || { [ -e "$tp" ] && [ -e "$tf" ] && [ "$(readlink -f "$tp")" = "$(readlink -f "$tf")" ]; }; then
+      printf '%s\n' "$d/draft"
+    fi
+  done
+  return 0
+}
+
+# cmd_log_shelved_left <stem> <count> — see "log-shelved-left" in the header.
+cmd_log_shelved_left() {
+  local stem="${1:-}" count="${2:-}"
+  if ! stem_ok "$stem" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
+    echo "usage: wb-capture.sh log-shelved-left <task-stem> <count>" >&2; exit 1
+  fi
+  command -v jq >/dev/null 2>&1 || exit 0
+  TASK_STEM="$stem"
+  log_event "" shelved_left "" "{\"count\":$((10#$count))}"
+}
+
+# parse_resolve_args <args...> — accept/dismiss operands: [--begin] [--task <stem>] [<path>].
+# Sets R_BEGIN (0|1), R_TASK, R_PATH. A bad --task exits 1.
+parse_resolve_args() {
+  R_BEGIN=0 R_TASK="" R_PATH=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --begin) R_BEGIN=1; shift ;;
+      --task)
+        stem_ok "${2:-}" || { echo "wb-capture: --task needs a task stem (nothing changed)" >&2; exit 1; }
+        R_TASK="$2"; shift 2 ;;
+      *) R_PATH="$1"; shift ;;
+    esac
+  done
+}
+
 cmd_config() {
   load_config
   printf 'phrases=%s\ncooldown=%s\nsweep_every=%s\nsweep=%s\nsweep_timeout=%s\nsweep_max_failures=%s\n' \
@@ -769,18 +890,35 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   verb="${1:-}"
   case "$verb" in
     clear|dismiss|accept|review|mute|unmute|status|_config|hook-prompt|hook-posttool|hook-stop|hook-end) ;;
+    shelved|pending-for-task|log-shelved-left) ;;
     *) exit 0 ;;
+  esac
+
+  # store verbs: take their task explicitly, so no tmux / @task guard (only the
+  # recursion flag applies)
+  case "$verb" in
+    shelved|pending-for-task|log-shelved-left)
+      [ -n "${WB_CAPTURE_SWEEP:-}" ] && quiet_exit
+      case "$verb" in
+        shelved)           cmd_list_shelved "${2:-}" "${3:-}" ;;
+        pending-for-task)  cmd_pending_for_task "${2:-}" ;;
+        log-shelved-left)  cmd_log_shelved_left "${2:-}" "${3:-}" ;;
+      esac
+      exit 0 ;;
   esac
 
   guard_chain
 
   case "$verb" in
     clear)   cmd_clear_or_dismiss "" "${2:-}" ;;
-    dismiss)
-      if [ -n "${2:-}" ]; then cmd_shelved shelved_dismissed "$2"; else cmd_clear_or_dismiss dismissed; fi
-      ;;
-    accept)
-      if [ "${2:-}" = --begin ]; then cmd_accept_begin "${3:-}"; else cmd_shelved shelved_accepted "${2:-}"; fi
+    dismiss|accept)
+      parse_resolve_args "${@:2}"
+      [ -n "$R_TASK" ] && TASK_STEM="$R_TASK"
+      if [ "$verb" = dismiss ]; then
+        if [ -n "$R_PATH" ] || [ -n "$R_TASK" ]; then cmd_shelved shelved_dismissed "$R_PATH"; else cmd_clear_or_dismiss dismissed; fi
+      elif [ "$R_BEGIN" = 1 ]; then cmd_accept_begin "$R_PATH"
+      else cmd_shelved shelved_accepted "$R_PATH"
+      fi
       ;;
     mute)
       agent_session_dir

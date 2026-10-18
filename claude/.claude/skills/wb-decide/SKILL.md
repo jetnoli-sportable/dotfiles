@@ -139,8 +139,17 @@ a time**: Read the draft (and for a stale one compare it with the newest
 - **reject** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (deletes it,
   logs `shelved_dismissed`).
 
+A shelved draft of a task that is already closed (or any other task) is still
+resolvable from this session: `wb-capture.sh shelved --task <stem>` lists one
+task's drafts (`shelved --all` lists every task's, grouped), and
+`dismiss --task <stem> <path>`, `accept --begin --task <stem> <path>` and
+`accept --task <stem> <path>` resolve one. Drafts left behind by `wb done
+--leave-shelved` stay resolvable this way. An accepted closed-task draft is
+recorded into THAT task's `## Decisions` (`wb append <that task> Decisions -`),
+not this session's.
+
 Never delete a shelved file by hand; `accept`/`dismiss` refuse any path outside
-this task's shelved dir. Step 5's `clear` is for the
+the shelved dir of this task (or of the `--task` stem). Step 5's `clear` is for the
 session's own pending draft, not shelved ones.
 
 ### 3. Compose the entry
@@ -230,7 +239,8 @@ line: `Recorded to ## Decisions.`
   `followed` (or `dismissed`) results.
 - [ ] **Shelved drafts:** `status` lists `shelved:` lines; `/wb-decide shelved`
   reviews them one at a time — accept/edit → `accept --begin <path>` →
-  `wb append` → `accept <path>`, reject → `dismiss <path>`; never a hand `rm`.
+  `wb append` → `accept <path>`, reject → `dismiss <path>`; a closed task's
+  drafts take `--task <stem>` on each; never a hand `rm`.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
   is already recorded) — `wb-capture.sh dismiss`, say so, no write.
 - [ ] **Nothing decided:** phrase-match nudge but nothing was settled —

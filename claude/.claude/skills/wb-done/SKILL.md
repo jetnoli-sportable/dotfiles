@@ -130,7 +130,10 @@ one of, among others:
   closed. Relay it verbatim and stop; the user either runs `/close-out` or
   `/wb-decide shelved` to accept or dismiss them and then `/wb-done` again, or
   asks for `/wb-done --leave-shelved` (which closes and logs that the drafts
-  were left on purpose). Don't pick for them.
+  were left on purpose). Don't pick for them. Drafts left that way (or landing
+  after the close) stay resolvable from any wb session: `wb-capture.sh shelved
+  --task <stem>` lists them and `dismiss --task <stem> <path>` /
+  `accept [--begin] --task <stem> <path>` resolve one.
 - `wb done: $(wb_pending_counts) — consider running /weekly-review` — an
   optional trailing nudge when follow-ups/unreviewed capture entries pass
   the sweep threshold; include it if present.

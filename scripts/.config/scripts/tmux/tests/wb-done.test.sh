@@ -31,7 +31,7 @@ WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
 FIXTURE_STATE="$(mktemp -d -t wb-done-state.XXXXXX)"   # XDG_STATE_HOME: wb-capture's shelved drafts + log
-SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta kappa lambda mu)
+SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta kappa lambda mu nu)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
   rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_STATE"
@@ -380,6 +380,14 @@ mu_session="$(session_for mu)"; mu_file="$FIXTURE_TASKS/proj--mu.md"
 mkdir -p "$CAPROOT/sid-mu"; printf '%s\n' "$mu_file" >"$CAPROOT/sid-mu/taskpath"
 out="$(cmd_done "$mu_session" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   - live draft guard: a session dir without a draft does not block" || { echo "FAIL - live draft guard: blocked without a draft: $out"; fail=1; }
+
+# wb-capture.sh missing next to wb.sh: the guard is best-effort, so the close proceeds with a stderr note
+nu_session="$(session_for nu)"; nu_file="$FIXTURE_TASKS/proj--nu.md"
+mkdir -p "$CAPROOT/shelved/proj--nu"; printf 'd\n' >"$CAPROOT/shelved/proj--nu/20261018T100000-sid-n.md"
+out="$(SCRIPT_DIR="$FIXTURE_STATE/no-such-dir" cmd_done "$nu_session" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - missing wb-capture.sh: close proceeds" || { echo "FAIL - missing wb-capture.sh: exit $rc: $out"; fail=1; }
+assert "missing wb-capture.sh: says the guard was skipped" 'wb-capture\.sh unavailable.*skipping' "$out"
+assert "missing wb-capture.sh: task done" '^done$' "$(status_of nu)"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

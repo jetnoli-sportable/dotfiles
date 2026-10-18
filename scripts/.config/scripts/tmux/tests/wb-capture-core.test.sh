@@ -303,5 +303,110 @@ run_wb /dev/null _config
 assert_eq "bad sweep_max_failures -> default" 3 "$(cfg_get sweep_max_failures)"
 assert_eq "negative cooldown -> default" 3 "$(cfg_get cooldown)"
 
+echo "# store verbs: shelved [--all | --task] (read-only, no @task needed)"
+new_scenario; PK="$CAP/shelved/dotfiles--feat-x"; PO="$CAP/shelved/done--task"; mkdir -p "$PK" "$PO"
+printf 'a\n' >"$PK/20261018T100000-sid-a.md"
+printf 'b\n' >"$PO/20261018T110000-sid-b.md"; : >"$PO/20261018T110000-sid-b.md.stale"
+printf 'c\n' >"$PO/20261018T120000-sid-c.md"
+run_wb /dev/null shelved --task done--task
+assert_eq "shelved --task exit" 0 "$RC"
+assert_eq "shelved --task: paths, (stale) suffix, no sidecars" "$PO/20261018T110000-sid-b.md (stale)
+$PO/20261018T120000-sid-c.md" "$OUT"
+run_wb /dev/null shelved --all
+assert_eq "shelved --all groups by task stem" "done--task:
+  $PO/20261018T110000-sid-b.md (stale)
+  $PO/20261018T120000-sid-c.md
+dotfiles--feat-x:
+  $PK/20261018T100000-sid-a.md" "$OUT"
+run_wb /dev/null shelved
+assert_eq "bare shelved lists the session task's drafts" "$PK/20261018T100000-sid-a.md" "$OUT"
+run_wb /dev/null shelved --task nosuch--task
+assert_eq "shelved --task with none: empty, exit 0" "0:" "$RC:$OUT"
+run_wb /dev/null shelved --task ../x; assert_eq "shelved --task rejects a bad stem" 1 "$RC"
+run_wb /dev/null shelved --bogus;     assert_eq "shelved rejects an unknown flag" 1 "$RC"
+assert_eq "shelved logs nothing, changes nothing" 0 "$(logn)"
+# no tmux, no @task, no jq: the store verbs still work
+EXTRA_ENV=(TMUX= TMUX_PANE=); FAKE_TASK=""; RUN_PATH="$FAKEBIN:$NOJQ_BIN"
+run_wb /dev/null shelved --task done--task
+assert_eq "shelved --task needs no tmux, @task or jq" "$PO/20261018T110000-sid-b.md (stale)
+$PO/20261018T120000-sid-c.md" "$OUT"
+run_wb /dev/null shelved; assert_eq "bare shelved outside a session: error exit 1" 1 "$RC"
+RUN_PATH=""; EXTRA_ENV=(WB_CAPTURE_SWEEP=1)
+run_wb /dev/null shelved --all; assert_eq "recursion flag: silent no-op" "0:" "$RC:$OUT"
+EXTRA_ENV=()
+
+echo "# store verb: pending-for-task (shelved + live session drafts)"
+new_scenario; TF="$H/tasks/proj--eta.md"; mkdir -p "$H/tasks" "$CAP/shelved/proj--eta" "$CAP/shelved/proj--other"
+printf 't\n' >"$TF"
+printf 's\n' >"$CAP/shelved/proj--eta/20261018T100000-sid-a.md"; : >"$CAP/shelved/proj--eta/20261018T100000-sid-a.md.stale"
+printf 'o\n' >"$CAP/shelved/proj--other/20261018T100000-sid-o.md"
+mkdir -p "$CAP/sid-live" "$CAP/sid-elsewhere" "$CAP/sid-nodraft"
+printf 'd\n' >"$CAP/sid-live/draft";      printf '%s\n' "$TF" >"$CAP/sid-live/taskpath"
+printf 'd\n' >"$CAP/sid-elsewhere/draft"; printf '%s\n' "$H/tasks/proj--other.md" >"$CAP/sid-elsewhere/taskpath"
+printf '%s\n' "$TF" >"$CAP/sid-nodraft/taskpath"
+mkdir -p "$CAP/sid-notask"; printf 'd\n' >"$CAP/sid-notask/draft"
+EXTRA_ENV=(TMUX= TMUX_PANE=); FAKE_TASK=""
+run_wb /dev/null pending-for-task "$TF"
+assert_eq "pending-for-task exit" 0 "$RC"
+assert_eq "shelved of the stem + live drafts with this taskpath, nothing else" "$CAP/shelved/proj--eta/20261018T100000-sid-a.md
+$CAP/sid-live/draft" "$OUT"
+run_wb /dev/null pending-for-task "$H/tasks/proj--none.md"
+assert_eq "no drafts: no output, exit 0" "0:" "$RC:$OUT"
+run_wb /dev/null pending-for-task; assert_eq "no task-file arg: exit 1" 1 "$RC"
+ln -s "$TF" "$H/tasks/link.md"; printf '%s\n' "$H/tasks/link.md" >"$CAP/sid-nodraft/taskpath"; printf 'd\n' >"$CAP/sid-nodraft/draft"
+run_wb /dev/null pending-for-task "$TF"
+assert_match "a symlinked taskpath resolving to the same file matches" "$CAP/sid-nodraft/draft" "$OUT"
+EXTRA_ENV=()
+
+echo "# store verb: log-shelved-left"
+new_scenario; EXTRA_ENV=(TMUX= TMUX_PANE=); FAKE_TASK=""
+run_wb /dev/null log-shelved-left proj--eta 2
+assert_eq "log-shelved-left exit" 0 "$RC"
+assert_eq "one line" 1 "$(logn)"
+assert_eq "event" shelved_left "$(jq -r .event "$LOG")"
+assert_eq "count is a number" 2 "$(jq -r '.count|if type=="number" then . else "x" end' "$LOG")"
+assert_eq "task" proj--eta "$(jq -r .task "$LOG")"
+assert_eq "session_id empty" "" "$(jq -r .session_id "$LOG")"
+assert_eq "no source" null "$(jq -r '.source // null' "$LOG")"
+assert_match "ts iso" '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}[+-][0-9]{2}:[0-9]{2}$' "$(jq -r .ts "$LOG")"
+run_wb /dev/null log-shelved-left proj--eta two;   assert_eq "non-numeric count refused" 1 "$RC"
+run_wb /dev/null log-shelved-left ../x 1;         assert_eq "bad stem refused" 1 "$RC"
+run_wb /dev/null log-shelved-left proj--eta 007;  assert_eq "leading zeros normalised" 7 "$(tail -n1 "$LOG" | jq -r .count)"
+assert_eq "refusals logged nothing" 2 "$(logn)"
+RUN_PATH="$FAKEBIN:$NOJQ_BIN"; run_wb /dev/null log-shelved-left proj--eta 1
+assert_eq "no jq: silent no-op" "0:" "$RC:$OUT"; assert_eq "no jq: nothing logged" 2 "$(logn)"
+RUN_PATH=""; EXTRA_ENV=()
+
+echo "# accept / dismiss --task <stem>: resolve another (closed) task's shelved draft"
+new_scenario; D="$(sdir sid-aaa)"; PX="$CAP/shelved/closed--task"; PK="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$D" "$PX" "$PK"
+printf 'x\n' >"$PX/20261018T100000-sid-x.md"; : >"$PX/20261018T100000-sid-x.md.stale"
+printf 'y\n' >"$PX/20261018T110000-sid-y.md"
+printf 'z\n' >"$PX/20261018T120000-sid-z.md"
+printf 'k\n' >"$PK/20261018T130000-sid-k.md"
+run_wb /dev/null dismiss "$PX/20261018T110000-sid-y.md"
+assert_eq "without --task a closed task's draft is refused" 1 "$RC"
+assert_file "...and left alone" "$PX/20261018T110000-sid-y.md"
+run_wb /dev/null dismiss --task closed--task "$PX/20261018T110000-sid-y.md"
+assert_eq "dismiss --task exit" 0 "$RC"
+assert_nofile "dismiss --task deletes the draft" "$PX/20261018T110000-sid-y.md"
+assert_eq "dismiss --task logs shelved_dismissed" 1 "$(jq -r 'select(.event=="shelved_dismissed")|.event' "$LOG" | wc -l | tr -d ' ')"
+assert_eq "...for the closed task's stem" closed--task "$(jq -r 'select(.event=="shelved_dismissed")|.task' "$LOG")"
+run_wb /dev/null dismiss --task closed--task "$PK/20261018T130000-sid-k.md"
+assert_eq "--task <stem> validates against that stem's dir (current task's draft refused)" 1 "$RC"
+assert_file "...left alone" "$PK/20261018T130000-sid-k.md"
+run_wb /dev/null dismiss --task closed--task; assert_eq "dismiss --task without a path: refused" 1 "$RC"
+run_wb /dev/null dismiss --task ../x "$PX/20261018T120000-sid-z.md"; assert_eq "bad --task stem refused" 1 "$RC"
+assert_file "...nothing deleted" "$PX/20261018T120000-sid-z.md"
+run_wb /dev/null accept --begin --task closed--task "$PX/20261018T120000-sid-z.md"
+assert_eq "accept --begin --task exit" 0 "$RC"
+assert_file "accept --begin --task writes the flag in this session" "$D/shelved_accept"
+assert_file "...and leaves the draft" "$PX/20261018T120000-sid-z.md"
+run_wb /dev/null accept --task closed--task "$PX/20261018T120000-sid-z.md"
+assert_eq "accept --task exit" 0 "$RC"
+assert_nofile "accept --task deletes the draft" "$PX/20261018T120000-sid-z.md"
+run_wb /dev/null accept --task closed--task "$PX/20261018T100000-sid-x.md"
+assert_nofile "accept --task deletes the stale sidecar too" "$PX/20261018T100000-sid-x.md.stale"
+assert_eq "accept --task logs shelved_accepted, stale-tagged" "true" "$(jq -r 'select(.event=="shelved_accepted" and .task=="closed--task" and .stale==true)|.stale' "$LOG" | tail -n1)"
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASSED"; else echo "FAILED"; fi
 exit "$fail"

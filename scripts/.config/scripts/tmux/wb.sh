@@ -4981,19 +4981,14 @@ cmd_board() {
   } | column -t -s $'\t'
 }
 
-# _wb_log_shelved_left <capture-root> <task-stem> <count> — best-effort one line in
-# wb-capture's event log recording that `wb done --leave-shelved` left drafts
-# behind on purpose; same compact shape as wb-capture.sh's log_event. Never fails.
-_wb_log_shelved_left() {
-  local root="$1" stem="$2" count="$3" ts line
-  command -v jq >/dev/null 2>&1 || return 0
-  ts="$(date +%Y-%m-%dT%H:%M:%S%z)"; ts="${ts%??}:${ts: -2}"
-  line="$(jq -nc --arg ts "$ts" --arg task "$stem" --argjson count "$count" \
-    '{ts:$ts,session_id:"",task:$task,event:"shelved_left",count:$count}' 2>/dev/null)" || return 0
-  [ -n "$line" ] || return 0
-  mkdir -p "$root" 2>/dev/null || return 0
-  printf '%s\n' "$line" >>"$root/log.jsonl" 2>/dev/null || true
-  return 0
+# _wb_capture_verb <verb> [args...] — run a wb-capture.sh store verb, best-effort. The
+# script is looked up next to wb.sh (like lib.sh and the other sibling helpers), run in
+# its own bash and never sourced, so wb.sh knows nothing of the capture layout. Prints
+# the verb's stdout; returns 1 when the script is missing or the verb fails.
+_wb_capture_verb() {
+  local sh="$SCRIPT_DIR/wb-capture.sh"
+  [ -f "$sh" ] || return 1
+  bash "$sh" "$@"
 }
 
 cmd_done() {
@@ -5052,24 +5047,22 @@ cmd_done() {
   # Draft guard: wb-capture shelves an unreviewed decision draft under
   # <capture root>/shelved/<task-stem>/ (outliving the session), where only
   # /close-out or /wb-decide shelved can accept or dismiss it. A draft still
-  # pending in a LIVE session of this task (<capture root>/<sid>/draft, whose
-  # taskpath is this task file) would be shelved by SessionEnd right after the
-  # task flips to done, stranded the same way. Closing the task first would strand
-  # both, so refuse — before any mutation, store-only closes included — unless
-  # --leave-shelved says leaving them is deliberate.
-  local capture_root="${XDG_STATE_HOME:-$HOME/.local/state}/wb/capture"
+  # pending in a LIVE session of this task would be shelved by SessionEnd right
+  # after the task flips to done, stranded the same way. Closing the task first
+  # would strand both, so refuse — before any mutation, store-only closes
+  # included — unless --leave-shelved says leaving them is deliberate. What counts
+  # as a draft of this task, and where it lives, is wb-capture.sh's business
+  # (`pending-for-task`); wb.sh only counts the paths it prints. Best-effort: a
+  # missing or failing wb-capture.sh lets the close proceed, with a note.
   local -a shelved_drafts=()
-  local sf sd sp
-  for sf in "$capture_root/shelved/$task_stem"/*.md; do
-    if [ -f "$sf" ]; then shelved_drafts+=("$sf"); fi
-  done
-  for sd in "$capture_root"/*/; do
-    sd="${sd%/}"
-    [ "${sd##*/}" = shelved ] && continue
-    [ -f "$sd/draft" ] && [ ! -L "$sd" ] || continue
-    sp="$(head -n1 "$sd/taskpath" 2>/dev/null || true)"
-    [ "$sp" = "$task_file" ] && shelved_drafts+=("$sd/draft")
-  done
+  local sf pending_out
+  if pending_out="$(_wb_capture_verb pending-for-task "$task_file" 2>/dev/null)"; then
+    while IFS= read -r sf; do
+      [ -n "$sf" ] && shelved_drafts+=("$sf")
+    done <<<"$pending_out"
+  else
+    echo "wb done: wb-capture.sh unavailable next to wb.sh; skipping the decision-draft guard" >&2
+  fi
   if [ "${#shelved_drafts[@]}" -gt 0 ] && [ "$leave_shelved" = 0 ]; then
     {
       echo "wb done: ${#shelved_drafts[@]} decision draft(s) (shelved, or pending in a live session) for $task_stem would be stranded (nothing changed):"
@@ -5235,12 +5228,17 @@ cmd_done() {
   wb_set_frontmatter "$task_file" claude_sessions ""
   local done_note='Session closed via `wb done`.'
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
-    done_note="Session closed via \`wb done\` (--leave-shelved: ${#shelved_drafts[@]} decision draft(s) left in place: $capture_root/shelved/$task_stem/ and any live session dir)."
+    local left_dirs="" left_d
+    for sf in "${shelved_drafts[@]}"; do
+      left_d="${sf%/*}"
+      case ", $left_dirs," in *", $left_d,"*) ;; *) left_dirs="${left_dirs:+$left_dirs, }$left_d" ;; esac
+    done
+    done_note="Session closed via \`wb done\` (--leave-shelved: ${#shelved_drafts[@]} decision draft(s) left in place: $left_dirs)."
   fi
   wb_append_handoff "$task_file" "wb done" "$done_note"
   wb_task_lock_release "$task_file"
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
-    _wb_log_shelved_left "$capture_root" "$task_stem" "${#shelved_drafts[@]}"
+    _wb_capture_verb log-shelved-left "$task_stem" "${#shelved_drafts[@]}" >/dev/null 2>&1 || true
   fi
 
   if [ "$store_only" = 1 ]; then
