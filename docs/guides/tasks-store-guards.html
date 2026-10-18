@@ -483,14 +483,12 @@ tmux pane/session no longer exists), never just because &quot;the command is
 taking a while.&quot; <code>wb_task_lock_acquire_guarded</code> (the wrapper every
 <code>cmd_*</code>/<code>wb_reconcile_action_*</code> call site actually uses) already
 automates the safe half of this: on a lost contention it checks whether
-the holder PID is gone outright (kernel already dropped the flock — an
-instant, automatic retry) or whether all four orphan conditions hold at
-once (PID alive but confirmed wb/claude-shaped via <code>/proc/&lt;pid&gt;/cmdline</code>,
-held &gt;60s, and the holder's <em>own</em> recorded tmux session confirmed <code>dead</code>
-via <code>tmux_session_agent_state</code>) before ever retrying on your behalf.
-Anything less — an alive holder, an <code>unknown</code> tmux state, a missing
+the holder PID is gone outright (the kernel already dropped the flock),
+and if so retries once, instantly. Anything else — a holder PID that is
+still alive, even one whose own tmux session is gone, or a missing
 holder field — never auto-clears; it halts, which is what puts you in
-this runbook in the first place.</li>
+this runbook in the first place. A live PID whose session is gone is
+the case to check by hand before you <code>rm</code> the lock.</li>
 </ul>
 <h2 id="runbook--refused-rewind-aftermath">Runbook — refused-rewind aftermath</h2>
 <p>A refused <code>reset --hard</code> (or any other rewind-shaped ref update L2 vetoes)

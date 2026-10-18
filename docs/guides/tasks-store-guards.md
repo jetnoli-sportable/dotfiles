@@ -151,14 +151,12 @@ The message carries an explicit addressee split, and it matters:
   taking a while." `wb_task_lock_acquire_guarded` (the wrapper every
   `cmd_*`/`wb_reconcile_action_*` call site actually uses) already
   automates the safe half of this: on a lost contention it checks whether
-  the holder PID is gone outright (kernel already dropped the flock — an
-  instant, automatic retry) or whether all four orphan conditions hold at
-  once (PID alive but confirmed wb/claude-shaped via `/proc/<pid>/cmdline`,
-  held >60s, and the holder's *own* recorded tmux session confirmed `dead`
-  via `tmux_session_agent_state`) before ever retrying on your behalf.
-  Anything less — an alive holder, an `unknown` tmux state, a missing
+  the holder PID is gone outright (the kernel already dropped the flock),
+  and if so retries once, instantly. Anything else — a holder PID that is
+  still alive, even one whose own tmux session is gone, or a missing
   holder field — never auto-clears; it halts, which is what puts you in
-  this runbook in the first place.
+  this runbook in the first place. A live PID whose session is gone is
+  the case to check by hand before you `rm` the lock.
 
 ## Runbook — refused-rewind aftermath
 
