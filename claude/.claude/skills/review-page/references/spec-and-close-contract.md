@@ -214,6 +214,14 @@ Progress is saved in the browser under `review-page:<spec_hash>`, so reloading t
 }
 ```
 
+**`touched` reflects what the row holds now, not whether it was ever edited**
+(Jet, 2026-10-18). A row is touched while it holds a picked verdict, an Agree,
+a group tag, a note, or a field that differs from the spec. Clear all of those,
+by hand or with `c`, and the row reads `touched: false` again. This only changes
+the outcome when `accept_defaults` is false. Same reasoning as the auto-capture
+sweep's staleness check (`dotfiles--feat-store-auto-capture` D12): compare the
+content that carries the decision, not an "edited at all" flag.
+
 `spec_hash` lets the agent confirm the answers correspond to the spec it wrote —
 compare it against a fresh hash of the spec file; a mismatch means the page was
 reloaded against a stale spec and the answers should not be trusted without
