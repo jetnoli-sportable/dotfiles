@@ -20,7 +20,7 @@ Spec fields are listed in the skill's references/spec-and-close-contract.md.
 .sugs{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
 .vchip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:99px;padding:1px 10px 1px 8px;background:var(--bg);font-size:.78rem}
 .sw{width:10px;height:10px;border-radius:3px;display:inline-block;background:var(--c)}
-.bandgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}
+@media (min-width:861px){.bandgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}}
 #sections{display:grid;gap:6px}
 .page-section-body{font-size:.9rem}
 .box{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:8px 10px;display:grid;gap:4px}
@@ -79,9 +79,7 @@ details.ev summary kbd{margin-left:6px;color:var(--muted);font-weight:400}
 .fields-grid{display:flex;flex-wrap:wrap;gap:10px 16px}
 .field{display:flex;flex-direction:column;gap:2px;font-size:.74rem;color:var(--muted);min-width:160px}
 .field.wide{flex:1 1 100%}
-.field-input,#gq-wrap input{font:inherit;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:100%}
 .field-input{font-family:var(--f-mono)}.field-input.changed{border-color:var(--warn)}
-.group-input{font:inherit;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
 .empty{padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px}
 label.acc{display:flex;gap:8px;align-items:center;font-weight:600}
 #copyOut{font-family:var(--f-mono);font-size:.8rem;min-height:12em}
@@ -160,17 +158,22 @@ const RP = (() => {
       const t = TONES[k % TONES.length], label = v.label || v.id;
       return { id: v.id, label, short: shortOf(label), tone: `var(--${t})`, soft: `var(--${t}-soft)` };
     });
-    const areas = (spec.areas || []).map(a => ({ ...a, id: a.id || '', title: a.title || a.id || '', items: a.items || [] }));
+    // a.rows = the area's normalized items, so per-area work never re-filters the flat list.
+    const areas = (spec.areas || []).map(a => ({ ...a, id: a.id || '', title: a.title || a.id || '', items: a.items || [], rows: [] }));
     let n = 0;
     const items = areas.flatMap((a, ai) => a.items.map(i => {
       n++;
       const iid = i.id || `item-${n}`;
-      return {
+      const it = {
         ...i, id: iid, title: i.title || iid, k: n - 1, areaIdx: ai,
         suggested: i.suggested || '', reason: i.suggested_reason || '',
         evList: Array.isArray(i.evidence), evidence: list(i.evidence), depends_on: list(i.depends_on), depended_on_by: list(i.depended_on_by),
         links: list(i.links), fields: list(i.fields).filter(f => f && f.key),
       };
+      // The part of the search text that never changes while reviewing; haystack() adds the live group and note.
+      it.hay = [it.title, it.what, it.where, it.reason, it.description, ...it.evidence, ...metaPairs(it.meta).flat()].join(' ').toLowerCase();
+      a.rows.push(it);
+      return it;
     }));
     return { ...spec, title: spec.title || 'Review', verdicts, areas, items };
   }
@@ -214,7 +217,7 @@ const RP = (() => {
     return { n: spec.items.length, reviewed: rv, need, over, tally, accept };
   }
   const areaStats = (spec, ai, state) => {
-    const its = spec.items.filter(i => i.areaIdx === ai);
+    const its = spec.areas[ai].rows;
     return {
       n: its.length,
       need: its.filter(i => stillNeeds(spec, i, itemState(state, i))).length,
@@ -223,7 +226,7 @@ const RP = (() => {
     };
   };
 
-  // The answers payload the server's /submit expects (unchanged from before the rewrite).
+  // The payload the server's /submit expects.
   // An untouched row carries verdict = suggested and touched false; a row with no suggestion keeps verdict "".
   function buildAnswers(spec, hash, state) {
     const items = spec.items.map(i => {
@@ -238,8 +241,7 @@ const RP = (() => {
   }
 
   // Search text for one row: everything a reviewer could be looking for.
-  const haystack = (i, s) => [i.title, i.what, i.where, i.reason, i.description, s.group, s.note,
-    ...i.evidence, ...metaPairs(i.meta).flat()].join(' ').toLowerCase();
+  const haystack = (i, s) => `${i.hay} ${(s.group || '').toLowerCase()} ${(s.note || '').toLowerCase()}`;
 
   function metaPairs(meta) {
     const pairs = Array.isArray(meta) ? meta : Object.entries(meta || {});
@@ -271,7 +273,7 @@ const RP = (() => {
     const evidence = !i.evidence.length ? '' : i.evList ? `<ul class="evidence-list">${i.evidence.map(e => `<li>${mdLite(e)}</li>`).join('')}</ul>` : `<div class="evidence-text">${mdLite(i.evidence[0])}</div>`;
     const body = fieldsHtml(i) + mdBlock(i.description) + evidence;
     const btns = spec.verdicts.map((v, m) => `<button type="button" data-v="${esc(v.id)}" style="--c:${v.tone}" title="${esc(v.label)}">${m < 9 ? `<i>${m + 1}</i>` : ''}${esc(v.short)}</button>`).join('');
-    return `<article class="item row${i.prior ? ' fromnote' : ''}" id="${id.row(k)}" data-needs="${needsYou(i) ? 1 : 0}" tabindex="-1">`
+    return `<article class="item row${i.prior ? ' fromnote' : ''}" id="${id.row(k)}" tabindex="-1">`
       + `<div class="rt"><span class="flag" data-flag hidden>Needs you</span>${i.prior ? '<span class="flag ans">Earlier note</span>' : ''}<h3>${esc(i.title)}</h3></div>`
       + (rmeta ? `<div class="rmeta">${rmeta}</div>` : '')
       + (i.what ? `<p class="what">${mdLite(i.what)}</p>` : '')
@@ -280,17 +282,17 @@ const RP = (() => {
       + `<button type="button" class="agree" data-act="agree"${i.suggested ? '' : ' disabled'}>Agree</button>`
       + `<button type="button" class="tg sm" data-act="note" aria-pressed="false">Note <kbd class="kh">n</kbd></button><button type="button" class="tg sm" data-act="group" aria-pressed="false">Group <kbd class="kh">g</kbd></button></div>`
       + `<div class="edit" data-edit="note"><label for="${id.note(k)}">Note or question</label><textarea id="${id.note(k)}" data-f="note" placeholder="Optional: a note or a question for the agent"></textarea></div>`
-      + `<div class="edit" data-edit="group"><label for="${id.group(k)}">Group tag (rows with the same tag get one shared action)</label><input class="group-input" id="${id.group(k)}" data-f="group" list="group-options" placeholder="e.g. sfb-988"></div>`
+      + `<div class="edit" data-edit="group"><label for="${id.group(k)}">Group tag (rows with the same tag get one shared action)</label><input id="${id.group(k)}" data-f="group" list="group-options" placeholder="e.g. sfb-988"></div>`
       + `<details class="ev"><summary>Evidence and details <kbd title="Press e to toggle">e</kbd></summary><div class="rbody">${body || '<span class="deps">No further details.</span>'}</div></details></article>`;
   }
 
   function areaHtml(spec, a, ai) {
     return `<section class="area" data-area="${ai}"><div class="ahead"><div class="hd"><h2>${esc(a.title)}</h2><button type="button" class="ghost sm" data-aa="${ai}">Agree to all in this area</button></div>`
       + (a.note ? `<p class="note">${mdLite(a.note)}</p>` : '') + `<div class="cnt" data-cnt="${ai}"></div></div>`
-      + spec.items.filter(i => i.areaIdx === ai).map(i => rowHtml(spec, i)).join('') + '</section>';
+      + a.rows.map(i => rowHtml(spec, i)).join('') + '</section>';
   }
   const mainHtml = spec => spec.areas.map((a, ai) => areaHtml(spec, a, ai)).join('') + '<div class="empty" id="empty" hidden>No rows match the filters.</div>';
-  const areaCountHtml = (spec, ai, state) => { const a = areaStats(spec, ai, state); return `<b>${a.n}</b> rows · <span class="${a.need ? 'nd' : ''}"><b>${a.need}</b> need you</span> · <b>${a.over}</b> overridden`; };
+  const areaCountHtml = a => `<b>${a.n}</b> rows · <span class="${a.need ? 'nd' : ''}"><b>${a.need}</b> need you</span> · <b>${a.over}</b> overridden`;
 
   const sectionsHtml = spec => (spec.sections || []).map(s => `<details class="ev page-section"${s.open ? ' open' : ''}><summary>${esc(s.title || 'section')}</summary><div class="page-section-body">${mdBlock(s.md)}</div></details>`).join('');
 
@@ -343,7 +345,7 @@ const RP = (() => {
 const SPEC = RP.normalize(JSON.parse(document.getElementById('spec').textContent));
 const HASH = '{{SPEC_HASH}}';
 const KEY = RP.stateKey(HASH);
-const $ = (s, r = document) => r.querySelector(s);
+const $ = Kit.$;
 const store = Kit.store();
 const state = RP.loadState(store.get(KEY, {}));
 const F = { q: '', area: '', verdict: '' };
@@ -355,13 +357,43 @@ const isRow = stop => /^r\d+$/.test(stop);
 const itemAt = stop => isRow(stop) ? items[+stop.slice(1)] : undefined;
 const eff = i => RP.effective(SPEC, i, g(i), RP.acceptOf(SPEC, state));
 const needs = i => RP.stillNeeds(SPEC, i, g(i));
-const save = () => store.set(KEY, state);
+const save = () => { clearTimeout(saveTimer); saveTimer = 0; store.set(KEY, state); };
+// Typing saves after a pause; flush() writes anything still pending (Submit, Copy, leaving the page).
+let saveTimer = 0;
+const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 600); };
+const flush = () => { if (saveTimer) save(); };
 const rowsVisible = () => items.filter(i => !rowEl(i).hidden);
 
 function visible(i) {
   if (F.area && String(i.areaIdx) !== F.area) return false;
   if (F.verdict === '_none') { if (eff(i)) return false; } else if (F.verdict && eff(i) !== F.verdict) return false;
   return !F.q || RP.haystack(i, g(i)).includes(F.q.toLowerCase());
+}
+
+// One row's own classes and buttons (not its visibility).
+function paintRow(i) {
+  const el = rowEl(i), r = g(i), e = eff(i), need = needs(i);
+  el.classList.toggle('needs', need);
+  el.classList.toggle('agreed', !!r.agreed);
+  $('[data-flag]', el).hidden = !need;
+  el.querySelectorAll('[data-v]').forEach(b => { b.classList.toggle('on', e === b.dataset.v); b.classList.toggle('sugg', i.suggested === b.dataset.v && e !== b.dataset.v); });
+  const ag = $('.agree', el);
+  ag.classList.toggle('on', !!r.agreed);
+  ag.textContent = r.agreed ? 'Agreed ✓' : 'Agree';
+  for (const k of ['note', 'group']) {
+    const b = $(`[data-act="${k}"]`, el);
+    b.classList.toggle('has', !!(r[k] || '').trim());
+    b.setAttribute('aria-pressed', $(`[data-edit="${k}"]`, el).classList.contains('show'));
+  }
+}
+
+// The group tags offered while typing a group; rewritten only when the set of tags changed.
+let groupSig = '';
+function paintGroups() {
+  const tags = [...new Set(items.map(i => (g(i).group || '').trim()).filter(Boolean))], sig = tags.join('\n');
+  if (sig === groupSig) return;
+  groupSig = sig;
+  $('#group-options').innerHTML = tags.map(x => `<option value="${RP.esc(x)}"></option>`).join('');
 }
 
 function paint() {
@@ -378,32 +410,31 @@ function paint() {
   $('#accHint').textContent = s.accept ? `(${untouchedLeft} untouched rows will apply their suggestion)` : '(only rows you touched will apply)';
   let anyVisible = false;
   SPEC.areas.forEach((a, ai) => {
-    const left = RP.areaStats(SPEC, ai, state).left.length, btn = $(`[data-aa="${ai}"]`);
-    $(`[data-cnt="${ai}"]`).innerHTML = RP.areaCountHtml(SPEC, ai, state);
+    const as = RP.areaStats(SPEC, ai, state), left = as.left.length, btn = $(`[data-aa="${ai}"]`);
+    $(`[data-cnt="${ai}"]`).innerHTML = RP.areaCountHtml(as);
     btn.disabled = !left;
     btn.title = left ? `Agree to ${left} suggested row${left === 1 ? '' : 's'}; rows needing you are skipped` : 'Nothing left to agree here';
     let vis = 0;
-    for (const i of items.filter(x => x.areaIdx === ai)) {
-      const el = rowEl(i), r = g(i), e = eff(i), show = visible(i), need = needs(i);
-      el.hidden = !show;
+    for (const i of a.rows) {
+      const show = visible(i);
+      rowEl(i).hidden = !show;
       if (show) { vis++; anyVisible = true; }
-      el.classList.toggle('needs', need);
-      el.classList.toggle('agreed', !!r.agreed);
-      $('[data-flag]', el).hidden = !need;
-      el.querySelectorAll('[data-v]').forEach(b => { b.classList.toggle('on', e === b.dataset.v); b.classList.toggle('sugg', i.suggested === b.dataset.v && e !== b.dataset.v); });
-      const ag = $('.agree', el);
-      ag.classList.toggle('on', !!r.agreed);
-      ag.textContent = r.agreed ? 'Agreed ✓' : 'Agree';
-      for (const k of ['note', 'group']) {
-        const b = $(`[data-act="${k}"]`, el);
-        b.classList.toggle('has', !!(r[k] || '').trim());
-        b.setAttribute('aria-pressed', $(`[data-edit="${k}"]`, el).classList.contains('show'));
-      }
+      paintRow(i);
     }
     $(`section[data-area="${ai}"]`).hidden = !vis && !!(F.q || F.area || F.verdict);
   });
   $('#empty').hidden = anyVisible;
-  $('#group-options').innerHTML = [...new Set(items.map(i => (g(i).group || '').trim()).filter(Boolean))].map(x => `<option value="${RP.esc(x)}"></option>`).join('');
+  paintGroups();
+}
+
+// Typing in a row's note, group or field: touching a row can change its final verdict, so refresh that
+// row and the tally. Nothing else depends on it, and no row is hidden under the typist's cursor.
+// With a search or verdict filter active the row's visibility can change, so those repaint everything.
+function paintTyped(i) {
+  if (F.q || F.verdict) { paint(); return; }
+  paintRow(i);
+  $('#tally').innerHTML = RP.tallyHtml(SPEC, RP.stats(SPEC, state), F.verdict);
+  paintGroups();
 }
 
 // Puts one row's saved note, group and field values into its controls; editors with content are shown.
@@ -460,7 +491,6 @@ function nextNeed() {
 
 $('#main').addEventListener('click', e => {
   const art = e.target.closest('.row'), aa = e.target.closest('[data-aa]'), dep = e.target.closest('[data-dep]');
-  if (art && art.id !== ctl.cur()) ctl.setCur(art.id, false);
   if (aa) { RP.areaStats(SPEC, +aa.dataset.aa, state).left.forEach(i => Object.assign(st(i), { verdict: '', agreed: true })); save(); paint(); return; }
   if (dep) { e.preventDefault(); const t = items.find(i => i.id === dep.dataset.dep); if (t) ctl.setCur(RP.id.row(t.k), true); return; }
   const b = e.target.closest('button');
@@ -478,9 +508,8 @@ $('#main').addEventListener('input', e => {
     (st(i).fields ||= {})[f.key] = t.value;
     t.classList.toggle('changed', t.value !== String(f.value ?? ''));
   } else return;
-  save(); paint();
+  saveSoon(); paintTyped(i);
 });
-$('#main').addEventListener('focusin', e => { const a = e.target.closest('.row'); if (a && a.id !== ctl.cur()) ctl.setCur(a.id, false); });
 $('#sb').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
@@ -491,14 +520,16 @@ $('#sb').addEventListener('click', e => {
 $('#sb').addEventListener('input', e => { if (e.target.id === 'q') { F.q = e.target.value; paint(); } });
 $('#sb').addEventListener('change', e => { if (e.target.id === 'fa') { F.area = e.target.value; paint(); } });
 $('#finish').addEventListener('change', e => { if (e.target.id === 'acc') { state.accept = e.target.checked; save(); paint(); } });
-$('#finish').addEventListener('input', e => { if (e.target.id === 'gq') { state.gq = e.target.value; save(); } });
+$('#finish').addEventListener('input', e => { if (e.target.id === 'gq') { state.gq = e.target.value; saveSoon(); } });
 
 const out = $('#copyOut'), status = t => { $('#st').textContent = t; };
 $('#copy').addEventListener('click', async () => {
+  flush();
   const ok = await Kit.copy(JSON.stringify(RP.buildAnswers(SPEC, HASH, state), null, 2), out);
   status(ok ? 'Copied to the clipboard.' : 'Clipboard blocked. Select the text below and copy it.');
 });
 $('#sub').addEventListener('click', async () => {
+  flush();
   const a = RP.buildAnswers(SPEC, HASH, state);
   if (a.untouched_count > 0 && !a.accept_defaults &&
       !confirm(`${a.untouched_count} rows untouched: they will NOT be applied unless 'Accept remaining defaults' is ticked. Submit anyway?`)) return;
@@ -509,6 +540,9 @@ $('#sub').addEventListener('click', async () => {
     else status('submit failed: ' + resp.status);
   } catch (err) { status('submit failed: ' + err + ' (Copy JSON still works)'); }
 });
+
+addEventListener('pagehide', flush);
+addEventListener('beforeunload', flush);
 
 Kit.registerKey(['1', '2', '3', '4', '5', '6', '7', '8', '9'], (e, c) => c.isItem ? pick(itemAt(c.cur), +e.key - 1) : false, 'pick a verdict');
 Kit.registerKey('a', (e, c) => c.isItem ? agree(itemAt(c.cur)) : false, 'agree with the suggestion (again to undo)');

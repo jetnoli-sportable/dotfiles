@@ -4,7 +4,7 @@
 Usage:
     decision-page.py --spec <dossier>/<slug>.json [--out page.html] [--no-open]
 
-Validates the spec (KTD4), collecting every problem before exiting 2, then fills
+Validates the spec, collecting every problem before exiting 2, then fills
 templates/page.html with the spec JSON, the shared kit's CSS and JS, a title and a
 meta description. Output is deterministic. Prints the output path and the spec hash.
 
@@ -25,6 +25,7 @@ import webbrowser
 from pathlib import Path
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+ID_RULE = ID_RE.pattern[1:-1]  # the pattern without its anchors, for messages
 STAGE_STATES = ("done", "current", "upcoming", "later")
 SKILL_DIR = Path(os.path.realpath(__file__)).parent.parent  # resolves the stow symlink to the repo copy
 TEMPLATE = SKILL_DIR / "templates" / "page.html"
@@ -38,8 +39,12 @@ def die(msg: str, code: int = 2):
 
 
 # ---------------------------------------------------------------------------
-# Validation (KTD4)
+# Validation
 # ---------------------------------------------------------------------------
+
+def bad_id(v) -> bool:
+    return not (isinstance(v, str) and ID_RE.match(v))
+
 
 def blank(v) -> bool:
     return not (isinstance(v, str) and v.strip())
@@ -51,11 +56,8 @@ def validate(spec) -> list:
     if not isinstance(spec, dict):
         return ["the spec must be a JSON object"]
 
-    def bad_id(v) -> bool:
-        return not (isinstance(v, str) and ID_RE.match(v))
-
     if bad_id(spec.get("slug")):
-        probs.append('slug %r must match [a-z0-9][a-z0-9-]*' % (spec.get("slug"),))
+        probs.append('slug %r must match %s' % (spec.get("slug"), ID_RULE))
     r = spec.get("round")
     if isinstance(r, bool) or not isinstance(r, int) or r < 1:
         probs.append("round %r must be an integer of at least 1" % (r,))
@@ -77,7 +79,7 @@ def validate(spec) -> list:
 
     def check_id(kind, v, where):
         if bad_id(v):
-            probs.append('%s %s: id %r must match [a-z0-9][a-z0-9-]*' % (kind, where, v))
+            probs.append('%s %s: id %r must match %s' % (kind, where, v, ID_RULE))
         elif v in seen:
             probs.append('%s "%s": duplicate id' % (kind, v))
         else:
@@ -124,7 +126,7 @@ def validate(spec) -> list:
                 continue
             v = o.get("v")
             if bad_id(v):
-                probs.append('%s: option id %r must match [a-z0-9][a-z0-9-]*' % (name, v))
+                probs.append('%s: option id %r must match %s' % (name, v, ID_RULE))
             elif v in oseen:
                 probs.append('%s: duplicate option id "%s"' % (name, v))
             else:
@@ -150,7 +152,7 @@ def canonical(spec) -> str:
 
 
 def script_safe(js: str) -> str:
-    """Keep spec text from ending or confusing the <script> it sits in (KTD1).
+    """Keep spec text from ending or confusing the <script> it sits in.
 
     Every "<" becomes \\u003c, which covers "</script", "<script" and "<!--" and still
     parses back to the same text."""
@@ -164,7 +166,7 @@ def render(spec) -> tuple:
     n = len(spec["items"])
     parts = {
         "TITLE": html.escape(spec.get("title") or spec["slug"]),
-        "DESCRIPTION": html.escape("Decision page, round %d: %d open item%s to answer." % (spec["round"], n, "" if n == 1 else "s"), quote=True),
+        "DESCRIPTION": html.escape("Decision page, round %d: %d open item%s to answer." % (spec["round"], n, "" if n == 1 else "s")),
         "SPEC_HASH": spec_hash,
         "KIT_CSS": KIT_CSS.read_text(encoding="utf-8"),
         "KIT_JS": KIT_JS.read_text(encoding="utf-8"),
@@ -177,7 +179,7 @@ def render(spec) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# Opening (KTD8)
+# Opening
 # ---------------------------------------------------------------------------
 
 def unopenable_reason(path: str):
@@ -238,9 +240,11 @@ def main():
 
     print("wrote: %s" % out)
     print("spec_hash: %s" % spec_hash)
-    reason = "--no-open" if args.no_open else unopenable_reason(out)
-    if reason:
-        print("not opened: %s" % (reason if args.no_open else "%s is %s. Open it from a non-hidden path under $HOME." % (out, reason)))
+    reason = None if args.no_open else unopenable_reason(out)
+    if args.no_open:
+        print("not opened: --no-open")
+    elif reason:
+        print("not opened: %s is %s. Open it from a non-hidden path under $HOME." % (out, reason))
     else:
         open_browser(Path(out).as_uri())
         print("opened: %s" % out)

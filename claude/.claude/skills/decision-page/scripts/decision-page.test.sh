@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# decision-page.test.sh — tests decision-page.py (validation per KTD4, generation,
+# decision-page.test.sh — tests decision-page.py (validation, generation,
 # escaping, determinism, browser-open refusal) and runs the page template's
 # DOM-free core script block under node against the generated fixture page.
 # Never launches a browser: every run uses --no-open, or a /tmp path that the
@@ -13,21 +13,21 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 GEN="$SCRIPT_DIR/decision-page.py"
 FIXTURE="$SKILL_DIR/fixtures/example-spec.json"
 KIT_JS="$SKILL_DIR/kit/kit.js"
-TMPDIR="$(mktemp -d /tmp/decision-page-test.XXXXXX)"
-trap 'rm -rf "$TMPDIR"' EXIT
+WORK="$(mktemp -d /tmp/decision-page-test.XXXXXX)"
+trap 'rm -rf "$WORK"' EXIT
 
 FAIL=0
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1"; FAIL=1; }
 
-case "$TMPDIR" in /tmp/*) ;; *) echo "refusing to run: test dir $TMPDIR is not under /tmp"; exit 1 ;; esac
+case "$WORK" in /tmp/*) ;; *) echo "refusing to run: test dir $WORK is not under /tmp"; exit 1 ;; esac
 
 # gen <spec> [extra args...]: runs the generator without opening a browser; sets OUT and RC.
 gen() { local spec="$1"; shift; OUT="$(python3 "$GEN" --spec "$spec" --no-open "$@" 2>&1)"; RC=$?; }
 
-# mutate <name> <python statements on s>: writes a changed copy of the fixture to $TMPDIR/<name>.json
+# mutate <name> <python statements on s>: writes a changed copy of the fixture to $WORK/<name>.json
 mutate() {
-  python3 - "$FIXTURE" "$TMPDIR/$1.json" "$2" <<'PY'
+  python3 - "$FIXTURE" "$WORK/$1.json" "$2" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1]))
 exec(sys.argv[3])
@@ -37,15 +37,15 @@ PY
 
 # reject <name> <python> <substring>: the mutated spec must exit 2 with a decision-page.py: message containing the substring
 reject() {
-  mutate "$1" "$2"; gen "$TMPDIR/$1.json" --out "$TMPDIR/$1.html"
-  if [ "$RC" = 2 ] && [[ "$OUT" == *"decision-page.py:"* ]] && [[ "$OUT" == *"$3"* ]] && [ ! -e "$TMPDIR/$1.html" ]; then
+  mutate "$1" "$2"; gen "$WORK/$1.json" --out "$WORK/$1.html"
+  if [ "$RC" = 2 ] && [[ "$OUT" == *"decision-page.py:"* ]] && [[ "$OUT" == *"$3"* ]] && [ ! -e "$WORK/$1.html" ]; then
     pass "rejects: $1"
   else
     fail "rejects: $1 (rc=$RC, want substring '$3'): $OUT"
   fi
 }
 
-# --- validation (KTD4) ------------------------------------------------------
+# --- validation ------------------------------------------------------
 reject no-rec "s['items'][0]['options'][0].pop('rec')" 'item "sweep"'
 reject two-rec "s['items'][0]['options'][1]['rec']=True" 'item "sweep"'
 reject no-question "s['items'][1].pop('question')" 'item "lock-orphan"'
@@ -67,19 +67,19 @@ reject round-zero "s['round']=0" 'round'
 reject decided-with-options "s['decided'][0]['options']=[]" 'done-review'
 
 mutate three-problems "s['items'][0].pop('question'); s['items'][1]['options'][0].pop('name'); s['round']=0"
-gen "$TMPDIR/three-problems.json" --out "$TMPDIR/three-problems.html"
+gen "$WORK/three-problems.json" --out "$WORK/three-problems.html"
 n=$(printf '%s\n' "$OUT" | /usr/bin/grep -c '^decision-page.py:')
 if [ "$RC" = 2 ] && [ "$n" -ge 3 ]; then pass "three separate problems are all reported in one run ($n lines)"; else fail "three problems in one run (rc=$RC, lines=$n): $OUT"; fi
 
-gen ""; python3 "$GEN" >/dev/null 2>&1; rc=$?
+python3 "$GEN" >/dev/null 2>&1; rc=$?
 if [ "$rc" = 2 ]; then pass "missing --spec exits 2"; else fail "missing --spec exits 2 (rc=$rc)"; fi
-gen "$TMPDIR/does-not-exist.json"
+gen "$WORK/does-not-exist.json"
 if [ "$RC" = 2 ] && [[ "$OUT" == *"decision-page.py:"* ]]; then pass "unreadable spec exits 2"; else fail "unreadable spec exits 2 (rc=$RC): $OUT"; fi
-echo '{not json' > "$TMPDIR/bad.json"; gen "$TMPDIR/bad.json"
+echo '{not json' > "$WORK/bad.json"; gen "$WORK/bad.json"
 if [ "$RC" = 2 ] && [[ "$OUT" == *"decision-page.py:"* ]]; then pass "invalid JSON exits 2"; else fail "invalid JSON exits 2 (rc=$RC): $OUT"; fi
 
 # --- generation -------------------------------------------------------------
-PAGE="$TMPDIR/fixture.html"
+PAGE="$WORK/fixture.html"
 gen "$FIXTURE" --out "$PAGE"
 HASH="$(printf '%s\n' "$OUT" | sed -n 's/^spec_hash: //p')"
 if [ "$RC" = 0 ] && [ -f "$PAGE" ] && [[ "$OUT" == *"$PAGE"* ]] && [[ "$HASH" =~ ^[0-9a-f]{8}$ ]]; then
@@ -96,8 +96,8 @@ if [ -z "$missing" ]; then pass "page has the spec title, the embedded spec and 
 if [ -f "$PAGE" ] && ! /usr/bin/grep -q '{{[A-Z_]*}}' "$PAGE"; then pass "page has no unfilled placeholders"; else fail "page is missing or still holds an unfilled placeholder"; fi
 
 # --- determinism ------------------------------------------------------------
-gen "$FIXTURE" --out "$TMPDIR/again.html"; HASH2="$(printf '%s\n' "$OUT" | sed -n 's/^spec_hash: //p')"
-if cmp -s "$PAGE" "$TMPDIR/again.html" && [ "$HASH" = "$HASH2" ]; then pass "same spec twice gives an identical file and hash"; else fail "generation is not deterministic"; fi
+gen "$FIXTURE" --out "$WORK/again.html"; HASH2="$(printf '%s\n' "$OUT" | sed -n 's/^spec_hash: //p')"
+if cmp -s "$PAGE" "$WORK/again.html" && [ "$HASH" = "$HASH2" ]; then pass "same spec twice gives an identical file and hash"; else fail "generation is not deterministic"; fi
 
 # --- optional fields and the script-escape guard ---------------------------------
 mutate sparse "
@@ -105,33 +105,33 @@ for i in s['items']:
     i.pop('artifacts', None)
     for o in i['options']:
         o.pop('cost', None); o.pop('risk', None)"
-gen "$TMPDIR/sparse.json" --out "$TMPDIR/sparse.html"
+gen "$WORK/sparse.json" --out "$WORK/sparse.html"
 if [ "$RC" = 0 ]; then pass "a spec with no artifacts and no cost/risk generates"; else fail "sparse spec generates (rc=$RC): $OUT"; fi
 
 BASE_SCRIPTS=$(/usr/bin/grep -o '<script' "$PAGE" | wc -l)
 mutate xss "s['items'][0]['why_it_matters']='</script><script>alert(1)</script> <!-- x   y'"
-gen "$TMPDIR/xss.json" --out "$TMPDIR/xss.html"
-XSS_SCRIPTS=$(/usr/bin/grep -o '<script' "$TMPDIR/xss.html" | wc -l)
-if [ "$RC" = 0 ] && [ "$XSS_SCRIPTS" = "$BASE_SCRIPTS" ] && ! /usr/bin/grep -q '<!-- x' "$TMPDIR/xss.html"; then
+gen "$WORK/xss.json" --out "$WORK/xss.html"
+XSS_SCRIPTS=$(/usr/bin/grep -o '<script' "$WORK/xss.html" | wc -l)
+if [ "$RC" = 0 ] && [ "$XSS_SCRIPTS" = "$BASE_SCRIPTS" ] && ! /usr/bin/grep -q '<!-- x' "$WORK/xss.html"; then
   pass "spec text with </script> and <!-- adds no script element ($XSS_SCRIPTS <script tags)"
 else
   fail "script-escape guard (rc=$RC, scripts $XSS_SCRIPTS vs $BASE_SCRIPTS): $OUT"
 fi
 
 # --- opening ----------------------------------------------------------------
-OUT="$(python3 "$GEN" --spec "$FIXTURE" --out "$TMPDIR/tmp-open.html" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] && [ -f "$TMPDIR/tmp-open.html" ] && [[ "$OUT" == *"not opened"* ]] && [[ "$OUT" == *"/tmp"* ]]; then
+OUT="$(python3 "$GEN" --spec "$FIXTURE" --out "$WORK/tmp-open.html" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && [ -f "$WORK/tmp-open.html" ] && [[ "$OUT" == *"not opened"* ]] && [[ "$OUT" == *"/tmp"* ]]; then
   pass "a /tmp output without --no-open is written, not opened, and says why"
 else
   fail "/tmp output refuses to open (rc=$RC): $OUT"
 fi
 
-# --- core script block under node (U1) ----------------------------------------------
+# --- core script block under node ----------------------------------------------
 if ! command -v node >/dev/null 2>&1; then
   echo "SKIP: node not found; page script checks not run"
 else
   # every inline script of the generated page must parse
-  python3 - "$PAGE" "$TMPDIR" <<'PY'
+  python3 - "$PAGE" "$WORK" <<'PY'
 import re, sys
 html = open(sys.argv[1], encoding="utf-8").read()
 for n, m in enumerate(re.finditer(r'<script(?![^>]*application/json)[^>]*>(.*?)</script>', html, re.S)):
@@ -140,13 +140,13 @@ core = re.search(r'// CORE:BEGIN.*?// CORE:END', html, re.S)
 open("%s/core.js" % sys.argv[2], "w", encoding="utf-8").write(core.group(0) + "\nif (typeof module !== 'undefined') module.exports = DP;\n" if core else "")
 PY
   bad=""
-  for f in "$TMPDIR"/inline-*.js; do node --check "$f" 2>"$TMPDIR/syntax.err" || bad="$bad $(basename "$f"): $(head -3 "$TMPDIR/syntax.err")"; done
-  if [ -z "$bad" ] && ls "$TMPDIR"/inline-*.js >/dev/null 2>&1; then pass "the page's inline scripts pass node --check"; else fail "inline script syntax:$bad"; fi
+  for f in "$WORK"/inline-*.js; do node --check "$f" 2>"$WORK/syntax.err" || bad="$bad $(basename "$f"): $(head -3 "$WORK/syntax.err")"; done
+  if [ -z "$bad" ] && ls "$WORK"/inline-*.js >/dev/null 2>&1; then pass "the page's inline scripts pass node --check"; else fail "inline script syntax:$bad"; fi
 
   # check <name> <js>: runs with DP (the page's core block), Kit, the fixture spec and assert in scope; must print OK
   check() {
     local out
-    out="$(KIT="$KIT_JS" CORE="$TMPDIR/core.js" FIXTURE="$FIXTURE" PAGE="$PAGE" node -e "
+    out="$(KIT="$KIT_JS" CORE="$WORK/core.js" FIXTURE="$FIXTURE" PAGE="$PAGE" node -e "
       const assert=require('assert'),fs=require('fs');
       globalThis.Kit=require(process.env.KIT);
       const DP=require(process.env.CORE);

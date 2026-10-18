@@ -16,6 +16,7 @@
                                          or 'pass'
      Kit.store(storage?)                 -> {get(key, fallback), set(key, value)}. JSON in and out. Never throws:
                                          a missing or throwing localStorage gives the fallback / false.
+     Kit.$(sel, root?)                   document.querySelector shorthand (browser only)
      Kit.esc(s), Kit.strip(s)            HTML-escape / strip tags and unescape to plain text
      Kit.chip({kind,label,path})         artifact chip HTML (a link when path is absolute or http(s))
      Kit.stageStrip({task,here,stages})  "Where this sits" strip HTML; stages = [{name,state,note?}],
@@ -44,8 +45,9 @@
        cfg.enterClosing()        Enter on the closing block (copy or submit)
        cfg.notes(stop)           n on any stop: focus that item's note box, or the global one on the closing block
      Control object: {cur(), setCur(stop, scroll), isItem(), toggleSidebar(), toggleLegend(show?)}
-     The kit owns the keys j/k (and the arrows, except on a radio), Enter, e/E, n, [, ?, Escape. The `cur`
-     class goes on the current stop's element. Pages register everything else with registerKey. */
+     The kit owns the keys j/k (and the arrows, except on a radio or checkbox), Enter, e/E, n, [, ?, Escape.
+     The `cur` class goes on the current stop's element. A focus or click inside cfg.scope on a `.item`
+     element makes that item (by its id) the current stop, without scrolling. Pages register everything else with registerKey. */
 const Kit = (() => {
   const SHARED = [
     [['j', 'k'], 'next / previous: overview, then each item, then the closing block'],
@@ -124,8 +126,9 @@ const Kit = (() => {
     return '<b>Keyboard shortcuts</b>' + keys.entries().map(e => `<span>${show(e.keys)} ${esc(e.label)}</span>`).join('');
   }
 
+  const $ = (s, r = document) => r.querySelector(s);
+
   function init(cfg) {
-    const $ = (s, r = document) => r.querySelector(s);
     const st = cfg.store || store();
     const overview = cfg.overview || 'band', closing = cfg.closing || 'finish';
     const el = cfg.el || (id => document.getElementById(id));
@@ -159,18 +162,22 @@ const Kit = (() => {
     if (btn) btn.addEventListener('click', toggleSidebar);
     setSidebar(st.get(cfg.sidebarKey, false) === true, false);
 
+    const scope = $(cfg.scope || 'main');
+    const follow = e => { const id = e.target.closest?.('.item')?.id; if (id && id !== cur) setCur(id, false); };
+    if (scope) ['focusin', 'click'].forEach(type => scope.addEventListener(type, follow));
+
     document.addEventListener('keydown', e => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target, k = e.key, g = guard(t, k);
       if (g === 'blur') { t.blur(); return; }
       if (g === 'skip') return;
       if (k === 'Enter' && (e.defaultPrevented || (t && t.tagName === 'BUTTON'))) return;
-      const radio = t && t.tagName === 'INPUT';
+      const choiceInput = t && t.tagName === 'INPUT'; // guard() lets only a radio or checkbox through, which use the arrows
       if (k === 'Escape') toggleLegend(false);
       else if (k === '?') { e.preventDefault(); toggleLegend(); }
       else if (k === '[') { e.preventDefault(); toggleSidebar(); }
-      else if (k === 'j' || (k === 'ArrowDown' && !radio)) { e.preventDefault(); setCur(step(stopsNow(), cur, 1), true); }
-      else if (k === 'k' || (k === 'ArrowUp' && !radio)) { e.preventDefault(); setCur(step(stopsNow(), cur, -1), true); }
+      else if (k === 'j' || (k === 'ArrowDown' && !choiceInput)) { e.preventDefault(); setCur(step(stopsNow(), cur, 1), true); }
+      else if (k === 'k' || (k === 'ArrowUp' && !choiceInput)) { e.preventDefault(); setCur(step(stopsNow(), cur, -1), true); }
       else if (k === 'Enter' && cur === overview) { e.preventDefault(); if (cfg.enterOverview) cfg.enterOverview(); }
       else if (k === 'Enter' && cur === closing) { e.preventDefault(); if (cfg.enterClosing) cfg.enterClosing(); }
       else if (k === 'Enter' && isItem()) { if (cfg.enterItem) { e.preventDefault(); cfg.enterItem(cur); } }
@@ -183,6 +190,6 @@ const Kit = (() => {
     return { cur: () => cur, setCur, isItem, toggleSidebar, toggleLegend };
   }
 
-  return { stops, step, newKeys, keys, registerKey, guard, store, esc, strip, chip, stageStrip, copy, init };
+  return { stops, step, newKeys, keys, registerKey, guard, store, $, esc, strip, chip, stageStrip, copy, init };
 })();
 if (typeof module !== 'undefined') module.exports = Kit;

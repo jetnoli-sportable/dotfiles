@@ -40,7 +40,6 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import threading
@@ -211,24 +210,6 @@ def mode_reattach(out_path: str):
 DEFAULT_PORT = 8765  # stable, bookmarkable; a second concurrent page falls forward
 
 
-def port_is_free(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("127.0.0.1", port)) != 0
-
-
-def pick_port(preferred: int = DEFAULT_PORT, tries: int = 10) -> int:
-    for p in range(preferred, preferred + tries):
-        if port_is_free(p):
-            return p
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def find_free_port() -> int:
-    return pick_port()
-
-
 def open_browser(url: str):
     chromium = "/snap/bin/chromium"
     if os.path.exists(chromium):
@@ -278,7 +259,7 @@ def render_page(spec: dict, title: str, spec_hash: str) -> str:
     n = sum(len(a.get("items", [])) for a in spec.get("areas") or [])
     parts = {
         "TITLE": html.escape(title),
-        "DESCRIPTION": html.escape("Review page: %d row%s to review." % (n, "" if n == 1 else "s"), quote=True),
+        "DESCRIPTION": html.escape("Review page: %d row%s to review." % (n, "" if n == 1 else "s")),
         "SPEC_HASH": spec_hash,
         "KIT_CSS": KIT_CSS.read_text(encoding="utf-8"),
         "KIT_JS": KIT_JS.read_text(encoding="utf-8"),
@@ -388,8 +369,8 @@ class ReviewHandler(http.server.BaseHTTPRequestHandler):
 def bind_server(port, page_html: str, spec_hash: str, tries: int = 10):
     """Bind the HTTP server BEFORE anything is printed or a browser opened.
     `port` is an int to bind exactly, or "auto" to start at DEFAULT_PORT and
-    fall forward on EADDRINUSE — the probe-then-bind race the old pick_port
-    path had is closed by binding directly and retrying on failure."""
+    fall forward on EADDRINUSE. Binding directly and retrying on failure
+    avoids a probe-then-bind race."""
     ReviewHandler.page_html = page_html.encode("utf-8")
     ReviewHandler.result_holder = {}
     ReviewHandler.submitted_event = threading.Event()

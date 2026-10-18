@@ -83,7 +83,7 @@ details.ev summary{cursor:pointer;font-size:.88rem;font-weight:600}
 details.ev>div,details.ev>.b{margin-top:6px}
 /* form basics */
 textarea{width:100%;min-height:3.2em;font:inherit;font-size:.92rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;resize:vertical}
-input[type=search],select{width:100%;font:inherit;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+input[type=search],input[type=text],select{width:100%;font:inherit;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
 input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 /* buttons: neutral by default; accent only for .primary (and what a page marks selected) */
 button{font:inherit;font-weight:600;font-size:.88rem;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}

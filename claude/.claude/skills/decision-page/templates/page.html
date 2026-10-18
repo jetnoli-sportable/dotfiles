@@ -72,7 +72,7 @@ const DP = (() => {
   // DOM ids are built from indexes, never from raw spec ids: "a-b"+"c" and "a"+"b-c" would collide.
   const id = { item: k => `i${k}`, opt: (k, m) => `i${k}-o${m}`, note: k => `i${k}-n`, name: k => `c${k}` };
 
-  // Fills the optional-field fallbacks (KTD4) so rendering never meets undefined.
+  // Fills the optional-field fallbacks so rendering never meets undefined.
   function normalize(spec) {
     return {
       ...spec,
@@ -137,7 +137,7 @@ const DP = (() => {
   }
 
   const noteLines = s => String(s).split('\n').map(l => '    ' + l);
-  // The JSON block is authoritative (KTD3); the markdown is for reading, with notes indented so they can't forge a sibling item.
+  // The JSON block is authoritative; the markdown is for reading, with notes indented so they can't forge a sibling item.
   function answersJson(spec, hash, state) {
     return {
       slug: spec.slug, round: spec.round, spec_hash: hash,
@@ -167,7 +167,7 @@ const DP = (() => {
 const SPEC = DP.normalize(JSON.parse(document.getElementById('spec').textContent));
 const HASH = '{{SPEC_HASH}}';
 const KEY = DP.storageKey(SPEC, HASH), COLL = DP.collection(SPEC, HASH);
-const $ = (s, r = document) => r.querySelector(s);
+const $ = Kit.$;
 const store = Kit.store();
 const state = store.get(KEY, {});
 const items = SPEC.items, saveTimer = {};
@@ -287,9 +287,6 @@ const go = k => ctl.setCur(DP.id.item(k), true);
 $('#band').addEventListener('click', e => { const r = e.target.closest('tr[data-go]'); if (r) { e.preventDefault(); go(+r.dataset.go); } });
 $('#band').addEventListener('keydown', e => { if (e.key !== 'Enter') return; const r = e.target.closest('tr[data-go]'); if (r) { e.preventDefault(); go(+r.dataset.go); } });
 $('#sb').addEventListener('click', e => { const a = e.target.closest('a[href^="#"]'); if (a) { e.preventDefault(); ctl.setCur(a.getAttribute('href').slice(1), true); } });
-const follow = e => { const a = e.target.closest('article'); if (a && a.id !== ctl.cur()) ctl.setCur(a.id, false); };
-$('#main').addEventListener('focusin', follow);
-$('#main').addEventListener('click', follow);
 
 Kit.registerKey(['1', '2', '3', '4', '5', '6', '7', '8', '9'], (e, c) => c.isItem ? pick(idxOf(c.cur), +e.key - 1) : false, 'pick an option');
 Kit.registerKey('a', (e, c) => { if (!c.isItem) return false; const k = idxOf(c.cur); pick(k, items[k].options.findIndex(o => o.rec)); }, 'take the recommended option');
@@ -304,12 +301,15 @@ setSave(savedText());
   if (!db) return;
   setSave(savedText());
   db.collection(COLL).onSnapshot(snap => {
+    let changed = false;
     for (const d of snap.docs) {
       if (d.id !== '_global' && !items.some(i => i.id === d.id)) continue;
-      const v = d.data();
-      state[d.id] = { choice: v.choice || null, note: v.note || '' };
+      const v = d.data(), old = state[d.id] || {}, next = { choice: v.choice || null, note: v.note || '' };
+      if ((old.choice || null) === next.choice && (old.note || '') === next.note) continue;
+      state[d.id] = next; changed = true;
     }
-    fill(); setSave('Synced. Claude can read your answers.');
+    if (changed) fill();
+    setSave('Synced. Claude can read your answers.');
   }, () => setSave("Couldn't load saved answers. Use Copy answers instead."));
 })();
 </script></body></html>
