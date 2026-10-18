@@ -111,6 +111,9 @@ Every open item must include an option with `v: "defer"`; it is a real answer
 - `context.stages` is a list, each `state` is one of `done`, `current`,
   `upcoming`, `later`, and at most one is `current`.
 - `items` and `decided` are lists of objects.
+- When present: `title` and `lede` are strings, `stats` is a list of strings, an
+  item's `tag` is an object with a string `label` (and string `tone`), and its
+  `artifacts` is a list of objects.
 
 Everything else is optional and never refused. The page never shows "undefined":
 absent fields are left out or fall back as listed above.

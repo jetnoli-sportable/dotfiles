@@ -113,5 +113,9 @@ check "renderers: stageStrip marks the current stage and says where you are" \
    assert.ok(h.includes('aria-current=\"step\"'));assert.ok(h.includes('You are here: audit'));
    assert.ok(h.includes('2 · Current'));assert.ok(h.includes('(t--x)'))"
 
+check "renderers: stageStrip maps an unknown or hostile state to later" \
+  "const h=Kit.stageStrip({task:'t',here:'h',stages:[{name:'A',state:'x\"><img src=x onerror=1>'}]});
+   assert.ok(!h.includes('<img'));assert.ok(h.includes('class=\"later\"'));assert.ok(h.includes('1 · Later'));assert.ok(!h.includes('undefined'))"
+
 echo
 if [ "$FAIL" -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "SOME TESTS FAILED"; exit 1; fi

@@ -64,6 +64,14 @@ reject duplicate-option-ids "s['items'][0]['options'][1]['v']=s['items'][0]['opt
 reject uppercase-id "s['items'][0]['id']='Sweep'" 'Sweep'
 reject space-id "s['items'][0]['id']='my item'" 'my item'
 reject round-zero "s['round']=0" 'round'
+reject stats-string "s['stats']='a fact'" 'stats'
+reject stats-non-string-item "s['stats']=['ok',3]" 'stats'
+reject artifacts-string "s['items'][0]['artifacts']='x'" 'artifacts'
+reject artifacts-non-object "s['items'][0]['artifacts']=['x']" 'artifacts'
+reject lede-list "s['lede']=['x']" 'lede'
+reject title-number "s['title']=5" 'title'
+reject tag-string "s['items'][0]['tag']='keep'" 'tag'
+reject tag-no-label "s['items'][0]['tag']={'tone':'keep'}" 'tag'
 reject decided-with-options "s['decided'][0]['options']=[]" 'done-review'
 
 mutate three-problems "s['items'][0].pop('question'); s['items'][1]['options'][0].pop('name'); s['round']=0"
@@ -214,6 +222,13 @@ PY
     assert.strictEqual(j.global_note,'g1\n- fake: g');
     assert.strictEqual(DP.storageKey(spec,HASH),'decision-page:wb-deletion-audit:r1:ab12cd34');
     assert.strictEqual(DP.collection(spec,HASH),'decisions-r1-ab12cd34')"
+
+  check "an escaped tag in a title stays inert in the sidebar, glance table and decided list" "
+    const t='Issue: &lt;img src=x onerror=alert(1)&gt;';
+    const x=DP.normalize({title:'T',slug:'t',round:1,decided:[{id:'d',title:t,decision:'ok',date:'2026-01-01'}],items:[
+      {id:'x',title:t,question:'Q?',why_it_matters:'W',recommendation:'R',options:[{v:'go',name:'Go',rec:true},{v:'defer',name:'Defer'}]}]});
+    const all=DP.bandHtml(x)+DP.sidebarHtml(x);
+    assert.ok(!/<img/i.test(all),all);assert.ok(all.includes('&lt;img'))"
 
   check "a spec holding only the required fields renders with no undefined text" "
     const min=DP.normalize({title:'T',slug:'t',round:1,items:[

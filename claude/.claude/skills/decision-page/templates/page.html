@@ -122,15 +122,15 @@ const DP = (() => {
 
   function bandHtml(spec) {
     const c = spec.context, show = c && (c.stages || []).length;
-    const rows = spec.items.map((i, k) => `<tr data-go="${k}" tabindex="0"><td><span class="dot" data-gdot="${k}"></span></td><td><a href="#${id.item(k)}">${strip(i.title)}</a></td><td class="qc">${esc(i.short_q)}</td><td>${esc((recOf(i) || {}).short)}</td><td class="pick none" data-gpick="${k}">Not yet</td></tr>`).join('');
+    const rows = spec.items.map((i, k) => `<tr data-go="${k}" tabindex="0"><td><span class="dot" data-gdot="${k}"></span></td><td><a href="#${id.item(k)}">${esc(strip(i.title))}</a></td><td class="qc">${esc(i.short_q)}</td><td>${esc((recOf(i) || {}).short)}</td><td class="pick none" data-gpick="${k}">Not yet</td></tr>`).join('');
     const glance = `<div><h2>At a glance</h2><table class="glance"><thead><tr><th></th><th>Item</th><th class="qc">Question</th><th>Recommended</th><th>Your pick</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    const dec = spec.decided.length ? `<div class="decided"><h2>Already decided</h2><ul>${spec.decided.map(d => `<li><span class="dot done"></span><span><b>${strip(d.title)}:</b> ${d.decision}</span><span class="when">${esc(d.date)}</span></li>`).join('')}</ul></div>` : '';
+    const dec = spec.decided.length ? `<div class="decided"><h2>Already decided</h2><ul>${spec.decided.map(d => `<li><span class="dot done"></span><span><b>${esc(strip(d.title))}:</b> ${d.decision}</span><span class="when">${esc(d.date)}</span></li>`).join('')}</ul></div>` : '';
     const prog = `<div class="progline"><span id="bandCnt"></span><div class="bar2"><i id="bandFill"></i></div></div>`;
     return (show ? Kit.stageStrip(c) : '') + `<div class="bandgrid">${glance}<div style="display:grid;gap:16px;align-content:start">${dec}${prog}</div></div>`;
   }
 
   function sidebarHtml(spec) {
-    const links = g => spec.items.map((i, k) => i.group === g ? `<a href="#${id.item(k)}" title="${esc(strip(i.title))}"><span class="dot" data-dot="${k}"></span><span class="full">${strip(i.title)}</span></a>` : '').join('');
+    const links = g => spec.items.map((i, k) => i.group === g ? `<a href="#${id.item(k)}" title="${esc(strip(i.title))}"><span class="dot" data-dot="${k}"></span><span class="full">${esc(strip(i.title))}</span></a>` : '').join('');
     return `<button type="button" class="ghost sb-toggle" aria-expanded="true" aria-controls="sb" title="Collapse or expand the index ( [ )"><span class="tl">Hide index</span><span>[</span></button>`
       + `<div class="prog"><span class="full" id="cnt"></span><span class="rail" id="cntShort"></span><div class="bar2"><i id="fill"></i></div><div class="hint full"><kbd>j</kbd><kbd>k</kbd> move · <kbd>1</kbd>-<kbd>9</kbd> pick · <kbd>a</kbd> recommended · <kbd>?</kbd> keys</div></div>`
       + groupsOf(spec).map(g => `<div><h2 class="full">${esc(g)}</h2>${links(g)}</div>`).join('');
@@ -170,24 +170,35 @@ const KEY = DP.storageKey(SPEC, HASH), COLL = DP.collection(SPEC, HASH);
 const $ = Kit.$;
 const store = Kit.store();
 const state = store.get(KEY, {});
-const items = SPEC.items, saveTimer = {};
+const items = SPEC.items, saveTimer = {}, pending = new Set();
 let db = null, localOk = true;
 
 function setSave(t) { $('#saveState').textContent = t; }
 const savedText = () => !localOk ? 'Could not save in this browser (site data is blocked). Use Copy answers.'
-  : db ? 'Saved. Claude can read your answers.' : 'Saved in this browser only. Use Copy answers to send them to Claude.';
+  : db ? 'Saved on this page (synced across your devices). Press Copy answers to send them to Claude.' : 'Saved in this browser only. Use Copy answers to send them to Claude.';
 
+async function write(itemId) {
+  localOk = store.set(KEY, state);
+  if (!db) { setSave(savedText()); return; }
+  setSave('Saving…');
+  const s = state[itemId] || {};
+  try { await db.doc(COLL + '/' + itemId).set({ choice: s.choice || '', note: s.note || '', updatedAt: new Date().toISOString() }); setSave(savedText()); }
+  catch (err) { setSave("Couldn't save to the page (" + (err?.code || 'error') + '). Use Copy answers instead.'); }
+}
+
+// pending holds ids with a save waiting, so a db snapshot can't overwrite them and flush() can write them early.
 function persist(itemId, delay = 0) {
   clearTimeout(saveTimer[itemId]);
+  pending.add(itemId);
   saveTimer[itemId] = setTimeout(async () => {
-    localOk = store.set(KEY, state);
-    if (!db) { setSave(savedText()); return; }
-    setSave('Saving…');
-    const s = state[itemId] || {};
-    try { await db.doc(COLL + '/' + itemId).set({ choice: s.choice || '', note: s.note || '', updatedAt: new Date().toISOString() }); setSave(savedText()); }
-    catch (err) { setSave("Couldn't save to the page (" + (err?.code || 'error') + '). Use Copy answers instead.'); }
+    try { await write(itemId); } finally { pending.delete(itemId); }
   }, delay);
 }
+function flush() {
+  for (const id of [...pending]) { clearTimeout(saveTimer[id]); write(id).finally(() => pending.delete(id)); }
+}
+addEventListener('pagehide', flush);
+document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
 
 function paint() {
   const n = DP.answeredCount(SPEC, state), pct = (items.length ? 100 * n / items.length : 0) + '%';
@@ -262,6 +273,7 @@ $('#main').addEventListener('click', e => {
 });
 $('#global').addEventListener('input', e => { (state._global ||= {}).note = e.target.value; persist('_global', 600); });
 $('#copyBtn').addEventListener('click', async () => {
+  flush();
   const ok = await Kit.copy(DP.buildAnswers(SPEC, HASH, state), $('#copyOut'));
   setSave(ok ? 'Copied to the clipboard.' : 'Clipboard blocked. Select the text below and copy it.');
 });
@@ -303,13 +315,13 @@ setSave(savedText());
   db.collection(COLL).onSnapshot(snap => {
     let changed = false;
     for (const d of snap.docs) {
-      if (d.id !== '_global' && !items.some(i => i.id === d.id)) continue;
+      if ((d.id !== '_global' && !items.some(i => i.id === d.id)) || pending.has(d.id)) continue;
       const v = d.data(), old = state[d.id] || {}, next = { choice: v.choice || null, note: v.note || '' };
       if ((old.choice || null) === next.choice && (old.note || '') === next.note) continue;
       state[d.id] = next; changed = true;
     }
     if (changed) fill();
-    setSave('Synced. Claude can read your answers.');
+    setSave('Synced across your devices. Press Copy answers to send them to Claude.');
   }, () => setSave("Couldn't load saved answers. Use Copy answers instead."));
 })();
 </script></body></html>

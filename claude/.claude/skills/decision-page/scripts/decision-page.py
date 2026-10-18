@@ -62,6 +62,13 @@ def validate(spec) -> list:
     if isinstance(r, bool) or not isinstance(r, int) or r < 1:
         probs.append("round %r must be an integer of at least 1" % (r,))
 
+    for f in ("title", "lede"):
+        if f in spec and not isinstance(spec[f], str):
+            probs.append("%s must be a string" % f)
+    st = spec.get("stats")
+    if st is not None and not (isinstance(st, list) and all(isinstance(x, str) for x in st)):
+        probs.append("stats must be a list of strings")
+
     ctx = spec.get("context")
     if ctx is not None:
         stages = ctx.get("stages") if isinstance(ctx, dict) else None
@@ -115,6 +122,12 @@ def validate(spec) -> list:
         for f in ("question", "why_it_matters", "recommendation"):
             if blank(i.get(f)):
                 probs.append("%s: missing %s" % (name, f))
+        tag = i.get("tag")
+        if tag is not None and not (isinstance(tag, dict) and isinstance(tag.get("label"), str) and isinstance(tag.get("tone", ""), str)):
+            probs.append("%s: tag must be an object with a string label and tone" % name)
+        arts = i.get("artifacts")
+        if arts is not None and not (isinstance(arts, list) and all(isinstance(x, dict) for x in arts)):
+            probs.append("%s: artifacts must be a list of objects" % name)
         opts = i.get("options")
         if not isinstance(opts, list) or not opts:
             probs.append("%s: needs a list of options" % name)

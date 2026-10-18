@@ -109,7 +109,7 @@ const Kit = (() => {
 
   function stageStrip(c) {
     const lbl = { done: 'Done', current: 'Current', upcoming: 'Upcoming', later: 'Later' };
-    const li = (s, k) => `<li class="${s.state}"${s.state === 'current' ? ' aria-current="step"' : ''}><span class="n">${k + 1} · ${lbl[s.state]}</span><span>${esc(s.name)}${s.note ? ` (${esc(s.note)})` : ''}</span>${s.state === 'current' ? `<span class="here">You are here: ${esc(c.here)}</span>` : ''}</li>`;
+    const li = (s, k) => { const state = lbl[s.state] ? s.state : 'later'; return `<li class="${state}"${state === 'current' ? ' aria-current="step"' : ''}><span class="n">${k + 1} · ${lbl[state]}</span><span>${esc(s.name)}${s.note ? ` (${esc(s.note)})` : ''}</span>${state === 'current' ? `<span class="here">You are here: ${esc(c.here)}</span>` : ''}</li>`; };
     return `<div><h2>Where this sits <span style="text-transform:none;letter-spacing:0;font-weight:400">(${esc(c.task)})</span></h2><ol class="stages">${c.stages.map(li).join('')}</ol></div>`;
   }
 
@@ -171,7 +171,7 @@ const Kit = (() => {
       const t = e.target, k = e.key, g = guard(t, k);
       if (g === 'blur') { t.blur(); return; }
       if (g === 'skip') return;
-      if (k === 'Enter' && (e.defaultPrevented || (t && t.tagName === 'BUTTON'))) return;
+      if (k === 'Enter' && (e.defaultPrevented || (t && ['BUTTON', 'A', 'SUMMARY'].includes(t.tagName)))) return;
       const choiceInput = t && t.tagName === 'INPUT'; // guard() lets only a radio or checkbox through, which use the arrows
       if (k === 'Escape') toggleLegend(false);
       else if (k === '?') { e.preventDefault(); toggleLegend(); }
