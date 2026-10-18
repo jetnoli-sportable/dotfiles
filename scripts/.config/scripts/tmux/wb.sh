@@ -505,7 +505,7 @@ wb_sanitize() { local s="${1//\//-}"; s="${s//./-}"; echo "${s//:/-}"; }
 # "not one of …" error) and checked by anchoring it as a regex alternation.
 # Legal: one of the strict, uppercase XS|S|M|L|XL, or empty (blank means
 # "unset", which every reader treats as M — see ~/code/tasks/README.md
-# "Size"). Shared by cmd_new's --size and _wb_breakdown_validate's per-child
+# "Size"). Shared by cmd_set and _wb_breakdown_validate's per-child
 # `- size:` bullet. Lowercase is deliberately rejected rather than
 # normalized (kept strict; normalization is a trivial follow-up if it ever
 # proves annoying in practice).
@@ -973,12 +973,12 @@ _wb_fill_frontmatter() {
 }
 
 # wb_seed_task <repo> <slug> <worktree_rel> [<parent_ref>] [<file_override>]
-# [<path_stages>] [<depends_on_csv>] [<size>] — find-or-create the task file for a
+# [<depends_on_csv>] — find-or-create the task file for a
 # repo+slug pair, filling blank frontmatter fields and bumping
 # planned->doing. Never overwrites a field that's already set, UNLESS the
-# caller explicitly passed a value for it (parent/path/depends_on) — an
+# caller explicitly passed a value for it (parent/depends_on) — an
 # explicit value always wins, same precedent `parent:` already set below.
-# <parent_ref>/<file_override>/<path_stages>/<depends_on_csv> are all
+# <parent_ref>/<file_override>/<depends_on_csv> are all
 # optional (default to empty) so wb_reconcile_action_create_task's
 # pre-existing 3/4-arg calls keep working unchanged — it never sets
 # `parent:`. <file_override> is KTD7's directional escape hatch for `wb
@@ -988,7 +988,7 @@ _wb_fill_frontmatter() {
 # cmd_resume already knows the real (child) file from its own stem-based
 # lookup and passes it straight through here instead.
 wb_seed_task() {
-  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}" path_stages="${6:-}" depends_on="${7:-}" size="${8:-}"
+  local repo="$1" slug="$2" worktree_rel="$3" parent="${4:-}" file_override="${5:-}" depends_on="${6:-}"
   local file
   if [ -n "$file_override" ]; then
     file="$file_override"
@@ -1058,20 +1058,18 @@ wb_seed_task() {
   fi
   [ -z "$parent" ] || wb_set_frontmatter "$file" parent "$parent"
 
-  # path:/depends_on:/size: — same "explicit wins, otherwise blank-fill"
-  # rule as parent: above, but the blank-fill half always runs (unlike
-  # parent:, which has no inferred value and simply stays absent with no
-  # --parent): every seeded task file must carry all three keys, even when
-  # the caller never passed one, per the schema's blank-fill convention
-  # (mirrors reviewed: above). wb_set_frontmatter itself inserts the key
-  # when TEMPLATE.md (or a pre-existing file) has no line for it yet, so
-  # this is correct whether or not the template has caught up to carrying
-  # the blank lines. A blank size: reads as M at load, so blank-filling it
-  # never manufactures a value; cmd_new has already validated a non-empty
-  # --size against _wb_valid_size.
-  _wb_fill_frontmatter "$file" path "$path_stages"
+  # path:/depends_on:/size: — every seeded task file must carry all three
+  # keys, per the schema's blank-fill convention (mirrors reviewed: above);
+  # depends_on: additionally takes an explicit value the same way parent:
+  # does. path:/size: are only ever set later, through `wb set`.
+  # wb_set_frontmatter itself inserts the key when TEMPLATE.md (or a
+  # pre-existing file) has no line for it yet, so this is correct whether
+  # or not the template has caught up to carrying the blank lines. A blank
+  # size: reads as M at load, so blank-filling it never manufactures a
+  # value.
+  _wb_fill_frontmatter "$file" path ""
   _wb_fill_frontmatter "$file" depends_on "$depends_on"
-  _wb_fill_frontmatter "$file" size "$size"
+  _wb_fill_frontmatter "$file" size ""
 
   echo "$file"
 }
@@ -1553,14 +1551,14 @@ _wb_new_add_worktree() {
 }
 
 cmd_new() {
-  # Index/shift case parser, not a single-token foreach: --parent/--path take
-  # their value as a separate following argument, and --depends-on is
+  # Index/shift case parser, not a single-token foreach: --parent takes
+  # its value as a separate following argument, and --depends-on is
   # repeatable (accumulates into an array) — none of that can be detected by
   # a foreach that only matches literal tokens (like --agent); the value
   # would fall into the else branch and corrupt the positional repo/slug
   # count.
-  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--path <stages>] [--depends-on <repo>--<slug>]... [--size XS|S|M|L|XL] <repo> <slug>"
-  local agent_flag=0 parent_ref="" path_stages="" planned_flag=0 prospective_flag=0 jira_url="" title_override="" size_value=""
+  local -r new_usage="usage: wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--depends-on <repo>--<slug>]... <slug> | wb new [--agent|--planned|--prospective [--jira <url>] [--title <text>] [--body -|--body-file <path>]] [--parent <repo>--<slug>] [--depends-on <repo>--<slug>]... <repo> <slug>"
+  local agent_flag=0 parent_ref="" planned_flag=0 prospective_flag=0 jira_url="" title_override=""
   local body_stdin=0 body_file=""
   local -a depends_on_stems=()
   local -a args=()
@@ -1603,21 +1601,11 @@ cmd_new() {
           ''|--*) echo "wb new: --parent requires a value" >&2; exit 1 ;;
         esac
         parent_ref="$2"; shift 2 ;;
-      --path)
-        case "${2-}" in
-          ''|--*) echo "wb new: --path requires a value" >&2; exit 1 ;;
-        esac
-        path_stages="$2"; shift 2 ;;
       --depends-on)
         case "${2-}" in
           ''|--*) echo "wb new: --depends-on requires a value" >&2; exit 1 ;;
         esac
         depends_on_stems+=("$2"); shift 2 ;;
-      --size)
-        case "${2-}" in
-          ''|--*) echo "wb new: --size requires a value (one of $WB_SIZE_VALUES)" >&2; exit 1 ;;
-        esac
-        size_value="$2"; shift 2 ;;
       *)        args+=("$1"); shift ;;
     esac
   done
@@ -1684,27 +1672,6 @@ cmd_new() {
       || { echo "wb new: --parent cannot be the task's own reference" >&2; exit 1; }
   fi
 
-  # --path: split on commas and validate every token against the lifecycle
-  # pipeline's known stage names (WB_LIFECYCLE_STAGES, wb-lifecycle.sh)
-  # BEFORE anything is created — deliberately the opposite of
-  # wb_lifecycle_parse_path's render-time tolerance (unknown stages there
-  # are silently dropped; here an unknown stage is a hard, loud failure).
-  if [ -n "$path_stages" ]; then
-    local -a wb_valid_stages=("${WB_LIFECYCLE_STAGES[@]}")
-    local valid_csv; valid_csv="$(IFS=,; echo "${wb_valid_stages[*]}")"
-    local -a _wb_path_tokens
-    IFS=',' read -r -a _wb_path_tokens <<< "$path_stages"
-    local token stage ok
-    for token in "${_wb_path_tokens[@]}"; do
-      ok=0
-      for stage in "${wb_valid_stages[@]}"; do
-        [ "$token" = "$stage" ] && { ok=1; break; }
-      done
-      [ "$ok" = 1 ] \
-        || { echo "wb new: --path has unknown stage '$token' (valid: $valid_csv)" >&2; exit 1; }
-    done
-  fi
-
   # --depends-on: each value must be a real, pre-existing task-file stem in
   # $TASKS_DIR (mirrors wb_resolve_parent_ref's fail-loud pattern, but
   # written inline here so the error names --depends-on rather than reusing
@@ -1727,13 +1694,6 @@ cmd_new() {
   done
   local depends_on_joined=""
   [ "${#depends_on_stems[@]}" -eq 0 ] || depends_on_joined="$(IFS=,; echo "${depends_on_stems[*]}")"
-
-  # --size: strict uppercase XS|S|M|L|XL enum (_wb_valid_size, shared with the
-  # breakdown buffer's per-child `- size:` bullet), checked BEFORE anything
-  # is created — same fail-loud-first convention as --path/--depends-on.
-  if ! _wb_valid_size "$size_value"; then
-    echo "wb new: --size '$size_value' is not one of $WB_SIZE_VALUES" >&2; exit 1
-  fi
 
   local repo_dir="$CODE_DIR/$repo"
   [ -d "$repo_dir/.git" ] || { echo "wb new: $repo_dir is not a git repo" >&2; exit 1; }
@@ -1765,15 +1725,10 @@ cmd_new() {
     wb_task_lock_acquire_guarded "$task_file" || exit $?
     local seed_status="planned"; [ "$prospective_flag" = 1 ] && seed_status="prospective"
     task_file="$(wb_seed_task_planned "$repo" "$slug" "$parent_ref" "$title_override" "$seed_status")"
-    # --size is honored on the planned path too (R7: settable on EVERY
-    # creation path). Explicit wins; no blank-fill here — wb_seed_task_planned
-    # deliberately leaves the template's own blank size: line as-is.
-    [ -z "$size_value" ] || wb_set_frontmatter "$task_file" size "$size_value"
-    # --depends-on/--path: same explicit-wins rule. depends_on: is what a
-    # later plain `wb new` reads to stack the branch on its blocker
+    # --depends-on: explicit wins. depends_on: is what a later plain
+    # `wb new` reads to stack the branch on its blocker
     # (_wb_new_start_point), so dropping it here silently unstacks it.
     [ -z "$depends_on_joined" ] || wb_set_frontmatter "$task_file" depends_on "$depends_on_joined"
-    [ -z "$path_stages" ] || wb_set_frontmatter "$task_file" path "$path_stages"
     [ -z "$jira_url" ] || wb_set_frontmatter "$task_file" jira "$jira_url"
     # The ## Plan body comes ONLY from an explicit --body - (stdin) or
     # --body-file <path>; without either flag stdin is never touched (an
@@ -1879,7 +1834,7 @@ cmd_new() {
   fi
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$path_stages" "$depends_on_joined" "$size_value")"
+  task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$depends_on_joined")"
   # An unsafe worktree: was ignored above; fix the field too, since wb down /
   # wb done would otherwise build a teardown path from it.
   [ "$wt_unsafe" = 0 ] || wb_set_frontmatter "$task_file" worktree "$worktree_rel"
@@ -4789,7 +4744,7 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path branch"
 # repo/worktree), refuses an unknown field, validates the value for
 # the fields that have an enum or a must-exist-in-$TASKS_DIR constraint
 # (priority/value/size/parent/depends_on/jira/branch — same fail-loud-before-any-
-# write convention `wb new`'s --size/--depends-on validation uses), then
+# write convention `wb new`'s --depends-on validation uses), then
 # rewrites just that one frontmatter line under the per-task lock. Inserts
 # the field right after `size:` when it's missing entirely (priority:/
 # value: land there in TEMPLATE.md's own field order) — every other
