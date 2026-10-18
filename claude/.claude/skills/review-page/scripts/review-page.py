@@ -220,6 +220,7 @@ KIT_CSS = KIT_DIR / "kit.css"
 KIT_JS = KIT_DIR / "kit.js"
 PAGEKIT = KIT_DIR / "pagekit.py"  # helpers shared with decision-page.py
 
+sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed kit dir
 sys.path.insert(0, str(KIT_DIR))
 try:
     from pagekit import open_browser, script_safe

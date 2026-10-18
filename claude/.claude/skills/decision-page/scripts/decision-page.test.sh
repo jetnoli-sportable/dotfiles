@@ -153,7 +153,7 @@ gen "$FIXTURE" --out "$WORK/clean.html"
 if [[ "$OUT" != *"warning"* ]]; then pass "the fixture spec produces no warning"; else fail "fixture warns: $OUT"; fi
 
 # pagekit.script_safe escapes the line separators as well as <
-python3 - "$SKILL_DIR/kit" <<'PY'
+python3 -B - "$SKILL_DIR/kit" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
 from pagekit import script_safe

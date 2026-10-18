@@ -30,6 +30,7 @@ KIT_CSS = SKILL_DIR / "kit" / "kit.css"
 KIT_JS = SKILL_DIR / "kit" / "kit.js"
 PAGEKIT = SKILL_DIR / "kit" / "pagekit.py"  # helpers shared with review-page.py
 
+sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed kit dir
 sys.path.insert(0, str(PAGEKIT.parent))
 try:
     from pagekit import open_browser, script_safe, unopenable_reason
