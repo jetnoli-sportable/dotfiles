@@ -31,8 +31,10 @@
 #                  the `ended` tombstone. Deletes nothing else — the reaper does.
 #   clear          agent verb: drop marker, reviewing and the outstanding flag; logs
 #                  `followed` if a nudge was still outstanding. It KEEPS an unreviewed
-#                  sweep draft (draft, draft_stale, draft_strikes, nudged_draft), so the
-#                  phrase path of /wb-decide can't delete a draft the user never saw.
+#                  sweep draft (draft, draft_stale, draft_strikes), so the phrase path of
+#                  /wb-decide can't delete a draft the user never saw; it drops
+#                  nudged_draft, so a kept draft is nudged again at the next real prompt
+#                  (and the two-strike shelve restarts) instead of going silent.
 #   clear --draft  the draft-accept path: same, and also removes the draft and its
 #                  draft_stale / draft_strikes (the draft is what just got recorded).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
@@ -695,8 +697,10 @@ cmd_clear_or_dismiss() { # <log-event|""> [--draft]
     remove_named "$SDIR" marker outstanding
   elif [ -z "$1" ] && [ "$drop_draft" = 0 ]; then
     # plain clear (the phrase/hinted path): the draft was not what got recorded and
-    # may be unseen, so it stays pending (never deleted without accept or dismiss)
-    remove_named "$SDIR" marker outstanding reviewing
+    # may be unseen, so it stays pending (never deleted without accept or dismiss).
+    # nudged_draft goes too: a kept draft whose nudge just resolved must be nudged
+    # again, or it would sit silent until SessionEnd shelves it
+    remove_named "$SDIR" marker outstanding reviewing nudged_draft
   else
     remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding reviewing
   fi
