@@ -109,9 +109,17 @@ If the task file already has this filled in from earlier in the session
 (e.g. a mid-session `/wb-save` already wrote rich `## Decisions` content),
 don't duplicate — extend only where the sweep in step 2 added something new.
 
-Then check for **shelved decision drafts** — background-drafted decisions nobody
-accepted or dismissed. Run `~/.config/scripts/tmux/wb-capture.sh status`; for
-each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
+Then check for **decision drafts** — background-drafted decisions nobody
+accepted or dismissed. Run `~/.config/scripts/tmux/wb-capture.sh status`.
+
+If it prints `draft: present`, that is this session's own pending draft (a sweep
+that landed during or just before the close-out). Route it through `/wb-decide`'s
+draft-review path before winding down: show it, then either accept/edit it
+(`wb append <task> Decisions -`, then `wb-capture.sh clear --draft`) or
+`wb-capture.sh dismiss`. `wb done` refuses while a live draft remains, so skipping
+this only defers it.
+
+For each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
 (→ `wb-capture.sh accept --begin <path>`, then `wb append <task> Decisions -`,
 then `wb-capture.sh accept <path>`; the `--begin` first keeps the record from
 being counted as an answer to a live nudge) or dismiss
@@ -214,6 +222,9 @@ never whether the record gets written first.
   wind-down launches, especially when `--close` was also requested.
 - **Empty Decisions, nothing decided** — step 4 appends the
   `### <timestamp> — close-out` / `_No decisions: <reason>_` marker.
+- **`draft: present` at close-out** — step 4 routes it through `/wb-decide`'s
+  draft-review path (`clear --draft` after recording, or `dismiss`) before the
+  wind-down.
 - **Empty Decisions, but the sweep found a decision** — a real entry is
   written; no marker.
 - **Decisions already populated** — no marker.

@@ -22,8 +22,8 @@
 #                                    ratified 3-view page to logs/board.html (feat-board-build)
 #   wb done [--close] [--leave-shelved] [<session>]
 #                                    safe wind-down (defaults to the current session); --close also kills the tmux
-#                                    session; refuses while shelved decision drafts (wb-capture) remain for the
-#                                    task unless --leave-shelved
+#                                    session; refuses while decision drafts (wb-capture: shelved, or pending in
+#                                    a live session of the task) remain unless --leave-shelved
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
@@ -5049,20 +5049,30 @@ cmd_done() {
   # under set -u.
   local repo; repo="$(wb_get_frontmatter "$task_file" repo)"
 
-  # Shelved-draft guard: wb-capture shelves an unreviewed decision draft under
+  # Draft guard: wb-capture shelves an unreviewed decision draft under
   # <capture root>/shelved/<task-stem>/ (outliving the session), where only
-  # /close-out or /wb-decide shelved can accept or dismiss it. Closing the task
-  # first would strand it, so refuse — before any mutation, store-only closes
-  # included — unless --leave-shelved says leaving them is deliberate.
+  # /close-out or /wb-decide shelved can accept or dismiss it. A draft still
+  # pending in a LIVE session of this task (<capture root>/<sid>/draft, whose
+  # taskpath is this task file) would be shelved by SessionEnd right after the
+  # task flips to done, stranded the same way. Closing the task first would strand
+  # both, so refuse — before any mutation, store-only closes included — unless
+  # --leave-shelved says leaving them is deliberate.
   local capture_root="${XDG_STATE_HOME:-$HOME/.local/state}/wb/capture"
   local -a shelved_drafts=()
-  local sf
+  local sf sd sp
   for sf in "$capture_root/shelved/$task_stem"/*.md; do
     if [ -f "$sf" ]; then shelved_drafts+=("$sf"); fi
   done
+  for sd in "$capture_root"/*/; do
+    sd="${sd%/}"
+    [ "${sd##*/}" = shelved ] && continue
+    [ -f "$sd/draft" ] && [ ! -L "$sd" ] || continue
+    sp="$(head -n1 "$sd/taskpath" 2>/dev/null || true)"
+    [ "$sp" = "$task_file" ] && shelved_drafts+=("$sd/draft")
+  done
   if [ "${#shelved_drafts[@]}" -gt 0 ] && [ "$leave_shelved" = 0 ]; then
     {
-      echo "wb done: ${#shelved_drafts[@]} shelved decision draft(s) for $task_stem would be stranded (nothing changed):"
+      echo "wb done: ${#shelved_drafts[@]} decision draft(s) (shelved, or pending in a live session) for $task_stem would be stranded (nothing changed):"
       for sf in "${shelved_drafts[@]}"; do echo "  $sf"; done
       echo "wb done: run /close-out or /wb-decide shelved first to accept or dismiss them, or re-run with --leave-shelved to close anyway"
     } >&2
@@ -5225,7 +5235,7 @@ cmd_done() {
   wb_set_frontmatter "$task_file" claude_sessions ""
   local done_note='Session closed via `wb done`.'
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
-    done_note="Session closed via \`wb done\` (--leave-shelved: ${#shelved_drafts[@]} shelved decision draft(s) left in $capture_root/shelved/$task_stem/)."
+    done_note="Session closed via \`wb done\` (--leave-shelved: ${#shelved_drafts[@]} decision draft(s) left in place: $capture_root/shelved/$task_stem/ and any live session dir)."
   fi
   wb_append_handoff "$task_file" "wb done" "$done_note"
   wb_task_lock_release "$task_file"

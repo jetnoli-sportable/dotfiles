@@ -123,8 +123,8 @@ one of, among others:
   output and `commit or stash, then re-run` (stderr, exit 1) — the dirty
   edge case; nothing was removed, nothing was closed, relay the error
   verbatim and stop — don't retry or force anything on the user's behalf.
-- `wb done: N shelved decision draft(s) for <task> would be stranded (nothing
-  changed):` followed by one path per draft and a line naming `/close-out`,
+- `wb done: N decision draft(s) (shelved, or pending in a live session) for
+  <task> would be stranded (nothing changed):` followed by one path per draft and a line naming `/close-out`,
   `/wb-decide shelved` and `--leave-shelved` (stderr, exit 1) — wb-capture
   holds unreviewed decision drafts for this task. Nothing was removed or
   closed. Relay it verbatim and stop; the user either runs `/close-out` or
@@ -177,8 +177,9 @@ one right before the command runs, not a relay of `wb done`'s own output.
   changes: `wb done`'s own dirty-tree error (path + `git status --porcelain`
   output + "commit or stash, then re-run") is relayed as-is; nothing is
   removed, nothing flips to done.
-- **Shelved decision drafts** — `/wb-done` for a task with drafts under
-  wb-capture's `shelved/<task>/`: `wb done`'s refusal (paths + the three ways
+- **Shelved or live decision drafts** — `/wb-done` for a task with drafts under
+  wb-capture's `shelved/<task>/` or a draft still pending in a live session of
+  the task: `wb done`'s refusal (paths + the three ways
   forward) is relayed as-is; nothing is removed or flips to done, and
   `--leave-shelved` is passed only if the user asks for it.
 - **`/wb-done --close`** — also kills the tmux session once wind-down

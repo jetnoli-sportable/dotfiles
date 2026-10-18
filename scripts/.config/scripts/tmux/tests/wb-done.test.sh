@@ -31,7 +31,7 @@ WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
 FIXTURE_STATE="$(mktemp -d -t wb-done-state.XXXXXX)"   # XDG_STATE_HOME: wb-capture's shelved drafts + log
-SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta kappa)
+SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta kappa lambda mu)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
   rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_STATE"
@@ -281,7 +281,7 @@ out="$(cmd_done "$eta_session" --close 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && echo "ok   - shelved guard: non-zero exit" || { echo "FAIL - shelved guard: exit $rc"; fail=1; }
 assert "shelved guard: names the first draft" "$CAPROOT/shelved/proj--eta/20261018T100000-sid-a\\.md" "$out"
 assert "shelved guard: names the second draft" "$CAPROOT/shelved/proj--eta/20261018T110000-sid-b\\.md" "$out"
-assert "shelved guard: counts drafts, not sidecars" '2 shelved decision draft' "$out"
+assert "shelved guard: counts drafts, not sidecars" '2 decision draft' "$out"
 assert "shelved guard: points at /close-out and /wb-decide shelved" '/close-out or /wb-decide shelved' "$out"
 assert "shelved guard: points at --leave-shelved" '\-\-leave-shelved' "$out"
 assert "shelved guard: says nothing changed" 'nothing changed' "$out"
@@ -349,6 +349,37 @@ assert "e2e: shelved_dismissed logged" '"event":"shelved_dismissed"' "$(cat "$CA
 out="$(cmd_done "$kappa_session" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   - e2e: wb done proceeds once dismissed" || { echo "FAIL - e2e: wb done exit $rc: $out"; fail=1; }
 assert "e2e: task flipped to done" '^done$' "$(status_of kappa)"
+
+# --- live-session draft guard (D14 #2): a draft still pending in a live session dir ---
+# --- whose taskpath is this task would be shelved by SessionEnd after the close ---
+lambda_session="$(session_for lambda)"; lambda_file="$FIXTURE_TASKS/proj--lambda.md"
+mkdir -p "$CAPROOT/sid-live" "$CAPROOT/sid-otherlive"
+printf '### Chose L\n- decided: L\n' >"$CAPROOT/sid-live/draft"; printf '%s\n' "$lambda_file" >"$CAPROOT/sid-live/taskpath"
+printf '### Other\n' >"$CAPROOT/sid-otherlive/draft"; printf '%s\n' "$FIXTURE_TASKS/proj--elsewhere.md" >"$CAPROOT/sid-otherlive/taskpath"
+lambda_before="$(cat "$lambda_file")"
+out="$(cmd_done "$lambda_session" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - live draft guard: non-zero exit" || { echo "FAIL - live draft guard: exit $rc"; fail=1; }
+assert "live draft guard: names the live draft" "$CAPROOT/sid-live/draft" "$out"
+assert "live draft guard: counts only this task's draft" '1 decision draft' "$out"
+case "$out" in *sid-otherlive*) echo "FAIL - live draft guard: named another task's live draft"; fail=1 ;; *) echo "ok   - live draft guard: another task's live draft ignored" ;; esac
+assert "live draft guard: says nothing changed" 'nothing changed' "$out"
+[ "$(cat "$lambda_file")" = "$lambda_before" ] && echo "ok   - live draft guard: task file byte-identical" || { echo "FAIL - live draft guard: task file changed"; fail=1; }
+[ -d "$FIXTURE_CODE/proj/.worktrees/lambda" ] && echo "ok   - live draft guard: worktree untouched" || { echo "FAIL - live draft guard: worktree removed"; fail=1; }
+[ -f "$CAPROOT/sid-live/draft" ] && echo "ok   - live draft guard: draft untouched" || { echo "FAIL - live draft guard: draft removed"; fail=1; }
+logn_before="$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')"
+out="$(cmd_done "$lambda_session" --leave-shelved 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - live draft --leave-shelved: exits 0" || { echo "FAIL - live draft --leave-shelved: exit $rc: $out"; fail=1; }
+assert "live draft --leave-shelved: task done" '^done$' "$(status_of lambda)"
+[ -f "$CAPROOT/sid-live/draft" ] && echo "ok   - live draft --leave-shelved: draft left in place" || { echo "FAIL - live draft --leave-shelved: draft removed"; fail=1; }
+assert "live draft --leave-shelved: logged with count 1" '"task":"proj--lambda".*"count":1|"count":1.*"task":"proj--lambda"' "$(tail -n1 "$CAPROOT/log.jsonl")"
+[ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = "$((logn_before + 1))" ] && echo "ok   - live draft --leave-shelved: exactly one log line" || { echo "FAIL - live draft --leave-shelved: log line count"; fail=1; }
+assert "live draft --leave-shelved: handoff records the left draft" 'decision draft\(s\) left in place' "$(cat "$lambda_file")"
+
+# a live draft of this task that was already shelved/cleared (no draft file) doesn't block
+mu_session="$(session_for mu)"; mu_file="$FIXTURE_TASKS/proj--mu.md"
+mkdir -p "$CAPROOT/sid-mu"; printf '%s\n' "$mu_file" >"$CAPROOT/sid-mu/taskpath"
+out="$(cmd_done "$mu_session" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - live draft guard: a session dir without a draft does not block" || { echo "FAIL - live draft guard: blocked without a draft: $out"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
