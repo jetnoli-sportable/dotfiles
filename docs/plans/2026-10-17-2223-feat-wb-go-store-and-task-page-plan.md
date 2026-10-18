@@ -24,7 +24,7 @@ task: dotfiles--wb-future-direction
 **Stop conditions:**
 - Jet says no at the end of the prototype week (R17): stop after U8, keep the reader (U6, U7), drop the page templates.
 - Any unit discovers a caller or behaviour that contradicts a settled decision: stop that unit and ask Jet; don't work around it.
-- `wb done` work (U1–U3) must not start until [[dotfiles--wb-deletion-pass]] has merged, because both edit `cmd_done`'s neighbourhood and `wb_open_buffer`.
+- `wb done` work (U1–U3) builds on [[dotfiles--wb-deletion-pass]], which edited `cmd_done`'s neighbourhood and `wb_open_buffer`. That precondition is met: the deletion pass merged as PR #94 (76f31d4) on 2026-10-18.
 
 **Execution profile:** each unit is executed by a `/ce-work` session in its own wb worktree, as children produced by `/wb-breakdown`. Implementation can run on Sonnet subagents; the orchestrating session reviews diffs and test output before calling a unit done.
 
@@ -44,7 +44,7 @@ Shrink wb with a deletion pass. Then move ownership of the task store into a Go 
 
 Work starts with a one-week prototype: the real reader's first slice plus the page, with only the page's layout iterated. Jet's yes or no ends the week. Writes then move to Go behind unchanged wb commands, and the reader grows session, tmux and PR data as the page needs it.
 
-This plan details the phase-1 work no session owns yet: the `wb done` rework, the task-file conventions for artifacts and reversals, and the prototype week. The mechanical deletions and two bash quick wins are already running as their own children.
+This plan details the remaining phase-1 work: the `wb done` rework, the task-file conventions for artifacts and reversals, and the prototype week. The mechanical deletions (PR #94) and two bash quick wins (PR #93) shipped as their own children on 2026-10-18.
 
 ### Problem Frame
 
@@ -100,7 +100,11 @@ flowchart LR
   go --> verbs[wb verbs used by skills / hooks / nvim]
 ```
 
-- **Already running children of this task:** [[dotfiles--wb-deletion-pass]] (the mechanical deletions from the audit) and [[dotfiles--wb-bash-glue-quickwins]] (`prefix+t` opens the task file; ctrl-x leaves the doomed worktree). This plan references them and does not re-plan them.
+- **Shipped children of this task:**
+  - [[dotfiles--wb-deletion-pass]], PR #94 (76f31d4): all nine audit deletions. It took `wb.sh` from 6,941 to about 6,050 lines, after #93, and removed about 3,200 lines in total. wb now has no `/proc` use.
+  - [[dotfiles--wb-bash-glue-quickwins]], PR #93 (c141149): `prefix+t` opens the task file, and ctrl-x leaves the doomed worktree.
+
+  This plan builds on both and does not re-plan them.
 - **Terminal context card** (`dotfiles--feat-claude-reply-log`). It shares the Go store's data and is enabled by it once sessions are readable. It is planned separately, and its log format should be readable through the store or treated as a cache.
 - **Task page requirements** (`dotfiles--wb-board-scoped`). That task holds the seven requirements this plan's page group implements (R9–R15). It has no separate build.
 - **Decision-page skill** (`dotfiles--feat-decision-artifact-skill`). It publishes decision pages and records answers in Decisions, so it is the writer that most needs the R16 conventions. It is coordinated by a note appended to its task file (U5), not by code here.
@@ -174,7 +178,7 @@ flowchart LR
 - Jira, merge and follow-up reconciliation.
 - Automation of capture.
 - Porting the bash glue to macOS.
-- The mechanical deletions (wb-deletion-pass) and the `prefix+t` / ctrl-x quick wins (wb-bash-glue-quickwins).
+- The mechanical deletions (wb-deletion-pass, shipped in #94) and the `prefix+t` / ctrl-x quick wins (wb-bash-glue-quickwins, shipped in #93).
 
 **Outside this work**
 - Rewriting the tmux, worktree or fzf glue in Go.
@@ -346,11 +350,11 @@ flowchart TB
   warnings[{kind, detail}] }
 ```
 
-**Unit order.** U4 lands first because it is small and defines the grammar the skill edits cite. U1→U2→U3 wait for wb-deletion-pass. U6→U7→U8 run in the wb-store repo, in parallel with the dotfiles work. U9 joins them.
+**Unit order.** U4 lands first because it is small and defines the grammar the skill edits cite. U1→U2→U3 build on wb-deletion-pass, which has merged. U6→U7→U8 run in the wb-store repo, in parallel with the dotfiles work. U9 joins them.
 
 ```mermaid
 flowchart TB
-  DP[wb-deletion-pass merged] --> U1
+  DP[wb-deletion-pass merged #94] --> U1
   U4 --> U3
   U4 --> U5
   U1 --> U2 --> U3
@@ -380,7 +384,7 @@ wb-store/
 
 ### Phased Delivery
 
-- **Phase 1 (this plan, U1–U9).** The `wb done` rework, the task-file conventions, and the prototype week. It runs alongside the deletion pass and the bash quick wins, which are already in flight. Phase 1 ends with Jet's yes/no on the page.
+- **Phase 1 (this plan, U1–U9).** The `wb done` rework, the task-file conventions, and the prototype week. The deletion pass and the bash quick wins have already shipped. Phase 1 ends with Jet's yes/no on the page.
 - **Phase 2: Go owns writes (outline only).** `wb-store` gains `set`, `status`, `jira-set`, `append`, `new` (seeding) and `breakdown --apply`. Each wb verb keeps its name, arguments and messages (R6), and becomes a thin bash wrapper that runs its tmux-aware checks, such as refusing a live task, and then calls the binary. Go takes the same side-car lock file through `syscall.Flock`, with the same 1-second wait and exit-75 contention message (R7, AE3). This retires the three awk writers. Its proof is byte-identical output against today's writers on the fixture store (AE2). store-specialist's reads move to `show`/`family`.
 - **Phase 3: session, tmux and PR data plus the live page (outline only).** The reader adds:
   - transcript tail and open questions from `~/.claude/projects/` JSONL;
@@ -392,7 +396,7 @@ wb-store/
 
 ### Assumptions
 
-- wb-deletion-pass merges before U1 starts, and keeps `wb_open_buffer`'s signature (its plan says so).
+- wb-deletion-pass (PR #94) kept `wb_open_buffer`'s signature. A missing `open-buffer.sh` now makes it `return 1` with the stow command, so `wb done --review` aborts under `set -e` before any change.
 - `wb append <task> Artifacts` needs no `wb.sh` change: `cmd_append` accepts any heading and inserts a missing one before `## Decisions`.
 
 ---
@@ -403,7 +407,7 @@ wb-store/
 
 - **Goal:** a pure, testable classifier that sorts a worktree's gitignored entries into keep / throwaway / unknown, plus the seeded list file.
 - **Requirements:** R20, R21; KTD1–KTD5.
-- **Dependencies:** wb-deletion-pass merged.
+- **Dependencies:** wb-deletion-pass (merged, #94).
 - **Files:**
   - `scripts/.config/scripts/tmux/wb.sh` (new classifier helpers near `wb_credential_shaped`; extend `wb_credential_shaped`; keep `wb_safe_rel`)
   - `scripts/.config/scripts/tmux/wb-sweep.list` (new)
@@ -434,7 +438,7 @@ wb-store/
 
 - **Goal:** `cmd_done` uses the classifier, stops before any change on unknowns, copies keep entries, records kept/discarded entries, and opens a buffer only under `--review`.
 - **Requirements:** R19, R20, R22; KTD1, KTD5, KTD6, KTD7.
-- **Dependencies:** U1; [[dotfiles--wb-bash-glue-quickwins]] (its PR also edits `_ctrl_x`; rebase onto its `cd "$HOME"` line rather than replacing it).
+- **Dependencies:** U1. [[dotfiles--wb-bash-glue-quickwins]] (#93) has already put a `cd "$HOME"` line into `_ctrl_x`; keep it rather than replacing it.
 - **Files:**
   - `scripts/.config/scripts/tmux/wb.sh` (`cmd_done`, the usage header, `_ctrl_x`; remove `wb_sweep_section` and the `## Sweep` awk; update comments that describe the sweep)
   - `scripts/.config/scripts/tmux/tests/wb-done.test.sh`
@@ -450,7 +454,7 @@ wb-store/
   5. Run the existing `git worktree remove --force` guarded by `[ -d ]`, so a retry after a killed run is safe.
   6. Write one locked burst (KTD6) holding a `- kept:` line per kept entry, one `- discarded:` line listing the throwaway entries, and the existing status/closed/claude_sessions/handoff writes.
   7. In `_ctrl_x`, capture `cmd_done`'s output. On non-zero exit, show it in `tmux display-popup` (fallback `display-message`) (KTD7).
-- **Execution note:** start from wb-deletion-pass's merged `wb.sh`. If it hasn't merged, stop (Goal Capsule stop condition).
+- **Execution note:** start from `development` at or after 76f31d4. Removing the `## Sweep` append also closes a P3 deferred by wb-deletion-pass (its task's Follow-ups): on a host without the claude package stowed, today's `cmd_done` appends `## Sweep` before `wb_open_buffer` fails, leaving a stray section. After U2 nothing is written before the buffer, so the bug has nowhere to occur. Note that in that follow-up when U2 lands.
 - **Patterns to follow:** today's bursts and `kept:` note format in `cmd_done`; `wb_task_lock_acquire_guarded` usage; `_wb_git_dirty_guard` for stop-message style.
 - **Test scenarios:**
   - Default `wb done` on a clean worktree never calls `wb_open_buffer` (the stub fails the test if invoked). The worktree is removed, status is done, `closed` is stamped, the `wb done (auto)` handoff entry is present and `claude_sessions` is blank.
@@ -561,7 +565,7 @@ wb-store/
   2. `store.Load(dir)` reads every candidate file once and returns tasks plus warnings. Its parsing functions are pure, so table tests need no disk.
   3. Implement the KTD12 rules, the KTD14 resolution order, and the KTD13 schema for the fields this unit owns (frontmatter, title, sections, mtime).
   4. Golden tests use an `-update` flag.
-- **Execution note:** before wb-deletion-pass deletes `_wb_lint_sections_records`, copy its fence rules into `sections.go`'s doc comment. Take them from git history if the deletion has already merged.
+- **Execution note:** wb-deletion-pass deleted `_wb_lint_sections_records` in #94. Take its fence rules from git history (`git show 76f31d4^:scripts/.config/scripts/tmux/wb.sh`, search `_wb_lint_sections_records`) and copy them into `sections.go`'s doc comment. The store linted clean after the final `--fix` (store commit 04f9c09), and the real dag-view-render file now has one `## Follow-ups`, so duplicate sections are tested with a synthetic file that keeps the pre-fix shape: the handoff-style `### ` blocks under an early `## Follow-ups`, then a late second `## Follow-ups`.
 - **Patterns to follow:** `~/code/docgen/frontmatter.go` and its tests (plain `Test<Thing><Case>`, inline sources); replay-tui's cobra root and `testdata/` use.
 - **Test scenarios:**
   - Frontmatter is recognised only when line 1 is `---`. A body `---` in a frontmatter-less synthetic file does not open frontmatter, and the file is skipped by `list` and is an error for `show`.
@@ -570,10 +574,10 @@ wb-store/
   - Empty `jira:` gives JSON `null`, and `tags:` absent gives `[]`.
   - Discovery skips `README.md`, `TEMPLATE.md`, `AGENTS.md`, a `CLAUDE.md` symlink, `RECOVERY-NOTES-…`, `*.md.buffer-state`, directories and an illegal stem like `foo bar--x.md`.
   - Resolution: an exact stem beats a substring; a unique substring resolves; an ambiguous substring lists candidates and exits 2; `<stem>.md` and a literal path both resolve.
-  - Sections: the real dag-view-render file's two `## Follow-ups` merge in order, with `copies: 2`. A `## Decisions` line inside a fenced block (backtick and tilde) is not a heading. Heading-shaped prose mid-paragraph is not a heading. `## Follow-ups (superseded …)` stays a separate section.
+  - Sections: a synthetic file with two `## Follow-ups` merges them in order, with `copies: 2`; the real dag-view-render copy parses with `copies: 1`. A `## Decisions` line inside a fenced block (backtick and tilde) is not a heading. Heading-shaped prose mid-paragraph is not a heading. `## Follow-ups (superseded …)` stays a separate section.
   - `show` text and `--json` match the goldens. Every list in the JSON is an array, never null, and `schema_version` is 1.
   - `list` over a generated 400-file store finishes under 200 ms (logged, generous budget).
-- **Verification:** `go test ./...`, `go vet ./...` and `gofmt -l` are clean. `wb-store show dotfiles--feat-family-dag-view-render` against the real store prints every section with the duplicate merged.
+- **Verification:** `go test ./...`, `go vet ./...` and `gofmt -l` are clean. `wb-store show dotfiles--feat-family-dag-view-render` against the real store prints every section, and `wb-store list` reports no duplicate-section warnings on the post-lint store.
 
 ### U7. wb-store: family, dependencies, decisions, artifacts, follow-ups, session hints
 
