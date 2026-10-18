@@ -191,6 +191,12 @@ PY
     const h=RP.rowHtml(spec,byId('item-2'));
     assert.ok(h.includes('<a href=\"https://example.com\" target=\"_blank\" rel=\"noopener\">PR</a>'),h)"
 
+  check "links: only http, https, file and # hrefs become anchors; javascript: and others render as plain escaped text" "
+    const mk=l=>RP.rowHtml(spec,{...byId('item-2'),links:[l]});
+    for(const ok of ['http://a.test','HTTPS://a.test','  file:///tmp/x','#r1'])assert.ok(mk({label:'L',href:ok}).includes('<a href='),ok);
+    for(const bad of ['javascript:alert(1)',' JaVaScript:alert(1)','data:text/html,x','//evil.test','','/rel'])
+      {const h=mk({label:'<L>',href:bad});assert.ok(!h.includes('<a href=')&&h.includes('<span>&lt;L&gt;</span>'),bad+' '+h)}"
+
   check "meta pairs render as chips, where as a chip, and depends_on / depended_on_by as chips that point at the named row" "
     const h1=RP.rowHtml(spec,byId('item-1')), h2=RP.rowHtml(spec,byId('item-2'));
     assert.ok(h1.includes('<span class=\"meta-chip\"><span class=\"meta-k\">size</span> M</span>')&&h1.includes('owner'),h1);
@@ -256,6 +262,21 @@ PY
     const all=RP.bandHtml(min)+RP.sidebarHtml(min)+RP.mainHtml(min)+RP.glanceHtml(min,RP.loadState({}))+RP.closingHtml(true);
     assert.ok(!/undefined|null|NaN/.test(all),all.match(/.{20}(undefined|null|NaN).{20}/));
     assert.strictEqual(min.items[1].id,'item-2')"
+fi
+
+# duplicate item ids across areas are refused (exit 2, each id listed); ids that are absent are not checked
+cat > "$WORK/dup.json" <<'EOF'
+{"areas": [{"id": "a", "items": [{"id": "row-1"}, {"id": "row-2"}, {}]},
+           {"id": "b", "items": [{"id": "row-1"}, {"id": "row-2"}, {"id": "row-2"}, {}]}]}
+EOF
+python3 "$SCRIPT_DIR/review-page.py" --spec "$WORK/dup.json" --out "$WORK/dup-answers.json" --port 58739 > "$WORK/dup.out" 2> "$WORK/dup.err"
+DUP_RC=$?
+if [ "$DUP_RC" -eq 2 ] && /usr/bin/grep -q 'item "row-1": duplicate id' "$WORK/dup.err" \
+   && /usr/bin/grep -q 'item "row-2": duplicate id' "$WORK/dup.err" && [ "$(wc -l < "$WORK/dup.err")" -eq 2 ] \
+   && [ ! -e "$WORK/dup-answers.json.buffer-state" ]; then
+  pass "duplicate item ids exit 2, name each id once, and start no server"
+else
+  fail "duplicate item ids: exit $DUP_RC, stderr: $(cat "$WORK/dup.err")"
 fi
 
 # the spec text can never end the <script> it is embedded in

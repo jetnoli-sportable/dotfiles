@@ -5,7 +5,8 @@
 
    DOM-free API (callable under node):
      Kit.stops(overview, items, closing) -> [overview, ...items, closing]  the j/k stops, as ids
-     Kit.step(stops, cur, dir)           -> next stop for dir +1 / -1, clamped at both ends
+     Kit.step(stops, cur, dir)           -> next stop for dir +1 / -1, clamped at both ends;
+                                         a cur not in the list goes to the first item (+1) or the overview (-1)
      Kit.newKeys()                       -> a key registry {register, get, entries}; Kit.keys is the page's
      Kit.registerKey(key, handler, label)  register on Kit.keys. key is a string or an array of strings
                                          sharing one handler. Throws, naming the key, if it is already
@@ -14,7 +15,7 @@
                                          ctx = {cur, isItem}. preventDefault is called unless it returns false.
      Kit.guard(target, key)              -> 'skip' (typing: ignore the key), 'blur' (Escape while typing),
                                          or 'pass'
-     Kit.store(storage?)                 -> {get(key, fallback), set(key, value)}. JSON in and out. Never throws:
+     Kit.store(storage?)                 -> {get(key, fallback), set(key, value), remove(key)}. JSON in and out. Never throws:
                                          a missing or throwing localStorage gives the fallback / false.
      Kit.$(sel, root?)                   document.querySelector shorthand (browser only)
      Kit.esc(s), Kit.strip(s)            HTML-escape / strip tags and unescape to plain text
@@ -60,7 +61,11 @@ const Kit = (() => {
   ];
 
   const stops = (overview, items, closing) => [overview, ...items, closing];
-  const step = (s, cur, dir) => s[Math.max(0, Math.min(s.length - 1, s.indexOf(cur) + dir))];
+  // A stop that is not in the list (e.g. a filtered-out item) steps to the first item going forward, the overview going back.
+  const step = (s, cur, dir) => {
+    const at = s.indexOf(cur);
+    return s[at < 0 ? (dir > 0 ? Math.min(1, s.length - 1) : 0) : Math.max(0, Math.min(s.length - 1, at + dir))];
+  };
 
   function newKeys() {
     const taken = new Set(SHARED.flatMap(([ks]) => ks)), page = new Map(), order = [];
@@ -93,6 +98,9 @@ const Kit = (() => {
       },
       set(key, value) {
         try { s().setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+      },
+      remove(key) {
+        try { s().removeItem(key); return true; } catch { return false; }
       },
     };
   }

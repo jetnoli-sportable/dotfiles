@@ -178,6 +178,8 @@ const RP = (() => {
     return { ...spec, title: spec.title || 'Review', verdicts, areas, items };
   }
 
+  // Only http, https, file and in-page links become anchors; javascript: and the rest render as text.
+  const safeHref = h => typeof h === 'string' && /^(https?:|file:|#)/i.test(h.trim());
   const stateKey = hash => `review-page:${hash}`;
   // Saved state is only trusted when it has the expected shape.
   function loadState(saved) {
@@ -267,7 +269,10 @@ const RP = (() => {
   function rowHtml(spec, i) {
     const k = i.k, meta = metaPairs(i.meta);
     const deps = depChips(spec, i.depends_on, '←', 'depends on') + depChips(spec, i.depended_on_by, '→', 'needed by');
-    const links = i.links.map(l => `<a href="${esc(l.href || '#')}" target="_blank" rel="noopener">${esc(l.label || l.href || 'link')}</a>`).join(' ');
+    const links = i.links.map(l => {
+      const text = esc(l.label || l.href || 'link');
+      return safeHref(l.href) ? `<a href="${esc(String(l.href).trim())}" target="_blank" rel="noopener">${text}</a>` : `<span>${text}</span>`;
+    }).join(' ');
     const rmeta = (i.where ? Kit.chip({ kind: 'where', label: i.where }) : '') + meta.map(([mk, mv]) => `<span class="meta-chip"><span class="meta-k">${esc(mk)}</span> ${esc(mv)}</span>`).join('') + deps + links;
     const prior = i.prior ? `<div class="callout info"><span class="k">Your earlier note</span><div>${mdLite(i.prior.note)}</div><span class="k">Reply</span><div>${mdBlock(i.prior.reply)}</div></div>` : '';
     const evidence = !i.evidence.length ? '' : i.evList ? `<ul class="evidence-list">${i.evidence.map(e => `<li>${mdLite(e)}</li>`).join('')}</ul>` : `<div class="evidence-text">${mdLite(i.evidence[0])}</div>`;
@@ -336,7 +341,7 @@ const RP = (() => {
     + `<div class="bar"><button id="sub" type="button" class="primary">Submit</button><button id="copy" type="button" class="ghost">Copy JSON</button><span class="hint" id="st"></span></div>`
     + `<textarea id="copyOut" aria-label="Answers JSON" hidden readonly></textarea>`;
 
-  return { id, esc, mdLite, mdBlock, normalize, stateKey, loadState, acceptOf, itemState, picked, fieldValue, fieldsChanged, touched, reviewed, needsYou, stillNeeds,
+  return { id, esc, mdLite, mdBlock, normalize, safeHref, stateKey, loadState, acceptOf, itemState, picked, fieldValue, fieldsChanged, touched, reviewed, needsYou, stillNeeds,
     overridden, effective, stats, areaStats, buildAnswers, haystack, metaPairs, rowHtml, mainHtml, areaCountHtml, sectionsHtml, glanceHtml, bandHtml, sidebarHtml, tallyHtml, closingHtml };
 })();
 // CORE:END
@@ -529,16 +534,24 @@ $('#copy').addEventListener('click', async () => {
   status(ok ? 'Copied to the clipboard.' : 'Clipboard blocked. Select the text below and copy it.');
 });
 $('#sub').addEventListener('click', async () => {
+  const btn = $('#sub');
+  if (btn.disabled) return;
   flush();
   const a = RP.buildAnswers(SPEC, HASH, state);
   if (a.untouched_count > 0 && !a.accept_defaults &&
       !confirm(`${a.untouched_count} rows untouched: they will NOT be applied unless 'Accept remaining defaults' is ticked. Submit anyway?`)) return;
+  btn.disabled = true;
   status('submitting...');
   try {
     const resp = await fetch('/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(a) });
-    if (resp.ok) document.body.innerHTML = '<div style="padding:60px;text-align:center;font-size:20px;color:var(--accent)">Submitted. You can close this tab.</div>';
-    else status('submit failed: ' + resp.status);
+    if (resp.ok) {
+      store.remove(KEY);
+      document.body.innerHTML = '<div style="padding:60px;text-align:center;font-size:20px;color:var(--accent)">Submitted. You can close this tab.</div>';
+      return;
+    }
+    status('submit failed: ' + resp.status);
   } catch (err) { status('submit failed: ' + err + ' (Copy JSON still works)'); }
+  btn.disabled = false;
 });
 
 addEventListener('pagehide', flush);

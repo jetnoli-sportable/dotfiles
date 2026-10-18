@@ -51,6 +51,12 @@ check "step(): an empty item list goes overview -> closing" \
   "const s=Kit.stops('band',[],'finish');
    assert.strictEqual(Kit.step(s,'band',1),'finish')"
 
+check "step(): a stop not in the list goes to the first item forward and the overview back" \
+  "const s=Kit.stops('band',['a','b'],'finish');
+   assert.strictEqual(Kit.step(s,'gone',1),'a');
+   assert.strictEqual(Kit.step(s,'gone',-1),'band');
+   assert.strictEqual(Kit.step(Kit.stops('band',[],'finish'),'gone',1),'finish')"
+
 check "registry: registering g twice throws, naming the key" \
   "const k=Kit.newKeys();k.register('g',()=>{},'group');
    assert.throws(()=>k.register('g',()=>{},'again'),/\"g\"/)"
@@ -98,6 +104,11 @@ check "storage: round-trips JSON, and corrupt JSON gives the fallback" \
    assert.strictEqual(s.set('k',{a:[1,2]}),true);
    assert.deepStrictEqual(s.get('k',null),{a:[1,2]});
    m.bad='{nope';assert.strictEqual(s.get('bad','fb'),'fb')"
+
+check "storage: remove() deletes a key, and never throws when storage does" \
+  "const m={};const mem={getItem:k=>k in m?m[k]:null,setItem:(k,v)=>{m[k]=String(v)},removeItem:k=>{delete m[k]}};
+   const s=Kit.store(mem);s.set('k',1);assert.strictEqual(s.remove('k'),true);assert.strictEqual(s.get('k','gone'),'gone');
+   assert.strictEqual(Kit.store({removeItem(){throw new Error('x')}}).remove('k'),false)"
 
 check "renderers: esc and strip" \
   "assert.strictEqual(Kit.esc('<a href=\"x\">&'),'&lt;a href=&quot;x&quot;&gt;&amp;');

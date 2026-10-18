@@ -249,6 +249,21 @@ def script_safe(js: str) -> str:
     return js.replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
 
+def duplicate_ids(spec) -> list:
+    """Item ids that appear more than once across all areas, in first-seen order.
+    An item without an id is skipped: the page numbers it item-<n> itself."""
+    seen, dups = set(), []
+    for a in (spec.get("areas") or []) if isinstance(spec, dict) else []:
+        for i in (a.get("items") or []) if isinstance(a, dict) else []:
+            iid = i.get("id") if isinstance(i, dict) else None
+            if not iid or not isinstance(iid, str):
+                continue
+            if iid in seen and iid not in dups:
+                dups.append(iid)
+            seen.add(iid)
+    return dups
+
+
 def render_page(spec: dict, title: str, spec_hash: str) -> str:
     """Fill templates/page.html. The page builds its rows in the browser from the
     embedded spec, on the shared kit (decision-page/kit/)."""
@@ -444,6 +459,12 @@ def main():
         spec = json.loads(spec_bytes.decode("utf-8"))
     except Exception as e:
         sys.stderr.write("review-page.py: invalid spec JSON: %s\n" % e)
+        sys.exit(2)
+
+    dups = duplicate_ids(spec)
+    if dups:
+        for d in dups:
+            sys.stderr.write('review-page.py: item "%s": duplicate id\n' % d)
         sys.exit(2)
 
     spec_hash = hash_spec(spec_bytes)
