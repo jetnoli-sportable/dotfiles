@@ -302,6 +302,16 @@ was still unrecorded); an hourly reaper cleans up old state dirs.</li>
 </code></pre>
 <p>The first is <code>source=phrase</code>, the second <code>source=sweep</code>. A draft nudge
 beats a phrase nudge when both are pending.</p>
+<p><strong>Stale drafts.</strong> The sweep takes a snapshot of the task file, then waits up
+to a minute for Haiku. If the task file changed in that window (usually
+<code>/wb-decide</code> recording the very decision being drafted) the draft is still
+kept, but flagged possibly stale: the nudge says the task file changed while
+the draft was written so it may already be recorded, and <code>/wb-decide status</code>
+lists the <code>## Decisions</code> entries added since. Claude shows you the draft next
+to those entries and asks whether it is a duplicate; if so it dismisses it.
+The events that resolve a stale draft's nudge carry <code>&quot;stale&quot;:true</code>, so
+dismissals of duplicates don't distort the graduation review's <code>dismissed</code>
+count.</p>
 <h2 id="try-it-now">Try it now</h2>
 <p>In any wb session, after something is actually settled:</p>
 <pre><code>/wb-decide
@@ -342,7 +352,7 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td><code>/wb-decide status</code></td>
-<td>Print pending marker/draft (with paths), mute state, and the log path.</td>
+<td>Print pending marker/draft (with paths), mute state, and the log path; for a stale draft, a warning plus the Decisions entries added since the snapshot.</td>
 </tr>
 </tbody>
 </table>
@@ -432,7 +442,9 @@ exactly <code>EOF</code> can't end it early.</p>
 <p><strong>Log events</strong> (<code>log.jsonl</code>, one JSON object per line: <code>ts</code>, <code>session_id</code>,
 <code>task</code>, <code>event</code>, optional <code>source</code>): <code>nudge_fired{source}</code>,
 <code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code>, <code>muted</code>, <code>unmuted</code>,
-<code>sweep_ran{result: none|draft|error|timeout}</code>,
+<code>sweep_ran{result: none|draft|error|timeout}</code> (<code>stale: true</code> added when the
+task file changed during a draft sweep; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
+<code>draft_discarded</code> carry <code>stale: true</code> too when they resolve a stale draft),
 <code>sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}</code>,
 <code>draft_discarded{reason: ignored_twice}</code>,
 <code>pending_at_end{marker,draft}</code> (from SessionEnd; the sweep logs it as just

@@ -55,6 +55,17 @@ Every nudge resolves exactly once: `followed`, `dismissed` or `ignored`.
 The first is `source=phrase`, the second `source=sweep`. A draft nudge
 beats a phrase nudge when both are pending.
 
+**Stale drafts.** The sweep takes a snapshot of the task file, then waits up
+to a minute for Haiku. If the task file changed in that window (usually
+`/wb-decide` recording the very decision being drafted) the draft is still
+kept, but flagged possibly stale: the nudge says the task file changed while
+the draft was written so it may already be recorded, and `/wb-decide status`
+lists the `## Decisions` entries added since. Claude shows you the draft next
+to those entries and asks whether it is a duplicate; if so it dismisses it.
+The events that resolve a stale draft's nudge carry `"stale":true`, so
+dismissals of duplicates don't distort the graduation review's `dismissed`
+count.
+
 ## Try it now
 
 In any wb session, after something is actually settled:
@@ -87,7 +98,7 @@ Check the machinery any time:
 | draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone (a later `clear` still removes it). |
 | `/wb-decide dismiss` | Drop the pending marker/draft, log `dismissed`. Quiet no-op if nothing was pending. |
 | `/wb-decide mute` / `unmute` | Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged. |
-| `/wb-decide status` | Print pending marker/draft (with paths), mute state, and the log path. |
+| `/wb-decide status` | Print pending marker/draft (with paths), mute state, and the log path; for a stale draft, a warning plus the Decisions entries added since the snapshot. |
 
 Entries are append-only; a correction is a new entry carrying a
 `(supersedes: <date> "<title fragment>")` line that names the one it replaces
@@ -121,7 +132,9 @@ exactly `EOF` can't end it early.
 **Log events** (`log.jsonl`, one JSON object per line: `ts`, `session_id`,
 `task`, `event`, optional `source`): `nudge_fired{source}`,
 `followed{source}`, `dismissed`, `ignored{source}`, `muted`, `unmuted`,
-`sweep_ran{result: none|draft|error|timeout}`,
+`sweep_ran{result: none|draft|error|timeout}` (`stale: true` added when the
+task file changed during a draft sweep; `followed`, `dismissed`, `ignored` and
+`draft_discarded` carry `stale: true` too when they resolve a stale draft),
 `sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}`,
 `draft_discarded{reason: ignored_twice}`,
 `pending_at_end{marker,draft}` (from SessionEnd; the sweep logs it as just

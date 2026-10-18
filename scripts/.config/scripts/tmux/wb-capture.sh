@@ -26,13 +26,14 @@
 #                  file) if `marker` or `draft` exists logs `pending_at_end`
 #                  {marker,draft}; always writes the `ended` tombstone. Deletes
 #                  nothing — the reaper does that.
-#   clear          agent verb: drop marker, draft, draft_strikes and outstanding
-#                  flag. Logs nothing (the PostToolUse hook already logs `followed`).
+#   clear          agent verb: drop marker, draft, draft_strikes, draft_stale and
+#                  outstanding flag. Logs nothing (the PostToolUse hook already logs `followed`).
 #   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
 #                  when nothing was pending.
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
 #   status         print pending marker/draft (with paths), mute state, and the
-#                  log path — human-readable lines.
+#                  log path — human-readable lines. A stale draft adds a warning
+#                  line plus the `### ` headings recorded since its snapshot.
 #   _config        TEST-ONLY: print the resolved config as key=value lines.
 #
 # Agent verbs find their session via the tmux PANE option @wb_capture_sid
@@ -45,7 +46,8 @@
 #                                        unchanged draft muted outstanding ended
 #                                        synthetic nudged_draft taskpath
 #                                        sweep_offset draft_strikes
-#                                        sweep_failures .lock draft.tmp.*)
+#                                        sweep_failures draft_stale .lock
+#                                        draft.tmp.* draft_stale.tmp.*)
 #   event log    <root>/log.jsonl       (one compact JSON line per event:
 #                                        ts, session_id, task, event[, source])
 #   reaper stamp <root>/.reaped          (mtime = last reap; at most one per hour)
@@ -61,6 +63,16 @@
 # dropped whenever the draft goes away another way (followed, dismiss, clear) or
 # the sweep writes a new draft. Phrase-nudge ignores don't strike; SessionEnd
 # resolves an outstanding nudge as ignored without striking.
+# Stale drafts: the sweep snapshots the task file, then waits up to a minute for
+# Haiku. If the file changed meanwhile (typically /wb-decide recording the very
+# decision being drafted) the draft is still written — the user decides — plus
+# `draft_stale`, holding how many `### ` entries `## Decisions` had at the
+# snapshot. The draft nudge and `status` then warn it may already be recorded
+# (status lists the entries added since). Staleness is not carried in
+# `outstanding`: a nudge, once resolved, is tagged `"stale":true` in its
+# followed | dismissed | ignored | draft_discarded event whenever its source is
+# `sweep` and `draft_stale` exists (it lives exactly as long as `draft`, so it is
+# still there at every resolution). Phrase nudges are never tagged.
 # `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
 # sweeps; at sweep_max_failures the sweep skips with reason `backoff`.
 #
@@ -204,7 +216,7 @@ hook_posttool() {
   : >"$SDIR/recorded"
   if [ -e "$SDIR/outstanding" ]; then
     local osrc; osrc="$(cat "$SDIR/outstanding" 2>/dev/null)"
-    log_event "$SID" followed "$osrc"
+    log_event "$SID" followed "$osrc" "$(stale_extra "$osrc")"
     remove_named "$SDIR" outstanding
     [ "$osrc" = sweep ] && remove_named "$SDIR" draft_strikes
   fi
@@ -261,17 +273,34 @@ hook_stop() {
   remove_named "$SDIR" synthetic
 }
 
+# stale_extra <source> [json] — print the extra-json for a nudge-resolution event:
+# json (default {}) plus "stale":true when the nudge was a sweep draft nudge and
+# draft_stale exists in SDIR. Otherwise json unchanged (empty = no extra).
+stale_extra() {
+  if [ "$1" = sweep ] && [ -e "$SDIR/draft_stale" ]; then
+    local base="${2:-}"; [ -n "$base" ] || base='{}'
+    printf '%s' "$base" | jq -c '. + {stale:true}' 2>/dev/null || printf '%s' "${2:-}"
+  else
+    printf '%s' "${2:-}"
+  fi
+}
+
+# decision_headings <file> — the `### ` lines under `## Decisions`, in order.
+decision_headings() {
+  awk '/^## Decisions[[:space:]]*$/ { f = 1; next } /^## / { f = 0 } f && /^### /' "$1" 2>/dev/null
+}
+
 # resolve_ignored [nostrike] — log the outstanding nudge as ignored and clear it.
 # An ignored draft nudge strikes the draft (see "Draft strikes" in the header);
 # `nostrike` (SessionEnd) leaves the draft's state alone.
 resolve_ignored() {
   local src; src="$(cat "$SDIR/outstanding" 2>/dev/null)"
-  log_event "$SID" ignored "$src"
+  log_event "$SID" ignored "$src" "$(stale_extra "$src")"
   remove_named "$SDIR" outstanding
   if [ "$src" = sweep ] && [ "${1:-}" != nostrike ] && [ -f "$SDIR/draft" ]; then
     if [ "$(read_num "$SDIR/draft_strikes")" -ge 1 ]; then
-      remove_named "$SDIR" draft nudged_draft draft_strikes
-      log_event "$SID" draft_discarded "" '{"reason":"ignored_twice"}'
+      log_event "$SID" draft_discarded "" "$(stale_extra sweep '{"reason":"ignored_twice"}')"
+      remove_named "$SDIR" draft nudged_draft draft_strikes draft_stale
     else
       # first ignore: drop the nudged-hash so the same draft is nudged once more
       remove_named "$SDIR" nudged_draft
@@ -310,6 +339,7 @@ hook_prompt_nudge() {
     dh="$(sha1sum <"$SDIR/draft" 2>/dev/null | cut -d' ' -f1)"
     if [ -n "$dh" ] && [ "$dh" != "$(cat "$SDIR/nudged_draft" 2>/dev/null || true)" ]; then
       line="[wb-capture] A background review drafted an unrecorded decision ($SDIR/draft). Run /wb-decide to review/accept, or /wb-decide dismiss."
+      [ -e "$SDIR/draft_stale" ] && line="[wb-capture] A background review drafted a decision ($SDIR/draft), but the task file changed while it was being written, so it may already be recorded. Run /wb-decide: compare the draft with the newest Decisions entries before accepting, or /wb-decide dismiss."
       source=sweep
       printf '%s\n' "$dh" >"$SDIR/nudged_draft"
     fi
@@ -351,8 +381,8 @@ reap_dir() {
   local d="$1" f
   remove_named "$d" marker recorded cooldown taskhash unchanged draft muted \
     outstanding ended synthetic nudged_draft taskpath sweep_offset draft_strikes \
-    sweep_failures .lock
-  for f in "$d"/draft.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
+    sweep_failures draft_stale .lock
+  for f in "$d"/draft.tmp.* "$d"/draft_stale.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
   rmdir -- "$d" 2>/dev/null || true
 }
 
@@ -373,7 +403,7 @@ reap_stale() {
     size="$(wc -c <"$LOG_FILE" 2>/dev/null | tr -d ' ')"
     [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt "$max" ] && mv -f -- "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null
   fi
-  local d name sdir stale pm pd saved_stem="$TASK_STEM" tp
+  local d name sdir stale pm pd osrc saved_stem="$TASK_STEM" tp SDIR  # SDIR: stale_extra reads it
   for d in "$root"/*/; do
     d="${d%/}"; name="${d##*/}"
     [ -d "$d" ] && [ ! -L "$d" ] || continue
@@ -398,7 +428,9 @@ reap_stale() {
     fi
     # an unresolved nudge is ignored, not silently dropped with the dir
     if [ -e "$sdir/outstanding" ]; then
-      log_event "$name" ignored "$(cat "$sdir/outstanding" 2>/dev/null)"
+      SDIR="$sdir"
+      osrc="$(cat "$sdir/outstanding" 2>/dev/null)"
+      log_event "$name" ignored "$osrc" "$(stale_extra "$osrc")"
     fi
     TASK_STEM="$saved_stem"
     reap_dir "$sdir"
@@ -476,10 +508,15 @@ cmd_clear_or_dismiss() { # <log-event|"">
   # clear runs only after /wb-decide's write; if hook-posttool missed that
   # command, the nudge still resolves (as followed) instead of vanishing
   if [ -z "$1" ] && [ -e "$SDIR/outstanding" ]; then
-    log_event "$SID" followed "$(cat "$SDIR/outstanding" 2>/dev/null)"
+    local osrc; osrc="$(cat "$SDIR/outstanding" 2>/dev/null)"
+    log_event "$SID" followed "$osrc" "$(stale_extra "$osrc")"
   fi
-  remove_named "$SDIR" marker draft draft_strikes outstanding
-  if [ "$1" = dismissed ] && [ "$pending" = 1 ]; then log_event "$SID" dismissed; fi
+  # a dismiss of a stale draft is tagged unless the pending nudge was a phrase one
+  local dsrc=sweep dx
+  [ -e "$SDIR/outstanding" ] && dsrc="$(cat "$SDIR/outstanding" 2>/dev/null)"
+  dx="$(stale_extra "$dsrc")"
+  remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding
+  if [ "$1" = dismissed ] && [ "$pending" = 1 ]; then log_event "$SID" dismissed "" "$dx"; fi
 }
 
 cmd_status() {
@@ -488,6 +525,15 @@ cmd_status() {
   for f in marker draft; do
     if [ -e "$SDIR/$f" ]; then echo "$f: present ($SDIR/$f)"; else echo "$f: none"; fi
   done
+  if [ -e "$SDIR/draft_stale" ] && [ -e "$SDIR/draft" ]; then
+    echo "draft: the task file changed while it was being written, so it may already be recorded"
+    local tp="${TASK_PATH:-}" cnt; cnt="$(read_num "$SDIR/draft_stale")"
+    [ -f "$tp" ] || tp="$(head -n1 "$SDIR/taskpath" 2>/dev/null || true)"
+    if [ -f "$tp" ]; then
+      echo "decisions added since the draft was started:"
+      decision_headings "$tp" | tail -n +"$((cnt + 1))"
+    fi
+  fi
   if [ -e "$SDIR/muted" ]; then echo "muted: yes"; else echo "muted: no"; fi
   echo "session: $SID"
   echo "log: $LOG_FILE"

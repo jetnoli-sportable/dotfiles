@@ -214,6 +214,74 @@ mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; stop "x"
 hook clear ''
 assert_nofile "clear removes strikes" "$D/draft_strikes"
 
+echo "# stale drafts: nudge wording, resolution events tagged, cleanup"
+stale_draft() { # creates a stale draft for the scenario
+  mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"; printf '1\n' >"$D/draft_stale"
+}
+stale_flag() { jq -r --arg e "$1" 'select(.event==$e)|.stale // "none"' "$LOG" | tail -1; }
+new_scenario; stale_draft
+prompt "go"
+CTX="$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
+assert_match "stale nudge prefix" '^\[wb-capture\] A background review drafted' "$CTX"
+assert_match "stale nudge: task file changed" 'task file changed while it was being written' "$CTX"
+assert_match "stale nudge: may already be recorded" 'may already be recorded' "$CTX"
+assert_match "stale nudge: compare with newest entries" 'compare the draft with the newest Decisions entries' "$CTX"
+assert_match "stale nudge: still names draft path" "$D/draft" "$CTX"
+assert_eq "stale nudge: one line" 1 "$(printf '%s\n' "$CTX" | wc -l | tr -d ' ')"
+assert_eq "stale nudge: source sweep" sweep "$(cat "$D/outstanding")"
+assert_eq "nudge_fired not tagged" none "$(stale_flag nudge_fired)"
+new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"
+assert_eq "non-stale nudge wording unchanged" '[wb-capture] A background review drafted an unrecorded decision ('"$D"'/draft). Run /wb-decide to review/accept, or /wb-decide dismiss.' "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
+# ignored x2 -> ignored + draft_discarded tagged, draft_stale gone
+new_scenario; stale_draft
+prompt "go"; stop "carry on"
+assert_eq "stale ignored tagged" true "$(stale_flag ignored)"
+assert_file "draft_stale kept after first ignore" "$D/draft_stale"
+prompt "go"; stop "carry on"
+assert_eq "stale second ignored tagged" 2 "$(jq -r 'select(.event=="ignored" and .stale==true)|.event' "$LOG" | wc -l | tr -d ' ')"
+assert_eq "stale draft_discarded tagged" true "$(stale_flag draft_discarded)"
+assert_eq "draft_discarded keeps reason" ignored_twice "$(jq -r 'select(.event=="draft_discarded")|.reason' "$LOG")"
+assert_nofile "two strikes removes draft_stale" "$D/draft_stale"
+# followed (posttool)
+new_scenario; stale_draft; prompt "go"
+posttool 'wb append x Decisions -'
+assert_eq "stale followed tagged" true "$(stale_flag followed)"
+# followed via clear verb
+new_scenario; stale_draft; prompt "go"
+hook clear ''
+assert_eq "stale clear-followed tagged" true "$(stale_flag followed)"
+assert_nofile "clear removes draft_stale" "$D/draft_stale"
+# dismissed
+new_scenario; stale_draft; prompt "go"
+hook dismiss ''
+assert_eq "stale dismissed tagged" true "$(stale_flag dismissed)"
+assert_nofile "dismiss removes draft_stale" "$D/draft_stale"
+assert_nofile "dismiss removes draft" "$D/draft"
+# dismissed before it was ever nudged
+new_scenario; stale_draft
+hook dismiss ''
+assert_eq "stale dismissed (un-nudged) tagged" true "$(stale_flag dismissed)"
+# session end resolves ignored, tagged
+new_scenario; stale_draft; prompt "go"
+hook hook-end '{"session_id":"sid-aaa"}'
+assert_eq "stale end-ignored tagged" true "$(stale_flag ignored)"
+# non-stale draft: nothing tagged
+new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"
+prompt "go"; stop "x"; prompt "go"; stop "x"
+assert_eq "plain ignored untagged" none "$(stale_flag ignored)"
+assert_eq "plain draft_discarded untagged" none "$(stale_flag draft_discarded)"
+new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"; posttool 'wb append x Decisions -'
+assert_eq "plain followed untagged" none "$(stale_flag followed)"
+new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"; hook dismiss ''
+assert_eq "plain dismissed untagged" none "$(stale_flag dismissed)"
+# a phrase nudge alongside a stale draft is not tagged
+new_scenario; stale_draft; prompt "go"; hook dismiss ''; stale_draft
+sha1sum <"$D/draft" | cut -d' ' -f1 >"$D/nudged_draft"
+stop "we decided to use B"; prompt "go"
+assert_eq "phrase nudge beside stale draft" phrase "$(cat "$D/outstanding")"
+stop "ok"
+assert_eq "phrase ignore untagged" none "$(stale_flag ignored)"
+
 echo "# sub-agent posttool"
 new_scenario
 hook hook-posttool '{"session_id":"sid-aaa","agent_id":"sub1","tool_name":"Bash","tool_input":{"command":"wb append t.md Decisions -"}}'
@@ -446,7 +514,8 @@ echo "# reaper: known files + draft.tmp.* + .lock removed; unknown file blocks r
 new_scenario
 mkdir -p "$CAP/sid-tmp" "$CAP/sid-unk"
 touch "$CAP/sid-tmp/ended" "$CAP/sid-tmp/draft.tmp.123" "$CAP/sid-tmp/.lock" "$CAP/sid-tmp/sweep_offset" \
-  "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures"
+  "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures" "$CAP/sid-tmp/draft_stale" \
+  "$CAP/sid-tmp/draft_stale.tmp.77"
 touch "$CAP/sid-unk/ended" "$CAP/sid-unk/mystery"
 prompt "hi"
 assert_nofile "tmp/lock dir gone" "$CAP/sid-tmp"

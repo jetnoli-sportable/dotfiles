@@ -8,6 +8,10 @@
 # if so, writes a per-session `draft` (never the task file — KTD5/R14).
 # `sweep_max_failures` (default 3) consecutive error/timeout results stop the
 # sweep for the session (skip reason `backoff`); a draft or NONE resets the count.
+# The task file is hashed when `## Decisions` is snapshotted; a draft that comes
+# back after the file changed (e.g. /wb-decide recorded it meanwhile) is still
+# written, plus `draft_stale` = the snapshot's `### ` entry count (see "Stale
+# drafts" in wb-capture.sh).
 #
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
@@ -74,7 +78,9 @@ if [ -z "$excerpt" ]; then
   exit 0
 fi
 
-decisions=""
+decisions="" snap_hash="" snap_count=0
+[ -f "$TASK_PATH" ] && snap_hash="$(sha1sum <"$TASK_PATH" 2>/dev/null | cut -d' ' -f1)"
+[ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] && snap_count="$(decision_headings "$TASK_PATH" | wc -l | tr -d ' ')"
 [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] && decisions="$(awk '
   /^## Decisions[[:space:]]*$/ { f = 1; print; next }
   /^## / { f = 0 }
@@ -111,7 +117,7 @@ rc=$?
 out="${out#"${out%%[![:space:]]*}"}"
 out="${out%"${out##*[![:space:]]}"}"
 
-result=draft
+result=draft stale=false
 if [ "$rc" -eq 124 ]; then result=timeout
 elif [ "$rc" -ne 0 ] || [ -z "$out" ]; then result=error
 elif [[ "${out,,}" =~ ^none[.!]?$ ]]; then result=none   # models vary: "None.", "NONE"
@@ -125,9 +131,17 @@ if [ "$result" = draft ]; then
     log_event "$SID" pending_at_end "" '{"draft":true}'
     exit 0
   fi
-  tmp="$SDIR/draft.tmp.$$"
+  # the task file moved while the child ran: keep the draft, flag it possibly stale
+  stale=false
+  if [ -n "$snap_hash" ] && \
+     [ "$snap_hash" != "$(sha1sum <"$TASK_PATH" 2>/dev/null | cut -d' ' -f1)" ]; then stale=true; fi
+  remove_named "$SDIR" draft_stale
+  tmp="$SDIR/draft.tmp.$$"; stmp="$SDIR/draft_stale.tmp.$$"
+  if [ "$stale" = true ]; then
+    printf '%s\n' "$snap_count" >"$stmp" 2>/dev/null && mv -f "$stmp" "$SDIR/draft_stale" 2>/dev/null || stale=false
+  fi
   if printf '%s\n' "$out" >"$tmp" 2>/dev/null && mv -f "$tmp" "$SDIR/draft" 2>/dev/null; then :
-  else rm -f -- "$tmp" 2>/dev/null; result=error; fi
+  else rm -f -- "$tmp" "$stmp" 2>/dev/null; remove_named "$SDIR" draft_stale; stale=false; result=error; fi
 fi
 
 # consecutive failures (claude missing / logged out / rate-limited) back the sweep
@@ -137,5 +151,7 @@ case "$result" in
   *) remove_named "$SDIR" sweep_failures ;;
 esac
 [ "$result" = draft ] && remove_named "$SDIR" draft_strikes
-log_event "$SID" sweep_ran "" "$(jq -nc --arg r "$result" '{result:$r}')"
+extra="$(jq -nc --arg r "$result" '{result:$r}')"
+[ "$stale" = true ] && extra="$(jq -nc --arg r "$result" '{result:$r,stale:true}')"
+log_event "$SID" sweep_ran "" "$extra"
 exit 0

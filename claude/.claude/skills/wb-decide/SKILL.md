@@ -93,6 +93,14 @@ a Haiku draft sees a transcript excerpt and can be wrong or already-recorded.
 If it doesn't, run `~/.config/scripts/tmux/wb-capture.sh dismiss`, say so in
 one line, and stop.
 
+If `status` also says the draft **may already be recorded** (the task file
+changed while it was being written — usually a `/wb-decide` that landed
+meanwhile), it prints the `### ` headings of the Decisions entries added
+since. Show the user the draft next to those entries (Read them from
+`## Decisions`) and ask whether the draft duplicates one. If it does, run
+`wb-capture.sh dismiss` (the log tags it stale, so it doesn't count against
+the nudge) and say so in one line; if not, accept or edit as usual.
+
 Otherwise go straight to composing (step 3) and **leave the draft alone** (do
 not dismiss it): a phrase nudge sent you here, the user's hint names a
 specific decision, or there is no draft. A draft you skipped stays pending;
@@ -170,6 +178,9 @@ line: `Recorded to ## Decisions.`
 - [ ] **Phrase nudge or hinted run with a draft pending:** skip the draft
   path, compose from the conversation, leave the draft untouched (no dismiss);
   `clear` after the write removes it.
+- [ ] **Stale draft:** `status` says the draft may already be recorded and
+  lists newer Decisions entries — show the draft beside them and ask; a
+  duplicate gets `dismiss` (say so), a distinct one is accepted/edited as usual.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
   is already recorded) — `wb-capture.sh dismiss`, say so, no write.
 - [ ] **Nothing decided:** phrase-match nudge but nothing was settled —

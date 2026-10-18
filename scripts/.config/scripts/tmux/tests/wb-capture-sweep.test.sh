@@ -17,7 +17,10 @@ cat >"$FAKEBIN/tmux" <<'FAKE'
 #!/usr/bin/env bash
 case "$1" in
   display-message) echo "fakesess" ;;
-  show) case "$*" in *@task*) printf '%s\n' "${FAKE_TASK:-}" ;; esac ;;
+  show) case "$*" in
+    *@task*) printf '%s\n' "${FAKE_TASK:-}" ;;
+    *@wb_capture_sid*) printf '%s\n' "${FAKE_SID:-}" ;;
+  esac ;;
 esac
 exit 0
 FAKE
@@ -38,6 +41,9 @@ case "${FAKE_CLAUDE_MODE:-draft}" in
   fail)  echo "boom" >&2; exit 1 ;;
   empty) : ;;
   sleep) exec sleep 5 ;;
+  edit-task) # a decision is recorded while "thinking" (task file changes mid-call)
+    sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
+    printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
 esac
 exit 0
@@ -85,7 +91,7 @@ add_turn() { # <user> <assistant> — append
 run() {
   local script="$1"; shift
   local -a envv=(HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG"
-    PATH="$FAKEBIN:$PATH" FAKE_TASK="$FAKE_TASK" FAKE_CLAUDE_OUT="$OUTDIR"
+    PATH="$FAKEBIN:$PATH" FAKE_TASK="$FAKE_TASK" FAKE_SID=sid-aaa FAKE_CLAUDE_OUT="$OUTDIR"
     FAKE_ENDED_PATH="$D/ended" TMUX=fake,1,0 TMUX_PANE=%1)
   jq -nc --arg tp "$TRANSCRIPT" '{session_id:"sid-aaa",transcript_path:$tp,last_assistant_message:"hi"}' >"$H/stdin.json"
   OUT="$(env "${envv[@]}" "${EXTRA_ENV[@]}" "$REAL_BASH" "$script" "$@" <"$H/stdin.json" 2>"$H/stderr")"
@@ -247,6 +253,59 @@ assert_eq "sweep ran after discard" 1 "$(jq -r 'select(.event=="draft_discarded"
 assert_eq "no draft_pending skip" "" "$(last_field sweep_skipped reason)"
 assert_file "new draft written" "$D/draft"
 assert_nofile "new draft starts with no strikes" "$D/draft_strikes"
+
+echo "# stale draft: task file changed during the child call"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
+sweep
+assert_file "stale: draft still written" "$D/draft"
+assert_match "stale: draft body" '^### Chose B over A' "$(cat "$D/draft")"
+assert_file "stale: draft_stale written" "$D/draft_stale"
+assert_eq "stale: snapshot entry count" 1 "$(cat "$D/draft_stale")"
+assert_eq "stale: no tmp left" "" "$(ls "$D" | grep 'tmp' || true)"
+assert_eq "stale: one sweep_ran" sweep_ran "$(events)"
+assert_eq "stale: result draft" draft "$(last_field sweep_ran result)"
+assert_eq "stale: stale true" true "$(last_field sweep_ran stale)"
+assert_nofile "stale: no draft_strikes" "$D/draft_strikes"
+run "$CAPTURE" hook-prompt
+assert_match "stale: nudge says may already be recorded" 'may already be recorded' "$OUT"
+assert_eq "stale: nudge_fired not tagged" null "$(last_field nudge_fired stale)"
+run "$CAPTURE" dismiss
+assert_eq "stale: dismissed tagged" true "$(last_field dismissed stale)"
+assert_nofile "stale: dismiss clears draft_stale" "$D/draft_stale"
+
+echo "# stale draft: unchanged task file -> no draft_stale, log as before"
+new_scenario
+sweep
+assert_file "fresh: draft written" "$D/draft"
+assert_nofile "fresh: no draft_stale" "$D/draft_stale"
+assert_eq "fresh: sweep_ran line has exactly ts/sid/task/event/result" '["event","result","session_id","task","ts"]' "$(jq -c 'select(.event=="sweep_ran")|keys' "$LOG")"
+assert_eq "fresh: no stale field" null "$(last_field sweep_ran stale)"
+
+echo "# stale draft: a non-stale draft removes an old draft_stale"
+new_scenario; printf '7\n' >"$D/draft_stale"
+sweep
+assert_file "old-stale: draft written" "$D/draft"
+assert_nofile "old-stale: draft_stale removed" "$D/draft_stale"
+assert_eq "old-stale: not tagged" null "$(last_field sweep_ran stale)"
+
+echo "# stale draft: a changed task file with no draft result writes nothing stale"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
+sweep
+assert_nofile "none: no draft_stale" "$D/draft_stale"
+
+echo "# stale draft: count is of the snapshot, task without Decisions entries"
+new_scenario; printf '# task\n## Decisions\n## Done\n' >"$FAKE_TASK"; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
+sweep
+assert_eq "empty section: count 0" 0 "$(cat "$D/draft_stale")"
+
+echo "# stale draft: a new stale draft after a discard is flagged afresh"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
+sweep
+run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop; run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop
+assert_nofile "discarded: draft_stale gone" "$D/draft_stale"
+printf '4\n' >"$D/unchanged"; add_turn q2 a2; sweep
+assert_file "re-sweep: draft_stale again" "$D/draft_stale"
+assert_eq "re-sweep: count includes the entry recorded earlier" 2 "$(cat "$D/draft_stale")"
 
 echo "# no new content: only tool calls / nothing since the last sweep"
 new_scenario

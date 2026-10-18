@@ -113,6 +113,26 @@ run_wb /dev/null status
 assert_match "status marker" 'marker: present' "$OUT"
 assert_match "status draft path" "draft: present.*$D/draft" "$OUT"
 
+echo "# status: stale draft lists only the Decisions entries added since the snapshot"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D" "$H/tasks"; echo d >"$D/draft"; echo 1 >"$D/draft_stale"
+printf '# t\n## Decisions\n### Old one\n- x\n### New one\n- y\n### Newer one\n## Done\n### Not a decision\n' >"$FAKE_TASK"
+run_wb /dev/null status
+assert_match "stale: warning" 'draft: .*may already be recorded' "$OUT"
+assert_match "stale: lists new entry" '^### New one$' "$OUT"
+assert_match "stale: lists newer entry" '^### Newer one$' "$OUT"
+assert_eq "stale: old entry not listed" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'Old one')"
+assert_eq "stale: other sections not listed" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'Not a decision')"
+assert_match "stale: draft line still shown" "draft: present.*$D/draft" "$OUT"
+rm -f "$FAKE_TASK"; run_wb /dev/null status
+assert_match "stale, task unreadable: warning only" 'may already be recorded' "$OUT"
+assert_eq "stale, task unreadable: no list" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'decisions added')"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"
+run_wb /dev/null status
+assert_eq "not stale: no warning" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'may already')"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo 0 >"$D/draft_stale"
+run_wb /dev/null status
+assert_eq "draft_stale without draft: no warning" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'may already')"
+
 echo "# dismiss / clear"
 new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft" "$D/outstanding" "$D/muted"
 run_wb /dev/null dismiss; assert_eq "dismiss exit" 0 "$RC"
