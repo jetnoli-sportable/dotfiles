@@ -631,81 +631,13 @@ wb_tsv_split() {
 }
 
 # ---------------------------------------------------------------------------
-# Lock integration (U3) — the L2-L5 caller-side orphan-check-and-retry layer
-# built on top of wb-locks.sh's (U1) generic, liveness-agnostic primitives
-# and lib.sh's (U2) tmux_session_agent_state. Lives here, not in
-# wb-locks.sh: the orphan decision needs wb/claude process-shape and tmux
-# session-liveness knowledge, both wb-specific — wb-locks.sh itself stays a
-# generic lock module with zero tmux/claude awareness. Every cmd_*/
-# wb_reconcile_action_* call site below uses wb_task_lock_acquire_guarded
-# instead of calling wb_task_lock_acquire directly, so the four-condition
-# check lives in exactly one place instead of being duplicated at every one
-# of this file's locking call sites.
+# Lock integration (U3) — the caller-side dead-holder retry layer built on
+# top of wb-locks.sh's (U1) generic, liveness-agnostic primitives. Every
+# cmd_*/wb_reconcile_action_* call site below (and handoff.sh's own write
+# site) uses wb_task_lock_acquire_guarded instead of calling
+# wb_task_lock_acquire directly, so the retry decision lives in exactly one
+# place.
 # ---------------------------------------------------------------------------
-
-# _wb_lock_cmdline_wb_shaped <pid> — true when /proc/<pid>/cmdline looks like
-# a wb.sh/handoff.sh/claude process, not an unrelated process that happens to
-# have been assigned this pid after the real holder exited (PID-reuse guard,
-# L2's process-identity condition). /proc/<pid>/cmdline is NUL-separated;
-# `tr` folds that into plain spaces for a simple substring match.
-_wb_lock_cmdline_wb_shaped() {
-  local pid="$1" cmdline
-  [ -r "/proc/$pid/cmdline" ] || return 1
-  cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
-  [ -n "$cmdline" ] || return 1
-  case "$cmdline" in
-    *wb.sh*|*handoff.sh*|*claude*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# _wb_lock_holder_is_orphan <task_file> <pid> — L2's four-condition orphan
-# predicate. Only ever evaluated AFTER wb_task_lock_acquire has already lost
-# a contended acquire, and only for a holder pid the caller has already
-# confirmed is still alive (kill -0 succeeded there — a gone pid means the
-# kernel already dropped the flock on process death, the cheaper case
-# handled directly by the caller, never reaching here). <pid> is passed in
-# by the caller (wb_task_lock_acquire_guarded), which already read it off
-# the lock file to make that liveness check — reading it a second time here
-# would be the same field read twice on every contended acquire, the exact
-# path this whole guard exists to handle quickly. Orphan (safe to clear and
-# retry once) only when ALL FOUR hold simultaneously:
-#   1. the recorded holder pid is alive (the caller's own precondition for
-#      calling this at all — see above).
-#   2. `/proc/<pid>/cmdline` looks wb/claude-shaped (PID-reuse guard).
-#   3. the recorded acquire timestamp is >60s old — a generous multiple of
-#      any legitimate wb chain, so a session mid-spawn is never mistaken for
-#      dead (incident 1's exact danger zone).
-#   4. the holder's OWN recorded tmux_session (never the TARGET task's own
-#      session, which legitimately doesn't exist yet during a handoff spawn
-#      — signaling the healthy winner there is incident 1's guard-as-weapon
-#      scenario) comes back `dead` from tmux_session_agent_state (U2) — no
-#      such session exists at all for the holder anymore.
-# An empty recorded tmux_session field, or a `tmux_session_agent_state`
-# result of `alive`/`unknown`, both fail this check outright (conditions 3/4
-# folded together below) — L3/L5: anything less than a confirmed-dead
-# holder session never auto-clears. Reads holder-info fields via
-# wb-locks.sh's public wb_task_lock_holder_field, never its internal
-# _wb_lock_path_for/_wb_lock_field accessors directly.
-_wb_lock_holder_is_orphan() {
-  local task_file="$1" pid="$2" ts tmux_session state now held_epoch elapsed
-
-  tmux_session="$(wb_task_lock_holder_field "$task_file" tmux_session)"
-  [ -n "$tmux_session" ] || return 1   # empty -> unknown, never killable
-
-  state="$(tmux_session_agent_state "$tmux_session")"
-  [ "$state" = dead ] || return 1      # alive/unknown -> halt, no clearing (L3/L5)
-
-  _wb_lock_cmdline_wb_shaped "$pid" || return 1
-
-  ts="$(wb_task_lock_holder_field "$task_file" acquired)"
-  now="$(date +%s)"
-  held_epoch="$(date -d "$ts" +%s 2>/dev/null)" || held_epoch="$now"
-  elapsed=$(( now - held_epoch ))
-  [ "$elapsed" -gt 60 ] || return 1
-
-  return 0
-}
 
 # wb_task_lock_acquire_guarded <task_file> — the ONE call site every cmd_*
 # verb, wb_reconcile_action_*, and handoff.sh's own write site uses instead
@@ -719,21 +651,14 @@ _wb_lock_holder_is_orphan() {
 # `_wb_lock_path_for`/`_wb_lock_field` accessors directly), and decides:
 #   - holder pid already gone (`kill -0` fails) -> the kernel already
 #     dropped the flock on process death; retry once — the cheap, common
-#     crash case (L2's "if the PID is gone" clause).
-#   - holder pid alive AND _wb_lock_holder_is_orphan confirms all four L2
-#     conditions -> retry once. The already-read `holder_pid` is passed
-#     straight into that check (rather than having it re-read the same
-#     field a second time) — this whole path exists to resolve a contended
-#     acquire quickly.
-#   - anything else (alive session, unknown state, missing/empty holder
-#     info) -> never retries. wb_task_lock_acquire's own failure — which
-#     already printed the one L4 stderr message naming the holder — stands
-#     unmodified; this function never prints a second message of its own.
-# The retry itself is just another `wb_task_lock_acquire` call: wb-locks.sh
-# is not touched by this unit, so there is no standalone non-blocking
-# `flock -n` entry point to call directly — a retry against a lock that's
-# actually free (the whole premise of clearing it here) returns effectively
-# instantly through the existing `flock -w 1` path regardless.
+#     crash case.
+#   - anything else (live holder, missing/empty holder info) -> never
+#     retries. wb_task_lock_acquire's own failure — which already printed
+#     the one L4 stderr message naming the holder — stands unmodified; this
+#     function never prints a second message of its own.
+# The retry itself is just another `wb_task_lock_acquire` call: a retry
+# against a lock that's actually free returns effectively instantly through
+# the existing `flock -w 1` path.
 wb_task_lock_acquire_guarded() {
   local task_file="$1"
   wb_task_lock_acquire "$task_file" && return 0
@@ -742,11 +667,6 @@ wb_task_lock_acquire_guarded() {
   local holder_pid; holder_pid="$(wb_task_lock_holder_field "$task_file" pid)"
 
   if [ -n "$holder_pid" ] && ! kill -0 "$holder_pid" 2>/dev/null; then
-    wb_task_lock_acquire "$task_file"
-    return $?
-  fi
-
-  if [ -n "$holder_pid" ] && _wb_lock_holder_is_orphan "$task_file" "$holder_pid"; then
     wb_task_lock_acquire "$task_file"
     return $?
   fi

@@ -162,14 +162,13 @@ second_marker_no="$(grep -n '^---$' "$TASKS_DIR/proj--feat-insert.md" | sed -n '
 # =============================================================================
 # Lock contention — a live holder owns the per-task lock -> the verb refuses
 # per wb_task_lock_acquire_guarded (exit 75) and writes nothing. Uses a real
-# background holder process (wb-lock-integration.test.sh's shape), recording
-# an EMPTY tmux_session so the guarded wrapper's orphan-check bails on the
-# first (tmux_session-empty) condition and never retries — deterministic
-# bare, no /proc cmdline shaping or tmux socket needed.
+# background holder process (wb-lock-integration.test.sh's shape) that stays
+# alive, so the guarded wrapper's dead-pid retry never fires — deterministic
+# bare, no tmux socket needed.
 # =============================================================================
 HOLDER_LOG="$FIXTURE/holder-output.log"
 export HOLDER_LOG
-HOLDER_SCRIPT="$FIXTURE/lock-holder-wb.sh"   # "wb.sh" in the name: harmless here, matches the sibling suite
+HOLDER_SCRIPT="$FIXTURE/lock-holder-wb.sh"
 cat > "$HOLDER_SCRIPT" <<'EOF'
 #!/usr/bin/env bash
 # Redirect first (see wb-lock-integration.test.sh): keeps the backgrounded
@@ -199,8 +198,8 @@ _wait_for_holder() {
 mk_task 'proj--feat-contend' ''
 CONTEND_TASK="$TASKS_DIR/proj--feat-contend.md"
 before_contend="$(cat "$CONTEND_TASK")"
-# NB: launched WITHOUT TMUX in the environment, so the holder records an
-# empty tmux_session — exactly the orphan-check-bails condition above.
+# NB: launched WITHOUT TMUX in the environment, so the holder never touches
+# a real tmux server.
 ( exec env -u TMUX -u TMUX_PANE bash "$HOLDER_SCRIPT" "$CONTEND_TASK" 10 ) &
 contend_holder=$!
 HOLDER_PIDS+=("$contend_holder")
