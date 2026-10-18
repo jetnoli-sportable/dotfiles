@@ -136,7 +136,10 @@
 # can't delay or alter it; at most once per hour, throttled by the mtime of
 # <root>/.reaped, which is touched before the work starts). For each real,
 # non-symlink subdir of the root whose name passes session_dir validation and
-# that isn't the current session (and isn't `shelved`): remove it if it holds `ended`, or if nothing in
+# that isn't the current session (and isn't `shelved`): remove it if it holds `ended`
+# and that file is older than a grace period of 2 x sweep_timeout + 60 seconds (an
+# async sweep may still be running its Haiku child and shelve a late draft; if the age
+# can't be computed the dir waits for the next reap), or if nothing in
 # it was modified in the last 7 days (find -newermt on the dir + its files).
 # A stale, un-ended dir still holding marker/draft logs `pending_orphaned`, once the
 # dir is really going: an outstanding nudge is logged `ignored` and removed first, a
@@ -536,7 +539,11 @@ reap_stale() {
     sdir="$(session_dir "$name")" || continue
     [ "$name" != "${SID:-}" ] && [ "$name" != shelved ] || continue
     stale=0
-    if [ ! -e "$sdir/ended" ]; then
+    if [ -e "$sdir/ended" ]; then
+      # an in-flight sweep may still shelve a late draft here: reap only after a grace period
+      [ -n "$cutoff" ] && [ "$cutoff" -gt 0 ] 2>/dev/null || continue
+      [ -z "$(find "$sdir/ended" -maxdepth 0 -newermt "@$cutoff" -print 2>/dev/null)" ] || continue
+    else
       [ -z "$(find "$sdir" -maxdepth 1 -newermt '7 days ago' -print -quit 2>/dev/null)" ] || continue
       stale=1
     fi
@@ -651,7 +658,12 @@ cmd_clear_or_dismiss() { # <log-event|"">
   local dsrc=sweep dx
   [ -e "$SDIR/outstanding" ] && dsrc="$(cat "$SDIR/outstanding" 2>/dev/null)"
   dx="$(stale_extra "$dsrc")"
-  remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding reviewing
+  if [ "$1" = dismissed ] && [ "$dsrc" = phrase ]; then
+    # a phrase nudge never showed the sweep draft: dismissing it leaves the draft alone
+    remove_named "$SDIR" marker outstanding
+  else
+    remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding reviewing
+  fi
   if [ "$1" = dismissed ] && [ "$pending" = 1 ]; then log_event "$SID" dismissed "" "$dx"; fi
 }
 

@@ -725,6 +725,7 @@ mkold() {
 echo "# reaper: ended dir removed on next eligible hook-prompt"
 new_scenario
 mkdir -p "$CAP/sid-done"; touch "$CAP/sid-done/ended" "$CAP/sid-done/unchanged"
+touch -d '1 day ago' "$CAP/sid-done/ended"   # past the sweep grace period
 prompt "hi"
 assert_eq "prompt exit" 0 "$RC"
 assert_nofile "ended dir removed" "$CAP/sid-done"
@@ -794,10 +795,24 @@ assert_file "fresh dir kept" "$CAP/sid-fresh/marker"
 assert_file "current dir kept" "$D"
 assert_nofile "current dir's tombstone shed (session is alive)" "$D/ended"
 
+echo "# reaper: a just-ended dir survives (in-flight sweep grace); a backdated one is removed"
+new_scenario
+mkdir -p "$CAP/sid-fe" "$CAP/sid-oe"
+touch "$CAP/sid-fe/ended" "$CAP/sid-oe/ended"
+touch -d '1 day ago' "$CAP/sid-oe/ended"
+prompt "hi"
+assert_file "fresh ended dir survives the reap" "$CAP/sid-fe/ended"
+assert_nofile "backdated ended dir removed" "$CAP/sid-oe"
+mkdir -p "$CFG/wb"; printf 'sweep_timeout=600\n' >"$CFG/wb/capture.conf"
+mkdir -p "$CAP/sid-ge"; touch -d '10 minutes ago' "$CAP/sid-ge/ended"
+touch -d '2 hours ago' "$CAP/.reaped"
+prompt "again"
+assert_file "grace scales with sweep_timeout (10 min < 2x600+60s)" "$CAP/sid-ge/ended"
+
 echo "# reaper: hourly throttle"
 new_scenario
 prompt "one"
-mkdir -p "$CAP/sid-d2"; touch "$CAP/sid-d2/ended"
+mkdir -p "$CAP/sid-d2"; touch "$CAP/sid-d2/ended"; touch -d '1 day ago' "$CAP/sid-d2/ended"
 prompt "two"
 assert_file "second ended dir survives inside the window" "$CAP/sid-d2/ended"
 touch -d '2 hours ago' "$CAP/.reaped"
@@ -811,6 +826,7 @@ touch "$CAP/sid-tmp/ended" "$CAP/sid-tmp/draft.tmp.123" "$CAP/sid-tmp/.lock" "$C
   "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures" "$CAP/sid-tmp/draft_stale" \
   "$CAP/sid-tmp/draft_stale.tmp.77"
 touch "$CAP/sid-unk/ended" "$CAP/sid-unk/mystery"
+touch -d '1 day ago' "$CAP/sid-tmp/ended" "$CAP/sid-unk/ended"
 prompt "hi"
 assert_nofile "tmp/lock dir gone" "$CAP/sid-tmp"
 assert_file "unknown file left" "$CAP/sid-unk/mystery"
@@ -857,7 +873,7 @@ assert_eq "exit 0 with unwritable state home" 0 "$RC"
 echo "# reaper does not change nudge output"
 new_scenario
 stop "we decided A"
-mkdir -p "$CAP/sid-gone"; touch "$CAP/sid-gone/ended"
+mkdir -p "$CAP/sid-gone"; touch -d '1 day ago' "$CAP/sid-gone/ended"
 prompt "go"
 assert_nofile "reaper ran" "$CAP/sid-gone"
 assert_eq "stdout is one JSON line" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
