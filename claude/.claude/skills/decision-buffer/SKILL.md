@@ -57,7 +57,7 @@ the one selected, never inline a template here:
 | Clarifying interview | `references/shapes/interview.md` | Free-text answers to open questions, agent states a default |
 | Paste target | `references/shapes/paste-target.md` | An async execute-and-paste loop |
 | Confirm-facts | `references/shapes/confirm-facts.md` | Ticking a small batch of true/false statements |
-| Code-review triage | `references/shapes/code-review-triage.md` | Apply / Defer / Skip per finding |
+| Code-review triage | `references/shapes/code-review-triage.md` | Per finding: recommended fix, alternatives, then Defer / Skip |
 | Large reviews (≳25 rows) → the `review-page` skill (`claude/.claude/skills/review-page/SKILL.md`) | — | A large batch needing per-row defaults, grouping, and questions at once — served as an HTML page, not an nvim buffer. Not a shape of this skill; hand off to review-page instead. |
 
 ## 3. Every question states why, and its stage

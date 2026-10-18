@@ -35,7 +35,7 @@ nothing marked means:
 | Clarifying interview | Free-text answers to open questions, agent states a default |
 | Paste target | An async execute-and-paste loop |
 | Confirm-facts | Ticking a small batch of true/false statements |
-| Code-review triage | Apply / Defer / Skip per finding |
+| Code-review triage | Per finding: recommended fix, alternatives, then Defer / Skip |
 
 Why: a written answer is easier to weigh in an editor than in a chat menu,
 and — for design choices specifically — the doc doubles as a starting point
