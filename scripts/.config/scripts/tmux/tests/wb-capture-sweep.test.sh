@@ -53,6 +53,9 @@ case "$mode" in
   edit-handoffs) # a write OUTSIDE ## Decisions while "thinking"
     printf '## Handoffs\nsaved mid-call\n' >>"$FAKE_TASK"
     printf '### Chose B over A\n- decided: B\n' ;;
+  write-draft) # an overlapping sweep wrote a draft while this child was "thinking"
+    printf 'OVERLAP_FIRST_DRAFT\n' >"$FAKE_DRAFT_PATH"
+    printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
   touch-ended-edit) # session ends AND the task's Decisions change while "thinking"
     : >"$FAKE_ENDED_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
@@ -104,7 +107,7 @@ run() {
   local script="$1"; shift
   local -a envv=(HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG"
     PATH="$FAKEBIN:$PATH" FAKE_TASK="$FAKE_TASK" FAKE_SID=sid-aaa FAKE_CLAUDE_OUT="$OUTDIR"
-    FAKE_ENDED_PATH="$D/ended" TMUX=fake,1,0 TMUX_PANE=%1)
+    FAKE_ENDED_PATH="$D/ended" FAKE_DRAFT_PATH="$D/draft" TMUX=fake,1,0 TMUX_PANE=%1)
   jq -nc --arg tp "$TRANSCRIPT" '{session_id:"sid-aaa",transcript_path:$tp,last_assistant_message:"hi"}' >"$H/stdin.json"
   OUT="$(env "${envv[@]}" "${EXTRA_ENV[@]}" "$REAL_BASH" "$script" "$@" <"$H/stdin.json" 2>"$H/stderr")"
   RC=$?
@@ -265,6 +268,30 @@ assert_eq "sweep ran after shelve" 1 "$(jq -r 'select(.event=="draft_shelved")|.
 assert_eq "no draft_pending skip" "" "$(last_field sweep_skipped reason)"
 assert_file "new draft written" "$D/draft"
 assert_nofile "new draft starts with no strikes" "$D/draft_strikes"
+
+echo "# overlapping sweeps: a draft written while the child ran is shelved (superseded), not overwritten"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
+printf '1\n' >"$D/draft_strikes"
+sweep
+assert_match "the new draft is in place" '^### Chose B over A' "$(cat "$D/draft")"
+SH="$CAP/shelved/dotfiles--feat-x"
+assert_eq "exactly one shelved file" 1 "$(ls "$SH"/*.md 2>/dev/null | wc -l | tr -d ' ')"
+assert_match "the shelved file holds the first draft verbatim" 'OVERLAP_FIRST_DRAFT' "$(cat "$SH"/*.md 2>/dev/null)"
+assert_eq "draft_shelved logged once" 1 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
+assert_eq "draft_shelved reason superseded" superseded "$(last_field draft_shelved reason)"
+assert_eq "sweep_ran still logs draft" draft "$(last_field sweep_ran result)"
+assert_nofile "strikes of the superseded draft are gone" "$D/draft_strikes"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
+printf '2\n' >"$D/draft_stale"
+sweep
+SH="$CAP/shelved/dotfiles--feat-x"
+assert_eq "a stale superseded draft keeps its stale sidecar" 1 "$(ls "$SH"/*.md.stale 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "...and draft_shelved is tagged stale" true "$(last_field draft_shelved stale)"
+assert_nofile "the new draft is not stale" "$D/draft_stale"
+new_scenario
+sweep
+assert_nofile "no overlap: nothing shelved" "$CAP/shelved"
+assert_eq "no overlap: no draft_shelved" 0 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
 
 echo "# stale draft: task file changed during the child call"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)

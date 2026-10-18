@@ -20,6 +20,10 @@
 # `pending_at_end` {draft:true} and then shelved (reason session_end) like any draft
 # a session leaves behind; the rerun is skipped for an ended session.
 #
+# Overlapping sweeps: if a draft already exists when this sweep's answer arrives
+# (another sweep wrote it meanwhile), that older draft is shelved (reason `superseded`)
+# before the new one is written, so a draft is never overwritten unseen.
+#
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
 set -uo pipefail
@@ -163,6 +167,14 @@ fi
 
 # the excerpt was consumed unless the child failed (retry that content next time)
 case "$result" in none|draft) printf '%s\n' "$total" >"$SDIR/sweep_offset" ;; esac
+
+# an overlapping sweep may have written a draft while this child ran (the
+# draft_pending check above came before the call). Never overwrite it unseen: shelve
+# it first (reason `superseded`), then write this one. If it can't be shelved it
+# stays and this answer is dropped (the content is retried: result error).
+if [ "$result" = draft ] && [ -e "$SDIR/draft" ] && ! shelve_draft "$SID" superseded; then
+  result=error
+fi
 
 late=false
 if [ "$result" = draft ]; then
