@@ -9,7 +9,9 @@
 #                  Claude Code hook entry points (stdin JSON read once, session_id
 #                  from `.session_id`; all exit 0, silent on failure).
 #     hook-posttool  (PostToolUse/Bash) a `wb append … Decisions` command sets
-#                  `recorded`; if `outstanding`, logs `followed` and clears it.
+#                  `recorded`; if `outstanding`, logs `followed` and clears it —
+#                  unless the one-shot `shelved_accept` flag is set (that append
+#                  records a shelved draft; see "Two-phase accept").
 #     hook-stop      (Stop) recorded -> clear, no marker; else (not muted,
 #                  cooldown 0) phrase-match last_assistant_message -> `marker`
 #                  + cooldown. Decrements cooldown; updates taskhash/unchanged
