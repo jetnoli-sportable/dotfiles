@@ -435,23 +435,50 @@ decision_headings() {
   awk '/^## Decisions[[:space:]]*$/ { f = 1; next } /^## / { f = 0 } f && /^### /' "$1" 2>/dev/null
 }
 
-# shelve_draft <sid> <reason> — move SDIR's draft to the per-task shelved dir
-# (verbatim, <YYYYmmddTHHMMSS>-<sid>.md; a `.stale` sidecar when draft_stale
-# exists), log `draft_shelved`, then drop the draft's session state. TASK_STEM
-# empty -> shelved/_unknown. If the move fails nothing is removed (never lose it).
-shelve_draft() {
-  local sid="$1" reason="$2" stem="${TASK_STEM:-_unknown}" dir dest ts n=0
-  [ -f "$SDIR/draft" ] || return 0
+# shelved_dest <sid> — print a fresh, unused <root>/shelved/<task-stem>/<YYYYmmddTHHMMSS>-<sid>.md
+# (creating the dir); TASK_STEM empty or unsafe -> shelved/_unknown. Fails 1 if the dir can't be made.
+shelved_dest() {
+  local sid="$1" stem="${TASK_STEM:-_unknown}" dir dest ts n=0
   case "$stem" in .|..|*/*) stem=_unknown ;; esac
   dir="$CAPTURE_ROOT/shelved/$stem"
   mkdir -p "$dir" 2>/dev/null || return 1
   ts="$(date +%Y%m%dT%H%M%S)"
   dest="$dir/$ts-$sid.md"
   while [ -e "$dest" ]; do n=$((n + 1)); dest="$dir/$ts-$sid-$n.md"; done
+  printf '%s\n' "$dest"
+}
+
+# shelve_draft <sid> <reason> — move SDIR's draft to the per-task shelved dir
+# (verbatim, <YYYYmmddTHHMMSS>-<sid>.md; a `.stale` sidecar when draft_stale
+# exists), log `draft_shelved`, then drop the draft's session state. TASK_STEM
+# empty -> shelved/_unknown. If the move fails nothing is removed (never lose it).
+shelve_draft() {
+  local sid="$1" reason="$2" dest
+  [ -f "$SDIR/draft" ] || return 0
+  dest="$(shelved_dest "$sid")" || return 1
   mv -- "$SDIR/draft" "$dest" 2>/dev/null || return 1
   [ -e "$SDIR/draft_stale" ] && : >"$dest.stale" 2>/dev/null
   log_event "$sid" draft_shelved "" "$(stale_extra sweep "{\"reason\":\"$reason\"}")"
   remove_named "$SDIR" draft nudged_draft draft_strikes draft_stale reviewing
+}
+
+# shelve_answer <sid> <reason> <text> <stale: true|false> — shelve a NEW sweep answer
+# (text) that never became SDIR's draft: write it to the shelved dir (atomically, so a
+# half-written file is never listed), a `.stale` sidecar when <stale> is true, log
+# `draft_shelved` (+ stale:true). Touches no session state: the draft already in SDIR,
+# and its nudge/review state, stay exactly as they were. Fails 1 with nothing left behind.
+shelve_answer() {
+  local sid="$1" reason="$2" text="$3" stale="$4" dest extra
+  dest="$(shelved_dest "$sid")" || return 1
+  if ! { printf '%s\n' "$text" >"$dest.tmp.$$" && mv -f -- "$dest.tmp.$$" "$dest"; } 2>/dev/null; then
+    rm -f -- "$dest.tmp.$$" 2>/dev/null; return 1
+  fi
+  extra="{\"reason\":\"$reason\"}"
+  if [ "$stale" = true ]; then
+    : >"$dest.stale" 2>/dev/null
+    extra="{\"reason\":\"$reason\",\"stale\":true}"
+  fi
+  log_event "$sid" draft_shelved "" "$extra"
 }
 
 # resolve_ignored [nostrike] — log the outstanding nudge as ignored and clear it.

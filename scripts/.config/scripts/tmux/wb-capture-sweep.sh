@@ -22,7 +22,10 @@
 #
 # Overlapping sweeps: if a draft already exists when this sweep's answer arrives
 # (another sweep wrote it meanwhile), that older draft is shelved (reason `superseded`)
-# before the new one is written, so a draft is never overwritten unseen.
+# before the new one is written, so a draft is never overwritten unseen. But a draft
+# the user is looking at (`reviewing`, or its sweep nudge `outstanding`) is left
+# untouched, with its review state: the NEW answer goes straight to shelved/ (reason
+# `superseded`, a `.stale` sidecar when this run is stale) and the draft is not replaced.
 #
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
@@ -166,15 +169,32 @@ if [ "$result" = draft ] && [ ! -e "$SDIR/ended" ] && [ -n "$snap_hash" ] && \
 fi
 
 # an overlapping sweep may have written a draft while this child ran (the
-# draft_pending check above came before the call). Never overwrite it unseen: shelve
-# it first (reason `superseded`), then write this one. If it can't be shelved it
-# stays and this answer is dropped (the content is retried: result error).
-if [ "$result" = draft ] && [ -e "$SDIR/draft" ] && ! shelve_draft "$SID" superseded; then
-  result=error
+# draft_pending check above came before the call). Never overwrite it unseen.
+# If that draft is being shown to the user (`reviewing`, or its sweep nudge is still
+# `outstanding`), leave it and its review state completely alone and shelve this NEW
+# answer straight away (reason `superseded`): shelving the shown draft would pull it
+# out from under the review. Otherwise shelve the older draft first, then write this
+# one. If shelving fails the answer is dropped and the content retried (result error).
+moved=false
+stale_new=false
+[ -n "$snap_hash" ] && [ "$snap_hash" != "$(section_hash)" ] && stale_new=true
+protect=false
+if [ "$result" = draft ] && [ -e "$SDIR/draft" ]; then
+  if [ -e "$SDIR/reviewing" ] || [ "$(cat "$SDIR/outstanding" 2>/dev/null)" = sweep ]; then
+    protect=true
+    [ -e "$SDIR/ended" ] && log_event "$SID" pending_at_end "" '{"draft":true}'
+    if shelve_answer "$SID" superseded "$out" "$stale_new"; then
+      moved=true; stale="$stale_new"
+    else
+      result=error
+    fi
+  elif ! shelve_draft "$SID" superseded; then
+    result=error
+  fi
 fi
 
 late=false
-if [ "$result" = draft ]; then
+if [ "$result" = draft ] && [ "$moved" = false ]; then
   # the session ended while Haiku ran: SessionEnd already came and went, so nothing
   # else will nudge this draft. Write it as usual, then shelve it (below) so the
   # user can still accept or dismiss it later instead of losing it
@@ -183,7 +203,7 @@ if [ "$result" = draft ]; then
     log_event "$SID" pending_at_end "" '{"draft":true}'
   fi
   # still moved during the (re)run: keep the draft, flag it possibly stale
-  if [ -n "$snap_hash" ] && [ "$snap_hash" != "$(section_hash)" ]; then stale=true; fi
+  if [ "$stale_new" = true ]; then stale=true; fi
   remove_named "$SDIR" draft_stale
   tmp="$SDIR/draft.tmp.$$"; stmp="$SDIR/draft_stale.tmp.$$"
   if [ "$stale" = true ]; then
@@ -206,7 +226,8 @@ case "$result" in
   error|timeout) printf '%s\n' "$(( $(read_num "$SDIR/sweep_failures") + 1 ))" >"$SDIR/sweep_failures" ;;
   *) remove_named "$SDIR" sweep_failures ;;
 esac
-[ "$result" = draft ] && remove_named "$SDIR" draft_strikes
+# a protected draft keeps its strikes: this run wrote no new draft into the session
+[ "$result" = draft ] && [ "$protect" = false ] && remove_named "$SDIR" draft_strikes
 extra="$(jq -nc --arg r "$result" --argjson rr "$rerun" --argjson st "$stale" \
   '{result:$r} + (if $rr then {rerun:true} else {} end) + (if $st then {stale:true} else {} end)')"
 log_event "$SID" sweep_ran "" "$extra"

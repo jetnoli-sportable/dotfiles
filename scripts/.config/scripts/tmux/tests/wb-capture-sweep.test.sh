@@ -56,6 +56,9 @@ case "$mode" in
   write-draft) # an overlapping sweep wrote a draft while this child was "thinking"
     printf 'OVERLAP_FIRST_DRAFT\n' >"$FAKE_DRAFT_PATH"
     printf '### Chose B over A\n- decided: B\n' ;;
+  write-draft-edit) # overlapping draft written AND the task's Decisions change while "thinking"
+    printf 'OVERLAP_FIRST_DRAFT\n' >"$FAKE_DRAFT_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
+    printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
   touch-ended-edit) # session ends AND the task's Decisions change while "thinking"
     : >"$FAKE_ENDED_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
@@ -298,6 +301,54 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
 mkdir -p "$CAP"; : >"$CAP/shelved"
 sweep
 assert_match "shelve failed: the older draft stays in place" 'OVERLAP_FIRST_DRAFT' "$(cat "$D/draft")"
+assert_eq "shelve failed: sweep_ran logs error" error "$(last_field sweep_ran result)"
+assert_nofile "shelve failed: sweep_offset unchanged (content retried)" "$D/sweep_offset"
+
+echo "# overlapping sweeps: a draft under review is left alone; the NEW answer is shelved"
+SH="$CAP/shelved/dotfiles--feat-x"
+protect_check() { # <desc> — the shown draft and its review state are untouched, the new answer is shelved
+  assert_eq "$1: the shown draft is still in place" 'OVERLAP_FIRST_DRAFT' "$(cat "$D/draft")"
+  SH="$CAP/shelved/dotfiles--feat-x"
+  assert_eq "$1: exactly one shelved file" 1 "$(ls "$SH"/*.md 2>/dev/null | wc -l | tr -d ' ')"
+  assert_match "$1: the shelved file holds the NEW answer" '^### Chose B over A' "$(cat "$SH"/*.md 2>/dev/null)"
+  assert_eq "$1: draft_shelved reason superseded" superseded "$(last_field draft_shelved reason)"
+  assert_eq "$1: draft_shelved logged once" 1 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
+  assert_eq "$1: sweep_ran logs draft" draft "$(last_field sweep_ran result)"
+  assert_file "$1: sweep_offset advanced (answer consumed)" "$D/sweep_offset"
+  assert_eq "$1: the draft's strikes are kept" 1 "$(cat "$D/draft_strikes")"
+  assert_nofile "$1: no tmp left" "$(ls "$D"/draft.tmp.* 2>/dev/null | head -1)"
+}
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
+printf '2\n' >"$D/reviewing"; printf '1\n' >"$D/draft_strikes"
+sweep
+protect_check "reviewing"
+assert_eq "reviewing: the review state (carried-Stop counter) is untouched" 2 "$(cat "$D/reviewing")"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
+printf 'sweep' >"$D/outstanding"; printf '1\n' >"$D/draft_strikes"; printf 'h\n' >"$D/nudged_draft"
+sweep
+protect_check "outstanding=sweep"
+assert_eq "outstanding=sweep: the nudge is still outstanding" sweep "$(cat "$D/outstanding")"
+assert_eq "outstanding=sweep: nudged_draft kept" h "$(cat "$D/nudged_draft")"
+# a phrase nudge outstanding is not a review of the draft: the older draft is shelved first
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
+printf 'phrase' >"$D/outstanding"
+sweep
+assert_match "outstanding=phrase: the new draft is in place" '^### Chose B over A' "$(cat "$D/draft")"
+assert_match "outstanding=phrase: the older draft was shelved" 'OVERLAP_FIRST_DRAFT' "$(cat "$CAP/shelved/dotfiles--feat-x"/*.md 2>/dev/null)"
+# the new answer is stale: sidecar + stale tag
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft-edit)
+printf '1\n' >"$D/reviewing"; printf '1\n' >"$D/draft_strikes"
+sweep
+protect_check "stale answer"
+assert_eq "stale answer: the sidecar marks the shelved answer stale" 1 "$(ls "$SH"/*.md.stale 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "stale answer: draft_shelved tagged stale" true "$(last_field draft_shelved stale)"
+assert_nofile "stale answer: the shown draft gains no draft_stale" "$D/draft_stale"
+# the new answer can't be shelved (shelved/ is a plain file): error, nothing disturbed, offset not advanced
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
+printf '2\n' >"$D/reviewing"; mkdir -p "$CAP"; : >"$CAP/shelved"
+sweep
+assert_eq "shelve failed: the shown draft stays" 'OVERLAP_FIRST_DRAFT' "$(cat "$D/draft")"
+assert_eq "shelve failed: reviewing untouched" 2 "$(cat "$D/reviewing")"
 assert_eq "shelve failed: sweep_ran logs error" error "$(last_field sweep_ran result)"
 assert_nofile "shelve failed: sweep_offset unchanged (content retried)" "$D/sweep_offset"
 
