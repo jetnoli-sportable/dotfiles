@@ -155,6 +155,31 @@ python3 claude/.claude/skills/review-page/scripts/review-page.py \
   `references/spec-and-close-contract.md`), or just kill the process and
   re-run with a fresh `--spec`/`--out`.
 
+## The page
+
+The page opens on an overview band (where this sits, counts, the intro), with a
+collapsible sidebar and one card per row, grouped by area; the close-out block
+(accept defaults, global questions, Submit) is at the end. It shares its look
+and key map with `decision-page`. Keyboard, none of it active while typing:
+
+| Key | Does |
+|---|---|
+| `j` / `k` | next / previous: overview, each row, close-out |
+| `a` | agree with the suggestion (again to undo) |
+| `1`-`9` | pick a verdict |
+| `c` | clear the row back to untouched |
+| `n` | note (global questions on the close-out block) |
+| `g` / `t` | group tag |
+| `e` / `o` | expand / collapse evidence and details; `E` does every row |
+| `u` | jump to the next row that needs you |
+| `/` | search |
+| `[` | collapse / expand the sidebar |
+| `Enter` | overview: first row that needs you; close-out: Submit |
+| `?` | list the keys |
+
+The old `A` and `d` / `D` keys are retired. Spec additions (`context`, row
+`prior`) and the full key map are in `references/spec-and-close-contract.md`.
+
 ## Close contract
 
 **Headline rule (read this before anything else): no action on a row means

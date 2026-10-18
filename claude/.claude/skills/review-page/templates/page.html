@@ -1,0 +1,523 @@
+<!doctype html>
+<!--
+review-page template. review-page.py fills the double-brace placeholders: the title, the meta
+description, the spec hash, the shared kit's CSS and JS (decision-page/kit/), and the spec JSON.
+The page renders its rows from that JSON in the browser and posts the answers to /submit.
+Spec fields are listed in the skill's references/spec-and-close-contract.md.
+-->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="{{DESCRIPTION}}">
+<title>{{TITLE}}</title>
+<style>
+{{KIT_CSS}}
+/* review-page only: the kit owns tokens, layout, sidebar, band frame, callouts, chips, buttons */
+.intro h2,.box h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 6px}
+.intro p{margin:0 0 8px;max-width:80ch}
+.gbig{display:flex;flex-wrap:wrap;gap:10px 22px;margin-bottom:8px}
+.gbig div{display:grid;line-height:1.15}.gbig b{font-size:1.5rem}.gbig span{font-size:.74rem;color:var(--muted)}
+.gbig .warn b{color:var(--warn)}
+.sugs{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.vchip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:99px;padding:1px 10px 1px 8px;background:var(--bg);font-size:.78rem}
+.sw{width:10px;height:10px;border-radius:3px;display:inline-block;background:var(--c)}
+.bandgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}
+#sections{display:grid;gap:6px}
+.page-section-body{font-size:.9rem}
+.box{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:8px 10px;display:grid;gap:4px}
+.big{font-weight:700;font-size:1.05rem}
+.need-btn{display:flex;justify-content:space-between;align-items:center;width:100%;background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn);font-weight:700;padding:6px 10px}
+.tally{display:grid;gap:2px}
+.tally button{display:flex;justify-content:space-between;gap:8px;background:transparent;border:1px solid transparent;font-weight:500;padding:3px 8px;font-size:.86rem;text-align:left}
+.tally button:hover{background:var(--code-bg)}.tally button[aria-pressed=true]{border-color:var(--fg);background:var(--code-bg);font-weight:700}
+.tally .nm{display:flex;gap:6px;align-items:center}
+section.area{display:grid;gap:18px;min-width:0}
+.ahead{display:grid;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
+.ahead .hd{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+.ahead h2{margin:0;font-size:1.1rem}
+.ahead .note{margin:0;color:var(--muted);font-size:.9rem;max-width:100ch}
+.ahead .cnt{font-size:.8rem;color:var(--muted)}.ahead .cnt b{color:var(--fg)}.ahead .cnt .nd{color:var(--warn);font-weight:700}
+.row{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:20px 24px;display:grid;gap:12px;min-width:0;scroll-margin-top:16px}
+.row[hidden]{display:none}
+.row.fromnote{border-left-color:var(--info)}
+.row.needs{border-left-color:var(--warn);background:linear-gradient(90deg,var(--warn-soft),var(--panel) 28%)}
+.row.agreed:not(.needs){border-left-color:var(--accent)}
+.row.cur{border-left-color:var(--accent)}
+.rt{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.rt h3{margin:0;font-size:1rem}
+.flag{font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;background:var(--warn);color:var(--panel);border-radius:99px;padding:1px 9px}
+.flag[hidden]{display:none}
+.flag.ans{background:var(--info-soft);color:var(--info);border:1px solid var(--info)}
+.meta-chip{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:0 6px;font-size:.78rem;font-family:var(--f-mono)}
+.meta-k{color:var(--muted)}
+.rmeta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.82rem}
+.rmeta a{color:var(--info)}
+.what{margin:0;font-size:.92rem}
+.sug{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:.82rem;color:var(--muted)}
+.pill{font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:99px;white-space:nowrap;background:var(--bgc);color:var(--c)}
+.pill.none{background:var(--warn-soft);color:var(--warn);border:1px dashed var(--warn)}
+.act{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--line);border-radius:0;padding:4px 10px;font-weight:500;font-size:.82rem}
+.seg button:last-child{border-right:0}.seg button:hover{background:var(--code-bg)}
+.seg button i{font-style:normal;font-size:.68rem;color:var(--muted);margin-right:4px;font-family:var(--f-mono)}
+.seg button.sugg{box-shadow:inset 0 -3px 0 var(--c)}
+.seg button.on{background:var(--c);color:var(--panel);font-weight:700}.seg button.on i{color:inherit;opacity:.8}
+button.agree.on{background:var(--code-bg);border-color:var(--fg)}
+button.tg[aria-pressed=true]{background:var(--fg);color:var(--panel);border-color:var(--fg)}
+button.tg.has:not([aria-pressed=true]){background:var(--code-bg)}button.tg.has::after{content:" \2022";font-weight:800}
+.tg kbd.kh{font-size:.7rem;margin-left:4px;color:var(--muted);background:transparent}
+.edit{display:none;gap:6px}.edit.show{display:grid}
+.edit label,label.k{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+details.ev summary kbd{margin-left:6px;color:var(--muted);font-weight:400}
+.rbody{display:grid;gap:8px;font-size:.88rem}
+.rbody p{margin:0 0 6px}
+.evidence-list{margin:0;padding-left:18px;display:grid;gap:4px}
+.deps{font-size:.82rem;color:var(--muted)}
+.md-h{margin:8px 0 4px;font-size:.88rem}
+.md-ul,.md-ol{margin:4px 0 8px 20px;padding:0}
+.md-pre{background:var(--code-bg);padding:8px 10px;border-radius:6px;overflow-x:auto;font-size:.8rem;margin:4px 0}
+.fields-grid{display:flex;flex-wrap:wrap;gap:10px 16px}
+.field{display:flex;flex-direction:column;gap:2px;font-size:.74rem;color:var(--muted);min-width:160px}
+.field.wide{flex:1 1 100%}
+.field-input,#gq-wrap input{font:inherit;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:100%}
+.field-input{font-family:var(--f-mono)}.field-input.changed{border-color:var(--warn)}
+.group-input{font:inherit;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+.empty{padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px}
+label.acc{display:flex;gap:8px;align-items:center;font-weight:600}
+#copyOut{font-family:var(--f-mono);font-size:.8rem;min-height:12em}
+</style></head><body>
+<div class="cap">Review page</div>
+<div class="wrap" id="wrap">
+<header class="top"><h1>{{TITLE}}</h1><div id="sections"></div></header>
+<section class="band" id="band" aria-label="Overview" tabindex="-1"></section>
+<aside class="sidebar" id="sb" aria-label="Summary and filters"></aside>
+<main id="main"></main>
+<section class="closing item" id="finish" tabindex="-1" aria-label="Close out"></section>
+</div>
+<datalist id="group-options"></datalist>
+<div id="legend" hidden role="dialog" aria-label="Keyboard shortcuts"></div>
+<script id="spec" type="application/json">{{SPEC_JSON}}</script>
+<script>
+{{KIT_JS}}
+</script>
+<script>
+// CORE:BEGIN review-page logic with no DOM access. The test runs this block under node.
+const RP = (() => {
+  // esc also covers ' so a value is safe inside any attribute quote.
+  const esc = s => Kit.esc(s).replace(/'/g, '&#39;');
+  const mdLite = s => s ? esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>').replace(/\n/g, '<br>') : '';
+
+  // Block markdown for long bodies: paragraphs, bullet and numbered lists, # headings, ``` fences.
+  // An unclosed fence is plain text and never swallows the rest of the body.
+  function mdBlock(s) {
+    if (!s) return '';
+    const lines = String(s).split(/\r?\n/), out = [], para = [];
+    const bullet = /^\s*[-*]\s+/, numbered = /^\s*\d+\.\s+/;
+    const flush = () => { if (para.length) { out.push(`<p>${mdLite(para.join('\n'))}</p>`); para.length = 0; } };
+    let i = 0;
+    while (i < lines.length) {
+      const ln = lines[i];
+      if (ln.trim().startsWith('```')) {
+        flush();
+        let j = i + 1;
+        const buf = [];
+        while (j < lines.length && !lines[j].trim().startsWith('```')) buf.push(lines[j++]);
+        if (j >= lines.length) { para.push(ln); i++; continue; }
+        out.push(`<pre class="md-pre">${esc(buf.join('\n'))}</pre>`);
+        i = j + 1;
+        continue;
+      }
+      const h = /^(#{1,4})\s+(.*)$/.exec(ln);
+      if (h) { flush(); const lvl = Math.min(h[1].length + 2, 6); out.push(`<h${lvl} class="md-h">${mdLite(h[2])}</h${lvl}>`); i++; continue; }
+      const re = bullet.test(ln) ? bullet : numbered.test(ln) ? numbered : null;
+      if (re) {
+        flush();
+        const tag = re === bullet ? 'ul' : 'ol', items = [];
+        while (i < lines.length && re.test(lines[i])) {
+          let item = lines[i++].replace(re, '');
+          while (i < lines.length && lines[i].startsWith('  ') && !bullet.test(lines[i]) && !numbered.test(lines[i])) item += ' ' + lines[i++].trim();
+          items.push(`<li>${mdLite(item)}</li>`);
+        }
+        out.push(`<${tag} class="md-${tag}">${items.join('')}</${tag}>`);
+        continue;
+      }
+      if (!ln.trim()) flush(); else para.push(ln);
+      i++;
+    }
+    flush();
+    return out.join('');
+  }
+
+  // DOM ids come from indexes, never from raw spec ids.
+  const id = { row: k => `r${k}`, note: k => `r${k}-n`, group: k => `r${k}-g` };
+  const TONES = ['accent', 'warn', 'del', 'info', 'pur', 'gray'];
+  const shortOf = l => String(l).split(/\s[—-]\s|\s\(/)[0].trim() || String(l);
+  const list = x => x == null || x === '' ? [] : Array.isArray(x) ? x : [x];
+
+  // Flattens areas into items (k = position in the page) and fills the fallbacks, so rendering never meets undefined.
+  function normalize(spec) {
+    const verdicts = (spec.verdicts || []).map((v, k) => {
+      const t = TONES[k % TONES.length], label = v.label || v.id;
+      return { id: v.id, label, short: shortOf(label), tone: `var(--${t})`, soft: `var(--${t}-soft)` };
+    });
+    const areas = (spec.areas || []).map(a => ({ ...a, id: a.id || '', title: a.title || a.id || '', items: a.items || [] }));
+    let n = 0;
+    const items = areas.flatMap((a, ai) => a.items.map(i => {
+      n++;
+      const iid = i.id || `item-${n}`;
+      return {
+        ...i, id: iid, title: i.title || iid, k: n - 1, areaIdx: ai,
+        suggested: i.suggested || '', reason: i.suggested_reason || '',
+        evList: Array.isArray(i.evidence), evidence: list(i.evidence), depends_on: list(i.depends_on), depended_on_by: list(i.depended_on_by),
+        links: list(i.links), fields: list(i.fields).filter(f => f && f.key),
+      };
+    }));
+    return { ...spec, title: spec.title || 'Review', verdicts, areas, items };
+  }
+
+  const stateKey = hash => `review-page:${hash}`;
+  // Saved state is only trusted when it has the expected shape.
+  function loadState(saved) {
+    const ok = saved && typeof saved === 'object';
+    return {
+      items: ok && saved.items && typeof saved.items === 'object' ? saved.items : {},
+      gq: ok && typeof saved.gq === 'string' ? saved.gq : '',
+      accept: ok && typeof saved.accept === 'boolean' ? saved.accept : undefined,
+    };
+  }
+  // A saved choice wins over the spec's accept_defaults_default.
+  const acceptOf = (spec, state) => typeof state.accept === 'boolean' ? state.accept : spec.accept_defaults_default === undefined ? true : !!spec.accept_defaults_default;
+  const itemState = (state, i) => state.items[i.id] || {};
+
+  const picked = (spec, s) => spec.verdicts.some(v => v.id === s.verdict) ? s.verdict : '';
+  const fieldValue = (i, f, s) => (s.fields && typeof s.fields[f.key] === 'string') ? s.fields[f.key] : String(f.value ?? '');
+  const fieldsChanged = (i, s) => i.fields.some(f => fieldValue(i, f, s) !== String(f.value ?? ''));
+  const touched = (spec, i, s) => !!(picked(spec, s) || s.agreed || (s.group || '').trim() || (s.note || '').trim() || fieldsChanged(i, s));
+  const reviewed = (spec, i, s) => !!(picked(spec, s) || s.agreed);
+  const needsYou = i => !i.suggested || i.reason.toLowerCase().includes('unclear');
+  const stillNeeds = (spec, i, s) => needsYou(i) && !reviewed(spec, i, s);
+  const overridden = (spec, i, s) => !!picked(spec, s) && picked(spec, s) !== i.suggested;
+  // What the row will apply if the review closes now: a pick, else the suggestion once the row is touched or defaults are accepted.
+  const effective = (spec, i, s, accept) => picked(spec, s) || (i.suggested && (touched(spec, i, s) || accept) ? i.suggested : '');
+  const toneOf = (spec, vid) => spec.verdicts.find(v => v.id === vid);
+
+  function stats(spec, state) {
+    const accept = acceptOf(spec, state), tally = {};
+    let rv = 0, need = 0, over = 0;
+    for (const i of spec.items) {
+      const s = itemState(state, i), e = effective(spec, i, s, accept) || '_none';
+      tally[e] = (tally[e] || 0) + 1;
+      if (reviewed(spec, i, s)) rv++;
+      if (stillNeeds(spec, i, s)) need++;
+      if (overridden(spec, i, s)) over++;
+    }
+    return { n: spec.items.length, reviewed: rv, need, over, tally, accept };
+  }
+  const areaStats = (spec, ai, state) => {
+    const its = spec.items.filter(i => i.areaIdx === ai);
+    return {
+      n: its.length,
+      need: its.filter(i => stillNeeds(spec, i, itemState(state, i))).length,
+      over: its.filter(i => overridden(spec, i, itemState(state, i))).length,
+      left: its.filter(i => i.suggested && !needsYou(i) && !reviewed(spec, i, itemState(state, i))),
+    };
+  };
+
+  // The answers payload the server's /submit expects (unchanged from before the rewrite).
+  // An untouched row carries verdict = suggested and touched false; a row with no suggestion keeps verdict "".
+  function buildAnswers(spec, hash, state) {
+    const items = spec.items.map(i => {
+      const s = itemState(state, i);
+      return {
+        id: i.id, verdict: picked(spec, s) || i.suggested, suggested: i.suggested, touched: touched(spec, i, s),
+        group: s.group || '', note: s.note || '',
+        fields: Object.fromEntries(i.fields.map(f => [f.key, fieldValue(i, f, s)])), fields_changed: fieldsChanged(i, s),
+      };
+    });
+    return { spec_hash: hash, accept_defaults: acceptOf(spec, state), global_note: state.gq || '', untouched_count: items.filter(x => !x.touched).length, items };
+  }
+
+  // Search text for one row: everything a reviewer could be looking for.
+  const haystack = (i, s) => [i.title, i.what, i.where, i.reason, i.description, s.group, s.note,
+    ...i.evidence, ...metaPairs(i.meta).flat()].join(' ').toLowerCase();
+
+  function metaPairs(meta) {
+    const pairs = Array.isArray(meta) ? meta : Object.entries(meta || {});
+    return pairs.flatMap(p => {
+      if (!Array.isArray(p) || p.length !== 2) return [];
+      const [k, v] = p;
+      if (v == null || v === '' || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)) return [];
+      return [[k, Array.isArray(v) ? v.join(', ') : v]];
+    });
+  }
+
+  // --- HTML builders (pure) ---
+  const pill = (spec, vid) => { const v = toneOf(spec, vid); return v ? `<span class="pill" style="--c:${v.tone};--bgc:${v.soft}">${esc(v.short)}</span>` : '<span class="pill none">no suggestion</span>'; };
+  const depChips = (spec, ids, arrow, title) => ids.map(d => {
+    const t = spec.items.find(x => x.id === d);
+    return t ? `<a class="chip" href="#${id.row(t.k)}" data-dep="${esc(d)}" title="${title}"><span class="lbl">${arrow} ${esc(d)}</span></a>` : `<span class="chip" title="${title}"><span class="lbl">${arrow} ${esc(d)}</span></span>`;
+  }).join('');
+
+  function fieldsHtml(i) {
+    return i.fields.length ? `<div class="fields-grid">${i.fields.map(f => `<label class="field${f.wide ? ' wide' : ''}"><span>${esc(f.label || f.key)}</span><input type="text" class="field-input" data-field-key="${esc(f.key)}" value="${esc(f.value ?? '')}" placeholder="${esc(f.placeholder || '')}"></label>`).join('')}</div>` : '';
+  }
+
+  function rowHtml(spec, i) {
+    const k = i.k, meta = metaPairs(i.meta);
+    const deps = depChips(spec, i.depends_on, '←', 'depends on') + depChips(spec, i.depended_on_by, '→', 'needed by');
+    const links = i.links.map(l => `<a href="${esc(l.href || '#')}" target="_blank" rel="noopener">${esc(l.label || l.href || 'link')}</a>`).join(' ');
+    const rmeta = (i.where ? Kit.chip({ kind: 'where', label: i.where }) : '') + meta.map(([mk, mv]) => `<span class="meta-chip"><span class="meta-k">${esc(mk)}</span> ${esc(mv)}</span>`).join('') + deps + links;
+    const prior = i.prior ? `<div class="callout info"><span class="k">Your earlier note</span><div>${mdLite(i.prior.note)}</div><span class="k">Reply</span><div>${mdBlock(i.prior.reply)}</div></div>` : '';
+    const evidence = !i.evidence.length ? '' : i.evList ? `<ul class="evidence-list">${i.evidence.map(e => `<li>${mdLite(e)}</li>`).join('')}</ul>` : `<div class="evidence-text">${mdLite(i.evidence[0])}</div>`;
+    const body = fieldsHtml(i) + mdBlock(i.description) + evidence;
+    const btns = spec.verdicts.map((v, m) => `<button type="button" data-v="${esc(v.id)}" style="--c:${v.tone}" title="${esc(v.label)}">${m < 9 ? `<i>${m + 1}</i>` : ''}${esc(v.short)}</button>`).join('');
+    return `<article class="item row${i.prior ? ' fromnote' : ''}" id="${id.row(k)}" data-needs="${needsYou(i) ? 1 : 0}" tabindex="-1">`
+      + `<div class="rt"><span class="flag" data-flag hidden>Needs you</span>${i.prior ? '<span class="flag ans">Earlier note</span>' : ''}<h3>${esc(i.title)}</h3></div>`
+      + (rmeta ? `<div class="rmeta">${rmeta}</div>` : '')
+      + (i.what ? `<p class="what">${mdLite(i.what)}</p>` : '')
+      + `<div class="sug">Suggested ${pill(spec, i.suggested)}<span>${mdLite(i.reason)}</span></div>` + prior
+      + `<div class="act"><div class="seg" role="group" aria-label="Verdict">${btns}</div>`
+      + `<button type="button" class="agree" data-act="agree"${i.suggested ? '' : ' disabled'}>Agree</button>`
+      + `<button type="button" class="tg sm" data-act="note" aria-pressed="false">Note <kbd class="kh">n</kbd></button><button type="button" class="tg sm" data-act="group" aria-pressed="false">Group <kbd class="kh">g</kbd></button></div>`
+      + `<div class="edit" data-edit="note"><label for="${id.note(k)}">Note or question</label><textarea id="${id.note(k)}" data-f="note" placeholder="Optional: a note or a question for the agent"></textarea></div>`
+      + `<div class="edit" data-edit="group"><label for="${id.group(k)}">Group tag (rows with the same tag get one shared action)</label><input class="group-input" id="${id.group(k)}" data-f="group" list="group-options" placeholder="e.g. sfb-988"></div>`
+      + `<details class="ev"><summary>Evidence and details <kbd title="Press e to toggle">e</kbd></summary><div class="rbody">${body || '<span class="deps">No further details.</span>'}</div></details></article>`;
+  }
+
+  function areaHtml(spec, a, ai) {
+    return `<section class="area" data-area="${ai}"><div class="ahead"><div class="hd"><h2>${esc(a.title)}</h2><button type="button" class="ghost sm" data-aa="${ai}">Agree to all in this area</button></div>`
+      + (a.note ? `<p class="note">${mdLite(a.note)}</p>` : '') + `<div class="cnt" data-cnt="${ai}"></div></div>`
+      + spec.items.filter(i => i.areaIdx === ai).map(i => rowHtml(spec, i)).join('') + '</section>';
+  }
+  const mainHtml = spec => spec.areas.map((a, ai) => areaHtml(spec, a, ai)).join('') + '<div class="empty" id="empty" hidden>No rows match the filters.</div>';
+  const areaCountHtml = (spec, ai, state) => { const a = areaStats(spec, ai, state); return `<b>${a.n}</b> rows · <span class="${a.need ? 'nd' : ''}"><b>${a.need}</b> need you</span> · <b>${a.over}</b> overridden`; };
+
+  const sectionsHtml = spec => (spec.sections || []).map(s => `<details class="ev page-section"${s.open ? ' open' : ''}><summary>${esc(s.title || 'section')}</summary><div class="page-section-body">${mdBlock(s.md)}</div></details>`).join('');
+
+  function glanceHtml(spec, state) {
+    const st = stats(spec, state), sug = {};
+    spec.items.forEach(i => { const k = i.suggested || '_none'; sug[k] = (sug[k] || 0) + 1; });
+    const chips = spec.verdicts.filter(v => sug[v.id]).map(v => `<span class="vchip"><span class="sw" style="--c:${v.tone}"></span>${esc(v.short)} <b>${sug[v.id]}</b></span>`).join('');
+    const plain = st.accept
+      ? '<b>Untouched rows accept their suggestion</b> while "Accept remaining defaults" is ticked (it is now). Rows with no suggestion are never defaulted: they need you.'
+      : '<b>Untouched rows are not applied</b> because "Accept remaining defaults" is unticked. Only rows you touch count.';
+    return `<div class="gbig"><div><b>${st.n}</b><span>rows</span></div><div class="${st.need ? 'warn' : ''}"><b>${st.need}</b><span>need you</span></div><div><b>${st.n - (sug._none || 0)}</b><span>have a suggestion</span></div></div>`
+      + `<div class="sugs">${chips}</div><div class="callout"><div>${plain}</div></div>`;
+  }
+
+  function bandHtml(spec) {
+    const c = spec.context, show = c && Array.isArray(c.stages) && c.stages.length;
+    const paras = String(spec.intro_md || '').split(/\n\n+/).filter(p => p.trim());
+    const rest = paras.slice(1).map(mdBlock).join('') + (spec.close_rule ? `<p><b>Close rule:</b> ${mdLite(spec.close_rule)}</p>` : '');
+    const intro = `<div class="intro"><h2>About this review</h2>${mdBlock(paras[0])}${rest ? `<details class="ev"><summary>Rest of the intro and close rule</summary><div>${rest}</div></details>` : ''}</div>`;
+    return (show ? Kit.stageStrip(c) : '') + `<div class="bandgrid"><div><h2>At a glance</h2><div id="glance"></div></div>${intro}</div>`;
+  }
+
+  function sidebarHtml(spec) {
+    return `<button type="button" class="ghost sb-toggle" aria-expanded="true" aria-controls="sb" title="Collapse or expand the sidebar ( [ )"><span class="tl">Hide sidebar</span><span>[</span></button>`
+      + `<div class="prog"><span class="full" id="pTxt"></span><span class="rail" id="pShort"></span><div class="bar2"><i id="pFill"></i></div></div>`
+      + `<div class="box full"><h2>Needs you</h2><button type="button" class="need-btn" id="needBtn"><span id="needTxt"></span><span>next <kbd>u</kbd></span></button></div>`
+      + `<div class="box full"><h2>Overrides</h2><span class="big" id="ovTxt"></span><span class="hint">Rows where you chose differently from the suggestion.</span></div>`
+      + `<div class="box full"><h2>Final verdicts <span class="hint">(click to filter)</span></h2><div class="tally" id="tally"></div></div>`
+      + `<div class="box full"><h2>Find</h2><input type="search" id="q" placeholder="Search rows ( / )" aria-label="Search"><select id="fa" aria-label="Area"><option value="">All areas</option>${spec.areas.map((a, ai) => `<option value="${ai}">${esc(a.title)}</option>`).join('')}</select><button type="button" class="ghost sm" id="clr">Clear filters</button></div>`
+      + `<div class="hint full"><kbd>j</kbd><kbd>k</kbd> move · <kbd>a</kbd> agree · <kbd>1</kbd>-<kbd>9</kbd> verdict · <kbd>?</kbd> keys</div>`;
+  }
+
+  function tallyHtml(spec, st, filter) {
+    const row = (vid, tone, name) => `<button type="button" data-tf="${esc(vid)}" aria-pressed="${filter === vid}"><span class="nm"><span class="sw" style="--c:${tone}"></span>${esc(name)}</span><b>${st.tally[vid] || 0}</b></button>`;
+    return spec.verdicts.map(v => row(v.id, v.tone, v.short)).join('') + row('_none', 'var(--warn)', 'No verdict yet');
+  }
+
+  const closingHtml = accept => `<h2>Close out</h2>`
+    + `<label class="acc"><input type="checkbox" id="acc"${accept ? ' checked' : ''}> Accept remaining defaults <span class="hint" id="accHint" style="font-weight:400"></span></label>`
+    + `<label for="gq" class="k">Questions for the agent (whole list)</label><textarea id="gq" placeholder="Anything about the whole list: missing rows, ordering, questions"></textarea>`
+    + `<div class="bar"><button id="sub" type="button" class="primary">Submit</button><button id="copy" type="button" class="ghost">Copy JSON</button><span class="hint" id="st"></span></div>`
+    + `<textarea id="copyOut" aria-label="Answers JSON" hidden readonly></textarea>`;
+
+  return { id, esc, mdLite, mdBlock, normalize, stateKey, loadState, acceptOf, itemState, picked, fieldValue, fieldsChanged, touched, reviewed, needsYou, stillNeeds,
+    overridden, effective, stats, areaStats, buildAnswers, haystack, metaPairs, rowHtml, mainHtml, areaCountHtml, sectionsHtml, glanceHtml, bandHtml, sidebarHtml, tallyHtml, closingHtml };
+})();
+// CORE:END
+</script>
+<script>
+const SPEC = RP.normalize(JSON.parse(document.getElementById('spec').textContent));
+const HASH = '{{SPEC_HASH}}';
+const KEY = RP.stateKey(HASH);
+const $ = (s, r = document) => r.querySelector(s);
+const store = Kit.store();
+const state = RP.loadState(store.get(KEY, {}));
+const F = { q: '', area: '', verdict: '' };
+const items = SPEC.items;
+const g = i => RP.itemState(state, i);
+const st = i => (state.items[i.id] ||= {});
+const rowEl = i => document.getElementById(RP.id.row(i.k));
+const isRow = stop => /^r\d+$/.test(stop);
+const itemAt = stop => isRow(stop) ? items[+stop.slice(1)] : undefined;
+const eff = i => RP.effective(SPEC, i, g(i), RP.acceptOf(SPEC, state));
+const needs = i => RP.stillNeeds(SPEC, i, g(i));
+const save = () => store.set(KEY, state);
+const rowsVisible = () => items.filter(i => !rowEl(i).hidden);
+
+function visible(i) {
+  if (F.area && String(i.areaIdx) !== F.area) return false;
+  if (F.verdict === '_none') { if (eff(i)) return false; } else if (F.verdict && eff(i) !== F.verdict) return false;
+  return !F.q || RP.haystack(i, g(i)).includes(F.q.toLowerCase());
+}
+
+function paint() {
+  const s = RP.stats(SPEC, state), pct = (s.n ? 100 * s.reviewed / s.n : 0) + '%';
+  $('#pTxt').textContent = `${s.reviewed} of ${s.n} reviewed`;
+  $('#pShort').textContent = `${s.reviewed}/${s.n}`;
+  $('#pFill').style.width = pct;
+  $('#needTxt').textContent = `${s.need} still need${s.need === 1 ? 's' : ''} you`;
+  $('#needBtn').disabled = !s.need;
+  $('#ovTxt').textContent = `${s.over} overridden`;
+  $('#tally').innerHTML = RP.tallyHtml(SPEC, s, F.verdict);
+  $('#glance').innerHTML = RP.glanceHtml(SPEC, state);
+  const untouchedLeft = items.filter(i => i.suggested && !RP.reviewed(SPEC, i, g(i))).length;
+  $('#accHint').textContent = s.accept ? `(${untouchedLeft} untouched rows will apply their suggestion)` : '(only rows you touched will apply)';
+  let anyVisible = false;
+  SPEC.areas.forEach((a, ai) => {
+    const left = RP.areaStats(SPEC, ai, state).left.length, btn = $(`[data-aa="${ai}"]`);
+    $(`[data-cnt="${ai}"]`).innerHTML = RP.areaCountHtml(SPEC, ai, state);
+    btn.disabled = !left;
+    btn.title = left ? `Agree to ${left} suggested row${left === 1 ? '' : 's'}; rows needing you are skipped` : 'Nothing left to agree here';
+    let vis = 0;
+    for (const i of items.filter(x => x.areaIdx === ai)) {
+      const el = rowEl(i), r = g(i), e = eff(i), show = visible(i), need = needs(i);
+      el.hidden = !show;
+      if (show) { vis++; anyVisible = true; }
+      el.classList.toggle('needs', need);
+      el.classList.toggle('agreed', !!r.agreed);
+      $('[data-flag]', el).hidden = !need;
+      el.querySelectorAll('[data-v]').forEach(b => { b.classList.toggle('on', e === b.dataset.v); b.classList.toggle('sugg', i.suggested === b.dataset.v && e !== b.dataset.v); });
+      const ag = $('.agree', el);
+      ag.classList.toggle('on', !!r.agreed);
+      ag.textContent = r.agreed ? 'Agreed ✓' : 'Agree';
+      for (const k of ['note', 'group']) {
+        const b = $(`[data-act="${k}"]`, el);
+        b.classList.toggle('has', !!(r[k] || '').trim());
+        b.setAttribute('aria-pressed', $(`[data-edit="${k}"]`, el).classList.contains('show'));
+      }
+    }
+    $(`section[data-area="${ai}"]`).hidden = !vis && !!(F.q || F.area || F.verdict);
+  });
+  $('#empty').hidden = anyVisible;
+  $('#group-options').innerHTML = [...new Set(items.map(i => (g(i).group || '').trim()).filter(Boolean))].map(x => `<option value="${RP.esc(x)}"></option>`).join('');
+}
+
+// Puts one row's saved note, group and field values into its controls; editors with content are shown.
+function fillRow(i) {
+  const el = rowEl(i), r = g(i);
+  for (const k of ['note', 'group']) {
+    const box = document.getElementById(RP.id[k](i.k));
+    box.value = r[k] || '';
+    $(`[data-edit="${k}"]`, el).classList.toggle('show', !!box.value.trim());
+  }
+  el.querySelectorAll('[data-field-key]').forEach(inp => {
+    const f = i.fields.find(x => x.key === inp.dataset.fieldKey);
+    inp.value = RP.fieldValue(i, f, r);
+    inp.classList.toggle('changed', inp.value !== String(f.value ?? ''));
+  });
+}
+
+function render() {
+  $('#sections').innerHTML = RP.sectionsHtml(SPEC);
+  $('#band').innerHTML = RP.bandHtml(SPEC);
+  $('#sb').innerHTML = RP.sidebarHtml(SPEC);
+  $('#main').innerHTML = RP.mainHtml(SPEC);
+  $('#finish').innerHTML = RP.closingHtml(RP.acceptOf(SPEC, state));
+  $('#gq').value = state.gq;
+  items.forEach(fillRow);
+}
+
+// Verdict, agree and clear. Picking replaces an agree; agreeing replaces a pick; both are saved.
+function pick(i, m) { const v = SPEC.verdicts[m]; if (!v) return; Object.assign(st(i), { verdict: v.id, agreed: false }); save(); paint(); }
+function agree(i) {
+  if (!i.suggested) return;
+  const r = st(i), on = !r.agreed;
+  Object.assign(r, { verdict: '', agreed: on });
+  save(); paint();
+}
+function clearRow(i) { delete state.items[i.id]; fillRow(i); save(); paint(); }
+function openEdit(i, kind) { const e = $(`[data-edit="${kind}"]`, rowEl(i)); e.classList.add('show'); $('[data-f]', e).focus(); paint(); }
+const toggleDetails = i => { const d = $('details', rowEl(i)); d.open = !d.open; };
+
+render();
+const ctl = Kit.init({
+  items: () => rowsVisible().map(i => RP.id.row(i.k)),
+  sidebarKey: 'review-page:sidebar-collapsed',
+  enterOverview() { const r = rowsVisible(), f = r.find(needs) || r[0]; ctl.setCur(f ? RP.id.row(f.k) : 'finish', true); },
+  enterItem: stop => toggleDetails(itemAt(stop)),
+  enterClosing: () => $('#sub').click(),
+  notes(stop) { if (stop === 'finish') $('#gq').focus(); else if (isRow(stop)) openEdit(itemAt(stop), 'note'); },
+});
+function nextNeed() {
+  const pool = rowsVisible().filter(needs), c = itemAt(ctl.cur());
+  const nx = pool.find(i => c && i.k > c.k) || pool[0];
+  if (nx) ctl.setCur(RP.id.row(nx.k), true);
+}
+
+$('#main').addEventListener('click', e => {
+  const art = e.target.closest('.row'), aa = e.target.closest('[data-aa]'), dep = e.target.closest('[data-dep]');
+  if (art && art.id !== ctl.cur()) ctl.setCur(art.id, false);
+  if (aa) { RP.areaStats(SPEC, +aa.dataset.aa, state).left.forEach(i => Object.assign(st(i), { verdict: '', agreed: true })); save(); paint(); return; }
+  if (dep) { e.preventDefault(); const t = items.find(i => i.id === dep.dataset.dep); if (t) ctl.setCur(RP.id.row(t.k), true); return; }
+  const b = e.target.closest('button');
+  if (!art || !b) return;
+  const i = itemAt(art.id);
+  if (b.dataset.v) pick(i, SPEC.verdicts.findIndex(v => v.id === b.dataset.v));
+  else if (b.dataset.act === 'agree') agree(i);
+  else if (b.dataset.act) { $(`[data-edit="${b.dataset.act}"]`, art).classList.toggle('show'); paint(); }
+});
+$('#main').addEventListener('input', e => {
+  const t = e.target, i = itemAt(t.closest('.row').id);
+  if (t.dataset.f) st(i)[t.dataset.f] = t.value;
+  else if (t.dataset.fieldKey) {
+    const f = i.fields.find(x => x.key === t.dataset.fieldKey);
+    (st(i).fields ||= {})[f.key] = t.value;
+    t.classList.toggle('changed', t.value !== String(f.value ?? ''));
+  } else return;
+  save(); paint();
+});
+$('#main').addEventListener('focusin', e => { const a = e.target.closest('.row'); if (a && a.id !== ctl.cur()) ctl.setCur(a.id, false); });
+$('#sb').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.tf) { F.verdict = F.verdict === b.dataset.tf ? '' : b.dataset.tf; paint(); }
+  else if (b.id === 'needBtn') nextNeed();
+  else if (b.id === 'clr') { Object.assign(F, { q: '', area: '', verdict: '' }); $('#q').value = ''; $('#fa').value = ''; paint(); }
+});
+$('#sb').addEventListener('input', e => { if (e.target.id === 'q') { F.q = e.target.value; paint(); } });
+$('#sb').addEventListener('change', e => { if (e.target.id === 'fa') { F.area = e.target.value; paint(); } });
+$('#finish').addEventListener('change', e => { if (e.target.id === 'acc') { state.accept = e.target.checked; save(); paint(); } });
+$('#finish').addEventListener('input', e => { if (e.target.id === 'gq') { state.gq = e.target.value; save(); } });
+
+const out = $('#copyOut'), status = t => { $('#st').textContent = t; };
+$('#copy').addEventListener('click', async () => {
+  const ok = await Kit.copy(JSON.stringify(RP.buildAnswers(SPEC, HASH, state), null, 2), out);
+  status(ok ? 'Copied to the clipboard.' : 'Clipboard blocked. Select the text below and copy it.');
+});
+$('#sub').addEventListener('click', async () => {
+  const a = RP.buildAnswers(SPEC, HASH, state);
+  if (a.untouched_count > 0 && !a.accept_defaults &&
+      !confirm(`${a.untouched_count} rows untouched: they will NOT be applied unless 'Accept remaining defaults' is ticked. Submit anyway?`)) return;
+  status('submitting...');
+  try {
+    const resp = await fetch('/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(a) });
+    if (resp.ok) document.body.innerHTML = '<div style="padding:60px;text-align:center;font-size:20px;color:var(--accent)">Submitted. You can close this tab.</div>';
+    else status('submit failed: ' + resp.status);
+  } catch (err) { status('submit failed: ' + err + ' (Copy JSON still works)'); }
+});
+
+Kit.registerKey(['1', '2', '3', '4', '5', '6', '7', '8', '9'], (e, c) => c.isItem ? pick(itemAt(c.cur), +e.key - 1) : false, 'pick a verdict');
+Kit.registerKey('a', (e, c) => c.isItem ? agree(itemAt(c.cur)) : false, 'agree with the suggestion (again to undo)');
+Kit.registerKey('c', (e, c) => c.isItem ? clearRow(itemAt(c.cur)) : false, 'clear the row back to untouched');
+Kit.registerKey(['g', 't'], (e, c) => c.isItem ? openEdit(itemAt(c.cur), 'group') : false, 'group tag');
+Kit.registerKey('o', (e, c) => c.isItem ? toggleDetails(itemAt(c.cur)) : false, 'same as e: toggle evidence');
+Kit.registerKey('u', nextNeed, 'jump to the next row that needs you');
+Kit.registerKey('/', () => { if ($('#wrap').classList.contains('sb-collapsed')) ctl.toggleSidebar(); $('#q').focus(); }, 'search');
+
+paint();
+ctl.setCur('band', false);
+</script></body></html>
