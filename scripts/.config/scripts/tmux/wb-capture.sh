@@ -474,13 +474,11 @@ hook_prompt_nudge() {
       source=phrase
     fi
   fi
-  # a draft nudge (or a draft already nudged) supersedes any stale marker
-  [ -f "$SDIR/draft" ] && remove_named "$SDIR" marker
-  [ -n "$line" ] || { remove_named "$SDIR" marker; return 0; }
   remove_named "$SDIR" marker
   jq -nc --arg c "$line" \
     '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$c}}' 2>/dev/null || return 0
   printf '%s' "$source" >"$SDIR/outstanding"
+  [ -n "$line" ] || return 0
   log_event "$SID" nudge_fired "$source"
 }
 
