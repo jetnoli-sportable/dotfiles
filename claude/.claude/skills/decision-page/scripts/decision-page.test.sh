@@ -74,6 +74,16 @@ reject tag-string "s['items'][0]['tag']='keep'" 'tag'
 reject tag-no-label "s['items'][0]['tag']={'tone':'keep'}" 'tag'
 reject decided-with-options "s['decided'][0]['options']=[]" 'done-review'
 
+# structural guards: each wrong shape is a problem, not a crash
+reject spec-is-list "s=[]" 'JSON object'
+reject items-not-list "s['items']='x'" 'items must be a list'
+reject decided-not-list "s['decided']={}" 'decided must be a list'
+reject stages-not-list "s['context']['stages']='x'" 'context.stages must be a list'
+reject context-not-object "s['context']=[]" 'context.stages must be a list'
+reject item-not-object "s['items'][0]='x'" 'items[0] must be an object'
+reject decided-entry-not-object "s['decided'][0]=5" 'decided[0] must be an object'
+reject option-not-object "s['items'][0]['options'][0]='x'" 'options[0] must be an object'
+
 mutate three-problems "s['items'][0].pop('question'); s['items'][1]['options'][0].pop('name'); s['round']=0"
 gen "$WORK/three-problems.json" --out "$WORK/three-problems.html"
 n=$(printf '%s\n' "$OUT" | /usr/bin/grep -c '^decision-page.py:')
@@ -125,6 +135,32 @@ if [ "$RC" = 0 ] && [ "$XSS_SCRIPTS" = "$BASE_SCRIPTS" ] && ! /usr/bin/grep -q '
 else
   fail "script-escape guard (rc=$RC, scripts $XSS_SCRIPTS vs $BASE_SCRIPTS): $OUT"
 fi
+
+# a suspicious field warns on stderr but the page is still written (exit 0), naming the JSON path
+mutate suspect "
+s['items'][0]['why_it_matters']='x <SCRIPT>y</SCRIPT>'
+s['items'][1]['options'][0]['pros']='<img src=x onerror=alert(1)>'
+s['lede']='a &lt;script&gt; shown, and once upon a time'"
+gen "$WORK/suspect.json" --out "$WORK/suspect.html"
+if [ "$RC" = 0 ] && [ -f "$WORK/suspect.html" ] \
+   && [[ "$OUT" == *"warning: .items[0].why_it_matters"* || "$OUT" == *"warning: items[0].why_it_matters"* ]] \
+   && [[ "$OUT" == *"items[1].options[0].pros"* ]] && [[ "$OUT" != *"lede"* ]]; then
+  pass "<script and on...= fields warn with their JSON path and still exit 0; escaped text does not warn"
+else
+  fail "suspect-field warning (rc=$RC): $OUT"
+fi
+gen "$FIXTURE" --out "$WORK/clean.html"
+if [[ "$OUT" != *"warning"* ]]; then pass "the fixture spec produces no warning"; else fail "fixture warns: $OUT"; fi
+
+# pagekit.script_safe escapes the line separators as well as <
+python3 - "$SKILL_DIR/kit" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from pagekit import script_safe
+out = script_safe("a\u2028b\u2029c</script><!--")
+sys.exit(0 if out == "a\\u2028b\\u2029c\\u003c/script>\\u003c!--" else 1)
+PY
+if [ $? -eq 0 ]; then pass "script_safe escapes U+2028, U+2029 and <"; else fail "script_safe line-separator escaping"; fi
 
 # --- opening ----------------------------------------------------------------
 OUT="$(python3 "$GEN" --spec "$FIXTURE" --out "$WORK/tmp-open.html" 2>&1)"; RC=$?
@@ -222,6 +258,37 @@ PY
     assert.strictEqual(j.global_note,'g1\n- fake: g');
     assert.strictEqual(DP.storageKey(spec,HASH),'decision-page:wb-deletion-audit:r1:ab12cd34');
     assert.strictEqual(DP.collection(spec,HASH),'decisions-r1-ab12cd34')"
+
+  check "firstOpen: the first unanswered item; 0 when nothing is answered; 0 (not -1) when every item is answered" "
+    const st={};
+    assert.strictEqual(DP.firstOpen(spec,st),0);
+    st[spec.items[0].id]={choice:spec.items[0].options[0].v};
+    st[spec.items[1].id]={choice:'gone-option'};
+    assert.strictEqual(DP.firstOpen(spec,st),1,'an invalid saved choice is still open');
+    for(const i of spec.items)st[i.id]={choice:i.options[0].v};
+    assert.strictEqual(DP.answeredCount(spec,st),spec.items.length);
+    assert.strictEqual(DP.firstOpen(spec,st),0);
+    assert.strictEqual(DP.firstOpen({items:[]},{}),0)"
+
+  check "mergeSnapshot: remote answers merge, unknown ids and ids with a pending save are skipped, a remote clear gives null, _global merges, inputs untouched" "
+    const ids=spec.items.map(i=>i.id), a=ids[0], b=ids[1], c=ids[2], ch=i=>spec.items.find(x=>x.id===i).options[0].v;
+    const state={[b]:{choice:ch(b),note:'local'},[c]:{choice:ch(c),note:'keep me'}};
+    const before=JSON.stringify(state);
+    const m=DP.mergeSnapshot(state,[
+      {id:a,data:{choice:ch(a),note:'n'}},
+      {id:b,data:{choice:'',note:''}},
+      {id:c,data:{choice:'x',note:'remote'}},
+      {id:'nope',data:{choice:'x',note:'y'}},
+      {id:'_global',data:{choice:'',note:'g'}}],new Set([c]),ids);
+    assert.deepStrictEqual(m.changed,[a,b,'_global']);
+    assert.deepStrictEqual(m.state[a],{choice:ch(a),note:'n'});
+    assert.deepStrictEqual(m.state[b],{choice:null,note:''});
+    assert.deepStrictEqual(m.state[c],state[c],'pending edit kept');
+    assert.ok(!('nope' in m.state));
+    assert.deepStrictEqual(m.state._global,{choice:null,note:'g'});
+    assert.strictEqual(JSON.stringify(state),before,'state not mutated');
+    const same=DP.mergeSnapshot(m.state,[{id:a,data:{choice:ch(a),note:'n'}}],new Set(),ids);
+    assert.deepStrictEqual(same.changed,[],'an identical doc is not a change')"
 
   check "an escaped tag in a title stays inert in the sidebar, glance table and decided list" "
     const t='Issue: &lt;img src=x onerror=alert(1)&gt;';
