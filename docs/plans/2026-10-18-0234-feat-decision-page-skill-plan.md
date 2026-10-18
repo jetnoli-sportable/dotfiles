@@ -19,7 +19,7 @@ task: dotfiles--feat-decision-artifact-skill
   - review-page's page moved onto the same kit, with its local server and Submit flow kept (KTD11).
 - **Authority:** the task file's `## Decisions` (dotfiles--feat-decision-artifact-skill, 2026-10-18) outranks this plan. This plan outranks the approved UX mockups (`~/code/tasks/dossiers/dotfiles--feat-decision-artifact-skill/mockups/decision-page-converged.html` and `review-page-converged.html`), which outrank the original deletion-audit page it grew from.
 - **Stop conditions:** stop and report if snap Chromium cannot keep localStorage for a `file://` page under `~/code/tasks/dossiers/`, because that would leave the local default with no way to save progress. Stop if any unit would require touching `wb.sh`. Stop and report if review-page's test suite can't be kept passing without breaking `/weekly-review` or `/wb-breakdown`.
-- **Execution profile:** `ce-work` in the `feat-decision-artifact-skill` worktree. Commit per unit, in dependency order: U5, U1, U2, U3, U6, U4. One PR to `development`. If the diff passes roughly 1,500 lines, split it into two stacked PRs: U5, U1, U2 and U3 first, then U6 and U4, so the routing edits land once both pages exist. Jet merges, then the main checkout is re-stowed so the new skill goes live.
+- **Execution profile:** `ce-work` in the `feat-decision-artifact-skill` worktree. Run the localStorage probe (step 0, under Implementation Units) first. Then commit per unit, in dependency order: U5, U1, U2, U3, U6, U4. One PR to `development`. If the diff passes roughly 1,500 lines, split it into two stacked PRs: U5, U1, U2 and U3 first, then U6 and U4, so the routing edits land once both pages exist. Jet merges, then the main checkout is re-stowed so the new skill goes live.
 
 ---
 
@@ -33,7 +33,7 @@ Add a `decision-page` skill. It turns a JSON spec of decisions into a self-conta
 
 The wb deletion audit (2026-10-18) showed that a page beats both existing tools for one kind of batch. That batch had ten decisions. Each had evidence and options written for that item alone, a recommended choice, and a notes box. A decision-buffer doc with ten such decisions is a long markdown file. review-page forces every row onto one shared verdict list and treats silence as agreement, which is wrong when each item needs thought.
 
-review-page has the opposite problem. It serves the big shared-verdict batches well, but its page is a dense table with no overview, no keyboard control and an answer bar fixed to the screen, and its template is an inline Python string with every brace doubled. The mockup rounds on 2026-10-18 settled one look for both pages. Building the shared parts once avoids writing them twice and letting the two pages drift apart.
+review-page has the opposite problem. It serves the big shared-verdict batches well, but its page is a dense table with no overview, a basic key handler (`j`/`k`, `1`–`9`, `a`/`A`, `d`/`D`, `g`, `n`, `/`) and an answer bar fixed to the screen, and its template is an inline Python string with every brace doubled. The mockup rounds on 2026-10-18 settled one look for both pages. Building the shared parts once avoids writing them twice and letting the two pages drift apart.
 
 The decision page was hand-built for that one audit, so the next batch would mean writing it again. The way answers came back was improvised: copy the text, paste it into chat, answer three "I need more context" notes, re-ask. That loop worked, but nothing records it, so the next session would have to rediscover it.
 
@@ -50,7 +50,7 @@ The decision page was hand-built for that one audit, so the next batch would mea
 
 **Choosing the tool**
 
-- R1. `decision-page` has a `SKILL.md` whose when-to-use section states this rule. When every item is answered from the same short verdict list and most suggestions are expected to be right, use review-page (roughly 15 or more items) or a decision-buffer findings-review doc (fewer). When each item has options written for it, use a decision-buffer choice doc for 1-3 decisions and decision-page for about 4-25. decision-page also takes a batch of any size whose evidence needs tables or code, or that Jet will answer away from the terminal. More than 25 such items are split by group into separate pages, each its own slug at round 1. If a trigger phrase and the answer shape disagree, the shape wins and the agent says so in chat.
+- R1. `decision-page` has a `SKILL.md` whose when-to-use section states this rule. When every item is answered from the same short verdict list and most suggestions are expected to be right, use review-page (roughly 15 or more items) or a decision-buffer findings-review doc (fewer). When each item has options written for it, use a decision-buffer choice doc for 1-3 decisions and decision-page for about 4-25. decision-page also takes a batch of any size whose evidence needs tables or code, or that Jet will answer away from the terminal. More than 25 such items are split by group into separate pages, each its own slug at round 1. If a trigger phrase and the answer shape disagree, the shape wins and the agent says so in chat. The rule governs ad-hoc batches: a skill whose own flow fixes its presentation tool (`/weekly-review` and `/wb-breakdown` both use review-page) keeps that tool.
 - R2. review-page, decision-buffer and the global instructions file state the same rule, or point to R1's statement of it, so no skill routes a batch to a different tool than the others would.
 
 **Building the page**
@@ -79,7 +79,7 @@ The decision page was hand-built for that one audit, so the next batch would mea
 
 **Returning answers**
 
-- R7. Copy answers produces text Jet can read, plus a machine-readable block that identifies the page, round and spec version, and keys every answer by item id and option id.
+- R7. Copy answers produces text Jet can read, plus a machine-readable block that identifies the page, round and `spec_hash` (KTD3), and keys every answer by item id and option id.
 - R8. An item Jet did not touch is unanswered. It is never filled in from the recommendation.
 - R9. The global note is answered before anything is acted on, and an item's note is answered before that item's choice is recorded. A choice whose note asks a question that could change it is confirmed with Jet before it is recorded. A choice whose note adds a condition is recorded with that condition.
 - R10. Defer is an answer. It is recorded as deferred, with a follow-up, and is not re-asked unless Jet asks.
@@ -101,8 +101,8 @@ The decision page was hand-built for that one audit, so the next batch would mea
   - **Calm buttons.** Accent colour is kept for the selected verdict, Submit and progress. Every other button is neutral and readable.
 - R16. The review page can be driven from the keyboard:
   - `j`/`k` step through the overview, each visible row, then the close-out block.
-  - `a` agrees, `1`–`9` pick a verdict, `n` opens the note, and `g` opens the group tag (`t` is an alias).
-  - `e`/`E` expand or collapse evidence, `u` jumps to the next "needs you" row, `[` collapses the sidebar and `?` lists the keys.
+  - `a` agrees, `1`–`9` pick a verdict, `c` clears the row back to untouched, `n` opens the note, and `g` opens the group tag (`t` is an alias).
+  - `e`/`E` expand or collapse evidence (`o` is an alias of `e`), `u` jumps to the next "needs you" row, `/` focuses search, `[` collapses the sidebar and `?` lists the keys.
   - Enter on the overview jumps to the first "needs you" row, and Enter on the close-out block submits.
   - No key fires while Jet is typing.
 - R17. review-page keeps its job, and every feature its callers rely on carries over (KTD11's list). An untouched row accepts its suggestion while accept-defaults is ticked, a row with no suggestion is never defaulted, and Submit returns the answers to the waiting agent. Any change to its spec or answers format updates `/weekly-review`, `/wb-breakdown` and review-page's reference doc in the same sweep.
@@ -131,7 +131,7 @@ Considered and not built:
 
 ### Key Technical Decisions
 
-- KTD1. **Separate template file, with the spec rendered in the browser.** `templates/page.html` holds the page. The generator replaces one placeholder with the spec as JSON, and the page's script renders cards from it, as the reference page does from `ITEMS`. This departs from review-page's inline `.format()` template string (`claude/.claude/skills/review-page/scripts/review-page.py`, `PAGE_TEMPLATE`), which forces every CSS and JS brace to be doubled. The embedded JSON escapes `</`, `<!--`, U+2028 and U+2029 so spec text can't break out of the script tag.
+- KTD1. **Separate template file, with the spec rendered in the browser.** `templates/page.html` holds the page. The generator replaces its named placeholders (spec JSON, kit CSS, kit JS, title and meta description; see U2 step 4), and the page's script renders cards from the spec JSON, as the reference page does from `ITEMS`. This departs from review-page's inline `.format()` template string (`claude/.claude/skills/review-page/scripts/review-page.py`, `PAGE_TEMPLATE`), which forces every CSS and JS brace to be doubled. The embedded JSON escapes `</`, `<!--`, U+2028 and U+2029 so spec text can't break out of the script tag.
 - KTD2. **Saved answers are keyed by page, round and spec version.** The localStorage key is `decision-page:<slug>:r<round>:<spec_hash8>`, where `spec_hash8` is the first 8 hex characters of a SHA-256 of the canonical spec JSON. Chromium may give every `file://` page the same storage origin, so a fixed key like the reference's `wb-del-audit` would collide across pages. Every read and write is wrapped in try/catch, and the page still renders when storage is unavailable.
 - KTD3. **Copy answers emits readable markdown followed by one fenced JSON block, and the JSON is authoritative.**
   - The markdown lists each item's title, the chosen option's display name and the note, for Jet to read.
@@ -141,7 +141,7 @@ Considered and not built:
   - Notes appear in full only inside the JSON. In the markdown they are indented, so a note that contains newlines can't forge a sibling item.
 - KTD4. **The generator refuses an invalid spec, exiting 2 with every problem listed.** Rules:
   - `slug` and every item and option id match `[a-z0-9][a-z0-9-]*`.
-  - Item ids are unique, option ids are unique within an item, and `_global` is reserved.
+  - Item ids are unique, and option ids are unique within an item.
   - `round` is an integer of at least 1.
   - Every open item has exactly one `rec` option, the recommended option is not the Defer option, and an option with id `defer` is present.
   - Every open item has `question`, `why_it_matters` and `recommendation`, and every option has `name`.
@@ -149,6 +149,8 @@ Considered and not built:
   - `context.stages[]` states are each one of done, current, upcoming or later, with at most one current.
 
   These are optional and never refused when missing: `artifacts`, `today_full`, `evidence_full`, `shift` and `prior`, plus each option's `pros`, `cost`, `risk` and `trade`. A missing option field renders as "None stated", so a spec writer never has to invent a risk to satisfy the generator.
+
+  These are also optional, with a defined fallback so the page never shows "undefined" or an empty cell: `short_q` falls back to `question`, and an option's `short` falls back to its `name`. `group` (one "Decisions" group when absent), `today`, `evidence_summary`, an option's `changes`, `lede` and `stats` are left out of the page when absent.
 
   This enforces the code-review-triage-needs-options rule (recommended choice plus real alternatives plus Defer) in code rather than by instruction.
 - KTD5. **The spec is the source, kept in the dossier.** The agent writes `<dossier>/<slug>.json`, or `<slug>-r<N>.json` for round N of 2 or more. By default the generator writes the HTML beside it with the same stem. This meets the task-store rule that pages are generated from a source in the dossier, and lets a later session regenerate the page.
@@ -164,7 +166,7 @@ Considered and not built:
   - storage helpers wrapped in try/catch, and copy with a textarea fallback;
   - the keyboard engine: navigation stops across the overview, items and closing block; the typing guard; the legend; and the shared keys `j`/`k`, Enter, `e`/`E`, `n`, `[` and `?`.
 
-  Each page registers its own keys on top: decision-page adds `1`–`9`, `a` and `c`; review-page adds `1`–`9`, `a`, `g`/`t` and `u`. The kit refuses a page key that's already taken, which is how R18's one-meaning rule is enforced in code.
+  Each page registers its own keys on top: decision-page adds `1`–`9`, `a` and `c`; review-page adds `1`–`9`, `a`, `c`, `g`/`t`, `o`, `u` and `/`. The kit refuses a page key that's already taken, which is how R18's one-meaning rule is enforced in code.
 
   Both generators find their template and the kit through `os.path.realpath(__file__)`, which resolves to the repo copy behind the stow symlink. Each script is installed as its own symlink (`stow --no-folding`), so a new template or kit file isn't linked until Jet re-stows. Resolving the real path means the live `/weekly-review` and `/wb-breakdown` keep working in that gap. If a file is still missing, the generator fails with a message naming `stow --no-folding -t "$HOME" claude`.
 - KTD11. **review-page keeps its server, CLI and answers format. The page is rewritten to render in the browser on the kit.** These stay exactly as they are:
@@ -178,7 +180,13 @@ Considered and not built:
   - editable `fields`, returned as `item.fields` and `fields_changed`, where editing marks the row touched;
   - spec-level `sections` as collapsible context panels;
   - `links` as real anchors;
-  - the existing "needs you" rule: no suggestion, or a reason containing "unclear".
+  - the existing "needs you" rule: no suggestion, or a reason containing "unclear";
+  - `meta` pairs as compact chips under the title, and `where`;
+  - `depends_on`/`depended_on_by` as dependency chips that jump to the named row;
+  - spec-level `close_rule` in the intro, and each area's `note` under its heading;
+  - `accept_defaults_default`, which sets the close-out checkbox's initial state. A saved per-spec state wins on reload.
+
+  Row state is saved through the kit's storage helpers under `review-page:<spec_hash>`, using the hash the server already embeds. Every review is served from the same origin and row ids repeat across runs, so a key without the hash would load one review's verdicts into the next. The mockup's `MOCK.slug` key is dropped with its other hard-coded values.
 
   `hide_columns` is retired if a grep of the callers shows nothing sets it. Otherwise it maps onto hiding the matching row control.
 
@@ -187,7 +195,7 @@ Considered and not built:
   - item-level `prior: {note, reply}` for the earlier-note marker, matching KTD9. With no `prior`, no marker renders.
 
   So `/weekly-review` needs no edit. `/wb-breakdown` needs none either, provided `fields` and `description` carry over as listed. Jet allowed contract changes (R17): if a breaking change proves clearly better, U6 updates those callers in the same unit.
-- KTD12. **review-page's template moves out of the inline Python string** into `review-page/templates/page.html`, using the same single-placeholder substitution as KTD1. This removes the doubled braces.
+- KTD12. **review-page's template moves out of the inline Python string** into `review-page/templates/page.html`, using the same named-placeholder substitution as KTD1. This removes the doubled braces.
 
 
 ### High-Level Technical Design
@@ -268,7 +276,9 @@ docs/guides/decision-page.md
 
 ## Implementation Units
 
-Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids, not the order.
+Build order: step 0 → U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids, not the order.
+
+**Step 0. localStorage probe (before U5).** Write a tiny probe page into `~/code/tasks/dossiers/dotfiles--feat-decision-artifact-skill/`. It writes a localStorage value and shows it after a reload. Open it in snap Chromium as `file://` and ask Jet to confirm the value survives. If it doesn't, the Goal Capsule's stop condition fires here, before any unit is built. The probe isn't committed to the repo.
 
 ### U5. Shared page kit
 
@@ -282,6 +292,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 - Create `claude/.claude/skills/decision-page/kit/kit.css`.
 - Create `claude/.claude/skills/decision-page/kit/kit.js`.
 - Create `claude/.claude/skills/decision-page/kit/page-kit.test.sh`.
+- Create a stub `claude/.claude/skills/decision-page/SKILL.md`: valid `name` and `description` frontmatter and a one-line "in progress" body. U3 replaces the body.
 
 **Approach:**
 1. Extract the parts the two converged mockups share (`mockups/decision-page-converged.html`, `mockups/review-page-converged.html`):
@@ -297,7 +308,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
    - `registerKey(key, handler, label)`, which refuses a key that's already registered;
    - the typing guard and the legend.
    Keep its DOM-free functions (the stop arithmetic and the key registry) separately callable, so the test can run them under node.
-3. Check the kit's location with a clean-room docgen run (memory: clean-room-regen-in-shared-worktree). The decision-page folder will have a `SKILL.md` after U3. Until then, commit the kit together with U3's SKILL.md, or confirm that docgen tolerates a skill folder whose `SKILL.md` lands later in the same PR.
+3. Commit the stub `SKILL.md` with the kit. The docgen pre-commit hook fails on a skill folder without one, and it runs on every commit, so U5, U1 and U2 can't be committed before a `SKILL.md` exists.
 
 **Test scenarios:** (`page-kit.test.sh`, under node, skipped with a note when `node` is absent)
 - Stop arithmetic: from the overview, `j` goes to item 0; from the last item, `j` goes to the closing block; from the closing block, `j` stays put; from item 0, `k` goes to the overview.
@@ -362,7 +373,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 
 **Approach:**
 1. Use stdlib-only Python 3 and `argparse`.
-2. Take `--spec`, plus optional `--out` (default: the spec path with `.html`), `--no-open` and `--force-open`. The script finds the template and the kit through `os.path.realpath(__file__)` (KTD10).
+2. Take `--spec`, plus optional `--out` (default: the spec path with `.html`) and `--no-open`. The script finds the template and the kit through `os.path.realpath(__file__)` (KTD10).
 3. Validate per KTD4, collecting every problem before exiting 2. Messages start with `decision-page.py:`, as review-page's do.
 4. Compute `spec_hash` over the canonical JSON (sorted keys, compact). Paste in the kit's CSS and JS (KTD10), escape the JSON per KTD1, substitute it into the template, and HTML-escape the `<title>`.
 5. Open the page per KTD8, then print the output path and the hash.
@@ -382,17 +393,21 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 - Rejections, each exiting 2 with a message naming the item:
   - an open item with no `rec`;
   - an open item with two `rec` options;
-  - an open item with no `question` or no `recommendation`;
+  - an open item with no `question`, no `why_it_matters` or no `recommendation`;
+  - an option with no `name`;
+  - a `decided[]` entry with no `decision` or no `date`;
+  - a `context` stage whose state isn't done, current, upcoming or later;
+  - a `slug` that breaks the id pattern;
   - a `context` with two `current` stages;
   - an open item with no `defer` option;
   - `rec` on the `defer` option;
   - duplicate item ids;
   - duplicate option ids within one item;
-  - an item id `_global`;
   - an id with an uppercase letter or a space;
   - `round: 0`;
   - a `decided[]` entry that has options.
 - A spec whose items have no `artifacts` and no option `cost`/`risk` generates without error.
+- A spec holding only the required fields generates, and U1's core script renders it with no "undefined" text.
 - A spec with three separate problems reports all three in one run.
 - A spec whose text contains `</script><script>alert(1)</script>` is embedded so that the generated file has no second script element, checked by counting `<script` occurrences.
 - Missing `--spec`, an unreadable file, or invalid JSON each exit 2.
@@ -410,7 +425,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 **Dependencies:** U2, because the skill documents the generator's real flags.
 
 **Files:**
-- Create `claude/.claude/skills/decision-page/SKILL.md`.
+- Modify `claude/.claude/skills/decision-page/SKILL.md`: replace U5's stub with the full skill.
 - Create `claude/.claude/skills/decision-page/references/spec-and-answers.md`.
 - Create `claude/.claude/skills/decision-page/learnings.md`.
 
@@ -454,7 +469,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 - Modify `claude/.claude/skills/review-page/scripts/review-page.py`: render from the template and paste in the kit. The CLI, server, state file and answers stay as they are.
 - Modify `claude/.claude/skills/review-page/scripts/review-page.test.sh`: update the markup checks and add the new ones.
 - Modify `claude/.claude/skills/review-page/fixtures/example-spec.json`: add an optional `context`.
-- Modify `claude/.claude/skills/review-page/references/spec-and-close-contract.md`: document `context` and the key map.
+- Modify `claude/.claude/skills/review-page/references/spec-and-close-contract.md`: document `context` and the new key map, and name the retired keys (`A`, `d`/`D`).
 - Modify `claude/.claude/skills/review-page/SKILL.md`: add a short "The page" section with the keys.
 - Only if step 4 finds a breaking change worthwhile: modify `/weekly-review`'s and `/wb-breakdown`'s `SKILL.md` and their reference docs.
 
@@ -475,12 +490,14 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
   - the markdown renderer produces lists, code blocks and headings, and escapes `'` and `<`;
   - editable `fields` are rendered, and editing one sets `fields_changed` and `touched`;
   - `sections` render as context panels;
-  - `links` render as anchors.
+  - `links` render as anchors;
+  - `meta` pairs render as chips, and `depends_on`/`depended_on_by` render as dependency chips;
+  - a spec with `accept_defaults_default: false` renders the box unticked and produces `accept_defaults: false` in the payload.
 - A node test of the page's payload builder: with every row untouched and accept-defaults ticked, each row carries `verdict = suggested` and `touched: false`, `untouched_count` equals the row count, and a no-suggestion row has `verdict = ""`. It is never defaulted.
 - A row whose reason contains "unclear" is flagged "needs you".
 - A spec with `context` and a `prior` renders the stage strip and the marker, and one without them renders neither and raises no error.
 - The generated page's script passes `node --check`.
-- Browser checklist: `g` opens the group tag; `j` from the last row lands on the close-out block; the sidebar never overlaps the close-out block at the bottom of the page; and "Agree to all in this area" agrees only that area's rows.
+- Browser checklist: `g` opens the group tag; `c` clears a row back to untouched; `j` from the last row lands on the close-out block; the sidebar never overlaps the close-out block at the bottom of the page; "Agree to all in this area" agrees only that area's rows; and two different specs served one after the other don't share saved answers.
 
 **Verification:** `review-page.test.sh` passes, and a page served from the fixture looks like the converged mockup.
 
@@ -511,7 +528,7 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 
 **Test expectation:** none. These are documentation edits. Docgen regeneration in the pre-commit hook is the check.
 
-**Verification:** a grep for `review-page` across `claude/.claude/` and `docs/*.md` finds no routing statement that contradicts R1. After commit, docgen has added a `skill-decision-page` entry to `docs/INDEX.md` and a guide tile to `docs/HUB.html`.
+**Verification:** a grep for `review-page` across `claude/.claude/` and `docs/*.md` finds no routing statement that contradicts R1. `/weekly-review`'s and `/wb-breakdown`'s own uses of review-page are exempt, per R1. After commit, docgen has added a `skill-decision-page` entry to `docs/INDEX.md` and a guide tile to `docs/HUB.html`.
 
 ---
 
@@ -522,9 +539,9 @@ Build order: U5 → U1 → U2 → U3 → U6 → U4. Unit numbers are stable ids,
 | Page kit | `bash claude/.claude/skills/decision-page/kit/page-kit.test.sh` | ALL TESTS PASSED, exit 0 |
 | Generator and validation | `bash claude/.claude/skills/decision-page/scripts/decision-page.test.sh` | ALL TESTS PASSED, exit 0 |
 | review-page behaviour | `bash claude/.claude/skills/review-page/scripts/review-page.test.sh` | ALL TESTS PASSED, exit 0 |
-| Docgen | the `.githooks/pre-commit` run on the U3, U4 and U6 commits. To re-check, use a `git archive` clean-room, never a checkout or reset in this shared worktree (memory: clean-room-regen-in-shared-worktree) | `docs/INDEX.md` lists `skill-decision-page`. No hook failure |
+| Docgen | the `.githooks/pre-commit` run on every unit commit. To re-check, use a `git archive` clean-room, never a checkout or reset in this shared worktree (memory: clean-room-regen-in-shared-worktree) | `docs/INDEX.md` lists `skill-decision-page`. No hook failure |
 | Browser checks (Jet, manual) | Generate the fixture into a non-hidden path under `$HOME` (for example the task dossier). Hand off as a tickable HTML checklist in `~/code/tasks/dossiers/dotfiles--feat-decision-artifact-skill/` (memory: verification-checklist-html-norm) | Jet ticks every item |
-| Optional publish smoke | Publish the fixture page as an Artifact with `capabilities: {db: {}}`, answer one item, then run one `ArtifactData` list of `decisions-r1` | The doc for that item is present |
+| Optional publish smoke | Publish the fixture page as an Artifact with `capabilities: {db: {}}`, answer one item, then run one `ArtifactData` list of `decisions-r1-<spec_hash8>`, using the hash the generator printed for the fixture | The doc for that item is present |
 
 Browser checklist items:
 - Both pages render like their converged mockups, in light and dark themes and at phone width.
