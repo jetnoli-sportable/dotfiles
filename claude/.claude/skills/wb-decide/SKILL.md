@@ -83,7 +83,9 @@ task_file=$(tmux show -t "=$session:" -v @task)
 ~/.config/scripts/tmux/wb-capture.sh status
 ```
 
-`status` is read-only. A draft is marked **under review** by a separate
+`status` is read-only. When a draft is present it prints a `draft_sha: <sha1>` line:
+note it, because the dismisses below pass it as `--expect <sha>` (compare-before-delete:
+a draft the sweep wrote after your `status` is never deleted unseen). A draft is marked **under review** by a separate
 `~/.config/scripts/tmux/wb-capture.sh review`, which the draft-review path below
 runs right after it shows the draft: the nudge then carries over to the next
 turn instead of counting as ignored, so a review that spans several messages
@@ -104,9 +106,12 @@ On that path, Read the draft and present it to the user, then run
 nudge is outstanding). Accept it as-is, or edit it first, **only if it reflects
 a real decision made in this session** — a Haiku draft sees a transcript excerpt
 and can be wrong or already-recorded. If it doesn't, run
-`~/.config/scripts/tmux/wb-capture.sh dismiss`, then re-run `status`: if it still
-prints `draft: present` (a phrase nudge was outstanding, so `dismiss` kept the
-draft), run `dismiss` again — the first only resolved that nudge. Say so in one
+`~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha>` (the sha from the
+`status` you showed), then re-run `status`: if it still prints `draft: present` (a
+phrase nudge was outstanding, so `dismiss` kept the draft), run the same `dismiss
+--expect <draft_sha>` again — the first only resolved that nudge. If a dismiss exits 1
+(`draft changed since status`), nothing was removed: the sweep replaced the draft, so
+show the new one (re-run `status`, note its new `draft_sha`) instead. Say so in one
 line, and stop.
 
 If `status` also says the draft **may already be recorded** (the task file
@@ -114,9 +119,9 @@ changed while it was being written — usually a `/wb-decide` that landed
 meanwhile), it prints the `### ` headings of the Decisions entries added
 since. Show the user the draft next to those entries (Read them from
 `## Decisions`) and ask whether the draft duplicates one. If it does, run
-`wb-capture.sh dismiss` (the log tags it stale, so it doesn't count against
-the nudge; re-run `status` and `dismiss` again if the draft is still present,
-as above) and say so in one line; if not, accept or edit as usual.
+`wb-capture.sh dismiss --expect <draft_sha>` (the log tags it stale, so it doesn't
+count against the nudge; re-run `status` and `dismiss --expect <draft_sha>` again if
+the draft is still present, as above) and say so in one line; if not, accept or edit as usual.
 
 Otherwise go straight to composing (step 3) and **leave the draft alone** (do
 not dismiss it): a phrase nudge sent you here, the user's hint names a
@@ -254,9 +259,10 @@ line: `Recorded to ## Decisions.`
   before the append) → `wb append` → `accept <path>`, reject → `dismiss <path>`; a closed task's
   drafts take `--task <stem>` on each; never a hand `rm`.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
-  is already recorded) — `wb-capture.sh dismiss`, then `status`; if it still
-  prints `draft: present` (a phrase nudge was outstanding, so dismiss kept the
-  draft), `dismiss` again; say so, no write.
+  is already recorded) — `wb-capture.sh dismiss --expect <draft_sha>`, then `status`;
+  if it still prints `draft: present` (a phrase nudge was outstanding, so dismiss kept
+  the draft), the same `dismiss --expect <draft_sha>` again; exit 1 means a new draft
+  landed, so show that instead; say so, no write.
 - [ ] **Nothing decided:** phrase-match nudge but nothing was settled —
   say so, `dismiss`, no write.
 - [ ] **mute / unmute:** `/wb-decide mute` and `/wb-decide unmute` pass

@@ -172,7 +172,7 @@ Check the machinery any time:
 |---|---|
 | `/wb-decide [hint]` | Compose a new entry from the conversation (or accept a pending draft) and `wb append` it under `## Decisions`, then clear capture state. If nothing was actually decided it says so and dismisses instead of writing. |
 | draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone; its closing plain `clear` keeps the draft, which gets nudged again. Only the draft-accept path runs `clear --draft`, which removes it. |
-| `/wb-decide dismiss` | Drop the pending marker/draft, log `dismissed`. Quiet no-op if nothing was pending. |
+| `/wb-decide dismiss` | Drop the pending marker/draft, log `dismissed`. Quiet no-op if nothing was pending. The draft-review path and `/close-out` call `wb-capture.sh dismiss --expect <draft_sha>` (or `--expect none`): `status` prints the draft's sha1 as `draft_sha:`, and the dismiss refuses (exit 1, nothing removed or logged) if a different draft, or any draft for `none`, is present, so a draft the sweep wrote after you looked is never deleted unseen. Bare `dismiss` is unchanged. |
 | `/wb-decide mute` / `unmute` | Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged. |
 | `/wb-decide status` | Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts (every `shelved:` line is relayed verbatim); for a stale draft, a warning plus the Decisions entries added since the snapshot. Read-only. |
 | `/wb-decide shelved` | Walk this task's shelved drafts one at a time: accept/edit (`accept --begin <path>` right before the record, then `accept <path>`) or reject (`dismiss <path>`). A closed task's drafts take `--task <stem>` on each. |
@@ -193,7 +193,7 @@ exactly `EOF` can't end it early.
 | Config (optional, untracked) | `~/.config/wb/capture.conf` |
 | Kill switch | `~/.local/state/wb/disable-capture` |
 | Shelved drafts | `~/.local/state/wb/capture/shelved/<task-stem>/<timestamp>-<session>.md` (a `.stale` sidecar marks a stale one) |
-| Script | `~/.config/scripts/tmux/wb-capture.sh` (verbs: `hook-*`, `clear [--draft]`, `dismiss [--task <stem>] [<shelved path>]`, `accept [--begin] [--task <stem>] <shelved path>`, `review`, `mute`, `unmute`, `status`; store verbs that need no session: `shelved [--all | --task <stem>]`, `pending-for-task <task-file>`, `log-shelved-left <stem> <count>`); sweep in `wb-capture-sweep.sh` |
+| Script | `~/.config/scripts/tmux/wb-capture.sh` (verbs: `hook-*`, `clear [--draft]`, `dismiss [--expect none|<sha1>] [--task <stem>] [<shelved path>]`, `accept [--begin] [--task <stem>] <shelved path>`, `review`, `mute`, `unmute`, `status`; store verbs that need no session: `shelved [--all | --task <stem>]`, `pending-for-task <task-file>`, `log-shelved-left <stem> <count>`); sweep in `wb-capture-sweep.sh` |
 
 **Config keys** — `KEY=value` lines in `capture.conf`, parsed line by line
 (never sourced), unknown keys and bad values ignored/defaulted:
@@ -258,8 +258,9 @@ jq -s '. as $all
 **Close-out interaction.** `/close-out` step 4: if `## Decisions` is still
 empty at wind-down, the agent either writes a real entry or appends an
 affirmed marker (`### <timestamp> — close-out` / `_No decisions: <reason>_`)
-via `wb append`, after running `wb-capture.sh dismiss` so no nudge is
-outstanding when the marker lands (otherwise it would be logged `followed`).
+via `wb append`, after running `wb-capture.sh dismiss --expect none` so no nudge is
+outstanding when the marker lands (otherwise it would be logged `followed`); `--expect none`
+refuses if a sweep landed a draft meanwhile, and the draft is then reviewed first.
 A pending draft is routed through the draft-review path first. An unmarked
 empty section keeps meaning "nobody checked".
 Tasks closed with bare `wb done` (no `/close-out`) are left unmarked.

@@ -414,7 +414,7 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td><code>/wb-decide dismiss</code></td>
-<td>Drop the pending marker/draft, log <code>dismissed</code>. Quiet no-op if nothing was pending.</td>
+<td>Drop the pending marker/draft, log <code>dismissed</code>. Quiet no-op if nothing was pending. The draft-review path and <code>/close-out</code> call <code>wb-capture.sh dismiss --expect &lt;draft_sha&gt;</code> (or <code>--expect none</code>): <code>status</code> prints the draft's sha1 as <code>draft_sha:</code>, and the dismiss refuses (exit 1, nothing removed or logged) if a different draft, or any draft for <code>none</code>, is present, so a draft the sweep wrote after you looked is never deleted unseen. Bare <code>dismiss</code> is unchanged.</td>
 </tr>
 <tr>
 <td><code>/wb-decide mute</code> / <code>unmute</code></td>
@@ -470,7 +470,7 @@ exactly <code>EOF</code> can't end it early.</p>
 </tr>
 <tr>
 <td>Script</td>
-<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear [--draft]</code>, <code>dismiss [--task &lt;stem&gt;] [&lt;shelved path&gt;]</code>, <code>accept [--begin] [--task &lt;stem&gt;] &lt;shelved path&gt;</code>, <code>review</code>, <code>mute</code>, <code>unmute</code>, <code>status</code>; store verbs that need no session: `shelved [--all</td>
+<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear [--draft]</code>, `dismiss [--expect none</td>
 </tr>
 </tbody>
 </table>
@@ -564,8 +564,9 @@ apart because nothing nudges a shelved draft):</p>
 <p><strong>Close-out interaction.</strong> <code>/close-out</code> step 4: if <code>## Decisions</code> is still
 empty at wind-down, the agent either writes a real entry or appends an
 affirmed marker (<code>### &lt;timestamp&gt; — close-out</code> / <code>_No decisions: &lt;reason&gt;_</code>)
-via <code>wb append</code>, after running <code>wb-capture.sh dismiss</code> so no nudge is
-outstanding when the marker lands (otherwise it would be logged <code>followed</code>).
+via <code>wb append</code>, after running <code>wb-capture.sh dismiss --expect none</code> so no nudge is
+outstanding when the marker lands (otherwise it would be logged <code>followed</code>); <code>--expect none</code>
+refuses if a sweep landed a draft meanwhile, and the draft is then reviewed first.
 A pending draft is routed through the draft-review path first. An unmarked
 empty section keeps meaning &quot;nobody checked&quot;.
 Tasks closed with bare <code>wb done</code> (no <code>/close-out</code>) are left unmarked.</p>

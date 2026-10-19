@@ -59,6 +59,12 @@ case "$mode" in
   write-draft-edit) # overlapping draft written AND the task's Decisions change while "thinking"
     printf 'OVERLAP_FIRST_DRAFT\n' >"$FAKE_DRAFT_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
     printf '### Chose B over A\n- decided: B\n' ;;
+  hold-lock) # the draft-write tail must wait on the session lock: a background holder
+    # takes <dir>/.lock now, and at release records whether the draft had landed yet
+    rm -f "$o/held"
+    flock "$FAKE_SDIR/.lock" bash -c ': >"$1"; sleep 1.5; [ -e "$2" ] && echo landed >"$3" || echo absent >"$3"' _ "$o/held" "$FAKE_DRAFT_PATH" "$o/draft_at_release" >/dev/null 2>&1 &
+    for _ in $(seq 1 100); do [ -e "$o/held" ] && break; sleep 0.05; done
+    printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
   touch-ended-edit) # session ends AND the task's Decisions change while "thinking"
     : >"$FAKE_ENDED_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
@@ -110,7 +116,7 @@ run() {
   local script="$1"; shift
   local -a envv=(HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG"
     PATH="$FAKEBIN:$PATH" FAKE_TASK="$FAKE_TASK" FAKE_SID=sid-aaa FAKE_CLAUDE_OUT="$OUTDIR"
-    FAKE_ENDED_PATH="$D/ended" FAKE_DRAFT_PATH="$D/draft" TMUX=fake,1,0 TMUX_PANE=%1)
+    FAKE_ENDED_PATH="$D/ended" FAKE_DRAFT_PATH="$D/draft" FAKE_SDIR="$D" TMUX=fake,1,0 TMUX_PANE=%1)
   jq -nc --arg tp "$TRANSCRIPT" '{session_id:"sid-aaa",transcript_path:$tp,last_assistant_message:"hi"}' >"$H/stdin.json"
   OUT="$(env "${envv[@]}" "${EXTRA_ENV[@]}" "$REAL_BASH" "$script" "$@" <"$H/stdin.json" 2>"$H/stderr")"
   RC=$?
@@ -628,5 +634,13 @@ run "$CAPTURE" hook-stop
 assert_eq "stop bumped counter" 4 "$(cat "$D/unchanged")"
 sweep
 assert_eq "sweep then fires" draft "$(last_field sweep_ran result)"
+
+echo "# the draft write runs under the session lock (so dismiss --expect cannot interleave)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=hold-lock)
+sweep
+sleep 2   # the backgrounded lock holder outlives the child; let it finish before asserting
+assert_eq "draft had NOT landed while another process held the lock" absent "$(cat "$OUTDIR/draft_at_release" 2>/dev/null)"
+assert_file "draft landed once the lock was released" "$D/draft"
+assert_eq "result draft" draft "$(last_field sweep_ran result)"
 
 [ "$fail" = 0 ] && echo "ALL PASSED" || { echo "FAILED"; exit 1; }

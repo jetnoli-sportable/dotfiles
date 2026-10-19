@@ -27,6 +27,10 @@
 # untouched, with its review state: the NEW answer goes straight to shelved/ (reason
 # `superseded`, a `.stale` sidecar when this run is stale) and the draft is not replaced.
 #
+# The draft-writing tail (overlap check through draft write / late shelve) holds the
+# session lock, the same one `wb-capture.sh dismiss --expect` takes (never held
+# across the Haiku child).
+#
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
 set -uo pipefail
@@ -175,6 +179,10 @@ fi
 # answer straight away (reason `superseded`): shelving the shown draft would pull it
 # out from under the review. Otherwise shelve the older draft first, then write this
 # one. If shelving fails the answer is dropped and the content retried (result error).
+# The rest (superseded check -> draft write -> late shelve) runs under the session
+# lock, so a `dismiss --expect` can't check and remove between this sweep's checks
+# and its write. Never held across the child run above; nothing in here re-locks.
+lock_session "$SDIR"
 moved=false
 stale_new=false
 [ -n "$snap_hash" ] && [ "$snap_hash" != "$(section_hash)" ] && stale_new=true
@@ -214,6 +222,7 @@ if [ "$result" = draft ] && [ "$moved" = false ]; then
   # a failed shelve leaves the draft in the session dir for the reaper to shelve
   [ "$late" = true ] && [ "$result" = draft ] && shelve_draft "$SID" session_end
 fi
+unlock_session
 
 # the excerpt was consumed unless the sweep failed (retry that content next time).
 # Written only now, after the superseded shelve and the draft write, so a failure

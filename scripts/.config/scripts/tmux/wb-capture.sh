@@ -42,6 +42,13 @@
 #                  nudge it removes only marker + outstanding and keeps any sweep
 #                  draft (never shown to the user), draft_stale, draft_strikes,
 #                  reviewing and nudged_draft; the event is not tagged stale.
+#   dismiss --expect none|<sha>
+#                  compare-before-delete, bare session dismiss only: refuses (stderr
+#                  `draft changed since status; review it first`, exit 1, nothing removed,
+#                  nothing logged) if a draft exists and `none` was expected, or its sha1
+#                  (`status`'s `draft_sha:` line) differs. No draft, or a matching sha:
+#                  dismisses as usual. Check + removal run under the session lock, which
+#                  the sweep's draft write also takes. With a <path> or --task: exit 1.
 #   dismiss <path> dismiss one SHELVED draft: delete it, log `shelved_dismissed`
 #                  (no source). <path> must be a shelved draft of this task, or of
 #                  the task named by `--task <stem>` (below).
@@ -72,7 +79,8 @@
 #                  session id logged, as always. A bare `dismiss` (no path, no --task) is a
 #                  session verb and keeps the guards.
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
-#   status         print pending marker/draft (with paths), mute state, the
+#   status         print pending marker/draft (with paths; `draft_sha: <sha1>` after a
+#                  present draft), mute state, the
 #                  log path, then this task's shelved drafts (one `shelved: <path>`
 #                  line each, `(stale)` when marked; `shelved: none`) —
 #                  human-readable lines. A stale draft adds a warning line plus
@@ -726,10 +734,28 @@ agent_session_dir() {
   SDIR="$(session_dir "$SID")" || fail_open "invalid session id on pane; nothing changed"
 }
 
-cmd_clear_or_dismiss() { # <log-event|""> [--draft]
-  local drop_draft=0
+# draft_sha — sha1 of $SDIR/draft, empty when there is no draft or no sha1sum.
+draft_sha() { sha1sum <"$SDIR/draft" 2>/dev/null | cut -d' ' -f1; }
+
+cmd_clear_or_dismiss() { # <log-event|""> [--draft|""] [expect: none|<sha>]
+  local drop_draft=0 expect="${3:-}" locked=0
   [ "${2:-}" = --draft ] && drop_draft=1
   agent_session_dir
+  # compare-before-delete: `dismiss --expect none|<sha>` refuses (nothing removed,
+  # nothing logged) when the draft present is not the one the caller saw. The check and
+  # the removal run under the session lock, which the sweep's draft write also takes,
+  # so a draft can't land between the two.
+  if [ -n "$expect" ]; then
+    lock_session "$SDIR"; locked=1
+    if [ -e "$SDIR/draft" ]; then
+      local cur=""; [ "$expect" = none ] || cur="$(draft_sha)"
+      if [ "$expect" = none ] || [ -z "$cur" ] || [ "$cur" != "$expect" ]; then
+        unlock_session
+        echo "wb-capture: draft changed since status; review it first (nothing changed)" >&2
+        exit 1
+      fi
+    fi
+  fi
   local pending=0 f
   for f in marker draft outstanding; do [ -e "$SDIR/$f" ] && pending=1; done
   # clear runs only after /wb-decide's write; if hook-posttool missed that
@@ -755,6 +781,7 @@ cmd_clear_or_dismiss() { # <log-event|""> [--draft]
     remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding reviewing
   fi
   if [ "$1" = dismissed ] && [ "$pending" = 1 ]; then log_event "$SID" dismissed "" "$dx"; fi
+  [ "$locked" = 1 ] && unlock_session
 }
 
 cmd_status() {
@@ -763,6 +790,11 @@ cmd_status() {
   for f in marker draft; do
     if [ -e "$SDIR/$f" ]; then echo "$f: present ($SDIR/$f)"; else echo "$f: none"; fi
   done
+  # the draft's sha1, for `dismiss --expect <sha>` (compare-before-delete)
+  if [ -e "$SDIR/draft" ]; then
+    local dsha; dsha="$(draft_sha)"
+    [ -n "$dsha" ] && echo "draft_sha: $dsha"
+  fi
   if [ -e "$SDIR/draft_stale" ] && [ -e "$SDIR/draft" ]; then
     echo "draft: the task file changed while it was being written, so it may already be recorded"
     local tp="${TASK_PATH:-}" cnt; cnt="$(read_num "$SDIR/draft_stale")"
@@ -943,13 +975,16 @@ cmd_log_shelved_left() {
   log_event "" shelved_left "" "{\"count\":$((10#$count))}"
 }
 
-# parse_resolve_args <args...> — accept/dismiss operands: [--begin] [--task <stem>] [<path>].
-# Sets R_BEGIN (0|1), R_TASK, R_PATH. A bad --task exits 1.
+# parse_resolve_args <args...> — accept/dismiss operands: [--begin] [--task <stem>] [--expect <none|sha>] [<path>].
+# Sets R_BEGIN (0|1), R_TASK, R_PATH, R_EXPECT/R_HAS_EXPECT (the value is consumed, never a path). A bad --task exits 1.
 parse_resolve_args() {
-  R_BEGIN=0 R_TASK="" R_PATH=""
+  R_BEGIN=0 R_TASK="" R_PATH="" R_EXPECT="" R_HAS_EXPECT=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --begin) R_BEGIN=1; shift ;;
+      --expect)
+        [ $# -ge 2 ] && [ -n "$2" ] || { echo "wb-capture: --expect needs 'none' or a draft sha1 (nothing changed)" >&2; exit 1; }
+        R_EXPECT="$2"; R_HAS_EXPECT=1; shift 2 ;;
       --task)
         stem_ok "${2:-}" || { echo "wb-capture: --task needs a task stem (nothing changed)" >&2; exit 1; }
         R_TASK="$2"; shift 2 ;;
@@ -995,6 +1030,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     dismiss|accept)
       parse_resolve_args "${@:2}"
       if [ "$verb" = accept ] || [ -n "$R_PATH" ] || [ -n "$R_TASK" ]; then
+        [ "$R_HAS_EXPECT" = 1 ] && { echo "wb-capture: --expect only goes with a bare session dismiss, not accept, <path> or --task (nothing changed)" >&2; exit 1; }
         [ -n "${WB_CAPTURE_SWEEP:-}" ] && quiet_exit
         if [ "$verb" = dismiss ]; then cmd_shelved shelved_dismissed "$R_PATH"
         elif [ "$R_BEGIN" = 1 ]; then cmd_accept_begin "$R_PATH"
@@ -1008,7 +1044,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 
   case "$verb" in
     clear)   cmd_clear_or_dismiss "" "${2:-}" ;;
-    dismiss) cmd_clear_or_dismiss dismissed ;;
+    dismiss) cmd_clear_or_dismiss dismissed "" "$R_EXPECT" ;;
     mute)
       agent_session_dir
       mkdir -p "$SDIR" 2>/dev/null && : >"$SDIR/muted" && log_event "$SID" muted
