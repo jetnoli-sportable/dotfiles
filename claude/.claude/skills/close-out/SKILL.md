@@ -145,9 +145,9 @@ session and decide whether anything was actually decided:
   if a draft exists at that moment, e.g. a sweep landed one since the `status` above:
   on exit 1 re-run `status` and route the new draft through `/wb-decide`'s draft-review
   path, which may turn the answer into "Yes". Without it the bare `dismiss` would delete
-  that draft unseen. (The marker still lands only after a clean dismiss) (otherwise the marker append would be logged `followed`,
-  inflating the follow rate; a dismiss of a phrase nudge keeps any pending draft,
-  which you already routed). Then append a marker entry
+  that draft unseen. Dismiss before the marker, never after: with a nudge still
+  outstanding, the marker append would be logged `followed`, inflating the follow
+  rate. Only after a clean dismiss (exit 0), append a marker entry
   through `wb append <task> Decisions -`:
 
   ```
