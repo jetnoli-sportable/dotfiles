@@ -247,21 +247,29 @@ TASK_STEM=""
 TASK_PATH=""
 INPUT=""
 
+# tmux_task — the one place the current tmux session's @task is read. Sets
+# TASK_PATH and TASK_STEM and returns 0; returns 1 (setting nothing) when not in
+# tmux, tmux is missing, or the session has no @task. Never exits, so callers
+# choose: the guard chain exits quietly, the path-carrying and listing verbs go on.
+tmux_task() {
+  [ -n "${TMUX:-}" ] || return 1
+  command -v tmux >/dev/null 2>&1 || return 1
+  local session task
+  session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  [ -n "$session" ] || return 1
+  task="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+  [ -n "$task" ] || return 1
+  TASK_PATH="$task"
+  task="${task##*/}"
+  TASK_STEM="${task%.md}"
+}
+
 # guard_chain — recursion flag, kill switch, tmux, @task, jq. Sets TASK_STEM.
 guard_chain() {
   [ -n "${WB_CAPTURE_SWEEP:-}" ] && quiet_exit
   [ -e "$KILL_SWITCH" ] && quiet_exit
-  [ -n "${TMUX:-}" ] || quiet_exit
-  command -v tmux >/dev/null 2>&1 || quiet_exit
-  local session task
-  session="$(tmux display-message -p '#S' 2>/dev/null || true)"
-  [ -n "$session" ] || quiet_exit
-  task="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
-  [ -n "$task" ] || quiet_exit
+  tmux_task || quiet_exit
   command -v jq >/dev/null 2>&1 || quiet_exit
-  TASK_PATH="$task"
-  task="${task##*/}"
-  TASK_STEM="${task%.md}"
 }
 
 # session_dir <sid> — print <root>/<sid> if sid is a safe name, else fail 1.
@@ -815,19 +823,12 @@ shelved_draft_path() {
 # --task stem, else the session's @task stem; neither -> stderr + exit 1.
 resolve_shelved_context() {
   SID="" SDIR=""
-  local session task sid
-  if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
-    session="$(tmux display-message -p '#S' 2>/dev/null || true)"
-    if [ -n "$session" ]; then
-      task="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
-      if [ -n "$task" ]; then
-        TASK_PATH="$task"; task="${task##*/}"; TASK_STEM="${task%.md}"
-        sid="$(pane_sid)"
-        # hooks are inert under the kill switch: nothing to protect, nothing to log against
-        if [ ! -e "$KILL_SWITCH" ] && [ -n "$sid" ]; then
-          SDIR="$(session_dir "$sid")" && SID="$sid" || SDIR=""
-        fi
-      fi
+  local sid
+  if tmux_task; then
+    sid="$(pane_sid)"
+    # hooks are inert under the kill switch: nothing to protect, nothing to log against
+    if [ ! -e "$KILL_SWITCH" ] && [ -n "$sid" ]; then
+      SDIR="$(session_dir "$sid")" && SID="$sid" || SDIR=""
     fi
   fi
   [ -n "$R_TASK" ] && TASK_STEM="$R_TASK"
@@ -904,12 +905,7 @@ cmd_list_shelved() {
       list_shelved_for "$2" '' ;;
     '')
       # the current session's task, resolved without the guard chain's silent exits
-      local session task
-      if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
-        session="$(tmux display-message -p '#S' 2>/dev/null || true)"
-        task="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
-        task="${task##*/}"; stem="${task%.md}"
-      fi
+      tmux_task && stem="$TASK_STEM"
       stem_ok "${stem:-}" || { echo "wb-capture: shelved: not in a wb task session; pass --all or --task <stem>" >&2; exit 1; }
       list_shelved_for "$stem" '' ;;
     *) echo "usage: wb-capture.sh shelved [--all | --task <stem>]" >&2; exit 1 ;;
