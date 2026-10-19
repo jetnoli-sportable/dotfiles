@@ -9,7 +9,9 @@
 #                  Claude Code hook entry points (stdin JSON read once, session_id
 #                  from `.session_id`; all exit 0, silent on failure).
 #     hook-posttool  (PostToolUse/Bash) a `wb append … Decisions` command sets
-#                  `recorded`; if `outstanding`, logs `followed` and clears it —
+#                  `recorded`; if `outstanding`, logs `followed` and clears it (and, for
+#                  a sweep nudge, draft_strikes; nudged_draft too, so a draft the append
+#                  did not record is nudged again at the next prompt) —
 #                  unless the one-shot `shelved_accept` flag is set (that append
 #                  records a shelved draft; see "Two-phase accept").
 #     hook-stop      (Stop) recorded -> clear, no marker; else (not muted,
@@ -370,6 +372,9 @@ hook_posttool() {
     log_event "$SID" followed "$osrc" "$(stale_extra "$osrc")"
     remove_named "$SDIR" outstanding
     [ "$osrc" = sweep ] && remove_named "$SDIR" draft_strikes
+    # a draft that outlives the append (it was not what got recorded) must be nudged
+    # again at the next prompt, as plain `clear` does, not sit silent until SessionEnd
+    remove_named "$SDIR" nudged_draft
   fi
   remove_named "$SDIR" reviewing
 }

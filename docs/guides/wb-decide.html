@@ -410,7 +410,7 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td>draft pending</td>
-<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again. Only the draft-accept path runs <code>clear --draft</code>, which removes it.</td>
+<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again (so does any <code>wb append … Decisions</code> that resolves the nudge while the draft survives). Only the draft-accept path runs <code>clear --draft</code>, which removes it.</td>
 </tr>
 <tr>
 <td><code>/wb-decide dismiss</code></td>

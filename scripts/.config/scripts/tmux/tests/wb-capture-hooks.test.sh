@@ -676,9 +676,9 @@ assert_eq "one line" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
 assert_nofile "marker cleared" "$D/marker"
 assert_file "draft stays" "$D/draft"
 assert_eq "nudge source sweep" sweep "$(jq -r 'select(.event=="nudge_fired")|.source' "$LOG")"
-posttool 'wb append x Decisions -'     # followed: no strike, hash still matches
+posttool 'wb append x Decisions -'     # followed: no strike; nudged_draft dropped (D16)
 prompt "again"
-assert_eq "same draft not re-nudged" "" "$OUT"
+assert_match "kept draft is nudged again after followed (D16)" 'background review drafted' "$OUT"
 echo "changed body" >"$D/draft"
 prompt "again"
 assert_match "changed draft re-nudged" 'drafted an unrecorded decision' "$OUT"
@@ -963,5 +963,26 @@ new_scenario
 hook hook-stop 'not json'; assert_eq "bad json exit" 0 "$RC"; assert_eq "bad json quiet" "" "$OUT"
 hook hook-prompt '{"session_id":"../evil"}'; assert_eq "bad sid exit" 0 "$RC"
 assert_nofile "no traversal" "$CAP/../evil"
+
+echo "# posttool followed drops nudged_draft: a draft that survives the append is nudged again"
+new_scenario; mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"
+assert_eq "sweep nudge outstanding" sweep "$(cat "$D/outstanding")"
+assert_file "nudged_draft recorded" "$D/nudged_draft"
+posttool 'wb append ~/code/tasks/x.md Decisions -'
+assert_eq "followed logged" 1 "$(count_ev followed)"
+assert_nofile "followed drops outstanding" "$D/outstanding"
+assert_nofile "followed drops nudged_draft" "$D/nudged_draft"
+assert_file "the kept draft survives" "$D/draft"
+stop "recorded something else"
+prompt "next"
+assert_match "kept draft is nudged again at the next prompt" 'draft|decision' "$OUT"
+assert_eq "re-nudge is a sweep nudge" sweep "$(cat "$D/outstanding" 2>/dev/null)"
+# the shelved_accept early return is untouched: it keeps nudged_draft and the nudge
+new_scenario; mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"; : >"$D/shelved_accept"
+posttool 'wb append ~/code/tasks/x.md Decisions -'
+assert_file "shelved_accept append keeps nudged_draft" "$D/nudged_draft"
+assert_file "shelved_accept append keeps outstanding" "$D/outstanding"
 
 [ "$fail" = 0 ] && echo "ALL PASSED" || { echo "FAILED"; exit 1; }
