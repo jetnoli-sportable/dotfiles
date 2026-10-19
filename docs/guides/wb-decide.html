@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>wb-decide</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="skills">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="gen">docgen · generated from <b>docs/guides/wb-decide.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-10-18</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">wb-decide</div>
+    <div class="brand-sub">Record a decision into ## Decisions — and the hooks that nudge you to when one goes by unrecorded.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">skills · guide</span>
+      <h1>wb-decide</h1>
+      <p class="dek">Record a decision into ## Decisions — and the hooks that nudge you to when one goes by unrecorded.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p><code>/wb-decide</code> is the &quot;record&quot; half of decision auto-capture. Decisions made
+in a wb session used to vanish unless someone remembered to write them
+into the task file's <code>## Decisions</code> section. The <code>wb-capture</code> plugin
+(<code>claude/.claude/skills/wb-capture/</code>, hooks only) watches each turn and,
+when one read like a decision, injects a one-line nudge into your next
+prompt. The live agent — the only one holding the whole conversation —
+then decides whether something was really settled and, if so, appends it
+via <code>wb append … Decisions</code>. Hooks never write the task store; the skill
+does.</p>
+<p><strong>What fires when (one turn, in plain words):</strong></p>
+<ol>
+<li>You send a prompt. If a nudge is queued, one line is added to that
+prompt's context and logged as <code>nudge_fired</code>. (Prompts that are just a
+<code>&lt;task-notification&gt;</code> from a finished background sub-agent get nothing.)</li>
+<li>Claude replies. If it ran <code>wb append … Decisions</code>, that is logged as
+<code>followed</code> and nothing further is queued.</li>
+<li>When the turn ends, the reply is phrase-matched against a short list
+(&quot;we decided&quot;, &quot;going with&quot;, &quot;settled on&quot;, …). A hit queues a nudge for
+the next prompt, then a cooldown (3 turns) keeps it from nagging. A
+nudge that was delivered but not acted on by the end of its turn is
+logged <code>ignored</code>.</li>
+<li>Also at turn end, an async background Haiku &quot;sweep&quot; looks at the recent
+transcript if the task file has gone 4 turns unchanged. If it finds an
+unrecorded decision it writes a draft; the next prompt gets a nudge
+pointing at it. It is propose-only, tool-less, and skips itself when
+muted, when a draft is already pending, when nothing new was said, or
+after 3 failed runs in a row (<code>claude</code> missing, logged out or rate-limited).
+A draft nudge that is ignored is delivered once more; ignored a second
+time, the draft is <strong>shelved</strong> (logged <code>draft_shelved</code>), not deleted, and
+sweeping resumes. A draft is only ever removed by your accept or dismiss.
+If two sweeps overlap and a second draft arrives while one is already
+there, the older one is shelved (reason <code>superseded</code>) before the new one
+is written, never overwritten. The exception is a draft you are looking at
+(under review, or its draft nudge still outstanding): that one is left
+exactly as it is, and the <em>new</em> answer is shelved instead (also reason
+<code>superseded</code>), so a review is never pulled out from under you.</li>
+<li>Session end writes a tombstone (and logs <code>pending_at_end</code> if something
+was still unrecorded) and shelves a pending draft; an hourly reaper cleans
+up old state dirs, shelving any draft it finds first. A sweep draft that
+finishes <em>after</em> the session ended is written and shelved too (reason
+<code>session_end</code>), not thrown away.</li>
+</ol>
+<p>Every nudge resolves exactly once: <code>followed</code>, <code>dismissed</code> or <code>ignored</code>.</p>
+<p><strong>A review over several messages.</strong> When <code>/wb-decide</code> shows you a pending
+draft it runs <code>wb-capture.sh review</code>, which marks the draft <em>under review</em>:
+while you and Claude go back and forth (questions, edits), the nudge carries
+over to the next turn instead of counting as ignored, and nothing new
+nudges. It resolves once, when the entry is recorded (<code>followed</code>) or
+dismissed. After four carried turns with neither, the review counts as
+abandoned and is struck like an ignored nudge. Only that draft-review path
+calls <code>review</code> (and only while the draft's sweep nudge is outstanding; a
+repeat call never resets the turn count). <code>status</code> is read-only, so just
+checking state never puts a session under review.</p>
+<p><strong>Shelved drafts.</strong> A shelved draft waits in
+<code>~/.local/state/wb/capture/shelved/&lt;task&gt;/</code> (it outlives the session) until
+you decide. <code>/wb-decide status</code> lists them (<code>shelved: &lt;path&gt;</code>), <code>/wb-decide shelved</code> walks through them one at a time, and <code>/close-out</code> asks about each
+before a task winds down. Rejecting runs <code>wb-capture.sh dismiss &lt;path&gt;</code>.
+Phrase nudges carry no draft, so ignoring one shelves nothing.</p>
+<p>A shelved draft whose task is already closed is still resolvable from any wb
+session, or from none: path-carrying <code>accept</code>/<code>dismiss</code> ignore the kill switch and
+need no <code>@task</code>. The stem comes from <code>--task</code>, else the session's task, else the
+command exits 1 with a message. With no session the event is logged with an empty
+<code>session_id</code> and <code>accept --begin</code> writes no flag (the hooks are inert, so there is
+nothing to protect). <code>wb-capture.sh shelved --task &lt;stem&gt;</code> lists one task's drafts,
+<code>wb-capture.sh shelved --all</code> lists every task's grouped by task, and
+<code>dismiss --task &lt;stem&gt; &lt;path&gt;</code> / <code>accept [--begin] --task &lt;stem&gt; &lt;path&gt;</code>
+resolve one (accepting records it into <em>that</em> task's <code>## Decisions</code>).
+Drafts left behind by <code>wb done --leave-shelved</code> are reachable this way, and
+<code>/weekly-review</code> runs <code>shelved --all</code> to surface the ones whose task is done.</p>
+<p>Accepting is <strong>two-phase</strong>: <code>wb-capture.sh accept --begin &lt;path&gt;</code> immediately
+before <code>wb append &lt;task&gt; Decisions -</code> (after any confirmation or editing), then
+<code>wb-capture.sh accept &lt;path&gt;</code>. Recording a
+shelved draft is an ordinary <code>wb append … Decisions</code>, which the PostToolUse
+hook would otherwise count as the answer to whatever <em>other</em> nudge is live
+in the session (marking it <code>followed</code> and wiping its strikes and review
+state). The <code>--begin</code> call leaves a one-shot flag; the hook consumes it, notes
+the turn as recorded and leaves the live nudge alone; the final <code>accept</code>
+deletes the draft and logs <code>shelved_accepted</code> (it does not touch the flag, so
+all three commands in one Bash call still work: PostToolUse fires after the
+whole call). An abandoned accept just leaves the draft shelved: the flag is
+dropped by the next real prompt.</p>
+<p><strong><code>wb done</code> won't strand decision drafts.</strong> A shelved draft only gets reviewed
+by <code>/close-out</code> or <code>/wb-decide shelved</code>, and a draft still pending in a live
+session of the task would be shelved by SessionEnd right after the close, so
+<code>wb done</code> refuses (before it touches anything, including a store-only close)
+while <code>shelved/&lt;task&gt;/</code> holds any draft or a live session dir whose <code>taskpath</code>
+is this task holds a <code>draft</code>. It asks <code>wb-capture.sh pending-for-task</code> rather
+than reading the state dir itself. It prints each path, labelled by kind, with that
+kind's way forward. A shelved draft (<code>shelved: &lt;path&gt;</code>): run <code>/close-out</code> or
+<code>/wb-decide shelved</code>, or re-run <code>wb done --leave-shelved</code> to close anyway. A live
+session's pending draft (<code>pending in session &lt;sid&gt;: &lt;path&gt;</code>): resolve it with
+<code>/wb-decide</code> in that session, or re-run with <code>--leave-shelved</code> (SessionEnd or the
+reaper shelves it later, and <code>--task &lt;stem&gt;</code> resolves it then).
+<code>--leave-shelved</code> closes, logs one <code>shelved_left{count}</code> line to the capture
+log (via <code>wb-capture.sh log-shelved-left</code>) and notes the left drafts in the
+task's <code>wb done</code> Handoffs entry; <code>/close-out</code> routes a <code>draft: present</code> line
+through the draft-review path first, so a bare <code>wb done</code> is the only way to hit
+the refusal for a live draft. (A
+<code>wb done</code> invoked through <code>/wb-done</code> relays the refusal; it never adds
+<code>--leave-shelved</code> on its own.)</p>
+<p><strong>The two nudge lines</strong> (what Claude sees, verbatim):</p>
+<pre><code>[wb-capture] Last turn read like a decision (&quot;&lt;matched phrase&gt;&quot;). If it settled something, run /wb-decide; otherwise ignore or /wb-decide dismiss.
+[wb-capture] A background review drafted an unrecorded decision (&lt;state dir&gt;/draft). Run /wb-decide to review/accept, or /wb-decide dismiss.
+</code></pre>
+<p>The first is <code>source=phrase</code>, the second <code>source=sweep</code>. A draft nudge
+beats a phrase nudge when both are pending.</p>
+<p><strong>Stale drafts.</strong> The sweep snapshots the task's <code>## Decisions</code> section (the
+exact text Haiku is shown), then waits up to a minute for Haiku. Edits
+elsewhere in the task file don't count. If <code>## Decisions</code> changed in that
+window (usually <code>/wb-decide</code> recording the very decision being drafted), the
+answer is thrown away and Haiku is asked once more against the current
+section, so it either answers NONE or drafts something genuinely new
+(<code>sweep_ran</code> logs <code>rerun: true</code>). Only if the section changes <em>again</em> during
+that rerun is the draft kept but flagged possibly stale: the nudge says it
+may already be recorded, and <code>/wb-decide status</code> lists the <code>## Decisions</code>
+entries added since. Claude shows you the draft next
+to those entries and asks whether it is a duplicate; if so it dismisses it.
+The events that resolve a stale draft's nudge carry <code>&quot;stale&quot;:true</code>, so
+dismissals of duplicates don't distort the graduation review's <code>dismissed</code>
+count.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>In any wb session, after something is actually settled:</p>
+<pre><code>/wb-decide
+</code></pre>
+<p>or <code>/wb-decide &lt;one-line hint&gt;</code> to say which decision. Claude reads the
+task's existing <code>## Decisions</code> for style, composes decided / rejected /
+why, appends it with <code>wb append</code>, and confirms:</p>
+<pre><code>Recorded to ## Decisions.
+</code></pre>
+<p>Check the machinery any time:</p>
+<pre><code>/wb-decide status
+</code></pre>
+<h2 id="reference">Reference</h2>
+<p><strong>Modes of <code>/wb-decide</code></strong></p>
+<table>
+<thead>
+<tr>
+<th>Invocation</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/wb-decide [hint]</code></td>
+<td>Compose a new entry from the conversation (or accept a pending draft) and <code>wb append</code> it under <code>## Decisions</code>, then clear capture state. If nothing was actually decided it says so and dismisses instead of writing.</td>
+</tr>
+<tr>
+<td>draft pending</td>
+<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again (so does any <code>wb append … Decisions</code> that resolves the nudge while the draft survives). Only the draft-accept path runs <code>clear --draft</code>, which removes it.</td>
+</tr>
+<tr>
+<td><code>/wb-decide dismiss</code></td>
+<td>Drop the pending marker/draft, log <code>dismissed</code>. Quiet no-op if nothing was pending. The draft-review path and <code>/close-out</code> call <code>wb-capture.sh dismiss --expect &lt;draft_sha&gt;</code> (or <code>--expect none</code>): <code>status</code> prints the draft's sha1 as <code>draft_sha:</code>, and the dismiss refuses (exit 1, nothing removed or logged) if a different draft, or any draft for <code>none</code>, is present, so a draft the sweep wrote after you looked is never deleted unseen. Bare <code>dismiss</code> is unchanged.</td>
+</tr>
+<tr>
+<td><code>/wb-decide mute</code> / <code>unmute</code></td>
+<td>Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged.</td>
+</tr>
+<tr>
+<td><code>/wb-decide status</code></td>
+<td>Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts (every <code>shelved:</code> line is relayed verbatim); for a stale draft, a warning plus the Decisions entries added since the snapshot. Read-only.</td>
+</tr>
+<tr>
+<td><code>/wb-decide shelved</code></td>
+<td>Walk this task's shelved drafts one at a time: accept/edit (<code>accept --begin &lt;path&gt;</code> right before the record, then <code>accept &lt;path&gt;</code>) or reject (<code>dismiss &lt;path&gt;</code>). A closed task's drafts take <code>--task &lt;stem&gt;</code> on each.</td>
+</tr>
+</tbody>
+</table>
+<p>Entries are append-only; a correction is a new entry carrying a
+<code>(supersedes: &lt;date&gt; &quot;&lt;title fragment&gt;&quot;)</code> line that names the one it replaces
+(the date plus a quoted substring of its title). The write uses a
+<code>&lt;&lt;'WB_DECISION_END'</code> heredoc rather than <code>&lt;&lt;'EOF'</code>, so a draft line reading
+exactly <code>EOF</code> can't end it early.</p>
+<p><strong>Paths</strong></p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>State root</td>
+<td><code>~/.local/state/wb/capture/</code> (honours <code>XDG_STATE_HOME</code>)</td>
+</tr>
+<tr>
+<td>Per-session state</td>
+<td><code>~/.local/state/wb/capture/&lt;session_id&gt;/</code> (marker, draft, muted, cooldown, ended, …)</td>
+</tr>
+<tr>
+<td>Event log</td>
+<td><code>~/.local/state/wb/capture/log.jsonl</code> (rotated to <code>log.jsonl.1</code> above 5 MB)</td>
+</tr>
+<tr>
+<td>Config (optional, untracked)</td>
+<td><code>~/.config/wb/capture.conf</code></td>
+</tr>
+<tr>
+<td>Kill switch</td>
+<td><code>~/.local/state/wb/disable-capture</code></td>
+</tr>
+<tr>
+<td>Shelved drafts</td>
+<td><code>~/.local/state/wb/capture/shelved/&lt;task-stem&gt;/&lt;timestamp&gt;-&lt;session&gt;.md</code> (a <code>.stale</code> sidecar marks a stale one)</td>
+</tr>
+<tr>
+<td>Script</td>
+<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear [--draft]</code>, `dismiss [--expect none</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Config keys</strong> — <code>KEY=value</code> lines in <code>capture.conf</code>, parsed line by line
+(never sourced), unknown keys and bad values ignored/defaulted:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>phrases</code></td>
+<td>strong list: <code>we decided|decided to|going with|let's go with|we'll go with|i'll go with|went with|settled on|the decision is|chose |opting for|ruled out</code></td>
+<td><code>|</code>-separated, case-insensitive fixed strings</td>
+</tr>
+<tr>
+<td><code>cooldown</code></td>
+<td><code>3</code></td>
+<td>turns between phrase nudges</td>
+</tr>
+<tr>
+<td><code>sweep_every</code></td>
+<td><code>4</code></td>
+<td>unchanged turns before a sweep</td>
+</tr>
+<tr>
+<td><code>sweep</code></td>
+<td><code>on</code></td>
+<td><code>on</code> / <code>off</code> — the Haiku background sweep</td>
+</tr>
+<tr>
+<td><code>sweep_timeout</code></td>
+<td><code>60</code></td>
+<td>seconds for the sweep child (<code>0</code> means the default 60; the reaper's grace for an ended session, 2 x timeout + 60s, uses the same fallback)</td>
+</tr>
+<tr>
+<td><code>sweep_max_failures</code></td>
+<td><code>3</code></td>
+<td>consecutive failed sweeps before the sweep stops for the session (<code>0</code> = never stop)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Log events</strong> (<code>log.jsonl</code>, one JSON object per line: <code>ts</code>, <code>session_id</code>,
+<code>task</code>, <code>event</code>, optional <code>source</code>): <code>nudge_fired{source}</code>,
+<code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code> (these three mean only &quot;a
+nudge resolved&quot;), <code>muted</code>, <code>unmuted</code>,
+<code>sweep_ran{result: none|draft|error|timeout}</code> (<code>rerun: true</code> when <code>## Decisions</code>
+changed during the first run and Haiku was asked again; <code>stale: true</code> when it
+changed again during the rerun; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
+<code>draft_shelved</code> carry <code>stale: true</code> too when they resolve a stale draft),
+<code>sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}</code>,
+<code>draft_shelved{reason: ignored_twice|session_end|reaped|superseded}</code>,
+<code>shelved_accepted</code> / <code>shelved_dismissed</code> (a shelved draft accepted or
+rejected; no <code>source</code>, and <code>stale: true</code> when it was a stale one, so they
+never count toward the nudge follow rate), <code>shelved_left{count}</code> (logged by
+<code>wb done --leave-shelved</code>; its <code>session_id</code> is empty and it carries no <code>source</code>),
+<code>pending_at_end{marker,draft}</code> (from SessionEnd; the sweep logs it as just
+<code>{draft:true}</code> when the session ended while Haiku was still running, and
+shelves the draft right after), <code>pending_orphaned</code> (the reaper logs it only
+once the dir is really removed, after its <code>ignored</code> and <code>draft_shelved</code>).</p>
+<p><strong>Measuring it</strong> — follow / dismissal / ignored rate overall and per source,
+plus sweep result counts (dismissals carry no source, so they're overall only)
+and a shelved-draft rollup (how many were shelved, accepted, dismissed; kept
+apart because nothing nudges a shelved draft):</p>
+<pre><code class="language-bash">jq -s '. as $all
+| def pct($a;$b): if $b == 0 then null else (($a * 1000 / $b | round) / 10) end;
+{
+  by_source: (
+    [.[] | select(.event == &quot;nudge_fired&quot;)] | group_by(.source)
+    | map({ source: .[0].source, fired: length })
+    | map(. as $r | $r + {
+        followed: ([$all[] | select(.event == &quot;followed&quot; and .source == $r.source)] | length),
+        ignored:  ([$all[] | select(.event == &quot;ignored&quot;  and .source == $r.source)] | length) }
+      | . + { follow_pct: pct(.followed; .fired), ignored_pct: pct(.ignored; .fired) })
+  ),
+  overall: ( ([.[] | select(.event == &quot;nudge_fired&quot;)] | length) as $n
+    | { fired: $n,
+        followed_pct:  pct([.[] | select(.event == &quot;followed&quot;)]  | length; $n),
+        dismissed_pct: pct([.[] | select(.event == &quot;dismissed&quot;)] | length; $n),
+        ignored_pct:   pct([.[] | select(.event == &quot;ignored&quot;)]   | length; $n) } ),
+  sweep_results: ([.[] | select(.event == &quot;sweep_ran&quot;)] | group_by(.result) | map({(.[0].result): length}) | add),
+  shelved: { shelved:   ([$all[] | select(.event == &quot;draft_shelved&quot;)]     | length),
+             accepted:  ([$all[] | select(.event == &quot;shelved_accepted&quot;)]  | length),
+             dismissed: ([$all[] | select(.event == &quot;shelved_dismissed&quot;)] | length) }
+}' ~/.local/state/wb/capture/log.jsonl
+</code></pre>
+<p><strong>Close-out interaction.</strong> <code>/close-out</code> step 4: if <code>## Decisions</code> is still
+empty at wind-down, the agent either writes a real entry or appends an
+affirmed marker (<code>### &lt;timestamp&gt; — close-out</code> / <code>_No decisions: &lt;reason&gt;_</code>)
+via <code>wb append</code>, after running <code>wb-capture.sh dismiss --expect none</code> so no nudge is
+outstanding when the marker lands (otherwise it would be logged <code>followed</code>); <code>--expect none</code>
+refuses if a sweep landed a draft meanwhile, and the draft is then reviewed first.
+A pending draft is routed through the draft-review path first. An unmarked
+empty section keeps meaning &quot;nobody checked&quot;.
+Tasks closed with bare <code>wb done</code> (no <code>/close-out</code>) are left unmarked.</p>
+<p><strong>Rollout.</strong> Stow (<code>stow --no-folding -t &quot;$HOME&quot; claude scripts</code> from the
+main checkout after fast-forwarding) and restart Claude sessions. The
+plugin loads automatically as <code>wb-capture@skills-dir</code>. Already-running
+sessions don't get the hooks; editing the scripts takes effect live, but
+adding or removing a hook entry needs a restart.</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li>Phrase matching is deliberately conservative (&lt;1% of messages); decisions
+phrased differently are the sweep's job, and the sweep only runs after 4
+unchanged turns.</li>
+<li>Phrase nudges are hints — many will be non-decisions; that's what
+<code>dismissed</code> and <code>ignored</code> measure.</li>
+<li>Only works inside a wb tmux session with <code>@task</code> set; elsewhere every
+verb is a silent no-op.</li>
+<li>Hooks can't force the agent to act; a nudge may simply be ignored.</li>
+<li><code>/clear</code> and <code>wb resume</code> session-id behaviour is still being confirmed
+live (see the dossier's live-verification checklist).</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<p>A graduation review (merge date + 14 days) decides, from the log numbers
+above, whether to keep, retune the phrase list, or drop the feature.</p>
+<p>To turn it off, in order of bluntness:</p>
+<ul>
+<li><strong>Kill switch (all sessions, instant):</strong> <code>touch ~/.local/state/wb/disable-capture</code>;
+<code>rm</code> the file to re-enable. (Resolving a shelved draft by path or <code>--task</code> still
+works with it on: that is cleanup of existing drafts, not capture.)</li>
+<li><strong>Sweep only:</strong> <code>sweep=off</code> in <code>~/.config/wb/capture.conf</code>.</li>
+<li><strong>One session:</strong> <code>/wb-decide mute</code> (and <code>/wb-decide unmute</code>).</li>
+<li><strong>Removal:</strong> delete the plugin dir and restart sessions.</li>
+</ul>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guides/wb-decide.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>

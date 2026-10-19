@@ -13,9 +13,8 @@ threads, then the wind-down, in that order, because the sweep has to happen
 
 > **Store-only field/status edits:** never Edit/Write a task file's frontmatter by
 > hand — `wb status <task-ref> <planned|paused|doing|review>` flips status and
-> `wb set <task-ref> <field> <value>` (fields: priority value size parent
-> depends_on jira tags path) writes any other frontmatter field under the task
-> lock, both refusing when a live session owns the task.
+> `wb set <task-ref> <field> <value>` (any field `wb help` lists) writes any
+> other frontmatter field under the task lock, both refusing when a live session owns the task.
 
 ## Scope — what this does and doesn't do
 
@@ -110,6 +109,58 @@ If the task file already has this filled in from earlier in the session
 (e.g. a mid-session `/wb-save` already wrote rich `## Decisions` content),
 don't duplicate — extend only where the sweep in step 2 added something new.
 
+Then check for **decision drafts** — background-drafted decisions nobody
+accepted or dismissed. Run `~/.config/scripts/tmux/wb-capture.sh status`.
+
+If it prints `draft: present`, that is this session's own pending draft (a sweep
+that landed during or just before the close-out). Route it through `/wb-decide`'s
+draft-review path before winding down: show it, then either accept/edit it
+(`wb append <task> Decisions -`, then `wb-capture.sh clear --draft`) or
+`wb-capture.sh dismiss --expect <draft_sha from that status>` (on exit 1 the draft
+changed since you saw it: re-run `status` and show the new one; then re-run `status`
+after a dismiss: if it still prints `draft: present`, a phrase nudge was outstanding
+and `dismiss` kept the draft, so run the same `dismiss --expect <sha>` again). `wb done` refuses while a live draft remains, so skipping
+this only defers it.
+
+For each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
+(→ the full sequence is `/wb-decide` step 2b: after any confirmation, run
+`accept --begin <path>`, the `wb append <task> Decisions -` and `accept <path>` in
+ONE Bash call, skipping the final `accept <path>` if the append is abandoned; the
+`--begin` right before the append keeps the record from being counted as an
+answer to a live nudge) or dismiss
+(→ `wb-capture.sh dismiss <path>`). Never drop one silently; a `(stale)` one may
+already be recorded, so compare it with the newest `## Decisions` entries first.
+
+After folding real Decisions, if `## Decisions` is **still empty**, review the
+session and decide whether anything was actually decided:
+
+- **Yes** — write it now (via `/wb-decide`, or the same `wb append <task>
+  Decisions -`), as a real entry. No marker.
+- **No** — first re-run `~/.config/scripts/tmux/wb-capture.sh status` immediately
+  before dismissing: a sweep may have landed a draft since the check above. If it
+  prints `draft: present`, route that draft through `/wb-decide`'s draft-review path
+  first (a real decision then means the answer is "Yes" after all). Then run
+  `~/.config/scripts/tmux/wb-capture.sh dismiss --expect none`, so no nudge is still
+  outstanding when the marker lands. `--expect none` refuses (exit 1, nothing removed)
+  if a draft exists at that moment, e.g. a sweep landed one since the `status` above:
+  on exit 1 re-run `status` and route the new draft through `/wb-decide`'s draft-review
+  path, which may turn the answer into "Yes". Without it the bare `dismiss` would delete
+  that draft unseen. Dismiss before the marker, never after: with a nudge still
+  outstanding, the marker append would be logged `followed`, inflating the follow
+  rate. Only after a clean dismiss (exit 0), append a marker entry
+  through `wb append <task> Decisions -`:
+
+  ```
+  ### <YYYY-MM-DD HH:MM> — close-out
+  _No decisions: <one-line reason>_
+  ```
+
+The marker is always an affirmed judgment by the agent, never automatic —
+an unmarked empty `## Decisions` keeps meaning "nobody checked", which is
+what the graduation review counts as a likely miss versus a marked "nothing
+to record". Tasks closed by bare `wb done` without `/close-out` stay
+unmarked (accepted). Never Edit the task file for this; `wb append` only.
+
 ### 5. Check for other active or pending work tied to this task
 
 Before handing off to `wb done`, look for anything that would make winding
@@ -186,6 +237,17 @@ never whether the record gets written first.
   removed, task stays open.
 - **Other live window in the session** — step 5 surfaces it before the
   wind-down launches, especially when `--close` was also requested.
+- **Empty Decisions, nothing decided** — step 4 runs `wb-capture.sh dismiss
+  --expect none` (a draft that landed since `status` makes it refuse: review it
+  first), then appends the `### <timestamp> — close-out` / `_No decisions: <reason>_`
+  marker.
+- **`draft: present` at close-out** — step 4 routes it through `/wb-decide`'s
+  draft-review path (`clear --draft` after recording, or `dismiss`) before the
+  wind-down.
+- **Empty Decisions, but the sweep found a decision** — a real entry is
+  written; no marker.
+- **Decisions already populated** — no marker.
+- **Marker write path** — always `wb append <task> Decisions -`, never Edit.
 
 ## Notes
 

@@ -66,7 +66,7 @@ Two things follow from reading `wb_open_buffer` against that contract:
 ### What to run
 
 ```bash
-wb done [--close] [<session>]
+wb done [--close] [--leave-shelved] [<session>]
 ```
 
 as a **single Bash tool call with `run_in_background: true`** — never
@@ -75,7 +75,7 @@ invoked from inside the session being wound down, and `cmd_done` falls back
 to `tmux display-message -p '#S'` for the current session when none is
 given — `wb.sh:1547-1551`). Only pass `--close` when the user explicitly
 asked for it in *this* invocation (see below) — never by default, and never
-carried over from an earlier turn.
+carried over from an earlier turn. `--leave-shelved` follows the same rule.
 
 After launching, tell the user the wind-down is running and end the turn.
 Do not poll, do not schedule a wakeup, do not keep talking — the background
@@ -93,6 +93,9 @@ command completing IS the signal").
   session too", etc. If the request is ambiguous whether they mean the
   worktree/task or the tmux session itself, ask briefly rather than
   guessing — the two `--close` edge cases below are not reversible.
+- `--leave-shelved`: only when the user's own words in this invocation say to
+  close anyway and leave the shelved decision drafts (see the refusal below).
+  Never add it to get past a refusal on your own initiative.
 - An explicit `<session>` name: pass it through if the user named a
   session other than the one this skill is running in (e.g. tidying up a
   different task from the picker's session list). Otherwise omit it.
@@ -120,6 +123,22 @@ one of, among others:
   output and `commit or stash, then re-run` (stderr, exit 1) — the dirty
   edge case; nothing was removed, nothing was closed, relay the error
   verbatim and stop — don't retry or force anything on the user's behalf.
+- `wb done: N decision draft(s) (shelved, or pending in a live session) for
+  <task> would be stranded (nothing changed):` followed by one line per draft
+  (stderr, exit 1) — wb-capture holds unreviewed decision drafts for this task,
+  of two kinds, each with its own remedy line. `shelved: <path>` drafts: run
+  `/close-out` or `/wb-decide shelved` to accept or dismiss them. `pending in
+  session <sid>: <path>` drafts (a live session's unreviewed draft): resolve it
+  with `/wb-decide` in that session. Either way, `--leave-shelved` closes
+  anyway (SessionEnd or the reaper shelves a pending session draft later;
+  resolve it then with `--task`). Nothing was removed or closed. Relay it
+  verbatim and stop; the user either resolves the drafts and then runs
+  `/wb-done` again, or asks for `/wb-done --leave-shelved` (which closes and
+  logs that the drafts were left on purpose). Don't pick for them. Drafts left
+  that way (or landing after the close) stay resolvable by task stem, from any
+  wb session or none: `wb-capture.sh shelved --task <stem>` lists them and
+  `dismiss --task <stem> <path>` / `accept [--begin] --task <stem> <path>`
+  resolve one.
 - `wb done: $(wb_pending_counts) — consider running /weekly-review` — an
   optional trailing nudge when follow-ups/unreviewed capture entries pass
   the sweep threshold; include it if present.
@@ -166,6 +185,11 @@ one right before the command runs, not a relay of `wb done`'s own output.
   changes: `wb done`'s own dirty-tree error (path + `git status --porcelain`
   output + "commit or stash, then re-run") is relayed as-is; nothing is
   removed, nothing flips to done.
+- **Shelved or live decision drafts** — `/wb-done` for a task with drafts under
+  wb-capture's `shelved/<task>/` or a draft still pending in a live session of
+  the task: `wb done`'s refusal (paths, the per-kind remedy and
+  `--leave-shelved`) is relayed as-is; nothing is removed or flips to done, and
+  `--leave-shelved` is passed only if the user asks for it.
 - **`/wb-done --close`** — also kills the tmux session once wind-down
   finishes. `--close` is passed only because the user asked for it in this
   invocation, never as a default or a carry-over from earlier context; when

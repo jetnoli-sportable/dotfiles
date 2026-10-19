@@ -30,10 +30,11 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
-SLUGS=(alpha beta gamma dirty delta epsilon zeta)
+FIXTURE_STATE="$(mktemp -d -t wb-done-state.XXXXXX)"   # XDG_STATE_HOME: wb-capture's shelved drafts + log
+SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta kappa lambda mu nu)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
-  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS"
+  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_STATE"
   for slug in "${SLUGS[@]}"; do tmux kill-session -t "=$(session_for "$slug")" 2>/dev/null || true; done
 ' EXIT
 
@@ -123,6 +124,8 @@ source "$WB"
 set +e   # wb.sh sets -e; this test intentionally captures non-zero exits
 TASKS_DIR="$FIXTURE_TASKS"
 CODE_DIR="$FIXTURE_CODE"
+export XDG_STATE_HOME="$FIXTURE_STATE"
+CAPROOT="$FIXTURE_STATE/wb/capture"
 wb_open_buffer() { :; }   # no interactive nvim in a test run
 
 status_of() { wb_get_frontmatter "$FIXTURE_TASKS/proj--$1.md" status; }   # <task-file-slug>; reuses wb.sh's own frontmatter reader
@@ -264,6 +267,133 @@ assert "U10 nudge: fires for repo: docgen" 'docgen is roadmap-tracked.*docs/road
   || echo "ok   - U10 nudge: zeta's real worktree removed (repo_dir resolved correctly)"
 status_of_docgen_zeta() { wb_get_frontmatter "$FIXTURE_TASKS/docgen--zeta.md" status; }
 assert "U10 nudge: zeta task flipped to done" '^done$' "$(status_of_docgen_zeta)"
+
+# --- shelved-draft guard (D13 #6): wb done refuses while wb-capture holds ----
+# --- shelved decision drafts for the task, unless --leave-shelved ------------
+eta_session="$(session_for eta)"; eta_file="$FIXTURE_TASKS/proj--eta.md"
+mkdir -p "$CAPROOT/shelved/proj--eta" "$CAPROOT/shelved/proj--other"
+printf '### Chose B\n- decided: B\n' >"$CAPROOT/shelved/proj--eta/20261018T100000-sid-a.md"
+printf '### Chose C\n' >"$CAPROOT/shelved/proj--eta/20261018T110000-sid-b.md"
+: >"$CAPROOT/shelved/proj--eta/20261018T110000-sid-b.md.stale"
+printf 'x\n' >"$CAPROOT/shelved/proj--other/20261018T090000-sid-z.md"
+eta_before="$(cat "$eta_file")"
+out="$(cmd_done "$eta_session" --close 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - shelved guard: non-zero exit" || { echo "FAIL - shelved guard: exit $rc"; fail=1; }
+assert "shelved guard: names the first draft" "$CAPROOT/shelved/proj--eta/20261018T100000-sid-a\\.md" "$out"
+assert "shelved guard: names the second draft" "$CAPROOT/shelved/proj--eta/20261018T110000-sid-b\\.md" "$out"
+assert "shelved guard: counts drafts, not sidecars" '2 decision draft' "$out"
+assert "shelved guard: points at /close-out and /wb-decide shelved" '/close-out or /wb-decide shelved' "$out"
+assert "shelved guard: points at --leave-shelved" '\-\-leave-shelved' "$out"
+assert "shelved guard: labels the shelved drafts" 'shelved: .*20261018T100000-sid-a\.md' "$out"
+case "$out" in *"pending in session"*|*"pending in a session"*) echo "FAIL - shelved guard: shelved-only refusal mentions a session draft"; fail=1 ;; *) echo "ok   - shelved guard: no session-draft remedy when none is pending" ;; esac
+assert "shelved guard: says nothing changed" 'nothing changed' "$out"
+[ -d "$FIXTURE_CODE/proj/.worktrees/eta" ] && echo "ok   - shelved guard: worktree untouched" || { echo "FAIL - shelved guard: worktree removed"; fail=1; }
+assert "shelved guard: task not flipped" '^doing$' "$(status_of eta)"
+[ "$(cat "$eta_file")" = "$eta_before" ] && echo "ok   - shelved guard: task file byte-identical" || { echo "FAIL - shelved guard: task file changed"; fail=1; }
+tmux has-session -t "=$eta_session" 2>/dev/null && echo "ok   - shelved guard: session survives (--close did not run)" || { echo "FAIL - shelved guard: session killed"; fail=1; }
+[ -f "$CAPROOT/shelved/proj--eta/20261018T100000-sid-a.md" ] && echo "ok   - shelved guard: drafts untouched" || { echo "FAIL - shelved guard: draft removed"; fail=1; }
+[ ! -e "$CAPROOT/log.jsonl" ] && echo "ok   - shelved guard: refusal logs nothing" || { echo "FAIL - shelved guard: refusal wrote a log"; fail=1; }
+
+out="$(cmd_done "$eta_session" --leave-shelved 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - --leave-shelved: exits 0" || { echo "FAIL - --leave-shelved: exit $rc: $out"; fail=1; }
+assert "--leave-shelved: task flipped to done" '^done$' "$(status_of eta)"
+[ -d "$FIXTURE_CODE/proj/.worktrees/eta" ] && { echo "FAIL - --leave-shelved: worktree not removed"; fail=1; } || echo "ok   - --leave-shelved: worktree removed"
+[ -f "$CAPROOT/shelved/proj--eta/20261018T100000-sid-a.md" ] && echo "ok   - --leave-shelved: drafts left in place" || { echo "FAIL - --leave-shelved: a draft was removed"; fail=1; }
+assert "--leave-shelved: logs shelved_left with the count" '"event":"shelved_left".*"count":2|"count":2.*"event":"shelved_left"' "$(cat "$CAPROOT/log.jsonl" 2>/dev/null)"
+assert "--leave-shelved: log line names the task" '"task":"proj--eta"' "$(cat "$CAPROOT/log.jsonl" 2>/dev/null)"
+[ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 1 ] && echo "ok   - --leave-shelved: exactly one log line" || { echo "FAIL - --leave-shelved: log line count"; fail=1; }
+assert "--leave-shelved: handoff line records the left drafts" 'left in .*shelved/proj--eta' "$(cat "$eta_file")"
+
+# an empty (or non-draft-only) shelved dir, and a dir for another task, don't block
+theta_session="$(session_for theta)"
+mkdir -p "$CAPROOT/shelved/proj--theta"; printf 'n\n' >"$CAPROOT/shelved/proj--theta/notes.txt"
+out="$(cmd_done "$theta_session" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - shelved guard: empty shelved dir does not block" || { echo "FAIL - shelved guard: empty dir blocked: $out"; fail=1; }
+assert "shelved guard: empty dir -> done" '^done$' "$(status_of theta)"
+[ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 1 ] && echo "ok   - shelved guard: nothing left, nothing logged" || { echo "FAIL - shelved guard: spurious log line"; fail=1; }
+assert "shelved guard: plain close keeps the plain handoff line" 'Session closed via `wb done`\.$' "$(cat "$FIXTURE_TASKS/proj--theta.md")"
+
+# store-only close (no live session) is guarded too, before any mutation
+iota_file="$FIXTURE_TASKS/proj--iota.md"
+printf -- '---\nstatus: planned\nrepo: proj\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' >"$iota_file"
+mkdir -p "$CAPROOT/shelved/proj--iota"; printf 'd\n' >"$CAPROOT/shelved/proj--iota/20261018T100000-sid-i.md"
+iota_before="$(cat "$iota_file")"
+out="$(cmd_done proj--iota 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - shelved guard (store-only): non-zero exit" || { echo "FAIL - shelved guard (store-only): exit $rc"; fail=1; }
+assert "shelved guard (store-only): names the draft" "shelved/proj--iota/20261018T100000-sid-i\\.md" "$out"
+[ "$(cat "$iota_file")" = "$iota_before" ] && echo "ok   - shelved guard (store-only): task file byte-identical" || { echo "FAIL - shelved guard (store-only): task file changed"; fail=1; }
+out="$(cmd_done proj--iota --leave-shelved 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - --leave-shelved (store-only): exits 0" || { echo "FAIL - --leave-shelved (store-only): exit $rc: $out"; fail=1; }
+assert "--leave-shelved (store-only): task done" '^done$' "$(wb_get_frontmatter "$iota_file" status)"
+[ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 2 ] && echo "ok   - --leave-shelved (store-only): logged" || { echo "FAIL - --leave-shelved (store-only): log line count"; fail=1; }
+
+# --- end-to-end: the shelved draft comes from the REAL wb-capture.sh hook-end path, ---
+# --- the guard refuses, `wb-capture.sh dismiss <path>` resolves it, wb done proceeds ---
+CAPTURE="$(dirname "$WB")/wb-capture.sh"
+kappa_session="$(session_for kappa)"; kappa_file="$FIXTURE_TASKS/proj--kappa.md"
+tmux set-option -t "=$kappa_session:" @task "$kappa_file" >/dev/null
+kappa_pane="$(tmux display-message -p -t "=$kappa_session:" '#{pane_id}')"
+kappa_tmux="$(tmux display-message -p -t "=$kappa_session:" '#{socket_path},#{pid},0')"
+mkdir -p "$CAPROOT/sid-kappa"; printf '### Chose K\n- decided: K\n' >"$CAPROOT/sid-kappa/draft"
+kcap() { TMUX="$kappa_tmux" TMUX_PANE="$kappa_pane" bash "$CAPTURE" "$@"; }
+printf '{"session_id":"sid-kappa"}' | kcap hook-end
+kappa_draft="$(ls "$CAPROOT"/shelved/proj--kappa/*-sid-kappa.md 2>/dev/null | head -1)"
+[ -n "$kappa_draft" ] && echo "ok   - e2e: hook-end shelved the draft under the task stem" || { echo "FAIL - e2e: no shelved draft produced"; fail=1; }
+kappa_before="$(cat "$kappa_file")"
+out="$(cmd_done "$kappa_session" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - e2e: wb done refuses the real shelved draft" || { echo "FAIL - e2e: wb done exit $rc"; fail=1; }
+assert "e2e: refusal names the draft" "sid-kappa\\.md" "$out"
+[ "$(cat "$kappa_file")" = "$kappa_before" ] && echo "ok   - e2e: task file untouched by the refusal" || { echo "FAIL - e2e: task file changed"; fail=1; }
+tmux set-option -p -t "$kappa_pane" @wb_capture_sid sid-kappa >/dev/null
+kcap dismiss "$kappa_draft"
+[ ! -e "$kappa_draft" ] && echo "ok   - e2e: dismiss <path> removed the shelved draft" || { echo "FAIL - e2e: draft still present"; fail=1; }
+assert "e2e: shelved_dismissed logged" '"event":"shelved_dismissed"' "$(cat "$CAPROOT/log.jsonl" 2>/dev/null)"
+out="$(cmd_done "$kappa_session" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - e2e: wb done proceeds once dismissed" || { echo "FAIL - e2e: wb done exit $rc: $out"; fail=1; }
+assert "e2e: task flipped to done" '^done$' "$(status_of kappa)"
+
+# --- live-session draft guard (D14 #2): a draft still pending in a live session dir ---
+# --- whose taskpath is this task would be shelved by SessionEnd after the close ---
+lambda_session="$(session_for lambda)"; lambda_file="$FIXTURE_TASKS/proj--lambda.md"
+mkdir -p "$CAPROOT/sid-live" "$CAPROOT/sid-otherlive"
+printf '### Chose L\n- decided: L\n' >"$CAPROOT/sid-live/draft"; printf '%s\n' "$lambda_file" >"$CAPROOT/sid-live/taskpath"
+printf '### Other\n' >"$CAPROOT/sid-otherlive/draft"; printf '%s\n' "$FIXTURE_TASKS/proj--elsewhere.md" >"$CAPROOT/sid-otherlive/taskpath"
+lambda_before="$(cat "$lambda_file")"
+out="$(cmd_done "$lambda_session" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - live draft guard: non-zero exit" || { echo "FAIL - live draft guard: exit $rc"; fail=1; }
+assert "live draft guard: names the live draft" "$CAPROOT/sid-live/draft" "$out"
+assert "live draft guard: counts only this task's draft" '1 decision draft' "$out"
+assert "live draft guard: names the owning session" 'pending in session sid-live: ' "$out"
+assert "live draft guard: remedy is resolve in that session or --leave-shelved" 'resolve it with /wb-decide in that session, or re-run with --leave-shelved' "$out"
+assert "live draft guard: remedy names SessionEnd/reaper and --task" 'SessionEnd or the reaper will shelve it; resolve it later with --task' "$out"
+case "$out" in *"/close-out or /wb-decide shelved"*) echo "FAIL - live draft guard: offered the shelved remedy for a session draft"; fail=1 ;; *) echo "ok   - live draft guard: no shelved remedy for a session draft" ;; esac
+case "$out" in *sid-otherlive*) echo "FAIL - live draft guard: named another task's live draft"; fail=1 ;; *) echo "ok   - live draft guard: another task's live draft ignored" ;; esac
+assert "live draft guard: says nothing changed" 'nothing changed' "$out"
+[ "$(cat "$lambda_file")" = "$lambda_before" ] && echo "ok   - live draft guard: task file byte-identical" || { echo "FAIL - live draft guard: task file changed"; fail=1; }
+[ -d "$FIXTURE_CODE/proj/.worktrees/lambda" ] && echo "ok   - live draft guard: worktree untouched" || { echo "FAIL - live draft guard: worktree removed"; fail=1; }
+[ -f "$CAPROOT/sid-live/draft" ] && echo "ok   - live draft guard: draft untouched" || { echo "FAIL - live draft guard: draft removed"; fail=1; }
+logn_before="$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')"
+out="$(cmd_done "$lambda_session" --leave-shelved 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - live draft --leave-shelved: exits 0" || { echo "FAIL - live draft --leave-shelved: exit $rc: $out"; fail=1; }
+assert "live draft --leave-shelved: task done" '^done$' "$(status_of lambda)"
+[ -f "$CAPROOT/sid-live/draft" ] && echo "ok   - live draft --leave-shelved: draft left in place" || { echo "FAIL - live draft --leave-shelved: draft removed"; fail=1; }
+assert "live draft --leave-shelved: logged with count 1" '"task":"proj--lambda".*"count":1|"count":1.*"task":"proj--lambda"' "$(tail -n1 "$CAPROOT/log.jsonl")"
+[ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = "$((logn_before + 1))" ] && echo "ok   - live draft --leave-shelved: exactly one log line" || { echo "FAIL - live draft --leave-shelved: log line count"; fail=1; }
+assert "live draft --leave-shelved: handoff records the left draft" 'decision draft\(s\) left in place' "$(cat "$lambda_file")"
+
+# a live draft of this task that was already shelved/cleared (no draft file) doesn't block
+mu_session="$(session_for mu)"; mu_file="$FIXTURE_TASKS/proj--mu.md"
+mkdir -p "$CAPROOT/sid-mu"; printf '%s\n' "$mu_file" >"$CAPROOT/sid-mu/taskpath"
+out="$(cmd_done "$mu_session" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - live draft guard: a session dir without a draft does not block" || { echo "FAIL - live draft guard: blocked without a draft: $out"; fail=1; }
+
+# wb-capture.sh missing next to wb.sh: the guard is best-effort, so the close proceeds with a stderr note
+nu_session="$(session_for nu)"; nu_file="$FIXTURE_TASKS/proj--nu.md"
+mkdir -p "$CAPROOT/shelved/proj--nu"; printf 'd\n' >"$CAPROOT/shelved/proj--nu/20261018T100000-sid-n.md"
+out="$(SCRIPT_DIR="$FIXTURE_STATE/no-such-dir" cmd_done "$nu_session" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - missing wb-capture.sh: close proceeds" || { echo "FAIL - missing wb-capture.sh: exit $rc: $out"; fail=1; }
+assert "missing wb-capture.sh: says the guard was skipped" 'wb-capture\.sh unavailable.*skipping' "$out"
+assert "missing wb-capture.sh: task done" '^done$' "$(status_of nu)"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

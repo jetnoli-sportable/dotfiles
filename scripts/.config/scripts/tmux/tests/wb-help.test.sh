@@ -66,7 +66,7 @@ assert "wb help: lists the status verb with its enum" \
   'wb status <task-ref> <prospective\|planned\|paused\|doing\|review>' "$out"
 assert "wb help: lists the set verb" 'wb set <task-ref> <field> <value\|--unset>' "$out"
 assert "wb help: names the live \$WB_SET_FIELDS allowlist, not a stale copy" \
-  'fields: priority value size parent depends_on jira tags path' "$out"
+  'fields: priority value size parent depends_on jira pr tags path branch' "$out"
 assert "wb help: points at the guide" 'Guide: dotfiles/docs/wb-guide.md' "$out"
 
 # The whole point of deriving the text from wb.sh's own header block: a verb

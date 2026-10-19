@@ -14,6 +14,13 @@ directory instead of replacing it.
 - `skills/park/` — capture "later" items to the standing weekly-capture doc
 - `skills/weekly-review/` — the weekly ceremony that reviews captured items
 - `skills/pr-review-session/` — PR review worktree/tmux sessions
+- `skills/wb-capture/` — a hooks-only Claude Code plugin (`.claude-plugin/plugin.json` +
+  `hooks/hooks.json`) behind decision auto-capture: it nudges the agent to `/wb-decide`
+  when a wb session's turn reads like an unrecorded decision. It auto-loads as
+  `wb-capture@skills-dir` once stowed. Adding/removing a hook entry needs a session
+  restart; edits to the scripts it calls (`scripts/.config/scripts/tmux/wb-capture*.sh`)
+  are live. Do NOT duplicate these hooks into `settings.recommended.json`, or they fire
+  twice. See [`wb-decide.md`](../docs/guides/wb-decide.html).
 - `skills/spec-doc/` — requirements spec (PRD): synthesised, seams-first, Warp-style invariants + user stories; composes the vendored spec skills below
 
 ## Vendored (third-party, via `npx skills`)

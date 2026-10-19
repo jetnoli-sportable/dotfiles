@@ -20,7 +20,10 @@
 #                                    token exits 2 rather than opening the picker
 #   wb board                         task-store status table (interim /board); --html writes the
 #                                    ratified 3-view page to logs/board.html (feat-board-build)
-#   wb done [--close] [<session>]    safe wind-down (defaults to the current session); --close also kills the tmux session
+#   wb done [--close] [--leave-shelved] [<session>]
+#                                    safe wind-down (defaults to the current session); --close also kills the tmux
+#                                    session; refuses while decision drafts (wb-capture: shelved, or pending in
+#                                    a live session of the task) remain unless --leave-shelved
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
@@ -182,8 +185,8 @@ wb_set_frontmatter() {
 # already duplicated). Extracted from cmd_status's original inline awk (the
 # ONE comment-preserving frontmatter rewrite); shared by cmd_status
 # (status:, never needs after_key — the key always exists) and cmd_set
-# (priority:/value:/size:/parent:/depends_on:/jira:/tags:/path:, some of
-# which land after size: on a pre-schema task file that predates them).
+# (priority:/value:/size:/parent:/depends_on:/jira:/pr:/tags:/path:, some of
+# which land after size: or jira: on a pre-schema task file that predates them).
 # _wb_refuse_if_live_session <task-file> <verb> — exit 1 when any live tmux
 # session's @task points at <task-file>. Store-only verbs (wb status, wb set)
 # share this so the refusal text and scan never drift between them.
@@ -4153,8 +4156,10 @@ _wb_tags_merge() {
 # for a plain URL correction) and every field the tooling derives/stamps
 # itself (created/closed/claude_sessions/repo/worktree). branch: is settable
 # because seeding tools pre-fill it and `wb new` adopts it as the git branch —
-# a stale value has to be correctable before the worktree exists.
-WB_SET_FIELDS="priority value size parent depends_on jira tags path branch"
+# a stale value has to be correctable before the worktree exists. pr: is the
+# task's GitHub PR URLs, read by generated status pages (e.g. a ladder's
+# per-ticket Status cell) — a task often spans several PRs across repos.
+WB_SET_FIELDS="priority value size parent depends_on jira pr tags path branch"
 
 # cmd_set <task-ref> <field> <value> — resolves <task-ref> the same way
 # cmd_status does (_wb_append_resolve_task), refuses a field this verb
@@ -4162,7 +4167,7 @@ WB_SET_FIELDS="priority value size parent depends_on jira tags path branch"
 # saying it isn't settable here (created/closed/reviewed/claude_sessions/
 # repo/worktree), refuses an unknown field, validates the value for
 # the fields that have an enum or a must-exist-in-$TASKS_DIR constraint
-# (priority/value/size/parent/depends_on/jira/branch — same fail-loud-before-any-
+# (priority/value/size/parent/depends_on/jira/pr/branch — same fail-loud-before-any-
 # write convention `wb new`'s --depends-on validation uses), then
 # rewrites just that one frontmatter line under the per-task lock. Inserts
 # the field right after `size:` when it's missing entirely (priority:/
@@ -4188,7 +4193,7 @@ cmd_set() {
       echo "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)" >&2
       exit 1
       ;;
-    priority|value|size|parent|depends_on|jira|tags|path|branch)
+    priority|value|size|parent|depends_on|jira|pr|tags|path|branch)
       ;;
     *)
       echo "wb set: unknown field '$field' (allowed: $WB_SET_FIELDS)" >&2
@@ -4252,6 +4257,24 @@ cmd_set() {
           https://*) ;;
           *) echo "wb set: jira '$value' must start with https://" >&2; exit 1 ;;
         esac
+        ;;
+      pr)
+        # Comma-separated full GitHub PR URLs, in the order they were opened.
+        # Each entry is trimmed and the list re-joined with ", ", so readers
+        # split on ',' and strip. An empty entry (",," or a trailing comma)
+        # is refused rather than dropped — `read -a` would drop it silently.
+        # The single-line check runs on the raw value first: the per-entry
+        # `read -r` trim keeps only an entry's first line.
+        _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
+        local _wb_set_rest="$value," _wb_set_pr _wb_set_prs=""
+        while [ -n "$_wb_set_rest" ]; do
+          _wb_set_pr="${_wb_set_rest%%,*}"; _wb_set_rest="${_wb_set_rest#*,}"
+          read -r _wb_set_pr <<< "$_wb_set_pr"
+          [[ "$_wb_set_pr" =~ ^https://github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/[0-9]+$ ]] \
+            || { echo "wb set: pr '${_wb_set_pr:-(empty entry)}' is not a full GitHub PR URL (https://github.com/<owner>/<repo>/pull/<n>)" >&2; exit 1; }
+          _wb_set_prs="${_wb_set_prs:+$_wb_set_prs, }$_wb_set_pr"
+        done
+        value="$_wb_set_prs"
         ;;
       branch)
         # The name `wb new` will adopt as the git branch. `--branch` also
@@ -4333,6 +4356,7 @@ cmd_set() {
   local after_key=""
   case "$field" in
     priority|value) after_key="size" ;;
+    pr) after_key="jira" ;;
   esac
 
   # --unset on a key that is MISSING entirely (dup_count 0 — `old` reads
@@ -4957,16 +4981,27 @@ cmd_board() {
   } | column -t -s $'\t'
 }
 
+# _wb_capture_verb <verb> [args...] — run a wb-capture.sh store verb, best-effort. The
+# script is looked up next to wb.sh (like lib.sh and the other sibling helpers), run in
+# its own bash and never sourced, so wb.sh knows nothing of the capture layout. Prints
+# the verb's stdout; returns 1 when the script is missing or the verb fails.
+_wb_capture_verb() {
+  local sh="$SCRIPT_DIR/wb-capture.sh"
+  [ -f "$sh" ] || return 1
+  bash "$sh" "$@"
+}
+
 cmd_done() {
   # Index/shift case parser, not a single-token foreach — mirrors cmd_new's
   # --parent handling so --close can appear before, after, or without the
   # optional session positional.
-  local close=0
+  local close=0 leave_shelved=0
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --close) close=1; shift ;;
-      *)       args+=("$1"); shift ;;
+      --close)         close=1; shift ;;
+      --leave-shelved) leave_shelved=1; shift ;;
+      *)               args+=("$1"); shift ;;
     esac
   done
 
@@ -5008,6 +5043,52 @@ cmd_done() {
   # close too, and a conditionally-scoped local would be unbound there
   # under set -u.
   local repo; repo="$(wb_get_frontmatter "$task_file" repo)"
+
+  # Draft guard: wb-capture shelves an unreviewed decision draft under
+  # <capture root>/shelved/<task-stem>/ (outliving the session), where only
+  # /close-out or /wb-decide shelved can accept or dismiss it. A draft still
+  # pending in a LIVE session of this task would be shelved by SessionEnd right
+  # after the task flips to done, stranded the same way. Closing the task first
+  # would strand both, so refuse — before any mutation, store-only closes
+  # included — unless --leave-shelved says leaving them is deliberate. What counts
+  # as a draft of this task, and where it lives, is wb-capture.sh's business
+  # (`pending-for-task`); wb.sh only counts the paths it prints. Best-effort: a
+  # missing or failing wb-capture.sh lets the close proceed, with a note.
+  local -a shelved_drafts=()
+  local sf pending_out
+  if pending_out="$(_wb_capture_verb pending-for-task "$task_file" 2>/dev/null)"; then
+    while IFS= read -r sf; do
+      [ -n "$sf" ] && shelved_drafts+=("$sf")
+    done <<<"$pending_out"
+  else
+    echo "wb done: wb-capture.sh unavailable next to wb.sh; skipping the decision-draft guard" >&2
+  fi
+  if [ "${#shelved_drafts[@]}" -gt 0 ] && [ "$leave_shelved" = 0 ]; then
+    # two kinds, told apart by the path shape the verb prints (the layout stays
+    # wb-capture.sh's): a live session's draft ends in /draft (…/<sid>/draft),
+    # a shelved one in <stamp>-<sid>.md. They need different remedies.
+    local -a refusal_shelved=() refusal_session=()
+    local sd
+    for sf in "${shelved_drafts[@]}"; do
+      case "$sf" in
+        */draft) refusal_session+=("$sf") ;;
+        *)       refusal_shelved+=("$sf") ;;
+      esac
+    done
+    {
+      echo "wb done: ${#shelved_drafts[@]} decision draft(s) (shelved, or pending in a live session) for $task_stem would be stranded (nothing changed):"
+      for sf in "${refusal_shelved[@]}"; do echo "  shelved: $sf"; done
+      for sf in "${refusal_session[@]}"; do
+        sd="${sf%/draft}"
+        echo "  pending in session ${sd##*/}: $sf"
+      done
+      [ "${#refusal_shelved[@]}" -eq 0 ] \
+        || echo "wb done: shelved: run /close-out or /wb-decide shelved first to accept or dismiss them, or re-run with --leave-shelved to close anyway"
+      [ "${#refusal_session[@]}" -eq 0 ] \
+        || echo "wb done: pending in a session: resolve it with /wb-decide in that session, or re-run with --leave-shelved (SessionEnd or the reaper will shelve it; resolve it later with --task)"
+    } >&2
+    exit 1
+  fi
 
   local repo_dir worktree_path
   if [ "$store_only" = 0 ]; then
@@ -5163,8 +5244,20 @@ cmd_done() {
   # stale the instant the worktree is removed — blank it rather than let a
   # future reader mistake a done task for one with a warm history.
   wb_set_frontmatter "$task_file" claude_sessions ""
-  wb_append_handoff "$task_file" "wb done" 'Session closed via `wb done`.'
+  local done_note='Session closed via `wb done`.'
+  if [ "${#shelved_drafts[@]}" -gt 0 ]; then
+    local left_dirs="" left_d
+    for sf in "${shelved_drafts[@]}"; do
+      left_d="${sf%/*}"
+      case ", $left_dirs," in *", $left_d,"*) ;; *) left_dirs="${left_dirs:+$left_dirs, }$left_d" ;; esac
+    done
+    done_note="Session closed via \`wb done\` (--leave-shelved: ${#shelved_drafts[@]} decision draft(s) left in place: $left_dirs)."
+  fi
+  wb_append_handoff "$task_file" "wb done" "$done_note"
   wb_task_lock_release "$task_file"
+  if [ "${#shelved_drafts[@]}" -gt 0 ]; then
+    _wb_capture_verb log-shelved-left "$task_stem" "${#shelved_drafts[@]}" >/dev/null 2>&1 || true
+  fi
 
   if [ "$store_only" = 1 ]; then
     echo "wb done: $task_file closed (store-only — no live session or worktree to tear down)"
