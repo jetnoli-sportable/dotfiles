@@ -736,6 +736,45 @@ prompt "real prompt"
 assert_match "next real prompt nudges" 'going with|decided to|we decided' "$OUT"
 assert_nofile "real prompt removes stale synthetic" "$D/synthetic"
 
+echo "# sub-agent hand-back prompts are synthetic"
+HB=$'Another Claude session sent a message:\n<agent-message from="a5bc0f267109c9055">\n[Subagent hand-back] done'
+new_scenario
+stop "we decided A"
+prompt "$HB"
+assert_eq "hand-back: no nudge" "" "$OUT"
+assert_file "hand-back: synthetic flag" "$D/synthetic"
+assert_file "hand-back: marker kept" "$D/marker"
+new_scenario
+prompt $'\n  \n<agent-message from="x">hi</agent-message>'
+assert_file "leading whitespace agent-message: synthetic" "$D/synthetic"
+new_scenario
+prompt $'  \nAnother Claude session sent a message:\nhi'
+assert_file "leading whitespace hand-back header: synthetic" "$D/synthetic"
+new_scenario
+prompt $'\n <task-notification>x</task-notification>'
+assert_file "leading whitespace task-notification: synthetic" "$D/synthetic"
+new_scenario
+stop "we decided A"
+prompt "please look at the <agent-message tag in the log"
+assert_nofile "mid-text <agent-message is a real prompt" "$D/synthetic"
+assert_match "mid-text: nudge delivered" 'going with|decided to|we decided' "$OUT"
+
+echo "# hand-back turns don't ignore or strike an outstanding sweep-draft nudge"
+new_scenario
+mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"; assert_eq "draft nudge outstanding" sweep "$(cat "$D/outstanding")"
+prompt "$HB"; stop "hand-back handled"
+assert_eq "hand-back turn: not ignored" 0 "$(count_ev ignored)"
+assert_nofile "hand-back turn: no strike" "$D/draft_strikes"
+assert_file "hand-back turn: still outstanding" "$D/outstanding"
+prompt "$HB"; stop "second hand-back handled"
+assert_eq "second hand-back: not ignored" 0 "$(count_ev ignored)"
+assert_eq "no shelve" 0 "$(count_ev draft_shelved)"
+assert_file "draft kept" "$D/draft"
+stop "real turn ends"
+assert_eq "real turn: ignored once" 1 "$(count_ev ignored)"
+assert_eq "real turn: one strike" 1 "$(cat "$D/draft_strikes")"
+
 echo "# hook-end: pending marker -> pending_at_end + tombstone, task untouched"
 new_scenario
 stop "we decided A"
