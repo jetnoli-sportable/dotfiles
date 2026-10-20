@@ -44,6 +44,10 @@ case "$mode" in
   none)  printf 'NONE\n' ;;
   none-padded) printf '\n  NONE  \n\n' ;;
   none-prose)  printf 'None.\n' ;;
+  none-refusal) printf "I'm not going to write a Decisions entry from this excerpt. Its only candidate is X.\nUnder the rule \"prefer NONE when unsure,\" the answer is:\n\nNONE\n" ;;
+  prose-only)  printf 'I could not find a settled decision in this excerpt, so nothing to record.\n' ;;
+  preamble-draft) printf 'Here is the entry:\n### Chose B over A\n- decided: B\n- rejected: A\n' ;;
+  draft-mentions-none) printf '### Chose B over A\n- decided: B\n- rejected: none of the others\n- why: none needed\n- done\n' ;;
   fail)  echo "boom" >&2; exit 1 ;;
   empty) : ;;
   sleep) exec sleep 5 ;;
@@ -153,6 +157,39 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-prose)
 sweep
 assert_nofile "'None.': no draft" "$D/draft"
 assert_eq "'None.': result none" none "$(last_field sweep_ran result)"
+
+echo "# refusal prose ending in a bare NONE line is none, not a draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-refusal)
+sweep
+assert_nofile "refusal+NONE: no draft" "$D/draft"
+assert_eq "refusal+NONE: result none" none "$(last_field sweep_ran result)"
+
+echo "# prose with no heading and no NONE is a contract violation (error, retried)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=prose-only)
+sweep
+assert_nofile "prose-only: no draft" "$D/draft"
+assert_eq "prose-only: result error" error "$(last_field sweep_ran result)"
+assert_nofile "prose-only: offset not advanced" "$D/sweep_offset"
+
+echo "# a preamble before the first ### line is stripped from the draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=preamble-draft)
+sweep
+assert_file "preamble: draft written" "$D/draft"
+assert_eq "preamble: draft starts at ###" "### Chose B over A" "$(head -1 "$D/draft")"
+assert_nomatch "preamble: text gone" 'Here is the entry' "$(cat "$D/draft")"
+assert_eq "preamble: result draft" draft "$(last_field sweep_ran result)"
+
+echo "# a valid entry that mentions none on a non-final line is still a draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=draft-mentions-none)
+sweep
+assert_file "mentions-none: draft written" "$D/draft"
+assert_eq "mentions-none: result draft" draft "$(last_field sweep_ran result)"
+
+echo "# rerun path parses the same way (preamble entry on both calls)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,preamble-draft)
+sweep
+assert_eq "rerun: two invocations" 2 "$(invocations)"
+assert_eq "rerun: draft starts at ###" "### Chose B over A" "$(head -1 "$D/draft" 2>/dev/null)"
 
 echo "# child invocation shape"
 new_scenario

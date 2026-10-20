@@ -154,8 +154,25 @@ PROMPT
   result=draft
   if [ "$rc" -eq 124 ]; then result=timeout
   elif [ "$rc" -ne 0 ] || [ -z "$out" ]; then result=error
-  elif [[ "${out,,}" =~ ^none[.!]?$ ]]; then result=none   # models vary: "None.", "NONE"
+  else parse_answer
   fi
+}
+
+# parse_answer — classifies the trimmed, non-empty $out; sets result and, for a
+# draft, trims $out to start at its first `### ` line. Models vary: "None.",
+# "NONE", or prose that ends in a bare NONE line. Order matters:
+#   1. last non-empty line is NONE (optional . or !)  -> none
+#   2. no line starting `### `                        -> error (contract violation;
+#      the offset is kept so the excerpt is retried, and it feeds the failure backoff)
+#   3. text before the first `### ` line              -> stripped from the draft
+parse_answer() {
+  local last="${out##*$'\n'}"   # $out is already trimmed: its last line is non-empty
+  last="${last#"${last%%[![:space:]]*}"}"
+  last="${last%"${last##*[![:space:]]}"}"
+  if [[ "${last,,}" =~ ^none[.!]?$ ]]; then result=none; return 0; fi
+  if [[ $'\n'"$out" != *$'\n### '* ]]; then result=error; return 0; fi
+  [[ "$out" == '### '* ]] || out="### ${out#*$'\n### '}"
+  result=draft
 }
 
 stale=false rerun=false
