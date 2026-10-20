@@ -561,8 +561,8 @@ hook_prompt_nudge() {
   if [ -f "$SDIR/draft" ]; then
     dh="$(sha1sum <"$SDIR/draft" 2>/dev/null | cut -d' ' -f1)"
     if [ -n "$dh" ] && [ "$dh" != "$(cat "$SDIR/nudged_draft" 2>/dev/null || true)" ]; then
-      line="[wb-capture] A background review drafted an unrecorded decision ($SDIR/draft). Run /wb-decide to review/accept, or /wb-decide dismiss."
-      [ -e "$SDIR/draft_stale" ] && line="[wb-capture] A background review drafted a decision ($SDIR/draft), but the task file changed while it was being written, so it may already be recorded. Run /wb-decide: compare the draft with the newest Decisions entries before accepting, or /wb-decide dismiss."
+      line="[wb-capture] A background review drafted an unrecorded decision ($SDIR/draft). Run /wb-decide to review/accept, or /wb-decide dismiss. If you carry on with something else first, tell the user in one line that a decision draft is waiting."
+      [ -e "$SDIR/draft_stale" ] && line="[wb-capture] A background review drafted a decision ($SDIR/draft), but the task file changed while it was being written, so it may already be recorded. Run /wb-decide: compare the draft with the newest Decisions entries before accepting, or /wb-decide dismiss. If you carry on with something else first, tell the user in one line that a decision draft is waiting."
       source=sweep
       printf '%s\n' "$dh" >"$SDIR/nudged_draft"
     fi
