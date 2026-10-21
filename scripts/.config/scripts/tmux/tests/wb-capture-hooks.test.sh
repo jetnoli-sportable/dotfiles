@@ -937,8 +937,8 @@ echo "# reaper: known files + draft.tmp.* + .lock removed; unknown file blocks r
 new_scenario
 mkdir -p "$CAP/sid-tmp" "$CAP/sid-unk"
 touch "$CAP/sid-tmp/ended" "$CAP/sid-tmp/draft.tmp.123" "$CAP/sid-tmp/.lock" "$CAP/sid-tmp/sweep_offset" \
-  "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures" "$CAP/sid-tmp/draft_stale" \
-  "$CAP/sid-tmp/draft_stale.tmp.77"
+  "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures" "$CAP/sid-tmp/sweep_invalid" \
+  "$CAP/sid-tmp/draft_stale" "$CAP/sid-tmp/draft_stale.tmp.77"
 touch "$CAP/sid-unk/ended" "$CAP/sid-unk/mystery"
 touch -d '1 day ago' "$CAP/sid-tmp/ended" "$CAP/sid-unk/ended"
 prompt "hi"

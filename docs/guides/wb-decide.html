@@ -521,7 +521,9 @@ exactly <code>EOF</code> can't end it early.</p>
 <code>task</code>, <code>event</code>, optional <code>source</code>): <code>nudge_fired{source}</code>,
 <code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code> (these three mean only &quot;a
 nudge resolved&quot;), <code>muted</code>, <code>unmuted</code>,
-<code>sweep_ran{result: none|draft|error|timeout}</code> (<code>rerun: true</code> when <code>## Decisions</code>
+<code>sweep_ran{result: none|draft|invalid|error|timeout}</code> (<code>invalid</code> is an answer
+that is neither NONE nor a <code>### </code> entry: its excerpt is retried once, then
+skipped, and it never counts toward <code>sweep_max_failures</code>; <code>rerun: true</code> when <code>## Decisions</code>
 changed during the first run and Haiku was asked again; <code>stale: true</code> when it
 changed again during the rerun; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
 <code>draft_shelved</code> carry <code>stale: true</code> too when they resolve a stale draft),

@@ -119,8 +119,8 @@
 #                                        unchanged draft muted outstanding ended
 #                                        synthetic nudged_draft taskpath
 #                                        sweep_offset draft_strikes
-#                                        sweep_failures draft_stale reviewing
-#                                        shelved_accept .lock
+#                                        sweep_failures sweep_invalid draft_stale
+#                                        reviewing shelved_accept .lock
 #                                        draft.tmp.* draft_stale.tmp.*)
 #   shelved drafts <root>/shelved/<task-stem>/<YYYYmmddTHHMMSS>-<sid>.md  (per TASK,
 #                                        outlives the session dir; a sidecar
@@ -184,6 +184,8 @@
 # still there at every resolution). Phrase nudges are never tagged.
 # `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
 # sweeps; at sweep_max_failures the sweep skips with reason `backoff`.
+# `sweep_invalid` marks that the last answer broke the output contract (neither
+# NONE nor a `### ` entry): its excerpt is retried once, then skipped.
 #
 # Reaper (reap_stale, run by hook-prompt AFTER its nudge output is emitted, so it
 # can't delay or alter it; at most once per hour, throttled by the mtime of
@@ -604,7 +606,7 @@ reap_dir() {
   local d="$1" f
   remove_named "$d" marker recorded cooldown taskhash unchanged draft muted \
     outstanding ended synthetic nudged_draft taskpath sweep_offset draft_strikes \
-    sweep_failures draft_stale reviewing shelved_accept .lock
+    sweep_failures sweep_invalid draft_stale reviewing shelved_accept .lock
   for f in "$d"/draft.tmp.* "$d"/draft_stale.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
   rmdir -- "$d" 2>/dev/null || true
 }
