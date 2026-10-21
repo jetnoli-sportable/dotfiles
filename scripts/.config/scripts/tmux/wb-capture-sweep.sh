@@ -154,8 +154,36 @@ PROMPT
   result=draft
   if [ "$rc" -eq 124 ]; then result=timeout
   elif [ "$rc" -ne 0 ] || [ -z "$out" ]; then result=error
-  elif [[ "${out,,}" =~ ^none[.!]?$ ]]; then result=none   # models vary: "None.", "NONE"
+  else parse_answer
   fi
+}
+
+# parse_answer — classifies the trimmed, non-empty $out; sets result and, for a
+# draft, trims $out to start at its first `### ` line. Models vary: "None.",
+# "**NONE**", or prose that starts or ends with a bare NONE line. Order matters:
+#   1. last line is NONE                               -> none
+#   2. no line starting `### `: first line is NONE     -> none
+#                               otherwise              -> invalid (contract
+#      violation, not an outage: retried once, never feeds the failure backoff)
+#   3. text before the first `### ` line               -> stripped from the draft
+parse_answer() {
+  # $out is already trimmed: its first and last lines are non-empty
+  if is_none_line "${out##*$'\n'}"; then result=none; return 0; fi
+  if [[ $'\n'"$out" != *$'\n### '* ]]; then
+    if is_none_line "${out%%$'\n'*}"; then result=none; else result=invalid; fi
+    return 0
+  fi
+  [[ "$out" == '### '* ]] || out="### ${out#*$'\n### '}"
+  result=draft
+}
+
+# is_none_line <line> — NONE in any case, optionally wrapped in * or ` and
+# ending in . or !
+is_none_line() {
+  local l="${1,,}" re='^[*`]*none[.!]?[*`]*[.!]?$'
+  l="${l#"${l%%[![:space:]]*}"}"
+  l="${l%"${l##*[![:space:]]}"}"
+  [[ "$l" =~ $re ]]
 }
 
 stale=false rerun=false
@@ -226,11 +254,22 @@ unlock_session
 
 # the excerpt was consumed unless the sweep failed (retry that content next time).
 # Written only now, after the superseded shelve and the draft write, so a failure
-# in either (result flipped to error) leaves the offset where it was
-case "$result" in none|draft) printf '%s\n' "$total" >"$SDIR/sweep_offset" ;; esac
+# in either (result flipped to error) leaves the offset where it was. An invalid
+# answer is retried once (`sweep_invalid` marks the retry), then its content is
+# skipped, so a model that keeps answering in prose can't pin the excerpt
+case "$result" in
+  none|draft) printf '%s\n' "$total" >"$SDIR/sweep_offset"; remove_named "$SDIR" sweep_invalid ;;
+  invalid)
+    if [ -e "$SDIR/sweep_invalid" ]; then
+      printf '%s\n' "$total" >"$SDIR/sweep_offset"; remove_named "$SDIR" sweep_invalid
+    else
+      : >"$SDIR/sweep_invalid"
+    fi ;;
+esac
 
 # consecutive failures (claude missing / logged out / rate-limited) back the sweep
-# off for the rest of the session; any clean run (draft or none) resets the count
+# off for the rest of the session; any run where claude answered (draft, none or
+# invalid) resets the count
 case "$result" in
   error|timeout) printf '%s\n' "$(( $(read_num "$SDIR/sweep_failures") + 1 ))" >"$SDIR/sweep_failures" ;;
   *) remove_named "$SDIR" sweep_failures ;;

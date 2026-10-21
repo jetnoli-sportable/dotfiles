@@ -23,9 +23,11 @@
 #                  ignored.
 #     hook-prompt    (UserPromptSubmit) stamps @wb_capture_sid; delivers one
 #                  nudge line (draft beats marker) as additionalContext, writes
-#                  `outstanding`, logs nudge_fired. `<task-notification>` prompts
-#                  (synthetic, from finished background sub-agents) deliver
-#                  nothing and set `synthetic`.
+#                  `outstanding`, logs nudge_fired. Synthetic prompts deliver
+#                  nothing and set `synthetic`: `<task-notification>` (finished
+#                  background sub-agents) and sub-agent hand-backs, which arrive
+#                  as `Another Claude session sent a message:` /
+#                  `<agent-message ...>` (leading whitespace tolerated).
 #     hook-end       (SessionEnd, 1.5s budget: one jq parse, no network, no task
 #                  file) if `marker` or `draft` exists logs `pending_at_end`
 #                  {marker,draft}; resolves an outstanding nudge as ignored;
@@ -117,8 +119,8 @@
 #                                        unchanged draft muted outstanding ended
 #                                        synthetic nudged_draft taskpath
 #                                        sweep_offset draft_strikes
-#                                        sweep_failures draft_stale reviewing
-#                                        shelved_accept .lock
+#                                        sweep_failures sweep_invalid draft_stale
+#                                        reviewing shelved_accept .lock
 #                                        draft.tmp.* draft_stale.tmp.*)
 #   shelved drafts <root>/shelved/<task-stem>/<YYYYmmddTHHMMSS>-<sid>.md  (per TASK,
 #                                        outlives the session dir; a sidecar
@@ -182,6 +184,8 @@
 # still there at every resolution). Phrase nudges are never tagged.
 # `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
 # sweeps; at sweep_max_failures the sweep skips with reason `backoff`.
+# `sweep_invalid` marks that the last answer broke the output contract (neither
+# NONE nor a `### ` entry): its excerpt is retried once, then skipped.
 #
 # Reaper (reap_stale, run by hook-prompt AFTER its nudge output is emitted, so it
 # can't delay or alter it; at most once per hour, throttled by the mtime of
@@ -538,8 +542,12 @@ hook_prompt_nudge() {
   remove_named "$SDIR" ended
   local prompt
   prompt="$(jq_in '.prompt // empty')"
-  case "$prompt" in
-    '<task-notification>'*) : >"$SDIR/synthetic"; return 0 ;;
+  # synthetic turns: background-agent notifications and sub-agent hand-backs
+  # (leading whitespace/newlines are not part of the prefix test)
+  local p_trim="${prompt#"${prompt%%[![:space:]]*}"}"
+  case "$p_trim" in
+    '<task-notification>'*|'Another Claude session sent a message:'*|'<agent-message'*)
+      : >"$SDIR/synthetic"; return 0 ;;
   esac
   # a real prompt starts a new turn: a `recorded` left by a turn that never
   # reached Stop (interrupted) must not suppress this turn's marker
@@ -555,8 +563,8 @@ hook_prompt_nudge() {
   if [ -f "$SDIR/draft" ]; then
     dh="$(sha1sum <"$SDIR/draft" 2>/dev/null | cut -d' ' -f1)"
     if [ -n "$dh" ] && [ "$dh" != "$(cat "$SDIR/nudged_draft" 2>/dev/null || true)" ]; then
-      line="[wb-capture] A background review drafted an unrecorded decision ($SDIR/draft). Run /wb-decide to review/accept, or /wb-decide dismiss."
-      [ -e "$SDIR/draft_stale" ] && line="[wb-capture] A background review drafted a decision ($SDIR/draft), but the task file changed while it was being written, so it may already be recorded. Run /wb-decide: compare the draft with the newest Decisions entries before accepting, or /wb-decide dismiss."
+      line="[wb-capture] A background review drafted an unrecorded decision ($SDIR/draft). Run /wb-decide to review/accept, or /wb-decide dismiss. If you carry on with something else first, tell the user in one line that a decision draft is waiting."
+      [ -e "$SDIR/draft_stale" ] && line="[wb-capture] A background review drafted a decision ($SDIR/draft), but the task file changed while it was being written, so it may already be recorded. Run /wb-decide: compare the draft with the newest Decisions entries before accepting, or /wb-decide dismiss. If you carry on with something else first, tell the user in one line that a decision draft is waiting."
       source=sweep
       printf '%s\n' "$dh" >"$SDIR/nudged_draft"
     fi
@@ -598,7 +606,7 @@ reap_dir() {
   local d="$1" f
   remove_named "$d" marker recorded cooldown taskhash unchanged draft muted \
     outstanding ended synthetic nudged_draft taskpath sweep_offset draft_strikes \
-    sweep_failures draft_stale reviewing shelved_accept .lock
+    sweep_failures sweep_invalid draft_stale reviewing shelved_accept .lock
   for f in "$d"/draft.tmp.* "$d"/draft_stale.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
   rmdir -- "$d" 2>/dev/null || true
 }

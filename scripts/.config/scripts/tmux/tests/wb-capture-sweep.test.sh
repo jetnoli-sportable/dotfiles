@@ -44,6 +44,13 @@ case "$mode" in
   none)  printf 'NONE\n' ;;
   none-padded) printf '\n  NONE  \n\n' ;;
   none-prose)  printf 'None.\n' ;;
+  none-refusal) printf "I'm not going to write a Decisions entry from this excerpt. Its only candidate is X.\nUnder the rule \"prefer NONE when unsure,\" the answer is:\n\nNONE\n" ;;
+  prose-only)  printf 'I could not find a settled decision in this excerpt, so nothing to record.\n' ;;
+  none-first)  printf 'NONE\n\nThe only candidate was already recorded as X.\n' ;;
+  none-bold)   printf '**NONE**\n' ;;
+  none-code)   printf '`NONE`.\n' ;;
+  preamble-draft) printf 'Here is the entry:\n### Chose B over A\n- decided: B\n- rejected: A\n' ;;
+  draft-mentions-none) printf '### Chose B over A\n- decided: B\n- rejected: none of the others\n- why: none needed\n- done\n' ;;
   fail)  echo "boom" >&2; exit 1 ;;
   empty) : ;;
   sleep) exec sleep 5 ;;
@@ -153,6 +160,67 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-prose)
 sweep
 assert_nofile "'None.': no draft" "$D/draft"
 assert_eq "'None.': result none" none "$(last_field sweep_ran result)"
+
+echo "# refusal prose ending in a bare NONE line is none, not a draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-refusal)
+sweep
+assert_nofile "refusal+NONE: no draft" "$D/draft"
+assert_eq "refusal+NONE: result none" none "$(last_field sweep_ran result)"
+
+echo "# NONE first then commentary, and decorated NONE, are none"
+for m in none-first none-bold none-code; do
+  new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=$m)
+  sweep
+  assert_nofile "$m: no draft" "$D/draft"
+  assert_eq "$m: result none" none "$(last_field sweep_ran result)"
+done
+
+echo "# prose with no heading and no NONE is invalid: retried once, then skipped"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=prose-only)
+sweep
+assert_nofile "prose-only: no draft" "$D/draft"
+assert_eq "prose-only: result invalid" invalid "$(last_field sweep_ran result)"
+assert_nofile "prose-only: offset not advanced" "$D/sweep_offset"
+assert_file "prose-only: retry marked" "$D/sweep_invalid"
+assert_nofile "prose-only: not a failure" "$D/sweep_failures"
+printf '4\n' >"$D/unchanged"; sweep
+assert_eq "prose-only retry: invalid again" invalid "$(last_field sweep_ran result)"
+assert_eq "prose-only retry: offset advanced" 3 "$(cat "$D/sweep_offset" 2>/dev/null)"
+assert_nofile "prose-only retry: marker cleared" "$D/sweep_invalid"
+
+echo "# invalid answers never back the sweep off"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=prose-only)
+for i in 1 2 3 4; do printf '4\n' >"$D/unchanged"; add_turn "q$i" "a$i"; sweep; done
+assert_eq "4 invalid: 4 invocations" 4 "$(invocations)"
+assert_eq "4 invalid: no backoff skip" "" "$(last_field sweep_skipped reason)"
+assert_nofile "4 invalid: no failures" "$D/sweep_failures"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail)
+for i in 1 2; do printf '4\n' >"$D/unchanged"; add_turn "q$i" "a$i"; sweep; done
+EXTRA_ENV+=(FAKE_CLAUDE_MODE=prose-only); printf '4\n' >"$D/unchanged"; add_turn q3 a3; sweep
+assert_nofile "invalid resets failures (claude answered)" "$D/sweep_failures"
+new_scenario; printf '\n' >"$D/sweep_invalid"
+sweep
+assert_nofile "a draft clears the retry marker" "$D/sweep_invalid"
+
+echo "# a preamble before the first ### line is stripped from the draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=preamble-draft)
+sweep
+assert_file "preamble: draft written" "$D/draft"
+assert_eq "preamble: draft starts at ###" "### Chose B over A" "$(head -1 "$D/draft")"
+assert_nomatch "preamble: text gone" 'Here is the entry' "$(cat "$D/draft")"
+assert_eq "preamble: result draft" draft "$(last_field sweep_ran result)"
+
+echo "# a valid entry that mentions none on a non-final line is still a draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=draft-mentions-none)
+sweep
+assert_file "mentions-none: draft written" "$D/draft"
+assert_eq "mentions-none: result draft" draft "$(last_field sweep_ran result)"
+
+echo "# rerun path parses the same way (preamble entry on both calls)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,preamble-draft)
+sweep
+assert_eq "rerun: two invocations" 2 "$(invocations)"
+assert_eq "rerun: draft starts at ###" "### Chose B over A" "$(head -1 "$D/draft" 2>/dev/null)"
 
 echo "# child invocation shape"
 new_scenario

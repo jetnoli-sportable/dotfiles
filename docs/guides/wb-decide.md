@@ -211,7 +211,9 @@ exactly `EOF` can't end it early.
 `task`, `event`, optional `source`): `nudge_fired{source}`,
 `followed{source}`, `dismissed`, `ignored{source}` (these three mean only "a
 nudge resolved"), `muted`, `unmuted`,
-`sweep_ran{result: none|draft|error|timeout}` (`rerun: true` when `## Decisions`
+`sweep_ran{result: none|draft|invalid|error|timeout}` (`invalid` is an answer
+that is neither NONE nor a `### ` entry: its excerpt is retried once, then
+skipped, and it never counts toward `sweep_max_failures`; `rerun: true` when `## Decisions`
 changed during the first run and Haiku was asked again; `stale: true` when it
 changed again during the rerun; `followed`, `dismissed`, `ignored` and
 `draft_shelved` carry `stale: true` too when they resolve a stale draft),

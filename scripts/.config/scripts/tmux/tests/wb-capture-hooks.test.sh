@@ -246,13 +246,14 @@ CTX="$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
 assert_match "stale nudge prefix" '^\[wb-capture\] A background review drafted' "$CTX"
 assert_match "stale nudge: task file changed" 'task file changed while it was being written' "$CTX"
 assert_match "stale nudge: may already be recorded" 'may already be recorded' "$CTX"
+assert_match "stale nudge: tell the user if skipped" 'tell the user in one line that a decision draft is waiting\.$' "$CTX"
 assert_match "stale nudge: compare with newest entries" 'compare the draft with the newest Decisions entries' "$CTX"
 assert_match "stale nudge: still names draft path" "$D/draft" "$CTX"
 assert_eq "stale nudge: one line" 1 "$(printf '%s\n' "$CTX" | wc -l | tr -d ' ')"
 assert_eq "stale nudge: source sweep" sweep "$(cat "$D/outstanding")"
 assert_eq "nudge_fired not tagged" none "$(stale_flag nudge_fired)"
 new_scenario; mkdir -p "$D"; printf 'draft\n' >"$D/draft"; prompt "go"
-assert_eq "non-stale nudge wording unchanged" '[wb-capture] A background review drafted an unrecorded decision ('"$D"'/draft). Run /wb-decide to review/accept, or /wb-decide dismiss.' "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
+assert_eq "non-stale nudge wording unchanged" '[wb-capture] A background review drafted an unrecorded decision ('"$D"'/draft). Run /wb-decide to review/accept, or /wb-decide dismiss. If you carry on with something else first, tell the user in one line that a decision draft is waiting.' "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)"
 # ignored x2 -> ignored + draft_discarded tagged, draft_stale gone
 new_scenario; stale_draft
 prompt "go"; stop "carry on"
@@ -736,6 +737,45 @@ prompt "real prompt"
 assert_match "next real prompt nudges" 'going with|decided to|we decided' "$OUT"
 assert_nofile "real prompt removes stale synthetic" "$D/synthetic"
 
+echo "# sub-agent hand-back prompts are synthetic"
+HB=$'Another Claude session sent a message:\n<agent-message from="a5bc0f267109c9055">\n[Subagent hand-back] done'
+new_scenario
+stop "we decided A"
+prompt "$HB"
+assert_eq "hand-back: no nudge" "" "$OUT"
+assert_file "hand-back: synthetic flag" "$D/synthetic"
+assert_file "hand-back: marker kept" "$D/marker"
+new_scenario
+prompt $'\n  \n<agent-message from="x">hi</agent-message>'
+assert_file "leading whitespace agent-message: synthetic" "$D/synthetic"
+new_scenario
+prompt $'  \nAnother Claude session sent a message:\nhi'
+assert_file "leading whitespace hand-back header: synthetic" "$D/synthetic"
+new_scenario
+prompt $'\n <task-notification>x</task-notification>'
+assert_file "leading whitespace task-notification: synthetic" "$D/synthetic"
+new_scenario
+stop "we decided A"
+prompt "please look at the <agent-message tag in the log"
+assert_nofile "mid-text <agent-message is a real prompt" "$D/synthetic"
+assert_match "mid-text: nudge delivered" 'going with|decided to|we decided' "$OUT"
+
+echo "# hand-back turns don't ignore or strike an outstanding sweep-draft nudge"
+new_scenario
+mkdir -p "$D"; printf '### Chose B\n- decided: B\n' >"$D/draft"
+prompt "go"; assert_eq "draft nudge outstanding" sweep "$(cat "$D/outstanding")"
+prompt "$HB"; stop "hand-back handled"
+assert_eq "hand-back turn: not ignored" 0 "$(count_ev ignored)"
+assert_nofile "hand-back turn: no strike" "$D/draft_strikes"
+assert_file "hand-back turn: still outstanding" "$D/outstanding"
+prompt "$HB"; stop "second hand-back handled"
+assert_eq "second hand-back: not ignored" 0 "$(count_ev ignored)"
+assert_eq "no shelve" 0 "$(count_ev draft_shelved)"
+assert_file "draft kept" "$D/draft"
+stop "real turn ends"
+assert_eq "real turn: ignored once" 1 "$(count_ev ignored)"
+assert_eq "real turn: one strike" 1 "$(cat "$D/draft_strikes")"
+
 echo "# hook-end: pending marker -> pending_at_end + tombstone, task untouched"
 new_scenario
 stop "we decided A"
@@ -897,8 +937,8 @@ echo "# reaper: known files + draft.tmp.* + .lock removed; unknown file blocks r
 new_scenario
 mkdir -p "$CAP/sid-tmp" "$CAP/sid-unk"
 touch "$CAP/sid-tmp/ended" "$CAP/sid-tmp/draft.tmp.123" "$CAP/sid-tmp/.lock" "$CAP/sid-tmp/sweep_offset" \
-  "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures" "$CAP/sid-tmp/draft_stale" \
-  "$CAP/sid-tmp/draft_stale.tmp.77"
+  "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures" "$CAP/sid-tmp/sweep_invalid" \
+  "$CAP/sid-tmp/draft_stale" "$CAP/sid-tmp/draft_stale.tmp.77"
 touch "$CAP/sid-unk/ended" "$CAP/sid-unk/mystery"
 touch -d '1 day ago' "$CAP/sid-tmp/ended" "$CAP/sid-unk/ended"
 prompt "hi"
