@@ -16,6 +16,7 @@ target.json (written by the orchestrator; this script only uses git against
 pinned SHAs, never gh):
   {"kind": "branch"|"pr"|"stack", "repo": "owner/name", "repo_path": "<abs path>",
    "cli": "gh"|"pgh", "base": "<sha: merge-base of base ref and head>", "head": "<sha>",
+   "worktree": "<abs path: detached checkout at head>", "branch": "<head branch>",
    "prs": [{"number": 541, "head_ref": "...", "base": "<sha>", "head": "<sha>",
             "worktree": "<abs path>"}, ...]}
 base/head at top level are the range ends. A finding's `pr` is a PR number, or

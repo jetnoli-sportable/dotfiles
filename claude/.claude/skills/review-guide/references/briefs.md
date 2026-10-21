@@ -13,9 +13,12 @@ An agent gets `briefs/common.md` plus its own brief and nothing else. Nothing
 here may point back to the pipeline page or the plan; if an agent would need
 them, the rule belongs in this file.
 
-Placeholders: `<run>` is the run directory (`<dossier>/review-guide/<target>/`),
-`<worktree>` the detached checkout the agent reads from, `<base>`/`<head>` the
-pinned SHAs, `<pr>` the PR number (or branch name for a branch target).
+`scripts/build-briefs.py` does the copying and fills the placeholders:
+`<run>` is the run directory (`<dossier>/review-guide/<target>/`), `<worktree>`
+the detached checkout the agent reads from, `<base>`/`<head>` the pinned SHAs,
+`<pr>` the PR number (or branch name for a branch target), `<report>` the L1
+report file name, `<stack>` the stack's PR list. `<paths>` is filled by the
+orchestrator when it resumes the coordinator.
 
 ---
 
@@ -28,7 +31,8 @@ pinned SHAs, `<pr>` the PR number (or branch name for a branch target).
 Read files and run tests **only** in the worktree named in your brief. It is a
 detached checkout at the exact commit under review. Never read the session's
 own checkout or any other branch: it may hold different code. To see code the
-change removed, use `git -C <worktree> show <base>:<path>`. Write only to your
+change removed, run `git show <base-sha>:<path>` in your worktree, with the base
+SHA your brief names. Write only to your
 report file in `<run>`.
 
 ### Depth rules
@@ -59,7 +63,7 @@ Each finding is one JSON object with exactly these fields:
 
 | Field | Value |
 |---|---|
-| `id` | `<lens>-<NN>`, e.g. `L1-03`. For a per-PR L1 in a stack, `L1.<pr>-NN`, e.g. `L1.543-02`. The coordinator uses `C-NN`. |
+| `id` | `<lens>-<NN>`, e.g. `L1-03`. For a per-PR L1 in a stack, `L1.<PR number>-NN`, e.g. `L1.543-02`. The coordinator uses `C-NN`. |
 | `lens` | `L1` … `L5`, or `coordinator` |
 | `pr` | the PR number this finding belongs to, or the branch name for a branch target. Required even for a single PR. |
 | `file` | repo-relative path. `context.md` only for an L3 "stated but not done" finding, which has no line in the code. |
@@ -100,14 +104,14 @@ only; no comments.
 
 ## L1 Risk: what can break
 
-*Report: `lens-L1.json` (stack: `lens-L1-<pr>.json`). Cap: 8 findings.*
+*Report: `<report>`. Cap: 8 findings.*
 
 **Your question:** what inputs and states can this code see, and which of them
 make it do the wrong thing?
 
-For a stack, you review **one PR**: `<pr>`, diff `<base>..<head>`, worktree
-`<worktree>`. Other PRs in the stack have their own L1. Cite lines at your PR's
-head (or base, for removed code).
+You review `<pr>`: diff `<base>..<head>`, worktree `<worktree>`. In a stack,
+the other PRs have their own L1: cite lines at your PR's head (or base, for
+removed code), and set `pr` to `<pr>` on every finding.
 
 Method, for each logic hunk:
 1. Name what it can be given (arguments, files, env, stdin, model output) and
@@ -306,8 +310,11 @@ rejected ones; keeping them here makes the drop traceable.
 
 *(Added to `briefs/common.md` for a stack target.)*
 
-This change is a stack of PRs, each building on the one before: `<list: pr,
-base..head, worktree>`. L1 runs once per PR on that PR's own diff. L2–L5 and
+This change is a stack of PRs, each building on the one before:
+
+<stack>
+
+L1 runs once per PR on that PR's own diff. L2–L5 and
 the coordinator read the whole range `<base>..<head>` in the tip's worktree and
 **tag every finding, decision and reading-order step with the PR that
 introduces the code** (use `git -C <worktree> log --format=%H <base>..<head> --

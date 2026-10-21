@@ -82,17 +82,23 @@ a dotfiles PR, and **Sportable work never on any personal surface**.
 python3 <skill>/scripts/inventory.py <repo> <base> <head> --words <PR-body words> > <run>/inventory.json
 ```
 
-For a stack, run it on the range and once per PR (`inventory-<pr>.json`).
+For a branch with no PR, `--words` is the commit bodies' word count
+(`git log --format=%b <base>..<head> | wc -w`), since they are the
+explanation. For a stack, run it on the range and once per PR (`inventory-<pr>.json`).
 Add `--generated <glob>` for a repo's built outputs that the script can't
 detect. Generated and rename-only files never go into a brief.
 
 ## 4. Briefs → `briefs/`
 
-Follow `<skill>/references/briefs.md`: `briefs/common.md` (run context,
-inventory table, logic files with changed ranges, skim list, worktrees, then
-the Shared rules word for word, plus the Stack note for a stack) and one brief
-per agent (`L1.md`… or `L1-<pr>.md` per PR in a stack, `L2.md`–`L5.md`,
-`coordinator.md`).
+```bash
+python3 <skill>/scripts/build-briefs.py <run>
+```
+
+It copies `<skill>/references/briefs.md` word for word with the placeholders
+filled: `briefs/common.md` (`context.md`, the inventory table, what to read
+and skim, the Shared rules, plus the Stack note for a stack), `L1.md` (or
+`L1-<pr>.md` per PR in a stack), `L2.md`–`L5.md`, `coordinator.md` and
+`coordinator-2.md`. Edit `context.md` or `briefs.md`, never the briefs.
 
 ## 5. Dispatch
 
@@ -121,8 +127,9 @@ then follow them. One PR = 6 agents; a stack of *n* = *n* + 5.
 
 ## 7. Synthesise → `review-guide-<target>.md`
 
-Write it in `<dossier>`, frontmatter `title`, `eyebrow`, `updated`; each `##`
-is a nav entry. Load `artifact-design` and `artifact-diagramming` first.
+Write it in `<dossier>`, frontmatter `title` (a two-to-four-word name such as
+"Capture hand-back review", no colon or explainer: it becomes the Artifact's
+name), `eyebrow` (repo, target, range), `updated`; each `##` is a nav entry. Load `artifact-design` and `artifact-diagramming` first.
 
 | Part | Built from |
 |---|---|
