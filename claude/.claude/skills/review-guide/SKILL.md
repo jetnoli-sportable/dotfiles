@@ -1,7 +1,7 @@
 ---
 name: review-guide
-description: Turn a PR, a stack of PRs, or a local branch into one published
-  review-guide page — A overview and risk, B where to focus / reading order /
+description: Turn a PR, a stack of PRs, or a branch into one review-guide page.
+  The published page has A overview and risk, B where to focus / reading order /
   what to skim / proportion / simplify notes, C an explainer of the critical
   design decisions with diagrams, D each decision against its alternatives —
   built from five Sonnet review lenses and one Opus coordinator, with every
