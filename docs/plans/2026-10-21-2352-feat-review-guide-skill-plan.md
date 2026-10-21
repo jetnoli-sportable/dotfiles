@@ -14,7 +14,7 @@ execution: code
 - **Objective:** When Jet faces a large PR or a stack of PRs, one published page tells them what changed, how risky it is, where to spend review time and in what order, what to skim, and whether each design decision holds up against its alternatives. Every finding on the page cites code that a script has confirmed is really there.
 - **Means:** a `/review-guide` skill that runs script stages, five Sonnet review lenses and one Opus coordinator, then renders a Markdown page in the task dossier and publishes it as an Artifact (KTD1, KTD3).
 - **Authority:** the task file `dotfiles--skill-review-guide` (its Decisions section) and the pipeline design page in its dossier (`pipeline.md`) own the design. This plan owns how it gets built. Where they disagree, the task file's Decisions win.
-- **Stop conditions:** stop and ask if the coordinator cannot be resumed and `quick-pass.json` is missing or unreadable (the KTD6 fallback needs it), or if a trial run spends more than 10 agents on a single PR.
+- **Stop conditions:** stop and ask if the coordinator cannot be resumed and `quick-pass.json` is missing or unreadable (the KTD6 fallback needs it). Also stop and ask before dispatch when a run would use more than 10 agents, which means a stack of more than 5 PRs.
 - **Execution profile:** small, local, single repo. Scripts are tested with bash smoke tests in the style of the existing `review-page` and `decision-page` skills; the skill as a whole is proven by two trial runs (U6).
 - **Who finishes:** the implementing session builds U1–U5 and runs U6. Jet judges the PR #95 page against the hand-written recap.
 
@@ -43,7 +43,7 @@ Large PRs and stacks hand a reviewer thousands of changed lines with no map. Att
 
 **Input**
 - R1. Accepts a PR number or URL, an ordered list of stacked PRs, a `base..tip` range of branches, or a local branch with no PR (compared against `git merge-base`).
-- R2. Uses `gh` for Sportable-owned repos and `pgh` for every other owner, judged by the `origin` remote. A broken stack chain (a PR whose base isn't the previous PR's head branch) stops the run with a message naming the break.
+- R2. Uses `gh` for Sportable-owned repos and `pgh` for every other owner, judged by the `origin` remote. A broken stack chain (a PR whose base isn't the previous PR's head branch) stops the run with a message naming the break. A PR whose base is the default branch still continues the chain when the previous PR in the list has merged, because GitHub moves the next PR's base there on merge.
 
 **Review**
 - R3. A script buckets every changed line (rename only, generated, tests, agent instructions, docs, logic), sets hot flags (migrations, auth, `*.tf`, CI workflows, locking, destructive commands), and computes the proportion of explanation to logic lines.
@@ -55,7 +55,7 @@ Large PRs and stacks hand a reviewer thousands of changed lines with no map. Att
 **Output**
 - R8. The page has the four parts A–D. Part C has at least one diagram per critical decision and real code excerpts. Part D gives at least two real alternatives per decision.
 - R9. The page follows Jet's explaining rules (why first, terms defined at first use, real excerpts, a conclusion and recommendation per point) and the wide layout with always-visible navigation.
-- R10. The page's source is Markdown in the dossier of the task whose `branch:` matches. If no task matches, it goes in `dossiers/<repo>--pr<N>/`; Sportable work never goes in dotfiles `docs/`. The HTML is generated from the Markdown, published as an Artifact, and both the path and the URL are named in chat, in the dossier's `tools/README.md` and in the task file.
+- R10. The page's source is Markdown in the dossier of the task whose `branch:` matches. If no task matches, it goes in `dossiers/<repo>--pr<N>/`, or `dossiers/<repo>--<branch-slug>/` for a branch with no PR (the slug sanitised like task filenames: `/` and `.` become `-`). Sportable work never goes in dotfiles `docs/`. The HTML is generated from the Markdown, published as an Artifact, and both the path and the URL are named in chat, in the dossier's `tools/README.md` and in the task file.
 - R11. Working files (`target.json`, `context.md`, `inventory.json`, `briefs/`, lens reports, `quick-pass.json`, `verified.json`) stay in `<dossier>/review-guide/<target>/`.
 
 ### Key Decisions
@@ -70,7 +70,8 @@ Large PRs and stacks hand a reviewer thousands of changed lines with no map. Att
 
 - On PR #95, part B ranks the logic in `wb-capture.sh` and `wb-capture-sweep.sh` and the hook wiring as the focus, and puts the docgen outputs (`docs/guides/wb-decide.html`, `docs/HUB.html`, `docs/INDEX.md`) in the skim list.
 - Jet judges the PR #95 page at least as useful for reviewing as `pr95-recap.md`.
-- No finding on either trial page fails the cite check, and no REJECTED finding appears on a page.
+- No finding on any trial page fails the cite check, and no REJECTED finding appears on a page.
+- On the `lib--algorithms` stack trial, each finding is tagged with its PR, and the page and working files land in that task's dossier, not on a personal surface.
 
 ### Scope Boundaries
 
@@ -274,8 +275,9 @@ docs/guides/review-guide.md
   0. Before merge, `/review-guide` doesn't resolve yet (KTD9). Run each trial by having the session read the worktree's `claude/.claude/skills/review-guide/SKILL.md` and follow it.
   1. Run it on `fix/capture-handback-none`, the branch with three fixes to the capture hooks. It has no PR, so this exercises the local-branch path and the `pgh` decision.
   2. Fix what breaks, then run on PR #95 (the whole decision auto-capture feature, merged as `1c96d77`). The page lands in the auto-capture dossier, since its task's branch matches.
-  3. Record agent count, wall-clock time and anything surprising in `learnings.md`, then add the token cost to the pipeline page's agents section.
-  4. Put the PR #95 page and `pr95-recap.md` in front of Jet for the comparison in Success Criteria.
+  3. Run it on the `lib--algorithms` stack for the post-processor stage runner (SW-6698): #541, then #543, then #544, which sit on #537. This is the first real test of the stack path, the `gh` path for Sportable repos, the Sportable landing rule, the per-PR worktrees and a Python codebase. It uses 8 agents.
+  4. Record agent count, wall-clock time and anything surprising in `learnings.md`, then add the token cost to the pipeline page's agents section.
+  5. Put the PR #95 page and `pr95-recap.md` in front of Jet for the comparison in Success Criteria.
 - **Test expectation:** none. The trial is the test.
 - **Verification:** both pages are published with path and URL named, every finding passes the cite check, and Jet has made the PR #95 comparison.
 
@@ -289,7 +291,7 @@ docs/guides/review-guide.md
 | Cite check | `bash claude/.claude/skills/review-guide/scripts/cite_check.test.sh` | U2 ok / moved / missing |
 | Page generator | `bash claude/.claude/skills/review-guide/scripts/build-page.test.sh` | U4 rendering and symlinked lookup |
 | Docs platform | the docgen pre-commit hook (`.githooks/pre-commit`) on the U5 commit | skill and guide are indexed |
-| End to end | U6 trial runs on `fix/capture-handback-none` and PR #95 | R1–R11 and Success Criteria |
+| End to end | U6 trial runs on `fix/capture-handback-none`, PR #95 and the `lib--algorithms` #541/#543/#544 stack | R1–R11 and Success Criteria |
 
 ---
 
@@ -297,7 +299,7 @@ docs/guides/review-guide.md
 
 - U1, U2 and U4 test scripts print all PASS.
 - `/review-guide` appears in `docs/INDEX.md` and as a guide tile on `docs/HUB.html`.
-- Both trial pages are published, each with its Markdown source and working files in the dossier, and path and URL named in the task file.
+- All three trial pages are published, each with its Markdown source and working files in the dossier, and path and URL named in the task file.
 - Jet has compared the PR #95 page with `pr95-recap.md`.
 - After merge, fast-forward and `stow --no-folding -t "$HOME" claude`, typing `/review-guide` resolves to the stowed skill and its scripts are found.
 - No experimental or abandoned code from the trial fixes is left in the skill directory.
