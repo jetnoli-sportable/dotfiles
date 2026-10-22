@@ -49,6 +49,11 @@ url = "https://claude.ai/code/artifact/LADDERID"
 source = "tools/ladder_md2html.py"
 
 [[doc]]
+title = "Folder"
+file = "fam/sub/"
+url = "https://claude.ai/artifact/DIRID"
+
+[[doc]]
 title = "Gone"
 file = "fam/missing.html"
 url = "https://claude.ai/artifact/GONEID"
@@ -76,6 +81,15 @@ expect "local .html with no .md: reads the .html" "$out" read "$DOSSIERS/fam/sol
 
 out="$(resolve "$WORK/nope.html")"
 expect "nonexistent path" "$out" via none
+
+out="$(resolve "$DOSSIERS")"
+expect "dossier root (used to crash) is not a page" "$out" via none
+
+out="$(resolve "$DOSSIERS/fam/sub/")"
+expect "dossier subdirectory is not a page" "$out" via none
+
+out="$(resolve https://claude.ai/artifact/DIRID)"
+expect "listed link whose file is a directory falls back" "$out" via artifact
 
 if printf '%s' "$out" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null \
    && resolve https://claude.ai/artifact/PLANID >/dev/null 2>"$WORK/err" && [ ! -s "$WORK/err" ]; then

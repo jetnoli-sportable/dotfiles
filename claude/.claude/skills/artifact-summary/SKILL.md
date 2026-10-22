@@ -35,16 +35,30 @@ It prints JSON with `via`, `read`, `note`, and `entry` (the page's
 | `via` | What to read |
 |---|---|
 | `dossier` / `local` | The file named in `read`. It's the `.md` beside the `.html` when that is the complete source. A page built by its own generator (the ladder's status cells come from task files) points at the `.html`. Run an `.html` through `~/.claude/skills/artifact-summary/scripts/html-text.py <file>`, which keeps headings as `#` lines and drops CSS and scripts. |
-| `artifact` | The Artifact tool: `action: "read"`, `url: <link>`. For Jet's own page the result names a saved file holding the raw HTML; run `~/.claude/skills/artifact-summary/scripts/html-text.py` on it. For someone else's page the result is an isolated summary. Pass a `prompt` asking for the four sections below, plus the page's headings. |
-| `none` | Neither a link nor an existing path. Say so and stop. |
+| `artifact` | The Artifact tool: `action: "read"`, `url: <link>`, and always a `prompt` asking for the four sections below plus the page's headings. What comes back depends on whose page it is; see the notes below. |
+| `none` | Not something to summarise: the `note` says why (no such path, a directory rather than a page, or a resolver error). Say so and stop. |
 
-Notes on the Artifact `read` of your own page:
+Reading the Artifact `read` result:
 
-- The result shows only the top of the page inline. Run `html-text.py` on
-  the saved file instead of Reading all of it. The saved file wraps the
-  published page in a second HTML document, which the script handles.
-- Its "read every line before republishing" note doesn't apply here,
-  because this skill never republishes.
+- **Jet's own page.** The result's header says Jet is a `writer` and names
+  the local file the raw page was saved to. Run
+  `~/.claude/skills/artifact-summary/scripts/html-text.py` on that path
+  rather than Reading the file. The saved file wraps the published page in
+  a second HTML document, which the script handles. The header's "read every
+  line before republishing" note doesn't apply, because this skill never
+  republishes.
+- **Someone else's page.** No `writer`, no saved file: the result is an
+  isolated summary written to your `prompt`. Use it as the source. Its
+  headings are the summariser's report of the page's, so say in the first
+  line that the `(§ heading)` citations are approximate.
+- **A Claude Docs document.** Claude Docs documents use the same
+  `claude.ai/…/artifact/…` link shape, so the link alone can't tell you. If
+  the `read` fails, or its result says the link is a document, switch to
+  Claude Docs: load the docs skill (`anthropic-skills:docs`), load the
+  deferred `mcp__claude_ai_Claude_Docs__read` tool with ToolSearch
+  (`select:mcp__claude_ai_Claude_Docs__read`), and read the document with
+  it. Do the same from the start when Jet says the link is a document.
+  Summarise the document's own headings as for any other page.
 
 `html-text.py` drops inline SVG, so diagrams are lost but their
 `<figcaption>` text is kept. Summarise a diagram from its caption, and say
@@ -60,11 +74,6 @@ Don't summarise the near-empty output. Read that JSON block instead, or a
 page the substance is `title`, `lede`, `decided`, and each of `items`'
 `title`, `question` and `recommendation`. In a review page it's `title`,
 `intro_md`, and each of `areas[].items`' `title`, `what` and `suggested`.
-
-A Claude Docs document can sit behind the same link shape. If the Artifact
-`read` result says the link is a document, or Jet says it is one, load the
-docs skill (`anthropic-skills:docs`) and read it through Claude Docs `read`
-instead.
 
 A dossier file can lag the published page if it was changed and not
 republished. If Jet asks about the published state, or the file's mtime is

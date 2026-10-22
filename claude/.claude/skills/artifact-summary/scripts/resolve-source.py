@@ -77,7 +77,8 @@ def main(arg):
             url = entry.get("url", "")
             if url.rstrip("/").endswith("/" + artifact_id) and entry.get("file"):
                 html = DOSSIERS / entry["file"]
-                if html.exists():
+                # an entry's `file` may name a whole directory ("dir/"); only a page will do
+                if html.is_file():
                     read, note = best_local(html, entry)
                     return {"via": "dossier", "read": str(read), "html": str(html),
                             "entry": entry_summary(entry), "note": note}
@@ -87,6 +88,9 @@ def main(arg):
     path = Path(arg).expanduser()
     if not path.exists():
         return {"via": "none", "read": arg, "note": "neither a claude.ai link nor an existing path"}
+    if path.is_dir():
+        return {"via": "none", "read": arg,
+                "note": "a directory, not a page; name one of its .html or .md files"}
     entry = entry_for_file(path)
     read, note = best_local(path, entry)
     out = {"via": "local", "read": str(read), "note": note}
@@ -103,4 +107,9 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         sys.exit(2)
-    print(json.dumps(main(sys.argv[1]), indent=2))
+    try:
+        print(json.dumps(main(sys.argv[1]), indent=2))
+    except Exception as err:  # the caller parses JSON, so a failure must be JSON too
+        print(json.dumps({"via": "none", "read": sys.argv[1],
+                          "note": f"resolver error: {type(err).__name__}: {err}"}, indent=2))
+        sys.exit(1)
