@@ -215,7 +215,8 @@ read) as approval — no explicit pick means no action beyond the auto-lane.
 - **Cross-repo boundary — act only in the current repo's worktree.** A
   quick-win is classified repo-agnostically, but it can only be *done* from
   inside its own repo's worktree. Determine the **current session's repo** the
-  way the sibling skills do — `tmux show -p @task` → the task file's `repo:`
+  way the sibling skills do — the session option `@task`
+  (`tmux show -t "=$(tmux display-message -p '#S'):" -v @task`) → the task file's `repo:`
   field — never `basename($PWD)` (in a worktree that's the branch leaf, not the
   repo). Determine the **item's repo** per step 2 (wb-task `repo:` field; for a
   ledger item, the segment before `/.worktrees/`). Only items whose repo is
