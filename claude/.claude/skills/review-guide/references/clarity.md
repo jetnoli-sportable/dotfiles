@@ -2,9 +2,10 @@
 
 The instructions the clarity-sweep agent receives (`SKILL.md` stage 7, last
 step). It runs once, on Sonnet, after the page source is written and before it
-is rendered. The orchestrator's prompt names three paths: `<page>` (the page's
-`.md` source), `<html>` (the last render of it, if any, for anchor ids) and
-`<out>` (where the report goes, `<run>/clarity.json`).
+is rendered. The orchestrator's prompt names four paths: `<page>` (the page's
+`.md` source), `<html>` (the last render of it, if any, for anchor ids),
+`<context>` (the run's `context.md`, which names the task file and the plan)
+and `<out>` (where the report goes, `<run>/clarity.json`).
 
 ---
 
@@ -49,6 +50,11 @@ Something defined only outside the page (a plan section, a task Decision, a
 Jira ticket) gets a short inline description; a link alone isn't enough,
 because the reader may not have access.
 
+Look a definition up before you write it: `<context>`, then the task file and
+plan it names (grep for the label, e.g. `T3 (`, `D5`, `KTD7`). A description
+you had to infer from how the page uses the term goes in with `"guess": true`
+on the edit, so the orchestrator checks it; never present a guess as fact.
+
 ### 2. Overcomplicated or jargon-heavy (`kind: "jargon"` or `"overcomplicated"`)
 
 An explain-it-like-I'm-five pass. Flag and rewrite:
@@ -90,6 +96,10 @@ leave it.
   `rulings`.
 - Fix a term once, at its first use, unless a later use is far from it (another
   `##` section) and still unclear there.
+- Before handing back, check your own report:
+  `python3 <skill>/scripts/apply_edits.py <page> <out> --dry-run`, where
+  `<skill>` is the directory holding this file's `references/`. Fix or drop
+  every edit it refuses.
 
 ## Report
 
@@ -101,7 +111,7 @@ Write `<out>`:
     { "id": "K-01", "kind": "undefined-ref", "line": 42,
       "old": "pairs with T4's exit rules",
       "new": "pairs with the exit rules of T4, the Job entrypoint not built yet (SW-6706),",
-      "why": "T4 is never introduced on the page" } ],
+      "why": "T4 is never introduced on the page", "guess": false } ],
   "checked_clean": ["Terms list covers sweep, nudge, draft, offset"],
   "rulings": ["Ruling: left KTD7 as described inline in part A — it is defined there — reader stalls in D if wrong"] }
 ```

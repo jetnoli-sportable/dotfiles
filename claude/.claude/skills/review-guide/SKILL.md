@@ -168,11 +168,15 @@ what make the page guide the eye:
 (stage 8) so its anchors exist, then dispatch one agent, `model: "sonnet"`,
 with the prompt: read `<skill>/references/clarity.md` and follow it, with
 `<page>` = `<dossier>/review-guide-<target>.md`, `<html>` = the `.html` beside
-it, `<out>` = `<run>/clarity.json`. It reads the page cold and proposes exact
+it, `<context>` = `<run>/context.md`, `<out>` = `<run>/clarity.json`. It reads the page cold and proposes exact
 rewrites for every identifier or term that isn't explained where it's used
 (a bare "R1", "KTD7", ticket key or SHA) and every overcomplicated or
 jargon-heavy sentence. It never edits the page. Judge each edit: reject any
-that changes what a finding claims or softens a caveat. Then apply:
+that changes what a finding claims or softens a caveat, and check every
+`"guess": true` description against the task file or plan (in the first
+run, one of seven flagged guesses was wrong, and one wrong description wasn't
+flagged at all, so skim the unflagged ones too). Correct an edit by changing its `new` in
+`clarity.json`, keeping the agent's text as `agent_new`. Then apply:
 
 ```bash
 python3 <skill>/scripts/apply_edits.py <dossier>/review-guide-<target>.md <run>/clarity.json --skip <rejected ids>
