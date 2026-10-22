@@ -91,3 +91,7 @@ the review worktrees it created with an offer to remove them.
 - `scripts/inventory.py`, `scripts/cite_check.py`, `scripts/build-page.py`,
   `scripts/apply_edits.py`,
   each with a `.test.sh` beside it.
+- `scripts/mdpage.py` and `templates/page.template.html`: the Markdown-to-page
+  core and page shell that `build-page.py` and pragmatic-review's own
+  `build-page.py` share. A change here changes both skills' pages; run both
+  skills' `build-page.test.sh`.

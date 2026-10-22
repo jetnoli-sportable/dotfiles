@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>pragmatic-review</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="skills">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="gen">docgen · generated from <b>docs/guides/pragmatic-review.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-10-22</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">pragmatic-review</div>
+    <div class="brand-sub">Reorder a long-term plan so real use comes first, and give every step a needed-now / later / not-needed verdict judged against the business&#39;s real size.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">skills · guide</span>
+      <h1>pragmatic-review</h1>
+      <p class="dek">Reorder a long-term plan so real use comes first, and give every step a needed-now / later / not-needed verdict judged against the business&#39;s real size.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p><code>/pragmatic-review</code> reviews a long-term plan, a version ladder or a wb task
+family for two things. First, and mainly, <strong>order</strong>: plans written by agents
+tend to follow textbook order, so hardening lands before the first user, a
+generic layer before its second consumer, and a step needs a later step's
+output. The skill checks every step against seven ordering patterns and
+proposes one revised order, with steps that can run side by side named as
+parallel groups. Second, <strong>size</strong>: every step gets one verdict (needed now,
+needed later with the event that would trigger it, not needed, or move),
+judged against how big the business really is and what actually goes wrong
+in it.</p>
+<p>The skill starts knowing nothing about any business. Each run asks only the
+questions its verdicts depend on, and keeps the answers you confirm in
+<code>~/code/tasks/context/&lt;business&gt;/pragmatic-review-learnings.md</code>, so the next
+run for the same business asks fewer. Nothing changes until you approve:
+for a task family, approved reorders become <code>depends_on</code> edits and a
+Decisions entry on the parent; the reviewed plan's text is never edited.</p>
+<p>Not the tool for: whether a plan is coherent or feasible (<code>ce-doc-review</code>),
+what a plan changes (the plan-diff view), or splitting one task into
+children (<code>/wb-breakdown</code>).</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>Run it on a dotfiles plan:</p>
+<pre><code>/pragmatic-review docs/plans/2026-10-17-2223-feat-wb-go-store-and-task-page-plan.md
+</code></pre>
+<p>The skill lists the plan's units as steps, works out the business from the
+repo's origin owner, asks a few questions in chat (or opens an interview
+buffer if there are more than three), then writes
+<code>pragmatic-review-&lt;date&gt;.md</code> into the plan's task dossier, renders it as
+<code>pragmatic-review-&lt;date&gt;.html</code> beside it, and opens a verdict buffer. A standalone plan like this one has no task family, so the
+review document is the whole output.</p>
+<p>For a task family, name the parent's stem instead of a path:</p>
+<pre><code>/pragmatic-review &lt;repo&gt;--&lt;parent-slug&gt;
+</code></pre>
+<h2 id="reference">Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>What it does</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Targets</td>
+<td>A plan file (<code>.md</code>/<code>.html</code>), a ladder doc in a task dossier, or a task family by parent stem</td>
+<td>SKILL.md step 1</td>
+</tr>
+<tr>
+<td>Business key</td>
+<td>From the target repo's origin owner; an unknown owner is asked once, never guessed</td>
+<td>SKILL.md step 2</td>
+</tr>
+<tr>
+<td>Questions</td>
+<td>Only what the verdicts depend on; 3 or fewer in chat, 4+ in an interview buffer; each names the steps it affects and its default if left blank</td>
+<td>SKILL.md step 4</td>
+</tr>
+<tr>
+<td>Sequencing checks</td>
+<td>Abstraction before its second consumer; hardening before first use; forward dependency; habit order over unblock-real-use order; false serialisation; buried prerequisite; step with no consumer</td>
+<td><code>references/sequencing-checks.md</code></td>
+</tr>
+<tr>
+<td>Sizing test</td>
+<td>Needed only if leaving it out causes harm nobody catches in time, or adding it later is expensive (stored data, shared interface, money, security); plus the foundation rule and two traps (survival needs that look like polish, trust work timed to its consumer)</td>
+<td><code>references/sizing-test.md</code></td>
+</tr>
+<tr>
+<td>Review document</td>
+<td>Revised order, one verdict per step, context used, changes to apply</td>
+<td>the target's task dossier</td>
+</tr>
+<tr>
+<td>Review page</td>
+<td><code>scripts/build-page.py</code> renders the review Markdown as a page beside it: collapsible section rail, headline cards, a planned-against-revised order diagram, a verdict-count bar, verdict filters and colour-striped verdict cards, option cards with the recommended one marked. Never edit the HTML; built on review-guide's <code>scripts/mdpage.py</code></td>
+<td>SKILL.md step 7</td>
+</tr>
+<tr>
+<td>Verdict surface</td>
+<td>About 15 steps or more: review page (untouched row accepts its suggestion). Fewer: a decision-buffer with options per step, Defer and Skip last (silent close applies nothing)</td>
+<td>SKILL.md step 8</td>
+</tr>
+<tr>
+<td>Another session's plan</td>
+<td>When the owning task has a live session or an unfinished plan, the review is input only: per-step options in the review doc and a <code>wb append</code> pointer in the owner's <code>## Follow-ups</code>; nothing is applied</td>
+<td>SKILL.md step 8</td>
+</tr>
+<tr>
+<td>Applying</td>
+<td>Task families only: preflight for live sessions, <code>wb set &lt;stem&gt; depends_on &lt;full list&gt;</code>, one <code>wb append &lt;parent&gt; Decisions</code> entry</td>
+<td>SKILL.md step 8</td>
+</tr>
+<tr>
+<td>Learnings</td>
+<td>Facts (rewritten in place) and Calibration (append-only, one line per verdict you overrode); written only after you confirm</td>
+<td><code>~/code/tasks/context/README.md</code></td>
+</tr>
+</tbody>
+</table>
+<p>Paths under <code>references/</code> and <code>scripts/</code> are relative to
+<code>claude/.claude/skills/pragmatic-review/</code>.</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li><strong>Thresholds are rough.</strong> &quot;About 15 steps&quot; for the review page and
+&quot;3 questions&quot; for chat versus a buffer are first guesses; the first few
+runs will show whether they hold.</li>
+<li><strong>Live sessions block reorders.</strong> <code>wb set</code> refuses a task whose session is
+running, so a reorder touching a live task stops at the preflight until
+that session is down.</li>
+<li><strong>Calibration promotion has no example yet.</strong> The rule for turning a
+repeated calibration line into a Fact, or into a business-neutral edit to
+the references, hasn't been exercised by a real run.</li>
+<li><strong>The page reads fixed headings.</strong> Headlines, Revised order, Verdicts,
+Per-step options and Steps as extracted get their designed treatment only
+under those exact <code>##</code> headings; a renamed section renders as plain
+Markdown. Python-Markdown also needs nested bullets indented 4 spaces.</li>
+<li><strong>Large families load into one session.</strong> Step extraction happens in the
+main session. A family much larger than a dozen tasks may crowd it;
+a step-extractor subagent is a deferred follow-up for that case.</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<p>Next: share <code>references/sequencing-checks.md</code> with <code>/wb-breakdown</code> proposals
+and <code>spec-doc</code>, so a breakdown is checked for order as it's written.</p>
+<p>To turn it off, delete <code>claude/.claude/skills/pragmatic-review/</code> and re-stow.
+The learnings files in <code>~/code/tasks/context/</code> stay where they are and are
+harmless without the skill.</p>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guides/pragmatic-review.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>
