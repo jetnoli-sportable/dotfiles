@@ -60,7 +60,10 @@ hook() {
 }
 stop()    { hook hook-stop "$(jq -nc --arg m "$1" '{session_id:"sid-aaa",last_assistant_message:$m}')"; }
 prompt()  { hook hook-prompt "$(jq -nc --arg p "$1" '{session_id:"sid-aaa",prompt:$p}')"; }
-posttool(){ hook hook-posttool "$(jq -nc --arg c "$1" '{session_id:"sid-aaa",tool_name:"Bash",tool_input:{command:$c}}')"; }
+# posttool <cmd> [stdout] — PostToolUse payload; stdout defaults to wb's success line
+posttool_out(){ hook hook-posttool "$(jq -nc --arg c "$1" --arg o "$2" '{session_id:"sid-aaa",tool_name:"Bash",tool_input:{command:$c},tool_response:{stdout:$o,stderr:"",interrupted:false,isImage:false,noOutputExpected:false}}')"; }
+WB_OK='wb append: appended under "## Decisions" in /tmp/x.md'
+posttool(){ posttool_out "$1" "${2-$WB_OK}"; }
 events() { [ -f "$LOG" ] && jq -r .event "$LOG" | tr '\n' ' ' | sed 's/ $//' || echo ""; }
 count_ev() { [ -f "$LOG" ] && jq -r --arg e "$1" 'select(.event==$e)|.event' "$LOG" | wc -l | tr -d ' ' || echo 0; }
 
@@ -593,8 +596,30 @@ assert_eq "two drafts shelved separately" 2 "$(ls "$PK"/*.md | wc -l | tr -d ' '
 
 echo "# sub-agent posttool"
 new_scenario
-hook hook-posttool '{"session_id":"sid-aaa","agent_id":"sub1","tool_name":"Bash","tool_input":{"command":"wb append t.md Decisions -"}}'
+hook hook-posttool '{"session_id":"sid-aaa","agent_id":"sub1","tool_name":"Bash","tool_input":{"command":"wb append t.md Decisions -"},"tool_response":{"stdout":"wb append: appended under \"## Decisions\" in t.md"}}'
 assert_file "sub-agent counts as recorded" "$D/recorded"
+
+echo "# failed appends never count (a compound call exits 0 over a failed append)"
+new_scenario; mkdir -p "$D"; printf 'sweep' >"$D/outstanding"; : >"$D/shelved_accept"
+posttool 'wb append /bad Decisions - <<<x; echo done' $'wb append: no such task file: /bad\ndone'
+assert_nofile "failed compound append: no recorded" "$D/recorded"
+assert_eq "failed compound append: no followed" 0 "$(count_ev followed)"
+assert_file "failed compound append: shelved_accept kept" "$D/shelved_accept"
+assert_file "failed compound append: nudge still outstanding" "$D/outstanding"
+posttool 'wb append /bad Decisions -' ''
+assert_nofile "empty stdout: no recorded" "$D/recorded"
+hook hook-posttool '{"session_id":"sid-aaa","tool_name":"Bash","tool_input":{"command":"wb append x Decisions -"}}'
+assert_nofile "no tool_response at all: no recorded" "$D/recorded"
+posttool 'wb append x Decisions -; wb append x Handoffs -' 'wb append: appended under "## Handoffs" in /tmp/x.md'
+assert_nofile "success line for another heading: no recorded" "$D/recorded"
+assert_eq "success line for another heading: no followed" 0 "$(count_ev followed)"
+posttool 'wb append x Decisions -' $'noise\n'"$WB_OK"$'\nmore'
+assert_file "success line among other output: recorded" "$D/recorded"
+assert_nofile "real append consumes shelved_accept" "$D/shelved_accept"
+assert_eq "shelved record: still no followed" 0 "$(count_ev followed)"
+posttool 'wb append x Decisions -'
+assert_eq "success line, no flag: followed once" 1 "$(count_ev followed)"
+assert_nofile "followed resolves the nudge" "$D/outstanding"
 
 echo "# non-matching commands"
 new_scenario

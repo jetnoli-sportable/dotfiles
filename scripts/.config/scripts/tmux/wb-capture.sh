@@ -8,8 +8,10 @@
 #   hook-prompt | hook-posttool | hook-stop | hook-end
 #                  Claude Code hook entry points (stdin JSON read once, session_id
 #                  from `.session_id`; all exit 0, silent on failure).
-#     hook-posttool  (PostToolUse/Bash) a `wb append … Decisions` command sets
-#                  `recorded`; if `outstanding`, logs `followed` and clears it (and, for
+#     hook-posttool  (PostToolUse/Bash) a `wb append … Decisions` command whose
+#                  stdout also carries wb's success line (`wb append: appended under
+#                  "## Decisions"`; a compound call can exit 0 over a failed append)
+#                  sets `recorded`; if `outstanding`, logs `followed` and clears it (and, for
 #                  a sweep nudge, draft_strikes; nudged_draft too, so a draft the append
 #                  did not record is nudged again at the next prompt) —
 #                  unless the one-shot `shelved_accept` flag is set (that append
@@ -348,14 +350,21 @@ strip_heredocs() {
   done
 }
 
-# hook_posttool — a `wb append … Decisions` Bash command marks the turn recorded.
+# hook_posttool — a `wb append … Decisions` Bash command marks the turn recorded,
+# but only when wb printed its success line: a compound call (`wb append bad …; echo`)
+# exits 0 and reaches PostToolUse even though the append failed.
 hook_posttool() {
   # cheap pre-filter on the raw JSON, before any jq
   case "$INPUT" in *wb*) ;; *) return 0 ;; esac
   case "$INPUT" in *append*) ;; *) return 0 ;; esac
   case "$INPUT" in *Decisions*) ;; *) return 0 ;; esac
-  local cmd re
-  cmd="$(jq_in '.tool_input.command // empty')"
+  local cmd re ok parsed
+  # one parse: line 1 = count of success lines in stdout, the rest = the command
+  parsed="$(jq_in '((.tool_response.stdout // "") | if type == "string" then . else "" end
+    | split("\n") | map(select(startswith("wb append: appended under \"## Decisions\""))) | length),
+    (.tool_input.command // empty)')"
+  ok="${parsed%%$'\n'*}"
+  cmd="${parsed#*$'\n'}"
   # a newline separates commands too (multi-line Bash calls, as /wb-decide makes),
   # and must stop the match from running on into a heredoc body
   cmd="$(strip_heredocs <<<"$cmd")"
@@ -363,6 +372,7 @@ hook_posttool() {
   local q="'\""
   re='(^|[;&|(]|\$\()[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*([^[:space:];&|]*/)?wb[[:space:]]+append[[:space:]]([^;&|]*[[:space:]'"$q"'])?Decisions([[:space:]'"$q"']|$)'
   [[ "$cmd" =~ $re ]] || return 0
+  [[ "$ok" =~ ^[1-9][0-9]*$ ]] || return 0
   hook_session_dir
   mkdir -p "$SDIR" 2>/dev/null || return 0
   : >"$SDIR/recorded"
