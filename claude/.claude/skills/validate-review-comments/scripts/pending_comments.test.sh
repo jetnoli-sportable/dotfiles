@@ -87,7 +87,8 @@ if run "$D"; then
   expect "repeated } matched by its preceding hunk line" "$(field "$D" 22 "r['cite'],r['line'],r['ambiguous']")" "('moved', 8, False)"
   expect "still more than one candidate -> ambiguous, nearest" "$(field "$D" 23 "r['cite'],r['line'],r['ambiguous']")" "('moved', 5, True)"
   expect "drafted text deleted -> gone" "$(field "$D" 24 "r['cite']")" "gone"
-  expect "file deleted -> gone" "$(field "$D" 25 "r['cite'],r['excerpt']")" "('gone', [])"
+  expect "gone quotes the hunk as drafted" "$(field "$D" 24 "r['excerpt_start'],r['excerpt']")" "(1, ['keep', 'remove me'])"
+  expect "file deleted -> gone" "$(field "$D" 25 "r['cite'],r['excerpt']")" "('gone', ['here'])"
 fi
 D="$WORK/far"; target "$D" "$H3"; comments "$D" "$(c 21 chg.py "$CHGH")"
 run "$D" && expect "twenty lines inserted above -> still moved" "$(field "$D" 21 "r['cite'],r['line']")" "('moved', 28)"

@@ -94,7 +94,9 @@ For every record with `changed: true`, in this order:
    doesn't, name the PR that changes it, so the point lands where it's cheapest.
 
 `moved` and `gone` go on the card: "drafted at line 86, now line 88" or "this
-line no longer exists at the head". `ambiguous` means the line was matched
+line no longer exists at the head". A `gone` record's excerpt is the code as
+drafted, from the comment's hunk; quote it as such, and quote what replaced it
+when you can find it. `ambiguous` means the line was matched
 by guesswork; check it by eye.
 
 ## 6. Gap pass
@@ -116,7 +118,9 @@ Load `artifact-design` first. Sections, each a nav entry:
 
 - `## At a glance`: verdict counts, then the comments most worth changing
   before submitting, one line each.
-- `## Your comments`: one card per comment in `n` order.
+- `## Your comments`: one card per comment in `n` order. A card's heading
+  uses the file name (`### Comment 3 · x.go:88`); the full path goes on its
+  verdict line, so the nav stays readable.
 - `## Worth raising`: the gap pass items.
 - `## Checked and fine`: what the gap pass looked at and cleared.
 
@@ -125,7 +129,7 @@ A card, using `<rg>`'s verdict-chip form exactly:
 ````markdown
 ### Comment 3 · pkg/x.go:88
 
-**Comment 3** partly · drafted at line 86, now line 88
+**Comment 3** partly · `pkg/x.go`, drafted at line 86, now line 88
 
 > the comment's text, quoted
 

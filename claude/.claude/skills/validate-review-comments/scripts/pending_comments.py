@@ -20,7 +20,8 @@ Writes, next to comments.json:
 A previous state.json in the same directory turns on re-run mode. Each record:
   id, url, pr, n (stable page number), path, side ("head"|"base"|null), line,
   drafted_line, drafted (the hunk's last line as drafted), cite, ambiguous,
-  excerpt_start, excerpt (file lines around `line`), later, changed, updated_at, body
+  excerpt_start, excerpt (file lines around `line`; for `gone`, the hunk's last
+  lines as drafted), later, changed, updated_at, body
 cite:
   ok      the drafted text is on the drafted line
   moved   found elsewhere in the file; `line` is the nearest match, `drafted_line` the
@@ -50,7 +51,8 @@ def pr_of(c):
 
 
 def parse_hunk(hunk):
-    """(side, line, drafted, previous) from the hunk's last header to its end."""
+    """(side, line, drafted, previous, tail) from the hunk's last header to its end.
+    tail is the last few (line, text) pairs on that side, the code as drafted."""
     lines = [ln for ln in hunk.split("\n") if not ln.startswith("\\")]
     start = max(i for i, ln in enumerate(lines) if HEADER.match(ln))
     old, new = (int(x) for x in HEADER.match(lines[start]).groups())
@@ -67,7 +69,7 @@ def parse_hunk(hunk):
     side = "base" if body[-1].startswith("-") else "head"
     line, drafted = seen[side][-1]
     previous = seen[side][-2][1] if len(seen[side]) > 1 else None
-    return side, line, drafted, previous
+    return side, line, drafted, previous, seen[side][-(BEFORE + 1):]
 
 
 def git(repo, *args):
@@ -142,14 +144,17 @@ def main():
                      ambiguous=False, excerpt_start=None, excerpt=[])
             records.append(r)
             continue
-        side, line, drafted, previous = parse_hunk(hunk)
+        side, line, drafted, previous, tail = parse_hunk(hunk)
         side = {"LEFT": "base", "RIGHT": "head"}.get(c.get("side"), side)
         lines = file_lines(repo, ends[side], c["path"], cache)
         cite, at, ambiguous = locate(lines, line, drafted, previous)
-        start = max(1, at - BEFORE)
+        if cite == "gone":
+            start, excerpt = tail[0][0], [text for _, text in tail]
+        else:
+            start = max(1, at - BEFORE)
+            excerpt = lines[start - 1:at + AFTER]
         r.update(side=side, line=at, drafted_line=line, drafted=drafted, cite=cite,
-                 ambiguous=ambiguous, excerpt_start=start,
-                 excerpt=[] if cite == "gone" else lines[start - 1:at + AFTER])
+                 ambiguous=ambiguous, excerpt_start=start, excerpt=excerpt)
         if side == "head" and pr in order:
             for p in target["prs"][order.index(pr) + 1:]:
                 later = file_lines(repo, p["head"], c["path"], cache)
