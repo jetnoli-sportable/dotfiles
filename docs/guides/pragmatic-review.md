@@ -63,6 +63,7 @@ For a task family, name the parent's stem instead of a path:
 | Sizing test | Needed only if leaving it out causes harm nobody catches in time, or adding it later is expensive (stored data, shared interface, money, security); plus the foundation rule and two traps (survival needs that look like polish, trust work timed to its consumer) | `references/sizing-test.md` |
 | Review document | Revised order, one verdict per step, context used, changes to apply | the target's task dossier |
 | Verdict surface | About 15 steps or more: review page (untouched row accepts its suggestion). Fewer: a decision-buffer with options per step, Defer and Skip last (silent close applies nothing) | SKILL.md step 8 |
+| Another session's plan | When the owning task has a live session or an unfinished plan, the review is input only: per-step options in the review doc and a `wb append` pointer in the owner's `## Follow-ups`; nothing is applied | SKILL.md step 8 |
 | Applying | Task families only: preflight for live sessions, `wb set <stem> depends_on <full list>`, one `wb append <parent> Decisions` entry | SKILL.md step 8 |
 | Learnings | Facts (rewritten in place) and Calibration (append-only, one line per verdict you overrode); written only after you confirm | `~/code/tasks/context/README.md` |
 
