@@ -16,8 +16,10 @@ Edits apply in order; each is applied or refused, never half-applied:
   refused: breaks structure  new adds or removes a fence, heading or figure line
   refused: breaks <form>     a renderer form (risk badge, callout, spot, finding chips) would change
 Skipped ids (--skip) are listed as skipped. Before the first write, the original page
-is copied next to <clarity.json> as <page-name>.pre-clarity.md; a re-run keeps that
-copy. Exit 0 whenever it ran.
+is copied next to <clarity.json> as <page-name>.pre-clarity.<head>.md, <head> being the
+first 7 characters of target.json's "head" in the same directory (no target.json:
+<page-name>.pre-clarity.md). A re-run at the same head keeps that copy; a new head gets
+its own. Exit 0 whenever it ran.
 """
 import argparse
 import json
@@ -109,6 +111,15 @@ def check(text, edit):
     return None
 
 
+def backup_path(page, report):
+    # keyed by the reviewed head, so a re-run after new commits backs up the re-synthesised page
+    try:
+        head = json.loads((report.parent / "target.json").read_text())["head"][:7]
+    except (OSError, ValueError, KeyError, TypeError):
+        head = ""
+    return report.parent / f"{page.stem}.pre-clarity{'.' + head if head else ''}.md"
+
+
 def main():
     ap = argparse.ArgumentParser(description="Apply a clarity sweep's accepted edits to a page source.")
     ap.add_argument("page", type=pathlib.Path)
@@ -134,8 +145,8 @@ def main():
         print(f"{e['id']}: applied")
     print(f"{applied} applied, {len(edits) - applied} not")
     if applied and not dry:
-        backup = report.parent / f"{page.stem}.pre-clarity.md"
-        if not backup.exists():  # a re-run keeps the first run's original
+        backup = backup_path(page, report)
+        if not backup.exists():  # a re-run at the same commit keeps the first run's original
             shutil.copyfile(page, backup)
         page.write_text(text)
     elif dry and text != original:

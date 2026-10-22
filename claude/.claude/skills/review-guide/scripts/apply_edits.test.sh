@@ -89,6 +89,19 @@ expect "0 applied, 15 not" "re-run applies nothing"
   && /usr/bin/grep -q "pairs with T4's exit rules" "$WORK/run/page.pre-clarity.md" \
   && pass "re-run: one expansion, backup still the original" || fail "re-run doubled an edit or replaced the backup"
 
+# with target.json, the backup is named by the reviewed head; new commits get a new backup
+mkdir -p "$WORK/run3"
+printf 'Page at the first head.\n' > "$WORK/page3.md"
+echo '{"edits": [{"id": "K-01", "old": "Page at", "new": "This page is at"}]}' > "$WORK/run3/clarity.json"
+echo '{"head": "aaaaaaa1111"}' > "$WORK/run3/target.json"
+python3 "$AE" "$WORK/page3.md" "$WORK/run3/clarity.json" >/dev/null
+printf 'Page at the second head.\n' > "$WORK/page3.md"  # re-synthesised after new commits
+echo '{"head": "bbbbbbb2222"}' > "$WORK/run3/target.json"
+python3 "$AE" "$WORK/page3.md" "$WORK/run3/clarity.json" >/dev/null
+/usr/bin/grep -q "first head" "$WORK/run3/page3.pre-clarity.aaaaaaa.md" \
+  && /usr/bin/grep -q "^Page at the second head" "$WORK/run3/page3.pre-clarity.bbbbbbb.md" \
+  && pass "backup per reviewed head; the first head's backup kept" || fail "head-keyed backups: $(ls "$WORK/run3")"
+
 # dry run leaves the page alone
 cp "$WORK/run/page.pre-clarity.md" "$WORK/page2.md"
 python3 "$AE" "$WORK/page2.md" "$WORK/run/clarity.json" --dry-run >/dev/null
