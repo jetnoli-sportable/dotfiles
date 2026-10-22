@@ -241,8 +241,9 @@ It refuses edits whose text isn't unique or was already applied, that touch code
 (fences, or part of an inline code span), figures, headings or frontmatter, that
 drop a code span, number or finding id, that add or remove a fence, heading or
 figure line, or that break a form in the table above. A trim may drop numbers
-and code spans but never a finding id; a toggle must wrap whole lines, outside
-any other toggle, and hold no renderer form. It keeps the original from
+and code spans, but only in a paragraph with no finding id or renderer form; a
+toggle must wrap whole blocks (a blank line on each side), outside any other
+toggle, and hold no finding id or renderer form. It keeps the original from
 its first run as `<run>/review-guide-<target>.pre-clarity.<head>.md`, named by the
 first 7 characters of the reviewed head in `target.json`. A re-run at the same head
 doesn't overwrite it; a re-run after new commits backs up the re-synthesised page

@@ -131,10 +131,10 @@ cat > "$WORK/run4/clarity.json" <<'JSON'
 JSON
 out=$(python3 "$AE" "$WORK/page4.md" "$WORK/run4/clarity.json" 2>&1)
 expect "T-01: applied (trim)" "trim may drop a number and a code span"
-expect "T-02: refused: drops L1-02" "trim never drops a finding id"
-expect "T-03: applied (toggle)" "toggle wraps whole lines"
+expect "T-02: refused: trims finding id" "trim never touches a paragraph with a finding id"
+expect "T-03: applied (toggle)" "toggle wraps a whole block"
 expect "T-04: refused: toggles recommendation callout" "toggle never hides a callout"
-expect "T-05: refused: not whole lines" "toggle of part of a line refused"
+expect "T-05: refused: not a whole block" "toggle of part of a line refused"
 expect "T-06: refused: no summary" "toggle needs a summary"
 expect "T-07: refused: breaks structure" "plain edit adding a toggle tag refused"
 expect "T-08: applied" "later edit sees the earlier trim"
@@ -142,6 +142,45 @@ expect "T-08: applied" "later edit sees the earlier trim"
   && pass "toggle block written" || fail "toggle block not written: $(cat "$WORK/page4.md")"
 out=$(python3 "$AE" "$WORK/page4.md" "$WORK/run4/clarity.json" 2>&1)
 expect "T-03: refused: already applied" "re-run refuses an applied toggle"
+
+# what a toggle or trim must not hide, and toggle placement
+mkdir -p "$WORK/run5"
+cat > "$WORK/page5.md" <<'MD'
+The script writes `<details markdown="1">` around the text.
+
+- Skim: covered by L1-06, L1-07 and L1-09.
+
+**C-01** The cache is never cleared.
+
+**Risk: medium.** Two reasons: the lock in `lock.py:42`, and 3 retries.
+
+1. First step.
+2. Second step.
+3. Third step.
+
+Background worth folding.
+
+Plain prose here.
+MD
+cat > "$WORK/run5/clarity.json" <<'JSON'
+{ "edits": [
+  {"id": "U-01", "kind": "toggle", "old": "- Skim: covered by L1-06, L1-07 and L1-09.", "summary": "Skim list"},
+  {"id": "U-02", "kind": "toggle", "old": "**C-01** The cache is never cleared.", "summary": "Cache"},
+  {"id": "U-03", "kind": "trim", "old": " Two reasons: the lock in `lock.py:42`, and 3 retries.", "new": ""},
+  {"id": "U-04", "kind": "toggle", "old": "2. Second step.", "summary": "Step"},
+  {"id": "U-05", "kind": "toggle", "old": "Background worth folding.", "summary": "Why <b>this</b>"},
+  {"id": "U-06", "kind": "jargon", "old": "Plain prose here.", "new": "Plain prose. <details><summary>x</summary>"}
+] }
+JSON
+out=$(python3 "$AE" "$WORK/page5.md" "$WORK/run5/clarity.json" 2>&1)
+expect "U-01: refused: toggles finding id" "toggle never hides bare finding ids"
+expect "U-02: refused: toggles finding id" "toggle never hides a bold id with no severity"
+expect "U-03: refused: trims risk badge" "trim never cuts a risk's reasons"
+expect "U-04: refused: not a whole block" "toggle of one list item refused"
+expect "U-05: applied (toggle)" "a <details> in a code span doesn't count as an open toggle"
+expect "U-06: refused: breaks structure" "plain edit adding a mid-line toggle tag refused"
+/usr/bin/grep -qF '<summary>Why &lt;b&gt;this&lt;/b&gt;</summary>' "$WORK/page5.md" \
+  && pass "toggle summary escaped" || fail "summary not escaped: $(cat "$WORK/page5.md")"
 
 # dry run leaves the page alone
 cp "$WORK/run/page.pre-clarity.md" "$WORK/page2.md"

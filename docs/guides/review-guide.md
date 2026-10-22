@@ -72,7 +72,8 @@ claim on the page is traceable):
    overlong sentences, and for length: cuts for what the reader doesn't need,
    and collapsed toggle blocks for detail that helps but isn't needed. This
    session accepts or rejects each, and a script applies them without letting
-   a finding id go missing or hiding a finding in a toggle.
+   a finding id go missing, trimming a paragraph that holds a finding or risk,
+   or hiding a finding id in a toggle.
 8. **Render** the Markdown source to HTML.
 9. **Deliver:** publish as an Artifact, note it in the dossier's
    `tools/README.md` and the task's handoffs.

@@ -84,14 +84,15 @@ whether the reader needs it to decide where to look or to follow a point.
   narration, a second example that adds nothing): `trim`. `new` is the shorter
   text, or `""` to cut it. A trim may cut a number or code span that only the
   cut text needed; never a finding id, a `file:line` the page relies on, or a
-  caveat.
+  caveat. The script refuses a trim in any paragraph that holds a finding id
+  or a renderer form.
 - **Helpful but optional** (full test counts, background or history, the
   reasoning behind a skim item, an extra worked example): `toggle`. Give
   `summary`, a short label naming what's inside ("Test counts in full"), and
-  no `new`; `old` must be one or more whole lines (a paragraph or a whole
-  list). The script wraps it in a toggle block. Never toggle a finding, a
-  `**Risk:**`, `**Recommendation:**` or `**Conclusion.**` paragraph, or a
-  ranked spot.
+  no `new`; `old` must be one or more whole blocks (a paragraph, a whole list
+  or a whole table, with a blank line on each side). The script wraps it in a
+  toggle block. Never toggle anything holding a finding id, a `**Risk:**`,
+  `**Recommendation:**` or `**Conclusion.**` paragraph, or a ranked spot.
 
 Prefer a toggle to a trim when in doubt: it keeps the detail one click away.
 
@@ -109,8 +110,8 @@ Prefer a toggle to a trim when in doubt: it keeps the detail one click away.
 
 ## Each edit
 
-- `old`: an exact substring of `<page>`, on one line (a toggle may span
-  several whole lines), that occurs exactly once in the file. Keep it as short as uniqueness allows (a clause, not a
+- `old`: an exact substring of `<page>`, on one line (a toggle's is one
+  or more whole blocks), that occurs exactly once in the file. Keep it as short as uniqueness allows (a clause, not a
   paragraph).
 - `new`: the replacement. It must still contain every code span (`` `…` ``),
   number and finding id that `old` contains; `apply_edits.py` refuses an edit
