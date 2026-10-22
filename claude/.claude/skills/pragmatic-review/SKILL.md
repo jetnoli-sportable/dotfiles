@@ -192,19 +192,33 @@ that applies:
    (`tmux show -t "=$(tmux display-message -p '#S'):" -v @task`, its stem);
 5. otherwise ask Jet for the path. Never guess one.
 
-Create the dossier folder if it doesn't exist. Template:
+Create the dossier folder if it doesn't exist. Template (the conventions in
+it are what the page renderer below reads; anything else renders as plain
+Markdown):
 
-```markdown
+````markdown
+---
+title: Pragmatic review: <target name>
+eyebrow: Pragmatic review · <business>
+updated: <YYYY-MM-DD>
+---
 # Pragmatic review: <target name>
 
 Target: <path or parent stem> · Business: <key> · <date>
 
 ## Headlines
 
-1. <the 3 to 5 findings that matter most, one line each>. Add
+1. **<the finding in a few words>.** <one or two lines on why>. Add
    *Changes a settled decision:* <which> to any that would.
 
 ## Revised order
+
+```order-diagram
+{"lanes": [
+  {"name": "As planned", "nodes": [{"id": "p1", "col": 0, "label": "S1", "sub": ["<short>"]}, …]},
+  {"name": "Revised", "nodes": [{"id": "r2", "col": 0, "label": "S2", "moved": true}, …]}],
+ "moves": [{"from": "p2", "to": "r2", "label": "<why, a few words>"}]}
+```
 
 1. S2 — <title>
 2. S5 — <title> — moved up: <one line why>
@@ -215,10 +229,7 @@ Target: <path or parent stem> · Business: <key> · <date>
 
 | Step | Verdict | Trigger or reason | Flags | Settled | Source |
 |---|---|---|---|---|---|
-| S1 <title> | needed later | <trigger> | hardening before first use; blocks S2 | changes: <decision> | <file#section> |
-
-`Settled` names the session-settled decision a verdict would change, or is
-blank. Those verdicts are Jet's call, so say so wherever they appear.
+| S1 <title> | needed later | <trigger> | hardening before first use; blocks S2 | <decision it changes> | <file#section> |
 
 ## Context used
 
@@ -231,7 +242,45 @@ blank. Those verdicts are Jet's call, so say so wherever they appear.
 
 - <task stem>: depends_on <old> → <new>
 - (standalone plan: "none; this review is the record")
+
+## Steps as extracted
+
 ```
+<the step list from step 1>
+```
+````
+
+- **Verdict** starts with one of `needed now`, `needed later`, `not needed` or
+  `move`; a cell naming a second verdict is shown as split. **Flags** are
+  `;`-separated, `—` for none. **Settled** names the session-settled decision
+  the verdict would change, or is blank; those verdicts are Jet's call, so
+  say so wherever they appear. A step cell may end in `[status]`.
+- **The order diagram is optional.** Add it when steps move. One lane per
+  order, columns are positions (`col`, plus `span` for a wide box; `row`
+  stacks boxes in one column), `moved` and `use` (first real use) colour a
+  box, `tag` labels it (`"tags": {"<tag>": "ok"}` makes that tag green), and
+  an optional `band` (`{"from", "to", "label"}`) runs under the last lane for
+  work that starts now beside everything.
+- Items in Revised order that say "moved" or "pulled forward" are
+  highlighted. Indent nested bullets by 4 spaces, or they become rows.
+
+**Render the page** once the Markdown is written, and again after every
+edit (step 8 folds answers back into it):
+
+```bash
+uv run -q --with markdown --with pygments python <skill>/scripts/build-page.py <dossier> pragmatic-review-<YYYY-MM-DD>
+```
+
+`<skill>` is the real directory holding this file (`realpath` of
+`SKILL.md`'s directory), not a hard-coded `~/.claude/skills` path, so the
+command also works from a worktree before merge. It writes
+`pragmatic-review-<date>.html` beside the `.md`: the review-guide
+pages' shell (collapsible section rail) with headline cards, the order
+diagram, a verdict-count bar, verdict filters and colour-striped verdict
+cards. Never edit the HTML. Open it locally (the dossier isn't a hidden
+directory, so snap Chromium can read it); a work review is never published
+to claude.ai. The shared Markdown-to-page core is review-guide's
+`scripts/mdpage.py`.
 
 ## 8. Send it to Jet, then apply (R9, R10)
 
@@ -242,13 +291,14 @@ with an unfinished plan, and it isn't this session's own task. Then the
 verdict round belongs to that session, not this one (Jet, 2026-10-22: "we
 don't change other sessions' work"):
 
-1. Put an input banner at the top of the review doc ("Input, not decisions:
-   nothing here has been applied"), and add a `## Per-step options` section:
-   for each flagged step, the recommended option first, real alternatives,
-   then Defer and Skip, ready for the owner to put in a buffer. Mark the
-   ones that change a settled decision the same way as in the Verdicts
-   table. Keep `## Headlines` as the owner's way in; a long step list is
-   fine below it.
+1. Put an input banner at the top of the review doc, a blockquote opening
+   `> **Input, not decisions: nothing here has been applied.**`, and add a
+   `## Per-step options` section after Changes to apply: one paragraph per
+   flagged step, `**S3 — <title>.** (a) <recommended> · (b) <alternative> ·
+   Defer · Skip.`, the recommended option always first, ready for the owner
+   to put in a buffer. End a paragraph with `*Changes a settled decision:*
+   <which>` where it would. Keep `## Headlines` as the owner's way in; a
+   long step list is fine below it. Re-render the page.
 2. Skip the verdict surface and the apply step below.
 3. Point the owner at it with one
    `wb append <owner-stem> Follow-ups -` checklist item: the review path,
@@ -283,7 +333,8 @@ Notes / reject, then Defer and Skip). A silent close applies nothing.
 - **Skip** drops the review's verdict and keeps the step as the plan has it.
 
 Answer every note before acting on anything it touches. Then fold the
-answers into the review doc's Verdicts and Changes sections.
+answers into the review doc's Verdicts and Changes sections, and re-render
+the page.
 
 ### Applying approved changes (task families only)
 

@@ -70,7 +70,7 @@ Plans written by agents (ce-plan output, epic ladders, breakdown families) tend 
 - Not built: pre-seeded business context.
 - Not built: applying any change without Jet's approval. The review's whole value is Jet's judgment on business scale, and an automatic apply would harden the agent's guesses into the dependency graph.
 - Not built: rewriting the reviewed plan (KTD8). Owners revise their own plans, for example with a `ce-plan` deepen pass using the review as input.
-- Not built: a generated HTML companion page for the review. The verdict surfaces in R9 already render the evidence. Add a page only if a run's review proves too long to read in the buffer.
+- ~~Not built: a generated HTML companion page for the review.~~ Retired 2026-10-22: the second live run's 41-step review proved too long to read as Markdown (the trigger this line named), so `scripts/build-page.py` now renders it, on review-guide's shared `mdpage.py` core (task Decisions, 2026-10-22).
 
 #### Deferred to Follow-Up Work
 

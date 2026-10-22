@@ -42,8 +42,8 @@ Run it on a dotfiles plan:
 The skill lists the plan's units as steps, works out the business from the
 repo's origin owner, asks a few questions in chat (or opens an interview
 buffer if there are more than three), then writes
-`pragmatic-review-<date>.md` into the plan's task dossier and opens a
-verdict buffer. A standalone plan like this one has no task family, so the
+`pragmatic-review-<date>.md` into the plan's task dossier, renders it as
+`pragmatic-review-<date>.html` beside it, and opens a verdict buffer. A standalone plan like this one has no task family, so the
 review document is the whole output.
 
 For a task family, name the parent's stem instead of a path:
@@ -62,12 +62,13 @@ For a task family, name the parent's stem instead of a path:
 | Sequencing checks | Abstraction before its second consumer; hardening before first use; forward dependency; habit order over unblock-real-use order; false serialisation; buried prerequisite; step with no consumer | `references/sequencing-checks.md` |
 | Sizing test | Needed only if leaving it out causes harm nobody catches in time, or adding it later is expensive (stored data, shared interface, money, security); plus the foundation rule and two traps (survival needs that look like polish, trust work timed to its consumer) | `references/sizing-test.md` |
 | Review document | Revised order, one verdict per step, context used, changes to apply | the target's task dossier |
+| Review page | `scripts/build-page.py` renders the review Markdown as a page beside it: collapsible section rail, headline cards, a planned-against-revised order diagram, a verdict-count bar, verdict filters and colour-striped verdict cards, option cards with the recommended one marked. Never edit the HTML; built on review-guide's `scripts/mdpage.py` | SKILL.md step 7 |
 | Verdict surface | About 15 steps or more: review page (untouched row accepts its suggestion). Fewer: a decision-buffer with options per step, Defer and Skip last (silent close applies nothing) | SKILL.md step 8 |
 | Another session's plan | When the owning task has a live session or an unfinished plan, the review is input only: per-step options in the review doc and a `wb append` pointer in the owner's `## Follow-ups`; nothing is applied | SKILL.md step 8 |
 | Applying | Task families only: preflight for live sessions, `wb set <stem> depends_on <full list>`, one `wb append <parent> Decisions` entry | SKILL.md step 8 |
 | Learnings | Facts (rewritten in place) and Calibration (append-only, one line per verdict you overrode); written only after you confirm | `~/code/tasks/context/README.md` |
 
-Paths under `references/` are relative to
+Paths under `references/` and `scripts/` are relative to
 `claude/.claude/skills/pragmatic-review/`.
 
 ## Known rough edges
@@ -81,6 +82,10 @@ Paths under `references/` are relative to
 - **Calibration promotion has no example yet.** The rule for turning a
   repeated calibration line into a Fact, or into a business-neutral edit to
   the references, hasn't been exercised by a real run.
+- **The page reads fixed headings.** Headlines, Revised order, Verdicts,
+  Per-step options and Steps as extracted get their designed treatment only
+  under those exact `##` headings; a renamed section renders as plain
+  Markdown. Python-Markdown also needs nested bullets indented 4 spaces.
 - **Large families load into one session.** Step extraction happens in the
   main session. A family much larger than a dozen tasks may crowd it;
   a step-extractor subagent is a deferred follow-up for that case.

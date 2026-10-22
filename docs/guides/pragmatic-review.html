@@ -288,8 +288,8 @@ children (<code>/wb-breakdown</code>).</p>
 <p>The skill lists the plan's units as steps, works out the business from the
 repo's origin owner, asks a few questions in chat (or opens an interview
 buffer if there are more than three), then writes
-<code>pragmatic-review-&lt;date&gt;.md</code> into the plan's task dossier and opens a
-verdict buffer. A standalone plan like this one has no task family, so the
+<code>pragmatic-review-&lt;date&gt;.md</code> into the plan's task dossier, renders it as
+<code>pragmatic-review-&lt;date&gt;.html</code> beside it, and opens a verdict buffer. A standalone plan like this one has no task family, so the
 review document is the whole output.</p>
 <p>For a task family, name the parent's stem instead of a path:</p>
 <pre><code>/pragmatic-review &lt;repo&gt;--&lt;parent-slug&gt;
@@ -335,6 +335,11 @@ review document is the whole output.</p>
 <td>the target's task dossier</td>
 </tr>
 <tr>
+<td>Review page</td>
+<td><code>scripts/build-page.py</code> renders the review Markdown as a page beside it: collapsible section rail, headline cards, a planned-against-revised order diagram, a verdict-count bar, verdict filters and colour-striped verdict cards, option cards with the recommended one marked. Never edit the HTML; built on review-guide's <code>scripts/mdpage.py</code></td>
+<td>SKILL.md step 7</td>
+</tr>
+<tr>
 <td>Verdict surface</td>
 <td>About 15 steps or more: review page (untouched row accepts its suggestion). Fewer: a decision-buffer with options per step, Defer and Skip last (silent close applies nothing)</td>
 <td>SKILL.md step 8</td>
@@ -356,7 +361,7 @@ review document is the whole output.</p>
 </tr>
 </tbody>
 </table>
-<p>Paths under <code>references/</code> are relative to
+<p>Paths under <code>references/</code> and <code>scripts/</code> are relative to
 <code>claude/.claude/skills/pragmatic-review/</code>.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
@@ -369,6 +374,10 @@ that session is down.</li>
 <li><strong>Calibration promotion has no example yet.</strong> The rule for turning a
 repeated calibration line into a Fact, or into a business-neutral edit to
 the references, hasn't been exercised by a real run.</li>
+<li><strong>The page reads fixed headings.</strong> Headlines, Revised order, Verdicts,
+Per-step options and Steps as extracted get their designed treatment only
+under those exact <code>##</code> headings; a renamed section renders as plain
+Markdown. Python-Markdown also needs nested bullets indented 4 spaces.</li>
 <li><strong>Large families load into one session.</strong> Step extraction happens in the
 main session. A family much larger than a dozen tasks may crowd it;
 a step-extractor subagent is a deferred follow-up for that case.</li>

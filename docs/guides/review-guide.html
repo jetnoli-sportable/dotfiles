@@ -335,6 +335,10 @@ schema.</li>
 <li><code>scripts/inventory.py</code>, <code>scripts/cite_check.py</code>, <code>scripts/build-page.py</code>,
 <code>scripts/apply_edits.py</code>,
 each with a <code>.test.sh</code> beside it.</li>
+<li><code>scripts/mdpage.py</code> and <code>templates/page.template.html</code>: the Markdown-to-page
+core and page shell that <code>build-page.py</code> and pragmatic-review's own
+<code>build-page.py</code> share. A change here changes both skills' pages; run both
+skills' <code>build-page.test.sh</code>.</li>
 </ul>
 </article>
     <footer>
