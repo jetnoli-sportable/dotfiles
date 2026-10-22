@@ -123,7 +123,9 @@ take_snapshot() {
 # --- child ------------------------------------------------------------------
 timeout_s="$CFG_SWEEP_TIMEOUT"; [ "$timeout_s" -gt 0 ] || timeout_s="$DEFAULT_SWEEP_TIMEOUT"
 mkdir -p "$CAPTURE_ROOT" 2>/dev/null || exit 0
-# run_child — asks Haiku about $excerpt vs $decisions; sets out, rc, result
+# run_child — asks Haiku about $excerpt vs $decisions; sets out, rc, result. Hooks
+# are off in the child (`disableAllHooks`): every user/plugin hook would run in it,
+# and e.g. a learnings injector adds KBs of unrelated text to each sweep prompt.
 run_child() {
   out="$({
     cat <<'PROMPT'
@@ -147,7 +149,8 @@ PROMPT
     printf '%s\n\n=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$decisions" "$excerpt"
   } | (cd "$CAPTURE_ROOT" && env -u TMUX -u TMUX_PANE WB_CAPTURE_SWEEP=1 \
         timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p --model haiku \
-        --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config 2>/dev/null))"
+        --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config \
+        --settings '{"disableAllHooks":true}' 2>/dev/null))"
   rc=$?
   out="${out#"${out%%[![:space:]]*}"}"
   out="${out%"${out##*[![:space:]]}"}"

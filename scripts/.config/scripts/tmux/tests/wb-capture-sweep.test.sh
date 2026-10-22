@@ -235,6 +235,8 @@ assert_match "max-turns 1" '^\[1\]$' "$ARGV"
 assert_match "--tools" '^\[--tools\]$' "$ARGV"
 assert_match "tools empty-string arg" '^\[\]$' "$ARGV"
 assert_match "--strict-mcp-config (no MCP servers loaded)" '^\[--strict-mcp-config\]$' "$ARGV"
+assert_match "--settings" '^\[--settings\]$' "$ARGV"
+assert_match "hooks disabled in the child" '^\[\{"disableAllHooks":true\}\]$' "$ARGV"
 assert_eq "env stripped/set" "SWEEP=1 TMUX=unset PANE=unset" "$(cat "$OUTDIR/env")"
 assert_eq "cwd is capture root" "$(cd "$CAP" && pwd -P)" "$(cat "$OUTDIR/cwd")"
 
