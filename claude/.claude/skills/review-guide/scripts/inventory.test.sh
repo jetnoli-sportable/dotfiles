@@ -30,9 +30,10 @@ g add -A && g commit -qm base
 BASE=$(g rev-parse HEAD)
 
 printf '*.gen.js linguist-generated\n' >> .gitattributes
-mkdir -p src tests skills/x
+mkdir -p src tests skills/x automated_testing/helpers
 printf 'a\nb\nc\n' > src/app.py
 printf 't1\nt2\n' > tests/app_test.py
+printf 'f1\n' > automated_testing/helpers/fake_store.py
 printf 's1\ns2\ns3\ns4\n' > skills/x/SKILL.md
 printf 'd1\nd2\n' >> doc.md
 printf 'g1\ng2\ng3\n' > out.gen.js
@@ -48,6 +49,7 @@ bucket() { echo "$OUT" | py "[f['bucket'] for f in d['files'] if f['path']=='$1'
 
 check "logic file bucketed" logic "$(bucket src/app.py)"
 check "test file bucketed" tests "$(bucket tests/app_test.py)"
+check "helper under automated_testing/ is tests" tests "$(bucket automated_testing/helpers/fake_store.py)"
 check "SKILL.md is agent-instructions" agent-instructions "$(bucket skills/x/SKILL.md)"
 check "markdown doc bucketed" docs "$(bucket doc.md)"
 check "linguist-generated bucketed" generated "$(bucket out.gen.js)"

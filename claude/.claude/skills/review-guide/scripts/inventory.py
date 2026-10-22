@@ -13,7 +13,7 @@ LOCKFILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
              "uv.lock", "Cargo.lock", "go.sum", "Gemfile.lock", "composer.lock"}
 # Built outputs of docgen; applied when the head tree has docs/HUB.html.
 DOCGEN_GENERATED = ["docs/**/*.html", "docs/INDEX.md", "docs/HUB.html"]
-TEST_RE = re.compile(r"(^|/)(tests?|__tests__)/|_test\.\w+$|\.(test|spec)\.\w+$|(^|/)test_[^/]*\.py$")
+TEST_RE = re.compile(r"(^|/)(tests?|__tests__|testing|automated_testing)/|_test\.\w+$|\.(test|spec)\.\w+$|(^|/)(test_[^/]*|conftest)\.py$")
 AGENT_RE = re.compile(r"(^|/)(SKILL|AGENTS|CLAUDE)\.md$|(^|/)prompts?/|\.prompt(\.md)?$")
 DOC_EXT = (".md", ".txt", ".rst", ".adoc")
 BANNER_RE = re.compile(r"do not edit|code generated", re.I)

@@ -54,7 +54,8 @@ function a subprocess can't see):
   ask before going further.
 - **Worktrees:** for each PR head (one for a single PR or branch),
   `git -C <repo> worktree add --detach <repo>/.worktrees/review-guide-<target>[-<pr>] <sha>`.
-  If `.worktrees/` isn't ignored there, add it to `<repo>/.git/info/exclude`.
+  If `.worktrees/` isn't ignored there and the repo doesn't already keep
+  worktrees in it (`git worktree list`), add it to `<repo>/.git/info/exclude`.
   Agents read only these, never this session's checkout.
 - Write `target.json` in the shape documented at the top of
   `<skill>/scripts/cite_check.py`.
@@ -76,8 +77,10 @@ a dotfiles PR, and **Sportable work never on any personal surface**.
 - **Rules:** excerpts of `AGENTS.md`/`CLAUDE.md` at the root and in touched
   directories, and `CONTRIBUTING.md`.
 - **State:** existing review comments (`<cli> api repos/<o>/<r>/pulls/<n>/comments`)
-  and CI (`<cli> pr checks <n>`), so the page doesn't repeat a point already
-  made. Known-failing tests on the base branch, if the repo has them.
+  and CI (`<cli> pr checks <n>`; if the token can't read check rollups, use
+  `<cli> api repos/<o>/<r>/commits/<sha>/check-runs` or what the PR body
+  reports), so the page doesn't repeat a point already made. Known-failing
+  tests on the base branch, if the repo has them.
 
 ## 3. Inventory → `inventory.json`
 
