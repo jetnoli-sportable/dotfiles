@@ -30,7 +30,7 @@ Build `/review-guide` in `claude/.claude/skills/review-guide/`. Given a PR, a st
 - C. An explainer of the critical design decisions, with diagrams.
 - D. A design evaluation against the alternatives.
 
-The page lands in the task dossier and is published as an Artifact.
+Before it's rendered for publishing, a clarity sweep (one more Sonnet agent) reads the page cold and proposes rewrites for anything not explained where it's used; a script applies the accepted ones. The page lands in the task dossier and is published as an Artifact.
 
 ### Problem Frame
 
@@ -56,7 +56,8 @@ Large PRs and stacks hand a reviewer thousands of changed lines with no map. Att
 - R8. The page has the four parts A–D. Part C has at least one diagram per critical decision and real code excerpts. Part D gives at least two real alternatives per decision.
 - R9. The page follows Jet's explaining rules (why first, terms defined at first use, real excerpts, a conclusion and recommendation per point) and the wide layout with always-visible navigation.
 - R10. The page's source is Markdown in the dossier of the task whose `branch:` matches. If no task matches, it goes in `dossiers/<repo>--pr<N>/`, or `dossiers/<repo>--<branch-slug>/` for a branch with no PR (the slug sanitised like task filenames: `/` and `.` become `-`). Sportable work never goes in dotfiles `docs/`. The HTML is generated from the Markdown, published as an Artifact, and both the path and the URL are named in chat, in the dossier's `tools/README.md` and in the task file.
-- R11. Working files (`target.json`, `context.md`, `inventory.json`, `briefs/`, lens reports, `quick-pass.json`, `verified.json`) stay in `<dossier>/review-guide/<target>/`.
+- R11. Working files (`target.json`, `context.md`, `inventory.json`, `briefs/`, lens reports, `quick-pass.json`, `verified.json`, `clarity.json` and the page's `.pre-clarity.md` backup) stay in `<dossier>/review-guide/<target>/`.
+- R12. Once the page source is written, one Sonnet agent (the clarity sweep) reads it cold and proposes exact rewrites for every identifier or term not explained where it's used (a bare "R1", "KTD7", ticket key or SHA) and every jargon-heavy sentence. It never edits the page. The orchestrator judges each proposed edit, and a script applies the accepted ones, refusing any that touch code, figures, headings, frontmatter or a renderer form, drop a code span, number or finding id, or were already applied, so cited excerpts (R6) are never rewritten. Added 2026-10-22, after this plan was first written.
 
 ### Key Decisions
 
@@ -64,6 +65,7 @@ Large PRs and stacks hand a reviewer thousands of changed lines with no map. Att
 - **A fifth lens, L5 Reuse, does a small simplify sweep.** Governs R4. (session-settled: user-directed — chosen over the four-lens design with no simplify pass: Jet asked for duplication and existing-helper checks)
 - **One Opus coordinator on every run, all lenses on Sonnet.** Governs R5. (session-settled: user-directed — chosen over Opus for L1 only on hot-flagged paths with a Sonnet verifier: one strong agent judges every run's findings and adds an independent read)
 - **Working files are kept.** Governs R11. (session-settled: user-approved — chosen over deleting them after publishing: re-runs reuse stages and every claim stays traceable)
+- **A clarity sweep runs before the page is published.** Governs R12. (session-settled: user-directed — chosen over publishing pages as synthesised: Jet asked, after the trial pages, for a pass that catches anything not self-describing, such as a bare "R1", plus a plain-language jargon pass)
 - **The PR-recap habit stays separate.** (session-settled: user-approved — chosen over folding recap sections into this page now: keeps the skill small; the review guide is used before merge, the recap after)
 
 ### Success Criteria
@@ -108,7 +110,7 @@ Large PRs and stacks hand a reviewer thousands of changed lines with no map. Att
 - KTD9. **SKILL.md finds its scripts relative to its own file, not a hard-coded `~/.claude/skills/...` path.** The skill only appears under `~/.claude/skills` after merge and `stow`. Before that, a session can run it by reading the worktree's `SKILL.md` and following it, which U6 relies on.
 - KTD5. **The page generator is a skill-local copy of the auto-capture dossier's `build-page.py` and `page.template.html`, taking the dossier path as an argument.** It includes the figure and SVG styles added for the pipeline page. The `decision-page` kit isn't reused: it builds interactive answer pages (`kit.js`, Copy answers), which is a different job from a read-only Markdown page.
 - KTD6. **Coordinator continuity uses `SendMessage` to the same agent.** After the lenses finish, the orchestrator resumes the coordinator with the lens report paths, so it keeps what it read in its quick pass. If `SendMessage` isn't available or the agent has gone, a fresh Opus agent gets `quick-pass.json` plus the lens reports. The run notes this in the chat summary.
-- KTD7. **`disable-model-invocation: true`.** One run costs six or more agents, including an Opus one, so the skill runs only when Jet types `/review-guide`. This matches the existing `research` skill.
+- KTD7. **`disable-model-invocation: true`.** One run costs seven or more agents (five lenses, the coordinator and the clarity sweep), including an Opus one, so the skill runs only when Jet types `/review-guide`. This matches the existing `research` skill.
 
 ### High-Level Technical Design
 
@@ -127,7 +129,9 @@ flowchart TB
   QP -.same agent.-> VER
   VER --> CC2[cite_check.py again<br/>covers the coordinator's own findings]
   CC2 --> SYN[Synthesise A-D: orchestrator<br/>review-guide-target.md]
-  SYN --> REN[build-page.py<br/>review-guide-target.html]
+  SYN --> CLR[Clarity sweep: Sonnet agent reads the page cold<br/>clarity.json]
+  CLR --> APL[Orchestrator judges each edit; apply_edits.py applies<br/>page source edited, pre-clarity backup kept]
+  APL --> REN[build-page.py<br/>review-guide-target.html]
   REN --> DEL[Publish Artifact, README row, wb append]
 ```
 
@@ -155,10 +159,15 @@ claude/.claude/skills/review-guide/
   SKILL.md
   learnings.md
   references/briefs.md
+  references/clarity.md          (U7)
   scripts/inventory.py
   scripts/inventory.test.sh
+  scripts/build-briefs.py        (added in U6: writes each agent's brief)
+  scripts/build-briefs.test.sh
   scripts/cite_check.py
   scripts/cite_check.test.sh
+  scripts/apply_edits.py         (U7)
+  scripts/apply_edits.test.sh
   scripts/build-page.py
   scripts/build-page.test.sh
   templates/page.template.html
@@ -255,7 +264,7 @@ docs/guides/review-guide.md
      - Gather: task file by `branch:`, Jira via the Atlassian connector when a ticket key appears, `AGENTS.md`, existing PR comments, CI.
      - Inventory (U1), then Briefs (U3), then Dispatch (KTD1).
      - Cite check over the lens reports (U2), then resume the coordinator (KTD6), then cite check again over `verified.json`.
-     - Synthesise A–D, with the source table from the pipeline page. Then Render (U4).
+     - Synthesise A–D, with the source table from the pipeline page. Then the clarity sweep (U7, added later), then Render (U4).
      - Deliver: Artifact publish, `tools/README.md` row, `wb append` to the task, and the worktree list with an offer to remove them.
      Script paths are resolved from SKILL.md's own directory (KTD9).
   3. The landing path rule and the Sportable boundary (R10).
@@ -281,6 +290,22 @@ docs/guides/review-guide.md
 - **Test expectation:** none. The trial is the test.
 - **Verification:** both pages are published with path and URL named, every finding passes the cite check, and Jet has made the PR #95 comparison.
 
+### U7. Clarity sweep
+
+Added 2026-10-22, after U6. Jet saw the trial pages and asked for a pass that catches anything not self-describing (a bare "R1") plus a plain-language jargon pass.
+
+- **Goal:** before publishing, every label and term on the page is explained where it's used, without changing what any finding claims.
+- **Requirements:** R12, R6 (excerpts are never rewritten), R9.
+- **Dependencies:** U4, U5.
+- **Files:** `claude/.claude/skills/review-guide/references/clarity.md`, `claude/.claude/skills/review-guide/scripts/apply_edits.py`, `claude/.claude/skills/review-guide/scripts/apply_edits.test.sh`, `claude/.claude/skills/review-guide/SKILL.md` (end of stage 7, and the agent count in stage 9), `docs/guides/review-guide.md`.
+- **Approach:**
+  1. The page is rendered once so its anchors exist. Then one Sonnet agent gets `references/clarity.md`, the page source and HTML, and `context.md` to look labels up in. It writes `clarity.json`: one `{id, old, new}` edit per fix, with `"guess": true` on any description it inferred. It dry-runs `apply_edits.py` on its own proposals, and never edits the page.
+  2. The orchestrator judges each edit: it rejects any that change a finding's claim or soften a caveat, and checks every guess against the task file or plan.
+  3. `apply_edits.py` applies the accepted edits. It refuses edits that aren't unique or were already applied, edits that touch frontmatter, fences, figures, headings or part of an inline code span, edits that drop a code span, number or finding id, edits that add or remove a fence, heading or figure line, and edits that break a renderer form. It keeps the original page from its first run as `.pre-clarity.md`.
+  4. Re-render, then deliver as in U5.
+- **Test scenarios:** each refusal kind; a re-run against the same `clarity.json` changes nothing and keeps the first backup; `--dry-run` writes nothing.
+- **Verification:** `apply_edits.test.sh` passes. The first run, over the three trial pages and the pipeline page: 55 edits proposed, 9 corrected by the orchestrator, none rejected outright.
+
 ---
 
 ## Verification Contract
@@ -291,6 +316,7 @@ docs/guides/review-guide.md
 | Cite check | `bash claude/.claude/skills/review-guide/scripts/cite_check.test.sh` | U2 ok / moved / missing |
 | Page generator | `bash claude/.claude/skills/review-guide/scripts/build-page.test.sh` | U4 rendering and symlinked lookup |
 | Docs platform | the docgen pre-commit hook (`.githooks/pre-commit`) on the U5 commit | skill and guide are indexed |
+| Clarity edits | `bash claude/.claude/skills/review-guide/scripts/apply_edits.test.sh` | U7 applies safe edits and refuses unsafe ones, including on a re-run |
 | End to end | U6 trial runs on `fix/capture-handback-none`, PR #95 and the `lib--algorithms` #541/#543/#544 stack | R1–R11 and Success Criteria |
 
 ---

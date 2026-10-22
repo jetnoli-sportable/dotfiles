@@ -56,7 +56,8 @@ function a subprocess can't see):
 - **Worktrees:** for each PR head (one for a single PR or branch),
   `git -C <repo> worktree add --detach <repo>/.worktrees/review-guide-<target>[-<pr>] <sha>`.
   If `.worktrees/` isn't ignored there and the repo doesn't already keep
-  worktrees in it (`git worktree list`), add it to `<repo>/.git/info/exclude`.
+  worktrees in it (`git worktree list`), add it to `<repo>/.git/info/exclude`,
+  and remember that you did: it outlives the worktrees, so stage 9 reports it.
   Agents read only these, never this session's checkout.
 - Write `target.json` in the shape documented at the top of
   `<skill>/scripts/cite_check.py`.
@@ -207,7 +208,10 @@ Never edit the HTML; change the `.md` and re-run.
 - Chat summary: the path and the URL, the top three focus points, agent count
   (including the clarity sweep), edits applied and rejected by it,
   any coordinator fallback, and the worktrees created, with an offer to remove
-  them (`git worktree remove`). Don't remove them unasked.
+  them (`git worktree remove`). If stage 1 added `.worktrees/` to
+  `<repo>/.git/info/exclude`, say so beside them: it's a local-only ignore line
+  that stays after the worktrees go, and you can offer to remove it too. Don't
+  remove anything unasked.
 
 ## Learnings ledger
 
