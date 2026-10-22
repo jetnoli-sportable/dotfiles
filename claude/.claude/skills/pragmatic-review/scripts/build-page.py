@@ -89,7 +89,9 @@ def split_list(body):
         line = lines[i]
         if re.match(r"\d+\.\s", line):
             items.append([line])
-        elif line.strip() == "" or line.startswith((" ", "\t")):
+        # an unindented line straight after item text continues it (Markdown's lazy continuation)
+        elif (line.strip() == "" or line.startswith((" ", "\t"))
+              or (items[-1][-1].strip() and not re.match(r"#|>|```|~~~|[-*+]\s|\|", line))):
             items[-1].append(line)
         else:
             end = i
@@ -257,7 +259,8 @@ def verdicts(body, stash):
         settled_count += settled
         m = re.match(r"([A-Z]+\d+[a-z]?)\b\s*(.*?)\s*(?:\[([^\]]+)\])?$", col(row, "step"))
         sid, title, status = (m[1], m[2], m[3] or "") if m else ("", col(row, "step"), "")
-        split = any(w in verdict.replace("*", "").lower() for k, w in VERDICT_WORDS.items() if k != key)
+        split = any(re.search(rf"\b{re.escape(w)}\b", verdict.replace("*", "").lower())
+                    for k, w in VERDICT_WORDS.items() if k != key)
         flag_chips = "".join(f'<span class="chip flag">{md_inline(f)}</span>' for f in flags.split(";")
                              if f.strip().lower() not in BLANK)
         note = (f'<p class="settled-note"><span class="chip sev-medium">changes a settled decision</span> '
@@ -343,7 +346,9 @@ def prepare(text, stash):
     for head, body in sections(text):
         name = head[3:].strip().lower()
         render = RENDERERS.get(name) or (steps if name.startswith("steps") else None)
-        out.append(head + (render(body, stash) if render else body))
+        # renderers rebuild the body from split lines, which drops its final newline;
+        # without one the next `## ` heading lands on the body's last line
+        out.append(head + (render(body, stash).rstrip("\n") + "\n\n" if render else body))
     return "".join(out)
 
 
@@ -411,6 +416,7 @@ figure.bar svg{min-width:0;height:34px;border-radius:4px}
 .flt[aria-pressed="true"]{background:var(--ink);color:var(--ground);border-color:var(--ink)}
 .vlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:10px}
 .vcard{background:var(--surface);border:1px solid var(--rule);border-left:5px solid var(--muted);border-radius:6px;padding:10px 14px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.vcard[hidden]{display:none}
 .vcard.v-now{border-left-color:var(--accent)} .vcard.v-move{border-left-color:var(--amber)}
 .vcard.v-later{border-left-color:var(--new)} .vcard.v-notneeded{border-left-color:var(--bad)}
 .vcard[data-settled="1"]{box-shadow:inset 0 0 0 1px var(--amber)}

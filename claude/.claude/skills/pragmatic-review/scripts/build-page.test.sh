@@ -150,6 +150,47 @@ else
   fail "build failed: $(cat "$WORK/out.txt")"
 fi
 
+# valid Markdown shapes the main fixture avoids: a headline wrapped onto an unindented
+# line, sections whose last line runs straight into the next heading, and "remove" in a
+# verdict cell (it contains the verdict word "move")
+cat > "$D/edge.md" <<'MD'
+# Edge
+
+## Headlines
+
+1. **First headline.** It wraps onto a line
+that is not indented.
+2. **Second headline.** Short.
+3. Third headline.
+## Verdicts
+
+| Step | Verdict | Trigger or reason | Flags | Settled | Source |
+|---|---|---|---|---|---|
+| S1 Dedupe | needed now (removes the double entry) | orders are counted twice | — | | |
+| S2 Cache | not needed: remove it | one shop | — | | |
+Counts above are by step.
+## Per-step options
+
+**S1 — dedupe.** (a) build now · Defer · Skip.
+MD
+if run "$BUILD" "$D" edge >"$WORK/out.txt" 2>&1; then
+  H="$D/edge.html"
+  [ "$(count 'href="#[a-z-]*"')" = 4 ] && ! has '## ' \
+    && pass "a section ending on a text line keeps the next heading" \
+    || fail "edge nav entries: $(count 'href="#[a-z-]*"')"
+  [ "$(count 'class="spot ')" = 3 ] && has 'It wraps onto a line that is not indented.' \
+    && pass "an unindented wrapped headline stays in its card" \
+    || fail "edge headline cards: $(count 'class="spot ')"
+  has '<p>Counts above are by step.</p>' && pass "text after the verdict table kept" \
+    || fail "edge text after table"
+  [ "$(count 'split verdict')" = 0 ] && pass "'remove' in a verdict is not a split verdict" \
+    || fail "edge split verdict: $(count 'split verdict')"
+  has '\.vcard\[hidden\]{display:none}' && pass "filtered-out cards are hidden by CSS" \
+    || fail "no [hidden] rule for verdict cards"
+else
+  fail "edge build failed: $(cat "$WORK/out.txt")"
+fi
+
 # a page with none of the conventions still builds
 cat > "$D/plain.md" <<'MD'
 # Plain
