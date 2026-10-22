@@ -88,9 +88,11 @@ def spot_cards(body):
     for i, s in enumerate(starts):
         block = segment[s:starts[i + 1] if i + 1 < len(starts) else len(segment)]
         m = SPOT_START.match(block)
-        sev = top_severity(m[2]) or max(
+        # the title's own verdict, then the highest chip inside, then any severity word
+        verdict = TITLE_VERDICT.search(m[2])
+        sev = (verdict[2] if verdict else None) or max(
             re.findall(r'class="chip sev-(high|medium|low)"', block),
-            key=SEVERITIES[::-1].index, default="none")
+            key=SEVERITIES[::-1].index, default=None) or top_severity(m[2]) or "none"
         title = TITLE_VERDICT.sub(lambda t: chips(t[2], t[1]), m[2])
         cards.append(f'<div class="spot sev-{sev}">\n<p class="spot-title"><span class="rank">{m[1]}</span>'
                      f'<strong>{title}</strong>{block[m.end():]}</div>\n')

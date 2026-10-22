@@ -9,7 +9,11 @@ Output goes next to the input, original untouched: lens-L1.json ->
 lens-L1.cited.json. Each finding gains `cite`:
   ok       excerpt found on the cited line
   moved    excerpt found 1-3 lines away; `line` is corrected, `cited_line` keeps the original
-  missing  excerpt not within 3 lines (fix the finding or drop it)
+  missing  excerpt not within 3 lines, or too short to prove anything (fix the finding or drop it)
+Every non-empty excerpt line must match, in order, on consecutive lines (blank file
+lines between them are skipped). A line of 8 or more non-space characters may be a
+substring of the file line; a shorter one must equal it. An excerpt with fewer than
+8 non-space characters in total is missing.
 Exit 0 whenever the check ran; the verdicts are in the output.
 
 target.json (written by the orchestrator; this script only uses git against
@@ -33,6 +37,7 @@ import subprocess
 import sys
 
 TOLERANCE = 3
+MIN_CHARS = 8  # non-space characters; below this a line or a whole excerpt proves nothing
 
 
 def commit_for(target, f):
@@ -45,12 +50,25 @@ def commit_for(target, f):
     return ends["base"] if f.get("side", "head") == "base" else ends["head"]
 
 
-def first_line(excerpt):
-    # Ruling: a multi-line excerpt is matched on its first non-empty line.
-    for ln in excerpt.splitlines():
-        if ln.strip():
-            return ln.strip()
-    return ""
+def excerpt_lines(excerpt):
+    return [ln.strip() for ln in excerpt.splitlines() if ln.strip()]
+
+
+def same_line(want, got):
+    # a long line may be a truncated copy; a short one (`return`, `}`) must be the whole line
+    return want in got if len(want.replace(" ", "")) >= MIN_CHARS else want == got
+
+
+def matches_at(lines, start, wanted):
+    """Every excerpt line, in order, from `start`; blank file lines between them are skipped."""
+    i = start
+    for k, want in enumerate(wanted):
+        while k and 1 <= i <= len(lines) and not lines[i - 1].strip():
+            i += 1
+        if not (1 <= i <= len(lines) and same_line(want, lines[i - 1].strip())):
+            return False
+        i += 1
+    return True
 
 
 def load_lines(target, tdir, commit, path, cache):
@@ -72,14 +90,14 @@ def load_lines(target, tdir, commit, path, cache):
 
 def check(target, tdir, f, cache):
     lines = load_lines(target, tdir, commit_for(target, f), f["file"], cache)
-    needle = first_line(f.get("excerpt", ""))
+    wanted = excerpt_lines(f.get("excerpt", ""))
     cited = int(f["line"])
-    if lines is None or not needle:
+    if lines is None or sum(len(w.replace(" ", "")) for w in wanted) < MIN_CHARS:
         return "missing", cited
-    # Substring match on the trimmed line, nearest candidate wins.
+    # The excerpt's first line starts within TOLERANCE of the cited line; nearest candidate wins.
     for d in range(TOLERANCE + 1):
         for ln in ((cited,) if d == 0 else (cited - d, cited + d)):
-            if 1 <= ln <= len(lines) and needle in lines[ln - 1].strip():
+            if matches_at(lines, ln, wanted):
                 return ("ok" if d == 0 else "moved"), ln
     return "missing", cited
 

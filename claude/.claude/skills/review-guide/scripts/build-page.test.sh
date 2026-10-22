@@ -80,6 +80,8 @@ if [ -e "$lock" ]; then echo held; fi
 
 - **L1-02** low, plausible · `parse.sh:9`: a stray fence survives.
 
+**3. High-water mark off by one, `a.py:4`. Plausible, low.**
+
 ### Skim
 
 **3. Not a spot:** numbered bold outside the ranked list stays a paragraph.
@@ -99,8 +101,8 @@ if run "$BUILD" "$D" conv >"$WORK/out.txt" 2>&1; then
   /usr/bin/grep -q '<p class="callout rec"><strong' "$H" && /usr/bin/grep -q '<p class="callout concl">' "$H" \
     && pass "recommendation and conclusion callouts" || fail "callouts missing"
   cards=$(/usr/bin/grep -o 'class="spot sev-[a-z]*"' "$H" | tr '\n' ' ')
-  [ "$cards" = 'class="spot sev-high" class="spot sev-low" ' ] \
-    && pass "two ranked cards; severity from title, else from chips" || fail "cards: $cards"
+  [ "$cards" = 'class="spot sev-high" class="spot sev-low" class="spot sev-low" ' ] \
+    && pass "three ranked cards; severity from the title's verdict, else from chips, never from a stray word" || fail "cards: $cards"
   /usr/bin/grep -q '<span class="chip sev-high">high</span> <span class="chip v-confirmed">confirmed</span>' "$H" \
     && pass "spot title verdict as chips" || fail "spot title chips missing"
   /usr/bin/grep -q '<div class="hl"><pre>.*<span class="k">if</span>' "$H" \

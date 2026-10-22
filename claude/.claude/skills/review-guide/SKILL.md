@@ -161,7 +161,7 @@ what make the page guide the eye:
 | `**L1-03** medium, confirmed · file:line` (also `**#541 · L1.541-01** low`, `**C-01**` alone) | finding id plus severity and verdict chips |
 | `**Risk: low.**` opening part A's risk paragraph (`low`, `medium`, `high`, `low to medium`) | a coloured risk badge callout |
 | `**Recommendation:**` or `**Conclusion.**` opening a paragraph | an accent or neutral callout |
-| `**1. title, file:line. Confirmed, high.**` paragraphs under `### Where to look, ranked` | ranked cards with a severity stripe (from the title, else the highest chip inside) |
+| `**1. title, file:line. Confirmed, high.**` paragraphs under `### Where to look, ranked` | ranked cards with a severity stripe (from the title's `Confirmed, high`, else the highest chip inside) |
 | fenced code with a language (`bash`, `python`, `json`, `console`) | syntax highlighting in the page's theme colours |
 
 **Clarity sweep → `clarity.json`.** Once the page source is written, render it
@@ -182,9 +182,11 @@ flagged at all, so skim the unflagged ones too). Correct an edit by changing its
 python3 <skill>/scripts/apply_edits.py <dossier>/review-guide-<target>.md <run>/clarity.json --skip <rejected ids>
 ```
 
-It refuses edits whose text isn't unique, that touch code, figures, headings or
-frontmatter, that drop a code span, number or finding id, or that break a form
-in the table above, and keeps the original as `<run>/review-guide-<target>.pre-clarity.md`.
+It refuses edits whose text isn't unique or was already applied, that touch code
+(fences, or part of an inline code span), figures, headings or frontmatter, that
+drop a code span, number or finding id, that add or remove a fence, heading or
+figure line, or that break a form in the table above. It keeps the original from
+its first run as `<run>/review-guide-<target>.pre-clarity.md`; a re-run doesn't overwrite it.
 Fix a refused edit you still want by hand.
 
 ## 8. Render

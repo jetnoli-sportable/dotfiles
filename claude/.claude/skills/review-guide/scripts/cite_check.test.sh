@@ -57,6 +57,16 @@ expect "ten lines away -> missing" "$RUN/lens-L3.json" missing 15
 mk "$RUN/lens-L4.json" L4 1 a.txt 5 head 'no such text anywhere'
 expect "absent excerpt -> missing" "$RUN/lens-L4.json" missing 5
 
+# multi-line excerpts: every line must match, in order
+mk "$RUN/lens-L5.json" L1 1 a.txt 5 head $'risky = eval(x)\nline 5'
+expect "two-line excerpt, both lines real -> ok" "$RUN/lens-L5.json" ok 5
+mk "$RUN/lens-L5b.json" L1 1 a.txt 5 head $'risky = eval(x)\nos.system(x)'
+expect "real first line, invented second line -> missing" "$RUN/lens-L5b.json" missing 5
+mk "$RUN/lens-L5c.json" L2 1 a.txt 1 head 'x1'
+expect "excerpt too short to prove anything -> missing" "$RUN/lens-L5c.json" missing 1
+mk "$RUN/lens-L5d.json" L1 1 a.txt 6 head 'line'
+expect "short line must equal the file line, not be part of it -> missing" "$RUN/lens-L5d.json" missing 6
+
 mk "$RUN/lens-L1b.json" L1 1 del.txt 2 base 'SECRET = base'
 expect "side base on deleted file -> ok" "$RUN/lens-L1b.json" ok 2
 
