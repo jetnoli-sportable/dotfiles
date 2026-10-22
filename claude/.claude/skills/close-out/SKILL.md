@@ -45,7 +45,13 @@ threads, then the wind-down, in that order, because the sweep has to happen
 ### 1. Identify the closing task
 
 Resolve the task file the same way `/wb-save` does: via the current tmux
-session's `@task` option (`tmux show -p @task`), not cwd/branch inference.
+session's `@task` option, not cwd/branch inference. `@task` is a session
+option, so a pane lookup (`show -p`) fails with "invalid option":
+
+```bash
+tmux show -t "=$(tmux display-message -p '#S'):" -v @task
+```
+
 If that's unset (not a wb-managed session), say so and stop — this skill
 has nothing to wind down.
 
