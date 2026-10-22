@@ -10,7 +10,8 @@ Edits apply in order; each is applied or refused, never half-applied:
   refused: old not unique    old occurs more than once; it must name one place
   refused: protected         old sits in frontmatter, a fenced code block, a <figure>, or a heading,
                              or covers only part of an inline code span
-  refused: changes code spans  new has a different number of backticks from old
+  refused: changes code spans  new has a different number of unpaired backticks from old
+                             (adding a whole `span` is fine; a lone backtick is not)
   refused: drops <token>     new has fewer of a code span, number or finding id than old had
   refused: breaks structure  new adds or removes a fence, heading or figure line
   refused: breaks <form>     a renderer form (risk badge, callout, spot, finding chips) would change
@@ -60,6 +61,11 @@ def structure(text):
     return [ln for ln in text.split("\n") if ln.startswith(("```", "#")) or "<figure" in ln or "</figure>" in ln]
 
 
+def stray_backticks(text):
+    """Backticks not part of a complete inline code span."""
+    return text.count("`") - 2 * len(INLINE_CODE.findall(text))
+
+
 def already_applied(text, old, new):
     # an expanding edit (new contains old) still finds old once after it ran
     if old not in new or new not in text:
@@ -91,7 +97,8 @@ def check(text, edit):
     after = text.replace(old, new, 1)
     if structure(text) != structure(after):
         return "breaks structure"
-    if old.count("`") != new.count("`"):
+    # adding a whole code span is fine; a lone backtick would open one that swallows the line
+    if stray_backticks(old) != stray_backticks(new):
         return "changes code spans"
     lost = Counter(TOKENS.findall(old)) - Counter(TOKENS.findall(new))
     if lost:
