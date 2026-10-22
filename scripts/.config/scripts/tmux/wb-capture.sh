@@ -223,7 +223,7 @@
 #   sweep_timeout  integer seconds for the sweep child     (default 60)
 #   sweep_max_failures  integer, consecutive failed sweeps before the sweep
 #                  backs off for the session; 0 = never back off (default 3)
-#   sweep_model    model alias/id for the sweep child, [A-Za-z0-9._-]+ (default sonnet)
+#   sweep_model    model alias/id for the sweep child, no leading - (default sonnet)
 #   sweep_effort   low|medium|high|xhigh|max, the child's --effort (default medium)
 # A non-integer / non-on|off / otherwise invalid value falls back to the default.
 #
@@ -748,7 +748,7 @@ load_config() {
       sweep)         case "$val" in on|off) CFG_SWEEP="$val" ;; esac ;;
       sweep_timeout) [[ "$val" =~ ^[0-9]+$ ]] && CFG_SWEEP_TIMEOUT="$val" ;;
       sweep_max_failures) [[ "$val" =~ ^[0-9]+$ ]] && CFG_SWEEP_MAX_FAILURES="$val" ;;
-      sweep_model)   [[ "$val" =~ ^[A-Za-z0-9._-]+$ ]] && CFG_SWEEP_MODEL="$val" ;;
+      sweep_model)   [[ "$val" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && CFG_SWEEP_MODEL="$val" ;;
       sweep_effort)  case "$val" in low|medium|high|xhigh|max) CFG_SWEEP_EFFORT="$val" ;; esac ;;
     esac
   done <"$CONF_FILE"

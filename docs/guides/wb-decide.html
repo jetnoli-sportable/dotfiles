@@ -519,7 +519,7 @@ exactly <code>EOF</code> can't end it early.</p>
 <tr>
 <td><code>sweep_model</code></td>
 <td><code>sonnet</code></td>
-<td>model alias or id for the sweep child (<code>[A-Za-z0-9._-]+</code>; anything else falls back to the default). Measured 2026-10-22 on a sweep-sized call: Haiku about $0.006, Sonnet 5.5 at medium effort about $0.124, both about 2s</td>
+<td>model alias or id for the sweep child (letters, digits, <code>.</code>, <code>_</code>, <code>-</code>, not starting with <code>-</code>; anything else falls back to the default). Measured 2026-10-22 on a sweep-sized call: Haiku about $0.006, Sonnet 5.5 at medium effort about $0.124, both about 2s</td>
 </tr>
 <tr>
 <td><code>sweep_effort</code></td>

@@ -278,7 +278,7 @@ for e in low medium high xhigh max; do
   new_scenario; set_conf "sweep_effort=$e"; sweep
   assert_eq "effort $e accepted" "$e" "$(argv_after --effort)"
 done
-for bad in 'sweep_model=haiku;rm' 'sweep_model=a b' 'sweep_model=' 'sweep_model=$(x)' 'sweep_model=opus/4' 'sweep_effort=ultra' 'sweep_effort=' 'sweep_effort=HIGH' 'sweep_effort=high extra'; do
+for bad in 'sweep_model=-p' 'sweep_model=--tools' 'sweep_model=haiku;rm' 'sweep_model=a b' 'sweep_model=' 'sweep_model=$(x)' 'sweep_model=opus/4' 'sweep_effort=ultra' 'sweep_effort=' 'sweep_effort=HIGH' 'sweep_effort=high extra'; do
   new_scenario; set_conf "$bad"; sweep
   assert_eq "invalid [$bad]: model falls back" sonnet "$(argv_after --model)"
   assert_eq "invalid [$bad]: effort falls back" medium "$(argv_after --effort)"

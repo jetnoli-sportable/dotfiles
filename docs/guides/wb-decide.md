@@ -207,7 +207,7 @@ exactly `EOF` can't end it early.
 | `sweep` | `on` | `on` / `off` — the background model sweep |
 | `sweep_timeout` | `60` | seconds for the sweep child (`0` means the default 60; the reaper's grace for an ended session, 2 x timeout + 60s, uses the same fallback) |
 | `sweep_max_failures` | `3` | consecutive failed sweeps before the sweep stops for the session (`0` = never stop) |
-| `sweep_model` | `sonnet` | model alias or id for the sweep child (`[A-Za-z0-9._-]+`; anything else falls back to the default). Measured 2026-10-22 on a sweep-sized call: Haiku about $0.006, Sonnet 5.5 at medium effort about $0.124, both about 2s |
+| `sweep_model` | `sonnet` | model alias or id for the sweep child (letters, digits, `.`, `_`, `-`, not starting with `-`; anything else falls back to the default). Measured 2026-10-22 on a sweep-sized call: Haiku about $0.006, Sonnet 5.5 at medium effort about $0.124, both about 2s |
 | `sweep_effort` | `medium` | `low` / `medium` / `high` / `xhigh` / `max` — the child's `--effort` (anything else falls back to the default) |
 
 **Log events** (`log.jsonl`, one JSON object per line: `ts`, `session_id`,
