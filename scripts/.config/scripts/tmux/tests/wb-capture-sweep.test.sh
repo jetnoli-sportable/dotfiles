@@ -51,6 +51,8 @@ case "$mode" in
   none-code)   printf '`NONE`.\n' ;;
   preamble-draft) printf 'Here is the entry:\n### Chose B over A\n- decided: B\n- rejected: A\n' ;;
   draft-mentions-none) printf '### Chose B over A\n- decided: B\n- rejected: none of the others\n- why: none needed\n- done\n' ;;
+  two-entries)  printf '### Chose B over A\n- decided: B\n- why: simpler\n\n### Chose D over C\n- decided: D\n- why: faster\n' ;;
+  four-entries) printf 'Entries:\n'; for i in 1 2 3 4; do printf '### Entry %s\n- decided: X%s\n- why: y%s\n\n' "$i" "$i" "$i"; done ;;
   fail)  echo "boom" >&2; exit 1 ;;
   empty) : ;;
   sleep) exec sleep 5 ;;
@@ -217,6 +219,26 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=draft-mentions-none)
 sweep
 assert_file "mentions-none: draft written" "$D/draft"
 assert_eq "mentions-none: result draft" draft "$(last_field sweep_ran result)"
+
+echo "# several entries in one answer: up to 3 are kept as the draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=two-entries)
+sweep
+assert_eq "two entries: result draft" draft "$(last_field sweep_ran result)"
+assert_eq "two entries: both in the draft" 2 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_match "two entries: second body kept" 'decided: D' "$(cat "$D/draft")"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=four-entries)
+sweep
+assert_eq "four entries: result draft" draft "$(last_field sweep_ran result)"
+assert_eq "four entries: exactly 3 kept" 3 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_eq "four entries: preamble stripped" "### Entry 1" "$(head -1 "$D/draft")"
+assert_match "four entries: third kept whole" 'why: y3' "$(cat "$D/draft")"
+assert_nomatch "four entries: fourth dropped" 'Entry 4|X4|y4' "$(cat "$D/draft")"
+assert_eq "four entries: draft ends at the third body" "- why: y3" "$(tail -1 "$D/draft")"
+new_scenario
+sweep
+assert_eq "one entry: still one" 1 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_match "prompt asks for one entry per decision, at most 3" 'one Decisions entry per unrecorded decision, at most 3' "$(tr '\n' ' ' <"$OUTDIR/stdin")"
+assert_nomatch "prompt no longer asks for a single entry" 'single Decisions entry' "$(cat "$OUTDIR/stdin")"
 
 echo "# rerun path parses the same way (preamble entry on both calls)"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,preamble-draft)

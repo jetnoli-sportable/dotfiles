@@ -40,6 +40,7 @@ set -uo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-capture.sh"
 
 EXCERPT_BUDGET=24000   # bytes of transcript excerpt sent to the child
+MAX_ENTRIES=3          # `### ` entries one sweep may draft (the prompt asks for the same)
 
 guard_chain
 read_input
@@ -133,11 +134,11 @@ run_child() {
 You are reviewing an excerpt of a coding-session transcript against the
 Decisions already recorded for the task being worked on.
 
-If a concrete decision was made in the excerpt (an option chosen over an
-alternative, or a design/approach settled) that is NOT already recorded in the
-Decisions section, reply with a single Decisions entry body and nothing else:
-a `### <short title>` line, then 2-4 bullets covering what was decided, the
-alternative that was rejected, and why.
+If concrete decisions were made in the excerpt (an option chosen over an
+alternative, or a design/approach settled) that are NOT already recorded in the
+Decisions section, reply with one Decisions entry per unrecorded decision, at
+most 3, and nothing else. Each entry is a `### <short title>` line, then 2-4
+bullets covering what was decided, the alternative that was rejected, and why.
 
 Otherwise reply with exactly: NONE
 
@@ -164,13 +165,15 @@ PROMPT
 }
 
 # parse_answer — classifies the trimmed, non-empty $out; sets result and, for a
-# draft, trims $out to start at its first `### ` line. Models vary: "None.",
-# "**NONE**", or prose that starts or ends with a bare NONE line. Order matters:
+# draft, trims $out to start at its first `### ` line and keeps at most MAX_ENTRIES
+# `### ` entries. Models vary: "None.", "**NONE**", or prose that starts or ends
+# with a bare NONE line. Order matters:
 #   1. last line is NONE                               -> none
 #   2. no line starting `### `: first line is NONE     -> none
 #                               otherwise              -> invalid (contract
 #      violation, not an outage: retried once, never feeds the failure backoff)
 #   3. text before the first `### ` line               -> stripped from the draft
+#   4. more than MAX_ENTRIES `### ` entries            -> the rest are dropped
 parse_answer() {
   # $out is already trimmed: its first and last lines are non-empty
   if is_none_line "${out##*$'\n'}"; then result=none; return 0; fi
@@ -179,6 +182,8 @@ parse_answer() {
     return 0
   fi
   [[ "$out" == '### '* ]] || out="### ${out#*$'\n### '}"
+  # the prompt asks for at most MAX_ENTRIES entries; drop any the model adds past that
+  out="$(printf '%s\n' "$out" | awk -v max="$MAX_ENTRIES" '/^### / && ++n > max { exit } 1')"
   result=draft
 }
 

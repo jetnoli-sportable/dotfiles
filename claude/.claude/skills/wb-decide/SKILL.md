@@ -9,7 +9,7 @@ description: Record a decision made in this session into the current task file's
 `wb-capture` plugin's hooks watch a wb session for decision-shaped turns and
 inject a one-line `[wb-capture] …` nudge into the next prompt — either a
 phrase-match ("Last turn read like a decision (…)") or a pointer to a draft a
-background Haiku review wrote. Hooks never write the task store (KTD5 in
+background model review wrote. Hooks never write the task store (KTD5 in
 `docs/plans/2026-09-22-002-feat-store-auto-capture-plan.md`); the live agent
 — the only one with the full conversation — makes the call and does the
 write, and this skill is how. It also works with no nudge at all: run it
@@ -104,7 +104,7 @@ draft file) **and** one of these holds:
 On that path, Read the draft and present it to the user, then run
 `~/.config/scripts/tmux/wb-capture.sh review` (a quiet no-op unless the draft's
 nudge is outstanding). Accept it as-is, or edit it first, **only if it reflects
-a real decision made in this session** — a Haiku draft sees a transcript excerpt
+a real decision made in this session** — a sweep draft sees a transcript excerpt
 and can be wrong or already-recorded. If it doesn't, run
 `~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha>` (the sha from the
 `status` you showed), then re-run `status`: if it still prints `draft: present` (a
@@ -113,6 +113,14 @@ phrase nudge was outstanding, so `dismiss` kept the draft), run the same `dismis
 (`draft changed since status`), nothing was removed: the sweep replaced the draft, so
 show the new one (re-run `status`, note its new `draft_sha`) instead. Say so in one
 line, and stop.
+
+**A draft may hold up to 3 entries** (one `### ` block per decision the sweep found).
+Review each entry on its own: accept it as-is, edit it, or drop it. Record the
+accepted ones in ONE `wb append … Decisions -` call (step 4), each with its own
+`### <YYYY-MM-DD HH:MM> — <title>` heading, then resolve the draft as usual (step 5's
+`clear --draft`) even when only some entries were accepted: the rest were reviewed and
+rejected, and the draft is not kept for them. If none is accepted, it is a dismiss, not
+a `clear --draft`.
 
 If `status` also says the draft **may already be recorded** (the task file
 changed while it was being written — usually a `/wb-decide` that landed
@@ -148,10 +156,13 @@ a time**: Read the draft (and for a stale one compare it with the newest
   it), then compose and `wb append` as in steps 3-4, then
   `~/.config/scripts/tmux/wb-capture.sh accept <path>` (deletes the draft, logs
   `shelved_accepted`; it does not touch the flag, so running all three in one
-  command sequence is safe). If the append is abandoned, skip the last command: the
-  draft stays shelved and the flag expires with the turn;
+  command sequence is safe). A shelved draft may hold up to 3 entries: review each,
+  record the accepted ones in ONE `wb append` (each under its own dated heading), and
+  run `accept <path>` even if only some were accepted. If the append is abandoned,
+  skip the last command: the draft stays shelved and the flag expires with the turn;
 - **reject** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (deletes it,
-  logs `shelved_dismissed`).
+  logs `shelved_dismissed`); also the answer when none of a multi-entry draft's
+  entries is accepted.
 
 A shelved draft of a task that is already closed (or any other task) is still
 resolvable from this session, or from no wb session at all (path-carrying
@@ -210,7 +221,9 @@ The delimiter is deliberately unusual: a draft or entry line reading exactly
 Use the real current time (`date '+%Y-%m-%d %H:%M'`) in the heading — the
 quoted heredoc doesn't expand `$(…)`, so compute it first and paste it in.
 `-` reads the body from stdin; `wb append` inserts `## Decisions` if missing
-and lands the block at the END of the section.
+and lands the block at the END of the section. When several draft entries were
+accepted, put them all in the one heredoc, one dated `###` heading each, so the
+record is a single `wb append` call.
 
 ### 5. Clear the capture state, then confirm
 
@@ -241,6 +254,11 @@ line: `Recorded to ## Decisions.`
   `wb append` it, plain `wb-capture.sh clear`, confirm in one line.
 - [ ] **Draft accept:** `status` shows a draft that matches a real decision —
   present it, append it as-is via `wb append`, `clear --draft`.
+- [ ] **Multi-entry draft (up to 3 `### ` blocks):** review each entry; append the
+  accepted ones in ONE `wb append` (each with its own dated heading), then
+  `clear --draft` (session draft) or `accept <path>` (shelved) even though only some
+  were accepted; if none is accepted, `dismiss --expect <draft_sha>` (or `dismiss
+  <path>` for a shelved one) instead.
 - [ ] **Draft edit + accept:** draft is roughly right but misses the
   rejected alternative or the why — edit it from session context, append the
   edited version, `clear --draft`.

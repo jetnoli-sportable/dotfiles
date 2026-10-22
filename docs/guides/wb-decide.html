@@ -285,8 +285,9 @@ nudge that was delivered but not acted on by the end of its turn is
 logged <code>ignored</code>.</li>
 <li>Also at turn end, an async background model &quot;sweep&quot; looks at the recent
 transcript if the task file has gone 4 turns unchanged. If it finds an
-unrecorded decision it writes a draft; the next prompt gets a nudge
-pointing at it. It is propose-only, tool-less, and skips itself when
+unrecorded decision it writes a draft of up to 3 entries (one <code>### </code> block
+per decision it found; anything past the third is dropped); the next prompt
+gets a nudge pointing at it. It is propose-only, tool-less, and skips itself when
 muted, when a draft is already pending, when nothing new was said, or
 after 3 failed runs in a row (<code>claude</code> missing, logged out or rate-limited).
 A draft nudge that is ignored is delivered once more; ignored a second
@@ -410,7 +411,7 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td>draft pending</td>
-<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again (so does any <code>wb append … Decisions</code> that resolves the nudge while the draft survives). Only the draft-accept path runs <code>clear --draft</code>, which removes it.</td>
+<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A draft can hold up to 3 entries: Claude reviews each, records the accepted ones in one <code>wb append</code>, then resolves the draft (<code>clear --draft</code>, or <code>accept &lt;path&gt;</code> for a shelved one) even when only some were accepted; if none is, it is a dismiss. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again (so does any <code>wb append … Decisions</code> that resolves the nudge while the draft survives). Only the draft-accept path runs <code>clear --draft</code>, which removes it.</td>
 </tr>
 <tr>
 <td><code>/wb-decide dismiss</code></td>

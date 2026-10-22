@@ -33,8 +33,9 @@ does.
    logged `ignored`.
 4. Also at turn end, an async background model "sweep" looks at the recent
    transcript if the task file has gone 4 turns unchanged. If it finds an
-   unrecorded decision it writes a draft; the next prompt gets a nudge
-   pointing at it. It is propose-only, tool-less, and skips itself when
+   unrecorded decision it writes a draft of up to 3 entries (one `### ` block
+   per decision it found; anything past the third is dropped); the next prompt
+   gets a nudge pointing at it. It is propose-only, tool-less, and skips itself when
    muted, when a draft is already pending, when nothing new was said, or
    after 3 failed runs in a row (`claude` missing, logged out or rate-limited).
    A draft nudge that is ignored is delivered once more; ignored a second
@@ -171,7 +172,7 @@ Check the machinery any time:
 | Invocation | What it does |
 |---|---|
 | `/wb-decide [hint]` | Compose a new entry from the conversation (or accept a pending draft) and `wb append` it under `## Decisions`, then clear capture state. If nothing was actually decided it says so and dismisses instead of writing. |
-| draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone; its closing plain `clear` keeps the draft, which gets nudged again (so does any `wb append … Decisions` that resolves the nudge while the draft survives). Only the draft-accept path runs `clear --draft`, which removes it. |
+| draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A draft can hold up to 3 entries: Claude reviews each, records the accepted ones in one `wb append`, then resolves the draft (`clear --draft`, or `accept <path>` for a shelved one) even when only some were accepted; if none is, it is a dismiss. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone; its closing plain `clear` keeps the draft, which gets nudged again (so does any `wb append … Decisions` that resolves the nudge while the draft survives). Only the draft-accept path runs `clear --draft`, which removes it. |
 | `/wb-decide dismiss` | Drop the pending marker/draft, log `dismissed`. Quiet no-op if nothing was pending. The draft-review path and `/close-out` call `wb-capture.sh dismiss --expect <draft_sha>` (or `--expect none`): `status` prints the draft's sha1 as `draft_sha:`, and the dismiss refuses (exit 1, nothing removed or logged) if a different draft, or any draft for `none`, is present, so a draft the sweep wrote after you looked is never deleted unseen. Bare `dismiss` is unchanged. |
 | `/wb-decide mute` / `unmute` | Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged. |
 | `/wb-decide status` | Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts (every `shelved:` line is relayed verbatim); for a stale draft, a warning plus the Decisions entries added since the snapshot. Read-only. |
