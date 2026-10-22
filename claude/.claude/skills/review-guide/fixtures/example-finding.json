@@ -1,0 +1,20 @@
+{
+  "lens": "L1",
+  "findings": [
+    {
+      "id": "L1-1",
+      "lens": "L1",
+      "pr": "fix/capture-handback-none",
+      "file": "scripts/.config/scripts/tmux/wb-capture-sweep.sh",
+      "line": 172,
+      "side": "head",
+      "excerpt": "if [[ \"${last,,}\" =~ ^none[.!]?$ ]]; then result=none; return 0; fi",
+      "claim": "A draft whose last line is a bare 'none' is treated as no decision, so a real draft ending in that word is dropped.",
+      "scenario": "The model ends a drafted decision with the line 'None.'; the sweep records result=none and discards the draft.",
+      "severity": "medium",
+      "confidence": "medium"
+    }
+  ],
+  "checked_clean": [],
+  "rulings": []
+}

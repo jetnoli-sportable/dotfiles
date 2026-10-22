@@ -13,18 +13,24 @@
 #   Notification     -> claude-notify-hook.sh needs-input  (agent is asking you)
 #   Stop             -> claude-notify-hook.sh done          (turn finished)
 #
-# Runs inside the agent's TTY, so $TMUX_PANE is inherited and `tmux set -p`
-# targets the right pane. Outside tmux every tmux call no-ops. Always exits 0 so
-# a hook can never block or fail Claude.
+# Runs inside the agent's TTY, so $TMUX_PANE names the agent's own pane. Every
+# call passes it with -t: without -t, tmux acts on the attached client's
+# FOCUSED pane, so an agent finishing while you look at another pane would mark
+# that pane instead (reproduced on tmux 3.7c, 2026-10-22). No $TMUX_PANE means
+# no pane of our own, so nothing is written. Always exits 0 so a hook can never
+# block or fail Claude.
 set -uo pipefail
 
 DONE_MIN_SECS=30   # only flag a finished turn as "done" if it ran at least this long
 
+[ -n "${TMUX_PANE:-}" ] || exit 0
+P="$TMUX_PANE"
+
 case "${1:-}" in
   start)        # UserPromptSubmit: clear any stale marker, stamp the start time
-    tmux set -p @claude_started "$(date +%s)" 2>/dev/null || true
-    tmux set -pu @claude_blocked 2>/dev/null || true
-    tmux set -p @claude_working 1 2>/dev/null || true
+    tmux set -p -t "$P" @claude_started "$(date +%s)" 2>/dev/null || true
+    tmux set -pu -t "$P" @claude_blocked 2>/dev/null || true
+    tmux set -p -t "$P" @claude_working 1 2>/dev/null || true
     # Record the Claude session id on the pane (hooks receive JSON on stdin
     # with a session_id field). A future `wb up --resume` needs it to
     # `claude --resume <id>` instead of cold-starting the agent — the one
@@ -39,19 +45,19 @@ case "${1:-}" in
         sid="$(grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null \
           | head -n1 | sed 's/.*"\([^"]*\)"$/\1/')"
       fi
-      [ -n "$sid" ] && { tmux set -p @claude_session_id "$sid" 2>/dev/null || true; }
+      [ -n "$sid" ] && { tmux set -p -t "$P" @claude_session_id "$sid" 2>/dev/null || true; }
     fi
     ;;
   needs-input)  # Notification: blocked on you (permission / question / idle prompt)
-    tmux set -p @claude_blocked needs-input 2>/dev/null || true
+    tmux set -p -t "$P" @claude_blocked needs-input 2>/dev/null || true
     ;;
   done)         # Stop: turn finished — always clear the working marker, but
                 # only light the "done" notification if it was long-running,
                 # so trivial sub-30s turns don't light the indicator
-    tmux set -pu @claude_working 2>/dev/null || true
-    s="$(tmux show -pv @claude_started 2>/dev/null || true)"
+    tmux set -pu -t "$P" @claude_working 2>/dev/null || true
+    s="$(tmux show -pv -t "$P" @claude_started 2>/dev/null || true)"
     if [ -n "$s" ] && [ "$(( $(date +%s) - s ))" -ge "$DONE_MIN_SECS" ]; then
-      tmux set -p @claude_blocked done 2>/dev/null || true
+      tmux set -p -t "$P" @claude_blocked done 2>/dev/null || true
     fi
     ;;
 esac

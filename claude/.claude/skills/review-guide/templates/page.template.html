@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<script>try{if(localStorage.getItem("review-guide:rail")==="collapsed")document.documentElement.dataset.rail="collapsed"}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root{
+  --ground:#F2F4F3; --surface:#FFFFFF; --sunk:#E8ECEA; --ink:#1A2224; --muted:#56625F; --rule:#D3DAD7;
+  --accent:#1F6F6A; --accent-soft:#D8ECEA; --amber:#9A5B0B; --amber-soft:#F6E7CF;
+  --ok:#2C7A47; --ok-soft:#DCEFE2; --bad:#A8322A; --bad-soft:#F6DEDB; --new:#3B55B8; --new-soft:#E0E6F8;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --cond:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#111617; --surface:#182022; --sunk:#1F292B; --ink:#E3EAE8; --muted:#9AA8A5; --rule:#2C3739;
+  --accent:#5CC2B9; --accent-soft:#16312F; --amber:#E4AA55; --amber-soft:#35280F;
+  --ok:#6DC98C; --ok-soft:#15301F; --bad:#EE8A80; --bad-soft:#3A1B18; --new:#93A8F2; --new-soft:#1C2444;
+  color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --ground:#111617; --surface:#182022; --sunk:#1F292B; --ink:#E3EAE8; --muted:#9AA8A5; --rule:#2C3739;
+  --accent:#5CC2B9; --accent-soft:#16312F; --amber:#E4AA55; --amber-soft:#35280F;
+  --ok:#6DC98C; --ok-soft:#15301F; --bad:#EE8A80; --bad-soft:#3A1B18; --new:#93A8F2; --new-soft:#1C2444;
+  color-scheme:dark;}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--ground);color:var(--ink);font:15px/1.6 var(--sans);margin:0;padding-inline:16px;padding-block:0 64px}
+.shell{width:min(85vw,1480px);margin-inline:auto;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+@media (max-width:900px){.shell{width:100%;grid-template-columns:1fr;gap:0}}
+nav.rail{position:sticky;top:env(safe-area-inset-top,0px);align-self:start;padding-top:40px;max-height:100vh;overflow-y:auto}
+nav.rail ol{list-style:none;margin:0;padding:0;display:grid;gap:2px;border-left:1px solid var(--rule)}
+nav.rail a{display:block;padding:5px 12px;color:var(--muted);text-decoration:none;font-size:13.5px;border-left:2px solid transparent;margin-left:-1px}
+nav.rail a:hover,nav.rail a:focus-visible{color:var(--ink);border-left-color:var(--accent);outline:none}
+@media (max-width:900px){
+  nav.rail{z-index:5;background:var(--ground);padding:10px 0;max-height:none;border-bottom:1px solid var(--rule)}
+  nav.rail ol{display:flex;gap:4px;overflow-x:auto;border:0;white-space:nowrap}
+  nav.rail a{border:1px solid var(--rule);border-radius:4px;margin:0;padding:4px 10px}
+}
+main{min-width:0;padding-top:40px}
+.eyebrow{font:600 11.5px/1 var(--cond);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+h1{font:600 clamp(28px,3.4vw,40px)/1.12 var(--cond);margin:10px 0 14px}
+h2{font:600 24px/1.2 var(--cond);margin:0 0 6px}
+section{padding-block:32px;border-top:1px solid var(--rule);scroll-margin-top:60px}
+section:first-of-type{border-top:0;padding-top:0}
+p{margin:0 0 12px;max-width:80ch}
+.sub{color:var(--muted)}
+code,.mono{font-family:var(--mono);font-size:.88em}
+code{background:var(--sunk);padding:1px 5px;border-radius:3px;overflow-wrap:anywhere}
+pre{background:var(--sunk);border:1px solid var(--rule);border-radius:5px;padding:9px 12px;margin:6px 0;overflow-x:auto;font:13px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+a{color:var(--accent)}
+button{font:500 13px var(--sans);border:1px solid var(--rule);background:var(--surface);color:var(--ink);border-radius:4px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;margin:10px 0 18px;font-size:14px;background:var(--surface)}
+.tw{overflow-x:auto}
+th,td{border:1px solid var(--rule);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--sunk);font:600 13px var(--cond)}
+blockquote{margin:12px 0;padding:10px 16px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 5px 5px 0}
+blockquote p{margin:0}
+ul,ol{max-width:84ch;padding-left:22px}
+li{margin:4px 0}
+main h1+p{font-size:16px}
+h3{font:600 17px/1.3 var(--cond);margin:22px 0 6px}
+figure{margin:18px 0 22px;background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:16px 16px 10px;overflow-x:auto}
+figure svg{display:block;width:100%;height:auto;min-width:640px;color:var(--ink)}
+figcaption{color:var(--muted);font-size:13.5px;margin-top:8px;max-width:90ch}
+svg text{fill:currentColor;font-family:var(--sans);font-size:12px}
+svg .t-b{font:600 13px var(--cond)}
+svg .t-s{fill:var(--muted);font-size:11px}
+svg .t-m{fill:var(--muted);font:11px var(--mono)}
+svg .ln{stroke:var(--muted);stroke-width:1.4;fill:none}
+svg .k-script{fill:var(--sunk);stroke:var(--muted)}
+svg .k-orch{fill:var(--accent-soft);stroke:var(--accent)}
+svg .k-sub{fill:var(--new-soft);stroke:var(--new)}
+svg .k-ver{fill:var(--amber-soft);stroke:var(--amber)}
+svg .b-logic{fill:var(--bad)} svg .b-skill{fill:var(--amber)} svg .b-test{fill:var(--new)} svg .b-doc{fill:var(--rule)} svg .b-gen{fill:var(--sunk);stroke:var(--muted);stroke-dasharray:3 2}
+svg .arrowhead{fill:var(--muted)}
+pre code{background:none;padding:0;border-radius:0}
+td code{overflow-wrap:break-word}
+.rail-toggle{display:flex;align-items:center;gap:6px;margin:0 0 10px;padding:4px 8px;font-size:12px;color:var(--muted)}
+.rail-toggle i{font-style:normal;transition:transform .15s}
+html[data-rail="collapsed"] .shell{width:min(92vw,1720px);grid-template-columns:30px minmax(0,1fr);gap:28px}
+html[data-rail="collapsed"] nav.rail ol,html[data-rail="collapsed"] .rail-toggle span{display:none}
+html[data-rail="collapsed"] .rail-toggle i{transform:rotate(180deg)}
+@media (max-width:900px){
+  .rail-toggle{display:none}
+  html[data-rail="collapsed"] .shell{width:100%;grid-template-columns:1fr;gap:0}
+  html[data-rail="collapsed"] nav.rail ol{display:flex}
+}
+.fid{font:600 12.5px var(--mono);color:var(--ink)}
+.chip{display:inline-block;font:600 10.5px/1 var(--cond);letter-spacing:.06em;text-transform:uppercase;padding:3px 6px;border-radius:3px;vertical-align:1px;white-space:nowrap}
+.chip.sev-high{background:var(--bad);color:var(--surface)}
+.chip.sev-medium{background:var(--amber-soft);color:var(--amber);box-shadow:inset 0 0 0 1px var(--amber)}
+.chip.sev-low{background:var(--sunk);color:var(--muted)}
+.chip.v-confirmed{background:var(--accent-soft);color:var(--accent)}
+.chip.v-plausible{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--rule)}
+.callout{max-width:84ch;padding:12px 16px;border-radius:0 6px 6px 0;border-left:4px solid var(--accent);background:var(--surface);margin:14px 0}
+.callout.rec{background:var(--accent-soft)}
+.callout.rec strong:first-child,strong.lead{color:var(--accent)}
+.callout.concl{border-left-color:var(--muted)}
+.callout.risk{border-left-width:6px;font-size:15.5px}
+.callout.risk.sev-high{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.risk.sev-medium{border-left-color:var(--amber);background:var(--amber-soft)}
+.callout.risk.sev-low{border-left-color:var(--ok);background:var(--ok-soft)}
+.badge{display:inline-block;font:600 15px/1 var(--cond);letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:4px;margin-right:8px;color:var(--surface);background:var(--ok)}
+.sev-high>.badge{background:var(--bad)} .sev-medium>.badge{background:var(--amber)}
+.spot{position:relative;background:var(--surface);border:1px solid var(--rule);border-left:5px solid var(--rule);border-radius:6px;padding:14px 18px 6px;margin:0 0 16px}
+.spot.sev-high{border-left-color:var(--bad)} .spot.sev-medium{border-left-color:var(--amber)} .spot.sev-low{border-left-color:var(--muted)} .spot.sev-none{border-left-color:var(--ok)}
+.spot-title{font-size:15.5px}
+.spot-title strong{font-weight:600}
+.rank{display:inline-block;font:600 20px/1 var(--cond);color:var(--muted);margin-right:10px;vertical-align:-1px}
+.spot.sev-high .rank{color:var(--bad)} .spot.sev-medium .rank{color:var(--amber)}
+.spot pre,.spot table{background:var(--ground)}
+.hl .c,.hl .c1,.hl .cm,.hl .ch,.hl .cs,.hl .cp,.hl .cpf{color:var(--muted);font-style:italic}
+.hl .k,.hl .kd,.hl .kn,.hl .kr,.hl .kt,.hl .kp,.hl .ow{color:var(--accent);font-weight:500}
+.hl .kc,.hl .m,.hl .mi,.hl .mf,.hl .mh,.hl .mo,.hl .il{color:var(--bad)}
+.hl .s,.hl .s1,.hl .s2,.hl .sa,.hl .sb,.hl .sc,.hl .sd,.hl .sh,.hl .sx,.hl .sr,.hl .ss,.hl .dl{color:var(--amber)}
+.hl .se,.hl .si{color:var(--bad)}
+.hl .nf,.hl .fm,.hl .nc,.hl .nb,.hl .bp,.hl .nt{color:var(--new)}
+.hl .nv,.hl .vi,.hl .vc,.hl .vg,.hl .nd{color:var(--ok)}
+.hl .gp{color:var(--muted);font-weight:600;user-select:none} .hl .go{color:var(--muted)}
+.hl .err{border:0;background:none}
+</style>
+</head>
+<body>
+<div class="shell">
+<nav class="rail" aria-label="Sections">
+  <button class="rail-toggle" type="button" aria-controls="rail-list" aria-expanded="true" aria-label="Toggle the sections sidebar"><i aria-hidden="true">‹</i><span>Hide sections</span></button>
+  <ol id="rail-list">
+__NAV__
+  </ol>
+</nav>
+<main>
+<section id="top">
+  <div class="eyebrow">__EYEBROW__</div>
+__BODY__
+  <p class="sub">Updated __UPDATED__ · generated from <code>__SOURCE__</code> by the review-guide skill's <code>build-page.py</code>; do not edit the HTML.</p>
+</section>
+</main>
+</div>
+<script>
+(function(){
+  var root=document.documentElement, btn=document.querySelector(".rail-toggle");
+  function sync(){btn.setAttribute("aria-expanded",String(root.dataset.rail!=="collapsed"))}
+  btn.addEventListener("click",function(){
+    var collapse=root.dataset.rail!=="collapsed";
+    if(collapse) root.dataset.rail="collapsed"; else delete root.dataset.rail;
+    try{localStorage.setItem("review-guide:rail",collapse?"collapsed":"open")}catch(e){}
+    sync();
+  });
+  sync();
+})();
+</script>
+</body>
+</html>

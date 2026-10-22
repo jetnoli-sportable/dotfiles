@@ -83,7 +83,7 @@ assert_eq "outstanding = phrase" phrase "$(cat "$D/outstanding")"
 assert_eq "nudge_fired source" phrase "$(jq -r 'select(.event=="nudge_fired")|.source' "$LOG")"
 
 echo "# @wb_capture_sid stamped"
-assert_match "tmux set -p called" 'set -p @wb_capture_sid sid-aaa' "$(cat "$H/tmux-calls")"
+assert_match "tmux set -p called" 'set -p -t %1 @wb_capture_sid sid-aaa' "$(cat "$H/tmux-calls")"
 
 echo "# nothing pending"
 new_scenario
