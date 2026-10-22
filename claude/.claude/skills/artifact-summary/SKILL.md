@@ -34,8 +34,8 @@ It prints JSON with `via`, `read`, `note`, and `entry` (the page's
 
 | `via` | What to read |
 |---|---|
-| `dossier` / `local` | The file named in `read`. It's the `.md` beside the `.html` when that is the complete source. A page built by its own generator (the ladder's status cells come from task files) points at the `.html`. Run that through `scripts/html-text.py <file>`, which keeps headings as `#` lines and drops CSS and scripts. |
-| `artifact` | The Artifact tool: `action: "read"`, `url: <link>`. For Jet's own page the result names a saved file holding the raw HTML; run `scripts/html-text.py` on it. For someone else's page the result is an isolated summary. Pass a `prompt` asking for the four sections below, plus the page's headings. |
+| `dossier` / `local` | The file named in `read`. It's the `.md` beside the `.html` when that is the complete source. A page built by its own generator (the ladder's status cells come from task files) points at the `.html`. Run an `.html` through `~/.claude/skills/artifact-summary/scripts/html-text.py <file>`, which keeps headings as `#` lines and drops CSS and scripts. |
+| `artifact` | The Artifact tool: `action: "read"`, `url: <link>`. For Jet's own page the result names a saved file holding the raw HTML; run `~/.claude/skills/artifact-summary/scripts/html-text.py` on it. For someone else's page the result is an isolated summary. Pass a `prompt` asking for the four sections below, plus the page's headings. |
 | `none` | Neither a link nor an existing path. Say so and stop. |
 
 Notes on the Artifact `read` of your own page:
@@ -49,6 +49,17 @@ Notes on the Artifact `read` of your own page:
 `html-text.py` drops inline SVG, so diagrams are lost but their
 `<figcaption>` text is kept. Summarise a diagram from its caption, and say
 so when a point depends on it.
+
+Pages that render in the browser from Markdown held in a script block
+(the dossier page template) come out as that Markdown, so they need nothing
+extra. If `html-text.py` prints a `warning:` on stderr, the text it printed
+is not the page: the content sits in a script it can't read, most often the
+`<script id="spec" type="application/json">` of a decision or review page.
+Don't summarise the near-empty output. Read that JSON block instead, or a
+`.md` or `.json` beside the file, and say which you used. In a decision
+page the substance is `title`, `lede`, `decided`, and each of `items`'
+`title`, `question` and `recommendation`. In a review page it's `title`,
+`intro_md`, and each of `areas[].items`' `title`, `what` and `suggested`.
 
 A Claude Docs document can sit behind the same link shape. If the Artifact
 `read` result says the link is a document, or Jet says it is one, load the
