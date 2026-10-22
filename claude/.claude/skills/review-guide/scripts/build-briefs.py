@@ -54,7 +54,10 @@ def main():
              for f in inv["files"]]
     read = [f["path"] for f in inv["files"] if f["bucket"] in ("logic", "agent-instructions")]
     skim = [f["path"] for f in inv["files"] if f["bucket"] in ("generated", "rename-only")]
-    code = lambda paths: ", ".join(f"`{p}`" for p in paths) or "none"
+
+    def code(paths):
+        return ", ".join(f"`{p}`" for p in paths) or "none"
+
     common = f"""# Common brief
 
 Run directory: `{run}`

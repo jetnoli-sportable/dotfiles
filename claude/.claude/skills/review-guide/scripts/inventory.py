@@ -7,7 +7,7 @@ Uses only git against the given SHAs (never gh). Prints JSON on stdout.
 Buckets, first match wins: rename-only, generated, tests, agent-instructions,
 docs, logic. "lines" is added + removed; binary files count 0.
 """
-import argparse, fnmatch, json, re, subprocess, sys
+import argparse, json, re, subprocess, sys
 
 LOCKFILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
              "uv.lock", "Cargo.lock", "go.sum", "Gemfile.lock", "composer.lock"}
@@ -27,10 +27,12 @@ PLAN_RE = re.compile(r"(^|/)docs/plans/[^/]+\.md$")
 BUCKETS = ["rename-only", "generated", "tests", "agent-instructions", "docs", "logic"]
 
 
-def git(repo, *args, stdin=None):
+def git(repo, *args, stdin=None, check=True):
     r = subprocess.run(["git", "-C", repo, "-c", "core.quotepath=false", *args],
                        input=stdin, capture_output=True, text=True, errors="replace")
     if r.returncode:
+        if not check:
+            return None
         sys.exit("git %s failed: %s" % (" ".join(args), r.stderr.strip()))
     return r.stdout
 
@@ -79,7 +81,6 @@ def main():
             i += 1
         counts[path] = (0, 0) if add == "-" else (int(add), int(rem))
 
-    paths = [p for _, _, p in entries]
     attr = {}
     live = [p for st, _, p in entries if st[0] != "D"]
     if live:
@@ -97,15 +98,14 @@ def main():
             added.setdefault(cur, []).append(line[1:])
 
     def banner(p):
-        r = subprocess.run(["git", "-C", repo, "show", "%s:%s" % (head, p)],
-                           capture_output=True, errors="replace", text=True)
-        return r.returncode == 0 and any(BANNER_RE.search(l) for l in r.stdout.splitlines()[:5])
+        out = git(repo, "show", "%s:%s" % (head, p), check=False)
+        return out is not None and any(BANNER_RE.search(l) for l in out.splitlines()[:5])
 
     files, plan_lines = [], 0
     for st, old, p in entries:
         ad, rm = counts.get(p, (0, 0))
         name = p.rsplit("/", 1)[-1]
-        if st[0] == "R" and st == "R100":
+        if st == "R100":
             b = "rename-only"
         elif attr.get(p) in ("set", "true") or name in LOCKFILES \
                 or any(r.match(p) for r in gen_res) or (st[0] != "D" and banner(p)):

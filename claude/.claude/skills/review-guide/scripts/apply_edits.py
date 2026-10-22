@@ -13,13 +13,13 @@ Edits apply in order; each is applied or refused, never half-applied:
 Skipped ids (--skip) are listed as skipped. Before writing, the original page is
 copied next to <clarity.json> as <page-name>.pre-clarity.md. Exit 0 whenever it ran.
 """
+import argparse
 import json
 import pathlib
 import re
 import shutil
-import sys
 
-IDS = r"(?:L\d[\d.]*|C)-\d+"
+IDS = r"(?:L\d[\d.]*|C)-\d+"  # same id grammar as build-page.py _IDS; keep the two in sync
 TOKENS = re.compile(rf"`[^`\n]+`|{IDS}|\d[\d,.]*\d|\d")
 FORMS = {
     "risk badge": re.compile(r"^\*\*Risk: ", re.M),
@@ -70,15 +70,14 @@ def check(text, edit):
 
 
 def main():
-    args = sys.argv[1:]
-    dry = "--dry-run" in args
-    skip = set()
-    if "--skip" in args:
-        skip = set(args[args.index("--skip") + 1].split(","))
-    pos = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] != "--skip")]
-    if len(pos) != 2:
-        raise SystemExit("usage: apply_edits.py <page.md> <clarity.json> [--skip K-03,K-07] [--dry-run]")
-    page, report = pathlib.Path(pos[0]), pathlib.Path(pos[1])
+    ap = argparse.ArgumentParser(description="Apply a clarity sweep's accepted edits to a page source.")
+    ap.add_argument("page", type=pathlib.Path)
+    ap.add_argument("report", type=pathlib.Path, help="clarity.json")
+    ap.add_argument("--skip", default="", help="comma-separated edit ids to leave out, e.g. K-03,K-07")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    page, report, dry = a.page, a.report, a.dry_run
+    skip = set(a.skip.split(",")) - {""}
     edits = json.loads(report.read_text())["edits"]
     original = text = page.read_text()
     applied = 0

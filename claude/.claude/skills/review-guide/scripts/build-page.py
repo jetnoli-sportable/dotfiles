@@ -25,6 +25,7 @@ import markdown
 TEMPLATE = pathlib.Path(__file__).resolve().parent.parent / "templates" / "page.template.html"
 SEVERITIES = ("high", "medium", "low")
 
+# same id grammar as apply_edits.py IDS / "finding chips"; keep the two in sync
 _IDS = r"(?:#\d+ · )?(?:L\d[\d.]*|C)-\d+(?:(?:, | to )(?:L\d[\d.]*|C)-\d+)*"
 FINDING = re.compile(rf"<strong>({_IDS})</strong>(?: (high|medium|low)\b(?:, (confirmed|plausible)\b)?)?")
 TITLE_VERDICT = re.compile(r"\b(Confirmed|Plausible), (high|medium|low)\b")
