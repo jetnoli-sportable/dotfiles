@@ -90,7 +90,9 @@ if [ -e "$lock" ]; then echo held; fi
 
 **Conclusion.** The handover is sound.
 
-<details markdown="1">
+See [task decision D12](#task-d12).
+
+<details markdown="1" id="task-d12">
 <summary>Test counts in full</summary>
 
 The four files pass: `plugin` 34 ok.
@@ -116,6 +118,9 @@ if run "$BUILD" "$D" conv >"$WORK/out.txt" 2>&1; then
     && pass "fenced bash highlighted" || fail "no highlighted span in code block"
   /usr/bin/grep -q '<summary>Test counts in full</summary>' "$H" && /usr/bin/grep -q '<p>The four files pass: <code>plugin</code> 34 ok.</p>' "$H" \
     && pass "toggle block renders, with Markdown inside" || fail "toggle block not rendered"
+  /usr/bin/grep -q '<details id="task-d12">' "$H" && /usr/bin/grep -q '<a href="#task-d12">task decision D12</a>' "$H" \
+    && /usr/bin/grep -q 'el.tagName==="DETAILS") el.open=true' "$H" \
+    && pass "a link to a toggle's id opens it" || fail "toggle id, link or opener missing"
 else
   fail "conventions build failed: $(cat "$WORK/out.txt")"
 fi

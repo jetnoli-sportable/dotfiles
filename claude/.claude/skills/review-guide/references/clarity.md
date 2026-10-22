@@ -39,7 +39,9 @@ A term counts as defined when:
   near the top) **and** it is used in its ordinary page-wide sense; or
 - it links to the place on this page that defines it, as
   `[D12](#anchor)`. Take anchors from `id="…"` attributes in `<html>`; never
-  invent one. If `<html>` is absent, describe instead of linking.
+  invent one. If `<html>` is absent, describe instead of linking. A task
+  decision listed in the page's "Task decisions" section is linked to its
+  entry (`[D12](#task-d12)`), not described inline.
 
 Finding ids (`L1-03`, `C-01`, `L1.541-01`) are defined by the page's own
 explanation of lenses and need no description where the finding itself is

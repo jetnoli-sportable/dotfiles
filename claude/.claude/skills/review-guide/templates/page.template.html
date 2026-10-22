@@ -113,6 +113,8 @@ details>summary::before{content:"\25B8";display:inline-block;width:1.1em;color:v
 details[open]>summary::before{transform:rotate(90deg)}
 details[open]>summary{border-bottom:1px solid var(--rule)}
 details>:not(summary){margin-left:14px;margin-right:14px}
+details[id]{scroll-margin-top:60px}
+details:target{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
 .badge{display:inline-block;font:600 15px/1 var(--cond);letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:4px;margin-right:8px;color:var(--surface);background:var(--ok)}
 .sev-high>.badge{background:var(--bad)} .sev-medium>.badge{background:var(--amber)}
 .spot{position:relative;background:var(--surface);border:1px solid var(--rule);border-left:5px solid var(--rule);border-radius:6px;padding:14px 18px 6px;margin:0 0 16px}
@@ -160,6 +162,18 @@ __BODY__
     sync();
   });
   sync();
+  // a link to a collapsed toggle (#task-d12) opens it, so the link lands on its content
+  function openTarget(hash){
+    var id=decodeURIComponent((hash||location.hash).slice(1)), el=id&&document.getElementById(id);
+    if(el&&el.tagName==="DETAILS") el.open=true;
+  }
+  window.addEventListener("hashchange",function(){openTarget()});
+  // also on click: a second click on the same link doesn't change the hash
+  document.addEventListener("click",function(e){
+    var a=e.target.closest&&e.target.closest('a[href^="#"]');
+    if(a) openTarget(a.getAttribute("href"));
+  });
+  openTarget();
 })();
 </script>__SCRIPT__
 </body>

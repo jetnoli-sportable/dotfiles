@@ -89,6 +89,9 @@ a dotfiles PR, and **Sportable work never on any personal surface**.
   log. Write "one straight build" when there were none.
 - **Links:** the PR URL(s), the plan path, the task file and any guide the
   change adds, for part A's at-a-glance table.
+- **Decisions:** every numbered decision in the matched task's `## Decisions`
+  (D1, D2, …), each with its date, a one-line summary, and what was chosen,
+  what was rejected and why, for the page's "Task decisions" section.
 
 ## 3. Inventory → `inventory.json`
 
@@ -168,6 +171,25 @@ Part A, in this order, short enough to read in two minutes:
    `context.md` (round or pivot, date, outcome). Leave it out for one straight
    build.
 
+When the page cites any numbered task decision, end it (after part D) with
+`## Task decisions`: one line saying where they come from, then every decision
+in `context.md`'s list, in order, each a toggle with an id:
+
+```
+<details markdown="1" id="task-d12">
+<summary><strong>D12</strong> · A draft is never deleted without your accept or dismiss (2026-10-18)</summary>
+
+What was chosen, what was rejected, and why, in two to five lines.
+
+</details>
+```
+
+The closed summaries are the at-a-glance list; a click opens the full entry.
+Link every mention on the page to its entry, `[D12](#task-d12)`, and a range to
+the section, `[D11–D16](#task-decisions)`. Part D's own subsections are also
+numbered D1, D2…, so call these "task decision D12" wherever the two could be
+confused.
+
 Keep core context inline: what a reader needs to follow the point. Put detail
 that helps but isn't needed (full test counts, background, a second example,
 the reasoning behind a skim) in a toggle block, `<details markdown="1">`, a
@@ -192,7 +214,7 @@ what make the page guide the eye:
 | `**Recommendation:**` or `**Conclusion.**` opening a paragraph | an accent or neutral callout |
 | `**1. title, file:line. Confirmed, high.**` paragraphs under `### Where to look, ranked` | ranked cards with a severity stripe (from the title's `Confirmed, high`, else the highest chip inside) |
 | fenced code with a language (`bash`, `python`, `json`, `console`) | syntax highlighting in the page's theme colours |
-| `<details markdown="1">`, `<summary>label</summary>`, body, `</details>` | a collapsed block, opened by clicking the label |
+| `<details markdown="1">`, `<summary>label</summary>`, body, `</details>` | a collapsed block, opened by clicking the label; with an `id`, a link to `#<id>` opens it too |
 
 **Clarity sweep → `clarity.json`.** Once the page source is written, render it
 (stage 8) so its anchors exist, then dispatch one agent, `model: "sonnet"`,
