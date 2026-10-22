@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__</title>
-<script>try{if(localStorage.getItem("review-guide:rail")==="collapsed")document.documentElement.dataset.rail="collapsed"}catch(e){}</script>
+<script>try{if(localStorage.getItem("__RAIL_KEY__")==="collapsed")document.documentElement.dataset.rail="collapsed"}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
 <style>
@@ -124,7 +124,7 @@ html[data-rail="collapsed"] .rail-toggle i{transform:rotate(180deg)}
 .hl .nv,.hl .vi,.hl .vc,.hl .vg,.hl .nd{color:var(--ok)}
 .hl .gp{color:var(--muted);font-weight:600;user-select:none} .hl .go{color:var(--muted)}
 .hl .err{border:0;background:none}
-</style>
+</style>__HEAD__
 </head>
 <body>
 <div class="shell">
@@ -138,7 +138,7 @@ __NAV__
 <section id="top">
   <div class="eyebrow">__EYEBROW__</div>
 __BODY__
-  <p class="sub">Updated __UPDATED__ · generated from <code>__SOURCE__</code> by the review-guide skill's <code>build-page.py</code>; do not edit the HTML.</p>
+  <p class="sub">Updated __UPDATED__ · generated from <code>__SOURCE__</code> by __GENERATOR__; do not edit the HTML.</p>
 </section>
 </main>
 </div>
@@ -149,11 +149,11 @@ __BODY__
   btn.addEventListener("click",function(){
     var collapse=root.dataset.rail!=="collapsed";
     if(collapse) root.dataset.rail="collapsed"; else delete root.dataset.rail;
-    try{localStorage.setItem("review-guide:rail",collapse?"collapsed":"open")}catch(e){}
+    try{localStorage.setItem("__RAIL_KEY__",collapse?"collapsed":"open")}catch(e){}
     sync();
   });
   sync();
 })();
-</script>
+</script>__SCRIPT__
 </body>
 </html>

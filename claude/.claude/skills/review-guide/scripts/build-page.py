@@ -7,6 +7,8 @@ Reads <dossier-dir>/<page-name>.md and writes <dossier-dir>/<page-name>.html. Th
 .md is the source: edit it, re-run this, republish the HTML to its URL.
 Frontmatter keys: title, eyebrow, updated. Each `## ` heading becomes a section and
 a nav-rail entry. Fenced code is highlighted by Pygments when it is installed.
+The shared core (frontmatter, sections, nav rail, template) is mdpage.py; this file adds
+review-guide's own conventions.
 
 Plain-Markdown conventions the page styles (see SKILL.md stage 7):
   **L1-03** medium, confirmed   finding id, severity and verdict chips
@@ -15,14 +17,12 @@ Plain-Markdown conventions the page styles (see SKILL.md stage 7):
   **Conclusion.** ...           callout (neutral), when it starts a paragraph
   **1. title** under a "### Where to look" heading   a ranked card with a severity stripe
 """
-import html
 import pathlib
 import re
 import sys
 
-import markdown
+import mdpage
 
-TEMPLATE = pathlib.Path(__file__).resolve().parent.parent / "templates" / "page.template.html"
 SEVERITIES = ("high", "medium", "low")
 
 # same id grammar as apply_edits.py IDS / "finding chips"; keep the two in sync
@@ -33,17 +33,6 @@ RISK = re.compile(r"<p><strong>Risk: ([^<]+?)\.?</strong>")
 SPOT_START = re.compile(r"<p><strong>(\d+)\.\s(.*?)</strong>", re.S)
 SPOTS_HEADING = re.compile(r"<h3[^>]*>Where to look[^<]*</h3>\n")
 BLOCK_END = re.compile(r"<h[23][ >]|</section>")
-
-
-def split_frontmatter(text):
-    meta = {}
-    if text.startswith("---\n"):
-        end = text.index("\n---\n", 4)
-        for line in text[4:end].splitlines():
-            key, _, value = line.partition(":")
-            meta[key.strip()] = value.strip()
-        text = text[end + 5:]
-    return meta, text
 
 
 def chips(sev, verdict=None):
@@ -102,35 +91,12 @@ def spot_cards(body):
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: build-page.py <dossier-dir> <page-name>   (renders <page-name>.md)")
-    dossier = pathlib.Path(sys.argv[1])
-    name = sys.argv[2].removesuffix(".md")
-    src = dossier / f"{name}.md"
-    if not src.is_file():
-        raise SystemExit(f"build-page.py: source not found: {src}")
-    meta, text = split_frontmatter(src.read_text())
-    md = markdown.Markdown(extensions=["tables", "fenced_code", "codehilite", "toc"],
-                           extension_configs={"toc": {"toc_depth": "2-2"},
-                                              "codehilite": {"css_class": "hl", "guess_lang": False}})
-    body = md.convert(text)
-    # each h2 opens a new <section> so the nav rail can scroll to it
-    body = re.sub(r'<h2 id="([^"]+)">', r'</section>\n<section id="\1">\n<h2>', body)
-    body = body.replace("<table>", '<div class="tw"><table>').replace("</table>", "</table></div>")
-    # chips first: spot_cards reads them to rank a card whose title names no severity
-    body = spot_cards(callouts(finding_chips(body)))
-    nav = ['    <li><a href="#top">Overview</a></li>'] + [
-        f'    <li><a href="#{t["id"]}">{html.escape(t["name"])}</a></li>' for t in md.toc_tokens]
-    page = TEMPLATE.read_text()
-    for key, value in {
-        "__TITLE__": html.escape(meta.get("title", name)),
-        "__EYEBROW__": html.escape(meta.get("eyebrow", "")),
-        "__UPDATED__": html.escape(meta.get("updated", "")),
-        "__SOURCE__": f"{name}.md",
-        "__NAV__": "\n".join(nav),
-        "__BODY__": body,
-    }.items():
-        page = page.replace(key, value)
-    (dossier / f"{name}.html").write_text(page)
-    print(f"{name}.html: {len(md.toc_tokens)} sections")
+    count = mdpage.build(pathlib.Path(sys.argv[1]), sys.argv[2].removesuffix(".md"),
+                         generator="the review-guide skill's <code>build-page.py</code>",
+                         rail_key="review-guide:rail",
+                         # chips first: spot_cards reads them to rank a card whose title names no severity
+                         transform=lambda body: spot_cards(callouts(finding_chips(body))))
+    print(f"{sys.argv[2].removesuffix('.md')}.html: {count} sections")
 
 
 if __name__ == "__main__":
