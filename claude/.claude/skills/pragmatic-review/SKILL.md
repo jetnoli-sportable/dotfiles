@@ -71,6 +71,23 @@ branch copy differs, review that one
 review. (First live run, 2026-10-22: the `development` copy was the
 requirements doc; the real plan with nine units was on the owner's branch.)
 
+**Review the plan as decided, not only as written.** A doc can also lag its
+owner's later decisions without any branch involved (a ladder in a dossier
+has none). Find when the doc last changed (`git -C ~/code/tasks log -1
+--format=%cs -- <doc>`, or the repo's equivalent), then read the owner's
+`## Decisions` entries and the family's `CONCEPTS.md` lines newer than that.
+Review the plan with those applied, and list each drift (what the doc says,
+what was decided since, which steps it changes) in the review's context
+section.
+
+**A ladder plus its family is one step list, the union of both.** Match each
+task to its rung. A rung with no task file is still a step (mark it "no
+task"); a task with no rung is still a step (mark it "not on the ladder").
+When extracting a family, also follow `depends_on` edges one level out of
+it: a grandchild or an outside task that gates a family step is part of the
+order even though the `parent:` filter misses it. Mark such steps
+"outside the family".
+
 Write the step list before judging anything:
 
 ```
@@ -136,8 +153,11 @@ Q1. <question> — affects S3, S7 — default if blank: <assumption>
 - **3 or fewer questions:** ask in chat and wait for the answers.
 - **4 or more:** a decision-buffer interview
   (`claude/.claude/skills/decision-buffer/references/shapes/interview.md`),
-  saved in the review's dossier folder (step 7). Follow decision-buffer's
-  own mechanism for opening it.
+  saved in the review's dossier folder (step 7). Invoking this skill is the
+  agreement to use it, the same as step 8's verdict surface, so
+  decision-buffer's align-first round doesn't apply; say in one chat line
+  that a buffer is opening, with how many questions and why. Follow
+  decision-buffer's own mechanism for opening it.
 - **None:** say the learnings file covered everything and go on.
 
 Every default used because an answer was left blank is named again in the
@@ -179,6 +199,11 @@ Create the dossier folder if it doesn't exist. Template:
 
 Target: <path or parent stem> · Business: <key> · <date>
 
+## Headlines
+
+1. <the 3 to 5 findings that matter most, one line each>. Add
+   *Changes a settled decision:* <which> to any that would.
+
 ## Revised order
 
 1. S2 — <title>
@@ -188,14 +213,18 @@ Target: <path or parent stem> · Business: <key> · <date>
 
 ## Verdicts
 
-| Step | Verdict | Trigger or reason | Flags | Source |
-|---|---|---|---|---|
-| S1 <title> | needed later | <trigger> | hardening before first use; blocks S2 | <file#section> |
+| Step | Verdict | Trigger or reason | Flags | Settled | Source |
+|---|---|---|---|---|---|
+| S1 <title> | needed later | <trigger> | hardening before first use; blocks S2 | changes: <decision> | <file#section> |
+
+`Settled` names the session-settled decision a verdict would change, or is
+blank. Those verdicts are Jet's call, so say so wherever they appear.
 
 ## Context used
 
 - Facts from the learnings file: <which ones>
 - Answers this run: <Q and answer, or "default used: …">
+- Drift between the doc and later decisions: <each, or "none">
 - <close alternative order, if any, in one line>
 
 ## Changes to apply
@@ -216,7 +245,10 @@ don't change other sessions' work"):
 1. Put an input banner at the top of the review doc ("Input, not decisions:
    nothing here has been applied"), and add a `## Per-step options` section:
    for each flagged step, the recommended option first, real alternatives,
-   then Defer and Skip, ready for the owner to put in a buffer.
+   then Defer and Skip, ready for the owner to put in a buffer. Mark the
+   ones that change a settled decision the same way as in the Verdicts
+   table. Keep `## Headlines` as the owner's way in; a long step list is
+   fine below it.
 2. Skip the verdict surface and the apply step below.
 3. Point the owner at it with one
    `wb append <owner-stem> Follow-ups -` checklist item: the review path,
@@ -299,6 +331,7 @@ directly, re-reading it right before the write. Create it on first use:
 
 - Origin owners: <owner>[, <owner>]
 - <fact> (confirmed <YYYY-MM-DD>)
+- <fact> (confirmed <YYYY-MM-DD>; low confidence: <why>, re-ask before a verdict leans on it)
 
 ## Calibration
 
@@ -319,10 +352,11 @@ sessions' edits in flight; never commit anything else.
 
 ## Notes
 
-- One agent, no subagents. The review is all judgment, and a plan or a
-  family of about a dozen tasks fits in one session. If extracting steps
-  from a large family crowds the context, that's the signal to add a step
-  extractor (a deferred follow-up), not to split the judgment.
+- One agent, no subagents. The review is all judgment. A 41-step ladder
+  plus family (second live run, 2026-10-22) still fit in one session, but
+  extracting the steps was most of the reading. If extraction crowds the
+  context, that's the signal to add a step extractor (a deferred
+  follow-up), not to split the judgment.
 - `references/sequencing-checks.md` is a separate file so `/wb-breakdown`
   and `spec-doc` can share it later.
 - `~/code/tasks/context/README.md` documents the learnings area for other

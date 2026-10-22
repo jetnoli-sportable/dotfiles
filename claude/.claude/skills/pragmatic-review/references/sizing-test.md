@@ -53,6 +53,23 @@ When you can't tell whether a step passes, say so, pick the verdict you'd
 default to, and add a question to the interview naming the fact that would
 settle it. Never guess silently.
 
+## Steps already built or in flight
+
+Judge only the work that remains. Code already written is a sunk cost: the
+question is whether to spend more on it now, not whether it should have been
+built.
+
+- **Built, merged or ready to merge, consumer arrives later:** "needed now"
+  for finishing as built, with "no further investment until <trigger>" as
+  its line. Don't recommend removing working code just because its
+  consumer is later, unless keeping it costs something real (it must be
+  maintained against a moving interface, or it misleads users).
+- **In flight:** size the rest of it. If the remaining part fails the test,
+  recommend stopping at the smallest point that leaves something usable,
+  and name that point.
+- **Done:** context, not a verdict. List it in the step list so the order
+  makes sense, and give it no verdict.
+
 ## The foundation rule
 
 Two pulls run against each other. Cutting everything not needed today
