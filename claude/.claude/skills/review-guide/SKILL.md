@@ -50,8 +50,9 @@ function a subprocess can't see):
   the first PR's base to the last PR's head.
 - **Branch with no PR:** `base` = `git merge-base origin/<default> <branch>`;
   intent comes from commit messages and the task file.
-- **Agent cap:** a stack of more than 5 PRs means more than 10 agents. Stop and
-  ask before going further.
+- **Agent cap:** a stack of more than 5 PRs means more than 10 agents at
+  dispatch (stage 5; the clarity sweep in stage 7 runs alone afterwards). Stop
+  and ask before going further.
 - **Worktrees:** for each PR head (one for a single PR or branch),
   `git -C <repo> worktree add --detach <repo>/.worktrees/review-guide-<target>[-<pr>] <sha>`.
   If `.worktrees/` isn't ignored there and the repo doesn't already keep
@@ -114,7 +115,8 @@ In one message, all with `run_in_background: true`:
 - the lenses, `model: "sonnet"`: L1 (one per PR in a stack), L2, L3, L4, L5.
 
 Each prompt is just: read `<run>/briefs/common.md` and `<run>/briefs/<own>.md`,
-then follow them. One PR = 6 agents; a stack of *n* = *n* + 5.
+then follow them. One PR = 6 agents here; a stack of *n* = *n* + 5. The
+clarity sweep (stage 7) adds one more, after these finish.
 
 ## 6. Verify → `verified.json`
 
@@ -162,6 +164,25 @@ what make the page guide the eye:
 | `**1. title, file:line. Confirmed, high.**` paragraphs under `### Where to look, ranked` | ranked cards with a severity stripe (from the title, else the highest chip inside) |
 | fenced code with a language (`bash`, `python`, `json`, `console`) | syntax highlighting in the page's theme colours |
 
+**Clarity sweep → `clarity.json`.** Once the page source is written, render it
+(stage 8) so its anchors exist, then dispatch one agent, `model: "sonnet"`,
+with the prompt: read `<skill>/references/clarity.md` and follow it, with
+`<page>` = `<dossier>/review-guide-<target>.md`, `<html>` = the `.html` beside
+it, `<out>` = `<run>/clarity.json`. It reads the page cold and proposes exact
+rewrites for every identifier or term that isn't explained where it's used
+(a bare "R1", "KTD7", ticket key or SHA) and every overcomplicated or
+jargon-heavy sentence. It never edits the page. Judge each edit: reject any
+that changes what a finding claims or softens a caveat. Then apply:
+
+```bash
+python3 <skill>/scripts/apply_edits.py <dossier>/review-guide-<target>.md <run>/clarity.json --skip <rejected ids>
+```
+
+It refuses edits whose text isn't unique, that touch code, figures, headings or
+frontmatter, that drop a code span, number or finding id, or that break a form
+in the table above, and keeps the original as `<run>/review-guide-<target>.pre-clarity.md`.
+Fix a refused edit you still want by hand.
+
 ## 8. Render
 
 ```bash
@@ -177,7 +198,8 @@ Never edit the HTML; change the `.md` and re-run.
 - Add a row to `<dossier>/tools/README.md`'s page table (create the file with
   the render command if absent).
 - If a task matched: `wb append <task> Handoffs "review-guide page: <path> — <url>"`.
-- Chat summary: the path and the URL, the top three focus points, agent count,
+- Chat summary: the path and the URL, the top three focus points, agent count
+  (including the clarity sweep), edits applied and rejected by it,
   any coordinator fallback, and the worktrees created, with an offer to remove
   them (`git worktree remove`). Don't remove them unasked.
 

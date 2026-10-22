@@ -279,7 +279,7 @@ alternatives, with a recommendation.</li>
 PR comments; the page is the only output.</p>
 <h2 id="how-to-run-it">How to run it</h2>
 <p>Type it yourself; the model never starts it on its own, because one run costs
-six or more agents, one of them Opus.</p>
+seven or more agents, one of them Opus.</p>
 <pre><code class="language-text">/review-guide 95                 # one PR, number or URL
 /review-guide 541 543 544        # a stack, base PR first
 /review-guide development..feat/c
@@ -310,7 +310,11 @@ runs once per PR.</li>
 cited line; the coordinator then tries to refute each medium-or-higher
 finding, merges duplicates, and checks spots no lens covered; the script
 checks again.</li>
-<li><strong>Synthesise</strong> the page (this session).</li>
+<li><strong>Synthesise</strong> the page (this session), then a <strong>clarity sweep</strong>: one
+Sonnet agent reads it cold and proposes rewrites for anything not explained
+where it's used (a bare &quot;R1&quot;, a ticket key, a SHA) and for jargon or
+overlong sentences; this session accepts or rejects each, and a script
+applies them without letting a code span, number or finding id go missing.</li>
 <li><strong>Render</strong> the Markdown source to HTML.</li>
 <li><strong>Deliver:</strong> publish as an Artifact, note it in the dossier's
 <code>tools/README.md</code> and the task's handoffs.</li>
@@ -327,7 +331,9 @@ the review worktrees it created with an offer to remove them.</p>
 <li><code>claude/.claude/skills/review-guide/SKILL.md</code>: the stages.</li>
 <li><code>references/briefs.md</code>: lens and coordinator instructions and the finding
 schema.</li>
+<li><code>references/clarity.md</code>: the clarity sweep's instructions.</li>
 <li><code>scripts/inventory.py</code>, <code>scripts/cite_check.py</code>, <code>scripts/build-page.py</code>,
+<code>scripts/apply_edits.py</code>,
 each with a <code>.test.sh</code> beside it.</li>
 </ul>
 </article>

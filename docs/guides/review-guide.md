@@ -28,7 +28,7 @@ PR comments; the page is the only output.
 ## How to run it
 
 Type it yourself; the model never starts it on its own, because one run costs
-six or more agents, one of them Opus.
+seven or more agents, one of them Opus.
 
 ```text
 /review-guide 95                 # one PR, number or URL
@@ -64,7 +64,11 @@ claim on the page is traceable):
    cited line; the coordinator then tries to refute each medium-or-higher
    finding, merges duplicates, and checks spots no lens covered; the script
    checks again.
-7. **Synthesise** the page (this session).
+7. **Synthesise** the page (this session), then a **clarity sweep**: one
+   Sonnet agent reads it cold and proposes rewrites for anything not explained
+   where it's used (a bare "R1", a ticket key, a SHA) and for jargon or
+   overlong sentences; this session accepts or rejects each, and a script
+   applies them without letting a code span, number or finding id go missing.
 8. **Render** the Markdown source to HTML.
 9. **Deliver:** publish as an Artifact, note it in the dossier's
    `tools/README.md` and the task's handoffs.
@@ -83,5 +87,7 @@ the review worktrees it created with an offer to remove them.
 - `claude/.claude/skills/review-guide/SKILL.md`: the stages.
 - `references/briefs.md`: lens and coordinator instructions and the finding
   schema.
+- `references/clarity.md`: the clarity sweep's instructions.
 - `scripts/inventory.py`, `scripts/cite_check.py`, `scripts/build-page.py`,
+  `scripts/apply_edits.py`,
   each with a `.test.sh` beside it.
