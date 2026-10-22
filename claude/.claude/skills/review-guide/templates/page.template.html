@@ -106,6 +106,13 @@ html[data-rail="collapsed"] .rail-toggle i{transform:rotate(180deg)}
 .callout.risk.sev-high{border-left-color:var(--bad);background:var(--bad-soft)}
 .callout.risk.sev-medium{border-left-color:var(--amber);background:var(--amber-soft)}
 .callout.risk.sev-low{border-left-color:var(--ok);background:var(--ok-soft)}
+details{max-width:84ch;margin:12px 0;border:1px solid var(--rule);border-radius:6px;background:var(--surface)}
+details>summary{cursor:pointer;padding:8px 14px;color:var(--muted);font-size:14.5px;list-style:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"\25B8";display:inline-block;width:1.1em;color:var(--accent);transition:transform .15s}
+details[open]>summary::before{transform:rotate(90deg)}
+details[open]>summary{border-bottom:1px solid var(--rule)}
+details>:not(summary){margin-left:14px;margin-right:14px}
 .badge{display:inline-block;font:600 15px/1 var(--cond);letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:4px;margin-right:8px;color:var(--surface);background:var(--ok)}
 .sev-high>.badge{background:var(--bad)} .sev-medium>.badge{background:var(--amber)}
 .spot{position:relative;background:var(--surface);border:1px solid var(--rule);border-left:5px solid var(--rule);border-radius:6px;padding:14px 18px 6px;margin:0 0 16px}

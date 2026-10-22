@@ -3,7 +3,10 @@
 
 Usage: python3 apply_edits.py <page.md> <clarity.json> [--skip K-03,K-07] [--dry-run]
 
-<clarity.json> is the clarity agent's report: {"edits": [{"id", "old", "new", ...}]}.
+<clarity.json> is the clarity agent's report: {"edits": [{"id", "kind", "old", "new", ...}]}.
+Two kinds change the rules. "trim" may drop numbers and code spans (never a finding id).
+"toggle" has "summary" instead of "new": old, one or more whole lines, is wrapped in a
+<details markdown="1"> block with that summary; it may not hold a renderer form.
 Edits apply in order; each is applied or refused, never half-applied:
   refused: already applied   new is in the page and covers every occurrence of old (a re-run)
   refused: old not found     the text isn't in the page (or an earlier edit changed it)
@@ -15,6 +18,10 @@ Edits apply in order; each is applied or refused, never half-applied:
   refused: drops <token>     new has fewer of a code span, number or finding id than old had
   refused: breaks structure  new adds or removes a fence, heading or figure line
   refused: breaks <form>     a renderer form (risk badge, callout, spot, finding chips) would change
+  refused: toggles <form>    a toggle would hide a finding, callout, risk badge or spot
+  refused: not whole lines   a toggle's old starts or ends mid-line
+  refused: in a toggle       a toggle's old is already inside one
+  refused: no summary        a toggle has no one-line summary
 Skipped ids (--skip) are listed as skipped. Before the first write, the original page
 is copied next to <clarity.json> as <page-name>.pre-clarity.<head>.md, <head> being the
 first 7 characters of target.json's "head" in the same directory (no target.json:
@@ -31,6 +38,7 @@ import shutil
 IDS = r"(?:L\d[\d.]*|C)-\d+"  # same id grammar as build-page.py _IDS; keep the two in sync
 INLINE_CODE = re.compile(r"`[^`\n]+`")
 TOKENS = re.compile(rf"`[^`\n]+`|{IDS}|\d[\d,.]*\d|\d")
+TOGGLE_TAGS = ("<details", "</details>", "<summary")
 FORMS = {
     "risk badge": re.compile(r"^\*\*Risk: ", re.M),
     "recommendation callout": re.compile(r"^\*\*Recommendation:\*\*", re.M),
@@ -51,16 +59,23 @@ def protected_lines(lines):
             out.add(i)
         elif "<figure" in line:
             figure = True
-        if fence or figure or line.startswith("#"):
+        if fence or figure or line.startswith(("#",) + TOGGLE_TAGS):
             out.add(i)
         if "</figure>" in line:
             figure = False
     return out
 
 
-def structure(text):
-    """The lines that shape the rendered page: fences, headings, figure tags."""
-    return [ln for ln in text.split("\n") if ln.startswith(("```", "#")) or "<figure" in ln or "</figure>" in ln]
+def structure(text, toggles=True):
+    """The lines that shape the rendered page: fences, headings, figure and toggle tags."""
+    starts = ("```", "#") + (TOGGLE_TAGS if toggles else ())
+    return [ln for ln in text.split("\n") if ln.startswith(starts) or "<figure" in ln or "</figure>" in ln]
+
+
+def replacement(edit):
+    if edit.get("kind") != "toggle":
+        return edit["new"]
+    return f'<details markdown="1">\n<summary>{edit.get("summary", "")}</summary>\n\n{edit["old"]}\n\n</details>'
 
 
 def stray_backticks(text):
@@ -78,7 +93,7 @@ def already_applied(text, old, new):
 
 
 def check(text, edit):
-    old, new = edit["old"], edit["new"]
+    old, new, kind = edit["old"], replacement(edit), edit.get("kind")
     if already_applied(text, old, new):
         return "already applied"
     count = text.count(old)
@@ -96,13 +111,26 @@ def check(text, edit):
     for span in INLINE_CODE.finditer(text):
         if span.start() < end and start < span.end() and not (start <= span.start() and span.end() <= end):
             return "protected"
+    if kind == "toggle":
+        summary = edit.get("summary", "")
+        if not summary.strip() or "\n" in summary:
+            return "no summary"
+        if (start and text[start - 1] != "\n") or (end < len(text) and text[end] != "\n"):
+            return "not whole lines"
+        if text[:start].count("<details") > text[:start].count("</details>"):
+            return "in a toggle"
+        for name, form in FORMS.items():
+            if form.search(old):
+                return f"toggles {name}"
     after = text.replace(old, new, 1)
-    if structure(text) != structure(after):
+    if structure(text, kind != "toggle") != structure(after, kind != "toggle"):
         return "breaks structure"
     # adding a whole code span is fine; a lone backtick would open one that swallows the line
     if stray_backticks(old) != stray_backticks(new):
         return "changes code spans"
     lost = Counter(TOKENS.findall(old)) - Counter(TOKENS.findall(new))
+    if kind == "trim":  # a trim may cut a number or code span, never a finding
+        lost = Counter({t: n for t, n in lost.items() if re.fullmatch(IDS, t)})
     if lost:
         return f"drops {next(iter(lost))}"
     for name, form in FORMS.items():
@@ -140,9 +168,9 @@ def main():
         if why:
             print(f"{e['id']}: refused: {why}")
             continue
-        text = text.replace(e["old"], e["new"], 1)
+        text = text.replace(e["old"], replacement(e), 1)
         applied += 1
-        print(f"{e['id']}: applied")
+        print(f"{e['id']}: applied" + (f" ({e['kind']})" if e.get("kind") in ("trim", "toggle") else ""))
     print(f"{applied} applied, {len(edits) - applied} not")
     if applied and not dry:
         backup = backup_path(page, report)

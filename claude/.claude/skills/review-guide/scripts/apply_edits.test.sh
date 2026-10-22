@@ -102,6 +102,47 @@ python3 "$AE" "$WORK/page3.md" "$WORK/run3/clarity.json" >/dev/null
   && /usr/bin/grep -q "^Page at the second head" "$WORK/run3/page3.pre-clarity.bbbbbbb.md" \
   && pass "backup per reviewed head; the first head's backup kept" || fail "head-keyed backups: $(ls "$WORK/run3")"
 
+# trim and toggle edits
+mkdir -p "$WORK/run4"
+cat > "$WORK/page4.md" <<'MD'
+Intro para with 5 tests and `x.sh`.
+
+See L1-02 for the cause.
+
+The background: it ran 3 times before.
+
+**Recommendation:** fix it.
+
+Mid line text here.
+
+Another aside.
+MD
+cat > "$WORK/run4/clarity.json" <<'JSON'
+{ "edits": [
+  {"id": "T-01", "kind": "trim", "old": "Intro para with 5 tests and `x.sh`.", "new": "Intro para."},
+  {"id": "T-02", "kind": "trim", "old": "See L1-02 for the cause.", "new": "See below."},
+  {"id": "T-03", "kind": "toggle", "old": "The background: it ran 3 times before.", "summary": "Background"},
+  {"id": "T-04", "kind": "toggle", "old": "**Recommendation:** fix it.", "summary": "Advice"},
+  {"id": "T-05", "kind": "toggle", "old": "line text", "summary": "Part"},
+  {"id": "T-06", "kind": "toggle", "old": "Another aside.", "summary": " "},
+  {"id": "T-07", "kind": "jargon", "old": "Another aside.", "new": "Another aside.\n<details>"},
+  {"id": "T-08", "kind": "jargon", "old": "Intro para.", "new": "Intro."}
+] }
+JSON
+out=$(python3 "$AE" "$WORK/page4.md" "$WORK/run4/clarity.json" 2>&1)
+expect "T-01: applied (trim)" "trim may drop a number and a code span"
+expect "T-02: refused: drops L1-02" "trim never drops a finding id"
+expect "T-03: applied (toggle)" "toggle wraps whole lines"
+expect "T-04: refused: toggles recommendation callout" "toggle never hides a callout"
+expect "T-05: refused: not whole lines" "toggle of part of a line refused"
+expect "T-06: refused: no summary" "toggle needs a summary"
+expect "T-07: refused: breaks structure" "plain edit adding a toggle tag refused"
+expect "T-08: applied" "later edit sees the earlier trim"
+/usr/bin/grep -qzF $'<details markdown="1">\n<summary>Background</summary>\n\nThe background: it ran 3 times before.\n\n</details>' "$WORK/page4.md" \
+  && pass "toggle block written" || fail "toggle block not written: $(cat "$WORK/page4.md")"
+out=$(python3 "$AE" "$WORK/page4.md" "$WORK/run4/clarity.json" 2>&1)
+expect "T-03: refused: already applied" "re-run refuses an applied toggle"
+
 # dry run leaves the page alone
 cp "$WORK/run/page.pre-clarity.md" "$WORK/page2.md"
 python3 "$AE" "$WORK/page2.md" "$WORK/run/clarity.json" --dry-run >/dev/null

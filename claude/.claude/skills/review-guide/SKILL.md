@@ -83,6 +83,12 @@ a dotfiles PR, and **Sportable work never on any personal surface**.
   `<cli> api repos/<o>/<r>/commits/<sha>/check-runs` or what the PR body
   reports), so the page doesn't repeat a point already made. Known-failing
   tests on the base branch, if the repo has them.
+- **History**, at most 6 lines: the review rounds and pivots that shaped the
+  change, each with a date and its outcome, from the matched task's
+  `## Decisions` and `## Handoffs` headings, the PR's reviews and the commit
+  log. Write "one straight build" when there were none.
+- **Links:** the PR URL(s), the plan path, the task file and any guide the
+  change adds, for part A's at-a-glance table.
 
 ## 3. Inventory → `inventory.json`
 
@@ -142,10 +148,32 @@ name), `eyebrow` (repo, target, range), `updated`; each `##` is a nav entry. Loa
 
 | Part | Built from |
 |---|---|
-| **A. Overview:** what changed, impact, scope, risk (low / medium / high, with reasons) | intent, inventory and hot flags, the coordinator's overall read, confirmed L1 findings |
+| **A. Overview:** why it matters, an at-a-glance table, the components, impact, scope, risk (low / medium / high, with reasons), and how it got here (see below) | intent, links and history from `context.md`, inventory and hot flags, L2's component map, the coordinator's overall read, confirmed L1 findings |
 | **B. Review focus:** ranked hotspots, reading order, skim list, proportion, simplify notes | L1 + L4 (hotspots, test gaps), L3 (order, proportion, skim extras), L5 (simplify notes, never risk items), inventory and `checked_clean` lists (skim, with grounds) |
 | **C. Explainer:** one subsection per critical decision, with a diagram and a real code excerpt | L2 decisions and component map |
 | **D. Design evaluation:** each decision against at least two alternatives, pros, cons, a recommendation | L2 alternatives, judged here |
+
+Part A, in this order, short enough to read in two minutes:
+1. `**Why it matters.**`: the problem the change solves and what goes wrong
+   without it, with a number from `context.md` when there is one.
+2. An at-a-glance table, `| What | Where |`: PR (linked, base → head), size
+   (files, +/−, commits), plan, task, guide. Leave out rows with nothing.
+3. A component table, `| Component | What it does | Size | Where to look |`:
+   L2's `component_map` nodes grouped into at most 7 components, biggest risk
+   first, sized in changed lines from the inventory. The last column names the
+   part B spot that covers it, or "skim".
+4. **Scope** and **Impact**, a few sentences each, then the `**Risk: …**`
+   paragraph and a `**Recommendation:**`.
+5. `### How it got here`: at most 5 table rows or bullets from the history in
+   `context.md` (round or pivot, date, outcome). Leave it out for one straight
+   build.
+
+Keep core context inline: what a reader needs to follow the point. Put detail
+that helps but isn't needed (full test counts, background, a second example,
+the reasoning behind a skim) in a toggle block, `<details markdown="1">`, a
+`<summary>` line naming what's inside, the Markdown, `</details>`, each on its
+own line with a blank line around the body. Never put a finding, a risk, a
+recommendation or a ranked spot in a toggle.
 
 Every finding shown keeps its `file:line` and excerpt. Diagrams are inline
 `<figure><svg>` using the template's classes (`k-script`, `k-orch`, `k-sub`,
@@ -164,6 +192,7 @@ what make the page guide the eye:
 | `**Recommendation:**` or `**Conclusion.**` opening a paragraph | an accent or neutral callout |
 | `**1. title, file:line. Confirmed, high.**` paragraphs under `### Where to look, ranked` | ranked cards with a severity stripe (from the title's `Confirmed, high`, else the highest chip inside) |
 | fenced code with a language (`bash`, `python`, `json`, `console`) | syntax highlighting in the page's theme colours |
+| `<details markdown="1">`, `<summary>label</summary>`, body, `</details>` | a collapsed block, opened by clicking the label |
 
 **Clarity sweep → `clarity.json`.** Once the page source is written, render it
 (stage 8) so its anchors exist, then dispatch one agent, `model: "sonnet"`,
@@ -172,8 +201,11 @@ with the prompt: read `<skill>/references/clarity.md` and follow it, with
 it, `<context>` = `<run>/context.md`, `<out>` = `<run>/clarity.json`. It reads the page cold and proposes exact
 rewrites for every identifier or term that isn't explained where it's used
 (a bare "R1", "KTD7", ticket key or SHA) and every overcomplicated or
-jargon-heavy sentence. It never edits the page. Judge each edit: reject any
-that changes what a finding claims or softens a caveat, and check every
+jargon-heavy sentence. It also proposes trims (text that doesn't help the
+reader review the change) and toggles (helpful but optional detail, folded into
+a toggle block). It never edits the page. Judge each edit: reject any
+that changes what a finding claims or softens a caveat, or a trim that cuts
+something a reader needs, and check every
 `"guess": true` description against the task file or plan (in the first
 run, one of seven flagged guesses was wrong, and one wrong description wasn't
 flagged at all, so skim the unflagged ones too). Correct an edit by changing its `new` in
@@ -186,7 +218,9 @@ python3 <skill>/scripts/apply_edits.py <dossier>/review-guide-<target>.md <run>/
 It refuses edits whose text isn't unique or was already applied, that touch code
 (fences, or part of an inline code span), figures, headings or frontmatter, that
 drop a code span, number or finding id, that add or remove a fence, heading or
-figure line, or that break a form in the table above. It keeps the original from
+figure line, or that break a form in the table above. A trim may drop numbers
+and code spans but never a finding id; a toggle must wrap whole lines, outside
+any other toggle, and hold no renderer form. It keeps the original from
 its first run as `<run>/review-guide-<target>.pre-clarity.<head>.md`, named by the
 first 7 characters of the reviewed head in `target.json`. A re-run at the same head
 doesn't overwrite it; a re-run after new commits backs up the re-synthesised page

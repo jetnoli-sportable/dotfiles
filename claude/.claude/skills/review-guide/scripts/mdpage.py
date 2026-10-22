@@ -42,7 +42,7 @@ def build(dossier, name, *, generator, rail_key, prepare=None, transform=None, h
 
     if prepare:
         text = prepare(text, stash)
-    md = markdown.Markdown(extensions=["tables", "fenced_code", "codehilite", "toc"],
+    md = markdown.Markdown(extensions=["tables", "fenced_code", "codehilite", "toc", "md_in_html"],
                            extension_configs={"toc": {"toc_depth": "2-2"},
                                               "codehilite": {"css_class": "hl", "guess_lang": False}})
     body = SLOT.sub(lambda m: slots[int(m[1])], md.convert(text))
