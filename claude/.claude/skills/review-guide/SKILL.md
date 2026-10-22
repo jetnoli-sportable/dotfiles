@@ -217,3 +217,7 @@ Never edit the HTML; change the `.md` and re-run.
 
 Append to `<skill>/learnings.md` (one dated line) whenever a run surprises:
 a stage that broke, a lens that drifted, a page Jet found unhelpful.
+For a Sportable target, write that dated line to `<dossier>/review-guide/learnings.md`
+instead. Add a line to `<skill>/learnings.md` only for a lesson that changes the
+skill, with no repo, PR, commit, path or finding detail: the skill lives in
+dotfiles, which will become public.
