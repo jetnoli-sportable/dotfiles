@@ -172,8 +172,8 @@
 # before the hook saw the append and log a spurious `followed`. The flag is one-shot and
 # turn-scoped: only the hook, a real prompt, `dismiss <path>` and the reaper drop it, so
 # an abandoned accept can't swallow a later append.
-# Stale drafts: the sweep snapshots `## Decisions` (the text Haiku sees), then
-# waits up to a minute for Haiku. If that section changed meanwhile (typically
+# Stale drafts: the sweep snapshots `## Decisions` (the text the model sees), then
+# waits up to a minute for the model. If that section changed meanwhile (typically
 # /wb-decide recording the very decision being drafted) the answer is discarded
 # and the child reruns once on a fresh snapshot. Only if the section changes a
 # second time during the rerun is the draft written — the user decides — plus
@@ -196,7 +196,7 @@
 # that isn't the current session (and isn't `shelved`): remove it if it holds `ended`
 # and that file is older than a grace period of 2 x sweep_timeout + 60 seconds (the
 # timeout is the sweep's effective one: sweep_timeout=0 means the default 60, so 180s; an
-# async sweep may still be running its Haiku child and shelve a late draft; if the age
+# async sweep may still be running its child and shelve a late draft; if the age
 # can't be computed the dir waits for the next reap), or if nothing in
 # it was modified in the last 7 days (find -newermt on the dir + its files).
 # A stale, un-ended dir still holding marker/draft logs `pending_orphaned`, once the
@@ -219,11 +219,13 @@
 #                  as fixed strings (default list below)
 #   cooldown       integer, turns between phrase nudges   (default 3)
 #   sweep_every    integer, unchanged turns before a sweep (default 4)
-#   sweep          on|off, Haiku background sweep          (default on)
+#   sweep          on|off, background model sweep          (default on)
 #   sweep_timeout  integer seconds for the sweep child     (default 60)
 #   sweep_max_failures  integer, consecutive failed sweeps before the sweep
 #                  backs off for the session; 0 = never back off (default 3)
-# A non-integer / non-on|off value falls back to the default.
+#   sweep_model    model alias/id for the sweep child, [A-Za-z0-9._-]+ (default sonnet)
+#   sweep_effort   low|medium|high|xhigh|max, the child's --effort (default medium)
+# A non-integer / non-on|off / otherwise invalid value falls back to the default.
 #
 # Guards (R5), checked in order before any state is touched: WB_CAPTURE_SWEEP
 # set (recursion flag for the headless sweep child), kill switch, not in tmux,
@@ -237,13 +239,15 @@ set -uo pipefail
 
 # Kept deliberately strong: measured 2026-10-09 over 1382 recent assistant messages,
 # "instead of"/"rather than"/"rejected" matched ~9% of all messages (ordinary prose);
-# this list matches <1%. Recall gaps are the Haiku sweep's job.
+# this list matches <1%. Recall gaps are the sweep's job.
 DEFAULT_PHRASES="we decided|decided to|going with|let's go with|we'll go with|i'll go with|went with|settled on|the decision is|chose |opting for|ruled out"
 DEFAULT_COOLDOWN=3
 DEFAULT_SWEEP_EVERY=4
 DEFAULT_SWEEP=on
 DEFAULT_SWEEP_TIMEOUT=60
 DEFAULT_SWEEP_MAX_FAILURES=3
+DEFAULT_SWEEP_MODEL=sonnet
+DEFAULT_SWEEP_EFFORT=medium
 # Stops a draft review may carry its nudge before it counts as abandoned
 REVIEW_MAX_TURNS=4
 
@@ -727,6 +731,8 @@ load_config() {
   CFG_SWEEP="$DEFAULT_SWEEP"
   CFG_SWEEP_TIMEOUT="$DEFAULT_SWEEP_TIMEOUT"
   CFG_SWEEP_MAX_FAILURES="$DEFAULT_SWEEP_MAX_FAILURES"
+  CFG_SWEEP_MODEL="$DEFAULT_SWEEP_MODEL"
+  CFG_SWEEP_EFFORT="$DEFAULT_SWEEP_EFFORT"
   [ -r "$CONF_FILE" ] || return 0
   local line key val
   while IFS= read -r line || [ -n "$line" ]; do
@@ -742,6 +748,8 @@ load_config() {
       sweep)         case "$val" in on|off) CFG_SWEEP="$val" ;; esac ;;
       sweep_timeout) [[ "$val" =~ ^[0-9]+$ ]] && CFG_SWEEP_TIMEOUT="$val" ;;
       sweep_max_failures) [[ "$val" =~ ^[0-9]+$ ]] && CFG_SWEEP_MAX_FAILURES="$val" ;;
+      sweep_model)   [[ "$val" =~ ^[A-Za-z0-9._-]+$ ]] && CFG_SWEEP_MODEL="$val" ;;
+      sweep_effort)  case "$val" in low|medium|high|xhigh|max) CFG_SWEEP_EFFORT="$val" ;; esac ;;
     esac
   done <"$CONF_FILE"
   return 0

@@ -31,7 +31,7 @@ does.
    the next prompt, then a cooldown (3 turns) keeps it from nagging. A
    nudge that was delivered but not acted on by the end of its turn is
    logged `ignored`.
-4. Also at turn end, an async background Haiku "sweep" looks at the recent
+4. Also at turn end, an async background model "sweep" looks at the recent
    transcript if the task file has gone 4 turns unchanged. If it finds an
    unrecorded decision it writes a draft; the next prompt gets a nudge
    pointing at it. It is propose-only, tool-less, and skips itself when
@@ -128,10 +128,10 @@ The first is `source=phrase`, the second `source=sweep`. A draft nudge
 beats a phrase nudge when both are pending.
 
 **Stale drafts.** The sweep snapshots the task's `## Decisions` section (the
-exact text Haiku is shown), then waits up to a minute for Haiku. Edits
+exact text the model is shown), then waits up to a minute for it. Edits
 elsewhere in the task file don't count. If `## Decisions` changed in that
 window (usually `/wb-decide` recording the very decision being drafted), the
-answer is thrown away and Haiku is asked once more against the current
+answer is thrown away and the model is asked once more against the current
 section, so it either answers NONE or drafts something genuinely new
 (`sweep_ran` logs `rerun: true`). Only if the section changes *again* during
 that rerun is the draft kept but flagged possibly stale: the nudge says it
@@ -203,18 +203,21 @@ exactly `EOF` can't end it early.
 | `phrases` | strong list: `we decided\|decided to\|going with\|let's go with\|we'll go with\|i'll go with\|went with\|settled on\|the decision is\|chose \|opting for\|ruled out` | `\|`-separated, case-insensitive fixed strings |
 | `cooldown` | `3` | turns between phrase nudges |
 | `sweep_every` | `4` | unchanged turns before a sweep |
-| `sweep` | `on` | `on` / `off` — the Haiku background sweep |
+| `sweep` | `on` | `on` / `off` — the background model sweep |
 | `sweep_timeout` | `60` | seconds for the sweep child (`0` means the default 60; the reaper's grace for an ended session, 2 x timeout + 60s, uses the same fallback) |
 | `sweep_max_failures` | `3` | consecutive failed sweeps before the sweep stops for the session (`0` = never stop) |
+| `sweep_model` | `sonnet` | model alias or id for the sweep child (`[A-Za-z0-9._-]+`; anything else falls back to the default). Measured 2026-10-22 on a sweep-sized call: Haiku about $0.006, Sonnet 5.5 at medium effort about $0.124, both about 2s |
+| `sweep_effort` | `medium` | `low` / `medium` / `high` / `xhigh` / `max` — the child's `--effort` (anything else falls back to the default) |
 
 **Log events** (`log.jsonl`, one JSON object per line: `ts`, `session_id`,
 `task`, `event`, optional `source`): `nudge_fired{source}`,
 `followed{source}`, `dismissed`, `ignored{source}` (these three mean only "a
 nudge resolved"), `muted`, `unmuted`,
-`sweep_ran{result: none|draft|invalid|error|timeout}` (`invalid` is an answer
+`sweep_ran{result: none|draft|invalid|error|timeout, model, effort}` (`model` and `effort` are the
+settings the child ran with; `invalid` is an answer
 that is neither NONE nor a `### ` entry: its excerpt is retried once, then
 skipped, and it never counts toward `sweep_max_failures`; `rerun: true` when `## Decisions`
-changed during the first run and Haiku was asked again; `stale: true` when it
+changed during the first run and the model was asked again; `stale: true` when it
 changed again during the rerun; `followed`, `dismissed`, `ignored` and
 `draft_shelved` carry `stale: true` too when they resolve a stale draft),
 `sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}`,
@@ -224,7 +227,7 @@ rejected; no `source`, and `stale: true` when it was a stale one, so they
 never count toward the nudge follow rate), `shelved_left{count}` (logged by
 `wb done --leave-shelved`; its `session_id` is empty and it carries no `source`),
 `pending_at_end{marker,draft}` (from SessionEnd; the sweep logs it as just
-`{draft:true}` when the session ended while Haiku was still running, and
+`{draft:true}` when the session ended while the sweep child was still running, and
 shelves the draft right after), `pending_orphaned` (the reaper logs it only
 once the dir is really removed, after its `ignored` and `draft_shelved`).
 

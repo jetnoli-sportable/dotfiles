@@ -132,6 +132,8 @@ sweep() { run "$SWEEP"; }
 events() { [ -f "$LOG" ] && jq -r .event "$LOG" | tr '\n' ' ' | sed 's/ $//' || echo ""; }
 last_field() { jq -r --arg e "$1" "select(.event==\$e)|.$2" "$LOG" 2>/dev/null | tail -1; }
 invocations() { [ -f "$OUTDIR/invocations" ] && wc -l <"$OUTDIR/invocations" | tr -d ' ' || echo 0; }
+# argv_after <flag> — the fake claude's argument right after <flag>
+argv_after() { /usr/bin/grep -x -A1 -F -- "[$1]" "$OUTDIR/argv" | sed -n '2s/^\[\(.*\)\]$/\1/p'; }
 set_conf() { mkdir -p "$CFG/wb"; printf '%s\n' "$@" >"$CFG/wb/capture.conf"; }
 
 echo "# fires: draft written atomically"
@@ -228,7 +230,10 @@ sweep
 ARGV="$(cat "$OUTDIR/argv")"
 assert_match "-p" '^\[-p\]$' "$ARGV"
 assert_match "--model" '^\[--model\]$' "$ARGV"
-assert_match "haiku" '^\[haiku\]$' "$ARGV"
+assert_eq "default model: sonnet" sonnet "$(argv_after --model)"
+assert_eq "--effort" medium "$(argv_after --effort)"
+assert_eq "sweep_ran carries the default model" sonnet "$(last_field sweep_ran model)"
+assert_eq "sweep_ran carries the default effort" medium "$(last_field sweep_ran effort)"
 assert_match "--no-session-persistence" '^\[--no-session-persistence\]$' "$ARGV"
 assert_match "--max-turns" '^\[--max-turns\]$' "$ARGV"
 assert_match "max-turns 1" '^\[1\]$' "$ARGV"
@@ -239,6 +244,30 @@ assert_match "--settings" '^\[--settings\]$' "$ARGV"
 assert_match "hooks disabled in the child" '^\[\{"disableAllHooks":true\}\]$' "$ARGV"
 assert_eq "env stripped/set" "SWEEP=1 TMUX=unset PANE=unset" "$(cat "$OUTDIR/env")"
 assert_eq "cwd is capture root" "$(cd "$CAP" && pwd -P)" "$(cat "$OUTDIR/cwd")"
+
+echo "# sweep_model / sweep_effort: config overrides, invalid values fall back"
+new_scenario; set_conf sweep_model=claude-haiku-4.5 sweep_effort=high
+sweep
+assert_eq "conf model reaches the child" claude-haiku-4.5 "$(argv_after --model)"
+assert_eq "conf effort reaches the child" high "$(argv_after --effort)"
+assert_eq "sweep_ran logs the conf model" claude-haiku-4.5 "$(last_field sweep_ran model)"
+assert_eq "sweep_ran logs the conf effort" high "$(last_field sweep_ran effort)"
+for e in low medium high xhigh max; do
+  new_scenario; set_conf "sweep_effort=$e"; sweep
+  assert_eq "effort $e accepted" "$e" "$(argv_after --effort)"
+done
+for bad in 'sweep_model=haiku;rm' 'sweep_model=a b' 'sweep_model=' 'sweep_model=$(x)' 'sweep_model=opus/4' 'sweep_effort=ultra' 'sweep_effort=' 'sweep_effort=HIGH' 'sweep_effort=high extra'; do
+  new_scenario; set_conf "$bad"; sweep
+  assert_eq "invalid [$bad]: model falls back" sonnet "$(argv_after --model)"
+  assert_eq "invalid [$bad]: effort falls back" medium "$(argv_after --effort)"
+done
+new_scenario; set_conf sweep_model=opus sweep_effort=bogus; sweep
+assert_eq "one valid key survives an invalid sibling (model)" opus "$(argv_after --model)"
+assert_eq "one valid key survives an invalid sibling (effort)" medium "$(argv_after --effort)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail); set_conf sweep_model=opus
+sweep
+assert_eq "a failed run still logs model" opus "$(last_field sweep_ran model)"
+assert_eq "a failed run still logs effort" medium "$(last_field sweep_ran effort)"
 
 echo "# recursion guard"
 new_scenario; EXTRA_ENV+=(WB_CAPTURE_SWEEP=1)
@@ -454,7 +483,7 @@ new_scenario
 sweep
 assert_file "fresh: draft written" "$D/draft"
 assert_nofile "fresh: no draft_stale" "$D/draft_stale"
-assert_eq "fresh: sweep_ran line has exactly ts/sid/task/event/result" '["event","result","session_id","task","ts"]' "$(jq -c 'select(.event=="sweep_ran")|keys' "$LOG")"
+assert_eq "fresh: sweep_ran line has exactly ts/sid/task/event/result/model/effort" '["effort","event","model","result","session_id","task","ts"]' "$(jq -c 'select(.event=="sweep_ran")|keys' "$LOG")"
 assert_eq "fresh: no stale field" null "$(last_field sweep_ran stale)"
 
 echo "# stale draft: a non-stale draft removes an old draft_stale"

@@ -283,7 +283,7 @@ prompt's context and logged as <code>nudge_fired</code>. (Prompts that are just 
 the next prompt, then a cooldown (3 turns) keeps it from nagging. A
 nudge that was delivered but not acted on by the end of its turn is
 logged <code>ignored</code>.</li>
-<li>Also at turn end, an async background Haiku &quot;sweep&quot; looks at the recent
+<li>Also at turn end, an async background model &quot;sweep&quot; looks at the recent
 transcript if the task file has gone 4 turns unchanged. If it finds an
 unrecorded decision it writes a draft; the next prompt gets a nudge
 pointing at it. It is propose-only, tool-less, and skips itself when
@@ -369,10 +369,10 @@ the refusal for a live draft. (A
 <p>The first is <code>source=phrase</code>, the second <code>source=sweep</code>. A draft nudge
 beats a phrase nudge when both are pending.</p>
 <p><strong>Stale drafts.</strong> The sweep snapshots the task's <code>## Decisions</code> section (the
-exact text Haiku is shown), then waits up to a minute for Haiku. Edits
+exact text the model is shown), then waits up to a minute for it. Edits
 elsewhere in the task file don't count. If <code>## Decisions</code> changed in that
 window (usually <code>/wb-decide</code> recording the very decision being drafted), the
-answer is thrown away and Haiku is asked once more against the current
+answer is thrown away and the model is asked once more against the current
 section, so it either answers NONE or drafts something genuinely new
 (<code>sweep_ran</code> logs <code>rerun: true</code>). Only if the section changes <em>again</em> during
 that rerun is the draft kept but flagged possibly stale: the nudge says it
@@ -503,7 +503,7 @@ exactly <code>EOF</code> can't end it early.</p>
 <tr>
 <td><code>sweep</code></td>
 <td><code>on</code></td>
-<td><code>on</code> / <code>off</code> — the Haiku background sweep</td>
+<td><code>on</code> / <code>off</code> — the background model sweep</td>
 </tr>
 <tr>
 <td><code>sweep_timeout</code></td>
@@ -515,16 +515,27 @@ exactly <code>EOF</code> can't end it early.</p>
 <td><code>3</code></td>
 <td>consecutive failed sweeps before the sweep stops for the session (<code>0</code> = never stop)</td>
 </tr>
+<tr>
+<td><code>sweep_model</code></td>
+<td><code>sonnet</code></td>
+<td>model alias or id for the sweep child (<code>[A-Za-z0-9._-]+</code>; anything else falls back to the default). Measured 2026-10-22 on a sweep-sized call: Haiku about $0.006, Sonnet 5.5 at medium effort about $0.124, both about 2s</td>
+</tr>
+<tr>
+<td><code>sweep_effort</code></td>
+<td><code>medium</code></td>
+<td><code>low</code> / <code>medium</code> / <code>high</code> / <code>xhigh</code> / <code>max</code> — the child's <code>--effort</code> (anything else falls back to the default)</td>
+</tr>
 </tbody>
 </table>
 <p><strong>Log events</strong> (<code>log.jsonl</code>, one JSON object per line: <code>ts</code>, <code>session_id</code>,
 <code>task</code>, <code>event</code>, optional <code>source</code>): <code>nudge_fired{source}</code>,
 <code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code> (these three mean only &quot;a
 nudge resolved&quot;), <code>muted</code>, <code>unmuted</code>,
-<code>sweep_ran{result: none|draft|invalid|error|timeout}</code> (<code>invalid</code> is an answer
+<code>sweep_ran{result: none|draft|invalid|error|timeout, model, effort}</code> (<code>model</code> and <code>effort</code> are the
+settings the child ran with; <code>invalid</code> is an answer
 that is neither NONE nor a <code>### </code> entry: its excerpt is retried once, then
 skipped, and it never counts toward <code>sweep_max_failures</code>; <code>rerun: true</code> when <code>## Decisions</code>
-changed during the first run and Haiku was asked again; <code>stale: true</code> when it
+changed during the first run and the model was asked again; <code>stale: true</code> when it
 changed again during the rerun; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
 <code>draft_shelved</code> carry <code>stale: true</code> too when they resolve a stale draft),
 <code>sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}</code>,
@@ -534,7 +545,7 @@ rejected; no <code>source</code>, and <code>stale: true</code> when it was a sta
 never count toward the nudge follow rate), <code>shelved_left{count}</code> (logged by
 <code>wb done --leave-shelved</code>; its <code>session_id</code> is empty and it carries no <code>source</code>),
 <code>pending_at_end{marker,draft}</code> (from SessionEnd; the sweep logs it as just
-<code>{draft:true}</code> when the session ended while Haiku was still running, and
+<code>{draft:true}</code> when the session ended while the sweep child was still running, and
 shelves the draft right after), <code>pending_orphaned</code> (the reaper logs it only
 once the dir is really removed, after its <code>ignored</code> and <code>draft_shelved</code>).</p>
 <p><strong>Measuring it</strong> — follow / dismissal / ignored rate overall and per source,

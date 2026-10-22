@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# wb-capture-sweep.sh — Haiku background review (U4, store auto-capture).
+# wb-capture-sweep.sh — background model review (U4, store auto-capture).
 # Registered as an `async: true` Stop hook, so it launches at the same moment
 # as the sync `hook-stop` and races it on the `unchanged` counter (hence the
 # flock on <session dir>/.lock and the short sleep before taking it). When the
-# task file has gone stale (`unchanged >= sweep_every`) it asks a headless
-# Haiku child whether the recent transcript holds an unrecorded decision and,
-# if so, writes a per-session `draft` (never the task file — KTD5/R14).
+# task file has gone stale (`unchanged >= sweep_every`) it asks a headless child
+# (`sweep_model` at `sweep_effort`, default sonnet/medium) whether the recent
+# transcript holds an unrecorded decision and, if so, writes a per-session
+# `draft` (never the task file — KTD5/R14).
 # `sweep_max_failures` (default 3) consecutive error/timeout results stop the
 # sweep for the session (skip reason `backoff`); a draft or NONE resets the count.
 # Staleness is judged on the `## Decisions` section only (the exact text the
@@ -29,7 +30,7 @@
 #
 # The draft-writing tail (overlap check through draft write / late shelve) holds the
 # session lock, the same one `wb-capture.sh dismiss --expect` takes (never held
-# across the Haiku child).
+# across the child).
 #
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
@@ -123,7 +124,7 @@ take_snapshot() {
 # --- child ------------------------------------------------------------------
 timeout_s="$CFG_SWEEP_TIMEOUT"; [ "$timeout_s" -gt 0 ] || timeout_s="$DEFAULT_SWEEP_TIMEOUT"
 mkdir -p "$CAPTURE_ROOT" 2>/dev/null || exit 0
-# run_child — asks Haiku about $excerpt vs $decisions; sets out, rc, result. Hooks
+# run_child — asks the model about $excerpt vs $decisions; sets out, rc, result. Hooks
 # are off in the child (`disableAllHooks`): every user/plugin hook would run in it,
 # and e.g. a learnings injector adds KBs of unrelated text to each sweep prompt.
 run_child() {
@@ -148,7 +149,8 @@ unsure. No preamble, no commentary.
 PROMPT
     printf '%s\n\n=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$decisions" "$excerpt"
   } | (cd "$CAPTURE_ROOT" && env -u TMUX -u TMUX_PANE WB_CAPTURE_SWEEP=1 \
-        timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p --model haiku \
+        timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p \
+        --model "$CFG_SWEEP_MODEL" --effort "$CFG_SWEEP_EFFORT" \
         --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config \
         --settings '{"disableAllHooks":true}' 2>/dev/null))"
   rc=$?
@@ -234,7 +236,7 @@ fi
 
 late=false
 if [ "$result" = draft ] && [ "$moved" = false ]; then
-  # the session ended while Haiku ran: SessionEnd already came and went, so nothing
+  # the session ended while the child ran: SessionEnd already came and went, so nothing
   # else will nudge this draft. Write it as usual, then shelve it (below) so the
   # user can still accept or dismiss it later instead of losing it
   if [ -e "$SDIR/ended" ]; then
@@ -280,6 +282,7 @@ esac
 # a protected draft keeps its strikes: this run wrote no new draft into the session
 [ "$result" = draft ] && [ "$protect" = false ] && remove_named "$SDIR" draft_strikes
 extra="$(jq -nc --arg r "$result" --argjson rr "$rerun" --argjson st "$stale" \
-  '{result:$r} + (if $rr then {rerun:true} else {} end) + (if $st then {stale:true} else {} end)')"
+  --arg m "$CFG_SWEEP_MODEL" --arg e "$CFG_SWEEP_EFFORT" \
+  '{result:$r, model:$m, effort:$e} + (if $rr then {rerun:true} else {} end) + (if $st then {stale:true} else {} end)')"
 log_event "$SID" sweep_ran "" "$extra"
 exit 0
