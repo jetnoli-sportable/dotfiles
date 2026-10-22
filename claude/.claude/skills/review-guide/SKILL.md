@@ -37,7 +37,10 @@ function a subprocess can't see):
 - **PR:** `<cli> pr view <n> --json number,title,body,state,headRefName,baseRefName,headRefOid,commits,url`.
   Fetch it: `git fetch origin pull/<n>/head` and `git fetch origin <baseRefName>`.
   `base` = `git merge-base origin/<baseRefName> <headRefOid>`, never
-  `baseRefOid` (a moved base would show other merged work, reversed).
+  `baseRefOid` (a moved base would show other merged work, reversed). For a
+  merged PR (add `mergeCommit` to the query) use the merge commit's first
+  parent instead of `origin/<baseRefName>`: after a true merge the head is an
+  ancestor of the base branch and the merge-base collapses onto it.
 - **Stack** (ordered list, or `base..tip` mapped to PRs with `<cli> pr list --head <branch>`):
   each PR's `baseRefName` must be the previous PR's `headRefName`, **or** the
   default branch when the previous PR has merged (GitHub moves the base there

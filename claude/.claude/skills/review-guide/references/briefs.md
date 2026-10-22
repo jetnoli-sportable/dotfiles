@@ -69,7 +69,7 @@ Each finding is one JSON object with exactly these fields:
 | `file` | repo-relative path. `context.md` only for an L3 "stated but not done" finding, which has no line in the code. |
 | `line` | 1-based line number of the excerpt's first line, in `file` at the commit `side` names. For `context.md`, its line in that file. |
 | `side` | `head` (default) for code that exists after the change; `base` for code the change removed. |
-| `excerpt` | one to three lines copied **verbatim** from `file` at `line`. A script checks it is within three lines of `line`; a paraphrase fails and the finding is dropped. |
+| `excerpt` | one to three lines copied **verbatim** from `file` at `line`. After you finish, the orchestrator's script checks it is within three lines of `line` (you don't run it); a paraphrase fails and the finding is dropped. |
 | `claim` | one sentence: what is wrong or worth attention. |
 | `scenario` | the concrete path: input or state → what the code does → the wrong result. |
 | `severity` | `high` (data loss, security, breaks existing callers or the main path), `medium` (wrong result on a plausible input or path), `low` (unlikely edge, or cost without harm) |
