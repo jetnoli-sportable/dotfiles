@@ -16,6 +16,7 @@ Plain-Markdown conventions the page styles (see SKILL.md stage 7):
   **Recommendation:** ...       callout (accent), when it starts a paragraph
   **Conclusion.** ...           callout (neutral), when it starts a paragraph
   **1. title** under a "### Where to look" heading   a ranked card with a severity stripe
+  <details markdown="1"> + <summary>label</summary> ... </details>   a collapsed block for optional detail
 """
 import pathlib
 import re

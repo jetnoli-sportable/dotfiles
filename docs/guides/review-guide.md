@@ -14,7 +14,9 @@ thousands of changed lines and no map. Attention spreads evenly over generated
 files, fixtures and the few lines that can actually break something.
 `/review-guide` reads the change first and publishes one page with four parts:
 
-- **A. Overview:** what changed, and its impact, scope and risk.
+- **A. Overview:** why the change matters, an at-a-glance table (PR, size,
+  plan, task), a component table pointing each part at where to look, scope,
+  impact and risk, and a short "how it got here" of the review rounds.
 - **B. Review focus:** ranked hotspots, a reading order, what can be skimmed
   (with the grounds for skimming it), whether the explanation is in proportion
   to the change, and "simplify before merge" notes.
@@ -66,9 +68,12 @@ claim on the page is traceable):
    checks again.
 7. **Synthesise** the page (this session), then a **clarity sweep**: one
    Sonnet agent reads it cold and proposes rewrites for anything not explained
-   where it's used (a bare "R1", a ticket key, a SHA) and for jargon or
-   overlong sentences; this session accepts or rejects each, and a script
-   applies them without letting a code span, number or finding id go missing.
+   where it's used (a bare "R1", a ticket key, a SHA), for jargon or
+   overlong sentences, and for length: cuts for what the reader doesn't need,
+   and collapsed toggle blocks for detail that helps but isn't needed. This
+   session accepts or rejects each, and a script applies them without letting
+   a finding id go missing, trimming a paragraph that holds a finding or risk,
+   or hiding a finding id in a toggle.
 8. **Render** the Markdown source to HTML.
 9. **Deliver:** publish as an Artifact, note it in the dossier's
    `tools/README.md` and the task's handoffs.
