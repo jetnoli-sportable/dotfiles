@@ -24,8 +24,8 @@ does.
 1. You send a prompt. If a nudge is queued, one line is added to that
    prompt's context and logged as `nudge_fired`. (Prompts that are just a
    `<task-notification>` from a finished background sub-agent get nothing.)
-2. Claude replies. If it ran `wb append … Decisions`, that is logged as
-   `followed` and nothing further is queued.
+2. Claude replies. If a `wb append … Decisions` it ran succeeded, that is
+   logged as `followed` and nothing further is queued.
 3. When the turn ends, the reply is phrase-matched against a short list
    ("we decided", "going with", "settled on", …). A hit queues a nudge for
    the next prompt, then a cooldown (3 turns) keeps it from nagging. A
