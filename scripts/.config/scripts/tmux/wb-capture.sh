@@ -297,7 +297,8 @@ session_dir() {
 }
 
 # pane_sid — session id recorded on this pane by hook-prompt (agent verbs).
-pane_sid() { tmux show -pv @wb_capture_sid 2>/dev/null || true; }
+# Always -t "$TMUX_PANE": untargeted, tmux reads the client's focused pane.
+pane_sid() { [ -n "${TMUX_PANE:-}" ] && tmux show -pv -t "$TMUX_PANE" @wb_capture_sid 2>/dev/null || true; }
 
 # read_input — slurp hook stdin once into INPUT (guarded: a manual, tty
 # invocation can't hang). jq_in <filter> parses fields out of INPUT.
@@ -534,7 +535,7 @@ hook_prompt() {
 # hook_prompt_nudge — stamp the pane, deliver at most one nudge line.
 hook_prompt_nudge() {
   hook_session_dir
-  tmux set -p @wb_capture_sid "$SID" >/dev/null 2>&1 || true
+  [ -n "${TMUX_PANE:-}" ] && { tmux set -p -t "$TMUX_PANE" @wb_capture_sid "$SID" >/dev/null 2>&1 || true; }
   mkdir -p "$SDIR" 2>/dev/null || return 0
   # a prompt means the session is alive: a resumed session (`claude --resume`
   # keeps its session_id) must shed the tombstone its SessionEnd left, or the
