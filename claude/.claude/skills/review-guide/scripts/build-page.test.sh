@@ -11,7 +11,7 @@ trap 'rm -rf "$WORK"' EXIT
 FAIL=0
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1"; FAIL=1; }
-run() { uv run -q --with markdown python "$@"; }
+run() { uv run -q --with markdown --with pygments python "$@"; }
 
 # 1. fixture: nav entries, sections, unescaped SVG
 D="$WORK/dossier"; mkdir -p "$D"
@@ -55,7 +55,61 @@ if run "$WORK/link/build-page.py" "$D" guide >"$WORK/out.txt" 2>&1 && [ -f "$D/g
   pass "symlinked script finds template"
 else fail "symlinked script: $(cat "$WORK/out.txt")"; fi
 
-# 4. pipeline page parity (skipped when the dossier is absent)
+# 4. review conventions: toggle, chips, risk badge, callouts, ranked cards, highlighting
+cat > "$D/conv.md" <<'MD'
+---
+title: Conventions
+---
+## A. Overview
+
+**Risk: medium.** Two spots matter.
+
+**Recommendation:** fix spot 1 first.
+
+## B. Review focus
+
+### Where to look, ranked
+
+**1. The lock handover, `wb-locks.sh:40`. Confirmed, high.**
+
+```bash
+if [ -e "$lock" ]; then echo held; fi
+```
+
+**2. The parser, `parse.sh:9`.**
+
+- **L1-02** low, plausible · `parse.sh:9`: a stray fence survives.
+
+### Skim
+
+**3. Not a spot:** numbered bold outside the ranked list stays a paragraph.
+
+## C. Explainer
+
+**Conclusion.** The handover is sound.
+MD
+if run "$BUILD" "$D" conv >"$WORK/out.txt" 2>&1; then
+  H="$D/conv.html"
+  /usr/bin/grep -q 'class="rail-toggle"' "$H" && /usr/bin/grep -q 'review-guide:rail' "$H" \
+    && pass "sidebar toggle and its stored state" || fail "sidebar toggle missing"
+  /usr/bin/grep -q '<span class="fid">L1-02</span> <span class="chip sev-low">low</span> <span class="chip v-plausible">plausible</span>' "$H" \
+    && pass "finding id, severity and verdict chips" || fail "finding chips missing"
+  /usr/bin/grep -q '<p class="callout risk sev-medium"><span class="badge">Risk: medium</span>' "$H" \
+    && pass "risk badge" || fail "risk badge missing"
+  /usr/bin/grep -q '<p class="callout rec"><strong' "$H" && /usr/bin/grep -q '<p class="callout concl">' "$H" \
+    && pass "recommendation and conclusion callouts" || fail "callouts missing"
+  cards=$(/usr/bin/grep -o 'class="spot sev-[a-z]*"' "$H" | tr '\n' ' ')
+  [ "$cards" = 'class="spot sev-high" class="spot sev-low" ' ] \
+    && pass "two ranked cards; severity from title, else from chips" || fail "cards: $cards"
+  /usr/bin/grep -q '<span class="chip sev-high">high</span> <span class="chip v-confirmed">confirmed</span>' "$H" \
+    && pass "spot title verdict as chips" || fail "spot title chips missing"
+  /usr/bin/grep -q '<div class="hl"><pre>.*<span class="k">if</span>' "$H" \
+    && pass "fenced bash highlighted" || fail "no highlighted span in code block"
+else
+  fail "conventions build failed: $(cat "$WORK/out.txt")"
+fi
+
+# 5. pipeline page parity (skipped when the dossier is absent)
 P=/home/jetnoli/code/tasks/dossiers/dotfiles--skill-review-guide
 if [ -f "$P/pipeline.md" ] && [ -f "$P/pipeline.html" ]; then
   mkdir -p "$WORK/pipe"; cp "$P/pipeline.md" "$WORK/pipe/"

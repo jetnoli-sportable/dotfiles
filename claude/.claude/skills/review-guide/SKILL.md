@@ -151,10 +151,21 @@ explaining rules (`~/.claude/CLAUDE.md`, "Explaining"): each point why first,
 terms defined at first use, real excerpts, a conclusion and recommendation.
 For a stack, tag every item with its PR.
 
+The renderer styles these plain-Markdown forms, so use them exactly; they are
+what make the page guide the eye:
+
+| Write | Renders as |
+|---|---|
+| `**L1-03** medium, confirmed · file:line` (also `**#541 · L1.541-01** low`, `**C-01**` alone) | finding id plus severity and verdict chips |
+| `**Risk: low.**` opening part A's risk paragraph (`low`, `medium`, `high`, `low to medium`) | a coloured risk badge callout |
+| `**Recommendation:**` or `**Conclusion.**` opening a paragraph | an accent or neutral callout |
+| `**1. title, file:line. Confirmed, high.**` paragraphs under `### Where to look, ranked` | ranked cards with a severity stripe (from the title, else the highest chip inside) |
+| fenced code with a language (`bash`, `python`, `json`, `console`) | syntax highlighting in the page's theme colours |
+
 ## 8. Render
 
 ```bash
-uv run -q --with markdown python <skill>/scripts/build-page.py <dossier> review-guide-<target>
+uv run -q --with markdown --with pygments python <skill>/scripts/build-page.py <dossier> review-guide-<target>
 ```
 
 Never edit the HTML; change the `.md` and re-run.

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__</title>
+<script>try{if(localStorage.getItem("review-guide:rail")==="collapsed")document.documentElement.dataset.rail="collapsed"}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
 <style>
@@ -92,12 +93,58 @@ svg .k-sub{fill:var(--new-soft);stroke:var(--new)}
 svg .k-ver{fill:var(--amber-soft);stroke:var(--amber)}
 svg .b-logic{fill:var(--bad)} svg .b-skill{fill:var(--amber)} svg .b-test{fill:var(--new)} svg .b-doc{fill:var(--rule)} svg .b-gen{fill:var(--sunk);stroke:var(--muted);stroke-dasharray:3 2}
 svg .arrowhead{fill:var(--muted)}
+pre code{background:none;padding:0;border-radius:0}
+td code{overflow-wrap:break-word}
+.rail-toggle{display:flex;align-items:center;gap:6px;margin:0 0 10px;padding:4px 8px;font-size:12px;color:var(--muted)}
+.rail-toggle i{font-style:normal;transition:transform .15s}
+html[data-rail="collapsed"] .shell{width:min(92vw,1720px);grid-template-columns:30px minmax(0,1fr);gap:28px}
+html[data-rail="collapsed"] nav.rail ol,html[data-rail="collapsed"] .rail-toggle span{display:none}
+html[data-rail="collapsed"] .rail-toggle i{transform:rotate(180deg)}
+@media (max-width:900px){
+  .rail-toggle{display:none}
+  html[data-rail="collapsed"] .shell{width:100%;grid-template-columns:1fr;gap:0}
+  html[data-rail="collapsed"] nav.rail ol{display:flex}
+}
+.fid{font:600 12.5px var(--mono);color:var(--ink)}
+.chip{display:inline-block;font:600 10.5px/1 var(--cond);letter-spacing:.06em;text-transform:uppercase;padding:3px 6px;border-radius:3px;vertical-align:1px;white-space:nowrap}
+.chip.sev-high{background:var(--bad);color:var(--surface)}
+.chip.sev-medium{background:var(--amber-soft);color:var(--amber);box-shadow:inset 0 0 0 1px var(--amber)}
+.chip.sev-low{background:var(--sunk);color:var(--muted)}
+.chip.v-confirmed{background:var(--accent-soft);color:var(--accent)}
+.chip.v-plausible{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--rule)}
+.callout{max-width:84ch;padding:12px 16px;border-radius:0 6px 6px 0;border-left:4px solid var(--accent);background:var(--surface);margin:14px 0}
+.callout.rec{background:var(--accent-soft)}
+.callout.rec strong:first-child,strong.lead{color:var(--accent)}
+.callout.concl{border-left-color:var(--muted)}
+.callout.risk{border-left-width:6px;font-size:15.5px}
+.callout.risk.sev-high{border-left-color:var(--bad);background:var(--bad-soft)}
+.callout.risk.sev-medium{border-left-color:var(--amber);background:var(--amber-soft)}
+.callout.risk.sev-low{border-left-color:var(--ok);background:var(--ok-soft)}
+.badge{display:inline-block;font:600 15px/1 var(--cond);letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:4px;margin-right:8px;color:var(--surface);background:var(--ok)}
+.sev-high>.badge{background:var(--bad)} .sev-medium>.badge{background:var(--amber)}
+.spot{position:relative;background:var(--surface);border:1px solid var(--rule);border-left:5px solid var(--rule);border-radius:6px;padding:14px 18px 6px;margin:0 0 16px}
+.spot.sev-high{border-left-color:var(--bad)} .spot.sev-medium{border-left-color:var(--amber)} .spot.sev-low{border-left-color:var(--muted)} .spot.sev-none{border-left-color:var(--ok)}
+.spot-title{font-size:15.5px}
+.spot-title strong{font-weight:600}
+.rank{display:inline-block;font:600 20px/1 var(--cond);color:var(--muted);margin-right:10px;vertical-align:-1px}
+.spot.sev-high .rank{color:var(--bad)} .spot.sev-medium .rank{color:var(--amber)}
+.spot pre,.spot table{background:var(--ground)}
+.hl .c,.hl .c1,.hl .cm,.hl .ch,.hl .cs,.hl .cp,.hl .cpf{color:var(--muted);font-style:italic}
+.hl .k,.hl .kd,.hl .kn,.hl .kr,.hl .kt,.hl .kp,.hl .ow{color:var(--accent);font-weight:500}
+.hl .kc,.hl .m,.hl .mi,.hl .mf,.hl .mh,.hl .mo,.hl .il{color:var(--bad)}
+.hl .s,.hl .s1,.hl .s2,.hl .sa,.hl .sb,.hl .sc,.hl .sd,.hl .sh,.hl .sx,.hl .sr,.hl .ss,.hl .dl{color:var(--amber)}
+.hl .se,.hl .si{color:var(--bad)}
+.hl .nf,.hl .fm,.hl .nc,.hl .nb,.hl .bp,.hl .nt{color:var(--new)}
+.hl .nv,.hl .vi,.hl .vc,.hl .vg,.hl .nd{color:var(--ok)}
+.hl .gp{color:var(--muted);font-weight:600;user-select:none} .hl .go{color:var(--muted)}
+.hl .err{border:0;background:none}
 </style>
 </head>
 <body>
 <div class="shell">
 <nav class="rail" aria-label="Sections">
-  <ol>
+  <button class="rail-toggle" type="button" aria-controls="rail-list" aria-expanded="true" aria-label="Toggle the sections sidebar"><i aria-hidden="true">‹</i><span>Hide sections</span></button>
+  <ol id="rail-list">
 __NAV__
   </ol>
 </nav>
@@ -105,9 +152,22 @@ __NAV__
 <section id="top">
   <div class="eyebrow">__EYEBROW__</div>
 __BODY__
-  <p class="sub">Updated __UPDATED__ · generated from <code>__SOURCE__</code> by <code>tools/build-page.py</code>; do not edit the HTML.</p>
+  <p class="sub">Updated __UPDATED__ · generated from <code>__SOURCE__</code> by the review-guide skill's <code>build-page.py</code>; do not edit the HTML.</p>
 </section>
 </main>
 </div>
+<script>
+(function(){
+  var root=document.documentElement, btn=document.querySelector(".rail-toggle");
+  function sync(){btn.setAttribute("aria-expanded",String(root.dataset.rail!=="collapsed"))}
+  btn.addEventListener("click",function(){
+    var collapse=root.dataset.rail!=="collapsed";
+    if(collapse) root.dataset.rail="collapsed"; else delete root.dataset.rail;
+    try{localStorage.setItem("review-guide:rail",collapse?"collapsed":"open")}catch(e){}
+    sync();
+  });
+  sync();
+})();
+</script>
 </body>
 </html>
