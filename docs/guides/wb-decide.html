@@ -292,7 +292,8 @@ muted, when a draft is already pending, when nothing new was said, or
 after 3 failed runs in a row (<code>claude</code> missing, logged out or rate-limited).
 A draft nudge that is ignored is delivered once more; ignored a second
 time, the draft is <strong>shelved</strong> (logged <code>draft_shelved</code>), not deleted, and
-sweeping resumes. A draft is only ever removed by your accept or dismiss.
+sweeping resumes. A draft is only ever resolved by your accept or dismiss, and
+even then it is moved to <code>resolved/</code> (kept 30 days), not deleted.
 If two sweeps overlap and a second draft arrives while one is already
 there, the older one is shelved (reason <code>superseded</code>) before the new one
 is written, never overwritten. The exception is a draft you are looking at
@@ -321,6 +322,15 @@ checking state never puts a session under review.</p>
 you decide. <code>/wb-decide status</code> lists them (<code>shelved: &lt;path&gt;</code>), <code>/wb-decide shelved</code> walks through them one at a time, and <code>/close-out</code> asks about each
 before a task winds down. Rejecting runs <code>wb-capture.sh dismiss &lt;path&gt;</code>.
 Phrase nudges carry no draft, so ignoring one shelves nothing.</p>
+<p><strong>Resolved drafts.</strong> A draft is the only copy of its text, so accepting or
+dismissing one (session or shelved) never deletes it: it is moved to
+<code>~/.local/state/wb/capture/resolved/&lt;task&gt;/&lt;timestamp&gt;-&lt;outcome&gt;-&lt;name&gt;.md</code>, where
+<code>&lt;outcome&gt;</code> is <code>accepted</code>, <code>dismissed</code>, <code>shelved_accepted</code> or <code>shelved_dismissed</code>
+and <code>&lt;name&gt;</code> is the session id or the shelved file's name (a <code>.md.stale</code> sidecar
+travels with it). The hourly reaper prunes archived drafts older than 30 days. To
+recover one, read it there or copy it back (<code>cp</code> it into <code>shelved/&lt;task&gt;/</code> to
+review it again with <code>/wb-decide shelved</code>). If the move fails, the draft stays
+where it was and the command says so on stderr.</p>
 <p>A shelved draft whose task is already closed is still resolvable from any wb
 session, or from none: path-carrying <code>accept</code>/<code>dismiss</code> ignore the kill switch and
 need no <code>@task</code>. The stem comes from <code>--task</code>, else the session's task, else the
@@ -340,9 +350,9 @@ hook would otherwise count as the answer to whatever <em>other</em> nudge is liv
 in the session (marking it <code>followed</code> and wiping its strikes and review
 state). The <code>--begin</code> call leaves a one-shot flag; the hook consumes it, notes
 the turn as recorded and leaves the live nudge alone; the final <code>accept</code>
-deletes the draft and logs <code>shelved_accepted</code> (it does not touch the flag, so
-all three commands in one Bash call still work: PostToolUse fires after the
-whole call). An abandoned accept just leaves the draft shelved: the flag is
+moves the draft to <code>resolved/</code> and logs <code>shelved_accepted</code> (it does not touch the
+flag, so all three commands in one Bash call still work: PostToolUse fires after the
+whole call). Chain them with <code>&amp;&amp;</code> so a failed append skips the final <code>accept</code>. An abandoned accept just leaves the draft shelved: the flag is
 dropped by the next real prompt.</p>
 <p><strong><code>wb done</code> won't strand decision drafts.</strong> A shelved draft only gets reviewed
 by <code>/close-out</code> or <code>/wb-decide shelved</code>, and a draft still pending in a live
@@ -411,7 +421,7 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 </tr>
 <tr>
 <td>draft pending</td>
-<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A draft can hold up to 3 entries: Claude reviews each, records the accepted ones in one <code>wb append</code>, then resolves the draft (<code>clear --draft</code>, or <code>accept &lt;path&gt;</code> for a shelved one) even when only some were accepted; if none is, it is a dismiss. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again (so does any <code>wb append … Decisions</code> that resolves the nudge while the draft survives). Only the draft-accept path runs <code>clear --draft</code>, which removes it.</td>
+<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A draft can hold up to 3 entries: Claude reviews each, records the accepted ones in one <code>wb append</code>, then resolves the draft (<code>clear --draft</code>, or <code>accept &lt;path&gt;</code> for a shelved one) even when only some were accepted; if none is, it is a dismiss. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again (so does any <code>wb append … Decisions</code> that resolves the nudge while the draft survives). Only the draft-accept path runs <code>clear --draft</code>, which moves it to <code>resolved/</code>.</td>
 </tr>
 <tr>
 <td><code>/wb-decide dismiss</code></td>
@@ -468,6 +478,10 @@ exactly <code>EOF</code> can't end it early.</p>
 <tr>
 <td>Shelved drafts</td>
 <td><code>~/.local/state/wb/capture/shelved/&lt;task-stem&gt;/&lt;timestamp&gt;-&lt;session&gt;.md</code> (a <code>.stale</code> sidecar marks a stale one)</td>
+</tr>
+<tr>
+<td>Resolved drafts</td>
+<td><code>~/.local/state/wb/capture/resolved/&lt;task-stem&gt;/&lt;timestamp&gt;-&lt;outcome&gt;-&lt;name&gt;.md</code> (kept 30 days, then pruned by the reaper)</td>
 </tr>
 <tr>
 <td>Script</td>

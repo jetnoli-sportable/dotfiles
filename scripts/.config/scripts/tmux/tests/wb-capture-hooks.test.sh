@@ -1050,4 +1050,68 @@ posttool 'wb append ~/code/tasks/x.md Decisions -'
 assert_file "shelved_accept append keeps nudged_draft" "$D/nudged_draft"
 assert_file "shelved_accept append keeps outstanding" "$D/outstanding"
 
+echo "# resolved/ archive: the reaper never treats it as a session dir, prunes only old archived drafts"
+new_scenario
+mkdir -p "$CAP/resolved/dotfiles--feat-x" "$CAP/resolved/dotfiles--feat-y" "$CAP/resolved/dotfiles--feat-z"
+RX="$CAP/resolved/dotfiles--feat-x"; RY="$CAP/resolved/dotfiles--feat-y"; RZ="$CAP/resolved/dotfiles--feat-z"
+# files named like session state, directly under resolved/: a session-dir reap would shelve or remove them
+printf 'm' >"$CAP/resolved/marker"; printf 'rd\n' >"$CAP/resolved/draft"
+printf 'old\n' >"$RX/20260101T000000-accepted-sid-a.md"; : >"$RX/20260101T000000-accepted-sid-a.md.stale"
+printf 'new\n' >"$RX/20261020T000000-dismissed-sid-b.md"
+printf 'keep\n' >"$RX/notes.txt"
+printf 'old\n' >"$RY/20260101T000000-shelved_accepted-q.md"
+printf 'old\n' >"$RZ/20260101T000000-dismissed-sid-c.md"; ln -s "$RX/notes.txt" "$RZ/20260101T000001-dismissed-link.md"
+printf 'outside\n' >"$H/outside.md"; touch -d '40 days ago' "$H/outside.md"
+touch -d '31 days ago' "$RX/20260101T000000-accepted-sid-a.md" "$RX/20260101T000000-accepted-sid-a.md.stale" "$RX/notes.txt" \
+  "$RY/20260101T000000-shelved_accepted-q.md" "$RZ/20260101T000000-dismissed-sid-c.md"
+touch -h -d '31 days ago' "$RZ/20260101T000001-dismissed-link.md"
+touch -d '1 day ago' "$RX/20261020T000000-dismissed-sid-b.md"
+touch -d '8 days ago' "$CAP/resolved/marker" "$CAP/resolved/draft" "$CAP/resolved"
+prompt "hi"
+assert_file "resolved is not reaped as a session dir (marker)" "$CAP/resolved/marker"
+assert_file "resolved is not reaped as a session dir (draft)" "$CAP/resolved/draft"
+assert_eq "resolved: nothing shelved or orphaned" 00 "$(count_ev draft_shelved)$(count_ev pending_orphaned)"
+assert_nofile "prune: old .md removed" "$RX/20260101T000000-accepted-sid-a.md"
+assert_nofile "prune: old .md.stale removed" "$RX/20260101T000000-accepted-sid-a.md.stale"
+assert_file "prune: newer .md kept" "$RX/20261020T000000-dismissed-sid-b.md"
+assert_file "prune: non-matching old name kept" "$RX/notes.txt"
+assert_file "prune: stem dir with survivors kept" "$RX"
+assert_nofile "prune: stem dir emptied by pruning is rmdir'd" "$RY"
+assert_nofile "prune: old regular file removed beside a symlink" "$RZ/20260101T000000-dismissed-sid-c.md"
+assert_file "prune: symlink never removed" "$RZ/20260101T000001-dismissed-link.md"
+assert_file "prune: a stem dir holding a symlink is kept" "$RZ"
+assert_file "prune: the symlink target is untouched" "$RX/notes.txt"
+assert_file "prune: files outside resolved/ untouched" "$H/outside.md"
+# throttled: a second prompt inside the hour prunes nothing new
+printf 'old\n' >"$RX/20260101T000002-accepted-sid-d.md"; touch -d '40 days ago' "$RX/20260101T000002-accepted-sid-d.md"
+prompt "again"
+assert_file "prune is inside the throttled reap" "$RX/20260101T000002-accepted-sid-d.md"
+touch -d '2 hours ago' "$CAP/.reaped"
+prompt "third"
+assert_nofile "next reap prunes it" "$RX/20260101T000002-accepted-sid-d.md"
+# reap_dir backstop: a dir still holding a draft is kept, the rest of its state is removed
+new_scenario; mkdir -p "$D"; printf 'precious\n' >"$D/draft"; touch "$D/marker" "$D/ended"
+( source "$SCRIPT"; reap_dir "$D" ) >/dev/null 2>&1
+assert_eq "reap_dir keeps the draft" precious "$(cat "$D/draft" 2>/dev/null)"
+assert_file "reap_dir keeps a dir holding a draft" "$D"
+assert_nofile "reap_dir still removes the other state" "$D/marker"
+rm -f "$D/draft"; ( source "$SCRIPT"; reap_dir "$D" ) >/dev/null 2>&1
+assert_nofile "reap_dir removes a dir with no draft" "$D"
+
+echo "# chained accept (&&) with a multi-line append: sets recorded, consumes the flag, no followed"
+new_scenario; PK="$CAP/shelved/dotfiles--feat-x"; SF="$PK/20261018T100000-sid-old.md"
+mkdir -p "$D" "$PK"; printf 'live draft\n' >"$D/draft"; printf 'shelved one\n' >"$SF"
+prompt "go"; hook review ''
+hook accept '' --begin "$SF"; hook accept '' "$SF"
+assert_file "chain: archived, not deleted" "$(ls "$CAP"/resolved/dotfiles--feat-x/*-shelved_accepted-20261018T100000-sid-old.md 2>/dev/null | head -n1)"
+posttool "wb-capture.sh accept --begin $SF && wb append x Decisions - <<'WB_DECISION_END' && wb-capture.sh accept $SF
+### Chose A
+- decided: A, because
+  it is simpler
+WB_DECISION_END"
+assert_file "chain: append marks the turn recorded" "$D/recorded"
+assert_nofile "chain: flag consumed" "$D/shelved_accept"
+assert_eq "chain: no followed logged" 0 "$(count_ev followed)"
+assert_eq "chain: live nudge still outstanding" sweep "$(cat "$D/outstanding" 2>/dev/null)"
+
 [ "$fail" = 0 ] && echo "ALL PASSED" || { echo "FAILED"; exit 1; }

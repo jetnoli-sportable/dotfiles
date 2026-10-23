@@ -35,15 +35,20 @@
 #                  {marker,draft}; resolves an outstanding nudge as ignored;
 #                  shelves a remaining draft (reason session_end); always writes
 #                  the `ended` tombstone. Deletes nothing else — the reaper does.
+#                  Nothing here ever deletes a draft: resolved drafts are MOVED to
+#                  <root>/resolved/ (see `retire_draft`, "Paths").
 #   clear          agent verb: drop marker, reviewing and the outstanding flag; logs
 #                  `followed` if a nudge was still outstanding. It KEEPS an unreviewed
 #                  sweep draft (draft, draft_stale, draft_strikes), so the phrase path of
-#                  /wb-decide can't delete a draft the user never saw; it drops
+#                  /wb-decide can't archive a draft the user never saw; it drops
 #                  nudged_draft, so a kept draft is nudged again at the next real prompt
 #                  (and the two-strike shelve restarts) instead of going silent.
-#   clear --draft  the draft-accept path: same, and also removes the draft and its
-#                  draft_stale / draft_strikes (the draft is what just got recorded).
-#   dismiss        same removal, logs `dismissed`. Quiet no-op (nothing logged)
+#   clear --draft  the draft-accept path: same, and also MOVES the draft to
+#                  resolved/<task>/ (outcome `accepted`) and removes draft_stale /
+#                  draft_strikes (the draft is what just got recorded). If the move
+#                  fails the draft stays, one stderr line says so, and the other
+#                  flags are cleared anyway.
+#   dismiss        same, the draft archived with outcome `dismissed`; logs `dismissed`. Quiet no-op (nothing logged)
 #                  when nothing was pending. When the outstanding nudge is a PHRASE
 #                  nudge it removes only marker + outstanding and keeps any sweep
 #                  draft (never shown to the user), draft_stale, draft_strikes,
@@ -55,15 +60,17 @@
 #                  (`status`'s `draft_sha:` line) differs. No draft, or a matching sha:
 #                  dismisses as usual. Check + removal run under the session lock, which
 #                  the sweep's draft write also takes. With a <path> or --task: exit 1.
-#   dismiss <path> dismiss one SHELVED draft: delete it, log `shelved_dismissed`
-#                  (no source). <path> must be a shelved draft of this task, or of
+#   dismiss <path> dismiss one SHELVED draft: move it (and its .stale sidecar) to
+#                  resolved/ (outcome `shelved_dismissed`), log `shelved_dismissed`
+#                  (no source). A failed move exits 1, logs nothing, changes nothing. <path> must be a shelved draft of this task, or of
 #                  the task named by `--task <stem>` (below).
 #   accept --begin <path>
 #                  first half of accepting a shelved draft, run BEFORE the `wb
 #                  append … Decisions`: same path rule, writes the one-shot
 #                  `shelved_accept` flag and nothing else (see "Two-phase accept").
-#   accept <path>  second half, after /wb-decide recorded a shelved draft: delete
-#                  it, log `shelved_accepted` (no source). It leaves the
+#   accept <path>  second half, after /wb-decide recorded a shelved draft: move
+#                  it to resolved/ (outcome `shelved_accepted`), log `shelved_accepted`
+#                  (no source). A failed move exits 1 and logs nothing. It leaves the
 #                  `shelved_accept` flag alone: hook-posttool consumes it when the
 #                  Bash call holding the append finishes. A path outside the shelved dir exits 1
 #                  with a message on stderr. (`followed` and `dismissed` mean only
@@ -129,6 +136,12 @@
 #                                        <name>.md.stale marks a stale draft;
 #                                        <root>/shelved/_unknown/ when the task
 #                                        is not known)
+#   resolved drafts <root>/resolved/<task-stem>/<YYYYmmddTHHMMSS>-<outcome>-<name>.md
+#                                        (outcome accepted|dismissed|shelved_accepted|
+#                                        shelved_dismissed; <name> = session id or the
+#                                        shelved file's basename; a `.md.stale` sidecar
+#                                        travels with it; kept RESOLVED_KEEP_DAYS = 30
+#                                        days, then pruned by the reaper)
 #   event log    <root>/log.jsonl       (one compact JSON line per event:
 #                                        ts, session_id, task, event[, source])
 #   reaper stamp <root>/.reaped          (mtime = last reap; at most one per hour)
@@ -142,7 +155,8 @@
 # moves to <root>/shelved/<task-stem>/ and logs `draft_shelved` {"reason":
 # "ignored_twice"}; draft, nudged_draft, draft_strikes, draft_stale and reviewing
 # are removed from the session dir, which lets the sweep run again. A draft is
-# never deleted without the user's explicit accept or dismiss. SessionEnd
+# never archived without the user's explicit accept or dismiss, and never deleted at
+# all: accept/dismiss move it to <root>/resolved/ (kept 30 days, then reaped). SessionEnd
 # shelves a remaining draft (reason session_end) and the reaper shelves one it finds
 # in a dir it is about to remove (reason reaped). The strike count is dropped
 # whenever the draft goes away another way (followed, dismiss, clear --draft) or the sweep
@@ -166,10 +180,11 @@
 # before the append (after any user confirmation), which writes `shelved_accept`;
 # hook-posttool, once the Bash call holding the matching append finishes, consumes
 # that flag, sets `recorded`, and otherwise leaves `outstanding`, `draft_strikes` and
-# `reviewing` alone. `accept <path>` then deletes the draft and logs `shelved_accepted`.
+# `reviewing` alone. `accept <path>` then moves the draft to resolved/ and logs `shelved_accepted`.
 # It deliberately does NOT drop the flag: PostToolUse runs after the WHOLE Bash call, so
 # `accept --begin p; wb append …; accept p` in one command would otherwise lose the flag
-# before the hook saw the append and log a spurious `followed`. The flag is one-shot and
+# before the hook saw the append and log a spurious `followed`. Chain the three with `&&`
+# so a failed append skips the final accept (the draft then stays shelved). The flag is one-shot and
 # turn-scoped: only the hook, a real prompt, `dismiss <path>` and the reaper drop it, so
 # an abandoned accept can't swallow a later append.
 # Stale drafts: the sweep snapshots `## Decisions` (the text the model sees), then
@@ -193,7 +208,7 @@
 # can't delay or alter it; at most once per hour, throttled by the mtime of
 # <root>/.reaped, which is touched before the work starts). For each real,
 # non-symlink subdir of the root whose name passes session_dir validation and
-# that isn't the current session (and isn't `shelved`): remove it if it holds `ended`
+# that isn't the current session (and isn't `shelved` or `resolved`): remove it if it holds `ended`
 # and that file is older than a grace period of 2 x sweep_timeout + 60 seconds (the
 # timeout is the sweep's effective one: sweep_timeout=0 means the default 60, so 180s; an
 # async sweep may still be running its child and shelve a late draft; if the age
@@ -204,7 +219,11 @@
 # draft is shelved (reason reaped), and only then is `pending_orphaned` logged. A dir
 # kept because shelving failed logs neither again on the retry.
 # Removal is by explicit file names (+ draft.tmp.* glob) inside the validated dir,
-# then rmdir — unknown leftovers keep the dir (never forced). A dir whose .lock
+# then rmdir — unknown leftovers keep the dir (never forced). `draft` is not among
+# the names: a dir still holding one is kept (the reaper shelves drafts first).
+# The same reap prunes resolved/<stem>/: regular non-symlink *.md / *.md.stale files
+# older than RESOLVED_KEEP_DAYS (30) go by explicit per-file rm, then empty stem dirs
+# are rmdir'd. A dir whose .lock
 # is held (flock -n fails) is skipped until the next reap; no lock is held across
 # the whole run. log.jsonl over WB_CAPTURE_LOG_MAX bytes (default 5242880) is
 # mv'd to log.jsonl.1 (replacing an older one). The root must be non-empty, not /,
@@ -250,6 +269,8 @@ DEFAULT_SWEEP_MODEL=sonnet
 DEFAULT_SWEEP_EFFORT=medium
 # Stops a draft review may carry its nudge before it counts as abandoned
 REVIEW_MAX_TURNS=4
+# Days an archived (resolved) draft is kept before the reaper prunes it
+RESOLVED_KEEP_DAYS=30
 
 STATE_BASE="${XDG_STATE_HOME:-$HOME/.local/state}/wb"
 CAPTURE_ROOT="$STATE_BASE/capture"
@@ -489,6 +510,29 @@ shelved_dest() {
   printf '%s\n' "$dest"
 }
 
+# retire_draft <src> <outcome> <name> — move one draft (and its `.stale` sidecar, kept as
+# <dest>.stale) to <root>/resolved/<task-stem>/<YYYYmmddTHHMMSS>-<outcome>-<name>.md instead of
+# deleting it: a draft is the only copy of its text. <outcome> is accepted|dismissed|
+# shelved_accepted|shelved_dismissed; <name> is the session id or the shelved file's basename
+# without .md. TASK_STEM empty or unsafe -> resolved/_unknown. The reaper prunes the archive
+# after RESOLVED_KEEP_DAYS. Fails 1 with the source left in place if the move can't be made.
+retire_draft() {
+  local src="$1" outcome="$2" name="$3" stem="${TASK_STEM:-_unknown}" dir dest ts n=0
+  case "$stem" in .|..|*/*) stem=_unknown ;; esac
+  dir="$CAPTURE_ROOT/resolved/$stem"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  ts="$(date +%Y%m%dT%H%M%S)"
+  dest="$dir/$ts-$outcome-$name.md"
+  while [ -e "$dest" ] || [ -L "$dest" ]; do n=$((n + 1)); dest="$dir/$ts-$outcome-$name-$n.md"; done
+  mv -- "$src" "$dest" 2>/dev/null || return 1
+  # the draft is safe now; a sidecar that won't move is only a stale marker
+  [ -e "$src.stale" ] && { mv -- "$src.stale" "$dest.stale" 2>/dev/null || true; }
+  # mv keeps the draft's old mtime: restart the keep-days clock at archive time
+  touch -- "$dest" 2>/dev/null || true
+  [ -e "$dest.stale" ] && { touch -- "$dest.stale" 2>/dev/null || true; }
+  return 0
+}
+
 # shelve_draft <sid> <reason> — move SDIR's draft to the per-task shelved dir
 # (verbatim, <YYYYmmddTHHMMSS>-<sid>.md; a `.stale` sidecar when draft_stale
 # exists), log `draft_shelved`, then drop the draft's session state. TASK_STEM
@@ -500,7 +544,7 @@ shelve_draft() {
   mv -- "$SDIR/draft" "$dest" 2>/dev/null || return 1
   [ -e "$SDIR/draft_stale" ] && : >"$dest.stale" 2>/dev/null
   log_event "$sid" draft_shelved "" "$(stale_extra sweep "{\"reason\":\"$reason\"}")"
-  remove_named "$SDIR" draft nudged_draft draft_strikes draft_stale reviewing
+  remove_named "$SDIR" nudged_draft draft_strikes draft_stale reviewing
 }
 
 # shelve_answer <sid> <reason> <text> <stale: true|false> — shelve a NEW sweep answer
@@ -619,7 +663,8 @@ hook_end() {
 # reap_dir <dir> — remove a validated session dir by explicit names, then rmdir.
 reap_dir() {
   local d="$1" f
-  remove_named "$d" marker recorded cooldown taskhash unchanged draft muted \
+  # `draft` is deliberately not listed: a dir still holding one is kept (rmdir fails)
+  remove_named "$d" marker recorded cooldown taskhash unchanged muted \
     outstanding ended synthetic nudged_draft taskpath sweep_offset draft_strikes \
     sweep_failures sweep_invalid draft_stale reviewing shelved_accept .lock
   for f in "$d"/draft.tmp.* "$d"/draft_stale.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
@@ -655,7 +700,7 @@ reap_stale() {
     d="${d%/}"; name="${d##*/}"
     [ -d "$d" ] && [ ! -L "$d" ] || continue
     sdir="$(session_dir "$name")" || continue
-    [ "$name" != "${SID:-}" ] && [ "$name" != shelved ] || continue
+    [ "$name" != "${SID:-}" ] && [ "$name" != shelved ] && [ "$name" != resolved ] || continue
     stale=0
     if [ -e "$sdir/ended" ]; then
       # an in-flight sweep may still shelve a late draft here: reap only after a grace period
@@ -696,6 +741,27 @@ reap_stale() {
     TASK_STEM="$saved_stem"
     reap_dir "$sdir"
     exec 8>&-
+  done
+  prune_resolved "$root"
+  return 0
+}
+
+# prune_resolved <root> — delete archived drafts older than RESOLVED_KEEP_DAYS: only regular,
+# non-symlink files named *.md / *.md.stale directly inside resolved/<stem>/, one explicit
+# rm per validated path (no find -delete, no -r), then rmdir the stem dirs left empty
+# (rmdir only, never forced). Never fails the hook.
+prune_resolved() {
+  local root="$1" rdir="$1/resolved" sd f
+  [ -d "$rdir" ] && [ ! -L "$rdir" ] || return 0
+  for sd in "$rdir"/*/; do
+    sd="${sd%/}"
+    [ -d "$sd" ] && [ ! -L "$sd" ] || continue
+    for f in "$sd"/*.md "$sd"/*.md.stale; do
+      [ -f "$f" ] && [ ! -L "$f" ] || continue
+      [ -n "$(find "$f" -maxdepth 0 -type f -mtime +"$RESOLVED_KEEP_DAYS" -print 2>/dev/null)" ] || continue
+      rm -f -- "$f" 2>/dev/null || true
+    done
+    rmdir -- "$sd" 2>/dev/null || true
   done
   return 0
 }
@@ -810,7 +876,14 @@ cmd_clear_or_dismiss() { # <log-event|""> [--draft|""] [expect: none|<sha>]
     # again, or it would sit silent until SessionEnd shelves it
     remove_named "$SDIR" marker outstanding reviewing nudged_draft
   else
-    remove_named "$SDIR" marker draft draft_strikes draft_stale outstanding reviewing
+    # the draft is archived, not deleted (accepted = clear --draft, dismissed = dismiss);
+    # one that can't be moved stays, and the other flags are still cleared
+    if [ -e "$SDIR/draft" ]; then
+      local rout=accepted; [ "$1" = dismissed ] && rout=dismissed
+      retire_draft "$SDIR/draft" "$rout" "$SID" ||
+        echo "wb-capture: could not archive the draft (kept): $SDIR/draft" >&2
+    fi
+    remove_named "$SDIR" marker draft_strikes draft_stale outstanding reviewing
   fi
   if [ "$1" = dismissed ] && [ "$pending" = 1 ]; then log_event "$SID" dismissed "" "$dx"; fi
   [ "$locked" = 1 ] && unlock_session
@@ -903,7 +976,7 @@ resolve_shelved_context() {
 }
 
 # cmd_shelved <shelved_accepted|shelved_dismissed> <path> — resolve one shelved
-# draft: delete it (and its .stale sidecar), log the event (+ stale:true when
+# draft: archive it (and its .stale sidecar) via retire_draft, log the event (+ stale:true when
 # marked; session_id empty when sessionless). A dismiss drops a leftover
 # `shelved_accept` flag; an accept leaves it for hook-posttool to consume (see
 # "Two-phase accept"). Path rule: shelved_draft_path.
@@ -912,7 +985,11 @@ cmd_shelved() {
   local ev="$1" p="${2:-}" x=""
   shelved_draft_path "$p"
   [ -e "$p.stale" ] && x='{"stale":true}'
-  rm -f -- "$p" "$p.stale" 2>/dev/null || true
+  # archive, don't delete; a failed move changes nothing (no event, flag kept)
+  if ! retire_draft "$p" "$ev" "$(b="${p##*/}"; printf '%s' "${b%.md}")"; then
+    echo "wb-capture: could not archive $p (nothing changed)" >&2
+    exit 1
+  fi
   [ "$ev" = shelved_dismissed ] && [ -n "$SDIR" ] && remove_named "$SDIR" shelved_accept
   log_event "$SID" "$ev" "" "$x"
 }

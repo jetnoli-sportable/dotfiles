@@ -154,14 +154,17 @@ a time**: Read the draft (and for a stale one compare it with the newest
   the `wb append` (it writes a one-shot flag, changes nothing else; the append's
   PostToolUse hook consumes the flag, and a real prompt in between would expire
   it), then compose and `wb append` as in steps 3-4, then
-  `~/.config/scripts/tmux/wb-capture.sh accept <path>` (deletes the draft, logs
-  `shelved_accepted`; it does not touch the flag, so running all three in one
-  command sequence is safe). A shelved draft may hold up to 3 entries: review each,
+  `~/.config/scripts/tmux/wb-capture.sh accept <path>` (moves the draft to
+  `resolved/`, kept 30 days, and logs `shelved_accepted`; it does not touch the
+  flag). Run all three in ONE Bash call, chained with `&&` so a failed append
+  skips the final accept (the draft then stays shelved):
+  `wb-capture.sh accept --begin <path> && wb append <task> Decisions - <<'WB_DECISION_END' && wb-capture.sh accept <path>`,
+  followed by the heredoc body and the `WB_DECISION_END` terminator line. A shelved draft may hold up to 3 entries: review each,
   record the accepted ones in ONE `wb append` (each under its own dated heading), and
   run `accept <path>` even if only some were accepted. If the append is abandoned,
   skip the last command: the draft stays shelved and the flag expires with the turn;
-- **reject** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (deletes it,
-  logs `shelved_dismissed`); also the answer when none of a multi-entry draft's
+- **reject** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (moves it to
+  `resolved/`, kept 30 days, logs `shelved_dismissed`); also the answer when none of a multi-entry draft's
   entries is accepted.
 
 A shelved draft of a task that is already closed (or any other task) is still
@@ -238,10 +241,10 @@ After a *successful* write, pick the form by what you just recorded:
 
 Plain `clear` drops the marker, the reviewing flag and the outstanding-nudge flag,
 and **keeps** a pending sweep draft: you didn't review it, so it isn't yours to
-delete, and it gets nudged at the next real prompt (a duplicate costs the user one
+archive, and it gets nudged at the next real prompt (a duplicate costs the user one
 `/wb-decide dismiss`, and `status` lists the Decisions entries added since). `clear
---draft` does the same and also removes the draft and its stale/strike state,
-because that draft is what just got recorded. Neither logs a `dismissed` event (the
+--draft` does the same and also moves the draft to `resolved/` (kept 30 days) and
+removes its stale/strike state, because that draft is what just got recorded. Neither logs a `dismissed` event (the
 `followed` event is logged by the plugin's PostToolUse hook when it sees the
 `wb append … Decisions` call; if that hook missed it, either form logs `followed`
 for a still-outstanding nudge). Only run it after a successful write. Then one
