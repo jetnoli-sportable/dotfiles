@@ -35,7 +35,7 @@ On a recent work PR review, the most useful step was checking Jet's nine draft c
 - **Standalone skill, not a stage inside review-guide.** It runs at a different moment (after drafting, before submitting) and needs no lens agents. (session-settled: user-directed — chosen over a review-guide stage: different moment, no six-agent pipeline.) Governs R1, R10.
 - **Output is a published HTML artifact, not a chat table.** (session-settled: user-directed — chosen over a chat table with a page later: Jet asked for the artifact.) Governs R7, R8.
 - **No manual steps for Jet.** The agent fetches, sets up worktrees and runs the script itself. (session-settled: user-directed — chosen over Jet pasting or fetching comment JSON: Jet flagged manual work as unnecessary.) Governs R2.
-- **Dry run on a synthetic pending review the agent creates on a dotfiles PR and deletes afterwards.** (session-settled: user-approved — chosen over waiting for Jet's next real Sportable draft review: makes the dry run possible now, and a pending review is visible only to its author.) Governs R12.
+- **Dry run on a synthetic pending review the agent creates on a dotfiles PR and deletes afterwards.** (session-settled: user-approved — chosen over waiting for Jet's next real work draft review: makes the dry run possible now, and a pending review is visible only to its author.) Governs R12.
 
 ### Requirements
 
