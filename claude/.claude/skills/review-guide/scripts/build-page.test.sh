@@ -125,6 +125,34 @@ else
   fail "conventions build failed: $(cat "$WORK/out.txt")"
 fi
 
+# 4b. comment verdict chips: only right after a **Comment N** label
+cat > "$D/verd.md" <<'MD'
+---
+title: Verdicts
+---
+## Comments
+
+**Comment 1** agree: the guard is missing.
+
+**Comment 2** partly, the naming is fine.
+
+**Comment 3** drop
+
+**Comment 4** needs a look; we should drop the retry elsewhere.
+MD
+if run "$BUILD" "$D" verd >"$WORK/out.txt" 2>&1; then
+  H="$D/verd.html"
+  for v in agree partly drop; do
+    /usr/bin/grep -q "<span class=\"chip v-$v\">$v</span>" "$H" \
+      && pass "comment verdict chip: $v" || fail "no v-$v chip"
+  done
+  /usr/bin/grep -q '<strong>Comment 4</strong> needs a look; we should drop the retry' "$H" \
+    && [ "$(/usr/bin/grep -o 'chip v-' "$H" | wc -l)" = 3 ] \
+    && pass "no chip without a verdict word or for 'drop' in prose" || fail "stray verdict chip"
+else
+  fail "verdict build failed: $(cat "$WORK/out.txt")"
+fi
+
 # 5. pipeline page parity (skipped when the dossier is absent)
 P=/home/jetnoli/code/tasks/dossiers/dotfiles--skill-review-guide
 if [ -f "$P/pipeline.md" ] && [ -f "$P/pipeline.html" ]; then

@@ -29,6 +29,7 @@ SEVERITIES = ("high", "medium", "low")
 # same id grammar as apply_edits.py IDS / "finding chips"; keep the two in sync
 _IDS = r"(?:#\d+ · )?(?:L\d[\d.]*|C)-\d+(?:(?:, | to )(?:L\d[\d.]*|C)-\d+)*"
 FINDING = re.compile(rf"<strong>({_IDS})</strong>(?: (high|medium|low)\b(?:, (confirmed|plausible)\b)?)?")
+COMMENT_VERDICT = re.compile(r"<strong>(Comment \d+)</strong> (agree|partly|drop)\b")
 TITLE_VERDICT = re.compile(r"\b(Confirmed|Plausible), (high|medium|low)\b")
 RISK = re.compile(r"<p><strong>Risk: ([^<]+?)\.?</strong>")
 SPOT_START = re.compile(r"<p><strong>(\d+)\.\s(.*?)</strong>", re.S)
@@ -49,6 +50,11 @@ def top_severity(text):
 
 def finding_chips(body):
     return FINDING.sub(lambda m: f'<span class="fid">{m[1]}</span>' + (f" {chips(m[2], m[3])}" if m[2] else ""), body)
+
+
+def comment_chips(body):
+    return COMMENT_VERDICT.sub(
+        lambda m: f'<span class="fid">{m[1]}</span> <span class="chip v-{m[2]}">{m[2]}</span>', body)
 
 
 def callouts(body):
@@ -96,7 +102,7 @@ def main():
                          generator="the review-guide skill's <code>build-page.py</code>",
                          rail_key="review-guide:rail",
                          # chips first: spot_cards reads them to rank a card whose title names no severity
-                         transform=lambda body: spot_cards(callouts(finding_chips(body))))
+                         transform=lambda body: spot_cards(callouts(comment_chips(finding_chips(body)))))
     print(f"{sys.argv[2].removesuffix('.md')}.html: {count} sections")
 
 

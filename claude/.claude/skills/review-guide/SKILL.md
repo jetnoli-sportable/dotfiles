@@ -210,6 +210,7 @@ what make the page guide the eye:
 | Write | Renders as |
 |---|---|
 | `**L1-03** medium, confirmed · file:line` (also `**#541 · L1.541-01** low`, `**C-01**` alone) | finding id plus severity and verdict chips |
+| `**Comment 3** agree`, `partly` or `drop` (the verdict word right after the label) | the comment label plus a coloured verdict chip |
 | `**Risk: low.**` opening part A's risk paragraph (`low`, `medium`, `high`, `low to medium`) | a coloured risk badge callout |
 | `**Recommendation:**` or `**Conclusion.**` opening a paragraph | an accent or neutral callout |
 | `**1. title, file:line. Confirmed, high.**` paragraphs under `### Where to look, ranked` | ranked cards with a severity stripe (from the title's `Confirmed, high`, else the highest chip inside) |
