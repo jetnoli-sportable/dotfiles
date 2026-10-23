@@ -127,7 +127,7 @@ changed while it was being written — usually a `/wb-decide` that landed
 meanwhile), it prints the `### ` headings of the Decisions entries added
 since. Show the user the draft next to those entries (Read them from
 `## Decisions`) and ask whether the draft duplicates one. If it does, run
-`wb-capture.sh dismiss --expect <draft_sha>` (the log tags it stale, so it doesn't
+`~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha>` (the log tags it stale, so it doesn't
 count against the nudge; re-run `status` and `dismiss --expect <draft_sha>` again if
 the draft is still present, as above) and say so in one line; if not, accept or edit as usual.
 
@@ -171,7 +171,7 @@ A shelved draft of a task that is already closed (or any other task) is still
 resolvable from this session, or from no wb session at all (path-carrying
 `accept`/`dismiss` ignore the kill switch and need no `@task`; without a session they
 log with an empty session id, and `accept --begin` writes no flag, as there is
-nothing to protect; with no `--task` and no `@task` they exit 1 with a message): `wb-capture.sh shelved --task <stem>` lists one
+nothing to protect; with no `--task` and no `@task` they exit 1 with a message): `~/.config/scripts/tmux/wb-capture.sh shelved --task <stem>` lists one
 task's drafts (`shelved --all` lists every task's, grouped), and
 `dismiss --task <stem> <path>`, `accept --begin --task <stem> <path>` and
 `accept --task <stem> <path>` resolve one. Drafts left behind by `wb done
@@ -254,7 +254,7 @@ line: `Recorded to ## Decisions.`
 
 - [ ] **Happy path:** a real decision was made, `/wb-decide` run — read
   `@task`, read `## Decisions` for style, compose decided/rejected/why,
-  `wb append` it, plain `wb-capture.sh clear`, confirm in one line.
+  `wb append` it, plain `~/.config/scripts/tmux/wb-capture.sh clear`, confirm in one line.
 - [ ] **Draft accept:** `status` shows a draft that matches a real decision —
   present it, append it as-is via `wb append`, `clear --draft`.
 - [ ] **Multi-entry draft (up to 3 `### ` blocks):** review each entry; append the
@@ -280,7 +280,7 @@ line: `Recorded to ## Decisions.`
   before the append) → `wb append` → `accept <path>`, reject → `dismiss <path>`; a closed task's
   drafts take `--task <stem>` on each; never a hand `rm`.
 - [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
-  is already recorded) — `wb-capture.sh dismiss --expect <draft_sha>`, then `status`;
+  is already recorded) — `~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha>`, then `status`;
   if it still prints `draft: present` (a phrase nudge was outstanding, so dismiss kept
   the draft), the same `dismiss --expect <draft_sha>` again; exit 1 means a new draft
   landed, so show that instead; say so, no write.

@@ -55,7 +55,7 @@ and surface any shelved decision drafts whose task is `done` (left by `wb done
 `~/code/tasks/<stem>.md` and read its `status:`; a stem with no task file (notably
 `_unknown`, drafts whose task wasn't known when they were shelved) is reported as
 unattributable, and is accepted or dismissed only after Jet has looked at it. Each
-draft is resolvable with `wb-capture.sh dismiss|accept --task <stem> <path>`.
+draft is resolvable with `~/.config/scripts/tmux/wb-capture.sh dismiss|accept --task <stem> <path>`.
 
 **4. Skill-usage counts** — reproducible per-skill counts with stated blind spots (R29):
 

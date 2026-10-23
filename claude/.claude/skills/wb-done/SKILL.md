@@ -136,7 +136,7 @@ one of, among others:
   `/wb-done` again, or asks for `/wb-done --leave-shelved` (which closes and
   logs that the drafts were left on purpose). Don't pick for them. Drafts left
   that way (or landing after the close) stay resolvable by task stem, from any
-  wb session or none: `wb-capture.sh shelved --task <stem>` lists them and
+  wb session or none: `~/.config/scripts/tmux/wb-capture.sh shelved --task <stem>` lists them and
   `dismiss --task <stem> <path>` / `accept [--begin] --task <stem> <path>`
   resolve one.
 - `wb done: $(wb_pending_counts) — consider running /weekly-review` — an

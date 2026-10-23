@@ -121,8 +121,8 @@ accepted or dismissed. Run `~/.config/scripts/tmux/wb-capture.sh status`.
 If it prints `draft: present`, that is this session's own pending draft (a sweep
 that landed during or just before the close-out). Route it through `/wb-decide`'s
 draft-review path before winding down: show it, then either accept/edit it
-(`wb append <task> Decisions -`, then `wb-capture.sh clear --draft`) or
-`wb-capture.sh dismiss --expect <draft_sha from that status>` (on exit 1 the draft
+(`wb append <task> Decisions -`, then `~/.config/scripts/tmux/wb-capture.sh clear --draft`) or
+`~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha from that status>` (on exit 1 the draft
 changed since you saw it: re-run `status` and show the new one; then re-run `status`
 after a dismiss: if it still prints `draft: present`, a phrase nudge was outstanding
 and `dismiss` kept the draft, so run the same `dismiss --expect <sha>` again). `wb done` refuses while a live draft remains, so skipping
@@ -136,7 +136,7 @@ ONE Bash call chained with `&&`, e.g. `~/.config/scripts/tmux/wb-capture.sh acce
 heredoc body and terminator, so a failed append skips the final `accept <path>`; the
 `--begin` right before the append keeps the record from being counted as an
 answer to a live nudge) or dismiss
-(→ `wb-capture.sh dismiss <path>`). Never drop one silently; a `(stale)` one may
+(→ `~/.config/scripts/tmux/wb-capture.sh dismiss <path>`). Never drop one silently; a `(stale)` one may
 already be recorded, so compare it with the newest `## Decisions` entries first.
 
 After folding real Decisions, if `## Decisions` is **still empty**, review the
@@ -245,7 +245,7 @@ never whether the record gets written first.
   removed, task stays open.
 - **Other live window in the session** — step 5 surfaces it before the
   wind-down launches, especially when `--close` was also requested.
-- **Empty Decisions, nothing decided** — step 4 runs `wb-capture.sh dismiss
+- **Empty Decisions, nothing decided** — step 4 runs `~/.config/scripts/tmux/wb-capture.sh dismiss
   --expect none` (a draft that landed since `status` makes it refuse: review it
   first), then appends the `### <timestamp> — close-out` / `_No decisions: <reason>_`
   marker.
