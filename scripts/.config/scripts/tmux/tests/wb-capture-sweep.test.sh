@@ -155,6 +155,7 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
 sweep
 assert_nofile "no draft" "$D/draft"
 assert_eq "result none" none "$(last_field sweep_ran result)"
+assert_eq "none: no entries field" null "$(last_field sweep_ran entries)"
 assert_eq "counter reset" 0 "$(cat "$D/unchanged")"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-padded)
 sweep
@@ -225,11 +226,13 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=two-entries)
 sweep
 assert_eq "two entries: result draft" draft "$(last_field sweep_ran result)"
 assert_eq "two entries: both in the draft" 2 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_eq "two entries: sweep_ran logs entries 2" 2 "$(last_field sweep_ran entries)"
 assert_match "two entries: second body kept" 'decided: D' "$(cat "$D/draft")"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=four-entries)
 sweep
 assert_eq "four entries: result draft" draft "$(last_field sweep_ran result)"
 assert_eq "four entries: exactly 3 kept" 3 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_eq "four entries: sweep_ran logs the 3 kept" 3 "$(last_field sweep_ran entries)"
 assert_eq "four entries: preamble stripped" "### Entry 1" "$(head -1 "$D/draft")"
 assert_match "four entries: third kept whole" 'why: y3' "$(cat "$D/draft")"
 assert_nomatch "four entries: fourth dropped" 'Entry 4|X4|y4' "$(cat "$D/draft")"
@@ -237,6 +240,7 @@ assert_eq "four entries: draft ends at the third body" "- why: y3" "$(tail -1 "$
 new_scenario
 sweep
 assert_eq "one entry: still one" 1 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_eq "one entry: sweep_ran logs entries 1" 1 "$(last_field sweep_ran entries)"
 assert_match "prompt asks for one entry per decision, at most 3" 'one Decisions entry per unrecorded decision, at most 3' "$(tr '\n' ' ' <"$OUTDIR/stdin")"
 assert_nomatch "prompt no longer asks for a single entry" 'single Decisions entry' "$(cat "$OUTDIR/stdin")"
 
@@ -505,7 +509,7 @@ new_scenario
 sweep
 assert_file "fresh: draft written" "$D/draft"
 assert_nofile "fresh: no draft_stale" "$D/draft_stale"
-assert_eq "fresh: sweep_ran line has exactly ts/sid/task/event/result/model/effort" '["effort","event","model","result","session_id","task","ts"]' "$(jq -c 'select(.event=="sweep_ran")|keys' "$LOG")"
+assert_eq "fresh: sweep_ran line has exactly ts/sid/task/event/result/model/effort/entries" '["effort","entries","event","model","result","session_id","task","ts"]' "$(jq -c 'select(.event=="sweep_ran")|keys' "$LOG")"
 assert_eq "fresh: no stale field" null "$(last_field sweep_ran stale)"
 
 echo "# stale draft: a non-stale draft removes an old draft_stale"

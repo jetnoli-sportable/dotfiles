@@ -286,8 +286,13 @@ case "$result" in
 esac
 # a protected draft keeps its strikes: this run wrote no new draft into the session
 [ "$result" = draft ] && [ "$protect" = false ] && remove_named "$SDIR" draft_strikes
+# entries: `### ` entries in a drafted answer, so per-entry precision stays measurable
+# (`followed` counts drafts, and one draft may hold up to MAX_ENTRIES)
+entries=0
+[ "$result" = draft ] && entries="$(printf '%s\n' "$out" | awk '/^### /{n++} END{print n+0}')"
 extra="$(jq -nc --arg r "$result" --argjson rr "$rerun" --argjson st "$stale" \
-  --arg m "$CFG_SWEEP_MODEL" --arg e "$CFG_SWEEP_EFFORT" \
-  '{result:$r, model:$m, effort:$e} + (if $rr then {rerun:true} else {} end) + (if $st then {stale:true} else {} end)')"
+  --arg m "$CFG_SWEEP_MODEL" --arg e "$CFG_SWEEP_EFFORT" --argjson n "$entries" \
+  '{result:$r, model:$m, effort:$e} + (if $r == "draft" then {entries:$n} else {} end)
+   + (if $rr then {rerun:true} else {} end) + (if $st then {stale:true} else {} end)')"
 log_event "$SID" sweep_ran "" "$extra"
 exit 0
