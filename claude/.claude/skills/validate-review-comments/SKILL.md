@@ -49,17 +49,23 @@ Never dotfiles `docs/`. From the matched task, read `## Plan` and
 
 ## 3. Fetch → `comments.json`
 
-In this session's shell, per PR (only Jet's own pending review is visible to
-Jet's token, and there is at most one per PR):
+In this session's shell (only Jet's own pending review is visible to Jet's
+token, and there is at most one per PR). Clear the last run's per-PR files
+first, so a review Jet has since submitted isn't merged back in; then per PR:
 
 ```bash
+rm -f <run>/comments-*.json
+# per PR <n>:
 id=$(<cli> api repos/<o>/<r>/pulls/<n>/reviews --paginate --jq '.[] | select(.state=="PENDING") | .id')
-<cli> api --paginate repos/<o>/<r>/pulls/<n>/reviews/$id/comments > <run>/comments-<n>.json
+[ -n "$id" ] && <cli> api --paginate repos/<o>/<r>/pulls/<n>/reviews/$id/comments > <run>/comments-<n>.json
+# after the loop:
 jq -s 'add' <run>/comments-*.json > <run>/comments.json
 ```
 
-No pending review on any PR: stop and say so (it may have been submitted
-already). A review with no comments, only a body: say there is nothing to check.
+A PR with an empty `id` has no pending review: skip it and name it in the
+chat summary. No pending review on any PR: stop and say so (it may have been
+submitted already). A review with no comments, only a body: say there is
+nothing to check.
 
 ## 4. Map → `comments.mapped.json`
 
@@ -92,6 +98,8 @@ For every record with `changed: true`, in this order:
    under the label "Claude's draft".
 5. **Stack:** from `later`, whether the code survives the later PRs. When it
    doesn't, name the PR that changes it, so the point lands where it's cheapest.
+   An `ambiguous` entry means the code appears there more than once: say
+   "unclear" and check by eye.
 
 `moved` and `gone` go on the card: "drafted at line 86, now line 88" or "this
 line no longer exists at the head". A `gone` record's excerpt is the code as
@@ -177,11 +185,14 @@ Never edit the HTML; change the `.md` and re-run.
 
 Same invocation after Jet edits drafts or the author pushes. Stages 1–4 run
 again; the script reads `<run>/state.json` and marks `changed` only for
-comments that are new, whose `updated_at` moved, or whose file changed between
-the previously checked head and the current one. Judge only those. Keep every
-other card as it was in the page source, list `removed` comment numbers, and
-open the page with a `**Changed since last check:**` line naming what was
-re-checked and why. Re-run the gap pass only when the head moved.
+comments that are new, whose `updated_at` moved, whose file changed between
+the previously checked head (base, for a deleted-line comment) and the current
+one, or whose stack survival (`later`) changed. Judge only those. Keep every
+other card as it was in the page source, list `removed` comment numbers (a
+removed number is never reused), and open the page with a
+`**Changed since last check:**` line naming what was re-checked and why.
+Re-run the gap pass when the head moved or any comment changed or was removed,
+since an edited comment may now cover a gap item.
 
 ## Learnings ledger
 

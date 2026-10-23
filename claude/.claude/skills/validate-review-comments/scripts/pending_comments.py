@@ -28,12 +28,17 @@ cite:
           original, `ambiguous` true when more than one candidate fits
   gone    the text, or the file, is not there on the comment's side
   file    a file-level comment: `line` null, no excerpt
-Matching compares whole lines (trailing space ignored), the drafted line together
-with the hunk line before it first, then the drafted line alone.
-later (stack only): one {pr, survives} per later PR, survives meaning the drafted
-text is still in that PR head's file. Head-side line comments only.
+Matching compares whole lines (trailing space ignored): the drafted line together
+with the hunk line before it first, then the drafted line alone. The drafted line
+number counts as `ok` only when it is among those matches; a lone match on a line
+that recurs in the file (no paired match to confirm it) sets `ambiguous`.
+later (stack only): one {pr, survives, ambiguous} per later PR, survives meaning the
+drafted line, with the hunk line before it when there is one, is still in that PR
+head's file; ambiguous when it is there more than once. Head-side line comments only.
 changed: always true on a first run; on a re-run, true when the comment is new, its
-`updated_at` moved, or its file changed between the previously checked head and now.
+`updated_at` moved, its file changed between the previously checked head (or base,
+for a base-side comment) and now, or its `later` result changed.
+Page numbers are never reused: state keeps `next_n`, the next number to hand out.
 Exit 0 whenever the check ran.
 """
 import json
@@ -88,17 +93,25 @@ def same(a, b):
     return a.rstrip() == b.rstrip()
 
 
+def matches(lines, drafted, previous):
+    """(alone, paired): line numbers holding the drafted text, and those of them
+    preceded by the hunk line before it."""
+    alone = [i for i, t in enumerate(lines, 1) if same(t, drafted)]
+    paired = [i for i in alone if previous is not None and i > 1 and same(lines[i - 2], previous)]
+    return alone, paired
+
+
 def locate(lines, line, drafted, previous):
     """(cite, line, ambiguous) for the drafted text in this file."""
     if lines is None:
         return "gone", line, False
-    if 1 <= line <= len(lines) and same(lines[line - 1], drafted):
-        return "ok", line, False
-    alone = [i for i, t in enumerate(lines, 1) if same(t, drafted)]
-    paired = [i for i in alone if previous is not None and i > 1 and same(lines[i - 2], previous)]
+    alone, paired = matches(lines, drafted, previous)
     found = paired or alone
     if not found:
         return "gone", line, False
+    if line in found:
+        # a lone match on a recurring line (`}`, a blank) is a guess
+        return "ok", line, not paired and len(alone) > 1
     return "moved", min(found, key=lambda i: abs(i - line)), len(found) > 1
 
 
@@ -158,13 +171,14 @@ def main():
         if side == "head" and pr in order:
             for p in target["prs"][order.index(pr) + 1:]:
                 later = file_lines(repo, p["head"], c["path"], cache)
-                r["later"].append({"pr": p["number"],
-                                   "survives": bool(later) and any(same(t, drafted) for t in later)})
+                alone, paired = matches(later or [], drafted, previous)
+                found = alone if previous is None else paired
+                r["later"].append({"pr": p["number"], "survives": bool(found), "ambiguous": len(found) > 1})
         records.append(r)
 
     old = (prev or {}).get("comments", {})
-    old_heads = (prev or {}).get("heads", {})
-    nxt = max((v["n"] for v in old.values()), default=0)
+    old_ends = {"head": (prev or {}).get("heads", {}), "base": (prev or {}).get("bases", {})}
+    nxt = (prev or {}).get("next_n", max((v["n"] for v in old.values()), default=0) + 1) - 1
     for r in sorted(records, key=lambda r: (order.index(r["pr"]) if r["pr"] in order else 0,
                                             r["path"], r["line"] or 0, r["id"])):
         was = old.get(str(r["id"]))
@@ -173,10 +187,12 @@ def main():
         else:
             nxt += 1
             r["n"] = nxt
-        if prev is None or not was or was.get("updated_at") != r["updated_at"]:
+        if (prev is None or not was or was.get("updated_at") != r["updated_at"]
+                or was.get("later", r["later"]) != r["later"]):
             r["changed"] = True
             continue
-        then, now = old_heads.get(str(r["pr"])), pr_ends(target, r["pr"])["head"]
+        side = r["side"] or "head"
+        then, now = old_ends[side].get(str(r["pr"])), pr_ends(target, r["pr"])[side]
         files = changed_files(repo, then, now, diffs) if then and then != now else set()
         r["changed"] = files is None or r["path"] in files
     records.sort(key=lambda r: r["n"])
@@ -186,9 +202,12 @@ def main():
     with open(os.path.join(run, "comments.mapped.json"), "w") as fh:
         json.dump({"comments": records, "removed": removed}, fh, indent=2)
         fh.write("\n")
-    state = {"heads": {str(pr): pr_ends(target, pr)["head"] for pr in sorted({r["pr"] for r in records})},
+    prs = sorted({r["pr"] for r in records})
+    state = {"heads": {str(pr): pr_ends(target, pr)["head"] for pr in prs},
+             "bases": {str(pr): pr_ends(target, pr)["base"] for pr in prs},
+             "next_n": nxt + 1,
              "comments": {str(r["id"]): {"n": r["n"], "updated_at": r["updated_at"], "path": r["path"],
-                                         "pr": r["pr"]} for r in records}}
+                                         "pr": r["pr"], "later": r["later"]} for r in records}}
     with open(os.path.join(run, "state.next.json"), "w") as fh:
         json.dump(state, fh, indent=2)
         fh.write("\n")
