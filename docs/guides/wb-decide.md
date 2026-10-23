@@ -227,7 +227,7 @@ exactly `EOF` can't end it early.
 `followed{source}`, `dismissed`, `ignored{source}` (these three mean only "a
 nudge resolved"), `muted`, `unmuted`,
 `sweep_ran{result: none|draft|invalid|error|timeout, model, effort[, entries]}` (`model` and `effort` are the
-settings the child ran with; `entries`, on a draft only, is how many `### ` entries it holds, 1-3; `invalid` is an answer
+settings the child ran with; `entries`, on a draft only, is how many `### ` entries it holds, 1-3 (its size only: `followed` and `shelved_accepted` count drafts, so how many entries were accepted is read from the task's `## Decisions`); `invalid` is an answer
 that is neither NONE nor a `### ` entry: its excerpt is retried once, then
 skipped, and it never counts toward `sweep_max_failures`; `rerun: true` when `## Decisions`
 changed during the first run and the model was asked again; `stale: true` when it

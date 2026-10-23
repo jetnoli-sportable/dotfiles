@@ -286,8 +286,9 @@ case "$result" in
 esac
 # a protected draft keeps its strikes: this run wrote no new draft into the session
 [ "$result" = draft ] && [ "$protect" = false ] && remove_named "$SDIR" draft_strikes
-# entries: `### ` entries in a drafted answer, so per-entry precision stays measurable
-# (`followed` counts drafts, and one draft may hold up to MAX_ENTRIES)
+# entries: `### ` entries in a drafted answer (its size; one draft may hold up to
+# MAX_ENTRIES). How many of them were accepted is not logged: `followed` and
+# `shelved_accepted` count drafts, so read the accepted entries from `## Decisions`
 entries=0
 [ "$result" = draft ] && entries="$(printf '%s\n' "$out" | awk '/^### /{n++} END{print n+0}')"
 extra="$(jq -nc --arg r "$result" --argjson rr "$rerun" --argjson st "$stale" \

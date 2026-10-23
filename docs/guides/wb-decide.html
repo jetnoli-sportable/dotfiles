@@ -547,7 +547,7 @@ exactly <code>EOF</code> can't end it early.</p>
 <code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code> (these three mean only &quot;a
 nudge resolved&quot;), <code>muted</code>, <code>unmuted</code>,
 <code>sweep_ran{result: none|draft|invalid|error|timeout, model, effort[, entries]}</code> (<code>model</code> and <code>effort</code> are the
-settings the child ran with; <code>entries</code>, on a draft only, is how many <code>### </code> entries it holds, 1-3; <code>invalid</code> is an answer
+settings the child ran with; <code>entries</code>, on a draft only, is how many <code>### </code> entries it holds, 1-3 (its size only: <code>followed</code> and <code>shelved_accepted</code> count drafts, so how many entries were accepted is read from the task's <code>## Decisions</code>); <code>invalid</code> is an answer
 that is neither NONE nor a <code>### </code> entry: its excerpt is retried once, then
 skipped, and it never counts toward <code>sweep_max_failures</code>; <code>rerun: true</code> when <code>## Decisions</code>
 changed during the first run and the model was asked again; <code>stale: true</code> when it
