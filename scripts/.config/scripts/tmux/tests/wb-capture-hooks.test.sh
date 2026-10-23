@@ -624,9 +624,9 @@ assert_nofile "followed resolves the nudge" "$D/outstanding"
 echo "# a REAL wb append's stdout is recognised (WB_OK above is only a copy)"
 # hook_posttool matches wb's success line by text; if wb.sh rewords it, this fails
 # instead of the hook silently never logging followed. wb.sh runs as a child process
-# (never sourced) with HOME/TASKS_DIR/CODE_DIR inside the scenario dir.
+# (never sourced) with HOME/XDG_STATE_HOME/TASKS_DIR/CODE_DIR inside the scenario dir.
 new_scenario; mkdir -p "$D"; printf 'sweep' >"$D/outstanding"
-real_out="$(printf '### t\n- x\n' | env -u TMUX -u TMUX_PANE HOME="$H" TASKS_DIR="$H/tasks" \
+real_out="$(printf '### t\n- x\n' | env -u TMUX -u TMUX_PANE HOME="$H" XDG_STATE_HOME="$STATE" TASKS_DIR="$H/tasks" \
   CODE_DIR="$H/code" "$REAL_BASH" "$(dirname "$SCRIPT")/wb.sh" append "$FAKE_TASK" Decisions - 2>&1)"
 assert_match "real wb append succeeded" '^wb append: appended under' "$real_out"
 posttool 'wb append x Decisions -' "$real_out"
