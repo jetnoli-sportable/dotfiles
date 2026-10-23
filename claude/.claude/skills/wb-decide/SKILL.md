@@ -158,7 +158,7 @@ a time**: Read the draft (and for a stale one compare it with the newest
   `resolved/`, kept 30 days, and logs `shelved_accepted`; it does not touch the
   flag). Run all three in ONE Bash call, chained with `&&` so a failed append
   skips the final accept (the draft then stays shelved):
-  `wb-capture.sh accept --begin <path> && wb append <task> Decisions - <<'WB_DECISION_END' && wb-capture.sh accept <path>`,
+  `~/.config/scripts/tmux/wb-capture.sh accept --begin <path> && wb append <task> Decisions - <<'WB_DECISION_END' && ~/.config/scripts/tmux/wb-capture.sh accept <path>`,
   followed by the heredoc body and the `WB_DECISION_END` terminator line. A shelved draft may hold up to 3 entries: review each,
   record the accepted ones in ONE `wb append` (each under its own dated heading), and
   run `accept <path>` even if only some were accepted. If the append is abandoned,

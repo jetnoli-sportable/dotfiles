@@ -131,8 +131,8 @@ this only defers it.
 For each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
 (→ the full sequence is `/wb-decide` step 2b: after any confirmation, run
 `accept --begin <path>`, the `wb append <task> Decisions -` and `accept <path>` in
-ONE Bash call chained with `&&`, e.g. `wb-capture.sh accept --begin <path> && wb append
-<task> Decisions - <<'WB_DECISION_END' && wb-capture.sh accept <path>` followed by the
+ONE Bash call chained with `&&`, e.g. `~/.config/scripts/tmux/wb-capture.sh accept --begin <path> && wb append
+<task> Decisions - <<'WB_DECISION_END' && ~/.config/scripts/tmux/wb-capture.sh accept <path>` followed by the
 heredoc body and terminator, so a failed append skips the final `accept <path>`; the
 `--begin` right before the append keeps the record from being counted as an
 answer to a live nudge) or dismiss
