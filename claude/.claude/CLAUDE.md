@@ -65,3 +65,13 @@ When Jet asks what something means or why it matters, answer so each point stand
 - **Show, don't assert.** Use a concrete example: a small code snippet, a real file excerpt (e.g. an example `outcome.json`), or the output of a quick command run to demonstrate it.
 - **End each point with the conclusion and a recommendation**, stated plainly: what it means for what we're building and what to do.
 - **Correct earlier wording explicitly** when a previous answer was wrong or loose, instead of quietly changing it.
+
+## Identifiers → always with a plain description
+
+Never show Jet a bare identifier: a commit SHA, a ticket number (SW-…, SFB-…), a PR number or link, a task slug, a run id or an artifact URL. Every one gets a short plain description of what it is, in the same sentence or table cell (asked for 2026-10-21, after "push `3ce3c41`?" with no word on what that commit held).
+
+- Commit: what it changes, e.g. "the commit recording that prod's dataset is in the US (`3ce3c41`)".
+- Ticket or PR: its subject, e.g. "A3, dropping the unread BigQuery outputs (SW-6702)"; "#1361, the run-folder bucket and its grants".
+- Task slug, artifact link, run id: what it is or holds, never the bare name or URL.
+- The identifier still goes alongside, so Jet can look it up; the description comes first.
+- Applies everywhere Jet reads: chat, buffers, decision pages, summaries, handoffs and relays.
