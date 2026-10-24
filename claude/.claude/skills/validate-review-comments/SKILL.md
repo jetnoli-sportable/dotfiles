@@ -76,7 +76,9 @@ python3 <skill>/scripts/pending_comments.py <run>/target.json <run>/comments.jso
 Each record gives the file, the line and an excerpt on the comment's side
 (`head`, or `base` for a comment on a deleted line), a stable page number `n`,
 `cite` (`ok`, `moved`, `gone`, `file`), `ambiguous`, `later` (stack: does the
-line survive later PRs) and `changed`. The script's docstring has the details.
+line survive later PRs) and `changed`. On a re-run, top-level `files_changed`
+lists per PR the files that changed since the last check (`null`: unknown).
+The script's docstring has the details.
 Read code from the worktree for the head side, `git show <base>:<path>` for the
 base side.
 
@@ -187,10 +189,19 @@ Same invocation after Jet edits drafts or the author pushes. Stages 1–4 run
 again; the script reads `<run>/state.json` and marks `changed` only for
 comments that are new, whose `updated_at` moved, whose file changed between
 the previously checked head (base, for a deleted-line comment) and the current
-one, or whose stack survival (`later`) changed. Judge only those. Keep every
-other card as it was in the page source, list `removed` comment numbers (a
-removed number is never reused), and open the page with a
-`**Changed since last check:**` line naming what was re-checked and why.
+one, or whose stack survival (`later`) changed. Judge those. A kept card's
+evidence can also go stale from another file, so when the head or base moved,
+also re-judge a kept card whose Evidence names a file in its PR's
+`files_changed` (every kept card of a PR whose entry is `null`), or whose
+verdict rests on something being missing ("no test covers this"), since a new
+file anywhere can supply it. Keep every other card as it was in the page
+source. When the head moved, its verdict line carries `· last checked at
+<short SHA>`, the head it was last judged at, so no card looks fresher than it
+is: a card that already has the marker keeps it unchanged, and one without it
+gets its PR's head from `<run>/state.json` `heads` (the last published run,
+where it was judged). List `removed` comment numbers (a removed number is
+never reused), and open the page with a `**Changed since last check:**` line
+naming what was re-checked and why.
 Re-run the gap pass when the head moved or any comment changed or was removed,
 since an edited comment may now cover a gap item.
 
