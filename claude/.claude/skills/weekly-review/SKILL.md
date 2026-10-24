@@ -49,13 +49,28 @@ run). If one exists, read its "Actioned vs. carried over" section for the task r
 seeded, then check each: `status: done`? A merged PR (`gh pr list --state merged` /
 `wb reconcile`'s orphan rows already surface merged branches)? This is R5 — the review
 opens by checking whether last week's accepted increments actually shipped, not just
-trusting the plan. Also run `~/.config/scripts/tmux/wb-capture.sh shelved --all`
-and surface any shelved decision drafts whose task is `done` (left by `wb done
---leave-shelved` or a late sweep) as a Retro line. Resolve each `<stem>:` group to
-`~/code/tasks/<stem>.md` and read its `status:`; a stem with no task file (notably
-`_unknown`, drafts whose task wasn't known when they were shelved) is reported as
-unattributable, and is accepted or dismissed only after Jet has looked at it. Each
-draft is resolvable with `~/.config/scripts/tmux/wb-capture.sh dismiss|accept --task <stem> <path>`.
+trusting the plan. Also surface shelved decision drafts as Retro lines, from two
+listings run together: `~/.config/scripts/tmux/wb-capture.sh shelved --all` (every
+draft, to pick out those whose task is `done`, left by `wb done --leave-shelved` or a
+late sweep) and `~/.config/scripts/tmux/wb-capture.sh shelved --all --min-age-days 7`
+(drafts waiting more than seven days, whatever the task's status, so tasks that never
+close still get reviewed). A draft in both listings is one Retro line, not two. Resolve
+each `<stem>:` group to `~/code/tasks/<stem>.md` and read its `status:`; a stem with no
+task file (notably `_unknown`, drafts whose task wasn't known when they were shelved)
+is reported as unattributable, and is accepted or dismissed only after Jet has looked
+at it.
+
+Flag a draft as a candidate to dismiss when Jet has seen it and left it at 3 or more
+reviews: count its `shelved_kept` events in `~/.local/state/wb/capture/log.jsonl`,
+matching the event's `draft` field against the draft file's basename, e.g. `jq -c
+'select(.event=="shelved_kept" and .draft=="<basename>")'
+~/.local/state/wb/capture/log.jsonl | wc -l`. Such a draft is probably not a real
+decision, or Jet is tired of looking at it; offer dismissal, never do it unasked.
+
+Each draft is resolved against its own task, always with the stem, by Jet's answer:
+accept is one step, `wb append <that task> Decisions - … && ~/.config/scripts/tmux/wb-capture.sh
+accept --task <stem> <path>`; dismiss is `dismiss --task <stem> <path>`; leave is `keep
+--task <stem> <path>` (logs that this review showed it and left it).
 
 **4. Skill-usage counts** — reproducible per-skill counts with stated blind spots (R29):
 

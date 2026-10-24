@@ -118,47 +118,20 @@ If the task file already has this filled in from earlier in the session
 (e.g. a mid-session `/wb-save` already wrote rich `## Decisions` content),
 don't duplicate — extend only where the sweep in step 2 added something new.
 
-Then check for **decision drafts** — background-drafted decisions nobody
-accepted or dismissed. Run `~/.config/scripts/tmux/wb-capture.sh status`.
-
-If it prints `draft: present`, that is this session's own pending draft (a sweep
-that landed during or just before the close-out). Route it through `/wb-decide`'s
-draft-review path before winding down: show it, then either accept/edit it
-(`wb append <task> Decisions -`, then `~/.config/scripts/tmux/wb-capture.sh clear --draft`) or
-`~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha from that status>` (on exit 1 the draft
-changed since you saw it: re-run `status` and show the new one; then re-run `status`
-after a dismiss: if it still prints `draft: present`, a phrase nudge was outstanding
-and `dismiss` kept the draft, so run the same `dismiss --expect <sha>` again). `wb done` refuses while a live draft remains, so skipping
-this only defers it.
-
-For each `shelved:` line listed, Read it, show it to the user, and ask: accept/edit
-(→ the full sequence is `/wb-decide` step 2b: after any confirmation, run
-`accept --begin <path>`, the `wb append <task> Decisions -` and `accept <path>` in
-ONE Bash call chained with `&&`, e.g. `~/.config/scripts/tmux/wb-capture.sh accept --begin <path> && wb append
-<task> Decisions - <<'WB_DECISION_END' && ~/.config/scripts/tmux/wb-capture.sh accept <path>` followed by the
-heredoc body and terminator, so a failed append skips the final `accept <path>`; the
-`--begin` right before the append keeps the record from being counted as an
-answer to a live nudge) or dismiss
-(→ `~/.config/scripts/tmux/wb-capture.sh dismiss <path>`). Never drop one silently; a `(stale)` one may
-already be recorded, so compare it with the newest `## Decisions` entries first.
+Then check for **decision drafts**: background-drafted decisions nobody has
+accepted or dismissed. Run `/wb-decide`'s step 2b, the shared checkpoint review
+procedure, here: one `~/.config/scripts/tmux/wb-capture.sh sweep` (Bash `timeout:
+300000`) with its result line reported in one sentence, then each of this task's
+shelved drafts one at a time for accept / edit / dismiss / leave. Don't restate the
+procedure here; follow it there. Never drop one silently. `wb done` refuses while a
+shelved draft remains for the task, so skipping this only defers it.
 
 After folding real Decisions, if `## Decisions` is **still empty**, review the
 session and decide whether anything was actually decided:
 
 - **Yes** — write it now (via `/wb-decide`, or the same `wb append <task>
   Decisions -`), as a real entry. No marker.
-- **No** — first re-run `~/.config/scripts/tmux/wb-capture.sh status` immediately
-  before dismissing: a sweep may have landed a draft since the check above. If it
-  prints `draft: present`, route that draft through `/wb-decide`'s draft-review path
-  first (a real decision then means the answer is "Yes" after all). Then run
-  `~/.config/scripts/tmux/wb-capture.sh dismiss --expect none`, so no nudge is still
-  outstanding when the marker lands. `--expect none` refuses (exit 1, nothing removed)
-  if a draft exists at that moment, e.g. a sweep landed one since the `status` above:
-  on exit 1 re-run `status` and route the new draft through `/wb-decide`'s draft-review
-  path, which may turn the answer into "Yes". Without it the bare `dismiss` would delete
-  that draft unseen. Dismiss before the marker, never after: with a nudge still
-  outstanding, the marker append would be logged `followed`, inflating the follow
-  rate. Only after a clean dismiss (exit 0), append a marker entry
+- **No** — the draft review above has already run, so append a marker entry
   through `wb append <task> Decisions -`:
 
   ```
@@ -248,13 +221,13 @@ never whether the record gets written first.
   removed, task stays open.
 - **Other live window in the session** — step 5 surfaces it before the
   wind-down launches, especially when `--close` was also requested.
-- **Empty Decisions, nothing decided** — step 4 runs `~/.config/scripts/tmux/wb-capture.sh dismiss
-  --expect none` (a draft that landed since `status` makes it refuse: review it
-  first), then appends the `### <timestamp> — close-out` / `_No decisions: <reason>_`
-  marker.
-- **`draft: present` at close-out** — step 4 routes it through `/wb-decide`'s
-  draft-review path (`clear --draft` after recording, or `dismiss`) before the
-  wind-down.
+- **Empty Decisions, nothing decided** — the draft review (sweep, then each shelved
+  draft) has run; step 4 then appends the `### <timestamp> — close-out` /
+  `_No decisions: <reason>_` marker.
+- **Shelved drafts at close-out** — step 4 runs `/wb-decide` step 2b: `sweep`, then
+  each draft accepted (`wb append … && accept <path>`), dismissed (`dismiss <path>`)
+  or left (`keep <path>`) before the wind-down. A `skipped:`/`failed:` sweep line
+  doesn't stop the review.
 - **Empty Decisions, but the sweep found a decision** — a real entry is
   written; no marker.
 - **Decisions already populated** — no marker.
