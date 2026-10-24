@@ -64,11 +64,11 @@ The nudge arrives in the agent's context at the start of Jet's next request, com
 **Measurement**
 
 - R11. The graduation review task ([[dotfiles--capture-graduation-review]]) is updated to judge on R12's figures.
-- R12. The capture log records, per drafted decision, when it was shelved and whether it was accepted or dismissed, so "accepted out of reviewed" and "waiting longer than a week" can be computed from the log alone (KTD12).
+- R12. The capture log records, per drafted decision, when it was shelved, each time it was shown at a review and left, and whether it was accepted or dismissed. That way "accepted out of resolved" and "shown within seven days" can be computed from the log alone (KTD12).
 
 ### Success Criteria
 
-- At the 2026-11-02 review (or a week later, per KTD9), drafts accepted out of drafts reviewed is computed from the log without hand-correction, over drafts shelved after rollout.
+- At the 2026-11-02 review (or a week later, per KTD9), the accuracy and delivery figures are computed from the log without hand-correction, over drafts shelved after rollout.
 - No task closed after rollout has an unmarked empty `## Decisions` section.
 - Jet does not see draft-related text in agent replies unless Jet ran a checkpoint skill or `/wb-decide`.
 
@@ -125,14 +125,22 @@ The nudge arrives in the agent's context at the start of Jet's next request, com
   - `status-left` is capped at 25 characters and already holds `claude-status.sh`.
   - `status-right` passes the expanded `#{@task}` as the script's argument. The script derives the stem (strip the directory and `.md`, as `tmux_task` does) and calls `shelved --count --task <stem>` (KTD7).
   - (session-settled: user-approved — the count is the current session's task, not a total across tasks.)
-- KTD9. **Proposed graduation thresholds, for Jet to confirm at plan review:**
-  - At least 70% of reviewed drafts accepted, over at least 10 reviewed drafts shelved after rollout.
-  - Zero tasks closed after rollout with an unmarked empty `## Decisions`.
-  - Fewer than 10 reviewed drafts by 2026-11-02 moves the review out one week.
-  - Drafts waiting longer than seven days are reported as a health number, not a pass/fail gate.
+- KTD9. **Graduation gates on whether drafts are right and whether they reach Jet; a draft Jet chose to leave counts against neither.** A draft can wait more than a week for two reasons:
+  - No review showed it. That is a delivery failure, and the gate catches it.
+  - Jet saw it and chose "leave". That is often legitimate: not decided yet, waiting on something outside the session, or to be reworded later.
+
+  The thresholds:
+  - **Accuracy gate:** at least 70% accepted out of accepted + dismissed, over at least 10 resolved drafts shelved after rollout.
+  - **Delivery gate:** every draft shelved after rollout is shown at a review (a `shelved_kept`, `shelved_accepted` or `shelved_dismissed` event) within 7 days of being shelved.
+  - **Coverage gate:** zero tasks closed after rollout with an unmarked empty `## Decisions`.
+  - **Reported, not gated:** drafts left at 3 or more reviews. They are probably not real decisions, or a sign of review fatigue, and the weekly review offers them for dismissal.
+  - Fewer than 10 resolved drafts by 2026-11-02 moves the review out one week.
+  - (session-settled: user-directed — chosen over counting drafts older than seven days as "not accepted", which would penalise legitimate waiting, and over gating only on accepted out of reviewed, which hides drafts that never reach a review.)
 - KTD10. **A draft left in the old per-session slot is moved to the shelf once, by hand, at rollout (U6).** One exists today (the unowned-sessions auth session, 08a822a6). After U2 nothing writes that slot, and the `wb done` guard stops looking at it. An unmoved draft would be invisible to every surface. Permanent migration code was considered and not built (Scope Boundaries).
 - KTD11. **Accepting a shelved draft becomes one step:** `wb append <task> Decisions - … && wb-capture.sh accept <path>`. The two-phase `accept --begin` existed only to stop a shelf accept from counting as a follow (KTD1).
-- KTD12. **Every draft event names its draft.** `draft_shelved`, `shelved_accepted` and `shelved_dismissed` carry a `draft` field holding the shelf file's basename. That basename's timestamp gives the draft's age, so a resolve can be joined to its shelving, and drafts shelved before rollout (no `draft` field) are excluded without hand-correction.
+- KTD12. **Every draft event names its draft, and "leave" is logged too.**
+  - `draft_shelved`, `shelved_accepted` and `shelved_dismissed` carry a `draft` field holding the shelf file's basename.
+  - A new `wb-capture.sh keep <path>` verb logs `shelved_kept {"draft":…}` and leaves the file in place. The review procedure calls it when Jet chooses "leave", which is what makes KTD9's delivery gate and its left-three-times count computable. That basename's timestamp gives the draft's age, so a resolve can be joined to its shelving, and drafts shelved before rollout (no `draft` field) are excluded without hand-correction.
 
 ### High-Level Technical Design
 
@@ -201,7 +209,7 @@ sequenceDiagram
   2. `hook-stop` keeps the taskhash/`unchanged` counter, `taskpath` and the `synthetic` handling. It loses phrase matching, cooldown, `recorded`, and the `outstanding`/`reviewing` resolution.
   3. `hook-posttool` becomes a no-op that exits 0 (KTD2), and its `hooks.json` entry is removed.
   4. `hook-end` keeps only the `ended` tombstone. Leftover legacy drafts are moved by hand at rollout (KTD10).
-  5. Remove the verbs and events KTD1 lists. Make `accept <path>` single-phase (KTD11). `dismiss` now requires a path or `--task`. `shelved_accepted` and `shelved_dismissed` gain the `draft` field (KTD12).
+  5. Remove the verbs and events KTD1 lists. Make `accept <path>` single-phase (KTD11). `dismiss` now requires a path or `--task`. `shelved_accepted` and `shelved_dismissed` gain the `draft` field, and the new `keep <path>` verb logs `shelved_kept` (KTD12).
   6. `status` drops the marker and draft lines and keeps mute state, log path and shelved list.
   7. `load_config` ignores `phrases` and `cooldown` silently, so an existing `capture.conf` still loads.
   8. Rewrite the header comment blocks (Draft strikes, Engagement marker, Two-phase accept) to describe the shelf-only model.
@@ -212,6 +220,7 @@ sequenceDiagram
   - `hook-posttool` called with a `wb append … Decisions` payload: exits 0, writes nothing, logs nothing.
   - `accept <path>` on a shelved draft: the file moves to `resolved/`, `shelved_accepted` is logged once with `draft` set to the file's basename, no flag file remains.
   - `dismiss <path>`: `shelved_dismissed` is logged with the same `draft` field.
+  - `keep <path>` on a shelved draft: `shelved_kept` is logged with its `draft` field, and the file stays on the shelf unchanged. `keep` on a path outside the shelf: exit 1, nothing logged.
   - Bare `dismiss` with no path: usage error, exit 1, nothing removed.
   - `capture.conf` containing `phrases=` and `cooldown=3`: the config loads, and `_config` prints no phrase or cooldown keys.
   - Plugin test: `hooks.json` registers UserPromptSubmit, Stop (two hooks) and SessionEnd, and no PostToolUse.
@@ -302,7 +311,7 @@ sequenceDiagram
      - Run `wb-capture.sh sweep` with a 300000 ms Bash timeout and report its result line in one sentence.
      - List the task's shelved drafts.
      - For each draft, read it, show it and ask accept, edit, dismiss or leave. Compare `(stale)` drafts against the newest Decisions entries first.
-     - Accept runs `wb append <task> Decisions - … && wb-capture.sh accept <path>`. Dismiss runs `wb-capture.sh dismiss <path>`.
+     - Accept runs `wb append <task> Decisions - … && wb-capture.sh accept <path>`. Dismiss runs `wb-capture.sh dismiss <path>`. Leave runs `wb-capture.sh keep <path>` (KTD12).
   2. **`/wb-save`:** a new step between locating the task and the Handoffs append, so the entry can say how many decisions were recorded or left. Widen its Scope note to allow the Decisions append and the capture verbs. Skip silently only when the session has no `@task`. When capture is disabled the sweep prints its `skipped:` line and the review of existing shelved drafts still runs (KTD4).
   3. **`/close-out` step 4:**
      - Replace the live-draft block and the `dismiss --expect none` sequence before the "no decisions" marker with the shared procedure.
@@ -315,7 +324,7 @@ sequenceDiagram
      - Step 5 loses the `clear` calls.
      - Steps 3-4 (the record path) are unchanged.
      - The Notes drop the phrase and cooldown config.
-  5. **`/weekly-review`:** add `shelved --all --min-age-days 7` beside the existing done-task listing, de-duplicated, and switch its accept path to the single-step form.
+  5. **`/weekly-review`:** add `shelved --all --min-age-days 7` beside the existing done-task listing, de-duplicated. Flag drafts left at 3 or more reviews as candidates to dismiss (KTD9). Switch its accept path to the single-step form.
   6. **`/wb-done`:** drop its live-draft wording.
 - **Test expectation:** none in the bash suites. These are skill prose. Behavior is proven by U6's live checklist.
 - **Verification:** no skill mentions `accept --begin`, `--expect`, `clear --draft`, the phrase nudge or "draft: present". `/wb-decide`'s record path diff is limited to the step 5 `clear` removal.
@@ -334,7 +343,7 @@ sequenceDiagram
   1. Rewrite `docs/guides/wb-decide.md` around the lifecycle diagram in this plan: sweep, shelf, count, checkpoint review, weekly catch-all. Update its `tile:` frontmatter.
   2. Fix `claude/README.md`'s capture paragraph.
   3. Re-run docgen.
-  4. Append to the graduation review task through the store's locked verbs (`wb append`, or the store-specialist agent): the new headline measure, KTD9's thresholds as Jet confirmed them, the rollout date that splits the log, and the events to count (`draft_shelved` with reason `sweep`, `shelved_accepted`, `shelved_dismissed`, joined on their `draft` field per KTD12).
+  4. Append to the graduation review task through the store's locked verbs (`wb append`, or the store-specialist agent): the new headline measure, KTD9's thresholds as Jet confirmed them, the rollout date that splits the log, and the events to count (`draft_shelved` with reason `sweep`, `shelved_kept`, `shelved_accepted`, `shelved_dismissed`, joined on their `draft` field per KTD12).
 - **Test expectation:** none -- documentation and a task-store note.
 - **Verification:** docgen runs clean with no hand-edited `.html`. The graduation task's file shows the appended criteria.
 
