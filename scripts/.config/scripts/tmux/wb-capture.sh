@@ -80,7 +80,9 @@
 #                  checkpoint is the point); keeps the child timeout (sweep_timeout, 60 s
 #                  default; the one stale rerun gets its own, so at most twice that). Takes
 #                  no lock and does not wait on an async sweep: an overlap can at worst
-#                  shelve a duplicate, which the review dismisses.
+#                  shelve a duplicate, which the review dismisses (two drafts never share
+#                  a shelf file: claim_shelved publishes by hard link, which refuses to
+#                  overwrite).
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
 #   status         print mute state, session id, the log path, then this task's shelved
 #                  drafts (one `shelved: <path>` line each, `(stale)` when marked;
@@ -378,6 +380,29 @@ shelved_dest() {
   printf '%s\n' "$dest"
 }
 
+# claim_shelved <src> <sid> — move <src> onto the shelf under a fresh shelved_dest name and
+# print that name. The name is claimed with `ln`, which fails rather than overwrite, so two
+# sweeps of one session shelving in the same second can't clobber each other (shelved_dest's
+# existence check alone is a race); on a lost race it takes the next name. Where `ln` can't
+# work at all (another filesystem, no hard links) it falls back to a plain `mv`. Fails 1
+# with <src> left in place.
+claim_shelved() {
+  local src="$1" sid="$2" dest tries=0
+  while [ "$tries" -lt 20 ]; do
+    dest="$(shelved_dest "$sid")" || return 1
+    if ln -- "$src" "$dest" 2>/dev/null; then
+      rm -f -- "$src" 2>/dev/null
+      printf '%s\n' "$dest"; return 0
+    fi
+    if [ ! -e "$dest" ]; then   # not a lost race: no hard links here
+      mv -- "$src" "$dest" 2>/dev/null || return 1
+      printf '%s\n' "$dest"; return 0
+    fi
+    tries=$((tries + 1))
+  done
+  return 1
+}
+
 # retire_draft <src> <outcome> <name> — move one draft (and its `.stale` sidecar, kept as
 # <dest>.stale) to <root>/resolved/<task-stem>/<YYYYmmddTHHMMSS>-<outcome>-<name>.md instead of
 # deleting it: a draft is the only copy of its text. <outcome> is shelved_accepted|
@@ -408,8 +433,7 @@ retire_draft() {
 shelve_draft() {
   local sid="$1" reason="$2" dest extra
   [ -f "$SDIR/draft" ] || return 0
-  dest="$(shelved_dest "$sid")" || return 1
-  mv -- "$SDIR/draft" "$dest" 2>/dev/null || return 1
+  dest="$(claim_shelved "$SDIR/draft" "$sid")" || return 1
   extra="{\"reason\":\"$reason\",\"draft\":\"${dest##*/}\"}"
   if [ -e "$SDIR/draft_stale" ]; then
     : >"$dest.stale" 2>/dev/null
@@ -426,10 +450,11 @@ shelve_draft() {
 # empty when not given), and log `draft_shelved` {reason, draft:<basename>} (+ stale:true).
 # Touches no session state. Fails 1 with nothing left behind.
 shelve_answer() {
-  local sid="$1" reason="$2" text="$3" stale="$4" count="${5:-}" dest extra
-  dest="$(shelved_dest "$sid")" || return 1
-  if ! { printf '%s\n' "$text" >"$dest.tmp.$$" && mv -f -- "$dest.tmp.$$" "$dest"; } 2>/dev/null; then
-    rm -f -- "$dest.tmp.$$" 2>/dev/null; return 1
+  local sid="$1" reason="$2" text="$3" stale="$4" count="${5:-}" dest tmp extra
+  tmp="$(shelved_dest "$sid")" || return 1
+  tmp="$tmp.tmp.$$"
+  if ! printf '%s\n' "$text" >"$tmp" 2>/dev/null || ! dest="$(claim_shelved "$tmp" "$sid")"; then
+    rm -f -- "$tmp" 2>/dev/null; return 1
   fi
   extra="{\"reason\":\"$reason\",\"draft\":\"${dest##*/}\"}"
   if [ "$stale" = true ]; then

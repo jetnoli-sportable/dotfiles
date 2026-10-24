@@ -535,5 +535,27 @@ run_wb /dev/null dismiss "$PX/20261018T100000-sid-a.md"
 assert_eq "stem from @task: dismiss <path> exit" 0 "$RC"
 assert_nofile "stem from @task: draft deleted" "$PX/20261018T100000-sid-a.md"
 
+echo "# claim_shelved: a name taken after shelved_dest checked it is never overwritten"
+new_scenario
+PK="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$PK"
+OUT="$(env HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG" PATH="$FAKEBIN:$PATH" \
+  PK="$PK" "$REAL_BASH" -c '
+  source "$1"; TASK_STEM=dotfiles--feat-x
+  # the race: another sweep publishes the name shelved_dest just handed out, before our claim
+  real_dest="$(declare -f shelved_dest)"; eval "orig_${real_dest}"
+  raced=0
+  shelved_dest() { local d; d="$(orig_shelved_dest "$@")" || return 1
+    if [ "$raced" = 0 ] && [ ! -e "$PK/.raced" ]; then : >"$PK/.raced"; printf "FIRST\n" >"$d"; fi
+    printf "%s\n" "$d"; }
+  printf "SECOND\n" >"$PK/src.tmp"
+  claim_shelved "$PK/src.tmp" sid-aaa' _ "$SCRIPT" 2>&1)"
+RC=$?
+assert_eq "claim_shelved: exit 0 after a lost race" 0 "$RC"
+first="$(grep -l FIRST "$PK"/*.md 2>/dev/null)"
+assert_match "claim_shelved: the other sweep's draft survives" 'sid-aaa\.md$' "$first"
+assert_match "claim_shelved: ours took the next name" 'sid-aaa-1\.md$' "$OUT"
+assert_eq "claim_shelved: ours holds our text" SECOND "$(cat "$OUT" 2>/dev/null)"
+assert_nofile "claim_shelved: source removed" "$PK/src.tmp"
+
 if [ "$fail" -eq 0 ]; then echo "ALL PASSED"; else echo "FAILED"; fi
 exit "$fail"
