@@ -200,7 +200,7 @@ sequenceDiagram
   1. `hook-prompt` keeps the `@wb_capture_sid` stamp, the `ended` removal on resume, synthetic (hand-back) detection and the hourly reaper call. It loses nudge composition and delivery.
   2. `hook-stop` keeps the taskhash/`unchanged` counter, `taskpath` and the `synthetic` handling. It loses phrase matching, cooldown, `recorded`, and the `outstanding`/`reviewing` resolution.
   3. `hook-posttool` becomes a no-op that exits 0 (KTD2), and its `hooks.json` entry is removed.
-  4. `hook-end` keeps only the `ended` tombstone. Legacy-draft shelving lands in U2 (KTD10).
+  4. `hook-end` keeps only the `ended` tombstone. Leftover legacy drafts are moved by hand at rollout (KTD10).
   5. Remove the verbs and events KTD1 lists. Make `accept <path>` single-phase (KTD11). `dismiss` now requires a path or `--task`. `shelved_accepted` and `shelved_dismissed` gain the `draft` field (KTD12).
   6. `status` drops the marker and draft lines and keeps mute state, log path and shelved list.
   7. `load_config` ignores `phrases` and `cooldown` silently, so an existing `capture.conf` still loads.
@@ -282,7 +282,7 @@ sequenceDiagram
   - Text `wb board` with one task holding 2 drafts: that row's DRAFTS cell is 2, and the others are blank or 0 per the column convention.
   - HTML board model: the drafts count is in the task's model record. The render shows the chip only when the count is above 0.
   - `wb done` on a task with a shelved draft: refuses with the shelved path listed. With `--leave-shelved`: proceeds and logs `shelved_left`.
-  - `wb done` on a task whose only leftover is a stray `<session>/draft` file: not blocked (the reaper migrates it per KTD10).
+  - `wb done` on a task whose only leftover is a stray `<session>/draft` file: not blocked (such drafts are moved at rollout per KTD10).
 - **Verification:** the listed tests pass. In a live tmux session after stow, `tmux show -gv status-right` contains `capture-status.sh` and the theme's modules, and the bar shows the count for this task and clears after review.
 
 ### U4. Checkpoint review in the skills
