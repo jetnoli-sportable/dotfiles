@@ -14,12 +14,11 @@ origin: ~/code/tasks/dotfiles--feat-decision-propagation.md
 
 - **Objective:** when a decision is recorded in one wb task, the few running Claude sessions in that task's family that it affects hear about it straight away, and later sessions in the family start with the settled facts already loaded. Idle sessions don't get flooded. Live-session messages carry only decisions already recorded in a task file, and nothing is written into the family's shared `CONCEPTS.md` without Jet's approval.
 - **Means:** a `wb family` verb that is read-only except for `--reseed` (KTD1), one propagate step in `/wb-decide` that checkpoint skills call once per batch (KTD3), and a gated promotion into the family's `CONCEPTS.md` (KTD6).
-- **Authority:** Jet's global instructions (`~/.claude/CLAUDE.md`) > the task file's Decisions P1–P6 (2026-10-24 15:39) > this plan's Requirements > KTDs > unit Approach. The capture-nudge rework's Decisions N1–N3 (`~/code/tasks/dotfiles--feat-capture-nudge-rework.md`) govern the shelf and checkpoint behaviour this plan builds on.
+- **Authority:** Jet's global instructions (`~/.claude/CLAUDE.md`) > the task file's Decisions P1–P6 (2026-10-24 15:39) > this plan's Requirements > KTDs > unit Approach. The capture-nudge rework's Decisions N1–N5 (`~/code/tasks/dotfiles--feat-capture-nudge-rework.md`) govern the shelf and checkpoint behaviour this plan builds on.
 - **Stop conditions:**
-  - Stop and ask if the capture-nudge rework changes `/wb-decide`'s record path (step 4–5), contradicting its N1.
   - Stop and ask if ListAgents rows for wb sessions stop carrying a tmux session name.
 - **Execution profile:** bash in `wb.sh` with one new test file, edits to four SKILL.md files, two doc edits in this repo and one in the task store, and an HTML live checklist. About a day.
-- **Finishes and ships:** the implementing session commits on branch `feat-decision-propagation`. U1–U3 don't depend on the rework and can land first. U4 waits until the rework's skill edits merge to `development`. Push and PR (repo `jetnoli-sportable/dotfiles`) happen only after Jet's OK. Code review runs in a fresh context, per Jet's rule.
+- **Finishes and ships:** the implementing session commits on branch `feat-decision-propagation`. The capture-nudge rework merged to `development` (#110, shelf-only capture reviewed at checkpoints) and this branch is rebased onto it, so every unit is unblocked. Push and PR (repo `jetnoli-sportable/dotfiles`) happen only after Jet's OK. Code review runs in a fresh context, per Jet's rule.
 
 ---
 
@@ -70,9 +69,12 @@ A running session also never reloads `CLAUDE.local.md` or `CONCEPTS.md` once it 
   - the task-file path to read;
   - the rule suffix: act only if it affects your task, act within your own task, don't reply or forward, tell your user only if it matters to them.
 - R7. The confirmation line names each session messaged and why, or says that no live family session is affected.
-- R8. Propagation runs only after a Decisions append succeeds. It never runs for drafts, dismissals or a failed append.
+- R8. Propagation runs only after a Decisions append succeeds. It never runs for drafts, dismissals, a failed append, or `/close-out`'s `_No decisions:_` marker entry.
 - R9. A decision recorded in response to a `[wb-propagate]` message is not propagated again unless the user asks.
-- R10. `/wb-save`, `/close-out` and `/weekly-review` run the propagate step once per batch, for the entries that run itself recorded. `/weekly-review` runs it once per family in the batch.
+- R10. Checkpoints propagate once per batch, for the entries that run itself recorded:
+  - The shared shelf review (`/wb-decide` step 2b, run by `/wb-decide shelved`, `/wb-save` and `/close-out`) propagates once at its end, for the drafts it accepted.
+  - `/close-out` instead propagates once for the whole run, covering its step 2b accepts and the entries it writes directly in step 4, so a recipient gets one message per close-out.
+  - `/weekly-review` resolves drafts with its own per-task lines, not step 2b, and propagates once per family in the batch.
 - R11. If ListAgents or SendMessage is unavailable, or a send fails, the step says so in one line and the recorded entry stands.
 
 **Promotion to CONCEPTS.md**
@@ -185,7 +187,7 @@ Promotion picks its target like this: walk the chain nearest-first (the existing
 
 ### Sequencing
 
-U1–U3 don't touch the files the capture-nudge rework edits, apart from `/wb-decide`. U3 adds a new step after step 5 and rebases onto the rework if the rework has merged by then. U4 edits `/close-out`, `/wb-save` and `/weekly-review`, which the rework also rewrites, so it starts only after the rework merges to `development`.
+The capture-nudge rework merged to `development` (#110) and this branch is rebased onto it. U1–U2 touch only `wb.sh` and its tests. U3 edits `/wb-decide`, including the shared shelf review (step 2b) the rework added. U4 edits `/close-out`, `/wb-save` and `/weekly-review` as the rework left them: `/wb-save` and `/close-out` run step 2b by reference, and `/weekly-review` resolves drafts with its own per-task `wb append … && accept --task` lines.
 
 ---
 
@@ -241,7 +243,7 @@ U1–U3 don't touch the files the capture-nudge rework edits, apart from `/wb-de
   2. When the directory exists, call `_wb_seed_concepts_file`. Print `reseeded <stem> <path>` or `skipped <stem> (<reason>)`.
   3. Decide "skipped (no concepts file)" by calling `_wb_concepts_paths` directly. `_wb_seed_concepts_file` returns 0 both when it seeds and when there is nothing to seed, so its exit code can't tell the two apart.
   4. Keep it best-effort, like the seed in `cmd_new`: continue after a per-worktree error, and exit non-zero only if any seed failed.
-  4. Never call tmux, and never take the task lock (the seed writes only an untracked file).
+  5. Never call tmux, and never take the task lock (the seed writes only an untracked file).
 - **Patterns to follow:** the seed call in `cmd_new`, and the worktree-path fallback in `cmd_down`.
 - **Test scenarios:**
   - After a `CONCEPTS.md` is created in the umbrella's dossier, `--reseed` from the grandchild writes the managed block into each fixture worktree that exists. A hand-written line outside the block survives.
@@ -255,11 +257,13 @@ U1–U3 don't touch the files the capture-nudge rework edits, apart from `/wb-de
 
 - **Goal:** after every successful record, the deciding agent informs the live family sessions the decision affects, and offers promotion when it is warranted.
 - **Requirements:** R4–R9, R11, R12–R15; KTD3–KTD6.
-- **Dependencies:** U1, U2 (promotion's `--reseed`). If the capture-nudge rework has merged by now, rebase onto it first.
+- **Dependencies:** U1, U2 (promotion's `--reseed`).
 - **Files:** `claude/.claude/skills/wb-decide/SKILL.md`
 - **Approach:**
-  1. Add a new `### 6. Propagate` after step 5. It runs only after a successful `wb append` and after the capture clear.
-  2. **Calling contract.** The step takes the task file and the batch of entry titles just recorded. Checkpoint skills call it with their own batch (U4).
+  1. Add a new `### 6. Propagate` after step 5 (Confirm). It runs only after a successful `wb append`, from two places:
+     - step 5, for an entry recorded on the spot;
+     - the end of step 2b, after item 4's count line, once for the entries that review recorded. Step 2b records through `wb append … && accept` and never passes through step 5, so without this call shelf accepts would never propagate.
+  2. **Calling contract.** The step takes the task file and the batch of entry titles just recorded. Step 2b skips its own call when the caller says it will propagate the whole run itself (`/close-out`, U4), so no recipient gets two messages from one run. `/weekly-review` calls it with its own batch (U4).
   3. **Recipients.** Run `wb family <task> --sessions`, then ListAgents, then filter per the HTD flowchart. Before judging relevance, read each candidate's task file (`## Plan` and its latest `## Handoffs` entry) so the judgement rests on what that session is building, not on its title alone. The confirmation line says the judgement was made from those sections, so a wrong "nobody" can be checked.
   4. **Message.** Use one template with the `[wb-propagate]` marker and the rule suffix (R6). Every task named in it gets a plain description, per Jet's rule on identifiers.
   5. **Loop guard.** State R9's rule. Skip step 6 only when the entry being recorded was made in response to a received `[wb-propagate]` message, and say so in the entry's Why line. A `[wb-propagate]` message received earlier in the conversation does not suppress later, unrelated decisions.
@@ -293,22 +297,24 @@ U1–U3 don't touch the files the capture-nudge rework edits, apart from `/wb-de
 ### U4. Checkpoint skills call propagate once per batch
 
 - **Goal:** decisions accepted from the shelf at a checkpoint reach live family sessions just like on-the-spot records, and `/close-out` becomes the main place where promotion is offered.
-- **Requirements:** R10, R14; KTD3.
-- **Dependencies:** U3. The capture-nudge rework's skill edits must be merged to `development` first.
+- **Requirements:** R8, R10, R14; KTD3.
+- **Dependencies:** U3.
 - **Files:**
   - `claude/.claude/skills/close-out/SKILL.md`
   - `claude/.claude/skills/wb-save/SKILL.md`
   - `claude/.claude/skills/weekly-review/SKILL.md`
 - **Approach:**
-  1. **`/close-out`.** At the end of step 4, after the last Decisions append, run `/wb-decide` step 6 once for the entries accepted in this run. Then review the task's whole `## Decisions` section for fact-shaped entries and run the promotion offer. Both happen before the exit step, because `wb down` and `wb done` end the session.
-  2. **`/wb-save`.** After the shelf review that the rework adds, run step 6 once for the entries that review accepted. Add a narrow exception to the "never touch tmux state" note: reading ListAgents and sending messages are not tmux writes. Promotion stays at `/close-out`.
-  3. **`/weekly-review`.** After shelved drafts are accepted, group the accepted entries by top parent (`wb family`'s first line). Run step 6 once per family. The weekly-review agent didn't make these decisions, so before judging relevance it reads each accepted entry in full and its source task file's `## Plan`. A family with no live session sends nothing (covers AE4).
-- **Patterns to follow:** how each skill already calls into `/wb-decide` for draft accepts, as left by the rework.
+  1. **`/close-out`.** Step 4 runs step 2b with its propagate call skipped (U3's calling contract). At the end of step 4, after the last Decisions append, run `/wb-decide` step 6 once for every real entry this run recorded: the 2b accepts plus the entries folded or written directly in step 4. Never the `_No decisions:_` marker (R8). Then review the task's whole `## Decisions` section for fact-shaped entries and run the promotion offer. Both happen before the exit step, because `wb down` and `wb done` end the session.
+  2. **`/wb-save`.** No new call: its step 2 already runs step 2b, which now propagates at its end. The edit is to its Scope text, which says it makes no cross-session lookups, touches no tmux state beyond the one `@task` read, and sends nothing to any pane. Propagation reads `wb family --sessions` (a tmux read) and ListAgents, and sends SendMessage to other sessions, so those statements need an exception. Promotion stays at `/close-out`.
+  3. **`/weekly-review`.** After its per-task `wb append <that task> Decisions - … && accept --task <stem> <path>` lines, group the accepted entries by top parent (`wb family`'s first line). Run step 6 once per family. The weekly-review agent didn't make these decisions, so before judging relevance it reads each accepted entry in full and its source task file's `## Plan`. A family with no live session sends nothing (covers AE4).
+- **Patterns to follow:** step 2b's by-reference use in `/wb-save` and `/close-out` ("don't restate the procedure here; follow it there").
 - **Test scenarios** (skill checklist items; checked live through U5):
-  - `/close-out` accepts two shelved drafts. One propagate run happens, and it comes before `wb down`/`wb done`.
+  - `/close-out` accepts two shelved drafts and writes one entry directly. One propagate run covers all three, the step 2b review inside it sends nothing itself, and it all comes before `wb down`/`wb done`.
+  - `/close-out` that only appends the `_No decisions:_` marker sends nothing.
   - `/close-out` with a behaviour-changing Decisions entry offers promotion. An entry that only gives a rationale gets no offer.
   - `/close-out` in a family with no `CONCEPTS.md`: Jet approves a line, the file is created in the top parent's dossier and `--reseed` runs (covers AE5).
-  - `/wb-save` accepts one draft. One propagate run. A `/clear` followed by another `/wb-save` doesn't send it again.
+  - `/wb-decide shelved` accepts two drafts. One propagate run at the end of the review.
+  - `/wb-save` accepts one draft. One propagate run, from step 2b. A `/clear` followed by another `/wb-save` doesn't send it again.
   - `/weekly-review` across two families, one with no live sessions. Nothing is sent for that family, and one propagate run happens for the other.
 - **Verification:** each skill names the step once, at the right place, and the U5 checklist exercises each scenario.
 
@@ -352,7 +358,7 @@ U1–U3 don't touch the files the capture-nudge rework edits, apart from `/wb-de
 ## Definition of Done
 
 - `wb family`, `--sessions` and `--reseed` behave as R1–R3 describe, and the U1–U2 test scenarios pass.
-- `/wb-decide` step 6 and its promotion offer are in place (U3). The checkpoint skills call the step once per batch (U4), and that work landed after the capture-nudge rework merged.
+- `/wb-decide` step 6 and its promotion offer are in place (U3). Shelf accepts propagate once per review through step 2b, and `/close-out` and `/weekly-review` propagate once per run (U4).
 - The docs and the store README describe the feature, and the live checklist is published with its source in the dossier and every item ticked.
 - The full Docker suite's per-file FAIL set matches the `development` baseline.
 - No leftover code from abandoned approaches is in the diff.
@@ -365,7 +371,7 @@ U1–U3 don't touch the files the capture-nudge rework edits, apart from `/wb-de
 ### Sources
 
 - Origin and settled decisions: `~/code/tasks/dotfiles--feat-decision-propagation.md` (Plan, and Decisions P1–P6).
-- Shelf and checkpoint design this plan builds on: `~/code/tasks/dotfiles--feat-capture-nudge-rework.md`, Decisions N1–N3.
+- Shelf and checkpoint design this plan builds on: `~/code/tasks/dotfiles--feat-capture-nudge-rework.md`, Decisions N1–N5.
 - Family walk, seed and session lookup: `scripts/.config/scripts/tmux/wb.sh` (`_wb_concepts_paths`, `_wb_seed_concepts_file`, `_wb_refuse_if_live_session`, `wb_session_task_file`, `_wb_append_resolve_task`, `cmd_task_file`).
 - Board children map (the idiom, not callable): `scripts/.config/scripts/tmux/wb-board.sh`, `wb_board_v2_build`.
 - Prior constraints:
