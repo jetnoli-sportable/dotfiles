@@ -236,12 +236,12 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
   <span class="gen">docgen · generated from <b>docs/guides/wb-decide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-10-18</span>
+  <span class="right">updated 2026-10-24</span>
 </div>
 <div class="shell">
   <nav class="toc">
     <div class="brand">wb-decide</div>
-    <div class="brand-sub">Record a decision into ## Decisions — and the hooks that nudge you to when one goes by unrecorded.</div>
+    <div class="brand-sub">Record a decision into ## Decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.</div>
     <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#overview">Overview</a></li>
@@ -255,7 +255,7 @@
     <header class="doc guide-banner">
       <span class="eyebrow">skills · guide</span>
       <h1>wb-decide</h1>
-      <p class="dek">Record a decision into ## Decisions — and the hooks that nudge you to when one goes by unrecorded.</p>
+      <p class="dek">Record a decision into ## Decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
@@ -264,135 +264,79 @@
 <h2 id="overview">Overview</h2>
 <p><code>/wb-decide</code> is the &quot;record&quot; half of decision auto-capture. Decisions made
 in a wb session used to vanish unless someone remembered to write them
-into the task file's <code>## Decisions</code> section. The <code>wb-capture</code> plugin
-(<code>claude/.claude/skills/wb-capture/</code>, hooks only) watches each turn and,
-when one read like a decision, injects a one-line nudge into your next
-prompt. The live agent — the only one holding the whole conversation —
-then decides whether something was really settled and, if so, appends it
-via <code>wb append … Decisions</code>. Hooks never write the task store; the skill
-does.</p>
-<p><strong>What fires when (one turn, in plain words):</strong></p>
-<ol>
-<li>You send a prompt. If a nudge is queued, one line is added to that
-prompt's context and logged as <code>nudge_fired</code>. (Prompts that are just a
-<code>&lt;task-notification&gt;</code> from a finished background sub-agent get nothing.)</li>
-<li>Claude replies. If a <code>wb append … Decisions</code> it ran succeeded, that is
-logged as <code>followed</code> and nothing further is queued.</li>
-<li>When the turn ends, the reply is phrase-matched against a short list
-(&quot;we decided&quot;, &quot;going with&quot;, &quot;settled on&quot;, …). A hit queues a nudge for
-the next prompt, then a cooldown (3 turns) keeps it from nagging. A
-nudge that was delivered but not acted on by the end of its turn is
-logged <code>ignored</code>.</li>
-<li>Also at turn end, an async background model &quot;sweep&quot; looks at the recent
-transcript if the task file has gone 4 turns unchanged. If it finds an
-unrecorded decision it writes a draft of up to 3 entries (one <code>### </code> block
-per decision it found; anything past the third is dropped); the next prompt
-gets a nudge pointing at it. It is propose-only, tool-less, and skips itself when
-muted, when a draft is already pending, when nothing new was said, or
-after 3 failed runs in a row (<code>claude</code> missing, logged out or rate-limited).
-A draft nudge that is ignored is delivered once more; ignored a second
-time, the draft is <strong>shelved</strong> (logged <code>draft_shelved</code>), not deleted, and
-sweeping resumes. A draft is only ever resolved by your accept or dismiss, and
-even then it is moved to <code>resolved/</code> (kept 30 days), not deleted.
-If two sweeps overlap and a second draft arrives while one is already
-there, the older one is shelved (reason <code>superseded</code>) before the new one
-is written, never overwritten. The exception is a draft you are looking at
-(under review, or its draft nudge still outstanding): that one is left
-exactly as it is, and the <em>new</em> answer is shelved instead (also reason
-<code>superseded</code>), so a review is never pulled out from under you.</li>
-<li>Session end writes a tombstone (and logs <code>pending_at_end</code> if something
-was still unrecorded) and shelves a pending draft; an hourly reaper cleans
-up old state dirs, shelving any draft it finds first. A sweep draft that
-finishes <em>after</em> the session ended is written and shelved too (reason
-<code>session_end</code>), not thrown away.</li>
-</ol>
-<p>Every nudge resolves exactly once: <code>followed</code>, <code>dismissed</code> or <code>ignored</code>.</p>
-<p><strong>A review over several messages.</strong> When <code>/wb-decide</code> shows you a pending
-draft it runs <code>wb-capture.sh review</code>, which marks the draft <em>under review</em>:
-while you and Claude go back and forth (questions, edits), the nudge carries
-over to the next turn instead of counting as ignored, and nothing new
-nudges. It resolves once, when the entry is recorded (<code>followed</code>) or
-dismissed. After four carried turns with neither, the review counts as
-abandoned and is struck like an ignored nudge. Only that draft-review path
-calls <code>review</code> (and only while the draft's sweep nudge is outstanding; a
-repeat call never resets the turn count). <code>status</code> is read-only, so just
-checking state never puts a session under review.</p>
-<p><strong>Shelved drafts.</strong> A shelved draft waits in
-<code>~/.local/state/wb/capture/shelved/&lt;task&gt;/</code> (it outlives the session) until
-you decide. <code>/wb-decide status</code> lists them (<code>shelved: &lt;path&gt;</code>), <code>/wb-decide shelved</code> walks through them one at a time, and <code>/close-out</code> asks about each
-before a task winds down. Rejecting runs <code>wb-capture.sh dismiss &lt;path&gt;</code>.
-Phrase nudges carry no draft, so ignoring one shelves nothing.</p>
-<p><strong>Resolved drafts.</strong> A draft is the only copy of its text, so accepting or
-dismissing one (session or shelved) never deletes it: it is moved to
-<code>~/.local/state/wb/capture/resolved/&lt;task&gt;/&lt;timestamp&gt;-&lt;outcome&gt;-&lt;name&gt;.md</code>, where
-<code>&lt;outcome&gt;</code> is <code>accepted</code>, <code>dismissed</code>, <code>shelved_accepted</code> or <code>shelved_dismissed</code>
-and <code>&lt;name&gt;</code> is the session id or the shelved file's name (a <code>.md.stale</code> sidecar
-travels with it). The hourly reaper prunes archived drafts older than 30 days. To
-recover one, read it there or copy it back (<code>cp</code> it into <code>shelved/&lt;task&gt;/</code> to
-review it again with <code>/wb-decide shelved</code>). If the move fails, the draft stays
-where it was and the command says so on stderr.</p>
-<p>A shelved draft whose task is already closed is still resolvable from any wb
-session, or from none: path-carrying <code>accept</code>/<code>dismiss</code> ignore the kill switch and
-need no <code>@task</code>. The stem comes from <code>--task</code>, else the session's task, else the
-command exits 1 with a message. With no session the event is logged with an empty
-<code>session_id</code> and <code>accept --begin</code> writes no flag (the hooks are inert, so there is
-nothing to protect). <code>wb-capture.sh shelved --task &lt;stem&gt;</code> lists one task's drafts,
-<code>wb-capture.sh shelved --all</code> lists every task's grouped by task, and
-<code>dismiss --task &lt;stem&gt; &lt;path&gt;</code> / <code>accept [--begin] --task &lt;stem&gt; &lt;path&gt;</code>
-resolve one (accepting records it into <em>that</em> task's <code>## Decisions</code>).
-Drafts left behind by <code>wb done --leave-shelved</code> are reachable this way, and
-<code>/weekly-review</code> runs <code>shelved --all</code> to surface the ones whose task is done.</p>
-<p>Accepting is <strong>two-phase</strong>: <code>wb-capture.sh accept --begin &lt;path&gt;</code> immediately
-before <code>wb append &lt;task&gt; Decisions -</code> (after any confirmation or editing), then
-<code>wb-capture.sh accept &lt;path&gt;</code>. Recording a
-shelved draft is an ordinary <code>wb append … Decisions</code>, which the PostToolUse
-hook would otherwise count as the answer to whatever <em>other</em> nudge is live
-in the session (marking it <code>followed</code> and wiping its strikes and review
-state). The <code>--begin</code> call leaves a one-shot flag; the hook consumes it, notes
-the turn as recorded and leaves the live nudge alone; the final <code>accept</code>
-moves the draft to <code>resolved/</code> and logs <code>shelved_accepted</code> (it does not touch the
-flag, so all three commands in one Bash call still work: PostToolUse fires after the
-whole call). Chain them with <code>&amp;&amp;</code> so a failed append skips the final <code>accept</code>. An abandoned accept just leaves the draft shelved: the flag is
-dropped by the next real prompt.</p>
-<p><strong><code>wb done</code> won't strand decision drafts.</strong> A shelved draft only gets reviewed
-by <code>/close-out</code> or <code>/wb-decide shelved</code>, and a draft still pending in a live
-session of the task would be shelved by SessionEnd right after the close, so
-<code>wb done</code> refuses (before it touches anything, including a store-only close)
-while <code>shelved/&lt;task&gt;/</code> holds any draft or a live session dir whose <code>taskpath</code>
-is this task holds a <code>draft</code>. It asks <code>wb-capture.sh pending-for-task</code> rather
-than reading the state dir itself. It prints each path, labelled by kind, with that
-kind's way forward. A shelved draft (<code>shelved: &lt;path&gt;</code>): run <code>/close-out</code> or
-<code>/wb-decide shelved</code>, or re-run <code>wb done --leave-shelved</code> to close anyway. A live
-session's pending draft (<code>pending in session &lt;sid&gt;: &lt;path&gt;</code>): resolve it with
-<code>/wb-decide</code> in that session, or re-run with <code>--leave-shelved</code> (SessionEnd or the
-reaper shelves it later, and <code>--task &lt;stem&gt;</code> resolves it then).
-<code>--leave-shelved</code> closes, logs one <code>shelved_left{count}</code> line to the capture
-log (via <code>wb-capture.sh log-shelved-left</code>) and notes the left drafts in the
-task's <code>wb done</code> Handoffs entry; <code>/close-out</code> routes a <code>draft: present</code> line
-through the draft-review path first, so a bare <code>wb done</code> is the only way to hit
-the refusal for a live draft. (A
-<code>wb done</code> invoked through <code>/wb-done</code> relays the refusal; it never adds
-<code>--leave-shelved</code> on its own.)</p>
-<p><strong>The two nudge lines</strong> (what Claude sees, verbatim):</p>
-<pre><code>[wb-capture] Last turn read like a decision (&quot;&lt;matched phrase&gt;&quot;). If it settled something, run /wb-decide; otherwise ignore or /wb-decide dismiss.
-[wb-capture] A background review drafted an unrecorded decision (&lt;state dir&gt;/draft). Run /wb-decide to review/accept, or /wb-decide dismiss.
+into the task file's <code>## Decisions</code> section. That matters because
+<code>## Decisions</code> is what a later session, a reviewer, or you in a month
+reads to learn <em>why</em> the code looks the way it does.</p>
+<p>The <code>wb-capture</code> plugin (<code>claude/.claude/skills/wb-capture/</code>, hooks only)
+closes the gap in the background. A model &quot;sweep&quot; reads the session's
+transcript, finds decisions nobody recorded, and drafts each one as its
+own small file on the task's <strong>shelf</strong> (a per-task folder of drafts
+waiting for your review). Nobody is nudged and nothing is injected into
+the agent's context. A draft just waits until you are already reviewing
+work: a <code>/wb-save</code>, a <code>/close-out</code>, or the weekly review. In between, a
+count of waiting drafts shows in the tmux status bar and on <code>wb board</code>.
+Hooks never write the task store; accepting a draft is an ordinary
+<code>wb append … Decisions</code> that the review step runs for you.</p>
+<p><strong>The lifecycle, in plain words:</strong></p>
+<pre><code>  async sweep (Stop hook, after 4 quiet turns) ─┐
+  checkpoint sweep (/wb-save, /close-out,       ├─&gt; model reads the new turns,
+                    /wb-decide shelved)        ─┘    your ## Decisions, and the shelf
+                                                          │
+                          one file per drafted decision   ▼
+              ~/.local/state/wb/capture/shelved/&lt;task&gt;/&lt;timestamp&gt;-&lt;session&gt;.md
+                          │                                │
+        ✎N in the status bar,                              ▼
+        DRAFTS column and chip on wb board       review at a checkpoint:
+        (you can see it is waiting)              /wb-save · /close-out · /wb-decide shelved
+                                                 ├─ accept / edit -&gt; wb append Decisions, then
+                                                 │                   accept: file moves to resolved/
+                                                 ├─ dismiss       -&gt; file moves to resolved/
+                                                 └─ leave         -&gt; stays on the shelf (logged)
+                                                          │
+                          weekly review: drafts older than 7 days, whatever the task's
+                          status, plus any left at 3+ reviews (offered for dismissal)
 </code></pre>
-<p>The first is <code>source=phrase</code>, the second <code>source=sweep</code>. A draft nudge
-beats a phrase nudge when both are pending.</p>
-<p><strong>Stale drafts.</strong> The sweep snapshots the task's <code>## Decisions</code> section (the
-exact text the model is shown), then waits up to a minute for it. Edits
-elsewhere in the task file don't count. If <code>## Decisions</code> changed in that
-window (usually <code>/wb-decide</code> recording the very decision being drafted), the
-answer is thrown away and the model is asked once more against the current
-section, so it either answers NONE or drafts something genuinely new
-(<code>sweep_ran</code> logs <code>rerun: true</code>). Only if the section changes <em>again</em> during
-that rerun is the draft kept but flagged possibly stale: the nudge says it
-may already be recorded, and <code>/wb-decide status</code> lists the <code>## Decisions</code>
-entries added since. Claude shows you the draft next
-to those entries and asks whether it is a duplicate; if so it dismisses it.
-The events that resolve a stale draft's nudge carry <code>&quot;stale&quot;:true</code>, so
-dismissals of duplicates don't distort the graduation review's <code>dismissed</code>
-count.</p>
+<p><strong>Step by step:</strong></p>
+<ol>
+<li><strong>The sweep drafts.</strong> After the task file has gone 4 turns unchanged
+(the <em>async sweep</em>, an async <code>Stop</code> hook), or whenever a checkpoint
+asks for one (the <em>checkpoint sweep</em>), a headless model reads the new
+part of the transcript. It also sees three lists: your recorded
+<code>## Decisions</code>, the drafts already waiting on the shelf, and the
+drafts you dismissed in the last 14 days, so a later turn that recaps
+a decision does not draft it twice or revive a rejected one. If it
+finds unrecorded decisions it writes up to 3 entries, and each entry
+is shelved as its own file (so &quot;one draft&quot; always means &quot;one
+decision&quot;). If it finds none it answers NONE and nothing is written.</li>
+<li><strong>The count shows.</strong> The tmux status bar shows <code>✎N</code> (peach) for the
+current session's task when N drafts are waiting, and nothing at zero
+or when the session has no task. <code>wb board</code> shows a DRAFTS column
+(text view) and a drafts chip beside the PR chip (HTML view).</li>
+<li><strong>A checkpoint reviews.</strong> <code>/wb-save</code>, <code>/close-out</code> and <code>/wb-decide shelved</code> all run the same procedure (&quot;step 2b&quot; in the <code>wb-decide</code>
+skill): run one checkpoint sweep and wait for it, then show each of
+the task's drafts one at a time and ask accept, edit, dismiss or
+leave. Accepting records the entry into <code>## Decisions</code> and moves the
+draft to <code>resolved/</code>. Dismissing moves it to <code>resolved/</code>. Leaving
+keeps it on the shelf and logs that this review showed it.</li>
+<li><strong>The weekly review catches stragglers.</strong> <code>/weekly-review</code> lists
+every shelved draft older than seven days, whatever its task's
+status (so tasks that never close still get reviewed), together with
+drafts left behind by finished tasks. A draft you have seen and left
+at 3 or more reviews is offered for dismissal: it is probably not a
+real decision, or the review has become tiresome. The skill offers,
+it never dismisses unasked.</li>
+</ol>
+<p>Nothing is ever deleted unseen. An accepted or dismissed draft is moved
+to <code>~/.local/state/wb/capture/resolved/&lt;task&gt;/</code>, where the reaper keeps
+it for 30 days.</p>
+<p><strong>What changed (2026-10-24).</strong> The agent-facing nudge and phrase
+matching are gone. The log from the first five days showed why: of 38
+nudges, 3 were genuinely followed by the agent, and phrase matches were
+nearly all recaps of old decisions. Every draft that was ever accepted
+was accepted by a person reviewing it (10 of 12 reviewed), so the drafts
+now go to you at moments you are reviewing, not to the agent in the
+middle of a request. The strikes, follow/ignore bookkeeping and the
+two-phase <code>accept --begin</code> went with the nudge.</p>
 <h2 id="try-it-now">Try it now</h2>
 <p>In any wb session, after something is actually settled:</p>
 <pre><code>/wb-decide
@@ -402,7 +346,11 @@ task's existing <code>## Decisions</code> for style, composes decided / rejected
 why, appends it with <code>wb append</code>, and confirms:</p>
 <pre><code>Recorded to ## Decisions.
 </code></pre>
-<p>Check the machinery any time:</p>
+<p>To review what the sweep drafted, any time:</p>
+<pre><code>/wb-decide shelved
+</code></pre>
+<p>It runs a checkpoint sweep first (so turns not yet swept are covered),
+then walks the drafts. And to check the machinery:</p>
 <pre><code>/wb-decide status
 </code></pre>
 <h2 id="reference">Reference</h2>
@@ -417,27 +365,23 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 <tbody>
 <tr>
 <td><code>/wb-decide [hint]</code></td>
-<td>Compose a new entry from the conversation (or accept a pending draft) and <code>wb append</code> it under <code>## Decisions</code>, then clear capture state. If nothing was actually decided it says so and dismisses instead of writing.</td>
-</tr>
-<tr>
-<td>draft pending</td>
-<td>Claude shows the sweep's draft when the draft nudge sent it (or you ran <code>/wb-decide</code> with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A draft can hold up to 3 entries: Claude reviews each, records the accepted ones in one <code>wb append</code>, then resolves the draft (<code>clear --draft</code>, or <code>accept &lt;path&gt;</code> for a shelved one) even when only some were accepted; if none is, it is a dismiss. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted <code>/wb-decide</code> composes from the conversation and leaves the draft alone; its closing plain <code>clear</code> keeps the draft, which gets nudged again (so does any <code>wb append … Decisions</code> that resolves the nudge while the draft survives). Only the draft-accept path runs <code>clear --draft</code>, which moves it to <code>resolved/</code>.</td>
-</tr>
-<tr>
-<td><code>/wb-decide dismiss</code></td>
-<td>Drop the pending marker/draft, log <code>dismissed</code>. Quiet no-op if nothing was pending. The draft-review path and <code>/close-out</code> call <code>wb-capture.sh dismiss --expect &lt;draft_sha&gt;</code> (or <code>--expect none</code>): <code>status</code> prints the draft's sha1 as <code>draft_sha:</code>, and the dismiss refuses (exit 1, nothing removed or logged) if a different draft, or any draft for <code>none</code>, is present, so a draft the sweep wrote after you looked is never deleted unseen. Bare <code>dismiss</code> is unchanged.</td>
-</tr>
-<tr>
-<td><code>/wb-decide mute</code> / <code>unmute</code></td>
-<td>Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged.</td>
-</tr>
-<tr>
-<td><code>/wb-decide status</code></td>
-<td>Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts (every <code>shelved:</code> line is relayed verbatim); for a stale draft, a warning plus the Decisions entries added since the snapshot. Read-only.</td>
+<td>Compose a new entry from the conversation and <code>wb append</code> it under <code>## Decisions</code>. If nothing was actually decided it says so and writes nothing. Shelved drafts are not part of this path.</td>
 </tr>
 <tr>
 <td><code>/wb-decide shelved</code></td>
-<td>Walk this task's shelved drafts one at a time: accept/edit (<code>accept --begin &lt;path&gt;</code> right before the record, then <code>accept &lt;path&gt;</code>) or reject (<code>dismiss &lt;path&gt;</code>). A closed task's drafts take <code>--task &lt;stem&gt;</code> on each.</td>
+<td>Run the checkpoint review: one checkpoint sweep, then each of this task's drafts one at a time: accept (optionally edited), dismiss, or leave. Ends with one line counting recorded / dismissed / left.</td>
+</tr>
+<tr>
+<td><code>/wb-decide dismiss &lt;path&gt;</code></td>
+<td>Dismiss one shelved draft by path (moves it to <code>resolved/</code>). A bare <code>dismiss</code> with no path is a usage error.</td>
+</tr>
+<tr>
+<td><code>/wb-decide mute</code> / <code>unmute</code></td>
+<td>Per-session mute flag: silences the async sweep and makes a checkpoint sweep print <code>skipped: muted</code>. Existing drafts can still be reviewed. Each is logged.</td>
+</tr>
+<tr>
+<td><code>/wb-decide status</code></td>
+<td>Print mute state, the session id, the log path, and one <code>shelved: &lt;path&gt;</code> line per draft on this task's shelf (<code>(stale)</code> after a stale one; <code>shelved: none</code>). Read-only.</td>
 </tr>
 </tbody>
 </table>
@@ -446,6 +390,79 @@ why, appends it with <code>wb append</code>, and confirms:</p>
 (the date plus a quoted substring of its title). The write uses a
 <code>&lt;&lt;'WB_DECISION_END'</code> heredoc rather than <code>&lt;&lt;'EOF'</code>, so a draft line reading
 exactly <code>EOF</code> can't end it early.</p>
+<p><strong>Accepting is one step.</strong> Chain the append and the accept with <code>&amp;&amp;</code>, so
+a failed append skips the accept and the draft stays shelved:</p>
+<pre><code>wb append &lt;task&gt; Decisions - &lt;&lt;'WB_DECISION_END' &amp;&amp; ~/.config/scripts/tmux/wb-capture.sh accept &lt;path&gt;
+…the entry…
+WB_DECISION_END
+</code></pre>
+<p><strong>The checkpoint sweep.</strong> <code>wb-capture.sh sweep</code> runs the sweep in forced
+mode and waits for it (up to about two minutes: its child timeout is 60
+seconds, doubled for its one stale rerun, about $0.12 at the default
+model). It ignores the four-quiet-turns rule and the failure backoff,
+because one attempt at a checkpoint is the point, and it skips the model
+call when nothing was written since the last sweep. It prints exactly one
+line and always exits 0, so a skill always goes on to the review:</p>
+<table>
+<thead>
+<tr>
+<th>Line</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>drafted N</code></td>
+<td>N drafts were shelved for this task</td>
+</tr>
+<tr>
+<td><code>none</code></td>
+<td>the model found nothing unrecorded</td>
+</tr>
+<tr>
+<td><code>nothing new</code></td>
+<td>nothing written to the transcript since the last sweep (no model call)</td>
+</tr>
+<tr>
+<td><code>skipped: &lt;reason&gt;</code></td>
+<td><code>off</code> (kill switch, <code>WB_CAPTURE_SWEEP</code> or <code>sweep=off</code>), <code>muted</code>, <code>no session</code>, <code>no transcript</code>, <code>no jq</code></td>
+</tr>
+<tr>
+<td><code>failed: &lt;reason&gt;</code></td>
+<td><code>timeout</code>, <code>error</code> (model or shelving failed) or <code>invalid</code> (the model broke the output contract)</td>
+</tr>
+</tbody>
+</table>
+<p>It does not wait on an async sweep. If the two overlap, the worst case
+is a duplicate draft, which the review dismisses in one step.</p>
+<p><strong>Stale drafts.</strong> The sweep snapshots the task's <code>## Decisions</code> section
+(the exact text the model is shown), then waits up to a minute for the
+model. Edits elsewhere in the task file don't count. If <code>## Decisions</code>
+changed in that window (usually <code>/wb-decide</code> recording the very
+decision being drafted), the answer is thrown away and the model is
+asked once more against the current section, so it either answers NONE
+or drafts something genuinely new (<code>sweep_ran</code> logs <code>rerun: true</code>). Only
+if the section changes <em>again</em> during the rerun is the draft shelved but
+flagged stale (a <code>.stale</code> sidecar file beside it): the review shows it
+next to the newest <code>## Decisions</code> entries and asks whether it is already
+recorded. Events about a stale draft carry <code>&quot;stale&quot;:true</code>.</p>
+<p><strong>Closed tasks and no session.</strong> A shelved draft whose task is already
+closed is still resolvable from any wb session, or from none: path-carrying
+<code>accept</code>, <code>dismiss</code> and <code>keep</code> ignore the kill switch and need no <code>@task</code>.
+The task stem comes from <code>--task &lt;stem&gt;</code>, else the session's task, else
+the command exits 1 with a message. With no session the event is logged
+with an empty <code>session_id</code>. <code>wb-capture.sh shelved --task &lt;stem&gt;</code> lists
+one task's drafts and <code>shelved --all</code> lists every task's, grouped by task.
+Drafts left by <code>wb done --leave-shelved</code> are reachable this way.</p>
+<p><strong><code>wb done</code> won't strand decision drafts.</strong> <code>wb done</code> refuses (before it
+touches anything, including a store-only close) while the task's shelf
+holds any draft. It asks <code>wb-capture.sh pending-for-task</code> rather than
+reading the state dir itself, prints each path as <code>shelved: &lt;path&gt;</code>, and
+points to <code>/close-out</code> or <code>/wb-decide shelved</code>, or to re-running with
+<code>wb done --leave-shelved</code> to close anyway. <code>--leave-shelved</code> closes, logs
+one <code>shelved_left{count}</code> line to the capture log (via <code>wb-capture.sh log-shelved-left</code>) and notes the left drafts in the task's <code>wb done</code>
+Handoffs entry. A <code>wb done</code> invoked through <code>/wb-done</code> relays the refusal;
+it never adds <code>--leave-shelved</code> on its own.</p>
 <p><strong>Paths</strong></p>
 <table>
 <thead>
@@ -461,7 +478,7 @@ exactly <code>EOF</code> can't end it early.</p>
 </tr>
 <tr>
 <td>Per-session state</td>
-<td><code>~/.local/state/wb/capture/&lt;session_id&gt;/</code> (marker, draft, muted, cooldown, ended, …)</td>
+<td><code>~/.local/state/wb/capture/&lt;session_id&gt;/</code> (sweep bookkeeping: <code>taskhash</code>, <code>unchanged</code>, <code>muted</code>, <code>ended</code>, <code>taskpath</code>, <code>transcript</code>, <code>sweep_offset</code>, …)</td>
 </tr>
 <tr>
 <td>Event log</td>
@@ -477,18 +494,23 @@ exactly <code>EOF</code> can't end it early.</p>
 </tr>
 <tr>
 <td>Shelved drafts</td>
-<td><code>~/.local/state/wb/capture/shelved/&lt;task-stem&gt;/&lt;timestamp&gt;-&lt;session&gt;.md</code> (a <code>.stale</code> sidecar marks a stale one)</td>
+<td><code>~/.local/state/wb/capture/shelved/&lt;task-stem&gt;/&lt;timestamp&gt;-&lt;session&gt;.md</code>, one decision per file (a <code>.stale</code> sidecar marks a stale one; <code>shelved/_unknown/</code> when the task wasn't known)</td>
 </tr>
 <tr>
 <td>Resolved drafts</td>
-<td><code>~/.local/state/wb/capture/resolved/&lt;task-stem&gt;/&lt;timestamp&gt;-&lt;outcome&gt;-&lt;name&gt;.md</code> (kept 30 days, then pruned by the reaper)</td>
+<td><code>~/.local/state/wb/capture/resolved/&lt;task-stem&gt;/&lt;timestamp&gt;-&lt;outcome&gt;-&lt;name&gt;.md</code>, where <code>&lt;outcome&gt;</code> is <code>shelved_accepted</code> or <code>shelved_dismissed</code> and <code>&lt;name&gt;</code> is the shelved file's name (kept 30 days, then pruned by the hourly reaper; to recover one, copy it back into <code>shelved/&lt;task&gt;/</code>)</td>
 </tr>
 <tr>
-<td>Script</td>
-<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-*</code>, <code>clear [--draft]</code>, `dismiss [--expect none</td>
+<td>Scripts</td>
+<td><code>~/.config/scripts/tmux/wb-capture.sh</code> (verbs: <code>hook-prompt</code>, <code>hook-stop</code>, <code>hook-end</code>, <code>hook-posttool</code> (a silent no-op kept for sessions started before the change); <code>accept|dismiss|keep [--task &lt;stem&gt;] &lt;shelved path&gt;</code>; <code>sweep</code>; <code>mute</code>, <code>unmute</code>, <code>status</code>; store verbs that need no session: <code>shelved [--all [--min-age-days &lt;N&gt;] | --task &lt;stem&gt; | --count --task &lt;stem&gt;]</code>, <code>pending-for-task &lt;task-file&gt;</code>, <code>log-shelved-left &lt;stem&gt; &lt;count&gt;</code>); the sweep itself is <code>wb-capture-sweep.sh</code>; the status-bar segment is <code>capture-status.sh</code></td>
 </tr>
 </tbody>
 </table>
+<p>The hooks do a few small jobs: <code>hook-prompt</code> and <code>hook-stop</code> record the
+session's transcript path (the checkpoint sweep reads it from there),
+<code>hook-stop</code> also records the task path and counts quiet turns, <code>hook-end</code>
+marks the session ended, and an hourly reaper tidies old session dirs, moves any leftover pre-change
+per-session draft to the shelf (reason <code>reaped</code>) and prunes <code>resolved/</code>.</p>
 <p><strong>Config keys</strong> — <code>KEY=value</code> lines in <code>capture.conf</code>, parsed line by line
 (never sourced), unknown keys and bad values ignored/defaulted:</p>
 <table>
@@ -501,24 +523,14 @@ exactly <code>EOF</code> can't end it early.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>phrases</code></td>
-<td>strong list: <code>we decided|decided to|going with|let's go with|we'll go with|i'll go with|went with|settled on|the decision is|chose |opting for|ruled out</code></td>
-<td><code>|</code>-separated, case-insensitive fixed strings</td>
-</tr>
-<tr>
-<td><code>cooldown</code></td>
-<td><code>3</code></td>
-<td>turns between phrase nudges</td>
-</tr>
-<tr>
 <td><code>sweep_every</code></td>
 <td><code>4</code></td>
-<td>unchanged turns before a sweep</td>
+<td>unchanged turns before an async sweep</td>
 </tr>
 <tr>
 <td><code>sweep</code></td>
 <td><code>on</code></td>
-<td><code>on</code> / <code>off</code> — the background model sweep</td>
+<td><code>on</code> / <code>off</code> — the background model sweep (a checkpoint sweep then prints <code>skipped: off</code>)</td>
 </tr>
 <tr>
 <td><code>sweep_timeout</code></td>
@@ -528,7 +540,7 @@ exactly <code>EOF</code> can't end it early.</p>
 <tr>
 <td><code>sweep_max_failures</code></td>
 <td><code>3</code></td>
-<td>consecutive failed sweeps before the sweep stops for the session (<code>0</code> = never stop)</td>
+<td>consecutive failed sweeps before the async sweep stops for the session (<code>0</code> = never stop)</td>
 </tr>
 <tr>
 <td><code>sweep_model</code></td>
@@ -543,82 +555,158 @@ exactly <code>EOF</code> can't end it early.</p>
 </tbody>
 </table>
 <p><strong>Log events</strong> (<code>log.jsonl</code>, one JSON object per line: <code>ts</code>, <code>session_id</code>,
-<code>task</code>, <code>event</code>, optional <code>source</code>): <code>nudge_fired{source}</code>,
-<code>followed{source}</code>, <code>dismissed</code>, <code>ignored{source}</code> (these three mean only &quot;a
-nudge resolved&quot;), <code>muted</code>, <code>unmuted</code>,
-<code>sweep_ran{result: none|draft|invalid|error|timeout, model, effort[, entries]}</code> (<code>model</code> and <code>effort</code> are the
-settings the child ran with; <code>entries</code>, on a draft only, is how many <code>### </code> entries it holds, 1-3 (its size only: <code>followed</code> and <code>shelved_accepted</code> count drafts, so how many entries were accepted is read from the task's <code>## Decisions</code>); <code>invalid</code> is an answer
-that is neither NONE nor a <code>### </code> entry: its excerpt is retried once, then
-skipped, and it never counts toward <code>sweep_max_failures</code>; <code>rerun: true</code> when <code>## Decisions</code>
-changed during the first run and the model was asked again; <code>stale: true</code> when it
-changed again during the rerun; <code>followed</code>, <code>dismissed</code>, <code>ignored</code> and
-<code>draft_shelved</code> carry <code>stale: true</code> too when they resolve a stale draft),
-<code>sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}</code>,
-<code>draft_shelved{reason: ignored_twice|session_end|reaped|superseded}</code>,
-<code>shelved_accepted</code> / <code>shelved_dismissed</code> (a shelved draft accepted or
-rejected; no <code>source</code>, and <code>stale: true</code> when it was a stale one, so they
-never count toward the nudge follow rate), <code>shelved_left{count}</code> (logged by
-<code>wb done --leave-shelved</code>; its <code>session_id</code> is empty and it carries no <code>source</code>),
-<code>pending_at_end{marker,draft}</code> (from SessionEnd; the sweep logs it as just
-<code>{draft:true}</code> when the session ended while the sweep child was still running, and
-shelves the draft right after), <code>pending_orphaned</code> (the reaper logs it only
-once the dir is really removed, after its <code>ignored</code> and <code>draft_shelved</code>).</p>
-<p><strong>Measuring it</strong> — follow / dismissal / ignored rate overall and per source,
-plus sweep result counts (dismissals carry no source, so they're overall only)
-and a shelved-draft rollup (how many were shelved, accepted, dismissed; kept
-apart because nothing nudges a shelved draft):</p>
-<pre><code class="language-bash">jq -s '. as $all
-| def pct($a;$b): if $b == 0 then null else (($a * 1000 / $b | round) / 10) end;
-{
-  by_source: (
-    [.[] | select(.event == &quot;nudge_fired&quot;)] | group_by(.source)
-    | map({ source: .[0].source, fired: length })
-    | map(. as $r | $r + {
-        followed: ([$all[] | select(.event == &quot;followed&quot; and .source == $r.source)] | length),
-        ignored:  ([$all[] | select(.event == &quot;ignored&quot;  and .source == $r.source)] | length) }
-      | . + { follow_pct: pct(.followed; .fired), ignored_pct: pct(.ignored; .fired) })
-  ),
-  overall: ( ([.[] | select(.event == &quot;nudge_fired&quot;)] | length) as $n
-    | { fired: $n,
-        followed_pct:  pct([.[] | select(.event == &quot;followed&quot;)]  | length; $n),
-        dismissed_pct: pct([.[] | select(.event == &quot;dismissed&quot;)] | length; $n),
-        ignored_pct:   pct([.[] | select(.event == &quot;ignored&quot;)]   | length; $n) } ),
-  sweep_results: ([.[] | select(.event == &quot;sweep_ran&quot;)] | group_by(.result) | map({(.[0].result): length}) | add),
-  shelved: { shelved:   ([$all[] | select(.event == &quot;draft_shelved&quot;)]     | length),
-             accepted:  ([$all[] | select(.event == &quot;shelved_accepted&quot;)]  | length),
-             dismissed: ([$all[] | select(.event == &quot;shelved_dismissed&quot;)] | length) }
-}' ~/.local/state/wb/capture/log.jsonl
+<code>task</code>, <code>event</code>, plus event fields). Every event about one drafted decision
+carries a <code>draft</code> field holding the shelf file's name, which is how a
+decision is followed from shelving to review:</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Fields</th>
+<th>Logged when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>draft_shelved</code></td>
+<td><code>reason</code> (<code>sweep</code>, or <code>reaped</code> for a leftover pre-change draft), <code>draft</code>, <code>stale: true</code> when stale</td>
+<td>a drafted decision is written to the shelf (once per file)</td>
+</tr>
+<tr>
+<td><code>shelved_accepted</code></td>
+<td><code>draft</code>, <code>stale: true</code> when stale</td>
+<td><code>accept</code> moved a draft to <code>resolved/</code></td>
+</tr>
+<tr>
+<td><code>shelved_dismissed</code></td>
+<td><code>draft</code>, <code>stale: true</code> when stale</td>
+<td><code>dismiss</code> moved a draft to <code>resolved/</code></td>
+</tr>
+<tr>
+<td><code>shelved_kept</code></td>
+<td><code>draft</code></td>
+<td><code>keep</code> — a review showed the draft and you left it; the file stays</td>
+</tr>
+<tr>
+<td><code>shelved_left</code></td>
+<td><code>count</code> (empty <code>session_id</code>)</td>
+<td><code>wb done --leave-shelved</code> closed a task with drafts still shelved</td>
+</tr>
+<tr>
+<td><code>sweep_ran</code></td>
+<td><code>result</code> (<code>none</code>, <code>draft</code>, <code>invalid</code>, <code>error</code>, <code>timeout</code>), <code>model</code>, <code>effort</code>; <code>entries</code> on a draft (1-3: how many files it became); <code>rerun: true</code>; <code>stale: true</code></td>
+<td>a sweep's model call finished. <code>invalid</code> means an answer that is neither NONE nor a <code>### </code> entry: its excerpt is retried once, then skipped, and it never counts toward <code>sweep_max_failures</code></td>
+</tr>
+<tr>
+<td><code>sweep_skipped</code></td>
+<td><code>reason</code>: <code>disabled</code>, <code>muted</code>, <code>backoff</code>, <code>no_new_content</code></td>
+<td>a sweep ended without a model call</td>
+</tr>
+<tr>
+<td><code>muted</code> / <code>unmuted</code></td>
+<td>none</td>
+<td><code>/wb-decide mute</code> / <code>unmute</code></td>
+</tr>
+</tbody>
+</table>
+<p>Events from before the 2026-10-24 change (<code>nudge_fired</code>, <code>followed</code>,
+<code>ignored</code>, <code>dismissed</code>, <code>pending_at_end</code>, <code>pending_orphaned</code>) stay in old
+logs but nothing writes them now. <code>draft_shelved</code>, <code>shelved_accepted</code> and
+<code>shelved_dismissed</code> lines from before it have no <code>draft</code> field, which is
+how the queries below tell old drafts from new ones.</p>
+<p><strong>Measuring it</strong> — three measures, over drafts shelved after the
+2026-10-24 rollout only (a draft with no <code>draft</code> field is older and is
+left out). They match the graduation review's gates:</p>
+<ul>
+<li><strong>Accuracy</strong> — accepted out of accepted + dismissed. It says whether
+drafts are <em>right</em>. A draft you chose to leave counts for neither side,
+because leaving is often legitimate (not decided yet, waiting on
+something outside the session). The review's gate is at least 70% over
+at least 10 resolved drafts.</li>
+<li><strong>Delivery</strong> — every draft is shown at a review (a <code>shelved_kept</code>,
+<code>shelved_accepted</code> or <code>shelved_dismissed</code> event) within 7 days of being
+shelved. It says whether drafts actually <em>reach you</em>. A draft nobody
+showed you for a week is a failure of the checkpoints, not of the
+model.</li>
+<li><strong>Left 3+ times</strong> — drafts shown at 3 or more reviews and still on the
+shelf. Reported, not gated: probably not real decisions, or review
+fatigue. The weekly review offers them for dismissal.</li>
+</ul>
+<pre><code class="language-bash">jq -s --argjson now &quot;$(date +%s)&quot; '
+def epoch: capture(&quot;^(?&lt;t&gt;.*)(?&lt;s&gt;[+-])(?&lt;h&gt;[0-9]{2}):(?&lt;m&gt;[0-9]{2})$&quot;)
+  | ((.t + &quot;Z&quot;) | fromdateiso8601)
+    - (if .s == &quot;+&quot; then 1 else -1 end) * ((.h | tonumber) * 3600 + (.m | tonumber) * 60);
+def pct($a;$b): if $b == 0 then null else (($a * 1000 / $b | round) / 10) end;
+def has_draft: ((.draft // &quot;&quot;) != &quot;&quot;);
+[ .[] | select(.event == &quot;draft_shelved&quot; and has_draft) ] as $shelved
+| [ .[] | select(.event | IN(&quot;shelved_kept&quot;,&quot;shelved_accepted&quot;,&quot;shelved_dismissed&quot;))
+          | select(has_draft) ] as $reviews
+| ( $shelved | map( . as $s
+    | ($reviews | map(select(.draft == $s.draft))) as $r
+    | { draft: $s.draft, task: $s.task, shelved_at: ($s.ts | epoch),
+        first_shown_at: ($r | map(.ts | epoch) | min),
+        kept: ($r | map(select(.event == &quot;shelved_kept&quot;)) | length),
+        outcome: ( if   any($r[]; .event == &quot;shelved_accepted&quot;)  then &quot;accepted&quot;
+                   elif any($r[]; .event == &quot;shelved_dismissed&quot;) then &quot;dismissed&quot;
+                   else &quot;waiting&quot; end ) } ) ) as $d
+| ($d | map(select(.outcome == &quot;accepted&quot;))  | length) as $acc
+| ($d | map(select(.outcome == &quot;dismissed&quot;)) | length) as $dis
+| 604800 as $week
+| {
+    shelved_since_rollout: ($d | length),
+    accuracy: { accepted: $acc, dismissed: $dis, resolved: ($acc + $dis),
+                accuracy_pct: pct($acc; $acc + $dis),
+                enough_sample: (($acc + $dis) &gt;= 10) },
+    delivery: {
+      shown_within_7d: ($d | map(select(.first_shown_at != null and (.first_shown_at - .shelved_at) &lt;= $week)) | length),
+      shown_late:      ($d | map(select(.first_shown_at != null and (.first_shown_at - .shelved_at) &gt;  $week)) | length),
+      never_shown_over_7d: ($d | map(select(.first_shown_at == null and ($now - .shelved_at) &gt; $week)) | length),
+      waiting_under_7d:    ($d | map(select(.first_shown_at == null and ($now - .shelved_at) &lt;= $week)) | length) },
+    left_3_plus_times: ($d | map(select(.outcome == &quot;waiting&quot; and .kept &gt;= 3) | {task, draft, kept}))
+  }' ~/.local/state/wb/capture/log.jsonl
 </code></pre>
-<p><strong>Close-out interaction.</strong> <code>/close-out</code> step 4: if <code>## Decisions</code> is still
-empty at wind-down, the agent either writes a real entry or appends an
-affirmed marker (<code>### &lt;timestamp&gt; — close-out</code> / <code>_No decisions: &lt;reason&gt;_</code>)
-via <code>wb append</code>, after running <code>wb-capture.sh dismiss --expect none</code> so no nudge is
-outstanding when the marker lands (otherwise it would be logged <code>followed</code>); <code>--expect none</code>
-refuses if a sweep landed a draft meanwhile, and the draft is then reviewed first.
-A pending draft is routed through the draft-review path first. An unmarked
-empty section keeps meaning &quot;nobody checked&quot;.
-Tasks closed with bare <code>wb done</code> (no <code>/close-out</code>) are left unmarked.</p>
-<p><strong>Rollout.</strong> Stow (<code>stow --no-folding -t &quot;$HOME&quot; claude scripts</code> from the
-main checkout after fast-forwarding) and restart Claude sessions. The
+<p>Reading it: the delivery gate passes when <code>shown_late</code> and
+<code>never_shown_over_7d</code> are both 0. The accuracy gate passes when
+<code>enough_sample</code> is true and <code>accuracy_pct</code> is 70 or more. Fewer than 10
+resolved drafts by the review date moves the review out a week.</p>
+<p><strong>Close-out interaction.</strong> <code>/close-out</code> step 4 runs the same checkpoint
+review (sweep, then each draft) before the wind-down. If <code>## Decisions</code>
+is still empty after it, the agent either writes a real entry or appends
+an affirmed marker (<code>### &lt;timestamp&gt; — close-out</code> / <code>_No decisions: &lt;reason&gt;_</code>) via <code>wb append</code>. An unmarked empty section keeps meaning
+&quot;nobody checked&quot;. Tasks closed with bare <code>wb done</code> (no <code>/close-out</code>) are
+left unmarked.</p>
+<p><strong><code>/wb-save</code> interaction.</strong> <code>/wb-save</code> runs the review before composing
+its entry, so the Handoffs entry can say how many decisions were
+recorded, dismissed and left.</p>
+<p><strong>Rollout.</strong> Stow (<code>stow --no-folding -t &quot;$HOME&quot; claude scripts tmux</code> from
+the main checkout after fast-forwarding) and restart Claude sessions. The
 plugin loads automatically as <code>wb-capture@skills-dir</code>. Already-running
-sessions don't get the hooks; editing the scripts takes effect live, but
-adding or removing a hook entry needs a restart.</p>
+sessions keep calling the old <code>hook-posttool</code> registration (a silent
+no-op) until restarted; editing the scripts takes effect live, but
+adding or removing a hook entry needs a restart. A draft left in the old
+per-session slot is moved to the shelf once by hand at rollout; nothing
+writes that slot any more.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
-<li>Phrase matching is deliberately conservative (&lt;1% of messages); decisions
-phrased differently are the sweep's job, and the sweep only runs after 4
-unchanged turns.</li>
-<li>Phrase nudges are hints — many will be non-decisions; that's what
-<code>dismissed</code> and <code>ignored</code> measure.</li>
-<li>Only works inside a wb tmux session with <code>@task</code> set; elsewhere every
-verb is a silent no-op.</li>
-<li>Hooks can't force the agent to act; a nudge may simply be ignored.</li>
+<li>Only works inside a wb tmux session with <code>@task</code> set; elsewhere the
+agent verbs are silent no-ops (the store verbs and path-carrying
+<code>accept</code>, <code>dismiss</code>, <code>keep</code> work anywhere).</li>
+<li>A draft sees only a transcript excerpt, so it can be wrong or already
+recorded. Accuracy (above) measures how often.</li>
+<li>A checkpoint sweep and an async sweep don't lock against each other: the
+worst case is a duplicate draft (dismissed in one step) or a draft that
+lands just after a review (it stays on the shelf and in the count).</li>
+<li>The status count follows the current session's task, not a total across
+tasks. <code>wb board</code> shows every task's count.</li>
 <li><code>/clear</code> and <code>wb resume</code> session-id behaviour is still being confirmed
-live (see the dossier's live-verification checklist).</li>
+live.</li>
 </ul>
 <h2 id="next-steps--reverting">Next steps / reverting</h2>
-<p>A graduation review (merge date + 14 days) decides, from the log numbers
-above, whether to keep, retune the phrase list, or drop the feature.</p>
+<p>A graduation review (<code>dotfiles--capture-graduation-review</code>, due
+2026-11-02) decides, from the accuracy, delivery and left-3+-times
+figures above, whether to keep the feature, retune it, or drop it. It
+also gates on no task closing after rollout with an unmarked empty
+<code>## Decisions</code>.</p>
 <p>To turn it off, in order of bluntness:</p>
 <ul>
 <li><strong>Kill switch (all sessions, instant):</strong> <code>touch ~/.local/state/wb/disable-capture</code>;
