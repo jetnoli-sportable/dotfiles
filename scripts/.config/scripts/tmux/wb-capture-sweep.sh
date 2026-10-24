@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# wb-capture-sweep.sh — Haiku background review (U4, store auto-capture).
+# wb-capture-sweep.sh — background model review (U4, store auto-capture).
 # Registered as an `async: true` Stop hook, so it launches at the same moment
 # as the sync `hook-stop` and races it on the `unchanged` counter (hence the
 # flock on <session dir>/.lock and the short sleep before taking it). When the
-# task file has gone stale (`unchanged >= sweep_every`) it asks a headless
-# Haiku child whether the recent transcript holds an unrecorded decision and,
-# if so, writes a per-session `draft` (never the task file — KTD5/R14).
+# task file has gone stale (`unchanged >= sweep_every`) it asks a headless child
+# (`sweep_model` at `sweep_effort`, default sonnet/medium) whether the recent
+# transcript holds an unrecorded decision and, if so, writes a per-session
+# `draft` (never the task file — KTD5/R14).
 # `sweep_max_failures` (default 3) consecutive error/timeout results stop the
 # sweep for the session (skip reason `backoff`); a draft or NONE resets the count.
 # Staleness is judged on the `## Decisions` section only (the exact text the
@@ -29,7 +30,7 @@
 #
 # The draft-writing tail (overlap check through draft write / late shelve) holds the
 # session lock, the same one `wb-capture.sh dismiss --expect` takes (never held
-# across the Haiku child).
+# across the child).
 #
 # Sources wb-capture.sh as a library (guards, config, state, log) — NOT wb.sh.
 # Always exits 0, silent on stdout. Async hooks die with the session; accepted.
@@ -39,6 +40,7 @@ set -uo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-capture.sh"
 
 EXCERPT_BUDGET=24000   # bytes of transcript excerpt sent to the child
+MAX_ENTRIES=3          # `### ` entries one sweep may draft (the prompt asks for the same)
 
 guard_chain
 read_input
@@ -123,18 +125,20 @@ take_snapshot() {
 # --- child ------------------------------------------------------------------
 timeout_s="$CFG_SWEEP_TIMEOUT"; [ "$timeout_s" -gt 0 ] || timeout_s="$DEFAULT_SWEEP_TIMEOUT"
 mkdir -p "$CAPTURE_ROOT" 2>/dev/null || exit 0
-# run_child — asks Haiku about $excerpt vs $decisions; sets out, rc, result
+# run_child — asks the model about $excerpt vs $decisions; sets out, rc, result. Hooks
+# are off in the child (`disableAllHooks`): every user/plugin hook would run in it,
+# and e.g. a learnings injector adds KBs of unrelated text to each sweep prompt.
 run_child() {
   out="$({
     cat <<'PROMPT'
 You are reviewing an excerpt of a coding-session transcript against the
 Decisions already recorded for the task being worked on.
 
-If a concrete decision was made in the excerpt (an option chosen over an
-alternative, or a design/approach settled) that is NOT already recorded in the
-Decisions section, reply with a single Decisions entry body and nothing else:
-a `### <short title>` line, then 2-4 bullets covering what was decided, the
-alternative that was rejected, and why.
+If concrete decisions were made in the excerpt (an option chosen over an
+alternative, or a design/approach settled) that are NOT already recorded in the
+Decisions section, reply with one Decisions entry per unrecorded decision, at
+most 3, and nothing else. Each entry is a `### <short title>` line, then 2-4
+bullets covering what was decided, the alternative that was rejected, and why.
 
 Otherwise reply with exactly: NONE
 
@@ -146,8 +150,10 @@ unsure. No preamble, no commentary.
 PROMPT
     printf '%s\n\n=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$decisions" "$excerpt"
   } | (cd "$CAPTURE_ROOT" && env -u TMUX -u TMUX_PANE WB_CAPTURE_SWEEP=1 \
-        timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p --model haiku \
-        --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config 2>/dev/null))"
+        timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p \
+        --model "$CFG_SWEEP_MODEL" --effort "$CFG_SWEEP_EFFORT" \
+        --no-session-persistence --max-turns 1 --tools "" --strict-mcp-config \
+        --settings '{"disableAllHooks":true}' 2>/dev/null))"
   rc=$?
   out="${out#"${out%%[![:space:]]*}"}"
   out="${out%"${out##*[![:space:]]}"}"
@@ -159,13 +165,15 @@ PROMPT
 }
 
 # parse_answer — classifies the trimmed, non-empty $out; sets result and, for a
-# draft, trims $out to start at its first `### ` line. Models vary: "None.",
-# "**NONE**", or prose that starts or ends with a bare NONE line. Order matters:
+# draft, trims $out to start at its first `### ` line and keeps at most MAX_ENTRIES
+# `### ` entries. Models vary: "None.", "**NONE**", or prose that starts or ends
+# with a bare NONE line. Order matters:
 #   1. last line is NONE                               -> none
 #   2. no line starting `### `: first line is NONE     -> none
 #                               otherwise              -> invalid (contract
 #      violation, not an outage: retried once, never feeds the failure backoff)
 #   3. text before the first `### ` line               -> stripped from the draft
+#   4. more than MAX_ENTRIES `### ` entries            -> the rest are dropped
 parse_answer() {
   # $out is already trimmed: its first and last lines are non-empty
   if is_none_line "${out##*$'\n'}"; then result=none; return 0; fi
@@ -174,6 +182,8 @@ parse_answer() {
     return 0
   fi
   [[ "$out" == '### '* ]] || out="### ${out#*$'\n### '}"
+  # the prompt asks for at most MAX_ENTRIES entries; drop any the model adds past that
+  out="$(printf '%s\n' "$out" | awk -v max="$MAX_ENTRIES" '/^### / && ++n > max { exit } 1')"
   result=draft
 }
 
@@ -231,7 +241,7 @@ fi
 
 late=false
 if [ "$result" = draft ] && [ "$moved" = false ]; then
-  # the session ended while Haiku ran: SessionEnd already came and went, so nothing
+  # the session ended while the child ran: SessionEnd already came and went, so nothing
   # else will nudge this draft. Write it as usual, then shelve it (below) so the
   # user can still accept or dismiss it later instead of losing it
   if [ -e "$SDIR/ended" ]; then
@@ -276,7 +286,14 @@ case "$result" in
 esac
 # a protected draft keeps its strikes: this run wrote no new draft into the session
 [ "$result" = draft ] && [ "$protect" = false ] && remove_named "$SDIR" draft_strikes
+# entries: `### ` entries in a drafted answer (its size; one draft may hold up to
+# MAX_ENTRIES). How many of them were accepted is not logged: `followed` and
+# `shelved_accepted` count drafts, so read the accepted entries from `## Decisions`
+entries=0
+[ "$result" = draft ] && entries="$(printf '%s\n' "$out" | awk '/^### /{n++} END{print n+0}')"
 extra="$(jq -nc --arg r "$result" --argjson rr "$rerun" --argjson st "$stale" \
-  '{result:$r} + (if $rr then {rerun:true} else {} end) + (if $st then {stale:true} else {} end)')"
+  --arg m "$CFG_SWEEP_MODEL" --arg e "$CFG_SWEEP_EFFORT" --argjson n "$entries" \
+  '{result:$r, model:$m, effort:$e} + (if $r == "draft" then {entries:$n} else {} end)
+   + (if $rr then {rerun:true} else {} end) + (if $st then {stale:true} else {} end)')"
 log_event "$SID" sweep_ran "" "$extra"
 exit 0

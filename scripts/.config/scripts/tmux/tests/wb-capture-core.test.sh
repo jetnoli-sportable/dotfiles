@@ -37,7 +37,7 @@ FAKE
 chmod +x "$FAKEBIN/tmux"
 
 # PATH with everything the script needs EXCEPT jq.
-for b in bash cat date mkdir rm tr; do
+for b in bash cat date mkdir mv rm tr; do
   ln -s "$(command -v "$b")" "$NOJQ_BIN/$b"
 done
 
@@ -286,6 +286,59 @@ assert_nofile "clear --draft removes the draft" "$D/draft"
 assert_nofile "clear --draft removes draft_stale" "$D/draft_stale"
 assert_nofile "clear --draft removes draft_strikes" "$D/draft_strikes"
 assert_nofile "clear --draft removes marker" "$D/marker"
+
+echo "# retire_draft: resolved drafts are archived under resolved/<stem>/, never deleted"
+RS="dotfiles--feat-x"
+res_files() { ls "$CAP/resolved/$RS" 2>/dev/null; }  # sorted names, empty when none
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft_stale" "$D/draft_strikes"; printf 'KEEP ME\n' >"$D/draft"
+run_wb /dev/null clear --draft; assert_eq "retire: clear --draft exit" 0 "$RC"
+assert_nofile "retire: clear --draft: session draft gone" "$D/draft"
+assert_eq "retire: clear --draft archives one file" 1 "$(res_files | wc -l | tr -d ' ')"
+assert_match "retire: clear --draft name pattern" '^[0-9]{8}T[0-9]{6}-accepted-sid-aaa\.md$' "$(res_files)"
+assert_eq "retire: clear --draft keeps the text" "KEEP ME" "$(cat "$CAP/resolved/$RS/"*-accepted-sid-aaa.md)"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker"; printf 'D2\n' >"$D/draft"; printf sweep >"$D/outstanding"
+run_wb /dev/null dismiss; assert_eq "retire: dismiss exit" 0 "$RC"
+assert_nofile "retire: dismiss: session draft gone" "$D/draft"
+assert_match "retire: dismiss archives with outcome dismissed" '^[0-9]{8}T[0-9]{6}-dismissed-sid-aaa\.md$' "$(res_files)"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'D3\n' >"$D/draft"; printf sweep >"$D/outstanding"
+run_wb /dev/null dismiss --expect "0000000000000000000000000000000000000000"
+assert_eq "retire: dismiss --expect <wrong sha> exit 1" 1 "$RC"
+assert_file "retire: wrong sha keeps the draft" "$D/draft"
+assert_eq "retire: wrong sha archives nothing" 0 "$(res_files | wc -l | tr -d ' ')"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'D4\n' >"$D/draft"; touch "$D/marker" "$D/outstanding"
+mkdir -p "$CAP/resolved"; : >"$CAP/resolved/$RS"   # a plain file where the stem dir must go
+run_wb /dev/null clear --draft; assert_eq "retire fail: clear --draft exit" 0 "$RC"
+assert_file "retire fail: clear --draft keeps the draft" "$D/draft"
+assert_match "retire fail: stderr line" 'could not archive the draft \(kept\)' "$OUT"
+assert_nofile "retire fail: other flags still cleared (marker)" "$D/marker"
+assert_nofile "retire fail: other flags still cleared (outstanding)" "$D/outstanding"
+# shelved accept / dismiss archive the file and its .stale sidecar
+new_scenario; PK="$CAP/shelved/$RS"; mkdir -p "$PK"
+printf 'one\n' >"$PK/20261018T100000-sid-aaa.md"; : >"$PK/20261018T100000-sid-aaa.md.stale"
+printf 'two\n' >"$PK/20261018T110000-sid-bbb.md"
+run_wb /dev/null accept "$PK/20261018T100000-sid-aaa.md"; assert_eq "retire: shelved accept exit" 0 "$RC"
+assert_nofile "retire: shelved accept moves the file" "$PK/20261018T100000-sid-aaa.md"
+assert_nofile "retire: shelved accept moves the sidecar" "$PK/20261018T100000-sid-aaa.md.stale"
+assert_eq "retire: archived accept file name" 1 "$(res_files | /usr/bin/grep -cE '^[0-9]{8}T[0-9]{6}-shelved_accepted-20261018T100000-sid-aaa\.md$')"
+assert_eq "retire: archived accept sidecar name" 1 "$(res_files | /usr/bin/grep -cE '^[0-9]{8}T[0-9]{6}-shelved_accepted-20261018T100000-sid-aaa\.md\.stale$')"
+run_wb /dev/null dismiss "$PK/20261018T110000-sid-bbb.md"; assert_eq "retire: shelved dismiss exit" 0 "$RC"
+assert_eq "retire: archived dismiss file name" 1 "$(res_files | /usr/bin/grep -cE '^[0-9]{8}T[0-9]{6}-shelved_dismissed-20261018T110000-sid-bbb\.md$')"
+assert_eq "retire: archived text kept" "two" "$(cat "$CAP/resolved/$RS/"*-shelved_dismissed-*.md)"
+# a failed retire changes nothing: file kept, exit 1, no event, flag kept
+new_scenario; PK="$CAP/shelved/$RS"; D="$(sdir sid-aaa)"; mkdir -p "$PK" "$D" "$CAP/resolved"
+printf 'one\n' >"$PK/20261018T100000-sid-aaa.md"; : >"$PK/20261018T100000-sid-aaa.md.stale"; : >"$D/shelved_accept"
+: >"$CAP/resolved/$RS"
+run_wb /dev/null dismiss "$PK/20261018T100000-sid-aaa.md"
+assert_eq "retire fail: shelved dismiss exit 1" 1 "$RC"
+assert_match "retire fail: shelved dismiss message" 'could not archive .* \(nothing changed\)' "$OUT"
+assert_file "retire fail: shelved draft kept" "$PK/20261018T100000-sid-aaa.md"
+assert_file "retire fail: sidecar kept" "$PK/20261018T100000-sid-aaa.md.stale"
+assert_file "retire fail: shelved_accept flag kept" "$D/shelved_accept"
+assert_eq "retire fail: nothing logged" 0 "$(logn)"
+run_wb /dev/null accept "$PK/20261018T100000-sid-aaa.md"
+assert_eq "retire fail: shelved accept exit 1" 1 "$RC"
+assert_file "retire fail: accept keeps the draft" "$PK/20261018T100000-sid-aaa.md"
+assert_eq "retire fail: accept logs nothing" 0 "$(logn)"
 
 echo "# session isolation"
 new_scenario; A="$(sdir sid-aaa)"; B="$(sdir sid-bbb)"; mkdir -p "$A" "$B"; touch "$A/marker" "$B/marker"

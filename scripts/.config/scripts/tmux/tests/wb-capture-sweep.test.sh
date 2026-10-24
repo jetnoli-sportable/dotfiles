@@ -51,6 +51,8 @@ case "$mode" in
   none-code)   printf '`NONE`.\n' ;;
   preamble-draft) printf 'Here is the entry:\n### Chose B over A\n- decided: B\n- rejected: A\n' ;;
   draft-mentions-none) printf '### Chose B over A\n- decided: B\n- rejected: none of the others\n- why: none needed\n- done\n' ;;
+  two-entries)  printf '### Chose B over A\n- decided: B\n- why: simpler\n\n### Chose D over C\n- decided: D\n- why: faster\n' ;;
+  four-entries) printf 'Entries:\n'; for i in 1 2 3 4; do printf '### Entry %s\n- decided: X%s\n- why: y%s\n\n' "$i" "$i" "$i"; done ;;
   fail)  echo "boom" >&2; exit 1 ;;
   empty) : ;;
   sleep) exec sleep 5 ;;
@@ -132,6 +134,8 @@ sweep() { run "$SWEEP"; }
 events() { [ -f "$LOG" ] && jq -r .event "$LOG" | tr '\n' ' ' | sed 's/ $//' || echo ""; }
 last_field() { jq -r --arg e "$1" "select(.event==\$e)|.$2" "$LOG" 2>/dev/null | tail -1; }
 invocations() { [ -f "$OUTDIR/invocations" ] && wc -l <"$OUTDIR/invocations" | tr -d ' ' || echo 0; }
+# argv_after <flag> — the fake claude's argument right after <flag>
+argv_after() { /usr/bin/grep -x -A1 -F -- "[$1]" "$OUTDIR/argv" | sed -n '2s/^\[\(.*\)\]$/\1/p'; }
 set_conf() { mkdir -p "$CFG/wb"; printf '%s\n' "$@" >"$CFG/wb/capture.conf"; }
 
 echo "# fires: draft written atomically"
@@ -151,6 +155,7 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
 sweep
 assert_nofile "no draft" "$D/draft"
 assert_eq "result none" none "$(last_field sweep_ran result)"
+assert_eq "none: no entries field" null "$(last_field sweep_ran entries)"
 assert_eq "counter reset" 0 "$(cat "$D/unchanged")"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-padded)
 sweep
@@ -216,6 +221,29 @@ sweep
 assert_file "mentions-none: draft written" "$D/draft"
 assert_eq "mentions-none: result draft" draft "$(last_field sweep_ran result)"
 
+echo "# several entries in one answer: up to 3 are kept as the draft"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=two-entries)
+sweep
+assert_eq "two entries: result draft" draft "$(last_field sweep_ran result)"
+assert_eq "two entries: both in the draft" 2 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_eq "two entries: sweep_ran logs entries 2" 2 "$(last_field sweep_ran entries)"
+assert_match "two entries: second body kept" 'decided: D' "$(cat "$D/draft")"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=four-entries)
+sweep
+assert_eq "four entries: result draft" draft "$(last_field sweep_ran result)"
+assert_eq "four entries: exactly 3 kept" 3 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_eq "four entries: sweep_ran logs the 3 kept" 3 "$(last_field sweep_ran entries)"
+assert_eq "four entries: preamble stripped" "### Entry 1" "$(head -1 "$D/draft")"
+assert_match "four entries: third kept whole" 'why: y3' "$(cat "$D/draft")"
+assert_nomatch "four entries: fourth dropped" 'Entry 4|X4|y4' "$(cat "$D/draft")"
+assert_eq "four entries: draft ends at the third body" "- why: y3" "$(tail -1 "$D/draft")"
+new_scenario
+sweep
+assert_eq "one entry: still one" 1 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_eq "one entry: sweep_ran logs entries 1" 1 "$(last_field sweep_ran entries)"
+assert_match "prompt asks for one entry per decision, at most 3" 'one Decisions entry per unrecorded decision, at most 3' "$(tr '\n' ' ' <"$OUTDIR/stdin")"
+assert_nomatch "prompt no longer asks for a single entry" 'single Decisions entry' "$(cat "$OUTDIR/stdin")"
+
 echo "# rerun path parses the same way (preamble entry on both calls)"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,preamble-draft)
 sweep
@@ -228,15 +256,44 @@ sweep
 ARGV="$(cat "$OUTDIR/argv")"
 assert_match "-p" '^\[-p\]$' "$ARGV"
 assert_match "--model" '^\[--model\]$' "$ARGV"
-assert_match "haiku" '^\[haiku\]$' "$ARGV"
+assert_eq "default model: sonnet" sonnet "$(argv_after --model)"
+assert_eq "--effort" medium "$(argv_after --effort)"
+assert_eq "sweep_ran carries the default model" sonnet "$(last_field sweep_ran model)"
+assert_eq "sweep_ran carries the default effort" medium "$(last_field sweep_ran effort)"
 assert_match "--no-session-persistence" '^\[--no-session-persistence\]$' "$ARGV"
 assert_match "--max-turns" '^\[--max-turns\]$' "$ARGV"
 assert_match "max-turns 1" '^\[1\]$' "$ARGV"
 assert_match "--tools" '^\[--tools\]$' "$ARGV"
 assert_match "tools empty-string arg" '^\[\]$' "$ARGV"
 assert_match "--strict-mcp-config (no MCP servers loaded)" '^\[--strict-mcp-config\]$' "$ARGV"
+assert_match "--settings" '^\[--settings\]$' "$ARGV"
+assert_match "hooks disabled in the child" '^\[\{"disableAllHooks":true\}\]$' "$ARGV"
 assert_eq "env stripped/set" "SWEEP=1 TMUX=unset PANE=unset" "$(cat "$OUTDIR/env")"
 assert_eq "cwd is capture root" "$(cd "$CAP" && pwd -P)" "$(cat "$OUTDIR/cwd")"
+
+echo "# sweep_model / sweep_effort: config overrides, invalid values fall back"
+new_scenario; set_conf sweep_model=claude-haiku-4.5 sweep_effort=high
+sweep
+assert_eq "conf model reaches the child" claude-haiku-4.5 "$(argv_after --model)"
+assert_eq "conf effort reaches the child" high "$(argv_after --effort)"
+assert_eq "sweep_ran logs the conf model" claude-haiku-4.5 "$(last_field sweep_ran model)"
+assert_eq "sweep_ran logs the conf effort" high "$(last_field sweep_ran effort)"
+for e in low medium high xhigh max; do
+  new_scenario; set_conf "sweep_effort=$e"; sweep
+  assert_eq "effort $e accepted" "$e" "$(argv_after --effort)"
+done
+for bad in 'sweep_model=-p' 'sweep_model=--tools' 'sweep_model=haiku;rm' 'sweep_model=a b' 'sweep_model=' 'sweep_model=$(x)' 'sweep_model=opus/4' 'sweep_effort=ultra' 'sweep_effort=' 'sweep_effort=HIGH' 'sweep_effort=high extra'; do
+  new_scenario; set_conf "$bad"; sweep
+  assert_eq "invalid [$bad]: model falls back" sonnet "$(argv_after --model)"
+  assert_eq "invalid [$bad]: effort falls back" medium "$(argv_after --effort)"
+done
+new_scenario; set_conf sweep_model=opus sweep_effort=bogus; sweep
+assert_eq "one valid key survives an invalid sibling (model)" opus "$(argv_after --model)"
+assert_eq "one valid key survives an invalid sibling (effort)" medium "$(argv_after --effort)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail); set_conf sweep_model=opus
+sweep
+assert_eq "a failed run still logs model" opus "$(last_field sweep_ran model)"
+assert_eq "a failed run still logs effort" medium "$(last_field sweep_ran effort)"
 
 echo "# recursion guard"
 new_scenario; EXTRA_ENV+=(WB_CAPTURE_SWEEP=1)
@@ -452,7 +509,7 @@ new_scenario
 sweep
 assert_file "fresh: draft written" "$D/draft"
 assert_nofile "fresh: no draft_stale" "$D/draft_stale"
-assert_eq "fresh: sweep_ran line has exactly ts/sid/task/event/result" '["event","result","session_id","task","ts"]' "$(jq -c 'select(.event=="sweep_ran")|keys' "$LOG")"
+assert_eq "fresh: sweep_ran line has exactly ts/sid/task/event/result/model/effort/entries" '["effort","entries","event","model","result","session_id","task","ts"]' "$(jq -c 'select(.event=="sweep_ran")|keys' "$LOG")"
 assert_eq "fresh: no stale field" null "$(last_field sweep_ran stale)"
 
 echo "# stale draft: a non-stale draft removes an old draft_stale"

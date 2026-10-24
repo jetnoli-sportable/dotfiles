@@ -24,22 +24,24 @@ does.
 1. You send a prompt. If a nudge is queued, one line is added to that
    prompt's context and logged as `nudge_fired`. (Prompts that are just a
    `<task-notification>` from a finished background sub-agent get nothing.)
-2. Claude replies. If it ran `wb append … Decisions`, that is logged as
-   `followed` and nothing further is queued.
+2. Claude replies. If a `wb append … Decisions` it ran succeeded, that is
+   logged as `followed` and nothing further is queued.
 3. When the turn ends, the reply is phrase-matched against a short list
    ("we decided", "going with", "settled on", …). A hit queues a nudge for
    the next prompt, then a cooldown (3 turns) keeps it from nagging. A
    nudge that was delivered but not acted on by the end of its turn is
    logged `ignored`.
-4. Also at turn end, an async background Haiku "sweep" looks at the recent
+4. Also at turn end, an async background model "sweep" looks at the recent
    transcript if the task file has gone 4 turns unchanged. If it finds an
-   unrecorded decision it writes a draft; the next prompt gets a nudge
-   pointing at it. It is propose-only, tool-less, and skips itself when
+   unrecorded decision it writes a draft of up to 3 entries (one `### ` block
+   per decision it found; anything past the third is dropped); the next prompt
+   gets a nudge pointing at it. It is propose-only, tool-less, and skips itself when
    muted, when a draft is already pending, when nothing new was said, or
    after 3 failed runs in a row (`claude` missing, logged out or rate-limited).
    A draft nudge that is ignored is delivered once more; ignored a second
    time, the draft is **shelved** (logged `draft_shelved`), not deleted, and
-   sweeping resumes. A draft is only ever removed by your accept or dismiss.
+   sweeping resumes. A draft is only ever resolved by your accept or dismiss, and
+   even then it is moved to `resolved/` (kept 30 days), not deleted.
    If two sweeps overlap and a second draft arrives while one is already
    there, the older one is shelved (reason `superseded`) before the new one
    is written, never overwritten. The exception is a draft you are looking at
@@ -72,6 +74,16 @@ shelved` walks through them one at a time, and `/close-out` asks about each
 before a task winds down. Rejecting runs `wb-capture.sh dismiss <path>`.
 Phrase nudges carry no draft, so ignoring one shelves nothing.
 
+**Resolved drafts.** A draft is the only copy of its text, so accepting or
+dismissing one (session or shelved) never deletes it: it is moved to
+`~/.local/state/wb/capture/resolved/<task>/<timestamp>-<outcome>-<name>.md`, where
+`<outcome>` is `accepted`, `dismissed`, `shelved_accepted` or `shelved_dismissed`
+and `<name>` is the session id or the shelved file's name (a `.md.stale` sidecar
+travels with it). The hourly reaper prunes archived drafts older than 30 days. To
+recover one, read it there or copy it back (`cp` it into `shelved/<task>/` to
+review it again with `/wb-decide shelved`). If the move fails, the draft stays
+where it was and the command says so on stderr.
+
 A shelved draft whose task is already closed is still resolvable from any wb
 session, or from none: path-carrying `accept`/`dismiss` ignore the kill switch and
 need no `@task`. The stem comes from `--task`, else the session's task, else the
@@ -92,9 +104,9 @@ hook would otherwise count as the answer to whatever *other* nudge is live
 in the session (marking it `followed` and wiping its strikes and review
 state). The `--begin` call leaves a one-shot flag; the hook consumes it, notes
 the turn as recorded and leaves the live nudge alone; the final `accept`
-deletes the draft and logs `shelved_accepted` (it does not touch the flag, so
-all three commands in one Bash call still work: PostToolUse fires after the
-whole call). An abandoned accept just leaves the draft shelved: the flag is
+moves the draft to `resolved/` and logs `shelved_accepted` (it does not touch the
+flag, so all three commands in one Bash call still work: PostToolUse fires after the
+whole call). Chain them with `&&` so a failed append skips the final `accept`. An abandoned accept just leaves the draft shelved: the flag is
 dropped by the next real prompt.
 
 **`wb done` won't strand decision drafts.** A shelved draft only gets reviewed
@@ -128,10 +140,10 @@ The first is `source=phrase`, the second `source=sweep`. A draft nudge
 beats a phrase nudge when both are pending.
 
 **Stale drafts.** The sweep snapshots the task's `## Decisions` section (the
-exact text Haiku is shown), then waits up to a minute for Haiku. Edits
+exact text the model is shown), then waits up to a minute for it. Edits
 elsewhere in the task file don't count. If `## Decisions` changed in that
 window (usually `/wb-decide` recording the very decision being drafted), the
-answer is thrown away and Haiku is asked once more against the current
+answer is thrown away and the model is asked once more against the current
 section, so it either answers NONE or drafts something genuinely new
 (`sweep_ran` logs `rerun: true`). Only if the section changes *again* during
 that rerun is the draft kept but flagged possibly stale: the nudge says it
@@ -171,7 +183,7 @@ Check the machinery any time:
 | Invocation | What it does |
 |---|---|
 | `/wb-decide [hint]` | Compose a new entry from the conversation (or accept a pending draft) and `wb append` it under `## Decisions`, then clear capture state. If nothing was actually decided it says so and dismisses instead of writing. |
-| draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone; its closing plain `clear` keeps the draft, which gets nudged again (so does any `wb append … Decisions` that resolves the nudge while the draft survives). Only the draft-accept path runs `clear --draft`, which removes it. |
+| draft pending | Claude shows the sweep's draft when the draft nudge sent it (or you ran `/wb-decide` with no hint); accept as-is, or edit it first (add the missing rejected alternative / why), only if it reflects a real decision. A draft can hold up to 3 entries: Claude reviews each, records the accepted ones in one `wb append`, then resolves the draft (`clear --draft`, or `accept <path>` for a shelved one) even when only some were accepted; if none is, it is a dismiss. A wrong or already-recorded draft is dismissed. A phrase nudge or a hinted `/wb-decide` composes from the conversation and leaves the draft alone; its closing plain `clear` keeps the draft, which gets nudged again (so does any `wb append … Decisions` that resolves the nudge while the draft survives). Only the draft-accept path runs `clear --draft`, which moves it to `resolved/`. |
 | `/wb-decide dismiss` | Drop the pending marker/draft, log `dismissed`. Quiet no-op if nothing was pending. The draft-review path and `/close-out` call `wb-capture.sh dismiss --expect <draft_sha>` (or `--expect none`): `status` prints the draft's sha1 as `draft_sha:`, and the dismiss refuses (exit 1, nothing removed or logged) if a different draft, or any draft for `none`, is present, so a draft the sweep wrote after you looked is never deleted unseen. Bare `dismiss` is unchanged. |
 | `/wb-decide mute` / `unmute` | Per-session mute flag: no phrase nudges, no sweeps for this session. Each is logged. |
 | `/wb-decide status` | Print pending marker/draft (with paths), mute state, the log path, and this task's shelved drafts (every `shelved:` line is relayed verbatim); for a stale draft, a warning plus the Decisions entries added since the snapshot. Read-only. |
@@ -193,6 +205,7 @@ exactly `EOF` can't end it early.
 | Config (optional, untracked) | `~/.config/wb/capture.conf` |
 | Kill switch | `~/.local/state/wb/disable-capture` |
 | Shelved drafts | `~/.local/state/wb/capture/shelved/<task-stem>/<timestamp>-<session>.md` (a `.stale` sidecar marks a stale one) |
+| Resolved drafts | `~/.local/state/wb/capture/resolved/<task-stem>/<timestamp>-<outcome>-<name>.md` (kept 30 days, then pruned by the reaper) |
 | Script | `~/.config/scripts/tmux/wb-capture.sh` (verbs: `hook-*`, `clear [--draft]`, `dismiss [--expect none|<sha1>] [--task <stem>] [<shelved path>]`, `accept [--begin] [--task <stem>] <shelved path>`, `review`, `mute`, `unmute`, `status`; store verbs that need no session: `shelved [--all | --task <stem>]`, `pending-for-task <task-file>`, `log-shelved-left <stem> <count>`); sweep in `wb-capture-sweep.sh` |
 
 **Config keys** — `KEY=value` lines in `capture.conf`, parsed line by line
@@ -203,18 +216,21 @@ exactly `EOF` can't end it early.
 | `phrases` | strong list: `we decided\|decided to\|going with\|let's go with\|we'll go with\|i'll go with\|went with\|settled on\|the decision is\|chose \|opting for\|ruled out` | `\|`-separated, case-insensitive fixed strings |
 | `cooldown` | `3` | turns between phrase nudges |
 | `sweep_every` | `4` | unchanged turns before a sweep |
-| `sweep` | `on` | `on` / `off` — the Haiku background sweep |
+| `sweep` | `on` | `on` / `off` — the background model sweep |
 | `sweep_timeout` | `60` | seconds for the sweep child (`0` means the default 60; the reaper's grace for an ended session, 2 x timeout + 60s, uses the same fallback) |
 | `sweep_max_failures` | `3` | consecutive failed sweeps before the sweep stops for the session (`0` = never stop) |
+| `sweep_model` | `sonnet` | model alias or id for the sweep child (letters, digits, `.`, `_`, `-`, not starting with `-`; anything else falls back to the default). Measured 2026-10-22 on a sweep-sized call: Haiku about $0.006, Sonnet 5.5 at medium effort about $0.124, both about 2s |
+| `sweep_effort` | `medium` | `low` / `medium` / `high` / `xhigh` / `max` — the child's `--effort` (anything else falls back to the default) |
 
 **Log events** (`log.jsonl`, one JSON object per line: `ts`, `session_id`,
 `task`, `event`, optional `source`): `nudge_fired{source}`,
 `followed{source}`, `dismissed`, `ignored{source}` (these three mean only "a
 nudge resolved"), `muted`, `unmuted`,
-`sweep_ran{result: none|draft|invalid|error|timeout}` (`invalid` is an answer
+`sweep_ran{result: none|draft|invalid|error|timeout, model, effort[, entries]}` (`model` and `effort` are the
+settings the child ran with; `entries`, on a draft only, is how many `### ` entries it holds, 1-3 (its size only: `followed` and `shelved_accepted` count drafts, so how many entries were accepted is read from the task's `## Decisions`); `invalid` is an answer
 that is neither NONE nor a `### ` entry: its excerpt is retried once, then
 skipped, and it never counts toward `sweep_max_failures`; `rerun: true` when `## Decisions`
-changed during the first run and Haiku was asked again; `stale: true` when it
+changed during the first run and the model was asked again; `stale: true` when it
 changed again during the rerun; `followed`, `dismissed`, `ignored` and
 `draft_shelved` carry `stale: true` too when they resolve a stale draft),
 `sweep_skipped{reason: disabled|muted|draft_pending|backoff|no_new_content}`,
@@ -224,7 +240,7 @@ rejected; no `source`, and `stale: true` when it was a stale one, so they
 never count toward the nudge follow rate), `shelved_left{count}` (logged by
 `wb done --leave-shelved`; its `session_id` is empty and it carries no `source`),
 `pending_at_end{marker,draft}` (from SessionEnd; the sweep logs it as just
-`{draft:true}` when the session ended while Haiku was still running, and
+`{draft:true}` when the session ended while the sweep child was still running, and
 shelves the draft right after), `pending_orphaned` (the reaper logs it only
 once the dir is really removed, after its `ignored` and `draft_shelved`).
 
