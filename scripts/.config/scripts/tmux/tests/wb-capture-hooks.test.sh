@@ -146,6 +146,25 @@ assert_eq "taskpath recorded" "$FAKE_TASK" "$(cat "$D/taskpath")"
 new_scenario; rm -f "$FAKE_TASK"
 stop "x"; stop "x"; assert_eq "missing task = changed" 0 "$(cat "$D/unchanged")"
 
+echo "# the transcript path is persisted per session by hook-stop and hook-prompt (KTD5)"
+new_scenario
+hook hook-stop '{"session_id":"sid-aaa","transcript_path":"/tmp/x/one.jsonl","last_assistant_message":"hi"}'
+assert_eq "hook-stop writes <session dir>/transcript" "/tmp/x/one.jsonl" "$(cat "$D/transcript" 2>/dev/null)"
+assert_eq "hook-stop: still silent" "0:" "$RC:$OUT"
+hook hook-prompt '{"session_id":"sid-aaa","transcript_path":"/tmp/x/two.jsonl","prompt":"next"}'
+assert_eq "hook-prompt overwrites it with the newer path" "/tmp/x/two.jsonl" "$(cat "$D/transcript" 2>/dev/null)"
+assert_eq "hook-prompt: still silent" "0:" "$RC:$OUT"
+hook hook-stop '{"session_id":"sid-aaa","last_assistant_message":"no path in this payload"}'
+assert_eq "a payload without a path leaves the record alone" "/tmp/x/two.jsonl" "$(cat "$D/transcript" 2>/dev/null)"
+hook hook-prompt '{"session_id":"sid-aaa","transcript_path":"/tmp/x/three.jsonl","prompt":"<task-notification>done</task-notification>"}'
+assert_eq "a synthetic prompt still records the path" "/tmp/x/three.jsonl" "$(cat "$D/transcript" 2>/dev/null)"
+new_scenario
+hook hook-prompt '{"session_id":"sid-aaa","transcript_path":"/tmp/x/first.jsonl","prompt":"first"}'
+assert_eq "hook-prompt alone creates it too" "/tmp/x/first.jsonl" "$(cat "$D/transcript" 2>/dev/null)"
+new_scenario
+hook hook-end '{"session_id":"sid-aaa","transcript_path":"/tmp/x/end.jsonl"}'
+assert_nofile "hook-end does not write it (tombstone only)" "$D/transcript"
+
 echo "# synthetic task-notification prompt: no output, flagged, not counted"
 new_scenario
 prompt "<task-notification>agent done</task-notification>"
@@ -347,7 +366,7 @@ new_scenario
 mkdir -p "$CAP/sid-tmp" "$CAP/sid-unk"
 touch "$CAP/sid-tmp/ended" "$CAP/sid-tmp/draft.tmp.123" "$CAP/sid-tmp/.lock" "$CAP/sid-tmp/sweep_offset" \
   "$CAP/sid-tmp/draft_strikes" "$CAP/sid-tmp/sweep_failures" "$CAP/sid-tmp/sweep_invalid" \
-  "$CAP/sid-tmp/draft_stale" "$CAP/sid-tmp/draft_stale.tmp.77"
+  "$CAP/sid-tmp/draft_stale" "$CAP/sid-tmp/draft_stale.tmp.77" "$CAP/sid-tmp/transcript"
 touch "$CAP/sid-unk/ended" "$CAP/sid-unk/mystery"
 touch -d '1 day ago' "$CAP/sid-tmp/ended" "$CAP/sid-unk/ended"
 prompt "hi"

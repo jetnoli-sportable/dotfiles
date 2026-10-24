@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Tests for wb-capture-sweep.sh (U4, store auto-capture): the async Stop-hook
-# Haiku sweep. tmux AND claude are faked by scripts on PATH — the real claude
-# binary is never invoked.
+# Tests for wb-capture-sweep.sh (U4, store auto-capture; U2 of the capture-nudge
+# rework): the async Stop-hook sweep and its forced checkpoint mode (the
+# `wb-capture.sh sweep` verb). Drafts land on the shelf, one file per decision.
+# tmux AND claude are faked by scripts on PATH — the real claude binary is never
+# invoked.
 # Run: bash scripts/.config/scripts/tmux/tests/wb-capture-sweep.test.sh
 set -uo pipefail
 
@@ -59,20 +61,11 @@ case "$mode" in
   edit-task) # a decision is recorded while "thinking" (task file changes mid-call)
     sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
     printf '### Chose B over A\n- decided: B\n' ;;
+  edit-task-two) # as edit-task, answering two entries
+    sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
+    printf '### Chose B over A\n- decided: B\n\n### Chose D over C\n- decided: D\n' ;;
   edit-handoffs) # a write OUTSIDE ## Decisions while "thinking"
     printf '## Handoffs\nsaved mid-call\n' >>"$FAKE_TASK"
-    printf '### Chose B over A\n- decided: B\n' ;;
-  write-draft) # an overlapping sweep wrote a draft while this child was "thinking"
-    printf 'OVERLAP_FIRST_DRAFT\n' >"$FAKE_DRAFT_PATH"
-    printf '### Chose B over A\n- decided: B\n' ;;
-  write-draft-edit) # overlapping draft written AND the task's Decisions change while "thinking"
-    printf 'OVERLAP_FIRST_DRAFT\n' >"$FAKE_DRAFT_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
-    printf '### Chose B over A\n- decided: B\n' ;;
-  hold-lock) # the draft-write tail must wait on the session lock: a background holder
-    # takes <dir>/.lock now, and at release records whether the draft had landed yet
-    rm -f "$o/held"
-    flock "$FAKE_SDIR/.lock" bash -c ': >"$1"; sleep 1.5; [ -e "$2" ] && echo landed >"$3" || echo absent >"$3"' _ "$o/held" "$FAKE_DRAFT_PATH" "$o/draft_at_release" >/dev/null 2>&1 &
-    for _ in $(seq 1 100); do [ -e "$o/held" ] && break; sleep 0.05; done
     printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
   touch-ended-edit) # session ends AND the task's Decisions change while "thinking"
@@ -101,10 +94,12 @@ new_scenario() {
   FAKE_TASK="$H/tasks/dotfiles--feat-x.md"
   printf '# task\n## Goal\nGOAL_SECTION_TEXT\n## Decisions\n### Existing decision\n- decided: EXISTING_DECISION_TEXT\n## Done\nDONE_SECTION_TEXT\n' >"$FAKE_TASK"
   D="$CAP/sid-aaa"; mkdir -p "$D"
+  SH="$CAP/shelved/dotfiles--feat-x"
   OUTDIR="$H/claude-out"
   TRANSCRIPT="$H/t.jsonl"
   mk_transcript 'first question' 'first answer'
   printf '4\n' >"$D/unchanged"
+  printf '%s\n' "$TRANSCRIPT" >"$D/transcript"     # what hook-stop/hook-prompt persist (KTD5)
   EXTRA_ENV=(WB_CAPTURE_SWEEP_DELAY=0 FAKE_CLAUDE_MODE=draft)
 }
 # mk_transcript <user text> <assistant text> — overwrite fixture
@@ -125,7 +120,7 @@ run() {
   local script="$1"; shift
   local -a envv=(HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG"
     PATH="$FAKEBIN:$PATH" FAKE_TASK="$FAKE_TASK" FAKE_SID=sid-aaa FAKE_CLAUDE_OUT="$OUTDIR"
-    FAKE_ENDED_PATH="$D/ended" FAKE_DRAFT_PATH="$D/draft" FAKE_SDIR="$D" TMUX=fake,1,0 TMUX_PANE=%1)
+    FAKE_ENDED_PATH="$D/ended" TMUX=fake,1,0 TMUX_PANE=%1)
   jq -nc --arg tp "$TRANSCRIPT" '{session_id:"sid-aaa",transcript_path:$tp,last_assistant_message:"hi"}' >"$H/stdin.json"
   OUT="$(env "${envv[@]}" "${EXTRA_ENV[@]}" "$REAL_BASH" "$script" "$@" <"$H/stdin.json" 2>"$H/stderr")"
   RC=$?
@@ -136,16 +131,33 @@ last_field() { jq -r --arg e "$1" "select(.event==\$e)|.$2" "$LOG" 2>/dev/null |
 invocations() { [ -f "$OUTDIR/invocations" ] && wc -l <"$OUTDIR/invocations" | tr -d ' ' || echo 0; }
 # argv_after <flag> — the fake claude's argument right after <flag>
 argv_after() { /usr/bin/grep -x -A1 -F -- "[$1]" "$OUTDIR/argv" | sed -n '2s/^\[\(.*\)\]$/\1/p'; }
+# shelf helpers: drafts live in $SH, one file per decision, never in $D/draft
+shelf_files() { ls "$SH"/*.md 2>/dev/null; }
+shelf_count() { shelf_files | wc -l | tr -d ' '; }
+shelf_cat() { local f; for f in $(shelf_files); do cat "$f"; done; }
+shelf_nth() { shelf_files | sed -n "${1}p"; }
+# shelf_with <pattern> — the shelved file whose text matches (files of one sweep share a
+# timestamp, so their sort order is not the draft order)
+shelf_with() { local f; for f in $(shelf_files); do grep -qE -- "$1" "$f" && { echo "$f"; return; }; done; }
+# no_tmp — leftover *.tmp.* files in the session dir or on the shelf
+no_tmp() { { ls "$D"; ls "$SH" 2>/dev/null; } | grep '\.tmp\.' || true; }
+# assert_shelved <n> <desc> — n files on the shelf and no session draft slot
+assert_shelved() {
+  assert_eq "$2" "$1" "$(shelf_count)"
+  assert_nofile "$2: no session draft slot" "$D/draft"
+}
 set_conf() { mkdir -p "$CFG/wb"; printf '%s\n' "$@" >"$CFG/wb/capture.conf"; }
 
-echo "# fires: draft written atomically"
+echo "# fires: the draft is shelved atomically as its own file"
 new_scenario
 sweep
 assert_eq "exit 0" 0 "$RC"; assert_eq "silent stdout" "" "$OUT"
-assert_file "draft written" "$D/draft"
-assert_match "draft body" '^### Chose B over A' "$(cat "$D/draft")"
-assert_eq "no tmp left" "" "$(ls "$D" | grep 'tmp' || true)"
-assert_eq "sweep_ran logged" "sweep_ran" "$(events)"
+assert_shelved 1 "draft shelved"
+assert_match "draft body" '^### Chose B over A' "$(shelf_cat)"
+assert_eq "no tmp left" "" "$(no_tmp)"
+assert_eq "draft_shelved then sweep_ran logged" "draft_shelved sweep_ran" "$(events)"
+assert_eq "draft_shelved reason sweep" sweep "$(last_field draft_shelved reason)"
+assert_eq "draft_shelved names its file" "$(basename "$(shelf_nth 1)")" "$(last_field draft_shelved draft)"
 assert_eq "result draft" draft "$(last_field sweep_ran result)"
 assert_eq "counter reset" 0 "$(cat "$D/unchanged")"
 assert_eq "offset stored" 3 "$(cat "$D/sweep_offset")"
@@ -153,37 +165,37 @@ assert_eq "offset stored" 3 "$(cat "$D/sweep_offset")"
 echo "# nothing found"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
 sweep
-assert_nofile "no draft" "$D/draft"
+assert_shelved 0 "no draft"
 assert_eq "result none" none "$(last_field sweep_ran result)"
 assert_eq "none: no entries field" null "$(last_field sweep_ran entries)"
 assert_eq "counter reset" 0 "$(cat "$D/unchanged")"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-padded)
 sweep
-assert_nofile "padded NONE: no draft" "$D/draft"
+assert_shelved 0 "padded NONE: no draft"
 assert_eq "padded NONE: result none" none "$(last_field sweep_ran result)"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-prose)
 sweep
-assert_nofile "'None.': no draft" "$D/draft"
+assert_shelved 0 "'None.': no draft"
 assert_eq "'None.': result none" none "$(last_field sweep_ran result)"
 
 echo "# refusal prose ending in a bare NONE line is none, not a draft"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none-refusal)
 sweep
-assert_nofile "refusal+NONE: no draft" "$D/draft"
+assert_shelved 0 "refusal+NONE: no draft"
 assert_eq "refusal+NONE: result none" none "$(last_field sweep_ran result)"
 
 echo "# NONE first then commentary, and decorated NONE, are none"
 for m in none-first none-bold none-code; do
   new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=$m)
   sweep
-  assert_nofile "$m: no draft" "$D/draft"
+  assert_shelved 0 "$m: no draft"
   assert_eq "$m: result none" none "$(last_field sweep_ran result)"
 done
 
 echo "# prose with no heading and no NONE is invalid: retried once, then skipped"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=prose-only)
 sweep
-assert_nofile "prose-only: no draft" "$D/draft"
+assert_shelved 0 "prose-only: no draft"
 assert_eq "prose-only: result invalid" invalid "$(last_field sweep_ran result)"
 assert_nofile "prose-only: offset not advanced" "$D/sweep_offset"
 assert_file "prose-only: retry marked" "$D/sweep_invalid"
@@ -210,36 +222,43 @@ assert_nofile "a draft clears the retry marker" "$D/sweep_invalid"
 echo "# a preamble before the first ### line is stripped from the draft"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=preamble-draft)
 sweep
-assert_file "preamble: draft written" "$D/draft"
-assert_eq "preamble: draft starts at ###" "### Chose B over A" "$(head -1 "$D/draft")"
-assert_nomatch "preamble: text gone" 'Here is the entry' "$(cat "$D/draft")"
+assert_shelved 1 "preamble: draft written"
+assert_eq "preamble: draft starts at ###" "### Chose B over A" "$(head -1 "$(shelf_nth 1)")"
+assert_nomatch "preamble: text gone" 'Here is the entry' "$(shelf_cat)"
 assert_eq "preamble: result draft" draft "$(last_field sweep_ran result)"
 
 echo "# a valid entry that mentions none on a non-final line is still a draft"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=draft-mentions-none)
 sweep
-assert_file "mentions-none: draft written" "$D/draft"
+assert_shelved 1 "mentions-none: draft written"
 assert_eq "mentions-none: result draft" draft "$(last_field sweep_ran result)"
 
-echo "# several entries in one answer: up to 3 are kept as the draft"
+echo "# several entries in one answer: up to 3, each shelved as its own file"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=two-entries)
 sweep
 assert_eq "two entries: result draft" draft "$(last_field sweep_ran result)"
-assert_eq "two entries: both in the draft" 2 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_shelved 2 "two entries: two files"
+assert_eq "two entries: one entry per file" "1 1" "$(for f in $(shelf_files); do grep -c '^### ' "$f"; done | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "two entries: sweep_ran logs entries 2" 2 "$(last_field sweep_ran entries)"
-assert_match "two entries: second body kept" 'decided: D' "$(cat "$D/draft")"
+assert_match "two entries: first entry has its own file" 'decided: B' "$(cat "$(shelf_with 'Chose B')")"
+assert_match "two entries: second entry has its own file" 'decided: D' "$(cat "$(shelf_with 'Chose D')")"
+assert_nomatch "two entries: no mixing" 'decided: D' "$(cat "$(shelf_with 'Chose B')")"
+assert_eq "two entries: two draft_shelved lines" 2 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
+assert_eq "two entries: each draft_shelved names its own file" "$(for f in $(shelf_files); do basename "$f"; done | sort | tr '\n' ' ')" "$(jq -r 'select(.event=="draft_shelved")|.draft' "$LOG" | sort | tr '\n' ' ')"
+assert_eq "two entries: every draft_shelved is reason sweep" sweep "$(jq -r 'select(.event=="draft_shelved")|.reason' "$LOG" | sort -u)"
+assert_eq "two entries: files are distinct" 2 "$(shelf_files | sort -u | wc -l | tr -d ' ')"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=four-entries)
 sweep
 assert_eq "four entries: result draft" draft "$(last_field sweep_ran result)"
-assert_eq "four entries: exactly 3 kept" 3 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_shelved 3 "four entries: exactly 3 files"
 assert_eq "four entries: sweep_ran logs the 3 kept" 3 "$(last_field sweep_ran entries)"
-assert_eq "four entries: preamble stripped" "### Entry 1" "$(head -1 "$D/draft")"
-assert_match "four entries: third kept whole" 'why: y3' "$(cat "$D/draft")"
-assert_nomatch "four entries: fourth dropped" 'Entry 4|X4|y4' "$(cat "$D/draft")"
-assert_eq "four entries: draft ends at the third body" "- why: y3" "$(tail -1 "$D/draft")"
+assert_eq "four entries: preamble stripped" "### Entry 1" "$(head -1 "$(shelf_with 'Entry 1')")"
+assert_match "four entries: third kept whole" 'why: y3' "$(cat "$(shelf_with 'Entry 3')")"
+assert_nomatch "four entries: fourth dropped" 'Entry 4|X4|y4' "$(shelf_cat)"
+assert_eq "four entries: third file ends at its body" "- why: y3" "$(tail -1 "$(shelf_with 'Entry 3')")"
 new_scenario
 sweep
-assert_eq "one entry: still one" 1 "$(/usr/bin/grep -c '^### ' "$D/draft")"
+assert_shelved 1 "one entry: one file"
 assert_eq "one entry: sweep_ran logs entries 1" 1 "$(last_field sweep_ran entries)"
 assert_match "prompt asks for one entry per decision, at most 3" 'one Decisions entry per unrecorded decision, at most 3' "$(tr '\n' ' ' <"$OUTDIR/stdin")"
 assert_nomatch "prompt no longer asks for a single entry" 'single Decisions entry' "$(cat "$OUTDIR/stdin")"
@@ -248,7 +267,7 @@ echo "# rerun path parses the same way (preamble entry on both calls)"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,preamble-draft)
 sweep
 assert_eq "rerun: two invocations" 2 "$(invocations)"
-assert_eq "rerun: draft starts at ###" "### Chose B over A" "$(head -1 "$D/draft" 2>/dev/null)"
+assert_eq "rerun: draft starts at ###" "### Chose B over A" "$(head -1 "$(shelf_nth 1)" 2>/dev/null)"
 
 echo "# child invocation shape"
 new_scenario
@@ -311,13 +330,13 @@ assert_eq "verbs leave unchanged" 4 "$(cat "$D/unchanged")"
 echo "# timeout and error"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=sleep); set_conf sweep_timeout=1
 sweep
-assert_nofile "timeout: no draft" "$D/draft"
+assert_shelved 0 "timeout: no draft"
 assert_eq "timeout result" timeout "$(last_field sweep_ran result)"
 assert_eq "timeout: counter reset" 0 "$(cat "$D/unchanged")"
 assert_nofile "timeout: sweep_offset unchanged (content retried)" "$D/sweep_offset"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail)
 sweep
-assert_nofile "error: no draft" "$D/draft"
+assert_shelved 0 "error: no draft"
 assert_eq "error result" error "$(last_field sweep_ran result)"
 assert_nofile "error: sweep_offset unchanged (content retried)" "$D/sweep_offset"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=empty)
@@ -336,12 +355,12 @@ new_scenario; : >"$D/muted"
 sweep
 assert_eq "muted: invoked" 0 "$(invocations)"
 assert_eq "muted: reason" muted "$(last_field sweep_skipped reason)"
-new_scenario; printf 'existing draft\n' >"$D/draft"
+new_scenario; printf 'legacy draft\n' >"$D/draft"
 sweep
-assert_eq "pending: invoked" 0 "$(invocations)"
-assert_eq "pending: reason" draft_pending "$(last_field sweep_skipped reason)"
-assert_eq "pending: draft untouched" "existing draft" "$(cat "$D/draft")"
-assert_eq "pending: counter reset" 0 "$(cat "$D/unchanged")"
+assert_eq "legacy slot: sweep still runs" 1 "$(invocations)"
+assert_eq "legacy slot: the new draft is shelved" 1 "$(shelf_count)"
+assert_eq "legacy slot: left untouched" "legacy draft" "$(cat "$D/draft")"
+assert_eq "legacy slot: no draft_pending skip" "" "$(last_field sweep_skipped reason)"
 new_scenario; printf '3\n' >"$D/unchanged"
 sweep
 assert_eq "below threshold: invoked" 0 "$(invocations)"
@@ -391,131 +410,52 @@ assert_eq "max 0: never backs off" error "$(last_field sweep_ran result)"
 new_scenario; set_conf sweep_max_failures=abc; printf '3\n' >"$D/sweep_failures"; sweep
 assert_eq "invalid max falls back to 3" backoff "$(last_field sweep_skipped reason)"
 
-echo "# overlapping sweeps: a draft written while the child ran is shelved (superseded), not overwritten"
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
-printf '1\n' >"$D/draft_strikes"
-sweep
-assert_match "the new draft is in place" '^### Chose B over A' "$(cat "$D/draft")"
-SH="$CAP/shelved/dotfiles--feat-x"
-assert_eq "exactly one shelved file" 1 "$(ls "$SH"/*.md 2>/dev/null | wc -l | tr -d ' ')"
-assert_match "the shelved file holds the first draft verbatim" 'OVERLAP_FIRST_DRAFT' "$(cat "$SH"/*.md 2>/dev/null)"
-assert_eq "draft_shelved logged once" 1 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
-assert_eq "draft_shelved reason superseded" superseded "$(last_field draft_shelved reason)"
-assert_eq "sweep_ran still logs draft" draft "$(last_field sweep_ran result)"
-assert_nofile "strikes of the superseded draft are gone" "$D/draft_strikes"
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
-printf '2\n' >"$D/draft_stale"
-sweep
-SH="$CAP/shelved/dotfiles--feat-x"
-assert_eq "a stale superseded draft keeps its stale sidecar" 1 "$(ls "$SH"/*.md.stale 2>/dev/null | wc -l | tr -d ' ')"
-assert_eq "...and draft_shelved is tagged stale" true "$(last_field draft_shelved stale)"
-assert_nofile "the new draft is not stale" "$D/draft_stale"
-new_scenario
-sweep
-assert_nofile "no overlap: nothing shelved" "$CAP/shelved"
-assert_eq "no overlap: no draft_shelved" 0 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
-# the older draft can't be shelved (shelved/ is a plain file, so mkdir fails): it
-# stays, this answer is dropped as an error, and the excerpt is NOT consumed
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
-mkdir -p "$CAP"; : >"$CAP/shelved"
-sweep
-assert_match "shelve failed: the older draft stays in place" 'OVERLAP_FIRST_DRAFT' "$(cat "$D/draft")"
-assert_eq "shelve failed: sweep_ran logs error" error "$(last_field sweep_ran result)"
-assert_nofile "shelve failed: sweep_offset unchanged (content retried)" "$D/sweep_offset"
-
-echo "# overlapping sweeps: a draft under review is left alone; the NEW answer is shelved"
-SH="$CAP/shelved/dotfiles--feat-x"
-protect_check() { # <desc> — the shown draft and its review state are untouched, the new answer is shelved
-  assert_eq "$1: the shown draft is still in place" 'OVERLAP_FIRST_DRAFT' "$(cat "$D/draft")"
-  SH="$CAP/shelved/dotfiles--feat-x"
-  assert_eq "$1: exactly one shelved file" 1 "$(ls "$SH"/*.md 2>/dev/null | wc -l | tr -d ' ')"
-  assert_match "$1: the shelved file holds the NEW answer" '^### Chose B over A' "$(cat "$SH"/*.md 2>/dev/null)"
-  assert_eq "$1: draft_shelved reason superseded" superseded "$(last_field draft_shelved reason)"
-  assert_eq "$1: draft_shelved logged once" 1 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
-  assert_eq "$1: sweep_ran logs draft" draft "$(last_field sweep_ran result)"
-  assert_file "$1: sweep_offset advanced (answer consumed)" "$D/sweep_offset"
-  assert_eq "$1: the draft's strikes are kept" 1 "$(cat "$D/draft_strikes")"
-  assert_nofile "$1: no tmp left" "$(ls "$D"/draft.tmp.* 2>/dev/null | head -1)"
-}
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
-printf '2\n' >"$D/reviewing"; printf '1\n' >"$D/draft_strikes"
-sweep
-protect_check "reviewing"
-assert_eq "reviewing: the review state (carried-Stop counter) is untouched" 2 "$(cat "$D/reviewing")"
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
-printf 'sweep' >"$D/outstanding"; printf '1\n' >"$D/draft_strikes"; printf 'h\n' >"$D/nudged_draft"
-sweep
-protect_check "outstanding=sweep"
-assert_eq "outstanding=sweep: the nudge is still outstanding" sweep "$(cat "$D/outstanding")"
-assert_eq "outstanding=sweep: nudged_draft kept" h "$(cat "$D/nudged_draft")"
-# a phrase nudge outstanding is not a review of the draft: the older draft is shelved first
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
-printf 'phrase' >"$D/outstanding"
-sweep
-assert_match "outstanding=phrase: the new draft is in place" '^### Chose B over A' "$(cat "$D/draft")"
-assert_match "outstanding=phrase: the older draft was shelved" 'OVERLAP_FIRST_DRAFT' "$(cat "$CAP/shelved/dotfiles--feat-x"/*.md 2>/dev/null)"
-# the new answer is stale: sidecar + stale tag
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft-edit)
-printf '1\n' >"$D/reviewing"; printf '1\n' >"$D/draft_strikes"
-sweep
-protect_check "stale answer"
-assert_eq "stale answer: the sidecar marks the shelved answer stale" 1 "$(ls "$SH"/*.md.stale 2>/dev/null | wc -l | tr -d ' ')"
-assert_eq "stale answer: draft_shelved tagged stale" true "$(last_field draft_shelved stale)"
-assert_nofile "stale answer: the shown draft gains no draft_stale" "$D/draft_stale"
-# the new answer can't be shelved (shelved/ is a plain file): error, nothing disturbed, offset not advanced
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
-printf '2\n' >"$D/reviewing"; mkdir -p "$CAP"; : >"$CAP/shelved"
-sweep
-assert_eq "shelve failed: the shown draft stays" 'OVERLAP_FIRST_DRAFT' "$(cat "$D/draft")"
-assert_eq "shelve failed: reviewing untouched" 2 "$(cat "$D/reviewing")"
-assert_eq "shelve failed: sweep_ran logs error" error "$(last_field sweep_ran result)"
-assert_nofile "shelve failed: sweep_offset unchanged (content retried)" "$D/sweep_offset"
-
 echo "# stale draft: task file changed during the child call"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
 sweep
-assert_file "stale: draft still written" "$D/draft"
-assert_match "stale: draft body" '^### Chose B over A' "$(cat "$D/draft")"
-assert_file "stale: draft_stale written" "$D/draft_stale"
-assert_eq "stale: re-snapshot entry count (Existing + first edit)" 2 "$(cat "$D/draft_stale")"
+assert_shelved 1 "stale: draft still shelved"
+assert_match "stale: draft body" '^### Chose B over A' "$(shelf_cat)"
+assert_file "stale: .stale sidecar written" "$(shelf_nth 1).stale"
+assert_eq "stale: re-snapshot entry count (Existing + first edit)" 2 "$(cat "$(shelf_nth 1).stale")"
 assert_eq "stale: child ran twice (one rerun)" 2 "$(invocations)"
 assert_eq "stale: rerun logged" true "$(last_field sweep_ran rerun)"
-assert_eq "stale: no tmp left" "" "$(ls "$D" | grep 'tmp' || true)"
-assert_eq "stale: one sweep_ran" sweep_ran "$(events)"
+assert_eq "stale: no tmp left" "" "$(no_tmp)"
+assert_eq "stale: draft_shelved then one sweep_ran" "draft_shelved sweep_ran" "$(events)"
+assert_eq "stale: draft_shelved tagged stale" true "$(last_field draft_shelved stale)"
 assert_eq "stale: result draft" draft "$(last_field sweep_ran result)"
 assert_eq "stale: stale true" true "$(last_field sweep_ran stale)"
-assert_nofile "stale: no draft_strikes" "$D/draft_strikes"
 
-echo "# stale draft: unchanged task file -> no draft_stale, log as before"
+echo "# stale draft: unchanged task file -> no sidecar, log as before"
 new_scenario
 sweep
-assert_file "fresh: draft written" "$D/draft"
-assert_nofile "fresh: no draft_stale" "$D/draft_stale"
+assert_shelved 1 "fresh: draft shelved"
+assert_nofile "fresh: no .stale sidecar" "$(shelf_nth 1).stale"
 assert_eq "fresh: sweep_ran line has exactly ts/sid/task/event/result/model/effort/entries" '["effort","entries","event","model","result","session_id","task","ts"]' "$(jq -c 'select(.event=="sweep_ran")|keys' "$LOG")"
 assert_eq "fresh: no stale field" null "$(last_field sweep_ran stale)"
-
-echo "# stale draft: a non-stale draft removes an old draft_stale"
-new_scenario; printf '7\n' >"$D/draft_stale"
-sweep
-assert_file "old-stale: draft written" "$D/draft"
-assert_nofile "old-stale: draft_stale removed" "$D/draft_stale"
-assert_eq "old-stale: not tagged" null "$(last_field sweep_ran stale)"
+assert_eq "fresh: draft_shelved has no stale tag" null "$(last_field draft_shelved stale)"
 
 echo "# stale draft: a changed task file with no draft result writes nothing stale"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
 sweep
-assert_nofile "none: no draft_stale" "$D/draft_stale"
+assert_shelved 0 "none: nothing shelved"
 
 echo "# stale draft: count is of the snapshot, task without Decisions entries"
 new_scenario; printf '# task\n## Decisions\n## Done\n' >"$FAKE_TASK"; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
 sweep
-assert_eq "empty section: count of the re-snapshot" 1 "$(cat "$D/draft_stale")"
+assert_eq "empty section: count of the re-snapshot" 1 "$(cat "$(shelf_nth 1).stale")"
+
+echo "# stale draft: every file of a multi-entry stale answer carries the sidecar"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task-two)
+sweep
+assert_shelved 2 "stale multi: two files"
+assert_eq "stale multi: both sidecars hold the re-snapshot count" "2 2" "$(for f in $(shelf_files); do cat "$f.stale"; done | tr '\n' ' ' | sed 's/ $//')"
+assert_eq "stale multi: both draft_shelved tagged stale" "true true" "$(jq -r 'select(.event=="draft_shelved")|.stale' "$LOG" | tr '\n' ' ' | sed 's/ $//')"
 
 echo "# rerun: write outside ## Decisions during the child run is NOT stale"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-handoffs)
 sweep
-assert_file "handoffs: draft written" "$D/draft"
-assert_nofile "handoffs: not stale" "$D/draft_stale"
+assert_shelved 1 "handoffs: draft written"
+assert_nofile "handoffs: not stale" "$(shelf_nth 1).stale"
 assert_eq "handoffs: child called once" 1 "$(invocations)"
 assert_eq "handoffs: no stale field" null "$(last_field sweep_ran stale)"
 assert_eq "handoffs: no rerun field" null "$(last_field sweep_ran rerun)"
@@ -524,20 +464,19 @@ echo "# rerun: Decisions edited in run 1 only -> rerun, draft fresh"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,draft)
 sweep
 assert_eq "rerun: child called twice" 2 "$(invocations)"
-assert_file "rerun: draft written" "$D/draft"
-assert_nofile "rerun: not stale" "$D/draft_stale"
+assert_shelved 1 "rerun: draft written"
+assert_nofile "rerun: not stale" "$(shelf_nth 1).stale"
 assert_eq "rerun: logged" true "$(last_field sweep_ran rerun)"
 assert_eq "rerun: no stale field" null "$(last_field sweep_ran stale)"
 assert_eq "rerun: result draft" draft "$(last_field sweep_ran result)"
 assert_match "rerun: second prompt carries the recorded entry" 'Recorded meanwhile' "$(cat "$OUTDIR/stdin")"
-assert_eq "rerun: one sweep_ran" sweep_ran "$(events)"
+assert_eq "rerun: one draft_shelved, one sweep_ran" "draft_shelved sweep_ran" "$(events)"
 
 echo "# rerun: rerun answers NONE -> no draft"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,none)
 sweep
 assert_eq "rerun-none: child called twice" 2 "$(invocations)"
-assert_nofile "rerun-none: no draft" "$D/draft"
-assert_nofile "rerun-none: no draft_stale" "$D/draft_stale"
+assert_shelved 0 "rerun-none: no draft"
 assert_eq "rerun-none: result none" none "$(last_field sweep_ran result)"
 assert_eq "rerun-none: rerun logged" true "$(last_field sweep_ran rerun)"
 assert_eq "rerun-none: offset advanced" 3 "$(cat "$D/sweep_offset")"
@@ -546,22 +485,22 @@ echo "# rerun: section changes during both runs -> stale draft (re-snapshot coun
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task)
 sweep
 assert_eq "both: child called twice, never thrice" 2 "$(invocations)"
-assert_file "both: draft written" "$D/draft"
-assert_eq "both: draft_stale is the re-snapshot count" 2 "$(cat "$D/draft_stale")"
+assert_shelved 1 "both: draft written"
+assert_eq "both: the .stale sidecar is the re-snapshot count" 2 "$(cat "$(shelf_nth 1).stale")"
 assert_eq "both: rerun true" true "$(last_field sweep_ran rerun)"
 assert_eq "both: stale true" true "$(last_field sweep_ran stale)"
 
 echo "# rerun: rerun times out / errors -> no draft, counts as a failure"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,sleep); set_conf sweep_timeout=1
 sweep
-assert_nofile "rerun-timeout: no draft" "$D/draft"
+assert_shelved 0 "rerun-timeout: no draft"
 assert_eq "rerun-timeout: result" timeout "$(last_field sweep_ran result)"
 assert_eq "rerun-timeout: rerun logged" true "$(last_field sweep_ran rerun)"
 assert_eq "rerun-timeout: failure counted" 1 "$(cat "$D/sweep_failures")"
 assert_nofile "rerun-timeout: offset not advanced" "$D/sweep_offset"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,fail)
 sweep
-assert_nofile "rerun-error: no draft" "$D/draft"
+assert_shelved 0 "rerun-error: no draft"
 assert_eq "rerun-error: result" error "$(last_field sweep_ran result)"
 assert_eq "rerun-error: failure counted" 1 "$(cat "$D/sweep_failures")"
 
@@ -582,7 +521,7 @@ assert_eq "tool-only: invoked" 0 "$(invocations)"
 assert_eq "tool-only: event" sweep_skipped "$(events)"
 assert_eq "tool-only: reason" no_new_content "$(last_field sweep_skipped reason)"
 assert_eq "tool-only: offset advanced past it" 2 "$(cat "$D/sweep_offset")"
-assert_nofile "tool-only: no draft" "$D/draft"
+assert_shelved 0 "tool-only: no draft"
 assert_eq "tool-only: counter reset" 0 "$(cat "$D/unchanged")"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
 sweep                                   # consumes the fixture (offset 3)
@@ -638,21 +577,19 @@ echo "# ended"
 new_scenario; : >"$D/ended"
 sweep
 assert_eq "ended: invoked" 0 "$(invocations)"; assert_nofile "ended: no log" "$LOG"
-assert_nofile "ended: no draft" "$D/draft"
+assert_shelved 0 "ended: no draft"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=touch-ended)
 sweep
 PK="$CAP/shelved/dotfiles--feat-x"
-assert_nofile "ended mid-run: draft not left in the session dir" "$D/draft"
+assert_nofile "ended mid-run: nothing left in the session dir" "$D/draft"
 assert_eq "ended mid-run: no tmp" "" "$(ls "$D" | grep 'tmp' || true)"
-assert_eq "ended mid-run: logs" "pending_at_end draft_shelved sweep_ran" "$(events)"
-assert_eq "pending_at_end draft:true" true "$(last_field pending_at_end draft)"
-assert_eq "ended mid-run: shelved with reason session_end" session_end "$(last_field draft_shelved reason)"
+assert_eq "ended mid-run: logs (no pending_at_end)" "draft_shelved sweep_ran" "$(events)"
+assert_eq "ended mid-run: shelved with reason sweep" sweep "$(last_field draft_shelved reason)"
 assert_eq "ended mid-run: one shelved file" 1 "$(ls "$PK"/*.md 2>/dev/null | wc -l | tr -d ' ')"
 assert_match "ended mid-run: shelved draft is the answer" '^### late' "$(cat "$PK"/*.md)"
 assert_eq "ended mid-run: no .stale sidecar" 0 "$(ls "$PK"/*.stale 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "ended mid-run: no rerun" 1 "$(invocations)"
 assert_eq "ended mid-run: sweep_ran result draft" draft "$(last_field sweep_ran result)"
-assert_nofile "ended mid-run: draft_stale cleaned" "$D/draft_stale"
 # the same, with Decisions changing too: shelved with a .stale sidecar, still no rerun
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=touch-ended-edit); PK="$CAP/shelved/dotfiles--feat-x"
 sweep
@@ -684,7 +621,7 @@ p1=$!
 env "${envv[@]}" "$REAL_BASH" "$CAPTURE" hook-stop <"$H/st.json" >/dev/null 2>&1 &
 p2=$!
 wait $p1 $p2
-assert_file "concurrent: draft written" "$D/draft"
+assert_shelved 1 "concurrent: draft written"
 assert_eq "concurrent: counter reset after sweep" 0 "$(cat "$D/unchanged")"
 assert_eq "concurrent: one sweep" 1 "$(invocations)"
 assert_file "lock file" "$D/.lock"
@@ -720,11 +657,11 @@ p1=$!
 sleep 0.7
 assert_eq "locked: sweep has not reset the counter" 4 "$(cat "$D/unchanged")"
 assert_eq "locked: sweep has not run the child" 0 "$(invocations)"
-assert_nofile "locked: no draft yet" "$D/draft"
+assert_shelved 0 "locked: no draft yet"
 wait $HOLDER $p1
 assert_eq "released: sweep reset the counter" 0 "$(cat "$D/unchanged")"
 assert_eq "released: sweep ran the child" 1 "$(invocations)"
-assert_file "released: draft written" "$D/draft"
+assert_shelved 1 "released: draft written"
 # back-to-back: stop then sweep
 new_scenario
 sha1sum <"$FAKE_TASK" | cut -d' ' -f1 >"$D/taskhash"; printf '3\n' >"$D/unchanged"
@@ -733,12 +670,168 @@ assert_eq "stop bumped counter" 4 "$(cat "$D/unchanged")"
 sweep
 assert_eq "sweep then fires" draft "$(last_field sweep_ran result)"
 
-echo "# the draft write runs under the session lock (so dismiss --expect cannot interleave)"
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=hold-lock)
+echo "# the prompt names what is already drafted or already rejected (R6)"
+stamp() { date -d "$1" +%Y%m%dT%H%M%S; }   # stamp '3 days ago'
+RES_DIR() { echo "$CAP/resolved/dotfiles--feat-x"; }
+# section <title> — the body of one labelled prompt section the fake claude received
+section() { awk -v t="=== $1" 'index($0, t) == 1 { f = 1; next } /^===/ { f = 0 } f' "$OUTDIR/stdin"; }
+new_scenario; mkdir -p "$SH" "$CAP/shelved/other--task"
+printf '### Waiting one\n- decided: W1\n' >"$SH/20261020T100000-sid-old1.md"
+printf '### Waiting two\n- decided: W2\n' >"$SH/20261021T100000-sid-old2.md"
+printf '### Another task waiting\n- decided: O\n' >"$CAP/shelved/other--task/20261020T100000-sid-old3.md"
 sweep
-sleep 2   # the backgrounded lock holder outlives the child; let it finish before asserting
-assert_eq "draft had NOT landed while another process held the lock" absent "$(cat "$OUTDIR/draft_at_release" 2>/dev/null)"
-assert_file "draft landed once the lock was released" "$D/draft"
-assert_eq "result draft" draft "$(last_field sweep_ran result)"
+assert_match "drafted section is labelled" 'ALREADY DRAFTED, AWAITING REVIEW \(do not draft these again\)' "$(cat "$OUTDIR/stdin")"
+assert_match "drafted section lists the first waiting heading" 'Waiting one' "$(section 'ALREADY DRAFTED')"
+assert_match "drafted section lists the second waiting heading" 'Waiting two' "$(section 'ALREADY DRAFTED')"
+assert_nomatch "another task's shelf is not listed" 'Another task waiting' "$(cat "$OUTDIR/stdin")"
+assert_nomatch "no rejected section when nothing was dismissed" 'ALREADY REVIEWED AND REJECTED' "$(cat "$OUTDIR/stdin")"
+assert_match "the recorded decisions are still in the prompt" 'EXISTING_DECISION_TEXT' "$(cat "$OUTDIR/stdin")"
+new_scenario; mkdir -p "$(RES_DIR)"
+printf '### Recently rejected\n- decided: R1\n' >"$(RES_DIR)/$(stamp '3 days ago')-shelved_dismissed-20261001T100000-sid-a.md"
+printf '### Long ago rejected\n- decided: R2\n' >"$(RES_DIR)/$(stamp '20 days ago')-shelved_dismissed-20261001T100001-sid-b.md"
+printf '### Accepted heading\n- decided: A1\n' >"$(RES_DIR)/$(stamp '1 day ago')-shelved_accepted-20261001T100002-sid-c.md"
+printf '### Stale sidecar text\n' >"$(RES_DIR)/$(stamp '2 days ago')-shelved_dismissed-20261001T100003-sid-d.md.stale"
+sweep
+assert_match "rejected section is labelled" 'ALREADY REVIEWED AND REJECTED \(do not draft these again\)' "$(cat "$OUTDIR/stdin")"
+assert_eq "rejected section holds the 3-day-old dismissal only" "- Recently rejected" "$(section 'ALREADY REVIEWED' | /usr/bin/grep -v '^$')"
+assert_nomatch "the 20-day-old dismissal is not listed" 'Long ago rejected' "$(cat "$OUTDIR/stdin")"
+assert_nomatch "an accepted draft is not listed" 'Accepted heading' "$(cat "$OUTDIR/stdin")"
+assert_nomatch "no drafted section when the shelf is empty" 'ALREADY DRAFTED' "$(cat "$OUTDIR/stdin")"
+new_scenario
+sweep
+assert_nomatch "an empty shelf and archive add no section" 'ALREADY (DRAFTED|REVIEWED)' "$(cat "$OUTDIR/stdin")"
+
+echo "# forced sweep (wb-capture.sh sweep): runs below the cadence, one result line, exit 0"
+vsweep() { run "$CAPTURE" sweep; }
+new_scenario; printf '3\n' >"$D/unchanged"
+vsweep
+assert_eq "three quiet turns: drafted 1" "drafted 1" "$OUT"
+assert_eq "exit 0" 0 "$RC"
+assert_eq "the model was asked once" 1 "$(invocations)"
+assert_eq "one file on the shelf" 1 "$(shelf_count)"
+assert_nofile "no session draft slot" "$D/draft"
+assert_eq "the quiet-turn counter is left alone" 3 "$(cat "$D/unchanged")"
+assert_eq "sweep_ran result draft" draft "$(last_field sweep_ran result)"
+vsweep
+assert_eq "run again with nothing new: nothing new" "nothing new" "$OUT"
+assert_eq "nothing new: no second model call" 1 "$(invocations)"
+new_scenario; printf '3\n' >"$D/sweep_offset"
+vsweep
+assert_eq "nothing written since sweep_offset: nothing new" "nothing new" "$OUT"
+assert_eq "nothing new: exit 0" 0 "$RC"
+assert_eq "nothing new: no model call" 0 "$(invocations)"
+assert_eq "nothing new: nothing shelved" 0 "$(shelf_count)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
+vsweep
+assert_eq "model says NONE: none" "none" "$OUT"
+assert_eq "none: sweep_ran result none" none "$(last_field sweep_ran result)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=two-entries)
+vsweep
+assert_eq "two entries: drafted 2" "drafted 2" "$OUT"
+assert_eq "two entries: exactly one stdout line" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
+assert_eq "two entries: two files" 2 "$(shelf_count)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail)
+vsweep
+assert_eq "model error: failed: error" "failed: error" "$OUT"; assert_eq "model error: exit 0" 0 "$RC"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=prose-only)
+vsweep
+assert_eq "contract violation: failed: invalid" "failed: invalid" "$OUT"
+new_scenario; mkdir -p "$CAP"; : >"$CAP/shelved"   # shelved/ is a plain file: nothing can be shelved
+vsweep
+assert_eq "shelving fails: failed: error" "failed: error" "$OUT"; assert_eq "shelving fails: exit 0" 0 "$RC"
+assert_nofile "shelving fails: offset not advanced (content retried)" "$D/sweep_offset"
+
+echo "# forced sweep: guards print a skipped line, make no model call, exit 0"
+new_scenario; : >"$D/muted"
+vsweep
+assert_eq "muted: skipped: muted" "skipped: muted" "$OUT"; assert_eq "muted: exit 0" 0 "$RC"
+assert_eq "muted: no model call" 0 "$(invocations)"
+new_scenario; set_conf sweep=off
+vsweep
+assert_eq "sweep=off: skipped: off" "skipped: off" "$OUT"; assert_eq "sweep=off: no model call" 0 "$(invocations)"
+new_scenario; mkdir -p "$STATE/wb"; : >"$STATE/wb/disable-capture"
+vsweep
+assert_eq "kill switch: skipped: off" "skipped: off" "$OUT"; assert_eq "kill switch: no model call" 0 "$(invocations)"
+new_scenario; EXTRA_ENV+=(WB_CAPTURE_SWEEP=1)
+vsweep
+assert_eq "WB_CAPTURE_SWEEP: skipped: off" "skipped: off" "$OUT"; assert_eq "WB_CAPTURE_SWEEP: no model call" 0 "$(invocations)"
+new_scenario; EXTRA_ENV+=(FAKE_SID=)
+vsweep
+assert_eq "no capture session on the pane: skipped: no session" "skipped: no session" "$OUT"
+assert_eq "no session: exit 0" 0 "$RC"; assert_eq "no session: no model call" 0 "$(invocations)"
+new_scenario; EXTRA_ENV+=(FAKE_TASK=)
+vsweep
+assert_eq "no @task: skipped: no session" "skipped: no session" "$OUT"
+new_scenario; rm -f "$D/transcript"
+vsweep
+assert_eq "no persisted transcript: skipped: no transcript" "skipped: no transcript" "$OUT"
+assert_eq "no transcript: exit 0" 0 "$RC"
+new_scenario; printf '%s\n' "$H/gone.jsonl" >"$D/transcript"
+vsweep
+assert_eq "unreadable transcript: skipped: no transcript" "skipped: no transcript" "$OUT"
+new_scenario; EXTRA_ENV+=(TMUX=)
+vsweep
+assert_eq "outside tmux: skipped: no session" "skipped: no session" "$OUT"
+
+echo "# forced sweep: the failure backoff is ignored, the sweep still runs"
+new_scenario; printf '3\n' >"$D/sweep_failures"
+vsweep
+assert_eq "backoff active: drafted 1" "drafted 1" "$OUT"
+assert_eq "backoff active: the model was asked" 1 "$(invocations)"
+assert_nofile "a successful forced run resets the failure count" "$D/sweep_failures"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=fail)
+vsweep
+assert_eq "a forced failure counts toward the async backoff" 1 "$(cat "$D/sweep_failures")"
+
+echo "# forced sweep: transcript and task come from the session dir, never from stdin"
+new_scenario
+printf '{"type":"user","message":{"role":"user","content":"FROM_SESSION_DIR_TRANSCRIPT"}}\n' >"$H/persisted.jsonl"
+printf '%s\n' "$H/persisted.jsonl" >"$D/transcript"
+vsweep    # run's stdin payload names the fixture transcript; it must be ignored
+assert_eq "drafted from the persisted transcript" "drafted 1" "$OUT"
+assert_match "the excerpt is the persisted transcript" 'FROM_SESSION_DIR_TRANSCRIPT' "$(cat "$OUTDIR/stdin")"
+assert_nomatch "stdin's transcript_path is ignored" 'first answer' "$(cat "$OUTDIR/stdin")"
+new_scenario; printf '%s\n' "$FAKE_TASK" >"$D/taskpath"
+run "$SWEEP" --forced sid-aaa
+assert_eq "script direct: task and transcript from the session dir" "drafted 1" "$OUT"
+assert_eq "script direct: shelved under the task's stem" 1 "$(shelf_count)"
+new_scenario; rm -f "$D/transcript"; mk_transcript 'arg question' 'ARG_TRANSCRIPT_TEXT'
+run "$SWEEP" --forced sid-aaa "$FAKE_TASK" "$TRANSCRIPT"
+assert_eq "script direct: transcript from an argument" "drafted 1" "$OUT"
+assert_match "script direct: the argument's transcript was used" 'ARG_TRANSCRIPT_TEXT' "$(cat "$OUTDIR/stdin")"
+new_scenario
+run "$SWEEP" --forced sid-aaa
+assert_eq "script direct with no task anywhere: skipped: no session" "skipped: no session" "$OUT"
+run "$SWEEP" --forced bad/sid "$FAKE_TASK"
+assert_eq "script direct with an unsafe session id: skipped: no session" "skipped: no session" "$OUT"
+run "$SWEEP" --forced sid-zzz "$FAKE_TASK"
+assert_eq "script direct with an unknown session: skipped: no session" "skipped: no session" "$OUT"
+new_scenario
+mkfifo "$H/fifo"; exec 7<>"$H/fifo"      # a stdin that never delivers: reading it would block
+envv=(HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG" PATH="$FAKEBIN:$PATH" FAKE_TASK="$FAKE_TASK"
+  FAKE_CLAUDE_OUT="$OUTDIR" TMUX=fake,1,0 TMUX_PANE=%1 FAKE_CLAUDE_MODE=draft)
+OUT="$(timeout 20 env "${envv[@]}" "$REAL_BASH" "$SWEEP" --forced sid-aaa "$FAKE_TASK" <&7 2>/dev/null)"; RC=$?
+exec 7>&-
+assert_eq "forced never reads stdin: finished, not timed out" "0:drafted 1" "$RC:$OUT"
+
+echo "# forced sweep: the child timeout holds, on the run and on its rerun (failed: timeout)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=sleep); set_conf sweep_timeout=1
+t0=$SECONDS; vsweep; t1=$((SECONDS - t0))
+assert_eq "run times out: failed: timeout" "failed: timeout" "$OUT"; assert_eq "run times out: exit 0" 0 "$RC"
+[ "$t1" -lt 30 ] && ok "run timeout finished in ${t1}s" || bad "run timeout took ${t1}s"
+echo "       (forced timeout test, run only: ${t1}s)"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,sleep); set_conf sweep_timeout=1
+t0=$SECONDS; vsweep; t2=$((SECONDS - t0))
+assert_eq "rerun times out too: failed: timeout" "failed: timeout" "$OUT"; assert_eq "rerun times out: exit 0" 0 "$RC"
+assert_eq "rerun times out: both calls were made" 2 "$(invocations)"
+assert_eq "rerun times out: nothing shelved" 0 "$(shelf_count)"
+[ "$t2" -lt 30 ] && ok "run+rerun timeout finished in ${t2}s" || bad "run+rerun timeout took ${t2}s"
+echo "       (forced run + rerun timeout test: ${t2}s; worst case at the default 60s is 120s)"
+
+echo "# forced sweep: the stale rerun path shelves with sidecars"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task-two)
+vsweep
+assert_eq "stale rerun: drafted 2" "drafted 2" "$OUT"
+assert_eq "stale rerun: both files carry the re-snapshot count" "2 2" "$(for f in $(shelf_files); do cat "$f.stale"; done | tr '\n' ' ' | sed 's/ $//')"
 
 [ "$fail" = 0 ] && echo "ALL PASSED" || { echo "FAILED"; exit 1; }

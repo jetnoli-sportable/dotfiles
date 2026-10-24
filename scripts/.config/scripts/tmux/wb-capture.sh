@@ -14,14 +14,17 @@
 #   hook-prompt | hook-posttool | hook-stop | hook-end
 #                  Claude Code hook entry points (stdin JSON read once, session_id
 #                  from `.session_id`; all exit 0, silent on failure).
-#     hook-prompt    (UserPromptSubmit) stamps @wb_capture_sid, sheds the `ended`
+#     hook-prompt    (UserPromptSubmit) stamps @wb_capture_sid, records the payload's
+#                  `transcript_path` in <session dir>/transcript, sheds the `ended`
 #                  tombstone (a resumed session is alive), flags synthetic prompts
 #                  (`synthetic`: `<task-notification>` from finished background
 #                  sub-agents and sub-agent hand-backs, which arrive as `Another
 #                  Claude session sent a message:` / `<agent-message ...>`, leading
 #                  whitespace tolerated), then runs the hourly reaper. Prints nothing.
 #     hook-stop      (Stop) updates taskhash/unchanged — the quiet-turn counter the
-#                  sweep reads (skipped after a synthetic prompt) — and `taskpath`.
+#                  sweep reads (skipped after a synthetic prompt) — and `taskpath`, and
+#                  records `transcript_path` in <session dir>/transcript (the forced
+#                  sweep reads it there: it can't be derived from the cwd).
 #                  No phrase matching: nothing is detected here.
 #     hook-posttool  a silent no-op (exits 0 before any guard). The hook entry was
 #                  removed; the verb stays so a session started before the change,
@@ -59,6 +62,25 @@
 #                  @task, else it exits 1 with a message (never a silent exit 0).
 #                  Sessionless, the event is logged with an empty session_id (no jq: the
 #                  file is still moved, the log line skipped).
+#   sweep          the checkpoint sweep (used by /wb-save and /close-out): runs
+#                  wb-capture-sweep.sh in forced mode for this pane's capture session
+#                  (found via @wb_capture_sid), WAITS for it, and prints exactly one line:
+#                    drafted <N>        N drafts were shelved for this task
+#                    none               the model found nothing unrecorded
+#                    nothing new        nothing written to the transcript since the last
+#                                       sweep (no model call)
+#                    skipped: <reason>  off (kill switch, WB_CAPTURE_SWEEP or sweep=off),
+#                                       muted, no session (not in tmux, no @task, no
+#                                       capture session on the pane yet), no transcript
+#                                       (none recorded yet, or unreadable), no jq
+#                    failed: <reason>   timeout, error (model/shelving failed) or invalid
+#                                       (the model broke the output contract)
+#                  Always exits 0, so a caller always goes on to review the shelf. Ignores
+#                  the quiet-turn cadence and the failure backoff (one attempt at a
+#                  checkpoint is the point); keeps the child timeout (sweep_timeout, 60 s
+#                  default; the one stale rerun gets its own, so at most twice that). Takes
+#                  no lock and does not wait on an async sweep: an overlap can at worst
+#                  shelve a duplicate, which the review dismisses.
 #   mute | unmute  write / remove the per-session `muted` flag; logs each.
 #   status         print mute state, session id, the log path, then this task's shelved
 #                  drafts (one `shelved: <path>` line each, `(stale)` when marked;
@@ -91,10 +113,11 @@
 #
 # Paths:
 #   state root   ${XDG_STATE_HOME:-$HOME/.local/state}/wb/capture/
-#   per session  <root>/<session_id>/   (taskhash unchanged draft muted ended
-#                                        synthetic taskpath sweep_offset
-#                                        sweep_failures sweep_invalid draft_stale
-#                                        .lock draft.tmp.* draft_stale.tmp.*)
+#   per session  <root>/<session_id>/   (taskhash unchanged muted ended synthetic
+#                                        taskpath transcript sweep_offset
+#                                        sweep_failures sweep_invalid .lock; a `draft`
+#                                        (+ draft_stale) is only a leftover from before
+#                                        the shelf-only change: nothing writes it now)
 #   shelved drafts <root>/shelved/<task-stem>/<YYYYmmddTHHMMSS>-<sid>.md  (per TASK,
 #                                        outlives the session dir; a sidecar
 #                                        <name>.md.stale marks a stale draft;
@@ -115,17 +138,17 @@
 #
 # A draft is never archived without Jet's explicit accept or dismiss, and never
 # deleted at all: accept/dismiss move it to <root>/resolved/ (kept 30 days, then
-# reaped). The session dir's `draft` slot is the sweep's output until the sweep
-# writes the shelf directly; SessionEnd leaves a remaining one in place and the
-# reaper shelves one it finds in a dir it is about to remove (reason reaped).
+# reaped). The sweep writes the shelf directly; the session dir's old `draft` slot is
+# no longer written. SessionEnd leaves a leftover one in place and the reaper shelves
+# one it finds in a dir it is about to remove (reason reaped).
 # Stale drafts: the sweep snapshots `## Decisions` (the text the model sees), then
 # waits up to a minute for the model. If that section changed meanwhile (typically
 # /wb-decide recording the very decision being drafted) the answer is discarded
 # and the child reruns once on a fresh snapshot. Only if the section changes a
-# second time during the rerun is the draft written — Jet decides — plus
-# `draft_stale`, holding how many `### ` entries `## Decisions` had at the
-# re-snapshot. A shelved stale draft carries a `.stale` sidecar, and its events are
-# tagged `"stale":true`.
+# second time during the rerun is the draft shelved — Jet decides — and each shelved
+# file then carries a `.stale` sidecar holding how many `### ` entries `## Decisions`
+# had at the re-snapshot; its `draft_shelved`/accepted/dismissed events are tagged
+# `"stale":true`.
 # `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
 # sweeps; at sweep_max_failures the sweep skips with reason `backoff`.
 # `sweep_invalid` marks that the last answer broke the output contract (neither
@@ -271,10 +294,21 @@ lock_session() {
 }
 unlock_session() { exec 9>&-; }
 
+# persist_transcript — record the payload's `transcript_path` in <session dir>/transcript,
+# where the forced sweep reads it (KTD5: it can't be derived from the cwd once the agent
+# has changed directory). Needs SDIR; leaves an existing record alone when the payload
+# has none.
+persist_transcript() {
+  local t; t="$(jq_in '.transcript_path // empty')"
+  [ -n "$t" ] && { printf '%s\n' "$t" >"$SDIR/transcript" 2>/dev/null || true; }
+  return 0
+}
+
 # hook_stop — maintain the quiet-turn counters the sweep reads. Nothing is detected here.
 hook_stop() {
   hook_session_dir
   mkdir -p "$SDIR" 2>/dev/null || return 0
+  persist_transcript
   # task-hash / unchanged counter (locked: races with the async sweep)
   lock_session "$SDIR"
   local h="" old un
@@ -304,6 +338,7 @@ hook_prompt_stamp() {
   hook_session_dir
   [ -n "${TMUX_PANE:-}" ] && { tmux set -p -t "$TMUX_PANE" @wb_capture_sid "$SID" >/dev/null 2>&1 || true; }
   mkdir -p "$SDIR" 2>/dev/null || return 0
+  persist_transcript
   # a prompt means the session is alive: a resumed session (`claude --resume`
   # keeps its session_id) must shed the tombstone its SessionEnd left, or the
   # sweep would skip it forever
@@ -365,7 +400,8 @@ retire_draft() {
   return 0
 }
 
-# shelve_draft <sid> <reason> — move SDIR's draft to the per-task shelved dir
+# shelve_draft <sid> <reason> — (the reaper only: the sweep no longer writes a session draft)
+# move SDIR's leftover draft to the per-task shelved dir
 # (verbatim, <YYYYmmddTHHMMSS>-<sid>.md; a `.stale` sidecar when draft_stale
 # exists), log `draft_shelved` (+ stale:true), then drop draft_stale. TASK_STEM
 # empty -> shelved/_unknown. If the move fails nothing is removed (never lose it).
@@ -374,30 +410,31 @@ shelve_draft() {
   [ -f "$SDIR/draft" ] || return 0
   dest="$(shelved_dest "$sid")" || return 1
   mv -- "$SDIR/draft" "$dest" 2>/dev/null || return 1
-  extra="{\"reason\":\"$reason\"}"
+  extra="{\"reason\":\"$reason\",\"draft\":\"${dest##*/}\"}"
   if [ -e "$SDIR/draft_stale" ]; then
     : >"$dest.stale" 2>/dev/null
-    extra="{\"reason\":\"$reason\",\"stale\":true}"
+    extra="{\"reason\":\"$reason\",\"draft\":\"${dest##*/}\",\"stale\":true}"
   fi
   log_event "$sid" draft_shelved "" "$extra"
   remove_named "$SDIR" draft_stale
 }
 
-# shelve_answer <sid> <reason> <text> <stale: true|false> — shelve a NEW sweep answer
-# (text) that never became SDIR's draft: write it to the shelved dir (atomically, so a
-# half-written file is never listed), a `.stale` sidecar when <stale> is true, log
-# `draft_shelved` (+ stale:true). Touches no session state: the draft already in SDIR
-# stays exactly as it was. Fails 1 with nothing left behind.
+# shelve_answer <sid> <reason> <text> <stale: true|false> [<stale-count>] — shelve one
+# drafted decision (text) as its own file: write it to the shelved dir (atomically, so a
+# half-written file is never listed), a `.stale` sidecar when <stale> is true (holding
+# <stale-count>, the `### ` entry count `## Decisions` had at the sweep's re-snapshot,
+# empty when not given), and log `draft_shelved` {reason, draft:<basename>} (+ stale:true).
+# Touches no session state. Fails 1 with nothing left behind.
 shelve_answer() {
-  local sid="$1" reason="$2" text="$3" stale="$4" dest extra
+  local sid="$1" reason="$2" text="$3" stale="$4" count="${5:-}" dest extra
   dest="$(shelved_dest "$sid")" || return 1
   if ! { printf '%s\n' "$text" >"$dest.tmp.$$" && mv -f -- "$dest.tmp.$$" "$dest"; } 2>/dev/null; then
     rm -f -- "$dest.tmp.$$" 2>/dev/null; return 1
   fi
-  extra="{\"reason\":\"$reason\"}"
+  extra="{\"reason\":\"$reason\",\"draft\":\"${dest##*/}\"}"
   if [ "$stale" = true ]; then
-    : >"$dest.stale" 2>/dev/null
-    extra="{\"reason\":\"$reason\",\"stale\":true}"
+    if [ -n "$count" ]; then printf '%s\n' "$count" >"$dest.stale" 2>/dev/null; else : >"$dest.stale" 2>/dev/null; fi
+    extra="{\"reason\":\"$reason\",\"draft\":\"${dest##*/}\",\"stale\":true}"
   fi
   log_event "$sid" draft_shelved "" "$extra"
 }
@@ -407,7 +444,7 @@ reap_dir() {
   local d="$1" f
   # `draft` is deliberately not listed: a dir still holding one is kept (rmdir fails).
   # Line 2 is state that pre-nudge-removal versions wrote: listed so those dirs still reap.
-  remove_named "$d" taskhash unchanged muted ended synthetic taskpath sweep_offset \
+  remove_named "$d" taskhash unchanged muted ended synthetic taskpath transcript sweep_offset \
     sweep_failures sweep_invalid draft_stale .lock \
     marker recorded cooldown outstanding nudged_draft draft_strikes reviewing shelved_accept
   for f in "$d"/draft.tmp.* "$d"/draft_stale.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
@@ -633,6 +670,23 @@ cmd_shelved() {
   log_event "$SID" "$ev" "" "$x"
 }
 
+# cmd_sweep — the checkpoint sweep (agent verb, KTD4): find this pane's capture session
+# like the other agent verbs, run the sweep script in forced mode (stdin from /dev/null)
+# and wait for it. Prints exactly one result line and always exits 0, so the calling
+# skill always goes on to the review. Takes no lock and does not wait on an async sweep.
+cmd_sweep() {
+  local script line
+  if [ -n "${WB_CAPTURE_SWEEP:-}" ] || [ -e "$KILL_SWITCH" ]; then echo "skipped: off"; return 0; fi
+  if ! tmux_task; then echo "skipped: no session"; return 0; fi
+  command -v jq >/dev/null 2>&1 || { echo "skipped: no jq"; return 0; }
+  SID="$(pane_sid)"
+  if [ -z "$SID" ]; then echo "skipped: no session"; return 0; fi
+  script="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-capture-sweep.sh"
+  [ -f "$script" ] || { echo "failed: sweep script missing"; return 0; }
+  line="$(bash "$script" --forced "$SID" "$TASK_PATH" </dev/null 2>/dev/null | tail -n 1)"
+  echo "${line:-failed: no result}"
+}
+
 # stem_ok <stem> — a safe single path component (no slash, not . or ..).
 stem_ok() {
   case "${1:-}" in ''|.|..|*/*) return 1 ;; esac
@@ -744,6 +798,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "$verb" in
     dismiss|accept|keep|mute|unmute|status|_config|hook-prompt|hook-stop|hook-end) ;;
     shelved|pending-for-task|log-shelved-left) ;;
+    sweep) ;;
     hook-posttool) exit 0 ;;   # no-op: the hook entry is gone, old sessions still call it
     *) exit 0 ;;
   esac
@@ -760,6 +815,10 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       esac
       exit 0 ;;
   esac
+
+  # sweep: the checkpoint sweep prints a result line for every outcome (a guard that
+  # fails is `skipped: ...`, never silence), so it does its own guards, not guard_chain
+  if [ "$verb" = sweep ]; then cmd_sweep; exit 0; fi
 
   # accept/dismiss/keep: resolve a shelved draft by path, with or without a wb
   # session, so they skip the kill switch / tmux / @task guards (only the recursion
