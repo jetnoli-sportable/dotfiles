@@ -5,41 +5,33 @@
 
 ```jsonl
 {"id":"agent-store-specialist","kind":"agent","name":"store-specialist","oneliner":"The family's single expert on the ~/code/tasks store — retrieves a distilled answer with `file#section` pointers, or applies a…","source":"claude/.claude/agents/store-specialist.md:1","invoke":"@agent-store-specialist","guide":"","tags":["claude"]}
-{"id":"zsh-alias-N","kind":"alias","name":"N","oneliner":"notes picker / daily note in the persistent notes session (notes.sh)","source":"zsh/.zshrc:91","invoke":"N","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-ca","kind":"alias","name":"ca","oneliner":"legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it","source":"zsh/.zshrc:93","invoke":"ca","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-fd","kind":"alias","name":"fd","oneliner":"fdfind","source":"zsh/.zshrc:83","invoke":"fd","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-ld","kind":"alias","name":"ld","oneliner":"lazydocker","source":"zsh/.zshrc:85","invoke":"ld","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-lz","kind":"alias","name":"lz","oneliner":"lazygit","source":"zsh/.zshrc:84","invoke":"lz","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:183","invoke":"msconfig","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o…","source":"zsh/.zshrc:180","invoke":"replay","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m","source":"zsh/.zshrc:89","invoke":"s","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-vim","kind":"alias","name":"vim","oneliner":"nvim","source":"zsh/.zshrc:82","invoke":"vim","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html","source":"zsh/.zshrc:95","invoke":"wb","guide":"","tags":["zsh"]}
-{"id":"tmux-bind-C-h","kind":"bind","name":"C-h","oneliner":"if-shell \"$is_vim\" 'send-keys C-h'  'select-pane -L'","source":"tmux/.config/tmux/tmux.conf:156","invoke":"C-h","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-C-j","kind":"bind","name":"C-j","oneliner":"if-shell \"$is_vim\" 'send-keys C-j'  'select-pane -D'","source":"tmux/.config/tmux/tmux.conf:157","invoke":"C-j","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-C-k","kind":"bind","name":"C-k","oneliner":"if-shell \"$is_vim\" 'send-keys C-k'  'select-pane -U'","source":"tmux/.config/tmux/tmux.conf:158","invoke":"C-k","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-C-l","kind":"bind","name":"C-l","oneliner":"if-shell \"$is_vim\" 'send-keys C-l'  'select-pane -R'","source":"tmux/.config/tmux/tmux.conf:159","invoke":"C-l","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-copy-mode-vi-C-h","kind":"bind","name":"copy-mode-vi C-h","oneliner":"select-pane -L","source":"tmux/.config/tmux/tmux.conf:166","invoke":"copy-mode-vi C-h","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-copy-mode-vi-C-j","kind":"bind","name":"copy-mode-vi C-j","oneliner":"select-pane -D","source":"tmux/.config/tmux/tmux.conf:167","invoke":"copy-mode-vi C-j","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-copy-mode-vi-C-k","kind":"bind","name":"copy-mode-vi C-k","oneliner":"select-pane -U","source":"tmux/.config/tmux/tmux.conf:168","invoke":"copy-mode-vi C-k","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-copy-mode-vi-C-l","kind":"bind","name":"copy-mode-vi C-l","oneliner":"select-pane -R","source":"tmux/.config/tmux/tmux.conf:169","invoke":"copy-mode-vi C-l","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-copy-mode-vi-Enter","kind":"bind","name":"copy-mode-vi Enter","oneliner":"Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland).","source":"tmux/.config/tmux/tmux.conf:115","invoke":"copy-mode-vi Enter","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-copy-mode-vi-MouseDragEnd1Pane","kind":"bind","name":"copy-mode-vi MouseDragEnd1Pane","oneliner":"send-keys -X copy-pipe-and-cancel \"wl-copy\"","source":"tmux/.config/tmux/tmux.conf:116","invoke":"copy-mode-vi MouseDragEnd1Pane","guide":"","tags":["tmux"]}
+{"id":"zsh-alias-N","kind":"alias","name":"N","oneliner":"notes picker / daily note in the persistent notes session (notes.sh)","source":"zsh/.zshrc:109","invoke":"N","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-ca","kind":"alias","name":"ca","oneliner":"legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it","source":"zsh/.zshrc:111","invoke":"ca","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-fd","kind":"alias","name":"fd","oneliner":"fdfind","source":"zsh/.zshrc:101","invoke":"fd","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-ld","kind":"alias","name":"ld","oneliner":"lazydocker","source":"zsh/.zshrc:103","invoke":"ld","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-lz","kind":"alias","name":"lz","oneliner":"lazygit","source":"zsh/.zshrc:102","invoke":"lz","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:201","invoke":"msconfig","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o…","source":"zsh/.zshrc:198","invoke":"replay","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m","source":"zsh/.zshrc:107","invoke":"s","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-vim","kind":"alias","name":"vim","oneliner":"nvim","source":"zsh/.zshrc:100","invoke":"vim","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html","source":"zsh/.zshrc:113","invoke":"wb","guide":"","tags":["zsh"]}
+{"id":"tmux-bind-copy-mode-vi-Enter","kind":"bind","name":"copy-mode-vi Enter","oneliner":"Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland).","source":"tmux/.config/tmux/tmux.conf:112","invoke":"copy-mode-vi Enter","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-copy-mode-vi-MouseDragEnd1Pane","kind":"bind","name":"copy-mode-vi MouseDragEnd1Pane","oneliner":"send-keys -X copy-pipe-and-cancel \"wl-copy\"","source":"tmux/.config/tmux/tmux.conf:113","invoke":"copy-mode-vi MouseDragEnd1Pane","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-A","kind":"bind","name":"prefix+A","oneliner":"new-window -c \"#{pane_current_path}\" -n \"lazydocker\" \"$SHELL -lc 'lazydocker'\"","source":"tmux/.config/tmux/tmux.conf:48","invoke":"prefix+A","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-C","kind":"bind","name":"prefix+C","oneliner":"Edit the Metrics Server config.hjson (Env / Region / SportType …)","source":"tmux/.config/tmux/tmux.conf:50","invoke":"prefix+C","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-C-Space","kind":"bind","name":"prefix+C-Space","oneliner":"send-prefix","source":"tmux/.config/tmux/tmux.conf:64","invoke":"prefix+C-Space","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-E","kind":"bind","name":"prefix+E","oneliner":"Agent windows/panes (wb_layout_session's `agent` window, `handoff --pane`) run claude inside a bare shell and set remain-on-exit, so a…","source":"tmux/.config/tmux/tmux.conf:85","invoke":"prefix+E","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-E","kind":"bind","name":"prefix+E","oneliner":"Agent windows/panes (wb_layout_session's `agent` window, `handoff --pane`) run claude inside a bare shell and set remain-on-exit, so a…","source":"tmux/.config/tmux/tmux.conf:84","invoke":"prefix+E","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-J","kind":"bind","name":"prefix+J","oneliner":"display-popup -w 80% -h 60% -T ' claude · most-urgent agent ' -E \"~/.config/scripts/tmux/claude-sessions.sh preview-popup\"","source":"tmux/.config/tmux/tmux.conf:18","invoke":"prefix+J","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-N","kind":"bind","name":"prefix+N","oneliner":"prefix+N — open the standing weekly-capture doc (~/code/tasks/weeks/capture.md, `wb week path`) directly in nvim (\"N\" for Notes; lowercase…","source":"tmux/.config/tmux/tmux.conf:35","invoke":"prefix+N","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-a","kind":"bind","name":"prefix+a","oneliner":"new-window -c \"$HOME\" \"~/.config/scripts/tmux/wb.sh\"","source":"tmux/.config/tmux/tmux.conf:13","invoke":"prefix+a","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-c","kind":"bind","name":"prefix+c","oneliner":"new-window -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:192","invoke":"prefix+c","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-dquote","kind":"bind","name":"prefix+\"","oneliner":"Open pane in current dir","source":"tmux/.config/tmux/tmux.conf:190","invoke":"prefix+\"","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-c","kind":"bind","name":"prefix+c","oneliner":"new-window -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:166","invoke":"prefix+c","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-dquote","kind":"bind","name":"prefix+\"","oneliner":"Open pane in current dir","source":"tmux/.config/tmux/tmux.conf:164","invoke":"prefix+\"","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-g","kind":"bind","name":"prefix+g","oneliner":"new-window -c \"#{pane_current_path}\" -n \"lazygit\" \"$SHELL -lc 'lazygit'\"","source":"tmux/.config/tmux/tmux.conf:47","invoke":"prefix+g","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-j","kind":"bind","name":"prefix+j","oneliner":"Claude agent push-notification: prefix+j -> jump straight to the most-urgent waiting agent prefix+J -> preview it first (j/Enter jumps…","source":"tmux/.config/tmux/tmux.conf:17","invoke":"prefix+j","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-m","kind":"bind","name":"prefix+m","oneliner":"wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per…","source":"tmux/.config/tmux/tmux.conf:12","invoke":"prefix+m","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-n","kind":"bind","name":"prefix+n","oneliner":"next-window","source":"tmux/.config/tmux/tmux.conf:19","invoke":"prefix+n","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-p","kind":"bind","name":"prefix+p","oneliner":"prefix+p was tmux's built-in previous-window before this file ever touched it — the capture-doc bind below briefly overrode it (moved off…","source":"tmux/.config/tmux/tmux.conf:25","invoke":"prefix+p","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-percent","kind":"bind","name":"prefix+%","oneliner":"split-window -h -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:191","invoke":"prefix+%","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-percent","kind":"bind","name":"prefix+%","oneliner":"split-window -h -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:165","invoke":"prefix+%","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-q","kind":"bind","name":"prefix+q","oneliner":"prefix+q — quick-ask: a scratch Claude Code window for a one-off question, separate from `/help` (zero-LLM index lookup) and from `wb`'s…","source":"tmux/.config/tmux/tmux.conf:46","invoke":"prefix+q","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-question","kind":"bind","name":"prefix+?","oneliner":"prefix+? — the help picker: fzf over docs/INDEX.md (every bind, alias, skill, doc, decision with provenance).","source":"tmux/.config/tmux/tmux.conf:40","invoke":"prefix+?","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-r","kind":"bind","name":"prefix+r","oneliner":"Add binding to reload tmux.conf for fast, iterative development","source":"tmux/.config/tmux/tmux.conf:2","invoke":"prefix+r","guide":"","tags":["tmux"]}
@@ -268,8 +260,8 @@
 {"id":"memory-wb-resume-parent-substring-limit","kind":"doc","name":"wb resume parent substring limit","oneliner":"wb's fuzzy task resolver is pure substring; a parent whose name prefixes its children can't be uniquely targeted by…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md","guide":"","tags":["memory"]}
 {"id":"memory-wb-test-sandbox-known-failures","kind":"doc","name":"wb test sandbox known failures","oneliner":"full wb Docker suite exits 1 on clean dev: floor 5→11→12 env-dependent files (still 12 on 2026-10-18); judge by per-file FAIL sets, not…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md","guide":"","tags":["memory"]}
 {"id":"memory-workflow-goals-vs-tools-tension","kind":"doc","name":"Workflow goals vs tools tension","oneliner":"2026-07-10 review: notes-tui 4a capture unused (empty inbox), meta-docs now outweigh actual tooling, parent/child feature queued behind…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md","guide":"","tags":["memory"]}
-{"id":"zsh-fn-claude","kind":"function","name":"claude","oneliner":"shell function","source":"zsh/.zshrc:128","invoke":"claude","guide":"","tags":["zsh"]}
-{"id":"zsh-fn-pgh","kind":"function","name":"pgh","oneliner":"Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT…","source":"zsh/.zshrc:109","invoke":"pgh","guide":"","tags":["zsh"]}
+{"id":"zsh-fn-claude","kind":"function","name":"claude","oneliner":"shell function","source":"zsh/.zshrc:146","invoke":"claude","guide":"","tags":["zsh"]}
+{"id":"zsh-fn-pgh","kind":"function","name":"pgh","oneliner":"Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT…","source":"zsh/.zshrc:127","invoke":"pgh","guide":"","tags":["zsh"]}
 {"id":"script-ask","kind":"script","name":"ask.sh","oneliner":"ask.sh — quick-question scratch window (roadmap 9f-5): a fresh Claude Code","source":"scripts/.config/scripts/tmux/ask.sh:1","invoke":"scripts/.config/scripts/tmux/ask.sh","guide":"","tags":["tmux"]}
 {"id":"script-build-try-it","kind":"script","name":"build-try-it.sh","oneliner":"build-try-it.sh — regenerate docs/try-it.md from docs/roadmap.md.","source":"scripts/.config/scripts/build-try-it.sh:1","invoke":"scripts/.config/scripts/build-try-it.sh","guide":"","tags":["shell"]}
 {"id":"script-capture","kind":"script","name":"capture.sh","oneliner":"capture.sh — open the standing weekly-capture doc directly (the file","source":"scripts/.config/scripts/tmux/capture.sh:1","invoke":"scripts/.config/scripts/tmux/capture.sh","guide":"","tags":["tmux"]}
@@ -325,41 +317,33 @@
 | name | kind | what | invoke | source | guide |
 |---|---|---|---|---|---|
 | store-specialist | agent | The family's single expert on the ~/code/tasks store — retrieves a distilled answer with `file#section` pointers, or applies a… | @agent-store-specialist | claude/.claude/agents/store-specialist.md:1 |  |
-| N | alias | notes picker / daily note in the persistent notes session (notes.sh) | N | zsh/.zshrc:91 |  |
-| ca | alias | legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it | ca | zsh/.zshrc:93 |  |
-| fd | alias | fdfind | fd | zsh/.zshrc:83 |  |
-| ld | alias | lazydocker | ld | zsh/.zshrc:85 |  |
-| lz | alias | lazygit | lz | zsh/.zshrc:84 |  |
-| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:183 |  |
-| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o… | replay | zsh/.zshrc:180 |  |
-| s | alias | legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m | s | zsh/.zshrc:89 |  |
-| vim | alias | nvim | vim | zsh/.zshrc:82 |  |
-| wb | alias | the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html | wb | zsh/.zshrc:95 |  |
-| C-h | bind | if-shell "$is_vim" 'send-keys C-h'  'select-pane -L' | C-h | tmux/.config/tmux/tmux.conf:156 |  |
-| C-j | bind | if-shell "$is_vim" 'send-keys C-j'  'select-pane -D' | C-j | tmux/.config/tmux/tmux.conf:157 |  |
-| C-k | bind | if-shell "$is_vim" 'send-keys C-k'  'select-pane -U' | C-k | tmux/.config/tmux/tmux.conf:158 |  |
-| C-l | bind | if-shell "$is_vim" 'send-keys C-l'  'select-pane -R' | C-l | tmux/.config/tmux/tmux.conf:159 |  |
-| copy-mode-vi C-h | bind | select-pane -L | copy-mode-vi C-h | tmux/.config/tmux/tmux.conf:166 |  |
-| copy-mode-vi C-j | bind | select-pane -D | copy-mode-vi C-j | tmux/.config/tmux/tmux.conf:167 |  |
-| copy-mode-vi C-k | bind | select-pane -U | copy-mode-vi C-k | tmux/.config/tmux/tmux.conf:168 |  |
-| copy-mode-vi C-l | bind | select-pane -R | copy-mode-vi C-l | tmux/.config/tmux/tmux.conf:169 |  |
-| copy-mode-vi Enter | bind | Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland). | copy-mode-vi Enter | tmux/.config/tmux/tmux.conf:115 |  |
-| copy-mode-vi MouseDragEnd1Pane | bind | send-keys -X copy-pipe-and-cancel "wl-copy" | copy-mode-vi MouseDragEnd1Pane | tmux/.config/tmux/tmux.conf:116 |  |
+| N | alias | notes picker / daily note in the persistent notes session (notes.sh) | N | zsh/.zshrc:109 |  |
+| ca | alias | legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it | ca | zsh/.zshrc:111 |  |
+| fd | alias | fdfind | fd | zsh/.zshrc:101 |  |
+| ld | alias | lazydocker | ld | zsh/.zshrc:103 |  |
+| lz | alias | lazygit | lz | zsh/.zshrc:102 |  |
+| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:201 |  |
+| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o… | replay | zsh/.zshrc:198 |  |
+| s | alias | legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m | s | zsh/.zshrc:107 |  |
+| vim | alias | nvim | vim | zsh/.zshrc:100 |  |
+| wb | alias | the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html | wb | zsh/.zshrc:113 |  |
+| copy-mode-vi Enter | bind | Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland). | copy-mode-vi Enter | tmux/.config/tmux/tmux.conf:112 |  |
+| copy-mode-vi MouseDragEnd1Pane | bind | send-keys -X copy-pipe-and-cancel "wl-copy" | copy-mode-vi MouseDragEnd1Pane | tmux/.config/tmux/tmux.conf:113 |  |
 | prefix+A | bind | new-window -c "#{pane_current_path}" -n "lazydocker" "$SHELL -lc 'lazydocker'" | prefix+A | tmux/.config/tmux/tmux.conf:48 |  |
 | prefix+C | bind | Edit the Metrics Server config.hjson (Env / Region / SportType …) | prefix+C | tmux/.config/tmux/tmux.conf:50 |  |
 | prefix+C-Space | bind | send-prefix | prefix+C-Space | tmux/.config/tmux/tmux.conf:64 |  |
-| prefix+E | bind | Agent windows/panes (wb_layout_session's `agent` window, `handoff --pane`) run claude inside a bare shell and set remain-on-exit, so a… | prefix+E | tmux/.config/tmux/tmux.conf:85 |  |
+| prefix+E | bind | Agent windows/panes (wb_layout_session's `agent` window, `handoff --pane`) run claude inside a bare shell and set remain-on-exit, so a… | prefix+E | tmux/.config/tmux/tmux.conf:84 |  |
 | prefix+J | bind | display-popup -w 80% -h 60% -T ' claude · most-urgent agent ' -E "~/.config/scripts/tmux/claude-sessions.sh preview-popup" | prefix+J | tmux/.config/tmux/tmux.conf:18 |  |
 | prefix+N | bind | prefix+N — open the standing weekly-capture doc (~/code/tasks/weeks/capture.md, `wb week path`) directly in nvim ("N" for Notes; lowercase… | prefix+N | tmux/.config/tmux/tmux.conf:35 |  |
 | prefix+a | bind | new-window -c "$HOME" "~/.config/scripts/tmux/wb.sh" | prefix+a | tmux/.config/tmux/tmux.conf:13 |  |
-| prefix+c | bind | new-window -c "#{pane_current_path}" | prefix+c | tmux/.config/tmux/tmux.conf:192 |  |
-| prefix+" | bind | Open pane in current dir | prefix+" | tmux/.config/tmux/tmux.conf:190 |  |
+| prefix+c | bind | new-window -c "#{pane_current_path}" | prefix+c | tmux/.config/tmux/tmux.conf:166 |  |
+| prefix+" | bind | Open pane in current dir | prefix+" | tmux/.config/tmux/tmux.conf:164 |  |
 | prefix+g | bind | new-window -c "#{pane_current_path}" -n "lazygit" "$SHELL -lc 'lazygit'" | prefix+g | tmux/.config/tmux/tmux.conf:47 |  |
 | prefix+j | bind | Claude agent push-notification: prefix+j -> jump straight to the most-urgent waiting agent prefix+J -> preview it first (j/Enter jumps… | prefix+j | tmux/.config/tmux/tmux.conf:17 |  |
 | prefix+m | bind | wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per… | prefix+m | tmux/.config/tmux/tmux.conf:12 |  |
 | prefix+n | bind | next-window | prefix+n | tmux/.config/tmux/tmux.conf:19 |  |
 | prefix+p | bind | prefix+p was tmux's built-in previous-window before this file ever touched it — the capture-doc bind below briefly overrode it (moved off… | prefix+p | tmux/.config/tmux/tmux.conf:25 |  |
-| prefix+% | bind | split-window -h -c "#{pane_current_path}" | prefix+% | tmux/.config/tmux/tmux.conf:191 |  |
+| prefix+% | bind | split-window -h -c "#{pane_current_path}" | prefix+% | tmux/.config/tmux/tmux.conf:165 |  |
 | prefix+q | bind | prefix+q — quick-ask: a scratch Claude Code window for a one-off question, separate from `/help` (zero-LLM index lookup) and from `wb`'s… | prefix+q | tmux/.config/tmux/tmux.conf:46 |  |
 | prefix+? | bind | prefix+? — the help picker: fzf over docs/INDEX.md (every bind, alias, skill, doc, decision with provenance). | prefix+? | tmux/.config/tmux/tmux.conf:40 |  |
 | prefix+r | bind | Add binding to reload tmux.conf for fast, iterative development | prefix+r | tmux/.config/tmux/tmux.conf:2 |  |
@@ -588,8 +572,8 @@
 | wb resume parent substring limit | doc | wb's fuzzy task resolver is pure substring; a parent whose name prefixes its children can't be uniquely targeted by… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md:1 |  |
 | wb test sandbox known failures | doc | full wb Docker suite exits 1 on clean dev: floor 5→11→12 env-dependent files (still 12 on 2026-10-18); judge by per-file FAIL sets, not… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md:1 |  |
 | Workflow goals vs tools tension | doc | 2026-07-10 review: notes-tui 4a capture unused (empty inbox), meta-docs now outweigh actual tooling, parent/child feature queued behind… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md:1 |  |
-| claude | function | shell function | claude | zsh/.zshrc:128 |  |
-| pgh | function | Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT… | pgh | zsh/.zshrc:109 |  |
+| claude | function | shell function | claude | zsh/.zshrc:146 |  |
+| pgh | function | Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT… | pgh | zsh/.zshrc:127 |  |
 | ask.sh | script | ask.sh — quick-question scratch window (roadmap 9f-5): a fresh Claude Code | scripts/.config/scripts/tmux/ask.sh | scripts/.config/scripts/tmux/ask.sh:1 |  |
 | build-try-it.sh | script | build-try-it.sh — regenerate docs/try-it.md from docs/roadmap.md. | scripts/.config/scripts/build-try-it.sh | scripts/.config/scripts/build-try-it.sh:1 |  |
 | capture.sh | script | capture.sh — open the standing weekly-capture doc directly (the file | scripts/.config/scripts/tmux/capture.sh | scripts/.config/scripts/tmux/capture.sh:1 |  |
