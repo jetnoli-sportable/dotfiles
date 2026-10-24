@@ -5250,10 +5250,12 @@ cmd_done() {
   wb_set_frontmatter "$task_file" claude_sessions ""
   # Say what was actually torn down: without --close the session survives,
   # and a 2026-10-18 batch left 14 idle sessions whose Handoffs all claimed
-  # "Session closed".
+  # "Session closed". A store-only close never touches a worktree, but a
+  # dormant picker row (ctrl-x after `wb down`) still has one on disk, so
+  # it says nothing was torn down rather than that nothing existed.
   local done_note
   if [ "$store_only" = 1 ]; then
-    done_note='Closed in the store only (`wb done`): no session or worktree to tear down'
+    done_note='Closed in the store only (`wb done`): no live session, nothing torn down'
   elif [ "$close" -eq 1 ]; then
     done_note='Worktree removed, session closed (`wb done --close`)'
   else
@@ -5274,7 +5276,7 @@ cmd_done() {
   fi
 
   if [ "$store_only" = 1 ]; then
-    echo "wb done: $task_file closed (store-only — no live session or worktree to tear down)"
+    echo "wb done: $task_file closed (store-only — no live session, nothing torn down)"
   elif [ "$close" -eq 1 ]; then
     echo "wb done: $session — worktree removed, session closed, task -> done ($task_file)"
   else

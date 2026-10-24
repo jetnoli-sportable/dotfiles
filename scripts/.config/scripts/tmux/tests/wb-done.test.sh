@@ -329,7 +329,7 @@ assert "shelved guard (store-only): names the draft" "shelved/proj--iota/2026101
 out="$(cmd_done proj--iota --leave-shelved 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   - --leave-shelved (store-only): exits 0" || { echo "FAIL - --leave-shelved (store-only): exit $rc: $out"; fail=1; }
 assert "--leave-shelved (store-only): task done" '^done$' "$(wb_get_frontmatter "$iota_file" status)"
-assert "store-only: handoff line says no session or worktree was torn down" 'Closed in the store only \(`wb done`\): no session or worktree to tear down; --leave-shelved: 1 decision draft' "$(cat "$iota_file")"
+assert "store-only: handoff line says nothing was torn down" 'Closed in the store only \(`wb done`\): no live session, nothing torn down; --leave-shelved: 1 decision draft' "$(cat "$iota_file")"
 [ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 2 ] && echo "ok   - --leave-shelved (store-only): logged" || { echo "FAIL - --leave-shelved (store-only): log line count"; fail=1; }
 
 # --- end-to-end: the shelved draft comes from the REAL wb-capture.sh hook-end path, ---

@@ -111,9 +111,16 @@ command completing IS the signal").
   Never add it to get past a refusal on your own initiative.
 - An explicit `<session>` name: pass it through if the user named a
   session other than the one this skill is running in (e.g. tidying up a
-  different task from the picker's session list). Otherwise omit it. For a
-  batch, run one `wb done --close <session>` per worker, one after another
-  in a single background command; each may open its own review buffer.
+  different task from the picker's session list). Otherwise omit it.
+- **A batch** of other sessions: take each target's name from
+  `tmux list-sessions -F '#S'`, never from a task-file stem. A name that
+  matches no live session sends `wb done` down its store-only path, which
+  marks the task done without the dirty-tree check or the worktree
+  removal, so leave such a target out and tell the user which ones you
+  skipped. Run one `wb done --close <session>` per worker in a single
+  background command, joined with `;` rather than `&&` so one refusal
+  (a dirty tree, pending drafts) doesn't stop the rest. Each may open its
+  own review buffer.
 
 ### 2. Launch backgrounded, then end the turn
 
@@ -129,8 +136,9 @@ When the background call completes, read its stdout/stderr and relay
 paraphrase, same posture `/handoff`'s SKILL.md step 6 takes toward
 `handoff.sh`'s own messages ("Relay the outcome back to the user in one
 line. `handoff.sh`'s own stdout/stderr messages say exactly which case
-happened — read the pane output rather than guessing"). `wb done` prints
-one of, among others:
+happened — read the pane output rather than guessing"). For a batch, relay
+one line per worker, refusals included, in the order they ran. `wb done`
+prints one of, among others:
 
 - `wb done: <session> — worktree removed, session closed, task -> done (<task_file>)`
   — the happy path with `--close`; relay as-is.

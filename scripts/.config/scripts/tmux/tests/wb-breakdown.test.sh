@@ -842,7 +842,7 @@ if [ -e "$TASKS_DIR/dossiers/proj--feat-family/scratch-notes.txt" ]; then
 else
   echo "ok   - migrated family: nothing dossiered under the parent's stem"
 fi
-assert "migrated family: message names the session, not a stale parent reference" 'closed' "$out_fam"
+assert "migrated family: message names the session, not a stale parent reference" "${fam_session} — worktree removed" "$out_fam"
 
 # --- @task pointing at a deleted file: fallback derivation, one warning ----
 mk_task_file proj--feat-stale-task doing proj feat-stale-task .worktrees/feat-stale-task ""
@@ -880,7 +880,7 @@ mk_task_file proj--feat-store-only doing proj "" "" ""
 out_store="$(cmd_done "proj--feat-store-only" 2>&1)"; rc_store=$?
 assert_eq "store-only close: exits 0" 0 "$rc_store"
 assert_eq "store-only close: flips to done" "done" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-store-only.md" status)"
-assert "store-only close: handoff entry appended" 'Session closed' "$(cat "$TASKS_DIR/proj--feat-store-only.md")"
+assert "store-only close: handoff entry appended" 'Closed in the store only' "$(cat "$TASKS_DIR/proj--feat-store-only.md")"
 assert "store-only close: message says store-only" 'store-only' "$out_store"
 
 out_neither="$(cmd_done "no-such-session-or-task-$$" 2>&1)"; rc_neither=$?
