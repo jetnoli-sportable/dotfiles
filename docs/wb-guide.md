@@ -338,7 +338,7 @@ resumes cold, which is correct: there's nothing left to warm-resume into.
 ## wb done — wind down, safely
 
 ```
-$ wb done [<session>]   # no argument = the session you're in
+$ wb done [--close] [--leave-shelved] [<session>]   # no session = the one you're in
 ```
 
 In order, every time:
@@ -354,7 +354,12 @@ In order, every time:
    checklist.
 4. Removes the git worktree, flips the task's `status:` to `done`, blanks
    `claude_sessions:` (a done task's worktree is gone, so there's nothing
-   left for it to record), kills the tmux session.
+   left for it to record), and logs in `## Handoffs` what was torn down.
+5. With `--close`, also kills the tmux session. Without it the session
+   stays open, and both the printed line and the Handoffs entry say
+   "session left open". Winding down *another* session (a batch of
+   finished workers) should pass `--close`, or the sessions sit idle; the
+   picker's <kbd>Ctrl</kbd>+<kbd>x</kbd> already does.
 
 > If you're several tasks behind on tidying up, `wb done` will nudge you:
 > *"N follow-ups pending · M unreviewed capture entries (Xd since last

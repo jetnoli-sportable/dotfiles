@@ -37,8 +37,11 @@ threads, then the wind-down, in that order, because the sweep has to happen
   skill does not open its own copy of that async-nvim-buffer problem — see
   `wb-done/SKILL.md`'s "Why this needs to exist at all" for why a plain
   synchronous `wb done` call would hang the turn.
-- **Does not decide `--close` on its own.** Same rule as `wb-done`: only
-  pass it when the user's own words in *this* invocation ask for it.
+- **Does not decide `--close` on its own.** Same rule as `wb-done` for the
+  caller's own session, which is the only one this skill winds down: only
+  pass it when the user's own words in *this* invocation ask for it. (The
+  `wb-done` skill's default of `--close` applies only when winding down
+  *another* session, such as a batch of finished workers.)
 
 ## Flow
 
