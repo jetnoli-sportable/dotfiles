@@ -47,6 +47,13 @@ g checkout -q -b bases "$B"
 g commit -qam basemove; BM=$(g rev-parse HEAD)
 g checkout -q "$B" -- del.txt; sed -i 's/old value/new value/' "$R/del.txt"
 g commit -qam basegone; BG=$(g rev-parse HEAD)
+# PR 1 rebased onto BM plus an upstream line at the end of chg.py (BU, head HR)
+g checkout -q -b rebased "$BM"; echo 'line 11' >> "$R/chg.py"
+g commit -qam upstream; BU=$(g rev-parse HEAD)
+g cherry-pick "$H1" >/dev/null; HR=$(g rev-parse HEAD)
+# PR 1's head with new.py renamed to a path with a space (HN)
+g checkout -q -b renamed "$H1"; g mv new.py "new file.py"
+g commit -qm rename; HN=$(g rev-parse HEAD)
 g checkout -q main
 
 # target <dir> <head> [base] : single-PR target (PR 1) checked at <head>
@@ -196,7 +203,28 @@ if run "$D"; then
   expect "base moved -> files_changed lists the base diff" "$(top "$D" files_changed)" "{'1': ['del.txt']}"
 fi
 
-# 5c. git cannot diff the previous head -> files_changed null, comment re-checked
+# 5c. re-run after a rebase: head and base both moved, the head diff carries upstream files
+D="$WORK/rebase"; target "$D" "$H1"
+comments "$D" "$(c 56 del.txt "$DELH")" "$(c 57 chg.py "$CHGH")" "$(c 58 new.py "$NEWH")"
+run "$D" && mv "$D/state.next.json" "$D/state.json"
+target "$D" "$HR" "$BU"
+if run "$D"; then
+  expect "rebase: base-side comment -> changed, moved on the base" "$(field "$D" 56 "r['changed'],r['cite'],r['line']")" "(True, 'moved', 4)"
+  expect "rebase: head-side on an upstream-touched file -> changed" "$(field "$D" 57 "r['changed'],r['cite'],r['line']")" "(True, 'ok', 6)"
+  expect "rebase: head-side on an untouched file -> not changed" "$(field "$D" 58 "r['changed']")" "False"
+  expect "rebase -> files_changed holds head and base diffs" "$(top "$D" files_changed)" "{'1': ['chg.py', 'del.txt']}"
+fi
+
+# 5d. a commented file renamed to a path with a space: both paths listed whole
+D="$WORK/rename"; target "$D" "$H1"; comments "$D" "$(c 59 new.py "$NEWH")"
+run "$D" && mv "$D/state.next.json" "$D/state.json"
+target "$D" "$HN"
+if run "$D"; then
+  expect "renamed away -> changed, gone" "$(field "$D" 59 "r['changed'],r['cite']")" "(True, 'gone')"
+  expect "rename -> files_changed has old and new path" "$(top "$D" files_changed)" "{'1': ['new file.py', 'new.py']}"
+fi
+
+# 5e. git cannot diff the previous head -> files_changed null, comment re-checked
 D="$WORK/nodiff"; target "$D" "$H1"; comments "$D" "$(c 55 chg.py "$CHGH")"
 run "$D" && sed "s/$H1/$(printf '0%.0s' {1..40})/" "$D/state.next.json" > "$D/state.json"
 if run "$D"; then

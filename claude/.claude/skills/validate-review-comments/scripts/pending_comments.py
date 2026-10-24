@@ -128,9 +128,10 @@ def pr_ends(target, pr):
 
 
 def changed_files(repo, old, new, cache):
+    """Paths changed between two commits; a rename gives both its old and new path."""
     if (old, new) not in cache:
-        out = git(repo, "diff", "--name-only", old, new)
-        cache[old, new] = None if out is None else set(out.split())
+        out = git(repo, "diff", "--name-only", "--no-renames", "-z", old, new)
+        cache[old, new] = None if out is None else {p for p in out.split("\0") if p}
     return cache[old, new]
 
 
