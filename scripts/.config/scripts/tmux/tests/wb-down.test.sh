@@ -138,6 +138,7 @@ if tmux has-session -t "=${SESSION}-keep" 2>/dev/null; then
 else
   echo "FAIL - --keep-session must not kill the session"; fail=1
 fi
+assert "--keep-session: handoff line says the session stays open" 'Worktree kept, session left open \(`wb down --keep-session`\)\.$' "$(cat "$FIXTURE/proj--feat-unknown.md")"
 tmux kill-session -t "=${SESSION}-keep" 2>/dev/null || true
 
 # --- error path: not a wb task session, nothing written ---------------------

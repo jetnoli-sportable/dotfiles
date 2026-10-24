@@ -146,7 +146,8 @@ alpha_session="$(session_for alpha)"
 wb_set_frontmatter "$FIXTURE_TASKS/proj--alpha.md" claude_sessions 'abc@2026-09-01T00:00:00Z@primary'
 out="$(cmd_done "$alpha_session" 2>&1)"; rc=$?
 assert "plain done: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
-assert "plain done: confirmation message" 'closed' "$out"
+assert "plain done: confirmation says the session stays open" 'worktree removed, session left open \(pass --close to end it\), task -> done' "$out"
+assert "plain done: handoff line says the session stays open" 'Worktree removed, session left open \(`wb done` without `--close`\)\.$' "$(cat "$FIXTURE_TASKS/proj--alpha.md")"
 if printf '%s' "$out" | grep -q 'roadmap-tracked'; then
   echo "FAIL - U10 nudge: fired for repo: proj, which isn't roadmap-tracked"; fail=1
 else
@@ -176,6 +177,8 @@ assert "done --close: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - e
   && { echo "FAIL - done --close: worktree not removed"; fail=1; } \
   || echo "ok   - done --close: worktree removed"
 assert "done --close: task flipped to done" '^done$' "$(status_of beta)"
+assert "done --close: confirmation says the session closed" 'worktree removed, session closed, task -> done' "$out"
+assert "done --close: handoff line says the session closed" 'Worktree removed, session closed \(`wb done --close`\)\.$' "$(cat "$FIXTURE_TASKS/proj--beta.md")"
 if tmux has-session -t "=$beta_session" 2>/dev/null; then
   echo "FAIL - done --close: session survived --close"; fail=1
 else
@@ -220,7 +223,7 @@ assert "handoffs done: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - 
 assert "handoffs done: task flipped to done" '^done$' "$(status_of delta)"
 
 assert "handoffs done: prior entry survives" 'Session paused via `wb pause`\.' "$(cat "$delta_file")"
-assert "handoffs done: new entry appended" 'Session closed via `wb done`\.' "$(cat "$delta_file")"
+assert "handoffs done: new entry appended" 'Worktree removed, session left open \(`wb done` without `--close`\)\.' "$(cat "$delta_file")"
 
 entry_count="$(grep -cE '^### .* — wb (pause|done) \(auto\)$' "$delta_file")"
 if [ "$entry_count" -eq 2 ]; then
@@ -303,6 +306,7 @@ assert "--leave-shelved: logs shelved_left with the count" '"event":"shelved_lef
 assert "--leave-shelved: log line names the task" '"task":"proj--eta"' "$(cat "$CAPROOT/log.jsonl" 2>/dev/null)"
 [ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 1 ] && echo "ok   - --leave-shelved: exactly one log line" || { echo "FAIL - --leave-shelved: log line count"; fail=1; }
 assert "--leave-shelved: handoff line records the left drafts" 'left in .*shelved/proj--eta' "$(cat "$eta_file")"
+assert "--leave-shelved: handoff line still says the session stays open" 'Worktree removed, session left open \(`wb done` without `--close`\); --leave-shelved: 2 decision draft' "$(cat "$eta_file")"
 
 # an empty (or non-draft-only) shelved dir, and a dir for another task, don't block
 theta_session="$(session_for theta)"
@@ -311,7 +315,7 @@ out="$(cmd_done "$theta_session" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   - shelved guard: empty shelved dir does not block" || { echo "FAIL - shelved guard: empty dir blocked: $out"; fail=1; }
 assert "shelved guard: empty dir -> done" '^done$' "$(status_of theta)"
 [ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 1 ] && echo "ok   - shelved guard: nothing left, nothing logged" || { echo "FAIL - shelved guard: spurious log line"; fail=1; }
-assert "shelved guard: plain close keeps the plain handoff line" 'Session closed via `wb done`\.$' "$(cat "$FIXTURE_TASKS/proj--theta.md")"
+assert "shelved guard: plain close keeps the plain handoff line" 'Worktree removed, session left open \(`wb done` without `--close`\)\.$' "$(cat "$FIXTURE_TASKS/proj--theta.md")"
 
 # store-only close (no live session) is guarded too, before any mutation
 iota_file="$FIXTURE_TASKS/proj--iota.md"
@@ -325,6 +329,7 @@ assert "shelved guard (store-only): names the draft" "shelved/proj--iota/2026101
 out="$(cmd_done proj--iota --leave-shelved 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   - --leave-shelved (store-only): exits 0" || { echo "FAIL - --leave-shelved (store-only): exit $rc: $out"; fail=1; }
 assert "--leave-shelved (store-only): task done" '^done$' "$(wb_get_frontmatter "$iota_file" status)"
+assert "store-only: handoff line says no session or worktree was torn down" 'Closed in the store only \(`wb done`\): no session or worktree to tear down; --leave-shelved: 1 decision draft' "$(cat "$iota_file")"
 [ "$(wc -l <"$CAPROOT/log.jsonl" | tr -d ' ')" = 2 ] && echo "ok   - --leave-shelved (store-only): logged" || { echo "FAIL - --leave-shelved (store-only): log line count"; fail=1; }
 
 # --- end-to-end: the shelved draft comes from the REAL wb-capture.sh hook-end path, ---

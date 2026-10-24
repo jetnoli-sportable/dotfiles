@@ -3595,7 +3595,11 @@ cmd_down() {
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
   [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && wb_set_frontmatter "$task_file" status review
-  wb_append_handoff "$task_file" "wb down" 'Session closed via `wb down` — worktree kept.'
+  if [ "$keep_session" = 1 ]; then
+    wb_append_handoff "$task_file" "wb down" 'Worktree kept, session left open (`wb down --keep-session`).'
+  else
+    wb_append_handoff "$task_file" "wb down" 'Session closed via `wb down` — worktree kept.'
+  fi
   wb_task_lock_release "$task_file"
 
   if [ "$keep_session" = 0 ]; then
@@ -5244,16 +5248,26 @@ cmd_done() {
   # stale the instant the worktree is removed — blank it rather than let a
   # future reader mistake a done task for one with a warm history.
   wb_set_frontmatter "$task_file" claude_sessions ""
-  local done_note='Session closed via `wb done`.'
+  # Say what was actually torn down: without --close the session survives,
+  # and a 2026-10-18 batch left 14 idle sessions whose Handoffs all claimed
+  # "Session closed".
+  local done_note
+  if [ "$store_only" = 1 ]; then
+    done_note='Closed in the store only (`wb done`): no session or worktree to tear down'
+  elif [ "$close" -eq 1 ]; then
+    done_note='Worktree removed, session closed (`wb done --close`)'
+  else
+    done_note='Worktree removed, session left open (`wb done` without `--close`)'
+  fi
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
     local left_dirs="" left_d
     for sf in "${shelved_drafts[@]}"; do
       left_d="${sf%/*}"
       case ", $left_dirs," in *", $left_d,"*) ;; *) left_dirs="${left_dirs:+$left_dirs, }$left_d" ;; esac
     done
-    done_note="Session closed via \`wb done\` (--leave-shelved: ${#shelved_drafts[@]} decision draft(s) left in place: $left_dirs)."
+    done_note="$done_note; --leave-shelved: ${#shelved_drafts[@]} decision draft(s) left in place: $left_dirs"
   fi
-  wb_append_handoff "$task_file" "wb done" "$done_note"
+  wb_append_handoff "$task_file" "wb done" "$done_note."
   wb_task_lock_release "$task_file"
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
     _wb_capture_verb log-shelved-left "$task_stem" "${#shelved_drafts[@]}" >/dev/null 2>&1 || true
@@ -5261,8 +5275,10 @@ cmd_done() {
 
   if [ "$store_only" = 1 ]; then
     echo "wb done: $task_file closed (store-only — no live session or worktree to tear down)"
+  elif [ "$close" -eq 1 ]; then
+    echo "wb done: $session — worktree removed, session closed, task -> done ($task_file)"
   else
-    echo "wb done: $session closed — worktree removed, task -> done ($task_file)"
+    echo "wb done: $session — worktree removed, session left open (pass --close to end it), task -> done ($task_file)"
   fi
 
   local total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
