@@ -363,12 +363,15 @@ declare -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
   M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
   M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
   STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
-  M_SIZE=() M_ACCEPT=()
+  M_SIZE=() M_ACCEPT=() M_DRAFTS=()
+# The drafts count is filled by the caller (cmd_board, from ONE `wb-capture.sh shelved --all`)
+# BEFORE the model build; build_model keeps it and defaults every other stem to 0.
+M_DRAFTS[active-task]=3
 wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
   M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
   M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
   M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
+  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT M_DRAFTS
 
 # --- R16: no tmux/gh/git shell-outs during collect -----------------------
 assert_eq "R16: no tmux/gh/git calls during collect" "" "$(cat "$FIXTURE_TRACE" 2>/dev/null || true)"
@@ -445,6 +448,11 @@ assert "M_LINKS_RAW captures a doc path cited outside Decisions (Plan prose)" "d
 # a byte-exact "".
 no_links_trimmed="$(printf '%s' "${M_LINKS_RAW[no-handoff-task]:-}" | grep -c . || true)"
 assert_eq "M_LINKS_RAW has no non-blank lines for a task with no cited doc paths" "0" "$no_links_trimmed"
+
+# --- U3/R5: M_DRAFTS (shelved-draft count per task) -------------------------
+assert_eq "drafts: a seeded count survives build_model" "3" "${M_DRAFTS[active-task]:-}"
+assert_eq "drafts: a task with no seeded count defaults to 0" "0" "${M_DRAFTS[stale-task]:-}"
+assert_eq "drafts: every task has a record" "${#M_STATUS[@]}" "${#M_DRAFTS[@]}"
 
 # --- U2/R2: M_SIZE + M_ACCEPT (KTD7/KTD8) ---------------------------------
 assert_eq "size: L + '## Acceptance criteria' heading -> M_SIZE=L" "L" "${M_SIZE[size-accept]:-}"

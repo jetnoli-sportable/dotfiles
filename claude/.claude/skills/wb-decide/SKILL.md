@@ -1,19 +1,20 @@
 ---
 name: wb-decide
-description: Record a decision made in this session into the current task file's `## Decisions` section — what was decided, the rejected alternative(s), and why — or accept/edit/dismiss a background-drafted one. Use when the user types `/wb-decide` (optionally with a one-line hint), or says "record that decision", "log this decision", "note that we decided", "write that down in Decisions"; also when a `[wb-capture] …` nudge line shows up in context pointing here. Subcommands `/wb-decide shelved` (review shelved drafts), `/wb-decide dismiss`, `/wb-decide mute`, `/wb-decide unmute`, `/wb-decide status` control the auto-capture nudge. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only via `wb append`; never Edit/Write the task file.
+description: Record a decision made in this session into the current task file's `## Decisions` section — what was decided, the rejected alternative(s), and why — or review the background-drafted ones waiting on the task's shelf (accept, edit, dismiss or leave each). Use when the user types `/wb-decide` (optionally with a one-line hint), or says "record that decision", "log this decision", "note that we decided", "write that down in Decisions". Subcommands `/wb-decide shelved` (sweep, then review shelved drafts), `/wb-decide dismiss <path>`, `/wb-decide mute`, `/wb-decide unmute`, `/wb-decide status` control auto-capture. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only via `wb append`; never Edit/Write the task file.
 ---
 
 # wb-decide
 
 `/wb-decide` is the "record" half of the decision auto-capture loop. The
-`wb-capture` plugin's hooks watch a wb session for decision-shaped turns and
-inject a one-line `[wb-capture] …` nudge into the next prompt — either a
-phrase-match ("Last turn read like a decision (…)") or a pointer to a draft a
-background model review wrote. Hooks never write the task store (KTD5 in
+`wb-capture` plugin's background sweep reads a wb session's transcript and
+drafts decisions nobody recorded; each draft waits on the task's shelf until
+Jet reviews it at a checkpoint (`/wb-save`, `/close-out`, `/wb-decide
+shelved`, the weekly review). Nothing about drafts is ever injected into the
+agent's context. Hooks never write the task store (KTD5 in
 `docs/plans/2026-09-22-002-feat-store-auto-capture-plan.md`); the live agent
 — the only one with the full conversation — makes the call and does the
-write, and this skill is how. It also works with no nudge at all: run it
-whenever a real decision has been made and isn't recorded yet.
+write, and this skill is how. Run it whenever a real decision has been made
+and isn't recorded yet.
 
 > **Store-only field/status edits:** never Edit/Write a task file's frontmatter by
 > hand — `wb status <task-ref> <planned|paused|doing|review>` flips status and
@@ -32,29 +33,34 @@ whenever a real decision has been made and isn't recorded yet.
   that carries a `(supersedes: <date> "<title fragment>")` marker naming the
   earlier entry — never a rewrite of the old one.
 - **Don't restate** decisions already recorded in `## Decisions`.
-- **Don't record non-decisions.** A phrase match ("we'll go with…") is only a
-  hint. If nothing was actually settled, dismiss instead of writing.
+- **Don't record non-decisions.** If nothing was actually settled, say so
+  and write nothing.
 - **Trigger phrasing:** `/wb-decide`, "record that decision", "log this
-  decision", a `[wb-capture]` nudge line.
+  decision".
 - The capture verbs (`~/.config/scripts/tmux/wb-capture.sh <verb>`) are
   silent no-ops outside a wb tmux session or when capture is disabled (kill
   switch: `~/.local/state/wb/disable-capture`). Before the first prompt of a
   session they print `wb-capture: no capture session recorded on this pane
   yet (@wb_capture_sid unset)`. Relay whatever they print; don't treat the
-  silence or that message as a failure. Exception: `accept`/`dismiss` that carry a
+  silence or that message as a failure. Exception: `accept`/`dismiss`/`keep` that carry a
   shelved `<path>` or `--task <stem>` work with no wb session at all (see step 2b).
 
 ## What to do
 
 ### 0. Subcommand passthroughs
 
-If the argument is exactly `dismiss`, `mute`, `unmute` or `status`, run:
+If the argument is exactly `mute`, `unmute` or `status`, or is `dismiss <path>`
+(a shelved draft's path), run:
 
 ```bash
-~/.config/scripts/tmux/wb-capture.sh <verb>
+~/.config/scripts/tmux/wb-capture.sh <verb> [<path>]
 ```
 
-Report its output (or say it printed nothing — a silent no-op) and stop. For
+`mute` now just silences the background sweep for this session (`unmute` turns it
+back on); a muted session's checkpoint `sweep` also prints `skipped: muted`. A bare
+`dismiss` with no path is a usage error in the script: don't run it, say it needs a
+path and point to `/wb-decide shelved`. Report the output (or say it printed
+nothing — a silent no-op) and stop. For
 `status`, relay **every** `shelved:` line verbatim (path and any `(stale)`
 marker) — don't compress them into a count or a one-line summary; the user
 needs the paths to pick one. Nothing else in this skill applies. The argument
@@ -77,111 +83,68 @@ task_file=$(tmux show -t "=$session:" -v @task)
   bare file-not-found from Read be the only signal.
 - Otherwise proceed with the path in hand.
 
-### 2. Check for a pending draft
+### 2. Go straight to composing
 
-```bash
-~/.config/scripts/tmux/wb-capture.sh status
-```
+Compose from the conversation (step 3), using the user's hint, if any, to pick
+which decision. Shelved drafts are not part of this path: they are reviewed only
+at a checkpoint or when the user asks (`/wb-decide shelved`, step 2b). A draft
+that covers the same decision is dismissed there, not here.
 
-`status` is read-only. When a draft is present it prints a `draft_sha: <sha1>` line:
-note it, because the dismisses below pass it as `--expect <sha>` (compare-before-delete:
-a draft the sweep wrote after your `status` is never deleted unseen). A draft is marked **under review** by a separate
-`~/.config/scripts/tmux/wb-capture.sh review`, which the draft-review path below
-runs right after it shows the draft: the nudge then carries over to the next
-turn instead of counting as ignored, so a review that spans several messages
-(edits, questions) is fine and resolves once. After four carried turns with no
-record or dismiss it counts as abandoned and is struck like an ignored nudge
-(still shelved, never deleted). Run `review` only on that path, never for a
-bare `status` check or any other path through this skill.
+### 2b. Shelved drafts: the checkpoint review procedure
 
-Take the **draft-review path** only when a draft is present (status names a
-draft file) **and** one of these holds:
+This is the one review procedure. `/wb-save` and `/close-out` run it by
+reference (they don't copy it), and `/wb-decide shelved` runs it on request. A
+background sweep drafts each decision it finds into its own file on the task's
+shelf, and nothing nudges anyone, so a draft waits there until this review.
 
-- the draft nudge (`[wb-capture] A background review drafted …`) is what sent
-  you here, or
-- the user ran `/wb-decide` with no hint.
-
-On that path, Read the draft and present it to the user, then run
-`~/.config/scripts/tmux/wb-capture.sh review` (a quiet no-op unless the draft's
-nudge is outstanding). Accept it as-is, or edit it first, **only if it reflects
-a real decision made in this session** — a sweep draft sees a transcript excerpt
-and can be wrong or already-recorded. If it doesn't, run
-`~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha>` (the sha from the
-`status` you showed), then re-run `status`: if it still prints `draft: present` (a
-phrase nudge was outstanding, so `dismiss` kept the draft), run the same `dismiss
---expect <draft_sha>` again — the first only resolved that nudge. If a dismiss exits 1
-(`draft changed since status`), nothing was removed: the sweep replaced the draft, so
-show the new one (re-run `status`, note its new `draft_sha`) instead. Say so in one
-line, and stop.
-
-**A draft may hold up to 3 entries** (one `### ` block per decision the sweep found).
-Review each entry on its own: accept it as-is, edit it, or drop it. Record the
-accepted ones in ONE `wb append … Decisions -` call (step 4), each with its own
-`### <YYYY-MM-DD HH:MM> — <title>` heading, then resolve the draft as usual (step 5's
-`clear --draft`) even when only some entries were accepted: the rest were reviewed and
-rejected, and the draft is not kept for them. If none is accepted, it is a dismiss, not
-a `clear --draft`.
-
-If `status` also says the draft **may already be recorded** (the task file
-changed while it was being written — usually a `/wb-decide` that landed
-meanwhile), it prints the `### ` headings of the Decisions entries added
-since. Show the user the draft next to those entries (Read them from
-`## Decisions`) and ask whether the draft duplicates one. If it does, run
-`~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha>` (the log tags it stale, so it doesn't
-count against the nudge; re-run `status` and `dismiss --expect <draft_sha>` again if
-the draft is still present, as above) and say so in one line; if not, accept or edit as usual.
-
-Otherwise go straight to composing (step 3) and **leave the draft alone** (do
-not dismiss it): a phrase nudge sent you here, the user's hint names a
-specific decision, or there is no draft. A draft you skipped stays pending;
-the hooks re-nudge it once more if it is ignored, then shelve it (see
-step 2b) — a draft is never deleted without the user's accept or dismiss.
-
-### 2b. Shelved drafts
-
-`status` ends with one `shelved: <path>` line per shelved draft of this task
-(`(stale)` = the task file changed while it was drafted), or `shelved: none`. A
-draft gets shelved when its nudge was ignored twice, or the session ended or was
-reaped with it pending; nothing nudges a shelved draft, so it waits for the user.
-When the user asks (`/wb-decide shelved`, "what's shelved"), review them **one at
-a time**: Read the draft (and for a stale one compare it with the newest
-`## Decisions` entries), then
-
-- **accept / edit** — three commands, in this order, so the record isn't mistaken
-  for an answer to whatever nudge is live in this session. Do any user
-  confirmation or editing FIRST, then run
-  `~/.config/scripts/tmux/wb-capture.sh accept --begin <path>` immediately before
-  the `wb append` (it writes a one-shot flag, changes nothing else; the append's
-  PostToolUse hook consumes the flag, and a real prompt in between would expire
-  it), then compose and `wb append` as in steps 3-4, then
-  `~/.config/scripts/tmux/wb-capture.sh accept <path>` (moves the draft to
-  `resolved/`, kept 30 days, and logs `shelved_accepted`; it does not touch the
-  flag). Run all three in ONE Bash call, chained with `&&` so a failed append
-  skips the final accept (the draft then stays shelved):
-  `~/.config/scripts/tmux/wb-capture.sh accept --begin <path> && wb append <task> Decisions - <<'WB_DECISION_END' && ~/.config/scripts/tmux/wb-capture.sh accept <path>`,
-  followed by the heredoc body and the `WB_DECISION_END` terminator line. A shelved draft may hold up to 3 entries: review each,
-  record the accepted ones in ONE `wb append` (each under its own dated heading), and
-  run `accept <path>` even if only some were accepted. If the append is abandoned,
-  skip the last command: the draft stays shelved and the flag expires with the turn;
-- **reject** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (moves it to
-  `resolved/`, kept 30 days, logs `shelved_dismissed`); also the answer when none of a multi-entry draft's
-  entries is accepted.
+1. **Sweep first.** One Bash call with `timeout: 300000` (the sweep makes a model
+   call, up to about two minutes):
+   `~/.config/scripts/tmux/wb-capture.sh sweep`. It drafts any decisions in turns
+   not swept yet, waits for that, and prints exactly one line: `drafted N`,
+   `none`, `nothing new`, `skipped: <reason>` or `failed: <reason>`. It always
+   exits 0. Report the line in one sentence ("The sweep drafted 2 decisions.",
+   "The sweep skipped: muted."). On `skipped:` or `failed:` carry on anyway:
+   drafts from earlier sweeps are still waiting.
+2. **List this task's drafts:** `~/.config/scripts/tmux/wb-capture.sh shelved`
+   prints one path per line, with ` (stale)` after a draft whose task's Decisions
+   changed while it was being drafted. None listed: say so in one line and stop.
+3. **Review them one at a time.** Read the draft and show it. For a `(stale)` one,
+   first compare it with the newest `## Decisions` entries: it may already be
+   recorded. Then ask: **accept**, **edit**, **dismiss** or **leave**. Accept only a
+   draft that reflects a real decision made in this task: a sweep draft sees a
+   transcript excerpt and can be wrong or already recorded.
+   - **accept / edit** — do any confirming or editing FIRST, then compose and record
+     as in steps 3-4, in ONE Bash call chained with `&&` so a failed append skips the
+     accept (the draft then stays shelved):
+     `wb append <task> Decisions - <<'WB_DECISION_END' && ~/.config/scripts/tmux/wb-capture.sh accept <path>`,
+     followed by the heredoc body and the `WB_DECISION_END` terminator line. `accept`
+     moves the draft to `resolved/` (kept 30 days) and logs `shelved_accepted`. A draft
+     left from before the one-decision-per-file change may hold up to 3 `### `
+     entries: review each, record the accepted ones in ONE `wb append` (each under its
+     own dated heading), and run `accept <path>` even if only some were accepted.
+   - **dismiss** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (moves it to
+     `resolved/`, kept 30 days, logs `shelved_dismissed`). Also the answer when none of
+     a multi-entry draft's entries is accepted.
+   - **leave** — `~/.config/scripts/tmux/wb-capture.sh keep <path>` (logs `shelved_kept`;
+     the file stays on the shelf). Always run it: it is how the log tells "shown and
+     left" from "never shown", which the graduation review counts.
+4. **Finish with one line** counting what happened (recorded N, dismissed N, left N).
+   `/wb-save` quotes it in the Handoffs entry.
 
 A shelved draft of a task that is already closed (or any other task) is still
 resolvable from this session, or from no wb session at all (path-carrying
-`accept`/`dismiss` ignore the kill switch and need no `@task`; without a session they
-log with an empty session id, and `accept --begin` writes no flag, as there is
-nothing to protect; with no `--task` and no `@task` they exit 1 with a message): `~/.config/scripts/tmux/wb-capture.sh shelved --task <stem>` lists one
-task's drafts (`shelved --all` lists every task's, grouped), and
-`dismiss --task <stem> <path>`, `accept --begin --task <stem> <path>` and
+`accept`/`dismiss`/`keep` ignore the kill switch and need no `@task`; without a
+session they log with an empty session id; with no `--task` and no `@task` they exit
+1 with a message): `~/.config/scripts/tmux/wb-capture.sh shelved --task <stem>` lists
+one task's drafts (`shelved --all` lists every task's, grouped), and
+`dismiss --task <stem> <path>`, `keep --task <stem> <path>` and
 `accept --task <stem> <path>` resolve one. Drafts left behind by `wb done
 --leave-shelved` stay resolvable this way. An accepted closed-task draft is
 recorded into THAT task's `## Decisions` (`wb append <that task> Decisions -`),
 not this session's.
 
-Never delete a shelved file by hand; `accept`/`dismiss` refuse any path outside
-the shelved dir of this task (or of the `--task` stem). Step 5's `clear` is for the
-session's own pending draft, not shelved ones.
+Never delete a shelved file by hand; `accept`/`dismiss`/`keep` refuse any path
+outside the shelved dir of this task (or of the `--task` stem).
 
 ### 3. Compose the entry
 
@@ -204,8 +167,7 @@ entry by its date and a quoted substring of its title (the text after
 text. Zero or several matches read as unresolved, so make the fragment
 specific.
 
-If nothing was actually decided, say so plainly, run
-`~/.config/scripts/tmux/wb-capture.sh dismiss`, and stop — no write.
+If nothing was actually decided, say so plainly and stop — no write.
 
 ### 4. Append with `wb append`
 
@@ -228,69 +190,42 @@ and lands the block at the END of the section. When several draft entries were
 accepted, put them all in the one heredoc, one dated `###` heading each, so the
 record is a single `wb append` call.
 
-### 5. Clear the capture state, then confirm
+### 5. Confirm
 
-After a *successful* write, pick the form by what you just recorded:
-
-```bash
-# you recorded the session's own pending draft (draft accept / draft edit + accept):
-~/.config/scripts/tmux/wb-capture.sh clear --draft
-# you composed from the conversation (phrase nudge, hinted run, no nudge at all):
-~/.config/scripts/tmux/wb-capture.sh clear
-```
-
-Plain `clear` drops the marker, the reviewing flag and the outstanding-nudge flag,
-and **keeps** a pending sweep draft: you didn't review it, so it isn't yours to
-archive, and it gets nudged at the next real prompt (a duplicate costs the user one
-`/wb-decide dismiss`, and `status` lists the Decisions entries added since). `clear
---draft` does the same and also moves the draft to `resolved/` (kept 30 days) and
-removes its stale/strike state, because that draft is what just got recorded. Neither logs a `dismissed` event (the
-`followed` event is logged by the plugin's PostToolUse hook when it sees the
-`wb append … Decisions` call; if that hook missed it, either form logs `followed`
-for a still-outstanding nudge). Only run it after a successful write. Then one
-line: `Recorded to ## Decisions.`
+After a *successful* write, one line: `Recorded to ## Decisions.`
 
 ## Test scenarios (behavior to follow for each)
 
 - [ ] **Happy path:** a real decision was made, `/wb-decide` run — read
   `@task`, read `## Decisions` for style, compose decided/rejected/why,
-  `wb append` it, plain `~/.config/scripts/tmux/wb-capture.sh clear`, confirm in one line.
-- [ ] **Draft accept:** `status` shows a draft that matches a real decision —
-  present it, append it as-is via `wb append`, `clear --draft`.
-- [ ] **Multi-entry draft (up to 3 `### ` blocks):** review each entry; append the
-  accepted ones in ONE `wb append` (each with its own dated heading), then
-  `clear --draft` (session draft) or `accept <path>` (shelved) even though only some
-  were accepted; if none is accepted, `dismiss --expect <draft_sha>` (or `dismiss
-  <path>` for a shelved one) instead.
-- [ ] **Draft edit + accept:** draft is roughly right but misses the
-  rejected alternative or the why — edit it from session context, append the
-  edited version, `clear --draft`.
-- [ ] **Phrase nudge or hinted run with a draft pending:** skip the draft
-  path, compose from the conversation, leave the draft untouched (no dismiss);
-  plain `clear` after the write keeps it, so it stays pending and is nudged again.
-- [ ] **Stale draft:** `status` says the draft may already be recorded and
-  lists newer Decisions entries — show the draft beside them and ask; a
-  duplicate gets `dismiss` (say so), a distinct one is accepted/edited as usual.
-- [ ] **Multi-message review:** the draft-review path ran `review` after
-  showing the draft (a bare `status` never does); the user asks questions /
-  requests edits over several turns — the nudge isn't counted ignored, one
-  `followed` (or `dismissed`) results.
-- [ ] **Shelved drafts:** `status` lists `shelved:` lines; `/wb-decide shelved`
-  reviews them one at a time — accept/edit → `accept --begin <path>` (right
-  before the append) → `wb append` → `accept <path>`, reject → `dismiss <path>`; a closed task's
-  drafts take `--task <stem>` on each; never a hand `rm`.
-- [ ] **Draft reject → dismiss:** draft doesn't reflect a real decision (or
-  is already recorded) — `~/.config/scripts/tmux/wb-capture.sh dismiss --expect <draft_sha>`, then `status`;
-  if it still prints `draft: present` (a phrase nudge was outstanding, so dismiss kept
-  the draft), the same `dismiss --expect <draft_sha>` again; exit 1 means a new draft
-  landed, so show that instead; say so, no write.
-- [ ] **Nothing decided:** phrase-match nudge but nothing was settled —
-  say so, `dismiss`, no write.
+  `wb append` it, confirm in one line.
+- [ ] **Shelved drafts:** `/wb-decide shelved` runs `sweep` (300000 ms timeout),
+  reports its one result line, lists `shelved`, and reviews each draft one at a time —
+  accept/edit → `wb append … && accept <path>` in ONE call, dismiss → `dismiss
+  <path>`, leave → `keep <path>`; a closed task's drafts take `--task <stem>` on
+  each; never a hand `rm`.
+- [ ] **Sweep skipped or failed:** the `skipped:`/`failed:` line is reported and the
+  review of existing shelved drafts still runs.
+- [ ] **Stale draft:** `shelved` marks it `(stale)` — show the draft beside the newest
+  Decisions entries and ask; a duplicate gets `dismiss` (say so), a distinct one is
+  accepted/edited as usual.
+- [ ] **Multi-entry draft (older shelf file, up to 3 `### ` blocks):** review each
+  entry; append the accepted ones in ONE `wb append` (each with its own dated
+  heading), then `accept <path>` even though only some were accepted; if none is
+  accepted, `dismiss <path>`.
+- [ ] **Draft edit + accept:** draft is roughly right but misses the rejected
+  alternative or the why — edit it from session context, append the edited version,
+  then `accept <path>`.
+- [ ] **Hinted run with drafts waiting:** compose from the conversation and leave the
+  shelf alone; shelved drafts are reviewed only at a checkpoint or `/wb-decide shelved`.
+- [ ] **Nothing decided:** say so, no write.
 - [ ] **mute / unmute:** `/wb-decide mute` and `/wb-decide unmute` pass
   straight through to `wb-capture.sh`; report its output.
+- [ ] **dismiss:** `/wb-decide dismiss <path>` passes through; a bare `/wb-decide
+  dismiss` is not run — say it needs a path.
 - [ ] **status:** `/wb-decide status` passes through and reports the output
   (including the `@wb_capture_sid unset` message before a session's first
-  prompt).
+  prompt) and every `shelved:` line verbatim.
 - [ ] **Not a wb session (no `@task`):** one clear error line
   (`wb-decide: <session> has no @task — not a wb task session`), no write.
 - [ ] **Stale `@task` (file missing):** distinct error naming the path
@@ -305,5 +240,5 @@ line: `Recorded to ## Decisions.`
   same `wb append` write path, same append-only posture.
 - `/close-out` step 4 can call this skill, or run the same `wb append …
   Decisions -` itself, when it finds an unrecorded decision at wind-down.
-- Capture tuning (phrase list, cooldown, sweep on/off) lives in the optional
+- Capture tuning (sweep on/off, sweep cadence) lives in the optional
   `~/.config/wb/capture.conf`, not here.

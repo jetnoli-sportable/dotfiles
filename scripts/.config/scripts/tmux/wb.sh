@@ -22,8 +22,8 @@
 #                                    ratified 3-view page to logs/board.html (feat-board-build)
 #   wb done [--close] [--leave-shelved] [<session>]
 #                                    safe wind-down (defaults to the current session); --close also kills the tmux
-#                                    session; refuses while decision drafts (wb-capture: shelved, or pending in
-#                                    a live session of the task) remain unless --leave-shelved
+#                                    session; refuses while shelved decision drafts (wb-capture) of the task
+#                                    remain unless --leave-shelved
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
@@ -4877,6 +4877,25 @@ wb_pending_counts() {
 }
 
 
+# wb_shelved_counts <assoc-array-name> — fill <name>[<task-stem>]=<number of shelved
+# decision drafts> from ONE `wb-capture.sh shelved --all` call (the board's DRAFTS column
+# and drafts chip). Stems with no drafts get no key; read with ${arr[$stem]:-0}. The
+# verb prints `<stem>:` then two-space-indented draft paths, so this counts indented lines
+# per stem and never learns where drafts live. Best-effort: a missing or failing
+# wb-capture.sh leaves the array empty and the board renders with 0s.
+wb_shelved_counts() {
+  local -n _wsc_out="$1"
+  local line stem="" listing
+  listing="$(_wb_capture_verb shelved --all 2>/dev/null)" || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      "  "*) [ -n "$stem" ] && _wsc_out["$stem"]=$(( ${_wsc_out["$stem"]:-0} + 1 )) ;;
+      ?*:)   stem="${line%:}" ;;
+    esac
+  done <<<"$listing"
+  return 0
+}
+
 # cmd_board — read-only status table over the whole task store (the interim
 # /board, roadmap 9a / Decision 5A). The picker deliberately shows PRESENCE
 # only, which hides planned/done tasks entirely — this is the one place they
@@ -4909,18 +4928,22 @@ cmd_board() {
       M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
       M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
       STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
-      M_SIZE=() M_ACCEPT=()
+      M_SIZE=() M_ACCEPT=() M_DRAFTS=()
+    # U3 (capture-nudge-rework): shelved-draft counts, one verb call for the whole
+    # board, filled BEFORE build_model (which defaults the stems without drafts to 0).
+    wb_shelved_counts M_DRAFTS
     # fix(review) P2 follow-up: the 22-name model-array sequence was hand-typed
     # identically at both call sites below (found in PR 1 review) — hoisted to
     # one constant so U5's 2 new trailing arrays only had to be added once,
     # and any future model field only ever needs adding here. U2 (KTD8) adds
     # M_SIZE/M_ACCEPT at the END of this list, after M_PR_URL, for the same
-    # reason — both call sites below pick them up automatically.
+    # reason — both call sites below pick them up automatically. U3
+    # (capture-nudge-rework) appends M_DRAFTS the same way.
     local -a WB_BOARD_MODEL_ARGS=(
       M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
       M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
       M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-      FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
+      FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT M_DRAFTS
     )
     wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
       "${WB_BOARD_MODEL_ARGS[@]}"
@@ -4942,6 +4965,10 @@ cmd_board() {
   local term_width show_act=0
   term_width="$(tput cols 2>/dev/null || echo 0)"
   [ "${term_width:-0}" -ge 100 ] && show_act=1
+  # DRAFTS column (capture-nudge-rework R5): shelved decision drafts per task, one verb call.
+  local -A shelved_n=()
+  wb_shelved_counts shelved_n
+  local dr
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     wb_tsv_split "$(wb_read_task "$f")" t
@@ -4955,11 +4982,12 @@ cmd_board() {
       infu && /^[-*] / { c++ }
       END { print c + 0 }
     ' "$f")"
+    f="${f##*/}"; dr="${shelved_n["${f%.md}"]:-0}"
     if [ "$show_act" = 1 ]; then
       activity="$(wb_task_activity "$repo" "$branch" "$worktree")"
-      rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$activity")"$'\n'
+      rows+="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr" "$activity")"$'\n'
     else
-      rows+="$(printf '%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu")"$'\n'
+      rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr")"$'\n'
     fi
   done < <(wb_task_files)
 
@@ -4972,9 +5000,9 @@ cmd_board() {
 
   {
     if [ "$show_act" = 1 ]; then
-      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\tACT\n'
+      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\tDRAFTS\tACT\n'
     else
-      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\n'
+      printf 'STATUS\tREPO\tTASK\tFOLLOW-UPS\tDRAFTS\n'
     fi
     # doing < review < paused < planned < done < anything-else; rank prefix
     # keeps the plain-text sort key clean, then drops out before display.
@@ -5048,12 +5076,10 @@ cmd_done() {
   # under set -u.
   local repo; repo="$(wb_get_frontmatter "$task_file" repo)"
 
-  # Draft guard: wb-capture shelves an unreviewed decision draft under
+  # Draft guard: the background sweep shelves unreviewed decision drafts under
   # <capture root>/shelved/<task-stem>/ (outliving the session), where only
-  # /close-out or /wb-decide shelved can accept or dismiss it. A draft still
-  # pending in a LIVE session of this task would be shelved by SessionEnd right
-  # after the task flips to done, stranded the same way. Closing the task first
-  # would strand both, so refuse — before any mutation, store-only closes
+  # /close-out or /wb-decide shelved can accept or dismiss them. Closing the task
+  # first would strand them, so refuse — before any mutation, store-only closes
   # included — unless --leave-shelved says leaving them is deliberate. What counts
   # as a draft of this task, and where it lives, is wb-capture.sh's business
   # (`pending-for-task`); wb.sh only counts the paths it prints. Best-effort: a
@@ -5068,28 +5094,10 @@ cmd_done() {
     echo "wb done: wb-capture.sh unavailable next to wb.sh; skipping the decision-draft guard" >&2
   fi
   if [ "${#shelved_drafts[@]}" -gt 0 ] && [ "$leave_shelved" = 0 ]; then
-    # two kinds, told apart by the path shape the verb prints (the layout stays
-    # wb-capture.sh's): a live session's draft ends in /draft (…/<sid>/draft),
-    # a shelved one in <stamp>-<sid>.md. They need different remedies.
-    local -a refusal_shelved=() refusal_session=()
-    local sd
-    for sf in "${shelved_drafts[@]}"; do
-      case "$sf" in
-        */draft) refusal_session+=("$sf") ;;
-        *)       refusal_shelved+=("$sf") ;;
-      esac
-    done
     {
-      echo "wb done: ${#shelved_drafts[@]} decision draft(s) (shelved, or pending in a live session) for $task_stem would be stranded (nothing changed):"
-      for sf in "${refusal_shelved[@]}"; do echo "  shelved: $sf"; done
-      for sf in "${refusal_session[@]}"; do
-        sd="${sf%/draft}"
-        echo "  pending in session ${sd##*/}: $sf"
-      done
-      [ "${#refusal_shelved[@]}" -eq 0 ] \
-        || echo "wb done: shelved: run /close-out or /wb-decide shelved first to accept or dismiss them, or re-run with --leave-shelved to close anyway"
-      [ "${#refusal_session[@]}" -eq 0 ] \
-        || echo "wb done: pending in a session: resolve it with /wb-decide in that session, or re-run with --leave-shelved (SessionEnd or the reaper will shelve it; resolve it later with --task)"
+      echo "wb done: ${#shelved_drafts[@]} decision draft(s) shelved for $task_stem would be stranded (nothing changed):"
+      for sf in "${shelved_drafts[@]}"; do echo "  shelved: $sf"; done
+      echo "wb done: run /close-out or /wb-decide shelved first to accept or dismiss them, or re-run with --leave-shelved to close anyway"
     } >&2
     exit 1
   fi

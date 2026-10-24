@@ -829,13 +829,14 @@ wb_board_collect_rows_v2() {
 #     M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
 #     M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
 #     M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-#     FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
+#     FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT M_DRAFTS
 #
 # NOTE: this comment block already listed only 22 of the function's real
 # positional args before U2 (M_STAGE_SIG/M_PR_URL, added later, were never
 # folded back in) — count the `local -n` lines below for the true arg
 # count/order, not this usage sketch. U2 adds M_SIZE (30) and M_ACCEPT (31)
-# at the END, after the pre-existing M_STAGE_SIG(28)/M_PR_URL(29), per KTD8.
+# at the END, after the pre-existing M_STAGE_SIG(28)/M_PR_URL(29), per KTD8;
+# U3 (capture-nudge-rework) appends M_DRAFTS (32) after them.
 wb_board_build_model() {
   local -n _bm_rows="$1" _bm_plan="$2" _bm_done="$3" _bm_handoff="$4" _bm_followups="$5"
   local -n _status="$6" _repo="$7" _branch="$8" _worktree="$9" _title="${10}"
@@ -845,6 +846,10 @@ wb_board_build_model() {
   local -n _stem_parent="${24}" _stem_anchor="${25}" _family_children="${26}" _bucket_count="${27}"
   local -n _stage_sig="${28}" _pr_url="${29}"
   local -n _size="${30}" _accept="${31}"
+  # U3/R5: M_DRAFTS (32) — per-task shelved-draft count. The caller fills it from
+  # ONE `wb-capture.sh shelved --all` BEFORE this call (the board never learns the
+  # capture layout); here every task without a count is defaulted to 0.
+  local -n _drafts="${32}"
 
   local row stem anchor
   local -a f
@@ -862,6 +867,7 @@ wb_board_build_model() {
     # after the pre-existing stage_sig/pr_url — see the row-layout comment on
     # wb_board_collect_rows_v2 above.
     _size["$stem"]="${f[20]:-}"; _accept["$stem"]="${f[21]:-0}"
+    _drafts["$stem"]="${_drafts["$stem"]:-0}"
     _stem_anchor["$stem"]="$anchor"
     [ -n "${f[11]}" ] && _stem_parent["$stem"]="${f[11]}"
     _bucket_count["${f[17]}"]=$(( ${_bucket_count["${f[17]}"]:-0} + 1 ))
@@ -1615,6 +1621,12 @@ wb_board_v2_stage_strip_html() {
     wb_board_html_escape "$__pr" __h
     __out+="<a class=\"pr-chip\" href=\"${__h}\" target=\"_blank\" title=\"open pull request\">PR #${__n}</a>"
   fi
+  # U3/R5: shelved decision drafts waiting on review — shown only when > 0.
+  local __dr="${_m_drafts[$__stem]:-0}"
+  if [ "$__dr" -gt 0 ] 2>/dev/null; then
+    local __pl=s; [ "$__dr" = 1 ] && __pl=
+    __out+="<span class=\"drafts-chip\" title=\"${__dr} shelved decision draft${__pl} waiting for review (/wb-decide shelved)\">&#9998;${__dr}</span>"
+  fi
   [ -z "$__out" ] || __out="<div class=\"stage-strip${__mini:+ mini}\">${__out}</div>"
   STRIP_CACHE["$__ck"]="$__out"
   printf -v "$2" '%s' "$__out"
@@ -1972,8 +1984,8 @@ wb_board_v2_json_escape() {
   printf -v "$2" '%s' "$s"
 }
 
-# wb_board_render_v2 <31 model array names, exactly wb_board_build_model's
-# own output-array list (U2 grew this from 29 to 31 — see that function's
+# wb_board_render_v2 <32 model array names, exactly wb_board_build_model's
+# own output-array list (U2 grew this from 29 to 31, U3 to 32 — see that function's
 # header), PLUS M_DECISIONS_RAW M_LINKS_RAW (U5, PR2 — the Family view's own
 # raw text, never touched by build_model since they carry no per-field model
 # derivation, just pass-through text like M_PLAN_RAW)> — the ratified 3-view
@@ -2012,7 +2024,11 @@ wb_board_render_v2() {
   # by anything below (later units use them) — this unit only threads them
   # through.
   local -n _m_size="${30}" _m_accept="${31}"
-  local -n _m_decisions_raw="${32}" _m_links_raw="${33}"
+  # U3/R5: M_DRAFTS (32), the shelved-draft count per task — read by the stage
+  # strip's drafts chip. Appended to the model names, so the two raw arrays
+  # below moved from 32/33 to 33/34.
+  local -n _m_drafts="${32}"
+  local -n _m_decisions_raw="${33}" _m_links_raw="${34}"
 
   local now; now="$(date +%s)"
   # Scratch out-vars for the hoisted `$(...)`-free helper calls below (see
@@ -3412,6 +3428,7 @@ wb_board_render_v2() {
   .stage-strip.mini .stage-g { font-size: 10px; }
   .pr-chip { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(137,180,250,.4); background: rgba(137,180,250,.1); color: var(--blue); text-decoration: none; white-space: nowrap; }
   .pr-chip:hover { border-color: var(--blue); }
+  .drafts-chip { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(250,179,135,.4); background: rgba(250,179,135,.1); color: var(--peach); white-space: nowrap; }
 
   /* ---------- U8: the shared summary-first detail block ---------- */
   #detail-pool { display: none; }

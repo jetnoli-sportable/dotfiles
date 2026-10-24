@@ -324,18 +324,19 @@ declare -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
   M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
   M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
   STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
-  M_SIZE=() M_ACCEPT=()
+  M_SIZE=() M_ACCEPT=() M_DRAFTS=()
+M_DRAFTS[prtask]=2   # U3/R5: prtask holds 2 shelved drafts, stagey none
 wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
   M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
   M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
   M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
+  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT M_DRAFTS
 
 render="$(wb_board_render_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
   M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
   M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
   M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT \
+  FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT M_DRAFTS \
   M_DECISIONS_RAW M_LINKS_RAW)"
 rc=$?
 
@@ -626,6 +627,18 @@ assert "U7: a PR URL puts work in progress"              'class="stage progress"
 assert "U7: an explicit path: makes an unfired stage pending, not na" 'title="ideate: pending"' "$strip_pr"
 assert "U7: the PR chip links to the pull request"       'class="pr-chip" href="https://github.com/jetnoli-sportable/dotfiles/pull/4242" target="_blank"' "$render"
 assert "U7: the PR chip shows its number"                '>PR #4242</a>' "$render"
+# U3/R5: the drafts chip sits beside the PR chip, only when the count is above 0.
+strip_pr_wide="$(printf '%s' "$render" | grep -oE 'id="card-prtask".{0,2000}' || true)"
+strip_pr_wide="${strip_pr_wide%%$'\n'*}"
+strip_stagey_wide="$(printf '%s' "$render" | grep -oE 'id="card-stagey".{0,2000}' || true)"
+strip_stagey_wide="${strip_stagey_wide%%$'\n'*}"
+assert "U3: a task with shelved drafts shows the drafts chip with its count" 'class="drafts-chip"[^>]*>&#9998;2</span>' "$strip_pr_wide"
+assert "U3: the drafts chip names what it counts" 'title="2 shelved decision drafts' "$strip_pr_wide"
+if printf '%s' "$strip_stagey_wide" | grep -F 'drafts-chip' >/dev/null 2>&1; then
+  echo "FAIL - U3: a task with no drafts shows no drafts chip"; fail=1
+else
+  echo "ok   - U3: a task with no drafts shows no drafts chip"
+fi
 # The strip appears on cards and as a mini strip in the Family view, never
 # in the rail.
 assert "U7: family tree child rows carry a mini strip" 'class="stage-strip mini"' "$render"
@@ -1402,17 +1415,17 @@ cyc_render="$(
     M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
     M_BUCKET=() M_HANDOFF_SUMMARY=() M_FAMILY_ROOT=() STEM_PARENT=() \
     STEM_ANCHOR=() FAMILY_CHILDREN=() BUCKET_COUNT=() M_STAGE_SIG=() M_PR_URL=() \
-    M_SIZE=() M_ACCEPT=()
+    M_SIZE=() M_ACCEPT=() M_DRAFTS=()
   wb_board_build_model V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
     M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
     M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
     M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-    FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT
+    FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT M_DRAFTS
   wb_board_render_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
     M_STATUS M_REPO M_BRANCH M_WORKTREE M_TITLE M_CREATED M_CLOSED M_UPDATED \
     M_TASKFILE M_PARENT M_DEPS M_TAGS M_PLAN_CHECKED M_PLAN_TOTAL M_AGE_DAYS \
     M_BUCKET M_HANDOFF_SUMMARY M_FAMILY_ROOT STEM_PARENT STEM_ANCHOR \
-    FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT \
+    FAMILY_CHILDREN BUCKET_COUNT M_STAGE_SIG M_PR_URL M_SIZE M_ACCEPT M_DRAFTS \
     M_DECISIONS_RAW M_LINKS_RAW
   echo "cyc-render-rc=$?"
 )"

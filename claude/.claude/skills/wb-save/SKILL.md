@@ -33,7 +33,11 @@ to survive the clear; the human runs `/clear` themselves.
   route around.
 - **Append-only.** Never overwrites any existing content in the task file —
   including prior `## Handoffs` entries, `## Plan`, `## Decisions`, or
-  anything else already there.
+  anything else already there. The one other write is step 2's checkpoint
+  review: when Jet accepts a shelved decision draft it goes in through
+  `wb append <task> Decisions -`, and the `wb-capture.sh` verbs (`sweep`,
+  `shelved`, `accept`, `dismiss`, `keep`) move or log drafts; they read the pane's
+  capture id themselves, and this skill still sends nothing to any pane. Nothing else.
 - **Trigger phrasing:** `/wb-save`, "save my progress", "checkpoint this",
   "save state before I clear", "write a handoff snapshot".
 
@@ -67,13 +71,26 @@ hand.
   this session's @task, but missing on disk.`
 - Otherwise, proceed to step 2 with the path in hand.
 
-### 2. Compose the entry from the current conversation
+### 2. Review the shelved decision drafts
+
+Run `/wb-decide`'s step 2b, the shared checkpoint review procedure, here: one
+`wb-capture.sh sweep` (Bash `timeout: 300000`), its result line in one sentence,
+then each of this task's shelved drafts one at a time for accept / edit / dismiss
+/ leave. Don't restate the procedure here; follow it there. Do it before composing
+the entry so the entry can say how many decisions were recorded, dismissed or left.
+
+Skip this step silently only when the session has no `@task` (step 1 already
+stopped there). Otherwise always run it: when capture is disabled or muted the sweep
+prints its `skipped:` line and the review of any existing shelved drafts still runs.
+
+### 3. Compose the entry from the current conversation
 
 Draw all three fields from what has actually happened in this
 conversation — never generic filler:
 
 - **Done** — what has actually been completed this session, concrete and
-  specific enough to be useful without the rest of the transcript.
+  specific enough to be useful without the rest of the transcript. If step 2
+  reviewed shelved drafts, say how many decisions were recorded, dismissed and left.
 - **In flight** — what's partially done or mid-change right now.
 - **Next** — the immediate next action to take on resume, specific enough
   that a future `/wb-resume` reader (a fresh session with none of this
@@ -118,7 +135,7 @@ invoke, nothing else:
   in the `**Next:**` prose (`/wb-resume` only ever acts on the first step
   anyway; sequencing beyond that is a human/planning concern).
 
-### 3. Append into `## Handoffs` — exact section shape
+### 4. Append into `## Handoffs` — exact section shape
 
 This must match `wb.sh`'s own `wb_append_handoff` helper
 (`scripts/.config/scripts/tmux/wb.sh`, search `wb_append_handoff`) section
@@ -215,7 +232,7 @@ EOF
   character" guarantee this section always carried; there is no separate
   manual-carefulness step left to describe.
 
-### 4. Tell the user, relay, and stop
+### 5. Tell the user, relay, and stop
 
 One line confirming the save landed and that running `/clear` is the next
 manual step — e.g. `Saved to ## Handoffs — /clear when you're ready.`
@@ -236,6 +253,11 @@ question.
   before `## Decisions` if that heading exists, else at EOF, then the
   entry — the heading and the first entry appear together, not the heading
   alone or the entry with no heading.
+- **Edge case — shelved drafts waiting:** step 2 runs the `/wb-decide` step 2b
+  procedure (sweep, then each draft: accept / edit / dismiss / leave) before the
+  Handoffs entry, and the entry's **Done** says how many were recorded, dismissed and
+  left. If the sweep prints `skipped:` or `failed:`, say so and still review the
+  drafts already shelved.
 - **Edge case — not a wb-managed session (no `@task` set):** stop before
   touching the file at all; one clear error line, no partial write
   anywhere.

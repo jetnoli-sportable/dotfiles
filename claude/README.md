@@ -15,8 +15,11 @@ directory instead of replacing it.
 - `skills/weekly-review/` — the weekly ceremony that reviews captured items
 - `skills/pr-review-session/` — PR review worktree/tmux sessions
 - `skills/wb-capture/` — a hooks-only Claude Code plugin (`.claude-plugin/plugin.json` +
-  `hooks/hooks.json`) behind decision auto-capture: it nudges the agent to `/wb-decide`
-  when a wb session's turn reads like an unrecorded decision. It auto-loads as
+  `hooks/hooks.json`) behind decision auto-capture: a background model sweep drafts
+  decisions a wb session never recorded, one file per decision, onto a per-task shelf.
+  Nothing is injected into the agent's context. The drafts wait there (a `✎N` count shows
+  in the tmux status bar and on `wb board`) until Jet reviews them at `/wb-save`,
+  `/close-out`, `/wb-decide shelved` or the weekly review. It auto-loads as
   `wb-capture@skills-dir` once stowed. Adding/removing a hook entry needs a session
   restart; edits to the scripts it calls (`scripts/.config/scripts/tmux/wb-capture*.sh`)
   are live. Do NOT duplicate these hooks into `settings.recommended.json`, or they fire

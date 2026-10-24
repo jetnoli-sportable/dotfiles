@@ -6,7 +6,9 @@ set -uo pipefail
 WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE="$(mktemp -d -t wb-board-fixture.XXXXXX)"
 TMUX_STUB_BIN="$(mktemp -d -t wb-board-tmux-stub.XXXXXX)"
-trap 'rm -rf "$FIXTURE" "$TMUX_STUB_BIN"' EXIT
+STATE="$(mktemp -d -t wb-board-state.XXXXXX)"   # XDG_STATE_HOME: the shelved drafts the DRAFTS column counts
+trap 'rm -rf "$FIXTURE" "$TMUX_STUB_BIN" "$STATE"' EXIT
+export XDG_STATE_HOME="$STATE"
 
 # `wb board` is invoked as a fresh `bash "$WB"` subprocess below (not
 # sourced), so stubbing wb_live_agent_count directly (the wb-lifecycle.test.sh
@@ -60,17 +62,50 @@ mk_task 'dotfiles--delta.md'      done     dotfiles      ''             1   # no
 printf '# Not a task\n' > "$FIXTURE/README.md"                               # must be excluded
 printf '# Template\n'   > "$FIXTURE/TEMPLATE.md"                             # must be excluded
 
+# U3/R5: two shelved drafts for alpha, one for gamma, one for a task not in the store
+SHELF="$STATE/wb/capture/shelved"
+mkdir -p "$SHELF/dotfiles--alpha" "$SHELF/be--monorepo--gamma" "$SHELF/dotfiles--gone"
+: >"$SHELF/dotfiles--alpha/20261018T100000-s1.md"; : >"$SHELF/dotfiles--alpha/20261018T110000-s2.md"
+: >"$SHELF/dotfiles--alpha/20261018T110000-s2.md.stale"
+: >"$SHELF/be--monorepo--gamma/20261018T100000-s3.md"
+: >"$SHELF/dotfiles--gone/20261018T100000-s4.md"
+
 out="$(TASKS_DIR="$FIXTURE" bash "$WB" board 2>&1)"
 rc=$?
 
 # --- assertions -------------------------------------------------------------
 assert "exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit code $rc"; fail=1; }
 assert "header row present"            'STATUS +REPO +TASK +FOLLOW-UPS' "$out"
-assert "doing row with count"          'doing +dotfiles +Alpha Task +2' "$out"
-assert "review row"                    'review +be--monorepo +Gamma Task +3' "$out"
-assert "planned row, zero follow-ups"  'planned +dotfiles +Beta Task +0' "$out"
-assert "titleless row falls back to slug" 'done +dotfiles +dotfiles--delta +1' "$out"
-assert "inline frontmatter comment stripped" 'review +dotfiles +Commented Task +0' "$out"
+assert "header row has the DRAFTS column beside FOLLOW-UPS" 'FOLLOW-UPS +DRAFTS' "$out"
+assert "doing row with count"          'doing +dotfiles +Alpha Task +2 ' "$out"
+assert "review row"                    'review +be--monorepo +Gamma Task +3 ' "$out"
+assert "planned row, zero follow-ups"  'planned +dotfiles +Beta Task +0 ' "$out"
+assert "titleless row falls back to slug" 'done +dotfiles +dotfiles--delta +1 ' "$out"
+assert "inline frontmatter comment stripped" 'review +dotfiles +Commented Task +0 ' "$out"
+assert "DRAFTS: 2 shelved drafts (sidecar not counted) -> 2" 'doing +dotfiles +Alpha Task +2 +2$' "$out"
+assert "DRAFTS: 1 shelved draft on another task -> 1"      'review +be--monorepo +Gamma Task +3 +1$' "$out"
+assert "DRAFTS: no shelf dir -> 0"                          'planned +dotfiles +Beta Task +0 +0$' "$out"
+case "$out" in *dotfiles--gone*) echo "FAIL - DRAFTS: a shelf with no task got a row"; fail=1 ;; *) echo "ok   - DRAFTS: a shelf with no task adds no row" ;; esac
+# the counts come from ONE `shelved --all` call, not one call per task
+n_calls="$(grep -c '_wb_capture_verb shelved --all' "$(dirname "$WB")/wb.sh" || true)"
+[ "$n_calls" = 1 ] && echo "ok   - DRAFTS: one shelved --all call site" || { echo "FAIL - DRAFTS: $n_calls shelved --all call sites"; fail=1; }
+# a missing wb-capture.sh next to wb.sh degrades to 0s, board still renders
+NOCAP="$(mktemp -d -t wb-board-nocap.XXXXXX)"; cp "$(dirname "$WB")"/*.sh "$NOCAP"/; rm -f "$NOCAP/wb-capture.sh"
+out_nocap="$(TASKS_DIR="$FIXTURE" bash "$NOCAP/wb.sh" board 2>&1)"; rc_nocap=$?
+[ "$rc_nocap" -eq 0 ] && echo "ok   - DRAFTS: board survives a missing wb-capture.sh" || { echo "FAIL - DRAFTS: missing wb-capture.sh exit $rc_nocap"; fail=1; }
+assert "DRAFTS: missing wb-capture.sh -> 0" 'doing +dotfiles +Alpha Task +2 +0$' "$out_nocap"
+
+# HTML board: the drafts chip shows on the task with drafts and only there (real wiring, copied scripts, sandbox HOME)
+HHOME="$(mktemp -d -t wb-board-home.XXXXXX)"; mkdir -p "$HHOME/code/dotfiles/logs"
+HCOPY="$(mktemp -d -t wb-board-html.XXXXXX)"; cp "$(dirname "$WB")"/*.sh "$HCOPY"/
+HOME="$HHOME" TASKS_DIR="$FIXTURE" bash "$HCOPY/wb.sh" board --html >/dev/null 2>&1; rc_html=$?
+html="$(cat "$HHOME/code/dotfiles/logs/board.html" 2>/dev/null)"
+[ "$rc_html" -eq 0 ] && [ -n "$html" ] && echo "ok   - HTML board: renders" || { echo "FAIL - HTML board: exit $rc_html"; fail=1; }
+alpha_card="$(printf '%s' "$html" | grep -oE 'id="card-dotfiles--alpha".{0,1400}' | head -1 || true)"
+beta_card="$(printf '%s' "$html" | grep -oE 'id="card-dotfiles--beta".{0,1400}' | head -1 || true)"
+assert "HTML board: drafts chip with count on the task holding drafts" 'class="drafts-chip"[^>]*>&#9998;2</span>' "$alpha_card"
+case "$beta_card" in *drafts-chip*) echo "FAIL - HTML board: chip on a task with no drafts"; fail=1 ;; *) echo "ok   - HTML board: no chip on a task with no drafts" ;; esac
+rm -rf "$NOCAP" "$HHOME" "$HCOPY"
 
 # status ordering: doing < review < planned < done (line-number comparison)
 l_doing=$(printf '%s\n' "$out"   | grep -n '^doing '   | cut -d: -f1 | head -1)

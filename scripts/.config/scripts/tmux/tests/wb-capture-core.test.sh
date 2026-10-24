@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for wb-capture.sh core (U2, store auto-capture): guard chain, per-session
-# state dirs, agent verbs (clear/dismiss/mute/unmute/status), log lines, and
-# the KEY=value config parser.
+# Tests for wb-capture.sh core (U2, store auto-capture; shelf-only since the nudge
+# rework): guard chain, per-session state dirs, agent verbs (mute/unmute/status/
+# accept/dismiss/keep), log lines, and the KEY=value config parser.
 #
 # tmux is faked by a script on PATH (no real tmux server, no sockets): it
 # answers `display-message` (session name), `show ... @task` ($FAKE_TASK) and
@@ -107,54 +107,30 @@ assert_eq "log task stem" "dotfiles--feat-x" "$(head -n1 "$LOG" | jq -r .task)"
 assert_eq "log session_id" "sid-aaa" "$(head -n1 "$LOG" | jq -r .session_id)"
 assert_match "log ts iso with colon offset" '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}[+-][0-9]{2}:[0-9]{2}$' "$(head -n1 "$LOG" | jq -r .ts)"
 
-echo "# status pending"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo phrase >"$D/marker"; echo d >"$D/draft"
+echo "# status: shelf-only (no marker / draft / draft_sha lines, even with legacy state present)"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo phrase >"$D/marker"; echo d >"$D/draft"; echo 1 >"$D/draft_stale"
 run_wb /dev/null status
-assert_match "status marker" 'marker: present' "$OUT"
-assert_match "status draft path" "draft: present.*$D/draft" "$OUT"
+assert_eq "status exit" 0 "$RC"
+assert_eq "status: no marker line" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c '^marker:')"
+assert_eq "status: no draft line" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c '^draft')"
+assert_eq "status: no stale warning" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'may already')"
+assert_match "status still shows mute state" '^muted: no$' "$OUT"
+assert_match "status still shows the session" '^session: sid-aaa$' "$OUT"
+assert_match "status still shows the shelved summary" '^shelved: none$' "$OUT"
 
-echo "# status: stale draft lists only the Decisions entries added since the snapshot"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D" "$H/tasks"; echo d >"$D/draft"; echo 1 >"$D/draft_stale"
-printf '# t\n## Decisions\n### Old one\n- x\n### New one\n- y\n### Newer one\n## Done\n### Not a decision\n' >"$FAKE_TASK"
-run_wb /dev/null status
-assert_match "stale: warning" 'draft: .*may already be recorded' "$OUT"
-assert_match "stale: lists new entry" '^### New one$' "$OUT"
-assert_match "stale: lists newer entry" '^### Newer one$' "$OUT"
-assert_eq "stale: old entry not listed" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'Old one')"
-assert_eq "stale: other sections not listed" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'Not a decision')"
-assert_match "stale: draft line still shown" "draft: present.*$D/draft" "$OUT"
-rm -f "$FAKE_TASK"; run_wb /dev/null status
-assert_match "stale, task unreadable: warning only" 'may already be recorded' "$OUT"
-assert_eq "stale, task unreadable: no list" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'decisions added')"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"
-run_wb /dev/null status
-assert_eq "not stale: no warning" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'may already')"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo 0 >"$D/draft_stale"
-run_wb /dev/null status
-assert_eq "draft_stale without draft: no warning" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'may already')"
+echo "# removed verbs are silent no-ops: clear and review change nothing and print nothing"
+new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/draft" "$D/muted"
+for v in clear review; do
+  run_wb /dev/null "$v"
+  assert_eq "$v: exit 0, no output" "0:" "$RC:$OUT"
+done
+run_wb /dev/null clear --draft
+assert_eq "clear --draft: exit 0, no output" "0:" "$RC:$OUT"
+assert_file "removed verbs leave the session draft" "$D/draft"
+assert_file "removed verbs leave muted" "$D/muted"
+assert_eq "removed verbs log nothing" 0 "$(logn)"
 
-echo "# status is read-only; review marks a nudged sweep draft as under review"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"; printf 'sweep' >"$D/outstanding"
-run_wb /dev/null status
-assert_nofile "status never marks reviewing" "$D/reviewing"
-run_wb /dev/null review
-assert_eq "review exit" 0 "$RC"
-assert_eq "review silent" "" "$OUT"
-assert_file "sweep nudge outstanding: review marks reviewing" "$D/reviewing"
-printf '3\n' >"$D/reviewing"
-run_wb /dev/null review
-assert_eq "second review keeps the carried-Stop counter" 3 "$(cat "$D/reviewing")"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"
-run_wb /dev/null review
-assert_nofile "un-nudged draft: review is a no-op" "$D/reviewing"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; echo d >"$D/draft"; printf 'phrase' >"$D/outstanding"
-run_wb /dev/null review
-assert_nofile "phrase nudge: review is a no-op" "$D/reviewing"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'sweep' >"$D/outstanding"
-run_wb /dev/null review
-assert_nofile "no draft: review is a no-op" "$D/reviewing"
-
-echo "# shelved drafts: status lists, accept / dismiss <path> delete + log"
+echo "# shelved drafts: status lists, accept / dismiss <path> archive + log (with the draft's basename)"
 new_scenario; D="$(sdir sid-aaa)"; PK="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$D" "$PK"
 run_wb /dev/null status
 assert_match "no shelved drafts" 'shelved: none' "$OUT"
@@ -167,22 +143,60 @@ assert_match "lists stale one marked" "shelved: $PK/20261018T110000-sid-bbb.md \
 assert_eq "other task's drafts not listed" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'other--task')"
 run_wb /dev/null accept "$PK/20261018T100000-sid-aaa.md"
 assert_eq "accept exit" 0 "$RC"
-assert_nofile "accept deletes the draft" "$PK/20261018T100000-sid-aaa.md"
-assert_eq "accept logs shelved_accepted" shelved_accepted "$(jq -r .event "$LOG")"
-assert_eq "accept carries no source" null "$(jq -r '.source // null' "$LOG")"
-assert_eq "accept logs no followed" 0 "$(jq -r 'select(.event=="followed")|.event' "$LOG" | wc -l | tr -d ' ')"
-assert_eq "accept untagged when not stale" null "$(jq -r '.stale // null' "$LOG")"
+assert_nofile "accept moves the draft off the shelf" "$PK/20261018T100000-sid-aaa.md"
+assert_eq "accept logs shelved_accepted once" 1 "$(jq -r 'select(.event=="shelved_accepted")|.event' "$LOG" | wc -l | tr -d ' ')"
+assert_eq "accept's draft field is the file's basename" 20261018T100000-sid-aaa.md "$(jq -r 'select(.event=="shelved_accepted")|.draft' "$LOG")"
+assert_eq "accept carries no source" null "$(jq -r 'select(.event=="shelved_accepted")|.source // null' "$LOG")"
+assert_eq "accept untagged when not stale" null "$(jq -r 'select(.event=="shelved_accepted")|.stale // null' "$LOG")"
+assert_eq "accept leaves no flag file" 0 "$(ls "$D" | wc -l | tr -d ' ')"
 run_wb /dev/null dismiss "$PK/20261018T110000-sid-bbb.md"
 assert_eq "dismiss <path> exit" 0 "$RC"
-assert_nofile "dismiss <path> deletes the draft" "$PK/20261018T110000-sid-bbb.md"
-assert_nofile "dismiss <path> deletes the stale marker" "$PK/20261018T110000-sid-bbb.md.stale"
+assert_nofile "dismiss <path> moves the draft" "$PK/20261018T110000-sid-bbb.md"
+assert_nofile "dismiss <path> moves the stale marker" "$PK/20261018T110000-sid-bbb.md.stale"
 assert_eq "dismiss <path> logs shelved_dismissed" shelved_dismissed "$(jq -r 'select(.event=="shelved_dismissed")|.event' "$LOG")"
+assert_eq "dismiss <path>'s draft field is the file's basename" 20261018T110000-sid-bbb.md "$(jq -r 'select(.event=="shelved_dismissed")|.draft' "$LOG")"
 assert_eq "dismiss <path> carries no source" null "$(jq -r 'select(.event=="shelved_dismissed")|.source // null' "$LOG")"
 assert_eq "dismiss <path> tagged stale" true "$(jq -r 'select(.event=="shelved_dismissed")|.stale' "$LOG")"
-assert_eq "dismiss <path> logs no dismissed" 0 "$(jq -r 'select(.event=="dismissed")|.event' "$LOG" | wc -l | tr -d ' ')"
+assert_eq "dismiss <path> logs no bare dismissed" 0 "$(jq -r 'select(.event=="dismissed")|.event' "$LOG" | wc -l | tr -d ' ')"
 assert_file "other task's draft untouched" "$CAP/shelved/other--task/20261018T090000-sid-ccc.md"
 run_wb /dev/null status
 assert_match "all resolved" 'shelved: none' "$OUT"
+
+echo "# keep <path>: logs shelved_kept and leaves the draft exactly where it is"
+new_scenario; D="$(sdir sid-aaa)"; PK="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$D" "$PK"
+printf 'one\n' >"$PK/20261018T100000-sid-aaa.md"; : >"$PK/20261018T100000-sid-aaa.md.stale"
+run_wb /dev/null keep "$PK/20261018T100000-sid-aaa.md"
+assert_eq "keep exit 0, no output" "0:" "$RC:$OUT"
+assert_eq "keep leaves the draft in place, unchanged" one "$(cat "$PK/20261018T100000-sid-aaa.md")"
+assert_file "keep leaves the stale sidecar" "$PK/20261018T100000-sid-aaa.md.stale"
+assert_eq "keep archives nothing" 0 "$(ls "$CAP/resolved" 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "keep logs exactly one line" 1 "$(logn)"
+assert_eq "keep event" shelved_kept "$(jq -r .event "$LOG")"
+assert_eq "keep's draft field is the file's basename" 20261018T100000-sid-aaa.md "$(jq -r .draft "$LOG")"
+assert_eq "keep carries no source" null "$(jq -r '.source // null' "$LOG")"
+assert_eq "keep logs the task stem" dotfiles--feat-x "$(jq -r .task "$LOG")"
+run_wb /dev/null keep "$PK/20261018T100000-sid-aaa.md"
+assert_eq "keep twice: logged twice (one per review)" 2 "$(logn)"
+run_wb /dev/null keep "$H/nowhere.md"
+assert_eq "keep outside the shelf: exit 1" 1 "$RC"
+assert_match "keep outside the shelf explains on stderr" 'wb-capture:' "$OUT"
+assert_eq "keep outside the shelf logs nothing" 2 "$(logn)"
+run_wb /dev/null keep
+assert_eq "keep without a path: exit 1" 1 "$RC"
+assert_eq "keep without a path logs nothing" 2 "$(logn)"
+PX="$CAP/shelved/closed--task"; mkdir -p "$PX"; printf 'z\n' >"$PX/20261018T120000-sid-z.md"
+run_wb /dev/null keep "$PX/20261018T120000-sid-z.md"
+assert_eq "keep another task's draft without --task: exit 1" 1 "$RC"
+run_wb /dev/null keep --task closed--task "$PX/20261018T120000-sid-z.md"
+assert_eq "keep --task: exit 0" 0 "$RC"
+assert_eq "keep --task logs for that task's stem" closed--task "$(tail -n1 "$LOG" | jq -r .task)"
+assert_file "keep --task leaves that draft" "$PX/20261018T120000-sid-z.md"
+# keep works without a wb session, like accept/dismiss
+EXTRA_ENV=(TMUX= TMUX_PANE=)
+run_wb /dev/null keep --task closed--task "$PX/20261018T120000-sid-z.md"
+assert_eq "keep --task without tmux: exit 0" 0 "$RC"
+assert_eq "...logged with an empty session_id" "" "$(tail -n1 "$LOG" | jq -r .session_id)"
+EXTRA_ENV=()
 
 echo "# shelved drafts: paths outside the shelved dir are refused"
 new_scenario; D="$(sdir sid-aaa)"; PK="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$D" "$PK"
@@ -192,12 +206,10 @@ ln -s "$H/victim.md" "$PK/20261018T120000-sid-link.md"
 for bad in "$H/victim.md" "$PK/../../../../victim.md" "$PK/../other--task/20261018T090000-sid-ccc.md" \
            "$CAP/shelved/other--task/20261018T090000-sid-ccc.md" "$PK/20261018T120000-sid-link.md" \
            "$PK/missing.md" "$PK" "" "$PK/sub/x.md"; do
-  for v in accept dismiss; do
+  for v in accept dismiss keep; do
     run_wb /dev/null "$v" "$bad"
-    if [ "$v" = accept ] || [ -n "$bad" ]; then
-      [ "$RC" -ne 0 ] && ok "$v refuses [$bad]" || bad "$v refuses [$bad]" "exit 0"
-      assert_match "$v refusal explains on stderr" 'wb-capture:' "$OUT"
-    fi
+    [ "$RC" -ne 0 ] && ok "$v refuses [$bad]" || bad "$v refuses [$bad]" "exit 0"
+    assert_match "$v refusal explains on stderr" 'wb-capture' "$OUT"
   done
 done
 assert_file "victim untouched" "$H/victim.md"
@@ -205,113 +217,40 @@ assert_file "sibling task's draft untouched" "$CAP/shelved/other--task/20261018T
 assert_file "symlink untouched" "$PK/20261018T120000-sid-link.md"
 assert_eq "nothing logged by refusals" 0 "$(logn)"
 
-echo "# dismiss / clear"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft" "$D/outstanding" "$D/muted"
-run_wb /dev/null dismiss; assert_eq "dismiss exit" 0 "$RC"
-assert_nofile "dismiss removes marker" "$D/marker"
-assert_nofile "dismiss removes draft" "$D/draft"
-assert_nofile "dismiss removes outstanding" "$D/outstanding"
-assert_file "dismiss leaves muted" "$D/muted"
-assert_eq "dismiss logs once" 1 "$(logn)"
-assert_eq "dismiss event" dismissed "$(jq -r .event "$LOG")"
+echo "# bare dismiss (no path, no --task) is a usage error: exit 1, nothing removed, nothing logged"
+new_scenario; D="$(sdir sid-aaa)"; PK="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$D" "$PK"
+touch "$D/draft" "$D/muted"; printf 's\n' >"$PK/20261018T100000-sid-a.md"
 run_wb /dev/null dismiss
-assert_eq "dismiss nothing pending: quiet" "" "$OUT"
-assert_eq "dismiss nothing pending: no new log" 1 "$(logn)"
+assert_eq "bare dismiss: exit 1" 1 "$RC"
+assert_match "bare dismiss: usage message" 'usage: wb-capture.sh dismiss' "$OUT"
+assert_file "bare dismiss: session draft kept" "$D/draft"
+assert_file "bare dismiss: muted kept" "$D/muted"
+assert_file "bare dismiss: shelved draft kept" "$PK/20261018T100000-sid-a.md"
+assert_eq "bare dismiss: nothing logged" 0 "$(logn)"
+assert_eq "bare dismiss: nothing archived" 0 "$(ls "$CAP/resolved" 2>/dev/null | wc -l | tr -d ' ')"
+EXTRA_ENV=(TMUX= TMUX_PANE=); run_wb /dev/null dismiss
+assert_eq "bare dismiss outside a session: still exit 1" 1 "$RC"
+EXTRA_ENV=()
+run_wb /dev/null dismiss ""
+assert_eq "dismiss with an empty path: exit 1" 1 "$RC"
 
-echo "# status prints the draft sha1; dismiss --expect (compare-before-delete)"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'DRAFT ONE\n' >"$D/draft"
-SHA1="$(sha1sum <"$D/draft" | cut -d' ' -f1)"
-run_wb /dev/null status
-assert_match "status: draft_sha line" "^draft_sha: $SHA1\$" "$OUT"
-assert_match "status: draft line unchanged" "^draft: present \\($D/draft\\)" "$OUT"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; run_wb /dev/null status
-assert_eq "status: no draft, no draft_sha" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c '^draft_sha:')"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'DRAFT ONE\n' >"$D/draft"; printf sweep >"$D/outstanding"; touch "$D/marker"
+echo "# removed flags are refused, never mistaken for a path (a stale skill must not retire a draft early)"
+PKF="$PK/20261018T100000-sid-a.md"
+run_wb /dev/null accept --begin "$PKF"
+assert_eq "accept --begin: exit 1" 1 "$RC"
+assert_match "accept --begin: says the option is unknown" 'unknown option --begin' "$OUT"
+assert_file "accept --begin: the draft stays on the shelf" "$PKF"
+run_wb /dev/null dismiss --expect none "$PKF"
+assert_eq "dismiss --expect: exit 1" 1 "$RC"
+assert_file "dismiss --expect: the draft stays on the shelf" "$PKF"
 run_wb /dev/null dismiss --expect none
-assert_eq "--expect none + draft: exit 1" 1 "$RC"
-assert_match "--expect none + draft: message" 'draft changed since status; review it first \(nothing changed\)' "$OUT"
-assert_file "--expect none + draft: draft kept" "$D/draft"
-assert_file "--expect none + draft: outstanding kept" "$D/outstanding"
-assert_file "--expect none + draft: marker kept" "$D/marker"
-assert_eq "--expect none + draft: nothing logged" 0 "$(logn)"
-run_wb /dev/null dismiss --expect "$SHA1"
-assert_eq "--expect <sha> matching: exit 0" 0 "$RC"
-assert_nofile "--expect <sha> matching: draft removed" "$D/draft"
-assert_nofile "--expect <sha> matching: outstanding removed" "$D/outstanding"
-assert_eq "--expect <sha> matching: logs dismissed" 1 "$(jq -r 'select(.event=="dismissed")|.event' "$LOG" | wc -l | tr -d ' ')"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'DRAFT TWO\n' >"$D/draft"; printf sweep >"$D/outstanding"
-run_wb /dev/null dismiss --expect "$SHA1"
-assert_eq "--expect <other sha>: exit 1" 1 "$RC"
-assert_match "--expect <other sha>: message" 'draft changed since status' "$OUT"
-assert_file "--expect <other sha>: draft kept" "$D/draft"
-assert_file "--expect <other sha>: outstanding kept" "$D/outstanding"
-assert_eq "--expect <other sha>: nothing logged" 0 "$(logn)"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/outstanding"
-run_wb /dev/null dismiss --expect none
-assert_eq "--expect none, no draft: exit 0" 0 "$RC"
-assert_nofile "--expect none, no draft: dismisses like bare dismiss" "$D/marker"
-assert_eq "--expect none, no draft: logs dismissed" 1 "$(logn)"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/outstanding"
-run_wb /dev/null dismiss --expect "$SHA1"
-assert_eq "--expect <sha>, draft absent: exit 0" 0 "$RC"
-assert_nofile "--expect <sha>, draft absent: dismisses" "$D/marker"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'DRAFT ONE\n' >"$D/draft"
-run_wb /dev/null dismiss
-assert_eq "bare dismiss unchanged: removes the draft" 0 "$([ -e "$D/draft" ] && echo 1 || echo 0)"
-PKX="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$PKX"; printf 'S\n' >"$PKX/20261018T100000-sid-a.md"
-run_wb /dev/null dismiss --expect none "$PKX/20261018T100000-sid-a.md"
-assert_eq "--expect + path: exit 1" 1 "$RC"
-assert_match "--expect + path: usage message" '\-\-expect only goes with a bare session dismiss' "$OUT"
-assert_file "--expect + path: shelved draft kept" "$PKX/20261018T100000-sid-a.md"
-run_wb /dev/null dismiss --task dotfiles--feat-x --expect none
-assert_eq "--expect + --task: exit 1" 1 "$RC"
-run_wb /dev/null dismiss --expect
-assert_eq "--expect without a value: exit 1" 1 "$RC"
-assert_file "--expect <value> is never taken for a path" "$PKX/20261018T100000-sid-a.md"
-
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft"; printf sweep >"$D/outstanding"
-run_wb /dev/null clear; assert_eq "clear exit" 0 "$RC"
-assert_nofile "clear removes marker" "$D/marker"
-assert_file "plain clear keeps the draft" "$D/draft"
-assert_nofile "clear removes outstanding" "$D/outstanding"
-assert_eq "clear resolves outstanding: one log line" 1 "$(logn)"
-assert_eq "clear logs followed, not dismissed" followed "$(jq -r .event "$LOG")"
-assert_eq "clear keeps the nudge source" sweep "$(jq -r .source "$LOG")"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft"
-run_wb /dev/null clear
-assert_eq "clear with no outstanding logs nothing" 0 "$(logn)"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft" "$D/draft_stale" "$D/draft_strikes"
-run_wb /dev/null clear --draft; assert_eq "clear --draft exit" 0 "$RC"
-assert_nofile "clear --draft removes the draft" "$D/draft"
-assert_nofile "clear --draft removes draft_stale" "$D/draft_stale"
-assert_nofile "clear --draft removes draft_strikes" "$D/draft_strikes"
-assert_nofile "clear --draft removes marker" "$D/marker"
+assert_eq "bare dismiss --expect: exit 1" 1 "$RC"
+assert_file "...and the draft is still there" "$PKF"
+assert_eq "refused flags log nothing" 0 "$(logn)"
 
 echo "# retire_draft: resolved drafts are archived under resolved/<stem>/, never deleted"
 RS="dotfiles--feat-x"
 res_files() { ls "$CAP/resolved/$RS" 2>/dev/null; }  # sorted names, empty when none
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker" "$D/draft_stale" "$D/draft_strikes"; printf 'KEEP ME\n' >"$D/draft"
-run_wb /dev/null clear --draft; assert_eq "retire: clear --draft exit" 0 "$RC"
-assert_nofile "retire: clear --draft: session draft gone" "$D/draft"
-assert_eq "retire: clear --draft archives one file" 1 "$(res_files | wc -l | tr -d ' ')"
-assert_match "retire: clear --draft name pattern" '^[0-9]{8}T[0-9]{6}-accepted-sid-aaa\.md$' "$(res_files)"
-assert_eq "retire: clear --draft keeps the text" "KEEP ME" "$(cat "$CAP/resolved/$RS/"*-accepted-sid-aaa.md)"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; touch "$D/marker"; printf 'D2\n' >"$D/draft"; printf sweep >"$D/outstanding"
-run_wb /dev/null dismiss; assert_eq "retire: dismiss exit" 0 "$RC"
-assert_nofile "retire: dismiss: session draft gone" "$D/draft"
-assert_match "retire: dismiss archives with outcome dismissed" '^[0-9]{8}T[0-9]{6}-dismissed-sid-aaa\.md$' "$(res_files)"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'D3\n' >"$D/draft"; printf sweep >"$D/outstanding"
-run_wb /dev/null dismiss --expect "0000000000000000000000000000000000000000"
-assert_eq "retire: dismiss --expect <wrong sha> exit 1" 1 "$RC"
-assert_file "retire: wrong sha keeps the draft" "$D/draft"
-assert_eq "retire: wrong sha archives nothing" 0 "$(res_files | wc -l | tr -d ' ')"
-new_scenario; D="$(sdir sid-aaa)"; mkdir -p "$D"; printf 'D4\n' >"$D/draft"; touch "$D/marker" "$D/outstanding"
-mkdir -p "$CAP/resolved"; : >"$CAP/resolved/$RS"   # a plain file where the stem dir must go
-run_wb /dev/null clear --draft; assert_eq "retire fail: clear --draft exit" 0 "$RC"
-assert_file "retire fail: clear --draft keeps the draft" "$D/draft"
-assert_match "retire fail: stderr line" 'could not archive the draft \(kept\)' "$OUT"
-assert_nofile "retire fail: other flags still cleared (marker)" "$D/marker"
-assert_nofile "retire fail: other flags still cleared (outstanding)" "$D/outstanding"
 # shelved accept / dismiss archive the file and its .stale sidecar
 new_scenario; PK="$CAP/shelved/$RS"; mkdir -p "$PK"
 printf 'one\n' >"$PK/20261018T100000-sid-aaa.md"; : >"$PK/20261018T100000-sid-aaa.md.stale"
@@ -324,16 +263,15 @@ assert_eq "retire: archived accept sidecar name" 1 "$(res_files | /usr/bin/grep 
 run_wb /dev/null dismiss "$PK/20261018T110000-sid-bbb.md"; assert_eq "retire: shelved dismiss exit" 0 "$RC"
 assert_eq "retire: archived dismiss file name" 1 "$(res_files | /usr/bin/grep -cE '^[0-9]{8}T[0-9]{6}-shelved_dismissed-20261018T110000-sid-bbb\.md$')"
 assert_eq "retire: archived text kept" "two" "$(cat "$CAP/resolved/$RS/"*-shelved_dismissed-*.md)"
-# a failed retire changes nothing: file kept, exit 1, no event, flag kept
+# a failed retire changes nothing: file kept, exit 1, no event
 new_scenario; PK="$CAP/shelved/$RS"; D="$(sdir sid-aaa)"; mkdir -p "$PK" "$D" "$CAP/resolved"
-printf 'one\n' >"$PK/20261018T100000-sid-aaa.md"; : >"$PK/20261018T100000-sid-aaa.md.stale"; : >"$D/shelved_accept"
+printf 'one\n' >"$PK/20261018T100000-sid-aaa.md"; : >"$PK/20261018T100000-sid-aaa.md.stale"
 : >"$CAP/resolved/$RS"
 run_wb /dev/null dismiss "$PK/20261018T100000-sid-aaa.md"
 assert_eq "retire fail: shelved dismiss exit 1" 1 "$RC"
 assert_match "retire fail: shelved dismiss message" 'could not archive .* \(nothing changed\)' "$OUT"
 assert_file "retire fail: shelved draft kept" "$PK/20261018T100000-sid-aaa.md"
 assert_file "retire fail: sidecar kept" "$PK/20261018T100000-sid-aaa.md.stale"
-assert_file "retire fail: shelved_accept flag kept" "$D/shelved_accept"
 assert_eq "retire fail: nothing logged" 0 "$(logn)"
 run_wb /dev/null accept "$PK/20261018T100000-sid-aaa.md"
 assert_eq "retire fail: shelved accept exit 1" 1 "$RC"
@@ -341,14 +279,12 @@ assert_file "retire fail: accept keeps the draft" "$PK/20261018T100000-sid-aaa.m
 assert_eq "retire fail: accept logs nothing" 0 "$(logn)"
 
 echo "# session isolation"
-new_scenario; A="$(sdir sid-aaa)"; B="$(sdir sid-bbb)"; mkdir -p "$A" "$B"; touch "$A/marker" "$B/marker"
+new_scenario; A="$(sdir sid-aaa)"; B="$(sdir sid-bbb)"; mkdir -p "$A" "$B"
 FAKE_SID=sid-bbb; run_wb /dev/null mute
 assert_file "B muted" "$B/muted"; assert_nofile "A not muted" "$A/muted"
-run_wb /dev/null dismiss
-assert_nofile "B marker removed" "$B/marker"; assert_file "A marker untouched" "$A/marker"
 
 echo "# sid unset / invalid"
-new_scenario; FAKE_SID=""; run_wb /dev/null dismiss
+new_scenario; FAKE_SID=""; run_wb /dev/null status
 assert_eq "unset sid exit" 0 "$RC"
 assert_match "unset sid error line" '^wb-capture: no capture session recorded on this pane yet \(@wb_capture_sid unset\)$' "$OUT"
 assert_eq "unset sid: single line" 1 "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
@@ -357,7 +293,7 @@ assert_nofile "unset sid: no state" "$CAP"
 new_scenario; mkdir -p "$STATE/wb/x"; touch "$STATE/wb/x/marker" "$STATE/wb/x/draft"
 for bad_sid in '../x' 'a/b' '.' '..' 'a b'; do
   FAKE_SID="$bad_sid"
-  for v in dismiss clear mute unmute; do run_wb /dev/null "$v"; assert_eq "invalid sid [$bad_sid] $v exit" 0 "$RC"; done
+  for v in status mute unmute; do run_wb /dev/null "$v"; assert_eq "invalid sid [$bad_sid] $v exit" 0 "$RC"; done
 done
 assert_file "traversal target marker intact" "$STATE/wb/x/marker"
 assert_file "traversal target draft intact" "$STATE/wb/x/draft"
@@ -366,14 +302,13 @@ assert_eq "invalid sids log nothing" 0 "$(logn)"
 
 echo "# config"
 cfg_get() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }
-DEFAULT_PHRASES='we decided|decided to|going with|let'"'"'s go with|we'"'"'ll go with|i'"'"'ll go with|went with|settled on|the decision is|chose |opting for|ruled out'
 new_scenario; run_wb /dev/null _config
-assert_eq "default cooldown" 3 "$(cfg_get cooldown)"
 assert_eq "default sweep_every" 4 "$(cfg_get sweep_every)"
 assert_eq "default sweep" on "$(cfg_get sweep)"
 assert_eq "default sweep_timeout" 60 "$(cfg_get sweep_timeout)"
 assert_eq "default sweep_max_failures" 3 "$(cfg_get sweep_max_failures)"
-assert_eq "default phrases" "$DEFAULT_PHRASES" "$(cfg_get phrases)"
+assert_eq "no phrases key" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c '^phrases=')"
+assert_eq "no cooldown key" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c '^cooldown=')"
 
 new_scenario; mkdir -p "$CFG/wb"
 cat >"$CFG/wb/capture.conf" <<CONF
@@ -389,23 +324,24 @@ sweep_max_failures=5
 phrases=we agreed|\$(touch $H/pwned)
 CONF
 run_wb /dev/null _config
-assert_eq "cooldown applied" 7 "$(cfg_get cooldown)"
+assert_eq "config with phrases= and cooldown= still loads" 0 "$RC"
+assert_eq "cooldown line ignored: not printed" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'cooldown')"
+assert_eq "phrases line ignored: not printed" 0 "$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'phrases\|we agreed')"
 assert_eq "non-integer falls back" 4 "$(cfg_get sweep_every)"
 assert_eq "sweep applied" off "$(cfg_get sweep)"
 assert_eq "timeout applied" 90 "$(cfg_get sweep_timeout)"
 assert_eq "sweep_max_failures applied" 5 "$(cfg_get sweep_max_failures)"
-assert_eq "command substitution stays literal" "we agreed|\$(touch $H/pwned)" "$(cfg_get phrases)"
 assert_nofile "payload never executed" "$H/pwned"
 assert_eq "unknown key ignored" "" "$(cfg_get bogus_key)"
 assert_nofile "_config writes no state" "$CAP"
 
-new_scenario; mkdir -p "$CFG/wb"; printf 'sweep=maybe\ncooldown=-2\n' >"$CFG/wb/capture.conf"
+new_scenario; mkdir -p "$CFG/wb"; printf 'sweep=maybe\ncooldown=3\nphrases=\n' >"$CFG/wb/capture.conf"
 run_wb /dev/null _config
 assert_eq "bad sweep value -> default" on "$(cfg_get sweep)"
+assert_eq "cooldown=3 / empty phrases=: loads, nothing printed" "" "$(printf '%s\n' "$OUT" | /usr/bin/grep 'cooldown\|phrases')"
 new_scenario; mkdir -p "$CFG/wb"; printf 'sweep_max_failures=many\n' >"$CFG/wb/capture.conf"
 run_wb /dev/null _config
 assert_eq "bad sweep_max_failures -> default" 3 "$(cfg_get sweep_max_failures)"
-assert_eq "negative cooldown -> default" 3 "$(cfg_get cooldown)"
 
 echo "# store verbs: shelved [--all | --task] (read-only, no @task needed)"
 new_scenario; PK="$CAP/shelved/dotfiles--feat-x"; PO="$CAP/shelved/done--task"; mkdir -p "$PK" "$PO"
@@ -439,7 +375,36 @@ RUN_PATH=""; EXTRA_ENV=(WB_CAPTURE_SWEEP=1)
 run_wb /dev/null shelved --all; assert_eq "recursion flag: silent no-op" "0:" "$RC:$OUT"
 EXTRA_ENV=()
 
-echo "# store verb: pending-for-task (shelved + live session drafts)"
+echo "# store verbs: shelved --count, shelved --all --min-age-days"
+new_scenario; PK="$CAP/shelved/proj--eta"; mkdir -p "$PK" "$CAP/shelved/proj--old"
+OLD_TS="$(date -d '8 days ago' +%Y%m%dT%H%M%S)"; NEW_TS="$(date +%Y%m%dT%H%M%S)"
+printf 'a\n' >"$PK/$OLD_TS-sid-a.md"; printf 'b\n' >"$PK/$NEW_TS-sid-b.md"; printf 'c\n' >"$PK/$NEW_TS-sid-c.md"
+printf 'o\n' >"$CAP/shelved/proj--old/$OLD_TS-sid-o.md"; : >"$CAP/shelved/proj--old/$OLD_TS-sid-o.md.stale"
+EXTRA_ENV=(TMUX= TMUX_PANE=); FAKE_TASK=""
+run_wb /dev/null shelved --count --task proj--eta
+assert_eq "count of three shelved drafts" "0:3" "$RC:$OUT"
+run_wb /dev/null shelved --count --task nosuch--task
+assert_eq "count with no shelf dir: 0" "0:0" "$RC:$OUT"
+mkdir -p "$CAP/shelved/empty--task"
+run_wb /dev/null shelved --count --task empty--task
+assert_eq "count of an empty shelf dir: 0" "0:0" "$RC:$OUT"
+run_wb /dev/null shelved --count --task ../x; assert_eq "count rejects a bad stem" 1 "$RC"
+run_wb /dev/null shelved --count; assert_eq "count needs --task" 1 "$RC"
+: >"$H/tmux-calls"
+run_wb /dev/null shelved --count --task proj--eta
+assert_eq "count makes no tmux call" "" "$(cat "$H/tmux-calls" 2>/dev/null)"
+run_wb /dev/null shelved --all --min-age-days 7
+assert_eq "--min-age-days: only drafts older than N days, grouped by stem" "proj--eta:
+  $PK/$OLD_TS-sid-a.md
+proj--old:
+  $CAP/shelved/proj--old/$OLD_TS-sid-o.md (stale)" "$OUT"
+run_wb /dev/null shelved --all --min-age-days 30
+assert_eq "--min-age-days 30: nothing that old" "0:" "$RC:$OUT"
+run_wb /dev/null shelved --all --min-age-days x; assert_eq "--min-age-days needs a number" 1 "$RC"
+assert_eq "count and age filter log nothing" 0 "$(logn)"
+EXTRA_ENV=()
+
+echo "# store verb: pending-for-task (shelved drafts only)"
 new_scenario; TF="$H/tasks/proj--eta.md"; mkdir -p "$H/tasks" "$CAP/shelved/proj--eta" "$CAP/shelved/proj--other"
 printf 't\n' >"$TF"
 printf 's\n' >"$CAP/shelved/proj--eta/20261018T100000-sid-a.md"; : >"$CAP/shelved/proj--eta/20261018T100000-sid-a.md.stale"
@@ -452,14 +417,10 @@ mkdir -p "$CAP/sid-notask"; printf 'd\n' >"$CAP/sid-notask/draft"
 EXTRA_ENV=(TMUX= TMUX_PANE=); FAKE_TASK=""
 run_wb /dev/null pending-for-task "$TF"
 assert_eq "pending-for-task exit" 0 "$RC"
-assert_eq "shelved of the stem + live drafts with this taskpath, nothing else" "$CAP/shelved/proj--eta/20261018T100000-sid-a.md
-$CAP/sid-live/draft" "$OUT"
+assert_eq "shelved drafts of the stem only; a live session draft is not listed" "$CAP/shelved/proj--eta/20261018T100000-sid-a.md" "$OUT"
 run_wb /dev/null pending-for-task "$H/tasks/proj--none.md"
 assert_eq "no drafts: no output, exit 0" "0:" "$RC:$OUT"
 run_wb /dev/null pending-for-task; assert_eq "no task-file arg: exit 1" 1 "$RC"
-ln -s "$TF" "$H/tasks/link.md"; printf '%s\n' "$H/tasks/link.md" >"$CAP/sid-nodraft/taskpath"; printf 'd\n' >"$CAP/sid-nodraft/draft"
-run_wb /dev/null pending-for-task "$TF"
-assert_match "a symlinked taskpath resolving to the same file matches" "$CAP/sid-nodraft/draft" "$OUT"
 EXTRA_ENV=()
 
 echo "# store verb: log-shelved-left"
@@ -501,16 +462,13 @@ assert_file "...left alone" "$PK/20261018T130000-sid-k.md"
 run_wb /dev/null dismiss --task closed--task; assert_eq "dismiss --task without a path: refused" 1 "$RC"
 run_wb /dev/null dismiss --task ../x "$PX/20261018T120000-sid-z.md"; assert_eq "bad --task stem refused" 1 "$RC"
 assert_file "...nothing deleted" "$PX/20261018T120000-sid-z.md"
-run_wb /dev/null accept --begin --task closed--task "$PX/20261018T120000-sid-z.md"
-assert_eq "accept --begin --task exit" 0 "$RC"
-assert_file "accept --begin --task writes the flag in this session" "$D/shelved_accept"
-assert_file "...and leaves the draft" "$PX/20261018T120000-sid-z.md"
 run_wb /dev/null accept --task closed--task "$PX/20261018T120000-sid-z.md"
 assert_eq "accept --task exit" 0 "$RC"
 assert_nofile "accept --task deletes the draft" "$PX/20261018T120000-sid-z.md"
 run_wb /dev/null accept --task closed--task "$PX/20261018T100000-sid-x.md"
 assert_nofile "accept --task deletes the stale sidecar too" "$PX/20261018T100000-sid-x.md.stale"
 assert_eq "accept --task logs shelved_accepted, stale-tagged" "true" "$(jq -r 'select(.event=="shelved_accepted" and .task=="closed--task" and .stale==true)|.stale' "$LOG" | tail -n1)"
+assert_eq "accept --task's draft field is the basename" 20261018T100000-sid-x.md "$(jq -r 'select(.event=="shelved_accepted" and .stale==true)|.draft' "$LOG" | tail -n1)"
 
 echo "# path-carrying accept / dismiss work without a session (kill switch, no @task, no tmux, no jq)"
 sl_setup() { # fresh scenario with three shelved drafts of closed--task
@@ -525,9 +483,6 @@ assert_nofile "kill switch: dismiss --task still deletes the draft" "$PX/2026101
 assert_eq "kill switch: dismiss --task still logs shelved_dismissed" 1 "$(jq -r 'select(.event=="shelved_dismissed")|.event' "$LOG" 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "kill switch: the event has an empty session_id" "" "$(jq -r 'select(.event=="shelved_dismissed")|.session_id' "$LOG")"
 assert_eq "kill switch: the event task is the --task stem" closed--task "$(jq -r 'select(.event=="shelved_dismissed")|.task' "$LOG")"
-run_wb /dev/null accept --begin --task closed--task "$PX/20261018T120000-sid-c.md"
-assert_eq "kill switch: accept --begin exit" 0 "$RC"
-assert_nofile "kill switch: accept --begin writes no flag" "$D/shelved_accept"
 run_wb /dev/null accept --task closed--task "$PX/20261018T120000-sid-c.md"
 assert_nofile "kill switch: accept --task deletes the draft" "$PX/20261018T120000-sid-c.md"
 assert_eq "kill switch: accept logs shelved_accepted" 1 "$(jq -r 'select(.event=="shelved_accepted")|.event' "$LOG" | wc -l | tr -d ' ')"
@@ -538,9 +493,6 @@ run_wb /dev/null accept --task closed--task "$PX/20261018T100000-sid-a.md"
 assert_eq "no @task: accept --task exit" 0 "$RC"
 assert_nofile "no @task: accept --task deletes the draft" "$PX/20261018T100000-sid-a.md"
 assert_eq "no @task: logged with empty session_id" "" "$(jq -r 'select(.event=="shelved_accepted")|.session_id' "$LOG")"
-run_wb /dev/null accept --begin --task closed--task "$PX/20261018T120000-sid-c.md"
-assert_eq "no @task: accept --begin exit" 0 "$RC"
-assert_nofile "no @task: accept --begin writes no flag" "$D/shelved_accept"
 EXTRA_ENV=(TMUX= TMUX_PANE=)
 run_wb /dev/null dismiss --task closed--task "$PX/20261018T120000-sid-c.md"
 assert_eq "no tmux at all: dismiss --task exit" 0 "$RC"
@@ -555,9 +507,6 @@ assert_match "no stem: dismiss says what to pass" 'pass --task <stem>' "$OUT"
 assert_file "no stem: dismiss leaves the draft" "$PX/20261018T100000-sid-a.md"
 run_wb /dev/null accept "$PX/20261018T100000-sid-a.md"
 assert_eq "no stem: accept <path> exits 1" 1 "$RC"
-run_wb /dev/null accept --begin "$PX/20261018T100000-sid-a.md"
-assert_eq "no stem: accept --begin exits 1" 1 "$RC"
-assert_match "no stem: accept --begin has a message" 'pass --task <stem>' "$OUT"
 assert_file "no stem: draft untouched" "$PX/20261018T100000-sid-a.md"
 assert_eq "no stem: nothing logged" 0 "$(logn)"
 sl_setup; mkdir -p "$STATE/wb"; touch "$STATE/wb/disable-capture"; FAKE_TASK=""
@@ -576,18 +525,37 @@ assert_nofile "no jq: the draft is still deleted" "$PX/20261018T100000-sid-a.md"
 assert_eq "no jq: the log line is skipped" 0 "$(logn)"
 RUN_PATH=""; EXTRA_ENV=()
 
-# with a session and capture enabled nothing changes: flag written, session id logged
+# with a session and capture enabled the session id is logged
 sl_setup
-run_wb /dev/null accept --begin --task closed--task "$PX/20261018T120000-sid-c.md"
-assert_file "session: accept --begin still writes the flag" "$D/shelved_accept"
 run_wb /dev/null dismiss --task closed--task "$PX/20261018T100000-sid-a.md"
 assert_eq "session: the logged event carries the session id" sid-aaa "$(jq -r 'select(.event=="shelved_dismissed")|.session_id' "$LOG")"
-assert_nofile "session: dismiss <path> drops the leftover flag" "$D/shelved_accept"
 # a session whose @task gives the stem needs no --task
 sl_setup; FAKE_TASK="$H/tasks/closed--task.md"
 run_wb /dev/null dismiss "$PX/20261018T100000-sid-a.md"
 assert_eq "stem from @task: dismiss <path> exit" 0 "$RC"
 assert_nofile "stem from @task: draft deleted" "$PX/20261018T100000-sid-a.md"
+
+echo "# claim_shelved: a name taken after shelved_dest checked it is never overwritten"
+new_scenario
+PK="$CAP/shelved/dotfiles--feat-x"; mkdir -p "$PK"
+OUT="$(env HOME="$H" XDG_STATE_HOME="$STATE" XDG_CONFIG_HOME="$CFG" PATH="$FAKEBIN:$PATH" \
+  PK="$PK" "$REAL_BASH" -c '
+  source "$1"; TASK_STEM=dotfiles--feat-x
+  # the race: another sweep publishes the name shelved_dest just handed out, before our claim
+  real_dest="$(declare -f shelved_dest)"; eval "orig_${real_dest}"
+  raced=0
+  shelved_dest() { local d; d="$(orig_shelved_dest "$@")" || return 1
+    if [ "$raced" = 0 ] && [ ! -e "$PK/.raced" ]; then : >"$PK/.raced"; printf "FIRST\n" >"$d"; fi
+    printf "%s\n" "$d"; }
+  printf "SECOND\n" >"$PK/src.tmp"
+  claim_shelved "$PK/src.tmp" sid-aaa' _ "$SCRIPT" 2>&1)"
+RC=$?
+assert_eq "claim_shelved: exit 0 after a lost race" 0 "$RC"
+first="$(grep -l FIRST "$PK"/*.md 2>/dev/null)"
+assert_match "claim_shelved: the other sweep's draft survives" 'sid-aaa\.md$' "$first"
+assert_match "claim_shelved: ours took the next name" 'sid-aaa-1\.md$' "$OUT"
+assert_eq "claim_shelved: ours holds our text" SECOND "$(cat "$OUT" 2>/dev/null)"
+assert_nofile "claim_shelved: source removed" "$PK/src.tmp"
 
 if [ "$fail" -eq 0 ]; then echo "ALL PASSED"; else echo "FAILED"; fi
 exit "$fail"
