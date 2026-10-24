@@ -1,6 +1,6 @@
 ---
 name: wb-done
-description: Run `wb done` (the wb workbench's safe wind-down — removes the worktree, flips the task to done) from inside a Claude Code session without hanging the agent's turn on its interactive sweep-review buffer. Use when the user types /wb-done, says "wrap this up", "wind down this task", "close out this worktree", or "run wb done" — optionally with --close to also kill the tmux session, but only when the user explicitly asks for that in this invocation. Never shells out to `wb done` synchronously in the foreground.
+description: Run `wb done` (the wb workbench's safe wind-down — removes the worktree, flips the task to done) from inside a Claude Code session without hanging the agent's turn on its interactive sweep-review buffer. Use when the user types /wb-done, says "wrap this up", "wind down this task", "close out this worktree", or "run wb done" — and when winding down another session (a batch of finished workers, or a session named from the picker) — passing --close to also kill the tmux session: by default for another session, and for the caller's own session only when the user explicitly asks for that in this invocation. Never shells out to `wb done` synchronously in the foreground.
 ---
 
 # wb-done
@@ -73,9 +73,11 @@ as a **single Bash tool call with `run_in_background: true`** — never
 plain/synchronous. Omit `<session>` in the common case (the skill is
 invoked from inside the session being wound down, and `cmd_done` falls back
 to `tmux display-message -p '#S'` for the current session when none is
-given — `wb.sh:1547-1551`). Only pass `--close` when the user explicitly
-asked for it in *this* invocation (see below) — never by default, and never
-carried over from an earlier turn. `--leave-shelved` follows the same rule.
+given — `wb.sh:1547-1551`). Whether to pass `--close` depends on whose
+session it is (see step 1): for another session it's the default; for the
+caller's own session, only when the user explicitly asked for it in *this*
+invocation, never carried over from an earlier turn. `--leave-shelved` is
+only ever passed when the user asks for it, whoever's session it is.
 
 After launching, tell the user the wind-down is running and end the turn.
 Do not poll, do not schedule a wakeup, do not keep talking — the background
@@ -88,17 +90,30 @@ command completing IS the signal").
 ### 1. Determine flags
 
 - Default: no flags, no session — `wb done` acting on the current session.
-- `--close`: only when the user's own words in this invocation ask for it
-  — "`/wb-done --close`", "wrap this up and close the session", "kill the
-  session too", etc. If the request is ambiguous whether they mean the
-  worktree/task or the tmux session itself, ask briefly rather than
-  guessing — the two `--close` edge cases below are not reversible.
+- `--close` on **the caller's own session**: only when the user's own words
+  in this invocation ask for it — "`/wb-done --close`", "wrap this up and
+  close the session", "kill the session too", etc. If the request is
+  ambiguous whether they mean the worktree/task or the tmux session itself,
+  ask briefly rather than guessing — the two `--close` edge cases below are
+  not reversible.
+- `--close` on **another session**: the default. Winding down a finished
+  worker from outside it (a batch after a /quick-wins run, a tidy-up from
+  the picker's session list) passes `--close`, so the session goes away
+  with its worktree. Without it, `wb done` removes the worktree but leaves
+  the session running: the 2026-10-18 batch left 14 idle sessions that way
+  for five days. Leave `--close` off only when the user says to keep that
+  session. Before passing it, compare the target against the caller's own
+  session name (`tmux display-message -p '#S'`); if they match, this is the
+  own-session case above, so `--close` needs the user's explicit ask. Never
+  close the caller's own session as part of a batch.
 - `--leave-shelved`: only when the user's own words in this invocation say to
   close anyway and leave the shelved decision drafts (see the refusal below).
   Never add it to get past a refusal on your own initiative.
 - An explicit `<session>` name: pass it through if the user named a
   session other than the one this skill is running in (e.g. tidying up a
-  different task from the picker's session list). Otherwise omit it.
+  different task from the picker's session list). Otherwise omit it. For a
+  batch, run one `wb done --close <session>` per worker, one after another
+  in a single background command; each may open its own review buffer.
 
 ### 2. Launch backgrounded, then end the turn
 
@@ -117,8 +132,12 @@ line. `handoff.sh`'s own stdout/stderr messages say exactly which case
 happened — read the pane output rather than guessing"). `wb done` prints
 one of, among others:
 
-- `wb done: <session> closed — worktree removed, task -> done (<task_file>)`
-  — the happy path; relay as-is.
+- `wb done: <session> — worktree removed, session closed, task -> done (<task_file>)`
+  — the happy path with `--close`; relay as-is.
+- `wb done: <session> — worktree removed, session left open (pass --close to end it), task -> done (<task_file>)`
+  — the happy path without `--close`; relay as-is. The task's `## Handoffs`
+  entry says the same ("session left open"), so nobody later reads the
+  session as gone.
 - `wb done: <worktree_path> is dirty:` followed by `git status --porcelain`
   output and `commit or stash, then re-run` (stderr, exit 1) — the dirty
   edge case; nothing was removed, nothing was closed, relay the error
@@ -191,10 +210,15 @@ one right before the command runs, not a relay of `wb done`'s own output.
   `--leave-shelved`) is relayed as-is; nothing is removed or flips to done, and
   `--leave-shelved` is passed only if the user asks for it.
 - **`/wb-done --close`** — also kills the tmux session once wind-down
-  finishes. `--close` is passed only because the user asked for it in this
-  invocation, never as a default or a carry-over from earlier context; when
-  it targets the current session, the self-kill hazard in step 4 above is
-  surfaced to the user before the background call launches.
+  finishes. On the caller's own session, `--close` is passed only because
+  the user asked for it in this invocation, never as a default or a
+  carry-over from earlier context, and the self-kill hazard in step 4 above
+  is surfaced to the user before the background call launches.
+- **Winding down other sessions** — a batch of finished workers, or one
+  session named from the picker: each gets `wb done --close <session>`, so
+  its session ends with its worktree, unless the user said to keep it. A
+  target that matches the caller's own session name never gets `--close`
+  from the batch rule.
 
 ## Notes
 
