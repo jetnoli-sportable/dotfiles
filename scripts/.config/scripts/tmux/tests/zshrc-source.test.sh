@@ -61,13 +61,15 @@ EOF
 
 # source_rc <home> <stderr-file> [zsh setup…] — sources the rc in a
 # non-interactive `zsh -f`, then prints the first node bin dir on PATH (or
-# "none"). The rc's exit status is the function's.
+# "none"), then NVM_BIN and NVM_INC on a second line ("unset" if empty).
+# The rc's exit status is the function's.
 source_rc() {
   local home="$1" err="$2" setup="${3:-}"
   env -i HOME="$home" PATH=/usr/bin:/bin TERM=dumb "$ZSH" -f -c "
     $setup
     source '$ZSHRC' || exit \$?
     print -r -- \${\${path[(r)*/versions/node/*]}:-none}
+    print -r -- \${NVM_BIN:-unset} \${NVM_INC:-unset}
   " 2>"$err"
 }
 
@@ -76,7 +78,7 @@ h="$(new_home agent)"
 out="$(source_rc "$h" "$h.err" 'setopt nobareglobqual')"
 assert_eq "agent shell (nobareglobqual): source exits 0" 0 $?
 assert_not_contains "agent shell: no zinit glob error" "$h.err" "no matches found"
-assert_eq "agent shell: no nvm, no node on PATH" none "$out"
+assert_eq "agent shell: no nvm, no node on PATH" none "${out%%$'\n'*}"
 
 # --- 2. plain non-interactive zsh, no ~/.zshrc.local ---------------------
 h="$(new_home plain)"
@@ -88,20 +90,22 @@ h="$(new_home nvm-major)"
 fake_nvm "$h" v24 v20.19.5 v24.1.0 v24.11.1
 out="$(source_rc "$h" "$h.err" 'setopt nobareglobqual')"
 assert_eq "nvm alias v24: source exits 0" 0 $?
-assert_eq "nvm alias v24 -> v24.11.1 on PATH" "$h/.config/nvm/versions/node/v24.11.1/bin" "$out"
+assert_eq "nvm alias v24 -> v24.11.1 on PATH" "$h/.config/nvm/versions/node/v24.11.1/bin" "${out%%$'\n'*}"
+v="$h/.config/nvm/versions/node/v24.11.1"
+assert_eq "nvm alias v24: NVM_BIN/NVM_INC set as nvm use would" "$v/bin $v/include/node" "${out#*$'\n'}"
 assert_eq "nvm alias v24: no nvm use at load" "" "$(cat "$h/.config/nvm/calls" 2>/dev/null)"
 
 # --- 4. nvm: a minor-version alias matches like nvm (v24.1 != v24.11) ----
 h="$(new_home nvm-minor)"
 fake_nvm "$h" 24.1 v24.1.0 v24.10.2 v24.11.1
 out="$(source_rc "$h" "$h.err")"
-assert_eq "nvm alias 24.1 -> v24.1.0 on PATH, not v24.11.1" "$h/.config/nvm/versions/node/v24.1.0/bin" "$out"
+assert_eq "nvm alias 24.1 -> v24.1.0 on PATH, not v24.11.1" "$h/.config/nvm/versions/node/v24.1.0/bin" "${out%%$'\n'*}"
 
 # --- 5. nvm: an alias the glob can't resolve falls back to nvm use -------
 h="$(new_home nvm-lts)"
 fake_nvm "$h" 'lts/*' v24.11.1
 out="$(source_rc "$h" "$h.err")"
-assert_eq "nvm alias lts/*: nothing globbed onto PATH" none "$out"
+assert_eq "nvm alias lts/*: nothing globbed onto PATH" none "${out%%$'\n'*}"
 assert_eq "nvm alias lts/*: falls back to nvm use default" "nvm use default --silent" "$(cat "$h/.config/nvm/calls" 2>/dev/null)"
 
 if [ "$fail" -eq 0 ]; then

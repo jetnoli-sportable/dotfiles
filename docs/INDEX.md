@@ -5,16 +5,16 @@
 
 ```jsonl
 {"id":"agent-store-specialist","kind":"agent","name":"store-specialist","oneliner":"The family's single expert on the ~/code/tasks store — retrieves a distilled answer with `file#section` pointers, or applies a…","source":"claude/.claude/agents/store-specialist.md:1","invoke":"@agent-store-specialist","guide":"","tags":["claude"]}
-{"id":"zsh-alias-N","kind":"alias","name":"N","oneliner":"notes picker / daily note in the persistent notes session (notes.sh)","source":"zsh/.zshrc:107","invoke":"N","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-ca","kind":"alias","name":"ca","oneliner":"legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it","source":"zsh/.zshrc:109","invoke":"ca","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-fd","kind":"alias","name":"fd","oneliner":"fdfind","source":"zsh/.zshrc:99","invoke":"fd","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-ld","kind":"alias","name":"ld","oneliner":"lazydocker","source":"zsh/.zshrc:101","invoke":"ld","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-lz","kind":"alias","name":"lz","oneliner":"lazygit","source":"zsh/.zshrc:100","invoke":"lz","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:199","invoke":"msconfig","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o…","source":"zsh/.zshrc:196","invoke":"replay","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m","source":"zsh/.zshrc:105","invoke":"s","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-vim","kind":"alias","name":"vim","oneliner":"nvim","source":"zsh/.zshrc:98","invoke":"vim","guide":"","tags":["zsh"]}
-{"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html","source":"zsh/.zshrc:111","invoke":"wb","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-N","kind":"alias","name":"N","oneliner":"notes picker / daily note in the persistent notes session (notes.sh)","source":"zsh/.zshrc:109","invoke":"N","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-ca","kind":"alias","name":"ca","oneliner":"legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it","source":"zsh/.zshrc:111","invoke":"ca","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-fd","kind":"alias","name":"fd","oneliner":"fdfind","source":"zsh/.zshrc:101","invoke":"fd","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-ld","kind":"alias","name":"ld","oneliner":"lazydocker","source":"zsh/.zshrc:103","invoke":"ld","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-lz","kind":"alias","name":"lz","oneliner":"lazygit","source":"zsh/.zshrc:102","invoke":"lz","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-msconfig","kind":"alias","name":"msconfig","oneliner":"msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)","source":"zsh/.zshrc:201","invoke":"msconfig","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-replay","kind":"alias","name":"replay","oneliner":"replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o…","source":"zsh/.zshrc:198","invoke":"replay","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m","source":"zsh/.zshrc:107","invoke":"s","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-vim","kind":"alias","name":"vim","oneliner":"nvim","source":"zsh/.zshrc:100","invoke":"vim","guide":"","tags":["zsh"]}
+{"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html","source":"zsh/.zshrc:113","invoke":"wb","guide":"","tags":["zsh"]}
 {"id":"tmux-bind-copy-mode-vi-Enter","kind":"bind","name":"copy-mode-vi Enter","oneliner":"Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland).","source":"tmux/.config/tmux/tmux.conf:112","invoke":"copy-mode-vi Enter","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-copy-mode-vi-MouseDragEnd1Pane","kind":"bind","name":"copy-mode-vi MouseDragEnd1Pane","oneliner":"send-keys -X copy-pipe-and-cancel \"wl-copy\"","source":"tmux/.config/tmux/tmux.conf:113","invoke":"copy-mode-vi MouseDragEnd1Pane","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-A","kind":"bind","name":"prefix+A","oneliner":"new-window -c \"#{pane_current_path}\" -n \"lazydocker\" \"$SHELL -lc 'lazydocker'\"","source":"tmux/.config/tmux/tmux.conf:48","invoke":"prefix+A","guide":"","tags":["tmux"]}
@@ -260,8 +260,8 @@
 {"id":"memory-wb-resume-parent-substring-limit","kind":"doc","name":"wb resume parent substring limit","oneliner":"wb's fuzzy task resolver is pure substring; a parent whose name prefixes its children can't be uniquely targeted by…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md","guide":"","tags":["memory"]}
 {"id":"memory-wb-test-sandbox-known-failures","kind":"doc","name":"wb test sandbox known failures","oneliner":"full wb Docker suite exits 1 on clean dev: floor 5→11→12 env-dependent files (still 12 on 2026-10-18); judge by per-file FAIL sets, not…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md","guide":"","tags":["memory"]}
 {"id":"memory-workflow-goals-vs-tools-tension","kind":"doc","name":"Workflow goals vs tools tension","oneliner":"2026-07-10 review: notes-tui 4a capture unused (empty inbox), meta-docs now outweigh actual tooling, parent/child feature queued behind…","source":"~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md:1","invoke":"nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md","guide":"","tags":["memory"]}
-{"id":"zsh-fn-claude","kind":"function","name":"claude","oneliner":"shell function","source":"zsh/.zshrc:144","invoke":"claude","guide":"","tags":["zsh"]}
-{"id":"zsh-fn-pgh","kind":"function","name":"pgh","oneliner":"Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT…","source":"zsh/.zshrc:125","invoke":"pgh","guide":"","tags":["zsh"]}
+{"id":"zsh-fn-claude","kind":"function","name":"claude","oneliner":"shell function","source":"zsh/.zshrc:146","invoke":"claude","guide":"","tags":["zsh"]}
+{"id":"zsh-fn-pgh","kind":"function","name":"pgh","oneliner":"Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT…","source":"zsh/.zshrc:127","invoke":"pgh","guide":"","tags":["zsh"]}
 {"id":"script-ask","kind":"script","name":"ask.sh","oneliner":"ask.sh — quick-question scratch window (roadmap 9f-5): a fresh Claude Code","source":"scripts/.config/scripts/tmux/ask.sh:1","invoke":"scripts/.config/scripts/tmux/ask.sh","guide":"","tags":["tmux"]}
 {"id":"script-build-try-it","kind":"script","name":"build-try-it.sh","oneliner":"build-try-it.sh — regenerate docs/try-it.md from docs/roadmap.md.","source":"scripts/.config/scripts/build-try-it.sh:1","invoke":"scripts/.config/scripts/build-try-it.sh","guide":"","tags":["shell"]}
 {"id":"script-capture","kind":"script","name":"capture.sh","oneliner":"capture.sh — open the standing weekly-capture doc directly (the file","source":"scripts/.config/scripts/tmux/capture.sh:1","invoke":"scripts/.config/scripts/tmux/capture.sh","guide":"","tags":["tmux"]}
@@ -317,16 +317,16 @@
 | name | kind | what | invoke | source | guide |
 |---|---|---|---|---|---|
 | store-specialist | agent | The family's single expert on the ~/code/tasks store — retrieves a distilled answer with `file#section` pointers, or applies a… | @agent-store-specialist | claude/.claude/agents/store-specialist.md:1 |  |
-| N | alias | notes picker / daily note in the persistent notes session (notes.sh) | N | zsh/.zshrc:107 |  |
-| ca | alias | legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it | ca | zsh/.zshrc:109 |  |
-| fd | alias | fdfind | fd | zsh/.zshrc:99 |  |
-| ld | alias | lazydocker | ld | zsh/.zshrc:101 |  |
-| lz | alias | lazygit | lz | zsh/.zshrc:100 |  |
-| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:199 |  |
-| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o… | replay | zsh/.zshrc:196 |  |
-| s | alias | legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m | s | zsh/.zshrc:105 |  |
-| vim | alias | nvim | vim | zsh/.zshrc:98 |  |
-| wb | alias | the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html | wb | zsh/.zshrc:111 |  |
+| N | alias | notes picker / daily note in the persistent notes session (notes.sh) | N | zsh/.zshrc:109 |  |
+| ca | alias | legacy claude-agent picker — kept as a fallback; wb's agents mode absorbed it | ca | zsh/.zshrc:111 |  |
+| fd | alias | fdfind | fd | zsh/.zshrc:101 |  |
+| ld | alias | lazydocker | ld | zsh/.zshrc:103 |  |
+| lz | alias | lazygit | lz | zsh/.zshrc:102 |  |
+| msconfig | alias | msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …) | msconfig | zsh/.zshrc:201 |  |
+| replay | alias | replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui) Rebuild with: cd ~/code/replay-tui* && go build -o… | replay | zsh/.zshrc:198 |  |
+| s | alias | legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m | s | zsh/.zshrc:107 |  |
+| vim | alias | nvim | vim | zsh/.zshrc:100 |  |
+| wb | alias | the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html | wb | zsh/.zshrc:113 |  |
 | copy-mode-vi Enter | bind | Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland). | copy-mode-vi Enter | tmux/.config/tmux/tmux.conf:112 |  |
 | copy-mode-vi MouseDragEnd1Pane | bind | send-keys -X copy-pipe-and-cancel "wl-copy" | copy-mode-vi MouseDragEnd1Pane | tmux/.config/tmux/tmux.conf:113 |  |
 | prefix+A | bind | new-window -c "#{pane_current_path}" -n "lazydocker" "$SHELL -lc 'lazydocker'" | prefix+A | tmux/.config/tmux/tmux.conf:48 |  |
@@ -572,8 +572,8 @@
 | wb resume parent substring limit | doc | wb's fuzzy task resolver is pure substring; a parent whose name prefixes its children can't be uniquely targeted by… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-resume-parent-substring-limit.md:1 |  |
 | wb test sandbox known failures | doc | full wb Docker suite exits 1 on clean dev: floor 5→11→12 env-dependent files (still 12 on 2026-10-18); judge by per-file FAIL sets, not… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/wb-test-sandbox-known-failures.md:1 |  |
 | Workflow goals vs tools tension | doc | 2026-07-10 review: notes-tui 4a capture unused (empty inbox), meta-docs now outweigh actual tooling, parent/child feature queued behind… | nvim ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md | ~/.claude/projects/-home-jetnoli-code-dotfiles/memory/workflow-goals-vs-tools-tension.md:1 |  |
-| claude | function | shell function | claude | zsh/.zshrc:144 |  |
-| pgh | function | Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT… | pgh | zsh/.zshrc:125 |  |
+| claude | function | shell function | claude | zsh/.zshrc:146 |  |
+| pgh | function | Personal-account gh: the default `gh` uses the Sportable-scoped PAT in the keyring; `pgh ...` runs gh against the personal-account PAT… | pgh | zsh/.zshrc:127 |  |
 | ask.sh | script | ask.sh — quick-question scratch window (roadmap 9f-5): a fresh Claude Code | scripts/.config/scripts/tmux/ask.sh | scripts/.config/scripts/tmux/ask.sh:1 |  |
 | build-try-it.sh | script | build-try-it.sh — regenerate docs/try-it.md from docs/roadmap.md. | scripts/.config/scripts/build-try-it.sh | scripts/.config/scripts/build-try-it.sh:1 |  |
 | capture.sh | script | capture.sh — open the standing weekly-capture doc directly (the file | scripts/.config/scripts/tmux/capture.sh | scripts/.config/scripts/tmux/capture.sh:1 |  |

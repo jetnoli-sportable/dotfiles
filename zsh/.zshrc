@@ -89,6 +89,8 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
     [[ -r $alias_file ]] && bins=( $NVM_DIR/versions/node/v${$(<$alias_file)#v}(|.*)/bin(N/nOn) )
     if (( $#bins )); then
       export PATH="$bins[1]:$PATH"
+      # What `nvm use` would also have exported.
+      export NVM_BIN="$bins[1]" NVM_INC="${bins[1]:h}/include/node"
     else
       nvm use default --silent >/dev/null 2>&1
     fi
