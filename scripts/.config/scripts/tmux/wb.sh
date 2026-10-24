@@ -62,6 +62,12 @@
 #                                    "-" reads a multi-line body from stdin instead — the
 #                                    agent-mediated write path /wb-save, /handoff, and
 #                                    /weekly-review use instead of Edit-tool task writes
+#   wb family <task> [--sessions|--reseed]
+#                                    print <task>'s family stems (top parent first, then every
+#                                    descendant), read-only and tmux-free; --sessions prints
+#                                    stem<TAB>session<TAB>title per live session working on one
+#                                    (matched by @task, else session name); --reseed rewrites the
+#                                    CLAUDE.local.md concepts pointer in each family worktree
 #   wb week path                     print the standing weekly-capture doc's path,
 #                                    creating it from the four-section template
 #                                    (What's working|What's not working|New ideas|Notes)
@@ -5915,6 +5921,156 @@ cmd_task_file() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# wb family — a task's parent/child family, for the decision-propagation step.
+# ---------------------------------------------------------------------------
+
+# _wb_family_stems <task_file> — the family's stems, one per line: the top
+# parent first, then every descendant depth-first, each once. The climb is
+# _wb_concepts_paths' guarded walk (seen-set, depth cap 20, self-parent,
+# stop at a missing parent file); the descent uses a parent -> children map
+# built in ONE pass over wb_task_files (as wb_board_v2_build does) with its
+# own seen-set, so a hand-edited cycle can't loop either direction.
+_wb_family_stems() {
+  local task_file="$1"
+  local -A seen=() kids=() out=()
+  local depth=0 max_depth=20 stem parent_ref parent_file
+  local current_file="$task_file"
+  local root; root="$(basename "$task_file" .md)"
+
+  while [ "$depth" -lt "$max_depth" ]; do
+    stem="$(basename "$current_file" .md)"
+    seen[$stem]=1
+    root="$stem"
+    depth=$((depth + 1))
+    parent_ref="$(wb_get_frontmatter "$current_file" parent)"
+    [ -n "$parent_ref" ] || break
+    wb_task_own_parent "$parent_ref" "$stem" || break
+    [ -z "${seen[$parent_ref]:-}" ] || break
+    parent_file="$TASKS_DIR/$parent_ref.md"
+    [ -f "$parent_file" ] || break
+    current_file="$parent_file"
+  done
+
+  local f
+  while IFS= read -r f; do
+    stem="$(basename "$f" .md)"
+    parent_ref="$(wb_get_frontmatter "$f" parent)"
+    [ -n "$parent_ref" ] || continue
+    wb_task_own_parent "$parent_ref" "$stem" || continue
+    kids[$parent_ref]+=" $stem"
+  done < <(wb_task_files)
+
+  local -a stack=("$root") children=()
+  local i
+  while [ "${#stack[@]}" -gt 0 ]; do
+    stem="${stack[-1]}"
+    unset 'stack[-1]'
+    [ -z "${out[$stem]:-}" ] || continue
+    out[$stem]=1
+    printf '%s\n' "$stem"
+    read -ra children <<< "${kids[$stem]:-}"
+    for ((i = ${#children[@]} - 1; i >= 0; i--)); do
+      stack+=("${children[i]}")
+    done
+  done
+}
+
+# cmd_family <task-ref> [--sessions|--reseed]
+#   (none)      the family's stems, one per line (_wb_family_stems).
+#   --sessions  stem<TAB>session<TAB>title per live tmux session working on a
+#               family task. A session is matched by its @task option (KTD2:
+#               after `wb breakdown --apply` a continuing child keeps the
+#               parent's session NAME while @task points at the child), and
+#               by session name only when @task is unset.
+#   --reseed    re-run _wb_seed_concepts_file for every family worktree that
+#               exists, so a newly-written CONCEPTS.md is linked without a
+#               `wb new`. Prints `reseeded <stem> <path>` / `skipped <stem>
+#               (<reason>)` / `failed <stem> (<path>)`; best-effort like the
+#               seed in cmd_new (a failure doesn't stop the rest) but exits 1
+#               if any seed failed. Writes only the untracked CLAUDE.local.md
+#               block: no tmux, no task lock, no task-store write.
+# Without a flag or with --sessions nothing is written and --reseed is the
+# only mode that touches the disk. Stdout stays script-friendly, like
+# cmd_task_file; diagnostics go to stderr.
+cmd_family() {
+  local query="${1:-}" mode="${2:-}"
+  case "$mode" in
+    ''|--sessions|--reseed) ;;
+    *) echo "usage: wb family <task-ref> [--sessions|--reseed]" >&2; exit 1 ;;
+  esac
+  if [ -z "$query" ] || [ $# -gt 2 ]; then
+    echo "usage: wb family <task-ref> [--sessions|--reseed]" >&2
+    exit 1
+  fi
+
+  local file
+  file="$(_wb_append_resolve_task "$query" "wb family")" || exit 1
+
+  local -a stems=()
+  local stem
+  while IFS= read -r stem; do
+    stems+=("$stem")
+  done < <(_wb_family_stems "$file")
+
+  case "$mode" in
+    '')
+      printf '%s\n' "${stems[@]}"
+      ;;
+    --sessions)
+      local -A member=()
+      for stem in "${stems[@]}"; do member[$stem]=1; done
+      local session cur
+      while IFS= read -r session; do
+        [ -n "$session" ] || continue
+        cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
+        if [ -n "$cur" ]; then
+          stem="$(basename -- "$cur" .md)"
+        else
+          stem="$session"
+        fi
+        [ -n "${member[$stem]:-}" ] || continue
+        printf '%s\t%s\t%s\n' "$stem" "$session" "$(wb_task_title "$TASKS_DIR/$stem.md")"
+      done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+      ;;
+    --reseed)
+      local rc=0 member_file repo wt_field worktree_path
+      for stem in "${stems[@]}"; do
+        member_file="$TASKS_DIR/$stem.md"
+        # _wb_seed_concepts_file returns 0 both when it seeds and when there
+        # is nothing to seed, so ask the resolver directly which it was.
+        if [ -z "$(_wb_concepts_paths "$member_file")" ]; then
+          echo "skipped $stem (no concepts file)"
+          continue
+        fi
+        repo="$(wb_get_frontmatter "$member_file" repo)"
+        wt_field="$(wb_get_frontmatter "$member_file" worktree)"
+        read -r wt_field <<< "$wt_field"
+        if [ -z "$wt_field" ]; then
+          echo "skipped $stem (no worktree: field)"
+          continue
+        fi
+        if [ -z "$repo" ] || ! _wb_safe_worktree_field "$wt_field"; then
+          echo "skipped $stem (unsafe or unusable worktree: field)"
+          continue
+        fi
+        worktree_path="$(wb_repo_dir "$repo")/$wt_field"
+        if [ ! -d "$worktree_path" ]; then
+          echo "skipped $stem (no worktree dir)"
+          continue
+        fi
+        if _wb_seed_concepts_file "$member_file" "$worktree_path" 2>/dev/null; then
+          echo "reseeded $stem $worktree_path"
+        else
+          echo "failed $stem ($worktree_path)"
+          rc=1
+        fi
+      done
+      return "$rc"
+      ;;
+  esac
+}
+
 # _rename <session> — prompt for a new tmux session name (bound to `r`).
 # Cosmetic only: wb's task linkage lives on the session object via
 # @wb_repo/@wb_slug (session-scoped tmux options), which survive a rename,
@@ -6208,6 +6364,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     jira-set)    shift; cmd_jira_set "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
+    family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;
     status)      shift; cmd_status "$@" ;;
     set)         shift; cmd_set "$@" ;;
