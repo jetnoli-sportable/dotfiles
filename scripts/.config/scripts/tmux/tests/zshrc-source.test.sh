@@ -78,6 +78,10 @@ h="$(new_home agent)"
 out="$(source_rc "$h" "$h.err" 'setopt nobareglobqual')"
 assert_eq "agent shell (nobareglobqual): source exits 0" 0 $?
 assert_not_contains "agent shell: no zinit glob error" "$h.err" "no matches found"
+# Offline, a missing guard fails the clone and the glob error never fires;
+# the zinit dir is mkdir'd before the clone either way.
+assert_eq "agent shell: zinit bootstrap skipped" absent \
+  "$([ -e "$h/.local/share/zinit" ] && echo present || echo absent)"
 assert_eq "agent shell: no nvm, no node on PATH" none "${out%%$'\n'*}"
 
 # --- 2. plain non-interactive zsh, no ~/.zshrc.local ---------------------
