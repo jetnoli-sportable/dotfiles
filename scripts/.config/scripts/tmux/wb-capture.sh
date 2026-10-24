@@ -63,17 +63,23 @@
 #   status         print mute state, session id, the log path, then this task's shelved
 #                  drafts (one `shelved: <path>` line each, `(stale)` when marked;
 #                  `shelved: none`) — human-readable lines. Read-only.
-#   shelved [--all | --task <stem>]
+#   shelved [--all [--min-age-days <N>] | --task <stem> | --count --task <stem>]
 #                  store verb, read-only, needs no tmux session or @task (honours only
 #                  WB_CAPTURE_SWEEP): list shelved drafts, one path per line with a
 #                  `(stale)` suffix when marked. `--task` lists one task's; `--all` groups
 #                  every task as `<stem>:` then indented paths; bare `shelved` lists the
 #                  current session's task (error when it has none).
+#                  `--count --task <stem>` prints that task's number of shelved drafts (0
+#                  when none) and nothing else; it makes no tmux call, so the status bar
+#                  can run it every few seconds. `--min-age-days <N>` (with --all) keeps
+#                  only drafts whose filename timestamp is more than N days old; a name
+#                  with no timestamp counts as old, so it is never hidden.
 #   pending-for-task <task-file>
-#                  store verb, read-only: every shelved draft for that task's stem AND
-#                  every live session draft (<root>/<sid>/draft) whose `taskpath` first
-#                  line is that file; one path per line, nothing when none. This is what
-#                  `wb done`'s guard asks, so wb.sh never learns the capture layout.
+#                  store verb, read-only: every shelved draft for that task's stem, one
+#                  path per line, nothing when none. This is what `wb done`'s guard
+#                  asks, so wb.sh never learns the capture layout. A per-session draft
+#                  slot left from before the shelf-only change is not listed (moved to
+#                  the shelf by hand at rollout).
 #   log-shelved-left <stem> <count>
 #                  store verb: append the `shelved_left` event (session_id empty) that `wb
 #                  done --leave-shelved` records. Needs jq, else a silent no-op.
@@ -642,24 +648,39 @@ shelved_paths() {
   return 0
 }
 
-# list_shelved_for <stem> <indent> — shelved_paths with the `(stale)` suffix.
+# list_shelved_for <stem> <indent> [<cutoff>] — shelved_paths with the `(stale)` suffix;
+# with <cutoff> (YYYYmmddTHHMMSS), only drafts whose filename stamp is older than it.
 list_shelved_for() {
-  local pf
+  local pf ts
   while IFS= read -r pf; do
     [ -n "$pf" ] || continue
+    if [ -n "${3:-}" ]; then
+      ts="${pf##*/}"; ts="${ts:0:15}"
+      [[ "$ts" =~ ^[0-9]{8}T[0-9]{6}$ ]] && [[ ! "$ts" < "$3" ]] && continue
+    fi
     if [ -e "$pf.stale" ]; then printf '%s%s (stale)\n' "$2" "$pf"; else printf '%s%s\n' "$2" "$pf"; fi
   done < <(shelved_paths "$1")
 }
 
-# cmd_list_shelved [--all | --task <stem>] — see "shelved" in the header. Read-only.
+# cmd_list_shelved [--all [--min-age-days <N>] | --task <stem> | --count --task <stem>] —
+# see "shelved" in the header. Read-only.
 cmd_list_shelved() {
-  local d stem out
+  local d stem out cutoff=""
   case "${1:-}" in
+    --count)
+      [ "${2:-}" = --task ] && stem_ok "${3:-}" \
+        || { echo "usage: wb-capture.sh shelved --count --task <stem>" >&2; exit 1; }
+      shelved_paths "$3" | wc -l | tr -d ' ' ;;
     --all)
+      if [ -n "${2:-}" ]; then
+        [ "$2" = --min-age-days ] && [[ "${3:-}" =~ ^[0-9]+$ ]] \
+          || { echo "usage: wb-capture.sh shelved --all [--min-age-days <N>]" >&2; exit 1; }
+        cutoff="$(date -d "$((10#$3)) days ago" +%Y%m%dT%H%M%S)"
+      fi
       for d in "$CAPTURE_ROOT"/shelved/*/; do
         d="${d%/}"; stem="${d##*/}"
         [ -d "$d" ] && [ ! -L "$d" ] && stem_ok "$stem" || continue
-        out="$(list_shelved_for "$stem" '  ')"
+        out="$(list_shelved_for "$stem" '  ' "$cutoff")"
         [ -n "$out" ] || continue
         printf '%s:\n%s\n' "$stem" "$out"
       done ;;
@@ -671,28 +692,17 @@ cmd_list_shelved() {
       tmux_task && stem="$TASK_STEM"
       stem_ok "${stem:-}" || { echo "wb-capture: shelved: not in a wb task session; pass --all or --task <stem>" >&2; exit 1; }
       list_shelved_for "$stem" '' ;;
-    *) echo "usage: wb-capture.sh shelved [--all | --task <stem>]" >&2; exit 1 ;;
+    *) echo "usage: wb-capture.sh shelved [--all [--min-age-days <N>] | --task <stem> | --count --task <stem>]" >&2; exit 1 ;;
   esac
 }
 
 # cmd_pending_for_task <task-file> — see "pending-for-task" in the header.
 cmd_pending_for_task() {
-  local tf="${1:-}" stem d name tp
+  local tf="${1:-}" stem
   [ -n "$tf" ] || { echo "usage: wb-capture.sh pending-for-task <task-file>" >&2; exit 1; }
   stem="${tf##*/}"; stem="${stem%.md}"
   stem_ok "$stem" || exit 0
   shelved_paths "$stem"
-  for d in "$CAPTURE_ROOT"/*/; do
-    d="${d%/}"; name="${d##*/}"
-    [ "$name" != shelved ] && session_dir "$name" >/dev/null || continue
-    [ -d "$d" ] && [ ! -L "$d" ] && [ -f "$d/draft" ] || continue
-    tp="$(head -n1 "$d/taskpath" 2>/dev/null || true)"
-    [ -n "$tp" ] || continue
-    if [ "$tp" = "$tf" ] || { [ -e "$tp" ] && [ -e "$tf" ] && [ "$(readlink -f "$tp")" = "$(readlink -f "$tf")" ]; }; then
-      printf '%s\n' "$d/draft"
-    fi
-  done
-  return 0
 }
 
 # cmd_log_shelved_left <stem> <count> — see "log-shelved-left" in the header.
@@ -744,7 +754,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     shelved|pending-for-task|log-shelved-left)
       [ -n "${WB_CAPTURE_SWEEP:-}" ] && quiet_exit
       case "$verb" in
-        shelved)           cmd_list_shelved "${2:-}" "${3:-}" ;;
+        shelved)           cmd_list_shelved "${2:-}" "${3:-}" "${4:-}" ;;
         pending-for-task)  cmd_pending_for_task "${2:-}" ;;
         log-shelved-left)  cmd_log_shelved_left "${2:-}" "${3:-}" ;;
       esac

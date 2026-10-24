@@ -375,7 +375,36 @@ RUN_PATH=""; EXTRA_ENV=(WB_CAPTURE_SWEEP=1)
 run_wb /dev/null shelved --all; assert_eq "recursion flag: silent no-op" "0:" "$RC:$OUT"
 EXTRA_ENV=()
 
-echo "# store verb: pending-for-task (shelved + live session drafts)"
+echo "# store verbs: shelved --count, shelved --all --min-age-days"
+new_scenario; PK="$CAP/shelved/proj--eta"; mkdir -p "$PK" "$CAP/shelved/proj--old"
+OLD_TS="$(date -d '8 days ago' +%Y%m%dT%H%M%S)"; NEW_TS="$(date +%Y%m%dT%H%M%S)"
+printf 'a\n' >"$PK/$OLD_TS-sid-a.md"; printf 'b\n' >"$PK/$NEW_TS-sid-b.md"; printf 'c\n' >"$PK/$NEW_TS-sid-c.md"
+printf 'o\n' >"$CAP/shelved/proj--old/$OLD_TS-sid-o.md"; : >"$CAP/shelved/proj--old/$OLD_TS-sid-o.md.stale"
+EXTRA_ENV=(TMUX= TMUX_PANE=); FAKE_TASK=""
+run_wb /dev/null shelved --count --task proj--eta
+assert_eq "count of three shelved drafts" "0:3" "$RC:$OUT"
+run_wb /dev/null shelved --count --task nosuch--task
+assert_eq "count with no shelf dir: 0" "0:0" "$RC:$OUT"
+mkdir -p "$CAP/shelved/empty--task"
+run_wb /dev/null shelved --count --task empty--task
+assert_eq "count of an empty shelf dir: 0" "0:0" "$RC:$OUT"
+run_wb /dev/null shelved --count --task ../x; assert_eq "count rejects a bad stem" 1 "$RC"
+run_wb /dev/null shelved --count; assert_eq "count needs --task" 1 "$RC"
+: >"$H/tmux-calls"
+run_wb /dev/null shelved --count --task proj--eta
+assert_eq "count makes no tmux call" "" "$(cat "$H/tmux-calls" 2>/dev/null)"
+run_wb /dev/null shelved --all --min-age-days 7
+assert_eq "--min-age-days: only drafts older than N days, grouped by stem" "proj--eta:
+  $PK/$OLD_TS-sid-a.md
+proj--old:
+  $CAP/shelved/proj--old/$OLD_TS-sid-o.md (stale)" "$OUT"
+run_wb /dev/null shelved --all --min-age-days 30
+assert_eq "--min-age-days 30: nothing that old" "0:" "$RC:$OUT"
+run_wb /dev/null shelved --all --min-age-days x; assert_eq "--min-age-days needs a number" 1 "$RC"
+assert_eq "count and age filter log nothing" 0 "$(logn)"
+EXTRA_ENV=()
+
+echo "# store verb: pending-for-task (shelved drafts only)"
 new_scenario; TF="$H/tasks/proj--eta.md"; mkdir -p "$H/tasks" "$CAP/shelved/proj--eta" "$CAP/shelved/proj--other"
 printf 't\n' >"$TF"
 printf 's\n' >"$CAP/shelved/proj--eta/20261018T100000-sid-a.md"; : >"$CAP/shelved/proj--eta/20261018T100000-sid-a.md.stale"
@@ -388,14 +417,10 @@ mkdir -p "$CAP/sid-notask"; printf 'd\n' >"$CAP/sid-notask/draft"
 EXTRA_ENV=(TMUX= TMUX_PANE=); FAKE_TASK=""
 run_wb /dev/null pending-for-task "$TF"
 assert_eq "pending-for-task exit" 0 "$RC"
-assert_eq "shelved of the stem + live drafts with this taskpath, nothing else" "$CAP/shelved/proj--eta/20261018T100000-sid-a.md
-$CAP/sid-live/draft" "$OUT"
+assert_eq "shelved drafts of the stem only; a live session draft is not listed" "$CAP/shelved/proj--eta/20261018T100000-sid-a.md" "$OUT"
 run_wb /dev/null pending-for-task "$H/tasks/proj--none.md"
 assert_eq "no drafts: no output, exit 0" "0:" "$RC:$OUT"
 run_wb /dev/null pending-for-task; assert_eq "no task-file arg: exit 1" 1 "$RC"
-ln -s "$TF" "$H/tasks/link.md"; printf '%s\n' "$H/tasks/link.md" >"$CAP/sid-nodraft/taskpath"; printf 'd\n' >"$CAP/sid-nodraft/draft"
-run_wb /dev/null pending-for-task "$TF"
-assert_match "a symlinked taskpath resolving to the same file matches" "$CAP/sid-nodraft/draft" "$OUT"
 EXTRA_ENV=()
 
 echo "# store verb: log-shelved-left"
