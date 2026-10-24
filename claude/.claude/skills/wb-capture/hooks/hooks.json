@@ -11,18 +11,6 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${WB_CAPTURE_BIN:-$HOME/.config/scripts/tmux}/wb-capture.sh\" hook-posttool",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

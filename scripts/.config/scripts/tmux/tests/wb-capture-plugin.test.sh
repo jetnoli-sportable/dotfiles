@@ -3,7 +3,8 @@
 # hooks-only skills-dir plugin at claude/.claude/skills/wb-capture/ parses,
 # every hook command resolves (with WB_CAPTURE_BIN pointed at this repo's
 # scripts) to an executable script and a verb wb-capture.sh dispatches, the
-# Stop event carries exactly one sync and one async entry, and no capture hook
+# Stop event carries exactly one sync and one async entry, there is no
+# PostToolUse hook (the nudge machinery that used it is gone), and no capture hook
 # is duplicated into settings.recommended.json (plugin + settings hooks both
 # run, so a copy there would double-fire).
 #
@@ -34,23 +35,23 @@ assert_eq "manifest keys are name/description/author only" '["author","descripti
 
 # --- hooks.json shape -------------------------------------------------------
 jq -e . "$HOOKS" >/dev/null 2>&1 && ok "hooks.json parses" || bad "hooks.json parses"
-assert_eq "events" '["PostToolUse","SessionEnd","Stop","UserPromptSubmit"]' \
+assert_eq "events: UserPromptSubmit, Stop, SessionEnd" '["SessionEnd","Stop","UserPromptSubmit"]' \
   "$(jq -c '.hooks | keys' "$HOOKS")"
-assert_eq "PostToolUse matcher is Bash" Bash "$(jq -r '.hooks.PostToolUse[0].matcher' "$HOOKS")"
-assert_eq "five hook entries in all" 5 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS")"
+assert_eq "no PostToolUse hook registered" false "$(jq '.hooks | has("PostToolUse")' "$HOOKS")"
+assert_eq "no hook command names hook-posttool" 0 "$(jq '[.. | strings | select(test("hook-posttool"))] | length' "$HOOKS")"
+assert_eq "four hook entries in all" 4 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS")"
 assert_eq "one sync Stop entry" 1 "$(jq '[.hooks.Stop[].hooks[] | select(.async != true)] | length' "$HOOKS")"
 assert_eq "one async Stop entry" 1 "$(jq '[.hooks.Stop[].hooks[] | select(.async == true)] | length' "$HOOKS")"
 assert_eq "the async Stop entry is the sweep" wb-capture-sweep.sh \
   "$(jq -r '.hooks.Stop[].hooks[] | select(.async == true) | .command' "$HOOKS" | grep -oE 'wb-capture-sweep\.sh')"
-assert_eq "every sync entry has timeout 5" 4 \
+assert_eq "every sync entry has timeout 5" 3 \
   "$(jq '[.hooks[][].hooks[] | select(.async != true and .timeout == 5)] | length' "$HOOKS")"
-assert_eq "every entry is type command" 5 "$(jq '[.hooks[][].hooks[] | select(.type == "command")] | length' "$HOOKS")"
+assert_eq "every entry is type command" 4 "$(jq '[.hooks[][].hooks[] | select(.type == "command")] | length' "$HOOKS")"
 
 # --- every command resolves -------------------------------------------------
 expect_verb() { # event -> verb its command must pass ("" = the sweep, no verb)
   case "$1" in
-    UserPromptSubmit) echo hook-prompt ;; PostToolUse) echo hook-posttool ;;
-    SessionEnd) echo hook-end ;; Stop) echo "$2" ;;
+    UserPromptSubmit) echo hook-prompt ;; SessionEnd) echo hook-end ;; Stop) echo "$2" ;;
   esac
 }
 while IFS=$'\t' read -r event mode cmd; do

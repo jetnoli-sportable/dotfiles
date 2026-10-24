@@ -391,18 +391,6 @@ assert_eq "max 0: never backs off" error "$(last_field sweep_ran result)"
 new_scenario; set_conf sweep_max_failures=abc; printf '3\n' >"$D/sweep_failures"; sweep
 assert_eq "invalid max falls back to 3" backoff "$(last_field sweep_skipped reason)"
 
-echo "# draft strikes: after a discard the sweep runs again (no draft_pending skip)"
-new_scenario
-sweep; assert_file "draft written" "$D/draft"
-run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop        # nudge, ignored: strike 1
-run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop        # re-nudge, ignored: discarded
-assert_nofile "draft discarded" "$D/draft"
-printf '4\n' >"$D/unchanged"; add_turn q2 a2; sweep
-assert_eq "sweep ran after shelve" 1 "$(jq -r 'select(.event=="draft_shelved")|.event' "$LOG" | wc -l | tr -d ' ')"
-assert_eq "no draft_pending skip" "" "$(last_field sweep_skipped reason)"
-assert_file "new draft written" "$D/draft"
-assert_nofile "new draft starts with no strikes" "$D/draft_strikes"
-
 echo "# overlapping sweeps: a draft written while the child ran is shelved (superseded), not overwritten"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=write-draft)
 printf '1\n' >"$D/draft_strikes"
@@ -497,12 +485,6 @@ assert_eq "stale: one sweep_ran" sweep_ran "$(events)"
 assert_eq "stale: result draft" draft "$(last_field sweep_ran result)"
 assert_eq "stale: stale true" true "$(last_field sweep_ran stale)"
 assert_nofile "stale: no draft_strikes" "$D/draft_strikes"
-run "$CAPTURE" hook-prompt
-assert_match "stale: nudge says may already be recorded" 'may already be recorded' "$OUT"
-assert_eq "stale: nudge_fired not tagged" null "$(last_field nudge_fired stale)"
-run "$CAPTURE" dismiss
-assert_eq "stale: dismissed tagged" true "$(last_field dismissed stale)"
-assert_nofile "stale: dismiss clears draft_stale" "$D/draft_stale"
 
 echo "# stale draft: unchanged task file -> no draft_stale, log as before"
 new_scenario
@@ -528,15 +510,6 @@ echo "# stale draft: count is of the snapshot, task without Decisions entries"
 new_scenario; printf '# task\n## Decisions\n## Done\n' >"$FAKE_TASK"; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
 sweep
 assert_eq "empty section: count of the re-snapshot" 1 "$(cat "$D/draft_stale")"
-
-echo "# stale draft: a new stale draft after a discard is flagged afresh"
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
-sweep
-run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop; run "$CAPTURE" hook-prompt; run "$CAPTURE" hook-stop
-assert_nofile "discarded: draft_stale gone" "$D/draft_stale"
-printf '4\n' >"$D/unchanged"; add_turn q2 a2; sweep
-assert_file "re-sweep: draft_stale again" "$D/draft_stale"
-assert_eq "re-sweep: count of its own re-snapshot" 4 "$(cat "$D/draft_stale")"
 
 echo "# rerun: write outside ## Decisions during the child run is NOT stale"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-handoffs)
