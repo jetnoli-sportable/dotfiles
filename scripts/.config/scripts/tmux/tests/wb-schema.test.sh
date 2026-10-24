@@ -254,8 +254,8 @@ printf '{}' > "$(CLAUDE_PROJECTS_DIR="$ACT_PROJECTS" wb_transcript_dir "$ACT_COD
 
 out_wide="$(COLUMNS=150 TASKS_DIR="$FIXTURE" CODE_DIR="$ACT_CODE" CLAUDE_PROJECTS_DIR="$ACT_PROJECTS" bash "$WB" board 2>&1)"
 assert "wide terminal: ACT column header present" '^STATUS.*ACT' "$out_wide"
-assert "wide terminal: the dormant task reads dormant" 'proj +Act Dormant +[0-9]+ +dormant' "$out_wide"
-assert "wide terminal: an ordinary task with no transcript reads cold" 'doing +dotfiles +Doing Task +[0-9]+ +cold' "$out_wide"
+assert "wide terminal: the dormant task reads dormant" 'proj +Act Dormant +[0-9]+ +[0-9]+ +dormant' "$out_wide"
+assert "wide terminal: an ordinary task with no transcript reads cold" 'doing +dotfiles +Doing Task +[0-9]+ +[0-9]+ +cold' "$out_wide"
 rm -rf "$ACT_CODE" "$ACT_PROJECTS"
 rm -f "$FIXTURE/proj--act-dormant.md"
 

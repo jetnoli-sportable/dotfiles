@@ -150,7 +150,7 @@ prints one of, among others:
   output and `commit or stash, then re-run` (stderr, exit 1) — the dirty
   edge case; nothing was removed, nothing was closed, relay the error
   verbatim and stop — don't retry or force anything on the user's behalf.
-- `wb done: N decision draft(s) … for <task> would be stranded (nothing
+- `wb done: N decision draft(s) shelved for <task> would be stranded (nothing
   changed):` followed by one `shelved: <path>` line per draft (stderr, exit 1) —
   wb-capture holds unreviewed shelved decision drafts for this task. Run
   `/close-out` or `/wb-decide shelved` to accept, dismiss or leave them;
