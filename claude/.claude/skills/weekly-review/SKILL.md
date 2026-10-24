@@ -72,6 +72,13 @@ accept is one step, `wb append <that task> Decisions - … && ~/.config/scripts/
 accept --task <stem> <path>`; dismiss is `dismiss --task <stem> <path>`; leave is `keep
 --task <stem> <path>` (logs that this review showed it and left it).
 
+Once every draft is resolved, propagate what was accepted. Group the accepted entries
+by family, taking each task's top parent from the first line of `wb family <stem>`.
+Then run `/wb-decide`'s step 6 once per family, with that family's entries. You didn't
+make these decisions, so before judging relevance read each accepted entry in full and
+its own task file's `## Plan`. A family with no live session, or none the entries
+affect, sends nothing. Add each family's step 6 confirm line to the Retro lines.
+
 **4. Skill-usage counts** — reproducible per-skill counts with stated blind spots (R29):
 
 ```bash

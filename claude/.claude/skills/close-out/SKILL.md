@@ -123,8 +123,10 @@ accepted or dismissed. Run `/wb-decide`'s step 2b, the shared checkpoint review
 procedure, here: one `~/.config/scripts/tmux/wb-capture.sh sweep` (Bash `timeout:
 300000`) with its result line reported in one sentence, then each of this task's
 shelved drafts one at a time for accept / edit / dismiss / leave. Don't restate the
-procedure here; follow it there. Never drop one silently. `wb done` refuses while a
-shelved draft remains for the task, so skipping this only defers it.
+procedure here; follow it there, except its item 5: skip the review's own propagate
+call, because this skill propagates the whole run once at the end of this step. Never
+drop one silently. `wb done` refuses while a shelved draft remains for the task, so
+skipping this only defers it.
 
 After folding real Decisions, if `## Decisions` is **still empty**, review the
 session and decide whether anything was actually decided:
@@ -144,6 +146,21 @@ an unmarked empty `## Decisions` keeps meaning "nobody checked", which is
 what the graduation review counts as a likely miss versus a marked "nothing
 to record". Tasks closed by bare `wb done` without `/close-out` stay
 unmarked (accepted). Never Edit the task file for this; `wb append` only.
+
+**Propagate once, then offer promotion.** Both run here, before the exit step,
+because `wb down` and `wb done` end the session:
+
+- **Propagate.** Once this step's last Decisions append has landed, run `/wb-decide`'s
+  step 6 once, covering every real entry this run recorded: the drafts accepted in the
+  review above, plus the entries folded or written directly in this step. Entries
+  written here through `/wb-decide` don't run its step 6 on their own; this one call
+  covers them. Never include the `_No decisions:_` marker. If the run recorded nothing,
+  skip this.
+- **Promotion.** Read the task's whole `## Decisions` section, not just this run's
+  entries, and run `/wb-decide`'s step 7 (the promotion procedure) for the entries that
+  are facts about how the system behaves. Unlike the mid-session offer, this one may
+  create the family's first `CONCEPTS.md`. When nothing is fact-shaped, say so in one
+  line and move on.
 
 ### 5. Check for other active or pending work tied to this task
 
@@ -232,6 +249,17 @@ never whether the record gets written first.
   written; no marker.
 - **Decisions already populated** — no marker.
 - **Marker write path** — always `wb append <task> Decisions -`, never Edit.
+- **Propagate once per close-out** — two shelved drafts accepted and one entry
+  written directly: one `/wb-decide` step 6 run covers all three, the step 2b review
+  inside step 4 sends nothing itself, and it all happens before `wb down`/`wb done`.
+- **Marker only** — a run whose only append is the `_No decisions:_` marker sends
+  nothing.
+- **Promotion offer** — a Decisions entry that changes how the system behaves gets
+  `/wb-decide` step 7's offer (lines, target, reach, supersedes). An entry that only
+  gives a rationale gets none.
+- **First `CONCEPTS.md` in a family** — Jet approves a line, the file is created in
+  the top parent's dossier, and `wb family <task> --reseed` runs and its lines are
+  relayed.
 
 ## Notes
 
