@@ -1,54 +1,68 @@
 
 # Set the directory we want to store zinit and plugins
 ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
-#. export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-~/.config}"
 export XDG_CONFIG_HOME="$HOME/.config"
 export PATH=$PATH:$HOME/.local/bin
 export PATH=$PATH:/usr/local/go/bin
 export PATH=$PATH:~/go/bin
 export PATH=$PATH:/opt/nvim-linux-x86_64/bin
-#export PATH=$PATH:$(go env GOPATH)/bin
-
-# Download Zinit, if it's not there yet
-if [ ! -d "$ZINIT_HOME" ]; then
-   mkdir -p "$(dirname $ZINIT_HOME)"
-   git clone https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME"
-fi
 
 if [[ -f "/opt/homebrew/bin/brew" ]] then
   eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
-# Source/Load zinit
-source "${ZINIT_HOME}/zinit.zsh"
-
-
-# SET SHELL TO VIM MODE
-# set -o vi
-# zinit ice depth=1
-zinit light jeffreytse/zsh-vi-mode
-
-zvm_after_init() {
-  bindkey '^y' autosuggest-accept
-}
 export VISUAL=nvim
 export EDITOR=nvim
 
+# HISTORY — without these zsh keeps 30 lines in memory and saves none.
+# inc_append writes each command as it runs (so new panes see it) but,
+# unlike share_history, doesn't push it into shells that are already open,
+# which would mix every wb agent pane's commands into each other's up-arrow.
+HISTFILE=~/.zsh_history
+HISTSIZE=50000
+SAVEHIST=50000
+setopt inc_append_history extended_history hist_ignore_dups hist_ignore_space hist_reduce_blanks
 
-# THEMING CONFIG
-eval "$(oh-my-posh init zsh --config ~/.config/ohmyposh/zen.json)"
+# Plugins, prompt and completion only make sense in an interactive shell.
+# Claude Code's command shell is non-interactive and runs with
+# nobareglobqual, under which zinit's `*.plugin.zsh(DN)` glob fails
+# ("no matches found") and a `source ~/.zshrc && …` chain aborts.
+if [[ -o interactive ]]; then
+  # Download Zinit, if it's not there yet
+  if [ ! -d "$ZINIT_HOME" ]; then
+     mkdir -p "$(dirname $ZINIT_HOME)"
+     git clone https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME"
+  fi
+  source "${ZINIT_HOME}/zinit.zsh"
 
+  zinit light jeffreytse/zsh-vi-mode
+  zvm_after_init() {
+    bindkey '^y' autosuggest-accept
+    # zsh-vi-mode rebuilds the keymaps on init, which drops fzf's ^R history
+    # widget if fzf bound it first, so fzf's key bindings load here, after it.
+    command -v fzf >/dev/null && source <(fzf --zsh)
+  }
+
+  # THEMING CONFIG
+  eval "$(oh-my-posh init zsh --config ~/.config/ohmyposh/zen.json)"
+
+  zinit light zsh-users/zsh-autosuggestions
+  zinit light zsh-users/zsh-completions
+
+  # Load completions
+  autoload -Uz compinit && compinit
+
+  zinit light zsh-users/zsh-syntax-highlighting
+
+  eval "$(zoxide init zsh)"
+fi
 
 # FZF CONFIG
-# eval "$(fzf --zsh)"
-# source <(fzf --zsh)
 export FZF_DEFAULT_COMMAND='
   fd --type f --hidden \
      --exclude .git \
      --exclude node_modules \
 '
-# export FZF_DEFAULT_COMMAND='fd --type f'
-#
 export FZF_ALT_C_COMMAND='
   fd --type d --hidden \
      --exclude .git
@@ -58,26 +72,27 @@ export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 
 export FZF_DEFAULT_OPTS='--tiebreak=begin,length --algo=v2'
 export FZF_DEFAULT_SORT=10000
-#
-# NVM  
+[[ -d ~/.fzf/bin && :$PATH: != *:$HOME/.fzf/bin:* ]] && export PATH="$PATH:$HOME/.fzf/bin"
+
+# NVM
+# `nvm use default` at load cost ~185ms of every shell start; --no-use skips
+# it and the default alias's newest matching install goes on PATH directly.
+# Aliases a glob can't resolve (lts/*, node) fall back to `nvm use`.
 export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" 
-
-#export NVM_DIR="$HOME/.nvm"
-#[ -s "$HOMEBREW_PREFIX/opt/nvm/nvm.sh" ] && \. "$HOMEBREW_PREFIX/opt/nvm/nvm.sh" # This loads nvm
-#[ -s "$HOMEBREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm" ] && \. "$HOMEBREW_PREFIX/opt/nvm/etc/bash_completion.d/nvm" # This loads nvm bash_completion
-
-# PLUGINS
-zinit light zsh-users/zsh-autosuggestions
-zinit light zsh-users/zsh-completions
-
-# Load completions
-autoload -Uz compinit && compinit
-
-zinit light zsh-users/zsh-syntax-highlighting
-
-eval "$(zoxide init zsh)"
-
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  \. "$NVM_DIR/nvm.sh" --no-use
+  () {
+    setopt localoptions bareglobqual extendedglob
+    local alias_file=$NVM_DIR/alias/default
+    local -a bins
+    [[ -r $alias_file ]] && bins=( $NVM_DIR/versions/node/v${$(<$alias_file)#v}*/bin(N/nOn) )
+    if (( $#bins )); then
+      export PATH="$bins[1]:$PATH"
+    else
+      nvm use default --silent >/dev/null 2>&1
+    fi
+  }
+fi
 ## ALIASES
 alias vim="nvim"
 alias fd=fdfind
@@ -182,7 +197,10 @@ alias replay="$HOME/go/bin/replay"
 # msconfig — open the Metrics Server's local config.hjson (Env / Region / SportType …)
 alias msconfig="nvim $HOME/code/be--monorepo/apps/metrics_server/config.hjson"
 
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+# Completion scripts (nvm, gcloud, npm below) register through compdef, which
+# needs the compinit run in the interactive block above; in a
+# non-interactive shell their compdef calls fail and abort the sourcing.
+[[ -o interactive && -s $NVM_DIR/bash_completion ]] && \. "$NVM_DIR/bash_completion"
 export PYENV_ROOT="$HOME/.pyenv"
 [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
 eval "$(pyenv init - zsh)"
@@ -191,11 +209,11 @@ eval "$(pyenv init - zsh)"
 if [ -f "$HOME/google-cloud-sdk/path.zsh.inc" ]; then . "$HOME/google-cloud-sdk/path.zsh.inc"; fi
 
 # The next line enables shell command completion for gcloud.
-if [ -f "$HOME/google-cloud-sdk/completion.zsh.inc" ]; then . "$HOME/google-cloud-sdk/completion.zsh.inc"; fi
+if [[ -o interactive && -f $HOME/google-cloud-sdk/completion.zsh.inc ]]; then . "$HOME/google-cloud-sdk/completion.zsh.inc"; fi
 export PATH="$HOME/.tfenv/bin:$PATH"
 
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 export PATH="$HOME/.config/tmux/plugins/tpm/bin:$PATH"
+if [[ -o interactive ]]; then
 ###-begin-npm-completion-###
 #
 # npm command completion script
@@ -265,7 +283,10 @@ elif type compctl &>/dev/null; then
   compctl -K _npm_completion npm
 fi
 ###-end-npm-completion-###
+fi
 
 # Machine-local overrides (gitignored by location — lives in ~, not the repo).
 # Host-specific PATH tweaks, SDK paths, secrets-adjacent config go here.
-[ -f ~/.zshrc.local ] && source ~/.zshrc.local
+# An `if`, not `[ -f ] &&`: as the last line, a failed test made every
+# `source ~/.zshrc` return 1 on machines without the file.
+if [ -f ~/.zshrc.local ]; then source ~/.zshrc.local; fi
