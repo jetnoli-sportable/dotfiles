@@ -47,7 +47,7 @@ The nudge arrives in the agent's context at the start of Jet's next request, com
 - R1. Every decision the sweep drafts lands on the task's shelf (`<state>/wb/capture/shelved/<task-stem>/`) as its own file, one decision per file.
 - R2. No hook injects anything about drafts or phrases into the agent's context.
 - R3. Phrase detection is removed: no phrase list, cooldown, marker or phrase nudge.
-- R6. The sweep is told which drafts are already waiting on the shelf for that task, so it does not draft the same decision again.
+- R6. The sweep is told which drafts are already waiting on the shelf for that task, and which were dismissed in the last 14 days, so it does not draft the same decision again or revive a rejected one when a later turn recaps it.
 
 **Seeing what is waiting**
 
@@ -231,7 +231,7 @@ sequenceDiagram
 - **Approach:**
   1. `hook-stop` and `hook-prompt` persist `transcript_path` to `<session dir>/transcript` (KTD5).
   2. The sweep script gains a forced mode. When forced, it takes session id, task and transcript from arguments or the session dir instead of stdin, skips the cadence gate, the backoff gate and the startup sleep, and never reads stdin (run it with stdin from `/dev/null`).
-  3. The prompt gains a labelled section listing the task's shelved drafts as "already drafted, awaiting review: do not draft these again" (R6).
+  3. The prompt gains a labelled section listing the task's shelved drafts as "already drafted, awaiting review: do not draft these again", plus the `### ` headings of the task's drafts dismissed in the last 14 days (from `resolved/<stem>/`) as "already reviewed and rejected: do not draft these again" (R6).
   4. Replace the overlap/draft-write block with: split the answer on `### `, then one `shelve_answer` per entry (KTD3), each logging `draft_shelved` with its `draft` field (KTD12). Keep the stale/rerun logic, writing the re-snapshot's entry count into each file's `.stale` sidecar.
   5. Drop the `draft_pending`, `superseded`, `reviewing` and `outstanding` checks.
   6. New `wb-capture.sh sweep` verb runs the forced sweep and prints the one-line result (KTD4).
@@ -241,6 +241,7 @@ sequenceDiagram
   - Fake model returns two `### ` entries: two files appear in `shelved/<stem>/`, two `draft_shelved {"reason":"sweep"}` lines are logged, each with a `draft` field naming its own file, and no `<session>/draft` exists.
   - Fake model returns `NONE`: no file, `sweep_ran {"result":"none"}`.
   - Two drafts already shelved for the task: the prompt handed to the fake model contains both drafts' headings in the "already drafted" section.
+  - One draft dismissed 3 days ago and one dismissed 20 days ago: the prompt's "already reviewed and rejected" section holds the first heading only. Accepted drafts in `resolved/` are not listed (the model already sees them in `## Decisions`).
   - `wb-capture.sh sweep` with three unchanged turns (below cadence): the sweep runs and prints `drafted 1`.
   - `wb-capture.sh sweep` with nothing written since `sweep_offset`: no model call, prints `nothing new`.
   - `wb-capture.sh sweep` while muted: prints `skipped: muted`, exit 0, no model call.
