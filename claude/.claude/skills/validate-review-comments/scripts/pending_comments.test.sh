@@ -40,19 +40,29 @@ g rm -q missing.py; g add -A; g commit -qm pr2; H2=$(g rev-parse HEAD)
 # PR 3: twenty more lines above chg.py's
 { for i in $(seq 20); do echo "// pad $i"; done; cat "$R/chg.py"; } > "$R/x"; mv "$R/x" "$R/chg.py"
 g add -A; g commit -qm pr3; H3=$(g rev-parse HEAD)
+# Two bases the PR could be moved onto: del.txt with two lines above everything (BM),
+# and with its deleted line reworded (BG)
+g checkout -q -b bases "$B"
+{ printf '// one\n// two\n'; cat "$R/del.txt"; } > "$R/x"; mv "$R/x" "$R/del.txt"
+g commit -qam basemove; BM=$(g rev-parse HEAD)
+g checkout -q "$B" -- del.txt; sed -i 's/old value/new value/' "$R/del.txt"
+g commit -qam basegone; BG=$(g rev-parse HEAD)
+g checkout -q main
 
-# target <dir> <head> : single-PR target (PR 1) checked at <head>
+# target <dir> <head> [base] : single-PR target (PR 1) checked at <head>
 target() { mkdir -p "$1"; cat > "$1/target.json" <<T
-{"kind":"pr","repo":"fx/repo","repo_path":"$R","cli":"gh","base":"$B","head":"$2",
- "prs":[{"number":1,"base":"$B","head":"$2"}]}
+{"kind":"pr","repo":"fx/repo","repo_path":"$R","cli":"gh","base":"${3:-$B}","head":"$2",
+ "prs":[{"number":1,"base":"${3:-$B}","head":"$2"}]}
 T
 }
 U=https://api.github.com/repos/fx/repo/pulls
-# c <id> <path> <hunk> [updated_at] [pr] : one raw pending comment as JSON
-c() { python3 -c 'import json,sys; i,p,h,u,pr=sys.argv[1:6]; print(json.dumps({"id":int(i),"path":p,"diff_hunk":h,"updated_at":u,"body":"b","pull_request_url":f"'"$U"'/{pr}","html_url":"h"}))' "$1" "$2" "$3" "${4:-2026-01-01T00:00:00Z}" "${5:-1}"; }
+# c <id> <path> <hunk> [updated_at] [pr] [side] : one raw pending comment as JSON
+c() { python3 -c 'import json,sys; i,p,h,u,pr,sd=sys.argv[1:7]; print(json.dumps({"id":int(i),"path":p,"diff_hunk":h,"updated_at":u,"body":"b","pull_request_url":f"'"$U"'/{pr}","html_url":"h",**({"side":sd} if sd else {})}))' "$1" "$2" "$3" "${4:-2026-01-01T00:00:00Z}" "${5:-1}" "${6:-}"; }
 # comments <dir> <json>... : write comments.json
 comments() { local d="$1"; shift; local IFS=,; echo "[$*]" > "$d/comments.json"; }
 run() { python3 "$PC" "$1/target.json" "$1/comments.json" >"$1/out.txt" 2>&1 || { fail "script error: $(cat "$1/out.txt")"; return 1; }; }
+# top <dir> <key> : print a top-level key of comments.mapped.json
+top() { python3 -c "import json;print(json.load(open('$1/comments.mapped.json'))['$2'])"; }
 # field <dir> <id> <expr over r> : print a field of one mapped record
 field() { python3 -c "import json;r=[x for x in json.load(open('$1/comments.mapped.json'))['comments'] if x['id']==$2][0];v=($3);print(v)"; }
 expect() { [ "$2" = "$3" ] && pass "$1" || fail "$1 (got '$2', want '$3')"; }
@@ -80,6 +90,18 @@ if run "$D"; then
   expect "numbered in file then line order" "$(python3 -c "import json;print([(r['path'],r['n']) for r in json.load(open('$D/comments.mapped.json'))['comments']])")" \
     "[('chg.py', 1), ('del.txt', 2), ('del.txt', 3), ('new.py', 4)]"
   [ -f "$D/state.next.json" ] && [ ! -f "$D/state.json" ] && pass "state written as state.next.json" || fail "state file"
+  expect "first run: no files_changed" "$(top "$D" files_changed)" "{}"
+fi
+
+# 1b. an explicit side from the API decides line and text, not just the side
+CTXH=$'@@ -1,3 +1,2 @@\n keep 1\n-old value\n keep 3'
+D="$WORK/side"; target "$D" "$H1"
+comments "$D" "$(c 15 del.txt "$CTXH" "" 1 LEFT)" "$(c 16 del.txt "$CTXH")" "$(c 17 del.txt "$CTXH" "" 1 RIGHT)"
+if run "$D"; then
+  expect "side LEFT on a context line -> base line, ok" "$(field "$D" 15 "r['side'],r['line'],r['drafted_line'],r['cite']")" "('base', 3, 3, 'ok')"
+  expect "side LEFT -> excerpt from the base" "$(field "$D" 15 "'old value' in r['excerpt']")" "True"
+  expect "no side on a context line -> head line" "$(field "$D" 16 "r['side'],r['line'],r['cite']")" "('head', 2, 'ok')"
+  expect "side RIGHT -> head line" "$(field "$D" 17 "r['side'],r['line'],r['cite']")" "('head', 2, 'ok')"
 fi
 
 # 2. drafted at PR 1's head, checked at later heads: moved, ambiguous, gone
@@ -99,6 +121,12 @@ D="$WORK/lone"; target "$D" "$H1"; comments "$D" "$(c 27 dup.c $'@@ -6,1 +6,1 @@
 run "$D" && expect "lone match on a recurring line -> ok but ambiguous" "$(field "$D" 27 "r['cite'],r['line'],r['ambiguous']")" "('ok', 6, True)"
 D="$WORK/far"; target "$D" "$H3"; comments "$D" "$(c 21 chg.py "$CHGH")"
 run "$D" && expect "twenty lines inserted above -> still moved" "$(field "$D" 21 "r['cite'],r['line']")" "('moved', 28)"
+
+# 2b. deleted-line comments when the PR's base moved: moved, gone
+D="$WORK/basemoved"; target "$D" "$H1" "$BM"; comments "$D" "$(c 28 del.txt "$DELH")"
+run "$D" && expect "base moved, lines inserted above -> moved on the base" "$(field "$D" 28 "r['side'],r['cite'],r['line'],r['drafted_line']")" "('base', 'moved', 4, 2)"
+D="$WORK/basegone"; target "$D" "$H1" "$BG"; comments "$D" "$(c 29 del.txt "$DELH")"
+run "$D" && expect "base moved, deleted line reworded -> gone, hunk as drafted" "$(field "$D" 29 "r['side'],r['cite'],r['excerpt_start'],r['excerpt']")" "('base', 'gone', 1, ['keep 1', 'old value'])"
 
 # 3. stack: does the commented code survive the later PRs?
 D="$WORK/stack"; mkdir -p "$D"; cat > "$D/target.json" <<T
@@ -122,6 +150,7 @@ if run "$D"; then
   expect "edited -> changed, number kept" "$(field "$D" 42 "r['changed'],r['n']")" "(True, 3)"
   expect "new -> changed, next number" "$(field "$D" 44 "r['changed'],r['n']")" "(True, 4)"
   expect "missing id -> removed" "$(python3 -c "import json;print(json.load(open('$D/comments.mapped.json'))['removed'])")" "[43]"
+  expect "same head and base -> no files changed" "$(top "$D" files_changed)" "{'1': []}"
 fi
 
 # 4b. numbers are never reused: remove the highest-numbered comment, then add one
@@ -153,10 +182,30 @@ target "$D" "$H2"
 if run "$D"; then
   expect "file changed between heads -> changed" "$(field "$D" 51 "r['changed']")" "True"
   expect "file untouched between heads -> not changed" "$(field "$D" 52 "r['changed']")" "False"
+  expect "head moved -> files_changed lists the diff" "$(python3 -c "import json;f=json.load(open('$D/comments.mapped.json'))['files_changed']['1'];print('chg.py' in f,'rw.c' in f,'del.txt' in f)")" "True True False"
+fi
+
+# 5b. re-run after the base moved: base-side comments on files that changed between bases
+D="$WORK/basemove"; target "$D" "$H1"
+comments "$D" "$(c 53 del.txt "$DELH")" "$(c 54 new.py "$NEWH")"
+run "$D" && mv "$D/state.next.json" "$D/state.json"
+target "$D" "$H1" "$BM"
+if run "$D"; then
+  expect "base-side file changed between bases -> changed" "$(field "$D" 53 "r['changed']")" "True"
+  expect "head-side, head unchanged -> not changed" "$(field "$D" 54 "r['changed']")" "False"
+  expect "base moved -> files_changed lists the base diff" "$(top "$D" files_changed)" "{'1': ['del.txt']}"
+fi
+
+# 5c. git cannot diff the previous head -> files_changed null, comment re-checked
+D="$WORK/nodiff"; target "$D" "$H1"; comments "$D" "$(c 55 chg.py "$CHGH")"
+run "$D" && sed "s/$H1/$(printf '0%.0s' {1..40})/" "$D/state.next.json" > "$D/state.json"
+if run "$D"; then
+  expect "unknown previous head -> files_changed null" "$(top "$D" files_changed)" "{'1': None}"
+  expect "unknown previous head -> changed" "$(field "$D" 55 "r['changed']")" "True"
 fi
 
 # 6. no comments
 D="$WORK/empty"; target "$D" "$H1"; echo '[]' > "$D/comments.json"
-run "$D" && expect "empty -> empty record list" "$(python3 -c "import json;print(json.load(open('$D/comments.mapped.json')))")" "{'comments': [], 'removed': []}"
+run "$D" && expect "empty -> empty record list" "$(python3 -c "import json;print(json.load(open('$D/comments.mapped.json')))")" "{'comments': [], 'removed': [], 'files_changed': {}}"
 
 [ "$FAIL" = 0 ] && echo "ALL PASS" || { echo "SOME FAILED"; exit 1; }

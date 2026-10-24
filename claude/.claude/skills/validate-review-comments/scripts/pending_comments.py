@@ -15,7 +15,8 @@ target.json is review-guide's (stage 1), read for `repo_path`, `base`, `head` an
 `prs` [{number, base, head}]; this script only runs git against those SHAs, never gh.
 
 Writes, next to comments.json:
-  comments.mapped.json  {"comments": [record, ...], "removed": [id, ...]}
+  comments.mapped.json  {"comments": [record, ...], "removed": [id, ...],
+                         "files_changed": {pr: [path, ...] | null}}
   state.next.json       the run state; the skill renames it to state.json after publishing
 A previous state.json in the same directory turns on re-run mode. Each record:
   id, url, pr, n (stable page number), path, side ("head"|"base"|null), line,
@@ -38,6 +39,9 @@ head's file; ambiguous when it is there more than once. Head-side line comments 
 changed: always true on a first run; on a re-run, true when the comment is new, its
 `updated_at` moved, its file changed between the previously checked head (or base,
 for a base-side comment) and now, or its `later` result changed.
+files_changed (re-run only, else {}): per PR checked last time, the files that
+changed between the previous head and base and the current ones, so a kept verdict
+whose evidence lies in another file can be re-judged; null when git could not tell.
 Page numbers are never reused: state keeps `next_n`, the next number to hand out.
 Exit 0 whenever the check ran.
 """
@@ -55,9 +59,10 @@ def pr_of(c):
     return int(c["pull_request_url"].rstrip("/").rsplit("/", 1)[1])
 
 
-def parse_hunk(hunk):
+def parse_hunk(hunk, side=None):
     """(side, line, drafted, previous, tail) from the hunk's last header to its end.
-    tail is the last few (line, text) pairs on that side, the code as drafted."""
+    tail is the last few (line, text) pairs on that side, the code as drafted. side,
+    when the API sent one, wins over the side the hunk's last line implies."""
     lines = [ln for ln in hunk.split("\n") if not ln.startswith("\\")]
     start = max(i for i, ln in enumerate(lines) if HEADER.match(ln))
     old, new = (int(x) for x in HEADER.match(lines[start]).groups())
@@ -71,7 +76,7 @@ def parse_hunk(hunk):
         if mark != "-":
             seen["head"].append((new, text))
             new += 1
-    side = "base" if body[-1].startswith("-") else "head"
+    side = side or ("base" if body[-1].startswith("-") else "head")
     line, drafted = seen[side][-1]
     previous = seen[side][-2][1] if len(seen[side]) > 1 else None
     return side, line, drafted, previous, seen[side][-(BEFORE + 1):]
@@ -157,8 +162,8 @@ def main():
                      ambiguous=False, excerpt_start=None, excerpt=[])
             records.append(r)
             continue
-        side, line, drafted, previous, tail = parse_hunk(hunk)
-        side = {"LEFT": "base", "RIGHT": "head"}.get(c.get("side"), side)
+        side, line, drafted, previous, tail = parse_hunk(
+            hunk, {"LEFT": "base", "RIGHT": "head"}.get(c.get("side")))
         lines = file_lines(repo, ends[side], c["path"], cache)
         cite, at, ambiguous = locate(lines, line, drafted, previous)
         if cite == "gone":
@@ -198,11 +203,21 @@ def main():
     records.sort(key=lambda r: r["n"])
     ids = {str(r["id"]) for r in records}
     removed = sorted(int(i) for i in old if i not in ids)
+    prs = sorted({r["pr"] for r in records})
+    moved = {}
+    for pr in prs:
+        if str(pr) not in old_ends["head"]:
+            continue
+        files = set()
+        for side in ("head", "base"):
+            then, now = old_ends[side].get(str(pr)), pr_ends(target, pr)[side]
+            diff = changed_files(repo, then, now, diffs) if then and then != now else set()
+            files = None if files is None or diff is None else files | diff
+        moved[str(pr)] = None if files is None else sorted(files)
 
     with open(os.path.join(run, "comments.mapped.json"), "w") as fh:
-        json.dump({"comments": records, "removed": removed}, fh, indent=2)
+        json.dump({"comments": records, "removed": removed, "files_changed": moved}, fh, indent=2)
         fh.write("\n")
-    prs = sorted({r["pr"] for r in records})
     state = {"heads": {str(pr): pr_ends(target, pr)["head"] for pr in prs},
              "bases": {str(pr): pr_ends(target, pr)["base"] for pr in prs},
              "next_n": nxt + 1,
