@@ -77,7 +77,8 @@ export FZF_DEFAULT_SORT=10000
 # NVM
 # `nvm use default` at load cost ~185ms of every shell start; --no-use skips
 # it and the default alias's newest matching install goes on PATH directly.
-# Aliases a glob can't resolve (lts/*, node) fall back to `nvm use`.
+# `(|.*)` matches the way nvm does: an alias of v24.1 means v24.1.x, never
+# v24.11.x. Aliases a glob can't resolve (lts/*, node) fall back to `nvm use`.
 export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
 if [ -s "$NVM_DIR/nvm.sh" ]; then
   \. "$NVM_DIR/nvm.sh" --no-use
@@ -85,7 +86,7 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
     setopt localoptions bareglobqual extendedglob
     local alias_file=$NVM_DIR/alias/default
     local -a bins
-    [[ -r $alias_file ]] && bins=( $NVM_DIR/versions/node/v${$(<$alias_file)#v}*/bin(N/nOn) )
+    [[ -r $alias_file ]] && bins=( $NVM_DIR/versions/node/v${$(<$alias_file)#v}(|.*)/bin(N/nOn) )
     if (( $#bins )); then
       export PATH="$bins[1]:$PATH"
     else
