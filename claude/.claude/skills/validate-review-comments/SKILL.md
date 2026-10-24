@@ -195,10 +195,9 @@ also re-judge a kept card whose Evidence names a file in its PR's
 `files_changed` (every kept card of a PR whose entry is `null`), or whose
 verdict rests on something being missing ("no test covers this"), since a new
 file anywhere can supply it. Keep every other card as it was in the page
-source, adding `· last checked at <short SHA>` (the head it was last judged at) to
-its verdict line when the
-head moved, so no card looks fresher than it is. List `removed` comment
-numbers (a removed number is never reused), and open the page with a
+source, adding `· last checked at <short SHA>` (the head it was last judged
+at) to its verdict line when the head moved, so no card looks fresher than it
+is. List `removed` comment numbers (a removed number is never reused), and open the page with a
 `**Changed since last check:**` line naming what was re-checked and why.
 Re-run the gap pass when the head moved or any comment changed or was removed,
 since an edited comment may now cover a gap item.
