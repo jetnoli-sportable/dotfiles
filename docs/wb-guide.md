@@ -533,6 +533,31 @@ column — `active`/`dormant`/`cold`, the same derived value the picker's
 dormant rows and the HTML board's toggle use — dropped entirely on a
 narrow split pane rather than squeezing STATUS/REPO/TASK to make room.
 
+### Decision propagation
+
+A decision recorded in one task's `## Decisions` used to reach nobody else. A
+running session never reloads its `CLAUDE.local.md` or `CONCEPTS.md`, so a sibling
+task in the same family could keep building on an assumption that had just been
+overturned. Two stop-gap steps, until the cross-agent sync stage replaces them:
+
+- **Messages to live sessions.** After any successful Decisions append,
+  `/wb-decide` (step 6) lists the family's live sessions with
+  `wb family <task> --sessions`, matches them against ListAgents, reads each one's
+  `## Plan` and latest Handoffs entry, and messages only those the decision affects.
+  The default is nobody. Sessions waiting on their user are named but not messaged.
+  On-the-spot records propagate straight away, a shelf review propagates once at its
+  end, `/close-out` once per run, and `/weekly-review` once per family. Each message
+  starts with `[wb-propagate]` and carries its own rule: act only within your own
+  task, don't reply or forward, and tell your user only if it matters to them. A
+  decision recorded because of such a message is not sent on again.
+- **Promotion to `CONCEPTS.md`.** `/close-out` offers to copy decisions that change
+  how the system behaves into the family's `CONCEPTS.md`, showing the exact lines,
+  the target file, which tasks it reaches and what each line supersedes. Nothing is
+  written without Jet's yes. `/wb-decide` makes the same offer mid-session only when
+  the family already has a `CONCEPTS.md` and another family session is live. When a
+  promotion creates a family's first `CONCEPTS.md`, `wb family <task> --reseed`
+  links it into every existing family worktree.
+
 ## `wb board --html` — the full board (v2)
 
 `wb board --html` writes `logs/board.html` (gitignored, overwritten on every
@@ -671,6 +696,7 @@ details, incident history, and runbooks live in
 | `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
 | `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
 | `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |
+| `wb family <task> [--sessions\|--reseed]` | Lists a task's family (top parent first, then every descendant). `--sessions` lists the live tmux sessions working on it. `--reseed` re-links every family worktree to the family's `CONCEPTS.md`, and is the only form that writes anything (the untracked `CLAUDE.local.md` pointer). See "Decision propagation" above. |
 
 Two hooks now sit in front of raw git commands touching this repo:
 a `PreToolUse` hook asks before an agent runs anything that looks like a

@@ -253,6 +253,7 @@ into task files, and distinct transcripts that ran it through Bash.
 | `wb breakdown` | 8 auto entries | <span class="chip warn">keep · refine</span> → T3 |
 | `wb down` · `wb pause` · `wb pr-open` · `wb append` · `wb install-hooks` | Used by close-out, wb-resume, handoff, wb-save and weekly-review | <span class="chip ok">keep</span> |
 | `wb reviewed` · `wb jira-set` · `wb sync` · `wb unsafe-rewind` | Rare by design (stamps and escape hatches) | <span class="chip ok">keep (light)</span> |
+| `wb family` | New: used by `/wb-decide`'s propagate step (`--sessions`) and by promotion to `CONCEPTS.md` (`--reseed`) | <span class="chip acc">too new</span> |
 
 ### Docs pages
 

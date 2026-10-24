@@ -4,7 +4,7 @@ status: current
 tile: Record a decision into ## Decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.
 group: skills
 kind: guide
-updated: 2026-10-24
+updated: 2026-10-25
 ---
 
 ## Overview
@@ -91,6 +91,31 @@ was accepted by a person reviewing it (10 of 12 reviewed), so the drafts
 now go to you at moments you are reviewing, not to the agent in the
 middle of a request. The strikes, follow/ignore bookkeeping and the
 two-phase `accept --begin` went with the nudge.
+
+**After a record: telling the rest of the family (2026-10-25).** A
+recorded decision now reaches the other live sessions it affects in the
+same task family. Other running sessions never re-read their task files,
+so without this a sibling session could keep building on an assumption
+that had just changed. After any successful Decisions append, the skill
+(step 6) lists the family's live sessions (`wb family <task> --sessions`,
+matched against ListAgents), reads each one's `## Plan` and latest
+Handoffs entry, and messages only those the decision changes something
+for. The default is nobody. A session waiting on its user is named but
+not messaged. A shelf review sends once at its end, `/close-out` once per
+run, and the weekly review once per family, never once per draft. Each
+message starts `[wb-propagate]` and tells the recipient to act only
+within its own task, not to reply or forward, and not to send on any
+decision it records because of the message.
+
+Step 7 is the promotion offer: copying a decision that changes how the
+system behaves into the family's `CONCEPTS.md`, which every new session
+in the family loads. It shows the exact lines, the target file, which
+tasks it reaches and what each line supersedes, and writes only what you
+approve. `/close-out` always offers it. Mid-session it is offered only
+when the family already has a `CONCEPTS.md` and another family session
+is live. Creating a family's first `CONCEPTS.md` happens only at
+`/close-out`, followed by `wb family <task> --reseed` so existing
+worktrees import it.
 
 ## Try it now
 

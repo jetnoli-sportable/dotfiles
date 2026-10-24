@@ -786,6 +786,30 @@ away:</p>
 column — <code>active</code>/<code>dormant</code>/<code>cold</code>, the same derived value the picker's
 dormant rows and the HTML board's toggle use — dropped entirely on a
 narrow split pane rather than squeezing STATUS/REPO/TASK to make room.</p>
+<h3 id="decision-propagation">Decision propagation</h3>
+<p>A decision recorded in one task's <code>## Decisions</code> used to reach nobody else. A
+running session never reloads its <code>CLAUDE.local.md</code> or <code>CONCEPTS.md</code>, so a sibling
+task in the same family could keep building on an assumption that had just been
+overturned. Two stop-gap steps, until the cross-agent sync stage replaces them:</p>
+<ul>
+<li><strong>Messages to live sessions.</strong> After any successful Decisions append,
+<code>/wb-decide</code> (step 6) lists the family's live sessions with
+<code>wb family &lt;task&gt; --sessions</code>, matches them against ListAgents, reads each one's
+<code>## Plan</code> and latest Handoffs entry, and messages only those the decision affects.
+The default is nobody. Sessions waiting on their user are named but not messaged.
+On-the-spot records propagate straight away, a shelf review propagates once at its
+end, <code>/close-out</code> once per run, and <code>/weekly-review</code> once per family. Each message
+starts with <code>[wb-propagate]</code> and carries its own rule: act only within your own
+task, don't reply or forward, and tell your user only if it matters to them. A
+decision recorded because of such a message is not sent on again.</li>
+<li><strong>Promotion to <code>CONCEPTS.md</code>.</strong> <code>/close-out</code> offers to copy decisions that change
+how the system behaves into the family's <code>CONCEPTS.md</code>, showing the exact lines,
+the target file, which tasks it reaches and what each line supersedes. Nothing is
+written without Jet's yes. <code>/wb-decide</code> makes the same offer mid-session only when
+the family already has a <code>CONCEPTS.md</code> and another family session is live. When a
+promotion creates a family's first <code>CONCEPTS.md</code>, <code>wb family &lt;task&gt; --reseed</code>
+links it into every existing family worktree.</li>
+</ul>
 <h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
 <p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
 call) — a richer, filterable view over the whole store that goes well beyond
@@ -957,6 +981,10 @@ details, incident history, and runbooks live in
 <tr>
 <td><code>wb install-hooks</code></td>
 <td>Installs the git hook and the Claude Code <code>PreToolUse</code> hook that do the refusing/asking in the first place. One-time setup per machine.</td>
+</tr>
+<tr>
+<td><code>wb family &lt;task&gt; [--sessions|--reseed]</code></td>
+<td>Lists a task's family (top parent first, then every descendant). <code>--sessions</code> lists the live tmux sessions working on it. <code>--reseed</code> re-links every family worktree to the family's <code>CONCEPTS.md</code>, and is the only form that writes anything (the untracked <code>CLAUDE.local.md</code> pointer). See &quot;Decision propagation&quot; above.</td>
 </tr>
 </tbody>
 </table>
