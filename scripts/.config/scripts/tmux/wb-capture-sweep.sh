@@ -109,17 +109,30 @@ fi
 [ "$FORCED" = 0 ] && [ -e "$SDIR/ended" ] && exit 0
 
 # --- excerpt: user/assistant text blocks since the last sweep ---------------
+# Harness-injected user messages are skipped: `isMeta` ones (an invoked skill's whole
+# SKILL.md, 14-15 KB, which would otherwise fill the budget below at every checkpoint
+# sweep and push the real turns out unswept) and `<local-command-caveat>` lines. A
+# slash-command wrapper collapses to the command as typed (`/wb-decide <args>`).
 [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ] || finish "skipped: no transcript"
 total="$(wc -l <"$TRANSCRIPT" | tr -d ' ')"
 off="$(read_num "$SDIR/sweep_offset")"
 [ "$total" -lt "$off" ] && off=0
 excerpt="$(tail -n +"$((off + 1))" "$TRANSCRIPT" | head -n "$((total - off))" | jq -rR '
   fromjson? | select(type == "object" and (.type == "user" or .type == "assistant"))
+  | select(.isMeta != true)
   | (if .type == "user" then "USER: " else "ASSISTANT: " end) as $p
   | .message.content
   | (if type == "string" then [{type: "text", text: .}] elif type == "array" then . else [] end)
   | .[] | select(type == "object" and .type == "text" and ((.text // "") != ""))
-  | $p + .text + "\n"' 2>/dev/null || true)"
+  | .text
+  | select(test("^\\s*<local-command-caveat>") | not)
+  | if test("^\\s*<command-(name|message)>") then
+      ((capture("<command-name>(?<n>[^<]*)</command-name>") | .n) // "") as $n
+      | ((capture("<command-args>(?<a>[\\s\\S]*?)</command-args>") | .a) // "") as $a
+      | ($n + (if $a == "" then "" else " " + $a end))
+    else . end
+  | select(. != "")
+  | $p + . + "\n"' 2>/dev/null || true)"
 if [ "${#excerpt}" -gt 0 ] && [ "$(printf '%s' "$excerpt" | wc -c)" -gt "$EXCERPT_BUDGET" ]; then
   excerpt="[...earlier turns truncated...]
 $(printf '%s' "$excerpt" | tail -c "$EXCERPT_BUDGET")"

@@ -557,6 +557,30 @@ SZ="$(wc -c <"$OUTDIR/stdin" | tr -d ' ')"
 assert_match "newest kept" 'NEWEST_MARK' "$(cat "$OUTDIR/stdin")"
 assert_nomatch "oldest dropped" 'OLDEST_MARK' "$(cat "$OUTDIR/stdin")"
 
+echo "# excerpt: injected skill text and command wrappers don't crowd out real turns"
+new_scenario
+{
+  # ~15 KB of real conversation since the last sweep, oldest turn marked
+  for i in $(seq 1 15); do
+    pad="$(head -c 1000 /dev/zero | tr '\0' 'y')"
+    jq -nc --arg t "turn$i $pad" '{type:"user",message:{role:"user",content:$t}}'
+  done
+  jq -nc '{type:"user",isMeta:true,message:{role:"user",content:"<local-command-caveat>CAVEAT_TEXT</local-command-caveat>"}}'
+  jq -nc '{type:"user",message:{role:"user",content:"<command-message>wb-save</command-message>\n<command-name>/wb-save</command-name>\n<command-args>CMD_ARGS_TEXT</command-args>"}}'
+  # the invoked skill's SKILL.md, injected as an isMeta user message, larger than the budget
+  skill="$(head -c 30000 /dev/zero | tr '\0' 's')"
+  jq -nc --arg t "Base directory for this skill: SKILL_BODY_MARK $skill" '{type:"user",isMeta:true,message:{role:"user",content:[{type:"text",text:$t}]}}'
+} >"$TRANSCRIPT"
+sed -i '1s/turn1 /EARLY_TURN_MARK /' "$TRANSCRIPT"
+sweep
+S="$(cat "$OUTDIR/stdin")"
+assert_match "earliest real turn still reaches the prompt" 'EARLY_TURN_MARK' "$S"
+assert_nomatch "isMeta skill text dropped" 'SKILL_BODY_MARK' "$S"
+assert_nomatch "local-command caveat dropped" 'CAVEAT_TEXT' "$S"
+assert_nomatch "no truncation marker" 'earlier turns truncated' "$S"
+assert_match "command wrapper collapses to the command as typed" 'USER: /wb-save CMD_ARGS_TEXT' "$S"
+assert_nomatch "no command wrapper tags" '<command-(name|message|args)>' "$S"
+
 echo "# offset"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
 sweep
