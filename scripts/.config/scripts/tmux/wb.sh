@@ -454,7 +454,7 @@ wb_transcript_rank_key() {
 # (wb_transcript_rank_key — not wb_transcripts' mtime order, which a mass
 # kill turns into a same-second tie broken alphabetically: on 2026-10-25 that
 # resumed the pre-/clear conversation in 3 of 21 sessions), else empty
-# (nothing to resume — the caller falls back to `--continue` or a cold start).
+# (nothing to resume — the caller pre-types nothing, a cold start).
 # The `@primary` mark in claude_sessions: is deliberately not consulted: only
 # `wb down` writes it, from a pane id set when Jet sends a prompt, so it can
 # be stale at write time and stays stale across a later /clear. <task_file>
@@ -1278,8 +1278,8 @@ wb_seed_planned_child() {
 # yourself the first time you visit, bounded by the ~10-concurrent-agent
 # memory ceiling; pass start_agent=1, i.e. `wb new --agent`, to start it
 # now), win3 shell. <agent_cmd> (U4/R9) is the command win2 pre-types
-# instead of a bare "claude" — a warm `claude --resume <id>`/`claude
-# --continue` when the caller resolved one, empty for a brand-new task.
+# instead of a bare "claude" — a warm `claude --resume <id>` when the
+# caller resolved one, empty otherwise.
 wb_layout_session() {
   local session="$1" dir="$2" start_agent="$3" agent_cmd="${4:-}"
   tmux rename-window -t "=$session:1" nvim
@@ -1308,7 +1308,7 @@ wb_layout_session() {
   # kills (wb done --close, ctrl-x) are unaffected — they destroy regardless.
   tmux set-option -w -t "=$session:agent" remain-on-exit on
   # U4/R9: <agent_cmd> lets the caller pre-type a warm `claude --resume <id>`
-  # / `claude --continue` instead of the bare "claude" — same lazy-launch
+  # instead of the bare "claude" — same lazy-launch
   # rule as the nvim window above, just parameterized: --agent (start_agent=1)
   # presses Enter on whatever command was resolved (falling back to plain
   # "claude" when there's nothing to resume, i.e. today's exact behavior);
