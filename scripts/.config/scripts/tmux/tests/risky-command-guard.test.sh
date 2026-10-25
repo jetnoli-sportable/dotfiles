@@ -53,6 +53,12 @@ expect allow "msg='run \`tmux kill-server\` and rm -rf ~'; echo \"\$msg\""
 expect deny  "bash -c 'tmux kill-server'"
 expect deny  "ssh box 'sudo reboot'"
 expect deny  "echo \"it's fine\" && tmux kill-server"
+expect allow "pgh pr create --title \"refuse tmux kill-server\" --body-file - <<'EOF'
+tmux kill-server; pkill tmux
+EOF"
+expect deny  "cd /x && sudo bash <<'EOF'
+tmux kill-server
+EOF"
 expect deny  "bash <<'EOF'
 tmux kill-server
 EOF"

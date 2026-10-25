@@ -202,7 +202,13 @@ drop_data_heredocs() {
       if (match($0, /<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
         t = substr($0, RSTART, RLENGTH); sub(/^<<-?[[:space:]]*["\047]?/, "", t)
         head = substr($0, 1, RSTART - 1)
-        keep = (head ~ /(^|[[:space:]|;&(])(bash|sh|zsh|dash|ssh|eval|source|tmux|xargs)([[:space:]]|$)/)
+        # judge only the simple command that owns the heredoc, by its first word
+        seg = head; gsub(/.*[;&|(]/, "", seg); sub(/^[[:space:]]+/, "", seg)
+        while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+/) sub(/^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+/, "", seg)
+        nw = split(seg, wds, /[[:space:]]+/); k = 1
+        while (k < nw && wds[k] ~ /^(sudo|env|command|exec|nohup|time)$/) k++
+        w = wds[k]; sub(/.*\//, "", w)
+        keep = (w ~ /^(bash|sh|zsh|dash|ssh|eval|source)$/)
         term = t
       }
     }'
