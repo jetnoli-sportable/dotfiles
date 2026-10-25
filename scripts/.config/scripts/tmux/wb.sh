@@ -5385,12 +5385,18 @@ cmd_done() {
 #           live parent's row
 #      "aN" an agent-pane sub-row whose owning row sits at nesting level N
 #           (empty when the owner is a top-level row)
+#   13 visit time (epoch seconds, never empty): when Jet last attached to the
+#      row's session (tmux's session_last_attached; 0 = never attached) on a
+#      live row, the owning row's time on an agent sub-row, and the newest
+#      transcript's mtime on a dormant row. The picker orders and ages rows
+#      by it. Appended last so the fzf placeholders {7}-{10} and the accept
+#      path's indexes stay where they were.
 # wb_format_for_display (used by render_rows) prepends a pre-rendered,
 # fixed-width display string as a NEW field 1, shifting all of the above by
-# one (repo becomes field 2, ..., nest becomes field 13) — that's the shape
-# fzf and picker()'s final `read` actually see. The displayed TYPE column
-# (session/agent/both) isn't a stored field — it's derived at display time
-# from kind + ucount.
+# one (repo becomes field 2, ..., nest becomes field 13, visit time field
+# 14) — that's the shape fzf and picker()'s final `read` actually see. The
+# displayed TYPE column (session/agent/both) isn't a stored field — it's
+# derived at display time from kind + ucount.
 
 # wb_status_icon <status> — print "icon\tlabel" for one of the pane statuses
 # tmux_claude_panes emits (needs-input/done/waiting/working/idle). Shared by
@@ -5426,26 +5432,46 @@ wb_session_urgency() {
   printf '%s\t%s %s\t%s\t%s\n' "$rank" "$icon" "$label" "$target" "$count"
 }
 
-# wb_agent_subrows <repo> <session> <ref> <branch> — one sub-row per claude
-# pane in a multi-agent session (kept out of the collapsed parent row).
+# wb_agent_subrows <repo> <session> <ref> <branch> [visit] — one sub-row per
+# claude pane in a multi-agent session (kept out of the collapsed parent row).
 # <branch> repeats the parent row's branch (same session, same checkout) so
 # every row is self-contained instead of leaving it blank on sub-rows.
+# <visit> is the owning row's visit time (field 13): a sub-row is part of its
+# owner's block, so it orders by the owner's time, never its own.
 wb_agent_subrows() {
-  local repo="$1" session="$2" ref="$3" branch="$4"
+  local repo="$1" session="$2" ref="$3" branch="$4" visit="${5:-0}"
   local rank target status task icon label
   while IFS=$'\t' read -r rank target status task; do
     IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
-    printf '%s\t%s\t%s\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\t\n' \
-      "$repo" "$task" "$branch" "$rank" "$icon" "$label" "$target" "$session" "$ref"
+    printf '%s\t%s\t%s\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\t\t%s\n' \
+      "$repo" "$task" "$branch" "$rank" "$icon" "$label" "$target" "$session" "$ref" "$visit"
   done < <(tmux_claude_panes "$session" | sort -n)
 }
 
-# wb_live_session_row <session> — one row for a live tmux session. If it's a
+# wb_session_last_attached <session> [listed] — print the epoch Jet last
+# attached to <session>, 0 when never. A seam: tests override it, since a
+# detached test session has no attach time. wb_live_session_row only calls it
+# when the caller didn't already have the time. collect_live_rows gets every
+# session's time from its ONE list-sessions call, so a caller that passes a
+# second argument is saying "list-sessions found nothing" (a never-attached
+# session): answer 0 without another tmux round-trip. With one argument (a
+# direct call) ask tmux.
+wb_session_last_attached() {
+  if [ $# -ge 2 ]; then printf '0\n'; return; fi
+  local t
+  t="$(tmux display-message -p -t "=$1:" '#{session_last_attached}' 2>/dev/null || true)"
+  printf '%s\n' "${t:-0}"
+}
+
+# wb_live_session_row <session> [visit] — one row for a live tmux session. If it's a
 # wb task session (@wb_repo/@wb_slug set), shows the task's title/status from
 # the store; otherwise shows the session name and, if its cwd is a git repo,
 # the current branch — same shape a plain `s`-created session gets.
+# [visit] is the session's last-attached epoch when the caller already has it
+# (collect_live_rows reads it for every session in one list-sessions call, so
+# no per-row fork); absent, empty or 0 falls back to the seam above.
 wb_live_session_row() {
-  local session="$1" repo slug task_file branch label statuscol kind ref slug_out=""
+  local session="$1" repo slug task_file branch label statuscol kind ref slug_out="" visit="${2:-}"
   repo="$(tmux show -t "=$session:" -v @wb_repo 2>/dev/null || true)"
   slug="$(tmux show -t "=$session:" -v @wb_slug 2>/dev/null || true)"
   if [ -n "$repo" ] && [ -n "$slug" ]; then
@@ -5472,17 +5498,24 @@ wb_live_session_row() {
   local -a _u; wb_tsv_split "$(wb_session_urgency "$session")" _u
   local urank="${_u[0]}" uicon="${_u[1]}" target="${_u[2]}" ucount="${_u[3]}"
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n' \
-    "$repo" "$label" "$statuscol" "$urank" "$uicon" "$target" "$session" "$ref" "$kind" "$ucount" "$slug_out"
+  case "$visit" in ''|0) visit="$(wb_session_last_attached "$@")" ;; esac
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n' \
+    "$repo" "$label" "$statuscol" "$urank" "$uicon" "$target" "$session" "$ref" "$kind" "$ucount" "$slug_out" "${visit:-0}"
 }
 
 # collect_live_rows — one row per live tmux session, no sub-row expansion.
 collect_live_rows() {
-  local session
-  while IFS= read -r session; do
+  local line session attached
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    # Last-attached epoch (empty for a never-attached session), a space, the
+    # name. Time first so the empty case still splits cleanly, and a space
+    # rather than a tab because tmux prints control characters in a format
+    # as "_". Split by expansion: no fork.
+    attached="${line%% *}"; session="${line#* }"
     [ -n "$session" ] || continue
-    wb_live_session_row "$session"
-  done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    wb_live_session_row "$session" "$attached"
+  done < <(tmux list-sessions -F '#{session_last_attached} #{session_name}' 2>/dev/null)
 }
 
 # wb_emit_with_agents <row> [level] — print <row>, then expand its agent
@@ -5494,15 +5527,15 @@ collect_live_rows() {
 # sub-row "a<level>" so wb_format_for_display indents it beneath that row
 # rather than at top-level depth.
 wb_emit_with_agents() {
-  local row="$1" level="${2:-0}" repo branch session ref ucount
+  local row="$1" level="${2:-0}" repo branch session ref ucount visit
   printf '%s\n' "$row"
   local -a f; wb_tsv_split "$row" f
-  repo="${f[0]}"; branch="${f[2]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"
+  repo="${f[0]}"; branch="${f[2]}"; session="${f[6]}"; ref="${f[7]}"; ucount="${f[9]}"; visit="${f[12]:-0}"
   [ "${ucount:-0}" -gt 1 ] 2>/dev/null || return 0
   if [ "$level" -gt 0 ]; then
-    wb_agent_subrows "$repo" "$session" "$ref" "$branch" | wb_parent_subrows - "a$level"
+    wb_agent_subrows "$repo" "$session" "$ref" "$branch" "$visit" | wb_parent_subrows - "a$level"
   else
-    wb_agent_subrows "$repo" "$session" "$ref" "$branch"
+    wb_agent_subrows "$repo" "$session" "$ref" "$branch" "$visit"
   fi
 }
 
@@ -5646,7 +5679,8 @@ collect_combined_rows() {
 # wb_session_task_file (option-based, the same @task/@wb_repo/@wb_slug
 # lookup wb_live_session_row itself uses) rather than matching on the
 # session's NAME — a session renamed with `r` must still suppress its
-# dormant row (KTD8). Rows reuse the same 12-field shape live rows do, with
+# dormant row (KTD8). Rows reuse the same 13-field shape live rows do (field
+# 13, the visit time, holds the newest transcript's epoch here), with
 # kind=task and empty session/target, so picker()'s existing accept branch
 # (`elif [ "$kind" = task ]; then cmd_new "$repo" "$slug"`) needs no change
 # at all to resume one.
@@ -5696,13 +5730,55 @@ collect_dormant_rows() {
     # sortable integer so the caller can use the same plain
     # `sort -t $'\t' -k4,4n` every other collector already sorts urank with.
     urank=$(( rank * 10000000000 + (9999999999 - newest) ))
-    printf '%s\t%s\t%s\t%s\t~ %s %sd\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$repo" "$title" "[$branch]" "$urank" "$status" "$age" "" "" "$f" task 0 "$branch" ""
+    printf '%s\t%s\t%s\t%s\t~ %s %sd\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$repo" "$title" "[$branch]" "$urank" "$status" "$age" "" "" "$f" task 0 "$branch" "" "$newest"
   done < <(wb_read_tasks_batch "${all_files[@]}")
 }
 
+# _WB_AWK_TEXT — awk helpers shared by the picker's formatters: count, cut
+# and pad text by CHARACTER, not byte. They assume the awk runs under
+# LC_ALL=C (every caller sets it), so mawk and gawk both see plain bytes and
+# a UTF-8 name like "/verify-behaviour · checks.md" can be measured the same
+# way under either: a character is one byte that is NOT a UTF-8 continuation
+# byte (\200-\277), so its length is the byte length minus the continuation
+# bytes. That needs no fork and no locale, and truncation walks forward by
+# characters so it can never stop mid-sequence (which printed U+FFFD and, as
+# the cell came up a byte short, shifted every column after it). Double-width
+# glyphs (CJK) still count as one column; accepted, names here are Latin.
+_WB_AWK_TEXT='
+  function nch(s,    t) { t = s; return length(s) - gsub(/[\200-\277]/, "", t) }
+  # cbytes(s, k) — byte length of the first k characters of s
+  function cbytes(s, k,    p, len, c) {
+    len = length(s); p = 0; c = 0
+    while (c < k && p < len) {
+      p++
+      while (p < len && substr(s, p + 1, 1) ~ /[\200-\277]/) p++
+      c++
+    }
+    return p
+  }
+  function pad(s, w,    n) {
+    n = nch(s)
+    # ASCII "..." on purpose, not a "…" glyph: some terminals render
+    # that single codepoint as an ambiguous-width (2-column) character,
+    # which silently threw off every column after it on truncated rows
+    # while untruncated rows stayed correct — exactly the kind of
+    # alignment bug that is invisible until a row actually truncates.
+    if (n > w) return substr(s, 1, cbytes(s, w - 3)) "..."
+    return s sprintf("%*s", w - n, "")
+  }
+  # padtail(s, w) — like pad(), but a value too long for w keeps its END
+  # behind a leading "...": the tail of a branch name (its last segment)
+  # says more than its head.
+  function padtail(s, w,    n) {
+    n = nch(s)
+    if (n > w) return "..." substr(s, cbytes(s, n - (w - 3)) + 1)
+    return s sprintf("%*s", w - n, "")
+  }
+'
+
 # wb_format_for_display — prepend a fixed-width, colored display string as a
-# NEW field 1, pushing the original 11 fields to 2-12. Must run AFTER sorting
+# NEW field 1, pushing the original 13 fields to 2-14. Must run AFTER sorting
 # (coloring/padding first would corrupt any sort keyed on the plain fields).
 #
 # fzf's --with-nth re-joins displayed fields with the raw tab delimiter, and
@@ -5711,20 +5787,11 @@ collect_dormant_rows() {
 # every column after it. Pre-rendering one string with explicit space padding
 # (same approach claude-sessions.sh already uses) sidesteps that entirely;
 # --with-nth=1 then shows ONLY this field, with the real data addressable as
-# hidden fields 2-12 for binds/preview.
+# hidden fields 2-14 for binds/preview.
 wb_format_for_display() {
-  awk -F'\t' -v OFS='\t' -v w1="$WB_COL_REPO" -v w2="$WB_COL_LABEL" -v w3="$WB_COL_TYPE" \
-      -v w4="$WB_COL_BRANCH" -v w5="$WB_COL_STATUS" '
-      function pad(s, w,    n) {
-        n = length(s)
-        # ASCII "..." on purpose, not a "…" glyph: some terminals render
-        # that single codepoint as an ambiguous-width (2-column) character,
-        # which silently threw off every column after it on truncated rows
-        # while untruncated rows stayed correct — exactly the kind of
-        # alignment bug that is invisible until a row actually truncates.
-        if (n > w) return substr(s, 1, w - 3) "..."
-        return s sprintf("%*s", w - n, "")
-      }
+  # LC_ALL=C: see _WB_AWK_TEXT — pad() relies on byte semantics.
+  LC_ALL=C awk -F'\t' -v OFS='\t' -v w1="$WB_COL_REPO" -v w2="$WB_COL_LABEL" -v w3="$WB_COL_TYPE" \
+      -v w4="$WB_COL_BRANCH" -v w5="$WB_COL_STATUS" "$_WB_AWK_TEXT"'
       BEGIN { m = "\033[1;35m"; g = "\033[32m"; y = "\033[33m"; d = "\033[90m"; cy = "\033[36m"; r = "\033[0m" }
       {
         icon = $5; sub(/ .*/, "", icon)
@@ -5785,7 +5852,7 @@ wb_format_for_display() {
           repo_cell = pad($1, w1); name_cell = pad($2, w2)
         }
         display = c repo_cell r "  " c name_cell r "  " pad(type, w3) "  " pad($3, w4) "  " c status_field r
-        print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11), $(12)
+        print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11), $(12), $(13)
       }'
 }
 
@@ -6287,6 +6354,14 @@ picker() {
   echo live > "$view_file"
   trap 'rm -f "$mode_file" "$view_file" "$view_file.cache"' EXIT
 
+  # The session Jet is in and the moment the picker opened, for every fzf
+  # child (render/transform/preview inherit the environment) to pin the
+  # current session's family and age rows against one frozen clock instead
+  # of re-reading a ticking one on each 3s reload. Unset (wb render run by
+  # hand, tests) means no pinning and the real clock.
+  export WB_PICKER_SESSION="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  export WB_PICKER_NOW="$(date +%s)"
+
   local rendered selection
   rendered="$(render_rows "$mode_file" "$view_file")"
   if [ -z "$rendered" ]; then
@@ -6301,7 +6376,7 @@ picker() {
   local navkeys='j,k,g,G,q,i,r,b,p,n,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
-  # fields 2-12 are the real data, shown to fzf only as hidden/addressable
+  # fields 2-14 are the real data, shown to fzf only as hidden/addressable
   # fields via --with-nth=1 so binds/preview can still reach them by index.
   # --layout=reverse-list: prompt/--header stay at the bottom (fzf's default
   # position) but the match list renders top-down instead of bottom-up, so

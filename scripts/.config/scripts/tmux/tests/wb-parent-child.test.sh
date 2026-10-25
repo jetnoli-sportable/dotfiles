@@ -94,8 +94,8 @@ mk_session b beta  child-b
 
 out="$(collect_combined_rows)"
 assert "two siblings: earlier-created sibling (beta) is the anchor" $'^beta\t' "$(printf '%s\n' "$out" | head -1)"
-assert "two siblings: other sibling (alpha) carries the sibling marker" $'^alpha\t.*\t1$' "$(printf '%s\n' "$out" | sed -n 2p)"
-assert_not "two siblings: anchor row has no sibling marker" $'^beta\t.*\t1$' "$out"
+assert "two siblings: other sibling (alpha) carries the sibling marker" $'^alpha\t.*\t1\t[0-9]+$' "$(printf '%s\n' "$out" | sed -n 2p)"
+assert_not "two siblings: anchor row has no sibling marker" $'^beta\t.*\t1\t[0-9]+$' "$out"
 
 formatted="$(collect_combined_rows | wb_format_for_display | strip_ansi)"
 alpha_line="$(printf '%s\n' "$formatted" | grep -F $'\talpha\t')"
@@ -112,7 +112,7 @@ mk_session b beta  child-d
 mk_session c gamma child-e
 
 out="$(collect_combined_rows)"
-sib_count="$(printf '%s\n' "$out" | grep -cE $'\t1$')"
+sib_count="$(printf '%s\n' "$out" | grep -cE $'\t1\t[0-9]+$')"
 assert "three siblings: anchor is the earliest-created (beta)" $'^beta\t' "$(printf '%s\n' "$out" | head -1)"
 [ "$sib_count" -eq 2 ] && echo "ok   - three siblings: exactly two sibling sub-rows" || { echo "FAIL - three siblings: expected 2 sibling sub-rows, got $sib_count"; fail=1; }
 kill_sessions a b c
@@ -145,7 +145,7 @@ mk_session lone alpha lone
 
 out="$(collect_combined_rows)"
 assert "lone sibling: renders as a normal top-level row" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
-assert_not "lone sibling: no sibling marker" $'\t1$' "$out"
+assert_not "lone sibling: no sibling marker" $'\t1\t[0-9]+$' "$out"
 kill_sessions lone
 
 # --- edge case: no parent: at all --------------------------------------------
@@ -154,7 +154,7 @@ mk_session noparent alpha noparent
 
 out="$(collect_combined_rows)"
 assert "no parent: renders unchanged" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
-assert_not "no parent: no sibling marker" $'\t1$' "$out"
+assert_not "no parent: no sibling marker" $'\t1\t[0-9]+$' "$out"
 kill_sessions noparent
 
 # --- edge case: self-reference (parent: == own stem) -------------------------
@@ -163,7 +163,7 @@ mk_session self alpha self
 
 out="$(collect_combined_rows)"
 assert "self-reference: renders as a normal top-level row" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
-assert_not "self-reference: does not carry a sibling marker" $'\t1$' "$out"
+assert_not "self-reference: does not carry a sibling marker" $'\t1\t[0-9]+$' "$out"
 kill_sessions self
 
 # --- integration: a sibling that is also a multi-agent session --------------
@@ -203,7 +203,7 @@ mk_session b beta  regress-b
 out="$(collect_combined_rows)"
 assert "regression: alpha present, top-level" $'^alpha\t' "$(printf '%s\n' "$out" | head -1)"
 assert "regression: beta present, top-level" $'^beta\t' "$(printf '%s\n' "$out" | sed -n 2p)"
-assert_not "regression: no sibling markers anywhere" $'\t1$' "$out"
+assert_not "regression: no sibling markers anywhere" $'\t1\t[0-9]+$' "$out"
 kill_sessions a b
 
 # --- live parent heads its children, even when it's the least urgent -------
@@ -229,11 +229,11 @@ out="$(collect_combined_rows)"
 formatted="$(collect_combined_rows | wb_format_for_display | strip_ansi)"
 restore_orig_urgency
 assert "live parent: parent row is emitted first" '^meta$' "$(printf '%s\n' "$out" | head -1 | cut -f1)"
-assert_not "live parent: parent row carries no nest marker" $'^meta\t.*\t(1|c[0-9])$' "$out"
-child_count="$(printf '%s\n' "$out" | grep -cE $'\tc1$')"
+assert_not "live parent: parent row carries no nest marker" $'^meta\t.*\t(1|c[0-9])\t[0-9]+$' "$out"
+child_count="$(printf '%s\n' "$out" | grep -cE $'\tc1\t[0-9]+$')"
 [ "$child_count" -eq 3 ] && echo "ok   - live parent: all three children marked c1" || { echo "FAIL - live parent: expected 3 c1 children, got $child_count"; fail=1; }
-assert "live parent: the earliest-created child is indented too" $'^beta\t.*\tc1$' "$out"
-assert_not "live parent: no sibling markers when the parent is live" $'\t1$' "$out"
+assert "live parent: the earliest-created child is indented too" $'^beta\t.*\tc1\t[0-9]+$' "$out"
+assert_not "live parent: no sibling markers when the parent is live" $'\t1\t[0-9]+$' "$out"
 beta_line="$(printf '%s\n' "$formatted" | grep -F $'\tbeta\t')"
 assert "live parent: child connector is ' |- '" ' \|- beta--load' "$beta_line"
 assert "live parent: child repo cell still visible (cross-repo)" '^beta' "$beta_line"
@@ -248,7 +248,7 @@ mk_session p meta  solo
 mk_session a alpha only
 out="$(collect_combined_rows)"
 assert "single child: parent first" '^meta$' "$(printf '%s\n' "$out" | head -1 | cut -f1)"
-assert "single child: child nested as c1" $'^alpha\t.*\tc1$' "$(printf '%s\n' "$out" | sed -n 2p)"
+assert "single child: child nested as c1" $'^alpha\t.*\tc1\t[0-9]+$' "$(printf '%s\n' "$out" | sed -n 2p)"
 kill_sessions p a
 
 # --- a multi-agent child under a live parent: agent rows stack beneath it ---

@@ -122,7 +122,11 @@ fi
 # --- row shape: kind=task, empty session/target, slug populated ------------
 row="$(printf '%s\n' "$out" | grep 'proj--doing-dormant\.md')"
 field_count="$(printf '%s' "$row" | awk -F'\t' '{print NF}')"
-assert "dormant row: 12 raw fields" '^12$' "$field_count"
+assert "dormant row: 13 raw fields" '^13$' "$field_count"
+# Field 13 is the row's visit time; on a dormant row that is the newest
+# transcript's mtime (doing-dormant's single transcript, touched above).
+assert "dormant row: field 13 is the newest transcript's epoch" \
+  "^$(date -d 2026-09-05T00:00:00 +%s)$" "$(printf '%s' "$row" | cut -f13)"
 kind_field="$(printf '%s' "$row" | cut -f9)"
 assert "dormant row: kind=task" '^task$' "$kind_field"
 target_field="$(printf '%s' "$row" | cut -f6)"

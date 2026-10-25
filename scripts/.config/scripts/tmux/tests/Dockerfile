@@ -17,7 +17,7 @@ FROM ubuntu:24.04
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-       bash zsh git tmux gawk coreutils grep sed ca-certificates bsdextrautils jq locales \
+       bash zsh git tmux gawk mawk coreutils grep sed ca-certificates bsdextrautils jq locales \
     && rm -rf /var/lib/apt/lists/*
 
 # en_US.UTF-8 is needed to regression-test under a non-C locale (see
