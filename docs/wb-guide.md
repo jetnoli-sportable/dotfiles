@@ -536,9 +536,10 @@ narrow split pane rather than squeezing STATUS/REPO/TASK to make room.
 ### Decision propagation
 
 A decision recorded in one task's `## Decisions` used to reach nobody else. A
-running session never reloads its `CLAUDE.local.md` or `CONCEPTS.md`, so a sibling
-task in the same family could keep building on an assumption that had just been
-overturned. Two stop-gap steps, until the cross-agent sync stage replaces them:
+running session never sees another task's `## Decisions`, so a sibling task in the
+same family could keep building on an assumption that had just been overturned. (An
+edit to a `CONCEPTS.md` a session already imports does reach it, as a changed-file
+notice on its next prompt; a newly created one doesn't until `/clear` or a restart.) Two stop-gap steps, until the cross-agent sync stage replaces them:
 
 - **Messages to live sessions.** After any successful Decisions append,
   `/wb-decide` (step 6) lists the family's live sessions with
@@ -549,7 +550,11 @@ overturned. Two stop-gap steps, until the cross-agent sync stage replaces them:
   end, `/close-out` once per run, and `/weekly-review` once per family. Each message
   starts with `[wb-propagate]` and carries its own rule: act only within your own
   task, don't reply or forward, and tell your user only if it matters to them. A
-  decision recorded because of such a message is not sent on again.
+  decision recorded because of such a message ends with a
+  `- Prompted-by: [wb-propagate] from <task>` bullet and is not sent on again; the
+  background sweep adds the same bullet to drafts, so a weekly-review accept is
+  caught too. A batch spanning two family tasks goes out as one message naming
+  each task's file.
 - **Promotion to `CONCEPTS.md`.** `/close-out` offers to copy decisions that change
   how the system behaves into the family's `CONCEPTS.md`, showing the exact lines,
   the target file, which tasks it reaches and what each line supersedes. Nothing is

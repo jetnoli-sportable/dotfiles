@@ -788,9 +788,10 @@ dormant rows and the HTML board's toggle use — dropped entirely on a
 narrow split pane rather than squeezing STATUS/REPO/TASK to make room.</p>
 <h3 id="decision-propagation">Decision propagation</h3>
 <p>A decision recorded in one task's <code>## Decisions</code> used to reach nobody else. A
-running session never reloads its <code>CLAUDE.local.md</code> or <code>CONCEPTS.md</code>, so a sibling
-task in the same family could keep building on an assumption that had just been
-overturned. Two stop-gap steps, until the cross-agent sync stage replaces them:</p>
+running session never sees another task's <code>## Decisions</code>, so a sibling task in the
+same family could keep building on an assumption that had just been overturned. (An
+edit to a <code>CONCEPTS.md</code> a session already imports does reach it, as a changed-file
+notice on its next prompt; a newly created one doesn't until <code>/clear</code> or a restart.) Two stop-gap steps, until the cross-agent sync stage replaces them:</p>
 <ul>
 <li><strong>Messages to live sessions.</strong> After any successful Decisions append,
 <code>/wb-decide</code> (step 6) lists the family's live sessions with
@@ -801,7 +802,11 @@ On-the-spot records propagate straight away, a shelf review propagates once at i
 end, <code>/close-out</code> once per run, and <code>/weekly-review</code> once per family. Each message
 starts with <code>[wb-propagate]</code> and carries its own rule: act only within your own
 task, don't reply or forward, and tell your user only if it matters to them. A
-decision recorded because of such a message is not sent on again.</li>
+decision recorded because of such a message ends with a
+<code>- Prompted-by: [wb-propagate] from &lt;task&gt;</code> bullet and is not sent on again; the
+background sweep adds the same bullet to drafts, so a weekly-review accept is
+caught too. A batch spanning two family tasks goes out as one message naming
+each task's file.</li>
 <li><strong>Promotion to <code>CONCEPTS.md</code>.</strong> <code>/close-out</code> offers to copy decisions that change
 how the system behaves into the family's <code>CONCEPTS.md</code>, showing the exact lines,
 the target file, which tasks it reaches and what each line supersedes. Nothing is

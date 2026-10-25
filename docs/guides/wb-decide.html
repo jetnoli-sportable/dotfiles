@@ -339,9 +339,9 @@ middle of a request. The strikes, follow/ignore bookkeeping and the
 two-phase <code>accept --begin</code> went with the nudge.</p>
 <p><strong>After a record: telling the rest of the family (2026-10-25).</strong> A
 recorded decision now reaches the other live sessions it affects in the
-same task family. Other running sessions never re-read their task files,
-so without this a sibling session could keep building on an assumption
-that had just changed. After any successful Decisions append, the skill
+same task family. Other running sessions never see this task's
+<code>## Decisions</code>, so without this a sibling session could keep building on
+an assumption that had just changed. After any successful Decisions append, the skill
 (step 6) lists the family's live sessions (<code>wb family &lt;task&gt; --sessions</code>,
 matched against ListAgents), reads each one's <code>## Plan</code> and latest
 Handoffs entry, and messages only those the decision changes something
@@ -350,7 +350,9 @@ not messaged. A shelf review sends once at its end, <code>/close-out</code> once
 run, and the weekly review once per family, never once per draft. Each
 message starts <code>[wb-propagate]</code> and tells the recipient to act only
 within its own task, not to reply or forward, and not to send on any
-decision it records because of the message.</p>
+decision it records because of the message. Such a decision ends with a
+<code>- Prompted-by: [wb-propagate] from &lt;task&gt;</code> bullet, which every later
+send skips; the background sweep adds it to drafts too.</p>
 <p>Step 7 is the promotion offer: copying a decision that changes how the
 system behaves into the family's <code>CONCEPTS.md</code>, which every new session
 in the family loads. It shows the exact lines, the target file, which
