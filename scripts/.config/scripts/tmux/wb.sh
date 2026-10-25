@@ -5885,7 +5885,12 @@ wb_picker_name_width() {
 # row by its task status: doing yellow, review cyan, paused grey). BRANCH and
 # AGE stay in the default colour. The session Jet is in (WB_PICKER_SESSION)
 # is all grey and tagged "(here)", and never needs anyone: its agent waiting
-# on Jet is Jet's own business. (A bolder scheme -- status on NAME only,
+# on Jet is Jet's own business. A grey row of "─" separates that pinned
+# family from the rest (an underline sat right on the text; a row of its
+# own leaves space above and below the line). It is a real fzf row with
+# kind "sep" and every other field empty, so the snapshot counts it like any
+# row and every key that acts on a row (enter, r, b, p, ctrl-x) finds no
+# session or pane on it and does nothing. (A bolder scheme -- status on NAME only,
 # reverse-video needs-you rows, a magenta group repo -- was tried on
 # 2026-10-25 and dropped as too distracting.)
 #
@@ -6002,14 +6007,30 @@ wb_format_for_display() {
         acell[n] = ($9 == "agent") ? pad("", wa) : pad(age($13), wa)
         if (hs) disp = dim rcell[n] "  " ncell[n] "  " bcell[n] "  " acell[n] rs
         else    disp = c rcell[n] rs "  " c ncell[n] rs "  " bcell[n] "  " acell[n]
-        print disp, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11), $(12), $(13)
+        row[n] = disp OFS $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9 OFS $(10) OFS $(11) OFS $(12) OFS $(13)
         sess[n] = $7; ishere[n] = hs; isneed[n] = nd; tgt[n] = $6; kd[n] = $9
         if (nd) cnt++
+        # A block (a family with its agent sub-rows) starts at a top-level,
+        # non-agent row; wb_order_blocks puts the one holding Jet first.
+        if (n > 1 && !split1 && $9 != "agent" && $12 == "") split1 = n
+        if (hs && !split1) pinned = 1
       }
       END {
+        # The separator goes after the last row of the pinned family, only
+        # when rows follow it; it is counted in the snapshot positions.
+        line = ""; for (k = 0; k < wr + wn + wb + wa + 6; k++) line = line "─"
+        sep = dim line rs OFS OFS OFS OFS OFS OFS OFS OFS OFS "sep" OFS 0 OFS OFS OFS 0
+        m = 0
+        for (i = 1; i <= n; i++) {
+          m++; out[m] = row[i]; os[m] = sess[i]; on[m] = isneed[i] + 0; oh[m] = ishere[i] + 0; ot[m] = tgt[i]; ok[m] = kd[i]
+          if (pinned && split1 && i == split1 - 1) {
+            m++; out[m] = sep; os[m] = ""; on[m] = 0; oh[m] = 0; ot[m] = ""; ok[m] = "sep"
+          }
+        }
+        for (i = 1; i <= m; i++) print out[i]
         if (snap != "") {
           print "count", cnt + 0 > snap
-          for (i = 1; i <= n; i++) print i, sess[i], isneed[i] + 0, ishere[i] + 0, tgt[i], kd[i] > snap
+          for (i = 1; i <= m; i++) print i, os[i], on[i], oh[i], ot[i], ok[i] > snap
           close(snap)
         }
       }'
@@ -6179,10 +6200,14 @@ _initial_pos() {
   if [ ! -e "${2:-}.initpos" ]; then
     : > "${2:-}.initpos"
     awk -F'\t' '
-      NR > 1 { n++; if ($3 == 1 && !need) need = $1; if ($4 == 1) here = $1 }
+      NR > 1 {
+        n++; if ($3 == 1 && !need) need = $1; if ($4 == 1) here = $1
+        # the first row after the (here) row, skipping the separator row
+        if (here && $1 > here && $6 != "sep" && !after) after = $1
+      }
       END {
         if (!n) exit
-        p = need ? need : (here && here < n) ? here + 1 : 1
+        p = need ? need : after ? after : 1
         print "pos(" p ")"
       }
     ' "$snap"
@@ -6210,7 +6235,7 @@ wb_capture_pane() { tmux capture-pane -ep -t "$1" 2>/dev/null; }
 
 # _preview <target> <ref> <kind> — what fzf shows beside the focused row
 # (KTD9). Four cases, first match wins: a live pane (its bottom), a task file
-# (title, status/branch, latest hand-written Handoff), a git dir (status, or
+# (title, a status line, the latest hand-written Handoff laid out by field), a git dir (status, or
 # "clean"), else a plain "nothing to preview" so the pane never shows a git
 # error. <kind> is accepted because fzf passes {10}, but the shape of <ref>
 # already decides. Always exits 0: fzf paints a non-zero preview as an error.
@@ -6225,17 +6250,56 @@ _preview() {
       END { s = last - n + 1; if (s < 1) s = 1; for (i = s; i <= last; i++) print line[i] }
     '
   elif [ -f "$ref" ]; then
-    wb_task_title "$ref"
-    printf 'status: %s · branch: %s\n' "$(wb_get_frontmatter "$ref" status)" "$(wb_get_frontmatter "$ref" branch)"
-    # Latest entry under ## Handoffs whose heading does not end in "(auto)":
-    # the automatic ones only record that wb paused/resumed, never what the
-    # work was. Entries run to the next ### or ## heading.
-    awk '
+    # Title in bold, then one dim line: status, branch and when the latest
+    # hand-written Handoff was saved. That Handoff (the newest entry under
+    # ## Handoffs whose heading does not end in "(auto)": the automatic ones
+    # only record that wb paused/resumed) is laid out for reading, not shown
+    # raw: Next first with its ```run``` directive as one "run:" line, then
+    # In flight, any other field, and Done last and dim, each under its own
+    # bold label. An entry with no **Field:** lines prints as written.
+    local title st br
+    title="$(wb_task_title "$ref")"
+    st="$(wb_get_frontmatter "$ref" status)"; br="$(wb_get_frontmatter "$ref" branch)"
+    awk -v title="$title" -v st="$st" -v br="$br" '
       /^## / { inh = ($0 ~ /^## Handoffs[ \t]*$/); keep = 0; next }
       !inh { next }
-      /^### / { keep = ($0 !~ /\(auto\)[ \t]*$/); if (keep) { buf = $0; blanks = ""; found = 1 }; next }
-      keep { if ($0 ~ /^[ \t]*$/) blanks = blanks "\n"; else { buf = buf blanks "\n" $0; blanks = "" } }
-      END { if (found) print "\n" buf }
+      /^### / {
+        keep = ($0 !~ /\(auto\)[ \t]*$/)
+        if (keep) { n = 0; ts = $2 " " $3 }
+        next
+      }
+      keep { body[++n] = $0 }
+      function emit(f, style,    t) {
+        if (!(f in txt) || done[f]) return
+        done[f] = 1; t = txt[f]
+        printf "\n%s%s\033[0m\n%s%s\033[0m\n", B, f, style, t
+      }
+      END {
+        B = "\033[1m"; D = "\033[90m"
+        printf "%s%s\033[0m\n", B, title
+        meta = st; if (br != "") meta = meta " · " br; if (ts != "") meta = meta " · saved " ts
+        printf "%s%s\033[0m\n", D, meta
+        cur = ""; inrun = 0; nf = 0; raw = ""
+        for (i = 1; i <= n; i++) {
+          l = body[i]
+          if (inrun) { if (l ~ /^```/) inrun = 0; else if (l !~ /^[ \t]*$/) run = run (run != "" ? "; " : "") l; continue }
+          if (l ~ /^```run/) { inrun = 1; continue }
+          if (match(l, /^\*\*[^*]+:\*\*/)) {
+            cur = substr(l, 3, RLENGTH - 5); order[++nf] = cur
+            t = substr(l, RLENGTH + 1); sub(/^[ \t]+/, "", t); txt[cur] = t
+            continue
+          }
+          if (l ~ /^[ \t]*$/) { if (raw != "") raw = raw "\n"; continue }
+          if (cur != "") txt[cur] = txt[cur] "\n" l
+          raw = raw (raw != "" ? "\n" : "") l
+        }
+        if (!nf) { if (raw != "") printf "\n%s\n", raw; exit }
+        emit("Next", "")
+        if (run != "") printf "\033[36mrun: %s\033[0m\n", run
+        emit("In flight", "")
+        for (i = 1; i <= nf; i++) if (order[i] != "Done") emit(order[i], "")
+        emit("Done", D)
+      }
     ' "$ref"
   elif [ -d "$ref" ] && git -C "$ref" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     out="$(git -C "$ref" -c color.status=always status -s 2>/dev/null)"

@@ -529,6 +529,32 @@ l1="$(u4row alpha "$long" '[b]' 1 '+ finished' s1 | WB_PICKER_SESSION=s1 disp | 
 assert "U4 a long name is cut to keep the (here) tag" '\.\.\. \(here\) ' "$l1"
 assert_eq "U4 ... and the row is no wider than a short one" "$(u4row alpha x '[b]' 1 '+ finished' s1 | WB_PICKER_SESSION=s1 disp | strip_ansi | char_len)" "$(printf '%s\n' "$l1" | char_len)"
 
+# --- a separator row under the pinned family --------------------------------
+rows="$(u4row alpha 'mine' '[b]' 1 '+ finished' s1)
+$(u4row alpha 'kid' '[b]' 2 '* working' s2 task c1)
+$(u4row alpha 'kid-pane' '[b]' 2 '* working' s2 agent a1)
+$(u4row beta 'next' '[b]' 0 '! needs you' s3)
+$(u4row beta 'after' '[b]' 1 'o done' s4)"
+snap="$FIXTURE/sep.snap"; rm -f "$snap" "$snap".*
+for awkname in mawk gawk; do
+  bindir="$MAWK_BIN"; [ "$awkname" = gawk ] && bindir="$GAWK_BIN"
+  out="$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s2 PATH="$bindir:$PATH" wb_format_for_display "$snap")"
+  assert_eq "U4 separator ($awkname): six rows, the line fourth" "mine kid kid-pane sep next after" \
+    "$(printf '%s\n' "$out" | awk -F'\t' '{ print ($10 == "sep" ? "sep" : $3) }' | paste -sd' ')"
+  assert "U4 separator ($awkname): a grey line of box-drawing dashes" "^$(printf '\033')\\[90m(─)+$(printf '\033')\\[0m$" "$(printf '%s\n' "$out" | line_n 4 | cut -f1)"
+done
+assert_eq "U4 separator: as wide as a data row" "$(printf '%s\n' "$out" | line_n 1 | cut -f1 | strip_ansi | char_len)" "$(printf '%s\n' "$out" | line_n 4 | cut -f1 | strip_ansi | char_len)"
+assert_eq "U4 separator: no session, pane or ref for a key to act on" "|||" "$(printf '%s\n' "$out" | line_n 4 | awk -F'\t' '{ print $7 "|" $8 "|" $9 "|" $12 }')"
+assert_eq "U4 separator: the snapshot counts it, so positions match fzf" "4		0	0		sep" "$(sed -n 5p "$snap")"
+assert_eq "U4 separator: ... and the waiting row below it is pos 5" "5	s3	1	0	t:0.0	task" "$(awk -F'\t' '$3 == 1' "$snap")"
+assert_eq "U4 separator: none without a current session" 0 "$(printf '%s\n' "$rows" | wb_format_for_display | awk -F'\t' '$10 == "sep"' | /usr/bin/grep -c .)"
+assert_eq "U4 separator: none when the pinned family is the whole list" 0 \
+  "$(printf '%s\n' "$rows" | head -3 | WB_PICKER_SESSION=s2 wb_format_for_display | awk -F'\t' '$10 == "sep"' | /usr/bin/grep -c .)"
+assert_eq "U4 separator: a one-row pinned family gets it too" "next sep mine kid kid-pane after" \
+  "$({ printf '%s\n' "$rows" | sed -n 4p; printf '%s\n' "$rows" | sed -n '1,3p;5p'; } | WB_PICKER_SESSION=s3 wb_format_for_display | awk -F'\t' '{ print ($10 == "sep" ? "sep" : $3) }' | paste -sd' ')"
+assert_eq "U4 separator: the dormant tab never has one" 0 \
+  "$(u4row alpha 'dn' '[b]' 0 '~ doing 3d' '' task '' 5 | WB_PICKER_SESSION=s1 wb_format_for_display | awk -F'\t' '$10 == "sep"' | /usr/bin/grep -c .)"
+
 # --- needs you: bold magenta repo and name, on that row only ----------------
 rows="$(u4row alpha 'calm' '[b]' 1 '+ finished' s1)
 $(u4row alpha 'waiting' '[b]' 0 '! needs you' s2)
@@ -677,10 +703,11 @@ printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 wb_format_for_display "$snap" >/dev
 assert_eq "U4 snapshot: count line, then pos/session/needs/here/target/kind per data row" \
   "count	2
 1	s1	0	1	t:0.0	task
-2	s2	1	0	t:0.0	task
-3	s1	0	1	t:0.0	agent
-4	s3	0	0	t:0.0	task
-5	s4	1	0	t:0.0	task" "$(cat "$snap")"
+2		0	0		sep
+3	s2	1	0	t:0.0	task
+4	s1	0	1	t:0.0	agent
+5	s3	0	0	t:0.0	task
+6	s4	1	0	t:0.0	task" "$(cat "$snap")"
 assert_eq "U4 snapshot: no temp file left behind" "live.snap" "$(ls "$FIXTURE" | /usr/bin/grep '^live\.snap' | tr '\n' ' ' | sed 's/ $//')"
 printf '' | wb_format_for_display "$snap" >/dev/null
 assert_eq "U4 snapshot of an empty list: count 0 and nothing else" "count	0" "$(cat "$snap")"
@@ -828,6 +855,9 @@ u5_reset; u5_snap 0 "1 a 0 0 t:1 task" "2 me 0 1 t:2 task"
 assert_eq "U5 initial-pos: (here) is last, so pos(1)" "pos(1)" "$(ip)"
 u5_reset; u5_snap 0 "1 a 0 0 t:1 task" "2 b 0 0 t:2 task"
 assert_eq "U5 initial-pos: no (here) row (no current session), so pos(1)" "pos(1)" "$(ip)"
+u5_reset; u5_snap 0 "1 me 0 1 t:1 task" "2 . 0 0 . sep" "3 b 0 0 t:3 task"
+sed -i 's/\t\.\t/\t\t/g' "$U5_VF.snap"
+assert_eq "U5 initial-pos: the row after (here) skips the separator" "pos(3)" "$(ip)"
 u5_reset; u5_snap 0
 assert_eq "U5 initial-pos: an empty list prints nothing" "" "$(ip)"
 u5_reset
@@ -888,9 +918,10 @@ $(u4row beta 'wait-a' '[b]' 0 '! needs you' s3)
 $(u4row beta 'calm-b' '[b]' 1 'o done' s4)
 $(u4row beta 'wait-b' '[b]' 0 '! needs you' s5)"
 printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 wb_format_for_display "$U5_VF.snap" >/dev/null
-assert_eq "U5 end to end: the first call lands on the first waiting row" "pos(3)" "$(ip)"
-assert_eq "U5 end to end: u from there goes to the next waiting row" "pos(5)" "$(nn 3)"
-assert_eq "U5 end to end: u from the last waiting row wraps" "pos(3)" "$(nn 5)"
+# positions count the separator row under the pinned family (pos 2)
+assert_eq "U5 end to end: the first call lands on the first waiting row" "pos(4)" "$(ip)"
+assert_eq "U5 end to end: u from there goes to the next waiting row" "pos(6)" "$(nn 4)"
+assert_eq "U5 end to end: u from the last waiting row wraps" "pos(4)" "$(nn 6)"
 assert_has "U5 end to end: the header count is the snapshot's" "2 need you" "$(wb_status_line normal live "$U5_VF.snap" | strip_ansi)"
 
 # --- picker(): the binds, the trap, the dispatch ----------------------------
@@ -964,11 +995,12 @@ mk_task "$PV_DIR/rich.md" '
 ### 2026-10-25 20:00 — wb resume (auto)
 
 resumed automatically'
-out="$(_preview "" "$PV_DIR/rich.md" task)"
+out="$(_preview "" "$PV_DIR/rich.md" task | strip_ansi)"
 assert_eq "U6 preview: task starts with its title" "The Task Title" "$(printf '%s\n' "$out" | sed -n 1p)"
-assert_eq "U6 preview: second line is the status/branch line" "status: active · branch: feat/x" "$(printf '%s\n' "$out" | sed -n 2p)"
-assert "U6 preview: shows the latest rich Handoff heading and body" '19:07 — wb-save' "$out"
-assert "U6 preview: rich body includes its Next line" '\*\*Next:\*\* keep going' "$out"
+assert_eq "U6 preview: second line is status, branch and when the Handoff was saved" "active · feat/x · saved 2026-10-25 19:07" "$(printf '%s\n' "$out" | sed -n 2p)"
+assert "U6 preview: the Handoff's fields are laid out under labels" 'keep going' "$out"
+assert_eq "U6 preview: Next comes before Done" "Next Done" "$(printf '%s\n' "$out" | /usr/bin/grep -xE 'Next|Done' | paste -sd' ')"
+assert_eq "U6 preview: no raw **Field:** markup" 0 "$(printf '%s\n' "$out" | /usr/bin/grep -c '\*\*')"
 assert_eq "U6 preview: no earlier rich entry" 0 "$(printf '%s\n' "$out" | /usr/bin/grep -c 'first rich entry')"
 assert_eq "U6 preview: no automatic entry" 0 "$(printf '%s\n' "$out" | /usr/bin/grep -c '(auto)\|resumed automatically')"
 assert_eq "U6 preview: entry stops before the next ## section" 0 "$(printf '%s\n' "$out" | /usr/bin/grep -c 'Decisions\|^none')"
@@ -976,9 +1008,33 @@ _preview "" "$PV_DIR/rich.md" task >/dev/null; assert_eq "U6 preview: task exits
 
 # --- no Handoffs: title and status line only --------------------------------
 mk_task "$PV_DIR/bare.md" ''
-out="$(_preview "" "$PV_DIR/bare.md" task)"
+out="$(_preview "" "$PV_DIR/bare.md" task | strip_ansi)"
 assert_eq "U6 preview: no Handoffs prints exactly title + status line" \
-  "The Task Title"$'\n'"status: active · branch: feat/x" "$out"
+  "The Task Title"$'\n'"active · feat/x" "$out"
+
+# --- the layout: Next, its run directive, In flight, then Done dimmed -------
+mk_task "$PV_DIR/fields.md" '
+### 2026-10-25 21:00 — wb-save
+**Done:** built it
+  and tested it
+**In flight:** nothing
+**Next:** open the PR
+```run
+/ce-commit-push-pr
+```'
+raw="$(_preview "" "$PV_DIR/fields.md" task)"; out="$(printf '%s\n' "$raw" | strip_ansi)"
+assert_eq "U6 preview: fields in reading order" "Next In flight Done" "$(printf '%s\n' "$out" | /usr/bin/grep -xE 'Next|In flight|Done' | paste -sd' ')"
+assert_eq "U6 preview: the run directive is one line under Next" "run: /ce-commit-push-pr" "$(printf '%s\n' "$out" | /usr/bin/grep '^run:')"
+assert "U6 preview: a field's continuation lines stay with it" 'built it.*and tested it' "$(printf '%s\n' "$out" | paste -sd' ')"
+assert "U6 preview: Done's text is dimmed" "$(printf '\033')\\[90mbuilt it" "$raw"
+assert_eq "U6 preview: no code fence shown" 0 "$(printf '%s\n' "$out" | /usr/bin/grep -c '```')"
+
+# --- an entry with no **Field:** lines prints as written ---------------------
+mk_task "$PV_DIR/plainhand.md" '
+### 2026-10-25 21:30 — note
+Just a free-form note.'
+out="$(_preview "" "$PV_DIR/plainhand.md" task | strip_ansi)"
+assert "U6 preview: a free-form Handoff body is shown as written" 'Just a free-form note\.' "$out"
 
 # --- neither file nor git dir ------------------------------------------------
 out="$(_preview "" "$PV_DIR/missing" repo)"; rc=$?
