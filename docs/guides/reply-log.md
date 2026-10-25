@@ -74,8 +74,8 @@ restarted (see "Next steps" below). Then:
    on the right with the session's turns, rendered, scrolled to the latest.
 3. Send another prompt. The new turn appears in the split within a second
    or two, without touching it.
-4. Press <kbd>prefix</kbd>+<kbd>v</kbd> again: it jumps back to the open
-   view rather than opening a second one. <kbd>q</kbd> closes it.
+4. Press <kbd>prefix</kbd>+<kbd>v</kbd> again, from the Claude pane or the
+   view: it closes the view. <kbd>q</kbd> in the view closes it too.
 
 Or read the raw file: `ls -t ~/.claude/replies/ | head -1` is the newest.
 

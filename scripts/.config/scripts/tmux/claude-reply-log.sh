@@ -19,8 +19,9 @@
 #               after /clear) it chains the pane's tmux session `@task` instead.
 #               Prints nothing when neither gives a reply file.
 #   view [pane-id]
-#               the prefix+v binding: focus the pane's open reply viewer, or split
-#               the pane and open one (nvim, claude-tmux.replies follows `chain
+#               the prefix+v binding, a toggle: close the pane's open reply viewer
+#               (pressed in the Claude pane or in the viewer itself), or split the
+#               pane and open one (nvim, claude-tmux.replies follows `chain
 #               --pane`), or show a tmux message when no Claude session runs there.
 #
 # Reply file layout (one per Claude session id; never in a repo or the task store):
@@ -401,9 +402,14 @@ cmd_chain() {
 cmd_view() {
   local pane="${1:-${TMUX_PANE:-}}" existing sid nvim self new
   [ -n "$pane" ] || return 0
+  # only viewer panes carry @reply_log_for, so these close nothing else
+  if [ -n "$(tmux show -p -t "$pane" -v @reply_log_for 2>/dev/null)" ]; then
+    tmux kill-pane -t "$pane" 2>/dev/null
+    return 0
+  fi
   existing="$(tmux list-panes -a -F '#{pane_id} #{@reply_log_for}' 2>/dev/null | awk -v p="$pane" '$2 == p { print $1; exit }')"
   if [ -n "$existing" ]; then
-    tmux select-window -t "$existing" 2>/dev/null; tmux select-pane -t "$existing" 2>/dev/null
+    tmux kill-pane -t "$existing" 2>/dev/null
     return 0
   fi
   sid="$(pane_session "$pane")"
