@@ -62,7 +62,18 @@ setup() { # fresh fixture tree and environment for one scenario
   export VERIFY_POLL_SECS=0.2 VERIFY_SELF_DIR=self WB_VERIFY_WATCHER=1
   export TMUX_LOG="$FX/tmux.log" WB_LOG="$FX/wb.log"
   : >"$TMUX_LOG"; : >"$WB_LOG"
-  printf '#!/bin/sh\necho "$@" >> "$TMUX_LOG"\n' >"$FX/bin/tmux"
+  # tmux stub: logs every call and keeps @verify_alert like the real option (set stores, set -u clears, show -gv prints it)
+  cat >"$FX/bin/tmux" <<'STUB'
+#!/bin/sh
+echo "$@" >> "$TMUX_LOG"
+A="$(dirname "$TMUX_LOG")/alert.val"
+case "$1 $2 $3" in
+  "set -g @verify_alert") printf '%s\n' "$4" >"$A" ;;
+  "set -gu @verify_alert") rm -f "$A" ;;
+  "show -gv @verify_alert") [ -f "$A" ] && cat "$A" ;;
+esac
+exit 0
+STUB
   printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "$WB_LOG"\n' >"$FX/bin/wb"
   chmod +x "$FX/bin/tmux" "$FX/bin/wb"
   export PATH="$FX/bin:$ORIG_PATH"
@@ -447,6 +458,67 @@ echo '{"kind":"renamed","payload":{"content":"hi"}}' >"$TLOG"
 out="$(vw selftest)"; rc=$?
 assert_eq "selftest fails without the keys" 1 "$rc"
 assert "names the missing keys" 'SELFTEST-FAIL.*message.*origin|SELFTEST-FAIL.*origin.*message' "$out"
+
+# =============================================================================
+echo "# Scenario: idle passes skip the work but still notice growth, between waits and mid-wait"
+setup; write_checks 2020-01-01T00:00:00Z; seed_transcript
+start_wait; wait_ready
+sleep 1.2 # several idle passes with nothing moving
+running; rc=$?; assert_eq "idle passes do not wake" 0 "$rc"
+peer_line g1 "ZEBRA-PROPAGATE after a long idle stretch" >>"$TLOG"
+await_exit 3; rc=$?
+assert_eq "growth after idle passes wakes" 0 "$rc"
+assert "the late line is the hit" 'text=.*after a long idle stretch' "$(cat "$OUT")"
+start_wait; wait_ready; stop_wait # re-arm so positions are current, then stop
+peer_line g2 "ZEBRA-PROPAGATE grown while no wait was running" >>"$TLOG"
+start_wait; await_exit 3; rc=$?
+assert_eq "growth between waits is read on the first pass of the next wait" 0 "$rc"
+assert "the between-waits line is the hit" 'text=.*grown while no wait was running' "$(cat "$OUT")"
+
+# =============================================================================
+echo "# Scenario: lines that cannot match are skipped yet consumed; a verdict reload re-arms a reopened check"
+setup; write_checks 2020-01-01T00:00:00Z; seed_transcript
+start_wait; wait_ready
+jq -nc '{type:"system",timestamp:"2026-10-25T00:00:02.000Z",content:"ZEBRA-PROPAGATE in a system line"}' >>"$TLOG"
+printf '%s\n' 'not json at all ZEBRA-PROPAGATE' >>"$TLOG"
+sleep 1
+running; rc=$?; assert_eq "system and non-JSON lines never wake" 0 "$rc"
+vw record "$CHECKS" C1 met 'seen it' 'test' >/dev/null
+sleep 0.8
+peer_line v1 "ZEBRA-PROPAGATE while C1 is met" >>"$TLOG"
+sleep 1
+running; rc=$?; assert_eq "a met check no longer wakes after the verdict reload" 0 "$rc"
+vw record "$CHECKS" C1 open 'reopened' 'test' >/dev/null
+sleep 0.8
+peer_line v2 "ZEBRA-PROPAGATE after the reopen" >>"$TLOG"
+await_exit 3; rc=$?
+assert_eq "a reopened check wakes again" 0 "$rc"
+out="$(cat "$OUT")"
+assert "the reopened hit is the post-reopen line" 'text=.*after the reopen' "$out"
+assert_eq "only that line is a hit (skipped lines were consumed, not replayed)" 1 "$(hit_count)"
+
+# =============================================================================
+echo "# Scenario: the alert count follows the tmux option, so a tmux restart cannot leave a stale count"
+setup; write_checks 2020-01-01T00:00:00Z
+vw record "$CHECKS" C2 broken q s >/dev/null
+vw record "$CHECKS" C3 proposed q s >/dev/null
+assert "the count reached 2" '^set -g @verify_alert 2$' "$(cat "$TMUX_LOG")"
+rm -f "$FX/alert.val" # tmux restarted: the option is gone
+: >"$TMUX_LOG"
+vw record "$CHECKS" C1 broken q s >/dev/null
+assert "the count starts over at 1" '^set -g @verify_alert 1$' "$(cat "$TMUX_LOG")"
+assert_eq "no alert-count file is kept" "no" "$([ -e "$STATE/alert-count" ] && echo yes || echo no)"
+
+# =============================================================================
+echo "# Scenario: scan skips transcripts last written before --since"
+setup; write_checks 2020-01-01T00:00:00Z
+tline "start" >"$TLOG"; peer_line o1 "ZEBRA-PROPAGATE in an old transcript" >>"$TLOG"
+touch -d '2026-01-01 00:00:00' "$TLOG"
+NEWLOG="$FX/projects/proj1/sess2.jsonl"
+tline "start" >"$NEWLOG"; peer_line n1 "ZEBRA-PROPAGATE in a fresh transcript" >>"$NEWLOG"
+out="$(vw scan --since 2026-06-01T00:00:00Z "$CHECKS")"
+assert "the fresh transcript is scanned" 'in a fresh transcript' "$out"
+assert_not "the transcript last written before --since is not" 'in an old transcript' "$out"
 
 echo
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "SOME FAILED"; fi
