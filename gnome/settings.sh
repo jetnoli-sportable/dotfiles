@@ -29,6 +29,12 @@ gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.k
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings con-stacked-layout-toggle "['<Super><Alt>s']"
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings con-tabbed-layout-toggle "['<Super><Alt>t']"
 
+# A thin grey focus border instead of Forge's thick red (focus) and yellow
+# (split) ones; Super+Alt+X still hides it.
+gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge focus-border-size 1
+gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge focus-border-color 'rgba(160, 160, 160, 0.6)'
+gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge split-border-color 'rgba(160, 160, 160, 0.6)'
+
 # Snap keys only act on floating windows and Forge tiles everything; cleared
 # rather than moved, which also frees Ctrl+Alt+D/G for GNOME and GPaste.
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings window-snap-one-third-left '[]'
@@ -59,6 +65,10 @@ gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-4 "['<Super><Sh
 gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-5 "['<Super><Shift>1']"
 gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-6 "['<Super><Shift>2']"
 gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-7 "['<Super><Shift>3']"
+
+# Alt+X closes the window, beside GNOME's Alt+F4. It's taken from every app, so
+# zsh's Alt+X (execute-named-cmd) and Emacs-style M-x no longer reach them.
+gsettings set org.gnome.desktop.wm.keybindings close "['<Alt>F4', '<Alt>x']"
 
 # Super+1..9 (dock-order app switching) is replaced by Run or Raise letters.
 for n in 1 2 3 4 5 6 7 8 9; do
