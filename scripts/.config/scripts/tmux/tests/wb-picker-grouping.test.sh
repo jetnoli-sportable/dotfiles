@@ -270,8 +270,8 @@ assert_eq "U2 formatted row ends with the visit time" 0 "$(field "$fmt" 14)"
 picker_block="$(awk '/^picker\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert "U2 picker: ctrl-x bind still passes {10} {8} {7} {9} (kind, ref, session, target order)" \
   'ctrl-x:become\(.*_ctrl-x \{10\} \{8\} \{7\} \{9\}\)' "$picker_block"
-assert "U6 picker: preview is the _preview helper fed {7} target, {9} ref, {10} kind" \
-  'preview "\\"\$SELF\\" _preview \{7\} \{9\} \{10\}"' "$picker_block"
+assert "U6 picker: the preview falls back to the _preview helper fed {7} target, {9} ref, {10} kind (after the context card)" \
+  "_preview \\{7\\} \\{9\\} \\{10\\}" "$(declare -f wb_preview_cmd)"
 assert "U6 picker: focus updates the preview label from _preview-label" \
   'focus:transform-preview-label\(.*_preview-label \{7\} \{9\}\)' "$picker_block"
 assert "U2 picker: rename/down binds still use {8}" '"r:execute\(.*_rename \{8\}\)' "$picker_block"

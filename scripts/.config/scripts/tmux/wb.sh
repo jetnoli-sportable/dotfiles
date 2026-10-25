@@ -6258,7 +6258,7 @@ _preview() {
     # In flight, any other field, and Done last and dim, each under its own
     # bold label. An entry with no **Field:** lines prints as written.
     local title st br
-    title="$(wb_task_title "$ref")"
+    title="$(wb_task_title "$ref")"; [ -n "$title" ] || title="$(basename "$ref" .md)"
     st="$(wb_get_frontmatter "$ref" status)"; br="$(wb_get_frontmatter "$ref" branch)"
     awk -v title="$title" -v st="$st" -v br="$br" '
       /^## / { inh = ($0 ~ /^## Handoffs[ \t]*$/); keep = 0; next }
@@ -6278,7 +6278,7 @@ _preview() {
         B = "\033[1m"; D = "\033[90m"
         printf "%s%s\033[0m\n", B, title
         meta = st; if (br != "") meta = meta " · " br; if (ts != "") meta = meta " · saved " ts
-        printf "%s%s\033[0m\n", D, meta
+        if (meta != "") printf "%s%s\033[0m\n", D, meta
         cur = ""; inrun = 0; nf = 0; raw = ""
         for (i = 1; i <= n; i++) {
           l = body[i]
