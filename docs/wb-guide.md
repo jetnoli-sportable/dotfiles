@@ -62,7 +62,7 @@ untracked task behind.
    The tmux session disappears, but the worktree stays and nothing flips to
    `done`. Open the picker again, press <kbd>tab</kbd> for the DORMANT tab,
    and the task shows up there; press <kbd>Enter</kbd> on it and it rebuilds
-   the session with a warm `claude --resume`/`claude --continue` pre-typed
+   the session with a warm `claude --resume <id>` pre-typed
    in the agent window, ready on <kbd>Enter</kbd>.
 
 6. Wind it down properly instead of just killing the pane:
@@ -232,7 +232,7 @@ or *finished* agent sorts first among live rows.
 |---|---|
 | <kbd>j</kbd> / <kbd>k</kbd> | Move down / up |
 | <kbd>g</kbd> / <kbd>G</kbd> | Jump to top / bottom |
-| <kbd>l</kbd> / <kbd>Enter</kbd> | Jump to the row's session/agent pane, or **resume** a dormant task — rebuilds its session and pre-types a warm `claude --resume`/`claude --continue` in the agent window (see [Session lifecycle](#session-lifecycle-wb-down-wb-pause-and-warm-resume) below) |
+| <kbd>l</kbd> / <kbd>Enter</kbd> | Jump to the row's session/agent pane, or **resume** a dormant task — rebuilds its session and pre-types a warm `claude --resume <id>` in the agent window (see [Session lifecycle](#session-lifecycle-wb-down-wb-pause-and-warm-resume) below) |
 | <kbd>n</kbd> | New — prompts for a repo (defaults to the picker's own launching session's repo) and a slug; an empty slug opens a plain repo session instead of a task |
 | <kbd>p</kbd> | Close this row's session with `wb down` — worktree kept, resumable later. Guarded the same way <kbd>Ctrl</kbd>+<kbd>x</kbd> is: on the picker's own current session it writes everything but skips the kill |
 | <kbd>r</kbd> | Rename the row's tmux session (prompts inline, cosmetic only — doesn't touch the task file or worktree) |
@@ -336,9 +336,9 @@ session; resuming one (picker or `wb resume`) flips it straight back to
 via the picker's dormant rows or `wb resume <task>` — rebuilds the usual
 3-window layout and pre-types a resume command in the agent window instead
 of a bare `claude`: `claude --resume <id>` when a usable transcript exists
-(preferring the one marked primary), `claude --continue` when the task has
-prior history but no transcript survived, or nothing at all for a genuinely
-new task. Like the nvim window, it's pre-typed, not run — you land on the
+(the conversation with the newest activity), or nothing at all when no
+transcript exists for the worktree (a new task, or one whose transcripts
+have expired). Like the nvim window, it's pre-typed, not run — you land on the
 window and press Enter yourself, so resuming several tasks at once never
 eagerly starts several agents.
 
