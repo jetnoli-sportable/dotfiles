@@ -5,6 +5,17 @@
 #   hook-stop   (Stop hook, registered by the reply-log plugin's hooks.json) reads
 #               the hook payload on stdin and reconciles the session's reply file
 #               with its transcript. Always exits 0 and prints nothing.
+#   chain <reply-file|session-id> | chain --pane <pane-id>
+#               print the reply files to show for that session, oldest first, one
+#               path per line: every reply file whose frontmatter `task:` matches
+#               (the sessions of one wb task across /clear) plus the ids in that
+#               task file's `claude_sessions:`. An empty `task:` chains to itself
+#               alone. --pane resolves the pane's live session first (see
+#               pane_session). Prints nothing when there is no reply file yet.
+#   view [pane-id]
+#               the prefix+v binding: focus the pane's open reply viewer, or split
+#               the pane and open one (nvim, claude-tmux.replies follows `chain
+#               --pane`), or show a tmux message when no Claude session runs there.
 #
 # Reply file layout (one per Claude session id; never in a repo or the task store):
 #   ---
@@ -34,6 +45,7 @@
 set -uo pipefail
 
 REPLY_DIR="${REPLY_LOG_DIR:-$HOME/.claude/replies}"
+SESSIONS_DIR="${CLAUDE_SESSIONS_DIR:-$HOME/.claude/sessions}"
 # How far before the current prompt the first Stop starts reading, so a batch of
 # prompts answered together (back-to-back peer messages) is seen whole.
 FIRST_STOP_WINDOW=65536
@@ -281,8 +293,88 @@ hook_stop() {
   mv -f "$out" "$file" && mv -f "$WORK/cursor" "$cursor"
 }
 
+# fm_field <file> <key> — a frontmatter value (frontmatter only ever starts on line 1).
+fm_field() {
+  awk -v k="$2" 'NR == 1 { if ($0 != "---") exit; next }
+    $0 == "---" { exit }
+    index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); print v; exit }' "$1" 2>/dev/null
+}
+
+# pane_session <pane-id> — the Claude session id live in that pane: the newest
+# entry in Claude Code's session registry (~/.claude/sessions/<pid>.json, updated
+# in place on /clear) whose `tmux` field names the pane and whose pid is alive,
+# else the pane's @claude_session_id (set by the notify hook, which only changes
+# at the first prompt after /clear).
+pane_session() {
+  local pane="$1" pid sid
+  local -a files=("$SESSIONS_DIR"/*.json)
+  if [ -e "${files[0]}" ] && command -v jq >/dev/null 2>&1; then
+    while IFS=$'\t' read -r pid sid; do
+      [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && { printf '%s\n' "$sid"; return 0; }
+    done < <(jq -r --arg p "$pane" 'select((.tmux // "") | endswith("." + $p)) | [(.updatedAt // 0), .pid, .sessionId] | @tsv' \
+               "${files[@]}" 2>/dev/null | sort -rn | cut -f2-)
+  fi
+  tmux show -p -t "$pane" -v @claude_session_id 2>/dev/null || true
+}
+
+cmd_chain() {
+  local file="" sid=""
+  if [ "${1:-}" = --pane ]; then
+    sid="$(pane_session "${2:-}")"
+  else
+    case "${1:-}" in */*) file="$1" ;; *) sid="${1:-}" ;; esac
+  fi
+  if [ -z "$file" ]; then
+    [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || return 0
+    file="$REPLY_DIR/$sid.md"
+  fi
+  [ -f "$file" ] || return 0
+  local task; task="$(fm_field "$file" task)"
+  if [ -z "$task" ]; then printf '%s\n' "$file"; return 0; fi
+  {
+    awk -v t="$task" 'FNR == 1 { fm = ($0 == "---"); c = ""; tk = ""; next }
+      !fm { nextfile }
+      $0 == "---" { if (tk == t) print c "\t" FILENAME; nextfile }
+      index($0, "task: ") == 1 { tk = substr($0, 7) }
+      index($0, "created: ") == 1 { c = substr($0, 10) }' "$REPLY_DIR"/*.md
+    local -a ids=()
+    local id f
+    IFS=',' read -r -a ids <<<"$(fm_field "$task" claude_sessions)"
+    for id in "${ids[@]}"; do
+      id="${id%%@*}"; id="${id//[[:space:]]/}"
+      [[ "$id" =~ ^[A-Za-z0-9-]+$ ]] || continue
+      f="$REPLY_DIR/$id.md"
+      [ -f "$f" ] && printf '%s\t%s\n' "$(fm_field "$f" created)" "$f"
+    done
+  } | sort -u | cut -f2
+}
+
+cmd_view() {
+  local pane="${1:-${TMUX_PANE:-}}" existing sid nvim self new
+  [ -n "$pane" ] || return 0
+  existing="$(tmux list-panes -a -F '#{pane_id} #{@reply_log_for}' 2>/dev/null | awk -v p="$pane" '$2 == p { print $1; exit }')"
+  if [ -n "$existing" ]; then
+    tmux select-window -t "$existing" 2>/dev/null; tmux select-pane -t "$existing" 2>/dev/null
+    return 0
+  fi
+  sid="$(pane_session "$pane")"
+  if ! [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]]; then
+    tmux display-message -t "$pane" "reply log: no Claude session in this pane" 2>/dev/null
+    return 0
+  fi
+  nvim="$(command -v nvim)" || { tmux display-message -t "$pane" "reply log: nvim not found" 2>/dev/null; return 0; }
+  self="$(readlink -f "${BASH_SOURCE[0]}")"
+  new="$(tmux split-window -h -l 45% -t "$pane" -P -F '#{pane_id}' \
+           -e "REPLY_LOG_DIR=$REPLY_DIR" -e "CLAUDE_SESSIONS_DIR=$SESSIONS_DIR" \
+           "$nvim -R -c \"lua require('claude-tmux.replies').follow({ pane = '$pane', script = '$self' })\"" 2>/dev/null)"
+  [ -n "$new" ] && tmux set -p -t "$new" @reply_log_for "$pane" 2>/dev/null
+  return 0
+}
+
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "${1:-}" in
+    chain) shift; cmd_chain "$@" ;;
+    view) cmd_view "${2:-}" ;;
     hook-stop)
       exec 2>/dev/null
       [ -e "$REPLY_DIR/.disabled" ] && quiet_exit

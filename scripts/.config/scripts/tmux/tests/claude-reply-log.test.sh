@@ -275,5 +275,51 @@ stop p-plain-1 x
 assert_eq "dir 700" 700 "$(stat -c %a "$RDIR")"
 assert_eq "reply file 600" 600 "$(stat -c %a "$OUTF")"
 
+echo "# chain: a task's reply files across /clear, oldest first"
+new_scenario; mkdir -p "$RDIR" "$H/sessions"
+TASKF="$H/tasks/dotfiles--feat-x.md"
+reply_file() { # <sid> <task> <created> [cwd]
+  printf -- '---\nsession_id: %s\ntask: %s\ncwd: %s\nbranch: \ncreated: %s\n---\n\n# x\n' \
+    "$1" "$2" "${4:-/work}" "$3" >"$RDIR/$1.md"
+}
+reply_file s-b "$TASKF" 2026-10-20T10:00:00Z
+reply_file s-a "$TASKF" 2026-10-19T10:00:00Z
+reply_file s-c "$TASKF" 2026-10-21T10:00:00Z
+reply_file s-other "$H/tasks/other.md" 2026-10-19T11:00:00Z
+reply_file s-lone "" 2026-10-22T10:00:00Z /work
+reply_file s-lone2 "" 2026-10-22T11:00:00Z /work
+reply_file s-old "" 2026-10-18T10:00:00Z /elsewhere
+printf -- '---\nstatus: doing\nclaude_sessions: s-old@primary, s-missing\n---\n# task\n' >"$TASKF"
+chain() { env -u TMUX -u TMUX_PANE HOME="$H" REPLY_LOG_DIR="$RDIR" CLAUDE_SESSIONS_DIR="$H/sessions" \
+  PATH="$FAKEBIN:$PATH" "$REAL_BASH" "$SCRIPT" chain "$@" 2>/dev/null; }
+assert_eq "same task, oldest first, plus claude_sessions ids" \
+  "$RDIR/s-old.md $RDIR/s-a.md $RDIR/s-b.md $RDIR/s-c.md" "$(chain "$RDIR/s-b.md" | paste -sd' ')"
+assert_eq "a session id works like its file" "$(chain "$RDIR/s-b.md")" "$(chain s-b)"
+assert_eq "empty task chains to itself, even sharing a cwd" "$RDIR/s-lone.md" "$(chain s-lone)"
+assert_eq "an unknown session prints nothing" "" "$(chain s-nope)"
+
+echo "# chain --pane: the pane's live session from the session registry"
+printf '{"pid":%s,"sessionId":"s-c","tmux":"sess:@1.%%7","updatedAt":2}\n' "$$" >"$H/sessions/$$.json"
+printf '{"pid":999999999,"sessionId":"s-a","tmux":"sess:@1.%%7","updatedAt":3}\n' >"$H/sessions/999999999.json"
+assert_eq "live registry entry for the pane wins; dead pids ignored" \
+  "$RDIR/s-old.md $RDIR/s-a.md $RDIR/s-b.md $RDIR/s-c.md" "$(chain --pane %7 | paste -sd' ')"
+assert_eq "a pane with no Claude session prints nothing" "" "$(chain --pane %8)"
+
+echo "# view on a pane with no Claude session: a message, no split"
+: >"$H/tmux-calls"
+cat >"$FAKEBIN/tmux" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >>"${FAKE_TMUX_CALLS:-/dev/null}"
+case "$1" in
+  display-message) [ "${2:-}" = -p ] && echo "fakesess" ;;
+  show) case "$*" in *@task*) printf '%s\n' "${FAKE_TASK:-}" ;; esac ;;
+esac
+exit 0
+FAKE
+env -u TMUX HOME="$H" REPLY_LOG_DIR="$RDIR" CLAUDE_SESSIONS_DIR="$H/sessions" FAKE_TMUX_CALLS="$H/tmux-calls" \
+  PATH="$FAKEBIN:$PATH" "$REAL_BASH" "$SCRIPT" view %8 >/dev/null 2>&1
+assert_eq "no split opened" 0 "$(grep -c '^split-window' "$H/tmux-calls")"
+assert_eq "a message shown instead" 1 "$(grep -c '^display-message .*no Claude session' "$H/tmux-calls")"
+
 echo
 if [ "$fail" = 0 ]; then echo "ALL PASSED"; else echo "SOME FAILED"; exit 1; fi

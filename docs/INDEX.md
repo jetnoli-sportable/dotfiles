@@ -15,27 +15,28 @@
 {"id":"zsh-alias-s","kind":"alias","name":"s","oneliner":"legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m","source":"zsh/.zshrc:107","invoke":"s","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-vim","kind":"alias","name":"vim","oneliner":"nvim","source":"zsh/.zshrc:100","invoke":"vim","guide":"","tags":["zsh"]}
 {"id":"zsh-alias-wb","kind":"alias","name":"wb","oneliner":"the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html","source":"zsh/.zshrc:113","invoke":"wb","guide":"","tags":["zsh"]}
-{"id":"tmux-bind-copy-mode-vi-Enter","kind":"bind","name":"copy-mode-vi Enter","oneliner":"Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland).","source":"tmux/.config/tmux/tmux.conf:112","invoke":"copy-mode-vi Enter","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-copy-mode-vi-MouseDragEnd1Pane","kind":"bind","name":"copy-mode-vi MouseDragEnd1Pane","oneliner":"send-keys -X copy-pipe-and-cancel \"wl-copy\"","source":"tmux/.config/tmux/tmux.conf:113","invoke":"copy-mode-vi MouseDragEnd1Pane","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-copy-mode-vi-Enter","kind":"bind","name":"copy-mode-vi Enter","oneliner":"Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland).","source":"tmux/.config/tmux/tmux.conf:119","invoke":"copy-mode-vi Enter","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-copy-mode-vi-MouseDragEnd1Pane","kind":"bind","name":"copy-mode-vi MouseDragEnd1Pane","oneliner":"send-keys -X copy-pipe-and-cancel \"wl-copy\"","source":"tmux/.config/tmux/tmux.conf:120","invoke":"copy-mode-vi MouseDragEnd1Pane","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-A","kind":"bind","name":"prefix+A","oneliner":"new-window -c \"#{pane_current_path}\" -n \"lazydocker\" \"$SHELL -lc 'lazydocker'\"","source":"tmux/.config/tmux/tmux.conf:48","invoke":"prefix+A","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-C","kind":"bind","name":"prefix+C","oneliner":"Edit the Metrics Server config.hjson (Env / Region / SportType …)","source":"tmux/.config/tmux/tmux.conf:50","invoke":"prefix+C","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-C-Space","kind":"bind","name":"prefix+C-Space","oneliner":"send-prefix","source":"tmux/.config/tmux/tmux.conf:64","invoke":"prefix+C-Space","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-E","kind":"bind","name":"prefix+E","oneliner":"Agent windows/panes (wb_layout_session's `agent` window, `handoff --pane`) run claude inside a bare shell and set remain-on-exit, so a…","source":"tmux/.config/tmux/tmux.conf:84","invoke":"prefix+E","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-C-Space","kind":"bind","name":"prefix+C-Space","oneliner":"send-prefix","source":"tmux/.config/tmux/tmux.conf:71","invoke":"prefix+C-Space","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-E","kind":"bind","name":"prefix+E","oneliner":"Agent windows/panes (wb_layout_session's `agent` window, `handoff --pane`) run claude inside a bare shell and set remain-on-exit, so a…","source":"tmux/.config/tmux/tmux.conf:91","invoke":"prefix+E","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-J","kind":"bind","name":"prefix+J","oneliner":"display-popup -w 80% -h 60% -T ' claude · most-urgent agent ' -E \"~/.config/scripts/tmux/claude-sessions.sh preview-popup\"","source":"tmux/.config/tmux/tmux.conf:18","invoke":"prefix+J","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-N","kind":"bind","name":"prefix+N","oneliner":"prefix+N — open the standing weekly-capture doc (~/code/tasks/weeks/capture.md, `wb week path`) directly in nvim (\"N\" for Notes; lowercase…","source":"tmux/.config/tmux/tmux.conf:35","invoke":"prefix+N","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-a","kind":"bind","name":"prefix+a","oneliner":"new-window -c \"$HOME\" \"~/.config/scripts/tmux/wb.sh\"","source":"tmux/.config/tmux/tmux.conf:13","invoke":"prefix+a","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-c","kind":"bind","name":"prefix+c","oneliner":"new-window -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:166","invoke":"prefix+c","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-dquote","kind":"bind","name":"prefix+\"","oneliner":"Open pane in current dir","source":"tmux/.config/tmux/tmux.conf:164","invoke":"prefix+\"","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-c","kind":"bind","name":"prefix+c","oneliner":"new-window -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:173","invoke":"prefix+c","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-dquote","kind":"bind","name":"prefix+\"","oneliner":"Open pane in current dir","source":"tmux/.config/tmux/tmux.conf:171","invoke":"prefix+\"","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-g","kind":"bind","name":"prefix+g","oneliner":"new-window -c \"#{pane_current_path}\" -n \"lazygit\" \"$SHELL -lc 'lazygit'\"","source":"tmux/.config/tmux/tmux.conf:47","invoke":"prefix+g","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-j","kind":"bind","name":"prefix+j","oneliner":"Claude agent push-notification: prefix+j -> jump straight to the most-urgent waiting agent prefix+J -> preview it first (j/Enter jumps…","source":"tmux/.config/tmux/tmux.conf:17","invoke":"prefix+j","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-m","kind":"bind","name":"prefix+m","oneliner":"wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per…","source":"tmux/.config/tmux/tmux.conf:12","invoke":"prefix+m","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-n","kind":"bind","name":"prefix+n","oneliner":"next-window","source":"tmux/.config/tmux/tmux.conf:19","invoke":"prefix+n","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-p","kind":"bind","name":"prefix+p","oneliner":"prefix+p was tmux's built-in previous-window before this file ever touched it — the capture-doc bind below briefly overrode it (moved off…","source":"tmux/.config/tmux/tmux.conf:25","invoke":"prefix+p","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-percent","kind":"bind","name":"prefix+%","oneliner":"split-window -h -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:165","invoke":"prefix+%","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-percent","kind":"bind","name":"prefix+%","oneliner":"split-window -h -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:172","invoke":"prefix+%","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-q","kind":"bind","name":"prefix+q","oneliner":"prefix+q — quick-ask: a scratch Claude Code window for a one-off question, separate from `/help` (zero-LLM index lookup) and from `wb`'s…","source":"tmux/.config/tmux/tmux.conf:46","invoke":"prefix+q","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-question","kind":"bind","name":"prefix+?","oneliner":"prefix+? — the help picker: fzf over docs/INDEX.md (every bind, alias, skill, doc, decision with provenance).","source":"tmux/.config/tmux/tmux.conf:40","invoke":"prefix+?","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-r","kind":"bind","name":"prefix+r","oneliner":"Add binding to reload tmux.conf for fast, iterative development","source":"tmux/.config/tmux/tmux.conf:2","invoke":"prefix+r","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-t","kind":"bind","name":"prefix+t","oneliner":"prefix+t — open THIS session's task file (~/code/tasks/<repo>--<slug>.md).","source":"tmux/.config/tmux/tmux.conf:58","invoke":"prefix+t","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-v","kind":"bind","name":"prefix+v","oneliner":"prefix+v — the reply log of the Claude session in this pane: a split with a live, read-only markdown view of…","source":"tmux/.config/tmux/tmux.conf:65","invoke":"prefix+v","guide":"","tags":["tmux"]}
 {"id":"decision-2026-06-18-window-manager","kind":"decision","name":"2026-06-18-window-manager","oneliner":"Window manager for the dotfiles setup","source":"logs/decisions/2026-06-18-window-manager.md:1","invoke":"nvim logs/decisions/2026-06-18-window-manager.md","guide":"","tags":[]}
 {"id":"decision-2026-06-19-agent-attention-notification","kind":"decision","name":"2026-06-19-agent-attention-notification","oneliner":"Decision: minimal in-tmux \"an agent needs you\" notification + jump binding","source":"logs/decisions/2026-06-19-agent-attention-notification.md:1","invoke":"nvim logs/decisions/2026-06-19-agent-attention-notification.md","guide":"","tags":[]}
 {"id":"decision-2026-06-19-v1-build-plan","kind":"decision","name":"2026-06-19-v1-build-plan","oneliner":"v1 Build Plan — agent-attention notification (Layers 1–4 + quick-respond)","source":"logs/decisions/2026-06-19-v1-build-plan.md:1","invoke":"nvim logs/decisions/2026-06-19-v1-build-plan.md","guide":"","tags":[]}
@@ -332,27 +333,28 @@
 | s | alias | legacy repo sessionizer — kept as a fallback; wb absorbed it on prefix+m | s | zsh/.zshrc:107 |  |
 | vim | alias | nvim | vim | zsh/.zshrc:100 |  |
 | wb | alias | the workbench: wb new / wb (picker) / wb done / wb board — docs/wb-guide.html | wb | zsh/.zshrc:113 |  |
-| copy-mode-vi Enter | bind | Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland). | copy-mode-vi Enter | tmux/.config/tmux/tmux.conf:112 |  |
-| copy-mode-vi MouseDragEnd1Pane | bind | send-keys -X copy-pipe-and-cancel "wl-copy" | copy-mode-vi MouseDragEnd1Pane | tmux/.config/tmux/tmux.conf:113 |  |
+| copy-mode-vi Enter | bind | Clipboard: switched from xclip to wl-copy (wl-clipboard package) because the session runs under Wayland (XDG_SESSION_TYPE=wayland). | copy-mode-vi Enter | tmux/.config/tmux/tmux.conf:119 |  |
+| copy-mode-vi MouseDragEnd1Pane | bind | send-keys -X copy-pipe-and-cancel "wl-copy" | copy-mode-vi MouseDragEnd1Pane | tmux/.config/tmux/tmux.conf:120 |  |
 | prefix+A | bind | new-window -c "#{pane_current_path}" -n "lazydocker" "$SHELL -lc 'lazydocker'" | prefix+A | tmux/.config/tmux/tmux.conf:48 |  |
 | prefix+C | bind | Edit the Metrics Server config.hjson (Env / Region / SportType …) | prefix+C | tmux/.config/tmux/tmux.conf:50 |  |
-| prefix+C-Space | bind | send-prefix | prefix+C-Space | tmux/.config/tmux/tmux.conf:64 |  |
-| prefix+E | bind | Agent windows/panes (wb_layout_session's `agent` window, `handoff --pane`) run claude inside a bare shell and set remain-on-exit, so a… | prefix+E | tmux/.config/tmux/tmux.conf:84 |  |
+| prefix+C-Space | bind | send-prefix | prefix+C-Space | tmux/.config/tmux/tmux.conf:71 |  |
+| prefix+E | bind | Agent windows/panes (wb_layout_session's `agent` window, `handoff --pane`) run claude inside a bare shell and set remain-on-exit, so a… | prefix+E | tmux/.config/tmux/tmux.conf:91 |  |
 | prefix+J | bind | display-popup -w 80% -h 60% -T ' claude · most-urgent agent ' -E "~/.config/scripts/tmux/claude-sessions.sh preview-popup" | prefix+J | tmux/.config/tmux/tmux.conf:18 |  |
 | prefix+N | bind | prefix+N — open the standing weekly-capture doc (~/code/tasks/weeks/capture.md, `wb week path`) directly in nvim ("N" for Notes; lowercase… | prefix+N | tmux/.config/tmux/tmux.conf:35 |  |
 | prefix+a | bind | new-window -c "$HOME" "~/.config/scripts/tmux/wb.sh" | prefix+a | tmux/.config/tmux/tmux.conf:13 |  |
-| prefix+c | bind | new-window -c "#{pane_current_path}" | prefix+c | tmux/.config/tmux/tmux.conf:166 |  |
-| prefix+" | bind | Open pane in current dir | prefix+" | tmux/.config/tmux/tmux.conf:164 |  |
+| prefix+c | bind | new-window -c "#{pane_current_path}" | prefix+c | tmux/.config/tmux/tmux.conf:173 |  |
+| prefix+" | bind | Open pane in current dir | prefix+" | tmux/.config/tmux/tmux.conf:171 |  |
 | prefix+g | bind | new-window -c "#{pane_current_path}" -n "lazygit" "$SHELL -lc 'lazygit'" | prefix+g | tmux/.config/tmux/tmux.conf:47 |  |
 | prefix+j | bind | Claude agent push-notification: prefix+j -> jump straight to the most-urgent waiting agent prefix+J -> preview it first (j/Enter jumps… | prefix+j | tmux/.config/tmux/tmux.conf:17 |  |
 | prefix+m | bind | wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per… | prefix+m | tmux/.config/tmux/tmux.conf:12 |  |
 | prefix+n | bind | next-window | prefix+n | tmux/.config/tmux/tmux.conf:19 |  |
 | prefix+p | bind | prefix+p was tmux's built-in previous-window before this file ever touched it — the capture-doc bind below briefly overrode it (moved off… | prefix+p | tmux/.config/tmux/tmux.conf:25 |  |
-| prefix+% | bind | split-window -h -c "#{pane_current_path}" | prefix+% | tmux/.config/tmux/tmux.conf:165 |  |
+| prefix+% | bind | split-window -h -c "#{pane_current_path}" | prefix+% | tmux/.config/tmux/tmux.conf:172 |  |
 | prefix+q | bind | prefix+q — quick-ask: a scratch Claude Code window for a one-off question, separate from `/help` (zero-LLM index lookup) and from `wb`'s… | prefix+q | tmux/.config/tmux/tmux.conf:46 |  |
 | prefix+? | bind | prefix+? — the help picker: fzf over docs/INDEX.md (every bind, alias, skill, doc, decision with provenance). | prefix+? | tmux/.config/tmux/tmux.conf:40 |  |
 | prefix+r | bind | Add binding to reload tmux.conf for fast, iterative development | prefix+r | tmux/.config/tmux/tmux.conf:2 |  |
 | prefix+t | bind | prefix+t — open THIS session's task file (~/code/tasks/<repo>--<slug>.md). | prefix+t | tmux/.config/tmux/tmux.conf:58 |  |
+| prefix+v | bind | prefix+v — the reply log of the Claude session in this pane: a split with a live, read-only markdown view of… | prefix+v | tmux/.config/tmux/tmux.conf:65 |  |
 | 2026-06-18-window-manager | decision | Window manager for the dotfiles setup | nvim logs/decisions/2026-06-18-window-manager.md | logs/decisions/2026-06-18-window-manager.md:1 |  |
 | 2026-06-19-agent-attention-notification | decision | Decision: minimal in-tmux "an agent needs you" notification + jump binding | nvim logs/decisions/2026-06-19-agent-attention-notification.md | logs/decisions/2026-06-19-agent-attention-notification.md:1 |  |
 | 2026-06-19-v1-build-plan | decision | v1 Build Plan — agent-attention notification (Layers 1–4 + quick-respond) | nvim logs/decisions/2026-06-19-v1-build-plan.md | logs/decisions/2026-06-19-v1-build-plan.md:1 |  |
