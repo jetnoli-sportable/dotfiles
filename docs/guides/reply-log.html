@@ -477,6 +477,10 @@ history, a repo row, a pane with no Claude session, or a live task
 session with no Claude pane gets no card, and
 the picker shows what it showed before: the task file, the pane's
 screen, or <code>git status</code>.</li>
+<li><strong>A live session with no logged turns yet</strong> (started before the reply
+log went live, or the hook skipped it) shows its state lines with the
+pane's screen below them in the picker. Right after <code>/clear</code>, a session
+shows the task's newest earlier exchange, marked <code>from an earlier session on this task</code>.</li>
 </ul>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>

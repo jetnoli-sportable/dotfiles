@@ -8,6 +8,8 @@
 #   a task file (the picker's {9}) gives the dormant card, built from the task's
 #   newest reply file. Prints nothing when the input names no Claude session, or
 #   a task with no reply history, so a caller can fall back to its own preview.
+#   Exits 3 when it printed only the state lines of a live session with no
+#   logged turns, so a caller can show its own preview below them.
 #
 # Sections, in order, each left out when it has nothing:
 #   state     busy | running a command | waiting | idle | quiet <age> | state
@@ -239,7 +241,9 @@ main() {
   elif [ -n "$file" ]; then
     chain=("$file")
   fi
-  [ -n "$file" ] || [ "${#chain[@]}" -eq 0 ] || file="${chain[-1]}"
+  # a live session borrowing its task's newest file (right after /clear)
+  local borrowed=0
+  [ -n "$file" ] || [ "${#chain[@]}" -eq 0 ] || { file="${chain[-1]}"; [ "$mode" = live ] && borrowed=1; }
 
   # no history: nothing, so the picker shows the task file instead
   [ "$mode" = dormant ] && [ -z "$file" ] && return 0
@@ -291,7 +295,7 @@ main() {
 
   if [ -z "$file" ]; then
     printf '\n%s\n' "${D}no turns logged yet${R}"
-    return 0
+    return 3
   fi
 
   # --- last exchange
@@ -306,6 +310,7 @@ main() {
   if [ -n "$T" ]; then
     local when="${T#\#\# }"; when="${when%% · *}"
     section "You asked · ${when##* }"
+    [ "$borrowed" = 1 ] && printf '%s\n' "${D}from an earlier session on this task · $(age "$(stat -c %Y "$file")") ago${R}"
     local n=0
     for l in "${P[@]}"; do
       [[ "$l" == *[![:space:]]* ]] || continue
@@ -360,5 +365,5 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   # empty replies folder) must not reach it
   exec 2>/dev/null
   main "$@"
-  exit 0
+  exit $?
 fi

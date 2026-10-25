@@ -172,6 +172,25 @@ eq "dated bullets count as decisions, in file order; undated bullets don't" \
   $'- 2026-10-02 — A titled entry\n- 2026-10-03 — Bold-dated bullet\n- 2026-10-04 — Newest bullet' \
   "$(out="$(card %905)"; sect Decisions)"
 
+echo "# live session without its own reply file"
+setup borrow
+cp "$FX/task.md" "$D/task.md"
+reply needs.md sess-prev "$D/task.md"
+touch -d "@$((now - 7200))" "$D/replies/sess-prev.md"
+registry "$LIVE" sess-new %906 idle "$now"
+# the pane's @task, through a stub tmux (the session itself has no reply file yet)
+mkdir -p "$D/bin"; printf '#!/bin/sh\necho %s\n' "$D/task.md" >"$D/bin/tmux"; chmod +x "$D/bin/tmux"
+out="$(PATH="$D/bin:$PATH" card %906)"
+assert "after /clear: the task's newest exchange, marked as borrowed" '── You asked[^⏎]*⏎from an earlier session on this task · 2h ago' "${out//$'\n'/⏎}"
+assert "after /clear: the borrowed exchange's content" 'Needs you' "$out"
+refute "a session's own file is not marked" 'earlier session' "$(D="$ROOT/live"; card sess-a)"
+setup nolog
+registry "$LIVE" sess-z %907 busy "$now"
+env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$D/tmux" REPLY_LOG_DIR="$D/replies" CLAUDE_SESSIONS_DIR="$D/sessions" \
+  CLAUDE_PROJECTS_DIR="$D/projects" CLAUDE_STATUS_CACHE_DIR="$D/cache" bash "$CARD" %907 >/dev/null 2>&1
+eq "a live session with no logged turns: exit 3, so the picker adds the pane's screen" 3 "$?"
+assert "a live session with no logged turns: state, then 'no turns logged yet'" '^busy <1m.*⏎⏎no turns logged yet$' "$(card %907 | sed ':a;N;$!ba;s/\n/⏎/g')"
+
 echo "# empty replies folder"
 setup emptyreplies
 cp "$FX/task.md" "$D/task.md"

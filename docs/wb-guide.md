@@ -308,7 +308,8 @@ the start of Claude's reply, its open questions, the task's recent
 artifacts and decisions. Dormant rows get the same card from the task's
 newest reply file. Rows with nothing to show (no reply history yet, a repo
 row, a pane with no Claude) keep the old preview: the task file, the
-pane's screen, or `git status`. From inside a session,
+pane's screen, or `git status`; a live session with no logged turns yet
+shows its state line above the pane's screen. From inside a session,
 <kbd>prefix</kbd>+<kbd>i</kbd> shows the same card in a popup. See
 [the reply-log guide](guides/reply-log.html#the-context-card).
 

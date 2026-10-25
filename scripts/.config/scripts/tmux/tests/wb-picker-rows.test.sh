@@ -303,7 +303,7 @@ assert "picker: --preview comes from wb_preview_cmd" 'preview "\$\(wb_preview_cm
 PV="$(mktemp -d -t wb-preview.XXXXXX)"
 # stubs: the card echoes its argument, or prints nothing for a "silent" one;
 # tmux reports the capture it was asked for
-printf '#!/bin/sh\ncase "$1" in ""|*silent*) ;; *) echo "CARD $1" ;; esac\n' >"$PV/claude-card.sh"
+printf '#!/bin/sh\ncase "$1" in ""|*silent*) ;; *nolog*) echo "STATE $1"; exit 3 ;; *) echo "CARD $1" ;; esac\n' >"$PV/claude-card.sh"
 printf '#!/bin/sh\necho "TMUX $*"\n' >"$PV/tmux"
 chmod +x "$PV/claude-card.sh" "$PV/tmux"
 printf 'TASK-FILE-BODY\n' >"$PV/silent-task.md"
@@ -316,6 +316,12 @@ preview() { # <{7}> <{9}> [shell] [{8}] — run the command as fzf does: fields 
 }
 printf 'LIVE-TASK-BODY\n' >"$PV/live-task.md"
 assert "preview, live task session with no Claude pane: the task file, not a dormant card" '^LIVE-TASK-BODY$' "$(preview '' "$PV/live-task.md" bash demo-session)"
+nolog="$(preview %nolog "$PV/live-task.md" bash demo-session)"
+assert "preview, card exit 3 (no logged turns): the state lines" '^STATE %nolog$' "$nolog"
+assert "preview, card exit 3: then the pane's screen" '^TMUX capture-pane -ep -t %nolog$' "$nolog"
+if command -v zsh >/dev/null 2>&1; then
+  assert "preview under zsh: card exit 3 adds the pane's screen" '^TMUX capture-pane -ep -t %nolog$' "$(preview %nolog "$PV/x.md" zsh demo-session)"
+fi
 assert "preview, live row: the card for the pane" '^CARD %5$' "$(preview %5 "$PV/silent-task.md")"
 assert "preview, dormant row: the card for the task file" "^CARD $PV/task.md\$" "$(preview '' "$PV/task.md")"
 assert "preview, live row with a silent card: the pane's screen" '^TMUX capture-pane -ep -t %silent$' "$(preview %silent "$PV/silent-task.md")"

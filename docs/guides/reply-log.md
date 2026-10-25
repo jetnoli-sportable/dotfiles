@@ -192,6 +192,11 @@ It runs on every invocation now.
   session with no Claude pane gets no card, and
   the picker shows what it showed before: the task file, the pane's
   screen, or `git status`.
+- **A live session with no logged turns yet** (started before the reply
+  log went live, or the hook skipped it) shows its state lines with the
+  pane's screen below them in the picker. Right after `/clear`, a session
+  shows the task's newest earlier exchange, marked `from an earlier session
+  on this task`.
 
 ## Known rough edges
 
