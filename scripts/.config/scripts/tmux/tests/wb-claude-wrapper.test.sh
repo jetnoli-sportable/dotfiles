@@ -225,7 +225,10 @@ assert_contains "verify-behaviour/wb pane: scope gets the watcher's soft cap Mem
 assert_contains "verify-behaviour/wb pane: MemoryMax stays at the default 18G" "$LOG_DIR/systemd-run.argv" "MemoryMax=18G"
 assert_contains "verify-behaviour/wb pane: claude runs with the launch marker" "$LOG_DIR/claude.env" "marker=1"
 for want in "/verify-behaviour" "--model sonnet" "--autocompact" "SendMessage" "Edit" "Write" "NotebookEdit" \
-    "Bash(tmux send-keys *)" "Bash(tmux paste-buffer *)" "Bash(wb append *)" "Bash(wb set *)" "Bash(wb status *)"; do
+    "Bash(tmux send*)" "Bash(tmux * send*)" "Bash(tmux paste*)" "Bash(tmux * paste*)" "Bash(tmux run*)" \
+    "Bash(wb append*)" "Bash(*wb.sh append*)" "Bash(wb set*)" "Bash(wb status*)" "Bash(wb done*)" \
+    "Bash(wb pause*)" "Bash(wb jira-set*)" "Bash(wb breakdown*)" "Bash(*wb.sh done*)" \
+    "Bash(*wb-capture.sh dismiss*)" "Bash(*wb-capture.sh accept*)"; do
   assert_contains "verify-behaviour/wb pane: claude args include '$want'" "$LOG_DIR/claude.log" "$want"
 done
 assert_contains "verify-behaviour: the marker does not leak into the calling shell" "$LOG_DIR/after.env" "marker=unset"
@@ -234,7 +237,7 @@ assert_contains "verify-behaviour: the calling shell's MemoryHigh is unchanged" 
 run_vb
 assert_empty_file "verify-behaviour/no tmux: systemd-run never invoked" "$LOG_DIR/systemd-run.argv"
 assert_contains "verify-behaviour/no tmux: still passes the model" "$LOG_DIR/claude.log" "--model sonnet"
-assert_contains "verify-behaviour/no tmux: still passes the deny list" "$LOG_DIR/claude.log" "Bash(tmux send-keys *)"
+assert_contains "verify-behaviour/no tmux: still passes the deny list" "$LOG_DIR/claude.log" "Bash(tmux send*)"
 assert_contains "verify-behaviour/no tmux: still passes the prompt" "$LOG_DIR/claude.log" "/verify-behaviour"
 assert_contains "verify-behaviour/no tmux: still sets the launch marker" "$LOG_DIR/claude.env" "marker=1"
 rm -rf "$VB_BIN"

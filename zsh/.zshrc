@@ -199,12 +199,24 @@ claude() {
 # so it is throttled before anything is killed. WB_VERIFY_WATCHER is the
 # marker the wait script refuses to arm without. The prompt goes before
 # --disallowedTools because that flag is variadic and would swallow it.
+# The deny list keeps the watcher out of other panes and other tasks' files:
+# tmux takes unique command prefixes (send, pasteb) and flags before the
+# command, hence the globs; wb and wb-capture.sh verbs that write are denied
+# both bare and by path, leaving read-only ones like `wb board` usable. A
+# prefix list can't see inside `bash -c` or a shell redirect, so the skill's
+# read-only rule stays the backstop for those.
 verify-behaviour() {
+  local -a deny=(SendMessage Edit Write NotebookEdit
+    'Bash(tmux send*)' 'Bash(tmux * send*)' 'Bash(tmux paste*)' 'Bash(tmux * paste*)'
+    'Bash(tmux run*)' 'Bash(tmux * run*)')
+  local v
+  for v in append set status new resume reconcile breakdown done pause down \
+      pr-open reviewed jira-set unsafe-rewind install-hooks; do
+    deny+=("Bash(wb $v*)" "Bash(*wb.sh $v*)")
+  done
+  for v in dismiss accept keep mute unmute; do deny+=("Bash(*wb-capture.sh $v*)"); done
   WB_AGENT_MEM_HIGH=1G WB_VERIFY_WATCHER=1 claude /verify-behaviour \
-    --model sonnet --autocompact 100k \
-    --disallowedTools SendMessage Edit Write NotebookEdit \
-      'Bash(tmux send-keys *)' 'Bash(tmux paste-buffer *)' \
-      'Bash(wb append *)' 'Bash(wb set *)' 'Bash(wb status *)'
+    --model sonnet --autocompact 100k --disallowedTools "${deny[@]}"
 }
 # wb-claude-wrapper:end
 

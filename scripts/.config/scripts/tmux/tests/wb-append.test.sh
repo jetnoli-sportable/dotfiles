@@ -443,6 +443,10 @@ assert "planned + agent together: clean usage error, not a crash" 'mutually excl
 # `write ~/code/tasks/<repo>--<slug>.md` instruction).
 # =============================================================================
 
+# An instruction to write a task file with the Edit/Write tool, in any of the
+# wordings the old skills used.
+TASKFILE_WRITE_RE='use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md'
+
 if [ -z "$REPO_ROOT" ]; then
   echo "FAIL - skill grep check: could not resolve repo root via git rev-parse --show-toplevel"
   fail=1
@@ -455,9 +459,9 @@ else
       continue
     fi
 
-    if grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md' "$skill_file" >/dev/null; then
+    if grep -niE "$TASKFILE_WRITE_RE" "$skill_file" >/dev/null; then
       echo "FAIL - skill grep check: $skill still contains an Edit/Write-tool task-file write instruction:"
-      grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md' "$skill_file" | sed 's/^/       /'
+      grep -niE "$TASKFILE_WRITE_RE" "$skill_file" | sed 's/^/       /'
       fail=1
     else
       echo "ok   - skill grep check: $skill has no Edit/Write-tool task-file write instruction"
@@ -497,9 +501,9 @@ for vb_file in "$REPO_ROOT/claude/.claude/skills/verify-behaviour/SKILL.md" \
     fail=1
     continue
   fi
-  if grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md|SendMessage' "$vb_file" >/dev/null; then
+  if grep -niE "$TASKFILE_WRITE_RE|SendMessage" "$vb_file" >/dev/null; then
     echo "FAIL - skill grep check: $vb_name tells the watcher to write a task file or message a session:"
-    grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md|SendMessage' "$vb_file" | sed 's/^/       /'
+    grep -niE "$TASKFILE_WRITE_RE|SendMessage" "$vb_file" | sed 's/^/       /'
     fail=1
   else
     echo "ok   - skill grep check: $vb_name has no task-file write or session-message instruction"

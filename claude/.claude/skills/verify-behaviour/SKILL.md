@@ -136,7 +136,9 @@ your reply.
 
 ## Replies
 
-Short. Lead with anything **broken**, then:
+Short. Never name a check by its id alone: give its feature and title beside
+it ("decision propagation P6, feedback loop"), so Jet needn't open the file.
+Lead with anything **broken**, then:
 
 - checks that retired themselves this turn (Jet can reopen any);
 - numbered proposals for Jet, each with its quote;
