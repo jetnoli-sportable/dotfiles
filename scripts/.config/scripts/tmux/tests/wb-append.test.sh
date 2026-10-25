@@ -482,6 +482,38 @@ else
 fi
 
 # =============================================================================
+# Scenario (verify-behaviour U2): the watcher's brief never tells it to write
+# a task file with Edit/Write or to message another session (it is read-only
+# toward other sessions; its writes go through its wait script), and, since
+# dotfiles will be public, neither the brief nor its format guide carries
+# work identifiers.
+# =============================================================================
+
+for vb_file in "$REPO_ROOT/claude/.claude/skills/verify-behaviour/SKILL.md" \
+               "$REPO_ROOT/claude/.claude/skills/verify-behaviour/references/checks-format.md"; do
+  vb_name="verify-behaviour/${vb_file##*/verify-behaviour/}"
+  if [ ! -f "$vb_file" ]; then
+    echo "FAIL - skill grep check: $vb_file not found"
+    fail=1
+    continue
+  fi
+  if grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md|SendMessage' "$vb_file" >/dev/null; then
+    echo "FAIL - skill grep check: $vb_name tells the watcher to write a task file or message a session:"
+    grep -niE 'use read then edit|(edit|write) tool.*(task file|~/code/tasks)|write .?~/code/tasks/[^ ]*\.md|SendMessage' "$vb_file" | sed 's/^/       /'
+    fail=1
+  else
+    echo "ok   - skill grep check: $vb_name has no task-file write or session-message instruction"
+  fi
+  if grep -niE '\b(SFB|SW|SU)-[0-9]+|sportable|be--monorepo|frontend--|lib--algorithms|terraform-gcp' "$vb_file" >/dev/null; then
+    echo "FAIL - skill grep check: $vb_name carries work identifiers:"
+    grep -niE '\b(SFB|SW|SU)-[0-9]+|sportable|be--monorepo|frontend--|lib--algorithms|terraform-gcp' "$vb_file" | sed 's/^/       /'
+    fail=1
+  else
+    echo "ok   - skill grep check: $vb_name has no work identifiers"
+  fi
+done
+
+# =============================================================================
 # Scenario (code-review regression): a body containing backslash-escape-
 # shaped text round-trips BYTE-FOR-BYTE. _wb_append_under_heading used to
 # pass the body to awk via `-v body="$body"`, and POSIX awk's `-v`
