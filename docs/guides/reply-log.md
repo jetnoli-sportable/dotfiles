@@ -52,7 +52,8 @@ I created `hello.txt` containing `hi`.
   Claude is still working is added to that turn's Prompt.
 - **Interrupted turns stay.** If you press Esc mid-turn, the turn is kept,
   with whatever text Claude had written, and its heading ends
-  `(interrupted)` once the next turn finishes.
+  `(interrupted)` once the next turn finishes. Quitting Claude Code mid-turn
+  does the same when the session ends.
 - **Artifacts:** claude.ai pages Claude published, and files it wrote or
   edited, including those written by a background agent it launched (listed
   on the turn where that agent finished).

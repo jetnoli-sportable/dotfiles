@@ -258,6 +258,25 @@ section 'background agent finished' >"$H/t2"
 assert_has "first subagent's write survives" "- wrote: /work/summary.md" "$H/t2"
 assert_has "second subagent's write listed past the torn line" "- wrote: /work/second.md" "$H/t2"
 
+echo "# a subagent transcript still being written (no final newline) doesn't swallow the next file's first line"
+new_scenario; use_fixture artifacts
+mkdir -p "$H/proj/$SID/subagents"
+# agent-b1… sorts right before agent-b2…, so its torn last line meets b2c3d4's first
+printf '%s\n%s' \
+  '{"type":"assistant","isSidechain":true,"agentId":"b1a2b3","message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}' \
+  '{"type":"assistant","isSidechain":true,"agen' >"$H/proj/$SID/subagents/agent-b1a2b3.jsonl"
+printf '%s\n' \
+  '{"type":"assistant","isSidechain":true,"agentId":"b2c3d4","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu-b1","name":"Write","input":{"file_path":"/work/second.md","content":"s"}}]}}' \
+  '{"type":"user","isSidechain":true,"agentId":"b2c3d4","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-b1","content":"File created successfully at: /work/second.md"}]}}' \
+  >"$H/proj/$SID/subagents/agent-b2c3d4.jsonl"
+printf '%s\n' \
+  '{"type":"user","isSidechain":false,"promptId":"p-art-2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-x","content":"ok"}]},"toolUseResult":{"status":"completed","agentId":"b1a2b3"}}' \
+  '{"type":"user","isSidechain":false,"promptId":"p-art-2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-y","content":"ok"}]},"toolUseResult":{"status":"completed","agentId":"b2c3d4"}}' >>"$TP"
+stop p-art-2 "The summary is written."
+section 'background agent finished' >"$H/t3"
+assert_has "first line of the file after the torn one still read" "- wrote: /work/second.md" "$H/t3"
+assert_has "the fixture subagent's write survives" "- wrote: /work/summary.md" "$H/t3"
+
 echo "# SessionEnd completes the session's final turn (no next Stop will)"
 session_end() { # run hook-session-end for $SID; sets OUT, RC
   run_hook "$(jq -nc --arg s "$SID" --arg t "$TP" --arg c "$H" \
@@ -291,6 +310,16 @@ use_fixture multitext
 session_end
 assert_eq "transcript complete later: middle block recovered" 1 "$(count 'Middle step.' "$OUTF")"
 assert_eq "final text still once" 1 "$(count 'All done.' "$OUTF")"
+
+echo "# SessionEnd after quitting mid-turn: the unfinished turn is kept and marked (interrupted)"
+new_scenario; use_fixture interrupted 3
+stop p-int-1 "First answer."
+sed -n 4,5p "$FX/interrupted.jsonl" >>"$TP"
+session_end
+assert_eq "exit 0" 0 "$RC"
+assert_eq "two turns" 2 "$(anchors "$OUTF")"
+assert_eq "only the unfinished turn is interrupted" "## 2026-10-25 12:01 · Search everything (interrupted)" "$(grep '(interrupted)' "$OUTF")"
+assert_has "its partial reply kept" "Searching now." "$OUTF"
 
 echo "# SessionEnd with a cursor from before the saved-text field still completes the turn"
 new_scenario; use_fixture multitext 2

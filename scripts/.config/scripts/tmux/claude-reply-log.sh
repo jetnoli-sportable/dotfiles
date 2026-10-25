@@ -42,7 +42,8 @@
 # transcript, then the Stop's prompt_id and last_assistant_message) marks the last
 # turn written; each Stop cuts the reply file there
 # and re-renders from that turn on. A turn that never got a Stop (Esc) has no
-# `stop_hook_summary` entry and is marked (interrupted) once a later turn lands.
+# `stop_hook_summary` entry and is marked (interrupted) once a later turn lands,
+# or at SessionEnd when the session quit mid-turn.
 # The first Stop for a session renders only its current turn: no backfill.
 #
 # Guards (each a silent exit 0): kill switch <dir>/.disabled, WB_CAPTURE_SWEEP
@@ -158,7 +159,7 @@ $subsf[0] as $subs
     ($g | to_entries[] | select(.key >= $start) | .key as $i | .value as $t
      | ($i == $ci) as $iscur
      | ($t.texts | if $iscur and ($lam | test("\\S")) and ((. | last // "" | nonul | gsub("^\\s+|\\s+$"; "")) != ($lam | gsub("^\\s+|\\s+$"; ""))) then . + [$lam] else . end) as $texts
-     | (($iscur | not) and ($t.irq or (($t.stopped | not) and $i < $lastidx))) as $int
+     | (($iscur | not) and ($t.irq or (($t.stopped | not) and ($i < $lastidx or $mode == "end")))) as $int
      | ([$t.prompts[] | select(.kind == "human")] | first) as $h
      | (if $h then ($h.text | firstline | cut(60))
         elif $t.prompts[0].kind == "agent" then "(background agent finished) " + ($t.prompts[0].line | cut(60))
@@ -191,10 +192,12 @@ subagent_arts() {
   done < <(grep -oE '<task-id>[A-Za-z0-9]+</task-id>|"agentId":"[A-Za-z0-9]+"' "$1" 2>/dev/null \
              | sed -E 's/^<task-id>|<\/task-id>$|^"agentId":"|"$//g' | sort -u)
   [ "${#files[@]}" -gt 0 ] || { echo '{}'; return; }
-  jq -n -R -c "$JQ_ARTS"'
-    reduce (inputs | input_filename as $f | fromjson? | {f: $f, e: .}) as $x ({}; .[$x.f] += [$x.e])
+  # awk tags each line with its file: jq -R alone joins a still-unterminated last
+  # line onto the next file's first line and drops both
+  awk '{ print FILENAME "\t" $0 }' "${files[@]}" 2>/dev/null | jq -n -R -c "$JQ_ARTS"'
+    reduce (inputs | split("\t") | {f: .[0], e: (.[1:] | join("\t") | fromjson?)}) as $x ({}; .[$x.f] += [$x.e])
     | with_entries(.key |= (capture("agent-(?<id>[A-Za-z0-9]+)\\.jsonl$").id) | .value |= arts(toolsof; resof))' \
-    "${files[@]}" 2>/dev/null || echo '{}'
+    2>/dev/null || echo '{}'
 }
 
 # start_offset <transcript> <from byte> <promptId> — byte offset of the turn-start
@@ -282,7 +285,7 @@ hook_stop() {
   # both go to jq as files: one argv string is capped at 128 KiB
   printf '%s' "$lam" >"$WORK/lam"
   printf '%s' "$subs" >"$WORK/subs"
-  jq -n -R -j --arg from "$from" --arg cur "$pid" --arg sid "$sid" \
+  jq -n -R -j --arg from "$from" --arg cur "$pid" --arg sid "$sid" --arg mode "$mode" \
      --rawfile lam "$WORK/lam" --slurpfile subsf "$WORK/subs" "$JQ_ARTS$JQ_RENDER" <"$tail" >"$WORK/rendered" 2>/dev/null || quiet_exit
 
   local -a recs=()
