@@ -5885,10 +5885,14 @@ wb_picker_name_width() {
 # group needs Jet, so every row is read before any is drawn (render in END).
 #
 # <snapshot_path> (live tab only): the same pass writes what the picker's
-# jump-to-next and header count need to a file — "count<TAB>N", then one
-# "<pos><TAB><session><TAB><needs 0|1><TAB><here 0|1>" line per data row,
-# pos counting from 1 over the data rows (not the legend line). It goes to a
-# private temp name and is mv'd into place, so a reader never sees half of it.
+# jump-to-next, header count and cursor restore need to a file — "count<TAB>N",
+# then one "<pos><TAB><session><TAB><needs 0|1><TAB><here 0|1><TAB><target>
+# <TAB><kind>" line per data row. pos counts from 1 over the data rows, which
+# is exactly fzf's own pos() / $FZF_POS: with --header-lines the legend line
+# is not counted (checked against fzf 0.65.2). An agent sub-row shares its
+# owner's session, and often its pane too, so restoring a focused row takes
+# session + target + kind. It goes to a private temp name and is mv'd into
+# place, so a reader never sees half of it.
 wb_format_for_display() {
   local snap="${1:-}" nw now
   nw="$(wb_picker_name_width)"
@@ -5992,7 +5996,7 @@ wb_format_for_display() {
         # Agent sub-rows repeat the owner row time; show it once, on the owner.
         acell[n] = ($9 == "agent") ? pad("", wa) : pad(age($13), wa)
         mode[n] = hs ? 1 : (nd ? 2 : 0)
-        sess[n] = $7; ishere[n] = hs; isneed[n] = nd
+        sess[n] = $7; ishere[n] = hs; isneed[n] = nd; tgt[n] = $6; kd[n] = $9
         pt[n] = $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9 OFS $(10) OFS $(11) OFS $(12) OFS $(13)
         # A block (a family: its root, children, siblings and agent
         # sub-rows) starts at a row that is not an agent sub-row and is not
@@ -6030,7 +6034,7 @@ wb_format_for_display() {
         }
         if (snap != "") {
           print "count", cnt + 0 > snap
-          for (i = 1; i <= n; i++) print i, sess[i], isneed[i] + 0, ishere[i] + 0 > snap
+          for (i = 1; i <= n; i++) print i, sess[i], isneed[i] + 0, ishere[i] + 0, tgt[i], kd[i] > snap
           close(snap)
         }
       }'
@@ -6106,23 +6110,44 @@ _toggle_view() {
   _refresh_dormant "$1" "$2"
 }
 
-# wb_status_line <context> <view> — 2-line footer: which tab (LIVE/DORMANT)
-# plus pending counts + live-agent count, then keybind hints for whichever
-# search context (normal/search) is actually active — showing both at once
+# wb_status_line <context> <view> [<snapshot>] — fzf's --header, three lines:
+# which tab (LIVE/DORMANT) with the need-you count and live-agent total, a
+# colour legend for the statuses that tab shows, then the key hint for
+# whichever search context (normal/search) is active — showing both at once
 # (the original design) meant half the header was always irrelevant to what
-# you could currently type. This is fzf's --header, which fzf keeps
-# anchored near the prompt (bottom, with the default layout) — the column
-# legend lives separately, see wb_column_header.
+# you could currently type. fzf keeps --header anchored near the prompt
+# (bottom, with the default layout); the column names live separately, see
+# wb_column_header. The count comes from the live render's snapshot (one
+# line read) because this runs on every 3-second reload: the follow-up and
+# capture counts it used to carry cost a whole-store awk each time, so they
+# are gone. Legend colours are the codes wb_format_for_display draws rows
+# with; keep the two in step.
 wb_status_line() {
-  local ctx="${1:-normal}" view="${2:-live}" hint label
+  local ctx="${1:-normal}" view="${2:-live}" snap="${3:-}" hint label legend need=""
+  local rs=$'\033[0m'
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter (includes paused) · esc back to normal'
   else
-    hint='j/k move · enter jump/resume · n new · p down · r rename · b break-out · ctrl-x done+close/kill · tab switch view · / search · q quit'
+    # Thirteen keys in 120 columns leaves one space between pairs, so each key
+    # is bold to keep the pairs apart (the text without the codes is 120).
+    local b=$'\033[1m' n0=$'\033[22m'
+    hint="${b}j/k g/G${n0} move ${b}l/enter${n0} open ${b}h/q${n0} quit ${b}u${n0} needs-you ${b}n${n0} new ${b}p${n0} down"
+    hint+=" ${b}r${n0} rename ${b}b${n0} break ${b}ctrl-x${n0} done ${b}ctrl-r${n0} reload ${b}tab${n0} view ${b}/${n0} search"
   fi
-  if [ "$view" = dormant ]; then label=DORMANT; else label=LIVE; fi
-  printf 'wb · %s · %s · %s agents live (warn >= %s)\n%s' \
-    "$label" "$(wb_pending_counts)" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$hint"
+  if [ "$view" = dormant ]; then
+    label=DORMANT
+    legend=$'\033[33mdoing'"$rs"$' \033[36mreview'"$rs"$' \033[90mpaused'"$rs"
+  else
+    label=LIVE
+    legend=$'\033[1;7mneeds you'"$rs"$' \033[36mfinished'"$rs"$' \033[32mdone'"$rs"$' \033[33mworking'"$rs"$' \033[90midle'"$rs"$' \033[90m(here) you are here'"$rs"
+    if [ -n "$snap" ]; then
+      local _tag="" n=""
+      { IFS=$'\t' read -r _tag n; } 2>/dev/null < "$snap" || true
+      [[ "$_tag" == count && "$n" =~ ^[0-9]+$ ]] && need="$n need you · "
+    fi
+  fi
+  printf 'wb · %s · %s%s agents live (warn >= %s)\n%s\n%s' \
+    "$label" "$need" "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT" "$legend" "$hint"
 }
 
 # _set_mode <mode_file> <value> — persist "normal"/"search" (KTD9), read
@@ -6135,7 +6160,68 @@ _set_mode() { printf '%s' "$2" > "$1"; }
 # tabs. Reads both files itself (rather than taking literal words) so it
 # always reflects current state regardless of which bind fired it.
 _mode_header() {
-  wb_status_line "$(cat "${1:-}" 2>/dev/null || echo normal)" "$(cat "${2:-}" 2>/dev/null || echo live)"
+  wb_status_line "$(cat "${1:-}" 2>/dev/null || echo normal)" "$(cat "${2:-}" 2>/dev/null || echo live)" "${2:-}.snap"
+}
+
+# _next_needs <mode_file> <view_file> — bound to `u` through fzf's transform:
+# prints the pos(N) action for the next row that needs Jet after the cursor
+# ($FZF_POS), wrapping round to the first. Nothing to print on the dormant tab
+# (no row there needs anyone) or in search mode (the snapshot's positions are
+# the full list's, not the filtered one's), or with no such row.
+_next_needs() {
+  local mode view
+  mode="$(cat "${1:-}" 2>/dev/null || echo normal)"
+  view="$(cat "${2:-}" 2>/dev/null || echo live)"
+  [ "$view" = live ] && [ "$mode" = normal ] || return 0
+  awk -F'\t' -v cur="${FZF_POS:-0}" '
+    NR > 1 && $3 == 1 { if (!first) first = $1; if (!nxt && $1 + 0 > cur + 0) nxt = $1 }
+    END { p = nxt ? nxt : first; if (p) print "pos(" p ")" }
+  ' "${2:-}.snap" 2>/dev/null || true
+}
+
+# _initial_pos <mode_file> <view_file> — chained onto fzf's `load` bind through
+# transform, so it runs after every reload (fzf's own first `load` is for the
+# list picker() rendered before starting it). Prints a pos(N) action, or
+# nothing.
+#   First call (the one-shot flag <view>.initpos absent): the opening cursor
+#   (R14) — the first row that needs Jet; else the row below Jet's own row (and
+#   its agent sub-rows); else row 1.
+#   Later calls: put the cursor back on the row Jet was on. fzf's --track
+#   matches whole lines and a status flip changes the line, so a reload can
+#   strand the cursor; the focus bind records "<session><TAB><target><TAB>
+#   <kind>" in <view>.focus, and this finds that row again by the same three,
+#   else by session and pane, else by session alone (the pane went away).
+# Silent on the dormant tab and in search mode (positions there are the
+# filtered list's), with no snapshot, or when the session is gone.
+_initial_pos() {
+  local mode view snap="${2:-}.snap"
+  mode="$(cat "${1:-}" 2>/dev/null || echo normal)"
+  view="$(cat "${2:-}" 2>/dev/null || echo live)"
+  [ "$view" = live ] && [ "$mode" = normal ] && [ -r "$snap" ] || return 0
+  if [ ! -e "${2:-}.initpos" ]; then
+    : > "${2:-}.initpos"
+    awk -F'\t' '
+      NR > 1 { n++; if ($3 == 1 && !need) need = $1; if ($4 == 1) here = $1 }
+      END {
+        if (!n) exit
+        p = need ? need : (here && here < n) ? here + 1 : 1
+        print "pos(" p ")"
+      }
+    ' "$snap"
+    return 0
+  fi
+  [ -s "${2:-}.focus" ] || return 0
+  local -a fc; wb_tsv_split "$(cat "${2:-}.focus")" fc
+  [ -n "${fc[0]:-}" ] || return 0
+  awk -F'\t' -v s="${fc[0]}" -v t="${fc[1]:-}" -v k="${fc[2]:-}" '
+    # "" forces a string compare: a session named 12 must not equal 12.0
+    NR > 1 && ($2 "") == (s "") {
+      if (!a) a = $1
+      if (!b && ($5 "") == (t "")) b = $1
+      if (($5 "") == (t "") && ($6 "") == (k "")) { c = $1; exit }
+    }
+    END { p = c ? c : b ? b : a; if (p) print "pos(" p ")" }
+  ' "$snap"
 }
 
 # wb_capture_pane <target> — the pane's current screen, colours kept. A seam
@@ -6589,7 +6675,7 @@ picker() {
   view_file="$(mktemp -t wb-view.XXXXXX)"
   echo normal > "$mode_file"
   echo live > "$view_file"
-  trap 'rm -f "$mode_file" "$view_file" "$view_file.cache" "$view_file.snap"' EXIT
+  trap 'rm -f "$mode_file" "$view_file" "$view_file.cache" "$view_file.snap" "$view_file.focus" "$view_file.initpos"' EXIT
 
   # The session Jet is in and the moment the picker opened, for every fzf
   # child (render/transform/preview inherit the environment) to pin the
@@ -6610,7 +6696,7 @@ picker() {
   # unbound keys are inert; i or / enters SEARCH. `x` is gone with the old
   # interrupt key; `n` is new; `tab` is back, now toggling LIVE<->DORMANT
   # (not the old combined/sessions/agents cycle it used to drive).
-  local navkeys='j,k,g,G,q,i,r,b,p,n,/'
+  local navkeys='j,k,g,G,q,i,r,b,p,n,u,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-14 are the real data, shown to fzf only as hidden/addressable
@@ -6626,14 +6712,15 @@ picker() {
         --layout=reverse-list --pointer='>' \
         --height=100% --padding=6,1,2,1 \
         --prompt='NORMAL ' \
-        --header="$(wb_status_line normal live)" \
+        --header="$(wb_status_line normal live "$view_file.snap")" \
         --no-sort \
         --preview "$(wb_preview_cmd)" \
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
-        --bind "focus:transform-preview-label(\"$SELF\" _preview-label {7} {9})" \
-        --bind "load:reload(sleep 3; \"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
+        --bind "focus:transform-preview-label(\"$SELF\" _preview-label {7} {9})+execute-silent(printf '%s\t%s\t%s\n' {8} {7} {10} > \"$view_file.focus\")" \
+        --bind "load:reload(sleep 3; \"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")+transform(\"$SELF\" _initial-pos \"$mode_file\" \"$view_file\")" \
+        --bind "u:transform(\"$SELF\" _next-needs \"$mode_file\" \"$view_file\")" \
         --bind 'j:down' --bind 'k:up' --bind 'g:first' --bind 'G:last' \
         --bind 'ctrl-d:half-page-down' --bind 'ctrl-u:half-page-up' \
         --bind 'l:accept' --bind 'h:abort' --bind 'q:abort' \
@@ -6735,6 +6822,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     _toggle-view)   shift; _toggle_view "$@" ;;
     _refresh-dormant) shift; _refresh_dormant "$@" ;;
     _mode-header) shift; _mode_header "$@" ;;
+    _initial-pos) shift; _initial_pos "$@" ;;
+    _next-needs) shift; _next_needs "$@" ;;
     _preview)    shift; _preview "$@" ;;
     _preview-label) shift; _preview_label "$@" ;;
     help|--help|-h) cmd_help ;;

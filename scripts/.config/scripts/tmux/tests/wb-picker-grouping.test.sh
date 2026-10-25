@@ -12,6 +12,8 @@
 #      family on top; urgency never moves a row; the dormant tab groups too.
 # U4 — the display: REPO/NAME/BRANCH/AGE, status as NAME colour, reverse-video
 #      for rows that need Jet, (here), magenta repo, width, the snapshot file.
+# U5 — the header (count, colour legend, key hint) and the needs-you cursor:
+#      _initial-pos, _next-needs, the focus record, the binds that wire them.
 #
 # Run: bash scripts/.config/scripts/tmux/tests/wb-picker-grouping.test.sh
 set -uo pipefail
@@ -534,7 +536,7 @@ $(u4row alpha 'pane-wait' '[b]' 0 '! needs you' s2 agent)
 $(u4row alpha 'pane-work' '[b]' 2 '* working' s2 agent)"
 out="$(printf '%s\n' "$rows" | disp "$snap")"
 assert_eq "U4 one waiting pane in a multi-agent session counts once" "count	1" "$(head -1 "$snap")"
-assert_eq "U4 ... and the count lands on the waiting sub-row (pos 2)" "2	s2	1	0" "$(awk -F'\t' '$3 == 1' "$snap")"
+assert_eq "U4 ... and the count lands on the waiting sub-row (pos 2)" "2	s2	1	0	t:0.0	agent" "$(awk -F'\t' '$3 == 1' "$snap")"
 assert_lacks "U4 ... the owner row is not reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 1)"
 assert_has   "U4 ... the waiting sub-row is" "$REV" "$(printf '%s\n' "$out" | line_n 2)"
 
@@ -657,13 +659,13 @@ $(u4row alpha 'pane' '[b]' 0 '! needs you' s1 agent a1)
 $(u4row beta 'calm' '[b]' 1 '+ finished' s3)
 $(u4row beta 'wait-2' '[b]' 0 '! needs you' s4)"
 printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 wb_format_for_display "$snap" >/dev/null
-assert_eq "U4 snapshot: count line, then pos/session/needs/here per data row" \
+assert_eq "U4 snapshot: count line, then pos/session/needs/here/target/kind per data row" \
   "count	2
-1	s1	0	1
-2	s2	1	0
-3	s1	0	1
-4	s3	0	0
-5	s4	1	0" "$(cat "$snap")"
+1	s1	0	1	t:0.0	task
+2	s2	1	0	t:0.0	task
+3	s1	0	1	t:0.0	agent
+4	s3	0	0	t:0.0	task
+5	s4	1	0	t:0.0	task" "$(cat "$snap")"
 assert_eq "U4 snapshot: no temp file left behind" "live.snap" "$(ls "$FIXTURE" | /usr/bin/grep '^live\.snap' | tr '\n' ' ' | sed 's/ $//')"
 printf '' | wb_format_for_display "$snap" >/dev/null
 assert_eq "U4 snapshot of an empty list: count 0 and nothing else" "count	0" "$(cat "$snap")"
@@ -682,6 +684,224 @@ assert_eq "U4 mawk and gawk render the display identically" "$out_gawk" "$out_ma
 assert_eq "U4 mawk and gawk write the same snapshot" "$snap_gawk" "$snap_mawk"
 assert "U4 multi-byte name row is still valid UTF-8 under mawk" '^0$' "$(printf '%s\n' "$mixed" | PATH="$MAWK_BIN:$PATH" wb_format_for_display | cut -f1 | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; echo $?)"
 rm -f "$snap"
+
+# ============================================================================
+# U5 — header, legend, needs-you navigation
+# ============================================================================
+U5_DIR="$(mktemp -d -t wb-pg-u5.XXXXXX)"
+U5_MF="$U5_DIR/mode"; U5_VF="$U5_DIR/view"
+u5_reset() { # [mode] [view] — fresh picker files, no snapshot/focus/flag
+  rm -f "$U5_VF".snap "$U5_VF".focus "$U5_VF".initpos
+  printf '%s' "${1:-normal}" > "$U5_MF"; printf '%s' "${2:-live}" > "$U5_VF"
+}
+u5_snap() { # <count>, then one "pos session needs here target kind" string per row
+  local count="$1" r; shift
+  { printf 'count\t%s\n' "$count"
+    for r in "$@"; do
+      # shellcheck disable=SC2086
+      set -- $r; printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "${6:-task}"
+    done; } > "$U5_VF.snap"
+}
+# a nine-row list: rows 3 and 7 need Jet
+u5_nine() {
+  u5_snap 2 "1 a 0 0 t:1 task" "2 b 0 0 t:2 task" "3 c 1 0 t:3 task" "4 d 0 0 t:4 task" "5 e 0 0 t:5 task" \
+    "6 f 0 0 t:6 task" "7 g 1 0 t:7 task" "8 h 0 0 t:8 task" "9 i 0 0 t:9 task"
+}
+
+# --- the header: no follow-up/capture counts, no whole-store awk -------------
+ORIG_PENDING="$(save_fn wb_pending_counts)"; ORIG_AGENTS="$(save_fn wb_live_agent_count)"
+wb_pending_counts() { : > "$U5_DIR/pending-called"; echo "5 follow-ups pending · 2 unreviewed capture entries"; }
+wb_live_agent_count() { echo 4; }
+u5_reset; u5_snap 2 "1 a 1 0 t:1 task" "2 b 1 0 t:2 task"
+hdr="$(wb_status_line normal live "$U5_VF.snap")"
+plain="$(printf '%s' "$hdr" | strip_ansi)"
+assert_lacks "U5 header: no follow-ups pending" "follow-ups pending" "$plain"
+assert_lacks "U5 header: no capture count" "capture" "$plain"
+assert_eq "U5 header: wb_pending_counts is not called" no "$([ -e "$U5_DIR/pending-called" ] && echo yes || echo no)"
+assert_eq "U5 header: three lines" 3 "$(printf '%s\n' "$hdr" | wc -l)"
+assert_eq "U5 header: every line is at most 120 characters" 0 \
+  "$(printf '%s\n' "$plain" | char_len | awk '$1 > 120' | wc -l)"
+assert_eq "U5 header: LIVE line carries the count and the agent total" \
+  "wb · LIVE · 2 need you · 4 agents live (warn >= $WB_AGENT_WARN_AT)" "$(printf '%s\n' "$plain" | line_n 1)"
+assert_eq "U5 header: missing snapshot file, no need-you part" \
+  "wb · LIVE · 4 agents live (warn >= $WB_AGENT_WARN_AT)" "$(wb_status_line normal live "$U5_DIR/missing.snap" | strip_ansi | line_n 1)"
+assert_eq "U5 header: no snapshot argument at all, same" \
+  "wb · LIVE · 4 agents live (warn >= $WB_AGENT_WARN_AT)" "$(wb_status_line normal live | strip_ansi | line_n 1)"
+assert_eq "U5 header: a count of zero reads 0 need you" "wb · LIVE · 0 need you · 4 agents live (warn >= $WB_AGENT_WARN_AT)" \
+  "$(printf 'count\t0\n' > "$U5_DIR/zero.snap"; wb_status_line normal live "$U5_DIR/zero.snap" | strip_ansi | line_n 1)"
+# the legend: each word in the colour wb_format_for_display gives it
+leg="$(printf '%s\n' "$hdr" | line_n 2)"
+assert_has "U5 legend (live): needs you is bold reverse-video" "${REV}needs you" "$leg"
+assert_has "U5 legend (live): finished is cyan" "${C36}finished" "$leg"
+assert_has "U5 legend (live): done is green"    "${N32}done" "$leg"
+assert_has "U5 legend (live): working is yellow" "${Y33}working" "$leg"
+assert_has "U5 legend (live): idle is grey"     "${G90}idle" "$leg"
+assert_has "U5 legend (live): the (here) tag is explained" "(here)" "$(printf '%s' "$leg" | strip_ansi)"
+assert_lacks "U5 legend (live): no task statuses" "doing" "$(printf '%s' "$leg" | strip_ansi)"
+# the same codes the rows use
+rows="$(u4row alpha fin '[b]' 1 '+ finished' s1)
+$(u4row alpha dn '[b]' 1 'o done' s2)
+$(u4row alpha wk '[b]' 2 '* working' s3)"
+out="$(printf '%s\n' "$rows" | disp)"
+assert_has "U5 legend colours match the rows: cyan finished" "${C36}fin" "$out"
+assert_has "U5 legend colours match the rows: green done"    "${N32}dn"  "$out"
+assert_has "U5 legend colours match the rows: yellow working" "${Y33}wk" "$out"
+# dormant: no count even when a snapshot exists, its own legend
+dh="$(wb_status_line normal dormant "$U5_VF.snap")"
+dplain="$(printf '%s' "$dh" | strip_ansi)"
+assert_eq "U5 header (dormant): DORMANT line, no need-you count" \
+  "wb · DORMANT · 4 agents live (warn >= $WB_AGENT_WARN_AT)" "$(printf '%s\n' "$dplain" | line_n 1)"
+dleg="$(printf '%s\n' "$dh" | line_n 2)"
+assert_has "U5 legend (dormant): doing is yellow" "${Y33}doing"  "$dleg"
+assert_has "U5 legend (dormant): review is cyan"  "${C36}review" "$dleg"
+assert_has "U5 legend (dormant): paused is grey"  "${G90}paused" "$dleg"
+assert_lacks "U5 legend (dormant): no live statuses" "finished" "$(printf '%s' "$dleg" | strip_ansi)"
+assert_eq "U5 header (dormant): three lines, none over 120 characters" "3 0" \
+  "$(printf '%s\n' "$dh" | wc -l) $(printf '%s\n' "$dplain" | char_len | awk '$1 > 120' | wc -l)"
+# the key hint
+hint="$(printf '%s\n' "$plain" | line_n 3)"
+for k in 'j/k' 'g/G' 'l/enter' 'h/q' 'u needs-you' 'n new' 'p down' 'r rename' 'b break' 'ctrl-x' 'ctrl-r' 'tab' '/ search'; do
+  assert_has "U5 hint (normal) lists '$k'" "$k" "$hint"
+done
+assert_eq "U5 hint (dormant tab) is the same normal hint" "$hint" "$(printf '%s\n' "$dplain" | line_n 3)"
+shint="$(wb_status_line search live "$U5_VF.snap" | strip_ansi | line_n 3)"
+assert_has "U5 hint (search) keeps its own text" "SEARCH: type to filter" "$shint"
+assert_lacks "U5 hint (search) is not the normal hint" "ctrl-x" "$shint"
+# _mode_header reads the mode, view and snapshot itself
+u5_reset search live; u5_snap 2 "1 a 1 0 t:1 task" "2 b 1 0 t:2 task"
+assert_has "U5 _mode_header: search mode shows the search hint" "SEARCH: type to filter" "$(_mode_header "$U5_MF" "$U5_VF")"
+printf 'normal' > "$U5_MF"
+assert_has "U5 _mode_header: carries the count from <view>.snap" "2 need you" "$(_mode_header "$U5_MF" "$U5_VF" | strip_ansi)"
+printf 'dormant' > "$U5_VF"
+assert_lacks "U5 _mode_header: the dormant view has no count" "need you" "$(_mode_header "$U5_MF" "$U5_VF" | strip_ansi | line_n 1)"
+eval "$ORIG_PENDING"; eval "$ORIG_AGENTS"
+
+# --- _next-needs ------------------------------------------------------------
+u5_reset; u5_nine
+nn() { FZF_POS="$1" _next_needs "$U5_MF" "$U5_VF"; }
+assert_eq "U5 next-needs: from 3 (needs 3,7) goes to 7" "pos(7)" "$(nn 3)"
+assert_eq "U5 next-needs: from 7 wraps to 3"            "pos(3)" "$(nn 7)"
+assert_eq "U5 next-needs: from a calm row 5 goes to 7"  "pos(7)" "$(nn 5)"
+assert_eq "U5 next-needs: from row 1 goes to 3"         "pos(3)" "$(nn 1)"
+assert_eq "U5 next-needs: from the last row wraps to 3" "pos(3)" "$(nn 9)"
+u5_snap 1 "1 a 0 0 t:1 task" "2 b 1 0 t:2 task" "3 c 0 0 t:3 task"
+assert_eq "U5 next-needs: a single needs-you row is its own next" "pos(2)" "$(nn 2)"
+u5_snap 0 "1 a 0 0 t:1 task" "2 b 0 0 t:2 task"
+assert_eq "U5 next-needs: no needs-you rows prints nothing" "" "$(nn 1)"
+u5_snap 0
+assert_eq "U5 next-needs: a snapshot with no rows prints nothing" "" "$(nn 1)"
+rm -f "$U5_VF.snap"
+assert_eq "U5 next-needs: no snapshot prints nothing" "" "$(nn 1)"
+u5_nine; printf 'dormant' > "$U5_VF"
+assert_eq "U5 next-needs: the dormant tab prints nothing" "" "$(nn 3)"
+printf 'live' > "$U5_VF"; printf 'search' > "$U5_MF"
+assert_eq "U5 next-needs: search mode prints nothing (positions refer to the filtered list)" "" "$(nn 3)"
+
+# --- _initial-pos: the first call -------------------------------------------
+ip() { _initial_pos "$U5_MF" "$U5_VF"; }
+u5_reset; u5_nine
+assert_eq "U5 initial-pos: first call lands on the first needs-you row" "pos(3)" "$(ip)"
+assert_eq "U5 initial-pos: ... and leaves its one-shot flag" yes "$([ -e "$U5_VF.initpos" ] && echo yes || echo no)"
+assert_eq "U5 initial-pos: second call, no focus recorded, prints nothing" "" "$(ip)"
+u5_reset; u5_snap 1 "1 me 0 1 t:1 task" "2 x 0 0 t:2 task" "3 y 1 0 t:3 task"
+assert_eq "U5 initial-pos: needs-you beats the row after (here)" "pos(3)" "$(ip)"
+u5_reset; u5_snap 0 "1 a 0 0 t:1 task" "2 me 0 1 t:2 task" "3 b 0 0 t:3 task" "4 c 0 0 t:4 task"
+assert_eq "U5 initial-pos: no needs-you, the row after (here)" "pos(3)" "$(ip)"
+u5_reset; u5_snap 0 "1 me 0 1 t:1 task" "2 me 0 1 t:2 agent" "3 b 0 0 t:3 task"
+assert_eq "U5 initial-pos: the row after (here) and its agent sub-row" "pos(3)" "$(ip)"
+u5_reset; u5_snap 0 "1 a 0 0 t:1 task" "2 me 0 1 t:2 task"
+assert_eq "U5 initial-pos: (here) is last, so pos(1)" "pos(1)" "$(ip)"
+u5_reset; u5_snap 0 "1 a 0 0 t:1 task" "2 b 0 0 t:2 task"
+assert_eq "U5 initial-pos: no (here) row (no current session), so pos(1)" "pos(1)" "$(ip)"
+u5_reset; u5_snap 0
+assert_eq "U5 initial-pos: an empty list prints nothing" "" "$(ip)"
+u5_reset
+assert_eq "U5 initial-pos: no snapshot prints nothing" "" "$(ip)"
+u5_reset normal dormant; u5_nine
+assert_eq "U5 initial-pos: the dormant tab prints nothing" "" "$(ip)"
+u5_reset search live; u5_nine
+assert_eq "U5 initial-pos: search mode prints nothing" "" "$(ip)"
+assert_eq "U5 initial-pos: ... and does not spend the one-shot" no "$([ -e "$U5_VF.initpos" ] && echo yes || echo no)"
+
+# --- _initial-pos: later calls restore the focused row ----------------------
+focus() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" > "$U5_VF.focus"; }
+u5_reset; u5_nine; ip >/dev/null     # spend the one-shot
+focus g t:7 task
+assert_eq "U5 restore: the focused session's current position" "pos(7)" "$(ip)"
+u5_snap 1 "1 new 0 0 t:0 task" "2 a 0 0 t:1 task" "3 b 0 0 t:2 task" "4 c 1 0 t:3 task" "5 d 0 0 t:4 task" "6 e 0 0 t:5 task" \
+  "7 f 0 0 t:6 task" "8 g 0 0 t:7 task" "9 h 0 0 t:8 task"
+assert_eq "U5 restore: follows the row to its new position (a session started above)" "pos(8)" "$(ip)"
+u5_snap 1 "1 a 0 0 t:1 task" "2 b 0 0 t:2 task" "3 g 1 0 t:7 task"
+assert_eq "U5 restore: a status flip does not lose the row" "pos(3)" "$(ip)"
+u5_snap 1 "1 a 0 0 t:1 task" "2 b 1 0 t:2 task"
+assert_eq "U5 restore: the focused session is gone, prints nothing" "" "$(ip)"
+: > "$U5_VF.focus"
+assert_eq "U5 restore: an empty focus file prints nothing" "" "$(ip)"
+rm -f "$U5_VF.focus"
+assert_eq "U5 restore: no focus file prints nothing" "" "$(ip)"
+focus "" "" task
+assert_eq "U5 restore: a focus record with no session (a dormant row) prints nothing" "" "$(ip)"
+# an agent sub-row shares its session AND pane with the owner row; the kind tells them apart
+u5_snap 1 "1 own 0 0 t:1 task" "2 two 0 0 t:5 task" "3 two 1 0 t:5 agent" "4 two 0 0 t:6 agent" "5 z 0 0 t:9 task"
+focus two t:5 agent
+assert_eq "U5 restore: the agent sub-row, not its owner row (same session, same pane)" "pos(3)" "$(ip)"
+focus two t:5 task
+assert_eq "U5 restore: the owner row, not its sub-row" "pos(2)" "$(ip)"
+focus two t:6 agent
+assert_eq "U5 restore: another sub-row of the same session" "pos(4)" "$(ip)"
+focus two t:99 agent
+assert_eq "U5 restore: pane gone, falls back to the session's first row" "pos(2)" "$(ip)"
+u5_snap 0 "1 me 0 1 t:1 task" "2 me 0 1 t:2 agent" "3 b 0 0 t:3 task"
+focus me t:2 agent
+assert_eq "U5 restore: the (here) session's sub-row" "pos(2)" "$(ip)"
+printf 'dormant' > "$U5_VF"
+assert_eq "U5 restore: the dormant tab prints nothing" "" "$(ip)"
+printf 'live' > "$U5_VF"; printf 'search' > "$U5_MF"
+assert_eq "U5 restore: search mode prints nothing" "" "$(ip)"
+printf 'normal' > "$U5_MF"
+
+# --- the formatter writes what the helpers read -----------------------------
+u5_reset
+rows="$(u4row alpha 'mine' '[b]' 1 '+ finished' s1)
+$(u4row alpha 'calm' '[b]' 1 '+ finished' s2)
+$(u4row beta 'wait-a' '[b]' 0 '! needs you' s3)
+$(u4row beta 'calm-b' '[b]' 1 'o done' s4)
+$(u4row beta 'wait-b' '[b]' 0 '! needs you' s5)"
+printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 wb_format_for_display "$U5_VF.snap" >/dev/null
+assert_eq "U5 end to end: the first call lands on the first waiting row" "pos(3)" "$(ip)"
+assert_eq "U5 end to end: u from there goes to the next waiting row" "pos(5)" "$(nn 3)"
+assert_eq "U5 end to end: u from the last waiting row wraps" "pos(3)" "$(nn 5)"
+assert_has "U5 end to end: the header count is the snapshot's" "2 need you" "$(wb_status_line normal live "$U5_VF.snap" | strip_ansi)"
+
+# --- picker(): the binds, the trap, the dispatch ----------------------------
+picker_block="$(awk '/^picker\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
+load_bind="$(printf '%s\n' "$picker_block" | /usr/bin/grep -F -- '"load:')"
+assert "U5 picker: the load bind keeps its exact reload prefix" '"load:reload\(sleep 3; \\"\$SELF\\" render \\"\$mode_file\\" \\"\$view_file\\"\)\+refresh-preview' "$load_bind"
+assert "U5 picker: the load bind then refreshes the header" '\+transform-header\(\\"\$SELF\\" _mode-header \\"\$mode_file\\" \\"\$view_file\\"\)' "$load_bind"
+assert "U5 picker: the load bind then runs _initial-pos" '\+transform\(\\"\$SELF\\" _initial-pos \\"\$mode_file\\" \\"\$view_file\\"\)"' "$load_bind"
+assert "U5 picker: u:transform runs _next-needs" '"u:transform\(\\"\$SELF\\" _next-needs \\"\$mode_file\\" \\"\$view_file\\"\)"' "$picker_block"
+navkeys_line="$(printf '%s\n' "$picker_block" | /usr/bin/grep -F "local navkeys=")"
+assert "U5 picker: u is in the NORMAL key list (so SEARCH unbinds it)" "navkeys='[^']*,u,[^']*'" "$navkeys_line"
+assert "U5 picker: the other nav keys are still in the list" "navkeys='j,k,g,G,q,i,r,b,p,n,u,/'" "$navkeys_line"
+focus_bind="$(printf '%s\n' "$picker_block" | /usr/bin/grep -F -- '"focus:')"
+assert "U5 picker: the focus bind keeps the preview label" 'focus:transform-preview-label\(.*_preview-label \{7\} \{9\}\)' "$focus_bind"
+assert "U5 picker: ... and chains the focus record (session {8}, target {7}, kind {10}) onto it" \
+  '_preview-label \{7\} \{9\}\)\+execute-silent\(printf .%s\\t%s\\t%s\\n. \{8\} \{7\} \{10\} > \\"\$view_file\.focus\\"\)"' "$focus_bind"
+assert_eq "U5 picker: exactly one focus bind (fzf keeps only the last per event)" 1 "$(printf '%s\n' "$picker_block" | /usr/bin/grep -cF -- '"focus:')"
+assert "U5 picker: the trap also removes the focus record and the one-shot flag" \
+  'trap .rm -f .*"\$view_file\.focus" "\$view_file\.initpos"' "$picker_block"
+assert "U5 picker: the first header is built from the snapshot the first render wrote" \
+  ' --header="\$\(wb_status_line normal live "\$view_file\.snap"\)"' "$picker_block"
+render_ln="$(printf '%s\n' "$picker_block" | /usr/bin/grep -n 'rendered="$(render_rows' | head -1 | cut -d: -f1)"
+fzf_ln="$(printf '%s\n' "$picker_block" | /usr/bin/grep -n '| fzf ' | head -1 | cut -d: -f1)"
+assert_eq "U5 picker: the list renders (writing the snapshot) before fzf starts" 1 "$([ -n "$render_ln" ] && [ -n "$fzf_ln" ] && [ "$render_ln" -lt "$fzf_ln" ] && echo 1 || echo 0)"
+assert "U5 picker: the ctrl-x bind is unchanged" 'ctrl-x:become\(\\"\$SELF\\" _ctrl-x \{10\} \{8\} \{7\} \{9\}\)' "$picker_block"
+status_body="$(awk '/^wb_status_line\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
+assert_lacks "U5 wb_status_line no longer calls wb_pending_counts" "wb_pending_counts" "$status_body"
+dispatch="$(awk '/^  case / {p=1} p{print}' "$WB")"
+assert "U5 dispatch: _initial-pos verb" '^    _initial-pos\) +shift; _initial_pos "\$@"' "$dispatch"
+assert "U5 dispatch: _next-needs verb" '^    _next-needs\) +shift; _next_needs "\$@"' "$dispatch"
+rm -rf "$U5_DIR"
 
 # ============================================================================
 # U6 — _preview helper
