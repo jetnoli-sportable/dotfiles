@@ -24,6 +24,15 @@ directory instead of replacing it.
   restart; edits to the scripts it calls (`scripts/.config/scripts/tmux/wb-capture*.sh`)
   are live. Do NOT duplicate these hooks into `settings.recommended.json`, or they fire
   twice. See [`wb-decide.md`](../docs/guides/wb-decide.html).
+- `skills/reply-log/` — a hooks-only Claude Code plugin (`.claude-plugin/plugin.json` +
+  `hooks/hooks.json`) behind the Claude reply log: one Stop hook writes each session's
+  turns (Jet's prompt, Claude's reply text, the turn's artifacts) to
+  `~/.claude/replies/<session-id>.md`. Those files hold work content, so they stay local:
+  never in this repo or the task store. It auto-loads as `reply-log@skills-dir` once
+  stowed; adding/removing the hook needs a session restart, edits to
+  `scripts/.config/scripts/tmux/claude-reply-log.sh` are live. Do NOT duplicate the hook
+  into `settings.recommended.json`, or it fires twice. See
+  [`reply-log.md`](../docs/guides/reply-log.html).
 - `skills/spec-doc/` — requirements spec (PRD): synthesised, seams-first, Warp-style invariants + user stories; composes the vendored spec skills below
 
 ## Vendored (third-party, via `npx skills`)
