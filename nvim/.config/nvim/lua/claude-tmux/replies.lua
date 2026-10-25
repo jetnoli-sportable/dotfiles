@@ -98,6 +98,7 @@ function M.follow(opts)
 	vim.keymap.set("n", "q", "<cmd>qa!<cr>", { buffer = buf, desc = "Close the reply log view" })
 
 	local last_sig
+	local rendered = false
 	local busy = false
 	local timer = uv.new_timer()
 	local function tick()
@@ -105,7 +106,8 @@ function M.follow(opts)
 			return
 		end
 		busy = true
-		vim.system({ opts.script, "chain", "--pane", opts.pane }, { text = true }, function(res)
+		-- pcall + timeout: a missing script or a hung chain must not leave busy set
+		local started = pcall(vim.system, { opts.script, "chain", "--pane", opts.pane }, { text = true, timeout = 5000 }, function(res)
 			vim.schedule(function()
 				busy = false
 				if not vim.api.nvim_buf_is_valid(buf) then
@@ -114,10 +116,15 @@ function M.follow(opts)
 				local paths = vim.tbl_filter(function(l)
 					return l ~= ""
 				end, vim.split(res.stdout or "", "\n", { plain = true }))
+				-- /clear: the pane's new session has no file yet; keep what is shown
+				if #paths == 0 and rendered then
+					return
+				end
 				local sig = signature(paths)
 				if sig ~= last_sig then
 					local first = last_sig == nil
 					last_sig = sig
+					rendered = #paths > 0
 					render(buf, paths)
 					if first then
 						pin_bottom(vim.api.nvim_get_current_win(), buf)
@@ -125,6 +132,9 @@ function M.follow(opts)
 				end
 			end)
 		end)
+		if not started then
+			busy = false
+		end
 	end
 	timer:start(0, 1000, vim.schedule_wrap(tick))
 	vim.api.nvim_create_autocmd("BufWipeout", {
