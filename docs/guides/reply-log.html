@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>reply-log</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  
+
+  (function () {
+    try { var t = localStorage.getItem('theme');
+          if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+    document.addEventListener('DOMContentLoaded', function () {
+      var b = document.createElement('button');
+      b.className = 'theme-toggle'; b.type = 'button';
+      function lbl() { var c = document.documentElement.dataset.theme;
+        b.textContent = c === 'dark' ? '◐ dark' : c === 'light' ? '○ light' : '◑ auto';
+        b.setAttribute('aria-label', 'Theme: ' + (c || 'auto (system)') + ' — click to change'); }
+      lbl();
+      b.addEventListener('click', function () {
+        var r = document.documentElement, c = r.dataset.theme;
+        var n = c === 'dark' ? 'light' : c === 'light' ? '' : 'dark';
+        try { if (n) { r.dataset.theme = n; localStorage.setItem('theme', n); }
+              else { delete r.dataset.theme; localStorage.removeItem('theme'); } } catch (e) {}
+        lbl();
+      });
+      document.body.appendChild(b);
+    });
+  })();
+</script>
+<style>
+   
+  :root {
+     
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+    --mono: ui-monospace, "JetBrainsMono Nerd Font", "MesloLGL Nerd Font", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #1a1b26; --bg2: #16161e; --panel: #1f2335; --line: #2f3549;
+    --ink: #c0caf5; --ink2: #9aa5ce; --mut: #565f89;
+    --acc: #7aa2f7; --acc2: #7dcfff;
+    --ok: #9ece6a; --warn: #e0af68; --crit: #f7768e;
+    --code-bg: #16161e; --kbd-bg: #292e42; --banner-ink: #1a1b26;
+    --g-start: #7aa2f7; --g-workflow: #9ece6a; --g-skills: #7dcfff;
+    --g-tuis: #ff9e64; --g-nvim: #73daca; --g-notes: #e0af68; --g-recaps: #737aa2;
+  }
+  :root[data-theme="light"] {
+    --bg: #e1e2e7; --bg2: #d6d8df; --panel: #ffffff; --line: #b6b9c6;
+    --ink: #2c2e40; --ink2: #4a4d5e; --mut: #8990b3;
+    --acc: #2e7de9; --acc2: #007197;
+    --ok: #587539; --warn: #8c6c3e; --crit: #c64343;
+    --code-bg: #dcdee3; --kbd-bg: #cfd2db; --banner-ink: #ffffff;
+    --g-start: #2e7de9; --g-workflow: #587539; --g-skills: #007197;
+    --g-tuis: #b15c00; --g-nvim: #118c74; --g-notes: #8c6c3e; --g-recaps: #6c7399;
+  }
+   
+  [data-group="start-here"]   { --g: var(--g-start); }
+  [data-group="workflow"]     { --g: var(--g-workflow); }
+  [data-group="skills"]       { --g: var(--g-skills); }
+  [data-group="tuis"]         { --g: var(--g-tuis); }
+  [data-group="nvim"]         { --g: var(--g-nvim); }
+  [data-group="design-notes"] { --g: var(--g-notes); }
+  [data-group="recaps"]       { --g: var(--g-recaps); }
+  :root { --g: var(--acc); }    
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans);
+         line-height: 1.55; margin: 0; font-size: 16px; }
+  ::selection { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  .statusbar { font-family: var(--mono); font-size: .78rem; background: var(--bg2);
+    border-bottom: 1px solid var(--line); padding: .5rem 1.25rem;
+    display: flex; gap: 1.5rem; align-items: center; color: var(--ink2);
+    flex-wrap: wrap; }
+  .statusbar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .statusbar .right { margin-left: auto; color: var(--mut); }
+  .statusbar .crumb a { color: var(--acc2); text-decoration: none; }
+  .statusbar .crumb a:hover { text-decoration: underline; }
+  .statusbar .crumb .sep { color: var(--mut); }
+  .statusbar .gen { color: var(--mut); }
+
+  a { color: var(--acc2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 2px; }
+
+  h1 { font-family: var(--mono); font-size: clamp(1.5rem, 3.5vw, 2.1rem);
+       margin: 0 0 .5rem; letter-spacing: -.02em; text-wrap: balance; }
+  h1 .glyph { color: var(--acc); }
+  .eyebrow { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+             letter-spacing: .14em; color: var(--acc); display: block; margin-bottom: .3rem; }
+
+  code { font-family: var(--mono); font-size: .84em; background: var(--code-bg);
+         padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .78rem; line-height: 1.5; max-width: none; }
+  pre code { background: none; padding: 0; }
+  kbd { font-family: var(--mono); font-size: .78em; background: var(--kbd-bg);
+        border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: .08em .4em; white-space: nowrap; }
+
+  .chip { font-family: var(--mono); font-size: .68rem; border: 1px solid var(--line);
+          border-radius: 999px; padding: .12rem .55rem; color: var(--ink2);
+          background: var(--panel); white-space: nowrap; display: inline-block; }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.ok   { color: var(--ok);   border-color: var(--ok); }
+  .chip.crit { color: var(--crit); border-color: var(--crit); }
+  .chip.acc  { color: var(--acc);  border-color: var(--acc); }
+  .chip.mut  { color: var(--mut); }
+
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--mut); font-size: .8rem; }
+  footer code { font-size: .75rem; }
+
+   
+  article h2 { font-family: var(--mono); font-size: 1.25rem; margin: 3rem 0 1rem;
+       padding-top: 1.5rem; border-top: 1px solid var(--line); letter-spacing: -.01em;
+       scroll-margin-top: 1.5rem; }
+  article h2:first-child { border-top: 0; padding-top: 0; margin-top: 2rem; }
+  article h3 { font-family: var(--mono); font-size: 1rem; margin: 1.75rem 0 .5rem;
+       scroll-margin-top: 1.5rem; }
+  article p, article ul, article ol { max-width: 72ch; }
+  article li { margin-bottom: .35rem; }
+  article blockquote { background: var(--bg2); border-left: 3px solid var(--mut);
+       border-radius: 0 8px 8px 0; padding: .75rem 1.1rem; margin: 1rem 0;
+       font-size: .92rem; max-width: 72ch; }
+  article blockquote p { margin: .25rem 0; max-width: none; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  article table { border-collapse: collapse; width: 100%; font-size: .85rem;
+       margin: 1rem 0; display: block; overflow-x: auto; }
+  article th { font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+       letter-spacing: .08em; text-align: left; color: var(--ink2); background: var(--bg2);
+       padding: .55rem .75rem; border-bottom: 1px solid var(--line); }
+  article td { padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg2) 45%, transparent); }
+  article img { max-width: 100%; }
+
+   
+  body[data-kind="page"] main { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="page"] header.doc { padding: 3rem 0 1rem; border-bottom: 2px solid var(--line);
+       margin-bottom: 1rem; }
+  body[data-kind="page"] .meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+
+   
+  .shell { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0;
+           max-width: min(1560px, 92vw); margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+            padding: 2.25rem 1.25rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  nav.toc .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem;
+                   letter-spacing: .01em; margin-bottom: .15rem; }
+  nav.toc .brand-sub { font-size: .8rem; color: var(--ink2); margin-bottom: 1.5rem; }
+  nav.toc .backlink { font-size: .78rem; margin: 0 0 1.2rem; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; display: flex;
+               flex-direction: column; gap: .05rem; }
+  nav.toc a { display: block; text-decoration: none; color: var(--ink2);
+              font-size: .88rem; padding: .32rem .5rem; border-radius: 5px; }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+  .shell main { padding: 2.5rem 3rem 6rem; min-width: 0; }
+   
+  .shell header.guide-banner { margin: -2.5rem -3rem 1.8rem; padding: 1.5rem 3rem 1.6rem;
+       background: var(--g); color: var(--banner-ink); }
+  .shell header.guide-banner .eyebrow { color: color-mix(in srgb, var(--banner-ink) 72%, transparent); }
+  .shell header.guide-banner h1 { color: var(--banner-ink); margin: .25rem 0 .45rem; }
+  .shell header.guide-banner .dek { font-size: 1.05rem; max-width: 62ch; text-wrap: balance;
+       margin: 0; color: color-mix(in srgb, var(--banner-ink) 84%, transparent); }
+  .shell header.guide-banner .meta { margin-top: .8rem; }
+  .shell header.guide-banner .chip { color: var(--banner-ink);
+       border-color: color-mix(in srgb, var(--banner-ink) 45%, transparent); background: transparent; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc { position: static; height: auto; border-right: none;
+              border-bottom: 1px solid var(--line); }
+    .shell main { padding: 2rem 1.25rem 4rem; }
+    .shell header.guide-banner { margin: -2rem -1.25rem 1.3rem; padding: 1.25rem 1.25rem 1.35rem; }
+  }
+
+   
+  body[data-kind="hub"] main { max-width: min(1560px, 92vw); margin: 0 auto; padding: 0 1.25rem 5rem; }
+  body[data-kind="hub"] header.doc { padding: 2.5rem 0 1.5rem; }
+  body[data-kind="hub"] header.doc p { max-width: 68ch; color: var(--ink2); margin: 0; }
+  section.group { margin-top: 2.75rem; }
+  .group-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem;
+                padding-bottom: .6rem; border-bottom: 2px solid color-mix(in srgb, var(--g) 72%, var(--line)); }
+  .group-head h2 { font-family: var(--mono); font-size: 1.05rem; margin: 0; letter-spacing: -.01em; color: var(--g); }
+  .group-head .group-sub { font-size: .82rem; color: var(--mut); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .85rem; }
+  .grid.dense { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .tile { display: flex; flex-direction: column; gap: .5rem;
+          background: color-mix(in srgb, var(--g) 18%, var(--panel));
+          border: 1px solid color-mix(in srgb, var(--g) 42%, var(--line));
+          border-left: 4px solid var(--g); border-radius: 10px; padding: 1rem 1.1rem;
+          text-decoration: none; color: inherit; position: relative;
+          transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease; }
+  .tile:hover, .tile:focus-visible { border-color: var(--g); transform: translateY(-2px);
+    box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--g) 55%, transparent); outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+  .tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+  .tile-glyph { font-family: var(--mono); font-size: 1.25rem; color: var(--g); line-height: 1; }
+  .tile h3 { font-family: var(--mono); font-size: .92rem; margin: 0; color: var(--ink);
+             text-wrap: balance; }
+  .tile p { font-size: .82rem; color: var(--ink2); margin: 0; max-width: none; line-height: 1.45; }
+  .tile .path { font-family: var(--mono); font-size: .68rem; color: var(--mut); margin-top: auto;
+                padding-top: .3rem; border-top: 1px dashed var(--line); word-break: break-all; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+          border-radius: 0 8px 8px 0; padding: .85rem 1.1rem; margin: 1.5rem 0 0; font-size: .88rem; }
+  .note p { margin: 0; max-width: none; color: var(--ink2); }
+  .note strong { color: var(--ink); }
+
+   
+  .theme-toggle { position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+    font-family: var(--mono); font-size: .72rem; padding: .35rem .7rem;
+    background: var(--panel); color: var(--ink2); border: 1px solid var(--line);
+    border-radius: 999px; cursor: pointer; box-shadow: 0 2px 10px -4px color-mix(in srgb, var(--ink) 40%, transparent); }
+  .theme-toggle:hover { border-color: var(--acc); color: var(--ink); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body data-kind="guide" data-group="workflow">
+<div class="statusbar">
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
+  <span class="gen">docgen · generated from <b>docs/guides/reply-log.md</b> — edit the .md, not this file</span>
+  <span class="right">updated 2026-10-25</span>
+</div>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">reply-log</div>
+    <div class="brand-sub">Every Claude turn — your prompt, Claude&#39;s reply text, the files and pages it produced — in a markdown file per session, with prefix&#43;v to read it live beside the Claude pane.</div>
+    <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#try-it-now">Try it now</a></li>
+      <li><a href="#reference">Reference</a></li>
+      <li><a href="#known-rough-edges">Known rough edges</a></li>
+      <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
+    </ul>
+  </nav>
+  <main>
+    <header class="doc guide-banner">
+      <span class="eyebrow">workflow · guide</span>
+      <h1>reply-log</h1>
+      <p class="dek">Every Claude turn — your prompt, Claude&#39;s reply text, the files and pages it produced — in a markdown file per session, with prefix&#43;v to read it live beside the Claude pane.</p>
+      <div class="meta">
+        <span class="chip ok">current</span>
+      </div>
+    </header>
+    <article>
+<h2 id="overview">Overview</h2>
+<p>Coming back to a Claude session means rebuilding its context: what you
+asked, what Claude last said and asked you, which pages or files it made.
+The Claude window mixes all of that with thinking and tool output, so
+anything older than the last message or two means scrolling, and asking
+the agent to summarise only adds more to scroll past.</p>
+<p>The reply log keeps a clean copy. After every turn, a Stop hook (the
+<code>reply-log</code> plugin, <code>claude/.claude/skills/reply-log/</code>, hooks only) writes
+that turn to <code>~/.claude/replies/&lt;session-id&gt;.md</code>: your full prompt, every
+piece of text Claude wrote (not just the last), and the turn's artifacts.
+Thinking, tool calls and tool output never appear.
+<kbd>prefix</kbd>+<kbd>v</kbd> opens the file in a split beside the
+Claude pane and follows new turns as they land.</p>
+<p>A turn in the file looks like this:</p>
+<pre><code class="language-markdown">## 2026-10-25 16:27 · Write the text 'Step one.' then use the Write tool to create…
+&lt;!-- turn {&quot;prompt_id&quot;:&quot;9d5f19a2-…&quot;,&quot;session_id&quot;:&quot;767e964c-…&quot;,&quot;ts&quot;:&quot;2026-10-25T14:27:30.979Z&quot;} --&gt;
+### Prompt
+&gt; Write the text 'Step one.' then use the Write tool to create hello.txt …
+### Reply
+Step one.
+
+#### Done
+
+I created `hello.txt` containing `hi`.
+### Artifacts
+- wrote: /tmp/…/sbx-work/hello.txt
+</code></pre>
+<ul>
+<li><strong>Headings nest under the turn.</strong> Claude's own <code>#</code>/<code>##</code> headings become
+<code>###</code>/<code>####</code>, so the outline (and render-markdown's heading icons) reads
+as a list of your prompts. Code blocks are never touched.</li>
+<li><strong>Other kinds of turn are labelled.</strong> A turn started by a finished
+background agent is headed <code>(background agent finished)</code> with its
+one-line summary. A message from another Claude session is headed
+<code>(message from another session)</code>. A skill invocation reads <code>/wb-save before clear</code>, not the raw command markup. A prompt you type while
+Claude is still working is added to that turn's Prompt.</li>
+<li><strong>Interrupted turns stay.</strong> If you press Esc mid-turn, the turn is kept,
+with whatever text Claude had written, and its heading ends
+<code>(interrupted)</code> once the next turn finishes.</li>
+<li><strong>Artifacts:</strong> claude.ai pages Claude published, and files it wrote or
+edited, including those written by a background agent it launched (listed
+on the turn where that agent finished).</li>
+</ul>
+<p><strong>These files hold your work.</strong> Every prompt and reply, Sportable work
+included, ends up here, so the files stay on this machine: under
+<code>~/.claude/replies/</code> (mode 0700, files 0600), never in this repo, the task
+store or the generated docs. Claude Code already keeps the full transcript
+in <code>~/.claude/projects/</code>, so the reply log adds no new exposure.</p>
+<h2 id="try-it-now">Try it now</h2>
+<p>The plugin loads once the <code>claude</code> package is stowed and Claude Code is
+restarted (see &quot;Next steps&quot; below). Then:</p>
+<ol>
+<li>In any Claude session, send a prompt and let it finish.</li>
+<li>Press <kbd>prefix</kbd>+<kbd>v</kbd> in the Claude pane. A split opens
+on the right with the session's turns, rendered, scrolled to the latest.</li>
+<li>Send another prompt. The new turn appears in the split within a second
+or two, without touching it.</li>
+<li>Press <kbd>prefix</kbd>+<kbd>v</kbd> again: it jumps back to the open
+view rather than opening a second one. <kbd>q</kbd> closes it.</li>
+</ol>
+<p>Or read the raw file: <code>ls -t ~/.claude/replies/ | head -1</code> is the newest.</p>
+<p>To try it <strong>before</strong> going live, without touching your config, load the
+plugin into one throwaway session from the worktree:</p>
+<pre><code class="language-sh">REPLY_LOG_BIN=~/code/dotfiles/.worktrees/feat/claude-reply-log/scripts/.config/scripts/tmux \
+REPLY_LOG_DIR=/tmp/reply-log-try \
+claude --plugin-dir ~/code/dotfiles/.worktrees/feat/claude-reply-log/claude/.claude/skills/reply-log
+</code></pre>
+<p>Its turns land in <code>/tmp/reply-log-try/&lt;session-id&gt;.md</code>.</p>
+<h2 id="reference">Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Piece</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>~/.claude/replies/&lt;session-id&gt;.md</code></td>
+<td>One reply file per Claude session id. YAML frontmatter on line 1 (<code>session_id</code>, <code>task</code>, <code>cwd</code>, <code>branch</code>, <code>created</code>), a <code>#</code> heading naming the task (or the folder) and the start time, then one <code>##</code> turn per prompt.</td>
+</tr>
+<tr>
+<td><code>~/.claude/replies/.&lt;session-id&gt;.cursor</code></td>
+<td>Where the last turn starts, in the reply file and in the transcript; how the hook re-renders it. Safe to delete: the next turn is then appended after the existing ones.</td>
+</tr>
+<tr>
+<td><code>claude-reply-log.sh hook-stop</code></td>
+<td>The Stop hook. Reads the hook payload on stdin, always exits 0 and prints nothing.</td>
+</tr>
+<tr>
+<td><code>claude-reply-log.sh chain &lt;file|session-id&gt;</code></td>
+<td>Prints the reply files to show for a session, oldest first.</td>
+</tr>
+<tr>
+<td><code>claude-reply-log.sh chain --pane &lt;pane-id&gt;</code></td>
+<td>The same, for the session live in that tmux pane.</td>
+</tr>
+<tr>
+<td><code>claude-reply-log.sh view [pane-id]</code></td>
+<td>What <kbd>prefix</kbd>+<kbd>v</kbd> runs.</td>
+</tr>
+<tr>
+<td><code>nvim/.config/nvim/lua/claude-tmux/replies.lua</code></td>
+<td>The viewer: one read-only markdown buffer, rebuilt when any file in the chain changes (checked every second).</td>
+</tr>
+<tr>
+<td><code>~/.claude/replies/.disabled</code></td>
+<td>Kill switch: while this file exists, the hook writes nothing.</td>
+</tr>
+<tr>
+<td><code>REPLY_LOG_DIR</code></td>
+<td>Overrides <code>~/.claude/replies</code> (tests, a sandbox).</td>
+</tr>
+<tr>
+<td><code>REPLY_LOG_BIN</code></td>
+<td>Where the plugin looks for <code>claude-reply-log.sh</code> (default <code>~/.config/scripts/tmux</code>).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>How sessions chain across <code>/clear</code>.</strong> <code>/clear</code> starts a new session id,
+so a new reply file. Inside a wb session the hook records the task file in
+each reply file's <code>task:</code> field, and the view stacks every reply file with
+the same <code>task:</code>, oldest first, plus any session ids listed in the task
+file's <code>claude_sessions:</code>. So after <code>/clear</code> the new session's turns appear
+below the earlier ones under a new <code>#</code> heading. Outside wb, <code>task:</code> is
+empty and the view shows the current session only. After <code>/clear</code> it
+switches to the new session's file as soon as its first turn finishes.</p>
+<p><strong>What is skipped.</strong> Subagent turns (no SubagentStop hook), headless
+<code>claude -p</code> runs, the wb-capture sweep's own child session, <code>/clear</code> and
+other local commands, <code>!</code> shell commands, and compaction summaries.</p>
+<h2 id="known-rough-edges">Known rough edges</h2>
+<ul>
+<li><strong>The last reply arrives a turn late in the transcript.</strong> When the Stop
+hook runs, Claude Code usually hasn't yet written the turn to its
+transcript, so the final text comes from the hook payload and earlier
+text blocks of the same turn may be missing. They are filled in when the
+next turn finishes. A text block written between tool calls can
+therefore show up one turn late.</li>
+<li><strong>The first turn of a session already in progress.</strong> A session that was
+running before the plugin loaded (or one resumed with <code>claude --resume</code>)
+starts its file at the next turn. Older turns are not backfilled.</li>
+<li><strong>Batched prompts.</strong> When several messages arrive at once and get one
+answer (two background agents finishing together, say), they become one
+turn, listing each message under Prompt.</li>
+<li><strong>Nothing is ever deleted.</strong> Files accumulate in <code>~/.claude/replies/</code>.
+They are small (a long session is tens of KB); prune by hand if it ever
+matters.</li>
+</ul>
+<h2 id="next-steps--reverting">Next steps / reverting</h2>
+<p><strong>Going live</strong> (after the PR merges):</p>
+<ol>
+<li>Fast-forward the main checkout (<code>~/.config/nvim</code> links the whole nvim
+directory, so the viewer module is live from here), then re-stow the two
+packages that gain new files: <code>stow -t &quot;$HOME&quot; scripts</code> for
+<code>claude-reply-log.sh</code> and <code>stow --no-folding -t &quot;$HOME&quot; claude</code> for the
+plugin.</li>
+<li>Reload tmux (<code>prefix</code>+<code>r</code>, or <code>tmux source-file ~/.config/tmux/tmux.conf</code>)
+for <kbd>prefix</kbd>+<kbd>v</kbd>.</li>
+<li>Restart Claude Code sessions: hooks load at session start.</li>
+</ol>
+<p><strong>Turning it off:</strong> <code>touch ~/.claude/replies/.disabled</code> stops all writing
+at once (remove the file to resume). To remove it entirely, unstow the
+plugin directory (<code>~/.claude/skills/reply-log</code>) and restart Claude Code.
+The reply files stay until you delete them.</p>
+<p><strong>Next:</strong> Phase 2 of the same task adds a session context card (the last
+exchange, open questions, artifacts, the task's recent decisions, context
+use and state) in the wb picker preview, built from these files.</p>
+</article>
+    <footer>
+  Generated by <code>docgen</code> from <code>docs/guides/reply-log.md</code>. Rebuild:
+  <code>docgen.sh build</code>.
+</footer>
+  </main>
+</div>
+
+</body>
+</html>
