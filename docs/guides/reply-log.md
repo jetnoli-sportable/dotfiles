@@ -101,6 +101,7 @@ Its turns land in `/tmp/reply-log-try/<session-id>.md`.
 | `nvim/.config/nvim/lua/claude-tmux/replies.lua` | The viewer: one read-only markdown buffer, rebuilt when any file in the chain changes (checked every second). |
 | `~/.claude/replies/.disabled` | Kill switch: while this file exists, the hook writes nothing. |
 | `REPLY_LOG_DIR` | Overrides `~/.claude/replies` (tests, a sandbox). |
+| `REPLY_LOG_LOCK_WAIT` | Seconds a Stop waits for the session's lock before giving up quietly (default 4; tests). |
 | `REPLY_LOG_BIN` | Where the plugin looks for `claude-reply-log.sh` (default `~/.config/scripts/tmux`). |
 
 **How sessions chain across `/clear`.** `/clear` starts a new session id,
@@ -109,8 +110,11 @@ each reply file's `task:` field, and the view stacks every reply file with
 the same `task:`, oldest first, plus any session ids listed in the task
 file's `claude_sessions:`. So after `/clear` the new session's turns appear
 below the earlier ones under a new `#` heading. Outside wb, `task:` is
-empty and the view shows the current session only. After `/clear` it
-switches to the new session's file as soon as its first turn finishes.
+empty and the view shows the current session only. After `/clear` the new
+session has no file until its first turn finishes; until then an open view
+keeps showing what it had (the earlier sessions), and a view opened in a wb
+session in that gap still stacks the task's earlier sessions. It switches
+over as soon as the first turn lands.
 
 **What is skipped.** Subagent turns (no SubagentStop hook), headless
 `claude -p` runs, the wb-capture sweep's own child session, `/clear` and

@@ -375,6 +375,10 @@ claude --plugin-dir ~/code/dotfiles/.worktrees/feat/claude-reply-log/claude/.cla
 <td>Overrides <code>~/.claude/replies</code> (tests, a sandbox).</td>
 </tr>
 <tr>
+<td><code>REPLY_LOG_LOCK_WAIT</code></td>
+<td>Seconds a Stop waits for the session's lock before giving up quietly (default 4; tests).</td>
+</tr>
+<tr>
 <td><code>REPLY_LOG_BIN</code></td>
 <td>Where the plugin looks for <code>claude-reply-log.sh</code> (default <code>~/.config/scripts/tmux</code>).</td>
 </tr>
@@ -386,8 +390,11 @@ each reply file's <code>task:</code> field, and the view stacks every reply file
 the same <code>task:</code>, oldest first, plus any session ids listed in the task
 file's <code>claude_sessions:</code>. So after <code>/clear</code> the new session's turns appear
 below the earlier ones under a new <code>#</code> heading. Outside wb, <code>task:</code> is
-empty and the view shows the current session only. After <code>/clear</code> it
-switches to the new session's file as soon as its first turn finishes.</p>
+empty and the view shows the current session only. After <code>/clear</code> the new
+session has no file until its first turn finishes; until then an open view
+keeps showing what it had (the earlier sessions), and a view opened in a wb
+session in that gap still stacks the task's earlier sessions. It switches
+over as soon as the first turn lands.</p>
 <p><strong>What is skipped.</strong> Subagent turns (no SubagentStop hook), headless
 <code>claude -p</code> runs, the wb-capture sweep's own child session, <code>/clear</code> and
 other local commands, <code>!</code> shell commands, and compaction summaries.</p>
