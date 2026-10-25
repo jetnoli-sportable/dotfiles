@@ -106,7 +106,7 @@ Forge's shipped defaults (from its `org.gnome.shell.extensions.forge.keybindings
 | `con-tabbed-layout-toggle` | `Shift+Super+T` | `Super+Alt+T` |
 | `window-snap-one-third-left` | `Ctrl+Alt+D` | Cleared (show desktop keeps `Ctrl+Alt+D`) |
 | `window-snap-one-third-right` | `Ctrl+Alt+G` | Cleared (GPaste's `launch-ui`) |
-| `window-snap-two-third-right` | `Ctrl+Alt+T` | Cleared (GNOME's terminal default in a fresh settings database) |
+| `window-snap-two-third-right` | `Ctrl+Alt+T` | Cleared (on a fresh machine it would clash with GNOME's terminal default, which this setup also clears; see the next table) |
 | `window-snap-two-third-left` | `Ctrl+Alt+E` | Cleared |
 | `window-snap-center` | `Ctrl+Alt+C` | Cleared |
 
@@ -124,7 +124,7 @@ Unchanged Forge defaults: focus/move/swap on hjkl, resize on `Ctrl(+Shift)+Super
 | `Super+D` | show desktop | That one entry cleared; `Super+Ctrl+D`, `Ctrl+Alt+D` kept |
 | `Super+H` | minimise | Cleared |
 | `Super+L` | lock screen | Moved to `Super+Ctrl+Shift+L` |
-| `Super+B` / `Super+I` | launch browser / terminal | Cleared (launch-only; letters go to Run or Raise) |
+| `Super+B` / `Super+I` | launch browser / terminal | Cleared (launch-only; letters go to Run or Raise). Clearing the terminal key also removes GNOME's default `Ctrl+Alt+T` on a fresh machine; Super+I (Ghostty) replaces it (code review triage, 2026-10-25) |
 | `Super+V` | message list (also on `Super+M`) | `Super+V` entry cleared (VS Code); `Super+M` kept |
 | `Super+O` | rotation lock | Cleared (both monitors are fixed landscape) |
 | `Super+Alt+S` | screen reader toggle | Cleared (Forge stacked layout) |
@@ -159,7 +159,7 @@ gpaste.dconf          # removed; its 8 settings move into settings.sh
 - **Goal:** Forge and Run or Raise installed and enabled at pinned versions; Tiling Assistant disabled.
 - **Requirements:** R2, R1, R6
 - **Files:** `gnome/install.sh`, `gnome/README.md`
-- **Approach:** Download each extension's zip for the pinned version from extensions.gnome.org, `gnome-extensions install --force`, then `gnome-extensions enable`. `gnome-extensions disable tiling-assistant@ubuntu.com`. On Wayland a newly installed extension usually needs one log-out before it can be enabled; the script reports this instead of failing, and the README says so. Run or Raise must be enabled only **after** `shortcuts.conf` is stowed (U4): if the file is missing on first enable, the extension writes a default one, and stow then refuses to replace that real file.
+- **Approach:** Download each extension's zip for the pinned version from extensions.gnome.org and `gnome-extensions install --force` it when the installed version (from its `metadata.json`) differs from the pin, so a re-pin takes effect. `gnome-extensions disable tiling-assistant@ubuntu.com`. Then run `settings.sh` and `check-keys.sh --live`, and only then `gnome-extensions enable` each extension, so a failure leaves them off rather than live on keys GNOME still owns (code review triage, 2026-10-25). On Wayland a newly installed extension usually needs one log-out before it can be enabled; the script reports this instead of failing, and the README says so. Run or Raise must be enabled only **after** `shortcuts.conf` is stowed (U4): if the file is missing on first enable, the extension writes a default one, and stow then refuses to replace that real file. The guard checks where the path resolves, since stow may fold the whole `~/.config/run-or-raise` directory into one symlink.
 - **Test scenarios:** `gnome-extensions list --enabled` shows both extensions and not Tiling Assistant; a second run changes nothing and exits 0.
 
 ### U2. GNOME settings: workspaces and displaced keys
