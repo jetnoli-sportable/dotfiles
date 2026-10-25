@@ -5913,6 +5913,7 @@ wb_format_for_display() {
   # LC_ALL=C: see _WB_AWK_TEXT — pad() relies on byte semantics.
   LC_ALL=C awk -F'\t' -v OFS='\t' -v wr="$WB_COL_REPO" -v wn="$nw" \
       -v wb="$WB_COL_BRANCH" -v wa="$WB_COL_AGE" -v now="$now" \
+      -v once="$([ "${WB_PICKER_MODE:-}" = search ] && echo 0 || echo 1)" \
       -v snap="${snap:+$snap.$$.tmp}" "$_WB_AWK_TEXT"'
       # fit(s, w) — s cut to w characters with a "..." end, NOT padded
       function fit(s, w) {
@@ -5973,24 +5974,40 @@ wb_format_for_display() {
         # read as different things and because a sibling can ALSO expand
         # its own agent sub-rows underneath it (U2 stacking scenario).
         # Unlike an agent pane (always the same repo as its parent
-        # session), a sibling is explicitly cross-repo (R2), so its repo
-        # cell stays visible rather than blanked.
+        # session), a sibling can be cross-repo (R2), so its repo cell
+        # shows whenever it differs from the row above.
         #
         # A third kind, a child nested under its own live parent row
         # ("cN", N = level), gets " |- " rather than " ~ " so "child of
         # the row above" and "sibling of the row above" read differently.
         # Each level adds two leading spaces, and an agent sub-row owned by
         # a nested row ("aN") is indented to match, so the connectors stack.
-        # Children are cross-repo too, so their repo cell stays visible.
+        # Children can be cross-repo too; see the repo-once rule below.
         nest = $(12); lvl = 0
         if (nest ~ /^[ac][0-9]+$/) lvl = substr(nest, 2) + 0
         ind = ""; for (k = 1; k < lvl; k++) ind = ind "  "
+        # A block (a family with its agent sub-rows) starts at a top-level,
+        # non-agent row; wb_order_blocks puts the one holding Jet first.
+        top = ($9 != "agent" && $12 == "")
+        if (n > 1 && !split1 && top) { split1 = n; if (pinned) grp = "" }
+        if (hs && !split1) pinned = 1
+        # Each repo name is printed once, on the first row of its group, so
+        # the groups read as groups (repeating it on every row hid where one
+        # ended). A top-level row compares with the group above (a cross-repo
+        # child of the previous family must not hide the next group name);
+        # a nested row compares with the row above, so a child in another
+        # repo still names it. The group restarts below the pinned family.
+        # Search mode prints every name: fzf matches the display text only,
+        # so a blank cell would hide the row from a search by repo.
         pre = ""
         if ($9 == "agent") {
           if (lvl > 0) ind = ind "  "
           pre = ind " > "; rcell[n] = pad("", wr)
         } else {
-          rcell[n] = pad($1, wr)
+          same = top ? ($1 == grp) : ($1 == prev)
+          rcell[n] = pad((once && same) ? "" : $1, wr)
+          if (top) grp = $1
+          prev = $1
           if (nest == "1")         pre = " ~ "
           else if (nest ~ /^c/)    pre = ind " |- "
         }
@@ -6010,10 +6027,6 @@ wb_format_for_display() {
         row[n] = disp OFS $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9 OFS $(10) OFS $(11) OFS $(12) OFS $(13)
         sess[n] = $7; ishere[n] = hs; isneed[n] = nd; tgt[n] = $6; kd[n] = $9
         if (nd) cnt++
-        # A block (a family with its agent sub-rows) starts at a top-level,
-        # non-agent row; wb_order_blocks puts the one holding Jet first.
-        if (n > 1 && !split1 && $9 != "agent" && $12 == "") split1 = n
-        if (hs && !split1) pinned = 1
       }
       END {
         # The separator goes after the last row of the pinned family, only
@@ -6071,6 +6084,8 @@ wb_column_header() {
 # `reload`/`load` bindings (via `wb.sh render <mode_file> <view_file>`).
 render_rows() {
   local view; view="$(cat "${2:-}" 2>/dev/null || echo live)"
+  local WB_PICKER_MODE; WB_PICKER_MODE="$(cat "${1:-}" 2>/dev/null || true)"
+  export WB_PICKER_MODE
   wb_column_header
   if [ "$view" = dormant ]; then
     # No snapshot here: a dormant row never needs Jet, and the live
