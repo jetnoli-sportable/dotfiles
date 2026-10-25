@@ -122,6 +122,8 @@ Unchanged Forge defaults: focus/move/swap on hjkl, resize on `Ctrl(+Shift)+Super
 | `Super+O` | rotation lock | Cleared (both monitors are fixed landscape) |
 | `Super+Alt+S` | screen reader toggle | Cleared (Forge stacked layout) |
 | `Super+arrows` | Tiling Assistant snaps | Freed by disabling the extension; left unbound |
+| `Super+0..9`, `Shift+Super+0..9`, `Ctrl+Super+0..9` | Ubuntu Dock app hotkeys (`org.gnome.shell.extensions.dash-to-dock` `app-hotkey-1..10`, `app-shift-hotkey-1..10`, `app-ctrl-hotkey-1..10`) | Cleared, and `hot-keys` set false. The dock binds these separately from `switch-to-application-N`, so `Super+1..3` and `Shift+Super+1..3` would otherwise be bound twice with workspaces 5–7 |
+| `Super+Q` | Ubuntu Dock "show dock and app numbers" (`dash-to-dock` `shortcut`) | Cleared (Claude Desktop's Run or Raise key) |
 
 ---
 
@@ -158,7 +160,7 @@ gpaste.dconf          # removed; its 8 settings move into settings.sh
 - **Goal:** seven fixed workspaces on `A S D F 1 2 3`, both monitors switching, every displaced GNOME key cleared or moved.
 - **Requirements:** R3, R4, R5
 - **Files:** `gnome/settings.sh`
-- **Approach:** Plain `gsettings set` / `gsettings reset` lines, grouped by schema with a one-line comment per group. `org.gnome.mutter dynamic-workspaces false`, `org.gnome.desktop.wm.preferences num-workspaces 7`, `org.gnome.mutter workspaces-only-on-primary false`. `switch-to-workspace-1..7` and `move-to-workspace-1..7` in `org.gnome.desktop.wm.keybindings` (keep `Super+Home`/`Super+Shift+Home` on workspace 1). Clear the bindings in the "GNOME bindings cleared or moved" table. GPaste's 8 settings move here from `gpaste.dconf`. The script stops at the first failing line (`set -e`), so a typo surfaces at install.
+- **Approach:** Plain `gsettings set` / `gsettings reset` lines, grouped by schema with a one-line comment per group. `org.gnome.mutter dynamic-workspaces false`, `org.gnome.desktop.wm.preferences num-workspaces 7`, `org.gnome.mutter workspaces-only-on-primary false`. `switch-to-workspace-1..7` and `move-to-workspace-1..7` in `org.gnome.desktop.wm.keybindings` (keep `Super+Home`/`Super+Shift+Home` on workspace 1). Clear the bindings in the "GNOME bindings cleared or moved" table, including the Ubuntu Dock's own hotkeys (`org.gnome.shell.extensions.dash-to-dock`: `hot-keys false`, every `app-*hotkey-N` and `shortcut` set to `[]`). GPaste's 8 settings move here from `gpaste.dconf`. The script stops at the first failing line (`set -e`), so a typo surfaces at install.
 - **Test scenarios:** run against an isolated settings database (see U5) and spot-check `gsettings get` for workspace 4 (`['<Super>f']`), workspace 5 (`['<Super>1']`) and `switch-to-application-1` (`[]`).
 
 ### U3. Forge settings
@@ -183,7 +185,7 @@ gpaste.dconf          # removed; its 8 settings move into settings.sh
 - **Requirements:** R5, R4
 - **Files:** `gnome/check-keys.sh`, `.githooks/pre-commit`, tests beside it following `scripts/.config/scripts/tmux/tests/`
 - **Approach:**
-  - Collect every binding: all keybinding-typed keys in `org.gnome.desktop.wm.keybindings`, `org.gnome.shell.keybindings`, `org.gnome.mutter.keybindings`, `org.gnome.mutter.wayland.keybindings`, `org.gnome.settings-daemon.plugins.media-keys` (including custom keybindings), Forge's keybindings schema, plus every key in `shortcuts.conf`.
+  - Collect every binding: all keybinding-typed keys in `org.gnome.desktop.wm.keybindings`, `org.gnome.shell.keybindings`, `org.gnome.mutter.keybindings`, `org.gnome.mutter.wayland.keybindings`, `org.gnome.settings-daemon.plugins.media-keys` (including custom keybindings), the Ubuntu Dock's `org.gnome.shell.extensions.dash-to-dock` (its `app-*hotkey-N` and `shortcut` keys), GPaste's `org.gnome.GPaste` (its accelerator keys: `launch-ui`, `show-history`, `pop`, `upload`, `sync-*`), Forge's keybindings schema, plus every key in `shortcuts.conf`.
   - Normalise each accelerator: modifier aliases (`<Primary>` = `<Ctrl>` = `<Control>`), modifier order, letter case. Fail listing every accelerator with two or more owners. Also fail on any `ctrl+h/j/k/l` without `Super` (R4).
   - `--repo` (pre-commit, when `gnome/` or `run-or-raise/` is staged): start an isolated session (`dbus-run-session` with a throwaway `XDG_CONFIG_HOME`/`XDG_RUNTIME_DIR`, the method used for the 2026-10-25 storage test), so the database starts at GNOME's defaults; apply `settings.sh`; then check. This catches a repo change that collides with a GNOME default, without touching the live session. Needs Forge's schema on disk; if it's missing the hook fails with an explicit message rather than skipping Forge.
   - `--live` (end of `gnome/install.sh`, and by hand after any GNOME upgrade): check the running session, which also catches bindings added by a GNOME upgrade or another extension.
