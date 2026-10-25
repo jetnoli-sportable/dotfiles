@@ -5437,6 +5437,9 @@ wb_session_urgency() {
 # every row is self-contained instead of leaving it blank on sub-rows.
 # <visit> is the owning row's visit time (field 13): a sub-row is part of its
 # owner's block, so it orders by the owner's time, never its own.
+# Panes are listed in pane order (sess:1.0, sess:1.1, ...), not urgency order:
+# a pane that starts waiting must not jump above its siblings on the next
+# refresh. The highlight and `u` already find the urgent one.
 wb_agent_subrows() {
   local repo="$1" session="$2" ref="$3" branch="$4" visit="${5:-0}"
   local rank target status task icon label
@@ -5444,19 +5447,18 @@ wb_agent_subrows() {
     IFS=$'\t' read -r icon label < <(wb_status_icon "$status")
     printf '%s\t%s\t%s\t%s\t%s %s\t%s\t%s\t%s\tagent\t1\t\t\t%s\n' \
       "$repo" "$task" "$branch" "$rank" "$icon" "$label" "$target" "$session" "$ref" "$visit"
-  done < <(tmux_claude_panes "$session" | sort -n)
+  done < <(tmux_claude_panes "$session" | LC_ALL=C sort -t $'\t' -k2,2V)
 }
 
-# wb_session_last_attached <session> [listed] — print the epoch Jet last
+# wb_session_last_attached <session> [--listed] — print the epoch Jet last
 # attached to <session>, 0 when never. A seam: tests override it, since a
 # detached test session has no attach time. wb_live_session_row only calls it
 # when the caller didn't already have the time. collect_live_rows gets every
-# session's time from its ONE list-sessions call, so a caller that passes a
-# second argument is saying "list-sessions found nothing" (a never-attached
-# session): answer 0 without another tmux round-trip. With one argument (a
-# direct call) ask tmux.
+# session's time from its ONE list-sessions call, so --listed says
+# "list-sessions found nothing" (a never-attached session): answer 0 without
+# another tmux round-trip. Without it (a direct call) ask tmux.
 wb_session_last_attached() {
-  if [ $# -ge 2 ]; then printf '0\n'; return; fi
+  if [ "${2:-}" = --listed ]; then printf '0\n'; return; fi
   local t
   t="$(tmux display-message -p -t "=$1:" '#{session_last_attached}' 2>/dev/null || true)"
   printf '%s\n' "${t:-0}"
@@ -5497,7 +5499,8 @@ wb_live_session_row() {
   local -a _u; wb_tsv_split "$(wb_session_urgency "$session")" _u
   local urank="${_u[0]}" uicon="${_u[1]}" target="${_u[2]}" ucount="${_u[3]}"
 
-  case "$visit" in ''|0) visit="$(wb_session_last_attached "$@")" ;; esac
+  # A second argument, even empty, came from list-sessions: --listed.
+  case "$visit" in ''|0) visit="$(wb_session_last_attached "$session" ${2+--listed})" ;; esac
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n' \
     "$repo" "$label" "$statuscol" "$urank" "$uicon" "$target" "$session" "$ref" "$kind" "$ucount" "$slug_out" "${visit:-0}"
 }
@@ -6189,8 +6192,11 @@ _next_needs() {
 #   Later calls: put the cursor back on the row Jet was on. fzf's --track
 #   matches whole lines and a status flip changes the line, so a reload can
 #   strand the cursor; the focus bind records "<session><TAB><target><TAB>
-#   <kind>" in <view>.focus, and this finds that row again by the same three,
-#   else by session and pane, else by session alone (the pane went away).
+#   <kind>" in <view>.focus, and this finds that row again by session and
+#   kind (an agent sub-row also by its pane), else by session alone (the
+#   pane went away). The focus bind skips dormant rows (no session), so
+#   after a trip to DORMANT and back the record is still the live row Jet
+#   left.
 # Silent on the dormant tab and in search mode (positions there are the
 # filtered list's), with no snapshot, or when the session is gone.
 _initial_pos() {
@@ -6217,10 +6223,12 @@ _initial_pos() {
     # "" forces a string compare: a session named 12 must not equal 12.0
     NR > 1 && ($2 "") == (s "") {
       if (!a) a = $1
-      if (!b && ($5 "") == (t "")) b = $1
-      if (($5 "") == (t "") && ($6 "") == (k "")) { c = $1; exit }
+      # A session has one row of its own (task/repo), and its pane is
+      # whichever one is most urgent right now, so it is found by kind
+      # alone; the pane only tells agent sub-rows apart.
+      if (($6 "") == (k "") && (k != "agent" || ($5 "") == (t ""))) { c = $1; exit }
     }
-    END { p = c ? c : b ? b : a; if (p) print "pos(" p ")" }
+    END { p = c ? c : a; if (p) print "pos(" p ")" }
   ' "$snap"
 }
 
@@ -6718,7 +6726,7 @@ picker() {
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
-        --bind "focus:transform-preview-label(\"$SELF\" _preview-label {7} {9})+execute-silent(printf '%s\t%s\t%s\n' {8} {7} {10} > \"$view_file.focus\")" \
+        --bind "focus:transform-preview-label(\"$SELF\" _preview-label {7} {9})+execute-silent([ -z {8} ] || printf '%s\t%s\t%s\n' {8} {7} {10} > \"$view_file.focus\")" \
         --bind "load:reload(sleep 3; \"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")+transform(\"$SELF\" _initial-pos \"$mode_file\" \"$view_file\")" \
         --bind "u:transform(\"$SELF\" _next-needs \"$mode_file\" \"$view_file\")" \
         --bind 'j:down' --bind 'k:up' --bind 'g:first' --bind 'G:last' \

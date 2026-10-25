@@ -222,6 +222,20 @@ assert_eq "U2 collect_live_rows field 13 honours a stubbed seam" 1700000500 "$(f
 restore_orig_attached
 kill_sessions a
 
+# --- a really attached session: list-sessions' format yields its attach time -
+# The stubs above never see a real time, so a typo in collect_live_rows'
+# '#{session_last_attached} #{session_name}' format would pass them. Attach a
+# client for a moment (script(1) gives it a terminal) so tmux records a time.
+if command -v script >/dev/null 2>&1; then
+  mk_session r
+  TERM=xterm timeout 5 script -qec "tmux attach-session -t '=${PREFIX}-r' \\; detach-client" /dev/null >/dev/null 2>&1
+  out="$(collect_live_rows | awk -F'\t' -v s="${PREFIX}-r" '$7 == s')"
+  assert "U2 a really attached session: collect_live_rows reads its attach time from list-sessions" '^[0-9]{9,}$' "$(field "$out" 13)"
+  kill_sessions r
+else
+  echo "FAIL - U2 real attach: script(1) is not installed in this image"; fail=1
+fi
+
 # --- agent sub-rows carry their owning session's visit time -----------------
 mk_session m
 wb_session_last_attached() { printf '1700000900\n'; }
@@ -422,6 +436,25 @@ tmux_claude_panes() {
 assert_eq "U3 agent sub-rows stay directly under their owner" "n zz m m/agent m/agent" "$(ord)"
 restore_orig_panes
 reset_u3
+
+# --- agent sub-rows keep pane order when a pane's status changes ------------
+# Pane order, not urgency: a pane that starts waiting must not jump above its
+# siblings on the next refresh (1.10 after 1.9: the pane number sorts as a
+# number).
+tmux_claude_panes() {
+  [ "${1:-}" = "${PREFIX}-m" ] || return 0
+  printf '%s\t%s:1.10\tworking\tc\n' "$R2" "${PREFIX}-m"
+  printf '%s\t%s:1.0\tworking\ta\n' "$R0" "${PREFIX}-m"
+  printf '%s\t%s:1.9\tidle\tb\n' "$R1" "${PREFIX}-m"
+}
+subrow_panes() { wb_agent_subrows alpha "${PREFIX}-m" /r b 100 | cut -f6 | sed "s/^${PREFIX}-m://" | paste -sd' '; }
+R0=2 R1=3 R2=1
+before="$(subrow_panes)"
+assert_eq "U3 agent sub-rows are listed in pane order" "1.0 1.9 1.10" "$before"
+R0=0 R2=2
+assert_eq "U3 agent sub-rows do not swap when a pane starts waiting" "$before" "$(subrow_panes)"
+unset R0 R1 R2
+restore_orig_panes
 
 # --- the stream marks never reach the output -------------------------------
 mk k1 alpha one 100
@@ -851,6 +884,11 @@ focus two t:6 agent
 assert_eq "U5 restore: another sub-row of the same session" "pos(4)" "$(ip)"
 focus two t:99 agent
 assert_eq "U5 restore: pane gone, falls back to the session's first row" "pos(2)" "$(ip)"
+# the owner row's pane is whichever is most urgent, so a status change moves it
+# to another pane; the owner row must still be found, not the old pane's sub-row
+u5_snap 1 "1 own 0 0 t:1 task" "2 two 0 0 t:6 task" "3 two 0 0 t:5 agent" "4 two 1 0 t:6 agent" "5 z 0 0 t:9 task"
+focus two t:5 task
+assert_eq "U5 restore: the owner row, after a different pane became the most urgent" "pos(2)" "$(ip)"
 u5_snap 0 "1 me 0 1 t:1 task" "2 me 0 1 t:2 agent" "3 b 0 0 t:3 task"
 focus me t:2 agent
 assert_eq "U5 restore: the (here) session's sub-row" "pos(2)" "$(ip)"
@@ -885,8 +923,8 @@ assert "U5 picker: u is in the NORMAL key list (so SEARCH unbinds it)" "navkeys=
 assert "U5 picker: the other nav keys are still in the list" "navkeys='j,k,g,G,q,i,r,b,p,n,u,/'" "$navkeys_line"
 focus_bind="$(printf '%s\n' "$picker_block" | /usr/bin/grep -F -- '"focus:')"
 assert "U5 picker: the focus bind keeps the preview label" 'focus:transform-preview-label\(.*_preview-label \{7\} \{9\}\)' "$focus_bind"
-assert "U5 picker: ... and chains the focus record (session {8}, target {7}, kind {10}) onto it" \
-  '_preview-label \{7\} \{9\}\)\+execute-silent\(printf .%s\\t%s\\t%s\\n. \{8\} \{7\} \{10\} > \\"\$view_file\.focus\\"\)"' "$focus_bind"
+assert "U5 picker: ... and chains the focus record (session {8}, target {7}, kind {10}) onto it, skipping dormant rows (no session)" \
+  '_preview-label \{7\} \{9\}\)\+execute-silent\(\[ -z \{8\} \] \|\| printf .%s\\t%s\\t%s\\n. \{8\} \{7\} \{10\} > \\"\$view_file\.focus\\"\)"' "$focus_bind"
 assert_eq "U5 picker: exactly one focus bind (fzf keeps only the last per event)" 1 "$(printf '%s\n' "$picker_block" | /usr/bin/grep -cF -- '"focus:')"
 assert "U5 picker: the trap also removes the focus record and the one-shot flag" \
   'trap .rm -f .*"\$view_file\.focus" "\$view_file\.initpos"' "$picker_block"
