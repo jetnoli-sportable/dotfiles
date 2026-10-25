@@ -186,12 +186,14 @@ It runs on every invocation now.
   survive `/clear`. **Decisions** are the last three entries under the task
   file's `## Decisions`: `###` titles, and top-level bullets that start
   with a date.
-- **A task with no live Claude session** (the picker's dormant rows) gets a
-  `dormant` card built from its newest reply file. A task with no reply
-  history, a repo row, a pane with no Claude session, or a live task
-  session with no Claude pane gets no card, and
-  the picker shows what it showed before: the task file, the pane's
-  screen, or `git status`.
+- **A task with no live Claude session** gets a `dormant` card built from
+  its newest reply file when `claude-card.sh` is given the task file. The
+  picker doesn't use it: its dormant rows show wb's task summary, led by
+  the saved handoff's Next, since that is what resuming picks up. A task
+  with no reply history gets no card. In the picker, a repo row, a pane
+  with no Claude session, or a live task session with no Claude pane gets
+  no card either, and shows the pane's bottom, the task summary, or
+  `git status`.
 - **A live session with no logged turns yet** (started before the reply
   log went live, or the hook skipped it) shows its state lines with the
   pane's screen below them in the picker. Right after `/clear`, a session

@@ -280,8 +280,9 @@ waiting: it stays grey. The cursor also stays on its row across the
 | <kbd>i</kbd> or <kbd>/</kbd> | Start typing to search — this also widens the dormant pool to include `paused` (deliberately shelved) tasks; <kbd>Esc</kbd> to go back to normal mode |
 | <kbd>q</kbd> / <kbd>h</kbd> | Close the picker |
 
-> **Preview pane**, labelled with what it shows: for a row with an agent,
-> the **bottom** of that agent's pane (its latest reply); for a task row
+> **Preview pane**, labelled with what it shows: for a row with a Claude
+> agent, its **context card** (see [below](#prefixi-and-the-picker-preview--the-session-card));
+> for any other agent pane, the **bottom** of that pane; for a task row
 > with no agent, including every dormant row, a **summary** — the title in
 > bold, one dim line (status · branch · when the handoff was saved), then
 > the latest Handoff an agent wrote, laid out by field: **Next** first with
@@ -347,11 +348,12 @@ The picker's preview shows each row's **context card**: the session's
 state (busy, waiting on you, idle, or quiet after 10 silent busy minutes),
 model, context % and cost, Claude Code's latest recap, your last prompt,
 the start of Claude's reply, its open questions, the task's recent
-artifacts and decisions. Dormant rows get the same card from the task's
-newest reply file. Rows with nothing to show (no reply history yet, a repo
-row, a pane with no Claude) keep the old preview: the task file, the
-pane's screen, or `git status`; a live session with no logged turns yet
-shows its state line above the pane's screen. From inside a session,
+artifacts and decisions. Dormant rows don't get the card: they show the
+task summary instead, led by the saved handoff's **Next**, since that is
+what resuming picks up. Rows with no Claude pane (a repo row, a pane with
+no Claude, a live task session with no Claude pane) show the pane's
+bottom, the task summary, or `git status`; a live session with no logged
+turns yet shows its state line above the pane's bottom. From inside a session,
 <kbd>prefix</kbd>+<kbd>i</kbd> shows the same card in a popup. See
 [the reply-log guide](guides/reply-log.html#the-context-card).
 

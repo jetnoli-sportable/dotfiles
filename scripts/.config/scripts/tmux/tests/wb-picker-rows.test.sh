@@ -302,7 +302,8 @@ else
   echo "ok   - picker: the periodic load bind still only re-renders (no dormant recompute)"
 fi
 
-# --- picker preview: the context card first, wb's own _preview when it's silent
+# --- picker preview: the context card for a row with a pane, wb's own _preview
+# when it's silent and for every row with no pane (dormant rows included)
 assert "picker: --preview comes from wb_preview_cmd" 'preview "\$\(wb_preview_cmd\)"' "$picker_block"
 PV="$(mktemp -d -t wb-preview.XXXXXX)"
 # stubs: the card echoes its argument, or prints nothing for a "silent" one;
@@ -328,7 +329,14 @@ if command -v zsh >/dev/null 2>&1; then
   assert "preview under zsh: card exit 3 adds the pane's screen" '^TMUX capture-pane -ep -t %nolog$' "$(preview %nolog "$PV/x.md" zsh demo-session)"
 fi
 assert "preview, live row: the card for the pane" '^CARD %5$' "$(preview %5 "$PV/silent-task.md")"
-assert "preview, dormant row: the card for the task file" "^CARD $PV/task.md\$" "$(preview '' "$PV/task.md")"
+printf -- '---\nstatus: doing\n---\n# DORMANT-TASK\n' >"$PV/task.md"
+dormant="$(preview '' "$PV/task.md")"
+assert "preview, dormant row: the task summary" '^DORMANT-TASK$' "$dormant"
+if printf '%s\n' "$dormant" | grep -q "^CARD"; then
+  echo "FAIL - preview, dormant row: the card is not asked for a task file"; fail=1
+else
+  echo "ok   - preview, dormant row: the card is not asked for a task file"
+fi
 assert "preview, live row with a silent card: the pane's screen" '^TMUX capture-pane -ep -t %silent$' "$(preview %silent "$PV/silent-task.md")"
 assert "preview, dormant row with a silent card: the task summary" '^TASK-FILE-BODY$' "$(preview '' "$PV/silent-task.md")"
 assert "preview, repo row with a silent card: git status" 'untracked$' "$(preview '' "$PV/silent-repo")"

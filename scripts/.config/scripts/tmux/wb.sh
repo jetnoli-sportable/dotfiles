@@ -6693,16 +6693,17 @@ _ctrl_x() {
 }
 
 # wb_preview_cmd — the picker's --preview: the session context card
-# (claude-card.sh) for a live row's pane ({7}) or a dormant row's task file
-# ({9}; dormant rows have no session, {8}); when the card prints nothing (a
-# pane with no Claude session, a live session with no Claude pane, a repo
-# row), _preview below: the pane's bottom, the task's laid-out summary, the
-# repo's git status, or "nothing to preview". A card that exits 3 (a live
+# (claude-card.sh) for a row with a pane ({7}); when the card prints nothing
+# (a pane with no Claude session) or there is no pane, _preview: the pane's
+# bottom, the task's laid-out summary, the repo's git status, or "nothing to
+# preview". A dormant row gets the summary, not the card's dormant mode: its
+# saved Handoff (Next, In flight) is what resuming acts on, where the card
+# leads with whatever the last exchange was. A card that exits 3 (a live
 # session with no logged turns yet) is only its state lines, so _preview
 # follows it.
 # fzf runs it with $SHELL, so it stays plain sh that zsh also reads.
 wb_preview_cmd() {
-  printf '%s' "c=\$('$SCRIPT_DIR/claude-card.sh' \"\$([ -n {7} ] && echo {7} || { [ -z {8} ] && echo {9}; })\"); rc=\$?;" \
+  printf '%s' "c=\$([ -n {7} ] && '$SCRIPT_DIR/claude-card.sh' {7}); rc=\$?;" \
     " [ -n \"\$c\" ] && printf '%s\\n\\n' \"\$c\";" \
     " if [ -z \"\$c\" ] || [ \"\$rc\" = 3 ]; then" \
     " '$SELF' _preview {7} {9} {10}; fi"

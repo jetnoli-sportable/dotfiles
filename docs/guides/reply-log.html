@@ -471,12 +471,14 @@ Otherwise up to five lines ending in <code>?</code> appear as &quot;possibly ope
 survive <code>/clear</code>. <strong>Decisions</strong> are the last three entries under the task
 file's <code>## Decisions</code>: <code>###</code> titles, and top-level bullets that start
 with a date.</li>
-<li><strong>A task with no live Claude session</strong> (the picker's dormant rows) gets a
-<code>dormant</code> card built from its newest reply file. A task with no reply
-history, a repo row, a pane with no Claude session, or a live task
-session with no Claude pane gets no card, and
-the picker shows what it showed before: the task file, the pane's
-screen, or <code>git status</code>.</li>
+<li><strong>A task with no live Claude session</strong> gets a <code>dormant</code> card built from
+its newest reply file when <code>claude-card.sh</code> is given the task file. The
+picker doesn't use it: its dormant rows show wb's task summary, led by
+the saved handoff's Next, since that is what resuming picks up. A task
+with no reply history gets no card. In the picker, a repo row, a pane
+with no Claude session, or a live task session with no Claude pane gets
+no card either, and shows the pane's bottom, the task summary, or
+<code>git status</code>.</li>
 <li><strong>A live session with no logged turns yet</strong> (started before the reply
 log went live, or the hook skipped it) shows its state lines with the
 pane's screen below them in the picker. Right after <code>/clear</code>, a session
