@@ -10,7 +10,7 @@
 #   a task with no reply history, so a caller can fall back to its own preview.
 #
 # Sections, in order, each left out when it has nothing:
-#   state     busy | waiting | idle | quiet <age> | no Claude running | state
+#   state     busy | running a command | waiting | idle | quiet <age> | state
 #             unknown, from Claude Code's session registry (~/.claude/sessions/
 #             <pid>.json, counted only while its pid runs with the same start
 #             time); then model, context % and cost from statusline.sh's cache
@@ -21,7 +21,7 @@
 #   questions a "Needs you" section; "no open questions" for a reply in the
 #             heading-per-point layout; else up to five "?" lines, "possibly open"
 #   artifacts the last five across the task's reply files
-#   decisions the last three titles under the task file's ## Decisions
+#   decisions the last three entries under the task file's ## Decisions
 # Every figure that can go stale carries its age. Reads local files only.
 #
 # Overrides (tests): REPLY_LOG_DIR, CLAUDE_SESSIONS_DIR, CLAUDE_PROJECTS_DIR,
@@ -191,10 +191,14 @@ questions() {
     }'
 }
 
-# decisions <task file> — the last three ### titles under ## Decisions
+# decisions <task file> — the last three entries under ## Decisions, in file
+# order: ### titles (as wb-decide writes them) and top-level bullets that
+# start with a date (the older hand-written form); undated bullets are an
+# entry's body
 decisions() {
   awk '/^## / { d = ($0 == "## Decisions") ; next }
-    d && /^### / { t[++n] = substr($0, 5) }
+    d && (/^### / || /^- (\*\*)?[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
+      s = $0; sub(/^(### |- )/, "", s); gsub(/\*\*/, "", s); t[++n] = s }
     END { for (i = (n > 3 ? n - 2 : 1); i <= n; i++) print "- " t[i] }' "$1" 2>/dev/null
 }
 
@@ -250,17 +254,23 @@ main() {
     local at=$((st_at / 1000))
     [ "$tm" -gt "$at" ] && at="$tm"
     case "$st" in
-      busy)    if [ $((NOW - at)) -ge "$QUIET_AFTER" ]; then line="${B}quiet $(age "$at")${R} ${D}(busy, no activity)${R}"
-               else line="${B}busy${R} ${D}$(age "$at")${R}"; fi ;;
+      # shell: the live Claude is running a shell command (a Bash tool call or a ! command)
+      busy|shell)
+               local doing=busy; [ "$st" = shell ] && doing="running a command"
+               if [ $((NOW - at)) -ge "$QUIET_AFTER" ]; then line="${B}quiet $(age "$at")${R} ${D}($doing, no activity)${R}"
+               else line="${B}$doing${R} ${D}$(age "$at")${R}"; fi ;;
       waiting) line="${B}waiting on you${R} ${D}$(age "$at")${R}" ;;
       idle)    line="${B}idle${R} ${D}$(age "$at")${R}" ;;
-      shell)   line="${B}no Claude running${R}" ;;
       *)       line="${B}state unknown${R}" ;;
     esac
     local c cm cp cc cts
     c="$CACHE_DIR/$sid.json"
-    if [ -f "$c" ] && IFS=$'\t' read -r cm cp cc cts < <(jq -r '[(.model // ""), (.context_pct // ""), (.cost_usd // ""), (.ts // 0)] | @tsv' "$c" 2>/dev/null) \
+    # "-" for a missing field: tab is IFS whitespace, so an empty field would
+    # collapse and shift the ones after it
+    if [ -f "$c" ] && IFS=$'\t' read -r cm cp cc cts < <(jq -r 'def v: if . == null or . == "" then "-" else . end;
+           [(.model | v), (.context_pct | v), (.cost_usd | v), (.ts | v)] | @tsv' "$c" 2>/dev/null) \
        && [[ "$cts" =~ ^[0-9]+$ ]]; then
+      [ "$cm" = - ] && cm=""; [ "$cp" = - ] && cp=""; [ "$cc" = - ] && cc=""
       line="$line ${D}·${R} ${cm:-?}"
       [ -n "$cp" ] && line="$line ${D}·${R} ${cp}% ctx"
       [ -n "$cc" ] && line="$line ${D}·${R} \$$(printf '%.2f' "$cc")"
@@ -346,6 +356,9 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  # fzf shows a preview command's stderr, so a failing helper (awk on an
+  # empty replies folder) must not reach it
+  exec 2>/dev/null
   main "$@"
   exit 0
 fi

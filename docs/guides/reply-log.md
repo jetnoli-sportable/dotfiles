@@ -164,9 +164,10 @@ It runs on every invocation now.
 ```
 
 - **State** comes from Claude Code's session registry
-  (`~/.claude/sessions/<pid>.json`): `busy`, `waiting on you`, `idle`, or
-  `no Claude running`. A session that has been `busy` for 10 minutes with
-  no transcript activity reads `quiet <age>`, since a long tool run and a
+  (`~/.claude/sessions/<pid>.json`): `busy`, `running a command` (a Bash
+  tool call or a `!` command), `waiting on you`, or `idle`. A session that
+  has been busy or running a command for 10 minutes with no transcript
+  activity reads `quiet <age>`, since a long tool run and a
   stuck session look the same from outside. An entry counts only while its
   process is alive with the same start time; otherwise the state is
   `state unknown`.
@@ -182,11 +183,13 @@ It runs on every invocation now.
   italics, shows "no open questions", since those questions are answered.
   Otherwise up to five lines ending in `?` appear as "possibly open".
 - **Artifacts** are the last five across the task's reply files, so they
-  survive `/clear`. **Decisions** are the last three titles under the task
-  file's `## Decisions`.
+  survive `/clear`. **Decisions** are the last three entries under the task
+  file's `## Decisions`: `###` titles, and top-level bullets that start
+  with a date.
 - **A task with no live Claude session** (the picker's dormant rows) gets a
   `dormant` card built from its newest reply file. A task with no reply
-  history, a repo row, or a pane with no Claude session gets no card, and
+  history, a repo row, a pane with no Claude session, or a live task
+  session with no Claude pane gets no card, and
   the picker shows what it showed before: the task file, the pane's
   screen, or `git status`.
 

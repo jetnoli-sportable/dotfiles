@@ -83,6 +83,11 @@ refute "no possibly-open list beside Needs you" 'Possibly open' "$out"
 eq "artifacts: unique, newest use last" $'- https://claude.ai/artifact/AAAA1111\n- edited: /work/demo/cli.sh\n- wrote: /work/demo/parser.sh' "$(sect Artifacts)"
 assert "decisions: the last three titles" '^- 2026-10-19 — Second decision ?- 2026-10-20 — Third decision ?- 2026-10-21 — Fourth' "$(sect Decisions | tr '\n' ' ')"
 refute "decisions: nothing from other sections" 'First decision|Not a decision' "$out"
+printf '{"session_id":"sess-a","model":"Opus 5.5","cost_usd":1.25,"context_pct":null,"ts":%s}\n' $((now - 150)) >"$D/cache/sess-a.json"
+nullctx="$(card %901)"
+assert "a null field in the cache: the others still show" 'Opus 5\.5 · \$1\.25 · as of 2m' "$nullctx"
+refute "a null context %: no ctx figure" 'ctx' "$nullctx"
+printf '{"session_id":"sess-a","model":"Opus 5.5","cost_usd":1.25,"context_pct":34,"ts":%s}\n' $((now - 150)) >"$D/cache/sess-a.json"
 
 echo "# the same card by session id"
 out="$(card sess-a)"
@@ -136,9 +141,13 @@ assert "a recent transcript write keeps it busy" '^busy <1m' "$out"
 echo "# shell status, no cache, no task"
 registry "$LIVE" sess-q %903 shell "$now"
 out="$(card %903)"
-assert "status shell: no Claude running" '^no Claude running' "$out"
+assert "status shell (a live Claude running a command): running a command" '^running a command <1m' "$out"
 refute "no statusline cache: no model/context/cost line" 'ctx|as of|\$' "$out"
 refute "no task: no task line or decisions" 'task:|Decisions' "$out"
+transcript recap-stale.jsonl sess-q $((now - 660))
+registry "$LIVE" sess-q %903 shell $((now - 660))
+assert "a command with nothing changed for 11 minutes: quiet 11m" '^quiet 11m \(running a command, no activity\)' "$(card %903)"
+registry "$LIVE" sess-q %903 shell "$now"
 
 echo "# open-question rules"
 assert "plain reply: possibly-open list" '── Possibly open' "$out"
@@ -158,6 +167,15 @@ reply needs.md sess-n "$D/task.md"
 registry "$LIVE" sess-n %905 idle "$now"
 out="$(card %905)"
 refute "no ## Decisions: no decisions block" 'Decisions|step' "$out"
+printf -- '---\nstatus: doing\n---\n# T\n\n## Decisions\n\n- 2026-10-01 — **Old bullet**\n### 2026-10-02 — A titled entry\n- an undated body bullet\n- **2026-10-03** — Bold-dated bullet\n- 2026-10-04 — Newest bullet\n' >"$D/task.md"
+eq "dated bullets count as decisions, in file order; undated bullets don't" \
+  $'- 2026-10-02 — A titled entry\n- 2026-10-03 — Bold-dated bullet\n- 2026-10-04 — Newest bullet' \
+  "$(out="$(card %905)"; sect Decisions)"
+
+echo "# empty replies folder"
+setup emptyreplies
+cp "$FX/task.md" "$D/task.md"
+eq "a task with no reply folder content: nothing, not an awk error" '' "$(card "$D/task.md")"
 
 echo "# dormant task"
 setup dormant

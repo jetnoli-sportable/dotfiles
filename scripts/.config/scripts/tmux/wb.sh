@@ -6261,11 +6261,12 @@ _ctrl_x() {
 
 # wb_preview_cmd — the picker's --preview: the session context card
 # (claude-card.sh) for a live row's pane ({7}) or a dormant row's task file
-# ({9}); when the card prints nothing (a pane with no Claude session, a repo
+# ({9}; dormant rows have no session, {8}); when the card prints nothing (a
+# pane with no Claude session, a live session with no Claude pane, a repo
 # row), the pane's screen, the task file, or the repo's git status as before.
 # fzf runs it with $SHELL, so it stays plain sh that zsh also reads.
 wb_preview_cmd() {
-  printf '%s' "c=\$('$SCRIPT_DIR/claude-card.sh' \"\$([ -n {7} ] && echo {7} || echo {9})\");" \
+  printf '%s' "c=\$('$SCRIPT_DIR/claude-card.sh' \"\$([ -n {7} ] && echo {7} || { [ -z {8} ] && echo {9}; })\");" \
     " if [ -n \"\$c\" ]; then printf '%s\\n' \"\$c\";" \
     " else [ -n {7} ] && tmux capture-pane -ep -t {7} || ([ -f {9} ] && cat {9} || git -C {9} -c color.status=always status -s); fi"
 }

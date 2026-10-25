@@ -449,9 +449,10 @@ It runs on every invocation now.
 </code></pre>
 <ul>
 <li><strong>State</strong> comes from Claude Code's session registry
-(<code>~/.claude/sessions/&lt;pid&gt;.json</code>): <code>busy</code>, <code>waiting on you</code>, <code>idle</code>, or
-<code>no Claude running</code>. A session that has been <code>busy</code> for 10 minutes with
-no transcript activity reads <code>quiet &lt;age&gt;</code>, since a long tool run and a
+(<code>~/.claude/sessions/&lt;pid&gt;.json</code>): <code>busy</code>, <code>running a command</code> (a Bash
+tool call or a <code>!</code> command), <code>waiting on you</code>, or <code>idle</code>. A session that
+has been busy or running a command for 10 minutes with no transcript
+activity reads <code>quiet &lt;age&gt;</code>, since a long tool run and a
 stuck session look the same from outside. An entry counts only while its
 process is alive with the same start time; otherwise the state is
 <code>state unknown</code>.</li>
@@ -467,11 +468,13 @@ reply laid out as one heading per point, each restating its question in
 italics, shows &quot;no open questions&quot;, since those questions are answered.
 Otherwise up to five lines ending in <code>?</code> appear as &quot;possibly open&quot;.</li>
 <li><strong>Artifacts</strong> are the last five across the task's reply files, so they
-survive <code>/clear</code>. <strong>Decisions</strong> are the last three titles under the task
-file's <code>## Decisions</code>.</li>
+survive <code>/clear</code>. <strong>Decisions</strong> are the last three entries under the task
+file's <code>## Decisions</code>: <code>###</code> titles, and top-level bullets that start
+with a date.</li>
 <li><strong>A task with no live Claude session</strong> (the picker's dormant rows) gets a
 <code>dormant</code> card built from its newest reply file. A task with no reply
-history, a repo row, or a pane with no Claude session gets no card, and
+history, a repo row, a pane with no Claude session, or a live task
+session with no Claude pane gets no card, and
 the picker shows what it showed before: the task file, the pane's
 screen, or <code>git status</code>.</li>
 </ul>
