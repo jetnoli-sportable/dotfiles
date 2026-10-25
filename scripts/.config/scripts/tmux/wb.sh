@@ -5879,15 +5879,15 @@ wb_picker_name_width() {
 # --with-nth=1 then shows ONLY this field, with the real data addressable as
 # hidden fields 2-14 for binds/preview.
 #
-# What the string shows: REPO, NAME, BRANCH, AGE. Status is the NAME colour
-# (finished cyan, done green, working yellow, else grey; a dormant row by
-# its task status: doing yellow, review cyan, paused grey). A row that needs
-# Jet (a live row at urank 0, not in the session Jet is in) is bold
-# reverse-video, drawn with no other colour inside so it stays readable. The
-# session Jet is in (WB_PICKER_SESSION) is all grey and tagged "(here)", and
-# never needs anyone: its agent waiting on Jet is Jet's own business. A
-# group's repo name is bold magenta on its first row when any row in the
-# group needs Jet, so every row is read before any is drawn (render in END).
+# What the string shows: REPO, NAME, BRANCH, AGE. Status is the colour of
+# the REPO and NAME cells, the picker's long-standing scheme (needs you bold
+# magenta, finished cyan, done green, working yellow, else grey; a dormant
+# row by its task status: doing yellow, review cyan, paused grey). BRANCH and
+# AGE stay in the default colour. The session Jet is in (WB_PICKER_SESSION)
+# is all grey and tagged "(here)", and never needs anyone: its agent waiting
+# on Jet is Jet's own business. (A bolder scheme -- status on NAME only,
+# reverse-video needs-you rows, a magenta group repo -- was tried on
+# 2026-10-25 and dropped as too distracting.)
 #
 # <snapshot_path> (live tab only): the same pass writes what the picker's
 # jump-to-next, header count and cursor restore need to a file — "count<TAB>N",
@@ -5926,7 +5926,7 @@ wb_format_for_display() {
       BEGIN {
         cur = ENVIRON["WB_PICKER_SESSION"]
         mg = "\033[1;35m"; gr = "\033[32m"; ye = "\033[33m"; dim = "\033[90m"
-        cy = "\033[36m"; rs = "\033[0m"; rev = "\033[1;7m"
+        cy = "\033[36m"; rs = "\033[0m"
       }
       {
         n++
@@ -5945,7 +5945,8 @@ wb_format_for_display() {
         if (dorm) {
           w = lbl; sub(/ .*/, "", w)
           c = (w == "doing") ? ye : (w == "review") ? cy : dim
-        } else if (lbl == "finished") c = cy
+        } else if (lbl == "needs you") c = mg
+        else if (lbl == "finished")   c = cy
         else if (lbl == "done")       c = gr
         else if (lbl == "working")    c = ye
         else                          c = dim
@@ -5992,7 +5993,6 @@ wb_format_for_display() {
         # The (here) tag is cut around, never cut off: shorten the name, not it.
         if (hs && $9 != "agent") ncell[n] = pad(fit(txt, wn - 7) " (here)", wn)
         else                     ncell[n] = pad(txt, wn)
-        npre[n] = pre; ncol[n] = c
         # The stored "[branch]" brackets would spend two of the few
         # characters in the column on a truncated branch, so the cell drops
         # them.
@@ -6000,43 +6000,13 @@ wb_format_for_display() {
         bcell[n] = padtail(br, wb)
         # Agent sub-rows repeat the owner row time; show it once, on the owner.
         acell[n] = ($9 == "agent") ? pad("", wa) : pad(age($13), wa)
-        mode[n] = hs ? 1 : (nd ? 2 : 0)
+        if (hs) disp = dim rcell[n] "  " ncell[n] "  " bcell[n] "  " acell[n] rs
+        else    disp = c rcell[n] rs "  " c ncell[n] rs "  " bcell[n] "  " acell[n]
+        print disp, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11), $(12), $(13)
         sess[n] = $7; ishere[n] = hs; isneed[n] = nd; tgt[n] = $6; kd[n] = $9
-        pt[n] = $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9 OFS $(10) OFS $(11) OFS $(12) OFS $(13)
-        # A block (a family: its root, children, siblings and agent
-        # sub-rows) starts at a row that is not an agent sub-row and is not
-        # nested; wb_order_blocks keeps each block whole.
-        if (n == 1 || ($9 != "agent" && $12 == "")) { nb++; brepo[nb] = $1; bfirst[nb] = n }
-        blk[n] = nb
-        if (hs) bhere[nb] = 1
-        if (nd) { bneed[nb] = 1; cnt++ }
+        if (nd) cnt++
       }
       END {
-        # A group is a run of blocks whose first rows share a repo; the
-        # block holding the current session is pinned first and is a group
-        # of its own, so the rest of its repo forms a group below it.
-        for (b = 1; b <= nb; b++) {
-          if (b == 1 || brepo[b] != brepo[b - 1] || (b == 2 && bhere[1])) { g++; gfirst[g] = bfirst[b] }
-          bg[b] = g
-          if (bneed[b]) gneed[g] = 1
-        }
-        for (g = 1; g <= nb; g++) if (gfirst[g] != "" && gneed[g]) magenta[gfirst[g]] = 1
-        for (i = 1; i <= n; i++) {
-          if (mode[i] == 2) {
-            # Reverse video swaps the colours, so the repo mark inside it
-            # becomes a magenta block; the rest stays plain default colour.
-            rc = magenta[i] ? "\033[35m" rcell[i] "\033[39m" : rcell[i]
-            disp = rev rc "  " ncell[i] "  " bcell[i] "  " acell[i] rs
-          } else if (mode[i] == 1) {
-            disp = dim rcell[i] "  " ncell[i] "  " bcell[i] "  " acell[i] rs
-          } else {
-            # The connector is grey, the name carries the status colour.
-            k = length(npre[i])
-            nm = (k ? dim npre[i] rs : "") ncol[i] substr(ncell[i], k + 1) rs
-            disp = (magenta[i] ? mg : dim) rcell[i] rs "  " nm "  " dim bcell[i] rs "  " dim acell[i] rs
-          }
-          print disp, pt[i]
-        }
         if (snap != "") {
           print "count", cnt + 0 > snap
           for (i = 1; i <= n; i++) print i, sess[i], isneed[i] + 0, ishere[i] + 0, tgt[i], kd[i] > snap
@@ -6144,7 +6114,7 @@ wb_status_line() {
     legend=$'\033[33mdoing'"$rs"$' \033[36mreview'"$rs"$' \033[90mpaused'"$rs"
   else
     label=LIVE
-    legend=$'\033[1;7mneeds you'"$rs"$' \033[36mfinished'"$rs"$' \033[32mdone'"$rs"$' \033[33mworking'"$rs"$' \033[90midle'"$rs"$' \033[90m(here) you are here'"$rs"
+    legend=$'\033[1;35mneeds you'"$rs"$' \033[36mfinished'"$rs"$' \033[32mdone'"$rs"$' \033[33mworking'"$rs"$' \033[90midle'"$rs"$' \033[90m(here) you are here'"$rs"
     if [ -n "$snap" ]; then
       local _tag="" n=""
       { IFS=$'\t' read -r _tag n; } 2>/dev/null < "$snap" || true

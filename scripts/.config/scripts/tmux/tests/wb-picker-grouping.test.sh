@@ -10,8 +10,8 @@
 #      current session and the frozen "now" to its fzf children.
 # U3 — rows group by repo, order by visit time, pin the current session's
 #      family on top; urgency never moves a row; the dormant tab groups too.
-# U4 — the display: REPO/NAME/BRANCH/AGE, status as NAME colour, reverse-video
-#      for rows that need Jet, (here), magenta repo, width, the snapshot file.
+# U4 — the display: REPO/NAME/BRANCH/AGE, status as the REPO and NAME colour
+#      (bold magenta for rows that need Jet), (here), width, the snapshot file.
 # U5 — the header (count, colour legend, key hint) and the needs-you cursor:
 #      _initial-pos, _next-needs, the focus record, the binds that wire them.
 #
@@ -116,11 +116,11 @@ $'alpha\tpane task\t[feat/x]\t3\t- idle\ts:1.1\ts\t/r\tagent\t1\t\ta1\t0'
 $'beta\tchild name\t[b]\t1\t+ finished\ts:0.0\ts\t/r\ttask\t1\t\tc2\t990000'
 $'gamma\tsibling name\t[b]\t1\to done\ts:0.0\ts\t/r\ttask\t0\t\t1\t0'
 )
-ascii_expected='^[[90malpha           ^[[0m  ^[[33ma short name                                     ^[[0m  ^[[90mfeat/x      ^[[0m  ^[[90m-   ^[[0m
-^[[90ma-very-long-r...^[[0m  ^[[36mthis is a very long task name exceeding width ...^[[0m  ^[[90m...anch-name^[[0m  ^[[90m1m  ^[[0m
-^[[90m                ^[[0m  ^[[90m   > ^[[0m^[[90mpane task                                   ^[[0m  ^[[90mfeat/x      ^[[0m  ^[[90m    ^[[0m
-^[[90mbeta            ^[[0m  ^[[90m   |- ^[[0m^[[36mchild name                                 ^[[0m  ^[[90mb           ^[[0m  ^[[90m2h  ^[[0m
-^[[90mgamma           ^[[0m  ^[[90m ~ ^[[0m^[[32msibling name                                  ^[[0m  ^[[90mb           ^[[0m  ^[[90m-   ^[[0m'
+ascii_expected='^[[33malpha           ^[[0m  ^[[33ma short name                                     ^[[0m  feat/x        -   
+^[[36ma-very-long-r...^[[0m  ^[[36mthis is a very long task name exceeding width ...^[[0m  ...anch-name  1m  
+^[[90m                ^[[0m  ^[[90m   > pane task                                   ^[[0m  feat/x            
+^[[36mbeta            ^[[0m  ^[[36m   |- child name                                 ^[[0m  b             2h  
+^[[32mgamma           ^[[0m  ^[[32m ~ sibling name                                  ^[[0m  b             -   '
 for awkname in mawk gawk; do
   bindir="$MAWK_BIN"; [ "$awkname" = gawk ] && bindir="$GAWK_BIN"
   got="$(printf '%s\n' "${ascii_rows[@]}" | PATH="$bindir:$PATH" wb_format_for_display | cut -f1 | cat -v)"
@@ -495,7 +495,7 @@ disp()  { wb_format_for_display "$@" | cut -f1; }                 # display fiel
 line_n() { sed -n "${1}p"; }
 ESC=$'\033'
 G90="${ESC}[90m"; Y33="${ESC}[33m"; C36="${ESC}[36m"; N32="${ESC}[32m"
-REV="${ESC}[1;7m"; MAG="${ESC}[1;35m"; MAGR="${ESC}[35m"
+MAG="${ESC}[1;35m"
 
 # --- no TYPE words, no status labels, a new header ---------------------------
 rows="$(u4row alpha 'alpha-one' '[b]' 2 '* working' s1)
@@ -520,7 +520,7 @@ assert_lacks "U4 no other row carries (here)" "(here)" "$(printf '%s\n' "$out" |
 l1="$(printf '%s\n' "$out" | line_n 1)"
 assert_eq "U4 the (here) row starts in grey" "$G90" "${l1:0:5}"
 assert "U4 the (here) row uses no status colour (finished is cyan)" '^[^m]*m[^'"$ESC"']*'"$ESC"'\[0m$' "$l1"
-assert_lacks "U4 the (here) row is not reverse-video" "$REV" "$l1"
+assert_lacks "U4 the (here) row is not magenta" "$MAG" "$l1"
 out="$(printf '%s\n' "$rows" | disp)"
 assert_lacks "U4 no (here) without a current session" "(here)" "$out"
 # a long name keeps the tag: the name is cut, never "(here)"
@@ -529,15 +529,16 @@ l1="$(u4row alpha "$long" '[b]' 1 '+ finished' s1 | WB_PICKER_SESSION=s1 disp | 
 assert "U4 a long name is cut to keep the (here) tag" '\.\.\. \(here\) ' "$l1"
 assert_eq "U4 ... and the row is no wider than a short one" "$(u4row alpha x '[b]' 1 '+ finished' s1 | WB_PICKER_SESSION=s1 disp | strip_ansi | char_len)" "$(printf '%s\n' "$l1" | char_len)"
 
-# --- needs you: reverse-video on that row only ------------------------------
+# --- needs you: bold magenta repo and name, on that row only ----------------
 rows="$(u4row alpha 'calm' '[b]' 1 '+ finished' s1)
 $(u4row alpha 'waiting' '[b]' 0 '! needs you' s2)
 $(u4row alpha 'busy' '[b]' 2 '* working' s3)"
 out="$(printf '%s\n' "$rows" | disp)"
-assert_lacks "U4 a calm row has no reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 1)"
-assert_has   "U4 a needs-you row is bold reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 2)"
-assert_lacks "U4 a working row has no reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 3)"
-assert_eq "U4 exactly one reverse span in the list" 1 "$(printf '%s' "$out" | /usr/bin/grep -cF "$REV")"
+assert_lacks "U4 a calm row is not magenta" "$MAG" "$(printf '%s\n' "$out" | line_n 1)"
+assert_has   "U4 a needs-you row's repo is bold magenta" "${MAG}alpha" "$(printf '%s\n' "$out" | line_n 2)"
+assert_has   "U4 ... and so is its name" "${MAG}waiting" "$(printf '%s\n' "$out" | line_n 2)"
+assert_lacks "U4 a working row is not magenta" "$MAG" "$(printf '%s\n' "$out" | line_n 3)"
+assert_lacks "U4 no reverse-video anywhere" "${ESC}[1;7m" "$out"
 
 # --- finished and done share urank 1 but not a colour -----------------------
 rows="$(u4row alpha 'fin-name' '[b]' 1 '+ finished' s1)
@@ -556,10 +557,9 @@ rows="$(u4row alpha 'mine' '[b]' 0 '! needs you' s1)
 $(u4row alpha 'mine-pane' '[b]' 0 '! needs you' s1 agent a1)
 $(u4row alpha 'later' '[b]' 1 '+ finished' s2)"
 out="$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 disp "$snap")"
-assert_lacks "U4 (here) row whose agent needs Jet: no reverse-video on any row" "$REV" "$out"
+assert_lacks "U4 (here) row whose agent needs Jet: no magenta on any row" "$MAG" "$out"
 assert_eq "U4 ... its agent sub-row is grey too" "$G90" "$(printf '%s\n' "$out" | line_n 2 | cut -c1-5)"
 assert_eq "U4 ... not in the snapshot: count 0" "count	0" "$(head -1 "$snap")"
-assert_eq "U4 ... and it does not turn the repo magenta" 0 "$(printf '%s' "$out" | /usr/bin/grep -cF "$MAG")"
 
 # --- a multi-agent session: the waiting pane counts once, on its sub-row ----
 snap="$FIXTURE/multi.snap"; rm -f "$snap" "$snap".*
@@ -570,8 +570,8 @@ $(u4row alpha 'pane-work' '[b]' 2 '* working' s2 agent)"
 out="$(printf '%s\n' "$rows" | disp "$snap")"
 assert_eq "U4 one waiting pane in a multi-agent session counts once" "count	1" "$(head -1 "$snap")"
 assert_eq "U4 ... and the count lands on the waiting sub-row (pos 2)" "2	s2	1	0	t:0.0	agent" "$(awk -F'\t' '$3 == 1' "$snap")"
-assert_lacks "U4 ... the owner row is not reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 1)"
-assert_has   "U4 ... the waiting sub-row is" "$REV" "$(printf '%s\n' "$out" | line_n 2)"
+assert_has   "U4 ... the waiting sub-row is bold magenta" "${MAG}" "$(printf '%s\n' "$out" | line_n 2)"
+assert_lacks "U4 ... the working sub-row is not" "$MAG" "$(printf '%s\n' "$out" | line_n 3)"
 
 # --- dormant rows: status word picks the colour, never needs-you ------------
 snap="$FIXTURE/dormant.snap"; rm -f "$snap" "$snap".*
@@ -582,7 +582,7 @@ out="$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 disp)"
 assert_has "U4 dormant doing is yellow"  "${Y33}dn-doing"  "$out"
 assert_has "U4 dormant review is cyan"   "${C36}dn-review" "$out"
 assert_has "U4 dormant paused is grey"   "${G90}dn-paused" "$out"
-assert_lacks "U4 a dormant row at urank 0 is never reverse-video" "$REV" "$out"
+assert_lacks "U4 a dormant row at urank 0 is never magenta" "$MAG" "$out"
 
 # --- render_rows: the live tab writes the snapshot, the dormant tab does not -
 ORIG_CCR="$(save_fn collect_combined_rows)"
@@ -609,29 +609,11 @@ rm -f "$vf" "$vf.cache" "$vf.snap" "$mf"
 picker_block="$(awk '/^picker\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert "U4 picker removes the snapshot with its other temp files" 'trap .rm -f .*"\$view_file\.snap"' "$picker_block"
 
-# --- magenta repo: first row of a group that holds a needs-you row ----------
+# --- no group marker: only the waiting row itself is magenta ---------------
 rows="$(u4row alpha 'a-first' '[b]' 1 '+ finished' s1)
-$(u4row alpha 'a-wait' '[b]' 0 '! needs you' s2)
-$(u4row alpha 'a-last' '[b]' 1 '+ finished' s3)
-$(u4row beta 'b-first' '[b]' 1 '+ finished' s4)
-$(u4row beta 'b-last' '[b]' 2 '* working' s5)"
+$(u4row alpha 'a-wait' '[b]' 0 '! needs you' s2)"
 out="$(printf '%s\n' "$rows" | disp)"
-assert_has   "U4 magenta repo on the first row of a group with a needs-you row" "${MAG}alpha" "$(printf '%s\n' "$out" | line_n 1)"
-assert_lacks "U4 ... the needs-you row itself is not the group's first row: no magenta there" "$MAGR" "$(printf '%s\n' "$out" | line_n 2)"
-assert_lacks "U4 ... nor on the group's last row" "$MAG" "$(printf '%s\n' "$out" | line_n 3)"
-assert_eq "U4 a group without a needs-you row has no magenta at all" 0 "$(printf '%s\n' "$out" | tail -2 | /usr/bin/grep -cF "${ESC}[1;35m")"
-# the needs-you row IS the first row: the mark sits inside the reverse span
-rows="$(u4row alpha 'a-wait' '[b]' 0 '! needs you' s2)
-$(u4row alpha 'a-more' '[b]' 1 '+ finished' s3)"
-out="$(printf '%s\n' "$rows" | disp)"
-assert_has "U4 a needs-you first row shows the repo mark inside its reverse span" "${REV}${MAGR}alpha" "$(printf '%s\n' "$out" | line_n 1)"
-# the pinned family is a group of its own: a needs-you child up there does
-# not colour the same repo's group below
-rows="$(u4row alpha 'mine' '[b]' 1 '+ finished' s1)
-$(u4row alpha 'kid' '[b]' 0 '! needs you' s2 task c1)
-$(u4row alpha 'next' '[b]' 1 '+ finished' s3)"
-out="$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 disp)"
-assert_lacks "U4 the repo group below the pinned family is not magenta" "$MAG" "$(printf '%s\n' "$out" | line_n 3)"
+assert_eq "U4 the first row of a group with a waiting row keeps its own colour" "${C36}alpha" "$(printf '%s\n' "$out" | line_n 1 | cut -c1-10)"
 
 # --- AGE ----------------------------------------------------------------------
 now=1000000
@@ -764,7 +746,7 @@ assert_eq "U5 header: a count of zero reads 0 need you" "wb · LIVE · 0 need yo
   "$(printf 'count\t0\n' > "$U5_DIR/zero.snap"; wb_status_line normal live "$U5_DIR/zero.snap" | strip_ansi | line_n 1)"
 # the legend: each word in the colour wb_format_for_display gives it
 leg="$(printf '%s\n' "$hdr" | line_n 2)"
-assert_has "U5 legend (live): needs you is bold reverse-video" "${REV}needs you" "$leg"
+assert_has "U5 legend (live): needs you is bold magenta" "${MAG}needs you" "$leg"
 assert_has "U5 legend (live): finished is cyan" "${C36}finished" "$leg"
 assert_has "U5 legend (live): done is green"    "${N32}done" "$leg"
 assert_has "U5 legend (live): working is yellow" "${Y33}working" "$leg"

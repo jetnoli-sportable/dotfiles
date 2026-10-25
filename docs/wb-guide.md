@@ -237,14 +237,15 @@ REPO              NAME                                          BRANCH        AG
 dotfiles          wb picker: group rows by repo... (here)       ...grouping   now
 dotfiles          wb's future: a Go store package plus bash...  ...direction  1h
 dotfiles           |- Decision propagation stop gap             ...opagation  12m
-be--monorepo      Post-processor rework (SW-6667)               ...c-server   1h
-terraform-gcp      |- v0.1 infra: one Cloud Run Job...          ...01-infra   1h
+api-service       Rate-limit the export endpoint                ...-limiting  1h
+infra              |- Alerting for the export job                ...-alerting  1h
 ```
 
-Status is the **colour of the NAME**, not a column: cyan finished, green
-done, yellow working, grey idle or no agent. On DORMANT: yellow doing, cyan
-review, grey paused. The header carries a one-line legend for the tab you
-are on. Nested rows show their connector: ` |- ` a child under its live
+Status is the **colour of the REPO and NAME**, not a column: bold magenta
+needs you, cyan finished, green done, yellow working, grey idle or no
+agent. On DORMANT: yellow doing, cyan review, grey paused. BRANCH and AGE
+stay in the default colour. The header carries a one-line legend for the
+tab you are on. Nested rows show their connector: ` |- ` a child under its live
 parent, ` ~ ` a sibling sharing a parent that isn't live, ` > ` one agent
 pane of a multi-agent session.
 
@@ -252,9 +253,8 @@ pane of a multi-agent session.
 
 An agent waiting on you is hard to miss:
 
-- its row is **bold reverse-video** (in a multi-agent session, the waiting
-  pane's sub-row, so you land on the pane itself);
-- the group's repo name turns **magenta** on the group's first row;
+- its row is **bold magenta** (in a multi-agent session, the waiting pane's
+  sub-row is too, so you can land on the pane itself);
 - the header says how many: `wb · LIVE · 2 need you · …`;
 - <kbd>u</kbd> jumps to the next one, wrapping round;
 - when the picker opens, the cursor **starts on the first one**. With none,
