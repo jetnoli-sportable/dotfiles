@@ -320,7 +320,7 @@ in <code>zsh/.zshrc</code>):</p>
 </tr>
 <tr>
 <td><code>--disallowedTools</code></td>
-<td><code>SendMessage</code>, <code>Edit</code>, <code>Write</code>, <code>NotebookEdit</code>, <code>tmux send-keys</code>, <code>tmux paste-buffer</code>, <code>wb append</code>, <code>wb set</code>, <code>wb status</code></td>
+<td>keeps it out of other panes and other tasks' files: <code>SendMessage</code>, <code>Edit</code>, <code>Write</code>, <code>NotebookEdit</code>; tmux <code>send</code>/<code>paste</code>/<code>run</code> in any abbreviation or flag order; every wb verb that writes (<code>append</code>, <code>set</code>, <code>done</code>, <code>pause</code>, …), bare or by <code>wb.sh</code> path; the <code>wb-capture.sh</code> shelf verbs. Read-only commands such as <code>wb board</code> still work. A prefix list can't see inside <code>bash -c</code> or a redirect; the skill's read-only rule covers those</td>
 </tr>
 </tbody>
 </table>

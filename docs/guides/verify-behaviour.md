@@ -61,7 +61,7 @@ in `zsh/.zshrc`):
 | `--model sonnet`, `--autocompact 100k` | cheap turns, small context |
 | `WB_AGENT_MEM_HIGH=1G` | the watcher's memory scope is squeezed first under pressure; `MemoryMax` is unchanged, so it is slowed, never the cause of a kill |
 | `WB_VERIFY_WATCHER=1` | the marker the wait script requires before arming |
-| `--disallowedTools` | `SendMessage`, `Edit`, `Write`, `NotebookEdit`, `tmux send-keys`, `tmux paste-buffer`, `wb append`, `wb set`, `wb status` |
+| `--disallowedTools` | keeps it out of other panes and other tasks' files: `SendMessage`, `Edit`, `Write`, `NotebookEdit`; tmux `send`/`paste`/`run` in any abbreviation or flag order; every wb verb that writes (`append`, `set`, `done`, `pause`, …), bare or by `wb.sh` path; the `wb-capture.sh` shelf verbs. Read-only commands such as `wb board` still work. A prefix list can't see inside `bash -c` or a redirect; the skill's read-only rule covers those |
 
 **Writing checks.** A feature that needs live checking writes
 `~/code/tasks/dossiers/<task>/checks.md`. Writing the file is the
