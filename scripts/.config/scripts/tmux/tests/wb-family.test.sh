@@ -241,6 +241,47 @@ else
 fi
 
 # ============================================================================
+# --concepts: the promotion target walk (_wb_concepts_paths), nearest first
+# ============================================================================
+: > "$TMUX_LOG"
+out="$(fam proj--grandchild --concepts)"
+assert_eq "concepts: only the umbrella's file" "$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$out"
+mk_dossier proj--child
+out="$(fam proj--grandchild --concepts)"
+assert_eq "concepts: nearest first" \
+  "$FIXTURE_TASKS/dossiers/proj--child/CONCEPTS.md
+$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$out"
+out="$(fam proj--cousin --concepts)"
+assert_eq "concepts: a child-level file doesn't reach a cousin" \
+  "$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$out"
+rm -rf "$FIXTURE_TASKS/dossiers/proj--child"
+# a missing parent file stops the walk, even if that parent's dossier exists
+mk_dossier proj--gone
+out="$(fam proj--orphan --concepts; echo "rc=$?")"
+assert_eq "concepts: missing parent file stops the walk" "rc=0" "$out"
+rm -rf "$FIXTURE_TASKS/dossiers/proj--gone"
+# a `parent:` line in the body is not the frontmatter parent
+mk_task proj--bodyp ""
+printf 'parent: proj--umbrella\n' >> "$FIXTURE_TASKS/proj--bodyp.md"
+out="$(fam proj--bodyp --concepts; echo "rc=$?")"
+assert_eq "concepts: a body parent: line is ignored" "rc=0" "$out"
+rm -f "$FIXTURE_TASKS/proj--bodyp.md"
+assert_eq "concepts: tmux never called" "0" "$(wc -l < "$TMUX_LOG" | tr -d ' ')"
+
+# ============================================================================
+# usage errors
+# ============================================================================
+out="$( (cmd_family proj--umbrella --bogus) 2>&1; echo "rc=$?")"
+assert "usage: an unknown flag exits 1 with usage" "usage: wb family .*
+rc=1" "$out"
+out="$( (cmd_family proj--umbrella --sessions extra) 2>&1; echo "rc=$?")"
+assert "usage: too many arguments exit 1 with usage" "usage: wb family .*
+rc=1" "$out"
+out="$( (cmd_family) 2>&1; echo "rc=$?")"
+assert "usage: no task exits 1 with usage" "usage: wb family .*
+rc=1" "$out"
+
+# ============================================================================
 # wb help lists the verb (also covered by wb-help.test.sh)
 # ============================================================================
 out="$(bash "$WB" help 2>/dev/null)"

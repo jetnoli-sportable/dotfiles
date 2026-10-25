@@ -701,7 +701,7 @@ details, incident history, and runbooks live in
 | `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
 | `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
 | `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |
-| `wb family <task> [--sessions\|--reseed]` | Lists a task's family (top parent first, then every descendant). `--sessions` lists the live tmux sessions working on it. `--reseed` re-links every family worktree to the family's `CONCEPTS.md`, and is the only form that writes anything (the untracked `CLAUDE.local.md` pointer). See "Decision propagation" above. |
+| `wb family <task> [--sessions\|--reseed\|--concepts]` | Lists a task's family (top parent first, then every descendant). `--sessions` lists the live tmux sessions working on it. `--concepts` lists the task's `CONCEPTS.md` files, nearest first (promotion writes to the first). `--reseed` re-links every family worktree to the family's `CONCEPTS.md`, and is the only form that writes anything (the untracked `CLAUDE.local.md` pointer). See "Decision propagation" above. |
 
 Two hooks now sit in front of raw git commands touching this repo:
 a `PreToolUse` hook asks before an agent runs anything that looks like a

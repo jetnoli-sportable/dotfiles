@@ -242,8 +242,9 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
    `stem<TAB>session<TAB>title` for each live tmux session working on a family task.
    Then call ListAgents. Each peer row names a session (the name SendMessage takes),
    a state and, for tmux sessions, `tmux <session>:@<window>.%<pane>`. A candidate
-   is a row whose tmux session appears in the `wb family` output. Drop this
-   session's own tmux session (step 1's `$session`), rows in state `shell` (Claude
+   is a row whose tmux session appears in the `wb family` output. Drop the calling
+   session's own tmux session (step 1's `$session`; a caller that never ran step 1,
+   such as `/weekly-review`, passes its own), rows in state `shell` (Claude
    isn't running there, so a message is lost) and rows with no tmux session.
    No candidates: say "no live family session", and stop.
 3. **Judge relevance; default nobody.** For each candidate, read its task file
@@ -252,11 +253,13 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
    family is not a reason by itself. Most decisions affect nobody else.
 4. **Waiting sessions.** A row in state `waiting` is blocked on its user (a
    permission prompt or a question), and a message could be taken as the answer. Don't
-   message it. List it as "not messaged (waiting on its user)" so Jet can relay the
-   decision by hand.
+   message it. List it as "not messaged (waiting on its user)", with its stem and task
+   title, so Jet can relay the decision by hand.
 5. **Outside the family.** When the decision names a task outside the family as
-   affected, ask Jet first. Only on a yes, message the live row whose tmux session is
-   that task's stem.
+   affected, ask Jet first. Only on a yes, run `wb family <that task> --sessions`, keep
+   the rows whose stem is that task, and message the matching live ListAgents row (the
+   same join as item 2). Never match a session by its name alone: after
+   `wb breakdown --apply` a session can keep a parent's name while working on a child.
 6. **Message.** Send one message per recipient per batch, with SendMessage to the
    row's name, in this shape:
 
@@ -271,8 +274,9 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
 7. **Failures.** If ListAgents or SendMessage is unavailable, `wb family` fails,
    or a send fails, say so in one line ("not propagated: <reason>"). The recorded
    entry stands either way. Never retry a failed send in a loop.
-8. **Confirm in one line.** Name each session messaged and why, plus any waiting
-   session not messaged, or "no live family session is affected". Say the judgement
+8. **Confirm in one line.** Name each session messaged, as its stem and task title
+   (from `wb family --sessions`), and why, plus any waiting session not messaged, or
+   "no live family session is affected". Say the judgement
    was made from each candidate's `## Plan` and latest Handoffs entry, so a wrong
    "nobody" can be checked.
 
@@ -288,26 +292,20 @@ procedure; `/close-out` runs it by reference.
 
 - **When.** `/close-out` runs it for the task's whole `## Decisions` section. From
   step 6 here, offer it only when all three hold: the decision changes how the system
-  behaves, the family already has a `CONCEPTS.md`, and step 2 found another live
-  family session. Creating a family's first `CONCEPTS.md` is offered only at
+  behaves, the family already has a `CONCEPTS.md`, and step 6's candidate list
+  (item 2) held another live family session. Creating a family's first `CONCEPTS.md` is offered only at
   `/close-out`.
 - **What counts as a fact.** Use the store README's rule of thumb ("What goes where"
   in `~/code/tasks/README.md`). If a decision breaks someone's mental model of how
   the system *behaves*, it is a fact. If it only explains *why* something was chosen,
   it is not.
-- **Target.** The nearest `CONCEPTS.md` up the parent chain:
-
-  ```bash
-  stem=$(basename "$task_file" .md); n=0
-  while [ -n "$stem" ] && [ "$n" -lt 20 ]; do
-    f=~/code/tasks/dossiers/$stem/CONCEPTS.md
-    [ -f "$f" ] && { echo "$f"; break; }
-    stem=$(sed -n 's/^parent: *//p' ~/code/tasks/$stem.md 2>/dev/null | head -1); n=$((n+1))
-  done
-  ```
-
-  If none is found (only at `/close-out`), the target is a new file in the top
+- **Target.** The nearest `CONCEPTS.md` up the parent chain: the first line of
+  `wb family <task_file> --concepts`. That is the same walk that links worktrees to the
+  file, so the line lands where the family's sessions read it; don't walk the chain by
+  hand. If it prints nothing (only at `/close-out`), the target is a new file in the top
   parent's dossier. The top parent is the first line of `wb family <task_file>`.
+- **Already promoted.** Skip any entry whose line is already in the target file, so a
+  second `/close-out` of the same task doesn't offer it again.
 - **Show four things before writing anything:** the exact lines (imperative,
   present tense, no rationale); the target file; which family tasks it reaches (a
   top parent's file reaches every stem `wb family` prints, a child's file reaches
@@ -320,8 +318,9 @@ procedure; `/close-out` runs it by reference.
   create the file, Write only the approved lines under a `# <family> — concepts`
   heading. Never edit `CLAUDE.local.md`.
 - **Re-link after creating a file.** When the promotion created the file, run
-  `wb family <task_file> --reseed` and relay its `reseeded`/`skipped` lines, so the
-  family's existing worktrees import it. Running sessions won't load a new file
+  `wb family <task_file> --reseed` and relay all its lines (`reseeded`, `skipped` and
+  `failed`), so the family's existing worktrees import it. A `failed` worktree doesn't
+  import the file until the cause is fixed and `--reseed` is run again; say so. Running sessions won't load a new file
   until `/clear` or a restart; step 6 is how they hear about it.
 
 ## Test scenarios (behavior to follow for each)

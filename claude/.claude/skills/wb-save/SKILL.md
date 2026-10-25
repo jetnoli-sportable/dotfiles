@@ -101,6 +101,15 @@ conversation — never generic filler:
   that a future `/wb-resume` reader (a fresh session with none of this
   conversation's context) can act on it directly, not just orient toward
   it.
+- **Received** (optional) — only when this session received one or more
+  `[wb-propagate]` messages since the last save that are still relevant, one
+  line each: `from <stem> (<plain description>): <entry titles>`. Omit the field
+  otherwise. After `/clear`, a decision made because of one of these still
+  needs the `- Prompted-by: [wb-propagate] from <stem> (<description>); not
+  propagated` bullet (`/wb-decide` step 3), and this entry is the only place the
+  next session learns of it. It goes last in the entry, after the `**Next:**`
+  line and after any ` ```run ` block, so the run directive keeps its place
+  right after `**Next:**`.
 
 If a field is genuinely empty (e.g. the session just started and nothing
 is done yet), say so plainly — `**Done:** nothing yet this session` —

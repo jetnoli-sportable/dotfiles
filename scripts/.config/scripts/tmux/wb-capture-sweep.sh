@@ -123,6 +123,10 @@ fi
 # subagent's report) with a body that STARTS with the marker; skill bodies and reports
 # that merely quote one stay dropped. An entry with no `origin` (older Claude Code)
 # must start with the cross-session wrapper, the marker right after its tag.
+# Only a genuine received line may reach `received` below, and ordinary text can contain
+# a line that starts `RECEIVED: ` (a quoted sweep output), so the jq emits a genuine one
+# behind an ASCII record separator (\u001e) and strips that byte from ordinary text, so
+# typed text can never forge it. The byte is removed again right after the match below.
 [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ] || finish "skipped: no transcript"
 total="$(wc -l <"$TRANSCRIPT" | tr -d ' ')"
 off="$(read_num "$SDIR/sweep_offset")"
@@ -146,12 +150,12 @@ excerpt="$(tail -n +"$((off + 1))" "$TRANSCRIPT" | head -n "$((total - off))" | 
        end)
       | sub(" Rule:[\\s\\S]*$"; "")
       | gsub("\\s+"; " ") | sub("^ "; "")
-      | "RECEIVED: " + .[0:400] + "\n"
+      | "\u001eRECEIVED: " + .[0:400] + "\n"
     else
       .message.content
       | (if type == "string" then [{type: "text", text: .}] elif type == "array" then . else [] end)
       | .[] | select(type == "object" and .type == "text" and ((.text // "") != ""))
-      | .text
+      | .text | gsub("\u001e"; "")
       | select(test("^\\s*<local-command-caveat>") | not)
       | if test("^\\s*<command-(name|message)>") then
           ((capture("<command-name>(?<n>[^<]*)</command-name>") | .n) // "") as $n
@@ -168,10 +172,13 @@ excerpt="$(tail -n +"$((off + 1))" "$TRANSCRIPT" | head -n "$((total - off))" | 
 # truncation below. So every RECEIVED line is also kept in <session dir>/received as
 # `<epoch><TAB><line>` (the newest RECEIVED_KEEP distinct lines, none older than
 # RECEIVED_MAX_AGE), and the prompt lists the kept lines the excerpt doesn't show.
+# Only lines behind the \x1e marker count (see the excerpt filter above); the marker is
+# stripped before storing and from the excerpt, so the file and the prompt show plain
+# `RECEIVED: ...` lines, and a file written without the marker loads unchanged.
 now="$(date +%s)"
 kept_received="$( {
   [ -f "$SDIR/received" ] && cat -- "$SDIR/received"
-  printf '%s\n' "$excerpt" | grep '^RECEIVED: ' | while IFS= read -r l; do printf '%s\t%s\n' "$now" "$l"; done
+  printf '%s\n' "$excerpt" | grep $'^\x1eRECEIVED: ' | while IFS= read -r l; do printf '%s\t%s\n' "$now" "${l#$'\x1e'}"; done
 } | awk -F'\t' -v now="$now" -v age="$RECEIVED_MAX_AGE" '$1 ~ /^[0-9]+$/ && now - $1 <= age' \
   | tac | awk -F'\t' '!seen[$2]++' | head -n "$RECEIVED_KEEP" | tac)"
 if [ -n "$kept_received" ]; then
@@ -179,6 +186,7 @@ if [ -n "$kept_received" ]; then
 else
   remove_named "$SDIR" received
 fi
+excerpt="${excerpt//$'\x1e'/}"
 
 if [ "${#excerpt}" -gt 0 ] && [ "$(printf '%s' "$excerpt" | wc -c)" -gt "$EXCERPT_BUDGET" ]; then
   excerpt="[...earlier turns truncated...]

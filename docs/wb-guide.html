@@ -988,8 +988,8 @@ details, incident history, and runbooks live in
 <td>Installs the git hook and the Claude Code <code>PreToolUse</code> hook that do the refusing/asking in the first place. One-time setup per machine.</td>
 </tr>
 <tr>
-<td><code>wb family &lt;task&gt; [--sessions|--reseed]</code></td>
-<td>Lists a task's family (top parent first, then every descendant). <code>--sessions</code> lists the live tmux sessions working on it. <code>--reseed</code> re-links every family worktree to the family's <code>CONCEPTS.md</code>, and is the only form that writes anything (the untracked <code>CLAUDE.local.md</code> pointer). See &quot;Decision propagation&quot; above.</td>
+<td><code>wb family &lt;task&gt; [--sessions|--reseed|--concepts]</code></td>
+<td>Lists a task's family (top parent first, then every descendant). <code>--sessions</code> lists the live tmux sessions working on it. <code>--concepts</code> lists the task's <code>CONCEPTS.md</code> files, nearest first (promotion writes to the first). <code>--reseed</code> re-links every family worktree to the family's <code>CONCEPTS.md</code>, and is the only form that writes anything (the untracked <code>CLAUDE.local.md</code> pointer). See &quot;Decision propagation&quot; above.</td>
 </tr>
 </tbody>
 </table>

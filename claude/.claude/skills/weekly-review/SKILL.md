@@ -74,7 +74,10 @@ accept --task <stem> <path>`; dismiss is `dismiss --task <stem> <path>`; leave i
 
 Once every draft is resolved, propagate what was accepted. Group the accepted entries
 by family, taking each task's top parent from the first line of `wb family <stem>`.
-Then run `/wb-decide`'s step 6 once per family, with that family's entries. You didn't
+Then run `/wb-decide`'s step 6 once per family, with that family's entries. This review
+never ran `/wb-decide` step 1, so read your own tmux session first (`tmux
+display-message -p '#S'`) and give it to step 6 as the session to drop; otherwise a
+review run inside one of these families could message itself. You didn't
 make these decisions, so before judging relevance read each accepted entry in full and
 its own task file's `## Plan`. Step 6 drops any entry carrying a `- Prompted-by:
 [wb-propagate]` bullet: this session never saw the message that prompted it, so the

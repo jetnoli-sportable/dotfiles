@@ -62,12 +62,13 @@
 #                                    "-" reads a multi-line body from stdin instead — the
 #                                    agent-mediated write path /wb-save, /handoff, and
 #                                    /weekly-review use instead of Edit-tool task writes
-#   wb family <task> [--sessions|--reseed]
+#   wb family <task> [--sessions|--reseed|--concepts]
 #                                    print <task>'s family stems (top parent first, then every
 #                                    descendant), read-only and tmux-free; --sessions prints
 #                                    stem<TAB>session<TAB>title per live session working on one
 #                                    (matched by @task, else session name); --reseed rewrites the
-#                                    CLAUDE.local.md concepts pointer in each family worktree
+#                                    CLAUDE.local.md concepts pointer in each family worktree;
+#                                    --concepts prints <task>'s CONCEPTS.md files, nearest first
 #   wb week path                     print the standing weekly-capture doc's path,
 #                                    creating it from the four-section template
 #                                    (What's working|What's not working|New ideas|Notes)
@@ -5990,22 +5991,28 @@ _wb_family_stems() {
 #               seed in cmd_new (a failure doesn't stop the rest) but exits 1
 #               if any seed failed. Writes only the untracked CLAUDE.local.md
 #               block: no tmux, no task lock, no task-store write.
-# Without a flag or with --sessions nothing is written and --reseed is the
-# only mode that touches the disk. Stdout stays script-friendly, like
+#   --concepts  <task>'s CONCEPTS.md files up its parent chain, nearest first
+#               (_wb_concepts_paths, the same walk the seed links), so the
+#               promotion step writes to the file worktrees actually import.
+# --reseed is the only mode that touches the disk. Stdout stays script-friendly, like
 # cmd_task_file; diagnostics go to stderr.
 cmd_family() {
   local query="${1:-}" mode="${2:-}"
   case "$mode" in
-    ''|--sessions|--reseed) ;;
-    *) echo "usage: wb family <task-ref> [--sessions|--reseed]" >&2; exit 1 ;;
+    ''|--sessions|--reseed|--concepts) ;;
+    *) echo "usage: wb family <task-ref> [--sessions|--reseed|--concepts]" >&2; exit 1 ;;
   esac
   if [ -z "$query" ] || [ $# -gt 2 ]; then
-    echo "usage: wb family <task-ref> [--sessions|--reseed]" >&2
+    echo "usage: wb family <task-ref> [--sessions|--reseed|--concepts]" >&2
     exit 1
   fi
 
   local file
   file="$(_wb_append_resolve_task "$query" "wb family")" || exit 1
+  if [ "$mode" = --concepts ]; then
+    _wb_concepts_paths "$file"
+    return 0
+  fi
 
   local -a stems=()
   local stem

@@ -112,6 +112,10 @@ entry can appear, distinguished by their heading line:
   when reading this entry. Not every rich entry has one — a save with no
   stated next action has `**Next:**` prose and no block, which is a normal,
   valid entry, not a gap in the file.
+
+  If the entry has a `**Received:**` field (the `[wb-propagate]` messages the
+  saved session had received), carry it forward: a decision recorded in this
+  session because of one of those messages gets the Prompted-by bullet.
 - **Terse, automatic:** `### <YYYY-MM-DD HH:MM> — <source> (auto)` (e.g.
   `wb pause (auto)`, `wb done (auto)`, `wb resume (auto)`), with a single
   one-line body such as `` Session paused via `wb pause`. `` — always ends
