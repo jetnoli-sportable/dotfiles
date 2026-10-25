@@ -24,7 +24,8 @@ Why GNOME and not Sway, and every key choice, are in
 
 - `install.sh` installs Forge and Run or Raise at pinned versions, disables
   Ubuntu's Tiling Assistant, runs `settings.sh` and `check-keys.sh --live`, and
-  only then enables the extensions, so a failure leaves them off. The root
+  only then enables the extensions, so a failure never switches one on (one
+  already enabled by an earlier run stays on). The root
   `install.sh` calls it after stowing `run-or-raise`.
 - `settings.sh` is every GNOME, Ubuntu Dock, GPaste and Forge setting this
   setup owns, as `gsettings` lines. GNOME settings live in a database, not

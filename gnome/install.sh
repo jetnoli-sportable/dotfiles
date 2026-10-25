@@ -54,7 +54,8 @@ done
 gnome-extensions disable tiling-assistant@ubuntu.com 2>/dev/null || true
 
 # Settings and the key check run before anything is enabled, so a failure in
-# either leaves the extensions off instead of live on keys GNOME still owns.
+# either never switches an extension on. It doesn't switch one off either: on a
+# re-run, extensions enabled by an earlier run stay on.
 bash ./settings.sh
 bash ./check-keys.sh --live
 
