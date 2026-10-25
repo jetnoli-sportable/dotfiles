@@ -39,22 +39,56 @@ triggers+='|^scripts/\.config/scripts/[^/]+\.sh$'
 
 changed="$(git diff --cached --name-only --diff-filter=ACMR)"
 
+# The blocking checks below run against an export of the index, not the
+# working tree, so an unstaged fix can't vouch for a staged break. Exported
+# once, on first use, into $snap.
+snap=""
+export_index() {
+  [ -n "$snap" ] && return
+  snap="$(mktemp -d)"
+  trap 'rm -rf "$snap"' EXIT
+  git checkout-index -a --prefix="$snap/"
+}
+
 # GNOME key-conflict check (R5): a key bound twice can crash GNOME Shell and
 # end the Wayland session, so any commit touching gnome/ or run-or-raise/ must
 # leave the keymap collision-free. Runs in an isolated settings session (never
 # the live one) and, unlike docgen, always blocks. Runs before the docgen
-# early exit below so the two checks stay independent. Checks an export of the
-# index, not the working tree, so an unstaged fix can't vouch for a staged clash.
+# early exit below so the two checks stay independent.
 if grep -qE '^(gnome|run-or-raise)/' <<<"$changed"; then
   echo "pre-commit: gnome/ or run-or-raise/ changed — checking for key conflicts"
-  snap="$(mktemp -d)"
-  trap 'rm -rf "$snap"' EXIT
-  git checkout-index -a --prefix="$snap/"
+  export_index
   if ! "$snap/gnome/check-keys.sh" --repo; then
     echo "pre-commit: key conflict (see above) — fix it before committing" >&2
     exit 1
   fi
 fi
+
+# Fast hook test suites. The risky-command guard fails open on any internal
+# error (a broken guard must never block every Bash call), so a crash bug
+# turns it into "allow everything" with nothing visible — its suite is the
+# only thing that notices. Blocks; `git commit --no-verify` is the escape.
+# One line per suite: <staged-path regex> <suite path, repo-relative>.
+suites='
+^scripts/\.config/scripts/tmux/(risky-command-guard\.sh|tests/risky-command-guard\.test\.sh)$ scripts/.config/scripts/tmux/tests/risky-command-guard.test.sh
+'
+while read -r re suite; do
+  [ -n "$re" ] || continue
+  grep -qE "$re" <<<"$changed" || continue
+  # Every suite listed needs jq; without it the guard is inert anyway.
+  if ! command -v jq >/dev/null; then
+    echo "pre-commit: jq not installed — skipping $suite" >&2
+    continue
+  fi
+  echo "pre-commit: running $suite"
+  export_index
+  if ! out="$(bash "$snap/$suite" 2>&1)"; then
+    # A crash repeats the same stderr line once per case; dedupe and cap it.
+    grep -v '^ok ' <<<"$out" | awk '!seen[$0]++' | head -n 30 >&2 || true
+    echo "pre-commit: $suite failed ($(grep -c '^FAIL' <<<"$out" || true) cases, above) — fix it before committing; full output: bash $suite" >&2
+    exit 1
+  fi
+done <<<"$suites"
 
 if ! grep -qE "$triggers" <<<"$changed"; then
   exit 0
