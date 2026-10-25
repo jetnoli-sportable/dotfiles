@@ -12,7 +12,7 @@ git config core.hooksPath .githooks
 
 # -t "$HOME" is required: this repo lives at ~/code/dotfiles, so stow's
 # default target (the parent directory) would be ~/code, not $HOME.
-stow -t "$HOME" zsh git ohmyposh tmux scripts nvim ghostty
+stow -t "$HOME" zsh git ohmyposh tmux scripts nvim ghostty run-or-raise
 
 # claude needs --no-folding: ~/.claude/ holds live untracked state (projects/,
 # todos/, decision-buffer state files) that a folded dir-symlink would shadow.
@@ -34,6 +34,10 @@ command -v nvim >/dev/null && nvim --headless "+Lazy! restore" +qa || true
 # target browser) aren't met, but guard the call site too, matching the
 # nvim step above -- a failure here shouldn't abort the rest of bootstrap.
 ~/.config/scripts/setup/default-browser.sh || echo "default-browser setup failed — see above" >&2
+
+# GNOME tiling (Forge + Run or Raise + workspaces) — see gnome/README.md.
+# Runs after the stow above: Run or Raise must find shortcuts.conf already linked.
+bash gnome/install.sh || echo "gnome/install.sh failed — see above" >&2
 
 echo "Done. Start a new shell. Machine-local extras go in ~/.zshrc.local."
 echo "Still needed by hand: fdfind, fzf, zoxide, oh-my-posh, lazygit, nvm/pyenv/tfenv as desired."
