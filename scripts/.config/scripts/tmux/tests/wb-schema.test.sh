@@ -206,11 +206,12 @@ else
   echo "FAIL - wb_transcripts: no transcript dir -> no output, exit 0 (got rc=$rc, out=$empty_out)"; fail=1
 fi
 
-# wb_resume_id preference order: primary-with-transcript > newest > empty.
+# wb_resume_id order: newest activity > empty. An @primary mark in
+# claude_sessions: is a record only and never overrides the ranking.
 printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\nclaude_sessions: older-id@2026-09-01T00:00:00Z@primary,newer-id@2026-09-05T00:00:00Z\n---\n# Primary\n' \
   > "$FIXTURE/proj--primary.md"
 out="$(CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_resume_id "$FIXTURE/proj--primary.md" "$WT_DIR")"
-assert "wb_resume_id: primary id with a live transcript wins over newest" '^older-id$' "$out"
+assert "wb_resume_id: an @primary mark doesn't override the newest transcript" '^newer-id$' "$out"
 
 printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\nclaude_sessions: gone-id@2026-08-01T00:00:00Z@primary\n---\n# Gone Primary\n' \
   > "$FIXTURE/proj--goneprimary.md"
@@ -279,8 +280,8 @@ assert "wb_resume_id: an untimestamped file with a later mtime wins (UTC+2 host)
 
 printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\nclaude_sessions: aaa-stale@2026-10-25T15:24:00Z@primary,bbb-live@2026-10-25T16:07:41Z\n---\n# Stale Primary\n' \
   > "$FIXTURE/proj--staleprimary.md"
-assert "wb_resume_id: @primary still wins over newer activity" \
-  '^aaa-stale$' "$(resume_in "$WT_TIE" "$FIXTURE/proj--staleprimary.md")"
+assert "wb_resume_id: a stale @primary (/clear after wb down) loses to newer activity" \
+  '^bbb-live$' "$(resume_in "$WT_TIE" "$FIXTURE/proj--staleprimary.md")"
 
 # Window edge: activity only before the 256 KiB tail window -> ranked by mtime
 # (2026-10-20), so the file with activity on 2026-10-24 wins, with no error.

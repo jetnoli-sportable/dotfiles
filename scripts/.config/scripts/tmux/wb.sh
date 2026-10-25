@@ -450,34 +450,22 @@ wb_transcript_rank_key() {
 }
 
 # wb_resume_id <task_file> <worktree_abs> — the session id `--resume` should
-# use (R9): the id marked `@primary` in claude_sessions: when its transcript
-# still exists, else the transcript with the newest real activity
+# use (R9): the transcript with the newest real activity
 # (wb_transcript_rank_key — not wb_transcripts' mtime order, which a mass
 # kill turns into a same-second tie broken alphabetically: on 2026-10-25 that
 # resumed the pre-/clear conversation in 3 of 21 sessions), else empty
 # (nothing to resume — the caller falls back to `--continue` or a cold start).
+# The `@primary` mark in claude_sessions: is deliberately not consulted: only
+# `wb down` writes it, from a pane id set when Jet sends a prompt, so it can
+# be stale at write time and stays stale across a later /clear. <task_file>
+# is unused now but kept for cmd_new's and the tests' call shape.
 # Tradeoff: a conversation reopened via /resume with no new turn ranks below
 # the one it replaced — "newest activity" means where Jet last typed.
 wb_resume_id() {
-  local task_file="$1" worktree_abs="$2"
+  local worktree_abs="$2"
   local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"
   [ -n "$transcripts" ] || return 0
 
-  local field entry primary_id=""
-  field="$(wb_get_frontmatter "$task_file" claude_sessions)"
-  if [ -n "$field" ]; then
-    local -a _wb_sessions_entries
-    IFS=',' read -r -a _wb_sessions_entries <<< "$field"
-    for entry in "${_wb_sessions_entries[@]}"; do
-      case "$entry" in
-        *@primary) primary_id="${entry%%@*}" ;;
-      esac
-    done
-  fi
-  if [ -n "$primary_id" ] && printf '%s\n' "$transcripts" | cut -f1 | grep -qxF "$primary_id"; then
-    printf '%s\n' "$primary_id"
-    return 0
-  fi
   local dir id mtime; dir="$(wb_transcript_dir "$worktree_abs")"
   while IFS=$'\t' read -r id mtime; do
     printf '%s\t%s\n' "$(wb_transcript_rank_key "$dir/$id.jsonl" "$mtime")" "$id"
@@ -492,7 +480,7 @@ wb_resume_id() {
 # (wb_layout_session always creates it there). <session> may be empty or
 # already gone; the snapshot still builds from disk, just with no primary
 # marked. Record-only (KTD2): nothing downstream re-derives activity from
-# this field, only wb_resume_id's primary-preference hint above.
+# this field, and wb_resume_id ignores the mark (see its header).
 wb_sessions_snapshot() {
   local session="$1" worktree_abs="$2"
   local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"

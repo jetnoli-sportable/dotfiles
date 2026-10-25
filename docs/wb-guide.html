@@ -622,7 +622,7 @@ session; resuming one (picker or <code>wb resume</code>) flips it straight back 
 via the picker's dormant rows or <code>wb resume &lt;task&gt;</code> — rebuilds the usual
 3-window layout and pre-types a resume command in the agent window instead
 of a bare <code>claude</code>: <code>claude --resume &lt;id&gt;</code> when a usable transcript exists
-(preferring the one marked primary), <code>claude --continue</code> when the task has
+(the conversation with the newest activity), <code>claude --continue</code> when the task has
 prior history but no transcript survived, or nothing at all for a genuinely
 new task. Like the nvim window, it's pre-typed, not run — you land on the
 window and press Enter yourself, so resuming several tasks at once never
