@@ -48,7 +48,7 @@ Decided 2026-10-25 (comparison page + chat; the tiler and storage choices were e
 - **Workspaces: 7 fixed** (`dynamic-workspaces=false`, `num-workspaces=7`), keys `A S D F 1 2 3`. Forge requires a fixed count anyway. GNOME workspaces have numbers only; the letter is just the key bound to workspace N.
 - **Both monitors switch together** (`workspaces-only-on-primary=false`), so every window belongs to a workspace and can be sent anywhere.
 - **Storage: a `gsettings` script, not dconf fragments.** Tested 2026-10-25 in an isolated settings database: `dconf load` accepts a misspelt key silently (exit 0), while `gsettings set` rejects an unknown key ("No such key", exit 1) and a wrong value type (exit 1). `dconf load` merges (keeps keys not in the file), contrary to the June draft's risk note. A script can also express "back to GNOME's default" with `gsettings reset`. Cost: Forge's schema sits in its extension folder, so Forge lines need `--schemadir ~/.local/share/gnome-shell/extensions/forge@jmmaranan.com/schemas`.
-- **Displaced GNOME keys** (agreed 2026-10-25): minimise (`Super+H`), app grid (`Super+A`), quick settings (`Super+S`) and the plain `Super+D` show-desktop binding are dropped (`Super+Ctrl+D` and `Ctrl+Alt+D` still show the desktop). Lock screen moves off `Super+L`; its new key is open (see Open Questions, because the agreed `Super+Ctrl+L` is Forge's default swap-right).
+- **Displaced GNOME keys** (agreed 2026-10-25): minimise (`Super+H`), app grid (`Super+A`), quick settings (`Super+S`) and the plain `Super+D` show-desktop binding are dropped (`Super+Ctrl+D` and `Ctrl+Alt+D` still show the desktop). Lock screen moves off `Super+L` to `Super+Ctrl+Shift+L` (the first pick, `Super+Ctrl+L`, is Forge's default swap-right; `Ctrl+Shift+Super+L` is unused by GNOME and by Forge, whose `Ctrl+Shift+Super` keys are only y/u/i/o).
 - **Tiling Assistant is disabled**, not uninstalled (it's an Ubuntu package). Its `Super+arrow` keys are left unbound.
 
 ---
@@ -64,12 +64,29 @@ Decided 2026-10-25 (comparison page + chat; the tiler and storage choices were e
 | `Super+A/S/D/F/1/2/3` | Switch to workspace 1–7 (both monitors) | GNOME `switch-to-workspace-N` |
 | `Super+Shift+A/S/D/F/1/2/3` | Send window to workspace 1–7 | GNOME `move-to-workspace-N` |
 | `Super+Alt+<letter>` | Forge layout extras (float, splits, stacked/tabbed) | Forge, rebound (table below) |
-| lock screen | Lock | GNOME, moved (open question) |
+| `Super+Ctrl+Shift+L` | Lock screen | GNOME, moved from `Super+L` |
 | `ctrl+h/j/k/l` | tmux panes / nvim splits | vim-tmux-navigator, untouched |
 
 ### App letters
 
-Set by the app-keys decision buffer of 2026-10-25 (`~/code/tasks/dossiers/dotfiles--gnome-tiling-wm-migration/2026-10-25-app-keys.md`); filled in here when it closes. Letters free for apps once this plan's own keys and the Forge rebinding are in place: B, C, E, G, I, M, O, Q, R, T, U, V, W, X, Y, Z (B, I, M, O, V are freed by clearing the GNOME binding that holds them today; see below).
+Chosen in the app-keys buffer, 2026-10-25:
+
+| Key | App | `.desktop` name (command) | Window class |
+|---|---|---|---|
+| `Super+I` | Ghostty | `com.mitchellh.ghostty.desktop` | read at build |
+| `Super+B` | Chromium | `chromium_chromium.desktop` | read at build |
+| `Super+V` | VS Code | `code_code.desktop` | read at build |
+| `Super+G` | GoLand | `goland_goland.desktop` | read at build |
+| `Super+C` | Slack | `slack.desktop` | read at build |
+| `Super+Q` | Claude Desktop | `claude-desktop.desktop` | `claude-desktop` |
+| `Super+O` | Outlook web app | `chrome-faolnafnngnfdaknnbpnkhgohbobgegn-Default.desktop` | `crx_faolnafnngnfdaknnbpnkhgohbobgegn` |
+| `Super+T` | Teams web app | `chrome-ompifgpmddkgmclendfeacglnodjjndh-Default.desktop` | `crx_ompifgpmddkgmclendfeacglnodjjndh` |
+| `Super+Y` | Spotify | `spotify_spotify.desktop` | read at build |
+| open | Files | `org.gnome.Nautilus.desktop` | read at build |
+
+Beekeeper Studio gets no key. **Files is open:** the buffer gave it `F`, which is workspace 4; proposed `E`. Teams and Outlook stay in the tracked file (decided: the split into a local untracked part isn't worth the complexity).
+
+Plain `Super` letters still free after this: E, R, U, W, X, Z. (`Super+M` stays GNOME's message list, since `Super+V` now goes to VS Code.)
 
 ### Forge defaults that move
 
@@ -99,9 +116,9 @@ Unchanged Forge defaults: focus/move/swap on hjkl, resize on `Ctrl(+Shift)+Super
 | `Super+S` | quick settings | Cleared |
 | `Super+D` | show desktop | That one entry cleared; `Super+Ctrl+D`, `Ctrl+Alt+D` kept |
 | `Super+H` | minimise | Cleared |
-| `Super+L` | lock screen | Moved (open question) |
+| `Super+L` | lock screen | Moved to `Super+Ctrl+Shift+L` |
 | `Super+B` / `Super+I` | launch browser / terminal | Cleared (launch-only; letters go to Run or Raise) |
-| `Super+M` | message list (also on `Super+V`) | `Super+M` entry cleared; `Super+V` kept |
+| `Super+V` | message list (also on `Super+M`) | `Super+V` entry cleared (VS Code); `Super+M` kept |
 | `Super+O` | rotation lock | Cleared (both monitors are fixed landscape) |
 | `Super+Alt+S` | screen reader toggle | Cleared (Forge stacked layout) |
 | `Super+arrows` | Tiling Assistant snaps | Freed by disabling the extension; left unbound |
@@ -197,11 +214,9 @@ GNOME either switches workspaces on the primary monitor only (other monitors sta
 
 ---
 
-## Open Questions (in the app-keys buffer, 2026-10-25)
+## Open Questions
 
-- Which letter each app gets (Ghostty, Chromium, VS Code, GoLand, Files, Slack, Claude, Spotify, Teams, Outlook, Beekeeper Studio…).
-- Lock screen's new key: the agreed `Super+Ctrl+L` is Forge's `window-swap-right`. Proposed: `Super+Escape` (clearing GNOME's rarely used "restore shortcuts" binding there).
-- Whether `shortcuts.conf` may name the Teams and Outlook web apps in a repo that will become public.
+- **Files' key.** The app-keys buffer gave it `F`, which is workspace 4 (`Super+F`). Proposed: `E`.
 
 ---
 
@@ -211,7 +226,7 @@ GNOME either switches workspaces on the primary monitor only (other monitors sta
 - **A GNOME upgrade can add default bindings.** The commit hook can't see that; `check-keys.sh --live` does, so run it after each upgrade (README says so).
 - **Extension crash ends the session on Wayland.** Two extensions are two chances; R5 removes the known trigger (a double-bound key).
 - **Wayland enable timing.** First enable after install needs a log-out; the README says so to avoid reading the install as broken.
-- **Public repo.** `shortcuts.conf` names apps installed on this machine; see Open Questions.
+- **Public repo.** `shortcuts.conf` names the Teams and Outlook web apps. Accepted 2026-10-25: app names don't identify an employer, and a tracked/untracked split isn't worth the complexity.
 
 ---
 
