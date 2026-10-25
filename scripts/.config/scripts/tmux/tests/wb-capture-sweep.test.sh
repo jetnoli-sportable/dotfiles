@@ -581,6 +581,24 @@ assert_nomatch "no truncation marker" 'earlier turns truncated' "$S"
 assert_match "command wrapper collapses to the command as typed" 'USER: /wb-save CMD_ARGS_TEXT' "$S"
 assert_nomatch "no command wrapper tags" '<command-(name|message|args)>' "$S"
 
+echo "# excerpt: [wb-propagate] cross-session messages kept as RECEIVED lines"
+new_scenario
+{
+  jq -nc '{type:"user",message:{role:"user",content:"a real question"}}'
+  jq -nc '{type:"user",isMeta:true,message:{role:"user",content:"Another Claude session sent a message:\n<cross-session-message from=\"uds:/run/user/1000/cc-socks/226762.sock\" from-name=\"some-session\" from-mode=\"prompting\">\n[wb-propagate] dotfiles--feat-x (the board redesign) recorded: \"Title\". Read the task file. Rule: RULE_BOILERPLATE_MARK do not re-propagate\n</cross-session-message>"}}'
+  jq -nc '{type:"user",isMeta:true,message:{role:"user",content:[{type:"text",text:"Another Claude session sent a message:\n<cross-session-message from=\"uds:/x.sock\" from-name=\"other\">\nplain chatter UNRELATED_XSESSION_MARK\n</cross-session-message>"}]}}'
+  jq -nc '{type:"user",isMeta:true,message:{role:"user",content:[{type:"text",text:"Base directory for this skill: SKILL_BODY_MARK2 send a [wb-propagate] message SKILL_MENTIONS_MARKER"}]}}'
+} >"$TRANSCRIPT"
+sweep
+S="$(cat "$OUTDIR/stdin")"
+assert_match "propagate message appears as RECEIVED line" 'RECEIVED: \[wb-propagate\] dotfiles--feat-x \(the board redesign\) recorded: "Title"\. Read the task file\.$' "$S"
+assert_nomatch "Rule suffix cut" 'RULE_BOILERPLATE_MARK' "$S"
+assert_nomatch "cross-session wrapper dropped" 'cross-session-message' "$S"
+assert_nomatch "cross-session message without [wb-propagate] dropped" 'UNRELATED_XSESSION_MARK' "$S"
+assert_nomatch "isMeta skill text still dropped" 'SKILL_BODY_MARK2' "$S"
+assert_nomatch "skill text mentioning [wb-propagate] is not a RECEIVED line" 'SKILL_MENTIONS_MARKER' "$S"
+assert_match "prompt carries the Prompted-by instruction" '- Prompted-by: \[wb-propagate\] from <stem> \(<plain description given in that message>\); not propagated' "$S"
+
 echo "# offset"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
 sweep

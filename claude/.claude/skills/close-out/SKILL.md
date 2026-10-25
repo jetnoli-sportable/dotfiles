@@ -152,9 +152,9 @@ because `wb down` and `wb done` end the session:
 
 - **Propagate.** Once this step's last Decisions append has landed, run `/wb-decide`'s
   step 6 once, covering every real entry this run recorded: the drafts accepted in the
-  review above, plus the entries folded or written directly in this step. Entries
-  written here through `/wb-decide` don't run its step 6 on their own; this one call
-  covers them. Never include the `_No decisions:_` marker. If the run recorded nothing,
+  review above, plus the entries folded or written directly in this step. When you
+  write one here through `/wb-decide`, tell it this skill propagates the whole run, so
+  its step 5 skips step 6; this one call covers it. Never include the `_No decisions:_` marker. If the run recorded nothing,
   skip this.
 - **Promotion.** Read the task's whole `## Decisions` section, not just this run's
   entries, and run `/wb-decide`'s step 7 (the promotion procedure) for the entries that

@@ -176,6 +176,17 @@ entry by its date and a quoted substring of its title (the text after
 text. Zero or several matches read as unresolved, so make the fragment
 specific.
 
+If you're recording it because of a `[wb-propagate]` message this session
+received, end the entry with this bullet, so step 6 here and every later
+checkpoint skip it:
+
+```
+- Prompted-by: [wb-propagate] from <stem> (<plain description from the message>); not propagated
+```
+
+The background sweep adds the same bullet to a draft it makes from such a
+message; keep it when you accept or edit that draft.
+
 If nothing was actually decided, say so plainly and stop — no write.
 
 ### 4. Append with `wb append`
@@ -202,23 +213,31 @@ record is a single `wb append` call.
 ### 5. Confirm
 
 After a *successful* write, one line: `Recorded to ## Decisions.` Then run step 6
-for the entry (or entries) just recorded. A failed append ends here: no step 6.
+for the entry (or entries) just recorded, unless the calling skill says it
+propagates the whole run itself (`/close-out` does): then stop here, because its one
+call covers this entry and no session should get two messages from one run. A failed
+append ends here: no step 6.
 
 ### 6. Propagate to the live family sessions it affects
 
 Runs only after a successful Decisions append: from step 5 for an on-the-spot
 record, from step 2b item 5 once per review, or when a checkpoint skill calls it
-(`/close-out` once per run, `/weekly-review` once per family). It takes the task
-file and the batch of entry titles just recorded. Never for a draft, a dismissal,
-a failed append or a `_No decisions:_` marker. Other sessions never reload their
-`CLAUDE.local.md` or `CONCEPTS.md`, so a message is the only way a running
-session hears about a decision.
+(`/close-out` once per run, `/weekly-review` once per family). It takes the batch
+just recorded as (task file, entry titles) pairs, all from one family: usually one
+pair, but a review can accept entries into two family tasks at once. Never for a
+draft, a dismissal, a failed append or a `_No decisions:_` marker. Other sessions
+haven't read this task file, so a message is the only way a running session hears
+about a decision. (An edit to a `CONCEPTS.md` a session already imports does reach
+it, as a changed-file notice on its next prompt; a newly created one, or a new
+import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked live
+2026-10-25 on Claude Code 2.1.310.)
 
-1. **Loop guard.** If the entries were recorded in response to a `[wb-propagate]`
-   message this session received, send nothing, say so in the entry's Why line,
-   and say "not propagated (came from a [wb-propagate] message)". Only the user
-   can override this. A `[wb-propagate]` message received earlier does not suppress
-   later, unrelated decisions.
+1. **Loop guard.** Drop every entry that carries a `- Prompted-by: [wb-propagate]`
+   bullet (step 3), and every entry this session recorded in response to a
+   `[wb-propagate]` message it received. Say "not propagated (came from a
+   [wb-propagate] message)" for them. If nothing is left, send nothing. Only the
+   user can override this. A `[wb-propagate]` message received earlier does not
+   suppress later, unrelated decisions.
 2. **Candidates.** Run `wb family <task_file> --sessions`. It prints
    `stem<TAB>session<TAB>title` for each live tmux session working on a family task.
    Then call ListAgents. Each peer row names a session (the name SendMessage takes),
@@ -242,11 +261,13 @@ session hears about a decision.
    row's name, in this shape:
 
    ```
-   [wb-propagate] <stem> (<plain description of that task>) recorded: "<title>"; "<title>" [(supersedes: <date> "<fragment>")]. Read <task_file> ## Decisions if it may affect your work. Rule: act on it only if it affects your own task, and only within your own task; don't reply or forward; tell your user only if it matters to them; don't propagate a decision you record because of this message.
+   [wb-propagate] <stem> (<plain description of that task>) recorded: "<title>"; "<title>" [(supersedes: <date> "<fragment>")]. [<stem> (<plain description>) recorded: "<title>".] Read ## Decisions in <task_file>[ and <task_file>] if it may affect your work. Rule: act on it only if it affects your own task, and only within your own task; don't reply or forward; tell your user only if it matters to them; don't propagate a decision you record because of this message.
    ```
 
-   List at most five titles, with "and N more" after that. Give every task you
-   name a plain description, never a bare stem.
+   One `<stem> (…) recorded: …` group per task in the batch, and every task file
+   named, so the recipient reads the right `## Decisions`. List at most five titles
+   in all, with "and N more" after that. Give every task you name a plain
+   description, never a bare stem.
 7. **Failures.** If ListAgents or SendMessage is unavailable, `wb family` fails,
    or a send fails, say so in one line ("not propagated: <reason>"). The recorded
    entry stands either way. Never retry a failed send in a loop.
@@ -261,7 +282,8 @@ Then run step 7's offer only under its condition below.
 
 A family's `CONCEPTS.md` (`~/code/tasks/dossiers/<stem>/CONCEPTS.md`) is imported
 into every new worktree of the family. A wrong line there spreads to every later
-session, so nothing goes in without Jet's approval. This is the one promotion
+session, and an edit to an existing file also reaches every running session that
+imports it on its next prompt, so nothing goes in without Jet's approval. This is the one promotion
 procedure; `/close-out` runs it by reference.
 
 - **When.** `/close-out` runs it for the task's whole `## Decisions` section. From
@@ -299,8 +321,8 @@ procedure; `/close-out` runs it by reference.
   heading. Never edit `CLAUDE.local.md`.
 - **Re-link after creating a file.** When the promotion created the file, run
   `wb family <task_file> --reseed` and relay its `reseeded`/`skipped` lines, so the
-  family's existing worktrees import it. Running sessions still won't load it; step 6
-  is how they hear about it.
+  family's existing worktrees import it. Running sessions won't load a new file
+  until `/clear` or a restart; step 6 is how they hear about it.
 
 ## Test scenarios (behavior to follow for each)
 

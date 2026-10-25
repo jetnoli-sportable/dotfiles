@@ -113,26 +113,40 @@ fi
 # SKILL.md, 14-15 KB, which would otherwise fill the budget below at every checkpoint
 # sweep and push the real turns out unswept) and `<local-command-caveat>` lines. A
 # slash-command wrapper collapses to the command as typed (`/wb-decide <args>`).
+# The one isMeta exception is a message received from another Claude session (a
+# `<cross-session-message>`; skill bodies that merely mention the marker stay dropped)
+# that carries `[wb-propagate]` (a sibling task recorded a decision): it is kept as one
+# compact `RECEIVED: [wb-propagate] ...` line, cut at its boilerplate ` Rule:` suffix
+# and capped at 400 chars, so a draft made because of it can be marked Prompted-by.
 [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ] || finish "skipped: no transcript"
 total="$(wc -l <"$TRANSCRIPT" | tr -d ' ')"
 off="$(read_num "$SDIR/sweep_offset")"
 [ "$total" -lt "$off" ] && off=0
 excerpt="$(tail -n +"$((off + 1))" "$TRANSCRIPT" | head -n "$((total - off))" | jq -rR '
   fromjson? | select(type == "object" and (.type == "user" or .type == "assistant"))
-  | select(.isMeta != true)
+  | (.isMeta == true) as $meta
   | (if .type == "user" then "USER: " else "ASSISTANT: " end) as $p
   | .message.content
   | (if type == "string" then [{type: "text", text: .}] elif type == "array" then . else [] end)
   | .[] | select(type == "object" and .type == "text" and ((.text // "") != ""))
   | .text
-  | select(test("^\\s*<local-command-caveat>") | not)
-  | if test("^\\s*<command-(name|message)>") then
-      ((capture("<command-name>(?<n>[^<]*)</command-name>") | .n) // "") as $n
-      | ((capture("<command-args>(?<a>[\\s\\S]*?)</command-args>") | .a) // "") as $a
-      | ($n + (if $a == "" then "" else " " + $a end))
-    else . end
-  | select(. != "")
-  | $p + . + "\n"' 2>/dev/null || true)"
+  | if $meta then
+      select(contains("<cross-session-message") and contains("[wb-propagate]"))
+      | capture("(?<r>\\[wb-propagate\\][\\s\\S]*)").r
+      | sub("\\s*</cross-session-message>[\\s\\S]*$"; "")
+      | sub(" Rule:[\\s\\S]*$"; "")
+      | gsub("\\s+"; " ")
+      | "RECEIVED: " + .[0:400] + "\n"
+    else
+      select(test("^\\s*<local-command-caveat>") | not)
+      | if test("^\\s*<command-(name|message)>") then
+          ((capture("<command-name>(?<n>[^<]*)</command-name>") | .n) // "") as $n
+          | ((capture("<command-args>(?<a>[\\s\\S]*?)</command-args>") | .a) // "") as $a
+          | ($n + (if $a == "" then "" else " " + $a end))
+        else . end
+      | select(. != "")
+      | $p + . + "\n"
+    end' 2>/dev/null || true)"
 if [ "${#excerpt}" -gt 0 ] && [ "$(printf '%s' "$excerpt" | wc -c)" -gt "$EXCERPT_BUDGET" ]; then
   excerpt="[...earlier turns truncated...]
 $(printf '%s' "$excerpt" | tail -c "$EXCERPT_BUDGET")"
@@ -212,7 +226,11 @@ Otherwise reply with exactly: NONE
 
 Rules: do not restate entries that are already recorded or that are listed
 as already drafted or already rejected; do not invent decisions; routine implementation steps are not decisions; prefer NONE when
-unsure. No preamble, no commentary.
+unsure. If a decision in the excerpt was made because of a `RECEIVED: [wb-propagate]`
+line, add a last bullet to that entry exactly in this shape, taking the stem and
+description from the received line:
+- Prompted-by: [wb-propagate] from <stem> (<plain description given in that message>); not propagated
+No preamble, no commentary.
 
 === RECORDED DECISIONS (do not repeat these) ===
 PROMPT
