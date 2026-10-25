@@ -1,57 +1,110 @@
 ---
-title: "feat: GNOME tiling trifecta (focus-or-launch + Forge tiling + workspace moves)"
+title: "feat: GNOME tiling trifecta (Run or Raise app keys + Forge tiling + 7 letter/number workspaces)"
 status: active
 date: 2026-06-21
+revised: 2026-10-25
 type: feat
 origin: logs/decisions/2026-06-18-window-manager.md
 ---
 
-# feat: GNOME tiling trifecta (focus-or-launch + Forge tiling + workspace moves)
+# feat: GNOME tiling trifecta (Run or Raise app keys + Forge tiling + 7 workspaces)
 
 ## Summary
 
-Bring the **basic i3/AeroSpace workflow** to the existing Ubuntu 24.04 / Wayland / GNOME session **without switching to Sway** — keyboard-driven focus-or-launch, window tiling via the **Forge** extension, and move-window-to-workspace — and capture it all as a reproducible, version-controlled GNOME config in the dotfiles repo. Everything binds to `Super` (never `ctrl+hjkl`, which `vim-tmux-navigator` owns).
+Bring the **basic i3/AeroSpace workflow** to the existing Ubuntu 24.04 / Wayland / GNOME 46 session **without switching to Sway**: one letter key per app that jumps to it or starts it (the **Run or Raise** extension), keyboard tiling (the **Forge** extension), and seven fixed workspaces reached and filled by keyboard. All of it lives in the dotfiles repo: a `gnome/` folder holding a `gsettings` script and an install script, a `run-or-raise/` stow package holding the app-key file, and a key-conflict check that runs on every commit and every install. Everything binds to `Super`; `ctrl+hjkl` stays with `vim-tmux-navigator`.
 
-One stretch goal is honored (letter-addressed workspaces); one is **documented as not achievable on GNOME** (workspace-pinned-to-monitor) rather than faked — see Scope Boundaries.
+This revision (2026-10-25) replaces the June draft's choices with the ones made on the comparison page (`~/code/tasks/dossiers/dotfiles--gnome-tiling-wm-migration/gnome-tiling-choices.html`) and in chat that day. The June draft used the dock-order `Super+1..9` keys for apps, four workspaces and dconf fragment files; all three changed (see Key Technical Decisions).
 
 ---
 
 ## Problem Frame
 
-GNOME gives whole-app management via the mouse and a numbered-workspace model; it does not ship i3-style keyboard tiling. The user wants the AeroSpace muscle memory they had on macOS — jump to an app, tile windows by keyboard, throw windows to workspaces — but Sway was assessed as overkill (full shell rebuild, and GNOME already handles the hybrid Intel+NVIDIA GPU and Wayland clipboard for free; see `origin`). GNOME + the Forge extension covers the trifecta while keeping the whole working session intact.
+GNOME manages whole apps mostly by mouse and ships no i3-style keyboard tiling. The goal is the AeroSpace muscle memory from macOS: a fixed key per app, tiles moved by keyboard, windows thrown to named workspaces. Sway was assessed as overkill (a full shell rebuild, and GNOME already handles the hybrid Intel+NVIDIA GPU and the Wayland clipboard; see `origin`). GNOME plus two extensions covers the trifecta and keeps the session intact.
 
-GNOME settings are not files — they live in **dconf**. So unlike the other stow packages, this config is captured as dconf dumps plus a load script, not a symlink (anticipated in the migration guide's WM note).
+GNOME settings are not files; they live in the **dconf** settings database. So most of this config is a script that writes settings, not a stow symlink. The one exception is Run or Raise, whose config is a plain text file and stows like every other package.
+
+**What the machine looks like today (checked live 2026-10-25):** Ubuntu 24.04.3, GNOME Shell 46.0, Wayland, two landscape monitors (laptop `eDP-1` primary, `HDMI-1`). Ubuntu's Tiling Assistant extension is enabled and owns `Super+arrows`. Neither Forge nor Run or Raise is installed. Several of the keys this plan uses already have GNOME meanings (`Super+A` app grid, `Super+S` quick settings, `Super+D` show desktop, `Super+H` minimise, `Super+L` lock, `Super+1..9` dock apps); the plan moves or clears each one.
 
 ---
 
 ## Requirements
 
-- **R1.** Focus-or-launch an app by keyboard; launch if not running, focus if it is.
-- **R2.** Keyboard window tiling (focus + move tiles directionally).
-- **R3.** Move the focused window to a chosen workspace by keyboard.
-- **R4.** All bindings use `Super`; none collide with `ctrl+hjkl` (vim-tmux-navigator, `tmux/.config/tmux/tmux.conf`) or with each other.
-- **R5.** The whole setup is reproducible from the repo on a fresh machine via one bootstrap step.
-- **R6 (stretch).** Switch to / move windows to workspaces addressed by **letter** (A/S/D/F).
-- **R7 (stretch, documented-infeasible).** Pin workspaces to specific monitors (AeroSpace model). See Scope Boundaries.
+- **R1. App keys.** One `Super+letter` per app: focus it if running (cycling its windows on repeat presses), start it if not. If the app's window is on another workspace, jump to that workspace (Run or Raise's default behaviour; no `:move-window-to-active-workspace`).
+- **R2. Keyboard tiling.** Focus and move tiles directionally with `Super+hjkl` / `Super+Shift+hjkl`.
+- **R3. Workspaces.** Seven fixed workspaces. `Super+A/S/D/F/1/2/3` switch to workspaces 1–7; add `Shift` to send the focused window there. Switching changes both monitors together.
+- **R4. Super only.** Every binding uses `Super`. Nothing binds `ctrl+h/j/k/l` (owned by vim-tmux-navigator, `tmux/.config/tmux/tmux.conf`).
+- **R5. No key is ever bound twice.** A key bound by both Run or Raise and GNOME (or Forge) can crash GNOME Shell, which on Wayland ends the whole session. A check enforces this on every commit that touches the config and on every install.
+- **R6. Reproducible.** `install.sh` applies the whole setup on a fresh machine; re-running it is safe.
+- **R7 (documented limitation).** Per-monitor workspace sets (the AeroSpace model) are not possible on GNOME. See Scope Boundaries.
 
 ---
 
 ## Key Technical Decisions
 
-- **Forge** is the tiler — i3-style auto-tiling, actively maintained for GNOME 46 Wayland. (Alternatives PaperWM/Tactile are a different interaction model; rejected for not matching the i3 muscle memory.)
-- **Config-as-code via dconf dump/load, not stow symlink.** GNOME/Forge settings live in dconf; the `gnome/` package holds `.dconf` fragments + an idempotent `install.sh` that `dconf load`s them. This is the one package that intentionally breaks the pure-symlink stow model.
-- **Modifier map (resolves the Super+number collision).** `Super+1..9` is already GNOME's `switch-to-application-N` (focus-or-launch by dock order) — so workspaces must NOT also use `Super+number`. The user's letter-workspace wish resolves this cleanly:
+Decided 2026-10-25 (comparison page + chat; the tiler and storage choices were each checked with `/ce-pov`):
 
-  | Binding | Action | Mechanism |
-  |---|---|---|
-  | `Super+1..9` | focus-or-launch app (dock order) | built-in `switch-to-application-N` |
-  | `Super+h/j/k/l` | focus tile left/down/up/right | Forge |
-  | `Super+Shift+h/j/k/l` | move tile | Forge |
-  | `Super+A/S/D/F` | switch to workspace 1–4 | `wm.keybindings` (letter→numbered) |
-  | `Super+Shift+A/S/D/F` | move window to workspace 1–4 | `wm.keybindings` |
+- **App keys: Run or Raise, replacing the dock-order number keys.** Run or Raise (`run-or-raise@edvard.cz`, extensions.gnome.org version 49, GNOME 45–51) reads `~/.config/run-or-raise/shortcuts.conf`, one line per key: `<key>,<command or .desktop name>,<window class>,<title>`. It focuses the window itself, which gets around GNOME's focus-stealing prevention on Wayland. GNOME's `switch-to-application-1..9` (`Super+1..9` by dock order) are cleared: letters replace them and `Super+1..3` become workspaces. *Rejected:* the built-in number keys alone (nine apps max, order tied to the dock); walker (on GNOME it runs only as an ordinary window, can't focus open windows, and needs a Rust + Go source build). Walker is deferred, reversing the 2026-07-06 pick; it revives only if the parked compositor switch does.
+- **Tiler: Forge** (`forge@jmmaranan.com`, GNOME 45–51, on extensions.gnome.org). It has no maintainer, so the plan names a fallback. *Rejected:* **Pop Shell**, which is better maintained (GNOME 50 support landed March 2026) but is a Node/TypeScript source build, moves tiles through an "adjust mode" rather than `Super+Shift+hjkl`, and its `make local-install` runs `scripts/configure.sh`, which rewrites GNOME shortcuts on its own (`Super+F` home folder, `Super+E/B/T` launchers, `Super+Q` close). That last point works directly against R5. Pop Shell stays the fallback, installed without `configure.sh`, if a GNOME upgrade breaks Forge.
+- **Workspaces: 7 fixed** (`dynamic-workspaces=false`, `num-workspaces=7`), keys `A S D F 1 2 3`. Forge requires a fixed count anyway. GNOME workspaces have numbers only; the letter is just the key bound to workspace N.
+- **Both monitors switch together** (`workspaces-only-on-primary=false`), so every window belongs to a workspace and can be sent anywhere.
+- **Storage: a `gsettings` script, not dconf fragments.** Tested 2026-10-25 in an isolated settings database: `dconf load` accepts a misspelt key silently (exit 0), while `gsettings set` rejects an unknown key ("No such key", exit 1) and a wrong value type (exit 1). `dconf load` merges (keeps keys not in the file), contrary to the June draft's risk note. A script can also express "back to GNOME's default" with `gsettings reset`. Cost: Forge's schema sits in its extension folder, so Forge lines need `--schemadir ~/.local/share/gnome-shell/extensions/forge@jmmaranan.com/schemas`.
+- **Displaced GNOME keys** (agreed 2026-10-25): minimise (`Super+H`), app grid (`Super+A`), quick settings (`Super+S`) and the plain `Super+D` show-desktop binding are dropped (`Super+Ctrl+D` and `Ctrl+Alt+D` still show the desktop). Lock screen moves off `Super+L`; its new key is open (see Open Questions, because the agreed `Super+Ctrl+L` is Forge's default swap-right).
+- **Tiling Assistant is disabled**, not uninstalled (it's an Ubuntu package). Its `Super+arrow` keys are left unbound.
 
-  `ctrl+hjkl` stays reserved for tmux/vim. (R4)
-- **Fixed workspaces for stable letter mapping.** Set `dynamic-workspaces=false` + `num-workspaces=4` so A/S/D/F address stable targets (GNOME has no *named* workspaces — letters map to numbers via keybind).
+---
+
+## Keymap (end state)
+
+| Keys | Action | Owner |
+|---|---|---|
+| `Super+<letter>` (per app) | Jump to the app (switching workspace if needed), or start it | Run or Raise |
+| `Super+h/j/k/l` | Focus tile left/down/up/right | Forge |
+| `Super+Shift+h/j/k/l` | Move window to the tile that way | Forge |
+| `Super+Ctrl+h/j/k/l` | Swap window with its neighbour | Forge (default) |
+| `Super+A/S/D/F/1/2/3` | Switch to workspace 1–7 (both monitors) | GNOME `switch-to-workspace-N` |
+| `Super+Shift+A/S/D/F/1/2/3` | Send window to workspace 1–7 | GNOME `move-to-workspace-N` |
+| `Super+Alt+<letter>` | Forge layout extras (float, splits, stacked/tabbed) | Forge, rebound (table below) |
+| lock screen | Lock | GNOME, moved (open question) |
+| `ctrl+h/j/k/l` | tmux panes / nvim splits | vim-tmux-navigator, untouched |
+
+### App letters
+
+Set by the app-keys decision buffer of 2026-10-25 (`~/code/tasks/dossiers/dotfiles--gnome-tiling-wm-migration/2026-10-25-app-keys.md`); filled in here when it closes. Letters free for apps once this plan's own keys and the Forge rebinding are in place: B, C, E, G, I, M, O, Q, R, T, U, V, W, X, Y, Z (B, I, M, O, V are freed by clearing the GNOME binding that holds them today; see below).
+
+### Forge defaults that move
+
+Forge's shipped defaults (from its `org.gnome.shell.extensions.forge.keybindings` schema) put six actions on plain `Super+letter`, which would eat app letters, and `Shift+Super+S` (stacked layout), which collides with "send to workspace 2". All layout extras move to `Super+Alt`:
+
+| Forge action | Default | New |
+|---|---|---|
+| `window-toggle-float` | `Super+C` | `Super+Alt+C` |
+| `window-toggle-always-float` | `Shift+Super+C` | `Super+Alt+Shift+C` |
+| `con-split-layout-toggle` | `Super+G` | `Super+Alt+G` |
+| `con-split-horizontal` | `Super+Z` | `Super+Alt+Z` |
+| `con-split-vertical` | `Super+V` | `Super+Alt+V` |
+| `focus-border-toggle` | `Super+X` | `Super+Alt+X` |
+| `prefs-tiling-toggle` | `Super+W` | `Super+Alt+W` |
+| `workspace-active-tile-toggle` | `Shift+Super+W` | `Super+Alt+Shift+W` |
+| `con-stacked-layout-toggle` | `Shift+Super+S` | `Super+Alt+S` (clears GNOME's screen-reader toggle there) |
+| `con-tabbed-layout-toggle` | `Shift+Super+T` | `Super+Alt+T` |
+
+Unchanged Forge defaults: focus/move/swap on hjkl, resize on `Ctrl(+Shift)+Super+y/u/i/o`, gaps on `Ctrl+Super+plus/minus`, `Super+Return` swap-last-active, `Super+Period` preferences.
+
+### GNOME bindings cleared or moved
+
+| Key today | GNOME action | Change |
+|---|---|---|
+| `Super+1..9` | `switch-to-application-N` | Cleared (all nine) |
+| `Super+A` | app grid | Cleared |
+| `Super+S` | quick settings | Cleared |
+| `Super+D` | show desktop | That one entry cleared; `Super+Ctrl+D`, `Ctrl+Alt+D` kept |
+| `Super+H` | minimise | Cleared |
+| `Super+L` | lock screen | Moved (open question) |
+| `Super+B` / `Super+I` | launch browser / terminal | Cleared (launch-only; letters go to Run or Raise) |
+| `Super+M` | message list (also on `Super+V`) | `Super+M` entry cleared; `Super+V` kept |
+| `Super+O` | rotation lock | Cleared (both monitors are fixed landscape) |
+| `Super+Alt+S` | screen reader toggle | Cleared (Forge stacked layout) |
+| `Super+arrows` | Tiling Assistant snaps | Freed by disabling the extension; left unbound |
 
 ---
 
@@ -59,122 +112,109 @@ GNOME settings are not files — they live in **dconf**. So unlike the other sto
 
 ```
 gnome/
-  install.sh                 # idempotent: installs Forge, loads all dconf fragments
-  README.md                  # what this does + the one manual step
-  dconf/
-    01-launch.dconf          # dock favourites order + optional Super+letter app shortcuts
-    02-forge.dconf           # Forge tiling keybinds (Super+hjkl / Super+Shift+hjkl)
-    03-workspaces.dconf      # fixed workspaces + Super+letter switch/move
+  install.sh        # install + enable Forge and Run or Raise (pinned versions),
+                    # disable Tiling Assistant, run settings.sh, run check-keys.sh --live
+  settings.sh       # every gsettings set/reset this setup owns (GNOME, Forge, GPaste)
+  check-keys.sh     # R5 conflict check: --repo (isolated settings db) and --live
+  README.md         # what this does, the one log-out, why not stow
+run-or-raise/
+  .config/run-or-raise/shortcuts.conf   # stow package: one line per app key
+.githooks/pre-commit  # gains: run gnome/check-keys.sh --repo when gnome/ or run-or-raise/ change
+install.sh            # gains: run-or-raise in the stow list, then gnome/install.sh
+gpaste.dconf          # removed; its 8 settings move into settings.sh
 ```
-
-Tracked in git; **not** stow-symlinked (activation is `dconf load`, run by `install.sh`).
 
 ---
 
 ## Implementation Units
 
-### U1. Install + enable the Forge extension
+### U1. Install the extensions and disable Tiling Assistant
 
-- **Goal:** Forge installed and enabled on GNOME 46 Wayland, reproducibly.
-- **Requirements:** R2, R5
-- **Dependencies:** none
-- **Files:** `gnome/install.sh` (Forge-install step), `gnome/README.md`
-- **Approach:** Prefer scripted install via the `gnome-extensions` CLI (46.0, confirmed present) — download the GNOME 46 release zip and `gnome-extensions install --force`, then enable. Document the **one manual fallback** (Extension Manager GUI) in README, since EGO installs sometimes need a Shell reload (`Alt+F2 r` on Xorg / re-login on Wayland).
-- **Patterns to follow:** other bootstrap scripts under `scripts/.config/scripts/`.
-- **Test scenarios:**
-  - After running the install step, `gnome-extensions list --enabled` includes `forge@jmmaranan.com`.
-  - Re-running `install.sh` is a no-op (idempotent) — already-installed Forge isn't reinstalled or errored.
-- **Verification:** windows tile automatically after enabling; `gnome-extensions info forge@jmmaranan.com` shows ENABLED.
+- **Goal:** Forge and Run or Raise installed and enabled at pinned versions; Tiling Assistant disabled.
+- **Requirements:** R2, R1, R6
+- **Files:** `gnome/install.sh`, `gnome/README.md`
+- **Approach:** Download each extension's zip for the pinned version from extensions.gnome.org, `gnome-extensions install --force`, then `gnome-extensions enable`. `gnome-extensions disable tiling-assistant@ubuntu.com`. On Wayland a newly installed extension usually needs one log-out before it can be enabled; the script reports this instead of failing, and the README says so. Run or Raise must be enabled only **after** `shortcuts.conf` is stowed (U4): if the file is missing on first enable, the extension writes a default one, and stow then refuses to replace that real file.
+- **Test scenarios:** `gnome-extensions list --enabled` shows both extensions and not Tiling Assistant; a second run changes nothing and exits 0.
 
-### U2. Focus-or-launch bindings (dock reorder + optional letter shortcuts)
+### U2. GNOME settings: workspaces and displaced keys
 
-- **Goal:** `Super+1..9` reliably focuses-or-launches the user's real apps; optional `Super+letter` for top apps.
-- **Requirements:** R1, R4
-- **Dependencies:** none
-- **Files:** `gnome/dconf/01-launch.dconf`
-- **Approach:** Reorder `org.gnome.shell favorite-apps` so target apps occupy positions 1–9 (Slack is currently at 12, unreachable). `switch-to-application-N` is already bound to `Super+N` — no new binding needed for the core requirement. Optionally add `media-keys custom-keybindings` for `Super+V`=Code etc.; document that letter shortcuts only *focus* (vs launch-new) for single-instance apps.
-- **Test scenarios:**
-  - `Super+1` focuses the app in favourites slot 1; pressing again with it focused is a no-op (stays focused), not a second launch.
-  - With the target app closed, `Super+<n>` launches it.
-  - `Test expectation: behavioural verification is manual (GNOME Shell keybinds); dconf fragment correctness covered by U6 load test.`
-- **Verification:** all of the user's daily apps reachable within `Super+1..9`.
+- **Goal:** seven fixed workspaces on `A S D F 1 2 3`, both monitors switching, every displaced GNOME key cleared or moved.
+- **Requirements:** R3, R4, R5
+- **Files:** `gnome/settings.sh`
+- **Approach:** Plain `gsettings set` / `gsettings reset` lines, grouped by schema with a one-line comment per group. `org.gnome.mutter dynamic-workspaces false`, `org.gnome.desktop.wm.preferences num-workspaces 7`, `org.gnome.mutter workspaces-only-on-primary false`. `switch-to-workspace-1..7` and `move-to-workspace-1..7` in `org.gnome.desktop.wm.keybindings` (keep `Super+Home`/`Super+Shift+Home` on workspace 1). Clear the bindings in the "GNOME bindings cleared or moved" table. GPaste's 8 settings move here from `gpaste.dconf`. The script stops at the first failing line (`set -e`), so a typo surfaces at install.
+- **Test scenarios:** run against an isolated settings database (see U5) and spot-check `gsettings get` for workspace 4 (`['<Super>f']`), workspace 5 (`['<Super>1']`) and `switch-to-application-1` (`[]`).
 
-### U3. Forge tiling keybinds (Super+hjkl)
+### U3. Forge settings
 
-- **Goal:** directional focus + move of tiles on `Super+hjkl` / `Super+Shift+hjkl`, with zero `ctrl+hjkl` overlap.
-- **Requirements:** R2, R4
-- **Dependencies:** U1
-- **Files:** `gnome/dconf/02-forge.dconf`
-- **Approach:** Set Forge's keybindings under `org.gnome.shell.extensions.forge.keybindings` — `window-focus-{left,down,up,right}` → `Super+{h,j,k,l}`, `window-move-{...}` → `Super+Shift+{h,j,k,l}`. Explicitly clear any Forge default that would land on `ctrl+hjkl`.
-- **Test scenarios:**
-  - `Super+l` moves focus to the tile on the right; `Super+Shift+l` swaps the window rightward.
-  - Inside a tmux/nvim pane, `ctrl+h/j/k/l` still navigates panes/splits (no WM interception). (R4)
-  - `Test expectation: keybind behaviour is manual; fragment loads cleanly per U6.`
-- **Verification:** tiling navigation works; tmux/vim navigation unaffected.
+- **Goal:** Forge's keys match the keymap; no Forge default lands on an app letter, a workspace key, or `ctrl+hjkl`.
+- **Requirements:** R2, R4, R5
+- **Files:** `gnome/settings.sh` (Forge section)
+- **Approach:** `gsettings --schemadir <forge schemas> set org.gnome.shell.extensions.forge.keybindings <key> <value>` for each row of "Forge defaults that move". The rest of Forge's defaults stay as shipped; the U5 check covers them because it reads Forge's whole schema, not only the keys this script sets.
+- **Test scenarios:** with Forge enabled, `Super+l` focuses the tile to the right, `Super+Shift+l` moves the window right, `Super+Alt+C` floats it; inside tmux/nvim, `ctrl+h/j/k/l` still moves between panes and splits.
 
-### U4. Workspace switch + move-to-workspace
+### U4. Run or Raise package
 
-- **Goal:** switch workspaces and throw the focused window to a workspace by keyboard.
-- **Requirements:** R3, R4
-- **Dependencies:** none
-- **Files:** `gnome/dconf/03-workspaces.dconf`
-- **Approach:** `dynamic-workspaces=false`, `num-workspaces=4`. Bind `org.gnome.desktop.wm.keybindings switch-to-workspace-{1..4}` and `move-to-workspace-{1..4}`. Core binding here is numeric/Shift+numeric is taken by apps — so this unit wires the **number-free** path and U5 layers the letters. (Keep number keys for apps; workspaces are letter-addressed.)
-- **Test scenarios:**
-  - Moving a window to workspace 2 then switching to workspace 2 shows the window there.
-  - Switching away and back preserves window placement.
-  - `Test expectation: manual behavioural check; fragment load covered by U6.`
-- **Verification:** 4 fixed workspaces, keyboard switch + move both work.
+- **Goal:** one `Super+letter` per app, as chosen in the app-keys buffer.
+- **Requirements:** R1, R5
+- **Files:** `run-or-raise/.config/run-or-raise/shortcuts.conf`, `install.sh` (stow list)
+- **Approach:** One line per app: the `.desktop` file name as the command (the same name the dock uses, e.g. `code_code.desktop`), the window class from `StartupWMClass` where the `.desktop` file has one (e.g. `claude-desktop`, `crx_<app-id>` for Chromium web apps), otherwise read once with GNOME's Looking Glass (`Alt+F2`, `lg`, Windows tab). No mode suffixes, so a press on an app open elsewhere switches to its workspace (R1). After editing, reload with `gnome-extensions disable run-or-raise@edvard.cz && gnome-extensions enable run-or-raise@edvard.cz`; README documents this.
+- **Test scenarios:** each key starts its app when closed, focuses it when open, cycles its windows on repeat, and switches workspace when the window lives on another one.
 
-### U5. Stretch — letter-addressed workspaces (Super+A/S/D/F)
+### U5. Key-conflict check (R5)
 
-- **Goal:** `Super+A/S/D/F` switch to workspaces 1–4; `Super+Shift+A/S/D/F` move the window there.
+- **Goal:** no accelerator is ever owned by two actions, checked on commit and on install.
+- **Requirements:** R5, R4
+- **Files:** `gnome/check-keys.sh`, `.githooks/pre-commit`, tests beside it following `scripts/.config/scripts/tmux/tests/`
+- **Approach:**
+  - Collect every binding: all keybinding-typed keys in `org.gnome.desktop.wm.keybindings`, `org.gnome.shell.keybindings`, `org.gnome.mutter.keybindings`, `org.gnome.mutter.wayland.keybindings`, `org.gnome.settings-daemon.plugins.media-keys` (including custom keybindings), Forge's keybindings schema, plus every key in `shortcuts.conf`.
+  - Normalise each accelerator: modifier aliases (`<Primary>` = `<Ctrl>` = `<Control>`), modifier order, letter case. Fail listing every accelerator with two or more owners. Also fail on any `ctrl+h/j/k/l` without `Super` (R4).
+  - `--repo` (pre-commit, when `gnome/` or `run-or-raise/` is staged): start an isolated session (`dbus-run-session` with a throwaway `XDG_CONFIG_HOME`/`XDG_RUNTIME_DIR`, the method used for the 2026-10-25 storage test), so the database starts at GNOME's defaults; apply `settings.sh`; then check. This catches a repo change that collides with a GNOME default, without touching the live session. Needs Forge's schema on disk; if it's missing the hook fails with an explicit message rather than skipping Forge.
+  - `--live` (end of `gnome/install.sh`, and by hand after any GNOME upgrade): check the running session, which also catches bindings added by a GNOME upgrade or another extension.
+- **Test scenarios:** a fixture `shortcuts.conf` reusing `<Super>s` fails and names both owners; `<Primary><Super>l` and `<Super><Control>L` are detected as the same key; a clean config passes; the hook does nothing when neither folder is staged.
+
+### U6. Bootstrap wiring, docs, live checks
+
+- **Goal:** one command reproduces everything; docs say how it works.
 - **Requirements:** R6
-- **Dependencies:** U4
-- **Files:** `gnome/dconf/03-workspaces.dconf`
-- **Approach:** Map the letters onto the numbered `switch-to-workspace-N` / `move-to-workspace-N` actions (GNOME has no named workspaces; the letter is purely the keybind). Mirrors the user's old AeroSpace `alt-a/s/d/f`.
-- **Test scenarios:**
-  - `Super+D` switches to workspace 3; `Super+Shift+D` moves the focused window to workspace 3.
-  - Letters don't collide with Forge's `Super+hjkl` or app `Super+1..9`. (R4)
-  - `Test expectation: manual behavioural check.`
-- **Verification:** letter workspace switching matches AeroSpace muscle memory.
-
-### U6. Bootstrap script + capture + docs
-
-- **Goal:** one command applies the whole setup on a fresh machine; the repo holds the canonical dconf state.
-- **Requirements:** R5
-- **Dependencies:** U1–U5
-- **Files:** `gnome/install.sh`, `gnome/README.md`, `gnome/dconf/*.dconf`
-- **Approach:** `install.sh` = install Forge (U1) → `dconf load` each fragment into its subtree (`/org/gnome/shell/extensions/forge/`, `/org/gnome/desktop/wm/keybindings/`, etc.) → reorder favourites. Capture current good state via scoped `dconf dump <subtree>` into the fragments. Idempotent and re-runnable. README documents the single manual step (Forge enable may need a re-login on Wayland) and that this package is dconf-load, not stow-symlink.
-- **Test scenarios:**
-  - Fresh run on a clean dconf subtree reproduces all keybinds (spot-check 3 bindings via `gsettings get`).
-  - Second run is a no-op / non-destructive.
-  - `Covers R5.`
-- **Verification:** `bash gnome/install.sh` from a clean state yields the full trifecta.
+- **Files:** `install.sh`, `gnome/README.md`, `readme.md` (WM section), `docs/` via docgen, the task dossier's `checks.md`
+- **Approach:** root `install.sh` stows `run-or-raise` then calls `gnome/install.sh`. Remove `gpaste.dconf`. Update the readme's WM note (it still says "dconf dump/load"). Write the live keymap checks as `checks.md` in the task dossier for the verify-behaviour watcher. Rerun docgen.
+- **Test scenarios:** on a clean settings database plus a fresh stow, `bash install.sh` followed by one log-out yields the keymap above, and `gnome/check-keys.sh --live` passes.
 
 ---
 
 ## Scope Boundaries
 
 ### In scope
-The trifecta (R1–R3), Super-based bindings (R4), reproducible bootstrap (R5), letter workspaces (R6).
+R1–R6.
 
-### Documented limitation — workspace-pinned-to-monitor is NOT achievable on GNOME (R7)
-The user asked, as a stretch goal, for "workspaces that belong to certain desktops/monitors" (the AeroSpace model where workspace A always lives on monitor 2). **GNOME does not support this.** Its model is `workspaces-only-on-primary` (currently `true`) — workspaces span only the primary monitor; secondary monitors hold a fixed set of windows outside the workspace system. There is no per-monitor workspace set and no extension that reliably adds one on GNOME 46 Wayland. This is precisely the capability that standalone compositors (Sway, niri, AeroSpace) provide and GNOME does not. **If monitor-pinned workspaces becomes a hard requirement, the path is a compositor switch (Sway/niri), re-opening the parked decision in `origin` — not a GNOME workaround.**
+### Documented limitation: per-monitor workspaces are not achievable on GNOME (R7)
+GNOME either switches workspaces on the primary monitor only (other monitors stay fixed, outside the workspace system) or on all monitors together. This plan picks all monitors. A separate workspace set per monitor (AeroSpace's model) needs a compositor switch (Sway/niri), reopening the parked decision in `origin`.
 
-### Deferred to follow-up work
-- Per-app auto-assignment to workspaces (`assign`-style rules) — Forge has limited support; revisit if wanted.
-- Capturing the GNOME config into the repo's top-level bootstrap once the `gnome/` package proves stable.
+### Deferred
+- **Walker.** Revisit only with a compositor switch.
+- **Per-app workspace assignment** (`assign`-style rules). Forge has limited support.
+- **Pop Shell.** Fallback only, if Forge breaks on a GNOME upgrade.
+
+---
+
+## Open Questions (in the app-keys buffer, 2026-10-25)
+
+- Which letter each app gets (Ghostty, Chromium, VS Code, GoLand, Files, Slack, Claude, Spotify, Teams, Outlook, Beekeeper Studio…).
+- Lock screen's new key: the agreed `Super+Ctrl+L` is Forge's `window-swap-right`. Proposed: `Super+Escape` (clearing GNOME's rarely used "restore shortcuts" binding there).
+- Whether `shortcuts.conf` may name the Teams and Outlook web apps in a repo that will become public.
 
 ---
 
 ## Risks & Dependencies
 
-- **GNOME/Forge version churn** — extension keybinding schema can change across GNOME releases; pin to the GNOME 46 Forge release and re-verify on upgrade.
-- **dconf load is destructive within a subtree** — `dconf load /path/` replaces that subtree. Scope fragments narrowly and document, so a load doesn't wipe unrelated GNOME settings.
-- **Wayland enable timing** — newly installed Shell extensions often need a re-login on Wayland before they activate; README must call this out so the bootstrap isn't seen as broken.
+- **Forge has no maintainer.** Pin the version; re-check on every GNOME upgrade (next: Ubuntu 26.04, GNOME 50). Fallback: Pop Shell without `configure.sh`.
+- **A GNOME upgrade can add default bindings.** The commit hook can't see that; `check-keys.sh --live` does, so run it after each upgrade (README says so).
+- **Extension crash ends the session on Wayland.** Two extensions are two chances; R5 removes the known trigger (a double-bound key).
+- **Wayland enable timing.** First enable after install needs a log-out; the README says so to avoid reading the install as broken.
+- **Public repo.** `shortcuts.conf` names apps installed on this machine; see Open Questions.
 
 ---
 
 ## Verification
 
-End state: on a fresh login, `Super+1..9` focuses-or-launches apps, `Super+hjkl` tiles, `Super+A/S/D/F` drives workspaces, `ctrl+hjkl` is untouched inside tmux/vim, and `bash gnome/install.sh` reproduces it all from the repo.
+On a fresh login after `bash install.sh`: each app letter jumps to or starts its app, `Super+hjkl` moves between tiles, `Super+A/S/D/F/1/2/3` switch both monitors, `Super+Shift+` the same keys send windows, `ctrl+hjkl` still works inside tmux/nvim, and `gnome/check-keys.sh --live` passes.
