@@ -82,6 +82,26 @@ usage_part() { # <label> <pct> <resets_at> — appends to line/plain
 usage_part 5h "${h5_pct:-}" "${h5_reset:-}"
 usage_part wk "${wk_pct:-}" "${wk_reset:-}"
 
+# Per-session cache for claude-card.sh (the reply-log context card), which
+# can't see this payload: context %, model, cost and when they were seen.
+# Written to a temp file and moved into place; a failure here must never
+# stop the line printing, since this script runs under set -e.
+write_cache() {
+  local sid dir tmp
+  sid=$(jq -r '.session_id // empty' <<<"$payload")
+  [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || return 0
+  dir="${CLAUDE_STATUS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/claude-status}"
+  mkdir -p "$dir" && tmp=$(mktemp "$dir/.$sid.XXXXXX") || return 0
+  if jq -c --argjson ts "$(date +%s)" '{session_id, model: (.model.display_name // .model.id),
+      cost_usd: .cost.total_cost_usd, context_pct: .context_window.used_percentage, ts: $ts}' \
+      <<<"$payload" >"$tmp"; then
+    mv -f "$tmp" "$dir/$sid.json"
+  else
+    rm -f "$tmp"
+  fi
+}
+write_cache 2>/dev/null || true
+
 cols="${COLUMNS:-80}"
 pad=$(( cols - ${#plain} ))
 [ "$pad" -lt 0 ] && pad=0
