@@ -8,6 +8,8 @@
 #      mawk (the host's awk) and gawk.
 # U2 — every row carries its visit time as field 13; picker() exports the
 #      current session and the frozen "now" to its fzf children.
+# U3 — rows group by repo, order by visit time, pin the current session's
+#      family on top; urgency never moves a row; the dormant tab groups too.
 #
 # Run: bash scripts/.config/scripts/tmux/tests/wb-picker-grouping.test.sh
 set -uo pipefail
@@ -16,6 +18,7 @@ WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_BIN="$(mktemp -d -t wb-pg-bin.XXXXXX)"
 MAWK_BIN="$(mktemp -d -t wb-pg-mawk.XXXXXX)"
 GAWK_BIN="$(mktemp -d -t wb-pg-gawk.XXXXXX)"
+FIXTURE="$(mktemp -d -t wb-pg-fixture.XXXXXX)"
 PREFIX="wb-pg-test-$$"
 SOCK="wb-pg-sock-$$"
 REAL_TMUX="$(command -v tmux)"
@@ -33,7 +36,7 @@ PATH="$FIXTURE_BIN:$PATH"
 
 cleanup() {
   "$REAL_TMUX" -L "$SOCK" kill-server 2>/dev/null || true
-  rm -rf "$FIXTURE_BIN" "$MAWK_BIN" "$GAWK_BIN"
+  rm -rf "$FIXTURE_BIN" "$MAWK_BIN" "$GAWK_BIN" "$FIXTURE"
 }
 trap cleanup EXIT
 
@@ -66,8 +69,10 @@ set +e   # wb.sh sets -e; this test intentionally captures non-zero exits
 save_fn() { declare -f "$1"; }
 ORIG_ATTACHED="$(save_fn wb_session_last_attached)"
 ORIG_PANES="$(save_fn tmux_claude_panes)"
+ORIG_URGENCY="$(save_fn wb_session_urgency)"
 restore_orig_attached() { eval "$ORIG_ATTACHED"; }
 restore_orig_panes() { eval "$ORIG_PANES"; }
+restore_orig_urgency() { eval "$ORIG_URGENCY"; }
 
 strip_ansi() { sed -E 's/\x1b\[[0-9;]*m//g'; }
 # Character count of each line, measured in a UTF-8 locale by gawk (the only
@@ -257,6 +262,177 @@ if [ -n "$exp_line" ] && [ -n "$first_render" ] && [ "$exp_line" -lt "$first_ren
 else
   echo "FAIL - U2 picker: env must be exported before the first render_rows (export line=$exp_line, render line=$first_render)"; fail=1
 fi
+
+# ============================================================================
+# U3 — group by repo, order by visit, pin the current session's family
+# ============================================================================
+TASKS_DIR="$FIXTURE"
+
+mk_task() { # <file> <repo> <parent> <created>
+  printf -- '---\nstatus: doing\nrepo: %s\nbranch: b\nworktree: .worktrees/x\nparent: %s\ntags: []\ncreated: %s\nclosed:\n---\n# %s\n' \
+    "$2" "$3" "$4" "${1%.md}" > "$FIXTURE/$1"
+}
+# mk <suffix> <repo> <slug> <visit> [parent] [created] — a task file plus its
+# live session, with <visit> as the session's stubbed last-attached time.
+declare -A VISIT=()
+wb_session_last_attached() { printf '%s\n' "${VISIT[$1]:-0}"; }
+mk() {
+  mk_task "$2--$3.md" "$2" "${5:-}" "${6:-2026-07-01}"
+  mk_session "$1"; tmux set-option -t "=${PREFIX}-$1:" @wb_repo "$2" >/dev/null
+  tmux set-option -t "=${PREFIX}-$1:" @wb_slug "$3" >/dev/null
+  VISIT["${PREFIX}-$1"]="$4"
+}
+reset_u3() { # kill every session the scenario made, forget the visit stubs
+  local k; for k in "${!VISIT[@]}"; do tmux kill-session -t "=$k" 2>/dev/null || true; done
+  VISIT=(); rm -f "${FIXTURE:?}"/*.md
+}
+# ord — the render order as session suffixes (agent sub-rows tagged
+# "<suffix>/agent"), one line, from the real collect_combined_rows.
+ord() {
+  collect_combined_rows | awk -F'\t' -v p="${PREFIX}-" '{ s = $7; sub("^" p, "", s); print ($9 == "agent" ? s "/agent" : s) }' | paste -sd' '
+}
+
+# --- two repos whose sessions interleave by visit time: two contiguous groups
+# flat visit order would be b1 a2 a1 b2; beta's newest visit (300) beats alpha's (200)
+mk a1 alpha one 100;  mk b1 beta one 300;  mk a2 alpha two 200;  mk b2 beta two 50
+assert_eq "U3 interleaved repos: two contiguous groups, newest-visited group first, newest first inside" \
+  "b1 b2 a2 a1" "$(ord)"
+reset_u3
+
+# --- a cross-repo family stays contiguous in its ROOT's repo group ----------
+# be--monorepo parent P (visit 100) with a lib--algorithms child C (500); an
+# unrelated lib--algorithms session L (400) and zeta session Z (300). The
+# family's 500 lifts the be--monorepo group; C keeps its own repo name and
+# does NOT join L's group.
+mk p be--monorepo parent 100
+mk c lib--algorithms kid 500 be--monorepo--parent
+mk q be--monorepo other 50
+mk l lib--algorithms solo 400
+mk z zeta zed 300
+assert_eq "U3 cross-repo family: contiguous under the root's repo group; other repos by their own newest visit" \
+  "p c q l z" "$(ord)"
+child_repo="$(collect_combined_rows | awk -F'\t' -v s="${PREFIX}-c" '$7 == s { print $1 }')"
+assert_eq "U3 cross-repo family: the child keeps its own repo name" lib--algorithms "$child_repo"
+reset_u3
+
+# --- a sibling group under a non-live parent lands in the anchor's repo group
+# bx is the earliest-created (the anchor, beta); ay (alpha) is its sibling and
+# was visited most recently (900). alpha has no other row, so nothing may
+# surface an "alpha" group.
+mk bx beta x 100 meta--gone 2026-07-01
+mk ay alpha y 900 meta--gone 2026-07-05
+mk bz beta z 200
+mk g  gamma g 500
+assert_eq "U3 sibling group: stays together in the anchor's repo group, which its newest member lifts" \
+  "bx ay bz g" "$(ord)"
+reset_u3
+
+# --- the current session pinned: its whole family first, the rest unchanged -
+# family meta--fam: P (visit 100) with children C1 (300) and C2 (200).
+# Others: dotfiles D (800), zeta Z (500).
+mk fp meta fam 100
+mk c1 alpha one 300 meta--fam
+mk c2 alpha two 200 meta--fam
+mk d  dotfiles d 800
+mk z  zeta z 500
+unset WB_PICKER_SESSION
+unpinned="$(ord)"
+assert_eq "U3 unpinned baseline: the family (newest member 300) sits below D and Z" "d z fp c1 c2" "$unpinned"
+export WB_PICKER_SESSION="${PREFIX}-c1"
+pinned="$(ord)"
+assert_eq "U3 pinned child: its whole family is first (parent, then children by visit)" "fp c1 c2" "$(printf '%s\n' "$pinned" | cut -d' ' -f1-3)"
+assert_eq "U3 pinned child: the order below the family is unchanged" "d z" "$(printf '%s\n' "$pinned" | cut -d' ' -f4-)"
+export WB_PICKER_SESSION="${PREFIX}-fp"
+assert_eq "U3 pinning the parent instead pins the same family block" "$pinned" "$(ord)"
+
+# --- nothing pinned without a current session -------------------------------
+unset WB_PICKER_SESSION
+assert_eq "U3 WB_PICKER_SESSION unset: nothing pinned" "$unpinned" "$(ord)"
+export WB_PICKER_SESSION=""
+assert_eq "U3 WB_PICKER_SESSION empty: nothing pinned" "$unpinned" "$(ord)"
+unset WB_PICKER_SESSION
+reset_u3
+
+# --- the pinned family does not lift its own repo's group -------------------
+# dotfiles: pinned family F (visit 900), plus two others D2 (300), D3 (200).
+# zeta Z (350). Without the exclusion the dotfiles group would be worth 900
+# and sort before Z; with it the group is worth 300, so Z comes first.
+mk f  dotfiles pinned 900
+mk d2 dotfiles two 300
+mk d3 dotfiles three 200
+mk z  zeta z 350
+export WB_PICKER_SESSION="${PREFIX}-f"
+assert_eq "U3 pinned family in dotfiles: the other dotfiles families form one group ordered as if it were absent" \
+  "f z d2 d3" "$(ord)"
+unset WB_PICKER_SESSION
+reset_u3
+
+# --- flipping urgency leaves the order identical ---------------------------
+mk u1 alpha one 100
+mk u2 alpha two 200
+mk u3 beta three 300
+mk u4 beta four 50
+urgency_a() { case "$1" in "${PREFIX}-u1") printf '0\t! needs you\t%s:0.0\t1\n' "$1" ;; *) printf '3\t- no agent\t\t0\n' ;; esac; }
+urgency_b() { case "$1" in "${PREFIX}-u4") printf '0\t! needs you\t%s:0.0\t1\n' "$1" ;; *) printf '2\t* working\t%s:0.0\t1\n' "$1" ;; esac; }
+wb_session_urgency() { urgency_a "$@"; }
+order_a="$(ord)"; ranks_a="$(collect_combined_rows | cut -f4 | paste -sd' ')"
+wb_session_urgency() { urgency_b "$@"; }
+order_b="$(ord)"; ranks_b="$(collect_combined_rows | cut -f4 | paste -sd' ')"
+restore_orig_urgency
+if [ "$ranks_a" != "$ranks_b" ]; then echo "ok   - U3 urgency stubs really differ between the two renders ($ranks_a vs $ranks_b)"
+else echo "FAIL - U3 urgency stubs produced the same ranks, so the next check proves nothing"; fail=1; fi
+assert_eq "U3 flipping urgency between renders leaves the order identical" "$order_a" "$order_b"
+assert_eq "U3 ... and that order is the visit order" "u3 u4 u2 u1" "$order_a"
+reset_u3
+
+# --- equal visit times order by repo, then label, the same every run --------
+mk e1 beta  mm 100
+mk e2 alpha zz 100
+mk e3 alpha aa 100
+mk e4 beta  bb 100
+first_run="$(ord)"
+assert_eq "U3 equal visit times: by repo, then label" "e3 e2 e4 e1" "$first_run"
+assert_eq "U3 equal visit times: repeated runs agree" "$first_run $first_run" "$(ord) $(ord)"
+reset_u3
+
+# --- agent sub-rows stay directly under their owner -------------------------
+# M (visit 100, two live panes) sits below N (200) and Z (150) in alpha; its
+# agent rows carry M's time and must not drift up past Z or N.
+mk n alpha nn 200
+mk zz alpha zz 150
+mk m alpha mm 100
+tmux_claude_panes() {
+  [ "${1:-}" = "${PREFIX}-m" ] || return 0
+  printf '2\t%s:1.0\tworking\ttask-one\n' "${PREFIX}-m"
+  printf '3\t%s:1.1\tidle\ttask-two\n' "${PREFIX}-m"
+}
+assert_eq "U3 agent sub-rows stay directly under their owner" "n zz m m/agent m/agent" "$(ord)"
+restore_orig_panes
+reset_u3
+
+# --- the stream marks never reach the output -------------------------------
+mk k1 alpha one 100
+mk k2 beta  two 200
+raw="$(collect_combined_rows | od -An -c | tr -d ' \n')"
+if [[ "$raw" == *'001'* ]]; then echo "FAIL - U3 block marks leaked into collect_combined_rows output"; fail=1
+else echo "ok   - U3 block marks never reach the output"; fi
+reset_u3
+
+# --- the dormant tab: repos group, newest transcript first ------------------
+collect_dormant_rows() { # synthetic dormant rows (13 fields, field 13 = transcript time)
+  local r
+  for r in "alpha one 100" "beta one 300" "alpha two 200" "beta two 50"; do
+    # shellcheck disable=SC2086
+    set -- $r
+    printf '%s\t%s\t[b]\t0\t~ doing 1d\t\t\t/f.md\ttask\t0\t%s\t\t%s\n' "$1" "$1--$2" "$2" "$3"
+  done
+}
+dmode="$FIXTURE/dmode"; dview="$FIXTURE/dview"; printf normal > "$dmode"; printf dormant > "$dview"
+_refresh_dormant "$dmode" "$dview"
+assert_eq "U3 dormant tab: repos grouped, newest transcript's repo first, newest first inside" \
+  "beta--one beta--two alpha--two alpha--one" "$(cut -f2 "$dview.cache" | paste -sd' ')"
+assert_eq "U3 dormant cache rows keep all 13 fields" 13 "$(nfields "$(sed -n 1p "$dview.cache")")"
+
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

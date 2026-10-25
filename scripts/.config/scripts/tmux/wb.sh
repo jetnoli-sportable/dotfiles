@@ -5372,7 +5372,8 @@ cmd_done() {
 #
 # Row schema, as produced by collect_*_rows (tab-separated), shared by
 # task/repo/agent rows:
-#   1 repo   2 label   3 branch (git branch, in brackets)   4 urank
+#   1 repo   2 label   3 branch (git branch, in brackets)   4 urank (status
+#      rank; shown, but no longer an ordering key)
 #   5 icon_label
 #   6 target (hidden pane target, may be empty)
 #   7 session (the live tmux session this row belongs to)
@@ -5560,10 +5561,11 @@ WB_NEST_MAX=3
 # _wb_emit_family <idx> <level> <marker> — emit row <idx> (field 12 set to
 # <marker> when non-empty) plus its agent sub-rows, then recurse into every
 # unconsumed live row whose parent: is <idx>'s own stem, one level deeper
-# (clamped at WB_NEST_MAX), in urgency order. Termination doesn't rely on
+# (clamped at WB_NEST_MAX), in the order `rows` holds them (most recent visit
+# first, see collect_combined_rows). Termination doesn't rely on
 # the cap: <idx> is marked consumed BEFORE recursing and only unconsumed
 # rows are ever visited, so each row is emitted at most once and a parent:
-# cycle (A -> B -> A) just ends where it closes. Reads collect_combined_rows'
+# cycle (A -> B -> A) just ends where it closes. Reads _collect_combined_blocks'
 # rows / parent_of / stem_of / consumed through bash's dynamic scoping.
 _wb_emit_family() {
   local idx="$1" level="$2" marker="$3" row next j
@@ -5580,31 +5582,89 @@ _wb_emit_family() {
   done
 }
 
-# collect_combined_rows — buffers collect_live_rows' urgency-sorted output
-# into an array (two passes, not a stream): deciding a group's anchor needs
-# to see every live family member before emitting any of them, the same
-# reason wb_board_render_html buffers its own ROWS=() rather than streaming.
+# _WB_BLOCK_MARK — the line collect_combined_rows prints before each block,
+# for wb_order_blocks to split the stream on. \001 can never open a real row
+# (those start with a repo name), so it cannot be mistaken for one.
+_WB_BLOCK_MARK=$'\001block'
+
+# wb_order_blocks [each] — the picker's one ordering step. Reads rows with a
+# _WB_BLOCK_MARK line before each block (the unit that must stay contiguous:
+# one family, or one sibling group with its anchor, plus agent sub-rows) and
+# prints the rows, marks dropped, in this order:
+#   1. the block holding WB_PICKER_SESSION first (empty = nothing pinned);
+#   2. then repos, the repo whose most recently visited block is newest first;
+#   3. then blocks within a repo, most recently visited first;
+# ties break by repo name, then the block's first label, then the order the
+# walk emitted. A block's repo is its FIRST row's (the root or anchor), so a
+# cross-repo child never drags its family into another repo's group, and the
+# pinned block is left out of its repo's newest-visit so the rest of that
+# repo sorts as if the pinned family were absent. Rows within a block share
+# every key but their position, so the stable sort keeps the walk's own order
+# (parent, children in visit order, agent sub-rows under their owner).
+# Urgency is deliberately not a key anywhere: a status change must never move
+# a row while the picker is open. "each" makes every row its own block, which
+# is the dormant tab (no families there; field 13 is the transcript time).
+# Two processes and a cut per call, never per row.
+wb_order_blocks() {
+  LC_ALL=C awk -F'\t' -v mark="$_WB_BLOCK_MARK" -v here="${WB_PICKER_SESSION:-}" -v each="${1:-}" '
+    $0 == mark { open = 0; next }
+    {
+      if (!open || each != "") {
+        nb++; open = 1; repo[nb] = $1; label[nb] = $2; bmax[nb] = 0; pin[nb] = 0
+      }
+      if ($13 + 0 > bmax[nb]) bmax[nb] = $13 + 0
+      if (here != "" && $7 == here) pin[nb] = 1
+      n++; line[n] = $0; blk[n] = nb
+    }
+    END {
+      for (b = 1; b <= nb; b++)
+        if (!pin[b] && bmax[b] > gmax[repo[b]] + 0) gmax[repo[b]] = bmax[b]
+      for (i = 1; i <= n; i++) {
+        b = blk[i]
+        printf "%d\t%.0f\t%s\t%.0f\t%s\t%d\t%s\n", \
+          (pin[b] ? 0 : 1), gmax[repo[b]] + 0, repo[b], bmax[b], label[b], b, line[i]
+      }
+    }' |
+    LC_ALL=C sort -s -t $'\t' -k1,1n -k2,2nr -k3,3 -k4,4nr -k5,5 -k6,6n |
+    cut -f7-
+}
+
+# collect_combined_rows — buffers collect_live_rows' output into an array
+# (two passes, not a stream): deciding a group's anchor needs to see every
+# live family member before emitting any of them, the same reason
+# wb_board_render_html buffers its own ROWS=() rather than streaming.
+#
+# Rows are read most recently visited first (field 13), NOT most urgent
+# first: urgency cycles as an agent works, and an order driven by it would
+# shuffle rows under the cursor on every refresh. That one sort makes both
+# the walk below and each family's child order visit order; wb_order_blocks
+# then groups the finished blocks by repo and puts the current session's
+# family on top.
 #
 # Pass 1 reads each row's own task file's parent: field once (empty when the
 # row has no task file, no parent set, or the parent equals the row's own
 # stem — self-reference is ignored, same guard U3's children map uses), and
 # indexes live task rows by stem so a parent's own row can be found.
-# Pass 2 emits, for each unconsumed row in urgency order, the family it
-# belongs to — so a family surfaces where its most urgent member would:
+# Pass 2 emits, for each unconsumed row in that order, the family it
+# belongs to, behind a _WB_BLOCK_MARK line:
 #   - climb to the row's topmost LIVE ancestor (the family root);
 #   - if the root's own parent isn't live but is shared by other unconsumed
 #     rows, those are siblings: the earliest-created: one anchors (stable
-#     across refreshes, unlike live urgency rank, which cycles as an agent
-#     works) and the rest follow as "~" sibling rows;
+#     across refreshes, unlike a live visit time, which moves every time
+#     Jet attaches) and the rest follow as "~" sibling rows;
 #   - each emitted row then pulls its own live children in beneath it via
 #     _wb_emit_family, so a live parent's row always heads its children
 #     (none of them left looking top-level).
-# A row with no live relatives emits unchanged, exactly as before grouping.
-collect_combined_rows() {
+# A row with no live relatives is a block of one. The marks, not a $(...)
+# capture per family, are how blocks reach wb_order_blocks: _wb_emit_family
+# records consumed[] in this scope, which a subshell would lose.
+collect_combined_rows() { _collect_combined_blocks | wb_order_blocks; }
+
+_collect_combined_blocks() {
   local -a rows=()
   local line
   while IFS= read -r line; do rows+=("$line"); done \
-    < <(collect_live_rows | sort -t $'\t' -k4,4n -k1,1 -k2,2)
+    < <(collect_live_rows | LC_ALL=C sort -t $'\t' -k13,13nr -k1,1 -k2,2)
 
   local -A parent_of=() stem_of=() idx_of_stem=()
   local i kind ref stem parent
@@ -5645,6 +5705,7 @@ collect_combined_rows() {
       done
     fi
     if [ "${#group[@]}" -le 1 ]; then
+      printf '%s\n' "$_WB_BLOCK_MARK"
       _wb_emit_family "$root" 0 ""
       continue
     fi
@@ -5660,6 +5721,7 @@ collect_combined_rows() {
       fi
     done
 
+    printf '%s\n' "$_WB_BLOCK_MARK"
     _wb_emit_family "$anchor" 0 ""
     for j in "${group[@]}"; do
       [ -n "${consumed[$j]:-}" ] && continue
@@ -5726,9 +5788,9 @@ collect_dormant_rows() {
     case "$status" in
       doing) rank=0 ;; review) rank=1 ;; *) rank=2 ;;
     esac
-    # Status-rank first, newest transcript within a rank second — a single
-    # sortable integer so the caller can use the same plain
-    # `sort -t $'\t' -k4,4n` every other collector already sorts urank with.
+    # Field 4 keeps the schema's status-rank-then-newest shape, but nothing
+    # orders by it any more: _refresh_dormant groups by repo and sorts on
+    # field 13 (the newest transcript), like the live tab.
     urank=$(( rank * 10000000000 + (9999999999 - newest) ))
     printf '%s\t%s\t%s\t%s\t~ %s %sd\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$repo" "$title" "[$branch]" "$urank" "$status" "$age" "" "" "$f" task 0 "$branch" "" "$newest"
@@ -5876,7 +5938,9 @@ wb_column_header() {
 
 # render_rows <mode_file> [<view_file>] — the picker is two tabs, not one
 # combined list: LIVE (default, <view_file> missing/"live") renders
-# collect_combined_rows fresh on every call; DORMANT renders whatever's in
+# collect_combined_rows fresh on every call (repo groups, most recently
+# visited first, the current session's family on top; see wb_order_blocks);
+# DORMANT renders whatever's in
 # <view_file>.cache, a snapshot _refresh_dormant last wrote. This split
 # exists because collect_dormant_rows is genuinely expensive against a
 # real task store (a full-store scan + a wb_transcripts stat-loop per
@@ -5906,11 +5970,15 @@ render_rows() {
 # (a no-op while the LIVE tab is active, so it's safe to fire unconditionally
 # from ctrl-r regardless of which tab is showing). See render_rows' header
 # comment for why this is cached rather than recomputed on every reload.
+# Ordered the way the live tab is, with the newest transcript standing in for
+# the visit time: grouped by repo, the repo with the newest transcript first,
+# newest first inside it. Every row is its own block (no families here) and
+# the empty session field means nothing is ever pinned.
 _refresh_dormant() {
   local view; view="$(cat "${2:-}" 2>/dev/null || echo live)"
   [ "$view" = dormant ] || return 0
   local mode; mode="$(cat "$1" 2>/dev/null || echo normal)"
-  collect_dormant_rows "$mode" | sort -t $'\t' -k4,4n > "${2}.cache"
+  collect_dormant_rows "$mode" | wb_order_blocks each > "${2}.cache"
 }
 
 # _toggle_view <mode_file> <view_file> — bound to `tab`: flips live<->dormant
