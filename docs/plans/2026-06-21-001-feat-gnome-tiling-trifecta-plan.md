@@ -90,7 +90,7 @@ Plain `Super` letters still free after this: R, U, W, X, Z. (`Super+M` stays GNO
 
 ### Forge defaults that move
 
-Forge's shipped defaults (from its `org.gnome.shell.extensions.forge.keybindings` schema) put six actions on plain `Super+letter`, which would eat app letters, and `Shift+Super+S` (stacked layout), which collides with "send to workspace 2". All layout extras move to `Super+Alt`:
+Forge's shipped defaults (from its `org.gnome.shell.extensions.forge.keybindings` schema) put six actions on plain `Super+letter`, which would eat app letters, and `Shift+Super+S` (stacked layout), which collides with "send to workspace 2". All layout extras move to `Super+Alt`, and its five `Ctrl+Alt` window-snap keys are cleared:
 
 | Forge action | Default | New |
 |---|---|---|
@@ -104,6 +104,13 @@ Forge's shipped defaults (from its `org.gnome.shell.extensions.forge.keybindings
 | `workspace-active-tile-toggle` | `Shift+Super+W` | `Super+Alt+Shift+W` |
 | `con-stacked-layout-toggle` | `Shift+Super+S` | `Super+Alt+S` (clears GNOME's screen-reader toggle there) |
 | `con-tabbed-layout-toggle` | `Shift+Super+T` | `Super+Alt+T` |
+| `window-snap-one-third-left` | `Ctrl+Alt+D` | Cleared (show desktop keeps `Ctrl+Alt+D`) |
+| `window-snap-one-third-right` | `Ctrl+Alt+G` | Cleared (GPaste's `launch-ui`) |
+| `window-snap-two-third-right` | `Ctrl+Alt+T` | Cleared (GNOME's terminal default in a fresh settings database) |
+| `window-snap-two-third-left` | `Ctrl+Alt+E` | Cleared |
+| `window-snap-center` | `Ctrl+Alt+C` | Cleared |
+
+The window-snap keys act only on floating windows and Forge tiles everything, so all five are cleared rather than moved (doc review, 2026-10-25).
 
 Unchanged Forge defaults: focus/move/swap on hjkl, resize on `Ctrl(+Shift)+Super+y/u/i/o`, gaps on `Ctrl+Super+plus/minus`, `Super+Return` swap-last-active, `Super+Period` preferences.
 
