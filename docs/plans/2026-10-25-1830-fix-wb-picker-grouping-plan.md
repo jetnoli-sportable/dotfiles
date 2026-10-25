@@ -46,15 +46,15 @@ The picker sorts live rows by urgency rank first (`wb.sh` `collect_combined_rows
 - R2. Groups are ordered by the most recent visit of any row in the group. Within a group, families are ordered by the most recent visit of any member. Within a family, existing nesting order is kept, with children ordered by most recent visit. Ties break by repo name, then label.
 - R3. A visit time is tmux's `session_last_attached` for the row's session. A session never attached sorts as oldest.
 - R4. The dormant tab is grouped by repo the same way and ordered by newest transcript time in place of visit time.
-- R5. The family containing the current session goes to the top of the live list, outside the R2 order. The current session's own row is greyed and tagged `(here)`, and the rest of the family renders normally with its nesting. Without a known current session (for example `wb render` run outside the picker), no row is pinned or tagged.
+- R5. The family containing the current session goes to the top of the live list, outside the R2 order, as a group of its own; the rest of that repo's rows still form their normal group below. The current session's own row is greyed and tagged `(here)`, and the rest of the family renders normally with its nesting. The own row never counts as needing Jet, even when its agent is waiting: it gets no needs-you highlight and is excluded from R11, R12, R13 and R14. Without a known current session (for example `wb render` run outside the picker), no row is pinned or tagged.
 - R6. The order does not change while the picker is open unless a session starts, ends or changes family. A status change alone never moves a row.
 
 **Row display**
 
 - R7. The TYPE and STATUS text columns are removed. The visible columns are REPO, NAME, BRANCH and AGE.
-- R8. Status is shown by the colour of the NAME cell. REPO, BRANCH and nesting connectors are grey. A row that needs Jet is bold reverse-video.
-- R9. The fzf header carries a one-line colour legend naming each status colour.
-- R10. AGE is at most 4 characters (`now`, `12m`, `3h`, `4d`): time since last visit on the live tab, age of the newest transcript on the dormant tab.
+- R8. Status is shown by the colour of the NAME cell. REPO, BRANCH and nesting connectors are grey. A row that needs Jet is bold reverse-video. On the dormant tab, NAME is coloured by task status (doing, review, paused) and no row ever counts as needing Jet.
+- R9. The fzf header carries a one-line colour legend naming each status colour shown on the current tab (live statuses on LIVE, task statuses on DORMANT).
+- R10. AGE is at most 4 characters (`now`, `12m`, `3h`, `4d`): time since last visit on the live tab, age of the newest transcript on the dormant tab. Ages are measured against the moment the picker opened, so they do not tick while it stays open.
 - R11. A group's repo name is magenta on the group's first row when any row in the group needs Jet.
 - R15. NAME takes the width freed by the dropped columns, sized from the picker's list width.
 - R16. A BRANCH value too long for its column shows its end with a leading `...`; a short branch shows whole.
@@ -62,9 +62,9 @@ The picker sorts live rows by urgency rank first (`wb.sh` `collect_combined_rows
 
 **Finding rows that need Jet**
 
-- R12. The header shows how many rows need Jet (`2 need you`), kept current on every refresh.
-- R13. `u` moves the cursor to the next row that needs Jet, wrapping to the first. With none, it does nothing.
-- R14. When the picker opens, the cursor starts on the first row that needs Jet. If none does, it starts on the first row after Jet's own row.
+- R12. The live-tab header shows how many rows need Jet (`2 need you`), kept current on every refresh. The dormant-tab header has no count.
+- R13. On the live tab, `u` moves the cursor to the next row that needs Jet, wrapping to the first. With none, or on the dormant tab, it does nothing.
+- R14. When the picker opens, the cursor starts on the first row that needs Jet. If none does, it starts on the first row after Jet's own row. If Jet's row is last or there is no current session, it starts on the first row.
 
 **Header and preview**
 
@@ -79,7 +79,7 @@ The picker sorts live rows by urgency rank first (`wb.sh` `collect_combined_rows
 
 ### Success Criteria
 
-- On Jet's real sessions, every dotfiles row is contiguous, and the list opens with the current session's family on top.
+- On Jet's real sessions, apart from the pinned family, every dotfiles family is contiguous within one dotfiles group, and the list opens with the current session's family on top.
 - Picker render time (live tab) stays at or below the 0.67 s baseline measured on 2026-10-25.
 - The cursor does not move on a 3-second refresh when nothing about the row under it changed.
 
@@ -89,26 +89,22 @@ The picker sorts live rows by urgency rank first (`wb.sh` `collect_combined_rows
 - Not changing `claude-sessions.sh`'s own `render_rows`, `wb board`, or `wb_pending_counts` (its other caller is the `wb done` nudge).
 - Considered and not built: a toggle key between orderings (Jet prefers one default); time-since-blocked on needs-you rows (needs `claude-notify-hook.sh` to record a timestamp); floating needs-you rows within a family (reintroduces reshuffling); a colour-key footer separate from the header legend (the legend in R9 covers it).
 
-#### Deferred to Follow-Up Work
-
-- The `/ce-optimize` render-time sweep is U8 in this plan but gated on other PRs merging (R22).
-
 ---
 
 ## Planning Contract
 
 ### Key Technical Decisions
 
-- KTD1. **Sort keys travel as one appended field; ordering happens in one final stable sort.** `collect_live_rows` adds `#{session_last_attached}` to its existing `tmux list-sessions` call and `wb_live_session_row` appends it as field 13. `collect_dormant_rows` puts the newest-transcript epoch in the same field. `collect_combined_rows` keeps its family walk unchanged, tags each emitted row with block keys (pinned flag, group max, block max, sequence), then orders with one `sort -s` and strips the keys. Appending at the end keeps every fzf bind placeholder (`{7}`-`{10}`) and the accept path's field indexes unchanged. Zero added forks. Governs R1-R6.
+- KTD1. **Sort keys travel as one appended field; ordering happens in one final stable sort.** `collect_live_rows` adds `#{session_last_attached}` to its existing `tmux list-sessions` call and `wb_live_session_row` appends it as field 13. `collect_dormant_rows` puts the newest-transcript epoch in the same field. A **block** is the unit R1 keeps contiguous: one family, or one sibling group anchored on a shared non-live parent, with its agent sub-rows. `collect_combined_rows` keeps its root-climb and anchor logic, walks each block's children in visit-time order (not urgency order), tags each emitted row with block keys (pinned flag, group max, block max, sequence), then orders with one `sort -s` and strips the keys. Appending at the end keeps every fzf bind placeholder (`{7}`-`{10}`) and the accept path's field indexes unchanged. Zero added forks. Governs R1-R6.
 - KTD2. **The current session and a frozen "now" reach every fzf child through the environment.** `picker()` exports `WB_PICKER_SESSION` (from `tmux display-message -p '#S'`, the repo's idiom) and `WB_PICKER_NOW` (epoch at open) before launching fzf. `render`, `transform` and preview children inherit both. Unset means no pinning and the real clock, which keeps `wb render` and tests working. Governs R5, R10.
-- KTD3. **Status colour derives from urank (field 4), not label text.** Rank 0 is needs-you per `tmux_claude_panes`. Field 5 keeps its stored label so the existing test stubs (`wb_session_urgency` printing `0\t! needs you…`) stay valid. Governs R8, R11, R12.
-- KTD4. **The display awk buffers all rows and renders in END.** Group-level facts (repo has a needs-you row, first row of group) need a look-ahead. One awk over all rows keeps the "no per-row forks" pattern of `wb_format_for_display`. The same pass writes a snapshot file next to the view file: needs-you list positions plus the count, for R12-R14 to read. Governs R11-R14.
-- KTD5. **Stop AGE from ticking while the picker is open, and verify `--track` live.** fzf 0.65.2 has no `--id-nth`, so `--track` matches the whole item text and a changed row text can lose the cursor on reload. Ages are computed against `WB_PICKER_NOW`, so they never change mid-session, and status changes now alter only colour codes, not text. If live testing still shows the cursor jumping on status-only changes, add a `focus:execute-silent` that records the focused session and a reload-time `transform` that restores it with `pos()`. Governs R6.
+- KTD3. **Needs-you comes from urank; colour comes from the field-5 label.** Live urank 0 (per `tmux_claude_panes`) is the only needs-you signal, feeding the highlight, R11's magenta, the count and the jump targets, and never on the current session's row. Urank cannot pick colours by itself: `finished` and `done` share rank 1. So the NAME colour comes from the stored field-5 label (finished cyan, done green, working yellow, anything else grey), and dormant rows map their status word (doing, review, paused) to their own colours. Field 5 keeps its stored shape, so the existing test stubs (`wb_session_urgency` printing `0\t! needs you…`) stay valid. Governs R5, R8, R11, R12.
+- KTD4. **The display awk buffers all rows and renders in END.** Group-level facts (repo has a needs-you row, first row of group) need a look-ahead. One awk over all rows keeps the "no per-row forks" pattern of `wb_format_for_display`. On the live tab the same pass writes a snapshot file next to the view file, holding needs-you list positions plus the count, for R12-R14 to read. The snapshot is written to a temp file and moved into place, so a `u` press never reads a half-written file. Governs R11-R14.
+- KTD5. **Freeze AGE and restore the cursor by session after each reload.** fzf 0.65.2 has no `--id-nth`, so `--track` matches the whole raw line, and a changed line loses the cursor on reload. Two causes, two fixes. Ages are computed against `WB_PICKER_NOW`, so they never change mid-session. A status flip still changes the line (colour codes and hidden fields 4 and 5), so a `focus:execute-silent` records the focused session to a per-picker file, and the `load` bind runs a `transform` that prints `pos(N)` for that session's new position. Governs R6.
 - KTD6. **The initial cursor is a one-shot transform, not a `start` bind.** `load` fires after every 3-second reload, so `pos()` there would yank the cursor each cycle. `start` needs `--sync`, whose interaction with `--select-1` and the reload loop is untested. Instead, the `load` bind runs a `transform` helper that prints `pos(N)` only when a per-picker flag file is absent, then creates it. Governs R14.
 - KTD7. **`u` is a `transform` helper reading the render snapshot.** The helper reads `FZF_POS` and the snapshot's needs-you positions and prints the next `pos(N)`, wrapping. Whether `pos()` counts the `--header-lines` legend row is unspecified in the fzf man page, so the first live check settles the offset. Governs R13.
 - KTD8. **The header refreshes on every reload, and only cheap sources feed it.** Remove `wb_pending_counts` from `wb_status_line` (it runs a whole-store awk). Add `transform-header` to the `load` bind, reading the count from the snapshot file. Governs R9, R12, R18.
 - KTD9. **The preview moves into a `_preview` helper verb.** The inline preview string becomes `"$SELF" _preview {7} {9} {10}`, which tails the pane, summarises a task file or shows git status, and prints the fallback. The label updates via `focus:transform-preview-label`. Governs R19-R21.
-- KTD10. **`pad()` counts characters by subtracting UTF-8 continuation bytes.** It counts bytes matching `[\200-\277]` on a copy and walks truncation back off continuation bytes. This works under mawk and gawk with no fork. Double-width CJK still miscounts and is accepted. The Docker image gains `mawk` so a test can run the formatter under it. Governs R16, R17.
+- KTD10. **`pad()` counts characters by subtracting UTF-8 continuation bytes, with awk forced byte-wise.** The formatter awk runs under `LC_ALL=C`, so mawk and gawk both count bytes; gawk in a UTF-8 locale would otherwise count characters and the subtraction would undercount. `pad()` counts bytes matching `[\200-\277]` on a copy and walks truncation back off continuation bytes, with no fork. Double-width CJK still miscounts and is accepted. The Docker image gains `mawk` so a test can run the formatter under it. Governs R16, R17.
 - KTD11. **List width comes from `FZF_COLUMNS` with a `tput cols` fallback, computed once per render.** NAME width is the list width (45% of the terminal, beside the 55% preview) minus the fixed columns. Governs R15.
 
 ### High-Level Technical Design
@@ -126,16 +122,16 @@ flowchart TB
   G --> H[wb_format_for_display: buffer rows, END render]
   H --> I[rows to fzf]
   H --> J[snapshot: needs-you positions + count]
-  B -->|load: transform one-shot| K[_initial-pos reads J -> pos N]
+  B -->|load: transform| K[_initial-pos: first load reads J; later loads restore focused session -> pos N]
   B -->|u: transform| L[_next-needs reads J + FZF_POS -> pos N]
   B -->|load: transform-header| M[_mode-header reads J count]
 ```
 
-Block-key order (directional): a row's key is `pinned? 0 : 1`, then `-group_max`, then repo, then `-block_max`, then the block's first label, then emission sequence. Rows inside a block share every key but the sequence, so the stable sort keeps the family walk's own order.
+Block-key order (directional): a row's key is `pinned? 0 : 1`, then `-group_max`, then repo, then `-block_max`, then the block's first label, then emission sequence. The pinned block is excluded from its repo's group max, so the rest of that repo sorts as if the pinned block were absent. Rows inside a block share every key but the sequence, so the stable sort keeps the walk's own order.
 
 ### Assumptions
 
-- `session_last_attached` updates on `switch-client`, not only on a client attach. The 2026-10-25 snapshot showed distinct recent values across sessions reached by switching, which supports this. U2's live check confirms it.
+- `session_last_attached` updates on `switch-client`, not only on a client attach. The 2026-10-25 snapshot showed distinct recent values across sessions reached by switching, which supports this. U2 confirms it with a read-only check before U3 builds on it.
 - `FZF_COLUMNS` is exported to `reload` and `transform` children in fzf 0.65.2. If it is absent, KTD11's `tput cols` fallback applies.
 
 ### Sequencing
@@ -171,7 +167,7 @@ U1 is independent. U2 must land before U3. U4 depends on U2 and U3. U5 depends o
   1. Add a small seam, `wb_session_last_attached` (or an equivalent argument path), that tests can override, since detached test sessions report no attach time.
   2. Append field 13 to live rows, agent sub-rows (the owner's time) and dormant rows (newest transcript epoch). Default to 0 when empty.
   3. Export `WB_PICKER_SESSION` and `WB_PICKER_NOW` in `picker()` before the first render.
-  4. Update the schema comment, the `wb_format_for_display` field passthrough (now through field 14) and existing tests' end-anchored nest regexes (`\t1$`, `\tc1$`) and the "12 raw fields" count.
+  4. Update the schema comment, the `wb_format_for_display` passthrough so it also prints field 13 (hidden field 14 once the display string is prepended), existing tests' end-anchored nest regexes (`\t1$`, `\tc1$`) and the "12 raw fields" count.
 - **Patterns to follow:** The `wb_session_urgency` stub pattern in `tests/wb-parent-child.test.sh`; `wb_tsv_split` for every row split (never `IFS=$'\t' read`).
 - **Test scenarios:**
   - A live row has 13 fields and field 13 equals the stubbed visit time.
@@ -179,7 +175,7 @@ U1 is independent. U2 must land before U3. U4 depends on U2 and U3. U5 depends o
   - Agent sub-rows carry their owning session's visit time.
   - A dormant row has 13 fields and field 13 equals its newest transcript mtime.
   - Bind placeholders `{7}`-`{10}` still resolve to target, session, ref, kind (source-guard test on `picker()`).
-- **Verification:** Existing wb-parent-child and wb-picker-rows assertions pass with only the regex/count updates.
+- **Verification:** Existing wb-parent-child and wb-picker-rows assertions pass with only the regex/count updates. Before U3 starts, a read-only `tmux list-sessions -F '#{session_name} #{session_last_attached}'` taken before and after Jet switches sessions confirms the switched-to session's value moved.
 
 ### U3. Group, family and pinned ordering
 
@@ -199,6 +195,7 @@ U1 is independent. U2 must land before U3. U4 depends on U2 and U3. U5 depends o
   - A be--monorepo parent with a lib--algorithms child stays contiguous inside the be--monorepo group, child keeps repo `lib--algorithms`.
   - A sibling group under a non-live parent lands in its anchor's repo group.
   - With `WB_PICKER_SESSION` set to a child row, the whole family is first, and the order below is unchanged.
+  - With the pinned family in dotfiles and two other dotfiles families, those two still form one contiguous dotfiles group, ordered as if the pinned family were absent.
   - With `WB_PICKER_SESSION` unset, nothing is pinned.
   - Flipping one row's urgency stub between renders leaves the order identical.
   - Equal visit times order by repo then label, the same on repeated runs.
@@ -210,7 +207,7 @@ U1 is independent. U2 must land before U3. U4 depends on U2 and U3. U5 depends o
 
 - **Goal:** Rows render as REPO, NAME, BRANCH, AGE with colour-carried status.
 - **Requirements:** R5, R7, R8, R10, R11, R15, R16; KTD3, KTD4, KTD11.
-- **Dependencies:** U1, U3.
+- **Dependencies:** U1, U2, U3.
 - **Files:** `scripts/.config/scripts/tmux/wb.sh` (`wb_format_for_display`, `wb_column_header`, `WB_COL_*`), `scripts/.config/scripts/tmux/tests/wb-picker-grouping.test.sh`, `scripts/.config/scripts/tmux/tests/wb-parent-child.test.sh`.
 - **Approach:**
   1. Restructure the awk to buffer rows and render in END, computing per-group needs-you and first-row flags.
@@ -223,6 +220,9 @@ U1 is independent. U2 must land before U3. U4 depends on U2 and U3. U5 depends o
   - Stripped output has no `session`/`both`/`agent` TYPE words and no status labels.
   - Only the `WB_PICKER_SESSION` row contains `(here)`, and its raw ANSI uses the grey code.
   - A needs-you row's raw ANSI contains reverse-video; no other row does.
+  - A `finished` row and a `done` row (same urank 1) get different NAME colours.
+  - When the `(here)` row's own agent needs Jet, it stays grey, has no reverse-video, is absent from the snapshot and does not turn its group's repo magenta.
+  - Dormant rows with status doing, review and paused get three distinct NAME colours, no reverse-video, and no snapshot is written.
   - A group containing a needs-you row has a magenta repo cell on its first row only; a group without one has none.
   - AGE renders `now`, `12m`, `3h`, `4d` for visit times 30 s, 12 min, 3 h, 4 days before `WB_PICKER_NOW`, each at most 4 chars.
   - A 40-char branch shows `...` followed by its last characters; a 6-char branch shows whole.
@@ -238,18 +238,22 @@ U1 is independent. U2 must land before U3. U4 depends on U2 and U3. U5 depends o
 - **Files:** `scripts/.config/scripts/tmux/wb.sh` (`wb_status_line`, `_mode_header`, `picker`, new `_initial-pos` and `_next-needs` verbs), `scripts/.config/scripts/tmux/tests/wb-picker-grouping.test.sh`, `scripts/.config/scripts/tmux/tests/wb-picker-rows.test.sh`.
 - **Approach:**
   1. Drop `wb_pending_counts` from `wb_status_line`, add the legend line and the snapshot-based count, and shorten the hint.
-  2. Chain `transform-header(_mode-header …)` and `transform(_initial-pos …)` onto the existing `load` bind, keeping the exact `load:reload(sleep 3` text the source-guard test pins.
-  3. Bind `u:transform(_next-needs …)`. Add `u` only to NORMAL-mode keys, so typing `u` in SEARCH mode still filters.
-  4. Clean the flag and snapshot files in `picker()`'s EXIT trap.
+  2. Chain `transform-header(_mode-header …)` and `transform(_initial-pos …)` onto the existing `load` bind, keeping the exact `load:reload(sleep 3` text the source-guard test pins. `_initial-pos` places the R14 cursor on the first load. On every later load it restores the focused session's position (KTD5).
+  3. Bind `focus:execute-silent` to record the focused session.
+  4. Bind `u:transform(_next-needs …)`. Add `u` only to NORMAL-mode keys, so typing `u` in SEARCH mode still filters.
+  5. Clean the flag, focus and snapshot files in `picker()`'s EXIT trap.
 - **Patterns to follow:** Existing `transform-header(… _mode-header …)` binds; the source-guard tests in `tests/wb-picker-rows.test.sh`; internal `_verb` naming (check `tests/wb-help.test.sh`'s verb filter).
 - **Test scenarios:**
   - `wb_status_line` output contains no `follow-ups pending` and no `capture`, and each line is at most 120 characters.
   - `_next-needs` with snapshot positions 3,7 and `FZF_POS=3` prints `pos(7)`; with `FZF_POS=7` prints `pos(3)`; with an empty snapshot prints nothing.
   - `_initial-pos` prints the first needs-you position on its first call and nothing on its second.
-  - `_initial-pos` with no needs-you rows prints the position after the `(here)` row.
+  - `_initial-pos` with no needs-you rows prints the position after the `(here)` row, and `pos(1)` when the `(here)` row is last or `WB_PICKER_SESSION` is unset.
+  - After the first load, `_initial-pos` with a recorded focus session prints that session's current position, and prints nothing if the session is gone.
+  - `_next-needs` on the dormant tab prints nothing.
+  - The dormant-tab header has no need-you count and its legend names doing, review and paused.
   - Source guard: `u:transform` is bound, `u` is in the NORMAL key list, and the `load:reload(sleep 3` and ctrl-x bind strings are unchanged.
   - `wb_pending_counts` output is unchanged (`tests/wb-week.test.sh` stays green).
-- **Verification:** Live: on open, the cursor lands on a needs-you row; `u` cycles through them; the cursor holds still across refreshes.
+- **Verification:** Live: on open, the cursor lands on a needs-you row; `u` cycles through them; the cursor stays on its row across refreshes, including when that row's status changes.
 - **Execution note:** Check by hand whether `pos()` counts the header-lines legend row before fixing the snapshot's position base.
 
 ### U6. Preview helper
@@ -307,4 +311,4 @@ Picker tests start tmux servers on a private quoted `-L "$SOCK"` socket only. Ne
 - Live-tab render time at or below 0.67 s median.
 - `checks.md` written and Jet's live checks pass.
 - No abandoned-attempt code (for example an unused `--sync` path) remains in the diff.
-- U8 run once its gate opens, then a final `/ce-code-review` in a fresh context.
+- The task closes only after U8 has run once its gate opens (R22), followed by a final `/ce-code-review` in a fresh context. The U1-U7 PR may merge before then.
