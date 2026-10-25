@@ -29,6 +29,12 @@ gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.k
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings con-stacked-layout-toggle "['<Super><Alt>s']"
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings con-tabbed-layout-toggle "['<Super><Alt>t']"
 
+# A thin grey focus border instead of Forge's thick red (focus) and yellow
+# (split) ones; Super+Alt+X still hides it.
+gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge focus-border-size 1
+gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge focus-border-color 'rgba(160, 160, 160, 0.6)'
+gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge split-border-color 'rgba(160, 160, 160, 0.6)'
+
 # Snap keys only act on floating windows and Forge tiles everything; cleared
 # rather than moved, which also frees Ctrl+Alt+D/G for GNOME and GPaste.
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings window-snap-one-third-left '[]'
