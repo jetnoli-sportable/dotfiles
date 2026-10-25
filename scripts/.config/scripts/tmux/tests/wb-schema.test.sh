@@ -228,8 +228,8 @@ else
 fi
 
 # wb_resume_id ranks by the last in-file activity timestamp, not mtime. On
-# shutdown Claude Code appends bookkeeping lines to every transcript in the
-# folder, so after a mass kill they all share one mtime second, and the
+# shutdown Claude Code appends bookkeeping lines to every transcript the
+# dying process touched, so after a mass kill they share one mtime second, and the
 # 2026-10-25 crash resumed the pre-/clear conversation in 3 of 21 sessions
 # (the alphabetically lower id won the tie). Fixture lines mirror the real
 # shapes: activity lines start {"parentUuid":, bookkeeping lines {"type":.

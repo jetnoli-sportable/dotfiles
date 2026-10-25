@@ -51,6 +51,7 @@ All 21 wb sessions died at once on 2026-10-25 at 18:07:43, when a subagent's tes
 
 - Not built: a durable record of the live conversation written on every hook event (KD2). Two Claude panes active in the same worktree at once may still resume whichever spoke last. That's rare, and evidence it bites would change the call.
 - Not built: re-ranking the picker's age-in-days by timestamp. Age only needs day resolution, and that path runs once per dormant row per render.
+- Accepted tradeoff: a conversation reopened via `/resume` (in-session or `claude --resume`) with no new turn before a mass kill ranks below the conversation it replaced. Nothing in the files separates "stale from before `/clear`" from "reopened and idle"; "newest activity" means where Jet last typed.
 - Not built: millisecond tie-breaking between two timestamped files. Real entries carry millisecond timestamps, so an exact tie needs two conversations writing in the same millisecond.
 
 ## Planning Contract

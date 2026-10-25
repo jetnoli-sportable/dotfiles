@@ -387,8 +387,9 @@ wb_task_files() {
 # Claude's own retention window (cleanupPeriodDays, default 30 days). File
 # mtime is good enough for that age, but not for picking WHICH conversation
 # to resume: on shutdown Claude Code appends bookkeeping lines to every
-# transcript in the folder, so after a mass kill they all share one mtime
-# second (wb_resume_id ranks by in-file timestamp instead). The
+# transcript the dying process touched (the live one and the pre-/clear
+# ones), so after a mass kill they share one mtime second (wb_resume_id
+# ranks by in-file timestamp instead). The
 # claude_sessions: frontmatter field is a snapshot for the board/record
 # only (wb_sessions_snapshot, near cmd_down) — it is never consulted here.
 # ---------------------------------------------------------------------------
@@ -455,6 +456,8 @@ wb_transcript_rank_key() {
 # kill turns into a same-second tie broken alphabetically: on 2026-10-25 that
 # resumed the pre-/clear conversation in 3 of 21 sessions), else empty
 # (nothing to resume — the caller falls back to `--continue` or a cold start).
+# Tradeoff: a conversation reopened via /resume with no new turn ranks below
+# the one it replaced — "newest activity" means where Jet last typed.
 wb_resume_id() {
   local task_file="$1" worktree_abs="$2"
   local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"
