@@ -478,5 +478,25 @@ env -u TMUX HOME="$H" REPLY_LOG_DIR="$RDIR" CLAUDE_SESSIONS_DIR="$H/sessions" FA
 assert_eq "no split opened" 0 "$(grep -c '^split-window' "$H/tmux-calls")"
 assert_eq "a message shown instead" 1 "$(grep -c '^display-message .*no Claude session' "$H/tmux-calls")"
 
+echo "# view is a toggle: pressed again in the Claude pane or in the viewer, it closes the viewer"
+cat >"$FAKEBIN/tmux" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >>"${FAKE_TMUX_CALLS:-/dev/null}"
+case "$1" in
+  list-panes) printf '%%1 \n%%5 %%1\n%%7 %%3\n' ;;
+  show) case "$*" in *"-t %5 "*@reply_log_for*) echo "%1" ;; esac ;;
+esac
+exit 0
+FAKE
+view_with_fake() { : >"$H/tmux-calls"; env -u TMUX HOME="$H" REPLY_LOG_DIR="$RDIR" CLAUDE_SESSIONS_DIR="$H/sessions" \
+  FAKE_TMUX_CALLS="$H/tmux-calls" PATH="$FAKEBIN:$PATH" "$REAL_BASH" "$SCRIPT" view "$1" >/dev/null 2>&1; }
+view_with_fake %1
+assert_eq "from the Claude pane: its viewer closed" "kill-pane -t %5" "$(grep '^kill-pane' "$H/tmux-calls")"
+assert_eq "no new split" 0 "$(grep -c '^split-window' "$H/tmux-calls")"
+view_with_fake %5
+assert_eq "from inside the viewer: it closes itself" "kill-pane -t %5" "$(grep '^kill-pane' "$H/tmux-calls")"
+view_with_fake %3
+assert_eq "another pane's viewer is only closed from that pane" "kill-pane -t %7" "$(grep '^kill-pane' "$H/tmux-calls")"
+
 echo
 if [ "$fail" = 0 ]; then echo "ALL PASSED"; else echo "SOME FAILED"; exit 1; fi
