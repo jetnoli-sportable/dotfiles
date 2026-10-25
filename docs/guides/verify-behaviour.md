@@ -58,7 +58,7 @@ in `zsh/.zshrc`):
 
 | Setting | Why |
 |---|---|
-| `--model sonnet`, `--autocompact 100k` | cheap turns, small context |
+| `--model sonnet`, `--autocompact 225k` | cheap turns, and room above the watcher's ~57k starting context, so a wake turn doesn't compact (at 100k every turn compacted) |
 | `WB_AGENT_MEM_HIGH=1G` | the watcher's memory scope is squeezed first under pressure; `MemoryMax` is unchanged, so it is slowed, never the cause of a kill |
 | `WB_VERIFY_WATCHER=1` | the marker the wait script requires before arming |
 | `--disallowedTools` | keeps it out of other panes and other tasks' files: `SendMessage`, `Edit`, `Write`, `NotebookEdit`; tmux `send`/`paste`/`run` in any abbreviation or flag order; every wb verb that writes (`append`, `set`, `done`, `pause`, …), bare or by `wb.sh` path; the `wb-capture.sh` shelf verbs. Read-only commands such as `wb board` still work. A prefix list can't see inside `bash -c` or a redirect; the skill's read-only rule covers those |

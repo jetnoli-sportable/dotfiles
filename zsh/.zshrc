@@ -204,7 +204,9 @@ claude() {
 # command, hence the globs; wb and wb-capture.sh verbs that write are denied
 # both bare and by path, leaving read-only ones like `wb board` usable. A
 # prefix list can't see inside `bash -c` or a shell redirect, so the skill's
-# read-only rule stays the backstop for those.
+# read-only rule stays the backstop for those. The compaction window sits
+# well above the watcher's starting context (about 57k tokens on the first
+# live run): at the 100k minimum every turn compacted and it thrashed.
 verify-behaviour() {
   local -a deny=(SendMessage Edit Write NotebookEdit
     'Bash(tmux send*)' 'Bash(tmux * send*)' 'Bash(tmux paste*)' 'Bash(tmux * paste*)'
@@ -216,7 +218,7 @@ verify-behaviour() {
   done
   for v in dismiss accept keep mute unmute; do deny+=("Bash(*wb-capture.sh $v*)"); done
   WB_AGENT_MEM_HIGH=1G WB_VERIFY_WATCHER=1 claude /verify-behaviour \
-    --model sonnet --autocompact 100k --disallowedTools "${deny[@]}"
+    --model sonnet --autocompact 225k --disallowedTools "${deny[@]}"
 }
 # wb-claude-wrapper:end
 

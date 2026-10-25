@@ -224,7 +224,7 @@ run_vb TMUX=1 FAKE_WB_REPO=dotfiles FAKE_SESSION_NAME=watcher
 assert_contains "verify-behaviour/wb pane: scope gets the watcher's soft cap MemoryHigh=1G" "$LOG_DIR/systemd-run.argv" "MemoryHigh=1G"
 assert_contains "verify-behaviour/wb pane: MemoryMax stays at the default 18G" "$LOG_DIR/systemd-run.argv" "MemoryMax=18G"
 assert_contains "verify-behaviour/wb pane: claude runs with the launch marker" "$LOG_DIR/claude.env" "marker=1"
-for want in "/verify-behaviour" "--model sonnet" "--autocompact" "SendMessage" "Edit" "Write" "NotebookEdit" \
+for want in "/verify-behaviour" "--model sonnet" "--autocompact 225k" "SendMessage" "Edit" "Write" "NotebookEdit" \
     "Bash(tmux send*)" "Bash(tmux * send*)" "Bash(tmux paste*)" "Bash(tmux * paste*)" "Bash(tmux run*)" \
     "Bash(wb append*)" "Bash(*wb.sh append*)" "Bash(wb set*)" "Bash(wb status*)" "Bash(wb done*)" \
     "Bash(wb pause*)" "Bash(wb jira-set*)" "Bash(wb breakdown*)" "Bash(*wb.sh done*)" \
