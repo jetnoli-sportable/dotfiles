@@ -15,10 +15,13 @@ FIXTURE_HOME="$(mktemp -d -t risky-guard-home.XXXXXX)"
 trap 'rm -rf "$FIXTURE_HOME"' EXIT
 
 fail=0
+# Claude Code runs the guard directly, so it's run the same way here: a lost
+# exec bit or a bad shebang makes the real hook fail open, and must fail here.
+[ -x "$GUARD" ] || { echo "FAIL - guard is not executable (Claude Code runs it directly): $GUARD"; fail=1; }
 decide() { # <command> -> deny|ask|allow
   local out
   out="$(jq -n --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}}' \
-    | HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" bash "$GUARD")"
+    | HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" "$GUARD")"
   if [ -z "$out" ]; then echo allow; else jq -r '.hookSpecificOutput.permissionDecision' <<<"$out"; fi
 }
 expect() { # <expected> <command>
@@ -283,7 +286,7 @@ expect allow 'git push -u origin feat/x'
 expect allow 'git status'
 
 # --- fail-open / kill switch ---------------------------------------------
-out="$(printf 'not json' | HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" bash "$GUARD" 2>/dev/null)"
+out="$(printf 'not json' | HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" "$GUARD" 2>/dev/null)"
 [ -z "$out" ] && echo "ok   - bad payload fails open" || { echo "FAIL - bad payload produced: $out"; fail=1; }
 mkdir -p "$FIXTURE_HOME/.local/state/claude"
 touch "$FIXTURE_HOME/.local/state/claude/disable-risky-command-guard"

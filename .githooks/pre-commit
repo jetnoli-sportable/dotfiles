@@ -85,7 +85,7 @@ while read -r re suite; do
   if ! out="$(bash "$snap/$suite" 2>&1)"; then
     # A crash repeats the same stderr line once per case; dedupe and cap it.
     grep -v '^ok ' <<<"$out" | awk '!seen[$0]++' | head -n 30 >&2 || true
-    echo "pre-commit: $suite failed ($(grep -c '^FAIL' <<<"$out" || true) cases, above) — fix it before committing; full output: bash $suite" >&2
+    echo "pre-commit: $suite failed ($(grep -c '^FAIL -' <<<"$out" || true) cases, above) — fix it before committing; full output: bash $suite" >&2
     exit 1
   fi
 done <<<"$suites"
