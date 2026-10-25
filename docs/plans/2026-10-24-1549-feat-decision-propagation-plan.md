@@ -40,6 +40,8 @@ Messaging every session in the family is not the answer. On 2026-10-18 there wer
 
 A running session also never reloads `CLAUDE.local.md` or `CONCEPTS.md` once it has started. A message is the only way to reach it, and promotion is the only way to reach the sessions that come after.
 
+> **Corrected 2026-10-25 (decision P11):** a live test showed that an edit to a `CONCEPTS.md` a session already imports does reach it on its next prompt. A newly created file, or a new import line, still waits for `/clear` or a restart. Messages remain the only route for `## Decisions`.
+
 ### Key Decisions
 
 - **Recipients are picked by relevance from the live family; the default is nobody.** (session-settled: user-approved — chosen over messaging every live family session: about 10 sessions in the post-processor family, each turn costly on a cold cache.) Governs R4, R5, R7.
@@ -267,6 +269,7 @@ The capture-nudge rework merged to `development` (#110) and this branch is rebas
   3. **Recipients.** Run `wb family <task> --sessions`, then ListAgents, then filter per the HTD flowchart. Before judging relevance, read each candidate's task file (`## Plan` and its latest `## Handoffs` entry) so the judgement rests on what that session is building, not on its title alone. The confirmation line says the judgement was made from those sections, so a wrong "nobody" can be checked.
   4. **Message.** Use one template with the `[wb-propagate]` marker and the rule suffix (R6). Every task named in it gets a plain description, per Jet's rule on identifiers.
   5. **Loop guard.** State R9's rule. Skip step 6 only when the entry being recorded was made in response to a received `[wb-propagate]` message, and say so in the entry's Why line. A `[wb-propagate]` message received earlier in the conversation does not suppress later, unrelated decisions.
+     > **Changed 2026-10-25 (decision P9):** the guard is a fixed `- Prompted-by: [wb-propagate] from <stem> (…); not propagated` bullet written when the entry is composed, not a note in its Why line. Step 6 and `/weekly-review` skip any entry carrying it, and the background sweep adds it to drafts.
   6. **Failures.** Handle missing tools and failed sends per R11.
   7. **Promotion procedure.** Define it once here, and `/close-out` uses the same procedure (U4). It:
      - applies the README's rule of thumb for what counts as a fact;

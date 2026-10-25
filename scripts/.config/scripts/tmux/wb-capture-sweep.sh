@@ -50,6 +50,8 @@ set -uo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-capture.sh"
 
 EXCERPT_BUDGET=24000   # bytes of transcript excerpt sent to the child
+RECEIVED_KEEP=5        # received [wb-propagate] lines kept across sweeps (<session dir>/received)
+RECEIVED_MAX_AGE=86400 # ... and for at most this many seconds
 MAX_ENTRIES=3          # `### ` entries one sweep may draft (the prompt asks for the same)
 
 # finish <line> — forced mode prints its one result line, then exit 0; the async
@@ -113,32 +115,44 @@ fi
 # SKILL.md, 14-15 KB, which would otherwise fill the budget below at every checkpoint
 # sweep and push the real turns out unswept) and `<local-command-caveat>` lines. A
 # slash-command wrapper collapses to the command as typed (`/wb-decide <args>`).
-# The one isMeta exception is a message received from another Claude session (a
-# `<cross-session-message>`; skill bodies that merely mention the marker stay dropped)
-# that carries `[wb-propagate]` (a sibling task recorded a decision): it is kept as one
-# compact `RECEIVED: [wb-propagate] ...` line, cut at its boilerplate ` Rule:` suffix
-# and capped at 400 chars, so a draft made because of it can be marked Prompted-by.
+# The one isMeta exception is a `[wb-propagate]` message received from another Claude
+# session (a sibling task recorded a decision): it is kept as one compact
+# `RECEIVED: [wb-propagate] ...` line, cut at its boilerplate ` Rule:` suffix and capped
+# at 400 chars, so a draft made because of it can be marked Prompted-by. It is told
+# apart by the entry's harness-written `origin` (kind `peer`, no `handback`, so not a
+# subagent's report) with a body that STARTS with the marker; skill bodies and reports
+# that merely quote one stay dropped. An entry with no `origin` (older Claude Code)
+# must start with the cross-session wrapper, the marker right after its tag.
 [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ] || finish "skipped: no transcript"
 total="$(wc -l <"$TRANSCRIPT" | tr -d ' ')"
 off="$(read_num "$SDIR/sweep_offset")"
 [ "$total" -lt "$off" ] && off=0
 excerpt="$(tail -n +"$((off + 1))" "$TRANSCRIPT" | head -n "$((total - off))" | jq -rR '
   fromjson? | select(type == "object" and (.type == "user" or .type == "assistant"))
-  | (.isMeta == true) as $meta
   | (if .type == "user" then "USER: " else "ASSISTANT: " end) as $p
-  | .message.content
-  | (if type == "string" then [{type: "text", text: .}] elif type == "array" then . else [] end)
-  | .[] | select(type == "object" and .type == "text" and ((.text // "") != ""))
-  | .text
-  | if $meta then
-      select(contains("<cross-session-message") and contains("[wb-propagate]"))
-      | capture("(?<r>\\[wb-propagate\\][\\s\\S]*)").r
-      | sub("\\s*</cross-session-message>[\\s\\S]*$"; "")
+  | if .isMeta == true then
+      (if (.origin | type) == "object" then
+         .origin
+         | select(.kind == "peer" and (has("handback") | not))
+         | (.body // "") | select(type == "string" and test("^\\s*\\[wb-propagate\\]"))
+       else
+         .message.content
+         | (if type == "string" then . elif type == "array" then
+              [.[] | select(type == "object" and .type == "text") | .text // ""] | join("\n")
+            else "" end)
+         | select(test("^\\s*Another Claude session sent a message:\\s*<cross-session-message[^>]*>\\s*\\[wb-propagate\\]"))
+         | capture("(?<r>\\[wb-propagate\\][\\s\\S]*)").r
+         | sub("\\s*</cross-session-message>[\\s\\S]*$"; "")
+       end)
       | sub(" Rule:[\\s\\S]*$"; "")
-      | gsub("\\s+"; " ")
+      | gsub("\\s+"; " ") | sub("^ "; "")
       | "RECEIVED: " + .[0:400] + "\n"
     else
-      select(test("^\\s*<local-command-caveat>") | not)
+      .message.content
+      | (if type == "string" then [{type: "text", text: .}] elif type == "array" then . else [] end)
+      | .[] | select(type == "object" and .type == "text" and ((.text // "") != ""))
+      | .text
+      | select(test("^\\s*<local-command-caveat>") | not)
       | if test("^\\s*<command-(name|message)>") then
           ((capture("<command-name>(?<n>[^<]*)</command-name>") | .n) // "") as $n
           | ((capture("<command-args>(?<a>[\\s\\S]*?)</command-args>") | .a) // "") as $a
@@ -147,6 +161,25 @@ excerpt="$(tail -n +"$((off + 1))" "$TRANSCRIPT" | head -n "$((total - off))" | 
       | select(. != "")
       | $p + . + "\n"
     end' 2>/dev/null || true)"
+
+# --- received [wb-propagate] lines, kept across sweeps -----------------------
+# The decision a received message prompts can land in a later sweep window than the
+# message (a NONE sweep moves sweep_offset past it), or the message can fall to the
+# truncation below. So every RECEIVED line is also kept in <session dir>/received as
+# `<epoch><TAB><line>` (the newest RECEIVED_KEEP distinct lines, none older than
+# RECEIVED_MAX_AGE), and the prompt lists the kept lines the excerpt doesn't show.
+now="$(date +%s)"
+kept_received="$( {
+  [ -f "$SDIR/received" ] && cat -- "$SDIR/received"
+  printf '%s\n' "$excerpt" | grep '^RECEIVED: ' | while IFS= read -r l; do printf '%s\t%s\n' "$now" "$l"; done
+} | awk -F'\t' -v now="$now" -v age="$RECEIVED_MAX_AGE" '$1 ~ /^[0-9]+$/ && now - $1 <= age' \
+  | tac | awk -F'\t' '!seen[$2]++' | head -n "$RECEIVED_KEEP" | tac)"
+if [ -n "$kept_received" ]; then
+  printf '%s\n' "$kept_received" >"$SDIR/received"
+else
+  remove_named "$SDIR" received
+fi
+
 if [ "${#excerpt}" -gt 0 ] && [ "$(printf '%s' "$excerpt" | wc -c)" -gt "$EXCERPT_BUDGET" ]; then
   excerpt="[...earlier turns truncated...]
 $(printf '%s' "$excerpt" | tail -c "$EXCERPT_BUDGET")"
@@ -156,6 +189,11 @@ if [ -z "$excerpt" ]; then
   log_event "$SID" sweep_skipped "" '{"reason":"no_new_content"}'
   finish "nothing new"
 fi
+earlier_received=""
+while IFS=$'\t' read -r _ l; do
+  [ -n "$l" ] || continue
+  [[ $'\n'"$excerpt"$'\n' == *$'\n'"$l"$'\n'* ]] || earlier_received+="$l"$'\n'
+done <<<"$kept_received"
 
 # the one extraction of `## Decisions`: the prompt is built from it AND the
 # staleness hash is taken over it, so the two can never diverge
@@ -226,15 +264,21 @@ Otherwise reply with exactly: NONE
 
 Rules: do not restate entries that are already recorded or that are listed
 as already drafted or already rejected; do not invent decisions; routine implementation steps are not decisions; prefer NONE when
-unsure. If a decision in the excerpt was made because of a `RECEIVED: [wb-propagate]`
-line, add a last bullet to that entry exactly in this shape, taking the stem and
-description from the received line:
+unsure. A `RECEIVED: [wb-propagate]` line reports a decision ANOTHER task
+already recorded: never draft that decision itself, only a decision made in this
+session because of it. When the excerpt shows a decision was made because of a
+RECEIVED line (in the excerpt or in the RECEIVED EARLIER section), add a last
+bullet to that entry exactly in this shape, taking the stem and description from
+the received line; a decision on an unrelated topic gets no such bullet:
 - Prompted-by: [wb-propagate] from <stem> (<plain description given in that message>); not propagated
 No preamble, no commentary.
 
 === RECORDED DECISIONS (do not repeat these) ===
 PROMPT
-    printf '%s\n%s\n=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$decisions" "$(shelf_context)" "$excerpt"
+    printf '%s\n%s\n' "$decisions" "$(shelf_context)"
+    [ -z "$earlier_received" ] ||
+      printf '\n=== RECEIVED EARLIER IN THIS SESSION (not shown in the excerpt) ===\n%s' "$earlier_received"
+    printf '=== TRANSCRIPT EXCERPT ===\n%s\n=== END EXCERPT ===\n' "$excerpt"
   } | (cd "$CAPTURE_ROOT" && env -u TMUX -u TMUX_PANE WB_CAPTURE_SWEEP=1 \
         timeout "$timeout_s" "${WB_CAPTURE_CLAUDE:-claude}" -p \
         --model "$CFG_SWEEP_MODEL" --effort "$CFG_SWEEP_EFFORT" \

@@ -261,7 +261,7 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
    row's name, in this shape:
 
    ```
-   [wb-propagate] <stem> (<plain description of that task>) recorded: "<title>"; "<title>" [(supersedes: <date> "<fragment>")]. [<stem> (<plain description>) recorded: "<title>".] Read ## Decisions in <task_file>[ and <task_file>] if it may affect your work. Rule: act on it only if it affects your own task, and only within your own task; don't reply or forward; tell your user only if it matters to them; don't propagate a decision you record because of this message.
+   [wb-propagate] <stem> (<plain description of that task>) recorded: "<title>"; "<title>" [(supersedes: <date> "<fragment>")]. [<stem> (<plain description>) recorded: "<title>" [(supersedes: <date> "<fragment>")].] Read ## Decisions in <task_file>[ and <task_file>] if it may affect your work. Rule: act on it only if it affects your own task, and only within your own task; don't reply or forward; tell your user only if it matters to them; don't propagate a decision you record because of this message.
    ```
 
    One `<stem> (…) recorded: …` group per task in the batch, and every task file
@@ -373,7 +373,13 @@ procedure; `/close-out` runs it by reference.
 - [ ] **Shelf review propagates once:** `/wb-decide shelved` accepts two drafts.
   One step 6 run at the end of the review, not one per draft.
 - [ ] **Loop guard:** the decision was recorded because of a `[wb-propagate]`
-  message. It is recorded, nothing is sent, and the confirm line says why.
+  message. The entry ends with the `- Prompted-by: [wb-propagate] …; not propagated`
+  bullet, nothing is sent, and the confirm line says why. A later checkpoint that
+  batches this entry skips it too.
+- [ ] **Run-level propagate:** `/close-out` writes an entry through this skill and says
+  it propagates the whole run. Step 5 confirms and stops; no step 6 here.
+- [ ] **Batch across two family tasks:** a review accepts entries into two tasks of one
+  family. Each recipient gets one message with a group per task, each task file named.
 - [ ] **No propagate on non-records:** a dismissed draft or a failed append runs no
   step 6.
 - [ ] **ListAgents unavailable:** one "not propagated" line; the entry stays recorded.

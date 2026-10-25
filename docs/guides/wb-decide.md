@@ -231,7 +231,7 @@ it never adds `--leave-shelved` on its own.
 | What | Where |
 |---|---|
 | State root | `~/.local/state/wb/capture/` (honours `XDG_STATE_HOME`) |
-| Per-session state | `~/.local/state/wb/capture/<session_id>/` (sweep bookkeeping: `taskhash`, `unchanged`, `muted`, `ended`, `taskpath`, `transcript`, `sweep_offset`, …) |
+| Per-session state | `~/.local/state/wb/capture/<session_id>/` (sweep bookkeeping: `taskhash`, `unchanged`, `muted`, `ended`, `taskpath`, `transcript`, `sweep_offset`, `received` (the last few `[wb-propagate]` messages this session got, so a later sweep can still mark a draft Prompted-by), …) |
 | Event log | `~/.local/state/wb/capture/log.jsonl` (rotated to `log.jsonl.1` above 5 MB) |
 | Config (optional, untracked) | `~/.config/wb/capture.conf` |
 | Kill switch | `~/.local/state/wb/disable-capture` |

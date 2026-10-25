@@ -503,7 +503,7 @@ it never adds <code>--leave-shelved</code> on its own.</p>
 </tr>
 <tr>
 <td>Per-session state</td>
-<td><code>~/.local/state/wb/capture/&lt;session_id&gt;/</code> (sweep bookkeeping: <code>taskhash</code>, <code>unchanged</code>, <code>muted</code>, <code>ended</code>, <code>taskpath</code>, <code>transcript</code>, <code>sweep_offset</code>, …)</td>
+<td><code>~/.local/state/wb/capture/&lt;session_id&gt;/</code> (sweep bookkeeping: <code>taskhash</code>, <code>unchanged</code>, <code>muted</code>, <code>ended</code>, <code>taskpath</code>, <code>transcript</code>, <code>sweep_offset</code>, <code>received</code> (the last few <code>[wb-propagate]</code> messages this session got, so a later sweep can still mark a draft Prompted-by), …)</td>
 </tr>
 <tr>
 <td>Event log</td>

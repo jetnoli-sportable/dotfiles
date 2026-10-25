@@ -581,7 +581,7 @@ assert_nomatch "no truncation marker" 'earlier turns truncated' "$S"
 assert_match "command wrapper collapses to the command as typed" 'USER: /wb-save CMD_ARGS_TEXT' "$S"
 assert_nomatch "no command wrapper tags" '<command-(name|message|args)>' "$S"
 
-echo "# excerpt: [wb-propagate] cross-session messages kept as RECEIVED lines"
+echo "# excerpt: [wb-propagate] cross-session messages kept as RECEIVED lines (no origin: older Claude Code)"
 new_scenario
 {
   jq -nc '{type:"user",message:{role:"user",content:"a real question"}}'
@@ -598,6 +598,63 @@ assert_nomatch "cross-session message without [wb-propagate] dropped" 'UNRELATED
 assert_nomatch "isMeta skill text still dropped" 'SKILL_BODY_MARK2' "$S"
 assert_nomatch "skill text mentioning [wb-propagate] is not a RECEIVED line" 'SKILL_MENTIONS_MARKER' "$S"
 assert_match "prompt carries the Prompted-by instruction" '- Prompted-by: \[wb-propagate\] from <stem> \(<plain description given in that message>\); not propagated' "$S"
+assert_match "prompt says a RECEIVED decision is another task's" 'never draft that decision itself' "$S"
+assert_nomatch "no earlier-received section when the excerpt shows the line" '=== RECEIVED EARLIER' "$S"
+
+echo "# excerpt: RECEIVED lines keyed on the harness-written origin"
+new_scenario
+{
+  jq -nc '{type:"user",message:{role:"user",content:"a real question"}}'
+  # a real cross-session message: origin kind peer, no handback, body starts with the marker
+  jq -nc '{type:"user",isMeta:true,origin:{kind:"peer",from:"uds:/run/user/1000/cc-socks/1.sock",fromMode:"prompting",msg_id:"m1",name:"sib",verifiedPeerPid:1,body:"[wb-propagate] dotfiles--feat-y (the sibling) recorded: \"T2\". Read X. Rule: RB2_MARK"},message:{role:"user",content:"Another Claude session sent a message:\n<cross-session-message from=\"uds:/run/user/1000/cc-socks/1.sock\" from-name=\"sib\" from-mode=\"prompting\">\n[wb-propagate] dotfiles--feat-y (the sibling) recorded: \"T2\". Read X. Rule: RB2_MARK\n</cross-session-message>"}}'
+  # a subagent report (handback) whose body starts with the marker: dropped
+  jq -nc '{type:"user",isMeta:true,origin:{kind:"peer",from:"a1",handback:true,senderTaskId:"t1",body:"[wb-propagate] HANDBACK_MARK"},message:{role:"user",content:"Another Claude session sent a message:\n<agent-message from=\"a1\">\n[wb-propagate] HANDBACK_MARK\n</agent-message>"}}'
+  # a peer message that only mentions the marker mid-body: dropped
+  jq -nc '{type:"user",isMeta:true,origin:{kind:"peer",from:"uds:/x.sock",fromMode:"prompting",body:"see the [wb-propagate] message MIDBODY_MARK"},message:{role:"user",content:"Another Claude session sent a message:\n<cross-session-message from=\"uds:/x.sock\">\nsee the [wb-propagate] message MIDBODY_MARK\n</cross-session-message>"}}'
+  # no origin: a report quoting a cross-session message, and a wrapper whose body does not start with the marker
+  jq -nc '{type:"user",isMeta:true,message:{role:"user",content:"Another Claude session sent a message:\n<agent-message from=\"a2\">\nquoted <cross-session-message from=\"x\">\n[wb-propagate] AGENTMSG_MARK\n</agent-message>"}}'
+  jq -nc '{type:"user",isMeta:true,message:{role:"user",content:"Another Claude session sent a message:\n<cross-session-message from=\"x\">\nhello [wb-propagate] FALLBACK_MID_MARK\n</cross-session-message>"}}'
+} >"$TRANSCRIPT"
+sweep
+S="$(cat "$OUTDIR/stdin")"
+assert_match "origin body becomes the RECEIVED line" 'RECEIVED: \[wb-propagate\] dotfiles--feat-y \(the sibling\) recorded: "T2"\. Read X\.$' "$S"
+assert_nomatch "origin body Rule suffix cut" 'RB2_MARK' "$S"
+assert_nomatch "subagent handback starting with the marker dropped" 'HANDBACK_MARK' "$S"
+assert_nomatch "marker mid-body dropped" 'MIDBODY_MARK' "$S"
+assert_nomatch "no-origin report quoting a cross-session message dropped" 'AGENTMSG_MARK' "$S"
+assert_nomatch "no-origin wrapper without the marker first dropped" 'FALLBACK_MID_MARK' "$S"
+assert_match "received line kept in the session dir" '^[0-9]+	RECEIVED: \[wb-propagate\] dotfiles--feat-y' "$(cat "$D/received" 2>/dev/null)"
+
+echo "# received: a line from an earlier sweep window still reaches the prompt"
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
+{
+  jq -nc '{type:"user",message:{role:"user",content:"a real question"}}'
+  jq -nc '{type:"user",isMeta:true,origin:{kind:"peer",from:"uds:/s.sock",fromMode:"prompting",body:"[wb-propagate] dotfiles--feat-y (the sibling) recorded: \"EARLY_RECV_MARK\". Read X. Rule: r"},message:{role:"user",content:"x"}}'
+} >"$TRANSCRIPT"
+sweep
+assert_eq "first sweep consumed the window" 2 "$(cat "$D/sweep_offset")"
+add_turn 'next question' 'we chose LATER_DECISION_MARK because of it'
+printf '4\n' >"$D/unchanged"
+sweep
+S="$(cat "$OUTDIR/stdin")"
+assert_match "later window has the new turn" 'LATER_DECISION_MARK' "$S"
+assert_match "earlier-received section present" '=== RECEIVED EARLIER IN THIS SESSION' "$S"
+assert_match "earlier received line listed" '^RECEIVED: \[wb-propagate\] dotfiles--feat-y \(the sibling\) recorded: "EARLY_RECV_MARK"' "$S"
+assert_eq "listed once" 1 "$(printf '%s\n' "$S" | /usr/bin/grep -c 'EARLY_RECV_MARK')"
+
+echo "# received: old lines age out, at most 5 kept"
+new_scenario
+now="$(date +%s)"
+{
+  printf '%s\tRECEIVED: [wb-propagate] OLD_RECV_MARK\n' "$((now - 90000))"
+  for i in 1 2 3 4 5 6; do printf '%s\tRECEIVED: [wb-propagate] FRESH_%s_MARK\n' "$((now - 100 + i))" "$i"; done
+} >"$D/received"
+sweep
+S="$(cat "$OUTDIR/stdin")"
+assert_nomatch "aged line not in the prompt" 'OLD_RECV_MARK' "$S"
+assert_nomatch "oldest fresh line dropped past the cap" 'FRESH_1_MARK' "$S"
+assert_match "newest fresh line in the prompt" 'FRESH_6_MARK' "$S"
+assert_eq "file keeps 5 lines" 5 "$(wc -l <"$D/received" | tr -d ' ')"
 
 echo "# offset"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)

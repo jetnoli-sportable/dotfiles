@@ -249,7 +249,7 @@ mkold() {
 
 echo "# reaper: ended dir removed on next eligible hook-prompt"
 new_scenario
-mkdir -p "$CAP/sid-done"; touch "$CAP/sid-done/ended" "$CAP/sid-done/unchanged"
+mkdir -p "$CAP/sid-done"; touch "$CAP/sid-done/ended" "$CAP/sid-done/unchanged" "$CAP/sid-done/received"
 touch -d '1 day ago' "$CAP/sid-done/ended"   # past the sweep grace period
 prompt "hi"
 assert_eq "prompt exit" 0 "$RC"
