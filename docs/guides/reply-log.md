@@ -17,7 +17,8 @@ the agent to summarise only adds more to scroll past.
 
 The reply log keeps a clean copy. After every turn, a Stop hook (the
 `reply-log` plugin, `claude/.claude/skills/reply-log/`, hooks only) writes
-that turn to `~/.claude/replies/<session-id>.md`: your full prompt, every
+that turn to `~/.claude/replies/<session-id>.md` (a SessionEnd hook, in the
+same plugin, completes a session's last turn when it ends): your full prompt, every
 piece of text Claude wrote (not just the last), and the turn's artifacts.
 Thinking, tool calls and tool output never appear.
 <kbd>prefix</kbd>+<kbd>v</kbd> opens the file in a split beside the
@@ -95,6 +96,7 @@ Its turns land in `/tmp/reply-log-try/<session-id>.md`.
 | `~/.claude/replies/<session-id>.md` | One reply file per Claude session id. YAML frontmatter on line 1 (`session_id`, `task`, `cwd`, `branch`, `created`), a `#` heading naming the task (or the folder) and the start time, then one `##` turn per prompt. |
 | `~/.claude/replies/.<session-id>.cursor` | Where the last turn starts, in the reply file and in the transcript; how the hook re-renders it. Safe to delete: the next turn is then appended after the existing ones. |
 | `claude-reply-log.sh hook-stop` | The Stop hook. Reads the hook payload on stdin, always exits 0 and prints nothing. |
+| `claude-reply-log.sh hook-session-end` | The SessionEnd hook (`/clear` or exit). Re-renders the last logged turn from the finished transcript; never creates a file. Same guards as the Stop hook. |
 | `claude-reply-log.sh chain <file\|session-id>` | Prints the reply files to show for a session, oldest first. |
 | `claude-reply-log.sh chain --pane <pane-id>` | The same, for the session live in that tmux pane. |
 | `claude-reply-log.sh view [pane-id]` | What <kbd>prefix</kbd>+<kbd>v</kbd> runs. |
@@ -126,8 +128,10 @@ other local commands, `!` shell commands, and compaction summaries.
   hook runs, Claude Code usually hasn't yet written the turn to its
   transcript, so the final text comes from the hook payload and earlier
   text blocks of the same turn may be missing. They are filled in when the
-  next turn finishes. A text block written between tool calls can
-  therefore show up one turn late.
+  next turn finishes, so a text block written between tool calls can show
+  up one turn late. A session's final turn has no next turn: the SessionEnd
+  hook completes it when the session ends (`/clear` or exit), by which
+  point the transcript is whole.
 - **The first turn of a session already in progress.** A session that was
   running before the plugin loaded (or one resumed with `claude --resume`)
   starts its file at the next turn. Older turns are not backfilled.

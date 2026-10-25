@@ -269,7 +269,8 @@ anything older than the last message or two means scrolling, and asking
 the agent to summarise only adds more to scroll past.</p>
 <p>The reply log keeps a clean copy. After every turn, a Stop hook (the
 <code>reply-log</code> plugin, <code>claude/.claude/skills/reply-log/</code>, hooks only) writes
-that turn to <code>~/.claude/replies/&lt;session-id&gt;.md</code>: your full prompt, every
+that turn to <code>~/.claude/replies/&lt;session-id&gt;.md</code> (a SessionEnd hook, in the
+same plugin, completes a session's last turn when it ends): your full prompt, every
 piece of text Claude wrote (not just the last), and the turn's artifacts.
 Thinking, tool calls and tool output never appear.
 <kbd>prefix</kbd>+<kbd>v</kbd> opens the file in a split beside the
@@ -351,6 +352,10 @@ claude --plugin-dir ~/code/dotfiles/.worktrees/feat/claude-reply-log/claude/.cla
 <td>The Stop hook. Reads the hook payload on stdin, always exits 0 and prints nothing.</td>
 </tr>
 <tr>
+<td><code>claude-reply-log.sh hook-session-end</code></td>
+<td>The SessionEnd hook (<code>/clear</code> or exit). Re-renders the last logged turn from the finished transcript; never creates a file. Same guards as the Stop hook.</td>
+</tr>
+<tr>
 <td><code>claude-reply-log.sh chain &lt;file|session-id&gt;</code></td>
 <td>Prints the reply files to show for a session, oldest first.</td>
 </tr>
@@ -404,8 +409,10 @@ other local commands, <code>!</code> shell commands, and compaction summaries.</
 hook runs, Claude Code usually hasn't yet written the turn to its
 transcript, so the final text comes from the hook payload and earlier
 text blocks of the same turn may be missing. They are filled in when the
-next turn finishes. A text block written between tool calls can
-therefore show up one turn late.</li>
+next turn finishes, so a text block written between tool calls can show
+up one turn late. A session's final turn has no next turn: the SessionEnd
+hook completes it when the session ends (<code>/clear</code> or exit), by which
+point the transcript is whole.</li>
 <li><strong>The first turn of a session already in progress.</strong> A session that was
 running before the plugin loaded (or one resumed with <code>claude --resume</code>)
 starts its file at the next turn. Older turns are not backfilled.</li>
