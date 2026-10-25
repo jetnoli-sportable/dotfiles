@@ -38,7 +38,7 @@ export LC_ALL=C.UTF-8
 WIDTH="${FZF_PREVIEW_COLUMNS:-${COLUMNS:-80}}"
 [[ "$WIDTH" =~ ^[0-9]+$ ]] && [ "$WIDTH" -ge 20 ] || WIDTH=80
 QUIET_AFTER=600   # a busy session with no activity this long reads "quiet"
-NOW="$(date +%s)"
+printf -v NOW '%(%s)T' -1
 
 B=$'\e[1m' D=$'\e[2m' R=$'\e[0m' ACC=$'\e[38;2;136;57;239m'
 
@@ -73,7 +73,7 @@ section() { # <label>
 # proc_start <pid> — the process start time (field 22 of /proc/<pid>/stat)
 proc_start() {
   local s
-  s="$(cat "/proc/$1/stat" 2>/dev/null)" || return 1
+  read -r s 2>/dev/null <"/proc/$1/stat" || return 1
   s="${s##*) }"
   # shellcheck disable=SC2086
   set -- $s
@@ -120,7 +120,9 @@ recap() {
 # last_turn <reply file> — the last turn, tagged: "T\t<heading>", "U\t<previous
 # heading>", "P\t<prompt line>", "R\t<reply line>". Turns start at a "## " line
 # followed by a turn anchor; the prompt is a blockquote, and the reply runs to
-# a closing ### Artifacts list or the end.
+# a closing ### Artifacts list or the end. A "### Artifacts" heading counts only
+# when nothing but "- " lines and blanks follow it in the turn; `artifacts`
+# below applies the same rule, so change both together.
 last_turn() {
   awk '{ l[NR] = $0 }
     /^<!-- turn \{/ { if (NR > 1 && l[NR - 1] ~ /^## /) { p2 = p1; p1 = NR } }
@@ -145,7 +147,8 @@ last_turn() {
 # artifacts <reply file>... — "- <item>" lines from each turn's closing ### Artifacts list
 artifacts() {
   # a turn's lines are buffered until the next anchor (its heading line, the
-  # next turn's, is dropped first) or the end of the file
+  # next turn's, is dropped first) or the end of the file; the valid-heading
+  # rule is the one in last_turn
   awk 'function flush(   j, k, ok) {
          k = 0
          for (j = n; j >= 1; j--) if (l[j] == "### Artifacts") { k = j; break }
@@ -222,13 +225,10 @@ main() {
   fi
 
   # the reply file: the session's own, else the newest in its task's chain
-  local file="" s
+  local file="" l
   [ -n "$sid" ] && [ -f "$REPLY_DIR/$sid.md" ] && file="$REPLY_DIR/$sid.md"
   [ -n "$file" ] && [ -z "$task" ] && task="$(fm_field "$file" task)"
-  if [ -z "$task" ] && [ -n "$pane" ]; then
-    s="$(tmux display-message -p -t "$pane" '#S' 2>/dev/null || true)"
-    [ -n "$s" ] && task="$(tmux show -t "=$s:" -v @task 2>/dev/null || true)"
-  fi
+  [ -z "$task" ] && [ -n "$pane" ] && task="$(TMUX_PANE="$pane" task_of_pane)"
   local -a chain=()
   if [ -n "$task" ] && [ -f "$task" ]; then
     mapfile -t chain < <(chain_for_task "$task")
@@ -296,7 +296,7 @@ main() {
   if [ -n "$T" ]; then
     local when="${T#\#\# }"; when="${when%% · *}"
     section "You asked · ${when##* }"
-    local n=0 l
+    local n=0
     for l in "${P[@]}"; do
       [[ "$l" == *[![:space:]]* ]] || continue
       [ "$n" -lt 6 ] || { echo "${D}…${R}"; break; }

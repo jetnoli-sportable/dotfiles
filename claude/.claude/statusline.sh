@@ -87,14 +87,17 @@ usage_part wk "${wk_pct:-}" "${wk_reset:-}"
 # Written to a temp file and moved into place; a failure here must never
 # stop the line printing, since this script runs under set -e.
 write_cache() {
-  local sid dir tmp
-  sid=$(jq -r '.session_id // empty' <<<"$payload")
-  [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || return 0
+  local ts sid json dir tmp
+  printf -v ts '%(%s)T' -1
+  # line 1 the session id, line 2 the cache record
+  { read -r sid && read -r json; } < <(jq -r --argjson ts "$ts" '(.session_id // ""),
+      ({session_id, model: (.model.display_name // .model.id), cost_usd: .cost.total_cost_usd,
+        context_pct: .context_window.used_percentage, ts: $ts} | tojson)' <<<"$payload")
+  [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] && [ -n "$json" ] || return 0
   dir="${CLAUDE_STATUS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/claude-status}"
-  mkdir -p "$dir" && tmp=$(mktemp "$dir/.$sid.XXXXXX") || return 0
-  if jq -c --argjson ts "$(date +%s)" '{session_id, model: (.model.display_name // .model.id),
-      cost_usd: .cost.total_cost_usd, context_pct: .context_window.used_percentage, ts: $ts}' \
-      <<<"$payload" >"$tmp"; then
+  [ -d "$dir" ] || mkdir -p "$dir" || return 0
+  tmp="$dir/.$sid.$$"
+  if printf '%s\n' "$json" >"$tmp"; then
     mv -f "$tmp" "$dir/$sid.json"
   else
     rm -f "$tmp"
