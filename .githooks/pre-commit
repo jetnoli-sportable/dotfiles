@@ -38,6 +38,20 @@ triggers+='|^scripts/\.config/scripts/tmux/[^/]+\.sh$'
 triggers+='|^scripts/\.config/scripts/[^/]+\.sh$'
 
 changed="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+# GNOME key-conflict check (R5): a key bound twice can crash GNOME Shell and
+# end the Wayland session, so any commit touching gnome/ or run-or-raise/ must
+# leave the keymap collision-free. Runs in an isolated settings session (never
+# the live one) and, unlike docgen, always blocks. Runs before the docgen
+# early exit below so the two checks stay independent.
+if grep -qE '^(gnome|run-or-raise)/' <<<"$changed"; then
+  echo "pre-commit: gnome/ or run-or-raise/ changed — checking for key conflicts"
+  if ! "$repo_root/gnome/check-keys.sh" --repo; then
+    echo "pre-commit: key conflict (see above) — fix it before committing" >&2
+    exit 1
+  fi
+fi
+
 if ! grep -qE "$triggers" <<<"$changed"; then
   exit 0
 fi
