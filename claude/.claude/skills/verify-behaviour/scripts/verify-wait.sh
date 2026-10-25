@@ -29,9 +29,10 @@
 #                        broken). broken/proposed raise the tmux status marker.
 #   seen                 clear the tmux status marker.
 #   scan --since <time> <checks-file>
-#                        read-only history scan (<=20 hits per check, never
-#                        moves positions or touches pending). Output: SCAN, then
-#                        hit lines.
+#                        read-only history scan of transcript and capture-log
+#                        triggers (<=20 hits per check, never moves positions
+#                        or touches pending; Decisions bullets can't be dated,
+#                        so they are skipped). Output: SCAN, then hit lines.
 #   selftest             check that the newest transcripts still carry the keys
 #                        the filters rely on; non-zero exit and SELFTEST-FAIL
 #                        when they don't.
@@ -591,14 +592,20 @@ process_changed() {
         queue_range "$f" "$SRC" "$poff" "$size" "$start"
         poff="$CONSUMED"
         printf '%s\n' "$f$SEP$ino$SEP$size$SEP$poff$SEP$start" >>"$W/newpos" ;;
-      decisions:*) printf '%s\n' "$f$SEP$ino$SEP$size$SEP$poff" >>"$W/changed.dec" ;;
+      decisions:*) printf '%s\n' "$f$SEP$ino$SEP$size$SEP$poff$SEP$status" >>"$W/changed.dec" ;;
     esac
   done <"$W/changed"
   emit_batch transcript transcript "$W/batch.t"
   emit_batch capture capture-log "$W/batch.c"
-  while IFS="$SEP" read -r f ino size poff; do
+  while IFS="$SEP" read -r f ino size poff status; do
     set_src "$f"
-    match_decisions "$f" "$SRC" "$poff"
+    if [ "$status" = new ]; then
+      # Bullets carry no time, so ones already there when the file is first
+      # watched are undatable history: count them, raise nothing.
+      NEWCOUNT="$(decision_rows "$f" | tail -n 1 | cut -d"$SEP" -f1)"; NEWCOUNT="${NEWCOUNT:-0}"
+    else
+      match_decisions "$f" "$SRC" "$poff"
+    fi
     printf '%s\n' "$f$SEP$ino$SEP$size$SEP$NEWCOUNT$SEP" >>"$W/newpos"
   done <"$W/changed.dec"
 }
@@ -642,7 +649,8 @@ scan_collect() (
         if [ "$SINCE" -gt 0 ] && [ -n "$START" ] && [ "$START" -lt "$SINCE" ]; then continue; fi
         match_jsonl "$f" transcript 0 "$sz" "" transcript ;;
       capture-log) match_jsonl "$f" capture-log 0 "$sz" "" capture ;;
-      decisions:*) match_decisions "$f" "$SRC" 0 ;;
+      # decisions: bullets carry no time, so no scan can tell history since
+      # --since from older bullets; only the poll's new bullets count.
     esac
   done <<<"$rows"
   # Keep the last 20 hits per check.
@@ -740,7 +748,10 @@ cmd_wait() {
     [ "$STATCHG" = 0 ] && continue
     if [ "$CSIG" != "$oldc" ]; then emit_checks_changed; return 0; fi
     # A verdict (or reopen) changes which checks are armed, without waking us.
-    if [ "$VSIG" != "$oldv" ]; then oldv="$VSIG"; load_checks; stat_all; baseline_new; fi
+    # It never changes which files are watched (decisions stems come from every
+    # trigger, whatever its state), so nothing new needs baselining: a file first
+    # seen in this pass is read from its start like any other new file.
+    if [ "$VSIG" != "$oldv" ]; then oldv="$VSIG"; load_checks; fi
     [ "$WRAW" = "$prevw" ] && continue
     prevw="$WRAW"
     NEWHITS=0

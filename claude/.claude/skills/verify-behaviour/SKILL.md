@@ -30,7 +30,7 @@ bash ~/.claude/skills/verify-behaviour/scripts/verify-wait.sh <subcommand> ...
 | `record <checks-file> <id> <state> "<quote>" "<source>"` | Record a verdict (`open`, `partial`, `proposed`, `met`, `broken`). |
 | `ack <hit-id>` | Drop a judged hit from the pending list. |
 | `seen` | Clear Jet's status-bar alert. |
-| `scan --since <ISO time> <checks-file>` | Read-only history search for one file's triggers (at most 20 hits per check). |
+| `scan --since <ISO time> <checks-file>` | Read-only history search for one file's transcript and capture-log triggers (at most 20 hits per check). Decisions bullets carry no time, so they're never scanned. |
 | `selftest` | Confirm the transcript format still carries the keys the filters need. |
 
 ## Hard rules
@@ -75,8 +75,9 @@ Read the wait's output. Its first line is one keyword.
   cut short still leaves a wait running, and unjudged hits stay listed.
 - **`CHECKS-CHANGED`**: re-arm, run `vw list`, and tell Jet in one line what
   changed (a new checks file, a new or reworded check, a file that went live).
-  When a file goes live, the next wait scans its history once and delivers
-  what it finds as hits.
+  When a file goes live, the next wait scans its transcript and capture-log
+  history once and delivers what it finds as hits. Decisions bullets already
+  there never count; only ones added afterwards do.
 - **`ALREADY-ARMED`**: nothing to do; end the turn without a reply.
 - **`BAD-LAUNCH`**: tell Jet to quit and relaunch with `verify-behaviour`.
   Don't retry.

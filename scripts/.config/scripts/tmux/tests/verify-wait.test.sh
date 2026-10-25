@@ -520,6 +520,38 @@ out="$(vw scan --since 2026-06-01T00:00:00Z "$CHECKS")"
 assert "the fresh transcript is scanned" 'in a fresh transcript' "$out"
 assert_not "the transcript last written before --since is not" 'in an old transcript' "$out"
 
+# =============================================================================
+echo "# Scenario: a verdict and a new session in the same poll still raise the session's hit"
+setup; write_checks 2020-01-01T00:00:00Z; seed_transcript
+export VERIFY_POLL_SECS=1 # wide window, so both writes land in one pass
+start_wait; wait_ready; sleep 1.2
+NEWLOG="$FX/projects/proj1/sess3.jsonl"
+{ tline "start"; peer_line s3 "ZEBRA-PROPAGATE in a session that started with the verdict"; } >"$NEWLOG"
+vw record "$CHECKS" C2 partial 'held' 'test' >/dev/null
+await_exit 4; rc=$?
+assert_eq "the wait exits" 0 "$rc"
+assert "the new session's line is a hit" 'check=C1 .*started with the verdict' "$(cat "$OUT")"
+stop_wait
+
+# =============================================================================
+echo "# Scenario: Decisions bullets already there when a file goes live are history, not hits"
+setup; write_checks "" ; seed_transcript; seed_task
+awk '/^## Handoffs/ && !d { print "- an old decision with the needle, from before rollout"; print ""; d=1 } { print }' "$TASKF" >"$TASKF.tmp" && mv "$TASKF.tmp" "$TASKF"
+start_wait; wait_ready; stop_wait # primes positions while nothing is live
+write_checks 2020-01-01T00:00:00Z # goes live: the old bullet predates the watch
+start_wait; await_exit 3; rc=$?
+assert "going live wakes with CHECKS-CHANGED" '^CHECKS-CHANGED$' "$(first_line)"
+start_wait; wait_ready; sleep 1
+running; rc=$?; assert_eq "the pre-rollout bullet raises no hit" 0 "$rc"
+awk '/^## Handoffs/ && !d { print "- a new decision with the needle"; print ""; d=1 } { print }' "$TASKF" >"$TASKF.tmp" && mv "$TASKF.tmp" "$TASKF"
+await_exit 3; rc=$?
+assert_eq "a bullet added after going live wakes" 0 "$rc"
+out="$(cat "$OUT")"
+assert "its hit is the new bullet" 'check=C3 .*text=a new decision with the needle' "$out"
+assert_not "the old bullet is not raised" 'from before rollout' "$out"
+out="$(vw scan --since 2020-01-01T00:00:00Z "$CHECKS")"
+assert_not "scan does not replay Decisions history" 'check=C3' "$out"
+
 echo
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "SOME FAILED"; fi
 exit "$fail"

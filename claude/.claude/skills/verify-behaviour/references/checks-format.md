@@ -37,8 +37,8 @@ live_since: <ISO time, or empty>
   the merge sets it, in the same step as the stow. Only sessions *started*
   after `live_since` count as evidence, because skills and hooks load when a
   session starts. The first time the watcher sees a file go live it scans the
-  history since `live_since` once, so behaviour that already happened is
-  judged too.
+  transcript and capture-log history since `live_since` once, so behaviour
+  that already happened is judged too.
 
 Rollout notes (what has to happen before the feature is live) go in the header
 as prose. They are not checks.
@@ -79,7 +79,9 @@ broken when: the decision was recorded and no child received a message
     task are skipped.
   - `decisions:<task-stem>` — a bullet *added* under `## Decisions` in that
     task file, matched against the bullet's text. Editing an existing bullet,
-    or any other section, never fires.
+    or any other section, never fires. Bullets carry no time, so ones already
+    in the file when the watcher first watches it are history it can't date:
+    they never count, and the first-live scan skips this source.
   The regex is a jq (Oniguruma) regex, written between the first and the last
   `/` on the line. An invalid regex never matches.
 - **evidence:** where to look when judging. It may name a read-only command
