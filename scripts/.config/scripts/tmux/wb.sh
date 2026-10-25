@@ -381,10 +381,14 @@ wb_task_files() {
 # Claude Code keeps one .jsonl file per conversation under
 # ~/.claude/projects/<encoded-cwd>/, where the encoding is the absolute cwd
 # with every "/" replaced by "-". A wb task's worktree IS that cwd, so
-# "does this worktree have transcripts" and "what's the newest one" answer
-# both halves of "is this task warm" (KTD1/KTD2) with zero writes of our
-# own — no hook state, no sidecar, nothing to go stale except by Claude's
-# own retention window (cleanupPeriodDays, default 30 days). The
+# "does this worktree have transcripts" and "how recently was it touched"
+# answer both halves of "is this task warm" (KTD1/KTD2) with zero writes of
+# our own — no hook state, no sidecar, nothing to go stale except by
+# Claude's own retention window (cleanupPeriodDays, default 30 days). File
+# mtime is good enough for that age, but not for picking WHICH conversation
+# to resume: on shutdown Claude Code appends bookkeeping lines to every
+# transcript in the folder, so after a mass kill they all share one mtime
+# second (wb_resume_id ranks by in-file timestamp instead). The
 # claude_sessions: frontmatter field is a snapshot for the board/record
 # only (wb_sessions_snapshot, near cmd_down) — it is never consulted here.
 # ---------------------------------------------------------------------------
@@ -401,13 +405,14 @@ wb_transcript_dir() {
 }
 
 # wb_transcripts <worktree_abs> — "<id>\t<mtime-epoch>" per conversation
-# recorded for <worktree_abs>, newest first. Empty output (exit 0, not an
-# error) when the directory doesn't exist or holds no transcripts — "no
-# transcripts" is the cold/dormant boundary, not a failure. Reads only
-# *.jsonl directly under the directory — Claude Code also nests a
-# same-named subagent-transcript subdirectory per session there, which
-# this deliberately ignores (a subagent run is not a resumable top-level
-# conversation).
+# recorded for <worktree_abs>, newest mtime first (an age signal only — see
+# wb_resume_id for why mtime can't pick the resume target). Empty output
+# (exit 0, not an error) when the directory doesn't exist or holds no
+# transcripts — "no transcripts" is the cold/dormant boundary, not a
+# failure. Reads only *.jsonl directly under the directory — Claude Code
+# also nests a same-named subagent-transcript subdirectory per session
+# there, which this deliberately ignores (a subagent run is not a resumable
+# top-level conversation).
 wb_transcripts() {
   local dir; dir="$(wb_transcript_dir "$1")"
   [ -d "$dir" ] || return 0
@@ -424,10 +429,32 @@ wb_transcripts() {
   done < <(stat -c $'%Y\t%n' "${files[@]}" 2>/dev/null) | sort -t $'\t' -k2,2nr
 }
 
+# wb_transcript_rank_key <path> <mtime-epoch> — when <path>'s conversation
+# last had real activity: the "timestamp" of its last activity line (one
+# starting {"parentUuid":, i.e. a user/assistant/system/attachment turn) in
+# the final 256 KiB. Bookkeeping lines start {"type": and are skipped —
+# some (frame-link, queue-operation) get crash-time timestamps written into
+# conversations idle for days. The ^ anchor also drops the partial first
+# line a byte-offset tail produces. `tail -c` seeks, so a 15 MB transcript
+# costs the same as a small one. With no activity line in the window, falls
+# back to the mtime rendered in the same shape (…SS.000Z — without ".000",
+# "Z" sorts above "." and an mtime key would beat activity later in its own
+# second). TZ=UTC must be a command prefix: a plain `local TZ=UTC` isn't
+# exported, and printf's %(…)T silently renders local time.
+wb_transcript_rank_key() {
+  local ts
+  ts="$(tail -c 262144 "$1" 2>/dev/null \
+    | sed -n 's/^{"parentUuid":.*"timestamp":"\([^"]*\)".*/\1/p' | tail -n1)"
+  if [ -n "$ts" ]; then printf '%s\n' "$ts"; else TZ=UTC printf '%(%Y-%m-%dT%H:%M:%S)T.000Z\n' "$2"; fi
+}
+
 # wb_resume_id <task_file> <worktree_abs> — the session id `--resume` should
 # use (R9): the id marked `@primary` in claude_sessions: when its transcript
-# still exists, else the worktree's newest transcript, else empty (nothing
-# to resume — the caller falls back to `--continue` or a cold start).
+# still exists, else the transcript with the newest real activity
+# (wb_transcript_rank_key — not wb_transcripts' mtime order, which a mass
+# kill turns into a same-second tie broken alphabetically: on 2026-10-25 that
+# resumed the pre-/clear conversation in 3 of 21 sessions), else empty
+# (nothing to resume — the caller falls back to `--continue` or a cold start).
 wb_resume_id() {
   local task_file="$1" worktree_abs="$2"
   local transcripts; transcripts="$(wb_transcripts "$worktree_abs")"
@@ -448,7 +475,10 @@ wb_resume_id() {
     printf '%s\n' "$primary_id"
     return 0
   fi
-  printf '%s\n' "$transcripts" | head -n1 | cut -f1
+  local dir id mtime; dir="$(wb_transcript_dir "$worktree_abs")"
+  while IFS=$'\t' read -r id mtime; do
+    printf '%s\t%s\n' "$(wb_transcript_rank_key "$dir/$id.jsonl" "$mtime")" "$id"
+  done <<< "$transcripts" | sort -t $'\t' -k1,1r | head -n1 | cut -f2
 }
 
 # wb_sessions_snapshot <session> <worktree_abs> — "<id>@<iso-ts>[@primary],..."

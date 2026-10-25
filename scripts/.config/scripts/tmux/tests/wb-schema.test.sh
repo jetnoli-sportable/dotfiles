@@ -227,6 +227,70 @@ else
   echo "FAIL - wb_resume_id: no transcripts at all -> empty (got '$out')"; fail=1
 fi
 
+# wb_resume_id ranks by the last in-file activity timestamp, not mtime. On
+# shutdown Claude Code appends bookkeeping lines to every transcript in the
+# folder, so after a mass kill they all share one mtime second, and the
+# 2026-10-25 crash resumed the pre-/clear conversation in 3 of 21 sessions
+# (the alphabetically lower id won the tie). Fixture lines mirror the real
+# shapes: activity lines start {"parentUuid":, bookkeeping lines {"type":.
+mk_tr() { # <worktree> <id> <touch-date> [<line>...] — one transcript file
+  local wt="$1" id="$2" when="$3"; shift 3
+  local dir; dir="$(CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_transcript_dir "$wt")"
+  mkdir -p "$dir"
+  if [ "$#" -gt 0 ]; then printf '%s\n' "$@" > "$dir/$id.jsonl"; else printf '{}' > "$dir/$id.jsonl"; fi
+  touch -d "$when" "$dir/$id.jsonl"
+}
+act() { printf '{"parentUuid":"p","isSidechain":false,"type":"assistant","message":{"content":"x"},"timestamp":"%s","sessionId":"s"}' "$1"; }
+COST='{"type":"cost-state","sessionId":"s","totalCostUSD":1.5}'
+MON='{"type":"artifact-comment-monitor","sessionId":"s"}'
+resume_in() { CLAUDE_PROJECTS_DIR="$TR_FIXTURE/projects" wb_resume_id "${2:-$FIXTURE/proj--noclaudesessions.md}" "$1" 2>&1; }
+
+WT_TIE="$TR_FIXTURE/wt-tie"
+mk_tr "$WT_TIE" aaa-stale '2026-10-25 18:07:43' "$(act 2026-10-25T15:24:00.000Z)" "$COST" "$MON"
+mk_tr "$WT_TIE" bbb-live  '2026-10-25 18:07:43' "$(act 2026-10-25T16:07:41.000Z)" "$COST" "$MON"
+assert "wb_resume_id: same-second mtimes -> newest activity wins, not the lower id" '^bbb-live$' "$(resume_in "$WT_TIE")"
+
+WT_CRASH="$TR_FIXTURE/wt-crash"
+mk_tr "$WT_CRASH" aaa-stale '2026-10-25 18:07:43' "$(act 2026-10-25T15:24:00.000Z)" \
+  '{"type":"frame-link","sessionId":"s","timestamp":"2026-10-25T16:07:43.267Z"}' \
+  '{"type":"queue-operation","operation":"dequeue","timestamp":"2026-10-25T16:07:43.279Z","sessionId":"s"}' "$COST"
+mk_tr "$WT_CRASH" bbb-live  '2026-10-25 18:07:43' "$(act 2026-10-25T16:07:41.000Z)" "$COST"
+assert "wb_resume_id: crash-stamped bookkeeping timestamps don't promote a stale file" '^bbb-live$' "$(resume_in "$WT_CRASH")"
+
+WT_INV="$TR_FIXTURE/wt-inversion"
+mk_tr "$WT_INV" aaa-stale '2026-10-25 18:07:44' "$(act 2026-10-25T15:24:00.000Z)" "$COST"
+mk_tr "$WT_INV" bbb-live  '2026-10-25 18:07:40' "$(act 2026-10-25T16:07:41.000Z)" "$COST"
+assert "wb_resume_id: newer activity wins over a newer mtime" '^bbb-live$' "$(resume_in "$WT_INV")"
+
+# Mixed fallback: an untimestamped file ranks by mtime on the same UTC scale.
+# Run under a UTC+2 zone so a fallback key rendered in local time (2h ahead)
+# picks the wrong file, and sub-second activity in the mtime's own second so
+# a key without ".000" ("…00Z" sorts above "…00.500Z") does too.
+WT_MIXA="$TR_FIXTURE/wt-mixed-a"
+mk_tr "$WT_MIXA" ts-file    '2026-09-01 00:00:00 UTC' "$(act 2026-09-05T10:00:00.500Z)" "$COST"
+mk_tr "$WT_MIXA" empty-file '2026-09-05 10:00:00 UTC'
+assert "wb_resume_id: activity later in the fallback file's mtime second wins (UTC+2 host)" \
+  '^ts-file$' "$(TZ=XXX-2 resume_in "$WT_MIXA")"
+WT_MIXB="$TR_FIXTURE/wt-mixed-b"
+mk_tr "$WT_MIXB" ts-file    '2026-09-01 00:00:00 UTC' "$(act 2026-09-05T10:00:00.500Z)" "$COST"
+mk_tr "$WT_MIXB" empty-file '2026-09-05 11:00:00 UTC'
+assert "wb_resume_id: an untimestamped file with a later mtime wins (UTC+2 host)" \
+  '^empty-file$' "$(TZ=XXX-2 resume_in "$WT_MIXB")"
+
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nworktree: .worktrees/x\ntags: []\nclaude_sessions: aaa-stale@2026-10-25T15:24:00Z@primary,bbb-live@2026-10-25T16:07:41Z\n---\n# Stale Primary\n' \
+  > "$FIXTURE/proj--staleprimary.md"
+assert "wb_resume_id: @primary still wins over newer activity" \
+  '^aaa-stale$' "$(resume_in "$WT_TIE" "$FIXTURE/proj--staleprimary.md")"
+
+# Window edge: activity only before the 256 KiB tail window -> ranked by mtime
+# (2026-10-20), so the file with activity on 2026-10-24 wins, with no error.
+WT_EDGE="$TR_FIXTURE/wt-edge"
+big="$(printf '{"type":"cost-state","pad":"%s"}' "$(head -c 300000 /dev/zero | tr '\0' 'a')")"
+mk_tr "$WT_EDGE" aaa-edge  '2026-10-20 00:00:00 UTC' "$(act 2026-10-25T23:00:00.000Z)" "$big"
+mk_tr "$WT_EDGE" bbb-other '2026-10-01 00:00:00 UTC' "$(act 2026-10-24T00:00:00.000Z)" "$COST"
+assert "wb_resume_id: no activity in the tail window -> ranked by mtime, no error" \
+  '^bbb-other$' "$(resume_in "$WT_EDGE")"
+
 rm -rf "$TR_FIXTURE"
 
 # --- cmd_board (plain text): ACT column only when the terminal is wide -----
