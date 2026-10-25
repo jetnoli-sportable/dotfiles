@@ -41,7 +41,9 @@ Full usage is in the [weekly-review guide](guides/weekly-review.html).
   become `planned` tasks tagged `weekly-review`.
 - **Trigger:** manual, on purpose. There is no calendar or hook nudge. The
   only prompt is the "unreviewed capture entries (Nd since last review)"
-  count in the picker status line and at the end of `wb done`. It stays
+  count printed at the end of `wb done`. (The picker's header carried it
+  too until 2026-10-25; it was dropped because the count scans the whole
+  store and the header refreshes every 3 seconds.) It stays
   manual until a few real runs show it's worth keeping. If the suggestions
   keep coming up empty, rethink the ceremony rather than automating it.
 

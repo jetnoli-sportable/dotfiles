@@ -4883,12 +4883,14 @@ wb_week_days_since_last_record() {
 }
 
 # wb_pending_counts — "<n> follow-ups pending · <m> unreviewed capture
-# entries (Nd since last review)", read by the picker's status line and
-# wb done's post-close-out nudge. KTD2a: repointed from the retired /park
-# ledger's open count at the standing capture doc instead — the ledger's
-# invisibility to the board/picker was only safe because this ambient
-# nudge existed; losing the signal here would reproduce the exact
-# structural rot this plan exists to end.
+# entries (Nd since last review)", read by wb done's post-close-out nudge.
+# KTD2a: repointed from the retired /park ledger's open count at the
+# standing capture doc instead — the ledger's invisibility to the
+# board/picker was only safe because this ambient nudge existed; losing the
+# signal here would reproduce the exact structural rot this plan exists to
+# end. The picker's header carried it too until 2026-10-25, when it was
+# dropped: it scans the whole store, and the header refreshes every 3 s.
+# wb done is now the only place it shows, by Jet's choice.
 wb_pending_counts() {
   local unreviewed days
   unreviewed="$(wb_week_unreviewed_count)"
