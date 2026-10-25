@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"Now wire it into the CLI"},"promptId":"p2","origin":{"kind":"human"},"timestamp":"2026-10-20T08:30:00.000Z","isSidechain":false}
+{"type":"assistant","message":{"content":[{"type":"text","text":"It runs. The away_summary words in a reply are not a recap."}]},"timestamp":"2026-10-20T08:30:05.000Z","isSidechain":false}
+{"type":"system","subtype":"away_summary","content":"You are wiring the parser into the CLI. Next: pick a flag name. (disable recaps in /config)","timestamp":"2026-10-20T08:40:00.000Z","isSidechain":false}
+{"type":"system","subtype":"stop_hook_summary","timestamp":"2026-10-20T08:40:01.000Z","isSidechain":false}

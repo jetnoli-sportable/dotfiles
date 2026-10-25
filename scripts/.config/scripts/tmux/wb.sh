@@ -6259,6 +6259,21 @@ _ctrl_x() {
   esac
 }
 
+# wb_preview_cmd — the picker's --preview: the session context card
+# (claude-card.sh) for a live row's pane ({7}) or a dormant row's task file
+# ({9}; dormant rows have no session, {8}); when the card prints nothing (a
+# pane with no Claude session, a live session with no Claude pane, a repo
+# row), the pane's screen, the task file, or the repo's git status as before.
+# A card that exits 3 (a live session with no logged turns yet) is only its
+# state lines, so the pane's screen follows it.
+# fzf runs it with $SHELL, so it stays plain sh that zsh also reads.
+wb_preview_cmd() {
+  printf '%s' "c=\$('$SCRIPT_DIR/claude-card.sh' \"\$([ -n {7} ] && echo {7} || { [ -z {8} ] && echo {9}; })\"); rc=\$?;" \
+    " [ -n \"\$c\" ] && printf '%s\\n\\n' \"\$c\";" \
+    " if [ -z \"\$c\" ] || [ \"\$rc\" = 3 ]; then" \
+    " [ -n {7} ] && tmux capture-pane -ep -t {7} || ([ -f {9} ] && cat {9} || git -C {9} -c color.status=always status -s); fi"
+}
+
 picker() {
   # Not `local`: an EXIT trap fires when the whole script exits, which for
   # the success path (no explicit `exit` below) happens AFTER picker()
@@ -6301,7 +6316,7 @@ picker() {
         --prompt='NORMAL ' \
         --header="$(wb_status_line normal live)" \
         --no-sort \
-        --preview '[ -n {7} ] && tmux capture-pane -ep -t {7} || ([ -f {9} ] && cat {9} || git -C {9} -c color.status=always status -s)' \
+        --preview "$(wb_preview_cmd)" \
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \

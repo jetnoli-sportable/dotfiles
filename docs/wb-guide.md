@@ -299,6 +299,20 @@ wb session the view also stacks the task's earlier sessions (before any
 hook and wb-capture's hooks and never changes what they do. See
 [the reply-log guide](guides/reply-log.html).
 
+## prefix+i and the picker preview — the session card
+
+The picker's preview shows each row's **context card**: the session's
+state (busy, waiting on you, idle, or quiet after 10 silent busy minutes),
+model, context % and cost, Claude Code's latest recap, your last prompt,
+the start of Claude's reply, its open questions, the task's recent
+artifacts and decisions. Dormant rows get the same card from the task's
+newest reply file. Rows with nothing to show (no reply history yet, a repo
+row, a pane with no Claude) keep the old preview: the task file, the
+pane's screen, or `git status`; a live session with no logged turns yet
+shows its state line above the pane's screen. From inside a session,
+<kbd>prefix</kbd>+<kbd>i</kbd> shows the same card in a popup. See
+[the reply-log guide](guides/reply-log.html#the-context-card).
+
 ## Session lifecycle: wb down, wb pause, and warm resume
 
 Two axes, kept deliberately separate:

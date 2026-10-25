@@ -1,0 +1,3 @@
+{"type":"system","subtype":"away_summary","content":"An old recap.","timestamp":"2026-10-20T08:00:00.000Z","isSidechain":false}
+{"type":"user","message":{"role":"user","content":"a newer prompt"},"promptId":"p9","origin":{"kind":"human"},"timestamp":"2026-10-20T08:50:00.000Z","isSidechain":false}
+{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]},"timestamp":"2026-10-20T08:50:05.000Z","isSidechain":false}

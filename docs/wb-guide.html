@@ -250,6 +250,7 @@
       <li><a href="#the-picker">The picker</a></li>
       <li><a href="#prefixt--open-this-sessions-task-file">prefix&#43;t — open this session&#39;s task file</a></li>
       <li><a href="#prefixv--read-this-sessions-replies">prefix&#43;v — read this session&#39;s replies</a></li>
+      <li><a href="#prefixi-and-the-picker-preview--the-session-card">prefix&#43;i and the picker preview — the session card</a></li>
       <li><a href="#session-lifecycle-wb-down-wb-pause-and-warm-resume">Session lifecycle: wb down, wb pause, and warm resume</a></li>
       <li><a href="#wb-done--wind-down-safely">wb done — wind down, safely</a></li>
       <li><a href="#wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</a></li>
@@ -591,6 +592,18 @@ wb session the view also stacks the task's earlier sessions (before any
 <code>reply-log</code> plugin's Stop hook records. That hook runs beside the notify
 hook and wb-capture's hooks and never changes what they do. See
 <a href="guides/reply-log.html">the reply-log guide</a>.</p>
+<h2 id="prefixi-and-the-picker-preview--the-session-card">prefix+i and the picker preview — the session card</h2>
+<p>The picker's preview shows each row's <strong>context card</strong>: the session's
+state (busy, waiting on you, idle, or quiet after 10 silent busy minutes),
+model, context % and cost, Claude Code's latest recap, your last prompt,
+the start of Claude's reply, its open questions, the task's recent
+artifacts and decisions. Dormant rows get the same card from the task's
+newest reply file. Rows with nothing to show (no reply history yet, a repo
+row, a pane with no Claude) keep the old preview: the task file, the
+pane's screen, or <code>git status</code>; a live session with no logged turns yet
+shows its state line above the pane's screen. From inside a session,
+<kbd>prefix</kbd>+<kbd>i</kbd> shows the same card in a popup. See
+<a href="guides/reply-log.html#the-context-card">the reply-log guide</a>.</p>
 <h2 id="session-lifecycle-wb-down-wb-pause-and-warm-resume">Session lifecycle: wb down, wb pause, and warm resume</h2>
 <p>Two axes, kept deliberately separate:</p>
 <ul>
