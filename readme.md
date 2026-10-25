@@ -404,9 +404,12 @@ the tier that matches how much of GNOME you're willing to give up.
 
 > **Stow angle:** Sway/Hyprland/niri configs are plain text files → clean new stow
 > packages (`sway/.config/sway/config`, `waybar/.config/waybar/…`). GNOME extension
-> settings live in **dconf, not files** → not stow-able; capture them with
-> `dconf dump /org/gnome/shell/extensions/ > extensions.dconf` and reload with
-> `dconf load` in `install.sh` instead.
+> settings live in **dconf, not files** → not stow-able; they're applied by a
+> script of `gsettings set` lines instead (`gsettings` rejects a misspelt key,
+> `dconf load` silently accepts it).
+>
+> **Chosen (2026-10-25):** Tier 1 with Forge, plus Run or Raise for one
+> `Super+letter` per app and 7 fixed workspaces. See [`gnome/README.md`](gnome/README.md).
 
 ### Tier 1 — Stay on GNOME, add tiling (recommended; lowest risk)
 
