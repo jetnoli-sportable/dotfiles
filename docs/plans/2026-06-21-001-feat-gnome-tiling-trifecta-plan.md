@@ -82,11 +82,11 @@ Chosen in the app-keys buffer, 2026-10-25:
 | `Super+O` | Outlook web app | `chrome-faolnafnngnfdaknnbpnkhgohbobgegn-Default.desktop` | `crx_faolnafnngnfdaknnbpnkhgohbobgegn` |
 | `Super+T` | Teams web app | `chrome-ompifgpmddkgmclendfeacglnodjjndh-Default.desktop` | `crx_ompifgpmddkgmclendfeacglnodjjndh` |
 | `Super+Y` | Spotify | `spotify_spotify.desktop` | read at build |
-| open | Files | `org.gnome.Nautilus.desktop` | read at build |
+| `Super+E` | Files | `org.gnome.Nautilus.desktop` | read at build |
 
-Beekeeper Studio gets no key. **Files is open:** the buffer gave it `F`, which is workspace 4; proposed `E`. Teams and Outlook stay in the tracked file (decided: the split into a local untracked part isn't worth the complexity).
+Beekeeper Studio gets no key. Files is on `E` because `F` is workspace 4. Teams and Outlook stay in the tracked file (decided: the split into a local untracked part isn't worth the complexity).
 
-Plain `Super` letters still free after this: E, R, U, W, X, Z. (`Super+M` stays GNOME's message list, since `Super+V` now goes to VS Code.)
+Plain `Super` letters still free after this: R, U, W, X, Z. (`Super+M` stays GNOME's message list, since `Super+V` now goes to VS Code.)
 
 ### Forge defaults that move
 
@@ -213,10 +213,6 @@ GNOME either switches workspaces on the primary monitor only (other monitors sta
 - **Pop Shell.** Fallback only, if Forge breaks on a GNOME upgrade.
 
 ---
-
-## Open Questions
-
-- **Files' key.** The app-keys buffer gave it `F`, which is workspace 4 (`Super+F`). Proposed: `E`.
 
 ---
 
