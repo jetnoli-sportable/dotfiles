@@ -48,6 +48,11 @@ expect allow "git commit -q -F - <<'EOF'
 A test ran \`tmux \$S kill-server\` with \$S empty; kill -9 -1; rm -rf ~
 EOF
 git log -1"
+expect allow "git commit -m 'stop \`tmux \$S kill-server\`; never pkill tmux'"
+expect allow "msg='run \`tmux kill-server\` and rm -rf ~'; echo \"\$msg\""
+expect deny  "bash -c 'tmux kill-server'"
+expect deny  "ssh box 'sudo reboot'"
+expect deny  "echo \"it's fine\" && tmux kill-server"
 expect deny  "bash <<'EOF'
 tmux kill-server
 EOF"

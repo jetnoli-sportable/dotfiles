@@ -208,9 +208,32 @@ drop_data_heredocs() {
     }'
 }
 
+# Single-quoted text is data too (`git commit -m '... tmux kill-server ...'`),
+# except when handed to a shell: `bash -c '...'`, `eval '...'`, `ssh host '...'`.
+blank_data_single_quotes() {
+  awk '{
+    out = ""; dq = 0; n = length($0)
+    for (i = 1; i <= n; i++) {
+      c = substr($0, i, 1)
+      if (c == "\\" && i < n) { out = out c substr($0, i + 1, 1); i++; continue }
+      if (c == "\"") dq = !dq
+      if (c == "\047" && !dq) {
+        j = index(substr($0, i + 1), "\047")
+        if (j == 0) { out = out substr($0, i); break }
+        body = substr($0, i, j + 1)
+        # kept text goes on its own segment so its first word is checked
+        if (out ~ /(-c|eval|ssh[^;|&]*)[[:space:]]*$/) out = out ";" substr(body, 2, j - 1) ";"; else out = out "\047\047"
+        i += j; continue
+      }
+      out = out c
+    }
+    print out
+  }'
+}
+
 while IFS= read -r seg; do
   check_segment "$seg"
-done < <(printf '%s\n' "$cmd" | drop_data_heredocs | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
+done < <(printf '%s\n' "$cmd" | drop_data_heredocs | blank_data_single_quotes | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
 
 [ -z "$decision" ] && exit 0
 
