@@ -211,6 +211,12 @@ repo, even when a child lives in another repo (a lib--algorithms child
 under a be--monorepo parent keeps its own repo name but sits in the
 be--monorepo group).
 
+Each repo name is printed **once**, on the first row of its group; the rows
+below it leave the REPO cell blank. A family member in a different repo from
+the row above still shows its repo. In SEARCH mode every row shows its repo
+again, because fzf only searches the text it shows: typing a repo name finds
+all of that repo's rows.
+
 The family of the session you are in goes to the **top**, outside that
 order. Your own row is grey and tagged `(here)`; the rest of the family
 renders normally beneath it, and a grey `────` line separates the family

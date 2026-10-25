@@ -555,8 +555,32 @@ assert_eq "U4 separator: a one-row pinned family gets it too" "next sep mine kid
 assert_eq "U4 separator: the dormant tab never has one" 0 \
   "$(u4row alpha 'dn' '[b]' 0 '~ doing 3d' '' task '' 5 | WB_PICKER_SESSION=s1 wb_format_for_display | awk -F'\t' '$10 == "sep"' | /usr/bin/grep -c .)"
 
+# --- each repo name once per group; every name in search mode ---------------
+# Repo cells as words: the repo, "-" for a blank cell, "sep" for the separator.
+repos() { cut -f1 | strip_ansi | awk '{ if ($0 ~ /^─/) print "sep"; else if (substr($0, 1, 1) == " ") print "-"; else print $1 }' | paste -sd' '; }
+rows="$(u4row alpha 'a1' '[b]' 1 '+ finished' s1)
+$(u4row beta 'b-kid' '[b]' 1 '+ finished' s2 task c1)
+$(u4row beta 'b-kid2' '[b]' 1 '+ finished' s3 task c1)
+$(u4row alpha 'a-kid' '[b]' 1 '+ finished' s4 task c1)
+$(u4row alpha 'a-kid-pane' '[b]' 1 '+ finished' s4 agent a1)
+$(u4row alpha 'a2' '[b]' 1 '+ finished' s5)
+$(u4row beta 'b1' '[b]' 1 '+ finished' s6)
+$(u4row beta 'b2' '[b]' 1 '+ finished' s7)"
+for awkname in mawk gawk; do
+  bindir="$MAWK_BIN"; [ "$awkname" = gawk ] && bindir="$GAWK_BIN"
+  assert_eq "U4 repo once ($awkname): named on a group's first row and on a child in another repo, blank otherwise" \
+    "alpha beta - alpha - - beta -" "$(printf '%s\n' "$rows" | PATH="$bindir:$PATH" wb_format_for_display | repos)"
+  assert_eq "U4 repo once ($awkname): the group restarts below the pinned family" \
+    "alpha beta - alpha - sep alpha beta -" "$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 PATH="$bindir:$PATH" wb_format_for_display | repos)"
+  assert_eq "U4 repo once ($awkname): search mode names every row but agent panes, so a repo search finds them all" \
+    "alpha beta beta alpha - alpha beta beta" "$(printf '%s\n' "$rows" | WB_PICKER_MODE=search PATH="$bindir:$PATH" wb_format_for_display | repos)"
+done
+assert_eq "U4 repo once: a blank cell keeps the row's real repo in field 2 for the keys" "alpha" \
+  "$(printf '%s\n' "$rows" | wb_format_for_display | sed -n 6p | cut -f2)"
+
 # --- needs you: bold magenta repo and name, on that row only ----------------
-rows="$(u4row alpha 'calm' '[b]' 1 '+ finished' s1)
+# (calm is in another repo so the waiting row heads its group and shows its repo)
+rows="$(u4row beta 'calm' '[b]' 1 '+ finished' s1)
 $(u4row alpha 'waiting' '[b]' 0 '! needs you' s2)
 $(u4row alpha 'busy' '[b]' 2 '* working' s3)"
 out="$(printf '%s\n' "$rows" | disp)"
@@ -630,6 +654,12 @@ assert_eq "U4 render_rows (dormant) writes no snapshot" "no" "$([ -e "$vf.snap" 
 echo live > "$vf"; : > "$vf.cache"
 out="$(render_rows 2>/dev/null)"     # no view file at all
 assert "U4 render_rows with no view file still renders the live rows" 'a1' "$out"
+echo normal > "$mf"
+assert_eq "U4 render_rows (normal mode) prints a repeated repo once" "-" \
+  "$(render_rows "$mf" "$vf" | sed -n 3p | cut -f1 | strip_ansi | awk '{ print (substr($0, 1, 1) == " " ? "-" : $1) }')"
+echo search > "$mf"
+assert_eq "U4 render_rows (search mode) prints it on every row" "alpha" \
+  "$(render_rows "$mf" "$vf" | sed -n 3p | cut -f1 | strip_ansi | awk '{ print $1 }')"
 eval "$ORIG_CCR"
 rm -f "$vf" "$vf.cache" "$vf.snap" "$mf"
 picker_block="$(awk '/^picker\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
