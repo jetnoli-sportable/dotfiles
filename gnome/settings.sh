@@ -66,6 +66,10 @@ gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-5 "['<Super><Sh
 gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-6 "['<Super><Shift>2']"
 gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-7 "['<Super><Shift>3']"
 
+# Alt+X closes the window, beside GNOME's Alt+F4. It's taken from every app, so
+# zsh's Alt+X (execute-named-cmd) and Emacs-style M-x no longer reach them.
+gsettings set org.gnome.desktop.wm.keybindings close "['<Alt>F4', '<Alt>x']"
+
 # Super+1..9 (dock-order app switching) is replaced by Run or Raise letters.
 for n in 1 2 3 4 5 6 7 8 9; do
   gsettings set org.gnome.shell.keybindings "switch-to-application-$n" '[]'
