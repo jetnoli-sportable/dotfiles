@@ -41,11 +41,6 @@
 #   ask (Jet confirms):
 #     tmux kill-session/kill-window/kill-pane on the default server
 #     any other kill/pkill/killall, any other rm -r, find -delete
-#   allowed without asking: rm -r whose every target is agent scratch below
-#     ~/.cleanroom/, /tmp/claude-<uid>/ or /tmp/compound-engineering-<uid>/,
-#     written literally or as a variable assigned a literal path earlier in
-#     the same command (never a `mktemp -d` variable; nothing is trusted
-#     once the command uses source/./eval)
 #     SQL DROP TABLE|DATABASE|SCHEMA, TRUNCATE TABLE (not in git/gh/echo
 #       text), bq rm
 #     terraform/tofu apply|destroy, gcloud/gsutil/kubectl delete or rm
@@ -55,6 +50,14 @@
 #     backstop: any simple command still mentioning kill-server with no
 #       literal -L/-S socket (catches forms the rules above don't parse,
 #       at the price of an ask on prose that quotes it)
+#   allowed without asking: rm -r whose every target is agent scratch below
+#     ~/.cleanroom/, /tmp/claude-<uid>/ or /tmp/compound-engineering-<uid>/,
+#     written literally or as a variable assigned a literal path earlier in
+#     the same command (never a `mktemp -d` variable; nothing is trusted
+#     once the command uses source/./eval). Never when the target holds a
+#     space, brace, /./ or a ${VAR<op>} expansion, when rm runs under xargs,
+#     or when the command contains $( ) or backticks: each adds or reshapes
+#     targets after the guard has read the text.
 #   tmux kill-server WITH a literal -L/-S socket is allowed (a private server).
 #
 # Out of reach by design: commands inside a file run later (`bash t.sh`),
@@ -158,17 +161,20 @@ rm_target_is_catastrophic() {
 # sourced script had quietly re-pointed at ~/code.
 rm_target_is_scratch() {
   local t="$1" name re
-  while [[ "$t" =~ \$\{?([A-Za-z_][A-Za-z0-9_]*)\}? ]]; do
-    name="${BASH_REMATCH[1]}"
-    [ "$name" = HOME ] && { t="${t//"${BASH_REMATCH[0]}"/$HOME}"; continue; }
+  # ${S%/*}, ${S:0:4}, ${#S}... reshape the value: only plain $S / ${S} count
+  [[ "$t" =~ \$\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*[^A-Za-z0-9_}]) ]] && return 1
+  while [[ "$t" =~ \$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)) ]]; do
+    name="${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+    [ "$name" = HOME ] && { t="${t/"${BASH_REMATCH[0]}"/$HOME}"; continue; }
     [ -n "${scratch_vals[$name]+x}" ] && [ "${scratch_at[$name]}" -lt "$seg_idx" ] || return 1
-    t="${t//"${BASH_REMATCH[0]}"/${scratch_vals[$name]}}"
+    t="${t/"${BASH_REMATCH[0]}"/${scratch_vals[$name]}}"
   done
-  t="${t//$SEP/ }"
+  # a space (quoted, or from a value) can split into extra targets at run time
+  [[ "$t" == *"$SEP"* || "$t" == *[[:space:]]* ]] && return 1
   [[ "$t" == "~/"* ]] && t="$HOME/${t#\~/}"
-  [[ "$t" == *..* || "$t" == *'$'* ]] && return 1
+  [[ "$t" == *..* || "$t" == *'$'* || "/$t/" == */./* ]] && return 1
   case "$t" in "$HOME/.cleanroom/"*) t="/cleanroom/${t#"$HOME/.cleanroom/"}" ;; esac
-  re='^(/tmp/claude-[0-9]+|/tmp/compound-engineering-[0-9]+|/cleanroom)/[^/*?[]+(/.*)?$'
+  re='^(/tmp/claude-[0-9]+|/tmp/compound-engineering-[0-9]+|/cleanroom)/[^/*?[{}]+(/.*)?$'
   [[ "$t" =~ $re ]]
 }
 
@@ -179,7 +185,8 @@ rm_target_is_scratch() {
 collect_assignments() {
   local i seg w name v rest="$filtered"
   declare -gA scratch_vals=() scratch_at=() scratch_bad=()
-  [[ "$filtered" =~ (^|[$'\n'\;\&\|\(])[[:space:]]*(source|\.|eval)[[:space:]] ]] && return
+  local src_re='(^|[;&|({!'$'\n'']|(^|[^[:alnum:]_])(if|then|else|elif|do|while|until|command|builtin|exec|time|nohup))[[:space:]]*(source|\.|eval)([[:space:]]|$)'
+  [[ "$filtered" =~ $src_re ]] && return
   for i in "${!segments[@]}"; do
     seg="${segments[$i]}"
     set -f; set -- $seg; set +f
@@ -214,9 +221,12 @@ check_segment() {
   # shellcheck disable=SC2086 # word-splitting the segment is the intent
   set -f; set -- $seg; set +f
   [ $# -eq 0 ] && return
+  local -a orig=("$@")
   seg="$(strip_prefixes "$@")"
   set -f; set -- $seg; set +f
   [ $# -eq 0 ] && return
+  local k via_xargs=0   # xargs appends targets from stdin the guard never sees
+  for ((k = 0; k < ${#orig[@]} - $#; k++)); do [ "${orig[$k]##*/}" = xargs ] && via_xargs=1; done
   w="${1##*/}"; shift
   rest=" $* "
   rest="${rest//$SEP/ }"
@@ -290,7 +300,7 @@ check_segment() {
           rm_target_is_catastrophic "$a" && hit=1
           rm_target_is_scratch "$a" || scratch=0
         done
-        [ ${#targets[@]} -eq 0 ] && scratch=0
+        [ ${#targets[@]} -eq 0 ] || [ $via_xargs = 1 ] || [ $has_subst = 1 ] && scratch=0
         if [ $hit = 1 ]; then
           flag deny "rm -r of /, home, ~/code, the task/notes store, dotfiles, ~/.claude, ~/.config, /tmp or the tmux socket dir"
         elif [ $scratch = 1 ]; then
@@ -445,6 +455,8 @@ process_quotes() {
 }
 
 cmd="${cmd//$'\\\n'/ }"
+has_subst=0   # $( ) / backtick output can become rm targets the guard never sees
+[[ "$cmd" == *'$('* || "$cmd" == *'`'* ]] && has_subst=1
 filtered="$(printf '%s\n' "$cmd" | drop_data_heredocs | process_quotes)"
 
 mapfile -t segments < <(printf '%s\n' "$filtered" | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
