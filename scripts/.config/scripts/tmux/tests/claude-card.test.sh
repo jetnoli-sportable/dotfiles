@@ -170,7 +170,7 @@ assert "dormant: built from the reply file" 'Needs you' "$out"
 refute "dormant: no live-only sections" 'Recap|as of' "$out"
 cp "$FX/task.md" "$D/other-task.md"
 out="$(card "$D/other-task.md")"
-eq "dormant, no reply files: that one line only" 'no reply history for this task' "$out"
+eq "dormant, no reply files: nothing (the picker shows the task file)" '' "$out"
 
 echo "# no Claude session"
 setup none
@@ -178,6 +178,8 @@ out="$(card %999)"
 eq "a pane with no Claude session prints nothing" '' "$out"
 out="$(card not/a/file.md)"
 eq "a missing task file prints nothing" '' "$out"
+out="$(card "$ROOT")"
+eq "a directory (a repo row's {9}) prints nothing" '' "$out"
 
 echo "# speed"
 D="$ROOT/live"

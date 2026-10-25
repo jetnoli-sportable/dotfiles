@@ -298,5 +298,32 @@ else
   echo "ok   - picker: the periodic load bind still only re-renders (no dormant recompute)"
 fi
 
+# --- picker preview: the context card first, the old preview when it's silent
+assert "picker: --preview comes from wb_preview_cmd" 'preview "\$\(wb_preview_cmd\)"' "$picker_block"
+PV="$(mktemp -d -t wb-preview.XXXXXX)"
+# stubs: the card echoes its argument, or prints nothing for a "silent" one;
+# tmux reports the capture it was asked for
+printf '#!/bin/sh\ncase "$1" in *silent*) ;; *) echo "CARD $1" ;; esac\n' >"$PV/claude-card.sh"
+printf '#!/bin/sh\necho "TMUX $*"\n' >"$PV/tmux"
+chmod +x "$PV/claude-card.sh" "$PV/tmux"
+printf 'TASK-FILE-BODY\n' >"$PV/silent-task.md"
+git init -q "$PV/silent-repo" && touch "$PV/silent-repo/untracked"
+preview() { # <{7}> <{9}> [shell] — run the command as fzf does: fields single-quoted, under $SHELL
+  local cmd
+  cmd="$(SCRIPT_DIR="$PV" wb_preview_cmd)"
+  cmd="${cmd//\{7\}/\'$1\'}"; cmd="${cmd//\{9\}/\'$2\'}"
+  PATH="$PV:$PATH" "${3:-bash}" -c "$cmd" 2>&1
+}
+assert "preview, live row: the card for the pane" '^CARD %5$' "$(preview %5 "$PV/silent-task.md")"
+assert "preview, dormant row: the card for the task file" "^CARD $PV/task.md\$" "$(preview '' "$PV/task.md")"
+assert "preview, live row with a silent card: the pane's screen" '^TMUX capture-pane -ep -t %silent$' "$(preview %silent "$PV/silent-task.md")"
+assert "preview, dormant row with a silent card: the task file" '^TASK-FILE-BODY$' "$(preview '' "$PV/silent-task.md")"
+assert "preview, repo row with a silent card: git status" 'untracked$' "$(preview '' "$PV/silent-repo")"
+if command -v zsh >/dev/null 2>&1; then
+  assert "preview under zsh (fzf runs \$SHELL): live row" '^CARD %5$' "$(preview %5 "$PV/x.md" zsh)"
+  assert "preview under zsh: dormant fallback" '^TASK-FILE-BODY$' "$(preview '' "$PV/silent-task.md" zsh)"
+fi
+rm -rf "$PV"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

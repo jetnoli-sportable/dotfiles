@@ -6,8 +6,8 @@
 # Usage: claude-card.sh <pane-id | tmux target | session-id | task file>
 #   A pane or tmux target (the picker's {7}) or a session id gives the live card;
 #   a task file (the picker's {9}) gives the dormant card, built from the task's
-#   newest reply file. Prints nothing when the input names no Claude session and
-#   no reply history, so a caller can fall back to its own preview.
+#   newest reply file. Prints nothing when the input names no Claude session, or
+#   a task with no reply history, so a caller can fall back to its own preview.
 #
 # Sections, in order, each left out when it has nothing:
 #   state     busy | waiting | idle | quiet <age> | no Claude running | state
@@ -202,6 +202,7 @@ main() {
     mode=dormant; task="$arg"
   else
     case "$arg" in
+      */*|'') return 0 ;;   # a repo directory, a missing task file
       %*) pane="$arg" ;;
       *:*|*.*) pane="$(tmux display-message -p -t "$arg" '#{pane_id}' 2>/dev/null)" || return 0 ;;
       *) [[ "$arg" =~ ^[A-Za-z0-9-]+$ ]] && sid="$arg" ;;
@@ -236,10 +237,8 @@ main() {
   fi
   [ -n "$file" ] || [ "${#chain[@]}" -eq 0 ] || file="${chain[-1]}"
 
-  if [ "$mode" = dormant ] && [ -z "$file" ]; then
-    echo "${D}no reply history for this task${R}"
-    return 0
-  fi
+  # no history: nothing, so the picker shows the task file instead
+  [ "$mode" = dormant ] && [ -z "$file" ] && return 0
 
   # --- state
   local line="" transcript="" tm=0

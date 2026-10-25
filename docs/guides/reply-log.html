@@ -241,12 +241,13 @@
 <div class="shell">
   <nav class="toc">
     <div class="brand">reply-log</div>
-    <div class="brand-sub">Every Claude turn — your prompt, Claude&#39;s reply text, the files and pages it produced — in a markdown file per session, with prefix&#43;v to read it live beside the Claude pane.</div>
+    <div class="brand-sub">Every Claude turn — your prompt, Claude&#39;s reply text, the files and pages it produced — in a markdown file per session, with prefix&#43;v to read it live beside the Claude pane, and a context card (prefix&#43;i, the wb picker preview) saying where each session stands.</div>
     <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#overview">Overview</a></li>
       <li><a href="#try-it-now">Try it now</a></li>
       <li><a href="#reference">Reference</a></li>
+      <li><a href="#the-context-card">The context card</a></li>
       <li><a href="#known-rough-edges">Known rough edges</a></li>
       <li><a href="#next-steps--reverting">Next steps / reverting</a></li>
     </ul>
@@ -255,7 +256,7 @@
     <header class="doc guide-banner">
       <span class="eyebrow">workflow · guide</span>
       <h1>reply-log</h1>
-      <p class="dek">Every Claude turn — your prompt, Claude&#39;s reply text, the files and pages it produced — in a markdown file per session, with prefix&#43;v to read it live beside the Claude pane.</p>
+      <p class="dek">Every Claude turn — your prompt, Claude&#39;s reply text, the files and pages it produced — in a markdown file per session, with prefix&#43;v to read it live beside the Claude pane, and a context card (prefix&#43;i, the wb picker preview) saying where each session stands.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
@@ -274,7 +275,10 @@ same plugin, completes a session's last turn when it ends): your full prompt, ev
 piece of text Claude wrote (not just the last), and the turn's artifacts.
 Thinking, tool calls and tool output never appear.
 <kbd>prefix</kbd>+<kbd>v</kbd> opens the file in a split beside the
-Claude pane and follows new turns as they land.</p>
+Claude pane and follows new turns as they land. The <strong>context card</strong>
+(<kbd>prefix</kbd>+<kbd>i</kbd>, and the wb picker's preview) sums up
+where a session stands without opening anything; see &quot;The context card&quot;
+below.</p>
 <p>A turn in the file looks like this:</p>
 <pre><code class="language-markdown">## 2026-10-25 16:27 · Write the text 'Step one.' then use the Write tool to create…
 &lt;!-- turn {&quot;prompt_id&quot;:&quot;9d5f19a2-…&quot;,&quot;session_id&quot;:&quot;767e964c-…&quot;,&quot;ts&quot;:&quot;2026-10-25T14:27:30.979Z&quot;} --&gt;
@@ -369,6 +373,14 @@ claude --plugin-dir ~/code/dotfiles/.worktrees/feat/claude-reply-log/claude/.cla
 <td>What <kbd>prefix</kbd>+<kbd>v</kbd> runs.</td>
 </tr>
 <tr>
+<td><code>claude-card.sh &lt;pane|tmux target|session-id|task file&gt;</code></td>
+<td>The context card. Prints nothing when there is no session or history to show. Width from <code>FZF_PREVIEW_COLUMNS</code>, then <code>COLUMNS</code>.</td>
+</tr>
+<tr>
+<td><code>~/.cache/claude-status/&lt;session-id&gt;.json</code></td>
+<td>Model, context %, cost and when they were seen, written by <code>claude/.claude/statusline.sh</code> on every refresh (<code>CLAUDE_STATUS_CACHE_DIR</code> overrides the directory).</td>
+</tr>
+<tr>
 <td><code>nvim/.config/nvim/lua/claude-tmux/replies.lua</code></td>
 <td>The viewer: one read-only markdown buffer, rebuilt when any file in the chain changes (checked every second).</td>
 </tr>
@@ -404,6 +416,65 @@ over as soon as the first turn lands.</p>
 <p><strong>What is skipped.</strong> Subagent turns (no SubagentStop hook), headless
 <code>claude -p</code> runs, the wb-capture sweep's own child session, <code>/clear</code> and
 other local commands, <code>!</code> shell commands, and compaction summaries.</p>
+<h2 id="the-context-card">The context card</h2>
+<p>The card answers &quot;where is this session, and what does it want from me?&quot;
+before you switch in. It is the wb picker's preview for every row, and
+<kbd>prefix</kbd>+<kbd>i</kbd> shows it in a popup for the Claude pane
+you're in (from a <kbd>prefix</kbd>+<kbd>v</kbd> view, for the pane that
+view belongs to; <kbd>q</kbd> closes it). It reads only local files and
+renders in about 50 ms or less, so the preview keeps up with the cursor.</p>
+<pre><code class="language-text">idle 4m · Opus 5.5 · 34% ctx · $1.25 · as of 1m
+task: dotfiles--feat-claude-reply-log
+
+── Recap · 3m ago ─────────────────────────────────────────
+You're wiring the parser into the CLI. Next: pick a flag name.
+
+── You asked · 10:30 ──────────────────────────────────────
+Now wire it into the CLI and tell me what's left
+before that: Set up the widget parser
+
+── Claude replied ─────────────────────────────────────────
+The CLI calls the parser
+It runs on every invocation now.
+…
+── Needs you ──────────────────────────────────────────────
+- Pick the flag name: `-w` or `-p`?
+
+── Artifacts ──────────────────────────────────────────────
+- https://claude.ai/artifact/…
+- edited: /work/demo/cli.sh
+
+── Decisions ──────────────────────────────────────────────
+- 2026-10-25 — prefix+v becomes a toggle, shipped as its own small PR (Jet)
+</code></pre>
+<ul>
+<li><strong>State</strong> comes from Claude Code's session registry
+(<code>~/.claude/sessions/&lt;pid&gt;.json</code>): <code>busy</code>, <code>waiting on you</code>, <code>idle</code>, or
+<code>no Claude running</code>. A session that has been <code>busy</code> for 10 minutes with
+no transcript activity reads <code>quiet &lt;age&gt;</code>, since a long tool run and a
+stuck session look the same from outside. An entry counts only while its
+process is alive with the same start time; otherwise the state is
+<code>state unknown</code>.</li>
+<li><strong>Model, context % and cost</strong> come from a small cache the status line
+writes per session (<code>~/.cache/claude-status/&lt;session-id&gt;.json</code>), so they
+appear once the session's status line has refreshed after this change
+went live. <code>as of</code> says how old they are.</li>
+<li><strong>Recap</strong> is Claude Code's own: the automatic summary it writes after a
+few unfocused minutes, or the output of <code>/recap</code>. It is left out once a
+newer prompt has started, because the exchange below is then newer.</li>
+<li><strong>Open questions:</strong> the reply's &quot;Needs you&quot; section when it has one. A
+reply laid out as one heading per point, each restating its question in
+italics, shows &quot;no open questions&quot;, since those questions are answered.
+Otherwise up to five lines ending in <code>?</code> appear as &quot;possibly open&quot;.</li>
+<li><strong>Artifacts</strong> are the last five across the task's reply files, so they
+survive <code>/clear</code>. <strong>Decisions</strong> are the last three titles under the task
+file's <code>## Decisions</code>.</li>
+<li><strong>A task with no live Claude session</strong> (the picker's dormant rows) gets a
+<code>dormant</code> card built from its newest reply file. A task with no reply
+history, a repo row, or a pane with no Claude session gets no card, and
+the picker shows what it showed before: the task file, the pane's
+screen, or <code>git status</code>.</li>
+</ul>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
 <li><strong>The last reply arrives a turn late in the transcript.</strong> When the Stop
@@ -434,16 +505,18 @@ packages that gain new files: <code>stow -t &quot;$HOME&quot; scripts</code> for
 <code>claude-reply-log.sh</code> and <code>stow --no-folding -t &quot;$HOME&quot; claude</code> for the
 plugin.</li>
 <li>Reload tmux (<code>prefix</code>+<code>r</code>, or <code>tmux source-file ~/.config/tmux/tmux.conf</code>)
-for <kbd>prefix</kbd>+<kbd>v</kbd>.</li>
+for <kbd>prefix</kbd>+<kbd>v</kbd> and <kbd>prefix</kbd>+<kbd>i</kbd>.
+The picker's card preview and the status-line cache need nothing more
+than the fast-forward.</li>
 <li>Restart Claude Code sessions: hooks load at session start.</li>
 </ol>
 <p><strong>Turning it off:</strong> <code>touch ~/.claude/replies/.disabled</code> stops all writing
 at once (remove the file to resume). To remove it entirely, unstow the
 plugin directory (<code>~/.claude/skills/reply-log</code>) and restart Claude Code.
 The reply files stay until you delete them.</p>
-<p><strong>Next:</strong> Phase 2 of the same task adds a session context card (the last
-exchange, open questions, artifacts, the task's recent decisions, context
-use and state) in the wb picker preview, built from these files.</p>
+<p><strong>Turning the card off:</strong> <code>prefix</code>+<code>i</code> is a plain tmux binding; the
+picker falls back to its old preview whenever <code>claude-card.sh</code> prints
+nothing or is missing.</p>
 </article>
     <footer>
   Generated by <code>docgen</code> from <code>docs/guides/reply-log.md</code>. Rebuild:
