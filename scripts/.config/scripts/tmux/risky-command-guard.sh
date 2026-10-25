@@ -35,12 +35,17 @@
 #     kill with -1 as a target (every process you own); `kill -1 PID` is a
 #       hangup to one process and only asks
 #     rm -r of /, ~, $HOME, ~/code, ~/code/{tasks,notes,dotfiles}, ~/.claude,
-#       ~/.config
+#       ~/.config, /tmp, /tmp/tmux-* (the socket dir: every session unreachable)
 #     shutdown/reboot/poweroff/halt, systemctl poweroff|reboot|halt|suspend
 #     mkfs, dd of=/dev/…
 #   ask (Jet confirms):
 #     tmux kill-session/kill-window/kill-pane on the default server
 #     any other kill/pkill/killall, any other rm -r, find -delete
+#   allowed without asking: rm -r whose every target is agent scratch below
+#     ~/.cleanroom/, /tmp/claude-<uid>/ or /tmp/compound-engineering-<uid>/,
+#     written literally or as a variable assigned a literal path earlier in
+#     the same command (never a `mktemp -d` variable; nothing is trusted
+#     once the command uses source/./eval)
 #     SQL DROP TABLE|DATABASE|SCHEMA, TRUNCATE TABLE (not in git/gh/echo
 #       text), bq rm
 #     terraform/tofu apply|destroy, gcloud/gsutil/kubectl delete or rm
@@ -134,6 +139,7 @@ rm_target_is_catastrophic() {
   t="${t%/\*}"; t="${t%/}"
   case "$t" in
     ''|'~'|'$HOME'|"$HOME"|/home) return 0 ;;  # '' is what / and /* strip to
+    /tmp|/tmp/tmux-*) return 0 ;;  # the tmux socket dir: every session unreachable
   esac
   local sub
   for sub in code code/tasks code/notes code/dotfiles .claude .config; do
@@ -142,6 +148,65 @@ rm_target_is_catastrophic() {
     esac
   done
   return 1
+}
+
+# Agent scratch that is deleted all day and holds nothing of Jet's: clean-room
+# copies, session scratchpads, code-review run folders. A target counts only
+# when its text says so — a literal path, or a variable assigned a literal
+# path earlier in the same command (see collect_assignments). A `mktemp -d`
+# variable never counts: the 2026-07-10 wipe was a "scratch" variable that a
+# sourced script had quietly re-pointed at ~/code.
+rm_target_is_scratch() {
+  local t="$1" name re
+  while [[ "$t" =~ \$\{?([A-Za-z_][A-Za-z0-9_]*)\}? ]]; do
+    name="${BASH_REMATCH[1]}"
+    [ "$name" = HOME ] && { t="${t//"${BASH_REMATCH[0]}"/$HOME}"; continue; }
+    [ -n "${scratch_vals[$name]+x}" ] && [ "${scratch_at[$name]}" -lt "$seg_idx" ] || return 1
+    t="${t//"${BASH_REMATCH[0]}"/${scratch_vals[$name]}}"
+  done
+  t="${t//$SEP/ }"
+  [[ "$t" == "~/"* ]] && t="$HOME/${t#\~/}"
+  [[ "$t" == *..* || "$t" == *'$'* ]] && return 1
+  case "$t" in "$HOME/.cleanroom/"*) t="/cleanroom/${t#"$HOME/.cleanroom/"}" ;; esac
+  re='^(/tmp/claude-[0-9]+|/tmp/compound-engineering-[0-9]+|/cleanroom)/[^/*?[]+(/.*)?$'
+  [[ "$t" =~ $re ]]
+}
+
+# NAME=value words that stand alone as a command (not `NAME=x cmd`, which only
+# sets the env of cmd) and are the only way NAME is set in this command. Any
+# second assignment, `for NAME`, `read`/`printf -v`, `+=`, `${NAME:=…}`, or a
+# `source`/`.`/`eval` anywhere makes the value untrustworthy.
+collect_assignments() {
+  local i seg w name v rest="$filtered"
+  declare -gA scratch_vals=() scratch_at=() scratch_bad=()
+  [[ "$filtered" =~ (^|[$'\n'\;\&\|\(])[[:space:]]*(source|\.|eval)[[:space:]] ]] && return
+  for i in "${!segments[@]}"; do
+    seg="${segments[$i]}"
+    set -f; set -- $seg; set +f
+    [ $# -eq 0 ] && continue
+    case "$1" in export|local|declare|typeset|readonly) shift ;; esac
+    if [ "${1:-}" = for ] || [ "${1:-}" = select ]; then scratch_bad[${2:-_}]=1; continue; fi
+    if [ "${1:-}" = read ] || [ "${1:-}" = mapfile ] || [ "${1:-}" = printf ]; then
+      for w in "$@"; do [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && scratch_bad[$w]=1; done
+      continue
+    fi
+    local all=1
+    for w in "$@"; do [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*\+?= ]] || all=0; done
+    for w in "$@"; do
+      [[ "$w" =~ ^([A-Za-z_][A-Za-z0-9_]*)(\+?)=(.*)$ ]] || break
+      name="${BASH_REMATCH[1]}"
+      if [ $all = 0 ] || [ -n "${BASH_REMATCH[2]}" ] || [ -n "${scratch_vals[$name]+x}" ]; then
+        scratch_bad[$name]=1
+      else
+        v="${BASH_REMATCH[3]}"; v="${v//\$\{HOME\}/}"; v="${v//\$HOME/}"
+        if [[ "$v" == *'$'* ]]; then scratch_bad[$name]=1; else scratch_vals[$name]="${BASH_REMATCH[3]}"; scratch_at[$name]=$i; fi
+      fi
+    done
+  done
+  while [[ "$rest" =~ \$\{([A-Za-z_][A-Za-z0-9_]*):?= ]]; do
+    scratch_bad[${BASH_REMATCH[1]}]=1; rest="${rest/"${BASH_REMATCH[0]}"/}"
+  done
+  for name in "${!scratch_bad[@]}"; do unset "scratch_vals[$name]"; done
 }
 
 check_segment() {
@@ -220,10 +285,16 @@ check_segment() {
         esac
       done
       if [ $recursive = 1 ]; then
-        local hit=0
-        for a in "${targets[@]}"; do rm_target_is_catastrophic "$a" && hit=1; done
+        local hit=0 scratch=1
+        for a in "${targets[@]}"; do
+          rm_target_is_catastrophic "$a" && hit=1
+          rm_target_is_scratch "$a" || scratch=0
+        done
+        [ ${#targets[@]} -eq 0 ] && scratch=0
         if [ $hit = 1 ]; then
-          flag deny "rm -r of /, home, ~/code, the task/notes store, dotfiles, ~/.claude or ~/.config"
+          flag deny "rm -r of /, home, ~/code, the task/notes store, dotfiles, ~/.claude, ~/.config, /tmp or the tmux socket dir"
+        elif [ $scratch = 1 ]; then
+          :
         else
           flag ask "rm -r: recursive deletes are confirmed every time"
         fi
@@ -376,14 +447,18 @@ process_quotes() {
 cmd="${cmd//$'\\\n'/ }"
 filtered="$(printf '%s\n' "$cmd" | drop_data_heredocs | process_quotes)"
 
+mapfile -t segments < <(printf '%s\n' "$filtered" | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
+collect_assignments
+
 backstop=0
-while IFS= read -r seg; do
+for seg_idx in "${!segments[@]}"; do
+  seg="${segments[$seg_idx]}"
   check_segment "$seg"
   seg=" ${seg//$SEP/ } "
   if [[ "$seg" =~ [^[:alnum:]_-]kill-server[^[:alnum:]_-] ]] && ! [[ "$seg" =~ [[:space:]]-[LS] ]]; then
     backstop=1
   fi
-done < <(printf '%s\n' "$filtered" | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
+done
 
 if [ $backstop = 1 ] && [ "$decision" != deny ]; then
   flag ask "mentions tmux kill-server with no literal -L/-S socket in the same command; if it runs, it kills every wb session"
