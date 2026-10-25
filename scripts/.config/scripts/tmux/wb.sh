@@ -6023,6 +6023,59 @@ _mode_header() {
   wb_status_line "$(cat "${1:-}" 2>/dev/null || echo normal)" "$(cat "${2:-}" 2>/dev/null || echo live)"
 }
 
+# wb_capture_pane <target> — the pane's current screen, colours kept. A seam
+# so tests can stand in for a live pane without a tmux shim.
+wb_capture_pane() { tmux capture-pane -ep -t "$1" 2>/dev/null; }
+
+# _preview <target> <ref> <kind> — what fzf shows beside the focused row
+# (KTD9). Four cases, first match wins: a live pane (its bottom), a task file
+# (title, status/branch, latest hand-written Handoff), a git dir (status, or
+# "clean"), else a plain "nothing to preview" so the pane never shows a git
+# error. <kind> is accepted because fzf passes {10}, but the shape of <ref>
+# already decides. Always exits 0: fzf paints a non-zero preview as an error.
+_preview() {
+  local target="${1:-}" ref="${2:-}" out
+  if [ -n "$target" ]; then
+    # Trailing blank screen lines are what a half-empty pane is made of;
+    # without trimming them, tailing to the window shows only empty rows.
+    # A line holding only colour codes and spaces counts as blank.
+    wb_capture_pane "$target" | awk -v n="${FZF_PREVIEW_LINES:-40}" '
+      { line[NR] = $0; t = $0; gsub(/\033\[[0-9;?]*[A-Za-z]/, "", t); if (t ~ /[^ \t\r]/) last = NR }
+      END { s = last - n + 1; if (s < 1) s = 1; for (i = s; i <= last; i++) print line[i] }
+    '
+  elif [ -f "$ref" ]; then
+    wb_task_title "$ref"
+    printf 'status: %s · branch: %s\n' "$(wb_get_frontmatter "$ref" status)" "$(wb_get_frontmatter "$ref" branch)"
+    # Latest entry under ## Handoffs whose heading does not end in "(auto)":
+    # the automatic ones only record that wb paused/resumed, never what the
+    # work was. Entries run to the next ### or ## heading.
+    awk '
+      /^## / { inh = ($0 ~ /^## Handoffs[ \t]*$/); keep = 0; next }
+      !inh { next }
+      /^### / { keep = ($0 !~ /\(auto\)[ \t]*$/); if (keep) { buf = $0; blanks = ""; found = 1 }; next }
+      keep { if ($0 ~ /^[ \t]*$/) blanks = blanks "\n"; else { buf = buf blanks "\n" $0; blanks = "" } }
+      END { if (found) print "\n" buf }
+    ' "$ref"
+  elif [ -d "$ref" ] && git -C "$ref" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    out="$(git -C "$ref" -c color.status=always status -s 2>/dev/null)"
+    printf '%s\n' "${out:-clean}"
+  else
+    echo "nothing to preview"
+  fi
+  return 0
+}
+
+# _preview_label <target> <ref> — the preview border label for the same four
+# cases, so Jet can tell a pane from a task summary at a glance (R21).
+_preview_label() {
+  local target="${1:-}" ref="${2:-}"
+  if [ -n "$target" ]; then printf ' pane '
+  elif [ -f "$ref" ]; then printf ' task '
+  elif [ -d "$ref" ] && git -C "$ref" rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf ' git status '
+  else printf ' wb '
+  fi
+}
+
 # cmd_task_file [--edit] — resolve the CURRENT tmux session's task file and
 # either print its path (default: composable, so `nvim "$(wb task-file)"` and
 # scripts both work) or open it in $EDITOR (--edit, what prefix+t uses).
@@ -6398,15 +6451,16 @@ _ctrl_x() {
 # (claude-card.sh) for a live row's pane ({7}) or a dormant row's task file
 # ({9}; dormant rows have no session, {8}); when the card prints nothing (a
 # pane with no Claude session, a live session with no Claude pane, a repo
-# row), the pane's screen, the task file, or the repo's git status as before.
-# A card that exits 3 (a live session with no logged turns yet) is only its
-# state lines, so the pane's screen follows it.
+# row), _preview below: the pane's bottom, the task's laid-out summary, the
+# repo's git status, or "nothing to preview". A card that exits 3 (a live
+# session with no logged turns yet) is only its state lines, so _preview
+# follows it.
 # fzf runs it with $SHELL, so it stays plain sh that zsh also reads.
 wb_preview_cmd() {
   printf '%s' "c=\$('$SCRIPT_DIR/claude-card.sh' \"\$([ -n {7} ] && echo {7} || { [ -z {8} ] && echo {9}; })\"); rc=\$?;" \
     " [ -n \"\$c\" ] && printf '%s\\n\\n' \"\$c\";" \
     " if [ -z \"\$c\" ] || [ \"\$rc\" = 3 ]; then" \
-    " [ -n {7} ] && tmux capture-pane -ep -t {7} || ([ -f {9} ] && cat {9} || git -C {9} -c color.status=always status -s); fi"
+    " '$SELF' _preview {7} {9} {10}; fi"
 }
 
 picker() {
@@ -6463,6 +6517,7 @@ picker() {
         --preview-window 'right,55%,wrap,border-left' \
         --preview-label ' wb ' \
         --bind 'start:disable-search' \
+        --bind "focus:transform-preview-label(\"$SELF\" _preview-label {7} {9})" \
         --bind "load:reload(sleep 3; \"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind 'j:down' --bind 'k:up' --bind 'g:first' --bind 'G:last' \
         --bind 'ctrl-d:half-page-down' --bind 'ctrl-u:half-page-up' \
@@ -6565,6 +6620,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     _toggle-view)   shift; _toggle_view "$@" ;;
     _refresh-dormant) shift; _refresh_dormant "$@" ;;
     _mode-header) shift; _mode_header "$@" ;;
+    _preview)    shift; _preview "$@" ;;
+    _preview-label) shift; _preview_label "$@" ;;
     help|--help|-h) cmd_help ;;
     # Bare `wb` is the picker; an unknown TOKEN is a typo, not a picker
     # query. It used to be handed to fzf as --query, so `wb set` typed on a

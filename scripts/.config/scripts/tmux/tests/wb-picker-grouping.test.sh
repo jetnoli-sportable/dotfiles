@@ -245,8 +245,10 @@ assert_eq "U2 formatted row ends with the visit time" 0 "$(field "$fmt" 14)"
 picker_block="$(awk '/^picker\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert "U2 picker: ctrl-x bind still passes {10} {8} {7} {9} (kind, ref, session, target order)" \
   'ctrl-x:become\(.*_ctrl-x \{10\} \{8\} \{7\} \{9\}\)' "$picker_block"
-assert "U2 picker: preview still reads {7} target and {9} kind/ref" \
-  "preview '\[ -n \{7\} \] && tmux capture-pane -ep -t \{7\} \|\| \(\[ -f \{9\} \]" "$picker_block"
+assert "U6 picker: preview is the _preview helper fed {7} target, {9} ref, {10} kind" \
+  'preview "\\"\$SELF\\" _preview \{7\} \{9\} \{10\}"' "$picker_block"
+assert "U6 picker: focus updates the preview label from _preview-label" \
+  'focus:transform-preview-label\(.*_preview-label \{7\} \{9\}\)' "$picker_block"
 assert "U2 picker: rename/down binds still use {8}" '"r:execute\(.*_rename \{8\}\)' "$picker_block"
 assert "U2 picker: break-out bind still uses {7}" '"b:execute\(.*_break-out \{7\}\)' "$picker_block"
 assert "U2 picker: exports WB_PICKER_SESSION from tmux display-message" \
@@ -433,6 +435,100 @@ assert_eq "U3 dormant tab: repos grouped, newest transcript's repo first, newest
   "beta--one beta--two alpha--two alpha--one" "$(cut -f2 "$dview.cache" | paste -sd' ')"
 assert_eq "U3 dormant cache rows keep all 13 fields" 13 "$(nfields "$(sed -n 1p "$dview.cache")")"
 
+# ============================================================================
+# U6 — _preview helper
+# ============================================================================
+PV_DIR="$(mktemp -d -t wb-pg-preview.XXXXXX)"
+
+mk_task() { # <file> <handoffs-block>
+  cat > "$1" <<EOT
+---
+repo: alpha
+status: active
+branch: feat/x
+---
+# The Task Title
+
+## Context
+
+Some context.
+
+## Handoffs
+$2
+
+## Decisions
+
+none
+EOT
+}
+
+# --- two rich Handoffs, then a later automatic one: the second rich wins ----
+mk_task "$PV_DIR/rich.md" '
+### 2026-10-25 17:00 — wb-save
+
+**Done:** first rich entry
+
+### 2026-10-25 19:07 — wb-save
+
+**Done:** second rich entry
+**Next:** keep going
+
+### 2026-10-25 20:00 — wb resume (auto)
+
+resumed automatically'
+out="$(_preview "" "$PV_DIR/rich.md" task)"
+assert_eq "U6 preview: task starts with its title" "The Task Title" "$(printf '%s\n' "$out" | sed -n 1p)"
+assert_eq "U6 preview: second line is the status/branch line" "status: active · branch: feat/x" "$(printf '%s\n' "$out" | sed -n 2p)"
+assert "U6 preview: shows the latest rich Handoff heading and body" '19:07 — wb-save' "$out"
+assert "U6 preview: rich body includes its Next line" '\*\*Next:\*\* keep going' "$out"
+assert_eq "U6 preview: no earlier rich entry" 0 "$(printf '%s\n' "$out" | /usr/bin/grep -c 'first rich entry')"
+assert_eq "U6 preview: no automatic entry" 0 "$(printf '%s\n' "$out" | /usr/bin/grep -c '(auto)\|resumed automatically')"
+assert_eq "U6 preview: entry stops before the next ## section" 0 "$(printf '%s\n' "$out" | /usr/bin/grep -c 'Decisions\|^none')"
+_preview "" "$PV_DIR/rich.md" task >/dev/null; assert_eq "U6 preview: task exits 0" 0 "$?"
+
+# --- no Handoffs: title and status line only --------------------------------
+mk_task "$PV_DIR/bare.md" ''
+out="$(_preview "" "$PV_DIR/bare.md" task)"
+assert_eq "U6 preview: no Handoffs prints exactly title + status line" \
+  "The Task Title"$'\n'"status: active · branch: feat/x" "$out"
+
+# --- neither file nor git dir ------------------------------------------------
+out="$(_preview "" "$PV_DIR/missing" repo)"; rc=$?
+assert_eq "U6 preview: unknown ref prints the fallback" "nothing to preview" "$out"
+assert_eq "U6 preview: fallback exits 0" 0 "$rc"
+mkdir "$PV_DIR/plain"
+assert_eq "U6 preview: a non-git dir is also the fallback" "nothing to preview" "$(_preview "" "$PV_DIR/plain" repo)"
+
+# --- git dir: status, or "clean" ---------------------------------------------
+git init -q "$PV_DIR/repo"
+assert_eq "U6 preview: clean git dir says clean" "clean" "$(_preview "" "$PV_DIR/repo" repo)"
+: > "$PV_DIR/repo/new.txt"
+assert "U6 preview: dirty git dir shows status" 'new\.txt' "$(_preview "" "$PV_DIR/repo" repo)"
+
+# --- pane: trailing blanks stripped, tailed to FZF_PREVIEW_LINES -------------
+wb_capture_pane() {
+  local i
+  for i in $(seq 1 15); do printf 'line %s\n' "$i"; done
+  for i in $(seq 1 20); do
+    if [ $((i % 2)) -eq 0 ]; then printf '\n'; else printf '\033[0m   \n'; fi
+  done
+}
+out="$(FZF_PREVIEW_LINES=10 _preview "s:0.0" "/ignored" agent)"
+assert_eq "U6 preview: pane tail is the last 10 lines before the blank tail" \
+  "line 6 line 7 line 8 line 9 line 10 line 11 line 12 line 13 line 14 line 15" "$(printf '%s\n' "$out" | tr '\n' ' ' | sed 's/ $//')"
+assert_eq "U6 preview: a pane target wins over a file ref" "line 15" "$(FZF_PREVIEW_LINES=1 _preview "s:0.0" "$PV_DIR/rich.md" agent)"
+
+# --- the label names what is shown -------------------------------------------
+assert_eq "U6 label: pane"       " pane "       "$(_preview_label "s:0.0" "$PV_DIR/rich.md")"
+assert_eq "U6 label: task"       " task "       "$(_preview_label "" "$PV_DIR/rich.md")"
+assert_eq "U6 label: git status" " git status " "$(_preview_label "" "$PV_DIR/repo")"
+assert_eq "U6 label: nothing"    " wb "         "$(_preview_label "" "$PV_DIR/missing")"
+
+# --- dispatch: both verbs are wired (and hidden from wb help as internal) ----
+dispatch="$(awk '/^  case / {p=1} p{print}' "$WB")"
+assert "U6 dispatch: _preview verb" '^    _preview\) +shift; _preview "\$@"' "$dispatch"
+assert "U6 dispatch: _preview-label verb" '^    _preview-label\) +shift; _preview_label "\$@"' "$dispatch"
+rm -rf "$PV_DIR"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
