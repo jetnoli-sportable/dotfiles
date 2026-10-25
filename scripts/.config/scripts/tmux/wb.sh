@@ -120,16 +120,14 @@ WB_AGENT_WARN_AT="${WB_AGENT_WARN_AT:-8}"
 # Picker column widths — shared between wb_format_for_display's padding and
 # wb_column_header's labels. Keep these in sync or the legend row drifts
 # from the data rows under it.
-# Columns: REPO (repo/location) · NAME (task title or session/repo name) ·
-# TYPE (session / agent / both — is there a live agent here, just a bare
-# session, or a sub-row for one specific agent pane) · BRANCH (the git
-# branch, when there is one) · STATUS (needs you / working / done /
-# finished / idle).
+# Columns: REPO (repo/location) · NAME (task title or session/repo name;
+# takes whatever width is left, see wb_picker_name_width) · BRANCH (the git
+# branch, when there is one; a long one shows its tail) · AGE (time since
+# Jet last visited the session). Status is no longer a column: it is the
+# colour of the NAME cell.
 WB_COL_REPO=16
-WB_COL_LABEL=26
-WB_COL_TYPE=8
 WB_COL_BRANCH=12
-WB_COL_STATUS=9   # status label width, after the icon + one space
+WB_COL_AGE=4
 
 # ---------------------------------------------------------------------------
 # Frontmatter helpers — the store's schema is plain `key: value` lines between
@@ -5396,8 +5394,8 @@ cmd_done() {
 # fixed-width display string as a NEW field 1, shifting all of the above by
 # one (repo becomes field 2, ..., nest becomes field 13, visit time field
 # 14) — that's the shape fzf and picker()'s final `read` actually see. The
-# displayed TYPE column (session/agent/both) isn't a stored field — it's
-# derived at display time from kind + ucount.
+# display shows REPO, NAME, BRANCH and AGE only; status is the NAME colour,
+# derived at display time from field 5 (and field 4 for "needs you").
 
 # wb_status_icon <status> — print "icon\tlabel" for one of the pane statuses
 # tmux_claude_panes emits (needs-input/done/waiting/working/idle). Shared by
@@ -5839,9 +5837,34 @@ _WB_AWK_TEXT='
   }
 '
 
-# wb_format_for_display — prepend a fixed-width, colored display string as a
-# NEW field 1, pushing the original 13 fields to 2-14. Must run AFTER sorting
-# (coloring/padding first would corrupt any sort keyed on the plain fields).
+# wb_picker_name_width — the NAME column's width: whatever the list pane has
+# left once REPO, BRANCH, AGE and the three two-space separators are paid
+# for. One function, so wb_format_for_display (the data rows) and
+# wb_column_header (the legend) cannot disagree.
+#
+# The list pane is what fzf leaves beside the 55% preview. Measured against
+# fzf 0.65.2 with picker()'s flags (--padding=6,1,2,1, --pointer='>',
+# --preview-window right,55%,border-left) at 100, 160 and 200 columns: fzf
+# exports FZF_COLUMNS = terminal width minus the 2 padding columns (C); the
+# preview takes C*55/100 of that; and a row's text then gets C - 3 -
+# C*55/100 columns, the 3 being the 2-column pointer/marker gutter plus the
+# one column before the preview's border. A row exactly that wide fits; one
+# column more ends in fzf's own ".." marker. Without FZF_COLUMNS (wb render
+# by hand, picker()'s very first render before fzf runs) the terminal's
+# width less the same 2 padding columns stands in, else 160.
+# Below about 120 columns the floor below wins and fzf cuts the right edge.
+wb_picker_name_width() {
+  local c="${FZF_COLUMNS:-}" w
+  case "$c" in ''|*[!0-9]*) c="$(tput cols 2>/dev/null)"; case "$c" in ''|*[!0-9]*) c=160 ;; esac; c=$((c - 2)) ;; esac
+  w=$(( c - 3 - c * 55 / 100 - WB_COL_REPO - WB_COL_BRANCH - WB_COL_AGE - 6 ))
+  [ "$w" -ge 20 ] || w=20
+  printf '%s\n' "$w"
+}
+
+# wb_format_for_display [<snapshot_path>] — prepend a fixed-width, colored
+# display string as a NEW field 1, pushing the original 13 fields to 2-14.
+# Must run AFTER sorting (coloring/padding first would corrupt any sort
+# keyed on the plain fields).
 #
 # fzf's --with-nth re-joins displayed fields with the raw tab delimiter, and
 # a raw tab always jumps to the terminal's next fixed 8-column stop — so
@@ -5850,29 +5873,73 @@ _WB_AWK_TEXT='
 # (same approach claude-sessions.sh already uses) sidesteps that entirely;
 # --with-nth=1 then shows ONLY this field, with the real data addressable as
 # hidden fields 2-14 for binds/preview.
+#
+# What the string shows: REPO, NAME, BRANCH, AGE. Status is the NAME colour
+# (finished cyan, done green, working yellow, else grey; a dormant row by
+# its task status: doing yellow, review cyan, paused grey). A row that needs
+# Jet (a live row at urank 0, not in the session Jet is in) is bold
+# reverse-video, drawn with no other colour inside so it stays readable. The
+# session Jet is in (WB_PICKER_SESSION) is all grey and tagged "(here)", and
+# never needs anyone: its agent waiting on Jet is Jet's own business. A
+# group's repo name is bold magenta on its first row when any row in the
+# group needs Jet, so every row is read before any is drawn (render in END).
+#
+# <snapshot_path> (live tab only): the same pass writes what the picker's
+# jump-to-next and header count need to a file — "count<TAB>N", then one
+# "<pos><TAB><session><TAB><needs 0|1><TAB><here 0|1>" line per data row,
+# pos counting from 1 over the data rows (not the legend line). It goes to a
+# private temp name and is mv'd into place, so a reader never sees half of it.
 wb_format_for_display() {
+  local snap="${1:-}" nw now
+  nw="$(wb_picker_name_width)"
+  # The clock the picker froze when it opened (ages must not tick while it
+  # stays open); the bash builtin when unset, so no fork for it.
+  printf -v now '%(%s)T' -1
+  now="${WB_PICKER_NOW:-$now}"
   # LC_ALL=C: see _WB_AWK_TEXT — pad() relies on byte semantics.
-  LC_ALL=C awk -F'\t' -v OFS='\t' -v w1="$WB_COL_REPO" -v w2="$WB_COL_LABEL" -v w3="$WB_COL_TYPE" \
-      -v w4="$WB_COL_BRANCH" -v w5="$WB_COL_STATUS" "$_WB_AWK_TEXT"'
-      BEGIN { m = "\033[1;35m"; g = "\033[32m"; y = "\033[33m"; d = "\033[90m"; cy = "\033[36m"; r = "\033[0m" }
+  LC_ALL=C awk -F'\t' -v OFS='\t' -v wr="$WB_COL_REPO" -v wn="$nw" \
+      -v wb="$WB_COL_BRANCH" -v wa="$WB_COL_AGE" -v now="$now" \
+      -v snap="${snap:+$snap.$$.tmp}" "$_WB_AWK_TEXT"'
+      # fit(s, w) — s cut to w characters with a "..." end, NOT padded
+      function fit(s, w) {
+        if (nch(s) > w) return substr(s, 1, cbytes(s, w - 3)) "..."
+        return s
+      }
+      # age(v) — time since epoch second v: now, 12m, 3h, 4d; "-" = never
+      function age(v,    dt) {
+        if (v + 0 <= 0) return "-"
+        dt = now - v
+        if (dt < 60)    return "now"
+        if (dt < 3600)  return int(dt / 60) "m"
+        if (dt < 86400) return int(dt / 3600) "h"
+        return int(dt / 86400) "d"
+      }
+      BEGIN {
+        cur = ENVIRON["WB_PICKER_SESSION"]
+        mg = "\033[1;35m"; gr = "\033[32m"; ye = "\033[33m"; dim = "\033[90m"
+        cy = "\033[36m"; rs = "\033[0m"; rev = "\033[1;7m"
+      }
       {
-        icon = $5; sub(/ .*/, "", icon)
+        n++
         lbl = $5; sub(/^[^ ]+ /, "", lbl)
-        if      (lbl == "needs you") c = m
-        else if (lbl == "finished")  c = cy
-        else if (lbl == "done")      c = g
-        else if (lbl == "working")   c = y
-        else                         c = d
-        # TYPE: is this row a bare session (no agent), a session that also
-        # has one, or a sub-row for one specific agent pane? Derived from
-        # kind ($9) + agent-pane count ($10), not a separate stored field.
-        if      ($9 == "agent")   type = "agent"
-        else if ($(10) + 0 >= 1)  type = "both"
-        else                      type = "session"
-        # Pad the icon and label SEPARATELY, never together: awk counts
-        # bytes, not display columns, and padding the combined "icon label"
-        # string as one unit overcounts whenever the icon is multi-byte.
-        status_field = icon " " pad(lbl, w5)
+        # A dormant row has no session and a "~ <status> <age>" label.
+        dorm = ($7 == "" && $5 ~ /^~ /)
+        # The session Jet is in, and the agent panes listed under it.
+        hs = (!dorm && cur != "" && $7 == cur)
+        # Needs Jet: urank 0 is the only signal (finished and done share
+        # urank 1, so urank cannot choose colours; the label does that). A
+        # session with more than one agent lists them as sub-rows and its own
+        # row only repeats the most urgent one, so the sub-row that is
+        # waiting counts and the owner row does not: one waiting pane, one
+        # count, and `u` lands on the pane itself.
+        nd = (!dorm && !hs && $4 != "" && $4 + 0 == 0 && ($9 == "agent" || $(10) + 0 <= 1))
+        if (dorm) {
+          w = lbl; sub(/ .*/, "", w)
+          c = (w == "doing") ? ye : (w == "review") ? cy : dim
+        } else if (lbl == "finished") c = cy
+        else if (lbl == "done")       c = gr
+        else if (lbl == "working")    c = ye
+        else                          c = dim
         # Sub-rows repeat the parent row repo name and had no visual tie
         # back to it, which read as a sort/grouping bug rather than "this
         # belongs to the row above" -- blank the repeated REPO cell and
@@ -5903,23 +5970,73 @@ wb_format_for_display() {
         nest = $(12); lvl = 0
         if (nest ~ /^[ac][0-9]+$/) lvl = substr(nest, 2) + 0
         ind = ""; for (k = 1; k < lvl; k++) ind = ind "  "
+        pre = ""
         if ($9 == "agent") {
           if (lvl > 0) ind = ind "  "
-          repo_cell = pad("", w1); name_cell = pad(ind " > " $2, w2)
-        } else if (nest == "1") {
-          repo_cell = pad($1, w1); name_cell = pad(" ~ " $2, w2)
-        } else if (nest ~ /^c/) {
-          repo_cell = pad($1, w1); name_cell = pad(ind " |- " $2, w2)
+          pre = ind " > "; rcell[n] = pad("", wr)
         } else {
-          repo_cell = pad($1, w1); name_cell = pad($2, w2)
+          rcell[n] = pad($1, wr)
+          if (nest == "1")         pre = " ~ "
+          else if (nest ~ /^c/)    pre = ind " |- "
         }
-        display = c repo_cell r "  " c name_cell r "  " pad(type, w3) "  " pad($3, w4) "  " c status_field r
-        print display, $1, $2, $3, $4, $5, $6, $7, $8, $9, $(10), $(11), $(12), $(13)
+        txt = pre $2
+        # The (here) tag is cut around, never cut off: shorten the name, not it.
+        if (hs && $9 != "agent") ncell[n] = pad(fit(txt, wn - 7) " (here)", wn)
+        else                     ncell[n] = pad(txt, wn)
+        npre[n] = pre; ncol[n] = c
+        # The stored "[branch]" brackets would spend two of the few
+        # characters in the column on a truncated branch, so the cell drops
+        # them.
+        br = $3; sub(/^\[/, "", br); sub(/\]$/, "", br)
+        bcell[n] = padtail(br, wb)
+        # Agent sub-rows repeat the owner row time; show it once, on the owner.
+        acell[n] = ($9 == "agent") ? pad("", wa) : pad(age($13), wa)
+        mode[n] = hs ? 1 : (nd ? 2 : 0)
+        sess[n] = $7; ishere[n] = hs; isneed[n] = nd
+        pt[n] = $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9 OFS $(10) OFS $(11) OFS $(12) OFS $(13)
+        # A block (a family: its root, children, siblings and agent
+        # sub-rows) starts at a row that is not an agent sub-row and is not
+        # nested; wb_order_blocks keeps each block whole.
+        if (n == 1 || ($9 != "agent" && $12 == "")) { nb++; brepo[nb] = $1; bfirst[nb] = n }
+        blk[n] = nb
+        if (hs) bhere[nb] = 1
+        if (nd) { bneed[nb] = 1; cnt++ }
+      }
+      END {
+        # A group is a run of blocks whose first rows share a repo; the
+        # block holding the current session is pinned first and is a group
+        # of its own, so the rest of its repo forms a group below it.
+        for (b = 1; b <= nb; b++) {
+          if (b == 1 || brepo[b] != brepo[b - 1] || (b == 2 && bhere[1])) { g++; gfirst[g] = bfirst[b] }
+          bg[b] = g
+          if (bneed[b]) gneed[g] = 1
+        }
+        for (g = 1; g <= nb; g++) if (gfirst[g] != "" && gneed[g]) magenta[gfirst[g]] = 1
+        for (i = 1; i <= n; i++) {
+          if (mode[i] == 2) {
+            # Reverse video swaps the colours, so the repo mark inside it
+            # becomes a magenta block; the rest stays plain default colour.
+            rc = magenta[i] ? "\033[35m" rcell[i] "\033[39m" : rcell[i]
+            disp = rev rc "  " ncell[i] "  " bcell[i] "  " acell[i] rs
+          } else if (mode[i] == 1) {
+            disp = dim rcell[i] "  " ncell[i] "  " bcell[i] "  " acell[i] rs
+          } else {
+            # The connector is grey, the name carries the status colour.
+            k = length(npre[i])
+            nm = (k ? dim npre[i] rs : "") ncol[i] substr(ncell[i], k + 1) rs
+            disp = (magenta[i] ? mg : dim) rcell[i] rs "  " nm "  " dim bcell[i] rs "  " dim acell[i] rs
+          }
+          print disp, pt[i]
+        }
+        if (snap != "") {
+          print "count", cnt + 0 > snap
+          for (i = 1; i <= n; i++) print i, sess[i], isneed[i] + 0, ishere[i] + 0 > snap
+          close(snap)
+        }
       }'
+  [ -z "$snap" ] || mv -f "$snap.$$.tmp" "$snap" 2>/dev/null || true
 }
 
-# wb_column_header — the legend row shown above the picker's rows, in the
-# SAME widths wb_format_for_display pads to. Keep the two in sync.
 # wb_column_header — the legend line, in the SAME widths wb_format_for_display
 # pads data rows to. Printed as a real line (trailing newline) so render_rows
 # can prepend it straight into the piped rows as a `--header-lines=1` sticky
@@ -5927,13 +6044,9 @@ wb_format_for_display() {
 # the list regardless of scrolling, unlike a separate --header string (which
 # fzf always anchors near the prompt, not above the rows).
 wb_column_header() {
-  # 4 spaces (not 2) before STATUS: data rows prefix their status text with a
-  # 1-char icon + 1 space, so the readable label starts 2 columns later than
-  # the column's left edge -- matching that keeps "STATUS" over the text,
-  # not over the icon.
-  printf '\033[90m%-*s  %-*s  %-*s  %-*s    %s\033[0m\n' \
-    "$WB_COL_REPO" "REPO" "$WB_COL_LABEL" "NAME" "$WB_COL_TYPE" "TYPE" \
-    "$WB_COL_BRANCH" "BRANCH" "STATUS"
+  local nw; nw="$(wb_picker_name_width)"
+  printf '\033[90m%-*s  %-*s  %-*s  %s\033[0m\n' \
+    "$WB_COL_REPO" "REPO" "$nw" "NAME" "$WB_COL_BRANCH" "BRANCH" "AGE"
 }
 
 # render_rows <mode_file> [<view_file>] — the picker is two tabs, not one
@@ -5960,9 +6073,11 @@ render_rows() {
   local view; view="$(cat "${2:-}" 2>/dev/null || echo live)"
   wb_column_header
   if [ "$view" = dormant ]; then
+    # No snapshot here: a dormant row never needs Jet, and the live
+    # snapshot stays as the live tab last left it.
     cat "${2}.cache" 2>/dev/null | wb_format_for_display
   else
-    collect_combined_rows | wb_format_for_display
+    collect_combined_rows | wb_format_for_display "${2:+$2.snap}"
   fi
 }
 
@@ -6474,7 +6589,7 @@ picker() {
   view_file="$(mktemp -t wb-view.XXXXXX)"
   echo normal > "$mode_file"
   echo live > "$view_file"
-  trap 'rm -f "$mode_file" "$view_file" "$view_file.cache"' EXIT
+  trap 'rm -f "$mode_file" "$view_file" "$view_file.cache" "$view_file.snap"' EXIT
 
   # The session Jet is in and the moment the picker opened, for every fzf
   # child (render/transform/preview inherit the environment) to pin the

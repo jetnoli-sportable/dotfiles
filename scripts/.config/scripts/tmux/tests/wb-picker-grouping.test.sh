@@ -10,6 +10,8 @@
 #      current session and the frozen "now" to its fzf children.
 # U3 — rows group by repo, order by visit time, pin the current session's
 #      family on top; urgency never moves a row; the dormant tab groups too.
+# U4 — the display: REPO/NAME/BRANCH/AGE, status as NAME colour, reverse-video
+#      for rows that need Jet, (here), magenta repo, width, the snapshot file.
 #
 # Run: bash scripts/.config/scripts/tmux/tests/wb-picker-grouping.test.sh
 set -uo pipefail
@@ -66,6 +68,12 @@ assert_eq() { # <desc> <expected> <actual>
 source "$WB"
 set +e   # wb.sh sets -e; this test intentionally captures non-zero exits
 
+# The formatter sizes NAME from FZF_COLUMNS (fzf exports it) and ages rows
+# against WB_PICKER_NOW; pin both so output is the same on every host.
+export FZF_COLUMNS=200
+export WB_PICKER_NOW=1000000
+NW="$(wb_picker_name_width)"
+
 save_fn() { declare -f "$1"; }
 ORIG_ATTACHED="$(save_fn wb_session_last_attached)"
 ORIG_PANES="$(save_fn tmux_claude_panes)"
@@ -94,33 +102,34 @@ fmt_under() { # <awk-bin-dir> <name> [branch]
   PATH="$1:$PATH" fmt_row "${@:2}"
 }
 
-# --- pure-ASCII rows are byte-identical to the pre-change formatter --------
-# Captured from the formatter at the commit before this change (the five rows
-# below: a short name, a truncated name+repo+branch, an agent sub-row, a
-# level-2 child, a sibling). ^[ is the ESC byte, as `cat -v` prints it.
+# U4 re-based this guard on the REPO/NAME/BRANCH/AGE layout (FZF_COLUMNS=200,
+# WB_PICKER_NOW=1000000): five ASCII rows -- a short name, a truncated
+# name+repo+branch, an agent sub-row, a level-2 child, a sibling -- whose
+# bytes are pinned, and mawk must equal gawk. ^[ is the ESC byte, as `cat -v`
+# prints it.
 ascii_rows=(
 $'alpha\ta short name\t[feat/x]\t2\t* working\ts:0.0\ts\t/r\ttask\t1\t\t\t0'
-$'a-very-long-repo-name\tthis is a very long task name exceeding width\t[feat/very-long-branch-name]\t0\t! needs you\ts:0.0\ts\t/r\ttask\t2\t\t\t0'
+$'a-very-long-repo-name\tthis is a very long task name exceeding width exceeding width exceeding width\t[feat/very-long-branch-name]\t1\t+ finished\ts:0.0\ts\t/r\ttask\t2\t\t\t999940'
 $'alpha\tpane task\t[feat/x]\t3\t- idle\ts:1.1\ts\t/r\tagent\t1\t\ta1\t0'
-$'beta\tchild name\t[b]\t1\t+ finished\ts:0.0\ts\t/r\ttask\t1\t\tc2\t0'
+$'beta\tchild name\t[b]\t1\t+ finished\ts:0.0\ts\t/r\ttask\t1\t\tc2\t990000'
 $'gamma\tsibling name\t[b]\t1\to done\ts:0.0\ts\t/r\ttask\t0\t\t1\t0'
 )
-ascii_expected='^[[33malpha           ^[[0m  ^[[33ma short name              ^[[0m  both      [feat/x]      ^[[33m* working  ^[[0m
-^[[1;35ma-very-long-r...^[[0m  ^[[1;35mthis is a very long tas...^[[0m  both      [feat/ver...  ^[[1;35m! needs you^[[0m
-^[[90m                ^[[0m  ^[[90m   > pane task            ^[[0m  agent     [feat/x]      ^[[90m- idle     ^[[0m
-^[[36mbeta            ^[[0m  ^[[36m   |- child name          ^[[0m  both      [b]           ^[[36m+ finished ^[[0m
-^[[32mgamma           ^[[0m  ^[[32m ~ sibling name           ^[[0m  session   [b]           ^[[32mo done     ^[[0m'
+ascii_expected='^[[90malpha           ^[[0m  ^[[33ma short name                                     ^[[0m  ^[[90mfeat/x      ^[[0m  ^[[90m-   ^[[0m
+^[[90ma-very-long-r...^[[0m  ^[[36mthis is a very long task name exceeding width ...^[[0m  ^[[90m...anch-name^[[0m  ^[[90m1m  ^[[0m
+^[[90m                ^[[0m  ^[[90m   > ^[[0m^[[90mpane task                                   ^[[0m  ^[[90mfeat/x      ^[[0m  ^[[90m    ^[[0m
+^[[90mbeta            ^[[0m  ^[[90m   |- ^[[0m^[[36mchild name                                 ^[[0m  ^[[90mb           ^[[0m  ^[[90m2h  ^[[0m
+^[[90mgamma           ^[[0m  ^[[90m ~ ^[[0m^[[32msibling name                                  ^[[0m  ^[[90mb           ^[[0m  ^[[90m-   ^[[0m'
 for awkname in mawk gawk; do
   bindir="$MAWK_BIN"; [ "$awkname" = gawk ] && bindir="$GAWK_BIN"
   got="$(printf '%s\n' "${ascii_rows[@]}" | PATH="$bindir:$PATH" wb_format_for_display | cut -f1 | cat -v)"
-  assert_eq "U1 ascii rows render byte-identical to before ($awkname)" "$ascii_expected" "$got"
+  assert_eq "U1 ascii rows render byte-identical to the pinned layout ($awkname)" "$ascii_expected" "$got"
 done
 
 # --- a name cut at the NAME width never splits a multi-byte character -------
 # The 2-byte "·" is placed so each of the characters around the cut (the
-# NAME cell keeps WB_COL_LABEL-3 characters before the "...") starts a
+# NAME cell keeps NW-3 characters before the "...") starts a
 # different byte offset; a byte-wise substr would cut it in half for some.
-keep=$((WB_COL_LABEL - 3))
+keep=$((NW - 3))
 for glyph in "·" "—" "é"; do
   for p in $((keep - 2)) $((keep - 1)) "$keep" $((keep + 1)) $((keep + 2)); do
     name="$(printf 'a%.0s' $(seq 1 $((p - 1))))${glyph}bbbbbbbbbbbbbbbb"
@@ -141,7 +150,7 @@ done
 # --- visible width of a multi-byte row equals an ASCII row's, every cell ----
 ascii_line="$(fmt_under "$MAWK_BIN" "abcdefghijklmnopqrstuvwxyz0123456789" '[branch-x]' | strip_ansi)"
 ascii_w="$(printf '%s\n' "$ascii_line" | char_len)"
-mb_long="/verify-behaviour · checks.md norm and watcher"      # > NAME width, "·" mid-name
+mb_long="/verify-behaviour · checks.md norm and watcher, plus a tail"   # > NAME width, "·" mid-name
 mb_short="caf— au lait"                                      # < NAME width, has "—"
 for awkname in mawk gawk; do
   bindir="$MAWK_BIN"; [ "$awkname" = gawk ] && bindir="$GAWK_BIN"
@@ -152,8 +161,8 @@ for awkname in mawk gawk; do
 done
 
 # --- a long name's truncated cell ends in "..." and keeps whole characters --
-# NAME cell = characters WB_COL_REPO+3 .. +WB_COL_LABEL of the plain line
-cell="$(fmt_under "$MAWK_BIN" "$mb_long" | strip_ansi | LC_ALL=en_US.UTF-8 gawk -v a=$((WB_COL_REPO + 3)) -v w="$WB_COL_LABEL" '{ print substr($0, a, w) }')"
+# NAME cell = characters WB_COL_REPO+3 .. +NW of the plain line
+cell="$(fmt_under "$MAWK_BIN" "$mb_long" | strip_ansi | LC_ALL=en_US.UTF-8 gawk -v a=$((WB_COL_REPO + 3)) -v w="$NW" '{ print substr($0, a, w) }')"
 assert "U1 truncated multi-byte name keeps the ASCII ... suffix" '\.\.\.$' "$cell"
 
 # --- both awks produce identical output on the same multi-byte input --------
@@ -434,6 +443,245 @@ _refresh_dormant "$dmode" "$dview"
 assert_eq "U3 dormant tab: repos grouped, newest transcript's repo first, newest first inside" \
   "beta--one beta--two alpha--two alpha--one" "$(cut -f2 "$dview.cache" | paste -sd' ')"
 assert_eq "U3 dormant cache rows keep all 13 fields" 13 "$(nfields "$(sed -n 1p "$dview.cache")")"
+
+# ============================================================================
+# U4 — slim display: colour status, AGE, branch tail, width, snapshot
+# ============================================================================
+# Synthetic rows straight through the formatter: no tmux needed. Fields:
+# repo name branch urank label target session ref kind ucount slug nest visit.
+u4row() { # repo name branch urank label session [kind] [nest] [visit]
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t/r\t%s\t1\t\t%s\t%s\n' \
+    "$1" "$2" "$3" "$4" "$5" "${6:+t:0.0}" "$6" "${7:-task}" "${8:-}" "${9:-0}"
+}
+has()  { printf '%s' "$2" | /usr/bin/grep -qF -- "$1"; }
+assert_has()   { if has "$2" "$3"; then echo "ok   - $1"; else echo "FAIL - $1"; echo "       expected to contain: $(printf '%s' "$2" | cat -v)"; echo "       got: $(printf '%s' "$3" | cat -v | head -6)"; fail=1; fi; }
+assert_lacks() { if has "$2" "$3"; then echo "FAIL - $1"; echo "       expected NOT to contain: $(printf '%s' "$2" | cat -v)"; echo "       got: $(printf '%s' "$3" | cat -v | head -6)"; fail=1; else echo "ok   - $1"; fi; }
+disp()  { wb_format_for_display "$@" | cut -f1; }                 # display field only
+line_n() { sed -n "${1}p"; }
+ESC=$'\033'
+G90="${ESC}[90m"; Y33="${ESC}[33m"; C36="${ESC}[36m"; N32="${ESC}[32m"
+REV="${ESC}[1;7m"; MAG="${ESC}[1;35m"; MAGR="${ESC}[35m"
+
+# --- no TYPE words, no status labels, a new header ---------------------------
+rows="$(u4row alpha 'alpha-one' '[b]' 2 '* working' s1)
+$(u4row alpha 'alpha-two' '[b]' 1 '+ finished' s2)
+$(u4row alpha 'alpha-three' '[b]' 1 'o done' s3)
+$(u4row alpha 'pane-x' '[b]' 3 '- idle' s2 agent a1)"
+plain="$(printf '%s\n' "$rows" | disp | strip_ansi)"
+assert_lacks "U4 no TYPE words in the rows" "session" "$plain"
+for w in both agent working finished idle "needs you"; do
+  assert_lacks "U4 no '$w' text in the rows" "$w" "$plain"
+done
+assert_lacks "U4 no standalone 'done' status label" "done " "$(printf '%s\n' "$plain" | sed 's/alpha-three//')"
+hdr="$(wb_column_header | strip_ansi)"
+assert_eq "U4 header names exactly REPO NAME BRANCH AGE" "REPO NAME BRANCH AGE" "$(printf '%s' "$hdr" | tr -s ' ')"
+
+# --- (here): only the current session's row, grey, never reverse ------------
+rows="$(u4row alpha 'mine' '[b]' 1 '+ finished' s1)
+$(u4row alpha 'other' '[b]' 1 '+ finished' s2)"
+out="$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 disp)"
+assert_has   "U4 the current session's row carries (here)" "(here)" "$(printf '%s\n' "$out" | line_n 1)"
+assert_lacks "U4 no other row carries (here)" "(here)" "$(printf '%s\n' "$out" | line_n 2)"
+l1="$(printf '%s\n' "$out" | line_n 1)"
+assert_eq "U4 the (here) row starts in grey" "$G90" "${l1:0:5}"
+assert "U4 the (here) row uses no status colour (finished is cyan)" '^[^m]*m[^'"$ESC"']*'"$ESC"'\[0m$' "$l1"
+assert_lacks "U4 the (here) row is not reverse-video" "$REV" "$l1"
+out="$(printf '%s\n' "$rows" | disp)"
+assert_lacks "U4 no (here) without a current session" "(here)" "$out"
+# a long name keeps the tag: the name is cut, never "(here)"
+long="$(printf 'n%.0s' $(seq 1 90))"
+l1="$(u4row alpha "$long" '[b]' 1 '+ finished' s1 | WB_PICKER_SESSION=s1 disp | strip_ansi)"
+assert "U4 a long name is cut to keep the (here) tag" '\.\.\. \(here\) ' "$l1"
+assert_eq "U4 ... and the row is no wider than a short one" "$(u4row alpha x '[b]' 1 '+ finished' s1 | WB_PICKER_SESSION=s1 disp | strip_ansi | char_len)" "$(printf '%s\n' "$l1" | char_len)"
+
+# --- needs you: reverse-video on that row only ------------------------------
+rows="$(u4row alpha 'calm' '[b]' 1 '+ finished' s1)
+$(u4row alpha 'waiting' '[b]' 0 '! needs you' s2)
+$(u4row alpha 'busy' '[b]' 2 '* working' s3)"
+out="$(printf '%s\n' "$rows" | disp)"
+assert_lacks "U4 a calm row has no reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 1)"
+assert_has   "U4 a needs-you row is bold reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 2)"
+assert_lacks "U4 a working row has no reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 3)"
+assert_eq "U4 exactly one reverse span in the list" 1 "$(printf '%s' "$out" | /usr/bin/grep -cF "$REV")"
+
+# --- finished and done share urank 1 but not a colour -----------------------
+rows="$(u4row alpha 'fin-name' '[b]' 1 '+ finished' s1)
+$(u4row alpha 'done-name' '[b]' 1 'o done' s2)
+$(u4row alpha 'work-name' '[b]' 2 '* working' s3)
+$(u4row alpha 'idle-name' '[b]' 3 '- idle' s4)"
+out="$(printf '%s\n' "$rows" | disp)"
+assert_has "U4 finished NAME is cyan"  "${C36}fin-name"  "$out"
+assert_has "U4 done NAME is green"     "${N32}done-name" "$out"
+assert_has "U4 working NAME is yellow" "${Y33}work-name" "$out"
+assert_has "U4 idle NAME is grey"      "${G90}idle-name" "$out"
+
+# --- the (here) row's own agent waiting on Jet stays grey, uncounted --------
+snap="$FIXTURE/here.snap"; rm -f "$snap" "$snap".*
+rows="$(u4row alpha 'mine' '[b]' 0 '! needs you' s1)
+$(u4row alpha 'mine-pane' '[b]' 0 '! needs you' s1 agent a1)
+$(u4row alpha 'later' '[b]' 1 '+ finished' s2)"
+out="$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 disp "$snap")"
+assert_lacks "U4 (here) row whose agent needs Jet: no reverse-video on any row" "$REV" "$out"
+assert_eq "U4 ... its agent sub-row is grey too" "$G90" "$(printf '%s\n' "$out" | line_n 2 | cut -c1-5)"
+assert_eq "U4 ... not in the snapshot: count 0" "count	0" "$(head -1 "$snap")"
+assert_eq "U4 ... and it does not turn the repo magenta" 0 "$(printf '%s' "$out" | /usr/bin/grep -cF "$MAG")"
+
+# --- a multi-agent session: the waiting pane counts once, on its sub-row ----
+snap="$FIXTURE/multi.snap"; rm -f "$snap" "$snap".*
+owner="$(u4row alpha 'two-agents' '[b]' 0 '! needs you' s2 | awk -F'\t' -v OFS='\t' '{ $10 = 2; print }')"
+rows="$owner
+$(u4row alpha 'pane-wait' '[b]' 0 '! needs you' s2 agent)
+$(u4row alpha 'pane-work' '[b]' 2 '* working' s2 agent)"
+out="$(printf '%s\n' "$rows" | disp "$snap")"
+assert_eq "U4 one waiting pane in a multi-agent session counts once" "count	1" "$(head -1 "$snap")"
+assert_eq "U4 ... and the count lands on the waiting sub-row (pos 2)" "2	s2	1	0" "$(awk -F'\t' '$3 == 1' "$snap")"
+assert_lacks "U4 ... the owner row is not reverse-video" "$REV" "$(printf '%s\n' "$out" | line_n 1)"
+assert_has   "U4 ... the waiting sub-row is" "$REV" "$(printf '%s\n' "$out" | line_n 2)"
+
+# --- dormant rows: status word picks the colour, never needs-you ------------
+snap="$FIXTURE/dormant.snap"; rm -f "$snap" "$snap".*
+rows="$(u4row alpha 'dn-doing' '[b]' 0 '~ doing 3d' '' task '' 5)
+$(u4row alpha 'dn-review' '[b]' 10000000000 '~ review 2d' '' task '' 5)
+$(u4row alpha 'dn-paused' '[b]' 20000000000 '~ paused 9d' '' task '' 5)"
+out="$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 disp)"
+assert_has "U4 dormant doing is yellow"  "${Y33}dn-doing"  "$out"
+assert_has "U4 dormant review is cyan"   "${C36}dn-review" "$out"
+assert_has "U4 dormant paused is grey"   "${G90}dn-paused" "$out"
+assert_lacks "U4 a dormant row at urank 0 is never reverse-video" "$REV" "$out"
+
+# --- render_rows: the live tab writes the snapshot, the dormant tab does not -
+ORIG_CCR="$(save_fn collect_combined_rows)"
+collect_combined_rows() {
+  u4row alpha 'a1' '[b]' 1 '+ finished' s1
+  u4row alpha 'a2' '[b]' 0 '! needs you' s2
+  u4row beta 'b1' '[b]' 1 '+ finished' s3
+}
+mf="$FIXTURE/rr.mode"; vf="$FIXTURE/rr.view"; echo normal > "$mf"; echo live > "$vf"
+rm -f "$vf.snap" "$vf.snap".*
+render_rows "$mf" "$vf" >/dev/null
+assert_eq "U4 render_rows (live, view file given) writes <view>.snap with the needs-you count" "count	1" "$(head -1 "$vf.snap" 2>/dev/null)"
+printf 'keep-me\n' > "$vf.snap"
+echo dormant > "$vf"; printf '%s\n' "$(u4row alpha 'dn' '[b]' 0 '~ doing 1d' '' task '' 5)" > "$vf.cache"
+render_rows "$mf" "$vf" >/dev/null
+assert_eq "U4 render_rows (dormant) leaves the live snapshot alone" "keep-me" "$(cat "$vf.snap")"
+rm -f "$vf.snap"; render_rows "$mf" "$vf" >/dev/null
+assert_eq "U4 render_rows (dormant) writes no snapshot" "no" "$([ -e "$vf.snap" ] && echo yes || echo no)"
+echo live > "$vf"; : > "$vf.cache"
+out="$(render_rows 2>/dev/null)"     # no view file at all
+assert "U4 render_rows with no view file still renders the live rows" 'a1' "$out"
+eval "$ORIG_CCR"
+rm -f "$vf" "$vf.cache" "$vf.snap" "$mf"
+picker_block="$(awk '/^picker\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
+assert "U4 picker removes the snapshot with its other temp files" 'trap .rm -f .*"\$view_file\.snap"' "$picker_block"
+
+# --- magenta repo: first row of a group that holds a needs-you row ----------
+rows="$(u4row alpha 'a-first' '[b]' 1 '+ finished' s1)
+$(u4row alpha 'a-wait' '[b]' 0 '! needs you' s2)
+$(u4row alpha 'a-last' '[b]' 1 '+ finished' s3)
+$(u4row beta 'b-first' '[b]' 1 '+ finished' s4)
+$(u4row beta 'b-last' '[b]' 2 '* working' s5)"
+out="$(printf '%s\n' "$rows" | disp)"
+assert_has   "U4 magenta repo on the first row of a group with a needs-you row" "${MAG}alpha" "$(printf '%s\n' "$out" | line_n 1)"
+assert_lacks "U4 ... the needs-you row itself is not the group's first row: no magenta there" "$MAGR" "$(printf '%s\n' "$out" | line_n 2)"
+assert_lacks "U4 ... nor on the group's last row" "$MAG" "$(printf '%s\n' "$out" | line_n 3)"
+assert_eq "U4 a group without a needs-you row has no magenta at all" 0 "$(printf '%s\n' "$out" | tail -2 | /usr/bin/grep -cF "${ESC}[1;35m")"
+# the needs-you row IS the first row: the mark sits inside the reverse span
+rows="$(u4row alpha 'a-wait' '[b]' 0 '! needs you' s2)
+$(u4row alpha 'a-more' '[b]' 1 '+ finished' s3)"
+out="$(printf '%s\n' "$rows" | disp)"
+assert_has "U4 a needs-you first row shows the repo mark inside its reverse span" "${REV}${MAGR}alpha" "$(printf '%s\n' "$out" | line_n 1)"
+# the pinned family is a group of its own: a needs-you child up there does
+# not colour the same repo's group below
+rows="$(u4row alpha 'mine' '[b]' 1 '+ finished' s1)
+$(u4row alpha 'kid' '[b]' 0 '! needs you' s2 task c1)
+$(u4row alpha 'next' '[b]' 1 '+ finished' s3)"
+out="$(printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 disp)"
+assert_lacks "U4 the repo group below the pinned family is not magenta" "$MAG" "$(printf '%s\n' "$out" | line_n 3)"
+
+# --- AGE ----------------------------------------------------------------------
+now=1000000
+rows="$(u4row alpha 'age-a' '[b]' 1 '+ finished' s1 task '' $((now - 30)))
+$(u4row alpha 'age-b' '[b]' 1 '+ finished' s2 task '' $((now - 720)))
+$(u4row alpha 'age-c' '[b]' 1 '+ finished' s3 task '' $((now - 10800)))
+$(u4row alpha 'age-d' '[b]' 1 '+ finished' s4 task '' $((now - 345600)))
+$(u4row alpha 'age-e' '[b]' 1 '+ finished' s5 task '' 0)
+$(u4row alpha 'age-f' '[b]' 1 '+ finished' s5 agent a1 $((now - 30)))"
+ages="$(printf '%s\n' "$rows" | WB_PICKER_NOW=$now disp | strip_ansi | sed -E 's/^.*(.{4})$/\1/' | sed -E 's/ +$//' | tr '\n' ',')"
+assert_eq "U4 AGE: 30 s now, 12 min 12m, 3 h 3h, 4 days 4d, never -, agent sub-row blank" "now,12m,3h,4d,-,," "$ages"
+assert_eq "U4 AGE column is exactly 4 characters" 4 "$(printf '%s\n' "$rows" | WB_PICKER_NOW=$now disp | strip_ansi | sed -E 's/^.{'"$((WB_COL_REPO + NW + WB_COL_BRANCH + 6))"'}//' | head -1 | char_len)"
+nowreal="$(printf '%(%s)T' -1)"
+out="$(u4row alpha 'age-r' '[b]' 1 '+ finished' s1 task '' $((nowreal - 120)) | env -u WB_PICKER_NOW bash -c "source '$WB'; set +e; export FZF_COLUMNS=200; wb_format_for_display" | cut -f1 | strip_ansi)"
+assert "U4 AGE with WB_PICKER_NOW unset uses the clock" ' 2m +$' "$out"
+
+# --- BRANCH keeps its tail when long, shows a short one whole ----------------
+out="$(printf '%s\n%s\n' "$(u4row alpha 'br-long' '[feat/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaend-xy]' 1 '+ finished' s1)" "$(u4row alpha 'br-short' '[b-12]' 1 '+ finished' s2)" | disp | strip_ansi)"
+assert "U4 a 40-char branch shows ... then its last characters" '\.\.\.a+end-xy  ' "$(printf '%s\n' "$out" | line_n 1)"
+assert "U4 a short branch shows whole" ' b-12 {9,}[-0-9a-z]+ +$' "$(printf '%s\n' "$out" | line_n 2)"
+assert_lacks "U4 ... with no ... in it" "..." "$(printf '%s\n' "$out" | line_n 2)"
+
+# --- width: NAME fills the list pane; header and rows line up ---------------
+for cols in 200 160 100; do
+  export FZF_COLUMNS=$cols
+  nw="$(wb_picker_name_width)"
+  eval "nw_$cols=$nw"
+  d="$(u4row alpha 'wide' '[branch]' 1 '+ finished' s1 task '' 5 | disp | strip_ansi)"
+  h="$(wb_column_header | strip_ansi)"
+  bh="${h%%BRANCH*}"; ah="${h%%AGE*}"; bd="${d%%branch *}"
+  assert_eq "U4 width $cols: BRANCH header sits over the BRANCH cells" "${#bh}" "${#bd}"
+  assert_eq "U4 width $cols: AGE header sits over the AGE cells" "${#ah}" "$((${#bd} + WB_COL_BRANCH + 2))"
+  assert_eq "U4 width $cols: header and rows are equally wide (to the AGE cell)" "$((${#ah} + 3))" "$((${#d} - 1))"
+done
+export FZF_COLUMNS=200
+assert "U4 NAME at 200 columns is wider than at 100" '^1$' "$([ "$nw_200" -gt "$nw_100" ] && echo 1 || echo 0)"
+# fzf 0.65.2, picker()'s flags: a row of exactly 87 / 69 characters fits at 200 / 160 columns
+for pair in 200:87 160:69; do
+  export FZF_COLUMNS="${pair%%:*}"
+  w="$(u4row alpha 'x' '[b]' 1 '+ finished' s1 | disp | strip_ansi | char_len)"
+  assert_eq "U4 a row is exactly the list pane's text width at ${pair%%:*} columns" "${pair##*:}" "$w"
+done
+export FZF_COLUMNS=200
+# no FZF_COLUMNS: the terminal width less the 2 padding columns stands in
+tput() { echo 200; }
+w200="$(unset FZF_COLUMNS; wb_picker_name_width)"
+assert_eq "U4 without FZF_COLUMNS NAME comes from tput cols less the padding" "$nw_200" "$w200"
+tput() { return 1; }
+w160="$(unset FZF_COLUMNS; wb_picker_name_width)"
+assert_eq "U4 without FZF_COLUMNS or a terminal NAME assumes 160 columns" "$nw_160" "$w160"
+unset -f tput
+
+# --- snapshot: positions of needs-you rows, their count, atomic -------------
+snap="$FIXTURE/live.snap"; rm -f "$snap" "$snap".*
+rows="$(u4row alpha 'mine' '[b]' 1 '+ finished' s1)
+$(u4row alpha 'wait-1' '[b]' 0 '! needs you' s2)
+$(u4row alpha 'pane' '[b]' 0 '! needs you' s1 agent a1)
+$(u4row beta 'calm' '[b]' 1 '+ finished' s3)
+$(u4row beta 'wait-2' '[b]' 0 '! needs you' s4)"
+printf '%s\n' "$rows" | WB_PICKER_SESSION=s1 wb_format_for_display "$snap" >/dev/null
+assert_eq "U4 snapshot: count line, then pos/session/needs/here per data row" \
+  "count	2
+1	s1	0	1
+2	s2	1	0
+3	s1	0	1
+4	s3	0	0
+5	s4	1	0" "$(cat "$snap")"
+assert_eq "U4 snapshot: no temp file left behind" "live.snap" "$(ls "$FIXTURE" | /usr/bin/grep '^live\.snap' | tr '\n' ' ' | sed 's/ $//')"
+printf '' | wb_format_for_display "$snap" >/dev/null
+assert_eq "U4 snapshot of an empty list: count 0 and nothing else" "count	0" "$(cat "$snap")"
+rm -f "$snap"
+
+# --- mawk and gawk agree on the whole slimmed display, snapshot included ------
+mixed="$rows
+$(u4row 'a-very-long-repo-name' 'caf— · résumé review of a very long task name that is cut somewhere past the width' '[feat/ünï·codé-a-very-long-branch]' 1 'o done' s6 task c1 $((now - 4000)))
+$(u4row alpha 'dn' '[b]' 0 '~ review 3d' '' task '' $((now - 90000)))"
+for awkname in mawk gawk; do
+  bindir="$MAWK_BIN"; [ "$awkname" = gawk ] && bindir="$GAWK_BIN"
+  rm -f "$snap"
+  eval "out_$awkname=\"\$(printf '%s\n' \"\$mixed\" | PATH=\"$bindir:\$PATH\" WB_PICKER_SESSION=s1 wb_format_for_display \"\$snap\" | cat -v)\"; snap_$awkname=\"\$(cat \"\$snap\")\""
+done
+assert_eq "U4 mawk and gawk render the display identically" "$out_gawk" "$out_mawk"
+assert_eq "U4 mawk and gawk write the same snapshot" "$snap_gawk" "$snap_mawk"
+assert "U4 multi-byte name row is still valid UTF-8 under mawk" '^0$' "$(printf '%s\n' "$mixed" | PATH="$MAWK_BIN:$PATH" wb_format_for_display | cut -f1 | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; echo $?)"
+rm -f "$snap"
 
 # ============================================================================
 # U6 — _preview helper
