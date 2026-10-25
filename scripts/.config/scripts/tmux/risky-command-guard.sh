@@ -35,7 +35,8 @@
 #     kill with -1 as a target (every process you own); `kill -1 PID` is a
 #       hangup to one process and only asks
 #     rm -r of /, ~, $HOME, ~/code, ~/code/{tasks,notes,dotfiles}, ~/.claude,
-#       ~/.config, /tmp, /tmp/tmux-* (the socket dir: every session unreachable)
+#       ~/.config, /tmp, /tmp/tmux-<uid> (the socket dir: every session
+#       unreachable)
 #     shutdown/reboot/poweroff/halt, systemctl poweroff|reboot|halt|suspend
 #     mkfs, dd of=/dev/…
 #   ask (Jet confirms):
@@ -52,12 +53,11 @@
 #       at the price of an ask on prose that quotes it)
 #   allowed without asking: rm -r whose every target is agent scratch below
 #     ~/.cleanroom/, /tmp/claude-<uid>/ or /tmp/compound-engineering-<uid>/,
-#     written literally or as a variable assigned a literal path earlier in
-#     the same command (never a `mktemp -d` variable; nothing is trusted
-#     once the command uses source/./eval). Never when the target holds a
-#     space, brace, /./ or a ${VAR<op>} expansion, when rm runs under xargs,
-#     or when the command contains $( ) or backticks: each adds or reshapes
-#     targets after the guard has read the text.
+#     written as a literal path ($HOME counts, other variables never do) that
+#     still lands in scratch once symlinks are resolved. Never when a target
+#     holds a space, brace or /./, when rm runs under xargs, when the command
+#     contains $( ) or backticks, or when it also mv's something into scratch:
+#     each adds or reshapes targets after the guard has read the text.
 #   tmux kill-server WITH a literal -L/-S socket is allowed (a private server).
 #
 # Out of reach by design: commands inside a file run later (`bash t.sh`),
@@ -142,8 +142,9 @@ rm_target_is_catastrophic() {
   t="${t%/\*}"; t="${t%/}"
   case "$t" in
     ''|'~'|'$HOME'|"$HOME"|/home) return 0 ;;  # '' is what / and /* strip to
-    /tmp|/tmp/tmux-*) return 0 ;;  # the tmux socket dir: every session unreachable
+    /tmp) return 0 ;;
   esac
+  [[ "$t" =~ ^/tmp/tmux-[0-9]+$ ]] && return 0  # the tmux socket dir: every session unreachable
   local sub
   for sub in code code/tasks code/notes code/dotfiles .claude .config; do
     case "$t" in
@@ -155,65 +156,57 @@ rm_target_is_catastrophic() {
 
 # Agent scratch that is deleted all day and holds nothing of Jet's: clean-room
 # copies, session scratchpads, code-review run folders. A target counts only
-# when its text says so — a literal path, or a variable assigned a literal
-# path earlier in the same command (see collect_assignments). A `mktemp -d`
-# variable never counts: the 2026-07-10 wipe was a "scratch" variable that a
-# sourced script had quietly re-pointed at ~/code.
+# when its literal text says so. No variable but $HOME is trusted: knowing what
+# `$S` holds when rm runs needs real data-flow analysis (the 2026-07-10 wipe
+# was a "scratch" variable a sourced script had re-pointed at ~/code), and
+# regexes over text kept missing forms.
 rm_target_is_scratch() {
-  local t="$1" name re
-  # ${S%/*}, ${S:0:4}, ${#S}... reshape the value: only plain $S / ${S} count
-  [[ "$t" =~ \$\{([^A-Za-z_]|[A-Za-z_][A-Za-z0-9_]*[^A-Za-z0-9_}]) ]] && return 1
-  while [[ "$t" =~ \$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)) ]]; do
-    name="${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
-    [ "$name" = HOME ] && { t="${t/"${BASH_REMATCH[0]}"/$HOME}"; continue; }
-    [ -n "${scratch_vals[$name]+x}" ] && [ "${scratch_at[$name]}" -lt "$seg_idx" ] || return 1
-    t="${t/"${BASH_REMATCH[0]}"/${scratch_vals[$name]}}"
-  done
-  # a space (quoted, or from a value) can split into extra targets at run time
-  [[ "$t" == *"$SEP"* || "$t" == *[[:space:]]* ]] && return 1
+  local t="$1" r
+  if [ $home_trusted = 1 ]; then t="${t//\$\{HOME\}/$HOME}"; t="${t//\$HOME/$HOME}"; fi
   [[ "$t" == "~/"* ]] && t="$HOME/${t#\~/}"
-  [[ "$t" == *..* || "$t" == *'$'* || "/$t/" == */./* ]] && return 1
-  case "$t" in "$HOME/.cleanroom/"*) t="/cleanroom/${t#"$HOME/.cleanroom/"}" ;; esac
-  re='^(/tmp/claude-[0-9]+|/tmp/compound-engineering-[0-9]+|/cleanroom)/[^/*?[{}]+(/.*)?$'
-  [[ "$t" =~ $re ]]
+  # a space can split into extra targets; .. and /./ climb or name the root
+  [[ "$t" == *"$SEP"* || "$t" == *[[:space:]]* || "$t" == *'$'* ]] && return 1
+  [[ "$t" == *..* || "/$t/" == */./* ]] && return 1
+  scratch_text "$t" || return 1
+  # a symlink inside scratch (a clean-room copy of logs/ -> the main checkout)
+  # would delete its target's contents
+  r="$(realpath -m -- "$t" 2>/dev/null)" || return 1
+  scratch_text "$r"
 }
 
-# NAME=value words that stand alone as a command (not `NAME=x cmd`, which only
-# sets the env of cmd) and are the only way NAME is set in this command. Any
-# second assignment, `for NAME`, `read`/`printf -v`, `+=`, `${NAME:=…}`, or a
-# `source`/`.`/`eval` anywhere makes the value untrustworthy.
-collect_assignments() {
-  local i seg w name v rest="$filtered"
-  declare -gA scratch_vals=() scratch_at=() scratch_bad=()
-  local src_re='(^|[;&|({!'$'\n'']|(^|[^[:alnum:]_])(if|then|else|elif|do|while|until|command|builtin|exec|time|nohup))[[:space:]]*(source|\.|eval)([[:space:]]|$)'
-  [[ "$filtered" =~ $src_re ]] && return
-  for i in "${!segments[@]}"; do
-    seg="${segments[$i]}"
+scratch_text() {
+  local t="$1"
+  # $SEP (never in a typed path) stands in for ~/.cleanroom so /cleanroom/x can't match
+  case "$t" in "$HOME/.cleanroom/"*) t="${SEP}cleanroom/${t#"$HOME/.cleanroom/"}" ;; esac
+  [[ "$t" =~ ^(/tmp/claude-[0-9]+|/tmp/compound-engineering-[0-9]+|${SEP}cleanroom)/[^/*?[{}]+(/.*)?$ ]]
+}
+
+# mv into scratch then rm -r of it deletes something that was never scratch
+moves_into_scratch() {
+  local seg dest
+  for seg in "${segments[@]}"; do
+    # shellcheck disable=SC2086
     set -f; set -- $seg; set +f
     [ $# -eq 0 ] && continue
-    case "$1" in export|local|declare|typeset|readonly) shift ;; esac
-    if [ "${1:-}" = for ] || [ "${1:-}" = select ]; then scratch_bad[${2:-_}]=1; continue; fi
-    if [ "${1:-}" = read ] || [ "${1:-}" = mapfile ] || [ "${1:-}" = printf ]; then
-      for w in "$@"; do [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && scratch_bad[$w]=1; done
-      continue
-    fi
-    local all=1
-    for w in "$@"; do [[ "$w" =~ ^[A-Za-z_][A-Za-z0-9_]*\+?= ]] || all=0; done
-    for w in "$@"; do
-      [[ "$w" =~ ^([A-Za-z_][A-Za-z0-9_]*)(\+?)=(.*)$ ]] || break
-      name="${BASH_REMATCH[1]}"
-      if [ $all = 0 ] || [ -n "${BASH_REMATCH[2]}" ] || [ -n "${scratch_vals[$name]+x}" ]; then
-        scratch_bad[$name]=1
-      else
-        v="${BASH_REMATCH[3]}"; v="${v//\$\{HOME\}/}"; v="${v//\$HOME/}"
-        if [[ "$v" == *'$'* ]]; then scratch_bad[$name]=1; else scratch_vals[$name]="${BASH_REMATCH[3]}"; scratch_at[$name]=$i; fi
-      fi
+    seg="$(strip_prefixes "$@")"
+    set -f; set -- $seg; set +f
+    [ "${1:-}" = mv ] || [[ "${1:-}" == */mv ]] || continue
+    shift
+    dest=""   # -t DIR / --target-directory=DIR, else the last operand
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -t) dest="${2:-}"; break ;;
+        --target-directory=*) dest="${1#*=}"; break ;;
+        -*) ;;
+        *) dest="$1" ;;
+      esac
+      shift
     done
+    dest="${dest//\$\{HOME\}/$HOME}"; dest="${dest//\$HOME/$HOME}"
+    [[ "$dest" == "~/"* ]] && dest="$HOME/${dest#\~/}"
+    case "$dest" in /tmp/claude-*|/tmp/compound-engineering-*|"$HOME/.cleanroom"*) return 0 ;; esac
   done
-  while [[ "$rest" =~ \$\{([A-Za-z_][A-Za-z0-9_]*):?= ]]; do
-    scratch_bad[${BASH_REMATCH[1]}]=1; rest="${rest/"${BASH_REMATCH[0]}"/}"
-  done
-  for name in "${!scratch_bad[@]}"; do unset "scratch_vals[$name]"; done
+  return 1
 }
 
 check_segment() {
@@ -300,13 +293,13 @@ check_segment() {
           rm_target_is_catastrophic "$a" && hit=1
           rm_target_is_scratch "$a" || scratch=0
         done
-        [ ${#targets[@]} -eq 0 ] || [ $via_xargs = 1 ] || [ $has_subst = 1 ] && scratch=0
+        [ ${#targets[@]} -eq 0 ] || [ $via_xargs = 1 ] || [ $has_subst = 1 ] || [ $mv_scratch = 1 ] && scratch=0
         if [ $hit = 1 ]; then
           flag deny "rm -r of /, home, ~/code, the task/notes store, dotfiles, ~/.claude, ~/.config, /tmp or the tmux socket dir"
         elif [ $scratch = 1 ]; then
           :
         else
-          flag ask "rm -r: recursive deletes are confirmed every time"
+          flag ask "rm -r: recursive deletes are confirmed every time (no ask for agent scratch written as a literal path, e.g. rm -rf /tmp/claude-\$UID/<dir> or ~/.cleanroom/<dir>; variables like \$S always ask)"
         fi
       fi
       ;;
@@ -460,11 +453,15 @@ has_subst=0   # $( ) / backtick output can become rm targets the guard never see
 filtered="$(printf '%s\n' "$cmd" | drop_data_heredocs | process_quotes)"
 
 mapfile -t segments < <(printf '%s\n' "$filtered" | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
-collect_assignments
+# $HOME is trusted in scratch targets unless this command could change it
+home_trusted=1
+src_re='(^|[;&|({!'$'\n'']|(^|[^[:alnum:]_])(if|then|else|elif|do|while|until|command|builtin|exec|time|nohup))[[:space:]]*(source|\.|eval)([[:space:]]|$)'
+[[ "$filtered" =~ $src_re || "$filtered" =~ (^|[^[:alnum:]_])HOME\+?= ]] && home_trusted=0
+mv_scratch=0
+moves_into_scratch && mv_scratch=1
 
 backstop=0
-for seg_idx in "${!segments[@]}"; do
-  seg="${segments[$seg_idx]}"
+for seg in "${segments[@]}"; do
   check_segment "$seg"
   seg=" ${seg//$SEP/ } "
   if [[ "$seg" =~ [^[:alnum:]_-]kill-server[^[:alnum:]_-] ]] && ! [[ "$seg" =~ [[:space:]]-[LS] ]]; then
