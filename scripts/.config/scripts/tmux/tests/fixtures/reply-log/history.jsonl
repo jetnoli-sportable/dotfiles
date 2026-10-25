@@ -1,0 +1,11 @@
+{"type":"user","isSidechain":false,"promptId":"p-hist-1","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T09:00:00.000Z","message":{"role":"user","content":"OLD-PROMPT-ONE"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T09:00:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"OLD-REPLY-ONE"}]}}
+{"type":"system","subtype":"stop_hook_summary","isSidechain":false}
+{"type":"user","isSidechain":false,"promptId":"p-hist-2","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T09:10:00.000Z","message":{"role":"user","content":"OLD-PROMPT-TWO"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T09:10:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"OLD-REPLY-TWO"}]}}
+{"type":"system","subtype":"stop_hook_summary","isSidechain":false}
+{"type":"user","isSidechain":false,"promptId":"p-hist-3","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T09:20:00.000Z","message":{"role":"user","content":"OLD-PROMPT-THREE"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T09:20:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"OLD-REPLY-THREE"}]}}
+{"type":"system","subtype":"stop_hook_summary","isSidechain":false}
+{"type":"user","isSidechain":false,"promptId":"p-hist-4","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T09:30:00.000Z","message":{"role":"user","content":"Current question"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T09:30:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Current answer."}]}}

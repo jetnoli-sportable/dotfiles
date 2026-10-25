@@ -1,0 +1,6 @@
+{"type":"user","isSidechain":true,"agentId":"a9f8e7d6c5","promptId":"p-art-1","message":{"role":"user","content":"SUBAGENT-PROMPT-TEXT"}}
+{"type":"assistant","isSidechain":true,"agentId":"a9f8e7d6c5","message":{"role":"assistant","content":[{"type":"text","text":"SUBAGENT-REPLY-TEXT should never appear"}]}}
+{"type":"assistant","isSidechain":true,"agentId":"a9f8e7d6c5","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu-s1","name":"Write","input":{"file_path":"/work/summary.md","content":"s"}}]}}
+{"type":"user","isSidechain":true,"agentId":"a9f8e7d6c5","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-s1","content":"File created successfully at: /work/summary.md"}]}}
+{"type":"assistant","isSidechain":true,"agentId":"a9f8e7d6c5","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu-s2","name":"Write","input":{"file_path":"/work/page.html","content":"dup"}}]}}
+{"type":"user","isSidechain":true,"agentId":"a9f8e7d6c5","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-s2","content":"File created successfully at: /work/page.html"}]}}

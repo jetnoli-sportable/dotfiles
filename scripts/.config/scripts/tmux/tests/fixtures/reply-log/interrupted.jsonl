@@ -1,0 +1,11 @@
+{"type":"user","isSidechain":false,"promptId":"p-int-1","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T12:00:00.000Z","message":{"role":"user","content":"First question"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T12:00:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"First answer."}]}}
+{"type":"system","subtype":"stop_hook_summary","isSidechain":false}
+{"type":"user","isSidechain":false,"promptId":"p-int-2","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T12:01:00.000Z","message":{"role":"user","content":"Search everything"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T12:01:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Searching now."}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T12:01:02.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu-i1","name":"Bash","input":{"command":"find /"}}]}}
+{"type":"user","isSidechain":false,"promptId":"p-int-2","timestamp":"2026-10-25T12:01:05.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-i1","content":"The user doesn't want to proceed","is_error":true}]}}
+{"type":"user","isSidechain":false,"promptId":"p-int-2","timestamp":"2026-10-25T12:01:05.000Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"system","subtype":"turn_duration","isSidechain":false}
+{"type":"user","isSidechain":false,"promptId":"p-int-3","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T12:02:00.000Z","message":{"role":"user","content":"Never mind, say hi"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T12:02:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Hi."}]}}
