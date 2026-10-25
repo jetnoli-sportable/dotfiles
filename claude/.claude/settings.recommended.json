@@ -12,6 +12,10 @@
           {
             "type": "command",
             "command": "$HOME/.config/scripts/tmux/tasks-git-hooks/pretooluse-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/risky-command-guard.sh"
           }
         ]
       },

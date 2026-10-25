@@ -80,6 +80,14 @@ paths/vocabulary in the invocation prompt instead.
     for the full three-layer model this is one layer of). Needs
     `wb install-hooks` to have installed the script itself first — this
     file only wires Claude Code up to call it.
+  - a second `Bash` PreToolUse hook, `risky-command-guard.sh`, that denies
+    commands able to take out every session at once (`tmux kill-server` with
+    no literal `-L`/`-S` socket, `pkill tmux`, `rm -rf ~`, `reboot`, …) and
+    asks before process kills, other recursive deletes, SQL drops, cloud
+    deletes, `terraform apply/destroy` and force-pushes to a default branch.
+    Added after a subagent's `tmux $S kill-server` (with `$S` empty) killed
+    all 21 wb sessions on 2026-10-25; the script header has the full rule
+    list and kill-switch.
 
   Merge both blocks into your real, untracked `~/.claude/settings.json` by
   hand — this file is reference only, never auto-merged.
