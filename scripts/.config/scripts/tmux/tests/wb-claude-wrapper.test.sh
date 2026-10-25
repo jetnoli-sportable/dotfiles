@@ -203,6 +203,45 @@ assert_contains "fallback: systemd-run missing -> real claude still ran (fail op
 assert_empty_file "fallback: systemd-run missing -> never attempted (nothing to record argv to)" "$LOG_DIR/systemd-run.argv"
 rm -rf "$NO_SYSTEMD_BIN"
 
+# --- verify-behaviour launch function (verify-behaviour plan U3, KTD9) ------
+# The real claude stub records argv, but not the environment it ran with, so
+# a second stub (same name, earlier on PATH) also records the three variables
+# the launch function must set for that one call.
+VB_BIN="$(mktemp -d -t wb-claude-wrapper-vb.XXXXXX)"
+cat > "$VB_BIN/claude" <<'STUB'
+#!/usr/bin/env bash
+echo "real-claude-ran $*" >> "$WB_TEST_LOG_DIR/claude.log"
+echo "marker=${WB_VERIFY_WATCHER:-unset} memhigh=${WB_AGENT_MEM_HIGH:-unset}" >> "$WB_TEST_LOG_DIR/claude.env"
+STUB
+chmod +x "$VB_BIN/claude"
+run_vb() { # <KEY=VAL>... — run `verify-behaviour`, then report the caller's env afterwards
+  : > "$LOG_DIR/claude.log"; : > "$LOG_DIR/claude.env"; : > "$LOG_DIR/systemd-run.argv"; : > "$LOG_DIR/after.env"
+  env -i HOME="$HOME" PATH="$VB_BIN:$FIXTURE_BIN:/usr/bin:/bin" WB_TEST_LOG_DIR="$LOG_DIR" "$@" \
+    zsh -c "$FUNC_SRC"$'\n''verify-behaviour; echo "marker=${WB_VERIFY_WATCHER:-unset} memhigh=$WB_AGENT_MEM_HIGH" > "$WB_TEST_LOG_DIR/after.env"' 2>/dev/null
+}
+
+run_vb TMUX=1 FAKE_WB_REPO=dotfiles FAKE_SESSION_NAME=watcher
+assert_contains "verify-behaviour/wb pane: scope gets the watcher's soft cap MemoryHigh=1G" "$LOG_DIR/systemd-run.argv" "MemoryHigh=1G"
+assert_contains "verify-behaviour/wb pane: MemoryMax stays at the default 18G" "$LOG_DIR/systemd-run.argv" "MemoryMax=18G"
+assert_contains "verify-behaviour/wb pane: claude runs with the launch marker" "$LOG_DIR/claude.env" "marker=1"
+for want in "/verify-behaviour" "--model sonnet" "--autocompact" "SendMessage" "Edit" "Write" "NotebookEdit" \
+    "Bash(tmux send*)" "Bash(tmux * send*)" "Bash(tmux paste*)" "Bash(tmux * paste*)" "Bash(tmux run*)" \
+    "Bash(wb append*)" "Bash(*wb.sh append*)" "Bash(wb set*)" "Bash(wb status*)" "Bash(wb done*)" \
+    "Bash(wb pause*)" "Bash(wb jira-set*)" "Bash(wb breakdown*)" "Bash(*wb.sh done*)" \
+    "Bash(*wb-capture.sh dismiss*)" "Bash(*wb-capture.sh accept*)"; do
+  assert_contains "verify-behaviour/wb pane: claude args include '$want'" "$LOG_DIR/claude.log" "$want"
+done
+assert_contains "verify-behaviour: the marker does not leak into the calling shell" "$LOG_DIR/after.env" "marker=unset"
+assert_contains "verify-behaviour: the calling shell's MemoryHigh is unchanged" "$LOG_DIR/after.env" "memhigh=14G"
+
+run_vb
+assert_empty_file "verify-behaviour/no tmux: systemd-run never invoked" "$LOG_DIR/systemd-run.argv"
+assert_contains "verify-behaviour/no tmux: still passes the model" "$LOG_DIR/claude.log" "--model sonnet"
+assert_contains "verify-behaviour/no tmux: still passes the deny list" "$LOG_DIR/claude.log" "Bash(tmux send*)"
+assert_contains "verify-behaviour/no tmux: still passes the prompt" "$LOG_DIR/claude.log" "/verify-behaviour"
+assert_contains "verify-behaviour/no tmux: still sets the launch marker" "$LOG_DIR/claude.env" "marker=1"
+rm -rf "$VB_BIN"
+
 # --- Detection contract (integration, R4): real tmux pane -------------------
 # Needs a real `systemd-run --user` (no systemd user manager inside the
 # read-only Docker suite) — skip with an explicit message rather than fail.
