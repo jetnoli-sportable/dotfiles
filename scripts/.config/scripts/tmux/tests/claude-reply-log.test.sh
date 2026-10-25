@@ -212,6 +212,52 @@ assert_eq "one anchor after 4 parallel runs" 1 "$(anchors "$OUTF")"
 assert_eq "one frontmatter" 2 "$(grep -c '^---$' "$OUTF")"
 assert_eq "final text once" 1 "$(count 'All done.' "$OUTF")"
 
+echo "# a lock held by another run: the hook gives up quietly, writes nothing"
+new_scenario; use_fixture plain; mkdir -p "$RDIR"
+( exec 8>"$RDIR/.$SID.lock"; flock 8; : >"$H/held"; while [ ! -e "$H/release" ]; do sleep 0.05; done ) &
+holder=$!
+for _ in $(seq 100); do [ -e "$H/held" ] && break; sleep 0.05; done
+EXTRA_ENV=(REPLY_LOG_LOCK_WAIT=1)
+stop p-plain-1 "x"
+: >"$H/release"; wait "$holder"
+assert_eq "exit 0" 0 "$RC"
+assert_eq "no stdout" "" "$OUT"
+[ -e "$OUTF" ] && bad "reply file written without the lock" || ok "no reply file without the lock"
+[ -e "$RDIR/.$SID.cursor" ] && bad "cursor written without the lock" || ok "no cursor without the lock"
+
+echo "# a 200000-character final reply still gets written (jq argv cap)"
+new_scenario; use_fixture plain
+{ head -c 200000 /dev/zero | tr '\0' 'x'; printf 'BIG-TAIL-MARK'; } >"$H/big"
+run_hook "$(jq -nc --arg s "$SID" --arg t "$TP" --arg c "$H" --rawfile m "$H/big" \
+  '{session_id:$s,transcript_path:$t,cwd:$c,prompt_id:"p-plain-1",hook_event_name:"Stop",last_assistant_message:$m}')"
+assert_eq "exit 0" 0 "$RC"
+assert_has "reply file written with the text's tail" "xxxBIG-TAIL-MARK" "$OUTF"
+assert_eq "one anchor" 1 "$(anchors "$OUTF")"
+
+echo "# a NUL inside reply text neither splits the turn nor duplicates it"
+new_scenario; use_fixture plain
+sed -i 's/Blue reads as calm\./Blue reads\\u0000 as calm./' "$TP"
+BLUE=$'# Blue\n\nBlue reads as calm.\n\n## Where it shows up\n\nSkies and deep water.'
+stop p-plain-1 "$BLUE"
+stop p-plain-1 "$BLUE"
+assert_eq "one anchor after two Stops" 1 "$(anchors "$OUTF")"
+assert_eq "reply text once" 1 "$(count 'Blue reads as calm.' "$OUTF")"
+assert_eq "no NUL in the reply file" "$(wc -c <"$OUTF")" "$(tr -d '\0' <"$OUTF" | wc -c)"
+
+echo "# a blank or torn line in one subagent transcript keeps the other files' artifacts"
+new_scenario; use_fixture artifacts
+mkdir -p "$H/proj/$SID/subagents"
+printf '%s\n' \
+  '{"type":"assistant","isSidechain":true,"agentId":"b2c3d4","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu-b1","name":"Write","input":{"file_path":"/work/second.md","content":"s"}}]}}' \
+  '' '{"type":"user","isSidechain":true,"agen' \
+  '{"type":"user","isSidechain":true,"agentId":"b2c3d4","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-b1","content":"File created successfully at: /work/second.md"}]}}' \
+  >"$H/proj/$SID/subagents/agent-b2c3d4.jsonl"
+printf '%s\n' '{"type":"user","isSidechain":false,"promptId":"p-art-2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-x","content":"ok"}]},"toolUseResult":{"status":"completed","agentId":"b2c3d4"}}' >>"$TP"
+stop p-art-2 "The summary is written."
+section 'background agent finished' >"$H/t2"
+assert_has "first subagent's write survives" "- wrote: /work/summary.md" "$H/t2"
+assert_has "second subagent's write listed past the torn line" "- wrote: /work/second.md" "$H/t2"
+
 echo "# a turn with no Stop is marked (interrupted) when the next turn completes"
 new_scenario; use_fixture interrupted 3
 stop p-int-1 "First answer."
@@ -246,7 +292,8 @@ guard_case() {
 }
 g_sweep()   { EXTRA_ENV=(WB_CAPTURE_SWEEP=1); stop p-plain-1 x; }
 g_kill()    { mkdir -p "$RDIR"; : >"$RDIR/.disabled"; stop p-plain-1 x; rm -f "$RDIR/.disabled"; }
-g_headless(){ EXTRA_ENV=(CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0); stop p-plain-1 x; }
+g_sdk()     { EXTRA_ENV=(CLAUDE_CODE_ENTRYPOINT=sdk-cli); stop p-plain-1 x; }
+g_unattended(){ EXTRA_ENV=(CLAUDE_CODE_SESSION_ATTENDED=0); stop p-plain-1 x; }
 g_notp()    { run_hook "$(jq -nc --arg s "$SID" '{session_id:$s,transcript_path:"",prompt_id:"p-plain-1",last_assistant_message:"x"}')"; }
 g_badsid()  { run_hook "$(jq -nc --arg t "$TP" '{session_id:"../evil",transcript_path:$t,prompt_id:"p-plain-1",last_assistant_message:"x"}')"; }
 g_nojq()    { EXTRA_ENV=(PATH="$EMPTYBIN"); stop p-plain-1 x; }
@@ -254,13 +301,15 @@ g_unread()  { rm -f "$TP"; stop p-plain-1 x; }
 g_garbage() { run_hook "not json at all"; }
 guard_case "WB_CAPTURE_SWEEP" g_sweep
 guard_case "kill switch" g_kill
-guard_case "headless claude -p" g_headless
+guard_case "headless entrypoint (sdk-cli)" g_sdk
+guard_case "unattended session" g_unattended
 guard_case "empty transcript_path" g_notp
 guard_case "bad session id" g_badsid
 guard_case "no jq" g_nojq
 guard_case "unreadable transcript" g_unread
 guard_case "garbage stdin" g_garbage
-[ -e "$ROOT/evil.md" ] && bad "bad session id escaped the dir" || ok "bad session id wrote nothing outside"
+# the replies dir sits in $H, so "../evil" would land at $H/evil.md
+[ -e "$H/evil.md" ] || [ -n "$(find "$H" -name 'evil*')" ] && bad "bad session id escaped the dir" || ok "bad session id wrote nothing outside"
 
 echo "# task: comes from the tmux session's @task"
 new_scenario; use_fixture plain
@@ -271,9 +320,12 @@ assert_has "session heading names the task" "# dotfiles--feat-x · " "$OUTF"
 
 echo "# files are private"
 new_scenario; use_fixture plain
+mkdir -p "$RDIR"; chmod 775 "$RDIR"
 stop p-plain-1 x
-assert_eq "dir 700" 700 "$(stat -c %a "$RDIR")"
+assert_eq "dir 700, even when it already existed at 775" 700 "$(stat -c %a "$RDIR")"
 assert_eq "reply file 600" 600 "$(stat -c %a "$OUTF")"
+assert_eq "cursor sidecar 600" 600 "$(stat -c %a "$RDIR/.$SID.cursor")"
+assert_eq "lock sidecar 600" 600 "$(stat -c %a "$RDIR/.$SID.lock")"
 
 echo "# chain: a task's reply files across /clear, oldest first"
 new_scenario; mkdir -p "$RDIR" "$H/sessions"
@@ -291,7 +343,7 @@ reply_file s-lone2 "" 2026-10-22T11:00:00Z /work
 reply_file s-old "" 2026-10-18T10:00:00Z /elsewhere
 printf -- '---\nstatus: doing\nclaude_sessions: s-old@primary, s-missing\n---\n# task\n' >"$TASKF"
 chain() { env -u TMUX -u TMUX_PANE HOME="$H" REPLY_LOG_DIR="$RDIR" CLAUDE_SESSIONS_DIR="$H/sessions" \
-  PATH="$FAKEBIN:$PATH" "$REAL_BASH" "$SCRIPT" chain "$@" 2>/dev/null; }
+  FAKE_TASK="${FAKE_TASK:-}" PATH="$FAKEBIN:$PATH" "$REAL_BASH" "$SCRIPT" chain "$@" 2>/dev/null; }
 assert_eq "same task, oldest first, plus claude_sessions ids" \
   "$RDIR/s-old.md $RDIR/s-a.md $RDIR/s-b.md $RDIR/s-c.md" "$(chain "$RDIR/s-b.md" | paste -sd' ')"
 assert_eq "a session id works like its file" "$(chain "$RDIR/s-b.md")" "$(chain s-b)"
@@ -304,6 +356,14 @@ printf '{"pid":999999999,"sessionId":"s-a","tmux":"sess:@1.%%7","updatedAt":3}\n
 assert_eq "live registry entry for the pane wins; dead pids ignored" \
   "$RDIR/s-old.md $RDIR/s-a.md $RDIR/s-b.md $RDIR/s-c.md" "$(chain --pane %7 | paste -sd' ')"
 assert_eq "a pane with no Claude session prints nothing" "" "$(chain --pane %8)"
+
+echo "# chain --pane right after /clear: the new session has no file yet, so fall back to the tmux @task"
+printf '{"pid":%s,"sessionId":"s-new","tmux":"sess:@1.%%9","updatedAt":5}\n' "$$" >"$H/sessions/$$-new.json"
+FAKE_TASK="$TASKF"
+assert_eq "falls back to the pane's task chain" \
+  "$RDIR/s-old.md $RDIR/s-a.md $RDIR/s-b.md $RDIR/s-c.md" "$(chain --pane %9 | paste -sd' ')"
+FAKE_TASK=""
+assert_eq "no @task: nothing" "" "$(chain --pane %9)"
 
 echo "# view on a pane with no Claude session: a message, no split"
 : >"$H/tmux-calls"

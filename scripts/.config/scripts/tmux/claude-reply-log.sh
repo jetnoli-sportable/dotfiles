@@ -11,7 +11,9 @@
 #               (the sessions of one wb task across /clear) plus the ids in that
 #               task file's `claude_sessions:`. An empty `task:` chains to itself
 #               alone. --pane resolves the pane's live session first (see
-#               pane_session). Prints nothing when there is no reply file yet.
+#               pane_session); when that session has no reply file yet (just
+#               after /clear) it chains the pane's tmux session `@task` instead.
+#               Prints nothing when neither gives a reply file.
 #   view [pane-id]
 #               the prefix+v binding: focus the pane's open reply viewer, or split
 #               the pane and open one (nvim, claude-tmux.replies follows `chain
@@ -41,7 +43,8 @@
 # Guards (each a silent exit 0): kill switch <dir>/.disabled, WB_CAPTURE_SWEEP
 # (the wb-capture sweep's headless child), a headless `claude -p` run, no jq, no
 # readable transcript, a session id outside [A-Za-z0-9-]. Files are 0600 under a
-# 0700 dir. REPLY_LOG_DIR overrides ~/.claude/replies (tests, sandbox).
+# 0700 dir. REPLY_LOG_DIR overrides ~/.claude/replies (tests, sandbox);
+# REPLY_LOG_LOCK_WAIT overrides the 4 s per-session lock wait (tests).
 set -uo pipefail
 
 REPLY_DIR="${REPLY_LOG_DIR:-$HOME/.claude/replies}"
@@ -86,7 +89,8 @@ def isstart: .type == "user" and (.message.content | type) == "string" and (.ori
 def tag($n): (capture("<" + $n + ">(?<v>[^<]*)</" + $n + ">").v // "");
 def firstline: split("\n") | map(select(test("\\S"))) | (.[0] // "");
 def cut($n): if length > $n then .[0:$n] + "…" else . end;
-def esc: gsub("<!-- turn"; "<\\!-- turn");
+def nonul: gsub("\u0000"; "");
+def esc: nonul | gsub("<!-- turn"; "<\\!-- turn");
 def prompt_of:
   .message.content as $c | .origin as $o
   | if $o.kind == "task-notification" then
@@ -115,7 +119,8 @@ def demote:
   | (if .f then .o + [.f] else .o end) | join("\n");
 def hhmm: try (sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | strflocaltime("%Y-%m-%d %H:%M")) catch "";
 
-reduce (inputs | fromjson? | select((.isSidechain // false) | not)) as $e
+$subsf[0] as $subs
+| reduce (inputs | fromjson? | select((.isSidechain // false) | not)) as $e
   ({g: [], ls: false};
    if ($e | isstart) then
      ($e | prompt_of) as $p
@@ -147,7 +152,7 @@ reduce (inputs | fromjson? | select((.isSidechain // false) | not)) as $e
   | "META\t" + ($g[-1].ids[-1]) + "\t" + ($g[-1].ids[0]) + "\t" + (if $fi != null then "1" else "0" end) + "\u0000",
     ($g | to_entries[] | select(.key >= $start) | .key as $i | .value as $t
      | ($i == $ci) as $iscur
-     | ($t.texts | if $iscur and ($lam | test("\\S")) and ((. | last // "" | gsub("^\\s+|\\s+$"; "")) != ($lam | gsub("^\\s+|\\s+$"; ""))) then . + [$lam] else . end) as $texts
+     | ($t.texts | if $iscur and ($lam | test("\\S")) and ((. | last // "" | nonul | gsub("^\\s+|\\s+$"; "")) != ($lam | gsub("^\\s+|\\s+$"; ""))) then . + [$lam] else . end) as $texts
      | (($iscur | not) and ($t.irq or (($t.stopped | not) and $i < $lastidx))) as $int
      | ([$t.prompts[] | select(.kind == "human")] | first) as $h
      | (if $h then ($h.text | firstline | cut(60))
@@ -182,7 +187,7 @@ subagent_arts() {
              | sed -E 's/^<task-id>|<\/task-id>$|^"agentId":"|"$//g' | sort -u)
   [ "${#files[@]}" -gt 0 ] || { echo '{}'; return; }
   jq -n -R -c "$JQ_ARTS"'
-    reduce inputs as $l ({}; ($l | fromjson?) as $e | .[input_filename] += [$e])
+    reduce (inputs | input_filename as $f | fromjson? | {f: $f, e: .}) as $x ({}; .[$x.f] += [$x.e])
     | with_entries(.key |= (capture("agent-(?<id>[A-Za-z0-9]+)\\.jsonl$").id) | .value |= arts(toolsof; resof))' \
     "${files[@]}" 2>/dev/null || echo '{}'
 }
@@ -216,10 +221,11 @@ hook_stop() {
 
   umask 077
   mkdir -p "$REPLY_DIR" 2>/dev/null || quiet_exit
+  chmod 700 "$REPLY_DIR" 2>/dev/null || true
   local file="$REPLY_DIR/$sid.md" cursor="$REPLY_DIR/.$sid.cursor"
   if command -v flock >/dev/null 2>&1; then
     { exec 9>"$REPLY_DIR/.$sid.lock"; } 2>/dev/null || quiet_exit
-    flock -w 4 9 2>/dev/null || quiet_exit
+    flock -w "${REPLY_LOG_LOCK_WAIT:-4}" 9 2>/dev/null || quiet_exit
   fi
 
   local tsize fsize=0 from start cut c_turn="" c_md="" c_tx="" drop_first=0
@@ -253,8 +259,11 @@ hook_stop() {
   fi
   subs="$(subagent_arts "$tail" "${tp%.jsonl}")"
 
-  jq -n -R -j --arg from "$from" --arg cur "$pid" --arg lam "$lam" --arg sid "$sid" \
-     --argjson subs "$subs" "$JQ_ARTS$JQ_RENDER" <"$tail" >"$WORK/rendered" 2>/dev/null || quiet_exit
+  # both go to jq as files: one argv string is capped at 128 KiB
+  printf '%s' "$lam" >"$WORK/lam"
+  printf '%s' "$subs" >"$WORK/subs"
+  jq -n -R -j --arg from "$from" --arg cur "$pid" --arg sid "$sid" \
+     --rawfile lam "$WORK/lam" --slurpfile subsf "$WORK/subs" "$JQ_ARTS$JQ_RENDER" <"$tail" >"$WORK/rendered" 2>/dev/null || quiet_exit
 
   local -a recs=()
   local rec
@@ -317,20 +326,10 @@ pane_session() {
   tmux show -p -t "$pane" -v @claude_session_id 2>/dev/null || true
 }
 
-cmd_chain() {
-  local file="" sid=""
-  if [ "${1:-}" = --pane ]; then
-    sid="$(pane_session "${2:-}")"
-  else
-    case "${1:-}" in */*) file="$1" ;; *) sid="${1:-}" ;; esac
-  fi
-  if [ -z "$file" ]; then
-    [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || return 0
-    file="$REPLY_DIR/$sid.md"
-  fi
-  [ -f "$file" ] || return 0
-  local task; task="$(fm_field "$file" task)"
-  if [ -z "$task" ]; then printf '%s\n' "$file"; return 0; fi
+# chain_for_task <task file> — every reply file whose frontmatter `task:` matches,
+# plus the ids in the task file's `claude_sessions:`, as paths oldest first.
+chain_for_task() {
+  local task="$1"
   {
     awk -v t="$task" 'FNR == 1 { fm = ($0 == "---"); c = ""; tk = ""; next }
       !fm { nextfile }
@@ -347,6 +346,33 @@ cmd_chain() {
       [ -f "$f" ] && printf '%s\t%s\n' "$(fm_field "$f" created)" "$f"
     done
   } | sort -u | cut -f2
+}
+
+cmd_chain() {
+  local file="" sid="" pane=""
+  if [ "${1:-}" = --pane ]; then
+    pane="${2:-}"
+    sid="$(pane_session "$pane")"
+  else
+    case "${1:-}" in */*) file="$1" ;; *) sid="${1:-}" ;; esac
+  fi
+  if [ -z "$file" ]; then
+    [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || return 0
+    file="$REPLY_DIR/$sid.md"
+  fi
+  local task=""
+  if [ -f "$file" ]; then
+    task="$(fm_field "$file" task)"
+    if [ -z "$task" ]; then printf '%s\n' "$file"; return 0; fi
+  elif [ -n "$pane" ]; then
+    # /clear gave the pane a session with no reply file yet: the pane's wb task
+    # still chains the earlier sessions
+    local s
+    s="$(tmux display-message -p -t "$pane" '#S' 2>/dev/null || true)"
+    [ -n "$s" ] && task="$(tmux show -t "=$s:" -v @task 2>/dev/null || true)"
+  fi
+  [ -n "$task" ] || return 0
+  chain_for_task "$task"
 }
 
 cmd_view() {
