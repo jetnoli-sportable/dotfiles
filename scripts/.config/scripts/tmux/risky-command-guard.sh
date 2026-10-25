@@ -10,29 +10,51 @@
 # tasks-git-hooks/pretooluse-guard.sh, which covers destructive git inside
 # ~/code/tasks; this one covers everything else.
 #
-# How it decides: the command text is split into simple commands (on ; & |
-# newlines, $( and backticks), leading VAR=x assignments and env/command/
-# exec/sudo/nohup/timeout prefixes are stripped, and the first word picks the
-# rule. It only sees the text the agent typed, never the values variables
-# expand to — that is the point: `tmux $S kill-server` is refused because no
-# literal -L/-S socket flag is visible.
+# How it decides: it only sees the text the agent typed, never the values
+# variables expand to — that is the point: `tmux $S kill-server` is refused
+# because no literal -L/-S socket flag is visible. The text is
+#   1. joined at backslash-newline continuations;
+#   2. stripped of heredoc bodies that are data (a file, a commit message),
+#      keeping bodies whose owner is a shell or SQL client, or that are piped
+#      into a shell (`cat <<EOF | bash`);
+#   3. quote-processed in one pass over the whole command: quoted text handed
+#      to a shell (`bash -c`, `sh -lc`, `su -c`, `eval`, `ssh host`, `watch`,
+#      a `trap` handler) is lifted out and checked as commands; other quoted
+#      text stays one visible argument with its separators neutralised, so
+#      `rm -rf 'build'` and `pkill -f 'tmux'` are judged by what they name
+#      while a commit message can never form a command; `$( )` and backticks
+#      inside double quotes are still code; `# comments` are dropped;
+#   4. split into simple commands (on ; & | newlines, $( and backticks);
+#   5. per simple command: leading VAR=x, shell keywords (if/then/do/{/!...)
+#      and wrappers with their options (env, sudo, nice, timeout N, xargs,
+#      watch, exec, eval...) are stripped and the first word picks the rule.
 #
-#   deny (blocked, reason fed back to the agent):
+#   deny (blocked, reason fed back to the agent; only the kill switch passes it):
 #     tmux kill-server, or kill-session -a, without a literal -L/-S socket
 #     pkill/killall aimed at tmux, claude, a shell, ghostty, node, or a user
-#     kill aimed at -1 (every process you own)
+#     kill with -1 as a target (every process you own); `kill -1 PID` is a
+#       hangup to one process and only asks
 #     rm -r of /, ~, $HOME, ~/code, ~/code/{tasks,notes,dotfiles}, ~/.claude,
 #       ~/.config
 #     shutdown/reboot/poweroff/halt, systemctl poweroff|reboot|halt|suspend
 #     mkfs, dd of=/dev/…
 #   ask (Jet confirms):
-#     other tmux kill-session/kill-window/kill-pane/kill-server on the
-#       default server
-#     any other kill/pkill/killall, any other rm -r
-#     DROP TABLE|DATABASE|SCHEMA, TRUNCATE, bq rm
-#     terraform apply|destroy, gcloud/gsutil/kubectl delete or rm
-#     git push --force to development/dev/main/master
+#     tmux kill-session/kill-window/kill-pane on the default server
+#     any other kill/pkill/killall, any other rm -r, find -delete
+#     SQL DROP TABLE|DATABASE|SCHEMA, TRUNCATE TABLE (not in git/gh/echo
+#       text), bq rm
+#     terraform/tofu apply|destroy, gcloud/gsutil/kubectl delete or rm
+#     git push --force/-f/+ref to development/dev/main/master, or with no
+#       branch named
 #     systemctl stop|kill|restart
+#     backstop: any simple command still mentioning kill-server with no
+#       literal -L/-S socket (catches forms the rules above don't parse,
+#       at the price of an ask on prose that quotes it)
+#   tmux kill-server WITH a literal -L/-S socket is allowed (a private server).
+#
+# Out of reach by design: commands inside a file run later (`bash t.sh`),
+# python/node subprocess calls, and a variable used as the command word
+# (`$TMUX_BIN kill-server`). It is an accident guard, not a sandbox.
 #
 # Fails OPEN on internal errors (missing jq, bad JSON): a broken guard must
 # never block every Bash call. Kill-switch: touch the file in $KILL_SWITCH.
@@ -51,6 +73,7 @@ cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null
 
 decision=""   # "", ask, deny — deny wins
 reasons=()
+SEP=$'\001'   # stands in for whitespace/separators inside a quoted argument
 
 flag() {
   local level="$1" why="$2"
@@ -60,25 +83,46 @@ flag() {
   fi
 }
 
-# Whole-text rules: SQL can sit inside a quoted -e/--query argument.
-if grep -Eiq '\b(drop[[:space:]]+(table|database|schema)|truncate([[:space:]]+table)?[[:space:]]+[[:alnum:]_`"]+)' <<<"$cmd"; then
-  flag ask "SQL DROP/TRUNCATE: drops are confirmed every time"
-fi
-
-# strip_prefixes WORDS... — echo the words with leading assignments and
-# wrapper commands removed.
+# strip_prefixes WORDS... — echo the words with leading assignments, shell
+# keywords and wrapper commands (plus the wrappers' own options) removed.
 strip_prefixes() {
-  local in_env=0
+  local w vals last
   while [ $# -gt 0 ]; do
     case "$1" in
-      [A-Za-z_]*=*) shift ;;
-      env) in_env=1; shift ;;
-      command|exec|sudo|nohup|nice|time|builtin) in_env=0; shift ;;
-      timeout) shift; [ $# -gt 0 ] && shift ;;
-      -u|--unset) [ $in_env = 1 ] || break; shift; [ $# -gt 0 ] && shift ;;
-      -*) [ $in_env = 1 ] || break; shift ;;
+      [A-Za-z_]*=*|if|then|else|elif|do|while|until|'!'|'{'|'}') shift; continue ;;
+    esac
+    w="${1##*/}"
+    case "$w" in   # vals: the wrapper's short options that take a value
+      env) vals=uCS ;;
+      sudo|doas) vals=ugCDprtUTh ;;
+      nice) vals=n ;;
+      ionice) vals=cnp ;;
+      timeout) vals=ks ;;
+      xargs) vals=adEILnPs ;;
+      watch) vals=nd ;;
+      stdbuf) vals=ioe ;;
+      time) vals=fo ;;
+      exec) vals=a ;;
+      command|nohup|builtin|setsid|eval) vals="" ;;
       *) break ;;
     esac
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --) shift; break ;;
+        --*) shift ;;
+        -?*)
+          last="${1: -1}"
+          if [[ "$1" =~ ^-[A-Za-z]+$ ]] && [ -n "$vals" ] && [[ "$vals" == *"$last"* ]] && [ $# -ge 2 ]; then
+            shift 2
+          else
+            shift
+          fi ;;
+        [A-Za-z_]*=*) if [ "$w" = env ]; then shift; else break; fi ;;
+        *) break ;;
+      esac
+    done
+    if [ "$w" = timeout ] && [ $# -gt 0 ]; then shift; fi   # the duration
   done
   printf '%s\n' "$*"
 }
@@ -110,35 +154,56 @@ check_segment() {
   [ $# -eq 0 ] && return
   w="${1##*/}"; shift
   rest=" $* "
+  rest="${rest//$SEP/ }"
+
+  case "$w" in
+    git|gh|pgh|echo|printf) ;;
+    *)
+      local lower="${w,,}${rest,,}"
+      if [[ "$lower" =~ (^|[^[:alnum:]_])(drop[[:space:]]+(table|database|schema)|truncate[[:space:]]+table)[[:space:]] ]] \
+        || [[ "$w$rest" =~ (^|[^[:alnum:]_])TRUNCATE[[:space:]]+[[:alnum:]_\`\"] ]]; then
+        flag ask "SQL DROP/TRUNCATE: drops are confirmed every time"
+      fi ;;
+  esac
 
   case "$w" in
     tmux)
       local has_socket=0
       [[ "$rest" =~ [[:space:]]-[LS] ]] && has_socket=1
-      if [[ "$rest" =~ [[:space:]]kill-server[[:space:]] ]]; then
+      if [[ "$rest" =~ [[:space:]]kill-ser[a-z]*[[:space:]] ]]; then
         if [ $has_socket = 0 ]; then
           flag deny "tmux kill-server with no literal -L/-S socket would kill the real tmux server and every wb session (2026-10-25 incident). Use a fixed, quoted private socket: tmux -L \"test-\$\$\" -f /dev/null ..."
         fi
-      elif [[ "$rest" =~ [[:space:]]kill-(session|window|pane)[[:space:]] ]] && [ $has_socket = 0 ]; then
+      elif [ $has_socket = 0 ] && [[ "$rest" =~ [[:space:]](kill-session|kill-window|kill-pane|killw|killp)[[:space:]] ]]; then
         local what="${BASH_REMATCH[1]}"
-        if [[ "$rest" =~ [[:space:]]kill-session[[:space:]].*-a[[:space:]] ]]; then
+        if [[ "$rest" =~ [[:space:]]kill-session[[:space:]](.*[[:space:]])?-[A-Za-z]*a[A-Za-z]*[[:space:]] ]]; then
           flag deny "tmux kill-session -a on the default server kills every other wb session"
         else
-          flag ask "tmux kill-$what on the default server targets a real session"
+          flag ask "tmux $what on the default server targets a real session"
         fi
       fi
       ;;
     pkill|killall)
       if [[ "$rest" =~ [[:space:]](-u|--user)[[:space:]] ]] \
-        || [[ "$rest" =~ (^|[[:space:]/\"\'])(tmux|claude|zsh|bash|sh|ghostty|node|systemd)([[:space:]\"\']|$) ]]; then
+        || [[ "$rest" =~ (^|[[:space:]/])(tmux|claude|zsh|bash|sh|ghostty|node|systemd)([[:space:]]|$) ]]; then
         flag deny "$w aimed at tmux/claude/a shell/ghostty/node/a user would take down live sessions"
       else
         flag ask "$w: process kills are confirmed every time"
       fi
       ;;
     kill)
-      if [[ "$rest" =~ [[:space:]]-1[[:space:]] ]] && ! [[ "$rest" =~ [[:space:]]-1[[:space:]]+[0-9] ]]; then
-        flag deny "kill -1 signals every process you own"
+      # skip the signal spec so only targets are judged: `kill -1 PID` is SIGHUP
+      local args=("$@") i=0 t hit=0
+      case "${args[0]:-}" in
+        -l|-L|--list|--table) return ;;
+        -s|-n|--signal) i=2 ;;
+        --) i=0 ;;
+        -*) i=1 ;;
+      esac
+      [ "${args[$i]:-}" = "--" ] && i=$((i + 1))
+      for t in "${args[@]:$i}"; do [ "$t" = -1 ] && hit=1; done
+      if [ $hit = 1 ]; then
+        flag deny "kill with target -1 signals every process you own"
       else
         flag ask "kill: process kills are confirmed every time"
       fi
@@ -164,6 +229,32 @@ check_segment() {
         fi
       fi
       ;;
+    find)
+      [[ "$rest" =~ [[:space:]]-delete[[:space:]] ]] && flag ask "find -delete: recursive deletes are confirmed every time"
+      local a on=0 sub=()
+      for a in "$@"; do
+        if [ $on = 1 ]; then
+          case "$a" in
+            ';'|'\;'|'\'|'+') on=0; [ ${#sub[@]} -gt 0 ] && check_segment "${sub[*]}"; sub=() ;;
+            *) sub+=("$a") ;;
+          esac
+        else
+          case "$a" in -exec|-execdir|-ok|-okdir) on=1 ;; esac
+        fi
+      done
+      [ ${#sub[@]} -gt 0 ] && check_segment "${sub[*]}"
+      ;;
+    ssh)
+      # an unquoted remote command: skip ssh's options and the host
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          -[bcDEeFIiJLlmOopQRSWw]) if [ $# -ge 2 ]; then shift 2; else shift; fi ;;
+          -*) shift ;;
+          *) shift; break ;;
+        esac
+      done
+      [ $# -gt 0 ] && check_segment "$*"
+      ;;
     shutdown|reboot|poweroff|halt) flag deny "$w would stop the machine" ;;
     systemctl)
       if [[ "$rest" =~ [[:space:]](poweroff|reboot|halt|suspend|hibernate|kexec)[[:space:]] ]]; then
@@ -182,64 +273,121 @@ check_segment() {
       [[ "$rest" =~ [[:space:]](delete|rm)[[:space:]] ]] && flag ask "$w ${BASH_REMATCH[1]} deletes cloud resources"
       ;;
     git)
-      if [[ "$rest" =~ [[:space:]]push[[:space:]] ]] \
-        && [[ "$rest" =~ [[:space:]](-f|--force|--force-with-lease(=[^[:space:]]*)?)[[:space:]] ]] \
-        && [[ "$rest" =~ [[:space:]:+](development|dev|main|master)[[:space:]] ]]; then
-        flag ask "force-push to a default branch rewrites shared history"
+      local a r push=0 force=0 hitdef=0 after=()
+      for a in "$@"; do
+        if [ $push = 0 ]; then [ "$a" = push ] && push=1; continue; fi
+        case "$a" in
+          --force|--force=*|--force-with-lease|--force-with-lease=*) force=1 ;;
+          --*) ;;
+          -*) [[ "$a" =~ ^-[A-Za-z]*f ]] && force=1 ;;
+          *) after+=("$a") ;;
+        esac
+      done
+      if [ $push = 1 ]; then
+        for r in "${after[@]:1}"; do
+          [[ "$r" == +* ]] && force=1
+          r="${r#+}"; r="${r##*:}"; r="${r#refs/heads/}"
+          case "$r" in development|dev|main|master) hitdef=1 ;; esac
+        done
+        if [ $force = 1 ] && [ $hitdef = 1 ]; then
+          flag ask "force-push to a default branch rewrites shared history"
+        elif [ $force = 1 ] && [ ${#after[@]} -lt 2 ]; then
+          flag ask "force-push with no branch named pushes the current branch, which may be a default branch"
+        fi
       fi
       ;;
   esac
 }
 
 # Heredoc bodies are data (a commit message quoting `tmux $S kill-server`,
-# a file being written) unless the heredoc feeds a shell, so drop the body
-# lines unless a shell-like command precedes the `<<` on its opening line.
+# a file being written) unless they feed a shell or SQL client, so drop the
+# body lines unless the command owning the `<<` is one, or the opening line
+# pipes into a shell. `<<<` (a herestring) is not a heredoc.
 drop_data_heredocs() {
   awk '
     term != "" { if ($0 ~ "^[[:space:]]*" term "[[:space:]]*$") term = ""; else if (keep) print; next }
     {
       print
-      if (match($0, /<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
-        t = substr($0, RSTART, RLENGTH); sub(/^<<-?[[:space:]]*["\047]?/, "", t)
-        head = substr($0, 1, RSTART - 1)
+      if (match($0, /(^|[^<])<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
+        m = substr($0, RSTART, RLENGTH); p = index(m, "<<")
+        t = substr(m, p); sub(/^<<-?[[:space:]]*["\047]?/, "", t)
+        head = substr($0, 1, RSTART + p - 2); tail = substr($0, RSTART + RLENGTH)
         # judge only the simple command that owns the heredoc, by its first word
         seg = head; gsub(/.*[;&|(]/, "", seg); sub(/^[[:space:]]+/, "", seg)
         while (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+/) sub(/^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+/, "", seg)
         nw = split(seg, wds, /[[:space:]]+/); k = 1
         while (k < nw && wds[k] ~ /^(sudo|env|command|exec|nohup|time)$/) k++
         w = wds[k]; sub(/.*\//, "", w)
-        keep = (w ~ /^(bash|sh|zsh|dash|ssh|eval|source)$/)
+        keep = (w ~ /^(bash|sh|zsh|dash|ksh|ssh|eval|source|psql|mysql|sqlite3|bq|duckdb)$/) \
+          || (tail ~ /\|[[:space:]]*((sudo|env|command|exec)[[:space:]]+)*([^[:space:]|]*\/)?(bash|sh|zsh|dash|ksh|ssh)([[:space:]]|$)/)
         term = t
       }
     }'
 }
 
-# Single-quoted text is data too (`git commit -m '... tmux kill-server ...'`),
-# except when handed to a shell: `bash -c '...'`, `eval '...'`, `ssh host '...'`.
-blank_data_single_quotes() {
-  awk '{
-    out = ""; dq = 0; n = length($0)
-    for (i = 1; i <= n; i++) {
-      c = substr($0, i, 1)
-      if (c == "\\" && i < n) { out = out c substr($0, i + 1, 1); i++; continue }
-      if (c == "\"") dq = !dq
-      if (c == "\047" && !dq) {
-        j = index(substr($0, i + 1), "\047")
-        if (j == 0) { out = out substr($0, i); break }
-        body = substr($0, i, j + 1)
-        # kept text goes on its own segment so its first word is checked
-        if (out ~ /(-c|eval|ssh[^;|&]*)[[:space:]]*$/) out = out ";" substr(body, 2, j - 1) ";"; else out = out "\047\047"
-        i += j; continue
-      }
-      out = out c
+# One pass over the whole command (quotes may span lines). Quoted text handed
+# to a shell is lifted onto its own `;`-delimited segment with inner quotes
+# dropped; other quoted text is kept as one argument, its whitespace and
+# separators turned into $SEP. `$( )` and backticks in double quotes stay
+# code. Unquoted `# comments` are dropped.
+process_quotes() {
+  awk -v RS='\001' -v ORS='' '
+    function data(c) { return (c ~ /[[:space:];&|()`<>]/) ? "\001" : c }
+    function lifts(cur) {
+      return cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh|su)([[:space:]]+[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ \
+        || cur ~ /(^|[[:space:]])eval[[:space:]]/ || cur ~ /(^|[[:space:]\/])(ssh|watch)[[:space:]]/ \
+        || cur ~ /(^|[[:space:]])trap[[:space:]]+(--[[:space:]]+)?$/
     }
-    print out
-  }'
+    {
+      s = $0; n = length(s); out = ""; st = 0   # 0 code, 1/2 single/double data, 3/4 single/double lifted
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (st == 1) { if (c == "\047") st = 0; else out = out data(c); continue }
+        if (st == 2) {
+          if (c == "\\" && i < n) { i++; out = out data(substr(s, i, 1)); continue }
+          if (c == "\"") { st = 0; continue }
+          if (c == "$" && substr(s, i + 1, 1) == "(") {
+            out = out ";"; depth = 1
+            for (i += 2; i <= n; i++) { d = substr(s, i, 1); if (d == "(") depth++; else if (d == ")" && --depth == 0) break; out = out d }
+            out = out ";"; continue
+          }
+          if (c == "`") { j = index(substr(s, i + 1), "`"); if (j == 0) j = n - i + 1; out = out ";" substr(s, i + 1, j - 1) ";"; i += j; continue }
+          out = out data(c); continue
+        }
+        if (st == 3 && c == "\047") { out = out ";"; st = 0; continue }
+        if (st == 4 && c == "\\" && substr(s, i + 1, 1) == "\"") { i++; continue }
+        if (st == 4 && c == "\"") { out = out ";"; st = 0; continue }
+        if (st != 0 && (c == "\047" || c == "\"")) continue
+        if (c == "\\" && i < n) { out = out c substr(s, i + 1, 1); i++; continue }
+        if (st == 0 && c == "#" && (i == 1 || substr(s, i - 1, 1) ~ /[[:space:];&|(]/)) {
+          j = index(substr(s, i), "\n"); if (j == 0) break; i += j - 2; continue
+        }
+        if (st == 0 && (c == "\047" || c == "\"")) {
+          cur = out; sub(/.*[;&|(\n]/, "", cur)
+          if (lifts(cur)) { out = out ";"; st = (c == "\047") ? 3 : 4 } else st = (c == "\047") ? 1 : 2
+          continue
+        }
+        out = out c
+      }
+      print out
+    }'
 }
 
+cmd="${cmd//$'\\\n'/ }"
+filtered="$(printf '%s\n' "$cmd" | drop_data_heredocs | process_quotes)"
+
+backstop=0
 while IFS= read -r seg; do
   check_segment "$seg"
-done < <(printf '%s\n' "$cmd" | drop_data_heredocs | blank_data_single_quotes | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
+  seg=" ${seg//$SEP/ } "
+  if [[ "$seg" =~ [^[:alnum:]_-]kill-server[^[:alnum:]_-] ]] && ! [[ "$seg" =~ [[:space:]]-[LS] ]]; then
+    backstop=1
+  fi
+done < <(printf '%s\n' "$filtered" | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
+
+if [ $backstop = 1 ] && [ "$decision" != deny ]; then
+  flag ask "mentions tmux kill-server with no literal -L/-S socket in the same command; if it runs, it kills every wb session"
+fi
 
 [ -z "$decision" ] && exit 0
 
