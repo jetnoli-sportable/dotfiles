@@ -278,6 +278,10 @@ echo "Done. Start a new shell. Tools still needed: fdfind, fzf, zoxide, oh-my-po
 
 ## 9. Verification checklist
 
+This list checks the install itself. To check that a feature works in real use
+after it ships, write its checks into a `checks.md` and let the watcher verify
+them: see [docs/guides/verify-behaviour.md](docs/guides/verify-behaviour.md).
+
 - [ ] `ls -l ~/.zshrc` (and the others) shows `-> ~/dotfiles/...` symlinks.
 - [ ] New shell: prompt renders (oh-my-posh), `s`/`ca`/`cad` aliases resolve.
 - [ ] `tmux kill-server` then start tmux: reload clean, `prefix+a` opens the Claude
