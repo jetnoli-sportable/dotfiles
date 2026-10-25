@@ -478,7 +478,8 @@ under a be--monorepo parent keeps its own repo name but sits in the
 be--monorepo group).</p>
 <p>The family of the session you are in goes to the <strong>top</strong>, outside that
 order. Your own row is grey and tagged <code>(here)</code>; the rest of the family
-renders normally beneath it.</p>
+renders normally beneath it, and a grey <code>────</code> line separates the family
+from everything below. The line is a row of its own that every key ignores.</p>
 <p>A status change never moves a row: the order only changes when a session
 starts, ends or changes family, so the list holds still under the cursor
 while it refreshes. The DORMANT tab groups by repo the same way, newest
@@ -582,9 +583,11 @@ waiting: it stays grey. The cursor also stays on its row across the
 <blockquote>
 <p><strong>Preview pane</strong>, labelled with what it shows: for a row with an agent,
 the <strong>bottom</strong> of that agent's pane (its latest reply); for a task row
-with no agent, including every dormant row, a <strong>summary</strong> — the title, a
-status/branch line and the latest Handoff an agent wrote (the automatic
-pause/resume entries are skipped); for a plain repo session, its
+with no agent, including every dormant row, a <strong>summary</strong> — the title in
+bold, one dim line (status · branch · when the handoff was saved), then
+the latest Handoff an agent wrote, laid out by field: <strong>Next</strong> first with
+its <code>run:</code> directive, then <strong>In flight</strong>, then <strong>Done</strong> dimmed at the end
+(the automatic pause/resume entries are skipped); for a plain repo session, its
 <code>git status</code> (or <code>clean</code>). Anything else shows <code>nothing to preview</code>.</p>
 </blockquote>
 <blockquote>

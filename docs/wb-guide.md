@@ -213,7 +213,8 @@ be--monorepo group).
 
 The family of the session you are in goes to the **top**, outside that
 order. Your own row is grey and tagged `(here)`; the rest of the family
-renders normally beneath it.
+renders normally beneath it, and a grey `────` line separates the family
+from everything below. The line is a row of its own that every key ignores.
 
 A status change never moves a row: the order only changes when a session
 starts, ends or changes family, so the list holds still under the cursor
@@ -281,9 +282,11 @@ waiting: it stays grey. The cursor also stays on its row across the
 
 > **Preview pane**, labelled with what it shows: for a row with an agent,
 > the **bottom** of that agent's pane (its latest reply); for a task row
-> with no agent, including every dormant row, a **summary** — the title, a
-> status/branch line and the latest Handoff an agent wrote (the automatic
-> pause/resume entries are skipped); for a plain repo session, its
+> with no agent, including every dormant row, a **summary** — the title in
+> bold, one dim line (status · branch · when the handoff was saved), then
+> the latest Handoff an agent wrote, laid out by field: **Next** first with
+> its `run:` directive, then **In flight**, then **Done** dimmed at the end
+> (the automatic pause/resume entries are skipped); for a plain repo session, its
 > `git status` (or `clean`). Anything else shows `nothing to preview`.
 
 > **Multiple agents, one session.** `wb new` only provisions one dedicated
