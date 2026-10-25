@@ -191,47 +191,84 @@ with `wb new <repo> <slug>` directly instead of browsing for it.
 
 ### Two tabs: LIVE and DORMANT
 
-Press <kbd>tab</kbd> to switch. LIVE tmux sessions render first (sessions
-with more than one Claude pane expand into indented sub-rows) — this tab
+Press <kbd>tab</kbd> to switch. LIVE lists your live tmux sessions
+(sessions with more than one Claude pane expand into indented sub-rows) and
 auto-refreshes every few seconds. DORMANT is a separate tab: tasks you
 closed with `wb down`/`wb pause` (or that survived a crash) that still have
-a Claude transcript on disk for their worktree, sorted by status then by
-how recently they were active. It does **not** auto-refresh — scanning the
-whole task store for dormant candidates is too slow to redo every few
-seconds against a real store, so it recomputes only when you switch into
-it or press <kbd>ctrl-r</kbd>.
+a Claude transcript on disk for their worktree. It does **not**
+auto-refresh — scanning the whole task store for dormant candidates is too
+slow to redo every few seconds against a real store, so it recomputes only
+when you switch into it or press <kbd>ctrl-r</kbd>.
 
-Five columns, always: **REPO** (location) · **NAME** (task title or
-session/repo name) · **TYPE** (`session` / `agent` / `both`) · **BRANCH**
-(the git branch, when there is one) · **STATUS** (the most urgent agent in
-that row, or the dormant task's status + age). LIVE, with `be--monorepo`
-running two agents:
+### How rows are ordered
+
+Rows are **grouped by repo**, so everything happening in dotfiles sits
+together. Groups, and the rows inside each group, are ordered by **when you
+last visited them** (tmux's last-attached time for the session, which moves
+each time you switch into it): the repo you were in most recently comes
+first. A parent/child family always stays together, under its parent's
+repo, even when a child lives in another repo (a lib--algorithms child
+under a be--monorepo parent keeps its own repo name but sits in the
+be--monorepo group).
+
+The family of the session you are in goes to the **top**, outside that
+order. Your own row is grey and tagged `(here)`; the rest of the family
+renders normally beneath it.
+
+A status change never moves a row: the order only changes when a session
+starts, ends or changes family, so the list holds still under the cursor
+while it refreshes. The DORMANT tab groups by repo the same way, newest
+transcript first.
+
+> **Changed 2026-10-25.** Rows used to sort by urgency first. With most
+> sessions sharing "done", that split each repo into a done block and a
+> working block, and rows jumped every refresh as agents changed state.
+
+### What a row shows
+
+Four columns: **REPO** · **NAME** (task title or session/repo name; it takes
+whatever width the list has left) · **BRANCH** (a long branch shows its end,
+`...` first) · **AGE** (time since you last visited: `now`, `12m`, `3h`,
+`4d`; on DORMANT, the age of the newest transcript). Ages are measured from
+when the picker opened, so they don't tick while it stays open.
 
 ```
-0              0                          both     [main]       o done
-be--monorepo   be--monorepo               both     [dev]        ! needs you
-  ↳            state management refactor  agent    [dev]        o done
-  ↳            reporting tool issues      agent    [dev]        ! needs you
+REPO              NAME                                          BRANCH        AGE
+dotfiles          wb picker: group rows by repo... (here)       ...grouping   now
+dotfiles          wb's future: a Go store package plus bash...  ...direction  1h
+dotfiles           |- Decision propagation stop gap             ...opagation  12m
+be--monorepo      Post-processor rework (SW-6667)               ...c-server   1h
+terraform-gcp      |- v0.1 infra: one Cloud Run Job...          ...01-infra   1h
 ```
 
-DORMANT (`tab` to get here):
+Status is the **colour of the NAME**, not a column: cyan finished, green
+done, yellow working, grey idle or no agent. On DORMANT: yellow doing, cyan
+review, grey paused. The header carries a one-line legend for the tab you
+are on. Nested rows show their connector: ` |- ` a child under its live
+parent, ` ~ ` a sibling sharing a parent that isn't live, ` > ` one agent
+pane of a multi-agent session.
 
-```
-frontend       Pass-rate chart tweak      session  [sfb-985-…]  ~ review 2d
-```
+### Rows that need you
 
-Status glyphs: `!` needs you · `+` finished · `o` done · `*` working ·
-`-` idle / no agent · `~` dormant (status + days since last active).
+An agent waiting on you is hard to miss:
 
-TYPE tells you at a glance whether a row is a bare tmux session, a bare
-agent pane, or both at once. Sub-rows (indented, one per Claude pane) always
-show `agent` and inherit the parent row's BRANCH. Any row with a *needs you*
-or *finished* agent sorts first among live rows.
+- its row is **bold reverse-video** (in a multi-agent session, the waiting
+  pane's sub-row, so you land on the pane itself);
+- the group's repo name turns **magenta** on the group's first row;
+- the header says how many: `wb · LIVE · 2 need you · …`;
+- <kbd>u</kbd> jumps to the next one, wrapping round;
+- when the picker opens, the cursor **starts on the first one**. With none,
+  it starts on the row just below your own.
+
+Your own session never counts as needing you, even when its agent is
+waiting: it stays grey. The cursor also stays on its row across the
+3-second refresh, even when that row's colour changes.
 
 | Key | Does |
 |---|---|
 | <kbd>j</kbd> / <kbd>k</kbd> | Move down / up |
 | <kbd>g</kbd> / <kbd>G</kbd> | Jump to top / bottom |
+| <kbd>u</kbd> | Jump to the next row that needs you, wrapping round (LIVE tab, normal mode) |
 | <kbd>l</kbd> / <kbd>Enter</kbd> | Jump to the row's session/agent pane, or **resume** a dormant task — rebuilds its session and pre-types a warm `claude --resume <id>` in the agent window (see [Session lifecycle](#session-lifecycle-wb-down-wb-pause-and-warm-resume) below) |
 | <kbd>n</kbd> | New — prompts for a repo (defaults to the picker's own launching session's repo) and a slug; an empty slug opens a plain repo session instead of a task |
 | <kbd>p</kbd> | Close this row's session with `wb down` — worktree kept, resumable later. Guarded the same way <kbd>Ctrl</kbd>+<kbd>x</kbd> is: on the picker's own current session it writes everything but skips the kill |
@@ -242,10 +279,12 @@ or *finished* agent sorts first among live rows.
 | <kbd>i</kbd> or <kbd>/</kbd> | Start typing to search — this also widens the dormant pool to include `paused` (deliberately shelved) tasks; <kbd>Esc</kbd> to go back to normal mode |
 | <kbd>q</kbd> / <kbd>h</kbd> | Close the picker |
 
-> **Preview pane** shows the live agent screen for a session row, or the
-> task file's contents / `git status` for anything else — so you can usually
-> tell what a row needs without leaving the list. For a dormant row this is
-> the task file's own content, same as any other task-file preview.
+> **Preview pane**, labelled with what it shows: for a row with an agent,
+> the **bottom** of that agent's pane (its latest reply); for a task row
+> with no agent, including every dormant row, a **summary** — the title, a
+> status/branch line and the latest Handoff an agent wrote (the automatic
+> pause/resume entries are skipped); for a plain repo session, its
+> `git status` (or `clean`). Anything else shows `nothing to preview`.
 
 > **Multiple agents, one session.** `wb new` only provisions one dedicated
 > `agent` window, but nothing limits you to that. Open another window or
@@ -388,8 +427,9 @@ In order, every time:
 
 > If you're several tasks behind on tidying up, `wb done` will nudge you:
 > *"N follow-ups pending · M unreviewed capture entries (Xd since last
-> review) — consider running `/weekly-review`."* The same counts show in
-> the picker's status line at all times.
+> review) — consider running `/weekly-review`."* The picker's header no
+> longer repeats these counts (computing them meant scanning the whole task
+> store on every 3-second refresh).
 
 ## wb breakdown — split an oversized task into a family
 
@@ -814,8 +854,9 @@ rows anymore — only live sessions/agents do. Two places to look instead:
   `/weekly-review` to review, promote, or dismiss them — that's the intended
   interface, not the picker.
 
-The counts you see in the picker's status line and in `wb done`'s nudge
-(`wb_pending_counts`) are a heads-up that these exist, not a drill-down.
+The counts in `wb done`'s nudge (`wb_pending_counts`) are a heads-up that
+these exist, not a drill-down. (The picker's header showed them too until
+2026-10-25.)
 
 > **Update:** the "no single full picture view" gap this note originally
 > flagged is closed — that's exactly what `wb board --html` (above) is now
