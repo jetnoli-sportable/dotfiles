@@ -345,7 +345,7 @@ claude --plugin-dir ~/code/dotfiles/.worktrees/feat/claude-reply-log/claude/.cla
 </tr>
 <tr>
 <td><code>~/.claude/replies/.&lt;session-id&gt;.cursor</code></td>
-<td>Where the last turn starts, in the reply file and in the transcript; how the hook re-renders it. Safe to delete: the next turn is then appended after the existing ones.</td>
+<td>Where the last turn starts, in the reply file and in the transcript, plus that turn's final reply text for the SessionEnd hook; how the hook re-renders it. Safe to delete: the next turn is then appended after the existing ones.</td>
 </tr>
 <tr>
 <td><code>claude-reply-log.sh hook-stop</code></td>
@@ -412,7 +412,8 @@ text blocks of the same turn may be missing. They are filled in when the
 next turn finishes, so a text block written between tool calls can show
 up one turn late. A session's final turn has no next turn: the SessionEnd
 hook completes it when the session ends (<code>/clear</code> or exit), by which
-point the transcript is whole.</li>
+point the transcript is whole. If the session is killed before the
+transcript catches up, the hook keeps the final text the last Stop saved.</li>
 <li><strong>The first turn of a session already in progress.</strong> A session that was
 running before the plugin loaded (or one resumed with <code>claude --resume</code>)
 starts its file at the next turn. Older turns are not backfilled.</li>

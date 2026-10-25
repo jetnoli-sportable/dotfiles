@@ -39,7 +39,8 @@
 # from the payload's last_assistant_message and the rest is filled in at the next
 # Stop. A cursor beside the reply file (.<sid>.cursor: turn id, byte offset of
 # that turn's heading in the reply file, byte offset of its first entry in the
-# transcript) marks the last turn written; each Stop cuts the reply file there
+# transcript, then the Stop's prompt_id and last_assistant_message) marks the last
+# turn written; each Stop cuts the reply file there
 # and re-renders from that turn on. A turn that never got a Stop (Esc) has no
 # `stop_hook_summary` entry and is marked (interrupted) once a later turn lands.
 # The first Stop for a session renders only its current turn: no backfill.
@@ -214,8 +215,8 @@ task_of_pane() {
 
 # hook_stop [end] — reconcile the session's reply file with its transcript. With
 # `end` (SessionEnd: /clear or exit) it re-renders the cursor's turn, the last one
-# logged, from the now-complete transcript and ignores the payload's prompt_id; it
-# never creates a file.
+# logged, from the now-complete transcript, with the prompt_id and final text the
+# last Stop saved in the cursor in place of the payload's; it never creates a file.
 hook_stop() {
   local mode="${1:-stop}" tp sid pid lam cwd
   tp="$(jq_in '.transcript_path // empty')"
@@ -227,7 +228,7 @@ hook_stop() {
   [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || quiet_exit
   [ "$mode" = end ] || [[ "$pid" =~ ^[A-Za-z0-9-]+$ ]] || quiet_exit
   if [ "$mode" = end ]; then
-    lam=""
+    pid=""; lam=""
     [ -f "$REPLY_DIR/$sid.md" ] || quiet_exit
   fi
 
@@ -240,16 +241,20 @@ hook_stop() {
     flock -w "${REPLY_LOG_LOCK_WAIT:-4}" 9 2>/dev/null || quiet_exit
   fi
 
-  local tsize fsize=0 from start cut c_turn="" c_md="" c_tx="" drop_first=0
+  local tsize fsize=0 from start cut c_turn="" c_md="" c_tx="" c_pid="" c_lam="" drop_first=0
   tsize="$(stat -c %s "$tp" 2>/dev/null)" || quiet_exit
   [ -f "$file" ] && fsize="$(stat -c %s "$file" 2>/dev/null || echo 0)"
   if [ -f "$cursor" ]; then
-    { IFS= read -r c_turn; IFS= read -r c_md; IFS= read -r c_tx; } <"$cursor" 2>/dev/null || true
+    { IFS= read -r c_turn; IFS= read -r c_md; IFS= read -r c_tx; IFS= read -r c_pid; c_lam="$(cat)"; } <"$cursor" 2>/dev/null || true
   fi
   if [ -f "$file" ] && [[ "$c_turn" =~ ^[A-Za-z0-9-]+$ ]] && [[ "$c_md" =~ ^[0-9]+$ ]] && [[ "$c_tx" =~ ^[0-9]+$ ]] \
      && [ "$c_md" -le "$fsize" ] && [ "$c_tx" -le "$tsize" ]; then
     from="$c_turn"; start="$c_tx"; cut="$c_md"
-    [ "$mode" = end ] && pid="$c_turn"
+    # a kill straight after Stop can beat the final text into the transcript:
+    # reuse what that Stop had (a cursor from before this field: the turn alone)
+    if [ "$mode" = end ]; then
+      if [[ "$c_pid" =~ ^[A-Za-z0-9-]+$ ]]; then pid="$c_pid"; lam="$c_lam"; else pid="$c_turn"; fi
+    fi
   elif [ "$mode" = end ]; then
     quiet_exit
   else
@@ -313,7 +318,7 @@ hook_stop() {
   local new_tx
   new_tx="$(start_offset "$tp" "$start" "$first_id")"
   [ -n "$new_tx" ] || new_tx="$start"
-  printf '%s\n%s\n%s\n' "$new_turn" "$last_off" "$new_tx" >"$WORK/cursor"
+  printf '%s\n%s\n%s\n%s\n%s' "$new_turn" "$last_off" "$new_tx" "$pid" "$lam" >"$WORK/cursor"
   mv -f "$out" "$file" && mv -f "$WORK/cursor" "$cursor"
 }
 

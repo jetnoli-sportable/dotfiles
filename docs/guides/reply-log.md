@@ -94,7 +94,7 @@ Its turns land in `/tmp/reply-log-try/<session-id>.md`.
 | Piece | What it is |
 |---|---|
 | `~/.claude/replies/<session-id>.md` | One reply file per Claude session id. YAML frontmatter on line 1 (`session_id`, `task`, `cwd`, `branch`, `created`), a `#` heading naming the task (or the folder) and the start time, then one `##` turn per prompt. |
-| `~/.claude/replies/.<session-id>.cursor` | Where the last turn starts, in the reply file and in the transcript; how the hook re-renders it. Safe to delete: the next turn is then appended after the existing ones. |
+| `~/.claude/replies/.<session-id>.cursor` | Where the last turn starts, in the reply file and in the transcript, plus that turn's final reply text for the SessionEnd hook; how the hook re-renders it. Safe to delete: the next turn is then appended after the existing ones. |
 | `claude-reply-log.sh hook-stop` | The Stop hook. Reads the hook payload on stdin, always exits 0 and prints nothing. |
 | `claude-reply-log.sh hook-session-end` | The SessionEnd hook (`/clear` or exit). Re-renders the last logged turn from the finished transcript; never creates a file. Same guards as the Stop hook. |
 | `claude-reply-log.sh chain <file\|session-id>` | Prints the reply files to show for a session, oldest first. |
@@ -131,7 +131,8 @@ other local commands, `!` shell commands, and compaction summaries.
   next turn finishes, so a text block written between tool calls can show
   up one turn late. A session's final turn has no next turn: the SessionEnd
   hook completes it when the session ends (`/clear` or exit), by which
-  point the transcript is whole.
+  point the transcript is whole. If the session is killed before the
+  transcript catches up, the hook keeps the final text the last Stop saved.
 - **The first turn of a session already in progress.** A session that was
   running before the plugin loaded (or one resumed with `claude --resume`)
   starts its file at the next turn. Older turns are not backfilled.

@@ -280,6 +280,36 @@ assert_eq "a second SessionEnd leaves one copy" 1 "$(count 'Middle step.' "$OUTF
 assert_eq "still one anchor" 1 "$(anchors "$OUTF")"
 assert_eq "one frontmatter" 2 "$(grep -c '^---$' "$OUTF")"
 
+echo "# SessionEnd before the transcript caught up (killed straight after Stop) keeps the final text"
+new_scenario; use_fixture multitext 2
+stop p-multi-1 "All done."
+session_end
+assert_eq "exit 0" 0 "$RC"
+assert_eq "final text kept" 1 "$(count 'All done.' "$OUTF")"
+assert_eq "one anchor" 1 "$(anchors "$OUTF")"
+use_fixture multitext
+session_end
+assert_eq "transcript complete later: middle block recovered" 1 "$(count 'Middle step.' "$OUTF")"
+assert_eq "final text still once" 1 "$(count 'All done.' "$OUTF")"
+
+echo "# SessionEnd with a cursor from before the saved-text field still completes the turn"
+new_scenario; use_fixture multitext 2
+stop p-multi-1 "All done."
+head -n 3 "$RDIR/.$SID.cursor" >"$H/c3"; cp "$H/c3" "$RDIR/.$SID.cursor"
+use_fixture multitext
+session_end
+assert_eq "middle block recovered" 1 "$(count 'Middle step.' "$OUTF")"
+assert_eq "final text once" 1 "$(count 'All done.' "$OUTF")"
+
+echo "# SessionEnd with no cursor leaves the reply file alone"
+new_scenario; use_fixture multitext 2
+stop p-multi-1 "All done."
+rm -f "$RDIR/.$SID.cursor"; cp "$OUTF" "$H/before"
+use_fixture multitext
+session_end
+assert_eq "exit 0" 0 "$RC"
+cmp -s "$OUTF" "$H/before" && ok "reply file unchanged" || bad "reply file changed without a cursor"
+
 echo "# SessionEnd with no reply file writes nothing, not even the dir"
 new_scenario; use_fixture multitext
 session_end
