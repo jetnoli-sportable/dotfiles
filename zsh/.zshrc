@@ -191,6 +191,21 @@ claude() {
     -p MemoryHigh="$WB_AGENT_MEM_HIGH" -p MemoryMax="$WB_AGENT_MEM_MAX" \
     "$real" "$@"
 }
+# verify-behaviour — start the standing behaviour watcher
+# (claude/.claude/skills/verify-behaviour). Type it in the watcher task's
+# agent pane; restart by quitting and typing it again, never via `wb resume`,
+# which types a plain `claude --resume` without any of this. The 1G soft cap
+# makes the kernel reclaim from the watcher first while MemoryMax stays put,
+# so it is throttled before anything is killed. WB_VERIFY_WATCHER is the
+# marker the wait script refuses to arm without. The prompt goes before
+# --disallowedTools because that flag is variadic and would swallow it.
+verify-behaviour() {
+  WB_AGENT_MEM_HIGH=1G WB_VERIFY_WATCHER=1 claude /verify-behaviour \
+    --model sonnet --autocompact 100k \
+    --disallowedTools SendMessage Edit Write NotebookEdit \
+      'Bash(tmux send-keys *)' 'Bash(tmux paste-buffer *)' \
+      'Bash(wb append *)' 'Bash(wb set *)' 'Bash(wb status *)'
+}
 # wb-claude-wrapper:end
 
 # replay — typed daemon-replay launcher (github.com/jetnoli-sportable/replay-tui)
