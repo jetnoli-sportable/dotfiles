@@ -1,0 +1,9 @@
+{"type":"user","isSidechain":false,"promptId":"p-multi-1","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T11:00:00.000Z","message":{"role":"user","content":"Run the steps"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T11:00:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Starting now."}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T11:00:02.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu-m1","name":"Bash","input":{"command":"echo TOOL-INPUT-SHOULD-NOT-APPEAR"}}]}}
+{"type":"user","isSidechain":false,"promptId":"p-multi-1","timestamp":"2026-10-25T11:00:03.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-m1","content":"TOOL-OUTPUT-SHOULD-NOT-APPEAR"}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T11:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Middle step."}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T11:00:05.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu-m2","name":"Write","input":{"file_path":"/work/notes.txt","content":"x"}}]}}
+{"type":"user","isSidechain":false,"promptId":"p-multi-1","timestamp":"2026-10-25T11:00:06.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-m2","content":"File created successfully at: /work/notes.txt"}]},"toolUseResult":{"type":"create","filePath":"/work/notes.txt"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T11:00:07.000Z","message":{"role":"assistant","content":[{"type":"text","text":"All done."}]}}
+{"type":"system","subtype":"stop_hook_summary","isSidechain":false,"timestamp":"2026-10-25T11:00:08.000Z"}

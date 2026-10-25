@@ -1,0 +1,11 @@
+{"type":"user","isSidechain":false,"isMeta":true,"timestamp":"2026-10-25T14:00:00.000Z","message":{"role":"user","content":"<local-command-caveat>Caveat: LOCAL-CAVEAT-TEXT</local-command-caveat>"}}
+{"type":"user","isSidechain":false,"timestamp":"2026-10-25T14:00:00.000Z","message":{"role":"user","content":"<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>"}}
+{"type":"user","isSidechain":false,"promptId":"p-sk-bash","timestamp":"2026-10-25T14:00:01.000Z","message":{"role":"user","content":"<bash-input>ls</bash-input>"}}
+{"type":"user","isSidechain":false,"promptId":"p-sk-bash","timestamp":"2026-10-25T14:00:01.000Z","message":{"role":"user","content":"<bash-stdout>BASH-STDOUT-TEXT</bash-stdout><bash-stderr></bash-stderr>"}}
+{"type":"user","isSidechain":false,"promptId":"p-sk-1","origin":{"kind":"human"},"timestamp":"2026-10-25T14:01:00.000Z","message":{"role":"user","content":"<command-message>wb-save</command-message>\n<command-name>/wb-save</command-name>\n<command-args>before clear</command-args>"}}
+{"type":"user","isSidechain":false,"promptId":"p-sk-1","isMeta":true,"timestamp":"2026-10-25T14:01:00.000Z","message":{"role":"user","content":[{"type":"text","text":"SKILL-BODY-TEXT Base directory for this skill"}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T14:01:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Saved."}]}}
+{"type":"system","subtype":"stop_hook_summary","isSidechain":false}
+{"type":"user","isSidechain":false,"promptId":"p-sk-1","isCompactSummary":true,"timestamp":"2026-10-25T14:02:00.000Z","message":{"role":"user","content":"COMPACT-SUMMARY-TEXT This session is being continued"}}
+{"type":"user","isSidechain":false,"promptId":"p-sk-2","origin":{"kind":"human"},"timestamp":"2026-10-25T14:03:00.000Z","message":{"role":"user","content":"<command-message>wb-resume</command-message>\n<command-name>/wb-resume</command-name>"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T14:03:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Resumed."}]}}

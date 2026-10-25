@@ -1,0 +1,8 @@
+{"type":"permission-mode","permissionMode":"default"}
+{"type":"user","isSidechain":false,"promptId":"p-plain-1","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T10:00:00.000Z","message":{"role":"user","content":"Explain the colour blue\nin two short paragraphs."}}
+{"type":"attachment","isSidechain":false,"attachment":{"type":"command_permissions","allowedTools":[]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"SECRET-THINKING should never appear"}]}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T10:00:03.000Z","message":{"role":"assistant","content":[{"type":"text","text":"# Blue\n\nBlue reads as calm.\n\n## Where it shows up\n\nSkies and deep water."}]}}
+{"type":"system","subtype":"stop_hook_summary","isSidechain":false,"timestamp":"2026-10-25T10:00:04.000Z"}
+{"type":"system","subtype":"turn_duration","isSidechain":false,"timestamp":"2026-10-25T10:00:04.000Z"}
+{"type":"last-prompt","lastPrompt":"x"}

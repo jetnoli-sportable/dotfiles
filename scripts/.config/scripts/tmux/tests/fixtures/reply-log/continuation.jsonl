@@ -1,0 +1,5 @@
+{"type":"user","isSidechain":false,"promptId":"p-cont-1","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-10-25T17:00:00.000Z","message":{"role":"user","content":"Say first answer"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T17:00:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"first answer"}]}}
+{"type":"user","isSidechain":false,"promptId":"p-cont-1","isMeta":true,"timestamp":"2026-10-25T17:00:02.000Z","message":{"role":"user","content":"Stop hook feedback:\nSTOP-FEEDBACK-TEXT"}}
+{"type":"system","subtype":"stop_hook_summary","isSidechain":false}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-25T17:00:03.000Z","message":{"role":"assistant","content":[{"type":"text","text":"CONTINUED"}]}}

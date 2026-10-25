@@ -288,6 +288,17 @@ nvim "$(wb task-file)"  # equivalent to prefix+t
 Outside a wb session (no `@task` and no `@wb_repo`/`@wb_slug`), both forms fail with
 `not a wb task session` rather than guessing a file from your cwd.
 
+## prefix+v — read this session's replies
+
+From a Claude pane, <kbd>prefix</kbd>+<kbd>v</kbd> opens a split with the
+session's reply log: your prompts, Claude's reply text and each turn's
+artifacts, without thinking or tool output, following new turns live. In a
+wb session the view also stacks the task's earlier sessions (before any
+`/clear`) above the current one, matched through the `task:` field the
+`reply-log` plugin's Stop hook records. That hook runs beside the notify
+hook and wb-capture's hooks and never changes what they do. See
+[the reply-log guide](guides/reply-log.html).
+
 ## Session lifecycle: wb down, wb pause, and warm resume
 
 Two axes, kept deliberately separate:
