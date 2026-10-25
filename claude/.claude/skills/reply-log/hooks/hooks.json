@@ -10,6 +10,17 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${REPLY_LOG_BIN:-$HOME/.config/scripts/tmux}/claude-reply-log.sh\" hook-session-end",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

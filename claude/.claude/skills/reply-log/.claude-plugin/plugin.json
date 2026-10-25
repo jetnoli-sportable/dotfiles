@@ -1,6 +1,6 @@
 {
   "name": "reply-log",
-  "description": "Claude reply log: a Stop hook writes each session's turns (Jet's prompt, Claude's reply text, the turn's artifacts) to ~/.claude/replies/<session-id>.md, local and untracked. Hooks only; logic lives in ~/.config/scripts/tmux/claude-reply-log.sh.",
+  "description": "Claude reply log: a Stop hook writes each session's turns (Jet's prompt, Claude's reply text, the turn's artifacts) and a SessionEnd hook completes the last one, in ~/.claude/replies/<session-id>.md, local and untracked. Hooks only; logic lives in ~/.config/scripts/tmux/claude-reply-log.sh.",
   "author": {
     "name": "jetnoli-sportable"
   }

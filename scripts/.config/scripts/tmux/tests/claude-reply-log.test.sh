@@ -64,7 +64,7 @@ run_hook() {
   local -a envv=(HOME="$H" REPLY_LOG_DIR="$RDIR" TZ=UTC PATH="$FAKEBIN:$PATH" FAKE_TASK="$FAKE_TASK")
   local -a unset=(-u TMUX -u TMUX_PANE -u WB_CAPTURE_SWEEP -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED)
   [ "$IN_TMUX" = 1 ] && envv+=(TMUX=fake,1,0 TMUX_PANE=%1)
-  OUT="$(env "${unset[@]}" "${envv[@]}" "${EXTRA_ENV[@]}" "$REAL_BASH" "$SCRIPT" hook-stop <"$H/stdin.json" 2>"$H/stderr")"
+  OUT="$(env "${unset[@]}" "${envv[@]}" "${EXTRA_ENV[@]}" "$REAL_BASH" "$SCRIPT" "hook-${2:-stop}" <"$H/stdin.json" 2>"$H/stderr")"
   RC=$?
 }
 # section <heading-prefix> — the turn whose `## ` heading contains the text, up to the next turn
@@ -257,6 +257,44 @@ stop p-art-2 "The summary is written."
 section 'background agent finished' >"$H/t2"
 assert_has "first subagent's write survives" "- wrote: /work/summary.md" "$H/t2"
 assert_has "second subagent's write listed past the torn line" "- wrote: /work/second.md" "$H/t2"
+
+echo "# SessionEnd completes the session's final turn (no next Stop will)"
+session_end() { # run hook-session-end for $SID; sets OUT, RC
+  run_hook "$(jq -nc --arg s "$SID" --arg t "$TP" --arg c "$H" \
+    '{session_id:$s,transcript_path:$t,cwd:$c,prompt_id:"p-ignored",hook_event_name:"SessionEnd",reason:"clear"}')" session-end
+}
+new_scenario; use_fixture multitext 2
+stop p-multi-1 "All done."
+assert_lacks "turn short after its Stop" "Middle step." "$OUTF"
+use_fixture multitext
+session_end
+assert_eq "exit 0" 0 "$RC"
+assert_eq "no stdout" "" "$OUT"
+assert_eq "middle block recovered" 1 "$(count 'Middle step.' "$OUTF")"
+assert_eq "final text once" 1 "$(count 'All done.' "$OUTF")"
+assert_has "artifact listed" "- wrote: /work/notes.txt" "$OUTF"
+assert_eq "one anchor" 1 "$(anchors "$OUTF")"
+assert_lacks "not marked interrupted" "(interrupted)" "$OUTF"
+session_end
+assert_eq "a second SessionEnd leaves one copy" 1 "$(count 'Middle step.' "$OUTF")"
+assert_eq "still one anchor" 1 "$(anchors "$OUTF")"
+assert_eq "one frontmatter" 2 "$(grep -c '^---$' "$OUTF")"
+
+echo "# SessionEnd with no reply file writes nothing, not even the dir"
+new_scenario; use_fixture multitext
+session_end
+assert_eq "exit 0" 0 "$RC"
+[ -e "$RDIR" ] && bad "SessionEnd created the replies dir" || ok "nothing created"
+
+echo "# SessionEnd obeys the guards"
+new_scenario; use_fixture multitext 2
+stop p-multi-1 "All done."
+use_fixture multitext
+: >"$RDIR/.disabled"; session_end; rm -f "$RDIR/.disabled"
+assert_eq "kill switch: turn left short" 0 "$(count 'Middle step.' "$OUTF")"
+run_hook "$(jq -nc --arg t "$TP" '{session_id:"../evil",transcript_path:$t,hook_event_name:"SessionEnd"}')" session-end
+assert_eq "bad session id: exit 0" 0 "$RC"
+[ -e "$H/evil.md" ] || [ -n "$(find "$H" -name 'evil*')" ] && bad "bad session id escaped the dir" || ok "bad session id wrote nothing outside"
 
 echo "# a turn with no Stop is marked (interrupted) when the next turn completes"
 new_scenario; use_fixture interrupted 3

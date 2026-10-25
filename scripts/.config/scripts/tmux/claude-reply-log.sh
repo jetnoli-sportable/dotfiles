@@ -5,6 +5,10 @@
 #   hook-stop   (Stop hook, registered by the reply-log plugin's hooks.json) reads
 #               the hook payload on stdin and reconciles the session's reply file
 #               with its transcript. Always exits 0 and prints nothing.
+#   hook-session-end
+#               (SessionEnd hook: /clear or exit) the same reconcile, run once more
+#               on the cursor's turn once the transcript is complete, so a session's
+#               final turn gets its middle text and artifacts. Never creates a file.
 #   chain <reply-file|session-id> | chain --pane <pane-id>
 #               print the reply files to show for that session, oldest first, one
 #               path per line: every reply file whose frontmatter `task:` matches
@@ -208,8 +212,12 @@ task_of_pane() {
   [ -n "$s" ] && tmux show -t "=$s:" -v @task 2>/dev/null || true
 }
 
+# hook_stop [end] — reconcile the session's reply file with its transcript. With
+# `end` (SessionEnd: /clear or exit) it re-renders the cursor's turn, the last one
+# logged, from the now-complete transcript and ignores the payload's prompt_id; it
+# never creates a file.
 hook_stop() {
-  local tp sid pid lam cwd
+  local mode="${1:-stop}" tp sid pid lam cwd
   tp="$(jq_in '.transcript_path // empty')"
   sid="$(jq_in '.session_id // empty')"
   pid="$(jq_in '.prompt_id // empty')"
@@ -217,7 +225,11 @@ hook_stop() {
   cwd="$(jq_in '.cwd // empty')"
   [ -n "$tp" ] && [ -r "$tp" ] || quiet_exit
   [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || quiet_exit
-  [[ "$pid" =~ ^[A-Za-z0-9-]+$ ]] || quiet_exit
+  [ "$mode" = end ] || [[ "$pid" =~ ^[A-Za-z0-9-]+$ ]] || quiet_exit
+  if [ "$mode" = end ]; then
+    lam=""
+    [ -f "$REPLY_DIR/$sid.md" ] || quiet_exit
+  fi
 
   umask 077
   mkdir -p "$REPLY_DIR" 2>/dev/null || quiet_exit
@@ -237,6 +249,9 @@ hook_stop() {
   if [ -f "$file" ] && [[ "$c_turn" =~ ^[A-Za-z0-9-]+$ ]] && [[ "$c_md" =~ ^[0-9]+$ ]] && [[ "$c_tx" =~ ^[0-9]+$ ]] \
      && [ "$c_md" -le "$fsize" ] && [ "$c_tx" -le "$tsize" ]; then
     from="$c_turn"; start="$c_tx"; cut="$c_md"
+    [ "$mode" = end ] && pid="$c_turn"
+  elif [ "$mode" = end ]; then
+    quiet_exit
   else
     # first Stop for this file (or a lost cursor): only the current turn, appended
     local off
@@ -401,7 +416,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "${1:-}" in
     chain) shift; cmd_chain "$@" ;;
     view) cmd_view "${2:-}" ;;
-    hook-stop)
+    hook-stop|hook-session-end)
       exec 2>/dev/null
       [ -e "$REPLY_DIR/.disabled" ] && quiet_exit
       [ -n "${WB_CAPTURE_SWEEP:-}" ] && quiet_exit
@@ -409,7 +424,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       case "${CLAUDE_CODE_ENTRYPOINT:-}" in sdk*) quiet_exit ;; esac
       command -v jq >/dev/null 2>&1 || quiet_exit
       read_input
-      hook_stop
+      if [ "$1" = hook-session-end ]; then hook_stop end; else hook_stop; fi
       ;;
   esac
   exit 0

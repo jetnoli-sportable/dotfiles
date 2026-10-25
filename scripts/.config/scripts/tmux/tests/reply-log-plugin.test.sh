@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for the reply-log plugin wiring: the hooks-only skills-dir plugin at
-# claude/.claude/skills/reply-log/ parses, its single Stop hook resolves (with
+# claude/.claude/skills/reply-log/ parses, its Stop and SessionEnd hooks resolve (with
 # REPLY_LOG_BIN pointed at this repo's scripts) to an executable script and a
 # verb claude-reply-log.sh dispatches, it is synchronous with timeout 5, there
 # is no SubagentStop hook (subagent turns write nothing), and the hook is not
@@ -34,29 +34,33 @@ assert_eq "manifest keys are name/description/author only" '["author","descripti
 
 # --- hooks.json shape -------------------------------------------------------
 jq -e . "$HOOKS" >/dev/null 2>&1 && ok "hooks.json parses" || bad "hooks.json parses"
-assert_eq "only a Stop event" '["Stop"]' "$(jq -c '.hooks | keys' "$HOOKS" 2>/dev/null)"
+assert_eq "exactly Stop and SessionEnd" '["SessionEnd","Stop"]' "$(jq -c '.hooks | keys' "$HOOKS" 2>/dev/null)"
 assert_eq "no SubagentStop hook" false "$(jq '.hooks | has("SubagentStop")' "$HOOKS" 2>/dev/null)"
-assert_eq "one hook entry in all" 1 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS" 2>/dev/null)"
-assert_eq "type command" command "$(jq -r '.hooks.Stop[0].hooks[0].type' "$HOOKS" 2>/dev/null)"
-assert_eq "timeout 5" 5 "$(jq -r '.hooks.Stop[0].hooks[0].timeout' "$HOOKS" 2>/dev/null)"
-assert_eq "synchronous" false "$(jq '.hooks.Stop[0].hooks[0].async == true' "$HOOKS" 2>/dev/null)"
+assert_eq "one hook entry per event, two in all" 2 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS" 2>/dev/null)"
 
-# --- the command resolves ---------------------------------------------------
-cmd="$(jq -r '.hooks.Stop[0].hooks[0].command' "$HOOKS" 2>/dev/null)"
-case "$cmd" in
-  '"${REPLY_LOG_BIN:-$HOME/.config/scripts/tmux}/claude-reply-log.sh" '*) ok "command uses the REPLY_LOG_BIN form" ;;
-  *) bad "command uses the REPLY_LOG_BIN form" "$cmd" ;;
-esac
-# Word-split the command the way the hook runner's shell would, with
-# REPLY_LOG_BIN pointed at the repo (HOME bogus so a fallback can't pass).
-# shellcheck disable=SC2016
-path="$(REPLY_LOG_BIN="$TMUX_DIR" HOME=/nonexistent bash -c 'eval "set -- $1"; printf %s "$1"' _ "$cmd")"
-# shellcheck disable=SC2016
-verb="$(REPLY_LOG_BIN="$TMUX_DIR" HOME=/nonexistent bash -c 'eval "set -- $1"; printf %s "${2:-}"' _ "$cmd")"
-[ -x "$path" ] && ok "claude-reply-log.sh exists and is executable" || bad "script exists and is executable" "$path"
-assert_eq "verb" hook-stop "$verb"
-grep -qE "^[[:space:]]+${verb}\)" "$TMUX_DIR/claude-reply-log.sh" \
-  && ok "claude-reply-log.sh dispatches $verb" || bad "claude-reply-log.sh dispatches $verb"
+for pair in Stop:hook-stop SessionEnd:hook-session-end; do
+  ev="${pair%%:*}" want="${pair#*:}"
+  assert_eq "$ev: type command" command "$(jq -r ".hooks.$ev[0].hooks[0].type" "$HOOKS" 2>/dev/null)"
+  assert_eq "$ev: timeout 5" 5 "$(jq -r ".hooks.$ev[0].hooks[0].timeout" "$HOOKS" 2>/dev/null)"
+  assert_eq "$ev: synchronous" false "$(jq ".hooks.$ev[0].hooks[0].async == true" "$HOOKS" 2>/dev/null)"
+
+  # --- the command resolves -------------------------------------------------
+  cmd="$(jq -r ".hooks.$ev[0].hooks[0].command" "$HOOKS" 2>/dev/null)"
+  case "$cmd" in
+    '"${REPLY_LOG_BIN:-$HOME/.config/scripts/tmux}/claude-reply-log.sh" '*) ok "$ev: command uses the REPLY_LOG_BIN form" ;;
+    *) bad "$ev: command uses the REPLY_LOG_BIN form" "$cmd" ;;
+  esac
+  # Word-split the command the way the hook runner's shell would, with
+  # REPLY_LOG_BIN pointed at the repo (HOME bogus so a fallback can't pass).
+  # shellcheck disable=SC2016
+  path="$(REPLY_LOG_BIN="$TMUX_DIR" HOME=/nonexistent bash -c 'eval "set -- $1"; printf %s "$1"' _ "$cmd")"
+  # shellcheck disable=SC2016
+  verb="$(REPLY_LOG_BIN="$TMUX_DIR" HOME=/nonexistent bash -c 'eval "set -- $1"; printf %s "${2:-}"' _ "$cmd")"
+  [ -x "$path" ] && ok "$ev: claude-reply-log.sh exists and is executable" || bad "$ev: script exists and is executable" "$path"
+  assert_eq "$ev: verb" "$want" "$verb"
+  /usr/bin/grep -qE "(^|\|)[[:space:]]*${verb}(\||\))" "$TMUX_DIR/claude-reply-log.sh" \
+    && ok "$ev: claude-reply-log.sh dispatches $verb" || bad "$ev: claude-reply-log.sh dispatches $verb"
+done
 
 # --- no duplicate wiring in settings ----------------------------------------
 jq -e . "$SETTINGS" >/dev/null 2>&1 && ok "settings.recommended.json parses" || bad "settings.recommended.json parses"

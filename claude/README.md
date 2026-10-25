@@ -25,8 +25,8 @@ directory instead of replacing it.
   are live. Do NOT duplicate these hooks into `settings.recommended.json`, or they fire
   twice. See [`wb-decide.md`](../docs/guides/wb-decide.html).
 - `skills/reply-log/` — a hooks-only Claude Code plugin (`.claude-plugin/plugin.json` +
-  `hooks/hooks.json`) behind the Claude reply log: one Stop hook writes each session's
-  turns (Jet's prompt, Claude's reply text, the turn's artifacts) to
+  `hooks/hooks.json`) behind the Claude reply log: a Stop hook writes each session's
+  turns (Jet's prompt, Claude's reply text, the turn's artifacts; a SessionEnd hook completes the last one) to
   `~/.claude/replies/<session-id>.md`. Those files hold work content, so they stay local:
   never in this repo or the task store. It auto-loads as `reply-log@skills-dir` once
   stowed; adding/removing the hook needs a session restart, edits to
