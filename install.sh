@@ -24,6 +24,11 @@ stow --no-folding -t "$HOME" claude
   git clone https://github.com/tmux-plugins/tpm ~/.config/tmux/plugins/tpm
 echo "Open tmux and press <prefix> + I to install tmux plugins."
 
+# Keep the systemd user manager running after logout, so the tmux server (and
+# the agents in it) survive a GNOME log-out/in. A reboot still ends them; undo
+# with `loginctl disable-linger "$USER"`.
+loginctl enable-linger "$USER"
+
 # nvim plugins restore to the committed lockfile
 command -v nvim >/dev/null && nvim --headless "+Lazy! restore" +qa || true
 

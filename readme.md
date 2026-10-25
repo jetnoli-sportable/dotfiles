@@ -72,6 +72,10 @@ Recent work across these configs, so the doc captures the whole picture:
   other plugins are installed under `~/.config/tmux/plugins/`. No
   `TMUX_PLUGIN_MANAGER_PATH` is set. Consolidate during migration — see §5.
 - **`plugins/` are tpm-cloned git repos → never commit them.**
+- **Survives logout:** `install.sh` turns on systemd linger, so tmux sessions
+  outlive a GNOME log-out (not a reboot). Panes opened before the logout keep the
+  old X11 auth, so start X11 apps from a new pane; undo with
+  `loginctl disable-linger "$USER"`.
 
 ### nvim — `~/.config/nvim/` (its own git repo)
 
