@@ -1,6 +1,6 @@
 ---
 name: wb-save
-description: Write a rich, structured snapshot of the current session's progress — what's done, what's in flight, the immediate next action — into the current task file's `## Handoffs` section, so the human can safely `/clear` without losing continuity. Use when the user types `/wb-save`, or says "save my progress", "checkpoint this", "save state before I clear", "write a handoff snapshot" — always immediately before a manual `/clear`. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only; never invokes `/clear` or touches tmux state itself.
+description: Write a rich, structured snapshot of the current session's progress — what's done, what's in flight, the immediate next action — into the current task file's `## Handoffs` section, so the human can safely `/clear` without losing continuity. Use when the user types `/wb-save`, or says "save my progress", "checkpoint this", "save state before I clear", "write a handoff snapshot" — always immediately before a manual `/clear`. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only; never invokes `/clear` or touches its own pane or tmux state itself (the one exception: decisions accepted in its shelf review are messaged to affected live family sessions).
 ---
 
 # wb-save
@@ -21,16 +21,21 @@ to survive the clear; the human runs `/clear` themselves.
 
 ## Scope — what this does and doesn't do
 
-- **Writes into the current session's task file only.** No cross-repo or
-  cross-session lookups, no picking among multiple candidate tasks — the
-  tmux session this skill runs in names its own task file via `@task`.
+- **Writes into the current session's task file only.** No picking among
+  multiple candidate tasks — the tmux session this skill runs in names its own
+  task file via `@task`. The one cross-session lookup is the propagate call at the
+  end of step 2's shelf review (`/wb-decide` step 6): it reads which family
+  sessions are live and their task files, and never writes another task's file.
 - **Never invokes `/clear`, never sends any keystroke to any pane, never
   touches tmux session state beyond the one read-only `@task` lookup in
   step 1.** This boundary is load-bearing, not incidental caution — see
   the intro above. Don't attempt `send-keys`, `capture-pane`, or anything
   else pane-directed as a workaround; if something seems to need it,
   that's a sign the request is out of scope for this skill, not a gap to
-  route around.
+  route around. One narrow exception: when step 2's review records decisions,
+  `/wb-decide` step 6 may read `wb family --sessions` (a read of other sessions'
+  `@task`) and ListAgents, and send `[wb-propagate]` messages with SendMessage to
+  *other* sessions it affects. Nothing is ever sent to this session's own pane.
 - **Append-only.** Never overwrites any existing content in the task file —
   including prior `## Handoffs` entries, `## Plan`, `## Decisions`, or
   anything else already there. The one other write is step 2's checkpoint
@@ -96,6 +101,15 @@ conversation — never generic filler:
   that a future `/wb-resume` reader (a fresh session with none of this
   conversation's context) can act on it directly, not just orient toward
   it.
+- **Received** (optional) — only when this session received one or more
+  `[wb-propagate]` messages since the last save that are still relevant, one
+  line each: `from <stem> (<plain description>): <entry titles>`. Omit the field
+  otherwise. After `/clear`, a decision made because of one of these still
+  needs the `- Prompted-by: [wb-propagate] from <stem> (<description>); not
+  propagated` bullet (`/wb-decide` step 3), and this entry is the only place the
+  next session learns of it. It goes last in the entry, after the `**Next:**`
+  line and after any ` ```run ` block, so the run directive keeps its place
+  right after `**Next:**`.
 
 If a field is genuinely empty (e.g. the session just started and nothing
 is done yet), say so plainly — `**Done:** nothing yet this session` —
@@ -241,7 +255,8 @@ Never invoke `/clear` yourself, never send it (or anything else) via
 `tmux send-keys`, never touch tmux session state beyond the read-only
 `@task` lookup in step 1. This is intentional, not an oversight to work
 around — see the intro above for why it's a closed door, not an open
-question.
+question. The only exception is step 2's propagate call (see Scope), which
+messages *other* sessions and never this one.
 
 ## Test scenarios (behavior to follow for each)
 
@@ -258,6 +273,10 @@ question.
   Handoffs entry, and the entry's **Done** says how many were recorded, dismissed and
   left. If the sweep prints `skipped:` or `failed:`, say so and still review the
   drafts already shelved.
+- **Edge case — the shelf review records a decision:** step 2b's own item 5 runs
+  `/wb-decide` step 6 once for the batch, and the Handoffs entry's **Done** can
+  quote its confirm line. A `/clear` and then another `/wb-save` doesn't send it
+  again, because each review propagates only the entries it recorded.
 - **Edge case — not a wb-managed session (no `@task` set):** stop before
   touching the file at all; one clear error line, no partial write
   anywhere.

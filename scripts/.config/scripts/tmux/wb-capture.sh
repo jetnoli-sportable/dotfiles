@@ -116,7 +116,7 @@
 # Paths:
 #   state root   ${XDG_STATE_HOME:-$HOME/.local/state}/wb/capture/
 #   per session  <root>/<session_id>/   (taskhash unchanged muted ended synthetic
-#                                        taskpath transcript sweep_offset
+#                                        taskpath transcript sweep_offset received
 #                                        sweep_failures sweep_invalid .lock; a `draft`
 #                                        (+ draft_stale) is only a leftover from before
 #                                        the shelf-only change: nothing writes it now)
@@ -470,7 +470,7 @@ reap_dir() {
   # `draft` is deliberately not listed: a dir still holding one is kept (rmdir fails).
   # Line 2 is state that pre-nudge-removal versions wrote: listed so those dirs still reap.
   remove_named "$d" taskhash unchanged muted ended synthetic taskpath transcript sweep_offset \
-    sweep_failures sweep_invalid draft_stale .lock \
+    received sweep_failures sweep_invalid draft_stale .lock \
     marker recorded cooldown outstanding nudged_draft draft_strikes reviewing shelved_accept
   for f in "$d"/draft.tmp.* "$d"/draft_stale.tmp.*; do [ -f "$f" ] && rm -f -- "$f" 2>/dev/null; done
   rmdir -- "$d" 2>/dev/null || true

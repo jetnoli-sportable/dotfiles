@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
   <span class="gen">docgen · generated from <b>docs/guides/wb-decide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-10-24</span>
+  <span class="right">updated 2026-10-25</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -337,6 +337,31 @@ was accepted by a person reviewing it (10 of 12 reviewed), so the drafts
 now go to you at moments you are reviewing, not to the agent in the
 middle of a request. The strikes, follow/ignore bookkeeping and the
 two-phase <code>accept --begin</code> went with the nudge.</p>
+<p><strong>After a record: telling the rest of the family (2026-10-25).</strong> A
+recorded decision now reaches the other live sessions it affects in the
+same task family. Other running sessions never see this task's
+<code>## Decisions</code>, so without this a sibling session could keep building on
+an assumption that had just changed. After any successful Decisions append, the skill
+(step 6) lists the family's live sessions (<code>wb family &lt;task&gt; --sessions</code>,
+matched against ListAgents), reads each one's <code>## Plan</code> and latest
+Handoffs entry, and messages only those the decision changes something
+for. The default is nobody. A session waiting on its user is named but
+not messaged. A shelf review sends once at its end, <code>/close-out</code> once per
+run, and the weekly review once per family, never once per draft. Each
+message starts <code>[wb-propagate]</code> and tells the recipient to act only
+within its own task, not to reply or forward, and not to send on any
+decision it records because of the message. Such a decision ends with a
+<code>- Prompted-by: [wb-propagate] from &lt;task&gt;</code> bullet, which every later
+send skips; the background sweep adds it to drafts too.</p>
+<p>Step 7 is the promotion offer: copying a decision that changes how the
+system behaves into the family's <code>CONCEPTS.md</code>, which every new session
+in the family loads. It shows the exact lines, the target file, which
+tasks it reaches and what each line supersedes, and writes only what you
+approve. <code>/close-out</code> always offers it. Mid-session it is offered only
+when the family already has a <code>CONCEPTS.md</code> and another family session
+is live. Creating a family's first <code>CONCEPTS.md</code> happens only at
+<code>/close-out</code>, followed by <code>wb family &lt;task&gt; --reseed</code> so existing
+worktrees import it.</p>
 <h2 id="try-it-now">Try it now</h2>
 <p>In any wb session, after something is actually settled:</p>
 <pre><code>/wb-decide
@@ -478,7 +503,7 @@ it never adds <code>--leave-shelved</code> on its own.</p>
 </tr>
 <tr>
 <td>Per-session state</td>
-<td><code>~/.local/state/wb/capture/&lt;session_id&gt;/</code> (sweep bookkeeping: <code>taskhash</code>, <code>unchanged</code>, <code>muted</code>, <code>ended</code>, <code>taskpath</code>, <code>transcript</code>, <code>sweep_offset</code>, …)</td>
+<td><code>~/.local/state/wb/capture/&lt;session_id&gt;/</code> (sweep bookkeeping: <code>taskhash</code>, <code>unchanged</code>, <code>muted</code>, <code>ended</code>, <code>taskpath</code>, <code>transcript</code>, <code>sweep_offset</code>, <code>received</code> (the last few <code>[wb-propagate]</code> messages this session got, so a later sweep can still mark a draft Prompted-by), …)</td>
 </tr>
 <tr>
 <td>Event log</td>

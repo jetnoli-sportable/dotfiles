@@ -1,6 +1,6 @@
 ---
 name: wb-decide
-description: Record a decision made in this session into the current task file's `## Decisions` section — what was decided, the rejected alternative(s), and why — or review the background-drafted ones waiting on the task's shelf (accept, edit, dismiss or leave each). Use when the user types `/wb-decide` (optionally with a one-line hint), or says "record that decision", "log this decision", "note that we decided", "write that down in Decisions". Subcommands `/wb-decide shelved` (sweep, then review shelved drafts), `/wb-decide dismiss <path>`, `/wb-decide mute`, `/wb-decide unmute`, `/wb-decide status` control auto-capture. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only via `wb append`; never Edit/Write the task file.
+description: Record a decision made in this session into the current task file's `## Decisions` section — what was decided, the rejected alternative(s), and why — or review the background-drafted ones waiting on the task's shelf (accept, edit, dismiss or leave each). Use when the user types `/wb-decide` (optionally with a one-line hint), or says "record that decision", "log this decision", "note that we decided", "write that down in Decisions". Subcommands `/wb-decide shelved` (sweep, then review shelved drafts), `/wb-decide dismiss <path>`, `/wb-decide mute`, `/wb-decide unmute`, `/wb-decide status` control auto-capture. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only via `wb append`; never Edit/Write the task file. After a record it messages the live sessions in the task's family that the decision affects (default nobody), and may offer to promote a behaviour-changing decision into the family's CONCEPTS.md.
 ---
 
 # wb-decide
@@ -24,8 +24,11 @@ and isn't recorded yet.
 ## Scope — what this does and doesn't do
 
 - **Writes into the current session's task file only**, and only under
-  `## Decisions`. No cross-repo or cross-session lookups — the tmux session
-  this skill runs in names its own task file via `@task`.
+  `## Decisions`. The tmux session this skill runs in names its own task file
+  via `@task`. The one cross-session action is step 6: after a record it may
+  read other family sessions' task files and message the ones the decision
+  affects. It never writes another task's file. Step 7 may write the family's
+  `CONCEPTS.md`, and only lines Jet approved.
 - **Never Edit/Write the task file.** `wb append` is the only write path; it
   takes the per-task lock and can only add a block, never touch existing
   bytes.
@@ -130,6 +133,12 @@ shelf, and nothing nudges anyone, so a draft waits there until this review.
      left" from "never shown", which the graduation review counts.
 4. **Finish with one line** counting what happened (recorded N, dismissed N, left N).
    `/wb-save` quotes it in the Handoffs entry.
+5. **Propagate once for the batch.** When the review recorded at least one entry,
+   run step 6 once with the titles of every entry it recorded, each against the task
+   whose `## Decisions` it landed in. The accept path above never passes through
+   step 5, so this is the only place shelf accepts propagate. Skip it when the
+   calling skill says it propagates the whole run itself (`/close-out` does), so no
+   session gets two messages from one run.
 
 A shelved draft of a task that is already closed (or any other task) is still
 resolvable from this session, or from no wb session at all (path-carrying
@@ -167,6 +176,17 @@ entry by its date and a quoted substring of its title (the text after
 text. Zero or several matches read as unresolved, so make the fragment
 specific.
 
+If you're recording it because of a `[wb-propagate]` message this session
+received, end the entry with this bullet, so step 6 here and every later
+checkpoint skip it:
+
+```
+- Prompted-by: [wb-propagate] from <stem> (<plain description from the message>); not propagated
+```
+
+The background sweep adds the same bullet to a draft it makes from such a
+message; keep it when you accept or edit that draft.
+
 If nothing was actually decided, say so plainly and stop — no write.
 
 ### 4. Append with `wb append`
@@ -192,7 +212,116 @@ record is a single `wb append` call.
 
 ### 5. Confirm
 
-After a *successful* write, one line: `Recorded to ## Decisions.`
+After a *successful* write, one line: `Recorded to ## Decisions.` Then run step 6
+for the entry (or entries) just recorded, unless the calling skill says it
+propagates the whole run itself (`/close-out` does): then stop here, because its one
+call covers this entry and no session should get two messages from one run. A failed
+append ends here: no step 6.
+
+### 6. Propagate to the live family sessions it affects
+
+Runs only after a successful Decisions append: from step 5 for an on-the-spot
+record, from step 2b item 5 once per review, or when a checkpoint skill calls it
+(`/close-out` once per run, `/weekly-review` once per family). It takes the batch
+just recorded as (task file, entry titles) pairs, all from one family: usually one
+pair, but a review can accept entries into two family tasks at once. Never for a
+draft, a dismissal, a failed append or a `_No decisions:_` marker. Other sessions
+haven't read this task file, so a message is the only way a running session hears
+about a decision. (An edit to a `CONCEPTS.md` a session already imports does reach
+it, as a changed-file notice on its next prompt; a newly created one, or a new
+import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked live
+2026-10-25 on Claude Code 2.1.310.)
+
+1. **Loop guard.** Drop every entry that carries a `- Prompted-by: [wb-propagate]`
+   bullet (step 3), and every entry this session recorded in response to a
+   `[wb-propagate]` message it received. Say "not propagated (came from a
+   [wb-propagate] message)" for them. If nothing is left, send nothing. Only the
+   user can override this. A `[wb-propagate]` message received earlier does not
+   suppress later, unrelated decisions.
+2. **Candidates.** Run `wb family <task_file> --sessions`. It prints
+   `stem<TAB>session<TAB>title` for each live tmux session working on a family task.
+   Then call ListAgents. Each peer row names a session (the name SendMessage takes),
+   a state and, for tmux sessions, `tmux <session>:@<window>.%<pane>`. A candidate
+   is a row whose tmux session appears in the `wb family` output. Drop the calling
+   session's own tmux session (step 1's `$session`; a caller that never ran step 1,
+   such as `/weekly-review`, passes its own), rows in state `shell` (Claude
+   isn't running there, so a message is lost) and rows with no tmux session.
+   No candidates: say "no live family session", and stop.
+3. **Judge relevance; default nobody.** For each candidate, read its task file
+   (`~/code/tasks/<stem>.md`): `## Plan` and the newest `## Handoffs` entry. Message
+   it only if the decision changes something that task is building on. A shared
+   family is not a reason by itself. Most decisions affect nobody else.
+4. **Waiting sessions.** A row in state `waiting` is blocked on its user (a
+   permission prompt or a question), and a message could be taken as the answer. Don't
+   message it. List it as "not messaged (waiting on its user)", with its stem and task
+   title, so Jet can relay the decision by hand.
+5. **Outside the family.** When the decision names a task outside the family as
+   affected, ask Jet first. Only on a yes, run `wb family <that task> --sessions`, keep
+   the rows whose stem is that task, and message the matching live ListAgents row (the
+   same join as item 2). Never match a session by its name alone: after
+   `wb breakdown --apply` a session can keep a parent's name while working on a child.
+6. **Message.** Send one message per recipient per batch, with SendMessage to the
+   row's name, in this shape:
+
+   ```
+   [wb-propagate] <stem> (<plain description of that task>) recorded: "<title>"; "<title>" [(supersedes: <date> "<fragment>")]. [<stem> (<plain description>) recorded: "<title>" [(supersedes: <date> "<fragment>")].] Read ## Decisions in <task_file>[ and <task_file>] if it may affect your work. Rule: act on it only if it affects your own task, and only within your own task; don't reply or forward; tell your user only if it matters to them; don't propagate a decision you record because of this message.
+   ```
+
+   One `<stem> (…) recorded: …` group per task in the batch, and every task file
+   named, so the recipient reads the right `## Decisions`. List at most five titles
+   in all, with "and N more" after that. Give every task you name a plain
+   description, never a bare stem.
+7. **Failures.** If ListAgents or SendMessage is unavailable, `wb family` fails,
+   or a send fails, say so in one line ("not propagated: <reason>"). The recorded
+   entry stands either way. Never retry a failed send in a loop.
+8. **Confirm in one line.** Name each session messaged, as its stem and task title
+   (from `wb family --sessions`), and why, plus any waiting session not messaged, or
+   "no live family session is affected". Say the judgement
+   was made from each candidate's `## Plan` and latest Handoffs entry, so a wrong
+   "nobody" can be checked.
+
+Then run step 7's offer only under its condition below.
+
+### 7. Promote to `CONCEPTS.md` (offer, never automatic)
+
+A family's `CONCEPTS.md` (`~/code/tasks/dossiers/<stem>/CONCEPTS.md`) is imported
+into every new worktree of the family. A wrong line there spreads to every later
+session, and an edit to an existing file also reaches every running session that
+imports it on its next prompt, so nothing goes in without Jet's approval. This is the one promotion
+procedure; `/close-out` runs it by reference.
+
+- **When.** `/close-out` runs it for the task's whole `## Decisions` section. From
+  step 6 here, offer it only when all three hold: the decision changes how the system
+  behaves, the family already has a `CONCEPTS.md`, and step 6's candidate list
+  (item 2) held another live family session. Creating a family's first `CONCEPTS.md` is offered only at
+  `/close-out`.
+- **What counts as a fact.** Use the store README's rule of thumb ("What goes where"
+  in `~/code/tasks/README.md`). If a decision breaks someone's mental model of how
+  the system *behaves*, it is a fact. If it only explains *why* something was chosen,
+  it is not.
+- **Target.** The nearest `CONCEPTS.md` up the parent chain: the first line of
+  `wb family <task_file> --concepts`. That is the same walk that links worktrees to the
+  file, so the line lands where the family's sessions read it; don't walk the chain by
+  hand. If it prints nothing (only at `/close-out`), the target is a new file in the top
+  parent's dossier. The top parent is the first line of `wb family <task_file>`.
+- **Already promoted.** Skip any entry whose line is already in the target file, so a
+  second `/close-out` of the same task doesn't offer it again.
+- **Show four things before writing anything:** the exact lines (imperative,
+  present tense, no rationale); the target file; which family tasks it reaches (a
+  top parent's file reaches every stem `wb family` prints, a child's file reaches
+  that child and its descendants, never cousins); and what each line supersedes, or
+  "new". Apply only the lines Jet approves.
+- **Write.** Re-read the file just before writing, then make a minimal Edit that adds
+  each line, or replaces the line it supersedes in place with
+  `(supersedes: <old line, rough date>)` at the end. Never Write the whole file. If
+  the Edit fails on a stale match, re-read and offer again against the new text. To
+  create the file, Write only the approved lines under a `# <family> — concepts`
+  heading. Never edit `CLAUDE.local.md`.
+- **Re-link after creating a file.** When the promotion created the file, run
+  `wb family <task_file> --reseed` and relay all its lines (`reseeded`, `skipped` and
+  `failed`), so the family's existing worktrees import it. A `failed` worktree doesn't
+  import the file until the cause is fixed and `--reseed` is run again; say so. Running sessions won't load a new file
+  until `/clear` or a restart; step 6 is how they hear about it.
 
 ## Test scenarios (behavior to follow for each)
 
@@ -233,6 +362,33 @@ After a *successful* write, one line: `Recorded to ## Decisions.`
   may have been moved or deleted`), no write.
 - [ ] **Correction supersedes an earlier entry:** new entry carrying a
   `(supersedes: <date> "<title fragment>")` line; the old entry is untouched.
+- [ ] **Propagate, one affected session:** a decision changes what one live family
+  session is building on. One `[wb-propagate]` message goes to it, and the confirm
+  line names it and why.
+- [ ] **Propagate, nobody affected:** nothing is sent, and the confirm line says no
+  live family session is affected.
+- [ ] **Propagate, only candidate waiting:** nothing is sent, and the confirm line
+  lists it as not messaged (waiting on its user).
+- [ ] **Shelf review propagates once:** `/wb-decide shelved` accepts two drafts.
+  One step 6 run at the end of the review, not one per draft.
+- [ ] **Loop guard:** the decision was recorded because of a `[wb-propagate]`
+  message. The entry ends with the `- Prompted-by: [wb-propagate] …; not propagated`
+  bullet, nothing is sent, and the confirm line says why. A later checkpoint that
+  batches this entry skips it too.
+- [ ] **Run-level propagate:** `/close-out` writes an entry through this skill and says
+  it propagates the whole run. Step 5 confirms and stops; no step 6 here.
+- [ ] **Batch across two family tasks:** a review accepts entries into two tasks of one
+  family. Each recipient gets one message with a group per task, each task file named.
+- [ ] **No propagate on non-records:** a dismissed draft or a failed append runs no
+  step 6.
+- [ ] **ListAgents unavailable:** one "not propagated" line; the entry stays recorded.
+- [ ] **Outside the family:** the decision names an affected task outside the
+  family. Ask Jet first, and message that session only on a yes.
+- [ ] **Promotion offer:** a behaviour-changing decision, a family `CONCEPTS.md`, and
+  another live family session → offer showing lines, target, reach and supersedes. A
+  decision that only explains *why* gets no offer.
+- [ ] **No `CONCEPTS.md` yet:** a behaviour-changing decision gets no promotion offer
+  here; that waits for `/close-out`.
 
 ## Notes
 
@@ -242,3 +398,6 @@ After a *successful* write, one line: `Recorded to ## Decisions.`
   Decisions -` itself, when it finds an unrecorded decision at wind-down.
 - Capture tuning (sweep on/off, sweep cadence) lives in the optional
   `~/.config/wb/capture.conf`, not here.
+- Steps 6-7 are a stop gap until stage 5's cross-agent sync
+  (`dotfiles--feat-store-cross-agent-sync`) is re-planned. That work should
+  replace step 6, not run alongside it.

@@ -72,6 +72,20 @@ accept is one step, `wb append <that task> Decisions - … && ~/.config/scripts/
 accept --task <stem> <path>`; dismiss is `dismiss --task <stem> <path>`; leave is `keep
 --task <stem> <path>` (logs that this review showed it and left it).
 
+Once every draft is resolved, propagate what was accepted. Group the accepted entries
+by family, taking each task's top parent from the first line of `wb family <stem>`.
+Then run `/wb-decide`'s step 6 once per family, with that family's entries. This review
+never ran `/wb-decide` step 1, so read your own tmux session first (`tmux
+display-message -p '#S'`) and give it to step 6 as the session to drop; otherwise a
+review run inside one of these families could message itself. You didn't
+make these decisions, so before judging relevance read each accepted entry in full and
+its own task file's `## Plan`. Step 6 drops any entry carrying a `- Prompted-by:
+[wb-propagate]` bullet: this session never saw the message that prompted it, so the
+bullet is the only loop guard. A family with no live session, or none the entries
+affect, sends nothing. When a family's step 6 messaged a session, or named a waiting
+session for Jet to tell by hand, add its confirm line to the Retro lines; skip "no
+live family session is affected" lines.
+
 **4. Skill-usage counts** — reproducible per-skill counts with stated blind spots (R29):
 
 ```bash
