@@ -281,7 +281,7 @@ waiting: it stays grey. The cursor also stays on its row across the
 | <kbd>p</kbd> | Close this row's session with `wb down` — worktree kept, resumable later. Guarded the same way <kbd>Ctrl</kbd>+<kbd>x</kbd> is: on the picker's own current session it writes everything but skips the kill |
 | <kbd>r</kbd> | Rename the row's tmux session (prompts inline, cosmetic only — doesn't touch the task file or worktree) |
 | <kbd>b</kbd> | Break the row's agent pane out into a brand new session of its own (prompts for a name) — for a second agent you started ad hoc in a shared session and now want on its own. On a parent session row this takes the session's *most-urgent* agent pane; on a row with no agent it does nothing. |
-| <kbd>Ctrl</kbd>+<kbd>x</kbd> | On a task row: the full `wb done` wind-down. On a plain session/agent row: a raw kill. |
+| <kbd>Ctrl</kbd>+<kbd>x</kbd> | On a task row: asks "Close &lt;task&gt; (&lt;title&gt;)? [y/N]" first, then the full `wb done` wind-down; any key but <kbd>y</kbd> cancels. On a plain session/agent row: a raw kill, no prompt. |
 | <kbd>Ctrl</kbd>+<kbd>r</kbd> | Force a refresh (it also auto-refreshes every few seconds, without ever blocking your typing) |
 | <kbd>i</kbd> or <kbd>/</kbd> | Start typing to search — this also widens the dormant pool to include `paused` (deliberately shelved) tasks; <kbd>Esc</kbd> to go back to normal mode |
 | <kbd>q</kbd> / <kbd>h</kbd> | Close the picker |
@@ -608,9 +608,11 @@ notice on its next prompt; a newly created one doesn't until `/clear` or a resta
 
 - **Messages to live sessions.** After any successful Decisions append,
   `/wb-decide` (step 6) lists the family's live sessions with
-  `wb family <task> --sessions`, matches them against ListAgents, reads each one's
-  `## Plan` and latest Handoffs entry, and messages only those the decision affects.
-  The default is nobody. Sessions waiting on their user are named but not messaged.
+  `wb family <task> --sessions`, matches them by SendMessage name against ListAgents,
+  reads each one's `## Plan` and latest Handoffs entry, and messages only those the
+  decision affects. The default is nobody. Sessions waiting on their user are named
+  but not messaged; sessions busy in a shell command are messaged, and it queues;
+  family sessions where no Claude's name could be read are listed as "no Claude found".
   On-the-spot records propagate straight away, a shelf review propagates once at its
   end, `/close-out` once per run, and `/weekly-review` once per family. Each message
   starts with `[wb-propagate]` and carries its own rule: act only within your own
@@ -766,7 +768,7 @@ details, incident history, and runbooks live in
 | `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
 | `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
 | `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |
-| `wb family <task> [--sessions\|--reseed\|--concepts]` | Lists a task's family (top parent first, then every descendant). `--sessions` lists the live tmux sessions working on it. `--concepts` lists the task's `CONCEPTS.md` files, nearest first (promotion writes to the first). `--reseed` re-links every family worktree to the family's `CONCEPTS.md`, and is the only form that writes anything (the untracked `CLAUDE.local.md` pointer). See "Decision propagation" above. |
+| `wb family <task> [--sessions\|--reseed\|--concepts]` | Lists a task's family (top parent first, then every descendant). `--sessions` lists the live tmux sessions working on it, with the SendMessage name of each Claude running in them (read from Claude Code's session registry). `--concepts` lists the task's `CONCEPTS.md` files, nearest first (promotion writes to the first). `--reseed` re-links every family worktree to the family's `CONCEPTS.md`, and is the only form that writes anything (the untracked `CLAUDE.local.md` pointer). See "Decision propagation" above. |
 
 Two hooks now sit in front of raw git commands touching this repo:
 a `PreToolUse` hook asks before an agent runs anything that looks like a

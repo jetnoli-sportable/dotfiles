@@ -239,13 +239,28 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
    user can override this. A `[wb-propagate]` message received earlier does not
    suppress later, unrelated decisions.
 2. **Candidates.** Run `wb family <task_file> --sessions`. It prints
-   `stem<TAB>session<TAB>title` for each live tmux session working on a family task.
-   Then call ListAgents. Each peer row names a session (the name SendMessage takes),
-   a state and, for tmux sessions, `tmux <session>:@<window>.%<pane>`. A candidate
-   is a row whose tmux session appears in the `wb family` output. Drop the calling
-   session's own tmux session (step 1's `$session`; a caller that never ran step 1,
-   such as `/weekly-review`, passes its own), rows in state `shell` (Claude
-   isn't running there, so a message is lost) and rows with no tmux session.
+   `stem<TAB>session<TAB>title<TAB>name` for each live tmux session working on a
+   family task: one line per Claude running in that session, where `name` is the
+   name SendMessage takes, and one line with an empty `name` when no named Claude
+   is found there. Then call ListAgents. Its header names this session ("This session is
+   `<name>`"), and each peer row gives a name and a state. A candidate is a peer row
+   whose name equals a non-empty `name` from the `wb family` output. Match on the
+   name only: ListAgents leaves out its `tmux <session>:…` field whenever that
+   string passes 64 characters, which long wb session names do. Drop only the
+   caller's own name, so a second Claude in the caller's tmux session stays a
+   candidate. Keep rows in state `shell`: that Claude is alive but blocked in a
+   foreground command (a decision buffer, say), and the message queues until its
+   next tool round. Treat `busy` the same way.
+
+   **Before selecting candidates, check the registry.** Get the caller's tmux session name: step 1's `$session`,
+   or `tmux display-message -p '#S'` for a caller that never ran step 1 (`/close-out`,
+   `/weekly-review`, a step 2b review). If that session appears in the `wb family`
+   output but the caller's own name does not, the session registry `wb` reads names
+   from is unreadable (no `jq`, or a Claude Code change). Say "not propagated:
+   session registry unreadable", list the family sessions by stem and title for Jet
+   to relay by hand, and stop. Never report that as "no live family session". The
+   check doesn't apply when the caller isn't in tmux or its session isn't in the
+   output (a `/weekly-review` run from outside the family, say).
    No candidates: say "no live family session", and stop.
 3. **Judge relevance; default nobody.** For each candidate, read its task file
    (`~/code/tasks/<stem>.md`): `## Plan` and the newest `## Handoffs` entry. Message
@@ -258,7 +273,7 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
 5. **Outside the family.** When the decision names a task outside the family as
    affected, ask Jet first. Only on a yes, run `wb family <that task> --sessions`, keep
    the rows whose stem is that task, and message the matching live ListAgents row (the
-   same join as item 2). Never match a session by its name alone: after
+   same name join as item 2). Never match a session by its tmux session name: after
    `wb breakdown --apply` a session can keep a parent's name while working on a child.
 6. **Message.** Send one message per recipient per batch, with SendMessage to the
    row's name, in this shape:
@@ -272,11 +287,16 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
    in all, with "and N more" after that. Give every task you name a plain
    description, never a bare stem.
 7. **Failures.** If ListAgents or SendMessage is unavailable, `wb family` fails,
-   or a send fails, say so in one line ("not propagated: <reason>"). The recorded
+   the session registry is unreadable (item 2's check), or a send fails, say so in
+   one line ("not propagated: <reason>"). The recorded
    entry stands either way. Never retry a failed send in a loop.
 8. **Confirm in one line.** Name each session messaged, as its stem and task title
-   (from `wb family --sessions`), and why, plus any waiting session not messaged, or
-   "no live family session is affected". Say the judgement
+   (from `wb family --sessions`), and why. Mark a session that was in state `shell`
+   as "busy in a shell command, message queued". Add any waiting session not
+   messaged, or say "no live family session is affected". List every other family
+   session that printed an empty `name` as "no Claude found in <stem> (<title>)":
+   a Claude whose registry entry couldn't be read looks the same, so Jet can check
+   by hand. Say the judgement
    was made from each candidate's `## Plan` and latest Handoffs entry, so a wrong
    "nobody" can be checked.
 
@@ -369,6 +389,24 @@ procedure; `/close-out` runs it by reference.
   live family session is affected.
 - [ ] **Propagate, only candidate waiting:** nothing is sent, and the confirm line
   lists it as not messaged (waiting on its user).
+- [ ] **Propagate, long session name:** an affected family session's tmux binding
+  passes 64 characters, so ListAgents shows no tmux field for it. It is still a
+  candidate (matched by the name `wb family --sessions` prints) and gets the message.
+- [ ] **Propagate, candidate in a shell command:** an affected session shows state
+  `shell`. It gets the message, and the confirm line says "busy in a shell command,
+  message queued".
+- [ ] **Propagate, second Claude beside the caller:** another Claude runs in the
+  caller's own tmux session. It stays a candidate; only the caller's own name is
+  dropped.
+- [ ] **Propagate, registry unreadable:** the caller's own name is missing from
+  `wb family --sessions`. Nothing is sent, the confirm line says "not propagated:
+  session registry unreadable", and the family sessions are listed for hand relay.
+- [ ] **Propagate from a checkpoint caller:** `/close-out` runs step 6 without step 1.
+  It gets its own tmux session with `tmux display-message -p '#S'` for the registry
+  check rather than skipping it.
+- [ ] **Propagate, empty name on another session:** a family session prints an
+  empty `name`. It isn't messaged, and the confirm line lists it as "no Claude
+  found in <stem> (<title>)".
 - [ ] **Shelf review propagates once:** `/wb-decide shelved` accepts two drafts.
   One step 6 run at the end of the review, not one per draft.
 - [ ] **Loop guard:** the decision was recorded because of a `[wb-propagate]`

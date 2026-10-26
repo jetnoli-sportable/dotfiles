@@ -65,8 +65,10 @@
 #   wb family <task> [--sessions|--reseed|--concepts]
 #                                    print <task>'s family stems (top parent first, then every
 #                                    descendant), read-only and tmux-free; --sessions prints
-#                                    stem<TAB>session<TAB>title per live session working on one
-#                                    (matched by @task, else session name); --reseed rewrites the
+#                                    stem<TAB>session<TAB>title<TAB>name per live session working
+#                                    on one (matched by @task, else session name; name is the
+#                                    SendMessage name of each Claude running there, empty if none,
+#                                    from Claude Code's session registry); --reseed rewrites the
 #                                    CLAUDE.local.md concepts pointer in each family worktree;
 #                                    --concepts prints <task>'s CONCEPTS.md files, nearest first
 #   wb week path                     print the standing weekly-capture doc's path,
@@ -556,18 +558,42 @@ wb_task_own_parent() {
 }
 
 # wb_family_all_done <parent_stem> — KTD8: true when <parent_stem> has at
-# least one child (parent: == <parent_stem>) and EVERY one of them is
-# status: done — a review/paused/planned sibling suppresses it, an only
-# child is enough to fire it. Pure read, no writes; cmd_done decides what
-# to do with the result (print-only, D8: closing the parent stays manual).
+# least one descendant and EVERY descendant, at any depth (_wb_family_tree),
+# is status: done — a review/paused/planned sibling or grandchild suppresses
+# it, an only child is enough to fire it. Pure read, no writes; cmd_done
+# decides what to do with the result (print-only, D8: closing the parent
+# stays manual).
 wb_family_all_done() {
-  local parent_stem="$1" f found=0
-  for f in $(wb_task_files); do
-    [ "$(wb_get_frontmatter "$f" parent)" = "$parent_stem" ] || continue
+  local parent_stem="$1" stem found=0
+  while IFS= read -r stem; do
+    [ "$stem" != "$parent_stem" ] || continue
     found=1
-    [ "$(wb_get_frontmatter "$f" status)" = done ] || return 1
-  done
+    [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" = done ] || return 1
+  done < <(_wb_family_tree "$parent_stem")
   [ "$found" = 1 ]
+}
+
+# wb_family_close_target <parent_stem> — the ancestor cmd_done's nudge names,
+# or nothing. Climbs from <parent_stem> past ancestors already marked done
+# (closing a grandchild last leaves its done parent's own parent as the one
+# to close) and stops at the first that isn't: that one is printed only when
+# wb_family_all_done holds for it. An ancestor above it can't qualify while it
+# is open. Guarded like _wb_family_stems' climb: seen-set, depth cap 20, stop
+# at a missing parent file.
+wb_family_close_target() {
+  local stem="$1" depth=0
+  local -A seen=()
+  while [ -n "$stem" ] && [ "$depth" -lt 20 ] && [ -z "${seen[$stem]:-}" ] \
+      && [ -f "$TASKS_DIR/$stem.md" ]; do
+    if [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" != done ]; then
+      if wb_family_all_done "$stem"; then printf '%s\n' "$stem"; fi
+      return 0
+    fi
+    seen[$stem]=1
+    depth=$((depth + 1))
+    stem="$(wb_get_frontmatter "$TASKS_DIR/$stem.md" parent)"
+  done
+  return 0
 }
 
 # wb_session_task_file <session> — KTD7's @task-first task-file resolution.
@@ -5325,14 +5351,20 @@ cmd_done() {
   fi
 
   # KTD8's last-child nudge: pure read + print, guarded so a scan failure
-  # can never abort cmd_done under set -e (an `if` condition's exit status
-  # is exempt from errexit either way, but the explicit -f guard also keeps
-  # a missing parent file silent rather than probing wb_family_all_done
+  # can never abort cmd_done under set -e (the `|| close_target=""` keeps a
+  # failed scan from tripping errexit, and the explicit -f guard keeps a
+  # missing parent file silent rather than probing wb_family_all_done
   # against a store with no matching file at all). D8: manual parent
-  # closing stays manual — this only ever prints, never writes.
-  local task_parent; task_parent="$(wb_get_frontmatter "$task_file" parent)"
-  if [ -n "$task_parent" ] && [ -f "$TASKS_DIR/$task_parent.md" ] && wb_family_all_done "$task_parent"; then
-    echo "wb done: all children of $task_parent are done — close it with: wb done $task_parent"
+  # closing stays manual — this only ever prints, never writes. The named
+  # task is the first open ancestor (wb_family_close_target), not always the
+  # direct parent, which may already be done.
+  local task_parent close_target=""
+  task_parent="$(wb_get_frontmatter "$task_file" parent)"
+  if [ -n "$task_parent" ] && [ -f "$TASKS_DIR/$task_parent.md" ]; then
+    close_target="$(wb_family_close_target "$task_parent")" || close_target=""
+  fi
+  if [ -n "$close_target" ]; then
+    echo "wb done: all children of $close_target are done — close it with: wb done $close_target"
   fi
 
   # KTD5's roadmap-currency nudge: pure read + print, never gates or writes.
@@ -6398,12 +6430,11 @@ cmd_task_file() {
 # _wb_family_stems <task_file> — the family's stems, one per line: the top
 # parent first, then every descendant depth-first, each once. The climb is
 # _wb_concepts_paths' guarded walk (seen-set, depth cap 20, self-parent,
-# stop at a missing parent file); the descent uses a parent -> children map
-# built in ONE pass over wb_task_files (as wb_board_v2_build does) with its
-# own seen-set, so a hand-edited cycle can't loop either direction.
+# stop at a missing parent file); the descent is _wb_family_tree, so a
+# hand-edited cycle can't loop either direction.
 _wb_family_stems() {
   local task_file="$1"
-  local -A seen=() kids=() out=()
+  local -A seen=()
   local depth=0 max_depth=20 stem parent_ref parent_file
   local current_file="$task_file"
   local root; root="$(basename "$task_file" .md)"
@@ -6422,9 +6453,18 @@ _wb_family_stems() {
     current_file="$parent_file"
   done
 
-  local f
+  _wb_family_tree "$root"
+}
+
+# _wb_family_tree <stem> — <stem>, then every descendant depth-first, each
+# once. The parent -> children map is built in ONE pass over wb_task_files
+# (as wb_board_v2_build does), and the seen-set stops a hand-edited cycle.
+_wb_family_tree() {
+  local root="$1"
+  local -A kids=() out=()
+  local f stem parent_ref
   while IFS= read -r f; do
-    stem="$(basename "$f" .md)"
+    stem="${f##*/}"; stem="${stem%.md}"
     parent_ref="$(wb_get_frontmatter "$f" parent)"
     [ -n "$parent_ref" ] || continue
     wb_task_own_parent "$parent_ref" "$stem" || continue
@@ -6446,13 +6486,35 @@ _wb_family_stems() {
   done
 }
 
+# _wb_registry_panes — pane<TAB>pid<TAB>name for every entry in Claude Code's
+# session registry (~/.claude/sessions/<pid>.json; CLAUDE_SESSIONS_DIR
+# overrides, as in claude-reply-log.sh). `name` is what SendMessage takes, and
+# ListAgents drops its tmux field past 64 characters, so this is the only way
+# to tie a long-named session to its Claude. The join key is the pane id: the
+# `tmux` field is written once at startup, so a later rename-session leaves its
+# session part stale. Each file is one line of JSON fed through `fromjson?`,
+# so a half-written file is skipped instead of ending jq's pass early. No jq
+# or no registry prints nothing. Liveness is the caller's check.
+_wb_registry_panes() {
+  local dir="${CLAUDE_SESSIONS_DIR:-$HOME/.claude/sessions}" f
+  command -v jq >/dev/null 2>&1 || return 0
+  for f in "$dir"/*.json; do
+    [ -f "$f" ] && printf '%s\n' "$(<"$f")"
+  done | jq -rR 'fromjson? | select(type == "object")
+    | select((.tmux // "") | test("\\.%[0-9]+$"))
+    | [(.tmux | sub("^.*\\."; "")), (.pid | tostring), (.name // "")] | @tsv' 2>/dev/null || true
+}
+
 # cmd_family <task-ref> [--sessions|--reseed]
 #   (none)      the family's stems, one per line (_wb_family_stems).
-#   --sessions  stem<TAB>session<TAB>title per live tmux session working on a
-#               family task. A session is matched by its @task option (KTD2:
-#               after `wb breakdown --apply` a continuing child keeps the
-#               parent's session NAME while @task points at the child), and
-#               by session name only when @task is unset.
+#   --sessions  stem<TAB>session<TAB>title<TAB>name per live tmux session
+#               working on a family task. A session is matched by its @task
+#               option (KTD2: after `wb breakdown --apply` a continuing child
+#               keeps the parent's session NAME while @task points at the
+#               child), and by session name only when @task is unset. `name`
+#               is the SendMessage name of a live Claude in one of the
+#               session's panes (_wb_registry_panes): one line per Claude, and
+#               one line with an empty name when none is running there.
 #   --reseed    re-run _wb_seed_concepts_file for every family worktree that
 #               exists, so a newly-written CONCEPTS.md is linked without a
 #               `wb new`. Prints `reseeded <stem> <path>` / `skipped <stem>
@@ -6494,9 +6556,15 @@ cmd_family() {
       printf '%s\n' "${stems[@]}"
       ;;
     --sessions)
-      local -A member=()
+      local -A member=() pane_names=()
       for stem in "${stems[@]}"; do member[$stem]=1; done
-      local session cur
+      local reg_pane reg_pid reg_name
+      while IFS=$'\t' read -r reg_pane reg_pid reg_name; do
+        [[ "$reg_pid" =~ ^[0-9]+$ ]] && [ -n "$reg_name" ] || continue
+        kill -0 "$reg_pid" 2>/dev/null || continue
+        pane_names[$reg_pane]+="$reg_name"$'\n'
+      done < <(_wb_registry_panes)
+      local session cur title pane names name
       while IFS= read -r session; do
         [ -n "$session" ] || continue
         cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
@@ -6506,7 +6574,22 @@ cmd_family() {
           stem="$session"
         fi
         [ -n "${member[$stem]:-}" ] || continue
-        printf '%s\t%s\t%s\n' "$stem" "$session" "$(wb_task_title "$TASKS_DIR/$stem.md")"
+        title="$(wb_task_title "$TASKS_DIR/$stem.md")"
+        names=""
+        while IFS= read -r pane; do
+          names+="${pane_names[$pane]:-}"
+        done < <(tmux list-panes -s -t "=$session" -F '#{pane_id}' 2>/dev/null || true)
+        if [ -z "$names" ]; then
+          printf '%s\t%s\t%s\t\n' "$stem" "$session" "$title"
+          continue
+        fi
+        while IFS= read -r name; do
+          # An if, not `&&`: the here-string's final empty line would leave
+          # status 1, and as the last command that becomes wb's exit code.
+          if [ -n "$name" ]; then
+            printf '%s\t%s\t%s\t%s\n' "$stem" "$session" "$title" "$name"
+          fi
+        done <<< "$names"
       done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
       ;;
     --reseed)
@@ -6673,11 +6756,22 @@ _new() {
 # deliberately scoped to ctrl-x's dispatch, not cmd_done itself — typing
 # `wb done --close` yourself from inside your own session stays intentional
 # self-close and is untouched.
+#
+# Every task row asks first (_ctrl_x_confirm): one stray ctrl-x on the
+# picker closed a task mid-review on 2026-10-26, removing its worktree
+# (dotfiles--fix-propagation-peer-filter). Typed `wb done` and the /wb-done
+# skill stay unprompted; repo and agent rows too.
 _ctrl_x() {
   local kind="$1" session="$2" target="$3" ref="${4:-}"
   case "$kind" in
     task)
       if [ -n "$session" ]; then
+        local self=0 effect="Removes the worktree, marks the task done, and closes the session."
+        if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
+          self=1
+          effect="Removes the worktree and marks the task done; your current session stays open."
+        fi
+        _ctrl_x_confirm "$(wb_session_task_file "$session" 2>/dev/null || true)" "$session" "$effect" || return 0
         # Never run the wind-down from inside the doomed worktree. tmux.conf's
         # `bind m`/`bind a` anchor the picker at $HOME, which covers the
         # keybind path — but `wb` is also a zsh alias run from an ordinary
@@ -6688,7 +6782,7 @@ _ctrl_x() {
         # deleted cwd mid-teardown. Guarded so a missing $HOME can't abort the
         # wind-down under set -e.
         cd "$HOME" 2>/dev/null || true
-        if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
+        if [ "$self" = 1 ]; then
           cmd_done "$session"
           echo "wb: not closing '$session' via ctrl-x — it's your current session; run 'wb done --close' yourself once you're ready to leave it" >&2
         else
@@ -6699,12 +6793,34 @@ _ctrl_x() {
         # resolve from at all — cmd_done's own KTD7 store-only path
         # resolves a task-file stem instead, same mechanism the printed
         # "wb done <parent-stem>" nudge already relies on.
+        _ctrl_x_confirm "$ref" "$(basename "$ref" .md)" "Marks the task done in the store; nothing is torn down." || return 0
         cmd_done "$(basename "$ref" .md)"
       fi
       ;;
     repo)  [ -n "$session" ] && tmux kill-session -t "=$session" 2>/dev/null ;;
     agent) [ -n "$target" ]  && tmux kill-pane -t "$target" 2>/dev/null ;;
   esac
+}
+
+# _ctrl_x_confirm <task-file> <name> <effect> — ask "Close <stem> (<title>)?"
+# on stderr and read one key from stdin (the terminal, after the picker's
+# `become`). Only y or Y returns 0; any other key, Enter or no input at all
+# leaves the task as it was. <name> stands in for the stem when the task file
+# can't be found.
+_ctrl_x_confirm() {
+  local file="$1" name="$2" effect="$3" title="" ans=""
+  if [ -f "$file" ]; then
+    name="${file##*/}"; name="${name%.md}"
+    title="$(wb_task_title "$file")"
+  fi
+  printf 'Close %s%s? %s [y/N] ' "$name" "${title:+ ($title)}" "$effect" >&2
+  read -r -n 1 ans || true
+  printf '\n' >&2
+  case "$ans" in
+    y|Y) return 0 ;;
+  esac
+  echo "wb: left $name as it was" >&2
+  return 1
 }
 
 # wb_preview_cmd — the picker's --preview: the session context card

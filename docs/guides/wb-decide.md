@@ -98,10 +98,16 @@ same task family. Other running sessions never see this task's
 `## Decisions`, so without this a sibling session could keep building on
 an assumption that had just changed. After any successful Decisions append, the skill
 (step 6) lists the family's live sessions (`wb family <task> --sessions`,
-matched against ListAgents), reads each one's `## Plan` and latest
+which gives each Claude's SendMessage name, matched by name against
+ListAgents), reads each one's `## Plan` and latest
 Handoffs entry, and messages only those the decision changes something
 for. The default is nobody. A session waiting on its user is named but
-not messaged. A shelf review sends once at its end, `/close-out` once per
+not messaged. A session busy in a shell command (a decision buffer, say)
+is messaged, and the message waits for its next tool round. A family
+session where no Claude's name could be read is listed as "no Claude
+found", so you can check by hand whether one was running. (Fixed
+2026-10-26: long session names and `shell` sessions used to be skipped.)
+A shelf review sends once at its end, `/close-out` once per
 run, and the weekly review once per family, never once per draft. Each
 message starts `[wb-propagate]` and tells the recipient to act only
 within its own task, not to reply or forward, and not to send on any

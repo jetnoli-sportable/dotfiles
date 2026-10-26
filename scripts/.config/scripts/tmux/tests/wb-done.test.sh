@@ -185,9 +185,24 @@ else
   echo "ok   - done --close: session killed"
 fi
 
-# --- integration: picker's ctrl-x on a task row takes the close path --------
+# --- picker's ctrl-x on a task row asks first; anything but y cancels ------
 gamma_session="$(session_for gamma)"
-out="$(_ctrl_x task "$gamma_session" "" 2>&1)"; rc=$?
+for answer in n "" EOF; do
+  case "$answer" in
+    EOF) out="$(_ctrl_x task "$gamma_session" "" </dev/null 2>&1)"; rc=$? ;;
+    *)   out="$(_ctrl_x task "$gamma_session" "" 2>&1 <<<"$answer")"; rc=$? ;;
+  esac
+  [ "$rc" -eq 0 ] && echo "ok   - ctrl-x cancel ($answer): exits 0" || { echo "FAIL - ctrl-x cancel ($answer): exit $rc: $out"; fail=1; }
+  assert "ctrl-x cancel ($answer): says it left the task alone" 'wb: left proj--gamma as it was' "$out"
+  assert "ctrl-x cancel ($answer): task still doing" '^doing$' "$(status_of gamma)"
+  [ -d "$FIXTURE_CODE/proj/.worktrees/gamma" ] && echo "ok   - ctrl-x cancel ($answer): worktree kept" || { echo "FAIL - ctrl-x cancel ($answer): worktree removed"; fail=1; }
+  tmux has-session -t "=$gamma_session" 2>/dev/null && echo "ok   - ctrl-x cancel ($answer): session alive" || { echo "FAIL - ctrl-x cancel ($answer): session killed"; fail=1; }
+done
+assert "ctrl-x prompt: names the task, its title and what closing does" \
+  'Close proj--gamma \(Title\)\? Removes the worktree, marks the task done, and closes the session\. \[y/N\]' "$out"
+
+# --- integration: picker's ctrl-x on a task row, confirmed, takes the close path
+out="$(_ctrl_x task "$gamma_session" "" 2>&1 <<<y)"; rc=$?
 assert "ctrl-x task: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
 [ -d "$FIXTURE_CODE/proj/.worktrees/gamma" ] \
   && { echo "FAIL - ctrl-x task: worktree not removed"; fail=1; } \
@@ -198,6 +213,18 @@ if tmux has-session -t "=$gamma_session" 2>/dev/null; then
 else
   echo "ok   - ctrl-x task: session killed via picker dispatch"
 fi
+
+# --- ctrl-x on a dormant row (no session) asks too, then closes in the store
+omicron_file="$FIXTURE_TASKS/proj--omicron.md"
+printf -- '---\nstatus: planned\nrepo: proj\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Omicron title\n' >"$omicron_file"
+out="$(_ctrl_x task "" "" "$omicron_file" 2>&1 <<<x)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - ctrl-x dormant cancel: exits 0" || { echo "FAIL - ctrl-x dormant cancel: exit $rc: $out"; fail=1; }
+assert "ctrl-x dormant prompt: names the task and says nothing is torn down" \
+  'Close proj--omicron \(Omicron title\)\? Marks the task done in the store; nothing is torn down\. \[y/N\]' "$out"
+assert "ctrl-x dormant cancel: task still planned" '^planned$' "$(wb_get_frontmatter "$omicron_file" status)"
+out="$(_ctrl_x task "" "" "$omicron_file" 2>&1 <<<Y)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - ctrl-x dormant confirm (Y): exits 0" || { echo "FAIL - ctrl-x dormant confirm (Y): exit $rc: $out"; fail=1; }
+assert "ctrl-x dormant confirm (Y): task done" '^done$' "$(wb_get_frontmatter "$omicron_file" status)"
 
 # --- regression: a dirty worktree fails fast, --close or not ----------------
 dirty_session="$(session_for dirty)"

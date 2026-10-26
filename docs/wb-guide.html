@@ -569,7 +569,7 @@ waiting: it stays grey. The cursor also stays on its row across the
 </tr>
 <tr>
 <td><kbd>Ctrl</kbd>+<kbd>x</kbd></td>
-<td>On a task row: the full <code>wb done</code> wind-down. On a plain session/agent row: a raw kill.</td>
+<td>On a task row: asks &quot;Close &lt;task&gt; (&lt;title&gt;)? [y/N]&quot; first, then the full <code>wb done</code> wind-down; any key but <kbd>y</kbd> cancels. On a plain session/agent row: a raw kill, no prompt.</td>
 </tr>
 <tr>
 <td><kbd>Ctrl</kbd>+<kbd>r</kbd></td>
@@ -859,9 +859,11 @@ notice on its next prompt; a newly created one doesn't until <code>/clear</code>
 <ul>
 <li><strong>Messages to live sessions.</strong> After any successful Decisions append,
 <code>/wb-decide</code> (step 6) lists the family's live sessions with
-<code>wb family &lt;task&gt; --sessions</code>, matches them against ListAgents, reads each one's
-<code>## Plan</code> and latest Handoffs entry, and messages only those the decision affects.
-The default is nobody. Sessions waiting on their user are named but not messaged.
+<code>wb family &lt;task&gt; --sessions</code>, matches them by SendMessage name against ListAgents,
+reads each one's <code>## Plan</code> and latest Handoffs entry, and messages only those the
+decision affects. The default is nobody. Sessions waiting on their user are named
+but not messaged; sessions busy in a shell command are messaged, and it queues;
+family sessions where no Claude's name could be read are listed as &quot;no Claude found&quot;.
 On-the-spot records propagate straight away, a shelf review propagates once at its
 end, <code>/close-out</code> once per run, and <code>/weekly-review</code> once per family. Each message
 starts with <code>[wb-propagate]</code> and carries its own rule: act only within your own
@@ -1053,7 +1055,7 @@ details, incident history, and runbooks live in
 </tr>
 <tr>
 <td><code>wb family &lt;task&gt; [--sessions|--reseed|--concepts]</code></td>
-<td>Lists a task's family (top parent first, then every descendant). <code>--sessions</code> lists the live tmux sessions working on it. <code>--concepts</code> lists the task's <code>CONCEPTS.md</code> files, nearest first (promotion writes to the first). <code>--reseed</code> re-links every family worktree to the family's <code>CONCEPTS.md</code>, and is the only form that writes anything (the untracked <code>CLAUDE.local.md</code> pointer). See &quot;Decision propagation&quot; above.</td>
+<td>Lists a task's family (top parent first, then every descendant). <code>--sessions</code> lists the live tmux sessions working on it, with the SendMessage name of each Claude running in them (read from Claude Code's session registry). <code>--concepts</code> lists the task's <code>CONCEPTS.md</code> files, nearest first (promotion writes to the first). <code>--reseed</code> re-links every family worktree to the family's <code>CONCEPTS.md</code>, and is the only form that writes anything (the untracked <code>CLAUDE.local.md</code> pointer). See &quot;Decision propagation&quot; above.</td>
 </tr>
 </tbody>
 </table>
