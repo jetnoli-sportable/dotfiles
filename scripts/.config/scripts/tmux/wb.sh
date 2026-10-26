@@ -6435,7 +6435,7 @@ _wb_family_tree() {
   local -A kids=() out=()
   local f stem parent_ref
   while IFS= read -r f; do
-    stem="$(basename "$f" .md)"
+    stem="${f##*/}"; stem="${stem%.md}"
     parent_ref="$(wb_get_frontmatter "$f" parent)"
     [ -n "$parent_ref" ] || continue
     wb_task_own_parent "$parent_ref" "$stem" || continue

@@ -188,7 +188,7 @@ mk_reg() { # <file-stem> <pid> <tmux binding> <name>
   printf '{"pid":%s,"sessionId":"s-%s","tmux":"%s","name":"%s","status":"idle"}' \
     "$2" "$1" "$3" "$4" > "$FIXTURE_SESSIONS/$1.json"
 }
-pane_of() { tmux list-panes -s -t "=$1" -F '#{pane_id}' | head -1; }
+pane_of() { tmux list-panes -s -t "=$1" -F '#{pane_id}' | sed -n "${2:-1}p"; } # <session> [<nth pane>]
 sleep 0 & dead_pid=$!; wait "$dead_pid"
 
 long="proj--sibling-with-a-session-name-long-enough-to-lose-its-listagents-field"
@@ -200,8 +200,8 @@ mk_reg 102 "$dead_pid" "proj--child:@2.$(pane_of proj--child)" child-dead
 mk_reg 103 "$$" "proj--old-name:@2.$(pane_of proj--child)" child-claude
 # the umbrella session (working on the grandchild) holds two Claudes
 tmux split-window -d -t "=proj--umbrella:"
-mk_reg 104 "$$" "proj--umbrella:@3.$(tmux list-panes -s -t =proj--umbrella -F '#{pane_id}' | sed -n 1p)" gc-one
-mk_reg 105 "$$" "proj--umbrella:@3.$(tmux list-panes -s -t =proj--umbrella -F '#{pane_id}' | sed -n 2p)" gc-two
+mk_reg 104 "$$" "proj--umbrella:@3.$(pane_of proj--umbrella 1)" gc-one
+mk_reg 105 "$$" "proj--umbrella:@3.$(pane_of proj--umbrella 2)" gc-two
 mk_reg 106 "$$" "proj--outsider:@4.$(pane_of proj--outsider)" outsider-claude
 # a half-written file that sorts before every other one
 printf '{"pid":%s,"tmux":"proj--child:@2.' "$$" > "$FIXTURE_SESSIONS/100.json"
