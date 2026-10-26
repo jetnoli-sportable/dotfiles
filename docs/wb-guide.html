@@ -862,7 +862,8 @@ notice on its next prompt; a newly created one doesn't until <code>/clear</code>
 <code>wb family &lt;task&gt; --sessions</code>, matches them by SendMessage name against ListAgents,
 reads each one's <code>## Plan</code> and latest Handoffs entry, and messages only those the
 decision affects. The default is nobody. Sessions waiting on their user are named
-but not messaged; sessions busy in a shell command are messaged, and it queues.
+but not messaged; sessions busy in a shell command are messaged, and it queues;
+family sessions where no Claude's name could be read are listed as &quot;no Claude found&quot;.
 On-the-spot records propagate straight away, a shelf review propagates once at its
 end, <code>/close-out</code> once per run, and <code>/weekly-review</code> once per family. Each message
 starts with <code>[wb-propagate]</code> and carries its own rule: act only within your own

@@ -241,8 +241,8 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
 2. **Candidates.** Run `wb family <task_file> --sessions`. It prints
    `stem<TAB>session<TAB>title<TAB>name` for each live tmux session working on a
    family task: one line per Claude running in that session, where `name` is the
-   name SendMessage takes, and one line with an empty `name` when no Claude runs
-   there. Then call ListAgents. Its header names this session ("This session is
+   name SendMessage takes, and one line with an empty `name` when no named Claude
+   is found there. Then call ListAgents. Its header names this session ("This session is
    `<name>`"), and each peer row gives a name and a state. A candidate is a peer row
    whose name equals a non-empty `name` from the `wb family` output. Match on the
    name only: ListAgents leaves out its `tmux <session>:…` field whenever that
@@ -251,11 +251,15 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
    candidate. Keep rows in state `shell`: that Claude is alive but blocked in a
    foreground command (a decision buffer, say), and the message queues until its
    next tool round. Treat `busy` the same way.
-   **Registry check first.** If the caller's tmux session appears in the `wb family`
+   **Registry check first.** Get the caller's tmux session name: step 1's `$session`,
+   or `tmux display-message -p '#S'` for a caller that never ran step 1 (`/close-out`,
+   `/weekly-review`, a step 2b review). If that session appears in the `wb family`
    output but the caller's own name does not, the session registry `wb` reads names
    from is unreadable (no `jq`, or a Claude Code change). Say "not propagated:
    session registry unreadable", list the family sessions by stem and title for Jet
-   to relay by hand, and stop. Never report that as "no live family session".
+   to relay by hand, and stop. Never report that as "no live family session". The
+   check doesn't apply when the caller isn't in tmux or its session isn't in the
+   output (a `/weekly-review` run from outside the family, say).
    No candidates: say "no live family session", and stop.
 3. **Judge relevance; default nobody.** For each candidate, read its task file
    (`~/code/tasks/<stem>.md`): `## Plan` and the newest `## Handoffs` entry. Message
@@ -288,7 +292,10 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
 8. **Confirm in one line.** Name each session messaged, as its stem and task title
    (from `wb family --sessions`), and why. Mark a session that was in state `shell`
    as "busy in a shell command, message queued". Add any waiting session not
-   messaged, or say "no live family session is affected". Say the judgement
+   messaged, or say "no live family session is affected". List every other family
+   session that printed an empty `name` as "no Claude found in <stem> (<title>)":
+   a Claude whose registry entry couldn't be read looks the same, so Jet can check
+   by hand. Say the judgement
    was made from each candidate's `## Plan` and latest Handoffs entry, so a wrong
    "nobody" can be checked.
 
@@ -393,6 +400,12 @@ procedure; `/close-out` runs it by reference.
 - [ ] **Propagate, registry unreadable:** the caller's own name is missing from
   `wb family --sessions`. Nothing is sent, the confirm line says "not propagated:
   session registry unreadable", and the family sessions are listed for hand relay.
+- [ ] **Propagate from a checkpoint caller:** `/close-out` runs step 6 without step 1.
+  It gets its own tmux session with `tmux display-message -p '#S'` for the registry
+  check rather than skipping it.
+- [ ] **Propagate, empty name on another session:** a family session prints an
+  empty `name`. It isn't messaged, and the confirm line lists it as "no Claude
+  found in <stem> (<title>)".
 - [ ] **Shelf review propagates once:** `/wb-decide shelved` accepts two drafts.
   One step 6 run at the end of the review, not one per draft.
 - [ ] **Loop guard:** the decision was recorded because of a `[wb-propagate]`
