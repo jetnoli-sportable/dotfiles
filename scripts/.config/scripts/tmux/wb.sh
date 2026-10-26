@@ -65,8 +65,10 @@
 #   wb family <task> [--sessions|--reseed|--concepts]
 #                                    print <task>'s family stems (top parent first, then every
 #                                    descendant), read-only and tmux-free; --sessions prints
-#                                    stem<TAB>session<TAB>title per live session working on one
-#                                    (matched by @task, else session name); --reseed rewrites the
+#                                    stem<TAB>session<TAB>title<TAB>name per live session working
+#                                    on one (matched by @task, else session name; name is the
+#                                    SendMessage name of each Claude running there, empty if none,
+#                                    from Claude Code's session registry); --reseed rewrites the
 #                                    CLAUDE.local.md concepts pointer in each family worktree;
 #                                    --concepts prints <task>'s CONCEPTS.md files, nearest first
 #   wb week path                     print the standing weekly-capture doc's path,
@@ -6446,13 +6448,35 @@ _wb_family_stems() {
   done
 }
 
+# _wb_registry_panes — pane<TAB>pid<TAB>name for every entry in Claude Code's
+# session registry (~/.claude/sessions/<pid>.json; CLAUDE_SESSIONS_DIR
+# overrides, as in claude-reply-log.sh). `name` is what SendMessage takes, and
+# ListAgents drops its tmux field past 64 characters, so this is the only way
+# to tie a long-named session to its Claude. The join key is the pane id: the
+# `tmux` field is written once at startup, so a later rename-session leaves its
+# session part stale. Each file is one line of JSON fed through `fromjson?`,
+# so a half-written file is skipped instead of ending jq's pass early. No jq
+# or no registry prints nothing. Liveness is the caller's check.
+_wb_registry_panes() {
+  local dir="${CLAUDE_SESSIONS_DIR:-$HOME/.claude/sessions}" f
+  command -v jq >/dev/null 2>&1 || return 0
+  for f in "$dir"/*.json; do
+    [ -f "$f" ] && printf '%s\n' "$(<"$f")"
+  done | jq -rR 'fromjson? | select(type == "object")
+    | select((.tmux // "") | test("\\.%[0-9]+$"))
+    | [(.tmux | sub("^.*\\."; "")), (.pid | tostring), (.name // "")] | @tsv' 2>/dev/null || true
+}
+
 # cmd_family <task-ref> [--sessions|--reseed]
 #   (none)      the family's stems, one per line (_wb_family_stems).
-#   --sessions  stem<TAB>session<TAB>title per live tmux session working on a
-#               family task. A session is matched by its @task option (KTD2:
-#               after `wb breakdown --apply` a continuing child keeps the
-#               parent's session NAME while @task points at the child), and
-#               by session name only when @task is unset.
+#   --sessions  stem<TAB>session<TAB>title<TAB>name per live tmux session
+#               working on a family task. A session is matched by its @task
+#               option (KTD2: after `wb breakdown --apply` a continuing child
+#               keeps the parent's session NAME while @task points at the
+#               child), and by session name only when @task is unset. `name`
+#               is the SendMessage name of a live Claude in one of the
+#               session's panes (_wb_registry_panes): one line per Claude, and
+#               one line with an empty name when none is running there.
 #   --reseed    re-run _wb_seed_concepts_file for every family worktree that
 #               exists, so a newly-written CONCEPTS.md is linked without a
 #               `wb new`. Prints `reseeded <stem> <path>` / `skipped <stem>
@@ -6494,9 +6518,15 @@ cmd_family() {
       printf '%s\n' "${stems[@]}"
       ;;
     --sessions)
-      local -A member=()
+      local -A member=() pane_names=()
       for stem in "${stems[@]}"; do member[$stem]=1; done
-      local session cur
+      local reg_pane reg_pid reg_name
+      while IFS=$'\t' read -r reg_pane reg_pid reg_name; do
+        [[ "$reg_pid" =~ ^[0-9]+$ ]] && [ -n "$reg_name" ] || continue
+        kill -0 "$reg_pid" 2>/dev/null || continue
+        pane_names[$reg_pane]+="$reg_name"$'\n'
+      done < <(_wb_registry_panes)
+      local session cur title pane names name
       while IFS= read -r session; do
         [ -n "$session" ] || continue
         cur="$(tmux show -t "=$session:" -v @task 2>/dev/null || true)"
@@ -6506,7 +6536,18 @@ cmd_family() {
           stem="$session"
         fi
         [ -n "${member[$stem]:-}" ] || continue
-        printf '%s\t%s\t%s\n' "$stem" "$session" "$(wb_task_title "$TASKS_DIR/$stem.md")"
+        title="$(wb_task_title "$TASKS_DIR/$stem.md")"
+        names=""
+        while IFS= read -r pane; do
+          names+="${pane_names[$pane]:-}"
+        done < <(tmux list-panes -s -t "=$session" -F '#{pane_id}' 2>/dev/null || true)
+        if [ -z "$names" ]; then
+          printf '%s\t%s\t%s\t\n' "$stem" "$session" "$title"
+          continue
+        fi
+        while IFS= read -r name; do
+          [ -n "$name" ] && printf '%s\t%s\t%s\t%s\n' "$stem" "$session" "$title" "$name"
+        done <<< "$names"
       done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
       ;;
     --reseed)

@@ -14,6 +14,7 @@ FIXTURE_CODE="$(mktemp -d -t wb-family-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-family-tasks.XXXXXX)"
 FIXTURE_BIN="$(mktemp -d -t wb-family-bin.XXXXXX)"
 FIXTURE_PROJECTS="$(mktemp -d -t wb-family-projects.XXXXXX)"
+FIXTURE_SESSIONS="$(mktemp -d -t wb-family-sessions.XXXXXX)"
 TMUX_LOG="$FIXTURE_BIN/tmux.log"
 SOCK="wb-family-sock-$$"
 REAL_TMUX="$(command -v tmux)"
@@ -31,7 +32,7 @@ PATH="$FIXTURE_BIN:$PATH"
 cleanup() {
   "$REAL_TMUX" -L "$SOCK" kill-server 2>/dev/null || true
   chmod -R u+w "$FIXTURE_CODE" 2>/dev/null || true
-  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_BIN" "$FIXTURE_PROJECTS"
+  rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_BIN" "$FIXTURE_PROJECTS" "$FIXTURE_SESSIONS"
 }
 trap cleanup EXIT
 
@@ -98,6 +99,8 @@ mk_task proj--ambig-two ""
 export CODE_DIR="$FIXTURE_CODE"
 export TASKS_DIR="$FIXTURE_TASKS"
 export CLAUDE_PROJECTS_DIR="$FIXTURE_PROJECTS"
+# Never the real registry: its live pids and pane ids would match this socket's.
+export CLAUDE_SESSIONS_DIR="$FIXTURE_SESSIONS"
 
 # shellcheck disable=SC1090
 source "$WB"
@@ -165,10 +168,10 @@ tmux set-option -t "=proj--outsider:" @task "$FIXTURE_TASKS/proj--outsider.md"
 
 out="$(fam proj--umbrella --sessions)"
 assert_eq "--sessions: two lines (outsider excluded)" "2" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
-assert_eq "--sessions: @task-matched session, with its title" \
-  "proj--child	proj--child	Title of proj--child" "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--child	')"
+assert_eq "--sessions: @task-matched session, with its title and no Claude" \
+  "proj--child	proj--child	Title of proj--child	" "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--child	')"
 assert_eq "--sessions: migrated session reported under the grandchild (AE2)" \
-  "proj--grandchild	proj--umbrella	Title of proj--grandchild" "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--grandchild	')"
+  "proj--grandchild	proj--umbrella	Title of proj--grandchild	" "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--grandchild	')"
 assert_eq "--sessions: nothing reported under the umbrella's stem" "0" \
   "$(printf '%s\n' "$out" | /usr/bin/grep -c '^proj--umbrella	')"
 
@@ -176,8 +179,47 @@ assert_eq "--sessions: nothing reported under the umbrella's stem" "0" \
 tmux new-session -d -s proj--cousin
 out="$(fam proj--umbrella --sessions)"
 assert_eq "--sessions: session name matches when @task is unset" \
-  "proj--cousin	proj--cousin	Title of proj--cousin" "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--cousin	')"
+  "proj--cousin	proj--cousin	Title of proj--cousin	" "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--cousin	')"
 tmux kill-session -t "=proj--cousin"
+
+# 4th column: the SendMessage name from Claude Code's session registry, joined
+# on the pane id. Registry files are one line of JSON with no trailing newline.
+mk_reg() { # <file-stem> <pid> <tmux binding> <name>
+  printf '{"pid":%s,"sessionId":"s-%s","tmux":"%s","name":"%s","status":"idle"}' \
+    "$2" "$1" "$3" "$4" > "$FIXTURE_SESSIONS/$1.json"
+}
+pane_of() { tmux list-panes -s -t "=$1" -F '#{pane_id}' | head -1; }
+sleep 0 & dead_pid=$!; wait "$dead_pid"
+
+long="proj--sibling-with-a-session-name-long-enough-to-lose-its-listagents-field"
+tmux new-session -d -s "$long"
+tmux set-option -t "=$long:" @task "$FIXTURE_TASKS/proj--sibling.md"
+mk_reg 101 "$$" "$long:@1.$(pane_of "$long")" sibling-claude
+# child: a dead entry, plus a live one written under the session's old name
+mk_reg 102 "$dead_pid" "proj--child:@2.$(pane_of proj--child)" child-dead
+mk_reg 103 "$$" "proj--old-name:@2.$(pane_of proj--child)" child-claude
+# the umbrella session (working on the grandchild) holds two Claudes
+tmux split-window -d -t "=proj--umbrella:"
+mk_reg 104 "$$" "proj--umbrella:@3.$(tmux list-panes -s -t =proj--umbrella -F '#{pane_id}' | sed -n 1p)" gc-one
+mk_reg 105 "$$" "proj--umbrella:@3.$(tmux list-panes -s -t =proj--umbrella -F '#{pane_id}' | sed -n 2p)" gc-two
+mk_reg 106 "$$" "proj--outsider:@4.$(pane_of proj--outsider)" outsider-claude
+# a half-written file that sorts before every other one
+printf '{"pid":%s,"tmux":"proj--child:@2.' "$$" > "$FIXTURE_SESSIONS/100.json"
+
+out="$(fam proj--umbrella --sessions)"
+assert_eq "--sessions: a long session name still gets its Claude's name" \
+  "proj--sibling	$long	Title of proj--sibling	sibling-claude" \
+  "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--sibling	')"
+assert_eq "--sessions: dead pid skipped; a renamed session still matches by pane" \
+  "proj--child	proj--child	Title of proj--child	child-claude" \
+  "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--child	')"
+assert_eq "--sessions: two Claudes in one session give two lines" \
+  "proj--grandchild	proj--umbrella	Title of proj--grandchild	gc-one
+proj--grandchild	proj--umbrella	Title of proj--grandchild	gc-two" \
+  "$(printf '%s\n' "$out" | /usr/bin/grep '^proj--grandchild	' | sort)"
+assert_eq "--sessions: a non-family Claude never appears" "0" \
+  "$(printf '%s\n' "$out" | /usr/bin/grep -c 'outsider-claude')"
+tmux kill-session -t "=$long"
 tmux kill-session -t "=proj--outsider"
 tmux kill-session -t "=proj--umbrella"
 tmux kill-session -t "=proj--child"
