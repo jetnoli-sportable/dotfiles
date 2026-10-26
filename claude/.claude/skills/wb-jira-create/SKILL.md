@@ -81,8 +81,8 @@ locked verb, `wb jira-set` (`scripts/.config/scripts/tmux/wb.sh`, search
   loud rather than guessing). Resolve it to a real file before continuing.
 - **Family**: **always run the child-scan on the resolved stem** — you can't
   know a task is a family parent without it. Enumerate every task whose
-  `parent:` **frontmatter** value equals the resolved stem, the same rule
-  `wb_family_all_done` uses (`scripts/.config/scripts/tmux/wb.sh`): iterate the
+  `parent:` **frontmatter** value equals the resolved stem (direct children
+  only; a child's own children are not part of this family): iterate the
   real task files (excluding `README.md`/`TEMPLATE.md`/`RECOVERY-NOTES-*.md`)
   and compare each file's `wb_get_frontmatter "$f" parent` against the stem —
   a frontmatter-scoped read, **not** a whole-file grep (a `parent:` line in a

@@ -251,7 +251,8 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
    candidate. Keep rows in state `shell`: that Claude is alive but blocked in a
    foreground command (a decision buffer, say), and the message queues until its
    next tool round. Treat `busy` the same way.
-   **Registry check first.** Get the caller's tmux session name: step 1's `$session`,
+
+   **Before selecting candidates, check the registry.** Get the caller's tmux session name: step 1's `$session`,
    or `tmux display-message -p '#S'` for a caller that never ran step 1 (`/close-out`,
    `/weekly-review`, a step 2b review). If that session appears in the `wb family`
    output but the caller's own name does not, the session registry `wb` reads names
