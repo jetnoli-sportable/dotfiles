@@ -573,6 +573,29 @@ wb_family_all_done() {
   [ "$found" = 1 ]
 }
 
+# wb_family_close_target <parent_stem> — the ancestor cmd_done's nudge names,
+# or nothing. Climbs from <parent_stem> past ancestors already marked done
+# (closing a grandchild last leaves its done parent's own parent as the one
+# to close) and stops at the first that isn't: that one is printed only when
+# wb_family_all_done holds for it. An ancestor above it can't qualify while it
+# is open. Guarded like _wb_family_stems' climb: seen-set, depth cap 20, stop
+# at a missing parent file.
+wb_family_close_target() {
+  local stem="$1" depth=0
+  local -A seen=()
+  while [ -n "$stem" ] && [ "$depth" -lt 20 ] && [ -z "${seen[$stem]:-}" ] \
+      && [ -f "$TASKS_DIR/$stem.md" ]; do
+    if [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" != done ]; then
+      if wb_family_all_done "$stem"; then printf '%s\n' "$stem"; fi
+      return 0
+    fi
+    seen[$stem]=1
+    depth=$((depth + 1))
+    stem="$(wb_get_frontmatter "$TASKS_DIR/$stem.md" parent)"
+  done
+  return 0
+}
+
 # wb_session_task_file <session> — KTD7's @task-first task-file resolution.
 # Every session cmd_new creates already carries a session-scoped `@task`
 # option (set alongside @wb_repo/@wb_slug) — but until wb-breakdown, @task
@@ -5328,14 +5351,20 @@ cmd_done() {
   fi
 
   # KTD8's last-child nudge: pure read + print, guarded so a scan failure
-  # can never abort cmd_done under set -e (an `if` condition's exit status
-  # is exempt from errexit either way, but the explicit -f guard also keeps
-  # a missing parent file silent rather than probing wb_family_all_done
+  # can never abort cmd_done under set -e (the `|| close_target=""` keeps a
+  # failed scan from tripping errexit, and the explicit -f guard keeps a
+  # missing parent file silent rather than probing wb_family_all_done
   # against a store with no matching file at all). D8: manual parent
-  # closing stays manual — this only ever prints, never writes.
-  local task_parent; task_parent="$(wb_get_frontmatter "$task_file" parent)"
-  if [ -n "$task_parent" ] && [ -f "$TASKS_DIR/$task_parent.md" ] && wb_family_all_done "$task_parent"; then
-    echo "wb done: all children of $task_parent are done — close it with: wb done $task_parent"
+  # closing stays manual — this only ever prints, never writes. The named
+  # task is the first open ancestor (wb_family_close_target), not always the
+  # direct parent, which may already be done.
+  local task_parent close_target=""
+  task_parent="$(wb_get_frontmatter "$task_file" parent)"
+  if [ -n "$task_parent" ] && [ -f "$TASKS_DIR/$task_parent.md" ]; then
+    close_target="$(wb_family_close_target "$task_parent")" || close_target=""
+  fi
+  if [ -n "$close_target" ]; then
+    echo "wb done: all children of $close_target are done — close it with: wb done $close_target"
   fi
 
   # KTD5's roadmap-currency nudge: pure read + print, never gates or writes.

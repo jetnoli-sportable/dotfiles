@@ -1550,7 +1550,50 @@ fi
 mk_nudge_task proj--feat-nudge-cyc doing proj--feat-nudge-cyc-a
 mk_nudge_task proj--feat-nudge-cyc-a doing proj--feat-nudge-cyc
 out_cyc="$(timeout 10 bash -c 'source "$1" >/dev/null 2>&1; if wb_family_all_done proj--feat-nudge-cyc-a; then echo rc=0; else echo rc=1; fi' _ "$WB" 2>/dev/null)"
-assert "parent cycle: the descendant walk terminates" 'rc=[01]' "$out_cyc"
+assert_eq "parent cycle: the descendant walk terminates, and the open member suppresses it" 'rc=1' "$out_cyc"
+out_cyc="$(timeout 10 bash -c 'source "$1" >/dev/null 2>&1; wb_family_close_target proj--feat-nudge-cyc-a; echo "rc=$?"' _ "$WB" 2>/dev/null)"
+assert_eq "parent cycle: the ancestor climb terminates and names nobody" 'rc=0' "$out_cyc"
+
+# --- grandchild closed last: the climb skips a done parent ------------------
+# P (doing) -> A (done) -> A1 (closing): name P, never the already-done A.
+mk_nudge_task proj--feat-nudge-climb doing ""
+mk_nudge_task proj--feat-nudge-climb-a done proj--feat-nudge-climb
+mk_nudge_task proj--feat-nudge-climb-a1 doing proj--feat-nudge-climb-a
+sess_climb="$(mk_nudge_session feat-nudge-climb-a1)"
+out_climb="$(cmd_done "$sess_climb" 2>&1)"
+assert "grandchild closed last: the nudge names the open grandparent" \
+  'all children of proj--feat-nudge-climb are done' "$out_climb"
+if printf '%s' "$out_climb" | grep -q 'all children of proj--feat-nudge-climb-a '; then
+  echo "FAIL - grandchild closed last: must not name the already-done parent"; fail=1
+else
+  echo "ok   - grandchild closed last: the already-done parent isn't named"
+fi
+
+# P (doing) -> A (done) -> A1 (closing), P -> B (doing): P still has work.
+mk_nudge_task proj--feat-nudge-climbopen doing ""
+mk_nudge_task proj--feat-nudge-climbopen-a done proj--feat-nudge-climbopen
+mk_nudge_task proj--feat-nudge-climbopen-a1 doing proj--feat-nudge-climbopen-a
+mk_nudge_task proj--feat-nudge-climbopen-b doing proj--feat-nudge-climbopen
+sess_co="$(mk_nudge_session feat-nudge-climbopen-a1)"
+out_co="$(cmd_done "$sess_co" 2>&1)"
+if printf '%s' "$out_co" | grep -q 'all children of'; then
+  echo "FAIL - an open uncle must suppress the nudge after the climb"; fail=1
+else
+  echo "ok   - an open uncle suppresses the nudge after the climb"
+fi
+
+# every ancestor already done: nobody to name
+mk_nudge_task proj--feat-nudge-alldone done ""
+mk_nudge_task proj--feat-nudge-alldone-a done proj--feat-nudge-alldone
+mk_nudge_task proj--feat-nudge-alldone-a1 doing proj--feat-nudge-alldone-a
+sess_ad="$(mk_nudge_session feat-nudge-alldone-a1)"
+out_ad="$(cmd_done "$sess_ad" 2>&1)"; rc_ad=$?
+assert_eq "every ancestor done: exits 0" 0 "$rc_ad"
+if printf '%s' "$out_ad" | grep -q 'all children of'; then
+  echo "FAIL - every ancestor done: nothing should be named"; fail=1
+else
+  echo "ok   - every ancestor done: no nudge"
+fi
 
 # --- parent: empty -> no scan, no nudge, no error ---------------------------
 mk_nudge_task proj--feat-nudge-noparent doing ""
