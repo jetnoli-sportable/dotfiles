@@ -558,17 +558,18 @@ wb_task_own_parent() {
 }
 
 # wb_family_all_done <parent_stem> — KTD8: true when <parent_stem> has at
-# least one child (parent: == <parent_stem>) and EVERY one of them is
-# status: done — a review/paused/planned sibling suppresses it, an only
-# child is enough to fire it. Pure read, no writes; cmd_done decides what
-# to do with the result (print-only, D8: closing the parent stays manual).
+# least one descendant and EVERY descendant, at any depth (_wb_family_tree),
+# is status: done — a review/paused/planned sibling or grandchild suppresses
+# it, an only child is enough to fire it. Pure read, no writes; cmd_done
+# decides what to do with the result (print-only, D8: closing the parent
+# stays manual).
 wb_family_all_done() {
-  local parent_stem="$1" f found=0
-  for f in $(wb_task_files); do
-    [ "$(wb_get_frontmatter "$f" parent)" = "$parent_stem" ] || continue
+  local parent_stem="$1" stem found=0
+  while IFS= read -r stem; do
+    [ "$stem" != "$parent_stem" ] || continue
     found=1
-    [ "$(wb_get_frontmatter "$f" status)" = done ] || return 1
-  done
+    [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" = done ] || return 1
+  done < <(_wb_family_tree "$parent_stem")
   [ "$found" = 1 ]
 }
 
@@ -6400,12 +6401,11 @@ cmd_task_file() {
 # _wb_family_stems <task_file> — the family's stems, one per line: the top
 # parent first, then every descendant depth-first, each once. The climb is
 # _wb_concepts_paths' guarded walk (seen-set, depth cap 20, self-parent,
-# stop at a missing parent file); the descent uses a parent -> children map
-# built in ONE pass over wb_task_files (as wb_board_v2_build does) with its
-# own seen-set, so a hand-edited cycle can't loop either direction.
+# stop at a missing parent file); the descent is _wb_family_tree, so a
+# hand-edited cycle can't loop either direction.
 _wb_family_stems() {
   local task_file="$1"
-  local -A seen=() kids=() out=()
+  local -A seen=()
   local depth=0 max_depth=20 stem parent_ref parent_file
   local current_file="$task_file"
   local root; root="$(basename "$task_file" .md)"
@@ -6424,7 +6424,16 @@ _wb_family_stems() {
     current_file="$parent_file"
   done
 
-  local f
+  _wb_family_tree "$root"
+}
+
+# _wb_family_tree <stem> — <stem>, then every descendant depth-first, each
+# once. The parent -> children map is built in ONE pass over wb_task_files
+# (as wb_board_v2_build does), and the seen-set stops a hand-edited cycle.
+_wb_family_tree() {
+  local root="$1"
+  local -A kids=() out=()
+  local f stem parent_ref
   while IFS= read -r f; do
     stem="$(basename "$f" .md)"
     parent_ref="$(wb_get_frontmatter "$f" parent)"

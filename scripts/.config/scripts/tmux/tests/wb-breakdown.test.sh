@@ -1515,6 +1515,43 @@ sess_only="$(mk_nudge_session feat-nudge-only-a)"
 out_only="$(cmd_done "$sess_only" 2>&1)"
 assert "only child: nudge fires" 'all children of proj--feat-nudge-only are done' "$out_only"
 
+# --- grandchildren count: every descendant must be done, not just children --
+mk_nudge_task proj--feat-nudge-deep doing ""
+mk_nudge_task proj--feat-nudge-deep-a doing proj--feat-nudge-deep
+mk_nudge_task proj--feat-nudge-deep-a1 doing proj--feat-nudge-deep-a
+sess_deep="$(mk_nudge_session feat-nudge-deep-a)"
+out_deep="$(cmd_done "$sess_deep" 2>&1)"
+if printf '%s' "$out_deep" | grep -q 'all children of'; then
+  echo "FAIL - an open grandchild must suppress the nudge"; fail=1
+else
+  echo "ok   - an open grandchild suppresses the nudge"
+fi
+
+mk_nudge_task proj--feat-nudge-deepdone doing ""
+mk_nudge_task proj--feat-nudge-deepdone-a doing proj--feat-nudge-deepdone
+mk_nudge_task proj--feat-nudge-deepdone-a1 done proj--feat-nudge-deepdone-a
+sess_dd="$(mk_nudge_session feat-nudge-deepdone-a)"
+out_dd="$(cmd_done "$sess_dd" 2>&1)"
+assert "every grandchild done: nudge fires" 'all children of proj--feat-nudge-deepdone are done' "$out_dd"
+
+mk_nudge_task proj--feat-nudge-deepmix doing ""
+mk_nudge_task proj--feat-nudge-deepmix-a doing proj--feat-nudge-deepmix
+mk_nudge_task proj--feat-nudge-deepmix-a1 done proj--feat-nudge-deepmix-a
+mk_nudge_task proj--feat-nudge-deepmix-a2 planned proj--feat-nudge-deepmix-a
+sess_dm="$(mk_nudge_session feat-nudge-deepmix-a)"
+out_dm="$(cmd_done "$sess_dm" 2>&1)"
+if printf '%s' "$out_dm" | grep -q 'all children of'; then
+  echo "FAIL - one planned grandchild among done ones must suppress the nudge"; fail=1
+else
+  echo "ok   - one planned grandchild among done ones suppresses the nudge"
+fi
+
+# --- hand-edited cycle: the walk still terminates ---------------------------
+mk_nudge_task proj--feat-nudge-cyc doing proj--feat-nudge-cyc-a
+mk_nudge_task proj--feat-nudge-cyc-a doing proj--feat-nudge-cyc
+out_cyc="$(timeout 10 bash -c 'source "$1" >/dev/null 2>&1; if wb_family_all_done proj--feat-nudge-cyc-a; then echo rc=0; else echo rc=1; fi' _ "$WB" 2>/dev/null)"
+assert "parent cycle: the descendant walk terminates" 'rc=[01]' "$out_cyc"
+
 # --- parent: empty -> no scan, no nudge, no error ---------------------------
 mk_nudge_task proj--feat-nudge-noparent doing ""
 sess_np="$(mk_nudge_session feat-nudge-noparent)"
