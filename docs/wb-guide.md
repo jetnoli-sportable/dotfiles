@@ -608,9 +608,10 @@ notice on its next prompt; a newly created one doesn't until `/clear` or a resta
 
 - **Messages to live sessions.** After any successful Decisions append,
   `/wb-decide` (step 6) lists the family's live sessions with
-  `wb family <task> --sessions`, matches them against ListAgents, reads each one's
-  `## Plan` and latest Handoffs entry, and messages only those the decision affects.
-  The default is nobody. Sessions waiting on their user are named but not messaged.
+  `wb family <task> --sessions`, matches them by SendMessage name against ListAgents,
+  reads each one's `## Plan` and latest Handoffs entry, and messages only those the
+  decision affects. The default is nobody. Sessions waiting on their user are named
+  but not messaged; sessions busy in a shell command are messaged, and it queues.
   On-the-spot records propagate straight away, a shelf review propagates once at its
   end, `/close-out` once per run, and `/weekly-review` once per family. Each message
   starts with `[wb-propagate]` and carries its own rule: act only within your own
@@ -766,7 +767,7 @@ details, incident history, and runbooks live in
 | `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
 | `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
 | `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |
-| `wb family <task> [--sessions\|--reseed\|--concepts]` | Lists a task's family (top parent first, then every descendant). `--sessions` lists the live tmux sessions working on it. `--concepts` lists the task's `CONCEPTS.md` files, nearest first (promotion writes to the first). `--reseed` re-links every family worktree to the family's `CONCEPTS.md`, and is the only form that writes anything (the untracked `CLAUDE.local.md` pointer). See "Decision propagation" above. |
+| `wb family <task> [--sessions\|--reseed\|--concepts]` | Lists a task's family (top parent first, then every descendant). `--sessions` lists the live tmux sessions working on it, with the SendMessage name of each Claude running in them (read from Claude Code's session registry). `--concepts` lists the task's `CONCEPTS.md` files, nearest first (promotion writes to the first). `--reseed` re-links every family worktree to the family's `CONCEPTS.md`, and is the only form that writes anything (the untracked `CLAUDE.local.md` pointer). See "Decision propagation" above. |
 
 Two hooks now sit in front of raw git commands touching this repo:
 a `PreToolUse` hook asks before an agent runs anything that looks like a
