@@ -6555,7 +6555,11 @@ cmd_family() {
           continue
         fi
         while IFS= read -r name; do
-          [ -n "$name" ] && printf '%s\t%s\t%s\t%s\n' "$stem" "$session" "$title" "$name"
+          # An if, not `&&`: the here-string's final empty line would leave
+          # status 1, and as the last command that becomes wb's exit code.
+          if [ -n "$name" ]; then
+            printf '%s\t%s\t%s\t%s\n' "$stem" "$session" "$title" "$name"
+          fi
         done <<< "$names"
       done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
       ;;
