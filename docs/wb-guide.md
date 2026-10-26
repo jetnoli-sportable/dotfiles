@@ -281,7 +281,7 @@ waiting: it stays grey. The cursor also stays on its row across the
 | <kbd>p</kbd> | Close this row's session with `wb down` — worktree kept, resumable later. Guarded the same way <kbd>Ctrl</kbd>+<kbd>x</kbd> is: on the picker's own current session it writes everything but skips the kill |
 | <kbd>r</kbd> | Rename the row's tmux session (prompts inline, cosmetic only — doesn't touch the task file or worktree) |
 | <kbd>b</kbd> | Break the row's agent pane out into a brand new session of its own (prompts for a name) — for a second agent you started ad hoc in a shared session and now want on its own. On a parent session row this takes the session's *most-urgent* agent pane; on a row with no agent it does nothing. |
-| <kbd>Ctrl</kbd>+<kbd>x</kbd> | On a task row: the full `wb done` wind-down. On a plain session/agent row: a raw kill. |
+| <kbd>Ctrl</kbd>+<kbd>x</kbd> | On a task row: asks "Close &lt;task&gt; (&lt;title&gt;)? [y/N]" first, then the full `wb done` wind-down; any key but <kbd>y</kbd> cancels. On a plain session/agent row: a raw kill, no prompt. |
 | <kbd>Ctrl</kbd>+<kbd>r</kbd> | Force a refresh (it also auto-refreshes every few seconds, without ever blocking your typing) |
 | <kbd>i</kbd> or <kbd>/</kbd> | Start typing to search — this also widens the dormant pool to include `paused` (deliberately shelved) tasks; <kbd>Esc</kbd> to go back to normal mode |
 | <kbd>q</kbd> / <kbd>h</kbd> | Close the picker |

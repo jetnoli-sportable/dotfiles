@@ -6756,11 +6756,22 @@ _new() {
 # deliberately scoped to ctrl-x's dispatch, not cmd_done itself — typing
 # `wb done --close` yourself from inside your own session stays intentional
 # self-close and is untouched.
+#
+# Every task row asks first (_ctrl_x_confirm): one stray ctrl-x on the
+# picker closed a task mid-review on 2026-10-26, removing its worktree
+# (dotfiles--fix-propagation-peer-filter). Typed `wb done` and the /wb-done
+# skill stay unprompted; repo and agent rows too.
 _ctrl_x() {
   local kind="$1" session="$2" target="$3" ref="${4:-}"
   case "$kind" in
     task)
       if [ -n "$session" ]; then
+        local self=0 effect="Removes the worktree, marks the task done, and closes the session."
+        if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
+          self=1
+          effect="Removes the worktree and marks the task done; your current session stays open."
+        fi
+        _ctrl_x_confirm "$(wb_session_task_file "$session" 2>/dev/null || true)" "$session" "$effect" || return 0
         # Never run the wind-down from inside the doomed worktree. tmux.conf's
         # `bind m`/`bind a` anchor the picker at $HOME, which covers the
         # keybind path — but `wb` is also a zsh alias run from an ordinary
@@ -6771,7 +6782,7 @@ _ctrl_x() {
         # deleted cwd mid-teardown. Guarded so a missing $HOME can't abort the
         # wind-down under set -e.
         cd "$HOME" 2>/dev/null || true
-        if [ -n "${TMUX:-}" ] && [ "$session" = "$(tmux display-message -p '#S' 2>/dev/null)" ]; then
+        if [ "$self" = 1 ]; then
           cmd_done "$session"
           echo "wb: not closing '$session' via ctrl-x — it's your current session; run 'wb done --close' yourself once you're ready to leave it" >&2
         else
@@ -6782,12 +6793,34 @@ _ctrl_x() {
         # resolve from at all — cmd_done's own KTD7 store-only path
         # resolves a task-file stem instead, same mechanism the printed
         # "wb done <parent-stem>" nudge already relies on.
+        _ctrl_x_confirm "$ref" "$(basename "$ref" .md)" "Marks the task done in the store; nothing is torn down." || return 0
         cmd_done "$(basename "$ref" .md)"
       fi
       ;;
     repo)  [ -n "$session" ] && tmux kill-session -t "=$session" 2>/dev/null ;;
     agent) [ -n "$target" ]  && tmux kill-pane -t "$target" 2>/dev/null ;;
   esac
+}
+
+# _ctrl_x_confirm <task-file> <name> <effect> — ask "Close <stem> (<title>)?"
+# on stderr and read one key from stdin (the terminal, after the picker's
+# `become`). Only y or Y returns 0; any other key, Enter or no input at all
+# leaves the task as it was. <name> stands in for the stem when the task file
+# can't be found.
+_ctrl_x_confirm() {
+  local file="$1" name="$2" effect="$3" title="" ans=""
+  if [ -f "$file" ]; then
+    name="${file##*/}"; name="${name%.md}"
+    title="$(wb_task_title "$file")"
+  fi
+  printf 'Close %s%s? %s [y/N] ' "$name" "${title:+ ($title)}" "$effect" >&2
+  read -r -n 1 ans || true
+  printf '\n' >&2
+  case "$ans" in
+    y|Y) return 0 ;;
+  esac
+  echo "wb: left $name as it was" >&2
+  return 1
 }
 
 # wb_preview_cmd — the picker's --preview: the session context card
