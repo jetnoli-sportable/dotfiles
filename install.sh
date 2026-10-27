@@ -5,6 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 command -v stow >/dev/null || sudo apt install -y stow
+# The clipboard for tmux and nvim (scripts/.config/scripts/tmux/clipboard.sh).
+command -v xclip >/dev/null || sudo apt install -y xclip
 
 # Auto-regenerate the docs platform (docgen) on commits that touch its
 # tracked inputs — see .githooks/pre-commit for what triggers it.

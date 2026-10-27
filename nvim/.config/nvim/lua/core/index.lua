@@ -12,31 +12,20 @@ vim.opt.encoding = "utf-8"
 vim.opt.clipboard = "unnamedplus"
 
 if vim.env.TMUX then
-	-- Pick the first system-clipboard tool that actually exists on this machine.
-	-- Order: wl-clipboard (only on Wayland), then xclip, then xsel. Prefer Wayland
-	-- native when in a Wayland session, but fall back to X11 tools via XWayland.
-	local copy_cmd, paste_cmd
-	if vim.env.WAYLAND_DISPLAY and vim.fn.executable("wl-copy") == 1 then
-		copy_cmd = { "wl-copy" }
-		paste_cmd = { "wl-paste", "--no-newline" }
-	elseif vim.fn.executable("xclip") == 1 then
-		copy_cmd = { "xclip", "-selection", "clipboard" }
-		paste_cmd = { "xclip", "-selection", "clipboard", "-o" }
-	elseif vim.fn.executable("xsel") == 1 then
-		copy_cmd = { "xsel", "--clipboard", "--input" }
-		paste_cmd = { "xsel", "--clipboard", "--output" }
-	end
-
-	if copy_cmd then
+	-- "+" goes through clipboard.sh (xclip on XWayland with a live XAUTHORITY):
+	-- wl-copy blocks nvim on GNOME until a "wl-clipboard is ready" popup is
+	-- clicked. The script's header has the details.
+	local clip = vim.fn.expand("~/.config/scripts/tmux/clipboard.sh")
+	if vim.fn.executable(clip) == 1 then
 		vim.g.clipboard = {
 			name = "tmux_and_system",
 			copy = {
 				["*"] = { "tmux", "load-buffer", "-" },
-				["+"] = copy_cmd,
+				["+"] = { clip, "copy" },
 			},
 			paste = {
 				["*"] = { "tmux", "save-buffer", "-" },
-				["+"] = paste_cmd,
+				["+"] = { clip, "paste" },
 			},
 			cache_enabled = false,
 		}
