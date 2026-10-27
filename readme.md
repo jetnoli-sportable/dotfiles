@@ -73,8 +73,11 @@ Recent work across these configs, so the doc captures the whole picture:
   `TMUX_PLUGIN_MANAGER_PATH` is set. Consolidate during migration — see §5.
 - **`plugins/` are tpm-cloned git repos → never commit them.**
 - **Survives logout:** `install.sh` turns on systemd linger, so tmux sessions
-  outlive a GNOME log-out (not a reboot). Panes opened before the logout keep the
-  old X11 auth, so start X11 apps from a new pane; undo with
+  outlive a GNOME log-out (not a reboot). At login,
+  `~/.config/autostart/tmux-refresh-env.desktop` runs
+  `scripts/.config/scripts/tmux/refresh-env.sh`, which points the server and
+  every session at the new login's X11 auth and display. Panes opened before the
+  logout keep the old values, so start X11 apps from a new pane; undo linger with
   `loginctl disable-linger "$USER"`.
 
 ### nvim — `~/.config/nvim/` (its own git repo)
