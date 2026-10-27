@@ -17,7 +17,7 @@ FORGE_SCHEMA_DIR="${FORGE_SCHEMA_DIR:-$HOME/.local/share/gnome-shell/extensions/
 has_schema() { gsettings list-schemas | grep -x "$1" >/dev/null; }
 
 # Forge's plain Super+letter defaults would eat app letters, and Shift+Super+S
-# collides with "send to workspace 2": every layout extra moves to Super+Alt.
+# collides with "send to workspace 6": every layout extra moves to Super+Alt.
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings window-toggle-float "['<Super><Alt>c']"
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings window-toggle-always-float "['<Super><Alt><Shift>c']"
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings con-split-layout-toggle "['<Super><Alt>g']"
@@ -43,28 +43,30 @@ gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.k
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings window-snap-two-third-left '[]'
 gsettings --schemadir "$FORGE_SCHEMA_DIR" set org.gnome.shell.extensions.forge.keybindings window-snap-center '[]'
 
-# Seven fixed workspaces; Forge needs a fixed count, and both monitors switch
+# Eight fixed workspaces; Forge needs a fixed count, and both monitors switch
 # together so every window belongs to a workspace.
 gsettings set org.gnome.mutter dynamic-workspaces false
-gsettings set org.gnome.desktop.wm.preferences num-workspaces 7
+gsettings set org.gnome.desktop.wm.preferences num-workspaces 8
 gsettings set org.gnome.mutter workspaces-only-on-primary false
 
-# Workspace N on A S D F 1 2 3; Shift sends the focused window there.
-# Workspace 1 keeps GNOME's Super+Home alongside its letter.
-gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-1 "['<Super>a', '<Super>Home']"
-gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-2 "['<Super>s']"
-gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-3 "['<Super>d']"
-gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-4 "['<Super>f']"
-gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-5 "['<Super>1']"
-gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-6 "['<Super>2']"
-gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-7 "['<Super>3']"
-gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-1 "['<Super><Shift>a', '<Super><Shift>Home']"
-gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-2 "['<Super><Shift>s']"
-gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-3 "['<Super><Shift>d']"
-gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-4 "['<Super><Shift>f']"
-gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-5 "['<Super><Shift>1']"
-gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-6 "['<Super><Shift>2']"
-gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-7 "['<Super><Shift>3']"
+# Workspace N on 1 2 3 4 A S D F; Shift sends the focused window there.
+# Workspace 1 keeps GNOME's Super+Home alongside its number.
+gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-1 "['<Super>1', '<Super>Home']"
+gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-2 "['<Super>2']"
+gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-3 "['<Super>3']"
+gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-4 "['<Super>4']"
+gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-5 "['<Super>a']"
+gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-6 "['<Super>s']"
+gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-7 "['<Super>d']"
+gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-8 "['<Super>f']"
+gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-1 "['<Super><Shift>1', '<Super><Shift>Home']"
+gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-2 "['<Super><Shift>2']"
+gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-3 "['<Super><Shift>3']"
+gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-4 "['<Super><Shift>4']"
+gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-5 "['<Super><Shift>a']"
+gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-6 "['<Super><Shift>s']"
+gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-7 "['<Super><Shift>d']"
+gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-8 "['<Super><Shift>f']"
 
 # Alt+X closes the window, beside GNOME's Alt+F4. It's taken from every app, so
 # zsh's Alt+X (execute-named-cmd) and Emacs-style M-x no longer reach them.
@@ -96,7 +98,7 @@ gsettings set org.gnome.settings-daemon.plugins.media-keys terminal '[]'
 gsettings set org.gnome.settings-daemon.plugins.media-keys rotate-video-lock-static "['XF86RotationLockToggle']"
 
 # Ubuntu Dock binds Super+N / Shift+Super+N / Ctrl+Super+N separately from
-# switch-to-application, which would double-bind Super+1..3; Super+Q (show dock)
+# switch-to-application, which would double-bind Super+1..4; Super+Q (show dock)
 # is Claude Desktop's key.
 if has_schema org.gnome.shell.extensions.dash-to-dock; then
   gsettings set org.gnome.shell.extensions.dash-to-dock hot-keys false

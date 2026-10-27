@@ -1,7 +1,7 @@
 # gnome — keyboard tiling on stock GNOME
 
 An i3/AeroSpace-style workflow on Ubuntu's GNOME session (Wayland), without
-switching compositor: one key per app, keyboard tiling, and seven workspaces.
+switching compositor: one key per app, keyboard tiling, and eight workspaces.
 Why GNOME and not Sway, and every key choice, are in
 [`docs/plans/2026-06-21-001-feat-gnome-tiling-trifecta-plan.md`](../docs/plans/2026-06-21-001-feat-gnome-tiling-trifecta-plan.md).
 
@@ -13,8 +13,9 @@ Why GNOME and not Sway, and every key choice, are in
 | `Super+h/j/k/l` | Focus the tile left/down/up/right (Forge) |
 | `Super+Shift+h/j/k/l` | Move the window that way (Forge) |
 | `Super+Ctrl+h/j/k/l` | Swap with the neighbour (Forge) |
-| `Super+A/S/D/F/1/2/3` | Switch to workspace 1–7, both monitors together |
-| `Super+Shift+A/S/D/F/1/2/3` | Send the window to workspace 1–7 |
+| `Super+1/2/3/4` | Switch to workspace 1–4, both monitors together |
+| `Super+A/S/D/F` | Switch to workspace 5–8 |
+| `Super+Shift+1/2/3/4/A/S/D/F` | Send the window to workspace 1–8 |
 | `Super+Alt+<letter>` | Forge layout extras: float `C`, split toggle `G`, stacked `S`, tabbed `T`, … |
 | `Super+Ctrl+Shift+L` | Lock screen |
 | `Alt+X` or `Alt+F4` | Close the window |
