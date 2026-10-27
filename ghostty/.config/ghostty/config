@@ -39,7 +39,9 @@ font-family = MesloLGL Nerd Font
 font-size = 12
 cursor-style = block
 
-# Wayland clipboard — pairs with the wl-copy tmux binding.
+# Let programs read and write the clipboard with OSC 52 escapes (tmux
+# forwards them with set-clipboard on). Copying itself goes through
+# ~/.config/scripts/tmux/clipboard.sh.
 clipboard-read = allow
 clipboard-write = allow
 
