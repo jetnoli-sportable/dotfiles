@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=tmux environment refresh
+Comment=Points a tmux server that survived logout at this login's display (dotfiles: scripts/.config/scripts/tmux/refresh-env.sh)
+Exec=sh -c '"$HOME/.config/scripts/tmux/refresh-env.sh"'
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
