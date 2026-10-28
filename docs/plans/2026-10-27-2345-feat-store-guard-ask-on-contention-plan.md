@@ -41,7 +41,7 @@ Meanwhile, roughly 900 write-shaped Bash calls (`sed -i`, redirects, python here
 
 - R1. An Edit/Write/MultiEdit under `~/code/tasks` produces no decision, so normal permissions apply, unless R2 or R3 holds.
 - R2. When the target's owning task is the `@task` of a live tmux session other than the caller's own, the guard asks. The prompt names that session.
-- R3. When the target's owning task has its `wb` side-car lock held at check time, the guard asks. The prompt names the holder's tmux session when the lock records one.
+- R3. When the target's owning task has its `wb` side-car lock held at check time, the guard asks. The prompt names the holder's tmux session when the lock records one. A lock whose recorded holder session is the caller's own does not count, such as a background `wb done` the caller started.
 - R4. A target with no owning task never prompts. Examples are `README.md`, `INDEX*`, `weeks/`, `context/` and the store root.
 - R5. Prompts no longer tell the agent to use `wb append` instead.
 
@@ -82,10 +82,10 @@ Meanwhile, roughly 900 write-shaped Bash calls (`sed -i`, redirects, python here
 ### Key Technical Decisions
 
 - KTD1. **The caller's own session is the tmux session of `$TMUX_PANE`; owners come from one `list-sessions` call.** The hook inherits the pane environment, so subagents in that pane count as the caller. When `TMUX` or `TMUX_PANE` is unset, the caller has no session (see Scope Boundaries). One `tmux list-sessions -F '#{session_name}<TAB>#{@task}'` gives every live owner. This mirrors `_wb_refuse_if_live_session` in `wb.sh` without sourcing `wb.sh`: sourcing it set `CODE_DIR` globally and caused the 2026-07-10 deletion incident.
-- KTD2. **Lock check: source `wb-locks.sh` and probe without waiting.** Resolve `wb-locks.sh` from the guard's real path, `../wb-locks.sh`, since the stowed guard is a symlink. Use its path helper so the lock path cannot drift from `wb`'s own. Probe only if the lock file exists, using a non-blocking `flock -n` that releases immediately. Read the holder's `tmux_session` with `wb_task_lock_holder_field`. If sourcing fails, the lock check fails open and the `@task` check still runs.
+- KTD2. **Lock check: source `wb-locks.sh` and probe without waiting.** Resolve `wb-locks.sh` from the guard's real path, `../wb-locks.sh`, since the stowed guard is a symlink. Use its path helper so the lock path cannot drift from `wb`'s own. Probe only if the lock file exists, using a non-blocking `flock -n` that releases immediately. Read the holder's `tmux_session` with `wb_task_lock_holder_field`; when it equals the caller's own session, the lock is not contention (R3). If sourcing fails, the lock check fails open and the `@task` check still runs.
 - KTD3. **Owning task is derived from the path alone.** `$TASKS_DIR/<name>.md` at top level → `<name>`. `$TASKS_DIR/dossiers/<name>/…` → `<name>`. Anything else has no owner (R4). The comparison is against `$TASKS_DIR/<name>.md`, using the same `realpath -m` canonicalisation `path_under_tasks_dir` already applies, because `@task` holds an absolute task-file path.
 - KTD4. **tmux is queried only after a store path has matched.** The Edit pre-filter (substring `code/tasks`) and the Bash pre-filter stay pure grep. Calls that don't touch the store never spawn tmux.
-- KTD5. **Phase 2 detects writes by pattern and accepts misses.** The Bash pre-filter widens from DANGEROUS_RE to DANGEROUS_RE or (`code/tasks` substring and a write-shape regex). Write shapes are: `sed -i`, `>`/`>>` redirects, `tee`, `cp`/`mv`/`rm`/`touch`, and python `open(…, 'w'|'a')`, `write_text` or `.write(`. Store paths are collected from the whole command text, including variable assignments such as `D=~/code/tasks/dossiers/x`. A store-directory cwd from the payload or a tracked `cd` also counts. Every owning task found is checked. Misses only cost a prompt that should have fired under contention. False matches only matter under contention too.
+- KTD5. **Phase 2 detects writes by pattern and accepts misses.** The Bash pre-filter widens from DANGEROUS_RE to DANGEROUS_RE or (a write-shape regex and either the `code/tasks` substring in the command or a payload cwd under the store). The cwd half matters because an agent that has already `cd`ed into a dossier writes with relative paths that never mention `code/tasks`; it is still a string comparison, so KTD4 holds. Write shapes are: `sed -i`, `>`/`>>` redirects, `tee`, `cp`/`mv`/`rm`/`touch`, and python `open(…, 'w'|'a')`, `write_text` or `.write(`. File-descriptor and `/dev/null` redirects (`2>&1`, `2>/dev/null`, `>/dev/null`) are not writes and must not match. Store paths are collected from the whole command text, including variable assignments such as `D=~/code/tasks/dossiers/x`. A store-directory cwd from the payload or a tracked `cd` also counts. Every owning task found is checked. Misses only cost a prompt that should have fired under contention. False matches only matter under contention too.
 - KTD6. **One decision path for both tools.** A shared helper takes the owning tasks, runs the two checks and emits the ask. The risky-git branch keeps first priority. If a Bash command is both risky and a contended write, the risky-git ask wins, unchanged (R8).
 
 ### High-Level Technical Design
@@ -102,7 +102,7 @@ flowchart TB
   O --> C{another live session's @task, or wb lock held?}
   C -->|no| Z
   C -->|yes| Q[ask, naming the session]
-  C -->|tmux or lock query fails| F[stderr note, exit 0]
+  C -->|tmux or lock query fails| F[stderr note, skip that half of the check]
 ```
 
 ### Assumptions
@@ -150,6 +150,7 @@ flowchart TB
   - Edit to `$TASKS/README.md`, `$TASKS/weeks/x.md` and `$TASKS/context/y.md`, with session `other` owning `foo.md` → no stdout for each.
   - Edit with `TMUX`/`TMUX_PANE` unset, session `other` owns `foo.md` → `ask` naming `other`.
   - Lock file for `foo.md` held by a background `flock` holder in the fixture state dir, no live owner → `ask`. The reason names the recorded `tmux_session` when present.
+  - Lock file for `foo.md` held, recording `tmux_session` equal to the caller's own session, no other live owner → no stdout.
   - Lock file present but not held → no stdout.
   - tmux stub exits non-zero → exit 0, one stderr line, no stdout.
   - No ask reason contains `wb append`.
@@ -185,6 +186,8 @@ flowchart TB
   - Same command, no live owner other than the caller → no stdout.
   - `D=~/code/tasks/dossiers/foo; echo x > $D/n.md`, `other` owns `foo` → `ask`.
   - `cd ~/code/tasks/dossiers/foo && python3 - <<'EOF'` containing `open('x.json','w')`, `other` owns `foo` → `ask`.
+  - Payload cwd `~/code/tasks/dossiers/foo`, command `sed -i s/a/b/ n.md` (no `code/tasks` text), `other` owns `foo` → `ask`.
+  - `ls ~/code/tasks 2>/dev/null >/dev/null`, `other` owns a task → no stdout (fd and `/dev/null` redirects are not writes).
   - `cat ~/code/tasks/foo.md`, `other` owns `foo` → no stdout (read only).
   - `wb append foo Decisions - <<'EOF'`, `other` owns `foo` → no stdout.
   - `cd ~/code/tasks/dossiers/foo && wb append foo Decisions - <<'EOF'` with `->` and a store path in the body, `other` owns `foo` → no stdout.
