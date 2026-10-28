@@ -1,0 +1,174 @@
+{
+  "slug": "live-rows-capture",
+  "title": "Capturing live's rows",
+  "eyebrow": "Example spec for compare-page · a made-up data-access decision",
+  "lede": "The diff command has to compare the new pricing job's rows with what the live job wrote to Postgres, and a laptop can't reach the dev database. Three ways to get those rows out, compared at component level.",
+  "sources": "An invented example for the compare-page skill. Parts marked unverified are the kind of claim a real page should flag.",
+  "problem": {
+    "why": "The comparison can't say whether the new pricing job matches live until the diff can read live's <code>orders</code> and <code>order_items</code> rows for a batch.",
+    "hard": "The dev database has only a Private Service Connect address: a private address inside the company's VPC. There's no VPN, bastion or public IP, so a database proxy can't work from a laptop. Any program that reads these rows has to run inside the VPC, or inside Google's own service."
+  },
+  "shared": [
+    "<b>Only the read needs the VPC.</b> The diff, the notebook, live's GCS outputs and the run-folder bucket are all reachable from a laptop with your own login.",
+    "<b>Live's rows are frozen, then compared file to file.</b> They land at <code>runs/&lt;batch&gt;/live-&lt;ts&gt;/</code> with a seal: the query, the identity, row counts and a sha256 per file. Live rewrites a batch's rows on every rerun and records no run id.",
+    "<b>One capture per batch.</b> So how fast one capture runs matters less than how simple it is to start and how safe it is to leave deployed."
+  ],
+  "options": [
+    {
+      "id": "job",
+      "rec": true,
+      "name": "A capture Job",
+      "short": "Capture Job",
+      "tagline": "Start it per batch; it writes the rows and exits.",
+      "summary": "A Cloud Run Job from the pipeline's own image. You start it for one batch; it saves the rows and the seal into the run folder and exits.",
+      "diagram": {
+        "zones": [
+          {"id": "laptop", "label": "Your laptop"},
+          {"id": "cloud", "label": "Google Cloud, public APIs"},
+          {"id": "vpc", "label": "Inside the VPC", "tone": "accent"}
+        ],
+        "nodes": [
+          {"id": "cmd", "zone": "laptop", "row": 0, "title": "Capture command", "lines": ["make capture-live BATCH=…"]},
+          {"id": "diff", "zone": "laptop", "row": 1, "title": "diff + notebook", "lines": ["compares files", "writes the record"]},
+          {"id": "logs", "zone": "cloud", "row": 0, "title": "Cloud Logging", "lines": ["live's parse lines"]},
+          {"id": "bucket", "zone": "cloud", "row": 1, "title": "Run-folder bucket", "lines": ["run-<gen>/  new flow", "live-<ts>/  rows + seal"]},
+          {"id": "gcs", "zone": "cloud", "row": 2, "title": "Live's GCS files", "lines": ["upload + exports buckets"]},
+          {"id": "job", "zone": "vpc", "row": 0, "title": "capture-live Job", "lines": ["pipeline image, own SA", "DB user: app_ro"], "key": true},
+          {"id": "db", "zone": "vpc", "row": 1, "title": "dev Postgres", "lines": ["orders", "order_items"]}
+        ],
+        "edges": [
+          {"from": "cmd", "to": "job", "n": 1},
+          {"from": "job", "to": "db", "n": 2},
+          {"from": "job", "to": "logs", "n": 3},
+          {"from": "job", "to": "bucket", "n": 4},
+          {"from": "diff", "to": "bucket", "n": 5},
+          {"from": "diff", "to": "gcs", "n": 6}
+        ]
+      },
+      "steps": [
+        "You start the Job for one batch with your own gcloud login, through a Makefile target.",
+        "Inside the VPC it reads the batch's rows over PSC as <code>app_ro</code>: SELECT only.",
+        "It checks live's log for the batch once: the fallback-parse lines and the revision.",
+        "It writes typed parquet plus the seal to <code>runs/&lt;batch&gt;/live-&lt;ts&gt;/</code>, then exits.",
+        "On your laptop, the diff compares the new run with the capture and writes the comparison record.",
+        "The diff reads live's GCS outputs directly, with your login."
+      ],
+      "pros": [
+        "<b>Nothing can call in.</b> No URL; only people allowed to run the Job can start it.",
+        "<b>Built like the pipeline's own Jobs:</b> the same module, manifest and image.",
+        "<b>The seal is written inside the VPC,</b> by the code that read the rows."
+      ],
+      "cons": [
+        "<b>Start and wait:</b> tens of seconds per capture.",
+        "<b>Another Job, SA and Cloud Deploy pipeline</b> to own.",
+        "<b>A notebook can't call it as a data source;</b> it reads the capture afterwards."
+      ]
+    },
+    {
+      "id": "endpoint",
+      "name": "A read-only endpoint",
+      "short": "Endpoint",
+      "tagline": "Call it from the diff or a notebook; get parquet back.",
+      "summary": "A small Cloud Run service inside the VPC with fixed routes, reached through the shared load balancer with IAP checking a Google group, as the admin dashboard is.",
+      "diagram": {
+        "zones": [
+          {"id": "laptop", "label": "Your laptop"},
+          {"id": "cloud", "label": "Google Cloud, public APIs"},
+          {"id": "vpc", "label": "Inside the VPC", "tone": "accent"}
+        ],
+        "nodes": [
+          {"id": "diff", "zone": "laptop", "row": 1, "title": "diff + notebook", "lines": ["--b live", "saves the response"]},
+          {"id": "lb", "zone": "cloud", "row": 0, "title": "Shared load balancer", "lines": ["IAP: your Google group"]},
+          {"id": "bucket", "zone": "cloud", "row": 1, "title": "Run-folder bucket", "lines": ["run-<gen>/  new flow", "live-<ts>/  saved rows"]},
+          {"id": "gcs", "zone": "cloud", "row": 2, "title": "Live's GCS files", "lines": ["upload + exports buckets"]},
+          {"id": "svc", "zone": "vpc", "row": 0, "title": "live-rows service", "lines": ["Cloud Run, fixed routes", "DB user: app_ro"], "key": true},
+          {"id": "db", "zone": "vpc", "row": 1, "title": "dev Postgres", "lines": ["orders", "order_items"]}
+        ],
+        "edges": [
+          {"from": "diff", "to": "lb", "n": 1, "both": true},
+          {"from": "lb", "to": "svc", "n": 2, "both": true},
+          {"from": "svc", "to": "db", "n": 3},
+          {"from": "diff", "to": "bucket", "n": 4},
+          {"from": "diff", "to": "gcs", "n": 5}
+        ]
+      },
+      "steps": [
+        "The diff, or a notebook cell, calls the endpoint over HTTPS with an IAP token; the parquet comes back in the same call.",
+        "The load balancer checks you're in the allowed group, then passes the request on.",
+        "The service reads the rows over PSC as <code>app_ro</code> and returns them as parquet.",
+        "The diff saves the response and a seal to <code>runs/&lt;batch&gt;/live-&lt;ts&gt;/</code>, then compares.",
+        "The diff reads live's GCS outputs directly, with your login."
+      ],
+      "pros": [
+        "<b>One call returns the rows,</b> from the diff or a notebook.",
+        "<b>New read routes are cheap:</b> one more handler.",
+        "<b>A precedent exists:</b> the admin dashboard uses the same load balancer + IAP setup."
+      ],
+      "cons": [
+        "<b>Touches shared infra:</b> a backend and IAP entry on the shared load balancer.",
+        "<b>IAP tokens from a CLI</b> likely need an OAuth client or SA impersonation (unverified).",
+        "<b>A deployed URL that returns live rows</b> to anyone in the group."
+      ],
+      "wins_if": "reads stop being one per batch: analysts pulling rows ad hoc, or many small drill-down reads straight from Postgres."
+    },
+    {
+      "id": "export",
+      "name": "The managed export",
+      "short": "Managed export",
+      "tagline": "Google's service runs the SELECT and writes CSV.",
+      "summary": "The database's managed export (<code>gcloud … export --csv --select-query</code>) runs the SELECT inside Google's service and writes CSV straight to a bucket, so nothing of ours runs in the VPC.",
+      "diagram": {
+        "zones": [
+          {"id": "laptop", "label": "Your laptop"},
+          {"id": "cloud", "label": "Google Cloud, public APIs"},
+          {"id": "vpc", "label": "Database service side", "tone": "accent"}
+        ],
+        "nodes": [
+          {"id": "cmd", "zone": "laptop", "row": 0, "title": "Export command", "lines": ["clusters export --csv"]},
+          {"id": "diff", "zone": "laptop", "row": 1, "title": "diff + notebook", "lines": ["reads CSV as text"]},
+          {"id": "api", "zone": "cloud", "row": 0, "title": "Database admin API", "lines": ["needs export permission"]},
+          {"id": "bucket", "zone": "cloud", "row": 1, "title": "Run-folder bucket", "lines": ["live-<ts>/  CSV"]},
+          {"id": "gcs", "zone": "cloud", "row": 2, "title": "Live's GCS files", "lines": ["upload + exports buckets"]},
+          {"id": "agent", "zone": "vpc", "row": 0, "title": "Cluster service agent", "lines": ["runs the SELECT"], "key": true},
+          {"id": "db", "zone": "vpc", "row": 1, "title": "dev Postgres", "lines": ["orders", "order_items"]}
+        ],
+        "edges": [
+          {"from": "cmd", "to": "api", "n": 1},
+          {"from": "api", "to": "agent", "n": 2},
+          {"from": "agent", "to": "db", "n": 3},
+          {"from": "agent", "to": "bucket", "n": 4},
+          {"from": "diff", "to": "bucket", "n": 5},
+          {"from": "diff", "to": "gcs", "n": 6}
+        ]
+      },
+      "steps": [
+        "You run the export command for one batch's SELECT.",
+        "The admin API checks you hold the export permission (a custom role, or a PAM elevation), then hands the job to the cluster.",
+        "The cluster's service agent runs the SELECT inside Google's service.",
+        "It writes CSV to the run-folder bucket, which needs a grant for the agent across projects.",
+        "The diff reads the CSV as text and casts it.",
+        "The diff reads live's GCS outputs directly, with your login."
+      ],
+      "pros": [
+        "<b>No Job or service of ours</b> to build or deploy.",
+        "<b>A write is impossible</b> at the API level."
+      ],
+      "cons": [
+        "<b>A new permission:</b> a custom role, or a PAM elevation per export.",
+        "<b>A bucket grant across projects</b> for the cluster's agent.",
+        "<b>Unverified on a PSC-only cluster,</b> and doesn't rehearse v1.0's database setup."
+      ],
+      "wins_if": "a one-day spike shows it works on a PSC-only cluster and nobody wants a deployed reader before v1.0."
+    }
+  ],
+  "compare": [
+    {"label": "Getting one batch's rows", "cells": {"job": "start, wait tens of seconds", "endpoint": "one call, about a second", "export": "run the export, wait for the CSV"}},
+    {"label": "Who can reach it", "cells": {"job": "people allowed to run the Job", "endpoint": "anyone in the IAP group, at a URL", "export": "people with the export permission"}},
+    {"label": "Shared infra touched", "cells": {"job": "none", "endpoint": "the shared load balancer and IAP", "export": "an IAM role and a cross-project bucket grant"}},
+    {"label": "Rehearses v1.0's database setup", "cells": {"job": "yes", "endpoint": "yes", "export": "no"}}
+  ],
+  "recommendation": {
+    "summary": "<b>The capture Job.</b> It's built like the pipeline's existing Jobs, nothing can call in, and the seal is written inside the VPC. Rows are captured once per batch, so the endpoint's speed only helps one call.",
+    "changed": "An earlier answer recommended the endpoint. Freezing the rows once per batch removed most of its advantage, while its costs stayed."
+  }
+}

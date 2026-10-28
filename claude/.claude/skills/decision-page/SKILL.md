@@ -39,6 +39,10 @@ band within that shape; trigger phrases never override the shape.**
   batch where every item has its own options): the shape wins; say so in chat.
 - A skill whose own flow fixes its presentation tool keeps it: `/weekly-review`
   and `/wb-breakdown` both use review-page. This rule governs ad-hoc batches.
+- **One item whose options differ in structure** (components, where they run, how
+  data flows) can get a `compare-page`: a diagram per option, pros and cons, a
+  side-by-side table. Link it from the item's `artifacts`; the answer is still
+  collected here.
 
 ## Align first
 
