@@ -307,7 +307,7 @@ spots are covered by one of the other two:</p>
 <td><strong>1 — agent hook</strong></td>
 <td>ASKS</td>
 <td>Claude Code <code>PreToolUse</code>, <code>tasks-git-hooks/pretooluse-guard.sh</code></td>
-<td>Cheap pattern+directory match on dangerous git shapes scoped to <code>~/code/tasks</code>, <em>before</em> they run. For <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code>, asks only on contention (see <a href="#store-writes-ask-only-on-contention">Store writes ask only on contention</a>). Only ever <code>&quot;ask&quot;</code>, never <code>&quot;deny&quot;</code>; fails open on any internal error.</td>
+<td>Cheap pattern+directory match on dangerous git shapes scoped to <code>~/code/tasks</code>, <em>before</em> they run. For <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code> and write-shaped Bash commands, asks only on contention (see <a href="#store-writes-ask-only-on-contention">Store writes ask only on contention</a>). Only ever <code>&quot;ask&quot;</code>, never <code>&quot;deny&quot;</code>; fails open on any internal error.</td>
 </tr>
 <tr>
 <td><strong>2 — git guard</strong></td>
@@ -356,6 +356,12 @@ already-observed incident class goes back to being unguarded.</p>
 <td>second writer waits ≤1s on <code>flock -w 1</code>, then halts loudly (exit 75) rather than racing</td>
 </tr>
 <tr>
+<td>A Claude session writes a task file or dossier through Bash (<code>sed -i</code>, <code>&gt;</code>, a python heredoc) while another session owns that task</td>
+<td>same rule as the row above, applied to write-shaped commands by pattern (H25); <code>wb</code> verbs and read-only commands are never checked</td>
+<td>git never sees plain file writes</td>
+<td>— (only <code>wb</code> verbs take the lock)</td>
+</tr>
+<tr>
 <td>Two concurrent <code>wb new</code>/<code>wb resume</code> seed paths for the <em>same</em> new task</td>
 <td>—</td>
 <td>—</td>
@@ -397,6 +403,18 @@ that releases at once, so a real <code>wb</code> command never waits on it.</li>
 <code>context/</code>, the store root) never ask. Neither does a session writing its
 own task's files. A caller outside tmux has no session of its own, so any
 live owner counts as another session.</p>
+<p>Bash commands follow the same rule when they look like a write (H25):
+<code>sed -i</code>, a <code>&gt;</code>/<code>&gt;&gt;</code> redirect, <code>tee</code>, <code>cp</code>/<code>mv</code>/<code>rm</code>/<code>touch</code>, or python
+<code>open(…, 'w'|'a')</code>, <code>write_text</code> or <code>.write(</code>. Redirects to a file
+descriptor or <code>/dev/null</code> (<code>2&gt;&amp;1</code>, <code>&gt;/dev/null</code>) are not writes. The
+guard checks every task the command could touch: store paths named
+anywhere in it (including <code>D=~/code/tasks/dossiers/x</code> assignments), and
+the working directory (the session's cwd, or a <code>cd</code> earlier in the same
+command) when that is inside the store, along with relative paths from
+it. <code>wb</code> verbs are skipped, heredoc body included, since they take the
+L3 lock themselves. A command that only reads is never checked, and a
+Bash call that mentions no store path and doesn't run from inside it
+never queries tmux at all.</p>
 <p>This replaced an ask on every store write, which was approved all 526
 times it fired over the two weeks to 2026-10-27. Asking every time
 trains people to approve without reading, and Claude Code already
@@ -589,6 +607,12 @@ git has no hook for working-tree/index mutations (<code>clean -fdx</code>,
 <code>reference-transaction</code> hook never sees a remote's ref update; L1
 catches an agent-typed force-push, a raw-terminal one is accepted
 residue (every observed incident so far has been local).</li>
+<li><strong>Bash writes are matched by pattern, not parsed.</strong> A write the
+patterns miss (<code>awk -i inplace</code>, <code>perl -pi</code>, <code>dd of=</code>, a variable
+holding a path built at runtime outside the store's text) gets no ask
+even under contention; a command that only reads the store but writes
+elsewhere (<code>cat ~/code/tasks/x.md &gt; /tmp/y</code>) can still ask under
+contention. Both only matter while another session owns the task.</li>
 <li><strong>No session-liveness TTLs or auto-cleanup</strong> beyond the lock-contention
 path covered above — no <code>wb reconcile</code>-time stale-lock sweep.</li>
 <li><strong><code>~/code/tasks</code> only; single machine.</strong> <code>~/code/notes</code> is a confirmed
