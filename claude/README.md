@@ -76,7 +76,8 @@ paths/vocabulary in the invocation prompt instead.
   - a `hooks.PreToolUse` block wiring every `Bash`/`Edit`/`Write`/`MultiEdit`
     tool call through `tasks-git-hooks/pretooluse-guard.sh`, which asks
     before a command looks like it would rewind history inside
-    `~/code/tasks` (see [`tasks-store-guards.md`](../docs/guides/tasks-store-guards.html)
+    `~/code/tasks`, and before a write to a task another live session is
+    working on (see [`tasks-store-guards.md`](../docs/guides/tasks-store-guards.html)
     for the full three-layer model this is one layer of). Needs
     `wb install-hooks` to have installed the script itself first — this
     file only wires Claude Code up to call it.

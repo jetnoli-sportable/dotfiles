@@ -246,6 +246,7 @@
     <ul>
       <li><a href="#overview">Overview</a></li>
       <li><a href="#coverage-matrix--who-is-stopped-where">Coverage matrix — who is stopped, where</a></li>
+      <li><a href="#store-writes-ask-only-on-contention">Store writes ask only on contention</a></li>
       <li><a href="#walkthrough--one-dangerous-command-traced-through-all-three-layers">Walkthrough — one dangerous command, traced through all three layers</a></li>
       <li><a href="#the-paved-path-git-pull---ff-only">The paved path: git pull --ff-only</a></li>
       <li><a href="#kill-switches">Kill switches</a></li>
@@ -306,7 +307,7 @@ spots are covered by one of the other two:</p>
 <td><strong>1 — agent hook</strong></td>
 <td>ASKS</td>
 <td>Claude Code <code>PreToolUse</code>, <code>tasks-git-hooks/pretooluse-guard.sh</code></td>
-<td>Cheap pattern+directory match on dangerous git shapes and raw <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code> calls scoped to <code>~/code/tasks</code>, <em>before</em> they run. Always <code>&quot;ask&quot;</code>, never <code>&quot;deny&quot;</code>; fails open on any internal error.</td>
+<td>Cheap pattern+directory match on dangerous git shapes scoped to <code>~/code/tasks</code>, <em>before</em> they run. For <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code>, asks only on contention (see <a href="#store-writes-ask-only-on-contention">Store writes ask only on contention</a>). Only ever <code>&quot;ask&quot;</code>, never <code>&quot;deny&quot;</code>; fails open on any internal error.</td>
 </tr>
 <tr>
 <td><strong>2 — git guard</strong></td>
@@ -350,7 +351,7 @@ already-observed incident class goes back to being unguarded.</p>
 </tr>
 <tr>
 <td>Two writers hit the same task file at once <em>(incidents 1 &amp; 4)</em></td>
-<td>asks if either write goes through a raw <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code> under <code>~/code/tasks</code> (H24)</td>
+<td>asks before an <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code> to a task file or its dossier when another live session's <code>@task</code> is that task, or another session holds its <code>wb</code> lock right now (H24); silent otherwise</td>
 <td>git never sees plain file writes</td>
 <td>second writer waits ≤1s on <code>flock -w 1</code>, then halts loudly (exit 75) rather than racing</td>
 </tr>
@@ -378,6 +379,34 @@ already-observed incident class goes back to being unguarded.</p>
 human wiping uncommitted files from a raw terminal (see &quot;What this
 deliberately doesn't do&quot; below). Every incident actually observed (all
 four) is covered.</p>
+<h2 id="store-writes-ask-only-on-contention">Store writes ask only on contention</h2>
+<p>An <code>Edit</code>/<code>Write</code>/<code>MultiEdit</code> under <code>~/code/tasks</code> gets no decision from
+L1, so it runs under normal permissions, unless another session is
+working on the same task right now. The guard maps the target to its
+owning task: a top-level <code>&lt;task&gt;.md</code> is its own owner, and anything under
+<code>dossiers/&lt;task&gt;/</code> belongs to <code>&lt;task&gt;.md</code>. It then asks, naming the
+other session, when either:</p>
+<ul>
+<li>a live tmux session other than the caller's own has that task file as
+its <code>@task</code>; or</li>
+<li>the task's <code>wb</code> side-car lock (L3) is held right now by a session other
+than the caller's. The guard probes it with a non-blocking <code>flock</code>
+that releases at once, so a real <code>wb</code> command never waits on it.</li>
+</ul>
+<p>Shared files with no single owner (<code>README.md</code>, <code>INDEX*</code>, <code>weeks/</code>,
+<code>context/</code>, the store root) never ask. Neither does a session writing its
+own task's files. A caller outside tmux has no session of its own, so any
+live owner counts as another session.</p>
+<p>This replaced an ask on every store write, which was approved all 526
+times it fired over the two weeks to 2026-10-27. Asking every time
+trains people to approve without reading, and Claude Code already
+refuses an <code>Edit</code> to a file that changed since the session read it. That
+stale-read refusal, plus L3 for <code>wb</code> verbs, is the lost-update
+protection; this ask only flags the case where two sessions really are
+on the same task.</p>
+<p>If the tmux lookup fails, the guard skips the live-session half with one
+stderr line. If <code>wb-locks.sh</code> won't source, it skips the lock half. A
+failure never turns into an ask.</p>
 <h2 id="walkthrough--one-dangerous-command-traced-through-all-three-layers">Walkthrough — one dangerous command, traced through all three layers</h2>
 <p>An agent session runs <code>git reset --hard origin/development</code> from inside
 <code>~/code/tasks</code>:</p>
