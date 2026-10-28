@@ -9,8 +9,9 @@
 # This script is a cheap "dumb pattern + directory matcher": it does NOT try
 # to judge whether a command would actually orphan a commit — it only asks
 # the operator to confirm before a dangerous-shaped git command runs
-# anywhere under ~/code/tasks, or before an Edit/Write/MultiEdit lands on a
-# task another session is working on right now. The real
+# anywhere under ~/code/tasks, or before an Edit/Write/MultiEdit or a
+# write-shaped Bash command lands on a task another session is working on
+# right now. The real
 # correctness judgment lives in a separate git-side hook (a different unit,
 # not this script) — that hook still gets its own say even after this one
 # says "ask" and the operator approves.
@@ -24,7 +25,8 @@
 #
 # Registered twice in claude/.claude/settings.recommended.json's PreToolUse
 # block: once matched on tool_name "Bash" (dangerous-git-command + directory
-# scoping, below), once matched on "Edit|Write|MultiEdit" (H24: writes to a
+# scoping, below, then H25: write-shaped commands follow H24's contention
+# rule), once matched on "Edit|Write|MultiEdit" (H24: writes to a
 # task file or its dossier ask only when another live tmux session's @task
 # is that task, or its wb side-car lock is held by another session right
 # now; everything else gets no decision. An ask on every write was approved
@@ -85,6 +87,18 @@ DANGEROUS_RE="${DANGEROUS_RE}|reflog\b.*(expire|delete)\b"
 DANGEROUS_RE="${DANGEROUS_RE}|gc\b.*--prune\b"
 DANGEROUS_RE="${DANGEROUS_RE}|(^|[[:space:]])prune\b"
 
+# --- H25: write shapes. WRITE_RAW_RE is the loose form the pre-filter runs
+# on the raw JSON (where a newline is the two characters `\n`); WRITE_SEG_RE
+# is the exact form run on each command segment once fd and /dev/null
+# redirects are stripped (is_write_shaped). Pattern-matching misses some
+# writes; a miss only costs an ask that should have fired under contention.
+WRITE_RAW_RE='sed[[:space:]].*(-[a-zA-Z]*i|--in-place)|>'
+WRITE_RAW_RE="${WRITE_RAW_RE}|(^|[^[:alnum:]_-]|\\\\n)(tee|cp|mv|rm|touch)([^[:alnum:]_-]|\$)"
+WRITE_RAW_RE="${WRITE_RAW_RE}|open\(|write_text\(|\.write\("
+WRITE_SEG_RE='(^|[[:space:]])sed[[:space:]]([^|]*[[:space:]])?(-[a-zA-Z]*i|--in-place)|>'
+WRITE_SEG_RE="${WRITE_SEG_RE}|(^|[[:space:]])(tee|cp|mv|rm|touch)([[:space:]]|\$)"
+WRITE_SEG_RE="${WRITE_SEG_RE}|open\(([^)]*,[[:space:]]*)?(mode=)?['\"][wa][bt+]?['\"]|write_text\(|\.write\("
+
 # --- H2: cheap pre-filter, on the RAW stdin text, before ANY jq call or
 # directory-resolution work. Which pre-filter applies depends on which
 # matcher this invocation is for, so tool_name is sniffed with a raw grep
@@ -96,16 +110,21 @@ DANGEROUS_RE="${DANGEROUS_RE}|(^|[[:space:]])prune\b"
 # "dangerous-pattern OR code/tasks" filter would treat that as a match and
 # do full resolution work on every single Bash call issued from inside the
 # tasks dir, which is the common case this hook exists to be cheap around.
-# So: Bash calls are pre-filtered on the dangerous-pattern regex ONLY
-# (independent of any cwd/path text); Edit/Write/MultiEdit calls are
-# pre-filtered on the code/tasks substring ONLY (they have no "command" to
-# pattern-match against). Anything else exits immediately, no jq. ----------
+# So: Bash calls pass on the dangerous-pattern regex, or on a write shape
+# AND the code/tasks substring (in the command, or in a cwd under the
+# store -- an agent that has cd'd into a dossier writes with relative
+# paths); a plain read from inside the store passes neither.
+# Edit/Write/MultiEdit calls are pre-filtered on the code/tasks substring
+# ONLY (they have no "command" to pattern-match against). Anything else
+# exits immediately, no jq. -------------------------------------------------
 raw_tool_name="$(grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' <<<"$payload" \
   | head -n1 | sed -E 's/.*"([^"]*)"$/\1/')"
 
 case "$raw_tool_name" in
   Bash)
-    grep -Eq "$DANGEROUS_RE" <<<"$payload" || exit 0
+    if ! grep -Eq "$DANGEROUS_RE" <<<"$payload"; then
+      grep -Eq "$WRITE_RAW_RE" <<<"$payload" && grep -Fq "code/tasks" <<<"$payload" || exit 0
+    fi
     ;;
   Edit|Write|MultiEdit)
     grep -Fq "code/tasks" <<<"$payload" || exit 0
@@ -319,6 +338,116 @@ ask_if_contended() {
   done
 }
 
+# --- Bash store writes (H25) -------------------------------------------------
+# Best effort: pattern-match each segment, never parse shell. Lines and
+# segments are scanned in pure bash (a python heredoc can be long); only a
+# write-shaped segment forks, to resolve its paths.
+
+# trim STRING -- sets TRIMMED, without the fork a $(...) would cost.
+trim() {
+  TRIMMED="${1#"${1%%[![:space:]]*}"}"
+  TRIMMED="${TRIMMED%"${TRIMMED##*[![:space:]]}"}"
+}
+
+# is_write_shaped SEGMENT -- WRITE_SEG_RE, once fd duplications (2>&1, >&2),
+# /dev/null redirects and arrows or comparisons (->, =>, >=) are removed.
+is_write_shaped() {
+  local s="$1"
+  while [[ "$s" =~ ^(.*)\>\>?[[:space:]]*(\&[0-9-]*|/dev/null)(.*)$ ]]; do
+    s="${BASH_REMATCH[1]}${BASH_REMATCH[3]}"
+  done
+  s="${s//->/}"; s="${s//=>/}"; s="${s//>=/}"
+  [[ "$s" =~ $WRITE_SEG_RE ]]
+}
+
+# is_wb_segment SEGMENT -- the command word, past any VAR=value prefixes,
+# is wb. Its locked verbs do their own flock, so they are never checked.
+is_wb_segment() {
+  local s="$1" word
+  while [[ "$s" =~ ^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.*)$ ]]; do
+    s="${BASH_REMATCH[1]}"
+  done
+  word="${s%%[[:space:]]*}"
+  case "${word##*/}" in wb|wb.sh) return 0 ;; *) return 1 ;; esac
+}
+
+HEREDOC_RE="(^|[^<])<<-?[[:space:]]*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?"
+
+# check_bash_writes COMMAND -- collect the owning task of every store path a
+# write-shaped segment could touch, then hand them to ask_if_contended. A
+# write-shaped segment counts its working directory (payload cwd, or the
+# latest `cd`) and, when that is in the store, its relative paths. Store
+# paths named anywhere in the non-wb text count too, so `D=~/code/tasks/…;
+# echo x > $D/n.md` is caught without expanding $D.
+check_bash_writes() {
+  local command="$1" current_dir="$top_cwd" line seg segs scan_text="" first_write=""
+  local heredoc_end="" heredoc_skip=0 heredoc_dir="" line_heredoc_wb=0 piece task_file
+  local -A owners=()
+
+  add_owner() { # PATH BASE
+    local p
+    p="$(expand_path "$1" "$2")"
+    path_under_tasks_dir "$p" || return 0
+    p="$(owning_task_file "$p")"
+    [ -n "$p" ] && owners["$p"]=1
+    return 0
+  }
+  note_write() { # SEGMENT DIR
+    [ -n "$first_write" ] || first_write="$1"
+    path_under_tasks_dir "$2" || return 0
+    add_owner "$2" /
+    while IFS= read -r piece; do
+      case "$piece" in -*|'') continue ;; esac
+      add_owner "$piece" "$2"
+    done < <(grep -oE "[^[:space:]'\"\`(),;<>|&=]+" <<<"$1")
+  }
+
+  while IFS= read -r line; do
+    if [ -n "$heredoc_end" ]; then
+      trim "$line"
+      if [ "$TRIMMED" = "$heredoc_end" ]; then
+        heredoc_end=""
+      elif [ "$heredoc_skip" -eq 0 ]; then
+        scan_text+="$line"$'\n'
+        is_write_shaped "$line" && note_write "$line" "$heredoc_dir"
+      fi
+      continue
+    fi
+
+    line_heredoc_wb=0
+    segs="${line//&&/$'\n'}"; segs="${segs//||/$'\n'}"
+    segs="${segs//;/$'\n'}"; segs="${segs//|/$'\n'}"
+    while IFS= read -r seg; do
+      trim "$seg"; seg="$TRIMMED"
+      [ -z "$seg" ] && continue
+      if is_wb_segment "$seg"; then
+        [[ "$seg" =~ $HEREDOC_RE ]] && line_heredoc_wb=1
+        continue
+      fi
+      scan_text+="$seg"$'\n'
+      if [[ "$seg" =~ ^cd[[:space:]]+(.+)$ ]]; then
+        current_dir="$(expand_path "${BASH_REMATCH[1]}" "$current_dir")"
+        continue
+      fi
+      is_write_shaped "$seg" && note_write "$seg" "$current_dir"
+    done <<<"$segs"
+
+    if [[ "$line" =~ $HEREDOC_RE ]]; then
+      heredoc_end="${BASH_REMATCH[2]}"
+      heredoc_skip="$line_heredoc_wb"
+      heredoc_dir="$current_dir"
+    fi
+  done <<<"$command"
+
+  [ -n "$first_write" ] || return 0
+  while IFS= read -r piece; do
+    [ -n "$piece" ] && add_owner "$piece" "$top_cwd"
+  done < <(grep -oE "[^[:space:]'\"\`(),;<>|&=]*code/tasks[^[:space:]'\"\`(),;<>|&=]*" <<<"$scan_text")
+
+  [ "${#first_write}" -le 160 ] || first_write="${first_write:0:157}..."
+  ask_if_contended "Bash" "a store file (\`$first_write\`)" "${!owners[@]}"
+}
+
 # --- Bash matcher (H1-H6) ----------------------------------------------------
 handle_bash() {
   local command matched=0 matched_inv="" current_dir="$top_cwd" normalized inv dir
@@ -384,7 +513,10 @@ handle_bash() {
     fi
   done <<<"$normalized"
 
-  [ "$matched" -eq 1 ] || exit 0
+  if [ "$matched" -ne 1 ]; then
+    check_bash_writes "$command"
+    exit 0
+  fi
 
   # H6: sentinel check happens ONLY here, strictly after H3+H4 already
   # matched and scoped this specific command.

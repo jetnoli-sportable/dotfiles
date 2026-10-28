@@ -358,6 +358,96 @@ rm -f "$KILL_SWITCH"
 reset_stub
 
 # ============================================================================
+# H25: write-shaped Bash commands touching the store follow H24's rule. Store
+# paths come from the command text or the working directory (payload cwd or a
+# tracked `cd`); `wb` verb segments, and their heredoc bodies, are skipped.
+# ============================================================================
+bash_json() { # <cwd> <command>
+  jq -nc --arg cwd "$1" --arg cmd "$2" '{cwd: $cwd, tool_name: "Bash", tool_input: {command: $cmd}}'
+}
+
+set_sessions "me bar.md" "other foo.md"
+run_guard "$(bash_json /tmp/elsewhere "sed -i 's/a/b/' ~/code/tasks/foo.md")"
+assert_eq "sed -i on another session's task file: exit 0" "0" "$RC"
+assert_eq "sed -i on another session's task file: ask" "ask" "$(decision_of "$OUT")"
+assert "sed -i on another session's task file: names it" "session 'other'" "$OUT"
+
+set_sessions "me foo.md"
+run_guard "$(bash_json /tmp/elsewhere "sed -i 's/a/b/' ~/code/tasks/foo.md")"
+assert_empty "sed -i on the caller's own task file: no stdout" "$OUT"
+
+set_sessions "other foo.md"
+run_guard "$(bash_json /tmp/elsewhere 'D=~/code/tasks/dossiers/foo; echo x > $D/n.md')"
+assert_eq "redirect into a dossier named by a variable: ask" "ask" "$(decision_of "$OUT")"
+
+run_guard "$(bash_json /tmp/elsewhere "cd ~/code/tasks/dossiers/foo && python3 - <<'EOF'
+import json
+with open('x.json','w') as f:
+    json.dump({}, f)
+EOF")"
+assert_eq "python heredoc write after cd into a dossier: ask" "ask" "$(decision_of "$OUT")"
+
+run_guard "$(bash_json "$FIXTURE_TASKS/dossiers/foo" "sed -i s/a/b/ n.md")"
+assert_eq "relative sed -i from a dossier cwd: ask" "ask" "$(decision_of "$OUT")"
+
+run_guard "$(bash_json "$FIXTURE_TASKS" "sed -i s/a/b/ dossiers/foo/n.md")"
+assert_eq "relative sed -i from the store root into a dossier: ask" "ask" "$(decision_of "$OUT")"
+
+run_guard "$(bash_json /tmp/elsewhere "ls ~/code/tasks 2>/dev/null >/dev/null; ls ~/code/tasks/dossiers/foo 2>&1 >&2")"
+assert_empty "fd and /dev/null redirects are not writes: no stdout" "$OUT"
+
+run_guard "$(bash_json /tmp/elsewhere "cat ~/code/tasks/foo.md")"
+assert_empty "read-only cat of another session's task: no stdout" "$OUT"
+
+run_guard "$(bash_json /tmp/elsewhere "wb append foo Decisions - <<'EOF'
+- picked A -> B, see ~/code/tasks/dossiers/foo/x.md > notes
+EOF")"
+assert_empty "wb append with a heredoc body: no stdout" "$OUT"
+
+run_guard "$(bash_json /tmp/elsewhere "cd ~/code/tasks/dossiers/foo && wb append foo Decisions - <<'EOF'
+- A -> B, written to ~/code/tasks/dossiers/foo/n.md
+EOF")"
+assert_empty "cd into a dossier then wb append: no stdout" "$OUT"
+
+run_guard "$(bash_json /tmp/elsewhere "wb status foo doing; sed -i 's/a/b/' ~/code/tasks/foo.md")"
+assert_eq "wb verb then sed -i in one command: sed still checked, ask" "ask" "$(decision_of "$OUT")"
+
+run_guard "$(bash_json /tmp/elsewhere "echo x > ~/code/tasks-worktrees/foo/a.md")"
+assert_empty "write into a checkout beside the store: no stdout" "$OUT"
+
+for w in "tee -a ~/code/tasks/foo.md" "cp /tmp/a ~/code/tasks/dossiers/foo/a" "touch ~/code/tasks/dossiers/foo/b" \
+         "python3 -c \"open('$FIXTURE_TASKS/dossiers/foo/c','a').write('x')\""; do
+  run_guard "$(bash_json /tmp/elsewhere "$w")"
+  assert_eq "write shape [$w] under contention: ask" "ask" "$(decision_of "$OUT")"
+done
+
+set_sessions "other bar.md"
+run_guard "$(bash_json /tmp/elsewhere "echo x >> ~/code/tasks/dossiers/foo/n.md")"
+assert_empty "append to a dossier no other session owns: no stdout" "$OUT"
+
+reset_stub
+hold_lock foo.md other
+run_guard "$(bash_json /tmp/elsewhere "echo x >> ~/code/tasks/foo.md")"
+release_lock
+assert_eq "Bash write while another session holds the task's lock: ask" "ask" "$(decision_of "$OUT")"
+rm -f "$LOCK_DIR/foo.md.lock"
+
+set_sessions "other foo.md"
+run_guard "$(bash_json "$FIXTURE_TASKS" "git -C ~/code/tasks reset --hard")"
+assert "risky git under contention keeps its own reason" 'Matched dangerous git command' "$OUT"
+
+reset_stub
+run_guard "$(bash_json /tmp/elsewhere "echo x > /tmp/out.txt && sed -i s/a/b/ /tmp/y")"
+assert_empty "write with no store text: no stdout" "$OUT"
+[ -e "$TMUX_STUB_DIR/called" ] && { echo "FAIL - write with no store text: tmux was called"; fail=1; } \
+  || echo "ok   - write with no store text: tmux never called"
+
+run_guard "$(bash_json "$FIXTURE_TASKS" "git status 2>&1 | head")"
+[ -e "$TMUX_STUB_DIR/called" ] && { echo "FAIL - non-write from the store root: tmux was called"; fail=1; } \
+  || echo "ok   - non-write from the store root: tmux never called"
+reset_stub
+
+# ============================================================================
 # H5: NEVER "deny", anywhere. Checked at the call-site level (not a raw
 # grep for the word "deny", which also appears legitimately in the script's
 # own comments documenting the hook contract) — no `emit_decision` call, the
