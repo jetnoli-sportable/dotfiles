@@ -1,5 +1,10 @@
 vim.keymap.set("n", "<Esc>", "<cmd>nohlsearch<CR>")
 
+-- j/k move one screen row through wrapped lines; with a count (5j, the
+-- relative numbers) they still move by real lines.
+vim.keymap.set({ "n", "x" }, "j", "v:count == 0 ? 'gj' : 'j'", { expr = true, silent = true })
+vim.keymap.set({ "n", "x" }, "k", "v:count == 0 ? 'gk' : 'k'", { expr = true, silent = true })
+
 -- Diagnostic keymaps
 vim.keymap.set("n", "<leader>q", vim.diagnostic.setloclist, { desc = "Open diagnostic [Q]uickfix list" })
 vim.keymap.set("n", "<leader>e", vim.diagnostic.open_float, { desc = "Show diagnostic [E]rror", silent = true })
