@@ -38,7 +38,7 @@ spots are covered by one of the other two:
 
 | Layer | Verb | Lives in | What it does |
 |---|---|---|---|
-| **1 — agent hook** | ASKS | Claude Code `PreToolUse`, `tasks-git-hooks/pretooluse-guard.sh` | Cheap pattern+directory match on dangerous git shapes and raw `Edit`/`Write`/`MultiEdit` calls scoped to `~/code/tasks`, *before* they run. Always `"ask"`, never `"deny"`; fails open on any internal error. |
+| **1 — agent hook** | ASKS | Claude Code `PreToolUse`, `tasks-git-hooks/pretooluse-guard.sh` | Cheap pattern+directory match on dangerous git shapes scoped to `~/code/tasks`, *before* they run. For `Edit`/`Write`/`MultiEdit` and write-shaped Bash commands, asks only on contention (see [Store writes ask only on contention](#store-writes-ask-only-on-contention)). Only ever `"ask"`, never `"deny"`; fails open on any internal error. |
 | **2 — git guard** | REFUSES | `core.hooksPath`, `tasks-git-hooks/reference-transaction` | The real correctness judgment. Caller-agnostic — git enforces it for Claude, a raw terminal, anything — refusing a non-fast-forward ref update that would orphan a commit reachable from no other ref. |
 | **3 — file lock** | SERIALIZES | `scripts/.config/scripts/tmux/wb-locks.sh` | One `flock` side-car per task file. Every write burst in `wb.sh`/`handoff.sh`, plus the new `wb append` verb, takes it; a blocked writer halts loudly (exit 75) instead of racing the holder. |
 
@@ -52,7 +52,8 @@ already-observed incident class goes back to being unguarded.
 |---|---|---|---|
 | Claude session types `git reset --hard` in `~/code/tasks` *(incidents 2 & 3)* | asks you first | refuses if commits would be orphaned | — |
 | You type `git reset --hard` in a raw terminal | can't see it (Claude-only) | refuses; offers a y/N prompt since a real tty is open | — |
-| Two writers hit the same task file at once *(incidents 1 & 4)* | asks if either write goes through a raw `Edit`/`Write`/`MultiEdit` under `~/code/tasks` (H24) | git never sees plain file writes | second writer waits ≤1s on `flock -w 1`, then halts loudly (exit 75) rather than racing |
+| Two writers hit the same task file at once *(incidents 1 & 4)* | asks before an `Edit`/`Write`/`MultiEdit` to a task file or its dossier when another live session's `@task` is that task, or another session holds its `wb` lock right now (H24); silent otherwise | git never sees plain file writes | second writer waits ≤1s on `flock -w 1`, then halts loudly (exit 75) rather than racing |
+| A Claude session writes a task file or dossier through Bash (`sed -i`, `>`, a python heredoc) while another session owns that task | same rule as the row above, applied to write-shaped commands by pattern (H25); `wb` verbs and read-only commands are never checked | git never sees plain file writes | — (only `wb` verbs take the lock) |
 | Two concurrent `wb new`/`wb resume` seed paths for the *same* new task | — | — | one seeds; the other blocks on the same lock, then halts (never an interleaved file) |
 | Ordinary safe git (commit, fetch, fast-forward pull) | no match → zero friction | fast-forward check (`merge-base --is-ancestor`) passes instantly | — |
 | `git clean -fdx` typed by a human in a raw terminal | — | partial — git has no hook for working-tree wipes | — |
@@ -61,6 +62,55 @@ The bottom row is the honest, documented gap: no layer fully covers a
 human wiping uncommitted files from a raw terminal (see "What this
 deliberately doesn't do" below). Every incident actually observed (all
 four) is covered.
+
+## Store writes ask only on contention
+
+An `Edit`/`Write`/`MultiEdit` under `~/code/tasks` gets no decision from
+L1, so it runs under normal permissions, unless another session is
+working on the same task right now. The guard maps the target to its
+owning task: a top-level `<task>.md` is its own owner, and anything under
+`dossiers/<task>/` belongs to `<task>.md`. It then asks, naming the
+other session, when either:
+
+- a live tmux session other than the caller's own has that task file as
+  its `@task`; or
+- the task's `wb` side-car lock (L3) is held right now by a session other
+  than the caller's. The guard probes it with a non-blocking `flock`
+  that releases at once, so a real `wb` command never waits on it.
+
+Shared files with no single owner (`README.md`, `INDEX*`, `weeks/`,
+`context/`, the store root) never ask. Neither does a session writing its
+own task's files. A caller outside tmux has no session of its own, so any
+live owner counts as another session.
+
+Bash commands follow the same rule when they look like a write (H25):
+`sed -i`, a `>`/`>>` redirect, `tee`, `cp`/`mv`/`rm`/`touch`, or python
+`open(…, 'w'|'a')`, `write_text` or `.write(`. Redirects to a file
+descriptor or `/dev/null` (`2>&1`, `>/dev/null`) are not writes, and
+neither is a `>` inside quotes (`jq 'select(.n > 1)'`) unless the quotes
+hold a `bash -c` script. In a heredoc body only the python write calls
+count, unless a shell (`bash <<EOF`) reads it. The
+guard checks every task the command could touch: store paths named
+anywhere in it (including `D=~/code/tasks/dossiers/x` assignments), and
+the working directory (the session's cwd, or a `cd` earlier in the same
+command) when that is inside the store, along with relative paths from
+it. `wb` verbs are skipped, heredoc body included, since they take the
+L3 lock themselves. A command that only reads is never checked, and a
+Bash call that mentions no store path and doesn't run from inside it
+never queries tmux at all.
+
+This replaced an ask on every store write, which was approved all 526
+times it fired over the two weeks to 2026-10-27. Asking every time
+trains people to approve without reading, and Claude Code already
+refuses an `Edit` to a file that changed since the session read it. That
+stale-read refusal, plus L3 for `wb` verbs, is the lost-update
+protection; this ask only flags the case where two sessions really are
+on the same task.
+
+If the tmux lookup fails, the guard skips the live-session half with one
+stderr line. If `wb-locks.sh` won't source or `flock` is missing, it
+skips the lock half with one stderr line too. A failure never turns
+into an ask.
 
 ## Walkthrough — one dangerous command, traced through all three layers
 
@@ -233,6 +283,12 @@ bundled into `wb install-hooks` itself. Once per host:
   `reference-transaction` hook never sees a remote's ref update; L1
   catches an agent-typed force-push, a raw-terminal one is accepted
   residue (every observed incident so far has been local).
+- **Bash writes are matched by pattern, not parsed.** A write the
+  patterns miss (`awk -i inplace`, `perl -pi`, `dd of=`, a variable
+  holding a path built at runtime outside the store's text) gets no ask
+  even under contention; a command that only reads the store but writes
+  elsewhere (`cat ~/code/tasks/x.md > /tmp/y`) can still ask under
+  contention. Both only matter while another session owns the task.
 - **No session-liveness TTLs or auto-cleanup** beyond the lock-contention
   path covered above — no `wb reconcile`-time stale-lock sweep.
 - **`~/code/tasks` only; single machine.** `~/code/notes` is a confirmed
