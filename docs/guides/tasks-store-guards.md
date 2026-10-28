@@ -86,7 +86,10 @@ live owner counts as another session.
 Bash commands follow the same rule when they look like a write (H25):
 `sed -i`, a `>`/`>>` redirect, `tee`, `cp`/`mv`/`rm`/`touch`, or python
 `open(…, 'w'|'a')`, `write_text` or `.write(`. Redirects to a file
-descriptor or `/dev/null` (`2>&1`, `>/dev/null`) are not writes. The
+descriptor or `/dev/null` (`2>&1`, `>/dev/null`) are not writes, and
+neither is a `>` inside quotes (`jq 'select(.n > 1)'`) unless the quotes
+hold a `bash -c` script. In a heredoc body only the python write calls
+count, unless a shell (`bash <<EOF`) reads it. The
 guard checks every task the command could touch: store paths named
 anywhere in it (including `D=~/code/tasks/dossiers/x` assignments), and
 the working directory (the session's cwd, or a `cd` earlier in the same
@@ -105,8 +108,9 @@ protection; this ask only flags the case where two sessions really are
 on the same task.
 
 If the tmux lookup fails, the guard skips the live-session half with one
-stderr line. If `wb-locks.sh` won't source, it skips the lock half. A
-failure never turns into an ask.
+stderr line. If `wb-locks.sh` won't source or `flock` is missing, it
+skips the lock half with one stderr line too. A failure never turns
+into an ask.
 
 ## Walkthrough — one dangerous command, traced through all three layers
 
