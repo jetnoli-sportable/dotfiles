@@ -18,7 +18,7 @@ Why GNOME and not Sway, and every key choice, are in
 | `Super+Shift+1/2/3/4/A/S/D/F` | Send the window to workspace 1–8 |
 | `Super+Alt+<letter>` | Forge layout extras: float `C`, split toggle `G`, stacked `S`, tabbed `T`, … |
 | `Super+Ctrl+Shift+L` | Lock screen |
-| `Alt+X` or `Alt+F4` | Close the window |
+| `Shift+Alt+X` or `Alt+F4` | Close the window |
 
 `ctrl+h/j/k/l` is left alone for tmux/nvim (vim-tmux-navigator).
 
