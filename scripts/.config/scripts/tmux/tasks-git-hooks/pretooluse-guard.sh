@@ -239,7 +239,7 @@ owning_task_file() {
   rel="${real_p#"$real_tasks_dir"/}"
   [ "$rel" = "$real_p" ] && return 0
   case "$rel" in
-    dossiers/*/*|dossiers/*)
+    dossiers/*)
       name="${rel#dossiers/}"; name="${name%%/*}" ;;
     */*) return 0 ;;
     *.md) name="${rel%.md}" ;;
@@ -256,16 +256,20 @@ owning_task_file() {
 own_session=""
 live_owners=""
 tmux_ok=0
+# A hung server costs at most TMUX_TIMEOUT_SECS per lookup, then counts as
+# a failed lookup.
+TMUX_TIMEOUT_SECS=2
 load_tmux_state() {
   local out
   if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
-    own_session="$(tmux display -p -t "$TMUX_PANE" '#S' 2>/dev/null)" || own_session=""
+    own_session="$(timeout "$TMUX_TIMEOUT_SECS" tmux display -p -t "$TMUX_PANE" '#S' 2>/dev/null)" || own_session=""
   fi
-  if out="$(tmux list-sessions -F $'#{session_name}\t#{@task}' 2>&1)"; then
+  if out="$(timeout "$TMUX_TIMEOUT_SECS" tmux list-sessions -F $'#{session_name}\t#{@task}' 2>&1)"; then
     live_owners="$out"
     tmux_ok=1
-  elif grep -qE 'no server running|error connecting to' <<<"$out"; then
-    # No tmux server means no live sessions, not a broken lookup.
+  elif grep -qE 'no server running|error connecting to .*\(No such file or directory\)' <<<"$out"; then
+    # No tmux server means no live sessions, not a broken lookup. Any other
+    # connect error (a socket we can't open) is a broken lookup.
     tmux_ok=1
   else
     echo "pretooluse-guard: tmux session lookup failed -- skipping the live-session check" >&2

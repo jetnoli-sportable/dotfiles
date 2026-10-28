@@ -36,7 +36,8 @@ REAL_BASH="$(command -v bash)"
 # a real tmux server (2026-10-25 kill-server incident). It only prints canned
 # answers from $TMUX_STUB_DIR: `sessions` (one "<name>\t<@task>" line per
 # live session) for list-sessions, `own_session` for display -p '#S'. A
-# `fail` file makes every call exit 1; every call touches `called`.
+# `fail` file makes every call exit 1, printing its contents (or a generic
+# error when empty); every call touches `called`.
 STUB_BIN="$(mktemp -d -t wb-guard-stub-bin.XXXXXX)"
 TMUX_STUB_DIR="$FIXTURE_HOME/tmux-stub"
 mkdir -p "$TMUX_STUB_DIR"
@@ -44,7 +45,11 @@ cat > "$STUB_BIN/tmux" <<'STUB'
 #!/usr/bin/env bash
 d="${TMUX_STUB_DIR:?}"
 : > "$d/called"
-[ -e "$d/fail" ] && { echo "tmux stub: forced failure" >&2; exit 1; }
+[ -e "$d/hang" ] && exec sleep 10
+if [ -e "$d/fail" ]; then
+  if [ -s "$d/fail" ]; then cat "$d/fail" >&2; else echo "tmux stub: forced failure" >&2; fi
+  exit 1
+fi
 case "${1:-}" in
   list-sessions) [ -f "$d/sessions" ] && cat "$d/sessions"; exit 0 ;;
   display) [ -f "$d/own_session" ] && cat "$d/own_session"; exit 0 ;;
@@ -329,6 +334,45 @@ assert_empty "tmux query fails: no stdout" "$OUT"
 assert_eq "tmux query fails: exactly one stderr line" "1" "$(printf '%s\n' "$ERR" | grep -c '.')"
 reset_stub
 
+# No tmux server is no live sessions, not a failure: silent, and the lock
+# half still runs.
+printf 'no server running on /tmp/tmux-stub/default\n' > "$TMUX_STUB_DIR/fail"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+assert_empty "no tmux server: no stdout" "$OUT"
+assert_empty "no tmux server: no stderr" "$ERR"
+hold_lock foo.md other
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+release_lock
+assert_eq "no tmux server, lock held by another session: ask" "ask" "$(decision_of "$OUT")"
+printf 'error connecting to /tmp/tmux-stub/default (Permission denied)\n' > "$TMUX_STUB_DIR/fail"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+assert_empty "tmux socket permission denied: no stdout" "$OUT"
+assert_eq "tmux socket permission denied: one stderr line (a failed lookup)" "1" "$(printf '%s\n' "$ERR" | grep -c 'lookup failed')"
+reset_stub
+
+# A hung tmux server times out instead of stalling the hook.
+set_sessions "other foo.md"
+touch "$TMUX_STUB_DIR/hang"
+started=$SECONDS
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+assert_empty "hung tmux server: no stdout" "$OUT"
+assert_eq "hung tmux server: one stderr line" "1" "$(printf '%s\n' "$ERR" | grep -c 'lookup failed')"
+[ $((SECONDS - started)) -lt 8 ] && echo "ok   - hung tmux server: gave up within the timeout" \
+  || { echo "FAIL - hung tmux server: took $((SECONDS - started))s"; fail=1; }
+rm -f "$TMUX_STUB_DIR/hang"
+reset_stub
+
+hold_lock foo.md ""
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+release_lock
+rm -f "$LOCK_DIR/foo.md.lock"
+assert_eq "lock held with no recorded session: ask" "ask" "$(decision_of "$OUT")"
+if printf '%s' "$OUT" | grep -q 'from tmux session'; then
+  echo "FAIL - lock held with no recorded session: reason names a session"; fail=1
+else
+  echo "ok   - lock held with no recorded session: reason names no session"
+fi
+
 # A guard copy with no ../wb-locks.sh beside it: the lock half is skipped
 # with one stderr line, never an ask, even with the lock held.
 LONE_DIR="$FIXTURE_HOME/lone/tasks-git-hooks"
@@ -477,6 +521,14 @@ rm -f "$LOCK_DIR/foo.md.lock"
 set_sessions "other foo.md"
 run_guard "$(bash_json "$FIXTURE_TASKS" "git -C ~/code/tasks reset --hard")"
 assert "risky git under contention keeps its own reason" 'Matched dangerous git command' "$OUT"
+
+run_guard "$(bash_json "$FIXTURE_TASKS" "git reset --hard && echo x > ~/code/tasks/foo.md")"
+assert "risky git plus a contended write: risky-git reason wins" 'Matched dangerous git command' "$OUT"
+
+for w in "echo x >> README.md" "sed -i s/a/b/ weeks/x.md" "touch context/y.md"; do
+  run_guard "$(bash_json "$FIXTURE_TASKS" "$w")"
+  assert_empty "Bash write to a shared store file [$w]: no stdout" "$OUT"
+done
 
 reset_stub
 run_guard "$(bash_json /tmp/elsewhere "echo x > /tmp/out.txt && sed -i s/a/b/ /tmp/y")"
