@@ -88,16 +88,18 @@ DANGEROUS_RE="${DANGEROUS_RE}|gc\b.*--prune\b"
 DANGEROUS_RE="${DANGEROUS_RE}|(^|[[:space:]])prune\b"
 
 # --- H25: write shapes. WRITE_RAW_RE is the loose form the pre-filter runs
-# on the raw JSON (where a newline is the two characters `\n`); WRITE_SEG_RE
-# is the exact form run on each command segment once fd and /dev/null
-# redirects are stripped (is_write_shaped). Pattern-matching misses some
-# writes; a miss only costs an ask that should have fired under contention.
+# on the raw JSON (where a newline is the two characters `\n`). Each command
+# segment is then matched exactly (is_write_shaped): WRITE_API_RE, the
+# python write calls, on the segment as typed, since a mode needs its
+# quotes; WRITE_SHELL_RE and a bare `>` only outside quotes, so
+# `jq 'select(.n > 1)'` stays a read. Pattern-matching misses some writes;
+# a miss only costs an ask that should have fired under contention.
 WRITE_RAW_RE='sed[[:space:]].*(-[a-zA-Z]*i|--in-place)|>'
 WRITE_RAW_RE="${WRITE_RAW_RE}|(^|[^[:alnum:]_-]|\\\\n)(tee|cp|mv|rm|touch)([^[:alnum:]_-]|\$)"
 WRITE_RAW_RE="${WRITE_RAW_RE}|open\(|write_text\(|\.write\("
-WRITE_SEG_RE='(^|[[:space:]])sed[[:space:]]([^|]*[[:space:]])?(-[a-zA-Z]*i|--in-place)|>'
-WRITE_SEG_RE="${WRITE_SEG_RE}|(^|[[:space:]])(tee|cp|mv|rm|touch)([[:space:]]|\$)"
-WRITE_SEG_RE="${WRITE_SEG_RE}|open\(([^)]*,[[:space:]]*)?(mode=)?['\"][wa][bt+]?['\"]|write_text\(|\.write\("
+WRITE_SHELL_RE='(^|[[:space:]])sed[[:space:]]([^|]*[[:space:]])?(-[a-zA-Z]*i|--in-place)'
+WRITE_SHELL_RE="${WRITE_SHELL_RE}|(^|[[:space:]])(tee|cp|mv|rm|touch)([[:space:]]|\$)"
+WRITE_API_RE="open\(([^)]*,[[:space:]]*)?(mode=)?['\"][wa][bt+]?['\"]|write_text\(|\.write\("
 
 # --- H2: cheap pre-filter, on the RAW stdin text, before ANY jq call or
 # directory-resolution work. Which pre-filter applies depends on which
@@ -286,14 +288,18 @@ other_live_owner() {
 
 # Lock probe: wb-locks.sh owns the side-car lock path, so source it rather
 # than re-derive it. The stowed guard is a symlink, so resolve the real
-# script dir first. A failed source only drops the lock half of the check.
+# script dir first. A failed source, or no flock, only drops the lock half
+# of the check, with one stderr line like the tmux half's.
 locks_ok=0
 load_locks() {
   local guard_dir
   guard_dir="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")"
   # shellcheck source=../wb-locks.sh
-  if source "$guard_dir/../wb-locks.sh" 2>/dev/null && declare -F _wb_lock_path_for >/dev/null; then
+  if source "$guard_dir/../wb-locks.sh" 2>/dev/null && declare -F _wb_lock_path_for >/dev/null \
+    && command -v flock >/dev/null 2>&1; then
     locks_ok=1
+  else
+    echo "pretooluse-guard: wb-locks.sh or flock unavailable -- skipping the wb lock check" >&2
   fi
 }
 
@@ -349,26 +355,55 @@ trim() {
   TRIMMED="${TRIMMED%"${TRIMMED##*[![:space:]]}"}"
 }
 
-# is_write_shaped SEGMENT -- WRITE_SEG_RE, once fd duplications (2>&1, >&2),
+# strip_quoted STRING -- sets UNQUOTED to STRING without its '…' and "…"
+# spans. An unterminated quote (a segment split inside one) drops the rest.
+strip_quoted() {
+  local s="$1" out="" q rest
+  while [[ "$s" =~ ^([^\'\"]*)([\'\"])(.*)$ ]]; do
+    out+="${BASH_REMATCH[1]}"; q="${BASH_REMATCH[2]}"; rest="${BASH_REMATCH[3]}"
+    if [[ "$rest" != *"$q"* ]]; then s=""; break; fi
+    s="${rest#*"$q"}"
+  done
+  UNQUOTED="$out$s"
+}
+
+# is_write_shaped SEGMENT [api] -- WRITE_API_RE on the segment as typed, or
+# WRITE_SHELL_RE or a `>` outside quotes once fd duplications (2>&1, >&2),
 # /dev/null redirects and arrows or comparisons (->, =>, >=) are removed.
+# With `api`, the segment is a heredoc body line fed to an interpreter or
+# read as data, where `>` and `rm` are not shell, so only WRITE_API_RE counts.
 is_write_shaped() {
   local s="$1"
+  [[ "$s" =~ $WRITE_API_RE ]] && return 0
+  [ "${2:-}" = api ] && return 1
   while [[ "$s" =~ ^(.*)\>\>?[[:space:]]*(\&[0-9-]*|/dev/null)(.*)$ ]]; do
     s="${BASH_REMATCH[1]}${BASH_REMATCH[3]}"
   done
   s="${s//->/}"; s="${s//=>/}"; s="${s//>=/}"
-  [[ "$s" =~ $WRITE_SEG_RE ]]
+  # A quoted `sh -c` string is itself shell, so its quotes stay.
+  if [[ "$s" =~ (^|[[:space:]])(bash|sh|zsh|dash)[[:space:]]+-c ]]; then
+    UNQUOTED="$s"
+  else
+    strip_quoted "$s"
+  fi
+  [[ "$UNQUOTED" =~ $WRITE_SHELL_RE || "$UNQUOTED" == *'>'* ]]
 }
 
-# is_wb_segment SEGMENT -- the command word, past any VAR=value prefixes,
-# is wb. Its locked verbs do their own flock, so they are never checked.
-is_wb_segment() {
-  local s="$1" word
+# command_word SEGMENT -- sets WORD to the segment's command name, past any
+# VAR=value prefixes and a leading path.
+command_word() {
+  local s="$1"
   while [[ "$s" =~ ^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+(.*)$ ]]; do
     s="${BASH_REMATCH[1]}"
   done
-  word="${s%%[[:space:]]*}"
-  case "${word##*/}" in wb|wb.sh) return 0 ;; *) return 1 ;; esac
+  WORD="${s%%[[:space:]]*}"; WORD="${WORD##*/}"
+}
+
+# is_wb_segment SEGMENT -- the command word is wb (sets WORD). Its locked
+# verbs do their own flock, so they are never checked.
+is_wb_segment() {
+  command_word "$1"
+  case "$WORD" in wb|wb.sh) return 0 ;; *) return 1 ;; esac
 }
 
 HEREDOC_RE="(^|[^<])<<-?[[:space:]]*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?"
@@ -381,7 +416,8 @@ HEREDOC_RE="(^|[^<])<<-?[[:space:]]*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?"
 # echo x > $D/n.md` is caught without expanding $D.
 check_bash_writes() {
   local command="$1" current_dir="$top_cwd" line seg segs scan_text="" first_write=""
-  local heredoc_end="" heredoc_skip=0 heredoc_dir="" line_heredoc_wb=0 piece task_file
+  local heredoc_end="" heredoc_skip=0 heredoc_dir="" heredoc_mode="" line_heredoc_wb=0
+  local line_heredoc_mode="" piece task_file
   local -A owners=()
 
   add_owner() { # PATH BASE
@@ -409,12 +445,12 @@ check_bash_writes() {
         heredoc_end=""
       elif [ "$heredoc_skip" -eq 0 ]; then
         scan_text+="$line"$'\n'
-        is_write_shaped "$line" && note_write "$line" "$heredoc_dir"
+        is_write_shaped "$line" $heredoc_mode && note_write "$line" "$heredoc_dir"
       fi
       continue
     fi
 
-    line_heredoc_wb=0
+    line_heredoc_wb=0; line_heredoc_mode=""
     segs="${line//&&/$'\n'}"; segs="${segs//||/$'\n'}"
     segs="${segs//;/$'\n'}"; segs="${segs//|/$'\n'}"
     while IFS= read -r seg; do
@@ -423,6 +459,10 @@ check_bash_writes() {
       if is_wb_segment "$seg"; then
         [[ "$seg" =~ $HEREDOC_RE ]] && line_heredoc_wb=1
         continue
+      fi
+      # A heredoc body is shell only when a shell reads it.
+      if [[ "$seg" =~ $HEREDOC_RE ]]; then
+        case "$WORD" in bash|sh|zsh|dash) line_heredoc_mode="" ;; *) line_heredoc_mode=api ;; esac
       fi
       scan_text+="$seg"$'\n'
       if [[ "$seg" =~ ^cd[[:space:]]+(.+)$ ]]; then
@@ -435,6 +475,7 @@ check_bash_writes() {
     if [[ "$line" =~ $HEREDOC_RE ]]; then
       heredoc_end="${BASH_REMATCH[2]}"
       heredoc_skip="$line_heredoc_wb"
+      heredoc_mode="$line_heredoc_mode"
       heredoc_dir="$current_dir"
     fi
   done <<<"$command"

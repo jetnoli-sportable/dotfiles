@@ -329,6 +329,21 @@ assert_empty "tmux query fails: no stdout" "$OUT"
 assert_eq "tmux query fails: exactly one stderr line" "1" "$(printf '%s\n' "$ERR" | grep -c '.')"
 reset_stub
 
+# A guard copy with no ../wb-locks.sh beside it: the lock half is skipped
+# with one stderr line, never an ask, even with the lock held.
+LONE_DIR="$FIXTURE_HOME/lone/tasks-git-hooks"
+mkdir -p "$LONE_DIR"
+cp "$GUARD" "$LONE_DIR/pretooluse-guard.sh"
+hold_lock foo.md other
+GUARD_SAVED="$GUARD"; GUARD="$LONE_DIR/pretooluse-guard.sh"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+GUARD="$GUARD_SAVED"
+release_lock
+rm -f "$LOCK_DIR/foo.md.lock"
+assert_eq "wb-locks.sh missing: exit 0" "0" "$RC"
+assert_empty "wb-locks.sh missing: no stdout" "$OUT"
+assert_eq "wb-locks.sh missing: exactly one stderr line" "1" "$(printf '%s\n' "$ERR" | grep -c '.')"
+
 set_sessions "other foo.md"
 run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
 if printf '%s' "$OUT" | grep -q 'wb append'; then
@@ -398,6 +413,33 @@ assert_empty "fd and /dev/null redirects are not writes: no stdout" "$OUT"
 
 run_guard "$(bash_json /tmp/elsewhere "cat ~/code/tasks/foo.md")"
 assert_empty "read-only cat of another session's task: no stdout" "$OUT"
+
+for r in "jq 'select(.n > 1)' ~/code/tasks/dossiers/foo/d.json" "awk '\$3 > 5' ~/code/tasks/foo.md | head" \
+         "grep -c '^>' ~/code/tasks/foo.md" "grep -c \"a > b\" ~/code/tasks/foo.md"; do
+  run_guard "$(bash_json /tmp/elsewhere "$r")"
+  assert_empty "read with a quoted > [$r]: no stdout" "$OUT"
+done
+
+run_guard "$(bash_json "$FIXTURE_TASKS/dossiers/foo" "python3 - <<'EOF'
+import json
+r = json.load(open('d.json'))
+if r['n'] > 3:
+    print(r)
+EOF")"
+assert_empty "read-only python heredoc from a dossier cwd: no stdout" "$OUT"
+
+run_guard "$(bash_json /tmp/elsewhere "cat > ~/code/tasks/dossiers/foo/n.md <<'EOF'
+a > b
+EOF")"
+assert_eq "cat > into a dossier with a heredoc body: ask" "ask" "$(decision_of "$OUT")"
+
+run_guard "$(bash_json /tmp/elsewhere "bash -c \"echo x > ~/code/tasks/foo.md\"")"
+assert_eq "redirect inside a quoted bash -c string: ask" "ask" "$(decision_of "$OUT")"
+
+run_guard "$(bash_json "$FIXTURE_TASKS/dossiers/foo" "bash <<'EOF'
+echo x > n.md
+EOF")"
+assert_eq "redirect in a bash heredoc body from a dossier cwd: ask" "ask" "$(decision_of "$OUT")"
 
 run_guard "$(bash_json /tmp/elsewhere "wb append foo Decisions - <<'EOF'
 - picked A -> B, see ~/code/tasks/dossiers/foo/x.md > notes
