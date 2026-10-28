@@ -8,8 +8,9 @@
 # that directory, silently orphaning another session's unpushed commits.
 # This script is a cheap "dumb pattern + directory matcher": it does NOT try
 # to judge whether a command would actually orphan a commit — it only asks
-# the operator to confirm before a dangerous-shaped git command, or a raw
-# Edit/Write/MultiEdit, runs anywhere under ~/code/tasks. The real
+# the operator to confirm before a dangerous-shaped git command runs
+# anywhere under ~/code/tasks, or before an Edit/Write/MultiEdit lands on a
+# task another session is working on right now. The real
 # correctness judgment lives in a separate git-side hook (a different unit,
 # not this script) — that hook still gets its own say even after this one
 # says "ask" and the operator approves.
@@ -23,10 +24,12 @@
 #
 # Registered twice in claude/.claude/settings.recommended.json's PreToolUse
 # block: once matched on tool_name "Bash" (dangerous-git-command + directory
-# scoping, below), once matched on "Edit|Write|MultiEdit" (raw task-file
-# writes, since a parallel effort is teaching agents to use a locked `wb
-# append` CLI verb instead of editing task files directly — this hook is the
-# backstop for every OTHER session that doesn't know that convention yet).
+# scoping, below), once matched on "Edit|Write|MultiEdit" (H24: writes to a
+# task file or its dossier ask only when another live tmux session's @task
+# is that task, or its wb side-car lock is held by another session right
+# now; everything else gets no decision. An ask on every write was approved
+# 526 times out of 526 over two weeks, and Edit/Write already refuse a write
+# to a file that changed since it was read).
 #
 # Style note: this is a sibling of claude-notify-hook.sh (same stdin-guard
 # `[ ! -t 0 ]` pattern, same $HOME-based paths) but deliberately departs from
@@ -199,6 +202,123 @@ emit_decision() {
     '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: $decision, permissionDecisionReason: $reason}}'
 }
 
+# --- contention check (H24) --------------------------------------------------
+# A store write only needs a human when another session is working on the
+# same task right now. Edit/Write already refuse a stale write on their own;
+# what they can't see is that someone else is mid-flight on the task.
+
+# owning_task_file PATH -- the canonical task file PATH belongs to: the
+# top-level <task>.md itself, or <task>.md for anything under
+# dossiers/<task>/. Prints nothing for shared files (README.md, INDEX*,
+# weeks/, context/, the store root), which no single session owns.
+owning_task_file() {
+  local real_p real_tasks_dir rel name
+  real_p="$(realpath -m -- "$1" 2>/dev/null)" || return 0
+  real_tasks_dir="$(realpath -m -- "$TASKS_DIR" 2>/dev/null)" || return 0
+  rel="${real_p#"$real_tasks_dir"/}"
+  [ "$rel" = "$real_p" ] && return 0
+  case "$rel" in
+    dossiers/*/*|dossiers/*)
+      name="${rel#dossiers/}"; name="${name%%/*}" ;;
+    */*) return 0 ;;
+    *.md) name="${rel%.md}" ;;
+    *) return 0 ;;
+  esac
+  case "$name" in README|INDEX*|'') return 0 ;; esac
+  printf '%s/%s.md' "$real_tasks_dir" "$name"
+}
+
+# The caller's own tmux session (empty outside tmux) and every live
+# session's @task, each looked up at most once per run. Mirrors
+# _wb_refuse_if_live_session in wb.sh without sourcing wb.sh, whose
+# top-level CODE_DIR assignment caused the 2026-07-10 deletion incident.
+own_session=""
+live_owners=""
+tmux_ok=0
+load_tmux_state() {
+  local out
+  if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
+    own_session="$(tmux display -p -t "$TMUX_PANE" '#S' 2>/dev/null)" || own_session=""
+  fi
+  if out="$(tmux list-sessions -F $'#{session_name}\t#{@task}' 2>&1)"; then
+    live_owners="$out"
+    tmux_ok=1
+  elif grep -qE 'no server running|error connecting to' <<<"$out"; then
+    # No tmux server means no live sessions, not a broken lookup.
+    tmux_ok=1
+  else
+    echo "pretooluse-guard: tmux session lookup failed -- skipping the live-session check" >&2
+  fi
+}
+
+# other_live_owner TASK_FILE -- the first live session other than the
+# caller's own whose @task is TASK_FILE.
+other_live_owner() {
+  local task_file="$1" name task
+  [ "$tmux_ok" -eq 1 ] || return 0
+  while IFS=$'\t' read -r name task; do
+    [ -n "$name" ] && [ -n "$task" ] || continue
+    [ "$name" = "$own_session" ] && continue
+    [ "$(realpath -m -- "$task" 2>/dev/null)" = "$task_file" ] || continue
+    printf '%s' "$name"
+    return 0
+  done <<<"$live_owners"
+}
+
+# Lock probe: wb-locks.sh owns the side-car lock path, so source it rather
+# than re-derive it. The stowed guard is a symlink, so resolve the real
+# script dir first. A failed source only drops the lock half of the check.
+locks_ok=0
+load_locks() {
+  local guard_dir
+  guard_dir="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")"
+  # shellcheck source=../wb-locks.sh
+  if source "$guard_dir/../wb-locks.sh" 2>/dev/null && declare -F _wb_lock_path_for >/dev/null; then
+    locks_ok=1
+  fi
+}
+
+# lock_holder TASK_FILE -- succeeds when TASK_FILE's wb lock is held right
+# now by someone other than the caller's own session, printing the holder's
+# recorded tmux session (possibly empty). Probes with a non-blocking flock
+# that releases at once, so a real wb command never waits on it.
+lock_holder() {
+  local task_file="$1" lockfile rc holder
+  [ "$locks_ok" -eq 1 ] || return 1
+  lockfile="$(_wb_lock_path_for "$task_file")"
+  [ -f "$lockfile" ] || return 1
+  flock -n -E 75 "$lockfile" true 2>/dev/null
+  rc=$?
+  [ $rc -eq 75 ] || return 1
+  holder="$(wb_task_lock_holder_field "$task_file" tmux_session)"
+  [ -n "$holder" ] && [ "$holder" = "$own_session" ] && return 1
+  printf '%s' "$holder"
+}
+
+# ask_if_contended TOOL TARGET TASK_FILE... -- emit an ask naming the first
+# contending session for any TASK_FILE; otherwise emit nothing.
+ask_if_contended() {
+  local tool="$1" target="$2" task_file task who holder
+  shift 2
+  [ $# -gt 0 ] || return 0
+  load_tmux_state
+  load_locks
+  for task_file in "$@"; do
+    task="$(basename -- "$task_file" .md)"
+    who="$(other_live_owner "$task_file")"
+    if [ -n "$who" ]; then
+      emit_decision "ask" \
+        "$tool is writing $target, which belongs to task $task -- and tmux session '$who' is working on that task right now. Check with that session first so neither of you overwrites the other's changes."
+      return 0
+    fi
+    if holder="$(lock_holder "$task_file")"; then
+      emit_decision "ask" \
+        "$tool is writing $target, which belongs to task $task -- and a wb command${holder:+ from tmux session '$holder'} is writing that task right now. Wait for it to finish, then re-read the file before writing."
+      return 0
+    fi
+  done
+}
+
 # --- Bash matcher (H1-H6) ----------------------------------------------------
 handle_bash() {
   local command matched=0 matched_inv="" current_dir="$top_cwd" normalized inv dir
@@ -281,7 +401,7 @@ handle_bash() {
 
 # --- Edit/Write/MultiEdit matcher (H24) --------------------------------------
 handle_edit() {
-  local file_path
+  local file_path task_file
 
   file_path="$(jq_get '.tool_input.file_path // empty')"
   [ -z "$file_path" ] && exit 0
@@ -289,8 +409,9 @@ handle_edit() {
   file_path="$(expand_path "$file_path" "$top_cwd")"
   path_under_tasks_dir "$file_path" || exit 0
 
-  emit_decision "ask" \
-    "$tool_name is targeting a file under \$HOME/code/tasks (the shared multi-agent task store): $file_path. A parallel effort is teaching agents to use the locked \`wb append\` CLI verb instead of writing task files directly with an editor tool, so concurrent sessions don't clobber each other's writes -- this is the backstop for sessions that don't know that convention yet. Prefer \`wb append\` instead of editing this file directly."
+  task_file="$(owning_task_file "$file_path")"
+  [ -n "$task_file" ] || exit 0
+  ask_if_contended "$tool_name" "$file_path" "$task_file"
   exit 0
 }
 

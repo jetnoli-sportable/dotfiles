@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Tests for pretooluse-guard.sh (U5, tasks-dir concurrency-safety) — the
 # Claude Code PreToolUse hook that asks the operator before a dangerous git
-# command, or a raw Edit/Write/MultiEdit, runs scoped at ~/code/tasks.
+# command runs scoped at ~/code/tasks, or before an Edit/Write/MultiEdit
+# lands on a task another live session is working on.
 #
 # Plain-bash assertions against synthetic PreToolUse JSON payloads fed on
-# stdin, same convention as wb-schema.test.sh (no tmux/git fixtures needed —
-# the hook is a pure stdin-in, JSON-out filter). Runs fine on the host
-# (needs jq) or inside the Dockerfile'd sandbox.
+# stdin, same convention as wb-schema.test.sh. No git fixtures; live tmux
+# sessions come from a PATH-shimmed fake tmux that never contacts a real
+# server. Runs fine on the host (needs jq, flock) or inside the
+# Dockerfile'd sandbox.
 #
 # Run: bash scripts/.config/scripts/tmux/tests/tasks-agent-hook.test.sh
 set -uo pipefail
@@ -30,7 +32,45 @@ for b in cat grep sed head date; do
 done
 REAL_BASH="$(command -v bash)"
 
-trap 'rm -rf "$FIXTURE_HOME" "$NOJQ_BIN"' EXIT
+# Fake tmux, first on PATH for every run_guard call, so no test ever reaches
+# a real tmux server (2026-10-25 kill-server incident). It only prints canned
+# answers from $TMUX_STUB_DIR: `sessions` (one "<name>\t<@task>" line per
+# live session) for list-sessions, `own_session` for display -p '#S'. A
+# `fail` file makes every call exit 1; every call touches `called`.
+STUB_BIN="$(mktemp -d -t wb-guard-stub-bin.XXXXXX)"
+TMUX_STUB_DIR="$FIXTURE_HOME/tmux-stub"
+mkdir -p "$TMUX_STUB_DIR"
+cat > "$STUB_BIN/tmux" <<'STUB'
+#!/usr/bin/env bash
+d="${TMUX_STUB_DIR:?}"
+: > "$d/called"
+[ -e "$d/fail" ] && { echo "tmux stub: forced failure" >&2; exit 1; }
+case "${1:-}" in
+  list-sessions) [ -f "$d/sessions" ] && cat "$d/sessions"; exit 0 ;;
+  display) [ -f "$d/own_session" ] && cat "$d/own_session"; exit 0 ;;
+esac
+exit 0
+STUB
+chmod +x "$STUB_BIN/tmux"
+
+# set_sessions ["<name> <task-basename>"...] — the stub's live sessions.
+set_sessions() {
+  local s
+  : > "$TMUX_STUB_DIR/sessions"
+  for s in "$@"; do
+    printf '%s\t%s\n' "${s%% *}" "$FIXTURE_TASKS/${s#* }" >> "$TMUX_STUB_DIR/sessions"
+  done
+}
+reset_stub() {
+  rm -f "$TMUX_STUB_DIR"/{sessions,fail,called}
+  printf 'me\n' > "$TMUX_STUB_DIR/own_session"
+}
+reset_stub
+
+LOCK_DIR="$FIXTURE_HOME/.local/state/wb/locks"
+mkdir -p "$LOCK_DIR"
+
+trap 'rm -rf "$FIXTURE_HOME" "$NOJQ_BIN" "$STUB_BIN"' EXIT
 
 fail=0
 assert() { # <desc> <expected-regex> <actual>
@@ -62,12 +102,16 @@ assert_eq() { # <desc> <expected> <actual>
 
 # run_guard JSON [EXTRA_ENV_ASSIGNMENTS...] — sets OUT / ERR / RC.
 # XDG_STATE_HOME is pinned to the fixture home on every call so the
-# kill-switch check never accidentally sees a real ambient path.
+# kill-switch check never accidentally sees a real ambient path. The caller
+# is always "inside tmux" on the stub (pane %1, session `me`) unless an
+# extra assignment overrides TMUX/TMUX_PANE.
 run_guard() {
   local json="$1"; shift
   local errfile
   errfile="$(mktemp -t wb-guard-err.XXXXXX)"
-  OUT="$(printf '%s' "$json" | env HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" "$@" "$REAL_BASH" "$GUARD" 2>"$errfile")"
+  OUT="$(printf '%s' "$json" | env HOME="$FIXTURE_HOME" XDG_STATE_HOME="$FIXTURE_HOME/.local/state" \
+    PATH="$STUB_BIN:$PATH" TMUX_STUB_DIR="$TMUX_STUB_DIR" TMUX="/stub,1,0" TMUX_PANE="%1" \
+    "$@" "$REAL_BASH" "$GUARD" 2>"$errfile")"
   RC=$?
   ERR="$(cat "$errfile")"
   rm -f "$errfile"
@@ -205,39 +249,113 @@ run_guard "{\"cwd\":\"$FIXTURE_TASKS\",\"tool_name\":\"Bash\",\"tool_input\":{\"
 assert_eq "gc --prune scoped: ask" "ask" "$(decision_of "$OUT")"
 
 # ============================================================================
-# H24: Edit/Write/MultiEdit matcher — file_path scoping under ~/code/tasks.
+# H24: Edit/Write/MultiEdit — ask only when another live session owns the
+# target's task, or that task's wb lock is held right now. The owning task
+# is the top-level task file itself, or dossiers/<task>/… for its dossier.
 # ============================================================================
-run_guard "{\"cwd\":\"$FIXTURE_HOME\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$FIXTURE_TASKS/foo.md\"}}"
-assert_eq "Edit inside tasks: exit 0" "0" "$RC"
-assert_eq "Edit inside tasks: ask" "ask" "$(decision_of "$OUT")"
-assert "Edit inside tasks: names wb append" 'wb append' "$OUT"
+edit_json() { # <tool> <file_path>
+  printf '{"cwd":"%s","tool_name":"%s","tool_input":{"file_path":"%s"}}' "$FIXTURE_HOME" "$1" "$2"
+}
 
-run_guard "{\"cwd\":\"$FIXTURE_HOME\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$FIXTURE_HOME/code/other-repo/foo.md\"}}"
+# hold_lock <task-basename> <holder-tmux-session> — hold that task's wb
+# side-car lock from this test shell (no background process), with holder
+# info written the way wb_task_lock_acquire writes it. The guard inherits
+# the fd but probes through a fresh open, so it still sees the lock held.
+hold_lock() {
+  local lockfile="$LOCK_DIR/$1.lock"
+  printf 'holder: %s\npid: %s\nacquired: %s\ntmux_pane: %%9\ntmux_session: %s\n' \
+    "${1%.md}" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" > "$lockfile"
+  exec {LOCK_FD}<>"$lockfile"
+  flock -n "$LOCK_FD" || { echo "FAIL - hold_lock: could not take $lockfile"; fail=1; }
+}
+release_lock() { exec {LOCK_FD}<&-; }
+
+reset_stub
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+assert_eq "Edit own task, no live sessions: exit 0" "0" "$RC"
+assert_empty "Edit own task, no live sessions: no stdout" "$OUT"
+
+set_sessions "me foo.md"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+assert_empty "Edit task owned by the caller's own session: no stdout" "$OUT"
+
+set_sessions "me bar.md" "other foo.md"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+assert_eq "Edit task owned by another session: exit 0" "0" "$RC"
+assert_eq "Edit task owned by another session: ask" "ask" "$(decision_of "$OUT")"
+assert "Edit task owned by another session: names it" "session 'other'" "$OUT"
+
+set_sessions "other foo.md"
+run_guard "$(edit_json Write "$FIXTURE_TASKS/dossiers/foo/page.html")"
+assert_eq "Write to a dossier of another session's task: ask" "ask" "$(decision_of "$OUT")"
+assert "Write to a dossier of another session's task: names it" "session 'other'" "$OUT"
+
+set_sessions "other bar.md"
+run_guard "$(edit_json MultiEdit "$FIXTURE_TASKS/dossiers/foo/page.html")"
+assert_empty "MultiEdit to a dossier no other session owns: no stdout" "$OUT"
+
+set_sessions "other foo.md"
+for shared in README.md weeks/x.md context/y.md; do
+  run_guard "$(edit_json Edit "$FIXTURE_TASKS/$shared")"
+  assert_empty "Edit shared file $shared: no stdout" "$OUT"
+done
+
+set_sessions "other foo.md"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")" "TMUX=" "TMUX_PANE="
+assert_eq "Edit outside tmux, another session owns the task: ask" "ask" "$(decision_of "$OUT")"
+assert "Edit outside tmux, another session owns the task: names it" "session 'other'" "$OUT"
+
+reset_stub
+hold_lock foo.md other
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+release_lock
+assert_eq "Edit while another session's wb command holds the lock: ask" "ask" "$(decision_of "$OUT")"
+assert "Edit while another session's wb command holds the lock: names it" "session 'other'" "$OUT"
+
+hold_lock foo.md me
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+release_lock
+assert_empty "Edit while the caller's own session holds the lock: no stdout" "$OUT"
+
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+assert_empty "Edit with the lock file present but not held: no stdout" "$OUT"
+rm -f "$LOCK_DIR/foo.md.lock"
+
+set_sessions "other foo.md"
+touch "$TMUX_STUB_DIR/fail"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+assert_eq "tmux query fails: exit 0" "0" "$RC"
+assert_empty "tmux query fails: no stdout" "$OUT"
+assert_eq "tmux query fails: exactly one stderr line" "1" "$(printf '%s\n' "$ERR" | grep -c '.')"
+reset_stub
+
+set_sessions "other foo.md"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
+if printf '%s' "$OUT" | grep -q 'wb append'; then
+  echo "FAIL - ask reason still tells the agent to use wb append"; fail=1
+else
+  echo "ok   - ask reason no longer mentions wb append"
+fi
+
+run_guard "$(edit_json Edit "$FIXTURE_HOME/code/other-repo/foo.md")"
 assert_eq "Edit outside tasks: exit 0" "0" "$RC"
 assert_empty "Edit outside tasks: no stdout" "$OUT"
 
-run_guard "{\"cwd\":\"$FIXTURE_HOME\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$FIXTURE_TASKS/bar.md\"}}"
-assert_eq "Write inside tasks: ask" "ask" "$(decision_of "$OUT")"
-
-run_guard "{\"cwd\":\"$FIXTURE_HOME\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$FIXTURE_HOME/code/other-repo/bar.md\"}}"
-assert_eq "Write outside tasks: exit 0 silent" "0" "$RC"
+run_guard "$(edit_json Write "$FIXTURE_HOME/code/other-repo/bar.md")"
 assert_empty "Write outside tasks: no stdout" "$OUT"
 
-run_guard "{\"cwd\":\"$FIXTURE_HOME\",\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"$FIXTURE_TASKS/baz.md\"}}"
-assert_eq "MultiEdit inside tasks: ask" "ask" "$(decision_of "$OUT")"
-
-run_guard "{\"cwd\":\"$FIXTURE_HOME\",\"tool_name\":\"MultiEdit\",\"tool_input\":{\"file_path\":\"$FIXTURE_HOME/code/other-repo/baz.md\"}}"
-assert_eq "MultiEdit outside tasks: exit 0 silent" "0" "$RC"
+run_guard "$(edit_json MultiEdit "$FIXTURE_HOME/code/other-repo/baz.md")"
 assert_empty "MultiEdit outside tasks: no stdout" "$OUT"
 
 # ============================================================================
-# H24 shares the kill-switch too.
+# H24 shares the kill-switch too, even under contention.
 # ============================================================================
 touch "$KILL_SWITCH"
-run_guard "{\"cwd\":\"$FIXTURE_HOME\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$FIXTURE_TASKS/foo.md\"}}"
+run_guard "$(edit_json Edit "$FIXTURE_TASKS/foo.md")"
 assert_eq "Edit + kill-switch: exit 0" "0" "$RC"
 assert_empty "Edit + kill-switch: no stdout" "$OUT"
 rm -f "$KILL_SWITCH"
+reset_stub
 
 # ============================================================================
 # H5: NEVER "deny", anywhere. Checked at the call-site level (not a raw
