@@ -28,7 +28,7 @@ task: dotfiles--wb-future-direction
 | 1 · Plan update | This rewrite, rebased and merged as PR #96 (the plan itself) | (this document) | in progress |
 | 2 · Layout into wb | Builds the layout into `wb.sh` and the skills, rehearses the migration on a store copy, trials it on this family, switches the whole store in one commit | U10–U14 | planned in full |
 | 5 · `wb done` rework | `wb done` stops opening the task file, sorts gitignored files by lists, and the `wb-done` skill goes | U1–U3 | planned in full |
-| 3 · Go reader | `wb-store show`, `list`, `family`, `changes`, reading the new layout only; the build-on-demand shim | U6, U7, U9 (shim) | planned in full |
+| 3 · Go reader | `wb-store show`, `list`, `family`, reading the new layout only; the build-on-demand shim | U6, U7, U9 (shim) | planned in full |
 | 4 · Task page | The local page server, a week of layout iteration, Jet's yes or no; `wb page` | U8, U9 (`wb page`) | planned in full |
 
 Stage numbers are labels from the 2026-10-30 plan; the run order is the table's order. Phases 2 (Go-owned writes) and 3 (tmux and PR data, the live page) are outlined only (see Phased Delivery); they get their own planning pass after Jet's yes at the end of the prototype week. This plan's share of the Mac objective is that wb-store builds and runs on macOS (R8); the bash glue's macOS port, which the Mac success criterion also needs, is owned by `dotfiles--feat-macos-cross-platform`.
@@ -139,7 +139,7 @@ This plan covers the dossier layout, the `wb done` rework, the Go store (reads, 
 
 - **Shipped children of this task:** [[dotfiles--wb-deletion-pass]] (PR #94, nine retired features deleted) and [[dotfiles--wb-bash-glue-quickwins]] (PR #93, `prefix+t` and the ctrl-x fix). This plan builds on both and does not re-plan them.
 - **Folded in:** `dotfiles--feat-task-file-structure` (its scope is the stage 0 layout).
-- **Child on hold:** [[dotfiles--feat-store-cross-agent-sync]]. It is re-planned on the Go reader's `changes` query (U7) once that exists. `/wb-decide`'s propagation (PR #111) already pushes decisions to live family sessions; the sync covers the rest (handoffs, status, plan).
+- **Child on hold:** [[dotfiles--feat-store-cross-agent-sync]]. It is re-planned on the Go reader once that exists, and designs its own "what changed" query then (see Considered and not built). `/wb-decide`'s propagation (PR #111) already pushes decisions to live family sessions; the sync covers the rest (handoffs, status, plan).
 - **Research child, done:** `dotfiles--research-ladder-planning-patterns` delivered the Q6 (ladder) and Q7 (`brief.md`) verdicts.
 - **Terminal context card** (`dotfiles--feat-claude-reply-log`, shipped). It reads the reply log; stage 2 points it at the `decisions/` record files.
 - **Task page requirements** (`dotfiles--wb-board-scoped`). That task holds the seven requirements this plan's page group implements (R9–R15). It has no separate build.
@@ -206,7 +206,7 @@ This plan covers the dossier layout, the `wb done` rework, the Go store (reads, 
 - AE4. **Covers R17.** At the end of the prototype week Jet says no. The work stops, and only the page templates are lost; the reader slice is kept.
 - AE5. **Covers R20, R21.** A worktree holds `config.hjson`, copied in at `wb new` from the repo's `.worktree-bootstrap`. If the worktree copy is byte-identical to the main checkout's, `wb done` treats it as throwaway and closes normally. If Jet edited it inside the worktree, `wb done` stops before removing anything, names `config.hjson`, and never offers to copy it into the dossier.
 - AE6. **Covers R20, R22.** A worktree holds an unlisted `scratch/notes.txt`. `wb done` stops and names it. Jet re-runs with `--keep scratch/notes.txt`; the file lands in `~/code/tasks/dossiers/<task>/scratch/notes.txt`, the `wb done` handoff record gains a `kept:` line for it, and the worktree is removed.
-- AE7. **Covers R31.** A synthetic task file shaped like the post-processor coordinator holds 30 decisions in all three written styles, 40 handoffs, 12 open follow-ups and 5 ticked ones, a `## Done` section and a `## Plan`. After migration: 30 decision files (any whose `(supersedes: …)` marker resolves are linked both ways), 39 handoff files plus the newest kept in the task file, 12 `open-items/` files, one migrated-history handoff file holding the 5 ticked items and `## Done`, and `## Plan` untouched. A second run changes no byte.
+- AE7. **Covers R31.** A synthetic task file shaped like the post-processor coordinator holds 30 decisions in all four written styles (two of them carrying a `(supersedes: …)` marker), 40 handoffs, 12 open follow-ups and 5 ticked ones, a `## Done` section and a `## Plan`. After migration: 30 decision files (the two markers kept as raw text and listed as exceptions), 39 handoff files plus the newest kept in the task file, 12 `open-items/` files, one migrated-history handoff file holding the 5 ticked items and `## Done`, and `## Plan` untouched. A second run changes no byte.
 - AE8. **Covers R25, R32.** During the trial, `wb append dotfiles--wb-future-direction Decisions -` writes a new file under `decisions/` and regenerates `decisions.md`; the same command on a task without `layout: dossier` appends under `## Decisions` as today.
 - AE9. **Covers R24.** `/wb-save` on a migrated task rewrites `## Now`, moves the previous newest handoff to `handoffs/`, and writes the new one into the task file. The task file stays under about 40 lines however many saves run.
 - AE10. **Covers R32.** The rehearsal on a full store copy reports, per task file, the entry counts before and after; every count matches or the task is listed as an exception for Jet before the switch.
@@ -246,6 +246,7 @@ This plan covers the dossier layout, the `wb done` rework, the Go store (reads, 
 - A sandboxing Content-Security-Policy on `/dossier/` responses. Dossier HTML pages legitimately run scripts, and every dossier file is Jet's or an agent's own output. Revisit if dossier files ever come from outside the store's own writers.
 - Content scanning of kept files for secrets. Kept files are a short explicit list of wb's own files plus what Jet names with `--keep`; the filename guard (KTD4) covers the common leaks. Revisit if a secret is ever found in a dossier.
 - A generated block inside `ladder.md`. A generator rewriting a file Jet edits risks clobbers; generated ladder status lives in the index and the page instead. Revisit if Jet wants status visible while editing the ladder in nvim.
+- A `changes --since` query in wb-store. Nothing in this plan uses it; its consumer is the on-hold cross-agent sync task. Revisit when that task is re-planned; it must then include uncommitted and untracked files, not just the git log.
 - Keeping both layouts live for weeks (the first stage 0 pilot design). Rejected for two code paths and a manual step at every save; the trial window is days, on one family.
 
 #### Deferred to Follow-Up Work
@@ -270,7 +271,7 @@ All in `~/code/tasks/dossiers/dotfiles--wb-future-direction/` unless noted:
 - `planning-research.md`, `wb-components.md`, `deletion-audit.html`: deletion candidates, component map, the item-by-item deletion decisions.
 - `plan-revalidation-2026-10-25.md` and `-detail.md`: per-unit verdicts against the 25 merges between 2026-10-18 and 2026-10-26, with rulings.
 - `pragmatic-review-2026-10-22.md`: ordering and sizing review.
-- `research-multi-session-coordination.md`: the `changes` query (its §7a).
+- `research-multi-session-coordination.md`: the cut `changes` query (its §7a), for the cross-agent sync re-plan.
 - `stage-0-grounding.md`: the layout questions Q1–Q8 and their answers.
 - `stage-0-pilot-plan.md`: stage 2's steps, risks and undo.
 - `research-file-formats.md`: formats per file and the YAML rules.
@@ -300,16 +301,17 @@ All in `~/code/tasks/dossiers/dotfiles--wb-future-direction/` unless noted:
 - KTD19. **Superseding is one locked operation.** `wb decide-supersede <task> <old-id> -` (old id = the old file's name without `.md`) writes the new decision with `supersedes: [<old-id>]` and sets the old file's `status: superseded` and `superseded_by: [<new-id>]`, then rebuilds the views. `/wb-decide` calls it whenever it would have written a `(supersedes: …)` line. Governs R26, AE1.
 - KTD20. **`## Now` is replaced, never appended.** `wb now <task> -` replaces the task file's `## Now` block with stdin, under the lock. `/wb-save` writes it; it holds goal, current rung, next action and what waits on Jet. The newest handoff stays in the task file under `## Handoffs`; each new one moves the previous one to `handoffs/` first. Governs R24, AE9.
 - KTD21. **A per-task switch for the trial only.** `layout: dossier` in a task's frontmatter selects the new paths in every writer and reader that U10–U12 touch. Tasks without it keep today's paths. At the switch (U14) every task gets the layout, then the old paths and the switch itself are deleted from `wb.sh` and the skills. Governs R32.
-- KTD22. **Migration rules.** `wb migrate <task>|--all [--dry-run]` takes the store lock and, per task:
-  - parses `## Decisions` in all three written styles (`2026-10-17 — **Bold lead.** …`; `### 2026-10-09 15:30 — <title>` with Decided/Rejected/Why bullets; `2026-10-18 decision-page <slug> r1: …`), and moves `_No decisions: <reason>_` markers to the migrated-history file;
-  - resolves each prose `(supersedes: <date> "<fragment>")` marker among entries with that date by a case-insensitive substring match on the title only; zero or several matches leave the new decision `in-force`, keep the raw marker text in its body, and list it as an exception;
+- KTD22. **Migration rules.** `wb migrate <task>|--all [--dry-run]` takes each task's own lock (`wb_task_lock_acquire_guarded`) while it converts that task; wb has no store-wide lock. A task whose lock is held is skipped and listed, and `--all` ends by reporting every skipped task. Per task, it:
+  - parses `## Decisions` in four written styles: `2026-10-17 — **Bold lead.** …`; `### 2026-10-09 15:30 — <title>` with Decided/Rejected/Why bullets; `2026-10-18 decision-page <slug> r1: …`; and the most common one, a dated top-level bullet such as `- **2026-10-18 (Jet): <title>.** …` or `- 2026-10-18 — …`, whose indented lines belong to it. It moves `_No decisions: <reason>_` markers to the migrated-history file;
+  - loses nothing: every non-blank line of `## Decisions` lands in exactly one output file. A task with any line the parser can't attribute to an entry is left unmigrated and listed as an exception with those line numbers;
+  - keeps each prose `(supersedes: …)` marker as raw text in the new decision's body, leaves that decision `in-force` and lists the marker as an exception. Only about four task files hold one, so the real ones are linked by hand with `wb decide-supersede` after migration;
   - gives an entry with no time the date at `0000`, then `0001`, … in file order, and an entry with no date the previous entry's date, listing each as an exception;
   - moves all but the newest `## Handoffs` entry to `handoffs/`; moves open `## Follow-ups` items to `open-items/`;
   - writes ticked follow-ups, `## Done` and the `_No decisions:` markers into one migrated-history file per task: a handoff record named `handoffs/<created date>-0000.md` (so it sorts as the oldest), with `source: migrate` and `auto: true`;
   - leaves `## Plan` in place (families split it when next worked on), and adds an empty `## Now` for the next `/wb-save` to fill;
   - writes into a temporary directory, checks the counts, then moves the files in. A task that already has the layout is skipped, so a second run changes nothing.
 
-  It prints one count line per task (decisions, handoffs, open items, history items, exceptions). Governs R31, AE7, AE10.
+  It prints one count line per task (decisions, handoffs, open items, history items, exceptions). The "before" figures are counted straight from the source text (dated entry lines and headings, handoff headings, checkbox lines), not by the parser, so a misparse shows up as a mismatch. Governs R31, AE7, AE10.
 - KTD23. **The reader list is built by search, not memory.** U12 starts by searching dotfiles and the store tooling for every reader of `## Decisions`, `## Handoffs`, `## Follow-ups`, `## Done`, `## Plan` and `CONCEPTS.md` (24 scripts and skills at the last count) and commits that list in the PR body. Each entry is either updated, or noted as reading frontmatter only. Governs R32.
 - KTD24. **`concepts.md` replaces `CONCEPTS.md` at the switch.** `_wb_concepts_paths` reads `concepts.md` (and, during the trial, `CONCEPTS.md` for tasks without the layout). The `@` import lines in each live worktree's `CLAUDE.local.md` managed block are rewritten by `wb family <task> --reseed`. Running sessions pick up the rename only after `/clear` or a restart, because a new import line takes effect only then. Governs R27.
 - KTD25. **`brief.md` replaces the "First action" seed.** `wb new` and the handoff skill write a `brief.md` draft (type, why, done when, not doing, claims marked checked or assumed with their date; bug fields for bugs) instead of a "First action" line in the task file. The first session confirms the blank or assumed fields one question at a time. Governs R27.
@@ -327,7 +329,8 @@ All in `~/code/tasks/dossiers/dotfiles--wb-future-direction/` unless noted:
 
 **Retired**
 
-- KTD9 (the `## Artifacts` line grammar) and KTD10 (the prose `(supersedes: …)` marker as the reversal record) are retired, replaced by page frontmatter (R28) and KTD19. KTD10's matching rule lives on only inside the migration (KTD22).
+- KTD9 (the `## Artifacts` line grammar) and KTD10 (the prose `(supersedes: …)` marker as the reversal record) are retired, replaced by page frontmatter (R28) and KTD19. The migration keeps KTD10's existing markers as raw text and lists them for linking by hand (KTD22).
+- KTD28 (the `changes` query) is cut from this plan: nothing in it uses the query. It returns when the on-hold cross-agent sync task is re-planned, and must then cover uncommitted and untracked files, because the store's working tree usually holds other sessions' edits.
 
 **Go store (stages 3 and 4)**
 
@@ -340,12 +343,11 @@ All in `~/code/tasks/dossiers/dotfiles--wb-future-direction/` unless noted:
   - absent and empty values are null; lists are never null.
 
   Governs R3, R5, R30.
-- KTD13. **Output is plain text by default, with `--json` as a normalised document carrying `schema_version: 1`.** `show`, `family`, `list` and `changes` share one model. Lists are always arrays, absent scalars are null, and dates are strings. (session-settled: user-approved.) Governs R5.
+- KTD13. **Output is plain text by default, with `--json` as a normalised document carrying `schema_version: 1`.** `show`, `family` and `list` share one model. Lists are always arrays, absent scalars are null, and dates are strings. (session-settled: user-approved.) Governs R5.
 - KTD14. **Task resolution order:** exact stem, then `<query>.md`, then a literal path, then a unique case-insensitive substring. Several substring matches list the candidates and exit 2. Governs R5.
 - KTD15. **The page server re-reads the whole store on every request, with no cache.** Go `net/http`, bound to `127.0.0.1`, port 8766 falling forward up to 10 ports; a Host-header check; templates in `embed.FS`; dossier files served through `/dossier/<stem>/<path>` (so snap Chromium never needs `file://`) only if the symlink-resolved path stays inside the real dossier root; `serve` runs in the foreground; `wb page` probes `/healthz` on ports 8766–8775 and reuses a server reporting the current build id, starting a detached one only when none answers; the browser opens with snap chromium, `xdg-open` or macOS `open` unless `--no-open`. (session-settled: user-directed.) Governs R4, R14, R17.
 - KTD26. **Family walks match `wb family`.** The root is found by walking `parent` up to 20 levels, with a cycle guard that fails open, and children come from reverse `parent` edges, in the same order as `_wb_family_tree`. A parity test runs both on the same fixture store. Governs R11.
 - KTD27. **Recent replies come from the reply log, read-only.** The reader matches `~/.claude/replies/<id>.md` to a task by the log's `task:` frontmatter key and returns the last few turns (prompt, the start of the reply, artifacts). The resume command it shows uses the newest in-file activity, computed as `wb_resume_id` does, never the `@primary` mark. Governs R13, R17.
-- KTD28. **`changes` answers "what changed since you last looked".** `wb-store changes <task> [--family] --since <git rev|timestamp>` lists record files added or changed, status and `## Now` changes, from the store's git log. It is the data source the on-hold cross-agent sync task gets re-planned on. Governs R5.
 
 ### High-Level Technical Design
 
@@ -413,7 +415,7 @@ A child's dossier has only the parts it writes (R29).
 | `store.Load` | task files, dossier records and page frontmatter | the task model |
 | task model | | decisions with supersession links, open items, artifacts, session hints, recent replies |
 | family | the task model | root, children, deps met/unmet/dangling/cycle, planning summary, ladder status |
-| CLI | model and family | `show`, `list`, `family`, `changes`, text or `--json` |
+| CLI | model and family | `show`, `list`, `family`, text or `--json` |
 | web | model and family | `/task`, `/family`, `/dossier`, `/healthz` |
 | dotfiles shim `wb-store.sh` | | builds when stale; used by the CLI callers and `wb page` |
 
@@ -453,10 +455,10 @@ wb-store/
   README.md
   cmd/wb-store/main.go
   internal/store/        frontmatter.go taskfile.go records.go pages.go task.go resolve.go discover.go
-                         family.go ladder.go replies.go changes.go session.go
+                         family.go ladder.go replies.go session.go
                          *_test.go
                          testdata/store/   (made-up task files and dossiers)
-                         testdata/golden/  (show/family/list/changes text + json)
+                         testdata/golden/  (show/family/list text + json)
   internal/render/       text.go json.go *_test.go
   internal/web/          server.go open.go *_test.go
                          templates/        layout.html task.html family.html
@@ -524,14 +526,17 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - `scripts/.config/scripts/tmux/tests/wb-migrate.test.sh` (new)
   - `scripts/.config/scripts/tmux/tests/fixtures/migrate/` (new, made-up task files)
 - **Approach:**
-  1. Parse sections fence-aware. Split `## Decisions` into entries using the three styles in KTD22.
-  2. Resolve prose supersede markers; build both directions of the link before writing.
+  1. Parse sections fence-aware. Split `## Decisions` into entries using the four styles in KTD22, and check that every non-blank line was attributed.
+  2. Keep prose supersede markers as raw text and list each as an exception.
   3. Write everything for one task into a temporary directory, count, then move into `dossiers/<stem>/` and rewrite the task file (frontmatter + `layout: dossier` + empty `## Now` + newest handoff + untouched `## Plan` and any unknown sections).
   4. `--dry-run` prints the count lines and exceptions only. `--all` walks `wb_task_files`.
 - **Test scenarios:**
   - The AE7 fixture yields exactly the counts in AE7, and a second run is a no-op (`git diff` empty on a fixture repo). (Covers AE7.)
-  - A `(supersedes: 2026-10-17 "Probe 6")` marker resolves to the Probe 6 entry and not to an entry whose body mentions probe 6.
-  - A marker matching two titles that day leaves the new decision in force and lists one exception with a candidate count of 2.
+  - Dated top-level bullets (`- **2026-10-18 (Jet): …**` with indented follow-on lines) each become one decision file.
+  - A `## Decisions` line that fits no style leaves the task unmigrated and lists that line number; nothing is written for that task.
+  - A `(supersedes: 2026-10-17 "Probe 6")` marker stays as raw text in the new decision, which stays in force, and is listed as an exception.
+  - The "before" counts come from the source text: a fixture whose entry the parser would merge into its neighbour shows a mismatch.
+  - A task whose lock is held is skipped and named in `--all`'s report.
   - Entries with no time and no date get the KTD22 stamps and appear as exceptions.
   - A `_No decisions:` marker goes to the migrated-history handoff file, not `decisions/`.
   - A task with an unknown `## Notes for later` section keeps it in the task file and lists it as an exception.
@@ -552,6 +557,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - `claude/.claude/agents/store-specialist.md` (where each record now lives)
   - `scripts/.config/scripts/tmux/wb-capture.sh` and `wb-capture-sweep.sh` (read `decisions.md` or `decisions/`; the `.stale` side-car counted `### ` entries in `## Decisions`)
   - `scripts/.config/scripts/tmux/claude-card.sh` (last decisions from `decisions/`)
+  - `scripts/.config/scripts/tmux/wb-board.sh` (its decisions feed reads `## Decisions`, which the switch removes; read `decisions/` instead, so R2's board keeps working)
   - `scripts/.config/scripts/tmux/wb.sh` (`_wb_concepts_paths`, `wb new`'s seed, a tmux-free `wb notes` that prints the `notes.md` path; the ghost-row fix from retired U4: `wb_task_files` accepts only `<repo>--<slug>.md` stems, which `wb migrate --all` relies on)
   - `tmux/.config/tmux/tmux.conf` (a key that opens `notes.md`, next to `prefix+t`)
   - `~/code/tasks/README.md` and `TEMPLATE.md` (the layout, the frontmatter rules, `pr:` and `layout:` keys; committed in the store, staging only these two files)
@@ -602,9 +608,9 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
 - **Approach:**
   1. **Trial start:** set `layout: dossier` on this family's tasks, run `wb migrate` on them, commit. Record the AE1 step-back as a decision superseding Probe 6 with `wb decide-supersede`. Split `## Plan` into `spec.md` and `ladder.md`; add the R28 frontmatter block to this family's pages.
   2. **Trial:** work normally for 3–5 days (cap a week). Anything not fixed by then becomes an open item after the switch, not a reason to wait.
-  3. **Reviews at the end of the trial:** does one file per decision plus a generated log read well? Does `brief.md` cut the early "what does X mean" questions (count of `reframe`-tagged decisions; how often Jet asks what something means in the first five turns)? Record each answer as a decision.
+  3. **Reviews at the end of the trial:** does one file per decision plus a generated log read well? Does `brief.md` cut the early "what does X mean" questions (count of `reframe`-tagged decisions; how often Jet asks what something means in the first five turns)? How should the committed generated views behave when two clones write (they conflict on pull): a regenerate-after-pull step with a merge rule, or views kept out of git? Record each answer as a decision.
   4. **Switch:** ask every live session to `/wb-save` and stop writing; commit the store as a baseline; run `wb migrate --all` and commit it as one commit; `wb family <task> --reseed` for each family with a live worktree; re-stow.
-  5. **After a day of normal work:** merge the deletion PR and re-stow. Until then, `git -C ~/code/tasks revert <switch commit>` is the undo.
+  5. **After a day of normal work:** merge the deletion PR and re-stow. Until then, `git -C ~/code/tasks revert <switch commit>` is the undo, but it is clean only before sessions write new record files; after that, fix forward.
 - **Test scenarios:**
   - After step 1, the task page's future data is present on disk: AE1's pair has the right `status` and links.
   - Store-wide counts before and after the switch commit match the rehearsal's numbers, apart from tasks changed since.
@@ -743,15 +749,15 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - `list` over a generated 500-task store finishes under 200 ms (logged, generous budget).
 - **Verification:** `go test ./...`, `go vet ./...` and `gofmt -l` are clean. `wb-store show dotfiles--wb-future-direction` against the real store prints its decisions, open items and pages, and `wb-store list` reports no parse warnings.
 
-### U7. wb-store: family, dependencies, ladder, artifacts, replies, session hints, `changes`
+### U7. wb-store: family, dependencies, ladder, artifacts, replies, session hints
 
-- **Goal:** the model the page needs for R9–R13 and R15, exposed through `family`, an enriched `show` and `changes`.
-- **Requirements:** R9–R13, R15, R16 (reader side), R17; KTD13, KTD26–KTD28.
+- **Goal:** the model the page needs for R9–R13 and R15, exposed through `family` and an enriched `show`.
+- **Requirements:** R9–R13, R15, R16 (reader side), R17; KTD13, KTD26, KTD27.
 - **Dependencies:** U6.
 - **Files** (target repo `wb-store`):
-  - `internal/store/family.go`, `ladder.go`, `replies.go`, `changes.go`, `session.go` and matching `*_test.go`
-  - `internal/render/` (family and changes, text and JSON)
-  - `cmd/wb-store/main.go` (the `family` and `changes` commands)
+  - `internal/store/family.go`, `ladder.go`, `replies.go`, `session.go` and matching `*_test.go`
+  - `internal/render/` (family, text and JSON)
+  - `cmd/wb-store/main.go` (the `family` command)
   - testdata: a made-up parent with five children across two rungs, a `ladder.md`, a supersede pair shaped like AE1, made-up reply logs, and synthetic cycle, dangling, phantom-parent, self-parent and 21-level chain files
 - **Approach:**
   1. **Family:** KTD26. Phantom parents are allowed as roots.
@@ -760,7 +766,6 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   4. **Ladder:** read rung labels and hand-written fields from the parent's `ladder.md`; status per rung from its children's `rung:` and status; decisions due from `review_at:`.
   5. **Artifacts:** dossier pages from their frontmatter (retired when `retire_when` is met); other dossier files classified by kind (`checks`, `verdicts`, `concepts`, `notes`, `brief`); PRs from `pr:` first, then PR URLs found in records.
   6. **Replies and session:** KTD27. The expected tmux name is `repo--sanitize(worktree minus .worktrees/)`, or the stem slug when `worktree:` is blank; labelled "expected", not live.
-  7. **`changes`:** KTD28, from `git -C <store> log --name-status`.
 - **Test scenarios:**
   - The made-up family: root and all children found; a child depending on an unfinished sibling is unmet and listed under `blocked`.
   - Synthetic a→b→a cycle: both flagged `cycle`, neither counts as unmet.
@@ -771,8 +776,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - Ladder: rung 1 with all children done is `done`; rung 2 with one child doing is `doing`; a decision with `review_at: rung-2` is listed under rung 2.
   - A page whose `retire_when` names a merged PR in `links:` is retired.
   - Replies: the last three turns of the matching reply log are returned; a log for another task is ignored; the resume id is the log with the newest activity.
-  - `changes --since <rev>` on a fixture git repo lists one added decision and one status change.
-  - `family` and `changes` text and `--json` match the goldens.
+  - `family` text and `--json` match the goldens.
 - **Verification:** the tests are clean. On the real store, `wb-store family dotfiles--wb-future-direction --json` lists the same children as `wb family`.
 
 ### U9. dotfiles: `wb-store.sh` shim (stage 3) and `wb page` (stage 4)
@@ -789,7 +793,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   1. **Shim:** follow `docgen.sh`, using `WB_STORE_SRC` (default `~/code/wb-store`) and the binary `~/.local/bin/wb-store`. Rebuild when the binary is missing or any `*.go`, `go.mod`, `go.sum` or template is newer, using a recursive find that prunes `.git` and `.worktrees`. Build to a temp file and `mv -f`, then exec with `--store "$TASKS_DIR"`. Use no `stat -c` or `date -d`.
   2. **`wb page [<task>]`:**
      - with no argument, it resolves the current session's task via `wb_session_task_file` (the `@task` session option, never `show -p`);
-     - it reuses a running same-build server (the `/healthz` probe in KTD15) and opens `/task/<stem>` on it; otherwise it starts `wb-store.sh serve <stem>` detached, logging to wb's state directory;
+     - it reuses a running same-build server (the `/healthz` probe in KTD15) and opens `/family/<stem>` on it when the task has children, `/task/<stem>` otherwise; otherwise it starts `wb-store.sh serve <stem>` detached, logging to wb's state directory;
      - outside tmux with no argument, it errors with usage;
      - the shim is found through `wb.sh`'s resolved directory, so a missing re-stow gives a clear "run stow" message.
   3. Re-stow `scripts` once after each merge.
@@ -797,6 +801,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
 - **Test scenarios:**
   - `wb page` inside a session whose `@task` points at a child task resolves to the child's stem (stub the shim and capture its args).
   - `wb page dotfiles--foo` passes the stem through.
+  - `wb page` on a task with children opens its `/family/` URL; on a leaf task, its `/task/` URL.
   - With a stub `/healthz` answering the current build id on 8766, `wb page` opens the URL on it and starts no new server; with a different build id answering, it starts a new one.
   - `wb page` outside tmux with no argument prints usage and exits 1.
   - A missing shim prints the stow hint and exits 1.
@@ -816,10 +821,12 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - `cmd/wb-store/main.go` (the `serve` command)
 - **Approach:**
   1. **Server:** `serve [--port N] [--no-open] <task>` binds, opens the browser at the task page, and runs in the foreground until interrupted (KTD15). Each handler calls `store.Load` afresh.
-  2. **Routes:** `/task/<stem>` and `/family/<stem>` link to each other; `/dossier/<stem>/<path>` after the containment check; `/healthz` reports the build id.
+  2. **Routes:** `/task/<stem>` and `/family/<stem>` link to each other; every task page has a breadcrumb of its ancestors up to the root, and each child row on a family page links to that child's task page; `/dossier/<stem>/<path>` after the containment check; `/healthz` reports the build id.
   3. **Layout:**
      - central content at about 80–85% of viewport width, with an always-visible section nav; the document scrolls as a whole, the nav kept visible with `position: sticky` (no inner scroll box);
      - light and dark modes; inline CSS, no external assets;
+     - record text (decisions, handoffs, open items, `## Now`, reply heads) is escaped by `html/template`, or rendered by goldmark without raw HTML (unlike docgen, whose `page.go` uses `html.WithUnsafe()`), because agent-written text can carry markup copied from tickets or web pages;
+     - every section shows a one-line empty message instead of hiding; store warnings appear in a banner naming each path; a task whose file won't parse shows its parse error instead of a 404;
      - a header with a status pill, size, `## Now` and the current rung;
      - a session card with copyable `tmux switch-client -t =<name>` and `claude --resume <id>` commands, and the last few replies;
      - decisions in force, with superseded pairs shown together and the rest behind one link;
@@ -833,7 +840,10 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - `GET /task/<stem>` returns 200 and contains the title, `## Now`, a decision, a page link, a recent reply and the expected tmux command.
   - Adding a decision file on disk between two requests changes the second response (current on refresh).
   - `GET /family/<root>` lists every child with its state and the ladder's rung statuses.
-  - Unknown stem returns 404.
+  - Unknown stem returns 404; a task whose frontmatter doesn't parse returns a page showing the parse error.
+  - A decision body holding `<script>alert(1)</script>` and `<img src=x onerror=…>` appears escaped in `GET /task/<stem>`.
+  - A task with no replies, decisions or open items shows each section's empty message.
+  - A family page's child rows link to each child's task page, and a child's task page has a breadcrumb back to the root.
   - `/dossier/<stem>/../../etc/passwd` and an absolute-path variant return 404.
   - A dossier symlink pointing outside the dossier root returns 404, and a `<stem>` segment that isn't a plain task stem returns 404.
   - A request with `Host: evil.example` is rejected.
@@ -874,5 +884,5 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - each stage's outcome is recorded in this task's Decisions or handoff log.
 - **Stage 2 (U10–U14):** every task in the store uses the layout; no task file has a `## Decisions` section; the old paths and the `layout:` switch are gone from `wb.sh` and the skills; the two pilot reviews are recorded.
 - **Stage 5 (U1–U3):** an agent can run `wb done` in the foreground and get either a close or a stop message in the same turn. The `wb-done` skill is gone from the repo and from `~/.claude/skills/`.
-- **Stage 3 (U6, U7, U9 shim):** the reader passes its goldens on fixtures, and answers `show`/`family`/`changes` on the real store with no crash and no warnings beyond known-dangling deps.
-- **Stage 4 (U8, U9 `wb page`):** Jet's yes/no is recorded in this task's Decisions. A yes leads to phase 2 planning; a no applies AE4. `wb page` opens the current session's task page from any wb session.
+- **Stage 3 (U6, U7, U9 shim):** the reader passes its goldens on fixtures, and answers `show`/`family` on the real store with no crash and no warnings beyond known-dangling deps.
+- **Stage 4 (U8, U9 `wb page`):** Jet's yes/no is recorded in this task's Decisions. A no applies AE4, and U9's `wb page` is not built. A yes leads to phase 2 planning, and `wb page` opens the current session's task page from any wb session.
