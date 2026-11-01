@@ -62,6 +62,17 @@
 #                                    "-" reads a multi-line body from stdin instead — the
 #                                    agent-mediated write path /wb-save, /handoff, and
 #                                    /weekly-review use instead of Edit-tool task writes
+#   wb now <task> [<body>|-]         replace <task>'s "## Now" block with <body> (or stdin) under
+#                                    the per-task lock, leaving the rest of the file byte-unchanged;
+#                                    a file with no "## Now" gains one above its first section
+#   wb decide-supersede <task> <old-id> [<body>|-]
+#                                    layout tasks: write the new decision (body or stdin) with
+#                                    supersedes: [<old-id>], flip the old decision file to
+#                                    status: superseded, rebuild the views — one locked step; an
+#                                    unknown or already-superseded <old-id> exits 1, nothing written
+#                                    (On a task with `layout: dossier`, `wb append` writes Decisions
+#                                    and Follow-ups as record files under dossiers/<task>/ and moves
+#                                    the previous Handoffs entry to handoffs/.)
 #   wb family <task> [--sessions|--reseed|--concepts]
 #                                    print <task>'s family stems (top parent first, then every
 #                                    descendant), read-only and tmux-free; --sessions prints
@@ -3995,6 +4006,12 @@ wb_append_handoff() {
   local file="$1" source="$2" message="$3"
   local entry; entry="### $(date '+%Y-%m-%d %H:%M') — $source (auto)"
   local body; body="$entry"$'\n\n'"$message"
+  # Layout task: the shared move-and-replace helper (KTD20). The callers
+  # (cmd_pause/cmd_done/cmd_resume/cmd_down/breakdown) already hold the lock.
+  if _wb_is_dossier "$file"; then
+    wb_handoff_write "$file" "$body"
+    return
+  fi
   _wb_append_under_heading "$file" "Handoffs" "$body"
 }
 
@@ -4079,9 +4096,608 @@ cmd_append() {
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || exit $?
+  # Layout task (KTD16): Decisions/Follow-ups write a record file, Handoffs
+  # does the move-and-replace; every other heading, and every task without
+  # `layout: dossier`, takes today's path below unchanged.
+  if _wb_is_dossier "$file"; then
+    local series=""
+    case "$heading" in
+      Decisions)  series="decisions" ;;
+      Follow-ups) series="open-items" ;;
+    esac
+    if [ -n "$series" ]; then
+      wb_record_write "$file" "$series" "$body" || { wb_task_lock_release "$file"; exit 1; }
+      wb_task_lock_release "$file"
+      echo "wb append: wrote $series/$WB_RECORD_ID.md in $(basename -- "$file")"
+      return 0
+    elif [ "$heading" = "Handoffs" ]; then
+      wb_handoff_write "$file" "$body" || { wb_task_lock_release "$file"; exit 1; }
+      wb_task_lock_release "$file"
+      echo "wb append: moved the previous handoff to handoffs/ and wrote the new one in $(basename -- "$file")"
+      return 0
+    fi
+  fi
   _wb_append_under_heading "$file" "$heading" "$body"
   wb_task_lock_release "$file"
   echo "wb append: appended under \"## $heading\" in $(basename -- "$file")"
+}
+
+# ---------------------------------------------------------------------------
+# Dossier layout (stage 2, U10) — record files, generated views, `wb now`,
+# `wb decide-supersede`. Everything here is gated on `layout: dossier` in a
+# task's frontmatter (KTD21, the trial switch): a task without it takes
+# exactly the old code paths, byte for byte. Callers hold the per-task lock
+# (cmd_append/cmd_now/cmd_decide_supersede take it; wb_append_handoff's
+# callers already hold it) — nothing below locks, so nothing can deadlock or
+# double-acquire. Strings reach awk through ENVIRON, never `awk -v`, and awk
+# is POSIX-only (no asort/gensub/PROCINFO/{n} intervals): the sandbox runs
+# both gawk and mawk.
+# ---------------------------------------------------------------------------
+
+# wb_layout_of <task_file> — print the task's `layout:` value (blank when
+# unset), trailing inline comment stripped. Every writer branches on this.
+wb_layout_of() {
+  local v; v="$(wb_get_frontmatter "$1" layout)"
+  v="${v%%[[:space:]]#*}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s\n' "$v"
+}
+
+# _wb_is_dossier <task_file> — true when the task has `layout: dossier`.
+_wb_is_dossier() {
+  [ "$(wb_layout_of "$1")" = "dossier" ]
+}
+
+# _wb_dossier_dir <task_file> — $TASKS_DIR/dossiers/<stem> (not created here).
+_wb_dossier_dir() {
+  local s="${1##*/}"
+  printf '%s/dossiers/%s\n' "$TASKS_DIR" "${s%.md}"
+}
+
+# _wb_slug <title> — lowercase, hyphen-separated, at most 50 characters
+# (KTD17); "untitled" when nothing alphanumeric is left.
+_wb_slug() {
+  local s
+  s="$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -c 'a-z0-9' '-' | LC_ALL=C tr -s '-')"
+  s="${s#-}"; s="${s%-}"
+  s="${s:0:50}"; s="${s%-}"
+  [ -n "$s" ] || s="untitled"
+  printf '%s\n' "$s"
+}
+
+# _wb_blank_only <text> — true when <text> has no non-whitespace character.
+_wb_blank_only() {
+  [[ "$1" != *[![:space:]]* ]]
+}
+
+# _wb_trim_blank_lines <text> — drop leading and trailing blank lines.
+_wb_trim_blank_lines() {
+  local t="$1" nl=$'\n'
+  while [[ "$t" == "$nl"* ]]; do t="${t#"$nl"}"; done
+  while [[ "$t" == *"$nl" ]]; do t="${t%"$nl"}"; done
+  printf '%s' "$t"
+}
+
+# _wb_record_parse <text> — split piped record text into globals _R_DATE
+# (YYYY-MM-DD or blank), _R_HM (HHMM or blank), _R_TITLE and _R_BODY. When
+# the first non-blank line is `### <date> <HH:MM> — <title>` it supplies the
+# timestamp and title and is dropped from the body; otherwise the title is
+# the first line and the body is the whole text (KTD17).
+_wb_record_parse() {
+  local text; text="$(_wb_trim_blank_lines "$1")"
+  local first="${text%%$'\n'*}" rest=""
+  if [[ "$text" == *$'\n'* ]]; then rest="${text#*$'\n'}"; fi
+  _R_DATE=""; _R_HM=""; _R_TITLE=""; _R_BODY="$text"
+  local re='^###[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]+([0-9]{2}):([0-9]{2})[[:space:]]*(—|–|-)[[:space:]]*(.*)$'
+  if [[ "$first" =~ $re ]]; then
+    _R_DATE="${BASH_REMATCH[1]}"
+    _R_HM="${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+    _R_TITLE="${BASH_REMATCH[5]}"
+    _R_BODY="$(_wb_trim_blank_lines "$rest")"
+  else
+    _R_TITLE="$first"
+  fi
+}
+
+# _wb_write_atomic <dest> <content> — temp file in the same directory (a
+# dotfile, so no *.md glob sees it), then mv.
+_wb_write_atomic() {
+  local dest="$1" tmp="${1%/*}/.${1##*/}.tmp.$$"
+  printf '%s\n' "$2" > "$tmp" && mv "$tmp" "$dest"
+}
+
+# _wb_record_write_file <task_file> <decisions|open-items> <supersedes-id|""> <text>
+# — write ONE record file (KTD17) and leave its id (file name without .md) in
+# WB_RECORD_ID. Creates the dossier and series dir on first write. A name
+# collision gets -2, -3. Does not rebuild views (callers do, once).
+_wb_record_write_file() {
+  local file="$1" series="$2" sup="$3" text="$4"
+  local dir; dir="$(_wb_dossier_dir "$file")"
+  local sdir="$dir/$series"
+  mkdir -p "$sdir" || return 1
+  _wb_record_parse "$text"
+  local date="${_R_DATE:-$(date '+%Y-%m-%d')}" hm="${_R_HM:-$(date '+%H%M')}"
+  local title="${_R_TITLE:-untitled}"
+  local slug; slug="$(_wb_slug "$title")"
+  local base content nl=$'\n'
+  case "$series" in
+    decisions)
+      base="$date-$hm-$slug"
+      content="---${nl}status: in-force${nl}"
+      if [ -n "$sup" ]; then content+="supersedes: [$sup]${nl}"; else content+="supersedes: []${nl}"; fi
+      content+="superseded_by: []${nl}review_at:${nl}---${nl}# $title"
+      if [ -n "$_R_BODY" ] && [ "$_R_BODY" != "$title" ]; then content+="${nl}${nl}$_R_BODY"; fi
+      ;;
+    open-items)
+      base="$date-$slug"
+      content="---${nl}who:${nl}since: $date${nl}kind:${nl}status: open${nl}---${nl}$title"
+      if [ -n "$_R_BODY" ] && [ "$_R_BODY" != "$title" ]; then content+="${nl}${nl}$_R_BODY"; fi
+      ;;
+    *) echo "wb: unknown record series '$series'" >&2; return 1 ;;
+  esac
+  local id="$base" n=1
+  while [ -e "$sdir/$id.md" ]; do n=$((n + 1)); id="$base-$n"; done
+  _wb_write_atomic "$sdir/$id.md" "$content" || return 1
+  WB_RECORD_ID="$id"
+}
+
+# wb_record_write <task_file> <decisions|open-items> [<text>|-] — write a
+# record file from stdin (or <text>) and rebuild the views. CALLER HOLDS THE
+# TASK LOCK (cmd_append does); the write and rebuild must not interleave.
+wb_record_write() {
+  local file="$1" series="$2" text
+  if [ $# -lt 3 ] || [ "$3" = "-" ]; then text="$(cat)"; else text="$3"; fi
+  _wb_record_write_file "$file" "$series" "" "$text" || return 1
+  wb_render_views "$file"
+}
+
+# _wb_has_heading <file> <heading> — true when "## <heading>" is a real
+# heading (the same blank-line-before guard as _wb_append_under_heading).
+_wb_has_heading() {
+  WB_HAS_TARGET="## $2" awk '
+    BEGIN { t = ENVIRON["WB_HAS_TARGET"] }
+    FNR == 1 { prev = "" }
+    $0 == t && prev == "" { found = 1; exit }
+    { prev = $0 }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
+
+# _wb_section_text <file> <heading> — the lines of "## <heading>" up to the
+# next "## " heading, exclusive.
+_wb_section_text() {
+  WB_SEC_TARGET="## $2" awk '
+    BEGIN { t = ENVIRON["WB_SEC_TARGET"] }
+    FNR == 1 { prev = "" }
+    ins == 0 && $0 == t && prev == "" { ins = 1; prev = $0; next }
+    ins && /^## / && prev == "" { exit }
+    ins { print }
+    { prev = $0 }
+  ' "$1"
+}
+
+# _wb_replace_block <file> <heading> <body> <insert-if-missing> — replace the
+# body of "## <heading>" with <body> (heading line kept; the blank run before
+# the next "## " heading is preserved, so the rest of the file is byte-
+# unchanged). When the heading is absent and <insert-if-missing>=1 the block
+# is inserted before the body's first "## " heading (below the "# Title" and
+# any intro line, normally right above "## Plan"), or at EOF when there is
+# none. The frontmatter is never scanned. Atomic via temp + mv.
+_wb_replace_block() {
+  local file="$1" heading="$2" body="$3" ins="$4"
+  WB_BLK_TARGET="## $heading" WB_BLK_BODY="$body" WB_BLK_INS="$ins" awk '
+    BEGIN { target = ENVIRON["WB_BLK_TARGET"]; body = ENVIRON["WB_BLK_BODY"]
+            ins = ENVIRON["WB_BLK_INS"] + 0
+            skipping = 0; fm = 0; replaced = 0; nb = 0; prev = "" }
+    FNR == 1 && $0 == "---" { fm = 1; print; next }
+    fm == 1 { if ($0 == "---") { fm = 2; prev = "" } else prev = $0; print; next }
+    skipping {
+      if (prev == "" && /^## /) {
+        for (i = 0; i < (nb < 1 ? 1 : nb); i++) print ""
+        skipping = 0; print; prev = $0; next
+      }
+      if ($0 == "") nb++; else nb = 0
+      prev = $0; next
+    }
+    !replaced && $0 == target && prev == "" {
+      print target; print ""; print body
+      skipping = 1; replaced = 1; nb = 0; prev = $0; next
+    }
+    ins && !replaced && /^## / && prev == "" {
+      print target; print ""; print body; print ""; replaced = 1
+    }
+    { print; prev = $0 }
+    END {
+      if (ins && !replaced) {
+        if (prev != "") print ""
+        print target; print ""; print body
+      }
+    }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+}
+
+# _wb_handoff_move_entry <handoffs_dir> <entry text> — write one handoff
+# entry out as handoffs/<YYYY-MM-DD-HHMM>.md (-2, -3 on a collision), with
+# `source:` and `auto:` taken from its "### <ts> — <source> [(auto)]" heading
+# (now / blank / false when it has none). The entry text is kept verbatim.
+_wb_handoff_move_entry() {
+  local hdir="$1" entry; entry="$(_wb_trim_blank_lines "$2")"
+  if _wb_blank_only "$entry"; then return 0; fi
+  local first="${entry%%$'\n'*}" date="" hm="" source="" auto="false"
+  local re='^###[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2})[[:space:]]+([0-9]{2}):([0-9]{2})[[:space:]]*(—|–|-)[[:space:]]*(.*)$'
+  if [[ "$first" =~ $re ]]; then
+    date="${BASH_REMATCH[1]}"; hm="${BASH_REMATCH[2]}${BASH_REMATCH[3]}"; source="${BASH_REMATCH[5]}"
+    if [[ "$source" == *" (auto)" ]]; then auto="true"; source="${source% (auto)}"; fi
+  fi
+  if [ -z "$date" ]; then date="$(date '+%Y-%m-%d')"; hm="$(date '+%H%M')"; fi
+  local base="$date-$hm" id n=1 nl=$'\n'
+  id="$base"
+  while [ -e "$hdir/$id.md" ]; do n=$((n + 1)); id="$base-$n"; done
+  _wb_write_atomic "$hdir/$id.md" "---${nl}source: $source${nl}auto: $auto${nl}---${nl}$entry"
+}
+
+# wb_handoff_write <task_file> <body> — KTD20's move-and-replace, the ONE
+# helper behind both `wb append <layout task> Handoffs -` (/wb-save) and
+# wb_append_handoff (the automatic stamps). Every entry currently under the
+# task file's "## Handoffs" (normally just the newest) moves to
+# handoffs/<ts>.md, THEN <body> replaces the section, so a crash between the
+# two steps duplicates rather than loses. Rebuilds the views. CALLER HOLDS
+# THE TASK LOCK.
+wb_handoff_write() {
+  local file="$1" body="$2"
+  local dir; dir="$(_wb_dossier_dir "$file")"
+  mkdir -p "$dir/handoffs" || return 1
+  if _wb_has_heading "$file" "Handoffs"; then
+    local text entry="" line infence=0
+    text="$(_wb_section_text "$file" "Handoffs")"
+    while IFS= read -r line || [ -n "$line" ]; do
+      if [ "$infence" -eq 0 ] && [[ "$line" == '### '* ]]; then
+        _wb_handoff_move_entry "$dir/handoffs" "$entry" || return 1
+        entry="$line"; continue
+      fi
+      if [[ "$line" == '```'* || "$line" == '~~~'* ]]; then infence=$((1 - infence)); fi
+      entry+=$'\n'"$line"
+    done <<< "$text"
+    _wb_handoff_move_entry "$dir/handoffs" "$entry" || return 1
+    _wb_replace_block "$file" "Handoffs" "$body" 0
+  else
+    _wb_append_under_heading "$file" "Handoffs" "$body"
+  fi
+  wb_render_views "$file"
+}
+
+# --- generated views (KTD18) -----------------------------------------------
+
+# _wb_view_install <tmp> <dest> — move <tmp> over <dest> only when the bytes
+# differ, so a rebuild with nothing new touches nothing.
+_wb_view_install() {
+  if [ -f "$2" ] && cmp -s "$1" "$2"; then rm -f "$1"; else mv "$1" "$2"; fi
+}
+
+# _wb_render_decisions <dossier_dir> <stem> — decisions.md on stdout: in-force
+# decisions first, superseded ones collapsed under one heading; newest first.
+_wb_render_decisions() {
+  local d="$1" stem="$2"
+  local -a files=()
+  mapfile -t files < <(find "$d/decisions" -maxdepth 1 -type f -name '*.md' | LC_ALL=C sort -r)
+  printf '<!-- generated by wb from dossiers/%s/decisions/*.md; do not edit -->\n' "$stem"
+  printf '# Decisions — %s\n\n' "$stem"
+  [ "${#files[@]}" -gt 0 ] || return 0
+  awk '
+    function trimb(b) {
+      while (b ~ /^\n/) sub(/^\n/, "", b)
+      while (b ~ /\n\n$/) sub(/\n$/, "", b)
+      return b
+    }
+    function entry(i,   b) {
+      print "### " (title[i] == "" ? ids[i] : title[i])
+      print ""
+      print "- id: `" ids[i] "`"
+      if (st[i] != "in-force") print "- status: " st[i]
+      if (sup[i] != "" && sup[i] != "[]") print "- supersedes: " sup[i]
+      if (by[i] != "" && by[i] != "[]") print "- superseded by: " by[i]
+      if (rv[i] != "") print "- review at: " rv[i]
+      b = trimb(body[i])
+      if (b != "") { print ""; printf "%s", b }
+      print ""
+    }
+    FNR == 1 { n++; fm = 0; id = FILENAME; sub(/^.*\//, "", id); sub(/\.md$/, "", id)
+               ids[n] = id; st[n] = "in-force"; sup[n] = ""; by[n] = ""; rv[n] = ""
+               title[n] = ""; tdone[n] = 0; body[n] = "" }
+    {
+      if (FNR == 1 && $0 == "---") { fm = 1; next }
+      if (fm == 1) {
+        if ($0 == "---") { fm = 2; next }
+        k = $0; sub(/:.*/, "", k); v = $0; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t]+#.*$/, "", v)
+        if (k == "status") st[n] = v
+        else if (k == "supersedes") sup[n] = v
+        else if (k == "superseded_by") by[n] = v
+        else if (k == "review_at") rv[n] = v
+        next
+      }
+      if (!tdone[n] && $0 ~ /^# /) { title[n] = substr($0, 3); tdone[n] = 1; next }
+      body[n] = body[n] $0 "\n"
+    }
+    END {
+      nf = 0; ns = 0
+      for (i = 1; i <= n; i++) if (st[i] == "superseded") ns++; else nf++
+      print "## In force (" nf ")"; print ""
+      for (i = 1; i <= n; i++) if (st[i] != "superseded") entry(i)
+      if (ns > 0) {
+        print "## Superseded (" ns ")"; print ""
+        print "<details>"; print "<summary>Show the " ns " superseded decisions</summary>"; print ""
+        for (i = 1; i <= n; i++) if (st[i] == "superseded") entry(i)
+        print "</details>"
+      }
+    }
+  ' "${files[@]}"
+}
+
+# _wb_render_handoffs <dossier_dir> <stem> — handoffs.md on stdout, newest
+# first. The newest handoff itself stays in the task file.
+_wb_render_handoffs() {
+  local d="$1" stem="$2"
+  local -a files=()
+  mapfile -t files < <(find "$d/handoffs" -maxdepth 1 -type f -name '*.md' | LC_ALL=C sort -r)
+  printf '<!-- generated by wb from dossiers/%s/handoffs/*.md; do not edit -->\n' "$stem"
+  printf '# Handoffs — %s\n\n' "$stem"
+  printf 'Older handoffs, newest first. The current one is in the task file under `## Handoffs`.\n\n'
+  [ "${#files[@]}" -gt 0 ] || return 0
+  awk '
+    FNR == 1 { n++; fm = 0; id = FILENAME; sub(/^.*\//, "", id); sub(/\.md$/, "", id)
+               ids[n] = id; src[n] = ""; auto[n] = ""; body[n] = ""; first[n] = 1 }
+    {
+      if (FNR == 1 && $0 == "---") { fm = 1; next }
+      if (fm == 1) {
+        if ($0 == "---") { fm = 2; next }
+        k = $0; sub(/:.*/, "", k); v = $0; sub(/^[^:]*:[ \t]*/, "", v)
+        if (k == "source") src[n] = v
+        else if (k == "auto") auto[n] = v
+        next
+      }
+      if (first[n] && $0 ~ /^### /) { first[n] = 0; next }
+      if ($0 != "") first[n] = 0
+      body[n] = body[n] $0 "\n"
+    }
+    END {
+      for (i = 1; i <= n; i++) {
+        print "## " ids[i]; print ""
+        print "- source: " src[i] (auto[i] == "true" ? " (auto)" : "")
+        b = body[i]
+        while (b ~ /^\n/) sub(/^\n/, "", b)
+        while (b ~ /\n\n$/) sub(/\n$/, "", b)
+        if (b != "") { print ""; printf "%s", b }
+        print ""
+      }
+    }
+  ' "${files[@]}"
+}
+
+# _wb_page_meta <file> — one TSV line: title, tags (comma list), rung,
+# retire_when, url; "-" for an empty field. A page's frontmatter block (R28)
+# sits at the top of a .md, or inside an HTML comment at the top of a .html:
+# it is the first `---` line within the first five lines up to the next one.
+_wb_page_meta() {
+  awk '
+    function clip(s) { sub(/[ \t]+#.*$/, "", s); sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+    function dash(s) { return (s == "" ? "-" : s) }
+    {
+      if (fm == 0 && !done && FNR <= 5 && $0 ~ /^[ \t]*---[ \t]*$/) { fm = 1; next }
+      if (fm == 1) {
+        if ($0 ~ /^[ \t]*---[ \t]*$/) { fm = 2; done = 1; next }
+        k = $0; sub(/:.*/, "", k); v = $0; sub(/^[^:]*:[ \t]*/, "", v); v = clip(v)
+        if (k == "tags") { gsub(/\[/, "", v); gsub(/\]/, "", v); gsub(/[ \t]*,[ \t]*/, ",", v); tags = v }
+        else if (k == "rung") rung = v
+        else if (k == "retire_when") rw = v
+        else if (k == "url") url = v
+        next
+      }
+      if (title == "" && $0 ~ /^# /) title = substr($0, 3)
+      if (title == "" && match($0, /<title>[^<]*<\/title>/)) { title = substr($0, RSTART + 7, RLENGTH - 15) }
+    }
+    END { printf "%s\t%s\t%s\t%s\t%s\n", dash(title), dash(tags), dash(rung), dash(rw), dash(url) }
+  ' "$1"
+}
+
+# _wb_retire_met <dossier_dir> <retire_when> — true when a page's trigger is
+# met and can be checked without the network: `decision:<id> recorded` (the
+# decision file exists) or `date:<YYYY-MM-DD>` (that day has come). A
+# `pr:<n> merged` trigger is NOT evaluated here (wb has no PR data); the Go
+# reader does that, so such a page stays current in this view.
+_wb_retire_met() {
+  local d="$1" rw="$2" id
+  case "$rw" in
+    decision:*)
+      id="${rw#decision:}"; id="${id%% *}"
+      [ -n "$id" ] && [ -f "$d/decisions/$id.md" ] ;;
+    date:*)
+      id="${rw#date:}"; id="${id%% *}"
+      [[ "$id" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || return 1
+      [[ ! "$id" > "$(date '+%Y-%m-%d')" ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+# _wb_index_pages <dossier_dir> <link_prefix> <heading_hashes> — the page
+# listing for one dossier: plans and specs pinned first, then one group per
+# tag, then untagged pages, then retired pages behind one <details> link.
+# Pages are *.md / *.html at depth <= 2, minus the generated views and the
+# record series dirs; an .html with a .md beside it is shown as that page's
+# "html" link rather than a second page.
+_wb_index_pages() {
+  local d="$1" prefix="$2" h="$3" f rel meta line pinned t
+  local title tags rung rw url ord grp
+  local -a rows=() tagarr=()
+  local retired_n=0 prev_grp="" prev_ord=""
+  while IFS= read -r f; do
+    rel="${f#"$d"/}"
+    case "$rel" in
+      index.md|decisions.md|handoffs.md|decisions/*|handoffs/*|open-items/*|.*|*/.*) continue ;;
+      *.html) if [ -f "$d/${rel%.html}.md" ]; then continue; fi ;;
+    esac
+    meta="$(_wb_page_meta "$f")"
+    IFS=$'\t' read -r title tags rung rw url <<< "$meta"
+    [ "$title" != "-" ] || title="$rel"
+    line="- [$title]($prefix$rel)"
+    [ "$rung" = "-" ] || line+=" — rung $rung"
+    if [ "${rel##*.}" = "md" ] && [ -f "$d/${rel%.md}.html" ]; then line+=" ([html]($prefix${rel%.md}.html))"; fi
+    if [ "$rw" != "-" ] && _wb_retire_met "$d" "$rw"; then
+      rows+=("9"$'\t'"Retired"$'\t'"$rel"$'\t'"$line (retired: $rw)")
+      continue
+    fi
+    pinned=0
+    case ",$tags," in *,plan,*|*,spec,*) pinned=1 ;; esac
+    case "$rel" in spec.md|plan.md) pinned=1 ;; esac
+    if [ "$pinned" -eq 1 ]; then
+      rows+=("0"$'\t'"Plans and specs"$'\t'"$rel"$'\t'"$line")
+    elif [ "$tags" = "-" ]; then
+      rows+=("2"$'\t'"Other"$'\t'"$rel"$'\t'"$line")
+    else
+      IFS=, read -ra tagarr <<< "$tags"
+      for t in "${tagarr[@]}"; do rows+=("1"$'\t'"$t"$'\t'"$rel"$'\t'"$line"); done
+    fi
+  done < <(find "$d" -maxdepth 2 -type f \( -name '*.md' -o -name '*.html' \) | LC_ALL=C sort)
+
+  if [ "${#rows[@]}" -eq 0 ]; then printf '_No pages yet._\n\n'; return 0; fi
+  while IFS=$'\t' read -r ord grp rel line; do
+    if [ "$ord$grp" != "$prev_grp" ]; then
+      if [ -n "$prev_grp" ]; then
+        if [ "$prev_ord" = 9 ]; then printf '\n</details>\n'; fi
+        printf '\n'
+      fi
+      if [ "$ord" = 9 ]; then
+        retired_n="$(printf '%s\n' "${rows[@]}" | grep -c "^9$(printf '\t')")"
+        printf '%s Retired (%s)\n\n<details>\n<summary>Show %s retired pages</summary>\n\n' "$h" "$retired_n" "$retired_n"
+      else
+        printf '%s %s\n\n' "$h" "$grp"
+      fi
+      prev_grp="$ord$grp"; prev_ord="$ord"
+    fi
+    printf '%s\n' "$line"
+  done < <(printf '%s\n' "${rows[@]}" | LC_ALL=C sort -t "$(printf '\t')" -k1,1 -k2,2 -k3,3)
+  if [ "$prev_ord" = 9 ]; then printf '\n</details>\n'; fi
+  printf '\n'
+}
+
+# _wb_render_index <task_file> <dossier_dir> <stem> — index.md on stdout.
+_wb_render_index() {
+  local d="$2" stem="$3" c cdir
+  printf '<!-- generated by wb from dossiers/%s/…; do not edit -->\n' "$stem"
+  printf '# %s — dossier index\n\n' "$stem"
+  local views=""
+  [ ! -f "$d/decisions.md" ] || views+="- [decisions](decisions.md)"$'\n'
+  [ ! -f "$d/handoffs.md" ] || views+="- [handoffs](handoffs.md)"$'\n'
+  if [ -n "$views" ]; then printf '## Records\n\n%s\n' "$views"; fi
+  _wb_index_pages "$d" "" "##"
+  # A parent lists each child's pages under that child (R29). A cheap grep
+  # skips the whole-store family walk for the common childless task.
+  if grep -lqs "^parent:[[:space:]]*$stem[[:space:]]*\$" "$TASKS_DIR"/*.md 2>/dev/null; then
+    local first=1
+    while IFS= read -r c; do
+      [ "$c" != "$stem" ] || continue
+      cdir="$TASKS_DIR/dossiers/$c"
+      [ -d "$cdir" ] || continue
+      if [ "$first" -eq 1 ]; then printf '## Children\n\n'; first=0; fi
+      printf '### %s\n\n' "$c"
+      _wb_index_pages "$cdir" "../$c/" "####"
+    done < <(_wb_family_tree "$stem")
+  fi
+}
+
+# wb_render_views <task_file> — rebuild decisions.md, handoffs.md and
+# index.md in the task's dossier from the record files and page frontmatter.
+# Deterministic (a second run changes no byte). Nothing is read back from the
+# views themselves. CALLER HOLDS THE TASK LOCK.
+wb_render_views() {
+  local file="$1"
+  local d; d="$(_wb_dossier_dir "$file")"
+  local stem="${file##*/}"; stem="${stem%.md}"
+  [ -d "$d" ] || return 0
+  local tmp
+  if [ -d "$d/decisions" ] && [ -n "$(find "$d/decisions" -maxdepth 1 -type f -name '*.md' -print -quit)" ]; then
+    tmp="$d/.decisions.md.tmp.$$"
+    _wb_render_decisions "$d" "$stem" > "$tmp" && _wb_view_install "$tmp" "$d/decisions.md"
+  fi
+  if [ -d "$d/handoffs" ] && [ -n "$(find "$d/handoffs" -maxdepth 1 -type f -name '*.md' -print -quit)" ]; then
+    tmp="$d/.handoffs.md.tmp.$$"
+    _wb_render_handoffs "$d" "$stem" > "$tmp" && _wb_view_install "$tmp" "$d/handoffs.md"
+  fi
+  tmp="$d/.index.md.tmp.$$"
+  _wb_render_index "$file" "$d" "$stem" > "$tmp" && _wb_view_install "$tmp" "$d/index.md"
+}
+
+# cmd_now <task-ref> [<body>|-] — replace the task file's "## Now" block
+# (KTD20) with stdin, under the per-task lock; the rest of the file is left
+# byte-unchanged. A file with no "## Now" gains one above its first "## "
+# section, below the title. A leading "## Now" line in the input is dropped.
+cmd_now() {
+  local query="${1:-}"
+  if [ -z "$query" ]; then
+    echo "usage: wb now <task-ref> [<body>|-]   (body omitted or '-' reads multi-line stdin)" >&2
+    exit 1
+  fi
+  local body
+  if [ $# -lt 2 ] || [ "$2" = "-" ]; then body="$(cat)"; else body="$2"; fi
+  body="$(_wb_trim_blank_lines "$body")"
+  if [ "${body%%$'\n'*}" = "## Now" ]; then
+    if [[ "$body" == *$'\n'* ]]; then body="${body#*$'\n'}"; else body=""; fi
+    body="$(_wb_trim_blank_lines "$body")"
+  fi
+  [ -n "$body" ] || { echo "wb now: empty body — nothing to write" >&2; exit 1; }
+
+  local file
+  file="$(_wb_append_resolve_task "$query" "wb now")" || exit 1
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  _wb_replace_block "$file" "Now" "$body" 1
+  wb_task_lock_release "$file"
+  echo "wb now: replaced \"## Now\" in $(basename -- "$file")"
+}
+
+# cmd_decide_supersede <task-ref> <old-id> [<text>|-] — KTD19, one locked
+# operation on a layout task: write the new decision from stdin with
+# `supersedes: [<old-id>]`, flip the old decision file to `status:
+# superseded` + `superseded_by: [<new-id>]`, rebuild the views. <old-id> is
+# the old file's name without .md. An unknown or already-superseded <old-id>
+# (or a task without the layout) exits 1 with nothing written.
+cmd_decide_supersede() {
+  local query="${1:-}" old="${2:-}"
+  if [ -z "$query" ] || [ -z "$old" ]; then
+    echo "usage: wb decide-supersede <task-ref> <old-decision-id> [<text>|-]" >&2
+    exit 1
+  fi
+  old="${old%.md}"
+  local text
+  if [ $# -lt 3 ] || [ "$3" = "-" ]; then text="$(cat)"; else text="$3"; fi
+  [ -n "$text" ] || { echo "wb decide-supersede: empty body — nothing to write" >&2; exit 1; }
+
+  local file
+  file="$(_wb_append_resolve_task "$query" "wb decide-supersede")" || exit 1
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  local dir; dir="$(_wb_dossier_dir "$file")"
+  local oldf="$dir/decisions/$old.md" msg=""
+  if ! _wb_is_dossier "$file"; then
+    msg="$(basename -- "$file") has no layout: dossier"
+  elif [[ "$old" == */* ]] || [ ! -f "$oldf" ]; then
+    msg="no decision '$old' in $(basename -- "$file")"
+  elif [ "$(wb_get_frontmatter "$oldf" status)" = "superseded" ]; then
+    msg="decision '$old' is already superseded"
+  fi
+  if [ -n "$msg" ]; then
+    wb_task_lock_release "$file"
+    echo "wb decide-supersede: $msg" >&2
+    exit 1
+  fi
+  _wb_record_write_file "$file" decisions "$old" "$text" || { wb_task_lock_release "$file"; exit 1; }
+  local new="$WB_RECORD_ID"
+  wb_set_frontmatter_field "$oldf" status superseded
+  wb_set_frontmatter_field "$oldf" superseded_by "[$new]"
+  wb_render_views "$file"
+  wb_task_lock_release "$file"
+  echo "wb decide-supersede: $new supersedes $old in $(basename -- "$file")"
 }
 
 # ---------------------------------------------------------------------------
@@ -6983,6 +7599,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     jira-set)    shift; cmd_jira_set "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
+    now)         shift; cmd_now "$@" ;;
+    decide-supersede) shift; cmd_decide_supersede "$@" ;;
     family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;
     status)      shift; cmd_status "$@" ;;
