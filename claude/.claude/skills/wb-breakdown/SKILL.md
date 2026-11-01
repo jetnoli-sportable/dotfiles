@@ -189,6 +189,13 @@ a migration that hasn't happened yet, more follow-up moves).
   parser accepts `\"` as an escaped quote and unescapes it back to a plain
   `"` before matching against the real bullet text, so write the bullet's
   literal quotes escaped, never re-worded to dodge them.
+  **Layout parent (`layout: dossier`).** It has no `## Follow-ups`; its
+  follow-ups are the files in `dossiers/<parent-stem>/open-items/` with
+  `status: open`. List those instead: the quoted text is the item's first
+  line below its frontmatter (read the files, don't guess). A checked move
+  relocates the file into the child's dossier `open-items/` (a layout child),
+  or appends it under the child's `## Follow-ups` (an older child), and
+  rebuilds both dossiers' views. See `docs/wb-guide.md`, "Dossier layout (trial)".
 - **Parent `## Plan` rewrite**: propose a short post-split summary plus
   whatever didn't get absorbed into any child — this replaces the
   parent's entire `## Plan` section at apply time (not appended), so

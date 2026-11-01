@@ -91,6 +91,10 @@
 #                                    from Claude Code's session registry); --reseed rewrites the
 #                                    CLAUDE.local.md concepts pointer in each family worktree;
 #                                    --concepts prints <task>'s CONCEPTS.md files, nearest first
+#                                    (concepts.md for a layout task)
+#   wb notes [<task>]                print dossiers/<task>/notes.md (the file may not exist; wb
+#                                    never creates it), tmux-free; with no <task>, the current
+#                                    tmux session's @task (an error outside tmux)
 #   wb week path                     print the standing weekly-capture doc's path,
 #                                    creating it from the four-section template
 #                                    (What's working|What's not working|New ideas|Notes)
@@ -911,7 +915,8 @@ wb_ensure_repo_ignore() {
 # self-parent (wb_task_own_parent) and cycles (seen-set) both stop the walk
 # rather than looping; a depth cap is a backstop against either guard
 # somehow missing a case. Prints one path per line for every
-# $TASKS_DIR/dossiers/<stem>/CONCEPTS.md that exists anywhere in the chain;
+# $TASKS_DIR/dossiers/<stem>/CONCEPTS.md (concepts.md when that task has
+# `layout: dossier`, KTD24) that exists anywhere in the chain;
 # prints nothing (exit 0) when none exist, including when <task_file> itself
 # doesn't exist.
 _wb_concepts_paths() {
@@ -927,7 +932,11 @@ _wb_concepts_paths() {
     seen[$current_stem]=1
     depth=$((depth + 1))
 
-    local dossier="$TASKS_DIR/dossiers/$current_stem/CONCEPTS.md"
+    # KTD24: a layout task's family file is concepts.md; tasks without the
+    # layout keep CONCEPTS.md (each chain link decides for itself).
+    local cname="CONCEPTS.md"
+    _wb_is_dossier "$current_file" && cname="concepts.md"
+    local dossier="$TASKS_DIR/dossiers/$current_stem/$cname"
     [ -f "$dossier" ] && printf '%s\n' "$dossier"
 
     local parent_ref; parent_ref="$(wb_get_frontmatter "$current_file" parent)"
@@ -1237,6 +1246,53 @@ _wb_insert_plan_body() {
   rm -f "$bodyfile"
 }
 
+# _wb_layout_inherit_new <task_file> <parent_ref> [<seed body>] — KTD21/KTD25:
+# a NEW task whose parent has `layout: dossier` is born with the layout (a
+# parent without it changes nothing here). Marks `layout: dossier`, swaps the
+# template's Decisions/Done/Follow-ups skeleton for a `## Now` placeholder,
+# and drafts dossiers/<stem>/brief.md (type, why, done when, not doing,
+# claims marked checked/assumed with a date; seen/expected/repro for a bug)
+# instead of a "First action" line. <seed body> (the caller's --body text)
+# fills `Why` with its first paragraph; everything else stays blank for the
+# first session to confirm. CALLER HOLDS THE TASK LOCK and calls this only on
+# a file it just created. Delete this function and its three call sites with
+# the old paths at the store switch (U14).
+_wb_layout_inherit_new() {
+  local file="$1" parent_ref="${2:-}" body="${3:-}"
+  [ -n "$parent_ref" ] && [ -f "$TASKS_DIR/$parent_ref.md" ] || return 0
+  _wb_is_dossier "$TASKS_DIR/$parent_ref.md" || return 0
+
+  wb_set_frontmatter "$file" layout dossier
+  awk '
+    /^## (Decisions|Done|Follow-ups)[ \t]*$/ { skip = 1; next }
+    /^## / { skip = 0 }
+    !skip { print }
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  _wb_replace_block "$file" "Now" "(not started — the first \`/wb-save\` or \`wb now\` fills this in)" 1
+
+  # Bug signal: a fix/bug branch name or a `bug` tag. Anything else is a task.
+  local branch tags type="task"
+  branch="$(wb_get_frontmatter "$file" branch)"; tags="$(wb_get_frontmatter "$file" tags)"
+  case "$branch" in fix/*|fix-*|bug/*|bug-*|bugfix*) type="bug" ;; esac
+  case "$tags" in *bug*) type="bug" ;; esac
+
+  local bdir; bdir="$(_wb_dossier_dir "$file")"
+  [ ! -e "$bdir/brief.md" ] || return 0
+  mkdir -p "$bdir" || return 1
+  local title; title="$(wb_task_title "$file")"
+  local why="" nl=$'\n'
+  if ! _wb_blank_only "$body"; then
+    why="$(printf '%s\n' "$body" | awk 'NF { print; started = 1; next } started { exit }')"
+  fi
+  local today; today="$(date +%F)"
+  local c="---${nl}type: $type${nl}created: $today${nl}---${nl}# Brief: $title${nl}${nl}**Why:** $why${nl}${nl}**Done when:**${nl}${nl}**Not doing:**${nl}${nl}"
+  c+="**Claims** (mark each *checked* or *assumed*, with the date, e.g. \`- X is true — assumed $today\`):${nl}${nl}- "
+  if [ "$type" = bug ]; then
+    c+="${nl}${nl}**Seen:**${nl}${nl}**Expected:**${nl}${nl}**Repro:**"
+  fi
+  _wb_write_atomic "$bdir/brief.md" "$c"
+}
+
 # wb_seed_planned_child <repo> <slug> <parent_ref> [<title>] — KTD3's child
 # seeder for `wb breakdown --apply` (U3): creates a NEW planned child task
 # file and NOTHING ELSE. <title> is the buffer's own editable "goal:" line
@@ -1311,6 +1367,7 @@ wb_seed_planned_child() {
   [ -z "$size" ]       || wb_set_frontmatter "$file" size "$size"
   [ -z "$depends_on" ] || wb_set_frontmatter "$file" depends_on "$depends_on"
 
+  _wb_layout_inherit_new "$file" "$parent" "$body"
   _wb_insert_plan_body "$file" "$body"
   echo "$file"
 }
@@ -1810,6 +1867,8 @@ cmd_new() {
       ticket_body="$(cat "$body_file")" \
         || { wb_task_lock_release "$task_file"; echo "wb new: could not read --body-file '$body_file'" >&2; exit 1; }
     fi
+    # Layout first: its section swap must not see headings inside the body.
+    [ "$was_new" = 0 ] || _wb_layout_inherit_new "$task_file" "$parent_ref" "$ticket_body"
     [ "$was_new" = 1 ] && [ -n "$ticket_body" ] && _wb_insert_plan_body "$task_file" "$ticket_body"
     wb_task_lock_release "$task_file"
     echo "$task_file"
@@ -1898,7 +1957,9 @@ cmd_new() {
   fi
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
+  local seed_was_new=0; [ -f "$task_file" ] || seed_was_new=1
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$depends_on_joined")"
+  [ "$seed_was_new" = 0 ] || _wb_layout_inherit_new "$task_file" "$parent_ref"
   # An unsafe worktree: was ignored above; fix the field too, since wb down /
   # wb done would otherwise build a teardown path from it.
   [ "$wt_unsafe" = 0 ] || wb_set_frontmatter "$task_file" worktree "$worktree_rel"
@@ -2523,6 +2584,20 @@ wb_reconcile_action_merge() {
     return 0
   fi
 
+  # Layout trial (KTD21): the Plan/Done/Follow-ups merge below only knows the
+  # old sections, and a layout task has no Done/Follow-ups to merge into or
+  # out of (its records are dossier files). No dossier merge is built for the
+  # trial: refuse, and name the one-off that makes both sides the same shape.
+  if _wb_is_dossier "$taskfile" || _wb_is_dossier "$target_file"; then
+    if _wb_is_dossier "$taskfile" && _wb_is_dossier "$target_file"; then
+      echo "wb reconcile --apply: not merging $taskfile and $target_file — both are layout (dossier) tasks and no dossier merge exists; merge their records by hand — skipping this finding" >&2
+    else
+      local old_side="$taskfile"; _wb_is_dossier "$taskfile" && old_side="$target_file"
+      echo "wb reconcile --apply: not merging $taskfile and $target_file — one is a layout (dossier) task; run \`wb migrate $(basename -- "$old_side" .md)\` first so both sides have the layout, then merge by hand — skipping this finding" >&2
+    fi
+    return 0
+  fi
+
   local -a survivor_checks=()
   while IFS= read -r line; do survivor_checks+=("$line"); done < <(printf '%s' "$block" | grep -oP '^\s*- \[x\] survivor: \K.*')
   if [ "${#survivor_checks[@]}" -ne 1 ]; then
@@ -3088,7 +3163,14 @@ _wb_breakdown_validate() {
       printf 'plan_rewrite\tparent\n'
     fi
 
-    local followups; followups="$(wb_board_section "$parent_file" "Follow-ups")"
+    # Layout parent: the "bullets" are its open items' titles, so the same
+    # exact-match-exactly-once check below covers both layouts.
+    local followups
+    if _wb_is_dossier "$parent_file"; then
+      followups="$(_wb_open_item_bullets "$parent_file")"
+    else
+      followups="$(wb_board_section "$parent_file" "Follow-ups")"
+    fi
     while IFS= read -r line; do
       [ "$(_wb_bd_checkbox_state "$line")" = checked ] || continue
       printf '%s' "$line" | grep -qP "move follow-up:" || continue
@@ -3252,6 +3334,11 @@ _wb_breakdown_append_section() {
 # bug U1's Execution note flags for -v assignments).
 _wb_breakdown_move_followup() {
   local parent_file="$1" target_file="$2" bullet_text="$3"
+  # Layout parent: the follow-up is an open-items/ file, not a bullet.
+  if _wb_is_dossier "$parent_file"; then
+    _wb_breakdown_move_open_item "$parent_file" "$target_file" "$bullet_text"
+    return
+  fi
   local textfile; textfile="$(mktemp)"
   printf '%s\n' "$bullet_text" > "$textfile"
 
@@ -3278,6 +3365,70 @@ _wb_breakdown_move_followup() {
   rm -f "$textfile"
 
   _wb_breakdown_append_section "$target_file" "Follow-ups" "$block"
+}
+
+# _wb_open_item_title <open-item file> — the item's text: its first non-blank
+# line below the frontmatter.
+_wb_open_item_title() {
+  awk '
+    FNR == 1 && $0 == "---" { fm = 1; next }
+    fm && $0 == "---" { fm = 0; next }
+    fm { next }
+    $0 != "" { print; exit }
+  ' "$1"
+}
+
+# _wb_open_item_bullets <task_file> — one "- <title>" line per open item of a
+# layout task, in the shape the breakdown buffer's `move follow-up:` match
+# compares against (the same as a ## Follow-ups bullet line).
+_wb_open_item_bullets() {
+  local f
+  while IFS= read -r f; do
+    printf -- '- %s\n' "$(_wb_open_item_title "$f")"
+  done < <(_wb_open_items "$1")
+}
+
+# _wb_breakdown_move_open_item <parent_file> <target_file> <title> — the
+# layout-parent half of _wb_breakdown_move_followup. The parent's open item
+# whose title is exactly <title> MOVES (never copies) to the child: as a file
+# in the child's dossier open-items/ when the child has the layout, else as a
+# bullet (continuation lines indented) appended under the child's
+# `## Follow-ups`. Views are rebuilt for every layout side touched. The caller
+# holds both task locks.
+_wb_breakdown_move_open_item() {
+  local parent_file="$1" target_file="$2" title="$3" f src="" n=0
+  [ -f "$target_file" ] || return 1
+  while IFS= read -r f; do
+    [ "$(_wb_open_item_title "$f")" = "$title" ] || continue
+    src="$f"; n=$((n + 1))
+  done < <(_wb_open_items "$parent_file")
+  [ "$n" -eq 1 ] || return 1
+
+  if _wb_is_dossier "$target_file"; then
+    local tdir; tdir="$(_wb_dossier_dir "$target_file")/open-items"
+    mkdir -p "$tdir" || return 1
+    local base id n2=1
+    base="${src##*/}"; base="${base%.md}"
+    id="$base"
+    while [ -e "$tdir/$id.md" ]; do n2=$((n2 + 1)); id="$base-$n2"; done
+    mv "$src" "$tdir/$id.md" || return 1
+    wb_render_views "$target_file"
+  else
+    local block
+    block="$(awk '
+      FNR == 1 && $0 == "---" { fm = 1; next }
+      fm && $0 == "---" { fm = 0; next }
+      fm { next }
+      !started && $0 == "" { next }
+      { started = 1; n++; print (n == 1 ? "- " $0 : ($0 == "" ? "" : "  " $0)) }
+    ' "$src")"
+    if ! _wb_has_heading "$target_file" "Follow-ups"; then
+      printf '\n## Follow-ups\n' >> "$target_file"
+    fi
+    _wb_breakdown_append_section "$target_file" "Follow-ups" "$block" || return 1
+    rm -f -- "$src"
+  fi
+  wb_render_views "$parent_file"
 }
 
 # _wb_breakdown_acquire_locks <array_name> <target...> — sorted-path,
@@ -5490,19 +5641,64 @@ wb_safe_rel() {
   esac
 }
 
-# wb_followup_count — total `## Follow-ups` bullet lines across every task file.
+# _wb_open_items <task_file> — the paths of the task's open-items/*.md whose
+# frontmatter says `status: open`, one per line, name order (layout tasks).
+_wb_open_items() {
+  local d f
+  d="$(_wb_dossier_dir "$1")/open-items"
+  [ -d "$d" ] || return 0
+  for f in "$d"/*.md; do
+    [ -f "$f" ] || continue
+    [ "$(wb_get_frontmatter "$f" status)" = "open" ] && printf '%s\n' "$f"
+  done
+  return 0
+}
+
+# _wb_layout_task_files <task_file>... — the ones with `layout: dossier`, one
+# per line. A single grep picks the candidates, so a store-wide caller pays
+# one fork rather than one per task; each hit is then confirmed against the
+# real frontmatter (the grep could match a body line).
+_wb_layout_task_files() {
+  local f
+  [ "$#" -gt 0 ] || return 0
+  while IFS= read -r f; do
+    _wb_is_dossier "$f" && printf '%s\n' "$f"
+  done < <(grep -l '^layout:[[:space:]]*dossier' "$@" 2>/dev/null)
+  return 0
+}
+
+# wb_followup_count — total `## Follow-ups` bullet lines across every task file,
+# plus (layout tasks, KTD21) every open-items/*.md whose frontmatter says
+# `status: open`.
 wb_followup_count() {
   local -a files=()
   local f
   while IFS= read -r f; do files+=("$f"); done < <(wb_task_files)
   [ "${#files[@]}" -gt 0 ] || { echo 0; return; }
-  awk '
+  local n; n="$(awk '
     FNR == 1 { infu = 0 }
     /^## Follow-ups/ { infu = 1; next }
     /^## /           { infu = 0 }
     infu && /^[-*] /  { c++ }
     END { print c + 0 }
-  ' "${files[@]}"
+  ' "${files[@]}")"
+  local -a items=()
+  local d
+  while IFS= read -r f; do
+    d="$(_wb_dossier_dir "$f")/open-items"
+    [ -d "$d" ] || continue
+    items+=("$d"/*.md)
+  done < <(_wb_layout_task_files "${files[@]}")
+  if [ "${#items[@]}" -gt 0 ]; then
+    n=$((n + $(awk '
+      FNR == 1 { fm = 0 }
+      FNR == 1 && $0 == "---" { fm = 1; next }
+      fm == 1 && $0 == "---" { fm = 2 }
+      fm == 1 && /^status:[ \t]*open[ \t]*$/ { c++ }
+      END { print c + 0 }
+    ' "${items[@]}" 2>/dev/null)))
+  fi
+  echo "$n"
 }
 
 # wb_week_unreviewed_count — `- [ ]` (unreviewed) entries across the
@@ -5638,6 +5834,8 @@ cmd_board() {
 
   local f title fu rows="" repo status worktree branch activity
   local -a t
+  local -A layout_task=()
+  while IFS= read -r f; do layout_task["$f"]=1; done < <(_wb_layout_task_files "$TASKS_DIR"/*.md)
   # U6/R17: an ACT column, only when the terminal is wide enough to take it
   # without wrapping the existing four columns — a plain `wb board` run in a
   # narrow split pane shouldn't have to trade STATUS/REPO/TASK legibility
@@ -5664,6 +5862,8 @@ cmd_board() {
       infu && /^[-*] / { c++ }
       END { print c + 0 }
     ' "$f")"
+    # Layout task: its follow-ups are the open items in its dossier.
+    if [ -n "${layout_task["$f"]:-}" ]; then fu=$((fu + $(_wb_open_items "$f" | wc -l))); fi
     f="${f##*/}"; dr="${shelved_n["${f%.md}"]:-0}"
     if [ "$show_act" = 1 ]; then
       activity="$(wb_task_activity "$repo" "$branch" "$worktree")"
@@ -6935,7 +7135,25 @@ _preview() {
     local title st br
     title="$(wb_task_title "$ref")"; [ -n "$title" ] || title="$(basename "$ref" .md)"
     st="$(wb_get_frontmatter "$ref" status)"; br="$(wb_get_frontmatter "$ref" branch)"
-    awk -v title="$title" -v st="$st" -v br="$br" '
+    # Layout task (KTD21): show its "## Now" block above the handoff, and when
+    # the one handoff left in the task file is an (auto) stamp fall back to
+    # the newest hand-written entry in handoffs/ (auto: false), fed to the
+    # awk below as a stand-in file.
+    local pv_src="$ref" pv_now="" pv_tmp=""
+    if _wb_is_dossier "$ref"; then
+      pv_now="$(_wb_trim_blank_lines "$(_wb_section_text "$ref" Now)")"
+      if ! _wb_section_text "$ref" Handoffs | awk '/^### / && $0 !~ /\(auto\)[ \t]*$/ { f = 1 } END { exit(f ? 0 : 1) }'; then
+        local pv_h pv_hd; pv_hd="$(_wb_dossier_dir "$ref")/handoffs"
+        for pv_h in $(ls -1r "$pv_hd"/*.md 2>/dev/null); do
+          [ "$(wb_get_frontmatter "$pv_h" auto)" = "false" ] || continue
+          pv_tmp="$(mktemp)"
+          { printf '## Handoffs\n\n'; awk 'FNR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm { print }' "$pv_h"; } > "$pv_tmp"
+          pv_src="$pv_tmp"
+          break
+        done
+      fi
+    fi
+    WB_PV_NOW="$pv_now" awk -v title="$title" -v st="$st" -v br="$br" '
       /^## / { inh = ($0 ~ /^## Handoffs[ \t]*$/); keep = 0; next }
       !inh { next }
       /^### / {
@@ -6954,6 +7172,8 @@ _preview() {
         printf "%s%s\033[0m\n", B, title
         meta = st; if (br != "") meta = meta " · " br; if (ts != "") meta = meta " · saved " ts
         if (meta != "") printf "%s%s\033[0m\n", D, meta
+        nowt = ENVIRON["WB_PV_NOW"]
+        if (nowt != "") printf "\n%sNow\033[0m\n%s\n", B, nowt
         cur = ""; inrun = 0; nf = 0; raw = ""
         for (i = 1; i <= n; i++) {
           l = body[i]
@@ -6975,7 +7195,8 @@ _preview() {
         for (i = 1; i <= nf; i++) if (order[i] != "Done") emit(order[i], "")
         emit("Done", D)
       }
-    ' "$ref"
+    ' "$pv_src"
+    [ -z "$pv_tmp" ] || rm -f "$pv_tmp"
   elif [ -d "$ref" ] && git -C "$ref" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     out="$(git -C "$ref" -c color.status=always status -s 2>/dev/null)"
     printf '%s\n' "${out:-clean}"
@@ -7049,6 +7270,35 @@ cmd_task_file() {
   else
     printf '%s\n' "$task_file"
   fi
+}
+
+# cmd_notes [<task-ref>] — print the path of a task's dossier notes.md
+# (dossiers/<stem>/notes.md, Jet's scratch page). With a <task-ref> it needs
+# no tmux; with none it resolves the current tmux session's task file the way
+# cmd_task_file does (error outside tmux). The path is printed even when the
+# file is absent: agents never write notes.md, so creating it is not this
+# verb's job (the prefix+T popup touches it, because Jet is the one opening).
+cmd_notes() {
+  local query="${1:-}" file
+  if [ $# -gt 1 ]; then
+    echo "usage: wb notes [<task-ref>]" >&2
+    return 1
+  fi
+  if [ -n "$query" ]; then
+    file="$(_wb_append_resolve_task "$query" "wb notes")" || return 1
+  else
+    if [ -z "${TMUX:-}" ]; then
+      echo "wb notes: not inside tmux — pass a <task-ref> (wb notes <task>)" >&2
+      return 1
+    fi
+    local session
+    session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+    if [ -z "$session" ] || ! file="$(wb_session_task_file "$session")" || [ -z "$file" ]; then
+      echo "wb notes: ${session:-this session} has no @task/@wb_repo — not a wb task session" >&2
+      return 1
+    fi
+  fi
+  printf '%s/notes.md\n' "$(_wb_dossier_dir "$file")"
 }
 
 # ---------------------------------------------------------------------------
@@ -7150,7 +7400,7 @@ _wb_registry_panes() {
 #               seed in cmd_new (a failure doesn't stop the rest) but exits 1
 #               if any seed failed. Writes only the untracked CLAUDE.local.md
 #               block: no tmux, no task lock, no task-store write.
-#   --concepts  <task>'s CONCEPTS.md files up its parent chain, nearest first
+#   --concepts  <task>'s CONCEPTS.md files (concepts.md on a layout task) up its parent chain, nearest first
 #               (_wb_concepts_paths, the same walk the seed links), so the
 #               promotion step writes to the file worktrees actually import.
 # --reseed is the only mode that touches the disk. Stdout stays script-friendly, like
@@ -7608,6 +7858,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     pr-open)     shift; cmd_pr_open "$@" ;;
     reviewed)    shift; cmd_reviewed "$@" ;;
     task-file)   shift; cmd_task_file "$@" ;;
+    notes)       shift; cmd_notes "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
