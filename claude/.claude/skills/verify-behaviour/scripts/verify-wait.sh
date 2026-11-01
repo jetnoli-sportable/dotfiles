@@ -42,7 +42,9 @@
 #     file=<watched file> range=<start>-<end> text=<matched text, <=240 chars>
 # <source> is transcript | capture-log | decisions:<task-stem>. <range> is the
 # byte range of the line in <file> for transcript/capture-log, and the 1-based
-# bullet number (start==end) under "## Decisions" for decisions sources.
+# bullet number (start==end) under "## Decisions" for decisions sources; for a task
+# with `layout: dossier` (trial) the source is the files in its dossier's decisions/
+# folder instead, and the number is the file's place in the name-sorted list.
 # <id> is a hash of (checks file, check id, and either origin.msg_id for a peer
 # message or file:start-offset), so the same content never yields two hits.
 #
@@ -355,6 +357,7 @@ set_src() { # <path> -> SRC = transcript | capture-log | decisions:<stem> (empty
   case "$1" in
     "$CAPTURE_LOG" | "$CAPTURE_LOG".1) SRC=capture-log ;;
     "$PROJ"/*) SRC=transcript ;;
+    */dossiers/*/decisions) local d="${1%/decisions}"; SRC="decisions:${d##*/}" ;;   # layout task: its decisions/ folder
     *.md) local b="${1##*/}"; SRC="decisions:${b%.md}" ;;
     *) SRC="" ;;
   esac
@@ -386,7 +389,8 @@ lookup_start() {
   done
 }
 
-decision_rows() { # <task file> -> "<n> SEP 0 SEP <text>" per bullet under ## Decisions
+decision_rows() { # <task file | decisions/ folder> -> "<n> SEP 0 SEP <text>" per bullet under ## Decisions
+  if [ -d "$1" ] || [[ "$1" == */dossiers/*/decisions ]]; then layout_decision_rows "$1"; return; fi
   awk '
     function flush() { if (have) { print n "\037" "0" "\037" cur; have = 0 } }
     /^## / { flush(); insec = ($0 ~ /^## Decisions[ \t]*$/); next }
@@ -395,6 +399,24 @@ decision_rows() { # <task file> -> "<n> SEP 0 SEP <text>" per bullet under ## De
     insec && /^[ \t]*$/ { next }
     insec { flush() }
     END { flush() }' "$1"
+}
+
+# layout_decision_rows <decisions/ folder> — one row per file, numbered by its place in
+# the name-sorted list (names start with the timestamp, so new files come last): the
+# text is the file's title and body with the frontmatter dropped, on one line. A
+# superseded file keeps its number but has empty text, so it never matches.
+layout_decision_rows() {
+  local f n=0
+  for f in "$1"/*.md; do
+    [ -f "$f" ] || continue
+    n=$((n + 1))
+    N="$n" SEP_="$SEP" awk '
+      BEGIN { sep = ENVIRON["SEP_"] }
+      NR == 1 && $0 == "---" { fm = 1; next }
+      fm { if ($0 == "---") fm = 0; else if ($0 ~ /^status:[ \t]*superseded/) sup = 1; next }
+      { t = $0; sub(/^#+[ \t]*/, "", t); sub(/^[ \t]+/, "", t); if (t != "") txt = (txt == "" ? t : txt " " t) }
+      END { print ENVIRON["N"] sep "0" sep (sup ? "" : txt) }' "$f" 2>/dev/null
+  done
 }
 
 # read_range <file> <from> <to> <out> <file-idx> <start> <kind> — one tail|awk
@@ -480,12 +502,34 @@ match_decisions() {
 # that has vanished, and the watcher's folder is cut out by GLOBIGNORE.
 watched_files() {
   local f s IFS=$'\n' GLOBIGNORE="$PROJ/$SELF_DIR/*"
+  WMISS=""
   WFILES=("$PROJ"/*/*.jsonl)
   [ -e "${WFILES[0]}" ] || WFILES=()
   [ -f "$CAPTURE_LOG" ] && WFILES[${#WFILES[@]}]="$CAPTURE_LOG"
   for s in $DECSTEMS; do
-    if [ -n "$s" ] && [ "$s" != "$WATCHER" ] && [ -f "$TASKS_DIR/$s.md" ]; then WFILES[${#WFILES[@]}]="$TASKS_DIR/$s.md"; fi
+    if [ -n "$s" ] && [ "$s" != "$WATCHER" ] && [ -f "$TASKS_DIR/$s.md" ]; then
+      # a layout task (dossier layout trial) keeps decisions as files: watch the folder
+      if [ "$(task_layout "$TASKS_DIR/$s.md")" = dossier ]; then
+        if [ -d "$TASKS_DIR/dossiers/$s/decisions" ]; then WFILES[${#WFILES[@]}]="$TASKS_DIR/dossiers/$s/decisions"
+        else WMISS="$WMISS$TASKS_DIR/dossiers/$s/decisions"$'\n'; fi   # not created yet: watched as an empty folder (see stat_all)
+      else
+        WFILES[${#WFILES[@]}]="$TASKS_DIR/$s.md"
+      fi
+    fi
   done
+  return 0
+}
+
+# task_layout <task file> — its `layout:` frontmatter value, read with no fork (this
+# runs on every poll).
+task_layout() {
+  local l n=0
+  while IFS= read -r l && [ "$n" -lt 40 ]; do
+    n=$((n + 1))
+    if [ "$n" -eq 1 ]; then [ "$l" = "---" ] || return 0; continue; fi
+    [ "$l" = "---" ] && return 0
+    case "$l" in layout:*) l="${l#layout:}"; l="${l%%#*}"; l="${l#"${l%%[![:space:]]*}"}"; l="${l%"${l##*[![:space:]]}"}"; printf '%s\n' "$l"; return 0 ;; esac
+  done <"$1" 2>/dev/null
   return 0
 }
 
@@ -502,6 +546,10 @@ stat_all() {
   if [ "$(( ${#sf[@]} + ${#WFILES[@]} ))" -gt 0 ]; then
     raw="$("${STATCMD[@]}" ${sf[@]+"${sf[@]}"} ${WFILES[@]+"${WFILES[@]}"} 2>/dev/null)"
   fi
+  # A layout task's decisions/ folder that does not exist yet is an empty folder: a
+  # stand-in row (inode 0, size 0) makes it baseline at count 0, so once it appears every
+  # file in it is new. A folder that already existed at the first look is history.
+  for f in $WMISS; do raw="${raw:+$raw$'\n'}$f$SEP"0"$SEP"0"$SEP"0; done
   if [ "$raw" = "$LASTRAW" ]; then STATCHG=0; return 0; fi
   STATCHG=1; LASTRAW="$raw"
   CSIG=""; VSIG=""; rest="$raw"
@@ -514,7 +562,26 @@ stat_all() {
     i=$((i + 1))
   done
   CSIG="${CSIG%$'\n'}"; VSIG="${VSIG%$'\n'}"; WRAW="$rest"
+  # A decisions/ folder's own size never moves; its file count is what a new decision
+  # changes, so that stands in for the size column (changed_rows compares ino and size).
+  case "$WRAW" in *"/decisions$SEP"*) WRAW="$(dir_rows_count "$WRAW")" ;; esac
   return 0
+}
+
+# dir_rows_count <stat rows> — the rows, with the size column of every `.../decisions`
+# folder row replaced by the number of .md files in it.
+dir_rows_count() {
+  local line p i f n
+  while IFS= read -r line; do
+    p="${line%%"$SEP"*}"
+    case "$p" in
+      */dossiers/*/decisions)
+        n=0; for f in "$p"/*.md; do [ -f "$f" ] && n=$((n + 1)); done
+        i="${line#*"$SEP"}"; i="${i%%"$SEP"*}"
+        printf '%s\n' "$p$SEP$i$SEP$n$SEP${line##*"$SEP"}" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <<<"$1"
 }
 
 # changed_rows — path ino size stored-offset stored-ino stored-start status(new|chg)

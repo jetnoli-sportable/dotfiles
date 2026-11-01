@@ -552,6 +552,39 @@ assert_not "the old bullet is not raised" 'from before rollout' "$out"
 out="$(vw scan --since 2020-01-01T00:00:00Z "$CHECKS")"
 assert_not "scan does not replay Decisions history" 'check=C3' "$out"
 
+# =============================================================================
+echo "# Scenario: layout task (dossier layout trial) reads decisions/ files"
+setup; write_checks 2020-01-01T00:00:00Z; seed_transcript
+printf -- '---\nstatus: doing\nlayout: dossier\n---\n# Title\n\n## Now\n' >"$TASKF"
+DDIR="$TASKS_DIR/dossiers/proj--task-a/decisions"; mkdir -p "$DDIR"
+mk_dec() { # <file stem> <title> <body> [status]
+  printf -- '---\nstatus: %s\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# %s\n\n%s\n' "${4:-in-force}" "$2" "$3" >"$DDIR/$1.md"
+}
+mk_dec 2026-10-20-0900-old-one "Old decision" "history that mentions the needle"
+start_wait; wait_ready; sleep 1
+running; rc=$?; assert_eq "a decision file already there raises no hit" 0 "$rc"
+mk_dec 2026-10-21-1000-edit-me "Second decision" "no match here"
+sleep 1
+running; rc=$?; assert_eq "a new file without the needle does not wake" 0 "$rc"
+mk_dec 2026-10-22-1100-third "Third decision" "this one has the needle in its body"
+await_exit 3; rc=$?
+assert_eq "a new decision file with the needle wakes" 0 "$rc"
+assert "hit is C3, file number 3, text is title and body" 'check=C3 source=decisions:proj--task-a .* range=3-3 text=Third decision this one has the needle' "$(cat "$OUT")"
+assert_not "frontmatter is not in the text" 'supersedes' "$(cat "$OUT")"
+
+# =============================================================================
+echo "# Scenario: layout task with no decisions/ folder yet; the first decision file wakes"
+setup; write_checks 2020-01-01T00:00:00Z; seed_transcript
+printf -- '---\nstatus: doing\nlayout: dossier\n---\n# Title\n\n## Now\n' >"$TASKF"
+DDIR="$TASKS_DIR/dossiers/proj--task-a/decisions"
+start_wait; wait_ready; sleep 1
+running; rc=$?; assert_eq "no decisions/ folder: nothing fires" 0 "$rc"
+mkdir -p "$DDIR"
+printf -- '---\nstatus: in-force\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# First ever decision\n\nthe needle is here\n' >"$DDIR/2026-10-30-1000-first.md"
+await_exit 3; rc=$?
+assert_eq "the first decision file, in a folder created after start, wakes" 0 "$rc"
+assert "hit is C3, file number 1" 'check=C3 source=decisions:proj--task-a .* range=1-1 text=First ever decision the needle is here' "$(cat "$OUT")"
+
 echo
 if [ "$fail" -eq 0 ]; then echo "ALL PASS"; else echo "SOME FAILED"; fi
 exit "$fail"
