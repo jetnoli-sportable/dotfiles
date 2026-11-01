@@ -149,7 +149,7 @@
 # and the child reruns once on a fresh snapshot. Only if the section changes a
 # second time during the rerun is the draft shelved — Jet decides — and each shelved
 # file then carries a `.stale` sidecar holding how many `### ` entries `## Decisions`
-# had at the re-snapshot; its `draft_shelved`/accepted/dismissed events are tagged
+# had at the re-snapshot (on a layout task: how many files `decisions/` held); its `draft_shelved`/accepted/dismissed events are tagged
 # `"stale":true`.
 # `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
 # sweeps; at sweep_max_failures the sweep skips with reason `backoff`.
@@ -228,6 +228,17 @@ quiet_exit() { exit 0; }
 
 TASK_STEM=""
 TASK_PATH=""
+
+# task_layout <task file> — the `layout:` frontmatter value (empty when none). wb.sh is
+# not sourced here, so this is its own small reader; layout tasks (dossier layout trial)
+# keep decisions as files, so the staleness check and `.stale` count read those.
+task_layout() {
+  [ -f "$1" ] || return 0
+  awk '
+    NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit; next }
+    /^---[[:space:]]*$/ { exit }
+    /^layout:/ { v = $0; sub(/^layout:[[:space:]]*/, "", v); sub(/[[:space:]]*#.*$/, "", v); sub(/[[:space:]]+$/, "", v); print v; exit }' "$1" 2>/dev/null || true
+}
 INPUT=""
 
 # tmux_task — the one place the current tmux session's @task is read. Sets

@@ -207,10 +207,34 @@ done <<<"$kept_received"
 # staleness hash is taken over it, so the two can never diverge
 decisions_section() {
   [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] || return 0
+  if [ "$(task_layout "$TASK_PATH")" = dossier ]; then layout_decisions_text; return 0; fi
   awk '
     /^## Decisions[[:space:]]*$/ { f = 1; print; next }
     /^## / { f = 0 }
     f' "$TASK_PATH" 2>/dev/null || true
+}
+# layout tasks (dossier layout trial): there is no `## Decisions`; the records are the
+# files in <tasks dir>/dossiers/<stem>/decisions/. layout_decisions_text renders them as
+# one `## Decisions` text (each entry a `### <file stem> - <title>` heading, so the file
+# names are part of the hash), and layout_decisions_count counts the files.
+layout_decisions_dir() { printf '%s/dossiers/%s/decisions\n' "${TASK_PATH%/*}" "$TASK_STEM"; }
+layout_decisions_text() {
+  local d f; d="$(layout_decisions_dir)"
+  printf '## Decisions\n'
+  [ -d "$d" ] || return 0
+  for f in "$d"/*.md; do
+    [ -f "$f" ] || continue
+    STEM="${f##*/}" awk 'BEGIN{ stem = ENVIRON["STEM"] }
+      NR == 1 && /^---[[:space:]]*$/ { fm = 1; next }
+      fm { if (/^---[[:space:]]*$/) fm = 0; next }
+      !t && /^# / { printf "### %s - %s\n", stem, substr($0, 3); t = 1; next }
+      { print }' "$f" 2>/dev/null || true
+  done
+}
+layout_decisions_count() {
+  local d f n=0; d="$(layout_decisions_dir)"
+  for f in "$d"/*.md; do [ -f "$f" ] && n=$((n + 1)); done
+  printf '%s\n' "$n"
 }
 # hash_text <text> — the hash compared across the run; section_hash re-reads the file
 hash_text() { printf '%s' "$1" | sha1sum 2>/dev/null | cut -d' ' -f1; }
@@ -223,7 +247,10 @@ take_snapshot() {
   decisions="$(decisions_section)"
   # hash the very text the prompt carries (one read), not a second read of the file
   [ -f "$TASK_PATH" ] && snap_hash="$(hash_text "$decisions")"
-  [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] && snap_count="$(printf '%s\n' "$decisions" | grep -c '^### ' || true)"
+  if [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ]; then
+    if [ "$(task_layout "$TASK_PATH")" = dossier ]; then snap_count="$(layout_decisions_count)"
+    else snap_count="$(printf '%s\n' "$decisions" | grep -c '^### ' || true)"; fi
+  fi
   [ -n "$decisions" ] || decisions="(no ## Decisions section / no entries recorded)"
 }
 

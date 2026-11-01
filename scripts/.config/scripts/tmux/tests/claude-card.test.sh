@@ -172,6 +172,24 @@ eq "dated bullets count as decisions, in file order; undated bullets don't" \
   $'- 2026-10-02 — A titled entry\n- 2026-10-03 — Bold-dated bullet\n- 2026-10-04 — Newest bullet' \
   "$(out="$(card %905)"; sect Decisions)"
 
+echo "# layout task (dossier layout trial): decisions come from decisions/"
+setup layout
+printf -- '---\nstatus: doing\nlayout: dossier\n---\n# T\n\n## Now\nnothing\n' >"$D/task.md"
+mkdir -p "$D/dossiers/task/decisions"
+ldec() { printf -- '---\nstatus: %s\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# %s\n\nbody\n' "$3" "$2" >"$D/dossiers/task/decisions/$1.md"; }
+ldec 2026-10-18-0900-a "Oldest decision" in-force
+ldec 2026-10-19-0900-b "Second decision" in-force
+ldec 2026-10-20-0900-c "Replaced decision" superseded
+ldec 2026-10-21-1000-d "Third decision" in-force
+ldec 2026-10-22-1100-e "Newest decision" in-force
+reply needs.md sess-l "$D/task.md"
+registry "$LIVE" sess-l %906 idle "$now"
+out="$(card %906)"
+eq "layout task: the newest three in-force decisions, oldest first, from decisions/" \
+  $'- 2026-10-19 — Second decision\n- 2026-10-21 — Third decision\n- 2026-10-22 — Newest decision' \
+  "$(sect Decisions)"
+refute "layout task: the superseded decision is skipped" 'Replaced' "$out"
+
 echo "# live session without its own reply file"
 setup borrow
 cp "$FX/task.md" "$D/task.md"

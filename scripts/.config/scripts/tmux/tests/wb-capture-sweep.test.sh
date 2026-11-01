@@ -67,6 +67,11 @@ case "$mode" in
   edit-handoffs) # a write OUTSIDE ## Decisions while "thinking"
     printf '## Handoffs\nsaved mid-call\n' >>"$FAKE_TASK"
     printf '### Chose B over A\n- decided: B\n' ;;
+  edit-layout|edit-layout-2) # layout task: a decision FILE is recorded while "thinking"
+    d="$(dirname "$FAKE_TASK")/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$d"
+    f="$d/2026-10-2${mode: -1}-1000-recorded-meanwhile.md"; [ "$mode" = edit-layout ] && f="$d/2026-10-23-1000-recorded-meanwhile.md"
+    printf -- '---\nstatus: in-force\n---\n# Recorded meanwhile\n\nbody\n' >"$f"
+    printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
   touch-ended-edit) # session ends AND the task's Decisions change while "thinking"
     : >"$FAKE_ENDED_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
@@ -979,5 +984,31 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task-two)
 vsweep
 assert_eq "stale rerun: drafted 2" "drafted 2" "$OUT"
 assert_eq "stale rerun: both files carry the re-snapshot count" "2 2" "$(for f in $(shelf_files); do cat "$f.stale"; done | tr '\n' ' ' | sed 's/ $//')"
+
+echo "# layout task (dossier layout trial): staleness and count come from decisions/ files"
+mk_layout_task() { # two decision files; no ## Decisions section in the task file
+  printf -- '---\nlayout: dossier\n---\n# task\n\n## Now\nNOW_TEXT\n' >"$FAKE_TASK"
+  LDIR="$H/tasks/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$LDIR"
+  printf -- '---\nstatus: in-force\n---\n# First layout decision\n\nLAYOUT_BODY_ONE\n' >"$LDIR/2026-10-20-0900-first.md"
+  printf -- '---\nstatus: in-force\n---\n# Second layout decision\n\nbody two\n' >"$LDIR/2026-10-21-0900-second.md"
+}
+new_scenario; mk_layout_task
+sweep
+assert_shelved 1 "layout: draft shelved"
+assert_match "layout: prompt carries a decision file's title and body" 'First layout decision' "$(cat "$OUTDIR/stdin")"
+assert_match "layout: prompt carries the body" 'LAYOUT_BODY_ONE' "$(cat "$OUTDIR/stdin")"
+assert_nofile "layout: unchanged decisions/ -> no sidecar" "$(shelf_nth 1).stale"
+assert_eq "layout: no rerun" 1 "$(invocations)"
+new_scenario; mk_layout_task; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-layout)
+sweep
+assert_eq "layout: a new decision file reruns the child once" 2 "$(invocations)"
+assert_nofile "layout: one change during the first run is not stale" "$(shelf_nth 1).stale"
+new_scenario; mk_layout_task; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-layout,edit-layout-2)
+sweep
+assert_shelved 1 "layout stale: draft still shelved"
+assert_eq "layout stale: sidecar counts the three files at the re-snapshot" 3 "$(cat "$(shelf_nth 1).stale")"
+new_scenario; mk_layout_task; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-handoffs)
+sweep
+assert_nofile "layout: a task-file edit outside decisions/ is not stale" "$(shelf_nth 1).stale"
 
 [ "$fail" = 0 ] && echo "ALL PASSED" || { echo "FAILED"; exit 1; }

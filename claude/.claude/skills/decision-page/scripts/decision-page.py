@@ -75,6 +75,23 @@ def validate(spec) -> list:
     if st is not None and not (isinstance(st, list) and all(isinstance(x, str) for x in st)):
         probs.append("stats must be a list of strings")
 
+    pg = spec.get("page")
+    if pg is not None:
+        if not isinstance(pg, dict):
+            probs.append("page must be an object")
+        else:
+            for f in ("tags", "links"):
+                v = pg.get(f)
+                if v is not None and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+                    probs.append("page.%s must be a list of strings" % f)
+            for f in ("rung", "retire_when", "visibility", "url"):
+                if pg.get(f) is not None and not isinstance(pg[f], str):
+                    probs.append("page.%s must be a string" % f)
+            for f, v in pg.items():
+                for x in (v if isinstance(v, list) else [v]):
+                    if isinstance(x, str) and ("-->" in x or "\n" in x or "\r" in x):
+                        probs.append("page.%s must be one line without '-->'" % f)
+
     ctx = spec.get("context")
     if ctx is not None:
         stages = ctx.get("stages") if isinstance(ctx, dict) else None
@@ -180,7 +197,31 @@ def suspect_fields(v, path="") -> list:
 # ---------------------------------------------------------------------------
 
 def canonical(spec) -> str:
+    # `page` (the frontmatter comment's values) is left out: filling `url` after
+    # publishing must not change the spec hash, which keys the saved answers.
+    spec = {k: v for k, v in spec.items() if k != "page"}
     return json.dumps(spec, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def frontmatter(spec) -> str:
+    """The R28 page frontmatter block, an HTML comment placed before the doctype."""
+    pg = spec.get("page") or {}
+    ctx = spec.get("context")
+    task = ctx.get("task") if isinstance(ctx, dict) else None
+    tags = pg.get("tags") or ["decision-page"]
+    links = pg.get("links")
+    if links is None:
+        links = [task] if isinstance(task, str) and task else []
+    lines = ["<!--", "---", "tags: [%s]" % ", ".join(tags)]
+    if pg.get("rung"):
+        lines.append("rung: %s" % pg["rung"])
+    lines.append("links: [%s]" % ", ".join(links))
+    if pg.get("retire_when"):
+        lines.append("retire_when: %s" % pg["retire_when"])
+    lines.append("visibility: %s" % (pg.get("visibility") or "private"))
+    lines.append("url: %s" % (pg.get("url") or ""))
+    lines += ["---", "-->", ""]
+    return "\n".join(lines)
 
 
 def render(spec) -> tuple:
@@ -199,7 +240,7 @@ def render(spec) -> tuple:
     # One pass, so a placeholder-shaped string inside the spec or kit is never substituted.
     page = re.sub(r"\{\{([A-Z_]+)\}\}", lambda m: parts.get(m.group(1), m.group(0)),
                   TEMPLATE.read_text(encoding="utf-8"))
-    return page, spec_hash
+    return frontmatter(spec) + page, spec_hash
 
 
 # ---------------------------------------------------------------------------

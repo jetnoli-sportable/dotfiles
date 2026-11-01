@@ -193,11 +193,36 @@ questions() {
     }'
 }
 
+# layout_decisions <task file> — dossier layout trial: the newest three in-force files
+# in <tasks dir>/dossiers/<stem>/decisions/, oldest first, as "- <date> — <title>" (title
+# from the file's `# ` line, date from the <YYYY-MM-DD-HHMM>-<slug>.md name). Superseded
+# ones are skipped. Names sort by time, so the last three of the glob are the newest.
+layout_decisions() {
+  local stem d f; stem="${1##*/}"; stem="${stem%.md}"; d="${1%/*}/dossiers/$stem/decisions"
+  [ -d "$d" ] || return 0
+  local -a fs=("$d"/*.md)
+  [ -f "${fs[0]}" ] || return 0
+  local i n=0; local -a out=()
+  for ((i = ${#fs[@]} - 1; i >= 0 && n < 3; i--)); do
+    f="${fs[i]}"
+    [ -n "$(awk 'NR == 1 && $0 != "---" { exit } NR > 1 && $0 == "---" { exit } /^status:[ \t]*superseded/ { print 1; exit }' "$f")" ] && continue
+    out[n]="$f"; n=$((n + 1))
+  done
+  for ((i = n - 1; i >= 0; i--)); do
+    f="${out[i]}"
+    DATE="${f##*/}" awk 'BEGIN { d = substr(ENVIRON["DATE"], 1, 10) }
+      !fm && NR == 1 && $0 == "---" { fm = 1; next }
+      fm { if ($0 == "---") fm = 0; next }
+      /^# / { print "- " d " — " substr($0, 3); exit }' "$f"
+  done
+}
+
 # decisions <task file> — the last three entries under ## Decisions, in file
 # order: ### titles (as wb-decide writes them) and top-level bullets that
 # start with a date (the older hand-written form); undated bullets are an
 # entry's body
 decisions() {
+  if [ "$(fm_field "$1" layout)" = dossier ]; then layout_decisions "$1"; return; fi
   awk '/^## / { d = ($0 == "## Decisions") ; next }
     d && (/^### / || /^- (\*\*)?[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
       s = $0; sub(/^(### |- )/, "", s); gsub(/\*\*/, "", s); t[++n] = s }

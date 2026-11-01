@@ -49,6 +49,7 @@ only inline tags like `<code>`, `<b>`, `<em>`, `<br>`. Escape a literal `<` as
 | `title` | no | **plain**; falls back to `slug` |
 | `lede` | no | **HTML**; one or two sentences under the title; left out when absent |
 | `stats` | no | list of **HTML** strings shown as a line of facts |
+| `page` | no | the page frontmatter comment's values (R28), written as an HTML comment before the doctype: `tags` (default `["decision-page"]`), `links` (default `[context.task]`), `visibility` (default `private`), `url` (default empty), and optional `rung` and `retire_when`. One line each, no `-->`. Not part of the spec hash |
 | `context` | no | the "where this sits" strip, below |
 | `decided` | no | settled entries, below |
 | `items` | yes | the open decisions (a list; the page has one card each) |

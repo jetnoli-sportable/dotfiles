@@ -571,7 +571,7 @@ wb_board_v2_read_file() {
       SOH = sprintf("%c", 1)
       status=""; repo=""; worktree=""; branch=""; path=""; deps=""
       reviewed=""; parent=""; tags=""; created=""; closed=""; title=""
-      size=""
+      size=""; layout=""
       infm = 0; donefm = 0; cursec = ""; handoff_capturing = 0; title_found = 0
       plan_checked = 0; plan_total = 0
       sig_ideate = 0; sig_brainstorm = 0; sig_plan = 0; sig_work = 0
@@ -608,6 +608,7 @@ wb_board_v2_read_file() {
       if ($0 ~ /^created:/)     { s=$0; sub(/^created:[ \t]*/,"",s);     created=clip(s) }
       if ($0 ~ /^closed:/)      { s=$0; sub(/^closed:[ \t]*/,"",s);      closed=clip(s) }
       if ($0 ~ /^size:/)        { s=$0; sub(/^size:[ \t]*/,"",s);        size=clip(s) }
+      if ($0 ~ /^layout:/)      { s=$0; sub(/^layout:[ \t]*/,"",s);      layout=clip(s) }
       next
     }
     donefm && /^## / {
@@ -633,11 +634,12 @@ wb_board_v2_read_file() {
       # line, after pr_url -- never inserted earlier -- so no existing
       # positional consumer (wb_board_collect_rows_v2 t[] indices) needs
       # renumbering.
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s%s%s%s\t%s\t%s\t%s", \
+      # layout (dossier layout trial) is appended after accept_sig, same rule.
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s%s%s%s\t%s\t%s\t%s\t%s", \
         status, repo, worktree, branch, path, deps, reviewed, parent, tags, \
         created, closed, plan_checked, plan_total, title, \
         sig_ideate, sig_brainstorm, sig_plan, sig_work, sig_review, pr_url, \
-        size, accept_sig
+        size, accept_sig, layout
       printf "%s%s%s%s%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, followups_text, SOH, decisions_text, SOH, links_text, ""
     }
   ' "$1"
@@ -687,6 +689,78 @@ wb_board_v2_mtimes() {
   while IFS=' ' read -r mtime path; do
     _mt["$path"]="$mtime"
   done < <(stat -c '%Y %n' "${files[@]}" 2>/dev/null)
+}
+
+# wb_board_layout_records <task file> <stem> <decisions_arr> <followups_arr>
+#   <handoff_arr> — dossier layout trial: fills the three text blocks of one
+# LAYOUT task (the arrays the section parse above fills for an old-layout one)
+# from its record files, in the SAME shapes the old sections had, so every view
+# reads them unchanged:
+#   decisions  one "### YYYY-MM-DD HH:MM — <title>" entry per decisions/ file
+#              (oldest first; the title is the file's `# ` line, the time is
+#              the file name's; the body is the first non-blank body line,
+#              which the timeline shows). A superseded one gets a
+#              "[superseded] " prefix on both.
+#   follow-ups one "- <title>" bullet per open-items/ file with `status: open`
+#   handoff    the task file's one handoff, unless that is an (auto) stamp:
+#              then the newest handoffs/ file with `auto: false`
+# There is no `## Done` on a layout task, so Done stays empty. One awk for the
+# decision and open-item files; the handoff fallback is pure bash.
+# Plain-statement call, nameref writes (see wb_board_collect_rows_v2).
+wb_board_layout_records() {
+  local f="$1" stem="$2"
+  local -n _lr_dec="$3" _lr_fu="$4" _lr_ho="$5"
+  local d="${f%/*}/dossiers/$stem" out
+  local -a rf=()
+  rf=("$d"/decisions/*.md "$d"/open-items/*.md)
+  local -a ex=(); local x
+  for x in "${rf[@]}"; do [ -f "$x" ] && ex+=("$x"); done
+  if [ "${#ex[@]}" -gt 0 ]; then
+    out="$(awk '
+        function emit(   b, ts, t, l) {
+          if (cur == "") return
+          b = cur; sub(/^.*\//, "", b)
+          t = title; l = lede
+          if (cur ~ /\/decisions\//) {
+            if (status == "superseded") { t = "[superseded] " t; l = "[superseded] " l }
+            if (b ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/)
+              ts = substr(b, 1, 10) " " substr(b, 12, 2) ":" substr(b, 14, 2)
+            else ts = "undated"
+            printf "### %s — %s\n", ts, t
+            if (l != "") printf "%s\n", l
+            printf "\n"
+          } else if (status == "open") oi = oi "- " t "\n"
+        }
+        FNR == 1 { emit(); cur = FILENAME; fm = 0; status = ""; title = ""; lede = "" }
+        FNR == 1 && $0 == "---" { fm = 1; next }
+        fm { if ($0 == "---") fm = 0; else if ($0 ~ /^status:/) { status = $0; sub(/^status:[ \t]*/, "", status); sub(/[ \t]+$/, "", status) } next }
+        title == "" && /^# / { title = substr($0, 3); next }
+        title != "" && lede == "" && $0 ~ /[^ \t]/ { lede = $0 }
+        END { emit(); printf "\001%s", oi }
+      ' "${ex[@]}" 2>/dev/null)" || out=""
+    _lr_dec[$stem]="${out%%$'\1'*}"
+    _lr_fu[$stem]="${out#*$'\1'}"
+  fi
+  # the one handoff in the task file is an (auto) stamp (or missing): use the newest hand-written one
+  local h="${_lr_ho[$stem]:-}"
+  h="${h%%$'\n'*}"
+  if [ -z "$h" ] || [[ "$h" == *"(auto)" ]]; then
+    local -a hs=("$d"/handoffs/*.md)
+    local i l n auto
+    for ((i = ${#hs[@]} - 1; i >= 0; i--)); do
+      [ -f "${hs[i]}" ] || continue
+      auto=""; n=0
+      while IFS= read -r l && [ "$n" -lt 6 ]; do
+        n=$((n + 1))
+        [ "$l" = "---" ] && { [ "$n" -gt 1 ] && break; continue; }
+        case "$l" in auto:*) auto="${l#auto:}"; auto="${auto// /}" ;; esac
+      done <"${hs[i]}"
+      if [ "$auto" = false ]; then
+        _lr_ho[$stem]="$(awk 'FNR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm { print }' "${hs[i]}")"$'\n'
+        break
+      fi
+    done
+  fi
 }
 
 # wb_board_collect_rows_v2 <rows_arrayname> <plan_arrayname> <done_arrayname>
@@ -753,6 +827,7 @@ wb_board_collect_rows_v2() {
     #    7 parent 8 tags 9 created 10 closed 11 plan_checked 12 plan_total
     #    13 title 14 stage signal bits "ibpwr" (U7) 15 first PR url
     #    16 size (raw size: frontmatter value, U2) 17 accept_sig (0/1, U2/KTD7)
+    #    18 layout (frontmatter `layout:`; "dossier" on a layout task)
     stem="${f##*/}"; stem="${stem%.md}"
     # fix(review) D5: enforce the stem invariant [A-Za-z0-9._-] once, here, so
     # every downstream use (HTML text, data-copy, the copied `wb resume <id>`
@@ -783,6 +858,11 @@ wb_board_collect_rows_v2() {
     _cr_followups["$stem"]="${followups_a[0]}"
     _cr_decisions["$stem"]="${decisions_a[0]}"
     _cr_links["$stem"]="${links_a[0]}"
+    # Layout task (dossier layout trial): its records are files, not sections.
+    # Delete this branch with the old layout.
+    if [ "${t[18]:-}" = dossier ]; then
+      wb_board_layout_records "$f" "$stem" _cr_decisions _cr_followups _cr_handoff
+    fi
     # U7: stage_sig is the raw "ibpwr" bit string from the awk pass plus the
     # `reviewed:` frontmatter field folded in as a 6th bit — the review
     # stage's primary signal is `wb reviewed` stamping that field, and the
