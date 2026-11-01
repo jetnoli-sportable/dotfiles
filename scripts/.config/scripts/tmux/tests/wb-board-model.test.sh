@@ -75,6 +75,12 @@ EOF
 TASKS_DIR="$FIXTURE_TASKS"
 source "$WB"
 
+# These fixtures use bare stems (no `<repo>--` prefix), which wb_task_files now
+# rejects (it accepts only `<repo>--<slug>.md`, so AGENTS.md and the like are
+# never walked as tasks). This suite tests the board model, not that filter
+# (tests/wb-task-file.test.sh covers it), so the walk is widened here.
+wb_task_files() { local f; for f in "$TASKS_DIR"/*.md; do [ -f "$f" ] && echo "$f"; done; return 0; }
+
 # --- fixtures -----------------------------------------------------------
 mk_task active-task doing 2
 mk_task stale-task doing 14

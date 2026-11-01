@@ -136,6 +136,18 @@ assert_eq "outside tmux opens no editor" "" "$edited"
 dispatch="$(grep -cE '^\s+task-file\)\s+shift; cmd_task_file' "$WB")"
 assert_eq "wb.sh dispatches 'task-file' to cmd_task_file" "1" "$dispatch"
 
+# --- 8. wb_task_files accepts only <repo>--<slug>.md stems ------------------
+# Loose Markdown in the store (AGENTS.md, CLAUDE.md, README.md, TEMPLATE.md, a
+# recovery note) must never be returned as a task file: `wb migrate --all`
+# and every walker would otherwise treat them as tasks.
+TF_STORE="$FIXTURE/tf-store"; mkdir -p "$TF_STORE/dossiers/proj--dir"
+for n in proj--real.md be--monorepo--feat-x.md a--b.md AGENTS.md CLAUDE.md README.md TEMPLATE.md RECOVERY-NOTES-2026-07-10.md notes.md --lead.md proj--.md; do
+  printf -- '---\nstatus: x\n---\n' > "$TF_STORE/$n"
+done
+printf 'x\n' > "$TF_STORE/proj--not-markdown.txt"
+got="$(TASKS_DIR="$TF_STORE" wb_task_files | sed 's|.*/||' | LC_ALL=C sort | tr '\n' ' ')"
+assert_eq "wb_task_files returns only <repo>--<slug>.md stems" "a--b.md be--monorepo--feat-x.md proj--real.md " "$got"
+
 echo
 if [ "$fail" = 0 ]; then
   echo "All wb task-file tests passed."

@@ -73,6 +73,15 @@
 #                                    (On a task with `layout: dossier`, `wb append` writes Decisions
 #                                    and Follow-ups as record files under dossiers/<task>/ and moves
 #                                    the previous Handoffs entry to handoffs/.)
+#   wb migrate <task>|--all [--dry-run]
+#                                    one-off conversion of a task file into the dossier layout
+#                                    (decisions/, handoffs/, open-items/, newest handoff and an
+#                                    empty ## Now kept in the task file), taking each task's own
+#                                    lock; prints a before/after count line per task, leaves any
+#                                    task whose counts or lines don't add up unmigrated, and ends
+#                                    with a report of skipped (lock held) and exception tasks;
+#                                    a task that already has layout: dossier is skipped, so a
+#                                    second run changes nothing; --dry-run writes nothing
 #   wb family <task> [--sessions|--reseed|--concepts]
 #                                    print <task>'s family stems (top parent first, then every
 #                                    descendant), read-only and tmux-free; --sessions prints
@@ -368,10 +377,11 @@ wb_task_title() {
 # wb_task_file <repo> <disp_slug> — the store path for a repo+slug pair.
 wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
 
-# wb_task_files — every real task file in the store (excludes README/TEMPLATE,
-# RECOVERY-NOTES-2026-07-10.md -- incident documentation, not a task, left in
-# $TASKS_DIR itself rather than a subdirectory -- and the dossiers/ directory
-# used by wb done's keeper sweep).
+# wb_task_files — every real task file in the store: only `<repo>--<slug>.md`
+# stems (a non-empty repo, the `--` delimiter, a non-empty slug), so
+# AGENTS.md, CLAUDE.md, README.md, TEMPLATE.md, RECOVERY-NOTES-*.md and any
+# other loose Markdown file in $TASKS_DIR are never returned; the dossiers/
+# directory (wb done's keeper sweep, the layout) is not a *.md file either.
 wb_task_files() {
   local f base
   for f in "$TASKS_DIR"/*.md; do
@@ -381,9 +391,8 @@ wb_task_files() {
     # per file just to check the basename adds up fast. Same output, no forks.
     base="${f##*/}"
     case "$base" in
-      TEMPLATE.md|README.md|RECOVERY-NOTES-2026-07-10.md) continue ;;
+      [!-]*--?*.md) echo "$f" ;;
     esac
-    echo "$f"
   done
 }
 
@@ -4320,6 +4329,9 @@ _wb_replace_block() {
 # entry out as handoffs/<YYYY-MM-DD-HHMM>.md (-2, -3 on a collision), with
 # `source:` and `auto:` taken from its "### <ts> — <source> [(auto)]" heading
 # (now / blank / false when it has none). The entry text is kept verbatim.
+# Optional 3rd and 4th arguments (YYYY-MM-DD, HHMM) replace "now" as the
+# stamp when the heading is not that shape; `wb migrate` passes them so an
+# old entry with a loose heading gets a deterministic name.
 _wb_handoff_move_entry() {
   local hdir="$1" entry; entry="$(_wb_trim_blank_lines "$2")"
   if _wb_blank_only "$entry"; then return 0; fi
@@ -4329,7 +4341,7 @@ _wb_handoff_move_entry() {
     date="${BASH_REMATCH[1]}"; hm="${BASH_REMATCH[2]}${BASH_REMATCH[3]}"; source="${BASH_REMATCH[5]}"
     if [[ "$source" == *" (auto)" ]]; then auto="true"; source="${source% (auto)}"; fi
   fi
-  if [ -z "$date" ]; then date="$(date '+%Y-%m-%d')"; hm="$(date '+%H%M')"; fi
+  if [ -z "$date" ]; then date="${3:-$(date '+%Y-%m-%d')}"; hm="${4:-$(date '+%H%M')}"; fi
   local base="$date-$hm" id n=1 nl=$'\n'
   id="$base"
   while [ -e "$hdir/$id.md" ]; do n=$((n + 1)); id="$base-$n"; done
@@ -7601,6 +7613,11 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     append)      shift; cmd_append "$@" ;;
     now)         shift; cmd_now "$@" ;;
     decide-supersede) shift; cmd_decide_supersede "$@" ;;
+    # Sourced only here: wb.sh is stowed file by file, so a top-level source
+    # of a new file would break every wb command between a merge and the
+    # re-stow that links it. migrate is a one-off; nothing else needs it.
+    # shellcheck source=wb-migrate.sh
+    migrate)     shift; source "$SCRIPT_DIR/wb-migrate.sh"; cmd_migrate "$@" ;;
     family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;
     status)      shift; cmd_status "$@" ;;
