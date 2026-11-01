@@ -141,7 +141,7 @@ This plan covers the dossier layout, the `wb done` rework, the Go store (reads, 
 - **Folded in:** `dotfiles--feat-task-file-structure` (its scope is the stage 0 layout).
 - **Child on hold:** [[dotfiles--feat-store-cross-agent-sync]]. It is re-planned on the Go reader's `changes` query (U7) once that exists. `/wb-decide`'s propagation (PR #111) already pushes decisions to live family sessions; the sync covers the rest (handoffs, status, plan).
 - **Research child, done:** `dotfiles--research-ladder-planning-patterns` delivered the Q6 (ladder) and Q7 (`brief.md`) verdicts.
-- **Terminal context card** (`dotfiles--feat-claude-reply-log`, shipped). It reads the reply log; stage 2 points it at the generated `decisions.md`.
+- **Terminal context card** (`dotfiles--feat-claude-reply-log`, shipped). It reads the reply log; stage 2 points it at the `decisions/` record files.
 - **Task page requirements** (`dotfiles--wb-board-scoped`). That task holds the seven requirements this plan's page group implements (R9–R15). It has no separate build.
 - **Decision-page skill** (shipped, PR #97). It records answers through `wb append`, so stage 2's writers cover it; U12 adds the page-frontmatter step.
 - **Walk-through of what needs Jet** (`dotfiles--workflow-walkthrough-what-needs-me`, its own task). It runs before stage 4; its ranked pain list shapes what the task page shows first. Day-start and day-end are designed there too.
@@ -206,7 +206,7 @@ This plan covers the dossier layout, the `wb done` rework, the Go store (reads, 
 - AE4. **Covers R17.** At the end of the prototype week Jet says no. The work stops, and only the page templates are lost; the reader slice is kept.
 - AE5. **Covers R20, R21.** A worktree holds `config.hjson`, copied in at `wb new` from the repo's `.worktree-bootstrap`. If the worktree copy is byte-identical to the main checkout's, `wb done` treats it as throwaway and closes normally. If Jet edited it inside the worktree, `wb done` stops before removing anything, names `config.hjson`, and never offers to copy it into the dossier.
 - AE6. **Covers R20, R22.** A worktree holds an unlisted `scratch/notes.txt`. `wb done` stops and names it. Jet re-runs with `--keep scratch/notes.txt`; the file lands in `~/code/tasks/dossiers/<task>/scratch/notes.txt`, the `wb done` handoff record gains a `kept:` line for it, and the worktree is removed.
-- AE7. **Covers R31.** A synthetic task file shaped like the post-processor coordinator holds 30 decisions in all three written styles, 40 handoffs, 12 open follow-ups and 5 ticked ones, a `## Done` section and a `## Plan`. After migration: 30 decision files (any whose `(supersedes: …)` marker resolves are linked both ways), 39 handoff files plus the newest kept in the task file, 12 `open-items/` files, the 5 ticked items and `## Done` in the handoff log, and `## Plan` untouched. A second run changes no byte.
+- AE7. **Covers R31.** A synthetic task file shaped like the post-processor coordinator holds 30 decisions in all three written styles, 40 handoffs, 12 open follow-ups and 5 ticked ones, a `## Done` section and a `## Plan`. After migration: 30 decision files (any whose `(supersedes: …)` marker resolves are linked both ways), 39 handoff files plus the newest kept in the task file, 12 `open-items/` files, one migrated-history handoff file holding the 5 ticked items and `## Done`, and `## Plan` untouched. A second run changes no byte.
 - AE8. **Covers R25, R32.** During the trial, `wb append dotfiles--wb-future-direction Decisions -` writes a new file under `decisions/` and regenerates `decisions.md`; the same command on a task without `layout: dossier` appends under `## Decisions` as today.
 - AE9. **Covers R24.** `/wb-save` on a migrated task rewrites `## Now`, moves the previous newest handoff to `handoffs/`, and writes the new one into the task file. The task file stays under about 40 lines however many saves run.
 - AE10. **Covers R32.** The rehearsal on a full store copy reports, per task file, the entry counts before and after; every count matches or the task is listed as an exception for Jet before the switch.
@@ -286,7 +286,7 @@ All in `~/code/tasks/dossiers/dotfiles--wb-future-direction/` unless noted:
 
 **Dossier layout (stage 2)**
 
-- KTD16. **The layout is written through the existing locked verbs.** `wb append <task> Decisions|Handoffs|Follow-ups -` keeps its name, arguments and stdin contract. On a task whose frontmatter has `layout: dossier`, it writes a record file instead of appending under a heading; `wb_append_handoff` does the same for automatic stamps. The per-task side-car lock is still taken, because the write and the view rebuild must not interleave. Why: 11 skills, the hooks and the nvim Lua call these verbs, and most skills then need no change. Governs R6, R25, AE8.
+- KTD16. **The layout is written through the existing locked verbs.** `wb append <task> Decisions|Handoffs|Follow-ups -` keeps its name, arguments and stdin contract. On a task whose frontmatter has `layout: dossier`, `Decisions` and `Follow-ups` write a record file instead of appending under a heading. `Handoffs` (what `/wb-save` calls) does KTD20's move-and-replace instead, through the same helper `wb_append_handoff` uses for automatic stamps. The per-task side-car lock is still taken, because the write and the view rebuild must not interleave. Why: 11 skills, the hooks and the nvim Lua call these verbs, and most skills then need no change. Governs R6, R25, AE8.
 - KTD17. **Record files.** One directory per series inside `dossiers/<stem>/`:
 
   | Series | File name | Frontmatter | Body |
@@ -301,14 +301,15 @@ All in `~/code/tasks/dossiers/dotfiles--wb-future-direction/` unless noted:
 - KTD20. **`## Now` is replaced, never appended.** `wb now <task> -` replaces the task file's `## Now` block with stdin, under the lock. `/wb-save` writes it; it holds goal, current rung, next action and what waits on Jet. The newest handoff stays in the task file under `## Handoffs`; each new one moves the previous one to `handoffs/` first. Governs R24, AE9.
 - KTD21. **A per-task switch for the trial only.** `layout: dossier` in a task's frontmatter selects the new paths in every writer and reader that U10–U12 touch. Tasks without it keep today's paths. At the switch (U14) every task gets the layout, then the old paths and the switch itself are deleted from `wb.sh` and the skills. Governs R32.
 - KTD22. **Migration rules.** `wb migrate <task>|--all [--dry-run]` takes the store lock and, per task:
-  - parses `## Decisions` in all three written styles (`2026-10-17 — **Bold lead.** …`; `### 2026-10-09 15:30 — <title>` with Decided/Rejected/Why bullets; `2026-10-18 decision-page <slug> r1: …`), and drops `_No decisions: <reason>_` markers into the handoff log;
+  - parses `## Decisions` in all three written styles (`2026-10-17 — **Bold lead.** …`; `### 2026-10-09 15:30 — <title>` with Decided/Rejected/Why bullets; `2026-10-18 decision-page <slug> r1: …`), and moves `_No decisions: <reason>_` markers to the migrated-history file;
   - resolves each prose `(supersedes: <date> "<fragment>")` marker among entries with that date by a case-insensitive substring match on the title only; zero or several matches leave the new decision `in-force`, keep the raw marker text in its body, and list it as an exception;
   - gives an entry with no time the date at `0000`, then `0001`, … in file order, and an entry with no date the previous entry's date, listing each as an exception;
-  - moves all but the newest `## Handoffs` entry to `handoffs/`; moves open `## Follow-ups` items to `open-items/` and ticked ones plus `## Done` to the handoff log as history;
+  - moves all but the newest `## Handoffs` entry to `handoffs/`; moves open `## Follow-ups` items to `open-items/`;
+  - writes ticked follow-ups, `## Done` and the `_No decisions:` markers into one migrated-history file per task: a handoff record named `handoffs/<created date>-0000.md` (so it sorts as the oldest), with `source: migrate` and `auto: true`;
   - leaves `## Plan` in place (families split it when next worked on), and adds an empty `## Now` for the next `/wb-save` to fill;
   - writes into a temporary directory, checks the counts, then moves the files in. A task that already has the layout is skipped, so a second run changes nothing.
 
-  It prints one count line per task (decisions, handoffs, open items, closed items, exceptions). Governs R31, AE7, AE10.
+  It prints one count line per task (decisions, handoffs, open items, history items, exceptions). Governs R31, AE7, AE10.
 - KTD23. **The reader list is built by search, not memory.** U12 starts by searching dotfiles and the store tooling for every reader of `## Decisions`, `## Handoffs`, `## Follow-ups`, `## Done`, `## Plan` and `CONCEPTS.md` (24 scripts and skills at the last count) and commits that list in the PR body. Each entry is either updated, or noted as reading frontmatter only. Governs R32.
 - KTD24. **`concepts.md` replaces `CONCEPTS.md` at the switch.** `_wb_concepts_paths` reads `concepts.md` (and, during the trial, `CONCEPTS.md` for tasks without the layout). The `@` import lines in each live worktree's `CLAUDE.local.md` managed block are rewritten by `wb family <task> --reseed`. Running sessions pick up the rename only after `/clear` or a restart, because a new import line takes effect only then. Governs R27.
 - KTD25. **`brief.md` replaces the "First action" seed.** `wb new` and the handoff skill write a `brief.md` draft (type, why, done when, not doing, claims marked checked or assumed with their date; bug fields for bugs) instead of a "First action" line in the task file. The first session confirms the blank or assumed fields one question at a time. Governs R27.
@@ -494,8 +495,8 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
 - **Approach:**
   1. `wb_layout_of <task_file>` reads the `layout:` key once; every writer branches on it.
   2. `wb_record_write <task> <series> -` parses an optional `### <ts> — <title>` heading from stdin, picks the file name (KTD17), writes the file atomically (temp then `mv`) and calls `wb_render_views`, all under the task lock.
-  3. `cmd_append` routes `Decisions`, `Handoffs` and `Follow-ups` to `wb_record_write` on a layout task; any other heading keeps today's behaviour.
-  4. `wb_append_handoff` on a layout task moves the current newest handoff from the task file to `handoffs/` and writes the new one in its place (KTD20).
+  3. `cmd_append` routes `Decisions` and `Follow-ups` to `wb_record_write` on a layout task, and `Handoffs` to the step 4 helper; any other heading keeps today's behaviour.
+  4. One shared helper, called by both `wb append <task> Handoffs -` and `wb_append_handoff`, moves the current newest handoff from the task file to `handoffs/` and writes the new one in its place (KTD20).
   5. `wb now <task> -` replaces the `## Now` block. `wb decide-supersede <task> <old-id> -` follows KTD19 and refuses if the old id doesn't exist or is already superseded.
   6. `wb_render_views` follows KTD18; `index.md` reads page frontmatter and, for a parent, walks children with `_wb_family_stems`.
 - **Patterns to follow:** `_wb_append_under_heading` (lock use, stdin handling); `wb_task_lock_acquire_guarded`; `_wb_family_stems`.
@@ -506,6 +507,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - `wb append <layout task> Follow-ups -` creates an `open-items/` file with `since:` set to today.
   - `wb decide-supersede` writes the new file and flips the old one in one call; an unknown or already-superseded old id exits 1 with nothing written. (Covers AE1's mechanism.)
   - Three `wb_append_handoff` calls leave one handoff in the task file and two in `handoffs/`, and `handoffs.md` lists them newest first. (Covers AE9.)
+  - Three `wb append <layout task> Handoffs -` calls (the `/wb-save` path) give the same result. (Covers AE9.)
   - `wb now` replaces `## Now` and leaves the rest of the file unchanged; a file without `## Now` gains it after the frontmatter.
   - `wb_render_views` run twice in a row produces no diff, under gawk and mawk.
   - `index.md` groups a fixture dossier's pages by tag, puts a `retire_when`-matched page under the retired link, and lists a child's pages under the child.
@@ -531,7 +533,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - A `(supersedes: 2026-10-17 "Probe 6")` marker resolves to the Probe 6 entry and not to an entry whose body mentions probe 6.
   - A marker matching two titles that day leaves the new decision in force and lists one exception with a candidate count of 2.
   - Entries with no time and no date get the KTD22 stamps and appear as exceptions.
-  - A `_No decisions:` marker goes to the handoff log, not `decisions/`.
+  - A `_No decisions:` marker goes to the migrated-history handoff file, not `decisions/`.
   - A task with an unknown `## Notes for later` section keeps it in the task file and lists it as an exception.
   - `--dry-run` writes nothing.
 - **Verification:** tests pass in the sandbox, including under mawk.
@@ -550,7 +552,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - `claude/.claude/agents/store-specialist.md` (where each record now lives)
   - `scripts/.config/scripts/tmux/wb-capture.sh` and `wb-capture-sweep.sh` (read `decisions.md` or `decisions/`; the `.stale` side-car counted `### ` entries in `## Decisions`)
   - `scripts/.config/scripts/tmux/claude-card.sh` (last decisions from `decisions/`)
-  - `scripts/.config/scripts/tmux/wb.sh` (`_wb_concepts_paths`, `wb new`'s seed, a tmux-free `wb notes` that prints the `notes.md` path)
+  - `scripts/.config/scripts/tmux/wb.sh` (`_wb_concepts_paths`, `wb new`'s seed, a tmux-free `wb notes` that prints the `notes.md` path; the ghost-row fix from retired U4: `wb_task_files` accepts only `<repo>--<slug>.md` stems, which `wb migrate --all` relies on)
   - `tmux/.config/tmux/tmux.conf` (a key that opens `notes.md`, next to `prefix+t`)
   - `~/code/tasks/README.md` and `TEMPLATE.md` (the layout, the frontmatter rules, `pr:` and `layout:` keys; committed in the store, staging only these two files)
   - `docs/wb-guide.md`, `docs/guides/*.md` that describe the old sections
@@ -566,6 +568,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - The context card shows the newest decision from `decisions/`.
   - `_wb_concepts_paths` returns `concepts.md` for a layout task and `CONCEPTS.md` for an old one.
   - `wb new --planned` writes `brief.md` and no "First action" line.
+  - `wb_task_files` does not return `AGENTS.md`, `CLAUDE.md`, `README.md` or `TEMPLATE.md`.
   - The notes key opens `dossiers/<stem>/notes.md` for the current session's task.
 - **Verification:** touched tests pass in the sandbox; the KTD23 list in the PR body has an outcome for every entry; docgen is idempotent.
 
