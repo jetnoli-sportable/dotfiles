@@ -33,7 +33,8 @@ lookup without an LLM.
      SKILL.md; for TUIs the README.
    - *why* questions: provenance lives in `kind: decision` entries —
      `logs/decisions/*.md` records and task-store `## Decisions` sections
-     (`~/code/tasks/*.md`) — plus the comment block at the entry's `source`
+     (`~/code/tasks/*.md`; for tasks with `layout: dossier`, the files in
+     `~/code/tasks/dossiers/<stem>/decisions/`) — plus the comment block at the entry's `source`
      line. Quote the deciding line, not a paraphrase.
 3. **Answer in chat, citing `file:line`** for every claim (the INDEX's
    `source` field gives the anchor; cite the deeper file you actually read

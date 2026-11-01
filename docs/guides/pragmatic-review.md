@@ -25,7 +25,7 @@ questions its verdicts depend on, and keeps the answers you confirm in
 `~/code/tasks/context/<business>/pragmatic-review-learnings.md`, so the next
 run for the same business asks fewer. Nothing changes until you approve:
 for a task family, approved reorders become `depends_on` edits and a
-Decisions entry on the parent; the reviewed plan's text is never edited.
+Decisions entry on the parent (a file in `decisions/` on a `layout: dossier` task); the reviewed plan's text is never edited.
 
 Not the tool for: whether a plan is coherent or feasible (`ce-doc-review`),
 what a plan changes (the plan-diff view), or splitting one task into

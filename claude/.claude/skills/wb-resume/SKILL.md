@@ -85,6 +85,19 @@ human-readable message instead.
 
 ### 2. Find the most recent rich (`/wb-save`) entry in `## Handoffs`
 
+**Layout task (`layout: dossier` in the frontmatter; skip this block otherwise).**
+Read `## Now` first: it states the goal, the current rung, the next action and
+what waits on Jet. The task file holds one handoff. If it is a rich `wb-save`
+entry, it is the entry this step looks for, and nothing newer can exist.
+If it is an `(auto)` stamp (it displaced the last `/wb-save` entry), the rich entry
+is the newest file in the dossier's `handoffs/` whose frontmatter says
+`auto: false`. Use that file's text as "the rich entry", and treat the `(auto)`
+stamp plus any auto files in `handoffs/` newer than it as the "gap" step 3 describes.
+If `notes.md` in the dossier changed since the saved entry's timestamp, say so in
+the one-line statement; read it only when Jet points to it. Step 3's freshness
+check reads the files in `decisions/` (or the generated `decisions.md` view)
+instead of `## Decisions`. See `docs/wb-guide.md`, "Dossier layout (trial)".
+
 Read the task file and locate its `## Handoffs` section. Entries in that
 section are appended chronologically, oldest to newest
 (`wb_append_handoff`'s own header comment, `wb.sh:868-872`, is explicit
@@ -136,7 +149,7 @@ Having found the latest rich entry (if any), check whether any entries —
 rich or terse — appear **after** it in the section.
 
 - **No entries after it** (the immediate save → clear → resume case, the
-  common path): before continuing, glance at `## Plan`/`## Decisions` and
+  common path): before continuing, glance at `## Plan`/`## Decisions` (on a layout task, `decisions/`) and
   the frontmatter `status:` for anything that reads as newer than the
   saved entry (a decision recorded after the save's timestamp, a status
   that contradicts it). The terse-entry gap check above only catches a

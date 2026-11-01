@@ -22,7 +22,10 @@ threads, then the wind-down, in that order, because the sweep has to happen
   find loose threads. It has no separate transcript-mining step; this skill
   only looks at what's already in context.
 - **Writes to `## Decisions`, `## Done`, and `## Follow-ups`** in the closing
-  task's own file. Never touches `## Handoffs` (that section is
+  task's own file. (On a task with `layout: dossier` those sections don't exist:
+  the same `wb append … Decisions -` and `… Follow-ups -` commands write files in
+  `decisions/` and `open-items/` instead, and there is no `## Done`; what shipped
+  goes in the closing handoff. See `docs/wb-guide.md`, "Dossier layout (trial)".) Never touches `## Handoffs` (that section is
   `/wb-save`'s and `wb.sh`'s own append point, written right before a manual
   `/clear` — a different moment than this one) and never touches `## Sweep`
   (that section is `wb done`'s own gitignored-files review, written by the
@@ -107,6 +110,10 @@ explicitly avoids.
 
 ### 4. Fill in the closing task's own file
 
+(Layout task: read "`## Decisions`" below as the files in `decisions/`, "`## Follow-ups`"
+as the files in `open-items/`, and skip `## Done`. The commands are unchanged. The
+"still empty" check is "`decisions/` has no file".)
+
 If `## Decisions` and `## Done` are still an empty skeleton (or thin
 relative to what actually happened), write them now: the real calls that
 got made and why, and what actually shipped/got verified — not a
@@ -156,7 +163,7 @@ because `wb down` and `wb done` end the session:
   write one here through `/wb-decide`, tell it this skill propagates the whole run, so
   its step 5 skips step 6; this one call covers it. Never include the `_No decisions:_` marker. If the run recorded nothing,
   skip this.
-- **Promotion.** Read the task's whole `## Decisions` section, not just this run's
+- **Promotion.** Read the task's whole `## Decisions` section (layout task: the files in `decisions/`), not just this run's
   entries, and run `/wb-decide`'s step 7 (the promotion procedure) for the entries that
   are facts about how the system behaves. Unlike the mid-session offer, this one may
   create the family's first `CONCEPTS.md`. When nothing is fact-shaped, say so in one

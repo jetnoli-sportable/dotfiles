@@ -141,6 +141,14 @@ why, appends it with `wb append`, and confirms:
 Recorded to ## Decisions.
 ```
 
+On a task with `layout: dossier` (the trial layout; See [wb-guide](../wb-guide.html), "Dossier layout (trial)".) the same command writes
+one file in the task's `decisions/` instead of a block under `## Decisions`, style
+and duplicate checks read those files, and a decision that reverses an earlier one
+goes through `wb decide-supersede <task> <old-id> -`. That writes the new file with
+`supersedes: [<old-id>]` and flips the old file to `status: superseded`, in one
+locked step, in place of a `(supersedes: …)` line. The family's `CONCEPTS.md` is
+`concepts.md` there.
+
 To review what the sweep drafted, any time:
 
 ```

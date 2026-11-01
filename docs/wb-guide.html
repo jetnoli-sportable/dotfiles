@@ -827,6 +827,9 @@ claude_sessions:      # optional: id@iso-ts[@primary],... — a record of
 
 ## Follow-ups
 </code></pre>
+<p>This is the template for a task without <code>layout:</code>. A task with <code>layout: dossier</code>
+has no <code>## Decisions</code>, <code>## Done</code> or <code>## Follow-ups</code> and gains a <code>## Now</code>; see
+&quot;Dossier layout (trial)&quot; below.</p>
 <p>It's a real git repo you can <code>cd</code> into, <code>git log</code>, or open in <code>wb</code> itself
 (it shows up as a repo row like anything else under <code>~/code</code>). Pre-existing
 task files are never retroactively migrated to the newer fields
@@ -850,8 +853,58 @@ away:</p>
 column — <code>active</code>/<code>dormant</code>/<code>cold</code>, the same derived value the picker's
 dormant rows and the HTML board's toggle use — dropped entirely on a
 narrow split pane rather than squeezing STATUS/REPO/TASK to make room.</p>
+<h3 id="dossier-layout-trial">Dossier layout (trial)</h3>
+<p>The task file above grows without limit: every save, decision and follow-up
+lands in it, so it gets slow to read and its sections get quoted by half the
+tools. The dossier layout stops that. A task whose frontmatter has
+<code>layout: dossier</code> keeps only what is current in its file, and moves each record
+into its own file in the task's dossier. Both layouts coexist until the
+store-wide switch. A task without <code>layout:</code> behaves exactly as described
+elsewhere in this guide. A new task gets <code>layout: dossier</code> only when its parent
+has it.</p>
+<p>On a layout task:</p>
+<ul>
+<li><strong>The task file</strong> holds frontmatter, <code># Title</code>, <code>## Now</code>, <code>## Plan</code> and one
+<code>## Handoffs</code> entry. <code>## Now</code> is about 10 lines: the goal, the current rung,
+the next action and what waits on Jet. There is no <code>## Decisions</code>,
+<code>## Follow-ups</code> or <code>## Done</code>.</li>
+<li><strong>Records are files</strong> in <code>~/code/tasks/dossiers/&lt;stem&gt;/</code>:
+<code>decisions/&lt;YYYY-MM-DD-HHMM&gt;-&lt;slug&gt;.md</code>, <code>handoffs/&lt;YYYY-MM-DD-HHMM&gt;.md</code> and
+<code>open-items/&lt;YYYY-MM-DD&gt;-&lt;slug&gt;.md</code>. The commands are the ones you already use:
+<code>wb append &lt;task&gt; Decisions -</code> writes a decision file (its timestamp and title
+come from a leading <code>### &lt;YYYY-MM-DD HH:MM&gt; — &lt;title&gt;</code> line), <code>Follow-ups -</code>
+writes an open item, and <code>Handoffs -</code> (what <code>/wb-save</code> calls) moves the task
+file's current handoff to <code>handoffs/</code> and writes the new one in its place. The
+automatic stamps from <code>wb pause</code>, <code>resume</code>, <code>down</code> and <code>done</code> do the same, so the
+one handoff in the task file may be an <code>(auto)</code> stamp; the last <code>/wb-save</code>
+entry is then the newest file in <code>handoffs/</code> with <code>auto: false</code>.</li>
+<li><strong>New verbs.</strong> <code>wb now &lt;task&gt; -</code> replaces the <code>## Now</code> block from stdin.
+<code>wb decide-supersede &lt;task&gt; &lt;old-id&gt; -</code> records a reversal: it writes the new
+decision with <code>supersedes: [&lt;old-id&gt;]</code> and flips the old file to
+<code>status: superseded</code>, in one locked step. <code>&lt;old-id&gt;</code> is the old file's name
+without <code>.md</code>. This is the only edit a decision file ever gets.</li>
+<li><strong>Generated views</strong>, read-only and rebuilt after every write: <code>decisions.md</code>
+(in force first, superseded collapsed), <code>handoffs.md</code> (newest first) and
+<code>index.md</code>. Read these for an overview; read the record files when you need the
+exact entry. Never edit a view.</li>
+<li><strong>Pages you write</strong>, one Markdown file each: <code>notes.md</code> (your scratch; agents
+read it only when you point to it and never write it), <code>brief.md</code> (the task's
+opening prompt, drafted at creation: type, why, done when, not doing, claims
+marked checked or assumed with their date; it replaces the &quot;First action&quot; line,
+and the first session confirms its blank or assumed fields one question at a
+time), <code>spec.md</code>, <code>ladder.md</code> and <code>concepts.md</code> (today's <code>CONCEPTS.md</code>).
+A child's dossier is created on its first write; family-wide pages live in the
+parent's.</li>
+<li><strong>Page frontmatter.</strong> A lasting page carries <code>tags:</code>, optional <code>rung:</code>,
+<code>links:</code>, optional <code>retire_when:</code>, <code>visibility:</code> and <code>url:</code> (as an HTML comment
+at the top of an HTML-only page). Add it when the page is next edited.</li>
+</ul>
+<p>Skills that read these (<code>/wb-save</code>, <code>/wb-resume</code>, <code>/wb-decide</code>, <code>/close-out</code>,
+<code>/handoff</code>, <code>/quick-wins</code>, <code>/review-guide</code> and others) check <code>layout:</code> and read
+the new places. <code>wb migrate</code> converts an existing task. The old path goes away
+after the switch.</p>
 <h3 id="decision-propagation">Decision propagation</h3>
-<p>A decision recorded in one task's <code>## Decisions</code> used to reach nobody else. A
+<p>A decision recorded in one task's <code>## Decisions</code> (on a layout task, one file in <code>decisions/</code>) used to reach nobody else. A
 running session never sees another task's <code>## Decisions</code>, so a sibling task in the
 same family could keep building on an assumption that had just been overturned. (An
 edit to a <code>CONCEPTS.md</code> a session already imports does reach it, as a changed-file
@@ -1155,7 +1208,8 @@ rows anymore — only live sessions/agents do. Two places to look instead:</p>
 <li><strong>Follow-ups</strong> live under each task's <code>## Follow-ups</code> heading in
 <code>~/code/tasks/*.md</code>. Scan them all at once:
 <code>grep -A5 '^## Follow-ups' ~/code/tasks/*.md</code>, or open one task file
-directly.</li>
+directly. A task with <code>layout: dossier</code> keeps them as files in
+<code>~/code/tasks/dossiers/&lt;stem&gt;/open-items/</code> (open ones have <code>status: open</code>).</li>
 <li><strong>Captured items</strong> live in the standing weekly-capture doc
 (<code>~/code/tasks/weeks/capture.md</code>, <code>wb week path</code> to print it). Run
 <code>/weekly-review</code> to review, promote, or dismiss them — that's the intended

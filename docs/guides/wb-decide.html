@@ -377,6 +377,13 @@ task's existing <code>## Decisions</code> for style, composes decided / rejected
 why, appends it with <code>wb append</code>, and confirms:</p>
 <pre><code>Recorded to ## Decisions.
 </code></pre>
+<p>On a task with <code>layout: dossier</code> (the trial layout; See <a href="../wb-guide.html">wb-guide</a>, &quot;Dossier layout (trial)&quot;.) the same command writes
+one file in the task's <code>decisions/</code> instead of a block under <code>## Decisions</code>, style
+and duplicate checks read those files, and a decision that reverses an earlier one
+goes through <code>wb decide-supersede &lt;task&gt; &lt;old-id&gt; -</code>. That writes the new file with
+<code>supersedes: [&lt;old-id&gt;]</code> and flips the old file to <code>status: superseded</code>, in one
+locked step, in place of a <code>(supersedes: …)</code> line. The family's <code>CONCEPTS.md</code> is
+<code>concepts.md</code> there.</p>
 <p>To review what the sweep drafted, any time:</p>
 <pre><code>/wb-decide shelved
 </code></pre>

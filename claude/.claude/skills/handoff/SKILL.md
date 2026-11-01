@@ -176,6 +176,16 @@ there is no `## Decisions` either.
 
 ### 4. Determine `first_action` and write it into the file
 
+**Layout task (trial).** If the target task has `layout: dossier` (a new task
+gets it only when its parent has it), there is no "First action" line. Instead
+draft the task's `brief.md` in its dossier (`wb new` seeds it; the script side is
+separate): type, why, done when, not doing, and each claim marked *checked* or
+*assumed* with its date. Fill what this discussion settled; leave the rest blank
+or marked *assumed*. The routed worker's first session confirms the blank and
+assumed fields one question at a time. The rest of this step (default stage,
+align-check-first) still decides what the brief's opening ask says. Tasks
+without `layout:` keep the line below. See `docs/wb-guide.md`, "Dossier layout (trial)".
+
 Default: `/ce-plan`. Only pick something else (e.g. `/ce-work`) when the
 work is already fully scoped with no open design decisions left to make.
 Always state explicitly, to the user, which action was chosen and why —
@@ -287,6 +297,9 @@ file's prose, passing the full context as a multi-line body via stdin:
   <the new discussion's context, as its own block>
   EOF
   ```
+
+On a layout task, `Follow-ups` is a series of files in the dossier's
+`open-items/`; the command is the same, so nothing changes here.
 
 Either way, `wb append` is append-only under the named heading by
 construction — it can only ever add a new block at the end of that section

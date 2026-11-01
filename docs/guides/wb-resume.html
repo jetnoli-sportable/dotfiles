@@ -318,6 +318,10 @@ Continuing into the recorded directive: /ce-code-review --full --subagents
 <td>Treated the same as the gap case above — confirm before acting</td>
 </tr>
 <tr>
+<td><code>layout: dossier</code> task</td>
+<td>Reads <code>## Now</code> first, then the task file's one handoff. If that is an <code>(auto)</code> stamp, the rich entry is the newest file in <code>handoffs/</code> with <code>auto: false</code>, and the auto stamp and any newer auto files are the gap. Freshness check reads <code>decisions/</code>; says so if <code>notes.md</code> changed</td>
+</tr>
+<tr>
 <td><code>## Handoffs</code> has only automatic entries, no <code>/wb-save</code> entry yet</td>
 <td>Says so explicitly, falls back to <code>## Plan</code> for context</td>
 </tr>

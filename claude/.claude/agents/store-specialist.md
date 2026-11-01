@@ -95,6 +95,17 @@ that sounds off or incomplete here.
   blank reads as `M`; never manufacture a size the current context doesn't
   justify.
 
+- **Dossier layout (trial)** (`docs/wb-guide.md#dossier-layout-trial`) — a task
+  whose frontmatter has `layout: dossier` keeps records as files in
+  `dossiers/<stem>/`: `decisions/<ts>-<slug>.md`, `handoffs/<ts>.md`,
+  `open-items/<date>-<slug>.md`, plus generated read-only views (`decisions.md`,
+  `handoffs.md`, `index.md`; never edit them). The task file holds only
+  frontmatter, `## Now`, `## Plan` and the one newest `## Handoffs` entry.
+  `concepts.md` replaces `CONCEPTS.md`; `notes.md` is Jet's scratch (read it only
+  when told to, never write it); `brief.md` is the task's opening prompt. A task
+  without `layout:` keeps `## Decisions`/`## Follow-ups`/`## Done` in the task
+  file. Check the frontmatter before answering or writing.
+
 ## Retriever
 
 Given a question about the store, resolve it read-only, in this order
@@ -108,7 +119,10 @@ shape; `README.md#parentchild-tasks` for the parent/child walk):
    how a child resolves to its family root the way `wb`'s own resolver
    does, so a question about a child can surface the parent's `## Plan`/
    `## Decisions` too.
-4. `dossiers/<stem>/CONCEPTS.md`, if the family has one, for current
+4. (Layout task: `dossiers/<stem>/concepts.md`, and `decisions/` for the exact
+   decision entries, `open-items/*.md` with `status: open` for follow-ups,
+   `handoffs/` for older handoffs; the generated `decisions.md` view is fine
+   for an overview.) `dossiers/<stem>/CONCEPTS.md`, if the family has one, for current
    facts — and the other dated reasoning docs alongside it in
    `dossiers/<stem>/`, for "how did we figure this out" questions
    `CONCEPTS.md` alone won't answer (the four-doc division above treats
@@ -132,7 +146,7 @@ never summarizes a session on its own initiative.
 ```
 role: write
 task-ref: <stem | path | fuzzy>          # resolved by wb's own exact-then-fuzzy resolver
-mode: append | status | set | jira-set | breakdown-apply
+mode: append | now | decide-supersede | status | set | jira-set | breakdown-apply
 target: <## Heading | frontmatter:<field>>  # append: the heading. set: the field name.
                                             # status/jira-set/breakdown-apply don't use target — see below.
 body: <value>                               # the payload — shape depends on mode, see below
@@ -144,6 +158,10 @@ What `target`/`body` carry, per `mode`:
 - `append` — `target` is the heading (e.g. `Decisions`); `body` is the
   fully-formed, verbatim multi-line entry (e.g. `### 2026-09-22 14:03 —
   <source>\n<decision text>`).
+- `now` — layout tasks only; no `target`; `body` is the full replacement `##
+  Now` block (about 10 lines).
+- `decide-supersede` — layout tasks only; `target` is the old decision's id (its
+  file name in `decisions/` without `.md`); `body` is the new decision entry.
 - `status` — no `target`; `body` is the single new status word
   (`prospective|planned|paused|doing|review`).
 - `set` — `target` is the frontmatter field name (e.g.
@@ -169,6 +187,16 @@ non-interactive subagent shell):
   `wb append` already performs the locked, oldest-first, end-of-section
   insertion — this role trusts the verb for atomicity and ordering, and
   adds only the duplicate guard below on top.
+  On a layout task the same command writes a file instead: `Decisions` goes to
+  `decisions/`, `Follow-ups` to `open-items/`, and `Handoffs` moves the task
+  file's current handoff to `handoffs/` before writing the new one. The brief
+  and the command don't change; the duplicate guard compares against those
+  files rather than a section.
+- `now` → `wb now <task-ref> -` with the body on stdin (replaces `## Now`).
+- `decide-supersede` → `wb decide-supersede <task-ref> <target> -` with the body
+  on stdin. It writes the new decision and flips the old file to `status:
+  superseded` in one lock; a brief asking for a prose `(supersedes: …)` line on
+  a layout task is refused and redirected here. Never edit a decision file.
 - `status` → `wb status <task-ref> <body>` (body is the new status word).
 - `set` → `wb set <task-ref> <target> <body>` (target is the field, body
   the new value).
@@ -253,13 +281,14 @@ non-interactive subagent shell):
 - **brief** — the caller-authored, structured request (`role`, `task-ref`,
   `target`, `mode`, `body`, `assert-append-only`) that the writer role
   applies verbatim.
-- **locked verb** — a `wb` subcommand (`append`, `status`, `set`,
+- **locked verb** — a `wb` subcommand (`append`, `now`, `decide-supersede`, `status`, `set`,
   `jira-set`, `breakdown --apply`) that acquires the per-task lock before
   writing.
 - **four-doc rule** — `CONCEPTS.md` / decision log / dossier / task file,
   split by behaves→fact, argument→reasoning, progress→task.
 - **append-only section** — `## Decisions`/`## Handoffs`: entries are added,
-  never rewritten or deleted; a correction is a new entry.
+  never rewritten or deleted; a correction is a new entry. (Layout task: decision
+  files are never edited except by `wb decide-supersede` flipping `status`.)
 - **single-writer parent plan** — a parent's `## Plan` is edited only by
   its owning agent/human; children read but never write it.
 - **umbrella** — a long-running parent task with no done-state, filtered
