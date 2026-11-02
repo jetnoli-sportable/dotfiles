@@ -194,6 +194,15 @@ superseded id: re-read `decisions/` and pick the right one. Never write a
 `(supersedes: …)` line on a layout task, and never edit an old decision file.
 Step 4's `wb append` is for a decision that supersedes nothing.
 
+**One choice per entry.** When the conversation settled two choices that could
+change separately (say, adding a stage and the order of all stages), record each
+with its own call, so a later reversal replaces a whole entry. If a reversal
+still hits only part of an older entry, don't use `decide-supersede`, which
+would mark the rest of that entry superseded too. Record the new decision with
+`wb append` and add a bullet naming the old id and the part it replaces
+(`- Replaces the stage order in <old-id>; the rest stands.`), then tell Jet, who
+can have the old entry split by hand.
+
 If you're recording it because of a `[wb-propagate]` message this session
 received, end the entry with this bullet, so step 6 here and every later
 checkpoint skip it:
