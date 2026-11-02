@@ -1082,7 +1082,7 @@ wb_board_v2_checklist_html() {
   if [ -n "${3:-}" ]; then printf -v "$3" '%s' "$out"; else printf '%s' "$out"; fi
 }
 
-# wb_board_v2_bullet_html <raw_text> [<li_class>] — plain "- "/"* " bullet
+# wb_board_v2_bullet_html <raw_text> [<li_class> [<out_var> [open]]] — plain "- "/"* " bullet
 # lines (Done, Follow-ups) as <li>s, optionally classed (e.g. "followup").
 wb_board_v2_bullet_html() {
   local raw="${1:-}" cls="${2:-}" line trimmed text out="" __h
@@ -1093,6 +1093,10 @@ wb_board_v2_bullet_html() {
       '* '*) text="${trimmed#'* '}" ;;
       *) continue ;;
     esac
+    # 4th arg "open": a ticked `[x]` bullet is a done follow-up, not listed
+    if [ "${4:-}" = open ]; then
+      case "$text" in '['[xX]']'*) continue ;; esac
+    fi
     wb_board_html_escape "$text" __h
     if [ -n "$cls" ]; then out+="<li class=\"$cls\">$__h</li>"; else out+="<li>$__h</li>"; fi
   done <<< "$raw"
@@ -1300,7 +1304,7 @@ wb_board_v2_done_ul() {
   if [ -n "${2:-}" ]; then printf -v "$2" '%s' "$__o"; else printf '%s' "$__o"; fi
 }
 wb_board_v2_followups_ul() {
-  local stem="$1" items; wb_board_v2_bullet_html "${_m_followups_raw[$stem]:-}" followup items
+  local stem="$1" items; wb_board_v2_bullet_html "${_m_followups_raw[$stem]:-}" followup items open
   local __o
   if [ -n "$items" ]; then __o="<ul>$items</ul>"
   else __o='<p style="color:var(--subtext);font-size:14.5px;margin:0;">No follow-ups.</p>'

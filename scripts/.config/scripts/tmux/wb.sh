@@ -5667,9 +5667,10 @@ _wb_layout_task_files() {
   return 0
 }
 
-# wb_followup_count — total `## Follow-ups` bullet lines across every task file,
-# plus (layout tasks, KTD21) every open-items/*.md whose frontmatter says
-# `status: open`.
+# wb_followup_count — total open `## Follow-ups` bullet lines across every
+# task file (a top-level bullet is open unless ticked `[x]`, with or without a
+# checkbox), plus (layout tasks, KTD21) every open-items/*.md whose
+# frontmatter says `status: open`.
 wb_followup_count() {
   local -a files=()
   local f
@@ -5679,24 +5680,28 @@ wb_followup_count() {
     FNR == 1 { infu = 0 }
     /^## Follow-ups/ { infu = 1; next }
     /^## /           { infu = 0 }
-    infu && /^[-*] /  { c++ }
+    infu && /^[-*] / && !/^[-*] \[[xX]\]/ { c++ }
     END { print c + 0 }
   ' "${files[@]}")"
   local -a items=()
-  local d
+  local d x
   while IFS= read -r f; do
     d="$(_wb_dossier_dir "$f")/open-items"
     [ -d "$d" ] || continue
-    items+=("$d"/*.md)
+    # an empty open-items/ leaves the glob unexpanded: keep only real files
+    for x in "$d"/*.md; do [ -f "$x" ] && items+=("$x"); done
   done < <(_wb_layout_task_files "${files[@]}")
   if [ "${#items[@]}" -gt 0 ]; then
-    n=$((n + $(awk '
+    # mawk exits 2 with no output when it cannot read a file: default to 0
+    local m
+    m="$(awk '
       FNR == 1 { fm = 0 }
       FNR == 1 && $0 == "---" { fm = 1; next }
       fm == 1 && $0 == "---" { fm = 2 }
       fm == 1 && /^status:[ \t]*open[ \t]*$/ { c++ }
       END { print c + 0 }
-    ' "${items[@]}" 2>/dev/null)))
+    ' "${items[@]}" 2>/dev/null || true)"
+    n=$((n + ${m:-0}))
   fi
   echo "$n"
 }
@@ -5859,7 +5864,7 @@ cmd_board() {
       BEGIN { infu = 0 }
       /^## Follow-ups/ { infu = 1; next }
       /^## /           { infu = 0 }
-      infu && /^[-*] / { c++ }
+      infu && /^[-*] / && !/^[-*] \[[xX]\]/ { c++ }
       END { print c + 0 }
     ' "$f")"
     # Layout task: its follow-ups are the open items in its dossier.

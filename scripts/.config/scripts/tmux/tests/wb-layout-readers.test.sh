@@ -174,6 +174,21 @@ CNT_TASKS="$FIXTURE/tasks-count"; mkdir -p "$CNT_TASKS"
 )
 assert_eq "followup count: open items + old bullets, closed items skipped" 3 "$(cat "$FIXTURE/count.out")"
 
+# a ticked `[x]` bullet is not open; an empty open-items/ must not crash under mawk
+CNT2_TASKS="$FIXTURE/tasks-count2"; mkdir -p "$CNT2_TASKS"
+MAWKDIR="$FIXTURE/awkshim-mawk"; mkdir -p "$MAWKDIR"; ln -sf "$(command -v mawk)" "$MAWKDIR/awk"
+(
+  export TASKS_DIR="$CNT2_TASKS"
+  mk_task proj--fc-empty layout
+  mkdir -p "$CNT2_TASKS/dossiers/proj--fc-empty/open-items"
+  mk_task proj--fc-old2 old
+  printf -- '- [x] ticked\n- plain open\n- [ ] checkbox open\n' >> "$CNT2_TASKS/proj--fc-old2.md"
+  PATH="$MAWKDIR:$PATH"; hash -r
+  wb_followup_count > "$FIXTURE/count2.out" 2>"$FIXTURE/count2.err"; echo $? > "$FIXTURE/count2.rc"
+)
+assert_eq "followup count (mawk): empty open-items/ does not crash, exit 0" 0 "$(cat "$FIXTURE/count2.rc")"
+assert_eq "followup count (mawk): ticked bullet skipped, plain + checkbox bullets open" 2 "$(cat "$FIXTURE/count2.out")"
+
 # --- picker preview ------------------------------------------------------------------------
 mk_task proj--pv-lay layout
 sed -i 's/^## Handoffs$/## Handoffs\n\n### 2026-07-05 10:00 — wb pause (auto)\n\nPaused./' "$TASKS_DIR/proj--pv-lay.md"
