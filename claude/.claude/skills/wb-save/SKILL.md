@@ -171,6 +171,15 @@ Mention `notes.md` (Jet's scratch file in the dossier) in the entry only when it
 changed since the last save, one line: `notes.md changed since the last save`.
 Never write it.
 
+If the dossier has a working view (`road-to-v<N>.md`, the version's "Road to"
+page) and this session changed its work list (a new PR, piece of work or
+dependency; one finished or dropped), update that page's cards, stack and
+diagrams to match, rebuild it with the dossier's `tools/build.sh` and republish
+it to the URL in its frontmatter, before the two writes above. Status pills
+are generated, so a status change alone needs only a rebuild. Until the task
+page generates this view, nothing else keeps it current (store README,
+"Versions, rungs and outcomes").
+
 This must match `wb.sh`'s own `wb_append_handoff` helper
 (`scripts/.config/scripts/tmux/wb.sh`, search `wb_append_handoff`) section
 conventions exactly — `/wb-resume` and `wb.sh`'s own automatic
