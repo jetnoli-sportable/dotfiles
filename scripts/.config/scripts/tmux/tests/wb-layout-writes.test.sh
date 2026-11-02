@@ -86,6 +86,19 @@ assert "follow-up: open-items/<date>-<slug>.md" '^[0-9]{4}-[0-9]{2}-[0-9]{2}-che
 assert "follow-up: since = today" "^since: $(date '+%Y-%m-%d')\$" "$(cat "$D/open-items/$OI" 2>/dev/null)"
 assert "follow-up: status open" '^status: open$' "$(cat "$D/open-items/$OI" 2>/dev/null)"
 
+# bullet bodies: one record per top-level bullet, bullet/checkbox dropped from the title
+printf -- '- [ ] first thing\n  indented detail\n- [ ] second thing\n- plain third\n- [x] already done\n' | cmd_append proj--lay-a Follow-ups - >/dev/null 2>&1
+assert_eq "bullet follow-ups: four more records" 5 "$(ls "$D/open-items" | wc -l | tr -d ' ')"
+FA="$(ls "$D"/open-items/*-first-thing.md 2>/dev/null | head -1)"
+assert "bullet follow-ups: title is the text, no checkbox" '^first thing$' "$(sed -n '7p' "$FA" 2>/dev/null)"
+assert "bullet follow-ups: indented line stays with its item" '^  indented detail$' "$(cat "$FA" 2>/dev/null)"
+assert "bullet follow-ups: second item is its own record" '^second thing$' "$(cat "$D"/open-items/*-second-thing.md 2>/dev/null)"
+assert "bullet follow-ups: plain bullet loses its '- '" '^plain third$' "$(cat "$D"/open-items/*-plain-third.md 2>/dev/null)"
+assert_not "bullet follow-ups: first item did not swallow the second" 'second thing' "$(cat "$FA" 2>/dev/null)"
+assert "bullet follow-ups: a ticked item is written closed" '^status: closed$' "$(cat "$D"/open-items/*-already-done.md 2>/dev/null)"
+assert_eq "bullet follow-ups: four of the five are open (the ticked one is not)" 4 "$(_wb_open_items "$A" | wc -l | tr -d ' ')"
+assert_eq "bullet follow-ups: no bullet in any open title" 0 "$(grep -l '^- ' "$D"/open-items/*.md 2>/dev/null | wc -l | tr -d ' ')"
+
 # --- Old path: a task with no layout: byte-identical to today ----------------
 OLD="$TASKS_DIR/proj--old.md"
 printf -- '---\nstatus: doing\nrepo: proj\nbranch: o\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Decisions\n\n- earlier\n\n## Done\n' > "$OLD"

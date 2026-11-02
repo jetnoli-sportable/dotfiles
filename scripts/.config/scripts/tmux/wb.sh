@@ -4407,8 +4407,82 @@ _wb_record_write_file() {
 wb_record_write() {
   local file="$1" series="$2" text
   if [ $# -lt 3 ] || [ "$3" = "-" ]; then text="$(cat)"; else text="$3"; fi
-  _wb_record_write_file "$file" "$series" "" "$text" || return 1
+  if [ "$series" = "open-items" ]; then
+    _wb_record_write_followups "$file" "$text" || return 1
+  else
+    _wb_record_write_file "$file" "$series" "" "$text" || return 1
+  fi
   wb_render_views "$file"
+}
+
+# _wb_followup_items <text> — split follow-up text at its top-level bullets
+# (`- ` or `* `, optional `[ ]`/`[x]` checkbox, outside a fence) into one item
+# per bullet, each ended by an ASCII 001 byte: the first character is `o`
+# (open) or `c` (ticked `[x]`), the rest the item's text with the bullet and
+# checkbox dropped from its first line; indented lines stay with their item.
+# Text before the first bullet is its own open item. Text with no bullet at
+# all is one open item, untouched.
+_wb_followup_items() {
+  WB_FU_TEXT="$1" awk '
+    function flush() {
+      if (cur != "") printf "%s%c", st cur, 1
+      cur = ""
+    }
+    BEGIN {
+      n = split(ENVIRON["WB_FU_TEXT"], L, "\n")
+      for (i = 1; i <= n; i++) if (L[i] ~ /^[-*] /) { any = 1; break }
+      if (!any) { printf "o%s%c", ENVIRON["WB_FU_TEXT"], 1; exit }
+      st = "o"; cur = ""; started = 0; infence = 0
+      for (i = 1; i <= n; i++) {
+        line = L[i]
+        if (line ~ /^ ? ? ?(```|~~~)/) infence = !infence
+        if (!infence && line ~ /^[-*] /) {
+          flush(); started = 1
+          st = (line ~ /^[-*] \[[xX]\]/) ? "c" : "o"
+          if (line ~ /^[-*] \[[ xX]\]/) line = substr(line, 7); else line = substr(line, 3)
+          sub(/^[ \t]+/, "", line)
+          cur = line
+        } else {
+          if (!started && line ~ /^[ \t]*$/) continue
+          cur = (cur == "" && !started) ? line : cur "\n" line
+          if (!started) st = "o"
+        }
+      }
+      flush()
+    }
+  '
+}
+
+# _wb_record_write_followups <task_file> <text> — write one open-items/
+# record per follow-up in <text> (see _wb_followup_items); an item ticked
+# `[x]` is written closed. Does not rebuild views (wb_record_write does,
+# once, after all items). Leaves the last id in WB_RECORD_ID.
+_wb_record_write_followups() {
+  local file="$1" item st
+  while IFS= read -r -d $'\001' item; do
+    st="${item:0:1}"; item="$(_wb_trim_blank_lines "${item:1}")"
+    [ -n "$item" ] || continue
+    _wb_record_write_file "$file" open-items "" "$item" || return 1
+    if [ "$st" = "c" ]; then
+      _wb_item_close "$(_wb_dossier_dir "$file")/open-items/$WB_RECORD_ID.md" "$(date '+%Y-%m-%d')" "" || return 1
+    fi
+  done < <(_wb_followup_items "$2")
+  return 0
+}
+
+# _wb_item_close <item_file> <date> <note|""> — set `status: closed` and add
+# `closed: <date>` to an open-items file's frontmatter, and append the line
+# `Closed <date>: <note>` to its body when a note is given. Temp file, then mv.
+_wb_item_close() {
+  local f="$1" date="$2" note="$3" tmp="${1%/*}/.${1##*/}.tmp.$$"
+  WB_IC_DATE="$date" WB_IC_NOTE="$note" awk '
+    NR == 1 && $0 == "---" { fm = 1; print; next }
+    fm == 1 && $0 == "---" { if (!done) print "closed: " ENVIRON["WB_IC_DATE"]; fm = 2; print; next }
+    fm == 1 && /^status:/ { print "status: closed"; print "closed: " ENVIRON["WB_IC_DATE"]; done = 1; next }
+    fm == 1 && /^closed:/ { next }
+    { print }
+    END { if (ENVIRON["WB_IC_NOTE"] != "") printf "\nClosed %s: %s\n", ENVIRON["WB_IC_DATE"], ENVIRON["WB_IC_NOTE"] }
+  ' "$f" > "$tmp" && mv "$tmp" "$f"
 }
 
 # _wb_has_heading <file> <heading> — true when "## <heading>" is a real
