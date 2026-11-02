@@ -125,15 +125,19 @@ assert "style B: heading time kept, title from the heading" '^2026-08-02-1002-de
 assert "style C: decision-page slug is the title" '^2026-08-03-0000-topic-3-r1\.md$' "$ls_dec"
 assert "style D: bold title of the bullet" '^2026-08-04-0000-decision-4-title\.md$' "$ls_dec"
 assert "style D: indented lines kept in the body" 'detail line two for 4' "$(cat "$D/decisions/2026-08-04-0000-decision-4-title.md")"
-assert "style B: Decided/Rejected/Why bullets kept in the body, heading not repeated" '^- Why: simpler to run\.$' "$(cat "$D/decisions/2026-08-02-1002-decision-2-title.md")"
+assert "style B: Decided/Rejected/Why bullets kept in the body" '^- Why: simpler to run\.$' "$(cat "$D/decisions/2026-08-02-1002-decision-2-title.md")"
 assert "style A: continuation lines (numbered list) kept" '^2\. second consequence\.$' "$(cat "$D/decisions/2026-08-05-0000-decision-5-lead.md")"
 # the record files are shaped exactly like the live writers' (compare to one made by wb append)
 new_store
 printf -- '---\nstatus: doing\nrepo: proj\nlayout: dossier\ncreated: 2026-08-03\n---\n# Live\n' > "$TASKS_DIR/proj--live.md"
 printf '### 2026-08-02 10:02 — Decision 2 title\n- Decided (Jet): option 2 wins.\n- Rejected: option 2-b, which costs more.\n- Why: simpler to run.\n' | cmd_append proj--live Decisions - >/dev/null 2>&1
-if cmp -s "$TASKS_DIR/dossiers/proj--live/decisions/2026-08-02-1002-decision-2-title.md" "$D/decisions/2026-08-02-1002-decision-2-title.md"; then
-  echo "ok   - migrated decision file is byte-identical to one written by wb append"
-else echo "FAIL - migrated decision file differs from the live writer's"; diff "$TASKS_DIR/dossiers/proj--live/decisions/2026-08-02-1002-decision-2-title.md" "$D/decisions/2026-08-02-1002-decision-2-title.md" | head; fail=1; fi
+# (the migrated file also keeps the source `###` heading as its first body line)
+sed '/^# Decision 2 title$/{n;a\
+### 2026-08-02 10:02 — Decision 2 title
+}' "$TASKS_DIR/dossiers/proj--live/decisions/2026-08-02-1002-decision-2-title.md" > "$FIXTURE/live-expected.md"
+if cmp -s "$FIXTURE/live-expected.md" "$D/decisions/2026-08-02-1002-decision-2-title.md"; then
+  echo "ok   - migrated decision file matches one written by wb append, plus the kept heading line"
+else echo "FAIL - migrated decision file differs from the live writer's"; diff "$FIXTURE/live-expected.md" "$D/decisions/2026-08-02-1002-decision-2-title.md" | head; fail=1; fi
 
 # second run: byte-identical (checksum of the whole store)
 TASKS_DIR="$FIXTURE/store1"; export TASKS_DIR
@@ -189,6 +193,36 @@ assert "bullets: bold title 'Use the shared queue'" '^# Use the shared queue$' "
 assert "bullets: indented lines stay with their bullet" 'second indented line' "$(cat "$BD/decisions/2026-10-18-0000-use-the-shared-queue.md")"
 assert "bullets: plain bullet takes its first clause as the title" '^# Retire the old cron job$' "$(cat "$BD/decisions/2026-10-19-0000-retire-the-old-cron-job.md")"
 assert "bullets: (Jet, via buffer) paren stripped from the title" '^# Keep both formats$' "$(cat "$BD/decisions/2026-10-20-0000-keep-both-formats.md")"
+
+# =============================================================================
+# ### headings: kept verbatim in the body (the title is cleaned and clipped)
+# =============================================================================
+new_store
+LONGH='### 2026-10-18 09:15 — **Adopt the shared queue for every worker, and retire the per-worker cron jobs, the lock files and the polling scripts entirely!**'
+{ printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\ntags: []\ncreated: 2026-10-01\nclosed:\n---\n# Title\n\n## Decisions\n\n%s\n\n- Decided: one queue.\n- Why: simpler.\n\n### 2026-10-19 11:00 — Short heading.\n\n- Decided: keep it.\n\n## Follow-ups\n' "$LONGH"; } > "$TASKS_DIR/proj--hd.md"
+out="$(cmd_migrate proj--hd 2>&1)"
+HD="$TASKS_DIR/dossiers/proj--hd"
+assert "heading: counts match" 'decisions 2/2' "$out"
+assert_not "heading: task not blocked" 'NOT MIGRATED' "$out"
+hf="$(ls "$HD"/decisions/2026-10-18-*.md)"
+assert_eq "heading: the full source heading is in the body byte for byte" 1 "$(grep -cxF -- "$LONGH" "$hf")"
+assert_eq "heading: the title was clipped (at most 100 chars after '# ')" 1 "$(grep -c '^# .\{1,100\}$' "$hf")"
+assert_eq "heading: a short heading is kept too" 1 "$(grep -cxF -- '### 2026-10-19 11:00 — Short heading.' "$HD"/decisions/2026-10-19-*.md)"
+
+# a record file whose body differs from its source entry blocks the task
+new_store
+mk_task proj--lossy 2026-10-01 <<'EOF'
+
+## Decisions
+
+### 2026-10-18 09:15 — Heading.
+
+- Decided: one queue.
+EOF
+_wb_mg_body_text() { echo tampered; }
+out="$(cmd_migrate proj--lossy --dry-run 2>&1)"
+assert "per-entry check: a differing body blocks the task" 'differs from its record file' "$out"
+source "$SELF_DIR/wb-migrate.sh"
 
 # =============================================================================
 # a line that fits no style: task left unmigrated, line number listed

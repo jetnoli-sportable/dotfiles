@@ -328,6 +328,16 @@ _wb_mg_body_nb() {
   ' "$1"
 }
 
+# _wb_mg_body_text <record_file> — the non-blank lines of a record file after
+# its frontmatter and its title line (the "# title" line of a decision).
+_wb_mg_body_text() {
+  awk '
+    NR == 1 && $0 == "---" { fm = 1; next }
+    fm == 1 { if ($0 == "---") fm = 2; next }
+    $0 ~ /[^ \t]/ { if (!seen) { seen = 1; next } print }
+  ' "$1"
+}
+
 # _wb_mg_count_md <dir> — number of *.md files directly in <dir> (0 when the
 # dir does not exist). Never fails, so a caller under `set -e` is safe.
 _wb_mg_count_md() {
@@ -605,13 +615,20 @@ _wb_mg_convert() {
       [ -f "$f" ] || continue
       actual=$((actual + $(_wb_mg_body_nb "$f")))
     done
-    local nonB=0
-    for ((i = 1; i <= nd; i++)); do [ "${d_style[i]}" = "B" ] || nonB=$((nonB + 1)); done
-    actual=$((actual - nonB))
+    # each file's body is its source entry plus one "# title" line
+    actual=$((actual - nd))
     expected=$((sec_nb - nmark))
     if [ "$actual" -ne "$expected" ]; then
       _wb_mg_block "## Decisions lost or gained lines: $expected non-blank lines expected in decision files, $actual found"
     fi
+    # per entry: the written file's body must be the source entry's non-blank
+    # text, line for line (a clipped or cleaned title cannot hide a loss)
+    local eid
+    while IFS=$'\t' read -r n eid; do
+      if [ "$(_wb_mg_body_text "$sdir/decisions/$eid.md")" != "$(grep '[^[:space:]]' "$work/dec/$(printf 'd%04d.txt' "$n")" || true)" ]; then
+        _wb_mg_block "## Decisions: entry at task line ${d_line[n]} differs from its record file decisions/$eid.md"
+      fi
+    done < "$work/dec.ids"
     if [ "$h_markers" -ne "$marker_before" ] || [ "$hnb_markers" -ne "$nmark" ]; then
       _wb_mg_block "## Decisions: $marker_before '_No decisions:' marker line(s) in the source, $h_markers in the history file"
     fi
@@ -723,17 +740,19 @@ _wb_mg_emit() {
   mkdir -p "$sdir/handoffs"
   local i f body text
 
-  # --- decisions: <date>-<hhmm>-<slug>.md; B entries lose their heading line
-  # (it becomes the title), every other style keeps its first line in the body
+  # --- decisions: <date>-<hhmm>-<slug>.md; every style keeps its first line in
+  # the body (a B entry's `###` heading too: the title is cleaned and clipped,
+  # so the heading is the only full copy). $work/dec.ids maps entry -> file id.
+  : > "$work/dec.ids"
   while IFS=$'\t' read -r meta_tag n style ln date hm flags title; do
     [ "$meta_tag" = "E" ] || continue
     f="$work/dec/$(printf 'd%04d.txt' "$n")"
-    if [ "$style" = "B" ]; then body="$(sed '1d' "$f")"; else body="$(cat "$f")"; fi
-    body="$(_wb_trim_blank_lines "$body")"
+    body="$(_wb_trim_blank_lines "$(cat "$f")")"
     title="$(_wb_mg_clip "$title")"
     text="### $date ${hm:0:2}:${hm:2:2} — $title"
     if [ -n "$body" ]; then text+=$'\n\n'"$body"; fi
     _wb_record_write_file "$scratch_task" decisions "" "$text" || return 1
+    printf '%s\t%s\n' "$n" "$WB_RECORD_ID" >> "$work/dec.ids"
   done < "$work/dec.meta"
 
   # --- open follow-ups: open-items/<date>-<slug>.md, who/kind empty
