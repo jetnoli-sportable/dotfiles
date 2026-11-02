@@ -185,7 +185,8 @@ It runs on every invocation now.
 - **Artifacts** are the last five across the task's reply files, so they
   survive `/clear`. **Decisions** are the last three entries under the task
   file's `## Decisions`: `###` titles, and top-level bullets that start
-  with a date.
+  with a date. (On a `layout: dossier` task they come from the three newest
+  files in `decisions/`, by file name; the card shows each file's title.)
 - **A task with no live Claude session** gets a `dormant` card built from
   its newest reply file when `claude-card.sh` is given the task file. The
   picker doesn't use it: its dormant rows show wb's task summary, led by

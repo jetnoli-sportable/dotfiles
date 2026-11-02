@@ -32,6 +32,13 @@ and isn't recorded yet.
 - **Never Edit/Write the task file.** `wb append` is the only write path; it
   takes the per-task lock and can only add a block, never touch existing
   bytes.
+- **Layout tasks (trial).** When the task file's frontmatter has `layout: dossier`,
+  a decision is one file in `dossiers/<stem>/decisions/`, still written by `wb append
+  … Decisions -` (same command and body), and a reversal goes through `wb decide-supersede`
+  (step 3) instead of a `(supersedes: …)` line. Style and duplicate checks read the files
+  in `decisions/` (or the generated `decisions.md` view for an overview), not `## Decisions`.
+  The family's file is `concepts.md`, not `CONCEPTS.md`. Tasks without `layout:` keep
+  everything below as written. See `docs/wb-guide.md`, "Dossier layout (trial)".
 - **Append-only.** `## Decisions` is a log. A correction is a *new* entry
   that carries a `(supersedes: <date> "<title fragment>")` marker naming the
   earlier entry — never a rewrite of the old one.
@@ -123,8 +130,9 @@ shelf, and nothing nudges anyone, so a draft waits there until this review.
      followed by the heredoc body and the `WB_DECISION_END` terminator line. `accept`
      moves the draft to `resolved/` (kept 30 days) and logs `shelved_accepted`. A draft
      left from before the one-decision-per-file change may hold up to 3 `### `
-     entries: review each, record the accepted ones in ONE `wb append` (each under its
-     own dated heading), and run `accept <path>` even if only some were accepted.
+     entries: review each and record each accepted one with its OWN `wb append` call
+     (one decision per call, so on a layout task each gets its own file and id), then
+     run `accept <path>` even if only some were accepted.
    - **dismiss** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (moves it to
      `resolved/`, kept 30 days, logs `shelved_dismissed`). Also the answer when none of
      a multi-entry draft's entries is accepted.
@@ -176,6 +184,16 @@ entry by its date and a quoted substring of its title (the text after
 text. Zero or several matches read as unresolved, so make the fragment
 specific.
 
+**Layout task: a reversal is `wb decide-supersede`, not a prose line.** Find the old
+decision's id (its file name in `decisions/` without `.md`, e.g.
+`2026-10-17-1030-delete-the-store-wide-board`), then pipe the new entry (same
+`### <ts> — <title>` body as step 4) to `wb decide-supersede "$task_file" <old-id> -`.
+It writes the new file with `supersedes: [<old-id>]` and flips the old file to
+`status: superseded`, in one locked step. It refuses an unknown or already
+superseded id: re-read `decisions/` and pick the right one. Never write a
+`(supersedes: …)` line on a layout task, and never edit an old decision file.
+Step 4's `wb append` is for a decision that supersedes nothing.
+
 If you're recording it because of a `[wb-propagate]` message this session
 received, end the entry with this bullet, so step 6 here and every later
 checkpoint skip it:
@@ -190,6 +208,9 @@ message; keep it when you accept or edit that draft.
 If nothing was actually decided, say so plainly and stop — no write.
 
 ### 4. Append with `wb append`
+
+(Layout task: a decision that reverses an earlier one uses `wb decide-supersede`
+from step 3 here instead; everything else below is the same command.)
 
 ```bash
 wb append "$task_file" Decisions - <<'WB_DECISION_END'
@@ -303,6 +324,10 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
 Then run step 7's offer only under its condition below.
 
 ### 7. Promote to `CONCEPTS.md` (offer, never automatic)
+
+(On a layout task the family file is `concepts.md` in the same dossier; read
+`CONCEPTS.md` below as that name. A reversal of a promoted line is a Jet-approved
+edit as described here, not a `decide-supersede`.)
 
 A family's `CONCEPTS.md` (`~/code/tasks/dossiers/<stem>/CONCEPTS.md`) is imported
 into every new worktree of the family. A wrong line there spreads to every later

@@ -37,7 +37,7 @@ alone.
 | Question shape | What gets followed |
 |---|---|
 | *what / how* | The entry's `source`; its `guide` page's markdown sibling when one exists (`docs/*.html` → `docs/*.md`); `SKILL.md` for skills, `README` for TUIs |
-| *why* | `kind: decision` entries — `logs/decisions/*.md` and task-store `## Decisions` sections (`~/code/tasks/*.md`) — plus the comment block at the entry's `source` line; quotes the deciding line, not a paraphrase |
+| *why* | `kind: decision` entries — `logs/decisions/*.md` and task-store `## Decisions` sections (`~/code/tasks/*.md`; files in `~/code/tasks/dossiers/<stem>/decisions/` for `layout: dossier` tasks) — plus the comment block at the entry's `source` line; quotes the deciding line, not a paraphrase |
 | No match | Names the 2–3 nearest entries by name/tag so you can redirect — never invents a binding, entry, or rationale that isn't in the INDEX or its linked sources |
 | INDEX missing/stale | Says so and points at `docgen.sh index` |
 

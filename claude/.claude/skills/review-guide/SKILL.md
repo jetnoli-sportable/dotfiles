@@ -89,6 +89,10 @@ a dotfiles PR, and **Sportable work never on any personal surface**.
   log. Write "one straight build" when there were none.
 - **Links:** the PR URL(s), the plan path, the task file and any guide the
   change adds, for part A's at-a-glance table.
+- **Layout tasks (frontmatter `layout: dossier`):** read the matched task's
+  decisions from the files in its dossier's `decisions/` (in-force and superseded;
+  the file's `# <title>` and date replace the `## Decisions` headings), and its
+  past handoffs from `handoffs/`. `## Plan` is unchanged.
 - **Decisions:** every numbered decision in the matched task's `## Decisions`
   (D1, D2, …), each with its date, a one-line summary, and what was chosen,
   what was rejected and why, for the page's "Task decisions" section.

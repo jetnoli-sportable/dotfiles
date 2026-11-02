@@ -81,7 +81,11 @@ broken when: the decision was recorded and no child received a message
     task file, matched against the bullet's text. Editing an existing bullet,
     or any other section, never fires. Bullets carry no time, so ones already
     in the file when the watcher first watches it are history it can't date:
-    they never count, and the first-live scan skips this source.
+    they never count, and the first-live scan skips this source. For a task with
+    `layout: dossier` the source is the files in its dossier's `decisions/`
+    instead: a *new file* fires, matched against its text, and editing an
+    existing file (a supersede flipping `status:`) never does. The first-live
+    scan still skips this source.
   The regex is a jq (Oniguruma) regex, written between the first and the last
   `/` on the line. An invalid regex never matches.
 - **evidence:** where to look when judging. It may name a read-only command

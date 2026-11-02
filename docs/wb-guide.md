@@ -567,6 +567,10 @@ claude_sessions:      # optional: id@iso-ts[@primary],... — a record of
 ## Follow-ups
 ```
 
+This is the template for a task without `layout:`. A task with `layout: dossier`
+has no `## Decisions`, `## Done` or `## Follow-ups` and gains a `## Now`; see
+"Dossier layout (trial)" below.
+
 It's a real git repo you can `cd` into, `git log`, or open in `wb` itself
 (it shows up as a repo row like anything else under `~/code`). Pre-existing
 task files are never retroactively migrated to the newer fields
@@ -598,9 +602,72 @@ column — `active`/`dormant`/`cold`, the same derived value the picker's
 dormant rows and the HTML board's toggle use — dropped entirely on a
 narrow split pane rather than squeezing STATUS/REPO/TASK to make room.
 
+### Dossier layout (trial)
+
+The task file above grows without limit: every save, decision and follow-up
+lands in it, so it gets slow to read and its sections get quoted by half the
+tools. The dossier layout stops that. A task whose frontmatter has
+`layout: dossier` keeps only what is current in its file, and moves each record
+into its own file in the task's dossier. Both layouts coexist until the
+store-wide switch. A task without `layout:` behaves exactly as described
+elsewhere in this guide. A new task gets `layout: dossier` only when its parent
+has it.
+
+On a layout task:
+
+- **The task file** holds frontmatter, `# Title`, `## Now`, `## Plan` and one
+  `## Handoffs` entry. `## Now` is about 10 lines: the goal, the current rung,
+  the next action and what waits on Jet. There is no `## Decisions`,
+  `## Follow-ups` or `## Done`.
+- **Records are files** in `~/code/tasks/dossiers/<stem>/`:
+  `decisions/<YYYY-MM-DD-HHMM>-<slug>.md`, `handoffs/<YYYY-MM-DD-HHMM>.md` and
+  `open-items/<YYYY-MM-DD>-<slug>.md`. The commands are the ones you already use:
+  `wb append <task> Decisions -` writes a decision file (its timestamp and title
+  come from a leading `### <YYYY-MM-DD HH:MM> — <title>` line), `Follow-ups -`
+  writes an open item, and `Handoffs -` (what `/wb-save` calls) moves the task
+  file's current handoff to `handoffs/` and writes the new one in its place. The
+  automatic stamps from `wb pause`, `resume`, `down` and `done` do the same, so the
+  one handoff in the task file may be an `(auto)` stamp; the last `/wb-save`
+  entry is then the newest file in `handoffs/` with `auto: false`.
+- **New verbs.** `wb now <task> -` replaces the `## Now` block from stdin.
+  `wb decide-supersede <task> <old-id> -` records a reversal: it writes the new
+  decision with `supersedes: [<old-id>]` and flips the old file to
+  `status: superseded`, in one locked step. `<old-id>` is the old file's name
+  without `.md`. This is the only edit a decision file ever gets.
+  `wb followups <task>` lists the task's open follow-ups, one per line as
+  `<ref><TAB><title>` (on a layout task the ref is the open-items file's name
+  without `.md`; on an old-layout task it is the item's 1-based index among the
+  open bullets). `wb followup-done <task> <ref> [<note>|-]` marks one done under
+  the task lock: `<ref>` is an exact id or index, else a case-insensitive
+  substring of the id or title that matches exactly one open item (several
+  matches, no match, or an item already done exits 1). On a layout task it sets
+  `status: closed`, adds `closed: <date>` and, with a note, a
+  `Closed <date>: <note>` line, then rebuilds the views; closed items drop out
+  of the counts and of the board's lists.
+- **Generated views**, read-only and rebuilt after every write: `decisions.md`
+  (in force first, superseded collapsed), `handoffs.md` (newest first) and
+  `index.md`. Read these for an overview; read the record files when you need the
+  exact entry. Never edit a view.
+- **Pages you write**, one Markdown file each: `notes.md` (your scratch; agents
+  read it only when you point to it and never write it), `brief.md` (the task's
+  opening prompt, drafted at creation: type, why, done when, not doing, claims
+  marked checked or assumed with their date; it replaces the "First action" line,
+  and the first session confirms its blank or assumed fields one question at a
+  time), `spec.md`, `ladder.md` and `concepts.md` (today's `CONCEPTS.md`).
+  A child's dossier is created on its first write; family-wide pages live in the
+  parent's.
+- **Page frontmatter.** A lasting page carries `tags:`, optional `rung:`,
+  `links:`, optional `retire_when:`, `visibility:` and `url:` (as an HTML comment
+  at the top of an HTML-only page). Add it when the page is next edited.
+
+Skills that read these (`/wb-save`, `/wb-resume`, `/wb-decide`, `/close-out`,
+`/handoff`, `/quick-wins`, `/review-guide` and others) check `layout:` and read
+the new places. `wb migrate` converts an existing task. The old path goes away
+after the switch.
+
 ### Decision propagation
 
-A decision recorded in one task's `## Decisions` used to reach nobody else. A
+A decision recorded in one task's `## Decisions` (on a layout task, one file in `decisions/`) used to reach nobody else. A
 running session never sees another task's `## Decisions`, so a sibling task in the
 same family could keep building on an assumption that had just been overturned. (An
 edit to a `CONCEPTS.md` a session already imports does reach it, as a changed-file
@@ -861,7 +928,12 @@ rows anymore — only live sessions/agents do. Two places to look instead:
 - **Follow-ups** live under each task's `## Follow-ups` heading in
   `~/code/tasks/*.md`. Scan them all at once:
   `grep -A5 '^## Follow-ups' ~/code/tasks/*.md`, or open one task file
-  directly.
+  directly. A task with `layout: dossier` keeps them as files in
+  `~/code/tasks/dossiers/<stem>/open-items/` (open ones have `status: open`).
+  A top-level bullet is open unless it is ticked `[x]`, with or without a
+  checkbox. `wb followups <task>` lists the open ones; `wb followup-done <task>
+  <ref> [<note>]` marks one done (on an old-layout task it rewrites the bullet
+  as `- [x] <text>`).
 - **Captured items** live in the standing weekly-capture doc
   (`~/code/tasks/weeks/capture.md`, `wb week path` to print it). Run
   `/weekly-review` to review, promote, or dismiss them — that's the intended

@@ -305,5 +305,23 @@ PY
     assert.ok(/None stated/.test(all))"
 fi
 
+# --- page frontmatter comment (R28) ---------------------------------------
+gen "$FIXTURE" --out "$WORK/fm-default.html"
+head1="$(head -n 8 "$WORK/fm-default.html")"
+if [ "$(head -n 1 "$WORK/fm-default.html")" = "<!--" ] && [[ "$head1" == *$'\n---\ntags: [decision-page]\nlinks: [dotfiles--wb-future-direction]\nvisibility: private\nurl: \n---\n-->'* ]]; then
+  pass "frontmatter: default block first in the page (tags, links from context.task, private, empty url)"
+else fail "frontmatter: default block: $head1"; fi
+hash_a="$(grep '^spec_hash:' <<<"$OUT")"
+mutate fm-set "s['page']={'tags':['decision-page','audit'],'rung':'R3','links':['a--b','dossiers/x/spec.md'],'retire_when':'all items answered','visibility':'team','url':'https://example.invalid/p'}"
+gen "$WORK/fm-set.json" --out "$WORK/fm-set.html"
+fm="$(head -n 10 "$WORK/fm-set.html")"
+if [[ "$fm" == *$'tags: [decision-page, audit]\nrung: R3\nlinks: [a--b, dossiers/x/spec.md]\nretire_when: all items answered\nvisibility: team\nurl: https://example.invalid/p\n---\n-->'* ]]; then
+  pass "frontmatter: spec values are written in order"
+else fail "frontmatter: spec values: $fm"; fi
+if [ "$(grep '^spec_hash:' <<<"$OUT")" = "$hash_a" ]; then pass "frontmatter: page values do not change the spec hash"; else fail "frontmatter: spec hash moved with page.url"; fi
+if ! grep -q 'example.invalid' <<<"$(sed -n '/<script/,$p' "$WORK/fm-set.html")"; then pass "frontmatter: page values stay out of the embedded spec"; else fail "frontmatter: page values leaked into the spec JSON"; fi
+reject fm-bad-end "s['page']={'url':'x --> y'}" 'page.url'
+reject fm-bad-type "s['page']={'tags':'decision-page'}" 'page.tags'
+
 echo
 if [ "$FAIL" = 0 ]; then echo "ALL TESTS PASSED"; else echo "SOME TESTS FAILED"; exit 1; fi

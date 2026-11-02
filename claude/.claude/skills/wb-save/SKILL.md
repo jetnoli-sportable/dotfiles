@@ -36,6 +36,10 @@ to survive the clear; the human runs `/clear` themselves.
   `/wb-decide` step 6 may read `wb family --sessions` (a read of other sessions'
   `@task`) and ListAgents, and send `[wb-propagate]` messages with SendMessage to
   *other* sessions it affects. Nothing is ever sent to this session's own pane.
+- **Layout tasks (trial):** when the task file's frontmatter has `layout: dossier`,
+  step 4 first replaces `## Now` through `wb now`, and `wb append … Handoffs -`
+  then moves the previous handoff to `handoffs/` instead of piling it up. Tasks
+  without `layout:` are unchanged. See `docs/wb-guide.md`, "Dossier layout (trial)".
 - **Append-only.** Never overwrites any existing content in the task file —
   including prior `## Handoffs` entries, `## Plan`, `## Decisions`, or
   anything else already there. The one other write is step 2's checkpoint
@@ -151,6 +155,22 @@ invoke, nothing else:
 
 ### 4. Append into `## Handoffs` — exact section shape
 
+**Layout task first (`layout: dossier` in the frontmatter; skip this block otherwise).**
+Do two writes, in this order, both through the locked verbs:
+
+1. `wb now "$task_file" -` with the new `## Now` block on stdin: goal, current
+   rung, next action, and what waits on Jet, about 10 lines. It replaces the old
+   block; it never appends.
+2. The rich entry below, through `wb append "$task_file" Handoffs -` exactly as
+   shown. On a layout task that verb moves the task file's current handoff to
+   `handoffs/<ts>.md` and writes this one in its place, so the task file keeps
+   one handoff. The heading-position and end-of-section rules below apply only
+   to tasks without the layout.
+
+Mention `notes.md` (Jet's scratch file in the dossier) in the entry only when it
+changed since the last save, one line: `notes.md changed since the last save`.
+Never write it.
+
 This must match `wb.sh`'s own `wb_append_handoff` helper
 (`scripts/.config/scripts/tmux/wb.sh`, search `wb_append_handoff`) section
 conventions exactly — `/wb-resume` and `wb.sh`'s own automatic
@@ -264,6 +284,9 @@ messages *other* sessions and never this one.
   task file, compose done/in-flight/next from actual conversation content,
   append the entry under `## Handoffs` (creating the heading first if
   missing), confirm in one line.
+- **Layout task:** `wb now` then `wb append … Handoffs -`; afterwards `## Now`
+  holds the new block, the task file holds only this handoff, and the old one is
+  a file in `handoffs/`.
 - **Edge case — no `## Handoffs` heading yet:** insert it immediately
   before `## Decisions` if that heading exists, else at EOF, then the
   entry — the heading and the first entry appear together, not the heading

@@ -128,6 +128,32 @@ check: one `ArtifactData` `list` of that collection. The database is a backup
 for cross-device answering, never the record; only the pasted text counts.
 Round 2 gets its own Artifact URL.
 
+**Page frontmatter block.** A page that goes into a dossier or gets published
+carries the dossier page block (R28 in `docs/wb-guide.md`, "Dossier layout
+(trial)"). A decision page has no Markdown source, so the block is an HTML
+comment as the very first lines of the `.html`. The generator writes it from the
+spec's optional `page` object (`tags`, `rung`, `links`, `retire_when`,
+`visibility`, `url`); left out, `tags` is `[decision-page]`, `links` is the spec's
+`context.task`, and `visibility` is `private`:
+
+```html
+<!--
+---
+tags: [decision-page, <topic>]
+rung: <rung, optional>
+links: [<dossier paths or task stems this page belongs with>]
+retire_when: <condition, optional, e.g. all items answered and recorded>
+visibility: private
+url: <Artifact URL once published, else empty>
+---
+-->
+```
+
+Don't add it by hand. After publishing, put the Artifact URL in the spec's
+`page.url`, regenerate and republish to the same URL; `page` is not part of the
+spec hash, so saved answers survive. Old pages get the block when next
+regenerated, not in bulk.
+
 ## Close contract
 
 **Untouched means unanswered.** An item Jet did not touch is never filled in
@@ -164,7 +190,10 @@ is too long for the callout, write a companion explainer and link it.
 ## Afterwards
 
 Record resolved decisions in the task file's `## Decisions` through `wb append`
-(never a raw Edit/Write on a file under `~/code/tasks`):
+(never a raw Edit/Write on a file under `~/code/tasks`). On a task with
+`layout: dossier` the same command writes a file in `decisions/` instead, so give
+each decision its own `### <YYYY-MM-DD HH:MM> — <title>` heading and body rather
+than one packed line:
 
 ```bash
 wb append "$task_file" Decisions <<'EOF'

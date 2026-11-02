@@ -75,6 +75,12 @@ EOF
 TASKS_DIR="$FIXTURE_TASKS"
 source "$WB"
 
+# These fixtures use bare stems (no `<repo>--` prefix), which wb_task_files now
+# rejects (it accepts only `<repo>--<slug>.md`, so AGENTS.md and the like are
+# never walked as tasks). This suite tests the board model, not that filter
+# (tests/wb-task-file.test.sh covers it), so the walk is widened here.
+wb_task_files() { local f; for f in "$TASKS_DIR"/*.md; do [ -f "$f" ] && echo "$f"; done; return 0; }
+
 # --- fixtures -----------------------------------------------------------
 mk_task active-task doing 2
 mk_task stale-task doing 14
@@ -536,6 +542,75 @@ declare -A _toks=([A]='va@@B@@lue' [B]='SHOULD-NOT-APPEAR')
 wb_board_v2_fill_template "${_pad}@@A@@ mid @@NOPE@@ end @@B@@ tail @@" _toks _filled
 assert_eq "fill_template substitutes in one walk, leaves unknown tokens literal" \
   "${_pad}va@@B@@lue mid @@NOPE@@ end SHOULD-NOT-APPEAR tail @@" "$_filled"
+
+# --- layout tasks (dossier layout trial): records come from the dossier files ----
+LAYOUT_TASKS="$(mktemp -d -t wb-board-model-layout.XXXXXX)"
+trap 'cleanup; rm -rf "$LAYOUT_TASKS"' EXIT
+cat > "$LAYOUT_TASKS/lay-task.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/lay-task
+worktree: .worktrees/feat/lay-task
+layout: dossier
+---
+# Layout task
+
+## Now
+Goal text.
+
+## Plan
+- [ ] first step
+
+## Handoffs
+
+### 2026-10-30 12:00 — pause (auto)
+EOF
+cat > "$LAYOUT_TASKS/old-task.md" <<'EOF'
+---
+status: doing
+path:
+repo: dotfiles
+branch: feat/old-task
+worktree: .worktrees/feat/old-task
+---
+# Old layout task
+
+## Decisions
+
+### 2026-10-01 09:00 — Old style decision
+Body of the old style decision.
+
+## Follow-ups
+- an old follow-up
+EOF
+LD="$LAYOUT_TASKS/dossiers/lay-task"; mkdir -p "$LD/decisions" "$LD/open-items" "$LD/handoffs"
+printf -- '---\nstatus: in-force\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# Use the simple approach\n\nWent with the direct fix.\n\nMore detail.\n' >"$LD/decisions/2026-10-20-0930-use-simple.md"
+printf -- '---\nstatus: superseded\nsupersedes: []\nsuperseded_by: [x]\nreview_at:\n---\n# Replaced approach\n\nOriginal reasoning.\n' >"$LD/decisions/2026-10-21-1015-replaced.md"
+printf -- '---\nstatus: in-force\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# Third decision\n' >"$LD/decisions/2026-10-22-1100-third.md"
+printf -- '---\nstatus: open\n---\n# Chase the flaky test\n\nbody\n' >"$LD/open-items/2026-10-22-flaky.md"
+printf -- '---\nstatus: closed\n---\n# Already handled item\n' >"$LD/open-items/2026-10-22-handled.md"
+printf -- '---\nsource: wb-save\nauto: false\n---\n### 2026-10-29 17:00 — wb-save\n\n**Done:** things\n**Next:** wire the layout reader\n' >"$LD/handoffs/2026-10-29-1700.md"
+printf -- '---\nsource: pause\nauto: true\n---\n### 2026-10-30 12:00 — pause (auto)\n' >"$LD/handoffs/2026-10-30-1200.md"
+touch -d "1 days ago" "$LAYOUT_TASKS/lay-task.md" "$LAYOUT_TASKS/old-task.md"
+SAVED_TASKS_DIR="$TASKS_DIR"; TASKS_DIR="$LAYOUT_TASKS"
+declare -a LROWS=()
+declare -A L_PLAN=() L_DONE=() L_HANDOFF=() L_FU=() L_DEC=() L_LINKS=()
+wb_board_collect_rows_v2 LROWS L_PLAN L_DONE L_HANDOFF L_FU L_DEC L_LINKS
+TASKS_DIR="$SAVED_TASKS_DIR"
+assert "layout: decisions are dated entries from decisions/ (title, time from the file name)" '^### 2026-10-20 09:30 — Use the simple approach' "${L_DEC[lay-task]:-}"
+assert "layout: a decision's body lede follows its heading" 'Went with the direct fix\.' "${L_DEC[lay-task]:-}"
+assert "layout: superseded decision is marked" '### 2026-10-21 10:15 — \[superseded\] Replaced approach' "${L_DEC[lay-task]:-}"
+assert "layout: files in name order, newest last" 'Replaced approach.*Third decision' "$(printf '%s' "${L_DEC[lay-task]:-}" | tr '\n' ' ')"
+wb_board_v2_decisions_entries "${L_DEC[lay-task]:-}" lay-task lay_entries
+assert_eq "layout: the family timeline parser reads all three" "3" "$(printf '%s' "$lay_entries" | grep -c .)"
+assert "layout: timeline text is the lede, falling back to the title" $'2026-10-22\tThird decision\tlay-task' "$lay_entries"
+assert_eq "layout: follow-ups are the open items only" "- Chase the flaky test" "$(printf '%s' "${L_FU[lay-task]:-}" | grep .)"
+assert_eq "layout: there is no Done" "" "${L_DONE[lay-task]:-}"
+assert "layout: an (auto) handoff falls back to the newest hand-written one in handoffs/" 'Next:\*\* wire the layout reader' "${L_HANDOFF[lay-task]:-}"
+assert "old layout task still reads its sections" 'Old style decision' "${L_DEC[old-task]:-}"
+assert "old layout task follow-ups unchanged" '^- an old follow-up' "${L_FU[old-task]:-}"
 
 echo
 if [ "$fail" = 0 ]; then

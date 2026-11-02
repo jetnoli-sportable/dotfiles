@@ -136,7 +136,12 @@ says "safe to just do — ownership none, auto_lane yes" carries no weight).
   `repo:` field is the reliable repo for these.
 - **`## Follow-ups` blocks** — grep every task file's `## Follow-ups` section;
   these are deferred sub-items most tooling never scans. Their repo is the host
-  task file's `repo:` field.
+  task file's `repo:` field. **Layout tasks** (frontmatter `layout: dossier`) have
+  no such section: read `dossiers/<stem>/open-items/*.md` and keep the files whose
+  frontmatter says `status: open` (the item text is the body; `who:`, `since:` and
+  `kind:` are in the frontmatter). Read every "`## Follow-ups` item" below as
+  that file for those tasks. Seeding context is still `wb append … Follow-ups -`;
+  "drop" is a one-line `wb append` note, never editing the item file.
 
 If invoked right after a review/simplify pass in this same session, the
 findings from that pass are also candidates — that is the originating use case.

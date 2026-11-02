@@ -45,7 +45,9 @@ top of `<rg>/scripts/cite_check.py`, `prs` filled for a single PR too.
 The landing path rule of `<rg>/SKILL.md` stage 2: the dossier of the task whose
 `branch:` matches the head branch, else `~/code/tasks/dossiers/<repo>--pr<N>/`.
 Never dotfiles `docs/`. From the matched task, read `## Plan` and
-`## Decisions` (for the gap pass, and for findings Jet already set aside).
+`## Decisions` (for the gap pass, and for findings Jet already set aside). If the
+task's frontmatter has `layout: dossier`, read the files in its dossier's
+`decisions/` instead of `## Decisions` (`## Plan` is unchanged).
 
 ## 3. Fetch → `comments.json`
 

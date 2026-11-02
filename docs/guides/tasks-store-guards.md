@@ -42,6 +42,10 @@ spots are covered by one of the other two:
 | **2 — git guard** | REFUSES | `core.hooksPath`, `tasks-git-hooks/reference-transaction` | The real correctness judgment. Caller-agnostic — git enforces it for Claude, a raw terminal, anything — refusing a non-fast-forward ref update that would orphan a commit reachable from no other ref. |
 | **3 — file lock** | SERIALIZES | `scripts/.config/scripts/tmux/wb-locks.sh` | One `flock` side-car per task file. Every write burst in `wb.sh`/`handoff.sh`, plus the new `wb append` verb, takes it; a blocked writer halts loudly (exit 75) instead of racing the holder. |
 
+(On a `layout: dossier` task the record files in its dossier, such as `decisions/` and
+`handoffs/`, are written by the same `wb` verbs under the same per-task lock, so this
+layer covers them too.)
+
 Layers 1+2 cover the GIT dangers (incidents 2-3); layer 3 covers the FILE
 dangers (incidents 1 and 4). Remove any one layer and a real,
 already-observed incident class goes back to being unguarded.
