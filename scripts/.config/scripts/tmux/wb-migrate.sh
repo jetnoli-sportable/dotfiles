@@ -255,14 +255,16 @@ AWK
 }
 
 # _wb_mg_split_followups <section_file> <first_line_no> <outdir> — split the
-# body of "## Follow-ups" into checkbox items (`- [ ]` open, `- [x]` ticked, a
-# top-level line outside a fence). Writes outdir/i<NNNN>.txt (the item's
-# lines, verbatim) and outdir/f-pre.txt (non-blank lines before the first
-# item). Prints
+# body of "## Follow-ups" into items. A top-level bullet (`- ` or `* ` at
+# column 0, outside a fence) starts an item; it is done only when ticked
+# (`- [x]`), and open otherwise, with or without a `[ ]` checkbox (the rule of
+# wb followups: a bullet is open unless ticked). Writes outdir/i<NNNN>.txt
+# (the item's lines, verbatim) and outdir/f-pre.txt (non-blank lines before
+# the first item). Prints
 #   I <n> <open|done> <line> <date> <title>
 # date is the first YYYY-MM-DD in the item's first line (or "-"); title is
-# its first clause with the checkbox and bold marks removed;
-#   S <line>   a top-level non-checkbox line attached to the preceding item
+# its first clause with the bullet, checkbox and bold marks removed;
+#   S <line>   a top-level non-bullet line attached to the preceding item
 #   P <line>   a non-blank line before any item (goes to the history file)
 _wb_mg_split_followups() {
   WB_MG_BASE="$2" WB_MG_DIR="$3" awk "$(_wb_mg_awk_lib)"$'\n'"$(cat <<'AWK'
@@ -284,16 +286,17 @@ BEGIN { base = ENVIRON["WB_MG_BASE"] + 0; dir = ENVIRON["WB_MG_DIR"]
     if (cur) print line > efile; else { print line >> pre; print "P\t" lineno }
     next
   }
-  if (line ~ /^[-*] \[[ xX]\]/) {
+  if (line ~ /^[-*] /) {
     if (cur) close(efile)
     n++; cur = n
     efile = sprintf("%s/i%04d.txt", dir, n)
-    kind = (substr(line, 4, 1) == " " ? "open" : "done")
-    t = substr(line, 7)
+    kind = (line ~ /^[-*] \[[xX]\]/ ? "done" : "open")
+    off = (line ~ /^[-*] \[[ xX]\]/ ? 7 : 3)
+    t = substr(line, off)
     gsub(/\*\*/, "", t); gsub(/\t/, " ", t)
     t = trim(t)
     if (isdate(t)) t = skipsep(substr(t, 11))
-    t = firstclause(t); if (t == "") t = trim(substr(line, 7))
+    t = firstclause(t); if (t == "") t = trim(substr(line, off))
     d = "-"
     if (match(line, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) d = substr(line, RSTART, 10)
     print "I\t" n "\t" kind "\t" lineno "\t" d "\t" t
@@ -499,8 +502,10 @@ _wb_mg_convert() {
   local dec_before hand_before open_before ticked_before marker_before done_nb
   dec_before="$(grep -cE '^(- )?(\*\*)?[0-9]{4}-[0-9]{2}-[0-9]{2}|^### ' "$work/dec.sec" || true)"
   hand_before="$(grep -c '^### ' "$work/hnd.sec" || true)"
-  open_before="$(grep -cE '^[-*] \[ \]' "$work/fol.sec" || true)"
   ticked_before="$(grep -cE '^[-*] \[[xX]\]' "$work/fol.sec" || true)"
+  # every top-level bullet but the ticked ones (bullets inside a fence are
+  # sample text, not follow-ups, so a plain fence toggle skips them)
+  open_before=$(( $(awk '/^ ? ? ?(```|~~~)/ { f = !f; next } !f && /^[-*] / { n++ } END { print n + 0 }' "$work/fol.sec") - $(awk '/^ ? ? ?(```|~~~)/ { f = !f; next } !f && /^[-*] \[[xX]\]/ { n++ } END { print n + 0 }' "$work/fol.sec") ))
   marker_before="$(grep -cE '^(- )?_No decisions:' "$work/dec.sec" || true)"
   done_nb="$(_wb_mg_nb "$work/done.sec")"
   local hist_before=$((ticked_before + marker_before))
@@ -568,10 +573,10 @@ _wb_mg_convert() {
     esac
   done < "$work/fol.meta"
   if [ "${#strays[@]}" -gt 0 ]; then
-    _wb_mg_exc "## Follow-ups: ${#strays[@]} top-level line(s) that are not checkbox items were attached to the item above them (task lines: ${strays[*]:0:20})"
+    _wb_mg_exc "## Follow-ups: ${#strays[@]} top-level line(s) that are not bullet items were attached to the item above them (task lines: ${strays[*]:0:20})"
   fi
   if [ "${#pres[@]}" -gt 0 ]; then
-    _wb_mg_exc "## Follow-ups: ${#pres[@]} line(s) before the first checkbox item moved to the migrated-history file (task lines: ${pres[*]:0:20})"
+    _wb_mg_exc "## Follow-ups: ${#pres[@]} line(s) before the first bullet item moved to the migrated-history file (task lines: ${pres[*]:0:20})"
   fi
 
   # ---- attribution check: every non-blank line owned -----------------------
@@ -761,8 +766,8 @@ _wb_mg_emit() {
     [ "$meta_tag" = "I" ] && [ "$kind" = "open" ] || continue
     f="$work/fol/$(printf 'i%04d.txt' "$n")"
     body="$(cat "$f")"
-    # the checkbox is replaced by the file's status: open
-    body="$(printf '%s\n' "$body" | sed '1s/^[-*] \[ \] *//')"
+    # the bullet and checkbox are replaced by the file's status: open
+    body="$(printf '%s\n' "$body" | sed -e '1s/^[-*] \[ \] *//' -e t -e '1s/^[-*] *//')"
     body="$(_wb_trim_blank_lines "$body")"
     created_date="$date"; [ "$created_date" != "-" ] || created_date="$created"
     title="$(_wb_mg_clip "$title")"

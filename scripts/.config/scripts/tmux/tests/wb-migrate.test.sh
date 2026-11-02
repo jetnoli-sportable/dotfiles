@@ -459,12 +459,42 @@ EOF
 out="$(cmd_migrate proj--fol 2>&1)"
 FD="$TASKS_DIR/dossiers/proj--fol"
 assert "follow-ups: 2 open, 1 ticked, counts match" 'open-items 2/2 history 1/1' "$out"
-assert "follow-ups: loose top-level line attached to the item above (listed)" 'top-level line\(s\) that are not checkbox items were attached' "$out"
+assert "follow-ups: loose top-level line attached to the item above (listed)" 'top-level line\(s\) that are not bullet items were attached' "$out"
 assert "follow-ups: the attached line is in the open item's file" 'A loose top-level line' "$(cat "$FD"/open-items/2026-10-02-open-one*.md)"
-assert "follow-ups: line before the first checkbox goes to the history file (listed)" 'before the first checkbox item moved to the migrated-history file' "$out"
+assert "follow-ups: line before the first checkbox goes to the history file (listed)" 'before the first bullet item moved to the migrated-history file' "$out"
 assert "follow-ups: that line is in the history file" 'Some note before any checkbox' "$(cat "$FD/handoffs/2026-10-02-0000.md")"
 assert "follow-ups: ticked item in the history file with its nested line" 'nested under ticked' "$(cat "$FD/handoffs/2026-10-02-0000.md")"
 assert "follow-ups: dated item uses its own date" '^since: 2026-10-12$' "$(cat "$FD"/open-items/2026-10-12-*.md)"
+
+# =============================================================================
+# plain-bullet follow-ups (handoff_append_followup's shape): open unless ticked
+# =============================================================================
+new_store
+mk_task proj--plain 2026-10-02 <<'EOF'
+
+## Follow-ups
+
+- [ ] Checkbox open one.
+- Plain bullet from a handoff, with a long tail that goes on and on.
+  - indented detail stays with it
+* Star bullet follow-up.
+- [x] Ticked one.
+- **2026-10-12:** Dated plain bullet.
+```
+- a bullet inside a fence is not an item
+```
+EOF
+out="$(cmd_migrate proj--plain 2>&1)"
+PD="$TASKS_DIR/dossiers/proj--plain"
+assert "plain bullets: 4 open (checkbox, plain, star, dated), 1 ticked, the fenced bullet is not an item" 'open-items 4/4 history 1/1' "$out"
+assert_eq "plain bullets: four open-items files" 4 "$(nfiles "$PD/open-items")"
+assert "plain bullets: plain bullet is its own open item, '- ' dropped" '^Plain bullet from a handoff' "$(cat "$PD"/open-items/2026-10-02-plain-bullet-from-a-handoff*.md)"
+assert_not "plain bullets: no leading '- ' left on the title line" '^- Plain' "$(cat "$PD"/open-items/2026-10-02-plain-bullet-from-a-handoff*.md)"
+assert "plain bullets: indented detail stays with its item" 'indented detail stays' "$(cat "$PD"/open-items/2026-10-02-plain-bullet-from-a-handoff*.md)"
+assert "plain bullets: star bullet is open" '^Star bullet follow-up' "$(cat "$PD"/open-items/2026-10-02-star-bullet-follow-up*.md)"
+assert "plain bullets: dated plain bullet keeps its date" '^since: 2026-10-12$' "$(cat "$PD"/open-items/2026-10-12-*.md)"
+assert "plain bullets: ticked item in the history file" '^- \[x\] Ticked one' "$(cat "$PD/handoffs/2026-10-02-0000.md")"
+assert_not "plain bullets: not left in the task file" '^## Follow-ups$' "$(cat "$TASKS_DIR/proj--plain.md")"
 
 # =============================================================================
 # handoffs: single entry stays, none moved; handoffs-only task
