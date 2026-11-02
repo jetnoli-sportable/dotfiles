@@ -3351,7 +3351,21 @@ _wb_breakdown_move_followup() {
     infu && !inblock && ($0 == "- " want || $0 == "* " want) { inblock = 1; print; next }
     infu && inblock { print }
   ' "$parent_file")"
-  [ -n "$block" ] || return 1
+  [ -n "$block" ] || { rm -f "$textfile"; return 1; }
+
+  # Write the target FIRST and drop the parent's bullet only once that worked,
+  # so a failed or impossible target write never loses the follow-up. A layout
+  # target takes an open-items/ record (and its views are rebuilt); an old one
+  # takes the bullet under its `## Follow-ups`, which is added when missing.
+  if _wb_is_dossier "$target_file"; then
+    _wb_record_write_followups "$target_file" "$block" || { rm -f "$textfile"; return 1; }
+    wb_render_views "$target_file"
+  else
+    if ! _wb_has_heading "$target_file" "Follow-ups"; then
+      printf '\n## Follow-ups\n' >> "$target_file" || { rm -f "$textfile"; return 1; }
+    fi
+    _wb_breakdown_append_section "$target_file" "Follow-ups" "$block" || { rm -f "$textfile"; return 1; }
+  fi
 
   awk -v textfile="$textfile" '
     BEGIN { getline want < textfile; close(textfile) }
@@ -3363,8 +3377,6 @@ _wb_breakdown_move_followup() {
     { print }
   ' "$parent_file" > "$parent_file.tmp.$$" && mv "$parent_file.tmp.$$" "$parent_file"
   rm -f "$textfile"
-
-  _wb_breakdown_append_section "$target_file" "Follow-ups" "$block"
 }
 
 # _wb_open_item_title <open-item file> — the item's text: its first non-blank
