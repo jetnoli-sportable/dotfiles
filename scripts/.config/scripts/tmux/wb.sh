@@ -4290,9 +4290,10 @@ cmd_append() {
       Follow-ups) series="open-items" ;;
     esac
     if [ -n "$series" ]; then
+      WB_RECORD_IDS=""
       wb_record_write "$file" "$series" "$body" || { wb_task_lock_release "$file"; exit 1; }
       wb_task_lock_release "$file"
-      echo "wb append: wrote $series/$WB_RECORD_ID.md in $(basename -- "$file")"
+      echo "wb append: wrote ${WB_RECORD_IDS:-$series/$WB_RECORD_ID.md} in $(basename -- "$file")"
       return 0
     elif [ "$heading" = "Handoffs" ]; then
       wb_handoff_write "$file" "$body" || { wb_task_lock_release "$file"; exit 1; }
@@ -4480,13 +4481,16 @@ _wb_followup_items() {
 # _wb_record_write_followups <task_file> <text> — write one open-items/
 # record per follow-up in <text> (see _wb_followup_items); an item ticked
 # `[x]` is written closed. Does not rebuild views (wb_record_write does,
-# once, after all items). Leaves the last id in WB_RECORD_ID.
+# once, after all items). Leaves the last id in WB_RECORD_ID and every
+# written path in WB_RECORD_IDS (comma-separated, for the append message).
 _wb_record_write_followups() {
   local file="$1" item st
+  WB_RECORD_IDS=""
   while IFS= read -r -d $'\001' item; do
     st="${item:0:1}"; item="$(_wb_trim_blank_lines "${item:1}")"
     [ -n "$item" ] || continue
     _wb_record_write_file "$file" open-items "" "$item" || return 1
+    WB_RECORD_IDS+="${WB_RECORD_IDS:+, }open-items/$WB_RECORD_ID.md"
     if [ "$st" = "c" ]; then
       _wb_item_close "$(_wb_dossier_dir "$file")/open-items/$WB_RECORD_ID.md" "$(date '+%Y-%m-%d')" "" || return 1
     fi

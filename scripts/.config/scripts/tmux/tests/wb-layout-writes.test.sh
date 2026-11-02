@@ -87,7 +87,8 @@ assert "follow-up: since = today" "^since: $(date '+%Y-%m-%d')\$" "$(cat "$D/ope
 assert "follow-up: status open" '^status: open$' "$(cat "$D/open-items/$OI" 2>/dev/null)"
 
 # bullet bodies: one record per top-level bullet, bullet/checkbox dropped from the title
-printf -- '- [ ] first thing\n  indented detail\n- [ ] second thing\n- plain third\n- [x] already done\n' | cmd_append proj--lay-a Follow-ups - >/dev/null 2>&1
+out="$(printf -- '- [ ] first thing\n  indented detail\n- [ ] second thing\n- plain third\n- [x] already done\n' | cmd_append proj--lay-a Follow-ups - 2>&1)"
+assert "bullet follow-ups: the message names every file written" 'wrote open-items/[0-9-]+-first-thing\.md, open-items/[0-9-]+-second-thing\.md, .*already-done\.md in' "$out"
 assert_eq "bullet follow-ups: four more records" 5 "$(ls "$D/open-items" | wc -l | tr -d ' ')"
 FA="$(ls "$D"/open-items/*-first-thing.md 2>/dev/null | head -1)"
 assert "bullet follow-ups: title is the text, no checkbox" '^first thing$' "$(sed -n '7p' "$FA" 2>/dev/null)"
