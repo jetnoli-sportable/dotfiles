@@ -634,6 +634,16 @@ On a layout task:
   decision with `supersedes: [<old-id>]` and flips the old file to
   `status: superseded`, in one locked step. `<old-id>` is the old file's name
   without `.md`. This is the only edit a decision file ever gets.
+  `wb followups <task>` lists the task's open follow-ups, one per line as
+  `<ref><TAB><title>` (on a layout task the ref is the open-items file's name
+  without `.md`; on an old-layout task it is the item's 1-based index among the
+  open bullets). `wb followup-done <task> <ref> [<note>|-]` marks one done under
+  the task lock: `<ref>` is an exact id or index, else a case-insensitive
+  substring of the id or title that matches exactly one open item (several
+  matches, no match, or an item already done exits 1). On a layout task it sets
+  `status: closed`, adds `closed: <date>` and, with a note, a
+  `Closed <date>: <note>` line, then rebuilds the views; closed items drop out
+  of the counts and of the board's lists.
 - **Generated views**, read-only and rebuilt after every write: `decisions.md`
   (in force first, superseded collapsed), `handoffs.md` (newest first) and
   `index.md`. Read these for an overview; read the record files when you need the
@@ -920,6 +930,10 @@ rows anymore — only live sessions/agents do. Two places to look instead:
   `grep -A5 '^## Follow-ups' ~/code/tasks/*.md`, or open one task file
   directly. A task with `layout: dossier` keeps them as files in
   `~/code/tasks/dossiers/<stem>/open-items/` (open ones have `status: open`).
+  A top-level bullet is open unless it is ticked `[x]`, with or without a
+  checkbox. `wb followups <task>` lists the open ones; `wb followup-done <task>
+  <ref> [<note>]` marks one done (on an old-layout task it rewrites the bullet
+  as `- [x] <text>`).
 - **Captured items** live in the standing weekly-capture doc
   (`~/code/tasks/weeks/capture.md`, `wb week path` to print it). Run
   `/weekly-review` to review, promote, or dismiss them — that's the intended

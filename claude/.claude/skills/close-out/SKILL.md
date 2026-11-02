@@ -121,6 +121,13 @@ restatement of the diff, the *why* a `git log` can't show. Add a
 `## Follow-ups` line for every task file spun off in step 3 (park lines
 don't need a mirror entry here — they live in their own ledger).
 
+Then settle the task's **open follow-ups**: run `wb followups <task>` (read-only,
+`<ref><TAB><title>` per open item, on either layout) and compare the list with what
+this session actually did. Offer the ones this session resolved to the user in one
+short list, and mark each confirmed one with `wb followup-done <task> <ref> "<one-line
+note of how it was resolved>"`. Never mark one the session did not finish, and never
+Edit the task file or a record file for this.
+
 If the task file already has this filled in from earlier in the session
 (e.g. a mid-session `/wb-save` already wrote rich `## Decisions` content),
 don't duplicate — extend only where the sweep in step 2 added something new.

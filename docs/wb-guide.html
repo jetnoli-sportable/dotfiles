@@ -882,7 +882,17 @@ entry is then the newest file in <code>handoffs/</code> with <code>auto: false</
 <code>wb decide-supersede &lt;task&gt; &lt;old-id&gt; -</code> records a reversal: it writes the new
 decision with <code>supersedes: [&lt;old-id&gt;]</code> and flips the old file to
 <code>status: superseded</code>, in one locked step. <code>&lt;old-id&gt;</code> is the old file's name
-without <code>.md</code>. This is the only edit a decision file ever gets.</li>
+without <code>.md</code>. This is the only edit a decision file ever gets.
+<code>wb followups &lt;task&gt;</code> lists the task's open follow-ups, one per line as
+<code>&lt;ref&gt;&lt;TAB&gt;&lt;title&gt;</code> (on a layout task the ref is the open-items file's name
+without <code>.md</code>; on an old-layout task it is the item's 1-based index among the
+open bullets). <code>wb followup-done &lt;task&gt; &lt;ref&gt; [&lt;note&gt;|-]</code> marks one done under
+the task lock: <code>&lt;ref&gt;</code> is an exact id or index, else a case-insensitive
+substring of the id or title that matches exactly one open item (several
+matches, no match, or an item already done exits 1). On a layout task it sets
+<code>status: closed</code>, adds <code>closed: &lt;date&gt;</code> and, with a note, a
+<code>Closed &lt;date&gt;: &lt;note&gt;</code> line, then rebuilds the views; closed items drop out
+of the counts and of the board's lists.</li>
 <li><strong>Generated views</strong>, read-only and rebuilt after every write: <code>decisions.md</code>
 (in force first, superseded collapsed), <code>handoffs.md</code> (newest first) and
 <code>index.md</code>. Read these for an overview; read the record files when you need the
@@ -1209,7 +1219,10 @@ rows anymore — only live sessions/agents do. Two places to look instead:</p>
 <code>~/code/tasks/*.md</code>. Scan them all at once:
 <code>grep -A5 '^## Follow-ups' ~/code/tasks/*.md</code>, or open one task file
 directly. A task with <code>layout: dossier</code> keeps them as files in
-<code>~/code/tasks/dossiers/&lt;stem&gt;/open-items/</code> (open ones have <code>status: open</code>).</li>
+<code>~/code/tasks/dossiers/&lt;stem&gt;/open-items/</code> (open ones have <code>status: open</code>).
+A top-level bullet is open unless it is ticked <code>[x]</code>, with or without a
+checkbox. <code>wb followups &lt;task&gt;</code> lists the open ones; <code>wb followup-done &lt;task&gt; &lt;ref&gt; [&lt;note&gt;]</code> marks one done (on an old-layout task it rewrites the bullet
+as <code>- [x] &lt;text&gt;</code>).</li>
 <li><strong>Captured items</strong> live in the standing weekly-capture doc
 (<code>~/code/tasks/weeks/capture.md</code>, <code>wb week path</code> to print it). Run
 <code>/weekly-review</code> to review, promote, or dismiss them — that's the intended

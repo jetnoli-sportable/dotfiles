@@ -146,7 +146,7 @@ never summarizes a session on its own initiative.
 ```
 role: write
 task-ref: <stem | path | fuzzy>          # resolved by wb's own exact-then-fuzzy resolver
-mode: append | now | decide-supersede | status | set | jira-set | breakdown-apply
+mode: append | now | decide-supersede | followup-done | status | set | jira-set | breakdown-apply
 target: <## Heading | frontmatter:<field>>  # append: the heading. set: the field name.
                                             # status/jira-set/breakdown-apply don't use target — see below.
 body: <value>                               # the payload — shape depends on mode, see below
@@ -162,6 +162,9 @@ What `target`/`body` carry, per `mode`:
   Now` block (about 10 lines).
 - `decide-supersede` — layout tasks only; `target` is the old decision's id (its
   file name in `decisions/` without `.md`); `body` is the new decision entry.
+- `followup-done` — `target` is the follow-up ref (an exact id or index from
+  `wb followups`, or a substring that matches exactly one open item); `body` is
+  the optional note (empty for none).
 - `status` — no `target`; `body` is the single new status word
   (`prospective|planned|paused|doing|review`).
 - `set` — `target` is the frontmatter field name (e.g.
@@ -197,6 +200,11 @@ non-interactive subagent shell):
   on stdin. It writes the new decision and flips the old file to `status:
   superseded` in one lock; a brief asking for a prose `(supersedes: …)` line on
   a layout task is refused and redirected here. Never edit a decision file.
+- `followup-done` → `wb followup-done <task-ref> <target> -` with the note on
+  stdin (or `wb followup-done <task-ref> <target>` for no note). It marks one open
+  follow-up done under the lock; an ambiguous, missing or already-done ref exits 1
+  and the brief goes back to the caller. `wb followups <task-ref>` (read-only)
+  lists the open refs.
 - `status` → `wb status <task-ref> <body>` (body is the new status word).
 - `set` → `wb set <task-ref> <target> <body>` (target is the field, body
   the new value).
@@ -281,7 +289,7 @@ non-interactive subagent shell):
 - **brief** — the caller-authored, structured request (`role`, `task-ref`,
   `target`, `mode`, `body`, `assert-append-only`) that the writer role
   applies verbatim.
-- **locked verb** — a `wb` subcommand (`append`, `now`, `decide-supersede`, `status`, `set`,
+- **locked verb** — a `wb` subcommand (`append`, `now`, `decide-supersede`, `followup-done`, `status`, `set`,
   `jira-set`, `breakdown --apply`) that acquires the per-task lock before
   writing.
 - **four-doc rule** — `CONCEPTS.md` / decision log / dossier / task file,
