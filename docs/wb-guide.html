@@ -907,7 +907,11 @@ A child's dossier is created on its first write; family-wide pages live in the
 parent's.</li>
 <li><strong>Page frontmatter.</strong> A lasting page carries <code>tags:</code>, optional <code>rung:</code>,
 <code>links:</code>, optional <code>retire_when:</code>, <code>visibility:</code> and <code>url:</code> (as an HTML comment
-at the top of an HTML-only page). Add it when the page is next edited.</li>
+at the top of an HTML-only page). Add it when the page is next edited.
+<code>retire_when:</code> takes <code>task:&lt;stem&gt; done</code>, <code>decision:&lt;id&gt; recorded</code>,
+<code>date:&lt;YYYY-MM-DD&gt;</code> or <code>pr:&lt;n&gt; merged</code>; once met, the index lists the page
+under Retired. A test guide uses <code>task:&lt;its task&gt; done</code>, so it retires when
+<code>wb done</code> closes the task.</li>
 </ul>
 <p>Skills that read these (<code>/wb-save</code>, <code>/wb-resume</code>, <code>/wb-decide</code>, <code>/close-out</code>,
 <code>/handoff</code>, <code>/quick-wins</code>, <code>/review-guide</code> and others) check <code>layout:</code> and read
