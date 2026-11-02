@@ -18,9 +18,11 @@
 #   4. re-counts: "before" figures come from the raw text with plain grep (not
 #      the parser), "after" figures from the files just written, and the
 #      non-blank lines of every section are re-added up from the written
-#      files. Any mismatch, any line the parser could not attribute, and any
-#      other blocking condition leaves the task UNMIGRATED (nothing written)
-#      and lists it as an exception,
+#      files. Any mismatch and any other blocking condition leaves the task
+#      UNMIGRATED (nothing written) and lists it as an exception. A
+#      ## Decisions section with lines that fit no entry style is not split:
+#      it becomes one decision record holding the whole section verbatim
+#      (listed as an exception, checked like any other entry),
 #   5. only then moves the scratch dirs into dossiers/<stem>/, renames
 #      CONCEPTS.md to concepts.md (KTD24), rewrites the task file, and
 #      rebuilds the generated views once.
@@ -31,6 +33,10 @@
 # Awk is POSIX only (gawk and mawk both run in the test sandbox): no gensub,
 # asort, PROCINFO or {n} intervals, and strings reach awk through ENVIRON
 # (never -v, which would process backslash escapes).
+
+# Title of the one decision record a ## Decisions section becomes when its
+# lines fit no entry style (the verbatim fallback in _wb_mg_convert).
+_WB_MG_FALLBACK_TITLE="Decisions before the dossier layout"
 
 # ---------------------------------------------------------------------------
 # awk: shared library, fence-aware line classifiers
@@ -523,8 +529,20 @@ _wb_mg_convert() {
       S) _wb_mg_exc "line $n: prose (supersedes: …) marker kept as raw text in the new decision's body; decision stays in-force, link it by hand with wb decide-supersede" ;;
     esac
   done < "$work/dec.meta"
+  # Verbatim fallback: a section with lines that fit no entry style is not
+  # split at all. The whole section, word for word, becomes one decision
+  # record dated from created:, so nothing is guessed and nothing is lost.
+  # The per-entry and line checks below verify it like any other entry.
   if [ "${#unattr[@]}" -gt 0 ]; then
-    _wb_mg_block "## Decisions has ${#unattr[@]} line(s) that fit no entry style (task line numbers: ${unattr[*]})"
+    _wb_mg_exc "## Decisions has ${#unattr[@]} line(s) that fit no entry style (task line numbers: ${unattr[*]:0:20}); the whole section ($(_wb_mg_nb "$work/dec.sec") non-blank lines, $dec_before entry-like) was kept verbatim as one decision, \"$_WB_MG_FALLBACK_TITLE\", dated $created"
+    rm -f "$work"/dec/d*.txt
+    cp "$work/dec.sec" "$work/dec/d0001.txt"
+    : > "$work/dec/markers.txt"
+    printf 'E\t1\tF\t%s\t%s\t0000\t-\t%s\n' "$dec_first" "$created" "$_WB_MG_FALLBACK_TITLE" > "$work/dec.meta"
+    d_style=([1]=F); d_line=([1]="$dec_first"); d_date=([1]="$created"); d_hm=([1]=0000); d_flags=([1]=-)
+    d_title=([1]="$_WB_MG_FALLBACK_TITLE")
+    nd=1; unattr=(); dec_before=1; marker_before=0
+    hist_before=$((ticked_before + marker_before))
   fi
   local nmark; nmark="$(_wb_mg_nb "$work/dec/markers.txt")"
   local nodate_lines="" notime_lines=""
