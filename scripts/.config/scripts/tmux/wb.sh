@@ -4899,7 +4899,11 @@ cmd_now() {
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || exit $?
-  _wb_replace_block "$file" "Now" "$body" 1
+  if ! _wb_replace_block "$file" "Now" "$body" 1; then
+    wb_task_lock_release "$file"
+    echo "wb now: could not rewrite \"## Now\" in $(basename -- "$file")" >&2
+    exit 1
+  fi
   wb_task_lock_release "$file"
   echo "wb now: replaced \"## Now\" in $(basename -- "$file")"
 }
@@ -4942,8 +4946,13 @@ cmd_decide_supersede() {
   fi
   _wb_record_write_file "$file" decisions "$old" "$text" || { wb_task_lock_release "$file"; exit 1; }
   local new="$WB_RECORD_ID"
-  wb_set_frontmatter_field "$oldf" status superseded
-  wb_set_frontmatter_field "$oldf" superseded_by "[$new]"
+  if ! wb_set_frontmatter_field "$oldf" status superseded \
+     || ! wb_set_frontmatter_field "$oldf" superseded_by "[$new]"; then
+    wb_render_views "$file"
+    wb_task_lock_release "$file"
+    echo "wb decide-supersede: wrote $new but could not mark '$old' superseded; fix $oldf by hand (status: superseded, superseded_by: [$new])" >&2
+    exit 1
+  fi
   wb_render_views "$file"
   wb_task_lock_release "$file"
   echo "wb decide-supersede: $new supersedes $old in $(basename -- "$file")"

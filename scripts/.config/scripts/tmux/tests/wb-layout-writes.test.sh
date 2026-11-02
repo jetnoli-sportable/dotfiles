@@ -186,6 +186,25 @@ wb_handoff_write "$H4" $'### 2026-11-01 12:00 — wb-save\nnew'
 assert_eq "several existing handoffs: exactly one remains in the task file" 1 "$(grep -c '^### ' "$H4")"
 assert_eq "several existing handoffs: both moved out" 2 "$(find "$TASKS_DIR/dossiers/proj--lay-h4/handoffs" -name '*.md' | wc -l | tr -d ' ')"
 
+# --- cheap-fix guards: a failed write is reported, not announced as done ------
+FW="$TASKS_DIR/proj--failw.md"
+printf -- '---\nstatus: doing\nrepo: proj\nlayout: dossier\n---\n# Title\n\n## Now\n\nold\n' > "$FW"
+_wb_replace_block_real="$(declare -f _wb_replace_block)"
+_wb_replace_block() { return 1; }
+out="$( (printf 'x\n' | cmd_now proj--failw -) 2>&1 )"; rc=$?
+eval "$_wb_replace_block_real"
+assert_eq "wb now: a failed rewrite exits non-zero" 1 "$rc"
+assert_not "wb now: a failed rewrite does not say replaced" 'replaced' "$out"
+mk_layout_task proj--failsup
+printf '### 2026-11-01 10:00 — Old call\nbody\n' | cmd_append proj--failsup Decisions - >/dev/null 2>&1
+OLDID="$(ls "$TASKS_DIR/dossiers/proj--failsup/decisions" | head -1)"; OLDID="${OLDID%.md}"
+wb_set_frontmatter_field_real="$(declare -f wb_set_frontmatter_field)"
+wb_set_frontmatter_field() { return 1; }
+out="$( (printf 'New call\n' | cmd_decide_supersede proj--failsup "$OLDID" -) 2>&1 )"; rc=$?
+eval "$wb_set_frontmatter_field_real"
+assert_eq "decide-supersede: a failed flip of the old decision exits non-zero" 1 "$rc"
+assert "decide-supersede: the failure is reported" 'could not mark' "$out"
+
 # --- wb now -------------------------------------------------------------------
 NOW="$TASKS_DIR/proj--now.md"
 printf -- '---\nstatus: doing\nrepo: proj\nlayout: dossier\n---\n# Title\n\n## Now\n\nold goal\nold next\n\n## Plan\n\nplan text\n\n## Handoffs\n\nh\n' > "$NOW"

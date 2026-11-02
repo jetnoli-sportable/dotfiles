@@ -130,8 +130,9 @@ shelf, and nothing nudges anyone, so a draft waits there until this review.
      followed by the heredoc body and the `WB_DECISION_END` terminator line. `accept`
      moves the draft to `resolved/` (kept 30 days) and logs `shelved_accepted`. A draft
      left from before the one-decision-per-file change may hold up to 3 `### `
-     entries: review each, record the accepted ones in ONE `wb append` (each under its
-     own dated heading), and run `accept <path>` even if only some were accepted.
+     entries: review each and record each accepted one with its OWN `wb append` call
+     (one decision per call, so on a layout task each gets its own file and id), then
+     run `accept <path>` even if only some were accepted.
    - **dismiss** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (moves it to
      `resolved/`, kept 30 days, logs `shelved_dismissed`). Also the answer when none of
      a multi-entry draft's entries is accepted.
