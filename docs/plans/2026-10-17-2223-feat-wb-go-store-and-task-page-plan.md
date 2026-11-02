@@ -303,7 +303,7 @@ All in `~/code/tasks/dossiers/dotfiles--wb-future-direction/` unless noted:
 - KTD21. **A per-task switch for the trial only.** `layout: dossier` in a task's frontmatter selects the new paths in every writer and reader that U10–U12 touch. Tasks without it keep today's paths. At the switch (U14) every task gets the layout, then the old paths and the switch itself are deleted from `wb.sh` and the skills. Governs R32.
 - KTD22. **Migration rules.** `wb migrate <task>|--all [--dry-run]` takes each task's own lock (`wb_task_lock_acquire_guarded`) while it converts that task; wb has no store-wide lock. A task whose lock is held is skipped and listed, and `--all` ends by reporting every skipped task. Per task, it:
   - parses `## Decisions` in four written styles: `2026-10-17 — **Bold lead.** …`; `### 2026-10-09 15:30 — <title>` with Decided/Rejected/Why bullets; `2026-10-18 decision-page <slug> r1: …`; and the most common one, a dated top-level bullet such as `- **2026-10-18 (Jet): <title>.** …` or `- 2026-10-18 — …`, whose indented lines belong to it. It moves `_No decisions: <reason>_` markers to the migrated-history file;
-  - loses nothing: every non-blank line of `## Decisions` lands in exactly one output file. A task with any line the parser can't attribute to an entry is left unmigrated and listed as an exception with those line numbers;
+  - loses nothing: every non-blank line of `## Decisions` lands in exactly one output file. A `## Decisions` section with any line the parser can't attribute to an entry is not split: the whole section, verbatim, becomes one decision record titled "Decisions before the dossier layout", dated from `created:`, and is listed as an exception with those line numbers (amended 2026-11-02: the U13 rehearsal found 83 tasks with free-form decision text, which this rule had left unmigrated);
   - keeps each prose `(supersedes: …)` marker as raw text in the new decision's body, leaves that decision `in-force` and lists the marker as an exception. Only about four task files hold one, so the real ones are linked by hand with `wb decide-supersede` after migration;
   - gives an entry with no time the date at `0000`, then `0001`, … in file order, and an entry with no date the previous entry's date, listing each as an exception;
   - moves all but the newest `## Handoffs` entry to `handoffs/`; moves open `## Follow-ups` items to `open-items/`;
@@ -533,7 +533,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
 - **Test scenarios:**
   - The AE7 fixture yields exactly the counts in AE7, and a second run is a no-op (`git diff` empty on a fixture repo). (Covers AE7.)
   - Dated top-level bullets (`- **2026-10-18 (Jet): …**` with indented follow-on lines) each become one decision file.
-  - A `## Decisions` line that fits no style leaves the task unmigrated and lists that line number; nothing is written for that task.
+  - A `## Decisions` line that fits no style turns the whole section into one verbatim decision record dated from `created:`, and lists that line number as an exception.
   - A `(supersedes: 2026-10-17 "Probe 6")` marker stays as raw text in the new decision, which stays in force, and is listed as an exception.
   - The "before" counts come from the source text: a fixture whose entry the parser would merge into its neighbour shows a mismatch.
   - A task whose lock is held is skipped and named in `--all`'s report.

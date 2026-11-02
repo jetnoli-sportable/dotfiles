@@ -3,8 +3,8 @@
 # one-off conversion of an old-shape task file into the dossier layout.
 # Covers the AE7 fixture (30 decisions in four styles, 40 handoffs, 12 open
 # and 5 ticked follow-ups, ## Done, ## Plan) and every U11 scenario: the
-# no-loss rule (a line fitting no style leaves the task unmigrated), prose
-# supersede markers, the "before" counts coming from the raw text, held locks,
+# no-loss rule (a line fitting no style keeps the section as one verbatim
+# decision), prose supersede markers, the "before" counts coming from the raw text, held locks,
 # no-time/no-date stamping, _No decisions:_ markers, unknown sections,
 # --dry-run, skipping an already-migrated task, the CONCEPTS.md rename, and the
 # decision parsing under both gawk and mawk. All fixture text is made up.
@@ -225,10 +225,10 @@ assert "per-entry check: a differing body blocks the task" 'differs from its rec
 source "$SELF_DIR/wb-migrate.sh"
 
 # =============================================================================
-# a line that fits no style: task left unmigrated, line number listed
+# a line that fits no style: the whole section becomes one verbatim decision
 # =============================================================================
 new_store
-mk_task proj--stray 2026-10-01 <<'EOF'
+mk_task proj--stray 2026-09-14 <<'EOF'
 
 ## Plan
 
@@ -239,17 +239,28 @@ keep me
 Some loose sentence before any entry.
 
 2026-10-18 — **A real one.** Body.
+_No decisions: none here_
 
 ## Follow-ups
 EOF
-before="$(store_sum)"
+T="$TASKS_DIR/proj--stray.md"; D="$TASKS_DIR/dossiers/proj--stray"
+sec="$(_wb_section_text "$T" Decisions | grep '[^[:space:]]')"
 out="$(cmd_migrate proj--stray 2>&1)"; rc=$?
-assert "stray line: NOT MIGRATED in the count line" 'proj--stray .*NOT MIGRATED' "$out"
-assert "stray line: its task line number (17) is listed" 'fit no entry style \(task line numbers: 17\)' "$out"
-assert_eq "stray line: nothing written (store byte-identical)" "$before" "$(store_sum)"
-[ ! -e "$TASKS_DIR/dossiers" ] && echo "ok   - stray line: no dossiers/ directory" || { echo "FAIL - stray line: dossiers/ created"; fail=1; }
-assert_eq "stray line: exit 1 (a task was left unmigrated)" 1 "$rc"
-# a stray column-0 line after a bullet entry is also unattributed
+assert_eq "stray line: exit 0 (migrated through the fallback)" 0 "$rc"
+assert "stray line: one decision in the count line" 'proj--stray +decisions 1/1 ' "$out"
+assert "stray line: exception names the line (17) and the fallback" 'fit no entry style \(task line numbers: 17\); the whole section \(3 non-blank lines, 1 entry-like\) was kept verbatim as one decision, "Decisions before the dossier layout", dated 2026-09-14' "$out"
+assert_eq "stray line: one decision file" 1 "$(nfiles "$D/decisions")"
+rec="$D/decisions/2026-09-14-0000-decisions-before-the-dossier-layout.md"
+[ -f "$rec" ] && echo "ok   - stray line: record named from created: and the fixed title" || { echo "FAIL - stray line: no $rec"; ls "$D/decisions"; fail=1; }
+assert_eq "stray line: record body is the section, line for line" "$sec" "$(_wb_mg_body_text "$rec")"
+assert "stray line: record is in force" '^status: in-force' "$(cat "$rec")"
+assert_not "stray line: the marker stays in the record, not the history file" 'No decisions' "$(cat "$D"/handoffs/*.md 2>/dev/null)"
+assert "stray line: task file has the layout" '^layout: dossier' "$(cat "$T")"
+assert_not "stray line: task file has no ## Decisions" '^## Decisions' "$(cat "$T")"
+again="$(store_sum)"
+cmd_migrate proj--stray >/dev/null 2>&1
+assert_eq "stray line: second run changes nothing" "$again" "$(store_sum)"
+# a stray column-0 line after a bullet entry also triggers the fallback
 new_store
 mk_task proj--stray2 2026-10-01 <<'EOF'
 
@@ -259,8 +270,9 @@ mk_task proj--stray2 2026-10-01 <<'EOF'
   - indented, fine
 not indented, not an entry
 EOF
-out="$(cmd_migrate proj--stray2 2>&1)"
-assert "bullet entry then an unindented line: unmigrated, line 15 listed" 'task line numbers: 15' "$out"
+out="$(cmd_migrate proj--stray2 --dry-run 2>&1)"; rc=$?
+assert "bullet entry then an unindented line: line 15 listed, kept verbatim" 'task line numbers: 15\); the whole section' "$out"
+assert_eq "bullet entry then an unindented line: dry run exit 0" 0 "$rc"
 
 # =============================================================================
 # prose supersede marker: raw text, in force, exception
