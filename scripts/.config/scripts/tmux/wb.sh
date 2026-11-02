@@ -73,6 +73,18 @@
 #                                    (On a task with `layout: dossier`, `wb append` writes Decisions
 #                                    and Follow-ups as record files under dossiers/<task>/ and moves
 #                                    the previous Handoffs entry to handoffs/.)
+#   wb followups <task>              list <task>'s OPEN follow-ups, one per line as <ref><TAB><title>;
+#                                    <ref> is the open-items file id on a layout task, the item's
+#                                    1-based index among the open bullets under "## Follow-ups" on
+#                                    an old-layout one (a bullet is open unless ticked [x])
+#   wb followup-done <task> <ref> [<note>|-]
+#                                    mark one follow-up done under the per-task lock: <ref> is an
+#                                    exact id or index, else a case-insensitive substring of the id
+#                                    or title matching exactly one open item (several: exit 1 and
+#                                    list them; none, or already done: exit 1). Layout task:
+#                                    status: closed + closed: <date> (and "Closed <date>: <note>"),
+#                                    views rebuilt. Old layout: the bullet becomes "- [x] <text>"
+#                                    plus " — done <date>: <note>"
 #   wb migrate <task>|--all [--dry-run]
 #                                    one-off conversion of a task file into the dossier layout
 #                                    (decisions/, handoffs/, open-items/, newest handoff and an
@@ -4959,6 +4971,154 @@ cmd_decide_supersede() {
 }
 
 # ---------------------------------------------------------------------------
+# wb followups / wb followup-done — list a task's open follow-ups and mark one
+# done. A follow-up is open unless it is closed: a layout task's open-items/
+# file with `status: open`, an old-layout task's top-level `## Follow-ups`
+# bullet that is not ticked `[x]` (with or without a `[ ]` checkbox) — the
+# same rule wb_followup_count and wb migrate use.
+# ---------------------------------------------------------------------------
+
+# _wb_old_followups <task_file> <open|closed> — the top-level bullets under
+# "## Follow-ups" of an old-layout task, one "<n><TAB><text>" line each: n is
+# the 1-based index among the open (or among the ticked) bullets, text the
+# first line with its bullet and checkbox dropped.
+_wb_old_followups() {
+  WB_FU_WANT="$2" awk '
+    BEGIN { want = ENVIRON["WB_FU_WANT"] }
+    /^## Follow-ups/ { infu = 1; next }
+    /^## /           { infu = 0 }
+    infu && /^[-*] / {
+      tick = ($0 ~ /^[-*] \[[xX]\]/)
+      if ((want == "open") == tick) next
+      t = $0
+      if (t ~ /^[-*] \[[ xX]\]/) t = substr(t, 7); else t = substr(t, 3)
+      sub(/^[ \t]+/, "", t); gsub(/\t/, " ", t)
+      print ++n "\t" t
+    }
+  ' "$1"
+}
+
+# _wb_followup_list <task_file> <open|closed> — "<ref><TAB><title>" per
+# follow-up: the open-items file id (layout) or the index (old layout).
+_wb_followup_list() {
+  local file="$1" want="$2" f st
+  if _wb_is_dossier "$file"; then
+    local d; d="$(_wb_dossier_dir "$file")/open-items"
+    [ -d "$d" ] || return 0
+    for f in "$d"/*.md; do
+      [ -f "$f" ] || continue
+      st="$(wb_get_frontmatter "$f" status)"
+      if [ "$want" = open ]; then [ "$st" = open ] || continue; else [ "$st" != open ] || continue; fi
+      f="${f##*/}"
+      printf '%s\t%s\n' "${f%.md}" "$(_wb_open_item_title "$d/$f" | tr '\t' ' ')"
+    done
+  else
+    _wb_old_followups "$file" "$want"
+  fi
+  return 0
+}
+
+# cmd_followups <task-ref> — print the task's open follow-ups, read-only.
+cmd_followups() {
+  local query="${1:-}"
+  if [ -z "$query" ]; then
+    echo "usage: wb followups <task-ref>" >&2
+    exit 1
+  fi
+  local file
+  file="$(_wb_append_resolve_task "$query" "wb followups")" || exit 1
+  _wb_followup_list "$file" open
+}
+
+# _wb_followup_pick <list> <ref> — print the one matching line of <list> (an
+# exact ref column, else a lower-cased substring of the ref or title); return
+# 0 for exactly one match, 1 for none, 2 for several (all printed).
+_wb_followup_pick() {
+  local list="$1" ref="$2" line r t lref hit="" n=0
+  lref="$(printf '%s' "$ref" | tr '[:upper:]' '[:lower:]')"
+  while IFS=$'\t' read -r r t; do
+    [ "$r" = "$ref" ] || continue
+    printf '%s\t%s\n' "$r" "$t"; return 0
+  done <<< "$list"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    r="${line%%$'\t'*}"; t="${line#*$'\t'}"
+    local lc; lc="$(printf '%s\t%s' "$r" "$t" | tr '[:upper:]' '[:lower:]')"
+    [[ "$lc" == *"$lref"* ]] || continue
+    hit+="$line"$'\n'; n=$((n + 1))
+  done <<< "$list"
+  [ -z "$hit" ] || printf '%s' "$hit"
+  [ "$n" -le 1 ] || return 2
+  [ "$n" -eq 1 ] || return 1
+  return 0
+}
+
+# cmd_followup_done <task-ref> <ref> [<note>|-] — mark one follow-up done
+# under the per-task lock (see the verb list at the top of this file).
+cmd_followup_done() {
+  local query="${1:-}" ref="${2:-}"
+  if [ -z "$query" ] || [ -z "$ref" ]; then
+    echo "usage: wb followup-done <task-ref> <ref> [<note>|-]   (see wb followups; note '-' reads stdin)" >&2
+    exit 1
+  fi
+  local note=""
+  if [ $# -ge 3 ]; then
+    if [ "$3" = "-" ]; then note="$(cat)"; else note="$3"; fi
+    note="$(_wb_trim_blank_lines "$note")"
+  fi
+  local file
+  file="$(_wb_append_resolve_task "$query" "wb followup-done")" || exit 1
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+  local open picked rc=0 today; today="$(date '+%Y-%m-%d')"
+  open="$(_wb_followup_list "$file" open)"
+  picked="$(_wb_followup_pick "$open" "$ref")" || rc=$?
+  if [ "$rc" -eq 2 ]; then
+    wb_task_lock_release "$file"
+    echo "wb followup-done: '$ref' matches several open follow-ups in $(basename -- "$file"); give a longer ref:" >&2
+    printf '%s\n' "$picked" >&2
+    exit 1
+  elif [ "$rc" -ne 0 ]; then
+    local closed; closed="$(_wb_followup_list "$file" closed)"
+    local crc=0; _wb_followup_pick "$closed" "$ref" > /dev/null || crc=$?
+    wb_task_lock_release "$file"
+    if [ "$crc" -eq 0 ] || [ "$crc" -eq 2 ]; then
+      echo "wb followup-done: '$ref' is already done in $(basename -- "$file")" >&2
+    else
+      echo "wb followup-done: no open follow-up matches '$ref' in $(basename -- "$file")" >&2
+    fi
+    exit 1
+  fi
+  local pref="${picked%%$'\t'*}" ptitle="${picked#*$'\t'}"
+  if _wb_is_dossier "$file"; then
+    _wb_item_close "$(_wb_dossier_dir "$file")/open-items/$pref.md" "$today" "$note" \
+      && wb_render_views "$file" || rc=1
+  else
+    local suffix=""
+    [ -z "$note" ] || suffix=" — done $today: ${note//$'\n'/ }"
+    WB_FD_N="$pref" WB_FD_SUFFIX="$suffix" awk '
+      BEGIN { N = ENVIRON["WB_FD_N"] + 0; suf = ENVIRON["WB_FD_SUFFIX"] }
+      /^## Follow-ups/ { infu = 1; print; next }
+      /^## /           { infu = 0 }
+      infu && /^[-*] / && !/^[-*] \[[xX]\]/ && ++c == N {
+        t = $0
+        if (t ~ /^[-*] \[ \]/) t = substr(t, 7); else t = substr(t, 3)
+        sub(/^[ \t]+/, "", t)
+        print "- [x] " t suf; next
+      }
+      { print }
+    ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file" || rc=1
+  fi
+  wb_task_lock_release "$file"
+  if [ "$rc" -ne 0 ]; then
+    echo "wb followup-done: could not mark '$ptitle' done in $(basename -- "$file")" >&2
+    exit 1
+  fi
+  echo "wb followup-done: marked done: $ptitle ($(basename -- "$file"))"
+}
+
+# ---------------------------------------------------------------------------
 # wb status — set a STORE-ONLY task's status: field directly (no live
 # session to route the change through `wb pause`/`wb down`/`wb resume`).
 # ---------------------------------------------------------------------------
@@ -7964,6 +8124,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     append)      shift; cmd_append "$@" ;;
     now)         shift; cmd_now "$@" ;;
     decide-supersede) shift; cmd_decide_supersede "$@" ;;
+    followups)   shift; cmd_followups "$@" ;;
+    followup-done) shift; cmd_followup_done "$@" ;;
     # Sourced only here: wb.sh is stowed file by file, so a top-level source
     # of a new file would break every wb command between a merge and the
     # re-stow that links it. migrate is a one-off; nothing else needs it.
