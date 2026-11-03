@@ -1,0 +1,21 @@
+# wb done sweep lists. One rule per line, `keep:<glob>` or `throwaway:<glob>`;
+# blank lines and lines starting with `#` are ignored.
+#   keep:       gitignored files `wb done` copies into the task's dossier
+#   throwaway:  gitignored files it discards with the worktree
+# Globs are gitignore-style: no `/` matches at any depth, an inner `/` matches
+# the whole worktree-relative path, a trailing `/` matches a directory only.
+# Anything matching neither list stops `wb done` until resolved with
+# `--keep <path>` or `--throwaway <path>`. Credential-shaped files are never kept.
+keep:.claude-queue.md
+keep:CLAUDE.local.md
+
+throwaway:node_modules/
+throwaway:dist/
+throwaway:build/
+throwaway:.venv/
+throwaway:venv/
+throwaway:__pycache__/
+throwaway:target/
+throwaway:coverage/
+throwaway:logs/
+throwaway:*.log

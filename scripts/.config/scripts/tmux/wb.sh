@@ -5989,12 +5989,16 @@ cmd_install_hooks() {
 wb_credential_shaped() {
   local base
   base="$(basename "$1")"
+  local had_nocase=false
+  shopt -q nocasematch && had_nocase=true
   shopt -s nocasematch
   local shaped=1
   case "$base" in
-    .env|.env.*|*.pem|*.key|*secret*|*credential*|id_rsa*|id_ed25519*|*.p12|*.pfx) shaped=0 ;;
+    .env|.env.*|*.pem|*.key|*secret*|*credential*|id_rsa*|id_ed25519*|*.p12|*.pfx|\
+    config.hjson|*.env.json|.npmrc|.netrc|*.tfvars|.pgpass|id_ecdsa*|*.keystore|*.kdbx|*token*|*password*) shaped=0 ;;
   esac
-  shopt -u nocasematch
+  # Restore the caller's setting rather than forcing it off.
+  $had_nocase || shopt -u nocasematch
   return "$shaped"
 }
 
@@ -6014,6 +6018,221 @@ wb_safe_rel() {
     "$base_real"/*) printf '%s\n' "${resolved#"$base_real"/}" ;;
     *) return 1 ;;
   esac
+}
+
+# wb_sweep_lists — print the `wb done` sweep rules as `keep<TAB>glob` /
+# `throwaway<TAB>glob`, from wb-done-sweep.list next to wb.sh (resolved through
+# symlinks, since the stowed script is a link). $WB_SWEEP_LIST overrides the
+# path for tests.
+wb_sweep_lists() {
+  local list="${WB_SWEEP_LIST:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-done-sweep.list}"
+  [ -f "$list" ] || return 0
+  local line cls glob
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
+      ''|'#'*) continue ;;
+      keep:*) cls=keep; glob="${line#keep:}" ;;
+      throwaway:*) cls=throwaway; glob="${line#throwaway:}" ;;
+      *) continue ;;
+    esac
+    glob="${glob#"${glob%%[![:space:]]*}"}"
+    [ -n "$glob" ] && printf '%s\t%s\n' "$cls" "$glob"
+  done < "$list"
+  return 0
+}
+
+# _wb_sweep_glob_hit <glob> <rel> <isdir> — gitignore-style match: no inner `/`
+# matches the last path component, otherwise the whole relative path; a
+# trailing `/` needs a directory.
+_wb_sweep_glob_hit() {
+  local g="$1" rel="$2" isdir="$3"
+  if [[ $g == */ ]]; then
+    [ "$isdir" = 1 ] || return 1
+    g="${g%/}"
+  fi
+  g="${g#/}"
+  if [[ $g == */* ]]; then
+    # shellcheck disable=SC2053
+    [[ $rel == $g ]]
+  else
+    # shellcheck disable=SC2053
+    [[ ${rel##*/} == $g ]]
+  fi
+}
+
+# _wb_sweep_in_list <name> <rel> <isdir> — true when <rel>, or any ancestor
+# directory of it, matches a glob in the array named <name>.
+_wb_sweep_in_list() {
+  local -n _globs="$1"
+  local rel="$2" isdir="$3" g cand="$2"
+  [ "${#_globs[@]}" -gt 0 ] || return 1
+  while :; do
+    for g in "${_globs[@]}"; do
+      _wb_sweep_glob_hit "$g" "$cand" "$isdir" && return 0
+    done
+    case "$cand" in */*) cand="${cand%/*}"; isdir=1 ;; *) break ;; esac
+  done
+  return 1
+}
+
+# _wb_sweep_flagged <name> <rel> — true when <rel> is, or sits under, a path
+# in the array named <name>. Flags name exact worktree paths, never globs.
+_wb_sweep_flagged() {
+  local -n _paths="$1"
+  local p
+  for p in ${_paths[@]+"${_paths[@]}"}; do
+    [ "$2" = "$p" ] && return 0
+    case "$2" in "$p"/*) return 0 ;; esac
+  done
+  return 1
+}
+
+# _wb_sweep_keepcheck <worktree> <rel> — fail with a note on stdout when
+# keeping <rel> is unsafe: credential-shaped, a symlink resolving outside the
+# worktree, or a directory holding either (walked with find -P, so symlinks
+# are inspected, never followed).
+_wb_sweep_keepcheck() {
+  local wt="$1" rel="$2" wt_real f
+  if wb_credential_shaped "$rel"; then
+    echo "credential-shaped, copy it yourself"; return 1
+  fi
+  wt_real="$(realpath -m -- "$wt")"
+  if [ -L "$wt/$rel" ]; then
+    case "$(realpath -m -- "$wt/$rel")" in
+      "$wt_real"/*) ;;
+      *) echo "symlink resolves outside the worktree"; return 1 ;;
+    esac
+  elif [ -d "$wt/$rel" ]; then
+    while IFS= read -r -d '' f; do
+      if wb_credential_shaped "$f"; then
+        echo "holds credential-shaped file ${f#"$wt"/}, copy it yourself"; return 1
+      fi
+      if [ -L "$f" ]; then
+        case "$(realpath -m -- "$f")" in
+          "$wt_real"/*) ;;
+          *) echo "holds symlink ${f#"$wt"/} resolving outside the worktree"; return 1 ;;
+        esac
+      fi
+    done < <(find -P "$wt/$rel" \( -type f -o -type l \) -print0 2>/dev/null)
+  fi
+  return 0
+}
+
+# _wb_sweep_one <rel> <out> — classify one entry and print its line. Uses the
+# caller's (wb_sweep_classify's) locals: wt, main, the flag arrays, the globs
+# and the bootstrap list.
+_wb_sweep_one() {
+  local rel="$1" out="$2" isdir=0 note f
+  [ -d "$wt/$rel" ] && isdir=1
+  if _wb_sweep_flagged tw_flags "$rel"; then
+    printf 'throwaway\t%s\t\n' "$out"; return 0
+  fi
+  if _wb_sweep_flagged keep_flags "$rel"; then
+    # A refused --keep is unknown even if the file matches main: the user asked
+    # to keep it, so silently discarding it would surprise.
+    if note="$(_wb_sweep_keepcheck "$wt" "$rel")"; then
+      printf 'keep\t%s\t\n' "$out"
+    else
+      printf 'unknown\t%s\t%s\n' "$out" "$note"
+    fi
+    return 0
+  fi
+  for f in ${boot[@]+"${boot[@]}"}; do
+    [ "$f" = "$rel" ] || continue
+    if [ -L "$wt/$rel" ]; then
+      printf 'throwaway\t%s\t\n' "$out"; return 0
+    elif [ -f "$wt/$rel" ] && [ -f "$main/$rel" ] && cmp -s "$wt/$rel" "$main/$rel"; then
+      printf 'throwaway\t%s\t\n' "$out"; return 0
+    fi
+  done
+  if wb_credential_shaped "$rel"; then
+    printf 'unknown\t%s\tcredential-shaped, copy it yourself\n' "$out"; return 0
+  fi
+  if _wb_sweep_in_list keep_globs "$rel" "$isdir"; then
+    if note="$(_wb_sweep_keepcheck "$wt" "$rel")"; then
+      printf 'keep\t%s\t\n' "$out"
+    else
+      printf 'unknown\t%s\t%s\n' "$out" "$note"
+    fi
+    return 0
+  fi
+  if _wb_sweep_in_list tw_globs "$rel" "$isdir"; then
+    printf 'throwaway\t%s\t\n' "$out"; return 0
+  fi
+  if [ "$isdir" = 1 ] && [ ! -L "$wt/$rel" ]; then
+    local n=0
+    while IFS= read -r -d '' f; do
+      n=$((n + 1))
+      _wb_sweep_one "${f#"$wt"/}" "${f#"$wt"/}"
+    done < <(find -P "$wt/$rel" \( -type f -o -type l \) -print0 2>/dev/null)
+    [ "$n" -gt 0 ] || printf 'unknown\t%s\tempty directory\n' "$out"
+    return 0
+  fi
+  printf 'unknown\t%s\t\n' "$out"
+}
+
+# wb_sweep_classify <worktree> <main_checkout> [--keep <p>]... [--throwaway <p>]...
+# — sort the worktree's gitignored entries into keep / throwaway / unknown,
+# one `class<TAB>path<TAB>note` line each (directories keep their trailing
+# `/`). Rows are tried in the order of the plan's "Sweep classification" table.
+# The flags classify a named path for this run only; one naming a missing path
+# or an unsafe one warns on stderr and is ignored.
+wb_sweep_classify() {
+  [ "$#" -ge 2 ] || { echo "wb_sweep_classify: usage: <worktree> <main> [--keep p]... [--throwaway p]..." >&2; return 2; }
+  local wt="$1" main="$2"; shift 2
+  local -a keep_flags=() tw_flags=() keep_globs=() tw_globs=() boot=()
+  local p safe
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --keep|--throwaway)
+        [ "$#" -ge 2 ] || { echo "wb_sweep_classify: $1 needs a path" >&2; return 2; }
+        p="${2%/}"
+        if [ "$1" = --keep ]; then
+          if safe="$(wb_safe_rel "$wt" "$p")"; then
+            if [ -e "$wt/$safe" ] || [ -L "$wt/$safe" ]; then keep_flags+=("$safe")
+            else echo "wb: --keep $p: no such path, ignored" >&2; fi
+          else
+            echo "wb: --keep $p: outside the worktree, ignored" >&2
+          fi
+        else
+          # Lexical check only: bootstrap symlinks point into the main checkout.
+          case "$p" in
+            /*|..|../*|*/..|*/../*) echo "wb: --throwaway $p: outside the worktree, ignored" >&2 ;;
+            *) if [ -e "$wt/$p" ] || [ -L "$wt/$p" ]; then tw_flags+=("$p")
+               else echo "wb: --throwaway $p: no such path, ignored" >&2; fi ;;
+          esac
+        fi
+        shift 2 ;;
+      *) echo "wb_sweep_classify: unknown argument: $1" >&2; return 2 ;;
+    esac
+  done
+  local cls glob
+  while IFS=$'\t' read -r cls glob; do
+    if [ "$cls" = keep ]; then keep_globs+=("$glob"); else tw_globs+=("$glob"); fi
+  done < <(wb_sweep_lists)
+  # Same manifest parse and `.env*` fallback as wb_bootstrap.
+  local manifest="$main/.worktree-bootstrap" line f
+  if [ -f "$manifest" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line%%#*}"
+      line="${line#"${line%%[![:space:]]*}"}"
+      line="${line%"${line##*[![:space:]]}"}"
+      [ -n "$line" ] && boot+=("$line")
+    done < "$manifest"
+  else
+    while IFS= read -r -d '' f; do
+      boot+=("$(basename "$f")")
+    done < <(find "$main" -maxdepth 1 -name '.env*' -print0 2>/dev/null)
+  fi
+  local rec rel
+  while IFS= read -r -d '' rec; do
+    case "$rec" in '!! '*) ;; *) continue ;; esac
+    rel="${rec#'!! '}"
+    _wb_sweep_one "${rel%/}" "$rel"
+  done < <(git -C "$wt" status --porcelain -z --ignored 2>/dev/null)
+  return 0
 }
 
 # _wb_open_items <task_file> — the paths of the task's open-items/*.md whose
