@@ -6148,6 +6148,36 @@ _wb_sweep_keepcheck() {
   return 0
 }
 
+# _wb_sweep_emit <class> <rel> <out> [note] — print one output line and record
+# <rel>'s class in the caller's `seen` map, which the flag pass after the walk
+# reads.
+_wb_sweep_emit() {
+  printf '%s\t%s\t%s\n' "$1" "$3" "${4:-}"
+  seen["$2"]="$1"
+}
+
+# _wb_sweep_ancestor <rel> — print the nearest recorded entry that <rel> sits
+# under, as `class<TAB>path`; fail when there is none.
+_wb_sweep_ancestor() {
+  local cand="$1"
+  while [[ $cand == */* ]]; do
+    cand="${cand%/*}"
+    if [ -n "${seen[$cand]+x}" ]; then printf '%s\t%s' "${seen[$cand]}" "$cand"; return 0; fi
+  done
+  return 1
+}
+
+# _wb_sweep_covered <rel> — true when an entry equal to <rel>, or under it, was
+# printed (so a flag on <rel> already applied during the walk).
+_wb_sweep_covered() {
+  local k
+  [ -n "${seen[$1]+x}" ] && return 0
+  for k in "${!seen[@]}"; do
+    [[ $k == "$1"/* ]] && return 0
+  done
+  return 1
+}
+
 # _wb_sweep_one <rel> <out> — classify one entry and print its line. Uses the
 # caller's (wb_sweep_classify's) locals: wt, main, the flag arrays, the globs
 # and the bootstrap list.
@@ -6155,44 +6185,44 @@ _wb_sweep_one() {
   local rel="$1" out="$2" isdir=0 note f
   case "$rel" in
     *$'\t'*|*$'\n'*|*$'\r'*)
-      printf 'unknown\t%s\tname holds a tab or line break, handle it yourself\n' "$(_wb_sweep_esc "$out")"
+      _wb_sweep_emit unknown "$rel" "$(_wb_sweep_esc "$out")" 'name holds a tab or line break, handle it yourself'
       return 0 ;;
   esac
   [ -d "$wt/$rel" ] && isdir=1
   if _wb_sweep_flagged tw_flags "$rel"; then
-    printf 'throwaway\t%s\t\n' "$out"; return 0
+    _wb_sweep_emit throwaway "$rel" "$out"; return 0
   fi
   if _wb_sweep_flagged keep_flags "$rel"; then
     # A refused --keep is unknown even if the file matches main: the user asked
     # to keep it, so silently discarding it would surprise.
     if note="$(_wb_sweep_keepcheck "$wt" "$rel")"; then
-      printf 'keep\t%s\t\n' "$out"
+      _wb_sweep_emit keep "$rel" "$out"
     else
-      printf 'unknown\t%s\t%s\n' "$out" "$note"
+      _wb_sweep_emit unknown "$rel" "$out" "$note"
     fi
     return 0
   fi
   for f in ${boot[@]+"${boot[@]}"}; do
     [ "$f" = "$rel" ] || continue
     if [ -L "$wt/$rel" ]; then
-      printf 'throwaway\t%s\t\n' "$out"; return 0
+      _wb_sweep_emit throwaway "$rel" "$out"; return 0
     elif [ -f "$wt/$rel" ] && [ -f "$main/$rel" ] && cmp -s "$wt/$rel" "$main/$rel"; then
-      printf 'throwaway\t%s\t\n' "$out"; return 0
+      _wb_sweep_emit throwaway "$rel" "$out"; return 0
     fi
   done
   if wb_credential_shaped "$rel"; then
-    printf 'unknown\t%s\tcredential-shaped, copy it yourself\n' "$out"; return 0
+    _wb_sweep_emit unknown "$rel" "$out" 'credential-shaped, copy it yourself'; return 0
   fi
   if _wb_sweep_in_list keep_globs "$rel" "$isdir"; then
     if note="$(_wb_sweep_keepcheck "$wt" "$rel")"; then
-      printf 'keep\t%s\t\n' "$out"
+      _wb_sweep_emit keep "$rel" "$out"
     else
-      printf 'unknown\t%s\t%s\n' "$out" "$note"
+      _wb_sweep_emit unknown "$rel" "$out" "$note"
     fi
     return 0
   fi
   if _wb_sweep_in_list tw_globs "$rel" "$isdir"; then
-    printf 'throwaway\t%s\t\n' "$out"; return 0
+    _wb_sweep_emit throwaway "$rel" "$out"; return 0
   fi
   if [ "$isdir" = 1 ] && [ ! -L "$wt/$rel" ]; then
     # One level at a time, so a nested directory (a cloned project's
@@ -6212,14 +6242,14 @@ _wb_sweep_one() {
     # find could not read may hold anything.
     if [ "$n" -eq 0 ]; then
       if [ -r "$wt/$rel" ] && [ -x "$wt/$rel" ]; then
-        printf 'throwaway\t%s\tempty directory\n' "$out"
+        _wb_sweep_emit throwaway "$rel" "$out" 'empty directory'
       else
-        printf 'unknown\t%s\tcannot read this directory\n' "$out"
+        _wb_sweep_emit unknown "$rel" "$out" 'cannot read this directory'
       fi
     fi
     return 0
   fi
-  printf 'unknown\t%s\t\n' "$out"
+  _wb_sweep_emit unknown "$rel" "$out"
 }
 
 # wb_sweep_classify <worktree> <main_checkout> [--keep <p>]... [--throwaway <p>]...
@@ -6276,10 +6306,41 @@ wb_sweep_classify() {
     echo "wb_sweep_classify: git status failed in $wt, nothing classified" >&2; return 1
   fi
   local rec rel
+  local -A seen=()
   for rec in ${recs[@]+"${recs[@]}"}; do
     case "$rec" in '!! '*) ;; *) continue ;; esac
     rel="${rec#'!! '}"
     _wb_sweep_one "${rel%/}" "$rel"
+  done
+  # Flags the walk never reached. Git reports a fully ignored directory once
+  # (`logs/`), so a --keep on a file inside it gets its own extra line here —
+  # W6 copies keep lines before removing the worktree, so `throwaway logs/`
+  # and `keep logs/notes.log` together keep that one file.
+  local anc note out
+  for p in ${keep_flags[@]+"${keep_flags[@]}"}; do
+    _wb_sweep_covered "$p" && continue
+    if anc="$(_wb_sweep_ancestor "$p")"; then
+      [ "${anc%%$'\t'*}" = keep ] && continue
+      out="$p"; [ -d "$wt/$p" ] && [ ! -L "$wt/$p" ] && out="$p/"
+      case "$p" in
+        *$'\t'*|*$'\n'*|*$'\r'*)
+          _wb_sweep_emit unknown "$p" "$(_wb_sweep_esc "$out")" 'name holds a tab or line break, handle it yourself' ;;
+        *)
+          if note="$(_wb_sweep_keepcheck "$wt" "$p")"; then _wb_sweep_emit keep "$p" "$out"
+          else _wb_sweep_emit unknown "$p" "$out" "$note"; fi ;;
+      esac
+    else
+      echo "wb: --keep $(_wb_sweep_esc "$p"): matched no ignored entry, ignored" >&2
+    fi
+  done
+  for p in ${tw_flags[@]+"${tw_flags[@]}"}; do
+    _wb_sweep_covered "$p" && continue
+    if anc="$(_wb_sweep_ancestor "$p")"; then
+      [ "${anc%%$'\t'*}" = keep ] &&
+        echo "wb: --throwaway $(_wb_sweep_esc "$p"): inside kept ${anc#*$'\t'}/, kept with it" >&2
+    else
+      echo "wb: --throwaway $(_wb_sweep_esc "$p"): matched no ignored entry, ignored" >&2
+    fi
   done
   return 0
 }

@@ -201,6 +201,28 @@ run_all() { # <label>
   assert_eq "[$L] odd name is unknown, escaped" unknown "$(cls "$out" 'evil\nkeep\tforged.log')"
   rm -f "$WT/evil"$'\n''keep'$'\t''forged.log'
 
+  # #1: --keep on a file inside a collapsed ignored directory gets its own line
+  printf 'o' > "$WT/logs/old.log"; printf 's' > "$WT/logs/session-notes.log"
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep logs/session-notes.log 2>"$FIXTURE/k1.err.$L")"
+  assert_eq "[$L] collapsed logs/ still throwaway" throwaway "$(cls "$out" logs/)"
+  assert_eq "[$L] --keep logs/session-notes.log keeps" keep "$(cls "$out" logs/session-notes.log)"
+  assert_eq "[$L] sibling old.log gets no line of its own" "" "$(cls "$out" logs/old.log)"
+  assert_eq "[$L] no warning for a matched --keep" "" "$(cat "$FIXTURE/k1.err.$L")"
+  printf 't' > "$WT/logs/api-token.log"
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep logs/api-token.log 2>/dev/null)"
+  assert_eq "[$L] --keep credential-shaped file under logs/ unknown" unknown "$(cls "$out" logs/api-token.log)"
+  rm -f "$WT/logs/old.log" "$WT/logs/session-notes.log" "$WT/logs/api-token.log"
+  mkdir -p "$WT/scratch/secrets"; printf 'k' > "$WT/scratch/secrets/prod.yaml"
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep scratch/secrets/prod.yaml 2>/dev/null)"
+  assert_eq "[$L] --keep a file inside secrets/ under collapsed scratch/ unknown" unknown "$(cls "$out" scratch/secrets/prod.yaml)"
+  assert "[$L] its note names the secrets/ component" 'inside credential-shaped secrets/' "$(note "$out" scratch/secrets/prod.yaml)"
+  rm -rf "$WT/scratch/secrets"
+  # a --keep or --throwaway that matches no ignored entry warns (Risk D)
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep .gitignore --throwaway ./stray.txt 2>"$FIXTURE/k0.err.$L")"
+  assert "[$L] --keep on a tracked file warns" '--keep .gitignore: matched no ignored entry' "$(cat "$FIXTURE/k0.err.$L")"
+  assert "[$L] --throwaway ./stray.txt warns" '--throwaway ./stray.txt: matched no ignored entry' "$(cat "$FIXTURE/k0.err.$L")"
+  assert_eq "[$L] tracked .gitignore gets no line" "" "$(cls "$out" .gitignore)"
+
   # T1: a keep-list glob still runs the safety checks
   printf 'keep:okdir/\n' > "$FIXTURE/keepglob.list"
   out="$(WB_SWEEP_LIST="$FIXTURE/keepglob.list" wb_sweep_classify "$WT" "$MAIN" 2>/dev/null)"
@@ -210,6 +232,12 @@ run_all() { # <label>
   assert_eq "[$L] keep glob on a dir holding a token file unknown" unknown "$(cls "$out" okdir/)"
   assert "[$L] keep glob note names the file" 'okdir/api-token.txt' "$(note "$out" okdir/)"
   rm -f "$WT/okdir/api-token.txt"
+  # flags under a directory that is already kept add nothing, but a
+  # --throwaway there says it will be kept with the directory
+  out="$(WB_SWEEP_LIST="$FIXTURE/keepglob.list" wb_sweep_classify "$WT" "$MAIN" --keep okdir/f.txt 2>/dev/null)"
+  assert_eq "[$L] --keep under a kept dir adds no line" "" "$(cls "$out" okdir/f.txt)"
+  out="$(WB_SWEEP_LIST="$FIXTURE/keepglob.list" wb_sweep_classify "$WT" "$MAIN" --throwaway okdir/f.txt 2>"$FIXTURE/tk.err.$L")"
+  assert "[$L] --throwaway under a kept dir warns" 'inside kept okdir/, kept with it' "$(cat "$FIXTURE/tk.err.$L")"
 
   # no-manifest repo: root .env* are the bootstrap entries
   R="$(mkrepo "b$L" '')"; MAIN="$R/main"; WT="$R/wt"
