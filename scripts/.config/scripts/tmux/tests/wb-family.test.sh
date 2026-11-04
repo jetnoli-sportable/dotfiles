@@ -134,6 +134,18 @@ proj--cousin" "$out"
 out2="$(fam proj--umbrella)"
 assert_eq "umbrella: same family as from the grandchild" "$out" "$out2"
 
+# Siblings come in byte order whatever the locale, as wb-store lists them
+# (KTD26): en_US skips the hyphen on its first pass, so it would put
+# proj--picking before proj--pick-up; byte order puts '-' (0x2D) first.
+mk_task proj--picker ""
+mk_task proj--picking proj--picker
+mk_task proj--pick-up proj--picker
+out="$( (LC_ALL=en_US.UTF-8; cmd_family proj--picker) 2>/dev/null)"
+assert_eq "siblings: byte order under an en_US locale" "proj--picker
+proj--pick-up
+proj--picking" "$out"
+rm -f "$FIXTURE_TASKS"/proj--pick{er,ing,-up}.md
+
 out="$(fam proj--lone; echo "rc=$?")"
 assert_eq "no parent, no children: only itself, exit 0" "proj--lone
 rc=0" "$out"

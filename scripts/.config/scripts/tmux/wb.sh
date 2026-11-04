@@ -398,7 +398,14 @@ wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
 # AGENTS.md, CLAUDE.md, README.md, TEMPLATE.md, RECOVERY-NOTES-*.md and any
 # other loose Markdown file in $TASKS_DIR are never returned; the dossiers/
 # directory (wb done's keeper sweep, the layout) is not a *.md file either.
+#
+# Files come back in byte order, not the locale's collation: the glob runs
+# under a function-local LC_ALL=C. A UTF-8 locale skips punctuation on its
+# first pass, so `x--session-tree` and `x--sessioninfo` swap places between
+# the two orders. wb-store (Go) sorts by bytes, and `wb family` must list a
+# family in the same order as `wb-store family` (KTD26 in the Go store plan).
 wb_task_files() {
+  local LC_ALL=C
   local f base
   for f in "$TASKS_DIR"/*.md; do
     [ -f "$f" ] || continue
