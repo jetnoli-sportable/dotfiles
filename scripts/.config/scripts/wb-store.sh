@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# wb-store.sh — run wb-store, the Go reader of the wb task store, against
-# the real store. Thin wrapper around ~/code/wb-store: rebuilds the binary
-# when its Go source changed, then runs it with --store pointed at
-# $TASKS_DIR. Any wb-store command and flags pass straight through:
+# wb-store.sh — run the Go task-store reader, rebuilding it when stale.
+# Thin wrapper around ~/code/wb-store, the reader of the wb task store:
+# rebuilds the binary when its Go source changed, then runs it with --store
+# pointed at $TASKS_DIR. Any wb-store command and flags pass straight through:
 #
 #   wb-store.sh show <task>          # one task, as text
 #   wb-store.sh --json family <task> # a family, as JSON

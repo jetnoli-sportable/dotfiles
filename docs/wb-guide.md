@@ -744,6 +744,41 @@ notice on its next prompt; a newly created one doesn't until `/clear` or a resta
   promotion creates a family's first `CONCEPTS.md`, `wb family <task> --reseed`
   links it into every existing family worktree.
 
+### wb-store: reading the store from Go
+
+`wb-store` is a Go program that reads the task store in its dossier layout and
+answers in plain text, or in JSON with `--json`. It never writes. Its commands
+are `list`, `show <task>` and `family <task>`; later, `wb page` will use it to
+serve a task's page. Its source is its own repo, `~/code/wb-store`
+(`github.com/jetnoli-sportable/wb-store`), not dotfiles.
+
+Run it through the shim, `~/.config/scripts/wb-store.sh`, rather than the
+binary:
+
+```bash
+~/.config/scripts/wb-store.sh show dotfiles--wb-store-shim
+~/.config/scripts/wb-store.sh --json family dotfiles--wb-future-direction
+```
+
+The shim passes `--store "$TASKS_DIR"` (default `~/code/tasks`) and your
+arguments. Before that it rebuilds the binary, printing one line on stderr,
+when the binary is missing or any `*.go`, `go.mod`, `go.sum` or `templates/`
+file in the source is newer. Files under `.git/` and `.worktrees/` don't count.
+A failed build keeps the old binary and exits non-zero with Go's error. The
+build needs `go` on PATH.
+
+To run another checkout, such as a branch worktree, set `WB_STORE_SRC`:
+
+```bash
+WB_STORE_SRC=~/code/wb-store/.worktrees/my-branch \
+  ~/.config/scripts/wb-store.sh show dotfiles--wb-store-shim
+```
+
+The default source builds to `~/.local/bin/wb-store`. Any other source builds
+to its own binary under `~/.cache/wb-store/bin/`, so trying a branch never
+replaces the binary other sessions run, and switching back never runs the
+branch's build.
+
 ## `wb board --html` — the full board (v2)
 
 `wb board --html` writes `logs/board.html` (gitignored, overwritten on every
