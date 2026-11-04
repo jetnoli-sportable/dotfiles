@@ -659,6 +659,10 @@ On a layout task:
 - **Page frontmatter.** A lasting page carries `tags:`, optional `rung:`,
   `links:`, optional `retire_when:`, `visibility:` and `url:` (as an HTML comment
   at the top of an HTML-only page). Add it when the page is next edited.
+  `retire_when:` takes `task:<stem> done`, `decision:<id> recorded`,
+  `date:<YYYY-MM-DD>` or `pr:<n> merged`; once met, the index lists the page
+  under Retired. A test guide uses `task:<its task> done`, so it retires when
+  `wb done` closes the task.
 
 Skills that read these (`/wb-save`, `/wb-resume`, `/wb-decide`, `/close-out`,
 `/handoff`, `/quick-wins`, `/review-guide` and others) check `layout:` and read

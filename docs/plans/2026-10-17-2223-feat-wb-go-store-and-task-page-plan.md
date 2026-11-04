@@ -775,6 +775,7 @@ Units are listed in run order: stage 2, stage 5, stage 3, stage 4. U4 and U5 are
   - Covers AE1: the supersede pair shows `superseded_by` on the old decision and `supersedes` on the new one.
   - Ladder: rung 1 with all children done is `done`; rung 2 with one child doing is `doing`; a decision with `review_at: rung-2` is listed under rung 2.
   - A page whose `retire_when` names a merged PR in `links:` is retired.
+  - A page with `retire_when: task:<stem> done` is retired once that task's `status:` is `done`, and stays current while it is open (the trigger test guides use; wb's index already evaluates it).
   - Replies: the last three turns of the matching reply log are returned; a log for another task is ignored; the resume id is the log with the newest activity.
   - `family` text and `--json` match the goldens.
 - **Verification:** the tests are clean. On the real store, `wb-store family dotfiles--wb-future-direction --json` lists the same children as `wb family`.

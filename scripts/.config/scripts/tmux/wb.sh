@@ -4766,15 +4766,21 @@ _wb_page_meta() {
 
 # _wb_retire_met <dossier_dir> <retire_when> — true when a page's trigger is
 # met and can be checked without the network: `decision:<id> recorded` (the
-# decision file exists) or `date:<YYYY-MM-DD>` (that day has come). A
-# `pr:<n> merged` trigger is NOT evaluated here (wb has no PR data); the Go
-# reader does that, so such a page stays current in this view.
+# decision file exists), `task:<stem> done` (that task file has status: done;
+# test guides use it, so they retire when their task closes) or
+# `date:<YYYY-MM-DD>` (that day has come). A `pr:<n> merged` trigger is NOT
+# evaluated here (wb has no PR data); the Go reader does that, so such a page
+# stays current in this view.
 _wb_retire_met() {
   local d="$1" rw="$2" id
   case "$rw" in
     decision:*)
       id="${rw#decision:}"; id="${id%% *}"
       [ -n "$id" ] && [ -f "$d/decisions/$id.md" ] ;;
+    task:*)
+      id="${rw#task:}"; id="${id%% *}"
+      [ -n "$id" ] && [[ "$id" != */* ]] && [ -f "$TASKS_DIR/$id.md" ] \
+        && [ "$(wb_get_frontmatter "$TASKS_DIR/$id.md" status)" = "done" ] ;;
     date:*)
       id="${rw#date:}"; id="${id%% *}"
       [[ "$id" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || return 1
