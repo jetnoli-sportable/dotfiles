@@ -36,8 +36,9 @@ source "$WB"
 set +e
 
 # cls <output> <path> — the class column of the line for <path>.
-cls() { printf '%s\n' "$1" | awk -F'\t' -v p="$2" '$2 == p { print $1 }'; }
-note() { printf '%s\n' "$1" | awk -F'\t' -v p="$2" '$2 == p { print $3 }'; }
+# The path goes through ENVIRON, not -v, so awk leaves backslashes alone.
+cls() { printf '%s\n' "$1" | P="$2" awk -F'\t' '$2 == ENVIRON["P"] { print $1 }'; }
+note() { printf '%s\n' "$1" | P="$2" awk -F'\t' '$2 == ENVIRON["P"] { print $3 }'; }
 
 git_q() { git -c user.email=t@t -c user.name=t "$@"; }
 
@@ -81,7 +82,8 @@ run_all() { # <label>
   assert_eq "[$L] node_modules/ throwaway" throwaway "$(cls "$out" node_modules/)"
   assert_eq "[$L] node_modules/ not walked (aws-credentials.js unseen)" "" "$(cls "$out" node_modules/pkg/aws-credentials.js)"
   assert_eq "[$L] app.log throwaway" throwaway "$(cls "$out" app.log)"
-  assert_eq "[$L] nested apps/web/node_modules throwaway" throwaway "$(cls "$out" apps/web/node_modules/x)"
+  assert_eq "[$L] nested apps/web/node_modules/ throwaway as one directory" throwaway "$(cls "$out" apps/web/node_modules/)"
+  assert_eq "[$L] nested node_modules not walked file by file" "" "$(cls "$out" apps/web/node_modules/x)"
   assert_eq "[$L] bootstrap config.hjson identical to main throwaway" throwaway "$(cls "$out" config.hjson)"
   assert_eq "[$L] bootstrap .env identical throwaway" throwaway "$(cls "$out" .env)"
   assert_eq "[$L] bootstrap dir symlink throwaway" throwaway "$(cls "$out" bootdir)"
@@ -141,6 +143,74 @@ run_all() { # <label>
   wb_sweep_classify "$WT" "$MAIN" --bogus x >/dev/null 2>&1; rc=$?
   assert_eq "[$L] unknown argument returns 2" 2 "$rc"
 
+  # T3: --keep on an absent path warns and is ignored
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep gone.txt 2>"$FIXTURE/kgone.err.$L")"; rc=$?
+  assert_eq "[$L] --keep absent path exits 0" 0 "$rc"
+  assert "[$L] --keep absent path warns" '--keep gone.txt: no such path' "$(cat "$FIXTURE/kgone.err.$L")"
+
+  # T2: --keep on a symlink resolving outside the worktree is refused as a flag
+  # and the entry falls back to the normal rows (unlisted -> unknown)
+  ln -s "$FIXTURE" "$WT/extra.txt"
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep extra.txt 2>"$FIXTURE/kout.err.$L")"
+  assert "[$L] --keep outside symlink warns" '--keep extra.txt: outside the worktree' "$(cat "$FIXTURE/kout.err.$L")"
+  assert_eq "[$L] outside symlink falls back to unknown" unknown "$(cls "$out" extra.txt)"
+  rm -f "$WT/extra.txt"
+
+  # #2: status.showUntrackedFiles=no must not hide ignored entries
+  git -C "$WT" config status.showUntrackedFiles no
+  out="$(wb_sweep_classify "$WT" "$MAIN" 2>/dev/null)"; rc=$?
+  assert_eq "[$L] showUntrackedFiles=no: exits 0" 0 "$rc"
+  assert_eq "[$L] showUntrackedFiles=no: stray.txt still classified" unknown "$(cls "$out" stray.txt)"
+  git -C "$WT" config --unset status.showUntrackedFiles
+  # #2: a git failure is an error, never an empty success
+  mkdir -p "$FIXTURE/notgit$L"
+  out="$(GIT_CEILING_DIRECTORIES="$FIXTURE" wb_sweep_classify "$FIXTURE/notgit$L" "$MAIN" 2>"$FIXTURE/notgit.err.$L")"; rc=$?
+  assert_eq "[$L] non-git directory returns 1" 1 "$rc"
+  assert_eq "[$L] non-git directory prints no lines" "" "$out"
+  assert "[$L] non-git directory explains" 'git status failed' "$(cat "$FIXTURE/notgit.err.$L")"
+  wb_sweep_classify "$FIXTURE/absent$L" "$MAIN" >/dev/null 2>&1; rc=$?
+  assert_eq "[$L] missing worktree returns 1" 1 "$rc"
+
+  # #3: a credential-shaped directory inside a kept directory refuses the keep
+  mkdir -p "$WT/scratch/secrets"; printf 'k' > "$WT/scratch/secrets/prod.yaml"
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep scratch 2>/dev/null)"
+  assert_eq "[$L] kept dir holding secrets/ unknown" unknown "$(cls "$out" scratch/)"
+  assert "[$L] note names the nested secrets dir" 'scratch/secrets' "$(note "$out" scratch/)"
+  n1="$(_wb_sweep_keepcheck "$WT" scratch/secrets/prod.yaml)"; rc=$?
+  assert_eq "[$L] keep check refuses a file inside secrets/" 1 "$rc"
+  assert "[$L] note names the credential-shaped component" 'inside credential-shaped secrets/' "$n1"
+  rm -rf "$WT/scratch/secrets"
+
+  # #4: vendor tree inside an unlisted dir is thrown away whole, no false stops
+  mkdir -p "$WT/apps/web/node_modules/postcss/lib"; : > "$WT/apps/web/node_modules/postcss/lib/tokenize.js"
+  out="$(wb_sweep_classify "$WT" "$MAIN" 2>/dev/null)"
+  assert_eq "[$L] tokenize.js inside nested node_modules/ not judged on its name" "" "$(cls "$out" apps/web/node_modules/postcss/lib/tokenize.js)"
+  assert_eq "[$L] no unknown line under apps/web/node_modules/" "" "$(printf '%s\n' "$out" | awk -F'\t' '$1 == "unknown" && index($2, "apps/web/node_modules/") == 1')"
+
+  # T4: an empty directory met while expanding is thrown away with a note
+  mkdir -p "$WT/okdir/empty"
+  out="$(wb_sweep_classify "$WT" "$MAIN" 2>/dev/null)"
+  assert_eq "[$L] empty nested directory throwaway" throwaway "$(cls "$out" okdir/empty/)"
+  assert_eq "[$L] empty nested directory note" "empty directory" "$(note "$out" okdir/empty/)"
+  rmdir "$WT/okdir/empty"
+
+  # Risk B: a tab or line break in a name cannot forge a line
+  : > "$WT/evil"$'\n''keep'$'\t''forged.log'
+  out="$(wb_sweep_classify "$WT" "$MAIN" 2>/dev/null)"
+  assert_eq "[$L] forged line absent" "" "$(cls "$out" forged.log)"
+  assert_eq "[$L] odd name is unknown, escaped" unknown "$(cls "$out" 'evil\nkeep\tforged.log')"
+  rm -f "$WT/evil"$'\n''keep'$'\t''forged.log'
+
+  # T1: a keep-list glob still runs the safety checks
+  printf 'keep:okdir/\n' > "$FIXTURE/keepglob.list"
+  out="$(WB_SWEEP_LIST="$FIXTURE/keepglob.list" wb_sweep_classify "$WT" "$MAIN" 2>/dev/null)"
+  assert_eq "[$L] keep glob on a clean dir keeps" keep "$(cls "$out" okdir/)"
+  printf 't' > "$WT/okdir/api-token.txt"
+  out="$(WB_SWEEP_LIST="$FIXTURE/keepglob.list" wb_sweep_classify "$WT" "$MAIN" 2>/dev/null)"
+  assert_eq "[$L] keep glob on a dir holding a token file unknown" unknown "$(cls "$out" okdir/)"
+  assert "[$L] keep glob note names the file" 'okdir/api-token.txt' "$(note "$out" okdir/)"
+  rm -f "$WT/okdir/api-token.txt"
+
   # no-manifest repo: root .env* are the bootstrap entries
   R="$(mkrepo "b$L" '')"; MAIN="$R/main"; WT="$R/wt"
   printf 'E=1' > "$MAIN/.env"; printf 'E=1' > "$WT/.env"
@@ -168,6 +238,18 @@ assert_eq "list loader: comments, blanks, trailing spaces" \
 real="$(wb_sweep_lists)"
 assert "real list file seeds keep CLAUDE.local.md" $'keep\tCLAUDE.local.md' "$real"
 assert "real list file seeds throwaway __pycache__/" $'throwaway\t__pycache__/' "$real"
+
+# --- #5: one bootstrap-manifest parse for wb new and the sweep
+BR="$FIXTURE/bootparse"; mkdir -p "$BR/repo" "$BR/wt"
+printf 'a.txt\n# comment\n  b.txt  # trailing\n\nlast.txt' > "$BR/repo/.worktree-bootstrap"
+for f in a.txt b.txt last.txt; do printf '%s' "$f" > "$BR/repo/$f"; done
+assert_eq "bootstrap entries: comments, blanks, unterminated last line" \
+  "a.txt|b.txt|last.txt" "$(wb_bootstrap_entries "$BR/repo" | tr '\0' '|' | sed 's/|$//')"
+wb_bootstrap "$BR/repo" "$BR/wt"
+assert_eq "wb new copies a manifest's unterminated last line" last.txt "$(cat "$BR/wt/last.txt" 2>/dev/null)"
+mkdir -p "$BR/nomani"; : > "$BR/nomani/.env"; : > "$BR/nomani/.env.local"; : > "$BR/nomani/other"
+assert_eq "bootstrap entries without a manifest: root .env*" \
+  ".env|.env.local" "$(wb_bootstrap_entries "$BR/nomani" | tr '\0' '\n' | sort | paste -sd'|')"
 
 # --- credential patterns
 for f in config.hjson prod.env.json .npmrc .netrc a.tfvars .pgpass id_ecdsa id_ecdsa.pub x.keystore p.kdbx api-token.txt MyPassword.md CONFIG.HJSON .env; do

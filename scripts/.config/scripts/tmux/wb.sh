@@ -832,23 +832,33 @@ _wb_lock_trap_append_if_top_level() {
 # `cp -a` would clobber a worktree-local edit (e.g. a tweaked `.env`). That
 # is what makes it safe for cmd_new to call on every run, not just on
 # worktree creation.
-wb_bootstrap() {
-  local repo_dir="$1" worktree_path="$2" manifest="$repo_dir/.worktree-bootstrap"
-  local -a entries=()
+#
+# wb_bootstrap_entries <repo_dir> — print the bootstrap entries, NUL-separated:
+# the manifest's paths (comments and blank lines dropped, a last line without
+# a newline still read), or the root `.env*` names when there is no manifest.
+# The one parse both `wb new` (wb_bootstrap) and the `wb done` sweep
+# (wb_sweep_classify) use, so they never disagree about what was bootstrapped.
+wb_bootstrap_entries() {
+  local repo_dir="$1" manifest="$1/.worktree-bootstrap" line f
   if [ -f "$manifest" ]; then
-    local line
-    while IFS= read -r line; do
+    while IFS= read -r line || [ -n "$line" ]; do
       line="${line%%#*}"
       line="${line#"${line%%[![:space:]]*}"}"
       line="${line%"${line##*[![:space:]]}"}"
-      [ -n "$line" ] && entries+=("$line")
+      [ -n "$line" ] && printf '%s\0' "$line"
     done < "$manifest"
   else
-    local f
     while IFS= read -r -d '' f; do
-      entries+=("$(basename "$f")")
+      printf '%s\0' "${f##*/}"
     done < <(find "$repo_dir" -maxdepth 1 -name '.env*' -print0 2>/dev/null)
   fi
+  return 0
+}
+
+wb_bootstrap() {
+  local repo_dir="$1" worktree_path="$2"
+  local -a entries=()
+  mapfile -d '' entries < <(wb_bootstrap_entries "$repo_dir")
   # Per-entry failures are tracked, not fatal: a caller's `|| warn` disables
   # errexit in here, so without the explicit rc only a failing LAST entry
   # would ever surface.
@@ -6089,15 +6099,33 @@ _wb_sweep_flagged() {
   return 1
 }
 
+# _wb_sweep_esc <s> — <s> with tab, newline and CR shown as \t \n \r, so a
+# file name can never break a `class<TAB>path<TAB>note` line apart or forge a
+# second one.
+_wb_sweep_esc() {
+  local s="$1"
+  s="${s//$'\t'/\\t}"; s="${s//$'\n'/\\n}"; s="${s//$'\r'/\\r}"
+  printf '%s' "$s"
+}
+
 # _wb_sweep_keepcheck <worktree> <rel> — fail with a note on stdout when
-# keeping <rel> is unsafe: credential-shaped, a symlink resolving outside the
-# worktree, or a directory holding either (walked with find -P, so symlinks
-# are inspected, never followed).
+# keeping <rel> is unsafe: any component of <rel> credential-shaped, a symlink
+# resolving outside the worktree, or a directory holding a credential-shaped
+# file or directory, or such a symlink, at any depth (walked with find -P, so
+# symlinks are inspected, never followed).
 _wb_sweep_keepcheck() {
-  local wt="$1" rel="$2" wt_real f
-  if wb_credential_shaped "$rel"; then
-    echo "credential-shaped, copy it yourself"; return 1
-  fi
+  local wt="$1" rel="$2" wt_real f part rest="$2"
+  while :; do
+    part="${rest%%/*}"
+    if wb_credential_shaped "$part"; then
+      case "$rest" in
+        */*) echo "inside credential-shaped $(_wb_sweep_esc "$part")/, copy it yourself" ;;
+        *) echo "credential-shaped, copy it yourself" ;;
+      esac
+      return 1
+    fi
+    case "$rest" in */*) rest="${rest#*/}" ;; *) break ;; esac
+  done
   wt_real="$(realpath -m -- "$wt")"
   if [ -L "$wt/$rel" ]; then
     case "$(realpath -m -- "$wt/$rel")" in
@@ -6107,15 +6135,15 @@ _wb_sweep_keepcheck() {
   elif [ -d "$wt/$rel" ]; then
     while IFS= read -r -d '' f; do
       if wb_credential_shaped "$f"; then
-        echo "holds credential-shaped file ${f#"$wt"/}, copy it yourself"; return 1
+        echo "holds credential-shaped $(_wb_sweep_esc "${f#"$wt"/}"), copy it yourself"; return 1
       fi
       if [ -L "$f" ]; then
         case "$(realpath -m -- "$f")" in
           "$wt_real"/*) ;;
-          *) echo "holds symlink ${f#"$wt"/} resolving outside the worktree"; return 1 ;;
+          *) echo "holds symlink $(_wb_sweep_esc "${f#"$wt"/}") resolving outside the worktree"; return 1 ;;
         esac
       fi
-    done < <(find -P "$wt/$rel" \( -type f -o -type l \) -print0 2>/dev/null)
+    done < <(find -P "$wt/$rel" -mindepth 1 \( -type f -o -type l -o -type d \) -print0 2>/dev/null)
   fi
   return 0
 }
@@ -6125,6 +6153,11 @@ _wb_sweep_keepcheck() {
 # and the bootstrap list.
 _wb_sweep_one() {
   local rel="$1" out="$2" isdir=0 note f
+  case "$rel" in
+    *$'\t'*|*$'\n'*|*$'\r'*)
+      printf 'unknown\t%s\tname holds a tab or line break, handle it yourself\n' "$(_wb_sweep_esc "$out")"
+      return 0 ;;
+  esac
   [ -d "$wt/$rel" ] && isdir=1
   if _wb_sweep_flagged tw_flags "$rel"; then
     printf 'throwaway\t%s\t\n' "$out"; return 0
@@ -6162,12 +6195,28 @@ _wb_sweep_one() {
     printf 'throwaway\t%s\t\n' "$out"; return 0
   fi
   if [ "$isdir" = 1 ] && [ ! -L "$wt/$rel" ]; then
-    local n=0
+    # One level at a time, so a nested directory (a cloned project's
+    # node_modules/) meets the lists as a directory and is classified whole,
+    # instead of each file inside it being judged on its own name.
+    local n=0 child
     while IFS= read -r -d '' f; do
       n=$((n + 1))
-      _wb_sweep_one "${f#"$wt"/}" "${f#"$wt"/}"
-    done < <(find -P "$wt/$rel" \( -type f -o -type l \) -print0 2>/dev/null)
-    [ "$n" -gt 0 ] || printf 'unknown\t%s\tempty directory\n' "$out"
+      child="${f#"$wt"/}"
+      if [ -d "$f" ] && [ ! -L "$f" ]; then
+        _wb_sweep_one "$child" "$child/"
+      else
+        _wb_sweep_one "$child" "$child"
+      fi
+    done < <(find -P "$wt/$rel" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | sort -z)
+    # Nothing listed: an empty directory loses nothing when removed, but one
+    # find could not read may hold anything.
+    if [ "$n" -eq 0 ]; then
+      if [ -r "$wt/$rel" ] && [ -x "$wt/$rel" ]; then
+        printf 'throwaway\t%s\tempty directory\n' "$out"
+      else
+        printf 'unknown\t%s\tcannot read this directory\n' "$out"
+      fi
+    fi
     return 0
   fi
   printf 'unknown\t%s\t\n' "$out"
@@ -6212,26 +6261,26 @@ wb_sweep_classify() {
   while IFS=$'\t' read -r cls glob; do
     if [ "$cls" = keep ]; then keep_globs+=("$glob"); else tw_globs+=("$glob"); fi
   done < <(wb_sweep_lists)
-  # Same manifest parse and `.env*` fallback as wb_bootstrap.
-  local manifest="$main/.worktree-bootstrap" line f
-  if [ -f "$manifest" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-      line="${line%%#*}"
-      line="${line#"${line%%[![:space:]]*}"}"
-      line="${line%"${line##*[![:space:]]}"}"
-      [ -n "$line" ] && boot+=("$line")
-    done < "$manifest"
-  else
-    while IFS= read -r -d '' f; do
-      boot+=("$(basename "$f")")
-    done < <(find "$main" -maxdepth 1 -name '.env*' -print0 2>/dev/null)
+  mapfile -d '' boot < <(wb_bootstrap_entries "$main")
+  # Read git's whole answer before classifying anything: an empty answer must
+  # mean "nothing ignored", never "git failed" — W6 removes the worktree on
+  # an empty, unknown-free result. --untracked-files=normal overrides a
+  # status.showUntrackedFiles=no config, which would otherwise hide every
+  # ignored entry too.
+  local -a recs=()
+  if [ ! -d "$wt" ]; then
+    echo "wb_sweep_classify: $wt is not a directory" >&2; return 1
+  fi
+  mapfile -d '' recs < <(git -C "$wt" status --porcelain=v1 -z --ignored=traditional --untracked-files=normal)
+  if ! wait "$!"; then
+    echo "wb_sweep_classify: git status failed in $wt, nothing classified" >&2; return 1
   fi
   local rec rel
-  while IFS= read -r -d '' rec; do
+  for rec in ${recs[@]+"${recs[@]}"}; do
     case "$rec" in '!! '*) ;; *) continue ;; esac
     rel="${rec#'!! '}"
     _wb_sweep_one "${rel%/}" "$rel"
-  done < <(git -C "$wt" status --porcelain -z --ignored 2>/dev/null)
+  done
   return 0
 }
 
