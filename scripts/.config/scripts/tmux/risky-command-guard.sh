@@ -39,12 +39,20 @@
 #       unreachable)
 #     shutdown/reboot/poweroff/halt, systemctl poweroff|reboot|halt|suspend
 #     mkfs, dd of=/dev/…
+#     terraform/tofu apply, destroy, import, taint, untaint, force-unlock,
+#       refresh, state rm|mv|push|replace-provider, and any -auto-approve or
+#       -lock=false (global options like -chdir skipped): the agent never
+#       changes real infrastructure or shared state; Jet runs those
 #   ask (Jet confirms):
 #     tmux kill-session/kill-window/kill-pane on the default server
 #     any other kill/pkill/killall, any other rm -r, find -delete
 #     SQL DROP TABLE|DATABASE|SCHEMA, TRUNCATE TABLE (not in git/gh/echo
-#       text), bq rm
-#     terraform/tofu apply|destroy, gcloud/gsutil/kubectl delete or rm
+#       text)
+#     every gcloud, gsutil and bq call, reads included and inside $( ) too
+#       (`curl -H "…$(gcloud auth print-access-token)"`): the global
+#       CLAUDE.md rule is that live cloud commands are approved one by one;
+#       `command -v gcloud` is only a lookup and passes
+#     terraform/tofu test (run blocks apply by default), kubectl delete or rm
 #     git push --force/-f/+ref to development/dev/main/master, or with no
 #       branch named
 #     systemctl stop|kill|restart
@@ -100,6 +108,8 @@ strip_prefixes() {
       [A-Za-z_]*=*|if|then|else|elif|do|while|until|'!'|'{'|'}') shift; continue ;;
     esac
     w="${1##*/}"
+    # `command -v X` only looks X up; nothing runs
+    if [ "$w" = command ] && [[ "${2:-}" =~ ^-[pvV]*[vV][pvV]*$ ]]; then printf '\n'; return; fi
     case "$w" in   # vals: the wrapper's short options that take a value
       env) vals=uCS ;;
       sudo|doas) vals=ugCDprtUTh ;;
@@ -339,11 +349,42 @@ check_segment() {
       ;;
     mkfs|mkfs.*) flag deny "$w formats a filesystem" ;;
     dd) [[ "$rest" =~ [[:space:]]of=/dev/ ]] && flag deny "dd of=/dev/... overwrites a device" ;;
-    bq) [[ "$rest" =~ ^[[:space:]]*(-[^[:space:]]+[[:space:]]+)*rm[[:space:]] ]] && flag ask "bq rm deletes a BigQuery table or dataset" ;;
     terraform|tofu)
-      [[ "$rest" =~ [[:space:]](apply|destroy)[[:space:]] ]] && flag ask "$w ${BASH_REMATCH[1]} changes real infrastructure"
+      # global options (-chdir=DIR, -help, -version) come before the subcommand
+      local args=("$@") i=0 verb="" state_verb="" a card="Jet runs it: hand over the exact command, what it changes, which workspace/project, and what to paste back"
+      while [ $i -lt ${#args[@]} ]; do
+        case "${args[$i]}" in
+          -chdir|--chdir) i=$((i + 2)) ;;
+          -*) i=$((i + 1)) ;;
+          *) verb="${args[$i]}"; break ;;
+        esac
+      done
+      if [ "$verb" = state ]; then
+        for a in "${args[@]:$((i + 1))}"; do
+          case "$a" in -*) ;; *) state_verb="$a"; break ;; esac
+        done
+      fi
+      for a in "${args[@]}"; do
+        if [[ "$a" =~ ^--?auto-approve(=|$) ]]; then
+          flag deny "$w -auto-approve applies without a review step; $card"
+        elif [[ "$a" =~ ^--?lock=(0|f|F|false|FALSE|False)$ ]]; then
+          flag deny "$w -lock=false skips the state lock and can corrupt shared state; $card"
+        fi
+      done
+      case "$verb" in
+        apply|destroy|import|taint|untaint|force-unlock|refresh)
+          flag deny "$w $verb changes real infrastructure or its state; $card" ;;
+        state)
+          case "$state_verb" in
+            rm|mv|push|replace-provider) flag deny "$w state $state_verb rewrites shared state; $card" ;;
+          esac ;;
+        test) flag ask "$w test runs apply by default (run blocks without command = plan) and creates real resources" ;;
+      esac
       ;;
-    gcloud|gsutil|kubectl)
+    gcloud|gsutil|bq)
+      flag ask "$w acts on live cloud accounts with Jet's credentials, so every call is confirmed, reads included; prefer handing Jet the exact command, what it does, read-only or mutating, which project, and what to paste back"
+      ;;
+    kubectl)
       [[ "$rest" =~ [[:space:]](delete|rm)[[:space:]] ]] && flag ask "$w ${BASH_REMATCH[1]} deletes cloud resources"
       ;;
     git)
