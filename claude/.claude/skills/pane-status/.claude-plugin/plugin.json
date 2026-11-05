@@ -1,0 +1,7 @@
+{
+  "name": "pane-status",
+  "description": "Picker state hooks: push each Claude session's state (turn running, subagents alive, needs you, finished) onto its own tmux pane as @claude_working / @claude_blocked, read by the wb picker and the status bar. Hooks only; logic lives in ~/.config/scripts/tmux/claude-notify-hook.sh.",
+  "author": {
+    "name": "jetnoli-sportable"
+  }
+}

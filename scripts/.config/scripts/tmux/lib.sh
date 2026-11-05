@@ -104,8 +104,8 @@ tmux_pane_awaiting_input() {
 # "✳" during BOTH an actively-generating turn and a genuinely idle one, so
 # the glyph case can no longer reach its
 # "working" branch for a real agent — every in-progress session read back as
-# "waiting" until Stop fired. @claude_working (claude-notify-hook.sh, set at
-# UserPromptSubmit, cleared at Stop) is the ground-truth fix for that; the
+# "waiting" until Stop fired. @claude_working (claude-notify-hook.sh: set while
+# a turn or a subagent it launched runs) is the ground-truth fix for that; the
 # glyph stays as the fallback for a pane with no hook data (e.g. an older
 # Claude Code build, or claude launched outside wb's hook-managed settings).
 tmux_claude_panes() {

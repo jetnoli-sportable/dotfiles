@@ -10,7 +10,7 @@
 #                  decision-buffer nvim split it set @claude_blocked for
 #   done        -> a long-running turn just finished (Stop hook), awaiting you
 #   waiting     -> turn finished, idle at the ✳ prompt, no @claude_working marker
-#   working     -> @claude_working=1 (a turn is actually running), or a
+#   working     -> @claude_working=1 (a turn or a subagent is running), or a
 #                  non-✳ spinner glyph in the title on a pane with no hook data
 #   idle        -> plain-text title, no spinner
 # The title glyph alone can't tell "working" from "waiting" on current Claude

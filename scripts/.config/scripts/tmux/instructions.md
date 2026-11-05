@@ -51,7 +51,7 @@ current Claude Code (see below) — from one that's still **actively working**.
 | `needs-input` | magenta `◆ needs you` | Blocked: a permission/question modal is up, or it's waiting on a decision-buffer nvim split | `@claude_blocked` marker **or** a modal in the pane content |
 | `done`        | cyan `✔ finished` | A long-running turn (≥30s) just finished; awaiting you | `@claude_blocked=done` (Stop hook) |
 | `waiting`     | green `○ done` | Turn finished, sitting idle at the `✳` prompt, no active-turn marker | `✳` glyph, no `@claude_working`, no modal |
-| `working`     | yellow `● working` | Mid-turn | `@claude_working=1` marker, **or** (fallback, no hook data) a spinner glyph |
+| `working`     | yellow `● working` | Mid-turn, or the turn ended while a subagent it launched still runs | `@claude_working=1` marker, **or** (fallback, no hook data) a spinner glyph |
 | `idle`        | grey `· idle`  | Plain-text title, no spinner | fallthrough |
 
 ### How detection works
@@ -71,8 +71,16 @@ the rest as ground truth, because the pane alone is no longer enough:
     this tmux/hooks setup)
   - the text after the glyph is the live task description
 - **`@claude_working` marker (ground truth for "working")** — pushed by
-  `claude-notify-hook.sh` on the `UserPromptSubmit` hook (`start` case, set to
-  `1`) and cleared on the `Stop` hook (`done` case). Wins over a `✳` glyph
+  `claude-notify-hook.sh`: `1` while a turn runs (`UserPromptSubmit` to `Stop`,
+  or `StopFailure` when an API error ends the turn; kept as `@claude_turn`) or
+  any subagent it launched is alive (`SubagentStart` to `SubagentStop`, one
+  `@claude_agent_<id>` per agent holding its start time). Subagents run in the
+  background, so `Stop` fires while they still work; without the agent half the
+  pane read green "done" until they reported back. An agent marker older than
+  2 hours counts as a `SubagentStop` that never arrived (an interrupted or
+  killed agent) and is dropped. `SessionStart` (startup or
+  resume) clears a dead process's markers. Background shell commands are not
+  counted: no hook reports their start or end. Wins over a `✳` glyph
   that would otherwise read as idle, unless `@claude_blocked` or a live modal
   (next signal) already claimed the row.
 - **`needs-input`/`done` (second pass)**, promotes or relabels the row:
