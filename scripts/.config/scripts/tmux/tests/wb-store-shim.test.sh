@@ -6,8 +6,10 @@
 # HOME. A stub `go` on PATH logs each build and writes a small script as the
 # "binary"; that script prints which source it was built from and the
 # arguments it got, so one line of output shows both "was it rebuilt" and
-# "what did it receive". File ages are set with `touch -t` (sources 2020,
-# binaries 2021, "newer" edits 2022) so no assertion depends on timing.
+# "what did it receive". File and directory ages are set with `touch -t`
+# (sources 2020, binaries 2021, "newer" edits 2022) so no assertion depends on
+# timing. A step that adds or deletes a file in the source dates the
+# directory back to 2020 afterwards.
 #
 # Run: bash scripts/.config/scripts/tmux/tests/wb-store-shim.test.sh
 set -uo pipefail
@@ -29,7 +31,7 @@ assert_eq() { # <desc> <expected> <actual>
   fi
 }
 assert_match() { # <desc> <expected-regex> <actual>
-  if printf '%s' "$3" | grep -qE -- "$2"; then
+  if grep -qE -- "$2" <<<"$3"; then
     echo "ok   - $1"
   else
     echo "FAIL - $1"
@@ -56,6 +58,7 @@ make_src() {
   mkdir -p "$d/cmd/wb-store" "$d/internal/web/templates" "$d/internal/store/testdata" \
            "$d/.worktrees/other/cmd/wb-store" "$d/.git"
   printf 'package main\n' > "$d/cmd/wb-store/main.go"
+  printf 'package main\n' > "$d/cmd/wb-store/extra.go"
   printf 'module example\n' > "$d/go.mod"
   printf '' > "$d/go.sum"
   printf '<html></html>\n' > "$d/internal/web/templates/task.html"
@@ -63,7 +66,7 @@ make_src() {
   printf '# wb-store\n' > "$d/README.md"
   printf 'package main\n' > "$d/.worktrees/other/cmd/wb-store/main.go"
   printf 'package main\n' > "$d/.git/stray.go"
-  find "$d" -type f -exec touch -t "$OLD" {} +
+  find "$d" -exec touch -t "$OLD" {} +
 }
 
 DEFAULT_SRC="$HOME/code/wb-store"
@@ -134,18 +137,43 @@ run list >/dev/null
 assert_eq "rebuilt" 3 "$(builds)"
 touch -t "$OLD" "$DEFAULT_SRC/go.mod"; touch -t "$BUILT" "$DEFAULT_BIN"
 
+echo "# go.sum newer: rebuild"
+touch -t "$NEWER" "$DEFAULT_SRC/go.sum"
+run list >/dev/null
+assert_eq "rebuilt" 4 "$(builds)"
+touch -t "$OLD" "$DEFAULT_SRC/go.sum"; touch -t "$BUILT" "$DEFAULT_BIN"
+
 echo "# a template newer: rebuild"
 touch -t "$NEWER" "$DEFAULT_SRC/internal/web/templates/task.html"
 run list >/dev/null
-assert_eq "rebuilt" 4 "$(builds)"
+assert_eq "rebuilt" 5 "$(builds)"
 touch -t "$OLD" "$DEFAULT_SRC/internal/web/templates/task.html"; touch -t "$BUILT" "$DEFAULT_BIN"
 
 # =============================================================================
 echo "# newer files under .worktrees/ and .git/, a test fixture and a README: no rebuild"
 touch -t "$NEWER" "$DEFAULT_SRC/.worktrees/other/cmd/wb-store/main.go" "$DEFAULT_SRC/.git/stray.go" \
   "$DEFAULT_SRC/internal/store/testdata/page.html" "$DEFAULT_SRC/README.md"
+mkdir "$DEFAULT_SRC/.worktrees/new-branch"   # a new worktree
+printf 'x\n' > "$DEFAULT_SRC/.git/new-object" # git writing its own files
 run list >/dev/null
-assert_eq "no rebuild" 4 "$(builds)"
+assert_eq "no rebuild" 5 "$(builds)"
+
+# =============================================================================
+echo "# a .go file deleted, nothing else changed: rebuild"
+rm "$DEFAULT_SRC/cmd/wb-store/extra.go"
+run list >/dev/null
+assert_eq "rebuilt" 6 "$(builds)"
+touch -t "$OLD" "$DEFAULT_SRC/cmd/wb-store"; touch -t "$BUILT" "$DEFAULT_BIN"
+
+echo "# a template deleted, nothing else changed: rebuild"
+rm "$DEFAULT_SRC/internal/web/templates/task.html"
+run list >/dev/null
+assert_eq "rebuilt" 7 "$(builds)"
+touch -t "$OLD" "$DEFAULT_SRC/internal/web/templates"; touch -t "$BUILT" "$DEFAULT_BIN"
+
+echo "# after the deletions, sources and directories older again: no rebuild"
+run list >/dev/null
+assert_eq "no rebuild" 7 "$(builds)"
 
 # =============================================================================
 echo "# a failed build: old binary kept, no temp file, non-zero exit"
@@ -179,6 +207,12 @@ assert_eq "default source's binary ran" "built-from=$DEFAULT_SRC --store $TASKS_
 
 echo "# WB_STORE_SRC spelled differently but naming the default checkout: default binary"
 out=$(WB_STORE_SRC="$HOME/code/../code/wb-store/" run show x)
+assert_eq "no rebuild" $((n + 1)) "$(builds)"
+assert_eq "default source's binary ran" "built-from=$DEFAULT_SRC --store $TASKS_DIR show x" "$out"
+
+echo "# WB_STORE_SRC a symlink to the default checkout: default binary"
+ln -s "$DEFAULT_SRC" "$FIXTURE/link-to-default"
+out=$(WB_STORE_SRC="$FIXTURE/link-to-default" run show x)
 assert_eq "no rebuild" $((n + 1)) "$(builds)"
 assert_eq "default source's binary ran" "built-from=$DEFAULT_SRC --store $TASKS_DIR show x" "$out"
 

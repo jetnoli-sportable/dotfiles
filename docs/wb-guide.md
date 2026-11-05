@@ -762,8 +762,9 @@ binary:
 
 The shim passes `--store "$TASKS_DIR"` (default `~/code/tasks`) and your
 arguments. Before that it rebuilds the binary, printing one line on stderr,
-when the binary is missing or any `*.go`, `go.mod`, `go.sum` or `templates/`
-file in the source is newer. Files under `.git/` and `.worktrees/` don't count.
+when the binary is missing, any `*.go`, `go.mod`, `go.sum` or `templates/`
+file in the source is newer, or a file was added to or removed from a source
+directory since the build. Files under `.git/` and `.worktrees/` don't count.
 A failed build keeps the old binary and exits non-zero with Go's error. The
 build needs `go` on PATH.
 

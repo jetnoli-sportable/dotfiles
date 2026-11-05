@@ -1001,8 +1001,9 @@ binary:</p>
 </code></pre>
 <p>The shim passes <code>--store &quot;$TASKS_DIR&quot;</code> (default <code>~/code/tasks</code>) and your
 arguments. Before that it rebuilds the binary, printing one line on stderr,
-when the binary is missing or any <code>*.go</code>, <code>go.mod</code>, <code>go.sum</code> or <code>templates/</code>
-file in the source is newer. Files under <code>.git/</code> and <code>.worktrees/</code> don't count.
+when the binary is missing, any <code>*.go</code>, <code>go.mod</code>, <code>go.sum</code> or <code>templates/</code>
+file in the source is newer, or a file was added to or removed from a source
+directory since the build. Files under <code>.git/</code> and <code>.worktrees/</code> don't count.
 A failed build keeps the old binary and exits non-zero with Go's error. The
 build needs <code>go</code> on PATH.</p>
 <p>To run another checkout, such as a branch worktree, set <code>WB_STORE_SRC</code>:</p>

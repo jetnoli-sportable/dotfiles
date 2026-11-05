@@ -32,11 +32,16 @@ fi
 # .git and .worktrees are pruned so another branch's checkout never counts.
 # templates/ holds the page server's embedded HTML (W11); a file embedded
 # from anywhere else must be added here too. go.mod/go.sum count, so a
-# dependency bump rebuilds.
+# dependency bump rebuilds. Any directory newer than the binary counts too:
+# deleting or renaming a file changes no remaining file's age, only its
+# directory's, so a pull that only removes a .go file or template would
+# otherwise keep running the old build. The cost is a spare rebuild when
+# something else adds or removes a file in the source (an editor swap file).
 stale() {
   [ -x "$BIN" ] || return 0
-  [ -n "$(find "$src" \( -name .git -o -name .worktrees \) -prune -o -type f \
-          \( -name '*.go' -o -name go.mod -o -name go.sum -o -path '*/templates/*' \) \
+  [ -n "$(find "$src" \( -name .git -o -name .worktrees \) -prune -o \
+          \( -type d -o -type f \( -name '*.go' -o -name go.mod -o -name go.sum \
+             -o -path '*/templates/*' \) \) \
           -newer "$BIN" -print -quit 2>/dev/null)" ]
 }
 
