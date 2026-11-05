@@ -28,6 +28,14 @@ Repo-specific specifics live in that repo's own memory/AGENTS.md; this rule is t
 
 After any `/ce-code-review` pass completes inside a `wb` session, run `wb reviewed` immediately — it stamps the task file's `reviewed:` frontmatter field with today's date, which `wb board --html`'s review stage relies on to render that stage as done. This is a convention, not automation: there is no hook wiring it up, so it only works if it's actually run each time. See `docs/wb-guide.md`'s board section for what this feeds into.
 
+## Live cloud commands → Jet runs them; hand over a command card
+
+Never run `gcloud`, `gsutil` or `bq`, or anything that uses their credentials (e.g. `curl -H "Authorization: Bearer $(gcloud auth print-access-token)" …`), without Jet's explicit approval for that exact command. That includes read-only commands, and approval for one command doesn't cover the next. Live-cloud work is Jet's to run, to be safe.
+
+- **Default: hand over a command card** instead of asking to run it: the exact command, what it does, whether it's read-only or mutating, which project/account it acts on, and what Jet should paste back.
+- **Terraform/OpenTofu:** the agent never runs `apply`, `destroy`, `import`, `taint`/`untaint`, `force-unlock`, `refresh`, a state write (`state rm|mv|push|replace-provider`), or anything with `-auto-approve` or `-lock=false`; those go on a command card too. `fmt`, `validate`, `init`, `plan`, `show`, `graph` and `state list/show` are fine.
+- The `risky-command-guard.sh` PreToolUse hook enforces this (deny for the terraform writes, ask for every `gcloud`/`gsutil`/`bq` call, including inside `$( )`), but it only sees the typed command text. A script or program that calls them is still covered by this rule.
+
 ## GitHub CLI → use `pgh` for non-Sportable repos
 
 The default `gh` is authenticated with a fine-grained PAT scoped to the **Sportable org**, so it can only see Sportable-org repos. For any repo **not** owned by the Sportable org — personal repos under `github.com/jetnoli-sportable/…`, or any other owner — use the **`pgh`** shell function instead of `gh` for all GitHub API operations (`pr create`, `issue`, `api`, `repo view`, etc.). `pgh` injects the personal-account PAT from the system keyring (defined in `~/.zshrc`).
