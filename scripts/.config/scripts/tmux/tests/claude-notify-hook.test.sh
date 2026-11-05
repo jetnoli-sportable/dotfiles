@@ -87,6 +87,17 @@ reset_pane; run start
 assert_eq "a running turn is working" 1 "$(opt @claude_working)"
 run done
 assert_eq "a finished turn with no subagents is not working" "" "$(opt @claude_working)"
+assert_eq "a short turn (<30s) is not lit finished" "" "$(opt @claude_blocked)"
+
+reset_pane; run start; agent agent-start a1; agent agent-stop a1; run done
+assert_eq "a short turn that ran a subagent is not lit finished" "" "$(opt @claude_blocked)"
+
+reset_pane; run needs-input
+assert_eq "a Notification marks the pane needs-input" needs-input "$(opt @claude_blocked)"
+run start
+assert_eq "the next prompt clears needs-input" "" "$(opt @claude_blocked)"
+long_turn; run done; run start
+assert_eq "the next prompt clears finished" "" "$(opt @claude_blocked)"
 
 reset_pane; run start; agent agent-start a1; long_turn; run done
 assert_eq "turn ended while a background subagent runs: still working" 1 "$(opt @claude_working)"
@@ -106,6 +117,24 @@ reset_pane; run start; agent agent-start a1; agent agent-stop a1
 assert_eq "a subagent finishing mid-turn leaves the turn working" 1 "$(opt @claude_working)"
 long_turn; run done
 assert_eq "a long turn with no subagents left still lights finished" done "$(opt @claude_blocked)"
+
+# A SubagentStop that never arrives (an interrupted or killed agent) must not
+# pin the pane "working" for the rest of the process: a marker older than the
+# hook's AGENT_TTL_SECS (2h) counts as gone. Age it by rewriting its start epoch.
+reset_pane; run start; agent agent-start a1
+assert_eq "an agent marker holds its start epoch" 1 \
+  "$([[ "$(opt @claude_agent_a1)" =~ ^[0-9]{9,}$ ]] && echo 1)"
+"$REALBIN/tmux" set -p -t "$PANE" @claude_agent_a1 "$(( $(date +%s) - 3 * 3600 ))"
+long_turn; run done
+assert_eq "a lost SubagentStop: stale marker no longer keeps the pane working" "" "$(opt @claude_working)"
+assert_eq "a lost SubagentStop: a long turn still lights finished" done "$(opt @claude_blocked)"
+assert_eq "a lost SubagentStop: the stale marker is removed" "" "$(opt @claude_agent_a1)"
+
+reset_pane; run start; agent agent-start a1; agent agent-start a2
+"$REALBIN/tmux" set -p -t "$PANE" @claude_agent_a1 "$(( $(date +%s) - 3 * 3600 ))"
+run done
+assert_eq "a stale marker beside a live agent: still working" 1 "$(opt @claude_working)"
+assert_eq "a stale marker beside a live agent: the live marker stays" 1 "$([ -n "$(opt @claude_agent_a2)" ] && echo 1)"
 
 reset_pane; run start; agent agent-start a1
 run session-start '{"source":"compact"}'

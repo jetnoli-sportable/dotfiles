@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for the pane-status plugin wiring: the hooks-only skills-dir plugin at
-# claude/.claude/skills/pane-status/ parses, wires exactly the six events the
+# claude/.claude/skills/pane-status/ parses, wires exactly the seven events the
 # picker's pane markers need, each to a verb claude-notify-hook.sh dispatches
 # (resolved with PANE_STATUS_BIN pointed at this repo's scripts), synchronous
 # with timeout 5, and is not duplicated into settings.recommended.json (plugin
@@ -36,13 +36,13 @@ assert_eq "manifest keys are name/description/author only" '["author","descripti
 
 # --- hooks.json shape -------------------------------------------------------
 jq -e . "$HOOKS" >/dev/null 2>&1 && ok "hooks.json parses" || bad "hooks.json parses"
-assert_eq "exactly the six picker events" \
-  '["Notification","SessionStart","Stop","SubagentStart","SubagentStop","UserPromptSubmit"]' \
+assert_eq "exactly the seven picker events" \
+  '["Notification","SessionStart","Stop","StopFailure","SubagentStart","SubagentStop","UserPromptSubmit"]' \
   "$(jq -c '.hooks | keys' "$HOOKS" 2>/dev/null)"
-assert_eq "one hook entry per event, six in all" 6 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS" 2>/dev/null)"
+assert_eq "one hook entry per event, seven in all" 7 "$(jq '[.hooks[][].hooks[]] | length' "$HOOKS" 2>/dev/null)"
 assert_eq "Notification matches every notification type" '*' "$(jq -r '.hooks.Notification[0].matcher' "$HOOKS" 2>/dev/null)"
 
-for pair in UserPromptSubmit:start Notification:needs-input Stop:done \
+for pair in UserPromptSubmit:start Notification:needs-input Stop:done StopFailure:done \
             SubagentStart:agent-start SubagentStop:agent-stop SessionStart:session-start; do
   ev="${pair%%:*}" want="${pair#*:}"
   assert_eq "$ev: type command" command "$(jq -r ".hooks.$ev[0].hooks[0].type" "$HOOKS" 2>/dev/null)"

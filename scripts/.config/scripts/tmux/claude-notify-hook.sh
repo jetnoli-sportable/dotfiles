@@ -14,8 +14,11 @@
 # while its agents worked (reproduced 2026-11-05, Claude Code 2.1.318). The two
 # halves are kept as separate markers and @claude_working is derived from them:
 #   @claude_turn            1 while a turn runs (start .. done)
-#   @claude_agent_<id>      1 per live subagent (agent-start .. agent-stop); one
-#                           option per agent so parallel starts can't race a count
+#   @claude_agent_<id>      per live subagent (agent-start .. agent-stop), holding
+#                           its start epoch; one option per agent so parallel
+#                           starts can't race a count. A marker older than
+#                           AGENT_TTL_SECS counts as a lost SubagentStop and is
+#                           dropped (see agents_live).
 # Background shell commands are NOT counted: Claude Code has no hook for when
 # they start or finish.
 #
@@ -28,6 +31,7 @@
 #   UserPromptSubmit -> claude-notify-hook.sh start          (a turn began)
 #   Notification     -> claude-notify-hook.sh needs-input    (agent is asking you)
 #   Stop             -> claude-notify-hook.sh done           (turn finished)
+#   StopFailure      -> claude-notify-hook.sh done           (turn ended on an API error)
 #   SubagentStart    -> claude-notify-hook.sh agent-start    (a subagent began)
 #   SubagentStop     -> claude-notify-hook.sh agent-stop     (a subagent finished)
 #   SessionStart     -> claude-notify-hook.sh session-start  (claude (re)started)
@@ -41,6 +45,7 @@
 set -uo pipefail
 
 DONE_MIN_SECS=30   # only flag a finished turn as "done" if it ran at least this long
+AGENT_TTL_SECS=7200  # a subagent marker older than this is treated as a missed SubagentStop
 
 [ -n "${TMUX_PANE:-}" ] || exit 0
 P="$TMUX_PANE"
@@ -69,8 +74,23 @@ agent_opt() {
   [ -n "$id" ] && printf '@claude_agent_%s' "$id"
 }
 
+# agents_live — true while any subagent marker is fresh. Each marker holds the
+# epoch its agent started. A marker older than AGENT_TTL_SECS is taken as a
+# SubagentStop that never arrived (an interrupted or killed agent) and is
+# removed, so one lost event can't pin the pane "working" for the rest of the
+# process. A non-numeric value counts as expired too.
 agents_live() {
-  tmux show -p -t "$P" 2>/dev/null | grep -q '^@claude_agent_'
+  local name val now live=1
+  now="$(date +%s)"
+  while read -r name val; do
+    case "$name" in @claude_agent_*) ;; *) continue ;; esac
+    if [[ "$val" =~ ^[0-9]+$ ]] && (( now - val < AGENT_TTL_SECS )); then
+      live=0
+    else
+      tmux set -pu -t "$P" "$name" 2>/dev/null || true
+    fi
+  done < <(tmux show -p -t "$P" 2>/dev/null)
+  return "$live"
 }
 
 # sync_working — set @claude_working from @claude_turn and the agent markers.
@@ -106,7 +126,8 @@ case "${1:-}" in
   needs-input)  # Notification: blocked on you (permission / question / idle prompt)
     tmux set -p -t "$P" @claude_blocked needs-input 2>/dev/null || true
     ;;
-  done)         # Stop: turn finished. Still working while subagents run; once
+  done)         # Stop, or StopFailure (an API error ended the turn, so Stop never
+                # fires): turn finished. Still working while subagents run; once
                 # nothing runs, light "done" only for a long-running turn, so
                 # trivial sub-30s turns don't light the indicator
     tmux set -pu -t "$P" @claude_turn 2>/dev/null || true
@@ -120,7 +141,7 @@ case "${1:-}" in
     ;;
   agent-start)  # SubagentStart
     opt="$(agent_opt)"
-    [ -n "$opt" ] && { tmux set -p -t "$P" "$opt" 1 2>/dev/null || true; }
+    [ -n "$opt" ] && { tmux set -p -t "$P" "$opt" "$(date +%s)" 2>/dev/null || true; }
     sync_working
     ;;
   agent-stop)   # SubagentStop: fires again if a finished agent is resumed and

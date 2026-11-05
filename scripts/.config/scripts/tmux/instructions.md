@@ -72,10 +72,13 @@ the rest as ground truth, because the pane alone is no longer enough:
   - the text after the glyph is the live task description
 - **`@claude_working` marker (ground truth for "working")** — pushed by
   `claude-notify-hook.sh`: `1` while a turn runs (`UserPromptSubmit` to `Stop`,
-  kept as `@claude_turn`) or any subagent it launched is alive (`SubagentStart`
-  to `SubagentStop`, one `@claude_agent_<id>` per agent). Subagents run in the
+  or `StopFailure` when an API error ends the turn; kept as `@claude_turn`) or
+  any subagent it launched is alive (`SubagentStart` to `SubagentStop`, one
+  `@claude_agent_<id>` per agent holding its start time). Subagents run in the
   background, so `Stop` fires while they still work; without the agent half the
-  pane read green "done" until they reported back. `SessionStart` (startup or
+  pane read green "done" until they reported back. An agent marker older than
+  2 hours counts as a `SubagentStop` that never arrived (an interrupted or
+  killed agent) and is dropped. `SessionStart` (startup or
   resume) clears a dead process's markers. Background shell commands are not
   counted: no hook reports their start or end. Wins over a `✳` glyph
   that would otherwise read as idle, unless `@claude_blocked` or a live modal

@@ -34,6 +34,17 @@
         ]
       }
     ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PANE_STATUS_BIN:-$HOME/.config/scripts/tmux}/claude-notify-hook.sh\" done",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "SubagentStart": [
       {
         "hooks": [
