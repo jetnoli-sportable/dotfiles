@@ -19,7 +19,12 @@
 # Background shell commands are NOT counted: Claude Code has no hook for when
 # they start or finish.
 #
-# Wired from ~/.claude/settings.json:
+# Wired by the hooks-only pane-status plugin
+# (claude/.claude/skills/pane-status/hooks/hooks.json, stowed into
+# ~/.claude/skills/), so a new machine gets it from stow. Never also wire these
+# in ~/.claude/settings.json: plugin and settings hooks both run, so every
+# event would fire twice. PANE_STATUS_BIN overrides where the plugin finds
+# this script (default ~/.config/scripts/tmux).
 #   UserPromptSubmit -> claude-notify-hook.sh start          (a turn began)
 #   Notification     -> claude-notify-hook.sh needs-input    (agent is asking you)
 #   Stop             -> claude-notify-hook.sh done           (turn finished)

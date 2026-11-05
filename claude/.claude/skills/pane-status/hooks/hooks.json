@@ -1,0 +1,71 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PANE_STATUS_BIN:-$HOME/.config/scripts/tmux}/claude-notify-hook.sh\" start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PANE_STATUS_BIN:-$HOME/.config/scripts/tmux}/claude-notify-hook.sh\" needs-input",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PANE_STATUS_BIN:-$HOME/.config/scripts/tmux}/claude-notify-hook.sh\" done",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PANE_STATUS_BIN:-$HOME/.config/scripts/tmux}/claude-notify-hook.sh\" agent-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PANE_STATUS_BIN:-$HOME/.config/scripts/tmux}/claude-notify-hook.sh\" agent-stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PANE_STATUS_BIN:-$HOME/.config/scripts/tmux}/claude-notify-hook.sh\" session-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

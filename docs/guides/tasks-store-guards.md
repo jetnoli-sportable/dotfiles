@@ -250,8 +250,10 @@ host needs — safe to re-run any time:
    `PreToolUse` entries against the tracked reference copy in
    `claude/.claude/settings.recommended.json`, printing the exact block to
    paste by hand when it's missing. This is deliberate: the live settings
-   file is untracked and carries other hooks (the notify pipeline behind
-   the picker's needs-input tier) that a script must never risk clobbering.
+   file is untracked and carries Claude Code's own state and your
+   preferences, which a script must never risk clobbering. (The picker's
+   notify hooks used to live there too; they now ship as the stowed
+   `pane-status` plugin.)
    After pasting, **restart every already-running Claude Code session** —
    hook config is snapshotted at session start, so a running session won't
    see the new entry until it restarts.
