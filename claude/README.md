@@ -89,7 +89,8 @@ paths/vocabulary in the invocation prompt instead.
     `-auto-approve`, `-lock=false`), and asks before process kills, other
     recursive deletes, SQL drops, every `gcloud`, `gsutil` and `bq` call
     (reads included), `terraform test`, `terraform init -migrate-state`,
-    `kubectl delete` and force-pushes to a default branch.
+    `kubectl` writes (`apply`, `delete`, `patch`, `scale`, `exec`, …) and
+    force-pushes to a default branch or a branch only known when it runs.
     Added after a subagent's `tmux $S kill-server` (with `$S` empty) killed
     all 21 wb sessions on 2026-10-25; the script header has the full rule
     list and kill-switch.

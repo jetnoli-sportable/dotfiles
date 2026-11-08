@@ -67,7 +67,9 @@
 #       `command -v gcloud` is only a lookup and passes
 #       (a Google Cloud SDK container too)
 #     terraform/tofu test (run blocks apply by default), terraform init
-#       -migrate-state/-force-copy, kubectl delete or rm
+#       -migrate-state/-force-copy
+#     kubectl writes and runs (apply, create, patch, edit, scale, delete,
+#       exec, rollout restart…); get, describe, logs and other reads pass
 #     a command word that is itself a $( ) or backtick span (unknowable),
 #       except `$(which X)` / `$(command -v X)`, judged as X
 #     git push --force/-f/+ref to development/dev/main/master, with no
@@ -479,7 +481,23 @@ check_segment() {
       flag ask "$w acts on live cloud accounts with Jet's credentials, so every call is confirmed, reads included; prefer handing Jet the exact command, what it does, read-only or mutating, which project, and what to paste back"
       ;;
     kubectl)
-      [[ "$rest" =~ [[:space:]](delete|rm)[[:space:]] ]] && flag ask "$w ${BASH_REMATCH[1]} deletes cloud resources"
+      # skip global options (and the values some take) to reach the verb
+      local verb="" next=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --*=*) shift ;;
+          -n|--namespace|--context|--cluster|--user|--kubeconfig|-s|--server|--token|--as|--as-group|--request-timeout|--cache-dir|-v|--v)
+            shift; [ $# -gt 0 ] && shift ;;
+          -*) shift ;;
+          *) verb="$1"; next="${2:-}"; break ;;
+        esac
+      done
+      case "$verb" in
+        delete|rm|apply|create|replace|patch|edit|scale|autoscale|set|label|annotate|taint|drain|cordon|uncordon|expose|run|exec|cp|debug)
+          flag ask "$w $verb changes or runs something in a live cluster; only read-only kubectl (get, describe, logs) runs without asking" ;;
+        rollout)
+          case "$next" in status|history) ;; *) flag ask "$w rollout $next changes a live workload" ;; esac ;;
+      esac
       ;;
     git)
       local a r push=0 force=0 hitdef=0 unknown=0 after=()
