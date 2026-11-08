@@ -943,9 +943,10 @@ line is a dated <code>###</code> heading that duplicates the record (same date, 
 the heading has one, and a title the <code># </code> line equals or is the clipped form of),
 it moves the full title to the <code># </code> line, drops the heading, and adds
 <code>time: none</code> when the heading had no HH:MM and the name's HHMM is a 00NN sequence
-number. Handoff records stamped the same way, and the migrate history handoff, get
-<code>time: none</code>. A record whose first body line is not such a duplicate is never
-touched. It takes each task's lock, rebuilds the views, changes nothing on a second
+number. A date-only entry (first line <code>DATE — …</code>, <code>- DATE …</code> or <code>**DATE …</code>, the same
+date as its name, no HH:MM after it, a 00NN name) just gains <code>time: none</code>. Handoff
+records stamped the same way, and the migrate history handoff, get <code>time: none</code>. A
+record whose first body line is neither is never touched. It takes each task's lock, rebuilds the views, changes nothing on a second
 run, and with <code>--dry-run</code> prints what would change per record and writes nothing.</p>
 <p>Skills that read these (<code>/wb-save</code>, <code>/wb-resume</code>, <code>/wb-decide</code>, <code>/close-out</code>,
 <code>/handoff</code>, <code>/quick-wins</code>, <code>/review-guide</code> and others) check <code>layout:</code> and read

@@ -80,6 +80,12 @@ dec "$S" 2026-10-24-1000-wrongdate "Wrong date" "### 2026-10-25 10:00 — Wrong 
 
 - Decided: heading date differs from the file's."
 dec "$S" 2026-10-26-1000-headonly "Heading only" "### 2026-10-26 10:00 — Heading only"
+dec "$S" 2026-10-17-0001-style-a "Style A lead" "2026-10-17 — **Style A lead.** The old date-only shape.
+- Why: no time recorded."
+dec "$S" 2026-10-17-0002-style-d "Style D" "- **2026-10-17 — Style D.** A dated bullet."
+dec "$S" 2026-10-17-0003-timed-a "Timed A" "2026-10-17 00:03 — Timed A. A real time in the source."
+dec "$S" 2026-10-17-0004-other-date "Other date" "2026-10-16 — A date that is not the file's."
+dec "$S" 2026-10-17-1000-real-a "Real A" "2026-10-17 — Date-only source but a real clock time in the name."
 hand "$S" 2026-10-18-0000 "" false "### 2026-10-18 RESAVE — wb-save"
 hand "$S" 2026-10-18-1700 wb-save false "### 2026-10-18 17:00 — wb-save"
 hand "$S" 2026-10-02-0000 migrate true "### 2026-10-02 00:00 — migrate (auto)"
@@ -96,8 +102,9 @@ out="$(cmd_migrate --tidy --dry-run --all 2>&1)"; rc=$?
 assert_eq "dry-run: exit 0" 0 "$rc"
 assert_eq "dry-run: the store is byte-identical afterwards" "$sum0" "$(store_sum)"
 assert "dry-run: counts the dropped headings (long, no-time, timed, heading-only)" 'headings dropped 4,' "$out"
+assert "dry-run: names a date-only entry that only gains time: none" 'decisions/2026-10-17-0001-style-a.md: time: none' "$out"
 assert "dry-run: counts the restored titles (the long one only)" 'titles restored 1,' "$out"
-assert "dry-run: counts decisions given time: none (the dated heading without a time)" 'decisions time: none 1,' "$out"
+assert "dry-run: counts decisions given time: none (the dated heading without a time)" 'decisions time: none 3,' "$out"
 assert "dry-run: counts handoffs given time: none (loose heading + the migrate history file)" 'handoffs time: none 2,' "$out"
 assert "dry-run: counts records left alone (different title, sub-heading, wrong date)" 'left alone 3' "$out"
 assert "dry-run: names the records it would change" 'decisions/2026-10-18-0915-adopt-the-shared-queue' "$out"
@@ -158,6 +165,12 @@ assert_not "tidy: a handoff whose name time is not a 00NN sequence is left" '^ti
 assert "tidy: handoffs view heads the no-time record with the date alone" '^## 2026-10-18$' "$(cat "$D/handoffs.md")"
 assert "tidy: decisions view carries the full title" "^### $LONGFULL\$" "$(cat "$D/decisions.md")"
 assert_not "tidy: decisions view no longer repeats the heading" '^### 2026-10-20 — ' "$(cat "$D/decisions.md")"
+
+assert_eq "tidy: a date-only entry gains time: none and keeps its body byte for byte" "$(printf -- '---\nstatus: in-force\nsupersedes: []\nsuperseded_by: []\nreview_at:\ntime: none\n---\n# Style A lead\n\n2026-10-17 — **Style A lead.** The old date-only shape.\n- Why: no time recorded.')" "$(cat "$D/decisions/2026-10-17-0001-style-a.md")"
+assert "tidy: a dated bullet (style D) gains time: none" '^time: none$' "$(cat "$D/decisions/2026-10-17-0002-style-d.md")"
+assert_not "tidy: a source that shows HH:MM gets none" '^time:' "$(cat "$D/decisions/2026-10-17-0003-timed-a.md")"
+assert_not "tidy: a source date that differs from the name's gets none" '^time:' "$(cat "$D/decisions/2026-10-17-0004-other-date.md")"
+assert_not "tidy: a name that is a real clock time gets none" '^time:' "$(cat "$D/decisions/2026-10-17-1000-real-a.md")"
 
 # ---- idempotent ------------------------------------------------------------------
 sum1="$(store_sum)"

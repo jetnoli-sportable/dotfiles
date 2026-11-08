@@ -696,9 +696,10 @@ line is a dated `###` heading that duplicates the record (same date, same time i
 the heading has one, and a title the `# ` line equals or is the clipped form of),
 it moves the full title to the `# ` line, drops the heading, and adds
 `time: none` when the heading had no HH:MM and the name's HHMM is a 00NN sequence
-number. Handoff records stamped the same way, and the migrate history handoff, get
-`time: none`. A record whose first body line is not such a duplicate is never
-touched. It takes each task's lock, rebuilds the views, changes nothing on a second
+number. A date-only entry (first line `DATE — …`, `- DATE …` or `**DATE …`, the same
+date as its name, no HH:MM after it, a 00NN name) just gains `time: none`. Handoff
+records stamped the same way, and the migrate history handoff, get `time: none`. A
+record whose first body line is neither is never touched. It takes each task's lock, rebuilds the views, changes nothing on a second
 run, and with `--dry-run` prints what would change per record and writes nothing.
 
 Skills that read these (`/wb-save`, `/wb-resume`, `/wb-decide`, `/close-out`,

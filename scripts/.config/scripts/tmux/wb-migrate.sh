@@ -982,9 +982,11 @@ _wb_mg_tidy_heading() {
 }
 
 # _wb_mg_tidy_decision <file> <dry> — repair one decision record. Sets
-# _TD_RESULT to one of: dup (changed), alone (starts with a `###` heading that
-# is not a safe duplicate: left as it is), none (nothing to do), and the
-# _TD_* flags _TD_TITLE_FULL, _TD_TIME for what changed. Writes unless <dry>.
+# _TD_RESULT to one of: dup (a repeated heading dropped), timeonly (a
+# date-only entry gets `time: none`, nothing else changes), alone (starts with
+# a `###` heading that is not a safe duplicate: left as it is), none (nothing
+# to do), and the flags _TD_TITLE_FULL, _TD_TIME for what changed. Writes
+# unless <dry>.
 _wb_mg_tidy_decision() {
   local f="$1" dry="$2" id
   id="${f##*/}"; id="${id%.md}"
@@ -1000,17 +1002,35 @@ _wb_mg_tidy_decision() {
   [ "$ti" -lt "$n" ] && [[ "${L[ti]}" == "# "* ]] || return 0
   local cur="${L[ti]:2}" hi=$((ti + 1))
   while [ "$hi" -lt "$n" ] && ! [[ "${L[hi]}" == *[![:space:]]* ]]; do hi=$((hi + 1)); done
-  [ "$hi" -lt "$n" ] && [[ "${L[hi]}" == "###"* ]] || return 0
+  [ "$hi" -lt "$n" ] || return 0
+  local nd="${id:0:10}" nhm="${id:11:4}" k has_time=0
+  for ((k = 1; k < e; k++)); do if [[ "${L[k]}" == time:* ]]; then has_time=1; fi; done
+  if ! [[ "${L[hi]}" == "###"* ]]; then
+    # no heading to drop. An entry written as `DATE — text`, `- DATE …` or
+    # `**DATE …` (the date-only styles) carries no time: when its name is a
+    # 00NN sequence stamp for that same date and the line shows no HH:MM after
+    # the date, only `time: none` is missing.
+    local re_a='^(-[[:space:]]+)?(\*\*)?([0-9]{4}-[0-9]{2}-[0-9]{2})(.*)$' re_hm=' [0-9]{2}:[0-9]{2}([^0-9]|$)'
+    if [ "$has_time" -eq 0 ] && [[ "$nhm" =~ ^00[0-9][0-9]$ ]] && [[ "${L[hi]}" =~ $re_a ]] \
+       && [ "${BASH_REMATCH[3]}" = "$nd" ] && ! [[ "${BASH_REMATCH[4]}" =~ ^$re_hm ]]; then
+      _TD_RESULT=timeonly; _TD_TIME=1
+      [ "$dry" -eq 0 ] || return 0
+      local o="" 
+      for ((k = 0; k < e; k++)); do o+="${L[k]}"$'\n'; done
+      o+="time: none"$'\n'"---"
+      for ((k = e + 1; k < n; k++)); do o+=$'\n'"${L[k]}"; done
+      _wb_write_atomic "$f" "$o" || return 1
+    fi
+    return 0
+  fi
   # a `###` first body line: a dated duplicate of this record, or left alone
   if ! _wb_mg_tidy_heading "${L[hi]}"; then _TD_RESULT=alone; return 0; fi
-  local nd="${id:0:10}" nhm="${id:11:4}"
   if [ "$_TD_DATE" != "$nd" ] || { [ -n "$_TD_HM" ] && [ "$_TD_HM" != "$nhm" ]; }; then _TD_RESULT=alone; return 0; fi
   local full="$_TD_TITLE" hm="$_TD_HM"
   if [ "$full" != "$cur" ] && [ "$(_wb_mg_clip "$full")" != "$cur" ]; then _TD_RESULT=alone; return 0; fi
   [ "$full" = "$cur" ] || _TD_TITLE_FULL=1
-  local want_time=0 k has_time=0
+  local want_time=0
   if [ -z "$hm" ] && [[ "$nhm" =~ ^00[0-9][0-9]$ ]]; then want_time=1; fi
-  for ((k = 1; k < e; k++)); do if [[ "${L[k]}" == time:* ]]; then has_time=1; fi; done
   if [ "$want_time" -eq 1 ] && [ "$has_time" -eq 0 ]; then _TD_TIME=1; fi
   _TD_RESULT=dup
   [ "$dry" -eq 0 ] || return 0
@@ -1107,6 +1127,7 @@ _wb_mg_tidy() {
         case "$_TD_RESULT" in
           dup) t_dropped=$((t_dropped + 1)); t_titles=$((t_titles + _TD_TITLE_FULL)); t_dtime=$((t_dtime + _TD_TIME))
                lines+=("  decisions/$id: drop the repeated heading$([ "$_TD_TITLE_FULL" -eq 0 ] || printf ', full title on the # line')$([ "$_TD_TIME" -eq 0 ] || printf ', time: none')") ;;
+          timeonly) t_dtime=$((t_dtime + 1)); lines+=("  decisions/$id: time: none") ;;
           alone) t_alone=$((t_alone + 1)) ;;
         esac
       done < <(find "$d/decisions" -maxdepth 1 -type f -name '*.md' | LC_ALL=C sort)
@@ -1118,14 +1139,14 @@ _wb_mg_tidy() {
         if [ "$_TD_RESULT" = dup ]; then t_htime=$((t_htime + 1)); lines+=("  handoffs/$id: time: none"); fi
       done < <(find "$d/handoffs" -maxdepth 1 -type f -name '*.md' | LC_ALL=C sort)
     fi
-    if [ $((t_dropped + t_htime)) -gt 0 ]; then
+    if [ $((t_dropped + t_htime + t_dtime)) -gt 0 ]; then
       n_changed=$((n_changed + 1))
       [ "$dry" -eq 1 ] || wb_render_views "$f"
     else
       n_tidy=$((n_tidy + 1))
     fi
     [ "$dry" -eq 1 ] || wb_task_lock_release "$f"
-    if [ $((t_dropped + t_htime + t_alone)) -gt 0 ]; then
+    if [ $((t_dropped + t_htime + t_dtime + t_alone)) -gt 0 ]; then
       echo "wb migrate --tidy: $stem  headings dropped $t_dropped, titles restored $t_titles, decisions time: none $t_dtime, handoffs time: none $t_htime, left alone $t_alone"
       if [ "$dry" -eq 1 ] && [ "${#lines[@]}" -gt 0 ]; then printf '%s\n' "${lines[@]}"; fi
     fi
