@@ -36,7 +36,7 @@ and isn't recorded yet.
   a decision is one file in `dossiers/<stem>/decisions/`, still written by `wb append
   … Decisions -` (same command and body), and a reversal goes through `wb decide-supersede`
   (step 3) instead of a `(supersedes: …)` line. Style and duplicate checks read the files
-  in `decisions/` (or the generated `decisions.md` view for an overview), not `## Decisions`.
+  in `decisions/` (or the generated `decisions.md` view for an overview; the views are not in git, so a commit never names them, and `wb views <task>` rebuilds them), not `## Decisions`.
   The family's file is `concepts.md`, not `CONCEPTS.md`. Tasks without `layout:` keep
   everything below as written. See `docs/wb-guide.md`, "Dossier layout (trial)".
 - **Append-only.** `## Decisions` is a log. A correction is a *new* entry
