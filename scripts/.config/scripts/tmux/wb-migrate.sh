@@ -854,9 +854,9 @@ _wb_mg_emit() {
     if [ "$n" -eq "$nh" ]; then
       printf '%s\n' "$text" > "$work/kept.txt"
     else
-      local hn=""
-      if [[ "$flags" == *t* ]]; then hn=none; fi
-      _wb_handoff_move_entry "$sdir/handoffs" "$text" "$date" "$hm" "$hn" || return 1
+      local hnone=""
+      if [[ "$flags" == *t* ]]; then hnone=none; fi
+      _wb_handoff_move_entry "$sdir/handoffs" "$text" "$date" "$hm" "$hnone" || return 1
     fi
   done < "$work/hnd.meta"
   return 0
