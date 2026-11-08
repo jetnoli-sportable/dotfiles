@@ -4658,8 +4658,12 @@ _wb_view_install() {
   if [ -f "$2" ] && cmp -s "$1" "$2"; then rm -f "$1"; else mv "$1" "$2"; fi
 }
 
-# _wb_render_decisions <dossier_dir> <stem> — decisions.md on stdout: in-force
-# decisions first, superseded ones collapsed under one heading; newest first.
+# _wb_render_decisions <dossier_dir> <stem> — decisions.md on stdout: proposed
+# decisions first (own heading, omitted when there are none), then in-force
+# ones, superseded ones collapsed under one heading; newest first. A record
+# with some other status is listed with the in-force ones, its status shown.
+# The view prints no time (the id is the file name); a record with
+# `time: none` needs nothing extra.
 _wb_render_decisions() {
   local d="$1" stem="$2"
   local -a files=()
@@ -4703,10 +4707,14 @@ _wb_render_decisions() {
       body[n] = body[n] $0 "\n"
     }
     END {
-      nf = 0; ns = 0
-      for (i = 1; i <= n; i++) if (st[i] == "superseded") ns++; else nf++
+      nf = 0; ns = 0; np = 0
+      for (i = 1; i <= n; i++) if (st[i] == "superseded") ns++; else if (st[i] == "proposed") np++; else nf++
+      if (np > 0) {
+        print "## Proposed (" np ")"; print ""
+        for (i = 1; i <= n; i++) if (st[i] == "proposed") entry(i)
+      }
       print "## In force (" nf ")"; print ""
-      for (i = 1; i <= n; i++) if (st[i] != "superseded") entry(i)
+      for (i = 1; i <= n; i++) if (st[i] != "superseded" && st[i] != "proposed") entry(i)
       if (ns > 0) {
         print "## Superseded (" ns ")"; print ""
         print "<details>"; print "<summary>Show the " ns " superseded decisions</summary>"; print ""
