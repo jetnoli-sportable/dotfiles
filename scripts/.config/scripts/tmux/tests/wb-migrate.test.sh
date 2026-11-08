@@ -676,7 +676,7 @@ assert_eq "dispatch: wb migrate exits 0" 0 "$rc"
 assert "dispatch: wb migrate prints the count line" 'proj--cli +decisions 1/1' "$out"
 out="$(bash "$WB" migrate 2>&1)"; rc=$?
 assert_eq "no argument: usage, exit 1" 1 "$rc"
-assert "no argument: usage text" 'usage: wb migrate <task>\|--all \[--dry-run\]' "$out"
+assert "no argument: usage text" 'usage: wb migrate \[--tidy\] <task>\|--all \[--dry-run\]' "$out"
 assert "wb help lists migrate" '^  wb migrate ' "$(cmd_help)"
 
 echo
