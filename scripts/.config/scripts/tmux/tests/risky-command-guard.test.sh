@@ -338,6 +338,96 @@ expect allow 'grep -rn gcloud scripts/'
 expect allow "git commit -m 'document the gcloud auth print-access-token rule'"
 expect allow 'echo "run: gcloud projects list"'
 
+# --- forms the code review (2026-11-06) found slipping past -------------
+# --- $( ) before the verb splits the terraform command (adversarial, P1)
+expect deny  'terraform -chdir="$(git rev-parse --show-toplevel)/infra" apply'
+expect deny  'terraform -chdir=$(pwd)/infra destroy'
+expect deny  'terraform plan -var "sha=$(git rev-parse HEAD)" -lock=false'
+expect deny  '$(which terraform) apply'
+expect ask   'kubectl --context=$(kubectl config current-context) delete pod x'
+# --- unquoted heredoc bodies run $( ) and backticks (correctness, security, adversarial)
+expect ask   'cat > .env <<EOF
+TOKEN=$(gcloud auth print-access-token)
+EOF'
+expect ask   'cat > t <<EOF
+`gcloud auth print-access-token`
+EOF'
+expect deny  'cat > out.txt <<EOF
+$(terraform apply -auto-approve)
+EOF'
+expect deny  'git commit -F - <<EOF
+run `terraform apply` after merge
+EOF'
+expect allow 'cat > notes <<'\''EOF'\''
+$(gcloud projects list)
+EOF'
+# --- backslash before the command word (pre-existing parser gap)
+expect ask   '\gcloud projects list'
+expect deny  '\terraform apply'
+# --- terraform verbs and flags not on the deny list
+expect deny  'terraform workspace delete -force staging'
+expect deny  'terraform -chdir=infra workspace delete old'
+expect allow 'terraform workspace select prod'
+expect ask   'terraform init -migrate-state -force-copy'
+expect deny  'terraform state push -force x.tfstate'
+expect allow 'terraform apply -help'
+expect deny  'TF_CLI_ARGS_plan=-lock=false terraform plan'
+# --- wrappers that run their argument as a command
+expect ask   'env -S '\''gcloud projects list'\'''
+expect deny  'env -S "terraform apply"'
+expect ask   'echo '\''gcloud projects list'\'' | bash'
+expect deny  'bash <<< '\''terraform apply'\'''
+expect ask   'script -qc '\''gcloud projects list'\'' /dev/null'
+expect ask   'direnv exec . gcloud projects list'
+expect deny  'direnv exec . terraform apply'
+expect deny  'flock /tmp/tf.lock terraform apply'
+expect deny  'systemd-run --user --scope terraform apply'
+expect deny  'nix-shell --run "terraform apply"'
+expect deny  'parallel terraform -chdir={} apply ::: a b'
+expect deny  'terragrunt apply'
+expect deny  'docker run --rm -v "$PWD":/w -w /w hashicorp/terraform:1.9 apply'
+expect ask   'cat <(gcloud projects list)'
+expect ask   'g"cloud" projects list'
+expect deny  'terraform '\''apply'\'''
+# --- the new `command -v` lookup shortcut must stay narrow (testing)
+expect ask   'command -v gcloud && gcloud projects list'
+expect ask   'command gcloud projects list'
+expect ask   'command -p gcloud projects list'
+
+# --- everyday commands that must stay allowed after those fixes ------------
+expect allow 'gh pr create --title x --body "$(cat <<'\''EOF'\''
+## Summary
+Runs `wb reviewed` after review.
+EOF
+)"'
+expect allow 'git commit -m "$(cat <<'\''EOF'\''
+fix(guard): keep $( ) commands whole
+EOF
+)"'
+expect allow 'cd "$(git rev-parse --show-toplevel)" && ls'
+expect allow 'for f in $(ls *.md); do wc -l "$f"; done'
+expect allow 'echo "built at $(date +%s)"'
+expect allow 'x=$((1 + 2)); echo $x'
+expect allow 'cat > notes.md <<EOF
+run by `whoami` on $(hostname)
+EOF'
+expect allow 'terraform plan -out=tfplan && terraform show tfplan'
+expect allow 'make -C infra plan'
+expect allow 'docker run --rm alpine echo hi'
+expect allow '"$(git rev-parse --show-toplevel)/scripts/x.sh" --help'
+expect allow '$(npm bin)/eslint .'
+expect allow '$(command -v python3) script.py'
+expect allow 'ls "$(dirname "$f")"'
+expect allow 'printf '\''%s\n'\'' a b | sh -c '\''cat'\'''
+expect allow 'echo hello | bash -c '\''read x; echo $x'\'''
+expect allow 'rm -rf /tmp/claude-1000/foo'
+expect allow 'terraform -chdir="$(git rev-parse --show-toplevel)/infra" plan'
+expect allow 'VAR=$(jq -r .x f.json) node app.js'
+expect allow 'diff <(sort a) <(sort b)'
+# a substitution as the command word: the guard can't see what runs
+expect ask   '$(cat cmd.txt) --now'
+expect deny  'export TF_CLI_ARGS="-auto-approve"'
+
 # --- force pushes (finding 9) ---------------------------------------------
 expect ask   'git push --force origin development'
 expect ask   'git push -f origin main'

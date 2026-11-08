@@ -33,8 +33,9 @@ After any `/ce-code-review` pass completes inside a `wb` session, run `wb review
 Never run `gcloud`, `gsutil` or `bq`, or anything that uses their credentials (e.g. `curl -H "Authorization: Bearer $(gcloud auth print-access-token)" …`), without Jet's explicit approval for that exact command. That includes read-only commands, and approval for one command doesn't cover the next. Live-cloud work is Jet's to run, to be safe.
 
 - **Default: hand over a command card** instead of asking to run it: the exact command, what it does, whether it's read-only or mutating, which project/account it acts on, and what Jet should paste back.
-- **Terraform/OpenTofu:** the agent never runs `apply`, `destroy`, `import`, `taint`/`untaint`, `force-unlock`, `refresh`, a state write (`state rm|mv|push|replace-provider`), or anything with `-auto-approve` or `-lock=false`; those go on a command card too. `fmt`, `validate`, `init`, `plan`, `show`, `graph` and `state list/show` are fine.
-- The `risky-command-guard.sh` PreToolUse hook enforces this (deny for the terraform writes, ask for every `gcloud`/`gsutil`/`bq` call, including inside `$( )`), but it only sees the typed command text. A script or program that calls them is still covered by this rule.
+- **Terraform/OpenTofu/Terragrunt:** the agent never runs `apply`, `destroy`, `import`, `taint`/`untaint`, `force-unlock`, `refresh`, a state write (`state rm|mv|push|replace-provider`), `workspace delete`, or anything with `-auto-approve` or `-lock=false` (including through `TF_CLI_ARGS`); those go on a command card too.
+- **The one exception:** `terraform fmt`, `validate`, `init`, `plan`, `show`, `graph`, `output` and `state list/show/pull`, and read-only `kubectl` (`get`, `describe`, `logs`), may run without asking even though they use the same credentials. They read live state but don't change it.
+- The `risky-command-guard.sh` PreToolUse hook enforces this for the Bash tool (deny for the terraform writes, ask for every `gcloud`/`gsutil`/`bq` call, including inside `$( )`), but it only sees the typed command text. A script or program that calls them is still covered by this rule.
 
 ## GitHub CLI → use `pgh` for non-Sportable repos
 

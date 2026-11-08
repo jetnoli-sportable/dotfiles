@@ -13,21 +13,29 @@
 # How it decides: it only sees the text the agent typed, never the values
 # variables expand to — that is the point: `tmux $S kill-server` is refused
 # because no literal -L/-S socket flag is visible. The text is
-#   1. joined at backslash-newline continuations;
+#   1. rid of backslash-newlines, as bash does (`terra\<newline>form` is
+#      terraform);
 #   2. stripped of heredoc bodies that are data (a file, a commit message),
 #      keeping bodies whose owner is a shell or SQL client, or that are piped
-#      into a shell (`cat <<EOF | bash`);
+#      into a shell (`cat <<EOF | bash`); with an unquoted delimiter (<<EOF)
+#      bash still runs the body's $( ) and backticks, so those are kept;
 #   3. quote-processed in one pass over the whole command: quoted text handed
-#      to a shell (`bash -c`, `sh -lc`, `su -c`, `eval`, `ssh host`, `watch`,
-#      a `trap` handler) is lifted out and checked as commands; other quoted
-#      text stays one visible argument with its separators neutralised, so
-#      `rm -rf 'build'` and `pkill -f 'tmux'` are judged by what they name
-#      while a commit message can never form a command; `$( )` and backticks
-#      inside double quotes are still code; `# comments` are dropped;
-#   4. split into simple commands (on ; & | newlines, $( and backticks);
+#      to a shell (`bash -c`, `sh -lc`, `su -c`, `sg -c`, `script -c`,
+#      `flock -c`, `env -S`, `nix-shell --run`, `eval`, `ssh host`, `watch`,
+#      a `trap` handler, `bash <<< '…'`, `echo '…' | bash`) is lifted out and
+#      checked as commands; other quoted text stays one visible argument with
+#      its separators neutralised, so `rm -rf 'build'` and `pkill -f 'tmux'`
+#      are judged by what they name while a commit message can never form a
+#      command; the code inside $( ) and backticks (outside single-quoted
+#      data) is checked as its own command, and the command around it keeps
+#      a placeholder word, so `terraform -chdir="$(pwd)" apply` stays one
+#      command; `# comments` are dropped;
+#   4. split into simple commands (on ; & | newlines);
 #   5. per simple command: leading VAR=x, shell keywords (if/then/do/{/!...)
 #      and wrappers with their options (env, sudo, nice, timeout N, xargs,
-#      watch, exec, eval...) are stripped and the first word picks the rule.
+#      watch, exec, eval, flock FILE, direnv exec DIR, systemd-run,
+#      parallel...) are stripped, a leading backslash (`\gcloud`) is ignored,
+#      and the first word picks the rule.
 #
 #   deny (blocked, reason fed back to the agent; only the kill switch passes it):
 #     tmux kill-server, or kill-session -a, without a literal -L/-S socket
@@ -39,10 +47,12 @@
 #       unreachable)
 #     shutdown/reboot/poweroff/halt, systemctl poweroff|reboot|halt|suspend
 #     mkfs, dd of=/dev/…
-#     terraform/tofu apply, destroy, import, taint, untaint, force-unlock,
-#       refresh, state rm|mv|push|replace-provider, and any -auto-approve or
-#       -lock=false (global options like -chdir skipped): the agent never
-#       changes real infrastructure or shared state; Jet runs those
+#     terraform/tofu/terragrunt apply, destroy, import, taint, untaint,
+#       force-unlock, refresh, state rm|mv|push|replace-provider, workspace
+#       delete, and any -auto-approve or -lock=false (global options like
+#       -chdir skipped; also set through TF_CLI_ARGS*, and in a terraform
+#       container under docker/podman run): the agent never changes real
+#       infrastructure or shared state; Jet runs those. -help/-version pass
 #   ask (Jet confirms):
 #     tmux kill-session/kill-window/kill-pane on the default server
 #     any other kill/pkill/killall, any other rm -r, find -delete
@@ -52,7 +62,11 @@
 #       (`curl -H "…$(gcloud auth print-access-token)"`): the global
 #       CLAUDE.md rule is that live cloud commands are approved one by one;
 #       `command -v gcloud` is only a lookup and passes
-#     terraform/tofu test (run blocks apply by default), kubectl delete or rm
+#       (a Google Cloud SDK container too)
+#     terraform/tofu test (run blocks apply by default), terraform init
+#       -migrate-state/-force-copy, kubectl delete or rm
+#     a command word that is itself a $( ) or backtick span (unknowable),
+#       except `$(which X)` / `$(command -v X)`, judged as X
 #     git push --force/-f/+ref to development/dev/main/master, or with no
 #       branch named
 #     systemctl stop|kill|restart
@@ -70,7 +84,11 @@
 #
 # Out of reach by design: commands inside a file run later (`bash t.sh`),
 # python/node subprocess calls, and a variable used as the command word
-# (`$TMUX_BIN kill-server`). It is an accident guard, not a sandbox.
+# (`$TMUX_BIN kill-server`). It is an accident guard, not a sandbox: Claude
+# Code's docs say a hook is best-effort (a timed-out hook doesn't block) and
+# point to permissions.deny rules for a hard deny. An "ask" from this hook
+# still reaches Jet in auto mode; in bypassPermissions mode hook behaviour
+# isn't documented.
 #
 # Fails OPEN on internal errors (missing jq, bad JSON): a broken guard must
 # never block every Bash call. Kill-switch: touch the file in $KILL_SWITCH.
@@ -90,6 +108,8 @@ cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null
 decision=""   # "", ask, deny — deny wins
 reasons=()
 SEP=$'\001'   # stands in for whitespace/separators inside a quoted argument
+SUBST=_subst_ # stands in for a $( ) or backtick span inside its command
+TF_CARD="Jet runs it: hand over the exact command, what it changes, which workspace/project, and what to paste back"
 
 flag() {
   local level="$1" why="$2"
@@ -107,11 +127,16 @@ strip_prefixes() {
     case "$1" in
       [A-Za-z_]*=*|if|then|else|elif|do|while|until|'!'|'{'|'}') shift; continue ;;
     esac
-    w="${1##*/}"
+    w="${1##*/}"; w="${w//\\/}"   # `\gcloud` only skips aliases; gcloud still runs
     # `command -v X` only looks X up; nothing runs
     if [ "$w" = command ] && [[ "${2:-}" =~ ^-[pvV]*[vV][pvV]*$ ]]; then printf '\n'; return; fi
+    # `direnv exec DIR CMD` runs CMD with DIR's environment
+    if [ "$w" = direnv ]; then
+      [ "${2:-}" = exec ] || break
+      shift 2; [ $# -gt 0 ] && shift; continue
+    fi
     case "$w" in   # vals: the wrapper's short options that take a value
-      env) vals=uCS ;;
+      env) vals=uC ;;   # not -S: `env -S 'cmd'` is lifted as code, unquoted -S cmd runs cmd
       sudo|doas) vals=ugCDprtUTh ;;
       nice) vals=n ;;
       ionice) vals=cnp ;;
@@ -121,7 +146,12 @@ strip_prefixes() {
       stdbuf) vals=ioe ;;
       time) vals=fo ;;
       exec) vals=a ;;
-      command|nohup|builtin|setsid|eval) vals="" ;;
+      flock) vals=wE ;;
+      taskset) vals="" ;;
+      runuser) vals=ugl ;;
+      systemd-run) vals=upEMHs ;;
+      parallel) vals=jSaE ;;
+      command|nohup|builtin|setsid|eval|unbuffer|chronic) vals="" ;;
       *) break ;;
     esac
     shift
@@ -140,7 +170,9 @@ strip_prefixes() {
         *) break ;;
       esac
     done
-    if [ "$w" = timeout ] && [ $# -gt 0 ]; then shift; fi   # the duration
+    # the operand before the command: timeout's duration, flock's lock file,
+    # taskset's CPU mask
+    case "$w" in timeout|flock|taskset) [ $# -gt 0 ] && shift ;; esac
   done
   printf '%s\n' "$*"
 }
@@ -225,12 +257,19 @@ check_segment() {
   set -f; set -- $seg; set +f
   [ $# -eq 0 ] && return
   local -a orig=("$@")
+  local k
+  # TF_CLI_ARGS* adds flags to every later terraform call, wherever it is set
+  for k in "${orig[@]}"; do
+    if [[ "${k//$SEP/ }" =~ ^TF_CLI_ARGS[A-Za-z_]*=.*(-auto-approve|-lock=(0|f|F|false|FALSE|False)([[:space:]]|$)) ]]; then
+      flag deny "TF_CLI_ARGS carrying ${BASH_REMATCH[1]} makes terraform skip its review step or state lock; $TF_CARD"
+    fi
+  done
   seg="$(strip_prefixes "$@")"
   set -f; set -- $seg; set +f
   [ $# -eq 0 ] && return
-  local k via_xargs=0   # xargs appends targets from stdin the guard never sees
+  local via_xargs=0   # xargs appends targets from stdin the guard never sees
   for ((k = 0; k < ${#orig[@]} - $#; k++)); do [ "${orig[$k]##*/}" = xargs ] && via_xargs=1; done
-  w="${1##*/}"; shift
+  w="${1##*/}"; w="${w//\\/}"; shift
   rest=" $* "
   rest="${rest//$SEP/ }"
 
@@ -349,37 +388,69 @@ check_segment() {
       ;;
     mkfs|mkfs.*) flag deny "$w formats a filesystem" ;;
     dd) [[ "$rest" =~ [[:space:]]of=/dev/ ]] && flag deny "dd of=/dev/... overwrites a device" ;;
-    terraform|tofu)
-      # global options (-chdir=DIR, -help, -version) come before the subcommand
-      local args=("$@") i=0 verb="" state_verb="" a card="Jet runs it: hand over the exact command, what it changes, which workspace/project, and what to paste back"
-      while [ $i -lt ${#args[@]} ]; do
-        case "${args[$i]}" in
-          -chdir|--chdir) i=$((i + 2)) ;;
-          -*) i=$((i + 1)) ;;
-          *) verb="${args[$i]}"; break ;;
-        esac
-      done
-      if [ "$verb" = state ]; then
-        for a in "${args[@]:$((i + 1))}"; do
-          case "$a" in -*) ;; *) state_verb="$a"; break ;; esac
+    terraform|tofu|terragrunt)
+      local args=("$@") i=0 word="" verb="" sub_verb="" a
+      # -help/-version only print: `terraform apply -help` changes nothing
+      for a in "${args[@]}"; do [[ "$a" =~ ^--?(h|help|version)$ ]] && return; done
+      # tf_next_word: from args[i], skip options (global ones like -chdir=DIR
+      # come before the subcommand) and set $word; i is left on that word
+      tf_next_word() {
+        word=""
+        while [ $i -lt ${#args[@]} ]; do
+          case "${args[$i]}" in
+            -chdir|--chdir) i=$((i + 2)) ;;
+            -*) i=$((i + 1)) ;;
+            *) word="${args[$i]}"; return ;;
+          esac
         done
+      }
+      tf_next_word; verb="$word"
+      # terragrunt run-all apply / terragrunt run -- apply
+      if [ "$w" = terragrunt ] && [[ "$verb" == run-all || "$verb" == run ]]; then
+        i=$((i + 1)); tf_next_word; verb="$word"
+      fi
+      if [[ "$verb" == state || "$verb" == workspace ]]; then
+        i=$((i + 1)); tf_next_word; sub_verb="$word"
       fi
       for a in "${args[@]}"; do
         if [[ "$a" =~ ^--?auto-approve(=|$) ]]; then
-          flag deny "$w -auto-approve applies without a review step; $card"
+          flag deny "$w -auto-approve applies without a review step; $TF_CARD"
         elif [[ "$a" =~ ^--?lock=(0|f|F|false|FALSE|False)$ ]]; then
-          flag deny "$w -lock=false skips the state lock and can corrupt shared state; $card"
+          flag deny "$w -lock=false skips the state lock and can corrupt shared state; $TF_CARD"
+        elif [[ "$a" =~ ^--?(migrate-state|force-copy)(=|$) ]]; then
+          flag ask "$w init ${BASH_REMATCH[0]%=} copies state into a backend and can overwrite what is there"
         fi
       done
       case "$verb" in
         apply|destroy|import|taint|untaint|force-unlock|refresh)
-          flag deny "$w $verb changes real infrastructure or its state; $card" ;;
+          flag deny "$w $verb changes real infrastructure or its state; $TF_CARD" ;;
         state)
-          case "$state_verb" in
-            rm|mv|push|replace-provider) flag deny "$w state $state_verb rewrites shared state; $card" ;;
+          case "$sub_verb" in
+            rm|mv|push|replace-provider) flag deny "$w state $sub_verb rewrites shared state; $TF_CARD" ;;
           esac ;;
+        workspace)
+          [ "$sub_verb" = delete ] && flag deny "$w workspace delete removes a workspace and its shared state; $TF_CARD" ;;
         test) flag ask "$w test runs apply by default (run blocks without command = plan) and creates real resources" ;;
       esac
+      ;;
+    docker|podman)
+      # a containerised terraform or gcloud is still terraform or gcloud
+      local a img=0 run=0 after=()
+      for a in "$@"; do
+        if [ $img = 1 ]; then after+=("$a"); continue; fi
+        if [ $run = 0 ]; then [ "$a" = run ] && run=1; continue; fi
+        if [[ "$a" =~ ^([^[:space:]]+/)?(terraform|tofu|opentofu|terragrunt|cloud-sdk|google-cloud-cli)(:[^/[:space:]]*)?(@sha256:[[:xdigit:]]+)?$ ]]; then
+          img=1; [[ "${BASH_REMATCH[2]}" == *tofu* ]] && after=(tofu) || after=("${BASH_REMATCH[2]}")
+        fi
+      done
+      case "${after[0]:-}" in
+        terraform|tofu|terragrunt) check_segment "${after[*]}" ;;
+        cloud-sdk|google-cloud-cli)
+          flag ask "$w run of a Google Cloud SDK image acts on live cloud accounts; every call is confirmed" ;;
+      esac
+      ;;
+    "$SUBST")
+      flag ask "the command word comes from \$( ) or backticks, so the guard can't see what runs"
       ;;
     gcloud|gsutil|bq)
       flag ask "$w acts on live cloud accounts with Jet's credentials, so every call is confirmed, reads included; prefer handing Jet the exact command, what it does, read-only or mutating, which project, and what to paste back"
@@ -417,14 +488,38 @@ check_segment() {
 # Heredoc bodies are data (a commit message quoting `tmux $S kill-server`,
 # a file being written) unless they feed a shell or SQL client, so drop the
 # body lines unless the command owning the `<<` is one, or the opening line
-# pipes into a shell. `<<<` (a herestring) is not a heredoc.
+# pipes into a shell. `<<<` (a herestring) is not a heredoc. With an unquoted
+# delimiter (<<EOF, not <<'EOF') bash still runs the body's $( ) and
+# backticks, so those spans are kept, each on its own line, as code.
 drop_data_heredocs() {
   awk '
-    term != "" { if ($0 ~ "^[[:space:]]*" term "[[:space:]]*$") term = ""; else if (keep) print; next }
+    function subst_spans(line,   out, i, n, c, d, depth, body, j) {
+      out = ""; n = length(line)
+      for (i = 1; i <= n; i++) {
+        c = substr(line, i, 1)
+        if (c == "\\") { i++; continue }
+        if (c == "$" && substr(line, i + 1, 1) == "(" && substr(line, i + 2, 1) != "(") {
+          depth = 1; body = ""
+          for (i += 2; i <= n; i++) { d = substr(line, i, 1); if (d == "(") depth++; else if (d == ")" && --depth == 0) break; body = body d }
+          out = out "\n" body
+        } else if (c == "`") {
+          j = index(substr(line, i + 1), "`"); if (j == 0) j = n - i + 1
+          out = out "\n" substr(line, i + 1, j - 1); i += j
+        }
+      }
+      return out
+    }
+    term != "" {
+      if ($0 ~ "^[[:space:]]*" term "[[:space:]]*$") term = ""
+      else if (keep) print
+      else if (!quoted) { x = subst_spans($0); if (x != "") print substr(x, 2) }
+      next
+    }
     {
       print
       if (match($0, /(^|[^<])<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*/)) {
         m = substr($0, RSTART, RLENGTH); p = index(m, "<<")
+        quoted = (m ~ /<<-?[[:space:]]*["\047]/)
         t = substr(m, p); sub(/^<<-?[[:space:]]*["\047]?/, "", t)
         head = substr($0, 1, RSTART + p - 2); tail = substr($0, RSTART + RLENGTH)
         # judge only the simple command that owns the heredoc, by its first word
@@ -446,27 +541,55 @@ drop_data_heredocs() {
 # separators turned into $SEP. `$( )` and backticks in double quotes stay
 # code. Unquoted `# comments` are dropped.
 process_quotes() {
-  awk -v RS='\001' -v ORS='' '
+  awk -v RS='\001' -v ORS='' -v SUBST="$SUBST" '
     function data(c) { return (c ~ /[[:space:];&|()`<>]/) ? "\001" : c }
     function lifts(cur) {
-      return cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh|su)([[:space:]]+[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ \
+      return cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh|su|sg|script|flock)([[:space:]]+[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ \
         || cur ~ /(^|[[:space:]])eval[[:space:]]/ || cur ~ /(^|[[:space:]\/])(ssh|watch)[[:space:]]/ \
-        || cur ~ /(^|[[:space:]])trap[[:space:]]+(--[[:space:]]+)?$/
+        || cur ~ /(^|[[:space:]])trap[[:space:]]+(--[[:space:]]+)?$/ \
+        || cur ~ /(^|[[:space:]\/])env([[:space:]]+[^[:space:]]+)*[[:space:]]+(-S|--split-string)[[:space:]=]*$/ \
+        || cur ~ /(^|[[:space:]\/])nix-shell([[:space:]]+[^[:space:]]+)*[[:space:]]+--(run|command)[[:space:]=]*$/ \
+        || cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh)([[:space:]]+[^[:space:]]+)*[[:space:]]*<<<[[:space:]]*$/
+    }
+    # `echo "cmd" | bash`: the quoted text reaches a shell that reads stdin
+    function piped_to_shell(cur, rest) {
+      if (cur !~ /(^|[[:space:]\/])(echo|printf)[[:space:]]/) return 0
+      sub(/\n.*/, "", rest)
+      return rest ~ /\|[[:space:]]*((sudo|env|command|exec)[[:space:]]+)*([^[:space:]|;&]*\/)?(bash|sh|zsh|dash|ksh)[[:space:]]*($|[;&|)])/
+    }
+    # The code inside $( ) or backticks becomes its own line; the enclosing
+    # command keeps one placeholder word, so `terraform -chdir="$(pwd)" apply`
+    # stays one command. `$(which terraform)` stands for terraform itself.
+    function stand_in(code,   w) {
+      extra = extra "\n" code
+      if (code ~ /^[[:space:]]*(which|command[[:space:]]+-[vV]|type[[:space:]]+-[pP])[[:space:]]+[^[:space:]]+[[:space:]]*$/) {
+        w = code; sub(/[[:space:]]+$/, "", w); sub(/.*[[:space:]\/]/, "", w); return w
+      }
+      return SUBST
+    }
+    # at s[i] = "$" of "$(": return the inner code, leave i on the closing ")"
+    function paren_body(   d, depth, body) {
+      depth = 1; body = ""
+      for (i += 2; i <= n; i++) { d = substr(s, i, 1); if (d == "(") depth++; else if (d == ")" && --depth == 0) break; body = body d }
+      return body
+    }
+    # at s[i] = backtick: return the inner code, leave i on the closing backtick
+    function tick_body(   j, body) {
+      j = index(substr(s, i + 1), "`"); if (j == 0) j = n - i + 1
+      body = substr(s, i + 1, j - 1); i += j; return body
     }
     {
-      s = $0; n = length(s); out = ""; st = 0   # 0 code, 1/2 single/double data, 3/4 single/double lifted
+      s = $0; n = length(s); out = ""; extra = ""; st = 0   # 0 code, 1/2 single/double data, 3/4 single/double lifted
       for (i = 1; i <= n; i++) {
         c = substr(s, i, 1)
         if (st == 1) { if (c == "\047") st = 0; else out = out data(c); continue }
+        # $( ) and backticks run as code everywhere but single-quoted data
+        # ($(( )) is arithmetic and stays put)
+        if (c == "$" && substr(s, i + 1, 1) == "(" && substr(s, i + 2, 1) != "(") { out = out stand_in(paren_body()); continue }
+        if (c == "`") { out = out stand_in(tick_body()); continue }
         if (st == 2) {
           if (c == "\\" && i < n) { i++; out = out data(substr(s, i, 1)); continue }
           if (c == "\"") { st = 0; continue }
-          if (c == "$" && substr(s, i + 1, 1) == "(") {
-            out = out ";"; depth = 1
-            for (i += 2; i <= n; i++) { d = substr(s, i, 1); if (d == "(") depth++; else if (d == ")" && --depth == 0) break; out = out d }
-            out = out ";"; continue
-          }
-          if (c == "`") { j = index(substr(s, i + 1), "`"); if (j == 0) j = n - i + 1; out = out ";" substr(s, i + 1, j - 1) ";"; i += j; continue }
           out = out data(c); continue
         }
         if (st == 3 && c == "\047") { out = out ";"; st = 0; continue }
@@ -479,19 +602,30 @@ process_quotes() {
         }
         if (st == 0 && (c == "\047" || c == "\"")) {
           cur = out; sub(/.*[;&|(\n]/, "", cur)
-          if (lifts(cur)) { out = out ";"; st = (c == "\047") ? 3 : 4 } else st = (c == "\047") ? 1 : 2
+          if (lifts(cur) || piped_to_shell(cur, substr(s, i))) { out = out ";"; st = (c == "\047") ? 3 : 4 } else st = (c == "\047") ? 1 : 2
           continue
         }
         out = out c
       }
-      print out
+      print out "\002" extra
     }'
 }
 
-cmd="${cmd//$'\\\n'/ }"
+# bash deletes backslash-newline outright: `terra\<newline>form` is terraform
+cmd="${cmd//$'\\\n'/}"
 has_subst=0   # $( ) / backtick output can become rm targets the guard never sees
 [[ "$cmd" == *'$('* || "$cmd" == *'`'* ]] && has_subst=1
-filtered="$(printf '%s\n' "$cmd" | drop_data_heredocs | process_quotes)"
+# process_quotes returns the command, then \002, then the code it pulled out
+# of $( ) and backticks; that code gets the same pass (nesting, up to 5 deep)
+pending="$(printf '%s\n' "$cmd" | drop_data_heredocs)"
+filtered=""
+for _ in 1 2 3 4 5; do
+  [[ "$pending" == *[![:space:]]* ]] || break
+  res="$(printf '%s' "$pending" | process_quotes)"
+  filtered+="${res%%$'\002'*}"$'\n'
+  pending="${res#*$'\002'}"
+done
+filtered+="$pending"
 
 mapfile -t segments < <(printf '%s\n' "$filtered" | sed -E 's/\$\(|`|&&|\|\||[;&|()]/\n/g')
 # $HOME is trusted in scratch targets unless this command could change it
