@@ -21,8 +21,9 @@
 #      bash still runs the body's $( ) and backticks, so those are kept;
 #   3. quote-processed in one pass over the whole command: quoted text handed
 #      to a shell (`bash -c`, `sh -lc`, `su -c`, `sg -c`, `script -c`,
-#      `flock -c`, `env -S`, `nix-shell --run`, `eval`, `ssh host`, `watch`,
-#      a `trap` handler, `bash <<< '…'`, `echo '…' | bash`) is lifted out and
+#      `flock -c`, `runuser -c`, `env -S`, `nix-shell --run`, `eval`,
+#      `ssh host`, `watch`, `parallel`, a `trap` handler, `bash <<< '…'`,
+#      every argument of `printf '…' '…' | bash -s`) is lifted out and
 #      checked as commands; other quoted text stays one visible argument with
 #      its separators neutralised, so `rm -rf 'build'` and `pkill -f 'tmux'`
 #      are judged by what they name while a commit message can never form a
@@ -35,7 +36,9 @@
 #      and wrappers with their options (env, sudo, nice, timeout N, xargs,
 #      watch, exec, eval, flock FILE, direnv exec DIR, systemd-run,
 #      parallel...) are stripped, a leading backslash (`\gcloud`) is ignored,
-#      and the first word picks the rule.
+#      and the first word picks the rule;
+#   6. unquoted echo/printf text piped to a shell (`echo cmd | bash`) is
+#      checked as a command too.
 #
 #   deny (blocked, reason fed back to the agent; only the kill switch passes it):
 #     tmux kill-server, or kill-session -a, without a literal -L/-S socket
@@ -67,8 +70,8 @@
 #       -migrate-state/-force-copy, kubectl delete or rm
 #     a command word that is itself a $( ) or backtick span (unknowable),
 #       except `$(which X)` / `$(command -v X)`, judged as X
-#     git push --force/-f/+ref to development/dev/main/master, or with no
-#       branch named
+#     git push --force/-f/+ref to development/dev/main/master, with no
+#       branch named, or to HEAD, a variable or $( ) (known only when it runs)
 #     systemctl stop|kill|restart
 #     backstop: any simple command still mentioning kill-server with no
 #       literal -L/-S socket (catches forms the rules above don't parse,
@@ -166,7 +169,9 @@ strip_prefixes() {
           else
             shift
           fi ;;
-        [A-Za-z_]*=*) if [ "$w" = env ]; then shift; else break; fi ;;
+        # `env $(cat .env | xargs) node app.js`: the $( ) supplies assignments
+        # (its code is checked on its own); the command after it is still read
+        [A-Za-z_]*=*|"$SUBST") if [ "$w" = env ]; then shift; else break; fi ;;
         *) break ;;
       esac
     done
@@ -182,6 +187,11 @@ rm_target_is_catastrophic() {
   t="${t%\"}"; t="${t#\"}"; t="${t%\'}"; t="${t#\'}"
   t="${t//\$\{HOME\}/\$HOME}"
   t="${t%/\*}"; t="${t%/}"
+  # a $( ) that prints nothing leaves its parent: `rm -rf ~/code/$(…)` can
+  # delete ~/code, so a trailing /_subst_ is judged as that parent
+  local u="$t"
+  while [[ "$u" == *"$SUBST" ]]; do u="${u%"$SUBST"}"; done
+  [[ "$u" == */ ]] && t="${u%/}"
   case "$t" in
     ''|'~'|'$HOME'|"$HOME"|/home) return 0 ;;  # '' is what / and /* strip to
     /tmp) return 0 ;;
@@ -435,14 +445,27 @@ check_segment() {
       ;;
     docker|podman)
       # a containerised terraform or gcloud is still terraform or gcloud
-      local a img=0 run=0 after=()
-      for a in "$@"; do
-        if [ $img = 1 ]; then after+=("$a"); continue; fi
-        if [ $run = 0 ]; then [ "$a" = run ] && run=1; continue; fi
-        if [[ "$a" =~ ^([^[:space:]]+/)?(terraform|tofu|opentofu|terragrunt|cloud-sdk|google-cloud-cli)(:[^/[:space:]]*)?(@sha256:[[:xdigit:]]+)?$ ]]; then
-          img=1; [[ "${BASH_REMATCH[2]}" == *tofu* ]] && after=(tofu) || after=("${BASH_REMATCH[2]}")
-        fi
+      # Only the image (the first word after run's options) is matched: an
+      # option value like `--name terraform` or `-w /src/terraform` is not one.
+      local after=()
+      while [ $# -gt 0 ] && [ "$1" != run ]; do shift; done
+      [ $# -gt 0 ] && shift
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --) shift; break ;;
+          --*=*) shift ;;
+          # long options that take no value; any other long option takes one
+          --rm|--detach|--interactive|--tty|--privileged|--init|--publish-all|--read-only|--sig-proxy|--no-healthcheck|--oom-kill-disable|--quiet|--disable-content-trust|--help|--replace|--rmi|--read-only-tmpfs|--no-hosts|--env-host|--http-proxy|--passwd) shift ;;
+          --*) shift; [ $# -gt 0 ] && shift ;;
+          # short flags: d i t P q take no value; -p80:80 carries its own
+          -*) if [[ "$1" =~ ^-[ditPq]*$ ]] || [[ "$1" =~ ^-[ditPq]*[A-Za-z]. ]]; then shift; else shift; [ $# -gt 0 ] && shift; fi ;;
+          *) break ;;
+        esac
       done
+      if [[ "${1:-}" =~ ^([^[:space:]]+/)?(terraform|tofu|opentofu|terragrunt|cloud-sdk|google-cloud-cli)(:[^/[:space:]]*)?(@sha256:[[:xdigit:]]+)?$ ]]; then
+        shift
+        [[ "${BASH_REMATCH[2]}" == *tofu* ]] && after=(tofu "$@") || after=("${BASH_REMATCH[2]}" "$@")
+      fi
       case "${after[0]:-}" in
         terraform|tofu|terragrunt) check_segment "${after[*]}" ;;
         cloud-sdk|google-cloud-cli)
@@ -459,7 +482,7 @@ check_segment() {
       [[ "$rest" =~ [[:space:]](delete|rm)[[:space:]] ]] && flag ask "$w ${BASH_REMATCH[1]} deletes cloud resources"
       ;;
     git)
-      local a r push=0 force=0 hitdef=0 after=()
+      local a r push=0 force=0 hitdef=0 unknown=0 after=()
       for a in "$@"; do
         if [ $push = 0 ]; then [ "$a" = push ] && push=1; continue; fi
         case "$a" in
@@ -474,9 +497,13 @@ check_segment() {
           [[ "$r" == +* ]] && force=1
           r="${r#+}"; r="${r##*:}"; r="${r#refs/heads/}"
           case "$r" in development|dev|main|master) hitdef=1 ;; esac
+          # HEAD, @, $BRANCH and $( ) all name a branch only known when it runs
+          case "$r" in HEAD|@|*'$'*|*"$SUBST"*) unknown=1 ;; esac
         done
         if [ $force = 1 ] && [ $hitdef = 1 ]; then
           flag ask "force-push to a default branch rewrites shared history"
+        elif [ $force = 1 ] && [ $unknown = 1 ]; then
+          flag ask "force-push to a branch only known when it runs (HEAD, a variable or \$( )), which may be a default branch"
         elif [ $force = 1 ] && [ ${#after[@]} -lt 2 ]; then
           flag ask "force-push with no branch named pushes the current branch, which may be a default branch"
         fi
@@ -490,7 +517,9 @@ check_segment() {
 # body lines unless the command owning the `<<` is one, or the opening line
 # pipes into a shell. `<<<` (a herestring) is not a heredoc. With an unquoted
 # delimiter (<<EOF, not <<'EOF') bash still runs the body's $( ) and
-# backticks, so those spans are kept, each on its own line, as code.
+# backticks, so those spans are kept, each on its own line as `: $(span)`:
+# the wrapper keeps a stray quote in a span (`it's`) from swallowing the
+# commands after the heredoc.
 drop_data_heredocs() {
   awk '
     function subst_spans(line,   out, i, n, c, d, depth, body, j) {
@@ -501,10 +530,10 @@ drop_data_heredocs() {
         if (c == "$" && substr(line, i + 1, 1) == "(" && substr(line, i + 2, 1) != "(") {
           depth = 1; body = ""
           for (i += 2; i <= n; i++) { d = substr(line, i, 1); if (d == "(") depth++; else if (d == ")" && --depth == 0) break; body = body d }
-          out = out "\n" body
+          out = out "\n: $(" body ")"
         } else if (c == "`") {
           j = index(substr(line, i + 1), "`"); if (j == 0) j = n - i + 1
-          out = out "\n" substr(line, i + 1, j - 1); i += j
+          out = out "\n: $(" substr(line, i + 1, j - 1) ")"; i += j
         }
       }
       return out
@@ -544,18 +573,24 @@ process_quotes() {
   awk -v RS='\001' -v ORS='' -v SUBST="$SUBST" '
     function data(c) { return (c ~ /[[:space:];&|()`<>]/) ? "\001" : c }
     function lifts(cur) {
-      return cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh|su|sg|script|flock)([[:space:]]+[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ \
-        || cur ~ /(^|[[:space:]])eval[[:space:]]/ || cur ~ /(^|[[:space:]\/])(ssh|watch)[[:space:]]/ \
+      return cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh|su|sg|runuser|script|flock)([[:space:]]+[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ \
+        || cur ~ /(^|[[:space:]])eval[[:space:]]/ || cur ~ /(^|[[:space:]\/])(ssh|watch|parallel)[[:space:]]/ \
         || cur ~ /(^|[[:space:]])trap[[:space:]]+(--[[:space:]]+)?$/ \
         || cur ~ /(^|[[:space:]\/])env([[:space:]]+[^[:space:]]+)*[[:space:]]+(-S|--split-string)[[:space:]=]*$/ \
         || cur ~ /(^|[[:space:]\/])nix-shell([[:space:]]+[^[:space:]]+)*[[:space:]]+--(run|command)[[:space:]=]*$/ \
         || cur ~ /(^|[[:space:]\/])(bash|sh|zsh|dash|ksh)([[:space:]]+[^[:space:]]+)*[[:space:]]*<<<[[:space:]]*$/
     }
-    # `echo "cmd" | bash`: the quoted text reaches a shell that reads stdin
-    function piped_to_shell(cur, rest) {
+    # `echo "cmd" | bash`: the quoted text reaches a shell that reads stdin.
+    # Flags and redirects may follow the shell (`bash -s`, `bash 2>&1`), but
+    # not -c: `bash -c "x"` runs its argument, not stdin.
+    function piped_to_shell(cur, rest,   tail) {
       if (cur !~ /(^|[[:space:]\/])(echo|printf)[[:space:]]/) return 0
       sub(/\n.*/, "", rest)
-      return rest ~ /\|[[:space:]]*((sudo|env|command|exec)[[:space:]]+)*([^[:space:]|;&]*\/)?(bash|sh|zsh|dash|ksh)[[:space:]]*($|[;&|)])/
+      if (!match(rest, /\|[[:space:]]*((sudo|env|command|exec)[[:space:]]+)*([^[:space:]|;&]*\/)?(bash|sh|zsh|dash|ksh)($|[[:space:];&|)])/)) return 0
+      tail = substr(rest, RSTART + RLENGTH - 1)
+      gsub(/[0-9]*[<>]&[0-9-]*/, "", tail)
+      sub(/[;&|)].*/, "", tail)
+      return tail !~ /(^|[[:space:]])-[A-Za-z]*c/
     }
     # The code inside $( ) or backticks becomes its own line; the enclosing
     # command keeps one placeholder word, so `terraform -chdir="$(pwd)" apply`
@@ -580,6 +615,7 @@ process_quotes() {
     }
     {
       s = $0; n = length(s); out = ""; extra = ""; st = 0   # 0 code, 1/2 single/double data, 3/4 single/double lifted
+      piped = 0   # inside `printf FMT ARG… | bash`: every quoted argument is code
       for (i = 1; i <= n; i++) {
         c = substr(s, i, 1)
         if (st == 1) { if (c == "\047") st = 0; else out = out data(c); continue }
@@ -602,9 +638,11 @@ process_quotes() {
         }
         if (st == 0 && (c == "\047" || c == "\"")) {
           cur = out; sub(/.*[;&|(\n]/, "", cur)
-          if (lifts(cur) || piped_to_shell(cur, substr(s, i))) { out = out ";"; st = (c == "\047") ? 3 : 4 } else st = (c == "\047") ? 1 : 2
+          if (!piped && piped_to_shell(cur, substr(s, i))) piped = 1
+          if (piped || lifts(cur)) { out = out ";"; st = (c == "\047") ? 3 : 4 } else st = (c == "\047") ? 1 : 2
           continue
         }
+        if (st == 0 && c ~ /[;&|()\n]/) piped = 0
         out = out c
       }
       print out "\002" extra
@@ -643,6 +681,24 @@ for seg in "${segments[@]}"; do
     backstop=1
   fi
 done
+
+# `echo terraform apply | bash`: unquoted echo/printf text piped to a shell
+# (not `bash -c`) is code; quoted text was already lifted by process_quotes
+while IFS= read -r line; do
+  [[ "$line" == *'|'* ]] || continue
+  IFS='|' read -ra stages <<<"$line"
+  for ((p = 0; p + 1 < ${#stages[@]}; p++)); do
+    set -f
+    # shellcheck disable=SC2086 # word-splitting the stage is the intent
+    a="$(strip_prefixes ${stages[p]})" b="$(strip_prefixes ${stages[p + 1]})"
+    set +f
+    read -r aw arest <<<"$a"; read -r bw brest <<<"$b"
+    [[ "${aw##*/}" =~ ^(echo|printf)$ && "${bw##*/}" =~ ^(bash|sh|zsh|dash|ksh)$ ]] || continue
+    [[ " $brest " =~ [[:space:]]-[A-Za-z]*c ]] && continue
+    while [[ "$arest" =~ ^-[neE]+([[:space:]]+|$) ]]; do arest="${arest#"${BASH_REMATCH[0]}"}"; done
+    check_segment "$arest"
+  done
+done < <(printf '%s\n' "$filtered" | sed -E 's/&&|\|\||[;&()]/\n/g')
 
 if [ $backstop = 1 ] && [ "$decision" != deny ]; then
   flag ask "mentions tmux kill-server with no literal -L/-S socket in the same command; if it runs, it kills every wb session"
