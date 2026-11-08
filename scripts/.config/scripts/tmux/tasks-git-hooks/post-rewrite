@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# post-rewrite hook for the task store: after a rebase (`git pull --rebase`)
+# or an amend, rebuild the generated views of every dossier whose record
+# files the rewrite changed. Git feeds "<old sha> <new sha>" lines on stdin;
+# the changed set is the union of old..new diffs, so what a rebase brought
+# in from upstream is included. Falls back to `wb views --all` only when no
+# usable pair arrives. Never fails the git operation; does nothing when wb
+# cannot be found or while the store still tracks the views (before the
+# store switch). Installed by `wb install-hooks`.
+# shellcheck source=views-lib.sh
+source "$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/views-lib.sh" 2>/dev/null || exit 0
+
+changed="" pairs=0 old new d ok=1
+while read -r old new _; do
+  [ -n "$old" ] && [ -n "$new" ] || continue
+  pairs=$((pairs + 1))
+  if d="$(git diff --name-only "$old" "$new" -- dossiers 2>/dev/null)"; then
+    changed+="$d"$'\n'
+  else
+    ok=0
+  fi
+done
+if [ "$pairs" -eq 0 ] || [ "$ok" -eq 0 ]; then changed="-"; fi
+_wv_refresh post-rewrite "$changed"
+exit 0

@@ -339,6 +339,41 @@ assert_eq "concurrent appends: two decision files" 2 "$(find "$CD/decisions" -na
 assert "concurrent appends: view lists both (one)" 'Concurrent one' "$(cat "$CD/decisions.md")"
 assert "concurrent appends: view lists both (two)" 'Concurrent two' "$(cat "$CD/decisions.md")"
 
+# --- decisions view: a Proposed group before In force ---------------------------
+mk_dec() { # <dossier> <id> <status> <title>
+  mkdir -p "$1/decisions"
+  printf -- '---\nstatus: %s\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# %s\n\nbody of %s\n' "$3" "$4" "$2" > "$1/decisions/$2.md"
+}
+mk_layout_task proj--prop0; P0="$TASKS_DIR/dossiers/proj--prop0"
+mk_dec "$P0" 2026-11-01-0900-aaa in-force "Aaa"
+wb_render_views "$TASKS_DIR/proj--prop0.md"
+assert_not "proposed group: none proposed -> no Proposed heading" '^## Proposed' "$(cat "$P0/decisions.md")"
+assert "proposed group: none proposed -> In force (1)" '^## In force \(1\)$' "$(cat "$P0/decisions.md")"
+mk_layout_task proj--prop1; P1="$TASKS_DIR/dossiers/proj--prop1"
+mk_dec "$P1" 2026-11-01-0900-bbb proposed "Bbb"
+wb_render_views "$TASKS_DIR/proj--prop1.md"
+assert "proposed group: one proposed -> Proposed (1)" '^## Proposed \(1\)$' "$(cat "$P1/decisions.md")"
+assert "proposed group: In force (0) still printed" '^## In force \(0\)$' "$(cat "$P1/decisions.md")"
+assert "proposed group: the proposed record keeps its status line" '^- status: proposed$' "$(cat "$P1/decisions.md")"
+mk_layout_task proj--propm; PM="$TASKS_DIR/dossiers/proj--propm"
+mk_dec "$PM" 2026-11-01-0900-ccc in-force "Ccc"
+mk_dec "$PM" 2026-11-02-0900-ddd proposed "Ddd"
+mk_dec "$PM" 2026-11-03-0900-eee proposed "Eee"
+mk_dec "$PM" 2026-11-04-0900-fff superseded "Fff"
+mk_dec "$PM" 2026-11-05-0900-ggg weird "Ggg"
+wb_render_views "$TASKS_DIR/proj--propm.md"
+v="$(cat "$PM/decisions.md")"
+assert "proposed group: mixed -> Proposed (2)" '^## Proposed \(2\)$' "$v"
+assert "proposed group: mixed -> In force (2): the in-force one and the unknown status" '^## In force \(2\)$' "$v"
+assert "proposed group: mixed -> Superseded (1)" '^## Superseded \(1\)$' "$v"
+lp="$(grep -n '^## Proposed' <<<"$v" | cut -d: -f1)"; lf="$(grep -n '^## In force' <<<"$v" | cut -d: -f1)"; ls_="$(grep -n '^## Superseded' <<<"$v" | cut -d: -f1)"
+if [ "$lp" -lt "$lf" ] && [ "$lf" -lt "$ls_" ]; then echo "ok   - proposed group: order is Proposed, In force, Superseded"; else echo "FAIL - proposed group order ($lp $lf $ls_)"; fail=1; fi
+ld="$(grep -n '^### Ddd$' <<<"$v" | cut -d: -f1)"; lc="$(grep -n '^### Ccc$' <<<"$v" | cut -d: -f1)"
+if [ "$ld" -gt "$lp" ] && [ "$ld" -lt "$lf" ] && [ "$lc" -gt "$lf" ]; then echo "ok   - proposed group: each record sits under its own heading"; else echo "FAIL - proposed record placement"; fail=1; fi
+assert "proposed group: an unknown status is listed with in force, status shown" '^- status: weird$' "$v"
+lw="$(grep -n '^### Ggg$' <<<"$v" | cut -d: -f1)"
+if [ "$lw" -gt "$lf" ] && [ "$lw" -lt "$ls_" ]; then echo "ok   - proposed group: unknown status is under In force"; else echo "FAIL - unknown status placement"; fail=1; fi
+
 # --- wb help ---------------------------------------------------------------------
 help="$(cmd_help)"
 assert "wb help lists now" '^  wb now ' "$help"

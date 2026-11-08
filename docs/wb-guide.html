@@ -894,9 +894,27 @@ matches, no match, or an item already done exits 1). On a layout task it sets
 <code>Closed &lt;date&gt;: &lt;note&gt;</code> line, then rebuilds the views; closed items drop out
 of the counts and of the board's lists.</li>
 <li><strong>Generated views</strong>, read-only and rebuilt after every write: <code>decisions.md</code>
-(in force first, superseded collapsed), <code>handoffs.md</code> (newest first) and
-<code>index.md</code>. Read these for an overview; read the record files when you need the
-exact entry. Never edit a view.</li>
+(proposed decisions under their own &quot;Proposed&quot; heading, then in force, then
+superseded collapsed), <code>handoffs.md</code> (newest first) and <code>index.md</code>. Read these
+for an overview; read the record files when you need the exact entry. Never edit
+a view. A record whose source had no time (see &quot;One record shape&quot; below) is
+headed with its date alone in <code>handoffs.md</code>.</li>
+<li><strong>The views are not in git.</strong> From the switch the store's <code>.gitignore</code> lists
+them, so a commit names record files and never a view: <code>git add dossiers/&lt;stem&gt;/decisions/&lt;file&gt;.md</code>, not <code>git add dossiers/&lt;stem&gt;/decisions.md</code>.
+A fresh clone has no views until you run <code>wb views --all</code>; <code>wb views &lt;task&gt;...</code>
+rebuilds one or more (layout tasks only; a named task without the layout prints
+one line and exits 1, <code>--all</code> just skips it). The store's <code>post-merge</code> and
+<code>post-rewrite</code> git hooks run it for the dossiers a pull or rebase changed, so the
+views stay fresh after <code>git pull</code>. The hooks live in
+<code>scripts/.config/scripts/tmux/tasks-git-hooks/</code>; <code>wb install-hooks</code> points the
+store's <code>core.hooksPath</code> at that directory, so new hooks there need only a
+re-stow. A hook never fails the pull, and does nothing when it cannot find <code>wb</code>
+(an executable <code>wb</code> on PATH, else the <code>wb.sh</code> beside the hooks directory). It
+also does nothing until the store has stopped tracking the views (the
+<code>.gitignore</code> lists them and none is still committed), so stowing the hooks
+before the switch leaves pulls clean: rebuilding a committed view would leave
+a modified tracked file behind. A task counts as on the layout only when its
+frontmatter says <code>layout: dossier</code>.</li>
 <li><strong>Pages you write</strong>, one Markdown file each: <code>notes.md</code> (your scratch; agents
 read it only when you point to it and never write it), <code>brief.md</code> (the task's
 opening prompt, drafted at creation: type, why, done when, not doing, claims
@@ -913,6 +931,28 @@ at the top of an HTML-only page). Add it when the page is next edited.
 under Retired. A test guide uses <code>task:&lt;its task&gt; done</code>, so it retires when
 <code>wb done</code> closes the task.</li>
 </ul>
+<p><strong>One record shape.</strong> <code>wb migrate</code> writes each decision the way <code>wb append</code>
+does: the <code># </code> line carries the full title (the file name's slug still comes from
+a title cut at 100 characters) and the source's <code>### &lt;date&gt; &lt;HH:MM&gt; — &lt;title&gt;</code>
+heading is not repeated in the body, because its date and time are in the file
+name and its title is on the <code># </code> line. Handoff records keep their heading line,
+as the live writer does. When a source entry had no HH:MM, <code>wb migrate</code> still
+names the file <code>&lt;date&gt;-0000-…</code>, <code>-0001-…</code> (a sequence number that keeps file
+order, which readers parse) but adds <code>time: none</code> to the record's frontmatter,
+and the readers print such a record with its date alone. A record without
+the field behaves as before. Records without a time are decisions and handoffs;
+open items never carried one.</p>
+<p><strong><code>wb migrate --tidy &lt;task&gt;|--all [--dry-run]</code></strong> repairs tasks migrated before
+that fix. It runs once, at the switch. For each decision record whose first body
+line is a dated <code>###</code> heading that duplicates the record (same date, same time if
+the heading has one, and a title the <code># </code> line equals or is the clipped form of),
+it moves the full title to the <code># </code> line, drops the heading, and adds
+<code>time: none</code> when the heading had no HH:MM and the name's HHMM is a 00NN sequence
+number. A date-only entry (first line <code>DATE — …</code>, <code>- DATE …</code> or <code>**DATE …</code>, the same
+date as its name, no HH:MM after it, a 00NN name) just gains <code>time: none</code>. Handoff
+records stamped the same way, and the migrate history handoff, get <code>time: none</code>. A
+record whose first body line is neither is never touched. It takes each task's lock, rebuilds the views, changes nothing on a second
+run, and with <code>--dry-run</code> prints what would change per record and writes nothing.</p>
 <p>Skills that read these (<code>/wb-save</code>, <code>/wb-resume</code>, <code>/wb-decide</code>, <code>/close-out</code>,
 <code>/handoff</code>, <code>/quick-wins</code>, <code>/review-guide</code> and others) check <code>layout:</code> and read
 the new places. <code>wb migrate</code> converts an existing task. The old path goes away

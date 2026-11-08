@@ -95,7 +95,7 @@ is the newest file in the dossier's `handoffs/` whose frontmatter says
 stamp plus any auto files in `handoffs/` newer than it as the "gap" step 3 describes.
 If `notes.md` in the dossier changed since the saved entry's timestamp, say so in
 the one-line statement; read it only when Jet points to it. Step 3's freshness
-check reads the files in `decisions/` (or the generated `decisions.md` view)
+check reads the files in `decisions/` (or the generated `decisions.md` view, which is not in git; `wb views <task>` rebuilds it)
 instead of `## Decisions`. See `docs/wb-guide.md`, "Dossier layout (trial)".
 
 Read the task file and locate its `## Handoffs` section. Entries in that

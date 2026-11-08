@@ -131,13 +131,10 @@ assert "style A: continuation lines (numbered list) kept" '^2\. second consequen
 new_store
 printf -- '---\nstatus: doing\nrepo: proj\nlayout: dossier\ncreated: 2026-08-03\n---\n# Live\n' > "$TASKS_DIR/proj--live.md"
 printf '### 2026-08-02 10:02 — Decision 2 title\n- Decided (Jet): option 2 wins.\n- Rejected: option 2-b, which costs more.\n- Why: simpler to run.\n' | cmd_append proj--live Decisions - >/dev/null 2>&1
-# (the migrated file also keeps the source `###` heading as its first body line)
-sed '/^# Decision 2 title$/{n;a\
-### 2026-08-02 10:02 — Decision 2 title
-}' "$TASKS_DIR/dossiers/proj--live/decisions/2026-08-02-1002-decision-2-title.md" > "$FIXTURE/live-expected.md"
-if cmp -s "$FIXTURE/live-expected.md" "$D/decisions/2026-08-02-1002-decision-2-title.md"; then
-  echo "ok   - migrated decision file matches one written by wb append, plus the kept heading line"
-else echo "FAIL - migrated decision file differs from the live writer's"; diff "$FIXTURE/live-expected.md" "$D/decisions/2026-08-02-1002-decision-2-title.md" | head; fail=1; fi
+# (the migrated file no longer repeats the source `###` heading: same shape as the live writer's)
+if cmp -s "$TASKS_DIR/dossiers/proj--live/decisions/2026-08-02-1002-decision-2-title.md" "$D/decisions/2026-08-02-1002-decision-2-title.md"; then
+  echo "ok   - migrated decision file matches one written by wb append, byte for byte"
+else echo "FAIL - migrated decision file differs from the live writer's"; diff "$TASKS_DIR/dossiers/proj--live/decisions/2026-08-02-1002-decision-2-title.md" "$D/decisions/2026-08-02-1002-decision-2-title.md" | head; fail=1; fi
 
 # second run: byte-identical (checksum of the whole store)
 TASKS_DIR="$FIXTURE/store1"; export TASKS_DIR
@@ -195,19 +192,80 @@ assert "bullets: plain bullet takes its first clause as the title" '^# Retire th
 assert "bullets: (Jet, via buffer) paren stripped from the title" '^# Keep both formats$' "$(cat "$BD/decisions/2026-10-20-0000-keep-both-formats.md")"
 
 # =============================================================================
-# ### headings: kept verbatim in the body (the title is cleaned and clipped)
+# ### headings: the title line carries the full cleaned title, the heading is not repeated
 # =============================================================================
 new_store
 LONGH='### 2026-10-18 09:15 — **Adopt the shared queue for every worker, and retire the per-worker cron jobs, the lock files and the polling scripts entirely!**'
+LONGT='Adopt the shared queue for every worker, and retire the per-worker cron jobs, the lock files and the polling scripts entirely!'
 { printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\ntags: []\ncreated: 2026-10-01\nclosed:\n---\n# Title\n\n## Decisions\n\n%s\n\n- Decided: one queue.\n- Why: simpler.\n\n### 2026-10-19 11:00 — Short heading.\n\n- Decided: keep it.\n\n## Follow-ups\n' "$LONGH"; } > "$TASKS_DIR/proj--hd.md"
 out="$(cmd_migrate proj--hd 2>&1)"
 HD="$TASKS_DIR/dossiers/proj--hd"
 assert "heading: counts match" 'decisions 2/2' "$out"
 assert_not "heading: task not blocked" 'NOT MIGRATED' "$out"
 hf="$(ls "$HD"/decisions/2026-10-18-*.md)"
-assert_eq "heading: the full source heading is in the body byte for byte" 1 "$(grep -cxF -- "$LONGH" "$hf")"
-assert_eq "heading: the title was clipped (at most 100 chars after '# ')" 1 "$(grep -c '^# .\{1,100\}$' "$hf")"
-assert_eq "heading: a short heading is kept too" 1 "$(grep -cxF -- '### 2026-10-19 11:00 — Short heading.' "$HD"/decisions/2026-10-19-*.md)"
+assert_eq "heading: the long title is on the # line in full (not clipped)" 1 "$(grep -cxF -- "# $LONGT" "$hf")"
+assert_eq "heading: no ### line repeated in the body" 0 "$(grep -c '^### ' "$hf")"
+assert "heading: the file name slug is still cut at 50 characters" '^2026-10-18-0915-adopt-the-shared-queue-for-every-worker-and-retire\.md$' "$(basename "$hf")"
+assert "heading: the body keeps the bullets" '^- Decided: one queue\.$' "$(cat "$hf")"
+sf="$(ls "$HD"/decisions/2026-10-19-*.md)"
+assert_eq "heading: a short heading is on the # line" 1 "$(grep -cxF -- '# Short heading' "$sf")"
+assert_eq "heading: and not repeated in the body" 0 "$(grep -c '^### ' "$sf")"
+assert_not "heading: a timed heading gets no time: none" '^time:' "$(cat "$sf")"
+
+# a heading with no body at all
+new_store
+mk_task proj--hdonly 2026-10-01 <<'EOF'
+
+## Decisions
+
+### 2026-10-18 09:15 — Only a heading
+
+## Follow-ups
+EOF
+out="$(cmd_migrate proj--hdonly 2>&1)"
+assert_not "heading only: not blocked" 'NOT MIGRATED' "$out"
+assert "heading only: title kept" '^# Only a heading$' "$(cat "$TASKS_DIR"/dossiers/proj--hdonly/decisions/2026-10-18-0915-only-a-heading.md)"
+
+# =============================================================================
+# no invented times: time: none in the frontmatter (decisions and handoffs)
+# =============================================================================
+new_store
+mk_task proj--tn 2026-10-01 <<'EOF'
+
+## Decisions
+
+2026-10-18 — **Untimed bullet lead.** One.
+
+### 2026-10-19 08:30 — Timed
+- Decided: has a time.
+
+### 2026-10-20 — Dated heading, no time
+- Decided: no time.
+
+## Handoffs
+
+### 2026-10-18 RESAVE — wb-save
+**Done:** a loosely headed save.
+
+### 2026-10-18 17:00 — wb-save
+**Done:** a normal save.
+
+### 2026-10-19 — wb-save
+**Done:** a newest save with no time.
+EOF
+out="$(cmd_migrate proj--tn 2>&1)"
+TN="$TASKS_DIR/dossiers/proj--tn"
+assert "time none: untimed style A decision has time: none" '^time: none$' "$(cat "$TN/decisions/2026-10-18-0000-untimed-bullet-lead.md")"
+assert "time none: file name keeps the 0000 stamp" '^2026-10-20-0000-dated-heading-no-time\.md$' "$(ls "$TN/decisions")"
+assert "time none: untimed ### heading decision has time: none" '^time: none$' "$(cat "$TN/decisions/2026-10-20-0000-dated-heading-no-time.md")"
+assert_not "time none: a timed decision does not" '^time:' "$(cat "$TN/decisions/2026-10-19-0830-timed.md")"
+assert "time none: the field sits inside the frontmatter" '^review_at:$' "$(sed -n '1,8p' "$TN/decisions/2026-10-18-0000-untimed-bullet-lead.md")"
+assert "time none: untimed handoff record has time: none" '^time: none$' "$(sed -n '1,6p' "$TN/handoffs/2026-10-18-0000.md")"
+assert_not "time none: a timed handoff record does not" '^time:' "$(cat "$TN/handoffs/2026-10-18-1700.md")"
+assert "time none: decisions view prints no time for it" '^- id: `2026-10-18-0000-untimed-bullet-lead`$' "$(cat "$TN/decisions.md")"
+assert "time none: handoffs view heads it with the date alone" '^## 2026-10-18$' "$(cat "$TN/handoffs.md")"
+assert_not "time none: handoffs view has no 0000 heading" '^## 2026-10-18-0000' "$(cat "$TN/handoffs.md")"
+assert "time none: handoffs view heads a timed one with its id" '^## 2026-10-18-1700$' "$(cat "$TN/handoffs.md")"
 
 # a record file whose body differs from its source entry blocks the task
 new_store
@@ -618,7 +676,7 @@ assert_eq "dispatch: wb migrate exits 0" 0 "$rc"
 assert "dispatch: wb migrate prints the count line" 'proj--cli +decisions 1/1' "$out"
 out="$(bash "$WB" migrate 2>&1)"; rc=$?
 assert_eq "no argument: usage, exit 1" 1 "$rc"
-assert "no argument: usage text" 'usage: wb migrate <task>\|--all \[--dry-run\]' "$out"
+assert "no argument: usage text" 'usage: wb migrate \[--tidy\] <task>\|--all \[--dry-run\]' "$out"
 assert "wb help lists migrate" '^  wb migrate ' "$(cmd_help)"
 
 echo

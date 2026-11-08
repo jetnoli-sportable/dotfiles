@@ -645,9 +645,28 @@ On a layout task:
   `Closed <date>: <note>` line, then rebuilds the views; closed items drop out
   of the counts and of the board's lists.
 - **Generated views**, read-only and rebuilt after every write: `decisions.md`
-  (in force first, superseded collapsed), `handoffs.md` (newest first) and
-  `index.md`. Read these for an overview; read the record files when you need the
-  exact entry. Never edit a view.
+  (proposed decisions under their own "Proposed" heading, then in force, then
+  superseded collapsed), `handoffs.md` (newest first) and `index.md`. Read these
+  for an overview; read the record files when you need the exact entry. Never edit
+  a view. A record whose source had no time (see "One record shape" below) is
+  headed with its date alone in `handoffs.md`.
+- **The views are not in git.** From the switch the store's `.gitignore` lists
+  them, so a commit names record files and never a view: `git add
+  dossiers/<stem>/decisions/<file>.md`, not `git add dossiers/<stem>/decisions.md`.
+  A fresh clone has no views until you run `wb views --all`; `wb views <task>...`
+  rebuilds one or more (layout tasks only; a named task without the layout prints
+  one line and exits 1, `--all` just skips it). The store's `post-merge` and
+  `post-rewrite` git hooks run it for the dossiers a pull or rebase changed, so the
+  views stay fresh after `git pull`. The hooks live in
+  `scripts/.config/scripts/tmux/tasks-git-hooks/`; `wb install-hooks` points the
+  store's `core.hooksPath` at that directory, so new hooks there need only a
+  re-stow. A hook never fails the pull, and does nothing when it cannot find `wb`
+  (an executable `wb` on PATH, else the `wb.sh` beside the hooks directory). It
+  also does nothing until the store has stopped tracking the views (the
+  `.gitignore` lists them and none is still committed), so stowing the hooks
+  before the switch leaves pulls clean: rebuilding a committed view would leave
+  a modified tracked file behind. A task counts as on the layout only when its
+  frontmatter says `layout: dossier`.
 - **Pages you write**, one Markdown file each: `notes.md` (your scratch; agents
   read it only when you point to it and never write it), `brief.md` (the task's
   opening prompt, drafted at creation: type, why, done when, not doing, claims
@@ -663,6 +682,30 @@ On a layout task:
   `date:<YYYY-MM-DD>` or `pr:<n> merged`; once met, the index lists the page
   under Retired. A test guide uses `task:<its task> done`, so it retires when
   `wb done` closes the task.
+
+**One record shape.** `wb migrate` writes each decision the way `wb append`
+does: the `# ` line carries the full title (the file name's slug still comes from
+a title cut at 100 characters) and the source's `### <date> <HH:MM> — <title>`
+heading is not repeated in the body, because its date and time are in the file
+name and its title is on the `# ` line. Handoff records keep their heading line,
+as the live writer does. When a source entry had no HH:MM, `wb migrate` still
+names the file `<date>-0000-…`, `-0001-…` (a sequence number that keeps file
+order, which readers parse) but adds `time: none` to the record's frontmatter,
+and the readers print such a record with its date alone. A record without
+the field behaves as before. Records without a time are decisions and handoffs;
+open items never carried one.
+
+**`wb migrate --tidy <task>|--all [--dry-run]`** repairs tasks migrated before
+that fix. It runs once, at the switch. For each decision record whose first body
+line is a dated `###` heading that duplicates the record (same date, same time if
+the heading has one, and a title the `# ` line equals or is the clipped form of),
+it moves the full title to the `# ` line, drops the heading, and adds
+`time: none` when the heading had no HH:MM and the name's HHMM is a 00NN sequence
+number. A date-only entry (first line `DATE — …`, `- DATE …` or `**DATE …`, the same
+date as its name, no HH:MM after it, a 00NN name) just gains `time: none`. Handoff
+records stamped the same way, and the migrate history handoff, get `time: none`. A
+record whose first body line is neither is never touched. It takes each task's lock, rebuilds the views, changes nothing on a second
+run, and with `--dry-run` prints what would change per record and writes nothing.
 
 Skills that read these (`/wb-save`, `/wb-resume`, `/wb-decide`, `/close-out`,
 `/handoff`, `/quick-wins`, `/review-guide` and others) check `layout:` and read

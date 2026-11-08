@@ -347,6 +347,14 @@ _wb_mg_body_text() {
   ' "$1"
 }
 
+# _wb_mg_source_body <entry_file> <style> — the non-blank lines the record
+# file's body must hold: all of the source entry's, except that a style-B
+# entry's `###` heading line (its first) lives on the record's `# ` line.
+_wb_mg_source_body() {
+  if [ "$2" = "B" ]; then grep '[^[:space:]]' "$1" | tail -n +2 || true
+  else grep '[^[:space:]]' "$1" || true; fi
+}
+
 # _wb_mg_count_md <dir> — number of *.md files directly in <dir> (0 when the
 # dir does not exist). Never fails, so a caller under `set -e` is safe.
 _wb_mg_count_md() {
@@ -640,7 +648,9 @@ _wb_mg_convert() {
     done
     # each file's body is its source entry plus one "# title" line
     actual=$((actual - nd))
-    expected=$((sec_nb - nmark))
+    local nB=0
+    for ((i = 1; i <= nd; i++)); do if [ "${d_style[i]}" = "B" ]; then nB=$((nB + 1)); fi; done
+    expected=$((sec_nb - nmark - nB))   # a style-B heading line is not repeated in its file
     if [ "$actual" -ne "$expected" ]; then
       _wb_mg_block "## Decisions lost or gained lines: $expected non-blank lines expected in decision files, $actual found"
     fi
@@ -648,7 +658,7 @@ _wb_mg_convert() {
     # text, line for line (a clipped or cleaned title cannot hide a loss)
     local eid
     while IFS=$'\t' read -r n eid; do
-      if [ "$(_wb_mg_body_text "$sdir/decisions/$eid.md")" != "$(grep '[^[:space:]]' "$work/dec/$(printf 'd%04d.txt' "$n")" || true)" ]; then
+      if [ "$(_wb_mg_body_text "$sdir/decisions/$eid.md")" != "$(_wb_mg_source_body "$work/dec/$(printf 'd%04d.txt' "$n")" "${d_style[n]}")" ]; then
         _wb_mg_block "## Decisions: entry at task line ${d_line[n]} differs from its record file decisions/$eid.md"
       fi
     done < "$work/dec.ids"
@@ -763,18 +773,30 @@ _wb_mg_emit() {
   mkdir -p "$sdir/handoffs"
   local i f body text
 
-  # --- decisions: <date>-<hhmm>-<slug>.md; every style keeps its first line in
-  # the body (a B entry's `###` heading too: the title is cleaned and clipped,
-  # so the heading is the only full copy). $work/dec.ids maps entry -> file id.
+  # --- decisions: <date>-<hhmm>-<slug>.md, shaped like wb append's records:
+  # the `# ` line carries the FULL cleaned title (only the file name's slug
+  # comes from the clipped one) and a `###` heading entry (style B) does not
+  # repeat its heading in the body: its date and time are in the name and the
+  # frontmatter, its title is on the `# ` line. Every other style keeps its
+  # first line in the body. An entry whose time was stamped 0000, 0001, … (flag
+  # t, or the whole-section fallback) gets `time: none` in its frontmatter.
+  # $work/dec.ids maps entry -> file id.
   : > "$work/dec.ids"
+  local tnone
   while IFS=$'\t' read -r meta_tag n style ln date hm flags title; do
     [ "$meta_tag" = "E" ] || continue
     f="$work/dec/$(printf 'd%04d.txt' "$n")"
-    body="$(_wb_trim_blank_lines "$(cat "$f")")"
-    title="$(_wb_mg_clip "$title")"
+    if [ "$style" = "B" ]; then
+      body="$(_wb_trim_blank_lines "$(awk 'f { print; next } /[^ \t]/ { f = 1 }' "$f")")"
+    else
+      body="$(_wb_trim_blank_lines "$(cat "$f")")"
+    fi
+    [ -n "$title" ] || title="untitled"
     text="### $date ${hm:0:2}:${hm:2:2} — $title"
     if [ -n "$body" ]; then text+=$'\n\n'"$body"; fi
-    _wb_record_write_file "$scratch_task" decisions "" "$text" || return 1
+    tnone=0
+    if [[ "$flags" == *t* ]] || [ "$style" = "F" ]; then tnone=1; fi
+    WB_RECORD_TIME_NONE=$tnone WB_RECORD_SLUG_FROM="$(_wb_mg_clip "$title")" _wb_record_write_file "$scratch_task" decisions "" "$text" || return 1
     printf '%s\t%s\n' "$n" "$WB_RECORD_ID" >> "$work/dec.ids"
   done < "$work/dec.meta"
 
@@ -817,7 +839,7 @@ _wb_mg_emit() {
     if [ -n "$markers" ];  then hist+=$'\n\n'"#### No decisions"$'\n\n'"$markers"; fi
     if [ -n "$hpre" ];     then hist+=$'\n\n'"#### Handoffs preamble"$'\n\n'"$hpre"; fi
     if [ -n "$donetxt" ];  then hist+=$'\n\n'"#### Done"$'\n\n'"$donetxt"; fi
-    _wb_handoff_move_entry "$sdir/handoffs" "$hist" "$created" "0000" || return 1
+    _wb_handoff_move_entry "$sdir/handoffs" "$hist" "$created" "0000" none || return 1
     local hid
     hid="$(find "$sdir/handoffs" -maxdepth 1 -type f -name "$created-0000*.md" | LC_ALL=C sort | head -1 || true)"
     hid="${hid##*/}"; printf '%s' "${hid%.md}" > "$work/hist.id"
@@ -832,7 +854,9 @@ _wb_mg_emit() {
     if [ "$n" -eq "$nh" ]; then
       printf '%s\n' "$text" > "$work/kept.txt"
     else
-      _wb_handoff_move_entry "$sdir/handoffs" "$text" "$date" "$hm" || return 1
+      local hnone=""
+      if [[ "$flags" == *t* ]]; then hnone=none; fi
+      _wb_handoff_move_entry "$sdir/handoffs" "$text" "$date" "$hm" "$hnone" || return 1
     fi
   done < "$work/hnd.meta"
   return 0
@@ -924,6 +948,220 @@ _wb_mg_rewrite_body() {
 }
 
 # ---------------------------------------------------------------------------
+# --tidy: repair of tasks migrated before the one-record-shape fix
+# ---------------------------------------------------------------------------
+
+# _wb_mg_clean_title <text> — the title cleaning _wb_mg_split_decisions does
+# to a `###` heading's title: bold marks and tabs go, trailing . : ; , and
+# blanks go, the ends are trimmed.
+_wb_mg_clean_title() {
+  local t="${1//\*\*/}"
+  t="${t//$'\t'/ }"
+  while [[ "$t" =~ [\ .:\;,]$ ]]; do t="${t%?}"; done
+  t="${t#"${t%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"
+  printf '%s' "$t"
+}
+
+# _wb_mg_tidy_heading <line> — parse a `### <date> [<HH:MM>] [—] <title>`
+# heading the way the migrate splitter read it. Sets _TD_DATE, _TD_HM (HHMM
+# or empty) and _TD_TITLE (cleaned). Returns 1 when the line is not such a
+# heading (or its title is empty).
+_wb_mg_tidy_heading() {
+  local line="$1" rest t
+  local re='^###[[:space:]]+([0-9]{4}-[0-9]{2}-[0-9]{2})(([[:space:]].*)?)$'
+  [[ "$line" =~ $re ]] || return 1
+  _TD_DATE="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"; _TD_HM=""
+  local re_t='^[[:space:]]([0-9]{2}):([0-9]{2})([^0-9].*)?$'
+  if [[ "$rest" =~ $re_t ]]; then _TD_HM="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"; rest="${BASH_REMATCH[3]}"; fi
+  t="${rest#"${rest%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"
+  case "$t" in "—"*) t="${t#—}" ;; "–"*) t="${t#–}" ;; "-"*) t="${t#-}" ;; esac
+  t="${t#"${t%%[![:space:]]*}"}"
+  _TD_TITLE="$(_wb_mg_clean_title "$t")"
+  [ -n "$_TD_TITLE" ] || return 1
+  return 0
+}
+
+# _wb_mg_tidy_decision <file> <dry> — repair one decision record. Sets
+# _TD_RESULT to one of: dup (a repeated heading dropped), timeonly (a
+# date-only entry gets `time: none`, nothing else changes), alone (starts with
+# a `###` heading that is not a safe duplicate: left as it is), none (nothing
+# to do), and the flags _TD_TITLE_FULL, _TD_TIME for what changed. Writes
+# unless <dry>.
+_wb_mg_tidy_decision() {
+  local f="$1" dry="$2" id
+  id="${f##*/}"; id="${id%.md}"
+  _TD_RESULT=none; _TD_TITLE_FULL=0; _TD_TIME=0
+  local -a L=()
+  mapfile -t L < "$f"
+  [ "${L[0]:-}" = "---" ] || return 0
+  local n=${#L[@]} i e=-1
+  for ((i = 1; i < n; i++)); do if [ "${L[i]}" = "---" ]; then e=$i; break; fi; done
+  [ "$e" -gt 0 ] || return 0
+  local ti=$((e + 1))
+  while [ "$ti" -lt "$n" ] && ! [[ "${L[ti]}" == *[![:space:]]* ]]; do ti=$((ti + 1)); done
+  [ "$ti" -lt "$n" ] && [[ "${L[ti]}" == "# "* ]] || return 0
+  local cur="${L[ti]:2}" hi=$((ti + 1))
+  while [ "$hi" -lt "$n" ] && ! [[ "${L[hi]}" == *[![:space:]]* ]]; do hi=$((hi + 1)); done
+  [ "$hi" -lt "$n" ] || return 0
+  local nd="${id:0:10}" nhm="${id:11:4}" k has_time=0
+  for ((k = 1; k < e; k++)); do if [[ "${L[k]}" == time:* ]]; then has_time=1; fi; done
+  if ! [[ "${L[hi]}" == "###"* ]]; then
+    # no heading to drop. An entry written as `DATE — text`, `- DATE …` or
+    # `**DATE …` (the date-only styles) carries no time: when its name is a
+    # 00NN sequence stamp for that same date and the line shows no HH:MM after
+    # the date, only `time: none` is missing.
+    local re_a='^(-[[:space:]]+)?(\*\*)?([0-9]{4}-[0-9]{2}-[0-9]{2})(.*)$' re_hm=' [0-9]{2}:[0-9]{2}([^0-9]|$)'
+    if [ "$has_time" -eq 0 ] && [[ "$nhm" =~ ^00[0-9][0-9]$ ]] && [[ "${L[hi]}" =~ $re_a ]] \
+       && [ "${BASH_REMATCH[3]}" = "$nd" ] && ! [[ "${BASH_REMATCH[4]}" =~ ^$re_hm ]]; then
+      _TD_RESULT=timeonly; _TD_TIME=1
+      [ "$dry" -eq 0 ] || return 0
+      local o="" 
+      for ((k = 0; k < e; k++)); do o+="${L[k]}"$'\n'; done
+      o+="time: none"$'\n'"---"
+      for ((k = e + 1; k < n; k++)); do o+=$'\n'"${L[k]}"; done
+      _wb_write_atomic "$f" "$o" || return 1
+    fi
+    return 0
+  fi
+  # a `###` first body line: a dated duplicate of this record, or left alone
+  if ! _wb_mg_tidy_heading "${L[hi]}"; then _TD_RESULT=alone; return 0; fi
+  if [ "$_TD_DATE" != "$nd" ] || { [ -n "$_TD_HM" ] && [ "$_TD_HM" != "$nhm" ]; }; then _TD_RESULT=alone; return 0; fi
+  local full="$_TD_TITLE" hm="$_TD_HM"
+  if [ "$full" != "$cur" ] && [ "$(_wb_mg_clip "$full")" != "$cur" ]; then _TD_RESULT=alone; return 0; fi
+  [ "$full" = "$cur" ] || _TD_TITLE_FULL=1
+  local want_time=0
+  if [ -z "$hm" ] && [[ "$nhm" =~ ^00[0-9][0-9]$ ]]; then want_time=1; fi
+  if [ "$want_time" -eq 1 ] && [ "$has_time" -eq 0 ]; then _TD_TIME=1; fi
+  _TD_RESULT=dup
+  [ "$dry" -eq 0 ] || return 0
+  local out="" j
+  for ((k = 0; k < e; k++)); do out+="${L[k]}"$'\n'; done
+  if [ "$_TD_TIME" -eq 1 ]; then out+="time: none"$'\n'; fi
+  out+="---"$'\n'"# $full"
+  j=$((hi + 1))
+  while [ "$j" -lt "$n" ] && ! [[ "${L[j]}" == *[![:space:]]* ]]; do j=$((j + 1)); done
+  if [ "$j" -lt "$n" ]; then
+    out+=$'\n\n'
+    local rest=""
+    for ((k = j; k < n; k++)); do rest+="${L[k]}"$'\n'; done
+    out+="$(_wb_trim_blank_lines "$rest")"
+  fi
+  _wb_write_atomic "$f" "$out" || return 1
+  return 0
+}
+
+# _wb_mg_tidy_handoff <file> <dry> — add `time: none` to a handoff record
+# whose time was never recorded: its first body line is a dated `###` heading
+# with no HH:MM and the name's HHMM is a 00NN sequence number, or it is the
+# migrate history file (source migrate, auto, named -0000). Sets _TD_RESULT
+# to dup (changed) or none.
+_wb_mg_tidy_handoff() {
+  local f="$1" dry="$2" id
+  id="${f##*/}"; id="${id%.md}"
+  _TD_RESULT=none
+  local -a L=()
+  mapfile -t L < "$f"
+  [ "${L[0]:-}" = "---" ] || return 0
+  local n=${#L[@]} i e=-1 k
+  for ((i = 1; i < n; i++)); do if [ "${L[i]}" = "---" ]; then e=$i; break; fi; done
+  [ "$e" -gt 0 ] || return 0
+  local src="" auto=""
+  for ((k = 1; k < e; k++)); do
+    case "${L[k]}" in
+      time:*) return 0 ;;
+      source:*) src="${L[k]#source:}"; src="${src# }" ;;
+      auto:*) auto="${L[k]#auto:}"; auto="${auto# }" ;;
+    esac
+  done
+  local hi=$((e + 1)) nhm="${id:11:4}" want=0
+  while [ "$hi" -lt "$n" ] && ! [[ "${L[hi]}" == *[![:space:]]* ]]; do hi=$((hi + 1)); done
+  [ "$hi" -lt "$n" ] && [[ "${L[hi]}" == "### "* ]] || return 0
+  local re_d='^###[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}([[:space:]]|$)' re_hm='^###[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[0-9]{2}:[0-9]{2}([^0-9]|$)'
+  if [[ "${L[hi]}" =~ $re_d ]] && ! [[ "${L[hi]}" =~ $re_hm ]] && [[ "$nhm" =~ ^00[0-9][0-9]$ ]]; then want=1; fi
+  if [ "$src" = "migrate" ] && [ "$auto" = "true" ] && [ "$nhm" = "0000" ]; then want=1; fi
+  [ "$want" -eq 1 ] || return 0
+  _TD_RESULT=dup
+  [ "$dry" -eq 0 ] || return 0
+  local out=""
+  for ((k = 0; k < e; k++)); do out+="${L[k]}"$'\n'; done
+  out+="time: none"$'\n'"---"
+  for ((k = e + 1; k < n; k++)); do out+=$'\n'"${L[k]}"; done
+  _wb_write_atomic "$f" "$out" || return 1
+}
+
+# _wb_mg_tidy <target|""> <all> <dry> — the --tidy verb body.
+_wb_mg_tidy() {
+  local target="$1" all="$2" dry="$3"
+  local -a files=()
+  local arg
+  if [ "$all" -eq 1 ]; then
+    while IFS= read -r arg; do files+=("$arg"); done < <(wb_task_files)
+  else
+    local one; one="$(_wb_append_resolve_task "$target" "wb migrate --tidy")" || return 1
+    files+=("$one")
+  fi
+  [ "$dry" -eq 1 ] || _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  local f stem d rec id rc=0
+  local n_changed=0 n_tidy=0 n_old=0 n_held=0
+  local t_dropped t_titles t_dtime t_htime t_alone
+  local T_dropped=0 T_titles=0 T_dtime=0 T_htime=0 T_alone=0
+  local -a lines=()
+  for f in "${files[@]}"; do
+    stem="${f##*/}"; stem="${stem%.md}"
+    if ! _wb_is_dossier "$f"; then
+      n_old=$((n_old + 1))
+      if [ "$all" -eq 0 ]; then echo "wb migrate --tidy: $stem is not on the dossier layout; nothing to tidy" >&2; rc=1; fi
+      continue
+    fi
+    if [ "$dry" -eq 0 ] && ! wb_task_lock_acquire_guarded "$f" >/dev/null 2>&1; then
+      echo "wb migrate --tidy: $stem  SKIPPED, lock held"
+      n_held=$((n_held + 1)); rc=1
+      continue
+    fi
+    d="$(_wb_dossier_dir "$f")"
+    t_dropped=0; t_titles=0; t_dtime=0; t_htime=0; t_alone=0; lines=()
+    if [ -d "$d/decisions" ]; then
+      while IFS= read -r rec; do
+        id="${rec##*/}"
+        _wb_mg_tidy_decision "$rec" "$dry" || { echo "wb migrate --tidy: could not rewrite $rec" >&2; rc=1; }
+        case "$_TD_RESULT" in
+          dup) t_dropped=$((t_dropped + 1)); t_titles=$((t_titles + _TD_TITLE_FULL)); t_dtime=$((t_dtime + _TD_TIME))
+               lines+=("  decisions/$id: drop the repeated heading$([ "$_TD_TITLE_FULL" -eq 0 ] || printf ', full title on the # line')$([ "$_TD_TIME" -eq 0 ] || printf ', time: none')") ;;
+          timeonly) t_dtime=$((t_dtime + 1)); lines+=("  decisions/$id: time: none") ;;
+          alone) t_alone=$((t_alone + 1)) ;;
+        esac
+      done < <(find "$d/decisions" -maxdepth 1 -type f -name '*.md' | LC_ALL=C sort)
+    fi
+    if [ -d "$d/handoffs" ]; then
+      while IFS= read -r rec; do
+        id="${rec##*/}"
+        _wb_mg_tidy_handoff "$rec" "$dry" || { echo "wb migrate --tidy: could not rewrite $rec" >&2; rc=1; }
+        if [ "$_TD_RESULT" = dup ]; then t_htime=$((t_htime + 1)); lines+=("  handoffs/$id: time: none"); fi
+      done < <(find "$d/handoffs" -maxdepth 1 -type f -name '*.md' | LC_ALL=C sort)
+    fi
+    if [ $((t_dropped + t_htime + t_dtime)) -gt 0 ]; then
+      n_changed=$((n_changed + 1))
+      [ "$dry" -eq 1 ] || wb_render_views "$f"
+    else
+      n_tidy=$((n_tidy + 1))
+    fi
+    [ "$dry" -eq 1 ] || wb_task_lock_release "$f"
+    if [ $((t_dropped + t_htime + t_dtime + t_alone)) -gt 0 ]; then
+      echo "wb migrate --tidy: $stem  headings dropped $t_dropped, titles restored $t_titles, decisions time: none $t_dtime, handoffs time: none $t_htime, left alone $t_alone"
+      if [ "$dry" -eq 1 ] && [ "${#lines[@]}" -gt 0 ]; then printf '%s\n' "${lines[@]}"; fi
+    fi
+    T_dropped=$((T_dropped + t_dropped)); T_titles=$((T_titles + t_titles)); T_dtime=$((T_dtime + t_dtime))
+    T_htime=$((T_htime + t_htime)); T_alone=$((T_alone + t_alone))
+  done
+  echo
+  local verb="changed"; [ "$dry" -eq 0 ] || verb="would change"
+  echo "wb migrate --tidy: $n_changed $verb, $n_tidy already tidy, $n_old not on the dossier layout, $n_held skipped (lock held)"
+  echo "wb migrate --tidy: totals: headings dropped $T_dropped, titles restored $T_titles, decisions time: none $T_dtime, handoffs time: none $T_htime, left alone $T_alone"
+  if [ "$dry" -eq 1 ]; then echo "wb migrate --tidy: dry run, nothing written"; fi
+  return "$rc"
+}
+
+# ---------------------------------------------------------------------------
 # the verb
 # ---------------------------------------------------------------------------
 
@@ -934,19 +1172,22 @@ _wb_mg_rewrite_body() {
 # when every task was migrated or already had the layout; 1 when any task was
 # left unmigrated or skipped.
 cmd_migrate() {
-  local target="" dry=0 all=0 arg
+  local target="" dry=0 all=0 tidy=0 arg
+  local usage="usage: wb migrate [--tidy] <task>|--all [--dry-run]"
   for arg in "$@"; do
     case "$arg" in
       --dry-run) dry=1 ;;
       --all)     all=1 ;;
-      -*)        echo "usage: wb migrate <task>|--all [--dry-run]" >&2; return 1 ;;
-      *)         if [ -n "$target" ]; then echo "usage: wb migrate <task>|--all [--dry-run]" >&2; return 1; fi; target="$arg" ;;
+      --tidy)    tidy=1 ;;
+      -*)        echo "$usage" >&2; return 1 ;;
+      *)         if [ -n "$target" ]; then echo "$usage" >&2; return 1; fi; target="$arg" ;;
     esac
   done
   if { [ "$all" -eq 1 ] && [ -n "$target" ]; } || { [ "$all" -eq 0 ] && [ -z "$target" ]; }; then
-    echo "usage: wb migrate <task>|--all [--dry-run]" >&2
+    echo "$usage" >&2
     return 1
   fi
+  if [ "$tidy" -eq 1 ]; then _wb_mg_tidy "$target" "$all" "$dry"; return $?; fi
 
   local -a files=()
   if [ "$all" -eq 1 ]; then
