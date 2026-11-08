@@ -260,16 +260,260 @@ expect ask   'systemctl --user stop wb-agent-x.scope'
 expect ask   'systemctl --user restart foo'
 expect ask   'psql -c "DROP TABLE sessions"'
 expect ask   'psql -c "TRUNCATE sessions"'
-expect ask   'bq rm -f proj:ds.table'
-expect ask   'terraform apply -auto-approve'
-expect ask   'terraform destroy'
-expect ask   'tofu apply'
-expect ask   'gcloud run jobs delete pp-job --region europe-west2'
-expect ask   'gsutil rm gs://b/x'
 expect ask   'kubectl delete pod x'
+expect allow 'kubectl get pods'
+# kubectl writes ask; reads pass (CLAUDE.md's read-only exception, 2026-11-08)
+expect ask   'kubectl apply -f deploy.yaml'
+expect ask   'kubectl -n prod patch deploy x -p "{}"'
+expect ask   'kubectl --context prod scale deploy x --replicas=0'
+expect ask   'kubectl edit configmap x'
+expect ask   'kubectl exec -it pod-x -- sh'
+expect ask   'kubectl rollout restart deploy/x'
+expect allow 'kubectl rollout status deploy/x'
+expect allow 'kubectl -n prod describe pod x'
+expect allow 'kubectl logs -f pod-x'
+expect allow 'kubectl get pod apply'
 expect allow 'truncate -s 0 app.log'
-expect allow 'terraform plan'
 expect allow 'systemctl --user status foo'
+
+# --- terraform / tofu: the agent never applies, Jet does ------------------
+expect deny  'terraform apply'
+expect deny  'terraform apply tfplan'
+expect deny  'terraform apply -auto-approve'
+expect deny  'terraform destroy'
+expect deny  'tofu apply'
+expect deny  'tofu destroy -target=module.x'
+expect deny  'terraform import google_storage_bucket.b my-bucket'
+expect deny  'terraform taint null_resource.x'
+expect deny  'terraform untaint null_resource.x'
+expect deny  'terraform force-unlock 1234-abcd'
+expect deny  'terraform refresh'
+expect deny  'terraform state rm module.x'
+expect deny  'terraform state mv a.b a.c'
+expect deny  'terraform state push terraform.tfstate'
+expect deny  'terraform state replace-provider hashicorp/google registry.example/google'
+expect deny  'terraform state -lock-timeout=5s rm x'
+expect deny  'terraform -chdir=infra apply'
+expect deny  'terraform -chdir infra destroy'
+expect deny  'terraform plan -lock=false'
+expect deny  'terraform plan --lock=false'
+expect deny  'terraform init -lock=0'
+expect deny  'terraform plan -auto-approve'
+expect deny  '/usr/local/bin/terraform apply'
+expect deny  'env TF_LOG=debug terraform apply'
+expect deny  'timeout 600 terraform apply'
+expect deny  'cd infra && terraform apply'
+expect deny  "bash -c 'terraform destroy'"
+expect deny  'echo "$(terraform apply -auto-approve)"'
+expect ask   'terraform test'
+expect ask   'tofu test -filter=tests/main.tftest.hcl'
+expect allow 'terraform fmt -recursive'
+expect allow 'terraform validate'
+expect allow 'terraform init -upgrade'
+expect allow 'terraform plan -out=tfplan'
+expect allow 'terraform plan -lock=true'
+expect allow 'terraform -chdir=infra plan'
+expect allow 'terraform show -json tfplan'
+expect allow 'terraform graph'
+expect allow 'terraform state list'
+expect allow 'terraform state show module.x'
+expect allow 'terraform state pull'
+expect allow 'terraform output -json'
+expect allow 'terraform version'
+expect allow 'terraform plan -target=module.apply_jobs'
+expect allow 'grep -rn "terraform apply" docs/'
+expect allow "git commit -m 'never run terraform apply from an agent'"
+
+# --- gcloud / gsutil / bq: every call is confirmed, reads included ----------
+expect ask   'gcloud run jobs delete pp-job --region europe-west2'
+expect ask   'gcloud projects list'
+expect ask   'gcloud config get-value project'
+expect ask   'gcloud --version'
+expect ask   'gsutil rm gs://b/x'
+expect ask   'gsutil ls gs://b'
+expect ask   'bq rm -f proj:ds.table'
+expect ask   'bq ls'
+expect ask   'bq query --use_legacy_sql=false "SELECT 1"'
+expect ask   '/usr/lib/google-cloud-sdk/bin/gcloud auth list'
+expect ask   'curl -H "Authorization: Bearer $(gcloud auth print-access-token)" https://example.com/v1/x'
+expect ask   'TOKEN=$(gcloud auth print-access-token); curl -H "Authorization: Bearer $TOKEN" https://x'
+expect ask   'curl -H "Authorization: Bearer `gcloud auth print-access-token`" https://x'
+expect ask   'env CLOUDSDK_CORE_PROJECT=p gcloud compute instances list'
+expect ask   'timeout 30 gcloud storage ls'
+expect ask   "bash -c 'gcloud projects list'"
+expect ask   'gcloud projects list | head'
+expect ask   'sudo -u svc gsutil ls'
+expect allow 'command -v gcloud'
+expect allow 'which gcloud bq gsutil'
+expect allow 'grep -rn gcloud scripts/'
+expect allow "git commit -m 'document the gcloud auth print-access-token rule'"
+expect allow 'echo "run: gcloud projects list"'
+
+# --- forms the code review (2026-11-06) found slipping past -------------
+# --- $( ) before the verb splits the terraform command (adversarial, P1)
+expect deny  'terraform -chdir="$(git rev-parse --show-toplevel)/infra" apply'
+expect deny  'terraform -chdir=$(pwd)/infra destroy'
+expect deny  'terraform plan -var "sha=$(git rev-parse HEAD)" -lock=false'
+expect deny  '$(which terraform) apply'
+expect ask   'kubectl --context=$(kubectl config current-context) delete pod x'
+# --- unquoted heredoc bodies run $( ) and backticks (correctness, security, adversarial)
+expect ask   'cat > .env <<EOF
+TOKEN=$(gcloud auth print-access-token)
+EOF'
+expect ask   'cat > t <<EOF
+`gcloud auth print-access-token`
+EOF'
+expect deny  'cat > out.txt <<EOF
+$(terraform apply -auto-approve)
+EOF'
+expect deny  'git commit -F - <<EOF
+run `terraform apply` after merge
+EOF'
+expect allow 'cat > notes <<'\''EOF'\''
+$(gcloud projects list)
+EOF'
+# --- backslash before the command word (pre-existing parser gap)
+expect ask   '\gcloud projects list'
+expect deny  '\terraform apply'
+# --- terraform verbs and flags not on the deny list
+expect deny  'terraform workspace delete -force staging'
+expect deny  'terraform -chdir=infra workspace delete old'
+expect allow 'terraform workspace select prod'
+expect ask   'terraform init -migrate-state -force-copy'
+expect deny  'terraform state push -force x.tfstate'
+expect allow 'terraform apply -help'
+expect deny  'TF_CLI_ARGS_plan=-lock=false terraform plan'
+# --- wrappers that run their argument as a command
+expect ask   'env -S '\''gcloud projects list'\'''
+expect deny  'env -S "terraform apply"'
+expect ask   'echo '\''gcloud projects list'\'' | bash'
+expect deny  'bash <<< '\''terraform apply'\'''
+expect ask   'script -qc '\''gcloud projects list'\'' /dev/null'
+expect ask   'direnv exec . gcloud projects list'
+expect deny  'direnv exec . terraform apply'
+expect deny  'flock /tmp/tf.lock terraform apply'
+expect deny  'systemd-run --user --scope terraform apply'
+expect deny  'nix-shell --run "terraform apply"'
+expect deny  'parallel terraform -chdir={} apply ::: a b'
+expect deny  'terragrunt apply'
+expect deny  'docker run --rm -v "$PWD":/w -w /w hashicorp/terraform:1.9 apply'
+expect ask   'cat <(gcloud projects list)'
+expect ask   'g"cloud" projects list'
+expect deny  'terraform '\''apply'\'''
+# --- the new `command -v` lookup shortcut must stay narrow (testing)
+expect ask   'command -v gcloud && gcloud projects list'
+expect ask   'command gcloud projects list'
+expect ask   'command -p gcloud projects list'
+# --- a substitution as the command word: the guard can't see what runs
+expect ask   '$(cat cmd.txt) --now'
+expect deny  'export TF_CLI_ARGS="-auto-approve"'
+
+# --- everyday commands that must stay allowed after those fixes ------------
+expect allow 'gh pr create --title x --body "$(cat <<'\''EOF'\''
+## Summary
+Runs `wb reviewed` after review.
+EOF
+)"'
+expect allow 'git commit -m "$(cat <<'\''EOF'\''
+fix(guard): keep $( ) commands whole
+EOF
+)"'
+expect allow 'cd "$(git rev-parse --show-toplevel)" && ls'
+expect allow 'for f in $(ls *.md); do wc -l "$f"; done'
+expect allow 'echo "built at $(date +%s)"'
+expect allow 'x=$((1 + 2)); echo $x'
+expect allow 'cat > notes.md <<EOF
+run by `whoami` on $(hostname)
+EOF'
+expect allow 'terraform plan -out=tfplan && terraform show tfplan'
+expect allow 'make -C infra plan'
+expect allow 'docker run --rm alpine echo hi'
+expect allow '"$(git rev-parse --show-toplevel)/scripts/x.sh" --help'
+expect allow '$(npm bin)/eslint .'
+expect allow '$(command -v python3) script.py'
+expect allow 'ls "$(dirname "$f")"'
+expect allow 'printf '\''%s\n'\'' a b | sh -c '\''cat'\'''
+expect allow 'echo hello | bash -c '\''read x; echo $x'\'''
+expect allow 'rm -rf /tmp/claude-1000/foo'
+expect allow 'terraform -chdir="$(git rev-parse --show-toplevel)/infra" plan'
+expect allow 'VAR=$(jq -r .x f.json) node app.js'
+expect allow 'diff <(sort a) <(sort b)'
+
+# --- forms the review of the fix commit (2026-11-08) found -----------------
+# --- a $( ) that prints nothing leaves its parent as the rm target (P1 regression)
+expect deny  'rm -rf ~/code/$(ls ~/code | grep old-thing)'
+expect deny  'rm -rf ~/$(echo)'
+expect deny  'rm -rf "$HOME/$(printf x)"'
+expect deny  'rm -rf /$(echo)'
+expect deny  'rm -rf ~/code/$(echo)/*'
+expect deny  'rm -rf ~/code/`echo`'
+expect ask   'rm -rf "$(git rev-parse --show-toplevel)/build"'
+expect ask   'rm -rf $(mktemp -d)'
+expect ask   'rm -rf ~/code/x-$(date +%s)'
+# --- force-push to a branch known only when it runs (regression)
+expect ask   'git push --force-with-lease origin $(git branch --show-current)'
+expect ask   'git push --force-with-lease origin "$(git branch --show-current)"'
+expect ask   'git push -f origin $BRANCH'
+expect ask   'git push -f origin HEAD'
+expect allow 'git push --force-with-lease origin HEAD:feat/x'
+expect allow 'git push origin HEAD'
+# --- a docker option value is not the image
+expect deny  'docker run --rm --name terraform -v "$PWD":/w -w /w hashicorp/terraform:1.9 state rm aws_s3_bucket.x'
+expect deny  'docker run --rm -v "$PWD":/terraform -w /terraform hashicorp/terraform:1.9 state rm aws_s3_bucket.x'
+expect deny  'docker run --rm -v "$PWD":/src -w /src/terraform hashicorp/terraform:1.9 apply'
+expect deny  'docker run -it --rm -e TF_LOG=debug hashicorp/terraform import a.b c'
+expect deny  'docker container run -p8080:80 --rm hashicorp/terraform apply'
+expect deny  'podman run --rm hashicorp/terraform:1.9 apply'
+expect deny  'docker run --rm opentofu/opentofu:1.8 apply'
+expect ask   'docker run --rm gcr.io/google.com/cloudsdktool/cloud-sdk:slim gcloud projects list'
+expect allow 'docker run --rm --name terraform alpine echo hi'
+expect allow 'docker run --rm -v "$PWD":/w -w /w hashicorp/terraform:1.9 plan'
+# --- eval of $( ) keeps asking; env $( ) only sets variables (Jet, 2026-11-08)
+expect ask   'eval "$(ssh-agent -s)"'
+expect allow 'env $(cat .env | xargs) node app.js'
+expect ask   'env $(cat .env | xargs) gcloud projects list'
+# --- quoted code for runuser -c and parallel
+expect deny  "runuser -l jet -c 'terraform apply'"
+expect deny  "parallel 'terraform -chdir={} apply' ::: a b"
+expect ask   "parallel 'gcloud projects describe {}' ::: p1 p2"
+expect allow "parallel 'wc -l {}' ::: a b"
+# --- text piped to a shell, with flags or redirects after it, or unquoted
+expect deny  "echo 'terraform apply' | bash -s"
+expect deny  "echo 'terraform apply' | bash -x"
+expect deny  "echo 'terraform apply' | bash 2>&1 | tee run.log"
+expect deny  "printf '%s\n' 'terraform apply' | bash"
+expect ask   "printf '%s\n' 'gcloud projects list' | bash"
+expect deny  'echo terraform apply -auto-approve | bash'
+expect ask   'echo -n gcloud projects list | sh'
+expect allow "echo 'terraform apply' | grep apply"
+expect allow 'echo terraform apply | tee note.txt'
+expect allow "echo 'terraform apply' | bash -c 'cat'"
+# --- a stray quote in an unquoted heredoc's backtick span (regression)
+expect deny  'cat > notes.md <<EOF
+Use `it'\''s` here
+EOF
+terraform apply'
+# --- wrappers and lifts the fix commit added, untested until now
+expect deny  'taskset 0x1 terraform apply'
+expect deny  'taskset -c 0-3 terraform apply'
+expect deny  'runuser -u svc terraform apply'
+expect deny  'unbuffer terraform apply'
+expect deny  'chronic terraform apply'
+expect ask   "flock /tmp/l -c 'gcloud projects list'"
+expect ask   "sg grp -c 'gcloud projects list'"
+expect deny  'terragrunt run-all apply'
+expect deny  'terragrunt run -- apply'
+expect allow 'terragrunt run-all plan'
+expect ask   'terraform init -migrate-state'
+expect ask   'terraform init -force-copy'
+expect allow 'terraform -version'
+expect deny  'terra\
+form apply'
+expect deny  'echo $(echo $(echo $(terraform apply)))'
+expect deny  '`terraform apply`'
+expect allow 'cat > f <<EOF
+\$(gcloud x)
+EOF'
 
 # --- force pushes (finding 9) ---------------------------------------------
 expect ask   'git push --force origin development'
