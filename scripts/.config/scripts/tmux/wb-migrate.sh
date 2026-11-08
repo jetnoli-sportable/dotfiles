@@ -347,6 +347,14 @@ _wb_mg_body_text() {
   ' "$1"
 }
 
+# _wb_mg_source_body <entry_file> <style> — the non-blank lines the record
+# file's body must hold: all of the source entry's, except that a style-B
+# entry's `###` heading line (its first) lives on the record's `# ` line.
+_wb_mg_source_body() {
+  if [ "$2" = "B" ]; then grep '[^[:space:]]' "$1" | tail -n +2 || true
+  else grep '[^[:space:]]' "$1" || true; fi
+}
+
 # _wb_mg_count_md <dir> — number of *.md files directly in <dir> (0 when the
 # dir does not exist). Never fails, so a caller under `set -e` is safe.
 _wb_mg_count_md() {
@@ -640,7 +648,9 @@ _wb_mg_convert() {
     done
     # each file's body is its source entry plus one "# title" line
     actual=$((actual - nd))
-    expected=$((sec_nb - nmark))
+    local nB=0
+    for ((i = 1; i <= nd; i++)); do if [ "${d_style[i]}" = "B" ]; then nB=$((nB + 1)); fi; done
+    expected=$((sec_nb - nmark - nB))   # a style-B heading line is not repeated in its file
     if [ "$actual" -ne "$expected" ]; then
       _wb_mg_block "## Decisions lost or gained lines: $expected non-blank lines expected in decision files, $actual found"
     fi
@@ -648,7 +658,7 @@ _wb_mg_convert() {
     # text, line for line (a clipped or cleaned title cannot hide a loss)
     local eid
     while IFS=$'\t' read -r n eid; do
-      if [ "$(_wb_mg_body_text "$sdir/decisions/$eid.md")" != "$(grep '[^[:space:]]' "$work/dec/$(printf 'd%04d.txt' "$n")" || true)" ]; then
+      if [ "$(_wb_mg_body_text "$sdir/decisions/$eid.md")" != "$(_wb_mg_source_body "$work/dec/$(printf 'd%04d.txt' "$n")" "${d_style[n]}")" ]; then
         _wb_mg_block "## Decisions: entry at task line ${d_line[n]} differs from its record file decisions/$eid.md"
       fi
     done < "$work/dec.ids"
@@ -763,18 +773,30 @@ _wb_mg_emit() {
   mkdir -p "$sdir/handoffs"
   local i f body text
 
-  # --- decisions: <date>-<hhmm>-<slug>.md; every style keeps its first line in
-  # the body (a B entry's `###` heading too: the title is cleaned and clipped,
-  # so the heading is the only full copy). $work/dec.ids maps entry -> file id.
+  # --- decisions: <date>-<hhmm>-<slug>.md, shaped like wb append's records:
+  # the `# ` line carries the FULL cleaned title (only the file name's slug
+  # comes from the clipped one) and a `###` heading entry (style B) does not
+  # repeat its heading in the body: its date and time are in the name and the
+  # frontmatter, its title is on the `# ` line. Every other style keeps its
+  # first line in the body. An entry whose time was stamped 0000, 0001, … (flag
+  # t, or the whole-section fallback) gets `time: none` in its frontmatter.
+  # $work/dec.ids maps entry -> file id.
   : > "$work/dec.ids"
+  local tnone
   while IFS=$'\t' read -r meta_tag n style ln date hm flags title; do
     [ "$meta_tag" = "E" ] || continue
     f="$work/dec/$(printf 'd%04d.txt' "$n")"
-    body="$(_wb_trim_blank_lines "$(cat "$f")")"
-    title="$(_wb_mg_clip "$title")"
+    if [ "$style" = "B" ]; then
+      body="$(_wb_trim_blank_lines "$(awk 'f { print; next } /[^ \t]/ { f = 1 }' "$f")")"
+    else
+      body="$(_wb_trim_blank_lines "$(cat "$f")")"
+    fi
+    [ -n "$title" ] || title="untitled"
     text="### $date ${hm:0:2}:${hm:2:2} — $title"
     if [ -n "$body" ]; then text+=$'\n\n'"$body"; fi
-    _wb_record_write_file "$scratch_task" decisions "" "$text" || return 1
+    tnone=0
+    if [[ "$flags" == *t* ]] || [ "$style" = "F" ]; then tnone=1; fi
+    WB_RECORD_TIME_NONE=$tnone WB_RECORD_SLUG_FROM="$(_wb_mg_clip "$title")" _wb_record_write_file "$scratch_task" decisions "" "$text" || return 1
     printf '%s\t%s\n' "$n" "$WB_RECORD_ID" >> "$work/dec.ids"
   done < "$work/dec.meta"
 
@@ -817,7 +839,7 @@ _wb_mg_emit() {
     if [ -n "$markers" ];  then hist+=$'\n\n'"#### No decisions"$'\n\n'"$markers"; fi
     if [ -n "$hpre" ];     then hist+=$'\n\n'"#### Handoffs preamble"$'\n\n'"$hpre"; fi
     if [ -n "$donetxt" ];  then hist+=$'\n\n'"#### Done"$'\n\n'"$donetxt"; fi
-    _wb_handoff_move_entry "$sdir/handoffs" "$hist" "$created" "0000" || return 1
+    _wb_handoff_move_entry "$sdir/handoffs" "$hist" "$created" "0000" none || return 1
     local hid
     hid="$(find "$sdir/handoffs" -maxdepth 1 -type f -name "$created-0000*.md" | LC_ALL=C sort | head -1 || true)"
     hid="${hid##*/}"; printf '%s' "${hid%.md}" > "$work/hist.id"
@@ -832,7 +854,9 @@ _wb_mg_emit() {
     if [ "$n" -eq "$nh" ]; then
       printf '%s\n' "$text" > "$work/kept.txt"
     else
-      _wb_handoff_move_entry "$sdir/handoffs" "$text" "$date" "$hm" || return 1
+      local hn=""
+      if [[ "$flags" == *t* ]]; then hn=none; fi
+      _wb_handoff_move_entry "$sdir/handoffs" "$text" "$date" "$hm" "$hn" || return 1
     fi
   done < "$work/hnd.meta"
   return 0

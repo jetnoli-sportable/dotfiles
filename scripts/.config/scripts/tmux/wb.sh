@@ -4402,6 +4402,12 @@ _wb_write_atomic() {
 # — write ONE record file (KTD17) and leave its id (file name without .md) in
 # WB_RECORD_ID. Creates the dossier and series dir on first write. A name
 # collision gets -2, -3. Does not rebuild views (callers do, once).
+# Two optional inputs, set only by `wb migrate` as one-call variable prefixes:
+# WB_RECORD_TIME_NONE=1 adds `time: none` to a decision's frontmatter (the
+# source entry had no time; the HHMM in the name is only a sequence number),
+# and WB_RECORD_SLUG_FROM=<text> makes the file name's slug come from <text>
+# instead of the title (migrate keeps the full title on the `# ` line but
+# names the file from the clipped one).
 _wb_record_write_file() {
   local file="$1" series="$2" sup="$3" text="$4"
   local dir; dir="$(_wb_dossier_dir "$file")"
@@ -4410,14 +4416,16 @@ _wb_record_write_file() {
   _wb_record_parse "$text"
   local date="${_R_DATE:-$(date '+%Y-%m-%d')}" hm="${_R_HM:-$(date '+%H%M')}"
   local title="${_R_TITLE:-untitled}"
-  local slug; slug="$(_wb_slug "$title")"
+  local slug; slug="$(_wb_slug "${WB_RECORD_SLUG_FROM:-$title}")"
   local base content nl=$'\n'
   case "$series" in
     decisions)
       base="$date-$hm-$slug"
       content="---${nl}status: in-force${nl}"
       if [ -n "$sup" ]; then content+="supersedes: [$sup]${nl}"; else content+="supersedes: []${nl}"; fi
-      content+="superseded_by: []${nl}review_at:${nl}---${nl}# $title"
+      content+="superseded_by: []${nl}review_at:${nl}"
+      if [ "${WB_RECORD_TIME_NONE:-}" = 1 ]; then content+="time: none${nl}"; fi
+      content+="---${nl}# $title"
       if [ -n "$_R_BODY" ] && [ "$_R_BODY" != "$title" ]; then content+="${nl}${nl}$_R_BODY"; fi
       ;;
     open-items)
@@ -4591,7 +4599,9 @@ _wb_replace_block() {
 # (now / blank / false when it has none). The entry text is kept verbatim.
 # Optional 3rd and 4th arguments (YYYY-MM-DD, HHMM) replace "now" as the
 # stamp when the heading is not that shape; `wb migrate` passes them so an
-# old entry with a loose heading gets a deterministic name.
+# old entry with a loose heading gets a deterministic name. A 5th argument
+# "none" adds `time: none` to the frontmatter: the stamp's HHMM is then only
+# a sequence number, not a time anyone recorded.
 _wb_handoff_move_entry() {
   local hdir="$1" entry; entry="$(_wb_trim_blank_lines "$2")"
   if _wb_blank_only "$entry"; then return 0; fi
@@ -4605,7 +4615,9 @@ _wb_handoff_move_entry() {
   local base="$date-$hm" id n=1 nl=$'\n'
   id="$base"
   while [ -e "$hdir/$id.md" ]; do n=$((n + 1)); id="$base-$n"; done
-  _wb_write_atomic "$hdir/$id.md" "---${nl}source: $source${nl}auto: $auto${nl}---${nl}$entry"
+  local tfield=""
+  if [ "${5:-}" = none ]; then tfield="time: none${nl}"; fi
+  _wb_write_atomic "$hdir/$id.md" "---${nl}source: $source${nl}auto: $auto${nl}${tfield}---${nl}$entry"
 }
 
 # wb_handoff_write <task_file> <body> — KTD20's move-and-replace, the ONE
@@ -4717,7 +4729,7 @@ _wb_render_handoffs() {
   [ "${#files[@]}" -gt 0 ] || return 0
   awk '
     FNR == 1 { n++; fm = 0; id = FILENAME; sub(/^.*\//, "", id); sub(/\.md$/, "", id)
-               ids[n] = id; src[n] = ""; auto[n] = ""; body[n] = ""; first[n] = 1 }
+               ids[n] = id; src[n] = ""; auto[n] = ""; tnone[n] = 0; body[n] = ""; first[n] = 1 }
     {
       if (FNR == 1 && $0 == "---") { fm = 1; next }
       if (fm == 1) {
@@ -4725,6 +4737,7 @@ _wb_render_handoffs() {
         k = $0; sub(/:.*/, "", k); v = $0; sub(/^[^:]*:[ \t]*/, "", v)
         if (k == "source") src[n] = v
         else if (k == "auto") auto[n] = v
+        else if (k == "time" && v == "none") tnone[n] = 1
         next
       }
       if (first[n] && $0 ~ /^### /) { first[n] = 0; next }
@@ -4733,7 +4746,11 @@ _wb_render_handoffs() {
     }
     END {
       for (i = 1; i <= n; i++) {
-        print "## " ids[i]; print ""
+        # a record with `time: none` had no time in its source: head it with
+        # the date alone (its file id, which carries only a sequence number,
+        # goes on a line of its own)
+        if (tnone[i]) { print "## " substr(ids[i], 1, 10); print ""; print "- id: `" ids[i] "`" }
+        else { print "## " ids[i]; print "" }
         print "- source: " src[i] (auto[i] == "true" ? " (auto)" : "")
         b = body[i]
         while (b ~ /^\n/) sub(/^\n/, "", b)
