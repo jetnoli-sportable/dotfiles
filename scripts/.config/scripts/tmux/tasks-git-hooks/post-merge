@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# post-merge hook for the task store: after a pull or merge, rebuild the
+# generated views (decisions.md, handoffs.md, index.md) of every dossier the
+# merge changed, because the views are not in git and would otherwise be
+# stale or missing until the next local write. Runs `wb views <stems>`; falls
+# back to `wb views --all` only when the changed set cannot be computed (no
+# ORIG_HEAD). Never fails the merge; does nothing when wb cannot be found.
+# Installed by `wb install-hooks` (core.hooksPath -> this directory).
+# shellcheck source=views-lib.sh
+source "$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/views-lib.sh" 2>/dev/null || exit 0
+
+changed="-"
+if git rev-parse -q --verify ORIG_HEAD >/dev/null 2>&1; then
+  if c="$(git diff --name-only ORIG_HEAD HEAD -- dossiers 2>/dev/null)"; then changed="$c"; fi
+fi
+_wv_refresh post-merge "$changed"
+exit 0

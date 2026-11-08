@@ -94,6 +94,18 @@
 #                                    with a report of skipped (lock held) and exception tasks;
 #                                    a task that already has layout: dossier is skipped, so a
 #                                    second run changes nothing; --dry-run writes nothing
+#   wb migrate --tidy <task>|--all [--dry-run]
+#                                    one-off repair for tasks ALREADY on the layout: in each
+#                                    decision record whose body starts with a repeated dated `###`
+#                                    heading, put the full title on the `# ` line, drop the heading
+#                                    and add `time: none` when it had no HH:MM (handoff records
+#                                    with no recorded time get `time: none` too); idempotent,
+#                                    takes each task's lock, rebuilds the views, --dry-run counts
+#   wb views <task>... | --all       rebuild the generated views (decisions.md, handoffs.md,
+#                                    index.md) of layout tasks under each task's lock; they are not
+#                                    in git, so run it in a fresh clone (the store's post-merge and
+#                                    post-rewrite hooks run it for the dossiers a pull changed). A
+#                                    named task without the layout: one line, exit 1 (--all skips)
 #   wb family <task> [--sessions|--reseed|--concepts]
 #                                    print <task>'s family stems (top parent first, then every
 #                                    descendant), read-only and tmux-free; --sessions prints
@@ -4929,6 +4941,70 @@ wb_render_views() {
   _wb_render_index "$file" "$d" "$stem" > "$tmp" && _wb_view_install "$tmp" "$d/index.md"
 }
 
+# cmd_views <task>...|--all — rebuild the generated views (decisions.md,
+# handoffs.md, index.md) of layout tasks, each under its own task lock. The
+# views are not in git (the store ignores them), so this is how a fresh
+# clone gets them and how a pull's hook refreshes them. A task named by an
+# exact stem is taken as that task (not fuzzy-matched, so a stem that
+# prefixes another still resolves). A named task without `layout: dossier`
+# is reported on one line and the exit is 1; under --all such tasks are only
+# counted. A task whose lock is held is skipped (exit 1) so a rerun can
+# catch it. Returns (never exits) so tests can source wb.sh.
+cmd_views() {
+  local all=0 arg
+  local -a names=()
+  for arg in "$@"; do
+    case "$arg" in
+      --all) all=1 ;;
+      -*)    echo "usage: wb views <task>... | --all" >&2; return 1 ;;
+      *)     names+=("$arg") ;;
+    esac
+  done
+  if { [ "$all" -eq 1 ] && [ "${#names[@]}" -gt 0 ]; } || { [ "$all" -eq 0 ] && [ "${#names[@]}" -eq 0 ]; }; then
+    echo "usage: wb views <task>... | --all" >&2
+    return 1
+  fi
+
+  local -a files=()
+  local f
+  if [ "$all" -eq 1 ]; then
+    while IFS= read -r f; do files+=("$f"); done < <(wb_task_files)
+  else
+    for arg in "${names[@]}"; do
+      f="$(_wb_append_resolve_task "$arg" "wb views")" || return 1
+      files+=("$f")
+    done
+  fi
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  local n_ok=0 n_old=0 n_held=0 rc=0 stem
+  for f in "${files[@]}"; do
+    stem="${f##*/}"; stem="${stem%.md}"
+    if ! _wb_is_dossier "$f"; then
+      n_old=$((n_old + 1))
+      if [ "$all" -eq 0 ]; then
+        echo "wb views: $stem is not on the dossier layout; nothing to rebuild" >&2
+        rc=1
+      fi
+      continue
+    fi
+    if ! wb_task_lock_acquire_guarded "$f" >/dev/null 2>&1; then
+      n_held=$((n_held + 1)); rc=1
+      echo "wb views: $stem SKIPPED, lock held" >&2
+      continue
+    fi
+    wb_render_views "$f"
+    wb_task_lock_release "$f"
+    n_ok=$((n_ok + 1))
+  done
+  if [ "$all" -eq 1 ] || [ "${#files[@]}" -gt 1 ]; then
+    echo "wb views: $n_ok rebuilt, $n_old not on the dossier layout, $n_held skipped (lock held)"
+  elif [ "$n_ok" -eq 1 ]; then
+    echo "wb views: rebuilt the views of $stem"
+  fi
+  return "$rc"
+}
+
 # cmd_now <task-ref> [<body>|-] — replace the task file's "## Now" block
 # (KTD20) with stdin, under the per-task lock; the rest of the file is left
 # byte-unchanged. A file with no "## Now" gains one above its first "## "
@@ -5792,7 +5868,9 @@ cmd_week() {
 # concurrency-safety machine needs on this host: points $TASKS_DIR's
 # core.hooksPath at U6's reference-transaction hook (stowed path — a real
 # checkout of $TASKS_DIR needs to actually find the file at runtime, not a
-# dotfiles-repo-relative path), hardens gc/reflog retention (X5) so a
+# dotfiles-repo-relative path; it is the DIRECTORY that is set, so the
+# post-merge and post-rewrite hooks that rebuild the generated views, and any
+# later hook added there, are picked up with no further wiring once stowed), hardens gc/reflog retention (X5) so a
 # sentinel-blessed rewind stays recoverable by policy rather than GC luck,
 # pre-creates the git-hook kill-switch (X4) unless the operator has marked
 # the hook as deliberately enabled, and VERIFIES (never edits — Decision
@@ -8173,6 +8251,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     # re-stow that links it. migrate is a one-off; nothing else needs it.
     # shellcheck source=wb-migrate.sh
     migrate)     shift; source "$SCRIPT_DIR/wb-migrate.sh"; cmd_migrate "$@" ;;
+    views)       shift; cmd_views "$@" ;;
     family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;
     status)      shift; cmd_status "$@" ;;
