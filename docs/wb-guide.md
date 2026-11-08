@@ -661,7 +661,12 @@ On a layout task:
   `scripts/.config/scripts/tmux/tasks-git-hooks/`; `wb install-hooks` points the
   store's `core.hooksPath` at that directory, so new hooks there need only a
   re-stow. A hook never fails the pull, and does nothing when it cannot find `wb`
-  (an executable `wb` on PATH, else the `wb.sh` beside the hooks directory).
+  (an executable `wb` on PATH, else the `wb.sh` beside the hooks directory). It
+  also does nothing until the store has stopped tracking the views (the
+  `.gitignore` lists them and none is still committed), so stowing the hooks
+  before the switch leaves pulls clean: rebuilding a committed view would leave
+  a modified tracked file behind. A task counts as on the layout only when its
+  frontmatter says `layout: dossier`.
 - **Pages you write**, one Markdown file each: `notes.md` (your scratch; agents
   read it only when you point to it and never write it), `brief.md` (the task's
   opening prompt, drafted at creation: type, why, done when, not doing, claims
