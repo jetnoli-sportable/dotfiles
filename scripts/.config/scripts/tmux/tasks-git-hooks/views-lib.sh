@@ -8,6 +8,14 @@
 # everything here returns 0, and the one thing worth saying on a failure is
 # said on a single stderr line. Nothing happens when no wb can be found.
 #
+# Nothing happens either until the store has stopped tracking the views:
+# its .gitignore must ignore them and no view may still be in the index.
+# Before the store switch the views are committed files, and rebuilding them
+# on a pull would leave tracked files modified (the next pull or rebase then
+# refuses, and `git add -A` sweeps the churn into a commit). The hooks are
+# live as soon as they are stowed, so this check, not the order of the
+# switch steps, is what keeps a pull clean.
+#
 # Finding wb: `wb` is a shell alias in interactive shells, which a git hook
 # cannot see, so the lookup is (1) an executable `wb` on PATH, (2) the
 # wb.sh beside this hooks directory (hooks are stowed as links into the
@@ -24,6 +32,29 @@ _wv_find_wb() {
   return 0
 }
 
+# _wv_views_untracked <root> — true when the store ignores the generated views
+# and none is still tracked (see the header). Each view name is probed at a
+# dossier that cannot exist, so the answer is the .gitignore's, and tracked
+# views are looked for with a strict glob (one directory level, like the
+# .gitignore lines, so a page called index.md deeper down does not count).
+_wv_views_untracked() {
+  local root="$1" v
+  for v in decisions.md handoffs.md index.md; do
+    git -C "$root" check-ignore -q -- "dossiers/.wv-probe/$v" 2>/dev/null || return 1
+  done
+  [ -z "$(git -C "$root" ls-files -- ':(glob)dossiers/*/decisions.md' ':(glob)dossiers/*/handoffs.md' ':(glob)dossiers/*/index.md' 2>/dev/null)" ]
+}
+
+# _wv_is_layout <task_file> — true when the task's FRONTMATTER (between the
+# first two `---` lines) says `layout: dossier`, as wb_layout_of reads it; a
+# body line of that shape does not count.
+_wv_is_layout() {
+  awk 'NR == 1 { if ($0 != "---") exit; next }
+       $0 == "---" { exit }
+       /^layout:[[:space:]]*dossier[[:space:]]*(#.*)?$/ { found = 1; exit }
+       END { exit !found }' "$1" 2>/dev/null
+}
+
 # _wv_stems — stdin: changed paths (store-relative); stdout: the stems of the
 # dossiers they sit in whose task file is on the dossier layout, one per line.
 _wv_stems() {
@@ -32,7 +63,7 @@ _wv_stems() {
     case "$path" in dossiers/*/*) ;; *) continue ;; esac
     stem="${path#dossiers/}"; stem="${stem%%/*}"
     [ -f "$root/$stem.md" ] || continue
-    grep -qE '^layout:[[:space:]]*dossier' "$root/$stem.md" 2>/dev/null || continue
+    _wv_is_layout "$root/$stem.md" || continue
     printf '%s\n' "$stem"
   done | LC_ALL=C sort -u
 }
@@ -44,6 +75,7 @@ _wv_refresh() {
   local hook="$1" changed="$2" root wb rc=0
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
   [ -n "$root" ] || return 0
+  _wv_views_untracked "$root" || return 0
   wb="$(_wv_find_wb)"
   [ -n "$wb" ] || return 0
   local -a stems=()

@@ -5,7 +5,8 @@
 # the changed set is the union of old..new diffs, so what a rebase brought
 # in from upstream is included. Falls back to `wb views --all` only when no
 # usable pair arrives. Never fails the git operation; does nothing when wb
-# cannot be found. Installed by `wb install-hooks`.
+# cannot be found or while the store still tracks the views (before the
+# store switch). Installed by `wb install-hooks`.
 # shellcheck source=views-lib.sh
 source "$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/views-lib.sh" 2>/dev/null || exit 0
 

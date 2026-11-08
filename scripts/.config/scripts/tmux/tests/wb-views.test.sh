@@ -133,17 +133,22 @@ BASEPATH="$PATH"
 LINKED="$FIXTURE/linked-hooks"; mkdir -p "$LINKED"
 for h in post-merge post-rewrite views-lib.sh; do ln -s "$HOOKS/$h" "$LINKED/$h"; done
 
-new_pair() { # <name> — a store repo "<name>-a" (origin) and a clone "<name>-b" with the hooks wired
+STORE_IGNORE=$'dossiers/*/decisions.md\ndossiers/*/handoffs.md\ndossiers/*/index.md'
+new_pair() { # <name> [preswitch] — a store repo "<name>-a" (origin) and a clone "<name>-b" with the hooks wired;
+             # the store ignores the views (as after the switch) unless "preswitch" is given
   local n="$1"
   git init -q "$FIXTURE/$n-a"
   (cd "$FIXTURE/$n-a" \
     && printf -- '---\nstatus: doing\nlayout: dossier\n---\n# A\n' > proj--ha.md \
     && printf -- '---\nstatus: doing\nlayout: dossier\n---\n# B\n' > proj--hb.md \
     && printf -- '---\nstatus: doing\n---\n# Old\n' > proj--hold.md \
-    && mkdir -p dossiers/proj--ha/decisions dossiers/proj--hb/decisions dossiers/proj--hold \
+    && printf -- '---\nstatus: doing\n---\n# Body\n\nlayout: dossier\n' > proj--hbody.md \
+    && mkdir -p dossiers/proj--ha/decisions dossiers/proj--hb/decisions dossiers/proj--hold dossiers/proj--hbody \
     && echo x > dossiers/proj--ha/decisions/2026-11-01-0900-x.md \
     && echo x > dossiers/proj--hb/decisions/2026-11-01-0900-x.md \
     && echo x > dossiers/proj--hold/notes.md \
+    && echo x > dossiers/proj--hbody/notes.md \
+    && { [ "${2:-}" = preswitch ] || printf '%s\n' "$STORE_IGNORE" > .gitignore; } \
     && git add -A && git commit -qm init)
   git clone -q "$FIXTURE/$n-a" "$FIXTURE/$n-b"
   git -C "$FIXTURE/$n-b" config core.hooksPath "$LINKED"
@@ -167,11 +172,40 @@ new_pair m2
 commit_in_a m2 dossiers/proj--ha/decisions/2026-11-02-1000-new.md
 commit_in_a m2 dossiers/proj--hb/open-items/2026-11-02-thing.md
 commit_in_a m2 dossiers/proj--hold/notes.md
+commit_in_a m2 dossiers/proj--hbody/notes.md
 commit_in_a m2 proj--ha.md
 : > "$WB_FAKE_LOG"
 (cd "$FIXTURE/m2-b" && PATH="$BIN:$BASEPATH" git pull -q >/dev/null 2>&1)
 assert "post-merge: both changed layout dossiers in one call" 'views proj--ha proj--hb$' "$(cat "$WB_FAKE_LOG")"
 assert_not "post-merge: a dossier whose task is not on the layout is left out" 'proj--hold' "$(cat "$WB_FAKE_LOG")"
+assert_not "post-merge: a 'layout: dossier' line in the body, not the frontmatter, does not count" 'proj--hbody' "$(cat "$WB_FAKE_LOG")"
+
+# --- before the switch: the store still tracks the views -> the hooks do nothing
+new_pair g1 preswitch
+commit_in_a g1 dossiers/proj--ha/decisions/2026-11-02-1000-new.md
+: > "$WB_FAKE_LOG"
+out="$(cd "$FIXTURE/g1-b" && PATH="$BIN:$BASEPATH" git pull -q 2>&1)"; rc=$?
+assert_eq "post-merge: views not ignored -> the pull succeeds" 0 "$rc"
+assert_eq "post-merge: views not ignored -> wb not called" 0 "$(wc -c < "$WB_FAKE_LOG" | tr -d ' ')"
+assert_eq "post-merge: views not ignored -> nothing printed" "" "$out"
+: > "$WB_FAKE_LOG"
+(cd "$FIXTURE/g1-b" && PATH="$BIN:$BASEPATH" bash "$HOOKS/post-merge" 0 >/dev/null 2>&1)
+assert_eq "post-merge: views not ignored -> not even the --all fallback" 0 "$(wc -c < "$WB_FAKE_LOG" | tr -d ' ')"
+
+# --- half-switched: the .gitignore lists the views but one is still tracked
+new_pair g2 preswitch
+(cd "$FIXTURE/g2-a" && echo view > dossiers/proj--ha/index.md && git add -A && git commit -qm view \
+  && printf '%s\n' "$STORE_IGNORE" > .gitignore && git add .gitignore && git commit -qm ignore)
+commit_in_a g2 dossiers/proj--ha/decisions/2026-11-02-1000-new.md
+: > "$WB_FAKE_LOG"
+(cd "$FIXTURE/g2-b" && PATH="$BIN:$BASEPATH" git pull -q >/dev/null 2>&1)
+assert_eq "post-merge: a view still tracked -> wb not called" 0 "$(wc -c < "$WB_FAKE_LOG" | tr -d ' ')"
+# a page called index.md one level deeper is not a view and does not block
+new_pair g3
+commit_in_a g3 dossiers/proj--ha/pages/index.md
+: > "$WB_FAKE_LOG"
+(cd "$FIXTURE/g3-b" && PATH="$BIN:$BASEPATH" git pull -q >/dev/null 2>&1)
+assert "post-merge: a tracked deeper index.md page does not block" 'views proj--ha$' "$(cat "$WB_FAKE_LOG")"
 
 # --- only a task file changed: nothing to rebuild
 new_pair m3
@@ -236,6 +270,31 @@ new_pair r2
 (cd "$FIXTURE/r2-b" && echo more >> dossiers/proj--ha/decisions/2026-11-01-0900-x.md && git add -A && git commit -qm c1 \
   && : > "$WB_FAKE_LOG" && echo more2 >> dossiers/proj--ha/decisions/2026-11-01-0900-x.md && git add -A && PATH="$BIN:$BASEPATH" git commit -q --amend --no-edit >/dev/null 2>&1)
 assert "post-rewrite: an amend that touches a record runs wb views" 'views proj--ha$' "$(cat "$WB_FAKE_LOG")"
+
+# --- the production path: no wb on PATH (it is only an interactive alias),
+# so the linked hooks run the real wb.sh beside their real path
+git init -q "$FIXTURE/p1-a"
+(cd "$FIXTURE/p1-a" \
+  && printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\nlayout: dossier\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Real\n\n## Plan\n\nplan\n' > proj--real.md \
+  && mkdir -p dossiers/proj--real/decisions \
+  && printf -- '---\nstatus: in-force\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# Kept\n\nbody\n' > dossiers/proj--real/decisions/2026-11-01-0900-kept.md \
+  && printf '%s\n' "$STORE_IGNORE" > .gitignore \
+  && git add -A && git commit -qm init)
+git clone -q "$FIXTURE/p1-a" "$FIXTURE/p1-b"
+git -C "$FIXTURE/p1-b" config core.hooksPath "$LINKED"
+(cd "$FIXTURE/p1-a" \
+  && printf -- '---\nstatus: proposed\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# Pending call\n\nbody\n' > dossiers/proj--real/decisions/2026-11-02-1000-pending-call.md \
+  && git add -A && git commit -qm proposed)
+NOWB_PATH="$(dirname "$(command -v git)"):/usr/bin:/bin"
+out="$(cd "$FIXTURE/p1-b" && env -u TASKS_DIR PATH="$NOWB_PATH" git pull -q 2>&1)"; rc=$?
+assert_eq "production path: the pull succeeds" 0 "$rc"
+assert_eq "production path: nothing printed" "" "$out"
+pdec="$(cat "$FIXTURE/p1-b/dossiers/proj--real/decisions.md" 2>/dev/null)"
+assert "production path: the real wb.sh rendered decisions.md, Proposed group first" '^## Proposed \(1\)' "$pdec"
+assert "production path: the pulled decision is listed" '^### Pending call$' "$pdec"
+assert "production path: the earlier decision is listed under In force" '^### Kept$' "$pdec"
+[ -f "$FIXTURE/p1-b/dossiers/proj--real/index.md" ] && echo "ok   - production path: index.md rendered" || { echo "FAIL - production path: no index.md"; fail=1; }
+assert_eq "production path: the store is clean after the pull" "" "$(git -C "$FIXTURE/p1-b" status --porcelain)"
 
 # --- wb install-hooks: hooksPath is the directory, so the new hooks need no extra wiring
 assert "install-hooks: the header names the new hooks" 'post-merge' "$(sed -n '/^# wb install-hooks/,/^cmd_install_hooks()/p' "$WB")"
