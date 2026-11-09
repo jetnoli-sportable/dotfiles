@@ -988,6 +988,32 @@ the family already has a <code>CONCEPTS.md</code> and another family session is 
 promotion creates a family's first <code>CONCEPTS.md</code>, <code>wb family &lt;task&gt; --reseed</code>
 links it into every existing family worktree.</li>
 </ul>
+<h3 id="wb-store-reading-the-store-from-go">wb-store: reading the store from Go</h3>
+<p><code>wb-store</code> is a Go program that reads the task store in its dossier layout and
+answers in plain text, or in JSON with <code>--json</code>. It never writes. Its commands
+are <code>list</code>, <code>show &lt;task&gt;</code> and <code>family &lt;task&gt;</code>; later, <code>wb page</code> will use it to
+serve a task's page. Its source is its own repo, <code>~/code/wb-store</code>
+(<code>github.com/jetnoli-sportable/wb-store</code>), not dotfiles.</p>
+<p>Run it through the shim, <code>~/.config/scripts/wb-store.sh</code>, rather than the
+binary:</p>
+<pre><code class="language-bash">~/.config/scripts/wb-store.sh show dotfiles--wb-store-shim
+~/.config/scripts/wb-store.sh --json family dotfiles--wb-future-direction
+</code></pre>
+<p>The shim passes <code>--store &quot;$TASKS_DIR&quot;</code> (default <code>~/code/tasks</code>) and your
+arguments. Before that it rebuilds the binary, printing one line on stderr,
+when the binary is missing, any <code>*.go</code>, <code>go.mod</code>, <code>go.sum</code> or <code>templates/</code>
+file in the source is newer, or a file was added to or removed from a source
+directory since the build. Files under <code>.git/</code> and <code>.worktrees/</code> don't count.
+A failed build keeps the old binary and exits non-zero with Go's error. The
+build needs <code>go</code> on PATH.</p>
+<p>To run another checkout, such as a branch worktree, set <code>WB_STORE_SRC</code>:</p>
+<pre><code class="language-bash">WB_STORE_SRC=~/code/wb-store/.worktrees/my-branch \
+  ~/.config/scripts/wb-store.sh show dotfiles--wb-store-shim
+</code></pre>
+<p>The default source builds to <code>~/.local/bin/wb-store</code>. Any other source builds
+to its own binary under <code>~/.cache/wb-store/bin/</code>, so trying a branch never
+replaces the binary other sessions run, and switching back never runs the
+branch's build.</p>
 <h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
 <p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
 call) — a richer, filterable view over the whole store that goes well beyond
