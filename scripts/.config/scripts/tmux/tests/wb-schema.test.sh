@@ -93,7 +93,7 @@ ctrl_x_block="$(awk '/^_ctrl_x\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert "_ctrl_x: task case checks for the currently-attached session" \
   'tmux display-message -p' "$ctrl_x_block"
 assert "_ctrl_x: self-target case skips --close (still winds down via cmd_done)" \
-  'cmd_done "\$session"$' "$ctrl_x_block"
+  '_ctrl_x_done "\$session" \|\| return 0' "$ctrl_x_block"
 
 # --- parent: schema (U1: wb_seed_task threading + wb_resolve_parent_ref) ----
 # shellcheck disable=SC1090

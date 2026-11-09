@@ -221,7 +221,7 @@ assert "picker: ctrl-x bind passes the ref field through to _ctrl_x" \
   'ctrl-x:become\(.*_ctrl-x \{10\} \{8\} \{7\} \{9\}\)' "$picker_block"
 ctrl_x_block="$(awk '/^_ctrl_x\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
 assert "_ctrl_x: task case falls back to a store-only cmd_done when there is no live session" \
-  'cmd_done "\$\(basename "\$ref" \.md\)"' "$ctrl_x_block"
+  '_ctrl_x_done "\$\(basename "\$ref" \.md\)"' "$ctrl_x_block"
 
 # --- accepting a dormant task row resolves the REAL task file, not a ------
 # --- repo+slug re-derivation (KTD7: a wb-breakdown migrated child's -------

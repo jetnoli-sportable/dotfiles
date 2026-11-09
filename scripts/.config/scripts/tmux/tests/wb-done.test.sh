@@ -408,5 +408,242 @@ out="$(SCRIPT_DIR="$FIXTURE_STATE/no-such-dir" cmd_done "$nu_session" 2>&1)"; rc
 assert "missing wb-capture.sh: says the guard was skipped" 'wb-capture\.sh unavailable.*skipping' "$out"
 assert "missing wb-capture.sh: task done" '^done$' "$(status_of nu)"
 
+# =============================================================================
+# W6: the rewired wb done — classify first, stop before any change on an
+# unknown, copy keepers, record kept:/discarded:, buffer only under --review.
+# Every scenario runs on a dossier-layout task; the core ones repeat on a
+# legacy-layout task (the W4 deletion PR hasn't removed that path yet).
+# =============================================================================
+W6_BUFLOG="$FIXTURE_STATE/w6-buffer-calls"; : > "$W6_BUFLOG"
+wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; }   # counted via a file: cmd_done runs in $(...) subshells
+w6_calls() { wc -l < "$W6_BUFLOG" | tr -d ' '; }
+
+SWP="$FIXTURE_CODE/swp"
+git init -q "$SWP"
+printf 'node_modules/\n*.log\n.claude-queue.md\nscratch/\nconfig.hjson\nnotes.md\nlogs/\n' > "$SWP/.gitignore"
+printf 'config.hjson\n' > "$SWP/.worktree-bootstrap"
+git -C "$SWP" add -A
+git -C "$SWP" -c user.email=test@test -c user.name=test commit -q -m init
+printf 'main config\n' > "$SWP/config.hjson"
+
+# w6_new <slug> <dossier|legacy> — a worktree, its task file and a live session.
+w6_new() {
+  local slug="$1" layout="$2" f="$FIXTURE_TASKS/swp--$1.md" s
+  git -C "$SWP" worktree add -q -b "$slug" ".worktrees/$slug" >/dev/null 2>&1
+  cp "$SWP/config.hjson" "$SWP/.worktrees/$slug/config.hjson"   # what wb new's bootstrap does
+  { printf -- '---\nstatus: doing\nrepo: swp\nbranch: %s\nworktree: .worktrees/%s\n' "$slug" "$slug"
+    [ "$layout" = dossier ] && printf 'layout: dossier\n'
+    printf 'tags: []\ncreated: 2026-11-01\nclosed:\n---\n# Title\n'; } > "$f"
+  s="$(session_for "$slug")"
+  tmux new-session -d -s "$s" 2>/dev/null
+  tmux set-option -t "=$s:" @wb_repo swp >/dev/null
+  tmux set-option -t "=$s:" @wb_slug "$slug" >/dev/null
+  SLUGS+=("$slug")
+}
+w6_wt() { printf '%s\n' "$SWP/.worktrees/$1"; }
+w6_file() { printf '%s\n' "$FIXTURE_TASKS/swp--$1.md"; }
+w6_dossier() { printf '%s\n' "$FIXTURE_TASKS/dossiers/swp--$1"; }
+w6_status() { wb_get_frontmatter "$(w6_file "$1")" status; }
+
+for layout in dossier legacy; do
+  L="w6$layout"
+
+  # --- default close: no buffer; keepers copied; throwaways recorded -------
+  slug="${L}-clean"; w6_new "$slug" "$layout"
+  wb_set_frontmatter "$(w6_file "$slug")" claude_sessions 'abc@2026-09-01T00:00:00Z@primary'
+  mkdir -p "$(w6_wt "$slug")/node_modules/pkg"; echo x > "$(w6_wt "$slug")/node_modules/pkg/i.js"
+  echo noise > "$(w6_wt "$slug")/app.log"
+  printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
+  calls_before="$(w6_calls)"
+  out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] && echo "ok   - W6 $layout: default close exits 0" || { echo "FAIL - W6 $layout: default close exit $rc: $out"; fail=1; }
+  [ "$(w6_calls)" = "$calls_before" ] && echo "ok   - W6 $layout: default close never opens the buffer" || { echo "FAIL - W6 $layout: buffer opened without --review"; fail=1; }
+  [ ! -d "$(w6_wt "$slug")" ] && echo "ok   - W6 $layout: worktree removed" || { echo "FAIL - W6 $layout: worktree remains"; fail=1; }
+  assert "W6 $layout: status done" '^done$' "$(w6_status "$slug")"
+  assert "W6 $layout: closed stamped" "^$(date +%F)\$" "$(wb_get_frontmatter "$(w6_file "$slug")" closed)"
+  [ -z "$(wb_get_frontmatter "$(w6_file "$slug")" claude_sessions)" ] && echo "ok   - W6 $layout: claude_sessions blank" || { echo "FAIL - W6 $layout: claude_sessions not blank"; fail=1; }
+  rec="$(cat "$(w6_file "$slug")")"
+  assert "W6 $layout: handoff keeps the done_note wording" 'Worktree removed, session left open \(`wb done` without `--close`\)\.$' "$rec"
+  assert "W6 $layout: one kept: line naming the queue file" '^kept: \.claude-queue\.md$' "$rec"
+  assert "W6 $layout: one discarded: line naming node_modules/ and app.log" '^discarded: .*node_modules/.*app\.log$|^discarded: .*app\.log.*node_modules/$' "$rec"
+  [ "$(printf '%s\n' "$rec" | /usr/bin/grep -c '^discarded:')" = 1 ] && echo "ok   - W6 $layout: exactly one discarded: line" || { echo "FAIL - W6 $layout: discarded: line count"; fail=1; }
+  [ "$(cat "$(w6_dossier "$slug")/.claude-queue.md" 2>/dev/null)" = queued ] && echo "ok   - W6 $layout: queue file landed in the dossier" || { echo "FAIL - W6 $layout: queue file missing from dossier"; fail=1; }
+  case "$out" in *"left open"*) echo "ok   - W6 $layout: confirmation printed" ;; *) echo "FAIL - W6 $layout: no confirmation: $out"; fail=1 ;; esac
+
+  # --- an unknown stops everything; --keep resolves it (AE6) ---------------
+  slug="${L}-unk"; w6_new "$slug" "$layout"
+  mkdir -p "$(w6_wt "$slug")/scratch"; echo "my notes" > "$(w6_wt "$slug")/scratch/notes.txt"
+  echo noise > "$(w6_wt "$slug")/app.log"
+  before="$(cat "$(w6_file "$slug")")"
+  out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+  [ "$rc" -eq 1 ] && echo "ok   - W6 $layout: unknown entry exits 1" || { echo "FAIL - W6 $layout: unknown exit $rc"; fail=1; }
+  assert "W6 $layout: stop names the entry" 'unknown: scratch/notes\.txt' "$out"
+  assert "W6 $layout: stop names the flags and the list file" 'wb-done-sweep\.list.*\-\-keep.*\-\-throwaway' "$out"
+  [ -d "$(w6_wt "$slug")" ] && [ -f "$(w6_wt "$slug")/app.log" ] && echo "ok   - W6 $layout: worktree untouched" || { echo "FAIL - W6 $layout: worktree changed"; fail=1; }
+  assert "W6 $layout: status unchanged" '^doing$' "$(w6_status "$slug")"
+  [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 $layout: task file byte-identical" || { echo "FAIL - W6 $layout: task file changed"; fail=1; }
+  [ ! -e "$(w6_dossier "$slug")" ] && echo "ok   - W6 $layout: no dossier created" || { echo "FAIL - W6 $layout: dossier created"; fail=1; }
+  out="$(cmd_done "$(session_for "$slug")" --keep scratch/notes.txt 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] && echo "ok   - W6 $layout: re-run with --keep succeeds" || { echo "FAIL - W6 $layout: --keep re-run exit $rc: $out"; fail=1; }
+  [ "$(cat "$(w6_dossier "$slug")/scratch/notes.txt" 2>/dev/null)" = "my notes" ] && echo "ok   - W6 $layout: kept file in the dossier" || { echo "FAIL - W6 $layout: kept file missing"; fail=1; }
+  assert "W6 $layout: handoff has the kept: line" '^kept: scratch/notes\.txt$' "$(cat "$(w6_file "$slug")")"
+  [ ! -d "$(w6_wt "$slug")" ] && echo "ok   - W6 $layout: worktree removed after the re-run" || { echo "FAIL - W6 $layout: worktree remains"; fail=1; }
+done
+
+# --- a keeper inside a throwaway directory is copied before the removal -----
+slug=w6dossier-inlogs; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/logs"; echo keepme > "$(w6_wt "$slug")/logs/notes.log"; echo drop > "$(w6_wt "$slug")/logs/other.log"
+out="$(cmd_done "$(session_for "$slug")" --keep logs/notes.log 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - W6 keep inside throwaway dir: exits 0" || { echo "FAIL - W6 keep inside throwaway dir: exit $rc: $out"; fail=1; }
+[ "$(cat "$(w6_dossier "$slug")/logs/notes.log" 2>/dev/null)" = keepme ] && echo "ok   - W6 keep inside throwaway dir: file copied before the removal" || { echo "FAIL - W6 keep inside throwaway dir: file lost"; fail=1; }
+[ ! -e "$(w6_dossier "$slug")/logs/other.log" ] && echo "ok   - W6 keep inside throwaway dir: its sibling not copied" || { echo "FAIL - W6 keep inside throwaway dir: sibling copied"; fail=1; }
+assert "W6 keep inside throwaway dir: record names both" '^kept: logs/notes\.log$' "$(cat "$(w6_file "$slug")")"
+assert "W6 keep inside throwaway dir: discarded names logs/" '^discarded: .*logs/' "$(cat "$(w6_file "$slug")")"
+
+# --- symlinks are copied as links, never dereferenced -----------------------
+slug=w6dossier-link; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch"; echo target > "$(w6_wt "$slug")/scratch/notes.txt"; ln -s notes.txt "$(w6_wt "$slug")/scratch/ln"
+out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - W6 symlink keep: exits 0" || { echo "FAIL - W6 symlink keep: exit $rc: $out"; fail=1; }
+[ -L "$(w6_dossier "$slug")/scratch/ln" ] && [ "$(readlink "$(w6_dossier "$slug")/scratch/ln")" = notes.txt ] && echo "ok   - W6 symlink in a kept dir: copied as a symlink" || { echo "FAIL - W6 symlink in a kept dir: not a symlink copy"; fail=1; }
+
+# --- a copy that fails stops before the removal (KTD6) ----------------------
+if [ "$(id -u)" -ne 0 ]; then
+  slug=w6dossier-rofail; w6_new "$slug" dossier
+  printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
+  mkdir -p "$(w6_dossier "$slug")"; chmod 555 "$(w6_dossier "$slug")"
+  before="$(cat "$(w6_file "$slug")")"
+  out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+  chmod 755 "$(w6_dossier "$slug")"
+  [ "$rc" -eq 1 ] && echo "ok   - W6 failed copy: exits 1" || { echo "FAIL - W6 failed copy: exit $rc: $out"; fail=1; }
+  [ -d "$(w6_wt "$slug")" ] && [ -f "$(w6_wt "$slug")/.claude-queue.md" ] && echo "ok   - W6 failed copy: worktree still present" || { echo "FAIL - W6 failed copy: worktree gone"; fail=1; }
+  assert "W6 failed copy: status unchanged" '^doing$' "$(w6_status "$slug")"
+  [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 failed copy: task file byte-identical" || { echo "FAIL - W6 failed copy: task file changed"; fail=1; }
+fi
+
+# --- collisions with what the dossier already holds stop the run ------------
+slug=w6dossier-collide; w6_new "$slug" dossier
+echo "worktree notes" > "$(w6_wt "$slug")/notes.md"
+mkdir -p "$(w6_wt "$slug")/scratch"; echo "mine" > "$(w6_wt "$slug")/scratch/a.txt"
+mkdir -p "$(w6_dossier "$slug")/scratch"
+echo "dossier notes" > "$(w6_dossier "$slug")/notes.md"; echo "other" > "$(w6_dossier "$slug")/scratch/a.txt"
+before="$(cat "$(w6_file "$slug")")"; dbefore="$(cat "$(w6_dossier "$slug")/notes.md" "$(w6_dossier "$slug")/scratch/a.txt")"
+out="$(cmd_done "$(session_for "$slug")" --keep notes.md --keep scratch/a.txt 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 collision: exits 1" || { echo "FAIL - W6 collision: exit $rc: $out"; fail=1; }
+assert "W6 collision: names the dossier notes.md" "collides: .*dossiers/swp--${slug}/notes\\.md" "$out"
+assert "W6 collision: names the nested colliding file" "collides: .*dossiers/swp--${slug}/scratch/a\\.txt" "$out"
+[ -d "$(w6_wt "$slug")" ] && echo "ok   - W6 collision: worktree present" || { echo "FAIL - W6 collision: worktree gone"; fail=1; }
+assert "W6 collision: status unchanged" '^doing$' "$(w6_status "$slug")"
+[ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 collision: task file byte-identical" || { echo "FAIL - W6 collision: task file changed"; fail=1; }
+[ "$(cat "$(w6_dossier "$slug")/notes.md" "$(w6_dossier "$slug")/scratch/a.txt")" = "$dbefore" ] && echo "ok   - W6 collision: dossier files untouched" || { echo "FAIL - W6 collision: dossier changed"; fail=1; }
+# identical copies are skipped but still listed as kept
+echo "dossier notes" > "$(w6_wt "$slug")/notes.md"; echo "other" > "$(w6_wt "$slug")/scratch/a.txt"
+out="$(cmd_done "$(session_for "$slug")" --keep notes.md --keep scratch/a.txt 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - W6 identical copies: exits 0" || { echo "FAIL - W6 identical copies: exit $rc: $out"; fail=1; }
+assert "W6 identical copies: still listed as kept" '^kept: notes\.md, scratch/a\.txt$' "$(cat "$(w6_file "$slug")")"
+[ "$(cat "$(w6_dossier "$slug")/notes.md")" = "dossier notes" ] && echo "ok   - W6 identical copies: dossier notes.md intact" || { echo "FAIL - W6 identical copies: notes.md changed"; fail=1; }
+
+# --- a bootstrap config.hjson: edited stops, identical is discarded (AE5) ---
+slug=w6dossier-cfgedit; w6_new "$slug" dossier
+echo "my edit" > "$(w6_wt "$slug")/config.hjson"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 AE5: edited config.hjson stops the run" || { echo "FAIL - W6 AE5: exit $rc: $out"; fail=1; }
+assert "W6 AE5: names config.hjson" 'unknown: config\.hjson' "$out"
+[ -d "$(w6_wt "$slug")" ] && echo "ok   - W6 AE5: worktree present" || { echo "FAIL - W6 AE5: worktree gone"; fail=1; }
+out="$(cmd_done "$(session_for "$slug")" --keep config.hjson 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 AE5: --keep cannot copy a credential-shaped file" || { echo "FAIL - W6 AE5: --keep exit $rc"; fail=1; }
+[ ! -e "$(w6_dossier "$slug")/config.hjson" ] && echo "ok   - W6 AE5: never copied into the dossier" || { echo "FAIL - W6 AE5: config.hjson in the dossier"; fail=1; }
+slug=w6dossier-cfgsame; w6_new "$slug" dossier
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - W6 AE5: identical config.hjson closes normally" || { echo "FAIL - W6 AE5 identical: exit $rc: $out"; fail=1; }
+assert "W6 AE5: identical config.hjson is discarded" '^discarded: config\.hjson$' "$(cat "$(w6_file "$slug")")"
+
+# --- --review: classify, buffer once, classify again, act on the second ------
+slug=w6dossier-review; w6_new "$slug" dossier
+echo noise > "$(w6_wt "$slug")/app.log"
+: > "$W6_BUFLOG"
+wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; printf '\nreview note\n' >> "$1"; }
+out="$(cmd_done "$(session_for "$slug")" --review 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - W6 --review: exits 0" || { echo "FAIL - W6 --review: exit $rc: $out"; fail=1; }
+[ "$(w6_calls)" = 1 ] && echo "ok   - W6 --review: buffer opened exactly once" || { echo "FAIL - W6 --review: buffer calls $(w6_calls)"; fail=1; }
+assert "W6 --review: a buffer edit survives the final burst" '^review note$' "$(cat "$(w6_file "$slug")")"
+assert "W6 --review: task done" '^done$' "$(w6_status "$slug")"
+# an unknown present BEFORE the buffer stops without opening it
+slug=w6dossier-reviewunk; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch"; echo x > "$(w6_wt "$slug")/scratch/n.txt"
+: > "$W6_BUFLOG"
+out="$(cmd_done "$(session_for "$slug")" --review 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [ "$(w6_calls)" = 0 ] && echo "ok   - W6 --review: an unknown stops before the buffer opens" || { echo "FAIL - W6 --review: rc $rc, calls $(w6_calls)"; fail=1; }
+# a file that appears while the buffer is open is caught by the second pass
+slug=w6dossier-reviewlate; w6_new "$slug" dossier
+wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; mkdir -p "$(w6_wt w6dossier-reviewlate)/scratch"; echo late > "$(w6_wt w6dossier-reviewlate)/scratch/late.txt"; }
+: > "$W6_BUFLOG"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --review 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 --review: second classification stops on a late unknown" || { echo "FAIL - W6 --review late: exit $rc: $out"; fail=1; }
+[ -d "$(w6_wt "$slug")" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 --review late: nothing changed" || { echo "FAIL - W6 --review late: state changed"; fail=1; }
+wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; }
+# store-only close under --review
+so_file="$FIXTURE_TASKS/swp--w6-storeonly.md"
+printf -- '---\nstatus: planned\nrepo: swp\nlayout: dossier\ntags: []\ncreated: 2026-11-01\nclosed:\n---\n# Store only\n' > "$so_file"
+: > "$W6_BUFLOG"
+out="$(cmd_done swp--w6-storeonly --review 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(w6_calls)" = 1 ] && echo "ok   - W6 --review store-only: buffer opened once, exits 0" || { echo "FAIL - W6 --review store-only: rc $rc calls $(w6_calls): $out"; fail=1; }
+assert "W6 --review store-only: task done" '^done$' "$(wb_get_frontmatter "$so_file" status)"
+
+# --- a retry after the worktree is already gone skips the sweep -------------
+slug=w6dossier-gone; w6_new "$slug" dossier
+git -C "$SWP" worktree remove --force ".worktrees/$slug"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - W6 retry: worktree already gone, exits 0" || { echo "FAIL - W6 retry: exit $rc: $out"; fail=1; }
+assert "W6 retry: status flipped" '^done$' "$(w6_status "$slug")"
+case "$(cat "$(w6_file "$slug")")" in *$'\nkept:'*|*$'\ndiscarded:'*) echo "FAIL - W6 retry: record carries kept/discarded lines"; fail=1 ;; *) echo "ok   - W6 retry: no kept/discarded lines" ;; esac
+
+# --- the undecided-drafts check still comes first, before any classification -
+slug=w6dossier-drafts; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch"; echo x > "$(w6_wt "$slug")/scratch/n.txt"
+mkdir -p "$CAPROOT/shelved/swp--$slug"; printf 'd\n' > "$CAPROOT/shelved/swp--$slug/20261018T100000-sid-w6.md"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+assert "W6 drafts first: the draft refusal, not the unknown stop" 'decision draft.*nothing changed' "$out"
+case "$out" in *"unknown:"*) echo "FAIL - W6 drafts first: classifier ran first"; fail=1 ;; *) echo "ok   - W6 drafts first: classifier not reached" ;; esac
+
+# --- ctrl-x on a worktree with an unknown entry shows the stop in a popup ----
+slug=w6dossier-ctrlx; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch"; echo x > "$(w6_wt "$slug")/scratch/n.txt"
+POPUP_OUT="$FIXTURE_STATE/w6-popup"; : > "$POPUP_OUT"
+tmux() {   # stub only display-popup; everything else is the real tmux
+  if [ "${1:-}" = display-popup ]; then
+    local last="${*: -1}" pf
+    pf="$(printf '%s' "$last" | sed -n 's/^cat "\([^"]*\)".*/\1/p')"
+    [ -f "$pf" ] && cat "$pf" >> "$POPUP_OUT"
+    return 0
+  fi
+  command tmux "$@"
+}
+out="$(_ctrl_x task "$(session_for "$slug")" "" 2>&1 <<<y)"; rc=$?
+unset -f tmux
+assert "W6 ctrl-x: the popup shows the stop text" 'unknown: scratch/n\.txt' "$(cat "$POPUP_OUT")"
+tmux has-session -t "=$(session_for "$slug")" 2>/dev/null && echo "ok   - W6 ctrl-x: session left alive" || { echo "FAIL - W6 ctrl-x: session killed"; fail=1; }
+[ -d "$(w6_wt "$slug")" ] && echo "ok   - W6 ctrl-x: worktree untouched" || { echo "FAIL - W6 ctrl-x: worktree removed"; fail=1; }
+assert "W6 ctrl-x: status still doing" '^doing$' "$(w6_status "$slug")"
+# popup unavailable: falls back to display-message
+tmux() {
+  case "${1:-}" in
+    display-popup) return 1 ;;
+    display-message) if [ "${2:-}" = -d ]; then printf '%s' "$4" >> "$POPUP_OUT.msg"; return 0; fi; command tmux "$@" ;;
+    *) command tmux "$@" ;;
+  esac
+}
+: > "$POPUP_OUT.msg"
+_ctrl_x task "$(session_for "$slug")" "" >/dev/null 2>&1 <<<y
+unset -f tmux
+assert "W6 ctrl-x: falls back to display-message" 'unknown: scratch/n\.txt' "$(cat "$POPUP_OUT.msg")"
+
+# --- wb help lists all five flags -------------------------------------------
+help_out="$(bash "$WB" help 2>&1)"
+for flag in --close --leave-shelved --review --keep --throwaway; do
+  assert "W6 help: wb done usage line lists $flag" "wb done \\[.*\\${flag}" "$help_out"
+done
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

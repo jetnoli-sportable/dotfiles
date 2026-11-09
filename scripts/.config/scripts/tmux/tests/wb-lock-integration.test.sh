@@ -448,12 +448,12 @@ git init -q "$CODE_DIR/doneproj"
 # the later-added .env as a plain untracked (dirty) file instead of
 # ignoring it — confirmed live while building this scenario.
 cat > "$CODE_DIR/doneproj/.gitignore" <<'EOF'
-.env
+app.log
 EOF
 git -C "$CODE_DIR/doneproj" add .gitignore
 git -C "$CODE_DIR/doneproj" -c user.email=t@t -c user.name=t commit -q -m gitignore
 git -C "$CODE_DIR/doneproj" worktree add -q -b done-lock-check ".worktrees/done-lock-check" >/dev/null 2>&1
-echo secretstuff > "$CODE_DIR/doneproj/.worktrees/done-lock-check/.env"   # an ignored file -> exercises burst 1
+echo noise > "$CODE_DIR/doneproj/.worktrees/done-lock-check/app.log"   # an ignored (throwaway) file
 
 DONE_TASK_FILE="$TASKS_DIR/doneproj--done-lock-check.md"
 printf -- '---\nstatus: doing\nrepo: doneproj\nbranch: done-lock-check\nworktree: .worktrees/done-lock-check\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n' \
@@ -467,9 +467,13 @@ tmux set-option -t "=$DONE_SESSION:" @wb_slug done-lock-check >/dev/null
 
 BUFFER_INNER_RESULT="$FIXTURE/buffer-inner-result"
 : > "$BUFFER_INNER_RESULT"
+BUFFER_CALLS_FILE="$FIXTURE/buffer-calls"
+: > "$BUFFER_CALLS_FILE"
 wb_open_buffer() {
   local path="$1"
   local start_ns end_ns elapsed_ms
+  echo call >> "$BUFFER_CALLS_FILE"   # cmd_done runs in a subshell: count via a file
+  printf '\nedited in the review buffer\n' >> "$path"   # an edit made while the buffer is open
   start_ns=$(date +%s%N)
   if wb_task_lock_acquire_guarded "$path"; then
     end_ns=$(date +%s%N)
@@ -481,7 +485,7 @@ wb_open_buffer() {
   fi
 }
 
-done_out="$(cmd_done "$DONE_SESSION" 2>&1)"
+done_out="$(cmd_done "$DONE_SESSION" --review 2>&1)"
 done_rc=$?
 assert_eq "cmd_done: exits 0" 0 "$done_rc"
 [ "$done_rc" -eq 0 ] || echo "       cmd_done output: $done_out"
@@ -495,6 +499,8 @@ else
   fail=1
 fi
 assert "cmd_done: task flipped to done" '^status: done$' "$(cat "$DONE_TASK_FILE")"
+assert_eq "cmd_done --review: wb_open_buffer called exactly once" 1 "$(wc -l < "$BUFFER_CALLS_FILE" | tr -d ' ')"
+assert "cmd_done: an edit made in the --review buffer survives the final burst" 'edited in the review buffer' "$(cat "$DONE_TASK_FILE")"
 
 # =============================================================================
 # Scenario: dead-pid retry — the holder recorded in the lock file is a pid

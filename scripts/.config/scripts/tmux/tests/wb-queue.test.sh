@@ -69,18 +69,9 @@ export TASKS_DIR="$FIXTURE_TASKS"
 source "$WB"
 set +e   # wb.sh sets -e; this test intentionally captures non-zero exits
 
-# cmd_done opens the task file's transient "## Sweep" checklist interactively
-# (wb_open_buffer), then ALWAYS strips that section afterward regardless of
-# what got checked — so the checklist only exists for the instant the buffer
-# is open. Snapshot it here (into SWEEP_SNAPSHOT, a plain global) before
-# simulating the user checking "keep" on the queue file, the same way
-# wb-reconcile-review.test.sh simulates a checked box via sed.
-SWEEP_SNAPSHOT=""
-wb_open_buffer() {
-  local path="$1"
-  SWEEP_SNAPSHOT="$(wb_sweep_section "$path")"
-  sed -i 's/^- \[ \] keep \.claude-queue\.md$/- [x] keep .claude-queue.md/' "$path"
-}
+# wb done opens no buffer unless --review is passed (W6): a call here is a failure.
+BUFFER_CALLS=0
+wb_open_buffer() { BUFFER_CALLS=$((BUFFER_CALLS + 1)); }
 
 # =============================================================================
 # 1. Happy path: fresh repo, no pre-existing info/exclude
@@ -161,27 +152,22 @@ assert "acceptance: queue file reported ignored (!!), not untracked (??)" \
 tmux kill-session -t "=proj5--epsilon" 2>/dev/null
 
 # =============================================================================
-# 7. Sweep participation (Covers AE3, R9): non-empty queue file appears in
-#    cmd_done's existing generic gitignored-file Sweep checklist, proving R9
-#    with an actual assertion rather than only reading cmd_done's source.
+# 7. Sweep participation (Covers AE3, R9): a non-empty queue file is on the
+#    keep list, so `wb done` copies it into the task's dossier and the handoff
+#    record names it — with no flag and no buffer.
 # =============================================================================
 mk_repo "$FIXTURE_CODE/proj6"
 cmd_new proj6 zeta >/dev/null 2>&1
 wt6="$FIXTURE_CODE/proj6/.worktrees/zeta"
 printf '## 2026-07-11T12:00:00\n\na stashed follow-up\n' > "$wt6/.claude-queue.md"
 task_file="$FIXTURE_TASKS/proj6--zeta.md"
-# Not wrapped in command substitution: cmd_done calls wb_open_buffer, whose
-# stub below sets the global SWEEP_SNAPSHOT — a $(...) subshell would run
-# cmd_done (and the stub) in a forked subshell, and that assignment would
-# never make it back to this shell.
 cmd_done "proj6--zeta" >/dev/null 2>&1
 code=$?
 assert_eq "sweep: cmd_done exits 0 on a clean-except-ignored worktree" "0" "$code"
-assert "sweep: queue file listed as a keep candidate in ## Sweep" \
-  '- \[ \] keep \.claude-queue\.md' "$SWEEP_SNAPSHOT"
+assert_eq "sweep: no buffer opened without --review" "0" "$BUFFER_CALLS"
 dossier="$FIXTURE_TASKS/dossiers/proj6--zeta"
-assert "sweep: checked queue file copied into the task's dossier" \
-  'kept: `\.claude-queue\.md`' "$(cat "$task_file")"
+assert "sweep: handoff record lists the queue file as kept" \
+  '^kept: \.claude-queue\.md$' "$(cat "$task_file" "$dossier"/handoffs/*.md 2>/dev/null)"
 if [ -f "$dossier/.claude-queue.md" ]; then
   echo "ok   - sweep: dossier copy of the queue file exists on disk"
 else
