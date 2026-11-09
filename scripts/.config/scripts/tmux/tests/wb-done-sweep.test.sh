@@ -152,9 +152,29 @@ run_all() { # <label>
   # and the entry falls back to the normal rows (unlisted -> unknown)
   ln -s "$FIXTURE" "$WT/extra.txt"
   out="$(wb_sweep_classify "$WT" "$MAIN" --keep extra.txt 2>"$FIXTURE/kout.err.$L")"
-  assert "[$L] --keep outside symlink warns" '--keep extra.txt: outside the worktree' "$(cat "$FIXTURE/kout.err.$L")"
-  assert_eq "[$L] outside symlink falls back to unknown" unknown "$(cls "$out" extra.txt)"
+  # (Fix 2: the flag no longer warns here, since only the parent directory is
+  # containment-checked; _wb_sweep_keepcheck refuses the link and says why.)
+  assert_eq "[$L] --keep outside symlink stays unknown" unknown "$(cls "$out" extra.txt)"
+  assert "[$L] --keep outside symlink: note says it resolves outside the worktree" 'symlink resolves outside the worktree' "$(note "$out" extra.txt)"
   rm -f "$WT/extra.txt"
+
+  # Fix 2: --keep on an in-worktree symlink keeps the link, not its target
+  mkdir -p "$WT/scratch"; printf 'n' > "$WT/scratch/notes.txt"; ln -s notes.txt "$WT/scratch/ln"
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep scratch/ln 2>"$FIXTURE/kln.err.$L")"
+  assert_eq "[$L] --keep scratch/ln classifies the link itself as keep" keep "$(cls "$out" scratch/ln)"
+  assert_eq "[$L] --keep scratch/ln does not keep its target too" unknown "$(cls "$out" scratch/notes.txt)"
+  assert_eq "[$L] --keep scratch/ln: no warning" "" "$(cat "$FIXTURE/kln.err.$L")"
+  # a link resolving outside the worktree, under a subdirectory
+  ln -s "$FIXTURE" "$WT/scratch/out"
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep scratch/out 2>/dev/null)"
+  assert_eq "[$L] --keep scratch/out (link outside) unknown" unknown "$(cls "$out" scratch/out)"
+  assert "[$L] --keep scratch/out: outside-the-worktree note" 'resolves outside the worktree' "$(note "$out" scratch/out)"
+  # escapes via the flag itself are still refused
+  wb_sweep_classify "$WT" "$MAIN" --keep ../x --keep scratch/.. --keep . >/dev/null 2>"$FIXTURE/kesc.err.$L"
+  assert "[$L] --keep ../x warns outside" '--keep \.\./x: outside the worktree, ignored' "$(cat "$FIXTURE/kesc.err.$L")"
+  assert "[$L] --keep scratch/.. warns outside" '--keep scratch/\.\.: outside the worktree, ignored' "$(cat "$FIXTURE/kesc.err.$L")"
+  assert "[$L] --keep . warns outside" '--keep \.: outside the worktree, ignored' "$(cat "$FIXTURE/kesc.err.$L")"
+  rm -rf "$WT/scratch"
 
   # #2: status.showUntrackedFiles=no must not hide ignored entries
   git -C "$WT" config status.showUntrackedFiles no
@@ -266,6 +286,8 @@ assert_eq "list loader: comments, blanks, trailing spaces" \
 real="$(wb_sweep_lists)"
 assert "real list file seeds keep CLAUDE.local.md" $'keep\tCLAUDE.local.md' "$real"
 assert "real list file seeds throwaway __pycache__/" $'throwaway\t__pycache__/' "$real"
+assert "real list file seeds throwaway .pytest_cache/" $'throwaway\t.pytest_cache/' "$real"
+assert "real list file seeds throwaway .mypy_cache/" $'throwaway\t.mypy_cache/' "$real"
 
 # --- #5: one bootstrap-manifest parse for wb new and the sweep
 BR="$FIXTURE/bootparse"; mkdir -p "$BR/repo" "$BR/wt"
@@ -280,10 +302,10 @@ assert_eq "bootstrap entries without a manifest: root .env*" \
   ".env|.env.local" "$(wb_bootstrap_entries "$BR/nomani" | tr '\0' '\n' | sort | paste -sd'|')"
 
 # --- credential patterns
-for f in config.hjson prod.env.json .npmrc .netrc a.tfvars .pgpass id_ecdsa id_ecdsa.pub x.keystore p.kdbx api-token.txt MyPassword.md CONFIG.HJSON .env; do
+for f in config.hjson prod.env.json .npmrc .netrc a.tfvars .pgpass id_ecdsa id_ecdsa.pub x.keystore p.kdbx api-token.txt MyPassword.md CONFIG.HJSON .env .envrc .ENVRC service-account.json service-account-prod.json my-sa-key.json SA-KEY-2.json .htpasswd release.jks KubeConfig kubeconfig; do
   wb_credential_shaped "dir/$f"; assert_eq "credential-shaped: $f" 0 "$?"
 done
-for f in readme.md app.log notes.txt; do
+for f in readme.md app.log notes.txt envrc.md jksnotes.txt kubeconfig.md service-account.txt sa-key.txt; do
   wb_credential_shaped "dir/$f"; assert_eq "not credential-shaped: $f" 1 "$?"
 done
 shopt -s nocasematch; wb_credential_shaped x.md; shopt -q nocasematch

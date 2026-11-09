@@ -13,6 +13,8 @@ throwaway:node_modules/
 throwaway:dist/
 throwaway:build/
 throwaway:.venv/
+throwaway:.pytest_cache/
+throwaway:.mypy_cache/
 throwaway:venv/
 throwaway:__pycache__/
 throwaway:target/

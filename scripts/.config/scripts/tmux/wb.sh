@@ -4662,9 +4662,9 @@ wb_handoff_write() {
       entry+=$'\n'"$line"
     done <<< "$text"
     _wb_handoff_move_entry "$dir/handoffs" "$entry" || return 1
-    _wb_replace_block "$file" "Handoffs" "$body" 0
+    _wb_replace_block "$file" "Handoffs" "$body" 0 || return 1
   else
-    _wb_append_under_heading "$file" "Handoffs" "$body"
+    _wb_append_under_heading "$file" "Handoffs" "$body" || return 1
   fi
   wb_render_views "$file"
 }
@@ -6001,7 +6001,7 @@ wb_credential_shaped() {
   shopt -s nocasematch
   local shaped=1
   case "$base" in
-    .env|.env.*|*.pem|*.key|*secret*|*credential*|id_rsa*|id_ed25519*|*.p12|*.pfx|\
+    .env|.env.*|.envrc|service-account*.json|*sa-key*.json|.htpasswd|*.jks|kubeconfig|*.pem|*.key|*secret*|*credential*|id_rsa*|id_ed25519*|*.p12|*.pfx|\
     config.hjson|*.env.json|.npmrc|.netrc|*.tfvars|.pgpass|id_ecdsa*|*.keystore|*.kdbx|*token*|*password*) shaped=0 ;;
   esac
   # Restore the caller's setting rather than forcing it off.
@@ -6266,7 +6266,15 @@ wb_sweep_classify() {
         [ "$#" -ge 2 ] || { echo "wb_sweep_classify: $1 needs a path" >&2; return 2; }
         p="${2%/}"
         if [ "$1" = --keep ]; then
-          if safe="$(wb_safe_rel "$wt" "$p")"; then
+          # Containment-check the PARENT directory only and keep the last
+          # component as written, so `--keep scratch/ln` keeps the link itself
+          # (what the walk sees), not the file it points at. _wb_sweep_keepcheck
+          # still refuses a link resolving outside the worktree.
+          local pd="${p%/*}" pl="${p##*/}" sd=""
+          [ "$pd" = "$p" ] && pd="."
+          case "$pl" in ''|.|..) pl="" ;; esac
+          if [ -n "$pl" ] && { [ "$pd" = "." ] || sd="$(wb_safe_rel "$wt" "$pd")"; }; then
+            safe="${sd:+$sd/}$pl"
             if [ -e "$wt/$safe" ] || [ -L "$wt/$safe" ]; then keep_flags+=("$safe")
             else echo "wb: --keep $p: no such path, ignored" >&2; fi
           else
@@ -6782,7 +6790,7 @@ cmd_done() {
   local session="${args[0]:-}"
   if [ -z "$session" ]; then
     [ -n "${TMUX:-}" ] || { echo "wb done: run inside the target session, or pass a session name" >&2; exit 1; }
-    session="$(tmux display-message -p '#S')"
+    session="$(tmux display-message -p '#S')" || { echo "wb done: could not read the current tmux session name" >&2; exit 1; }
   fi
 
   # KTD7's store-only close: <session> matching no LIVE tmux session at all
@@ -6912,7 +6920,11 @@ cmd_done() {
     #    down the worktree, not the window you're sitting in (2026-07-08: "I
     #    don't want windows or sessions to disappear"; same reasoning as wb
     #    pause). See --close below for the explicit opt-in to also kill it.
-    git -C "$repo_dir" worktree remove "$worktree_path" --force
+    # Explicit check: the ctrl-x picker runs cmd_done as `cmd_done ... || rc=$?`
+    # inside `$( )`, a context where bash ignores `set -e` — so every step whose
+    # failure must stop the run is guarded by hand, not by errexit.
+    git -C "$repo_dir" worktree remove "$worktree_path" --force \
+      || { echo "wb done: could not remove $worktree_path (task left as is)" >&2; exit 1; }
   elif [ "$review" = 1 ]; then
     # Store-only close, or a retry after the worktree is already gone: nothing
     # to sort, but --review still opens the task file once.
@@ -6927,13 +6939,17 @@ cmd_done() {
   # status/closed/handoff burst (KTD7/KTD8: the printed nudge names a
   # parent that must actually flip to done when someone acts on it).
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  wb_set_frontmatter "$task_file" status done
-  wb_set_frontmatter "$task_file" closed "$(date +%F)"
+  local lock_fail="wb done: could not update $task_file"
+  wb_set_frontmatter "$task_file" status done \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (status not written)" >&2; exit 1; }
+  wb_set_frontmatter "$task_file" closed "$(date +%F)" \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (closed date not written)" >&2; exit 1; }
   # U6/R6: a done task has no worktree left to resume into, so the
   # claude_sessions: snapshot (a record of resumable conversations) is
   # stale the instant the worktree is removed — blank it rather than let a
   # future reader mistake a done task for one with a warm history.
-  wb_set_frontmatter "$task_file" claude_sessions ""
+  wb_set_frontmatter "$task_file" claude_sessions "" \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (claude_sessions not cleared)" >&2; exit 1; }
   # Say what was actually torn down: without --close the session survives,
   # and a 2026-10-18 batch left 14 idle sessions whose Handoffs all claimed
   # "Session closed". A store-only close never touches a worktree, but a
@@ -6963,7 +6979,8 @@ cmd_done() {
   if [ "${#throw_paths[@]}" -gt 0 ]; then
     handoff_msg+=$'\n'"discarded: $(_wb_done_join "${throw_paths[@]}")"
   fi
-  wb_append_handoff "$task_file" "wb done" "$handoff_msg"
+  wb_append_handoff "$task_file" "wb done" "$handoff_msg" \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (handoff not written)" >&2; exit 1; }
   wb_task_lock_release "$task_file"
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
     _wb_capture_verb log-shelved-left "$task_stem" "${#shelved_drafts[@]}" >/dev/null 2>&1 || true
@@ -8497,15 +8514,18 @@ _ctrl_x_done() {
     return 0
   fi
   printf '%s\n' "$out" >&2
-  local f
+  # tmux expands #(cmd) and #{..} in display-message text: double every # so
+  # a gitignored file named `#(cmd)` in the stop text is shown, never run.
+  local msg f
+  msg="$(printf '%s' "$out" | head -c 1500)"; msg="${msg//#/##}"
   f="$(mktemp "${TMPDIR:-/tmp}/wb-done-stop.XXXXXX" 2>/dev/null)" || f=""
   if [ -n "$f" ]; then
     printf '%s\n' "$out" > "$f"
     tmux display-popup -E -w 90% -h 70% "cat \"$f\"; printf '\\n[press enter]'; read -r _" 2>/dev/null \
-      || tmux display-message -d 0 "$(printf '%s' "$out" | head -c 1500)" 2>/dev/null || true
+      || tmux display-message -d 0 "$msg" 2>/dev/null || true
     rm -f -- "$f"
   else
-    tmux display-message -d 0 "$(printf '%s' "$out" | head -c 1500)" 2>/dev/null || true
+    tmux display-message -d 0 "$msg" 2>/dev/null || true
   fi
   return "$rc"
 }

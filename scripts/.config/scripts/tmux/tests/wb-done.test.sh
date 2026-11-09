@@ -521,6 +521,28 @@ if [ "$(id -u)" -ne 0 ]; then
   [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 failed copy: task file byte-identical" || { echo "FAIL - W6 failed copy: task file changed"; fail=1; }
 fi
 
+# --- a LATER keeper's copy fails after an earlier one succeeded --------------
+# Pinned behaviour: the copy loop has no rollback, so the first keeper
+# (.claude-queue.md) STAYS in the dossier; the run still stops before removing
+# the worktree or touching the task file, and a re-run finds the first copy
+# identical and skips it.
+if [ "$(id -u)" -ne 0 ]; then
+  slug=w6dossier-rofail2; w6_new "$slug" dossier
+  printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
+  mkdir -p "$(w6_wt "$slug")/scratch"; echo "mine" > "$(w6_wt "$slug")/scratch/a.txt"
+  mkdir -p "$(w6_dossier "$slug")/scratch"; chmod 555 "$(w6_dossier "$slug")/scratch"
+  before="$(cat "$(w6_file "$slug")")"
+  out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
+  chmod 755 "$(w6_dossier "$slug")/scratch"
+  [ "$rc" -eq 1 ] && echo "ok   - W6 later copy fails: exits 1" || { echo "FAIL - W6 later copy fails: exit $rc: $out"; fail=1; }
+  assert "W6 later copy fails: says the copy failed" 'copying scratch into .* failed' "$out"
+  [ -d "$(w6_wt "$slug")" ] && [ -f "$(w6_wt "$slug")/scratch/a.txt" ] && echo "ok   - W6 later copy fails: worktree still present" || { echo "FAIL - W6 later copy fails: worktree gone"; fail=1; }
+  assert "W6 later copy fails: status unchanged" '^doing$' "$(w6_status "$slug")"
+  [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 later copy fails: task file byte-identical" || { echo "FAIL - W6 later copy fails: task file changed"; fail=1; }
+  [ "$(cat "$(w6_dossier "$slug")/.claude-queue.md" 2>/dev/null)" = queued ] && echo "ok   - W6 later copy fails: the first keeper stays in the dossier (pinned, no rollback)" || { echo "FAIL - W6 later copy fails: first keeper not in the dossier"; fail=1; }
+  [ ! -e "$(w6_dossier "$slug")/scratch/a.txt" ] && echo "ok   - W6 later copy fails: the failed keeper was not copied" || { echo "FAIL - W6 later copy fails: a.txt copied"; fail=1; }
+fi
+
 # --- collisions with what the dossier already holds stop the run ------------
 slug=w6dossier-collide; w6_new "$slug" dossier
 echo "worktree notes" > "$(w6_wt "$slug")/notes.md"
@@ -542,6 +564,45 @@ out="$(cmd_done "$(session_for "$slug")" --keep notes.md --keep scratch/a.txt 2>
 [ "$rc" -eq 0 ] && echo "ok   - W6 identical copies: exits 0" || { echo "FAIL - W6 identical copies: exit $rc: $out"; fail=1; }
 assert "W6 identical copies: still listed as kept" '^kept: notes\.md, scratch/a\.txt$' "$(cat "$(w6_file "$slug")")"
 [ "$(cat "$(w6_dossier "$slug")/notes.md")" = "dossier notes" ] && echo "ok   - W6 identical copies: dossier notes.md intact" || { echo "FAIL - W6 identical copies: notes.md changed"; fail=1; }
+
+# --- more collision shapes (all stop before anything changes) ---------------
+# (1) --keep scratch onto an existing dossier/scratch merges: no scratch/scratch
+slug=w6dossier-merge; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch" "$(w6_dossier "$slug")/scratch"
+echo "new" > "$(w6_wt "$slug")/scratch/new.txt"; echo "kept already" > "$(w6_dossier "$slug")/scratch/sibling.txt"
+out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - W6 merge into dossier dir: exits 0" || { echo "FAIL - W6 merge into dossier dir: exit $rc: $out"; fail=1; }
+[ ! -e "$(w6_dossier "$slug")/scratch/scratch" ] && echo "ok   - W6 merge into dossier dir: no scratch/scratch" || { echo "FAIL - W6 merge: scratch/scratch created"; fail=1; }
+[ "$(cat "$(w6_dossier "$slug")/scratch/sibling.txt")" = "kept already" ] && echo "ok   - W6 merge into dossier dir: existing sibling intact" || { echo "FAIL - W6 merge: sibling changed"; fail=1; }
+[ "$(cat "$(w6_dossier "$slug")/scratch/new.txt" 2>/dev/null)" = new ] && echo "ok   - W6 merge into dossier dir: new file merged in" || { echo "FAIL - W6 merge: new.txt missing"; fail=1; }
+# (2) dossier/scratch is a regular file, the worktree's scratch/ a directory
+slug=w6dossier-filevsdir; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch"; echo x > "$(w6_wt "$slug")/scratch/a.txt"
+mkdir -p "$(w6_dossier "$slug")"; echo "i am a file" > "$(w6_dossier "$slug")/scratch"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 file-vs-dir collision: exits 1" || { echo "FAIL - W6 file-vs-dir: exit $rc: $out"; fail=1; }
+assert "W6 file-vs-dir collision: a collides: line" "collides: .*dossiers/swp--${slug}/scratch\$" "$out"
+[ -f "$(w6_wt "$slug")/scratch/a.txt" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 file-vs-dir collision: worktree and task file intact" || { echo "FAIL - W6 file-vs-dir: state changed"; fail=1; }
+# (3) dossier/handoffs is a regular file and --keep handoffs/x.txt
+printf 'handoffs/\n' >> "$SWP/.git/info/exclude"
+slug=w6dossier-ancfile; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/handoffs"; echo x > "$(w6_wt "$slug")/handoffs/x.txt"
+mkdir -p "$(w6_dossier "$slug")"; echo "i am a file" > "$(w6_dossier "$slug")/handoffs"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --keep handoffs/x.txt 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 file-ancestor collision: exits 1" || { echo "FAIL - W6 file-ancestor: exit $rc: $out"; fail=1; }
+assert "W6 file-ancestor collision: a collides: line naming handoffs" "collides: .*dossiers/swp--${slug}/handoffs\$" "$out"
+[ -f "$(w6_wt "$slug")/handoffs/x.txt" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 file-ancestor collision: worktree and task file intact" || { echo "FAIL - W6 file-ancestor: state changed"; fail=1; }
+# (4) the dossier path itself is a regular file
+slug=w6dossier-selffile; w6_new "$slug" dossier
+printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
+mkdir -p "$FIXTURE_TASKS/dossiers"; echo "i am a file" > "$(w6_dossier "$slug")"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 dossier-is-a-file: exits 1" || { echo "FAIL - W6 dossier-is-a-file: exit $rc: $out"; fail=1; }
+assert "W6 dossier-is-a-file: the (the dossier itself) stop" 'collides: .*\(the dossier itself\)' "$out"
+[ -f "$(w6_wt "$slug")/.claude-queue.md" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 dossier-is-a-file: worktree and task file intact" || { echo "FAIL - W6 dossier-is-a-file: state changed"; fail=1; }
 
 # --- a bootstrap config.hjson: edited stops, identical is discarded (AE5) ---
 slug=w6dossier-cfgedit; w6_new "$slug" dossier
@@ -638,6 +699,74 @@ tmux() {
 _ctrl_x task "$(session_for "$slug")" "" >/dev/null 2>&1 <<<y
 unset -f tmux
 assert "W6 ctrl-x: falls back to display-message" 'unknown: scratch/n\.txt' "$(cat "$POPUP_OUT.msg")"
+
+# --- Fix 1: the ctrl-x path must stop at a failed step (errexit is off there) --
+# A locked worktree makes a single `git worktree remove --force` fail.
+slug=w6dossier-locked; w6_new "$slug" dossier
+git -C "$SWP" worktree lock "$(w6_wt "$slug")" >/dev/null 2>&1
+before="$(cat "$(w6_file "$slug")")"
+: > "$POPUP_OUT"
+tmux() {
+  if [ "${1:-}" = display-popup ]; then
+    local last="${*: -1}" pf
+    pf="$(printf '%s' "$last" | sed -n 's/^cat "\([^"]*\)".*/\1/p')"
+    [ -f "$pf" ] && cat "$pf" >> "$POPUP_OUT"
+    return 0
+  fi
+  command tmux "$@"
+}
+out="$(_ctrl_x task "$(session_for "$slug")" "" 2>&1 <<<y)"; rc=$?
+unset -f tmux
+[ "$rc" -ne 0 ] && echo "ok   - ctrl-x failed removal: non-zero exit" || { echo "FAIL - ctrl-x failed removal: exit 0: $out"; fail=1; }
+[ -d "$(w6_wt "$slug")" ] && echo "ok   - ctrl-x failed removal: worktree still there" || { echo "FAIL - ctrl-x failed removal: worktree gone"; fail=1; }
+assert "ctrl-x failed removal: status unchanged" '^doing$' "$(w6_status "$slug")"
+[ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - ctrl-x failed removal: task file byte-identical" || { echo "FAIL - ctrl-x failed removal: task file changed"; fail=1; }
+case "$(cat "$(w6_file "$slug")"; cat "$(w6_dossier "$slug")"/handoffs/* 2>/dev/null)" in *"wb done"*) echo "FAIL - ctrl-x failed removal: a wb done handoff was written"; fail=1 ;; *) echo "ok   - ctrl-x failed removal: no wb done handoff" ;; esac
+assert "ctrl-x failed removal: the stop text reached the popup" 'could not remove .*task left as is' "$(cat "$POPUP_OUT")"
+git -C "$SWP" worktree unlock "$(w6_wt "$slug")" >/dev/null 2>&1
+
+# (b) the success path prints cmd_done's own output
+slug=w6dossier-ctrlxok; w6_new "$slug" dossier
+out="$(_ctrl_x_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - ctrl-x success: exit 0" || { echo "FAIL - ctrl-x success: exit $rc: $out"; fail=1; }
+assert "ctrl-x success: prints cmd_done's output" 'wb done: .* worktree removed' "$out"
+assert "ctrl-x success: task done" '^done$' "$(w6_status "$slug")"
+
+# (c) the popup's temp file is removed once the popup returns
+slug=w6dossier-tmpclean; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch"; echo x > "$(w6_wt "$slug")/scratch/n.txt"
+W6_TMP="$FIXTURE_STATE/w6-tmpdir"; mkdir -p "$W6_TMP"
+tmux() { if [ "${1:-}" = display-popup ]; then ls "$W6_TMP"/wb-done-stop.* >/dev/null 2>&1 && : > "$W6_TMP/popup-saw-file"; return 0; fi; command tmux "$@"; }
+TMPDIR="$W6_TMP" _ctrl_x_done "$(session_for "$slug")" >/dev/null 2>&1
+unset -f tmux
+[ -e "$W6_TMP/popup-saw-file" ] && echo "ok   - ctrl-x temp file: existed while the popup ran" || { echo "FAIL - ctrl-x temp file: not there during the popup"; fail=1; }
+ls "$W6_TMP"/wb-done-stop.* >/dev/null 2>&1 && { echo "FAIL - ctrl-x temp file: left behind"; fail=1; } || echo "ok   - ctrl-x temp file: removed after the popup"
+
+# (d) mktemp fails (TMPDIR missing): the text goes to display-message
+tmux() { if [ "${1:-}" = display-message ] && [ "${2:-}" = -d ]; then printf '%s' "$4" >> "$POPUP_OUT.msg"; return 0; fi; command tmux "$@"; }
+: > "$POPUP_OUT.msg"
+TMPDIR="$FIXTURE_STATE/no-such-tmpdir" _ctrl_x_done "$(session_for "$slug")" >/dev/null 2>&1
+unset -f tmux
+assert "ctrl-x no temp file: display-message got the stop text" 'unknown: scratch/n\.txt' "$(cat "$POPUP_OUT.msg")"
+
+# --- Fix 4: tmux expands #(cmd) in display-message text; the fallback doubles every # ---
+slug=w6dossier-hashfmt; w6_new "$slug" dossier
+printf '%s\n' '\#(touch marker)' >> "$SWP/.git/info/exclude"
+: > "$(w6_wt "$slug")/#(touch marker)"
+tmux() {
+  case "${1:-}" in
+    display-popup) return 1 ;;
+    display-message) if [ "${2:-}" = -d ]; then printf '%s' "$4" >> "$POPUP_OUT.msg"; return 0; fi; command tmux "$@" ;;
+    *) command tmux "$@" ;;
+  esac
+}
+: > "$POPUP_OUT.msg"
+( cd "$FIXTURE_STATE" && _ctrl_x_done "$(session_for "$slug")" >/dev/null 2>&1 )
+unset -f tmux
+assert "ctrl-x #( escaping: display-message text carries ##(" '##\(touch marker\)' "$(cat "$POPUP_OUT.msg")"
+case "$(cat "$POPUP_OUT.msg")" in *[!#]"#(touch"*|"#(touch"*) echo "FAIL - ctrl-x #( escaping: a single # still precedes ("; fail=1 ;; *) echo "ok   - ctrl-x #( escaping: no unescaped #(" ;; esac
+found="$(find "$FIXTURE_STATE" "$FIXTURE_CODE" "$FIXTURE_TASKS" "$PWD" -maxdepth 3 -name marker 2>/dev/null | head -1)"
+[ -z "$found" ] && echo "ok   - ctrl-x #( escaping: no marker file created" || { echo "FAIL - ctrl-x #( escaping: marker at $found"; fail=1; }
 
 # --- wb help lists all five flags -------------------------------------------
 help_out="$(bash "$WB" help 2>&1)"
