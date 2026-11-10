@@ -503,9 +503,15 @@ assert "W6 keep inside throwaway dir: discarded names logs/" '^discarded: .*logs
 # --- symlinks are copied as links, never dereferenced -----------------------
 slug=w6dossier-link; w6_new "$slug" dossier
 mkdir -p "$(w6_wt "$slug")/scratch"; echo target > "$(w6_wt "$slug")/scratch/notes.txt"; ln -s notes.txt "$(w6_wt "$slug")/scratch/ln"
+# A kept DIRECTORY holding any symlink stops the run (the link would dangle in
+# the dossier once the worktree is gone); the kept link itself still copies as a link.
 out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 symlink in a kept dir: stops" || { echo "FAIL - W6 symlink in a kept dir: exit $rc: $out"; fail=1; }
+assert "W6 symlink in a kept dir: note names the link" 'unknown: scratch/ — holds symlink scratch/ln; keep its target or remove the link' "$out"
+[ -d "$(w6_wt "$slug")" ] && [ ! -e "$(w6_dossier "$slug")/scratch" ] && echo "ok   - W6 symlink in a kept dir: nothing changed" || { echo "FAIL - W6 symlink in a kept dir: state changed"; fail=1; }
+out="$(cmd_done "$(session_for "$slug")" --keep scratch/ln --throwaway scratch/notes.txt 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   - W6 symlink keep: exits 0" || { echo "FAIL - W6 symlink keep: exit $rc: $out"; fail=1; }
-[ -L "$(w6_dossier "$slug")/scratch/ln" ] && [ "$(readlink "$(w6_dossier "$slug")/scratch/ln")" = notes.txt ] && echo "ok   - W6 symlink in a kept dir: copied as a symlink" || { echo "FAIL - W6 symlink in a kept dir: not a symlink copy"; fail=1; }
+[ -L "$(w6_dossier "$slug")/scratch/ln" ] && [ "$(readlink "$(w6_dossier "$slug")/scratch/ln")" = notes.txt ] && echo "ok   - W6 symlink keep: copied as a symlink" || { echo "FAIL - W6 symlink keep: not a symlink copy"; fail=1; }
 
 # --- a copy that fails stops before the removal (KTD6) ----------------------
 if [ "$(id -u)" -ne 0 ]; then
@@ -522,26 +528,80 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # --- a LATER keeper's copy fails after an earlier one succeeded --------------
-# Pinned behaviour: the copy loop has no rollback, so the first keeper
-# (.claude-queue.md) STAYS in the dossier; the run still stops before removing
-# the worktree or touching the task file, and a re-run finds the first copy
-# identical and skips it.
+# The first keeper (.claude-queue.md) was created by this run, so it is rolled
+# back (its dossier file was absent before); the failed keeper merged into a
+# dossier directory that already existed, so nothing there is deleted and the
+# message says partial files may remain. The run still stops before removing
+# the worktree or touching the task file. (Review triage, finding 4: this used
+# to pin "the first keeper stays in the dossier".)
 if [ "$(id -u)" -ne 0 ]; then
   slug=w6dossier-rofail2; w6_new "$slug" dossier
   printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
   mkdir -p "$(w6_wt "$slug")/scratch"; echo "mine" > "$(w6_wt "$slug")/scratch/a.txt"
   mkdir -p "$(w6_dossier "$slug")/scratch"; chmod 555 "$(w6_dossier "$slug")/scratch"
+  echo "pre-existing" > "$(w6_dossier "$slug")/old.txt"
   before="$(cat "$(w6_file "$slug")")"
   out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
   chmod 755 "$(w6_dossier "$slug")/scratch"
   [ "$rc" -eq 1 ] && echo "ok   - W6 later copy fails: exits 1" || { echo "FAIL - W6 later copy fails: exit $rc: $out"; fail=1; }
   assert "W6 later copy fails: says the copy failed" 'copying scratch into .* failed' "$out"
+  assert "W6 later copy fails: says partial files may remain" 'keeper scratch failed partway.*partial files from it may remain under .*/scratch' "$out"
   [ -d "$(w6_wt "$slug")" ] && [ -f "$(w6_wt "$slug")/scratch/a.txt" ] && echo "ok   - W6 later copy fails: worktree still present" || { echo "FAIL - W6 later copy fails: worktree gone"; fail=1; }
   assert "W6 later copy fails: status unchanged" '^doing$' "$(w6_status "$slug")"
   [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 later copy fails: task file byte-identical" || { echo "FAIL - W6 later copy fails: task file changed"; fail=1; }
-  [ "$(cat "$(w6_dossier "$slug")/.claude-queue.md" 2>/dev/null)" = queued ] && echo "ok   - W6 later copy fails: the first keeper stays in the dossier (pinned, no rollback)" || { echo "FAIL - W6 later copy fails: first keeper not in the dossier"; fail=1; }
+  [ ! -e "$(w6_dossier "$slug")/.claude-queue.md" ] && echo "ok   - W6 later copy fails: the first keeper (created this run) is rolled back" || { echo "FAIL - W6 later copy fails: first keeper left in the dossier"; fail=1; }
+  [ "$(cat "$(w6_dossier "$slug")/old.txt" 2>/dev/null)" = pre-existing ] && [ -d "$(w6_dossier "$slug")/scratch" ] && echo "ok   - W6 later copy fails: pre-existing dossier content untouched" || { echo "FAIL - W6 later copy fails: pre-existing content removed"; fail=1; }
   [ ! -e "$(w6_dossier "$slug")/scratch/a.txt" ] && echo "ok   - W6 later copy fails: the failed keeper was not copied" || { echo "FAIL - W6 later copy fails: a.txt copied"; fail=1; }
+
+  # A directory keeper that did not exist in the dossier before the run and dies
+  # partway (an unreadable file) is removed whole, along with the earlier keeper.
+  slug=w6dossier-rofail3; w6_new "$slug" dossier
+  printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
+  mkdir -p "$(w6_wt "$slug")/scratch"; echo a > "$(w6_wt "$slug")/scratch/a.txt"; echo b > "$(w6_wt "$slug")/scratch/b.txt"
+  chmod 000 "$(w6_wt "$slug")/scratch/b.txt"
+  out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
+  chmod 644 "$(w6_wt "$slug")/scratch/b.txt"
+  [ "$rc" -eq 1 ] && echo "ok   - W6 new-dir copy fails: exits 1" || { echo "FAIL - W6 new-dir copy fails: exit $rc: $out"; fail=1; }
+  [ ! -e "$(w6_dossier "$slug")/scratch" ] && [ ! -e "$(w6_dossier "$slug")/.claude-queue.md" ] && echo "ok   - W6 new-dir copy fails: everything this run created is removed" || { echo "FAIL - W6 new-dir copy fails: leftovers in $(find "$(w6_dossier "$slug")" 2>&1 | tr '\n' ' ')"; fail=1; }
+  assert "W6 new-dir copy fails: lists what it removed" 'removed: .*scratch' "$out"
+  [ -d "$(w6_wt "$slug")" ] && assert "W6 new-dir copy fails: status unchanged" '^doing$' "$(w6_status "$slug")"
 fi
+
+# --- an unlisted directory of many unknowns: at most 10 lines per entry ------
+slug=w6dossier-many; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch"; for i in 01 02 03 04 05 06 07 08 09 10 11 12 13; do echo x > "$(w6_wt "$slug")/scratch/f$i.txt"; done
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 many unknowns: stops" || { echo "FAIL - W6 many unknowns: exit $rc"; fail=1; }
+[ "$(printf '%s\n' "$out" | grep -c '^  unknown: scratch/')" = 10 ] && echo "ok   - W6 many unknowns: exactly 10 unknown lines for scratch/" || { echo "FAIL - W6 many unknowns: $(printf '%s\n' "$out" | grep -c '^  unknown: scratch/') lines"; fail=1; }
+assert "W6 many unknowns: the summary line" '^  … and 3 more under scratch/ \(add `throwaway:scratch/` to wb-done-sweep\.list or re-run with --throwaway scratch\)$' "$out"
+assert "W6 many unknowns: header still counts all 13" '13 gitignored entries' "$out"
+# a name holding an ESC byte is shown as \x1b, never sent raw
+slug=w6dossier-esc; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/scratch"; echo x > "$(w6_wt "$slug")/scratch/"$'\e'"[31mred.txt"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"
+assert "W6 ESC in a name: shown as \\x1b" 'unknown: scratch/\\x1b\[31mred\.txt' "$out"
+case "$out" in *$'\e'*) echo "FAIL - W6 ESC in a name: raw ESC reached the output"; fail=1 ;; *) echo "ok   - W6 ESC in a name: no raw ESC in the output" ;; esac
+
+# --- --review: an edit to a tracked file made while the buffer is open stops -
+slug=w6dossier-reviewdirty; w6_new "$slug" dossier
+wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; echo "edited meanwhile" >> "$(w6_wt w6dossier-reviewdirty)/.worktree-bootstrap"; }
+: > "$W6_BUFLOG"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --review 2>&1)"; rc=$?
+wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; }
+[ "$rc" -eq 1 ] && echo "ok   - W6 --review dirty after buffer: exits 1" || { echo "FAIL - W6 --review dirty after buffer: exit $rc: $out"; fail=1; }
+assert "W6 --review dirty after buffer: names the dirty tree" 'is dirty' "$out"
+[ -d "$(w6_wt "$slug")" ] && [ "$(tail -1 "$(w6_wt "$slug")/.worktree-bootstrap")" = "edited meanwhile" ] && echo "ok   - W6 --review dirty after buffer: worktree and the edit kept" || { echo "FAIL - W6 --review dirty after buffer: worktree gone"; fail=1; }
+[ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 --review dirty after buffer: task file untouched" || { echo "FAIL - W6 --review dirty after buffer: task file changed"; fail=1; }
+
+# --- a folder git no longer lists as a worktree stops with a clear message ----
+slug=w6dossier-notwt; w6_new "$slug" dossier
+rm -rf "$SWP/.git/worktrees/$slug"   # what a half-failed `git worktree remove` can leave behind
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 not a worktree: exits 1" || { echo "FAIL - W6 not a worktree: exit $rc: $out"; fail=1; }
+assert "W6 not a worktree: the message" 'is no longer a git worktree \(a removal half-failed\?\); check what.s left in it, delete it by hand, then run git worktree prune and re-run' "$out"
+[ -d "$(w6_wt "$slug")" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 not a worktree: nothing changed" || { echo "FAIL - W6 not a worktree: state changed"; fail=1; }
 
 # --- collisions with what the dossier already holds stop the run ------------
 slug=w6dossier-collide; w6_new "$slug" dossier

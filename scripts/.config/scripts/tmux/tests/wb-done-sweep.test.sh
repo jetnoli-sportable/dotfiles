@@ -164,6 +164,10 @@ run_all() { # <label>
   assert_eq "[$L] --keep scratch/ln classifies the link itself as keep" keep "$(cls "$out" scratch/ln)"
   assert_eq "[$L] --keep scratch/ln does not keep its target too" unknown "$(cls "$out" scratch/notes.txt)"
   assert_eq "[$L] --keep scratch/ln: no warning" "" "$(cat "$FIXTURE/kln.err.$L")"
+  # a kept DIRECTORY holding an in-worktree symlink is unknown (it would dangle in the dossier)
+  out="$(wb_sweep_classify "$WT" "$MAIN" --keep scratch 2>/dev/null)"
+  assert_eq "[$L] kept dir holding an in-worktree symlink unknown" unknown "$(cls "$out" scratch/)"
+  assert_eq "[$L] in-worktree symlink note" "holds symlink scratch/ln; keep its target or remove the link" "$(note "$out" scratch/)"
   # a link resolving outside the worktree, under a subdirectory
   ln -s "$FIXTURE" "$WT/scratch/out"
   out="$(wb_sweep_classify "$WT" "$MAIN" --keep scratch/out 2>/dev/null)"
@@ -312,6 +316,16 @@ shopt -s nocasematch; wb_credential_shaped x.md; shopt -q nocasematch
 assert_eq "nocasematch left on when caller had it on" 0 "$?"
 shopt -u nocasematch; wb_credential_shaped x.pem; shopt -q nocasematch
 assert_eq "nocasematch left off when caller had it off" 1 "$?"
+
+# --- _wb_sweep_esc: every control byte shown as \xNN, pure bash and fast
+assert_eq "esc: plain name unchanged" "dir/a b.txt" "$(_wb_sweep_esc "dir/a b.txt")"
+assert_eq "esc: tab, newline, CR keep their forms" 'a\tb\nc\rd' "$(_wb_sweep_esc $'a\tb\nc\rd')"
+assert_eq "esc: ESC becomes \\x1b" 'x\x1b[31mred' "$(_wb_sweep_esc $'x\e[31mred')"
+assert_eq "esc: 0x01 and 0x7f" 'a\x01b\x7fc' "$(_wb_sweep_esc $'a\001b\177c')"
+assert_eq "esc: UTF-8 left alone" 'café—ñ' "$(_wb_sweep_esc 'café—ñ')"
+esc_t0=$SECONDS
+for ((n = 0; n < 500; n++)); do _wb_sweep_esc "some/dir/file-$n"$'\e'"[0m.txt" >/dev/null; done
+[ $((SECONDS - esc_t0)) -le 5 ] && echo "ok   - esc: 500 names with a control byte in under 5s" || { echo "FAIL - esc: 500 names took $((SECONDS - esc_t0))s"; fail=1; }
 
 run_all gawk
 MAWKDIR="$FIXTURE/awkshim-mawk"; mkdir -p "$MAWKDIR"

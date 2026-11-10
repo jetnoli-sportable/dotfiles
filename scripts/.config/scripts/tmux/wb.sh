@@ -6096,12 +6096,33 @@ _wb_sweep_flagged() {
   return 1
 }
 
-# _wb_sweep_esc <s> — <s> with tab, newline and CR shown as \t \n \r, so a
-# file name can never break a `class<TAB>path<TAB>note` line apart or forge a
-# second one.
+# _wb_sweep_esc <s> — <s> with tab, newline and CR shown as \t \n \r and every
+# other control byte (below 0x20, and 0x7f) as \xNN, so a file name can never
+# break a `class<TAB>path<TAB>note` line apart, forge a second one, or send a
+# terminal escape sequence to the screen. Pure bash: a name with no control
+# byte (the usual case) costs one glob match; only one that has some is walked
+# a character at a time, with the printf builtin (no subprocess).
 _wb_sweep_esc() {
   local s="$1"
-  s="${s//$'\t'/\\t}"; s="${s//$'\n'/\\n}"; s="${s//$'\r'/\\r}"
+  if [[ $s == *[[:cntrl:]]* ]]; then
+    local out="" c n i
+    for ((i = 0; i < ${#s}; i++)); do
+      c="${s:i:1}"
+      case "$c" in
+        $'\t') out+='\t' ;;
+        $'\n') out+='\n' ;;
+        $'\r') out+='\r' ;;
+        *)
+          LC_ALL=C printf -v n '%d' "'$c"
+          if [ "$n" -lt 32 ] || [ "$n" -eq 127 ]; then
+            printf -v n '\\x%02x' "$n"; out+="$n"
+          else
+            out+="$c"
+          fi ;;
+      esac
+    done
+    s="$out"
+  fi
   printf '%s' "$s"
 }
 
@@ -6139,6 +6160,9 @@ _wb_sweep_keepcheck() {
           "$wt_real"/*) ;;
           *) echo "holds symlink $(_wb_sweep_esc "${f#"$wt"/}") resolving outside the worktree"; return 1 ;;
         esac
+        # A link that stays inside the worktree would dangle in the dossier
+        # once the worktree is gone (keep copies are cp -a, never -L).
+        echo "holds symlink $(_wb_sweep_esc "${f#"$wt"/}"); keep its target or remove the link"; return 1
       fi
     done < <(find -P "$wt/$rel" -mindepth 1 \( -type f -o -type l -o -type d \) -print0 2>/dev/null)
   fi
@@ -6151,6 +6175,17 @@ _wb_sweep_keepcheck() {
 _wb_sweep_emit() {
   printf '%s\t%s\t%s\n' "$1" "$3" "${4:-}"
   seen["$2"]="$1"
+}
+
+# _wb_sweep_emit_keep <rel> <out> — a keep line for <rel> when _wb_sweep_keepcheck
+# passes, else an unknown line carrying its note. Uses the caller's wt.
+_wb_sweep_emit_keep() {
+  local note
+  if note="$(_wb_sweep_keepcheck "$wt" "$1")"; then
+    _wb_sweep_emit keep "$1" "$2"
+  else
+    _wb_sweep_emit unknown "$1" "$2" "$note"
+  fi
 }
 
 # _wb_sweep_ancestor <rel> — print the nearest recorded entry that <rel> sits
@@ -6192,11 +6227,7 @@ _wb_sweep_one() {
   if _wb_sweep_flagged keep_flags "$rel"; then
     # A refused --keep is unknown even if the file matches main: the user asked
     # to keep it, so silently discarding it would surprise.
-    if note="$(_wb_sweep_keepcheck "$wt" "$rel")"; then
-      _wb_sweep_emit keep "$rel" "$out"
-    else
-      _wb_sweep_emit unknown "$rel" "$out" "$note"
-    fi
+    _wb_sweep_emit_keep "$rel" "$out"
     return 0
   fi
   for f in ${boot[@]+"${boot[@]}"}; do
@@ -6211,11 +6242,7 @@ _wb_sweep_one() {
     _wb_sweep_emit unknown "$rel" "$out" 'credential-shaped, copy it yourself'; return 0
   fi
   if _wb_sweep_in_list keep_globs "$rel" "$isdir"; then
-    if note="$(_wb_sweep_keepcheck "$wt" "$rel")"; then
-      _wb_sweep_emit keep "$rel" "$out"
-    else
-      _wb_sweep_emit unknown "$rel" "$out" "$note"
-    fi
+    _wb_sweep_emit_keep "$rel" "$out"
     return 0
   fi
   if _wb_sweep_in_list tw_globs "$rel" "$isdir"; then
@@ -6331,8 +6358,7 @@ wb_sweep_classify() {
         *$'\t'*|*$'\n'*|*$'\r'*)
           _wb_sweep_emit unknown "$p" "$(_wb_sweep_esc "$out")" 'name holds a tab or line break, handle it yourself' ;;
         *)
-          if note="$(_wb_sweep_keepcheck "$wt" "$p")"; then _wb_sweep_emit keep "$p" "$out"
-          else _wb_sweep_emit unknown "$p" "$out" "$note"; fi ;;
+          _wb_sweep_emit_keep "$p" "$out" ;;
       esac
     else
       echo "wb: --keep $(_wb_sweep_esc "$p"): matched no ignored entry, ignored" >&2
@@ -6626,6 +6652,44 @@ _wb_done_join() {
   printf '%s' "$out"
 }
 
+# _wb_done_print_unknowns <worktree> <unknown>... — print the stop message's
+# `  unknown: <path> — <note>` lines, at most 10 per top-level entry git
+# reported (an ignored directory such as `.next/` is opened one level at a
+# time and can yield hundreds), then one line saying how many more there were
+# and how to dispose of the whole entry. Paths are shown escaped
+# (_wb_sweep_esc). Few unknowns are all printed, with no extra git call.
+_wb_done_print_unknowns() {
+  local wt="$1" u path e key i; shift
+  local -a entries=() keys=()
+  local -A total=() shown=()
+  if [ "$#" -gt 10 ]; then
+    local rec
+    while IFS= read -r -d '' rec; do
+      case "$rec" in '!! '*) entries+=("${rec#'!! '}") ;; esac
+    done < <(git -C "$wt" status --porcelain=v1 -z --ignored=traditional --untracked-files=normal 2>/dev/null)
+    for u in "$@"; do
+      path="${u%% — *}"; key="$path"
+      for e in ${entries[@]+"${entries[@]}"}; do
+        if [ "$path" = "${e%/}" ] || [[ $path == "${e%/}"/* ]]; then key="$e"; break; fi
+      done
+      keys+=("$key"); total["$key"]=$(( ${total["$key"]:-0} + 1 ))
+    done
+  fi
+  i=0
+  for u in "$@"; do
+    key="${keys[i]:-}"; i=$((i + 1))
+    if [ -n "$key" ]; then
+      shown["$key"]=$(( ${shown["$key"]:-0} + 1 ))
+      if [ "${shown["$key"]}" -gt 10 ]; then
+        [ "${shown["$key"]}" -eq "${total["$key"]}" ] || continue
+        echo "  … and $(( ${total["$key"]} - 10 )) more under $(_wb_sweep_esc "$key") (add \`throwaway:$(_wb_sweep_esc "$key")\` to wb-done-sweep.list or re-run with --throwaway $(_wb_sweep_esc "${key%/}"))"
+        continue
+      fi
+    fi
+    echo "  unknown: $(_wb_sweep_esc "$u")"
+  done
+}
+
 # _wb_done_classify <quiet> <worktree> <main> [--keep p|--throwaway p]... —
 # run wb_sweep_classify and fill the caller's keep_paths / throw_paths (bash
 # dynamic scope; entries keep the classifier's trailing `/` on a directory).
@@ -6656,8 +6720,7 @@ _wb_done_classify() {
   if [ "${#unknowns[@]}" -gt 0 ]; then
     {
       echo "wb done: ${#unknowns[@]} gitignored entr$([ "${#unknowns[@]}" = 1 ] && echo y || echo ies) in $wt can't be sorted, so nothing was changed:"
-      local u
-      for u in "${unknowns[@]}"; do echo "  unknown: $u"; done
+      _wb_done_print_unknowns "$wt" "${unknowns[@]}"
       echo "wb done: add each to wb-done-sweep.list (keep: or throwaway:) beside wb.sh, or re-run with --keep <path> (copies it into the task's dossier) or --throwaway <path> (deletes it with the worktree)"
     } >&2
     return 1
@@ -6727,6 +6790,23 @@ _wb_done_keep_state() {
   return 0
 }
 
+# _wb_done_keep_rollback <rel> <dest> <top> <created path>... — after a failed
+# keep copy of <rel>: remove the paths this run created (<created path>...,
+# each verified absent before the run), and, when <rel> merged into a
+# directory that already existed (<top> empty), say its partial files may remain.
+_wb_done_keep_rollback() {
+  local rel="$1" dest="$2" top="$3" i; shift 3
+  for ((i = $#; i >= 1; i--)); do
+    rm -rf -- "${!i}"
+  done
+  if [ "$#" -gt 0 ]; then
+    echo "wb done: removed what this run had copied into the dossier ($#):" >&2
+    for ((i = 1; i <= $#; i++)); do echo "  removed: ${!i}" >&2; done
+  fi
+  [ -n "$top" ] || echo "wb done: keeper $rel failed partway into a dossier directory that already existed; partial files from it may remain under $dest" >&2
+  return 0
+}
+
 # _wb_done_keep_all <worktree> <dossier> [<keep path>]... — copy every keeper
 # into <dossier>/<path> with cp -a (never -L: symlinks are copied as links,
 # not followed). Checks every destination first: a differing file already
@@ -6754,16 +6834,28 @@ _wb_done_keep_all() {
     } >&2
     return 1
   fi
-  local src dest
+  # Track what THIS run creates, so a failed copy can take it back: the topmost
+  # path that was absent before each keeper's copy (a single file, a new
+  # directory, or a missing parent chain). Nothing that existed before the run
+  # is ever removed; a directory merged into an existing one can't be undone
+  # file by file, so it is only reported.
+  local src dest p top
+  local -a created=()
   for rel in ${todo[@]+"${todo[@]}"}; do
     src="$wt/$rel"; dest="$dossier/$rel"
+    p="$dest"; top=""
+    while [ ! -e "$p" ] && [ ! -L "$p" ]; do top="$p"; p="$(dirname -- "$p")"; done
+    [ -n "$top" ] && created+=("$top")
     if ! mkdir -p -- "$(dirname -- "$dest")"; then
-      echo "wb done: could not create the dossier directory for $rel (nothing removed)" >&2; return 1
+      echo "wb done: could not create the dossier directory for $rel (nothing removed)" >&2
+      _wb_done_keep_rollback "$rel" "$dest" "$top" ${created[@]+"${created[@]}"}; return 1
     fi
     if [ -d "$src" ] && [ ! -L "$src" ] && [ -d "$dest" ]; then
-      cp -a -- "$src/." "$dest/" || { echo "wb done: copying $rel into $dossier failed (nothing removed)" >&2; return 1; }
+      cp -a -- "$src/." "$dest/" || { echo "wb done: copying $rel into $dossier failed (nothing removed)" >&2
+        _wb_done_keep_rollback "$rel" "$dest" "$top" ${created[@]+"${created[@]}"}; return 1; }
     else
-      cp -a -- "$src" "$dest" || { echo "wb done: copying $rel into $dossier failed (nothing removed)" >&2; return 1; }
+      cp -a -- "$src" "$dest" || { echo "wb done: copying $rel into $dossier failed (nothing removed)" >&2
+        _wb_done_keep_rollback "$rel" "$dest" "$top" ${created[@]+"${created[@]}"}; return 1; }
     fi
   done
   return 0
@@ -6875,6 +6967,21 @@ cmd_done() {
       exit 1
     fi
 
+    # A folder git no longer lists as a worktree (a `git worktree remove` that
+    # half-failed, say on root-owned files, can drop git's record yet leave the
+    # folder) can't be sorted or removed the normal way; say so, before the
+    # dirty check would read the enclosing repo's status instead.
+    if [ -d "$worktree_path" ]; then
+      local wt_list wt_real
+      if wt_list="$(git -C "$repo_dir" worktree list --porcelain 2>/dev/null)"; then
+        wt_real="$(realpath -m -- "$worktree_path")"
+        if ! printf '%s\n' "$wt_list" | grep -qxF -e "worktree $worktree_path" -e "worktree $wt_real"; then
+          echo "wb done: $worktree_path is no longer a git worktree (a removal half-failed?); check what's left in it, delete it by hand, then run git worktree prune and re-run" >&2
+          exit 1
+        fi
+      fi
+    fi
+
     # 1. fail fast — never mutate anything on a dirty tree.
     _wb_git_dirty_guard "$worktree_path" "wb done"
   fi
@@ -6898,6 +7005,9 @@ cmd_done() {
     _wb_done_classify 0 "$worktree_path" "$repo_dir" ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
     if [ "$review" = 1 ]; then
       wb_open_buffer "$task_file" || exit 1   # no lock held (W5, round-2 Decision 2)
+      # An edit to a tracked file made while the buffer was open would be lost
+      # to the forced removal below.
+      _wb_git_dirty_guard "$worktree_path" "wb done"
       _wb_done_classify 1 "$worktree_path" "$repo_dir" ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
     fi
 
