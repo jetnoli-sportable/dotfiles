@@ -694,35 +694,85 @@ eagerly starts several agents.</p>
 after <code>cleanupPeriodDays</code> (30 by default) — a task shelved longer than that
 resumes cold, which is correct: there's nothing left to warm-resume into.</p>
 <h2 id="wb-done--wind-down-safely">wb done — wind down, safely</h2>
-<pre><code>$ wb done [--close] [--leave-shelved] [&lt;session&gt;]   # no session = the one you're in
+<pre><code>$ wb done [--close] [--leave-shelved] [--review] [--keep &lt;path&gt;] [--throwaway &lt;path&gt;] [&lt;session&gt;]
+                                     # no session = the one you're in
 </code></pre>
-<p>In order, every time:</p>
+<p>By default <code>wb done</code> opens no editor, so it runs to the end on its own and is
+safe to run from a script or from inside a Claude session. In order, every
+time:</p>
 <ol>
 <li><strong>Fails fast</strong> if the worktree is dirty — prints <code>git status --porcelain</code>
 and stops. Nothing is touched.</li>
-<li>If there are gitignored files or directories the worktree removal would
-otherwise silently destroy, appends a checklist to the task file and
-opens it in a split — <strong>tick <code>- [x] keep &lt;path&gt;</code></strong> on anything worth
-keeping, save, close.</li>
-<li>Copies anything you kept into <code>~/code/tasks/dossiers/&lt;repo&gt;--&lt;slug&gt;/</code>
-and records where it went in the task file, then removes the temporary
-checklist.</li>
-<li>Removes the git worktree, flips the task's <code>status:</code> to <code>done</code>, blanks
-<code>claude_sessions:</code> (a done task's worktree is gone, so there's nothing
-left for it to record), and logs in <code>## Handoffs</code> what was torn down.</li>
-<li>With <code>--close</code>, also kills the tmux session. Without it the session
-stays open, and both the printed line and the Handoffs entry say
-&quot;session left open&quot;. Winding down <em>another</em> session (a batch of
-finished workers) should pass <code>--close</code>, or the sessions sit idle; the
-picker's <kbd>Ctrl</kbd>+<kbd>x</kbd> already does.</li>
+<li><strong>Refuses while decision drafts are undecided.</strong> If wb-capture holds
+shelved drafts for the task, it lists them and stops. Resolve them with
+<code>/close-out</code> or <code>/wb-decide shelved</code>, or pass <code>--leave-shelved</code> to close
+anyway (the handoff then says the drafts were left on purpose).</li>
+<li><strong>Sorts every gitignored file and directory of the worktree</strong> into three
+piles. <em>Keep</em> means copy it into the task's dossier. <em>Throwaway</em> means
+delete it with the worktree. <em>Unknown</em> means <code>wb done</code> has no rule for it.
+The rules come from <code>wb-done-sweep.list</code> (see
+<a href="#the-wb-done-sweep-list">below</a>), from the repo's <code>.worktree-bootstrap</code>,
+and from the <code>--keep &lt;path&gt;</code> / <code>--throwaway &lt;path&gt;</code> flags (repeatable; each
+classifies one entry for this run only).</li>
+<li><strong>Stops, with nothing changed, if any entry is unknown.</strong> The message names
+each one. Add a rule to <code>wb-done-sweep.list</code>, or re-run with <code>--keep</code> or
+<code>--throwaway</code> for it. It also stops, before anything is written, if a keep
+would overwrite a different file already in the dossier, if a keep is named
+like a dossier record (<code>decisions</code>, <code>notes.md</code> and so on), or if a kept
+directory holds a symlink. One exception to the overwrite stop:
+<code>.claude-queue.md</code> (the per-worktree <a href="guides/claude-tmux.html"><code>/queue</code></a>
+stash) gets any entries it lacks appended to the dossier's copy, so a
+second close adds the new ones instead of stopping.</li>
+<li><strong>Copies the keepers</strong> into <code>~/code/tasks/dossiers/&lt;repo&gt;--&lt;slug&gt;/</code> with
+<code>cp -a</code>. If a copy fails part-way, it removes what this run created and
+stops. Credential-shaped files (<code>.env*</code>, keys, tokens) are never kept.</li>
+<li><strong>Removes the git worktree</strong>, then in one locked write sets <code>status:</code> to
+<code>done</code>, stamps <code>closed</code>, blanks <code>claude_sessions:</code> (the worktree is gone, so
+there is nothing to record) and logs a <code>wb done</code> entry in <code>## Handoffs</code>.
+That entry says what was torn down and carries a <code>kept:</code> line and a
+<code>discarded:</code> line listing which gitignored entries went where.</li>
+<li>With <code>--close</code>, also kills the tmux session. Without it the session stays
+open, and both the printed line and the Handoffs entry say &quot;session left
+open&quot;.</li>
 </ol>
+<p><strong><code>--review</code></strong> is the one way to get an editor. It sorts the files first (so an
+unknown stops the run before you spend time reviewing), opens the task file in
+a split and waits for you to close it, checks again for uncommitted changes,
+then sorts again and acts on that second result. Use it when you want to read
+or edit the task file before it closes. It opens the file once, also on a
+close that has no worktree to remove.</p>
 <blockquote>
 <p>If you're several tasks behind on tidying up, <code>wb done</code> will nudge you:
 <em>&quot;N follow-ups pending · M unreviewed capture entries (Xd since last
 review) — consider running <code>/weekly-review</code>.&quot;</em> The picker's header no
 longer repeats these counts (computing them meant scanning the whole task
-store on every 3-second refresh).</p>
+store on every 3-second refresh). When the task was the last open child of
+a family, it also prints the command that closes the parent.</p>
 </blockquote>
+<h3 id="winding-down-other-sessions">Winding down other sessions</h3>
+<p>A batch of finished workers, or one session picked from the list, is closed
+from outside it. These rules apply (they used to live in a separate Claude skill for <code>wb done</code>,
+which was retired in W7, the skill-retirement work; <code>/close-out</code> carries the
+same rules):</p>
+<ul>
+<li><strong>Pass <code>--close</code>.</strong> Without it <code>wb done</code> removes the worktree but leaves the
+session running; one batch on 2026-10-18 left 14 idle sessions that way for
+five days. The picker's <kbd>Ctrl</kbd>+<kbd>x</kbd> already closes the
+session. Leave <code>--close</code> off only when you want to keep that session.</li>
+<li><strong>Name the session, not the task.</strong> Take each name from
+<code>tmux list-sessions -F '#S'</code>. A name that matches no live session is
+treated as a task-file stem and closed in the store only: the task is marked
+done with no dirty-tree check and no worktree removal.</li>
+<li><strong>One <code>wb done --close &lt;session&gt;</code> per session.</strong> Run them one after another
+(<code>;</code>, not <code>&amp;&amp;</code>) so one refusal, such as a dirty tree or undecided drafts,
+doesn't stop the rest.</li>
+<li><strong>Don't close your own session this way.</strong> <code>wb done --close</code> with no other
+session named kills the tmux session you are typing in. That takes down
+every other window of it too, including the nvim window every wb session
+has. <code>wb done</code> reads only on-disk state, so an unsaved buffer there is lost
+without a warning. Only the picker's <kbd>Ctrl</kbd>+<kbd>x</kbd> guards
+against closing its own session.</li>
+</ul>
 <h2 id="wb-breakdown--split-an-oversized-task-into-a-family">wb breakdown — split an oversized task into a family</h2>
 <p>A task whose <code>## Plan</code> has grown into a week of work becomes a
 <strong>session-less parent</strong> plus one or more session-sized <strong>children</strong>, one
@@ -788,6 +838,22 @@ node_modules
 <p>Files are copied; directories are symlinked back to the main checkout, so a
 worktree never needs its own <code>npm install</code>. No manifest? <code>wb new</code> falls
 back to copying whatever <code>.env*</code> files exist at the repo root.</p>
+<h3 id="the-wb-done-sweep-list">The <code>wb done</code> sweep list</h3>
+<p>The bootstrap file says what goes <em>into</em> a new worktree. <code>wb done</code> needs the
+reverse: what to do with each gitignored file when the worktree goes away. That
+is <code>wb-done-sweep.list</code>, next to <code>wb.sh</code>
+(<code>scripts/.config/scripts/tmux/wb-done-sweep.list</code>). One rule per line, either
+<code>keep:&lt;glob&gt;</code> or <code>throwaway:&lt;glob&gt;</code>; blank lines and <code>#</code> comments are ignored.</p>
+<pre><code>keep:.claude-queue.md        # copied into the task's dossier
+keep:CLAUDE.local.md
+throwaway:node_modules/      # deleted with the worktree
+throwaway:*.log
+</code></pre>
+<p>Globs work like <code>.gitignore</code> lines: no <code>/</code> matches at any depth, a <code>/</code> inside
+matches the whole path from the worktree root, and a trailing <code>/</code> matches a
+directory only. An entry that matches neither list, and isn't covered by the
+repo's <code>.worktree-bootstrap</code>, is <em>unknown</em> and stops <code>wb done</code> until you add a
+rule or pass <code>--keep &lt;path&gt;</code> or <code>--throwaway &lt;path&gt;</code> for that run.</p>
 <h2 id="the-task-store">The task store</h2>
 <p><code>~/code/tasks</code> is a plain git repo pushed to a personal GitHub remote
 (recovered and given its first-ever remote after the 2026-07-10
@@ -1243,9 +1309,13 @@ still want running.</p>
 input while it ran every few seconds — the periodic refresh now runs
 async (<code>reload</code>, not <code>reload-sync</code>) specifically so it never blocks a
 keypress, including while you're typing a search query.</li>
-<li><code>wb done</code> always opens the review buffer and waits for you to close it —
-there's no way to run it unattended yet. If you want a fully scripted
-teardown later, that's a small follow-up flag to add.</li>
+<li><code>wb done</code> opens no editor by default; only <code>--review</code> does, and that
+buffer waits for you to close it. If the review pane is killed or never
+opens, <code>wb done --review</code> hangs on its wait; signal the wait channel by
+hand (the pane id is in <code>&lt;task file&gt;.buffer-state</code>), and never kill the
+<code>wb done</code> process itself.</li>
+<li>A <code>wb done</code> stop (an unknown gitignored entry, a dirty tree, undecided
+drafts) changes nothing, so re-running after you fix the cause is safe.</li>
 <li>Two people (or two panes) running <code>wb done</code> on the exact same session at
 the exact same time can still race each other. Unlikely on a
 single-operator machine, but worth knowing.</li>

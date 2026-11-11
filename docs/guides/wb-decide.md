@@ -237,7 +237,7 @@ points to `/close-out` or `/wb-decide shelved`, or to re-running with
 `wb done --leave-shelved` to close anyway. `--leave-shelved` closes, logs
 one `shelved_left{count}` line to the capture log (via `wb-capture.sh
 log-shelved-left`) and notes the left drafts in the task's `wb done`
-Handoffs entry. A `wb done` invoked through `/wb-done` relays the refusal;
+Handoffs entry. `/close-out` runs `wb done` in the foreground and relays the refusal;
 it never adds `--leave-shelved` on its own.
 
 **Paths**

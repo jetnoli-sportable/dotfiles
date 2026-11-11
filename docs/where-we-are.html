@@ -355,7 +355,7 @@ alternatives for a specific shape of the problem.</p>
     <p>The most-used loop in the whole system (91 and 86 transcripts). See <a href="#save--resume--the-intended-workflow">save &amp; resume</a> below.</p></div>
   <div class="wwa-card"><h3>End a session</h3>
     <p class="use">/close-out</p>
-    <p>Sweeps the session for follow-ups, updates the task file, then runs <code>wb down</code> (keeps the worktree; use when a PR is open) or <code>wb done</code> through <code>/wb-done</code> (removes the worktree and marks the task done).</p></div>
+    <p>Sweeps the session for follow-ups, updates the task file, then runs <code>wb down</code> (keeps the worktree; use when a PR is open) or <code>wb done</code>, run directly (removes the worktree and marks the task done).</p></div>
   <div class="wwa-card"><h3>Hand work to another session</h3>
     <p class="use">/handoff</p>
     <p>Routes one piece of the current discussion to its own worker. It switches to the live session if one exists, or spawns one with <code>wb new --agent</code>, with the context written into the target's task file first. <a href="handoff-guide.html">guide</a></p></div>
@@ -409,10 +409,11 @@ Resume is warm: the picker's dormant rows and <code>wb resume</code> pre-type
 on disk. No session-id capture is needed. <a href="wb-guide.html#session-lifecycle-wb-down-wb-pause-and-warm-resume">Details</a>.</li>
 <li><strong><code>wb pause</code></strong> is <code>wb down</code> plus <code>status: paused</code>, for deliberately
 shelving something.</li>
-<li><strong><code>wb done</code></strong> is the safe wind-down: it aborts on a dirty worktree, runs a
-sweep-review buffer, removes the worktree and marks the task <code>done</code>. From
-inside Claude, go through <code>/wb-done</code> (background plus relay) so the buffer
-doesn't hang the turn.</li>
+<li><strong><code>wb done</code></strong> is the safe wind-down: it aborts on a dirty worktree, sorts the
+worktree's gitignored files into keep, throwaway and unknown (an unknown
+stops it), copies the keepers into the task's dossier, removes the worktree
+and marks the task <code>done</code>. It opens no editor unless you pass <code>--review</code>, so
+Claude runs it directly in the foreground.</li>
 <li><strong><code>/close-out</code></strong> wraps all of it for the end of a session.</li>
 </ul>
 <p>The per-skill references stay as they are: <a href="guides/wb-save.html">wb-save</a> ·
@@ -481,11 +482,11 @@ several &quot;keep (light)&quot; verdicts were really core pieces. Source:
 <td>Growing fast.</td>
 </tr>
 <tr>
-<td>wb-done</td>
+<td>done skill</td>
 <td><span class="wwa-num">11</span></td>
 <td><span class="wwa-num">1</span></td>
-<td><span class="chip ok">keep</span></td>
-<td>Mostly reached through close-out now.</td>
+<td><span class="chip warn">retired</span></td>
+<td>Retired in W7, the skill retirement; close-out runs <code>wb done</code> directly.</td>
 </tr>
 <tr>
 <td>park</td>
@@ -944,7 +945,7 @@ real Epic hierarchy for emit.</li>
 </tr>
 <tr>
 <td>#26, #27</td>
-<td><code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code>/<code>wb-board</code> skills</td>
+<td><code>wb-save</code>/<code>wb-resume</code>/<code>wb-board</code> skills and the done skill (since retired)</td>
 </tr>
 <tr>
 <td>#25</td>

@@ -53,7 +53,7 @@ even in `docs/guides/`), so it needs an explicit override in
 
 ```json
 { "kind": "skills", "path": "claude/.claude/skills", "guideOverrides": {
-  "wb-done": "docs/wb-guide.html#wb-done--wind-down-safely",
+  "wb-breakdown": "docs/wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family",
   "handoff": "docs/handoff-guide.html"
 }}
 ```

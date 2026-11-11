@@ -107,7 +107,7 @@ alternatives for a specific shape of the problem.
     <p>The most-used loop in the whole system (91 and 86 transcripts). See <a href="#save--resume--the-intended-workflow">save &amp; resume</a> below.</p></div>
   <div class="wwa-card"><h3>End a session</h3>
     <p class="use">/close-out</p>
-    <p>Sweeps the session for follow-ups, updates the task file, then runs <code>wb down</code> (keeps the worktree; use when a PR is open) or <code>wb done</code> through <code>/wb-done</code> (removes the worktree and marks the task done).</p></div>
+    <p>Sweeps the session for follow-ups, updates the task file, then runs <code>wb down</code> (keeps the worktree; use when a PR is open) or <code>wb done</code>, run directly (removes the worktree and marks the task done).</p></div>
   <div class="wwa-card"><h3>Hand work to another session</h3>
     <p class="use">/handoff</p>
     <p>Routes one piece of the current discussion to its own worker. It switches to the live session if one exists, or spawns one with <code>wb new --agent</code>, with the context written into the target's task file first. <a href="handoff-guide.html">guide</a></p></div>
@@ -168,10 +168,11 @@ At the **session** level, the same idea works without `/clear`:
   on disk. No session-id capture is needed. [Details](wb-guide.html#session-lifecycle-wb-down-wb-pause-and-warm-resume).
 - **`wb pause`** is `wb down` plus `status: paused`, for deliberately
   shelving something.
-- **`wb done`** is the safe wind-down: it aborts on a dirty worktree, runs a
-  sweep-review buffer, removes the worktree and marks the task `done`. From
-  inside Claude, go through `/wb-done` (background plus relay) so the buffer
-  doesn't hang the turn.
+- **`wb done`** is the safe wind-down: it aborts on a dirty worktree, sorts the
+  worktree's gitignored files into keep, throwaway and unknown (an unknown
+  stops it), copies the keepers into the task's dossier, removes the worktree
+  and marks the task `done`. It opens no editor unless you pass `--review`, so
+  Claude runs it directly in the foreground.
 - **`/close-out`** wraps all of it for the end of a session.
 
 The per-skill references stay as they are: [wb-save](guides/wb-save.html) ·
@@ -203,7 +204,7 @@ piece audit, re-checked against the refreshed counts.
 | decision-buffer | <span class="wwa-num">56</span> | <span class="wwa-num">9</span> | <span class="chip ok">keep</span> | v2 rewrite (#47); big batches go to review-page. |
 | handoff | <span class="wwa-num">27</span> | <span class="wwa-num">8</span> | <span class="chip ok">keep</span> | Was "keep (light)" on the undercount. |
 | close-out | <span class="wwa-num">19</span> | <span class="wwa-num">11</span> | <span class="chip ok">keep</span> | Growing fast. |
-| wb-done | <span class="wwa-num">11</span> | <span class="wwa-num">1</span> | <span class="chip ok">keep</span> | Mostly reached through close-out now. |
+| done skill | <span class="wwa-num">11</span> | <span class="wwa-num">1</span> | <span class="chip warn">retired</span> | Retired in W7, the skill retirement; close-out runs `wb done` directly. |
 | park | <span class="wwa-num">5</span> | <span class="wwa-num">4</span> | <span class="chip ok">keep</span> | Plus 19 capture-doc entries; now feeds the weekly review. |
 | wb-jira-create | <span class="wwa-num">5</span> | <span class="wwa-num">2</span> | <span class="chip ok">keep</span> | Was zero on the undercount. |
 | wb-breakdown | <span class="wwa-num">4</span> | <span class="wwa-num">2</span> | <span class="chip warn">keep · revamp</span> | Proposal moves to the review page, see T3. |
@@ -391,7 +392,7 @@ decisions written down.
 | #30 | Board display v2 |
 | #29 | **`/wb-breakdown`** |
 | #28 | Default-browser hijack fix |
-| #26, #27 | `wb-save`/`wb-resume`/`wb-done`/`wb-board` skills |
+| #26, #27 | `wb-save`/`wb-resume`/`wb-board` skills and the done skill (since retired) |
 | #25 | tmux: land in another session on kill |
 | #24 | Per-worktree `/queue` |
 | #22, #23 | **Task-store concurrency safety** |
