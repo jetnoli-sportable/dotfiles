@@ -600,6 +600,23 @@ content="$(cat "$TASKS_DIR/proj--unset-empty.md")"
 assert "empty value: frontmatter cleared" '^size:[[:space:]]*$' "$content"
 
 # =============================================================================
+# Scenario: rung — free text naming a rung heading of the parent's ladder.md;
+# inserted when missing, single-line checked, cleared by --unset.
+# =============================================================================
+
+mk_task "proj--set-rung.md" set-rung
+out="$(cmd_set "set-rung" rung "Go reader" 2>&1)"; rc=$?
+assert_eq "rung valid: exit 0" 0 "$rc"
+assert "rung valid: frontmatter updated" '^rung: Go reader$' "$(cat "$TASKS_DIR/proj--set-rung.md")"
+out="$(cmd_set "set-rung" rung $'Go reader\nstatus: done' 2>&1)"; rc=$?
+assert_eq "rung with embedded newline: exit 1" 1 "$rc"
+assert "rung with embedded newline: message" "must be a single line" "$out"
+assert_not "rung with embedded newline: status untouched" '^status: done$' "$(cat "$TASKS_DIR/proj--set-rung.md")"
+out="$(cmd_set "set-rung" rung --unset 2>&1)"; rc=$?
+assert_eq "rung --unset: exit 0" 0 "$rc"
+assert "rung --unset: cleared" '^rung:[[:space:]]*$' "$(cat "$TASKS_DIR/proj--set-rung.md")"
+
+# =============================================================================
 # Scenario: REGRESSION — --unset must not weaken validation of real values.
 # =============================================================================
 
@@ -632,6 +649,13 @@ if tmux new-session -d -s "$SESSION" 2>/dev/null; then
   else
     echo "ok   - live session refusal: file untouched"
   fi
+
+  # rung: is the one field allowed on a live task: the coordinator places a
+  # child on the ladder while the child's session is mid-work.
+  out="$(cmd_set "set-live" rung "wb done rework" 2>&1)"; rc=$?
+  assert_eq "live session, rung: exit 0" 0 "$rc"
+  assert "live session, rung: frontmatter updated" '^rung: wb done rework$' "$(cat "$LIVE_FILE")"
+  assert_not "live session, rung: no refusal message" 'has a live session' "$out"
 
   tmux kill-session -t "=$SESSION" 2>/dev/null
 else

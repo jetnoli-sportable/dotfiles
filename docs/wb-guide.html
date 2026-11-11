@@ -1092,6 +1092,13 @@ view's &quot;Unblocked next&quot; chips, and the Family graph below.</p>
 <code>--depends-on &lt;stem&gt;</code> (each validated against a real task file). Declare
 the stages afterwards with <code>wb set &lt;task&gt; path &lt;stages&gt;</code>; a task with no
 <code>path:</code> gets the <code>plan,work,review</code> default.</p>
+<p><strong>Placing a child on its parent's ladder:</strong> <code>wb set &lt;child&gt; rung &lt;heading&gt;</code>
+names the rung of the parent's dossier <code>ladder.md</code> the child works on, by
+the rung's <code>### </code> heading (e.g. <code>wb set dotfiles--wb-done-rework rung &quot;wb done rework&quot;</code>). <code>wb-store</code> matches it ignoring case and punctuation, and the
+page server's Plan view (<code>wb-store serve</code>) draws each child under its rung.
+The value is free text and isn't checked against the ladder. Unlike the
+other <code>wb set</code> fields, <code>rung</code> may be set while the child has a live session:
+the child's own session never writes that line, and the write is locked.</p>
 <p><strong>Family tab — the Dependencies graph.</strong> Each family block (a parent and
 its direct children) opens with a <strong>Dependencies</strong> region whenever at least
 one child has a <code>depends_on:</code> pointing at a sibling. It's a static

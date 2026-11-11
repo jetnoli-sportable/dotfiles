@@ -870,6 +870,15 @@ view's "Unblocked next" chips, and the Family graph below.
 the stages afterwards with `wb set <task> path <stages>`; a task with no
 `path:` gets the `plan,work,review` default.
 
+**Placing a child on its parent's ladder:** `wb set <child> rung <heading>`
+names the rung of the parent's dossier `ladder.md` the child works on, by
+the rung's `### ` heading (e.g. `wb set dotfiles--wb-done-rework rung "wb
+done rework"`). `wb-store` matches it ignoring case and punctuation, and the
+page server's Plan view (`wb-store serve`) draws each child under its rung.
+The value is free text and isn't checked against the ladder. Unlike the
+other `wb set` fields, `rung` may be set while the child has a live session:
+the child's own session never writes that line, and the write is locked.
+
 **Family tab — the Dependencies graph.** Each family block (a parent and
 its direct children) opens with a **Dependencies** region whenever at least
 one child has a `depends_on:` pointing at a sibling. It's a static
