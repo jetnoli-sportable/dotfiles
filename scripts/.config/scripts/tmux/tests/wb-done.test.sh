@@ -420,7 +420,7 @@ w6_calls() { wc -l < "$W6_BUFLOG" | tr -d ' '; }
 
 SWP="$FIXTURE_CODE/swp"
 git init -q "$SWP"
-printf 'node_modules/\n*.log\n.claude-queue.md\nscratch/\nconfig.hjson\nnotes.md\nlogs/\n' > "$SWP/.gitignore"
+printf 'node_modules/\n*.log\n.claude-queue.md\nscratch/\nconfig.hjson\nmemo.md\nnotes.md\ndecisions/\nlogs/\n' > "$SWP/.gitignore"
 printf 'config.hjson\n' > "$SWP/.worktree-bootstrap"
 git -C "$SWP" add -A
 git -C "$SWP" -c user.email=test@test -c user.name=test commit -q -m init
@@ -605,25 +605,115 @@ assert "W6 not a worktree: the message" 'is no longer a git worktree \(a removal
 
 # --- collisions with what the dossier already holds stop the run ------------
 slug=w6dossier-collide; w6_new "$slug" dossier
-echo "worktree notes" > "$(w6_wt "$slug")/notes.md"
+echo "worktree notes" > "$(w6_wt "$slug")/memo.md"
 mkdir -p "$(w6_wt "$slug")/scratch"; echo "mine" > "$(w6_wt "$slug")/scratch/a.txt"
 mkdir -p "$(w6_dossier "$slug")/scratch"
-echo "dossier notes" > "$(w6_dossier "$slug")/notes.md"; echo "other" > "$(w6_dossier "$slug")/scratch/a.txt"
-before="$(cat "$(w6_file "$slug")")"; dbefore="$(cat "$(w6_dossier "$slug")/notes.md" "$(w6_dossier "$slug")/scratch/a.txt")"
-out="$(cmd_done "$(session_for "$slug")" --keep notes.md --keep scratch/a.txt 2>&1)"; rc=$?
+echo "dossier memo" > "$(w6_dossier "$slug")/memo.md"; echo "other" > "$(w6_dossier "$slug")/scratch/a.txt"
+before="$(cat "$(w6_file "$slug")")"; dbefore="$(cat "$(w6_dossier "$slug")/memo.md" "$(w6_dossier "$slug")/scratch/a.txt")"
+out="$(cmd_done "$(session_for "$slug")" --keep memo.md --keep scratch/a.txt 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && echo "ok   - W6 collision: exits 1" || { echo "FAIL - W6 collision: exit $rc: $out"; fail=1; }
-assert "W6 collision: names the dossier notes.md" "collides: .*dossiers/swp--${slug}/notes\\.md" "$out"
+assert "W6 collision: names the dossier memo.md" "collides: .*dossiers/swp--${slug}/memo\\.md" "$out"
 assert "W6 collision: names the nested colliding file" "collides: .*dossiers/swp--${slug}/scratch/a\\.txt" "$out"
 [ -d "$(w6_wt "$slug")" ] && echo "ok   - W6 collision: worktree present" || { echo "FAIL - W6 collision: worktree gone"; fail=1; }
 assert "W6 collision: status unchanged" '^doing$' "$(w6_status "$slug")"
 [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 collision: task file byte-identical" || { echo "FAIL - W6 collision: task file changed"; fail=1; }
-[ "$(cat "$(w6_dossier "$slug")/notes.md" "$(w6_dossier "$slug")/scratch/a.txt")" = "$dbefore" ] && echo "ok   - W6 collision: dossier files untouched" || { echo "FAIL - W6 collision: dossier changed"; fail=1; }
+[ "$(cat "$(w6_dossier "$slug")/memo.md" "$(w6_dossier "$slug")/scratch/a.txt")" = "$dbefore" ] && echo "ok   - W6 collision: dossier files untouched" || { echo "FAIL - W6 collision: dossier changed"; fail=1; }
 # identical copies are skipped but still listed as kept
-echo "dossier notes" > "$(w6_wt "$slug")/notes.md"; echo "other" > "$(w6_wt "$slug")/scratch/a.txt"
-out="$(cmd_done "$(session_for "$slug")" --keep notes.md --keep scratch/a.txt 2>&1)"; rc=$?
+echo "dossier memo" > "$(w6_wt "$slug")/memo.md"; echo "other" > "$(w6_wt "$slug")/scratch/a.txt"
+out="$(cmd_done "$(session_for "$slug")" --keep memo.md --keep scratch/a.txt 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   - W6 identical copies: exits 0" || { echo "FAIL - W6 identical copies: exit $rc: $out"; fail=1; }
-assert "W6 identical copies: still listed as kept" '^kept: notes\.md, scratch/a\.txt$' "$(cat "$(w6_file "$slug")")"
-[ "$(cat "$(w6_dossier "$slug")/notes.md")" = "dossier notes" ] && echo "ok   - W6 identical copies: dossier notes.md intact" || { echo "FAIL - W6 identical copies: notes.md changed"; fail=1; }
+assert "W6 identical copies: still listed as kept" '^kept: memo\.md, scratch/a\.txt$' "$(cat "$(w6_file "$slug")")"
+[ "$(cat "$(w6_dossier "$slug")/memo.md")" = "dossier memo" ] && echo "ok   - W6 identical copies: dossier memo.md intact" || { echo "FAIL - W6 identical copies: memo.md changed"; fail=1; }
+
+# --- the queue file merges into the dossier's copy (review round 3, finding 1) --
+qhead() { printf '## 2026-11-0%sT10:00:0%s\n\n%s\n\n' "$1" "$2" "$3"; }
+slug=w6dossier-queuemerge; w6_new "$slug" dossier
+mkdir -p "$(w6_dossier "$slug")"
+{ qhead 1 1 one; qhead 1 2 two; } > "$(w6_dossier "$slug")/.claude-queue.md"
+{ qhead 1 2 two; qhead 1 3 three; qhead 1 4 four; } > "$(w6_wt "$slug")/.claude-queue.md"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - W6 queue merge: exits 0 (a different dossier copy is no collision)" || { echo "FAIL - W6 queue merge: exit $rc: $out"; fail=1; }
+exp="$({ qhead 1 1 one; qhead 1 2 two; qhead 1 3 three; qhead 1 4 four; })"
+[ "$(cat "$(w6_dossier "$slug")/.claude-queue.md")" = "$exp" ] && echo "ok   - W6 queue merge: overlapping block not duplicated, new ones appended in order" || { echo "FAIL - W6 queue merge: got: $(cat "$(w6_dossier "$slug")/.claude-queue.md")"; fail=1; }
+assert "W6 queue merge: handoff still lists the queue file as kept" '^kept: \.claude-queue\.md$' "$(cat "$(w6_file "$slug")")"
+# a second merge of the same worktree file adds nothing (skipped as already there)
+mkdir -p "$FIXTURE_STATE/qagain"; cp "$(w6_dossier "$slug")/.claude-queue.md" "$FIXTURE_STATE/qagain/before"
+mkdir -p "$FIXTURE_STATE/qagain/wt"; { qhead 1 2 two; qhead 1 3 three; qhead 1 4 four; } > "$FIXTURE_STATE/qagain/wt/.claude-queue.md"
+( _wb_done_keep_all "$FIXTURE_STATE/qagain/wt" "$(w6_dossier "$slug")" .claude-queue.md ) >/dev/null 2>&1; rc=$?
+cmp -s "$FIXTURE_STATE/qagain/before" "$(w6_dossier "$slug")/.claude-queue.md" && [ "$rc" -eq 0 ] && echo "ok   - W6 queue merge: running it again changes nothing" || { echo "FAIL - W6 queue merge: second merge changed the file (rc $rc)"; fail=1; }
+# a new block gets appended after a dossier copy with no final newline
+printf '%s' "$(qhead 2 1 nonl)" > "$FIXTURE_STATE/qagain/nonl";
+mkdir -p "$FIXTURE_STATE/qagain/d2"; cp "$FIXTURE_STATE/qagain/nonl" "$FIXTURE_STATE/qagain/d2/.claude-queue.md"
+{ qhead 2 1 nonl; qhead 2 2 more; } > "$FIXTURE_STATE/qagain/wt/.claude-queue.md"
+( _wb_done_keep_all "$FIXTURE_STATE/qagain/wt" "$FIXTURE_STATE/qagain/d2" .claude-queue.md ) >/dev/null 2>&1
+[ "$(grep -c '^## 2026-11-02T' "$FIXTURE_STATE/qagain/d2/.claude-queue.md")" = 2 ] && [ "$(/usr/bin/grep -c 'more' "$FIXTURE_STATE/qagain/d2/.claude-queue.md")" = 1 ] && grep -q '^nonl$' "$FIXTURE_STATE/qagain/d2/.claude-queue.md" && echo "ok   - W6 queue merge: dossier copy without a final newline gets one before the append" || { echo "FAIL - W6 queue merge: no-final-newline case: $(cat "$FIXTURE_STATE/qagain/d2/.claude-queue.md")"; fail=1; }
+
+# identical files: still skipped, still listed as kept
+slug=w6dossier-queuesame; w6_new "$slug" dossier
+mkdir -p "$(w6_dossier "$slug")"; { qhead 1 1 one; } > "$(w6_dossier "$slug")/.claude-queue.md"; cp "$(w6_dossier "$slug")/.claude-queue.md" "$(w6_wt "$slug")/.claude-queue.md"
+cp "$(w6_dossier "$slug")/.claude-queue.md" "$FIXTURE_STATE/qsame.before"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && cmp -s "$FIXTURE_STATE/qsame.before" "$(w6_dossier "$slug")/.claude-queue.md" && echo "ok   - W6 queue identical: exits 0, dossier copy untouched" || { echo "FAIL - W6 queue identical: rc $rc: $out"; fail=1; }
+assert "W6 queue identical: still listed as kept" '^kept: \.claude-queue\.md$' "$(cat "$(w6_file "$slug")")"
+
+# same-second headings with different bodies are both kept
+slug=w6dossier-queuesec; w6_new "$slug" dossier
+mkdir -p "$(w6_dossier "$slug")"; { qhead 1 1 alpha; } > "$(w6_dossier "$slug")/.claude-queue.md"
+{ qhead 1 1 alpha; qhead 1 1 beta; } > "$(w6_wt "$slug")/.claude-queue.md"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$(w6_dossier "$slug")/.claude-queue.md")" = "$({ qhead 1 1 alpha; qhead 1 1 beta; })" ] && echo "ok   - W6 queue same-second: both bodies kept, no duplicate" || { echo "FAIL - W6 queue same-second: rc $rc: $(cat "$(w6_dossier "$slug")/.claude-queue.md")"; fail=1; }
+
+# text before the first heading is a block of its own
+slug=w6dossier-queuepre; w6_new "$slug" dossier
+mkdir -p "$(w6_dossier "$slug")"; { qhead 1 1 alpha; } > "$(w6_dossier "$slug")/.claude-queue.md"
+{ printf 'loose preamble\n'; qhead 1 1 alpha; } > "$(w6_wt "$slug")/.claude-queue.md"
+cmd_done "$(session_for "$slug")" >/dev/null 2>&1
+[ "$(grep -c 'loose preamble' "$(w6_dossier "$slug")/.claude-queue.md")" = 1 ] && [ "$(grep -c alpha "$(w6_dossier "$slug")/.claude-queue.md")" = 1 ] && echo "ok   - W6 queue preamble: kept as its own block" || { echo "FAIL - W6 queue preamble: $(cat "$(w6_dossier "$slug")/.claude-queue.md")"; fail=1; }
+
+# the dossier copy is a directory: still a collision
+slug=w6dossier-queuedir; w6_new "$slug" dossier
+mkdir -p "$(w6_dossier "$slug")/.claude-queue.md"; { qhead 1 1 alpha; } > "$(w6_wt "$slug")/.claude-queue.md"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 queue dir collision: exits 1" || { echo "FAIL - W6 queue dir collision: exit $rc: $out"; fail=1; }
+assert "W6 queue dir collision: a collides: line" "collides: .*dossiers/swp--${slug}/\\.claude-queue\\.md\$" "$out"
+[ -d "$(w6_wt "$slug")" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 queue dir collision: nothing changed" || { echo "FAIL - W6 queue dir collision: state changed"; fail=1; }
+# a different OTHER kept file in the dossier is still a collision (unchanged rule)
+slug=w6dossier-queueother; w6_new "$slug" dossier
+mkdir -p "$(w6_dossier "$slug")/scratch" "$(w6_wt "$slug")/scratch"; echo a > "$(w6_wt "$slug")/scratch/q.md"; echo b > "$(w6_dossier "$slug")/scratch/q.md"
+out="$(cmd_done "$(session_for "$slug")" --keep scratch/q.md 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 queue merge is queue-only: other differing files still collide" || { echo "FAIL - W6 other collision: exit $rc: $out"; fail=1; }
+
+# rollback: a later keeper fails after the queue file was appended to
+if [ "$(id -u)" -ne 0 ]; then
+  slug=w6dossier-queueroll; w6_new "$slug" dossier
+  mkdir -p "$(w6_dossier "$slug")"; { qhead 1 1 one; } > "$(w6_dossier "$slug")/.claude-queue.md"
+  cp "$(w6_dossier "$slug")/.claude-queue.md" "$FIXTURE_STATE/qroll.before"
+  { qhead 1 1 one; qhead 1 2 two; } > "$(w6_wt "$slug")/.claude-queue.md"
+  mkdir -p "$(w6_wt "$slug")/scratch"; echo a > "$(w6_wt "$slug")/scratch/a.txt"; echo b > "$(w6_wt "$slug")/scratch/b.txt"
+  chmod 000 "$(w6_wt "$slug")/scratch/b.txt"
+  out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
+  chmod 644 "$(w6_wt "$slug")/scratch/b.txt"
+  [ "$rc" -eq 1 ] && echo "ok   - W6 queue rollback: exits 1" || { echo "FAIL - W6 queue rollback: exit $rc: $out"; fail=1; }
+  cmp -s "$FIXTURE_STATE/qroll.before" "$(w6_dossier "$slug")/.claude-queue.md" && echo "ok   - W6 queue rollback: the dossier queue file is back to its exact original bytes" || { echo "FAIL - W6 queue rollback: dossier queue file is: $(cat "$(w6_dossier "$slug")/.claude-queue.md")"; fail=1; }
+  assert "W6 queue rollback: says it restored the file" 'restored .*\.claude-queue\.md' "$out"
+  [ ! -e "$(w6_dossier "$slug")/scratch" ] && echo "ok   - W6 queue rollback: new dir removed too" || { echo "FAIL - W6 queue rollback: scratch left"; fail=1; }
+fi
+
+# --- dossier record names are refused as keeps (review round 3, finding 2) ----
+slug=w6dossier-recname; w6_new "$slug" dossier
+mkdir -p "$(w6_wt "$slug")/decisions" "$(w6_wt "$slug")/scratch"
+echo d > "$(w6_wt "$slug")/decisions/d.md"; echo n > "$(w6_wt "$slug")/notes.md"; echo s > "$(w6_wt "$slug")/scratch/notes.md"
+before="$(cat "$(w6_file "$slug")")"
+out="$(cmd_done "$(session_for "$slug")" --keep decisions --throwaway notes.md --throwaway scratch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 record name decisions: stops" || { echo "FAIL - W6 record name decisions: exit $rc: $out"; fail=1; }
+assert "W6 record name decisions: unknown with the note" 'unknown: decisions/ — a dossier record name; rename it first' "$out"
+out="$(cmd_done "$(session_for "$slug")" --keep notes.md --throwaway decisions --throwaway scratch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "ok   - W6 record name notes.md: stops" || { echo "FAIL - W6 record name notes.md: exit $rc: $out"; fail=1; }
+assert "W6 record name notes.md: unknown with the note" 'unknown: notes\.md — a dossier record name; rename it first' "$out"
+[ -d "$(w6_wt "$slug")" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && [ ! -e "$(w6_dossier "$slug")/notes.md" ] && echo "ok   - W6 record names: nothing changed" || { echo "FAIL - W6 record names: state changed"; fail=1; }
+out="$(cmd_done "$(session_for "$slug")" --keep scratch/notes.md --throwaway notes.md --throwaway decisions 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$(w6_dossier "$slug")/scratch/notes.md" 2>/dev/null)" = s ] && echo "ok   - W6 record names: scratch/notes.md (not top level) is still kept" || { echo "FAIL - W6 scratch/notes.md: exit $rc: $out"; fail=1; }
 
 # --- more collision shapes (all stop before anything changes) ---------------
 # (1) --keep scratch onto an existing dossier/scratch merges: no scratch/scratch
@@ -644,16 +734,16 @@ out="$(cmd_done "$(session_for "$slug")" --keep scratch 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && echo "ok   - W6 file-vs-dir collision: exits 1" || { echo "FAIL - W6 file-vs-dir: exit $rc: $out"; fail=1; }
 assert "W6 file-vs-dir collision: a collides: line" "collides: .*dossiers/swp--${slug}/scratch\$" "$out"
 [ -f "$(w6_wt "$slug")/scratch/a.txt" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 file-vs-dir collision: worktree and task file intact" || { echo "FAIL - W6 file-vs-dir: state changed"; fail=1; }
-# (3) dossier/handoffs is a regular file and --keep handoffs/x.txt
-printf 'handoffs/\n' >> "$SWP/.git/info/exclude"
+# (3) dossier/extra is a regular file and --keep extra/x.txt
+printf 'extra/\n' >> "$SWP/.git/info/exclude"
 slug=w6dossier-ancfile; w6_new "$slug" dossier
-mkdir -p "$(w6_wt "$slug")/handoffs"; echo x > "$(w6_wt "$slug")/handoffs/x.txt"
-mkdir -p "$(w6_dossier "$slug")"; echo "i am a file" > "$(w6_dossier "$slug")/handoffs"
+mkdir -p "$(w6_wt "$slug")/extra"; echo x > "$(w6_wt "$slug")/extra/x.txt"
+mkdir -p "$(w6_dossier "$slug")"; echo "i am a file" > "$(w6_dossier "$slug")/extra"
 before="$(cat "$(w6_file "$slug")")"
-out="$(cmd_done "$(session_for "$slug")" --keep handoffs/x.txt 2>&1)"; rc=$?
+out="$(cmd_done "$(session_for "$slug")" --keep extra/x.txt 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && echo "ok   - W6 file-ancestor collision: exits 1" || { echo "FAIL - W6 file-ancestor: exit $rc: $out"; fail=1; }
-assert "W6 file-ancestor collision: a collides: line naming handoffs" "collides: .*dossiers/swp--${slug}/handoffs\$" "$out"
-[ -f "$(w6_wt "$slug")/handoffs/x.txt" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 file-ancestor collision: worktree and task file intact" || { echo "FAIL - W6 file-ancestor: state changed"; fail=1; }
+assert "W6 file-ancestor collision: a collides: line naming extra" "collides: .*dossiers/swp--${slug}/extra\$" "$out"
+[ -f "$(w6_wt "$slug")/extra/x.txt" ] && [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 file-ancestor collision: worktree and task file intact" || { echo "FAIL - W6 file-ancestor: state changed"; fail=1; }
 # (4) the dossier path itself is a regular file
 slug=w6dossier-selffile; w6_new "$slug" dossier
 printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
@@ -735,7 +825,7 @@ POPUP_OUT="$FIXTURE_STATE/w6-popup"; : > "$POPUP_OUT"
 tmux() {   # stub only display-popup; everything else is the real tmux
   if [ "${1:-}" = display-popup ]; then
     local last="${*: -1}" pf
-    pf="$(printf '%s' "$last" | sed -n 's/^cat "\([^"]*\)".*/\1/p')"
+    pf="$(printf '%s' "$last" | sed -n 's/^cat \([^;]*\);.*/\1/p')"
     [ -f "$pf" ] && cat "$pf" >> "$POPUP_OUT"
     return 0
   fi
@@ -769,7 +859,7 @@ before="$(cat "$(w6_file "$slug")")"
 tmux() {
   if [ "${1:-}" = display-popup ]; then
     local last="${*: -1}" pf
-    pf="$(printf '%s' "$last" | sed -n 's/^cat "\([^"]*\)".*/\1/p')"
+    pf="$(printf '%s' "$last" | sed -n 's/^cat \([^;]*\);.*/\1/p')"
     [ -f "$pf" ] && cat "$pf" >> "$POPUP_OUT"
     return 0
   fi
@@ -792,15 +882,50 @@ out="$(_ctrl_x_done "$(session_for "$slug")" 2>&1)"; rc=$?
 assert "ctrl-x success: prints cmd_done's output" 'wb done: .* worktree removed' "$out"
 assert "ctrl-x success: task done" '^done$' "$(w6_status "$slug")"
 
-# (c) the popup's temp file is removed once the popup returns
+# (c) the popup shows its temp file and removes it itself; ctrl-x leaves it alone
+# when the popup ran. The shim runs the popup command string through sh -c.
 slug=w6dossier-tmpclean; w6_new "$slug" dossier
 mkdir -p "$(w6_wt "$slug")/scratch"; echo x > "$(w6_wt "$slug")/scratch/n.txt"
-W6_TMP="$FIXTURE_STATE/w6-tmpdir"; mkdir -p "$W6_TMP"
-tmux() { if [ "${1:-}" = display-popup ]; then ls "$W6_TMP"/wb-done-stop.* >/dev/null 2>&1 && : > "$W6_TMP/popup-saw-file"; return 0; fi; command tmux "$@"; }
+W6_TMP="$FIXTURE_STATE/w6-tmpdir"; mkdir -p "$W6_TMP"; : > "$W6_TMP/popup-shown"
+tmux() {
+  if [ "${1:-}" = display-popup ]; then
+    local last="${*: -1}"
+    ls "$W6_TMP"/wb-done-stop.* >/dev/null 2>&1 && : > "$W6_TMP/popup-saw-file"
+    sh -c "$last" < /dev/null > "$W6_TMP/popup-shown" 2>&1
+    return 0
+  fi
+  command tmux "$@"
+}
 TMPDIR="$W6_TMP" _ctrl_x_done "$(session_for "$slug")" >/dev/null 2>&1
 unset -f tmux
-[ -e "$W6_TMP/popup-saw-file" ] && echo "ok   - ctrl-x temp file: existed while the popup ran" || { echo "FAIL - ctrl-x temp file: not there during the popup"; fail=1; }
-ls "$W6_TMP"/wb-done-stop.* >/dev/null 2>&1 && { echo "FAIL - ctrl-x temp file: left behind"; fail=1; } || echo "ok   - ctrl-x temp file: removed after the popup"
+[ -e "$W6_TMP/popup-saw-file" ] && echo "ok   - ctrl-x temp file: existed when the popup started" || { echo "FAIL - ctrl-x temp file: not there when the popup started"; fail=1; }
+assert "ctrl-x temp file: the popup showed the stop text" 'unknown: scratch/n\.txt' "$(cat "$W6_TMP/popup-shown")"
+ls "$W6_TMP"/wb-done-stop.* >/dev/null 2>&1 && { echo "FAIL - ctrl-x temp file: left behind"; fail=1; } || echo "ok   - ctrl-x temp file: removed by the popup command"
+# a popup that never runs (the shim ignores it): the file stays, because the popup owns the removal
+tmux() { if [ "${1:-}" = display-popup ]; then return 0; fi; command tmux "$@"; }
+TMPDIR="$W6_TMP" _ctrl_x_done "$(session_for "$slug")" >/dev/null 2>&1
+unset -f tmux
+ls "$W6_TMP"/wb-done-stop.* >/dev/null 2>&1 && echo "ok   - ctrl-x temp file: not removed by ctrl-x when the popup ran" || { echo "FAIL - ctrl-x temp file: ctrl-x removed it though the popup ran"; fail=1; }
+rm -f "$W6_TMP"/wb-done-stop.*
+# display-popup fails: ctrl-x removes the file itself, and shows the message
+tmux() { case "${1:-}" in display-popup) return 1 ;; display-message) [ "${2:-}" = -d ] && return 0; command tmux "$@" ;; *) command tmux "$@" ;; esac; }
+TMPDIR="$W6_TMP" _ctrl_x_done "$(session_for "$slug")" >/dev/null 2>&1
+unset -f tmux
+ls "$W6_TMP"/wb-done-stop.* >/dev/null 2>&1 && { echo "FAIL - ctrl-x temp file: left behind after a failed popup"; fail=1; } || echo "ok   - ctrl-x temp file: removed by ctrl-x when the popup failed"
+# a TMPDIR with a space and a $: the quoted path still shows and removes the file
+W6_TMP2="$FIXTURE_STATE/w6 tmp \$dir"; mkdir -p "$W6_TMP2"
+tmux() {
+  if [ "${1:-}" = display-popup ]; then
+    local last="${*: -1}"
+    sh -c "$last" < /dev/null > "$W6_TMP2/popup-shown.txt" 2>&1
+    return 0
+  fi
+  command tmux "$@"
+}
+TMPDIR="$W6_TMP2" _ctrl_x_done "$(session_for "$slug")" >/dev/null 2>&1
+unset -f tmux
+assert "ctrl-x odd TMPDIR (space and \$): the popup showed the stop text" 'unknown: scratch/n\.txt' "$(cat "$W6_TMP2/popup-shown.txt")"
+ls "$W6_TMP2"/wb-done-stop.* >/dev/null 2>&1 && { echo "FAIL - ctrl-x odd TMPDIR: temp file left behind"; fail=1; } || echo "ok   - ctrl-x odd TMPDIR: temp file removed"
 
 # (d) mktemp fails (TMPDIR missing): the text goes to display-message
 tmux() { if [ "${1:-}" = display-message ] && [ "${2:-}" = -d ]; then printf '%s' "$4" >> "$POPUP_OUT.msg"; return 0; fi; command tmux "$@"; }

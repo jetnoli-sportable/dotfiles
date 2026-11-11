@@ -6133,6 +6133,12 @@ _wb_sweep_esc() {
 # symlinks are inspected, never followed).
 _wb_sweep_keepcheck() {
   local wt="$1" rel="$2" wt_real f part rest="$2"
+  # The dossier's own records live at its top level; a keeper by one of those
+  # names would be copied over (or collide with) them.
+  case "${rel%%/*}" in
+    decisions|handoffs|open-items|brief.md|concepts.md|CONCEPTS.md|notes.md|index.md|decisions.md|handoffs.md)
+      echo "a dossier record name; rename it first"; return 1 ;;
+  esac
   while :; do
     part="${rest%%/*}"
     if wb_credential_shaped "$part"; then
@@ -6742,6 +6748,50 @@ _wb_done_leaf_state() {
   return 1
 }
 
+# _wb_queue_parse <file> <array name> — split a queue file into blocks: a
+# heading line (^## YYYY-MM-DDT, what claude-tmux's queue.lua writes) plus every
+# line up to the next heading or EOF; any non-blank text before the first
+# heading is a block of its own. Each element keeps its text, newline-ended.
+_wb_queue_parse() {
+  local -n _qp_out="$2"
+  local _qp_line _qp_cur=""
+  _qp_out=()
+  while IFS= read -r _qp_line || [ -n "$_qp_line" ]; do
+    if [[ $_qp_line =~ ^##\ [0-9]{4}-[0-9]{2}-[0-9]{2}T ]]; then
+      [[ $_qp_cur == *[![:space:]]* ]] && _qp_out+=("$_qp_cur")
+      _qp_cur=""
+    fi
+    _qp_cur+="$_qp_line"$'\n'
+  done < "$1"
+  [[ $_qp_cur == *[![:space:]]* ]] && _qp_out+=("$_qp_cur")
+  return 0
+}
+
+# _wb_qkey <block> — set _wb_qkey_out to the block's match key: its whole text
+# without trailing blank lines.
+_wb_qkey() { _wb_qkey_out="$1"; while [[ $_wb_qkey_out == *$'\n\n' ]]; do _wb_qkey_out="${_wb_qkey_out%$'\n'}"; done; }
+
+# _wb_queue_new_blocks <src> <dest> — set the global _wb_qnew to the text of
+# every block of <src> that <dest> does not already hold, in <src>'s order.
+# Blocks match on their whole text (heading and body), so a block that sits
+# last in one file and mid-file in the other still matches, and two stashes
+# from the same second stay distinct.
+_wb_queue_new_blocks() {
+  local -a sb=() db=()
+  local -A have=()
+  local b
+  _wb_qnew=""
+  _wb_queue_parse "$1" sb; _wb_queue_parse "$2" db
+  for b in ${db[@]+"${db[@]}"}; do _wb_qkey "$b"; have["$_wb_qkey_out"]=1; done
+  for b in ${sb[@]+"${sb[@]}"}; do
+    _wb_qkey "$b"
+    [ -n "${have[$_wb_qkey_out]+x}" ] && continue
+    have["$_wb_qkey_out"]=1
+    _wb_qnew+="$b"
+  done
+  return 0
+}
+
 # _wb_done_keep_state <worktree> <dossier> <rel> — what copying <rel> into the
 # dossier would do. Prints each colliding dossier path (relative to the
 # dossier) on stdout. Returns 1 on any collision, 0 when something needs
@@ -6766,6 +6816,13 @@ _wb_done_keep_state() {
     fi
   fi
   if [ ! -e "$dest" ] && [ ! -L "$dest" ]; then return 0; fi
+  # The queue file is the one keeper that merges: a different dossier copy is
+  # not a collision, the worktree's new blocks get appended to it.
+  if [ "$rel" = .claude-queue.md ] && [ -f "$src" ] && [ ! -L "$src" ] && [ -f "$dest" ] && [ ! -L "$dest" ]; then
+    _wb_queue_new_blocks "$src" "$dest"
+    [ -n "$_wb_qnew" ] && return 0
+    return 2
+  fi
   if [ -d "$src" ] && [ ! -L "$src" ]; then
     if [ ! -d "$dest" ] || [ -L "$dest" ]; then echo "$rel"; return 1; fi
     while IFS= read -r -d '' f; do
@@ -6796,6 +6853,13 @@ _wb_done_keep_state() {
 # directory that already existed (<top> empty), say its partial files may remain.
 _wb_done_keep_rollback() {
   local rel="$1" dest="$2" top="$3" i; shift 3
+  # An appended dossier queue file (the caller's qdest/qsize) goes back to the
+  # exact size it had before the append.
+  if [ -n "${qdest:-}" ] && truncate -s "$qsize" -- "$qdest" 2>/dev/null; then
+    echo "wb done: restored $qdest to its previous content" >&2
+  elif [ -n "${qdest:-}" ]; then
+    echo "wb done: could not restore $qdest to $qsize bytes; blocks this run appended may remain" >&2
+  fi
   for ((i = $#; i >= 1; i--)); do
     rm -rf -- "${!i}"
   done
@@ -6803,7 +6867,7 @@ _wb_done_keep_rollback() {
     echo "wb done: removed what this run had copied into the dossier ($#):" >&2
     for ((i = 1; i <= $#; i++)); do echo "  removed: ${!i}" >&2; done
   fi
-  [ -n "$top" ] || echo "wb done: keeper $rel failed partway into a dossier directory that already existed; partial files from it may remain under $dest" >&2
+  [ -n "$top" ] || [ "$rel" = "${qrel:-}" ] || echo "wb done: keeper $rel failed partway into a dossier directory that already existed; partial files from it may remain under $dest" >&2
   return 0
 }
 
@@ -6839,10 +6903,20 @@ _wb_done_keep_all() {
   # directory, or a missing parent chain). Nothing that existed before the run
   # is ever removed; a directory merged into an existing one can't be undone
   # file by file, so it is only reported.
-  local src dest p top
+  local src dest p top qdest="" qsize="" qrel=""
   local -a created=()
   for rel in ${todo[@]+"${todo[@]}"}; do
     src="$wt/$rel"; dest="$dossier/$rel"
+    if [ "$rel" = .claude-queue.md ] && [ -f "$src" ] && [ ! -L "$src" ] && [ -f "$dest" ] && [ ! -L "$dest" ]; then
+      # Merge: append the worktree's new blocks (see _wb_done_keep_state).
+      _wb_queue_new_blocks "$src" "$dest"
+      qdest="$dest"; qsize="$(wc -c < "$dest")"; qsize="${qsize//[[:space:]]/}"; qrel="$rel"
+      if ! { { [ ! -s "$dest" ] || [ "$(tail -c1 -- "$dest" | wc -l)" -gt 0 ] || printf '\n'; } && printf '%s' "$_wb_qnew"; } >> "$dest"; then
+        echo "wb done: appending $rel to $dossier failed" >&2
+        _wb_done_keep_rollback "$rel" "$dest" "" ${created[@]+"${created[@]}"}; return 1
+      fi
+      continue
+    fi
     p="$dest"; top=""
     while [ ! -e "$p" ] && [ ! -L "$p" ]; do top="$p"; p="$(dirname -- "$p")"; done
     [ -n "$top" ] && created+=("$top")
@@ -8631,9 +8705,11 @@ _ctrl_x_done() {
   f="$(mktemp "${TMPDIR:-/tmp}/wb-done-stop.XXXXXX" 2>/dev/null)" || f=""
   if [ -n "$f" ]; then
     printf '%s\n' "$out" > "$f"
-    tmux display-popup -E -w 90% -h 70% "cat \"$f\"; printf '\\n[press enter]'; read -r _" 2>/dev/null \
-      || tmux display-message -d 0 "$msg" 2>/dev/null || true
-    rm -f -- "$f"
+    # The popup removes its own file once shown (it may outlive this function);
+    # only when no popup could be opened is the file removed here.
+    local qf; qf="$(printf %q "$f")"
+    tmux display-popup -E -w 90% -h 70% "cat $qf; rm -f -- $qf; printf '\\n[press enter]'; read -r _" 2>/dev/null \
+      || { rm -f -- "$f"; tmux display-message -d 0 "$msg" 2>/dev/null || true; }
   else
     tmux display-message -d 0 "$msg" 2>/dev/null || true
   fi
