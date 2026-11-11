@@ -117,7 +117,6 @@ LIVE_FILES=(
   "$REPO_ROOT/scripts/.config/scripts/tmux/wb.sh"
   "$REPO_ROOT/claude/.claude/skills/close-out/SKILL.md"
   "$REPO_ROOT/claude/.claude/skills/quick-wins/SKILL.md"
-  "$REPO_ROOT/claude/.claude/skills/wb-done/SKILL.md"
   "$REPO_ROOT/claude/.claude/skills/review-page/SKILL.md"
   "$REPO_ROOT/docs/wb-guide.md"
   "$REPO_ROOT/docs/glossary.md"

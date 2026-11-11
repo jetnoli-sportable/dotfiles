@@ -4084,7 +4084,7 @@ cmd_unsafe_rewind() {
 # shim over the shared decision-buffer script
 # (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which owns the
 # tmux-split + wait-for recipe (and its channel-uniqueness rule) for every
-# caller of it — decision-buffer, wb-done, parked-items, wb.sh's own
+# caller of it — decision-buffer, `wb done --review`, parked-items, wb.sh's own
 # internal callers below. See
 # ~/.claude/skills/decision-buffer/references/mechanism.md for the full
 # contract. A missing or non-executable script (a stale, un-restowed
@@ -8642,8 +8642,8 @@ _new() {
 #
 # Every task row asks first (_ctrl_x_confirm): one stray ctrl-x on the
 # picker closed a task mid-review on 2026-10-26, removing its worktree
-# (dotfiles--fix-propagation-peer-filter). Typed `wb done` and the /wb-done
-# skill stay unprompted; repo and agent rows too.
+# (dotfiles--fix-propagation-peer-filter). Typed `wb done` and close-out's
+# `wb done` stay unprompted; repo and agent rows too.
 _ctrl_x() {
   local kind="$1" session="$2" target="$3" ref="${4:-}"
   case "$kind" in
