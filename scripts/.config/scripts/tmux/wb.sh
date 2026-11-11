@@ -5367,7 +5367,11 @@ _wb_tags_merge() {
 # a stale value has to be correctable before the worktree exists. pr: is the
 # task's GitHub PR URLs, read by generated status pages (e.g. a ladder's
 # per-ticket Status cell) — a task often spans several PRs across repos.
-WB_SET_FIELDS="priority value size parent depends_on jira pr tags path branch"
+# rung: names the rung of the parent's ladder.md this child works on (the
+# rung's `### ` heading, e.g. `wb done rework`); wb-store matches it case-
+# and punctuation-insensitively and the page server's Plan view groups
+# children by it.
+WB_SET_FIELDS="priority value size parent depends_on jira pr tags path branch rung"
 
 # cmd_set <task-ref> <field> <value> — resolves <task-ref> the same way
 # cmd_status does (_wb_append_resolve_task), refuses a field this verb
@@ -5401,7 +5405,7 @@ cmd_set() {
       echo "wb set: '$field' is not settable via \`wb set\` (tooling-owned field)" >&2
       exit 1
       ;;
-    priority|value|size|parent|depends_on|jira|pr|tags|path|branch)
+    priority|value|size|parent|depends_on|jira|pr|tags|path|branch|rung)
       ;;
     *)
       echo "wb set: unknown field '$field' (allowed: $WB_SET_FIELDS)" >&2
@@ -5493,7 +5497,7 @@ cmd_set() {
         _wb_set_ref="$(git -C / check-ref-format --branch "$value" 2>/dev/null)" && [ "$_wb_set_ref" = "$value" ] \
           || { echo "wb set: branch '$value' is not a valid git branch name" >&2; exit 1; }
         ;;
-      tags|path) ;;   # free text — no enum, no existence check
+      tags|path|rung) ;;   # free text — no enum, no existence check
     esac
   fi
   _wb_frontmatter_value_ok "wb set" "$field" "$value" || exit 1
@@ -5502,8 +5506,11 @@ cmd_set() {
   file="$(_wb_append_resolve_task "$query" "wb set")" || exit 1
 
   # Refuse when a live session's @task already points at this file — this
-  # verb is for store-only tasks.
-  _wb_refuse_if_live_session "$file" "wb set"
+  # verb is for store-only tasks. rung: is the exception: the coordinator
+  # places a child on its parent's ladder while the child is mid-work, the
+  # child's own session never writes that line, and the write below is
+  # under the task lock like every other locked verb's.
+  [ "$field" = "rung" ] || _wb_refuse_if_live_session "$file" "wb set"
 
   # Locked BEFORE `old` is read — not just before the write. For every
   # field except tags, `old` is used only for the no-op check and the
