@@ -121,9 +121,11 @@ practice: most real stashes land in a worktree that predates this feature,
 or predates that repo's most recent `wb new`, and would otherwise never
 get registered.
 
-When `wb done` runs on a worktree with a non-empty queue file, it shows up
-in the task file's `## Sweep` checklist exactly like any other gitignored
-file — no queue-specific teardown code exists or is needed.
+When `wb done` runs on a worktree with a queue file, it keeps the file: the
+file is copied into the task's dossier (`~/code/tasks/dossiers/<task>/`)
+because `wb-done-sweep.list` marks `.claude-queue.md` as a keeper. If the
+dossier already holds a queue file (from an earlier close of the same task),
+`wb done` appends the entries the dossier copy lacks instead of stopping.
 
 ## Sending context — `context.lua`
 

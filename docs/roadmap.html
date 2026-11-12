@@ -436,7 +436,10 @@ claim is always a waits-on link — <code>needs: &lt;item&gt;</code>, <code>cloc
 on each linked recap page; these no longer take a queue/live/parked slot.
 Also landed inline, without their own row: <code>wb done --close</code> plus a guard
 against self-killing the calling session (PR #19), and a fix stopping the
-sweep-review buffer from autoformatting itself (PR #27).</p>
+sweep-review buffer from autoformatting itself (PR #27). 2026-11-11: <code>wb done</code>
+no longer opens a buffer by default and sorts gitignored files into keep, throwaway
+and unknown (W5 and W6, the <code>wb done</code> rework); its Claude skill is retired and
+<code>/close-out</code> runs <code>wb done</code> directly (W7).</p>
 <ul>
 <li><a id="detail-step-zero"></a><strong>Step zero</strong> (hooks, alias cleanup) — attention-pipeline hooks wired, dead <code>n</code> alias removed.</li>
 <li><a id="detail-task-store-frontmatter"></a><strong>Central task store + frontmatter</strong> — <a href="archive/roadmap-wb-design.html">wb design</a></li>
@@ -444,7 +447,7 @@ sweep-review buffer from autoformatting itself (PR #27).</p>
 <li><a id="detail-notes-tui-4a"></a><strong>Notes-tui integration, 4a</strong> (capture) — <a href="archive/slice-4b-deep-dive.html">deep dive</a></li>
 <li><a id="detail-docs-platform"></a><strong>Docs platform</strong> (generated pages, Hub, INDEX, <code>/help</code>) — <a href="docgen.html">docgen</a> · <a href="archive/slice-5-recap.html">slice-5 recap</a></li>
 <li><a id="detail-guide-pages-hub"></a><strong>Per-skill/TUI guide pages + tile dashboard</strong> — <code>docs/guides/*</code> · <a href="archive/slice-5-recap.html">slice-5 recap</a></li>
-<li><a id="detail-hub-v0"></a><strong>Hub v0</strong> (meta-documentation bundle) — glossary, limitations, ceremonies pages, the <code>/board</code> tile, the roadmap reshape, and the <code>wb-save</code>/<code>wb-resume</code>/<code>wb-done</code>/<code>wb-board</code> skill catalog; U5/U6 artifact index deferred — PR #18</li>
+<li><a id="detail-hub-v0"></a><strong>Hub v0</strong> (meta-documentation bundle) — glossary, limitations, ceremonies pages, the <code>/board</code> tile, the roadmap reshape, and the <code>wb-save</code>/<code>wb-resume</code>/<code>wb-board</code> skill catalog (and a done skill, since retired); U5/U6 artifact index deferred — PR #18</li>
 <li><a id="detail-board-html"></a><strong><code>/board</code></strong> — full HTML task-board view — <a href="archive/pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="archive/roadmap-board.html">detail</a> — PR #14</li>
 <li><a id="detail-wb-pause"></a><strong><code>wb pause</code></strong> (new status + subcommand + keybind) — <a href="archive/pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="archive/roadmap-board.html">detail</a> — PR #14</li>
 <li><a id="detail-wb-reconcile-core"></a><strong><code>wb reconcile</code></strong> — drift detection + review/apply flow — <a href="archive/pr1-wb-workbench-recap.html">PR #1 recap</a> · <a href="archive/roadmap-wb-reconcile.html">detail</a> — PR #14</li>

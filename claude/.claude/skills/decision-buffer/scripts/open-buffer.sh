@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # open-buffer.sh — the bundled tmux open/wait/reattach/fallback recipe for
 # the decision-buffer skill (and anything else that needs a blocking,
-# agent-resumable nvim buffer: wb-done, wb-breakdown, wb-jira-create,
+# agent-resumable nvim buffer: `wb done --review`, wb-breakdown, wb-jira-create,
 # wb_open_buffer() in wb.sh).
 #
 # One executable implementation instead of the recipe copied as prose in

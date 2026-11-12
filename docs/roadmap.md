@@ -155,7 +155,10 @@ Considered, and decided against — kept here so the reasoning isn't lost.
 on each linked recap page; these no longer take a queue/live/parked slot.
 Also landed inline, without their own row: `wb done --close` plus a guard
 against self-killing the calling session (PR #19), and a fix stopping the
-sweep-review buffer from autoformatting itself (PR #27).
+sweep-review buffer from autoformatting itself (PR #27). 2026-11-11: `wb done`
+no longer opens a buffer by default and sorts gitignored files into keep, throwaway
+and unknown (W5 and W6, the `wb done` rework); its Claude skill is retired and
+`/close-out` runs `wb done` directly (W7).
 
 - <a id="detail-step-zero"></a>**Step zero** (hooks, alias cleanup) — attention-pipeline hooks wired, dead `n` alias removed.
 - <a id="detail-task-store-frontmatter"></a>**Central task store + frontmatter** — [wb design](archive/roadmap-wb-design.html)
@@ -163,7 +166,7 @@ sweep-review buffer from autoformatting itself (PR #27).
 - <a id="detail-notes-tui-4a"></a>**Notes-tui integration, 4a** (capture) — [deep dive](archive/slice-4b-deep-dive.html)
 - <a id="detail-docs-platform"></a>**Docs platform** (generated pages, Hub, INDEX, `/help`) — [docgen](docgen.html) · [slice-5 recap](archive/slice-5-recap.html)
 - <a id="detail-guide-pages-hub"></a>**Per-skill/TUI guide pages + tile dashboard** — `docs/guides/*` · [slice-5 recap](archive/slice-5-recap.html)
-- <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) — glossary, limitations, ceremonies pages, the `/board` tile, the roadmap reshape, and the `wb-save`/`wb-resume`/`wb-done`/`wb-board` skill catalog; U5/U6 artifact index deferred — PR #18
+- <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) — glossary, limitations, ceremonies pages, the `/board` tile, the roadmap reshape, and the `wb-save`/`wb-resume`/`wb-board` skill catalog (and a done skill, since retired); U5/U6 artifact index deferred — PR #18
 - <a id="detail-board-html"></a>**`/board`** — full HTML task-board view — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](archive/roadmap-board.html) — PR #14
 - <a id="detail-wb-pause"></a>**`wb pause`** (new status + subcommand + keybind) — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](archive/roadmap-board.html) — PR #14
 - <a id="detail-wb-reconcile-core"></a>**`wb reconcile`** — drift detection + review/apply flow — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](archive/roadmap-wb-reconcile.html) — PR #14

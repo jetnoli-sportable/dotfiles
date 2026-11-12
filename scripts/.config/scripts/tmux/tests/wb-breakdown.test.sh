@@ -817,11 +817,8 @@ exec "$REAL_TMUX" -L "$SOCK" "\$@"
 EOF
 chmod +x "$FIXTURE_BIN/tmux"
 PATH="$FIXTURE_BIN:$PATH"
-# No interactive nvim in a test run: cmd_done's Sweep flow appends "- [ ]
-# keep <f>" lines then blocks on wb_open_buffer — auto-check every one,
-# simulating "the user kept everything," so the dossier-copy path is
-# actually exercised instead of silently no-op'd.
-wb_open_buffer() { sed -i 's/^- \[ \] keep /- [x] keep /' "$1"; }
+# wb done opens no buffer unless --review is passed; fail loudly if it does.
+wb_open_buffer() { echo "FAIL - wb_open_buffer called without --review" >&2; return 1; }
 wb_bootstrap() { :; }     # no .worktree-bootstrap fixture needed for these scenarios
 
 mk_task_file() { # <stem> <status> <repo> <branch> <worktree> <parent>
@@ -834,8 +831,8 @@ mk_task_file() { # <stem> <status> <repo> <branch> <worktree> <parent>
 git -C "$FIXTURE_CODE/proj" worktree add -q -b feat-family ".worktrees/feat-family" >/dev/null 2>&1
 mk_task_file proj--feat-family doing proj "" "" ""   # migrated: branch:/worktree: blanked
 mk_task_file proj--feat-family-child doing proj feat-family .worktrees/feat-family proj--feat-family
-# a gitignored keeper file so the Sweep flow actually exercises the dossier
-# path (rather than skipping it entirely on a clean worktree). Via
+# a gitignored keeper file (kept with --keep below) so the copy actually
+# exercises the dossier path (rather than skipping it entirely on a clean worktree). Via
 # .git/info/exclude (shared across every worktree of this repo, unlike a
 # tracked .gitignore, which would need to predate the branch point) so
 # `feat-family`'s checkout picks it up regardless of branch history.
@@ -848,7 +845,7 @@ tmux set-option -t "=$fam_session:" @wb_repo proj >/dev/null      # STALE — th
 tmux set-option -t "=$fam_session:" @wb_slug feat-family >/dev/null
 tmux set-option -t "=$fam_session:" @task "$TASKS_DIR/proj--feat-family-child.md" >/dev/null
 
-out_fam="$(cmd_done "$fam_session" 2>&1)"; rc_fam=$?
+out_fam="$(cmd_done "$fam_session" --keep scratch-notes.txt 2>&1)"; rc_fam=$?
 assert_eq "migrated family: cmd_done exits 0" 0 "$rc_fam"
 assert_eq "migrated family: CHILD flipped to done" "done" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-family-child.md" status)"
 assert_eq "migrated family: PARENT untouched (still doing)" "doing" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-family.md" status)"

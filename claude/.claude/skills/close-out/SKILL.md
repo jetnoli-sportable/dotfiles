@@ -1,6 +1,6 @@
 ---
 name: close-out
-description: End-of-session wind-down for a wb task — sweep the session for anything worth a follow-up task or a park note, fold the session's real Decisions/Done/Follow-ups into the task file, then either `wb down` (worktree kept, warm resume — when the branch has an open PR) or `wb done` (via the wb-done skill's background+relay mechanism, to remove the worktree and flip the task to done). Use when the user asks "anything deserving a task or discussion", "wb done and close this out", "wrap this up, what am I missing", "close out this worktree", or types /close-out. Composes wb-done for the wb-done exit rather than reimplementing its async nvim-buffer handling.
+description: End-of-session wind-down for a wb task — sweep the session for anything worth a follow-up task or a park note, fold the session's real Decisions/Done/Follow-ups into the task file, then either `wb down` (worktree kept, warm resume — when the branch has an open PR) or `wb done` (run directly in the foreground, to remove the worktree and flip the task to done; its output is relayed as it is). Use when the user asks "anything deserving a task or discussion", "wb done and close this out", "wrap this up, what am I missing", "close out this worktree", or types /close-out. Also the place for winding down other sessions with `wb done --close <session>`.
 ---
 
 # close-out
@@ -27,24 +27,22 @@ threads, then the wind-down, in that order, because the sweep has to happen
   `decisions/` and `open-items/` instead, and there is no `## Done`; what shipped
   goes in the closing handoff. See `docs/wb-guide.md`, "Dossier layout (trial)".) Never touches `## Handoffs` (that section is
   `/wb-save`'s and `wb.sh`'s own append point, written right before a manual
-  `/clear` — a different moment than this one) and never touches `## Sweep`
-  (that section is `wb done`'s own gitignored-files review, written by the
-  wind-down step this skill launches, not by this skill directly).
+  `/clear` — a different moment than this one; `wb done` writes its own closing
+  entry there).
 - **Creates new task files** in `~/code/tasks/` for follow-ups substantial
   enough to need their own plan, and **hands a one-line reminder to `/park`**
   for anything lighter. See "Routing a loose thread" below for which is
   which — don't default to the heavier option out of caution; task-file
   sprawl is its own cost.
-- **Delegates the actual wind-down to the `wb-done` skill's mechanism**,
-  verbatim (background Bash, no polling, relay the outcome as-is). This
-  skill does not open its own copy of that async-nvim-buffer problem — see
-  `wb-done/SKILL.md`'s "Why this needs to exist at all" for why a plain
-  synchronous `wb done` call would hang the turn.
-- **Does not decide `--close` on its own.** Same rule as `wb-done` for the
-  caller's own session, which is the only one this skill winds down: only
-  pass it when the user's own words in *this* invocation ask for it. (The
-  `wb-done` skill's default of `--close` applies only when winding down
-  *another* session, such as a batch of finished workers.)
+- **Runs `wb done` itself, in the foreground.** `wb done` opens no editor
+  unless `--review` is passed, so the call returns on its own. This skill
+  never passes `--review`. It relays `wb done`'s output as printed and adds
+  nothing to it.
+- **Does not decide `--close` on its own.** For the caller's own session
+  (the one this skill winds down), pass it only when the user's own words in
+  *this* invocation ask for it. For *another* session, such as a batch of
+  finished workers, `--close` is the default; see "Winding down other
+  sessions" below.
 
 ## Flow
 
@@ -184,11 +182,10 @@ down this task premature or would get silently lost with it:
 - **Other live panes/windows in this same tmux session** — a co-located
   `/handoff-pane` helper, an nvim buffer with unsaved edits. `wb done`'s own
   dirty-tree check only looks at `git status --porcelain` (on-disk state);
-  it cannot see an unsaved-but-never-written buffer in another window, and
-  (per `wb-done/SKILL.md`'s own `--close` hazard section) a `--close`
-  wind-down would take that window down with the session, no confirmation.
-  If one exists, say so before proceeding — don't just let `wb done` roll
-  over it.
+  it cannot see an unsaved-but-never-written buffer in another window, and a
+  `--close` wind-down would take that window down with the session, no
+  confirmation (see "The `--close` self-kill hazard" in step 6). If one
+  exists, say so before proceeding — don't just let `wb done` roll over it.
 - **Open child tasks** (`parent:` pointing at this task's stem) — not a
   blocker, but worth one line noting they're still open if any exist, so
   closing the parent doesn't read as "the whole family is done."
@@ -198,9 +195,8 @@ down this task premature or would get silently lost with it:
 
 ### 6. Determine the exit — `wb down` at the PR moment, `wb done` otherwise
 
-Run `wb pr-open` against the closing session first. This is the one place
-this skill checks something `wb-done/SKILL.md` doesn't, because it changes
-which verb is right, not just a flag on the same one:
+Run `wb pr-open` against the closing session first. It changes which verb
+is right, not just a flag on the same one:
 
 - **Exit 0 (the branch has an open PR):** the session has nothing left to
   do until a human reviews it — winding it all the way down and removing
@@ -208,28 +204,94 @@ which verb is right, not just a flag on the same one:
   reason. Offer `wb down` instead of `wb done` in one line ("PR's up —
   close the session and keep the worktree so this resumes warm later, or
   wind it all the way down with `wb done`?") and act on the answer. `wb
-  down` runs synchronously in the foreground (a single Bash call, no
-  `run_in_background`) — unlike `wb done`, it never opens the Sweep review
-  buffer (it never removes the worktree, so there's nothing gitignored to
-  review), so there's no async-buffer problem to route around. Relay its
-  stdout verbatim, same posture as the `wb done` relay below.
+  down` runs synchronously in the foreground (a single Bash call) and never
+  removes the worktree. Relay its stdout verbatim, same posture as the
+  `wb done` relay below.
 - **Exit non-zero (no open PR, or the probe couldn't tell):** fall through
-  to the ordinary `wb done` wind-down below — exactly `wb-done/SKILL.md`'s
-  own flow, not a re-derivation of it:
+  to the ordinary `wb done` wind-down:
   - `--close` only if the user's words in *this* invocation asked for it
     ("close the session too", "kill it when you're done", etc.) — never by
     default, never carried over from an earlier turn.
   - If `--close` applies to the current session, surface the self-kill
-    hazard from `wb-done/SKILL.md` step 4 **before** launching — the last
-    message the user sees from this session is the one right before the
-    background call, not a relay of `wb done`'s own output.
-  - Launch `wb done [--close]` as a single Bash tool call with
-    `run_in_background: true`. Say one short line and stop — do not poll,
-    do not schedule a wakeup, do not keep talking. The background command
-    completing is the signal.
-  - When it returns, relay `wb done`'s own stdout/stderr message verbatim
-    (happy path, dirty-tree error, or the optional pending-counts/roadmap
-    nudges) — same posture as `wb-done/SKILL.md` step 3.
+    hazard below **before** running the command.
+  - Run `wb done [--close]` as one plain, synchronous Bash call. Never pass
+    `--review`, and never pass `--keep`, `--throwaway` or `--leave-shelved`
+    on your own.
+  - Relay `wb done`'s own stdout/stderr verbatim, whatever it printed: the
+    closing line, a stop, the optional pending-counts nudge. Quote it; don't
+    paraphrase.
+
+What `wb done` does, so you can tell a stop from a success. With no flags it
+opens no editor. It sorts every gitignored entry of the worktree into keep,
+throwaway or unknown, using `wb-done-sweep.list` (beside `wb.sh`), the repo's
+`.worktree-bootstrap`, and any `--keep <path>` / `--throwaway <path>` flags.
+Keepers are copied into `~/code/tasks/dossiers/<task>/`, then it removes the
+worktree and writes the closing handoff and status `done`. It stops, with
+nothing changed, on:
+
+- **Unknown gitignored entries** (or a keep that would overwrite a different
+  file already in the dossier, a keep named like a dossier record such as
+  `decisions` or `notes.md`, or a kept directory holding a symlink). The
+  message names each entry and the ways to settle it.
+- **A dirty worktree** (`git status --porcelain` output follows).
+- **Undecided shelved decision drafts** (`N decision draft(s) shelved for
+  <task> would be stranded (nothing changed)`, one `shelved: <path>` line each).
+
+**On any stop: relay the message and end the turn.** Do not re-run `wb done`.
+Do not add `--keep`, `--throwaway` or `--leave-shelved` to get past it, and do
+not guess what the user wants for an unknown entry. The user decides: they
+add a `wb-done-sweep.list` rule or answer with the flags, resolve the drafts
+(`/wb-decide shelved`, or step 4 again), or ask for `--leave-shelved`, which
+closes anyway and logs that the drafts were left on purpose. Drafts left that
+way stay resolvable by task stem from any session:
+`~/.config/scripts/tmux/wb-capture.sh shelved --task <stem>` lists them, and
+`dismiss --task <stem> <path>` / `accept --task <stem> <path>` resolve one.
+A flag the user names in a later message is theirs to give; pass it then.
+
+#### The `--close` self-kill hazard
+
+`wb done --close` with no other session named ends with `tmux kill-session`
+on the session this skill is running in, which is the one carrying the
+Claude Code process itself. The process dies with it, so there is no later
+turn in which to relay a confirmation. Only the picker's <kbd>Ctrl</kbd>+<kbd>x</kbd>
+has a self-target guard; typing `wb done --close` yourself is treated as an
+intentional self-close.
+
+`kill-session` also takes down every other window of that session. Each wb
+session has a separate nvim window next to the agent window. The dirty-tree
+check reads only on-disk state, so an unsaved buffer open in that other
+window is invisible to it and is destroyed with the session.
+
+So when `--close` applies to the current session, say so **before** running
+the command, for example: "This will also kill the current tmux session,
+including any other window in it, like an nvim buffer with unsaved edits,
+once the wind-down finishes. You won't see a confirmation here after that;
+check `wb board` or the task file afterward." This is not an extra
+confirmation prompt (the user already asked for `--close`); it makes sure
+they know the full blast radius.
+
+#### Winding down other sessions
+
+Used when the user asks to wind down a finished worker, a batch of workers
+(for example after a `/quick-wins` run), or a session picked from the
+picker's list.
+
+- **Pass `--close` by default.** Without it `wb done` removes the worktree
+  but leaves the session idle; the 2026-10-18 batch left 14 idle sessions
+  that way for five days. Leave it off only when the user says to keep that
+  session.
+- **Never close the caller's own session as part of a batch.** Compare each
+  target with `tmux display-message -p '#S'`; a match is the own-session
+  case above, and `--close` then needs the user's explicit ask.
+- **Take each target's name from `tmux list-sessions -F '#S'`**, never from
+  a task-file stem. A name that matches no live session sends `wb done` down
+  its store-only path, which marks the task done with no dirty-tree check
+  and no worktree removal. Leave such a target out and tell the user which
+  ones you skipped.
+- **Run one `wb done --close <session>` per session**, each as its own
+  foreground call, and relay each result verbatim, refusals and stops
+  included, in the order they ran. One session's stop does not stop the
+  rest; do not retry it or add flags.
 
 The sweep (steps 2-4) and the other-work check (step 5) run identically
 either way — the PR check only changes which verb finishes the session,
@@ -250,6 +312,14 @@ never whether the record gets written first.
   (they don't touch the worktree's tracked files), but `wb done` itself
   fails fast with its own dirty-tree message, relayed as-is; nothing is
   removed, task stays open.
+- **Unknown gitignored file at wind-down** — `wb done` stops with its message
+  naming the entry; the message is relayed, the turn ends, and `wb done` is
+  not run again and no `--keep`/`--throwaway` is added.
+- **Undecided drafts at wind-down** — `wb done` refuses; the refusal is
+  relayed and `--leave-shelved` is not added.
+- **Winding down two other sessions** — one `wb done --close <session>` each,
+  by name from `tmux list-sessions`, results relayed one by one; the caller's
+  own session never gets `--close` from the batch.
 - **Other live window in the session** — step 5 surfaces it before the
   wind-down launches, especially when `--close` was also requested.
 - **Empty Decisions, nothing decided** — the draft review (sweep, then each shelved
@@ -277,9 +347,9 @@ never whether the record gets written first.
 
 ## Notes
 
-- This skill never re-implements `wb done`'s dirty-check, sweep-buffer, or
+- This skill never re-implements `wb done`'s dirty-check, keeper sweep, or
   worktree-removal logic, and never re-implements `/park`'s capture-doc-append
-  or prospective-task recipe — it calls into `wb-done/SKILL.md` and
+  or prospective-task recipe — it calls `wb done` and follows
   `park/SKILL.md` for those. If either's own behavior seems wrong, that's a
   change to that skill (or to `wb.sh`), not something to work around here.
 - Not every session needs this. A session that's just answering questions,

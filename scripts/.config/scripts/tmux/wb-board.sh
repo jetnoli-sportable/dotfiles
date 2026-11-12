@@ -87,8 +87,7 @@ wb_board_html_escape() {
 }
 
 # wb_board_section <file> <heading> — body lines under "## <heading>" up to
-# the next "## " heading (or EOF). Same convention wb_sweep_section already
-# uses for the "## Sweep" section, generalized to any named section.
+# the next "## " heading (or EOF).
 #
 # General-purpose, NOT board-only despite the name — U4's cutover almost
 # deleted this as an orphaned old-renderer helper (nothing in the board

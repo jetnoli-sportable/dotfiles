@@ -367,9 +367,11 @@ worktrees, but the lazy call from <code>queue.lua</code> is the one that matters
 practice: most real stashes land in a worktree that predates this feature,
 or predates that repo's most recent <code>wb new</code>, and would otherwise never
 get registered.</p>
-<p>When <code>wb done</code> runs on a worktree with a non-empty queue file, it shows up
-in the task file's <code>## Sweep</code> checklist exactly like any other gitignored
-file — no queue-specific teardown code exists or is needed.</p>
+<p>When <code>wb done</code> runs on a worktree with a queue file, it keeps the file: the
+file is copied into the task's dossier (<code>~/code/tasks/dossiers/&lt;task&gt;/</code>)
+because <code>wb-done-sweep.list</code> marks <code>.claude-queue.md</code> as a keeper. If the
+dossier already holds a queue file (from an earlier close of the same task),
+<code>wb done</code> appends the entries the dossier copy lacks instead of stopping.</p>
 <h2 id="sending-context--contextlua">Sending context — <code>context.lua</code></h2>
 <ul>
 <li><code>:leader ac</code> sends the current file as context to the pane.</li>

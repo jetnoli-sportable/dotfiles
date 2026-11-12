@@ -499,7 +499,7 @@ reading the state dir itself, prints each path as <code>shelved: &lt;path&gt;</c
 points to <code>/close-out</code> or <code>/wb-decide shelved</code>, or to re-running with
 <code>wb done --leave-shelved</code> to close anyway. <code>--leave-shelved</code> closes, logs
 one <code>shelved_left{count}</code> line to the capture log (via <code>wb-capture.sh log-shelved-left</code>) and notes the left drafts in the task's <code>wb done</code>
-Handoffs entry. A <code>wb done</code> invoked through <code>/wb-done</code> relays the refusal;
+Handoffs entry. <code>/close-out</code> runs <code>wb done</code> in the foreground and relays the refusal;
 it never adds <code>--leave-shelved</code> on its own.</p>
 <p><strong>Paths</strong></p>
 <table>

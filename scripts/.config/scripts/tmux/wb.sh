@@ -20,10 +20,14 @@
 #                                    token exits 2 rather than opening the picker
 #   wb board                         task-store status table (interim /board); --html writes the
 #                                    ratified 3-view page to logs/board.html (feat-board-build)
-#   wb done [--close] [--leave-shelved] [<session>]
+#   wb done [--close] [--leave-shelved] [--review] [--keep <path>] [--throwaway <path>] [<session>]
 #                                    safe wind-down (defaults to the current session); --close also kills the tmux
 #                                    session; refuses while shelved decision drafts (wb-capture) of the task
-#                                    remain unless --leave-shelved
+#                                    remain unless --leave-shelved; sorts every gitignored entry of the worktree
+#                                    into keep (copied to the task's dossier) / throwaway (deleted with it) /
+#                                    unknown (stops the run before anything changes); --keep/--throwaway <path>
+#                                    (repeatable) classify one entry for this run; --review opens the task file
+#                                    in an editor first (no buffer otherwise)
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
@@ -832,23 +836,33 @@ _wb_lock_trap_append_if_top_level() {
 # `cp -a` would clobber a worktree-local edit (e.g. a tweaked `.env`). That
 # is what makes it safe for cmd_new to call on every run, not just on
 # worktree creation.
-wb_bootstrap() {
-  local repo_dir="$1" worktree_path="$2" manifest="$repo_dir/.worktree-bootstrap"
-  local -a entries=()
+#
+# wb_bootstrap_entries <repo_dir> — print the bootstrap entries, NUL-separated:
+# the manifest's paths (comments and blank lines dropped, a last line without
+# a newline still read), or the root `.env*` names when there is no manifest.
+# The one parse both `wb new` (wb_bootstrap) and the `wb done` sweep
+# (wb_sweep_classify) use, so they never disagree about what was bootstrapped.
+wb_bootstrap_entries() {
+  local repo_dir="$1" manifest="$1/.worktree-bootstrap" line f
   if [ -f "$manifest" ]; then
-    local line
-    while IFS= read -r line; do
+    while IFS= read -r line || [ -n "$line" ]; do
       line="${line%%#*}"
       line="${line#"${line%%[![:space:]]*}"}"
       line="${line%"${line##*[![:space:]]}"}"
-      [ -n "$line" ] && entries+=("$line")
+      [ -n "$line" ] && printf '%s\0' "$line"
     done < "$manifest"
   else
-    local f
     while IFS= read -r -d '' f; do
-      entries+=("$(basename "$f")")
+      printf '%s\0' "${f##*/}"
     done < <(find "$repo_dir" -maxdepth 1 -name '.env*' -print0 2>/dev/null)
   fi
+  return 0
+}
+
+wb_bootstrap() {
+  local repo_dir="$1" worktree_path="$2"
+  local -a entries=()
+  mapfile -d '' entries < <(wb_bootstrap_entries "$repo_dir")
   # Per-entry failures are tracked, not fatal: a caller's `|| warn` disables
   # errexit in here, so without the explicit rc only a failing LAST entry
   # would ever surface.
@@ -2435,7 +2449,7 @@ cmd_reconcile() {
 # computed at generation time — it's computed and appended on the FIRST
 # --apply that sees a named target with no survivor choice yet, and the doc
 # reopens for confirmation before anything actually merges (same
-# append-then-reopen shape wb done's own Sweep flow already uses).
+# append-then-reopen shape this reconcile flow uses elsewhere).
 # ---------------------------------------------------------------------------
 
 # wb_reconcile_report_path — logs/reconcile.md in THIS repo (dotfiles),
@@ -4070,7 +4084,7 @@ cmd_unsafe_rewind() {
 # shim over the shared decision-buffer script
 # (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which owns the
 # tmux-split + wait-for recipe (and its channel-uniqueness rule) for every
-# caller of it — decision-buffer, wb-done, parked-items, wb.sh's own
+# caller of it — decision-buffer, `wb done --review`, parked-items, wb.sh's own
 # internal callers below. See
 # ~/.claude/skills/decision-buffer/references/mechanism.md for the full
 # contract. A missing or non-executable script (a stale, un-restowed
@@ -4089,13 +4103,6 @@ wb_open_buffer() {
   else
     "$script" --direct "$path"
   fi
-}
-
-# wb_sweep_section <file> — print only the "## Sweep" section this run
-# appended (if present). Keeper extraction must never read checklist-shaped
-# lines from the task's own freeform Plan/Follow-ups/Decisions prose.
-wb_sweep_section() {
-  awk '/^## Sweep \(gitignored/ { found = 1 } found { print }' "$1"
 }
 
 # _wb_append_under_heading <file> <heading> <body> — the shared insertion
@@ -4655,9 +4662,9 @@ wb_handoff_write() {
       entry+=$'\n'"$line"
     done <<< "$text"
     _wb_handoff_move_entry "$dir/handoffs" "$entry" || return 1
-    _wb_replace_block "$file" "Handoffs" "$body" 0
+    _wb_replace_block "$file" "Handoffs" "$body" 0 || return 1
   else
-    _wb_append_under_heading "$file" "Handoffs" "$body"
+    _wb_append_under_heading "$file" "Handoffs" "$body" || return 1
   fi
   wb_render_views "$file"
 }
@@ -5991,25 +5998,29 @@ cmd_install_hooks() {
 # credential/secret file. The sweep copies gitignored files into the central
 # store — a repo intended for eventual cross-machine git sync — and `wb new`
 # bootstraps `.env*` into every worktree by default, so an unguarded
-# `- [x] keep .env` would carry live secrets into a repo that may one day
+# `wb done --keep .env` would carry live secrets into a repo that may one day
 # get a remote (roadmap §2 credential guard, 2026-07-06 review).
 wb_credential_shaped() {
   local base
   base="$(basename "$1")"
+  local had_nocase=false
+  shopt -q nocasematch && had_nocase=true
   shopt -s nocasematch
   local shaped=1
   case "$base" in
-    .env|.env.*|*.pem|*.key|*secret*|*credential*|id_rsa*|id_ed25519*|*.p12|*.pfx) shaped=0 ;;
+    .env|.env.*|.envrc|service-account*.json|*sa-key*.json|.htpasswd|*.jks|kubeconfig|*.pem|*.key|*secret*|*credential*|id_rsa*|id_ed25519*|*.p12|*.pfx|\
+    config.hjson|*.env.json|.npmrc|.netrc|*.tfvars|.pgpass|id_ecdsa*|*.keystore|*.kdbx|*token*|*password*) shaped=0 ;;
   esac
-  shopt -u nocasematch
+  # Restore the caller's setting rather than forcing it off.
+  $had_nocase || shopt -u nocasematch
   return "$shaped"
 }
 
-# wb_safe_rel <worktree_path> <rel> — validate that <rel> (as reported by a
-# `- [x] keep <rel>` checklist line) resolves to somewhere INSIDE
+# wb_safe_rel <worktree_path> <rel> — validate that <rel> (as named by a
+# `wb done --keep <rel>` flag) resolves to somewhere INSIDE
 # <worktree_path>, and print the canonical, `..`-free relative path; prints
 # nothing and fails otherwise. The keeper sweep would otherwise `cp -a`
-# whatever path a checklist line names with zero containment — an absolute
+# whatever path a flag names with zero containment — an absolute
 # path or a `../../` escape can read or overwrite files well outside the
 # worktree and the dossier.
 wb_safe_rel() {
@@ -6021,6 +6032,361 @@ wb_safe_rel() {
     "$base_real"/*) printf '%s\n' "${resolved#"$base_real"/}" ;;
     *) return 1 ;;
   esac
+}
+
+# wb_sweep_lists — print the `wb done` sweep rules as `keep<TAB>glob` /
+# `throwaway<TAB>glob`, from wb-done-sweep.list next to wb.sh (resolved through
+# symlinks, since the stowed script is a link). $WB_SWEEP_LIST overrides the
+# path for tests.
+wb_sweep_lists() {
+  local list="${WB_SWEEP_LIST:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-done-sweep.list}"
+  [ -f "$list" ] || return 0
+  local line cls glob
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
+      ''|'#'*) continue ;;
+      keep:*) cls=keep; glob="${line#keep:}" ;;
+      throwaway:*) cls=throwaway; glob="${line#throwaway:}" ;;
+      *) continue ;;
+    esac
+    glob="${glob#"${glob%%[![:space:]]*}"}"
+    [ -n "$glob" ] && printf '%s\t%s\n' "$cls" "$glob"
+  done < "$list"
+  return 0
+}
+
+# _wb_sweep_glob_hit <glob> <rel> <isdir> — gitignore-style match: no inner `/`
+# matches the last path component, otherwise the whole relative path; a
+# trailing `/` needs a directory.
+_wb_sweep_glob_hit() {
+  local g="$1" rel="$2" isdir="$3"
+  if [[ $g == */ ]]; then
+    [ "$isdir" = 1 ] || return 1
+    g="${g%/}"
+  fi
+  g="${g#/}"
+  if [[ $g == */* ]]; then
+    # shellcheck disable=SC2053
+    [[ $rel == $g ]]
+  else
+    # shellcheck disable=SC2053
+    [[ ${rel##*/} == $g ]]
+  fi
+}
+
+# _wb_sweep_in_list <name> <rel> <isdir> — true when <rel>, or any ancestor
+# directory of it, matches a glob in the array named <name>.
+_wb_sweep_in_list() {
+  local -n _globs="$1"
+  local rel="$2" isdir="$3" g cand="$2"
+  [ "${#_globs[@]}" -gt 0 ] || return 1
+  while :; do
+    for g in "${_globs[@]}"; do
+      _wb_sweep_glob_hit "$g" "$cand" "$isdir" && return 0
+    done
+    case "$cand" in */*) cand="${cand%/*}"; isdir=1 ;; *) break ;; esac
+  done
+  return 1
+}
+
+# _wb_sweep_flagged <name> <rel> — true when <rel> is, or sits under, a path
+# in the array named <name>. Flags name exact worktree paths, never globs.
+_wb_sweep_flagged() {
+  local -n _paths="$1"
+  local p
+  for p in ${_paths[@]+"${_paths[@]}"}; do
+    [ "$2" = "$p" ] && return 0
+    case "$2" in "$p"/*) return 0 ;; esac
+  done
+  return 1
+}
+
+# _wb_sweep_esc <s> — <s> with tab, newline and CR shown as \t \n \r and every
+# other control byte (below 0x20, and 0x7f) as \xNN, so a file name can never
+# break a `class<TAB>path<TAB>note` line apart, forge a second one, or send a
+# terminal escape sequence to the screen. Pure bash: a name with no control
+# byte (the usual case) costs one glob match; only one that has some is walked
+# a character at a time, with the printf builtin (no subprocess).
+_wb_sweep_esc() {
+  local s="$1"
+  if [[ $s == *[[:cntrl:]]* ]]; then
+    local out="" c n i
+    for ((i = 0; i < ${#s}; i++)); do
+      c="${s:i:1}"
+      case "$c" in
+        $'\t') out+='\t' ;;
+        $'\n') out+='\n' ;;
+        $'\r') out+='\r' ;;
+        *)
+          LC_ALL=C printf -v n '%d' "'$c"
+          if [ "$n" -lt 32 ] || [ "$n" -eq 127 ]; then
+            printf -v n '\\x%02x' "$n"; out+="$n"
+          else
+            out+="$c"
+          fi ;;
+      esac
+    done
+    s="$out"
+  fi
+  printf '%s' "$s"
+}
+
+# _wb_sweep_keepcheck <worktree> <rel> — fail with a note on stdout when
+# keeping <rel> is unsafe: any component of <rel> credential-shaped, a symlink
+# resolving outside the worktree, or a directory holding a credential-shaped
+# file or directory, or such a symlink, at any depth (walked with find -P, so
+# symlinks are inspected, never followed).
+_wb_sweep_keepcheck() {
+  local wt="$1" rel="$2" wt_real f part rest="$2"
+  # The dossier's own records live at its top level; a keeper by one of those
+  # names would be copied over (or collide with) them.
+  case "${rel%%/*}" in
+    decisions|handoffs|open-items|brief.md|concepts.md|CONCEPTS.md|notes.md|index.md|decisions.md|handoffs.md)
+      echo "a dossier record name; rename it first"; return 1 ;;
+  esac
+  while :; do
+    part="${rest%%/*}"
+    if wb_credential_shaped "$part"; then
+      case "$rest" in
+        */*) echo "inside credential-shaped $(_wb_sweep_esc "$part")/, copy it yourself" ;;
+        *) echo "credential-shaped, copy it yourself" ;;
+      esac
+      return 1
+    fi
+    case "$rest" in */*) rest="${rest#*/}" ;; *) break ;; esac
+  done
+  wt_real="$(realpath -m -- "$wt")"
+  if [ -L "$wt/$rel" ]; then
+    case "$(realpath -m -- "$wt/$rel")" in
+      "$wt_real"/*) ;;
+      *) echo "symlink resolves outside the worktree"; return 1 ;;
+    esac
+  elif [ -d "$wt/$rel" ]; then
+    while IFS= read -r -d '' f; do
+      if wb_credential_shaped "$f"; then
+        echo "holds credential-shaped $(_wb_sweep_esc "${f#"$wt"/}"), copy it yourself"; return 1
+      fi
+      if [ -L "$f" ]; then
+        case "$(realpath -m -- "$f")" in
+          "$wt_real"/*) ;;
+          *) echo "holds symlink $(_wb_sweep_esc "${f#"$wt"/}") resolving outside the worktree"; return 1 ;;
+        esac
+        # A link that stays inside the worktree would dangle in the dossier
+        # once the worktree is gone (keep copies are cp -a, never -L).
+        echo "holds symlink $(_wb_sweep_esc "${f#"$wt"/}"); keep its target or remove the link"; return 1
+      fi
+    done < <(find -P "$wt/$rel" -mindepth 1 \( -type f -o -type l -o -type d \) -print0 2>/dev/null)
+  fi
+  return 0
+}
+
+# _wb_sweep_emit <class> <rel> <out> [note] — print one output line and record
+# <rel>'s class in the caller's `seen` map, which the flag pass after the walk
+# reads.
+_wb_sweep_emit() {
+  printf '%s\t%s\t%s\n' "$1" "$3" "${4:-}"
+  seen["$2"]="$1"
+}
+
+# _wb_sweep_emit_keep <rel> <out> — a keep line for <rel> when _wb_sweep_keepcheck
+# passes, else an unknown line carrying its note. Uses the caller's wt.
+_wb_sweep_emit_keep() {
+  local note
+  if note="$(_wb_sweep_keepcheck "$wt" "$1")"; then
+    _wb_sweep_emit keep "$1" "$2"
+  else
+    _wb_sweep_emit unknown "$1" "$2" "$note"
+  fi
+}
+
+# _wb_sweep_ancestor <rel> — print the nearest recorded entry that <rel> sits
+# under, as `class<TAB>path`; fail when there is none.
+_wb_sweep_ancestor() {
+  local cand="$1"
+  while [[ $cand == */* ]]; do
+    cand="${cand%/*}"
+    if [ -n "${seen[$cand]+x}" ]; then printf '%s\t%s' "${seen[$cand]}" "$cand"; return 0; fi
+  done
+  return 1
+}
+
+# _wb_sweep_covered <rel> — true when an entry equal to <rel>, or under it, was
+# printed (so a flag on <rel> already applied during the walk).
+_wb_sweep_covered() {
+  local k
+  [ -n "${seen[$1]+x}" ] && return 0
+  for k in "${!seen[@]}"; do
+    [[ $k == "$1"/* ]] && return 0
+  done
+  return 1
+}
+
+# _wb_sweep_one <rel> <out> — classify one entry and print its line. Uses the
+# caller's (wb_sweep_classify's) locals: wt, main, the flag arrays, the globs
+# and the bootstrap list.
+_wb_sweep_one() {
+  local rel="$1" out="$2" isdir=0 note f
+  case "$rel" in
+    *$'\t'*|*$'\n'*|*$'\r'*)
+      _wb_sweep_emit unknown "$rel" "$(_wb_sweep_esc "$out")" 'name holds a tab or line break, handle it yourself'
+      return 0 ;;
+  esac
+  [ -d "$wt/$rel" ] && isdir=1
+  if _wb_sweep_flagged tw_flags "$rel"; then
+    _wb_sweep_emit throwaway "$rel" "$out"; return 0
+  fi
+  if _wb_sweep_flagged keep_flags "$rel"; then
+    # A refused --keep is unknown even if the file matches main: the user asked
+    # to keep it, so silently discarding it would surprise.
+    _wb_sweep_emit_keep "$rel" "$out"
+    return 0
+  fi
+  for f in ${boot[@]+"${boot[@]}"}; do
+    [ "$f" = "$rel" ] || continue
+    if [ -L "$wt/$rel" ]; then
+      _wb_sweep_emit throwaway "$rel" "$out"; return 0
+    elif [ -f "$wt/$rel" ] && [ -f "$main/$rel" ] && cmp -s "$wt/$rel" "$main/$rel"; then
+      _wb_sweep_emit throwaway "$rel" "$out"; return 0
+    fi
+  done
+  if wb_credential_shaped "$rel"; then
+    _wb_sweep_emit unknown "$rel" "$out" 'credential-shaped, copy it yourself'; return 0
+  fi
+  if _wb_sweep_in_list keep_globs "$rel" "$isdir"; then
+    _wb_sweep_emit_keep "$rel" "$out"
+    return 0
+  fi
+  if _wb_sweep_in_list tw_globs "$rel" "$isdir"; then
+    _wb_sweep_emit throwaway "$rel" "$out"; return 0
+  fi
+  if [ "$isdir" = 1 ] && [ ! -L "$wt/$rel" ]; then
+    # One level at a time, so a nested directory (a cloned project's
+    # node_modules/) meets the lists as a directory and is classified whole,
+    # instead of each file inside it being judged on its own name.
+    local n=0 child
+    while IFS= read -r -d '' f; do
+      n=$((n + 1))
+      child="${f#"$wt"/}"
+      if [ -d "$f" ] && [ ! -L "$f" ]; then
+        _wb_sweep_one "$child" "$child/"
+      else
+        _wb_sweep_one "$child" "$child"
+      fi
+    done < <(find -P "$wt/$rel" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | sort -z)
+    # Nothing listed: an empty directory loses nothing when removed, but one
+    # find could not read may hold anything.
+    if [ "$n" -eq 0 ]; then
+      if [ -r "$wt/$rel" ] && [ -x "$wt/$rel" ]; then
+        _wb_sweep_emit throwaway "$rel" "$out" 'empty directory'
+      else
+        _wb_sweep_emit unknown "$rel" "$out" 'cannot read this directory'
+      fi
+    fi
+    return 0
+  fi
+  _wb_sweep_emit unknown "$rel" "$out"
+}
+
+# wb_sweep_classify <worktree> <main_checkout> [--keep <p>]... [--throwaway <p>]...
+# — sort the worktree's gitignored entries into keep / throwaway / unknown,
+# one `class<TAB>path<TAB>note` line each (directories keep their trailing
+# `/`). Rows are tried in the order of the plan's "Sweep classification" table.
+# The flags classify a named path for this run only; one naming a missing path
+# or an unsafe one warns on stderr and is ignored.
+wb_sweep_classify() {
+  [ "$#" -ge 2 ] || { echo "wb_sweep_classify: usage: <worktree> <main> [--keep p]... [--throwaway p]..." >&2; return 2; }
+  local wt="$1" main="$2"; shift 2
+  local -a keep_flags=() tw_flags=() keep_globs=() tw_globs=() boot=()
+  local p safe
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --keep|--throwaway)
+        [ "$#" -ge 2 ] || { echo "wb_sweep_classify: $1 needs a path" >&2; return 2; }
+        p="${2%/}"
+        if [ "$1" = --keep ]; then
+          # Containment-check the PARENT directory only and keep the last
+          # component as written, so `--keep scratch/ln` keeps the link itself
+          # (what the walk sees), not the file it points at. _wb_sweep_keepcheck
+          # still refuses a link resolving outside the worktree.
+          local pd="${p%/*}" pl="${p##*/}" sd=""
+          [ "$pd" = "$p" ] && pd="."
+          case "$pl" in ''|.|..) pl="" ;; esac
+          if [ -n "$pl" ] && { [ "$pd" = "." ] || sd="$(wb_safe_rel "$wt" "$pd")"; }; then
+            safe="${sd:+$sd/}$pl"
+            if [ -e "$wt/$safe" ] || [ -L "$wt/$safe" ]; then keep_flags+=("$safe")
+            else echo "wb: --keep $p: no such path, ignored" >&2; fi
+          else
+            echo "wb: --keep $p: outside the worktree, ignored" >&2
+          fi
+        else
+          # Lexical check only: bootstrap symlinks point into the main checkout.
+          case "$p" in
+            /*|..|../*|*/..|*/../*) echo "wb: --throwaway $p: outside the worktree, ignored" >&2 ;;
+            *) if [ -e "$wt/$p" ] || [ -L "$wt/$p" ]; then tw_flags+=("$p")
+               else echo "wb: --throwaway $p: no such path, ignored" >&2; fi ;;
+          esac
+        fi
+        shift 2 ;;
+      *) echo "wb_sweep_classify: unknown argument: $1" >&2; return 2 ;;
+    esac
+  done
+  local cls glob
+  while IFS=$'\t' read -r cls glob; do
+    if [ "$cls" = keep ]; then keep_globs+=("$glob"); else tw_globs+=("$glob"); fi
+  done < <(wb_sweep_lists)
+  mapfile -d '' boot < <(wb_bootstrap_entries "$main")
+  # Read git's whole answer before classifying anything: an empty answer must
+  # mean "nothing ignored", never "git failed" — W6 removes the worktree on
+  # an empty, unknown-free result. --untracked-files=normal overrides a
+  # status.showUntrackedFiles=no config, which would otherwise hide every
+  # ignored entry too.
+  local -a recs=()
+  if [ ! -d "$wt" ]; then
+    echo "wb_sweep_classify: $wt is not a directory" >&2; return 1
+  fi
+  mapfile -d '' recs < <(git -C "$wt" status --porcelain=v1 -z --ignored=traditional --untracked-files=normal)
+  if ! wait "$!"; then
+    echo "wb_sweep_classify: git status failed in $wt, nothing classified" >&2; return 1
+  fi
+  local rec rel
+  local -A seen=()
+  for rec in ${recs[@]+"${recs[@]}"}; do
+    case "$rec" in '!! '*) ;; *) continue ;; esac
+    rel="${rec#'!! '}"
+    _wb_sweep_one "${rel%/}" "$rel"
+  done
+  # Flags the walk never reached. Git reports a fully ignored directory once
+  # (`logs/`), so a --keep on a file inside it gets its own extra line here —
+  # W6 copies keep lines before removing the worktree, so `throwaway logs/`
+  # and `keep logs/notes.log` together keep that one file.
+  local anc note out
+  for p in ${keep_flags[@]+"${keep_flags[@]}"}; do
+    _wb_sweep_covered "$p" && continue
+    if anc="$(_wb_sweep_ancestor "$p")"; then
+      [ "${anc%%$'\t'*}" = keep ] && continue
+      out="$p"; [ -d "$wt/$p" ] && [ ! -L "$wt/$p" ] && out="$p/"
+      case "$p" in
+        *$'\t'*|*$'\n'*|*$'\r'*)
+          _wb_sweep_emit unknown "$p" "$(_wb_sweep_esc "$out")" 'name holds a tab or line break, handle it yourself' ;;
+        *)
+          _wb_sweep_emit_keep "$p" "$out" ;;
+      esac
+    else
+      echo "wb: --keep $(_wb_sweep_esc "$p"): matched no ignored entry, ignored" >&2
+    fi
+  done
+  for p in ${tw_flags[@]+"${tw_flags[@]}"}; do
+    _wb_sweep_covered "$p" && continue
+    if anc="$(_wb_sweep_ancestor "$p")"; then
+      [ "${anc%%$'\t'*}" = keep ] &&
+        echo "wb: --throwaway $(_wb_sweep_esc "$p"): inside kept ${anc#*$'\t'}/, kept with it" >&2
+    else
+      echo "wb: --throwaway $(_wb_sweep_esc "$p"): matched no ignored entry, ignored" >&2
+    fi
+  done
+  return 0
 }
 
 # _wb_open_items <task_file> — the paths of the task's open-items/*.md whose
@@ -6292,16 +6658,304 @@ _wb_capture_verb() {
   bash "$sh" "$@"
 }
 
+# _wb_done_join <item>... — the items as one comma-separated list.
+_wb_done_join() {
+  local out="" i
+  for i in "$@"; do out="${out:+$out, }$i"; done
+  printf '%s' "$out"
+}
+
+# _wb_done_print_unknowns <worktree> <unknown>... — print the stop message's
+# `  unknown: <path> — <note>` lines, at most 10 per top-level entry git
+# reported (an ignored directory such as `.next/` is opened one level at a
+# time and can yield hundreds), then one line saying how many more there were
+# and how to dispose of the whole entry. Paths are shown escaped
+# (_wb_sweep_esc). Few unknowns are all printed, with no extra git call.
+_wb_done_print_unknowns() {
+  local wt="$1" u path e key i; shift
+  local -a entries=() keys=()
+  local -A total=() shown=()
+  if [ "$#" -gt 10 ]; then
+    local rec
+    while IFS= read -r -d '' rec; do
+      case "$rec" in '!! '*) entries+=("${rec#'!! '}") ;; esac
+    done < <(git -C "$wt" status --porcelain=v1 -z --ignored=traditional --untracked-files=normal 2>/dev/null)
+    for u in "$@"; do
+      path="${u%% — *}"; key="$path"
+      for e in ${entries[@]+"${entries[@]}"}; do
+        if [ "$path" = "${e%/}" ] || [[ $path == "${e%/}"/* ]]; then key="$e"; break; fi
+      done
+      keys+=("$key"); total["$key"]=$(( ${total["$key"]:-0} + 1 ))
+    done
+  fi
+  i=0
+  for u in "$@"; do
+    key="${keys[i]:-}"; i=$((i + 1))
+    if [ -n "$key" ]; then
+      shown["$key"]=$(( ${shown["$key"]:-0} + 1 ))
+      if [ "${shown["$key"]}" -gt 10 ]; then
+        [ "${shown["$key"]}" -eq "${total["$key"]}" ] || continue
+        echo "  … and $(( ${total["$key"]} - 10 )) more under $(_wb_sweep_esc "$key") (add \`throwaway:$(_wb_sweep_esc "$key")\` to wb-done-sweep.list or re-run with --throwaway $(_wb_sweep_esc "${key%/}"))"
+        continue
+      fi
+    fi
+    echo "  unknown: $(_wb_sweep_esc "$u")"
+  done
+}
+
+# _wb_done_classify <quiet> <worktree> <main> [--keep p|--throwaway p]... —
+# run wb_sweep_classify and fill the caller's keep_paths / throw_paths (bash
+# dynamic scope; entries keep the classifier's trailing `/` on a directory).
+# Any unknown prints the stop message on stderr and returns 1, with nothing
+# changed. <quiet> 1 hides the classifier's own warnings (a second pass would
+# only repeat them).
+_wb_done_classify() {
+  local quiet="$1" wt="$2" main="$3"; shift 3
+  local out rc=0 cls path note
+  local -a unknowns=()
+  keep_paths=(); throw_paths=()
+  if [ "$quiet" = 1 ]; then
+    out="$(wb_sweep_classify "$wt" "$main" "$@" 2>/dev/null)" || rc=$?
+  else
+    out="$(wb_sweep_classify "$wt" "$main" "$@")" || rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    echo "wb done: could not sort the gitignored entries of $wt (nothing changed)" >&2
+    return 1
+  fi
+  while IFS=$'\t' read -r cls path note; do
+    case "$cls" in
+      keep)      keep_paths+=("$path") ;;
+      throwaway) throw_paths+=("$path") ;;
+      unknown)   unknowns+=("$path${note:+ — $note}") ;;
+    esac
+  done <<<"$out"
+  if [ "${#unknowns[@]}" -gt 0 ]; then
+    {
+      echo "wb done: ${#unknowns[@]} gitignored entr$([ "${#unknowns[@]}" = 1 ] && echo y || echo ies) in $wt can't be sorted, so nothing was changed:"
+      _wb_done_print_unknowns "$wt" "${unknowns[@]}"
+      echo "wb done: add each to wb-done-sweep.list (keep: or throwaway:) beside wb.sh, or re-run with --keep <path> (copies it into the task's dossier) or --throwaway <path> (deletes it with the worktree)"
+    } >&2
+    return 1
+  fi
+  return 0
+}
+
+# _wb_done_leaf_state <src> <dest> — compare one non-directory entry with its
+# dossier destination: 0 = destination absent, 2 = already identical (same
+# bytes, or the same symlink target), 1 = a different thing is there.
+_wb_done_leaf_state() {
+  local src="$1" dest="$2"
+  if [ ! -e "$dest" ] && [ ! -L "$dest" ]; then return 0; fi
+  if [ -L "$src" ]; then
+    if [ -L "$dest" ] && [ "$(readlink -- "$src")" = "$(readlink -- "$dest")" ]; then return 2; fi
+    return 1
+  fi
+  if [ -f "$src" ] && [ -f "$dest" ] && [ ! -L "$dest" ] && cmp -s -- "$src" "$dest"; then return 2; fi
+  return 1
+}
+
+# _wb_queue_parse <file> <array name> — split a queue file into blocks: a
+# heading line (^## YYYY-MM-DDT, what claude-tmux's queue.lua writes) plus every
+# line up to the next heading or EOF; any non-blank text before the first
+# heading is a block of its own. Each element keeps its text, newline-ended.
+_wb_queue_parse() {
+  local -n _qp_out="$2"
+  local _qp_line _qp_cur=""
+  _qp_out=()
+  while IFS= read -r _qp_line || [ -n "$_qp_line" ]; do
+    if [[ $_qp_line =~ ^##\ [0-9]{4}-[0-9]{2}-[0-9]{2}T ]]; then
+      [[ $_qp_cur == *[![:space:]]* ]] && _qp_out+=("$_qp_cur")
+      _qp_cur=""
+    fi
+    _qp_cur+="$_qp_line"$'\n'
+  done < "$1"
+  [[ $_qp_cur == *[![:space:]]* ]] && _qp_out+=("$_qp_cur")
+  return 0
+}
+
+# _wb_qkey <block> — set _wb_qkey_out to the block's match key: its whole text
+# without trailing blank lines.
+_wb_qkey() { _wb_qkey_out="$1"; while [[ $_wb_qkey_out == *$'\n\n' ]]; do _wb_qkey_out="${_wb_qkey_out%$'\n'}"; done; }
+
+# _wb_queue_new_blocks <src> <dest> — set the global _wb_qnew to the text of
+# every block of <src> that <dest> does not already hold, in <src>'s order.
+# Blocks match on their whole text (heading and body), so a block that sits
+# last in one file and mid-file in the other still matches, and two stashes
+# from the same second stay distinct.
+_wb_queue_new_blocks() {
+  local -a sb=() db=()
+  local -A have=()
+  local b
+  _wb_qnew=""
+  _wb_queue_parse "$1" sb; _wb_queue_parse "$2" db
+  for b in ${db[@]+"${db[@]}"}; do _wb_qkey "$b"; have["$_wb_qkey_out"]=1; done
+  for b in ${sb[@]+"${sb[@]}"}; do
+    _wb_qkey "$b"
+    [ -n "${have[$_wb_qkey_out]+x}" ] && continue
+    have["$_wb_qkey_out"]=1
+    _wb_qnew+="$b"
+  done
+  return 0
+}
+
+# _wb_done_keep_state <worktree> <dossier> <rel> — what copying <rel> into the
+# dossier would do. Prints each colliding dossier path (relative to the
+# dossier) on stdout. Returns 1 on any collision, 0 when something needs
+# copying, 2 when everything is already there, identical.
+_wb_done_keep_state() {
+  local wt="$1" dossier="$2" rel="$3"
+  local src="$wt/$rel" dest="$dossier/$rel"
+  local acc="$dossier" part rest dir_of st f r bad=0 copy=0
+  # Every existing ancestor of the destination must be a real directory.
+  if [ -e "$acc" ] || [ -L "$acc" ]; then
+    if [ ! -d "$acc" ]; then echo "(the dossier itself)"; return 1; fi
+    dir_of="$(dirname -- "$rel")"
+    if [ "$dir_of" != . ]; then
+      rest="$dir_of"
+      while [ -n "$rest" ]; do
+        part="${rest%%/*}"
+        case "$rest" in */*) rest="${rest#*/}" ;; *) rest="" ;; esac
+        acc="$acc/$part"
+        if [ ! -e "$acc" ] && [ ! -L "$acc" ]; then break; fi
+        if [ ! -d "$acc" ] || [ -L "$acc" ]; then echo "${acc#"$dossier"/}"; return 1; fi
+      done
+    fi
+  fi
+  if [ ! -e "$dest" ] && [ ! -L "$dest" ]; then return 0; fi
+  # The queue file is the one keeper that merges: a different dossier copy is
+  # not a collision, the worktree's new blocks get appended to it.
+  if [ "$rel" = .claude-queue.md ] && [ -f "$src" ] && [ ! -L "$src" ] && [ -f "$dest" ] && [ ! -L "$dest" ]; then
+    _wb_queue_new_blocks "$src" "$dest"
+    [ -n "$_wb_qnew" ] && return 0
+    return 2
+  fi
+  if [ -d "$src" ] && [ ! -L "$src" ]; then
+    if [ ! -d "$dest" ] || [ -L "$dest" ]; then echo "$rel"; return 1; fi
+    while IFS= read -r -d '' f; do
+      r="${f#"$src"/}"
+      if [ -d "$f" ] && [ ! -L "$f" ]; then
+        if [ -e "$dest/$r" ] || [ -L "$dest/$r" ]; then
+          if [ ! -d "$dest/$r" ] || [ -L "$dest/$r" ]; then echo "$rel/$r"; bad=1; fi
+        else
+          copy=1
+        fi
+        continue
+      fi
+      st=0; _wb_done_leaf_state "$f" "$dest/$r" || st=$?
+      case "$st" in 1) echo "$rel/$r"; bad=1 ;; 0) copy=1 ;; esac
+    done < <(find -P "$src" -mindepth 1 -print0 2>/dev/null)
+    [ "$bad" = 1 ] && return 1
+    [ "$copy" = 1 ] && return 0
+    return 2
+  fi
+  st=0; _wb_done_leaf_state "$src" "$dest" || st=$?
+  case "$st" in 1) echo "$rel"; return 1 ;; 2) return 2 ;; esac
+  return 0
+}
+
+# _wb_done_keep_rollback <rel> <dest> <top> <created path>... — after a failed
+# keep copy of <rel>: remove the paths this run created (<created path>...,
+# each verified absent before the run), and, when <rel> merged into a
+# directory that already existed (<top> empty), say its partial files may remain.
+_wb_done_keep_rollback() {
+  local rel="$1" dest="$2" top="$3" i; shift 3
+  # An appended dossier queue file (the caller's qdest/qsize) goes back to the
+  # exact size it had before the append.
+  if [ -n "${qdest:-}" ] && truncate -s "$qsize" -- "$qdest" 2>/dev/null; then
+    echo "wb done: restored $qdest to its previous content" >&2
+  elif [ -n "${qdest:-}" ]; then
+    echo "wb done: could not restore $qdest to $qsize bytes; blocks this run appended may remain" >&2
+  fi
+  for ((i = $#; i >= 1; i--)); do
+    rm -rf -- "${!i}"
+  done
+  if [ "$#" -gt 0 ]; then
+    echo "wb done: removed what this run had copied into the dossier ($#):" >&2
+    for ((i = 1; i <= $#; i++)); do echo "  removed: ${!i}" >&2; done
+  fi
+  [ -n "$top" ] || [ "$rel" = "${qrel:-}" ] || echo "wb done: keeper $rel failed partway into a dossier directory that already existed; partial files from it may remain under $dest" >&2
+  return 0
+}
+
+# _wb_done_keep_all <worktree> <dossier> [<keep path>]... — copy every keeper
+# into <dossier>/<path> with cp -a (never -L: symlinks are copied as links,
+# not followed). Checks every destination first: a differing file already
+# there stops everything with nothing written. Identical ones are skipped but
+# still count as kept. The classifier has already refused any credential-shaped
+# keeper, so a directory copy needs no per-file filter.
+_wb_done_keep_all() {
+  local wt="$1" dossier="$2"; shift 2
+  [ "$#" -gt 0 ] || return 0
+  local kp rel c st line bad=""
+  local -a todo=()
+  for kp in "$@"; do
+    rel="${kp%/}"
+    st=0; c="$(_wb_done_keep_state "$wt" "$dossier" "$rel")" || st=$?
+    case "$st" in
+      1) while IFS= read -r line; do bad+="${bad:+$'\n'}  collides: $dossier/$line"; done <<<"$c" ;;
+      0) todo+=("$rel") ;;
+    esac
+  done
+  if [ -n "$bad" ]; then
+    {
+      echo "wb done: the dossier already holds a different copy of these, so nothing was changed:"
+      printf '%s\n' "$bad"
+      echo "wb done: rename or remove the one in the dossier, or --throwaway the worktree's, and re-run"
+    } >&2
+    return 1
+  fi
+  # Track what THIS run creates, so a failed copy can take it back: the topmost
+  # path that was absent before each keeper's copy (a single file, a new
+  # directory, or a missing parent chain). Nothing that existed before the run
+  # is ever removed; a directory merged into an existing one can't be undone
+  # file by file, so it is only reported.
+  local src dest p top qdest="" qsize="" qrel=""
+  local -a created=()
+  for rel in ${todo[@]+"${todo[@]}"}; do
+    src="$wt/$rel"; dest="$dossier/$rel"
+    if [ "$rel" = .claude-queue.md ] && [ -f "$src" ] && [ ! -L "$src" ] && [ -f "$dest" ] && [ ! -L "$dest" ]; then
+      # Merge: append the worktree's new blocks (see _wb_done_keep_state).
+      _wb_queue_new_blocks "$src" "$dest"
+      qdest="$dest"; qsize="$(wc -c < "$dest")"; qsize="${qsize//[[:space:]]/}"; qrel="$rel"
+      if ! { { [ ! -s "$dest" ] || [ "$(tail -c1 -- "$dest" | wc -l)" -gt 0 ] || printf '\n'; } && printf '%s' "$_wb_qnew"; } >> "$dest"; then
+        echo "wb done: appending $rel to $dossier failed" >&2
+        _wb_done_keep_rollback "$rel" "$dest" "" ${created[@]+"${created[@]}"}; return 1
+      fi
+      continue
+    fi
+    p="$dest"; top=""
+    while [ ! -e "$p" ] && [ ! -L "$p" ]; do top="$p"; p="$(dirname -- "$p")"; done
+    [ -n "$top" ] && created+=("$top")
+    if ! mkdir -p -- "$(dirname -- "$dest")"; then
+      echo "wb done: could not create the dossier directory for $rel (nothing removed)" >&2
+      _wb_done_keep_rollback "$rel" "$dest" "$top" ${created[@]+"${created[@]}"}; return 1
+    fi
+    if [ -d "$src" ] && [ ! -L "$src" ] && [ -d "$dest" ]; then
+      cp -a -- "$src/." "$dest/" || { echo "wb done: copying $rel into $dossier failed (nothing removed)" >&2
+        _wb_done_keep_rollback "$rel" "$dest" "$top" ${created[@]+"${created[@]}"}; return 1; }
+    else
+      cp -a -- "$src" "$dest" || { echo "wb done: copying $rel into $dossier failed (nothing removed)" >&2
+        _wb_done_keep_rollback "$rel" "$dest" "$top" ${created[@]+"${created[@]}"}; return 1; }
+    fi
+  done
+  return 0
+}
+
 cmd_done() {
   # Index/shift case parser, not a single-token foreach — mirrors cmd_new's
   # --parent handling so --close can appear before, after, or without the
   # optional session positional.
-  local close=0 leave_shelved=0
-  local -a args=()
+  local close=0 leave_shelved=0 review=0
+  local -a args=() sweep_flags=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --close)         close=1; shift ;;
       --leave-shelved) leave_shelved=1; shift ;;
+      --review)        review=1; shift ;;
+      --keep|--throwaway)
+        [ $# -ge 2 ] && [ -n "$2" ] || { echo "wb done: $1 needs a path" >&2; exit 1; }
+        sweep_flags+=("$1" "$2"); shift 2 ;;
       *)               args+=("$1"); shift ;;
     esac
   done
@@ -6309,7 +6963,7 @@ cmd_done() {
   local session="${args[0]:-}"
   if [ -z "$session" ]; then
     [ -n "${TMUX:-}" ] || { echo "wb done: run inside the target session, or pass a session name" >&2; exit 1; }
-    session="$(tmux display-message -p '#S')"
+    session="$(tmux display-message -p '#S')" || { echo "wb done: could not read the current tmux session name" >&2; exit 1; }
   fi
 
   # KTD7's store-only close: <session> matching no LIVE tmux session at all
@@ -6394,123 +7048,81 @@ cmd_done() {
       exit 1
     fi
 
+    # A folder git no longer lists as a worktree (a `git worktree remove` that
+    # half-failed, say on root-owned files, can drop git's record yet leave the
+    # folder) can't be sorted or removed the normal way; say so, before the
+    # dirty check would read the enclosing repo's status instead.
+    if [ -d "$worktree_path" ]; then
+      local wt_list wt_real
+      if wt_list="$(git -C "$repo_dir" worktree list --porcelain 2>/dev/null)"; then
+        wt_real="$(realpath -m -- "$worktree_path")"
+        if ! printf '%s\n' "$wt_list" | grep -qxF -e "worktree $worktree_path" -e "worktree $wt_real"; then
+          echo "wb done: $worktree_path is no longer a git worktree (a removal half-failed?); check what's left in it, delete it by hand, then run git worktree prune and re-run" >&2
+          exit 1
+        fi
+      fi
+    fi
+
     # 1. fail fast — never mutate anything on a dirty tree.
     _wb_git_dirty_guard "$worktree_path" "wb done"
   fi
 
-  # Steps 2-3 (Sweep review buffer + worktree removal) are meaningless for a
-  # store-only close — a session-less parent never had a worktree to sweep
-  # or remove (KTD7: "no sweep, worktree, or session teardown"). Only the
-  # shared status/closed/Handoffs burst below applies to it.
-  if [ "$store_only" = 0 ]; then
-
-  # 2. review buffer — the task file itself IS the buffer (it already lives
-  # centrally and survives `git worktree remove`, so there's no copy to sync
-  # back). Append a throwaway ## Sweep section listing every gitignored file
-  # `git worktree remove` would otherwise silently destroy; `- [x] keep` marks
-  # survivors, same convention as decision-buffer.
-  local ignored
-  ignored="$(git -C "$worktree_path" status --porcelain --ignored 2>/dev/null \
-    | awk '$1 == "!!" { $1 = ""; sub(/^ /, ""); print }' || true)"
-  if [ -n "$ignored" ]; then
-    # Burst 1: Sweep-section append — release BEFORE wb_open_buffer (the
-    # operator's interactive, human-supervised, minutes-long nvim session).
-    # A critical section must never span it (W5, round-2 Decision 2).
-    wb_task_lock_acquire_guarded "$task_file" || exit $?
-    {
-      echo
-      echo "## Sweep (gitignored — check keep before closing; git worktree remove destroys the rest)"
-      echo
-      while IFS= read -r f; do
-        echo "- [ ] keep $f"
-      done <<< "$ignored"
-    } >> "$task_file"
-    wb_task_lock_release "$task_file"
-
-    wb_open_buffer "$task_file"
-
-    local dossier="$TASKS_DIR/dossiers/$task_stem"
-    local -a safe_kept=()
-    local f safe
-    # Scope to the section this run appended (never the task's own freeform
-    # prose — see wb_sweep_section), and validate every path stays inside
-    # the worktree (see wb_safe_rel) before it's ever handed to cp.
-    while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      f="${f%/}"   # git reports whole ignored dirs with a trailing slash (e.g. "logs/")
-      safe="$(wb_safe_rel "$worktree_path" "$f")" \
-        || { echo "wb done: refusing to sweep unsafe path: $f" >&2; continue; }
-      if wb_credential_shaped "$safe"; then
-        echo "wb done: NOT sweeping credential-shaped keeper: $safe (the store may sync; copy it by hand if you truly need it)" >&2
-        continue
-      fi
-      [ -e "$worktree_path/$safe" ] || continue
-      safe_kept+=("$safe")
-    done < <(wb_sweep_section "$task_file" | grep -oP '^- \[x\] keep \K.*' || true)
-
-    # Kept DIRECTORIES are walked file-by-file rather than cp -a'd whole:
-    # git reports an ignored dir as one keeper entry ("logs/"), so a blind
-    # recursive copy would carry a credential-shaped file INSIDE it (e.g.
-    # logs/.env) past the guard that only saw the top-level path.
-    local inner rel
-    for f in "${safe_kept[@]}"; do
-      if [ -d "$worktree_path/$f" ]; then
-        while IFS= read -r -d '' inner; do
-          rel="${inner#"$worktree_path"/}"
-          if wb_credential_shaped "$rel"; then
-            echo "wb done: NOT sweeping credential-shaped file inside kept dir: $rel (copy it by hand if you truly need it)" >&2
-            continue
-          fi
-          mkdir -p "$dossier/$(dirname "$rel")"
-          cp -a "$inner" "$dossier/$rel"
-        done < <(find "$worktree_path/$f" \( -type f -o -type l \) -print0)
-      else
-        mkdir -p "$dossier/$(dirname "$f")"
-        cp -a "$worktree_path/$f" "$dossier/$f"
-      fi
-    done
-
-    # Burst 2: post-buffer Sweep-strip + kept-notes append — its own,
-    # separate lock burst, acquired only now (after the unlocked buffer
-    # session above has closed), released again before anything below it.
-    wb_task_lock_acquire_guarded "$task_file" || exit $?
-    # drop the transient Sweep section; if anything was kept, record where it went.
-    awk '/^## Sweep \(gitignored/ { exit } { print }' "$task_file" > "$task_file.tmp.$$"
-    mv "$task_file.tmp.$$" "$task_file"
-    if [ "${#safe_kept[@]}" -gt 0 ]; then
-      {
-        echo
-        for f in "${safe_kept[@]}"; do
-          echo "- kept: \`$f\` -> \`${dossier#"$HOME"/}/$f\`"
-        done
-      } >> "$task_file"
+  # Steps 2-4 (sort the gitignored entries, copy the keepers, remove the
+  # worktree) are meaningless for a store-only close — a session-less parent
+  # never had a worktree to sweep or remove (KTD7: "no sweep, worktree, or
+  # session teardown"). Only the shared status/closed/Handoffs burst below
+  # applies to it. keep_paths/throw_paths are filled by _wb_done_classify and
+  # read again by the handoff record below.
+  local -a keep_paths=() throw_paths=()
+  if [ "$store_only" = 1 ] && [ "${#sweep_flags[@]}" -gt 0 ]; then
+    echo "wb done: --keep/--throwaway ignored: a store-only close has no worktree to sort" >&2
+  fi
+  if [ "$store_only" = 0 ] && [ -d "$worktree_path" ]; then
+    # 2. classify EVERY gitignored entry before anything changes (KTD1): one
+    # unknown stops the run here. Under --review the first pass runs before the
+    # buffer so an unknown stops the run before Jet spends time in it; the
+    # second runs after it, because the worktree can change while the buffer is
+    # open, and only the second result is acted on.
+    _wb_done_classify 0 "$worktree_path" "$repo_dir" ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
+    if [ "$review" = 1 ]; then
+      wb_open_buffer "$task_file" || exit 1   # no lock held (W5, round-2 Decision 2)
+      # An edit to a tracked file made while the buffer was open would be lost
+      # to the forced removal below.
+      _wb_git_dirty_guard "$worktree_path" "wb done"
+      _wb_done_classify 1 "$worktree_path" "$repo_dir" ${sweep_flags[@]+"${sweep_flags[@]}"} || exit 1
     fi
-    wb_task_lock_release "$task_file"
-  else
-    # No ignored files -> burst 1 never happened, nothing was written yet —
-    # nothing to lock before the buffer here; go straight to it.
-    wb_open_buffer "$task_file"
+
+    # 3. copy every keeper into the dossier BEFORE the removal (a keeper can sit
+    # inside a throwaway directory). Destinations are checked first, so a
+    # collision stops the run before anything is written (KTD6).
+    local dossier="$TASKS_DIR/dossiers/$task_stem"
+    _wb_done_keep_all "$worktree_path" "$dossier" ${keep_paths[@]+"${keep_paths[@]}"} || exit 1
+
+    # 4. remove the worktree BEFORE flipping status:
+    #    - flipping status to "done" before a possibly-failing removal would
+    #      leave the store claiming done while the worktree still exists;
+    #      removing first means status only ever reflects a real teardown.
+    #    - this is the only deletion, and the guard above (`[ -d ]`) makes a
+    #      retry safe after a prior run was killed between removal and
+    #      status-set: `git worktree remove` on an already-gone path hard-fails
+    #      under set -e otherwise.
+    #    Branch is kept — see logs/decisions/2026-07-06-review-outstanding.md Q2.
+    #    The tmux session is deliberately left alive by default — wb done tears
+    #    down the worktree, not the window you're sitting in (2026-07-08: "I
+    #    don't want windows or sessions to disappear"; same reasoning as wb
+    #    pause). See --close below for the explicit opt-in to also kill it.
+    # Explicit check: the ctrl-x picker runs cmd_done as `cmd_done ... || rc=$?`
+    # inside `$( )`, a context where bash ignores `set -e` — so every step whose
+    # failure must stop the run is guarded by hand, not by errexit.
+    git -C "$repo_dir" worktree remove "$worktree_path" --force \
+      || { echo "wb done: could not remove $worktree_path (task left as is)" >&2; exit 1; }
+  elif [ "$review" = 1 ]; then
+    # Store-only close, or a retry after the worktree is already gone: nothing
+    # to sort, but --review still opens the task file once.
+    wb_open_buffer "$task_file" || exit 1
   fi
 
-  # 3. remove the worktree BEFORE flipping status:
-  #    - flipping status to "done" before a possibly-failing removal would
-  #      leave the store claiming done while the worktree still exists;
-  #      removing first means status only ever reflects a real teardown.
-  #    - the existence guard makes a retry safe after a prior run was
-  #      killed between removal and status-set: `git worktree remove` on an
-  #      already-gone path hard-fails under set -e otherwise.
-  #    Branch is kept — see logs/decisions/2026-07-06-review-outstanding.md Q2.
-  #    The tmux session is deliberately left alive by default — wb done tears
-  #    down the worktree, not the window you're sitting in (2026-07-08: "I
-  #    don't want windows or sessions to disappear"; same reasoning as wb
-  #    pause). See --close below for the explicit opt-in to also kill it.
-  if [ -d "$worktree_path" ]; then
-    git -C "$repo_dir" worktree remove "$worktree_path" --force
-  fi
-
-  fi   # store_only == 0 (steps 2-3)
-
-  # Burst 3 (shared): final status/closed stamps + Handoffs entry — its own
+  # The one locked burst (KTD6): final status/closed stamps + Handoffs entry — its own
   # lock burst, acquired only now, AFTER the (unlocked) worktree removal
   # above. `git worktree remove` is a slow-ish external operation and isn't
   # a task-FILE write at all, so it must never happen while the lock is
@@ -6518,13 +7130,17 @@ cmd_done() {
   # status/closed/handoff burst (KTD7/KTD8: the printed nudge names a
   # parent that must actually flip to done when someone acts on it).
   wb_task_lock_acquire_guarded "$task_file" || exit $?
-  wb_set_frontmatter "$task_file" status done
-  wb_set_frontmatter "$task_file" closed "$(date +%F)"
+  local lock_fail="wb done: could not update $task_file"
+  wb_set_frontmatter "$task_file" status done \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (status not written)" >&2; exit 1; }
+  wb_set_frontmatter "$task_file" closed "$(date +%F)" \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (closed date not written)" >&2; exit 1; }
   # U6/R6: a done task has no worktree left to resume into, so the
   # claude_sessions: snapshot (a record of resumable conversations) is
   # stale the instant the worktree is removed — blank it rather than let a
   # future reader mistake a done task for one with a warm history.
-  wb_set_frontmatter "$task_file" claude_sessions ""
+  wb_set_frontmatter "$task_file" claude_sessions "" \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (claude_sessions not cleared)" >&2; exit 1; }
   # Say what was actually torn down: without --close the session survives,
   # and a 2026-10-18 batch left 14 idle sessions whose Handoffs all claimed
   # "Session closed". A store-only close never touches a worktree, but a
@@ -6546,7 +7162,16 @@ cmd_done() {
     done
     done_note="$done_note; --leave-shelved: ${#shelved_drafts[@]} decision draft(s) left in place: $left_dirs"
   fi
-  wb_append_handoff "$task_file" "wb done" "$done_note."
+  # R22: which gitignored entries went to the dossier and which were deleted.
+  local handoff_msg="$done_note."
+  if [ "${#keep_paths[@]}" -gt 0 ]; then
+    handoff_msg+=$'\n'"kept: $(_wb_done_join "${keep_paths[@]}")"
+  fi
+  if [ "${#throw_paths[@]}" -gt 0 ]; then
+    handoff_msg+=$'\n'"discarded: $(_wb_done_join "${throw_paths[@]}")"
+  fi
+  wb_append_handoff "$task_file" "wb done" "$handoff_msg" \
+    || { wb_task_lock_release "$task_file"; echo "$lock_fail (handoff not written)" >&2; exit 1; }
   wb_task_lock_release "$task_file"
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
     _wb_capture_verb log-shelved-left "$task_stem" "${#shelved_drafts[@]}" >/dev/null 2>&1 || true
@@ -8024,8 +8649,8 @@ _new() {
 #
 # Every task row asks first (_ctrl_x_confirm): one stray ctrl-x on the
 # picker closed a task mid-review on 2026-10-26, removing its worktree
-# (dotfiles--fix-propagation-peer-filter). Typed `wb done` and the /wb-done
-# skill stay unprompted; repo and agent rows too.
+# (dotfiles--fix-propagation-peer-filter). Typed `wb done` and close-out's
+# `wb done` stay unprompted; repo and agent rows too.
 _ctrl_x() {
   local kind="$1" session="$2" target="$3" ref="${4:-}"
   case "$kind" in
@@ -8048,10 +8673,10 @@ _ctrl_x() {
         # wind-down under set -e.
         cd "$HOME" 2>/dev/null || true
         if [ "$self" = 1 ]; then
-          cmd_done "$session"
+          _ctrl_x_done "$session" || return 0
           echo "wb: not closing '$session' via ctrl-x — it's your current session; run 'wb done --close' yourself once you're ready to leave it" >&2
         else
-          cmd_done "$session" --close
+          _ctrl_x_done "$session" --close
         fi
       elif [ -n "$ref" ]; then
         # Dormant row (R10): no live session for @wb_repo/@wb_slug to
@@ -8059,12 +8684,43 @@ _ctrl_x() {
         # resolves a task-file stem instead, same mechanism the printed
         # "wb done <parent-stem>" nudge already relies on.
         _ctrl_x_confirm "$ref" "$(basename "$ref" .md)" "Marks the task done in the store; nothing is torn down." || return 0
-        cmd_done "$(basename "$ref" .md)"
+        _ctrl_x_done "$(basename "$ref" .md)"
       fi
       ;;
     repo)  [ -n "$session" ] && tmux kill-session -t "=$session" 2>/dev/null ;;
     agent) [ -n "$target" ]  && tmux kill-pane -t "$target" 2>/dev/null ;;
   esac
+}
+
+# _ctrl_x_done <cmd_done args...> — run cmd_done with its output captured (in a
+# subshell, so its `exit` ends only that). On success the output is printed as
+# usual; on failure it is shown in a tmux popup (falling back to a status-line
+# message) and on stderr, so an unknown-entry stop or the undecided-drafts
+# refusal can't vanish in the fzf redraw (KTD7). Returns cmd_done's status.
+_ctrl_x_done() {
+  local out rc=0
+  out="$(cmd_done "$@" 2>&1)" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    [ -n "$out" ] && printf '%s\n' "$out"
+    return 0
+  fi
+  printf '%s\n' "$out" >&2
+  # tmux expands #(cmd) and #{..} in display-message text: double every # so
+  # a gitignored file named `#(cmd)` in the stop text is shown, never run.
+  local msg f
+  msg="$(printf '%s' "$out" | head -c 1500)"; msg="${msg//#/##}"
+  f="$(mktemp "${TMPDIR:-/tmp}/wb-done-stop.XXXXXX" 2>/dev/null)" || f=""
+  if [ -n "$f" ]; then
+    printf '%s\n' "$out" > "$f"
+    # The popup removes its own file once shown (it may outlive this function);
+    # only when no popup could be opened is the file removed here.
+    local qf; qf="$(printf %q "$f")"
+    tmux display-popup -E -w 90% -h 70% "cat $qf; rm -f -- $qf; printf '\\n[press enter]'; read -r _" 2>/dev/null \
+      || { rm -f -- "$f"; tmux display-message -d 0 "$msg" 2>/dev/null || true; }
+  else
+    tmux display-message -d 0 "$msg" 2>/dev/null || true
+  fi
+  return "$rc"
 }
 
 # _ctrl_x_confirm <task-file> <name> <effect> — ask "Close <stem> (<title>)?"
