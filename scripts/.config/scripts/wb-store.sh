@@ -13,6 +13,11 @@
 # WB_STORE_SRC builds to its own binary under ~/.cache/wb-store/bin/:
 # staleness is judged by file age alone, so one shared binary would let a
 # switch back to an unchanged checkout run the other checkout's build.
+#
+# A rebuild holds the lock directory $BIN.lock (mkdir, since macOS has no
+# flock), so two callers that find the binary stale at once build it once:
+# the second waits up to WB_STORE_LOCK_WAIT seconds (default 60), then
+# re-checks staleness and skips the build if the first made it fresh.
 set -euo pipefail
 
 default_src="$HOME/code/wb-store"
@@ -46,17 +51,68 @@ stale() {
           -newer "$BIN" -print -quit 2>/dev/null)" ]
 }
 
+lock="$BIN.lock"
+lock_wait="${WB_STORE_LOCK_WAIT:-60}"
+have_lock=0
+
+# Stale when its holder is dead, or after 5 minutes whatever the pid says
+# (a reused pid, or a holder killed between mkdir and writing its pid). A
+# real build takes seconds, a cold module download well under a minute, so
+# an older lock is abandoned. Two waiters breaking the same lock at once cost
+# only a duplicate build: the temp-and-rename below keeps the binary whole.
+lock_is_stale() {
+  local pid
+  pid=$(cat "$lock/pid" 2>/dev/null) || pid=""
+  if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then return 0; fi
+  [ -n "$(find "$lock" -maxdepth 0 -mmin +5 2>/dev/null)" ]
+}
+
+take_lock() {
+  local deadline=$((SECONDS + lock_wait))
+  until mkdir "$lock" 2>/dev/null; do
+    if lock_is_stale; then
+      echo "wb-store.sh: breaking stale build lock $lock" >&2
+      rm -rf "$lock"
+      continue
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      echo "wb-store.sh: gave up after ${lock_wait}s waiting for another build of $BIN (lock $lock, pid $(cat "$lock/pid" 2>/dev/null || echo unknown)); remove the lock if no build is running" >&2
+      exit 1
+    fi
+    sleep 0.2
+  done
+  have_lock=1
+  echo "$$" > "$lock/pid"
+}
+
+# Only our own lock: one broken as stale and retaken by another caller
+# carries that caller's pid.
+release_lock() {
+  local owner
+  [ "$have_lock" = 1 ] || return 0
+  owner=$(cat "$lock/pid" 2>/dev/null) || owner=""
+  if [ -z "$owner" ] || [ "$owner" = "$$" ]; then rm -rf "$lock"; fi
+  have_lock=0
+}
+
 if stale; then
   command -v go >/dev/null || { echo "wb-store.sh: go not found; it is needed to build $BIN from $src" >&2; exit 1; }
-  echo "wb-store.sh: building wb-store from $src" >&2
   mkdir -p "$(dirname "$BIN")"
-  # build beside the binary and rename, so a failed or interrupted build
-  # never leaves a half-written binary for another caller to run
-  tmp=$(mktemp "$(dirname "$BIN")/.wb-store.XXXXXX")
-  trap 'rm -f "$tmp"' EXIT
+  tmp=""
+  cleanup() { if [ -n "$tmp" ]; then rm -f "$tmp"; fi; release_lock; }
+  trap cleanup EXIT
   trap 'exit 1' INT TERM HUP
-  (cd "$src" && go build -o "$tmp" ./cmd/wb-store)
-  mv -f "$tmp" "$BIN"
+  take_lock
+  if stale; then
+    echo "wb-store.sh: building wb-store from $src" >&2
+    # build beside the binary and rename, so a failed or interrupted build
+    # never leaves a half-written binary for another caller to run
+    tmp=$(mktemp "$(dirname "$BIN")/.wb-store.XXXXXX")
+    (cd "$src" && go build -o "$tmp" ./cmd/wb-store)
+    mv -f "$tmp" "$BIN"
+    tmp=""
+  fi
+  cleanup
   trap - EXIT INT TERM HUP
 fi
 
