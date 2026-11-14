@@ -1096,10 +1096,14 @@ wb page --no-open wb-store--page-server
 answers reads only, and re-reads the store on every refresh, so a page is never
 stale; refresh the browser to see new decisions or a new <code>## Now</code>. <code>wb page</code>
 reuses a running server when its <code>/healthz</code> reports the current binary's build
-id. Otherwise it starts one detached, logging to
-<code>~/.local/state/wb/page-server.log</code>, and it keeps running after the session
-ends. A server of an older build is left running on its port; stop it with
-<code>pkill -f 'wb-store.*serve'</code> if the ports fill up.</p>
+id. Otherwise it stops the server it last started from the same binary (an
+older build, after a rebuild) and starts one detached, logging to
+<code>~/.local/state/wb/page-server.log</code>; it keeps running after the session ends.
+The server's pid is kept beside the log, one file per binary, so a branch
+build (<code>WB_STORE_SRC</code>) and the default build each keep their own server. A
+server started some other way (a plain <code>wb-store serve</code>) is never stopped;
+<code>pkill -f 'wb-store.*serve'</code> clears every one. If the server exits without
+printing its URL, <code>wb page</code> says so at once and shows the log's last lines.</p>
 <h2 id="wb-board---html--the-full-board-v2"><code>wb board --html</code> — the full board (v2)</h2>
 <p><code>wb board --html</code> writes <code>logs/board.html</code> (gitignored, overwritten on every
 call) — a richer, filterable view over the whole store that goes well beyond

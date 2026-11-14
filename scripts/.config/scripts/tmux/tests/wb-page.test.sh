@@ -75,11 +75,13 @@ tmux() {
 
 # curl stub: /healthz answers on HEALTHZ_PORT with HEALTHZ_ID; every other
 # port refuses.
-HEALTHZ_PORT=""; HEALTHZ_ID=""
+# HEALTHZ_BODY, when set, replaces the body (to vary its JSON layout).
+HEALTHZ_PORT=""; HEALTHZ_ID=""; HEALTHZ_BODY=""
 curl() {
   local url="${*: -1}"
   if [ -n "$HEALTHZ_PORT" ] && [ "$url" = "http://127.0.0.1:$HEALTHZ_PORT/healthz" ]; then
-    printf '{"app":"wb-store","build_id":"%s"}\n' "$HEALTHZ_ID"
+    if [ -n "$HEALTHZ_BODY" ]; then printf '%s\n' "$HEALTHZ_BODY"
+    else printf '{"app":"wb-store","build_id":"%s"}\n' "$HEALTHZ_ID"; fi
     return 0
   fi
   return 7
@@ -88,7 +90,17 @@ curl() {
 OPENED="$FIXTURE/opened"
 _wb_page_open() { printf '%s\n' "$1" > "$OPENED"; }
 
-reset() { : > "$SERVE_LOG"; rm -f "$OPENED"; HEALTHZ_PORT=""; HEALTHZ_ID=""; STUB_TASK=""; }
+reset() {
+  : > "$SERVE_LOG"; rm -f "$OPENED" "$PIDFILE"
+  HEALTHZ_PORT=""; HEALTHZ_ID=""; HEALTHZ_BODY=""; STUB_TASK=""; WB_PAGE_PORT=8766
+}
+
+# Where cmd_page records the server it started from $BIN.
+PIDFILE="$XDG_STATE_HOME/wb/page-server.$(printf '%s' "$BIN" | cksum | cut -d ' ' -f 1).pid"
+
+# A long-running stand-in for an old server, named wb-store as the real
+# binary is (cmd_page checks the name before it kills a recorded pid).
+mkdir -p "$FIXTURE/old"; cp "$(command -v sleep)" "$FIXTURE/old/wb-store"
 
 # =============================================================================
 echo "# inside a session whose @task is a child task: that child's page"
@@ -116,13 +128,60 @@ reset; HEALTHZ_PORT=8766; HEALTHZ_ID="0123456789ab"
 out=$(cmd_page --no-open dotfiles--lone 2>&1); rc=$?
 assert_eq "exit 0" 0 "$rc"
 assert_eq "the new server's URL, from its first line" "http://127.0.0.1:8768/task/dotfiles--lone" "$out"
-assert_eq "started serve --no-open for the task" "serve --no-open dotfiles--lone" "$(cat "$SERVE_LOG")"
+assert_eq "started serve --no-open from the first port, for the task" "serve --no-open --port 8766 dotfiles--lone" "$(cat "$SERVE_LOG")"
+assert "recorded the server's pid" '^[0-9]+$' "$(cat "$PIDFILE" 2>/dev/null)"
 assert "logged to wb's state directory" "wb-store serve: http://127.0.0.1:8768/" "$(cat "$XDG_STATE_HOME/wb/page-server.log")"
 
 echo "# no server at all: start one"
 reset
 out=$(cmd_page --no-open dotfiles--lone 2>&1)
-assert_eq "started one" "serve --no-open dotfiles--lone" "$(cat "$SERVE_LOG")"
+assert_eq "started one" "serve --no-open --port 8766 dotfiles--lone" "$(cat "$SERVE_LOG")"
+
+# =============================================================================
+echo "# a /healthz body with other field order and spacing still matches"
+reset; HEALTHZ_PORT=8766; HEALTHZ_BODY="{ \"build_id\": \"$BUILD_ID\", \"app\": \"wb-store\" }"
+out=$(cmd_page --no-open dotfiles--lone 2>&1)
+assert_eq "reused it" "http://127.0.0.1:8766/task/dotfiles--lone" "$out"
+assert_eq "started no server" "" "$(cat "$SERVE_LOG")"
+reset; HEALTHZ_PORT=8766; HEALTHZ_BODY="{\"app\":\"other\",\"build_id\":\"$BUILD_ID\"}"
+cmd_page --no-open dotfiles--lone >/dev/null 2>&1
+assert_eq "another app with the same id isn't reused" "serve --no-open --port 8766 dotfiles--lone" "$(cat "$SERVE_LOG")"
+
+echo "# WB_PAGE_PORT moves both the probe and serve's --port"
+reset; WB_PAGE_PORT=9100; HEALTHZ_PORT=9109; HEALTHZ_ID="$BUILD_ID"
+out=$(cmd_page --no-open dotfiles--lone 2>&1)
+assert_eq "probed up to the tenth port" "http://127.0.0.1:9109/task/dotfiles--lone" "$out"
+reset; WB_PAGE_PORT=9100; HEALTHZ_PORT=9110; HEALTHZ_ID="$BUILD_ID"
+cmd_page --no-open dotfiles--lone >/dev/null 2>&1
+assert_eq "not past it; serve starts from WB_PAGE_PORT" "serve --no-open --port 9100 dotfiles--lone" "$(cat "$SERVE_LOG")"
+
+# =============================================================================
+echo "# an older server this binary path started: stopped before a new one starts"
+reset; HEALTHZ_PORT=8766; HEALTHZ_ID="0123456789ab"
+"$FIXTURE/old/wb-store" 300 & old=$!
+mkdir -p "$(dirname "$PIDFILE")"; echo "$old" > "$PIDFILE"
+cmd_page --no-open dotfiles--lone >/dev/null 2>&1
+# Poll rather than `wait`: if the stop regresses, this fails in ~2 s
+# instead of blocking on the 300 s stand-in. A killed child is a zombie
+# until reaped, so reap it once kill has landed.
+for _ in $(seq 1 40); do
+  [ "$(ps -p "$old" -o stat= 2>/dev/null | cut -c1)" = Z ] && break
+  kill -0 "$old" 2>/dev/null || break
+  command sleep 0.05
+done
+case "$(ps -p "$old" -o stat= 2>/dev/null | cut -c1)" in Z|'') state=gone ;; *) state=alive ;; esac
+assert_eq "the old server is gone" gone "$state"
+kill "$old" 2>/dev/null; wait "$old" 2>/dev/null
+assert "the pidfile names the new server" '^[0-9]+$' "$(cat "$PIDFILE" 2>/dev/null)"
+assert_eq "not the old pid" yes "$([ "$(cat "$PIDFILE")" != "$old" ] && echo yes || echo no)"
+
+echo "# a recorded pid that is no longer wb-store: left alone"
+reset
+command sleep 300 & other=$!
+mkdir -p "$(dirname "$PIDFILE")"; echo "$other" > "$PIDFILE"
+cmd_page --no-open dotfiles--lone >/dev/null 2>&1
+assert_eq "the other process still runs" alive "$(kill -0 "$other" 2>/dev/null && echo alive || echo gone)"
+kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
 
 # =============================================================================
 echo "# outside tmux with no task: usage, exit 1"
@@ -155,13 +214,20 @@ reset
 cat > "$FIXTURE/silent.sh" <<STUB
 #!/usr/bin/env bash
 if [ "\$1" = --bin-path ]; then echo "$BIN"; exit 0; fi
-echo "listen: address already in use" >&2
+echo "no free port on 127.0.0.1 in 8766-8775: address already in use" >&2
+exit 1
 STUB
 chmod +x "$FIXTURE/silent.sh"
-sleep() { :; }   # don't wait out the ~10 s poll
+# every port held by an older build, so serve has nowhere to bind
+HEALTHZ_PORT=8766; HEALTHZ_ID="0123456789ab"
+SLEEPS="$FIXTURE/sleeps"; : > "$SLEEPS"
+sleep() { echo x >> "$SLEEPS"; command sleep 0.05; }
 out=$(WB_STORE_SHIM="$FIXTURE/silent.sh" cmd_page --no-open dotfiles--lone 2>&1); rc=$?
 unset -f sleep
 assert_eq "exit 1" 1 "$rc"
 assert "points at the log" "printed no URL; see .*/wb/page-server.log" "$out"
+assert "shows the log's last lines" "no free port on 127.0.0.1" "$out"
+assert_eq "stopped waiting once serve exited (well under 50 polls)" yes "$([ "$(wc -l < "$SLEEPS")" -lt 20 ] && echo yes || echo no)"
+assert_eq "a dead server's pid isn't kept" no "$([ -f "$PIDFILE" ] && echo yes || echo no)"
 
 exit "$fail"

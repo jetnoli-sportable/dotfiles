@@ -874,10 +874,14 @@ The page server binds `127.0.0.1` from port 8766, falling forward up to 8775,
 answers reads only, and re-reads the store on every refresh, so a page is never
 stale; refresh the browser to see new decisions or a new `## Now`. `wb page`
 reuses a running server when its `/healthz` reports the current binary's build
-id. Otherwise it starts one detached, logging to
-`~/.local/state/wb/page-server.log`, and it keeps running after the session
-ends. A server of an older build is left running on its port; stop it with
-`pkill -f 'wb-store.*serve'` if the ports fill up.
+id. Otherwise it stops the server it last started from the same binary (an
+older build, after a rebuild) and starts one detached, logging to
+`~/.local/state/wb/page-server.log`; it keeps running after the session ends.
+The server's pid is kept beside the log, one file per binary, so a branch
+build (`WB_STORE_SRC`) and the default build each keep their own server. A
+server started some other way (a plain `wb-store serve`) is never stopped;
+`pkill -f 'wb-store.*serve'` clears every one. If the server exits without
+printing its URL, `wb page` says so at once and shows the log's last lines.
 
 ## `wb board --html` — the full board (v2)
 
