@@ -124,6 +124,36 @@ worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through `wb done`.
 
+**The task's own pushed branch.** When the branch is named after the slug
+(no pre-set `branch:`) and exists only on origin, for example after
+`wb done` removed the local branch or on another machine, `wb new` attaches
+to `origin/<slug>` (tracking it) only when the branch is still this task's
+live work:
+
+- the task file existed before this `wb new`;
+- its status is `doing`, `paused` or `review` (a `planned` file is often made
+  ahead of time, so a reused slug must not pick up an old branch);
+- the branch isn't merged: `origin/<slug>` isn't contained in
+  `origin/<default>`, and its PR isn't merged (merged with a newer open PR
+  counts as live). If `gh` can't tell, it attaches anyway with a note.
+
+Otherwise `wb new` cuts a fresh branch and names the leftover
+`origin/<slug>` in a note. The status checks run before any network call, so
+starting a new task stays offline-safe. Once they pass, origin is asked
+directly: the cached `origin/<slug>` is re-fetched, because a copy fetched
+before a push from another clone can look merged. If origin can't be
+reached, `wb new` stops before creating anything rather than guess.
+
+**A stale worktree catches up on reattach.** When `wb new` or `wb resume`
+brings a session back on an existing worktree or local branch (never while
+the session is still live, since an agent may be mid-edit), and the branch is
+clean, has no commits of its own and is behind its start point (the first
+usable blocker, else `origin/<default>`), it fast-forwards automatically
+with `git merge --ff-only` and prints what moved: `fast-forwarded <branch> <old>..<new> (N commits) to <start>`.
+Otherwise it leaves the branch alone and says why, for example
+`<branch> is 3 commit(s) behind origin/development — not fast-forwarded:
+tracked files have uncommitted changes`.
+
 **Where a new branch starts.** When the branch doesn't exist yet,
 `wb new` first fetches `origin/<default>` (resolved from origin/HEAD, never
 hard-coded; a failed fetch warns and uses the last-fetched ref). Only
