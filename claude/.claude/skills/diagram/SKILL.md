@@ -55,19 +55,24 @@ Say the case, level and format in one line before drawing.
 4. **Check it against a render before showing it:**
 
    ```bash
-   png=$(bash ~/.claude/skills/diagram/scripts/render-check.sh in.svg "$SCRATCH")
+   rc=0
+   png=$(bash ~/.claude/skills/diagram/scripts/render-check.sh in.svg <scratchpad>) || rc=$?
    ```
 
-   `$SCRATCH` is the session scratchpad. The script gives the copy a fixed
-   colour and white background, then renders it with Quick Look on macOS or
-   Playwright's headless Chromium on Linux, and prints the PNG's path. Read
+   Put your session scratchpad's path (from your system prompt) in place of
+   `<scratchpad>`; left out, the script uses a fresh temp dir. It draws the
+   SVG in a fixed colour on white, renders it with Quick Look on macOS or
+   Playwright's headless Chromium on Linux, and prints the PNG's path. Exit
+   codes: 2 no such input, 3 no renderer installed, 4 the renderer failed or
+   wrote no PNG (stderr says why). Read
    that PNG. Fix any label sitting on a line or box, any arrow ending short
    of its box, and any text off the edge. In the trial the first pass had
    about five such collisions. Stop after two rounds; if it still doesn't
    read, the diagram has too many boxes for hand placement, so switch to D2.
 
-   If the script finds no renderer, it prints the one-time install command.
-   Give that to Jet rather than running it, and say the diagram is unchecked.
+   On exit 3 the script prints the one-time install command. Give that to
+   Jet rather than running it, and say the diagram is unchecked. On exit 4,
+   say the render failed and include the script's message.
 
 ## 4. D2
 

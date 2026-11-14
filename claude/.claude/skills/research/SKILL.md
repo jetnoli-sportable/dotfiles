@@ -1,6 +1,6 @@
 ---
 name: research
-description: Pick the right approach for a research question and run it. Routes looking up facts, exploring, comparing options, checking a direction, a best-practices pass, and evaluating a tool, repo or skill to the skill that fits, and runs fact lookups, best-practices passes and skill vetting itself. Use when Jet types /research, asks which skill to use for some research, or another skill needs a best-practices pass, a fact lookup or a vetting pass.
+description: Pick the right approach for a research question and run it. Routes looking up facts, exploring, comparing options, checking a direction, a best-practices pass, and evaluating a tool, repo or skill to the skill that fits, and runs fact lookups, best-practices passes and skill vetting itself. Use when Jet types /research, asks which skill to use for some research, or another skill needs a best-practices pass, a fact lookup or a vetting pass. Not for a request that already asks for a thorough cited report on a topic; that is deep-research.
 ---
 
 # /research
@@ -91,6 +91,8 @@ cons. Jet chooses; installing is a separate step Jet approves.
 For a question that takes real reading (several pages, source code, a spec),
 spin up a **background agent** to do it, so the session keeps working while
 it reads. A cheaper model (Sonnet) is enough unless the sources are hard.
+If you can't launch one (you are yourself a subagent), do the same job
+inline.
 
 Its job:
 
@@ -105,8 +107,9 @@ Its job:
    (`~/code/tasks/dossiers/<repo>--<slug>/`). If neither applies, put it
    somewhere durable (never only the scratchpad or `/tmp`) and say where.
 
-When it reports back, give Jet the answer in a few lines with the file's
-path, not the file's contents.
+When it reports back, give the answer in a few lines with the file's path,
+not the file's contents: to Jet, or to the calling skill in the shape it
+asked for.
 
 ## Rules for every route
 
