@@ -24,13 +24,13 @@ When creating a new git worktree in **any** repo, copy the gitignored local boot
 
 Repo-specific specifics live in that repo's own memory/AGENTS.md; this rule is the general principle.
 
-## wb sessions → stamp reviews immediately
+## wb sessions → reviews stamp themselves; check for the message
 
-After any `/ce-code-review` pass completes inside a `wb` session, run `wb reviewed` immediately — it stamps the task file's `reviewed:` frontmatter field with today's date, which `wb board --html`'s review stage relies on to render that stage as done. This is a convention, not automation: there is no hook wiring it up, so it only works if it's actually run each time. See `docs/wb-guide.md`'s board section for what this feeds into.
+When a `/ce-code-review` of the session's own branch finishes inside a `wb` session, the review-stamp hook (`review-stamp-hook.sh`, on Stop and SubagentStop) runs `wb reviewed`, which stamps the task file's `reviewed:` frontmatter field with today's date; `wb board --html`'s review stage relies on it to render that stage as done. The session then shows a one-line "stamped" message. If that message doesn't appear after a finished review (the hook's settings entries aren't live yet, the review targeted another PR or branch, or stamping failed and the message says why), run `wb reviewed` by hand. See `docs/wb-guide.md`'s board section for what this feeds into.
 
 ## Before any code review → run `/haircut` first
 
-After implementation and any simplification pass, and before any code review starts, run `/haircut` on the branch diff and commit its result. This covers `ce-work`'s shipping step (after simplify, before `ce-code-review`), a review started by a `/wb-resume` `run` directive in a fresh session, and a review Jet asks for by hand. The rules for what it keeps, removes and flags live in `~/.claude/skills/haircut/SKILL.md`; don't restate them here. A review-start hook will enforce this later (queued for the hooks session); until then it only happens if this line is followed.
+After implementation and any simplification pass, and before any code review starts, run `/haircut` on the branch diff and commit its result. This covers `ce-work`'s shipping step (after simplify, before `ce-code-review`), a review started by a `/wb-resume` `run` directive in a fresh session, and a review Jet asks for by hand. The rules for what it keeps, removes and flags live in `~/.claude/skills/haircut/SKILL.md`; don't restate them here. The haircut gate (`haircut-gate-hook.sh`, on the Skill tool and on typed prompts) stops a `/ce-code-review` of the current branch when no haircut commit follows the branch's newest code commit; run `/haircut`, commit its result (an empty commit when there is nothing to trim), then retry. The gate only sees commits: code edited after the last haircut and left uncommitted passes it unswept, so still run `/haircut` first.
 
 ## Live cloud commands → Jet runs them; hand over a command card
 
