@@ -424,11 +424,31 @@ tmux kill-session -t "=proj--boot-fail" 2>/dev/null
 # wb new NEVER reads stdin implicitly; the body comes only from --body - or
 # --body-file. The fixture TEMPLATE has no "## Plan" heading (nothing above
 # needed one); the real TEMPLATE.md does, so give this block one.
-printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\nparent:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n\n## Done\n' \
+printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\nparent:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n' \
   > "$FIXTURE_TASKS/TEMPLATE.md"
 plan_body() { # <file> — the text between "## Plan" and the next "## " heading
   awk '/^## Plan$/ {on=1; next} /^## / {on=0} on' "$1"
 }
+
+# --- every new task is seeded on the dossier layout -------------------------
+# A TEMPLATE.md that still carries the old skeleton gets it stripped; the task
+# gets layout: dossier, a ## Now placeholder and a drafted dossier brief.md.
+cp "$FIXTURE_TASKS/TEMPLATE.md" "$FIXTURE_TASKS/TEMPLATE.md.keep"
+printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\nparent:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n\n## Decisions\n\n## Done\n\n## Follow-ups\n' \
+  > "$FIXTURE_TASKS/TEMPLATE.md"
+cmd_new --planned proj seeded-new >/dev/null 2>&1
+seeded="$FIXTURE_TASKS/proj--seeded-new.md"
+assert "new seed: layout: dossier set" '^layout: dossier$' "$(cat "$seeded" 2>&1)"
+assert "new seed: ## Now placeholder present" '^## Now$' "$(cat "$seeded" 2>&1)"
+if grep -qE '^## (Decisions|Done|Follow-ups)$' "$seeded"; then
+  echo "FAIL - new seed: old ## Decisions/Done/Follow-ups skeleton not stripped"; fail=1
+else
+  echo "ok   - new seed: old skeleton sections stripped"
+fi
+[ -f "$FIXTURE_TASKS/dossiers/proj--seeded-new/brief.md" ] \
+  && echo "ok   - new seed: dossier brief.md drafted" \
+  || { echo "FAIL - new seed: no dossier brief.md"; fail=1; }
+mv "$FIXTURE_TASKS/TEMPLATE.md.keep" "$FIXTURE_TASKS/TEMPLATE.md"
 
 printf 'step one\nstep two with \\n and C:\\keep\n' | cmd_new --planned --body - proj body-planned >/dev/null 2>&1
 assert "--planned --body -: lands under ## Plan" 'step one' "$(plan_body "$FIXTURE_TASKS/proj--body-planned.md")"

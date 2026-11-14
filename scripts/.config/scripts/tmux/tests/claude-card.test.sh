@@ -37,6 +37,18 @@ sect() { awk -v l="── $1" 'index($0, l) == 1 { on = 1; next } /^── / { o
 now=$(date +%s)
 start_of() { local s; s="$(cat "/proc/$1/stat")"; s="${s##*) }"; set -- $s; printf '%s' "${20}"; }
 
+# demo_task <path> — the fixture task file plus its four decision records
+# (the first three-of-four rule: the card shows the newest three)
+demo_task() {
+  local f="$1" dd; cp "$FX/task.md" "$f"
+  dd="$(dirname "$f")/dossiers/$(basename "$f" .md)/decisions"; mkdir -p "$dd"
+  local n=0 d t
+  for d in "2026-10-18|First decision" "2026-10-19|Second decision" "2026-10-20|Third decision" \
+           "2026-10-21|Fourth decision with a long title that runs well past the edge of a narrow sixty column preview"; do
+    t="${d#*|}"; printf -- '---\nstatus: in-force\n---\n# %s\n\nbody\n' "$t" >"$dd/${d%%|*}-0900-d$((n++)).md"
+  done
+}
+
 # setup <case> — a fresh tree under $ROOT/<case>; sets D
 setup() {
   D="$ROOT/$1"
@@ -64,7 +76,7 @@ card() { # <arg> [width] — the card's plain text
 
 echo "# live pane: every section"
 setup live
-cp "$FX/task.md" "$D/task.md"
+demo_task "$D/task.md"
 reply needs.md sess-a "$D/task.md"
 registry "$LIVE" sess-a %901 idle $((now - 90))
 transcript recap-auto.jsonl sess-a $((now - 200))
@@ -160,20 +172,16 @@ assert "waiting status" '^waiting on you <1m' "$out"
 eq "heading-per-point layout: no open questions" 'no open questions' "$(sect 'Open questions')"
 refute "heading-per-point layout: no possibly-open list" 'Possibly open' "$out"
 
-echo "# task file without decisions"
+echo "# task file without decision records"
 setup nodec
 printf -- '---\nstatus: doing\n---\n# T\n\n## Plan\n### step\n' >"$D/task.md"
 reply needs.md sess-n "$D/task.md"
 registry "$LIVE" sess-n %905 idle "$now"
 out="$(card %905)"
-refute "no ## Decisions: no decisions block" 'Decisions|step' "$out"
-printf -- '---\nstatus: doing\n---\n# T\n\n## Decisions\n\n- 2026-10-01 — **Old bullet**\n### 2026-10-02 — A titled entry\n- an undated body bullet\n- **2026-10-03** — Bold-dated bullet\n- 2026-10-04 — Newest bullet\n' >"$D/task.md"
-eq "dated bullets count as decisions, in file order; undated bullets don't" \
-  $'- 2026-10-02 — A titled entry\n- 2026-10-03 — Bold-dated bullet\n- 2026-10-04 — Newest bullet' \
-  "$(out="$(card %905)"; sect Decisions)"
+refute "no decision files: no decisions block" 'Decisions|step' "$out"
 
-echo "# layout task (dossier layout trial): decisions come from decisions/"
-setup layout
+echo "# decisions come from decisions/: skips superseded, newest three"
+setup dossier
 printf -- '---\nstatus: doing\nlayout: dossier\n---\n# T\n\n## Now\nnothing\n' >"$D/task.md"
 mkdir -p "$D/dossiers/task/decisions"
 ldec() { printf -- '---\nstatus: %s\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# %s\n\nbody\n' "$3" "$2" >"$D/dossiers/task/decisions/$1.md"; }
@@ -185,14 +193,14 @@ ldec 2026-10-22-1100-e "Newest decision" in-force
 reply needs.md sess-l "$D/task.md"
 registry "$LIVE" sess-l %906 idle "$now"
 out="$(card %906)"
-eq "layout task: the newest three in-force decisions, oldest first, from decisions/" \
+eq "dossier task: the newest three in-force decisions, oldest first, from decisions/" \
   $'- 2026-10-19 — Second decision\n- 2026-10-21 — Third decision\n- 2026-10-22 — Newest decision' \
   "$(sect Decisions)"
-refute "layout task: the superseded decision is skipped" 'Replaced' "$out"
+refute "dossier task: the superseded decision is skipped" 'Replaced' "$out"
 
 echo "# live session without its own reply file"
 setup borrow
-cp "$FX/task.md" "$D/task.md"
+demo_task "$D/task.md"
 reply needs.md sess-prev "$D/task.md"
 touch -d "@$((now - 7200))" "$D/replies/sess-prev.md"
 registry "$LIVE" sess-new %906 idle "$now"
@@ -211,19 +219,19 @@ assert "a live session with no logged turns: state, then 'no turns logged yet'" 
 
 echo "# empty replies folder"
 setup emptyreplies
-cp "$FX/task.md" "$D/task.md"
+demo_task "$D/task.md"
 eq "a task with no reply folder content: nothing, not an awk error" '' "$(card "$D/task.md")"
 
 echo "# dormant task"
 setup dormant
-cp "$FX/task.md" "$D/task.md"
+demo_task "$D/task.md"
 reply needs.md sess-old "$D/task.md"
 touch -d "@$((now - 7200))" "$D/replies/sess-old.md"
 out="$(card "$D/task.md")"
 assert "dormant: state line with the last turn's age" '^dormant · last turn 2h ago' "$out"
 assert "dormant: built from the reply file" 'Needs you' "$out"
 refute "dormant: no live-only sections" 'Recap|as of' "$out"
-cp "$FX/task.md" "$D/other-task.md"
+demo_task "$D/other-task.md"
 out="$(card "$D/other-task.md")"
 eq "dormant, no reply files: nothing (the picker shows the task file)" '' "$out"
 
