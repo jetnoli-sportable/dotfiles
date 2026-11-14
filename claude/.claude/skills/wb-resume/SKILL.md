@@ -85,7 +85,6 @@ human-readable message instead.
 
 ### 2. Find the most recent rich (`/wb-save`) entry in `## Handoffs`
 
-**Layout task (`layout: dossier` in the frontmatter; skip this block otherwise).**
 Read `## Now` first: it states the goal, the current rung, the next action and
 what waits on Jet. The task file holds one handoff. If it is a rich `wb-save`
 entry, it is the entry this step looks for, and nothing newer can exist.
@@ -95,14 +94,11 @@ is the newest file in the dossier's `handoffs/` whose frontmatter says
 stamp plus any auto files in `handoffs/` newer than it as the "gap" step 3 describes.
 If `notes.md` in the dossier changed since the saved entry's timestamp, say so in
 the one-line statement; read it only when Jet points to it. Step 3's freshness
-check reads the files in `decisions/` (or the generated `decisions.md` view, which is not in git; `wb views <task>` rebuilds it)
-instead of `## Decisions`. See `docs/wb-guide.md`, "Dossier layout (trial)".
+check reads the files in `decisions/` (or the generated `decisions.md` view, which is not in git; `wb views <task>` rebuilds it).
+See `docs/wb-guide.md`, "Dossier layout".
 
-Read the task file and locate its `## Handoffs` section. Entries in that
-section are appended chronologically, oldest to newest
-(`wb_append_handoff`'s own header comment, `wb.sh:868-872`, is explicit
-that this ordering is load-bearing for exactly this skill). Two shapes of
-entry can appear, distinguished by their heading line:
+Two shapes of handoff entry exist, in the task file's one entry and in each
+`handoffs/` file alike, distinguished by their heading line:
 
 - **Rich, `/wb-save`-authored:** `### <YYYY-MM-DD HH:MM> — wb-save`,
   followed by `**Done:**` / `**In flight:**` / `**Next:**` bold-leader
@@ -134,11 +130,9 @@ entry can appear, distinguished by their heading line:
   one-line body such as `` Session paused via `wb pause`. `` — always ends
   in `(auto)`.
 
-Scan the section top to bottom and remember the **last** heading that
-matches the rich shape (ends in `— wb-save`, not `(auto)`) — this is the
-entry that actually carries next-action content. **Do not simply read the
-last entry in the section** — because entries append at the end
-chronologically, a terse automatic entry can land after the last rich one
+The rich entry (heading ends in `— wb-save`, not `(auto)`) is the one that
+actually carries next-action content. **Do not simply read the task file's
+one handoff** — a terse automatic entry can displace the last rich one
 (e.g. the task was paused, then resumed, after the save), and reading it
 as if it were the plan would surface a content-free marker instead of the
 real next action.
@@ -146,10 +140,11 @@ real next action.
 ### 3. Check for a gap after that rich entry, then act
 
 Having found the latest rich entry (if any), check whether any entries —
-rich or terse — appear **after** it in the section.
+rich or terse — are **newer** than it: the task file's handoff, when that is
+an `(auto)` stamp, and any `handoffs/` files with a later timestamp.
 
 - **No entries after it** (the immediate save → clear → resume case, the
-  common path): before continuing, glance at `## Plan`/`## Decisions` (on a layout task, `decisions/`) and
+  common path): before continuing, glance at `## Plan` and the files in `decisions/` and
   the frontmatter `status:` for anything that reads as newer than the
   saved entry (a decision recorded after the save's timestamp, a status
   that contradicts it). The terse-entry gap check above only catches a
@@ -196,9 +191,9 @@ you're in as part of the same one-line statement.
 
 ### 4. Fallback — no rich entry to find
 
-- **`## Handoffs` exists but has only terse/automatic entries (no
-  `/wb-save` entry yet):** there is no done/in-flight/next snapshot to
-  read. Say so explicitly, then fall back to the rest of the task file —
+- **Only terse/automatic entries exist** (the task file's handoff is an
+  `(auto)` stamp and `handoffs/` has no `auto: false` file): there is no
+  done/in-flight/next snapshot to read. Say so explicitly, then fall back to the rest of the task file —
   primarily `## Plan` — for context on what the task is and where it
   stands, and state plainly that you're doing this because no `/wb-save`
   entry exists yet.
@@ -237,14 +232,13 @@ picked up from.
   "paused via `wb pause`, then resumed via `wb resume`, since that save"),
   and ask whether to proceed with the old plan or redirect — don't act
   until answered, and never auto-run the directive in this branch.
-- **Edge case — no terse entries after the save, but `## Plan`/`## Decisions`/
+- **Edge case — no terse entries after the save, but `## Plan`/`decisions/`/
   frontmatter status reads as newer than it** (e.g. a manual edit or a
   concurrent `/ce-plan`/`/ce-work` session touched the task file without
   going through `## Handoffs`): treat this the same as the terse-entry gap
   case — state what changed and confirm before acting, rather than trusting
   the absence of a terse entry as proof nothing changed.
-- **Edge case — `## Handoffs` has only automatic entries, no `/wb-save`
-  entry yet:** say explicitly that no rich save entry exists, fall back to
+- **Edge case — only automatic entries, no `/wb-save` entry yet:** say explicitly that no rich save entry exists, fall back to
   `## Plan` (and the rest of the task file) for context, and summarize
   what was found there instead of a done/in-flight/next snapshot.
 - **Edge case — no `## Handoffs` section at all:** say explicitly that

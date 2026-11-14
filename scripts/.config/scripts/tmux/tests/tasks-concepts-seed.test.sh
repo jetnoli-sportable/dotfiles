@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the task-family CONCEPTS.md seed mechanism: _wb_concepts_paths
+# Tests for the task-family concepts.md seed mechanism: _wb_concepts_paths
 # (the parent-chain resolver) and _wb_seed_concepts_file (the CLAUDE.local.md
 # writer cmd_new/`wb new` calls automatically). Same fixture convention as
 # wb-new.test.sh (real git repo under a fixture CODE_DIR, real tmux session
@@ -78,10 +78,10 @@ mk_task() { # <stem> <parent_ref>
 }
 mk_dossier() { # <stem>
   mkdir -p "$FIXTURE_TASKS/dossiers/$1"
-  printf '# %s CONCEPTS\n\nsettled fact.\n' "$1" > "$FIXTURE_TASKS/dossiers/$1/CONCEPTS.md"
+  printf '# %s CONCEPTS\n\nsettled fact.\n' "$1" > "$FIXTURE_TASKS/dossiers/$1/concepts.md"
 }
 
-# --- 3-level family, CONCEPTS.md at two levels (umbrella + child) -----------
+# --- 3-level family, concepts.md at two levels (umbrella + child) -----------
 mk_task proj--umbrella ""
 mk_dossier proj--umbrella
 mk_task proj--child proj--umbrella
@@ -119,13 +119,13 @@ set +e   # wb.sh sets -e; this test intentionally captures non-zero exits
 
 out="$(_wb_concepts_paths "$FIXTURE_TASKS/proj--grandchild.md")"
 assert_eq "grandchild: two ancestor dossiers, nearest-first" \
-  "$FIXTURE_TASKS/dossiers/proj--child/CONCEPTS.md
-$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$out"
+  "$FIXTURE_TASKS/dossiers/proj--child/concepts.md
+$FIXTURE_TASKS/dossiers/proj--umbrella/concepts.md" "$out"
 
 out="$(_wb_concepts_paths "$FIXTURE_TASKS/proj--child.md")"
 assert_eq "child: own dossier before umbrella's" \
-  "$FIXTURE_TASKS/dossiers/proj--child/CONCEPTS.md
-$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$out"
+  "$FIXTURE_TASKS/dossiers/proj--child/concepts.md
+$FIXTURE_TASKS/dossiers/proj--umbrella/concepts.md" "$out"
 
 out="$(_wb_concepts_paths "$FIXTURE_TASKS/proj--nodossier.md")"
 assert_eq "no dossier anywhere: empty output" "" "$out"
@@ -137,7 +137,7 @@ assert_eq "mutual cycle: no dossier anywhere -> empty output" "" "$out"
 
 out="$(_wb_concepts_paths "$FIXTURE_TASKS/proj--selfp.md")"
 assert_eq "self-parent: own dossier once, walk stops (no loop/dup)" \
-  "$FIXTURE_TASKS/dossiers/proj--selfp/CONCEPTS.md" "$out"
+  "$FIXTURE_TASKS/dossiers/proj--selfp/concepts.md" "$out"
 
 # A broken seen-set would loop this cycle up to max_depth and emit the
 # dossier line ~20 times; asserting EXACTLY one line (assert_eq, not merely
@@ -145,10 +145,10 @@ assert_eq "self-parent: own dossier once, walk stops (no loop/dup)" \
 # backstop that would otherwise silently mask its removal.
 out="$(_wb_concepts_paths "$FIXTURE_TASKS/proj--cycda.md")"
 assert_eq "cycle w/ dossier: seen-set dedups to exactly one line (from dossier owner)" \
-  "$FIXTURE_TASKS/dossiers/proj--cycda/CONCEPTS.md" "$out"
+  "$FIXTURE_TASKS/dossiers/proj--cycda/concepts.md" "$out"
 out="$(_wb_concepts_paths "$FIXTURE_TASKS/proj--cycdb.md")"
 assert_eq "cycle w/ dossier: reached via parent, still exactly one line" \
-  "$FIXTURE_TASKS/dossiers/proj--cycda/CONCEPTS.md" "$out"
+  "$FIXTURE_TASKS/dossiers/proj--cycda/concepts.md" "$out"
 
 # ============================================================================
 # _wb_seed_concepts_file / cmd_new integration: the actual worktree file
@@ -158,12 +158,12 @@ cmd_new proj grandchild >/dev/null 2>&1
 tmux kill-session -t "=proj--grandchild" 2>/dev/null
 seed_file="$FIXTURE_CODE/proj/.worktrees/grandchild/CLAUDE.local.md"
 assert "grandchild worktree: CLAUDE.local.md imports child dossier first" \
-  "@$FIXTURE_TASKS/dossiers/proj--child/CONCEPTS.md" "$(cat "$seed_file" 2>/dev/null)"
+  "@$FIXTURE_TASKS/dossiers/proj--child/concepts.md" "$(cat "$seed_file" 2>/dev/null)"
 assert "grandchild worktree: CLAUDE.local.md also imports umbrella dossier" \
-  "@$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$(cat "$seed_file" 2>/dev/null)"
+  "@$FIXTURE_TASKS/dossiers/proj--umbrella/concepts.md" "$(cat "$seed_file" 2>/dev/null)"
 child_line="$(grep -n '^@' "$seed_file" | head -1)"
 case "$child_line" in
-  *dossiers/proj--child/CONCEPTS.md) echo "ok   - grandchild worktree: child import line comes before umbrella (nearest-first order)" ;;
+  *dossiers/proj--child/concepts.md) echo "ok   - grandchild worktree: child import line comes before umbrella (nearest-first order)" ;;
   *) echo "FAIL - grandchild worktree: import order is not nearest-first (got: $child_line)"; fail=1 ;;
 esac
 grep -qxF 'CLAUDE.local.md' "$FIXTURE_CODE/proj/.git/info/exclude"
@@ -193,7 +193,7 @@ assert "managed block: user content survives a wb new rerun" \
 assert_eq "managed block: exactly one wb:concepts block after rerun (no dup)" \
   1 "$(grep -cF '<!-- wb:concepts start -->' "$seed_file")"
 assert "managed block: concepts imports still present after rerun" \
-  "@$FIXTURE_TASKS/dossiers/proj--child/CONCEPTS.md" "$(cat "$seed_file" 2>/dev/null)"
+  "@$FIXTURE_TASKS/dossiers/proj--child/concepts.md" "$(cat "$seed_file" 2>/dev/null)"
 
 cmd_new proj nodossier >/dev/null 2>&1
 tmux kill-session -t "=proj--nodossier" 2>/dev/null
@@ -206,7 +206,7 @@ mk_dossier proj--nodossier
 cmd_new proj nodossier >/dev/null 2>&1
 tmux kill-session -t "=proj--nodossier" 2>/dev/null
 assert "nodossier worktree: re-running wb new refreshes the seed once a dossier exists" \
-  "@$FIXTURE_TASKS/dossiers/proj--nodossier/CONCEPTS.md" \
+  "@$FIXTURE_TASKS/dossiers/proj--nodossier/concepts.md" \
   "$(cat "$FIXTURE_CODE/proj/.worktrees/nodossier/CLAUDE.local.md" 2>/dev/null)"
 
 # --- best-effort failure path: a non-directory worktree makes the

@@ -241,7 +241,7 @@
 <div class="shell">
   <nav class="toc">
     <div class="brand">wb-decide</div>
-    <div class="brand-sub">Record a decision into ## Decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.</div>
+    <div class="brand-sub">Record a decision into the task&#39;s decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.</div>
     <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#overview">Overview</a></li>
@@ -255,7 +255,7 @@
     <header class="doc guide-banner">
       <span class="eyebrow">skills · guide</span>
       <h1>wb-decide</h1>
-      <p class="dek">Record a decision into ## Decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.</p>
+      <p class="dek">Record a decision into the task&#39;s decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
@@ -264,8 +264,8 @@
 <h2 id="overview">Overview</h2>
 <p><code>/wb-decide</code> is the &quot;record&quot; half of decision auto-capture. Decisions made
 in a wb session used to vanish unless someone remembered to write them
-into the task file's <code>## Decisions</code> section. That matters because
-<code>## Decisions</code> is what a later session, a reviewer, or you in a month
+into the task's dossier as a decision file. That matters because
+the recorded decisions are what a later session, a reviewer, or you in a month
 reads to learn <em>why</em> the code looks the way it does.</p>
 <p>The <code>wb-capture</code> plugin (<code>claude/.claude/skills/wb-capture/</code>, hooks only)
 closes the gap in the background. A model &quot;sweep&quot; reads the session's
@@ -280,7 +280,7 @@ Hooks never write the task store; accepting a draft is an ordinary
 <p><strong>The lifecycle, in plain words:</strong></p>
 <pre><code>  async sweep (Stop hook, after 4 quiet turns) ─┐
   checkpoint sweep (/wb-save, /close-out,       ├─&gt; model reads the new turns,
-                    /wb-decide shelved)        ─┘    your ## Decisions, and the shelf
+                    /wb-decide shelved)        ─┘    your decisions, and the shelf
                                                           │
                           one file per drafted decision   ▼
               ~/.local/state/wb/capture/shelved/&lt;task&gt;/&lt;timestamp&gt;-&lt;session&gt;.md
@@ -302,7 +302,7 @@ Hooks never write the task store; accepting a draft is an ordinary
 (the <em>async sweep</em>, an async <code>Stop</code> hook), or whenever a checkpoint
 asks for one (the <em>checkpoint sweep</em>), a headless model reads the new
 part of the transcript. It also sees three lists: your recorded
-<code>## Decisions</code>, the drafts already waiting on the shelf, and the
+decisions, the drafts already waiting on the shelf, and the
 drafts you dismissed in the last 14 days, so a later turn that recaps
 a decision does not draft it twice or revive a rejected one. If it
 finds unrecorded decisions it writes up to 3 entries, and each entry
@@ -315,7 +315,7 @@ or when the session has no task. <code>wb board</code> shows a DRAFTS column
 <li><strong>A checkpoint reviews.</strong> <code>/wb-save</code>, <code>/close-out</code> and <code>/wb-decide shelved</code> all run the same procedure (&quot;step 2b&quot; in the <code>wb-decide</code>
 skill): run one checkpoint sweep and wait for it, then show each of
 the task's drafts one at a time and ask accept, edit, dismiss or
-leave. Accepting records the entry into <code>## Decisions</code> and moves the
+leave. Accepting records the entry as a decision file and moves the
 draft to <code>resolved/</code>. Dismissing moves it to <code>resolved/</code>. Leaving
 keeps it on the shelf and logs that this review showed it.</li>
 <li><strong>The weekly review catches stragglers.</strong> <code>/weekly-review</code> lists
@@ -340,7 +340,7 @@ two-phase <code>accept --begin</code> went with the nudge.</p>
 <p><strong>After a record: telling the rest of the family (2026-10-25).</strong> A
 recorded decision now reaches the other live sessions it affects in the
 same task family. Other running sessions never see this task's
-<code>## Decisions</code>, so without this a sibling session could keep building on
+decisions, so without this a sibling session could keep building on
 an assumption that had just changed. After any successful Decisions append, the skill
 (step 6) lists the family's live sessions (<code>wb family &lt;task&gt; --sessions</code>,
 which gives each Claude's SendMessage name, matched by name against
@@ -373,17 +373,15 @@ worktrees import it.</p>
 <pre><code>/wb-decide
 </code></pre>
 <p>or <code>/wb-decide &lt;one-line hint&gt;</code> to say which decision. Claude reads the
-task's existing <code>## Decisions</code> for style, composes decided / rejected /
+task's existing decision files for style, composes decided / rejected /
 why, appends it with <code>wb append</code>, and confirms:</p>
-<pre><code>Recorded to ## Decisions.
+<pre><code>Recorded to decisions.
 </code></pre>
-<p>On a task with <code>layout: dossier</code> (the trial layout; See <a href="../wb-guide.html">wb-guide</a>, &quot;Dossier layout (trial)&quot;.) the same command writes
-one file in the task's <code>decisions/</code> instead of a block under <code>## Decisions</code>, style
+<p>The command writes one file in the task's <code>decisions/</code> (see <a href="../wb-guide.html">wb-guide</a>, &quot;Dossier layout&quot;). Style
 and duplicate checks read those files, and a decision that reverses an earlier one
 goes through <code>wb decide-supersede &lt;task&gt; &lt;old-id&gt; -</code>. That writes the new file with
 <code>supersedes: [&lt;old-id&gt;]</code> and flips the old file to <code>status: superseded</code>, in one
-locked step, in place of a <code>(supersedes: …)</code> line. The family's <code>CONCEPTS.md</code> is
-<code>concepts.md</code> there.</p>
+locked step. The family's concepts file is <code>concepts.md</code> in the dossier.</p>
 <p>To review what the sweep drafted, any time:</p>
 <pre><code>/wb-decide shelved
 </code></pre>
@@ -403,7 +401,7 @@ then walks the drafts. And to check the machinery:</p>
 <tbody>
 <tr>
 <td><code>/wb-decide [hint]</code></td>
-<td>Compose a new entry from the conversation and <code>wb append</code> it under <code>## Decisions</code>. If nothing was actually decided it says so and writes nothing. Shelved drafts are not part of this path.</td>
+<td>Compose a new entry from the conversation and <code>wb append</code> it as a decision file. If nothing was actually decided it says so and writes nothing. Shelved drafts are not part of this path.</td>
 </tr>
 <tr>
 <td><code>/wb-decide shelved</code></td>
@@ -473,16 +471,16 @@ line and always exits 0, so a skill always goes on to the review:</p>
 </table>
 <p>It does not wait on an async sweep. If the two overlap, the worst case
 is a duplicate draft, which the review dismisses in one step.</p>
-<p><strong>Stale drafts.</strong> The sweep snapshots the task's <code>## Decisions</code> section
+<p><strong>Stale drafts.</strong> The sweep snapshots the task's decisions
 (the exact text the model is shown), then waits up to a minute for the
-model. Edits elsewhere in the task file don't count. If <code>## Decisions</code>
+model. Edits elsewhere in the task file don't count. If the decisions
 changed in that window (usually <code>/wb-decide</code> recording the very
 decision being drafted), the answer is thrown away and the model is
-asked once more against the current section, so it either answers NONE
+asked once more against the current decisions, so it either answers NONE
 or drafts something genuinely new (<code>sweep_ran</code> logs <code>rerun: true</code>). Only
-if the section changes <em>again</em> during the rerun is the draft shelved but
+if the decisions change <em>again</em> during the rerun is the draft shelved but
 flagged stale (a <code>.stale</code> sidecar file beside it): the review shows it
-next to the newest <code>## Decisions</code> entries and asks whether it is already
+next to the newest decisions and asks whether it is already
 recorded. Events about a stale draft carry <code>&quot;stale&quot;:true</code>.</p>
 <p><strong>Closed tasks and no session.</strong> A shelved draft whose task is already
 closed is still resolvable from any wb session, or from none: path-carrying
@@ -708,9 +706,9 @@ def has_draft: ((.draft // &quot;&quot;) != &quot;&quot;);
 <code>enough_sample</code> is true and <code>accuracy_pct</code> is 70 or more. Fewer than 10
 resolved drafts by the review date moves the review out a week.</p>
 <p><strong>Close-out interaction.</strong> <code>/close-out</code> step 4 runs the same checkpoint
-review (sweep, then each draft) before the wind-down. If <code>## Decisions</code>
-is still empty after it, the agent either writes a real entry or appends
-an affirmed marker (<code>### &lt;timestamp&gt; — close-out</code> / <code>_No decisions: &lt;reason&gt;_</code>) via <code>wb append</code>. An unmarked empty section keeps meaning
+review (sweep, then each draft) before the wind-down. If the task has
+no decisions after it, the agent either writes a real entry or appends
+an affirmed marker (<code>### &lt;timestamp&gt; — close-out</code> / <code>_No decisions: &lt;reason&gt;_</code>) via <code>wb append</code>. An empty <code>decisions/</code> with no marker keeps meaning
 &quot;nobody checked&quot;. Tasks closed with bare <code>wb done</code> (no <code>/close-out</code>) are
 left unmarked.</p>
 <p><strong><code>/wb-save</code> interaction.</strong> <code>/wb-save</code> runs the review before composing
@@ -744,7 +742,7 @@ live.</li>
 2026-11-02) decides, from the accuracy, delivery and left-3+-times
 figures above, whether to keep the feature, retune it, or drop it. It
 also gates on no task closing after rollout with an unmarked empty
-<code>## Decisions</code>.</p>
+decisions.</p>
 <p>To turn it off, in order of bluntness:</p>
 <ul>
 <li><strong>Kill switch (all sessions, instant):</strong> <code>touch ~/.local/state/wb/disable-capture</code>;

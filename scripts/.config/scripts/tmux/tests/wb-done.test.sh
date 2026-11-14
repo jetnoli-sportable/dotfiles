@@ -249,27 +249,21 @@ out="$(cmd_done "$delta_session" 2>&1)"; rc=$?
 assert "handoffs done: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
 assert "handoffs done: task flipped to done" '^done$' "$(status_of delta)"
 
-assert "handoffs done: prior entry survives" 'Session paused via `wb pause`\.' "$(cat "$delta_file")"
-assert "handoffs done: new entry appended" 'Worktree removed, session left open \(`wb done` without `--close`\)\.' "$(cat "$delta_file")"
+delta_hd="$FIXTURE_TASKS/dossiers/proj--delta/handoffs"
+assert "handoffs done: prior entry moved to a handoffs/ file" 'Session paused via `wb pause`\.' "$(cat "$delta_hd"/*.md 2>&1)"
+assert "handoffs done: new entry in the task file" 'Worktree removed, session left open \(`wb done` without `--close`\)\.' "$(cat "$delta_file")"
 
 entry_count="$(grep -cE '^### .* — wb (pause|done) \(auto\)$' "$delta_file")"
-if [ "$entry_count" -eq 2 ]; then
-  echo "ok   - handoffs done: exactly 2 entries total (prior + new)"
+if [ "$entry_count" -eq 1 ] && grep -qE '^### .* — wb done \(auto\)$' "$delta_file"; then
+  echo "ok   - handoffs done: the task file holds exactly the newest (wb done) entry"
 else
-  echo "FAIL - handoffs done: expected 2 Handoffs entries, got $entry_count"; fail=1
+  echo "FAIL - handoffs done: expected only the wb done entry in the task file, got $entry_count entries"; fail=1
 fi
 
-pause_line="$(grep -n '^### .* — wb pause (auto)$' "$delta_file" | head -1 | cut -d: -f1)"
 done_line="$(grep -n '^### .* — wb done (auto)$' "$delta_file" | head -1 | cut -d: -f1)"
-if [ -n "$pause_line" ] && [ -n "$done_line" ] && [ "$pause_line" -lt "$done_line" ]; then
-  echo "ok   - handoffs done: new entry lands AFTER the existing one (end of section, oldest-first)"
-else
-  echo "FAIL - handoffs done: entry ordering wrong (pause=$pause_line, done=$done_line)"; fail=1
-fi
-
 decisions_line="$(grep -n '^## Decisions$' "$delta_file" | head -1 | cut -d: -f1)"
 if [ -n "$decisions_line" ] && [ "$done_line" -lt "$decisions_line" ]; then
-  echo "ok   - handoffs done: new entry still lands inside the Handoffs section (before ## Decisions)"
+  echo "ok   - handoffs done: new entry still lands inside the Handoffs section (before the next section)"
 else
   echo "FAIL - handoffs done: new entry landed outside the Handoffs section (done=$done_line, decisions=$decisions_line)"; fail=1
 fi
@@ -411,8 +405,7 @@ assert "missing wb-capture.sh: task done" '^done$' "$(status_of nu)"
 # =============================================================================
 # W6: the rewired wb done — classify first, stop before any change on an
 # unknown, copy keepers, record kept:/discarded:, buffer only under --review.
-# Every scenario runs on a dossier-layout task; the core ones repeat on a
-# legacy-layout task (the W4 deletion PR hasn't removed that path yet).
+# Every scenario runs on a dossier-layout task.
 # =============================================================================
 W6_BUFLOG="$FIXTURE_STATE/w6-buffer-calls"; : > "$W6_BUFLOG"
 wb_open_buffer() { echo "$1" >> "$W6_BUFLOG"; }   # counted via a file: cmd_done runs in $(...) subshells
@@ -426,7 +419,7 @@ git -C "$SWP" add -A
 git -C "$SWP" -c user.email=test@test -c user.name=test commit -q -m init
 printf 'main config\n' > "$SWP/config.hjson"
 
-# w6_new <slug> <dossier|legacy> — a worktree, its task file and a live session.
+# w6_new <slug> <dossier> — a worktree, its task file and a live session.
 w6_new() {
   local slug="$1" layout="$2" f="$FIXTURE_TASKS/swp--$1.md" s
   git -C "$SWP" worktree add -q -b "$slug" ".worktrees/$slug" >/dev/null 2>&1
@@ -445,7 +438,7 @@ w6_file() { printf '%s\n' "$FIXTURE_TASKS/swp--$1.md"; }
 w6_dossier() { printf '%s\n' "$FIXTURE_TASKS/dossiers/swp--$1"; }
 w6_status() { wb_get_frontmatter "$(w6_file "$1")" status; }
 
-for layout in dossier legacy; do
+for layout in dossier; do
   L="w6$layout"
 
   # --- default close: no buffer; keepers copied; throwaways recorded -------
@@ -456,19 +449,19 @@ for layout in dossier legacy; do
   printf 'queued\n' > "$(w6_wt "$slug")/.claude-queue.md"
   calls_before="$(w6_calls)"
   out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
-  [ "$rc" -eq 0 ] && echo "ok   - W6 $layout: default close exits 0" || { echo "FAIL - W6 $layout: default close exit $rc: $out"; fail=1; }
-  [ "$(w6_calls)" = "$calls_before" ] && echo "ok   - W6 $layout: default close never opens the buffer" || { echo "FAIL - W6 $layout: buffer opened without --review"; fail=1; }
-  [ ! -d "$(w6_wt "$slug")" ] && echo "ok   - W6 $layout: worktree removed" || { echo "FAIL - W6 $layout: worktree remains"; fail=1; }
-  assert "W6 $layout: status done" '^done$' "$(w6_status "$slug")"
-  assert "W6 $layout: closed stamped" "^$(date +%F)\$" "$(wb_get_frontmatter "$(w6_file "$slug")" closed)"
-  [ -z "$(wb_get_frontmatter "$(w6_file "$slug")" claude_sessions)" ] && echo "ok   - W6 $layout: claude_sessions blank" || { echo "FAIL - W6 $layout: claude_sessions not blank"; fail=1; }
+  [ "$rc" -eq 0 ] && echo "ok   - W6: default close exits 0" || { echo "FAIL - W6: default close exit $rc: $out"; fail=1; }
+  [ "$(w6_calls)" = "$calls_before" ] && echo "ok   - W6: default close never opens the buffer" || { echo "FAIL - W6: buffer opened without --review"; fail=1; }
+  [ ! -d "$(w6_wt "$slug")" ] && echo "ok   - W6: worktree removed" || { echo "FAIL - W6: worktree remains"; fail=1; }
+  assert "W6: status done" '^done$' "$(w6_status "$slug")"
+  assert "W6: closed stamped" "^$(date +%F)\$" "$(wb_get_frontmatter "$(w6_file "$slug")" closed)"
+  [ -z "$(wb_get_frontmatter "$(w6_file "$slug")" claude_sessions)" ] && echo "ok   - W6: claude_sessions blank" || { echo "FAIL - W6: claude_sessions not blank"; fail=1; }
   rec="$(cat "$(w6_file "$slug")")"
-  assert "W6 $layout: handoff keeps the done_note wording" 'Worktree removed, session left open \(`wb done` without `--close`\)\.$' "$rec"
-  assert "W6 $layout: one kept: line naming the queue file" '^kept: \.claude-queue\.md$' "$rec"
-  assert "W6 $layout: one discarded: line naming node_modules/ and app.log" '^discarded: .*node_modules/.*app\.log$|^discarded: .*app\.log.*node_modules/$' "$rec"
-  [ "$(printf '%s\n' "$rec" | /usr/bin/grep -c '^discarded:')" = 1 ] && echo "ok   - W6 $layout: exactly one discarded: line" || { echo "FAIL - W6 $layout: discarded: line count"; fail=1; }
-  [ "$(cat "$(w6_dossier "$slug")/.claude-queue.md" 2>/dev/null)" = queued ] && echo "ok   - W6 $layout: queue file landed in the dossier" || { echo "FAIL - W6 $layout: queue file missing from dossier"; fail=1; }
-  case "$out" in *"left open"*) echo "ok   - W6 $layout: confirmation printed" ;; *) echo "FAIL - W6 $layout: no confirmation: $out"; fail=1 ;; esac
+  assert "W6: handoff keeps the done_note wording" 'Worktree removed, session left open \(`wb done` without `--close`\)\.$' "$rec"
+  assert "W6: one kept: line naming the queue file" '^kept: \.claude-queue\.md$' "$rec"
+  assert "W6: one discarded: line naming node_modules/ and app.log" '^discarded: .*node_modules/.*app\.log$|^discarded: .*app\.log.*node_modules/$' "$rec"
+  [ "$(printf '%s\n' "$rec" | /usr/bin/grep -c '^discarded:')" = 1 ] && echo "ok   - W6: exactly one discarded: line" || { echo "FAIL - W6: discarded: line count"; fail=1; }
+  [ "$(cat "$(w6_dossier "$slug")/.claude-queue.md" 2>/dev/null)" = queued ] && echo "ok   - W6: queue file landed in the dossier" || { echo "FAIL - W6: queue file missing from dossier"; fail=1; }
+  case "$out" in *"left open"*) echo "ok   - W6: confirmation printed" ;; *) echo "FAIL - W6: no confirmation: $out"; fail=1 ;; esac
 
   # --- an unknown stops everything; --keep resolves it (AE6) ---------------
   slug="${L}-unk"; w6_new "$slug" "$layout"
@@ -476,18 +469,18 @@ for layout in dossier legacy; do
   echo noise > "$(w6_wt "$slug")/app.log"
   before="$(cat "$(w6_file "$slug")")"
   out="$(cmd_done "$(session_for "$slug")" 2>&1)"; rc=$?
-  [ "$rc" -eq 1 ] && echo "ok   - W6 $layout: unknown entry exits 1" || { echo "FAIL - W6 $layout: unknown exit $rc"; fail=1; }
-  assert "W6 $layout: stop names the entry" 'unknown: scratch/notes\.txt' "$out"
-  assert "W6 $layout: stop names the flags and the list file" 'wb-done-sweep\.list.*\-\-keep.*\-\-throwaway' "$out"
-  [ -d "$(w6_wt "$slug")" ] && [ -f "$(w6_wt "$slug")/app.log" ] && echo "ok   - W6 $layout: worktree untouched" || { echo "FAIL - W6 $layout: worktree changed"; fail=1; }
-  assert "W6 $layout: status unchanged" '^doing$' "$(w6_status "$slug")"
-  [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6 $layout: task file byte-identical" || { echo "FAIL - W6 $layout: task file changed"; fail=1; }
-  [ ! -e "$(w6_dossier "$slug")" ] && echo "ok   - W6 $layout: no dossier created" || { echo "FAIL - W6 $layout: dossier created"; fail=1; }
+  [ "$rc" -eq 1 ] && echo "ok   - W6: unknown entry exits 1" || { echo "FAIL - W6: unknown exit $rc"; fail=1; }
+  assert "W6: stop names the entry" 'unknown: scratch/notes\.txt' "$out"
+  assert "W6: stop names the flags and the list file" 'wb-done-sweep\.list.*\-\-keep.*\-\-throwaway' "$out"
+  [ -d "$(w6_wt "$slug")" ] && [ -f "$(w6_wt "$slug")/app.log" ] && echo "ok   - W6: worktree untouched" || { echo "FAIL - W6: worktree changed"; fail=1; }
+  assert "W6: status unchanged" '^doing$' "$(w6_status "$slug")"
+  [ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - W6: task file byte-identical" || { echo "FAIL - W6: task file changed"; fail=1; }
+  [ ! -e "$(w6_dossier "$slug")" ] && echo "ok   - W6: no dossier created" || { echo "FAIL - W6: dossier created"; fail=1; }
   out="$(cmd_done "$(session_for "$slug")" --keep scratch/notes.txt 2>&1)"; rc=$?
-  [ "$rc" -eq 0 ] && echo "ok   - W6 $layout: re-run with --keep succeeds" || { echo "FAIL - W6 $layout: --keep re-run exit $rc: $out"; fail=1; }
-  [ "$(cat "$(w6_dossier "$slug")/scratch/notes.txt" 2>/dev/null)" = "my notes" ] && echo "ok   - W6 $layout: kept file in the dossier" || { echo "FAIL - W6 $layout: kept file missing"; fail=1; }
-  assert "W6 $layout: handoff has the kept: line" '^kept: scratch/notes\.txt$' "$(cat "$(w6_file "$slug")")"
-  [ ! -d "$(w6_wt "$slug")" ] && echo "ok   - W6 $layout: worktree removed after the re-run" || { echo "FAIL - W6 $layout: worktree remains"; fail=1; }
+  [ "$rc" -eq 0 ] && echo "ok   - W6: re-run with --keep succeeds" || { echo "FAIL - W6: --keep re-run exit $rc: $out"; fail=1; }
+  [ "$(cat "$(w6_dossier "$slug")/scratch/notes.txt" 2>/dev/null)" = "my notes" ] && echo "ok   - W6: kept file in the dossier" || { echo "FAIL - W6: kept file missing"; fail=1; }
+  assert "W6: handoff has the kept: line" '^kept: scratch/notes\.txt$' "$(cat "$(w6_file "$slug")")"
+  [ ! -d "$(w6_wt "$slug")" ] && echo "ok   - W6: worktree removed after the re-run" || { echo "FAIL - W6: worktree remains"; fail=1; }
 done
 
 # --- a keeper inside a throwaway directory is copied before the removal -----

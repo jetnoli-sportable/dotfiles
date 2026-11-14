@@ -313,8 +313,8 @@ plain &quot;save my progress&quot; produces the same three-field entry as before
 <td><strong>Done</strong> / <strong>In flight</strong> / <strong>Next</strong>, drawn from what actually happened this session — a genuinely empty field is stated plainly (<code>**Done:** nothing yet this session</code>), never invented</td>
 </tr>
 <tr>
-<td>Layout task first</td>
-<td>If the task file has <code>layout: dossier</code>, runs <code>wb now &lt;task_file&gt; -</code> first to replace <code>## Now</code> (goal, rung, next action, what waits on you), then the append below, which moves the previous handoff to <code>handoffs/</code>. Mentions <code>notes.md</code> only if it changed since the last save. Tasks without <code>layout:</code> skip this row</td>
+<td>Refresh <code>## Now</code> first</td>
+<td>Runs <code>wb now &lt;task_file&gt; -</code> first to replace <code>## Now</code> (goal, rung, next action, what waits on you), then the append below, which moves the previous handoff to <code>handoffs/</code>. Mentions <code>notes.md</code> only if it changed since the last save</td>
 </tr>
 <tr>
 <td>Append</td>
@@ -341,15 +341,15 @@ plain &quot;save my progress&quot; produces the same three-field entry as before
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
 <li><strong>Append-only, on purpose.</strong> Never touches any existing content —
-prior <code>## Handoffs</code> entries, <code>## Plan</code>, <code>## Decisions</code> — so it can't be
+prior <code>## Handoffs</code> entries, <code>## Plan</code> — so it can't be
 used to correct or edit something already recorded; that's a manual
 task-file edit instead.</li>
 <li><strong>Never invokes <code>/clear</code> itself, never touches tmux state</strong> beyond the
 one read-only <code>@task</code> lookup. This is a closed design boundary, not a
 gap — see Overview.</li>
-<li><strong>On a <code>layout: dossier</code> task</strong> the task file keeps one handoff, not a log:
+<li><strong>The task file keeps one handoff, not a log:</strong>
 each save moves the old one to <code>handoffs/</code>. &quot;Never touches existing content&quot; still
-holds, because the old entry is moved, not edited. See <a href="../wb-guide.html">wb-guide</a>, &quot;Dossier layout (trial)&quot;.</li>
+holds, because the old entry is moved, not edited. See <a href="../wb-guide.html">wb-guide</a>, &quot;Dossier layout&quot;.</li>
 <li><strong>Shared log.</strong> <code>## Handoffs</code> also receives <code>wb.sh</code>'s own automatic
 <code>pause</code>/<code>done</code>/<code>resume</code> entries. Seeing a terse automatic entry
 interleaved with a rich <code>/wb-save</code> one is expected, not a bug.</li>

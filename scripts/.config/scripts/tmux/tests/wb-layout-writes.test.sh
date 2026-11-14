@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Tests for U10: the dossier layout writers (`layout: dossier`) — record
-# files, the shared handoff helper, `wb now`, `wb decide-supersede` and the
-# generated views (wb_render_views) — plus the invariant that a task WITHOUT
-# `layout: dossier` behaves exactly as before.
+# Tests for U10: the dossier writers — record files, the shared handoff
+# helper, `wb now`, `wb decide-supersede` and the generated views
+# (wb_render_views). Every task is on the dossier layout.
 #
 # Run in the Docker sandbox (see tests/Dockerfile):
 #   docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests \
@@ -47,12 +46,12 @@ mk_layout_task() { # <stem> [extra frontmatter lines...]
   } > "$TASKS_DIR/$stem.md"
 }
 
-# --- Decisions: record file + view; the old path is untouched ---------------
+# --- Decisions: record file + view---------------
 mk_layout_task proj--lay-a
 A="$TASKS_DIR/proj--lay-a.md"
 D="$TASKS_DIR/dossiers/proj--lay-a"
 out="$(printf '### 2026-11-01 18:45 — Stage 0 Q3: Keep the Probe 6 board\n- Decided: keep it.\n- Why: it still works.\n' | cmd_append proj--lay-a Decisions - 2>&1)"; rc=$?
-assert_eq "layout Decisions: exit 0" 0 "$rc"
+assert_eq "Decisions: exit 0" 0 "$rc"
 F="$D/decisions/2026-11-01-1845-stage-0-q3-keep-the-probe-6-board.md"
 if [ -f "$F" ]; then echo "ok   - layout Decisions: file named <ts>-<slug>.md"; else echo "FAIL - layout Decisions: expected $F, have: $(ls "$D/decisions" 2>&1)"; fail=1; fi
 assert "decision file: status in-force" '^status: in-force$' "$(cat "$F" 2>/dev/null)"
@@ -100,24 +99,9 @@ assert "bullet follow-ups: a ticked item is written closed" '^status: closed$' "
 assert_eq "bullet follow-ups: four of the five are open (the ticked one is not)" 4 "$(_wb_open_items "$A" | wc -l | tr -d ' ')"
 assert_eq "bullet follow-ups: no bullet in any open title" 0 "$(grep -l '^- ' "$D"/open-items/*.md 2>/dev/null | wc -l | tr -d ' ')"
 
-# --- Old path: a task with no layout: byte-identical to today ----------------
-OLD="$TASKS_DIR/proj--old.md"
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: o\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Decisions\n\n- earlier\n\n## Done\n' > "$OLD"
-cp "$OLD" "$FIXTURE/old.expected"
-cmd_append proj--old Decisions "### 2026-11-01 18:45 — x" >/dev/null 2>&1
-_wb_append_under_heading "$FIXTURE/old.expected" Decisions "### 2026-11-01 18:45 — x"
-if cmp -s "$OLD" "$FIXTURE/old.expected"; then echo "ok   - no layout: Decisions append byte-identical to _wb_append_under_heading"; else echo "FAIL - old path changed"; diff "$OLD" "$FIXTURE/old.expected" | head; fail=1; fi
-assert "no layout: entry is under ## Decisions in the file" '^### 2026-11-01 18:45 — x$' "$(cat "$OLD")"
-[ ! -d "$TASKS_DIR/dossiers/proj--old" ] && echo "ok   - no layout: no dossier created" || { echo "FAIL - no layout: dossier created"; fail=1; }
-# the helper alone, on a layout-less file, for the auto-handoff path
-cp "$OLD" "$FIXTURE/old2.md"; cp "$OLD" "$FIXTURE/old2.expected"
-wb_append_handoff "$FIXTURE/old2.md" "wb pause" "msg"
-_wb_append_under_heading "$FIXTURE/old2.expected" Handoffs "### $(date '+%Y-%m-%d %H:%M') — wb pause (auto)"$'\n\n'"msg"
-if cmp -s "$FIXTURE/old2.md" "$FIXTURE/old2.expected"; then echo "ok   - no layout: wb_append_handoff byte-identical"; else echo "FAIL - wb_append_handoff old path changed"; fail=1; fi
-
-# --- Other headings on a layout task: unchanged --------------------------------
+# --- Other headings unchanged --------------------------------
 cmd_append proj--lay-a Plan "extra plan line" >/dev/null 2>&1
-assert "layout task, heading Plan: appended under ## Plan as before" 'extra plan line' "$(cat "$A")"
+assert "heading Plan: appended under ## Plan as before" 'extra plan line' "$(cat "$A")"
 
 # --- decide-supersede ----------------------------------------------------------
 mk_layout_task proj--lay-s
@@ -320,7 +304,7 @@ assert "index: task:<stem> done keeps the page while the task is open" 'Open tas
 assert "index: child's pages listed under the child" '^### proj--lay-i-kid$' "$IDX"
 assert "index: child page link goes through the child's dossier" '\(\.\./proj--lay-i-kid/kidnotes\.md\)' "$IDX"
 
-# --- concurrency: two shells appending to one layout task -----------------------
+# --- concurrency: two shells appending to one task -----------------------
 mk_layout_task proj--lay-c
 CD="$TASKS_DIR/dossiers/proj--lay-c"
 ( printf '### 2026-11-01 09:00 — Concurrent one\nx\n' | bash "$WB" append proj--lay-c Decisions - >/dev/null 2>&1 ) &

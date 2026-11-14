@@ -92,9 +92,8 @@ wb_board_html_escape() {
 # General-purpose, NOT board-only despite the name — U4's cutover almost
 # deleted this as an orphaned old-renderer helper (nothing in the board
 # render path calls it any more) before a full-codebase grep caught real
-# callers elsewhere: wb_reconcile_merge_content's Plan/Done/Follow-ups
-# section merge (wb.sh) and wb-breakdown's Plan/Follow-ups diffing
-# (wb.sh). Keep this one wherever it lives; check callers repo-wide, not
+# callers elsewhere: wb-breakdown's Plan diffing (wb.sh). Keep this one
+# wherever it lives; check callers repo-wide, not
 # just within board2, before ever removing it again.
 wb_board_section() {
   awk -v h="## $2" '
@@ -131,7 +130,7 @@ wb_board_pr_display() { printf '%s' "${1%%$'\t'*}"; }
 # wb_board_doc_candidates <taskfile> — raw docs/plans, docs/brainstorms,
 # docs/solutions, docs/ideation, or logs/decisions paths the task's own
 # prose names (this repo's established convention — see e.g.
-# ~/code/tasks/*.md's "## Decisions" sections — is a plain-text path,
+# the decision records under ~/code/tasks/dossiers/ — is a plain-text path,
 # sometimes backtick-wrapped, sometimes prefixed `dotfiles/`, not a markdown
 # link). Regex extraction only, no existence check — existence differs by
 # caller: wb_board_related_docs checks the filesystem, wb_lifecycle_has_doc's
@@ -472,7 +471,7 @@ wb_board_v2_family_root() {
 
 # wb_board_v2_read_file <file> — THE single-read primitive (R16): one awk
 # process reads <file> ONCE and extracts frontmatter + the Plan/Done/
-# Handoffs/Follow-ups body sections together, instead of the fork-per-field/
+# Handoffs body sections together, instead of the fork-per-field/
 # fork-per-section style wb_read_task + wb_task_title + wb_get_frontmatter +
 # wb_board_section(xN) would cost if called separately for every task (an
 # early real-store timing run at ~300 tasks measured that fragmented
@@ -480,10 +479,10 @@ wb_board_v2_family_root() {
 # budget; this collapses it to one process per file).
 #
 # Output on stdout, consumed only by wb_board_v2_parse_record below (never
-# hand-parsed at a call site): 7 fields joined by a bare SOH byte (\001, a
+# hand-parsed at a call site): 5 fields joined by a bare SOH byte (\001, a
 # byte that cannot appear in a markdown task file's prose, so no escaping
 # is ever needed) — field order is fixed, not labeled, since the caller
-# always wants all seven:
+# always wants all five:
 #   1 the frontmatter/plan-count TSV line: status \t repo \t worktree \t
 #     branch \t path \t deps \t reviewed \t parent \t tags \t created \t
 #     closed \t plan_checked \t plan_total \t title \t <stage signal bits
@@ -494,10 +493,7 @@ wb_board_v2_family_root() {
 #   3 raw Done section text
 #   4 raw Handoff text — the LAST "### " block under "## Handoffs" (heading
 #     line included)
-#   5 raw Follow-ups section text
-#   6 raw Decisions section text (U5, PR2 — the family view's decisions
-#     timeline source; unused by U3's 3 views)
-#   7 doc/artifact-link candidates, one per line — every line of the WHOLE
+#   5 doc/artifact-link candidates, one per line — every line of the WHOLE
 #     file (not just Decisions) matching a dossiers/docs-plans/logs-decisions
 #     path or a claude.ai URL (U5, PR2 — the family view's artifact links).
 #     Scanned unconditionally alongside the section capture above so this
@@ -570,7 +566,7 @@ wb_board_v2_read_file() {
       SOH = sprintf("%c", 1)
       status=""; repo=""; worktree=""; branch=""; path=""; deps=""
       reviewed=""; parent=""; tags=""; created=""; closed=""; title=""
-      size=""; layout=""
+      size=""
       infm = 0; donefm = 0; cursec = ""; handoff_capturing = 0; title_found = 0
       plan_checked = 0; plan_total = 0
       sig_ideate = 0; sig_brainstorm = 0; sig_plan = 0; sig_work = 0
@@ -607,7 +603,6 @@ wb_board_v2_read_file() {
       if ($0 ~ /^created:/)     { s=$0; sub(/^created:[ \t]*/,"",s);     created=clip(s) }
       if ($0 ~ /^closed:/)      { s=$0; sub(/^closed:[ \t]*/,"",s);      closed=clip(s) }
       if ($0 ~ /^size:/)        { s=$0; sub(/^size:[ \t]*/,"",s);        size=clip(s) }
-      if ($0 ~ /^layout:/)      { s=$0; sub(/^layout:[ \t]*/,"",s);      layout=clip(s) }
       next
     }
     donefm && /^## / {
@@ -620,8 +615,6 @@ wb_board_v2_read_file() {
       next
     }
     donefm && cursec == "Done"        { done_text = done_text $0 "\n"; next }
-    donefm && cursec == "Follow-ups"  { followups_text = followups_text $0 "\n"; next }
-    donefm && cursec == "Decisions"   { decisions_text = decisions_text $0 "\n"; next }
     donefm && cursec == "Handoffs" {
       if (index($0, "wb-save")) sig_work = 1
       if ($0 ~ /^### /) { handoff_text = $0 "\n"; handoff_capturing = 1; next }
@@ -633,24 +626,24 @@ wb_board_v2_read_file() {
       # line, after pr_url -- never inserted earlier -- so no existing
       # positional consumer (wb_board_collect_rows_v2 t[] indices) needs
       # renumbering.
-      # layout (dossier layout trial) is appended after accept_sig, same rule.
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s%s%s%s\t%s\t%s\t%s\t%s", \
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s%s%s%s\t%s\t%s\t%s", \
         status, repo, worktree, branch, path, deps, reviewed, parent, tags, \
         created, closed, plan_checked, plan_total, title, \
         sig_ideate, sig_brainstorm, sig_plan, sig_work, sig_review, pr_url, \
-        size, accept_sig, layout
-      printf "%s%s%s%s%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, followups_text, SOH, decisions_text, SOH, links_text, ""
+        size, accept_sig
+      printf "%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, links_text, ""
     }
   ' "$1"
 }
 
 # wb_board_v2_parse_record <record_text> <scalar_array_name> \
 #   <plan_array_name> <done_array_name> <handoff_array_name> \
-#   <followups_array_name> <decisions_array_name> <links_array_name> —
-# splits one wb_board_v2_read_file capture on its 7 bare-SOH-joined fields
+#   <links_array_name> —
+# splits one wb_board_v2_read_file capture on its 5 bare-SOH-joined fields
 # into <scalar_array_name>[0] (the TSV header line, further split by the
-# caller with wb_tsv_split) and the six body-text arrays (U5 added
-# decisions/links to U2's original four). Pure string manipulation, no
+# caller with wb_tsv_split) and the four body-text arrays. Follow-ups and
+# decisions are not in the record: wb_board_dossier_records reads them from
+# the dossier. Pure string manipulation, no
 # forking, no file I/O — the read already happened.
 #
 # `IFS=$soh read -r -d '' -a parts`, not the `${var%%pattern*}` splitting
@@ -663,15 +656,13 @@ wb_board_v2_read_file() {
 # only SOH, so embedded newlines within a field are never treated as
 # separators and survive in the split fields intact.
 wb_board_v2_parse_record() {
-  local -n _pr_scalar="$2" _pr_plan="$3" _pr_done="$4" _pr_handoff="$5" _pr_followups="$6"
-  local -n _pr_decisions="$7" _pr_links="$8"
+  local -n _pr_scalar="$2" _pr_plan="$3" _pr_done="$4" _pr_handoff="$5" _pr_links="$6"
   local soh=$'\1'
   local -a parts=()
   IFS="$soh" read -r -d '' -a parts <<< "$1" || true
   _pr_scalar[0]="${parts[0]:-}"
   _pr_plan[0]="${parts[1]:-}"; _pr_done[0]="${parts[2]:-}"
-  _pr_handoff[0]="${parts[3]:-}"; _pr_followups[0]="${parts[4]:-}"
-  _pr_decisions[0]="${parts[5]:-}"; _pr_links[0]="${parts[6]:-}"
+  _pr_handoff[0]="${parts[3]:-}"; _pr_links[0]="${parts[4]:-}"
 }
 
 # wb_board_v2_mtimes <-n out_array_name> — one `stat` invocation for every
@@ -690,11 +681,10 @@ wb_board_v2_mtimes() {
   done < <(stat -c '%Y %n' "${files[@]}" 2>/dev/null)
 }
 
-# wb_board_layout_records <task file> <stem> <decisions_arr> <followups_arr>
-#   <handoff_arr> — dossier layout trial: fills the three text blocks of one
-# LAYOUT task (the arrays the section parse above fills for an old-layout one)
-# from its record files, in the SAME shapes the old sections had, so every view
-# reads them unchanged:
+# wb_board_dossier_records <task file> <stem> <decisions_arr> <followups_arr>
+#   <handoff_arr> — fills three text blocks of one task from its dossier's
+# record files, in the shapes the views were written against (the task file's
+# old `## Decisions` / `## Follow-ups` sections):
 #   decisions  one "### YYYY-MM-DD HH:MM — <title>" entry per decisions/ file
 #              (oldest first; the title is the file's `# ` line, the time is
 #              the file name's; the body is the first non-blank body line,
@@ -703,10 +693,10 @@ wb_board_v2_mtimes() {
 #   follow-ups one "- <title>" bullet per open-items/ file with `status: open`
 #   handoff    the task file's one handoff, unless that is an (auto) stamp:
 #              then the newest handoffs/ file with `auto: false`
-# There is no `## Done` on a layout task, so Done stays empty. One awk for the
+# There is no `## Done` in the dossier layout, so Done stays empty. One awk for the
 # decision and open-item files; the handoff fallback is pure bash.
 # Plain-statement call, nameref writes (see wb_board_collect_rows_v2).
-wb_board_layout_records() {
+wb_board_dossier_records() {
   local f="$1" stem="$2"
   local -n _lr_dec="$3" _lr_fu="$4" _lr_ho="$5"
   local d="${f%/*}/dossiers/$stem" out
@@ -816,17 +806,16 @@ wb_board_collect_rows_v2() {
   wb_board_v2_mtimes _mtimes
   local now; now="$(date +%s)"
   local f stem anchor parent title updated age_days bucket record stage_sig path_bits
-  local -a scalar=() t=() plan_a=() done_a=() handoff_a=() followups_a=() decisions_a=() links_a=()
+  local -a scalar=() t=() plan_a=() done_a=() handoff_a=() links_a=()
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     record="$(wb_board_v2_read_file "$f")"
-    wb_board_v2_parse_record "$record" scalar plan_a done_a handoff_a followups_a decisions_a links_a
+    wb_board_v2_parse_record "$record" scalar plan_a done_a handoff_a links_a
     wb_tsv_split "${scalar[0]}" t
     # t: 0 status 1 repo 2 worktree 3 branch 4 path 5 deps 6 reviewed
     #    7 parent 8 tags 9 created 10 closed 11 plan_checked 12 plan_total
     #    13 title 14 stage signal bits "ibpwr" (U7) 15 first PR url
     #    16 size (raw size: frontmatter value, U2) 17 accept_sig (0/1, U2/KTD7)
-    #    18 layout (frontmatter `layout:`; "dossier" on a layout task)
     stem="${f##*/}"; stem="${stem%.md}"
     # fix(review) D5: enforce the stem invariant [A-Za-z0-9._-] once, here, so
     # every downstream use (HTML text, data-copy, the copied `wb resume <id>`
@@ -854,14 +843,10 @@ wb_board_collect_rows_v2() {
     _cr_plan["$stem"]="${plan_a[0]}"
     _cr_done["$stem"]="${done_a[0]}"
     _cr_handoff["$stem"]="${handoff_a[0]}"
-    _cr_followups["$stem"]="${followups_a[0]}"
-    _cr_decisions["$stem"]="${decisions_a[0]}"
+    _cr_followups["$stem"]=""
+    _cr_decisions["$stem"]=""
     _cr_links["$stem"]="${links_a[0]}"
-    # Layout task (dossier layout trial): its records are files, not sections.
-    # Delete this branch with the old layout.
-    if [ "${t[18]:-}" = dossier ]; then
-      wb_board_layout_records "$f" "$stem" _cr_decisions _cr_followups _cr_handoff
-    fi
+    wb_board_dossier_records "$f" "$stem" _cr_decisions _cr_followups _cr_handoff
     # U7: stage_sig is the raw "ibpwr" bit string from the awk pass plus the
     # `reviewed:` frontmatter field folded in as a 6th bit — the review
     # stage's primary signal is `wb reviewed` stamping that field, and the
@@ -1377,7 +1362,7 @@ wb_board_v2_roadmap_bar() {
 
 # wb_board_v2_decisions_entries <raw_decisions_text> <source_stem>
 #   [<out_var>] — one TSV line per dated "### YYYY-MM-DD... — <title>" entry
-# under a task's "## Decisions": date \t text \t source_stem. <text> is the
+# in a task's decisions text (wb_board_dossier_records): date \t text \t source_stem. <text> is the
 # entry's first non-blank body line (its lede), falling back to <title> for
 # a bare one-line decision with no body. An entry whose heading isn't
 # date-led (a stray "### Open questions" subheading, say) is skipped — U5's

@@ -1,7 +1,7 @@
 ---
 title: wb-decide
 status: current
-tile: Record a decision into ## Decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.
+tile: Record a decision into the task's decisions — and review the ones a background sweep drafted, waiting on a per-task shelf, at /wb-save, /close-out and the weekly review.
 group: skills
 kind: guide
 updated: 2026-10-25
@@ -11,8 +11,8 @@ updated: 2026-10-25
 
 `/wb-decide` is the "record" half of decision auto-capture. Decisions made
 in a wb session used to vanish unless someone remembered to write them
-into the task file's `## Decisions` section. That matters because
-`## Decisions` is what a later session, a reviewer, or you in a month
+into the task's dossier as a decision file. That matters because
+the recorded decisions are what a later session, a reviewer, or you in a month
 reads to learn *why* the code looks the way it does.
 
 The `wb-capture` plugin (`claude/.claude/skills/wb-capture/`, hooks only)
@@ -31,7 +31,7 @@ Hooks never write the task store; accepting a draft is an ordinary
 ```
   async sweep (Stop hook, after 4 quiet turns) ─┐
   checkpoint sweep (/wb-save, /close-out,       ├─> model reads the new turns,
-                    /wb-decide shelved)        ─┘    your ## Decisions, and the shelf
+                    /wb-decide shelved)        ─┘    your decisions, and the shelf
                                                           │
                           one file per drafted decision   ▼
               ~/.local/state/wb/capture/shelved/<task>/<timestamp>-<session>.md
@@ -54,7 +54,7 @@ Hooks never write the task store; accepting a draft is an ordinary
    (the *async sweep*, an async `Stop` hook), or whenever a checkpoint
    asks for one (the *checkpoint sweep*), a headless model reads the new
    part of the transcript. It also sees three lists: your recorded
-   `## Decisions`, the drafts already waiting on the shelf, and the
+   decisions, the drafts already waiting on the shelf, and the
    drafts you dismissed in the last 14 days, so a later turn that recaps
    a decision does not draft it twice or revive a rejected one. If it
    finds unrecorded decisions it writes up to 3 entries, and each entry
@@ -68,7 +68,7 @@ Hooks never write the task store; accepting a draft is an ordinary
    shelved` all run the same procedure ("step 2b" in the `wb-decide`
    skill): run one checkpoint sweep and wait for it, then show each of
    the task's drafts one at a time and ask accept, edit, dismiss or
-   leave. Accepting records the entry into `## Decisions` and moves the
+   leave. Accepting records the entry as a decision file and moves the
    draft to `resolved/`. Dismissing moves it to `resolved/`. Leaving
    keeps it on the shelf and logs that this review showed it.
 4. **The weekly review catches stragglers.** `/weekly-review` lists
@@ -95,7 +95,7 @@ two-phase `accept --begin` went with the nudge.
 **After a record: telling the rest of the family (2026-10-25).** A
 recorded decision now reaches the other live sessions it affects in the
 same task family. Other running sessions never see this task's
-`## Decisions`, so without this a sibling session could keep building on
+decisions, so without this a sibling session could keep building on
 an assumption that had just changed. After any successful Decisions append, the skill
 (step 6) lists the family's live sessions (`wb family <task> --sessions`,
 which gives each Claude's SendMessage name, matched by name against
@@ -134,20 +134,18 @@ In any wb session, after something is actually settled:
 ```
 
 or `/wb-decide <one-line hint>` to say which decision. Claude reads the
-task's existing `## Decisions` for style, composes decided / rejected /
+task's existing decision files for style, composes decided / rejected /
 why, appends it with `wb append`, and confirms:
 
 ```
-Recorded to ## Decisions.
+Recorded to decisions.
 ```
 
-On a task with `layout: dossier` (the trial layout; See [wb-guide](../wb-guide.html), "Dossier layout (trial)".) the same command writes
-one file in the task's `decisions/` instead of a block under `## Decisions`, style
+The command writes one file in the task's `decisions/` (see [wb-guide](../wb-guide.html), "Dossier layout"). Style
 and duplicate checks read those files, and a decision that reverses an earlier one
 goes through `wb decide-supersede <task> <old-id> -`. That writes the new file with
 `supersedes: [<old-id>]` and flips the old file to `status: superseded`, in one
-locked step, in place of a `(supersedes: …)` line. The family's `CONCEPTS.md` is
-`concepts.md` there.
+locked step. The family's concepts file is `concepts.md` in the dossier.
 
 To review what the sweep drafted, any time:
 
@@ -168,7 +166,7 @@ then walks the drafts. And to check the machinery:
 
 | Invocation | What it does |
 |---|---|
-| `/wb-decide [hint]` | Compose a new entry from the conversation and `wb append` it under `## Decisions`. If nothing was actually decided it says so and writes nothing. Shelved drafts are not part of this path. |
+| `/wb-decide [hint]` | Compose a new entry from the conversation and `wb append` it as a decision file. If nothing was actually decided it says so and writes nothing. Shelved drafts are not part of this path. |
 | `/wb-decide shelved` | Run the checkpoint review: one checkpoint sweep, then each of this task's drafts one at a time: accept (optionally edited), dismiss, or leave. Ends with one line counting recorded / dismissed / left. |
 | `/wb-decide dismiss <path>` | Dismiss one shelved draft by path (moves it to `resolved/`). A bare `dismiss` with no path is a usage error. |
 | `/wb-decide mute` / `unmute` | Per-session mute flag: silences the async sweep and makes a checkpoint sweep print `skipped: muted`. Existing drafts can still be reviewed. Each is logged. |
@@ -208,16 +206,16 @@ line and always exits 0, so a skill always goes on to the review:
 It does not wait on an async sweep. If the two overlap, the worst case
 is a duplicate draft, which the review dismisses in one step.
 
-**Stale drafts.** The sweep snapshots the task's `## Decisions` section
+**Stale drafts.** The sweep snapshots the task's decisions
 (the exact text the model is shown), then waits up to a minute for the
-model. Edits elsewhere in the task file don't count. If `## Decisions`
+model. Edits elsewhere in the task file don't count. If the decisions
 changed in that window (usually `/wb-decide` recording the very
 decision being drafted), the answer is thrown away and the model is
-asked once more against the current section, so it either answers NONE
+asked once more against the current decisions, so it either answers NONE
 or drafts something genuinely new (`sweep_ran` logs `rerun: true`). Only
-if the section changes *again* during the rerun is the draft shelved but
+if the decisions change *again* during the rerun is the draft shelved but
 flagged stale (a `.stale` sidecar file beside it): the review shows it
-next to the newest `## Decisions` entries and asks whether it is already
+next to the newest decisions and asks whether it is already
 recorded. Events about a stale draft carry `"stale":true`.
 
 **Closed tasks and no session.** A shelved draft whose task is already
@@ -352,10 +350,10 @@ Reading it: the delivery gate passes when `shown_late` and
 resolved drafts by the review date moves the review out a week.
 
 **Close-out interaction.** `/close-out` step 4 runs the same checkpoint
-review (sweep, then each draft) before the wind-down. If `## Decisions`
-is still empty after it, the agent either writes a real entry or appends
+review (sweep, then each draft) before the wind-down. If the task has
+no decisions after it, the agent either writes a real entry or appends
 an affirmed marker (`### <timestamp> — close-out` / `_No decisions:
-<reason>_`) via `wb append`. An unmarked empty section keeps meaning
+<reason>_`) via `wb append`. An empty `decisions/` with no marker keeps meaning
 "nobody checked". Tasks closed with bare `wb done` (no `/close-out`) are
 left unmarked.
 
@@ -393,7 +391,7 @@ A graduation review (`dotfiles--capture-graduation-review`, due
 2026-11-02) decides, from the accuracy, delivery and left-3+-times
 figures above, whether to keep the feature, retune it, or drop it. It
 also gates on no task closing after rollout with an unmarked empty
-`## Decisions`.
+decisions.
 
 To turn it off, in order of bluntness:
 

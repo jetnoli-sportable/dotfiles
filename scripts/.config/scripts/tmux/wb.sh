@@ -60,37 +60,35 @@
 #                                    follow-ups — the feature's only task-store write path
 #   wb unsafe-rewind "<reason>"      write a time-limited escape-hatch sentinel a git hook honors for a deliberate rewind
 #   wb append <task> <heading> [<body>|-]
-#                                    append <body> under "## <heading>" in <task>'s file,
-#                                    taking the per-task lock (fail-loud on an ambiguous
-#                                    or unmatched <task>); <body> omitted or literally
-#                                    "-" reads a multi-line body from stdin instead — the
-#                                    agent-mediated write path /wb-save, /handoff, and
+#                                    write <body> to <task> under the per-task lock (fail-loud on
+#                                    an ambiguous or unmatched <task>): Decisions and Follow-ups
+#                                    become record files under dossiers/<task>/decisions/ and
+#                                    open-items/, Handoffs moves the previous entry to handoffs/
+#                                    and writes the new one in the task file, any other heading
+#                                    is appended under "## <heading>" in the task file; <body>
+#                                    omitted or literally "-" reads a multi-line body from stdin
+#                                    — the agent-mediated write path /wb-save, /handoff, and
 #                                    /weekly-review use instead of Edit-tool task writes
 #   wb now <task> [<body>|-]         replace <task>'s "## Now" block with <body> (or stdin) under
 #                                    the per-task lock, leaving the rest of the file byte-unchanged;
 #                                    a file with no "## Now" gains one above its first section
 #   wb decide-supersede <task> <old-id> [<body>|-]
-#                                    layout tasks: write the new decision (body or stdin) with
+#                                    write the new decision (body or stdin) with
 #                                    supersedes: [<old-id>], flip the old decision file to
 #                                    status: superseded, rebuild the views — one locked step; an
 #                                    unknown or already-superseded <old-id> exits 1, nothing written
-#                                    (On a task with `layout: dossier`, `wb append` writes Decisions
-#                                    and Follow-ups as record files under dossiers/<task>/ and moves
-#                                    the previous Handoffs entry to handoffs/.)
 #   wb followups <task>              list <task>'s OPEN follow-ups, one per line as <ref><TAB><title>;
-#                                    <ref> is the open-items file id on a layout task, the item's
-#                                    1-based index among the open bullets under "## Follow-ups" on
-#                                    an old-layout one (a bullet is open unless ticked [x])
+#                                    <ref> is the open-items file id
 #   wb followup-done <task> <ref> [<note>|-]
 #                                    mark one follow-up done under the per-task lock: <ref> is an
-#                                    exact id or index, else a case-insensitive substring of the id
-#                                    or title matching exactly one open item (several: exit 1 and
-#                                    list them; none, or already done: exit 1). Layout task:
+#                                    exact id, else a case-insensitive substring of the id or
+#                                    title matching exactly one open item (several: exit 1 and
+#                                    list them; none, or already done: exit 1). Sets
 #                                    status: closed + closed: <date> (and "Closed <date>: <note>"),
-#                                    views rebuilt. Old layout: the bullet becomes "- [x] <text>"
-#                                    plus " — done <date>: <note>"
+#                                    views rebuilt
 #   wb migrate <task>|--all [--dry-run]
-#                                    one-off conversion of a task file into the dossier layout
+#                                    convert an old-shape task file (one written by hand or
+#                                    brought from elsewhere) into the dossier layout
 #                                    (decisions/, handoffs/, open-items/, newest handoff and an
 #                                    empty ## Now kept in the task file), taking each task's own
 #                                    lock; prints a before/after count line per task, leaves any
@@ -106,10 +104,10 @@
 #                                    with no recorded time get `time: none` too); idempotent,
 #                                    takes each task's lock, rebuilds the views, --dry-run counts
 #   wb views <task>... | --all       rebuild the generated views (decisions.md, handoffs.md,
-#                                    index.md) of layout tasks under each task's lock; they are not
-#                                    in git, so run it in a fresh clone (the store's post-merge and
-#                                    post-rewrite hooks run it for the dossiers a pull changed). A
-#                                    named task without the layout: one line, exit 1 (--all skips)
+#                                    index.md) under each task's lock; they are not in git, so run
+#                                    it in a fresh clone (the store's post-merge and post-rewrite
+#                                    hooks run it for the dossiers a pull changed); a task with no
+#                                    dossier yet is left alone
 #   wb family <task> [--sessions|--reseed|--concepts]
 #                                    print <task>'s family stems (top parent first, then every
 #                                    descendant), read-only and tmux-free; --sessions prints
@@ -118,8 +116,7 @@
 #                                    SendMessage name of each Claude running there, empty if none,
 #                                    from Claude Code's session registry); --reseed rewrites the
 #                                    CLAUDE.local.md concepts pointer in each family worktree;
-#                                    --concepts prints <task>'s CONCEPTS.md files, nearest first
-#                                    (concepts.md for a layout task)
+#                                    --concepts prints <task>'s concepts.md files, nearest first
 #   wb notes [<task>]                print dossiers/<task>/notes.md (the file may not exist; wb
 #                                    never creates it), tmux-free; with no <task>, the current
 #                                    tmux session's @task (an error outside tmux)
@@ -971,8 +968,8 @@ wb_ensure_repo_ignore() {
 # self-parent (wb_task_own_parent) and cycles (seen-set) both stop the walk
 # rather than looping; a depth cap is a backstop against either guard
 # somehow missing a case. Prints one path per line for every
-# $TASKS_DIR/dossiers/<stem>/CONCEPTS.md (concepts.md when that task has
-# `layout: dossier`, KTD24) that exists anywhere in the chain;
+# $TASKS_DIR/dossiers/<stem>/concepts.md (KTD24) that exists anywhere in the
+# chain;
 # prints nothing (exit 0) when none exist, including when <task_file> itself
 # doesn't exist.
 _wb_concepts_paths() {
@@ -988,11 +985,8 @@ _wb_concepts_paths() {
     seen[$current_stem]=1
     depth=$((depth + 1))
 
-    # KTD24: a layout task's family file is concepts.md; tasks without the
-    # layout keep CONCEPTS.md (each chain link decides for itself).
-    local cname="CONCEPTS.md"
-    _wb_is_dossier "$current_file" && cname="concepts.md"
-    local dossier="$TASKS_DIR/dossiers/$current_stem/$cname"
+    # KTD24: the family file is the dossier's concepts.md.
+    local dossier="$TASKS_DIR/dossiers/$current_stem/concepts.md"
     [ -f "$dossier" ] && printf '%s\n' "$dossier"
 
     local parent_ref; parent_ref="$(wb_get_frontmatter "$current_file" parent)"
@@ -1281,9 +1275,8 @@ wb_seed_task_planned() {
 # "## Plan" heading. Never routes <body> through awk -v: awk applies C
 # escape-sequence processing to a -v assignment's value, which would mangle
 # \n/\t/\K sequences a real plan body can legitimately carry (regex
-# snippets, Windows paths, fenced-code examples) — the cited wb_seed_task/
-# wb_reconcile_merge_content splices get away with awk -v only because their
-# values never carry backslashes. Writing <body> to a temp file with `printf
+# snippets, Windows paths, fenced-code examples) — wb_seed_task's splices
+# get away with awk -v only because their values never carry backslashes. Writing <body> to a temp file with `printf
 # '%s'` (which never interprets backslashes in the value) and reading it back
 # with awk's `getline` (which reads literal lines, no escape processing)
 # avoids the mangling entirely. No-op when <body> is empty or whitespace-only.
@@ -1302,21 +1295,18 @@ _wb_insert_plan_body() {
   rm -f "$bodyfile"
 }
 
-# _wb_layout_inherit_new <task_file> <parent_ref> [<seed body>] — KTD21/KTD25:
-# a NEW task whose parent has `layout: dossier` is born with the layout (a
-# parent without it changes nothing here). Marks `layout: dossier`, swaps the
-# template's Decisions/Done/Follow-ups skeleton for a `## Now` placeholder,
-# and drafts dossiers/<stem>/brief.md (type, why, done when, not doing,
-# claims marked checked/assumed with a date; seen/expected/repro for a bug)
-# instead of a "First action" line. <seed body> (the caller's --body text)
-# fills `Why` with its first paragraph; everything else stays blank for the
-# first session to confirm. CALLER HOLDS THE TASK LOCK and calls this only on
-# a file it just created. Delete this function and its three call sites with
-# the old paths at the store switch (U14).
-_wb_layout_inherit_new() {
-  local file="$1" parent_ref="${2:-}" body="${3:-}"
-  [ -n "$parent_ref" ] && [ -f "$TASKS_DIR/$parent_ref.md" ] || return 0
-  _wb_is_dossier "$TASKS_DIR/$parent_ref.md" || return 0
+# _wb_new_seed <task_file> [<seed body>] — KTD25: every NEW task is born in
+# the dossier layout. Marks `layout: dossier` (the marker wb-store and
+# `wb migrate` read; nothing in wb branches on it), drops any
+# Decisions/Done/Follow-ups skeleton an older TEMPLATE.md still carries, makes
+# sure there is a `## Now` placeholder, and drafts dossiers/<stem>/brief.md
+# (type, why, done when, not doing, claims marked checked/assumed with a date;
+# seen/expected/repro for a bug). <seed body> (the caller's --body text) fills
+# `Why` with its first paragraph; everything else stays blank for the first
+# session to confirm. CALLER HOLDS THE TASK LOCK and calls this only on a file
+# it just created.
+_wb_new_seed() {
+  local file="$1" body="${2:-}"
 
   wb_set_frontmatter "$file" layout dossier
   awk '
@@ -1324,7 +1314,8 @@ _wb_layout_inherit_new() {
     /^## / { skip = 0 }
     !skip { print }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
-  _wb_replace_block "$file" "Now" "(not started — the first \`/wb-save\` or \`wb now\` fills this in)" 1
+  local stem; stem="$(basename -- "$file" .md)"
+  _wb_replace_block "$file" "Now" "(not started — read dossiers/$stem/brief.md for the opening ask; the first \`/wb-save\` or \`wb now\` replaces this)" 1
 
   # Bug signal: a fix/bug branch name or a `bug` tag. Anything else is a task.
   local branch tags type="task"
@@ -1423,7 +1414,7 @@ wb_seed_planned_child() {
   [ -z "$size" ]       || wb_set_frontmatter "$file" size "$size"
   [ -z "$depends_on" ] || wb_set_frontmatter "$file" depends_on "$depends_on"
 
-  _wb_layout_inherit_new "$file" "$parent" "$body"
+  _wb_new_seed "$file" "$body"
   _wb_insert_plan_body "$file" "$body"
   echo "$file"
 }
@@ -1923,8 +1914,8 @@ cmd_new() {
       ticket_body="$(cat "$body_file")" \
         || { wb_task_lock_release "$task_file"; echo "wb new: could not read --body-file '$body_file'" >&2; exit 1; }
     fi
-    # Layout first: its section swap must not see headings inside the body.
-    [ "$was_new" = 0 ] || _wb_layout_inherit_new "$task_file" "$parent_ref" "$ticket_body"
+    # Seed first: its section swap must not see headings inside the body.
+    [ "$was_new" = 0 ] || _wb_new_seed "$task_file" "$ticket_body"
     [ "$was_new" = 1 ] && [ -n "$ticket_body" ] && _wb_insert_plan_body "$task_file" "$ticket_body"
     wb_task_lock_release "$task_file"
     echo "$task_file"
@@ -2015,7 +2006,7 @@ cmd_new() {
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   local seed_was_new=0; [ -f "$task_file" ] || seed_was_new=1
   task_file="$(wb_seed_task "$repo" "$slug" "$worktree_rel" "$parent_ref" "${_WB_TASK_FILE_OVERRIDE:-}" "$depends_on_joined")"
-  [ "$seed_was_new" = 0 ] || _wb_layout_inherit_new "$task_file" "$parent_ref"
+  [ "$seed_was_new" = 0 ] || _wb_new_seed "$task_file"
   # An unsafe worktree: was ignored above; fix the field too, since wb down /
   # wb done would otherwise build a teardown path from it.
   [ "$wt_unsafe" = 0 ] || wb_set_frontmatter "$task_file" worktree "$worktree_rel"
@@ -2450,17 +2441,10 @@ cmd_reconcile() {
 # marker carrying its identifying fields, immune to whatever the user edits
 # around it — --apply reads markers back, not prose.
 #
-# "merge with task" is only semantically distinct from "attach to task" for
-# a MISSING-worktree finding (two real task files, two sets of Plan/Done/
-# Follow-ups content to reconcile). An orphaned worktree has no task file of
-# its own, so "merging" it into an existing task IS attaching — there's
-# nothing else to combine. The survivor sub-checkboxes only ever apply to
-# a missing-finding merge, and since the target task isn't known until the
-# user names it in this same document, the pre-checked default can't be
-# computed at generation time — it's computed and appended on the FIRST
-# --apply that sees a named target with no survivor choice yet, and the doc
-# reopens for confirmation before anything actually merges (same
-# append-then-reopen shape this reconcile flow uses elsewhere).
+# "merge with task" on an orphaned worktree IS attaching: it has no task file
+# of its own, so there is nothing else to combine. On a MISSING-worktree
+# finding (two real task files) it is reported and skipped: each task's
+# records are files in its own dossier, and two tasks are merged by hand.
 # ---------------------------------------------------------------------------
 
 # wb_reconcile_report_path — logs/reconcile.md in THIS repo (dotfiles),
@@ -2519,7 +2503,9 @@ wb_reconcile_generate_review() {
       echo "- [ ] discuss"
       echo "- [ ] create a task (optional parent: \`___\`)"
       echo "- [ ] attach to task: \`___\`"
-      echo "- [ ] merge with task: \`___\`"
+      # Two real task files are merged by hand, so a missing-worktree
+      # finding doesn't offer it (wb_reconcile_action_merge).
+      if [ "$kind" = orphan ]; then echo "- [ ] merge with task: \`___\`"; fi
     done < <(wb_reconcile_collect)
     [ "$n" -eq 0 ] && { echo; echo "No drift found."; }
   } > "$path"
@@ -2576,7 +2562,10 @@ wb_reconcile_action_create_task() {
   local file; file="$(wb_task_file "$repo" "$(wb_sanitize "$branch")")"
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || return $?
+  local was_new=0; [ -f "$file" ] || was_new=1
   file="$(wb_seed_task "$repo" "$branch" "$worktree" "$parent")"
+  # Like every other way a task is born: brief.md and a ## Now placeholder.
+  [ "$was_new" = 0 ] || _wb_new_seed "$file"
   wb_task_lock_release "$file"
   echo "wb reconcile --apply: created task $file (status: doing)"
 }
@@ -2585,7 +2574,7 @@ wb_reconcile_action_create_task() {
 wb_reconcile_action_attach() {
   local kind="$1" worktree="$2" target="$3" target_file
   if [ "$kind" != orphan ]; then
-    echo "wb reconcile --apply: 'attach to task' doesn't apply to a missing-worktree finding (it already is one) — use 'merge with task' instead — skipping" >&2
+    echo "wb reconcile --apply: 'attach to task' doesn't apply to a missing-worktree finding (it already is one); to combine two tasks, merge them by hand — skipping" >&2
     return 0
   fi
   target_file="$TASKS_DIR/$target"
@@ -2600,113 +2589,27 @@ wb_reconcile_action_attach() {
   echo "wb reconcile --apply: attached $worktree to $target_file"
 }
 
-# wb_reconcile_merge_content <survivor_file> <loser_file> — appends the
-# loser's Plan/Done/Follow-ups content into the survivor's matching
-# sections, carries over worktree: if the survivor's is blank, then
-# deletes the loser file.
-wb_reconcile_merge_content() {
-  local survivor="$1" loser="$2" heading section
-  for heading in Plan Done Follow-ups; do
-    section="$(wb_board_section "$loser" "$heading")"
-    [ -n "$(printf '%s' "$section" | tr -d '[:space:]')" ] || continue
-    awk -v h="## $heading" -v content="$section" '
-      { print }
-      $0 == h { print content }
-    ' "$survivor" > "$survivor.tmp.$$" && mv "$survivor.tmp.$$" "$survivor"
-  done
-  local survivor_wt loser_wt
-  survivor_wt="$(wb_get_frontmatter "$survivor" worktree)"
-  loser_wt="$(wb_get_frontmatter "$loser" worktree)"
-  [ -z "$survivor_wt" ] && [ -n "$loser_wt" ] && wb_set_frontmatter "$survivor" worktree "$loser_wt"
-  rm -f "$loser"
-}
-
-# wb_reconcile_action_merge <kind> <repo> <branch> <worktree> <taskfile> <target> <block>
+# wb_reconcile_action_merge <kind> <repo> <branch> <worktree> <taskfile> <target>
 # For an orphan finding, merge == attach (no task content of its own to
-# combine). For a missing-worktree finding, requires the block to already
-# carry a resolved survivor choice (exactly one `- [x] survivor:` line) —
-# the caller (wb_reconcile_apply) is responsible for appending and
-# reopening first when that choice doesn't exist yet.
+# combine). For a missing-worktree finding there is no automatic merge: each
+# task's records are files in its own dossier, so two tasks are merged by
+# hand. The finding is reported and skipped.
 wb_reconcile_action_merge() {
-  local kind="$1" repo="$2" branch="$3" worktree="$4" taskfile="$5" target="$6" block="$7"
+  local kind="$1" worktree="$4" taskfile="$5" target="$6"
   if [ "$kind" = orphan ]; then
-    wb_reconcile_action_attach "$kind" "$branch" "$worktree" "$target"
+    wb_reconcile_action_attach "$kind" "$worktree" "$target"
     return
   fi
-
-  local target_file="$TASKS_DIR/$target"
-  if [ ! -f "$taskfile" ] || [ ! -f "$target_file" ]; then
-    echo "wb reconcile --apply: merge candidate missing ($taskfile or $target_file no longer exists) — skipping this finding" >&2
-    return 0
-  fi
-
-  # Layout trial (KTD21): the Plan/Done/Follow-ups merge below only knows the
-  # old sections, and a layout task has no Done/Follow-ups to merge into or
-  # out of (its records are dossier files). No dossier merge is built for the
-  # trial: refuse, and name the one-off that makes both sides the same shape.
-  if _wb_is_dossier "$taskfile" || _wb_is_dossier "$target_file"; then
-    if _wb_is_dossier "$taskfile" && _wb_is_dossier "$target_file"; then
-      echo "wb reconcile --apply: not merging $taskfile and $target_file — both are layout (dossier) tasks and no dossier merge exists; merge their records by hand — skipping this finding" >&2
-    else
-      local old_side="$taskfile"; _wb_is_dossier "$taskfile" && old_side="$target_file"
-      echo "wb reconcile --apply: not merging $taskfile and $target_file — one is a layout (dossier) task; run \`wb migrate $(basename -- "$old_side" .md)\` first so both sides have the layout, then merge by hand — skipping this finding" >&2
-    fi
-    return 0
-  fi
-
-  local -a survivor_checks=()
-  while IFS= read -r line; do survivor_checks+=("$line"); done < <(printf '%s' "$block" | grep -oP '^\s*- \[x\] survivor: \K.*')
-  if [ "${#survivor_checks[@]}" -ne 1 ]; then
-    echo "wb reconcile --apply: merge for $taskfile <-> $target_file has ${#survivor_checks[@]} survivor choices checked (need exactly 1) — skipping" >&2
-    return 0
-  fi
-
-  # W11: this action touches TWO files (survivor + loser) — acquire BOTH
-  # locks in sorted-path order (lexically first path first) so a concurrent
-  # dual-file operation over the same pair can never deadlock by acquiring
-  # in opposite order.
-  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  local -a sorted_pair
-  mapfile -t sorted_pair < <(printf '%s\n%s\n' "$taskfile" "$target_file" | sort)
-  wb_task_lock_acquire_guarded "${sorted_pair[0]}" || return $?
-  # Deliberately NOT `if ! wb_task_lock_acquire_guarded ...; then` — `$?`
-  # inside that `then` branch reflects the NEGATED condition's own exit
-  # status (always 0, since `!` flipped the real failure to make the branch
-  # taken at all), not the original acquire's 75; confirmed live (`if ! foo;
-  # then echo $?; fi` prints 0 even when foo returns 75). Calling it as a
-  # plain statement first and reading `$?` immediately after is the only
-  # reliable way to capture the REAL failing exit code here — this exact
-  # class of bug (silently clobbering a captured 75 into a false 0) already
-  # bit this same line once via a *different* mistake (a `|| { release;
-  # return $?; }` where `release`'s own always-0 return clobbered `$?`),
-  # caught live by wb-lock-integration.test.sh's sorted-second-locked
-  # scenario — this rewrite avoids both footguns at once.
-  wb_task_lock_acquire_guarded "${sorted_pair[1]}"
-  local second_rc=$?
-  if [ "$second_rc" -ne 0 ]; then
-    wb_task_lock_release "${sorted_pair[0]}"
-    return "$second_rc"
-  fi
-
-  case "${survivor_checks[0]}" in
-    "this finding"*) wb_reconcile_merge_content "$taskfile" "$target_file" ;;
-    *)                wb_reconcile_merge_content "$target_file" "$taskfile" ;;
-  esac
-  echo "wb reconcile --apply: merged $taskfile and $target_file"
-
-  wb_task_lock_release "${sorted_pair[1]}"
-  wb_task_lock_release "${sorted_pair[0]}"
+  echo "wb reconcile --apply: not merging $taskfile and $TASKS_DIR/$target — each task's records are files in its own dossier and no automatic merge exists; merge them by hand — skipping this finding" >&2
+  return 0
 }
 
 # wb_reconcile_apply — parse the closed review doc's marker-delimited
-# blocks and execute exactly the checked actions. Rebuilds any "merge with
-# task" block that doesn't have survivor sub-checkboxes yet (appending a
-# most-recently-active default) and reopens instead of merging blind.
+# blocks and execute exactly the checked actions.
 wb_reconcile_apply() {
   local path; path="$(wb_reconcile_report_path)"
   [ -f "$path" ] || { echo "wb reconcile --apply: no report at $path — run 'wb reconcile --review' first" >&2; return 1; }
 
-  local full_content; full_content="$(cat "$path")"
   local -a blocks=()
   local block="" line in_block=0
   while IFS= read -r line; do
@@ -2720,7 +2623,7 @@ wb_reconcile_apply() {
   done < "$path"
   [ "$in_block" = 1 ] && blocks+=("$block")
 
-  local reopen_needed=0 applied_count=0 skipped_count=0
+  local applied_count=0 skipped_count=0
   local b kind repo branch worktree taskfile target
   for b in "${blocks[@]}"; do
     kind="$(printf '%s' "$b" | grep -oP 'kind=\K[^ ]+' | head -1)"
@@ -2759,28 +2662,7 @@ wb_reconcile_apply() {
       applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] merge with task: \`[^\`_]+\`"; then
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] merge with task: `\K[^`]+' | head -1)"
-      if [ "$kind" != orphan ] && ! printf '%s' "$b" | grep -qE '^\s*- \[.\] survivor:'; then
-        local target_file="$TASKS_DIR/$target" new_b default_pick
-        if [ -f "$target_file" ] && [ -f "$taskfile" ]; then
-          local t_self t_target
-          t_self="$(stat -c %Y "$taskfile" 2>/dev/null || echo 0)"
-          t_target="$(stat -c %Y "$target_file" 2>/dev/null || echo 0)"
-          if [ "$t_self" -ge "$t_target" ]; then
-            default_pick="self"
-          else
-            default_pick="target"
-          fi
-        else
-          default_pick="target"
-        fi
-        local self_box="[ ]" target_box="[ ]"
-        [ "$default_pick" = self ] && self_box="[x]" || target_box="[x]"
-        new_b="$(printf '%s' "$b" | sed "/^- \\[x\\] merge with task/a\\\\  - $self_box survivor: this finding (new stub)\\n  - $target_box survivor: \`$target\` (existing) <!-- pre-picked: most recently active -->")"
-        full_content="${full_content/"$b"/"$new_b"}"
-        reopen_needed=1
-        continue
-      fi
-      wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" "$b" \
+      wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" \
         || { echo "wb reconcile --apply: skipped this finding (merge with task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
       applied_count=$((applied_count + 1))
     fi
@@ -2788,12 +2670,6 @@ wb_reconcile_apply() {
 
   if [ "$skipped_count" -gt 0 ]; then
     echo "wb reconcile --apply: $applied_count applied, $skipped_count skipped (contended or otherwise failed — re-run \`wb reconcile --apply\` to retry the skipped finding(s); the review doc is unchanged, so already-applied findings won't be re-applied)" >&2
-  fi
-
-  if [ "$reopen_needed" = 1 ]; then
-    printf '%s' "$full_content" > "$path"
-    echo "wb reconcile --apply: added survivor choices for new merges — reopening for confirmation"
-    wb_open_buffer "$path"
   fi
 }
 
@@ -3219,14 +3095,10 @@ _wb_breakdown_validate() {
       printf 'plan_rewrite\tparent\n'
     fi
 
-    # Layout parent: the "bullets" are its open items' titles, so the same
-    # exact-match-exactly-once check below covers both layouts.
+    # The parent's open items, one "- <title>" line each: the buffer's
+    # `move follow-up:` text must match exactly one of them.
     local followups
-    if _wb_is_dossier "$parent_file"; then
-      followups="$(_wb_open_item_bullets "$parent_file")"
-    else
-      followups="$(wb_board_section "$parent_file" "Follow-ups")"
-    fi
+    followups="$(_wb_open_item_bullets "$parent_file")"
     while IFS= read -r line; do
       [ "$(_wb_bd_checkbox_state "$line")" = checked ] || continue
       printf '%s' "$line" | grep -qP "move follow-up:" || continue
@@ -3237,12 +3109,12 @@ _wb_breakdown_validate() {
       # closing the "..." span. `(?:\\"|[^"])*` accepts a backslash-escaped
       # `\"` as part of the quoted span instead of ending it, then the sed
       # below undoes the escaping so $move_text matches the ACTUAL
-      # (unescaped) bullet text in ## Follow-ups.
+      # (unescaped) title of the parent's open item.
       move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K(?:\\"|[^"])*' | sed 's/\\"/"/g')"
       move_target="$(printf '%s' "$line" | grep -oP 'child: `\K[^`]*')"
       local match_count; match_count="$(printf '%s' "$followups" | grep -cxF -- "- $move_text")"
       if [ "$match_count" -ne 1 ]; then
-        echo "wb breakdown --apply: skipping follow-up move (\"$move_text\") — matched $match_count bullet(s) in $parent_stem's ## Follow-ups (need exactly 1)" >&2
+        echo "wb breakdown --apply: skipping follow-up move (\"$move_text\") — matched $match_count of $parent_stem's open follow-ups (need exactly 1)" >&2
         continue
       fi
       local move_disp; move_disp="$(wb_sanitize "$move_target")"
@@ -3365,76 +3237,6 @@ _wb_breakdown_replace_section() {
   rm -f "$bodyfile"
 }
 
-# _wb_breakdown_append_section <file> <heading> <body> — append <body>
-# right after "## <heading>" — same insertion point wb_reconcile_merge_content
-# already uses (never at the end of existing content). File-based, not
-# awk -v, for the same backslash-fidelity reason as every other body
-# insertion in this feature.
-_wb_breakdown_append_section() {
-  local file="$1" heading="$2" body="$3" bodyfile
-  bodyfile="$(mktemp)"
-  printf '%s\n' "$body" > "$bodyfile"
-  awk -v h="## $heading" -v bodyfile="$bodyfile" '
-    { print }
-    $0 == h { while ((getline line < bodyfile) > 0) print line }
-  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
-  rm -f "$bodyfile"
-}
-
-# _wb_breakdown_move_followup <parent_file> <target_file> <bullet_text> —
-# R11's "a move, never a copy": relocates the bullet line "- <bullet_text>"
-# (or "* <bullet_text>") PLUS any immediately-following indented
-# continuation lines from <parent_file>'s ## Follow-ups to <target_file>'s.
-# <bullet_text> is compared via a getline-read value, never awk -v, so a
-# bullet containing backslashes still matches correctly (the same class of
-# bug U1's Execution note flags for -v assignments).
-_wb_breakdown_move_followup() {
-  local parent_file="$1" target_file="$2" bullet_text="$3"
-  # Layout parent: the follow-up is an open-items/ file, not a bullet.
-  if _wb_is_dossier "$parent_file"; then
-    _wb_breakdown_move_open_item "$parent_file" "$target_file" "$bullet_text"
-    return
-  fi
-  local textfile; textfile="$(mktemp)"
-  printf '%s\n' "$bullet_text" > "$textfile"
-
-  local block
-  block="$(awk -v textfile="$textfile" '
-    BEGIN { getline want < textfile; close(textfile) }
-    /^## Follow-ups/ { infu = 1; next }
-    /^## / { if (infu) infu = 0 }
-    infu && inblock && /^[-*] / { inblock = 0 }
-    infu && !inblock && ($0 == "- " want || $0 == "* " want) { inblock = 1; print; next }
-    infu && inblock { print }
-  ' "$parent_file")"
-  [ -n "$block" ] || { rm -f "$textfile"; return 1; }
-
-  # Write the target FIRST and drop the parent's bullet only once that worked,
-  # so a failed or impossible target write never loses the follow-up. A layout
-  # target takes an open-items/ record (and its views are rebuilt); an old one
-  # takes the bullet under its `## Follow-ups`, which is added when missing.
-  if _wb_is_dossier "$target_file"; then
-    _wb_record_write_followups "$target_file" "$block" || { rm -f "$textfile"; return 1; }
-    wb_render_views "$target_file"
-  else
-    if ! _wb_has_heading "$target_file" "Follow-ups"; then
-      printf '\n## Follow-ups\n' >> "$target_file" || { rm -f "$textfile"; return 1; }
-    fi
-    _wb_breakdown_append_section "$target_file" "Follow-ups" "$block" || { rm -f "$textfile"; return 1; }
-  fi
-
-  awk -v textfile="$textfile" '
-    BEGIN { getline want < textfile; close(textfile) }
-    /^## Follow-ups/ { infu = 1; print; next }
-    /^## / { if (infu) infu = 0 }
-    infu && inblock && /^[-*] / { inblock = 0 }
-    infu && !inblock && ($0 == "- " want || $0 == "* " want) { inblock = 1; next }
-    infu && inblock { next }
-    { print }
-  ' "$parent_file" > "$parent_file.tmp.$$" && mv "$parent_file.tmp.$$" "$parent_file"
-  rm -f "$textfile"
-}
-
 # _wb_open_item_title <open-item file> — the item's text: its first non-blank
 # line below the frontmatter.
 _wb_open_item_title() {
@@ -3446,9 +3248,8 @@ _wb_open_item_title() {
   ' "$1"
 }
 
-# _wb_open_item_bullets <task_file> — one "- <title>" line per open item of a
-# layout task, in the shape the breakdown buffer's `move follow-up:` match
-# compares against (the same as a ## Follow-ups bullet line).
+# _wb_open_item_bullets <task_file> — one "- <title>" line per open item, in
+# the shape the breakdown buffer's `move follow-up:` match compares against.
 _wb_open_item_bullets() {
   local f
   while IFS= read -r f; do
@@ -3456,14 +3257,12 @@ _wb_open_item_bullets() {
   done < <(_wb_open_items "$1")
 }
 
-# _wb_breakdown_move_open_item <parent_file> <target_file> <title> — the
-# layout-parent half of _wb_breakdown_move_followup. The parent's open item
-# whose title is exactly <title> MOVES (never copies) to the child: as a file
-# in the child's dossier open-items/ when the child has the layout, else as a
-# bullet (continuation lines indented) appended under the child's
-# `## Follow-ups`. Views are rebuilt for every layout side touched. The caller
+# _wb_breakdown_move_followup <parent_file> <target_file> <title> — R11's "a
+# move, never a copy": the parent's open item whose title is exactly <title>
+# MOVES to the child's dossier open-items/ (a numeric suffix keeps an id that
+# is already taken there unique). Both dossiers' views are rebuilt. The caller
 # holds both task locks.
-_wb_breakdown_move_open_item() {
+_wb_breakdown_move_followup() {
   local parent_file="$1" target_file="$2" title="$3" f src="" n=0
   [ -f "$target_file" ] || return 1
   while IFS= read -r f; do
@@ -3472,30 +3271,14 @@ _wb_breakdown_move_open_item() {
   done < <(_wb_open_items "$parent_file")
   [ "$n" -eq 1 ] || return 1
 
-  if _wb_is_dossier "$target_file"; then
-    local tdir; tdir="$(_wb_dossier_dir "$target_file")/open-items"
-    mkdir -p "$tdir" || return 1
-    local base id n2=1
-    base="${src##*/}"; base="${base%.md}"
-    id="$base"
-    while [ -e "$tdir/$id.md" ]; do n2=$((n2 + 1)); id="$base-$n2"; done
-    mv "$src" "$tdir/$id.md" || return 1
-    wb_render_views "$target_file"
-  else
-    local block
-    block="$(awk '
-      FNR == 1 && $0 == "---" { fm = 1; next }
-      fm && $0 == "---" { fm = 0; next }
-      fm { next }
-      !started && $0 == "" { next }
-      { started = 1; n++; print (n == 1 ? "- " $0 : ($0 == "" ? "" : "  " $0)) }
-    ' "$src")"
-    if ! _wb_has_heading "$target_file" "Follow-ups"; then
-      printf '\n## Follow-ups\n' >> "$target_file"
-    fi
-    _wb_breakdown_append_section "$target_file" "Follow-ups" "$block" || return 1
-    rm -f -- "$src"
-  fi
+  local tdir; tdir="$(_wb_dossier_dir "$target_file")/open-items"
+  mkdir -p "$tdir" || return 1
+  local base id n2=1
+  base="${src##*/}"; base="${base%.md}"
+  id="$base"
+  while [ -e "$tdir/$id.md" ]; do n2=$((n2 + 1)); id="$base-$n2"; done
+  mv "$src" "$tdir/$id.md" || return 1
+  wb_render_views "$target_file"
   wb_render_views "$parent_file"
 }
 
@@ -4116,36 +3899,24 @@ wb_open_buffer() {
   fi
 }
 
-# _wb_append_under_heading <file> <heading> <body> — the shared insertion
-# algorithm behind both wb_append_handoff (below) and cmd_append (U4,
-# `wb append`), extracted so there is exactly ONE heading-fallback/
-# end-of-section insertion implementation in this file, parameterized on an
-# arbitrary "## <heading>" name and an arbitrary — possibly multi-line —
-# <body> block, rather than wb_append_handoff's original hardcoded
-# "## Handoffs" + single-line-message shape. <body> is inserted VERBATIM
+# _wb_append_under_heading <file> <heading> <body> — the one heading-scoped
+# insertion in this file: cmd_append's headings other than Decisions,
+# Follow-ups and Handoffs (which are dossier records), wb_handoff_write's
+# replacement entry, and the weekly capture doc. <body> is inserted VERBATIM
 # (embedded newlines print as real line breaks); this helper only manages
-# blank-line hygiene AROUND the block, never inside it — a caller wanting a
-# blank line between two of its own body lines (wb_append_handoff's
-# "entry heading, blank, message" shape) bakes that into <body> itself.
+# blank-line hygiene AROUND the block, never inside it.
 #
-# Insertion rule (identical to wb_append_handoff's own pre-extraction
-# behavior; handoff.sh's handoff_append_followup delegates here too):
+# Insertion rule:
 #   - "## <heading>" exists as a real heading (isHeadingLine() below — only
 #     a line preceded by a blank line, or the file's first line, counts;
 #     without this guard, heading-shaped TEXT inside another section's own
-#     prose, e.g. a Plan paragraph quoting "## Decisions" as an example,
+#     prose, e.g. a Plan paragraph quoting "## Handoffs" as an example,
 #     would exact-match and splice the entry mid-paragraph — confirmed live
 #     before this guard existed) — the new <body> block lands at the END of
 #     that section: immediately before whatever "## " heading comes next,
 #     or at EOF if the section runs to the end of the file. NEVER right
-#     after the heading line itself. Repeated calls therefore read
-#     oldest-first — load-bearing for /wb-resume (not in scope here), which
-#     needs to find the most recent rich entry reliably.
-#   - "## <heading>" is missing entirely (checked over the WHOLE file up
-#     front, not just the part scanned so far), but "## Decisions" exists
-#     as a real heading — insert a fresh "## <heading>" section immediately
-#     before it.
-#   - Neither exists anywhere — append a fresh "## <heading>" section at
+#     after the heading line itself, so repeated calls read oldest-first.
+#   - "## <heading>" is missing — append a fresh "## <heading>" section at
 #     EOF.
 _wb_append_under_heading() {
   local file="$1" heading="$2" body="$3"
@@ -4161,16 +3932,7 @@ _wb_append_under_heading() {
   WB_APPEND_TARGET="$target" WB_APPEND_BODY="$body" awk '
     BEGIN { target = ENVIRON["WB_APPEND_TARGET"]; body = ENVIRON["WB_APPEND_BODY"] }
     function isHeadingLine() { return (prev == "" || FNR == 1) }
-    BEGIN { insection = 0; inserted = 0; exists = 0; pass = 0 }
-    # The file is read twice (see the invocation below). Pass 1 only
-    # records whether the target heading exists ANYWHERE, so the
-    # missing-heading fallback in pass 2 cannot fire just because the scan
-    # reached "## Decisions" before the target — true of every target that
-    # follows Decisions in TEMPLATE.md (Done, Follow-ups), which used to
-    # get a duplicate heading spliced in before Decisions. A counter rather
-    # than the usual NR == FNR test, which misfires when the file is empty.
-    FNR == 1 { pass++; prev = "" }
-    pass == 1 { if ($0 == target && isHeadingLine()) exists = 1; prev = $0; next }
+    BEGIN { insection = 0; inserted = 0; prev = "" }
     $0 == target && isHeadingLine() { insection = 1 }
     # Leaving an existing target section (any other "## " heading reached
     # while inside it) — insert the body right here, at the end of that
@@ -4183,15 +3945,6 @@ _wb_append_under_heading() {
       print body; print ""
       inserted = 1; insection = 0
     }
-    # Heading missing entirely, but "## Decisions" exists — insert a fresh
-    # target section right before it.
-    $0 == "## Decisions" && !exists && !inserted && isHeadingLine() {
-      print target
-      print ""
-      print body
-      print ""
-      inserted = 1
-    }
     { print; prev = $0 }
     END {
       if (insection && !inserted) {
@@ -4199,25 +3952,20 @@ _wb_append_under_heading() {
         if (prev != "") print ""
         print body
       } else if (!inserted) {
-        # Neither the target heading nor "## Decisions" found anywhere —
-        # append a fresh section at EOF.
+        # No target heading anywhere — append a fresh section at EOF.
         if (prev != "") print ""
         print target
         print ""
         print body
       }
     }
-  ' "$file" "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
+  ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
 }
 
-# wb_append_handoff <task_file> <source> <message> — appends a terse,
+# wb_append_handoff <task_file> <source> <message> — writes a terse,
 # timestamped "### <timestamp> — <source> (auto)" entry (with <message> as
-# its one-line body) to <task_file>'s "## Handoffs" section. A thin
-# composer over _wb_append_under_heading (above): builds the "### ...
-# (auto)" header line, joins it to <message> with a blank line between
-# (the one piece of internal body formatting this caller wants that
-# cmd_append's own callers, e.g. /wb-save's pre-formatted multi-line block,
-# don't), then hands the whole thing off as one opaque <body> block.
+# its one-line body) as <task_file>'s handoff: wb_handoff_write moves the
+# previous one to the dossier's handoffs/ first (KTD20).
 #
 # Called by cmd_pause/cmd_done/cmd_resume, always right after their own
 # state-changing line — deliberately never from cmd_new itself: cmd_new is
@@ -4227,13 +3975,9 @@ wb_append_handoff() {
   local file="$1" source="$2" message="$3"
   local entry; entry="### $(date '+%Y-%m-%d %H:%M') — $source (auto)"
   local body; body="$entry"$'\n\n'"$message"
-  # Layout task: the shared move-and-replace helper (KTD20). The callers
-  # (cmd_pause/cmd_done/cmd_resume/cmd_down/breakdown) already hold the lock.
-  if _wb_is_dossier "$file"; then
-    wb_handoff_write "$file" "$body"
-    return
-  fi
-  _wb_append_under_heading "$file" "Handoffs" "$body"
+  # The callers (cmd_pause/cmd_done/cmd_resume/cmd_down/breakdown) already
+  # hold the lock.
+  wb_handoff_write "$file" "$body"
 }
 
 # ---------------------------------------------------------------------------
@@ -4317,27 +4061,25 @@ cmd_append() {
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || exit $?
-  # Layout task (KTD16): Decisions/Follow-ups write a record file, Handoffs
-  # does the move-and-replace; every other heading, and every task without
-  # `layout: dossier`, takes today's path below unchanged.
-  if _wb_is_dossier "$file"; then
-    local series=""
-    case "$heading" in
-      Decisions)  series="decisions" ;;
-      Follow-ups) series="open-items" ;;
-    esac
-    if [ -n "$series" ]; then
-      WB_RECORD_IDS=""
-      wb_record_write "$file" "$series" "$body" || { wb_task_lock_release "$file"; exit 1; }
-      wb_task_lock_release "$file"
-      echo "wb append: wrote ${WB_RECORD_IDS:-$series/$WB_RECORD_ID.md} in $(basename -- "$file")"
-      return 0
-    elif [ "$heading" = "Handoffs" ]; then
-      wb_handoff_write "$file" "$body" || { wb_task_lock_release "$file"; exit 1; }
-      wb_task_lock_release "$file"
-      echo "wb append: moved the previous handoff to handoffs/ and wrote the new one in $(basename -- "$file")"
-      return 0
-    fi
+  # KTD16: Decisions/Follow-ups write a record file in the dossier, Handoffs
+  # does the move-and-replace; every other heading is appended under that
+  # heading in the task file.
+  local series=""
+  case "$heading" in
+    Decisions)  series="decisions" ;;
+    Follow-ups) series="open-items" ;;
+  esac
+  if [ -n "$series" ]; then
+    WB_RECORD_IDS=""
+    wb_record_write "$file" "$series" "$body" || { wb_task_lock_release "$file"; exit 1; }
+    wb_task_lock_release "$file"
+    echo "wb append: wrote ${WB_RECORD_IDS:-$series/$WB_RECORD_ID.md} in $(basename -- "$file")"
+    return 0
+  elif [ "$heading" = "Handoffs" ]; then
+    wb_handoff_write "$file" "$body" || { wb_task_lock_release "$file"; exit 1; }
+    wb_task_lock_release "$file"
+    echo "wb append: moved the previous handoff to handoffs/ and wrote the new one in $(basename -- "$file")"
+    return 0
   fi
   _wb_append_under_heading "$file" "$heading" "$body"
   wb_task_lock_release "$file"
@@ -4346,29 +4088,15 @@ cmd_append() {
 
 # ---------------------------------------------------------------------------
 # Dossier layout (stage 2, U10) — record files, generated views, `wb now`,
-# `wb decide-supersede`. Everything here is gated on `layout: dossier` in a
-# task's frontmatter (KTD21, the trial switch): a task without it takes
-# exactly the old code paths, byte for byte. Callers hold the per-task lock
+# `wb decide-supersede`. Every task is on this layout; `layout: dossier` in
+# its frontmatter is a marker for wb-store and `wb migrate`, and nothing here
+# branches on it. Callers hold the per-task lock
 # (cmd_append/cmd_now/cmd_decide_supersede take it; wb_append_handoff's
 # callers already hold it) — nothing below locks, so nothing can deadlock or
 # double-acquire. Strings reach awk through ENVIRON, never `awk -v`, and awk
 # is POSIX-only (no asort/gensub/PROCINFO/{n} intervals): the sandbox runs
 # both gawk and mawk.
 # ---------------------------------------------------------------------------
-
-# wb_layout_of <task_file> — print the task's `layout:` value (blank when
-# unset), trailing inline comment stripped. Every writer branches on this.
-wb_layout_of() {
-  local v; v="$(wb_get_frontmatter "$1" layout)"
-  v="${v%%[[:space:]]#*}"
-  v="${v%"${v##*[![:space:]]}"}"
-  printf '%s\n' "$v"
-}
-
-# _wb_is_dossier <task_file> — true when the task has `layout: dossier`.
-_wb_is_dossier() {
-  [ "$(wb_layout_of "$1")" = "dossier" ]
-}
 
 # _wb_dossier_dir <task_file> — $TASKS_DIR/dossiers/<stem> (not created here).
 _wb_dossier_dir() {
@@ -4651,7 +4379,7 @@ _wb_handoff_move_entry() {
 }
 
 # wb_handoff_write <task_file> <body> — KTD20's move-and-replace, the ONE
-# helper behind both `wb append <layout task> Handoffs -` (/wb-save) and
+# helper behind both `wb append <task> Handoffs -` (/wb-save) and
 # wb_append_handoff (the automatic stamps). Every entry currently under the
 # task file's "## Handoffs" (normally just the newest) moves to
 # handoffs/<ts>.md, THEN <body> replaces the section, so a crash between the
@@ -4960,14 +4688,13 @@ wb_render_views() {
 }
 
 # cmd_views <task>...|--all — rebuild the generated views (decisions.md,
-# handoffs.md, index.md) of layout tasks, each under its own task lock. The
-# views are not in git (the store ignores them), so this is how a fresh
-# clone gets them and how a pull's hook refreshes them. A task named by an
-# exact stem is taken as that task (not fuzzy-matched, so a stem that
-# prefixes another still resolves). A named task without `layout: dossier`
-# is reported on one line and the exit is 1; under --all such tasks are only
-# counted. A task whose lock is held is skipped (exit 1) so a rerun can
-# catch it. Returns (never exits) so tests can source wb.sh.
+# handoffs.md, index.md) of each task, under its own task lock. The views are
+# not in git (the store ignores them), so this is how a fresh clone gets them
+# and how a pull's hook refreshes them. A task named by an exact stem is taken
+# as that task (not fuzzy-matched, so a stem that prefixes another still
+# resolves). A task with no dossier yet has nothing to rebuild and is left
+# alone (no dossier is created). A task whose lock is held is skipped (exit 1)
+# so a rerun can catch it. Returns (never exits) so tests can source wb.sh.
 cmd_views() {
   local all=0 arg
   local -a names=()
@@ -4995,17 +4722,9 @@ cmd_views() {
   fi
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
-  local n_ok=0 n_old=0 n_held=0 rc=0 stem
+  local n_ok=0 n_held=0 rc=0 stem
   for f in "${files[@]}"; do
     stem="${f##*/}"; stem="${stem%.md}"
-    if ! _wb_is_dossier "$f"; then
-      n_old=$((n_old + 1))
-      if [ "$all" -eq 0 ]; then
-        echo "wb views: $stem is not on the dossier layout; nothing to rebuild" >&2
-        rc=1
-      fi
-      continue
-    fi
     if ! wb_task_lock_acquire_guarded "$f" >/dev/null 2>&1; then
       n_held=$((n_held + 1)); rc=1
       echo "wb views: $stem SKIPPED, lock held" >&2
@@ -5016,7 +4735,7 @@ cmd_views() {
     n_ok=$((n_ok + 1))
   done
   if [ "$all" -eq 1 ] || [ "${#files[@]}" -gt 1 ]; then
-    echo "wb views: $n_ok rebuilt, $n_old not on the dossier layout, $n_held skipped (lock held)"
+    echo "wb views: $n_ok rebuilt, $n_held skipped (lock held)"
   elif [ "$n_ok" -eq 1 ]; then
     echo "wb views: rebuilt the views of $stem"
   fi
@@ -5057,11 +4776,11 @@ cmd_now() {
 }
 
 # cmd_decide_supersede <task-ref> <old-id> [<text>|-] — KTD19, one locked
-# operation on a layout task: write the new decision from stdin with
+# operation: write the new decision from stdin with
 # `supersedes: [<old-id>]`, flip the old decision file to `status:
 # superseded` + `superseded_by: [<new-id>]`, rebuild the views. <old-id> is
 # the old file's name without .md. An unknown or already-superseded <old-id>
-# (or a task without the layout) exits 1 with nothing written.
+# exits 1 with nothing written.
 cmd_decide_supersede() {
   local query="${1:-}" old="${2:-}"
   if [ -z "$query" ] || [ -z "$old" ]; then
@@ -5080,9 +4799,7 @@ cmd_decide_supersede() {
   wb_task_lock_acquire_guarded "$file" || exit $?
   local dir; dir="$(_wb_dossier_dir "$file")"
   local oldf="$dir/decisions/$old.md" msg=""
-  if ! _wb_is_dossier "$file"; then
-    msg="$(basename -- "$file") has no layout: dossier"
-  elif [[ "$old" == */* ]] || [ ! -f "$oldf" ]; then
+  if [[ "$old" == */* ]] || [ ! -f "$oldf" ]; then
     msg="no decision '$old' in $(basename -- "$file")"
   elif [ "$(wb_get_frontmatter "$oldf" status)" = "superseded" ]; then
     msg="decision '$old' is already superseded"
@@ -5108,49 +4825,23 @@ cmd_decide_supersede() {
 
 # ---------------------------------------------------------------------------
 # wb followups / wb followup-done — list a task's open follow-ups and mark one
-# done. A follow-up is open unless it is closed: a layout task's open-items/
-# file with `status: open`, an old-layout task's top-level `## Follow-ups`
-# bullet that is not ticked `[x]` (with or without a `[ ]` checkbox) — the
-# same rule wb_followup_count and wb migrate use.
+# done. A follow-up is a file in the dossier's open-items/; it is open while
+# its frontmatter says `status: open`.
 # ---------------------------------------------------------------------------
 
-# _wb_old_followups <task_file> <open|closed> — the top-level bullets under
-# "## Follow-ups" of an old-layout task, one "<n><TAB><text>" line each: n is
-# the 1-based index among the open (or among the ticked) bullets, text the
-# first line with its bullet and checkbox dropped.
-_wb_old_followups() {
-  WB_FU_WANT="$2" awk '
-    BEGIN { want = ENVIRON["WB_FU_WANT"] }
-    /^## Follow-ups/ { infu = 1; next }
-    /^## /           { infu = 0 }
-    infu && /^[-*] / {
-      tick = ($0 ~ /^[-*] \[[xX]\]/)
-      if ((want == "open") == tick) next
-      t = $0
-      if (t ~ /^[-*] \[[ xX]\]/) t = substr(t, 7); else t = substr(t, 3)
-      sub(/^[ \t]+/, "", t); gsub(/\t/, " ", t)
-      print ++n "\t" t
-    }
-  ' "$1"
-}
-
 # _wb_followup_list <task_file> <open|closed> — "<ref><TAB><title>" per
-# follow-up: the open-items file id (layout) or the index (old layout).
+# follow-up, ref being the open-items file id.
 _wb_followup_list() {
   local file="$1" want="$2" f st
-  if _wb_is_dossier "$file"; then
-    local d; d="$(_wb_dossier_dir "$file")/open-items"
-    [ -d "$d" ] || return 0
-    for f in "$d"/*.md; do
-      [ -f "$f" ] || continue
-      st="$(wb_get_frontmatter "$f" status)"
-      if [ "$want" = open ]; then [ "$st" = open ] || continue; else [ "$st" != open ] || continue; fi
-      f="${f##*/}"
-      printf '%s\t%s\n' "${f%.md}" "$(_wb_open_item_title "$d/$f" | tr '\t' ' ')"
-    done
-  else
-    _wb_old_followups "$file" "$want"
-  fi
+  local d; d="$(_wb_dossier_dir "$file")/open-items"
+  [ -d "$d" ] || return 0
+  for f in "$d"/*.md; do
+    [ -f "$f" ] || continue
+    st="$(wb_get_frontmatter "$f" status)"
+    if [ "$want" = open ]; then [ "$st" = open ] || continue; else [ "$st" != open ] || continue; fi
+    f="${f##*/}"
+    printf '%s\t%s\n' "${f%.md}" "$(_wb_open_item_title "$d/$f" | tr '\t' ' ')"
+  done
   return 0
 }
 
@@ -5227,25 +4918,8 @@ cmd_followup_done() {
     exit 1
   fi
   local pref="${picked%%$'\t'*}" ptitle="${picked#*$'\t'}"
-  if _wb_is_dossier "$file"; then
-    _wb_item_close "$(_wb_dossier_dir "$file")/open-items/$pref.md" "$today" "$note" \
-      && wb_render_views "$file" || rc=1
-  else
-    local suffix=""
-    [ -z "$note" ] || suffix=" — done $today: ${note//$'\n'/ }"
-    WB_FD_N="$pref" WB_FD_SUFFIX="$suffix" awk '
-      BEGIN { N = ENVIRON["WB_FD_N"] + 0; suf = ENVIRON["WB_FD_SUFFIX"] }
-      /^## Follow-ups/ { infu = 1; print; next }
-      /^## /           { infu = 0 }
-      infu && /^[-*] / && !/^[-*] \[[xX]\]/ && ++c == N {
-        t = $0
-        if (t ~ /^[-*] \[ \]/) t = substr(t, 7); else t = substr(t, 3)
-        sub(/^[ \t]+/, "", t)
-        print "- [x] " t suf; next
-      }
-      { print }
-    ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file" || rc=1
-  fi
+  _wb_item_close "$(_wb_dossier_dir "$file")/open-items/$pref.md" "$today" "$note" \
+    && wb_render_views "$file" || rc=1
   wb_task_lock_release "$file"
   if [ "$rc" -ne 0 ]; then
     echo "wb followup-done: could not mark '$ptitle' done in $(basename -- "$file")" >&2
@@ -6401,7 +6075,7 @@ wb_sweep_classify() {
 }
 
 # _wb_open_items <task_file> — the paths of the task's open-items/*.md whose
-# frontmatter says `status: open`, one per line, name order (layout tasks).
+# frontmatter says `status: open`, one per line, name order.
 _wb_open_items() {
   local d f
   d="$(_wb_dossier_dir "$1")/open-items"
@@ -6413,43 +6087,17 @@ _wb_open_items() {
   return 0
 }
 
-# _wb_layout_task_files <task_file>... — the ones with `layout: dossier`, one
-# per line. A single grep picks the candidates, so a store-wide caller pays
-# one fork rather than one per task; each hit is then confirmed against the
-# real frontmatter (the grep could match a body line).
-_wb_layout_task_files() {
-  local f
-  [ "$#" -gt 0 ] || return 0
-  while IFS= read -r f; do
-    _wb_is_dossier "$f" && printf '%s\n' "$f"
-  done < <(grep -l '^layout:[[:space:]]*dossier' "$@" 2>/dev/null)
-  return 0
-}
-
-# wb_followup_count — total open `## Follow-ups` bullet lines across every
-# task file (a top-level bullet is open unless ticked `[x]`, with or without a
-# checkbox), plus (layout tasks, KTD21) every open-items/*.md whose
-# frontmatter says `status: open`.
+# wb_followup_count — every open-items/*.md, across every task's dossier,
+# whose frontmatter says `status: open`.
 wb_followup_count() {
-  local -a files=()
-  local f
-  while IFS= read -r f; do files+=("$f"); done < <(wb_task_files)
-  [ "${#files[@]}" -gt 0 ] || { echo 0; return; }
-  local n; n="$(awk '
-    FNR == 1 { infu = 0 }
-    /^## Follow-ups/ { infu = 1; next }
-    /^## /           { infu = 0 }
-    infu && /^[-*] / && !/^[-*] \[[xX]\]/ { c++ }
-    END { print c + 0 }
-  ' "${files[@]}")"
+  local f n=0 d x
   local -a items=()
-  local d x
   while IFS= read -r f; do
     d="$(_wb_dossier_dir "$f")/open-items"
     [ -d "$d" ] || continue
     # an empty open-items/ leaves the glob unexpanded: keep only real files
     for x in "$d"/*.md; do [ -f "$x" ] && items+=("$x"); done
-  done < <(_wb_layout_task_files "${files[@]}")
+  done < <(wb_task_files)
   if [ "${#items[@]}" -gt 0 ]; then
     # mawk exits 2 with no output when it cannot read a file: default to 0
     local m
@@ -6598,8 +6246,6 @@ cmd_board() {
 
   local f title fu rows="" repo status worktree branch activity
   local -a t
-  local -A layout_task=()
-  while IFS= read -r f; do layout_task["$f"]=1; done < <(_wb_layout_task_files "$TASKS_DIR"/*.md)
   # U6/R17: an ACT column, only when the terminal is wide enough to take it
   # without wrapping the existing four columns — a plain `wb board` run in a
   # narrow split pane shouldn't have to trade STATUS/REPO/TASK legibility
@@ -6619,15 +6265,7 @@ cmd_board() {
     status="${t[0]:-?}"; repo="${t[1]:-?}"; worktree="${t[2]:-}"; branch="${t[3]:-}"
     title="$(wb_task_title "$f")"
     [ -n "$title" ] || title="$(basename "$f" .md)"
-    fu="$(awk '
-      BEGIN { infu = 0 }
-      /^## Follow-ups/ { infu = 1; next }
-      /^## /           { infu = 0 }
-      infu && /^[-*] / && !/^[-*] \[[xX]\]/ { c++ }
-      END { print c + 0 }
-    ' "$f")"
-    # Layout task: its follow-ups are the open items in its dossier.
-    if [ -n "${layout_task["$f"]:-}" ]; then fu=$((fu + $(_wb_open_items "$f" | wc -l))); fi
+    fu="$(_wb_open_items "$f" | wc -l)"; fu=$((fu + 0))
     f="${f##*/}"; dr="${shelved_n["${f%.md}"]:-0}"
     if [ "$show_act" = 1 ]; then
       activity="$(wb_task_activity "$repo" "$branch" "$worktree")"
@@ -8158,23 +7796,21 @@ _preview() {
     local title st br
     title="$(wb_task_title "$ref")"; [ -n "$title" ] || title="$(basename "$ref" .md)"
     st="$(wb_get_frontmatter "$ref" status)"; br="$(wb_get_frontmatter "$ref" branch)"
-    # Layout task (KTD21): show its "## Now" block above the handoff, and when
-    # the one handoff left in the task file is an (auto) stamp fall back to
-    # the newest hand-written entry in handoffs/ (auto: false), fed to the
-    # awk below as a stand-in file.
+    # Show the "## Now" block above the handoff, and when the one handoff
+    # left in the task file is an (auto) stamp fall back to the newest
+    # hand-written entry in handoffs/ (auto: false), fed to the awk below as
+    # a stand-in file.
     local pv_src="$ref" pv_now="" pv_tmp=""
-    if _wb_is_dossier "$ref"; then
-      pv_now="$(_wb_trim_blank_lines "$(_wb_section_text "$ref" Now)")"
-      if ! _wb_section_text "$ref" Handoffs | awk '/^### / && $0 !~ /\(auto\)[ \t]*$/ { f = 1 } END { exit(f ? 0 : 1) }'; then
-        local pv_h pv_hd; pv_hd="$(_wb_dossier_dir "$ref")/handoffs"
-        for pv_h in $(ls -1r "$pv_hd"/*.md 2>/dev/null); do
-          [ "$(wb_get_frontmatter "$pv_h" auto)" = "false" ] || continue
-          pv_tmp="$(mktemp)"
-          { printf '## Handoffs\n\n'; awk 'FNR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm { print }' "$pv_h"; } > "$pv_tmp"
-          pv_src="$pv_tmp"
-          break
-        done
-      fi
+    pv_now="$(_wb_trim_blank_lines "$(_wb_section_text "$ref" Now)")"
+    if ! _wb_section_text "$ref" Handoffs | awk '/^### / && $0 !~ /\(auto\)[ \t]*$/ { f = 1 } END { exit(f ? 0 : 1) }'; then
+      local pv_h pv_hd; pv_hd="$(_wb_dossier_dir "$ref")/handoffs"
+      for pv_h in $(ls -1r "$pv_hd"/*.md 2>/dev/null); do
+        [ "$(wb_get_frontmatter "$pv_h" auto)" = "false" ] || continue
+        pv_tmp="$(mktemp)"
+        { printf '## Handoffs\n\n'; awk 'FNR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm { print }' "$pv_h"; } > "$pv_tmp"
+        pv_src="$pv_tmp"
+        break
+      done
     fi
     WB_PV_NOW="$pv_now" awk -v title="$title" -v st="$st" -v br="$br" '
       /^## / { inh = ($0 ~ /^## Handoffs[ \t]*$/); keep = 0; next }
@@ -8625,7 +8261,7 @@ _wb_registry_panes() {
 #               seed in cmd_new (a failure doesn't stop the rest) but exits 1
 #               if any seed failed. Writes only the untracked CLAUDE.local.md
 #               block: no tmux, no task lock, no task-store write.
-#   --concepts  <task>'s CONCEPTS.md files (concepts.md on a layout task) up its parent chain, nearest first
+#   --concepts  <task>'s concepts.md files up its parent chain, nearest first
 #               (_wb_concepts_paths, the same walk the seed links), so the
 #               promotion step writes to the file worktrees actually import.
 # --reseed is the only mode that touches the disk. Stdout stays script-friendly, like

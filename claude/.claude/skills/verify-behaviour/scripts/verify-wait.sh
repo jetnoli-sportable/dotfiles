@@ -31,8 +31,8 @@
 #   scan --since <time> <checks-file>
 #                        read-only history scan of transcript and capture-log
 #                        triggers (<=20 hits per check, never moves positions
-#                        or touches pending; Decisions bullets can't be dated,
-#                        so they are skipped). Output: SCAN, then hit lines.
+#                        or touches pending; decision files can't be dated by
+#                        position, so they are skipped). Output: SCAN, then hit lines.
 #   selftest             check that the newest transcripts still carry the keys
 #                        the filters rely on; non-zero exit and SELFTEST-FAIL
 #                        when they don't.
@@ -41,10 +41,9 @@
 #   hit=<id> checks=<checks.md path> check=<check id> source=<source> \
 #     file=<watched file> range=<start>-<end> text=<matched text, <=240 chars>
 # <source> is transcript | capture-log | decisions:<task-stem>. <range> is the
-# byte range of the line in <file> for transcript/capture-log, and the 1-based
-# bullet number (start==end) under "## Decisions" for decisions sources; for a task
-# with `layout: dossier` (trial) the source is the files in its dossier's decisions/
-# folder instead, and the number is the file's place in the name-sorted list.
+# byte range of the line in <file> for transcript/capture-log; for decisions sources
+# the file is the task's dossier decisions/ folder and the range (start==end) is a
+# decision file's 1-based place in the name-sorted list.
 # <id> is a hash of (checks file, check id, and either origin.msg_id for a peer
 # message or file:start-offset), so the same content never yields two hits.
 #
@@ -357,8 +356,7 @@ set_src() { # <path> -> SRC = transcript | capture-log | decisions:<stem> (empty
   case "$1" in
     "$CAPTURE_LOG" | "$CAPTURE_LOG".1) SRC=capture-log ;;
     "$PROJ"/*) SRC=transcript ;;
-    */dossiers/*/decisions) local d="${1%/decisions}"; SRC="decisions:${d##*/}" ;;   # layout task: its decisions/ folder
-    *.md) local b="${1##*/}"; SRC="decisions:${b%.md}" ;;
+    */dossiers/*/decisions) local d="${1%/decisions}"; SRC="decisions:${d##*/}" ;;   # a task's decisions/ folder
     *) SRC="" ;;
   esac
 }
@@ -389,23 +387,11 @@ lookup_start() {
   done
 }
 
-decision_rows() { # <task file | decisions/ folder> -> "<n> SEP 0 SEP <text>" per bullet under ## Decisions
-  if [ -d "$1" ] || [[ "$1" == */dossiers/*/decisions ]]; then layout_decision_rows "$1"; return; fi
-  awk '
-    function flush() { if (have) { print n "\037" "0" "\037" cur; have = 0 } }
-    /^## / { flush(); insec = ($0 ~ /^## Decisions[ \t]*$/); next }
-    insec && /^[-*] / { flush(); n++; cur = substr($0, 3); have = 1; next }
-    insec && have && /^[ \t]+[^ \t]/ { t = $0; sub(/^[ \t]+/, "", t); cur = cur " " t; next }
-    insec && /^[ \t]*$/ { next }
-    insec { flush() }
-    END { flush() }' "$1"
-}
-
-# layout_decision_rows <decisions/ folder> — one row per file, numbered by its place in
+# decision_rows <decisions/ folder> — one row per file, numbered by its place in
 # the name-sorted list (names start with the timestamp, so new files come last): the
 # text is the file's title and body with the frontmatter dropped, on one line. A
 # superseded file keeps its number but has empty text, so it never matches.
-layout_decision_rows() {
+decision_rows() {
   local f n=0
   for f in "$1"/*.md; do
     [ -f "$f" ] || continue
@@ -480,9 +466,9 @@ match_jsonl() {
   emit_batch "$6" "$2" "$W/batch.s"
 }
 
-# match_decisions <file> <source> <after-count> — hits from bullets numbered above
-# <after-count>; sets NEWCOUNT to the bullet count. wb rewrites task files whole,
-# so a changed stat means "recount", never "seek".
+# match_decisions <decisions/ folder> <source> <after-count> — hits from decision
+# files numbered above <after-count>; sets NEWCOUNT to the file count. A changed
+# stat means "recount", never "seek".
 match_decisions() {
   local f="$1" src="$2" after="$3"
   decision_rows "$f" >"$W/dec.rows"
@@ -508,28 +494,11 @@ watched_files() {
   [ -f "$CAPTURE_LOG" ] && WFILES[${#WFILES[@]}]="$CAPTURE_LOG"
   for s in $DECSTEMS; do
     if [ -n "$s" ] && [ "$s" != "$WATCHER" ] && [ -f "$TASKS_DIR/$s.md" ]; then
-      # a layout task (dossier layout trial) keeps decisions as files: watch the folder
-      if [ "$(task_layout "$TASKS_DIR/$s.md")" = dossier ]; then
-        if [ -d "$TASKS_DIR/dossiers/$s/decisions" ]; then WFILES[${#WFILES[@]}]="$TASKS_DIR/dossiers/$s/decisions"
-        else WMISS="$WMISS$TASKS_DIR/dossiers/$s/decisions"$'\n'; fi   # not created yet: watched as an empty folder (see stat_all)
-      else
-        WFILES[${#WFILES[@]}]="$TASKS_DIR/$s.md"
-      fi
+      # a task keeps its decisions as files: watch its dossier's decisions/ folder
+      if [ -d "$TASKS_DIR/dossiers/$s/decisions" ]; then WFILES[${#WFILES[@]}]="$TASKS_DIR/dossiers/$s/decisions"
+      else WMISS="$WMISS$TASKS_DIR/dossiers/$s/decisions"$'\n'; fi   # not created yet: watched as an empty folder (see stat_all)
     fi
   done
-  return 0
-}
-
-# task_layout <task file> — its `layout:` frontmatter value, read with no fork (this
-# runs on every poll).
-task_layout() {
-  local l n=0
-  while IFS= read -r l && [ "$n" -lt 40 ]; do
-    n=$((n + 1))
-    if [ "$n" -eq 1 ]; then [ "$l" = "---" ] || return 0; continue; fi
-    [ "$l" = "---" ] && return 0
-    case "$l" in layout:*) l="${l#layout:}"; l="${l%%#*}"; l="${l#"${l%%[![:space:]]*}"}"; l="${l%"${l##*[![:space:]]}"}"; printf '%s\n' "$l"; return 0 ;; esac
-  done <"$1" 2>/dev/null
   return 0
 }
 
@@ -546,7 +515,7 @@ stat_all() {
   if [ "$(( ${#sf[@]} + ${#WFILES[@]} ))" -gt 0 ]; then
     raw="$("${STATCMD[@]}" ${sf[@]+"${sf[@]}"} ${WFILES[@]+"${WFILES[@]}"} 2>/dev/null)"
   fi
-  # A layout task's decisions/ folder that does not exist yet is an empty folder: a
+  # A task's decisions/ folder that does not exist yet is an empty folder: a
   # stand-in row (inode 0, size 0) makes it baseline at count 0, so once it appears every
   # file in it is new. A folder that already existed at the first look is history.
   for f in $WMISS; do raw="${raw:+$raw$'\n'}$f$SEP"0"$SEP"0"$SEP"0; done
@@ -716,8 +685,8 @@ scan_collect() (
         if [ "$SINCE" -gt 0 ] && [ -n "$START" ] && [ "$START" -lt "$SINCE" ]; then continue; fi
         match_jsonl "$f" transcript 0 "$sz" "" transcript ;;
       capture-log) match_jsonl "$f" capture-log 0 "$sz" "" capture ;;
-      # decisions: bullets carry no time, so no scan can tell history since
-      # --since from older bullets; only the poll's new bullets count.
+      # decisions: the scan can't tell history since --since from older decision
+      # files; only the poll's new files count.
     esac
   done <<<"$rows"
   # Keep the last 20 hits per check.

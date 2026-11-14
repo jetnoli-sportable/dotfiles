@@ -73,7 +73,7 @@ a dotfiles PR, and **Sportable work never on any personal surface**.
 
 `context.md`, written by this session:
 - **Intent**, at most 300 words, a source on each claim: the PR body, commit
-  messages, the matched task's `## Plan` and `## Decisions`, and the Jira
+  messages, the matched task's `## Plan` and decision files, and the Jira
   ticket (Atlassian connector) when a key like `SW-6698` is in the title or
   branch. Where sources disagree, say which you took and why.
 - **Rules:** excerpts of `AGENTS.md`/`CLAUDE.md` at the root and in touched
@@ -85,15 +85,15 @@ a dotfiles PR, and **Sportable work never on any personal surface**.
   tests on the base branch, if the repo has them.
 - **History**, at most 6 lines: the review rounds and pivots that shaped the
   change, each with a date and its outcome, from the matched task's
-  `## Decisions` and `## Handoffs` headings, the PR's reviews and the commit
+  decision files and handoffs, the PR's reviews and the commit
   log. Write "one straight build" when there were none.
 - **Links:** the PR URL(s), the plan path, the task file and any guide the
   change adds, for part A's at-a-glance table.
-- **Layout tasks (frontmatter `layout: dossier`):** read the matched task's
-  decisions from the files in its dossier's `decisions/` (in-force and superseded;
-  the file's `# <title>` and date replace the `## Decisions` headings), and its
-  past handoffs from `handoffs/`. `## Plan` is unchanged.
-- **Decisions:** every numbered decision in the matched task's `## Decisions`
+- **Task files:** read the matched task's decisions from the files in its
+  dossier's `decisions/` (in-force and superseded; the file's `# <title>` and date
+  head each one), and its past handoffs from `handoffs/`. `## Plan` is read from
+  the task file.
+- **Decisions:** every decision in the matched task's `decisions/`
   (D1, D2, …), each with its date, a one-line summary, and what was chosen,
   what was rejected and why, for the page's "Task decisions" section.
 

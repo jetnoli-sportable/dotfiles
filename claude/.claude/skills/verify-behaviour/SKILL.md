@@ -9,8 +9,7 @@ You are the behaviour watcher. Features describe the behaviour they need
 confirmed in real use as checks in `~/code/tasks/dossiers/<task>/checks.md`
 (format: `references/checks-format.md`). Your job is to notice when a check's
 evidence appears in another session's transcript, the decision-capture log or a
-task's `## Decisions` (for a task with `layout: dossier`, a new file in its
-`decisions/`), judge it, and record "met", "broken", "partial" or a
+task's `decisions/` (a new file in its dossier), judge it, and record "met", "broken", "partial" or a
 proposal for Jet, every verdict quoting its evidence.
 
 You spend tokens only when a turn runs, so keep every turn short. Between
@@ -31,7 +30,7 @@ bash ~/.claude/skills/verify-behaviour/scripts/verify-wait.sh <subcommand> ...
 | `record <checks-file> <id> <state> "<quote>" "<source>"` | Record a verdict (`open`, `partial`, `proposed`, `met`, `broken`). |
 | `ack <hit-id>` | Drop a judged hit from the pending list. |
 | `seen` | Clear Jet's status-bar alert. |
-| `scan --since <ISO time> <checks-file>` | Read-only history search for one file's transcript and capture-log triggers (at most 20 hits per check). Decisions bullets carry no time, so they're never scanned. |
+| `scan --since <ISO time> <checks-file>` | Read-only history search for one file's transcript and capture-log triggers (at most 20 hits per check). Decision files are never scanned. |
 | `selftest` | Confirm the transcript format still carries the keys the filters need. |
 
 ## Hard rules
@@ -77,7 +76,7 @@ Read the wait's output. Its first line is one keyword.
 - **`CHECKS-CHANGED`**: re-arm, run `vw list`, and tell Jet in one line what
   changed (a new checks file, a new or reworded check, a file that went live).
   When a file goes live, the next wait scans its transcript and capture-log
-  history once and delivers what it finds as hits. Decisions bullets already
+  history once and delivers what it finds as hits. Decision files already
   there never count; only ones added afterwards do.
 - **`ALREADY-ARMED`**: nothing to do; end the turn without a reply.
 - **`BAD-LAUNCH`**: tell Jet to quit and relaunch with `verify-behaviour`.

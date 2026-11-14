@@ -60,8 +60,8 @@ resume` cycle landed after the save, the directive is quoted as part of
 | Recent `/wb-save` entry, nothing after it | States what was read, proceeds straight into the recorded **Next** action |
 | Recent `/wb-save` entry with a `run:` directive, nothing after it | States the directive's literal command, then executes it directly — no confirmation needed |
 | A terse automatic entry (`wb pause`/`wb done`/`wb resume`) landed after the last `/wb-save` entry | States the recorded next action and the gap, asks to confirm or redirect before acting |
-| No terse entry after the save, but `## Plan`/`## Decisions`/frontmatter `status:` reads as newer | Treated the same as the gap case above — confirm before acting |
-| `layout: dossier` task | Reads `## Now` first, then the task file's one handoff. If that is an `(auto)` stamp, the rich entry is the newest file in `handoffs/` with `auto: false`, and the auto stamp and any newer auto files are the gap. Freshness check reads `decisions/`; says so if `notes.md` changed |
+| No terse entry after the save, but `## Plan`/`decisions/`/frontmatter `status:` reads as newer | Treated the same as the gap case above — confirm before acting |
+| Reading order | Reads `## Now` first, then the task file's one handoff. If that is an `(auto)` stamp, the rich entry is the newest file in `handoffs/` with `auto: false`, and the auto stamp and any newer auto files are the gap. Freshness check reads `decisions/`; says so if `notes.md` changed |
 | `## Handoffs` has only automatic entries, no `/wb-save` entry yet | Says so explicitly, falls back to `## Plan` for context |
 | No `## Handoffs` section at all | Says so explicitly, falls back to reading the whole task file |
 | No `@task` set on this session | Stops: `wb-resume: <session> has no @task — not a wb task session` |
@@ -80,7 +80,7 @@ resume` cycle landed after the save, the directive is quoted as part of
   session back, then `/wb-resume` applies once you're in it.
 - **Doesn't detect drift with certainty.** The gap check catches
   automatic `wb pause`/`wb done`/`wb resume` entries and an eyeballed
-  read of `## Plan`/`## Decisions`/status — it isn't a diff against every
+  read of `## Plan`/`decisions/`/status — it isn't a diff against every
   possible out-of-band edit.
 
 ## Next steps / reverting

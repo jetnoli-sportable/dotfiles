@@ -28,12 +28,13 @@
 # shelved drafts ("already drafted, awaiting review") and the ones dismissed in the
 # last 14 days ("already reviewed and rejected"), so a later turn that recaps a
 # decision doesn't draft it twice (R6). Accepted drafts are not listed: the model
-# already sees them in `## Decisions`.
+# already sees them among the task's decisions.
 # `sweep_max_failures` (default 3) consecutive error/timeout results stop the async
 # sweep for the session (skip reason `backoff`); a draft or NONE resets the count.
-# Staleness is judged on the `## Decisions` section only (the exact text the
-# prompt is built from), hashed at snapshot time; edits elsewhere in the task
-# file (Handoffs, frontmatter) never count. If a draft comes back and that section
+# Staleness is judged on the task's decision records only (the exact text the
+# prompt is built from: the files in its dossier's decisions/), hashed at snapshot
+# time; edits elsewhere (the task file's Handoffs, frontmatter) never count. If a
+# draft comes back and those records
 # changed meanwhile (e.g. /wb-decide recorded it), the answer is discarded and the
 # child is re-run ONCE against a fresh snapshot (log `rerun:true`). The rerun's
 # NONE/error/timeout are handled as usual; a rerun draft is shelved fresh unless
@@ -203,23 +204,15 @@ while IFS=$'\t' read -r _ l; do
   [[ $'\n'"$excerpt"$'\n' == *$'\n'"$l"$'\n'* ]] || earlier_received+="$l"$'\n'
 done <<<"$kept_received"
 
-# the one extraction of `## Decisions`: the prompt is built from it AND the
-# staleness hash is taken over it, so the two can never diverge
+# The one extraction of the task's decisions: the prompt is built from it AND the
+# staleness hash is taken over it, so the two can never diverge. The records are the
+# files in <tasks dir>/dossiers/<stem>/decisions/; decisions_section renders them as
+# one `## Decisions` text (each entry a `### <file stem> - <title>` heading, so the file
+# names are part of the hash), and decisions_count counts the files.
+decisions_dir() { printf '%s/dossiers/%s/decisions\n' "${TASK_PATH%/*}" "$TASK_STEM"; }
 decisions_section() {
   [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ] || return 0
-  if [ "$(task_layout "$TASK_PATH")" = dossier ]; then layout_decisions_text; return 0; fi
-  awk '
-    /^## Decisions[[:space:]]*$/ { f = 1; print; next }
-    /^## / { f = 0 }
-    f' "$TASK_PATH" 2>/dev/null || true
-}
-# layout tasks (dossier layout trial): there is no `## Decisions`; the records are the
-# files in <tasks dir>/dossiers/<stem>/decisions/. layout_decisions_text renders them as
-# one `## Decisions` text (each entry a `### <file stem> - <title>` heading, so the file
-# names are part of the hash), and layout_decisions_count counts the files.
-layout_decisions_dir() { printf '%s/dossiers/%s/decisions\n' "${TASK_PATH%/*}" "$TASK_STEM"; }
-layout_decisions_text() {
-  local d f; d="$(layout_decisions_dir)"
+  local d f; d="$(decisions_dir)"
   printf '## Decisions\n'
   [ -d "$d" ] || return 0
   for f in "$d"/*.md; do
@@ -231,8 +224,8 @@ layout_decisions_text() {
       { print }' "$f" 2>/dev/null || true
   done
 }
-layout_decisions_count() {
-  local d f n=0; d="$(layout_decisions_dir)"
+decisions_count() {
+  local d f n=0; d="$(decisions_dir)"
   for f in "$d"/*.md; do [ -f "$f" ] && n=$((n + 1)); done
   printf '%s\n' "$n"
 }
@@ -248,10 +241,9 @@ take_snapshot() {
   # hash the very text the prompt carries (one read), not a second read of the file
   [ -f "$TASK_PATH" ] && snap_hash="$(hash_text "$decisions")"
   if [ -n "$TASK_PATH" ] && [ -f "$TASK_PATH" ]; then
-    if [ "$(task_layout "$TASK_PATH")" = dossier ]; then snap_count="$(layout_decisions_count)"
-    else snap_count="$(printf '%s\n' "$decisions" | grep -c '^### ' || true)"; fi
+    snap_count="$(decisions_count)"
   fi
-  [ -n "$decisions" ] || decisions="(no ## Decisions section / no entries recorded)"
+  [ -n "$decisions" ] || decisions="(no decisions recorded)"
 }
 
 # --- child ------------------------------------------------------------------
@@ -261,7 +253,7 @@ mkdir -p "$CAPTURE_ROOT" 2>/dev/null || finish "failed: error"
 # for each child run: this task's shelved drafts, and the drafts dismissed in the last
 # 14 days (resolved/<stem>/<YYYYmmddTHHMMSS>-shelved_dismissed-<name>.md, aged by that
 # filename stamp). Each is the `### ` title lines of the files, as bullets; an empty
-# section is left out. Accepted drafts are not listed: `## Decisions` already holds them.
+# section is left out. Accepted drafts are not listed: the decision files already hold them.
 shelf_context() {
   local f cutoff ts waiting="" rejected="" t
   stem_ok "$TASK_STEM" || return 0
@@ -365,7 +357,7 @@ stale=false rerun=false
 take_snapshot
 run_child
 
-# a draft whose `## Decisions` changed while the child ran (e.g. /wb-decide
+# a draft whose task decisions changed while the child ran (e.g. /wb-decide
 # recorded it meanwhile) may duplicate that entry: discard it and ask once more
 # against the current section. Only the draft path reruns, and only once.
 if [ "$result" = draft ] && [ ! -e "$SDIR/ended" ] && [ -n "$snap_hash" ] && \

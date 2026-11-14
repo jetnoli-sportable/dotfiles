@@ -72,7 +72,7 @@ mk_task() { # <stem> <parent_ref> [<worktree>]
 }
 mk_dossier() { # <stem>
   mkdir -p "$FIXTURE_TASKS/dossiers/$1"
-  printf '# %s CONCEPTS\n\nsettled fact.\n' "$1" > "$FIXTURE_TASKS/dossiers/$1/CONCEPTS.md"
+  printf '# %s CONCEPTS\n\nsettled fact.\n' "$1" > "$FIXTURE_TASKS/dossiers/$1/concepts.md"
 }
 
 # umbrella -> child -> grandchild, umbrella -> sibling -> cousin
@@ -284,10 +284,10 @@ assert "no worktree: field: skipped, exit 0" "skipped proj--lone .*
 rc=0" "$out"
 
 out="$(fam proj--grandchild --reseed; echo "rc=$?")"
-assert "no CONCEPTS.md anywhere: every member skipped (no concepts file), exit 0" "rc=0" "$out"
-assert_eq "no CONCEPTS.md anywhere: five skipped lines" "5" \
+assert "no concepts.md anywhere: every member skipped (no concepts file), exit 0" "rc=0" "$out"
+assert_eq "no concepts.md anywhere: five skipped lines" "5" \
   "$(printf '%s\n' "$out" | /usr/bin/grep -c '^skipped .*(no concepts file)')"
-assert_file_missing "no CONCEPTS.md anywhere: nothing written" "$FIXTURE_CODE/proj/.worktrees/umbrella/CLAUDE.local.md"
+assert_file_missing "no concepts.md anywhere: nothing written" "$FIXTURE_CODE/proj/.worktrees/umbrella/CLAUDE.local.md"
 
 mk_dossier proj--umbrella
 mk_task proj--nowt proj--umbrella
@@ -295,7 +295,7 @@ out="$(fam proj--grandchild --reseed; echo "rc=$?")"
 assert "reseed: exit 0" "rc=0" "$out"
 for d in umbrella child grandchild sibling; do
   assert "reseed: $d worktree gets the managed block" \
-    "@$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$(cat "$FIXTURE_CODE/proj/.worktrees/$d/CLAUDE.local.md" 2>/dev/null)"
+    "@$FIXTURE_TASKS/dossiers/proj--umbrella/concepts.md" "$(cat "$FIXTURE_CODE/proj/.worktrees/$d/CLAUDE.local.md" 2>/dev/null)"
   assert "reseed: $d reported" "reseeded proj--$d $FIXTURE_CODE/proj/.worktrees/$d" "$out"
 done
 assert "reseed: hand-written line outside the block survives" "hand written" \
@@ -325,7 +325,7 @@ else
   chmod 755 "$FIXTURE_CODE/proj/.worktrees/grandchild"
   assert "unwritable worktree: non-zero exit" "rc=[1-9]" "$out"
   assert "unwritable worktree: failure reported" "failed proj--grandchild" "$out"
-  assert "unwritable worktree: sibling still seeded" "@$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" \
+  assert "unwritable worktree: sibling still seeded" "@$FIXTURE_TASKS/dossiers/proj--umbrella/concepts.md" \
     "$(cat "$FIXTURE_CODE/proj/.worktrees/sibling/CLAUDE.local.md" 2>/dev/null)"
 fi
 
@@ -334,15 +334,15 @@ fi
 # ============================================================================
 : > "$TMUX_LOG"
 out="$(fam proj--grandchild --concepts)"
-assert_eq "concepts: only the umbrella's file" "$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$out"
+assert_eq "concepts: only the umbrella's file" "$FIXTURE_TASKS/dossiers/proj--umbrella/concepts.md" "$out"
 mk_dossier proj--child
 out="$(fam proj--grandchild --concepts)"
 assert_eq "concepts: nearest first" \
-  "$FIXTURE_TASKS/dossiers/proj--child/CONCEPTS.md
-$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$out"
+  "$FIXTURE_TASKS/dossiers/proj--child/concepts.md
+$FIXTURE_TASKS/dossiers/proj--umbrella/concepts.md" "$out"
 out="$(fam proj--cousin --concepts)"
 assert_eq "concepts: a child-level file doesn't reach a cousin" \
-  "$FIXTURE_TASKS/dossiers/proj--umbrella/CONCEPTS.md" "$out"
+  "$FIXTURE_TASKS/dossiers/proj--umbrella/concepts.md" "$out"
 rm -rf "$FIXTURE_TASKS/dossiers/proj--child"
 # a missing parent file stops the walk, even if that parent's dossier exists
 mk_dossier proj--gone

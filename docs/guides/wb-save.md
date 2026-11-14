@@ -60,7 +60,7 @@ plain "save my progress" produces the same three-field entry as before.
 |---|---|
 | Locate the task file | Reads `@task` off the current tmux session (`tmux show -t "=$session:" -v @task`) — never cwd/branch inference |
 | Compose the entry | **Done** / **In flight** / **Next**, drawn from what actually happened this session — a genuinely empty field is stated plainly (`**Done:** nothing yet this session`), never invented |
-| Layout task first | If the task file has `layout: dossier`, runs `wb now <task_file> -` first to replace `## Now` (goal, rung, next action, what waits on you), then the append below, which moves the previous handoff to `handoffs/`. Mentions `notes.md` only if it changed since the last save. Tasks without `layout:` skip this row |
+| Refresh `## Now` first | Runs `wb now <task_file> -` first to replace `## Now` (goal, rung, next action, what waits on you), then the append below, which moves the previous handoff to `handoffs/`. Mentions `notes.md` only if it changed since the last save |
 | Append | Shells out to `wb append <task_file> Handoffs` (the locked, heading-scoped append verb) with the three-field block over stdin — never an Edit/Write-tool edit to a task file |
 | Entry shape | `### <YYYY-MM-DD HH:MM> — wb-save` heading (no `(auto)` suffix — that's reserved for `wb.sh`'s own mechanical `pause`/`done`/`resume` entries), then `**Done:**`/`**In flight:**`/`**Next:**` |
 | Next-action directive | Optional fourth element: a fenced ` ```run ` block right after `**Next:**`, containing the literal command to run on resume — only emitted when the save-request explicitly named one |
@@ -70,15 +70,15 @@ plain "save my progress" produces the same three-field entry as before.
 ## Known rough edges
 
 - **Append-only, on purpose.** Never touches any existing content —
-  prior `## Handoffs` entries, `## Plan`, `## Decisions` — so it can't be
+  prior `## Handoffs` entries, `## Plan` — so it can't be
   used to correct or edit something already recorded; that's a manual
   task-file edit instead.
 - **Never invokes `/clear` itself, never touches tmux state** beyond the
   one read-only `@task` lookup. This is a closed design boundary, not a
   gap — see Overview.
-- **On a `layout: dossier` task** the task file keeps one handoff, not a log:
+- **The task file keeps one handoff, not a log:**
   each save moves the old one to `handoffs/`. "Never touches existing content" still
-  holds, because the old entry is moved, not edited. See [wb-guide](../wb-guide.html), "Dossier layout (trial)".
+  holds, because the old entry is moved, not edited. See [wb-guide](../wb-guide.html), "Dossier layout".
 - **Shared log.** `## Handoffs` also receives `wb.sh`'s own automatic
   `pause`/`done`/`resume` entries. Seeing a terse automatic entry
   interleaved with a rich `/wb-save` one is expected, not a bug.

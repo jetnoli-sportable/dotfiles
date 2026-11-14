@@ -45,9 +45,9 @@ git config --global init.defaultBranch main
 source "$WB"
 set +e
 
-mk_task() { # <stem> [layout]
+mk_task() { # <stem>
   { printf -- '---\nstatus: doing\nrepo: proj\nbranch: b\n'
-    [ "${2:-}" = old ] || printf 'layout: dossier\n'
+    printf 'layout: dossier\n'
     printf 'tags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\nplan\n'
   } > "$TASKS_DIR/$1.md"
 }
@@ -61,9 +61,9 @@ mk_dec() { # <stem> <id> <title>
 # =============================================================================
 mk_task proj--va; mk_dec proj--va 2026-11-01-0900-one "One"
 mk_task proj--vb; mk_dec proj--vb 2026-11-01-0900-two "Two"
-mk_task proj--old old
+mk_task proj--old
 out="$(cmd_views proj--va 2>&1)"; rc=$?
-assert_eq "views: named layout task exits 0" 0 "$rc"
+assert_eq "views: named task exits 0" 0 "$rc"
 assert "views: says what it rebuilt" 'proj--va' "$out"
 assert "views: decisions.md rebuilt" '^### One$' "$(cat "$TASKS_DIR/dossiers/proj--va/decisions.md")"
 assert "views: index.md rebuilt" 'dossier index' "$(cat "$TASKS_DIR/dossiers/proj--va/index.md")"
@@ -79,12 +79,10 @@ assert_eq "views: second run changes nothing" "$sum1" "$(cd "$TASKS_DIR" && find
 mk_task proj--v; mk_dec proj--v 2026-11-01-0900-solo "Solo"
 cmd_views proj--v >/dev/null 2>&1
 assert "views: an exact stem is not a fuzzy match (proj--v vs proj--va)" '^### Solo$' "$(cat "$TASKS_DIR/dossiers/proj--v/decisions.md")"
-# non-layout, named
+# a task with no dossier is left alone
 out="$(cmd_views proj--old 2>&1)"; rc=$?
-assert_eq "views: a non-layout task named: exit 1" 1 "$rc"
-assert "views: a non-layout task named: one-line message" 'not on the dossier layout' "$out"
-assert_eq "views: a non-layout task named: one line only" 1 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
-[ ! -e "$TASKS_DIR/dossiers/proj--old" ] && echo "ok   - views: a non-layout task gets no dossier" || { echo "FAIL - views created a dossier for a non-layout task"; fail=1; }
+assert_eq "views: a task with no dossier named: exit 0" 0 "$rc"
+[ ! -e "$TASKS_DIR/dossiers/proj--old" ] && echo "ok   - views: a task with no dossier gets none created" || { echo "FAIL - views created a dossier for a task with none"; fail=1; }
 # several tasks
 rm -f "$TASKS_DIR/dossiers/proj--vb/decisions.md"
 cmd_views proj--va proj--vb >/dev/null 2>&1; rc=$?
@@ -93,9 +91,9 @@ assert_eq "views: two named tasks: exit 0" 0 "$rc"
 # --all
 rm -f "$TASKS_DIR"/dossiers/proj--va/decisions.md "$TASKS_DIR"/dossiers/proj--vb/decisions.md
 out="$(cmd_views --all 2>&1)"; rc=$?
-assert_eq "views --all: exit 0 even with a non-layout task" 0 "$rc"
-[ -f "$TASKS_DIR/dossiers/proj--va/decisions.md" ] && [ -f "$TASKS_DIR/dossiers/proj--vb/decisions.md" ] && echo "ok   - views --all: every layout task rebuilt" || { echo "FAIL - --all missed a task"; fail=1; }
-assert "views --all: summary counts rebuilt and skipped" '3 rebuilt.*1 not on the dossier layout' "$out"
+assert_eq "views --all: exit 0 even with a dossier-less task" 0 "$rc"
+[ -f "$TASKS_DIR/dossiers/proj--va/decisions.md" ] && [ -f "$TASKS_DIR/dossiers/proj--vb/decisions.md" ] && echo "ok   - views --all: every task with a dossier rebuilt" || { echo "FAIL - --all missed a task"; fail=1; }
+assert "views --all: summary counts rebuilt and skipped" '[0-9]+ rebuilt, 0 skipped \(lock held\)' "$out"
 # usage
 out="$(cmd_views 2>&1)"; rc=$?
 assert_eq "views: no argument: exit 1" 1 "$rc"
@@ -141,13 +139,9 @@ new_pair() { # <name> [preswitch] — a store repo "<name>-a" (origin) and a clo
   (cd "$FIXTURE/$n-a" \
     && printf -- '---\nstatus: doing\nlayout: dossier\n---\n# A\n' > proj--ha.md \
     && printf -- '---\nstatus: doing\nlayout: dossier\n---\n# B\n' > proj--hb.md \
-    && printf -- '---\nstatus: doing\n---\n# Old\n' > proj--hold.md \
-    && printf -- '---\nstatus: doing\n---\n# Body\n\nlayout: dossier\n' > proj--hbody.md \
-    && mkdir -p dossiers/proj--ha/decisions dossiers/proj--hb/decisions dossiers/proj--hold dossiers/proj--hbody \
+    && mkdir -p dossiers/proj--ha/decisions dossiers/proj--hb/decisions \
     && echo x > dossiers/proj--ha/decisions/2026-11-01-0900-x.md \
     && echo x > dossiers/proj--hb/decisions/2026-11-01-0900-x.md \
-    && echo x > dossiers/proj--hold/notes.md \
-    && echo x > dossiers/proj--hbody/notes.md \
     && { [ "${2:-}" = preswitch ] || printf '%s\n' "$STORE_IGNORE" > .gitignore; } \
     && git add -A && git commit -qm init)
   git clone -q "$FIXTURE/$n-a" "$FIXTURE/$n-b"
@@ -167,18 +161,14 @@ assert "post-merge: runs wb views for the changed dossier, with TASKS_DIR set to
 assert_not "post-merge: not for an untouched dossier" 'proj--hb' "$(cat "$WB_FAKE_LOG")"
 assert_eq "post-merge: one wb call" 1 "$(wc -l < "$WB_FAKE_LOG" | tr -d ' ')"
 
-# --- two dossiers, one non-layout dossier, a generated view and a plain task file
+# --- two dossiers, a generated view and a plain task file
 new_pair m2
 commit_in_a m2 dossiers/proj--ha/decisions/2026-11-02-1000-new.md
 commit_in_a m2 dossiers/proj--hb/open-items/2026-11-02-thing.md
-commit_in_a m2 dossiers/proj--hold/notes.md
-commit_in_a m2 dossiers/proj--hbody/notes.md
 commit_in_a m2 proj--ha.md
 : > "$WB_FAKE_LOG"
 (cd "$FIXTURE/m2-b" && PATH="$BIN:$BASEPATH" git pull -q >/dev/null 2>&1)
-assert "post-merge: both changed layout dossiers in one call" 'views proj--ha proj--hb$' "$(cat "$WB_FAKE_LOG")"
-assert_not "post-merge: a dossier whose task is not on the layout is left out" 'proj--hold' "$(cat "$WB_FAKE_LOG")"
-assert_not "post-merge: a 'layout: dossier' line in the body, not the frontmatter, does not count" 'proj--hbody' "$(cat "$WB_FAKE_LOG")"
+assert "post-merge: both changed dossiers in one call" 'views proj--ha proj--hb$' "$(cat "$WB_FAKE_LOG")"
 
 # --- before the switch: the store still tracks the views -> the hooks do nothing
 new_pair g1 preswitch
