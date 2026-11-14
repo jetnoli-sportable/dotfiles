@@ -343,19 +343,18 @@ _wb_decision_read() {
 }
 
 # cmd_decision [--task <ref>] [--default] "<title>" — record one answer (body
-# on stdin) in the task's Decisions, under the task lock. On a dossier task a
-# record with the same title as an in-force one (exact match, trailing spaces
+# on stdin) in the task's Decisions, under the task lock. A record with the
+# same title as an in-force one (exact match, trailing spaces
 # ignored) supersedes it, the old file kept and marked superseded; an
 # identical body writes nothing. --default marks the record "default taken" by
 # a first body line `Default taken.` (the only way a later lookup can tell it
 # from Jet's own answer): it never supersedes a live record without that
 # line, and writes a new entry naming it instead. An answer from Jet
-# supersedes every live record of its title, defaults included. A legacy task
-# gets the entry appended under `## Decisions`, saying it supersedes the
-# earlier one of the same title.
+# supersedes every live record of its title, defaults included. Every task is
+# on the dossier layout (W4), so the record is always a decisions/ file.
 cmd_decision() {
   local usage='usage: wb decision [--task <task>] [--default] "<title>"   (body on stdin; title matched exactly, trailing spaces ignored; --default writes a "Default taken." first line and never supersedes Jet'"'"'s answer)'
-  local isdef=0 args=() a title body file dir f stamp text
+  local isdef=0 args=() a title body file dir f stamp
   for a in "$@"; do
     if [ "$a" = --default ]; then isdef=1; else args+=("$a"); fi
   done
@@ -377,27 +376,6 @@ cmd_decision() {
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || exit $?
-
-  if ! _wb_is_dossier "$file"; then
-    # Legacy task: the entry goes under ## Decisions; it says it supersedes
-    # an earlier one only for an answer (a default claims nothing).
-    local sec h
-    sec="$(awk '/^## /{ in_d = ($0 == "## Decisions"); next } in_d' "$file")"
-    text="$stamp"$'\n'
-    if [ "$isdef" = 0 ]; then
-      while IFS= read -r h; do
-        [[ "$h" == "### "*" — "* ]] || continue
-        if [ "$(_wb_decision_trim "${h#* — }")" = "$title" ]; then
-          text+="Supersedes the earlier entry of the same title."$'\n'; break
-        fi
-      done <<< "$sec"
-    fi
-    text+="$body"
-    _wb_append_under_heading "$file" Decisions "$text"
-    wb_task_lock_release "$file"
-    echo "wb decision: appended under \"## Decisions\" in $(basename -- "$file")"
-    return 0
-  fi
 
   dir="$(_wb_dossier_dir "$file")/decisions"
   local ids=() isdefs=() bodies=() id

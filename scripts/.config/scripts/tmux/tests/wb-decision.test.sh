@@ -148,16 +148,6 @@ out="$(printf '' | decision proj--dec-d "Empty one")"; rc=$?
 assert_eq "empty body: exit 1" 1 "$rc"
 assert "empty body: says so" 'empty body' "$out"
 
-# A legacy task gets an appended entry that says it supersedes the earlier one.
-mk_task proj--dec-e
-printf 'first.\n' | decision proj--dec-e "Legacy title" >/dev/null
-out="$(printf 'second.\n' | decision proj--dec-e "Legacy title")"
-t="$(cat "$TASKS_DIR/proj--dec-e.md")"
-assert_eq "legacy: two entries under ## Decisions" 2 "$(printf '%s\n' "$t" | grep -cE '^### [0-9]{4}-[0-9]{2}-[0-9]{2} .*— Legacy title$')"
-assert "legacy: second says it supersedes the earlier entry" 'Supersedes the earlier entry of the same title\.' "$t"
-assert_eq "legacy: only the second says so" 1 "$(printf '%s\n' "$t" | grep -c 'Supersedes the earlier entry')"
-assert_not "legacy: no dossier created" 'x' "$(ls "$TASKS_DIR/dossiers" 2>/dev/null | grep dec-e | sed 's/.*/x/')"
-
 # A held task lock: exit 75, nothing written.
 mk_task proj--dec-f "layout: dossier"
 export WB_LOCKS="$SELF_DIR/wb-locks.sh" TASK_F="$TASKS_DIR/proj--dec-f.md"
