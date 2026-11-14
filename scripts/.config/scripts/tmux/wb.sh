@@ -1688,9 +1688,17 @@ _wb_safe_worktree_field() {
 #   - Exists locally: attach as-is.
 #   - Adopted (<branch> differs from the slug) and it exists only on origin:
 #     check it out tracking origin/<branch> — someone already pushed work
-#     under the name the task claims. Not done for a slug-named branch: a
-#     leftover remote branch from a finished task must not be resurrected by
-#     starting a fresh task under the same slug.
+#     under the name the task claims.
+#   - Slug-named and it exists only on origin: attached the same way only
+#     when it is this live task's own branch — the task file existed before
+#     this call, its status is doing/paused/review (a planned file is often
+#     made ahead of time, so a reused slug's leftover branch must not be
+#     resurrected), and the branch is not merged (an ancestor of the default
+#     branch, or a merged PR with no open PR; an unknown PR state attaches
+#     with a note). The cheap checks run first, so a fresh task makes no
+#     network call; once they pass, an unreachable origin aborts like it does
+#     for an adopted name. A refused attach cuts a fresh branch and names the
+#     leftover.
 #   - Otherwise a new branch from _wb_new_start_point.
 # The worktree directory stays slug-based either way.
 _wb_new_add_worktree() {
@@ -1713,7 +1721,20 @@ _wb_new_add_worktree() {
   # Compare sanitized forms: a resume/picker re-entry passes the task file's
   # stem slug (already sanitized, feat-x) while plain `wb new` passes the raw
   # name (feat/x) — both name the same task, so neither counts as adopted.
-  if [ "$(wb_sanitize "$branch")" != "$(wb_sanitize "$slug")" ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
+  local adopted=1 own_live=1 own_status=""
+  [ "$(wb_sanitize "$branch")" != "$(wb_sanitize "$slug")" ] || adopted=0
+  if [ "$adopted" = 0 ]; then
+    # Offline gates for a slug-named branch, before any network call.
+    if [ -f "$own_file" ]; then
+      own_status="$(wb_get_frontmatter "$own_file" status)"
+      read -r own_status <<< "$own_status"
+    fi
+    case "$own_status" in doing|paused|review) ;; *) own_live=0 ;; esac
+    if [ "$own_live" = 0 ] && git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      echo "wb new: note: origin/$branch already exists but is not a live task's branch — branching a fresh $branch; to use another name: \`wb set <task> branch <name>\`" >&2
+    fi
+  fi
+  if [ "$own_live" = 1 ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
     # Always ask origin, even when refs/remotes/origin/<branch> is cached: a
     # cached ref can be stale (branch deleted/merged on origin since the last
     # fetch) and must not be resurrected. Bounded like the default-branch
@@ -1736,9 +1757,30 @@ _wb_new_add_worktree() {
       return 1
     fi
     if [ "$lsrc" -eq 0 ] && git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-      echo "wb new: attaching $slug to existing origin/$branch" >&2
-      git -C "$repo_dir" worktree add --track -b "$branch" "$worktree_path" "origin/$branch"
-      return
+      local attach=1 pr_note=0
+      if [ "$adopted" = 0 ]; then
+        # Not merged: first locally (fully inside the default branch), then
+        # by PR state — a merged PR with a new open PR on the branch is live.
+        local def
+        def="$(git -C "$repo_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+        if [ -n "$def" ] && git -C "$repo_dir" merge-base --is-ancestor "origin/$branch" "$def" 2>/dev/null; then
+          attach=0
+        else
+          case "$(wb_pr_merge_status "$repo_dir" "$branch")" in
+            merged) wb_branch_has_open_pr "$repo_dir" "$branch" || attach=0 ;;
+            unknown) pr_note=1 ;;
+          esac
+        fi
+        if [ "$attach" = 0 ]; then
+          echo "wb new: note: origin/$branch is already merged — branching a fresh $branch; to use another name: \`wb set <task> branch <name>\`" >&2
+        fi
+      fi
+      if [ "$attach" = 1 ]; then
+        [ "$pr_note" = 0 ] || echo "wb new: note: couldn't check the PR state of $branch — attaching it anyway" >&2
+        echo "wb new: attaching $slug to existing origin/$branch" >&2
+        git -C "$repo_dir" worktree add --track -b "$branch" "$worktree_path" "origin/$branch"
+        return
+      fi
     fi
   fi
 

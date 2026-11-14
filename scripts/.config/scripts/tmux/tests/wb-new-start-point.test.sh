@@ -24,6 +24,15 @@ cat > "$FIXTURE_BIN/tmux" <<EOF
 exec "$REAL_TMUX" -L "$SOCK" "\$@"
 EOF
 chmod +x "$FIXTURE_BIN/tmux"
+# git shim: log every `ls-remote --heads` (the branch-exists-on-origin check)
+REAL_GIT="$(command -v git)"
+LS_LOG="$FIXTURE_GIT/lsremote.log"
+cat > "$FIXTURE_BIN/git" <<EOF
+#!/usr/bin/env bash
+case " \$* " in *" ls-remote "*" --heads "*) echo "\$*" >> "$LS_LOG" ;; esac
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$FIXTURE_BIN/git"
 PATH="$FIXTURE_BIN:$PATH"
 
 cleanup() {
@@ -118,8 +127,16 @@ source "$WB"
 set +e
 # No menu unless a test asks for one — even when this file runs in a terminal.
 _wb_new_interactive() { return 1; }
-# No network: only feat-merged has a merged PR.
-wb_pr_merge_status() { if [ "$2" = feat-merged ]; then echo merged; else echo not-merged; fi; }
+# No network: only feat-merged has a merged PR, unless a test sets PRSTATE (and
+# OPEN_PR_RC for wb_branch_has_open_pr). Both log their branch, so a test can
+# tell whether the gh path was reached.
+PR_LOG="$FIXTURE_GIT/pr.log"; : > "$PR_LOG"; PRSTATE=""; OPEN_PR_RC=1
+wb_pr_merge_status() {
+  echo "$2" >> "$PR_LOG"
+  if [ -n "$PRSTATE" ]; then echo "$PRSTATE"
+  elif [ "$2" = feat-merged ]; then echo merged; else echo not-merged; fi
+}
+wb_branch_has_open_pr() { echo "open:$2" >> "$PR_LOG"; return "$OPEN_PR_RC"; }
 
 # cmd_new ends in tmux_focus -> `tmux attach`, which fails without a client;
 # side effects (the branch's commit / upstream) are the real assertions.
@@ -393,6 +410,93 @@ else
 fi
 assert "stale cached ref: branch cut fresh from the start point" 'wb new: branching feat/stale from origin/development' "$out"
 [ "$(tip feat/stale)" != "$STALE_TIP" ] && echo "ok   - stale cached ref: branch is not at the stale tip" || { echo "FAIL - stale cached ref: branch is not at the stale tip"; fail=1; }
+
+# --- a slug-named branch that exists only on origin: the task's own branch ---
+# Attached only when the task file existed before this `wb new`, its status is
+# doing/paused/review, and the branch is not merged (offline gates first).
+mkremote() { # <branch> — push a one-commit branch (off development) to origin
+  local c; c="$(gitc -C "$SEED" commit-tree "development^{tree}" -p development -m "$1 work")"
+  git -C "$SEED" push -q origin "$c:refs/heads/$1"
+  git -C "$BARE" rev-parse "$1"
+}
+lsremote_calls() { grep -c -- "heads origin refs/heads/$1\$" "$LS_LOG" 2>/dev/null || true; }
+gh_calls() { grep -c -- "^$1\$" "$PR_LOG" 2>/dev/null || true; }
+is_fresh() { # <branch> <remote-tip> — local branch exists and is NOT the remote tip
+  has_branch "$1" && [ "$(tip "$1")" != "$2" ]
+}
+
+TIP_A="$(mkremote own-doing)"; task proj--own-doing doing proj own-doing
+out="$(new proj own-doing)"
+assert_eq "own branch: worktree on origin's tip" "$TIP_A" "$(tip own-doing)"
+assert_eq "own branch: tracks origin/<slug>" "origin/own-doing" "$(upstream own-doing)"
+assert "own branch: says it attached" 'wb new: attaching own-doing to existing origin/own-doing' "$out"
+
+PRSTATE=unknown
+TIP_B="$(mkremote own-unknown)"; task proj--own-unknown doing proj own-unknown
+out="$(new proj own-unknown)"
+PRSTATE=""
+assert_eq "own branch, PR state unknown: attaches" "$TIP_B" "$(tip own-unknown)"
+assert "own branch, PR state unknown: says so" "couldn't check the PR state of own-unknown" "$out"
+
+git -C "$SEED" push -q origin development~1:refs/heads/own-ancestor; TIP_C="$(git -C "$BARE" rev-parse own-ancestor)"
+task proj--own-ancestor doing proj own-ancestor
+: > "$PR_LOG"
+out="$(new proj own-ancestor)"
+is_fresh own-ancestor "$TIP_C" && echo "ok   - fully merged into the default: fresh branch" || { echo "FAIL - fully merged into the default: fresh branch"; fail=1; }
+assert "fully merged into the default: names the leftover branch" 'origin/own-ancestor' "$out"
+assert "fully merged into the default: says how to pick another name" 'wb set .* branch' "$out"
+assert_eq "fully merged into the default: gh never asked" "0" "$(gh_calls own-ancestor)"
+
+PRSTATE=merged; OPEN_PR_RC=1
+TIP_D="$(mkremote own-merged-pr)"; task proj--own-merged-pr doing proj own-merged-pr
+out="$(new proj own-merged-pr)"
+is_fresh own-merged-pr "$TIP_D" && echo "ok   - merged PR, no open PR: fresh branch" || { echo "FAIL - merged PR, no open PR: fresh branch"; fail=1; }
+assert "merged PR, no open PR: names the leftover branch" 'origin/own-merged-pr' "$out"
+
+OPEN_PR_RC=0
+TIP_E="$(mkremote own-merged-open)"; task proj--own-merged-open doing proj own-merged-open
+new proj own-merged-open >/dev/null
+PRSTATE=""; OPEN_PR_RC=1
+assert_eq "merged PR but an open PR: attaches" "$TIP_E" "$(tip own-merged-open)"
+
+TIP_F="$(mkremote own-done)"; git -C "$PROJ" fetch -q origin
+task proj--own-done done proj own-done
+out="$(new proj own-done)"
+is_fresh own-done "$TIP_F" && echo "ok   - done task: fresh branch" || { echo "FAIL - done task: fresh branch"; fail=1; }
+assert_eq "done task: origin never asked" "0" "$(lsremote_calls own-done)"
+assert "done task: names the leftover branch" 'origin/own-done' "$out"
+
+TIP_G="$(mkremote own-paused)"; task proj--own-paused paused proj own-paused
+new proj own-paused >/dev/null
+assert_eq "paused task: attaches" "$TIP_G" "$(tip own-paused)"
+TIP_H="$(mkremote own-review)"; task proj--own-review review proj own-review
+new proj own-review >/dev/null
+assert_eq "review task: attaches" "$TIP_H" "$(tip own-review)"
+
+TIP_I="$(mkremote own-planned)"; git -C "$PROJ" fetch -q origin
+task proj--own-planned planned proj own-planned
+out="$(new proj own-planned)"
+is_fresh own-planned "$TIP_I" && echo "ok   - planned task: fresh branch" || { echo "FAIL - planned task: fresh branch"; fail=1; }
+assert_eq "planned task: origin never asked" "0" "$(lsremote_calls own-planned)"
+assert "planned task: names the leftover branch" 'origin/own-planned' "$out"
+
+TIP_J="$(mkremote own-nofile)"
+out="$(new proj own-nofile)"
+is_fresh own-nofile "$TIP_J" && echo "ok   - no task file yet: fresh branch" || { echo "FAIL - no task file yet: fresh branch"; fail=1; }
+assert_eq "no task file yet: origin never asked" "0" "$(lsremote_calls own-nofile)"
+
+# gates passed but origin unreachable: abort before creating anything
+git -C "$PROJ" remote set-url origin "$FIXTURE_GIT/gone.git"
+task proj--own-offline doing proj own-offline
+out="$(new proj own-offline)"
+assert "own branch, origin unreachable: says it could not reach origin" "couldn't reach origin to check for branch 'own-offline'" "$out"
+[ -d "$PROJ/.worktrees/own-offline" ] && { echo "FAIL - own branch, origin unreachable: no worktree created"; fail=1; } || echo "ok   - own branch, origin unreachable: no worktree created"
+has_branch own-offline && { echo "FAIL - own branch, origin unreachable: no local branch cut"; fail=1; } || echo "ok   - own branch, origin unreachable: no local branch cut"
+# a gate-failing slug-named branch never reaches the remote check
+task proj--own-offline-planned planned proj own-offline-planned
+out="$(new proj own-offline-planned)"
+has_branch own-offline-planned && echo "ok   - gate-failing branch, origin unreachable: branch cut offline" || { echo "FAIL - gate-failing branch, origin unreachable: branch cut offline"; fail=1; }
+git -C "$PROJ" remote set-url origin "$BARE"
 
 # --- could not check origin for the pre-set branch: abort, create nothing ---
 git -C "$PROJ" remote set-url origin "$FIXTURE_GIT/gone.git"
