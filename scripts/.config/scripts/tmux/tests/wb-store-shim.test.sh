@@ -222,6 +222,20 @@ out=$(env -u TASKS_DIR bash "$SHIM" list 2>/dev/null)
 assert_eq "default store" "built-from=$DEFAULT_SRC --store $HOME/code/tasks list" "$out"
 
 # =============================================================================
+echo "# --bin-path: rebuilds when stale, prints the binary's path, runs nothing"
+touch -t "$NEWER" "$DEFAULT_SRC/cmd/wb-store/main.go"
+n=$(builds)
+out=$(run --bin-path); rc=$?
+assert_eq "exit 0" 0 "$rc"
+assert_eq "rebuilt first" $((n + 1)) "$(builds)"
+assert_eq "printed the default binary's path" "$DEFAULT_BIN" "$out"
+touch -t "$OLD" "$DEFAULT_SRC/cmd/wb-store/main.go"; touch -t "$BUILT" "$DEFAULT_BIN"
+out=$(WB_STORE_SRC="$OTHER_SRC" run --bin-path)
+assert_eq "another source prints its own binary's path" "$OTHER_BIN" "$out"
+out=$(run --bin-path extra)
+assert_eq "--bin-path with more args passes through to the binary" "built-from=$DEFAULT_SRC --store $TASKS_DIR --bin-path extra" "$out"
+
+# =============================================================================
 echo "# no source dir: clear error"
 out=$(WB_STORE_SRC="$FIXTURE/missing" run list); rc=$?
 assert_eq "exit 1" 1 "$rc"

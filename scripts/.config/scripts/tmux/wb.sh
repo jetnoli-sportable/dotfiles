@@ -123,6 +123,17 @@
 #   wb notes [<task>]                print dossiers/<task>/notes.md (the file may not exist; wb
 #                                    never creates it), tmux-free; with no <task>, the current
 #                                    tmux session's @task (an error outside tmux)
+#   wb page [--no-open] [--task|--family] [<task>]
+#                                    open <task>'s page from wb-store's page server: its family
+#                                    page when it has children, else its task page (--task or
+#                                    --family picks one; the family page is drawn from the
+#                                    family's root, so from a child it is the coordinator's
+#                                    view; prefix+P and prefix+F bind the two). Reuses a
+#                                    server of the current build on ports 8766-8775, else stops
+#                                    the older one it started and starts one detached (log:
+#                                    ~/.local/state/wb/page-server.log). With
+#                                    no <task>, the current tmux session's @task; --no-open only
+#                                    prints the URL
 #   wb week path                     print the standing weekly-capture doc's path,
 #                                    creating it from the four-section template
 #                                    (What's working|What's not working|New ideas|Notes)
@@ -8314,6 +8325,208 @@ cmd_notes() {
 }
 
 # ---------------------------------------------------------------------------
+# wb page — open a task's page from wb-store's page server (W12, plan U9).
+# ---------------------------------------------------------------------------
+
+# WB_STORE_SHIM is the wb-store.sh beside this script's directory (both are
+# stowed into ~/.config/scripts); tests point it at a stub.
+WB_STORE_SHIM="${WB_STORE_SHIM:-$SCRIPT_DIR/../wb-store.sh}"
+# WB_PAGE_PORT is the first port `wb page` probes and the --port it starts
+# serve with. serve falls forward over ten ports from there, so the probe
+# covers the same ten.
+WB_PAGE_PORT="${WB_PAGE_PORT:-8766}"
+
+# _wb_page_build_id <binary> — the id `wb-store serve` reports on /healthz:
+# the first 12 hex characters of the binary's SHA-256.
+_wb_page_build_id() {
+  local sum
+  if command -v sha256sum >/dev/null; then
+    sum="$(sha256sum "$1")" || return 1
+  else
+    sum="$(shasum -a 256 "$1")" || return 1
+  fi
+  printf '%s\n' "${sum:0:12}"
+}
+
+# _wb_page_healthz_is <body> <build-id> — whether a /healthz body is
+# wb-store's with this build id. Each field is matched on its own, with
+# whitespace dropped, so the check doesn't depend on the JSON's field order
+# or spacing.
+_wb_page_healthz_is() {
+  local flat
+  flat="$(printf '%s' "$1" | tr -d ' \t\r\n')"
+  case "$flat" in *'"app":"wb-store"'*) ;; *) return 1 ;; esac
+  case "$flat" in *'"build_id":"'"$2"'"'*) return 0 ;; esac
+  return 1
+}
+
+# _wb_page_find_server <build-id> — the first of the ten ports from
+# WB_PAGE_PORT whose /healthz says it is wb-store with this build id;
+# returns 1 when none is.
+_wb_page_find_server() {
+  local id="$1" port body
+  for port in $(seq "$WB_PAGE_PORT" $((WB_PAGE_PORT + 9))); do
+    body="$(curl -s -m 1 "http://127.0.0.1:$port/healthz" 2>/dev/null)" || continue
+    if _wb_page_healthz_is "$body" "$id"; then
+      printf '%s\n' "$port"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# _wb_page_stop_old <pidfile> — stop the server an earlier `wb page` started
+# from the same binary path. This runs only when no server of the current
+# build answered, so that server is an older build (or a hung one). Left
+# running, every rebuild would hold one more of serve's ten ports until none
+# is free. The process must still be named wb-store, so a pid the system has
+# since reused for something else is never killed.
+_wb_page_stop_old() {
+  local pidfile="$1" pid comm
+  [ -f "$pidfile" ] || return 0
+  pid="$(head -n 1 "$pidfile" 2>/dev/null || true)"
+  rm -f "$pidfile"
+  case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+  comm="$(ps -p "$pid" -o comm= 2>/dev/null)" || return 0
+  case "$comm" in
+    wb-store|*/wb-store) kill "$pid" 2>/dev/null || true ;;
+  esac
+}
+
+# _wb_page_detach <cmd> [args...] — run a command in the background in its
+# own session where setsid exists (Linux), else under nohup (macOS has no
+# setsid), so a closing pane or Ctrl-C in this shell doesn't reach it.
+_wb_page_detach() {
+  if command -v setsid >/dev/null; then
+    setsid "$@" &
+  else
+    nohup "$@" &
+  fi
+}
+
+# _wb_page_start <stem> <log> <pidfile> — stop the older server recorded in
+# <pidfile>, start `wb-store serve --no-open --port WB_PAGE_PORT <stem>`
+# detached (its own session, so closing this shell leaves it running),
+# record its pid in <pidfile>, and print the port it bound, read from its
+# first line in <log>. Returns 1, naming the log and showing its last lines,
+# when the server exits without a URL line or none shows within about 10
+# seconds. The pid is the server's own: setsid, nohup and the shim all exec.
+_wb_page_start() {
+  local stem="$1" log="$2" pidfile="$3" i line pid alive=1
+  mkdir -p "$(dirname "$log")" "$(dirname "$pidfile")"
+  _wb_page_stop_old "$pidfile"
+  : > "$log"
+  _wb_page_detach "$WB_STORE_SHIM" serve --no-open --port "$WB_PAGE_PORT" "$stem" >>"$log" 2>&1 </dev/null
+  pid=$!
+  printf '%s\n' "$pid" > "$pidfile"
+  for i in $(seq 1 50); do
+    # Liveness is read before the log, so a server that printed its URL and
+    # then exited is still found by this pass's grep.
+    kill -0 "$pid" 2>/dev/null || alive=0
+    line="$(grep -m1 -o 'wb-store serve: http://127\.0\.0\.1:[0-9]*/' "$log" 2>/dev/null || true)"
+    if [ -n "$line" ]; then
+      line="${line%/}"
+      printf '%s\n' "${line##*:}"
+      return 0
+    fi
+    [ "$alive" = 1 ] || break
+    sleep 0.2
+  done
+  # A hung server stays recorded, so the next `wb page` stops it.
+  [ "$alive" = 1 ] || rm -f "$pidfile"
+  echo "wb page: the page server printed no URL; see $log" >&2
+  tail -n 5 "$log" | sed 's/^/  /' >&2
+  return 1
+}
+
+# _wb_page_open <url> — open <url> as `wb-store serve` would: snap Chromium,
+# then xdg-open, then macOS open, without waiting.
+_wb_page_open() {
+  local opener
+  for opener in /snap/bin/chromium xdg-open open; do
+    if command -v "$opener" >/dev/null; then
+      _wb_page_detach "$opener" "$1" >/dev/null 2>&1 </dev/null
+      return 0
+    fi
+  done
+  echo "wb page: no browser opener found; open $1 by hand" >&2
+  return 1
+}
+
+# cmd_page [--no-open] [--task|--family] [<task-ref>] — print and open a
+# task's page: the family page when the task has children, the task page
+# otherwise. --task always opens the task page; --family always opens the
+# family page, which the server draws from the family's root for any member
+# (so from a child it is the coordinator's view). A server of the current
+# build (KTD15's /healthz probe) is reused; otherwise one is started
+# detached. Resolution matches cmd_notes: a <task-ref> needs no tmux, none
+# (or an empty one, as a tmux bind passes for a session without @task)
+# means the current session's @task.
+cmd_page() {
+  local usage="usage: wb page [--no-open] [--task|--family] [<task-ref>]"
+  local no_open=0 view=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-open) no_open=1 ;;
+      --task|--family)
+        if [ -n "$view" ] && [ "$view" != "${1#--}" ]; then
+          echo "wb page: --task and --family can't both be given" >&2
+          echo "$usage" >&2
+          return 1
+        fi
+        view="${1#--}" ;;
+      -h|--help|-?*) echo "$usage" >&2; return 1 ;;
+      *) break ;;
+    esac
+    shift
+  done
+  if [ $# -gt 1 ]; then
+    echo "$usage" >&2
+    return 1
+  fi
+  local file
+  if [ -n "${1:-}" ]; then
+    file="$(_wb_append_resolve_task "$1" "wb page")" || return 1
+  else
+    if [ -z "${TMUX:-}" ]; then
+      echo "wb page: not inside tmux — pass a <task-ref>" >&2
+      echo "$usage" >&2
+      return 1
+    fi
+    local session
+    session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+    if [ -z "$session" ] || ! file="$(wb_session_task_file "$session")" || [ -z "$file" ]; then
+      echo "wb page: ${session:-this session} has no @task/@wb_repo — not a wb task session" >&2
+      return 1
+    fi
+  fi
+  local stem; stem="$(basename "$file" .md)"
+
+  if [ ! -x "$WB_STORE_SHIM" ]; then
+    echo "wb page: no wb-store shim at $WB_STORE_SHIM — run stow (cd ~/code/dotfiles && stow scripts)" >&2
+    return 1
+  fi
+  local bin id port
+  bin="$("$WB_STORE_SHIM" --bin-path)" || return 1
+  id="$(_wb_page_build_id "$bin")" || return 1
+  if ! port="$(_wb_page_find_server "$id")"; then
+    # One recorded server per binary path, so a branch build (WB_STORE_SRC)
+    # and the default build never stop each other's server.
+    local state="${XDG_STATE_HOME:-$HOME/.local/state}/wb" key
+    key="$(printf '%s' "$bin" | cksum | cut -d ' ' -f 1)"
+    port="$(_wb_page_start "$stem" "$state/page-server.log" "$state/page-server.$key.pid")" || return 1
+  fi
+
+  if [ -z "$view" ]; then
+    view=task
+    if [ "$(_wb_family_tree "$stem" | wc -l)" -gt 1 ]; then view=family; fi
+  fi
+  local url="http://127.0.0.1:$port/$view/$stem"
+  printf '%s\n' "$url"
+  [ "$no_open" = 1 ] || _wb_page_open "$url"
+}
+
+# ---------------------------------------------------------------------------
 # wb family — a task's parent/child family, for the decision-propagation step.
 # ---------------------------------------------------------------------------
 
@@ -8902,6 +9115,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     reviewed)    shift; cmd_reviewed "$@" ;;
     task-file)   shift; cmd_task_file "$@" ;;
     notes)       shift; cmd_notes "$@" ;;
+    page)        shift; cmd_page "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;

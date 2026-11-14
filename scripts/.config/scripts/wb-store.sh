@@ -7,6 +7,7 @@
 #   wb-store.sh show <task>          # one task, as text
 #   wb-store.sh --json family <task> # a family, as JSON
 #   WB_STORE_SRC=~/code/wb-store/.worktrees/x wb-store.sh show <task>
+#   wb-store.sh --bin-path           # rebuild if stale, then print the binary's path
 #
 # The default source builds to ~/.local/bin/wb-store. Any other
 # WB_STORE_SRC builds to its own binary under ~/.cache/wb-store/bin/:
@@ -57,6 +58,13 @@ if stale; then
   (cd "$src" && go build -o "$tmp" ./cmd/wb-store)
   mv -f "$tmp" "$BIN"
   trap - EXIT INT TERM HUP
+fi
+
+# --bin-path, alone: `wb page` hashes the binary to find a running page
+# server of the same build (the build id /healthz reports).
+if [ "$#" -eq 1 ] && [ "$1" = --bin-path ]; then
+  printf '%s\n' "$BIN"
+  exit 0
 fi
 
 exec "$BIN" --store "$TASKS_DIR" "$@"

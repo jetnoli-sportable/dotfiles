@@ -821,9 +821,9 @@ notice on its next prompt; a newly created one doesn't until `/clear` or a resta
 
 `wb-store` is a Go program that reads the task store in its dossier layout and
 answers in plain text, or in JSON with `--json`. It never writes. Its commands
-are `list`, `show <task>` and `family <task>`; later, `wb page` will use it to
-serve a task's page. Its source is its own repo, `~/code/wb-store`
-(`github.com/jetnoli-sportable/wb-store`), not dotfiles.
+are `list`, `show <task>`, `family <task>` and `serve <task>` (the page server;
+`wb page`, below, is the usual way in). Its source is its own repo,
+`~/code/wb-store` (`github.com/jetnoli-sportable/wb-store`), not dotfiles.
 
 Run it through the shim, `~/.config/scripts/wb-store.sh`, rather than the
 binary:
@@ -852,6 +852,48 @@ The default source builds to `~/.local/bin/wb-store`. Any other source builds
 to its own binary under `~/.cache/wb-store/bin/`, so trying a branch never
 replaces the binary other sessions run, and switching back never runs the
 branch's build.
+
+`wb-store.sh --bin-path` rebuilds when stale, as above, then prints the path of
+the binary it would run instead of running it.
+
+### `wb page`: a task's page in the browser
+
+`wb page` opens the current session's task in the browser, as a page drawn by
+`wb-store serve`: the **family page** when the task has children (its working
+view, plan view, decisions and what waits on you), the **task page**
+otherwise. `wb page <task>` opens another task's page and needs no tmux;
+`--no-open` only prints the URL. `--task` always opens the task page, and
+`--family` always opens the family page. The page server draws a family page
+from the family's root for any member, so from a child session `--family`
+shows the coordinator's view.
+
+```bash
+wb page                          # this session's task
+wb page dotfiles--wb-future-direction
+wb page --no-open wb-store--page-server
+wb page --family                 # the coordinator's family page, from a child
+```
+
+Two tmux binds open them from any wb session, in the background (the URL isn't
+shown; a failure shows its first line as a message):
+
+| Key | Opens |
+|---|---|
+| `prefix+P` | this session's task page (`wb page --task`) |
+| `prefix+F` | its family page, the coordinator's view from a child (`wb page --family`) |
+
+The page server binds `127.0.0.1` from port 8766, falling forward up to 8775,
+answers reads only, and re-reads the store on every refresh, so a page is never
+stale; refresh the browser to see new decisions or a new `## Now`. `wb page`
+reuses a running server when its `/healthz` reports the current binary's build
+id. Otherwise it stops the server it last started from the same binary (an
+older build, after a rebuild) and starts one detached, logging to
+`~/.local/state/wb/page-server.log`; it keeps running after the session ends.
+The server's pid is kept beside the log, one file per binary, so a branch
+build (`WB_STORE_SRC`) and the default build each keep their own server. A
+server started some other way (a plain `wb-store serve`) is never stopped;
+`pkill -f 'wb-store.*serve'` clears every one. If the server exits without
+printing its URL, `wb page` says so at once and shows the log's last lines.
 
 ## `wb board --html` — the full board (v2)
 
