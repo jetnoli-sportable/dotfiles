@@ -74,7 +74,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 
 **Decision capture**
 
-- R17. The sweep stops drafting the short-lived operational steps Jet dismisses (candidate shapes: merge or go-live order, "rebase the stack", "re-run the tests before merging", "don't fix X in this PR"; the prompt names only the shapes U8's measurement shows are dismissed clearly more often than accepted) and decisions already recorded in the task's `decisions/`.
+- R17. The sweep stops drafting the short-lived operational steps Jet dismisses (candidate shapes: merge or go-live order, "rebase the stack", "re-run the tests before merging", "don't fix X in this PR"; the prompt names only the shapes U8's measurement shows are dismissed clearly more often than accepted) and decisions already recorded in the task's `decisions/`. *Measured 14 Nov 2026 (U8): no shape is dismissed clearly more often than accepted, and no duplicate came from a decision recorded before the draft, so R17 needs no sweep change; the draft-first duplicates move to `dotfiles--wb-decide-dismiss-matching-draft`.*
 - R18. When the task's shelf still holds drafts, `wb down` (and `wb pause`, which calls it) prints one line naming the number of shelved decision drafts and the command to list them (`wb-capture.sh shelved --task <stem>`) before it writes or closes anything. With a terminal attached it then waits for one key: any key continues the close, Ctrl-C leaves the session open with nothing written. Without a terminal it prints the line and continues. It never refuses the close.
 
 **shellcheck**
@@ -90,7 +90,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 - Not changed: `wb done`'s shelf check. It already refuses to close while drafts remain unless `--leave-shelved` is passed (wb.sh, `cmd_done`), which answers the graduation review's "should `wb done` also refuse" question.
 - Not in this PR: measuring the sweep's accuracy after the prompt change (a week or two of drafts, then the review's `tools/review.py`), and reviewing the drafts already orphaned; both are post-merge checks in `checks.md`.
 - Not built: a launch cap or delay between launches for `wb restart`. The 8 Nov restart brought back 13 sessions without trouble, and each Claude starts only when Jet presses Enter, so the memory spike the cap guards against never happens at launch. Revisit if `--crashed` lists far more than 13 tasks.
-- Not built: a `kind == "interactive"` filter in the card's registry walker, unless the U5 check finds headless runs register with a `tmux` field.
+- Not built: a `kind == "interactive"` filter in the card's registry walker, unless the U5 check finds headless runs register with a `tmux` field. *It did (14 Nov 2026): a headless run registers with the pane's `tmux` field and `kind: "interactive"`; only `entrypoint` differs (`sdk-cli` vs `cli`). Jet chose a deny-list: `registry_live`'s pane match skips entrypoints starting with `sdk`, so a renamed interactive entrypoint still works; a session-id lookup is unfiltered.*
 - Not changed: the identical `"origin":{` pattern in `claude-reply-log.sh` (line ~208). It feeds the reply view, not the card's recap cap; out of scope for the card hardening.
 
 #### Deferred to Follow-Up Work
@@ -304,6 +304,7 @@ U1 → U2 → U3 → U4 → U5 → U8 → U9 → U6 → U7 (KTD1). U5 and U8 are
   - The built prompt contains the short-lived-steps guidance for the shapes step 1 selected (assert on the prompt the stubbed model receives); skipped if no shape qualified.
   - Whatever KTD10's cause turns out to be has a scenario that failed before the fix (for example, a superseded decision is not listed as in force).
 - **Verification:** the sweep suite passes under gawk and mawk; the post-merge accuracy check is listed in `checks.md`.
+- **Outcome (14 Nov 2026, Jet chose the no-change option):** measured, nothing built. Step 1: the four shapes together were 24 accepted against 16 dismissed (40% dismissed, against 33% for all other drafts; "re-run tests" alone is 1/2, too few to act on), so step 3 adds no list. Step 2: of 12 dismissed duplicates, 7 were shelved before the decision file existed, 0 after, 5 cannot be ordered (migrated files carry no time of day), so no prompt wording change and no `status: superseded` filter. The draft-first fix, `/wb-decide` dismissing a matching shelved draft when it records a decision, is its own task, `dotfiles--wb-decide-dismiss-matching-draft`. The accuracy check is dropped, since the sweep did not change. Evidence: `u8-measurement.md` in that task's dossier.
 
 ### U9. `wb down` warns about unreviewed decision drafts
 
@@ -366,7 +367,7 @@ U1 → U2 → U3 → U4 → U5 → U8 → U9 → U6 → U7 (KTD1). U5 and U8 are
 | shellcheck | `koalaman/shellcheck:stable` on a copy under `~/.cleanroom/wb-bash-fixes-sc/`, `-x` | U6, U7 (and no new findings in the regions U1-U5, U8 and U9 touch) |
 | Help listing | `tests/wb-help.test.sh` | U4 |
 | Live check | after merge and re-stow: `wb restart --dry-run --crashed`, a `wb resume` of an idle stale task, the card on a live pane, and `wb down` on a task with shelved drafts, typed in its own session and via the picker's `p` (the line stays readable until a key is pressed) | PR |
-| Accuracy check | one to two weeks after merge, the graduation review's `python3 -I tools/review.py`, split at the merge time, shows at least 70% accepted for drafts shelved after it, over at least 50 resolved post-merge drafts; and the share of dismissed post-merge drafts matching the R17 shapes is lower than the review's pre-merge share. Both recorded in `checks.md` | U8 (post-merge, in `checks.md`) |
+| Accuracy check | dropped 14 Nov 2026: U8 measured no sweep change to check (see U8 Outcome) | — |
 
 ## Definition of Done
 
