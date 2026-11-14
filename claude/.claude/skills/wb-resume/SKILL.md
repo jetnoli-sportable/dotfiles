@@ -125,6 +125,9 @@ Two shapes of handoff entry exist, in the task file's one entry and in each
   If the entry has a `**Received:**` field (the `[wb-propagate]` messages the
   saved session had received), carry it forward: a decision recorded in this
   session because of one of those messages gets the Prompted-by bullet.
+
+  If the entry has an `**Open /decide surfaces:**` field, step 3b reopens each
+  one listed.
 - **Terse, automatic:** `### <YYYY-MM-DD HH:MM> — <source> (auto)` (e.g.
   `wb pause (auto)`, `wb done (auto)`, `wb resume (auto)`), with a single
   one-line body such as `` Session paused via `wb pause`. `` — always ends
@@ -189,6 +192,32 @@ an `(auto)` stamp, and any `handoffs/` files with a later timestamp.
 Either branch, never decide silently which case applies — say which one
 you're in as part of the same one-line statement.
 
+### 3b. Reopen open `/decide` surfaces
+
+A `/decide` buffer or page may still be waiting on Jet: it outlives a `/clear`
+or a restart, and its answers are lost to this session unless it picks the
+surface back up. Read the list from two places and merge them: the saved
+entry's `**Open /decide surfaces:**` field, and the live needs-you marker
+(`cat "${XDG_STATE_HOME:-$HOME/.local/state}/wb/needs-you/<task-stem>"`; no
+file means none), so a surface opened after the last save isn't missed. Do
+this on **both** branches of step 3, even when an automatic entry follows the
+rich one: reopening only re-arms the wait, it applies nothing, so it needs no
+confirmation. Say in the one-line statement that you did it. For each
+surface:
+
+- **buffer `<file>`:** re-run `wb decide-buffer <file>` as a background
+  command. It waits on the split if it's still open, opens a fresh one if the
+  file is unchanged, or returns at once with `changed: yes` when Jet answered
+  while the session was gone. When it returns, follow `/decide`'s close-out for
+  that buffer (parse, record, `wb decide-clear`).
+- **page `<url>`:** `ArtifactComments` `watch` on the url, then read
+  `meta/submitted` with `ArtifactData` `get`. Submitted at the current rev:
+  follow `/decide`'s page close-out now. Not submitted: tell Jet the page is
+  still open, and if the watch listing doesn't show auto-replies armed, to type
+  "done" after Submit.
+- **a buffer file or page that no longer exists:** offer to drop it with
+  `wb decide-clear <file|url>`; never drop it unasked.
+
 ### 4. Fallback — no rich entry to find
 
 - **Only terse/automatic entries exist** (the task file's handoff is an
@@ -238,6 +267,10 @@ picked up from.
   going through `## Handoffs`): treat this the same as the terse-entry gap
   case — state what changed and confirm before acting, rather than trusting
   the absence of a terse entry as proof nothing changed.
+- **Edge case — the entry lists open `/decide` surfaces, or the needs-you
+  marker has lines:** reopen each one (step 3b) on either branch, and say so
+  in the one-line statement; a buffer answered while the session was gone is
+  read and recorded at once.
 - **Edge case — only automatic entries, no `/wb-save` entry yet:** say explicitly that no rich save entry exists, fall back to
   `## Plan` (and the rest of the task file) for context, and summarize
   what was found there instead of a done/in-flight/next snapshot.

@@ -7,7 +7,7 @@
 #
 # Status, most-urgent first:
 #   needs-input -> BLOCKED on you: a permission/question modal in the pane, or a
-#                  decision-buffer nvim split it set @claude_blocked for
+#                  /decide nvim buffer split it set @claude_blocked for
 #   done        -> a long-running turn just finished (Stop hook), awaiting you
 #   waiting     -> turn finished, idle at the ✳ prompt, no @claude_working marker
 #   working     -> @claude_working=1 (a turn or a subagent is running), or a

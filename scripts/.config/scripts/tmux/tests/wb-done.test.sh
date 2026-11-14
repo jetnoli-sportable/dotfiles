@@ -31,7 +31,7 @@ WB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/wb.sh"
 FIXTURE_CODE="$(mktemp -d -t wb-done-code.XXXXXX)"
 FIXTURE_TASKS="$(mktemp -d -t wb-done-tasks.XXXXXX)"
 FIXTURE_STATE="$(mktemp -d -t wb-done-state.XXXXXX)"   # XDG_STATE_HOME: wb-capture's shelved drafts + log
-SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta kappa lambda mu nu)
+SLUGS=(alpha beta gamma dirty delta epsilon zeta eta theta kappa lambda mu nu nyheld)
 session_for() { printf 'wb-done-test-%s-%s\n' "$1" "$$"; }   # <slug> -> its fixture session name
 trap '
   rm -rf "$FIXTURE_CODE" "$FIXTURE_TASKS" "$FIXTURE_STATE"
@@ -945,6 +945,27 @@ assert "ctrl-x #( escaping: display-message text carries ##(" '##\(touch marker\
 case "$(cat "$POPUP_OUT.msg")" in *[!#]"#(touch"*|"#(touch"*) echo "FAIL - ctrl-x #( escaping: a single # still precedes ("; fail=1 ;; *) echo "ok   - ctrl-x #( escaping: no unescaped #(" ;; esac
 found="$(find "$FIXTURE_STATE" "$FIXTURE_CODE" "$FIXTURE_TASKS" "$PWD" -maxdepth 3 -name marker 2>/dev/null | head -1)"
 [ -z "$found" ] && echo "ok   - ctrl-x #( escaping: no marker file created" || { echo "FAIL - ctrl-x #( escaping: marker at $found"; fail=1; }
+
+# --- R19: wb done drops the /decide needs-you marker, under the marker's own lock
+NYM="$FIXTURE_STATE/wb/needs-you/proj--nyheld"
+mkdir -p "$FIXTURE_STATE/wb/needs-you" "$FIXTURE_STATE/wb/locks"
+printf 'page https://example.test/artifact/x r1\nbuffer /tmp/answers.md %%1 abc123\n' > "$NYM"
+ny_session="$(session_for nyheld)"
+( exec 9>>"$FIXTURE_STATE/wb/locks/needs-you-proj--nyheld.lock"; flock 9; exec sleep 30 ) &
+ny_holder=$!
+sleep 0.5
+out="$(cmd_done "$ny_session" 2>&1)"; rc=$?
+kill "$ny_holder" 2>/dev/null; wait "$ny_holder" 2>/dev/null
+assert "needs-you: a held marker lock makes wb done exit 75" '^75$' "$rc"
+assert "needs-you: ... leaving the marker in place" '^page https://example.test/artifact/x r1$' "$(head -1 "$NYM" 2>&1)"
+assert "needs-you: ... and the task not done" '^doing$' "$(status_of nyheld)"
+[ -d "$FIXTURE_CODE/proj/.worktrees/nyheld" ] && echo "ok   - needs-you: ... and the worktree kept" || { echo "FAIL - needs-you: worktree removed despite exit 75"; fail=1; }
+out="$(cmd_done "$ny_session" 2>&1)"; rc=$?
+assert "needs-you: with the lock free, wb done exits 0" '^0$' "$rc"
+assert "needs-you: it names the page it drops" 'open /decide surfaces dropped: .*page https://example.test/artifact/x' "$out"
+assert "needs-you: ... and the buffer" 'buffer /tmp/answers\.md' "$out"
+assert "needs-you: the marker is gone" '^no$' "$([ -e "$NYM" ] && echo yes || echo no)"
+assert "needs-you: the task is done" '^done$' "$(status_of nyheld)"
 
 # --- wb help lists all five flags -------------------------------------------
 help_out="$(bash "$WB" help 2>&1)"

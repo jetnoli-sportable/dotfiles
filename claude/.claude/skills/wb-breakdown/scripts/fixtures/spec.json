@@ -1,0 +1,47 @@
+{
+  "title": "Split the big task into slices",
+  "name": "Big task split",
+  "layout": "verdicts",
+  "rev": "1",
+  "task": "proj--feat-big",
+  "base": "2136663e5206bbbae4a566006c54673237d480c8f2e0f971105bebd7db6851ec",
+  "intro": "Three proposed children. Edit the slug, goal, size or depends_on on a row, then pick Create, Merge or Skip.",
+  "verdicts": [
+    { "id": "create", "label": "Create", "tone": "good" },
+    { "id": "merge", "label": "Merge into another child", "tone": "info" },
+    { "id": "skip", "label": "Skip", "tone": "neutral" }
+  ],
+  "breakdown": {
+    "parent": "proj--feat-big",
+    "repo": "proj",
+    "branch": "feat-big",
+    "continuing": null,
+    "rewrite_plan": "post split summary",
+    "moves": [ { "text": "explore wb breakdown verb further", "item": "c2" } ],
+    "plans": {
+      "c1": "plan body for child one",
+      "c2": "plan body for child two",
+      "c3": "plan body for child three"
+    }
+  },
+  "items": [
+    { "id": "c1", "title": "First slice", "suggested": "create", "reason": "Self-contained.",
+      "fields": [
+        { "key": "slug", "label": "Slug", "value": "feat-big-one" },
+        { "key": "goal", "label": "Goal", "value": "first slice of the big task", "wide": true },
+        { "key": "size", "label": "Size", "value": "" },
+        { "key": "depends_on", "label": "Depends on", "value": "" } ] },
+    { "id": "c2", "title": "Second slice", "suggested": "create", "reason": "Independent of the first.",
+      "fields": [
+        { "key": "slug", "label": "Slug", "value": "feat-big-two" },
+        { "key": "goal", "label": "Goal", "value": "second slice", "wide": true },
+        { "key": "size", "label": "Size", "value": "S" },
+        { "key": "depends_on", "label": "Depends on", "value": "feat-big-one" } ] },
+    { "id": "c3", "title": "Third slice", "suggested": "skip", "reason": "Not worth its own task.",
+      "fields": [
+        { "key": "slug", "label": "Slug", "value": "feat-big-three" },
+        { "key": "goal", "label": "Goal", "value": "third slice", "wide": true },
+        { "key": "size", "label": "Size", "value": "" },
+        { "key": "depends_on", "label": "Depends on", "value": "" } ] }
+  ]
+}

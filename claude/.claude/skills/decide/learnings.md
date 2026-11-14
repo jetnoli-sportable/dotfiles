@@ -1,0 +1,27 @@
+# /decide learnings
+
+One dated line per entry, in Jet's own words plus the path, appended whenever
+he flags a buffer or page as unhelpful, confusing or in need of a change. It
+merges the ledgers of `decision-buffer`, `decision-page` and `review-page`,
+keeping the rules that still apply to buffers and claude.ai pages. Dropped as
+obsolete: the Copy answers paste, the local server and its port, the
+spec_hash paste check, and the snap-Chromium file:// guards. New entries go at
+the bottom.
+
+- 2026-09-14 — Jet, on the day's third big buffer (an audit of 100+ pieces): "using the nvim buffer for this feels odd, I think we need a better flow (one that uses an html page and sensible defaults -> but we need a way to ask questions here and possibly tie items together)." Source: decision-buffer ledger. Rule: a buffer suits choice, interview and short triage; 50+ rows go on a page (a `verdicts` page has a note per row and a whole-batch note).
+- 2026-09-14 — Jet: "I think we can assume in this flow that no action means okay unless I add a note." Source: review-page ledger. Rule for a `verdicts` page: leaving a row alone carries its suggestion; a note makes the row unanswered until answered. Since then the page's "accept the remaining suggestions" box starts unticked (decision KD13), and the page says plainly what silence means, every time. The nvim buffer is the opposite: a silent close applies nothing.
+- 2026-09-14 — Jet, on the first breakdown page: "this doc is very confusing the sections aren't clear are they all separate options or a single decision it all looks like different tasks? let's take a step back simplify and explain things at a high level". Source: review-page ledger. Rule: a breakdown page lists only the children that WILL exist; at most two explicit questions, each its own small area; never an "only if you choose direction B" row; housekeeping edits go in the intro, not the verdict table. Explain at a high level in chat first.
+- 2026-09-14 — Jet, on the /parked-items run: "The format of the /parked items run is very confusing". Source: decision-buffer ledger. Rule: a long carried-forward ledger with an eight-way action row per item is not a buffer shape; put full ledger notes and action definitions on a page.
+- 2026-09-15 — Jet, on a findings-review buffer (9 findings, closed with no ticks and one note): "for this type of buffer we need to see the other options instead of a flat agree/disagree/dig-deeper/out-of-scope ... I want in general a recommendation and at least one other option (more is generally better in terms of options with a ceiling of say 5) ... Also can the checkboxes be below each other, works better with nvim." Source: decision-buffer ledger. Rule: each finding carries a recommended option first plus one to four alternatives, `Dig deeper` and `Out of scope` as escape hatches, every checkbox on its own line.
+- 2026-09-21 — Jet, on a 13-row triage buffer of design calls: "these details feel new to me and I struggle to fit in your questions with the big picture we've discussed earlier". Source: decision-buffer ledger. Rule: a design-call finding leads with its big-picture tie (which rung owns it, why it surfaces now) before technical detail, and a fresh review that re-raises a deferred item says why it is back and what the value is now.
+- 2026-10-12 — Jet, on a 17-finding triage buffer: "this feels like a strange format, usually we have the checkboxes with the different approaches where one of them is defer and one of them is skip not simply an apply". Source: decision-buffer ledger. Rule: triage findings list options (the recommended fix first, real alternatives, then Defer and Skip), never a flat Apply / Defer / Skip row, and never an option pre-ticked.
+- 2026-10-17 — Jet, on the "Add a note to an existing task" rows of a skill-lanes review: "I stopped answering on the add note to an existing task ... what isn't clear and I'm not sure what note you are adding" and "what task?". Source: review-page ledger. Rule: when a verdict acts on another artifact, the row says in plain words what that artifact is (one line, plus status or age) and carries the exact text that would be written.
+- 2026-11-14 — Standing rules carried over from the three skills and the memory notes, with their sources (not Jet flags on a specific surface):
+  - Per-decision Questions / Notes, and an inline Recommendation, under every question, never one collected at the end (memory notes, 2026-07-06 and 2026-07-08).
+  - A second round rewrites the surface fresh, with resolved items collapsed into a summary of "Decisions made" Jet can flag; never appended blockquotes (memory note, 2026-07-08).
+  - Give full inline context and define every term at first use; don't lean on a doc Jet hasn't seen (memory note, 2026-07-08, 2026-07-10).
+  - State an obvious default as a decision, not a question; in a personal repo plan staged work as one task with phases (memory note, 2026-10-24, 2026-11-04).
+  - One readable reply per turn: the link and the question you wait for go in the final message (memory note, 2026-10-17).
+  - After a code review, re-present all findings grouped fix now / follow up / leave (memory note, 2026-10-28).
+  - Never show a bare identifier (commit, ticket, PR, task slug, link): give a plain description beside it (global rule, 2026-10-21).
+  - A page shows nothing coloured until Jet picks, evidence sits one click away, and areas show an "x of y" count (Jet, 2026-11-13, the page's design brief).

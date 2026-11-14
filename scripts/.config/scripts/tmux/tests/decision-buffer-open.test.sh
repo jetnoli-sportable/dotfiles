@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for claude/.claude/skills/decision-buffer/scripts/open-buffer.sh (U1,
+# Tests for claude/.claude/skills/decide/scripts/open-buffer.sh (U1,
 # extended coverage added at U7 — docs/plans/2026-09-08-001-feat-decision-
 # buffer-v2-plan.md). Unlike wb-handoffs.test.sh / wb-breakdown.test.sh,
 # open-buffer.sh is a standalone script, not a function sourced out of
@@ -22,7 +22,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)"
-SCRIPT="$REPO_ROOT/claude/.claude/skills/decision-buffer/scripts/open-buffer.sh"
+SCRIPT="$REPO_ROOT/claude/.claude/skills/decide/scripts/open-buffer.sh"
 FIXTURE="$(mktemp -d -t decision-buffer-open-fixture.XXXXXX)"
 trap 'rm -rf "$FIXTURE"' EXIT
 

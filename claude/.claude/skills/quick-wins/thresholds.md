@@ -29,7 +29,7 @@ quick win for a pick than auto-act on something with a hidden seam.
 - max_files_touched: 2           # SKILL.md floor; spanning more files reads as coupled
 - single_repo_only: true         # cross-repo items are never auto-lane
 - unmet_depends_on: disqualifies # a task with an unresolved depends_on is not isolated
-- pending_design_decision: disqualifies   # an open decision-buffer round → not isolated
+- pending_design_decision: disqualifies   # an open /decide surface (buffer or page) → not isolated
 - coupling_not_in_depends_on: surface     # real coupling not captured in depends_on:
                                  #   frontmatter is still coupling — absence of a
                                  #   depends_on is not proof of isolation

@@ -1,0 +1,8 @@
+{
+  "answers": {
+    "c1": { "choice": "create", "note": "", "fields": { "slug": "feat-big-renamed", "goal": "first slice of the big task", "size": "", "depends_on": "" }, "fields_changed": true, "rev": "1" },
+    "c2": { "choice": "create", "note": "", "fields": { "slug": "feat-big-two", "goal": "second slice", "size": "S", "depends_on": "feat-big-one" }, "fields_changed": false, "rev": "1" },
+    "c3": { "choice": "skip", "note": "", "fields": {}, "fields_changed": false, "rev": "1" }
+  },
+  "submitted": { "rev": "1", "accept_remaining": false }
+}

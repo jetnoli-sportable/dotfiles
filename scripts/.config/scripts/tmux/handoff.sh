@@ -47,7 +47,7 @@ HANDOFF_PERMISSION_TIMEOUT="${HANDOFF_PERMISSION_TIMEOUT:-20}"
 # choice lives, so flipping side-by-side to stacked is a single-word change
 # (or a per-invocation `HANDOFF_PANE_SPLIT=-v` override) rather than a literal
 # scattered through the pane branch. Default `-h` = side-by-side, matching the
-# decision-buffer split precedent (claude/.claude/skills/decision-buffer/SKILL.md:174).
+# /decide buffer split precedent (claude/.claude/skills/decide/scripts/open-buffer.sh).
 HANDOFF_PANE_SPLIT="${HANDOFF_PANE_SPLIT:--h}"
 
 # handoff_wait_for_pane_pattern <target> <timeout_secs> <extended-regex> —

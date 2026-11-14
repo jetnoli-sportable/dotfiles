@@ -31,6 +31,6 @@ claude/.claude/settings.local.json
 claude/.claude/parked-items/
 claude/.claude/projects/
 
-# python bytecode (review-page.py and friends)
+# python bytecode (the page and buffer scripts)
 __pycache__/
 *.pyc

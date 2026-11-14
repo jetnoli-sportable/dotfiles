@@ -125,7 +125,7 @@ tmux_claude_panes() {
     esac
     # "needs input" — BLOCKED on you, not merely idle. Two signals:
     #   (1) @claude_blocked: a marker the agent sets on its own pane before it
-    #       blocks on an nvim buffer (decision-buffer skill). That block shows a
+    #       blocks on an nvim buffer (the /decide buffer). That block shows a
     #       spinner in the pane, so a content scan can't see it — hence the
     #       explicit marker. Its value (e.g. "nvim-buffer") is the reason why.
     #   (2) a live permission / AskUserQuestion menu (tmux_pane_awaiting_input).

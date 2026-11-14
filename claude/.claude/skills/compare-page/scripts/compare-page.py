@@ -31,7 +31,7 @@ LETTERS = "ABCDE"
 
 SKILL_DIR = Path(os.path.realpath(__file__)).parent.parent  # resolves the stow symlink to the repo copy
 TEMPLATE = SKILL_DIR / "templates" / "page.html"
-KIT_DIR = SKILL_DIR.parent / "decision-page" / "kit"  # the browser helpers the page skills share
+KIT_DIR = SKILL_DIR / "kit"  # the browser helpers the page generator shares
 PAGEKIT = KIT_DIR / "pagekit.py"
 
 sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed kit dir

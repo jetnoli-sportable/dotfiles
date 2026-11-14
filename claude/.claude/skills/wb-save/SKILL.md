@@ -113,6 +113,15 @@ conversation — never generic filler:
   next session learns of it. It goes last in the entry, after the `**Next:**`
   line and after any ` ```run ` block, so the run directive keeps its place
   right after `**Next:**`.
+- **Open /decide surfaces** (optional) — only when the task has `/decide`
+  surfaces still waiting on Jet. Read them live from the needs-you marker,
+  never from memory: `cat "${XDG_STATE_HOME:-$HOME/.local/state}/wb/needs-you/<task-stem>"`
+  (no file means none are open; outside a task the key is the tmux session
+  name). One line per marker line, each with a plain description of what it
+  asks, e.g. `buffer <answer file>: three questions on the fixture format` or
+  `page <url> (rev 2): the 30-row skill audit`. It goes after `**Received:**`
+  (or where that field would be), last in the entry. `/wb-resume` reopens each
+  one. Omit the field when the marker is empty or missing.
 
 If a field is genuinely empty (e.g. the session just started and nothing
 is done yet), say so plainly — `**Done:** nothing yet this session` —
@@ -208,6 +217,20 @@ fenced block after `**Next:**`, separated by a blank line:
 /ce-code-review --full --subagents
 ```
 ````
+
+The optional trailing fields go last, `**Received:**` then `**Open /decide
+surfaces:**`, each surface on its own indented line:
+
+```
+### 2026-07-11 18:42 — wb-save
+**Done:** ...
+**In flight:** ...
+**Next:** ...
+**Received:** from dotfiles--wb-page (W12, the page command): Page URL format
+**Open /decide surfaces:**
+  - buffer ~/code/tasks/dossiers/<stem>/decision-records/2026-07-11-1830-decide.md: three questions on the fixture format
+  - page https://claude.ai/code/artifact/<id> (rev 2): the 30-row skill audit
+```
 
 - Shell out to `wb append` — the locked, heading-scoped append verb
   (`scripts/.config/scripts/tmux/wb.sh`, search `cmd_append`) every

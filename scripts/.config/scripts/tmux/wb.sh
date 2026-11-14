@@ -77,6 +77,35 @@
 #                                    supersedes: [<old-id>], flip the old decision file to
 #                                    status: superseded, rebuild the views — one locked step; an
 #                                    unknown or already-superseded <old-id> exits 1, nothing written
+#   wb decide-path [--task <task>] [--page <slug>]
+#                                    print a fresh path for /decide's answers: the buffer's answer
+#                                    file (the task's dossier decision-records/<stamp>-decide.md),
+#                                    or with --page the page spec (decision-records/<stamp>-<slug>/
+#                                    spec.json); outside a task, under the state dir keyed by the
+#                                    tmux session
+#   wb decide-buffer [--reopen] <file> [--task <task>]
+#                                    open <file> in nvim in a split of the task's tmux session, mark
+#                                    the task as needing Jet, wait until the split closes, then print
+#                                    file:/sha:/changed: (sha is from the first open); run it in the
+#                                    background. A re-run waits on a split still open instead of
+#                                    opening a second one; --reopen opens a new round on a file the
+#                                    caller rewrote, with the checksum taken afresh
+#   wb decide-open page <url> <rev> [--task <task>]
+#                                    mark a published page as waiting on Jet (a later rev of the same
+#                                    url replaces the line)
+#   wb decide-clear <file|url> | --all [--task <task>]
+#                                    drop a surface's needs-you mark once its answers are recorded;
+#                                    the marker goes with the last one
+#   wb decision [--task <task>] [--default] "<title>"
+#                                    record one answer (body on stdin) in the task's Decisions under
+#                                    the lock; the same title again (case-sensitive, trailing spaces
+#                                    ignored) supersedes the live entry, an identical body writes
+#                                    nothing, and --default (body gets a "Default taken." first line)
+#                                    never supersedes an answer Jet gave. Prints what it superseded
+#   wb decide-spec-check [--previous <spec>] <spec.json>
+#                                    check a /decide page spec against the page-spec rules (and with
+#                                    --previous, that no item's question or options changed under
+#                                    the same id); prints one problem per line, exit 1 on any
 #   wb followups <task>              list <task>'s OPEN follow-ups, one per line as <ref><TAB><title>;
 #                                    <ref> is the open-items file id
 #   wb followup-done <task> <ref> [<note>|-]
@@ -416,6 +445,9 @@ wb_task_title() {
 
 # wb_task_file <repo> <disp_slug> — the store path for a repo+slug pair.
 wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
+# wb_needs_you_file <key> — the /decide needs-you marker of a task stem (or a tmux session
+# name outside a task); lines and writers are in wb-decide.sh, the picker only reads it.
+wb_needs_you_file() { printf '%s/wb/needs-you/%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$1"; }
 
 # wb_task_files — every real task file in the store: only `<repo>--<slug>.md`
 # stems (a non-empty repo, the `--` delimiter, a non-empty slug), so
@@ -3875,21 +3907,31 @@ cmd_unsafe_rewind() {
 # ---------------------------------------------------------------------------
 
 # wb_open_buffer <path> — open <path> in nvim, blocking until closed. Thin
-# shim over the shared decision-buffer script
-# (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which owns the
+# shim over the shared buffer script of the decide skill
+# (~/.claude/skills/decide/scripts/open-buffer.sh), which owns the
 # tmux-split + wait-for recipe (and its channel-uniqueness rule) for every
-# caller of it — decision-buffer, `wb done --review`, parked-items, wb.sh's own
-# internal callers below. See
-# ~/.claude/skills/decision-buffer/references/mechanism.md for the full
-# contract. A missing or non-executable script (a stale, un-restowed
-# environment) is a hard error naming the stow command.
+# caller of it — `wb done --review`, /wb-breakdown small proposals,
+# /wb-jira-create, wb.sh's own internal callers below. See
+# ~/.claude/skills/decide/references/open-buffer.md for the full contract.
+# The stowed copy is tried first; if it isn't there (the main checkout has
+# pulled the move but not re-stowed yet) the copy in the checkout this wb.sh
+# resolves to is used, so `wb done --review` keeps working in between. Neither
+# existing is a hard error naming both paths and the stow command.
 wb_open_buffer() {
   local path="$1"
-  local script="$HOME/.claude/skills/decision-buffer/scripts/open-buffer.sh"
+  local script="$HOME/.claude/skills/decide/scripts/open-buffer.sh"
 
   if [ ! -x "$script" ]; then
-    echo "wb_open_buffer: $script missing or not executable — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
-    return 1
+    # scripts/.config/scripts/tmux/ -> four levels up is the repo root
+    local here repo_script
+    here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+    repo_script="$here/../../../../claude/.claude/skills/decide/scripts/open-buffer.sh"
+    if [ -x "$repo_script" ]; then
+      script="$repo_script"
+    else
+      echo "wb_open_buffer: neither $script nor $repo_script is an executable file — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
+      return 1
+    fi
   fi
 
   if [ -n "${TMUX:-}" ]; then
@@ -6723,6 +6765,7 @@ cmd_done() {
   # applies to it. keep_paths/throw_paths are filled by _wb_done_classify and
   # read again by the handoff record below.
   local -a keep_paths=() throw_paths=()
+  local ny_locked=0
   if [ "$store_only" = 1 ] && [ "${#sweep_flags[@]}" -gt 0 ]; then
     echo "wb done: --keep/--throwaway ignored: a store-only close has no worktree to sort" >&2
   fi
@@ -6744,6 +6787,13 @@ cmd_done() {
     # 3. copy every keeper into the dossier BEFORE the removal (a keeper can sit
     # inside a throwaway directory). Destinations are checked first, so a
     # collision stops the run before anything is written (KTD6).
+    # The /decide marker's own lock is taken here, before the first change (the
+    # keepers copied into the dossier, then the worktree's removal): a held
+    # lock exits 75 with nothing touched. It is held to the marker's removal
+    # at the end, not across the --review buffer above, which can stay open
+    # for minutes and would starve /decide's marker writers.
+    wb_task_lock_acquire_guarded "needs-you-$task_stem" || exit $?
+    ny_locked=1
     local dossier="$TASKS_DIR/dossiers/$task_stem"
     _wb_done_keep_all "$worktree_path" "$dossier" ${keep_paths[@]+"${keep_paths[@]}"} || exit 1
 
@@ -6770,6 +6820,10 @@ cmd_done() {
     # to sort, but --review still opens the task file once.
     wb_open_buffer "$task_file" || exit 1
   fi
+
+  # A close with no worktree to remove (store-only, or one already gone) has
+  # no change to protect before this point; the marker lock is taken here.
+  [ "$ny_locked" = 1 ] || wb_task_lock_acquire_guarded "needs-you-$task_stem" || exit $?
 
   # The one locked burst (KTD6): final status/closed stamps + Handoffs entry — its own
   # lock burst, acquired only now, AFTER the (unlocked) worktree removal
@@ -6822,6 +6876,24 @@ cmd_done() {
   wb_append_handoff "$task_file" "wb done" "$handoff_msg" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (handoff not written)" >&2; exit 1; }
   wb_task_lock_release "$task_file"
+  # R19: the task is done, so what it was waiting on no longer is. Say what
+  # the marker held, then remove it and its lock. (wb down leaves it: a page
+  # outlives its session.)
+  local ny_file ny_line ny_item ny_dropped=""
+  ny_file="$(wb_needs_you_file "$task_stem")"
+  if [ -s "$ny_file" ]; then
+    while IFS= read -r ny_line || [ -n "$ny_line" ]; do
+      case "$ny_line" in
+        buffer\ *) ny_item="${ny_line% * *}" ;;                        # drop the pane and the checksum
+        page\ *)   ny_item="${ny_line#page }"; ny_item="page ${ny_item%% *}" ;;   # drop the rev
+        *) continue ;;
+      esac
+      ny_dropped+="${ny_dropped:+; }$ny_item"
+    done < "$ny_file"
+  fi
+  rm -f "$ny_file"
+  wb_task_lock_release "needs-you-$task_stem"
+  if [ -n "$ny_dropped" ]; then echo "wb done: open /decide surfaces dropped: $ny_dropped"; fi
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
     _wb_capture_verb log-shelved-left "$task_stem" "${#shelved_drafts[@]}" >/dev/null 2>&1 || true
   fi
@@ -7021,6 +7093,19 @@ wb_live_session_row() {
 
   local -a _u; wb_tsv_split "$(wb_session_urgency "$session")" _u
   local urank="${_u[0]}" uicon="${_u[1]}" target="${_u[2]}" ucount="${_u[3]}"
+
+  # An open /decide buffer or page (the needs-you marker, see wb_needs_you_file)
+  # makes the row need Jet whether or not a Claude pane is live: rank 0 and
+  # the "needs you" label, the agent count left alone (it decides whether the
+  # per-agent sub-rows are drawn). The icon "?" instead of the agent pane's
+  # "!" is how wb_format_for_display tells the two apart, so an owner row
+  # marked this way counts even with several agents. A bare -s test on the
+  # path wb_needs_you_file builds (inlined: no fork per row).
+  local _nykey
+  if [ "$kind" = task ]; then _nykey="${ref##*/}"; _nykey="${_nykey%.md}"; else _nykey="$session"; fi
+  if [ -s "${XDG_STATE_HOME:-$HOME/.local/state}/wb/needs-you/$_nykey" ]; then
+    urank=0; uicon="? needs you"
+  fi
 
   # A second argument, even empty, came from list-sessions: --listed.
   case "$visit" in ''|0) visit="$(wb_session_last_attached "$session" ${2+--listed})" ;; esac
@@ -7468,7 +7553,9 @@ wb_format_for_display() {
         # row only repeats the most urgent one, so the sub-row that is
         # waiting counts and the owner row does not: one waiting pane, one
         # count, and `u` lands on the pane itself.
-        nd = (!dorm && !hs && $4 != "" && $4 + 0 == 0 && ($9 == "agent" || $(10) + 0 <= 1))
+        # A /decide marker (icon "?", see wb_live_session_row) is the owner
+        # row itself needing Jet, so it counts however many agents run.
+        nd = (!dorm && !hs && $4 != "" && $4 + 0 == 0 && ($9 == "agent" || $(10) + 0 <= 1 || $5 ~ /^\? /))
         if (dorm) {
           w = lbl; sub(/ .*/, "", w)
           c = (w == "doing") ? ye : (w == "review") ? cy : dim
@@ -8764,6 +8851,14 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     # re-stow that links it. migrate is a one-off; nothing else needs it.
     # shellcheck source=wb-migrate.sh
     migrate)     shift; source "$SCRIPT_DIR/wb-migrate.sh"; cmd_migrate "$@" ;;
+    # Same lazy source as migrate, for the same reason: wb-decide.sh is new.
+    # shellcheck source=wb-decide.sh
+    decide-path)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_path "$@" ;;
+    decide-buffer) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_buffer "$@" ;;
+    decide-open)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_open "$@" ;;
+    decide-clear)  shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_clear "$@" ;;
+    decision)      shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decision "$@" ;;
+    decide-spec-check) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_spec_check "$@" ;;
     views)       shift; cmd_views "$@" ;;
     family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;

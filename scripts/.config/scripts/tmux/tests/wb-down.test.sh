@@ -98,7 +98,12 @@ tmux set-option -t "=${SESSION}-review:" @wb_repo proj >/dev/null
 tmux set-option -t "=${SESSION}-review:" @wb_slug feat/review >/dev/null
 
 wb_branch_has_open_pr() { return 0; }   # stub: open PR
+# R19: a page outlives its session, so wb down leaves the /decide marker.
+export XDG_STATE_HOME="$FIXTURE/state"
+mkdir -p "$XDG_STATE_HOME/wb/needs-you"
+printf 'page https://example.test/artifact/x r1\n' > "$XDG_STATE_HOME/wb/needs-you/proj--feat-review"
 out="$(cmd_down "${SESSION}-review" 2>&1)"; rc=$?
+assert "cmd_down leaves the /decide needs-you marker in place" '^page https://example.test/artifact/x r1$' "$(cat "$XDG_STATE_HOME/wb/needs-you/proj--feat-review" 2>&1)"
 assert "cmd_down (open PR) exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
 status_val="$(wb_get_frontmatter "$FIXTURE/proj--feat-review.md" status)"
 assert "status flips to review when the branch has an open PR" '^review$' "$status_val"

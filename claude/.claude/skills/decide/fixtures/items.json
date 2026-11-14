@@ -1,0 +1,75 @@
+{
+  "title": "Picker colours",
+  "name": "Picker colours",
+  "layout": "items",
+  "rev": "1",
+  "task": "fixture--picker-colours",
+  "intro": "Three questions about how the session picker is coloured. Fixture data for the page tests, not a real batch.",
+  "base": "0000000000000000000000000000000000000000",
+  "links": [{ "label": "Compare page, colour options", "href": "https://example.com/compare-colours" }],
+  "prior": { "round": "round 1", "note": "Keep the dim colour for idle sessions.", "reply": "Kept, see the decided list." },
+  "sections": [
+    { "title": "Glossary", "text": "A tone is the colour a chosen verdict takes.\n\n- `idle`: no agent output for ten minutes\n- `busy`: an agent is working", "open": false },
+    { "title": "Directions", "text": "Each option names its pro and its con. The recommended one is marked.", "open": true }
+  ],
+  "decided": [
+    { "id": "dim-idle", "title": "Dim idle sessions", "decision": "Yes", "date": "2026-11-10", "note": "Settled in round 1." }
+  ],
+  "items": [
+    {
+      "id": "busy-colour",
+      "area": "Colours",
+      "title": "Colour for a busy session",
+      "reason": "Amber reads as working in every theme.",
+      "context": "The picker shows one dot per session. Today busy and idle are both grey.",
+      "default": "amber",
+      "options": [
+        { "id": "amber", "label": "Amber", "detail": "Pro: reads as working. Con: close to the warning colour.", "recommended": true },
+        { "id": "blue", "label": "Blue", "detail": "Pro: calm. Con: easy to miss on a dark terminal." }
+      ],
+      "blocks": [
+        { "type": "table", "head": ["Colour", "Contrast on dark"], "rows": [["Amber", "9.1"], ["Blue", "5.2"]] },
+        { "type": "code", "text": "set -g status-style 'fg=colour214'" },
+        { "type": "svg", "svg": "<svg viewBox=\"0 0 120 24\" role=\"img\" aria-label=\"two dots\"><circle cx=\"12\" cy=\"12\" r=\"8\" fill=\"currentColor\"/><circle cx=\"44\" cy=\"12\" r=\"8\" fill=\"none\" stroke=\"currentColor\"/></svg>" }
+      ]
+    },
+    {
+      "id": "idle-after",
+      "area": "Colours",
+      "title": "When a session counts as idle",
+      "context": "Ten minutes is a guess.",
+      "options": [
+        { "id": "10m", "label": "Ten minutes", "detail": "Pro: matches the notify hook. Con: long for a quick question.", "recommended": true },
+        { "id": "3m", "label": "Three minutes", "detail": "Pro: quicker to dim. Con: flickers during long builds." }
+      ],
+      "fields": [
+        { "key": "minutes", "label": "Minutes", "value": "10", "placeholder": "10" }
+      ]
+    },
+    {
+      "id": "legend",
+      "area": "Layout",
+      "title": "Where the legend goes",
+      "default": "footer",
+      "context": "A legend explains the dots.",
+      "options": [
+        { "id": "footer", "label": "Footer line", "detail": "Pro: always visible. Con: uses a row." },
+        { "id": "help", "label": "Help popup only", "detail": "Pro: no row. Con: hidden until asked.", "recommended": true }
+      ],
+      "blocks": [
+        { "type": "mermaid", "text": "flowchart LR\n  dot --> legend" },
+        { "type": "links", "links": [{ "label": "Mock-up page", "href": "https://example.com/mock" }] }
+      ]
+    },
+    {
+      "id": "no-default",
+      "area": "Layout",
+      "title": "Sort order of the picker",
+      "context": "No default is stated, so a blank answer applies nothing.",
+      "options": [
+        { "id": "recent", "label": "Most recent first", "detail": "Pro: the one you want is on top. Con: order jumps.", "recommended": true },
+        { "id": "name", "label": "By name", "detail": "Pro: stable. Con: the busy one may be far down." }
+      ]
+    }
+  ]
+}

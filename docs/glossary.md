@@ -81,8 +81,8 @@ A markdown (and, for larger rounds, companion HTML) doc opened in the
 user's nvim buffer for a design discussion instead of a chat menu — one
 `- [ ] Choose Option X` block per decision, inline code from the real
 codebase, pros/cons, and that decision's own inline recommendation and
-Questions/Notes, all self-contained per decision. See the `decision-buffer`
-skill.
+Questions/Notes, all self-contained per decision. See the `/decide`
+skill (`decision-buffer`'s successor).
 
 ## Parent/child task relationship
 
