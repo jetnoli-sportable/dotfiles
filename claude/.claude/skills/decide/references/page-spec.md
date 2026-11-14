@@ -15,7 +15,7 @@ linked from the item.
 | `items` | yes | The questions, in order. |
 | `verdicts` | `verdicts` layout | At least two `{ "id", "label", "tone"? }`. `tone` is one of `neutral` (default), `good`, `bad`, `info`, `warn`: the colour the verdict takes once chosen. |
 | `rev` | no | A string or number, default `"1"`. Bump it on every republish. The Submit comment and `meta/submitted` carry it. |
-| `base` | no | The parent task file's checksum at publish time. The page only carries it into `meta/submitted`; the skill's script compares it. |
+| `base` | no | The parent task's checksum at publish time (`answers-to-proposal.sh --base`). The page only carries it into `meta/submitted`; the skill's script compares it. |
 | `intro` | no | One or two sentences under the title. |
 | `task` | no | The task stem, shown above the title. |
 | `name` | no | The two-to-four-word artifact name. The skill copies it into the page's `<title>` (see Title). |

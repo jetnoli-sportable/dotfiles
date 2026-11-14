@@ -3,6 +3,7 @@
 # proposal `wb breakdown --apply` reads (SKILL.md step 5 grammar).
 #
 # Usage: answers-to-proposal.sh <spec.json> <answers.json> <parent-task-file> [out.md]
+#        answers-to-proposal.sh --base <parent-task-file>
 #
 #   spec.json     the published verdicts-layout spec. Beside the page's own keys
 #                 it carries a top-level `breakdown` object the page ignores
@@ -10,14 +11,35 @@
 #   answers.json  {"answers": {"<item id>": <answers doc>, ...},
 #                  "submitted": <meta/submitted doc>}  (assembled by the skill
 #                 from ArtifactData; docs as in decide/references/page-spec.md)
-#   parent file   the parent task file; its sha256 must equal spec.base.
+#   parent file   the parent task file; its base (below) must equal spec.base.
 #   out.md        default logs/breakdowns/<breakdown.parent>.md
 #
+# --base prints the parent's base: a sha256 of only what the proposal acts on
+# (the frontmatter's repo, branch and worktree lines, and the ## Plan and
+# ## Follow-ups sections, blank lines left out). wb's own writes to the task file (a Handoffs entry
+# from wb down/pause/resume or /wb-save, a status flip) leave it unchanged, so
+# a page answered later isn't refused for them.
+#
 # Exit 0: proposal written. Exit 1: refused (stale base, a row asking for
-# more information, an unusable row); nothing is written.
+# more information, an unusable row, no child created); nothing is written.
 set -euo pipefail
 
 die() { echo "answers-to-proposal: $*" >&2; exit 1; }
+
+base_of() {
+  awk '
+    NR == 1 && $0 == "---" { fm = 1; next }
+    fm && $0 == "---" { fm = 0; next }
+    fm { if ($0 ~ /^(repo|branch|worktree):/) print; next }
+    /^## / { keep = ($0 == "## Plan" || $0 == "## Follow-ups") }
+    keep && NF
+  ' "$1" | sha256sum | cut -d' ' -f1
+}
+
+if [ "${1:-}" = --base ]; then
+  [ $# -eq 2 ] && [ -f "$2" ] || die "usage: answers-to-proposal.sh --base <parent-task-file>"
+  base_of "$2"; exit 0
+fi
 
 [ $# -ge 3 ] || die "usage: answers-to-proposal.sh <spec.json> <answers.json> <parent-task-file> [out.md]"
 spec=$1 answers=$2 parent_file=$3
@@ -27,10 +49,10 @@ stem=$(jq -r '.breakdown.parent // empty' "$spec")
 [ -n "$stem" ] || die "spec has no breakdown.parent"
 out=${4:-logs/breakdowns/$stem.md}
 
-# Staleness: spec.base is the parent file's sha256 at publish time.
+# Staleness: spec.base is the parent's base (--base) at publish time.
 base=$(jq -r '.base // empty' "$spec")
-[ -n "$base" ] || die "spec has no base (the parent file's sha256 at publish)"
-now=$(sha256sum "$parent_file" | cut -d' ' -f1)
+[ -n "$base" ] || die "spec has no base (answers-to-proposal.sh --base <parent> at publish)"
+now=$(base_of "$parent_file")
 [ "$base" = "$now" ] || die "parent task $stem changed since the page was published (base ${base:0:12}, now ${now:0:12}); nothing converted, publish a fresh round"
 
 result=$(jq -n --slurpfile spec "$spec" --slurpfile ans "$answers" '
@@ -53,6 +75,7 @@ result=$(jq -n --slurpfile spec "$spec" --slurpfile ans "$answers" '
                     else null end),
           note: (($d.note // "") | trim),
           plan: ($plans[$it.id] // ""),
+          orig: ([ ($it.fields // [])[] | select(.key == "slug") | .value // "" | trim ] | first // ""),
           fields: (reduce ($it.fields // [])[] as $f ({}; .[$f.key] = (($d.fields // {})[$f.key] // $f.value))) } ] as $rows
   | ($rows | map(select(.verdict == null and .note != "")) | first) as $ask
   | if $ask then {error: "row \($ask.id) (\($ask.title)) asks for more information (note: \($ask.note)); nothing converted, answer it and publish a fresh round"}
@@ -75,6 +98,7 @@ result=$(jq -n --slurpfile spec "$spec" --slurpfile ans "$answers" '
               | {id: $m.id, title: $m.title, plan: $m.plan, target: $tgt} ] as $merges
           | ($merges | map(select(.target == null)) | first) as $badmerge
           | if $badmerge then {error: "row \($badmerge.id) (\($badmerge.title)) is a merge but its note names no created child in backticks; nothing converted"}
+            elif ($creates | length) == 0 then {error: "nothing approved: no row is created; nothing converted"}
             else
               ($creates | map(. as $c | $c + {slug: ($c.fields.slug | trim),
                   plan: ([$c.plan] + [ $merges[] | select(.target == ($c.fields.slug | trim)) | "Merged from \(.title):\n\n\(.plan)" ] | map(select(. != "")) | join("\n\n"))})) as $kids
@@ -84,9 +108,21 @@ result=$(jq -n --slurpfile spec "$spec" --slurpfile ans "$answers" '
               | if $cont != null and $contSlug == null then {error: "continuing child (row \($cont)) is not created or merged; nothing converted"}
                 else
                   def esc: gsub("\""; "\\\"");
-                  def deps: split(",") | map(trim | select(. != "") | "`\(.)`") | join(", ");
+                  # a depends_on naming a sibling by its suggested slug follows that
+                  # sibling to its edited slug, or to the child it merged into
+                  ([ $rows[] | select(.orig != "") | . as $r
+                     | ($slugOf[$r.id] // ([$merges[] | select(.id == $r.id) | .target] | first)) as $to
+                     | select($to != null) | {key: $r.orig, value: $to} ] | from_entries) as $renamed
+                  | def deps($self): split(",") | map(trim | select(. != "") | ($renamed[.] // .))
+                      | reduce .[] as $d ([]; if ($d == $self or index($d)) then . else . + [$d] end)
+                      | map("`\(.)`") | join(", ");
                   ($s.breakdown.parent) as $stem | ($s.breakdown.repo) as $repo
-                  | ($s.breakdown.rewrite_plan // null) as $rw
+                  # a row neither created nor merged keeps its plan on the parent,
+                  # since the rewrite was written assuming every suggested child
+                  | ([ $rows[] | select(.verdict != "create" and .verdict != "merge" and .plan != "")
+                       | "Not split out: \(.title)\n\n\(.plan)" ]) as $left
+                  | ($s.breakdown.rewrite_plan // null) as $rw0
+                  | (if $rw0 == null then null else ([$rw0] + $left | join("\n\n")) end) as $rw
                   | ([ ($s.breakdown.moves // [])[] | . as $mv | ($slugOf[$mv.item] // null) as $t
                        | select($t != null) | "- [x] move follow-up: \"\($mv.text | esc)\" → child: `\($t)`" ]) as $moves
                   | ([ ($s.breakdown.moves // [])[] | select($slugOf[.item] == null) | .text ]) as $stayed
@@ -105,7 +141,7 @@ result=$(jq -n --slurpfile spec "$spec" --slurpfile ans "$answers" '
                            "- [x] create child: `\($k.slug)`",
                            "- goal: \($k.fields.goal // "" | trim)",
                            ("- size: \($k.fields.size // "" | trim)" | sub("\\s+$"; "")),
-                           ("- depends_on: \($k.fields.depends_on // "" | deps)" | sub("\\s+$"; "")),
+                           ("- depends_on: \($k.fields.depends_on // "" | deps($k.slug))" | sub("\\s+$"; "")),
                            "<!-- wb-breakdown: begin-plan n=\($i + 1) -->",
                            $k.plan,
                            "<!-- wb-breakdown: end-plan -->",

@@ -20,7 +20,7 @@ plan body for child one
 - [x] create child: `feat-big-two`
 - goal: second slice
 - size: S
-- depends_on: `feat-big-one`
+- depends_on: `feat-big-renamed`
 <!-- wb-breakdown: begin-plan n=2 -->
 plan body for child two
 <!-- wb-breakdown: end-plan -->
@@ -30,5 +30,9 @@ plan body for child two
 - [x] rewrite parent ## Plan as below
 <!-- wb-breakdown: begin-plan parent -->
 post split summary
+
+Not split out: Third slice
+
+plan body for child three
 <!-- wb-breakdown: end-plan -->
 - [x] move follow-up: "explore wb breakdown verb further" → child: `feat-big-two`

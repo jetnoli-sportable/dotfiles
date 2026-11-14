@@ -363,10 +363,14 @@ still what `wb breakdown --apply` reads; the page only collects Jet's edits.
 
    `continuing` is the row whose child inherits the parent's branch/worktree
    (omit or null for a ticket-seeded parent). A move follows its row's edited slug.
-3. **Set `base`** to the parent task file's checksum, computed exactly as
-   `sha256sum ~/code/tasks/<parent-stem>.md | cut -d' ' -f1`, and write it at
-   the spec's top level. The script uses the same command to detect that the
-   parent changed since publish.
+3. **Set `base`** to
+   `claude/.claude/skills/wb-breakdown/scripts/answers-to-proposal.sh --base ~/code/tasks/<parent-stem>.md`
+   and write it at the spec's top level. It is a checksum of only what the
+   proposal acts on (the parent's repo, branch and worktree lines and its
+   `## Plan` and `## Follow-ups`), so wb's own writes in between (a Handoffs
+   entry from `wb down`, `wb pause`, `wb resume` or `/wb-save`, a status flip)
+   don't refuse a page answered later. The script recomputes it to detect that
+   the parent changed since publish.
 4. **On Submit**, fetch the answers with `ArtifactData`: `list` on `answers`
    (page until there is no `next_cursor`) and `get meta/submitted`. Save
    `{"answers": {"<item id>": <doc>, ...}, "submitted": <meta/submitted doc>}`
@@ -388,9 +392,14 @@ still what `wb breakdown --apply` reads; the page only collects Jet's edits.
    script folds the row's plan body into that child.
 6. **Then step 8 unchanged.** Submitting the page is the approval: the script
    writes the Approve line ticked and every child it emits ticked. Hand the
-   file to `wb breakdown --apply` as is; never hand-edit it. A Submit with
-   nothing chosen and the accept box unticked converts to zero children:
-   report that nothing was approved and stop.
+   file to `wb breakdown --apply` as is; never hand-edit it. A Submit that
+   creates no child is refused by the script ("nothing approved") and writes
+   nothing: report that nothing was approved and stop. A row that is skipped,
+   carried over or left unanswered keeps its plan on the parent: the script
+   appends it to `rewrite_plan` as "Not split out: <title>", since the rewrite
+   was written assuming every suggested child. A `depends_on` naming a sibling
+   by its suggested slug follows that sibling's edited slug, or the child it
+   was merged into.
 
 ### 6. Open the buffer, blocking
 

@@ -91,5 +91,37 @@ assert_match "continuing child gets the migration line with its edited slug" 'mi
 jq '.answers.c3 = {choice:"merge", note:"", fields:{}, fields_changed:false}' "$FX/answers.json" > "$T/a6b.json"
 out="$(bash "$SCRIPT" "$FX/spec.json" "$T/a6b.json" "$FX/parent.md" "$T/p6b.md" 2>&1)"; rc=$?
 assert_eq "merge with no target named refuses" 1 "$rc"
+#     ... and the merged plan is not also kept on the parent as "Not split out"
+/usr/bin/grep -q 'Not split out: Third slice' "$T/p6.md" && bad "a merged row's plan was kept on the parent too" || ok "a merged row's plan is not kept on the parent"
+
+# --- 7. depends_on follows a sibling's edited slug, or the child it merged into
+assert_match "a sibling's renamed slug is followed (fixture: c1 renamed)" '^- depends_on: `feat-big-renamed`$' "$(sed -n '/child 2/,/end-plan/p' "$T/p1.md")"
+jq '.answers.c3 = {choice:"merge", note:"fold into `feat-big-two`", fields:{}, fields_changed:false}
+    | .answers.c1.fields.depends_on = "feat-big-three, feat-big-two"' "$FX/answers.json" > "$T/a7.json"
+out="$(bash "$SCRIPT" "$FX/spec.json" "$T/a7.json" "$FX/parent.md" "$T/p7.md" 2>&1)"; rc=$?
+assert_eq "convert with a dep on a merged row exits 0" 0 "$rc"
+assert_match "a dep on a merged row points at its target, once" '^- depends_on: `feat-big-two`$' "$(sed -n '/child 1/,/end-plan/p' "$T/p7.md")"
+
+# --- 8. a skipped row's plan stays on the parent, after the rewrite
+assert_match "the skipped row's plan follows the rewrite" 'Not split out: Third slice' "$(sed -n '/begin-plan parent/,/end-plan/p' "$T/p1.md")"
+jq 'del(.breakdown.rewrite_plan)' "$FX/spec.json" > "$T/s8.json"
+bash "$SCRIPT" "$T/s8.json" "$FX/answers.json" "$FX/parent.md" "$T/p8.md" >/dev/null 2>&1
+/usr/bin/grep -q 'rewrite parent' "$T/p8.md" && bad "no rewrite_plan, yet a rewrite was emitted" || ok "no rewrite_plan: the parent's Plan is left whole"
+
+# --- 9. nothing created: refused, nothing written
+jq '.answers = {} | .submitted.accept_remaining = false' "$FX/answers.json" > "$T/a9.json"
+out="$(bash "$SCRIPT" "$FX/spec.json" "$T/a9.json" "$FX/parent.md" "$T/p9.md" 2>&1)"; rc=$?
+assert_eq "zero children exits non-zero" 1 "$rc"
+assert_match "it says nothing was approved" 'nothing approved' "$out"
+[ ! -e "$T/p9.md" ] && ok "zero children writes no proposal" || bad "zero children wrote a proposal"
+
+# --- 10. the base ignores wb's own writes (Handoffs, status) but not the Plan
+{ sed 's/^status: planned$/status: doing/' "$FX/parent.md"; printf '\n## Handoffs\n\n### 2026-11-14 18:00 — wb down (auto)\nSession downed.\n'; } > "$T/parent-wb.md"
+assert_eq "a status flip and a Handoffs entry keep the base" "$(bash "$SCRIPT" --base "$FX/parent.md")" "$(bash "$SCRIPT" --base "$T/parent-wb.md")"
+out="$(bash "$SCRIPT" "$FX/spec.json" "$FX/answers.json" "$T/parent-wb.md" "$T/p10.md" 2>&1)"; rc=$?
+assert_eq "so the conversion is not refused" 0 "$rc"
+sed 's/^some big plan$/some bigger plan/' "$FX/parent.md" > "$T/parent-plan.md"
+[ "$(bash "$SCRIPT" --base "$FX/parent.md")" != "$(bash "$SCRIPT" --base "$T/parent-plan.md")" ] && ok "a Plan edit changes the base" || bad "a Plan edit left the base unchanged"
+assert_eq "the fixture's base is the parent's --base" "$(jq -r .base "$FX/spec.json")" "$(bash "$SCRIPT" --base "$FX/parent.md")"
 
 exit "$fail"
