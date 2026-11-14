@@ -6764,6 +6764,7 @@ cmd_done() {
   # applies to it. keep_paths/throw_paths are filled by _wb_done_classify and
   # read again by the handoff record below.
   local -a keep_paths=() throw_paths=()
+  local ny_locked=0
   if [ "$store_only" = 1 ] && [ "${#sweep_flags[@]}" -gt 0 ]; then
     echo "wb done: --keep/--throwaway ignored: a store-only close has no worktree to sort" >&2
   fi
@@ -6785,6 +6786,13 @@ cmd_done() {
     # 3. copy every keeper into the dossier BEFORE the removal (a keeper can sit
     # inside a throwaway directory). Destinations are checked first, so a
     # collision stops the run before anything is written (KTD6).
+    # The /decide marker's own lock is taken here, before the first change (the
+    # keepers copied into the dossier, then the worktree's removal): a held
+    # lock exits 75 with nothing touched. It is held to the marker's removal
+    # at the end, not across the --review buffer above, which can stay open
+    # for minutes and would starve /decide's marker writers.
+    wb_task_lock_acquire_guarded "needs-you-$task_stem" || exit $?
+    ny_locked=1
     local dossier="$TASKS_DIR/dossiers/$task_stem"
     _wb_done_keep_all "$worktree_path" "$dossier" ${keep_paths[@]+"${keep_paths[@]}"} || exit 1
 
@@ -6811,6 +6819,10 @@ cmd_done() {
     # to sort, but --review still opens the task file once.
     wb_open_buffer "$task_file" || exit 1
   fi
+
+  # A close with no worktree to remove (store-only, or one already gone) has
+  # no change to protect before this point; the marker lock is taken here.
+  [ "$ny_locked" = 1 ] || wb_task_lock_acquire_guarded "needs-you-$task_stem" || exit $?
 
   # The one locked burst (KTD6): final status/closed stamps + Handoffs entry — its own
   # lock burst, acquired only now, AFTER the (unlocked) worktree removal
@@ -6863,6 +6875,24 @@ cmd_done() {
   wb_append_handoff "$task_file" "wb done" "$handoff_msg" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (handoff not written)" >&2; exit 1; }
   wb_task_lock_release "$task_file"
+  # R19: the task is done, so what it was waiting on no longer is. Say what
+  # the marker held, then remove it and its lock. (wb down leaves it: a page
+  # outlives its session.)
+  local ny_file ny_line ny_item ny_dropped=""
+  ny_file="$(wb_needs_you_file "$task_stem")"
+  if [ -s "$ny_file" ]; then
+    while IFS= read -r ny_line || [ -n "$ny_line" ]; do
+      case "$ny_line" in
+        buffer\ *) ny_item="${ny_line% * *}" ;;                        # drop the pane and the checksum
+        page\ *)   ny_item="${ny_line#page }"; ny_item="page ${ny_item%% *}" ;;   # drop the rev
+        *) continue ;;
+      esac
+      ny_dropped+="${ny_dropped:+; }$ny_item"
+    done < "$ny_file"
+  fi
+  rm -f "$ny_file"
+  wb_task_lock_release "needs-you-$task_stem"
+  if [ -n "$ny_dropped" ]; then echo "wb done: open /decide surfaces dropped: $ny_dropped"; fi
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
     _wb_capture_verb log-shelved-left "$task_stem" "${#shelved_drafts[@]}" >/dev/null 2>&1 || true
   fi
@@ -7062,6 +7092,19 @@ wb_live_session_row() {
 
   local -a _u; wb_tsv_split "$(wb_session_urgency "$session")" _u
   local urank="${_u[0]}" uicon="${_u[1]}" target="${_u[2]}" ucount="${_u[3]}"
+
+  # An open /decide buffer or page (the needs-you marker, see wb_needs_you_file)
+  # makes the row need Jet whether or not a Claude pane is live: rank 0 and
+  # the "needs you" label, the agent count left alone (it decides whether the
+  # per-agent sub-rows are drawn). The icon "?" instead of the agent pane's
+  # "!" is how wb_format_for_display tells the two apart, so an owner row
+  # marked this way counts even with several agents. A bare -s test on the
+  # path wb_needs_you_file builds (inlined: no fork per row).
+  local _nykey
+  if [ "$kind" = task ]; then _nykey="${ref##*/}"; _nykey="${_nykey%.md}"; else _nykey="$session"; fi
+  if [ -s "${XDG_STATE_HOME:-$HOME/.local/state}/wb/needs-you/$_nykey" ]; then
+    urank=0; uicon="? needs you"
+  fi
 
   # A second argument, even empty, came from list-sessions: --listed.
   case "$visit" in ''|0) visit="$(wb_session_last_attached "$session" ${2+--listed})" ;; esac
@@ -7509,7 +7552,9 @@ wb_format_for_display() {
         # row only repeats the most urgent one, so the sub-row that is
         # waiting counts and the owner row does not: one waiting pane, one
         # count, and `u` lands on the pane itself.
-        nd = (!dorm && !hs && $4 != "" && $4 + 0 == 0 && ($9 == "agent" || $(10) + 0 <= 1))
+        # A /decide marker (icon "?", see wb_live_session_row) is the owner
+        # row itself needing Jet, so it counts however many agents run.
+        nd = (!dorm && !hs && $4 != "" && $4 + 0 == 0 && ($9 == "agent" || $(10) + 0 <= 1 || $5 ~ /^\? /))
         if (dorm) {
           w = lbl; sub(/ .*/, "", w)
           c = (w == "doing") ? ye : (w == "review") ? cy : dim

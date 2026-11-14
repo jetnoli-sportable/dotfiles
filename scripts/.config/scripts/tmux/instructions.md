@@ -54,6 +54,14 @@ current Claude Code (see below) — from one that's still **actively working**.
 | `working`     | yellow `● working` | Mid-turn, or the turn ended while a subagent it launched still runs | `@claude_working=1` marker, **or** (fallback, no hook data) a spinner glyph |
 | `idle`        | grey `· idle`  | Plain-text title, no spinner | fallthrough |
 
+The picker's `needs you` is not only an agent pane's status. A task (or, outside a
+task, a tmux session) with an open `/decide` buffer or page also shows as `needs you`,
+whether or not a Claude pane is live: `wb decide-buffer` / `wb decide-open` write a
+per-task marker file (`~/.local/state/wb/needs-you/<task stem or session name>`) that
+the picker reads on every row. It clears when every open surface has been recorded
+(`wb decide-clear`), or when `wb done` closes the task (`wb done` prints the surfaces
+it drops; `wb down` leaves the marker, since a page outlives its session).
+
 ### How detection works
 
 Claude Code tells tmux part of it through the pane; a Claude Code hook pushes

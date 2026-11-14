@@ -346,5 +346,39 @@ if command -v zsh >/dev/null 2>&1; then
 fi
 rm -rf "$PV"
 
+# --- the /decide needs-you marker: a task (or plain session) with an open
+# buffer or page needs Jet with no Claude pane live (R19, KTD5/KD7) -----------
+NY_STATE="$(mktemp -d -t wb-picker-nystate.XXXXXX)"
+tmux new-session -d -s plainsess -c "$FIXTURE_CODE" 2>/dev/null
+row_field() { printf '%s' "$1" | awk -F'\t' -v n="$2" '{ print $n }'; }
+no_marker="$(XDG_STATE_HOME="$NY_STATE" wb_live_session_row proj--doing-live 0)"
+assert "marker: without one a pane-less task row is rank 3 'no agent'" '^3$' "$(row_field "$no_marker" 4)"
+mkdir -p "$NY_STATE/wb/needs-you"
+printf 'page https://example.test/a r1\n' > "$NY_STATE/wb/needs-you/proj--doing-live"
+marked="$(XDG_STATE_HOME="$NY_STATE" wb_live_session_row proj--doing-live 0)"
+assert "marker: a marked task with no Claude pane is rank 0" '^0$' "$(row_field "$marked" 4)"
+assert "marker: ... labelled needs you" ' needs you$' "$(row_field "$marked" 5)"
+assert "marker: ... with the agent count left at 0" '^0$' "$(row_field "$marked" 10)"
+printf 'buffer /tmp/x.md %%1 abc\n' > "$NY_STATE/wb/needs-you/plainsess"
+plain="$(XDG_STATE_HOME="$NY_STATE" wb_live_session_row plainsess 0)"
+assert "marker: a plain session is keyed by its name and needs you" '^0$' "$(row_field "$plain" 4)"
+assert "marker: ... labelled needs you" ' needs you$' "$(row_field "$plain" 5)"
+: > "$NY_STATE/wb/needs-you/plainsess"
+empty="$(XDG_STATE_HOME="$NY_STATE" wb_live_session_row plainsess 0)"
+assert "marker: an empty marker file does not count" '^3$' "$(row_field "$empty" 4)"
+
+# Through the display pass: counted once, and a multi-agent owner still counts.
+snap="$NY_STATE/live.snap"
+ny_row() { printf '%s\n' "$marked" | awk -F'\t' -v OFS='\t' -v c="$1" '{ $10 = c; print }'; }
+agent_row="$(printf 'proj\tpane-1\t[b]\t3\t- idle\t\tproj--doing-live\t/x\tagent\t1\t\t\t0')"
+printf '%s\n' "$(ny_row 0)" | WB_PICKER_SESSION=other wb_format_for_display "$snap" >/dev/null
+assert "marker: the snapshot counts a pane-less marked task" '^count	1$' "$(head -1 "$snap")"
+printf '%s\n%s\n' "$(ny_row 2)" "$agent_row" | WB_PICKER_SESSION=other wb_format_for_display "$snap" >/dev/null
+assert "marker: a marked task with two agents counts once, on the owner row" '^count	1$' "$(head -1 "$snap")"
+assert "marker: ... and the owner row is the position u lands on" '^1	proj--doing-live	1	' "$(sed -n 2p "$snap")"
+mf="$NY_STATE/mode"; vf="$NY_STATE/view"; echo normal > "$mf"; echo live > "$vf"; cp "$snap" "$vf.snap"
+assert "marker: _next_needs selects the marked row" '^pos\(1\)$' "$(FZF_POS=0 _next_needs "$mf" "$vf")"
+rm -rf "$NY_STATE"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
