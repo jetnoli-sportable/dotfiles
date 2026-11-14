@@ -9,8 +9,11 @@
 # A plugin- or path-prefixed name ("plugin:skill", "apps/web:deploy")
 # normalizes to its bare trailing segment, so both invocation shapes and
 # both prefix forms merge into one count per skill. A slash-command tag on a
-# tool-call or tool-result line is skipped: that is a session mentioning the
-# skill (e.g. an audit grepping for it), not running it.
+# tool-call, tool-result or assistant line is skipped: that is a session
+# mentioning the skill (e.g. an audit grepping for it), not running it.
+# Claude Code's `api-request-blob` records (a saved copy of each request,
+# repeating earlier turns) are skipped for both patterns, or every use
+# would count twice.
 #
 # BLIND SPOT — stated here AND in every run's own output, not just this
 # comment: a skill invoked by natural-language description alone (no
@@ -98,20 +101,23 @@ if [ -d "$TRANSCRIPTS_DIR" ]; then
     fdate="$(date -r "$f" +%F 2>/dev/null)" || continue
 
     # A real slash command is a plain user message. The same tag inside a
-    # tool call or tool result is a session talking about the skill (e.g.
-    # grepping transcripts for it), so those lines are skipped. Only this
-    # pattern is filtered: a real Skill-tool call below IS a tool_use line.
+    # tool call, a tool result or Claude's own reply is a session talking
+    # about the skill (e.g. grepping transcripts for it), so those lines are
+    # skipped. Only this pattern skips tool_use and assistant lines: a real
+    # Skill-tool call below IS an assistant tool_use line. Both patterns skip
+    # api-request-blob records, which repeat lines already in the file.
     while IFS= read -r raw; do
       [ -n "$raw" ] || continue
       _skill_usage_record "$(_skill_usage_normalize "$raw")" "$fdate"
-    done < <(grep -vE '"type":"(tool_use|tool_result)"' "$f" 2>/dev/null \
+    done < <(grep -vE '"type":"(tool_use|tool_result|api-request-blob)"|"role":"assistant"' "$f" 2>/dev/null \
                | grep -oE '<command-name>/[A-Za-z0-9_./:-]+</command-name>' \
                | sed -E 's#^<command-name>/##; s#</command-name>$##')
 
     while IFS= read -r raw; do
       [ -n "$raw" ] || continue
       _skill_usage_record "$(_skill_usage_normalize "$raw")" "$fdate"
-    done < <(grep -oE '"name":"Skill","input":\{"skill":"[A-Za-z0-9_./:-]+"' "$f" 2>/dev/null \
+    done < <(grep -v '"type":"api-request-blob"' "$f" 2>/dev/null \
+               | grep -oE '"name":"Skill","input":\{"skill":"[A-Za-z0-9_./:-]+"' \
                | sed -E 's#.*"skill":"##; s#"$##')
   done
 fi
