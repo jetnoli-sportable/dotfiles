@@ -310,3 +310,249 @@ cmd_decide_clear() {
   wb_task_lock_release "needs-you-$WB_DECIDE_KEY"
   exit 0
 }
+
+# _wb_decision_trim <text> — drop leading and trailing whitespace.
+_wb_decision_trim() {
+  local t="$1"
+  t="${t#"${t%%[![:space:]]*}"}"
+  t="${t%"${t##*[![:space:]]}"}"
+  printf '%s' "$t"
+}
+
+# _wb_decision_read <record file> — sets WB_DEC_TITLE (the first `# ` line
+# after the frontmatter, trailing space trimmed) and WB_DEC_BODY (what follows
+# it, whitespace-trimmed at both ends).
+_wb_decision_read() {
+  local text first rest=""
+  text="$(awk 'c >= 2 { print; next } /^---$/ { c++ }' "$1")"
+  first="${text%%$'\n'*}"
+  if [[ "$text" == *$'\n'* ]]; then rest="${text#*$'\n'}"; fi
+  first="${first#"# "}"
+  WB_DEC_TITLE="$(_wb_decision_trim "$first")"
+  WB_DEC_BODY="$(_wb_decision_trim "$rest")"
+}
+
+# cmd_decision [--task <ref>] [--default] "<title>" — record one answer (body
+# on stdin) in the task's Decisions, under the task lock. On a dossier task a
+# record with the same title as an in-force one (exact match, trailing spaces
+# ignored) supersedes it, the old file kept and marked superseded; an
+# identical body writes nothing. --default marks the record "default taken" by
+# a first body line `Default taken.` (the only way a later lookup can tell it
+# from Jet's own answer): it never supersedes a live record without that
+# line, and writes a new entry naming it instead. An answer from Jet
+# supersedes every live record of its title, defaults included. A legacy task
+# gets the entry appended under `## Decisions`, saying it supersedes the
+# earlier one of the same title.
+cmd_decision() {
+  local usage='usage: wb decision [--task <task>] [--default] "<title>"   (body on stdin; title matched exactly, trailing spaces ignored; --default writes a "Default taken." first line and never supersedes Jet'"'"'s answer)'
+  local isdef=0 args=() a title body file dir f stamp text
+  for a in "$@"; do
+    if [ "$a" = --default ]; then isdef=1; else args+=("$a"); fi
+  done
+  if ! _wb_decide_has_task_source "${args[@]+"${args[@]}"}"; then
+    echo "wb decision: no task given and this isn't a tmux pane in one; pass --task <task>" >&2; exit 1
+  fi
+  _wb_decide_target decision "${args[@]+"${args[@]}"}" || exit 1
+  file="$WB_DECIDE_TASK"
+  [ -n "$file" ] || { echo "wb decision: not in a task; pass --task <task>" >&2; exit 1; }
+  if [ "${#WB_DECIDE_ARGS[@]}" -ne 1 ] || [ -z "$(_wb_decision_trim "${WB_DECIDE_ARGS[0]}")" ]; then
+    echo "$usage" >&2; exit 1
+  fi
+  title="$(_wb_decision_trim "${WB_DECIDE_ARGS[0]}")"
+  body="$(cat)"
+  if _wb_blank_only "$body"; then echo "wb decision: empty body — nothing to write" >&2; exit 1; fi
+  body="$(_wb_decision_trim "$body")"
+  if [ "$isdef" = 1 ]; then body="Default taken."$'\n'"$body"; fi
+  stamp="### $(date '+%Y-%m-%d %H:%M') — $title"
+
+  _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_task_lock_acquire_guarded "$file" || exit $?
+
+  if ! _wb_is_dossier "$file"; then
+    # Legacy task: the entry goes under ## Decisions; it says it supersedes
+    # an earlier one only for an answer (a default claims nothing).
+    local sec h
+    sec="$(awk '/^## /{ in_d = ($0 == "## Decisions"); next } in_d' "$file")"
+    text="$stamp"$'\n'
+    if [ "$isdef" = 0 ]; then
+      while IFS= read -r h; do
+        [[ "$h" == "### "*" — "* ]] || continue
+        if [ "$(_wb_decision_trim "${h#* — }")" = "$title" ]; then
+          text+="Supersedes the earlier entry of the same title."$'\n'; break
+        fi
+      done <<< "$sec"
+    fi
+    text+="$body"
+    _wb_append_under_heading "$file" Decisions "$text"
+    wb_task_lock_release "$file"
+    echo "wb decision: appended under \"## Decisions\" in $(basename -- "$file")"
+    return 0
+  fi
+
+  dir="$(_wb_dossier_dir "$file")/decisions"
+  local ids=() isdefs=() bodies=() titles=() id
+  if [ -d "$dir" ]; then
+    while IFS= read -r f; do
+      case "$f" in *.md) ;; *) continue ;; esac
+      [ "$(wb_get_frontmatter "$dir/$f" status)" = in-force ] || continue
+      _wb_decision_read "$dir/$f"
+      [ "$WB_DEC_TITLE" = "$title" ] || continue
+      ids+=("${f%.md}"); titles+=("$WB_DEC_TITLE"); bodies+=("$WB_DEC_BODY")
+      if [ "${WB_DEC_BODY%%$'\n'*}" = "Default taken." ]; then isdefs+=(1); else isdefs+=(0); fi
+    done < <(LC_ALL=C ls "$dir" 2>/dev/null)
+  fi
+
+  # Which live records this one supersedes (indexes into ids), and the answer
+  # a default must leave alone.
+  local sup=() i ans=""
+  if [ "$isdef" = 1 ]; then
+    for i in "${!ids[@]}"; do [ "${isdefs[$i]}" = 0 ] && ans="${ids[$i]}"; done
+    if [ -n "$ans" ]; then
+      body+=$'\n\n'"Not superseding $ans: that answer stays in force."
+    else
+      for i in "${!ids[@]}"; do sup+=("$i"); done
+    fi
+  else
+    for i in "${!ids[@]}"; do sup+=("$i"); done
+  fi
+  if [ "${#ids[@]}" -gt 0 ]; then
+    i=$((${#ids[@]} - 1))
+    if [ "$body" = "${bodies[$i]}" ]; then
+      wb_task_lock_release "$file"
+      echo "wb decision: unchanged — ${ids[$i]} already says this"
+      return 0
+    fi
+  fi
+
+  local newest=""
+  [ "${#sup[@]}" -eq 0 ] || newest="${ids[${sup[$((${#sup[@]} - 1))]}]}"
+  if ! _wb_record_write_file "$file" decisions "$newest" "$stamp"$'\n\n'"$body"; then
+    wb_task_lock_release "$file"; exit 1
+  fi
+  local new="$WB_RECORD_ID" list="" said="" bad=0
+  for i in "${sup[@]+"${sup[@]}"}"; do
+    id="${ids[$i]}"
+    list+="${list:+, }$id"
+    said+="${said:+, }$id \"${titles[$i]}\""
+    if ! wb_set_frontmatter_field "$dir/$id.md" status superseded \
+       || ! wb_set_frontmatter_field "$dir/$id.md" superseded_by "[$new]"; then
+      bad=1; echo "wb decision: wrote $new but could not mark '$id' superseded; fix $dir/$id.md by hand (status: superseded, superseded_by: [$new])" >&2
+    fi
+  done
+  if [ "${#sup[@]}" -gt 1 ]; then wb_set_frontmatter_field "$dir/$new.md" supersedes "[$list]" || bad=1; fi
+  wb_render_views "$file"
+  wb_task_lock_release "$file"
+  [ "$bad" = 0 ] || exit 1
+  if [ -n "$said" ]; then
+    echo "wb decision: wrote $new in $(basename -- "$file") (supersedes $said)"
+  elif [ -n "$ans" ]; then
+    echo "wb decision: wrote $new in $(basename -- "$file") (default taken; $ans stays in force)"
+  else
+    echo "wb decision: wrote $new in $(basename -- "$file")"
+  fi
+}
+
+# _wb_decide_has_task_source [args…] — a --task is among the args, or the
+# caller is in a tmux pane; the check _wb_decide_target's own message about
+# markers would answer misleadingly for a verb that writes to a task.
+_wb_decide_has_task_source() {
+  local a
+  for a in "$@"; do [ "$a" = --task ] && return 0; done
+  [ -n "${TMUX_PANE:-}" ]
+}
+
+# cmd_decide_spec_check [--previous <spec>] <spec.json> — check a /decide page
+# spec against the rules in claude/.claude/skills/decide/references/page-spec.md
+# ("Checker rules"): printed one problem per line, naming the item, exit 1;
+# `ok: <n> items` and exit 0 when clean. Top-level keys it doesn't know
+# (/wb-breakdown's `breakdown`) are the page's to ignore, so they pass.
+# With --previous, an item id present in both specs must keep its title and
+# its option ids, so an old answer never attaches to a changed question.
+cmd_decide_spec_check() {
+  local usage="usage: wb decide-spec-check [--previous <spec>] <spec.json>"
+  local spec="" prev="" out
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --previous) [ $# -ge 2 ] || { echo "$usage" >&2; exit 1; }; prev="$2"; shift 2 ;;
+      *) [ -z "$spec" ] || { echo "$usage" >&2; exit 1; }; spec="$1"; shift ;;
+    esac
+  done
+  [ -n "$spec" ] || { echo "$usage" >&2; exit 1; }
+  command -v jq >/dev/null 2>&1 || { echo "wb decide-spec-check: jq isn't on the PATH" >&2; exit 1; }
+  [ -f "$spec" ] || { echo "wb decide-spec-check: no such file: $spec" >&2; exit 1; }
+  jq -e . "$spec" >/dev/null 2>&1 || { echo "wb decide-spec-check: $spec is not valid JSON" >&2; exit 1; }
+  if [ -n "$prev" ]; then
+    { [ -f "$prev" ] && jq -e . "$prev" >/dev/null 2>&1; } || { echo "wb decide-spec-check: $prev is not a readable JSON spec" >&2; exit 1; }
+  else
+    prev=/dev/null
+  fi
+  out="$(jq -r --slurpfile prev "$prev" '
+    def nm($i): "item " + (if (.id | type) == "string" and .id != "" then .id else "#\($i + 1)" end);
+    def sid: (.id | type) == "string" and .id != "";
+    def oids: [(.options // [])[]? | objects | .id];
+    . as $s
+    | ($s.layout) as $lay
+    | ([($s.verdicts // [])[]? | objects | .id]) as $vids
+    | ($s.items | type == "array") as $haveitems
+    | [
+        (if ($s.title | type) != "string" or $s.title == "" then "spec: title is required" else empty end),
+        (if ($lay == "items" or $lay == "verdicts") | not then "spec: layout must be \"items\" or \"verdicts\"" else empty end),
+        (if $haveitems | not then "spec: items must be a list" else empty end),
+        (if $lay == "verdicts" then
+           (if ($s.verdicts | type) != "array" or ($s.verdicts | length) < 2 then "spec: verdicts layout needs at least two verdicts" else empty end),
+           (($s.verdicts // []) | if type == "array" then . else [] end | to_entries[]
+             | .value as $v
+             | (if ($v | type) != "object" or ($v.id | type) != "string" or ($v.label | type) != "string" then "spec: verdict #\(.key + 1) needs an id and a label" else empty end),
+               (if ($v | type) == "object" and ($v | has("tone")) and (["neutral","good","bad","info","warn"] | index($v.tone) | not) then "spec: verdict \($v.id // "#\(.key + 1)") has an unknown tone" else empty end)),
+           ([$vids[] | select(. != null)] | group_by(.)[] | select(length > 1) | "spec: verdict id \(.[0]) is not unique")
+         else empty end),
+        (if $haveitems then
+           ($s.items | to_entries[] | .key as $i | .value as $it
+             | if ($it | type) != "object" then "item #\($i + 1): must be an object"
+               else $it | nm($i) as $n
+                 | (if sid | not then "\($n): needs an id" else empty end),
+                   (if (.title | type) != "string" or .title == "" then "\($n): needs a title" else empty end),
+                   (if $lay == "items" then
+                      (if (.options | type) != "array" or (.options | length) < 2 then "\($n): items layout needs at least two options"
+                       else
+                         (.options | to_entries[] | select((.value | type) != "object" or (.value.id | type) != "string" or (.value.label | type) != "string") | "\($n): option #\(.key + 1) needs an id and a label"),
+                         ([oids[] | select(. != null)] | group_by(.)[] | select(length > 1) | "\($n): option id \(.[0]) is not unique")
+                       end),
+                      (if has("default") and ((oids | index($it.default)) | not) then "\($n): default \(.default) is not one of its option ids" else empty end)
+                    else empty end),
+                   (if has("suggested") and (($vids | index($it.suggested)) | not) then "\($n): suggested \(.suggested) is not a verdict id" else empty end),
+                   (if $lay == "verdicts" and has("suggested") and ((.reason | type) != "string" or .reason == "") then "\($n): has a suggested but no reason" else empty end),
+                   (if (.blocks | type) == "array" then
+                      (.blocks[] | . as $b | if type != "object" then "\($n): block must be an object"
+                       elif (["text","code","table","svg","mermaid","links"] | index($b.type)) | not then "\($n): unknown block type \"\($b.type)\""
+                       elif .type == "svg" and ((.svg // "") | tostring | test("<script|(^|[\\s\"/<>\\x27])on[a-z]+\\s*=|foreignobject|javascript:"; "i")) then "\($n): svg block has a script, an on* attribute, foreignObject or a javascript: link"
+                       else empty end)
+                    else empty end),
+                   (if .kind == "triage" then
+                      (if $lay != "items" then "\($n): triage items need the items layout"
+                       else
+                         (.options // []) as $o
+                         | ([$o[]? | select(.recommended == true)] | length) as $rec
+                         | ([$o[]? | select(.id != "defer" and .id != "skip")] | length) as $real
+                         | (if $rec != 1 then "\($n): triage needs exactly one recommended option" else empty end),
+                           (if [$o[]? | select(.recommended == true and (.id == "defer" or .id == "skip"))] | length > 0 then "\($n): defer and skip are never recommended" else empty end),
+                           (if $real < 2 then "\($n): triage needs the recommended fix and at least one real alternative besides defer and skip" else empty end),
+                           (if ([$o[]?.id] | .[-2:]) != ["defer","skip"] then "\($n): triage needs defer then skip as its last two options" else empty end)
+                       end)
+                    else empty end)
+               end),
+           ([$s.items[]? | objects | select(sid) | .id] | group_by(.)[] | select(length > 1) | "item \(.[0]): id is not unique"),
+           (if ($prev | length) > 0 and ($prev[0].items | type) == "array" then
+              ($prev[0].items | map(select(type == "object" and sid) | {key: .id, value: .}) | from_entries) as $old
+              | ($s.items[]? | objects | select(sid) | . as $it | $old[$it.id] as $o | select($o != null)
+                 | (if $it.title != $o.title then "item \($it.id): its question changed since the previous spec; give it a new id" else empty end),
+                   (if ([$it | oids[]?] | sort) != ([$o | oids[]?] | sort) then "item \($it.id): its options changed since the previous spec; give it a new id" else empty end))
+            else empty end)
+         else empty end)
+      ] | unique_by(.) as $_ | .[]' "$spec")" || { echo "wb decide-spec-check: could not check $spec" >&2; exit 1; }
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out"
+    exit 1
+  fi
+  echo "ok: $(jq '.items | length' "$spec") items"
+}

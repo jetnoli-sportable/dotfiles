@@ -95,6 +95,16 @@
 #   wb decide-clear <file|url> | --all [--task <task>]
 #                                    drop a surface's needs-you mark once its answers are recorded;
 #                                    the marker goes with the last one
+#   wb decision [--task <task>] [--default] "<title>"
+#                                    record one answer (body on stdin) in the task's Decisions under
+#                                    the lock; the same title again (case-sensitive, trailing spaces
+#                                    ignored) supersedes the live entry, an identical body writes
+#                                    nothing, and --default (body gets a "Default taken." first line)
+#                                    never supersedes an answer Jet gave. Prints what it superseded
+#   wb decide-spec-check [--previous <spec>] <spec.json>
+#                                    check a /decide page spec against the page-spec rules (and with
+#                                    --previous, that no item's question or options changed under
+#                                    the same id); prints one problem per line, exit 1 on any
 #   wb followups <task>              list <task>'s OPEN follow-ups, one per line as <ref><TAB><title>;
 #                                    <ref> is the open-items file id
 #   wb followup-done <task> <ref> [<note>|-]
@@ -8801,6 +8811,8 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     decide-buffer) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_buffer "$@" ;;
     decide-open)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_open "$@" ;;
     decide-clear)  shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_clear "$@" ;;
+    decision)      shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decision "$@" ;;
+    decide-spec-check) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_spec_check "$@" ;;
     views)       shift; cmd_views "$@" ;;
     family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;
