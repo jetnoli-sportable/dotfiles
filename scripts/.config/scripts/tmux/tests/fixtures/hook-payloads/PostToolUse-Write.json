@@ -1,0 +1,26 @@
+{
+  "session_id": "__SESSION_ID__",
+  "transcript_path": "__TRANSCRIPT__",
+  "cwd": "__CWD__",
+  "prompt_id": "__PROMPT_ID__",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "__CWD__/hello.txt",
+    "content": "hi"
+  },
+  "tool_response": {
+    "type": "create",
+    "filePath": "__CWD__/hello.txt",
+    "content": "hi",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+  },
+  "tool_use_id": "__TOOL_USE_ID__",
+  "duration_ms": 12
+}
