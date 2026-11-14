@@ -3951,6 +3951,33 @@ _wb_resolve_session_and_task() {
   [ -f "$_wb_rst_task" ] || { echo "wb $_wb_rst_verb: no task file for $_wb_rst_session ($_wb_rst_task)" >&2; exit 1; }
 }
 
+# _wb_down_shelf_warn <task-file> <closing: 1|0> — the first thing wb down and wb pause do
+# (KTD11): print how many decision drafts the task's shelf holds and, at a terminal, wait
+# for one key (Ctrl-C then leaves nothing written and the session open). Before any
+# write because a line printed after the session is killed is lost with the pane. The
+# count ignores the capture kill switch, like wb done's shelf check; a missing capture
+# script prints nothing, so no line. Sets _WB_DOWN_PAUSED=1 when it waited, so the
+# picker's _down can fold its own prompt into this one. Never refuses.
+_WB_DOWN_PAUSED=0
+_wb_down_shelf_warn() {
+  local stem n
+  _WB_DOWN_PAUSED=0
+  stem="$(basename -- "$1" .md)"
+  n="$(_wb_capture_verb shelved --count --task "$stem" 2>/dev/null)" || return 0
+  [[ "$n" =~ ^[0-9]+$ ]] && [ "$((10#$n))" -gt 0 ] || return 0
+  echo "wb down: $((10#$n)) shelved decision draft(s) not yet reviewed — list them: wb-capture.sh shelved --task $stem"
+  if [ -t 0 ]; then
+    if [ "$2" = 1 ]; then
+      read -rn1 -p "wb down: press any key to close, Ctrl-C to keep the session "
+    else
+      read -rn1 -p "wb down: press any key to continue (the session stays open), Ctrl-C to cancel "
+    fi
+    echo
+    _WB_DOWN_PAUSED=1
+  fi
+  return 0
+}
+
 # cmd_down [--keep-session] [<session>] — close <session> (or the current
 # one) while leaving the worktree untouched: snapshot every conversation
 # id currently on disk for the worktree into claude_sessions: (record-only,
@@ -3963,19 +3990,23 @@ _wb_resolve_session_and_task() {
 # picker). Typing `wb down` yourself from inside your own session is
 # intentional self-close and stays unguarded here, same precedent as
 # `wb done --close` (_ctrl_x's own header comment).
+# It first warns when the task's shelf still holds decision drafts (see
+# _wb_down_shelf_warn): one line, then a one-key pause at a terminal.
 cmd_down() {
-  local keep_session=0 no_status_flip=0
+  local keep_session=0 no_status_flip=0 shelf_warned=0
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --keep-session)   keep_session=1; shift ;;
       --no-status-flip) no_status_flip=1; shift ;;
+      --shelf-warned)   shelf_warned=1; shift ;;   # cmd_pause already warned, before its own writes
       *)                args+=("$1"); shift ;;
     esac
   done
 
   local session task_file
   _wb_resolve_session_and_task down session task_file "${args[0]:-}"
+  [ "$shelf_warned" = 1 ] || _wb_down_shelf_warn "$task_file" "$((1 - keep_session))"
 
   local repo branch worktree_rel worktree_path
   repo="$(wb_get_frontmatter "$task_file" repo)"
@@ -4041,6 +4072,9 @@ cmd_pr_open() {
 cmd_pause() {
   local session task_file
   _wb_resolve_session_and_task pause session task_file "${1:-}"
+  # Warn before the status write below: Ctrl-C at the prompt must not leave a paused
+  # task with a live session (cmd_down is told not to warn a second time).
+  _wb_down_shelf_warn "$task_file" 1
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
@@ -4054,7 +4088,7 @@ cmd_pause() {
   # cmd_down's own inferred review flip, or a task paused while its branch
   # already has an open PR would silently end at status:review instead of
   # the paused status just printed above.
-  cmd_down --no-status-flip "$session"
+  cmd_down --no-status-flip --shelf-warned "$session"
 }
 
 # ---------------------------------------------------------------------------
@@ -8438,6 +8472,11 @@ _down() {
     if ! cmd_down --keep-session "$session"; then
       read -rn1 -p "wb: down failed — press any key "
       return 1
+    fi
+    # the shelf-draft prompt already held the terminal: say this without a second wait
+    if [ "$_WB_DOWN_PAUSED" = 1 ]; then
+      echo "wb: not closing '$session' via p — it's your current session; run 'wb down' yourself once you're ready"
+      return 0
     fi
     read -rn1 -p "wb: not closing '$session' via p — it's your current session; run 'wb down' yourself once you're ready — press any key "
     return 0
