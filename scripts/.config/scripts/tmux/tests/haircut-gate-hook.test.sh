@@ -23,8 +23,14 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 g() { git -c core.hooksPath=/dev/null -c commit.gpgsign=false "$@"; }
 
 fail=0
-[ -x "$GATE" ] || { echo "FAIL - gate is not executable (Claude Code runs it directly): $GATE"; fail=1; }
-[ -f "$FIX/PreToolUse-Skill.json" ] || { echo "FAIL - missing fixtures in $FIX"; exit 1; }
+[ -x "$GATE" ] || {
+  echo "FAIL - gate is not executable (Claude Code runs it directly): $GATE"
+  fail=1
+}
+[ -f "$FIX/PreToolUse-Skill.json" ] || {
+  echo "FAIL - missing fixtures in $FIX"
+  exit 1
+}
 
 # new_repo <name>: clone of a bare origin whose HEAD is `development`, on
 # branch feat/x with one shared commit on development.
@@ -33,15 +39,19 @@ new_repo() {
   g init -q --bare -b development "$d.origin"
   g clone -q "$d.origin" "$d" 2>/dev/null
   g -C "$d" checkout -q -b development 2>/dev/null
-  echo base >"$d/base.txt"; g -C "$d" add -A; g -C "$d" commit -q -m "base"
+  echo base >"$d/base.txt"
+  g -C "$d" add -A
+  g -C "$d" commit -q -m "base"
   g -C "$d" push -q origin development
   g -C "$d" remote set-head origin development >/dev/null
   g -C "$d" checkout -q -b feat/x
   echo "$d"
 }
 commit() { # <repo> <file> <subject>: commit a change to <file>
-  mkdir -p "$(dirname "$1/$2")"; echo "$3 $RANDOM" >>"$1/$2"
-  g -C "$1" add -A; g -C "$1" commit -q -m "$3"
+  mkdir -p "$(dirname "$1/$2")"
+  echo "$3 $RANDOM" >>"$1/$2"
+  g -C "$1" add -A
+  g -C "$1" commit -q -m "$3"
 }
 HC='chore: trim comments (haircut)'
 
@@ -58,22 +68,36 @@ run() { "$GATE" 2>/dev/null; }
 check() { # <label> <expected: allow|deny|block> <payload-json>
   local out got
   out="$(printf '%s' "$3" | run)"
-  if [ -z "$out" ]; then got=allow
-  elif [ "$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<<"$out")" = deny ]; then got=deny
-  elif [ "$(jq -r '.decision // empty' <<<"$out")" = block ]; then got=block
+  if [ -z "$out" ]; then
+    got=allow
+  elif [ "$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<<"$out")" = deny ]; then
+    got=deny
+  elif [ "$(jq -r '.decision // empty' <<<"$out")" = block ]; then
+    got=block
   else got="odd:$out"; fi
-  if [ "$got" = "$2" ]; then echo "ok   - $1: $2"; else echo "FAIL - $1: expected $2, got $got"; fail=1; fi
+  if [ "$got" = "$2" ]; then echo "ok   - $1: $2"; else
+    echo "FAIL - $1: expected $2, got $got"
+    fail=1
+  fi
   LAST="$out"
 }
 CR=compound-engineering:ce-code-review
 
 # --- Skill events -----------------------------------------------------
-r="$(new_repo a)"; commit "$r" src/app.sh "add app"
+r="$(new_repo a)"
+commit "$r" src/app.sh "add app"
 check "unswept code commit" deny "$(skill_payload $CR "" "$r")"
 reason="$(jq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$LAST")"
 case "$reason" in *"/haircut"*"add app"*) echo "ok   - deny reason names /haircut and the code commit" ;;
-  *) echo "FAIL - deny reason: $reason"; fail=1 ;; esac
-[ "$(jq -r '.hookSpecificOutput.hookEventName' <<<"$LAST")" = PreToolUse ] || { echo "FAIL - hookEventName"; fail=1; }
+*)
+  echo "FAIL - deny reason: $reason"
+  fail=1
+  ;;
+esac
+[ "$(jq -r '.hookSpecificOutput.hookEventName' <<<"$LAST")" = PreToolUse ] || {
+  echo "FAIL - hookEventName"
+  fail=1
+}
 check "bare skill name, no args key" deny "$(skill_payload ce-code-review NOARGS "$r")"
 
 commit "$r" src/app.sh "$HC"
@@ -85,17 +109,21 @@ commit "$r" docs/plan.txt "docs only"
 commit "$r" notes.md "md only"
 check "haircut then docs/md-only commits" allow "$(skill_payload $CR "" "$r")"
 
-r="$(new_repo b)"; commit "$r" src/a.sh "code"
+r="$(new_repo b)"
+commit "$r" src/a.sh "code"
 g -C "$r" commit -q --allow-empty -m 'chore: trim comments (haircut, nothing to trim)'
 check "empty nothing-to-trim haircut (R10)" allow "$(skill_payload $CR "" "$r")"
 
-r="$(new_repo c)"; commit "$r" docs/a.txt "docs"; commit "$r" b.md "md"
+r="$(new_repo c)"
+commit "$r" docs/a.txt "docs"
+commit "$r" b.md "md"
 check "only docs/md commits" allow "$(skill_payload $CR "" "$r")"
 r="$(new_repo d)"
 check "no commits ahead of default" allow "$(skill_payload $CR "" "$r")"
 
 # --- args: other targets pass, own branch does not ------------------------
-r="$(new_repo e)"; commit "$r" src/a.sh "code"
+r="$(new_repo e)"
+commit "$r" src/a.sh "code"
 g -C "$r" branch other-branch development
 check "args: PR number" allow "$(skill_payload $CR 123 "$r")"
 check "args: PR URL" allow "$(skill_payload $CR https://github.com/o/r/pull/45 "$r")"
@@ -111,7 +139,11 @@ check "other skill: ce-plan" allow "$(skill_payload ce-plan "" "$r")"
 # --- UserPromptSubmit -------------------------------------------------
 check "typed /ce-code-review" block "$(prompt_payload UserPromptSubmit-ce-code-review.json "$r")"
 reason="$(jq -r '.reason' <<<"$LAST")"
-case "$reason" in *"/haircut"*"code"*) echo "ok   - block reason names /haircut" ;; *) echo "FAIL - block reason: $reason"; fail=1 ;; esac
+case "$reason" in *"/haircut"*"code"*) echo "ok   - block reason names /haircut" ;; *)
+  echo "FAIL - block reason: $reason"
+  fail=1
+  ;;
+esac
 check "typed plugin-qualified with base:development" block "$(prompt_payload UserPromptSubmit-ce-code-review-base-development.json "$r")"
 check "typed command naming a PR" allow "$(prompt_payload UserPromptSubmit-ce-code-review.json "$r" "/ce-code-review 123")"
 check "prose mentioning code review" allow "$(prompt_payload UserPromptSubmit-ce-code-review.json "$r" "please do a ce-code-review later")"
@@ -119,9 +151,12 @@ check "longer command name is not a match" allow "$(prompt_payload UserPromptSub
 
 # --- cases the gate cannot evaluate pass -------------------------------
 check "not a git repo" allow "$(skill_payload $CR "" "$ROOT")"
-r="$(new_repo f)"; commit "$r" src/a.sh "code"; g -C "$r" checkout -q --detach
+r="$(new_repo f)"
+commit "$r" src/a.sh "code"
+g -C "$r" checkout -q --detach
 check "detached HEAD" allow "$(skill_payload $CR "" "$r")"
-r="$(new_repo g)"; commit "$r" src/a.sh "code"
+r="$(new_repo g)"
+commit "$r" src/a.sh "code"
 g -C "$r" remote remove origin
 check "no resolvable default branch" allow "$(skill_payload $CR "" "$r")"
 check "garbage stdin" allow "not json"
@@ -129,11 +164,17 @@ check "garbage stdin" allow "not json"
 # --- lib-review-target.sh, direct -------------------------------------
 # shellcheck source=/dev/null
 . "$LIB"
-r="$(new_repo h)"; commit "$r" src/a.sh "code"; g -C "$r" branch other-branch development
+r="$(new_repo h)"
+commit "$r" src/a.sh "code"
+g -C "$r" branch other-branch development
 g -C "$r" update-ref refs/remotes/origin/remote-only development
 tgt() { # <expected: other|own> <args>
-  local got=own; review_target_is_other "$r" "$2" && got=other
-  if [ "$got" = "$1" ]; then echo "ok   - target $1: $2"; else echo "FAIL - target expected $1, got $got: $2"; fail=1; fi
+  local got=own
+  review_target_is_other "$r" "$2" && got=other
+  if [ "$got" = "$1" ]; then echo "ok   - target $1: $2"; else
+    echo "FAIL - target expected $1, got $got: $2"
+    fail=1
+  fi
 }
 tgt other "123"
 tgt other "#123"
@@ -144,19 +185,22 @@ tgt other "origin/remote-only"
 # shellcheck disable=SC2016
 tgt other 'review `other-branch`.'
 tgt other "origin/development...other-branch"
-tgt own   ""
-tgt own   "Review branch feat/x against origin/development"
-tgt own   "origin/development...feat/x"
-tgt own   "base:origin/development"
-tgt own   "base:other-branch plan:docs/p.md mode:report --fix"
+tgt own ""
+tgt own "Review branch feat/x against origin/development"
+tgt own "origin/development...feat/x"
+tgt own "base:origin/development"
+tgt own "base:other-branch plan:docs/p.md mode:report --fix"
 # base: always means the current checkout (ce-code-review refuses base: with a
 # PR or branch target), so numbers and branch names in its prose don't count.
-tgt own   "base:page-fixes — review branch feat/x (units 1–6: 10 commits from 6ef189d to f13b37c)"
-tgt own   "--full base:abc1234 (branch other-branch vs development; PR #12 follow-up)"
-tgt own   "development"
-tgt own   "no-such-branch"
+tgt own "base:page-fixes — review branch feat/x (units 1–6: 10 commits from 6ef189d to f13b37c)"
+tgt own "--full base:abc1234 (branch other-branch vs development; PR #12 follow-up)"
+tgt own "development"
+tgt own "no-such-branch"
 # The helper is sourced into hooks, so it must leave the caller's variables alone.
 before="$(set | /usr/bin/grep -c '^review_target_[a-z_]*=')"
-if [ "$before" = 0 ]; then echo "ok   - helper leaves no review_target_ globals"; else echo "FAIL - helper leaked $before globals"; fail=1; fi
+if [ "$before" = 0 ]; then echo "ok   - helper leaves no review_target_ globals"; else
+  echo "FAIL - helper leaked $before globals"
+  fail=1
+fi
 
 exit "$fail"

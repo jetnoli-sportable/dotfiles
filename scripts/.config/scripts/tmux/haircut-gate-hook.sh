@@ -17,24 +17,24 @@ cwd="$(jq -r '.cwd // empty' <<<"$payload")"
 
 args=""
 case "$event" in
-PreToolUse)
-  [ "$(jq -r '.tool_name // empty' <<<"$payload")" = Skill ] || exit 0
-  case "$(jq -r '.tool_input.skill // empty' <<<"$payload")" in
-  ce-code-review | compound-engineering:ce-code-review) ;;
+  PreToolUse)
+    [ "$(jq -r '.tool_name // empty' <<<"$payload")" = Skill ] || exit 0
+    case "$(jq -r '.tool_input.skill // empty' <<<"$payload")" in
+      ce-code-review | compound-engineering:ce-code-review) ;;
+      *) exit 0 ;;
+    esac
+    args="$(jq -r '.tool_input.args // empty' <<<"$payload")"
+    ;;
+  UserPromptSubmit)
+    prompt="$(jq -r '.prompt // empty' <<<"$payload")"
+    rest="${prompt#/compound-engineering:ce-code-review}"
+    [ "$rest" = "$prompt" ] && rest="${prompt#/ce-code-review}"
+    [ "$rest" = "$prompt" ] && exit 0
+    # The command name must end there: not /ce-code-review-extra.
+    case "$rest" in "" | [[:space:]]*) ;; *) exit 0 ;; esac
+    args="$rest"
+    ;;
   *) exit 0 ;;
-  esac
-  args="$(jq -r '.tool_input.args // empty' <<<"$payload")"
-  ;;
-UserPromptSubmit)
-  prompt="$(jq -r '.prompt // empty' <<<"$payload")"
-  rest="${prompt#/compound-engineering:ce-code-review}"
-  [ "$rest" = "$prompt" ] && rest="${prompt#/ce-code-review}"
-  [ "$rest" = "$prompt" ] && exit 0
-  # The command name must end there: not /ce-code-review-extra.
-  case "$rest" in "" | [[:space:]]*) ;; *) exit 0 ;; esac
-  args="$rest"
-  ;;
-*) exit 0 ;;
 esac
 
 git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
@@ -52,8 +52,8 @@ unswept=""
 while IFS=$'\t' read -r sha subject; do
   case "$subject" in "chore: trim comments (haircut"*) break ;; esac
   # Merge commits list no files here, so they never count as code.
-  if git -C "$cwd" diff-tree --root --no-commit-id --name-only -r "$sha" 2>/dev/null \
-    | grep -qv -e '\.md$' -e '^docs/'; then
+  if git -C "$cwd" diff-tree --root --no-commit-id --name-only -r "$sha" 2>/dev/null |
+    grep -qv -e '\.md$' -e '^docs/'; then
     unswept="$(git -C "$cwd" log -1 --format='%h %s' "$sha")"
     break
   fi

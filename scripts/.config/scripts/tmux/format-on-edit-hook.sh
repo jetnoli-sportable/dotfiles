@@ -46,8 +46,8 @@ esac
 # Mirrors the work plugin's detect-formatter.sh first-match order, read from
 # the git root: ruff, then go.mod, then prettier.
 plugin_formatter() {
-  if [ -f "$repo_root/pyproject.toml" ] && [ -f "$repo_root/uv.lock" ] \
-    && grep -qE '^\[tool\.ruff(\.|\])' "$repo_root/pyproject.toml" 2>/dev/null; then
+  if [ -f "$repo_root/pyproject.toml" ] && [ -f "$repo_root/uv.lock" ] &&
+    grep -qE '^\[tool\.ruff(\.|\])' "$repo_root/pyproject.toml" 2>/dev/null; then
     echo ruff
   elif [ -f "$repo_root/go.mod" ]; then
     echo go

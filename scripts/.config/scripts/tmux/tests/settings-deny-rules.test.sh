@@ -11,12 +11,22 @@ SETTINGS="$REPO/$REL"
 
 fail=0
 ok() { echo "ok   - $1"; }
-bad() { echo "FAIL - $1"; fail=1; }
+bad() {
+  echo "FAIL - $1"
+  fail=1
+}
 
-if jq empty "$SETTINGS" 2>/dev/null; then ok "settings file is valid JSON"; else bad "settings file is not valid JSON"; exit 1; fi
+if jq empty "$SETTINGS" 2>/dev/null; then ok "settings file is valid JSON"; else
+  bad "settings file is not valid JSON"
+  exit 1
+fi
 
 mapfile -t DENY < <(jq -r '.permissions.deny[]?' "$SETTINGS")
-has() { local r; for r in "${DENY[@]}"; do [ "$r" = "$1" ] && return 0; done; return 1; }
+has() {
+  local r
+  for r in "${DENY[@]}"; do [ "$r" = "$1" ] && return 0; done
+  return 1
+}
 want() { # <rule>
   if has "$1"; then ok "deny has $1"; else bad "deny is missing $1"; fi
 }
@@ -60,8 +70,12 @@ for cmd in "${READONLY[@]}"; do
   hit=""
   for r in "${DENY[@]}"; do
     [[ $r == Bash\(*\) ]] || continue
-    pat="${r#Bash(}"; pat="${pat%)}"
-    if rule_matches "$pat" "$cmd"; then hit="$r"; break; fi
+    pat="${r#Bash(}"
+    pat="${pat%)}"
+    if rule_matches "$pat" "$cmd"; then
+      hit="$r"
+      break
+    fi
   done
   if [ -z "$hit" ]; then ok "no deny rule matches: $cmd"; else bad "deny rule $hit matches read-only: $cmd"; fi
 done

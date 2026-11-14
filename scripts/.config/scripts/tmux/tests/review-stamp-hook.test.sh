@@ -25,7 +25,10 @@ REPO="$ROOT/repo"
 mkdir -p "$RUNS" "$SHIM"
 
 fail=0
-[ -x "$HOOK" ] || { echo "FAIL - hook is not executable (Claude Code runs it directly): $HOOK"; fail=1; }
+[ -x "$HOOK" ] || {
+  echo "FAIL - hook is not executable (Claude Code runs it directly): $HOOK"
+  fail=1
+}
 
 # Fake tmux: answers from env, never contacts a server.
 cat >"$SHIM/tmux" <<'SH'
@@ -54,10 +57,16 @@ git -C "$REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 git -C "$REPO" branch other-br
 
 ok() { echo "ok   - $1"; }
-bad() { echo "FAIL - $1"; fail=1; }
+bad() {
+  echo "FAIL - $1"
+  fail=1
+}
 
 n=0
-newid() { n=$((n + 1)); NID="$(printf '20261114-2343%02d-%08x' "$n" "$((0x263fdd00 + n))")"; }
+newid() {
+  n=$((n + 1))
+  NID="$(printf '20261114-2343%02d-%08x' "$n" "$((0x263fdd00 + n))")"
+}
 # mkrun <id> <branch> [finish-input-args]; metadata.json marks a finished run.
 mkrun() {
   mkdir -p "$RUNS/$1"
@@ -70,10 +79,10 @@ transcript() {
   : >"$f"
   echo '{"type":"queue-operation","operation":"enqueue","content":"unrelated"}' >>"$f"
   case "$style" in
-  skill) jq -nc --arg a "$args" '{type:"assistant",message:{content:[{type:"tool_use",name:"Skill",input:{skill:"compound-engineering:ce-code-review",args:$a}}]}}' >>"$f" ;;
-  skill-noargs) jq -nc '{type:"assistant",message:{content:[{type:"tool_use",name:"Skill",input:{skill:"ce-code-review"}}]}}' >>"$f" ;;
-  typed) jq -nc --arg a "$args" '{type:"user",message:{role:"user",content:("<command-message>ce-code-review</command-message>\n<command-name>/ce-code-review</command-name>\n<command-args>"+$a+"</command-args>")}}' >>"$f" ;;
-  none) ;;
+    skill) jq -nc --arg a "$args" '{type:"assistant",message:{content:[{type:"tool_use",name:"Skill",input:{skill:"compound-engineering:ce-code-review",args:$a}}]}}' >>"$f" ;;
+    skill-noargs) jq -nc '{type:"assistant",message:{content:[{type:"tool_use",name:"Skill",input:{skill:"ce-code-review"}}]}}' >>"$f" ;;
+    typed) jq -nc --arg a "$args" '{type:"user",message:{role:"user",content:("<command-message>ce-code-review</command-message>\n<command-name>/ce-code-review</command-name>\n<command-args>"+$a+"</command-args>")}}' >>"$f" ;;
+    none) ;;
   esac
   jq -nc --arg p "$RUNS/$id" '{type:"user",message:{content:[{type:"tool_result",content:("Run artifacts: "+$p+"/ now\nmore")}]}}' >>"$f"
 }
@@ -93,17 +102,32 @@ PANE=%1
 
 check() { # <name> <expected-calls> [expected-output-substring|-]
   local name="$1" calls="$2" sub="${3:-}"
-  [ "$RC" = 0 ] || { bad "$name (exit $RC)"; return; }
-  [ "$CALLS" = "$calls" ] || { bad "$name (wb.sh calls: $CALLS, wanted $calls)"; return; }
+  [ "$RC" = 0 ] || {
+    bad "$name (exit $RC)"
+    return
+  }
+  [ "$CALLS" = "$calls" ] || {
+    bad "$name (wb.sh calls: $CALLS, wanted $calls)"
+    return
+  }
   case "$sub" in
-  "") [ -z "$OUT" ] || { bad "$name (unexpected output: $OUT)"; return; } ;;
-  *) [[ "$OUT" == *"$sub"* ]] || { bad "$name (output lacks '$sub': $OUT)"; return; } ;;
+    "") [ -z "$OUT" ] || {
+      bad "$name (unexpected output: $OUT)"
+      return
+    } ;;
+    *) [[ "$OUT" == *"$sub"* ]] || {
+      bad "$name (output lacks '$sub': $OUT)"
+      return
+    } ;;
   esac
   ok "$name"
 }
 
 # --- stamping on the session's own branch ---------------------------------
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t1.jsonl" "$id" skill "base:origin/development"
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t1.jsonl" "$id" skill "base:origin/development"
 run_hook "$(stop_payload "$ROOT/t1.jsonl")"
 check "finished run on the session's branch is stamped" 1 "stamped"
 [ "$(cat "$WB_LOG")" = "reviewed sess" ] && ok "wb.sh reviewed gets the session name" || bad "wb.sh argv: $(cat "$WB_LOG")"
@@ -114,57 +138,99 @@ run_hook "$(stop_payload "$ROOT/t1.jsonl")"
 check "same payload again: no call, no output" 0
 
 # --- runs that must not stamp ---------------------------------------------
-newid; id="$NID"; mkrun "$id" ""; transcript "$ROOT/t2.jsonl" "$id" skill ""
+newid
+id="$NID"
+mkrun "$id" ""
+transcript "$ROOT/t2.jsonl" "$id" skill ""
 run_hook "$(stop_payload "$ROOT/t2.jsonl")"
 check "run without metadata.json (review died): no call" 0
 
-newid; id="$NID"; mkrun "$id" feat-x 123; transcript "$ROOT/t3.jsonl" "$id" skill ""
+newid
+id="$NID"
+mkrun "$id" feat-x 123
+transcript "$ROOT/t3.jsonl" "$id" skill ""
 run_hook "$(stop_payload "$ROOT/t3.jsonl")"
 check "finish-input.json arguments 123 (PR review): no call" 0
 
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t4.jsonl" "$id" skill "other-br"
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t4.jsonl" "$id" skill "other-br"
 run_hook "$(stop_payload "$ROOT/t4.jsonl")"
 check "Skill args naming another existing branch: no call" 0
 
-newid; id="$NID"; mkrun "$id" feat-x 123; transcript "$ROOT/t4b.jsonl" "$id" skill "base:origin/development"
+newid
+id="$NID"
+mkrun "$id" feat-x 123
+transcript "$ROOT/t4b.jsonl" "$id" skill "base:origin/development"
 run_hook "$(stop_payload "$ROOT/t4b.jsonl")"
 check "finish-input.json wins over the transcript's args" 0
 
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t5.jsonl" "$id" skill "base:origin/development review branch feat-x"
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t5.jsonl" "$id" skill "base:origin/development review branch feat-x"
 run_hook "$(stop_payload "$ROOT/t5.jsonl")"
 check "base: args with prose naming the current branch: stamped" 1 "stamped"
 
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t6.jsonl" "$id" typed "base:origin/development"
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t6.jsonl" "$id" typed "base:origin/development"
 run_hook "$(stop_payload "$ROOT/t6.jsonl")"
 check "typed /ce-code-review command line: stamped" 1 "stamped"
 
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t6b.jsonl" "$id" typed "other-br"
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t6b.jsonl" "$id" typed "other-br"
 run_hook "$(stop_payload "$ROOT/t6b.jsonl")"
 check "typed command naming another branch: no call" 0
 
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t7.jsonl" "$id" skill-noargs
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t7.jsonl" "$id" skill-noargs
 run_hook "$(stop_payload "$ROOT/t7.jsonl")"
 check "Skill call without args: own branch, stamped" 1 "stamped"
 
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t7b.jsonl" "$id" none
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t7b.jsonl" "$id" none
 run_hook "$(stop_payload "$ROOT/t7b.jsonl")"
 check "no invocation found in the transcript: own branch, stamped" 1 "stamped"
 
-newid; id="$NID"; mkrun "$id" other-br; transcript "$ROOT/t8.jsonl" "$id" skill ""
+newid
+id="$NID"
+mkrun "$id" other-br
+transcript "$ROOT/t8.jsonl" "$id" skill ""
 run_hook "$(stop_payload "$ROOT/t8.jsonl")"
 check "metadata branch differs from the cwd branch: no call" 0
 
-newid; id="$NID"; mkrun "$id" feat-x; newid; transcript "$ROOT/t9.jsonl" "$NID" skill ""
+newid
+id="$NID"
+mkrun "$id" feat-x
+newid
+transcript "$ROOT/t9.jsonl" "$NID" skill ""
 run_hook "$(stop_payload "$ROOT/t9.jsonl")"
 check "finished run folder not named in the transcript: no call" 0
 
-newid; real="$NID"; mkrun "$real" feat-x; newid; id="$NID"; ln -s "$RUNS/$real" "$RUNS/$id"
+newid
+real="$NID"
+mkrun "$real" feat-x
+newid
+id="$NID"
+ln -s "$RUNS/$real" "$RUNS/$id"
 transcript "$ROOT/t10.jsonl" "$id" skill ""
 run_hook "$(stop_payload "$ROOT/t10.jsonl")"
 check "run folder that is a symlink: ignored" 0
 
 # --- session checks ---------------------------------------------------------
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t11.jsonl" "$id" skill ""
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t11.jsonl" "$id" skill ""
 FAKE_SLUG="" run_hook "$(stop_payload "$ROOT/t11.jsonl")"
 check "non-wb tmux session (no @wb_slug): no call, no output" 0
 NO_PANE=1 PANE="" run_hook "$(stop_payload "$ROOT/t11.jsonl")"
@@ -172,13 +238,17 @@ check "no TMUX_PANE: no call, no output" 0
 [ ! -e "$RUNS/$id/.wb-stamped" ] && ok "skipped runs stay unmarked" || bad "marker written for a skipped run"
 
 # --- SubagentStop ---------------------------------------------------------
-newid; transcript "$ROOT/parent.jsonl" "$NID" none
+newid
+transcript "$ROOT/parent.jsonl" "$NID" none
 transcript "$ROOT/agent.jsonl" "$id" skill ""
 run_hook "$(sub_payload "$ROOT/parent.jsonl" "$ROOT/agent.jsonl")"
 check "SubagentStop with agent_transcript_path naming the run: stamped" 1 "stamped"
 
 # --- failure ----------------------------------------------------------------
-newid; id="$NID"; mkrun "$id" feat-x; transcript "$ROOT/t12.jsonl" "$id" skill ""
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t12.jsonl" "$id" skill ""
 WB_FAIL="no task file for sess" run_hook "$(stop_payload "$ROOT/t12.jsonl")"
 check "failing wb.sh: message says so, hook exits 0" 1 "failed"
 [[ "$OUT" == *"no task file for sess"* && "$OUT" != *"second line"* ]] && ok "message carries only the first stderr line" || bad "stderr in message: $OUT"
@@ -195,4 +265,7 @@ check "payload without transcript_path or cwd: exit 0, no output" 0
 run_hook "$(stop_payload "$ROOT/missing.jsonl")"
 check "transcript file missing: exit 0, no output" 0
 
-[ "$fail" = 0 ] && echo "ALL PASS" || { echo "FAILURES"; exit 1; }
+[ "$fail" = 0 ] && echo "ALL PASS" || {
+  echo "FAILURES"
+  exit 1
+}

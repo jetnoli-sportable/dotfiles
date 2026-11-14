@@ -12,8 +12,8 @@ review_target_default_branch() {
   base="$(git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
   if [ -z "$base" ]; then
     # origin/HEAD is set by clone but not by `git remote add`.
-    def="$(timeout 5 git -C "$1" ls-remote --symref origin HEAD 2>/dev/null \
-      | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
+    def="$(timeout 5 git -C "$1" ls-remote --symref origin HEAD 2>/dev/null |
+      awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
     [ -n "$def" ] && base="origin/$def"
   fi
   printf '%s' "$base"
