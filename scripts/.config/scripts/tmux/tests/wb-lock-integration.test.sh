@@ -273,69 +273,31 @@ assert "incident-1: worktree: field correctly set, not garbled" '^worktree: \.wo
 assert "incident-1: status flipped planned->doing exactly once" '^status: doing$' "$(cat "$INC1_TASK_FILE")"
 
 # =============================================================================
-# Scenario: reconcile — `_merge` acquires survivor+loser in SORTED-PATH
-# order (W11): pre-hold a lock on whichever of the pair sorts FIRST and
-# confirm wb_reconcile_action_merge contends on THAT path (proving it's
-# attempted first); pre-hold a lock on whichever sorts SECOND and confirm
-# the function gets past the first lock cleanly and only contends on the
-# second (and releases the first again afterward, rather than leaking it).
+# Scenario: reconcile — `_merge` on a missing-worktree finding no longer
+# merges two task files (each task's records live in its own dossier), so it
+# takes NO locks: even with a pair member locked by another process it
+# returns 0, says to merge by hand, and leaves both files untouched.
 # =============================================================================
 
 mk_merge_task() { # <file> <branch> <worktree>
-  printf -- '---\nstatus: doing\nrepo: proj\nbranch: %s\nworktree: %s\ntags: []\ncreated: 2026-07-08\nclosed:\n---\n# Title\n\n## Plan\n\nSome plan.\n\n## Done\n\n## Follow-ups\n\n' \
+  printf -- '---\nlayout: dossier\nstatus: doing\nrepo: proj\nbranch: %s\nworktree: %s\ntags: []\ncreated: 2026-07-08\nclosed:\n---\n# Title\n\n## Now\n\nSome plan.\n\n' \
     "$2" "$3" > "$1"
 }
-MERGE_FIRST="$TASKS_DIR/aaa--merge-first.md"    # sorts before merge-second
+MERGE_FIRST="$TASKS_DIR/aaa--merge-first.md"
 MERGE_SECOND="$TASKS_DIR/zzz--merge-second.md"
 mk_merge_task "$MERGE_FIRST" branch-first worktree-first
 mk_merge_task "$MERGE_SECOND" branch-second worktree-second
 MERGE_BLOCK=$'- [x] survivor: this finding (new stub)\n'
+merge_before="$(cat "$MERGE_FIRST" "$MERGE_SECOND")"
 
-# --- pre-hold the alphabetically-FIRST path -> merge must contend on it ----
 merge_holder1="$(spawn_holder "$MERGE_FIRST" 2 "merge-order-irrelevant-session")"
 _wait_for_holder "$MERGE_FIRST" "$merge_holder1"
 merge_err1="$(wb_reconcile_action_merge missing proj branch-second worktree-second "$MERGE_SECOND" "$(basename "$MERGE_FIRST")" "$MERGE_BLOCK" 2>&1 1>/dev/null)"
 merge_rc1=$?
-assert_eq "reconcile _merge: sorted-first-locked -> action halts (75)" 75 "$merge_rc1"
-assert "reconcile _merge: contends on the SORTED-FIRST path by name" "$(basename "$MERGE_FIRST")" "$merge_err1"
+assert_eq "reconcile _merge (missing): a locked pair member does not stop it (no locks taken, rc 0)" 0 "$merge_rc1"
+assert "reconcile _merge (missing): says to merge by hand and skips" 'merge them by hand — skipping this finding' "$merge_err1"
+assert_eq "reconcile _merge (missing): neither task file touched" "$merge_before" "$(cat "$MERGE_FIRST" "$MERGE_SECOND")"
 wait "$merge_holder1" 2>/dev/null
-
-# --- pre-hold the alphabetically-SECOND path -> merge gets past the first
-# lock, then contends on the second, and releases the first again rather
-# than leaking it (an immediate follow-up acquire on the first succeeds
-# instantly) ----
-merge_holder2="$(spawn_holder "$MERGE_SECOND" 2 "merge-order-irrelevant-session")"
-_wait_for_holder "$MERGE_SECOND" "$merge_holder2"
-merge_err2="$(wb_reconcile_action_merge missing proj branch-second worktree-second "$MERGE_SECOND" "$(basename "$MERGE_FIRST")" "$MERGE_BLOCK" 2>&1 1>/dev/null)"
-merge_rc2=$?
-assert_eq "reconcile _merge: sorted-second-locked -> action halts (75)" 75 "$merge_rc2"
-assert "reconcile _merge: contends on the SORTED-SECOND path by name (proves the first was acquired cleanly)" "$(basename "$MERGE_SECOND")" "$merge_err2"
-# Run the release-leak check (and its own release) inside a subshell:
-# wb_task_lock_release's `exec {fd}<&- 2>/dev/null || true` closes the fd
-# via a BARE `exec` with only redirections and no command — which applies
-# ALL of those redirections to the CURRENT shell itself (the standard `exec
-# > file` idiom for permanently redirecting a shell's own output), so it
-# permanently redirects fd 2 (stderr) to /dev/null for whatever process
-# calls it, not just for that one statement (confirmed live: this suite's
-# own diagnostic `>&2` traces silently stopped working the moment ANY
-# wb_task_lock_release call ran at this script's OWN top level — a latent
-# wb-locks.sh (U1) behavior this unit doesn't touch or attempt to fix).
-# A subshell's fd table is a private copy, so the corruption stays scoped
-# to it and never reaches this script's own stderr.
-release_check_out="$(
-  start_release_check=$(date +%s%N)
-  wb_task_lock_acquire_guarded "$MERGE_FIRST"
-  rc_release_check=$?
-  end_release_check=$(date +%s%N)
-  elapsed_ms=$(( (end_release_check - start_release_check) / 1000000 ))
-  wb_task_lock_release "$MERGE_FIRST"
-  printf '%s %s\n' "$rc_release_check" "$elapsed_ms"
-)"
-read -r rc_release_check elapsed_ms <<< "$release_check_out"
-[ "$rc_release_check" -eq 0 ] && [ "$elapsed_ms" -lt 500 ] \
-  && echo "ok   - reconcile _merge: the sorted-first lock was released again after the second contended (no leak, ${elapsed_ms}ms)" \
-  || { echo "FAIL - reconcile _merge: sorted-first lock appears leaked (rc=$rc_release_check, ${elapsed_ms}ms)"; fail=1; }
-wait "$merge_holder2" 2>/dev/null
 
 # =============================================================================
 # Scenario: reconcile — `_remove` under contention halts rather than

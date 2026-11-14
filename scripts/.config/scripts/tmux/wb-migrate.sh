@@ -38,6 +38,22 @@
 # lines fit no entry style (the verbatim fallback in _wb_mg_convert).
 _WB_MG_FALLBACK_TITLE="Decisions before the dossier layout"
 
+# wb_layout_of <task_file> — print the task's `layout:` value (blank when
+# unset), trailing inline comment stripped. Since the old path was deleted
+# (W4), only `wb migrate` reads it: `layout: dossier` marks a task as already
+# converted. wb-store reads the same marker.
+wb_layout_of() {
+  local v; v="$(wb_get_frontmatter "$1" layout)"
+  v="${v%%[[:space:]]#*}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s\n' "$v"
+}
+
+# _wb_is_dossier <task_file> — true when the task has `layout: dossier`.
+_wb_is_dossier() {
+  [ "$(wb_layout_of "$1")" = "dossier" ]
+}
+
 # ---------------------------------------------------------------------------
 # awk: shared library, fence-aware line classifiers
 # ---------------------------------------------------------------------------
@@ -873,23 +889,37 @@ _wb_mg_emit() {
 # section untouched, ## Handoffs reduced to its newest entry) and rebuild the
 # views. The task file is rewritten LAST, through a temp file and mv, so a
 # crash before it leaves no layout: field and the migration reruns (and then
-# stops at the "dossier already holds records" check below, loudly).
+# stops at the name-clash check below, loudly, since the converted records
+# get the same names again).
+#
+# A series dir that already holds files is joined, not refused: an old-shape
+# task can get a `wb append` (Decisions, Follow-ups) or a handoff note before
+# anyone migrates it, and those records belong beside the converted ones.
+# Only a converted record whose file name is already taken stops the
+# migration, before anything is written.
 _wb_mg_commit() {
   local file="$1" work="$2" stem="$3" nh="$4" i_now="$5" i_hand="$6" nsec="$7" total="$8" fmend="$9"
   local dest; dest="$(_wb_dossier_dir "$file")"
-  local sdir="$work/store/dossiers/$stem" series
-  # refuse before touching anything when a series dir already holds files
+  local sdir="$work/store/dossiers/$stem" series f
+  # refuse before touching anything when a converted record's name is taken
   for series in decisions handoffs open-items; do
-    if [ -d "$sdir/$series" ] && [ -d "$dest/$series" ] && [ -n "$(find "$dest/$series" -mindepth 1 -print -quit 2>/dev/null)" ]; then
-      _wb_mg_block "dossiers/$stem/$series/ already holds files; nothing written"
-      return 1
-    fi
+    [ -d "$sdir/$series" ] && [ -d "$dest/$series" ] || continue
+    for f in "$sdir/$series"/*; do
+      [ -e "$f" ] || continue
+      if [ -e "$dest/$series/${f##*/}" ]; then
+        _wb_mg_block "dossiers/$stem/$series/${f##*/} already exists; nothing written"
+        return 1
+      fi
+    done
   done
   mkdir -p "$dest" || { _wb_mg_block "could not create $dest"; return 1; }
   for series in decisions handoffs open-items; do
     [ -d "$sdir/$series" ] || continue
-    rmdir "$dest/$series" 2>/dev/null || true
-    mv "$sdir/$series" "$dest/$series" || { _wb_mg_block "could not move $series/ into $dest"; return 1; }
+    mkdir -p "$dest/$series" || { _wb_mg_block "could not create $dest/$series"; return 1; }
+    for f in "$sdir/$series"/*; do
+      [ -e "$f" ] || continue
+      mv "$f" "$dest/$series/" || { _wb_mg_block "could not move $series/${f##*/} into $dest"; return 1; }
+    done
   done
 
   # CONCEPTS.md -> concepts.md (KTD24). Two-step rename so a case-insensitive

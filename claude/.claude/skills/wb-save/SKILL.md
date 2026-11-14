@@ -36,12 +36,11 @@ to survive the clear; the human runs `/clear` themselves.
   `/wb-decide` step 6 may read `wb family --sessions` (a read of other sessions'
   `@task`) and ListAgents, and send `[wb-propagate]` messages with SendMessage to
   *other* sessions it affects. Nothing is ever sent to this session's own pane.
-- **Layout tasks (trial):** when the task file's frontmatter has `layout: dossier`,
-  step 4 first replaces `## Now` through `wb now`, and `wb append … Handoffs -`
-  then moves the previous handoff to `handoffs/` instead of piling it up. Tasks
-  without `layout:` are unchanged. See `docs/wb-guide.md`, "Dossier layout (trial)".
+- **Dossier layout:** step 4 first replaces `## Now` through `wb now`, and
+  `wb append … Handoffs -` then moves the previous handoff to `handoffs/` instead
+  of piling it up. See `docs/wb-guide.md`, "Dossier layout".
 - **Append-only.** Never overwrites any existing content in the task file —
-  including prior `## Handoffs` entries, `## Plan`, `## Decisions`, or
+  including prior `## Handoffs` entries, `## Plan`, the decision files, or
   anything else already there. The one other write is step 2's checkpoint
   review: when Jet accepts a shelved decision draft it goes in through
   `wb append <task> Decisions -`, and the `wb-capture.sh` verbs (`sweep`,
@@ -155,17 +154,15 @@ invoke, nothing else:
 
 ### 4. Append into `## Handoffs` — exact section shape
 
-**Layout task first (`layout: dossier` in the frontmatter; skip this block otherwise).**
 Do two writes, in this order, both through the locked verbs:
 
 1. `wb now "$task_file" -` with the new `## Now` block on stdin: goal, current
    rung, next action, and what waits on Jet, about 10 lines. It replaces the old
    block; it never appends.
 2. The rich entry below, through `wb append "$task_file" Handoffs -` exactly as
-   shown. On a layout task that verb moves the task file's current handoff to
+   shown. That verb moves the task file's current handoff to
    `handoffs/<ts>.md` and writes this one in its place, so the task file keeps
-   one handoff. The heading-position and end-of-section rules below apply only
-   to tasks without the layout.
+   one handoff.
 
 Mention `notes.md` (Jet's scratch file in the dossier) in the entry only when it
 changed since the last save, one line: `notes.md changed since the last save`.
@@ -186,17 +183,6 @@ conventions exactly — `/wb-resume` and `wb.sh`'s own automatic
 pause/done/resume entries share this one append-only log, so a drift here
 silently breaks that shared contract:
 
-- **Heading position when missing:** insert `## Handoffs` immediately
-  before `## Decisions` if that heading exists in the file; otherwise at
-  the very end of the file. (The same insertion point
-  `handoff_append_followup` uses for a missing `## Follow-ups`, and the
-  same rule `wb_append_handoff` itself follows for this section.)
-- **New entries always go at the END of the existing `## Handoffs`
-  section** — immediately before whatever `##` heading comes next, or at
-  EOF if none — never right after the heading. The section reads
-  oldest-first; `wb.sh`'s own automatic entries write into this same
-  section under this same rule, so entries from both sources interleave
-  chronologically regardless of which side wrote them.
 - **Entry format** — a `### <timestamp> — wb-save` heading (no `(auto)`
   suffix; that suffix belongs only to `wb.sh`'s own terse mechanical
   entries), timestamp in the same `date '+%Y-%m-%d %H:%M'` format, followed
@@ -259,10 +245,8 @@ EOF
   `wb append` takes the per-task `flock` lock itself (the same one every
   other task-file writer in this codebase — `wb.sh`'s own `cmd_pause`/
   `cmd_done`/`cmd_resume`, and `handoff.sh` — already goes through) and
-  reuses `wb_append_handoff`'s exact heading-fallback/end-of-section
-  insertion rule: inserting `## Handoffs` first if it's missing (per the
-  position rule above), and always landing the new block at the END of the
-  section, never right after the heading. **Do not shell out to
+  moves the previous handoff out and writes the new one into
+  `## Handoffs`. **Do not shell out to
   `wb_append_handoff` itself** — that helper hardcodes the `(auto)` suffix
   meant for its own mechanical callers (`cmd_pause`/`cmd_done`/
   `cmd_resume`) and writes a single-line message body, not this
@@ -291,15 +275,10 @@ messages *other* sessions and never this one.
 
 - **Happy path:** mid-task session, `/wb-save` run — read `@task`, read the
   task file, compose done/in-flight/next from actual conversation content,
-  append the entry under `## Handoffs` (creating the heading first if
-  missing), confirm in one line.
-- **Layout task:** `wb now` then `wb append … Handoffs -`; afterwards `## Now`
+  append the entry under `## Handoffs`, confirm in one line.
+- **Save order:** `wb now` then `wb append … Handoffs -`; afterwards `## Now`
   holds the new block, the task file holds only this handoff, and the old one is
   a file in `handoffs/`.
-- **Edge case — no `## Handoffs` heading yet:** insert it immediately
-  before `## Decisions` if that heading exists, else at EOF, then the
-  entry — the heading and the first entry appear together, not the heading
-  alone or the entry with no heading.
 - **Edge case — shelved drafts waiting:** step 2 runs the `/wb-decide` step 2b
   procedure (sweep, then each draft: accept / edit / dismiss / leave) before the
   Handoffs entry, and the entry's **Done** says how many were recorded, dismissed and
@@ -331,10 +310,11 @@ messages *other* sessions and never this one.
 
 ## Notes
 
-- `## Handoffs` is a shared log — entries from `/wb-save` and from `wb.sh`'s
-  own automatic `pause`/`done`/`resume` entries interleave chronologically
-  in the same section. Seeing a terse automatic entry after a rich
-  `/wb-save` one (or vice versa) is expected, not a bug.
+- The task file keeps one handoff; every write moves the previous one to the
+  dossier's `handoffs/`. Entries from `/wb-save` and from `wb.sh`'s own
+  automatic `pause`/`done`/`resume` stamps interleave there in time order, so
+  an `(auto)` stamp in the task file after a rich `/wb-save` entry is
+  expected, not a bug.
 - `~/code/tasks/README.md` documents the `## Handoffs` convention for the
   whole task-store schema.
 - **Next-action directive syntax:** a fenced ` ```run ` block (its content

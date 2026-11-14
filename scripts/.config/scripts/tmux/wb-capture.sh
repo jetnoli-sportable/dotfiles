@@ -143,13 +143,13 @@
 # reaped). The sweep writes the shelf directly; the session dir's old `draft` slot is
 # no longer written. SessionEnd leaves a leftover one in place and the reaper shelves
 # one it finds in a dir it is about to remove (reason reaped).
-# Stale drafts: the sweep snapshots `## Decisions` (the text the model sees), then
-# waits up to a minute for the model. If that section changed meanwhile (typically
+# Stale drafts: the sweep snapshots the task's decision records (the text the model
+# sees), then waits up to a minute for the model. If they changed meanwhile (typically
 # /wb-decide recording the very decision being drafted) the answer is discarded
 # and the child reruns once on a fresh snapshot. Only if the section changes a
 # second time during the rerun is the draft shelved — Jet decides — and each shelved
-# file then carries a `.stale` sidecar holding how many `### ` entries `## Decisions`
-# had at the re-snapshot (on a layout task: how many files `decisions/` held); its `draft_shelved`/accepted/dismissed events are tagged
+# file then carries a `.stale` sidecar holding how many files the dossier's
+# `decisions/` held at the re-snapshot; its `draft_shelved`/accepted/dismissed events are tagged
 # `"stale":true`.
 # `sweep_failures` (written by wb-capture-sweep.sh) counts consecutive failed
 # sweeps; at sweep_max_failures the sweep skips with reason `backoff`.
@@ -229,16 +229,6 @@ quiet_exit() { exit 0; }
 TASK_STEM=""
 TASK_PATH=""
 
-# task_layout <task file> — the `layout:` frontmatter value (empty when none). wb.sh is
-# not sourced here, so this is its own small reader; layout tasks (dossier layout trial)
-# keep decisions as files, so the staleness check and `.stale` count read those.
-task_layout() {
-  [ -f "$1" ] || return 0
-  awk '
-    NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit; next }
-    /^---[[:space:]]*$/ { exit }
-    /^layout:/ { v = $0; sub(/^layout:[[:space:]]*/, "", v); sub(/[[:space:]]*#.*$/, "", v); sub(/[[:space:]]+$/, "", v); print v; exit }' "$1" 2>/dev/null || true
-}
 INPUT=""
 
 # tmux_task — the one place the current tmux session's @task is read. Sets
@@ -457,7 +447,7 @@ shelve_draft() {
 # shelve_answer <sid> <reason> <text> <stale: true|false> [<stale-count>] — shelve one
 # drafted decision (text) as its own file: write it to the shelved dir (atomically, so a
 # half-written file is never listed), a `.stale` sidecar when <stale> is true (holding
-# <stale-count>, the `### ` entry count `## Decisions` had at the sweep's re-snapshot,
+# <stale-count>, the number of decision files the task had at the sweep's re-snapshot,
 # empty when not given), and log `draft_shelved` {reason, draft:<basename>} (+ stale:true).
 # Touches no session state. Fails 1 with nothing left behind.
 shelve_answer() {

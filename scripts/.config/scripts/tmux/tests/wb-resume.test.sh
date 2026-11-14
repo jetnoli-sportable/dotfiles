@@ -25,7 +25,7 @@ assert() { # <desc> <expected-regex> <actual>
 
 mk_task() { # <file> <repo> <branch>
   local f="$FIXTURE/$1"
-  printf -- '---\nstatus: doing\nrepo: %s\nbranch: %s\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n\n## Plan\n\n## Done\n\n## Follow-ups\n\n## Decisions\n' "$2" "$3" > "$f"
+  printf -- '---\nstatus: doing\nrepo: %s\nbranch: %s\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\nclosed:\n---\n# Title\n\n## Plan\n\n## Notes\n' "$2" "$3" > "$f"
 }
 
 # run_resume <query> — invokes cmd_resume via command substitution (so its
@@ -60,9 +60,8 @@ assert "one match: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit
 assert "one match: cmd_new called with repo+branch" '^dotfiles feat/alpha$' "$cmd_new_calls"
 
 # --- Handoffs: cmd_resume appends its own entry to the matched task file ---
-# alpha's mk_task fixture already has "## Plan\n\n## Done\n\n## Follow-ups\n
-# \n## Decisions\n" (no "## Handoffs" yet), so this exercises the
-# missing-heading-insert-before-Decisions path. Checked right here, right
+# alpha's mk_task fixture already has "## Plan\n\n## Notes\n" (no
+# "## Handoffs" yet), so this exercises the missing-heading-at-EOF path. Checked right here, right
 # after the single successful resume above and before any further
 # run_resume call touches this same file again (the case-insensitive check
 # just below re-resolves 'ALPHA' to this same task and would call
@@ -72,11 +71,11 @@ alpha_file="$FIXTURE/dotfiles--alpha.md"
 assert "resume: appends a ## Handoffs section" '^## Handoffs$' "$(cat "$alpha_file")"
 assert "resume: entry names the command" 'Session resumed via `wb resume`\.' "$(cat "$alpha_file")"
 h_line="$(grep -n '^## Handoffs$' "$alpha_file" | cut -d: -f1)"
-d_line="$(grep -n '^## Decisions$' "$alpha_file" | cut -d: -f1)"
-if [ -n "$h_line" ] && [ -n "$d_line" ] && [ "$h_line" -lt "$d_line" ]; then
-  echo "ok   - resume: Handoffs section lands before Decisions"
+d_line="$(grep -n '^## Notes$' "$alpha_file" | cut -d: -f1)"
+if [ -n "$h_line" ] && [ -n "$d_line" ] && [ "$h_line" -gt "$d_line" ]; then
+  echo "ok   - resume: Handoffs section lands at EOF"
 else
-  echo "FAIL - resume: Handoffs section should land before Decisions (h=$h_line, d=$d_line)"; fail=1
+  echo "FAIL - resume: Handoffs section should land at EOF (h=$h_line, notes=$d_line)"; fail=1
 fi
 entry_count="$(grep -cE '^### .* — wb resume \(auto\)$' "$alpha_file")"
 if [ "$entry_count" -eq 1 ]; then
@@ -110,7 +109,7 @@ assert "incomplete frontmatter: non-zero exit" '^' "$rc-fail"; [ "$rc" -ne 0 ] |
 # cmd_new itself calls. The plan is explicit that the Handoffs-append call
 # lives in cmd_resume's own body, never inside cmd_new/wb_seed_task, so a
 # freshly-created task must come out with no "## Handoffs" section at all.
-printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n\n## Done\n\n## Follow-ups\n\n## Decisions\n' \
+printf -- '---\nstatus: planned\nrepo:\nbranch:\nworktree:\ntags: []\ncreated:\nclosed:\n---\n# Title\n\n## Plan\n' \
   > "$FIXTURE/TEMPLATE.md"
 fresh_file="$(wb_seed_task dotfiles feat/brand-new .worktrees/feat/brand-new)"
 if grep -q '^## Handoffs$' "$fresh_file"; then

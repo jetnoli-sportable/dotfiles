@@ -49,9 +49,11 @@ add_worktree() { git -C "$1" worktree add -q -b "$2" ".worktrees/$2" >/dev/null 
 # which isn't fooled by blank lines within the block.
 check_line_for() {
   local report="$1" marker="$2" find="$3" repl="$4"
-  awk -v marker="$marker" -v find="$find" -v repl="$repl" '
-    /<!-- wb-reconcile:/ { in_target = ($0 ~ marker) }
-    in_target && $0 ~ find { $0 = repl }
+  # ENVIRON, not -v: awk -v runs escape processing on the value, which
+  # mangles the `\[` in these regexes (and differs between mawk and gawk).
+  CL_MARKER="$marker" CL_FIND="$find" CL_REPL="$repl" awk '
+    /<!-- wb-reconcile:/ { in_target = ($0 ~ ENVIRON["CL_MARKER"]) }
+    in_target && $0 ~ ENVIRON["CL_FIND"] { $0 = ENVIRON["CL_REPL"] }
     { print }
   ' "$report" > "$report.tmp" && mv "$report.tmp" "$report"
 }
@@ -134,6 +136,11 @@ cmd_reconcile --apply >/dev/null 2>&1
 new_task="$TASKS_DIR/proj--orphan-b.md"
 if [ -f "$new_task" ]; then
   assert "apply create-task: status doing" 'status: doing' "$(cat "$new_task")"
+  assert "apply create-task: dossier layout marker" 'layout: dossier' "$(cat "$new_task")"
+  assert "apply create-task: ## Now points at the brief" 'read dossiers/proj--orphan-b/brief.md' "$(cat "$new_task")"
+  [ -f "$TASKS_DIR/dossiers/proj--orphan-b/brief.md" ] \
+    && echo "ok   - apply create-task: brief.md drafted" \
+    || { echo "FAIL - apply create-task: no brief.md"; fail=1; }
 else
   echo "FAIL - apply create-task: $new_task not created"; fail=1
 fi
@@ -182,89 +189,61 @@ sed -i 's/^- \[ \] attach to task: `___`$/- [x] attach to task: `proj--existing.
 cmd_reconcile --apply >/dev/null 2>&1
 assert "apply attach: worktree field updated" 'worktree: \.worktrees/orphan-c' "$(cat "$TASKS_DIR/proj--existing.md")"
 
+# --apply: merge with task on an orphan is attaching (worktree, not branch)
+fresh_env
+mk_repo "$CODE_DIR/proj"
+add_worktree "$CODE_DIR/proj" orphan-m
+mk_task "$TASKS_DIR" 'proj--existing.md' planned proj some-branch '' 'Existing Task'
+wb_reconcile_repos() { printf '%s\n' "$CODE_DIR/proj"; }
+cmd_reconcile --review >/dev/null 2>&1
+sed -i 's/^- \[ \] merge with task: `___`$/- [x] merge with task: `proj--existing.md`/' "$REPORT"
+cmd_reconcile --apply >/dev/null 2>&1
+assert "apply orphan merge: attaches the worktree" 'worktree: \.worktrees/orphan-m' "$(cat "$TASKS_DIR/proj--existing.md")"
+if grep -q '^worktree: orphan-m$' "$TASKS_DIR/proj--existing.md"; then
+  echo "FAIL - apply orphan merge: the branch was written as the worktree"; fail=1
+else
+  echo "ok   - apply orphan merge: the branch is not written as the worktree"
+fi
+
 # =============================================================================
-# --apply: merge with task (missing-worktree finding) — two-phase confirm
+# --apply: merge with task (missing-worktree finding) — no automatic merge.
+# Each task's records are files in its own dossier, so the review no longer
+# offers it there; a review doc written before that change still has the
+# line, and checking it is reported and skipped: no reopen/confirm phase,
+# nothing deleted or rewritten.
 # =============================================================================
 fresh_env
 wb_reconcile_repos() { :; }
 mk_task "$TASKS_DIR" 'proj--stale.md'    doing proj stale-branch  '.worktrees/gone-a' 'Stale Task'
 mk_task "$TASKS_DIR" 'proj--survivor.md' doing proj keeper-branch '.worktrees/gone-b' 'Survivor Task'
-touch -d '5 days ago' "$TASKS_DIR/proj--stale.md"
-# survivor.md is newer (created just now) -> should be pre-picked as survivor
+for d in proj--stale proj--survivor; do
+  mkdir -p "$TASKS_DIR/dossiers/$d/decisions"; printf 'rec %s\n' "$d" > "$TASKS_DIR/dossiers/$d/decisions/r.md"
+done
 cmd_reconcile --review >/dev/null 2>&1
 assert "merge fixture: both missing findings present" 'proj--stale' "$(cat "$REPORT")"
-
-# name proj--survivor.md as the merge target on the stale finding's block
+if grep -q 'merge with task' "$REPORT"; then
+  echo "FAIL - review: a missing-worktree finding offers merge with task"; fail=1
+else
+  echo "ok   - review: a missing-worktree finding doesn't offer merge with task"
+fi
 check_line_for "$REPORT" 'taskfile=.*proj--stale\.md' \
-  '^- \[ \] merge with task: `___`$' '- [x] merge with task: `proj--survivor.md`'
+  '^- \[ \] attach to task: `___`$' '- [x] merge with task: `proj--survivor.md`'
+merge_before="$(cat "$TASKS_DIR/proj--stale.md" "$TASKS_DIR/proj--survivor.md"; find "$TASKS_DIR/dossiers" -type f | LC_ALL=C sort | xargs cat)"
 
 out="$(cmd_reconcile --apply 2>&1)"; rc=$?
-assert "merge phase1: reopens for confirmation" 'reopening for confirmation' "$out"
-assert "merge phase1: survivor sub-checkboxes appended" 'survivor: this finding' "$(cat "$REPORT")"
-assert "merge phase1: newer file pre-picked as survivor" '\[x\] survivor: `proj--survivor.md`' "$(cat "$REPORT")"
-[ -f "$TASKS_DIR/proj--stale.md" ] && [ -f "$TASKS_DIR/proj--survivor.md" ] \
-  && echo "ok   - merge phase1: neither file touched yet" \
-  || { echo "FAIL - merge phase1: a file was deleted before confirmation"; fail=1; }
-
-# phase 2: leave the pre-checked default as-is, apply again
-out="$(cmd_reconcile --apply 2>&1)"; rc=$?
-assert "merge phase2: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
-if [ -f "$TASKS_DIR/proj--survivor.md" ] && [ ! -f "$TASKS_DIR/proj--stale.md" ]; then
-  echo "ok   - merge phase2: survivor kept, loser deleted"
+assert "merge: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
+assert "merge: says to merge by hand and skips the finding" 'merge them by hand — skipping this finding' "$out"
+if printf '%s' "$out" | grep -q 'reopening for confirmation'; then
+  echo "FAIL - merge: reopened the review for a survivor choice (that phase is gone)"; fail=1
 else
-  echo "FAIL - merge phase2: survivor present=$( [ -f "$TASKS_DIR/proj--survivor.md" ] && echo yes || echo no), loser present=$( [ -f "$TASKS_DIR/proj--stale.md" ] && echo yes || echo no)"
-  fail=1
+  echo "ok   - merge: no survivor-confirmation phase"
 fi
-assert "merge phase2: loser's Plan content folded into survivor" 'Original plan' "$(cat "$TASKS_DIR/proj--survivor.md")"
-
-# =============================================================================
-# --apply: merge override — user re-checks the OTHER survivor box
-# =============================================================================
-fresh_env
-wb_reconcile_repos() { :; }
-mk_task "$TASKS_DIR" 'proj--stale2.md'    doing proj stale2-branch  '.worktrees/gone-c' 'Stale Task 2'
-mk_task "$TASKS_DIR" 'proj--survivor2.md' doing proj keeper2-branch '.worktrees/gone-d' 'Survivor Task 2'
-touch -d '5 days ago' "$TASKS_DIR/proj--stale2.md"
-cmd_reconcile --review >/dev/null 2>&1
-check_line_for "$REPORT" 'taskfile=.*proj--stale2\.md' \
-  '^- \[ \] merge with task: `___`$' '- [x] merge with task: `proj--survivor2.md`'
-cmd_reconcile --apply >/dev/null 2>&1   # phase 1: appends pre-checked defaults
-# override: uncheck the pre-picked default, check the other one instead
-check_line_for "$REPORT" 'taskfile=.*proj--stale2\.md' \
-  '\[x\] survivor: `proj--survivor2.md`' '  - [ ] survivor: `proj--survivor2.md` (existing) <!-- pre-picked: most recently active -->'
-check_line_for "$REPORT" 'taskfile=.*proj--stale2\.md' \
-  '\[ \] survivor: this finding' '  - [x] survivor: this finding (new stub)'
-cmd_reconcile --apply >/dev/null 2>&1
-if [ -f "$TASKS_DIR/proj--stale2.md" ] && [ ! -f "$TASKS_DIR/proj--survivor2.md" ]; then
-  echo "ok   - merge override: user's explicit choice honored over the pre-picked default"
+if [ -f "$TASKS_DIR/proj--stale.md" ] && [ -f "$TASKS_DIR/proj--survivor.md" ] \
+  && [ "$merge_before" = "$(cat "$TASKS_DIR/proj--stale.md" "$TASKS_DIR/proj--survivor.md"; find "$TASKS_DIR/dossiers" -type f | LC_ALL=C sort | xargs cat)" ]; then
+  echo "ok   - merge: both task files and their dossiers left exactly as they were"
 else
-  echo "FAIL - merge override not honored (stale2 present=$( [ -f "$TASKS_DIR/proj--stale2.md" ] && echo yes || echo no), survivor2 present=$( [ -f "$TASKS_DIR/proj--survivor2.md" ] && echo yes || echo no))"
-  fail=1
+  echo "FAIL - merge: a task file was deleted or changed"; fail=1
 fi
-
-# =============================================================================
-# --apply: malformed survivor choice (both checked) is skipped, not guessed
-# =============================================================================
-fresh_env
-wb_reconcile_repos() { :; }
-mk_task "$TASKS_DIR" 'proj--stale3.md'    doing proj stale3-branch  '.worktrees/gone-e' 'Stale Task 3'
-mk_task "$TASKS_DIR" 'proj--survivor3.md' doing proj keeper3-branch '.worktrees/gone-f' 'Survivor Task 3'
-cmd_reconcile --review >/dev/null 2>&1
-check_line_for "$REPORT" 'taskfile=.*proj--stale3\.md' \
-  '^- \[ \] merge with task: `___`$' '- [x] merge with task: `proj--survivor3.md`'
-cmd_reconcile --apply >/dev/null 2>&1   # phase 1: appends defaults (exactly one pre-checked)
-# force BOTH survivor boxes checked -> malformed, regardless of which one the
-# pre-pick landed on (mtimes of two just-created fixture files aren't a
-# reliable enough signal to assume which default this run will land on).
-check_line_for "$REPORT" 'taskfile=.*proj--stale3\.md' \
-  '\[.\] survivor: `proj--survivor3.md`' '  - [x] survivor: `proj--survivor3.md` (existing) <!-- pre-picked: most recently active -->'
-check_line_for "$REPORT" 'taskfile=.*proj--stale3\.md' \
-  '\[.\] survivor: this finding' '  - [x] survivor: this finding (new stub)'
-out="$(cmd_reconcile --apply 2>&1)"
-assert "malformed survivor: warns and skips" 'need exactly 1' "$out"
-[ -f "$TASKS_DIR/proj--stale3.md" ] && [ -f "$TASKS_DIR/proj--survivor3.md" ] \
-  && echo "ok   - malformed survivor: both files left untouched" \
-  || { echo "FAIL - malformed survivor: a file was touched despite the malformed choice"; fail=1; }
 
 # =============================================================================
 # --apply: do nothing is a true no-op

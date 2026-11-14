@@ -45,25 +45,14 @@ _wv_views_untracked() {
   [ -z "$(git -C "$root" ls-files -- ':(glob)dossiers/*/decisions.md' ':(glob)dossiers/*/handoffs.md' ':(glob)dossiers/*/index.md' 2>/dev/null)" ]
 }
 
-# _wv_is_layout <task_file> — true when the task's FRONTMATTER (between the
-# first two `---` lines) says `layout: dossier`, as wb_layout_of reads it; a
-# body line of that shape does not count.
-_wv_is_layout() {
-  awk 'NR == 1 { if ($0 != "---") exit; next }
-       $0 == "---" { exit }
-       /^layout:[[:space:]]*dossier[[:space:]]*(#.*)?$/ { found = 1; exit }
-       END { exit !found }' "$1" 2>/dev/null
-}
-
 # _wv_stems — stdin: changed paths (store-relative); stdout: the stems of the
-# dossiers they sit in whose task file is on the dossier layout, one per line.
+# dossiers they sit in that have a task file, one per line.
 _wv_stems() {
   local root="$1" path stem
   while IFS= read -r path; do
     case "$path" in dossiers/*/*) ;; *) continue ;; esac
     stem="${path#dossiers/}"; stem="${stem%%/*}"
     [ -f "$root/$stem.md" ] || continue
-    _wv_is_layout "$root/$stem.md" || continue
     printf '%s\n' "$stem"
   done | LC_ALL=C sort -u
 }

@@ -64,8 +64,8 @@ that sounds off or incomplete here.
   HTML-only. A brief asking you to edit generated HTML is refused: name its
   source or generator in the dossier, or the owning task file's `wb` verb,
   instead.
-- **Authoring discipline** (`README.md#authoring-discipline`) — `##
-  Decisions` and `## Handoffs` are append-only: never rewrite or delete an
+- **Authoring discipline** (`README.md#authoring-discipline`) — decision
+  files and `## Handoffs` entries are append-only: never rewrite or delete an
   existing entry, a correction is a new entry naming what it supersedes. A
   parent task's `## Plan` has a single writer (the coordinating agent/human
   who owns the parent); children read it but never edit it.
@@ -95,22 +95,19 @@ that sounds off or incomplete here.
   blank reads as `M`; never manufacture a size the current context doesn't
   justify.
 
-- **Dossier layout (trial)** (`docs/wb-guide.md#dossier-layout-trial`) — a task
-  whose frontmatter has `layout: dossier` keeps records as files in
-  `dossiers/<stem>/`: `decisions/<ts>-<slug>.md`, `handoffs/<ts>.md`,
+- **Dossier layout** (`docs/wb-guide.md#dossier-layout`) — every task keeps
+  records as files in `dossiers/<stem>/`: `decisions/<ts>-<slug>.md`, `handoffs/<ts>.md`,
   `open-items/<date>-<slug>.md`, plus generated read-only views (`decisions.md`,
   `handoffs.md`, `index.md`; never edit them). The task file holds only
   frontmatter, `## Now`, `## Plan` and the one newest `## Handoffs` entry.
   `concepts.md` replaces `CONCEPTS.md`; `notes.md` is Jet's scratch (read it only
-  when told to, never write it); `brief.md` is the task's opening prompt. A task
-  without `layout:` keeps `## Decisions`/`## Follow-ups`/`## Done` in the task
-  file. Check the frontmatter before answering or writing.
+  when told to, never write it); `brief.md` is the task's opening prompt.
 
 ## Retriever
 
 Given a question about the store, resolve it read-only, in this order
-(`README.md#task-body` for the `## Handoffs`/`## Decisions`/`## Plan`
-shape; `README.md#parentchild-tasks` for the parent/child walk):
+(`README.md#task-body` for the `## Handoffs`/`## Plan` shape and the
+dossier's `decisions/`; `README.md#parentchild-tasks` for the parent/child walk):
 
 1. The rulebook above (and `README.md` directly, for anything not
    distilled here).
@@ -118,11 +115,11 @@ shape; `README.md#parentchild-tasks` for the parent/child walk):
 3. That task's `parent:`-walk to the family root, if it has one — mirror
    how a child resolves to its family root the way `wb`'s own resolver
    does, so a question about a child can surface the parent's `## Plan`/
-   `## Decisions` too.
-4. (Layout task: `dossiers/<stem>/concepts.md`, and `decisions/` for the exact
+   decisions too.
+4. `dossiers/<stem>/concepts.md`, and `decisions/` for the exact
    decision entries, `open-items/*.md` with `status: open` for follow-ups,
    `handoffs/` for older handoffs; the generated `decisions.md` view is fine
-   for an overview.) `dossiers/<stem>/CONCEPTS.md`, if the family has one, for current
+   for an overview. `dossiers/<stem>/CONCEPTS.md`, if the family has one, for current
    facts — and the other dated reasoning docs alongside it in
    `dossiers/<stem>/`, for "how did we figure this out" questions
    `CONCEPTS.md` alone won't answer (the four-doc division above treats
@@ -158,9 +155,9 @@ What `target`/`body` carry, per `mode`:
 - `append` — `target` is the heading (e.g. `Decisions`); `body` is the
   fully-formed, verbatim multi-line entry (e.g. `### 2026-09-22 14:03 —
   <source>\n<decision text>`).
-- `now` — layout tasks only; no `target`; `body` is the full replacement `##
+- `now` — no `target`; `body` is the full replacement `##
   Now` block (about 10 lines).
-- `decide-supersede` — layout tasks only; `target` is the old decision's id (its
+- `decide-supersede` — `target` is the old decision's id (its
   file name in `decisions/` without `.md`); `body` is the new decision entry.
 - `followup-done` — `target` is the follow-up ref (an exact id or index from
   `wb followups`, or a substring that matches exactly one open item); `body` is
@@ -190,16 +187,15 @@ non-interactive subagent shell):
   `wb append` already performs the locked, oldest-first, end-of-section
   insertion — this role trusts the verb for atomicity and ordering, and
   adds only the duplicate guard below on top.
-  On a layout task the same command writes a file instead: `Decisions` goes to
-  `decisions/`, `Follow-ups` to `open-items/`, and `Handoffs` moves the task
-  file's current handoff to `handoffs/` before writing the new one. The brief
-  and the command don't change; the duplicate guard compares against those
-  files rather than a section.
+  The command writes a file: `Decisions` goes to `decisions/`, `Follow-ups` to
+  `open-items/`, and `Handoffs` moves the task file's current handoff to
+  `handoffs/` before writing the new one. The duplicate guard compares against
+  those files.
 - `now` → `wb now <task-ref> -` with the body on stdin (replaces `## Now`).
 - `decide-supersede` → `wb decide-supersede <task-ref> <target> -` with the body
   on stdin. It writes the new decision and flips the old file to `status:
-  superseded` in one lock; a brief asking for a prose `(supersedes: …)` line on
-  a layout task is refused and redirected here. Never edit a decision file.
+  superseded` in one lock; a brief asking for a prose `(supersedes: …)` line
+  is refused and redirected here. Never edit a decision file.
 - `followup-done` → `wb followup-done <task-ref> <target> -` with the note on
   stdin (or `wb followup-done <task-ref> <target>` for no note). It marks one open
   follow-up done under the lock; an ambiguous, missing or already-done ref exits 1
@@ -294,9 +290,9 @@ non-interactive subagent shell):
   writing.
 - **four-doc rule** — `CONCEPTS.md` / decision log / dossier / task file,
   split by behaves→fact, argument→reasoning, progress→task.
-- **append-only section** — `## Decisions`/`## Handoffs`: entries are added,
-  never rewritten or deleted; a correction is a new entry. (Layout task: decision
-  files are never edited except by `wb decide-supersede` flipping `status`.)
+- **append-only record** — decision files and `## Handoffs` entries are added,
+  never rewritten or deleted; a correction is a new entry. (Decision files are
+  never edited except by `wb decide-supersede` flipping `status`.)
 - **single-writer parent plan** — a parent's `## Plan` is edited only by
   its owning agent/human; children read but never write it.
 - **umbrella** — a long-running parent task with no done-state, filtered

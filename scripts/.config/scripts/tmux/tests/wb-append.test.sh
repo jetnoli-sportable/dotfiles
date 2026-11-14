@@ -117,49 +117,48 @@ mk_task() { # <file> <branch>
 # =============================================================================
 
 EXIST_TASK="$TASKS_DIR/proj--append-exist.md"
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-exist\nworktree: .worktrees/append-exist\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Follow-ups\n\n- existing follow-up\n\n## Decisions\n' \
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-exist\nworktree: .worktrees/append-exist\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Notes\n\n- existing follow-up\n\n## Later\n' \
   > "$EXIST_TASK"
 
-out="$(cmd_append "append-exist" "Follow-ups" "new follow-up note" 2>&1)"; rc=$?
+out="$(cmd_append "append-exist" "Notes" "new follow-up note" 2>&1)"; rc=$?
 assert_eq "existing heading: cmd_append exits 0" 0 "$rc"
-assert "existing heading: confirmation message names the heading + file" 'appended under "## Follow-ups" in proj--append-exist\.md' "$out"
+assert "existing heading: confirmation message names the heading + file" 'appended under "## Notes" in proj--append-exist\.md' "$out"
 content="$(cat "$EXIST_TASK")"
 assert "existing heading: existing follow-up survives" 'existing follow-up' "$content"
 assert "existing heading: new body present" 'new follow-up note' "$content"
 l1="$(grep -nF 'existing follow-up' "$EXIST_TASK" | cut -d: -f1)"
 l2="$(grep -nF 'new follow-up note' "$EXIST_TASK" | cut -d: -f1)"
-d_line="$(grep -n '^## Decisions$' "$EXIST_TASK" | cut -d: -f1)"
+d_line="$(grep -n '^## Later$' "$EXIST_TASK" | cut -d: -f1)"
 if [ -n "$l1" ] && [ -n "$l2" ] && [ "$l1" -lt "$l2" ] && [ -n "$d_line" ] && [ "$l2" -lt "$d_line" ]; then
-  echo "ok   - existing heading: new body lands at the END of the section, before ## Decisions"
+  echo "ok   - existing heading: new body lands at the END of the section, before the next heading"
 else
-  echo "FAIL - existing heading: wrong ordering (existing=$l1, new=$l2, decisions=$d_line)"; fail=1
+  echo "FAIL - existing heading: wrong ordering (existing=$l1, new=$l2, later=$d_line)"; fail=1
 fi
 assert_no_double_blank "existing heading" "$EXIST_TASK"
 
 # =============================================================================
-# Scenario: missing-heading fallback — inserted right before "## Decisions"
-# when that heading exists, else at EOF (same convention as
-# wb_append_handoff / handoff_append_followup).
+# Scenario: missing-heading fallback — a heading the task file lacks is
+# appended at EOF (there is no "insert before ## Decisions" rule any more).
 # =============================================================================
 
 MISSING_TASK="$TASKS_DIR/proj--append-missing.md"
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-missing\nworktree: .worktrees/append-missing\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\nsome plan text\n\n## Decisions\n' \
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-missing\nworktree: .worktrees/append-missing\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\nsome plan text\n\n## Later\n' \
   > "$MISSING_TASK"
 
-out="$(cmd_append "append-missing" "Follow-ups" "first follow-up" 2>&1)"; rc=$?
-assert_eq "missing heading + Decisions exists: exit 0" 0 "$rc"
+out="$(cmd_append "append-missing" "Notes" "first note" 2>&1)"; rc=$?
+assert_eq "missing heading: exit 0" 0 "$rc"
 content="$(cat "$MISSING_TASK")"
-assert "missing heading: creates ## Follow-ups" '^## Follow-ups$' "$content"
-assert "missing heading: body present" 'first follow-up' "$content"
+assert "missing heading: creates ## Notes" '^## Notes$' "$content"
+assert "missing heading: body present" 'first note' "$content"
 assert "missing heading: prior ## Plan content untouched" 'some plan text' "$content"
-h_line="$(grep -n '^## Follow-ups$' "$MISSING_TASK" | cut -d: -f1)"
-d_line="$(grep -n '^## Decisions$' "$MISSING_TASK" | cut -d: -f1)"
-if [ -n "$h_line" ] && [ -n "$d_line" ] && [ "$h_line" -lt "$d_line" ]; then
-  echo "ok   - missing heading: Follow-ups lands before Decisions"
+h_line="$(grep -n '^## Notes$' "$MISSING_TASK" | cut -d: -f1)"
+l_line="$(grep -n '^## Later$' "$MISSING_TASK" | cut -d: -f1)"
+if [ -n "$h_line" ] && [ -n "$l_line" ] && [ "$h_line" -gt "$l_line" ]; then
+  echo "ok   - missing heading: appended at EOF, after the existing headings"
 else
-  echo "FAIL - missing heading: wrong order (h=$h_line, d=$d_line)"; fail=1
+  echo "FAIL - missing heading: wrong order (h=$h_line, later=$l_line)"; fail=1
 fi
-assert_no_double_blank "missing heading + Decisions" "$MISSING_TASK"
+assert_no_double_blank "missing heading" "$MISSING_TASK"
 
 EOF_TASK="$TASKS_DIR/proj--append-eof.md"
 printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-eof\nworktree: .worktrees/append-eof\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\nsome plan text\n' \
@@ -172,61 +171,16 @@ assert "neither heading: creates ## Sweep at EOF" '^## Sweep$' "$content"
 assert "neither heading: body present" 'eof body' "$content"
 assert_no_double_blank "neither heading (EOF fallback)" "$EOF_TASK"
 
-# =============================================================================
-# Scenario (regression): the real ~/code/tasks/TEMPLATE.md section order —
-# Plan → Handoffs → Decisions → Done → Follow-ups, each followed by the
-# template's own blank padding. Done/Follow-ups sit AFTER "## Decisions", so
-# a single-pass scan reaches Decisions before it has seen the target and
-# the missing-heading fallback used to fire anyway, splicing a duplicate
-# "## Done"/"## Follow-ups" in before Decisions and leaving the real
-# (empty) section untouched. Every earlier fixture above put the target
-# BEFORE Decisions, which is why this shipped unnoticed.
-# =============================================================================
-
-TPL_TASK="$TASKS_DIR/proj--append-template.md"
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-template\nworktree: .worktrees/append-template\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Plan\n\n\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' \
-  > "$TPL_TASK"
-
-cmd_append "append-template" "Done" "- first done" >/dev/null 2>&1
-cmd_append "append-template" "Follow-ups" "- only follow-up" >/dev/null 2>&1
-cmd_append "append-template" "Done" "- second done" >/dev/null 2>&1
-
-for h in Plan Handoffs Decisions Done Follow-ups; do
-  assert_eq "template order: exactly one ## $h heading" 1 "$(grep -c "^## $h\$" "$TPL_TASK")"
-done
-assert_eq "template order: heading order unchanged" \
-  "## Plan|## Handoffs|## Decisions|## Done|## Follow-ups" \
-  "$(grep '^## ' "$TPL_TASK" | paste -sd '|')"
-
-l_dec="$(grep -n '^## Decisions$' "$TPL_TASK" | cut -d: -f1)"
-l_done="$(grep -n '^## Done$' "$TPL_TASK" | cut -d: -f1)"
-l_fu="$(grep -n '^## Follow-ups$' "$TPL_TASK" | cut -d: -f1)"
-l_d1="$(grep -nF -- '- first done' "$TPL_TASK" | cut -d: -f1)"
-l_d2="$(grep -nF -- '- second done' "$TPL_TASK" | cut -d: -f1)"
-l_f1="$(grep -nF -- '- only follow-up' "$TPL_TASK" | cut -d: -f1)"
-if [ -n "$l_dec" ] && [ -n "$l_done" ] && [ -n "$l_fu" ] && [ -n "$l_d1" ] && [ -n "$l_d2" ] && [ -n "$l_f1" ] \
-  && [ "$l_dec" -lt "$l_done" ] && [ "$l_done" -lt "$l_d1" ] && [ "$l_d1" -lt "$l_d2" ] \
-  && [ "$l_d2" -lt "$l_fu" ] && [ "$l_fu" -lt "$l_f1" ]; then
-  echo "ok   - template order: Done entries under ## Done oldest-first, follow-up under ## Follow-ups"
-else
-  echo "FAIL - template order: wrong placement (decisions=$l_dec done=$l_done d1=$l_d1 d2=$l_d2 followups=$l_fu f1=$l_f1)"
-  fail=1
-fi
-# assert_no_double_blank can't apply here: the template's own padding
-# already has blank runs. Check the helper adds exactly one blank between
-# consecutive entries instead.
-assert_eq "template order: one blank line between consecutive Done entries" 2 "$(( l_d2 - l_d1 ))"
-
 # Edge cases for the two-pass scan: target heading on line 1 (isHeadingLine
 # must use FNR, not NR, or pass 2's line 1 is never a heading), an empty
 # file (no FNR == 1 record at all), and heading-shaped PROSE naming the
 # target after Decisions (pass 1 must apply the same blank-line guard as
-# pass 2, so this still counts as missing).
+# pass 2, so this still counts as missing and the entry goes at EOF).
 LINE1_TASK="$FIXTURE/line1.md"
 printf -- '## Done\n\n- old\n\n## Decisions\n' > "$LINE1_TASK"
 _wb_append_under_heading "$LINE1_TASK" "Done" "- new"
 assert_eq "line-1 heading: still exactly one ## Done" 1 "$(grep -c '^## Done$' "$LINE1_TASK")"
-assert_eq "line-1 heading: new entry lands after the old one, before Decisions" \
+assert_eq "line-1 heading: new entry lands after the old one, before the next heading" \
   "## Done||- old||- new||## Decisions" "$(paste -sd '|' "$LINE1_TASK")"
 
 EMPTY_TASK="$FIXTURE/empty.md"
@@ -237,12 +191,11 @@ assert_eq "empty file: fresh section appended" "## Done||- only" "$(paste -sd '|
 PROSE_TASK="$FIXTURE/prose.md"
 printf -- '# Title\n\n## Decisions\n\n- d\n\n## Notes\nquoted:\n## Done\n' > "$PROSE_TASK"
 _wb_append_under_heading "$PROSE_TASK" "Done" "- real"
-l_new="$(grep -n '^## Done$' "$PROSE_TASK" | head -1 | cut -d: -f1)"
-l_dec="$(grep -n '^## Decisions$' "$PROSE_TASK" | cut -d: -f1)"
-if [ -n "$l_new" ] && [ -n "$l_dec" ] && [ "$l_new" -lt "$l_dec" ]; then
-  echo "ok   - heading-shaped prose after Decisions: treated as missing, fresh ## Done inserted before Decisions"
+if [ "$(grep -c '^## Done$' "$PROSE_TASK")" = 2 ] && [ "$(tail -n1 "$PROSE_TASK")" = "- real" ] \
+  && [ "$(tail -n3 "$PROSE_TASK" | head -n1)" = "## Done" ]; then
+  echo "ok   - heading-shaped prose: treated as missing, fresh ## Done appended at EOF"
 else
-  echo "FAIL - heading-shaped prose after Decisions: expected a fresh heading before Decisions (new=$l_new decisions=$l_dec)"; fail=1
+  echo "FAIL - heading-shaped prose: expected a fresh ## Done at EOF"; cat "$PROSE_TASK"; fail=1
 fi
 
 # =============================================================================
@@ -256,14 +209,13 @@ fi
 # =============================================================================
 
 SAVE_TASK="$TASKS_DIR/proj--append-save.md"
-printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-save\nworktree: .worktrees/append-save\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Handoffs\n\n### 2026-07-01 09:00 — wb pause (auto)\n\nEarlier entry.\n\n## Decisions\n' \
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: append-save\nworktree: .worktrees/append-save\ntags: []\ncreated: 2026-07-01\nclosed:\n---\n# Title\n\n## Handoffs\n\n### 2026-07-01 09:00 — wb pause (auto)\n\nEarlier entry.\n\n## Later\n' \
   > "$SAVE_TASK"
 
 SAVE_BODY=$'### 2026-07-11 18:42 — wb-save\n**Done:** did the thing.\n**In flight:** doing another thing.\n**Next:** do the next thing.'
 out="$(printf '%s' "$SAVE_BODY" | cmd_append "append-save" "Handoffs" 2>&1)"; rc=$?
 assert_eq "wb-save shape (stdin, body arg omitted): exit 0" 0 "$rc"
 content="$(cat "$SAVE_TASK")"
-assert "wb-save shape: earlier auto entry survives" 'Earlier entry\.' "$content"
 assert "wb-save shape: heading line present" '^### 2026-07-11 18:42 — wb-save$' "$content"
 assert "wb-save shape: Done line present" '^\*\*Done:\*\* did the thing\.$' "$content"
 assert "wb-save shape: In flight line present" '^\*\*In flight:\*\* doing another thing\.$' "$content"
@@ -281,24 +233,41 @@ else
 fi
 assert_no_double_blank "wb-save shape" "$SAVE_TASK"
 
-l_earlier="$(grep -nF 'Earlier entry.' "$SAVE_TASK" | cut -d: -f1)"
-if [ -n "$l_earlier" ] && [ -n "$l_head" ] && [ "$l_earlier" -lt "$l_head" ]; then
-  echo "ok   - wb-save shape: new block lands after the earlier auto entry (oldest-first ordering preserved)"
+# The older auto entry no longer stays in the task file: wb append Handoffs
+# goes through wb_handoff_write, which moves it to handoffs/<ts>.md.
+if grep -qF 'Earlier entry.' "$SAVE_TASK"; then
+  echo "FAIL - wb-save shape: earlier auto entry should have moved out of the task file"; fail=1
 else
-  echo "FAIL - wb-save shape: ordering wrong (earlier=$l_earlier, new head=$l_head)"; fail=1
+  echo "ok   - wb-save shape: earlier auto entry left the task file"
 fi
+assert "wb-save shape: earlier auto entry preserved in handoffs/ (auto: true)" '^auto: true$' "$(cat "$TASKS_DIR/dossiers/proj--append-save/handoffs/2026-07-01-0900.md" 2>&1)"
+assert "wb-save shape: earlier entry body in handoffs/ file" 'Earlier entry\.' "$(cat "$TASKS_DIR/dossiers/proj--append-save/handoffs/2026-07-01-0900.md" 2>&1)"
+
+# Decisions and Follow-ups are record files, never sections of the task file.
+REC_TASK="$TASKS_DIR/proj--append-rec.md"
+mk_task "$REC_TASK" append-rec
+out="$(printf 'chose A over B\n' | cmd_append "append-rec" "Decisions" - 2>&1)"; rc=$?
+assert_eq "decision record: exit 0" 0 "$rc"
+dec_file="$(find "$TASKS_DIR/dossiers/proj--append-rec/decisions" -name '*.md' 2>/dev/null | head -1)"
+assert "decision record: a decisions/ file holds the body" 'chose A over B' "$(cat "$dec_file" 2>&1)"
+out="$(printf 'look at X later\n' | cmd_append "append-rec" "Follow-ups" - 2>&1)"; rc=$?
+assert_eq "follow-up record: exit 0" 0 "$rc"
+fu_file="$(find "$TASKS_DIR/dossiers/proj--append-rec/open-items" -name '*.md' 2>/dev/null | head -1)"
+assert "follow-up record: an open-items/ file holds the body, status open" 'look at X later' "$(cat "$fu_file" 2>&1)"
+assert "follow-up record: status open" '^status: open$' "$(cat "$fu_file" 2>&1)"
+assert_not "records: the task file gets no ## Decisions / ## Follow-ups section" '^## (Decisions|Follow-ups)$' "$(cat "$REC_TASK")"
 
 # Explicit "-" body arg also reads stdin (the other documented convention).
 DASH_TASK="$TASKS_DIR/proj--append-dash.md"
-mk_task "$DASH_TASK" append-dash $'\n## Follow-ups\n'
-out="$(printf 'via dash arg' | cmd_append "append-dash" "Follow-ups" - 2>&1)"; rc=$?
+mk_task "$DASH_TASK" append-dash $'\n## Notes\n'
+out="$(printf 'via dash arg' | cmd_append "append-dash" "Notes" - 2>&1)"; rc=$?
 assert_eq "explicit '-' body arg: exit 0" 0 "$rc"
 assert "explicit '-' body arg: body landed" 'via dash arg' "$(cat "$DASH_TASK")"
 
 # Trailing one-line body argument (the short convenience form) also works.
 ARG_TASK="$TASKS_DIR/proj--append-arg.md"
-mk_task "$ARG_TASK" append-arg $'\n## Follow-ups\n'
-out="$(cmd_append "append-arg" "Follow-ups" "one-line convenience body" 2>&1)"; rc=$?
+mk_task "$ARG_TASK" append-arg $'\n## Notes\n'
+out="$(cmd_append "append-arg" "Notes" "one-line convenience body" 2>&1)"; rc=$?
 assert_eq "trailing one-line body arg: exit 0" 0 "$rc"
 assert "trailing one-line body arg: body landed" 'one-line convenience body' "$(cat "$ARG_TASK")"
 
@@ -309,15 +278,15 @@ assert "trailing one-line body arg: body landed" 'one-line convenience body' "$(
 
 AMBIG_A="$TASKS_DIR/proj--dup-topic.md"
 AMBIG_B="$TASKS_DIR/proj--dup-topic-two.md"
-mk_task "$AMBIG_A" dup-topic $'\n## Follow-ups\n'
-mk_task "$AMBIG_B" dup-topic-two $'\n## Follow-ups\n'
+mk_task "$AMBIG_A" dup-topic $'\n## Notes\n'
+mk_task "$AMBIG_B" dup-topic-two $'\n## Notes\n'
 
-out="$(cmd_append "dup-topic" "Follow-ups" "should not land anywhere" 2>&1)"; rc=$?
+out="$(cmd_append "dup-topic" "Notes" "should not land anywhere" 2>&1)"; rc=$?
 assert_eq "ambiguous ref: exit 1" 1 "$rc"
 assert "ambiguous ref: fails loud naming the match count" 'matches 2 tasks' "$out"
 assert_not "ambiguous ref: neither candidate file was touched" 'should not land anywhere' "$(cat "$AMBIG_A"; cat "$AMBIG_B")"
 
-out="$(cmd_append "no-such-task-xyz" "Follow-ups" "body" 2>&1)"; rc=$?
+out="$(cmd_append "no-such-task-xyz" "Notes" "body" 2>&1)"; rc=$?
 assert_eq "no match: exit 1" 1 "$rc"
 assert "no match: fails loud" 'no task matches' "$out"
 
@@ -331,15 +300,15 @@ assert "no match: fails loud" 'no task matches' "$out"
 
 PREFIX_A="$TASKS_DIR/proj--foo.md"
 PREFIX_B="$TASKS_DIR/proj--foo-bar.md"
-mk_task "$PREFIX_A" foo $'\n## Follow-ups\n'
-mk_task "$PREFIX_B" foo-bar $'\n## Follow-ups\n'
+mk_task "$PREFIX_A" foo $'\n## Notes\n'
+mk_task "$PREFIX_B" foo-bar $'\n## Notes\n'
 
-out="$(cmd_append "proj--foo" "Follow-ups" "resolved via exact basename" 2>&1)"; rc=$?
+out="$(cmd_append "proj--foo" "Notes" "resolved via exact basename" 2>&1)"; rc=$?
 assert_eq "exact basename ref: exit 0 (fast path, not ambiguous)" 0 "$rc"
 assert "exact basename ref: landed in proj--foo.md" 'resolved via exact basename' "$(cat "$PREFIX_A")"
 assert_not "exact basename ref: sibling proj--foo-bar.md left untouched" 'resolved via exact basename' "$(cat "$PREFIX_B")"
 
-out="$(cmd_append "$PREFIX_A" "Follow-ups" "resolved via absolute path" 2>&1)"; rc=$?
+out="$(cmd_append "$PREFIX_A" "Notes" "resolved via absolute path" 2>&1)"; rc=$?
 assert_eq "absolute path ref: exit 0" 0 "$rc"
 assert "absolute path ref: landed in proj--foo.md" 'resolved via absolute path' "$(cat "$PREFIX_A")"
 
@@ -351,7 +320,7 @@ assert "absolute path ref: landed in proj--foo.md" 'resolved via absolute path' 
 # =============================================================================
 
 CONTEND_TASK="$TASKS_DIR/proj--append-contend.md"
-mk_task "$CONTEND_TASK" append-contend $'\n## Follow-ups\n'
+mk_task "$CONTEND_TASK" append-contend $'\n## Notes\n'
 
 HOLDER_LOG="$FIXTURE/holder-output.log"
 HOLDER_SCRIPT="$FIXTURE/lock-holder-wb.sh"
@@ -380,14 +349,14 @@ while [ "$waited" -lt 30 ]; do
   waited=$((waited + 1))
 done
 
-out="$(cmd_append "append-contend" "Follow-ups" "should not land while contended" 2>&1)"; rc=$?
+out="$(cmd_append "append-contend" "Notes" "should not land while contended" 2>&1)"; rc=$?
 assert_eq "contention: cmd_append halts (75) rather than interleaving" 75 "$rc"
 assert "contention: message names the contended file" "contended on $(basename "$CONTEND_TASK")" "$out"
 assert_not "contention: body did NOT land while contended" 'should not land while contended' "$(cat "$CONTEND_TASK")"
 
 wait "$HOLDER_PID" 2>/dev/null
 
-out="$(cmd_append "append-contend" "Follow-ups" "landed after release" 2>&1)"; rc=$?
+out="$(cmd_append "append-contend" "Notes" "landed after release" 2>&1)"; rc=$?
 assert_eq "post-release retry: exit 0" 0 "$rc"
 assert "post-release retry: body landed" 'landed after release' "$(cat "$CONTEND_TASK")"
 
@@ -534,7 +503,7 @@ done
 BACKSLASH_TASK="$TASKS_DIR/proj--append-backslash.md"
 mk_task "$BACKSLASH_TASK" "append-backslash"
 
-out="$(cmd_append "append-backslash" "Follow-ups" 'pattern: push\b force-flag, \d unrecognized, \t also literal' 2>&1)"; rc=$?
+out="$(cmd_append "append-backslash" "Notes" 'pattern: push\b force-flag, \d unrecognized, \t also literal' 2>&1)"; rc=$?
 assert_eq "backslash body: cmd_append exits 0" 0 "$rc"
 content="$(cat "$BACKSLASH_TASK")"
 assert "backslash body: \\b preserved literally (not corrupted into a backspace byte)" 'push\\b force-flag' "$content"

@@ -468,10 +468,8 @@ reply laid out as one heading per point, each restating its question in
 italics, shows &quot;no open questions&quot;, since those questions are answered.
 Otherwise up to five lines ending in <code>?</code> appear as &quot;possibly open&quot;.</li>
 <li><strong>Artifacts</strong> are the last five across the task's reply files, so they
-survive <code>/clear</code>. <strong>Decisions</strong> are the last three entries under the task
-file's <code>## Decisions</code>: <code>###</code> titles, and top-level bullets that start
-with a date. (On a <code>layout: dossier</code> task they come from the three newest
-files in <code>decisions/</code>, by file name; the card shows each file's title.)</li>
+survive <code>/clear</code>. <strong>Decisions</strong> are the three newest files in the task's
+<code>decisions/</code>, by file name; the card shows each file's title.</li>
 <li><strong>A task with no live Claude session</strong> gets a <code>dormant</code> card built from
 its newest reply file when <code>claude-card.sh</code> is given the task file. The
 picker doesn't use it: its dormant rows show wb's task summary, led by

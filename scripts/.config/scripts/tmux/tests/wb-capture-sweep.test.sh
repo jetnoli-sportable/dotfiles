@@ -58,23 +58,26 @@ case "$mode" in
   fail)  echo "boom" >&2; exit 1 ;;
   empty) : ;;
   sleep) exec sleep 5 ;;
-  edit-task) # a decision is recorded while "thinking" (task file changes mid-call)
-    sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
+  edit-task) # a decision file is recorded while "thinking" (decisions/ changes mid-call)
+    d="$(dirname "$FAKE_TASK")/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$d"
+    printf -- '---\nstatus: in-force\n---\n# Recorded meanwhile\n\nbody\n' >"$d/2026-10-23-1000-recorded-meanwhile.md"
     printf '### Chose B over A\n- decided: B\n' ;;
-  edit-task-two) # as edit-task, answering two entries
-    sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
+  edit-task-b) # as edit-task, but another file (a second change)
+    d="$(dirname "$FAKE_TASK")/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$d"
+    printf -- '---\nstatus: in-force\n---\n# Recorded meanwhile too\n\nbody\n' >"$d/2026-10-24-1000-recorded-meanwhile-too.md"
+    printf '### Chose B over A\n- decided: B\n' ;;
+  edit-task-two) # as edit-task (another file), answering two entries
+    d="$(dirname "$FAKE_TASK")/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$d"
+    printf -- '---\nstatus: in-force\n---\n# Recorded meanwhile too\n\nbody\n' >"$d/2026-10-24-1000-recorded-meanwhile-too.md"
     printf '### Chose B over A\n- decided: B\n\n### Chose D over C\n- decided: D\n' ;;
-  edit-handoffs) # a write OUTSIDE ## Decisions while "thinking"
+  edit-handoffs) # a write OUTSIDE decisions/ while "thinking"
     printf '## Handoffs\nsaved mid-call\n' >>"$FAKE_TASK"
     printf '### Chose B over A\n- decided: B\n' ;;
-  edit-layout|edit-layout-2) # layout task: a decision FILE is recorded while "thinking"
-    d="$(dirname "$FAKE_TASK")/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$d"
-    f="$d/2026-10-2${mode: -1}-1000-recorded-meanwhile.md"; [ "$mode" = edit-layout ] && f="$d/2026-10-23-1000-recorded-meanwhile.md"
-    printf -- '---\nstatus: in-force\n---\n# Recorded meanwhile\n\nbody\n' >"$f"
-    printf '### Chose B over A\n- decided: B\n' ;;
   touch-ended) : >"$FAKE_ENDED_PATH"; printf '### late\n- decided: x\n' ;;
-  touch-ended-edit) # session ends AND the task's Decisions change while "thinking"
-    : >"$FAKE_ENDED_PATH"; sed -i '/^## Decisions/a ### Recorded meanwhile' "$FAKE_TASK"
+  touch-ended-edit) # session ends AND the task's decisions/ change while "thinking"
+    : >"$FAKE_ENDED_PATH"
+    d="$(dirname "$FAKE_TASK")/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$d"
+    printf -- '---\nstatus: in-force\n---\n# Recorded meanwhile\n\nbody\n' >"$d/2026-10-23-1000-recorded-meanwhile.md"
     printf '### late\n- decided: x\n' ;;
 esac
 exit 0
@@ -97,7 +100,9 @@ new_scenario() {
   STATE="$H/state"; CFG="$H/config"
   CAP="$STATE/wb/capture"; LOG="$CAP/log.jsonl"
   FAKE_TASK="$H/tasks/dotfiles--feat-x.md"
-  printf '# task\n## Goal\nGOAL_SECTION_TEXT\n## Decisions\n### Existing decision\n- decided: EXISTING_DECISION_TEXT\n## Done\nDONE_SECTION_TEXT\n' >"$FAKE_TASK"
+  printf '# task\n## Goal\nGOAL_SECTION_TEXT\n## Done\nDONE_SECTION_TEXT\n' >"$FAKE_TASK"
+  DDIR="$H/tasks/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$DDIR"
+  printf -- '---\nstatus: in-force\n---\n# Existing decision\n\n- decided: EXISTING_DECISION_TEXT\n' >"$DDIR/2026-10-20-0900-existing-decision.md"
   D="$CAP/sid-aaa"; mkdir -p "$D"
   SH="$CAP/shelved/dotfiles--feat-x"
   OUTDIR="$H/claude-out"
@@ -416,7 +421,7 @@ new_scenario; set_conf sweep_max_failures=abc; printf '3\n' >"$D/sweep_failures"
 assert_eq "invalid max falls back to 3" backoff "$(last_field sweep_skipped reason)"
 
 echo "# stale draft: task file changed during the child call"
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task-b)
 sweep
 assert_shelved 1 "stale: draft still shelved"
 assert_match "stale: draft body" '^### Chose B over A' "$(shelf_cat)"
@@ -444,8 +449,8 @@ new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=none)
 sweep
 assert_shelved 0 "none: nothing shelved"
 
-echo "# stale draft: count is of the snapshot, task without Decisions entries"
-new_scenario; printf '# task\n## Decisions\n## Done\n' >"$FAKE_TASK"; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-task)
+echo "# stale draft: count is of the snapshot, task with no decision files"
+new_scenario; rm -f "$DDIR"/*.md; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task-b)
 sweep
 assert_eq "empty section: count of the re-snapshot" 1 "$(cat "$(shelf_nth 1).stale")"
 
@@ -456,7 +461,7 @@ assert_shelved 2 "stale multi: two files"
 assert_eq "stale multi: both sidecars hold the re-snapshot count" "2 2" "$(for f in $(shelf_files); do cat "$f.stale"; done | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "stale multi: both draft_shelved tagged stale" "true true" "$(jq -r 'select(.event=="draft_shelved")|.stale' "$LOG" | tr '\n' ' ' | sed 's/ $//')"
 
-echo "# rerun: write outside ## Decisions during the child run is NOT stale"
+echo "# rerun: write outside decisions/ during the child run is NOT stale"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-handoffs)
 sweep
 assert_shelved 1 "handoffs: draft written"
@@ -465,7 +470,7 @@ assert_eq "handoffs: child called once" 1 "$(invocations)"
 assert_eq "handoffs: no stale field" null "$(last_field sweep_ran stale)"
 assert_eq "handoffs: no rerun field" null "$(last_field sweep_ran rerun)"
 
-echo "# rerun: Decisions edited in run 1 only -> rerun, draft fresh"
+echo "# rerun: decisions/ edited in run 1 only -> rerun, draft fresh"
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,draft)
 sweep
 assert_eq "rerun: child called twice" 2 "$(invocations)"
@@ -487,7 +492,7 @@ assert_eq "rerun-none: rerun logged" true "$(last_field sweep_ran rerun)"
 assert_eq "rerun-none: offset advanced" 3 "$(cat "$D/sweep_offset")"
 
 echo "# rerun: section changes during both runs -> stale draft (re-snapshot count)"
-new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task)
+new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-task,edit-task-b)
 sweep
 assert_eq "both: child called twice, never thrice" 2 "$(invocations)"
 assert_shelved 1 "both: draft written"
@@ -741,7 +746,7 @@ assert_match "ended mid-run: shelved draft is the answer" '^### late' "$(cat "$P
 assert_eq "ended mid-run: no .stale sidecar" 0 "$(ls "$PK"/*.stale 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "ended mid-run: no rerun" 1 "$(invocations)"
 assert_eq "ended mid-run: sweep_ran result draft" draft "$(last_field sweep_ran result)"
-# the same, with Decisions changing too: shelved with a .stale sidecar, still no rerun
+# the same, with decisions/ changing too: shelved with a .stale sidecar, still no rerun
 new_scenario; EXTRA_ENV+=(FAKE_CLAUDE_MODE=touch-ended-edit); PK="$CAP/shelved/dotfiles--feat-x"
 sweep
 assert_eq "ended+edited: no rerun (ended skips it)" 1 "$(invocations)"
@@ -985,30 +990,5 @@ vsweep
 assert_eq "stale rerun: drafted 2" "drafted 2" "$OUT"
 assert_eq "stale rerun: both files carry the re-snapshot count" "2 2" "$(for f in $(shelf_files); do cat "$f.stale"; done | tr '\n' ' ' | sed 's/ $//')"
 
-echo "# layout task (dossier layout trial): staleness and count come from decisions/ files"
-mk_layout_task() { # two decision files; no ## Decisions section in the task file
-  printf -- '---\nlayout: dossier\n---\n# task\n\n## Now\nNOW_TEXT\n' >"$FAKE_TASK"
-  LDIR="$H/tasks/dossiers/dotfiles--feat-x/decisions"; mkdir -p "$LDIR"
-  printf -- '---\nstatus: in-force\n---\n# First layout decision\n\nLAYOUT_BODY_ONE\n' >"$LDIR/2026-10-20-0900-first.md"
-  printf -- '---\nstatus: in-force\n---\n# Second layout decision\n\nbody two\n' >"$LDIR/2026-10-21-0900-second.md"
-}
-new_scenario; mk_layout_task
-sweep
-assert_shelved 1 "layout: draft shelved"
-assert_match "layout: prompt carries a decision file's title and body" 'First layout decision' "$(cat "$OUTDIR/stdin")"
-assert_match "layout: prompt carries the body" 'LAYOUT_BODY_ONE' "$(cat "$OUTDIR/stdin")"
-assert_nofile "layout: unchanged decisions/ -> no sidecar" "$(shelf_nth 1).stale"
-assert_eq "layout: no rerun" 1 "$(invocations)"
-new_scenario; mk_layout_task; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-layout)
-sweep
-assert_eq "layout: a new decision file reruns the child once" 2 "$(invocations)"
-assert_nofile "layout: one change during the first run is not stale" "$(shelf_nth 1).stale"
-new_scenario; mk_layout_task; EXTRA_ENV+=(FAKE_CLAUDE_SEQ=edit-layout,edit-layout-2)
-sweep
-assert_shelved 1 "layout stale: draft still shelved"
-assert_eq "layout stale: sidecar counts the three files at the re-snapshot" 3 "$(cat "$(shelf_nth 1).stale")"
-new_scenario; mk_layout_task; EXTRA_ENV+=(FAKE_CLAUDE_MODE=edit-handoffs)
-sweep
-assert_nofile "layout: a task-file edit outside decisions/ is not stale" "$(shelf_nth 1).stale"
 
 [ "$fail" = 0 ] && echo "ALL PASSED" || { echo "FAILED"; exit 1; }

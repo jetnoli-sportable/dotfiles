@@ -97,28 +97,15 @@ handoff_bootstrap_gap() {
   return 0
 }
 
-# handoff_append_followup <task_file> <line> — insert "- <line>" under a
-# "## Follow-ups" heading, the durable channel R3 establishes for exactly
-# this kind of note (R11), so a spawn nobody is watching the terminal for
-# doesn't leave the gap's only record in a scrollback buffer. Delegates to
-# wb.sh's _wb_append_under_heading (sourced above) so there is one
-# insertion algorithm, not two: the line lands at the END of an existing
-# "## Follow-ups" section (TEMPLATE.md has one, after "## Decisions"); a
-# file with no such heading gets one inserted before "## Decisions", or at
-# EOF when neither exists. A private awk copy of that fallback used to
-# fire on reaching "## Decisions" before the real heading below it,
-# duplicating "## Follow-ups" in every template-shaped task file.
-#
-# Layout task (`layout: dossier`, KTD21): there is no ## Follow-ups, so the
-# note is written as an open-items/ record (the route `wb append <task>
-# Follow-ups` takes) and the views are rebuilt. The caller already holds the
-# task lock, which wb_record_write requires.
+# handoff_append_followup <task_file> <line> — record <line> as a follow-up
+# of the task: an open-items/ record in its dossier (the route
+# `wb append <task> Follow-ups` takes), with the views rebuilt. This is the
+# durable channel R3 establishes for exactly this kind of note (R11), so a
+# spawn nobody is watching the terminal for doesn't leave the gap's only
+# record in a scrollback buffer. The caller already holds the task lock,
+# which wb_record_write requires.
 handoff_append_followup() {
-  if _wb_is_dossier "$1"; then
-    wb_record_write "$1" open-items "$2"
-    return
-  fi
-  _wb_append_under_heading "$1" "Follow-ups" "- $2"
+  wb_record_write "$1" open-items "$2"
 }
 
 # handoff_permission_prompt_matches <pane_text> <pointer> — true when

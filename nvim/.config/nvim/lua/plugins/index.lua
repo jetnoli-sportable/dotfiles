@@ -17,6 +17,7 @@ local dapConfig = require("plugins.config.dap")
 local diffviewConfig = require("plugins.config.diffview")
 local persistenceConfig = require("plugins.config.persistence")
 local codediffConfig = require("plugins.config.codediff")
+local snacksConfig = require("plugins.config.snacks")
 
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
@@ -45,6 +46,8 @@ require("lazy").setup({
 	oilConfig,
 	markdownConfig,
 	markdownUrlConfig,
+	snacksConfig,
+	{ "d2lang/d2-vim", ft = "d2" }, -- syntax for /diagram's .d2 files
 	mintyConfig,
 
 	autoCompleteConfig,

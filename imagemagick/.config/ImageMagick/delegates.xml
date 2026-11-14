@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<delegatemap>
+  <delegate decode="svg:decode" stealth="True" command="&quot;svg-decode-rsvg&quot; &quot;%s&quot; &quot;%s&quot; &quot;%s&quot; &quot;%s&quot; &quot;%s&quot; &quot;%s&quot;"/>
+</delegatemap>

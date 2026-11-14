@@ -39,18 +39,17 @@ assert() { # <desc> <expected-regex> <actual>
 }
 
 mk_task() { # <file> <status> <repo> <title> <n-followups>
-  local f="$FIXTURE/$1"
+  local f="$FIXTURE/$1" stem="${1%.md}" i
   {
-    printf -- '---\nstatus: %s\nrepo: %s\nbranch: b\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\n---\n' "$2" "$3"
+    printf -- '---\nstatus: %s\nrepo: %s\nbranch: b\nworktree: .worktrees/x\ntags: []\ncreated: 2026-07-07\nlayout: dossier\n---\n' "$2" "$3"
     [ -n "$4" ] && printf '# %s\n\n' "$4"
-    printf '## Plan\n\n## Done\n\n'
-    if [ "$5" -gt 0 ]; then
-      printf '## Follow-ups\n\n'
-      for _ in $(seq 1 "$5"); do printf -- '- a follow-up\n'; done
-      printf '\n'
-    fi
-    printf '## Decisions\n'
+    printf '## Now\n\n## Plan\n'
   } > "$f"
+  # follow-ups are open-items records in the task's dossier
+  for i in $(seq 1 "$5"); do
+    mkdir -p "$FIXTURE/dossiers/$stem/open-items"
+    printf -- '---\nstatus: open\n---\na follow-up %s\n' "$i" > "$FIXTURE/dossiers/$stem/open-items/2026-07-07-fu-$i.md"
+  done
 }
 
 # --- fixtures ---------------------------------------------------------------

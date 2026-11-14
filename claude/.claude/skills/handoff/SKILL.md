@@ -40,10 +40,10 @@ carries the context and instructions the routed worker will need before
   only; never touches a worktree or tmux session, see step 3 for why that's
   safe here) and `wb append` (step 5, body writes) — plus exactly one final
   shell-out to `handoff.sh`. **Task files under `~/code/tasks` are never
-  written with the Edit/Write tool** (the one narrow exception: the
-  `# <title>`/first-action preamble line, step 4 — see step 5's note).
+  written with the Edit/Write tool** (step 4's opening ask goes into the
+  dossier's `brief.md`, not the task file — see step 5's note).
   If something seems to need a `wb.sh` change or helper to work well, don't
-  add it — note it as a follow-up in the target task file's `## Follow-ups`
+  add it — note it as a follow-up in the target task's `open-items/`
   instead.
 - **Trigger phrasing:** `/handoff`, "hand this off", "route this to
   <repo>", "spin up an agent for this", "send this to its own worker", or
@@ -167,46 +167,37 @@ own header comment in `wb.sh`), so it can't trip that hazard — the thing
 still genuinely forbidden here is a bare `wb new <repo> <slug>` (no
 `--agent`, no `--planned`) or `cmd_new` call, which does reach that code.
 
-`~/code/tasks/TEMPLATE.md` carries a `## Follow-ups` heading (after
-`## Decisions`, then `## Done`), which is where `handoff.sh`'s R11
-bootstrap-gap warning (`handoff_append_followup`) appends. When composing a
-new task file, keep that heading. Older task files that lack it are still
-fine: the append adds the heading before `## Decisions`, or at EOF when
-there is no `## Decisions` either.
+`handoff.sh`'s R11 bootstrap-gap warning (`handoff_append_followup`)
+appends its follow-up as a file in the task's `open-items/`.
 
-### 4. Determine `first_action` and write it into the file
+### 4. Determine `first_action` and write it into the brief
 
-**Layout task (trial).** If the target task has `layout: dossier` (a new task
-gets it only when its parent has it), there is no "First action" line. Instead
-draft the task's `brief.md` in its dossier (`wb new` seeds it; the script side is
-separate): type, why, done when, not doing, and each claim marked *checked* or
-*assumed* with its date. Fill what this discussion settled; leave the rest blank
-or marked *assumed*. The routed worker's first session confirms the blank and
-assumed fields one question at a time. The rest of this step (default stage,
-align-check-first) still decides what the brief's opening ask says. Tasks
-without `layout:` keep the line below. See `docs/wb-guide.md`, "Dossier layout (trial)".
+There is no "First action" line in the task file. Instead, draft the task's
+`brief.md` in its dossier (`wb new` seeds it): type, why, done when, not doing,
+and each claim marked *checked* or *assumed* with its date. Fill what this
+discussion settled; leave the rest blank or marked *assumed*. The routed
+worker's first session confirms the blank and assumed fields one question at a
+time. See `docs/wb-guide.md`, "Dossier layout".
+
+The rest of this step decides the brief's opening ask: one
+`**Opening ask:**` line right under the brief's `# Brief:` heading.
 
 Default: `/ce-plan`. Only pick something else (e.g. `/ce-work`) when the
 work is already fully scoped with no open design decisions left to make.
 Always state explicitly, to the user, which action was chosen and why —
 never let this be a silent inference.
 
-Write it directly into the task file's body as a line immediately under
-the `#` title (before any `##` section) — mirroring this exact
-convention, already in use in this very task file
-(`~/code/tasks/dotfiles--feat-handoff-v1.md`):
-
 ```
-**First action when picked up:** `/ce-plan` from this file.
+**Opening ask:** `/ce-plan` from the task file.
 ```
 
-- If the task file is brand new (step 3), add this line right after the
-  `# <title>` heading.
-- If the task file already existed and already has a line like this
-  (routing a new, related discussion to an already-active task), leave it
-  alone unless the new discussion genuinely calls for a *different* first
-  action than what's already there — update it only in that case, and say
-  so explicitly (same rule: never silent).
+- If the brief is brand new (step 3), add this line right after its
+  `# Brief:` heading.
+- If the brief already existed and already has an opening ask (routing a
+  new, related discussion to an already-active task), leave it alone unless
+  the new discussion genuinely calls for a *different* first action than
+  what's already there — update it only in that case, and say so explicitly
+  (same rule: never silent).
 
 **Default the routed worker's kickoff to present findings and check
 alignment, before whatever stage `first_action` names — not straight
@@ -243,11 +234,11 @@ kind/shape that actually fits the routed task at write-time (this is a
 template for the prose, not a literal string to hard-code):
 
 ```
-**First action when picked up:** present findings and a proposed
-direction, then check alignment before opening any buffer (see
-`decision-buffer/SKILL.md` §1) — if a buffer turns out to be warranted,
-default to [findings-review|interview|choice] given this is a
-[spike/scoping|settled-plan] task, then `/ce-plan` from this file.
+**Opening ask:** present findings and a proposed direction, then check
+alignment before opening any buffer (see `decision-buffer/SKILL.md` §1) —
+if a buffer turns out to be warranted, default to
+[findings-review|interview|choice] given this is a [spike/scoping|settled-plan]
+task, then `/ce-plan` from the task file.
 ```
 
 **Overridable — don't force it when it's already redundant.** Skip the
@@ -298,34 +289,28 @@ file's prose, passing the full context as a multi-line body via stdin:
   EOF
   ```
 
-On a layout task, `Follow-ups` is a series of files in the dossier's
-`open-items/`; the command is the same, so nothing changes here.
+`Follow-ups` is a series of files in the dossier's `open-items/`.
 
-Either way, `wb append` is append-only under the named heading by
-construction — it can only ever add a new block at the end of that section
-(creating the heading first if it's missing, per the same fallback
-convention step 3's creation call and `wb_append_handoff` both use), never
-touch a byte of what's already in `## Plan`, `## Decisions`, or
-`## Follow-ups`. This preserves the "never overwrite" guarantee this
-section always carried, now as a structural property of the verb rather
+`wb append` is append-only by construction — it can only ever add a new
+record, never touch a byte of what's already in `## Plan`, the decision
+files, or the existing follow-ups. This preserves the "never overwrite" guarantee as a structural property of the verb rather
 than a habit to remember.
 
 **Never write or edit task-file body content under a `##` section with the
-Edit/Write tool — always shell out to `wb append` instead.** The one
-narrow, documented exception in this skill: the `# <title>`/first-action
-preamble line (step 4) sits *before* any `##` section, a position
-`wb append`'s heading-scoped model has no way to express, so that one line
-stays a direct Read+Edit insertion.
+Edit/Write tool — always shell out to `wb append` instead.** Step 4's
+`**Opening ask:**` line is not task-file content: it goes into the dossier's
+`brief.md` with a direct Read+Edit, because the brief has no `##` section
+`wb append` could target.
 
 ### 6. Invoke `handoff.sh` and relay the outcome
 
 Run `handoff.sh <repo> <slug>` with no flags — `first_action` already lives
-in the task file from step 4, so there's nothing else to pass. **Substitute
+in the task's `brief.md` from step 4, so there's nothing else to pass. **Substitute
 the literal repo/slug/path values you already resolved in steps 1-2** —
 do not copy the `$DOTFILES`/`$repo`/`$slug` variable names verbatim into a
 fresh shell call. Each of steps 2-5 above runs as its own tool call (a
 `bash -c` invocation for step 2, a `wb new --planned` Bash call for step 3,
-Read/Edit for step 4's title/first-action preamble line, and a `wb append`
+Read/Edit for step 4's `**Opening ask:**` line in `brief.md`, and a `wb append`
 Bash call for step 5), and this harness's shell state does not persist
 between separate Bash calls — a
 literal `"$DOTFILES/.../handoff.sh" "$repo" "$slug"` composed as a new,
@@ -390,8 +375,7 @@ whoever debugs handoff.sh itself, not user-facing content.
 - `handoff: warning: <repo_dir> has neither a .worktree-bootstrap manifest
   nor a root .env* file — ...` (stderr, may appear alongside any spawn
   outcome above) — R11's bootstrap-gap surfacing; `handoff.sh` also
-  durably records this under the task file's `## Follow-ups` itself
-  (inserting the heading first if the file didn't have one), so it's not
+  durably records this as a follow-up in the task's `open-items/` itself, so it's not
   just scrollback. Mention it if it fires, but it's non-blocking.
 
 ## Notes

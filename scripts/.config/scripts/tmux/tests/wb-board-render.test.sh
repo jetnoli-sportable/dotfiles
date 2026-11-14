@@ -179,14 +179,13 @@ mk_task fam-parent-child1 planned 3 $'parent: fam-parent'
 # below (fam-parent's own edge count is otherwise 0, same as every other
 # flat fixture in this file).
 mk_task fam-parent-child2 planned 3 $'parent: fam-parent\ndepends_on: fam-parent-child1'
+# the family's decision is a record file in the parent's dossier
+mkdir -p "$FIXTURE_TASKS/dossiers/fam-parent/decisions"
+printf -- '---\nstatus: in-force\n---\n# Ship it this way\n\nChose the simpler approach because it was faster to build.\n' \
+  > "$FIXTURE_TASKS/dossiers/fam-parent/decisions/2026-01-05-0900-ship-it.md"
 cat >> "$FIXTURE_TASKS/fam-parent.md" <<'EOF'
 
-## Decisions
-
-### 2026-01-05 — Ship it this way
-Chose the simpler approach because it was faster to build.
-
-## Follow-ups
+## Notes
 
 See dossiers/fam-parent/plan.md for the writeup.
 EOF

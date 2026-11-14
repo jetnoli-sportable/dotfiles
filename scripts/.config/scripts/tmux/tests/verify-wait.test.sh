@@ -124,19 +124,20 @@ peer_line() { # <msg_id> <body>
   jq -nc --arg id "$1" --arg b "$2" '{type:"user",timestamp:"2026-10-25T00:00:01.000Z",origin:{kind:"peer",msg_id:$id},message:{content:("<cross-session-message from=\"x\">" + $b + "</cross-session-message>")}}'
 }
 seed_transcript() { tline "hello there" >"$TLOG"; }
-seed_task() { # bullets under Decisions, a Handoffs section
+mk_dec() { # <file stem> <title> <body> — a decision file in proj--task-a's decisions/ folder
+  DDIR="$TASKS_DIR/dossiers/proj--task-a/decisions"; mkdir -p "$DDIR"
+  printf -- '---\nstatus: in-force\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# %s\n\n%s\n' "$2" "$3" >"$DDIR/$1.md"
+}
+seed_task() { # the task file (with a Handoffs section) and one decision file
   cat >"$TASKF" <<'EOF'
 ---
 status: doing
 ---
-## Decisions
-
-- first decision, nothing special
-
 ## Handoffs
 
 ### note
 EOF
+  mk_dec 2026-10-20-0900-first "First decision" "nothing special"
 }
 
 start_wait() { # background wait; sets WPID and OUT
@@ -184,16 +185,16 @@ assert_eq "matching capture line wakes" 0 "$rc"
 assert "hit is C2 from capture-log" 'check=C2 source=capture-log' "$(cat "$OUT")"
 
 # =============================================================================
-echo "# Scenario: Decisions bullet via write-then-rename wakes; Handoffs edit does not"
+echo "# Scenario: a new decision file wakes; a Handoffs edit does not"
 setup; write_checks 2020-01-01T00:00:00Z; seed_transcript; seed_task
 start_wait; wait_ready
 { cat "$TASKF"; echo "more handoff notes with needle in them"; } >"$TASKF.tmp" && mv "$TASKF.tmp" "$TASKF"
 sleep 1
 running; rc=$?; assert_eq "an edit under Handoffs alone does not wake" 0 "$rc"
-awk '/^## Handoffs/ && !d { print "- second decision mentioning the needle"; print ""; d=1 } { print }' "$TASKF" >"$TASKF.tmp" && mv "$TASKF.tmp" "$TASKF"
+mk_dec 2026-10-21-1000-second "Second decision" "mentioning the needle"
 await_exit 3; rc=$?
-assert_eq "a new Decisions bullet wakes" 0 "$rc"
-assert "hit is C3 from the decisions source, bullet 2" 'check=C3 source=decisions:proj--task-a .* range=2-2 text=second decision mentioning the needle' "$(cat "$OUT")"
+assert_eq "a new decision file wakes" 0 "$rc"
+assert "hit is C3 from the decisions source, file 2" 'check=C3 source=decisions:proj--task-a .* range=2-2 text=Second decision mentioning the needle' "$(cat "$OUT")"
 
 # =============================================================================
 echo "# Scenario: hand-backs, tool results and queue-operation lines are filtered"
@@ -362,10 +363,10 @@ met when: x
 broken when: x
 EOF
 WTASK="$TASKS_DIR/dotfiles--verify-behaviour-watcher.md"
-printf '## Decisions\n\n- start\n' >"$WTASK"
+printf '# watcher\n' >"$WTASK"; mkdir -p "$TASKS_DIR/dossiers/dotfiles--verify-behaviour-watcher/decisions"
 start_wait; wait_ready
 peer_line s1 "ZEBRA-PROPAGATE in the watcher's own transcript" >>"$FX/projects/self/own.jsonl"
-printf '## Decisions\n\n- start\n- a needle in the watcher task\n' >"$WTASK.tmp" && mv "$WTASK.tmp" "$WTASK"
+printf -- '---\nstatus: in-force\n---\n# Own decision\n\na needle in the watcher task\n' >"$TASKS_DIR/dossiers/dotfiles--verify-behaviour-watcher/decisions/2026-10-25-0000-own.md"
 echo "- 2026-10-25T00:00:00Z | demo/C3 | met | s | needle" >>"$TASKS_DIR/dossiers/feat/verdicts.md"
 echo '{"ts":"2026-10-25T00:02:00+00:00","task":"dotfiles--verify-behaviour-watcher","event":"draft_shelved"}' >>"$CLOG"
 sleep 1.2
@@ -534,32 +535,28 @@ assert "the new session's line is a hit" 'check=C1 .*started with the verdict' "
 stop_wait
 
 # =============================================================================
-echo "# Scenario: Decisions bullets already there when a file goes live are history, not hits"
+echo "# Scenario: decision files already there when a file goes live are history, not hits"
 setup; write_checks "" ; seed_transcript; seed_task
-awk '/^## Handoffs/ && !d { print "- an old decision with the needle, from before rollout"; print ""; d=1 } { print }' "$TASKF" >"$TASKF.tmp" && mv "$TASKF.tmp" "$TASKF"
+mk_dec 2026-10-20-1000-old-needle "Old decision" "with the needle, from before rollout"
 start_wait; wait_ready; stop_wait # primes positions while nothing is live
-write_checks 2020-01-01T00:00:00Z # goes live: the old bullet predates the watch
+write_checks 2020-01-01T00:00:00Z # goes live: the old file predates the watch
 start_wait; await_exit 3; rc=$?
 assert "going live wakes with CHECKS-CHANGED" '^CHECKS-CHANGED$' "$(first_line)"
 start_wait; wait_ready; sleep 1
-running; rc=$?; assert_eq "the pre-rollout bullet raises no hit" 0 "$rc"
-awk '/^## Handoffs/ && !d { print "- a new decision with the needle"; print ""; d=1 } { print }' "$TASKF" >"$TASKF.tmp" && mv "$TASKF.tmp" "$TASKF"
+running; rc=$?; assert_eq "the pre-rollout decision raises no hit" 0 "$rc"
+mk_dec 2026-10-22-1100-new-needle "New decision" "with the needle"
 await_exit 3; rc=$?
-assert_eq "a bullet added after going live wakes" 0 "$rc"
+assert_eq "a decision file added after going live wakes" 0 "$rc"
 out="$(cat "$OUT")"
-assert "its hit is the new bullet" 'check=C3 .*text=a new decision with the needle' "$out"
-assert_not "the old bullet is not raised" 'from before rollout' "$out"
+assert "its hit is the new file" 'check=C3 .*text=New decision with the needle' "$out"
+assert_not "the old file is not raised" 'from before rollout' "$out"
 out="$(vw scan --since 2020-01-01T00:00:00Z "$CHECKS")"
-assert_not "scan does not replay Decisions history" 'check=C3' "$out"
+assert_not "scan does not replay decision history" 'check=C3' "$out"
 
 # =============================================================================
-echo "# Scenario: layout task (dossier layout trial) reads decisions/ files"
+echo "# Scenario: decisions/ files: numbering, frontmatter left out"
 setup; write_checks 2020-01-01T00:00:00Z; seed_transcript
-printf -- '---\nstatus: doing\nlayout: dossier\n---\n# Title\n\n## Now\n' >"$TASKF"
-DDIR="$TASKS_DIR/dossiers/proj--task-a/decisions"; mkdir -p "$DDIR"
-mk_dec() { # <file stem> <title> <body> [status]
-  printf -- '---\nstatus: %s\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# %s\n\n%s\n' "${4:-in-force}" "$2" "$3" >"$DDIR/$1.md"
-}
+printf -- '---\nstatus: doing\n---\n# Title\n\n## Now\n' >"$TASKF"
 mk_dec 2026-10-20-0900-old-one "Old decision" "history that mentions the needle"
 start_wait; wait_ready; sleep 1
 running; rc=$?; assert_eq "a decision file already there raises no hit" 0 "$rc"
@@ -573,14 +570,12 @@ assert "hit is C3, file number 3, text is title and body" 'check=C3 source=decis
 assert_not "frontmatter is not in the text" 'supersedes' "$(cat "$OUT")"
 
 # =============================================================================
-echo "# Scenario: layout task with no decisions/ folder yet; the first decision file wakes"
+echo "# Scenario: no decisions/ folder yet; the first decision file wakes"
 setup; write_checks 2020-01-01T00:00:00Z; seed_transcript
-printf -- '---\nstatus: doing\nlayout: dossier\n---\n# Title\n\n## Now\n' >"$TASKF"
-DDIR="$TASKS_DIR/dossiers/proj--task-a/decisions"
+printf -- '---\nstatus: doing\n---\n# Title\n\n## Now\n' >"$TASKF"
 start_wait; wait_ready; sleep 1
 running; rc=$?; assert_eq "no decisions/ folder: nothing fires" 0 "$rc"
-mkdir -p "$DDIR"
-printf -- '---\nstatus: in-force\nsupersedes: []\nsuperseded_by: []\nreview_at:\n---\n# First ever decision\n\nthe needle is here\n' >"$DDIR/2026-10-30-1000-first.md"
+mk_dec 2026-10-30-1000-first "First ever decision" "the needle is here"
 await_exit 3; rc=$?
 assert_eq "the first decision file, in a folder created after start, wakes" 0 "$rc"
 assert "hit is C3, file number 1" 'check=C3 source=decisions:proj--task-a .* range=1-1 text=First ever decision the needle is here' "$(cat "$OUT")"

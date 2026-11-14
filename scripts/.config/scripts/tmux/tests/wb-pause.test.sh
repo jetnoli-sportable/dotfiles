@@ -87,25 +87,23 @@ release
 acquire
 release$' "$trace"
 
-# --- Handoffs: pause then down, in that order, one entry each ---------------
+# --- Handoffs: pause then down, in that order -------------------------------
+# The task file keeps ONE entry (the newest, wb down's); the wb pause entry
+# it superseded was moved to dossiers/<stem>/handoffs/<ts>.md.
 handoffs_block="$(awk '/^## Handoffs$/{p=1} p' "$FIXTURE/proj--feat-alpha.md")"
 assert "cmd_pause: creates a ## Handoffs section" '^## Handoffs$' "$handoffs_block"
-pause_line=$(printf '%s\n' "$handoffs_block" | grep -n '— wb pause (auto)$' | cut -d: -f1 | head -1)
-down_line=$(printf '%s\n' "$handoffs_block" | grep -n '— wb down (auto)$' | cut -d: -f1 | head -1)
-if [ -n "$pause_line" ] && [ -n "$down_line" ] && [ "$pause_line" -lt "$down_line" ]; then
-  echo "ok   - Handoffs: wb pause entry precedes wb down entry"
-else
-  echo "FAIL - Handoffs: expected wb pause entry before wb down entry (pause=$pause_line, down=$down_line)"; fail=1
-fi
-assert "cmd_pause: entry body names the command" 'Session paused via `wb pause`\.' "$handoffs_block"
 assert "cmd_down: entry body names the command" 'Session closed via `wb down`' "$handoffs_block"
+pause_files="$(grep -l '^source: wb pause$' "$FIXTURE"/dossiers/proj--feat-alpha/handoffs/*.md 2>/dev/null)"
+assert "cmd_pause: its entry moved to a handoffs/ file" '\.md' "$pause_files"
+assert "cmd_pause: handoffs/ file body names the command" 'Session paused via `wb pause`\.' "$(cat $pause_files 2>&1)"
+assert "cmd_pause: handoffs/ file is flagged auto: true" '^auto: true$' "$(cat $pause_files 2>&1)"
 
 pause_count="$(grep -c '^### .* — wb pause (auto)$' "$FIXTURE/proj--feat-alpha.md")"
 down_count="$(grep -c '^### .* — wb down (auto)$' "$FIXTURE/proj--feat-alpha.md")"
-if [ "$pause_count" -eq 1 ] && [ "$down_count" -eq 1 ]; then
-  echo "ok   - exactly one wb pause entry and one wb down entry after one pause"
+if [ "$pause_count" -eq 0 ] && [ "$down_count" -eq 1 ]; then
+  echo "ok   - task file holds only the newest entry (wb down); the wb pause one is a file"
 else
-  echo "FAIL - expected exactly 1 wb pause + 1 wb down entry, got pause=$pause_count down=$down_count"; fail=1
+  echo "FAIL - expected pause=0 down=1 in the task file, got pause=$pause_count down=$down_count"; fail=1
 fi
 
 # --- error path: not a wb task session ---------------------------------------

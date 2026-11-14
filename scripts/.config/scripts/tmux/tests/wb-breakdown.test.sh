@@ -37,8 +37,18 @@ assert_eq() { # <desc> <expected> <actual>
   fi
 }
 
-printf -- '---\nstatus: planned\npath:\nrepo:\nbranch:\nworktree:\nparent:\ndepends_on:\nsize:\ntags: []\ncreated:\nclosed:\nreviewed:\n---\n# Title\n\n## Plan\n\n\n\n## Handoffs\n\n\n\n## Decisions\n\n\n\n## Done\n\n\n\n## Follow-ups\n' \
+printf -- '---\nstatus: planned\npath:\nrepo:\nbranch:\nworktree:\nparent:\ndepends_on:\nsize:\ntags: []\ncreated:\nclosed:\nreviewed:\n---\n# Title\n\n## Plan\n\n\n\n## Handoffs\n\n\n\n' \
   > "$FIXTURE_TASKS/TEMPLATE.md"
+
+# mk_open_item <task-stem> <title> [<detail>] [<file-id>] — a follow-up is an
+# open-items record in the task's dossier (status: open); the title is the
+# first body line, which is what `move follow-up: "<title>"` matches
+mk_open_item() {
+  local d="$TASKS_DIR/dossiers/$1/open-items" id="${4:-2026-07-01-$(printf '%s' "$2" | tr -c 'A-Za-z0-9\n' '-' | tr 'A-Z' 'a-z' | cut -c1-40)}"
+  mkdir -p "$d"
+  { printf -- '---\nwho:\nsince: 2026-07-01\nkind:\nstatus: open\n---\n%s\n' "$2"
+    [ -z "${3:-}" ] || printf '\n%s\n' "$3"; } > "$d/$id.md"
+}
 
 # real (throwaway) git repo under the fixture CODE_DIR, matching cmd_new's
 # own $CODE_DIR/$repo/.git check for the --jira/ticket-parent path below.
@@ -203,9 +213,10 @@ BUF_DIR="$(mktemp -d -t wb-breakdown-buf.XXXXXX)"
 mk_parent() { # <stem> <branch> <worktree>
   local f="$TASKS_DIR/$1.md"
   {
-    printf -- '---\nstatus: doing\nrepo: proj\nbranch: %s\nworktree: %s\nparent:\ncreated: 2026-07-01\n---\n' "$2" "$3"
-    printf '# Big Task\n\n## Plan\n\nsome big plan\n\n## Follow-ups\n\n- explore wb breakdown verb further\n'
+    printf -- '---\nstatus: doing\nrepo: proj\nbranch: %s\nworktree: %s\nparent:\ncreated: 2026-07-01\nlayout: dossier\n---\n' "$2" "$3"
+    printf '# Big Task\n\n## Now\n\n## Plan\n\nsome big plan\n'
   } > "$f"
+  mk_open_item "$1" "explore wb breakdown verb further"
 }
 mk_parent proj--feat-big feat-big .worktrees/feat-big
 printf -- '---\nstatus: planned\nrepo: proj\nbranch: feat-big-existing\nworktree:\nparent:\ncreated: 2026-07-01\n---\n# Existing\n' \
@@ -424,7 +435,7 @@ _wb_valid_size ''; assert_eq "valid_size: blank accepted" 0 $?
 # summary, actual writes) is U3's concern — see that section below. Calling
 # it here for real would mutate proj--feat-big's shared fixture state
 # (migration blanks its branch:/worktree:, the follow-up move empties its
-# Follow-ups) that every other scenario in THIS section still depends on.
+# open-items/) that every other scenario in THIS section still depends on.
 
 # --- checkbox grammar: accepted forms ---------------------------------------
 cat > "$BUF_DIR/grammar.md" <<'EOF'
@@ -694,16 +705,14 @@ sed 's/move follow-up: "explore wb breakdown verb further"/move follow-up: "no s
   > "$BUF_DIR/move-zero.md"
 out_move_zero="$(_wb_breakdown_validate "$BUF_DIR/move-zero.md" 2>/tmp/wbd-move-zero.err)"
 assert_eq "follow-up move, zero matches: no move action" 0 "$(printf '%s\n' "$out_move_zero" | grep -c $'^move\t')"
-assert "follow-up move, zero matches: warning" 'matched 0 bullet' "$(cat /tmp/wbd-move-zero.err)"
+assert "follow-up move, zero matches: warning" 'matched 0 of proj--feat-big.s open follow-ups' "$(cat /tmp/wbd-move-zero.err)"
 
 mk_parent proj--feat-dup-followup feat-dup-followup .worktrees/feat-dup-followup
-cat >> "$TASKS_DIR/proj--feat-dup-followup.md" <<'EOF'
-- explore wb breakdown verb further
-EOF
+mk_open_item proj--feat-dup-followup "explore wb breakdown verb further" "" 2026-07-02-explore-dup
 sed 's/proj--feat-big/proj--feat-dup-followup/g' "$BUF_DIR/happy.md" > "$BUF_DIR/move-two.md"
 out_move_two="$(_wb_breakdown_validate "$BUF_DIR/move-two.md" 2>/tmp/wbd-move-two.err)"
 assert_eq "follow-up move, two matches: no move action" 0 "$(printf '%s\n' "$out_move_two" | grep -c $'^move\t')"
-assert "follow-up move, two matches: warning" 'matched 2 bullet' "$(cat /tmp/wbd-move-two.err)"
+assert "follow-up move, two matches: warning" 'matched 2 of proj--feat-dup-followup.s open follow-ups' "$(cat /tmp/wbd-move-two.err)"
 
 # move target is an unchecked child -> skipped (falls under the same
 # neither-checked-nor-existing-child validity check as migration)
@@ -713,14 +722,12 @@ assert_eq "follow-up move to unchecked child: no move action" 0 "$(printf '%s\n'
 assert "follow-up move to unchecked child: warning" 'neither a checked child' "$(cat /tmp/wbd-move-bad.err)"
 
 # --- follow-up move: bullet text itself contains a double quote -----------
-# The real bullet under ## Follow-ups carries a LITERAL quote; the buffer's
+# The real open item's title carries a LITERAL quote; the buffer's
 # move line escapes it as \" (the grammar wb-breakdown/SKILL.md documents).
 # Regression for the "a bullet with a quote could never be moved" bug —
 # the old `grep -oP 'move follow-up: "\K[^"]*'` stopped at the first quote.
 mk_parent proj--feat-quoted feat-quoted .worktrees/feat-quoted
-cat >> "$TASKS_DIR/proj--feat-quoted.md" <<'EOF'
-- fix the "stuck" tab
-EOF
+mk_open_item proj--feat-quoted 'fix the "stuck" tab' 
 sed -e 's/proj--feat-big/proj--feat-quoted/g' \
     -e 's/move follow-up: "explore wb breakdown verb further"/move follow-up: "fix the \\"stuck\\" tab"/' \
     "$BUF_DIR/happy.md" > "$BUF_DIR/move-quoted.md"
@@ -729,33 +736,37 @@ assert_eq "follow-up move, quoted bullet: exactly one move action" 1 \
   "$(printf '%s\n' "$out_move_quoted" | grep -c $'^move\t')"
 assert "follow-up move, quoted bullet: unescaped text carried in the action" \
   $'move\t.*fix the "stuck" tab' "$out_move_quoted"
-if printf '%s' "$(cat /tmp/wbd-move-quoted.err)" | grep -q 'matched 0 bullet'; then
+if printf '%s' "$(cat /tmp/wbd-move-quoted.err)" | grep -q 'matched 0 of'; then
   echo "FAIL - follow-up move, quoted bullet: must resolve to exactly one match, not zero"; fail=1
 else
   echo "ok   - follow-up move, quoted bullet: no zero-match warning"
 fi
 
-# --- follow-up move: old-layout parent -> layout child (and a child with no
-# ## Follow-ups heading): the item must arrive before the parent loses it -----
+# --- follow-up move: the parent's open-items file moves into the child's
+# dossier before the parent loses it ----------------------------------------
 mk_parent proj--feat-mv-old feat-mv-old .worktrees/feat-mv-old
-printf -- '- carry me over\n  - with a detail\n- stay on the parent\n' >> "$TASKS_DIR/proj--feat-mv-old.md"
-printf -- '---\nstatus: planned\nrepo: proj\nbranch: mv-lay\nlayout: dossier\nparent: proj--feat-mv-old\ncreated: 2026-07-01\n---\n# Layout kid\n' \
+mk_open_item proj--feat-mv-old "carry me over" "with a detail"
+mk_open_item proj--feat-mv-old "stay on the parent"
+printf -- '---\nstatus: planned\nrepo: proj\nbranch: mv-lay\nlayout: dossier\nparent: proj--feat-mv-old\ncreated: 2026-07-01\n---\n# Dossier kid\n' \
   > "$TASKS_DIR/proj--mv-lay.md"
 _wb_breakdown_move_followup "$TASKS_DIR/proj--feat-mv-old.md" "$TASKS_DIR/proj--mv-lay.md" "carry me over"; rc=$?
-assert_eq "move old parent -> layout child: exit 0" 0 "$rc"
+assert_eq "move into a child: exit 0" 0 "$rc"
 MVI="$(ls "$TASKS_DIR"/dossiers/proj--mv-lay/open-items/*carry-me-over*.md 2>/dev/null | head -1)"
-assert "move old parent -> layout child: item is an open record in the child" '^status: open$' "$(cat "$MVI" 2>/dev/null)"
-assert "move old parent -> layout child: continuation line kept" 'with a detail' "$(cat "$MVI" 2>/dev/null)"
-assert_not "move old parent -> layout child: bullet gone from the parent" 'carry me over' "$(cat "$TASKS_DIR/proj--feat-mv-old.md")"
-assert "move old parent -> layout child: other bullet stays" 'stay on the parent' "$(cat "$TASKS_DIR/proj--feat-mv-old.md")"
-assert "move old parent -> layout child: child views rebuilt" '^<!-- generated by wb' "$(head -1 "$TASKS_DIR/dossiers/proj--mv-lay/index.md" 2>/dev/null)"
-printf -- '---\nstatus: planned\nrepo: proj\nbranch: mv-bare\nparent: proj--feat-mv-old\ncreated: 2026-07-01\n---\n# Bare kid\n' \
-  > "$TASKS_DIR/proj--mv-bare.md"
-_wb_breakdown_move_followup "$TASKS_DIR/proj--feat-mv-old.md" "$TASKS_DIR/proj--mv-bare.md" "stay on the parent"; rc=$?
-assert_eq "move into an old child with no ## Follow-ups: exit 0" 0 "$rc"
-assert "move into an old child with no ## Follow-ups: heading added, bullet there" '^## Follow-ups$' "$(cat "$TASKS_DIR/proj--mv-bare.md")"
-assert "move into an old child with no ## Follow-ups: bullet kept" '^- stay on the parent$' "$(cat "$TASKS_DIR/proj--mv-bare.md")"
-assert_not "move into an old child with no ## Follow-ups: gone from the parent" 'stay on the parent' "$(cat "$TASKS_DIR/proj--feat-mv-old.md")"
+assert "move into a child: item is an open record in the child" '^status: open$' "$(cat "$MVI" 2>/dev/null)"
+assert "move into a child: detail body kept" 'with a detail' "$(cat "$MVI" 2>/dev/null)"
+assert_eq "move into a child: file gone from the parent's open-items" 0 "$(ls "$TASKS_DIR"/dossiers/proj--feat-mv-old/open-items/ | grep -c carry-me-over)"
+assert_eq "move into a child: other item stays on the parent" 1 "$(ls "$TASKS_DIR"/dossiers/proj--feat-mv-old/open-items/ | grep -c stay-on-the-parent)"
+assert "move into a child: child views rebuilt" '^<!-- generated by wb' "$(head -1 "$TASKS_DIR/dossiers/proj--mv-lay/index.md" 2>/dev/null)"
+assert "move into a child: parent views rebuilt" '^<!-- generated by wb' "$(head -1 "$TASKS_DIR/dossiers/proj--feat-mv-old/index.md" 2>/dev/null)"
+# an id already taken in the child's open-items/ gets a -2 suffix
+printf -- '---\nstatus: planned\nrepo: proj\nbranch: mv-clash\nparent: proj--feat-mv-old\ncreated: 2026-07-01\n---\n# Clash kid\n' \
+  > "$TASKS_DIR/proj--mv-clash.md"
+mk_open_item proj--mv-clash "stay on the parent"
+_wb_breakdown_move_followup "$TASKS_DIR/proj--feat-mv-old.md" "$TASKS_DIR/proj--mv-clash.md" "stay on the parent"; rc=$?
+assert_eq "move with an id clash: exit 0" 0 "$rc"
+assert_eq "move with an id clash: both items are in the child" 2 "$(ls "$TASKS_DIR"/dossiers/proj--mv-clash/open-items/ | grep -c 'stay-on-the-parent')"
+assert_eq "move with an id clash: the moved one is suffixed -2" 1 "$(ls "$TASKS_DIR"/dossiers/proj--mv-clash/open-items/ | grep -c -- '-2\.md$')"
+assert_eq "move with an id clash: gone from the parent" 0 "$(ls "$TASKS_DIR"/dossiers/proj--feat-mv-old/open-items/ | grep -c stay-on-the-parent)"
 
 # --- zero checked items: clean no-op exit 0 (approve ticked, per-item boxes
 # left unchecked — this is testing the per-item no-op path, not the approve
@@ -971,10 +982,10 @@ mk_u3_parent() { # <stem> <branch> <worktree>
   local f="$TASKS_DIR/$1.md"
   {
     printf -- '---\nstatus: doing\nrepo: proj\nbranch: %s\nworktree: %s\nparent:\ncreated: 2026-07-01\n---\n' "$2" "$3"
-    printf '# U3 Family\n\n## Plan\n\noriginal plan content\n\n## Follow-ups\n\n'
-    printf -- '- explore artifact indexing further\n  - needs API design first (sub-note)\n'
-    printf -- '- unrelated follow-up that stays on the parent\n'
+    printf '# U3 Family\n\n## Plan\n\noriginal plan content\n'
   } > "$f"
+  mk_open_item "$1" "explore artifact indexing further" "needs API design first (sub-note)"
+  mk_open_item "$1" "unrelated follow-up that stays on the parent"
 }
 
 u3_buffer() {
@@ -1038,6 +1049,13 @@ fi
 assert_eq "U3 AE1: child 1 parent: set" "proj--feat-u3" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-one.md" parent)"
 assert "U3 AE1: child 1 plan body landed" "child one plan body" "$(cat "$TASKS_DIR/proj--feat-u3-one.md")"
 assert "U3 AE1: child 2 plan body landed" "child two plan body" "$(cat "$TASKS_DIR/proj--feat-u3-two.md")"
+for c in one two; do
+  assert "U3 AE1: child $c is on the dossier layout" '^layout: dossier$' "$(cat "$TASKS_DIR/proj--feat-u3-$c.md")"
+  assert "U3 AE1: child $c's ## Now points at its brief" "read dossiers/proj--feat-u3-$c/brief.md" "$(cat "$TASKS_DIR/proj--feat-u3-$c.md")"
+  [ -f "$TASKS_DIR/dossiers/proj--feat-u3-$c/brief.md" ] \
+    && echo "ok   - U3 AE1: child $c brief.md drafted" \
+    || { echo "FAIL - U3 AE1: child $c has no brief.md"; fail=1; }
+done
 assert "U3 AE1: parent's ## Plan replaced with the buffer's rewrite" "post-split summary" "$(cat "$TASKS_DIR/proj--feat-u3.md")"
 if grep -q "original plan content" "$TASKS_DIR/proj--feat-u3.md"; then
   echo "FAIL - U3 AE1: parent's OLD Plan content must be replaced, not appended alongside"; fail=1
@@ -1063,15 +1081,17 @@ else
   echo "ok   - U3 AE2: wb_reconcile_collect reports zero findings for proj--feat-u3/-one post-migration"
 fi
 
-# --- follow-up move: whole block (incl. sub-bullet) moves, count unchanged -
-assert "U3 move: bullet landed on child 2's Follow-ups" "explore artifact indexing further" "$(cat "$TASKS_DIR/proj--feat-u3-two.md")"
-assert "U3 move: sub-bullet moved WITH its parent bullet (whole block)" "needs API design first" "$(cat "$TASKS_DIR/proj--feat-u3-two.md")"
-if grep -q "explore artifact indexing further" "$TASKS_DIR/proj--feat-u3.md"; then
-  echo "FAIL - U3 move: bullet must be REMOVED from the parent (a move, not a copy)"; fail=1
+# --- follow-up move: the open-items file (incl. its body) moves, none left behind -
+U3_MOVED="$(cat "$TASKS_DIR"/dossiers/proj--feat-u3-two/open-items/*.md 2>/dev/null)"
+assert "U3 move: item landed in child 2's open-items" "explore artifact indexing further" "$U3_MOVED"
+assert "U3 move: its body moved WITH it (the whole file)" "needs API design first" "$U3_MOVED"
+assert "U3 move: it is still open in the child" '^status: open$' "$U3_MOVED"
+if cat "$TASKS_DIR"/dossiers/proj--feat-u3/open-items/*.md 2>/dev/null | grep -q "explore artifact indexing further"; then
+  echo "FAIL - U3 move: item must be REMOVED from the parent (a move, not a copy)"; fail=1
 else
-  echo "ok   - U3 move: bullet removed from the parent"
+  echo "ok   - U3 move: item removed from the parent"
 fi
-assert "U3 move: the OTHER follow-up stays on the parent" "unrelated follow-up that stays" "$(cat "$TASKS_DIR/proj--feat-u3.md")"
+assert "U3 move: the OTHER follow-up stays on the parent" "unrelated follow-up that stays" "$(cat "$TASKS_DIR"/dossiers/proj--feat-u3/open-items/*.md)"
 
 # --- archived buffer + handoff entry naming it ------------------------------
 assert_eq "U3 archive: closed buffer archived under dossiers/<parent-stem>/" "family.md" "$(basename "$TASKS_DIR/dossiers/proj--feat-u3/family.md" 2>/dev/null)"
@@ -1246,7 +1266,7 @@ mk_approve_parent() { # <stem> <branch> <worktree>
   local f="$TASKS_DIR/$1.md"
   {
     printf -- '---\nstatus: doing\nrepo: proj\nbranch: %s\nworktree: %s\nparent:\ncreated: 2026-07-01\n---\n' "$2" "$3"
-    printf '# Approve gate family\n\n## Plan\n\noriginal plan content\n\n## Follow-ups\n\n'
+    printf '# Approve gate family\n\n## Plan\n\noriginal plan content\n'
   } > "$f"
 }
 

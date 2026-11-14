@@ -646,7 +646,7 @@ cmd_migrate proj--con2 --dry-run >/dev/null 2>&1
 assert "concepts: dry-run leaves CONCEPTS.md alone" '^CONCEPTS\.md$' "$(ls "$TASKS_DIR/dossiers/proj--con2")"
 
 # =============================================================================
-# a dossier that already holds records blocks the move
+# a dossier that already holds records: joined, blocked only on a name clash
 # =============================================================================
 new_store
 mk_task proj--pre 2026-10-02 <<'EOF'
@@ -656,10 +656,47 @@ mk_task proj--pre 2026-10-02 <<'EOF'
 2026-10-18 — **P.** Body.
 EOF
 mkdir -p "$TASKS_DIR/dossiers/proj--pre/decisions"; printf 'x\n' > "$TASKS_DIR/dossiers/proj--pre/decisions/old.md"
-before="$(store_sum)"
 out="$(cmd_migrate proj--pre 2>&1)"
-assert "existing records: unmigrated with a clear reason" 'decisions/ already holds files' "$out"
-assert_eq "existing records: nothing changed" "$before" "$(store_sum)"
+assert_eq "existing records: the task is migrated" "dossier" "$(wb_get_frontmatter "$TASKS_DIR/proj--pre.md" layout)"
+assert_eq "existing records: the record already there is kept" "x" "$(cat "$TASKS_DIR/dossiers/proj--pre/decisions/old.md")"
+assert_eq "existing records: the converted decision joins it" 2 "$(find "$TASKS_DIR/dossiers/proj--pre/decisions" -name '*.md' | wc -l | tr -d ' ')"
+assert_not "existing records: the old section is gone from the task file" '^## Decisions' "$(cat "$TASKS_DIR/proj--pre.md")"
+# the same task again, with the converted decision's name already taken
+conv="$(find "$TASKS_DIR/dossiers/proj--pre/decisions" -name '*.md' ! -name old.md -printf '%f\n')"
+new_store
+mk_task proj--clash 2026-10-02 <<'EOF'
+
+## Decisions
+
+2026-10-18 — **P.** Body.
+EOF
+mkdir -p "$TASKS_DIR/dossiers/proj--clash/decisions"; printf 'x\n' > "$TASKS_DIR/dossiers/proj--clash/decisions/$conv"
+before="$(store_sum)"
+out="$(cmd_migrate proj--clash 2>&1)"
+assert "name clash: unmigrated with a clear reason" "decisions/$conv already exists" "$out"
+assert_eq "name clash: nothing changed" "$before" "$(store_sum)"
+
+# =============================================================================
+# an old-shape task that gets `wb append` before it is migrated still migrates
+# =============================================================================
+new_store
+mk_task proj--app 2026-10-02 <<'EOF'
+
+## Decisions
+
+2026-10-18 — **Old.** Body.
+
+## Follow-ups
+
+- [ ] an old follow-up
+EOF
+cmd_append proj--app Decisions "- Decided: a new one." >/dev/null 2>&1
+cmd_append proj--app Follow-ups "a new follow-up" >/dev/null 2>&1
+out="$(cmd_migrate proj--app 2>&1)"; rc=$?
+assert_eq "append then migrate: exits 0" 0 "$rc"
+assert_eq "append then migrate: the task is migrated" "dossier" "$(wb_get_frontmatter "$TASKS_DIR/proj--app.md" layout)"
+assert_eq "append then migrate: both decisions are records" 2 "$(find "$TASKS_DIR/dossiers/proj--app/decisions" -name '*.md' | wc -l | tr -d ' ')"
+assert_eq "append then migrate: both follow-ups are records" 2 "$(find "$TASKS_DIR/dossiers/proj--app/open-items" -name '*.md' | wc -l | tr -d ' ')"
 
 # =============================================================================
 # the CLI dispatch and wb help

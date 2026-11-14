@@ -129,8 +129,7 @@ for cross-device answering, never the record; only the pasted text counts.
 Round 2 gets its own Artifact URL.
 
 **Page frontmatter block.** A page that goes into a dossier or gets published
-carries the dossier page block (R28 in `docs/wb-guide.md`, "Dossier layout
-(trial)"). A decision page has no Markdown source, so the block is an HTML
+carries the dossier page block (R28 in `docs/wb-guide.md`, "Dossier layout"). A decision page has no Markdown source, so the block is an HTML
 comment as the very first lines of the `.html`. The generator writes it from the
 spec's optional `page` object (`tags`, `rung`, `links`, `retire_when`,
 `visibility`, `url`); left out, `tags` is `[decision-page]`, `links` is the spec's
@@ -189,9 +188,8 @@ is too long for the callout, write a companion explainer and link it.
 
 ## Afterwards
 
-Record resolved decisions in the task file's `## Decisions` through `wb append`
-(never a raw Edit/Write on a file under `~/code/tasks`). On a task with
-`layout: dossier` the same command writes a file in `decisions/` instead, so give
+Record resolved decisions through `wb append` (never a raw Edit/Write on a file
+under `~/code/tasks`). The command writes a file in the task's `decisions/`, so give
 each decision its own `### <YYYY-MM-DD HH:MM> — <title>` heading and body rather
 than one packed line:
 

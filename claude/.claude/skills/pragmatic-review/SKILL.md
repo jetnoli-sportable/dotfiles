@@ -75,9 +75,8 @@ requirements doc; the real plan with nine units was on the owner's branch.)
 owner's later decisions without any branch involved (a ladder in a dossier
 has none). Find when the doc last changed (`git -C ~/code/tasks log -1
 --format=%cs -- <doc>`, or the repo's equivalent), then read the owner's
-`## Decisions` entries and the family's `CONCEPTS.md` lines newer than that.
-(Layout task, `layout: dossier` in its frontmatter: the decision files in
-`decisions/` newer than that, and `concepts.md` in place of `CONCEPTS.md`.)
+decision files in `~/code/tasks/dossiers/<stem>/decisions/` newer than that, and
+the family's `concepts.md` lines newer than that.
 Review the plan with those applied, and list each drift (what the doc says,
 what was decided since, which steps it changes) in the review's context
 section.
@@ -350,7 +349,7 @@ the page.
 2. **Edit.** One `wb set <stem> depends_on <full,comma,joined,list>` per
    task. The command replaces the field, so always pass the whole new
    list, never just the added edge. Use `--unset` to clear it.
-3. **Record.** (Layout task: same command, it writes a file in `decisions/`.) One `wb append <parent-stem> Decisions -` with a dated entry:
+3. **Record.** One `wb append <parent-stem> Decisions -` with a dated entry:
    the new order in one line, each `depends_on` edit that actually landed,
    the not-needed and needed-later verdicts Jet approved (owners act on
    those in their own plans), and the review doc's path.
