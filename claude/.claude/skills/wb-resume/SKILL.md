@@ -102,7 +102,12 @@ Two shapes of handoff entry exist, in the task file's one entry and in each
 
 - **Rich, `/wb-save`-authored:** `### <YYYY-MM-DD HH:MM> — wb-save`,
   followed by `**Done:**` / `**In flight:**` / `**Next:**` bold-leader
-  fields. No trailing `(auto)`. Optionally, immediately after `**Next:**`,
+  fields, which newer entries precede with a `**Drift:**` line. No
+  trailing `(auto)`. When `**Drift:**` starts with anything other than
+  `none` or `nothing to check against` (a `none: <reason>` line counts as
+  `none`), quote it in the one-line statement of what
+  was read, so the resumed session knows the work had drifted from its
+  scope before it continues. Optionally, immediately after `**Next:**`,
   a fenced ` ```run ` block whose content is a literal, machine-readable
   next-action directive — e.g.:
 
@@ -250,6 +255,9 @@ picked up from.
 - **Happy path — recent `/wb-save` entry, nothing after it:** state what
   was read (`Read the wb-save entry from <timestamp>: done — …, in flight
   — …`), then proceed straight into the recorded `**Next:**` action.
+- **Recent `/wb-save` entry whose `**Drift:**` names a drift:** quote that
+  line in the one-line statement, then continue as the matching happy path
+  or gap case says. Drift is reported, not a reason to stop.
 - **Happy path — recent `/wb-save` entry with a ` ```run ` directive,
   nothing after it:** state what was read, including the directive's
   literal command, then execute that directive directly as the first step

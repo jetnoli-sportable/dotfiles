@@ -28,6 +28,10 @@ Repo-specific specifics live in that repo's own memory/AGENTS.md; this rule is t
 
 After any `/ce-code-review` pass completes inside a `wb` session, run `wb reviewed` immediately — it stamps the task file's `reviewed:` frontmatter field with today's date, which `wb board --html`'s review stage relies on to render that stage as done. This is a convention, not automation: there is no hook wiring it up, so it only works if it's actually run each time. See `docs/wb-guide.md`'s board section for what this feeds into.
 
+## Before any code review → run `/haircut` first
+
+After implementation and any simplification pass, and before any code review starts, run `/haircut` on the branch diff and commit its result. This covers `ce-work`'s shipping step (after simplify, before `ce-code-review`), a review started by a `/wb-resume` `run` directive in a fresh session, and a review Jet asks for by hand. The rules for what it keeps, removes and flags live in `~/.claude/skills/haircut/SKILL.md`; don't restate them here. A review-start hook will enforce this later (queued for the hooks session); until then it only happens if this line is followed.
+
 ## Live cloud commands → Jet runs them; hand over a command card
 
 Never run `gcloud`, `gsutil` or `bq`, or anything that uses their credentials (e.g. `curl -H "Authorization: Bearer $(gcloud auth print-access-token)" …`), without Jet's explicit approval for that exact command. That includes read-only commands, and approval for one command doesn't cover the next. Live-cloud work is Jet's to run, to be safe.
