@@ -483,7 +483,7 @@ const DC = (() => {
       const row = h("div", { class: "verdicts", role: "group", "aria-label": "Verdict for " + item.title });
       spec.verdicts.forEach((v) => {
         const on = chosen === v.id;
-        const b = h("button", { type: "button", class: "v tone-" + v.tone + (!on && v.id === item.suggested ? " suggested" : ""), "aria-pressed": on ? "true" : "false" },
+        const b = h("button", { type: "button", class: "v tone-" + v.tone + (!on && v.id === item.suggested ? " suggested" : ""), "aria-pressed": on ? "true" : "false", "data-pick": v.id },
           h("span", { class: "ck", "aria-hidden": "true", text: "✓" }), h("span", { text: v.label }), h("span", { class: "word", text: "chosen" }));
         b.addEventListener("click", () => save(item, { choice: on ? "" : v.id }));
         row.append(b);
@@ -495,7 +495,7 @@ const DC = (() => {
         const label = h("span", { class: "label", text: o.label });
         if (o.recommended) label.append(h("span", { class: "rec", text: "recommended" }));
         if (item.default === o.id) label.append(h("span", { class: "rec", text: "default" }));
-        const b = h("button", { type: "button", class: "opt", "aria-pressed": chosen === o.id ? "true" : "false" }, h("span", { class: "mark" }), label);
+        const b = h("button", { type: "button", class: "opt", "aria-pressed": chosen === o.id ? "true" : "false", "data-pick": o.id }, h("span", { class: "mark" }), label);
         if (o.detail) b.append(h("span", { class: "detail", text: o.detail }));
         b.addEventListener("click", () => save(item, { choice: chosen === o.id ? "" : o.id }));
         opts.append(b);
@@ -535,8 +535,24 @@ const DC = (() => {
     return card;
   }
 
-  // Which row holds the focused control, so a snapshot never replaces it mid-typing.
-  const focusedId = () => { const c = document.activeElement && document.activeElement.closest && document.activeElement.closest(".card"); return c ? c.dataset.id : ""; };
+  // Which row Jet is typing in (a field or the note), so a redraw never replaces it
+  // mid-typing. A focused verdict or option button doesn't count: a click focuses it,
+  // and the row must still redraw to show the pick.
+  const typingId = () => {
+    const el = document.activeElement;
+    if (!el || !el.matches || !el.matches("input, textarea")) return "";
+    const c = el.closest(".card"); return c ? c.dataset.id : "";
+  };
+
+  // Redraw one row; if one of its pick buttons had focus, focus the same button again.
+  function swapRow(old, item) {
+    const el = document.activeElement;
+    const pick = el && old.contains(el) && el.dataset ? el.dataset.pick : "";
+    const fresh = renderRow(item);
+    old.replaceWith(fresh);
+    const again = pick && fresh.querySelector(`[data-pick="${CSS.escape(pick)}"]`);
+    if (again) again.focus();
+  }
 
   function renderAreas() {
     const spec = state.spec, sum = state.sum, box = $("items");
@@ -587,7 +603,7 @@ const DC = (() => {
   function replaceRow(item) {
     recompute();
     const old = document.querySelector(`.card[data-id="${CSS.escape(item.id)}"]`);
-    if (old && focusedId() !== item.id) old.replaceWith(renderRow(item));
+    if (old && typingId() !== item.id) swapRow(old, item);
     else if (old) { old.dataset.status = state.sum.byId[item.id].status; old.classList.toggle("failed", state.failed.has(item.id)); }
     // other rows only change when the accept box does, handled by renderAll.
     renderChrome();
@@ -774,10 +790,10 @@ const DC = (() => {
       });
       if (!changed.length) return;
       recompute();
-      const fid = focusedId();
+      const tid = typingId();
       changed.forEach((id) => { const it = spec.items.find((x) => x.id === id); if (!it) return;
         const old = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
-        if (old && id !== fid) old.replaceWith(renderRow(it)); });
+        if (old && id !== tid) swapRow(old, it); });
       renderChrome();
     }, (e) => { $("saved").textContent = "Live updates stopped: " + ((e && e.message) || "store error") + ". Reload the page."; });
     state.db.collection("meta").onSnapshot((snap) => {
