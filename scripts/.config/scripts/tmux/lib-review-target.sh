@@ -31,6 +31,11 @@ review_target_is_other() {
   def="$(review_target_default_branch "$repo")"
   defshort="${def#origin/}"
   read -ra toks <<<"$args"
+  # ce-code-review refuses base: together with a PR or branch target, so a
+  # base: run always reviews the current checkout, whatever its prose names.
+  for tok in "${toks[@]}"; do
+    [[ "$tok" == base:* ]] && return 1
+  done
   for tok in "${toks[@]}"; do
     [[ "$tok" == --* ]] && continue
     # Quotes, backticks and sentence punctuation come from prose arguments.

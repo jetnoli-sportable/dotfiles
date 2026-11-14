@@ -149,6 +149,10 @@ tgt own   "Review branch feat/x against origin/development"
 tgt own   "origin/development...feat/x"
 tgt own   "base:origin/development"
 tgt own   "base:other-branch plan:docs/p.md mode:report --fix"
+# base: always means the current checkout (ce-code-review refuses base: with a
+# PR or branch target), so numbers and branch names in its prose don't count.
+tgt own   "base:page-fixes — review branch feat/x (units 1–6: 10 commits from 6ef189d to f13b37c)"
+tgt own   "--full base:abc1234 (branch other-branch vs development; PR #12 follow-up)"
 tgt own   "development"
 tgt own   "no-such-branch"
 # The helper is sourced into hooks, so it must leave the caller's variables alone.
