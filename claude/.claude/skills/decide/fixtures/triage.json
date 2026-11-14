@@ -1,0 +1,39 @@
+{
+  "title": "Review findings",
+  "name": "Review findings",
+  "layout": "items",
+  "rev": "1",
+  "task": "fixture--review-triage",
+  "intro": "Two code-review findings, each with a recommended fix, real alternatives, then Defer and Skip. Fixture data.",
+  "items": [
+    {
+      "id": "t1",
+      "kind": "triage",
+      "area": "scripts",
+      "title": "Unquoted variable in a loop",
+      "reason": "Word-splits on a path with a space.",
+      "context": "`for f in $files` in `sync.sh`.",
+      "default": "fix",
+      "options": [
+        { "id": "fix", "label": "Quote it", "detail": "Pro: one-word change. Con: none.", "recommended": true },
+        { "id": "array", "label": "Use an array", "detail": "Pro: robust. Con: larger diff." },
+        { "id": "defer", "label": "Defer", "detail": "Track it as a follow-up task." },
+        { "id": "skip", "label": "Skip", "detail": "Leave as is." }
+      ],
+      "blocks": [{ "type": "code", "text": "for f in $files; do\n  cp \"$f\" out/\ndone" }]
+    },
+    {
+      "id": "t2",
+      "kind": "triage",
+      "area": "scripts",
+      "title": "Retry loop has no cap",
+      "reason": "Spins forever if the socket never appears.",
+      "options": [
+        { "id": "cap", "label": "Cap at ten tries", "detail": "Pro: bounded. Con: one more constant.", "recommended": true },
+        { "id": "timeout", "label": "Wrap in timeout", "detail": "Pro: no loop edit. Con: kills a slow start." },
+        { "id": "defer", "label": "Defer", "detail": "Follow-up task." },
+        { "id": "skip", "label": "Skip", "detail": "Leave as is." }
+      ]
+    }
+  ]
+}

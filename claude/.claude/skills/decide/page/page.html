@@ -1,0 +1,774 @@
+<title>Decision Page</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a calm neutral list. The sticky bar carries the tally, area chips and
+   "Next unanswered". Each card is collapsed to title, suggestion, one line of
+   reason and its buttons; evidence sits behind a click. Colour appears only on
+   a chosen verdict (its tone) and on amber "suggested" hints. */
+:root {
+  --bg: #f4f5f6; --surface: #ffffff; --fg: #1c1f22; --muted: #596068; --line: #d6d9dc;
+  --accent: #1c1f22; --accent-ink: #ffffff; --hover: #eceef0;
+  --suggest: #7a5200; --suggest-soft: #f8efd9; --suggest-line: #b98a2c;
+  --warn: #a33a2b; --code-bg: #eceef0;
+  --good: #1d5a3a; --good-soft: #e3efe7; --good-line: #5c9a78;
+  --bad: #8f2e22; --bad-soft: #f6e4e1; --bad-line: #c4786c;
+  --info: #1f4f80; --info-soft: #e2ebf5; --info-line: #6e97c4;
+  --neutral: #1c1f22; --neutral-soft: #e4e6e8; --neutral-line: #7d858c;
+  --font-ui: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111416; --surface: #1a1e21; --fg: #e6e9eb; --muted: #9aa3aa; --line: #2f353a;
+    --accent: #e6e9eb; --accent-ink: #111416; --hover: #242a2e;
+    --suggest: #e3b45c; --suggest-soft: #33291a; --suggest-line: #8f6d28;
+    --warn: #f08a78; --code-bg: #232a2e;
+    --good: #8fd0aa; --good-soft: #1b2e24; --good-line: #3f7a5a;
+    --bad: #f0a79a; --bad-soft: #35201d; --bad-line: #8a4a40;
+    --info: #9cc4f0; --info-soft: #1a2837; --info-line: #46709e;
+    --neutral: #e6e9eb; --neutral-soft: #2a2f33; --neutral-line: #6b747b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111416; --surface: #1a1e21; --fg: #e6e9eb; --muted: #9aa3aa; --line: #2f353a;
+  --accent: #e6e9eb; --accent-ink: #111416; --hover: #242a2e;
+  --suggest: #e3b45c; --suggest-soft: #33291a; --suggest-line: #8f6d28;
+  --warn: #f08a78; --code-bg: #232a2e;
+  --good: #8fd0aa; --good-soft: #1b2e24; --good-line: #3f7a5a;
+  --bad: #f0a79a; --bad-soft: #35201d; --bad-line: #8a4a40;
+  --info: #9cc4f0; --info-soft: #1a2837; --info-line: #46709e;
+  --neutral: #e6e9eb; --neutral-soft: #2a2f33; --neutral-line: #6b747b;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 15px; line-height: 1.5; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap {
+  width: 100%; max-width: max(84vw, min(100%, 680px)); margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+header.page { padding-block: 24px 8px; display: grid; gap: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: 26px; line-height: 1.2; margin: 0; font-weight: 650; text-wrap: balance; }
+.intro { color: var(--muted); margin: 0; max-width: 70ch; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 13px; color: var(--fg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; text-decoration: none; background: var(--surface); }
+.chip:hover { background: var(--hover); }
+
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar .wrap { display: grid; gap: 6px; padding-block: 8px; }
+.bar-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tally { font-variant-numeric: tabular-nums; font-weight: 600; }
+.meter { flex: 1 1 100px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; min-width: 60px; }
+.meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.saved { font-size: 13px; color: var(--muted); }
+.areachips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.areachips .chip { flex: none; min-height: 32px; font: inherit; font-size: 13px; cursor: pointer; }
+.areachips .chip.next { border-color: var(--accent); font-weight: 600; }
+
+.banner { margin-block: 14px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.banner.warn { border-color: var(--warn); color: var(--warn); }
+.banner.ok { border-color: var(--good-line); }
+.banner p { margin: 0; }
+
+details.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; }
+details.panel > summary { padding: 10px 14px; cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+details.panel > .body { padding: 0 14px 14px; display: grid; gap: 8px; }
+.decided-row { display: grid; gap: 2px; padding-block: 6px; border-top: 1px solid var(--line); }
+.decided-row b { font-weight: 600; }
+.decided-row span { color: var(--muted); font-size: 14px; }
+.prior { margin-top: 12px; padding: 10px 14px; border-left: 3px solid var(--suggest-line); background: var(--suggest-soft); color: var(--fg); border-radius: 0 6px 6px 0; }
+.prior b { color: var(--suggest); }
+.prior p { margin: 4px 0 0; }
+
+main { display: grid; gap: 12px; padding-block: 14px 8px; }
+details.area > summary { cursor: pointer; padding: 10px 2px; font-weight: 650; font-size: 17px; display: flex; gap: 10px; align-items: baseline; min-height: 44px; }
+details.area > summary .count { font-weight: 500; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.area-body { display: grid; gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.card.failed { border-color: var(--warn); }
+.card-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.card h2 { font-size: 16px; margin: 0; font-weight: 600; min-width: 0; flex: 1 1 14em; text-wrap: balance; }
+.tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+.sugg { font-size: 13px; color: var(--suggest); }
+.state { font-size: 13px; color: var(--muted); }
+.state.fail { color: var(--warn); }
+.reason { margin: 0; color: var(--muted); font-size: 14px; max-width: 75ch; }
+
+.verdicts { display: flex; flex-wrap: wrap; gap: 8px; }
+.v {
+  font: inherit; font-size: 15px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 14px; min-height: 44px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.v:hover { background: var(--hover); }
+.v.suggested { border-style: dashed; border-color: var(--suggest-line); color: var(--suggest); background: var(--suggest-soft); }
+.v .ck, .v .word { display: none; }
+.v[aria-pressed="true"] { font-weight: 600; }
+.v[aria-pressed="true"] .ck { display: inline; }
+.v[aria-pressed="true"] .word { display: inline; font-size: 11px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; opacity: .85; }
+.v[aria-pressed="true"].tone-neutral, .opt[aria-pressed="true"] { color: var(--neutral); background: var(--neutral-soft); border-color: var(--neutral-line); }
+.v[aria-pressed="true"].tone-good { color: var(--good); background: var(--good-soft); border-color: var(--good-line); }
+.v[aria-pressed="true"].tone-bad { color: var(--bad); background: var(--bad-soft); border-color: var(--bad-line); }
+.v[aria-pressed="true"].tone-info { color: var(--info); background: var(--info-soft); border-color: var(--info-line); }
+.v[aria-pressed="true"].tone-warn { color: var(--suggest); background: var(--suggest-soft); border-color: var(--suggest-line); }
+
+.options { display: grid; gap: 8px; }
+.opt {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; text-align: left;
+  font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 44px; cursor: pointer;
+}
+.opt:hover { background: var(--hover); }
+.opt .mark { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); margin-top: 3px; grid-row: span 2; }
+.opt .label { font-weight: 600; }
+.opt .detail { color: var(--muted); font-size: 14px; grid-column: 2; }
+.opt .rec { font-family: var(--font-mono); font-size: 11px; color: var(--suggest); margin-left: 6px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
+.opt[aria-pressed="true"] .mark { border-color: var(--neutral); background: radial-gradient(var(--neutral) 45%, transparent 50%); }
+.opt[aria-pressed="true"] .detail { color: var(--neutral); }
+.opt[aria-pressed="true"] .label::after { content: " \2713 chosen"; font-weight: 500; font-size: 12px; }
+
+details.more > summary { cursor: pointer; color: var(--muted); font-size: 14px; min-height: 32px; display: flex; align-items: center; }
+details.more[open] > summary { margin-bottom: 8px; }
+.ctx { display: grid; gap: 8px; min-width: 0; }
+.ctx p { margin: 0; max-width: 70ch; }
+.ctx ul { margin: 0; padding-left: 20px; max-width: 70ch; }
+code { font-family: var(--font-mono); font-size: .88em; background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+pre { margin: 0; background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+pre.mermaid { white-space: pre; }
+.tbl, .fig { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.fig svg { max-width: 100%; height: auto; color: var(--fg); }
+.links { display: flex; flex-wrap: wrap; gap: 8px; }
+.fields-grid { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.field { display: grid; gap: 4px; flex: 1 1 12em; min-width: 0; font-size: 13px; color: var(--muted); }
+.field.wide { flex-basis: 100%; }
+input[type="text"], textarea {
+  width: 100%; font: inherit; font-size: 15px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 44px;
+}
+textarea { min-height: 2.8em; resize: vertical; }
+.note label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
+button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+footer.submit { padding-block: 16px 40px; display: grid; gap: 12px; justify-items: start; }
+.acceptbox { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.acceptbox input { width: 20px; height: 20px; margin: 0; }
+.primary { font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 10px 22px; min-height: 44px; cursor: pointer; }
+.primary:disabled { opacity: .5; cursor: default; }
+.status { color: var(--muted); margin: 0; max-width: 70ch; }
+.status.ok { color: var(--fg); }
+.status.err { color: var(--warn); }
+.empty { color: var(--muted); padding-block: 24px; }
+.globalnote { width: 100%; display: grid; gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+</style>
+
+<header class="page wrap">
+  <div class="eyebrow" id="eyebrow">Decisions</div>
+  <h1 id="title">Loading the questions...</h1>
+  <p class="intro" id="intro"></p>
+  <div class="chips" id="speclinks" hidden></div>
+</header>
+<div class="bar">
+  <div class="wrap">
+    <div class="bar-top">
+      <span class="tally" id="tally">0 of 0 answered</span>
+      <span class="meter" aria-hidden="true"><i id="meter"></i></span>
+      <span class="saved" id="saved">Answers save as you choose.</span>
+    </div>
+    <div class="areachips" id="areachips"></div>
+  </div>
+</div>
+<div class="wrap">
+  <div class="banner warn" id="notice" hidden></div>
+  <div class="banner ok" id="sentbanner" hidden></div>
+  <aside class="prior" id="prior" hidden></aside>
+  <div id="sections"></div>
+  <main id="items"><p class="empty">The questions appear here once the page loads.</p></main>
+  <footer class="submit">
+    <div class="globalnote" id="globalbox" hidden>
+      <label for="globalnote" id="globallabel">Anything else, for the whole batch (optional)</label>
+      <textarea id="globalnote" rows="2"></textarea>
+    </div>
+    <label class="acceptbox" id="acceptwrap" hidden>
+      <input type="checkbox" id="accept">
+      <span>Accept the remaining suggestions</span>
+    </label>
+    <p class="status" id="subtally"></p>
+    <button class="primary" id="submit" type="button" disabled>Submit answers</button>
+    <p class="status" id="status">You can leave and come back. Submit when you are done.</p>
+  </footer>
+</div>
+
+<script>
+// Page core: no DOM access. A node test extracts everything between the
+// CORE markers (scripts/page-core.test.sh), so keep it free of document/window.
+// CORE:BEGIN
+const DC = (() => {
+  const str = (v) => (v == null ? "" : String(v));
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const TONES = ["neutral", "good", "bad", "info", "warn"];
+  const STATUSES = ["chosen", "edited", "suggestion", "default", "carried", "unanswered"];
+
+  // Fill defaults so the renderer never branches on missing fields.
+  function normalize(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("spec must be an object");
+    if (raw.layout !== "items" && raw.layout !== "verdicts") throw new Error("layout must be items or verdicts");
+    if (!Array.isArray(raw.items)) throw new Error("items must be a list");
+    const verdicts = arr(raw.verdicts).map((v) => ({ id: str(v.id), label: str(v.label || v.id), tone: TONES.includes(v.tone) ? v.tone : "neutral" }));
+    const items = raw.items.map((it) => ({
+      id: str(it.id), title: str(it.title), context: str(it.context), area: str(it.area).trim(),
+      reason: str(it.reason), suggested: str(it.suggested), kind: str(it.kind), default: str(it.default),
+      options: arr(it.options).map((o) => ({ id: str(o.id), label: str(o.label || o.id), detail: str(o.detail), recommended: !!o.recommended })),
+      blocks: arr(it.blocks),
+      fields: arr(it.fields).filter((f) => f && f.key).map((f) => ({ key: str(f.key), label: str(f.label || f.key), value: str(f.value), placeholder: str(f.placeholder), wide: !!f.wide })),
+      links: arr(it.links).filter((l) => l && l.href),
+    }));
+    const gn = raw.global_note;
+    return {
+      title: str(raw.title), layout: raw.layout, rev: str(raw.rev == null ? "1" : raw.rev), base: str(raw.base),
+      intro: str(raw.intro), task: str(raw.task), name: str(raw.name),
+      verdicts, items,
+      decided: arr(raw.decided).map((d) => ({ id: str(d.id), title: str(d.title), decision: str(d.decision), date: str(d.date), note: str(d.note) })),
+      prior: raw.prior && typeof raw.prior === "object" ? { round: str(raw.prior.round), note: str(raw.prior.note), reply: str(raw.prior.reply) } : null,
+      sections: arr(raw.sections).map((s) => ({ title: str(s.title), text: str(s.text), open: !!s.open })),
+      links: arr(raw.links).filter((l) => l && l.href).map((l) => ({ label: str(l.label || l.href), href: str(l.href) })),
+      globalNote: gn === false ? null : { label: str(gn && gn.label), placeholder: str(gn && gn.placeholder) },
+    };
+  }
+
+  // Strip scripts, foreignObject, on* attributes and javascript: links from SVG
+  // text. Loops so nested fragments can't re-form a tag after one pass.
+  function sanitizeSvg(markup) {
+    let s = str(markup), prev;
+    do {
+      prev = s;
+      s = s.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "").replace(/<\/?script\b[^>]*>/gi, "");
+      s = s.replace(/<foreignObject\b[\s\S]*?<\/foreignObject\s*>/gi, "").replace(/<\/?foreignObject\b[^>]*>/gi, "");
+      s = s.replace(/[\s\/]on[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+      s = s.replace(/\s(?:xlink:)?href\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*')/gi, "");
+    } while (s !== prev);
+    return s;
+  }
+
+  // Only https links and same-folder relative links are followed.
+  function safeHref(h) {
+    const s = str(h).trim();
+    return /^https:\/\//i.test(s) || /^(?![a-z][a-z0-9+.-]*:|\/\/)/i.test(s) ? s : "";
+  }
+
+  const fieldValue = (f, a) => (a && a.fields && typeof a.fields[f.key] === "string" ? a.fields[f.key] : f.value);
+  const fieldsChanged = (item, a) => item.fields.some((f) => fieldValue(f, a) !== f.value);
+
+  // The answer document for one item after a patch ({choice}, {note}, {fields}).
+  function buildAnswer(item, prev, patch, rev, now) {
+    const merged = { ...(prev || {}), ...patch };
+    const fields = {};
+    item.fields.forEach((f) => { fields[f.key] = fieldValue(f, merged); });
+    return {
+      choice: str(merged.choice), note: str(merged.note), fields,
+      fields_changed: fieldsChanged(item, { fields }), rev: str(rev), updatedAt: now,
+    };
+  }
+
+  const validChoice = (spec, item, a) => {
+    const c = a && str(a.choice);
+    if (!c) return "";
+    const ids = spec.layout === "verdicts" ? spec.verdicts.map((v) => v.id) : item.options.map((o) => o.id);
+    return ids.includes(c) ? c : "";
+  };
+
+  // Where every item stands, and what value it resolves to at Submit.
+  //   chosen     Jet picked an option or verdict
+  //   edited     Jet changed a field on the row: counts as answered, takes the suggestion
+  //   suggestion verdicts layout, accept box ticked: the suggestion applies
+  //   default    items layout, some other item answered: the stated default applies
+  //   carried    verdicts layout, suggestion not accepted: applies nothing
+  //   unanswered nothing to apply
+  function summarize(spec, answers, acceptRemaining) {
+    const byId = {};
+    const accept = !!acceptRemaining && spec.layout === "verdicts";
+    const vids = spec.verdicts.map((v) => v.id);
+    const oids = (it) => it.options.map((o) => o.id);
+    let anyAnswered = false;
+    spec.items.forEach((it) => {
+      const a = answers && answers[it.id];
+      const choice = validChoice(spec, it, a);
+      if (choice) { byId[it.id] = { status: "chosen", value: choice }; anyAnswered = true; }
+      else if (fieldsChanged(it, a)) {
+        const sg = spec.layout === "verdicts" && vids.includes(it.suggested) ? it.suggested : "";
+        byId[it.id] = { status: "edited", value: sg }; anyAnswered = true;
+      }
+    });
+    spec.items.forEach((it) => {
+      if (byId[it.id]) return;
+      if (spec.layout === "verdicts") {
+        const sg = vids.includes(it.suggested) ? it.suggested : "";
+        byId[it.id] = !sg ? { status: "unanswered", value: "" }
+          : accept ? { status: "suggestion", value: sg } : { status: "carried", value: "" };
+      } else {
+        const d = oids(it).includes(it.default) ? it.default : "";
+        byId[it.id] = d && anyAnswered ? { status: "default", value: d } : { status: "unanswered", value: "" };
+      }
+    });
+    const zero = () => Object.fromEntries(STATUSES.map((s) => [s, 0]));
+    const counts = zero();
+    const unansweredIds = [];
+    const order = [], map = {};
+    const hasAreas = spec.items.some((it) => it.area);
+    spec.items.forEach((it) => {
+      const st = byId[it.id].status;
+      counts[st] += 1;
+      if (st === "unanswered" || st === "carried") unansweredIds.push(it.id);
+      const key = hasAreas ? (it.area || "Other") : "";
+      if (!map[key]) { map[key] = { area: key, ids: [], counts: zero() }; order.push(key); }
+      map[key].ids.push(it.id); map[key].counts[st] += 1;
+    });
+    const answeredOf = (c) => c.chosen + c.edited + c.suggestion;
+    const areas = order.map((k) => ({ area: map[k].area, ids: map[k].ids, counts: map[k].counts, total: map[k].ids.length, answered: answeredOf(map[k].counts) }));
+    return { total: spec.items.length, counts, answered: answeredOf(counts), byId, unansweredIds, areas, acceptRemaining: accept };
+  }
+
+  const plural = (n, w) => n + " " + w;
+  // The line under the bar and beside Submit. Unanswered items are named first.
+  function tallyText(spec, sum) {
+    const c = sum.counts;
+    if (spec.layout === "verdicts") {
+      if (sum.acceptRemaining) return `${sum.answered} answered (${c.chosen + c.edited} chosen, ${c.suggestion} by suggestion)` + (c.unanswered ? `, ${c.unanswered} without a suggestion` : "");
+      const open = c.carried + c.unanswered;
+      return `${c.chosen + c.edited} chosen, ${open} carried over` + (open ? "; tick to take their suggestions" : "");
+    }
+    const names = sum.unansweredIds.map((id) => (spec.items.find((it) => it.id === id) || {}).title).filter(Boolean);
+    const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
+    return (names.length ? `Unanswered: ${shown}. ` : "") + `${plural(sum.answered, "answered")}` + (c.default ? `, ${c.default} default taken` : "");
+  }
+
+  // The header: "x of y answered".
+  const headerText = (spec, sum) => `${sum.answered} of ${sum.total} answered` + (sum.counts.default ? `, ${sum.counts.default} default taken` : "");
+
+  // The comment text sent to Claude: carries the rev so the session can match it.
+  function commentText(spec, sum, again) {
+    const c = sum.counts;
+    return `${again ? "Resubmitted" : "Submitted"} rev ${spec.rev}: ${sum.answered} of ${sum.total} answered`
+      + ` (${c.chosen} chosen, ${c.edited} edited, ${c.suggestion} by suggestion, ${c.default} default taken, ${c.carried + c.unanswered} open).`
+      + " Read the answers from this page's store (meta/submitted and the answers collection) and record them.";
+  }
+
+  // The meta/submitted document.
+  function submittedDoc(spec, sum, extra, now) {
+    return { at: now, rev: spec.rev, base: spec.base, answered: sum.answered, total: sum.total,
+      counts: sum.counts, accept_remaining: sum.acceptRemaining, threadId: extra.threadId || "",
+      sent: !!extra.sent, send_error: extra.sendError || "" };
+  }
+
+  return { normalize, sanitizeSvg, safeHref, fieldValue, fieldsChanged, buildAnswer, summarize, tallyText, headerText, commentText, submittedDoc, STATUSES };
+})();
+// CORE:END
+</script>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), timers: {},
+    accept: false, submitted: null, open: {}, sum: null, globalText: "", globalTimer: null,
+  };
+
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => {
+      if (v === false || v == null) return;
+      if (k === "class") el.className = v; else if (k === "text") el.textContent = v; else el.setAttribute(k, v === true ? "" : v);
+    });
+    kids.flat().forEach((k) => { if (k != null) el.append(k); });
+    return el;
+  }
+
+  // Text: blank lines split paragraphs, "- " lines make a list, `code` stays literal.
+  function inline(parent, text) {
+    String(text).split(/(`[^`]+`)/).forEach((part) => {
+      if (part.length > 1 && part.startsWith("`") && part.endsWith("`")) parent.append(h("code", { text: part.slice(1, -1) }));
+      else parent.append(part);
+    });
+  }
+  function paras(text) {
+    const frag = document.createDocumentFragment();
+    String(text || "").split(/\n\s*\n/).forEach((chunk) => {
+      if (!chunk.trim()) return;
+      const lines = chunk.split("\n");
+      if (lines.every((l) => /^\s*- /.test(l))) {
+        const ul = h("ul"); lines.forEach((l) => { const li = h("li"); inline(li, l.replace(/^\s*- /, "")); ul.append(li); }); frag.append(ul);
+      } else { const p = h("p"); inline(p, chunk.trim()); frag.append(p); }
+    });
+    return frag;
+  }
+  function linkChips(links) {
+    const row = h("div", { class: "links" });
+    links.forEach((l) => {
+      const href = DC.safeHref(l.href); if (!href) return;
+      row.append(h("a", { class: "chip", href, target: "_blank", rel: "noopener", text: l.label || l.href }));
+    });
+    return row.childNodes.length ? row : null;
+  }
+
+  function svgBlock(markup) {
+    const doc = new DOMParser().parseFromString(DC.sanitizeSvg(markup), "image/svg+xml");
+    const svg = doc.documentElement;
+    if (!svg || svg.nodeName.toLowerCase() !== "svg" || doc.querySelector("parsererror")) return null;
+    svg.querySelectorAll("script, foreignObject").forEach((n) => n.remove());
+    [svg, ...svg.querySelectorAll("*")].forEach((el) => [...el.attributes].forEach((a) => {
+      if (/^on/i.test(a.name) || /javascript:/i.test(a.value)) el.removeAttribute(a.name);
+    }));
+    return h("div", { class: "fig" }, document.importNode(svg, true));
+  }
+
+  function blocksOf(item) {
+    const out = h("div", { class: "ctx" });
+    if (item.context) out.append(paras(item.context));
+    item.blocks.forEach((b) => {
+      if (b.type === "text") out.append(paras(b.text));
+      else if (b.type === "code") out.append(h("pre", {}, h("code", { text: b.text || "" })));
+      else if (b.type === "mermaid") out.append(h("pre", { class: "mermaid", text: b.text || "" }));
+      else if (b.type === "links") { const l = linkChips((b.links || [])); if (l) out.append(l); }
+      else if (b.type === "table") {
+        const t = h("table");
+        if (b.head) { const tr = t.createTHead().insertRow(); b.head.forEach((x) => tr.append(h("th", { text: x }))); }
+        const body = t.createTBody();
+        (b.rows || []).forEach((r) => { const tr = body.insertRow(); r.forEach((cell) => { tr.insertCell().textContent = cell; }); });
+        out.append(h("div", { class: "tbl" }, t));
+      } else if (b.type === "svg") { const f = svgBlock(b.svg); if (f) out.append(f); }
+    });
+    return out;
+  }
+
+  // details open state survives re-renders, keyed by a stable name.
+  function details(cls, key, defaultOpen, summaryNode) {
+    const d = h("details", { class: cls }, summaryNode);
+    d.dataset.key = key;
+    d.open = key in state.open ? state.open[key] : defaultOpen;
+    d.addEventListener("toggle", () => { state.open[key] = d.open; });
+    return d;
+  }
+
+  const statusLine = (st) => ({
+    chosen: "", edited: "Edited, counts as answered", suggestion: "Suggestion accepted", default: "Default taken at Submit",
+    carried: "Suggestion carried over, applies nothing unless accepted", unanswered: "Unanswered",
+  })[st] || "";
+
+  function renderRow(item) {
+    const spec = state.spec, verdicts = spec.layout === "verdicts";
+    const a = state.answers[item.id];
+    const info = state.sum.byId[item.id];
+    const chosen = (a && a.choice) || "";
+    const card = h("section", { class: "card" + (state.failed.has(item.id) ? " failed" : ""), "data-comment-target": true });
+    card.dataset.id = item.id; card.dataset.status = info.status;
+    const head = h("div", { class: "card-head" }, h("h2", { text: item.title }));
+    if (item.kind === "triage") head.append(h("span", { class: "tag", text: "triage" }));
+    const sg = verdicts && spec.verdicts.find((v) => v.id === item.suggested);
+    if (sg) head.append(h("span", { class: "sugg", text: "Suggested: " + sg.label }));
+    card.append(head);
+    if (item.reason) card.append(h("p", { class: "reason", text: item.reason }));
+
+    if (verdicts) {
+      const row = h("div", { class: "verdicts", role: "group", "aria-label": "Verdict for " + item.title });
+      spec.verdicts.forEach((v) => {
+        const on = chosen === v.id;
+        const b = h("button", { type: "button", class: "v tone-" + v.tone + (!on && v.id === item.suggested ? " suggested" : ""), "aria-pressed": on ? "true" : "false" },
+          h("span", { class: "ck", "aria-hidden": "true", text: "✓" }), h("span", { text: v.label }), h("span", { class: "word", text: "chosen" }));
+        b.addEventListener("click", () => save(item, { choice: on ? "" : v.id }));
+        row.append(b);
+      });
+      card.append(row);
+    } else {
+      const opts = h("div", { class: "options", role: "group", "aria-label": "Options for " + item.title });
+      item.options.forEach((o) => {
+        const label = h("span", { class: "label", text: o.label });
+        if (o.recommended) label.append(h("span", { class: "rec", text: "recommended" }));
+        if (item.default === o.id) label.append(h("span", { class: "rec", text: "default" }));
+        const b = h("button", { type: "button", class: "opt", "aria-pressed": chosen === o.id ? "true" : "false" }, h("span", { class: "mark" }), label);
+        if (o.detail) b.append(h("span", { class: "detail", text: o.detail }));
+        b.addEventListener("click", () => save(item, { choice: chosen === o.id ? "" : o.id }));
+        opts.append(b);
+      });
+      card.append(opts);
+    }
+
+    const sl = state.failed.has(item.id) ? "Not saved. Retrying." : statusLine(info.status);
+    if (sl) card.append(h("div", { class: "state" + (state.failed.has(item.id) ? " fail" : ""), text: sl }));
+
+    const more = details("more", "item:" + item.id, false, h("summary", { text: "Evidence and details" }));
+    const body = h("div", { class: "ctx" });
+    if (item.fields.length) {
+      const g = h("div", { class: "fields-grid" });
+      item.fields.forEach((f) => {
+        const id = `f-${item.id}-${f.key}`;
+        const inp = h("input", { type: "text", id, value: DC.fieldValue(f, a), placeholder: f.placeholder });
+        inp.addEventListener("input", () => {
+          const cur = { ...((state.answers[item.id] || {}).fields || {}) }; cur[f.key] = inp.value;
+          queueSave(item, { fields: cur });
+        });
+        g.append(h("label", { class: "field" + (f.wide ? " wide" : ""), for: id }, h("span", { text: f.label }), inp));
+      });
+      body.append(g);
+    }
+    body.append(blocksOf(item));
+    const ls = linkChips(item.links); if (ls) body.append(ls);
+    const nid = "note-" + item.id;
+    const ta = h("textarea", { id: nid, rows: "2" }); ta.value = (a && a.note) || "";
+    ta.addEventListener("input", () => queueSave(item, { note: ta.value }));
+    body.append(h("div", { class: "note" }, h("label", { for: nid, text: verdicts ? "Note (optional)" : "Other, or a note (optional)" }), ta));
+    more.append(body);
+    card.append(more);
+    return card;
+  }
+
+  // Which row holds the focused control, so a snapshot never replaces it mid-typing.
+  const focusedId = () => { const c = document.activeElement && document.activeElement.closest && document.activeElement.closest(".card"); return c ? c.dataset.id : ""; };
+
+  function renderAreas() {
+    const spec = state.spec, sum = state.sum, box = $("items");
+    const byItem = Object.fromEntries(spec.items.map((it) => [it.id, it]));
+    const frag = document.createDocumentFragment();
+    sum.areas.forEach((ar, i) => {
+      const rows = h("div", { class: "area-body" }, ar.ids.map((id) => renderRow(byItem[id])));
+      if (!ar.area) { frag.append(rows); return; }
+      const sm = h("summary", {}, h("span", { text: ar.area }), h("span", { class: "count", text: `${ar.answered} of ${ar.total}` }));
+      const d = details("area", "area:" + ar.area, true, sm);
+      d.id = "area-" + i; d.append(rows); frag.append(d);
+    });
+    box.replaceChildren(frag);
+  }
+
+  // Counts, chips and heading counts only: cheap, safe while typing.
+  function renderChrome() {
+    const spec = state.spec, sum = state.sum;
+    $("tally").textContent = DC.headerText(spec, sum);
+    $("meter").style.width = (sum.total ? 100 * sum.answered / sum.total : 0) + "%";
+    $("subtally").textContent = DC.tallyText(spec, sum);
+    const chips = $("areachips"); chips.replaceChildren();
+    sum.areas.forEach((ar, i) => {
+      if (!ar.area) return;
+      const b = h("button", { type: "button", class: "chip", text: `${ar.area} ${ar.answered}/${ar.total}` });
+      b.addEventListener("click", () => { const d = $("area-" + i); if (d) { d.open = true; state.open["area:" + ar.area] = true; d.scrollIntoView({ block: "start" }); } });
+      chips.append(b);
+    });
+    const next = h("button", { type: "button", class: "chip next", text: "Next unanswered", disabled: sum.unansweredIds.length ? null : true });
+    next.addEventListener("click", () => {
+      const id = state.sum.unansweredIds[0]; if (!id) return;
+      const card = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`); if (!card) return;
+      const d = card.closest("details.area"); if (d) { d.open = true; state.open[d.dataset.key] = true; }
+      card.scrollIntoView({ block: "center" });
+    });
+    chips.append(next);
+    document.querySelectorAll("details.area").forEach((d, i) => {
+      const ar = sum.areas.filter((a) => a.area)[i];
+      const c = d.querySelector(".count"); if (ar && c) c.textContent = `${ar.answered} of ${ar.total}`;
+    });
+    $("submit").disabled = !state.db || state.failed.size > 0;
+    if (state.failed.size) { $("status").className = "status err"; $("status").textContent = "Some answers are not saved yet. Submit waits until they are."; }
+  }
+
+  function recompute() { state.sum = DC.summarize(state.spec, state.answers, state.accept); }
+  function renderAll() { recompute(); renderAreas(); renderChrome(); }
+
+  function replaceRow(item) {
+    recompute();
+    const old = document.querySelector(`.card[data-id="${CSS.escape(item.id)}"]`);
+    if (old && focusedId() !== item.id) old.replaceWith(renderRow(item));
+    else if (old) { old.dataset.status = state.sum.byId[item.id].status; old.classList.toggle("failed", state.failed.has(item.id)); }
+    // other rows only change when the accept box does, handled by renderAll.
+    renderChrome();
+  }
+
+  // Typing: update local state at once, write after a pause.
+  function queueSave(item, patch) {
+    const prev = state.answers[item.id];
+    state.answers[item.id] = DC.buildAnswer(item, prev, patch, state.spec.rev, new Date().toISOString());
+    recompute(); renderChrome();
+    clearTimeout(state.timers[item.id]);
+    state.timers[item.id] = setTimeout(() => write(item), 600);
+  }
+  function save(item, patch) {
+    clearTimeout(state.timers[item.id]);
+    state.answers[item.id] = DC.buildAnswer(item, state.answers[item.id], patch, state.spec.rev, new Date().toISOString());
+    replaceRow(item);
+    return write(item);
+  }
+  async function write(item) {
+    clearTimeout(state.timers[item.id]); delete state.timers[item.id];
+    if (!state.db) return;
+    $("saved").textContent = "Saving...";
+    try {
+      await state.db.doc("answers/" + item.id).set(state.answers[item.id]);
+      const was = state.failed.delete(item.id);
+      $("saved").textContent = "Saved.";
+      if (was) { replaceRow(item); $("status").className = "status"; $("status").textContent = "You can leave and come back. Submit when you are done."; }
+    } catch (e) {
+      state.failed.add(item.id);
+      $("saved").textContent = "Not saved: " + ((e && (e.message || e.code)) || "the store refused the write") + ". Retrying.";
+      replaceRow(item);
+      setTimeout(() => { if (state.failed.has(item.id)) write(item); }, 5000);
+    }
+  }
+  const flushPending = () => Promise.all(Object.keys(state.timers).map((id) => write(state.spec.items.find((it) => it.id === id))));
+
+  async function submit() {
+    const btn = $("submit"), status = $("status"), spec = state.spec;
+    if (state.failed.size) return;
+    btn.disabled = true;
+    recompute();
+    const sum = state.sum, again = !!(state.submitted && state.submitted.rev === spec.rev);
+    // 1. The comment goes first, while this click is still Jet's gesture.
+    let threadId = (again && state.submitted.threadId) || "", sent = false, sendError = "";
+    const pending = flushPending();
+    if (state.comments && state.sendState === "available") {
+      const text = DC.commentText(spec, sum, again);
+      try {
+        let res;
+        if (threadId) {
+          try { res = await state.comments.sendToClaude({ threadId, text }); }
+          catch (e) { if (e && e.code === "not_found") { threadId = ""; } else throw e; }
+        }
+        if (!threadId) res = await state.comments.sendToClaude({ anchor: await state.comments.anchorFor(btn), text });
+        threadId = (res && res.threadId) || threadId; sent = true;
+      } catch (e) { sendError = (e && (e.code || e.message)) || "unknown"; }
+    } else sendError = state.comments ? "send_" + (state.sendState || "unavailable") : "comments_unavailable";
+    // 2. Then the durable record, with the same rev.
+    try {
+      await pending;
+      if (state.failed.size) throw new Error("some answers are not saved");
+      const doc = DC.submittedDoc(spec, sum, { threadId, sent, sendError }, new Date().toISOString());
+      await state.db.doc("meta/submitted").set(doc);
+      state.submitted = doc;
+    } catch (e) {
+      status.className = "status err";
+      status.textContent = (sent ? "Sent to Claude, but the submit record was not saved: " : "Submit was not saved: ") + ((e && e.message) || "the store refused the write") + ". Try Submit again.";
+      btn.disabled = false; return;
+    }
+    showSubmitted(sendError);
+    btn.disabled = false; btn.textContent = "Submit again";
+  }
+
+  const reasonText = (code) => ({
+    "": "", claude_unavailable: "no Claude session is watching this page, or the click was too old", consent_required: "the comment prompt was not allowed",
+    forbidden: "commenting from the page is off for you here", rate_limited: "too many comments, slow down", comments_unavailable: "this view cannot send comments",
+  })[code] || code;
+
+  function showSubmitted(sendError) {
+    const s = state.submitted; if (!s) return;
+    const t = new Date(s.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const b = $("sentbanner"); b.hidden = false;
+    b.replaceChildren(h("p", { text: s.sent ? `Submitted at ${t} and sent to Claude. Your answers stay editable; Submit again to resend.`
+      : `Submitted at ${t}, but Claude was not woken (${reasonText(sendError || s.send_error) || "not sent"}). Type "done" in the session.` }));
+    const st = $("status"); st.className = "status ok";
+    st.textContent = s.sent ? "Submitted. The session records your answers when it replies." : 'Submitted. Type "done" in the session to collect your answers.';
+    $("submit").textContent = "Submit again";
+  }
+
+  function chrome() {
+    const spec = state.spec;
+    $("title").textContent = spec.title;
+    $("eyebrow").textContent = spec.task || "Decisions";
+    $("intro").textContent = spec.intro;
+    const ls = linkChips(spec.links);
+    if (ls) { $("speclinks").hidden = false; $("speclinks").replaceChildren(...ls.childNodes); }
+    if (spec.prior && (spec.prior.note || spec.prior.reply)) {
+      const p = $("prior"); p.hidden = false;
+      p.append(h("b", { text: spec.prior.round ? "Previous round (" + spec.prior.round + ")" : "Previous round" }));
+      if (spec.prior.note) p.append(h("p", { text: "You wrote: " + spec.prior.note }));
+      if (spec.prior.reply) p.append(h("p", { text: "Answer: " + spec.prior.reply }));
+    }
+    const secs = $("sections");
+    spec.sections.forEach((s, i) => {
+      const d = details("panel", "sec:" + i, s.open, h("summary", { text: s.title }));
+      d.append(h("div", { class: "body" }, paras(s.text))); secs.append(d);
+    });
+    if (spec.decided.length) {
+      const d = details("panel", "decided", false, h("summary", { text: `Already decided (${spec.decided.length})` }));
+      d.append(h("div", { class: "body" }, spec.decided.map((x) => h("div", { class: "decided-row" },
+        h("b", { text: x.title }), h("span", { text: [x.decision, x.date].filter(Boolean).join(" · ") }), x.note ? h("span", { text: x.note }) : null))));
+      secs.append(d);
+    }
+    if (spec.layout === "verdicts") {
+      $("acceptwrap").hidden = false;
+      $("accept").addEventListener("change", () => { state.accept = $("accept").checked; renderAll(); });
+    }
+    if (spec.globalNote) {
+      $("globalbox").hidden = false;
+      if (spec.globalNote.label) $("globallabel").textContent = spec.globalNote.label;
+      if (spec.globalNote.placeholder) $("globalnote").placeholder = spec.globalNote.placeholder;
+      $("globalnote").addEventListener("input", () => {
+        state.globalText = $("globalnote").value; clearTimeout(state.globalTimer);
+        state.globalTimer = setTimeout(async () => {
+          if (!state.db) return;
+          try { await state.db.doc("meta/global").set({ text: state.globalText, rev: spec.rev, updatedAt: new Date().toISOString() }); $("saved").textContent = "Saved."; }
+          catch (e) { $("saved").textContent = "Global note not saved: " + ((e && e.message) || "store refused") + "."; }
+        }, 600);
+      });
+    }
+  }
+
+  const use = (name) => Promise.resolve(window.claude && window.claude.use ? window.claude.use(name) : null).catch(() => null);
+  function banner(text) { const n = $("notice"); n.hidden = false; n.replaceChildren(h("p", { text })); }
+
+  async function start() {
+    let spec;
+    try {
+      const res = await fetch("spec.json", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      spec = DC.normalize(await res.json());
+    } catch (e) {
+      $("title").textContent = "The questions did not load";
+      $("intro").textContent = "This page reads spec.json beside it, and that failed (" + ((e && e.message) || "unknown") + "). Ask the session to publish the page again.";
+      return;
+    }
+    state.spec = spec;
+    chrome(); renderAll();
+    $("submit").addEventListener("click", submit);
+
+    state.db = await use("db");
+    state.comments = await use("comments");
+    if (state.comments) { try { state.sendState = String(await state.comments.canSendToClaude()); } catch (e) { state.sendState = "unavailable"; } }
+    if (!state.db) {
+      banner("Answers cannot be saved in this view. Open the page in claude.ai, signed in.");
+      $("saved").textContent = "Not saving."; renderChrome(); return;
+    }
+    if (!state.comments || state.sendState !== "available") {
+      banner(!state.comments ? "Submit cannot wake Claude from this view. After you submit, type \"done\" in the session."
+        : "Claude cannot be woken from this page right now (" + state.sendState + "). After you submit, type \"done\" in the session.");
+      $("notice").className = "banner";
+    }
+    renderChrome();
+    state.db.collection("answers").onSnapshot((snap) => {
+      const changed = [];
+      snap.docs.forEach((d) => {
+        if (!d.exists) return;
+        const mine = state.answers[d.id], theirs = d.data();
+        if (!mine || (theirs.updatedAt || "") > (mine.updatedAt || "")) { state.answers[d.id] = { ...theirs }; changed.push(d.id); }
+      });
+      if (!changed.length) return;
+      recompute();
+      const fid = focusedId();
+      changed.forEach((id) => { const it = spec.items.find((x) => x.id === id); if (!it) return;
+        const old = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+        if (old && id !== fid) old.replaceWith(renderRow(it)); });
+      renderChrome();
+    }, (e) => { $("saved").textContent = "Live updates stopped: " + ((e && e.message) || "store error") + ". Reload the page."; });
+    state.db.collection("meta").onSnapshot((snap) => {
+      snap.docs.forEach((d) => {
+        if (!d.exists) return;
+        if (d.id === "submitted") { const v = d.data(); if (v && v.rev === spec.rev) { state.submitted = v; showSubmitted(""); } }
+        if (d.id === "global" && !$("globalnote").value && d.data().text) { $("globalnote").value = d.data().text; state.globalText = d.data().text; }
+      });
+    }, () => {});
+  }
+
+  start();
+})();
+</script>

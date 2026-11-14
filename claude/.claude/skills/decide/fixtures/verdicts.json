@@ -1,0 +1,30 @@
+{
+  "title": "Fixture format audit",
+  "name": "Fixture audit",
+  "layout": "verdicts",
+  "rev": "2",
+  "task": "fixture--format-audit",
+  "intro": "Six findings about a fixture format, each takes Fix, Later or Skip. Fixture data for the page tests.",
+  "verdicts": [
+    { "id": "fix", "label": "Fix", "tone": "good" },
+    { "id": "later", "label": "Later", "tone": "info" },
+    { "id": "skip", "label": "Skip", "tone": "neutral" }
+  ],
+  "sections": [{ "title": "How suggestions count", "text": "A suggestion applies only when you accept it, row by row or with the box at Submit." }],
+  "items": [
+    { "id": "a1", "area": "Parsing", "title": "Header line has no version", "suggested": "fix", "reason": "Old files cannot be told from new ones.", "context": "The first line is `# fixture` only." },
+    { "id": "a2", "area": "Parsing", "title": "Blank lines end a record", "suggested": "later", "reason": "Works today; breaks if a record gains a paragraph." },
+    { "id": "a3", "area": "Parsing", "title": "Tabs accepted as spaces", "suggested": "skip", "reason": "Nothing writes tabs." },
+    { "id": "b1", "area": "Naming", "title": "File names mix case", "suggested": "fix", "reason": "A case-insensitive disk would merge two fixtures." },
+    { "id": "b2", "area": "Naming", "title": "Suffix says .txt", "reason": "No view yet; depends on the editor setting." },
+    {
+      "id": "b3", "area": "Naming", "title": "Rename the child slug", "suggested": "fix", "reason": "Shorter slug fits the tmux label.",
+      "fields": [
+        { "key": "slug", "label": "Slug", "value": "fixture-audit", "placeholder": "slug" },
+        { "key": "goal", "label": "Goal", "value": "Shorten the label", "wide": true },
+        { "key": "size", "label": "Size", "value": "S" },
+        { "key": "depends_on", "label": "Depends on", "value": "" }
+      ]
+    }
+  ]
+}
