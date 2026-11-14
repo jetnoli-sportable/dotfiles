@@ -396,6 +396,22 @@ not just stepping away from mid-flight. A `paused` task never has a live
 session; resuming one (picker or `wb resume`) flips it straight back to
 `doing`.
 
+**After a crash.** `wb restart` brings back a whole set of sessions at once, from
+inside tmux (any session; it switches the client back to where you started).
+Give it a list file of task stems, one per line (blank lines and `#` comments
+are ignored), or use `wb restart --crashed` to build the list from the store:
+tasks with status `doing` or `review`, a worktree on disk, no tmux session, and
+a newest handoff that is not a `wb down` that closed the session (so
+tasks you closed on purpose stay closed, while `wb down --keep-session` ones
+come back). `--crashed` prints the list and asks `y/N` when a terminal is
+attached; `--dry-run` prints the plan for either form and changes nothing.
+Each task goes through `wb resume` (which brings a stale idle worktree up to
+date), then its agent window gets `claude "/wb-resume"` typed without Enter, so
+each Claude starts only when you visit its window and press Enter. A list entry
+must be an exact task stem: no matching task file, or a session still open, and
+it is skipped with the reason printed. If an agent window never shows a shell
+prompt, the command is printed for you to type instead.
+
 **Resuming is warm by default.** Bringing a dormant or paused task back —
 via the picker's dormant rows or `wb resume <task>` — rebuilds the usual
 3-window layout and pre-types a resume command in the agent window instead
@@ -1043,6 +1059,7 @@ details, incident history, and runbooks live in
 
 | Verb | What it's for |
 |---|---|
+| `wb restart [--dry-run] <list-file>\|--crashed` | Brings back many sessions after a crash or reboot: runs `wb resume` on each task stem (one per line in the list file; `--crashed` builds the list from the store) and pre-types `claude "/wb-resume"` in each agent window without pressing Enter. See "After a crash" below. |
 | `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
 | `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
 | `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |

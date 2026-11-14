@@ -333,21 +333,59 @@ fm_field() {
     index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/^[ \t]+/, "", v); print v; exit }' "$1" 2>/dev/null
 }
 
-# pane_session <pane-id> — the Claude session id live in that pane: the newest
-# entry in Claude Code's session registry (~/.claude/sessions/<pid>.json, updated
-# in place on /clear) whose `tmux` field names the pane and whose pid is alive,
-# else the pane's @claude_session_id (set by the notify hook, which only changes
-# at the first prompt after /clear).
-pane_session() {
-  local pane="$1" pid sid
+# proc_start <pid> — the process start time (field 22 of /proc/<pid>/stat)
+proc_start() {
+  local s
+  read -r s 2>/dev/null <"/proc/$1/stat" || return 1
+  s="${s##*) }"
+  # shellcheck disable=SC2086
+  set -- $s
+  printf '%s' "${20:-}"
+}
+
+# registry_accepts <pid> <procStart or -> — whether a registry entry counts as
+# live. The one place an entry is accepted or rejected: its pid runs and, when
+# the entry records a start time, it is the same process (a reused pid fails).
+registry_accepts() {
+  [[ "$1" =~ ^[0-9]+$ ]] && kill -0 "$1" 2>/dev/null || return 1
+  [ "$2" = - ] || [ "$(proc_start "$1")" = "$2" ]
+}
+
+# registry_live <pane-id> [session-id] — "<sid>\t<status>\t<statusUpdatedAt ms>"
+# of the newest live entry in Claude Code's session registry (~/.claude/sessions/
+# <pid>.json, updated in place on /clear) whose `tmux` field names the pane (or
+# whose sessionId is the one given). The only walker of that undocumented
+# format: the card and the reply view both go through it. A pane match skips
+# headless runs (entrypoint "sdk-…"): a `claude -p` started in the pane without
+# `env -u TMUX -u TMUX_PANE` registers the pane too and would be the newest
+# entry while it runs. Deny-list, not an allow-list of "cli", so a renamed
+# interactive entrypoint keeps working.
+registry_live() {
+  local pid ps sid st at
   local -a files=("$SESSIONS_DIR"/*.json)
-  if [ -e "${files[0]}" ] && command -v jq >/dev/null 2>&1; then
-    while IFS=$'\t' read -r pid sid; do
-      [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && { printf '%s\n' "$sid"; return 0; }
-    done < <(jq -r --arg p "$pane" 'select((.tmux // "") | endswith("." + $p)) | [(.updatedAt // 0), .pid, .sessionId] | @tsv' \
-               "${files[@]}" 2>/dev/null | sort -rn | cut -f2-)
-  fi
-  tmux show -p -t "$pane" -v @claude_session_id 2>/dev/null || true
+  [ -e "${files[0]}" ] && command -v jq >/dev/null 2>&1 || return 0
+  # "-" for an empty field: tab is IFS whitespace, so an empty one would collapse
+  while IFS=$'\t' read -r pid ps sid st at; do
+    registry_accepts "$pid" "$ps" || continue
+    printf '%s\t%s\t%s\n' "$sid" "$st" "$at"
+    return 0
+  done < <(jq -r --arg p "${1:-}" --arg s "${2:-}" '
+      select(($p != "" and ((.tmux // "") | endswith("." + $p))
+                and ((.entrypoint // "") | startswith("sdk") | not))
+             or ($s != "" and .sessionId == $s))
+      | [(.updatedAt // 0), .pid, (.procStart // "-"), .sessionId, (.status // "-"), (.statusUpdatedAt // 0)] | @tsv' \
+      "${files[@]}" 2>/dev/null | sort -rn | cut -f2-)
+}
+
+# pane_session <pane-id> — the Claude session id live in that pane, from
+# registry_live; the pane's @claude_session_id (set by the notify hook, never
+# unset, changes only at the first prompt after /clear) only when there is no
+# registry directory at all, so a pane whose Claude exited names no session.
+pane_session() {
+  local sid
+  [ -d "$SESSIONS_DIR" ] || { tmux show -p -t "$1" -v @claude_session_id 2>/dev/null || true; return 0; }
+  sid="$(registry_live "$1")"
+  printf '%s\n' "${sid%%$'\t'*}"
 }
 
 # chain_for_task <task file> — every reply file whose frontmatter `task:` matches,

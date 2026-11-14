@@ -217,6 +217,65 @@ env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$D/tmux" REPLY_LOG_DIR="$D/replies" CLAUDE
 eq "a live session with no logged turns: exit 3, so the picker adds the pane's screen" 3 "$?"
 assert "a live session with no logged turns: state, then 'no turns logged yet'" '^busy <1m.*⏎⏎no turns logged yet$' "$(card %907 | sed ':a;N;$!ba;s/\n/⏎/g')"
 
+echo "# recap survives 30 repo-origin tool results after it"
+setup recap30
+reply plain.md sess-r
+registry "$LIVE" sess-r %908 idle "$now"
+transcript recap-origin30.jsonl sess-r $((now - 200))
+eq "an away_summary followed by 30 tool results carrying a repo origin is still the recap" \
+  'You are wiring the parser into the CLI. Next: pick a flag name.' "$(out="$(card %908)"; sect Recap)"
+
+echo "# the status-line cache's edge cases"
+setup cache
+reply plain.md sess-c
+registry "$LIVE" sess-c %909 idle "$now"
+printf '{"session_id":"sess-c","model":"Opus 5.5","cost_usd":1.25,"context_pct":34,"ts":%s}\n' $((now - 10800)) >"$D/cache/sess-c.json"
+assert "a cache 3 hours old carries its age" 'Opus 5\.5 · 34% ctx · \$1\.25 · as of 3h' "$(card %909)"
+printf '{"session_id":"sess-c","model":"Opus 5.5","cost_usd":1.25,"context_pct":34,"ts":"soon"}\n' >"$D/cache/sess-c.json"
+out="$(card %909)"
+assert "a non-numeric ts: the rest of the card renders" '^idle <1m' "$out"
+assert "a non-numeric ts: the reply still shows" 'Claude replied' "$out"
+refute "a non-numeric ts: no model line and no age" 'Opus|as of' "$out"
+
+echo "# registry entries: pid reuse, no procStart, exited Claude"
+setup reg
+reply plain.md sess-g
+registry "$LIVE" sess-g %910 idle "$now"
+sed -i 's/"procStart":"[0-9]*"/"procStart":"1"/' "$D/sessions/$LIVE.json"
+eq "a reused pid (another start time): no card for the pane" '' "$(card %910)"
+registry "$LIVE" sess-g %910 idle "$now"
+sed -i 's/"procStart":"[0-9]*",//' "$D/sessions/$LIVE.json"
+assert "an entry without procStart and a live pid is accepted" '^idle <1m' "$(card %910)"
+
+# a stub tmux: pane and task answers come from the environment
+mkdir -p "$ROOT/stub"
+cat >"$ROOT/stub/tmux" <<'STUB'
+#!/bin/sh
+case "$1" in
+  display-message) case "$*" in *pane_id*) echo %911 ;; *'#S'*) echo mysess ;; esac ;;
+  show) case "$*" in *@claude_session_id*) echo "${STUB_SID:-}" ;; *@task*) echo "${STUB_TASK:-}" ;; esac ;;
+esac
+STUB
+chmod +x "$ROOT/stub/tmux"
+stubbed() { PATH="$ROOT/stub:$PATH" STUB_SID="${STUB_SID:-}" STUB_TASK="${STUB_TASK:-}" card "$@"; }
+
+echo "# pane input paths (stub tmux)"
+setup paths
+demo_task "$D/task.md"
+reply plain.md sess-s
+registry "$LIVE" sess-s %911 idle "$now"
+assert "a tmux target (not a pane id) resolves to the pane's session" '^idle <1m' "$(stubbed mysess:1.0)"
+reply plain.md sess-t
+sed -i 's/^task: .*$/task:/' "$D/replies/sess-t.md"
+registry "$LIVE" sess-t %912 idle "$now"
+refute "no task on the reply file and no tmux: no task line" 'task:' "$(card %912)"
+assert "no task on the reply file: the pane's @task is used" 'task: task$' "$(STUB_TASK="$D/task.md" stubbed %912)"
+rm -f "$D/sessions/"*.json
+registry "$LIVE" sess-other %913 idle "$now"
+eq "registry present, none live for the pane, stale @claude_session_id: no card" '' "$(STUB_SID=sess-s stubbed %911)"
+rm -rf "$D/sessions"
+assert "no registry directory: the @claude_session_id is used" 'Claude replied' "$(STUB_SID=sess-s stubbed %911)"
+
 echo "# empty replies folder"
 setup emptyreplies
 demo_task "$D/task.md"

@@ -462,6 +462,25 @@ assert_eq "falls back to the pane's task chain" \
 FAKE_TASK=""
 assert_eq "no @task: nothing" "" "$(chain --pane %9)"
 
+echo "# pane_session: one walker for the card and the reply view"
+ps_of() { # <pane> <sessions dir> — pane_session with a tmux whose @claude_session_id is stale
+  ( tmux() { echo stale-id; }; CLAUDE_SESSIONS_DIR="$2"; REPLY_LOG_DIR="$RDIR"
+    source "$SCRIPT"; pane_session "$1" ) 2>/dev/null
+}
+printf '{"pid":%s,"sessionId":"s-reused","procStart":"1","tmux":"sess:@1.%%11","updatedAt":9}\n' "$$" >"$H/sessions/reused.json"
+assert_eq "a live pid with another start time (reused pid) names no session" "" "$(ps_of %11 "$H/sessions")"
+printf '{"pid":%s,"sessionId":"s-same","procStart":"%s","tmux":"sess:@1.%%12","updatedAt":9}\n' "$$" "$(s=$(cat /proc/$$/stat); s=${s##*) }; set -- $s; echo "${20}")" >"$H/sessions/same.json"
+assert_eq "a live pid with its recorded start time is accepted" "s-same" "$(ps_of %12 "$H/sessions")"
+assert_eq "registry present, no live entry for the pane: the stale @claude_session_id is not used" "" "$(ps_of %13 "$H/sessions")"
+assert_eq "no registry directory: falls back to @claude_session_id" "stale-id" "$(ps_of %13 "$H/no-such-dir")"
+printf '{"pid":%s,"sessionId":"s-tty","entrypoint":"cli","tmux":"sess:@1.%%14","updatedAt":9}\n' "$$" >"$H/sessions/tty.json"
+printf '{"pid":%s,"sessionId":"s-headless","entrypoint":"sdk-cli","tmux":"sess:@1.%%14","updatedAt":10}\n' "$$" >"$H/sessions/headless.json"
+assert_eq "a newer headless run (entrypoint sdk-cli) in the pane loses to the interactive session" "s-tty" "$(ps_of %14 "$H/sessions")"
+printf '{"pid":%s,"sessionId":"s-headless-only","entrypoint":"sdk-cli","tmux":"sess:@1.%%15","updatedAt":10}\n' "$$" >"$H/sessions/headless2.json"
+assert_eq "a pane whose only live entry is headless names no session" "" "$(ps_of %15 "$H/sessions")"
+printf '{"pid":%s,"sessionId":"s-renamed","entrypoint":"desktop","tmux":"sess:@1.%%16","updatedAt":10}\n' "$$" >"$H/sessions/renamed.json"
+assert_eq "an entrypoint other than sdk-… is still accepted" "s-renamed" "$(ps_of %16 "$H/sessions")"
+
 echo "# view on a pane with no Claude session: a message, no split"
 : >"$H/tmux-calls"
 cat >"$FAKEBIN/tmux" <<'FAKE'

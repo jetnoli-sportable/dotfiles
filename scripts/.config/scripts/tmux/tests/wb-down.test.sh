@@ -237,5 +237,110 @@ assert_eq "pr-open: missing task file -> exact error" \
   "wb pr-open: no task file for ${SESSION}-pinghost ($FIXTURE/proj--feat-pin-nonexistent.md)" "$out"
 tmux kill-session -t "=${SESSION}-pinghost" 2>/dev/null || true
 
+# --- U9: unreviewed decision drafts on the shelf ----------------------------
+# The count comes from wb-capture.sh, pointed at a fixture state dir. Terminal
+# cases run a driver under `script` (a pty) so [ -t 0 ] is true.
+export XDG_STATE_HOME="$FIXTURE/state"
+SHELF="$XDG_STATE_HOME/wb/capture/shelved"
+mk_shelf() { # <stem> <n>
+  mkdir -p "$SHELF/$1"; local i
+  for i in $(seq "$2"); do echo draft >"$SHELF/$1/2026110${i}T000000-sid.md"; done
+}
+mk_u9_session() { # <suffix> <slug>  (task file proj--<slug with / -> ->.md)
+  mk_task "proj--${2//\//-}.md" doing proj "$2"
+  mkdir -p "$CODE_DIR/proj/.worktrees/$2"
+  tmux new-session -d -s "${SESSION}-$1" 2>/dev/null
+  tmux set-option -t "=${SESSION}-$1:" @wb_repo proj >/dev/null
+  tmux set-option -t "=${SESSION}-$1:" @wb_slug "$2" >/dev/null
+}
+alive() { tmux has-session -t "=${SESSION}-$1" 2>/dev/null && echo alive || echo gone; }
+handoffs() { /usr/bin/grep -c '^### .* — wb ' "$FIXTURE/$1.md"; }
+DRIVER="$FIXTURE/u9-driver.sh"
+cat >"$DRIVER" <<EOF
+#!/usr/bin/env bash
+source "$WB"; set +e
+TASKS_DIR="$FIXTURE"; CODE_DIR="$FIXTURE/code"; CLAUDE_PROJECTS_DIR="$FIXTURE/projects"
+wb_branch_has_open_pr() { return 1; }
+verb="\$1"; shift
+case "\$verb" in
+  down)  cmd_down "\$@" ;;
+  pause) cmd_pause "\$@" ;;
+esac
+EOF
+wb_branch_has_open_pr() { return 1; }
+
+# no terminal: prints the line, does not wait, closes as usual
+mk_u9_session d1 feat/u9-a; mk_shelf proj--feat-u9-a 2
+out="$(cmd_down "${SESSION}-d1" </dev/null 2>&1)"; rc=$?
+assert "u9 no terminal: line names 2 drafts" '2 shelved decision draft' "$out"
+assert "u9 no terminal: line names the list command" 'wb-capture\.sh shelved --task proj--feat-u9-a' "$out"
+assert_eq "u9 no terminal: no prompt text" "0" "$(printf '%s' "$out" | /usr/bin/grep -c 'press any key')"
+assert_eq "u9 no terminal: session closed, exit 0" "gone 0" "$(alive d1) $rc"
+
+# terminal + key: prompt shown, then the close completes
+mk_u9_session d2 feat/u9-b; mk_shelf proj--feat-u9-b 2
+out="$(printf 'x' | script -qec "bash $DRIVER down ${SESSION}-d2" /dev/null 2>&1)"
+assert "u9 terminal+key: prompt shown" 'press any key to close, Ctrl-C to keep the session' "$out"
+assert_eq "u9 terminal+key: session closed" "gone" "$(alive d2)"
+assert_eq "u9 terminal+key: one Handoffs entry" "1" "$(handoffs proj--feat-u9-b)"
+# the prompt precedes the Handoffs write: hold it open and look mid-wait
+mk_u9_session d3 feat/u9-c; mk_shelf proj--feat-u9-c 2
+( sleep 3 | script -qec "bash $DRIVER down ${SESSION}-d3" /dev/null >"$FIXTURE/u9-d3.out" 2>&1 ) &
+sleep 1.5
+assert_eq "u9 prompt waiting: no Handoffs entry yet, session alive" "0 alive" "$(handoffs proj--feat-u9-c) $(alive d3)"
+wait
+
+# terminal + SIGINT at the prompt: nothing written, status unchanged, session alive
+mk_u9_session d4 feat/u9-d; mk_shelf proj--feat-u9-d 2
+before="$(md5sum "$FIXTURE/proj--feat-u9-d.md" | cut -d' ' -f1)"
+( sleep 5 | script -qec "bash $DRIVER down ${SESSION}-d4" /dev/null >"$FIXTURE/u9-d4.out" 2>&1 ) &
+sleep 1.5
+pkill -INT -f "u9-driver.sh down ${SESSION}-d4" 2>/dev/null
+wait
+assert "u9 SIGINT: prompt had been shown" 'press any key' "$(cat "$FIXTURE/u9-d4.out")"
+assert_eq "u9 SIGINT: session alive" "alive" "$(alive d4)"
+assert_eq "u9 SIGINT: task file untouched (no Handoffs, no status change)" "$before" "$(md5sum "$FIXTURE/proj--feat-u9-d.md" | cut -d' ' -f1)"
+tmux kill-session -t "=${SESSION}-d4" 2>/dev/null || true
+
+# no drafts: no line
+mk_u9_session d5 feat/u9-e
+out="$(cmd_down "${SESSION}-d5" </dev/null 2>&1)"
+assert_eq "u9 no drafts: no warning line" "0" "$(printf '%s' "$out" | /usr/bin/grep -c 'shelved decision draft')"
+
+# capture script missing: no line, no error, session closes
+mk_u9_session d6 feat/u9-f; mk_shelf proj--feat-u9-f 2
+REAL_SD="$SCRIPT_DIR"; SCRIPT_DIR="$FIXTURE/no-such-dir"
+out="$(cmd_down "${SESSION}-d6" </dev/null 2>&1)"; rc=$?
+SCRIPT_DIR="$REAL_SD"
+assert_eq "u9 capture script missing: no line, closed, exit 0" "0 gone 0" "$(printf '%s' "$out" | /usr/bin/grep -c 'shelved decision draft') $(alive d6) $rc"
+
+# kill switch set with 2 drafts: line still printed
+mk_u9_session d7 feat/u9-g; mk_shelf proj--feat-u9-g 2
+mkdir -p "$XDG_STATE_HOME/wb"; : >"$XDG_STATE_HOME/wb/disable-capture"
+out="$(cmd_down "${SESSION}-d7" </dev/null 2>&1)"
+rm -f "$XDG_STATE_HOME/wb/disable-capture"
+assert "u9 kill switch: line still printed" '2 shelved decision draft' "$out"
+
+# --keep-session with drafts: same warning, session left open
+mk_u9_session d8 feat/u9-h; mk_shelf proj--feat-u9-h 2
+out="$(cmd_down --keep-session "${SESSION}-d8" </dev/null 2>&1)"; rc=$?
+assert "u9 --keep-session: warning printed" '2 shelved decision draft' "$out"
+assert_eq "u9 --keep-session: session alive, exit 0" "alive 0" "$(alive d8) $rc"
+tmux kill-session -t "=${SESSION}-d8" 2>/dev/null || true
+
+# wb pause with drafts: warned once (cmd_pause warns, cmd_down does not repeat), paused, closed
+mk_u9_session d9 feat/u9-i; mk_shelf proj--feat-u9-i 2
+out="$(cmd_pause "${SESSION}-d9" </dev/null 2>&1)"
+assert_eq "u9 wb pause: warned once, paused, closed" "1 paused gone" "$(printf '%s' "$out" | /usr/bin/grep -c 'shelved decision draft') $(wb_get_frontmatter "$FIXTURE/proj--feat-u9-i.md" status) $(alive d9)"
+# wb pause + SIGINT at the prompt: status not written, session alive
+mk_u9_session d10 feat/u9-j; mk_shelf proj--feat-u9-j 1
+before="$(md5sum "$FIXTURE/proj--feat-u9-j.md" | cut -d' ' -f1)"
+( sleep 5 | script -qec "bash $DRIVER pause ${SESSION}-d10" /dev/null >"$FIXTURE/u9-d10.out" 2>&1 ) &
+sleep 1.5
+pkill -INT -f "u9-driver.sh pause ${SESSION}-d10" 2>/dev/null
+wait
+assert_eq "u9 wb pause SIGINT: task untouched, session alive" "same alive" "$([ "$before" = "$(md5sum "$FIXTURE/proj--feat-u9-j.md" | cut -d' ' -f1)" ] && echo same || echo changed) $(alive d10)"
+tmux kill-session -t "=${SESSION}-d10" 2>/dev/null || true
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

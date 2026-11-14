@@ -967,6 +967,22 @@ assert "needs-you: ... and the buffer" 'buffer /tmp/answers\.md' "$out"
 assert "needs-you: the marker is gone" '^no$' "$([ -e "$NYM" ] && echo yes || echo no)"
 assert "needs-you: the task is done" '^done$' "$(status_of nyheld)"
 
+# --- wb-done-sweep.sh not yet stowed (between a merge and the re-stow) -------
+# Other verbs keep working; wb done stops before any change and says to re-stow.
+NOSWEEP="$FIXTURE_STATE/nosweep"; mkdir -p "$NOSWEEP"
+for f in "$(dirname "$WB")"/*.sh "$(dirname "$WB")"/wb-done-sweep.list; do
+  case "$(basename "$f")" in wb-done-sweep.sh) ;; *) cp "$f" "$NOSWEEP/" ;; esac
+done
+out="$(bash "$NOSWEEP/wb.sh" help 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   - no wb-done-sweep.sh: wb help still runs" || { echo "FAIL - no wb-done-sweep.sh: wb help exit $rc: $(printf '%s' "$out" | head -3)"; fail=1; }
+slug="nosweep"; w6_new "$slug" dossier
+before="$(cat "$(w6_file "$slug")")"
+out="$( unset -f wb_sweep_classify; cmd_done "$(session_for "$slug")" 2>&1 )"; rc=$?
+[ "$rc" -ne 0 ] && echo "ok   - no wb-done-sweep.sh: wb done exits non-zero" || { echo "FAIL - no wb-done-sweep.sh: wb done exit 0"; fail=1; }
+assert "no wb-done-sweep.sh: says to re-stow" 'wb-done-sweep\.sh.*re-stow' "$out"
+[ -d "$(w6_wt "$slug")" ] && echo "ok   - no wb-done-sweep.sh: worktree untouched" || { echo "FAIL - no wb-done-sweep.sh: worktree removed"; fail=1; }
+[ "$(cat "$(w6_file "$slug")")" = "$before" ] && echo "ok   - no wb-done-sweep.sh: task file unchanged" || { echo "FAIL - no wb-done-sweep.sh: task file changed"; fail=1; }
+
 # --- wb help lists all five flags -------------------------------------------
 help_out="$(bash "$WB" help 2>&1)"
 for flag in --close --leave-shelved --review --keep --throwaway; do

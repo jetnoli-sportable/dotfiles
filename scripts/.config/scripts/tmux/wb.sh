@@ -29,6 +29,12 @@
 #                                    (repeatable) classify one entry for this run; --review opens the task file
 #                                    in an editor first (no buffer otherwise)
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
+#   wb restart [--dry-run] <list-file>|--crashed
+#                                    bring back many sessions after a crash: `wb resume` each task stem in
+#                                    <list-file> (one per line), pre-typing `claude "/wb-resume"` in its agent
+#                                    window without Enter; --crashed builds the list from the store (status
+#                                    doing/review, worktree present, no session, not closed by `wb down`) and
+#                                    asks y/N first; needs tmux; --dry-run only prints the plan
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
 #   wb pause [<session>]             shelve a task on purpose: status -> paused, then `wb down`
@@ -199,6 +205,11 @@ source "$SCRIPT_DIR/wb-lifecycle.sh"
 source "$SCRIPT_DIR/wb-locks.sh"
 # shellcheck source=wb-board.sh
 source "$SCRIPT_DIR/wb-board.sh"
+# Only if present: wb.sh is stowed file by file, so between a merge and the
+# re-stow that links this new file it is missing. `wb done` checks for its
+# functions and stops before teardown; every other verb is unaffected.
+# shellcheck source=wb-done-sweep.sh
+[ -f "$SCRIPT_DIR/wb-done-sweep.sh" ] && source "$SCRIPT_DIR/wb-done-sweep.sh"
 
 TASKS_DIR="${TASKS_DIR:-$HOME/code/tasks}"
 CODE_DIR="${CODE_DIR:-$HOME/code}"
@@ -667,7 +678,7 @@ wb_family_all_done() {
   while IFS= read -r stem; do
     [ "$stem" != "$parent_stem" ] || continue
     found=1
-    [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" = done ] || return 1
+    [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" = "done" ] || return 1
   done < <(_wb_family_tree "$parent_stem")
   [ "$found" = 1 ]
 }
@@ -684,7 +695,7 @@ wb_family_close_target() {
   local -A seen=()
   while [ -n "$stem" ] && [ "$depth" -lt 20 ] && [ -z "${seen[$stem]:-}" ] \
       && [ -f "$TASKS_DIR/$stem.md" ]; do
-    if [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" != done ]; then
+    if [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" != "done" ]; then
       if wb_family_all_done "$stem"; then printf '%s\n' "$stem"; fi
       return 0
     fi
@@ -1511,7 +1522,7 @@ wb_layout_session() {
 _wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
 
 # _wb_new_start_point <repo_dir> <repo> <slug> <own_task_file> <depends_on_csv>
-# — print the ref a freshly created `wb new` branch should start from, or
+#   [quiet] — print the ref a freshly created `wb new` branch should start from, or
 # nothing (git's implicit HEAD, the old behavior). A bare `worktree add -b`
 # bases every new branch on whatever the main checkout's HEAD happens to be:
 # a local default branch that often hasn't been pulled since the last merge
@@ -1539,8 +1550,16 @@ _wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
 #     never rebased for you, its own worktree may be mid-work.
 #   - No usable blocker: origin/<default>. No origin, or no resolvable
 #     default: print nothing.
+#   - quiet (the reattach fast-forward's mode, _wb_new_fast_forward): the same
+#     choice with no menu and no notes, and only remote-tracking refs — a
+#     blocker that exists solely as a local branch is skipped, because a
+#     reattach must never move a branch onto another session's unpushed work.
 _wb_new_start_point() {
-  local repo_dir="$1" repo="$2" slug="$3" own_file="$4" deps_csv="$5"
+  local repo_dir="$1" repo="$2" slug="$3" own_file="$4" deps_csv="$5" mode="${6:-}"
+  if [ "$mode" = quiet ]; then
+    _wb_new_start_point "$repo_dir" "$repo" "$slug" "$own_file" "$deps_csv" remote 2>/dev/null
+    return 0
+  fi
   if [ -z "$deps_csv" ] && [ -f "$own_file" ]; then
     deps_csv="$(wb_get_frontmatter "$own_file" depends_on)"
   fi
@@ -1581,11 +1600,11 @@ _wb_new_start_point() {
     f="$TASKS_DIR/$stem.md"
     [ -n "$stem" ] && [ -f "$f" ] || continue
     [ "$(wb_get_frontmatter "$f" repo)" = "$repo" ] || continue
-    [ "$(wb_get_frontmatter "$f" status)" != done ] || continue
+    [ "$(wb_get_frontmatter "$f" status)" != "done" ] || continue
     br="$(wb_get_frontmatter "$f" branch)"
     read -r br <<< "$br"
     [ -n "$br" ] || continue
-    if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$br"; then
+    if [ "$mode" != remote ] && git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$br"; then
       ref="$br"
     elif git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$br"; then
       ref="origin/$br"
@@ -1612,7 +1631,7 @@ _wb_new_start_point() {
   local pick=0 i n="${#refs[@]}"
   # A menu needs two choices: one blocker and no default (no origin) is not
   # a question.
-  if _wb_new_interactive && { [ "$n" -gt 1 ] || [ -n "$def" ]; }; then
+  if [ "$mode" != remote ] && _wb_new_interactive && { [ "$n" -gt 1 ] || [ -n "$def" ]; }; then
     echo "wb new: $slug depends on unmerged work — branch from:" >&2
     for ((i = 0; i < n; i++)); do
       printf '  %d) %s  (%s%s)\n' "$((i + 1))" "${refs[$i]}" "${stems[$i]}" \
@@ -1669,6 +1688,21 @@ _wb_safe_worktree_field() {
   return 0
 }
 
+# _wb_task_wt_slug <task_file> <repo> — the worktree slug a resume of this task
+# uses (cmd_new's override path): worktree: without `.worktrees/` when
+# _wb_safe_worktree_field accepts it, else the stem's own slug. The session is
+# <repo>--<sanitized slug>, so a continuing child from `wb breakdown`, which
+# inherits its parent's worktree:, has a session not named after its stem.
+_wb_task_wt_slug() {
+  local slug wt
+  slug="$(basename -- "$1" .md)"
+  slug="${slug#"${2}--"}"
+  wt="$(wb_get_frontmatter "$1" worktree)"
+  read -r wt <<< "$wt"
+  if [ -n "$wt" ] && _wb_safe_worktree_field "$wt"; then slug="${wt#.worktrees/}"; fi
+  printf '%s\n' "$slug"
+}
+
 # _wb_new_add_worktree <repo_dir> <repo> <slug> <branch> <worktree_path>
 #   <own_task_file> <depends_on_csv> — create <worktree_path> on <branch>.
 # <branch> is the task file's pre-set `branch:` when it has one (seeding
@@ -1683,9 +1717,17 @@ _wb_safe_worktree_field() {
 #   - Exists locally: attach as-is.
 #   - Adopted (<branch> differs from the slug) and it exists only on origin:
 #     check it out tracking origin/<branch> — someone already pushed work
-#     under the name the task claims. Not done for a slug-named branch: a
-#     leftover remote branch from a finished task must not be resurrected by
-#     starting a fresh task under the same slug.
+#     under the name the task claims.
+#   - Slug-named and it exists only on origin: attached the same way only
+#     when it is this live task's own branch — the task file existed before
+#     this call, its status is doing/paused/review (a planned file is often
+#     made ahead of time, so a reused slug's leftover branch must not be
+#     resurrected), and the branch is not merged (an ancestor of the default
+#     branch, or a merged PR with no open PR; an unknown PR state attaches
+#     with a note). The cheap checks run first, so a fresh task makes no
+#     network call; once they pass, an unreachable origin aborts like it does
+#     for an adopted name. A refused attach cuts a fresh branch and names the
+#     leftover.
 #   - Otherwise a new branch from _wb_new_start_point.
 # The worktree directory stays slug-based either way.
 _wb_new_add_worktree() {
@@ -1708,7 +1750,20 @@ _wb_new_add_worktree() {
   # Compare sanitized forms: a resume/picker re-entry passes the task file's
   # stem slug (already sanitized, feat-x) while plain `wb new` passes the raw
   # name (feat/x) — both name the same task, so neither counts as adopted.
-  if [ "$(wb_sanitize "$branch")" != "$(wb_sanitize "$slug")" ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
+  local adopted=1 own_live=1 own_status=""
+  [ "$(wb_sanitize "$branch")" != "$(wb_sanitize "$slug")" ] || adopted=0
+  if [ "$adopted" = 0 ]; then
+    # Offline gates for a slug-named branch, before any network call.
+    if [ -f "$own_file" ]; then
+      own_status="$(wb_get_frontmatter "$own_file" status)"
+      read -r own_status <<< "$own_status"
+    fi
+    case "$own_status" in doing|paused|review) ;; *) own_live=0 ;; esac
+    if [ "$own_live" = 0 ] && git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      echo "wb new: note: origin/$branch already exists but is not a live task's branch — branching a fresh $branch; to use another name: \`wb set <task> branch <name>\`" >&2
+    fi
+  fi
+  if [ "$own_live" = 1 ] && git -C "$repo_dir" remote get-url origin >/dev/null 2>&1; then
     # Always ask origin, even when refs/remotes/origin/<branch> is cached: a
     # cached ref can be stale (branch deleted/merged on origin since the last
     # fetch) and must not be resurrected. Bounded like the default-branch
@@ -1721,8 +1776,11 @@ _wb_new_add_worktree() {
     local lsrc=0
     GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" ls-remote --exit-code --heads origin \
       "refs/heads/$branch" >/dev/null 2>&1 || lsrc=$?
-    if [ "$lsrc" -eq 0 ] && ! git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-      # On origin but not in the last fetch — pushed since.
+    if [ "$lsrc" -eq 0 ]; then
+      # On origin: refresh the cached ref even when one exists. It can predate
+      # a push from another clone, and both the merged check below and the
+      # attach base read it; a stale tip that sits inside the default branch
+      # would read as merged and cut a divergent branch under the same name.
       GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin \
         "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || lsrc=1
     fi
@@ -1731,9 +1789,30 @@ _wb_new_add_worktree() {
       return 1
     fi
     if [ "$lsrc" -eq 0 ] && git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-      echo "wb new: attaching $slug to existing origin/$branch" >&2
-      git -C "$repo_dir" worktree add --track -b "$branch" "$worktree_path" "origin/$branch"
-      return
+      local attach=1 pr_note=0
+      if [ "$adopted" = 0 ]; then
+        # Not merged: first locally (fully inside the default branch), then
+        # by PR state — a merged PR with a new open PR on the branch is live.
+        local def
+        def="$(git -C "$repo_dir" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+        if [ -n "$def" ] && git -C "$repo_dir" merge-base --is-ancestor "origin/$branch" "$def" 2>/dev/null; then
+          attach=0
+        else
+          case "$(wb_pr_merge_status "$repo_dir" "$branch")" in
+            merged) wb_branch_has_open_pr "$repo_dir" "$branch" || attach=0 ;;
+            unknown) pr_note=1 ;;
+          esac
+        fi
+        if [ "$attach" = 0 ]; then
+          echo "wb new: note: origin/$branch is already merged — branching a fresh $branch; to use another name: \`wb set <task> branch <name>\`" >&2
+        fi
+      fi
+      if [ "$attach" = 1 ]; then
+        [ "$pr_note" = 0 ] || echo "wb new: note: couldn't check the PR state of $branch — attaching it anyway" >&2
+        echo "wb new: attaching $slug to existing origin/$branch" >&2
+        git -C "$repo_dir" worktree add --track -b "$branch" "$worktree_path" "origin/$branch"
+        return
+      fi
     fi
   fi
 
@@ -1748,6 +1827,70 @@ _wb_new_add_worktree() {
   else
     git -C "$repo_dir" worktree add -b "$branch" "$worktree_path"
   fi
+}
+
+# _wb_new_fast_forward <repo_dir> <repo> <branch> <worktree_path> <own_task_file>
+#   <depends_on_csv> — on reattach, move a branch that is only behind to its
+# start point (the quiet _wb_new_start_point: stacked blocker's origin ref, else
+# origin/<default>) with `merge --ff-only` inside the worktree, so git itself
+# refuses to overwrite an untracked file. The caller runs it only when it is
+# about to create the tmux session (a live session may have an agent mid-edit)
+# and the branch was not just cut or attached. Prints what moved, or ONE line
+# saying how far behind the branch is and why it stayed; silent when it is at or
+# ahead of the start point. Never fails the caller.
+_wb_new_fast_forward() {
+  local repo_dir="$1" repo="$2" branch="$3" wt="$4" own_file="$5" deps_csv="$6"
+  local gitdir
+  gitdir="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null)" || return 0
+  git -C "$wt" show-ref --verify --quiet "refs/heads/$branch" || return 0
+
+  local start
+  start="$(_wb_new_start_point "$repo_dir" "$repo" "$branch" "$own_file" "$deps_csv" quiet)"
+  [ -n "$start" ] && git -C "$wt" rev-parse --verify --quiet "$start^{commit}" >/dev/null || return 0
+
+  local behind own
+  behind="$(git -C "$wt" rev-list --count "refs/heads/$branch..$start" 2>/dev/null)" || return 0
+  [ "${behind:-0}" -gt 0 ] || return 0
+  own="$(git -C "$wt" rev-list --count "$start..refs/heads/$branch" 2>/dev/null || echo 0)"
+
+  local why="" head m
+  head="$(git -C "$wt" symbolic-ref -q HEAD 2>/dev/null || true)"
+  if [ -z "$head" ]; then
+    why="HEAD is detached"
+  elif [ "$head" != "refs/heads/$branch" ]; then
+    why="the worktree has ${head#refs/heads/} checked out"
+  else
+    for m in MERGE_HEAD rebase-merge rebase-apply CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+      if [ -e "$gitdir/$m" ]; then
+        why="a merge, rebase, cherry-pick, revert or bisect is in progress"
+        break
+      fi
+    done
+  fi
+  if [ -z "$why" ] && [ -n "$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    why="tracked files have uncommitted changes"
+  fi
+  if [ -z "$why" ] && [ "$own" -gt 0 ]; then
+    why="it has $own commit(s) of its own"
+  fi
+  if [ -z "$why" ] && git -C "$wt" show-ref --verify --quiet "refs/remotes/origin/$branch" \
+    && ! git -C "$wt" merge-base --is-ancestor "refs/remotes/origin/$branch" "$start" 2>/dev/null; then
+    why="origin/$branch has commits it lacks — pull first"
+  fi
+  if [ -n "$why" ]; then
+    echo "wb new: $branch is $behind commit(s) behind $start — not fast-forwarded: $why" >&2
+    return 0
+  fi
+
+  local old new err
+  old="$(git -C "$wt" rev-parse --short=7 HEAD)"
+  if err="$(git -C "$wt" merge --ff-only -q "$start" 2>&1)"; then
+    new="$(git -C "$wt" rev-parse --short=7 HEAD)"
+    echo "wb new: fast-forwarded $branch $old..$new ($behind commits) to $start" >&2
+  else
+    echo "wb new: warning: could not fast-forward $branch to $start (git refused: $(head -n1 <<< "$err")) — leaving it as is" >&2
+  fi
+  return 0
 }
 
 cmd_new() {
@@ -1974,25 +2117,29 @@ cmd_new() {
       # _wb_new_add_worktree compares against the branch — making picker/
       # resume re-entry identical to `wb new <repo> <slug>` (adoption,
       # remote tracking included).
-      local stem_slug; stem_slug="$(basename -- "$own_file" .md)"
+      local stem_slug wt_res; stem_slug="$(basename -- "$own_file" .md)"
       stem_slug="${stem_slug#"${repo}--"}"
-      [ -z "$stem_slug" ] || { wt_slug="$stem_slug"; add_slug="$stem_slug"; }
+      [ -z "$stem_slug" ] || add_slug="$stem_slug"
+      wt_res="$(_wb_task_wt_slug "$own_file" "$repo")"
+      [ -z "$wt_res" ] || wt_slug="$wt_res"
       wt_field="$(wb_get_frontmatter "$own_file" worktree)"
       read -r wt_field <<< "$wt_field"
-      if [ -z "$wt_field" ]; then
-        :
-      elif _wb_safe_worktree_field "$wt_field"; then
-        wt_slug="${wt_field#.worktrees/}"
-      else
+      if [ -n "$wt_field" ] && ! _wb_safe_worktree_field "$wt_field"; then
         wt_unsafe=1
         echo "wb new: warning: ignoring worktree: '$wt_field' (must be .worktrees/<name>, no '..' segments) — using .worktrees/$wt_slug" >&2
       fi
     fi
   fi
-  local session="${repo}--$(wb_sanitize "$wt_slug")"
+  local session
+  session="${repo}--$(wb_sanitize "$wt_slug")"
   local worktree_rel=".worktrees/$wt_slug"
   local worktree_path="$repo_dir/$worktree_rel"
 
+  # A branch that does not exist yet is about to be cut or attached by
+  # _wb_new_add_worktree: it already sits at its start point, so the reattach
+  # fast-forward below skips it.
+  local branch_just_made=0
+  git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$branch" || branch_just_made=1
   if [ ! -d "$worktree_path" ]; then
     _wb_new_add_worktree "$repo_dir" "$repo" "$add_slug" "$branch" "$worktree_path" "$own_file" "$depends_on_joined" \
       || exit 1
@@ -2054,6 +2201,9 @@ cmd_new() {
 
   local is_new=0
   tmux has-session -t "=$session" 2>/dev/null || is_new=1
+  if [ "$is_new" = 1 ] && [ "$branch_just_made" = 0 ]; then
+    _wb_new_fast_forward "$repo_dir" "$repo" "$branch" "$worktree_path" "$own_file" "$depends_on_joined" || true
+  fi
   tmux_ensure_session "$session" "$worktree_path"
   # A session-only "=name" target (no window/pane part) confuses set-option's
   # pane-target parser on tmux 3.4 ("no such session") even though the session
@@ -2116,13 +2266,17 @@ cmd_new() {
 _wb_resolve_task_fuzzy() {
   local query="$1" verb="$2"
   local -a matches=()
-  local f base
+  local f base exact=""
   while IFS= read -r f; do
     base="$(basename "$f" .md)"
+    [ "${base,,}" = "${query,,}" ] && exact="$f"
     case "${base,,}" in
       *"${query,,}"*) matches+=("$f") ;;
     esac
   done < <(wb_task_files)
+  # An exact stem wins over longer stems it prefixes (`repo--parent` vs
+  # `repo--parent-child`), so a parent can be targeted at all.
+  [ -z "$exact" ] || matches=("$exact")
 
   case "${#matches[@]}" in
     0)
@@ -2174,8 +2328,181 @@ cmd_resume() {
   # has already released by the time cmd_new returns) — never nested.
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || exit $?
+  # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
   wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
   wb_task_lock_release "$file"
+}
+
+# _wb_restart_closed_by_down <task_file> — 0 when the task's NEWEST handoff
+# is a session-closing `wb down` (KTD7). The newest is the task file's
+# `## Handoffs` entry or the newest file in the dossier's handoffs/,
+# whichever has the later timestamp (the task file's wins a tie).
+# `wb down --keep-session` writes "session left open" instead, so it is not
+# a closing one: that session was live when the machine went down.
+_wb_restart_closed_by_down() {
+  local file="$1" dir sec entry="" line ts_task="" ts_file="" newest="" f id
+  dir="$(_wb_dossier_dir "$file")"
+  sec="$(_wb_section_text "$file" Handoffs 2>/dev/null)"
+  while IFS= read -r line; do
+    if [[ "$line" == '### '* ]]; then entry="$line"; continue; fi
+    [ -z "$entry" ] || entry+=$'\n'"$line"
+  done <<< "$sec"
+  if [[ "$entry" =~ ^###\ ([0-9]{4}-[0-9]{2}-[0-9]{2})\ ([0-9]{2}):([0-9]{2}) ]]; then
+    ts_task="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+  fi
+  for f in "$dir"/handoffs/*.md; do
+    [ -f "$f" ] || continue
+    id="${f##*/}"; id="${id%.md}"
+    if [ -z "$ts_file" ] || [[ "${id:0:15}" > "$ts_file" ]]; then ts_file="${id:0:15}"; newest="$f"; fi
+  done
+  local text="" src=""
+  if [ -n "$newest" ] && { [ -z "$entry" ] || [[ "$ts_file" > "$ts_task" ]]; }; then
+    text="$(cat "$newest")"
+    [[ "$text" == *$'\nsource: wb down\n'* ]] && src=1
+  elif [ -n "$entry" ]; then
+    text="$entry"
+    [[ "${entry%%$'\n'*}" == *' — wb down'* ]] && src=1
+  fi
+  # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
+  [ -n "$src" ] && [[ "$text" == *'Session closed via `wb down`'* ]]
+}
+
+# _wb_task_session <task_file> — the tmux session `wb resume` gives this task
+# (see _wb_task_wt_slug); the stem itself when the task has no repo:.
+_wb_task_session() {
+  local repo
+  repo="$(wb_get_frontmatter "$1" repo)"
+  if [ -z "$repo" ]; then basename -- "$1" .md; return 0; fi
+  printf '%s--%s\n' "$repo" "$(wb_sanitize "$(_wb_task_wt_slug "$1" "$repo")")"
+}
+
+# _wb_restart_crashed_stems — one task stem per line: the tasks a crash left
+# without a session (R9/KTD7): status doing or review, a repo: and branch: to
+# resume from (a parent whose branch moved to a continuing child has neither,
+# and its old worktree is now the child's), the worktree directory exists, no
+# tmux session under the name `wb resume` would give it, and the newest handoff
+# is not a closing `wb down`.
+_wb_restart_crashed_stems() {
+  local f stem status repo branch
+  while IFS= read -r f; do
+    stem="$(basename "$f" .md)"
+    status="$(wb_get_frontmatter "$f" status)"
+    case "$status" in doing|review) ;; *) continue ;; esac
+    repo="$(wb_get_frontmatter "$f" repo)"
+    branch="$(wb_get_frontmatter "$f" branch)"
+    [ -n "$repo" ] && [ -n "$branch" ] || continue
+    [ -d "$(wb_repo_dir "$repo")/.worktrees/$(_wb_task_wt_slug "$f" "$repo")" ] || continue
+    tmux has-session -t "=$(_wb_task_session "$f")" 2>/dev/null && continue
+    _wb_restart_closed_by_down "$f" && continue
+    printf '%s\n' "$stem"
+  done < <(wb_task_files)
+}
+
+# _wb_restart_back — return the tmux client to the session `wb restart`
+# started from (every `wb resume` focuses the session it makes).
+_wb_restart_back() {
+  [ -n "${_WB_RESTART_ORIG:-}" ] || return 0
+  tmux has-session -t "=$_WB_RESTART_ORIG" 2>/dev/null || return 0
+  tmux switch-client -t "=$_WB_RESTART_ORIG" 2>/dev/null || true
+}
+
+# cmd_restart [--dry-run] <list-file> | --crashed — bring back many sessions
+# after a crash. For each task stem: skip it with a reason when there is no
+# task file named exactly <stem>.md (R10) or its session is still open; run
+# `wb resume` as a subprocess (cmd_resume exits on error, which would end this
+# loop); then clear the agent window's pre-typed command and type
+# `claude "/wb-resume"` WITHOUT Enter, so each Claude starts only when its
+# window is visited. The typing waits for the window to show a shell (KTD6).
+cmd_restart() {
+  local dry=0 crashed=0 list=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry=1; shift ;;
+      --crashed) crashed=1; shift ;;
+      *) [ -z "$list" ] || { echo "usage: wb restart [--dry-run] <list-file>|--crashed" >&2; return 2; }
+         list="$1"; shift ;;
+    esac
+  done
+  if { [ "$crashed" = 1 ] && [ -n "$list" ]; } || { [ "$crashed" = 0 ] && [ -z "$list" ]; }; then
+    echo "usage: wb restart [--dry-run] <list-file>|--crashed" >&2; return 2
+  fi
+  [ "$crashed" = 1 ] || [ -f "$list" ] || { echo "wb restart: no such list file: $list" >&2; return 2; }
+  # wb resume ends by focusing the new session: switch-client inside tmux, but
+  # `tmux attach` outside it, which would take over this terminal at the first
+  # session and stall the loop.
+  if [ -z "${TMUX:-}" ] && [ "$dry" = 0 ]; then
+    echo "wb restart: run this from inside tmux (any session; it switches back at the end)" >&2
+    return 2
+  fi
+
+  local -a stems=()
+  local line stem
+  if [ "$crashed" = 1 ]; then
+    mapfile -t stems < <(_wb_restart_crashed_stems)
+    if [ "${#stems[@]}" -eq 0 ]; then echo "wb restart: no crashed tasks found"; return 0; fi
+    echo "wb restart: ${#stems[@]} crashed task(s):"
+    printf '  %s\n' "${stems[@]}"
+    if [ "$dry" = 0 ] && [ -t 0 ]; then
+      local answer=""
+      read -r -p "Restart these ${#stems[@]} session(s)? [y/N] " answer || true
+      case "$answer" in y|Y|yes|YES) ;; *) echo "wb restart: nothing launched"; return 0 ;; esac
+    fi
+  else
+    while IFS= read -r line || [ -n "$line" ]; do
+      stem="${line%%#*}"
+      stem="${stem//[[:space:]]/}"
+      [ -z "$stem" ] || stems+=("$stem")
+    done < "$list"
+  fi
+
+  local agent_cmd='claude "/wb-resume"' timeout="${WB_RESTART_PROMPT_TIMEOUT:-20}"
+  local ok=0 skipped=0 failed=0 i pcmd sess
+  # Targeted at this pane: with several clients attached, a bare display-message
+  # can name another client's session.
+  _WB_RESTART_ORIG="$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#S' 2>/dev/null || true)"
+  [ "$dry" = 1 ] || trap '_wb_restart_back; exit 130' INT TERM
+
+  for stem in "${stems[@]}"; do
+    case "$stem" in
+      [!-]*--?*) ;;
+      *) echo "SKIP  $stem: not a task stem (<repo>--<slug>)"; skipped=$((skipped + 1)); continue ;;
+    esac
+    if [ ! -f "$TASKS_DIR/$stem.md" ]; then
+      echo "SKIP  $stem: no task file at $TASKS_DIR/$stem.md"; skipped=$((skipped + 1)); continue
+    fi
+    sess="$(_wb_task_session "$TASKS_DIR/$stem.md")"
+    if tmux has-session -t "=$sess" 2>/dev/null; then
+      echo "SKIP  $stem: session $sess still open (wb down it first)"; skipped=$((skipped + 1)); continue
+    fi
+    if [ "$dry" = 1 ]; then
+      echo "WOULD $stem: wb resume, then pre-type: $agent_cmd"; ok=$((ok + 1)); continue
+    fi
+    if ! bash "$SELF" resume "$stem" >/dev/null </dev/null; then
+      echo "FAIL  $stem: wb resume failed"; failed=$((failed + 1)); continue
+    fi
+    if ! tmux has-session -t "=$sess" 2>/dev/null; then
+      echo "FAIL  $stem: wb resume ran but no session named $sess exists"; failed=$((failed + 1)); continue
+    fi
+    # Type only once the agent window shows a shell prompt; never blind.
+    pcmd=""
+    for ((i = 0; i < timeout * 5; i++)); do
+      pcmd="$(tmux display-message -p -t "=$sess:agent" '#{pane_current_command}' 2>/dev/null || true)"
+      case "$pcmd" in bash|zsh|sh|dash|fish) break ;; esac
+      pcmd=""; sleep 0.2
+    done
+    if [ -z "$pcmd" ]; then
+      echo "WARN  $stem: session back, but its agent window never showed a shell within ${timeout}s; nothing typed. Type this there: $agent_cmd"
+      ok=$((ok + 1)); continue
+    fi
+    tmux send-keys -t "=$sess:agent" C-u
+    tmux send-keys -t "=$sess:agent" -l "$agent_cmd"
+    echo "OK    $stem: session back; agent window holds: $agent_cmd (press Enter there)"
+    ok=$((ok + 1))
+  done
+
+  if [ "$dry" = 0 ]; then trap - INT TERM; _wb_restart_back; fi
+  echo "wb restart: $ok ok, $skipped skipped, $failed failed$([ "$dry" = 1 ] && echo ' (dry run, nothing done)')"
+  [ "$failed" = 0 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -2682,17 +3009,20 @@ wb_reconcile_apply() {
       applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qE '^- \[x\] create a task'; then
       local parent_ref=""
+      # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
       parent_ref="$(printf '%s' "$b" | grep -oP 'create a task \(optional parent: `\K[^`]+' | head -1)"
       [ "$parent_ref" != '___' ] || parent_ref=""
       wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree" "$parent_ref" \
         || { echo "wb reconcile --apply: skipped this finding (create a task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
       applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] attach to task: \`[^\`_]+\`"; then
+      # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] attach to task: `\K[^`]+' | head -1)"
       wb_reconcile_action_attach "$kind" "$worktree" "$target" \
         || { echo "wb reconcile --apply: skipped this finding (attach to task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
       applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] merge with task: \`[^\`_]+\`"; then
+      # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] merge with task: `\K[^`]+' | head -1)"
       wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" \
         || { echo "wb reconcile --apply: skipped this finding (merge with task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
@@ -2908,7 +3238,7 @@ _wb_breakdown_validate() {
 
   # --- structural (hard) checks across all blocks ---------------------------
   local b kind n parent repo
-  local parent_stem="" seen_ns="" mig_count=0 mig_lines="" approve_count=0
+  local parent_stem="" seen_ns="" mig_count=0 approve_count=0
   for b in "${blocks[@]}"; do
     kind="$(_wb_bd_field "$b" block)"
     parent="$(_wb_bd_field "$b" parent)"
@@ -2964,7 +3294,9 @@ _wb_breakdown_validate() {
         echo "wb breakdown --apply: malformed checkbox on child n=$n's create-child line: ${create_lines[0]}" >&2
         return 2
       fi
-      local raw_slug; raw_slug="$(printf '%s' "${create_lines[0]}" | grep -oP 'create child: `\K[^`]*')"
+      local raw_slug
+      # shellcheck disable=SC2016  # literal backticks in the pattern, not an expansion
+      raw_slug="$(printf '%s' "${create_lines[0]}" | grep -oP 'create child: `\K[^`]*')"
       if [ -z "$raw_slug" ]; then
         echo "wb breakdown --apply: child n=$n's create-child line has no backticked slug: ${create_lines[0]}" >&2
         return 2
@@ -3031,6 +3363,7 @@ _wb_breakdown_validate() {
     [ "$(_wb_bd_checkbox_state "$create_line")" = checked ] || continue
 
     local raw_slug disp_slug title size deps_raw
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     raw_slug="$(printf '%s' "$create_line" | grep -oP 'create child: `\K[^`]*')"
     disp_slug="$(wb_sanitize "$raw_slug")"
     title="$(_wb_bd_bullet "$b" goal)"
@@ -3095,7 +3428,9 @@ _wb_breakdown_validate() {
 
     local mig_line; mig_line="$(printf '%s' "$b" | grep -P 'migrate branch/worktree .* continuing child:' | head -1)"
     if [ -n "$mig_line" ] && [ "$(_wb_bd_checkbox_state "$mig_line")" = checked ]; then
-      local mig_target; mig_target="$(printf '%s' "$mig_line" | grep -oP 'continuing child: `\K[^`]*')"
+      local mig_target
+      # shellcheck disable=SC2016  # literal backticks in the pattern, not an expansion
+      mig_target="$(printf '%s' "$mig_line" | grep -oP 'continuing child: `\K[^`]*')"
       if [ -z "$mig_target" ] || [ "$mig_target" = ___ ]; then
         echo "wb breakdown --apply: skipping migration — target field is unfilled (\`___\`)" >&2
       elif [ -z "$(wb_get_frontmatter "$parent_file" branch)" ] && [ -z "$(wb_get_frontmatter "$parent_file" worktree)" ]; then
@@ -3143,6 +3478,7 @@ _wb_breakdown_validate() {
       # below undoes the escaping so $move_text matches the ACTUAL
       # (unescaped) title of the parent's open item.
       move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K(?:\\"|[^"])*' | sed 's/\\"/"/g')"
+      # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
       move_target="$(printf '%s' "$line" | grep -oP 'child: `\K[^`]*')"
       local match_count; match_count="$(printf '%s' "$followups" | grep -cxF -- "- $move_text")"
       if [ "$match_count" -ne 1 ]; then
@@ -3179,18 +3515,18 @@ _wb_breakdown_validate() {
 # carrying an A->B->A parent chain — this operation never creates one
 # itself, since every new child's parent: is <stem>, a leaf write.
 _wb_bd_check_no_cycle() {
-  local stem="$1" seen=" $1 " cur="$1" depth=0 next_file next_parent
+  local stem="$1" seen_chain=" $1 " cur="$1" depth=0 next_file next_parent
   while [ "$depth" -lt 50 ]; do
     next_file="$TASKS_DIR/$cur.md"
     [ -f "$next_file" ] || return 0
     next_parent="$(wb_get_frontmatter "$next_file" parent)"
     [ -n "$next_parent" ] || return 0
-    case "$seen" in
+    case "$seen_chain" in
       *" $next_parent "*)
         echo "wb breakdown --apply: cycle detected in $stem's existing parent chain at $next_parent — refusing" >&2
         return 1 ;;
     esac
-    seen="$seen$next_parent "
+    seen_chain="$seen_chain$next_parent "
     cur="$next_parent"
     depth=$((depth + 1))
   done
@@ -3394,7 +3730,7 @@ _wb_breakdown_execute() {
     [ -n "$line" ] || continue
     local -a f; wb_tsv_split "$line" f
     [ "${f[0]}" = create ] || continue
-    local n="${f[1]}" repo="${f[2]}" raw="${f[3]}" disp="${f[4]}" title="${f[5]}" size="${f[6]:-}" deps_raw="${f[7]:-}"
+    local n="${f[1]}" repo="${f[2]}" raw="${f[3]}" title="${f[5]}" size="${f[6]:-}" deps_raw="${f[7]:-}"
     local deps; deps="$(_wb_bd_resolve_deps "$repo" "$deps_raw")"
     # Advisory only (D2 fail-open): warn, never abort, on a resolved dep
     # that is neither a checked sibling in this buffer nor an existing file.
@@ -3470,7 +3806,8 @@ _wb_breakdown_execute() {
   if [ "$did_something" = 1 ]; then
     local dossier_dir="$TASKS_DIR/dossiers/$parent_stem"
     mkdir -p "$dossier_dir"
-    local archived="$dossier_dir/$(basename "$path")"
+    local archived
+    archived="$dossier_dir/$(basename "$path")"
     cp -a "$path" "$archived"
     local note="Family split applied via \`wb breakdown --apply\`. Archived buffer: \`${archived#"$HOME"/}\`."
     if [ "${#created_children[@]}" -gt 0 ]; then
@@ -3653,6 +3990,33 @@ _wb_resolve_session_and_task() {
   [ -f "$_wb_rst_task" ] || { echo "wb $_wb_rst_verb: no task file for $_wb_rst_session ($_wb_rst_task)" >&2; exit 1; }
 }
 
+# _wb_down_shelf_warn <task-file> <closing: 1|0> — the first thing wb down and wb pause do
+# (KTD11): print how many decision drafts the task's shelf holds and, at a terminal, wait
+# for one key (Ctrl-C then leaves nothing written and the session open). Before any
+# write because a line printed after the session is killed is lost with the pane. The
+# count ignores the capture kill switch, like wb done's shelf check; a missing capture
+# script prints nothing, so no line. Sets _WB_DOWN_PAUSED=1 when it waited, so the
+# picker's _down can fold its own prompt into this one. Never refuses.
+_WB_DOWN_PAUSED=0
+_wb_down_shelf_warn() {
+  local stem n
+  _WB_DOWN_PAUSED=0
+  stem="$(basename -- "$1" .md)"
+  n="$(_wb_capture_verb shelved --count --task "$stem" 2>/dev/null)" || return 0
+  [[ "$n" =~ ^[0-9]+$ ]] && [ "$((10#$n))" -gt 0 ] || return 0
+  echo "wb down: $((10#$n)) shelved decision draft(s) not yet reviewed — list them: wb-capture.sh shelved --task $stem"
+  if [ -t 0 ]; then
+    if [ "$2" = 1 ]; then
+      read -rn1 -p "wb down: press any key to close, Ctrl-C to keep the session "
+    else
+      read -rn1 -p "wb down: press any key to continue (the session stays open), Ctrl-C to cancel "
+    fi
+    echo
+    _WB_DOWN_PAUSED=1
+  fi
+  return 0
+}
+
 # cmd_down [--keep-session] [<session>] — close <session> (or the current
 # one) while leaving the worktree untouched: snapshot every conversation
 # id currently on disk for the worktree into claude_sessions: (record-only,
@@ -3665,19 +4029,23 @@ _wb_resolve_session_and_task() {
 # picker). Typing `wb down` yourself from inside your own session is
 # intentional self-close and stays unguarded here, same precedent as
 # `wb done --close` (_ctrl_x's own header comment).
+# It first warns when the task's shelf still holds decision drafts (see
+# _wb_down_shelf_warn): one line, then a one-key pause at a terminal.
 cmd_down() {
-  local keep_session=0 no_status_flip=0
+  local keep_session=0 no_status_flip=0 shelf_warned=0
   local -a args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --keep-session)   keep_session=1; shift ;;
       --no-status-flip) no_status_flip=1; shift ;;
+      --shelf-warned)   shelf_warned=1; shift ;;   # cmd_pause already warned, before its own writes
       *)                args+=("$1"); shift ;;
     esac
   done
 
   local session task_file
   _wb_resolve_session_and_task down session task_file "${args[0]:-}"
+  [ "$shelf_warned" = 1 ] || _wb_down_shelf_warn "$task_file" "$((1 - keep_session))"
 
   local repo branch worktree_rel worktree_path
   repo="$(wb_get_frontmatter "$task_file" repo)"
@@ -3702,8 +4070,10 @@ cmd_down() {
   [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
   [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && wb_set_frontmatter "$task_file" status review
   if [ "$keep_session" = 1 ]; then
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     wb_append_handoff "$task_file" "wb down" 'Worktree kept, session left open (`wb down --keep-session`).'
   else
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     wb_append_handoff "$task_file" "wb down" 'Session closed via `wb down` — worktree kept.'
   fi
   wb_task_lock_release "$task_file"
@@ -3743,10 +4113,14 @@ cmd_pr_open() {
 cmd_pause() {
   local session task_file
   _wb_resolve_session_and_task pause session task_file "${1:-}"
+  # Warn before the status write below: Ctrl-C at the prompt must not leave a paused
+  # task with a live session (cmd_down is told not to warn a second time).
+  _wb_down_shelf_warn "$task_file" 1
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status paused
+  # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
   wb_append_handoff "$task_file" "wb pause" 'Session paused via `wb pause`.'
   wb_task_lock_release "$task_file"
   echo "wb pause: $task_file -> paused"
@@ -3756,7 +4130,7 @@ cmd_pause() {
   # cmd_down's own inferred review flip, or a task paused while its branch
   # already has an open PR would silently end at status:review instead of
   # the paused status just printed above.
-  cmd_down --no-status-flip "$session"
+  cmd_down --no-status-flip --shelf-warned "$session"
 }
 
 # ---------------------------------------------------------------------------
@@ -4533,6 +4907,7 @@ _wb_render_handoffs() {
   mapfile -t files < <(find "$d/handoffs" -maxdepth 1 -type f -name '*.md' | LC_ALL=C sort -r)
   printf '<!-- generated by wb from dossiers/%s/handoffs/*.md; do not edit -->\n' "$stem"
   printf '# Handoffs — %s\n\n' "$stem"
+  # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
   printf 'Older handoffs, newest first. The current one is in the task file under `## Handoffs`.\n\n'
   [ "${#files[@]}" -gt 0 ] || return 0
   awk '
@@ -4694,7 +5069,7 @@ _wb_render_index() {
   _wb_index_pages "$d" "" "##"
   # A parent lists each child's pages under that child (R29). A cheap grep
   # skips the whole-store family walk for the common childless task.
-  if grep -lqs "^parent:[[:space:]]*$stem[[:space:]]*\$" "$TASKS_DIR"/*.md 2>/dev/null; then
+  if grep -lqs "^parent:[[:space:]]*${stem}[[:space:]]*\$" "$TASKS_DIR"/*.md 2>/dev/null; then
     local first=1
     while IFS= read -r c; do
       [ "$c" != "$stem" ] || continue
@@ -5415,11 +5790,11 @@ _wb_week_stamp() {
   printf '%s · %s/%s' "$(date +%F)" "$repo" "$branch"
 }
 
-# _wb_week_iso [<date>] — ISO 8601 week identifier, "<year>-W<week>"
+# _wb_week_iso — the current ISO 8601 week identifier, "<year>-W<week>"
 # (%G/%V — the ISO week-numbering year, which can differ from %Y in the
 # first/last days of a year — and the ISO week number itself).
 _wb_week_iso() {
-  date ${1:+-d "$1"} +%G-W%V
+  date +%G-W%V
 }
 
 # cmd_week path — print the capture doc's path, creating it first if absent.
@@ -5469,12 +5844,12 @@ _wb_week_previous_record() {
   # non-zero return here (despite "empty" being the documented, valid
   # result) killed the entire `wb week record` call before it wrote
   # anything.
-  ls "$dir" 2>/dev/null \
-    | grep -E '^[0-9]{4}-W[0-9]{2}-review\.md$' \
-    | grep -v -F "$iso-review.md" \
-    | sort \
-    | tail -1 \
-    || true
+  local p
+  for p in "$dir"/[0-9][0-9][0-9][0-9]-W[0-9][0-9]-review.md; do
+    [ -e "$p" ] || continue
+    p="${p##*/}"
+    [ "$p" = "$iso-review.md" ] || printf '%s\n' "$p"
+  done | sort | tail -1 || true
 }
 
 # cmd_week record [<iso>] — mint $TASKS_DIR/weeks/<iso>-review.md
@@ -5761,361 +6136,6 @@ wb_safe_rel() {
   esac
 }
 
-# wb_sweep_lists — print the `wb done` sweep rules as `keep<TAB>glob` /
-# `throwaway<TAB>glob`, from wb-done-sweep.list next to wb.sh (resolved through
-# symlinks, since the stowed script is a link). $WB_SWEEP_LIST overrides the
-# path for tests.
-wb_sweep_lists() {
-  local list="${WB_SWEEP_LIST:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/wb-done-sweep.list}"
-  [ -f "$list" ] || return 0
-  local line cls glob
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
-    case "$line" in
-      ''|'#'*) continue ;;
-      keep:*) cls=keep; glob="${line#keep:}" ;;
-      throwaway:*) cls=throwaway; glob="${line#throwaway:}" ;;
-      *) continue ;;
-    esac
-    glob="${glob#"${glob%%[![:space:]]*}"}"
-    [ -n "$glob" ] && printf '%s\t%s\n' "$cls" "$glob"
-  done < "$list"
-  return 0
-}
-
-# _wb_sweep_glob_hit <glob> <rel> <isdir> — gitignore-style match: no inner `/`
-# matches the last path component, otherwise the whole relative path; a
-# trailing `/` needs a directory.
-_wb_sweep_glob_hit() {
-  local g="$1" rel="$2" isdir="$3"
-  if [[ $g == */ ]]; then
-    [ "$isdir" = 1 ] || return 1
-    g="${g%/}"
-  fi
-  g="${g#/}"
-  if [[ $g == */* ]]; then
-    # shellcheck disable=SC2053
-    [[ $rel == $g ]]
-  else
-    # shellcheck disable=SC2053
-    [[ ${rel##*/} == $g ]]
-  fi
-}
-
-# _wb_sweep_in_list <name> <rel> <isdir> — true when <rel>, or any ancestor
-# directory of it, matches a glob in the array named <name>.
-_wb_sweep_in_list() {
-  local -n _globs="$1"
-  local rel="$2" isdir="$3" g cand="$2"
-  [ "${#_globs[@]}" -gt 0 ] || return 1
-  while :; do
-    for g in "${_globs[@]}"; do
-      _wb_sweep_glob_hit "$g" "$cand" "$isdir" && return 0
-    done
-    case "$cand" in */*) cand="${cand%/*}"; isdir=1 ;; *) break ;; esac
-  done
-  return 1
-}
-
-# _wb_sweep_flagged <name> <rel> — true when <rel> is, or sits under, a path
-# in the array named <name>. Flags name exact worktree paths, never globs.
-_wb_sweep_flagged() {
-  local -n _paths="$1"
-  local p
-  for p in ${_paths[@]+"${_paths[@]}"}; do
-    [ "$2" = "$p" ] && return 0
-    case "$2" in "$p"/*) return 0 ;; esac
-  done
-  return 1
-}
-
-# _wb_sweep_esc <s> — <s> with tab, newline and CR shown as \t \n \r and every
-# other control byte (below 0x20, and 0x7f) as \xNN, so a file name can never
-# break a `class<TAB>path<TAB>note` line apart, forge a second one, or send a
-# terminal escape sequence to the screen. Pure bash: a name with no control
-# byte (the usual case) costs one glob match; only one that has some is walked
-# a character at a time, with the printf builtin (no subprocess).
-_wb_sweep_esc() {
-  local s="$1"
-  if [[ $s == *[[:cntrl:]]* ]]; then
-    local out="" c n i
-    for ((i = 0; i < ${#s}; i++)); do
-      c="${s:i:1}"
-      case "$c" in
-        $'\t') out+='\t' ;;
-        $'\n') out+='\n' ;;
-        $'\r') out+='\r' ;;
-        *)
-          LC_ALL=C printf -v n '%d' "'$c"
-          if [ "$n" -lt 32 ] || [ "$n" -eq 127 ]; then
-            printf -v n '\\x%02x' "$n"; out+="$n"
-          else
-            out+="$c"
-          fi ;;
-      esac
-    done
-    s="$out"
-  fi
-  printf '%s' "$s"
-}
-
-# _wb_sweep_keepcheck <worktree> <rel> — fail with a note on stdout when
-# keeping <rel> is unsafe: any component of <rel> credential-shaped, a symlink
-# resolving outside the worktree, or a directory holding a credential-shaped
-# file or directory, or such a symlink, at any depth (walked with find -P, so
-# symlinks are inspected, never followed).
-_wb_sweep_keepcheck() {
-  local wt="$1" rel="$2" wt_real f part rest="$2"
-  # The dossier's own records live at its top level; a keeper by one of those
-  # names would be copied over (or collide with) them.
-  case "${rel%%/*}" in
-    decisions|handoffs|open-items|brief.md|concepts.md|CONCEPTS.md|notes.md|index.md|decisions.md|handoffs.md)
-      echo "a dossier record name; rename it first"; return 1 ;;
-  esac
-  while :; do
-    part="${rest%%/*}"
-    if wb_credential_shaped "$part"; then
-      case "$rest" in
-        */*) echo "inside credential-shaped $(_wb_sweep_esc "$part")/, copy it yourself" ;;
-        *) echo "credential-shaped, copy it yourself" ;;
-      esac
-      return 1
-    fi
-    case "$rest" in */*) rest="${rest#*/}" ;; *) break ;; esac
-  done
-  wt_real="$(realpath -m -- "$wt")"
-  if [ -L "$wt/$rel" ]; then
-    case "$(realpath -m -- "$wt/$rel")" in
-      "$wt_real"/*) ;;
-      *) echo "symlink resolves outside the worktree"; return 1 ;;
-    esac
-  elif [ -d "$wt/$rel" ]; then
-    while IFS= read -r -d '' f; do
-      if wb_credential_shaped "$f"; then
-        echo "holds credential-shaped $(_wb_sweep_esc "${f#"$wt"/}"), copy it yourself"; return 1
-      fi
-      if [ -L "$f" ]; then
-        case "$(realpath -m -- "$f")" in
-          "$wt_real"/*) ;;
-          *) echo "holds symlink $(_wb_sweep_esc "${f#"$wt"/}") resolving outside the worktree"; return 1 ;;
-        esac
-        # A link that stays inside the worktree would dangle in the dossier
-        # once the worktree is gone (keep copies are cp -a, never -L).
-        echo "holds symlink $(_wb_sweep_esc "${f#"$wt"/}"); keep its target or remove the link"; return 1
-      fi
-    done < <(find -P "$wt/$rel" -mindepth 1 \( -type f -o -type l -o -type d \) -print0 2>/dev/null)
-  fi
-  return 0
-}
-
-# _wb_sweep_emit <class> <rel> <out> [note] — print one output line and record
-# <rel>'s class in the caller's `seen` map, which the flag pass after the walk
-# reads.
-_wb_sweep_emit() {
-  printf '%s\t%s\t%s\n' "$1" "$3" "${4:-}"
-  seen["$2"]="$1"
-}
-
-# _wb_sweep_emit_keep <rel> <out> — a keep line for <rel> when _wb_sweep_keepcheck
-# passes, else an unknown line carrying its note. Uses the caller's wt.
-_wb_sweep_emit_keep() {
-  local note
-  if note="$(_wb_sweep_keepcheck "$wt" "$1")"; then
-    _wb_sweep_emit keep "$1" "$2"
-  else
-    _wb_sweep_emit unknown "$1" "$2" "$note"
-  fi
-}
-
-# _wb_sweep_ancestor <rel> — print the nearest recorded entry that <rel> sits
-# under, as `class<TAB>path`; fail when there is none.
-_wb_sweep_ancestor() {
-  local cand="$1"
-  while [[ $cand == */* ]]; do
-    cand="${cand%/*}"
-    if [ -n "${seen[$cand]+x}" ]; then printf '%s\t%s' "${seen[$cand]}" "$cand"; return 0; fi
-  done
-  return 1
-}
-
-# _wb_sweep_covered <rel> — true when an entry equal to <rel>, or under it, was
-# printed (so a flag on <rel> already applied during the walk).
-_wb_sweep_covered() {
-  local k
-  [ -n "${seen[$1]+x}" ] && return 0
-  for k in "${!seen[@]}"; do
-    [[ $k == "$1"/* ]] && return 0
-  done
-  return 1
-}
-
-# _wb_sweep_one <rel> <out> — classify one entry and print its line. Uses the
-# caller's (wb_sweep_classify's) locals: wt, main, the flag arrays, the globs
-# and the bootstrap list.
-_wb_sweep_one() {
-  local rel="$1" out="$2" isdir=0 note f
-  case "$rel" in
-    *$'\t'*|*$'\n'*|*$'\r'*)
-      _wb_sweep_emit unknown "$rel" "$(_wb_sweep_esc "$out")" 'name holds a tab or line break, handle it yourself'
-      return 0 ;;
-  esac
-  [ -d "$wt/$rel" ] && isdir=1
-  if _wb_sweep_flagged tw_flags "$rel"; then
-    _wb_sweep_emit throwaway "$rel" "$out"; return 0
-  fi
-  if _wb_sweep_flagged keep_flags "$rel"; then
-    # A refused --keep is unknown even if the file matches main: the user asked
-    # to keep it, so silently discarding it would surprise.
-    _wb_sweep_emit_keep "$rel" "$out"
-    return 0
-  fi
-  for f in ${boot[@]+"${boot[@]}"}; do
-    [ "$f" = "$rel" ] || continue
-    if [ -L "$wt/$rel" ]; then
-      _wb_sweep_emit throwaway "$rel" "$out"; return 0
-    elif [ -f "$wt/$rel" ] && [ -f "$main/$rel" ] && cmp -s "$wt/$rel" "$main/$rel"; then
-      _wb_sweep_emit throwaway "$rel" "$out"; return 0
-    fi
-  done
-  if wb_credential_shaped "$rel"; then
-    _wb_sweep_emit unknown "$rel" "$out" 'credential-shaped, copy it yourself'; return 0
-  fi
-  if _wb_sweep_in_list keep_globs "$rel" "$isdir"; then
-    _wb_sweep_emit_keep "$rel" "$out"
-    return 0
-  fi
-  if _wb_sweep_in_list tw_globs "$rel" "$isdir"; then
-    _wb_sweep_emit throwaway "$rel" "$out"; return 0
-  fi
-  if [ "$isdir" = 1 ] && [ ! -L "$wt/$rel" ]; then
-    # One level at a time, so a nested directory (a cloned project's
-    # node_modules/) meets the lists as a directory and is classified whole,
-    # instead of each file inside it being judged on its own name.
-    local n=0 child
-    while IFS= read -r -d '' f; do
-      n=$((n + 1))
-      child="${f#"$wt"/}"
-      if [ -d "$f" ] && [ ! -L "$f" ]; then
-        _wb_sweep_one "$child" "$child/"
-      else
-        _wb_sweep_one "$child" "$child"
-      fi
-    done < <(find -P "$wt/$rel" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | sort -z)
-    # Nothing listed: an empty directory loses nothing when removed, but one
-    # find could not read may hold anything.
-    if [ "$n" -eq 0 ]; then
-      if [ -r "$wt/$rel" ] && [ -x "$wt/$rel" ]; then
-        _wb_sweep_emit throwaway "$rel" "$out" 'empty directory'
-      else
-        _wb_sweep_emit unknown "$rel" "$out" 'cannot read this directory'
-      fi
-    fi
-    return 0
-  fi
-  _wb_sweep_emit unknown "$rel" "$out"
-}
-
-# wb_sweep_classify <worktree> <main_checkout> [--keep <p>]... [--throwaway <p>]...
-# — sort the worktree's gitignored entries into keep / throwaway / unknown,
-# one `class<TAB>path<TAB>note` line each (directories keep their trailing
-# `/`). Rows are tried in the order of the plan's "Sweep classification" table.
-# The flags classify a named path for this run only; one naming a missing path
-# or an unsafe one warns on stderr and is ignored.
-wb_sweep_classify() {
-  [ "$#" -ge 2 ] || { echo "wb_sweep_classify: usage: <worktree> <main> [--keep p]... [--throwaway p]..." >&2; return 2; }
-  local wt="$1" main="$2"; shift 2
-  local -a keep_flags=() tw_flags=() keep_globs=() tw_globs=() boot=()
-  local p safe
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --keep|--throwaway)
-        [ "$#" -ge 2 ] || { echo "wb_sweep_classify: $1 needs a path" >&2; return 2; }
-        p="${2%/}"
-        if [ "$1" = --keep ]; then
-          # Containment-check the PARENT directory only and keep the last
-          # component as written, so `--keep scratch/ln` keeps the link itself
-          # (what the walk sees), not the file it points at. _wb_sweep_keepcheck
-          # still refuses a link resolving outside the worktree.
-          local pd="${p%/*}" pl="${p##*/}" sd=""
-          [ "$pd" = "$p" ] && pd="."
-          case "$pl" in ''|.|..) pl="" ;; esac
-          if [ -n "$pl" ] && { [ "$pd" = "." ] || sd="$(wb_safe_rel "$wt" "$pd")"; }; then
-            safe="${sd:+$sd/}$pl"
-            if [ -e "$wt/$safe" ] || [ -L "$wt/$safe" ]; then keep_flags+=("$safe")
-            else echo "wb: --keep $p: no such path, ignored" >&2; fi
-          else
-            echo "wb: --keep $p: outside the worktree, ignored" >&2
-          fi
-        else
-          # Lexical check only: bootstrap symlinks point into the main checkout.
-          case "$p" in
-            /*|..|../*|*/..|*/../*) echo "wb: --throwaway $p: outside the worktree, ignored" >&2 ;;
-            *) if [ -e "$wt/$p" ] || [ -L "$wt/$p" ]; then tw_flags+=("$p")
-               else echo "wb: --throwaway $p: no such path, ignored" >&2; fi ;;
-          esac
-        fi
-        shift 2 ;;
-      *) echo "wb_sweep_classify: unknown argument: $1" >&2; return 2 ;;
-    esac
-  done
-  local cls glob
-  while IFS=$'\t' read -r cls glob; do
-    if [ "$cls" = keep ]; then keep_globs+=("$glob"); else tw_globs+=("$glob"); fi
-  done < <(wb_sweep_lists)
-  mapfile -d '' boot < <(wb_bootstrap_entries "$main")
-  # Read git's whole answer before classifying anything: an empty answer must
-  # mean "nothing ignored", never "git failed" — W6 removes the worktree on
-  # an empty, unknown-free result. --untracked-files=normal overrides a
-  # status.showUntrackedFiles=no config, which would otherwise hide every
-  # ignored entry too.
-  local -a recs=()
-  if [ ! -d "$wt" ]; then
-    echo "wb_sweep_classify: $wt is not a directory" >&2; return 1
-  fi
-  mapfile -d '' recs < <(git -C "$wt" status --porcelain=v1 -z --ignored=traditional --untracked-files=normal)
-  if ! wait "$!"; then
-    echo "wb_sweep_classify: git status failed in $wt, nothing classified" >&2; return 1
-  fi
-  local rec rel
-  local -A seen=()
-  for rec in ${recs[@]+"${recs[@]}"}; do
-    case "$rec" in '!! '*) ;; *) continue ;; esac
-    rel="${rec#'!! '}"
-    _wb_sweep_one "${rel%/}" "$rel"
-  done
-  # Flags the walk never reached. Git reports a fully ignored directory once
-  # (`logs/`), so a --keep on a file inside it gets its own extra line here —
-  # W6 copies keep lines before removing the worktree, so `throwaway logs/`
-  # and `keep logs/notes.log` together keep that one file.
-  local anc note out
-  for p in ${keep_flags[@]+"${keep_flags[@]}"}; do
-    _wb_sweep_covered "$p" && continue
-    if anc="$(_wb_sweep_ancestor "$p")"; then
-      [ "${anc%%$'\t'*}" = keep ] && continue
-      out="$p"; [ -d "$wt/$p" ] && [ ! -L "$wt/$p" ] && out="$p/"
-      case "$p" in
-        *$'\t'*|*$'\n'*|*$'\r'*)
-          _wb_sweep_emit unknown "$p" "$(_wb_sweep_esc "$out")" 'name holds a tab or line break, handle it yourself' ;;
-        *)
-          _wb_sweep_emit_keep "$p" "$out" ;;
-      esac
-    else
-      echo "wb: --keep $(_wb_sweep_esc "$p"): matched no ignored entry, ignored" >&2
-    fi
-  done
-  for p in ${tw_flags[@]+"${tw_flags[@]}"}; do
-    _wb_sweep_covered "$p" && continue
-    if anc="$(_wb_sweep_ancestor "$p")"; then
-      [ "${anc%%$'\t'*}" = keep ] &&
-        echo "wb: --throwaway $(_wb_sweep_esc "$p"): inside kept ${anc#*$'\t'}/, kept with it" >&2
-    else
-      echo "wb: --throwaway $(_wb_sweep_esc "$p"): matched no ignored entry, ignored" >&2
-    fi
-  done
-  return 0
-}
-
 # _wb_open_items <task_file> — the paths of the task's open-items/*.md whose
 # frontmatter says `status: open`, one per line, name order.
 _wb_open_items() {
@@ -6176,8 +6196,11 @@ wb_week_unreviewed_count() {
 # has ever run).
 wb_week_days_since_last_record() {
   local dir; dir="$(_wb_week_dir)"
-  local latest
-  latest="$( [ -d "$dir" ] && ls "$dir" 2>/dev/null | grep -E '^[0-9]{4}-W[0-9]{2}-review\.md$' | sort | tail -1)"
+  local latest rp
+  latest="$(for rp in "$dir"/[0-9][0-9][0-9][0-9]-W[0-9][0-9]-review.md; do
+    [ -e "$rp" ] || continue
+    printf '%s\n' "${rp##*/}"
+  done | sort | tail -1)"
   [ -n "$latest" ] || return 0
   local mtime now
   mtime="$(stat -c %Y "$dir/$latest" 2>/dev/null || stat -f %m "$dir/$latest" 2>/dev/null)"
@@ -6249,12 +6272,15 @@ cmd_board() {
     # the old wb_board_render_html after its parity check (task set,
     # per-status counts, per-family membership) passed clean against the
     # real ~301-task store. R16's single collect pass, no tmux/gh/git calls.
+    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
     local -a V2ROWS=()
+    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
     local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=() \
       M_DECISIONS_RAW=() M_LINKS_RAW=()
     wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
       M_DECISIONS_RAW M_LINKS_RAW
 
+    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
     local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
       M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
       M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
@@ -6286,7 +6312,7 @@ cmd_board() {
     return 0
   fi
 
-  local f title fu rows="" repo status worktree branch activity
+  local f title fu board_rows="" repo status worktree branch activity
   local -a t
   # U6/R17: an ACT column, only when the terminal is wide enough to take it
   # without wrapping the existing four columns — a plain `wb board` run in a
@@ -6311,15 +6337,15 @@ cmd_board() {
     f="${f##*/}"; dr="${shelved_n["${f%.md}"]:-0}"
     if [ "$show_act" = 1 ]; then
       activity="$(wb_task_activity "$repo" "$branch" "$worktree")"
-      rows+="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr" "$activity")"$'\n'
+      board_rows+="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr" "$activity")"$'\n'
     else
-      rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr")"$'\n'
+      board_rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr")"$'\n'
     fi
   done < <(wb_task_files)
 
   printf 'live agents: %s (warn >= %s)\n' "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT"
 
-  if [ -z "$rows" ]; then
+  if [ -z "$board_rows" ]; then
     echo "wb board: no tasks in $TASKS_DIR"
     return 0
   fi
@@ -6332,7 +6358,7 @@ cmd_board() {
     fi
     # doing < review < paused < planned < done < anything-else; rank prefix
     # keeps the plain-text sort key clean, then drops out before display.
-    printf '%s' "$rows" | awk -F'\t' -v OFS='\t' '{
+    printf '%s' "$board_rows" | awk -F'\t' -v OFS='\t' '{
       r = ($1 == "doing") ? 0 : ($1 == "review") ? 1 : ($1 == "paused") ? 2 : ($1 == "planned") ? 3 : ($1 == "done") ? 4 : 5
       print r, $0
     }' | sort -t $'\t' -k1,1n -k3,3 -k4,4 | cut -f2-
@@ -6405,6 +6431,10 @@ _wb_done_classify() {
   local out rc=0 cls path note
   local -a unknowns=()
   keep_paths=(); throw_paths=()
+  if ! declare -F wb_sweep_classify >/dev/null; then
+    echo "wb done: wb-done-sweep.sh is missing beside wb.sh — re-stow the dotfiles, then run wb done again (nothing changed)" >&2
+    return 1
+  fi
   if [ "$quiet" = 1 ]; then
     out="$(wb_sweep_classify "$wt" "$main" "$@" 2>/dev/null)" || rc=$?
   else
@@ -6601,7 +6631,7 @@ _wb_done_keep_all() {
   # directory, or a missing parent chain). Nothing that existed before the run
   # is ever removed; a directory merged into an existing one can't be undone
   # file by file, so it is only reported.
-  local src dest p top qdest="" qsize="" qrel=""
+  local src dest p top qdest="" qsize="" qrel="" qpad
   local -a created=()
   for rel in ${todo[@]+"${todo[@]}"}; do
     src="$wt/$rel"; dest="$dossier/$rel"
@@ -6609,7 +6639,9 @@ _wb_done_keep_all() {
       # Merge: append the worktree's new blocks (see _wb_done_keep_state).
       _wb_queue_new_blocks "$src" "$dest"
       qdest="$dest"; qsize="$(wc -c < "$dest")"; qsize="${qsize//[[:space:]]/}"; qrel="$rel"
-      if ! { { [ ! -s "$dest" ] || [ "$(tail -c1 -- "$dest" | wc -l)" -gt 0 ] || printf '\n'; } && printf '%s' "$_wb_qnew"; } >> "$dest"; then
+      qpad=""
+      { [ ! -s "$dest" ] || [ "$(tail -c1 -- "$dest" | wc -l)" -gt 0 ]; } || qpad=$'\n'
+      if ! printf '%s%s' "$qpad" "$_wb_qnew" >> "$dest"; then
         echo "wb done: appending $rel to $dossier failed" >&2
         _wb_done_keep_rollback "$rel" "$dest" "" ${created[@]+"${created[@]}"}; return 1
       fi
@@ -6834,7 +6866,7 @@ cmd_done() {
   # parent that must actually flip to done when someone acts on it).
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   local lock_fail="wb done: could not update $task_file"
-  wb_set_frontmatter "$task_file" status done \
+  wb_set_frontmatter "$task_file" status "done" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (status not written)" >&2; exit 1; }
   wb_set_frontmatter "$task_file" closed "$(date +%F)" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (closed date not written)" >&2; exit 1; }
@@ -6851,10 +6883,13 @@ cmd_done() {
   # it says nothing was torn down rather than that nothing existed.
   local done_note
   if [ "$store_only" = 1 ]; then
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     done_note='Closed in the store only (`wb done`): no live session, nothing torn down'
   elif [ "$close" -eq 1 ]; then
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     done_note='Worktree removed, session closed (`wb done --close`)'
   else
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     done_note='Worktree removed, session left open (`wb done` without `--close`)'
   fi
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
@@ -6906,8 +6941,8 @@ cmd_done() {
     echo "wb done: $session — worktree removed, session left open (pass --close to end it), task -> done ($task_file)"
   fi
 
-  local total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
-  if [ "$total" -ge "$WB_SWEEP_THRESHOLD" ]; then
+  local pending_total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
+  if [ "$pending_total" -ge "$WB_SWEEP_THRESHOLD" ]; then
     echo "wb done: $(wb_pending_counts) — consider running /weekly-review"
   fi
 
@@ -7891,7 +7926,11 @@ _preview() {
     pv_now="$(_wb_trim_blank_lines "$(_wb_section_text "$ref" Now)")"
     if ! _wb_section_text "$ref" Handoffs | awk '/^### / && $0 !~ /\(auto\)[ \t]*$/ { f = 1 } END { exit(f ? 0 : 1) }'; then
       local pv_h pv_hd; pv_hd="$(_wb_dossier_dir "$ref")/handoffs"
-      for pv_h in $(ls -1r "$pv_hd"/*.md 2>/dev/null); do
+      local -a pv_files=("$pv_hd"/*.md)
+      local pv_i
+      for (( pv_i = ${#pv_files[@]} - 1; pv_i >= 0; pv_i-- )); do
+        pv_h="${pv_files[pv_i]}"
+        [ -f "$pv_h" ] || continue
         [ "$(wb_get_frontmatter "$pv_h" auto)" = "false" ] || continue
         pv_tmp="$(mktemp)"
         { printf '## Handoffs\n\n'; awk 'FNR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm { print }' "$pv_h"; } > "$pv_tmp"
@@ -8492,6 +8531,11 @@ _down() {
       read -rn1 -p "wb: down failed — press any key "
       return 1
     fi
+    # the shelf-draft prompt already held the terminal: say this without a second wait
+    if [ "$_WB_DOWN_PAUSED" = 1 ]; then
+      echo "wb: not closing '$session' via p — it's your current session; run 'wb down' yourself once you're ready"
+      return 0
+    fi
     read -rn1 -p "wb: not closing '$session' via p — it's your current session; run 'wb down' yourself once you're ready — press any key "
     return 0
   fi
@@ -8715,7 +8759,9 @@ picker() {
   # current session's family and age rows against one frozen clock instead
   # of re-reading a ticking one on each 3s reload. Unset (wb render run by
   # hand, tests) means no pinning and the real clock.
+  # shellcheck disable=SC2155  # export-with-assign is the pinned form (wb-picker-grouping asserts it); the tmux call is already fail-open via || true
   export WB_PICKER_SESSION="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  # shellcheck disable=SC2155  # date +%s has no failure the picker could act on
   export WB_PICKER_NOW="$(date +%s)"
 
   local rendered selection
@@ -8828,6 +8874,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   case "${1:-}" in
     new)         shift; cmd_new "$@" ;;
     resume)      shift; cmd_resume "$@" ;;
+    restart)     shift; cmd_restart "$@" ;;
     reconcile)   shift; cmd_reconcile "$@" ;;
     breakdown)   shift; cmd_breakdown "$@" ;;
     board)       shift; cmd_board "$@" ;;
@@ -8849,16 +8896,24 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     # Sourced only here: wb.sh is stowed file by file, so a top-level source
     # of a new file would break every wb command between a merge and the
     # re-stow that links it. migrate is a one-off; nothing else needs it.
-    # shellcheck source=wb-migrate.sh
-    migrate)     shift; source "$SCRIPT_DIR/wb-migrate.sh"; cmd_migrate "$@" ;;
+    migrate)
+      shift
+      # shellcheck source=wb-migrate.sh
+      source "$SCRIPT_DIR/wb-migrate.sh"
+      cmd_migrate "$@" ;;
     # Same lazy source as migrate, for the same reason: wb-decide.sh is new.
-    # shellcheck source=wb-decide.sh
-    decide-path)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_path "$@" ;;
-    decide-buffer) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_buffer "$@" ;;
-    decide-open)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_open "$@" ;;
-    decide-clear)  shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_clear "$@" ;;
-    decision)      shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decision "$@" ;;
-    decide-spec-check) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_spec_check "$@" ;;
+    decide-path|decide-buffer|decide-open|decide-clear|decision|decide-spec-check)
+      _wb_dcmd="$1"; shift
+      # shellcheck source=wb-decide.sh
+      source "$SCRIPT_DIR/wb-decide.sh"
+      case "$_wb_dcmd" in
+        decide-path)       cmd_decide_path "$@" ;;
+        decide-buffer)     cmd_decide_buffer "$@" ;;
+        decide-open)       cmd_decide_open "$@" ;;
+        decide-clear)      cmd_decide_clear "$@" ;;
+        decision)          cmd_decision "$@" ;;
+        decide-spec-check) cmd_decide_spec_check "$@" ;;
+      esac ;;
     views)       shift; cmd_views "$@" ;;
     family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;
