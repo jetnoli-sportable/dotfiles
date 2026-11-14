@@ -16,7 +16,7 @@ python3 ~/.claude/skills/compare-page/scripts/compare-page.py \
 | Exit | Meaning |
 |---|---|
 | 0 | page written |
-| 1 | template or the shared page kit (`decision-page/kit/pagekit.py`) missing; run `stow --no-folding -t "$HOME" claude` |
+| 1 | template or the shared page kit (`compare-page/kit/pagekit.py`) missing; run `stow --no-folding -t "$HOME" claude` |
 | 2 | bad input: unreadable file, invalid JSON, or invalid spec; nothing written |
 
 On exit 2 every problem is listed on stderr, one `compare-page.py: ...` line each,

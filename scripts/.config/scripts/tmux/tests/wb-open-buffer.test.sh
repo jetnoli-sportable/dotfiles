@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests for `wb_open_buffer`: a missing shared open-buffer.sh is a hard error
-# naming the stow command, and the non-tmux path hands off to the script's
+# Tests for `wb_open_buffer`: with no stowed open-buffer.sh it falls back to the
+# checkout's copy; with neither it is a hard error naming both paths and the
+# stow command, and the non-tmux path hands off to the script's
 # --direct mode with the WB_REVIEW_BUFFER=1 env-var signal
 # (dotfiles--fix-wb-sweep-buffer-autoformat) reaching the editor. A fixture
 # $EDITOR that just dumps its own environment lets us call the real,
@@ -40,18 +41,22 @@ chmod +x "$FIXTURE/fake-editor.sh"
 SCRATCH="$FIXTURE/scratch.md"
 echo "placeholder" > "$SCRATCH"
 
-REPO_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)/claude/.claude/skills/decision-buffer/scripts/open-buffer.sh"
+REPO_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)/claude/.claude/skills/decide/scripts/open-buffer.sh"
 
-# --- script missing: hard error naming the stow command, editor never runs --
+# --- neither copy exists: hard error naming both paths and the stow command,
+# editor never runs. wb_open_buffer is lifted out of wb.sh into a temp dir so
+# its checkout fallback (resolved from its own file) points at nothing.
 EMPTY_HOME="$FIXTURE/home-empty"
-mkdir -p "$EMPTY_HOME"
+mkdir -p "$EMPTY_HOME" "$FIXTURE/iso"
+sed -n '/^wb_open_buffer() {$/,/^}$/p' "$WB" > "$FIXTURE/iso/fn.sh"
 err="$(env -u TMUX -u TMUX_PANE HOME="$EMPTY_HOME" EDITOR="$FIXTURE/fake-editor.sh" bash -c '
-  source "'"$WB"'"
-  set +e
+  source "'"$FIXTURE/iso/fn.sh"'"
   wb_open_buffer "'"$SCRATCH"'"
   echo "rc=$?"
 ' 2>&1)"
 assert "missing script: returns non-zero" 'rc=1' "$err"
+assert "missing script: names the stowed path" "$EMPTY_HOME/.claude/skills/decide/scripts/open-buffer.sh" "$err"
+assert "missing script: names the checkout path" "$FIXTURE/iso/../../../../claude/.claude/skills/decide/scripts/open-buffer.sh" "$err"
 # shellcheck disable=SC2016  # a literal $HOME in the expected message
 assert "missing script: names the stow command" 'stow --no-folding -t "\$HOME" claude' "$err"
 if [ -e "$ENV_CAPTURE" ]; then
@@ -60,10 +65,19 @@ else
   echo "ok   - missing script: editor never ran"
 fi
 
+# --- nothing stowed, real wb.sh from the repo: the checkout copy runs ------
+env -u TMUX -u TMUX_PANE HOME="$EMPTY_HOME" EDITOR="$FIXTURE/fake-editor.sh" bash -c '
+  source "'"$WB"'"
+  wb_open_buffer "'"$SCRATCH"'"
+'
+assert "no stowed script: checkout copy ran the editor" \
+  '^WB_REVIEW_BUFFER=1$' "$(cat "$ENV_CAPTURE" 2>/dev/null)"
+rm -f "$ENV_CAPTURE"
+
 # --- script stowed, non-tmux: --direct, WB_REVIEW_BUFFER=1 reaches the editor
 STOWED_HOME="$FIXTURE/home-stowed"
-mkdir -p "$STOWED_HOME/.claude/skills/decision-buffer/scripts"
-ln -s "$REPO_SCRIPT" "$STOWED_HOME/.claude/skills/decision-buffer/scripts/open-buffer.sh"
+mkdir -p "$STOWED_HOME/.claude/skills/decide/scripts"
+ln -s "$REPO_SCRIPT" "$STOWED_HOME/.claude/skills/decide/scripts/open-buffer.sh"
 env -u TMUX -u TMUX_PANE HOME="$STOWED_HOME" EDITOR="$FIXTURE/fake-editor.sh" bash -c '
   source "'"$WB"'"
   wb_open_buffer "'"$SCRATCH"'"

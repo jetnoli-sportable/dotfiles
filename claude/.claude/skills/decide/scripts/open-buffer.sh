@@ -5,7 +5,7 @@
 # wb_open_buffer() in wb.sh).
 #
 # One executable implementation instead of the recipe copied as prose in
-# several places (dotfiles roadmap R15). See references/mechanism.md for the
+# several places (dotfiles roadmap R15). See references/open-buffer.md for the
 # full state-file field contract, the fallback-tier rationale, and the
 # reattach decision tree — this header only summarizes the CLI surface.
 #
@@ -53,7 +53,7 @@ Usage:
   $SCRIPT_NAME --manual <path>     print a copyable "! nvim <path>" command
   $SCRIPT_NAME --reattach <path>   resume a wait recorded by an earlier --tmux open
 
-See references/mechanism.md for the state-file contract and the reattach
+See references/open-buffer.md for the state-file contract and the reattach
 decision tree.
 EOF
 }
@@ -96,7 +96,7 @@ hash_doc() {
 }
 
 # pid_alive <pid> -> true if a process with that pid exists (best-effort:
-# pid recycling by the OS can produce a false positive; see mechanism.md).
+# pid recycling by the OS can produce a false positive; see open-buffer.md).
 pid_alive() {
   [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
 }

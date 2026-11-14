@@ -3896,21 +3896,31 @@ cmd_unsafe_rewind() {
 # ---------------------------------------------------------------------------
 
 # wb_open_buffer <path> — open <path> in nvim, blocking until closed. Thin
-# shim over the shared decision-buffer script
-# (~/.claude/skills/decision-buffer/scripts/open-buffer.sh), which owns the
+# shim over the shared buffer script of the decide skill
+# (~/.claude/skills/decide/scripts/open-buffer.sh), which owns the
 # tmux-split + wait-for recipe (and its channel-uniqueness rule) for every
-# caller of it — decision-buffer, `wb done --review`, parked-items, wb.sh's own
-# internal callers below. See
-# ~/.claude/skills/decision-buffer/references/mechanism.md for the full
-# contract. A missing or non-executable script (a stale, un-restowed
-# environment) is a hard error naming the stow command.
+# caller of it — `wb done --review`, /wb-breakdown small proposals,
+# /wb-jira-create, wb.sh's own internal callers below. See
+# ~/.claude/skills/decide/references/open-buffer.md for the full contract.
+# The stowed copy is tried first; if it isn't there (the main checkout has
+# pulled the move but not re-stowed yet) the copy in the checkout this wb.sh
+# resolves to is used, so `wb done --review` keeps working in between. Neither
+# existing is a hard error naming both paths and the stow command.
 wb_open_buffer() {
   local path="$1"
-  local script="$HOME/.claude/skills/decision-buffer/scripts/open-buffer.sh"
+  local script="$HOME/.claude/skills/decide/scripts/open-buffer.sh"
 
   if [ ! -x "$script" ]; then
-    echo "wb_open_buffer: $script missing or not executable — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
-    return 1
+    # scripts/.config/scripts/tmux/ -> four levels up is the repo root
+    local here repo_script
+    here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+    repo_script="$here/../../../../claude/.claude/skills/decide/scripts/open-buffer.sh"
+    if [ -x "$repo_script" ]; then
+      script="$repo_script"
+    else
+      echo "wb_open_buffer: neither $script nor $repo_script is an executable file — re-stow with: stow --no-folding -t \"\$HOME\" claude" >&2
+      return 1
+    fi
   fi
 
   if [ -n "${TMUX:-}" ]; then
