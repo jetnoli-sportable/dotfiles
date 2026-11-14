@@ -1,0 +1,15 @@
+root = true
+
+# Shell style, measured over the tracked shell files: 2-space indent with
+# indented case arms had the most files already clean under shfmt.
+[*.{sh,bash}]
+indent_style = space
+indent_size = 2
+switch_case_indent = true
+
+# shfmt's own language section: it applies to extensionless shell scripts too
+# (found by shebang), which the glob above doesn't match.
+[[bash]]
+indent_style = space
+indent_size = 2
+switch_case_indent = true

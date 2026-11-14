@@ -310,6 +310,7 @@ local config = {
 		vim.list_extend(ensure_installed, {
 			"stylua", -- Lua formatter (conform)
 			"prettier", -- JS/TS/CSS/HTML/JSON/YAML/Markdown formatter (conform)
+			"shfmt", -- shell formatter (the format-on-edit hook; bashls' own shfmt is off in config/bash.lua)
 			"gofumpt", -- Go formatter (conform)
 			"goimports", -- Go import organizer (conform)
 			"gomodifytags", -- Go struct tag editing (:GoAddTags)
