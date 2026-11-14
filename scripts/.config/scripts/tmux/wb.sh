@@ -8836,16 +8836,24 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     # Sourced only here: wb.sh is stowed file by file, so a top-level source
     # of a new file would break every wb command between a merge and the
     # re-stow that links it. migrate is a one-off; nothing else needs it.
-    # shellcheck source=wb-migrate.sh
-    migrate)     shift; source "$SCRIPT_DIR/wb-migrate.sh"; cmd_migrate "$@" ;;
+    migrate)
+      shift
+      # shellcheck source=wb-migrate.sh
+      source "$SCRIPT_DIR/wb-migrate.sh"
+      cmd_migrate "$@" ;;
     # Same lazy source as migrate, for the same reason: wb-decide.sh is new.
-    # shellcheck source=wb-decide.sh
-    decide-path)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_path "$@" ;;
-    decide-buffer) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_buffer "$@" ;;
-    decide-open)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_open "$@" ;;
-    decide-clear)  shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_clear "$@" ;;
-    decision)      shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decision "$@" ;;
-    decide-spec-check) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_spec_check "$@" ;;
+    decide-path|decide-buffer|decide-open|decide-clear|decision|decide-spec-check)
+      _wb_dcmd="$1"; shift
+      # shellcheck source=wb-decide.sh
+      source "$SCRIPT_DIR/wb-decide.sh"
+      case "$_wb_dcmd" in
+        decide-path)       cmd_decide_path "$@" ;;
+        decide-buffer)     cmd_decide_buffer "$@" ;;
+        decide-open)       cmd_decide_open "$@" ;;
+        decide-clear)      cmd_decide_clear "$@" ;;
+        decision)          cmd_decision "$@" ;;
+        decide-spec-check) cmd_decide_spec_check "$@" ;;
+      esac ;;
     views)       shift; cmd_views "$@" ;;
     family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;
