@@ -6,6 +6,7 @@ local htmlConfig = require("plugins.lsp.config.html")
 local emmetConfig = require("plugins.lsp.config.emmet")
 local templConfig = require("plugins.lsp.config.go-templ")
 local bashConfig = require("plugins.lsp.config.bash")
+local marksmanConfig = require("plugins.lsp.config.marksman")
 
 local eslintConfig = {
 	on_attach = function(client, bufnr)
@@ -284,6 +285,7 @@ local config = {
 			ts_ls = tsConfig,
 			lua_ls = luaConfig,
 			bashls = bashConfig,
+			marksman = marksmanConfig,
 		}
 
 		local mason_package_map = {
@@ -296,6 +298,7 @@ local config = {
 			templ = "templ",
 			emmet_language_server = "emmet-language-server",
 			html = "html-lsp",
+			marksman = "marksman",
 		}
 
 		local ensure_installed = {}
