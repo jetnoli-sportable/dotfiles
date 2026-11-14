@@ -23,9 +23,11 @@ to survive the clear; the human runs `/clear` themselves.
 
 - **Writes into the current session's task file only.** No picking among
   multiple candidate tasks — the tmux session this skill runs in names its own
-  task file via `@task`. The one cross-session lookup is the propagate call at the
-  end of step 2's shelf review (`/wb-decide` step 6): it reads which family
-  sessions are live and their task files, and never writes another task's file.
+  task file via `@task`. The cross-session reads are the propagate call at the
+  end of step 2's shelf review (`/wb-decide` step 6), which reads which family
+  sessions are live and their task files, and step 3's drift check, which reads
+  the parent task, its dossier and the top parent's `concepts.md`. Both are
+  read-only; neither ever writes another task's file.
 - **Never invokes `/clear`, never sends any keystroke to any pane, never
   touches tmux session state beyond the one read-only `@task` lookup in
   step 1.** This boundary is load-bearing, not incidental caution — see
@@ -36,7 +38,7 @@ to survive the clear; the human runs `/clear` themselves.
   `/wb-decide` step 6 may read `wb family --sessions` (a read of other sessions'
   `@task`) and ListAgents, and send `[wb-propagate]` messages with SendMessage to
   *other* sessions it affects. Nothing is ever sent to this session's own pane.
-- **Dossier layout:** step 4 first replaces `## Now` through `wb now`, and
+- **Dossier layout:** step 5 first replaces `## Now` through `wb now`, and
   `wb append … Handoffs -` then moves the previous handoff to `handoffs/` instead
   of piling it up. See `docs/wb-guide.md`, "Dossier layout".
 - **Append-only.** Never overwrites any existing content in the task file —
@@ -91,10 +93,35 @@ Skip this step silently only when the session has no `@task` (step 1 already
 stopped there). Otherwise always run it: when capture is disabled or muted the sweep
 prints its `skipped:` line and the review of any existing shelved drafts still runs.
 
-### 3. Compose the entry from the current conversation
+### 3. Check for drift
 
-Draw all three fields from what has actually happened in this
-conversation — never generic filler:
+Compare what this session did with what the task was scoped for. All reads are
+read-only; never write another task's file.
+
+- **Parent:** the task file's `parent:` names the parent stem. In
+  `~/code/tasks/dossiers/<parent>/ladder.md`, take the current rung and its "Not
+  in this rung" line. If the parent has no `ladder.md`, use the parent task's
+  `## Now` instead.
+- **This task:** its `rung:` frontmatter, and `brief.md` in its dossier: "Done
+  when" and "Not doing".
+- **Family concepts:** `concepts.md` in the top parent's dossier (follow `parent:`
+  up until it is empty).
+
+Write one line, always the first line of the entry:
+
+- `**Drift:** none` when the session's work fits all of the above.
+- `**Drift:** <one concrete sentence>` naming what drifted and which line it
+  conflicts with, e.g. `**Drift:** edited wb.sh, which brief.md "Not doing" rules out.`
+- `**Drift:** nothing to check against` when there is no parent and no brief.
+
+A missing input is skipped, not an error. The check never blocks the save and
+never changes scope; it only reports.
+
+### 4. Compose the entry from the current conversation
+
+Draw the fields from what has actually happened in this
+conversation — never generic filler. **Drift** comes from step 3 and goes first,
+before **Done**:
 
 - **Done** — what has actually been completed this session, concrete and
   specific enough to be useful without the rest of the transcript. If step 2
@@ -152,7 +179,7 @@ invoke, nothing else:
   in the `**Next:**` prose (`/wb-resume` only ever acts on the first step
   anyway; sequencing beyond that is a human/planning concern).
 
-### 4. Append into `## Handoffs` — exact section shape
+### 5. Append into `## Handoffs` — exact section shape
 
 Do two writes, in this order, both through the locked verbs:
 
@@ -186,10 +213,11 @@ silently breaks that shared contract:
 - **Entry format** — a `### <timestamp> — wb-save` heading (no `(auto)`
   suffix; that suffix belongs only to `wb.sh`'s own terse mechanical
   entries), timestamp in the same `date '+%Y-%m-%d %H:%M'` format, followed
-  by three bold-leader fields:
+  by four bold-leader fields, `**Drift:**` first:
 
 ```
 ### 2026-07-11 18:42 — wb-save
+**Drift:** none
 **Done:** ...
 **In flight:** ...
 **Next:** ...
@@ -200,6 +228,7 @@ fenced block after `**Next:**`, separated by a blank line:
 
 ````
 ### 2026-07-11 18:42 — wb-save
+**Drift:** none
 **Done:** ...
 **In flight:** ...
 **Next:** ...
@@ -213,12 +242,13 @@ fenced block after `**Next:**`, separated by a blank line:
   (`scripts/.config/scripts/tmux/wb.sh`, search `cmd_append`) every
   agent-mediated task-file write in this codebase now goes through, instead
   of an Edit-tool write. Pass the task file resolved in step 1, `Handoffs`
-  as the heading, and the whole three-line block above as one multi-line
+  as the heading, and the whole four-line block above as one multi-line
   body via stdin:
 
 ```bash
 wb append "$task_file" Handoffs <<EOF
 ### $(date '+%Y-%m-%d %H:%M') — wb-save
+**Drift:** none
 **Done:** ...
 **In flight:** ...
 **Next:** ...
@@ -232,6 +262,7 @@ EOF
 ```bash
 wb append "$task_file" Handoffs <<EOF
 ### $(date '+%Y-%m-%d %H:%M') — wb-save
+**Drift:** none
 **Done:** ...
 **In flight:** ...
 **Next:** ...
@@ -250,7 +281,7 @@ EOF
   `wb_append_handoff` itself** — that helper hardcodes the `(auto)` suffix
   meant for its own mechanical callers (`cmd_pause`/`cmd_done`/
   `cmd_resume`) and writes a single-line message body, not this
-  three-field structured entry; `wb append`'s multi-line stdin form exists
+  four-field structured entry; `wb append`'s multi-line stdin form exists
   specifically for this richer shape.
 - **Never write or edit task files under `~/code/tasks` with the Edit/Write
   tool.** `wb append` is append-only by construction — it can only ever add
@@ -259,10 +290,11 @@ EOF
   character" guarantee this section always carried; there is no separate
   manual-carefulness step left to describe.
 
-### 5. Tell the user, relay, and stop
+### 6. Tell the user, relay, and stop
 
 One line confirming the save landed and that running `/clear` is the next
-manual step — e.g. `Saved to ## Handoffs — /clear when you're ready.`
+manual step — e.g. `Saved to ## Handoffs — /clear when you're ready.` When
+step 3 found drift, add one sentence saying what drifted.
 
 Never invoke `/clear` yourself, never send it (or anything else) via
 `tmux send-keys`, never touch tmux session state beyond the read-only
@@ -274,11 +306,23 @@ messages *other* sessions and never this one.
 ## Test scenarios (behavior to follow for each)
 
 - **Happy path:** mid-task session, `/wb-save` run — read `@task`, read the
-  task file, compose done/in-flight/next from actual conversation content,
+  task file, compose drift/done/in-flight/next from actual conversation content,
   append the entry under `## Handoffs`, confirm in one line.
 - **Save order:** `wb now` then `wb append … Handoffs -`; afterwards `## Now`
   holds the new block, the task file holds only this handoff, and the old one is
   a file in `handoffs/`.
+- **Drift — work matches the brief:** the entry's first line is `**Drift:** none`.
+- **Drift — the session touched something the brief's "Not doing" lists** (for
+  this task: any `wb.sh` change): the `**Drift:**` line names it and the line it
+  conflicts with, and the step 6 reply adds a sentence saying so. The save still
+  lands.
+- **Drift — parent has no `ladder.md`:** compare against the parent task's
+  `## Now` instead.
+- **Drift — no parent and no brief:** `**Drift:** nothing to check against`; the
+  save proceeds.
+- **Drift — save with a `run` directive:** `**Drift:**` is the first field, the
+  ` ```run ` block stays directly after `**Next:**`, and `**Received:**` stays
+  last.
 - **Edge case — shelved drafts waiting:** step 2 runs the `/wb-decide` step 2b
   procedure (sweep, then each draft: accept / edit / dismiss / leave) before the
   Handoffs entry, and the entry's **Done** says how many were recorded, dismissed and
@@ -305,7 +349,7 @@ messages *other* sessions and never this one.
   described above so `/wb-resume` can act on it deterministically instead
   of re-deriving intent from the `**Next:**` prose.
 - **Edge case — save-request names no explicit next action:** e.g. plain
-  "save my progress" — compose `**Done:**`/`**In flight:**`/`**Next:**` as
+  "save my progress" — compose `**Drift:**`/`**Done:**`/`**In flight:**`/`**Next:**` as
   usual and omit the directive block entirely; don't infer one.
 
 ## Notes
