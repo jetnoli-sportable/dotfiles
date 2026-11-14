@@ -23,7 +23,7 @@
 #   questions a "Needs you" section; "no open questions" for a reply in the
 #             heading-per-point layout; else up to five "?" lines, "possibly open"
 #   artifacts the last five across the task's reply files
-#   decisions the last three entries under the task file's ## Decisions
+#   decisions the newest three in-force files in the task's dossier decisions/
 # Every figure that can go stale carries its age. Reads local files only.
 #
 # Overrides (tests): REPLY_LOG_DIR, CLAUDE_SESSIONS_DIR, CLAUDE_PROJECTS_DIR,
@@ -193,11 +193,11 @@ questions() {
     }'
 }
 
-# layout_decisions <task file> — dossier layout trial: the newest three in-force files
+# decisions <task file> — the newest three in-force decision files
 # in <tasks dir>/dossiers/<stem>/decisions/, oldest first, as "- <date> — <title>" (title
 # from the file's `# ` line, date from the <YYYY-MM-DD-HHMM>-<slug>.md name). Superseded
 # ones are skipped. Names sort by time, so the last three of the glob are the newest.
-layout_decisions() {
+decisions() {
   local stem d f; stem="${1##*/}"; stem="${stem%.md}"; d="${1%/*}/dossiers/$stem/decisions"
   [ -d "$d" ] || return 0
   local -a fs=("$d"/*.md)
@@ -215,18 +215,6 @@ layout_decisions() {
       fm { if ($0 == "---") fm = 0; next }
       /^# / { print "- " d " — " substr($0, 3); exit }' "$f"
   done
-}
-
-# decisions <task file> — the last three entries under ## Decisions, in file
-# order: ### titles (as wb-decide writes them) and top-level bullets that
-# start with a date (the older hand-written form); undated bullets are an
-# entry's body
-decisions() {
-  if [ "$(fm_field "$1" layout)" = dossier ]; then layout_decisions "$1"; return; fi
-  awk '/^## / { d = ($0 == "## Decisions") ; next }
-    d && (/^### / || /^- (\*\*)?[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) {
-      s = $0; sub(/^(### |- )/, "", s); gsub(/\*\*/, "", s); t[++n] = s }
-    END { for (i = (n > 3 ? n - 2 : 1); i <= n; i++) print "- " t[i] }' "$1" 2>/dev/null
 }
 
 main() {
