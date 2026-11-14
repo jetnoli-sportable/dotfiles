@@ -474,6 +474,22 @@ TIP_H="$(mkremote own-review)"; task proj--own-review review proj own-review
 new proj own-review >/dev/null
 assert_eq "review task: attaches" "$TIP_H" "$(tip own-review)"
 
+# cached origin/<slug> older than origin's tip (pushed from another clone since
+# the last fetch): the old tip sits inside the default branch, so reading the
+# cache would call the live branch merged and cut a divergent one
+git -C "$SEED" push -q origin development~1:refs/heads/own-pushed
+git -C "$PROJ" fetch -q origin +refs/heads/own-pushed:refs/remotes/origin/own-pushed
+TIP_P="$(gitc -C "$SEED" commit-tree "development^{tree}" -p development -m "own-pushed work")"
+git -C "$SEED" push -q origin "$TIP_P:refs/heads/own-pushed"
+task proj--own-pushed doing proj own-pushed
+out="$(new proj own-pushed)"
+assert_eq "stale cached tip: attaches at origin's current tip" "$TIP_P" "$(tip own-pushed)"
+if printf '%s' "$out" | grep -q 'already merged'; then
+  echo "FAIL - stale cached tip: not called merged"; fail=1
+else
+  echo "ok   - stale cached tip: not called merged"
+fi
+
 TIP_I="$(mkremote own-planned)"; git -C "$PROJ" fetch -q origin
 task proj--own-planned planned proj own-planned
 out="$(new proj own-planned)"

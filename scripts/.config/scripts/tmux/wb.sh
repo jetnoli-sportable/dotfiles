@@ -1776,8 +1776,11 @@ _wb_new_add_worktree() {
     local lsrc=0
     GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" ls-remote --exit-code --heads origin \
       "refs/heads/$branch" >/dev/null 2>&1 || lsrc=$?
-    if [ "$lsrc" -eq 0 ] && ! git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-      # On origin but not in the last fetch — pushed since.
+    if [ "$lsrc" -eq 0 ]; then
+      # On origin: refresh the cached ref even when one exists. It can predate
+      # a push from another clone, and both the merged check below and the
+      # attach base read it; a stale tip that sits inside the default branch
+      # would read as merged and cut a divergent branch under the same name.
       GIT_TERMINAL_PROMPT=0 "${to[@]}" git -C "$repo_dir" fetch -q origin \
         "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || lsrc=1
     fi
