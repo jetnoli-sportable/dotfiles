@@ -201,16 +201,9 @@ a migration that hasn't happened yet, more follow-up moves).
 
 ### 5. Author the proposal buffer
 
-> **Large proposals (roughly 8+ children, or when Jet asks for a page):** author
-> the proposal on the `review-page` skill instead of an nvim buffer — one row per
-> child with its Plan body in the collapsed `description` and slug/goal/size/
-> depends_on as editable `fields`; keep parent-edits (migration, plan rewrite,
-> follow-up moves) out of the row table and state them as a bundle in the intro;
-> ask at most two explicit questions, never encode alternative strategies as
-> skip-rows (`claude/.claude/skills/review-page/learnings.md`, 2026-09-14). The
-> answers are then translated into this exact grammar below and handed to
-> `wb breakdown --apply` unchanged.
-
+> **Large proposals (roughly 8+ children, or when Jet asks for a page):** put the
+> proposal on the `/decide` page instead of an nvim buffer; see "Page branch"
+> below. Smaller proposals keep the buffer path (steps 5-7).
 
 One buffer per parent, at `logs/breakdowns/<parent-stem>.md` in the
 dotfiles repo.
@@ -343,6 +336,61 @@ Rules worth restating because the parser enforces them exactly:
   `- goal:`/`- size:`/`- depends_on:`. Plan-body lines that happen to
   start the same way are prose and are never picked up, so a blank header
   bullet stays blank.
+
+### Page branch (large proposals)
+
+Use this instead of steps 6-7 when the proposal is large. The grammar above is
+still what `wb breakdown --apply` reads; the page only collects Jet's edits.
+
+1. **Build a `verdicts` spec** and publish it through `/decide`'s page path
+   (verdicts layout). Verdicts: `create`, `merge` ("Merge into another child"),
+   `skip`. One row per child: `suggested: "create"` with a `reason`, the Plan
+   body in a collapsed `text` block, and `fields` `slug`, `goal`, `size`,
+   `depends_on` (values as step 4 would write them; `depends_on` is the
+   comma-separated raw slugs, no backticks). Row `id` is a short stable key.
+   Ask at most two explicit questions; never encode alternative strategies as
+   skip rows.
+2. **Parent edits are not rows.** Put them in a top-level `breakdown` object
+   the page ignores, and state them as a bundle in the intro:
+
+   ```json
+   "breakdown": { "parent": "<parent-stem>", "repo": "<repo>",
+                  "branch": "<raw-parent-branch>", "continuing": "<row id or null>",
+                  "rewrite_plan": "<new parent ## Plan, or omit>",
+                  "moves": [ { "text": "<exact bullet text>", "item": "<row id>" } ],
+                  "plans": { "<row id>": "<child plan body, verbatim markdown>" } }
+   ```
+
+   `continuing` is the row whose child inherits the parent's branch/worktree
+   (omit or null for a ticket-seeded parent). A move follows its row's edited slug.
+3. **Set `base`** to the parent task file's checksum, computed exactly as
+   `sha256sum ~/code/tasks/<parent-stem>.md | cut -d' ' -f1`, and write it at
+   the spec's top level. The script uses the same command to detect that the
+   parent changed since publish.
+4. **On Submit**, fetch the answers with `ArtifactData`: `list` on `answers`
+   (page until there is no `next_cursor`) and `get meta/submitted`. Save
+   `{"answers": {"<item id>": <doc>, ...}, "submitted": <meta/submitted doc>}`
+   as `answers.json` in the dossier page folder, then run:
+
+   ```bash
+   claude/.claude/skills/wb-breakdown/scripts/answers-to-proposal.sh \
+     <spec.json> <answers.json> ~/code/tasks/<parent-stem>.md   # writes logs/breakdowns/<parent-stem>.md
+   ```
+
+   Apply step 5's clobber rule to `logs/breakdowns/<parent-stem>.md` first
+   (archive a prior unapproved file). The script's output lists what was
+   created, carried over (suggestion not accepted), skipped and merged: relay it.
+5. **A refusal goes back to Jet in chat** and nothing is applied. Two cases:
+   the parent changed since publish (re-read it, rebuild the spec, new `base`,
+   bump `rev`, publish a fresh round); or a row has a note and no verdict (a
+   question: answer it, then publish a fresh round with its reply in `prior`).
+   A `merge` row must name its target child in backticks in its note; the
+   script folds the row's plan body into that child.
+6. **Then step 8 unchanged.** Submitting the page is the approval: the script
+   writes the Approve line ticked and every child it emits ticked. Hand the
+   file to `wb breakdown --apply` as is; never hand-edit it. A Submit with
+   nothing chosen and the accept box unticked converts to zero children:
+   report that nothing was approved and stop.
 
 ### 6. Open the buffer, blocking
 
