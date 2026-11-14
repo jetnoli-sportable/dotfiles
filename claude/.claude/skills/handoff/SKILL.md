@@ -40,8 +40,8 @@ carries the context and instructions the routed worker will need before
   only; never touches a worktree or tmux session, see step 3 for why that's
   safe here) and `wb append` (step 5, body writes) — plus exactly one final
   shell-out to `handoff.sh`. **Task files under `~/code/tasks` are never
-  written with the Edit/Write tool** (the one narrow exception: the
-  `# <title>`/first-action preamble line, step 4 — see step 5's note).
+  written with the Edit/Write tool** (step 4's opening ask goes into the
+  dossier's `brief.md`, not the task file — see step 5's note).
   If something seems to need a `wb.sh` change or helper to work well, don't
   add it — note it as a follow-up in the target task's `open-items/`
   instead.
@@ -297,11 +297,10 @@ files, or the existing follow-ups. This preserves the "never overwrite" guarante
 than a habit to remember.
 
 **Never write or edit task-file body content under a `##` section with the
-Edit/Write tool — always shell out to `wb append` instead.** The one
-narrow, documented exception in this skill: the `# <title>`/first-action
-preamble line (step 4) sits *before* any `##` section, a position
-`wb append`'s heading-scoped model has no way to express, so that one line
-stays a direct Read+Edit insertion.
+Edit/Write tool — always shell out to `wb append` instead.** Step 4's
+`**Opening ask:**` line is not task-file content: it goes into the dossier's
+`brief.md` with a direct Read+Edit, because the brief has no `##` section
+`wb append` could target.
 
 ### 6. Invoke `handoff.sh` and relay the outcome
 
@@ -311,7 +310,7 @@ the literal repo/slug/path values you already resolved in steps 1-2** —
 do not copy the `$DOTFILES`/`$repo`/`$slug` variable names verbatim into a
 fresh shell call. Each of steps 2-5 above runs as its own tool call (a
 `bash -c` invocation for step 2, a `wb new --planned` Bash call for step 3,
-Read/Edit for step 4's title/first-action preamble line, and a `wb append`
+Read/Edit for step 4's `**Opening ask:**` line in `brief.md`, and a `wb append`
 Bash call for step 5), and this harness's shell state does not persist
 between separate Bash calls — a
 literal `"$DOTFILES/.../handoff.sh" "$repo" "$slug"` composed as a new,

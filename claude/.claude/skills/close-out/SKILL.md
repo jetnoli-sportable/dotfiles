@@ -168,7 +168,7 @@ because `wb down` and `wb done` end the session:
 - **Promotion.** Read all of the task's decision files in `decisions/`, not just this run's
   entries, and run `/wb-decide`'s step 7 (the promotion procedure) for the entries that
   are facts about how the system behaves. Unlike the mid-session offer, this one may
-  create the family's first `CONCEPTS.md`. When nothing is fact-shaped, say so in one
+  create the family's first `concepts.md` (lowercase, in the top parent's dossier). When nothing is fact-shaped, say so in one
   line and move on.
 
 ### 5. Check for other active or pending work tied to this task
@@ -338,7 +338,7 @@ never whether the record gets written first.
 - **Promotion offer** — a Decisions entry that changes how the system behaves gets
   `/wb-decide` step 7's offer (lines, target, reach, supersedes). An entry that only
   gives a rationale gets none.
-- **First `CONCEPTS.md` in a family** — Jet approves a line, the file is created in
+- **First `concepts.md` in a family** — Jet approves a line, the file is created in
   the top parent's dossier, and `wb family <task> --reseed` runs and its lines are
   relayed.
 
