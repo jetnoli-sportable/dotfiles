@@ -26,16 +26,17 @@ review_target_default_branch() {
 review_target_is_other() {
   local repo="$1" args="$2" tok cur up def defshort
   local -a toks
-  cur="$(git -C "$repo" symbolic-ref -q --short HEAD 2>/dev/null)"
-  up="$(git -C "$repo" rev-parse --abbrev-ref '@{u}' 2>/dev/null)"
-  def="$(review_target_default_branch "$repo")"
-  defshort="${def#origin/}"
   read -ra toks <<<"$args"
+  [ "${#toks[@]}" -gt 0 ] || return 1
   # ce-code-review refuses base: together with a PR or branch target, so a
   # base: run always reviews the current checkout, whatever its prose names.
   for tok in "${toks[@]}"; do
     [[ "$tok" == base:* ]] && return 1
   done
+  cur="$(git -C "$repo" symbolic-ref -q --short HEAD 2>/dev/null)"
+  up="$(git -C "$repo" rev-parse --abbrev-ref '@{u}' 2>/dev/null)"
+  def="$(review_target_default_branch "$repo")"
+  defshort="${def#origin/}"
   for tok in "${toks[@]}"; do
     [[ "$tok" == --* ]] && continue
     # Quotes, backticks and sentence punctuation come from prose arguments.

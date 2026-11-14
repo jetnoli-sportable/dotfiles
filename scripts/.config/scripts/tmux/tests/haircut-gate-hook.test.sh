@@ -112,7 +112,7 @@ check "haircut then docs/md-only commits" allow "$(skill_payload $CR "" "$r")"
 r="$(new_repo b)"
 commit "$r" src/a.sh "code"
 g -C "$r" commit -q --allow-empty -m 'chore: trim comments (haircut, nothing to trim)'
-check "empty nothing-to-trim haircut (R10)" allow "$(skill_payload $CR "" "$r")"
+check "empty nothing-to-trim haircut counts as a sweep" allow "$(skill_payload $CR "" "$r")"
 
 r="$(new_repo c)"
 commit "$r" docs/a.txt "docs"

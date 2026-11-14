@@ -67,7 +67,7 @@ chmod +x "$ROOT/shim-body"
 for t in stylua prettier shfmt goimports gofumpt; do cp "$ROOT/shim-body" "$SHIMS/$t"; done
 
 run_hook() { # <payload-json> -> sets out, rc
-  out="$(printf '%s' "$1" | env HOME="$FIXTURE_HOME" PATH="$SHIMS:/usr/bin:/bin" "$HOOK" 2>/dev/null)"
+  out="$(printf '%s' "$1" | env HOME="$FIXTURE_HOME" PATH="$SHIMS:/usr/bin:/bin" FMT_FAIL="${FMT_FAIL:-}" "$HOOK" 2>/dev/null)"
   rc=$?
 }
 payload_for() { # <file> [fixture] -> payload built from a captured real payload
@@ -364,8 +364,7 @@ mkrepo "$R"
 commit_file "$R" a.lua 'x'
 echo 'local x = UNFORMATTED' >"$R/a.lua"
 reset
-out="$(payload_for "$R/a.lua" | env HOME="$FIXTURE_HOME" PATH="$SHIMS:/usr/bin:/bin" FMT_FAIL=stylua "$HOOK" 2>/dev/null)"
-rc=$?
+FMT_FAIL=stylua run_hook "$(payload_for "$R/a.lua")"
 check "failing formatter: exit 0, empty stdout" "$(
   quiet_ok
   echo $?
@@ -374,15 +373,14 @@ check "failing formatter: exit 0, empty stdout" "$(
 # a failing clean-check must not format either
 echo 'local x = UNFORMATTED' >"$R/a.lua"
 reset
-out="$(payload_for "$R/a.lua" | env HOME="$FIXTURE_HOME" PATH="$SHIMS:/usr/bin:/bin" FMT_FAIL=stylua "$HOOK" 2>/dev/null)"
+FMT_FAIL=stylua run_hook "$(payload_for "$R/a.lua")"
 check "failing clean-check leaves the file alone" "$(
   content_is "$R/a.lua" 'local x = UNFORMATTED'
   echo $?
 )"
 
 echo 'const a = UNFORMATTED' >"$R/new.ts"
-out="$(payload_for "$R/new.ts" | env HOME="$FIXTURE_HOME" PATH="$SHIMS:/usr/bin:/bin" FMT_FAIL=prettier "$HOOK" 2>/dev/null)"
-rc=$?
+FMT_FAIL=prettier run_hook "$(payload_for "$R/new.ts")"
 check "failing in-place formatter on a new file: exit 0, empty stdout" "$(
   quiet_ok
   echo $?

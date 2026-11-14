@@ -51,7 +51,6 @@ load_invocations() {
 }
 
 eligible=()
-ids=()
 while IFS=$'\t' read -r line folder; do
   [ -d "$folder" ] && [ ! -L "$folder" ] && [ -O "$folder" ] || continue
   [ -f "$folder/metadata.json" ] && [ ! -e "$folder/.wb-stamped" ] || continue
@@ -63,14 +62,13 @@ while IFS=$'\t' read -r line folder; do
   fi
   review_target_is_other "$cwd" "$args" && continue
   eligible+=("$folder")
-  ids+=("${folder##*/}")
 done <<<"$found"
 [ "${#eligible[@]}" -gt 0 ] || exit 0
 
 wb="${WB_SH:-$HOME/.config/scripts/tmux/wb.sh}"
 if err="$("$wb" reviewed "$session" 2>&1 >/dev/null)"; then
   for folder in "${eligible[@]}"; do : >"$folder/.wb-stamped"; done
-  jq -n --arg m "wb: stamped $session's task as reviewed (review ${ids[0]})" '{systemMessage: $m}'
+  jq -n --arg m "wb: stamped $session's task as reviewed (review ${eligible[0]##*/})" '{systemMessage: $m}'
 else
   jq -n --arg m "wb: stamping $session's task as reviewed failed (${err%%$'\n'*}). Run \`wb reviewed\` yourself." '{systemMessage: $m}'
 fi

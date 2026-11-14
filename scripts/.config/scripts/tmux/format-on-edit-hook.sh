@@ -64,10 +64,10 @@ plugin_formatter() {
   fi
 }
 
-if [ "$(jq -r '.enabledPlugins["sportable@sportabletech-harness"] // false' "$HOME/.claude/settings.json" 2>/dev/null)" = true ]; then
-  case "$(plugin_formatter):$group" in
-    go:go | prettier:prettier) exit 0 ;;
-  esac
+if [ "$group" = go ] || [ "$group" = prettier ]; then
+  if [ "$(jq -r '.enabledPlugins["sportable@sportabletech-harness"] // false' "$HOME/.claude/settings.json" 2>/dev/null)" = true ]; then
+    [ "$(plugin_formatter)" = "$group" ] && exit 0
+  fi
 fi
 
 find_bin() {
@@ -113,11 +113,11 @@ format_in_place() {
 
 prefix="$(git -C "$dir" rev-parse --show-prefix 2>/dev/null)" || exit 0
 rel="$prefix$(basename -- "$file")"
-if git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
-  # $(...) drops trailing newlines, so compare through files.
-  tmp="$(mktemp)" || exit 0
-  trap 'rm -f "$tmp" "$tmp.fmt"' EXIT
-  git -C "$repo_root" cat-file blob "HEAD:$rel" >"$tmp" 2>/dev/null || exit 0
+# $(...) drops trailing newlines, so compare through files.
+tmp="$(mktemp)" || exit 0
+trap 'rm -f "$tmp" "$tmp.fmt"' EXIT
+# No HEAD version (a new or untracked file) counts as clean.
+if git -C "$repo_root" cat-file blob "HEAD:$rel" >"$tmp" 2>/dev/null; then
   format_stdin <"$tmp" >"$tmp.fmt" 2>/dev/null || exit 0
   cmp -s "$tmp" "$tmp.fmt" || exit 0
 fi

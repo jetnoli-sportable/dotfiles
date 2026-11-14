@@ -239,6 +239,9 @@ check "no TMUX_PANE: no call, no output" 0
 
 # --- SubagentStop ---------------------------------------------------------
 newid
+id="$NID"
+mkrun "$id" feat-x
+newid
 transcript "$ROOT/parent.jsonl" "$NID" none
 transcript "$ROOT/agent.jsonl" "$id" skill ""
 run_hook "$(sub_payload "$ROOT/parent.jsonl" "$ROOT/agent.jsonl")"
