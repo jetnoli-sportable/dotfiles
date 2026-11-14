@@ -314,11 +314,11 @@ Continuing into the recorded directive: /ce-code-review --full --subagents
 <td>States the recorded next action and the gap, asks to confirm or redirect before acting</td>
 </tr>
 <tr>
-<td>No terse entry after the save, but <code>## Plan</code>/<code>## Decisions</code>/frontmatter <code>status:</code> reads as newer</td>
+<td>No terse entry after the save, but <code>## Plan</code>/<code>decisions/</code>/frontmatter <code>status:</code> reads as newer</td>
 <td>Treated the same as the gap case above — confirm before acting</td>
 </tr>
 <tr>
-<td><code>layout: dossier</code> task</td>
+<td>Reading order</td>
 <td>Reads <code>## Now</code> first, then the task file's one handoff. If that is an <code>(auto)</code> stamp, the rich entry is the newest file in <code>handoffs/</code> with <code>auto: false</code>, and the auto stamp and any newer auto files are the gap. Freshness check reads <code>decisions/</code>; says so if <code>notes.md</code> changed</td>
 </tr>
 <tr>
@@ -352,7 +352,7 @@ themselves are gone, run <code>wb resume &lt;task&gt;</code> first to get a live
 session back, then <code>/wb-resume</code> applies once you're in it.</li>
 <li><strong>Doesn't detect drift with certainty.</strong> The gap check catches
 automatic <code>wb pause</code>/<code>wb done</code>/<code>wb resume</code> entries and an eyeballed
-read of <code>## Plan</code>/<code>## Decisions</code>/status — it isn't a diff against every
+read of <code>## Plan</code>/<code>decisions/</code>/status — it isn't a diff against every
 possible out-of-band edit.</li>
 </ul>
 <h2 id="next-steps--reverting">Next steps / reverting</h2>

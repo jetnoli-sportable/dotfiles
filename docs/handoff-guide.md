@@ -56,12 +56,11 @@ runtime-variable in it, which is what makes the boot-ready/permission-
 prompt anchors safe to match against (see `docs/archive/roadmap-handoff.md`'s
 dry-run findings for the mechanical reasoning).
 
-**Layout tasks (trial).** When the target task has `layout: dossier` (a new task
-gets it only when its parent has it), there is no "First action" line.
+**The brief.** Every new task has `layout: dossier`, so there is no "First action" line.
 `/handoff` drafts a `brief.md` in the task's dossier instead: type, why, done
 when, not doing, and each claim marked checked or assumed with its date. The
 routed worker's first session confirms the blank or assumed fields one question
-at a time. See [wb-guide](wb-guide.html), "Dossier layout (trial)".
+at a time. See [wb-guide](wb-guide.html), "Dossier layout".
 
 ## Pane mode — removed 2026-09-14
 

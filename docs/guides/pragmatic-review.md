@@ -25,7 +25,7 @@ questions its verdicts depend on, and keeps the answers you confirm in
 `~/code/tasks/context/<business>/pragmatic-review-learnings.md`, so the next
 run for the same business asks fewer. Nothing changes until you approve:
 for a task family, approved reorders become `depends_on` edits and a
-Decisions entry on the parent (a file in `decisions/` on a `layout: dossier` task); the reviewed plan's text is never edited.
+Decisions entry on the parent (a file in its `decisions/`); the reviewed plan's text is never edited.
 
 Not the tool for: whether a plan is coherent or feasible (`ce-doc-review`),
 what a plan changes (the plan-diff view), or splitting one task into
@@ -64,7 +64,7 @@ For a task family, name the parent's stem instead of a path:
 | Review document | Revised order, one verdict per step, context used, changes to apply | the target's task dossier |
 | Review page | `scripts/build-page.py` renders the review Markdown as a page beside it: collapsible section rail, headline cards, a planned-against-revised order diagram, a verdict-count bar, verdict filters and colour-striped verdict cards, option cards with the recommended one marked. Never edit the HTML; built on review-guide's `scripts/mdpage.py` | SKILL.md step 7 |
 | Verdict surface | About 15 steps or more: review page (untouched row accepts its suggestion). Fewer: a decision-buffer with options per step, Defer and Skip last (silent close applies nothing) | SKILL.md step 8 |
-| Another session's plan | When the owning task has a live session or an unfinished plan, the review is input only: per-step options in the review doc and a `wb append` pointer in the owner's `## Follow-ups`; nothing is applied | SKILL.md step 8 |
+| Another session's plan | When the owning task has a live session or an unfinished plan, the review is input only: per-step options in the review doc and a `wb append` pointer in the owner's open items; nothing is applied | SKILL.md step 8 |
 | Applying | Task families only: preflight for live sessions, `wb set <stem> depends_on <full list>`, one `wb append <parent> Decisions` entry | SKILL.md step 8 |
 | Learnings | Facts (rewritten in place) and Calibration (append-only, one line per verdict you overrode); written only after you confirm | `~/code/tasks/context/README.md` |
 

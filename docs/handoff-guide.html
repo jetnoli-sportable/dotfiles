@@ -298,12 +298,11 @@ pointer <code>handoff.sh</code> injects is a single fixed string with nothing
 runtime-variable in it, which is what makes the boot-ready/permission-
 prompt anchors safe to match against (see <code>docs/archive/roadmap-handoff.md</code>'s
 dry-run findings for the mechanical reasoning).</p>
-<p><strong>Layout tasks (trial).</strong> When the target task has <code>layout: dossier</code> (a new task
-gets it only when its parent has it), there is no &quot;First action&quot; line.
+<p><strong>The brief.</strong> Every new task has <code>layout: dossier</code>, so there is no &quot;First action&quot; line.
 <code>/handoff</code> drafts a <code>brief.md</code> in the task's dossier instead: type, why, done
 when, not doing, and each claim marked checked or assumed with its date. The
 routed worker's first session confirms the blank or assumed fields one question
-at a time. See <a href="wb-guide.html">wb-guide</a>, &quot;Dossier layout (trial)&quot;.</p>
+at a time. See <a href="wb-guide.html">wb-guide</a>, &quot;Dossier layout&quot;.</p>
 <h2 id="pane-mode--removed-2026-09-14">Pane mode — removed 2026-09-14</h2>
 <p><code>/handoff-pane</code> (a second agent in a split pane of the current tmux window,
 sharing this session's worktree) was removed in the 2026-09-14 piece audit —

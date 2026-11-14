@@ -626,23 +626,22 @@ claude_sessions:      # optional: id@iso-ts[@primary],... — a record of
                       # `wb down`/`wb pause`, blanked by `wb done`. Never
                       # consulted for resume — Claude's own transcript
                       # store on disk is the source of truth for that.
+layout: dossier       # marker that `wb migrate` and wb-store read
 ---
 # Title
+
+## Now
+
+(not started — the first `/wb-save` or `wb now` fills this in)
 
 ## Plan
 
 ## Handoffs
-
-## Decisions
-
-## Done
-
-## Follow-ups
 ```
 
-This is the template for a task without `layout:`. A task with `layout: dossier`
-has no `## Decisions`, `## Done` or `## Follow-ups` and gains a `## Now`; see
-"Dossier layout (trial)" below.
+Every task uses this template, with `layout: dossier` in its frontmatter. The
+task file keeps only what is current; decisions, follow-ups and older handoffs
+are files in the task's dossier. See "Dossier layout" below.
 
 It's a real git repo you can `cd` into, `git log`, or open in `wb` itself
 (it shows up as a repo row like anything else under `~/code`). Pre-existing
@@ -675,18 +674,20 @@ column — `active`/`dormant`/`cold`, the same derived value the picker's
 dormant rows and the HTML board's toggle use — dropped entirely on a
 narrow split pane rather than squeezing STATUS/REPO/TASK to make room.
 
-### Dossier layout (trial)
+### Dossier layout
 
 The task file above grows without limit: every save, decision and follow-up
 lands in it, so it gets slow to read and its sections get quoted by half the
 tools. The dossier layout stops that. A task whose frontmatter has
 `layout: dossier` keeps only what is current in its file, and moves each record
-into its own file in the task's dossier. Both layouts coexist until the
-store-wide switch. A task without `layout:` behaves exactly as described
-elsewhere in this guide. A new task gets `layout: dossier` only when its parent
-has it.
+into its own file in the task's dossier. Every task uses it: `wb new`,
+`wb new --planned` and `wb breakdown` children all get `layout: dossier`, a
+`## Now` placeholder and a drafted `brief.md`. Nothing in `wb` branches on the
+marker; it is there for `wb migrate` and wb-store. `wb migrate <task>|--all`
+converts an old-shape task file (one written by hand or brought from elsewhere)
+into this layout.
 
-On a layout task:
+For every task:
 
 - **The task file** holds frontmatter, `# Title`, `## Now`, `## Plan` and one
   `## Handoffs` entry. `## Now` is about 10 lines: the goal, the current rung,
@@ -702,18 +703,19 @@ On a layout task:
   automatic stamps from `wb pause`, `resume`, `down` and `done` do the same, so the
   one handoff in the task file may be an `(auto)` stamp; the last `/wb-save`
   entry is then the newest file in `handoffs/` with `auto: false`.
+  Any other heading is appended under `## <heading>` in the task file (a missing
+  heading is added at the end).
 - **New verbs.** `wb now <task> -` replaces the `## Now` block from stdin.
   `wb decide-supersede <task> <old-id> -` records a reversal: it writes the new
   decision with `supersedes: [<old-id>]` and flips the old file to
   `status: superseded`, in one locked step. `<old-id>` is the old file's name
   without `.md`. This is the only edit a decision file ever gets.
   `wb followups <task>` lists the task's open follow-ups, one per line as
-  `<ref><TAB><title>` (on a layout task the ref is the open-items file's name
-  without `.md`; on an old-layout task it is the item's 1-based index among the
-  open bullets). `wb followup-done <task> <ref> [<note>|-]` marks one done under
-  the task lock: `<ref>` is an exact id or index, else a case-insensitive
-  substring of the id or title that matches exactly one open item (several
-  matches, no match, or an item already done exits 1). On a layout task it sets
+  `<ref><TAB><title>` (the ref is the open-items file's name without `.md`).
+  `wb followup-done <task> <ref> [<note>|-]` marks one done under the task lock:
+  `<ref>` is an exact id, else a case-insensitive substring of the id or title
+  that matches exactly one open item (several matches, no match, or an item
+  already closed exits 1). It sets
   `status: closed`, adds `closed: <date>` and, with a note, a
   `Closed <date>: <note>` line, then rebuilds the views; closed items drop out
   of the counts and of the board's lists.
@@ -727,8 +729,7 @@ On a layout task:
   them, so a commit names record files and never a view: `git add
   dossiers/<stem>/decisions/<file>.md`, not `git add dossiers/<stem>/decisions.md`.
   A fresh clone has no views until you run `wb views --all`; `wb views <task>...`
-  rebuilds one or more (layout tasks only; a named task without the layout prints
-  one line and exits 1, `--all` just skips it). The store's `post-merge` and
+  rebuilds one or more (a task with no dossier yet is left alone). The store's `post-merge` and
   `post-rewrite` git hooks run it for the dossiers a pull or rebase changed, so the
   views stay fresh after `git pull`. The hooks live in
   `scripts/.config/scripts/tmux/tasks-git-hooks/`; `wb install-hooks` points the
@@ -738,16 +739,15 @@ On a layout task:
   also does nothing until the store has stopped tracking the views (the
   `.gitignore` lists them and none is still committed), so stowing the hooks
   before the switch leaves pulls clean: rebuilding a committed view would leave
-  a modified tracked file behind. A task counts as on the layout only when its
-  frontmatter says `layout: dossier`.
+  a modified tracked file behind.
 - **Pages you write**, one Markdown file each: `notes.md` (your scratch; agents
   read it only when you point to it and never write it), `brief.md` (the task's
   opening prompt, drafted at creation: type, why, done when, not doing, claims
   marked checked or assumed with their date; it replaces the "First action" line,
   and the first session confirms its blank or assumed fields one question at a
-  time), `spec.md`, `ladder.md` and `concepts.md` (today's `CONCEPTS.md`).
-  A child's dossier is created on its first write; family-wide pages live in the
-  parent's.
+  time), `spec.md`, `ladder.md` and `concepts.md` (the family's settled facts).
+  A task's dossier is created with the task (`brief.md` first); family-wide pages
+  live in the parent's.
 - **Page frontmatter.** A lasting page carries `tags:`, optional `rung:`,
   `links:`, optional `retire_when:`, `visibility:` and `url:` (as an HTML comment
   at the top of an HTML-only page). Add it when the page is next edited.
@@ -781,14 +781,13 @@ record whose first body line is neither is never touched. It takes each task's l
 run, and with `--dry-run` prints what would change per record and writes nothing.
 
 Skills that read these (`/wb-save`, `/wb-resume`, `/wb-decide`, `/close-out`,
-`/handoff`, `/quick-wins`, `/review-guide` and others) check `layout:` and read
-the new places. `wb migrate` converts an existing task. The old path goes away
-after the switch.
+`/handoff`, `/quick-wins`, `/review-guide` and others) read the dossier. `wb
+migrate` converts an old-shape task file.
 
 ### Decision propagation
 
-A decision recorded in one task's `## Decisions` (on a layout task, one file in `decisions/`) used to reach nobody else. A
-running session never sees another task's `## Decisions`, so a sibling task in the
+A decision recorded in one task (a file in its dossier's `decisions/`) used to reach nobody else. A
+running session never sees another task's decisions, so a sibling task in the
 same family could keep building on an assumption that had just been overturned. (An
 edit to a `CONCEPTS.md` a session already imports does reach it, as a changed-file
 notice on its next prompt; a newly created one doesn't until `/clear` or a restart.) Two stop-gap steps, until the cross-agent sync stage replaces them:
@@ -1136,15 +1135,12 @@ still want running.
 The picker went presence-only, so parked items and follow-ups don't get
 rows anymore — only live sessions/agents do. Two places to look instead:
 
-- **Follow-ups** live under each task's `## Follow-ups` heading in
-  `~/code/tasks/*.md`. Scan them all at once:
-  `grep -A5 '^## Follow-ups' ~/code/tasks/*.md`, or open one task file
-  directly. A task with `layout: dossier` keeps them as files in
-  `~/code/tasks/dossiers/<stem>/open-items/` (open ones have `status: open`).
-  A top-level bullet is open unless it is ticked `[x]`, with or without a
-  checkbox. `wb followups <task>` lists the open ones; `wb followup-done <task>
-  <ref> [<note>]` marks one done (on an old-layout task it rewrites the bullet
-  as `- [x] <text>`).
+- **Follow-ups** are files in `~/code/tasks/dossiers/<stem>/open-items/`; open
+  ones have `status: open`. Scan them all at once:
+  `grep -l '^status: open' ~/code/tasks/dossiers/*/open-items/*.md`, or read a
+  task's generated `index.md`. `wb followups <task>` lists the open ones;
+  `wb followup-done <task> <ref> [<note>]` marks one done (it sets
+  `status: closed` and `closed:` on the file).
 - **Captured items** live in the standing weekly-capture doc
   (`~/code/tasks/weeks/capture.md`, `wb week path` to print it). Run
   `/weekly-review` to review, promote, or dismiss them — that's the intended

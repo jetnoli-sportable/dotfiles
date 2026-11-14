@@ -18,7 +18,7 @@ browser's storage where nothing else could see them.
 `/verify-behaviour` replaces the ticking. A feature writes its live checks
 into `checks.md` in its task-store dossier. One standing watcher session,
 on Sonnet, waits for evidence at no token cost. When a transcript, the
-decision-capture log or a task's `## Decisions` (for a `layout: dossier` task, a new file in its `decisions/`) shows something a check is
+decision-capture log or a task's decisions (a new file in its `decisions/`) shows something a check is
 waiting for, the watcher wakes, judges it, and records **met**, **broken**,
 **partial** or a **proposal** in `verdicts.md` beside the checks. Every
 verdict quotes its evidence. Checks that need judgement go to Jet as "looks
