@@ -13,7 +13,7 @@ execution: code
 
 - **Objective:** Jet's wb sessions start on the right code and come back cleanly after a crash. `wb new`/`wb resume` pick up a task's own pushed branch instead of cutting a divergent one, and a stale idle worktree is brought up to date on reattach. One command restores a set of sessions. The context card shows the right session and keeps its recap. The wb scripts are easier to review and are fully checked by shellcheck.
 - **Means:** six small fixes, landed in dependency order, in `scripts/.config/scripts/tmux/` (wb.sh, claude-card.sh, claude-reply-log.sh), landed as one branch and one PR with one commit or more per unit (KTD1).
-- **Authority:** this plan, then the task file `~/code/tasks/dotfiles--wb-bash-fixes.md` (its Plan section and its two 2026-11-14 18:00 decision files), then each child task file named in Sources.
+- **Authority:** this plan, then the task file `~/code/tasks/dotfiles--wb-bash-fixes.md` (its Plan section and its in-force decision files of 14 Nov), then each child task file named in Sources.
 - **Stop conditions:**
   - Stop and ask if the shellcheck findings grow past about 120 once wb.sh parses with the new code; that would justify a second PR.
   - Stop and ask if a headless `claude -p` run turns out to write a `~/.claude/sessions/<pid>.json` entry with a `tmux` field (it changes U5's filter decision).
@@ -35,7 +35,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 
 ### Key Decisions
 
-- **Attach rule for an origin-only slug-named branch.** Attach only when the task file existed before this `wb new`, its status is not `done`, and the branch has no merged PR; an unknown PR state attaches with a note. Governs R3, R4. (session-settled: user-directed — chosen over a status-only check: a status check alone would resurrect a leftover branch under a new planned task, since `wb new --planned` stamps `branch: <slug>` on every planned task.)
+- **Attach rule for an origin-only slug-named branch.** Attach only when the task file existed before this `wb new`, its status is `doing`, `paused` or `review`, and the branch is not merged; an unknown PR state attaches with a note. Governs R3, R4. (session-settled: user-directed — chosen over a status-only check and over allowing any status except `done`: `planned` task files are often created ahead of time by handoff or `wb new --planned`, so a reused slug's unmerged leftover branch would be attached on first start.)
 - **The stale-worktree fast-forward is automatic.** Governs R6. (session-settled: user-directed — chosen over a prompt or flag: a prompt blocks `wb resume` and `--agent`/handoff launches that run without a terminal.)
 - **`wb restart` takes a list file and a `--crashed` mode.** Governs R8, R9. (session-settled: user-approved — chosen over list files only: after a crash the list should come from the store, not be hand-written.)
 - **The shellcheck clean-up stays in this PR.** 78 findings once the file parses is reviewable in batches. Governs R15.
@@ -89,10 +89,6 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 
 - Clearing the stale `wb new --agent` warm-resume open item on `dotfiles--ceremonies` is the v1 coordinator's job; it was messaged on 14 Nov.
 
-### Open Questions
-
-- Q1. **Should the attach rule exclude `planned` tasks?** (not blocking: U2 builds the decided rule if unanswered) The edge-case review found that `handoff.sh` and `wb new --planned` create the task file before the first `wb new`, so a recycled slug whose earlier branch was pushed but never merged would be attached on the first start. The existing test at `tests/wb-new-start-point.test.sh` (the "slash-slug re-entry" block) encodes exactly that case as "must not be resurrected". Recommendation: allow only `doing`, `paused` and `review`; every case in the original bug (pushed PR branch, local branch deleted, resume on another machine) has one of those statuses. The plan implements the rule as decided (status not `done`) unless Jet picks the allowlist.
-
 ---
 
 ## Planning Contract
@@ -101,7 +97,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 
 - KTD1. **One branch, one PR, commits per unit, in the order U1-U7.** The move goes first so later diffs don't straddle it; U2 and U3 touch the same functions and go back to back; shellcheck goes last so its fixes see the final code. (session-settled: user-approved — chosen over separate PRs per fix: Jet's standing rule ships reviewed pieces that build on each other as one PR in personal repos.)
 - KTD2. **`wb-done-sweep.sh` is sourced at the top of wb.sh only if present.** `SCRIPT_DIR` does not resolve symlinks and stow links scripts one file at a time, so an unconditional `source` would break every wb command between merge and re-stow (the comment above the `migrate)` case says the same). `_wb_done_classify` and `_wb_done_print_unknowns` check `declare -F wb_sweep_classify` first and stop with a re-stow message; a missing function would otherwise surface as rc 127 inside `$(...)` and read as a classifier error. Lazy sourcing inside `cmd_done` was rejected: `tests/wb-done-sweep.test.sh` calls `wb_sweep_classify` directly after sourcing wb.sh and must pass unchanged.
-- KTD3. **The attach check runs cheapest-first and offline-safe.** In `_wb_new_add_worktree`, for a slug-named branch: (1) task file existed (`[ -f "$own_file" ]` before seeding, which happens later in `cmd_new`), (2) status gate per Key Decisions and Q1, (3) the existing bounded `ls-remote`/fetch block, (4) a local check that `origin/<branch>` is an ancestor of `origin/<default>` (fully merged, no gh call), (5) `wb_pr_merge_status`, where `merged` with an open PR (`wb_branch_has_open_pr`) counts as not merged. Steps 1-2 failing skip the network entirely, so a new task stays offline-safe (R4). The ref checked is the exact `branch`, never its sanitized form. Implements R3-R5.
+- KTD3. **The attach check runs cheapest-first and offline-safe.** In `_wb_new_add_worktree`, for a slug-named branch: (1) task file existed (`[ -f "$own_file" ]` before seeding, which happens later in `cmd_new`), (2) status is `doing`, `paused` or `review` (Key Decisions), (3) the existing bounded `ls-remote`/fetch block, (4) a local check that `origin/<branch>` is an ancestor of `origin/<default>` (fully merged, no gh call), (5) `wb_pr_merge_status`, where `merged` with an open PR (`wb_branch_has_open_pr`) counts as not merged. Steps 1-2 failing skip the network entirely, so a new task stays offline-safe (R4). The ref checked is the exact `branch`, never its sanitized form. Implements R3-R5.
 - KTD4. **The fast-forward runs only when `cmd_new` is about to create the tmux session, and never right after `_wb_new_add_worktree` cut the branch.** A live session may have an agent mid-edit, and a freshly cut branch is already at its start point. Skip, with one warning line, when: HEAD in the worktree is detached or is not `refs/heads/<branch>`; a merge, rebase, cherry-pick, revert or bisect is in progress; tracked files are modified; `origin/<branch>` exists and is not an ancestor of the target (pull first). Use `merge --ff-only` so git itself refuses if an untracked file would be overwritten; surface that refusal as a warning, not a failure. For a local branch with no worktree, add the worktree first, then fast-forward inside it. Implements R6, R7.
 - KTD5. **`_wb_new_start_point` gets a quiet, non-interactive mode for reattach.** Today it opens a menu when stdin and stderr are terminals, prints notes, and calls gh per blocker. Reattach needs the same choice (first usable blocker, else `origin/<default>`) without the menu or notes, and returning only remote-tracking refs, so it never fast-forwards onto another session's unpushed local branch. One fetch of the default branch per reattach is acceptable; gh calls stay. A separate resolver was rejected: two copies of the blocker rules would drift.
 - KTD6. **`wb restart` is a wb verb that runs `wb resume` per stem as a subprocess.** `cmd_resume` exits on error, so a subprocess keeps one failure from ending the loop. Exact resolution (R10): `wb restart` skips any entry without an exact `<stem>.md` task file, and `_wb_resolve_task_fuzzy` learns to prefer an exact stem match before substring matching, so the `wb resume` it calls picks that same file; this also fixes the known limit where a parent whose stem prefixes its children could not be resumed. Prompt readiness is polled from `#{pane_current_command}` (a shell, with a bounded timeout) rather than matching a themed prompt; on timeout the command is printed for Jet to type, never sent blind. The `C-u` before typing stays, because the layout may already have pre-typed `claude --resume <id>`. Refuses to run outside tmux, as the dossier script does.
@@ -169,7 +165,7 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 (KTD1). U5 is independent of U1-U4 
 ### U2. Attach `wb new` to the task's own origin-only branch
 
 - **Goal:** a slug-named branch that exists only on origin is attached when it belongs to the live task.
-- **Requirements:** R3, R4, R5; Key Decisions (attach rule); KTD3; Q1.
+- **Requirements:** R3, R4, R5; Key Decisions (attach rule); KTD3.
 - **Dependencies:** U1.
 - **Files:**
   - Modify: `scripts/.config/scripts/tmux/wb.sh` (`_wb_new_add_worktree` and its header comment)
@@ -179,7 +175,7 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 (KTD1). U5 is independent of U1-U4 
   2. Pass whatever `cmd_new` already knows (task file path) so the gate reads status before seeding.
   3. Print `wb new: attaching <slug> to existing origin/<branch>` on attach, and a note naming the leftover origin branch on a refused attach.
   4. Rewrite the header comment's "Not done for a slug-named branch" bullet to the new rule.
-  5. Rewrite the "slash-slug re-entry … must NOT be resurrected" test so its leftover branch is merged (still refused), and add the attach cases below.
+  5. Keep the "slash-slug re-entry … must NOT be resurrected" test as is (its task is `planned`, so it is still refused), and add the attach cases below.
 - **Patterns to follow:** the existing bare-origin/seed/proj fixture and the `wb_pr_merge_status` override in the same test file.
 - **Test scenarios:**
   - Task file exists with status `doing`, `origin/<slug>` exists, not merged → worktree tracks `origin/<slug>`, tip equals the remote tip, attach line printed.
@@ -188,10 +184,11 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 (KTD1). U5 is independent of U1-U4 
   - `wb_pr_merge_status` returns `merged` and there is no open PR → fresh branch, leftover note.
   - `merged` but an open PR exists → attaches.
   - Task file status `done` → fresh branch, no `ls-remote` attempted.
+  - Task file status `paused` or `review`, unmerged `origin/<slug>` → attaches.
   - No task file before this `wb new` → fresh branch, no `ls-remote` attempted (offline-safe).
   - Origin unreachable with the gates passed → aborts before creating a worktree or branch.
   - `origin/<slug>` deleted on origin but still cached locally → not attached (existing stale-ref test still passes).
-  - Planned task with an unmerged leftover branch → outcome per Q1's answer.
+  - Planned task with an unmerged leftover branch → fresh branch, leftover note, no `ls-remote` attempted.
 - **Verification:** all scenarios pass under gawk and mawk; the adopted-name tests are unchanged.
 
 ### U3. Fast-forward a stale, commit-less worktree on reattach
