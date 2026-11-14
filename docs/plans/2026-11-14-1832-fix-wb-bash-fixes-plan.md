@@ -75,7 +75,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 **Decision capture**
 
 - R17. The sweep stops drafting the short-lived operational steps Jet dismisses (candidate shapes: merge or go-live order, "rebase the stack", "re-run the tests before merging", "don't fix X in this PR"; the prompt names only the shapes U8's measurement shows are dismissed clearly more often than accepted) and decisions already recorded in the task's `decisions/`.
-- R18. `wb down` prints one line naming the number of shelved decision drafts and the command to list them (`wb-capture.sh shelved --task <stem>`) when the task's shelf still holds drafts; it never blocks the close.
+- R18. When the task's shelf still holds drafts, `wb down` (and `wb pause`, which calls it) prints one line naming the number of shelved decision drafts and the command to list them (`wb-capture.sh shelved --task <stem>`) before it writes or closes anything. With a terminal attached it then waits for one key: any key continues the close, Ctrl-C leaves the session open with nothing written. Without a terminal it prints the line and continues. It never refuses the close.
 
 **shellcheck**
 
@@ -114,7 +114,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 - KTD9. **The shellcheck parse fix moves the `# shellcheck source=wb-migrate.sh` directive inside the `migrate)` item, directly above its `source` command.** Findings then go in two commits: real defects (SC1087, SC2178/SC2128/SC2179 array-vs-string, SC2010/SC2045 `ls` parsing, SC2120/SC2119, SC2094), then noise (SC2034 unused variables, SC2016 single quotes). A disable gets a one-line reason; an unused variable that is really unused is deleted, not disabled.
 
 - KTD10. **The duplicate-decision cause is found before the prompt is changed.** The sweep already builds its "already recorded" list from the task's `decisions/` files on each run (`decisions_section` in wb-capture-sweep.sh), and already re-snapshots that list after the model answers, re-running the model once if it changed and marking a later change with a `.stale` sidecar (the `rerun`/`stale` handling, wb-capture-sweep.sh header). So a race between snapshot and shelving is already handled. For each of the ~10 dismissed duplicates, compare the draft's `draft_shelved` log time with the decision file's creation time. Decision first: the model ignored a listed decision, so fix with prompt wording and by leaving out decision files whose frontmatter says `status: superseded`. Draft first: the sweep cannot prevent it; record a follow-up for `/wb-decide` to dismiss a matching shelved draft when it records, and make no sweep change for those.
-- KTD11. **`wb down` warns and never blocks.** It asks `wb-capture.sh shelved --count --task <stem>` through the existing `_wb_capture_verb` wrapper, so a missing capture script prints nothing. The count ignores the capture kill switch (as `wb done`'s shelf check does): drafts on the shelf still need review when capture is off. A refusal was rejected: `wb down` is the routine way to end a session (and the picker's `_down` path), and `wb done` already refuses at the point where drafts would be lost.
+- KTD11. **`wb down` warns and pauses at a terminal, and never refuses.** (session-settled: user-directed — chosen over writing the count into the `wb down` handoff entry, and over both: `wb resume`'s own automatic entry displaces the task file's one handoff and `wb resume` prints none, so in the match-mode spike case (`wb down` 8 Nov 23:09, `wb resume` 23:50, drafts first reviewed 6 days later) a recorded count would never have been seen. A line printed before `tmux kill-session` is lost with the pane (`detach-on-destroy off`), and the picker's `p` redraws over it, so the line must hold the terminal.) The count and pause run at the start of `cmd_down`, before the snapshot, the task lock and the Handoffs write, so Ctrl-C at the prompt leaves nothing written and the session open. The pause runs only when stdin is a terminal (`[ -t 0 ]`), so `/close-out` running `wb down` through Claude's Bash tool never waits; the picker's fzf `execute` gives the command the terminal, so `p` pauses. The picker's current-session path (`_down` with `--keep-session`) already pauses once; fold the two into one prompt there. It asks `wb-capture.sh shelved --count --task <stem>` through the existing `_wb_capture_verb` wrapper, so a missing capture script prints nothing. The count ignores the capture kill switch (as `wb done`'s shelf check does): drafts on the shelf still need review when capture is off. A refusal was rejected: `wb down` is the routine way to end a session (and the picker's `_down` path), and `wb done` already refuses at the point where drafts would be lost.
 
 ### High-Level Technical Design
 
@@ -313,10 +313,13 @@ U1 → U2 → U3 → U4 → U5 → U8 → U9 → U6 → U7 (KTD1). U5 and U8 are
 - **Files:**
   - Modify: `scripts/.config/scripts/tmux/wb.sh` (`cmd_down`, and its header line if the help text mentions the warning)
   - Test: the existing `wb down` suite under `scripts/.config/scripts/tmux/tests/` (found at implementation; add a case beside its handoff assertions)
-- **Approach:** after the Handoffs entry and before the session kill, count the task's shelved drafts through `_wb_capture_verb` and print the one-line warning when the count is above zero.
+- **Approach:** at the start of `cmd_down`, after the session and task file are resolved and before the snapshot, lock and Handoffs entry, count the task's shelved drafts through `_wb_capture_verb`. When the count is above zero, print the one-line warning; when stdin is a terminal, follow it with `read -rn1 -p "… press any key to close, Ctrl-C to keep the session "`. In `_down`'s current-session branch, skip its own "not closing" pause when the warning already paused (one prompt carrying both messages).
 - **Patterns to follow:** `wb_shelved_counts` and `cmd_done`'s shelf check for calling the capture verbs.
 - **Test scenarios:**
-  - Task with 2 shelved drafts → `wb down` prints a line naming 2 drafts and `wb-capture.sh shelved --task <stem>`, then closes the session as usual.
+  - Task with 2 shelved drafts, no terminal → `wb down` prints a line naming 2 drafts and `wb-capture.sh shelved --task <stem>`, does not wait, then closes the session as usual.
+  - Same with a terminal (run under `script` or a pty helper) and a key sent → the prompt appears before any Handoffs entry is written, then the close completes.
+  - Same with a terminal and SIGINT at the prompt → no Handoffs entry, no status change, session still alive.
+  - `wb pause` on a task with drafts → same warning (it calls `cmd_down`).
   - Task with no drafts → no warning line.
   - Capture script missing → no warning, no error, session closes.
   - Capture kill switch set with 2 drafts on the shelf → warning still printed (same as `wb done`'s shelf check).
@@ -362,7 +365,7 @@ U1 → U2 → U3 → U4 → U5 → U8 → U9 → U6 → U7 (KTD1). U5 and U8 are
 | mawk | each touched suite also run with the awk shim pointing at host mawk (pattern in `tests/wb-done-sweep.test.sh`) | U1-U5, U8, U9 |
 | shellcheck | `koalaman/shellcheck:stable` on a copy under `~/.cleanroom/wb-bash-fixes-sc/`, `-x` | U6, U7 (and no new findings in the regions U1-U5, U8 and U9 touch) |
 | Help listing | `tests/wb-help.test.sh` | U4 |
-| Live check | after merge and re-stow: `wb restart --dry-run --crashed`, a `wb resume` of an idle stale task, the card on a live pane, and `wb down` on a task with shelved drafts | PR |
+| Live check | after merge and re-stow: `wb restart --dry-run --crashed`, a `wb resume` of an idle stale task, the card on a live pane, and `wb down` on a task with shelved drafts, typed in its own session and via the picker's `p` (the line stays readable until a key is pressed) | PR |
 | Accuracy check | one to two weeks after merge, the graduation review's `python3 -I tools/review.py`, split at the merge time, shows at least 70% accepted for drafts shelved after it, over at least 50 resolved post-merge drafts; and the share of dismissed post-merge drafts matching the R17 shapes is lower than the review's pre-merge share. Both recorded in `checks.md` | U8 (post-merge, in `checks.md`) |
 
 ## Definition of Done
