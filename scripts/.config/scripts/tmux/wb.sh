@@ -3477,18 +3477,18 @@ _wb_breakdown_validate() {
 # carrying an A->B->A parent chain — this operation never creates one
 # itself, since every new child's parent: is <stem>, a leaf write.
 _wb_bd_check_no_cycle() {
-  local stem="$1" seen=" $1 " cur="$1" depth=0 next_file next_parent
+  local stem="$1" seen_chain=" $1 " cur="$1" depth=0 next_file next_parent
   while [ "$depth" -lt 50 ]; do
     next_file="$TASKS_DIR/$cur.md"
     [ -f "$next_file" ] || return 0
     next_parent="$(wb_get_frontmatter "$next_file" parent)"
     [ -n "$next_parent" ] || return 0
-    case "$seen" in
+    case "$seen_chain" in
       *" $next_parent "*)
         echo "wb breakdown --apply: cycle detected in $stem's existing parent chain at $next_parent — refusing" >&2
         return 1 ;;
     esac
-    seen="$seen$next_parent "
+    seen_chain="$seen_chain$next_parent "
     cur="$next_parent"
     depth=$((depth + 1))
   done
@@ -5026,7 +5026,7 @@ _wb_render_index() {
   _wb_index_pages "$d" "" "##"
   # A parent lists each child's pages under that child (R29). A cheap grep
   # skips the whole-store family walk for the common childless task.
-  if grep -lqs "^parent:[[:space:]]*$stem[[:space:]]*\$" "$TASKS_DIR"/*.md 2>/dev/null; then
+  if grep -lqs "^parent:[[:space:]]*${stem}[[:space:]]*\$" "$TASKS_DIR"/*.md 2>/dev/null; then
     local first=1
     while IFS= read -r c; do
       [ "$c" != "$stem" ] || continue
@@ -5747,11 +5747,11 @@ _wb_week_stamp() {
   printf '%s · %s/%s' "$(date +%F)" "$repo" "$branch"
 }
 
-# _wb_week_iso [<date>] — ISO 8601 week identifier, "<year>-W<week>"
+# _wb_week_iso — the current ISO 8601 week identifier, "<year>-W<week>"
 # (%G/%V — the ISO week-numbering year, which can differ from %Y in the
 # first/last days of a year — and the ISO week number itself).
 _wb_week_iso() {
-  date ${1:+-d "$1"} +%G-W%V
+  date +%G-W%V
 }
 
 # cmd_week path — print the capture doc's path, creating it first if absent.
@@ -5801,12 +5801,12 @@ _wb_week_previous_record() {
   # non-zero return here (despite "empty" being the documented, valid
   # result) killed the entire `wb week record` call before it wrote
   # anything.
-  ls "$dir" 2>/dev/null \
-    | grep -E '^[0-9]{4}-W[0-9]{2}-review\.md$' \
-    | grep -v -F "$iso-review.md" \
-    | sort \
-    | tail -1 \
-    || true
+  local p
+  for p in "$dir"/[0-9][0-9][0-9][0-9]-W[0-9][0-9]-review.md; do
+    [ -e "$p" ] || continue
+    p="${p##*/}"
+    [ "$p" = "$iso-review.md" ] || printf '%s\n' "$p"
+  done | sort | tail -1 || true
 }
 
 # cmd_week record [<iso>] — mint $TASKS_DIR/weeks/<iso>-review.md
@@ -6153,8 +6153,11 @@ wb_week_unreviewed_count() {
 # has ever run).
 wb_week_days_since_last_record() {
   local dir; dir="$(_wb_week_dir)"
-  local latest
-  latest="$( [ -d "$dir" ] && ls "$dir" 2>/dev/null | grep -E '^[0-9]{4}-W[0-9]{2}-review\.md$' | sort | tail -1)"
+  local latest rp
+  latest="$(for rp in "$dir"/[0-9][0-9][0-9][0-9]-W[0-9][0-9]-review.md; do
+    [ -e "$rp" ] || continue
+    printf '%s\n' "${rp##*/}"
+  done | sort | tail -1)"
   [ -n "$latest" ] || return 0
   local mtime now
   mtime="$(stat -c %Y "$dir/$latest" 2>/dev/null || stat -f %m "$dir/$latest" 2>/dev/null)"
@@ -6263,7 +6266,7 @@ cmd_board() {
     return 0
   fi
 
-  local f title fu rows="" repo status worktree branch activity
+  local f title fu board_rows="" repo status worktree branch activity
   local -a t
   # U6/R17: an ACT column, only when the terminal is wide enough to take it
   # without wrapping the existing four columns — a plain `wb board` run in a
@@ -6288,15 +6291,15 @@ cmd_board() {
     f="${f##*/}"; dr="${shelved_n["${f%.md}"]:-0}"
     if [ "$show_act" = 1 ]; then
       activity="$(wb_task_activity "$repo" "$branch" "$worktree")"
-      rows+="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr" "$activity")"$'\n'
+      board_rows+="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr" "$activity")"$'\n'
     else
-      rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr")"$'\n'
+      board_rows+="$(printf '%s\t%s\t%s\t%s\t%s' "$status" "$repo" "$title" "$fu" "$dr")"$'\n'
     fi
   done < <(wb_task_files)
 
   printf 'live agents: %s (warn >= %s)\n' "$(wb_live_agent_count)" "$WB_AGENT_WARN_AT"
 
-  if [ -z "$rows" ]; then
+  if [ -z "$board_rows" ]; then
     echo "wb board: no tasks in $TASKS_DIR"
     return 0
   fi
@@ -6309,7 +6312,7 @@ cmd_board() {
     fi
     # doing < review < paused < planned < done < anything-else; rank prefix
     # keeps the plain-text sort key clean, then drops out before display.
-    printf '%s' "$rows" | awk -F'\t' -v OFS='\t' '{
+    printf '%s' "$board_rows" | awk -F'\t' -v OFS='\t' '{
       r = ($1 == "doing") ? 0 : ($1 == "review") ? 1 : ($1 == "paused") ? 2 : ($1 == "planned") ? 3 : ($1 == "done") ? 4 : 5
       print r, $0
     }' | sort -t $'\t' -k1,1n -k3,3 -k4,4 | cut -f2-
@@ -6582,7 +6585,7 @@ _wb_done_keep_all() {
   # directory, or a missing parent chain). Nothing that existed before the run
   # is ever removed; a directory merged into an existing one can't be undone
   # file by file, so it is only reported.
-  local src dest p top qdest="" qsize="" qrel=""
+  local src dest p top qdest="" qsize="" qrel="" qpad
   local -a created=()
   for rel in ${todo[@]+"${todo[@]}"}; do
     src="$wt/$rel"; dest="$dossier/$rel"
@@ -6590,7 +6593,9 @@ _wb_done_keep_all() {
       # Merge: append the worktree's new blocks (see _wb_done_keep_state).
       _wb_queue_new_blocks "$src" "$dest"
       qdest="$dest"; qsize="$(wc -c < "$dest")"; qsize="${qsize//[[:space:]]/}"; qrel="$rel"
-      if ! { { [ ! -s "$dest" ] || [ "$(tail -c1 -- "$dest" | wc -l)" -gt 0 ] || printf '\n'; } && printf '%s' "$_wb_qnew"; } >> "$dest"; then
+      qpad=""
+      { [ ! -s "$dest" ] || [ "$(tail -c1 -- "$dest" | wc -l)" -gt 0 ]; } || qpad=$'\n'
+      if ! printf '%s%s' "$qpad" "$_wb_qnew" >> "$dest"; then
         echo "wb done: appending $rel to $dossier failed" >&2
         _wb_done_keep_rollback "$rel" "$dest" "" ${created[@]+"${created[@]}"}; return 1
       fi
@@ -6887,8 +6892,8 @@ cmd_done() {
     echo "wb done: $session — worktree removed, session left open (pass --close to end it), task -> done ($task_file)"
   fi
 
-  local total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
-  if [ "$total" -ge "$WB_SWEEP_THRESHOLD" ]; then
+  local pending_total=$(( $(wb_followup_count) + $(wb_week_unreviewed_count) ))
+  if [ "$pending_total" -ge "$WB_SWEEP_THRESHOLD" ]; then
     echo "wb done: $(wb_pending_counts) — consider running /weekly-review"
   fi
 
@@ -7872,7 +7877,11 @@ _preview() {
     pv_now="$(_wb_trim_blank_lines "$(_wb_section_text "$ref" Now)")"
     if ! _wb_section_text "$ref" Handoffs | awk '/^### / && $0 !~ /\(auto\)[ \t]*$/ { f = 1 } END { exit(f ? 0 : 1) }'; then
       local pv_h pv_hd; pv_hd="$(_wb_dossier_dir "$ref")/handoffs"
-      for pv_h in $(ls -1r "$pv_hd"/*.md 2>/dev/null); do
+      local -a pv_files=("$pv_hd"/*.md)
+      local pv_i
+      for (( pv_i = ${#pv_files[@]} - 1; pv_i >= 0; pv_i-- )); do
+        pv_h="${pv_files[pv_i]}"
+        [ -f "$pv_h" ] || continue
         [ "$(wb_get_frontmatter "$pv_h" auto)" = "false" ] || continue
         pv_tmp="$(mktemp)"
         { printf '## Handoffs\n\n'; awk 'FNR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm { print }' "$pv_h"; } > "$pv_tmp"
