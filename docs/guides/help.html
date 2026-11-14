@@ -232,16 +232,16 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
-<body data-kind="guide" data-group="skills">
+<body data-kind="guide" data-group="workflow">
 <div class="statusbar">
-  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
+  <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> workflow</span>
   <span class="gen">docgen · generated from <b>docs/guides/help.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-14</span>
+  <span class="right">updated 2026-11-14</span>
 </div>
 <div class="shell">
   <nav class="toc">
     <div class="brand">help</div>
-    <div class="brand-sub">Why-do-I-have-X / what-does-Y-do / how-do-I-use-Z, answered from the INDEX with citations.</div>
+    <div class="brand-sub">prefix&#43;? — fuzzy-find any bind, alias, script, skill, doc or decision in the INDEX, and jump to its source.</div>
     <p class="backlink"><a href="../HUB.html">&larr; back to the hub</a></p>
     <ul>
       <li><a href="#overview">Overview</a></li>
@@ -253,85 +253,85 @@
   </nav>
   <main>
     <header class="doc guide-banner">
-      <span class="eyebrow">skills · guide</span>
+      <span class="eyebrow">workflow · guide</span>
       <h1>help</h1>
-      <p class="dek">Why-do-I-have-X / what-does-Y-do / how-do-I-use-Z, answered from the INDEX with citations.</p>
+      <p class="dek">prefix&#43;? — fuzzy-find any bind, alias, script, skill, doc or decision in the INDEX, and jump to its source.</p>
       <div class="meta">
         <span class="chip ok">current</span>
       </div>
     </header>
     <article>
 <h2 id="overview">Overview</h2>
-<p>Answers questions about the personal workflow — tmux binds, zsh aliases
-and functions, scripts, Claude skills, TUIs, docs, decisions — by reading
-the generated <code>docs/INDEX.md</code> and following its links, never by grepping
-cold. This is the <em>reasoning</em> half of the help system: it can chain
-<code>source</code> → <code>guide</code> → decision records to answer a &quot;why&quot; question with a
-quoted <code>file:line</code>, not just a lookup. The deterministic twin is the
-<code>prefix+?</code> fzf picker (<code>help.sh</code>) — no LLM, straight index lookup;
-<code>/help</code> is for when the question needs actual reasoning over that same
-data.</p>
+<p><code>prefix+?</code> in tmux opens a fuzzy picker over the generated
+<code>docs/INDEX.md</code>: every tmux bind, zsh alias and function, script, Claude
+skill, TUI, doc and decision the personal workflow provides, each with the
+file and line it comes from. Use it when you half-remember a binding or
+want to see where something is defined. It is plain fzf over the INDEX, so
+no Claude session is involved and it opens instantly.</p>
+<p>There used to be a <code>/help</code> Claude skill that answered questions from the
+same INDEX. It was removed on 2026-11-14 after zero uses, and the name
+clashed with Claude Code's own <code>/help</code>. For a question that needs
+reasoning (&quot;why do I have X bound&quot;), open a quick-ask window with
+<code>prefix+q</code> and ask Claude to look it up in <code>~/code/dotfiles/docs/INDEX.md</code>.</p>
 <h2 id="try-it-now">Try it now</h2>
-<p>In any Claude Code session:</p>
-<pre><code>/help why do I have prefix+m bound to the wb picker
-</code></pre>
-<p>The agent reads <code>docs/INDEX.md</code>'s JSONL block, matches the entry by name/
-tag, follows its <code>source</code> line and any linked decision record, then
-answers in chat with a <code>file:line</code> citation — never from the one-liner
-alone.</p>
+<ol>
+<li>Press <code>prefix+?</code>. A new tmux window opens with the picker.</li>
+<li>Type <code>wb picker</code>. The <code>prefix+m</code> bind comes up, and the preview shows
+its line in <code>tmux.conf</code> with five lines of comment either side.</li>
+<li>Press Enter. The source opens in nvim at that line, in its own window.</li>
+</ol>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>
 <tr>
-<th>Question shape</th>
-<th>What gets followed</th>
+<th>Entry kind</th>
+<th>Preview shows</th>
+<th>Enter does</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><em>what / how</em></td>
-<td>The entry's <code>source</code>; its <code>guide</code> page's markdown sibling when one exists (<code>docs/*.html</code> → <code>docs/*.md</code>); <code>SKILL.md</code> for skills, <code>README</code> for TUIs</td>
+<td>bind, alias, function, script</td>
+<td>The source line, marked, with 5 lines either side</td>
+<td>Opens nvim at that line</td>
 </tr>
 <tr>
-<td><em>why</em></td>
-<td><code>kind: decision</code> entries — <code>logs/decisions/*.md</code> and task-store decision files (<code>~/code/tasks/dossiers/&lt;stem&gt;/decisions/</code>) — plus the comment block at the entry's <code>source</code> line; quotes the deciding line, not a paraphrase</td>
+<td>skill</td>
+<td>The skill's description and its &quot;When to use&quot; section</td>
+<td>Opens the <code>SKILL.md</code> in nvim</td>
 </tr>
 <tr>
-<td>No match</td>
-<td>Names the 2–3 nearest entries by name/tag so you can redirect — never invents a binding, entry, or rationale that isn't in the INDEX or its linked sources</td>
+<td>doc, guide</td>
+<td>The first 40 lines of the source</td>
+<td>Opens the rendered HTML page in the browser (when one exists)</td>
 </tr>
 <tr>
-<td>INDEX missing/stale</td>
-<td>Says so and points at <code>docgen.sh index</code></td>
+<td>decision</td>
+<td>The title and options list</td>
+<td>Opens the decision file in nvim</td>
 </tr>
 </tbody>
 </table>
-<p>Every INDEX entry carries <code>id</code>, <code>kind</code> (bind / alias / function / script
-/ skill / tui / doc / decision), <code>name</code>, <code>oneliner</code>, <code>source</code> (path:line),
-<code>invoke</code>, <code>guide</code>, <code>tags</code>. Repo-relative sources resolve under
-<code>~/code/dotfiles/</code>; <code>~/</code>-form sources resolve under <code>$HOME</code>.</p>
+<ul>
+<li>A query typed after the command pre-fills the search:
+<code>~/.config/scripts/tmux/help.sh wb</code> opens the picker already filtered.</li>
+<li>The picker never runs the thing it shows. The INDEX's <code>invoke</code> column
+says how to run it.</li>
+</ul>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
-<li><strong>Only as current as the last rebuild.</strong> The INDEX is generated
-(<code>docgen index</code>), not live — a binding added since the last
-<code>docgen.sh</code> run won't show up until the next one.</li>
-<li><strong>Employer-repo content is deliberately withheld</strong> (the redaction
-guard) — a question that runs into that wall gets &quot;out of scope for
-the personal INDEX,&quot; not a guess.</li>
-<li><strong>Reasoning, not search</strong> — for a large-surface &quot;find me everything
-matching X&quot; sweep, the <code>prefix+?</code> picker's fzf fuzzy-match over every
-entry is often faster than a conversational round-trip.</li>
+<li><strong>Only as current as the last rebuild.</strong> The INDEX is generated by
+<code>docgen.sh index</code>, so something added since the last run won't show up
+until the next one.</li>
+<li><strong>Employer-repo content is left out</strong> of the personal INDEX on purpose.</li>
+<li><strong>Shadows tmux's own <code>prefix+?</code></strong> (list-keys). The INDEX carries the
+tmux binds too, with their comments.</li>
 </ul>
 <h2 id="next-steps--reverting">Next steps / reverting</h2>
 <ul>
-<li>The deterministic twin, <code>prefix+?</code> in tmux (<code>help.sh</code>,
-<code>scripts/.config/scripts/tmux/help.sh</code>), is the fzf picker over the
-same <code>docs/INDEX.md</code> — Enter opens the thing (<code>xdg-open</code> for
-docs/guides, <code>nvim +line</code> for everything else), preview shows source
-context or a skill's own description. See <a href="../setup.html">setup</a> for
-where it's introduced alongside the rest of the shell/terminal stack.</li>
-<li>Nothing to unwire: <code>/help</code> only ever reads <code>docs/INDEX.md</code> and its
-linked sources — it never writes anything.</li>
+<li>Source: <code>scripts/.config/scripts/tmux/help.sh</code>; bound in
+<code>tmux/.config/tmux/tmux.conf</code> (<code>bind ? new-window …</code>).</li>
+<li>To get tmux's list-keys back, delete the <code>bind ?</code> line and reload tmux.</li>
 </ul>
 </article>
     <footer>

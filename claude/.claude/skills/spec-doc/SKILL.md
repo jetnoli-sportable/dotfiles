@@ -1,11 +1,11 @@
 ---
 name: spec-doc
-description: Write a requirements spec (PRD) for a non-trivial feature or restructure as a PRODUCT spec — Summary, Non-goals, User Stories, numbered testable Behavior invariants, Test Seams, Open Questions — synthesised from the current conversation and repo without an interview, then optionally a companion TECH spec via write-tech-spec. Use when the user asks for a PRD, spec, requirements doc, "something the team can read", or wants requirements pinned down before ce-doc-review / ce-plan / wb-breakdown. Not for trivial fixes, and not for implementation plans on their own (use ce-plan).
+description: Write a requirements spec (PRD) for a non-trivial feature or restructure as a PRODUCT spec — Summary, Non-goals, User Stories, numbered testable Behavior invariants, Test Seams, Open Questions — synthesised from the current conversation and repo without an interview, then hands off to ce-plan for the implementation plan. Use when the user asks for a PRD, spec, requirements doc, "something the team can read", or wants requirements pinned down before ce-doc-review / ce-plan / wb-breakdown. Not for trivial fixes, and not for implementation plans on their own (use ce-plan).
 ---
 
 # spec-doc — requirements spec, synthesised, with seams
 
-A composition of three vendored skills, taking the part of each that earned
+A composition of outside spec skills, taking the part of each that earned
 its place when compared on the same content (see `example.md`):
 
 - **Process** from mattpocock `to-spec`: no interview, synthesise what the
@@ -15,8 +15,8 @@ its place when compared on the same content (see `example.md`):
 - **User Stories** from `to-spec`, kept because they name *who* wants each
   behaviour, which invariants alone do not.
 
-The vendored skills stay unmodified; this file owns the composition. If it
-disagrees with them, this file wins for `/spec-doc` invocations.
+None of those skills is installed here (Warp's spec pair was removed on
+2026-11-14, unused); this file owns the composition.
 
 ## When to use
 
@@ -48,11 +48,10 @@ disagrees with them, this file wins for `/spec-doc` invocations.
    `docs/plans/<yyyy-mm-dd>-<slug>-spec.md` in the repo the code lives in
    (or the dossier when it is not tracked-worthy yet). Never scratch-only.
 
-5. **Offer the TECH spec.** Once the product spec is agreed, invoke the
-   vendored `write-tech-spec` for the same slug, overriding its path to
-   `docs/plans/<yyyy-mm-dd>-<slug>-tech.md` and telling it to reference
-   the product spec's invariant numbers in its Testing table. Do not write
-   the verification table into the product spec.
+5. **Hand off to planning.** Once the product spec is agreed, offer
+   `/ce-plan` with the spec's path, telling it to reference the spec's
+   invariant numbers when it plans the tests. Do not write the
+   verification table into the product spec.
 
 ## Template
 
@@ -111,4 +110,4 @@ Only questions not already inline. Each with who can answer it.
 
 <!-- Append one-line observations (date — observation — source) when the
      template misses a section a real spec needed, a seam-confirmation
-     step misfired, or the split with write-tech-spec proved wrong. -->
+     step misfired, or the hand-off to ce-plan proved wrong. -->

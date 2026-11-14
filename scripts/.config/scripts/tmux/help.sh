@@ -10,8 +10,8 @@
 #            decision options, README head).
 #
 # No kind ever executes/launches the thing — running it is what the entry's
-# own `invoke` column documents. For questions instead of lookup, ask
-# `/help <question>` in any Claude Code session (same INDEX, plus reasoning).
+# own `invoke` column documents. For questions instead of lookup, open a
+# quick-ask window (prefix+q) and point Claude at docs/INDEX.md.
 #
 # The INDEX-read + source-follow helpers (index_jsonl, resolve_path) are
 # deliberately self-contained: future consumers (roadmap 9e task-recall)
@@ -94,16 +94,6 @@ case "${1-}" in
     preview "$2"
     exit 0
     ;;
-  --ask)
-    cat <<'EOF'
-help.sh is the deterministic lookup half (no LLM in bash).
-For questions — "why do I have binding X", "what does Y do", "how do I
-use Z" — run /help <question> inside any Claude Code session: it reads
-the same docs/INDEX.md, follows source/guide links (including decision
-records), and answers with file:line citations.
-EOF
-    exit 0
-    ;;
 esac
 
 # display half is tab/newline-sanitized: \t is the fzf field delimiter and a
@@ -120,7 +110,7 @@ rows="$(index_jsonl | jq -r '. as $e | ([
 selection="$(printf '%s\n' "$rows" | fzf \
   --ansi --delimiter '\t' --with-nth 1 \
   --prompt='help> ' \
-  --header='Enter: take me to it · preview: about it · /help <q> for Q&A (--ask)' \
+  --header='Enter: take me to it · preview: about it' \
   --preview "$SELF preview {2}" \
   --preview-window 'right,55%,wrap' \
   --query="${1-}")" || exit 0
