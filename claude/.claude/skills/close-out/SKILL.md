@@ -211,7 +211,12 @@ recalled from earlier in the session. Build a table:
 | context7 installed | `claude plugin list \| grep context7` | present | kept |
 
 Outcome is `kept` when the result supports the claim, `false` when it
-doesn't. A claim no command could check ("works well") is dropped from the
+doesn't. Word each claim as exactly what the command proves. When a test
+suite already fails on the default branch, "tests pass" is false. The
+provable claim is "no failures beyond the default branch's", and the
+command compares the two failing sets (the branch's run against a run on
+the default branch, or a baseline the repo records). A failure that is not
+in the baseline makes the claim false. A claim no command could check ("works well") is dropped from the
 proved rows and listed under **Unproven** beneath the table; it is not
 asserted in the closing message.
 
@@ -367,6 +372,9 @@ never whether the record gets written first.
 - **A subagent's "DONE, tests pass" with no test run this session** — the
   tests are run now, or the claim is listed as unproven.
 - **Claims nothing beyond "PR is open"** — a one-row table.
+- **A test suite with failures already on the default branch** — the claim
+  is "no failures beyond the default branch's", proved by comparing the two
+  failing sets. A failure that shows up only on the branch makes it false.
 - **Other live window in the session** — step 5 surfaces it before the
   wind-down launches, especially when `--close` was also requested.
 - **Empty Decisions, nothing decided** — the draft review (sweep, then each shelved
