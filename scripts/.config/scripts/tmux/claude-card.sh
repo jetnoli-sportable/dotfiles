@@ -31,7 +31,7 @@
 set -uo pipefail
 
 # shellcheck source=claude-reply-log.sh
-source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/claude-reply-log.sh"   # REPLY_DIR, SESSIONS_DIR, fm_field, chain_for_task
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/claude-reply-log.sh"   # REPLY_DIR, SESSIONS_DIR, fm_field, chain_for_task, registry_live, pane_session
 
 PROJECTS_DIR="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 CACHE_DIR="${CLAUDE_STATUS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/claude-status}"
@@ -72,38 +72,11 @@ section() { # <label>
   printf '\n%s── %s %s%s\n' "$ACC$B" "$1" "${rule// /─}" "$R"
 }
 
-# proc_start <pid> — the process start time (field 22 of /proc/<pid>/stat)
-proc_start() {
-  local s
-  read -r s 2>/dev/null <"/proc/$1/stat" || return 1
-  s="${s##*) }"
-  # shellcheck disable=SC2086
-  set -- $s
-  printf '%s' "${20:-}"
-}
-
-# registry_entry <pane-id> <session-id> — "<sid>\t<status>\t<statusUpdatedAt ms>"
-# of the newest live registry entry for that pane (or that session id).
-registry_entry() {
-  local -a files=("$SESSIONS_DIR"/*.json)
-  [ -e "${files[0]}" ] || return 0
-  local pid ps sid st at
-  while IFS=$'\t' read -r pid ps sid st at; do
-    [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || continue
-    [ "$(proc_start "$pid")" = "$ps" ] || continue
-    printf '%s\t%s\t%s\n' "$sid" "$st" "$at"
-    return 0
-  done < <(jq -r --arg p "$1" --arg s "$2" '
-      select(($p != "" and ((.tmux // "") | endswith("." + $p))) or ($s != "" and .sessionId == $s))
-      | [(.updatedAt // 0), .pid, (.procStart // ""), .sessionId, (.status // ""), (.statusUpdatedAt // 0)] | @tsv' \
-      "${files[@]}" 2>/dev/null | sort -rn | cut -f2-)
-}
-
 # recap <transcript> — "<epoch>\t<text>" of the latest recap, when no turn
 # started after it. Candidate lines come from a reverse grep; jq checks them.
 recap() {
   tac "$1" 2>/dev/null \
-    | grep -m 24 -E '"subtype":"(away_summary|local_command)"|<command-name>/|"origin":\{' \
+    | grep -m 24 -E '"subtype":"(away_summary|local_command)"|<command-name>/|"origin":\{"kind"' \
     | jq -rs '
         def strip: gsub("</?local-command-stdout>"; "") | sub("\\s*\\(disable recaps in /config\\)\\s*$"; "") | gsub("^\\s+|\\s+$"; "");
         def epoch: (.timestamp // "") | sub("\\.[0-9]+Z$"; "Z") | (try fromdateiso8601 catch null);
@@ -234,11 +207,11 @@ main() {
 
   local reg="" st="" st_at=0
   if [ "$mode" = live ]; then
-    reg="$(registry_entry "$pane" "$sid")"
+    reg="$(registry_live "$pane" "$sid")"
     if [ -n "$reg" ]; then
       IFS=$'\t' read -r sid st st_at <<<"$reg"
     elif [ -n "$pane" ]; then
-      sid="$(tmux show -p -t "$pane" -v @claude_session_id 2>/dev/null || true)"
+      sid="$(pane_session "$pane")"   # the @claude_session_id fallback, only without a registry dir
     fi
     [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || return 0
   fi
