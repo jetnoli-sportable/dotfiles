@@ -1,5 +1,15 @@
-Vendored from github.com/mattpocock/skills (skills/engineering/research, commit 49dd158) on 2026-10-18.
-Local change: added `disable-model-invocation: true` (2026-10-18), so it runs only as /research.
+Section 5 ("Looking up facts") of SKILL.md is adapted from
+github.com/mattpocock/skills (skills/engineering/research, commit 49dd158),
+vendored here on 2026-10-18 as the whole of this skill.
+
+2026-11-14: merged into the /research router ported from JetNoLi/dotfiles
+PR #11. The rest of SKILL.md is Jet's own. Dropped the 2026-10-18 local
+change `disable-model-invocation: true`, so other skills (the planning
+pipeline) can call /research; the description's triggers stay narrow
+(/research, which skill to use, or a calling skill) so it doesn't compete
+with deep-research.
+
+The notice below covers the adapted section.
 
 MIT License
 
