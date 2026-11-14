@@ -38,6 +38,22 @@
 # lines fit no entry style (the verbatim fallback in _wb_mg_convert).
 _WB_MG_FALLBACK_TITLE="Decisions before the dossier layout"
 
+# wb_layout_of <task_file> — print the task's `layout:` value (blank when
+# unset), trailing inline comment stripped. Since the old path was deleted
+# (W4), only `wb migrate` reads it: `layout: dossier` marks a task as already
+# converted. wb-store reads the same marker.
+wb_layout_of() {
+  local v; v="$(wb_get_frontmatter "$1" layout)"
+  v="${v%%[[:space:]]#*}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s\n' "$v"
+}
+
+# _wb_is_dossier <task_file> — true when the task has `layout: dossier`.
+_wb_is_dossier() {
+  [ "$(wb_layout_of "$1")" = "dossier" ]
+}
+
 # ---------------------------------------------------------------------------
 # awk: shared library, fence-aware line classifiers
 # ---------------------------------------------------------------------------
