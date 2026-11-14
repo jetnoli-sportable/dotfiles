@@ -8,7 +8,9 @@
 #   - the Skill-tool invocation:  "name":"Skill","input":{"skill":"<name>"
 # A plugin- or path-prefixed name ("plugin:skill", "apps/web:deploy")
 # normalizes to its bare trailing segment, so both invocation shapes and
-# both prefix forms merge into one count per skill.
+# both prefix forms merge into one count per skill. A slash-command tag on a
+# tool-call or tool-result line is skipped: that is a session mentioning the
+# skill (e.g. an audit grepping for it), not running it.
 #
 # BLIND SPOT — stated here AND in every run's own output, not just this
 # comment: a skill invoked by natural-language description alone (no
@@ -95,10 +97,15 @@ if [ -d "$TRANSCRIPTS_DIR" ]; then
     [ -f "$f" ] || continue
     fdate="$(date -r "$f" +%F 2>/dev/null)" || continue
 
+    # A real slash command is a plain user message. The same tag inside a
+    # tool call or tool result is a session talking about the skill (e.g.
+    # grepping transcripts for it), so those lines are skipped. Only this
+    # pattern is filtered: a real Skill-tool call below IS a tool_use line.
     while IFS= read -r raw; do
       [ -n "$raw" ] || continue
       _skill_usage_record "$(_skill_usage_normalize "$raw")" "$fdate"
-    done < <(grep -oE '<command-name>/[A-Za-z0-9_./:-]+</command-name>' "$f" 2>/dev/null \
+    done < <(grep -vE '"type":"(tool_use|tool_result)"' "$f" 2>/dev/null \
+               | grep -oE '<command-name>/[A-Za-z0-9_./:-]+</command-name>' \
                | sed -E 's#^<command-name>/##; s#</command-name>$##')
 
     while IFS= read -r raw; do
