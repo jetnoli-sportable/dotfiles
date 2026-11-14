@@ -52,7 +52,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 
 - R3. When a task's slug-named branch is missing locally but exists on origin, `wb new`/`wb resume` attach to `origin/<branch>` with tracking under the attach rule in Key Decisions, printing which branch it attached.
 - R4. A branch that does not meet the attach rule gets a fresh branch as today, with a note naming the leftover `origin/<branch>` and how to pick another name; a fresh task never makes a network call it does not make today.
-- R5. When the remote can't be checked, `wb new` behaves as today for adopted names (abort before creating anything).
+- R5. When the remote can't be checked, `wb new` aborts before creating anything, both for adopted names (as today) and for a slug-named branch that has passed the attach rule's offline checks; a slug-named branch that fails those checks never reaches the remote check.
 
 **Reattach fast-forward**
 
@@ -62,7 +62,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 **`wb restart`**
 
 - R8. `wb restart [--dry-run] <list-file>` restores each listed task's session, pre-typing `claude "/wb-resume"` in its agent window without Enter, and returns the client to the starting session.
-- R9. `wb restart [--dry-run] --crashed` builds the list from the store: tasks whose session is gone and whose newest handoff is not a `wb down` that closed the session, and asks for confirmation before launching when a terminal is attached.
+- R9. `wb restart [--dry-run] --crashed` builds the list from the store: tasks with status `doing` or `review`, an existing worktree directory, no tmux session, and a newest handoff that is not a session-closing `wb down` (KTD7), and asks for confirmation before launching when a terminal is attached.
 - R10. Each list entry resolves to exactly one task by its exact stem; ambiguous or missing entries are skipped with a reason.
 
 **Context card**
@@ -74,7 +74,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 
 **Decision capture**
 
-- R17. The sweep stops drafting short-lived operational steps (merge or go-live order, "rebase the stack", "re-run the tests before merging", "don't fix X in this PR") and decisions already recorded in the task's `decisions/`.
+- R17. The sweep stops drafting the short-lived operational steps Jet dismisses (candidate shapes: merge or go-live order, "rebase the stack", "re-run the tests before merging", "don't fix X in this PR"; the prompt names only the shapes U8's measurement shows are dismissed clearly more often than accepted) and decisions already recorded in the task's `decisions/`.
 - R18. `wb down` prints one line naming the number of shelved decision drafts and the command to list them (`wb-capture.sh shelved --task <stem>`) when the task's shelf still holds drafts; it never blocks the close.
 
 **shellcheck**
@@ -113,8 +113,8 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 - KTD8. **One registry walker, in `claude-reply-log.sh`, with the start-time check.** It matches on pane or session id (the card's need), checks `kill -0` and, when the entry has a `procStart`, that it equals the process's start time; an entry without `procStart` is accepted on `kill -0` alone, so existing reply-log fixtures and older Claude Code versions keep working. It emits the fields the card needs; `pane_session` becomes a thin wrapper. `registry_entry` in the card is deleted.
 - KTD9. **The shellcheck parse fix moves the `# shellcheck source=wb-migrate.sh` directive inside the `migrate)` item, directly above its `source` command.** Findings then go in two commits: real defects (SC1087, SC2178/SC2128/SC2179 array-vs-string, SC2010/SC2045 `ls` parsing, SC2120/SC2119, SC2094), then noise (SC2034 unused variables, SC2016 single quotes). A disable gets a one-line reason; an unused variable that is really unused is deleted, not disabled.
 
-- KTD10. **The duplicate-decision cause is found before the prompt is changed.** The sweep already builds its "already recorded" list from the task's `decisions/` files on each run (`decisions_section` in wb-capture-sweep.sh), so the ~10 duplicate drafts are not explained by a stale list on its face. Likely causes to check against the review's dismissed duplicates: a sweep that snapshotted decisions before the agent's hand-written entry landed, or superseded decision files (included today) confusing the model. Fix the cause found; add prompt wording only for what the code can't prevent.
-- KTD11. **`wb down` warns and never blocks.** It asks `wb-capture.sh shelved --count --task <stem>` through the existing `_wb_capture_verb` wrapper, so a missing or disabled capture script prints nothing. A refusal was rejected: `wb down` is the routine way to end a session (and the picker's `_down` path), and `wb done` already refuses at the point where drafts would be lost.
+- KTD10. **The duplicate-decision cause is found before the prompt is changed.** The sweep already builds its "already recorded" list from the task's `decisions/` files on each run (`decisions_section` in wb-capture-sweep.sh), and already re-snapshots that list after the model answers, re-running the model once if it changed and marking a later change with a `.stale` sidecar (the `rerun`/`stale` handling, wb-capture-sweep.sh header). So a race between snapshot and shelving is already handled. For each of the ~10 dismissed duplicates, compare the draft's `draft_shelved` log time with the decision file's creation time. Decision first: the model ignored a listed decision, so fix with prompt wording and by leaving out decision files whose frontmatter says `status: superseded`. Draft first: the sweep cannot prevent it; record a follow-up for `/wb-decide` to dismiss a matching shelved draft when it records, and make no sweep change for those.
+- KTD11. **`wb down` warns and never blocks.** It asks `wb-capture.sh shelved --count --task <stem>` through the existing `_wb_capture_verb` wrapper, so a missing capture script prints nothing. The count ignores the capture kill switch (as `wb done`'s shelf check does): drafts on the shelf still need review when capture is off. A refusal was rejected: `wb down` is the routine way to end a session (and the picker's `_down` path), and `wb done` already refuses at the point where drafts would be lost.
 
 ### High-Level Technical Design
 
@@ -296,13 +296,12 @@ U1 → U2 → U3 → U4 → U5 → U8 → U9 → U6 → U7 (KTD1). U5 and U8 are
   - Modify: `scripts/.config/scripts/tmux/wb-capture-sweep.sh` (the prompt heredoc and, if KTD10 finds it, `decisions_section`)
   - Test: `scripts/.config/scripts/tmux/tests/wb-capture-sweep.test.sh`
 - **Approach:**
-  1. Read the dismissed duplicates listed in `~/code/tasks/dossiers/dotfiles--capture-graduation-review/findings.md` and match a few against their sweep logs to find the duplicate cause (KTD10).
-  2. Fix that cause in code where possible (for example, leave out decision files whose frontmatter says `status: superseded`, or re-read decisions just before shelving).
-  3. Add to the prompt a short "do not draft" list naming the short-lived step shapes in R17, with one example each, beside the existing "already drafted" and "already rejected" sections.
+  1. Measure before writing the prompt: classify both accepted and dismissed drafts in the resolved archive (`~/.local/state/wb/capture/resolved/`) by the R17 candidate shapes, and record each shape's accept and dismiss counts in the commit message. A first keyword pass on 14 Nov found 16 accepted against 11 dismissed across these shapes (for example, "Linear merge order for the whole lib--algorithms stack" was accepted), so topic alone does not separate them; look for what does (for example, steps the agent sequenced on its own versus orders Jet chose or confirmed).
+  2. Find the duplicate cause per KTD10: for the dismissed duplicates listed in `~/code/tasks/dossiers/dotfiles--capture-graduation-review/findings.md`, compare each draft's `draft_shelved` log time and `rerun` flag with its decision file's creation time. Fix the decision-first cases (prompt wording, leave out `status: superseded` files); record the draft-first cases as a `/wb-decide` follow-up.
+  3. Add to the prompt a short "do not draft" list naming only the shapes step 1 shows are dismissed clearly more often than accepted, with one example each, beside the existing "already drafted" and "already rejected" sections. If no shape qualifies, add no list and say so in the commit message.
 - **Patterns to follow:** the existing `shelf_context` "do not draft these again" sections; the sweep test's model stub.
 - **Test scenarios:**
-  - The built prompt contains the short-lived-steps guidance (assert on the prompt the stubbed model receives).
-  - A decision file written after the sweep's excerpt window but before the sweep runs appears in the prompt's decisions list.
+  - The built prompt contains the short-lived-steps guidance for the shapes step 1 selected (assert on the prompt the stubbed model receives); skipped if no shape qualified.
   - Whatever KTD10's cause turns out to be has a scenario that failed before the fix (for example, a superseded decision is not listed as in force).
 - **Verification:** the sweep suite passes under gawk and mawk; the post-merge accuracy check is listed in `checks.md`.
 
@@ -319,7 +318,8 @@ U1 → U2 → U3 → U4 → U5 → U8 → U9 → U6 → U7 (KTD1). U5 and U8 are
 - **Test scenarios:**
   - Task with 2 shelved drafts → `wb down` prints a line naming 2 drafts and `wb-capture.sh shelved --task <stem>`, then closes the session as usual.
   - Task with no drafts → no warning line.
-  - Capture script missing or capture disabled → no warning, no error, session closes.
+  - Capture script missing → no warning, no error, session closes.
+  - Capture kill switch set with 2 drafts on the shelf → warning still printed (same as `wb done`'s shelf check).
   - `wb down --keep-session` with drafts → same warning, session left open.
 - **Verification:** the suite passes; `wb down` exit status is unchanged in every scenario.
 
@@ -363,7 +363,7 @@ U1 → U2 → U3 → U4 → U5 → U8 → U9 → U6 → U7 (KTD1). U5 and U8 are
 | shellcheck | `koalaman/shellcheck:stable` on a copy under `~/.cleanroom/wb-bash-fixes-sc/`, `-x` | U6, U7 (and no new findings in the regions U1-U5, U8 and U9 touch) |
 | Help listing | `tests/wb-help.test.sh` | U4 |
 | Live check | after merge and re-stow: `wb restart --dry-run --crashed`, a `wb resume` of an idle stale task, the card on a live pane, and `wb down` on a task with shelved drafts | PR |
-| Accuracy check | one to two weeks after merge, the graduation review's `python3 -I tools/review.py`, split at the merge time, shows at least 70% accepted for drafts shelved after it | U8 (post-merge, in `checks.md`) |
+| Accuracy check | one to two weeks after merge, the graduation review's `python3 -I tools/review.py`, split at the merge time, shows at least 70% accepted for drafts shelved after it, over at least 50 resolved post-merge drafts; and the share of dismissed post-merge drafts matching the R17 shapes is lower than the review's pre-merge share. Both recorded in `checks.md` | U8 (post-merge, in `checks.md`) |
 
 ## Definition of Done
 
