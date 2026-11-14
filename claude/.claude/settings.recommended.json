@@ -187,6 +187,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/format-on-edit-hook.sh",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   }
 }
