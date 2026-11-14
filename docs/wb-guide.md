@@ -821,9 +821,9 @@ notice on its next prompt; a newly created one doesn't until `/clear` or a resta
 
 `wb-store` is a Go program that reads the task store in its dossier layout and
 answers in plain text, or in JSON with `--json`. It never writes. Its commands
-are `list`, `show <task>` and `family <task>`; later, `wb page` will use it to
-serve a task's page. Its source is its own repo, `~/code/wb-store`
-(`github.com/jetnoli-sportable/wb-store`), not dotfiles.
+are `list`, `show <task>`, `family <task>` and `serve <task>` (the page server;
+`wb page`, below, is the usual way in). Its source is its own repo,
+`~/code/wb-store` (`github.com/jetnoli-sportable/wb-store`), not dotfiles.
 
 Run it through the shim, `~/.config/scripts/wb-store.sh`, rather than the
 binary:
@@ -852,6 +852,32 @@ The default source builds to `~/.local/bin/wb-store`. Any other source builds
 to its own binary under `~/.cache/wb-store/bin/`, so trying a branch never
 replaces the binary other sessions run, and switching back never runs the
 branch's build.
+
+`wb-store.sh --bin-path` rebuilds when stale, as above, then prints the path of
+the binary it would run instead of running it.
+
+### `wb page`: a task's page in the browser
+
+`wb page` opens the current session's task in the browser, as a page drawn by
+`wb-store serve`: the **family page** when the task has children (its working
+view, plan view, decisions and what waits on you), the **task page**
+otherwise. `wb page <task>` opens another task's page and needs no tmux;
+`--no-open` only prints the URL.
+
+```bash
+wb page                          # this session's task
+wb page dotfiles--wb-future-direction
+wb page --no-open wb-store--page-server
+```
+
+The page server binds `127.0.0.1` from port 8766, falling forward up to 8775,
+answers reads only, and re-reads the store on every refresh, so a page is never
+stale; refresh the browser to see new decisions or a new `## Now`. `wb page`
+reuses a running server when its `/healthz` reports the current binary's build
+id. Otherwise it starts one detached, logging to
+`~/.local/state/wb/page-server.log`, and it keeps running after the session
+ends. A server of an older build is left running on its port; stop it with
+`pkill -f 'wb-store.*serve'` if the ports fill up.
 
 ## `wb board --html` — the full board (v2)
 

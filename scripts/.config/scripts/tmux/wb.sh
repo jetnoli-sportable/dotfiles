@@ -123,6 +123,12 @@
 #   wb notes [<task>]                print dossiers/<task>/notes.md (the file may not exist; wb
 #                                    never creates it), tmux-free; with no <task>, the current
 #                                    tmux session's @task (an error outside tmux)
+#   wb page [--no-open] [<task>]     open <task>'s page from wb-store's page server: its family
+#                                    page when it has children, else its task page. Reuses a
+#                                    server of the current build on ports 8766-8775, else starts
+#                                    one detached (log: ~/.local/state/wb/page-server.log). With
+#                                    no <task>, the current tmux session's @task; --no-open only
+#                                    prints the URL
 #   wb week path                     print the standing weekly-capture doc's path,
 #                                    creating it from the four-section template
 #                                    (What's working|What's not working|New ideas|Notes)
@@ -8314,6 +8320,135 @@ cmd_notes() {
 }
 
 # ---------------------------------------------------------------------------
+# wb page — open a task's page from wb-store's page server (W12, plan U9).
+# ---------------------------------------------------------------------------
+
+# WB_STORE_SHIM is the wb-store.sh beside this script's directory (both are
+# stowed into ~/.config/scripts); tests point it at a stub.
+WB_STORE_SHIM="${WB_STORE_SHIM:-$SCRIPT_DIR/../wb-store.sh}"
+WB_PAGE_PORTS="${WB_PAGE_PORTS:-8766 8767 8768 8769 8770 8771 8772 8773 8774 8775}"
+
+# _wb_page_build_id <binary> — the id `wb-store serve` reports on /healthz:
+# the first 12 hex characters of the binary's SHA-256.
+_wb_page_build_id() {
+  local sum
+  if command -v sha256sum >/dev/null; then
+    sum="$(sha256sum "$1")" || return 1
+  else
+    sum="$(shasum -a 256 "$1")" || return 1
+  fi
+  printf '%s\n' "${sum:0:12}"
+}
+
+# _wb_page_find_server <build-id> — the first port in WB_PAGE_PORTS whose
+# /healthz says it is wb-store with this build id; returns 1 when none is.
+_wb_page_find_server() {
+  local id="$1" port body
+  for port in $WB_PAGE_PORTS; do
+    body="$(curl -s -m 1 "http://127.0.0.1:$port/healthz" 2>/dev/null)" || continue
+    case "$body" in
+      *'"app":"wb-store"'*'"build_id":"'"$id"'"'*) printf '%s\n' "$port"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# _wb_page_detach <cmd> [args...] — run a command in the background in its
+# own session where setsid exists (Linux), else under nohup (macOS has no
+# setsid), so a closing pane or Ctrl-C in this shell doesn't reach it.
+_wb_page_detach() {
+  if command -v setsid >/dev/null; then
+    setsid "$@" &
+  else
+    nohup "$@" &
+  fi
+}
+
+# _wb_page_start <stem> <log> — start `wb-store serve --no-open <stem>`
+# detached (its own session, so closing this shell leaves it running) and
+# print the port it bound, read from its first line in <log>. Returns 1,
+# naming the log, when no URL line shows within about 10 seconds.
+_wb_page_start() {
+  local stem="$1" log="$2" i line
+  mkdir -p "$(dirname "$log")"
+  : > "$log"
+  _wb_page_detach "$WB_STORE_SHIM" serve --no-open "$stem" >>"$log" 2>&1 </dev/null
+  for i in $(seq 1 50); do
+    line="$(grep -m1 -o 'wb-store serve: http://127\.0\.0\.1:[0-9]*/' "$log" 2>/dev/null || true)"
+    if [ -n "$line" ]; then
+      line="${line%/}"
+      printf '%s\n' "${line##*:}"
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo "wb page: the page server printed no URL; see $log" >&2
+  return 1
+}
+
+# _wb_page_open <url> — open <url> as `wb-store serve` would: snap Chromium,
+# then xdg-open, then macOS open, without waiting.
+_wb_page_open() {
+  local opener
+  for opener in /snap/bin/chromium xdg-open open; do
+    if command -v "$opener" >/dev/null; then
+      _wb_page_detach "$opener" "$1" >/dev/null 2>&1 </dev/null
+      return 0
+    fi
+  done
+  echo "wb page: no browser opener found; open $1 by hand" >&2
+  return 1
+}
+
+# cmd_page [--no-open] [<task-ref>] — print and open a task's page: the
+# family page when the task has children, the task page otherwise. A server
+# of the current build (KTD15's /healthz probe) is reused; otherwise one is
+# started detached. Resolution matches cmd_notes: a <task-ref> needs no
+# tmux, none means the current session's @task.
+cmd_page() {
+  local no_open=0
+  if [ "${1:-}" = --no-open ]; then no_open=1; shift; fi
+  if [ $# -gt 1 ] || [ "${1:-}" = -h ] || [ "${1:-}" = --help ]; then
+    echo "usage: wb page [--no-open] [<task-ref>]" >&2
+    return 1
+  fi
+  local file
+  if [ -n "${1:-}" ]; then
+    file="$(_wb_append_resolve_task "$1" "wb page")" || return 1
+  else
+    if [ -z "${TMUX:-}" ]; then
+      echo "wb page: not inside tmux — pass a <task-ref>" >&2
+      echo "usage: wb page [--no-open] [<task-ref>]" >&2
+      return 1
+    fi
+    local session
+    session="$(tmux display-message -p '#S' 2>/dev/null || true)"
+    if [ -z "$session" ] || ! file="$(wb_session_task_file "$session")" || [ -z "$file" ]; then
+      echo "wb page: ${session:-this session} has no @task/@wb_repo — not a wb task session" >&2
+      return 1
+    fi
+  fi
+  local stem; stem="$(basename "$file" .md)"
+
+  if [ ! -x "$WB_STORE_SHIM" ]; then
+    echo "wb page: no wb-store shim at $WB_STORE_SHIM — run stow (cd ~/code/dotfiles && stow scripts)" >&2
+    return 1
+  fi
+  local bin id port
+  bin="$("$WB_STORE_SHIM" --bin-path)" || return 1
+  id="$(_wb_page_build_id "$bin")" || return 1
+  if ! port="$(_wb_page_find_server "$id")"; then
+    port="$(_wb_page_start "$stem" "${XDG_STATE_HOME:-$HOME/.local/state}/wb/page-server.log")" || return 1
+  fi
+
+  local view=task
+  if [ "$(_wb_family_tree "$stem" | wc -l)" -gt 1 ]; then view=family; fi
+  local url="http://127.0.0.1:$port/$view/$stem"
+  printf '%s\n' "$url"
+  [ "$no_open" = 1 ] || _wb_page_open "$url"
+}
+
+# ---------------------------------------------------------------------------
 # wb family — a task's parent/child family, for the decision-propagation step.
 # ---------------------------------------------------------------------------
 
@@ -8902,6 +9037,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     reviewed)    shift; cmd_reviewed "$@" ;;
     task-file)   shift; cmd_task_file "$@" ;;
     notes)       shift; cmd_notes "$@" ;;
+    page)        shift; cmd_page "$@" ;;
     jira-set)    shift; cmd_jira_set "$@" ;;
     unsafe-rewind) shift; cmd_unsafe_rewind "$@" ;;
     append)      shift; cmd_append "$@" ;;
