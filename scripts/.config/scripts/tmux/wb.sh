@@ -1516,7 +1516,7 @@ wb_layout_session() {
 _wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
 
 # _wb_new_start_point <repo_dir> <repo> <slug> <own_task_file> <depends_on_csv>
-# — print the ref a freshly created `wb new` branch should start from, or
+#   [quiet] — print the ref a freshly created `wb new` branch should start from, or
 # nothing (git's implicit HEAD, the old behavior). A bare `worktree add -b`
 # bases every new branch on whatever the main checkout's HEAD happens to be:
 # a local default branch that often hasn't been pulled since the last merge
@@ -1544,8 +1544,16 @@ _wb_new_interactive() { [ -t 0 ] && [ -t 2 ]; }
 #     never rebased for you, its own worktree may be mid-work.
 #   - No usable blocker: origin/<default>. No origin, or no resolvable
 #     default: print nothing.
+#   - quiet (the reattach fast-forward's mode, _wb_new_fast_forward): the same
+#     choice with no menu and no notes, and only remote-tracking refs — a
+#     blocker that exists solely as a local branch is skipped, because a
+#     reattach must never move a branch onto another session's unpushed work.
 _wb_new_start_point() {
-  local repo_dir="$1" repo="$2" slug="$3" own_file="$4" deps_csv="$5"
+  local repo_dir="$1" repo="$2" slug="$3" own_file="$4" deps_csv="$5" mode="${6:-}"
+  if [ "$mode" = quiet ]; then
+    _wb_new_start_point "$repo_dir" "$repo" "$slug" "$own_file" "$deps_csv" remote 2>/dev/null
+    return 0
+  fi
   if [ -z "$deps_csv" ] && [ -f "$own_file" ]; then
     deps_csv="$(wb_get_frontmatter "$own_file" depends_on)"
   fi
@@ -1590,7 +1598,7 @@ _wb_new_start_point() {
     br="$(wb_get_frontmatter "$f" branch)"
     read -r br <<< "$br"
     [ -n "$br" ] || continue
-    if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$br"; then
+    if [ "$mode" != remote ] && git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$br"; then
       ref="$br"
     elif git -C "$repo_dir" show-ref --verify --quiet "refs/remotes/origin/$br"; then
       ref="origin/$br"
@@ -1617,7 +1625,7 @@ _wb_new_start_point() {
   local pick=0 i n="${#refs[@]}"
   # A menu needs two choices: one blocker and no default (no origin) is not
   # a question.
-  if _wb_new_interactive && { [ "$n" -gt 1 ] || [ -n "$def" ]; }; then
+  if [ "$mode" != remote ] && _wb_new_interactive && { [ "$n" -gt 1 ] || [ -n "$def" ]; }; then
     echo "wb new: $slug depends on unmerged work — branch from:" >&2
     for ((i = 0; i < n; i++)); do
       printf '  %d) %s  (%s%s)\n' "$((i + 1))" "${refs[$i]}" "${stems[$i]}" \
@@ -1795,6 +1803,70 @@ _wb_new_add_worktree() {
   else
     git -C "$repo_dir" worktree add -b "$branch" "$worktree_path"
   fi
+}
+
+# _wb_new_fast_forward <repo_dir> <repo> <branch> <worktree_path> <own_task_file>
+#   <depends_on_csv> — on reattach, move a branch that is only behind to its
+# start point (the quiet _wb_new_start_point: stacked blocker's origin ref, else
+# origin/<default>) with `merge --ff-only` inside the worktree, so git itself
+# refuses to overwrite an untracked file. The caller runs it only when it is
+# about to create the tmux session (a live session may have an agent mid-edit)
+# and the branch was not just cut or attached. Prints what moved, or ONE line
+# saying how far behind the branch is and why it stayed; silent when it is at or
+# ahead of the start point. Never fails the caller.
+_wb_new_fast_forward() {
+  local repo_dir="$1" repo="$2" branch="$3" wt="$4" own_file="$5" deps_csv="$6"
+  local gitdir
+  gitdir="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null)" || return 0
+  git -C "$wt" show-ref --verify --quiet "refs/heads/$branch" || return 0
+
+  local start
+  start="$(_wb_new_start_point "$repo_dir" "$repo" "$branch" "$own_file" "$deps_csv" quiet)"
+  [ -n "$start" ] && git -C "$wt" rev-parse --verify --quiet "$start^{commit}" >/dev/null || return 0
+
+  local behind own
+  behind="$(git -C "$wt" rev-list --count "refs/heads/$branch..$start" 2>/dev/null)" || return 0
+  [ "${behind:-0}" -gt 0 ] || return 0
+  own="$(git -C "$wt" rev-list --count "$start..refs/heads/$branch" 2>/dev/null || echo 0)"
+
+  local why="" head m
+  head="$(git -C "$wt" symbolic-ref -q HEAD 2>/dev/null || true)"
+  if [ -z "$head" ]; then
+    why="HEAD is detached"
+  elif [ "$head" != "refs/heads/$branch" ]; then
+    why="the worktree has ${head#refs/heads/} checked out"
+  else
+    for m in MERGE_HEAD rebase-merge rebase-apply CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+      if [ -e "$gitdir/$m" ]; then
+        why="a merge, rebase, cherry-pick, revert or bisect is in progress"
+        break
+      fi
+    done
+  fi
+  if [ -z "$why" ] && [ -n "$(git -C "$wt" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    why="tracked files have uncommitted changes"
+  fi
+  if [ -z "$why" ] && [ "$own" -gt 0 ]; then
+    why="it has $own commit(s) of its own"
+  fi
+  if [ -z "$why" ] && git -C "$wt" show-ref --verify --quiet "refs/remotes/origin/$branch" \
+    && ! git -C "$wt" merge-base --is-ancestor "refs/remotes/origin/$branch" "$start" 2>/dev/null; then
+    why="origin/$branch has commits it lacks — pull first"
+  fi
+  if [ -n "$why" ]; then
+    echo "wb new: $branch is $behind commit(s) behind $start — not fast-forwarded: $why" >&2
+    return 0
+  fi
+
+  local old new err
+  old="$(git -C "$wt" rev-parse --short=7 HEAD)"
+  if err="$(git -C "$wt" merge --ff-only -q "$start" 2>&1)"; then
+    new="$(git -C "$wt" rev-parse --short=7 HEAD)"
+    echo "wb new: fast-forwarded $branch $old..$new ($behind commits) to $start" >&2
+  else
+    echo "wb new: warning: could not fast-forward $branch to $start (git refused: $(head -n1 <<< "$err")) — leaving it as is" >&2
+  fi
+  return 0
 }
 
 cmd_new() {
@@ -2040,6 +2112,11 @@ cmd_new() {
   local worktree_rel=".worktrees/$wt_slug"
   local worktree_path="$repo_dir/$worktree_rel"
 
+  # A branch that does not exist yet is about to be cut or attached by
+  # _wb_new_add_worktree: it already sits at its start point, so the reattach
+  # fast-forward below skips it.
+  local branch_just_made=0
+  git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$branch" || branch_just_made=1
   if [ ! -d "$worktree_path" ]; then
     _wb_new_add_worktree "$repo_dir" "$repo" "$add_slug" "$branch" "$worktree_path" "$own_file" "$depends_on_joined" \
       || exit 1
@@ -2101,6 +2178,9 @@ cmd_new() {
 
   local is_new=0
   tmux has-session -t "=$session" 2>/dev/null || is_new=1
+  if [ "$is_new" = 1 ] && [ "$branch_just_made" = 0 ]; then
+    _wb_new_fast_forward "$repo_dir" "$repo" "$branch" "$worktree_path" "$own_file" "$depends_on_joined" || true
+  fi
   tmux_ensure_session "$session" "$worktree_path"
   # A session-only "=name" target (no window/pane part) confuses set-option's
   # pane-target parser on tmux 3.4 ("no such session") even though the session

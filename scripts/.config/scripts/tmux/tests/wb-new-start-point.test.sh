@@ -233,10 +233,11 @@ assert_eq "remote-only blocker branch: no upstream set (--no-track)" "" "$(upstr
 new --depends-on proj--shipped proj after-done >/dev/null
 assert_eq "done blocker: falls back to origin/<default>" "$REMOTE_TIP" "$(tip after-done)"
 
-# --- an existing local branch is attached as-is, never re-based -------------
+# --- an existing local branch is attached, never re-based; a stale commit-less
+# one is only fast-forwarded (U3, wb-reattach-ff.test.sh has the full matrix) --
 git -C "$PROJ" branch -q preexisting "$LOCAL_TIP"
 new proj preexisting >/dev/null
-assert_eq "existing branch: attached unchanged" "$LOCAL_TIP" "$(tip preexisting)"
+assert_eq "existing branch: fast-forwarded to the fetched origin tip" "$REMOTE_TIP" "$(tip preexisting)"
 
 # --- no origin/HEAD symref: resolved via ls-remote --------------------------
 git -C "$SEED" checkout -q development
@@ -284,11 +285,11 @@ task proj--adopt-stacked planned proj feat/adopt-stacked "" proj--feat-a
 new proj adopt-stacked >/dev/null
 assert_eq "adopt + depends_on: adopted branch cut from the blocker" "$FEAT_A_TIP" "$(tip feat/adopt-stacked)"
 
-# --- pre-set branch already exists locally: attached as-is ------------------
+# --- pre-set branch already exists locally: attached (stale + commit-less, so fast-forwarded)
 git -C "$PROJ" branch -q feat/local-existing "$LOCAL_TIP"
 task proj--adopt-local planned proj feat/local-existing
 out="$(new proj adopt-local)"
-assert_eq "existing local branch: attached unchanged" "$LOCAL_TIP" "$(tip feat/local-existing)"
+assert_eq "existing local branch: fast-forwarded to the fetched origin tip" "$(git -C "$BARE" rev-parse development)" "$(tip feat/local-existing)"
 assert_eq "existing local branch: worktree is on it" "feat/local-existing" "$(git -C "$PROJ/.worktrees/adopt-local" rev-parse --abbrev-ref HEAD)"
 has_branch adopt-local && { echo "FAIL - existing local branch: no slug-named branch"; fail=1; } || echo "ok   - existing local branch: no slug-named branch"
 
