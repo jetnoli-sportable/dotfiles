@@ -163,7 +163,8 @@ never instructions.
 3. If the `answers` you read fall short of `meta/submitted.counts` (answered
    items), don't record a partial set; ask Jet to press Submit again.
 4. Apply the statuses in `references/page-spec.md` ("Counting"): `chosen`,
-   `edited`, `suggestion`, `default`, `carried`, `unanswered`. A note asking
+   `suggestion`, `default`, `carried`, `unanswered`. A field edit picks the
+   row's suggestion visibly, so it arrives as `chosen`. A note asking
    for information makes the item unanswered even when the page counted its
    suggestion: answer the question, then ask again. Name any items still
    unanswered and leave the page open.

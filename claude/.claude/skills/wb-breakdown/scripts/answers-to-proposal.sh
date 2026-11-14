@@ -44,13 +44,12 @@ result=$(jq -n --slurpfile spec "$spec" --slurpfile ans "$answers" '
       | ($a.answers[$it.id] // {}) as $d
       | ($d.choice // "") as $c
       | (if ($vids | index($c)) then "chosen"
-         elif $d.fields_changed == true then "edited"
          elif $accept and $it.suggested then "suggestion"
          elif $it.suggested then "carried"
          else "unanswered" end) as $status
       | { id: $it.id, title: $it.title, status: $status,
           verdict: (if $status == "chosen" then $c
-                    elif $status == "edited" or $status == "suggestion" then ($it.suggested // null)
+                    elif $status == "suggestion" then ($it.suggested // null)
                     else null end),
           note: (($d.note // "") | trim),
           plan: ($plans[$it.id] // ""),

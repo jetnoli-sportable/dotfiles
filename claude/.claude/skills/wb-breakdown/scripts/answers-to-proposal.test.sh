@@ -74,6 +74,13 @@ jq '.submitted.accept_remaining = true' "$T/a5.json" > "$T/a5b.json"
 out="$(bash "$SCRIPT" "$FX/spec.json" "$T/a5b.json" "$FX/parent.md" "$T/p5b.md" 2>&1)"
 assert_match "ticked box creates the suggested row" '^created 2: feat-big-renamed, feat-big-two$' "$out"
 
+# --- 5c. a field edit with no verdict (an older page rev) is no verdict: carried, not taken
+jq '.answers.c2 = {choice:"", note:"", fields:{slug:"feat-big-two-x"}, fields_changed:true}' "$FX/answers.json" > "$T/a5c.json"
+out="$(bash "$SCRIPT" "$FX/spec.json" "$T/a5c.json" "$FX/parent.md" "$T/p5c.md" 2>&1)"; rc=$?
+assert_eq "fields_changed with no choice converts" 0 "$rc"
+assert_match "that row is carried over, not created" 'carried over.*: c2' "$out"
+/usr/bin/grep -q 'feat-big-two-x' "$T/p5c.md" && bad "an edit with no verdict became a child" || ok "an edit with no verdict is not in the proposal"
+
 # --- 6. merge folds the plan into the child named in the note; continuing child migrates
 jq '.answers.c3 = {choice:"merge", note:"fold into `feat-big-renamed`", fields:{}, fields_changed:false}' "$FX/answers.json" > "$T/a6.json"
 jq '.breakdown.continuing = "c1"' "$FX/spec.json" > "$T/s6.json"

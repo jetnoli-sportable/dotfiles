@@ -83,14 +83,14 @@ use the same rules.
 | Status | When | Value applied |
 |---|---|---|
 | `chosen` | Jet picked an option or verdict. | His choice. |
-| `edited` | Jet changed a `fields` value on the row, with no pick. Counts as answered. | The `suggested` verdict if there is one, else none. |
 | `suggestion` | `verdicts` layout, "accept the remaining suggestions" ticked, row has a `suggested` and no choice. | The suggestion. |
-| `default` | `items` layout, at least one other item is `chosen` or `edited`, and this blank item has a valid `default`. | The default, recorded as "default taken". |
+| `default` | `items` layout, at least one other item is `chosen`, and this blank item has a valid `default`. | The default, recorded as "default taken". |
 | `carried` | `verdicts` layout, row has a `suggested`, box unticked. | Nothing. |
 | `unanswered` | Anything else, including a note with no choice. | Nothing. |
 
 - `verdicts` layout: the accept box starts unticked. The tally reads "12 chosen, 18 carried over; tick to take their suggestions". Submit with nothing chosen and the box off applies nothing.
 - `items` layout: Submit is always allowed. The tally names unanswered items first. With no item answered, nothing is "default taken": a closed, unchanged page applies nothing.
+- Field edit: changing a `fields` value on a row with no `choice` and a `suggested` verdict sets `choice` to that suggestion in the same save, and the row redraws as chosen (colour, check mark, the word "chosen"). The verdict buttons stay live: click another verdict, or the chosen one to clear it. A row that already has a `choice` keeps it. A row with no `suggested` stays unanswered. After Jet clears a pick, edits to that row's fields in the same page session do not pick again. A stored answer with `fields_changed: true` and no `choice` (an older page rev) counts like any blank row.
 - A choice that is not one of the item's option or verdict ids is ignored, and answers whose item id is not in the spec are ignored.
 
 ## States
@@ -120,7 +120,7 @@ All writes use the `db` capability. The session reads them with `ArtifactData`.
 
 ```json
 { "at": "...", "rev": "2", "base": "<checksum>", "answered": 12, "total": 30,
-  "counts": { "chosen": 4, "edited": 0, "suggestion": 8, "default": 0, "carried": 18, "unanswered": 0 },
+  "counts": { "chosen": 4, "suggestion": 8, "default": 0, "carried": 18, "unanswered": 0 },
   "accept_remaining": true, "threadId": "...", "sent": true, "send_error": "" }
 ```
 

@@ -214,7 +214,7 @@ const DC = (() => {
   const str = (v) => (v == null ? "" : String(v));
   const arr = (v) => (Array.isArray(v) ? v : []);
   const TONES = ["neutral", "good", "bad", "info", "warn"];
-  const STATUSES = ["chosen", "edited", "suggestion", "default", "carried", "unanswered"];
+  const STATUSES = ["chosen", "suggestion", "default", "carried", "unanswered"];
 
   // Fill defaults so the renderer never branches on missing fields.
   function normalize(raw) {
@@ -277,6 +277,16 @@ const DC = (() => {
     };
   }
 
+  // The answer after Jet edits a field. A row with no pick takes its suggested
+  // verdict at once, so the edit shows as a pick; a pick is never changed, a row
+  // with no suggestion stays unanswered, and noRepick keeps a pick Jet cleared cleared.
+  function answerAfterFieldEdit(spec, item, prev, fields, rev, now, noRepick) {
+    const a = buildAnswer(item, prev, { fields }, rev, now);
+    const sg = spec.layout === "verdicts" && spec.verdicts.some((v) => v.id === item.suggested) ? item.suggested : "";
+    if (!a.choice && sg && !noRepick) a.choice = sg;
+    return a;
+  }
+
   const validChoice = (spec, item, a) => {
     const c = a && str(a.choice);
     if (!c) return "";
@@ -286,7 +296,6 @@ const DC = (() => {
 
   // Where every item stands, and what value it resolves to at Submit.
   //   chosen     Jet picked an option or verdict
-  //   edited     Jet changed a field on the row: counts as answered, takes the suggestion
   //   suggestion verdicts layout, accept box ticked: the suggestion applies
   //   default    items layout, some other item answered: the stated default applies
   //   carried    verdicts layout, suggestion not accepted: applies nothing
@@ -301,10 +310,6 @@ const DC = (() => {
       const a = answers && answers[it.id];
       const choice = validChoice(spec, it, a);
       if (choice) { byId[it.id] = { status: "chosen", value: choice }; anyAnswered = true; }
-      else if (fieldsChanged(it, a)) {
-        const sg = spec.layout === "verdicts" && vids.includes(it.suggested) ? it.suggested : "";
-        byId[it.id] = { status: "edited", value: sg }; anyAnswered = true;
-      }
     });
     spec.items.forEach((it) => {
       if (byId[it.id]) return;
@@ -330,7 +335,7 @@ const DC = (() => {
       if (!map[key]) { map[key] = { area: key, ids: [], counts: zero() }; order.push(key); }
       map[key].ids.push(it.id); map[key].counts[st] += 1;
     });
-    const answeredOf = (c) => c.chosen + c.edited + c.suggestion;
+    const answeredOf = (c) => c.chosen + c.suggestion;
     const areas = order.map((k) => ({ area: map[k].area, ids: map[k].ids, counts: map[k].counts, total: map[k].ids.length, answered: answeredOf(map[k].counts) }));
     return { total: spec.items.length, counts, answered: answeredOf(counts), byId, unansweredIds, areas, acceptRemaining: accept };
   }
@@ -339,9 +344,9 @@ const DC = (() => {
   function tallyText(spec, sum) {
     const c = sum.counts;
     if (spec.layout === "verdicts") {
-      if (sum.acceptRemaining) return `${sum.answered} answered (${c.chosen + c.edited} chosen, ${c.suggestion} by suggestion)` + (c.unanswered ? `, ${c.unanswered} without a suggestion` : "");
+      if (sum.acceptRemaining) return `${sum.answered} answered (${c.chosen} chosen, ${c.suggestion} by suggestion)` + (c.unanswered ? `, ${c.unanswered} without a suggestion` : "");
       const open = c.carried + c.unanswered;
-      return `${c.chosen + c.edited} chosen, ${open} carried over` + (open ? "; tick to take their suggestions" : "");
+      return `${c.chosen} chosen, ${open} carried over` + (open ? "; tick to take their suggestions" : "");
     }
     const names = sum.unansweredIds.map((id) => (spec.items.find((it) => it.id === id) || {}).title).filter(Boolean);
     const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
@@ -355,7 +360,7 @@ const DC = (() => {
   function commentText(spec, sum, again) {
     const c = sum.counts;
     return `${again ? "Resubmitted" : "Submitted"} rev ${spec.rev}: ${sum.answered} of ${sum.total} answered`
-      + ` (${c.chosen} chosen, ${c.edited} edited, ${c.suggestion} by suggestion, ${c.default} default taken, ${c.carried + c.unanswered} open).`
+      + ` (${c.chosen} chosen, ${c.suggestion} by suggestion, ${c.default} default taken, ${c.carried + c.unanswered} open).`
       + " Read the answers from this page's store (meta/submitted and the answers collection) and record them.";
   }
 
@@ -366,7 +371,7 @@ const DC = (() => {
       sent: !!extra.sent, send_error: extra.sendError || "" };
   }
 
-  return { normalize, sanitizeSvg, safeHref, fieldValue, fieldsChanged, buildAnswer, summarize, tallyText, headerText, commentText, submittedDoc, STATUSES };
+  return { normalize, sanitizeSvg, safeHref, fieldValue, fieldsChanged, buildAnswer, answerAfterFieldEdit, summarize, tallyText, headerText, commentText, submittedDoc, STATUSES };
 })();
 // CORE:END
 </script>
@@ -375,7 +380,7 @@ const DC = (() => {
 (() => {
   const $ = (id) => document.getElementById(id);
   const state = {
-    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), timers: {}, retry: {},
+    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), cleared: new Set(), timers: {}, retry: {},
     accept: false, submitted: null, open: {}, sum: null, globalText: "", globalTimer: null,
   };
 
@@ -456,7 +461,7 @@ const DC = (() => {
   }
 
   const statusLine = (st) => ({
-    chosen: "", edited: "Edited, counts as answered", suggestion: "Suggestion accepted", default: "Default taken at Submit",
+    chosen: "", suggestion: "Suggestion accepted", default: "Default taken at Submit",
     carried: "Suggestion carried over, applies nothing unless accepted", unanswered: "Unanswered",
   })[st] || "";
 
@@ -510,7 +515,10 @@ const DC = (() => {
         const inp = h("input", { type: "text", id, value: DC.fieldValue(f, a), placeholder: f.placeholder });
         inp.addEventListener("input", () => {
           const cur = { ...((state.answers[item.id] || {}).fields || {}) }; cur[f.key] = inp.value;
-          queueSave(item, { fields: cur });
+          const prev = state.answers[item.id];
+          state.answers[item.id] = DC.answerAfterFieldEdit(state.spec, item, prev, cur, state.spec.rev, new Date().toISOString(), state.cleared.has(item.id));
+          if (!(prev && prev.choice) && state.answers[item.id].choice) repaintKeepingFocus(item);
+          queueSave(item, {});
         });
         g.append(h("label", { class: "field" + (f.wide ? " wide" : ""), for: id }, h("span", { text: f.label }), inp));
       });
@@ -585,6 +593,17 @@ const DC = (() => {
     renderChrome();
   }
 
+  // A field edit just picked the suggestion: redraw the row so it shows as chosen,
+  // and put the cursor back where Jet was typing.
+  function repaintKeepingFocus(item) {
+    const el = document.activeElement, id = el && el.id, pos = el && el.selectionStart;
+    recompute();
+    const old = document.querySelector(`.card[data-id="${CSS.escape(item.id)}"]`);
+    if (old) old.replaceWith(renderRow(item));
+    const again = id && document.getElementById(id);
+    if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) { /* not a text control */ } }
+  }
+
   // Typing: update local state at once, write after a pause.
   function queueSave(item, patch) {
     const prev = state.answers[item.id];
@@ -594,6 +613,7 @@ const DC = (() => {
     state.timers[item.id] = setTimeout(() => write(item), 600);
   }
   function save(item, patch) {
+    if ("choice" in patch) { if (patch.choice) state.cleared.delete(item.id); else state.cleared.add(item.id); }
     clearTimeout(state.timers[item.id]);
     state.answers[item.id] = DC.buildAnswer(item, state.answers[item.id], patch, state.spec.rev, new Date().toISOString());
     replaceRow(item);

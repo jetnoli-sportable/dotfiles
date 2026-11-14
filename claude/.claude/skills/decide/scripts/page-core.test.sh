@@ -103,15 +103,33 @@ check "items layout: with nothing answered, nothing is default taken" "
   const n = DC.summarize(spec, { legend: { note: 'hm' } }, false);
   assert.strictEqual(n.counts.default, 0)"
 
-check "an edited field marks the row answered and takes the suggestion" "
+check "a field edit with no pick is not a status: the core has no edited, the row counts as blank" "
   const spec = DC.normalize(load('verdicts'));
   const item = spec.items.find((i) => i.id === 'b3');
+  assert.ok(!DC.STATUSES.includes('edited'));
   const a = DC.buildAnswer(item, null, { fields: { slug: 'x' } }, spec.rev, 'now');
   assert.strictEqual(a.fields_changed, true); assert.strictEqual(a.fields.slug, 'x'); assert.strictEqual(a.fields.size, 'S'); assert.strictEqual(a.rev, '2');
   const s = DC.summarize(spec, { b3: a }, false);
-  assert.deepStrictEqual(s.byId.b3, { status: 'edited', value: 'fix' }); assert.strictEqual(s.answered, 1);
+  assert.deepStrictEqual(s.byId.b3, { status: 'carried', value: '' }); assert.strictEqual(s.answered, 0);
+  assert.strictEqual('edited' in s.counts, false);
   const same = DC.buildAnswer(item, null, { note: 'n' }, spec.rev, 'now');
   assert.strictEqual(same.fields_changed, false)"
+
+check "answerAfterFieldEdit picks the suggestion on an empty choice, never overrides, picks nothing without one" "
+  const spec = DC.normalize(load('verdicts'));
+  const item = spec.items.find((i) => i.id === 'b3');
+  assert.strictEqual(item.suggested, 'fix');
+  const a = DC.answerAfterFieldEdit(spec, item, null, { slug: 'x' }, spec.rev, 'now');
+  assert.strictEqual(a.choice, 'fix'); assert.strictEqual(a.fields.slug, 'x'); assert.strictEqual(a.fields_changed, true);
+  assert.deepStrictEqual(DC.summarize(spec, { b3: a }, false).byId.b3, { status: 'chosen', value: 'fix' });
+  const own = DC.answerAfterFieldEdit(spec, item, { choice: 'skip' }, { slug: 'x' }, spec.rev, 'now');
+  assert.strictEqual(own.choice, 'skip');
+  const cleared = DC.answerAfterFieldEdit(spec, item, { choice: '' }, { slug: 'x' }, spec.rev, 'now', true);
+  assert.strictEqual(cleared.choice, '');
+  const bare = spec.items.find((i) => !i.suggested);
+  if (bare) { const n = DC.answerAfterFieldEdit(spec, bare, null, bare.fields[0] ? { [bare.fields[0].key]: 'y' } : {}, spec.rev, 'now'); assert.strictEqual(n.choice, ''); }
+  const nos = { ...item, suggested: '' };
+  assert.strictEqual(DC.answerAfterFieldEdit(spec, nos, null, { slug: 'x' }, spec.rev, 'now').choice, '')"
 
 check "per-area counts sum to the header tally (both layouts, box on and off)" "
   for (const [name, accept, ans] of [['verdicts', false, { a1: { choice: 'fix' } }], ['verdicts', true, { a1: { choice: 'fix' } }], ['items', false, { legend: { choice: 'help' } }], ['triage', false, {}]]) {
