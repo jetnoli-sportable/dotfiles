@@ -29,18 +29,22 @@ PATH="$FIXTURE_BIN:$PATH"
 
 # Fake `wb resume <stem>`: *--bad-* fails, *--slow-* leaves a non-shell in the
 # agent window, anything else gets a shell window with a pre-typed warm resume.
+# The session is named the way cmd_new names it: <repo>--<worktree: slug>.
 cat > "$FIXTURE_BIN/fake-wb.sh" <<'EOF2'
 #!/usr/bin/env bash
 [ "$1" = resume ] || exit 2
+s="$2"
+wt="$(awk -F': *' '/^worktree:/ { print $2; exit }' "$TASKS_DIR/$2.md" 2>/dev/null)"
+[ -z "$wt" ] || s="${2%%--*}--$(printf '%s' "${wt#.worktrees/}" | tr '/' '-')"
 case "$2" in
   *--bad-*) exit 1 ;;
-  *--slow-*) tmux new-session -d -s "$2" -n agent 'sleep 300' ;;
-  *) tmux new-session -d -s "$2" -n agent
+  *--slow-*) tmux new-session -d -s "$s" -n agent 'sleep 300' ;;
+  *) tmux new-session -d -s "$s" -n agent
      sleep 0.5   # let the shell draw its prompt first, as wb's layout does by the time restart types
-     tmux send-keys -t "=$2:agent" 'claude --resume old-id' ;;
+     tmux send-keys -t "=$s:agent" 'claude --resume old-id' ;;
 esac
 # wb resume focuses the session it made
-tmux switch-client -t "=$2" 2>/dev/null || true
+tmux switch-client -t "=$s" 2>/dev/null || true
 EOF2
 
 cleanup() {
@@ -90,7 +94,7 @@ task() { # <stem> <status> [<worktree-exists:1|0>]
   [ "$wt" = 0 ] || mkdir -p "$FIXTURE_CODE/proj/.worktrees/$slug"
 }
 has() { tmux has-session -t "=$1" 2>/dev/null; }
-pane() { tmux capture-pane -p -t "=$1:agent" 2>/dev/null; }
+pane() { tmux capture-pane -pJ -t "=$1:agent" 2>/dev/null; }   # -J: a long host prompt wraps the 80-column pane
 sw_last() { /usr/bin/grep '^switch-client' "$TMUX_LOG" | tail -1; }
 
 tmux new-session -d -s start
@@ -123,7 +127,7 @@ printf 'proj--ghost\nproj--on\nproj--live\nproj--bad-one\nproj--good\n' > "$LIST
 out="$(cmd_restart "$LIST2" 2>&1)"; rc=$?
 assert "missing: skipped with a reason" 'SKIP  proj--ghost: no task file' "$out"
 assert "substring of a stem: skipped as missing, not resolved fuzzily" 'SKIP  proj--on: no task file' "$out"
-assert "live: skipped" 'SKIP  proj--live: session still open' "$out"
+assert "live: skipped" 'SKIP  proj--live: session proj--live still open' "$out"
 assert "failed resume: reported" 'FAIL  proj--bad-one: wb resume failed' "$out"
 assert "later entry still runs after a failure" 'OK    proj--good' "$out"
 assert "summary counts" '1 ok, 3 skipped, 1 failed' "$out"
@@ -192,6 +196,30 @@ out="$( (sleep 1; echo n) | script -qec "bash '$WB' restart --crashed" /dev/null
 assert "crashed + terminal: asks first" 'Restart these [0-9]+ session\(s\)\? \[y/N\]' "$out"
 assert "crashed + terminal: n launches nothing" 'nothing launched' "$out"
 assert_eq "crashed + terminal: no new sessions" "$before" "$(tmux list-sessions -F '#S' | sort | tr '\n' ' ')"
+
+# --- a continuing child: its session is named after the worktree it inherited ------
+# wb breakdown moves the parent's branch: and worktree: onto the child, so the
+# child's session is proj--mom, not proj--kid, and the parent is left with no
+# branch: (nothing to resume; its old worktree now belongs to the child).
+rm -f "${FIXTURE_TASKS:?}"/*.md
+mkdir -p "$FIXTURE_CODE/proj/.worktrees/mom"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch: mom\nworktree: .worktrees/mom\ntags: []\ncreated: 2026-10-01\nclosed:\n---\n# kid\n' > "$FIXTURE_TASKS/proj--kid.md"
+printf -- '---\nstatus: doing\nrepo: proj\nbranch:\nworktree:\ntags: []\ncreated: 2026-10-01\nclosed:\n---\n# mom\n' > "$FIXTURE_TASKS/proj--mom.md"
+assert_eq "child: session name comes from worktree:" "proj--mom" "$(_wb_task_session "$FIXTURE_TASKS/proj--kid.md")"
+out="$(cmd_restart --dry-run --crashed 2>&1)"
+assert "child: listed as crashed while proj--mom is gone" 'WOULD proj--kid:' "$out"
+refute "child: parent with no branch: is not listed" 'proj--mom:' "$out"
+tmux new-session -d -s proj--mom
+out="$(cmd_restart --dry-run --crashed 2>&1)"
+refute "child: not listed while its session proj--mom is live" 'proj--kid' "$out"
+printf 'proj--kid\n' > "$FIXTURE_BIN/list5"
+out="$(cmd_restart "$FIXTURE_BIN/list5" 2>&1)"
+assert "child: list entry skipped while proj--mom is live" 'SKIP  proj--kid: session proj--mom still open' "$out"
+tmux kill-session -t =proj--mom
+out="$(cmd_restart "$FIXTURE_BIN/list5" 2>&1)"; rc=$?
+assert "child: restored and pre-typed" 'OK    proj--kid' "$out"
+assert_eq "child: exit 0" 0 "$rc"
+assert "child: proj--mom's agent window holds the command" 'claude "/wb-resume"' "$(pane proj--mom)"
 
 # --- exact stem resolution in the real cmd_resume -----------------------------------------
 NEWCALL="$FIXTURE_BIN/newcall"

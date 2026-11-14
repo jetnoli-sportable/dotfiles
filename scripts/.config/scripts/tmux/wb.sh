@@ -1688,6 +1688,21 @@ _wb_safe_worktree_field() {
   return 0
 }
 
+# _wb_task_wt_slug <task_file> <repo> — the worktree slug a resume of this task
+# uses (cmd_new's override path): worktree: without `.worktrees/` when
+# _wb_safe_worktree_field accepts it, else the stem's own slug. The session is
+# <repo>--<sanitized slug>, so a continuing child from `wb breakdown`, which
+# inherits its parent's worktree:, has a session not named after its stem.
+_wb_task_wt_slug() {
+  local slug wt
+  slug="$(basename -- "$1" .md)"
+  slug="${slug#"${2}--"}"
+  wt="$(wb_get_frontmatter "$1" worktree)"
+  read -r wt <<< "$wt"
+  if [ -n "$wt" ] && _wb_safe_worktree_field "$wt"; then slug="${wt#.worktrees/}"; fi
+  printf '%s\n' "$slug"
+}
+
 # _wb_new_add_worktree <repo_dir> <repo> <slug> <branch> <worktree_path>
 #   <own_task_file> <depends_on_csv> — create <worktree_path> on <branch>.
 # <branch> is the task file's pre-set `branch:` when it has one (seeding
@@ -2099,16 +2114,14 @@ cmd_new() {
       # _wb_new_add_worktree compares against the branch — making picker/
       # resume re-entry identical to `wb new <repo> <slug>` (adoption,
       # remote tracking included).
-      local stem_slug; stem_slug="$(basename -- "$own_file" .md)"
+      local stem_slug wt_res; stem_slug="$(basename -- "$own_file" .md)"
       stem_slug="${stem_slug#"${repo}--"}"
-      [ -z "$stem_slug" ] || { wt_slug="$stem_slug"; add_slug="$stem_slug"; }
+      [ -z "$stem_slug" ] || add_slug="$stem_slug"
+      wt_res="$(_wb_task_wt_slug "$own_file" "$repo")"
+      [ -z "$wt_res" ] || wt_slug="$wt_res"
       wt_field="$(wb_get_frontmatter "$own_file" worktree)"
       read -r wt_field <<< "$wt_field"
-      if [ -z "$wt_field" ]; then
-        :
-      elif _wb_safe_worktree_field "$wt_field"; then
-        wt_slug="${wt_field#.worktrees/}"
-      else
+      if [ -n "$wt_field" ] && ! _wb_safe_worktree_field "$wt_field"; then
         wt_unsafe=1
         echo "wb new: warning: ignoring worktree: '$wt_field' (must be .worktrees/<name>, no '..' segments) — using .worktrees/$wt_slug" >&2
       fi
@@ -2351,23 +2364,32 @@ _wb_restart_closed_by_down() {
   [ -n "$src" ] && [[ "$text" == *'Session closed via `wb down`'* ]]
 }
 
+# _wb_task_session <task_file> — the tmux session `wb resume` gives this task
+# (see _wb_task_wt_slug); the stem itself when the task has no repo:.
+_wb_task_session() {
+  local repo
+  repo="$(wb_get_frontmatter "$1" repo)"
+  if [ -z "$repo" ]; then basename -- "$1" .md; return 0; fi
+  printf '%s--%s\n' "$repo" "$(wb_sanitize "$(_wb_task_wt_slug "$1" "$repo")")"
+}
+
 # _wb_restart_crashed_stems — one task stem per line: the tasks a crash left
-# without a session (R9/KTD7): status doing or review, the worktree directory
-# exists, no tmux session named after the stem, and the newest handoff is not a
-# closing `wb down`.
+# without a session (R9/KTD7): status doing or review, a repo: and branch: to
+# resume from (a parent whose branch moved to a continuing child has neither,
+# and its old worktree is now the child's), the worktree directory exists, no
+# tmux session under the name `wb resume` would give it, and the newest handoff
+# is not a closing `wb down`.
 _wb_restart_crashed_stems() {
-  local f stem status repo wt branch
+  local f stem status repo branch
   while IFS= read -r f; do
     stem="$(basename "$f" .md)"
     status="$(wb_get_frontmatter "$f" status)"
     case "$status" in doing|review) ;; *) continue ;; esac
     repo="$(wb_get_frontmatter "$f" repo)"
     branch="$(wb_get_frontmatter "$f" branch)"
-    wt="$(wb_get_frontmatter "$f" worktree)"
-    [ -n "$repo" ] || continue
-    [ -n "$wt" ] || wt=".worktrees/$branch"
-    [ -d "$(wb_repo_dir "$repo")/$wt" ] || continue
-    tmux has-session -t "=$stem" 2>/dev/null && continue
+    [ -n "$repo" ] && [ -n "$branch" ] || continue
+    [ -d "$(wb_repo_dir "$repo")/.worktrees/$(_wb_task_wt_slug "$f" "$repo")" ] || continue
+    tmux has-session -t "=$(_wb_task_session "$f")" 2>/dev/null && continue
     _wb_restart_closed_by_down "$f" && continue
     printf '%s\n' "$stem"
   done < <(wb_task_files)
@@ -2431,7 +2453,7 @@ cmd_restart() {
   fi
 
   local agent_cmd='claude "/wb-resume"' timeout="${WB_RESTART_PROMPT_TIMEOUT:-20}"
-  local ok=0 skipped=0 failed=0 i pcmd
+  local ok=0 skipped=0 failed=0 i pcmd sess
   # Targeted at this pane: with several clients attached, a bare display-message
   # can name another client's session.
   _WB_RESTART_ORIG="$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#S' 2>/dev/null || true)"
@@ -2445,8 +2467,9 @@ cmd_restart() {
     if [ ! -f "$TASKS_DIR/$stem.md" ]; then
       echo "SKIP  $stem: no task file at $TASKS_DIR/$stem.md"; skipped=$((skipped + 1)); continue
     fi
-    if tmux has-session -t "=$stem" 2>/dev/null; then
-      echo "SKIP  $stem: session still open (wb down it first)"; skipped=$((skipped + 1)); continue
+    sess="$(_wb_task_session "$TASKS_DIR/$stem.md")"
+    if tmux has-session -t "=$sess" 2>/dev/null; then
+      echo "SKIP  $stem: session $sess still open (wb down it first)"; skipped=$((skipped + 1)); continue
     fi
     if [ "$dry" = 1 ]; then
       echo "WOULD $stem: wb resume, then pre-type: $agent_cmd"; ok=$((ok + 1)); continue
@@ -2454,13 +2477,13 @@ cmd_restart() {
     if ! bash "$SELF" resume "$stem" >/dev/null </dev/null; then
       echo "FAIL  $stem: wb resume failed"; failed=$((failed + 1)); continue
     fi
-    if ! tmux has-session -t "=$stem" 2>/dev/null; then
-      echo "FAIL  $stem: wb resume ran but no session named $stem exists"; failed=$((failed + 1)); continue
+    if ! tmux has-session -t "=$sess" 2>/dev/null; then
+      echo "FAIL  $stem: wb resume ran but no session named $sess exists"; failed=$((failed + 1)); continue
     fi
     # Type only once the agent window shows a shell prompt; never blind.
     pcmd=""
     for ((i = 0; i < timeout * 5; i++)); do
-      pcmd="$(tmux display-message -p -t "=$stem:agent" '#{pane_current_command}' 2>/dev/null || true)"
+      pcmd="$(tmux display-message -p -t "=$sess:agent" '#{pane_current_command}' 2>/dev/null || true)"
       case "$pcmd" in bash|zsh|sh|dash|fish) break ;; esac
       pcmd=""; sleep 0.2
     done
@@ -2468,8 +2491,8 @@ cmd_restart() {
       echo "WARN  $stem: session back, but its agent window never showed a shell within ${timeout}s; nothing typed. Type this there: $agent_cmd"
       ok=$((ok + 1)); continue
     fi
-    tmux send-keys -t "=$stem:agent" C-u
-    tmux send-keys -t "=$stem:agent" -l "$agent_cmd"
+    tmux send-keys -t "=$sess:agent" C-u
+    tmux send-keys -t "=$sess:agent" -l "$agent_cmd"
     echo "OK    $stem: session back; agent window holds: $agent_cmd (press Enter there)"
     ok=$((ok + 1))
   done
