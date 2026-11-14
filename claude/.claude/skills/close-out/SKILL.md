@@ -215,8 +215,11 @@ doesn't. Word each claim as exactly what the command proves. When a test
 suite already fails on the default branch, "tests pass" is false. The
 provable claim is "no failures beyond the default branch's", and the
 command compares the two failing sets (the branch's run against a run on
-the default branch, or a baseline the repo records). A failure that is not
-in the baseline makes the claim false. A claim no command could check ("works well") is dropped from the
+the default branch, or a baseline the repo records). Prefer a recorded
+baseline. Otherwise run the default branch's suite in a clean-room copy
+(`git archive origin/<default> | tar -x -C ~/.cleanroom/<task>-baseline`) or
+a throwaway worktree, never by checking out, resetting or stashing in this
+worktree. A failure that is not in the baseline makes the claim false. A claim no command could check ("works well") is dropped from the
 proved rows and listed under **Unproven** beneath the table; it is not
 asserted in the closing message.
 

@@ -103,8 +103,9 @@ Two shapes of handoff entry exist, in the task file's one entry and in each
 - **Rich, `/wb-save`-authored:** `### <YYYY-MM-DD HH:MM> — wb-save`,
   followed by `**Done:**` / `**In flight:**` / `**Next:**` bold-leader
   fields, which newer entries precede with a `**Drift:**` line. No
-  trailing `(auto)`. When `**Drift:**` says anything other than `none` or
-  `nothing to check against`, quote it in the one-line statement of what
+  trailing `(auto)`. When `**Drift:**` starts with anything other than
+  `none` or `nothing to check against` (a `none: <reason>` line counts as
+  `none`), quote it in the one-line statement of what
   was read, so the resumed session knows the work had drifted from its
   scope before it continues. Optionally, immediately after `**Next:**`,
   a fenced ` ```run ` block whose content is a literal, machine-readable

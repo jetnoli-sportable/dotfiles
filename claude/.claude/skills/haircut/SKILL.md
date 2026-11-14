@@ -36,9 +36,10 @@ unasked.
   from the default, so the default merge base would also sweep the
   blocker's commits. In a wb session (step 6 shows how to find the task
   file), for each stem in the task file's `depends_on:`, read the blocker's
-  `branch:` from `~/code/tasks/<stem>.md`. Where that branch exists (as
-  `origin/<branch>` or locally), take `git merge-base <branch> HEAD`. Use
-  whichever candidate is newest (a later one has the earlier one as an
+  `branch:` from `~/code/tasks/<stem>.md`. For each ref of that branch that
+  exists (`refs/heads/<branch>` and `refs/remotes/origin/<branch>`; the two
+  can differ when one is stale), add `git merge-base <ref> HEAD` as a
+  candidate. Use whichever candidate is newest (a later one has the earlier one as an
   ancestor: `git merge-base --is-ancestor "$mb" "$cand"`). A blocker that
   has already merged into the default gives no newer candidate, so the
   default merge base stands. Name the base you used in the report.
@@ -177,11 +178,13 @@ uncommitted and unstaged.
   it to the index with `git apply --cached --unidiff-zero comment-only.patch`.
 - A removed comment that was itself uncommitted leaves no hunk against
   `HEAD`; it just disappears from the uncommitted work.
-- Check with `git diff --cached --word-diff`: every change is a removed
-  comment, either a deleted comment line or a code line whose only
-  difference is a dropped trailing comment. Anything else (including changes
-  that were already staged before the sweep) means stop and report; do not
-  commit.
+- Check with plain `git diff --cached`, line by line: every `-` line is a
+  removed comment line, or pairs with a `+` line that is identical except
+  that its trailing comment and the whitespace before it are gone. Any other
+  `+` line, a removed blank line, or an indentation change means stop and
+  report; do not commit. The same goes for changes that were already staged
+  before the sweep. Never use `--word-diff` as the check: it hides
+  indentation changes and removed blank lines.
 - **Pre-commit hooks can add files after that check.** In a repo whose hook
   stages its own output (this dotfiles repo's docgen hook regenerates
   `docs/` from the working tree and runs `git add docs/` when a staged file
@@ -259,7 +262,8 @@ wb append <task> Follow-ups - "lib/c.py:15: dense date regex needs its comment; 
     `"$0"`: kept.
 14. A trailing comment removed from a committed code line: the staged
     change is that line without its comment, the check passes, and the code
-    is unchanged.
+    is unchanged. If the edit also changed the line's indentation or deleted
+    a blank line next to it, the check stops and nothing is committed.
 15. A repo with no `origin/HEAD` (e.g. one set up with `git remote add`):
     the base comes from `git ls-remote --symref origin HEAD`. If that is
     also empty, stop with the cannot-resolve message.
