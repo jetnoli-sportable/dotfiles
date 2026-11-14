@@ -8,14 +8,10 @@ local templConfig = require("plugins.lsp.config.go-templ")
 local bashConfig = require("plugins.lsp.config.bash")
 local marksmanConfig = require("plugins.lsp.config.marksman")
 
-local eslintConfig = {
-	on_attach = function(client, bufnr)
-		-- You can add eslint-specific keymaps or rely on the general ones from LspAttach
-	end,
-	settings = {
-		-- You can customize eslint settings here if needed
-	},
-}
+-- Empty on purpose: vim.lsp.config merges tables but replaces functions, so an
+-- on_attach here would drop nvim-lspconfig's, which defines :LspEslintFixAll.
+-- Wrap vim.lsp.config.eslint.on_attach if eslint ever needs its own.
+local eslintConfig = {}
 
 -- LSP Plugins
 local config = {

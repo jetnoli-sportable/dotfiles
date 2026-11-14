@@ -9,4 +9,9 @@
 # before its own SVG renderer. Two things that file can't do, found the hard
 # way: hold a comment (ImageMagick 6 then ignores the whole file) or use a
 # $HOME path (it escapes $), so this script is found on PATH by name.
-exec rsvg-convert --dpi-x "$3" --dpi-y "$3" -o "$2" "$1" >"$6" 2>&1
+#
+# Density goes in as --zoom, not --dpi: rsvg-convert applies dpi only to
+# physical units (in, cm, pt), and D2 sizes in px, so -density 192 (what snacks
+# asks for) would come back 1x and show at half size.
+zoom=$(awk -v d="$3" 'BEGIN { if (d + 0 > 0) print d / 96; else print 1 }')
+exec rsvg-convert --dpi-x 96 --dpi-y 96 --zoom "$zoom" -o "$2" "$1" >"$6" 2>&1

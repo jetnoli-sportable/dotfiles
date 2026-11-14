@@ -26,11 +26,15 @@ local function open_target()
 			return
 		end
 		if not target:match("^%a[%w+.-]*://") then
+			-- Link text comes from the file, so it never goes through
+			-- vim.fn.expand(): that runs `backticks` through 'shell'.
 			target = target:gsub("#.*$", "")
-			if not target:match("^/") and not target:match("^~") then
+			if target:match("^~/") then
+				target = vim.env.HOME .. target:sub(2)
+			elseif not target:match("^/") then
 				target = vim.fn.expand("%:p:h") .. "/" .. target
 			end
-			target = vim.fn.fnamemodify(vim.fn.expand(target), ":p")
+			target = vim.fs.normalize(target, { expand_env = false })
 		end
 	end
 	if not target:match("://") and vim.fn.filereadable(target) == 0 then
