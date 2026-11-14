@@ -33,6 +33,9 @@ threads, then the wind-down, in that order, because the sweep has to happen
   for anything lighter. See "Routing a loose thread" below for which is
   which — don't default to the heavier option out of caution; task-file
   sprawl is its own cost.
+- **Writes one dossier page**, `evidence-<YYYY-MM-DD>.md` in the task's
+  dossier: the table of completion claims and the commands that proved them
+  (step 6). A plain working page; no `wb` verb is involved.
 - **Runs `wb done` itself, in the foreground.** `wb done` opens no editor
   unless `--review` is passed, so the call returns on its own. This skill
   never passes `--review`. It relays `wb done`'s output as printed and adds
@@ -181,16 +184,49 @@ down this task premature or would get silently lost with it:
   dirty-tree check only looks at `git status --porcelain` (on-disk state);
   it cannot see an unsaved-but-never-written buffer in another window, and a
   `--close` wind-down would take that window down with the session, no
-  confirmation (see "The `--close` self-kill hazard" in step 6). If one
+  confirmation (see "The `--close` self-kill hazard" in step 7). If one
   exists, say so before proceeding — don't just let `wb done` roll over it.
 - **Open child tasks** (`parent:` pointing at this task's stem) — not a
   blocker, but worth one line noting they're still open if any exist, so
   closing the parent doesn't read as "the whole family is done."
 - **Uncommitted changes in the worktree** — don't duplicate `wb done`'s own
   check here; if it's dirty, `wb done` will fail fast with its own message
-  and this skill relays that verbatim in step 6, same as any other outcome.
+  and this skill relays that verbatim in step 7, same as any other outcome.
 
-### 6. Determine the exit — `wb down` at the PR moment, `wb done` otherwise
+### 6. Prove each completion claim
+
+Before anything is torn down, check that what this session is about to say is
+done really is. Gather the **completion claims**: what the session has said
+or implied so far, plus what the closing message you are about to give will
+say ("PR is open", "tests pass", "installed", "stowed", "docs regenerated",
+"child task closed"). Hedged wording ("should work", "probably fine") and a
+subagent's success report ("DONE, tests pass") count as claims too; for a
+subagent's, check its diff or run the tests yourself.
+
+For each claim, run one command that would show it false, **now**, not
+recalled from earlier in the session. Build a table:
+
+| claim | command run just now | result | outcome |
+|---|---|---|---|
+| context7 installed | `claude plugin list \| grep context7` | present | kept |
+
+Outcome is `kept` when the result supports the claim, `false` when it
+doesn't. A claim no command could check ("works well") is dropped from the
+proved rows and listed under **Unproven** beneath the table; it is not
+asserted in the closing message.
+
+Write the table and the unproven list to
+`~/code/tasks/dossiers/<task-stem>/evidence-<YYYY-MM-DD>.md` with
+frontmatter `title:` and `tags: [evidence]`, and show it in chat. A second
+close-out the same day overwrites the page; it is the newer proof.
+
+**On a false claim: say which one, end the turn, and do not run step 7.** The
+user fixes it or withdraws the claim, then re-runs `/close-out`.
+
+This covers only the closing session's own claims. It is skipped when winding
+down other sessions (see below).
+
+### 7. Determine the exit — `wb down` at the PR moment, `wb done` otherwise
 
 Run `wb pr-open` against the closing session first. It changes which verb
 is right, not just a flag on the same one:
@@ -290,6 +326,10 @@ picker's list.
   included, in the order they ran. One session's stop does not stop the
   rest; do not retry it or add flags.
 
+The proof step (step 6) does not run for other sessions: the closing agent
+makes no completion claims for them beyond relaying `wb done`'s output, and
+no evidence page is written.
+
 The sweep (steps 2-4) and the other-work check (step 5) run identically
 either way — the PR check only changes which verb finishes the session,
 never whether the record gets written first.
@@ -316,7 +356,17 @@ never whether the record gets written first.
   relayed and `--leave-shelved` is not added.
 - **Winding down two other sessions** — one `wb done --close <session>` each,
   by name from `tmux list-sessions`, results relayed one by one; the caller's
-  own session never gets `--close` from the batch.
+  own session never gets `--close` from the batch. No proof step and no
+  evidence page for them.
+- **All claims proved** — step 6 shows the table, writes the evidence page,
+  and step 7 runs.
+- **A claim with no possible command** ("works well") — listed as unproven,
+  not in the proved rows; the exit still runs.
+- **A false claim** (a child task still `planned`) — the table shows it,
+  the turn ends, and neither `wb pr-open` nor `wb done` runs.
+- **A subagent's "DONE, tests pass" with no test run this session** — the
+  tests are run now, or the claim is listed as unproven.
+- **Claims nothing beyond "PR is open"** — a one-row table.
 - **Other live window in the session** — step 5 surfaces it before the
   wind-down launches, especially when `--close` was also requested.
 - **Empty Decisions, nothing decided** — the draft review (sweep, then each shelved
