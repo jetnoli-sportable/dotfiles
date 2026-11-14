@@ -141,8 +141,11 @@ flag.
 ### 1. Collect
 
 Run the commands in Scope. List each added or changed comment line with its
-file and line number. If there are none, say "nothing to trim", make no
-commit, and stop.
+file and line number. If there are none, say "nothing to trim", make an
+empty commit with `git commit --allow-empty` (subject
+`chore: trim comments (haircut, nothing to trim)`, with the attribution lines
+the session requires) so the review-start gate can see the sweep ran, and
+stop. Never `--no-verify`.
 
 ### 2. Decide
 
@@ -261,7 +264,8 @@ wb append <task> Follow-ups - "lib/c.py:15: dense date regex needs its comment; 
 6. A comment that predates the branch, on a line the branch did not touch:
    untouched.
 7. A `#` line inside a heredoc: untouched.
-8. No comments in the diff: reports "nothing to trim", no commit.
+8. No comments in the diff: reports "nothing to trim" and makes the empty
+   `chore: trim comments (haircut, nothing to trim)` commit.
 9. Dirty tree with an uncommitted code edit in a file whose branch comment is
    trimmed: the haircut commit holds only the comment change, and the code
    edit is still uncommitted and unstaged afterwards.

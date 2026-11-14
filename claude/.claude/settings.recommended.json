@@ -165,6 +165,27 @@
             "command": "$HOME/.config/scripts/tmux/tasks-git-hooks/pretooluse-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/haircut-gate-hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/haircut-gate-hook.sh",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }
