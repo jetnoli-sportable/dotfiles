@@ -152,13 +152,13 @@ Q1. <question> — affects S3, S7 — default if blank: <assumption>
 ```
 
 - **3 or fewer questions:** ask in chat and wait for the answers.
-- **4 or more:** a decision-buffer interview
-  (`claude/.claude/skills/decision-buffer/references/shapes/interview.md`),
+- **4 or more:** a `/decide` Interview buffer
+  (`claude/.claude/skills/decide/references/buffer-shapes.md`, "Interview"),
   saved in the review's dossier folder (step 7). Invoking this skill is the
   agreement to use it, the same as step 8's verdict surface, so
-  decision-buffer's align-first round doesn't apply; say in one chat line
-  that a buffer is opening, with how many questions and why. Follow
-  decision-buffer's own mechanism for opening it.
+  /decide's align-first step (section 1) doesn't apply; say in one chat line
+  that a buffer is opening, with how many questions and why. Open it
+  as `/decide`'s "The buffer" section says (`wb decide-path`, `wb decide-buffer`).
 - **None:** say the learnings file covered everything and go on.
 
 Every default used because an answer was left blank is named again in the
@@ -315,16 +315,17 @@ later or not needed, the biggest single change), then open the verdict
 surface in the same turn. The surface is fixed by step count; invoking this
 skill is the agreement to use it.
 
-**About 15 steps or more → review-page** (`claude/.claude/skills/review-page/SKILL.md`).
-One row per step, the recommended verdict as `suggested`, the verdict list
+**About 15 steps or more → the `/decide` page** (`claude/.claude/skills/decide/SKILL.md`, "The page"; `verdicts` layout).
+One row per step, the recommended verdict as `suggested`, the `verdicts` list
 `needed now / needed later / not needed / move / Defer / Skip`, the flags
-and source in `evidence`, the revised order in a top `sections` panel. Its
-close rule is the opposite of the buffer's: an untouched row accepts its
-suggestion. Keep the spec and answers in the review's dossier folder.
+and source in the row's `context`, the revised order in a top `sections` panel. Its
+close rule is the opposite of the buffer's: an untouched row is carried over
+unless Jet ticks "accept the remaining suggestions". The spec lives in the
+dossier folder `wb decide-path --page <slug>` creates.
 
-**Fewer → a decision-buffer findings-review** saved beside the review doc.
-Use the findings-review header, and for each step the per-option layout
-from `decision-buffer/references/shapes/code-review-triage.md`: a
+**Fewer → a `/decide` Code-review triage buffer**, opened as "The buffer"
+says. For each step use the per-option layout
+from `decide/references/buffer-shapes.md`, "Code-review triage": a
 `**Recommendation:**` line, then one checkbox per line, the recommended
 verdict first, the other verdicts as alternatives, then Defer and Skip.
 Start with an `R0 — revised order` item (approve / approve with the edits in
@@ -370,7 +371,7 @@ At the end, propose the lines worth keeping:
 - **Calibration:** one line per verdict Jet overrode, with why.
 
 Send them as a confirm-facts list
-(`decision-buffer/references/shapes/confirm-facts.md`): in chat when there
+(a `/decide` Questions buffer, `decide/references/buffer-shapes.md`; a short yes/no list): in chat when there
 are 3 or fewer, a buffer otherwise. Write only the lines Jet confirms.
 
 The learnings file is not a task file, so no `wb` verb covers it: edit it

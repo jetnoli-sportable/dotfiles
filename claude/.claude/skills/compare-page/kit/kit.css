@@ -1,7 +1,6 @@
-/* kit.css: the look both decision-page and review-page share. Pasted verbatim
+/* kit.css: the look the generated pages share. Pasted verbatim
    into each page's <style> by its generator, then the page's own CSS follows.
-   Page-specific styling (decision cards and options, review rows and verdict
-   controls) stays in each page's template, never here.
+   Page-specific styling (each page's own cards and controls) stays in each page's template, never here.
 
    Page skeleton the kit expects (DOM order matters for the grid):
      <div class="wrap" id="wrap">

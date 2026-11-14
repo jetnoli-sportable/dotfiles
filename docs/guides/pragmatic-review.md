@@ -63,7 +63,7 @@ For a task family, name the parent's stem instead of a path:
 | Sizing test | Needed only if leaving it out causes harm nobody catches in time, or adding it later is expensive (stored data, shared interface, money, security); plus the foundation rule and two traps (survival needs that look like polish, trust work timed to its consumer) | `references/sizing-test.md` |
 | Review document | Revised order, one verdict per step, context used, changes to apply | the target's task dossier |
 | Review page | `scripts/build-page.py` renders the review Markdown as a page beside it: collapsible section rail, headline cards, a planned-against-revised order diagram, a verdict-count bar, verdict filters and colour-striped verdict cards, option cards with the recommended one marked. Never edit the HTML; built on review-guide's `scripts/mdpage.py` | SKILL.md step 7 |
-| Verdict surface | About 15 steps or more: review page (untouched row accepts its suggestion). Fewer: a decision-buffer with options per step, Defer and Skip last (silent close applies nothing) | SKILL.md step 8 |
+| Verdict surface | Sent through `/decide`. About 15 steps or more: a `verdicts` page (an untouched row is unanswered, never accepted). Fewer: a buffer with options per step, Defer and Skip last (a buffer closed unchanged applies nothing) | SKILL.md step 8 |
 | Another session's plan | When the owning task has a live session or an unfinished plan, the review is input only: per-step options in the review doc and a `wb append` pointer in the owner's open items; nothing is applied | SKILL.md step 8 |
 | Applying | Task families only: preflight for live sessions, `wb set <stem> depends_on <full list>`, one `wb append <parent> Decisions` entry | SKILL.md step 8 |
 | Learnings | Facts (rewritten in place) and Calibration (append-only, one line per verdict you overrode); written only after you confirm | `~/code/tasks/context/README.md` |
@@ -73,7 +73,7 @@ Paths under `references/` and `scripts/` are relative to
 
 ## Known rough edges
 
-- **Thresholds are rough.** "About 15 steps" for the review page and
+- **Thresholds are rough.** "About 15 steps" for a `/decide` page and
   "3 questions" for chat versus a buffer are first guesses; the first few
   runs will show whether they hold.
 - **Live sessions block reorders.** `wb set` refuses a task whose session is

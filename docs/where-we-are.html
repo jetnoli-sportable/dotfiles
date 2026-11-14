@@ -332,15 +332,9 @@ alternatives for a specific shape of the problem.</p>
   <div class="wwa-card"><h3>Capture a loose end</h3>
     <p class="use">/park &lt;note&gt;</p>
     <p>Appends to the standing capture doc (<code>~/code/tasks/weeks/capture.md</code>), which the weekly review rolls up. If it's shaped like work, it's proposed as a <code>prospective</code> task instead. <kbd>prefix</kbd>+<kbd>N</kbd> opens the capture doc directly. <a href="guides/park.html">guide</a></p></div>
-  <div class="wwa-card"><h3>Make a settled choice</h3>
-    <p class="use">/decision-buffer</p>
-    <p>Once the direction is agreed in chat and what's left needs a written answer. Six shapes: choice, findings-review, interview, paste-target, confirm-facts, code-review triage. For a batch with options per item, see <code>/decision-page</code>; for a big shared-verdict batch, <code>/review-page</code>. <a href="guides/decision-buffer.html">guide</a></p></div>
-  <div class="wwa-card"><h3>Decide a batch on a page</h3>
-    <p class="use">/decision-page</p>
-    <p>A self-contained HTML page for about 4-25 decisions, each with its own options and evidence, answered at your own pace and returned with one Copy answers paste. <a href="guides/decision-page.html">guide</a></p></div>
-  <div class="wwa-card"><h3>Review a big batch</h3>
-    <p class="use">/review-page</p>
-    <p>A local HTML page with evidence per row, a suggested verdict, grouping and questions. Use it for audits, prune lists and triage, where an nvim buffer becomes unreadable. <a href="guides/review-page.html">guide</a></p></div>
+  <div class="wwa-card"><h3>Ask a batch of questions</h3>
+    <p class="use">/decide</p>
+    <p>Once the direction is agreed in chat and what's left needs written, asynchronous answers. It picks an nvim buffer (a handful of choices, a triage, a paste loop) or a claude.ai page (options with evidence, a big shared-verdict audit, answering away from the terminal), wakes the session when you finish, and records each answer in the task's Decisions. Replaces <code>/decision-buffer</code>, <code>/decision-page</code> and <code>/review-page</code>. <a href="guides/decide.html">guide</a></p></div>
   <div class="wwa-card"><h3>Scope an open question</h3>
     <p class="use">/ce-brainstorm → /ce-plan</p>
     <p>Brainstorm for what to build, <code>/ce-ideate</code> for generating options, <code>/spec-doc</code> when requirements need pinning down for others, <code>/ce-pov</code> for "should we adopt X?".</p></div>
@@ -464,8 +458,8 @@ several &quot;keep (light)&quot; verdicts were really core pieces. Source:
 <td>decision-buffer</td>
 <td><span class="wwa-num">56</span></td>
 <td><span class="wwa-num">9</span></td>
-<td><span class="chip ok">keep</span></td>
-<td>v2 rewrite (#47); big batches go to review-page.</td>
+<td><span class="chip warn">retired</span></td>
+<td>v2 rewrite (#47); replaced by <code>/decide</code> (with decision-page and review-page).</td>
 </tr>
 <tr>
 <td>handoff</td>
@@ -520,8 +514,8 @@ several &quot;keep (light)&quot; verdicts were really core pieces. Source:
 <td>review-page</td>
 <td><span class="wwa-num">1</span></td>
 <td><span class="wwa-num">1</span></td>
-<td><span class="chip acc">too new</span></td>
-<td>Shipped 2026-09-14; weekly-review uses it underneath.</td>
+<td><span class="chip warn">retired</span></td>
+<td>Shipped 2026-09-14; replaced by <code>/decide</code>, which weekly-review now uses underneath.</td>
 </tr>
 <tr>
 <td>weekly-review</td>
@@ -701,7 +695,7 @@ into task files, and distinct transcripts that ran it through Bash.</p>
 <td><span class="chip ok">keep</span>: the strategy page</td>
 </tr>
 <tr>
-<td><a href="try-it.html">try-it</a> · <a href="ceremonies.html">ceremonies</a> · guides: <a href="guides/weekly-review.html">weekly-review</a> · <a href="guides/park.html">park</a> · <a href="guides/review-page.html">review-page</a> · <a href="guides/decision-buffer.html">decision-buffer</a></td>
+<td><a href="try-it.html">try-it</a> · <a href="ceremonies.html">ceremonies</a> · guides: <a href="guides/weekly-review.html">weekly-review</a> · <a href="guides/park.html">park</a> · <a href="guides/decide.html">decide</a></td>
 <td>2026-09-09 → 09-22</td>
 <td><span class="chip ok">keep</span></td>
 </tr>

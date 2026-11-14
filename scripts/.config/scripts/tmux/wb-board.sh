@@ -576,7 +576,7 @@ wb_board_v2_read_file() {
       # logs/decisions/*.md|html, or a claude.ai URL — same path shapes
       # wb_board_doc_candidates already looks for (plus dossiers/ and
       # claude.ai, which that function does not — U5 needs both since the
-      # decision-buffer/dossier convention lives under dossiers/, not
+      # /decide dossier convention lives under dossiers/, not
       # logs/decisions/, in this store).
       linkre = "(dossiers/[A-Za-z0-9._/-]+\\.(md|html))|(docs/(plans|brainstorms|solutions|ideation)/[A-Za-z0-9._/-]+\\.(md|html))|(logs/decisions/[A-Za-z0-9._/-]+\\.(md|html))|(https://claude\\.ai/[A-Za-z0-9._/-]+)"
     }

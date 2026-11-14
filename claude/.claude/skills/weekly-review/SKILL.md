@@ -1,6 +1,6 @@
 ---
 name: weekly-review
-description: The weekly ceremony that replaces the three lapsed dated clocks (docs/ceremonies.md) — gathers wb-reconcile drift, the standing capture doc's unreviewed entries, tasks moved / PRs merged since last review, and skill-usage counts, classifies each capture (task idea / skill idea / grievance / workflow improvement), presents at most a handful of suggestions on the review page (never an nvim buffer), and emits a per-week output record with Retro + Sprint-planning rollups plus what was actioned vs. carried over. Accepted suggestions are seeded as tasks tagged weekly-review via locked wb verbs. Use when the user types /weekly-review, says "run the weekly review", "let's do the weekly review", or it's been roughly a week since the last one (`wb_pending_counts`, printed at the end of `wb done`, surfaces the due signal). Pairs with /park (capture) and retires /parked-items.
+description: The weekly ceremony that replaces the three lapsed dated clocks (docs/ceremonies.md) — gathers wb-reconcile drift, the standing capture doc's unreviewed entries, tasks moved / PRs merged since last review, and skill-usage counts, classifies each capture (task idea / skill idea / grievance / workflow improvement), presents at most a handful of suggestions on the /decide page (never an nvim buffer), and emits a per-week output record with Retro + Sprint-planning rollups plus what was actioned vs. carried over. Accepted suggestions are seeded as tasks tagged weekly-review via locked wb verbs. Use when the user types /weekly-review, says "run the weekly review", "let's do the weekly review", or it's been roughly a week since the last one (`wb_pending_counts`, printed at the end of `wb done`, surfaces the due signal). Pairs with /park (capture) and retires /parked-items.
 ---
 
 # Weekly review
@@ -26,7 +26,7 @@ Rows of a third kind, `duplicate`, follow the orphan/missing rows: `duplicate  <
 live tasks), `branch`/`worktree` (one repo, claimed twice), or `prefix` (task filename
 doubles its repo, `<repo>--<repo>--…`). Report-only — never merge or close on the
 strength of one. Carry each into the Retro as a one-line hygiene item naming the
-task files involved (no review-page row unless it implies a concrete action worth a
+task files involved (no /decide page row unless it implies a concrete action worth a
 verdict); an empty set needs no mention.
 
 **2. The capture doc's unreviewed entries** — mint this week's record, which rolls up
@@ -113,25 +113,34 @@ note may let you *ask* whether it settles an open question from a prior review, 
 never closes one on its own (Jet's own correction during design: "if it allows us to
 consider something settled we can ask that during the review").
 
-## Present on the review page
+## Present on the /decide page
 
 **Never an nvim buffer** — the parent plan's own live-use Follow-ups are explicit that a
-50+-row-capable format needs the review page (`[[review-page]]`). Load
-`claude/.claude/skills/review-page/references/spec-and-close-contract.md` before writing
-the spec. Build one row per Task-idea/Skill-idea candidate (Retro-routed
+50+-row-capable format needs a page. Build a `verdicts` spec as
+`claude/.claude/skills/decide/references/page-spec.md` describes and publish it through
+`/decide`'s page path (`claude/.claude/skills/decide/SKILL.md`, section 4 "The page":
+`wb decide-path --page <slug>`, `wb decide-spec-check`, publish, `wb decide-open page`).
+Build one row per Task-idea/Skill-idea candidate (Retro-routed
 grievances/workflow items don't need a row — they're narrative, not a decision — unless
 one implies a concrete action worth a verdict too). Cap candidate rows at **five** (R4) —
 if classification produced more, pick the five most load-bearing and note the rest
 explicitly as carried over to next week's capture doc rather than silently dropped.
 
 Each row's `suggested` verdict is one of: `Seed as prospective task` / `Seed as planned
-task` / `Already covered (name the existing task)` / `Drop`. Cite the evidence (which
-capture entry, plus anything from steps 1/3/4 that bears on it) so the verdict can be
-judged from the page alone.
+task` / `Already covered (name the existing task)` / `Drop`, with a one-line `reason`.
+Put the evidence (which capture entry, plus anything from steps 1/3/4 that bears on it)
+in the row's `context` so the verdict can be judged from the page alone.
 
-Open the page **with `--timeout`**, and if it exits 4 (tab closed without submit, or a
-stuck backgrounded call), recover with `--reattach` rather than re-running from scratch —
-see the review-page skill's own "Open it" section for the exact recipe.
+End the turn with the link, as `/decide` says. When Jet submits, read the answers the
+way `/decide`'s "Reading the answers" does (`ArtifactData` `answers` plus
+`meta/submitted`). "Carried over" means not accepted: a row Jet left alone counts only
+when he ticked "accept the remaining suggestions" (unticked by default), and a row with
+a note and no choice is unanswered. Rows carried over join the carry-over list in the
+record, not the seeding step.
+
+This skill takes the answers back and records them in its own per-week output record
+(below) rather than as `/decide`'s one summary decision per round; seeding still goes
+through the locked `wb` verbs. Run `wb decide-clear <url>` once the record is written.
 
 ## Seed accepted suggestions
 
@@ -161,7 +170,7 @@ placeholders with:
 
 - **Retro** — every Grievance/Workflow-improvement item, one line each, plus what — if
   anything — a `What's working` entry settled this round (asked, not assumed).
-- **Sprint planning** — the review-page's resolved rows: what was seeded (task ref),
+- **Sprint planning** — the page's resolved rows: what was seeded (task ref),
   what was dropped (one-line why), what was already covered (link the existing task).
 - **Actioned vs. carried over** — the two numbers U9's acceptance criterion wants
   recorded in every record: (1) suggestions accepted vs. dropped, (2) suggestions already

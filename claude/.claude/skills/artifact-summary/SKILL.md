@@ -116,7 +116,7 @@ Apply the global output rules:
 - **Chat**, when the whole summary fits in about 20 lines with no table.
 - **nvim buffer** otherwise. Write it to the session scratchpad as
   `artifact-summary-<slug>.md`. Open it with
-  `~/.claude/skills/decision-buffer/scripts/open-buffer.sh <path>` as a
+  `~/.claude/skills/decide/scripts/open-buffer.sh <path>` as a
   background Bash call (`run_in_background: true`). Leave a 1-3 line pointer
   in chat. Nothing comes back from the buffer, so don't parse it when it
   closes.

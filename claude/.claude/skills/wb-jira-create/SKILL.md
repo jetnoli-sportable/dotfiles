@@ -148,9 +148,9 @@ liveness, not box state (R14)** — the same rule `/wb-breakdown` step 5 now
 uses. Before authoring a fresh proposal at that path, check whether
 `logs/jira-create/<stem>.md.buffer-state` exists and whether the process it
 records is still alive — the same duplicate-waiter check
-`claude/.claude/skills/decision-buffer/scripts/open-buffer.sh` itself
+`claude/.claude/skills/decide/scripts/open-buffer.sh` itself
 performs internally (see
-`claude/.claude/skills/decision-buffer/references/mechanism.md`'s
+`claude/.claude/skills/decide/references/open-buffer.md`'s
 "duplicate-waiter guard" section). If a live state file names a still-alive
 process, a buffer is genuinely still open right now — stop and tell the
 human rather than clobbering it. If the state file is absent, or present
@@ -293,15 +293,15 @@ Buffer rules:
 ### 4. Open the buffer, blocking
 
 Open it where the user is, blocking until they close it, via the shared
-decision-buffer script rather than a hand-rolled recipe — it handles the
+/decide open-buffer script rather than a hand-rolled recipe — it handles the
 tmux/terminal/manual fallback ladder and wait-channel uniqueness
 internally. Run it as a **background Bash call** (`run_in_background:
 true`) so closing the buffer re-invokes you; see
-`claude/.claude/skills/decision-buffer/references/mechanism.md` for the
+`claude/.claude/skills/decide/references/open-buffer.md` for the
 full contract (state file, fallback tiers, reattach).
 
 ```bash
-claude/.claude/skills/decision-buffer/scripts/open-buffer.sh logs/jira-create/<stem>.md
+claude/.claude/skills/decide/scripts/open-buffer.sh logs/jira-create/<stem>.md
 ```
 
 After launching, tell the user the buffer is open and **end the turn** —
@@ -321,12 +321,12 @@ When the background command completes, read the closed buffer fresh:
   as the all-unchecked rule below — the human closed it on purpose; ask
   before trying again, don't auto-regenerate.
 - Prose under any inline note gets answered or resolved before acting on
-  anything else — same contract `decision-buffer` step 3/§6 uses. A note
+  anything else — same contract `/decide`'s "Reading a closed buffer" (`references/buffer-shapes.md`) uses. A note
   requesting a change means the Approve tick (even if checked) is not
   acted on until the note is resolved and the buffer is reopened.
 - Resolve the `Project:` select, each ticket's `type:` select, and any
   edited `Parent ticket:` / `summary:` field, before acting — same contract
-  `decision-buffer` step 3 uses.
+  `/decide`'s "Reading a closed buffer" uses.
 - **`Project:` select**: exactly one of the `SFB` / `SW` / `other:` boxes
   must be checked. Zero checked, 2+ checked, or `other:` checked with its
   text blank (or left unchecked with text filled in) is an ambiguous close

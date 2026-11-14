@@ -1,11 +1,13 @@
 ---
 title: decision-buffer
-status: current
+status: archive
 tile: Route decisions, reviews, and checklists through an nvim buffer instead of a chat menu.
 group: skills
 kind: guide
 updated: 2026-09-09
 ---
+
+> **Retired.** `decision-buffer` was replaced by `/decide`, which covers the nvim buffer, the page and the verdict-list audit in one skill and records each answer in the task. See the [decide guide](decide.html). The text below is kept as history; the paths it names have moved or gone.
 
 ## Overview
 

@@ -212,9 +212,9 @@ dotfiles repo.
 liveness, not box state (R14).** Before authoring a fresh proposal at that
 path, check whether `logs/breakdowns/<parent-stem>.md.buffer-state` exists
 and whether the process it records is still alive — the same
-duplicate-waiter check `claude/.claude/skills/decision-buffer/scripts/open-buffer.sh`
+duplicate-waiter check `claude/.claude/skills/decide/scripts/open-buffer.sh`
 itself performs internally (see
-`claude/.claude/skills/decision-buffer/references/mechanism.md`'s
+`claude/.claude/skills/decide/references/open-buffer.md`'s
 "duplicate-waiter guard" section). If a live state file names a still-alive
 process, a buffer is genuinely still open right now — stop and tell the
 human rather than clobbering it. If the state file is absent, or present
@@ -395,15 +395,15 @@ still what `wb breakdown --apply` reads; the page only collects Jet's edits.
 ### 6. Open the buffer, blocking
 
 Open it where the user is, blocking until they close it, via the shared
-decision-buffer script rather than a hand-rolled recipe — it handles the
+/decide open-buffer script rather than a hand-rolled recipe — it handles the
 tmux/terminal/manual fallback ladder and wait-channel uniqueness
 internally. Run it as a **background Bash call** (`run_in_background:
 true`) so closing the buffer re-invokes you; see
-`claude/.claude/skills/decision-buffer/references/mechanism.md` for the
+`claude/.claude/skills/decide/references/open-buffer.md` for the
 full contract (state file, fallback tiers, reattach).
 
 ```bash
-claude/.claude/skills/decision-buffer/scripts/open-buffer.sh logs/breakdowns/<parent-stem>.md
+claude/.claude/skills/decide/scripts/open-buffer.sh logs/breakdowns/<parent-stem>.md
 ```
 
 After launching, tell the user the buffer is open and end the turn — do not
@@ -416,7 +416,7 @@ When the background command completes, read the closed buffer fresh:
 
 - Prose under any inline note, or an edited `parent=` field, gets answered
   or resolved before acting on anything else — same contract
-  decision-buffer's own §6 "Parse rules" uses. **A note requesting a
+  `/decide`'s "Reading a closed buffer" (`references/buffer-shapes.md`) uses. **A note requesting a
   change means the Approve tick (even if checked) is not acted on until the
   note is resolved and the buffer is reopened** — do not invoke `--apply`
   while an unresolved note stands, regardless of the Approve/per-item

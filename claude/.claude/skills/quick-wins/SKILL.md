@@ -79,7 +79,8 @@ plan." The precise, tunable cut-offs live in `thresholds.md`; the axes are:
    `doUpdate` missing early-return — `doCreate` next to it already has it). The
    canonical no: anything where "how" is itself a decision.
 2. **Isolation** — single-repo surface, no unmet `depends_on:`, no pending
-   design decision or open decision-buffer round, doesn't fan out into adjacent
+   design decision or open /decide surface
+   (a buffer or page still waiting on Jet, shown by the needs-you marker), doesn't fan out into adjacent
    modules. (This is the loop task's "well isolated and low input.")
 3. **Ownership** — not already owned by someone else's ticket or open PR. The
    SW-6513 case: a small, correct change that would *silently close another
@@ -168,7 +169,7 @@ human (or a future audit) checks the call against.
 more readable than a chat list or a raw markdown buffer, so it is the default
 output of every run. Follow the repo's generated-doc conventions — theme-aware
 light/dark, wide layout, no external assets — and mirror the existing visual
-language (`docs/wb-guide.html` / the decision-buffer companion HTML), don't
+language (`docs/wb-guide.html` / a /decide page), don't
 invent a new look. Ranked:
 
 1. `QUICK-WIN` items first (auto-lane candidates clearly badged), then
@@ -193,7 +194,7 @@ name the file path alongside any URL.
 - Simplest: the human reads the HTML and tells you which to action by `#`
   ("do #3, make a plan for #5, keep #8 parked").
 - Or, alongside the HTML, open an nvim **pick-buffer** the way the
-  `decision-buffer` skill's `findings-review` shape does (markdown checkboxes,
+  `/decide` skill's Questions buffer shape does (markdown checkboxes,
   unique wait-channel, `@claude_blocked`, background Bash) for check-box
   selection — worth it above `max_shortlist_before_buffer` items:
 

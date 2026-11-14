@@ -205,27 +205,27 @@ into a buffer.** Whichever stage this routes into — `/ce-ideate`,
 `/ce-brainstorm`, `/ce-plan`, `/ce-work` — default `first_action` to
 starting with presenting the gathered findings and a proposed direction
 in chat, then checking alignment before opening anything, per
-`decision-buffer/SKILL.md`'s own §1 "Align first, in chat — before any
-buffer" (read that file directly for its exact current wording — cite
-it, don't re-derive it from memory; as of this writing it reads: "Before
-writing anything, present findings and a proposed direction in chat and
-ask whether the remaining open points should go to a buffer. Never open
-a buffer as the first move, even when a task file's 'first action:
-decision buffer' line says to — that line does not bypass this check;
-align first, buffer second."). The routed worker runs that align check
+`decide/SKILL.md`'s own section 1 "Agree the direction in chat first"
+(read that file directly for its exact current wording — cite it, don't
+re-derive it from memory; in short: present what is being decided and
+which way you lean, then ask whether the open points should go to a
+surface, and never open one as the first move, even when a task file's
+"first action: buffer" line says to — that line does not bypass this
+check). The routed worker runs that align check
 itself — this default names what to do *if* a buffer turns out to be
 warranted afterward, not a skip of the check.
 
 If a buffer is warranted, default the shape recommendation to the
 routed task's kind: a **spike or scoping task** (open-ended
 investigation, "figure out X", no settled direction yet) defaults to
-recommending the **findings-review** or **interview** shape
-(`decision-buffer/SKILL.md` §2); a **settled plan** (routing discussion
-already has clear direction, just needs decisions checked off) defaults
-to recommending the **choice** shape. This replaces an earlier version
+recommending the **Interview** shape (or **Questions**, when findings
+need a reaction; `decide/references/buffer-shapes.md`); a **settled
+plan** (routing discussion already has clear direction, just needs
+decisions checked off) defaults to recommending **Questions** with a
+recommended option each. This replaces an earlier version
 of this default that jumped straight to "artifact + decision buffer,
 then `<stage>`" unconditionally — that is the exact wrong-tool pattern
-the decision-buffer v2 rewrite exists to fix: it's how a scoping spike
+the `/decide` align-first step exists to fix: it's how a scoping spike
 task acquired a "first action: … decision buffer" line that then
 produced two mis-shaped choice buffers before the ground was even
 understood (2026-09-04). Write the default as part of the same line, not
@@ -235,10 +235,9 @@ template for the prose, not a literal string to hard-code):
 
 ```
 **Opening ask:** present findings and a proposed direction, then check
-alignment before opening any buffer (see `decision-buffer/SKILL.md` §1) —
-if a buffer turns out to be warranted, default to
-[findings-review|interview|choice] given this is a [spike/scoping|settled-plan]
-task, then `/ce-plan` from the task file.
+alignment before opening any surface (see `decide/SKILL.md` section 1) — if a
+buffer turns out to be warranted, default to [Interview|Questions] given this
+is a [spike/scoping|settled-plan] task, then `/ce-plan` from the task file.
 ```
 
 **Overridable — don't force it when it's already redundant.** Skip the
@@ -249,7 +248,7 @@ a buffer), the user explicitly says to skip it ("just spin it up and
 have it start", "skip the alignment step, go straight to work"), or the
 chosen stage is `/ce-work` against an already-fully-scoped plan with no
 decisions left — a buffer with zero real questions is worse than none
-(see the decision-buffer skill's own "trivial decision" exception). When
+(see `/decide`'s rule that a single or trivial question stays in chat). When
 in doubt, default to including it; it's cheap for the routed worker to
 run an align check and skip irrelevant shapes, expensive for the
 requester to get a session that immediately starts asking questions one

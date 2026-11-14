@@ -1,4 +1,4 @@
-/* kit.js: the behaviour decision-page and review-page share. Plain browser JS,
+/* kit.js: the behaviour the generated pages share. Plain browser JS,
    no module syntax: each page's generator pastes this file verbatim into a
    <script>, ahead of the page's own code. It defines one global, `Kit`; under
    node it is also module.exports, so the DOM-free parts can be tested.

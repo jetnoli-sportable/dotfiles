@@ -1,11 +1,13 @@
 ---
 title: decision-page
-status: current
+status: archive
 tile: Put a batch of about 4-25 decisions, each with its own options and evidence, on one page you answer at your own pace and paste back.
 group: skills
 kind: guide
 updated: 2026-10-18
 ---
+
+> **Retired.** `decision-page` was replaced by `/decide`, which covers the nvim buffer, the page and the verdict-list audit in one skill and records each answer in the task. See the [decide guide](decide.html). The text below is kept as history; the paths it names have moved or gone.
 
 ## Overview
 

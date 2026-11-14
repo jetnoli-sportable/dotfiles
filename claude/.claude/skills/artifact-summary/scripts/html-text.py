@@ -12,8 +12,9 @@ A page that renders in the browser keeps its body in a script block:
 `<script type="application/json" id="src">` holding a JSON string. Those
 bodies are printed as they are, since they are already Markdown. Any other
 page whose text comes out nearly empty gets a warning on stderr, because the
-content is probably in a script the converter can't read (the decision-page
-and review-page kits keep theirs in `<script id="spec" type="application/json">`).
+content is probably in a script the converter can't read (a /decide page keeps
+its content in a `spec.json` published beside it, so read that file instead;
+older pages kept theirs in `<script id="spec" type="application/json">`).
 """
 import json
 import re

@@ -12,7 +12,9 @@ The tmux open/wait recipe used to be prose copied into several places
 (decision-buffer, wb-breakdown, wb-jira-create) plus one real
 implementation (`wb_open_buffer()` in `scripts/.config/scripts/tmux/wb.sh`).
 One executable implementation now backs all of them; the other skills call
-this script instead of repeating the recipe.
+this script instead of repeating the recipe. It moved here from the retired
+`decision-buffer` skill in Nov 2026. `/decide`'s own buffer does not use it:
+that one is `wb decide-buffer` (see `../SKILL.md`, section 3).
 
 ## The four modes
 
@@ -23,13 +25,11 @@ mode):
 
 | Flag | Who calls it | Blocks? | Writes state file? | Sets `@claude_blocked`? |
 |---|---|---|---|---|
-| `--tmux` (default) | decision-buffer et al., inside tmux | yes (`tmux wait-for`) | yes | yes |
-| `--terminal` | decision-buffer et al., graphical session, no tmux | yes (`gnome-terminal --wait`) | yes | best-effort, only if a tmux pane happens to be present |
-| `--manual` | decision-buffer et al., headless (no tmux, no terminal spawn) | no — prints a copyable `! nvim <path>` command and returns immediately | yes (records the offer was made) | no |
+| `--tmux` (default) | `wb done --review`, wb-breakdown, wb-jira-create, inside tmux | yes (`tmux wait-for`) | yes | yes |
+| `--terminal` | the same callers, graphical session, no tmux | yes (`gnome-terminal --wait`) | yes | best-effort, only if a tmux pane happens to be present |
+| `--manual` | the same callers, headless (no tmux, no terminal spawn) | no — prints a copyable `! nvim <path>` command and returns immediately | yes (records the offer was made) | no |
 | `--direct` | `wb.sh`'s own non-agent callers (`wb reconcile --review`, sweep-review call sites) | yes, synchronously in the calling shell | **no** | no |
 | `--reattach` | any caller resuming an interrupted `--tmux` wait | yes (`tmux wait-for` again), or returns immediately if the wait shouldn't resume | rewrites nothing; only deletes the state file on completion | yes, while re-waiting |
-| `review-page` — a separate skill now, not a mode of this script; see `claude/.claude/skills/review-page/SKILL.md` (routing rule: `claude/.claude/skills/decision-page/SKILL.md`) | big batches answered from one shared verdict list, served as HTML instead of an nvim buffer | yes (blocks until the page POSTs `/submit`) | yes, same field set, `mode=review-page`, `pane_id` always empty | no — there is no tmux pane to mark, only a local HTTP server and a browser tab |
-| `decision-page` — a separate skill, not a mode of this script; see `claude/.claude/skills/decision-page/SKILL.md` | a batch of about 4-25 decisions, each with its own options and evidence, as a self-contained HTML page | no — returns at once; Jet pastes the Copy answers result back | no state file | no wait, copy-answers return |
 
 `--direct` exists only to reproduce `wb_open_buffer()`'s pre-existing
 non-tmux branch (`scripts/.config/scripts/tmux/wb.sh:2800-2802`) exactly —

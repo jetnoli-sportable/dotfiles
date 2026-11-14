@@ -1,4 +1,5 @@
-"""pagekit.py: the helpers decision-page.py and review-page.py share. Each generator
+"""pagekit.py: the helpers the page generators (compare-page.py, and any later page
+generator) share. Each generator
 imports it from this folder, found through its own realpath so the stow symlinks resolve."""
 
 import os

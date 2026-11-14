@@ -14,7 +14,7 @@ equally real: one page documenting a whole command family.
 
 ## The standard shape: single-skill guide
 
-Five sections, in this order, followed exactly by `decision-buffer.md`,
+Five sections, in this order, followed exactly by `decide.md`,
 `notes-tui.md`, `weekly-review.md`, `park.md`, and `replay-tui.md`:
 
 1. **Overview** — what the thing is, one paragraph.

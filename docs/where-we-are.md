@@ -84,15 +84,9 @@ alternatives for a specific shape of the problem.
   <div class="wwa-card"><h3>Capture a loose end</h3>
     <p class="use">/park &lt;note&gt;</p>
     <p>Appends to the standing capture doc (<code>~/code/tasks/weeks/capture.md</code>), which the weekly review rolls up. If it's shaped like work, it's proposed as a <code>prospective</code> task instead. <kbd>prefix</kbd>+<kbd>N</kbd> opens the capture doc directly. <a href="guides/park.html">guide</a></p></div>
-  <div class="wwa-card"><h3>Make a settled choice</h3>
-    <p class="use">/decision-buffer</p>
-    <p>Once the direction is agreed in chat and what's left needs a written answer. Six shapes: choice, findings-review, interview, paste-target, confirm-facts, code-review triage. For a batch with options per item, see <code>/decision-page</code>; for a big shared-verdict batch, <code>/review-page</code>. <a href="guides/decision-buffer.html">guide</a></p></div>
-  <div class="wwa-card"><h3>Decide a batch on a page</h3>
-    <p class="use">/decision-page</p>
-    <p>A self-contained HTML page for about 4-25 decisions, each with its own options and evidence, answered at your own pace and returned with one Copy answers paste. <a href="guides/decision-page.html">guide</a></p></div>
-  <div class="wwa-card"><h3>Review a big batch</h3>
-    <p class="use">/review-page</p>
-    <p>A local HTML page with evidence per row, a suggested verdict, grouping and questions. Use it for audits, prune lists and triage, where an nvim buffer becomes unreadable. <a href="guides/review-page.html">guide</a></p></div>
+  <div class="wwa-card"><h3>Ask a batch of questions</h3>
+    <p class="use">/decide</p>
+    <p>Once the direction is agreed in chat and what's left needs written, asynchronous answers. It picks an nvim buffer (a handful of choices, a triage, a paste loop) or a claude.ai page (options with evidence, a big shared-verdict audit, answering away from the terminal), wakes the session when you finish, and records each answer in the task's Decisions. Replaces <code>/decision-buffer</code>, <code>/decision-page</code> and <code>/review-page</code>. <a href="guides/decide.html">guide</a></p></div>
   <div class="wwa-card"><h3>Scope an open question</h3>
     <p class="use">/ce-brainstorm → /ce-plan</p>
     <p>Brainstorm for what to build, <code>/ce-ideate</code> for generating options, <code>/spec-doc</code> when requirements need pinning down for others, <code>/ce-pov</code> for "should we adopt X?".</p></div>
@@ -201,7 +195,7 @@ piece audit, re-checked against the refreshed counts.
 |---|---|---|---|---|
 | wb-resume | <span class="wwa-num">91</span> | <span class="wwa-num">26</span> | <span class="chip ok">keep</span> | Top of the list. |
 | wb-save | <span class="wwa-num">86</span> | <span class="wwa-num">25</span> | <span class="chip ok">keep</span> | Automatic saving planned (implicit-handoff task). |
-| decision-buffer | <span class="wwa-num">56</span> | <span class="wwa-num">9</span> | <span class="chip ok">keep</span> | v2 rewrite (#47); big batches go to review-page. |
+| decision-buffer | <span class="wwa-num">56</span> | <span class="wwa-num">9</span> | <span class="chip warn">retired</span> | v2 rewrite (#47); replaced by `/decide` (with decision-page and review-page). |
 | handoff | <span class="wwa-num">27</span> | <span class="wwa-num">8</span> | <span class="chip ok">keep</span> | Was "keep (light)" on the undercount. |
 | close-out | <span class="wwa-num">19</span> | <span class="wwa-num">11</span> | <span class="chip ok">keep</span> | Growing fast. |
 | done skill | <span class="wwa-num">11</span> | <span class="wwa-num">1</span> | <span class="chip warn">retired</span> | Retired in W7, the skill retirement; close-out runs `wb done` directly. |
@@ -209,7 +203,7 @@ piece audit, re-checked against the refreshed counts.
 | wb-jira-create | <span class="wwa-num">5</span> | <span class="wwa-num">2</span> | <span class="chip ok">keep</span> | Was zero on the undercount. |
 | wb-breakdown | <span class="wwa-num">4</span> | <span class="wwa-num">2</span> | <span class="chip warn">keep · revamp</span> | Proposal moves to the review page, see T3. |
 | visual-explore | <span class="wwa-num">4</span> | <span class="wwa-num">1</span> | <span class="chip acc">too new · in use</span> | |
-| review-page | <span class="wwa-num">1</span> | <span class="wwa-num">1</span> | <span class="chip acc">too new</span> | Shipped 2026-09-14; weekly-review uses it underneath. |
+| review-page | <span class="wwa-num">1</span> | <span class="wwa-num">1</span> | <span class="chip warn">retired</span> | Shipped 2026-09-14; replaced by `/decide`, which weekly-review now uses underneath. |
 | weekly-review | <span class="wwa-num">1</span> | <span class="wwa-num">1</span> | <span class="chip acc">too new</span> | Has run once (W38). |
 | spec-doc | <span class="wwa-num">1</span> | <span class="wwa-num">0</span> | <span class="chip acc">too new</span> | |
 | quick-wins | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip mut">no uptake</span> | A month old. Question for the weekly review, not a removal. |
@@ -264,7 +258,7 @@ into task files, and distinct transcripts that ran it through Bash.
 | Page | Updated | Verdict |
 |---|---|---|
 | [where-we-are](where-we-are.html) (this page) | 2026-09-22 | <span class="chip ok">keep</span>: the strategy page |
-| [try-it](try-it.html) · [ceremonies](ceremonies.html) · guides: [weekly-review](guides/weekly-review.html) · [park](guides/park.html) · [review-page](guides/review-page.html) · [decision-buffer](guides/decision-buffer.html) | 2026-09-09 → 09-22 | <span class="chip ok">keep</span> |
+| [try-it](try-it.html) · [ceremonies](ceremonies.html) · guides: [weekly-review](guides/weekly-review.html) · [park](guides/park.html) · [decide](guides/decide.html) | 2026-09-09 → 09-22 | <span class="chip ok">keep</span> |
 | [wb-guide](wb-guide.html) | 2026-08-24 | <span class="chip ok">keep</span>: its board section was rewritten for the rebuilt four-view board |
 | [roadmap](roadmap.html) | 2026-07-18 | <span class="chip warn">keep · stale</span>: long-form history; this page supersedes its "Up next" |
 | [handoff-guide](handoff-guide.html) | 2026-07-19 | <span class="chip warn">keep · stale</span>: still documents pane mode, whose skill was removed in #52 |

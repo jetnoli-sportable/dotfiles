@@ -7,7 +7,7 @@ description: Build a self-contained HTML page that compares 2-5 options for one
   of your recommendation and an alternative", "pros and cons with diagrams", "a
   comparison page", or when one decision's options differ in structure (which
   components exist, where they run, how data flows) and prose can't show it. NOT
-  for collecting answers to a batch of decisions (use `decision-page`; a compare
+  for collecting answers to a batch of decisions (use `/decide`; a compare
   page is often linked from one of its items), nor for comparing visual styles
   (use `visual-explore`).
 ---
@@ -21,8 +21,8 @@ for alternatives "this wins if …"), a side-by-side table, and the recommendati
 The source is a JSON spec; one command draws the diagrams and writes the page.
 
 It shows the comparison; it doesn't collect an answer. The choice is made in
-chat, in a `decision-buffer` doc, or as an item on a `decision-page` that links
-here.
+chat, in a `/decide` buffer, or as an item on a `/decide` page whose `links`
+name this page.
 
 ## When to use
 
@@ -30,7 +30,7 @@ here.
   who calls whom, where data lands. That's when a diagram per option carries
   weight.
 - **Options that differ only in a value or a policy** (a threshold, a name, who
-  approves) don't need a page: a `decision-buffer` choice doc or a decision-page
+  approves) don't need a page: a `/decide` Questions buffer or a `/decide` page
   item is enough.
 - **More than 5 options:** cut to the real contenders first, and list the rest in
   `sources` or a sentence in `shared`, with why they're out.

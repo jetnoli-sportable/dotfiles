@@ -21,7 +21,7 @@ git config core.hooksPath .githooks
 stow -t "$HOME" zsh git ohmyposh tmux scripts nvim ghostty run-or-raise
 
 # claude needs --no-folding: ~/.claude/ holds live untracked state (projects/,
-# todos/, decision-buffer state files) that a folded dir-symlink would shadow.
+# todos/, /decide buffer state files) that a folded dir-symlink would shadow.
 stow --no-folding -t "$HOME" claude
 
 # imagemagick needs --no-folding too: ~/.local/bin holds other tools' binaries.

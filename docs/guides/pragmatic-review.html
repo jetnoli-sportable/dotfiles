@@ -341,7 +341,7 @@ review document is the whole output.</p>
 </tr>
 <tr>
 <td>Verdict surface</td>
-<td>About 15 steps or more: review page (untouched row accepts its suggestion). Fewer: a decision-buffer with options per step, Defer and Skip last (silent close applies nothing)</td>
+<td>Sent through <code>/decide</code>. About 15 steps or more: a <code>verdicts</code> page (an untouched row is unanswered, never accepted). Fewer: a buffer with options per step, Defer and Skip last (a buffer closed unchanged applies nothing)</td>
 <td>SKILL.md step 8</td>
 </tr>
 <tr>
@@ -365,7 +365,7 @@ review document is the whole output.</p>
 <code>claude/.claude/skills/pragmatic-review/</code>.</p>
 <h2 id="known-rough-edges">Known rough edges</h2>
 <ul>
-<li><strong>Thresholds are rough.</strong> &quot;About 15 steps&quot; for the review page and
+<li><strong>Thresholds are rough.</strong> &quot;About 15 steps&quot; for a <code>/decide</code> page and
 &quot;3 questions&quot; for chat versus a buffer are first guesses; the first few
 runs will show whether they hold.</li>
 <li><strong>Live sessions block reorders.</strong> <code>wb set</code> refuses a task whose session is

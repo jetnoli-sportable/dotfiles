@@ -1,7 +1,7 @@
 ---
 title: weekly-review
 status: current
-tile: The weekly ceremony — evidence, review page, output record.
+tile: The weekly ceremony — evidence, /decide page, output record.
 group: skills
 kind: guide
 updated: 2026-09-15
@@ -15,8 +15,8 @@ Gathers four evidence sources in a fixed order — `wb reconcile`
 drift, the [park](park.html) capture doc's unreviewed entries, tasks moved /
 PRs merged since last review, and skill-usage counts — classifies each
 capture entry (task idea / skill idea / grievance / workflow improvement),
-and presents at most five candidate suggestions on the [review
-page](review-page.html), never an nvim buffer. Emits one output record per
+and presents at most five candidate suggestions on the [/decide
+page](decide.html), never an nvim buffer. Emits one output record per
 ISO week under `~/code/tasks/weeks/` with Retro and Sprint-planning rollups.
 
 ## Try it now
@@ -27,7 +27,7 @@ ISO week under `~/code/tasks/weeks/` with Retro and Sprint-planning rollups.
 
 Run it from the main dotfiles checkout (not a worktree — `wb week`/`wb
 reconcile` are stowed there). The agent gathers evidence, classifies every
-capture-doc entry, opens a review page for the task/skill-idea candidates,
+capture-doc entry, opens a /decide page for the task/skill-idea candidates,
 then writes `~/code/tasks/weeks/<ISO>-review.md` once you close the page.
 
 ## Reference

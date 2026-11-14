@@ -9,7 +9,7 @@ directory instead of replacing it.
 
 ## Tracked
 
-- `skills/decision-buffer/` — design decisions via nvim buffer docs
+- `skills/decide/` — batches of decisions: an nvim buffer or a claude.ai page, recorded in the task
 - `skills/handoff/` — route in-conversation discussion to the right worker (switch or spawn)
 - `skills/park/` — capture "later" items to the standing weekly-capture doc
 - `skills/weekly-review/` — the weekly ceremony that reviews captured items
