@@ -22,7 +22,6 @@ dir="$(dirname -- "$file")"
 repo_root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -n "$repo_root" ] || exit 0
 
-# Group of formatter handling this file; empty means a type we don't cover.
 group=
 case "$file" in
   *.lua) group=lua ;;
