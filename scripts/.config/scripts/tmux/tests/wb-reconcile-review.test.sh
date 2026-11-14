@@ -136,6 +136,11 @@ cmd_reconcile --apply >/dev/null 2>&1
 new_task="$TASKS_DIR/proj--orphan-b.md"
 if [ -f "$new_task" ]; then
   assert "apply create-task: status doing" 'status: doing' "$(cat "$new_task")"
+  assert "apply create-task: dossier layout marker" 'layout: dossier' "$(cat "$new_task")"
+  assert "apply create-task: ## Now points at the brief" 'read dossiers/proj--orphan-b/brief.md' "$(cat "$new_task")"
+  [ -f "$TASKS_DIR/dossiers/proj--orphan-b/brief.md" ] \
+    && echo "ok   - apply create-task: brief.md drafted" \
+    || { echo "FAIL - apply create-task: no brief.md"; fail=1; }
 else
   echo "FAIL - apply create-task: $new_task not created"; fail=1
 fi
@@ -184,20 +189,46 @@ sed -i 's/^- \[ \] attach to task: `___`$/- [x] attach to task: `proj--existing.
 cmd_reconcile --apply >/dev/null 2>&1
 assert "apply attach: worktree field updated" 'worktree: \.worktrees/orphan-c' "$(cat "$TASKS_DIR/proj--existing.md")"
 
+# --apply: merge with task on an orphan is attaching (worktree, not branch)
+fresh_env
+mk_repo "$CODE_DIR/proj"
+add_worktree "$CODE_DIR/proj" orphan-m
+mk_task "$TASKS_DIR" 'proj--existing.md' planned proj some-branch '' 'Existing Task'
+wb_reconcile_repos() { printf '%s\n' "$CODE_DIR/proj"; }
+cmd_reconcile --review >/dev/null 2>&1
+sed -i 's/^- \[ \] merge with task: `___`$/- [x] merge with task: `proj--existing.md`/' "$REPORT"
+cmd_reconcile --apply >/dev/null 2>&1
+assert "apply orphan merge: attaches the worktree" 'worktree: \.worktrees/orphan-m' "$(cat "$TASKS_DIR/proj--existing.md")"
+if grep -q '^worktree: orphan-m$' "$TASKS_DIR/proj--existing.md"; then
+  echo "FAIL - apply orphan merge: the branch was written as the worktree"; fail=1
+else
+  echo "ok   - apply orphan merge: the branch is not written as the worktree"
+fi
+
 # =============================================================================
 # --apply: merge with task (missing-worktree finding) — no automatic merge.
-# Each task's records are files in its own dossier, so the pair is reported
-# and skipped: no reopen/confirm phase, nothing deleted or rewritten.
+# Each task's records are files in its own dossier, so the review no longer
+# offers it there; a review doc written before that change still has the
+# line, and checking it is reported and skipped: no reopen/confirm phase,
+# nothing deleted or rewritten.
 # =============================================================================
 fresh_env
 wb_reconcile_repos() { :; }
 mk_task "$TASKS_DIR" 'proj--stale.md'    doing proj stale-branch  '.worktrees/gone-a' 'Stale Task'
 mk_task "$TASKS_DIR" 'proj--survivor.md' doing proj keeper-branch '.worktrees/gone-b' 'Survivor Task'
+for d in proj--stale proj--survivor; do
+  mkdir -p "$TASKS_DIR/dossiers/$d/decisions"; printf 'rec %s\n' "$d" > "$TASKS_DIR/dossiers/$d/decisions/r.md"
+done
 cmd_reconcile --review >/dev/null 2>&1
 assert "merge fixture: both missing findings present" 'proj--stale' "$(cat "$REPORT")"
+if grep -q 'merge with task' "$REPORT"; then
+  echo "FAIL - review: a missing-worktree finding offers merge with task"; fail=1
+else
+  echo "ok   - review: a missing-worktree finding doesn't offer merge with task"
+fi
 check_line_for "$REPORT" 'taskfile=.*proj--stale\.md' \
-  '^- \[ \] merge with task: `___`$' '- [x] merge with task: `proj--survivor.md`'
-merge_before="$(cat "$TASKS_DIR/proj--stale.md" "$TASKS_DIR/proj--survivor.md")"
+  '^- \[ \] attach to task: `___`$' '- [x] merge with task: `proj--survivor.md`'
+merge_before="$(cat "$TASKS_DIR/proj--stale.md" "$TASKS_DIR/proj--survivor.md"; find "$TASKS_DIR/dossiers" -type f | LC_ALL=C sort | xargs cat)"
 
 out="$(cmd_reconcile --apply 2>&1)"; rc=$?
 assert "merge: exits 0" '^' "$rc-ok"; [ "$rc" -eq 0 ] || { echo "FAIL - exit $rc: $out"; fail=1; }
@@ -208,8 +239,8 @@ else
   echo "ok   - merge: no survivor-confirmation phase"
 fi
 if [ -f "$TASKS_DIR/proj--stale.md" ] && [ -f "$TASKS_DIR/proj--survivor.md" ] \
-  && [ "$merge_before" = "$(cat "$TASKS_DIR/proj--stale.md" "$TASKS_DIR/proj--survivor.md")" ]; then
-  echo "ok   - merge: both task files left exactly as they were"
+  && [ "$merge_before" = "$(cat "$TASKS_DIR/proj--stale.md" "$TASKS_DIR/proj--survivor.md"; find "$TASKS_DIR/dossiers" -type f | LC_ALL=C sort | xargs cat)" ]; then
+  echo "ok   - merge: both task files and their dossiers left exactly as they were"
 else
   echo "FAIL - merge: a task file was deleted or changed"; fail=1
 fi

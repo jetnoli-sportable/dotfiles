@@ -479,10 +479,10 @@ wb_board_v2_family_root() {
 # budget; this collapses it to one process per file).
 #
 # Output on stdout, consumed only by wb_board_v2_parse_record below (never
-# hand-parsed at a call site): 7 fields joined by a bare SOH byte (\001, a
+# hand-parsed at a call site): 5 fields joined by a bare SOH byte (\001, a
 # byte that cannot appear in a markdown task file's prose, so no escaping
 # is ever needed) — field order is fixed, not labeled, since the caller
-# always wants all seven:
+# always wants all five:
 #   1 the frontmatter/plan-count TSV line: status \t repo \t worktree \t
 #     branch \t path \t deps \t reviewed \t parent \t tags \t created \t
 #     closed \t plan_checked \t plan_total \t title \t <stage signal bits
@@ -493,11 +493,7 @@ wb_board_v2_family_root() {
 #   3 raw Done section text
 #   4 raw Handoff text — the LAST "### " block under "## Handoffs" (heading
 #     line included)
-#   5 always empty here: the open follow-ups, filled from the dossier by
-#     wb_board_dossier_records
-#   6 always empty here: the decisions timeline (U5, PR2), filled from the
-#     dossier by wb_board_dossier_records
-#   7 doc/artifact-link candidates, one per line — every line of the WHOLE
+#   5 doc/artifact-link candidates, one per line — every line of the WHOLE
 #     file (not just Decisions) matching a dossiers/docs-plans/logs-decisions
 #     path or a claude.ai URL (U5, PR2 — the family view's artifact links).
 #     Scanned unconditionally alongside the section capture above so this
@@ -635,18 +631,19 @@ wb_board_v2_read_file() {
         created, closed, plan_checked, plan_total, title, \
         sig_ideate, sig_brainstorm, sig_plan, sig_work, sig_review, pr_url, \
         size, accept_sig
-      printf "%s%s%s%s%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, followups_text, SOH, decisions_text, SOH, links_text, ""
+      printf "%s%s%s%s%s%s%s%s%s", SOH, plan_text, SOH, done_text, SOH, handoff_text, SOH, links_text, ""
     }
   ' "$1"
 }
 
 # wb_board_v2_parse_record <record_text> <scalar_array_name> \
 #   <plan_array_name> <done_array_name> <handoff_array_name> \
-#   <followups_array_name> <decisions_array_name> <links_array_name> —
-# splits one wb_board_v2_read_file capture on its 7 bare-SOH-joined fields
+#   <links_array_name> —
+# splits one wb_board_v2_read_file capture on its 5 bare-SOH-joined fields
 # into <scalar_array_name>[0] (the TSV header line, further split by the
-# caller with wb_tsv_split) and the six body-text arrays (U5 added
-# decisions/links to U2's original four). Pure string manipulation, no
+# caller with wb_tsv_split) and the four body-text arrays. Follow-ups and
+# decisions are not in the record: wb_board_dossier_records reads them from
+# the dossier. Pure string manipulation, no
 # forking, no file I/O — the read already happened.
 #
 # `IFS=$soh read -r -d '' -a parts`, not the `${var%%pattern*}` splitting
@@ -659,15 +656,13 @@ wb_board_v2_read_file() {
 # only SOH, so embedded newlines within a field are never treated as
 # separators and survive in the split fields intact.
 wb_board_v2_parse_record() {
-  local -n _pr_scalar="$2" _pr_plan="$3" _pr_done="$4" _pr_handoff="$5" _pr_followups="$6"
-  local -n _pr_decisions="$7" _pr_links="$8"
+  local -n _pr_scalar="$2" _pr_plan="$3" _pr_done="$4" _pr_handoff="$5" _pr_links="$6"
   local soh=$'\1'
   local -a parts=()
   IFS="$soh" read -r -d '' -a parts <<< "$1" || true
   _pr_scalar[0]="${parts[0]:-}"
   _pr_plan[0]="${parts[1]:-}"; _pr_done[0]="${parts[2]:-}"
-  _pr_handoff[0]="${parts[3]:-}"; _pr_followups[0]="${parts[4]:-}"
-  _pr_decisions[0]="${parts[5]:-}"; _pr_links[0]="${parts[6]:-}"
+  _pr_handoff[0]="${parts[3]:-}"; _pr_links[0]="${parts[4]:-}"
 }
 
 # wb_board_v2_mtimes <-n out_array_name> — one `stat` invocation for every
@@ -811,11 +806,11 @@ wb_board_collect_rows_v2() {
   wb_board_v2_mtimes _mtimes
   local now; now="$(date +%s)"
   local f stem anchor parent title updated age_days bucket record stage_sig path_bits
-  local -a scalar=() t=() plan_a=() done_a=() handoff_a=() followups_a=() decisions_a=() links_a=()
+  local -a scalar=() t=() plan_a=() done_a=() handoff_a=() links_a=()
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     record="$(wb_board_v2_read_file "$f")"
-    wb_board_v2_parse_record "$record" scalar plan_a done_a handoff_a followups_a decisions_a links_a
+    wb_board_v2_parse_record "$record" scalar plan_a done_a handoff_a links_a
     wb_tsv_split "${scalar[0]}" t
     # t: 0 status 1 repo 2 worktree 3 branch 4 path 5 deps 6 reviewed
     #    7 parent 8 tags 9 created 10 closed 11 plan_checked 12 plan_total
@@ -848,8 +843,8 @@ wb_board_collect_rows_v2() {
     _cr_plan["$stem"]="${plan_a[0]}"
     _cr_done["$stem"]="${done_a[0]}"
     _cr_handoff["$stem"]="${handoff_a[0]}"
-    _cr_followups["$stem"]="${followups_a[0]}"
-    _cr_decisions["$stem"]="${decisions_a[0]}"
+    _cr_followups["$stem"]=""
+    _cr_decisions["$stem"]=""
     _cr_links["$stem"]="${links_a[0]}"
     wb_board_dossier_records "$f" "$stem" _cr_decisions _cr_followups _cr_handoff
     # U7: stage_sig is the raw "ibpwr" bit string from the awk pass plus the

@@ -1049,6 +1049,13 @@ fi
 assert_eq "U3 AE1: child 1 parent: set" "proj--feat-u3" "$(wb_get_frontmatter "$TASKS_DIR/proj--feat-u3-one.md" parent)"
 assert "U3 AE1: child 1 plan body landed" "child one plan body" "$(cat "$TASKS_DIR/proj--feat-u3-one.md")"
 assert "U3 AE1: child 2 plan body landed" "child two plan body" "$(cat "$TASKS_DIR/proj--feat-u3-two.md")"
+for c in one two; do
+  assert "U3 AE1: child $c is on the dossier layout" '^layout: dossier$' "$(cat "$TASKS_DIR/proj--feat-u3-$c.md")"
+  assert "U3 AE1: child $c's ## Now points at its brief" "read dossiers/proj--feat-u3-$c/brief.md" "$(cat "$TASKS_DIR/proj--feat-u3-$c.md")"
+  [ -f "$TASKS_DIR/dossiers/proj--feat-u3-$c/brief.md" ] \
+    && echo "ok   - U3 AE1: child $c brief.md drafted" \
+    || { echo "FAIL - U3 AE1: child $c has no brief.md"; fail=1; }
+done
 assert "U3 AE1: parent's ## Plan replaced with the buffer's rewrite" "post-split summary" "$(cat "$TASKS_DIR/proj--feat-u3.md")"
 if grep -q "original plan content" "$TASKS_DIR/proj--feat-u3.md"; then
   echo "FAIL - U3 AE1: parent's OLD Plan content must be replaced, not appended alongside"; fail=1

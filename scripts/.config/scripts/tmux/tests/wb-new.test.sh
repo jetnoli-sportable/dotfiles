@@ -143,6 +143,12 @@ depends_val="$(wb_get_frontmatter "$FIXTURE_TASKS/proj--path-none.md" depends_on
 assert_eq "no flags: depends_on: is blank" "" "$depends_val"
 grep -qE '^depends_on:' "$FIXTURE_TASKS/proj--path-none.md"
 assert_eq "no flags: depends_on: key line was actually inserted" 0 $?
+# plain `wb new` seeds the dossier layout too (not only --planned)
+assert "no flags: layout: dossier set" '^layout: dossier$' "$(cat "$FIXTURE_TASKS/proj--path-none.md")"
+assert "no flags: ## Now points at the brief" 'read dossiers/proj--path-none/brief.md' "$(cat "$FIXTURE_TASKS/proj--path-none.md")"
+[ -f "$FIXTURE_TASKS/dossiers/proj--path-none/brief.md" ] \
+  && echo "ok   - no flags: dossier brief.md drafted" \
+  || { echo "FAIL - no flags: no dossier brief.md"; fail=1; }
 
 # --path / --size were removed from wb new (wb set covers both): either flag
 # now fails the positional count, and nothing is created.

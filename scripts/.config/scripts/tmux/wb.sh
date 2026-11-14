@@ -1314,7 +1314,8 @@ _wb_new_seed() {
     /^## / { skip = 0 }
     !skip { print }
   ' "$file" > "$file.tmp.$$" && mv "$file.tmp.$$" "$file"
-  _wb_replace_block "$file" "Now" "(not started — the first \`/wb-save\` or \`wb now\` fills this in)" 1
+  local stem; stem="$(basename -- "$file" .md)"
+  _wb_replace_block "$file" "Now" "(not started — read dossiers/$stem/brief.md for the opening ask; the first \`/wb-save\` or \`wb now\` replaces this)" 1
 
   # Bug signal: a fix/bug branch name or a `bug` tag. Anything else is a task.
   local branch tags type="task"
@@ -2502,7 +2503,9 @@ wb_reconcile_generate_review() {
       echo "- [ ] discuss"
       echo "- [ ] create a task (optional parent: \`___\`)"
       echo "- [ ] attach to task: \`___\`"
-      echo "- [ ] merge with task: \`___\`"
+      # Two real task files are merged by hand, so a missing-worktree
+      # finding doesn't offer it (wb_reconcile_action_merge).
+      if [ "$kind" = orphan ]; then echo "- [ ] merge with task: \`___\`"; fi
     done < <(wb_reconcile_collect)
     [ "$n" -eq 0 ] && { echo; echo "No drift found."; }
   } > "$path"
@@ -2559,7 +2562,10 @@ wb_reconcile_action_create_task() {
   local file; file="$(wb_task_file "$repo" "$(wb_sanitize "$branch")")"
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || return $?
+  local was_new=0; [ -f "$file" ] || was_new=1
   file="$(wb_seed_task "$repo" "$branch" "$worktree" "$parent")"
+  # Like every other way a task is born: brief.md and a ## Now placeholder.
+  [ "$was_new" = 0 ] || _wb_new_seed "$file"
   wb_task_lock_release "$file"
   echo "wb reconcile --apply: created task $file (status: doing)"
 }

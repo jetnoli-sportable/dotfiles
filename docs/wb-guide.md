@@ -681,11 +681,16 @@ lands in it, so it gets slow to read and its sections get quoted by half the
 tools. The dossier layout stops that. A task whose frontmatter has
 `layout: dossier` keeps only what is current in its file, and moves each record
 into its own file in the task's dossier. Every task uses it: `wb new`,
-`wb new --planned` and `wb breakdown` children all get `layout: dossier`, a
-`## Now` placeholder and a drafted `brief.md`. Nothing in `wb` branches on the
-marker; it is there for `wb migrate` and wb-store. `wb migrate <task>|--all`
-converts an old-shape task file (one written by hand or brought from elsewhere)
-into this layout.
+`wb new --planned`, `wb breakdown` children and `wb reconcile`'s "create a
+task" all get `layout: dossier`, a `## Now` placeholder that points at the
+dossier's `brief.md` (where `/handoff` writes the opening ask), and a drafted
+`brief.md`. Nothing in `wb` branches on the marker; it is there for
+`wb migrate` and wb-store. `wb migrate <task>|--all` converts an old-shape task
+file (one written by hand or brought from elsewhere) into this layout. Records
+written to such a file before it is migrated (a `wb append`, a handoff note)
+already sit in its dossier; migrate adds the converted records beside them,
+and stops with nothing written only when a converted record's file name is
+already taken.
 
 For every task:
 

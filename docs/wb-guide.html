@@ -924,11 +924,16 @@ lands in it, so it gets slow to read and its sections get quoted by half the
 tools. The dossier layout stops that. A task whose frontmatter has
 <code>layout: dossier</code> keeps only what is current in its file, and moves each record
 into its own file in the task's dossier. Every task uses it: <code>wb new</code>,
-<code>wb new --planned</code> and <code>wb breakdown</code> children all get <code>layout: dossier</code>, a
-<code>## Now</code> placeholder and a drafted <code>brief.md</code>. Nothing in <code>wb</code> branches on the
-marker; it is there for <code>wb migrate</code> and wb-store. <code>wb migrate &lt;task&gt;|--all</code>
-converts an old-shape task file (one written by hand or brought from elsewhere)
-into this layout.</p>
+<code>wb new --planned</code>, <code>wb breakdown</code> children and <code>wb reconcile</code>'s &quot;create a
+task&quot; all get <code>layout: dossier</code>, a <code>## Now</code> placeholder that points at the
+dossier's <code>brief.md</code> (where <code>/handoff</code> writes the opening ask), and a drafted
+<code>brief.md</code>. Nothing in <code>wb</code> branches on the marker; it is there for
+<code>wb migrate</code> and wb-store. <code>wb migrate &lt;task&gt;|--all</code> converts an old-shape task
+file (one written by hand or brought from elsewhere) into this layout. Records
+written to such a file before it is migrated (a <code>wb append</code>, a handoff note)
+already sit in its dossier; migrate adds the converted records beside them,
+and stops with nothing written only when a converted record's file name is
+already taken.</p>
 <p>For every task:</p>
 <ul>
 <li><strong>The task file</strong> holds frontmatter, <code># Title</code>, <code>## Now</code>, <code>## Plan</code> and one
