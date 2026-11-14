@@ -149,13 +149,13 @@ commit, and stop.
 Give each comment one outcome: remove, keep, or flag. Apply the Rules in
 order: not a comment, tool-read, keep list, remove list, flag. Keep comes
 before remove, so a comment that carries intent, a workaround's cause or an
-invariant is kept whole even when it also cites a ticket or a link. Keep
-it, and list the reference under Flagged in the report so a person can
-decide whether it still belongs there:
+invariant is kept whole even when it also cites a ticket or a link. It
+counts once, as kept, and its reference goes on the report's `References:`
+line so a person can decide whether it still belongs there:
 
 ```bash
-# retry: the API returns 503 during deploys (SW-1234)   <- kept; SW-1234 flagged
-# TODO(SW-1234): drop this shim after the migration      <- kept; SW-1234 flagged
+# retry: the API returns 503 during deploys (SW-1234)   <- kept; SW-1234 under References
+# TODO(SW-1234): drop this shim after the migration      <- kept; SW-1234 under References
 # see SW-1234                                            <- removed: nothing but a reference
 ```
 
@@ -188,14 +188,25 @@ uncommitted and unstaged.
 - **Pre-commit hooks can add files after that check.** In a repo whose hook
   stages its own output (this dotfiles repo's docgen hook regenerates
   `docs/` from the working tree and runs `git add docs/` when a staged file
-  is one it reads), stop before committing if `git status --porcelain --
-  docs/` shows anything, or if a file the hook reads holds other
-  uncommitted edits. The hook would put them in the haircut commit.
+  is one it reads), first stop if `git status --porcelain -- docs/` shows
+  anything, or if a file the hook reads holds other uncommitted edits. The
+  hook would put them in the haircut commit.
+- **Then commit any drift on its own, before the haircut commit.** docgen's
+  index also reads files outside the sweep (`~/code/tasks`,
+  `logs/decisions/`), so rebuilt docs can differ for reasons the sweep did
+  not cause. Run the hook's regeneration yourself before committing (in
+  this repo, with `DOTFILES` set to the checkout:
+  `scripts/.config/scripts/build-try-it.sh`, then
+  `~/.config/scripts/docgen.sh all`). If `git status --porcelain -- docs/`
+  now shows changes, commit only `docs/` first, as
+  `docs: regenerate`. The haircut commit's hook run then finds nothing new
+  to stage.
 - Then plain `git commit`. Not `git commit -- <file>`: a pathspec commits the
   whole working file, uncommitted code included. Never `--no-verify`.
 - After the commit, check it: `git show --name-only --format= HEAD` lists
-  only the swept files, plus `docs/` regenerated from those edits. If it
-  lists anything else, report it. Do not amend.
+  only the swept files. A comment the sweep removes never changes the
+  docs (comments docgen reads are always kept), so a `docs/` path there is
+  drift. If it lists anything else, report it. Do not amend.
 - If a hunk cannot be separated from an uncommitted code edit, stop. Do not
   commit that file. Name it in the report.
 - **Never use `git stash`.** The stash stack is shared with every other
@@ -208,12 +219,15 @@ uncommitted and unstaged.
 Short, grouped by outcome, each with `file:line`:
 
 ```
-Haircut: 3 removed, 3 kept, 2 flagged (base: origin/development)
-Removed: scripts/a.sh:12 (restates), scripts/a.sh:30 (task ref), lib/b.py:8 (commented-out code)
-Kept:    lib/b.py:21 (why), tmux/keys.conf:4 (docgen reads it), lib/d.py:40 (workaround)
-Flagged: lib/c.py:15 (dense regex, needs its comment; rework candidate),
-         lib/d.py:40 (cites SW-1234; check the reference still belongs)
+Haircut: 3 removed, 3 kept, 1 flagged (base: origin/development)
+Removed:    scripts/a.sh:12 (restates), scripts/a.sh:30 (task ref), lib/b.py:8 (commented-out code)
+Kept:       lib/b.py:21 (why), tmux/keys.conf:4 (docgen reads it), lib/d.py:40 (workaround)
+Flagged:    lib/c.py:15 (dense regex, needs its comment; rework candidate)
+References: lib/d.py:40 cites SW-1234 (check it still belongs)
 ```
+
+Omit the `References:` line when no kept comment cites anything. When a
+`docs: regenerate` commit was made first, say so in one line.
 
 ### 6. Follow-ups in a wb session
 
@@ -224,7 +238,9 @@ tmux show -t "=$(tmux display-message -p '#S'):" -v @task
 ```
 
 If it is empty, this is not a wb session: report only. Otherwise run one
-append per flagged spot:
+append per flagged spot (rework candidates only; `References:` entries
+never become follow-ups). Skip a spot whose `file:line` already appears in
+the task's `## Follow-ups`, so a rerun does not append it again:
 
 ```bash
 wb append <task> Follow-ups - "lib/c.py:15: dense date regex needs its comment; consider a named helper"
@@ -252,9 +268,11 @@ wb append <task> Follow-ups - "lib/c.py:15: dense date regex needs its comment; 
 10. A hunk that mixes a trimmed comment with an uncommitted code edit and
     cannot be split: stop, name the file, commit nothing for it.
 11. A branch adds `# retry: the API returns 503 during deploys (SW-1234)`:
-    kept whole, SW-1234 listed under Flagged. `# TODO(SW-1234): drop this
-    shim after the migration` is kept the same way; a bare `# see SW-1234`
-    is removed.
+    kept whole, counted once as kept, SW-1234 listed under `References:`,
+    and no follow-up is appended. `# TODO(SW-1234): drop this shim after
+    the migration` is kept the same way; a bare `# see SW-1234` is removed.
+    A rerun does not append a follow-up already in the task's
+    `## Follow-ups`.
 12. A branch adds a zsh function with a comment above it in `zsh/.zshrc`:
     kept (docgen reads it). A function named `_helper` gets no such
     protection.
@@ -272,9 +290,11 @@ wb append <task> Follow-ups - "lib/c.py:15: dense date regex needs its comment; 
     blocker branch as the base.
 17. A trimmed comment in a docgen input (e.g. a `.sh` under
     `scripts/.config/scripts/`) while `docs/` holds an uncommitted edit:
-    stop before committing and name `docs/`. With `docs/` clean, the commit
-    holds the swept file plus the regenerated `docs/`, and the
-    post-commit check passes.
+    stop before committing and name `docs/`. With `docs/` clean but the
+    docs index out of date (e.g. a task file changed since the last
+    regeneration), the regeneration step commits `docs/` alone as
+    `docs: regenerate`, then the haircut commit holds only the swept file
+    and the post-commit check passes.
 
 ## Notes
 
