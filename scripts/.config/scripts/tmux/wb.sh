@@ -6055,6 +6055,10 @@ _wb_done_classify() {
   local out rc=0 cls path note
   local -a unknowns=()
   keep_paths=(); throw_paths=()
+  if ! declare -F wb_sweep_classify >/dev/null; then
+    echo "wb done: wb-done-sweep.sh is missing beside wb.sh — re-stow the dotfiles, then run wb done again (nothing changed)" >&2
+    return 1
+  fi
   if [ "$quiet" = 1 ]; then
     out="$(wb_sweep_classify "$wt" "$main" "$@" 2>/dev/null)" || rc=$?
   else
