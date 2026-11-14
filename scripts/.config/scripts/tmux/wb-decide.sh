@@ -231,12 +231,20 @@ _wb_decide_agent_window() {
 # the recorded pane while it still runs nvim on the file; with that pane gone
 # and the file changed it opens nothing and reports changed, so the answers
 # are read; only a file that still matches its checksum gets a new split.
+#
+# --reopen starts a new round on a file the caller rewrote (a second round of
+# questions, the next run-and-paste step): it still waits on a split that is
+# open, but otherwise always opens a new one and records the file's current
+# checksum, so the rewrite isn't mistaken for Jet's answers.
 cmd_decide_buffer() {
-  local file editor target session pane sha now line rest mode="split" f psess
+  local file editor target session pane sha now line rest mode="split" f psess reopen=0 a args=()
   _wb_decide_target decide-buffer "$@" || exit 1
-  file="${WB_DECIDE_ARGS[0]:-}"
-  if [ -z "$file" ] || [ ! -f "$file" ] || [ "${#WB_DECIDE_ARGS[@]}" -gt 1 ]; then
-    echo "usage: wb decide-buffer <answer file> [--task <ref>] (the file must exist)" >&2; exit 1
+  for a in "${WB_DECIDE_ARGS[@]+"${WB_DECIDE_ARGS[@]}"}"; do
+    if [ "$a" = --reopen ]; then reopen=1; else args+=("$a"); fi
+  done
+  file="${args[0]:-}"
+  if [ -z "$file" ] || [ ! -f "$file" ] || [ "${#args[@]}" -gt 1 ]; then
+    echo "usage: wb decide-buffer [--reopen] <answer file> [--task <ref>] (the file must exist)" >&2; exit 1
   fi
   case "$file" in /*) ;; *) file="$PWD/$file" ;; esac
   editor="$(command -v nvim)" || { echo "wb decide-buffer: nvim isn't on the PATH" >&2; exit 1; }
@@ -267,6 +275,8 @@ cmd_decide_buffer() {
     pane="${rest%% *}"; sha="${rest##* }"
     if _wb_decide_pane_runs_editor "$pane" "$file"; then
       mode="wait"
+    elif [ "$reopen" = 1 ]; then
+      sha="$now"
     elif [ "$sha" != "$now" ]; then
       mode="none"
     fi

@@ -366,8 +366,8 @@ laid out what is open and which way it leans.</p>
 <td>Prints a fresh reserved answer file (or a page spec path, folder created) under the task's dossier <code>decision-records/</code>.</td>
 </tr>
 <tr>
-<td><code>wb decide-buffer &lt;file&gt;</code></td>
-<td>Opens the file in an nvim split of the task's tmux session, marks the task as needing you, blocks until you close it; prints <code>file:</code>, <code>sha:</code>, <code>changed:</code>. Re-running it reattaches.</td>
+<td><code>wb decide-buffer [--reopen] &lt;file&gt;</code></td>
+<td>Opens the file in an nvim split of the task's tmux session, marks the task as needing you, blocks until you close it; prints <code>file:</code>, <code>sha:</code>, <code>changed:</code>. Re-running it reattaches; <code>--reopen</code> opens the next round of a file the session rewrote.</td>
 </tr>
 <tr>
 <td><code>wb decide-open page &lt;url&gt; &lt;rev&gt;</code></td>

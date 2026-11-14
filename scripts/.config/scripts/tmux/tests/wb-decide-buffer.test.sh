@@ -160,6 +160,22 @@ sha: $sha2
 changed: yes" "$out"
 assert_eq "the marker line keeps its original checksum" "buffer $ans2 $split2 $sha2" "$(grep "^buffer $ans2 " "$NY")"
 
+# The next round: the session rewrites the same file and reopens it with --reopen.
+# A split opens and the checksum is taken afresh, so the rewrite isn't read as answers.
+printf 'Q2b: c or d?\n' > "$ans2"; sha2b="$(sha "$ans2")"
+nvim_secs 3
+TMUX_PANE="$P" wb decide-buffer --reopen "$ans2" > "$FIX/out-reopen" 2>&1 &
+wr=$!
+wait_until 5 has_panes proj--dec 2
+assert_eq "--reopen on a rewritten file opens a split" 2 "$(panes proj--dec)"
+assert_eq "its line has the new checksum, on a single line" "1 $sha2b" \
+  "$(grep -c "^buffer $ans2 " "$NY") $(sed -n "s|^buffer $ans2 %[0-9]* ||p" "$NY")"
+wait "$wr"
+assert_eq "closed untouched, that round reports unchanged" "file: $ans2
+sha: $sha2b
+changed: no" "$(cat "$FIX/out-reopen")"
+nvim_secs 600
+
 # A recorded pane that is gone, file unchanged: a fresh split, the first checksum kept.
 ans3="$FIX/answers-3.md"; echo "Q3: ok?" > "$ans3"; sha3="$(sha "$ans3")"
 TMUX_PANE="$P" wb decide-buffer "$ans3" > /dev/null 2>&1 &

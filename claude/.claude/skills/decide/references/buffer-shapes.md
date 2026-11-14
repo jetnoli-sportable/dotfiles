@@ -157,19 +157,21 @@ Output:
 Notes:
 ~~~
 
-Keep it small. If a step gets no new output after the buffer is reopened about
-three times, ask in chat instead of reopening. The pasted output is evidence
+Each next step rewrites the file and reopens it with
+`wb decide-buffer --reopen "$f"` (SKILL.md section 6). Keep it small. If a step
+gets no new output after the buffer is reopened about three times, ask in chat
+instead of reopening. The pasted output is evidence
 for the next step, not a Decisions entry: record a decision only for what Jet
 decided.
 
 ## Reading a closed buffer
 
-Read `changed:` from `wb decide-buffer` first. `changed: no` applies nothing.
-When `changed: yes`, in order:
+Read `changed:` from `wb decide-buffer` first. `changed: no` applies nothing
+and ends the surface (`wb decide-clear "$f"`). When `changed: yes`, in order:
 
 1. **`Closing because:`**, if Jet wrote one, is read first. A reason that
    signals abort ("too early", "wrong shape", "ignore", "let's talk") applies
-   nothing; echo any ticks back as "you also ticked X: carry into the next
+   nothing and ends the surface (`wb decide-clear "$f"`); echo any ticks back as "you also ticked X: carry into the next
    round?". An ambiguous reason is asked about in chat first.
 2. **Real answers only:** a checkbox line outside any fenced block,
    blockquote or HTML comment, below the first heading. A literal `[x]` in the

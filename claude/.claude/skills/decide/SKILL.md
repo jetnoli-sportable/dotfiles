@@ -97,8 +97,12 @@ After `changed: yes`, parse the file per its shape (`references/buffer-shapes.md
 "Reading a closed buffer"), answer any Questions/Notes before acting on a
 selection, then record (section 5) and `wb decide-clear "$f"`.
 
-**`changed: no` applies nothing.** Report that the buffer closed unchanged
-(nothing recorded, nothing assumed) and continue in chat.
+**`changed: no` applies nothing.** Run `wb decide-clear "$f"` (the surface is
+over, so the picker stops showing the task as needing Jet and `/wb-resume`
+won't reopen it), report that the buffer closed unchanged (nothing recorded,
+nothing assumed) and continue in chat. A closing reason that aborts the round
+(`references/buffer-shapes.md`, "Reading a closed buffer", step 1) ends the
+surface the same way.
 
 A buffer past about six questions, or one that wants a diagram, table or long
 evidence, is a page instead. (There is no separate companion HTML; use a page.)
@@ -234,6 +238,12 @@ Jet, since a summary is a claim to verify. Only open items keep their full
 form; on a page, re-asked items carry `prior: {note, reply}`. A changed
 question needs new ids (section 4). If no item is open, report in chat and
 don't reopen.
+
+A buffer round reuses the same `$f`: rewrite it, then run
+`wb decide-buffer --reopen "$f"` in the background. Without `--reopen` the
+rewrite reads as answers given while the session was away (`changed: yes`,
+no split), and the agent would parse questions Jet never saw. The same holds
+for each step of a run-and-paste loop.
 
 ## 7. Learnings
 

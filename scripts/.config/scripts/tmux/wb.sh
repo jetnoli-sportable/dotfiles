@@ -83,12 +83,13 @@
 #                                    or with --page the page spec (decision-records/<stamp>-<slug>/
 #                                    spec.json); outside a task, under the state dir keyed by the
 #                                    tmux session
-#   wb decide-buffer <file> [--task <task>]
+#   wb decide-buffer [--reopen] <file> [--task <task>]
 #                                    open <file> in nvim in a split of the task's tmux session, mark
 #                                    the task as needing Jet, wait until the split closes, then print
 #                                    file:/sha:/changed: (sha is from the first open); run it in the
 #                                    background. A re-run waits on a split still open instead of
-#                                    opening a second one
+#                                    opening a second one; --reopen opens a new round on a file the
+#                                    caller rewrote, with the checksum taken afresh
 #   wb decide-open page <url> <rev> [--task <task>]
 #                                    mark a published page as waiting on Jet (a later rev of the same
 #                                    url replaces the line)

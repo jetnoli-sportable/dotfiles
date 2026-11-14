@@ -93,7 +93,7 @@ laid out what is open and which way it leans.
 | Command | What it does |
 |---|---|
 | `wb decide-path [--page <slug>]` | Prints a fresh reserved answer file (or a page spec path, folder created) under the task's dossier `decision-records/`. |
-| `wb decide-buffer <file>` | Opens the file in an nvim split of the task's tmux session, marks the task as needing you, blocks until you close it; prints `file:`, `sha:`, `changed:`. Re-running it reattaches. |
+| `wb decide-buffer [--reopen] <file>` | Opens the file in an nvim split of the task's tmux session, marks the task as needing you, blocks until you close it; prints `file:`, `sha:`, `changed:`. Re-running it reattaches; `--reopen` opens the next round of a file the session rewrote. |
 | `wb decide-open page <url> <rev>` | Records a published page (and its revision) as an open surface. |
 | `wb decide-spec-check [--previous <spec>] <spec>` | Checks a page spec before publishing; `--previous` also checks that saved answers still match the earlier rev. |
 | `wb decision "<title>"` (body on stdin) | Records one answer in `## Decisions`; `--default` marks it "Default taken." and never supersedes an answer you gave. |
