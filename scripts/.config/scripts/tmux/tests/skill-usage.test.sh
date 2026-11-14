@@ -162,5 +162,60 @@ out="$(bash "$SCRIPT" --dir "$T5" 2>&1)"; rc=$?
 assert_eq "empty transcript dir, no matches: exit 0" 0 "$rc"
 refute "empty transcript dir: no skill rows printed" '^[a-z].*[[:space:]][0-9]' "$out"
 
+# =============================================================================
+# Scenario: a `<command-name>` tag that only appears inside a tool call (a
+# Bash command that greps for it) or a tool result (that command's output)
+# is a session TALKING about the skill, not running it, and is not counted.
+# A real slash command in the same file still is. (Hit 2026-11-14: auditing
+# /help in a session gave it 6 false uses.)
+# =============================================================================
+
+T6="$FIXTURE/t6"; S6="$FIXTURE/s6"
+mkdir -p "$T6/proj"
+cat > "$T6/proj/a.jsonl" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"grep -c '<command-name>/talked-about</command-name>' f.jsonl"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"x","content":"f.jsonl:<command-name>/talked-about</command-name>"}]}}
+{"type":"user","message":{"role":"user","content":"<command-name>/really-run</command-name>\n<command-message>really-run</command-message>"}}
+JSONL
+mk_skill "$S6" talked-about
+mk_skill "$S6" really-run
+
+out="$(bash "$SCRIPT" --dir "$T6" --skills-dir "$S6" 2>&1)"; rc=$?
+assert_eq "tool-call mentions: exit 0" 0 "$rc"
+assert "tool-call mentions: a tag inside a tool call or tool result is not counted" \
+  '^talked-about[[:space:]]+0[[:space:]]' "$out"
+assert "tool-call mentions: a real slash command beside them still is" \
+  '^really-run[[:space:]]+1[[:space:]]' "$out"
+
+# =============================================================================
+# Scenario: Claude's own reply quoting a `<command-name>` tag is a mention,
+# not a use. And Claude Code's `api-request-blob` records repeat earlier
+# lines (a saved copy of the request), so a slash command and a Skill-tool
+# call that each also appear in a blob still count once. (Hit 2026-11-14:
+# every real use counted twice.)
+# =============================================================================
+
+T7="$FIXTURE/t7"; S7="$FIXTURE/s7"
+mkdir -p "$T7/proj"
+cat > "$T7/proj/a.jsonl" <<'JSONL'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The audit found <command-name>/quoted</command-name> in a transcript."}]}}
+{"type":"user","message":{"role":"user","content":"<command-name>/slashed</command-name>\n<command-message>slashed</command-message>"}}
+{"type":"api-request-blob","message":{"role":"user","content":[{"type":"text","text":"<command-name>/slashed</command-name>"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"called"}}]}}
+{"type":"api-request-blob","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"called"}}]}}
+JSONL
+mk_skill "$S7" quoted
+mk_skill "$S7" slashed
+mk_skill "$S7" called
+
+out="$(bash "$SCRIPT" --dir "$T7" --skills-dir "$S7" 2>&1)"; rc=$?
+assert_eq "assistant quote + request blobs: exit 0" 0 "$rc"
+assert "assistant quote: a tag in Claude's own reply is not counted" \
+  '^quoted[[:space:]]+0[[:space:]]' "$out"
+assert "request blob: a slash command repeated in a blob counts once" \
+  '^slashed[[:space:]]+1[[:space:]]' "$out"
+assert "request blob: a Skill-tool call repeated in a blob counts once" \
+  '^called[[:space:]]+1[[:space:]]' "$out"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

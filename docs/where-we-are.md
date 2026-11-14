@@ -142,8 +142,6 @@ so it has a fair chance of being tried.
     <p>Choosing the look of a new HTML surface by comparing 3–4 mockups side by side before building. <em>Example:</em> the <code>/wb-breakdown</code> review page (T3 below).</p></div>
   <div class="wwa-card new"><h3>/find-skills <span class="chip mut">0 uses</span></h3>
     <p>When you think "there's probably a skill for this": search installable skills before writing a new one. <em>Example:</em> before building a custom statusline or a new Jira helper.</p></div>
-  <div class="wwa-card new"><h3>/write-product-spec · /write-tech-spec <span class="chip mut">0 uses</span></h3>
-    <p>Vendored for features in Warp's own repo. Outside Warp, <code>/spec-doc</code> covers product specs and hands off to write-tech-spec only when a separate TECH spec helps. <em>Example:</em> a contribution to Warp itself. Otherwise, leave them alone.</p></div>
 </div>
 
 ## Save & resume — the intended workflow
@@ -213,9 +211,9 @@ piece audit, re-checked against the refreshed counts.
 | weekly-review | <span class="wwa-num">1</span> | <span class="wwa-num">1</span> | <span class="chip acc">too new</span> | Has run once (W38). |
 | spec-doc | <span class="wwa-num">1</span> | <span class="wwa-num">0</span> | <span class="chip acc">too new</span> | |
 | quick-wins | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip mut">no uptake</span> | A month old. Question for the weekly review, not a removal. |
-| help | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip mut">no uptake</span> | Kept in the audit; the <kbd>prefix</kbd>+<kbd>?</kbd> picker does the same job. |
+| help | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip warn">removed</span> | Removed 2026-11-14, unused; the <kbd>prefix</kbd>+<kbd>?</kbd> picker does the same job. |
 | find-skills | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip acc">too new</span> | |
-| write-product-spec · write-tech-spec | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip mut">no uptake</span> | Specific to Warp's repo, vendored. |
+| write-product-spec · write-tech-spec | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip warn">removed</span> | Removed 2026-11-14, unused; `/spec-doc` now hands off to `/ce-plan`. |
 | store-specialist (subagent) | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip acc">too new</span> | Landed today (#63). |
 
 **Already removed** (the 2026-09-14 audit, all still at zero): `handoff-pane`

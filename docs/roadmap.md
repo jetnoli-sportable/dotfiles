@@ -164,7 +164,7 @@ and unknown (W5 and W6, the `wb done` rework); its Claude skill is retired and
 - <a id="detail-task-store-frontmatter"></a>**Central task store + frontmatter** — [wb design](archive/roadmap-wb-design.html)
 - <a id="detail-wb-core"></a>**`wb` core** (new / picker / done) — [wb design](archive/roadmap-wb-design.html) · [wb-guide](wb-guide.html) — PR #7
 - <a id="detail-notes-tui-4a"></a>**Notes-tui integration, 4a** (capture) — [deep dive](archive/slice-4b-deep-dive.html)
-- <a id="detail-docs-platform"></a>**Docs platform** (generated pages, Hub, INDEX, `/help`) — [docgen](docgen.html) · [slice-5 recap](archive/slice-5-recap.html)
+- <a id="detail-docs-platform"></a>**Docs platform** (generated pages, Hub, INDEX, the `prefix+?` picker) — [docgen](docgen.html) · [slice-5 recap](archive/slice-5-recap.html)
 - <a id="detail-guide-pages-hub"></a>**Per-skill/TUI guide pages + tile dashboard** — `docs/guides/*` · [slice-5 recap](archive/slice-5-recap.html)
 - <a id="detail-hub-v0"></a>**Hub v0** (meta-documentation bundle) — glossary, limitations, ceremonies pages, the `/board` tile, the roadmap reshape, and the `wb-save`/`wb-resume`/`wb-board` skill catalog (and a done skill, since retired); U5/U6 artifact index deferred — PR #18
 - <a id="detail-board-html"></a>**`/board`** — full HTML task-board view — [PR #1 recap](archive/pr1-wb-workbench-recap.html) · [detail](archive/roadmap-board.html) — PR #14

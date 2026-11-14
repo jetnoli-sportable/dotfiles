@@ -45,10 +45,6 @@ hand-edit vendored SKILL.md files — the lockfile hash would drift; override
 paths/vocabulary in the invocation prompt instead.
 
 - `skills/find-skills/` — vercel-labs/skills; search skills.sh from inside a session
-- `skills/write-product-spec/` — warpdotdev/common-skills; PRD as numbered, testable
-  behaviour invariants (consumer's perspective, no implementation)
-- `skills/write-tech-spec/` — warpdotdev/common-skills; companion implementation
-  spec, code-grounded, maps tests to the product spec's invariants
 
 ## Deliberately NOT tracked (this pass)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ask.sh — quick-question scratch window (roadmap 9f-5): a fresh Claude Code
 # session in the CURRENT tmux session, for a question that doesn't need to
-# outlive the window it's asked in. Deliberately separate from `/help`
+# outlive the window it's asked in. Deliberately separate from prefix+?
 # (help.sh's INDEX picker, zero-LLM by design) and from `wb`'s agent windows
 # (task-scoped, persistent) — this is a one-off scratch session you can
 # close whenever, mirroring wb.sh's agent-window pattern (new-window, then
