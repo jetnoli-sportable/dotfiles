@@ -11,8 +11,8 @@ execution: code
 
 ## Goal Capsule
 
-- **Objective:** Jet's wb sessions start on the right code and come back cleanly after a crash. `wb new`/`wb resume` pick up a task's own pushed branch instead of cutting a divergent one, and a stale idle worktree is brought up to date on reattach. One command restores a set of sessions. The context card shows the right session and keeps its recap. The wb scripts are easier to review and are fully checked by shellcheck.
-- **Means:** six small fixes, landed in dependency order, in `scripts/.config/scripts/tmux/` (wb.sh, claude-card.sh, claude-reply-log.sh), landed as one branch and one PR with one commit or more per unit (KTD1).
+- **Objective:** Jet's wb sessions start on the right code and come back cleanly after a crash. `wb new`/`wb resume` pick up a task's own pushed branch instead of cutting a divergent one, and a stale idle worktree is brought up to date on reattach. One command restores a set of sessions. The context card shows the right session and keeps its recap. Decision capture drafts fewer throwaway entries, and no task's drafts go unreviewed because its session ended with `wb down`. The wb scripts are easier to review and are fully checked by shellcheck.
+- **Means:** eight small fixes, landed in dependency order, in `scripts/.config/scripts/tmux/` (wb.sh, claude-card.sh, claude-reply-log.sh, wb-capture-sweep.sh), landed as one branch and one PR with one commit or more per unit (KTD1).
 - **Authority:** this plan, then the task file `~/code/tasks/dotfiles--wb-bash-fixes.md` (its Plan section and its in-force decision files of 14 Nov), then each child task file named in Sources.
 - **Stop conditions:**
   - Stop and ask if the shellcheck findings grow past about 120 once wb.sh parses with the new code; that would justify a second PR.
@@ -26,7 +26,8 @@ execution: code
 ### Summary
 
 Build the six fixes the 14 Nov backlog triage held back until W4 (dotfiles PR #147, which removed wb's old section-based write path) merged.
-In order: move the `wb done` sweep classifier into its own file, attach `wb new` to the task's own origin-only branch, fast-forward stale commit-less worktrees on reattach, add `wb restart`, harden the context card, and make shellcheck parse all of wb.sh and clear its findings.
+In order: move the `wb done` sweep classifier into its own file, attach `wb new` to the task's own origin-only branch, fast-forward stale commit-less worktrees on reattach, add `wb restart`, harden the context card, tighten the decision-capture sweep prompt, make `wb down` warn about unreviewed decision drafts, and make shellcheck parse all of wb.sh and clear its findings.
+The two capture fixes joined on 14 Nov from the decision-capture graduation review (`dotfiles--capture-graduation-review`), which filed them under this task.
 
 ### Problem Frame
 
@@ -71,6 +72,11 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 - R13. A pane whose Claude has exited shows no card (only when the registry directory exists), instead of a stale "state unknown" exchange.
 - R16. The card's pane input paths (tmux-target resolution, the `@claude_session_id` and `task_of_pane` fallbacks) and its status-line cache edge cases (an hours-old cache, a non-numeric `ts`) are covered by tests.
 
+**Decision capture**
+
+- R17. The sweep stops drafting short-lived operational steps (merge or go-live order, "rebase the stack", "re-run the tests before merging", "don't fix X in this PR") and decisions already recorded in the task's `decisions/`.
+- R18. `wb down` prints one line naming the number of shelved decision drafts and the command to list them (`wb-capture.sh shelved --task <stem>`) when the task's shelf still holds drafts; it never blocks the close.
+
 **shellcheck**
 
 - R14. shellcheck parses all of wb.sh.
@@ -80,7 +86,9 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 
 - Not in this PR: the picker render speed-up (`dotfiles--perf-wb-picker-render`) and restoring the queue file on resume (`dotfiles--wb-resume-restore-queue`).
 - No change to how the task store is written; that waits for v2's Go writes (`dotfiles--wb-after-v1`).
-- No shellcheck fixes inside the feature commits (U1-U5).
+- No shellcheck fixes inside the feature commits (U1-U5, U8, U9).
+- Not changed: `wb done`'s shelf check. It already refuses to close while drafts remain unless `--leave-shelved` is passed (wb.sh, `cmd_done`), which answers the graduation review's "should `wb done` also refuse" question.
+- Not in this PR: measuring the sweep's accuracy after the prompt change (a week or two of drafts, then the review's `tools/review.py`), and reviewing the drafts already orphaned; both are post-merge checks in `checks.md`.
 - Not built: a launch cap or delay between launches for `wb restart`. The 8 Nov restart brought back 13 sessions without trouble, and each Claude starts only when Jet presses Enter, so the memory spike the cap guards against never happens at launch. Revisit if `--crashed` lists far more than 13 tasks.
 - Not built: a `kind == "interactive"` filter in the card's registry walker, unless the U5 check finds headless runs register with a `tmux` field.
 - Not changed: the identical `"origin":{` pattern in `claude-reply-log.sh` (line ~208). It feeds the reply view, not the card's recap cap; out of scope for the card hardening.
@@ -95,7 +103,7 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 
 ### Key Technical Decisions
 
-- KTD1. **One branch, one PR, commits per unit, in the order U1-U7.** The move goes first so later diffs don't straddle it; U2 and U3 touch the same functions and go back to back; shellcheck goes last so its fixes see the final code. (session-settled: user-approved — chosen over separate PRs per fix: Jet's standing rule ships reviewed pieces that build on each other as one PR in personal repos.)
+- KTD1. **One branch, one PR, commits per unit, in the order U1-U5, U8, U9, U6, U7.** The move goes first so later diffs don't straddle it; U2 and U3 touch the same functions and go back to back; shellcheck goes last so its fixes see the final code, including U9's `wb down` change. (session-settled: user-approved — chosen over separate PRs per fix: Jet's standing rule ships reviewed pieces that build on each other as one PR in personal repos.)
 - KTD2. **`wb-done-sweep.sh` is sourced at the top of wb.sh only if present.** `SCRIPT_DIR` does not resolve symlinks and stow links scripts one file at a time, so an unconditional `source` would break every wb command between merge and re-stow (the comment above the `migrate)` case says the same). `_wb_done_classify` and `_wb_done_print_unknowns` check `declare -F wb_sweep_classify` first and stop with a re-stow message; a missing function would otherwise surface as rc 127 inside `$(...)` and read as a classifier error. Lazy sourcing inside `cmd_done` was rejected: `tests/wb-done-sweep.test.sh` calls `wb_sweep_classify` directly after sourcing wb.sh and must pass unchanged.
 - KTD3. **The attach check runs cheapest-first and offline-safe.** In `_wb_new_add_worktree`, for a slug-named branch: (1) task file existed (`[ -f "$own_file" ]` before seeding, which happens later in `cmd_new`), (2) status is `doing`, `paused` or `review` (Key Decisions), (3) the existing bounded `ls-remote`/fetch block, (4) a local check that `origin/<branch>` is an ancestor of `origin/<default>` (fully merged, no gh call), (5) `wb_pr_merge_status`, where `merged` with an open PR (`wb_branch_has_open_pr`) counts as not merged. Steps 1-2 failing skip the network entirely, so a new task stays offline-safe (R4). The ref checked is the exact `branch`, never its sanitized form. Implements R3-R5.
 - KTD4. **The fast-forward runs only when `cmd_new` is about to create the tmux session, and never right after `_wb_new_add_worktree` cut the branch.** A live session may have an agent mid-edit, and a freshly cut branch is already at its start point. Skip, with one warning line, when: HEAD in the worktree is detached or is not `refs/heads/<branch>`; a merge, rebase, cherry-pick, revert or bisect is in progress; tracked files are modified; `origin/<branch>` exists and is not an ancestor of the target (pull first). Use `merge --ff-only` so git itself refuses if an untracked file would be overwritten; surface that refusal as a warning, not a failure. For a local branch with no worktree, add the worktree first, then fast-forward inside it. Implements R6, R7.
@@ -104,6 +112,9 @@ The cost of leaving them: a task resumed on another machine cuts a branch that d
 - KTD7. **`--crashed` = status `doing` or `review`, worktree directory exists, no tmux session, and the newest file in the task's `handoffs/` is not a session-closing `wb down`.** `wb down` leaves status `doing` (or flips to `review` with an open PR), so without the handoff check every deliberately closed task would be relaunched. Both `wb down` variants write `source: wb down`; only the closing one's body reads "Session closed via `wb down`", while `--keep-session` writes "session left open" and must not exclude the task (its session was live when the machine went down).
 - KTD8. **One registry walker, in `claude-reply-log.sh`, with the start-time check.** It matches on pane or session id (the card's need), checks `kill -0` and, when the entry has a `procStart`, that it equals the process's start time; an entry without `procStart` is accepted on `kill -0` alone, so existing reply-log fixtures and older Claude Code versions keep working. It emits the fields the card needs; `pane_session` becomes a thin wrapper. `registry_entry` in the card is deleted.
 - KTD9. **The shellcheck parse fix moves the `# shellcheck source=wb-migrate.sh` directive inside the `migrate)` item, directly above its `source` command.** Findings then go in two commits: real defects (SC1087, SC2178/SC2128/SC2179 array-vs-string, SC2010/SC2045 `ls` parsing, SC2120/SC2119, SC2094), then noise (SC2034 unused variables, SC2016 single quotes). A disable gets a one-line reason; an unused variable that is really unused is deleted, not disabled.
+
+- KTD10. **The duplicate-decision cause is found before the prompt is changed.** The sweep already builds its "already recorded" list from the task's `decisions/` files on each run (`decisions_section` in wb-capture-sweep.sh), so the ~10 duplicate drafts are not explained by a stale list on its face. Likely causes to check against the review's dismissed duplicates: a sweep that snapshotted decisions before the agent's hand-written entry landed, or superseded decision files (included today) confusing the model. Fix the cause found; add prompt wording only for what the code can't prevent.
+- KTD11. **`wb down` warns and never blocks.** It asks `wb-capture.sh shelved --count --task <stem>` through the existing `_wb_capture_verb` wrapper, so a missing or disabled capture script prints nothing. A refusal was rejected: `wb down` is the routine way to end a session (and the picker's `_down` path), and `wb done` already refuses at the point where drafts would be lost.
 
 ### High-Level Technical Design
 
@@ -133,7 +144,7 @@ flowchart TB
 
 ### Sequencing
 
-U1 → U2 → U3 → U4 → U5 → U6 → U7 (KTD1). U5 is independent of U1-U4 and may move earlier if review needs it.
+U1 → U2 → U3 → U4 → U5 → U8 → U9 → U6 → U7 (KTD1). U5 and U8 are independent of the units before them and may move earlier if review needs it.
 
 ---
 
@@ -276,11 +287,47 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 (KTD1). U5 is independent of U1-U4 
   - Cache record with a non-numeric `ts` → card renders the rest of the card without error and prints no bogus age.
 - **Verification:** both suites pass; the reply-log suite's existing fixtures pass without edits.
 
+### U8. Stop the capture sweep drafting short-lived steps and recorded decisions
+
+- **Goal:** the sweep drafts fewer entries that get dismissed.
+- **Requirements:** R17; KTD10.
+- **Dependencies:** none (ordered after U5 per KTD1).
+- **Files:**
+  - Modify: `scripts/.config/scripts/tmux/wb-capture-sweep.sh` (the prompt heredoc and, if KTD10 finds it, `decisions_section`)
+  - Test: `scripts/.config/scripts/tmux/tests/wb-capture-sweep.test.sh`
+- **Approach:**
+  1. Read the dismissed duplicates listed in `~/code/tasks/dossiers/dotfiles--capture-graduation-review/findings.md` and match a few against their sweep logs to find the duplicate cause (KTD10).
+  2. Fix that cause in code where possible (for example, leave out decision files whose frontmatter says `status: superseded`, or re-read decisions just before shelving).
+  3. Add to the prompt a short "do not draft" list naming the short-lived step shapes in R17, with one example each, beside the existing "already drafted" and "already rejected" sections.
+- **Patterns to follow:** the existing `shelf_context` "do not draft these again" sections; the sweep test's model stub.
+- **Test scenarios:**
+  - The built prompt contains the short-lived-steps guidance (assert on the prompt the stubbed model receives).
+  - A decision file written after the sweep's excerpt window but before the sweep runs appears in the prompt's decisions list.
+  - Whatever KTD10's cause turns out to be has a scenario that failed before the fix (for example, a superseded decision is not listed as in force).
+- **Verification:** the sweep suite passes under gawk and mawk; the post-merge accuracy check is listed in `checks.md`.
+
+### U9. `wb down` warns about unreviewed decision drafts
+
+- **Goal:** a session ended with `wb down` no longer leaves drafts silently unreviewed.
+- **Requirements:** R18; KTD11.
+- **Dependencies:** U4 (both touch the `wb down` handoff path; U4 reads it, U9 adds to it).
+- **Files:**
+  - Modify: `scripts/.config/scripts/tmux/wb.sh` (`cmd_down`, and its header line if the help text mentions the warning)
+  - Test: the existing `wb down` suite under `scripts/.config/scripts/tmux/tests/` (found at implementation; add a case beside its handoff assertions)
+- **Approach:** after the Handoffs entry and before the session kill, count the task's shelved drafts through `_wb_capture_verb` and print the one-line warning when the count is above zero.
+- **Patterns to follow:** `wb_shelved_counts` and `cmd_done`'s shelf check for calling the capture verbs.
+- **Test scenarios:**
+  - Task with 2 shelved drafts → `wb down` prints a line naming 2 drafts and `wb-capture.sh shelved --task <stem>`, then closes the session as usual.
+  - Task with no drafts → no warning line.
+  - Capture script missing or capture disabled → no warning, no error, session closes.
+  - `wb down --keep-session` with drafts → same warning, session left open.
+- **Verification:** the suite passes; `wb down` exit status is unchanged in every scenario.
+
 ### U6. Make shellcheck parse wb.sh and fix real defects
 
 - **Goal:** shellcheck analyses all of wb.sh, and every finding that is a real defect is fixed.
 - **Requirements:** R14, R15; KTD9.
-- **Dependencies:** U1-U5 (runs on the final code).
+- **Dependencies:** U1-U5, U8, U9 (runs on the final code).
 - **Files:**
   - Modify: `scripts/.config/scripts/tmux/wb.sh`
   - Test: the full wb Docker suite (no new test file unless a fixed defect has observable behaviour, in which case add a scenario to the owning suite)
@@ -311,15 +358,16 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 (KTD1). U5 is independent of U1-U4 
 | Gate | How | Applies to |
 |---|---|---|
 | Clean-room baseline | Before U1, run the full wb Docker suite on a `git archive` copy of `development` under `~/.cleanroom/wb-bash-fixes-baseline/` and record the per-file FAIL set | all |
-| Docker suite | `docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests` (whole suite, ~15-20 min), or with a single test path while iterating; judge by per-file FAIL sets against the baseline, never the last line or exit code | U1-U7 |
-| mawk | each touched suite also run with the awk shim pointing at host mawk (pattern in `tests/wb-done-sweep.test.sh`) | U1-U5 |
-| shellcheck | `koalaman/shellcheck:stable` on a copy under `~/.cleanroom/wb-bash-fixes-sc/`, `-x` | U6, U7 (and no new findings in U1-U5's touched regions) |
+| Docker suite | `docker run --rm -v "$(pwd)":/repo:ro -w /repo wb-tests` (whole suite, ~15-20 min), or with a single test path while iterating; judge by per-file FAIL sets against the baseline, never the last line or exit code | U1-U9 |
+| mawk | each touched suite also run with the awk shim pointing at host mawk (pattern in `tests/wb-done-sweep.test.sh`) | U1-U5, U8, U9 |
+| shellcheck | `koalaman/shellcheck:stable` on a copy under `~/.cleanroom/wb-bash-fixes-sc/`, `-x` | U6, U7 (and no new findings in the regions U1-U5, U8 and U9 touch) |
 | Help listing | `tests/wb-help.test.sh` | U4 |
-| Live check | after merge and re-stow: `wb restart --dry-run --crashed`, a `wb resume` of an idle stale task, and the card on a live pane | PR |
+| Live check | after merge and re-stow: `wb restart --dry-run --crashed`, a `wb resume` of an idle stale task, the card on a live pane, and `wb down` on a task with shelved drafts | PR |
+| Accuracy check | one to two weeks after merge, the graduation review's `python3 -I tools/review.py`, split at the merge time, shows at least 70% accepted for drafts shelved after it | U8 (post-merge, in `checks.md`) |
 
 ## Definition of Done
 
-- U1-U7 each landed as their own commit(s) on `wb-bash-fixes`, in order.
+- U1-U9 each landed as their own commit(s) on `wb-bash-fixes`, in the KTD1 order.
 - Docker suite per-file FAIL set equals the clean-room baseline (no new failures; fixed ones noted).
 - shellcheck exits clean on wb.sh.
 - `docs/wb-guide.md` lists `wb restart`.
@@ -333,7 +381,8 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7 (KTD1). U5 is independent of U1-U4 
 
 ## Sources
 
-- Child tasks in `~/code/tasks/`: `dotfiles--wb-sweep-own-file` (U1), `dotfiles--fix-wb-new-origin-only-own-branch` (U2), `dotfiles--fix-wb-reattach-ff-stale-worktree` (U3), `dotfiles--wb-restart-sessions` (U4), `dotfiles--fix-context-card-hardening` (U5), `dotfiles--wb-shellcheck-parse` (U6, U7).
+- Child tasks in `~/code/tasks/`: `dotfiles--wb-sweep-own-file` (U1), `dotfiles--fix-wb-new-origin-only-own-branch` (U2), `dotfiles--fix-wb-reattach-ff-stale-worktree` (U3), `dotfiles--wb-restart-sessions` (U4), `dotfiles--fix-context-card-hardening` (U5), `dotfiles--wb-shellcheck-parse` (U6, U7), `dotfiles--capture-sweep-skip-short-lived-steps` (U8), `dotfiles--capture-shelf-warn-on-down-done` (U9).
+- Capture graduation review findings (U8, U9): `~/code/tasks/dossiers/dotfiles--capture-graduation-review/findings.md`.
 - Restart script to port: `~/code/tasks/dossiers/dotfiles--wb-future-direction/tools/restart-sessions.sh`.
 - Code anchors (post-W4, `d950bdd`): `_wb_new_start_point` wb.sh ~1510, `_wb_new_add_worktree` ~1659, `cmd_new` worktree check ~1964 and `is_new` ~2023, `_wb_resolve_task_fuzzy` ~2086, `wb_pr_merge_status` ~2199, sweep block ~5722-6075, `_wb_done_classify` ~6356, dispatch ~8741-8798, shellcheck parse error ~8765; `claude-card.sh` `registry_entry` ~87, `recap()` ~106, fallback ~241; `claude-reply-log.sh` `pane_session` ~341.
 - shellcheck baseline on a copy with the directive removed: 78 findings (1 error SC1087 at ~4655; 58 warnings, mostly SC2034; 19 notes).
