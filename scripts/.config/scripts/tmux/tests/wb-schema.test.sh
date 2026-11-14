@@ -64,7 +64,7 @@ fi
 # no-kill-session-anywhere assertion, which the gated call would now
 # (correctly) fail.
 done_block="$(awk '/^cmd_done\(\) \{/{p=1} p{print} p&&/^}/{exit}' "$WB")"
-assert "cmd_done stamps status done" 'status done' "$done_block"
+assert "cmd_done stamps status done" 'status "?done"?' "$done_block"
 assert "cmd_done stamps closed: date" 'wb_set_frontmatter "\$task_file" closed "\$\(date \+%F\)"' "$done_block"
 assert "cmd_done's kill-session is gated behind the close flag" \
   '\[ "\$close" -eq 1 \] && tmux kill-session' "$done_block"

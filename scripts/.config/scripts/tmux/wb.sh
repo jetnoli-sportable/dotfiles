@@ -678,7 +678,7 @@ wb_family_all_done() {
   while IFS= read -r stem; do
     [ "$stem" != "$parent_stem" ] || continue
     found=1
-    [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" = done ] || return 1
+    [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" = "done" ] || return 1
   done < <(_wb_family_tree "$parent_stem")
   [ "$found" = 1 ]
 }
@@ -695,7 +695,7 @@ wb_family_close_target() {
   local -A seen=()
   while [ -n "$stem" ] && [ "$depth" -lt 20 ] && [ -z "${seen[$stem]:-}" ] \
       && [ -f "$TASKS_DIR/$stem.md" ]; do
-    if [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" != done ]; then
+    if [ "$(wb_get_frontmatter "$TASKS_DIR/$stem.md" status)" != "done" ]; then
       if wb_family_all_done "$stem"; then printf '%s\n' "$stem"; fi
       return 0
     fi
@@ -1600,7 +1600,7 @@ _wb_new_start_point() {
     f="$TASKS_DIR/$stem.md"
     [ -n "$stem" ] && [ -f "$f" ] || continue
     [ "$(wb_get_frontmatter "$f" repo)" = "$repo" ] || continue
-    [ "$(wb_get_frontmatter "$f" status)" != done ] || continue
+    [ "$(wb_get_frontmatter "$f" status)" != "done" ] || continue
     br="$(wb_get_frontmatter "$f" branch)"
     read -r br <<< "$br"
     [ -n "$br" ] || continue
@@ -2114,7 +2114,8 @@ cmd_new() {
       fi
     fi
   fi
-  local session="${repo}--$(wb_sanitize "$wt_slug")"
+  local session
+  session="${repo}--$(wb_sanitize "$wt_slug")"
   local worktree_rel=".worktrees/$wt_slug"
   local worktree_path="$repo_dir/$worktree_rel"
 
@@ -2311,6 +2312,7 @@ cmd_resume() {
   # has already released by the time cmd_new returns) — never nested.
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$file" || exit $?
+  # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
   wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
   wb_task_lock_release "$file"
 }
@@ -2345,6 +2347,7 @@ _wb_restart_closed_by_down() {
     text="$entry"
     [[ "${entry%%$'\n'*}" == *' — wb down'* ]] && src=1
   fi
+  # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
   [ -n "$src" ] && [[ "$text" == *'Session closed via `wb down`'* ]]
 }
 
@@ -2980,17 +2983,20 @@ wb_reconcile_apply() {
       applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qE '^- \[x\] create a task'; then
       local parent_ref=""
+      # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
       parent_ref="$(printf '%s' "$b" | grep -oP 'create a task \(optional parent: `\K[^`]+' | head -1)"
       [ "$parent_ref" != '___' ] || parent_ref=""
       wb_reconcile_action_create_task "$kind" "$repo" "$branch" "$worktree" "$parent_ref" \
         || { echo "wb reconcile --apply: skipped this finding (create a task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
       applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] attach to task: \`[^\`_]+\`"; then
+      # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] attach to task: `\K[^`]+' | head -1)"
       wb_reconcile_action_attach "$kind" "$worktree" "$target" \
         || { echo "wb reconcile --apply: skipped this finding (attach to task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
       applied_count=$((applied_count + 1))
     elif printf '%s' "$b" | grep -qP "^- \[x\] merge with task: \`[^\`_]+\`"; then
+      # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
       target="$(printf '%s' "$b" | grep -oP '^- \[x\] merge with task: `\K[^`]+' | head -1)"
       wb_reconcile_action_merge "$kind" "$repo" "$branch" "$worktree" "$taskfile" "$target" \
         || { echo "wb reconcile --apply: skipped this finding (merge with task, rc=$?)" >&2; skipped_count=$((skipped_count + 1)); continue; }
@@ -3206,7 +3212,7 @@ _wb_breakdown_validate() {
 
   # --- structural (hard) checks across all blocks ---------------------------
   local b kind n parent repo
-  local parent_stem="" seen_ns="" mig_count=0 mig_lines="" approve_count=0
+  local parent_stem="" seen_ns="" mig_count=0 approve_count=0
   for b in "${blocks[@]}"; do
     kind="$(_wb_bd_field "$b" block)"
     parent="$(_wb_bd_field "$b" parent)"
@@ -3262,7 +3268,9 @@ _wb_breakdown_validate() {
         echo "wb breakdown --apply: malformed checkbox on child n=$n's create-child line: ${create_lines[0]}" >&2
         return 2
       fi
-      local raw_slug; raw_slug="$(printf '%s' "${create_lines[0]}" | grep -oP 'create child: `\K[^`]*')"
+      local raw_slug
+      # shellcheck disable=SC2016  # literal backticks in the pattern, not an expansion
+      raw_slug="$(printf '%s' "${create_lines[0]}" | grep -oP 'create child: `\K[^`]*')"
       if [ -z "$raw_slug" ]; then
         echo "wb breakdown --apply: child n=$n's create-child line has no backticked slug: ${create_lines[0]}" >&2
         return 2
@@ -3329,6 +3337,7 @@ _wb_breakdown_validate() {
     [ "$(_wb_bd_checkbox_state "$create_line")" = checked ] || continue
 
     local raw_slug disp_slug title size deps_raw
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     raw_slug="$(printf '%s' "$create_line" | grep -oP 'create child: `\K[^`]*')"
     disp_slug="$(wb_sanitize "$raw_slug")"
     title="$(_wb_bd_bullet "$b" goal)"
@@ -3393,7 +3402,9 @@ _wb_breakdown_validate() {
 
     local mig_line; mig_line="$(printf '%s' "$b" | grep -P 'migrate branch/worktree .* continuing child:' | head -1)"
     if [ -n "$mig_line" ] && [ "$(_wb_bd_checkbox_state "$mig_line")" = checked ]; then
-      local mig_target; mig_target="$(printf '%s' "$mig_line" | grep -oP 'continuing child: `\K[^`]*')"
+      local mig_target
+      # shellcheck disable=SC2016  # literal backticks in the pattern, not an expansion
+      mig_target="$(printf '%s' "$mig_line" | grep -oP 'continuing child: `\K[^`]*')"
       if [ -z "$mig_target" ] || [ "$mig_target" = ___ ]; then
         echo "wb breakdown --apply: skipping migration — target field is unfilled (\`___\`)" >&2
       elif [ -z "$(wb_get_frontmatter "$parent_file" branch)" ] && [ -z "$(wb_get_frontmatter "$parent_file" worktree)" ]; then
@@ -3441,6 +3452,7 @@ _wb_breakdown_validate() {
       # below undoes the escaping so $move_text matches the ACTUAL
       # (unescaped) title of the parent's open item.
       move_text="$(printf '%s' "$line" | grep -oP 'move follow-up: "\K(?:\\"|[^"])*' | sed 's/\\"/"/g')"
+      # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
       move_target="$(printf '%s' "$line" | grep -oP 'child: `\K[^`]*')"
       local match_count; match_count="$(printf '%s' "$followups" | grep -cxF -- "- $move_text")"
       if [ "$match_count" -ne 1 ]; then
@@ -3692,7 +3704,7 @@ _wb_breakdown_execute() {
     [ -n "$line" ] || continue
     local -a f; wb_tsv_split "$line" f
     [ "${f[0]}" = create ] || continue
-    local n="${f[1]}" repo="${f[2]}" raw="${f[3]}" disp="${f[4]}" title="${f[5]}" size="${f[6]:-}" deps_raw="${f[7]:-}"
+    local n="${f[1]}" repo="${f[2]}" raw="${f[3]}" title="${f[5]}" size="${f[6]:-}" deps_raw="${f[7]:-}"
     local deps; deps="$(_wb_bd_resolve_deps "$repo" "$deps_raw")"
     # Advisory only (D2 fail-open): warn, never abort, on a resolved dep
     # that is neither a checked sibling in this buffer nor an existing file.
@@ -3768,7 +3780,8 @@ _wb_breakdown_execute() {
   if [ "$did_something" = 1 ]; then
     local dossier_dir="$TASKS_DIR/dossiers/$parent_stem"
     mkdir -p "$dossier_dir"
-    local archived="$dossier_dir/$(basename "$path")"
+    local archived
+    archived="$dossier_dir/$(basename "$path")"
     cp -a "$path" "$archived"
     local note="Family split applied via \`wb breakdown --apply\`. Archived buffer: \`${archived#"$HOME"/}\`."
     if [ "${#created_children[@]}" -gt 0 ]; then
@@ -4031,8 +4044,10 @@ cmd_down() {
   [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
   [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && wb_set_frontmatter "$task_file" status review
   if [ "$keep_session" = 1 ]; then
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     wb_append_handoff "$task_file" "wb down" 'Worktree kept, session left open (`wb down --keep-session`).'
   else
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     wb_append_handoff "$task_file" "wb down" 'Session closed via `wb down` — worktree kept.'
   fi
   wb_task_lock_release "$task_file"
@@ -4079,6 +4094,7 @@ cmd_pause() {
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status paused
+  # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
   wb_append_handoff "$task_file" "wb pause" 'Session paused via `wb pause`.'
   wb_task_lock_release "$task_file"
   echo "wb pause: $task_file -> paused"
@@ -4865,6 +4881,7 @@ _wb_render_handoffs() {
   mapfile -t files < <(find "$d/handoffs" -maxdepth 1 -type f -name '*.md' | LC_ALL=C sort -r)
   printf '<!-- generated by wb from dossiers/%s/handoffs/*.md; do not edit -->\n' "$stem"
   printf '# Handoffs — %s\n\n' "$stem"
+  # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
   printf 'Older handoffs, newest first. The current one is in the task file under `## Handoffs`.\n\n'
   [ "${#files[@]}" -gt 0 ] || return 0
   awk '
@@ -6229,12 +6246,15 @@ cmd_board() {
     # the old wb_board_render_html after its parity check (task set,
     # per-status counts, per-family membership) passed clean against the
     # real ~301-task store. R16's single collect pass, no tmux/gh/git calls.
+    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
     local -a V2ROWS=()
+    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
     local -A M_PLAN_RAW=() M_DONE_RAW=() M_HANDOFF_RAW=() M_FOLLOWUPS_RAW=() \
       M_DECISIONS_RAW=() M_LINKS_RAW=()
     wb_board_collect_rows_v2 V2ROWS M_PLAN_RAW M_DONE_RAW M_HANDOFF_RAW M_FOLLOWUPS_RAW \
       M_DECISIONS_RAW M_LINKS_RAW
 
+    # shellcheck disable=SC2034  # filled by the callee through the name passed to wb_board_*, never read here directly
     local -A M_STATUS=() M_REPO=() M_BRANCH=() M_WORKTREE=() M_TITLE=() \
       M_CREATED=() M_CLOSED=() M_UPDATED=() M_TASKFILE=() M_PARENT=() \
       M_DEPS=() M_TAGS=() M_PLAN_CHECKED=() M_PLAN_TOTAL=() M_AGE_DAYS=() \
@@ -6820,7 +6840,7 @@ cmd_done() {
   # parent that must actually flip to done when someone acts on it).
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   local lock_fail="wb done: could not update $task_file"
-  wb_set_frontmatter "$task_file" status done \
+  wb_set_frontmatter "$task_file" status "done" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (status not written)" >&2; exit 1; }
   wb_set_frontmatter "$task_file" closed "$(date +%F)" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (closed date not written)" >&2; exit 1; }
@@ -6837,10 +6857,13 @@ cmd_done() {
   # it says nothing was torn down rather than that nothing existed.
   local done_note
   if [ "$store_only" = 1 ]; then
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     done_note='Closed in the store only (`wb done`): no live session, nothing torn down'
   elif [ "$close" -eq 1 ]; then
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     done_note='Worktree removed, session closed (`wb done --close`)'
   else
+    # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
     done_note='Worktree removed, session left open (`wb done` without `--close`)'
   fi
   if [ "${#shelved_drafts[@]}" -gt 0 ]; then
@@ -8710,7 +8733,9 @@ picker() {
   # current session's family and age rows against one frozen clock instead
   # of re-reading a ticking one on each 3s reload. Unset (wb render run by
   # hand, tests) means no pinning and the real clock.
+  # shellcheck disable=SC2155  # export-with-assign is the pinned form (wb-picker-grouping asserts it); the tmux call is already fail-open via || true
   export WB_PICKER_SESSION="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  # shellcheck disable=SC2155  # date +%s has no failure the picker could act on
   export WB_PICKER_NOW="$(date +%s)"
 
   local rendered selection
