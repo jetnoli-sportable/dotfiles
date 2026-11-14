@@ -1,1 +1,1 @@
-{ "args": ["--no-sandbox"] }
+{ "args": ["--no-sandbox", "--host-resolver-rules=MAP * ~NOTFOUND"] }

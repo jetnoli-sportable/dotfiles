@@ -14,10 +14,12 @@ return {
 			enabled = true,
 			doc = { enabled = true, inline = true, float = true },
 			convert = {
-				-- snacks' default mmdc args plus -p: mmdc's bundled Chromium can't
-				-- start its sandbox where AppArmor blocks user namespaces (Ubuntu
-				-- 23.10+), so it runs with --no-sandbox. It only renders local
-				-- Mermaid text, with no network.
+				-- snacks' default mmdc args plus -p (mermaid-puppeteer.json):
+				-- --no-sandbox, because mmdc's bundled Chromium can't start its
+				-- sandbox where AppArmor blocks user namespaces (Ubuntu 23.10+);
+				-- and --host-resolver-rules, so a diagram from an untrusted file
+				-- can't fetch URLs (a <img src=http://…> label would otherwise
+				-- tell a server you opened it). Renders happen on file open.
 				mermaid = function()
 					local theme = vim.o.background == "light" and "neutral" or "dark"
 					local puppeteer = vim.fn.stdpath("config") .. "/mermaid-puppeteer.json"
