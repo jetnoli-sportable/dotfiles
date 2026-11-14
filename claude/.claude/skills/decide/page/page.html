@@ -335,7 +335,6 @@ const DC = (() => {
     return { total: spec.items.length, counts, answered: answeredOf(counts), byId, unansweredIds, areas, acceptRemaining: accept };
   }
 
-  const plural = (n, w) => n + " " + w;
   // The line under the bar and beside Submit. Unanswered items are named first.
   function tallyText(spec, sum) {
     const c = sum.counts;
@@ -346,11 +345,11 @@ const DC = (() => {
     }
     const names = sum.unansweredIds.map((id) => (spec.items.find((it) => it.id === id) || {}).title).filter(Boolean);
     const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
-    return (names.length ? `Unanswered: ${shown}. ` : "") + `${plural(sum.answered, "answered")}` + (c.default ? `, ${c.default} default taken` : "");
+    return (names.length ? `Unanswered: ${shown}. ` : "") + `${sum.answered} answered` + (c.default ? `, ${c.default} default taken` : "");
   }
 
   // The header: "x of y answered".
-  const headerText = (spec, sum) => `${sum.answered} of ${sum.total} answered` + (sum.counts.default ? `, ${sum.counts.default} default taken` : "");
+  const headerText = (sum) => `${sum.answered} of ${sum.total} answered` + (sum.counts.default ? `, ${sum.counts.default} default taken` : "");
 
   // The comment text sent to Claude: carries the rev so the session can match it.
   function commentText(spec, sum, again) {
@@ -376,7 +375,7 @@ const DC = (() => {
 (() => {
   const $ = (id) => document.getElementById(id);
   const state = {
-    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), timers: {},
+    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), timers: {}, retry: {},
     accept: false, submitted: null, open: {}, sum: null, globalText: "", globalTimer: null,
   };
 
@@ -548,7 +547,7 @@ const DC = (() => {
   // Counts, chips and heading counts only: cheap, safe while typing.
   function renderChrome() {
     const spec = state.spec, sum = state.sum;
-    $("tally").textContent = DC.headerText(spec, sum);
+    $("tally").textContent = DC.headerText(sum);
     $("meter").style.width = (sum.total ? 100 * sum.answered / sum.total : 0) + "%";
     $("subtally").textContent = DC.tallyText(spec, sum);
     const chips = $("areachips"); chips.replaceChildren();
@@ -602,6 +601,7 @@ const DC = (() => {
   }
   async function write(item) {
     clearTimeout(state.timers[item.id]); delete state.timers[item.id];
+    clearTimeout(state.retry[item.id]); delete state.retry[item.id];
     if (!state.db) return;
     $("saved").textContent = "Saving...";
     try {
@@ -613,7 +613,7 @@ const DC = (() => {
       state.failed.add(item.id);
       $("saved").textContent = "Not saved: " + ((e && (e.message || e.code)) || "the store refused the write") + ". Retrying.";
       replaceRow(item);
-      setTimeout(() => { if (state.failed.has(item.id)) write(item); }, 5000);
+      state.retry[item.id] = setTimeout(() => { if (state.failed.has(item.id)) write(item); }, 5000);
     }
   }
   const flushPending = () => Promise.all(Object.keys(state.timers).map((id) => write(state.spec.items.find((it) => it.id === id))));

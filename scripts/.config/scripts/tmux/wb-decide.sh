@@ -390,16 +390,19 @@ cmd_decision() {
   fi
 
   dir="$(_wb_dossier_dir "$file")/decisions"
-  local ids=() isdefs=() bodies=() titles=() id
+  local ids=() isdefs=() bodies=() id
   if [ -d "$dir" ]; then
+    # Only files whose text contains the title can match, so grep narrows the
+    # per-file reads below (they run inside the task lock); the exact title
+    # test still decides. Byte-order file order, as the store lists them.
     while IFS= read -r f; do
-      case "$f" in *.md) ;; *) continue ;; esac
+      f="${f##*/}"
       [ "$(wb_get_frontmatter "$dir/$f" status)" = in-force ] || continue
       _wb_decision_read "$dir/$f"
       [ "$WB_DEC_TITLE" = "$title" ] || continue
-      ids+=("${f%.md}"); titles+=("$WB_DEC_TITLE"); bodies+=("$WB_DEC_BODY")
+      ids+=("${f%.md}"); bodies+=("$WB_DEC_BODY")
       if [ "${WB_DEC_BODY%%$'\n'*}" = "Default taken." ]; then isdefs+=(1); else isdefs+=(0); fi
-    done < <(LC_ALL=C ls "$dir" 2>/dev/null)
+    done < <(cd "$dir" && LC_ALL=C && grep -lF -- "$title" ./*.md 2>/dev/null)
   fi
 
   # Which live records this one supersedes (indexes into ids), and the answer
@@ -407,14 +410,9 @@ cmd_decision() {
   local sup=() i ans=""
   if [ "$isdef" = 1 ]; then
     for i in "${!ids[@]}"; do [ "${isdefs[$i]}" = 0 ] && ans="${ids[$i]}"; done
-    if [ -n "$ans" ]; then
-      body+=$'\n\n'"Not superseding $ans: that answer stays in force."
-    else
-      for i in "${!ids[@]}"; do sup+=("$i"); done
-    fi
-  else
-    for i in "${!ids[@]}"; do sup+=("$i"); done
+    [ -z "$ans" ] || body+=$'\n\n'"Not superseding $ans: that answer stays in force."
   fi
+  [ -n "$ans" ] || for i in "${!ids[@]}"; do sup+=("$i"); done
   if [ "${#ids[@]}" -gt 0 ]; then
     i=$((${#ids[@]} - 1))
     if [ "$body" = "${bodies[$i]}" ]; then
@@ -433,7 +431,7 @@ cmd_decision() {
   for i in "${sup[@]+"${sup[@]}"}"; do
     id="${ids[$i]}"
     list+="${list:+, }$id"
-    said+="${said:+, }$id \"${titles[$i]}\""
+    said+="${said:+, }$id \"$title\""
     if ! wb_set_frontmatter_field "$dir/$id.md" status superseded \
        || ! wb_set_frontmatter_field "$dir/$id.md" superseded_by "[$new]"; then
       bad=1; echo "wb decision: wrote $new but could not mark '$id' superseded; fix $dir/$id.md by hand (status: superseded, superseded_by: [$new])" >&2
@@ -549,7 +547,7 @@ cmd_decide_spec_check() {
                    (if ([$it | oids[]?] | sort) != ([$o | oids[]?] | sort) then "item \($it.id): its options changed since the previous spec; give it a new id" else empty end))
             else empty end)
          else empty end)
-      ] | unique_by(.) as $_ | .[]' "$spec")" || { echo "wb decide-spec-check: could not check $spec" >&2; exit 1; }
+      ] | .[]' "$spec")" || { echo "wb decide-spec-check: could not check $spec" >&2; exit 1; }
   if [ -n "$out" ]; then
     printf '%s\n' "$out"
     exit 1
