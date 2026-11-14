@@ -199,6 +199,28 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/review-stamp-hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/review-stamp-hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
