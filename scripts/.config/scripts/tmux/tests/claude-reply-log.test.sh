@@ -473,6 +473,13 @@ printf '{"pid":%s,"sessionId":"s-same","procStart":"%s","tmux":"sess:@1.%%12","u
 assert_eq "a live pid with its recorded start time is accepted" "s-same" "$(ps_of %12 "$H/sessions")"
 assert_eq "registry present, no live entry for the pane: the stale @claude_session_id is not used" "" "$(ps_of %13 "$H/sessions")"
 assert_eq "no registry directory: falls back to @claude_session_id" "stale-id" "$(ps_of %13 "$H/no-such-dir")"
+printf '{"pid":%s,"sessionId":"s-tty","entrypoint":"cli","tmux":"sess:@1.%%14","updatedAt":9}\n' "$$" >"$H/sessions/tty.json"
+printf '{"pid":%s,"sessionId":"s-headless","entrypoint":"sdk-cli","tmux":"sess:@1.%%14","updatedAt":10}\n' "$$" >"$H/sessions/headless.json"
+assert_eq "a newer headless run (entrypoint sdk-cli) in the pane loses to the interactive session" "s-tty" "$(ps_of %14 "$H/sessions")"
+printf '{"pid":%s,"sessionId":"s-headless-only","entrypoint":"sdk-cli","tmux":"sess:@1.%%15","updatedAt":10}\n' "$$" >"$H/sessions/headless2.json"
+assert_eq "a pane whose only live entry is headless names no session" "" "$(ps_of %15 "$H/sessions")"
+printf '{"pid":%s,"sessionId":"s-renamed","entrypoint":"desktop","tmux":"sess:@1.%%16","updatedAt":10}\n' "$$" >"$H/sessions/renamed.json"
+assert_eq "an entrypoint other than sdk-… is still accepted" "s-renamed" "$(ps_of %16 "$H/sessions")"
 
 echo "# view on a pane with no Claude session: a message, no split"
 : >"$H/tmux-calls"

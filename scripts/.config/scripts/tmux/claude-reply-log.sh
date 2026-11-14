@@ -355,7 +355,11 @@ registry_accepts() {
 # of the newest live entry in Claude Code's session registry (~/.claude/sessions/
 # <pid>.json, updated in place on /clear) whose `tmux` field names the pane (or
 # whose sessionId is the one given). The only walker of that undocumented
-# format: the card and the reply view both go through it.
+# format: the card and the reply view both go through it. A pane match skips
+# headless runs (entrypoint "sdk-…"): a `claude -p` started in the pane without
+# `env -u TMUX -u TMUX_PANE` registers the pane too and would be the newest
+# entry while it runs. Deny-list, not an allow-list of "cli", so a renamed
+# interactive entrypoint keeps working.
 registry_live() {
   local pid ps sid st at
   local -a files=("$SESSIONS_DIR"/*.json)
@@ -366,7 +370,9 @@ registry_live() {
     printf '%s\t%s\t%s\n' "$sid" "$st" "$at"
     return 0
   done < <(jq -r --arg p "${1:-}" --arg s "${2:-}" '
-      select(($p != "" and ((.tmux // "") | endswith("." + $p))) or ($s != "" and .sessionId == $s))
+      select(($p != "" and ((.tmux // "") | endswith("." + $p))
+                and ((.entrypoint // "") | startswith("sdk") | not))
+             or ($s != "" and .sessionId == $s))
       | [(.updatedAt // 0), .pid, (.procStart // "-"), .sessionId, (.status // "-"), (.statusUpdatedAt // 0)] | @tsv' \
       "${files[@]}" 2>/dev/null | sort -rn | cut -f2-)
 }
