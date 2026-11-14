@@ -1087,11 +1087,35 @@ the binary it would run instead of running it.</p>
 <code>wb-store serve</code>: the <strong>family page</strong> when the task has children (its working
 view, plan view, decisions and what waits on you), the <strong>task page</strong>
 otherwise. <code>wb page &lt;task&gt;</code> opens another task's page and needs no tmux;
-<code>--no-open</code> only prints the URL.</p>
+<code>--no-open</code> only prints the URL. <code>--task</code> always opens the task page, and
+<code>--family</code> always opens the family page. The page server draws a family page
+from the family's root for any member, so from a child session <code>--family</code>
+shows the coordinator's view.</p>
 <pre><code class="language-bash">wb page                          # this session's task
 wb page dotfiles--wb-future-direction
 wb page --no-open wb-store--page-server
+wb page --family                 # the coordinator's family page, from a child
 </code></pre>
+<p>Two tmux binds open them from any wb session, in the background (the URL isn't
+shown; a failure shows its first line as a message):</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Opens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>prefix+P</code></td>
+<td>this session's task page (<code>wb page --task</code>)</td>
+</tr>
+<tr>
+<td><code>prefix+F</code></td>
+<td>its family page, the coordinator's view from a child (<code>wb page --family</code>)</td>
+</tr>
+</tbody>
+</table>
 <p>The page server binds <code>127.0.0.1</code> from port 8766, falling forward up to 8775,
 answers reads only, and re-reads the store on every refresh, so a page is never
 stale; refresh the browser to see new decisions or a new <code>## Now</code>. <code>wb page</code>

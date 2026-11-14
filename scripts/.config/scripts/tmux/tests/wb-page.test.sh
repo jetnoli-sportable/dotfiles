@@ -123,6 +123,32 @@ out=$(cmd_page --no-open dotfiles--lone 2>&1)
 assert_eq "a leaf task opens its task page" "http://127.0.0.1:8770/task/dotfiles--lone" "$out"
 
 # =============================================================================
+echo "# --task and --family pick the view (prefix+P and prefix+F)"
+reset; HEALTHZ_PORT=8766; HEALTHZ_ID="$BUILD_ID"
+out=$(cmd_page --no-open --task dotfiles--season 2>&1)
+assert_eq "--task on a task with children: its task page" "http://127.0.0.1:8766/task/dotfiles--season" "$out"
+out=$(cmd_page --family --no-open dotfiles--season-child 2>&1)
+assert_eq "--family on a child: the family page (the server draws it from the root)" "http://127.0.0.1:8766/family/dotfiles--season-child" "$out"
+out=$(cmd_page --no-open --family dotfiles--lone 2>&1)
+assert_eq "--family on a lone task: its family page" "http://127.0.0.1:8766/family/dotfiles--lone" "$out"
+out=$(cmd_page --task --family dotfiles--lone 2>&1); rc=$?
+assert_eq "--task with --family: exit 1" 1 "$rc"
+assert "says they can't both be given" "can't both be given" "$out"
+out=$(cmd_page --bogus dotfiles--lone 2>&1); rc=$?
+assert_eq "an unknown flag: exit 1" 1 "$rc"
+assert "prints usage" "usage: wb page \[--no-open\] \[--task\|--family\]" "$out"
+echo "# the binds pass the session's @task, empty when the session has none"
+export TMUX=fake STUB_TASK="$TASKS_DIR/dotfiles--season-child.md"
+out=$(cmd_page --no-open --task "$TASKS_DIR/dotfiles--season-child.md" 2>&1)
+assert_eq "a full @task path resolves" "http://127.0.0.1:8766/task/dotfiles--season-child" "$out"
+out=$(cmd_page --no-open --family "" 2>&1)
+assert_eq "an empty ref falls back to the session's @task" "http://127.0.0.1:8766/family/dotfiles--season-child" "$out"
+STUB_TASK=""
+out=$(cmd_page --no-open --task "" 2>&1); rc=$?
+assert_eq "no @task either: exit 1" 1 "$rc"
+assert "names the session" "has no @task" "$out"
+
+# =============================================================================
 echo "# a server of another build: start a new one"
 reset; HEALTHZ_PORT=8766; HEALTHZ_ID="0123456789ab"
 out=$(cmd_page --no-open dotfiles--lone 2>&1); rc=$?

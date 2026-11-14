@@ -123,8 +123,12 @@
 #   wb notes [<task>]                print dossiers/<task>/notes.md (the file may not exist; wb
 #                                    never creates it), tmux-free; with no <task>, the current
 #                                    tmux session's @task (an error outside tmux)
-#   wb page [--no-open] [<task>]     open <task>'s page from wb-store's page server: its family
-#                                    page when it has children, else its task page. Reuses a
+#   wb page [--no-open] [--task|--family] [<task>]
+#                                    open <task>'s page from wb-store's page server: its family
+#                                    page when it has children, else its task page (--task or
+#                                    --family picks one; the family page is drawn from the
+#                                    family's root, so from a child it is the coordinator's
+#                                    view; prefix+P and prefix+F bind the two). Reuses a
 #                                    server of the current build on ports 8766-8775, else stops
 #                                    the older one it started and starts one detached (log:
 #                                    ~/.local/state/wb/page-server.log). With
@@ -8449,16 +8453,35 @@ _wb_page_open() {
   return 1
 }
 
-# cmd_page [--no-open] [<task-ref>] — print and open a task's page: the
-# family page when the task has children, the task page otherwise. A server
-# of the current build (KTD15's /healthz probe) is reused; otherwise one is
-# started detached. Resolution matches cmd_notes: a <task-ref> needs no
-# tmux, none means the current session's @task.
+# cmd_page [--no-open] [--task|--family] [<task-ref>] — print and open a
+# task's page: the family page when the task has children, the task page
+# otherwise. --task always opens the task page; --family always opens the
+# family page, which the server draws from the family's root for any member
+# (so from a child it is the coordinator's view). A server of the current
+# build (KTD15's /healthz probe) is reused; otherwise one is started
+# detached. Resolution matches cmd_notes: a <task-ref> needs no tmux, none
+# (or an empty one, as a tmux bind passes for a session without @task)
+# means the current session's @task.
 cmd_page() {
-  local no_open=0
-  if [ "${1:-}" = --no-open ]; then no_open=1; shift; fi
-  if [ $# -gt 1 ] || [ "${1:-}" = -h ] || [ "${1:-}" = --help ]; then
-    echo "usage: wb page [--no-open] [<task-ref>]" >&2
+  local usage="usage: wb page [--no-open] [--task|--family] [<task-ref>]"
+  local no_open=0 view=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-open) no_open=1 ;;
+      --task|--family)
+        if [ -n "$view" ] && [ "$view" != "${1#--}" ]; then
+          echo "wb page: --task and --family can't both be given" >&2
+          echo "$usage" >&2
+          return 1
+        fi
+        view="${1#--}" ;;
+      -h|--help|-?*) echo "$usage" >&2; return 1 ;;
+      *) break ;;
+    esac
+    shift
+  done
+  if [ $# -gt 1 ]; then
+    echo "$usage" >&2
     return 1
   fi
   local file
@@ -8467,7 +8490,7 @@ cmd_page() {
   else
     if [ -z "${TMUX:-}" ]; then
       echo "wb page: not inside tmux — pass a <task-ref>" >&2
-      echo "usage: wb page [--no-open] [<task-ref>]" >&2
+      echo "$usage" >&2
       return 1
     fi
     local session
@@ -8494,8 +8517,10 @@ cmd_page() {
     port="$(_wb_page_start "$stem" "$state/page-server.log" "$state/page-server.$key.pid")" || return 1
   fi
 
-  local view=task
-  if [ "$(_wb_family_tree "$stem" | wc -l)" -gt 1 ]; then view=family; fi
+  if [ -z "$view" ]; then
+    view=task
+    if [ "$(_wb_family_tree "$stem" | wc -l)" -gt 1 ]; then view=family; fi
+  fi
   local url="http://127.0.0.1:$port/$view/$stem"
   printf '%s\n' "$url"
   [ "$no_open" = 1 ] || _wb_page_open "$url"

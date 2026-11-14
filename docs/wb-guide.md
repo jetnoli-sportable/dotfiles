@@ -862,13 +862,25 @@ the binary it would run instead of running it.
 `wb-store serve`: the **family page** when the task has children (its working
 view, plan view, decisions and what waits on you), the **task page**
 otherwise. `wb page <task>` opens another task's page and needs no tmux;
-`--no-open` only prints the URL.
+`--no-open` only prints the URL. `--task` always opens the task page, and
+`--family` always opens the family page. The page server draws a family page
+from the family's root for any member, so from a child session `--family`
+shows the coordinator's view.
 
 ```bash
 wb page                          # this session's task
 wb page dotfiles--wb-future-direction
 wb page --no-open wb-store--page-server
+wb page --family                 # the coordinator's family page, from a child
 ```
+
+Two tmux binds open them from any wb session, in the background (the URL isn't
+shown; a failure shows its first line as a message):
+
+| Key | Opens |
+|---|---|
+| `prefix+P` | this session's task page (`wb page --task`) |
+| `prefix+F` | its family page, the coordinator's view from a child (`wb page --family`) |
 
 The page server binds `127.0.0.1` from port 8766, falling forward up to 8775,
 answers reads only, and re-reads the store on every refresh, so a page is never
