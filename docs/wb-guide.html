@@ -681,6 +681,21 @@ task you're shelving on purpose (reprioritized, blocked on something else),
 not just stepping away from mid-flight. A <code>paused</code> task never has a live
 session; resuming one (picker or <code>wb resume</code>) flips it straight back to
 <code>doing</code>.</p>
+<p><strong>After a crash.</strong> <code>wb restart</code> brings back a whole set of sessions at once, from
+inside tmux (any session; it switches the client back to where you started).
+Give it a list file of task stems, one per line (blank lines and <code>#</code> comments
+are ignored), or use <code>wb restart --crashed</code> to build the list from the store:
+tasks with status <code>doing</code> or <code>review</code>, a worktree on disk, no tmux session, and
+a newest handoff that is not a <code>wb down</code> that closed the session (so
+tasks you closed on purpose stay closed, while <code>wb down --keep-session</code> ones
+come back). <code>--crashed</code> prints the list and asks <code>y/N</code> when a terminal is
+attached; <code>--dry-run</code> prints the plan for either form and changes nothing.
+Each task goes through <code>wb resume</code> (which brings a stale idle worktree up to
+date), then its agent window gets <code>claude &quot;/wb-resume&quot;</code> typed without Enter, so
+each Claude starts only when you visit its window and press Enter. A list entry
+must be an exact task stem: no matching task file, or a session still open, and
+it is skipped with the reason printed. If an agent window never shows a shell
+prompt, the command is printed for you to type instead.</p>
 <p><strong>Resuming is warm by default.</strong> Bringing a dormant or paused task back —
 via the picker's dormant rows or <code>wb resume &lt;task&gt;</code> — rebuilds the usual
 3-window layout and pre-types a resume command in the agent window instead
@@ -1298,6 +1313,10 @@ details, incident history, and runbooks live in
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>wb restart [--dry-run] &lt;list-file&gt;|--crashed</code></td>
+<td>Brings back many sessions after a crash or reboot: runs <code>wb resume</code> on each task stem (one per line in the list file; <code>--crashed</code> builds the list from the store) and pre-types <code>claude &quot;/wb-resume&quot;</code> in each agent window without pressing Enter. See &quot;After a crash&quot; below.</td>
+</tr>
 <tr>
 <td><code>wb append &lt;task&gt; &lt;heading&gt; &lt;text&gt;</code></td>
 <td>Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file.</td>

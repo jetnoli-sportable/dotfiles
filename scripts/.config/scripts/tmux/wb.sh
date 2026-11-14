@@ -29,6 +29,12 @@
 #                                    (repeatable) classify one entry for this run; --review opens the task file
 #                                    in an editor first (no buffer otherwise)
 #   wb resume <task>                 recreate a closed/gone worktree+session from its task file
+#   wb restart [--dry-run] <list-file>|--crashed
+#                                    bring back many sessions after a crash: `wb resume` each task stem in
+#                                    <list-file> (one per line), pre-typing `claude "/wb-resume"` in its agent
+#                                    window without Enter; --crashed builds the list from the store (status
+#                                    doing/review, worktree present, no session, not closed by `wb down`) and
+#                                    asks y/N first; needs tmux; --dry-run only prints the plan
 #   wb down [<session>]              close a session, keep the worktree — activity only, status
 #                                    untouched except -> review when the branch has an open PR
 #   wb pause [<session>]             shelve a task on purpose: status -> paused, then `wb down`
@@ -2243,13 +2249,17 @@ cmd_new() {
 _wb_resolve_task_fuzzy() {
   local query="$1" verb="$2"
   local -a matches=()
-  local f base
+  local f base exact=""
   while IFS= read -r f; do
     base="$(basename "$f" .md)"
+    [ "${base,,}" = "${query,,}" ] && exact="$f"
     case "${base,,}" in
       *"${query,,}"*) matches+=("$f") ;;
     esac
   done < <(wb_task_files)
+  # An exact stem wins over longer stems it prefixes (`repo--parent` vs
+  # `repo--parent-child`), so a parent can be targeted at all.
+  [ -z "$exact" ] || matches=("$exact")
 
   case "${#matches[@]}" in
     0)
@@ -2303,6 +2313,167 @@ cmd_resume() {
   wb_task_lock_acquire_guarded "$file" || exit $?
   wb_append_handoff "$file" "wb resume" 'Session resumed via `wb resume`.'
   wb_task_lock_release "$file"
+}
+
+# _wb_restart_closed_by_down <task_file> — 0 when the task's NEWEST handoff
+# is a session-closing `wb down` (KTD7). The newest is the task file's
+# `## Handoffs` entry or the newest file in the dossier's handoffs/,
+# whichever has the later timestamp (the task file's wins a tie).
+# `wb down --keep-session` writes "session left open" instead, so it is not
+# a closing one: that session was live when the machine went down.
+_wb_restart_closed_by_down() {
+  local file="$1" dir sec entry="" line ts_task="" ts_file="" newest="" f id
+  dir="$(_wb_dossier_dir "$file")"
+  sec="$(_wb_section_text "$file" Handoffs 2>/dev/null)"
+  while IFS= read -r line; do
+    if [[ "$line" == '### '* ]]; then entry="$line"; continue; fi
+    [ -z "$entry" ] || entry+=$'\n'"$line"
+  done <<< "$sec"
+  if [[ "$entry" =~ ^###\ ([0-9]{4}-[0-9]{2}-[0-9]{2})\ ([0-9]{2}):([0-9]{2}) ]]; then
+    ts_task="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+  fi
+  for f in "$dir"/handoffs/*.md; do
+    [ -f "$f" ] || continue
+    id="${f##*/}"; id="${id%.md}"
+    if [ -z "$ts_file" ] || [[ "${id:0:15}" > "$ts_file" ]]; then ts_file="${id:0:15}"; newest="$f"; fi
+  done
+  local text="" src=""
+  if [ -n "$newest" ] && { [ -z "$entry" ] || [[ "$ts_file" > "$ts_task" ]]; }; then
+    text="$(cat "$newest")"
+    [[ "$text" == *$'\nsource: wb down\n'* ]] && src=1
+  elif [ -n "$entry" ]; then
+    text="$entry"
+    [[ "${entry%%$'\n'*}" == *' — wb down'* ]] && src=1
+  fi
+  [ -n "$src" ] && [[ "$text" == *'Session closed via `wb down`'* ]]
+}
+
+# _wb_restart_crashed_stems — one task stem per line: the tasks a crash left
+# without a session (R9/KTD7): status doing or review, the worktree directory
+# exists, no tmux session named after the stem, and the newest handoff is not a
+# closing `wb down`.
+_wb_restart_crashed_stems() {
+  local f stem status repo wt branch
+  while IFS= read -r f; do
+    stem="$(basename "$f" .md)"
+    status="$(wb_get_frontmatter "$f" status)"
+    case "$status" in doing|review) ;; *) continue ;; esac
+    repo="$(wb_get_frontmatter "$f" repo)"
+    branch="$(wb_get_frontmatter "$f" branch)"
+    wt="$(wb_get_frontmatter "$f" worktree)"
+    [ -n "$repo" ] || continue
+    [ -n "$wt" ] || wt=".worktrees/$branch"
+    [ -d "$(wb_repo_dir "$repo")/$wt" ] || continue
+    tmux has-session -t "=$stem" 2>/dev/null && continue
+    _wb_restart_closed_by_down "$f" && continue
+    printf '%s\n' "$stem"
+  done < <(wb_task_files)
+}
+
+# _wb_restart_back — return the tmux client to the session `wb restart`
+# started from (every `wb resume` focuses the session it makes).
+_wb_restart_back() {
+  [ -n "${_WB_RESTART_ORIG:-}" ] || return 0
+  tmux has-session -t "=$_WB_RESTART_ORIG" 2>/dev/null || return 0
+  tmux switch-client -t "=$_WB_RESTART_ORIG" 2>/dev/null || true
+}
+
+# cmd_restart [--dry-run] <list-file> | --crashed — bring back many sessions
+# after a crash. For each task stem: skip it with a reason when there is no
+# task file named exactly <stem>.md (R10) or its session is still open; run
+# `wb resume` as a subprocess (cmd_resume exits on error, which would end this
+# loop); then clear the agent window's pre-typed command and type
+# `claude "/wb-resume"` WITHOUT Enter, so each Claude starts only when its
+# window is visited. The typing waits for the window to show a shell (KTD6).
+cmd_restart() {
+  local dry=0 crashed=0 list=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry=1; shift ;;
+      --crashed) crashed=1; shift ;;
+      *) [ -z "$list" ] || { echo "usage: wb restart [--dry-run] <list-file>|--crashed" >&2; return 2; }
+         list="$1"; shift ;;
+    esac
+  done
+  if { [ "$crashed" = 1 ] && [ -n "$list" ]; } || { [ "$crashed" = 0 ] && [ -z "$list" ]; }; then
+    echo "usage: wb restart [--dry-run] <list-file>|--crashed" >&2; return 2
+  fi
+  [ "$crashed" = 1 ] || [ -f "$list" ] || { echo "wb restart: no such list file: $list" >&2; return 2; }
+  # wb resume ends by focusing the new session: switch-client inside tmux, but
+  # `tmux attach` outside it, which would take over this terminal at the first
+  # session and stall the loop.
+  if [ -z "${TMUX:-}" ] && [ "$dry" = 0 ]; then
+    echo "wb restart: run this from inside tmux (any session; it switches back at the end)" >&2
+    return 2
+  fi
+
+  local -a stems=()
+  local line stem
+  if [ "$crashed" = 1 ]; then
+    mapfile -t stems < <(_wb_restart_crashed_stems)
+    if [ "${#stems[@]}" -eq 0 ]; then echo "wb restart: no crashed tasks found"; return 0; fi
+    echo "wb restart: ${#stems[@]} crashed task(s):"
+    printf '  %s\n' "${stems[@]}"
+    if [ "$dry" = 0 ] && [ -t 0 ]; then
+      local answer=""
+      read -r -p "Restart these ${#stems[@]} session(s)? [y/N] " answer || true
+      case "$answer" in y|Y|yes|YES) ;; *) echo "wb restart: nothing launched"; return 0 ;; esac
+    fi
+  else
+    while IFS= read -r line || [ -n "$line" ]; do
+      stem="${line%%#*}"
+      stem="${stem//[[:space:]]/}"
+      [ -z "$stem" ] || stems+=("$stem")
+    done < "$list"
+  fi
+
+  local agent_cmd='claude "/wb-resume"' timeout="${WB_RESTART_PROMPT_TIMEOUT:-20}"
+  local ok=0 skipped=0 failed=0 i pcmd
+  # Targeted at this pane: with several clients attached, a bare display-message
+  # can name another client's session.
+  _WB_RESTART_ORIG="$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#S' 2>/dev/null || true)"
+  [ "$dry" = 1 ] || trap '_wb_restart_back; exit 130' INT TERM
+
+  for stem in "${stems[@]}"; do
+    case "$stem" in
+      [!-]*--?*) ;;
+      *) echo "SKIP  $stem: not a task stem (<repo>--<slug>)"; skipped=$((skipped + 1)); continue ;;
+    esac
+    if [ ! -f "$TASKS_DIR/$stem.md" ]; then
+      echo "SKIP  $stem: no task file at $TASKS_DIR/$stem.md"; skipped=$((skipped + 1)); continue
+    fi
+    if tmux has-session -t "=$stem" 2>/dev/null; then
+      echo "SKIP  $stem: session still open (wb down it first)"; skipped=$((skipped + 1)); continue
+    fi
+    if [ "$dry" = 1 ]; then
+      echo "WOULD $stem: wb resume, then pre-type: $agent_cmd"; ok=$((ok + 1)); continue
+    fi
+    if ! bash "$SELF" resume "$stem" >/dev/null </dev/null; then
+      echo "FAIL  $stem: wb resume failed"; failed=$((failed + 1)); continue
+    fi
+    if ! tmux has-session -t "=$stem" 2>/dev/null; then
+      echo "FAIL  $stem: wb resume ran but no session named $stem exists"; failed=$((failed + 1)); continue
+    fi
+    # Type only once the agent window shows a shell prompt; never blind.
+    pcmd=""
+    for ((i = 0; i < timeout * 5; i++)); do
+      pcmd="$(tmux display-message -p -t "=$stem:agent" '#{pane_current_command}' 2>/dev/null || true)"
+      case "$pcmd" in bash|zsh|sh|dash|fish) break ;; esac
+      pcmd=""; sleep 0.2
+    done
+    if [ -z "$pcmd" ]; then
+      echo "WARN  $stem: session back, but its agent window never showed a shell within ${timeout}s; nothing typed. Type this there: $agent_cmd"
+      ok=$((ok + 1)); continue
+    fi
+    tmux send-keys -t "=$stem:agent" C-u
+    tmux send-keys -t "=$stem:agent" -l "$agent_cmd"
+    echo "OK    $stem: session back; agent window holds: $agent_cmd (press Enter there)"
+    ok=$((ok + 1))
+  done
+
+  if [ "$dry" = 0 ]; then trap - INT TERM; _wb_restart_back; fi
+  echo "wb restart: $ok ok, $skipped skipped, $failed failed$([ "$dry" = 1 ] && echo ' (dry run, nothing done)')"
+  [ "$failed" = 0 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -8604,6 +8775,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   case "${1:-}" in
     new)         shift; cmd_new "$@" ;;
     resume)      shift; cmd_resume "$@" ;;
+    restart)     shift; cmd_restart "$@" ;;
     reconcile)   shift; cmd_reconcile "$@" ;;
     breakdown)   shift; cmd_breakdown "$@" ;;
     board)       shift; cmd_board "$@" ;;
