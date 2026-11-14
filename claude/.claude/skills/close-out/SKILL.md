@@ -1,6 +1,6 @@
 ---
 name: close-out
-description: End-of-session wind-down for a wb task — sweep the session for anything worth a follow-up task or a park note, fold the session's real Decisions/Done/Follow-ups into the task file, then either `wb down` (worktree kept, warm resume — when the branch has an open PR) or `wb done` (run directly in the foreground, to remove the worktree and flip the task to done; its output is relayed as it is). Use when the user asks "anything deserving a task or discussion", "wb done and close this out", "wrap this up, what am I missing", "close out this worktree", or types /close-out. Also the place for winding down other sessions with `wb done --close <session>`.
+description: End-of-session wind-down for a wb task — sweep the session for anything worth a follow-up task or a park note, fold the session's real decisions and follow-ups into the task's dossier, then either `wb down` (worktree kept, warm resume — when the branch has an open PR) or `wb done` (run directly in the foreground, to remove the worktree and flip the task to done; its output is relayed as it is). Use when the user asks "anything deserving a task or discussion", "wb done and close this out", "wrap this up, what am I missing", "close out this worktree", or types /close-out. Also the place for winding down other sessions with `wb done --close <session>`.
 ---
 
 # close-out
@@ -21,11 +21,10 @@ threads, then the wind-down, in that order, because the sweep has to happen
 - **Reads back over *this conversation***, not the task file's history, to
   find loose threads. It has no separate transcript-mining step; this skill
   only looks at what's already in context.
-- **Writes to `## Decisions`, `## Done`, and `## Follow-ups`** in the closing
-  task's own file. (On a task with `layout: dossier` those sections don't exist:
-  the same `wb append … Decisions -` and `… Follow-ups -` commands write files in
-  `decisions/` and `open-items/` instead, and there is no `## Done`; what shipped
-  goes in the closing handoff. See `docs/wb-guide.md`, "Dossier layout (trial)".) Never touches `## Handoffs` (that section is
+- **Writes decisions and follow-ups** for the closing task: the
+  `wb append … Decisions -` and `… Follow-ups -` commands write files in the task's
+  `decisions/` and `open-items/`. There is no `## Done`; what shipped
+  goes in the closing handoff. See `docs/wb-guide.md`, "Dossier layout". Never touches `## Handoffs` (that section is
   `/wb-save`'s and `wb.sh`'s own append point, written right before a manual
   `/clear` — a different moment than this one; `wb done` writes its own closing
   entry there).
@@ -78,7 +77,7 @@ when the session was a straight-line execution with no such asides — don't
 manufacture findings to justify running the sweep.
 
 **Before creating anything, check what already exists** — grep the task's
-own `## Follow-ups`, the standing weekly-capture doc (`wb week path`), and
+own `open-items/`, the standing weekly-capture doc (`wb week path`), and
 `~/code/tasks/*.md` for the topic so a thread the user already parked or
 already spun into a task mid-session doesn't get a duplicate.
 
@@ -93,8 +92,8 @@ the lighter one** when genuinely unsure:
   and work it as its own unit later. Write a `## Plan` that explains *why*
   it exists (link back `[[<closing-task-slug>]]`) and carry forward whatever
   context/tradeoffs/proposed-fix already came up in conversation into
-  `## Decisions`, so the next reader isn't starting cold. Link it from the
-  closing task's own `## Follow-ups` as `[[<new-slug>]]`.
+  its decisions, so the next reader isn't starting cold. Link it from a
+  follow-up in the closing task's own `open-items/` as `[[<new-slug>]]`.
 - **Hand it to `/park`** (follow that skill's own judgement — non-work-shaped
   appends straight to the capture doc, work-shaped proposes a `prospective`
   task and asks) for a one-line reminder, idea, or "revisit this" note with
@@ -108,26 +107,24 @@ explicitly avoids.
 
 ### 4. Fill in the closing task's own file
 
-(Layout task: read "`## Decisions`" below as the files in `decisions/`, "`## Follow-ups`"
-as the files in `open-items/`, and skip `## Done`. The commands are unchanged. The
-"still empty" check is "`decisions/` has no file".)
+(The "still empty" check below is "`decisions/` has no file".)
 
-If `## Decisions` and `## Done` are still an empty skeleton (or thin
+If the task's `decisions/` is still empty (or thin
 relative to what actually happened), write them now: the real calls that
-got made and why, and what actually shipped/got verified — not a
+got made and why — not a
 restatement of the diff, the *why* a `git log` can't show. Add a
-`## Follow-ups` line for every task file spun off in step 3 (park lines
+follow-up (a file in `open-items/`) for every task file spun off in step 3 (park lines
 don't need a mirror entry here — they live in their own ledger).
 
 Then settle the task's **open follow-ups**: run `wb followups <task>` (read-only,
-`<ref><TAB><title>` per open item, on either layout) and compare the list with what
+`<ref><TAB><title>` per open item) and compare the list with what
 this session actually did. Offer the ones this session resolved to the user in one
 short list, and mark each confirmed one with `wb followup-done <task> <ref> "<one-line
 note of how it was resolved>"`. Never mark one the session did not finish, and never
 Edit the task file or a record file for this.
 
 If the task file already has this filled in from earlier in the session
-(e.g. a mid-session `/wb-save` already wrote rich `## Decisions` content),
+(e.g. a mid-session `/wb-save` already wrote rich decision files),
 don't duplicate — extend only where the sweep in step 2 added something new.
 
 Then check for **decision drafts**: background-drafted decisions nobody has
@@ -140,7 +137,7 @@ call, because this skill propagates the whole run once at the end of this step. 
 drop one silently. `wb done` refuses while a shelved draft remains for the task, so
 skipping this only defers it.
 
-After folding real Decisions, if `## Decisions` is **still empty**, review the
+After folding real Decisions, if `decisions/` is **still empty**, review the
 session and decide whether anything was actually decided:
 
 - **Yes** — write it now (via `/wb-decide`, or the same `wb append <task>
@@ -154,7 +151,7 @@ session and decide whether anything was actually decided:
   ```
 
 The marker is always an affirmed judgment by the agent, never automatic —
-an unmarked empty `## Decisions` keeps meaning "nobody checked", which is
+an unmarked empty `decisions/` keeps meaning "nobody checked", which is
 what the graduation review counts as a likely miss versus a marked "nothing
 to record". Tasks closed by bare `wb done` without `/close-out` stay
 unmarked (accepted). Never Edit the task file for this; `wb append` only.
@@ -168,7 +165,7 @@ because `wb down` and `wb done` end the session:
   write one here through `/wb-decide`, tell it this skill propagates the whole run, so
   its step 5 skips step 6; this one call covers it. Never include the `_No decisions:_` marker. If the run recorded nothing,
   skip this.
-- **Promotion.** Read the task's whole `## Decisions` section (layout task: the files in `decisions/`), not just this run's
+- **Promotion.** Read all of the task's decision files in `decisions/`, not just this run's
   entries, and run `/wb-decide`'s step 7 (the promotion procedure) for the entries that
   are facts about how the system behaves. Unlike the mid-session offer, this one may
   create the family's first `CONCEPTS.md`. When nothing is fact-shaped, say so in one
@@ -304,7 +301,7 @@ never whether the record gets written first.
   beyond what's already there), straight to the wind-down.
 - **Mixed weight** — one thread substantial enough for its own task file,
   one a quick park-worthy note: both get created, both get mentioned in one
-  line each, the task file gets a `## Follow-ups` entry only for the former.
+  line each, the task gets a follow-up in `open-items/` only for the former.
 - **Already captured mid-session** — the user ran `/park` or spun off a task
   themselves earlier in this same session: step 2's existence check finds it
   and skips re-creating it.

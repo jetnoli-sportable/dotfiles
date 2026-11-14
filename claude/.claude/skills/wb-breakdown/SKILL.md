@@ -178,24 +178,21 @@ a migration that hasn't happened yet, more follow-up moves).
 - **Child slugs (R7, D7)**: default to parent-prefixed
   (`feat/hub-v0` → `feat/hub-v0-board-embed`), editable by the human in
   the buffer before apply. Use real, distinct git-branch-shaped slugs.
-- **Follow-up moves (R11)**: a parent bullet under `## Follow-ups` that
+- **Follow-up moves (R11)**: an open follow-up of the parent
+  (a file in `dossiers/<parent-stem>/open-items/` with `status: open`) that
   clearly belongs to one specific child's slice becomes a proposed move
-  line, quoting the bullet's exact current text (the match at apply time
-  is exact-string, not fuzzy). Bullets that don't clearly belong to one
+  line, quoting the follow-up's exact current text: its first
+  line below its frontmatter (read the files, don't guess; the match at apply time
+  is exact-string, not fuzzy). Follow-ups that don't clearly belong to one
   child stay put by default — checked moves are a move, never a copy.
-  **If the bullet's own text contains a double quote, backslash-escape it
-  as `\"` inside the `"..."` span** (e.g. a bullet `- fix the "stuck" tab`
+  **If the follow-up's own text contains a double quote, backslash-escape it
+  as `\"` inside the `"..."` span** (e.g. a follow-up `fix the "stuck" tab`
   becomes `move follow-up: "fix the \"stuck\" tab" → child: ...`) — the
   parser accepts `\"` as an escaped quote and unescapes it back to a plain
-  `"` before matching against the real bullet text, so write the bullet's
+  `"` before matching against the real follow-up text, so write the follow-up's
   literal quotes escaped, never re-worded to dodge them.
-  **Layout parent (`layout: dossier`).** It has no `## Follow-ups`; its
-  follow-ups are the files in `dossiers/<parent-stem>/open-items/` with
-  `status: open`. List those instead: the quoted text is the item's first
-  line below its frontmatter (read the files, don't guess). A checked move
-  relocates the file into the child's dossier `open-items/` (a layout child),
-  or appends it under the child's `## Follow-ups` (an older child), and
-  rebuilds both dossiers' views. See `docs/wb-guide.md`, "Dossier layout (trial)".
+  A checked move relocates the file into the child's dossier `open-items/` and
+  rebuilds both dossiers' views. See `docs/wb-guide.md`, "Dossier layout".
 - **Parent `## Plan` rewrite**: propose a short post-split summary plus
   whatever didn't get absorbed into any child — this replaces the
   parent's entire `## Plan` section at apply time (not appended), so

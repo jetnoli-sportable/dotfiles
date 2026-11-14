@@ -77,15 +77,10 @@ broken when: the decision was recorded and no child received a message
     (`~/.local/state/wb/capture/log.jsonl`), matched against the raw JSON line,
     so `/"event":"draft_shelved"/` works. Lines logged for the watcher's own
     task are skipped.
-  - `decisions:<task-stem>` — a bullet *added* under `## Decisions` in that
-    task file, matched against the bullet's text. Editing an existing bullet,
-    or any other section, never fires. Bullets carry no time, so ones already
-    in the file when the watcher first watches it are history it can't date:
-    they never count, and the first-live scan skips this source. For a task with
-    `layout: dossier` the source is the files in its dossier's `decisions/`
-    instead: a *new file* fires, matched against its text, and editing an
-    existing file (a supersede flipping `status:`) never does. The first-live
-    scan still skips this source.
+  - `decisions:<task-stem>` — a *new file* in that task's dossier
+    `decisions/`, matched against its text. Editing an existing file (a
+    supersede flipping `status:`) never fires. The first-live scan skips this
+    source.
   The regex is a jq (Oniguruma) regex, written between the first and the last
   `/` on the line. An invalid regex never matches.
 - **evidence:** where to look when judging. It may name a read-only command
@@ -156,7 +151,7 @@ broken when: a decision is recorded in the parent and no child session receives 
 ## C2. Unrelated decisions stay put
 kind: judge
 trigger: decisions:demo--parent /.*/
-evidence: the parent's new Decisions bullet, then child transcripts for the next few minutes
+evidence: the parent's new decision file, then child transcripts for the next few minutes
 met when: a decision that concerns only the parent produces no [demo-relay] message
 broken when: such a decision produces a message in a child
 

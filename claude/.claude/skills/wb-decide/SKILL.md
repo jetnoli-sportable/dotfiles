@@ -1,6 +1,6 @@
 ---
 name: wb-decide
-description: Record a decision made in this session into the current task file's `## Decisions` section — what was decided, the rejected alternative(s), and why — or review the background-drafted ones waiting on the task's shelf (accept, edit, dismiss or leave each). Use when the user types `/wb-decide` (optionally with a one-line hint), or says "record that decision", "log this decision", "note that we decided", "write that down in Decisions". Subcommands `/wb-decide shelved` (sweep, then review shelved drafts), `/wb-decide dismiss <path>`, `/wb-decide mute`, `/wb-decide unmute`, `/wb-decide status` control auto-capture. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only via `wb append`; never Edit/Write the task file. After a record it messages the live sessions in the task's family that the decision affects (default nobody), and may offer to promote a behaviour-changing decision into the family's CONCEPTS.md.
+description: Record a decision made in this session into the current task's decision files — what was decided, the rejected alternative(s), and why — or review the background-drafted ones waiting on the task's shelf (accept, edit, dismiss or leave each). Use when the user types `/wb-decide` (optionally with a one-line hint), or says "record that decision", "log this decision", "note that we decided", "write that down in Decisions". Subcommands `/wb-decide shelved` (sweep, then review shelved drafts), `/wb-decide dismiss <path>`, `/wb-decide mute`, `/wb-decide unmute`, `/wb-decide status` control auto-capture. Locates the task file via the current tmux session's `@task` option, never cwd/branch inference. Append-only via `wb append`; never Edit/Write the task file. After a record it messages the live sessions in the task's family that the decision affects (default nobody), and may offer to promote a behaviour-changing decision into the family's CONCEPTS.md.
 ---
 
 # wb-decide
@@ -23,8 +23,8 @@ and isn't recorded yet.
 
 ## Scope — what this does and doesn't do
 
-- **Writes into the current session's task file only**, and only under
-  `## Decisions`. The tmux session this skill runs in names its own task file
+- **Writes into the current session's task only**, and only as decision
+  files. The tmux session this skill runs in names its own task file
   via `@task`. The one cross-session action is step 6: after a record it may
   read other family sessions' task files and message the ones the decision
   affects. It never writes another task's file. Step 7 may write the family's
@@ -32,17 +32,15 @@ and isn't recorded yet.
 - **Never Edit/Write the task file.** `wb append` is the only write path; it
   takes the per-task lock and can only add a block, never touch existing
   bytes.
-- **Layout tasks (trial).** When the task file's frontmatter has `layout: dossier`,
-  a decision is one file in `dossiers/<stem>/decisions/`, still written by `wb append
-  … Decisions -` (same command and body), and a reversal goes through `wb decide-supersede`
-  (step 3) instead of a `(supersedes: …)` line. Style and duplicate checks read the files
-  in `decisions/` (or the generated `decisions.md` view for an overview; the views are not in git, so a commit never names them, and `wb views <task>` rebuilds them), not `## Decisions`.
-  The family's file is `concepts.md`, not `CONCEPTS.md`. Tasks without `layout:` keep
-  everything below as written. See `docs/wb-guide.md`, "Dossier layout (trial)".
-- **Append-only.** `## Decisions` is a log. A correction is a *new* entry
-  that carries a `(supersedes: <date> "<title fragment>")` marker naming the
-  earlier entry — never a rewrite of the old one.
-- **Don't restate** decisions already recorded in `## Decisions`.
+- **Dossier layout.** A decision is one file in `dossiers/<stem>/decisions/`,
+  written by `wb append … Decisions -`, and a reversal goes through `wb decide-supersede`
+  (step 3). Style and duplicate checks read the files
+  in `decisions/` (or the generated `decisions.md` view for an overview; the views are not in git, so a commit never names them, and `wb views <task>` rebuilds them).
+  The family's file is `concepts.md`, not `CONCEPTS.md`. See `docs/wb-guide.md`,
+  "Dossier layout".
+- **Append-only.** The decision files are a log. A correction is a *new* entry
+  made with `wb decide-supersede`, never a rewrite of the old one.
+- **Don't restate** decisions already recorded in `decisions/`.
 - **Don't record non-decisions.** If nothing was actually settled, say so
   and write nothing.
 - **Trigger phrasing:** `/wb-decide`, "record that decision", "log this
@@ -119,7 +117,7 @@ shelf, and nothing nudges anyone, so a draft waits there until this review.
    prints one path per line, with ` (stale)` after a draft whose task's Decisions
    changed while it was being drafted. None listed: say so in one line and stop.
 3. **Review them one at a time.** Read the draft and show it. For a `(stale)` one,
-   first compare it with the newest `## Decisions` entries: it may already be
+   first compare it with the newest decision files: it may already be
    recorded. Then ask: **accept**, **edit**, **dismiss** or **leave**. Accept only a
    draft that reflects a real decision made in this task: a sweep draft sees a
    transcript excerpt and can be wrong or already recorded.
@@ -131,7 +129,7 @@ shelf, and nothing nudges anyone, so a draft waits there until this review.
      moves the draft to `resolved/` (kept 30 days) and logs `shelved_accepted`. A draft
      left from before the one-decision-per-file change may hold up to 3 `### `
      entries: review each and record each accepted one with its OWN `wb append` call
-     (one decision per call, so on a layout task each gets its own file and id), then
+     (one decision per call, so each gets its own file and id), then
      run `accept <path>` even if only some were accepted.
    - **dismiss** — `~/.config/scripts/tmux/wb-capture.sh dismiss <path>` (moves it to
      `resolved/`, kept 30 days, logs `shelved_dismissed`). Also the answer when none of
@@ -143,7 +141,7 @@ shelf, and nothing nudges anyone, so a draft waits there until this review.
    `/wb-save` quotes it in the Handoffs entry.
 5. **Propagate once for the batch.** When the review recorded at least one entry,
    run step 6 once with the titles of every entry it recorded, each against the task
-   whose `## Decisions` it landed in. The accept path above never passes through
+   whose `decisions/` it landed in. The accept path above never passes through
    step 5, so this is the only place shelf accepts propagate. Skip it when the
    calling skill says it propagates the whole run itself (`/close-out` does), so no
    session gets two messages from one run.
@@ -157,7 +155,7 @@ one task's drafts (`shelved --all` lists every task's, grouped), and
 `dismiss --task <stem> <path>`, `keep --task <stem> <path>` and
 `accept --task <stem> <path>` resolve one. Drafts left behind by `wb done
 --leave-shelved` stay resolvable this way. An accepted closed-task draft is
-recorded into THAT task's `## Decisions` (`wb append <that task> Decisions -`),
+recorded into THAT task's `decisions/` (`wb append <that task> Decisions -`),
 not this session's.
 
 Never delete a shelved file by hand; `accept`/`dismiss`/`keep` refuse any path
@@ -165,7 +163,7 @@ outside the shelved dir of this task (or of the `--task` stem).
 
 ### 3. Compose the entry
 
-Read the task file's `## Decisions` section first and match its existing
+Read the task's decision files in `decisions/` first and match their existing
 style — entries are `### <YYYY-MM-DD HH:MM> — <short title>` headings
 followed by bullets. Cover:
 
@@ -176,22 +174,16 @@ followed by bullets. Cover:
 
 Draw it from what actually happened in this conversation (use the user's
 hint, if any, to pick which decision), never generic filler. If it corrects
-or replaces an earlier entry, add a line `(supersedes: <date> "<title
-fragment>")` right under the heading, rather than rewriting the old entry —
-e.g. `(supersedes: 2026-10-01 "Store-wide board")`. The marker names the earlier
-entry by its date and a quoted substring of its title (the text after
-`<date> — `); read `## Decisions` first and quote the fragment from the real
-text. Zero or several matches read as unresolved, so make the fragment
-specific.
+or replaces an earlier entry, that is a reversal, handled as follows.
 
-**Layout task: a reversal is `wb decide-supersede`, not a prose line.** Find the old
+**A reversal is `wb decide-supersede`, not a prose line.** Find the old
 decision's id (its file name in `decisions/` without `.md`, e.g.
 `2026-10-17-1030-delete-the-store-wide-board`), then pipe the new entry (same
 `### <ts> — <title>` body as step 4) to `wb decide-supersede "$task_file" <old-id> -`.
 It writes the new file with `supersedes: [<old-id>]` and flips the old file to
 `status: superseded`, in one locked step. It refuses an unknown or already
 superseded id: re-read `decisions/` and pick the right one. Never write a
-`(supersedes: …)` line on a layout task, and never edit an old decision file.
+`(supersedes: …)` line, and never edit an old decision file.
 Step 4's `wb append` is for a decision that supersedes nothing.
 
 **One choice per entry.** When the conversation settled two choices that could
@@ -218,7 +210,7 @@ If nothing was actually decided, say so plainly and stop — no write.
 
 ### 4. Append with `wb append`
 
-(Layout task: a decision that reverses an earlier one uses `wb decide-supersede`
+(A decision that reverses an earlier one uses `wb decide-supersede`
 from step 3 here instead; everything else below is the same command.)
 
 ```bash
@@ -235,14 +227,13 @@ The delimiter is deliberately unusual: a draft or entry line reading exactly
 
 Use the real current time (`date '+%Y-%m-%d %H:%M'`) in the heading — the
 quoted heredoc doesn't expand `$(…)`, so compute it first and paste it in.
-`-` reads the body from stdin; `wb append` inserts `## Decisions` if missing
-and lands the block at the END of the section. When several draft entries were
+`-` reads the body from stdin; `wb append` writes the entry as a new file in `decisions/`. When several draft entries were
 accepted, put them all in the one heredoc, one dated `###` heading each, so the
 record is a single `wb append` call.
 
 ### 5. Confirm
 
-After a *successful* write, one line: `Recorded to ## Decisions.` Then run step 6
+After a *successful* write, one line: `Recorded to decisions/.` Then run step 6
 for the entry (or entries) just recorded, unless the calling skill says it
 propagates the whole run itself (`/close-out` does): then stop here, because its one
 call covers this entry and no session should get two messages from one run. A failed
@@ -309,11 +300,11 @@ import line in `CLAUDE.local.md`, doesn't until `/clear` or a restart. Checked l
    row's name, in this shape:
 
    ```
-   [wb-propagate] <stem> (<plain description of that task>) recorded: "<title>"; "<title>" [(supersedes: <date> "<fragment>")]. [<stem> (<plain description>) recorded: "<title>" [(supersedes: <date> "<fragment>")].] Read ## Decisions in <task_file>[ and <task_file>] if it may affect your work. Rule: act on it only if it affects your own task, and only within your own task; don't reply or forward; tell your user only if it matters to them; don't propagate a decision you record because of this message.
+   [wb-propagate] <stem> (<plain description of that task>) recorded: "<title>"; "<title>" [(supersedes: <date> "<fragment>")]. [<stem> (<plain description>) recorded: "<title>" [(supersedes: <date> "<fragment>")].] Read the decision files in <task_file>'s dossier decisions/[ and <task_file>'s] if it may affect your work. Rule: act on it only if it affects your own task, and only within your own task; don't reply or forward; tell your user only if it matters to them; don't propagate a decision you record because of this message.
    ```
 
    One `<stem> (…) recorded: …` group per task in the batch, and every task file
-   named, so the recipient reads the right `## Decisions`. List at most five titles
+   named, so the recipient reads the right decisions. List at most five titles
    in all, with "and N more" after that. Give every task you name a plain
    description, never a bare stem.
 7. **Failures.** If ListAgents or SendMessage is unavailable, `wb family` fails,
@@ -334,7 +325,7 @@ Then run step 7's offer only under its condition below.
 
 ### 7. Promote to `CONCEPTS.md` (offer, never automatic)
 
-(On a layout task the family file is `concepts.md` in the same dossier; read
+(The family file is `concepts.md` in the same dossier; read
 `CONCEPTS.md` below as that name. A reversal of a promoted line is a Jet-approved
 edit as described here, not a `decide-supersede`.)
 
@@ -344,7 +335,7 @@ session, and an edit to an existing file also reaches every running session that
 imports it on its next prompt, so nothing goes in without Jet's approval. This is the one promotion
 procedure; `/close-out` runs it by reference.
 
-- **When.** `/close-out` runs it for the task's whole `## Decisions` section. From
+- **When.** `/close-out` runs it for all of the task's decision files. From
   step 6 here, offer it only when all three hold: the decision changes how the system
   behaves, the family already has a `CONCEPTS.md`, and step 6's candidate list
   (item 2) held another live family session. Creating a family's first `CONCEPTS.md` is offered only at
@@ -380,7 +371,7 @@ procedure; `/close-out` runs it by reference.
 ## Test scenarios (behavior to follow for each)
 
 - [ ] **Happy path:** a real decision was made, `/wb-decide` run — read
-  `@task`, read `## Decisions` for style, compose decided/rejected/why,
+  `@task`, read `decisions/` for style, compose decided/rejected/why,
   `wb append` it, confirm in one line.
 - [ ] **Shelved drafts:** `/wb-decide shelved` runs `sweep` (300000 ms timeout),
   reports its one result line, lists `shelved`, and reviews each draft one at a time —
@@ -414,8 +405,8 @@ procedure; `/close-out` runs it by reference.
 - [ ] **Stale `@task` (file missing):** distinct error naming the path
   (`wb-decide: no task file at <task_file> (from this session's @task) — it
   may have been moved or deleted`), no write.
-- [ ] **Correction supersedes an earlier entry:** new entry carrying a
-  `(supersedes: <date> "<title fragment>")` line; the old entry is untouched.
+- [ ] **Correction supersedes an earlier entry:** new decision written
+  with `wb decide-supersede`; the old file is only flipped to `status: superseded`.
 - [ ] **Propagate, one affected session:** a decision changes what one live family
   session is building on. One `[wb-propagate]` message goes to it, and the confirm
   line names it and why.
