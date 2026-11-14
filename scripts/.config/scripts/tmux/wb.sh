@@ -77,6 +77,24 @@
 #                                    supersedes: [<old-id>], flip the old decision file to
 #                                    status: superseded, rebuild the views — one locked step; an
 #                                    unknown or already-superseded <old-id> exits 1, nothing written
+#   wb decide-path [--task <task>] [--page <slug>]
+#                                    print a fresh path for /decide's answers: the buffer's answer
+#                                    file (the task's dossier decision-records/<stamp>-decide.md),
+#                                    or with --page the page spec (decision-records/<stamp>-<slug>/
+#                                    spec.json); outside a task, under the state dir keyed by the
+#                                    tmux session
+#   wb decide-buffer <file> [--task <task>]
+#                                    open <file> in nvim in a split of the task's tmux session, mark
+#                                    the task as needing Jet, wait until the split closes, then print
+#                                    file:/sha:/changed: (sha is from the first open); run it in the
+#                                    background. A re-run waits on a split still open instead of
+#                                    opening a second one
+#   wb decide-open page <url> <rev> [--task <task>]
+#                                    mark a published page as waiting on Jet (a later rev of the same
+#                                    url replaces the line)
+#   wb decide-clear <file|url> | --all [--task <task>]
+#                                    drop a surface's needs-you mark once its answers are recorded;
+#                                    the marker goes with the last one
 #   wb followups <task>              list <task>'s OPEN follow-ups, one per line as <ref><TAB><title>;
 #                                    <ref> is the open-items file id
 #   wb followup-done <task> <ref> [<note>|-]
@@ -416,6 +434,9 @@ wb_task_title() {
 
 # wb_task_file <repo> <disp_slug> — the store path for a repo+slug pair.
 wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
+# wb_needs_you_file <key> — the /decide needs-you marker of a task stem (or a tmux session
+# name outside a task); lines and writers are in wb-decide.sh, the picker only reads it.
+wb_needs_you_file() { printf '%s/wb/needs-you/%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$1"; }
 
 # wb_task_files — every real task file in the store: only `<repo>--<slug>.md`
 # stems (a non-empty repo, the `--` delimiter, a non-empty slug), so
@@ -8764,6 +8785,12 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     # re-stow that links it. migrate is a one-off; nothing else needs it.
     # shellcheck source=wb-migrate.sh
     migrate)     shift; source "$SCRIPT_DIR/wb-migrate.sh"; cmd_migrate "$@" ;;
+    # Same lazy source as migrate, for the same reason: wb-decide.sh is new.
+    # shellcheck source=wb-decide.sh
+    decide-path)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_path "$@" ;;
+    decide-buffer) shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_buffer "$@" ;;
+    decide-open)   shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_open "$@" ;;
+    decide-clear)  shift; source "$SCRIPT_DIR/wb-decide.sh"; cmd_decide_clear "$@" ;;
     views)       shift; cmd_views "$@" ;;
     family)      shift; cmd_family "$@" ;;
     week)        shift; cmd_week "$@" ;;
