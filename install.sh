@@ -7,6 +7,10 @@ cd "$(dirname "$0")"
 command -v stow >/dev/null || sudo apt install -y stow
 # The clipboard for tmux and nvim (scripts/.config/scripts/tmux/clipboard.sh).
 command -v xclip >/dev/null || sudo apt install -y xclip
+# Inline images in nvim (snacks.nvim): ImageMagick converts, rsvg-convert
+# renders SVG for it (imagemagick/.config/ImageMagick/delegates.xml).
+command -v convert >/dev/null && command -v rsvg-convert >/dev/null || \
+  sudo apt install -y imagemagick librsvg2-bin
 
 # Auto-regenerate the docs platform (docgen) on commits that touch its
 # tracked inputs — see .githooks/pre-commit for what triggers it.
@@ -19,6 +23,9 @@ stow -t "$HOME" zsh git ohmyposh tmux scripts nvim ghostty run-or-raise
 # claude needs --no-folding: ~/.claude/ holds live untracked state (projects/,
 # todos/, decision-buffer state files) that a folded dir-symlink would shadow.
 stow --no-folding -t "$HOME" claude
+
+# imagemagick needs --no-folding too: ~/.local/bin holds other tools' binaries.
+stow --no-folding -t "$HOME" imagemagick
 
 # tmux plugins — tpm lives under the XDG tree (tmux.conf sets
 # TMUX_PLUGIN_MANAGER_PATH accordingly); the rest install with prefix+I.
@@ -47,5 +54,6 @@ command -v nvim >/dev/null && nvim --headless "+Lazy! restore" +qa || true
 bash gnome/install.sh || echo "gnome/install.sh failed — see above" >&2
 
 echo "Done. Start a new shell. Machine-local extras go in ~/.zshrc.local."
-echo "Still needed by hand: fdfind, fzf, zoxide, oh-my-posh, lazygit, nvm/pyenv/tfenv as desired."
+echo "Still needed by hand: fdfind, fzf, zoxide, oh-my-posh, lazygit, nvm/pyenv/tfenv as desired,"
+echo "and mermaid-cli once Node is set up (npm i -g @mermaid-js/mermaid-cli) for Mermaid diagrams in nvim."
 echo "Docs auto-regenerate on commit once ~/code/docgen is cloned (see docs/slice-5-recap.html)."
