@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="../HUB.html">⌂ Hub</a> <span class="sep">/</span> skills</span>
   <span class="gen">docgen · generated from <b>docs/guides/wb-save.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-14</span>
+  <span class="right">updated 2026-11-14</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -275,9 +275,11 @@ writes the state that needs to survive the clear; the human runs
 <pre><code>/wb-save
 </code></pre>
 <p>or any of: &quot;save my progress&quot;, &quot;checkpoint this&quot;, &quot;save state before I
-clear&quot;. The agent composes done/in-flight/next from the actual
+clear&quot;. The agent checks the session's work against the task's scope
+(the parent's current rung, the brief's &quot;Done when&quot; and &quot;Not doing&quot;, the
+family's <code>concepts.md</code>), composes drift/done/in-flight/next from the actual
 conversation, appends it to the task file's <code>## Handoffs</code> section, and
-confirms in one line:</p>
+confirms in one line (plus a sentence naming what drifted, when it did):</p>
 <pre><code>Saved to ## Handoffs — /clear when you're ready.
 </code></pre>
 <p>If you say what should happen on resume — &quot;wb-save and set resume to run
@@ -285,6 +287,7 @@ a full ce-code-review&quot; — the entry also gets a fenced <code>run:</code> d
 naming that action literally, so <code>/wb-resume</code> can execute it
 deterministically instead of re-reading prose:</p>
 <pre><code>### 2026-08-31 10:05 — wb-save
+**Drift:** none
 **Done:** landed the parser fix
 **In flight:** nothing
 **Next:** run a full code review before merging
@@ -294,7 +297,7 @@ deterministically instead of re-reading prose:</p>
 ```
 </code></pre>
 <p>No directive is written if you don't state a concrete next action — a
-plain &quot;save my progress&quot; produces the same three-field entry as before.</p>
+plain &quot;save my progress&quot; produces the four-field entry with no directive.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>
@@ -309,8 +312,12 @@ plain &quot;save my progress&quot; produces the same three-field entry as before
 <td>Reads <code>@task</code> off the current tmux session (<code>tmux show -t &quot;=$session:&quot; -v @task</code>) — never cwd/branch inference</td>
 </tr>
 <tr>
+<td>Check for drift</td>
+<td>Reads, never writes: the parent's <code>ladder.md</code> current rung and &quot;Not in this rung&quot; (else the parent's <code>## Now</code>), this task's <code>rung:</code> and <code>brief.md</code> &quot;Done when&quot; / &quot;Not doing&quot;, and the top parent's <code>concepts.md</code>. Writes one line: <code>**Drift:** none</code>, one sentence naming what drifted and which line it conflicts with, or <code>**Drift:** nothing to check against</code>. Never blocks the save</td>
+</tr>
+<tr>
 <td>Compose the entry</td>
-<td><strong>Done</strong> / <strong>In flight</strong> / <strong>Next</strong>, drawn from what actually happened this session — a genuinely empty field is stated plainly (<code>**Done:** nothing yet this session</code>), never invented</td>
+<td><strong>Drift</strong> first, then <strong>Done</strong> / <strong>In flight</strong> / <strong>Next</strong>, drawn from what actually happened this session — a genuinely empty field is stated plainly (<code>**Done:** nothing yet this session</code>), never invented</td>
 </tr>
 <tr>
 <td>Refresh <code>## Now</code> first</td>
@@ -318,15 +325,15 @@ plain &quot;save my progress&quot; produces the same three-field entry as before
 </tr>
 <tr>
 <td>Append</td>
-<td>Shells out to <code>wb append &lt;task_file&gt; Handoffs</code> (the locked, heading-scoped append verb) with the three-field block over stdin — never an Edit/Write-tool edit to a task file</td>
+<td>Shells out to <code>wb append &lt;task_file&gt; Handoffs</code> (the locked, heading-scoped append verb) with the four-field block over stdin — never an Edit/Write-tool edit to a task file</td>
 </tr>
 <tr>
 <td>Entry shape</td>
-<td><code>### &lt;YYYY-MM-DD HH:MM&gt; — wb-save</code> heading (no <code>(auto)</code> suffix — that's reserved for <code>wb.sh</code>'s own mechanical <code>pause</code>/<code>done</code>/<code>resume</code> entries), then <code>**Done:**</code>/<code>**In flight:**</code>/<code>**Next:**</code></td>
+<td><code>### &lt;YYYY-MM-DD HH:MM&gt; — wb-save</code> heading (no <code>(auto)</code> suffix — that's reserved for <code>wb.sh</code>'s own mechanical <code>pause</code>/<code>done</code>/<code>resume</code> entries), then <code>**Drift:**</code>/<code>**Done:**</code>/<code>**In flight:**</code>/<code>**Next:**</code></td>
 </tr>
 <tr>
 <td>Next-action directive</td>
-<td>Optional fourth element: a fenced <code>```run</code> block right after <code>**Next:**</code>, containing the literal command to run on resume — only emitted when the save-request explicitly named one</td>
+<td>Optional last element: a fenced <code>```run</code> block right after <code>**Next:**</code>, containing the literal command to run on resume — only emitted when the save-request explicitly named one</td>
 </tr>
 <tr>
 <td>No <code>@task</code> set</td>

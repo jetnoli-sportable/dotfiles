@@ -312,8 +312,9 @@ messages *other* sessions and never this one.
   holds the new block, the task file holds only this handoff, and the old one is
   a file in `handoffs/`.
 - **Drift — work matches the brief:** the entry's first line is `**Drift:** none`.
-- **Drift — the session touched something the brief's "Not doing" lists** (for
-  this task: any `wb.sh` change): the `**Drift:**` line names it and the line it
+- **Drift — the session touched something the brief's "Not doing" lists** (e.g.
+  the brief rules out `wb.sh` changes and the session edited `wb.sh`): the
+  `**Drift:**` line names it and the line it
   conflicts with, and the step 6 reply adds a sentence saying so. The save still
   lands.
 - **Drift — parent has no `ladder.md`:** compare against the parent task's

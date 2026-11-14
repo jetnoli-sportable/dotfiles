@@ -4,7 +4,7 @@ status: current
 tile: Write a structured done/in-flight/next snapshot before a manual /clear.
 group: skills
 kind: guide
-updated: 2026-07-14
+updated: 2026-11-14
 ---
 
 ## Overview
@@ -27,9 +27,11 @@ Right before you're about to `/clear`:
 ```
 
 or any of: "save my progress", "checkpoint this", "save state before I
-clear". The agent composes done/in-flight/next from the actual
+clear". The agent checks the session's work against the task's scope
+(the parent's current rung, the brief's "Done when" and "Not doing", the
+family's `concepts.md`), composes drift/done/in-flight/next from the actual
 conversation, appends it to the task file's `## Handoffs` section, and
-confirms in one line:
+confirms in one line (plus a sentence naming what drifted, when it did):
 
 ```
 Saved to ## Handoffs — /clear when you're ready.
@@ -42,6 +44,7 @@ deterministically instead of re-reading prose:
 
 ````
 ### 2026-08-31 10:05 — wb-save
+**Drift:** none
 **Done:** landed the parser fix
 **In flight:** nothing
 **Next:** run a full code review before merging
@@ -52,18 +55,19 @@ deterministically instead of re-reading prose:
 ````
 
 No directive is written if you don't state a concrete next action — a
-plain "save my progress" produces the same three-field entry as before.
+plain "save my progress" produces the four-field entry with no directive.
 
 ## Reference
 
 | Step | What happens |
 |---|---|
 | Locate the task file | Reads `@task` off the current tmux session (`tmux show -t "=$session:" -v @task`) — never cwd/branch inference |
-| Compose the entry | **Done** / **In flight** / **Next**, drawn from what actually happened this session — a genuinely empty field is stated plainly (`**Done:** nothing yet this session`), never invented |
+| Check for drift | Reads, never writes: the parent's `ladder.md` current rung and "Not in this rung" (else the parent's `## Now`), this task's `rung:` and `brief.md` "Done when" / "Not doing", and the top parent's `concepts.md`. Writes one line: `**Drift:** none`, one sentence naming what drifted and which line it conflicts with, or `**Drift:** nothing to check against`. Never blocks the save |
+| Compose the entry | **Drift** first, then **Done** / **In flight** / **Next**, drawn from what actually happened this session — a genuinely empty field is stated plainly (`**Done:** nothing yet this session`), never invented |
 | Refresh `## Now` first | Runs `wb now <task_file> -` first to replace `## Now` (goal, rung, next action, what waits on you), then the append below, which moves the previous handoff to `handoffs/`. Mentions `notes.md` only if it changed since the last save |
-| Append | Shells out to `wb append <task_file> Handoffs` (the locked, heading-scoped append verb) with the three-field block over stdin — never an Edit/Write-tool edit to a task file |
-| Entry shape | `### <YYYY-MM-DD HH:MM> — wb-save` heading (no `(auto)` suffix — that's reserved for `wb.sh`'s own mechanical `pause`/`done`/`resume` entries), then `**Done:**`/`**In flight:**`/`**Next:**` |
-| Next-action directive | Optional fourth element: a fenced ` ```run ` block right after `**Next:**`, containing the literal command to run on resume — only emitted when the save-request explicitly named one |
+| Append | Shells out to `wb append <task_file> Handoffs` (the locked, heading-scoped append verb) with the four-field block over stdin — never an Edit/Write-tool edit to a task file |
+| Entry shape | `### <YYYY-MM-DD HH:MM> — wb-save` heading (no `(auto)` suffix — that's reserved for `wb.sh`'s own mechanical `pause`/`done`/`resume` entries), then `**Drift:**`/`**Done:**`/`**In flight:**`/`**Next:**` |
+| Next-action directive | Optional last element: a fenced ` ```run ` block right after `**Next:**`, containing the literal command to run on resume — only emitted when the save-request explicitly named one |
 | No `@task` set | Stops before touching any file: `wb-save: this session has no @task — not a wb task session.` |
 | `@task` set but file missing | Stops: `wb-save: no task file at <path> — recorded in this session's @task, but missing on disk.` |
 
