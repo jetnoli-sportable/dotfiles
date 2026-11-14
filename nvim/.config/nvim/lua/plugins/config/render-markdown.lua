@@ -1,14 +1,12 @@
 return {
 	"MeanderingProgrammer/render-markdown.nvim",
-	dependencies = { "nvim-treesitter/nvim-treesitter", "echasnovski/mini.nvim" }, -- if you use the mini.nvim suite
-	-- dependencies = { 'nvim-treesitter/nvim-treesitter', 'echasnovski/mini.icons' }, -- if you use standalone mini plugins
-	-- dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-tree/nvim-web-devicons' }, -- if you prefer nvim-web-devicons
+	dependencies = { "nvim-treesitter/nvim-treesitter", "echasnovski/mini.nvim" },
 	---@module 'render-markdown'
 	---@type render.md.UserConfig
+	-- opts only, no config function: lazy.nvim passes opts to setup() only
+	-- when there's no custom config, and setup() is what registers the blink
+	-- completion source (callout and checkbox names).
 	opts = {
 		completions = { blink = { enabled = true } },
 	},
-	config = function()
-		require("render-markdown").enable()
-	end,
 }

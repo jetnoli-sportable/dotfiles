@@ -6,15 +6,12 @@ local htmlConfig = require("plugins.lsp.config.html")
 local emmetConfig = require("plugins.lsp.config.emmet")
 local templConfig = require("plugins.lsp.config.go-templ")
 local bashConfig = require("plugins.lsp.config.bash")
+local marksmanConfig = require("plugins.lsp.config.marksman")
 
-local eslintConfig = {
-	on_attach = function(client, bufnr)
-		-- You can add eslint-specific keymaps or rely on the general ones from LspAttach
-	end,
-	settings = {
-		-- You can customize eslint settings here if needed
-	},
-}
+-- Empty on purpose: vim.lsp.config merges tables but replaces functions, so an
+-- on_attach here would drop nvim-lspconfig's, which defines :LspEslintFixAll.
+-- Wrap vim.lsp.config.eslint.on_attach if eslint ever needs its own.
+local eslintConfig = {}
 
 -- LSP Plugins
 local config = {
@@ -284,6 +281,7 @@ local config = {
 			ts_ls = tsConfig,
 			lua_ls = luaConfig,
 			bashls = bashConfig,
+			marksman = marksmanConfig,
 		}
 
 		local mason_package_map = {
@@ -296,6 +294,7 @@ local config = {
 			templ = "templ",
 			emmet_language_server = "emmet-language-server",
 			html = "html-lsp",
+			marksman = "marksman",
 		}
 
 		local ensure_installed = {}
@@ -315,22 +314,23 @@ local config = {
 			"goimports", -- Go import organizer (conform)
 			"gomodifytags", -- Go struct tag editing (:GoAddTags)
 			"delve", -- Go debugger (nvim-dap-go)
+			"shellcheck", -- bashls runs it for shell diagnostics when it's installed
 		})
 		require("mason-tool-installer").setup({ ensure_installed = ensure_installed })
 
+		-- mason-lspconfig v2 has no `handlers`: a handlers table is silently
+		-- ignored, and every server then starts with nvim-lspconfig's defaults
+		-- (none of the settings in lsp/config/*). Register each server's
+		-- overrides with vim.lsp.config, then let mason-lspconfig enable only
+		-- these servers, so a stray installed one (emmet-ls) doesn't start too.
+		for server_name, server in pairs(servers) do
+			server.capabilities = vim.tbl_deep_extend("force", {}, capabilities, server.capabilities or {})
+			vim.lsp.config(server_name, server)
+		end
+
 		require("mason-lspconfig").setup({
-			ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
-			automatic_installation = false,
-			handlers = {
-				function(server_name)
-					local server = servers[server_name] or {}
-					-- This handles overriding only values explicitly passed
-					-- by the server configuration above. Useful when disabling
-					-- certain features of an LSP (for example, turning off formatting for ts_ls)
-					server.capabilities = vim.tbl_deep_extend("force", {}, capabilities, server.capabilities or {})
-					require("lspconfig")[server_name].setup(server)
-				end,
-			},
+			ensure_installed = {}, -- installs come from mason-tool-installer above
+			automatic_enable = vim.tbl_keys(servers),
 		})
 	end,
 }

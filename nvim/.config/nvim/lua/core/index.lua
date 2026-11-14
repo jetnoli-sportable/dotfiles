@@ -4,6 +4,7 @@ vim.g.maplocalleader = " "
 require("core.remaps")
 require("core.autocommands")
 require("core.markdown-link-paste")
+require("core.open-image")
 require("claude-tmux").setup({})
 
 vim.lsp.set_log_level("warn")
