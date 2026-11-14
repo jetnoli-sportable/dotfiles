@@ -379,6 +379,33 @@ without a live session, like the other <code>wb set</code> fields).</p>
 worktree, task file, and session instead of duplicating anything. That's
 also how you resume a task after the session got closed without going
 through <code>wb done</code>.</p>
+<p><strong>The task's own pushed branch.</strong> When the branch is named after the slug
+(no pre-set <code>branch:</code>) and exists only on origin, for example after
+<code>wb done</code> removed the local branch or on another machine, <code>wb new</code> attaches
+to <code>origin/&lt;slug&gt;</code> (tracking it) only when the branch is still this task's
+live work:</p>
+<ul>
+<li>the task file existed before this <code>wb new</code>;</li>
+<li>its status is <code>doing</code>, <code>paused</code> or <code>review</code> (a <code>planned</code> file is often made
+ahead of time, so a reused slug must not pick up an old branch);</li>
+<li>the branch isn't merged: <code>origin/&lt;slug&gt;</code> isn't contained in
+<code>origin/&lt;default&gt;</code>, and its PR isn't merged (merged with a newer open PR
+counts as live). If <code>gh</code> can't tell, it attaches anyway with a note.</li>
+</ul>
+<p>Otherwise <code>wb new</code> cuts a fresh branch and names the leftover
+<code>origin/&lt;slug&gt;</code> in a note. The status checks run before any network call, so
+starting a new task stays offline-safe. Once they pass, origin is asked
+directly: the cached <code>origin/&lt;slug&gt;</code> is re-fetched, because a copy fetched
+before a push from another clone can look merged. If origin can't be
+reached, <code>wb new</code> stops before creating anything rather than guess.</p>
+<p><strong>A stale worktree catches up on reattach.</strong> When <code>wb new</code> or <code>wb resume</code>
+brings a session back on an existing worktree or local branch (never while
+the session is still live, since an agent may be mid-edit), and the branch is
+clean, has no commits of its own and is behind its start point (the first
+usable blocker, else <code>origin/&lt;default&gt;</code>), it fast-forwards automatically
+with <code>git merge --ff-only</code> and prints what moved: <code>fast-forwarded &lt;branch&gt; &lt;old&gt;..&lt;new&gt; (N commits) to &lt;start&gt;</code>.
+Otherwise it leaves the branch alone and says why, for example
+<code>&lt;branch&gt; is 3 commit(s) behind origin/development — not fast-forwarded: tracked files have uncommitted changes</code>.</p>
 <p><strong>Where a new branch starts.</strong> When the branch doesn't exist yet,
 <code>wb new</code> first fetches <code>origin/&lt;default&gt;</code> (resolved from origin/HEAD, never
 hard-coded; a failed fetch warns and uses the last-fetched ref). Only
