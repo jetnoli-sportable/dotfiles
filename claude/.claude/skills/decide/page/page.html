@@ -381,7 +381,7 @@ const DC = (() => {
   const $ = (id) => document.getElementById(id);
   const state = {
     spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), cleared: new Set(), timers: {}, retry: {},
-    accept: false, submitted: null, open: {}, sum: null, globalText: "", globalTimer: null,
+    accept: false, submitted: null, submitting: false, open: {}, sum: null, globalText: "", globalTimer: null,
   };
 
   function h(tag, attrs, ...kids) {
@@ -593,7 +593,7 @@ const DC = (() => {
       const ar = sum.areas.filter((a) => a.area)[i];
       const c = d.querySelector(".count"); if (ar && c) c.textContent = `${ar.answered} of ${ar.total}`;
     });
-    $("submit").disabled = !state.db || state.failed.size > 0;
+    $("submit").disabled = !state.db || state.failed.size > 0 || state.submitting;
     if (state.failed.size) { $("status").className = "status err"; $("status").textContent = "Some answers are not saved yet. Submit waits until they are."; }
   }
 
@@ -654,9 +654,16 @@ const DC = (() => {
   }
   const flushPending = () => Promise.all(Object.keys(state.timers).map((id) => write(state.spec.items.find((it) => it.id === id))));
 
+  // A redraw while a submit awaits (a typed note, a db snapshot) must not
+  // re-enable the button, or a second click sends a second wake-up comment.
   async function submit() {
+    if (state.submitting || state.failed.size) return;
+    state.submitting = true;
+    try { await submitOnce(); } finally { state.submitting = false; renderChrome(); }
+  }
+
+  async function submitOnce() {
     const btn = $("submit"), status = $("status"), spec = state.spec;
-    if (state.failed.size) return;
     btn.disabled = true;
     recompute();
     const sum = state.sum, again = !!(state.submitted && state.submitted.rev === spec.rev);
@@ -685,10 +692,10 @@ const DC = (() => {
     } catch (e) {
       status.className = "status err";
       status.textContent = (sent ? "Sent to Claude, but the submit record was not saved: " : "Submit was not saved: ") + ((e && e.message) || "the store refused the write") + ". Try Submit again.";
-      btn.disabled = false; return;
+      return;
     }
     showSubmitted(sendError);
-    btn.disabled = false; btn.textContent = "Submit again";
+    btn.textContent = "Submit again";
   }
 
   const reasonText = (code) => ({
