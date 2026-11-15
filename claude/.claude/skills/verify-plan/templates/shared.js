@@ -252,6 +252,54 @@ var VP = (function () {
     );
   }
 
+  // Derived, never stored: a test resting on a decision that is still open is tentative.
+  function tentative(d, t) {
+    var dec = t.decision ? byId(d.decisions, t.decision) : null;
+    return !!dec && dec.status === "open";
+  }
+
+  // One test's row, shared by both pages. The caller supplies the badge, the markup after it
+  // (reasonHtml) and the label on the "passing tells you" line; the rest is the same.
+  function testRow(d, t, i, o) {
+    var hasParts = list(d.parts).length > 0;
+    return (
+      '<div class="te" id="te' +
+      i +
+      '"><div><div class="tn">' +
+      esc(t.name) +
+      "</div>" +
+      '<div class="ln">' +
+      laneLabel(d, t.lane) +
+      " &middot; proves " +
+      (reqLinks(d, t.requirements) || "nothing yet") +
+      "</div>" +
+      '<span class="badge ' +
+      o.badgeClass +
+      '">' +
+      o.badgeText +
+      "</span>" +
+      o.reasonHtml +
+      (t.test_name
+        ? '<div class="ln"><code>' + esc(t.test_name) + "</code></div>"
+        : "") +
+      "</div>" +
+      '<div class="ri">' +
+      (hasParts
+        ? '<div><span class="k">Real</span>' +
+          (partLabels(d, t.real_parts) || "nothing named") +
+          "</div>" +
+          '<div><span class="k">Faked</span>' +
+          (partLabels(d, t.faked_parts) || "nothing named") +
+          "</div>"
+        : "") +
+      '<div><span class="k">' +
+      o.passingLabel +
+      "</span>" +
+      esc(t.passing_tells) +
+      "</div></div></div>"
+    );
+  }
+
   // Text to copy plus a visible copy of it, so a blocked clipboard can fall back to selecting it.
   function copyControl(label, text) {
     var t = text == null ? COPY_TEXT : text;
@@ -270,9 +318,6 @@ var VP = (function () {
   }
 
   return {
-    LANES: LANES,
-    STAGES: STAGES,
-    COPY_TEXT: COPY_TEXT,
     esc: esc,
     list: list,
     lanes: lanes,
@@ -281,13 +326,14 @@ var VP = (function () {
     laneLabel: laneLabel,
     header: header,
     noneCell: noneCell,
-    reqIndex: reqIndex,
     reqLink: reqLink,
     reqLinks: reqLinks,
     bullets: bullets,
     stageBar: stageBar,
     reqCards: reqCards,
     copyControl: copyControl,
+    tentative: tentative,
+    testRow: testRow,
   };
 })();
 // CORE:END
@@ -335,6 +381,15 @@ function vpCopy(btn) {
   } else {
     select();
   }
+}
+// The alternate view's heading toggles `.alt.open` and aria-expanded on `#alth`.
+function vpWireAlt() {
+  var alt = document.getElementById("alt"),
+    btn = document.getElementById("alth");
+  if (!alt || !btn) return;
+  btn.addEventListener("click", function () {
+    btn.setAttribute("aria-expanded", String(alt.classList.toggle("open")));
+  });
 }
 function vpWire() {
   document.addEventListener("click", function (e) {

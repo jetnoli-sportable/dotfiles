@@ -242,8 +242,17 @@ def cmd_check(args):
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 TEMPLATES = os.path.join(SKILL_DIR, "templates")
-# (template, output name) for every page `build` writes.
-PAGES = (("shaping.html", "shaping.html"), ("map.html", "map.html"))
+# Every page `build` writes (template and output share a name), with its title suffix.
+PAGES = ("shaping.html", "map.html")
+TITLE_SUFFIX = {"shaping.html": " shaping", "map.html": " proof map"}
+
+
+def fail(lines, message):
+    """Print each error line, then the closing message, to stderr; the command's exit code is 1."""
+    for line in lines:
+        print(line, file=sys.stderr)
+    print(message, file=sys.stderr)
+    return 1
 
 
 def script_safe(text):
@@ -277,7 +286,7 @@ def render_page(template_name, doc):
         # A short name with no colon: the page title doubles as the published artifact's name.
         "TITLE": html.escape(
             " ".join(str(doc.get("title") or doc.get("task", "")).split())
-            + (" shaping" if template_name == "shaping.html" else " proof map")
+            + TITLE_SUFFIX[template_name]
         ),
         "CSS": read("shared.css"),
         "JS": read("shared.js"),
@@ -291,14 +300,11 @@ def cmd_build(args):
     doc = load(args.file)
     errs = check_document(doc)
     if errs:
-        for line in errs:
-            print(line, file=sys.stderr)
-        print("verify-plan.py: not building an invalid document", file=sys.stderr)
-        return 1
+        return fail(errs, "verify-plan.py: not building an invalid document")
     outdir = os.path.dirname(os.path.abspath(args.file))
-    for template, name in PAGES:
+    for name in PAGES:
         with open(os.path.join(outdir, name), "w", encoding="utf-8") as fh:
-            fh.write(render_page(template, doc))
+            fh.write(render_page(name, doc))
     return 0
 
 
@@ -313,10 +319,7 @@ def cmd_record_run(args):
     doc = load(args.file)
     errs = check_document(doc)
     if errs:
-        for line in errs:
-            print(line, file=sys.stderr)
-        print("verify-plan.py: not recording into an invalid document", file=sys.stderr)
-        return 1
+        return fail(errs, "verify-plan.py: not recording into an invalid document")
     steps_dir = os.path.join(args.state_dir, "steps")
     if not os.path.isdir(steps_dir):
         print(f"verify-plan.py: no steps folder in {args.state_dir}", file=sys.stderr)
@@ -349,19 +352,13 @@ def cmd_record_run(args):
                 "time": entry.get("updatedAt") or "",
             }
     if problems:
-        for line in problems:
-            print(line, file=sys.stderr)
-        print("verify-plan.py: not recording; the source is unchanged", file=sys.stderr)
-        return 1
+        return fail(problems, "verify-plan.py: not recording; the source is unchanged")
     # Steps in the source's order, so the output does not depend on directory listing order.
     new = dict(doc)
     new["run"] = {"revision": revision, "steps": {sid: recorded[sid] for sid in known if sid in recorded}}
     errs = check_document(new)
     if errs:
-        for line in errs:
-            print(line, file=sys.stderr)
-        print("verify-plan.py: the recorded run is invalid; the source is unchanged", file=sys.stderr)
-        return 1
+        return fail(errs, "verify-plan.py: the recorded run is invalid; the source is unchanged")
     text = json.dumps(new, indent=2, ensure_ascii=False) + "\n"
     target = os.path.abspath(args.file)
     tmp = target + ".tmp"

@@ -1119,10 +1119,7 @@ __VP_META__
               return x.id;
             });
         }
-        function tentative(d, t) {
-          var dec = t.decision ? byId(d.decisions, t.decision) : null;
-          return !!dec && dec.status === "open";
-        }
+        var tentative = VP.tentative;
         function bandCounts(d) {
           var out = {
             total: list(d.requirements).length,
@@ -1642,45 +1639,15 @@ __VP_META__
           }).length;
           var body = tests
             .map(function (t, i) {
-              return (
-                '<div class="te" id="te' +
-                i +
-                '"><div><div class="tn">' +
-                esc(t.name) +
-                "</div>" +
-                '<div class="ln">' +
-                VP.laneLabel(d, t.lane) +
-                " &middot; proves " +
-                (VP.reqLinks(d, t.requirements) || "nothing yet") +
-                "</div>" +
-                '<span class="badge ' +
-                (t.status === "built" ? "ok" : "plan") +
-                '">' +
-                esc(STATUS_LABEL[t.status] || t.status) +
-                "</span>" +
-                (t.test_name
-                  ? '<div class="ln"><code>' +
-                    esc(t.test_name) +
-                    "</code></div>"
-                  : "") +
-                "</div>" +
-                '<div class="ri">' +
-                (hasParts
-                  ? '<div><span class="k">Real</span>' +
-                    (VP.partLabels(d, t.real_parts) || "nothing named") +
-                    "</div>" +
-                    '<div><span class="k">Faked</span>' +
-                    (VP.partLabels(d, t.faked_parts) || "nothing named") +
-                    "</div>"
-                  : "") +
-                '<div><span class="k">' +
-                (t.status === "built"
-                  ? "Passing tells you"
-                  : "Passing would tell you") +
-                "</span>" +
-                esc(t.passing_tells) +
-                "</div></div></div>"
-              );
+              return VP.testRow(d, t, i, {
+                badgeClass: t.status === "built" ? "ok" : "plan",
+                badgeText: esc(STATUS_LABEL[t.status] || t.status),
+                reasonHtml: "",
+                passingLabel:
+                  t.status === "built"
+                    ? "Passing tells you"
+                    : "Passing would tell you",
+              });
             })
             .join("");
           return (
@@ -2011,7 +1978,6 @@ __VP_META__
             "</span><span>" +
             accessBadges(s) +
             "</span>" +
-            // Hook for the run stage: the recorded outcome for this step.
             (ran
               ? '<span class="runst ' +
                 esc(out) +
@@ -2309,13 +2275,7 @@ __VP_META__
             setView(true);
           });
         }
-        var alt = $("#alt");
-        $("#alth").addEventListener("click", function () {
-          $("#alth").setAttribute(
-            "aria-expanded",
-            String(alt.classList.toggle("open")),
-          );
-        });
+        vpWireAlt();
 
         document.addEventListener("click", function (e) {
           var t = e.target;

@@ -180,8 +180,7 @@ __VP_META__
 
         // Derived, never stored: a test resting on a decision that is still open is tentative.
         function testState(d, t) {
-          var dec = t.decision ? byId(d.decisions, t.decision) : null;
-          return dec && dec.status === "open" ? "tentative" : "firm";
+          return VP.tentative(d, t) ? "tentative" : "firm";
         }
         function testReason(d, t) {
           var dec = t.decision ? byId(d.decisions, t.decision) : null;
@@ -309,45 +308,14 @@ __VP_META__
           var tests = list(d.tests);
           var body = tests
             .map(function (t, i) {
-              var st = testState(d, t),
-                hasParts = list(d.parts).length > 0;
-              return (
-                '<div class="te" id="te' +
-                i +
-                '"><div><div class="tn">' +
-                esc(t.name) +
-                "</div>" +
-                '<div class="ln">' +
-                laneLabel(d, t.lane) +
-                " &middot; proves " +
-                (VP.reqLinks(d, t.requirements) || "nothing yet") +
-                "</div>" +
-                '<span class="badge ' +
-                (st === "firm" ? "ok" : "plan") +
-                '">' +
-                (st === "firm" ? "Firm" : "Tentative") +
-                '</span> <span class="ln">' +
-                testReason(d, t) +
-                "</span>" +
-                (t.test_name
-                  ? '<div class="ln"><code>' +
-                    esc(t.test_name) +
-                    "</code></div>"
-                  : "") +
-                "</div>" +
-                '<div class="ri">' +
-                (hasParts
-                  ? '<div><span class="k">Real</span>' +
-                    (partLabels(d, t.real_parts) || "nothing named") +
-                    "</div>" +
-                    '<div><span class="k">Faked</span>' +
-                    (partLabels(d, t.faked_parts) || "nothing named") +
-                    "</div>"
-                  : "") +
-                '<div><span class="k">Passing tells you</span>' +
-                esc(t.passing_tells) +
-                "</div></div></div>"
-              );
+              var st = testState(d, t);
+              return VP.testRow(d, t, i, {
+                badgeClass: st === "firm" ? "ok" : "plan",
+                badgeText: st === "firm" ? "Firm" : "Tentative",
+                reasonHtml:
+                  ' <span class="ln">' + testReason(d, t) + "</span>",
+                passingLabel: "Passing tells you",
+              });
             })
             .join("");
           return (
@@ -542,18 +510,7 @@ __VP_META__
         var data = JSON.parse(document.getElementById("vp-data").textContent);
         document.getElementById("app").innerHTML = VS.page(data);
         vpWire();
-        function toggleAlt() {
-          var alt = document.getElementById("alt"),
-            btn = document.getElementById("alth");
-          if (!alt) return;
-          btn.addEventListener("click", function () {
-            btn.setAttribute(
-              "aria-expanded",
-              String(alt.classList.toggle("open")),
-            );
-          });
-        }
-        toggleAlt();
+        vpWireAlt();
         document.addEventListener("click", function (e) {
           var b = e.target.closest("button.tl[data-t]");
           if (!b) return;
