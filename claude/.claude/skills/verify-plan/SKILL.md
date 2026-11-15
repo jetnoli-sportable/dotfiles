@@ -86,7 +86,7 @@ For every decision with `status: "open"`:
 
 1. Build `/decide` items from the document's `decisions`: the question, the options with their cost and what each proves, and your recommendation. Pass the decision id so each item is traceable. Follow `/decide` for choosing the surface and for how items are built.
 2. When Jet answers, record each answer with `wb decision`, as `/decide` section 5 describes. Never answer a decision yourself, on the page, or by editing the source alone.
-3. Write each answer back into `verify.json`: set `answer` to the option id, `note` to his words, and `status` to `answered`. Run `check`, then `build`.
+3. Write each answer back into `verify.json`: set `answer` to the option id, `note` to his words, and `status` to `answered`. For each test resting on a newly answered decision, set it to `planned` or remove it (`check` refuses a proposed test on an answered decision). Run `check`, then `build`.
 4. If an answer leaves a requirement uncovered, the checker says so. Put that to Jet as the "untested requirement" decision. Do not mark it as an accepted gap on your own.
 
 **Changing an answered decision.** The page's "Change in /decide" control copies `/verify-plan`. When Jet types it with a decision in mind, or asks to change one: resume at the document's decisions, put that decision to him again through `/decide` with his earlier answer shown, and let the new answer supersede the old one (`wb decision` with the same title does that). Then reset `answer` and `status` in the source, update any tests that rested on it, `check`, and `build`.

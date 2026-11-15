@@ -39,7 +39,7 @@ Ids are unique within their kind (requirements, tests, steps, decisions, parts);
 
 `id`, `name` (plain words, the page's label), `test_name` (the real test's name), `lane`, `requirements` (ids proven), `real_parts`, `faked_parts` (part ids), `passing_tells` (what a pass tells you), `status` (`proposed`, `planned`, `built`), optional `decision` (id of the decision it rests on; a proposed test resting on an open decision is drawn tentative, derived and never stored).
 
-**Checked**: `name` not blank; `lane` and `status` allowed; every id in `requirements`, `real_parts`, `faked_parts` and `decision` resolves (a document without `parts` therefore fails any test that names a part).
+**Checked**: `name` not blank; `lane` and `status` allowed; every id in `requirements`, `real_parts`, `faked_parts` and `decision` resolves (a document without `parts` therefore fails any test that names a part). A `proposed` test whose `decision` is **answered** fails: once the decision is settled the test must become `planned` or be removed. A proposed test on an open decision, or with no decision, is fine.
 
 ## Part
 

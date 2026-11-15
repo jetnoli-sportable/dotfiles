@@ -113,6 +113,7 @@ def check_document(doc):
     test_ids = collect_ids(tests, "test")
     step_ids = collect_ids(steps, "step")
     dec_ids = collect_ids(decisions, "decision")
+    dec_status = {d.get("id"): d.get("status") for d in decisions}
 
     wt = doc.get("walkthrough")
     if wt is not None and (not isinstance(wt, dict) or not isinstance(wt.get("revision"), int)
@@ -147,6 +148,8 @@ def check_document(doc):
         d = t.get("decision")
         if d not in (None, "") and d not in dec_ids:
             add(f"test {tid}: field 'decision' names unknown decision {d}")
+        elif d not in (None, "") and t.get("status") == "proposed" and dec_status.get(d) == "answered":
+            add(f"test {tid}: decision {d} is answered; set the test to planned, or remove it")
 
     for s in steps:
         sid = s.get("id", "?")

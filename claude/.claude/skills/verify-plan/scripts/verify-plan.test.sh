@@ -55,6 +55,9 @@ reject bad-access 's["walkthrough"]["steps"][0]["access"] = ["root"]' "root" "lo
 reject bad-lane 's["tests"][0]["lane"] = "smoke"' "smoke" "unit" "integration" "e2e" "walkthrough"
 reject unknown-part 's["tests"][0]["real_parts"].append("nope")' "nope"
 reject unknown-decision 's["tests"][0]["decision"] = "D99"' "D99"
+reject proposed-on-answered 's["tests"][5]["decision"] = "D2"' "test T6: decision D2 is answered; set the test to planned, or remove it"
+accept planned-on-answered 's["tests"][5]["decision"] = "D2"; s["tests"][5]["status"] = "planned"'
+accept proposed-on-open "s['tests'][5]['decision'] = 'D1'"
 reject unknown-step-req 's["walkthrough"]["steps"][0]["requirements"].append("R98")' "R98"
 reject bad-step-id 's["walkthrough"]["steps"][0]["id"] = "S1/../x"' "S1/../x" "letters, digits"
 reject bad-requirement-id 's["requirements"][0]["id"] = "R 1"' "R 1" "letters, digits"
