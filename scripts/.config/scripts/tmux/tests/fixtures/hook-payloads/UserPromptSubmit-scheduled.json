@@ -1,0 +1,10 @@
+{
+  "session_id": "__SESSION_ID__",
+  "transcript_path": "__HOME__/.claude/projects/-home-__USER__--cleanroom-acr-automode-test-a/__SESSION_ID__.jsonl",
+  "cwd": "__CWD__",
+  "scratchpad_dir": "__TMPDIR__/__SESSION_ID__/scratchpad",
+  "prompt_id": "__PROMPT_ID__",
+  "permission_mode": "acceptEdits",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "/wb-continue from-cron"
+}
