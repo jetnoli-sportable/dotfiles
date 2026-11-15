@@ -2376,6 +2376,7 @@ __VP_META__
           timers: {},
           retry: {},
           inflight: {},
+          lastThreadId: "",
           ready: false,
           submitted: null,
           submitting: false,
@@ -2585,7 +2586,7 @@ __VP_META__
           var c = counts(),
             again = !!(st.submitted && String(st.submitted.rev) === rev);
           // 1. The comment goes first, while this click is still Jet's gesture; no await before it.
-          var threadId = (again && st.submitted.threadId) || "",
+          var threadId = (again && st.submitted.threadId) || st.lastThreadId || "",
             sent = false,
             sendError = "";
           var pending = flushPending();
@@ -2597,13 +2598,14 @@ __VP_META__
                 try {
                   res = await st.comments.sendToClaude({ threadId: threadId, text: text });
                 } catch (e) {
-                  if (e && e.code === "not_found") threadId = "";
+                  if (e && e.code === "not_found") threadId = st.lastThreadId = "";
                   else throw e;
                 }
               }
               if (!threadId)
                 res = await st.comments.sendToClaude({ anchor: await st.comments.anchorFor(submitBtn), text: text });
               threadId = (res && res.threadId) || threadId;
+              if (threadId) st.lastThreadId = threadId;
               sent = true;
             } catch (e) {
               sendError = (e && (e.code || e.message)) || "unknown";

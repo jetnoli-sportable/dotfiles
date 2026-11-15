@@ -380,7 +380,7 @@ const DC = (() => {
 (() => {
   const $ = (id) => document.getElementById(id);
   const state = {
-    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), cleared: new Set(), timers: {}, retry: {}, inflight: {}, ready: false,
+    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), cleared: new Set(), timers: {}, retry: {}, inflight: {}, ready: false, lastThreadId: "",
     accept: false, submitted: null, submitting: false, open: {}, sum: null, globalText: "", globalTimer: null,
   };
 
@@ -687,7 +687,7 @@ const DC = (() => {
     let sum = state.sum;
     const again = !!(state.submitted && state.submitted.rev === spec.rev);
     // 1. The comment goes first, while this click is still Jet's gesture; the only await before it is anchorFor.
-    let threadId = (again && state.submitted.threadId) || "", sent = false, sendError = "";
+    let threadId = (again && state.submitted.threadId) || state.lastThreadId || "", sent = false, sendError = "";
     const pending = flushPending();
     if (state.comments && state.sendState === "available") {
       const text = DC.commentText(spec, sum, again);
@@ -695,10 +695,10 @@ const DC = (() => {
         let res;
         if (threadId) {
           try { res = await state.comments.sendToClaude({ threadId, text }); }
-          catch (e) { if (e && e.code === "not_found") { threadId = ""; } else throw e; }
+          catch (e) { if (e && e.code === "not_found") { threadId = state.lastThreadId = ""; } else throw e; }
         }
         if (!threadId) res = await state.comments.sendToClaude({ anchor: await state.comments.anchorFor(btn), text });
-        threadId = (res && res.threadId) || threadId; sent = true;
+        threadId = (res && res.threadId) || threadId; if (threadId) state.lastThreadId = threadId; sent = true;
       } catch (e) { sendError = (e && (e.code || e.message)) || "unknown"; }
     } else sendError = state.comments ? "send_" + (state.sendState || "unavailable") : "comments_unavailable";
     // 2. Then the durable record, with the same rev.
