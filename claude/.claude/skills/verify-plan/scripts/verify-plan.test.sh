@@ -244,6 +244,19 @@ if [ "$RC" != 0 ] && [[ "$OUT" == *"cannot write"* ]] && [[ "$OUT" != *Traceback
   && [ "$BEFORE" = "$(sum_of "$WORK/r6/verify.json")" ] && ! ls "$WORK/r6"/*.tmp >/dev/null 2>&1; then
   pass "record-run: a failed write leaves the source unchanged and no .tmp file"; else fail "failed write (rc=$RC out=$OUT)"; fi
 
+# The temp file is written, then the rename fails: the temp file is removed and the source is untouched.
+build_copy r7; BEFORE="$(sum_of "$WORK/r7/verify.json")"
+OUT="$(python3 -c '
+import os, runpy, sys
+def refuse(*a, **k): raise OSError(13, "rename refused")
+os.replace = refuse
+sys.argv = [sys.argv[1], "record-run", sys.argv[2], sys.argv[3]]
+runpy.run_path(sys.argv[0], run_name="__main__")
+' "$TOOL" "$WORK/r7/verify.json" "$STATE" 2>&1)"; RC=$?
+if [ "$RC" != 0 ] && [[ "$OUT" == *"cannot write"* ]] && [[ "$OUT" != *Traceback* ]] \
+  && [ "$BEFORE" = "$(sum_of "$WORK/r7/verify.json")" ] && ! ls "$WORK/r7"/*.tmp >/dev/null 2>&1; then
+  pass "record-run: a failed rename removes the temp file and leaves the source unchanged"; else fail "failed rename (rc=$RC out=$OUT)"; fi
+
 # Idempotent.
 cp "$WORK/r1/verify.json" "$WORK/r1-first.json"; record "$WORK/r1/verify.json" "$STATE"
 if [ "$RC" = 0 ] && cmp -s "$WORK/r1-first.json" "$WORK/r1/verify.json"; then pass "a second record-run with the same state leaves the source byte-identical"; else fail "not idempotent (rc=$RC)"; fi

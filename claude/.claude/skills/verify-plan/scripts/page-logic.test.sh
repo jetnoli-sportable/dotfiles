@@ -424,7 +424,8 @@ check "a run recorded against an older walkthrough revision is never counted" "
   assert.strictEqual(VM.cell(d, 'R1', 'walkthrough').status, 'you');
   assert.strictEqual(VM.mode(d), 'results');
   d.stage = 'run';
-  assert.strictEqual(VM.mode(d), 'run', 'the page still opens in run mode');"
+  assert.strictEqual(VM.mode(d), 'run', 'the page still opens in run mode');
+  assert(VM.page(d).includes('from an earlier version of the walkthrough'), 'the rendered page marks the run as stale');"
 
 check "stored documents override the recorded run as the starting state" "
   $SEVEN
