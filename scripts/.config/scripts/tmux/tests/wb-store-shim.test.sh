@@ -76,14 +76,15 @@ make_src "$OTHER_SRC"
 DEFAULT_BIN="$HOME/.local/bin/wb-store"
 OTHER_BIN="$XDG_CACHE_HOME/wb-store/bin/${OTHER_SRC//\//_}/wb-store"
 
-# Stub go: logs "<cwd> <args>" per call; `build -o <out> ...` writes a
-# script to <out> (removing it first and setting the mode, as real go does)
-# unless $GO_FAIL is set.
+# Stub go: logs "<cwd> <args>" per call, sleeps $GO_SLEEP seconds if set,
+# then `build -o <out> ...` writes a script to <out> (removing it first and
+# setting the mode, as real go does) unless $GO_FAIL is set.
 STUB_BIN="$FIXTURE/bin"; mkdir -p "$STUB_BIN"
 GO_LOG="$FIXTURE/go.log"; : > "$GO_LOG"
 cat > "$STUB_BIN/go" <<'STUB'
 #!/usr/bin/env bash
 echo "$PWD $*" >> "$GO_LOG"
+[ -z "${GO_SLEEP:-}" ] || sleep "$GO_SLEEP"
 if [ -n "${GO_FAIL:-}" ]; then echo "stub go: build failed" >&2; exit 1; fi
 out=""
 while [ $# -gt 0 ]; do
@@ -114,6 +115,7 @@ assert_eq "binary got --store and the caller's args" \
 assert_eq "binary installed at ~/.local/bin/wb-store" yes "$([ -x "$DEFAULT_BIN" ] && echo yes || echo no)"
 assert_eq "no temp file left" "" "$(find "$HOME/.local/bin" -name '.wb-store.*')"
 assert_match "says it is building, on stderr" "building" "$(cat "$FIXTURE/stderr")"
+assert_eq "no build lock left" no "$([ -e "$DEFAULT_BIN.lock" ] && echo yes || echo no)"
 
 # =============================================================================
 echo "# binary newer than every source: no rebuild"
@@ -185,6 +187,7 @@ assert_eq "binary not run" "" "$out"
 assert_match "go's error reaches stderr" "stub go: build failed" "$(cat "$FIXTURE/stderr")"
 assert_eq "old binary untouched" same "$(cmp -s "$DEFAULT_BIN" "$FIXTURE/bin-before" && echo same || echo changed)"
 assert_eq "no temp file left" "" "$(find "$HOME/.local/bin" -name '.wb-store.*')"
+assert_eq "no build lock left" no "$([ -e "$DEFAULT_BIN.lock" ] && echo yes || echo no)"
 run list >/dev/null   # rebuild for real, so the default binary is current again
 touch -t "$OLD" "$DEFAULT_SRC/go.mod"; touch -t "$BUILT" "$DEFAULT_BIN"
 n=$(builds)
@@ -234,6 +237,71 @@ out=$(WB_STORE_SRC="$OTHER_SRC" run --bin-path)
 assert_eq "another source prints its own binary's path" "$OTHER_BIN" "$out"
 out=$(run --bin-path extra)
 assert_eq "--bin-path with more args passes through to the binary" "built-from=$DEFAULT_SRC --store $TASKS_DIR --bin-path extra" "$out"
+
+# =============================================================================
+echo "# two callers find the binary stale at once: one builds, the other waits and reuses it"
+touch -t "$NEWER" "$DEFAULT_SRC/cmd/wb-store/main.go"
+n=$(builds)
+GO_SLEEP=2 bash "$SHIM" show a >"$FIXTURE/out-a" 2>"$FIXTURE/err-a" & pid_a=$!
+# start the second caller only once the first is inside go build, holding the lock
+for _ in $(seq 50); do [ "$(builds)" -gt "$n" ] && break; sleep 0.1; done
+GO_SLEEP=2 bash "$SHIM" show b >"$FIXTURE/out-b" 2>"$FIXTURE/err-b" & pid_b=$!
+wait "$pid_a"; rc_a=$?
+wait "$pid_b"; rc_b=$?
+assert_eq "both exit 0" "0 0" "$rc_a $rc_b"
+assert_eq "one build between them" $((n + 1)) "$(builds)"
+assert_eq "first caller ran the new binary" "built-from=$DEFAULT_SRC --store $TASKS_DIR show a" "$(cat "$FIXTURE/out-a")"
+assert_eq "second caller ran it too" "built-from=$DEFAULT_SRC --store $TASKS_DIR show b" "$(cat "$FIXTURE/out-b")"
+assert_eq "second caller did not build" "" "$(cat "$FIXTURE/err-b")"
+assert_eq "no build lock left" no "$([ -e "$DEFAULT_BIN.lock" ] && echo yes || echo no)"
+touch -t "$OLD" "$DEFAULT_SRC/cmd/wb-store/main.go"; touch -t "$BUILT" "$DEFAULT_BIN"
+
+echo "# a lock left by a dead process: broken, then built"
+( exit 0 ) & dead=$!; wait "$dead"
+mkdir "$DEFAULT_BIN.lock"; echo "$dead" > "$DEFAULT_BIN.lock/pid"
+touch -t "$NEWER" "$DEFAULT_SRC/go.mod"
+n=$(builds)
+out=$(run list); rc=$?
+assert_eq "exit 0" 0 "$rc"
+assert_eq "built" $((n + 1)) "$(builds)"
+assert_eq "binary ran" "built-from=$DEFAULT_SRC --store $TASKS_DIR list" "$out"
+assert_match "says it broke the lock" "breaking stale build lock" "$(cat "$FIXTURE/stderr")"
+assert_eq "no build lock left" no "$([ -e "$DEFAULT_BIN.lock" ] && echo yes || echo no)"
+touch -t "$OLD" "$DEFAULT_SRC/go.mod"; touch -t "$BUILT" "$DEFAULT_BIN"
+
+echo "# several callers break the same dead lock at once: all succeed, no lock left"
+( exit 0 ) & dead=$!; wait "$dead"
+mkdir "$DEFAULT_BIN.lock"; echo "$dead" > "$DEFAULT_BIN.lock/pid"
+touch -t "$NEWER" "$DEFAULT_SRC/go.mod"
+pids=(); for _ in 1 2 3 4 5 6; do GO_SLEEP=0.3 bash "$SHIM" list >/dev/null 2>>"$FIXTURE/stderr-many" & pids+=($!); done
+failed=0; for p in "${pids[@]}"; do wait "$p" || failed=$((failed + 1)); done
+assert_eq "no caller failed" 0 "$failed"
+assert_eq "no build lock left" no "$([ -e "$DEFAULT_BIN.lock" ] && echo yes || echo no)"
+touch -t "$OLD" "$DEFAULT_SRC/go.mod"; touch -t "$BUILT" "$DEFAULT_BIN"
+
+echo "# a lock older than 5 minutes, its pid alive (reused): broken, then built"
+mkdir "$DEFAULT_BIN.lock"; echo "$$" > "$DEFAULT_BIN.lock/pid"
+touch -t "$OLD" "$DEFAULT_BIN.lock"
+touch -t "$NEWER" "$DEFAULT_SRC/go.mod"
+n=$(builds)
+out=$(run list); rc=$?
+assert_eq "exit 0" 0 "$rc"
+assert_eq "built" $((n + 1)) "$(builds)"
+assert_eq "no build lock left" no "$([ -e "$DEFAULT_BIN.lock" ] && echo yes || echo no)"
+touch -t "$OLD" "$DEFAULT_SRC/go.mod"; touch -t "$BUILT" "$DEFAULT_BIN"
+
+echo "# a fresh lock held by a live process: waits, then gives up with an error"
+mkdir "$DEFAULT_BIN.lock"; echo "$$" > "$DEFAULT_BIN.lock/pid"
+touch -t "$NEWER" "$DEFAULT_SRC/go.mod"
+n=$(builds)
+out=$(WB_STORE_LOCK_WAIT=1 run list); rc=$?
+assert_eq "exit 1" 1 "$rc"
+assert_eq "no build" "$n" "$(builds)"
+assert_eq "binary not run" "" "$out"
+assert_match "says it gave up, naming the lock and its pid" "gave up after 1s .*$DEFAULT_BIN\.lock, pid $$" "$(cat "$FIXTURE/stderr")"
+assert_eq "someone else's lock left alone" "$$" "$(cat "$DEFAULT_BIN.lock/pid" 2>/dev/null)"
+rm -rf "$DEFAULT_BIN.lock"
+touch -t "$OLD" "$DEFAULT_SRC/go.mod"
 
 # =============================================================================
 echo "# no source dir: clear error"
