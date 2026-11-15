@@ -2369,6 +2369,8 @@ __VP_META__
           failed: {},
           timers: {},
           retry: {},
+          inflight: {},
+          ready: false,
           submitted: null,
           submitting: false,
         };
@@ -2391,7 +2393,7 @@ __VP_META__
         }
         function chrome() {
           $("prog").textContent = VM.progress(data, counts());
-          submitBtn.disabled = !st.db || failedCount() > 0 || st.submitting;
+          submitBtn.disabled = !st.ready || !st.db || failedCount() > 0 || st.submitting;
           if (failedCount()) {
             $("status").className = "status err";
             $("status").textContent =
@@ -2442,7 +2444,18 @@ __VP_META__
             updatedAt: st.stamp[id],
           };
         }
-        async function write(id) {
+        var inflightN = 0;
+        // Every save is tracked until it settles, so Submit can wait for a write already on its way.
+        function write(id) {
+          var key = id + "#" + ++inflightN,
+            p = save(id);
+          st.inflight[key] = p;
+          p.then(function () {
+            delete st.inflight[key];
+          });
+          return p;
+        }
+        async function save(id) {
           clearTimeout(st.timers[id]);
           delete st.timers[id];
           clearTimeout(st.retry[id]);
@@ -2480,13 +2493,30 @@ __VP_META__
           if (now) write(id);
           else st.timers[id] = setTimeout(function () { write(id); }, 600);
         }
-        function flushPending() {
-          return Promise.all(Object.keys(st.timers).map(write));
+        // Waits until no text save is queued and no write is in flight (a retry timer is not waited on).
+        async function flushPending() {
+          for (;;) {
+            var queued = Object.keys(st.timers),
+              running = Object.keys(st.inflight).map(function (k) {
+                return st.inflight[k];
+              });
+            if (!queued.length && !running.length) return;
+            await Promise.all(queued.map(write).concat(running));
+          }
         }
+        // Controls stay off until start() has found out whether the page has a store.
+        function setControls(on) {
+          document
+            .querySelectorAll("button[data-out], [data-skip], [data-paste], [data-note]")
+            .forEach(function (el) {
+              el.disabled = !on;
+            });
+        }
+        setControls(false);
 
         document.addEventListener("click", function (e) {
           var b = e.target.closest && e.target.closest("button[data-out]");
-          if (!b) return;
+          if (!b || !st.ready) return;
           var id = b.getAttribute("data-step"),
             v = b.getAttribute("data-out");
           change(id, { outcome: cur(id).outcome === v ? "" : v }, true);
@@ -2494,6 +2524,7 @@ __VP_META__
         document.addEventListener("input", function (e) {
           var el = e.target,
             id;
+          if (!st.ready) return;
           if ((id = el.getAttribute && el.getAttribute("data-skip"))) change(id, { skip_reason: el.value }, false);
           else if ((id = el.getAttribute && el.getAttribute("data-paste"))) change(id, { output: el.value }, false);
           else if ((id = el.getAttribute && el.getAttribute("data-note"))) change(id, { note: el.value }, false);
@@ -2539,13 +2570,19 @@ __VP_META__
         }
         async function submitOnce() {
           submitBtn.disabled = true;
+          // 1. Every edit is saved first, so the counts sent and recorded are the saved ones.
+          await flushPending();
+          if (failedCount()) {
+            var f = $("status");
+            f.className = "status err";
+            f.textContent = "Some steps are not saved yet. Submit waits until they are.";
+            return;
+          }
           var c = counts(),
             again = !!(st.submitted && String(st.submitted.rev) === rev);
-          // 1. The comment goes first, while this click is still Jet's gesture.
           var threadId = (again && st.submitted.threadId) || "",
             sent = false,
             sendError = "";
-          var pending = flushPending();
           if (st.comments && st.sendState === "available") {
             var text = VM.submitText(data, c, again);
             try {
@@ -2568,8 +2605,9 @@ __VP_META__
           } else sendError = st.comments ? "send_" + (st.sendState || "unavailable") : "comments_unavailable";
           // 2. Then the durable record, with the same rev.
           try {
-            await pending;
+            await flushPending();
             if (failedCount()) throw new Error("some steps are not saved");
+            c = counts();
             var doc = {
               at: new Date().toISOString(),
               rev: rev,
@@ -2639,6 +2677,8 @@ __VP_META__
               st.sendState = "unavailable";
             }
           }
+          st.ready = true;
+          setControls(true);
           if (!st.db) {
             banner("Results will not be saved in this view, and there is no Submit. Open the page in claude.ai, signed in.");
             $("saved").textContent = "Not saving.";
