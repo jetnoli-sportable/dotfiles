@@ -195,6 +195,27 @@ sys.exit(0 if d["run"]["steps"]["S4"]["output"] == s["output"] and "</script>" i
 PYEOF
 then pass "record-run keeps pasted text byte for byte"; else fail "pasted text changed"; fi
 
+# The Submit record is cross-checked: silent when it agrees, a warning (not a failure) when it does not.
+if [[ "$OUT" != *warning* ]]; then pass "record-run: no warning when the Submit record matches"; else fail "unexpected warning (out=$OUT)"; fi
+# warn_case <name> <python on sub, the Submit record, or None to delete it> <substring>
+warn_case() {
+  local name="$1" py="$2" sub="$3"
+  cp -r "$STATE" "$WORK/w-$name"; build_copy "w-$name"
+  python3 - "$WORK/w-$name/meta/submitted.json" "$py" <<'PYEOF'
+import json, os, sys
+sub = json.load(open(sys.argv[1]))
+exec(sys.argv[2])
+if sub is None: os.remove(sys.argv[1])
+else: json.dump(sub, open(sys.argv[1], "w"))
+PYEOF
+  record "$WORK/w-$name/verify.json" "$WORK/w-$name"
+  if [ "$RC" = 0 ] && [[ "$OUT" == *"verify-plan.py: warning:"*"$sub"* ]] && [ "$(run_field "$WORK/w-$name/verify.json" 'd["run"]["steps"]["S1"]["outcome"]')" = passed ]; then
+    pass "record-run warns and still records: $name"; else fail "record-run warning $name (rc=$RC out=$OUT)"; fi
+}
+warn_case missing-record 'sub = None' "missing"
+warn_case wrong-rev 'sub["rev"] = "2"' "revision 2"
+warn_case wrong-counts 'sub["counts"]["passed"] = 3' "passed 3 vs 2"
+
 # Absent step id: refused, source untouched.
 cp -r "$STATE" "$WORK/bad-state"; echo '{"outcome":"passed","rev":"1","updatedAt":"2026-11-16T11:00:00.000Z"}' > "$WORK/bad-state/steps/S99.json"
 build_copy r2; BEFORE="$(sum_of "$WORK/r2/verify.json")"; record "$WORK/r2/verify.json" "$WORK/bad-state"

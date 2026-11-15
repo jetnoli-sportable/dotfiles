@@ -325,6 +325,30 @@ def unwrap(raw):
     return raw
 
 
+def submit_warnings(state_dir, revision, known, recorded):
+    """Ways the Submit record disagrees with what is about to be recorded. Advisory only."""
+    path = os.path.join(state_dir, "meta", "submitted.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            sub = unwrap(json.load(fh))
+    except (OSError, json.JSONDecodeError):
+        return [f"{path} is missing or unreadable, so there is no Submit to check this run against"]
+    if not isinstance(sub, dict):
+        return [f"{path} does not hold an object, so there is no Submit to check this run against"]
+    out = []
+    if str(sub.get("rev")) != str(revision):
+        out.append(f"the Submit record is for walkthrough revision {sub.get('rev')}, but the source is at revision {revision}")
+    got = {"passed": 0, "failed": 0, "skipped": 0, "not_run": 0}
+    for sid in known:
+        o = (recorded.get(sid) or {}).get("outcome", "not-run")
+        got[{"passed": "passed", "failed": "failed", "skipped": "skipped"}.get(o, "not_run")] += 1
+    said = sub.get("counts") if isinstance(sub.get("counts"), dict) else {}
+    diff = [f"{k} {said.get(k)} vs {v}" for k, v in got.items() if said.get(k) != v]
+    if diff:
+        out.append("the Submit record's counts differ from the recorded run (" + ", ".join(diff) + "); steps may have changed after Submit")
+    return out
+
+
 def cmd_record_run(args):
     doc = load(args.file)
     # The run section is about to be replaced, so a stale one must not block recording.
@@ -364,6 +388,8 @@ def cmd_record_run(args):
             }
     if problems:
         return fail(problems, "verify-plan.py: not recording; the source is unchanged")
+    for w in submit_warnings(args.state_dir, revision, known, recorded):
+        print(f"verify-plan.py: warning: {w}", file=sys.stderr)
     # Steps in the source's order, so the output does not depend on directory listing order.
     new = dict(doc)
     new["run"] = {"revision": revision, "steps": {sid: recorded[sid] for sid in known if sid in recorded}}
