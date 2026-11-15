@@ -381,7 +381,7 @@ const DC = (() => {
   const $ = (id) => document.getElementById(id);
   const state = {
     spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), cleared: new Set(), timers: {}, retry: {}, inflight: {}, ready: false, lastThreadId: "",
-    accept: false, submitted: null, submitting: false, open: {}, sum: null, globalText: "", globalTimer: null, globalInflight: null, globalFailed: false,
+    accept: false, submitted: null, submitting: false, open: {}, sum: null, globalText: "", globalTimer: null, globalRetry: null, globalInflight: null, globalFailed: false,
   };
 
   function h(tag, attrs, ...kids) {
@@ -594,8 +594,8 @@ const DC = (() => {
       const ar = sum.areas.filter((a) => a.area)[i];
       const c = d.querySelector(".count"); if (ar && c) c.textContent = `${ar.answered} of ${ar.total}`;
     });
-    $("submit").disabled = !state.ready || !state.db || state.failed.size > 0 || state.submitting;
-    if (state.failed.size) { $("status").className = "status err"; $("status").textContent = "Some answers are not saved yet. Submit waits until they are."; }
+    $("submit").disabled = !state.ready || !state.db || state.failed.size > 0 || state.globalFailed || state.submitting;
+    if (state.failed.size || state.globalFailed) { $("status").className = "status err"; $("status").textContent = "Some answers are not saved yet. Submit waits until they are."; }
   }
 
   function recompute() { state.sum = DC.summarize(state.spec, state.answers, state.accept); }
@@ -643,7 +643,7 @@ const DC = (() => {
   function write(item) {
     const key = item.id + "#" + ++inflightN, p = saveNow(item);
     state.inflight[key] = p;
-    p.then(() => { delete state.inflight[key]; });
+    p.finally(() => { delete state.inflight[key]; });
     return p;
   }
   async function saveNow(item) {
@@ -663,23 +663,29 @@ const DC = (() => {
       state.retry[item.id] = setTimeout(() => { if (state.failed.has(item.id)) write(item); }, 5000);
     }
   }
-  // Waits until no text save is queued and no write is in flight (a retry timer is not waited on).
+  // Note saves run one after another, so an older save can never land after a newer one.
   function writeGlobal() {
     clearTimeout(state.globalTimer); state.globalTimer = null;
+    clearTimeout(state.globalRetry); state.globalRetry = null;
     if (!state.db) return Promise.resolve();
-    let p = null;
-    p = (async () => {
+    const p = (state.globalInflight || Promise.resolve()).catch(() => {}).then(async () => {
       try {
         await state.db.doc("meta/global").set({ text: state.globalText, rev: state.spec.rev, updatedAt: new Date().toISOString() });
+        const was = state.globalFailed;
         state.globalFailed = false; $("saved").textContent = "Saved.";
+        if (was && !state.failed.size) { $("status").className = "status"; $("status").textContent = "You can leave and come back. Submit when you are done."; }
       } catch (e) {
         state.globalFailed = true;
-        $("saved").textContent = "Global note not saved: " + ((e && e.message) || "store refused") + ".";
-      } finally { if (state.globalInflight === p) state.globalInflight = null; }
-    })();
+        $("saved").textContent = "Global note not saved: " + ((e && e.message) || "store refused") + ". Retrying.";
+        if (!state.globalTimer && !state.globalRetry) state.globalRetry = setTimeout(writeGlobal, 5000);
+      }
+      renderChrome();
+    });
     state.globalInflight = p;
+    p.finally(() => { if (state.globalInflight === p) state.globalInflight = null; });
     return p;
   }
+  // Waits until no text save is queued and no write is in flight (a retry timer is not waited on).
   async function flushPending() {
     for (;;) {
       const queued = Object.keys(state.timers), running = Object.values(state.inflight);
@@ -693,7 +699,7 @@ const DC = (() => {
   // A redraw while a submit awaits (a typed note, a db snapshot) must not
   // re-enable the button, or a second click sends a second wake-up comment.
   async function submit() {
-    if (state.submitting || state.failed.size) return;
+    if (state.submitting || state.failed.size || state.globalFailed) return;
     state.submitting = true;
     try { await submitOnce(); } finally { state.submitting = false; renderChrome(); }
   }
