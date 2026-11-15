@@ -380,8 +380,8 @@ const DC = (() => {
 (() => {
   const $ = (id) => document.getElementById(id);
   const state = {
-    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), cleared: new Set(), timers: {}, retry: {},
-    accept: false, submitted: null, submitting: false, open: {}, sum: null, globalText: "", globalTimer: null,
+    spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), cleared: new Set(), timers: {}, retry: {}, inflight: {}, ready: false, lastThreadId: "",
+    accept: false, submitted: null, submitting: false, open: {}, sum: null, globalText: "", globalTimer: null, globalRetry: null, globalInflight: null, globalFailed: false,
   };
 
   function h(tag, attrs, ...kids) {
@@ -483,7 +483,7 @@ const DC = (() => {
       const row = h("div", { class: "verdicts", role: "group", "aria-label": "Verdict for " + item.title });
       spec.verdicts.forEach((v) => {
         const on = chosen === v.id;
-        const b = h("button", { type: "button", class: "v tone-" + v.tone + (!on && v.id === item.suggested ? " suggested" : ""), "aria-pressed": on ? "true" : "false", "data-pick": v.id },
+        const b = h("button", { type: "button", class: "v tone-" + v.tone + (!on && v.id === item.suggested ? " suggested" : ""), "aria-pressed": on ? "true" : "false", "data-pick": v.id, disabled: state.ready ? null : true },
           h("span", { class: "ck", "aria-hidden": "true", text: "✓" }), h("span", { text: v.label }), h("span", { class: "word", text: "chosen" }));
         b.addEventListener("click", () => save(item, { choice: on ? "" : v.id }));
         row.append(b);
@@ -495,7 +495,7 @@ const DC = (() => {
         const label = h("span", { class: "label", text: o.label });
         if (o.recommended) label.append(h("span", { class: "rec", text: "recommended" }));
         if (item.default === o.id) label.append(h("span", { class: "rec", text: "default" }));
-        const b = h("button", { type: "button", class: "opt", "aria-pressed": chosen === o.id ? "true" : "false", "data-pick": o.id }, h("span", { class: "mark" }), label);
+        const b = h("button", { type: "button", class: "opt", "aria-pressed": chosen === o.id ? "true" : "false", "data-pick": o.id, disabled: state.ready ? null : true }, h("span", { class: "mark" }), label);
         if (o.detail) b.append(h("span", { class: "detail", text: o.detail }));
         b.addEventListener("click", () => save(item, { choice: chosen === o.id ? "" : o.id }));
         opts.append(b);
@@ -512,8 +512,9 @@ const DC = (() => {
       const g = h("div", { class: "fields-grid" });
       item.fields.forEach((f) => {
         const id = `f-${item.id}-${f.key}`;
-        const inp = h("input", { type: "text", id, value: DC.fieldValue(f, a), placeholder: f.placeholder });
+        const inp = h("input", { type: "text", id, value: DC.fieldValue(f, a), placeholder: f.placeholder, disabled: state.ready ? null : true });
         inp.addEventListener("input", () => {
+          if (!state.ready) return;
           const cur = { ...((state.answers[item.id] || {}).fields || {}) }; cur[f.key] = inp.value;
           const prev = state.answers[item.id];
           state.answers[item.id] = DC.answerAfterFieldEdit(state.spec, item, prev, cur, state.spec.rev, new Date().toISOString(), state.cleared.has(item.id));
@@ -527,8 +528,8 @@ const DC = (() => {
     body.append(blocksOf(item));
     const ls = linkChips(item.links); if (ls) body.append(ls);
     const nid = "note-" + item.id;
-    const ta = h("textarea", { id: nid, rows: "2" }); ta.value = (a && a.note) || "";
-    ta.addEventListener("input", () => queueSave(item, { note: ta.value }));
+    const ta = h("textarea", { id: nid, rows: "2", disabled: state.ready ? null : true }); ta.value = (a && a.note) || "";
+    ta.addEventListener("input", () => state.ready && queueSave(item, { note: ta.value }));
     body.append(h("div", { class: "note" }, h("label", { for: nid, text: verdicts ? "Note (optional)" : "Other, or a note (optional)" }), ta));
     more.append(body);
     card.append(more);
@@ -593,8 +594,8 @@ const DC = (() => {
       const ar = sum.areas.filter((a) => a.area)[i];
       const c = d.querySelector(".count"); if (ar && c) c.textContent = `${ar.answered} of ${ar.total}`;
     });
-    $("submit").disabled = !state.db || state.failed.size > 0 || state.submitting;
-    if (state.failed.size) { $("status").className = "status err"; $("status").textContent = "Some answers are not saved yet. Submit waits until they are."; }
+    $("submit").disabled = !state.ready || !state.db || state.failed.size > 0 || state.globalFailed || state.submitting;
+    if (state.failed.size || state.globalFailed) { $("status").className = "status err"; $("status").textContent = "Some answers are not saved yet. Submit waits until they are."; }
   }
 
   function recompute() { state.sum = DC.summarize(state.spec, state.answers, state.accept); }
@@ -622,6 +623,7 @@ const DC = (() => {
 
   // Typing: update local state at once, write after a pause.
   function queueSave(item, patch) {
+    if (!state.ready) return;
     const prev = state.answers[item.id];
     state.answers[item.id] = DC.buildAnswer(item, prev, patch, state.spec.rev, new Date().toISOString());
     recompute(); renderChrome();
@@ -629,13 +631,22 @@ const DC = (() => {
     state.timers[item.id] = setTimeout(() => write(item), 600);
   }
   function save(item, patch) {
+    if (!state.ready) return Promise.resolve();
     if ("choice" in patch) { if (patch.choice) state.cleared.delete(item.id); else state.cleared.add(item.id); }
     clearTimeout(state.timers[item.id]);
     state.answers[item.id] = DC.buildAnswer(item, state.answers[item.id], patch, state.spec.rev, new Date().toISOString());
     replaceRow(item);
     return write(item);
   }
-  async function write(item) {
+  let inflightN = 0;
+  // Every save is tracked until it settles, so Submit can wait for a write already on its way.
+  function write(item) {
+    const key = item.id + "#" + ++inflightN, p = saveNow(item);
+    state.inflight[key] = p;
+    p.finally(() => { delete state.inflight[key]; });
+    return p;
+  }
+  async function saveNow(item) {
     clearTimeout(state.timers[item.id]); delete state.timers[item.id];
     clearTimeout(state.retry[item.id]); delete state.retry[item.id];
     if (!state.db) return;
@@ -652,12 +663,43 @@ const DC = (() => {
       state.retry[item.id] = setTimeout(() => { if (state.failed.has(item.id)) write(item); }, 5000);
     }
   }
-  const flushPending = () => Promise.all(Object.keys(state.timers).map((id) => write(state.spec.items.find((it) => it.id === id))));
+  // Note saves run one after another, so an older save can never land after a newer one.
+  function writeGlobal() {
+    clearTimeout(state.globalTimer); state.globalTimer = null;
+    clearTimeout(state.globalRetry); state.globalRetry = null;
+    if (!state.db) return Promise.resolve();
+    const p = (state.globalInflight || Promise.resolve()).catch(() => {}).then(async () => {
+      try {
+        await state.db.doc("meta/global").set({ text: state.globalText, rev: state.spec.rev, updatedAt: new Date().toISOString() });
+        const was = state.globalFailed;
+        state.globalFailed = false; $("saved").textContent = "Saved.";
+        if (was && !state.failed.size) { $("status").className = "status"; $("status").textContent = "You can leave and come back. Submit when you are done."; }
+      } catch (e) {
+        state.globalFailed = true;
+        $("saved").textContent = "Global note not saved: " + ((e && e.message) || "store refused") + ". Retrying.";
+        if (!state.globalTimer && !state.globalRetry) state.globalRetry = setTimeout(writeGlobal, 5000);
+      }
+      renderChrome();
+    });
+    state.globalInflight = p;
+    p.finally(() => { if (state.globalInflight === p) state.globalInflight = null; });
+    return p;
+  }
+  // Waits until no text save is queued and no write is in flight (a retry timer is not waited on).
+  async function flushPending() {
+    for (;;) {
+      const queued = Object.keys(state.timers), running = Object.values(state.inflight);
+      if (state.globalTimer) running.push(writeGlobal());
+      else if (state.globalInflight) running.push(state.globalInflight);
+      if (!queued.length && !running.length) return;
+      await Promise.all(queued.map((id) => write(state.spec.items.find((it) => it.id === id))).concat(running));
+    }
+  }
 
   // A redraw while a submit awaits (a typed note, a db snapshot) must not
   // re-enable the button, or a second click sends a second wake-up comment.
   async function submit() {
-    if (state.submitting || state.failed.size) return;
+    if (state.submitting || state.failed.size || state.globalFailed) return;
     state.submitting = true;
     try { await submitOnce(); } finally { state.submitting = false; renderChrome(); }
   }
@@ -666,9 +708,10 @@ const DC = (() => {
     const btn = $("submit"), status = $("status"), spec = state.spec;
     btn.disabled = true;
     recompute();
-    const sum = state.sum, again = !!(state.submitted && state.submitted.rev === spec.rev);
-    // 1. The comment goes first, while this click is still Jet's gesture.
-    let threadId = (again && state.submitted.threadId) || "", sent = false, sendError = "";
+    let sum = state.sum;
+    const again = !!(state.submitted && state.submitted.rev === spec.rev);
+    // 1. The comment goes first, while this click is still Jet's gesture; the only await before it is anchorFor.
+    let threadId = (again && state.submitted.threadId) || state.lastThreadId || "", sent = false, sendError = "";
     const pending = flushPending();
     if (state.comments && state.sendState === "available") {
       const text = DC.commentText(spec, sum, again);
@@ -676,16 +719,19 @@ const DC = (() => {
         let res;
         if (threadId) {
           try { res = await state.comments.sendToClaude({ threadId, text }); }
-          catch (e) { if (e && e.code === "not_found") { threadId = ""; } else throw e; }
+          catch (e) { if (e && e.code === "not_found") { threadId = state.lastThreadId = ""; } else throw e; }
         }
         if (!threadId) res = await state.comments.sendToClaude({ anchor: await state.comments.anchorFor(btn), text });
-        threadId = (res && res.threadId) || threadId; sent = true;
+        threadId = (res && res.threadId) || threadId; if (threadId) state.lastThreadId = threadId; sent = true;
       } catch (e) { sendError = (e && (e.code || e.message)) || "unknown"; }
     } else sendError = state.comments ? "send_" + (state.sendState || "unavailable") : "comments_unavailable";
     // 2. Then the durable record, with the same rev.
     try {
       await pending;
+      await flushPending();
       if (state.failed.size) throw new Error("some answers are not saved");
+      if (state.globalFailed) throw new Error("the note for the whole batch is not saved");
+      recompute(); sum = state.sum;
       const doc = DC.submittedDoc(spec, sum, { threadId, sent, sendError }, new Date().toISOString());
       await state.db.doc("meta/submitted").set(doc);
       state.submitted = doc;
@@ -740,25 +786,28 @@ const DC = (() => {
     }
     if (spec.layout === "verdicts") {
       $("acceptwrap").hidden = false;
-      $("accept").addEventListener("change", () => { state.accept = $("accept").checked; renderAll(); });
+      $("accept").addEventListener("change", () => { if (!state.ready) return; state.accept = $("accept").checked; renderAll(); });
     }
     if (spec.globalNote) {
       $("globalbox").hidden = false;
       if (spec.globalNote.label) $("globallabel").textContent = spec.globalNote.label;
       if (spec.globalNote.placeholder) $("globalnote").placeholder = spec.globalNote.placeholder;
       $("globalnote").addEventListener("input", () => {
+        if (!state.ready) return;
         state.globalText = $("globalnote").value; clearTimeout(state.globalTimer);
-        state.globalTimer = setTimeout(async () => {
-          if (!state.db) return;
-          try { await state.db.doc("meta/global").set({ text: state.globalText, rev: spec.rev, updatedAt: new Date().toISOString() }); $("saved").textContent = "Saved."; }
-          catch (e) { $("saved").textContent = "Global note not saved: " + ((e && e.message) || "store refused") + "."; }
-        }, 600);
+        state.globalTimer = setTimeout(writeGlobal, 600);
       });
     }
   }
 
   const use = (name) => Promise.resolve(window.claude && window.claude.use ? window.claude.use(name) : null).catch(() => null);
   function banner(text) { const n = $("notice"); n.hidden = false; n.replaceChildren(h("p", { text })); }
+
+  // Controls stay off until start() has found out whether the page has a store.
+  function setStaticControls(on) {
+    $("accept").disabled = !on; $("globalnote").disabled = !on;
+  }
+  function becomeReady() { state.ready = true; setStaticControls(true); renderAll(); }
 
   async function start() {
     let spec;
@@ -772,6 +821,7 @@ const DC = (() => {
       return;
     }
     state.spec = spec;
+    setStaticControls(false);
     chrome(); renderAll();
     $("submit").addEventListener("click", submit);
 
@@ -780,14 +830,14 @@ const DC = (() => {
     if (state.comments) { try { state.sendState = String(await state.comments.canSendToClaude()); } catch (e) { state.sendState = "unavailable"; } }
     if (!state.db) {
       banner("Answers cannot be saved in this view. Open the page in claude.ai, signed in.");
-      $("saved").textContent = "Not saving."; renderChrome(); return;
+      $("saved").textContent = "Not saving."; becomeReady(); return;
     }
     if (!state.comments || state.sendState !== "available") {
       banner(!state.comments ? "Submit cannot wake Claude from this view. After you submit, type \"done\" in the session."
         : "Claude cannot be woken from this page right now (" + state.sendState + "). After you submit, type \"done\" in the session.");
       $("notice").className = "banner";
     }
-    renderChrome();
+    becomeReady();
     state.db.collection("answers").onSnapshot((snap) => {
       const changed = [];
       snap.docs.forEach((d) => {

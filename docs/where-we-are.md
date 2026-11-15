@@ -4,7 +4,7 @@ status: current
 tile: The strategy page — task-store numbers, which tool to reach for when, the save/resume workflow, every skill/verb/doc with measured usage and a verdict, the architecture direction, and what's next.
 group: where-we-are
 kind: guide
-updated: 2026-09-22
+updated: 2026-11-15
 ---
 
 <style>
@@ -89,7 +89,7 @@ alternatives for a specific shape of the problem.
     <p>Once the direction is agreed in chat and what's left needs written, asynchronous answers. It picks an nvim buffer (a handful of choices, a triage, a paste loop) or a claude.ai page (options with evidence, a big shared-verdict audit, answering away from the terminal), wakes the session when you finish, and records each answer in the task's Decisions. Replaces <code>/decision-buffer</code>, <code>/decision-page</code> and <code>/review-page</code>. <a href="guides/decide.html">guide</a></p></div>
   <div class="wwa-card"><h3>Scope an open question</h3>
     <p class="use">/ce-brainstorm → /ce-plan</p>
-    <p>Brainstorm for what to build, <code>/ce-ideate</code> for generating options, <code>/spec-doc</code> when requirements need pinning down for others, <code>/ce-pov</code> for "should we adopt X?".</p></div>
+    <p>Brainstorm for what to build, <code>/ce-ideate</code> for generating options, <code>/verify-plan</code> before <code>/ce-plan</code> to agree how the work will be proven (it writes the numbered requirements when none exist), <code>/ce-pov</code> for "should we adopt X?".</p></div>
   <div class="wwa-card"><h3>Split something too big</h3>
     <p class="use">/wb-breakdown</p>
     <p>Turns one oversized task or Jira ticket into a parent/child family, via an approved proposal that <code>wb breakdown --apply</code> writes. <a href="wb-guide.html#wb-breakdown--split-an-oversized-task-into-a-family">wb guide</a></p></div>
@@ -130,8 +130,6 @@ so it has a fair chance of being tried.
 <div class="wwa-cards">
   <div class="wwa-card new"><h3>/quick-wins <span class="chip mut">0 uses</span></h3>
     <p>You have an hour and want to finish something: it ranks planned tasks and captured items by effort, isolation and ownership. <em>Example:</em> Friday afternoon, "which planned dotfiles tasks are S-sized and need nothing from anyone?"</p></div>
-  <div class="wwa-card new"><h3>/spec-doc <span class="chip mut">1 use</span></h3>
-    <p>Before <code>/wb-breakdown</code> or <code>/ce-plan</code> on something big enough that the requirements need writing down. <em>Example:</em> the task-store schema owner (T2 below), where the numbered rules decide the module's API.</p></div>
   <div class="wwa-card new"><h3>/visual-explore <span class="chip ok">4 uses</span></h3>
     <p>Choosing the look of a new HTML surface by comparing 3–4 mockups side by side before building. <em>Example:</em> the <code>/wb-breakdown</code> review page (T3 below).</p></div>
   <div class="wwa-card new"><h3>/find-skills <span class="chip mut">0 uses</span></h3>
@@ -203,7 +201,7 @@ piece audit, re-checked against the refreshed counts.
 | visual-explore | <span class="wwa-num">4</span> | <span class="wwa-num">1</span> | <span class="chip acc">too new · in use</span> | |
 | review-page | <span class="wwa-num">1</span> | <span class="wwa-num">1</span> | <span class="chip warn">retired</span> | Shipped 2026-09-14; replaced by `/decide`, which weekly-review now uses underneath. |
 | weekly-review | <span class="wwa-num">1</span> | <span class="wwa-num">1</span> | <span class="chip acc">too new</span> | Has run once (W38). |
-| spec-doc | <span class="wwa-num">1</span> | <span class="wwa-num">0</span> | <span class="chip acc">too new</span> | |
+| spec-doc | <span class="wwa-num">1</span> | <span class="wwa-num">0</span> | <span class="chip warn">removed</span> | Removed 2026-11-15; `/verify-plan`'s requirements step replaces it. |
 | quick-wins | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip mut">no uptake</span> | A month old. Question for the weekly review, not a removal. |
 | help | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip warn">removed</span> | Removed 2026-11-14, unused; the <kbd>prefix</kbd>+<kbd>?</kbd> picker does the same job. |
 | find-skills | <span class="wwa-num">0</span> | <span class="wwa-num">0</span> | <span class="chip acc">too new</span> | |

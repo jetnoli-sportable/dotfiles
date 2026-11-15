@@ -10,6 +10,7 @@ directory instead of replacing it.
 ## Tracked
 
 - `skills/decide/` — batches of decisions: an nvim buffer or a claude.ai page, recorded in the task
+- `skills/verify-plan/` — before planning, shape how a task will be proven; one verification document per task, its shaping and map pages, the walkthrough run and its results
 - `skills/handoff/` — route in-conversation discussion to the right worker (switch or spawn)
 - `skills/park/` — capture "later" items to the standing weekly-capture doc
 - `skills/weekly-review/` — the weekly ceremony that reviews captured items
@@ -33,7 +34,6 @@ directory instead of replacing it.
   `scripts/.config/scripts/tmux/claude-reply-log.sh` are live. Do NOT duplicate the hook
   into `settings.recommended.json`, or it fires twice. See
   [`reply-log.md`](../docs/guides/reply-log.html).
-- `skills/spec-doc/` — requirements spec (PRD): synthesised, seams-first, Warp-style invariants + user stories; composes the vendored spec skills below
 
 ## Vendored (third-party, via `npx skills`)
 
