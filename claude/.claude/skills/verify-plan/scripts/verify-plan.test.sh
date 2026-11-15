@@ -87,6 +87,10 @@ reject run-unknown-step 's["run"] = {"revision": s["walkthrough"]["revision"], "
 reject run-bad-outcome 's["run"] = {"revision": s["walkthrough"]["revision"], "steps": {s["walkthrough"]["steps"][0]["id"]: {"outcome": "meh"}}}' "meh" "passed" "failed" "skipped" "not-run"
 accept run-valid 's["run"] = {"revision": s["walkthrough"]["revision"], "steps": {s["walkthrough"]["steps"][0]["id"]: {"outcome": "skipped", "skip_reason": "no cloud access today"}}}'
 
+# Optional title and summary: strings, never required.
+reject title-not-string 's["title"] = 5' "title"
+reject summary-not-string 's["summary"] = ["x"]' "summary"
+accept no-title-no-summary 's.pop("title", None); s.pop("summary", None)'
 reject bad-stage 's["stage"] = "done"' "stage" "shaping"
 reject missing-file-arg 's["task"] = ""' "task"
 
@@ -122,8 +126,22 @@ sys.exit(0 if a == b and a[0] == a[1] and a[0] >= 2 else 1)
 PYEOF
 then pass "a </script in a sentence builds with one closing tag per script block"; else fail "script-end safety (rc=$RC out=$OUT)"; fi
 
-# Page metadata comment (the format wb.sh _wb_page_meta reads).
-if python3 - "$WORK/b1/shaping.html" <<'PYEOF'
+# Both pages: map.html is written beside shaping.html, identical on every build.
+if [ -s "$WORK/b1/map.html" ]; then pass "build writes map.html beside the source"; else fail "map.html missing"; fi
+cp "$WORK/b1/map.html" "$WORK/first-map.html"; build "$WORK/b1/verify.json"
+if cmp -s "$WORK/first-map.html" "$WORK/b1/map.html"; then pass "building twice is byte-identical for map.html too"; else fail "map.html is not deterministic"; fi
+if python3 - "$WORK/b2/map.html" <<'PYEOF'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+a, b = len(re.findall(r"<script", t, re.I)), len(re.findall(r"</script", t, re.I))
+sys.exit(0 if a == b and a >= 2 else 1)
+PYEOF
+then pass "a </script in a sentence builds map.html with one closing tag per script block"; else fail "map.html script-end safety"; fi
+
+for PAGE in shaping.html map.html; do
+  H="$WORK/b1/$PAGE"
+  # Page metadata comment (the format wb.sh _wb_page_meta reads).
+  if python3 - "$H" <<'PYEOF'
 import sys
 lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
 start = [i for i, l in enumerate(lines) if l.strip() == "---"]
@@ -133,17 +151,19 @@ ok = ok and "tags: [verify-plan]" in block
 ok = ok and any(l.startswith("retire_when: task:example--book-holds done") for l in block)
 sys.exit(0 if ok else 1)
 PYEOF
-then pass "page metadata block opens within the first five lines with tags and retire_when"; else fail "page metadata block"; fi
+  then pass "$PAGE: metadata block opens within the first five lines with tags and retire_when"; else fail "$PAGE: page metadata block"; fi
+  # Colour blocks and no vertical-scroll containers.
+  if grep -q 'prefers-color-scheme: *dark' "$H" && grep -q ':root:not(\[data-theme="light"\])' "$H" && grep -q ':root\[data-theme="dark"\]' "$H"; then pass "$PAGE: light and dark colour blocks are present"; else fail "$PAGE: colour blocks"; fi
+  if grep -Eiq 'overflow(-y)? *: *(auto|scroll)|max-height' "$H"; then fail "$PAGE: has a vertical-scroll container rule"; else pass "$PAGE: no vertical-scroll container rules"; fi
+  if grep -q '<title>[^<]*Book holds' "$H"; then pass "$PAGE: browser title uses the document title"; else fail "$PAGE: browser title"; fi
+done
 build_copy b3 's["page"]["url"] = "https://example.test/p"'; build "$WORK/b3/verify.json"
-if grep -q '^url: https://example.test/p$' "$WORK/b3/shaping.html"; then pass "page url is emitted when present"; else fail "page url line"; fi
-
-# Colour blocks and no vertical-scroll containers.
-H="$WORK/b1/shaping.html"
-if grep -q 'prefers-color-scheme: *dark' "$H" && grep -q ':root:not(\[data-theme="light"\])' "$H" && grep -q ':root\[data-theme="dark"\]' "$H"; then pass "light and dark colour blocks are present"; else fail "colour blocks"; fi
-if grep -Eiq 'overflow(-y)? *: *(auto|scroll)|max-height' "$H"; then fail "page has a vertical-scroll container rule"; else pass "no vertical-scroll container rules"; fi
+if grep -q '^url: https://example.test/p$' "$WORK/b3/shaping.html" && grep -q '^url: https://example.test/p$' "$WORK/b3/map.html"; then pass "page url is emitted when present"; else fail "page url line"; fi
+build_copy b5 's.pop("title")'; build "$WORK/b5/verify.json"
+if grep -q '<title>[^<]*example--book-holds' "$WORK/b5/map.html"; then pass "browser title falls back to the task name"; else fail "title fallback"; fi
 
 # An invalid document is refused and nothing is written.
 build_copy b4 's["tests"][0]["requirements"].append("R99")'; build "$WORK/b4/verify.json"
-if [ "$RC" != 0 ] && [[ "$OUT" == *R99* ]] && [ ! -e "$WORK/b4/shaping.html" ]; then pass "build refuses an invalid document"; else fail "build invalid (rc=$RC out=$OUT)"; fi
+if [ "$RC" != 0 ] && [[ "$OUT" == *R99* ]] && [ ! -e "$WORK/b4/shaping.html" ] && [ ! -e "$WORK/b4/map.html" ]; then pass "build refuses an invalid document"; else fail "build invalid (rc=$RC out=$OUT)"; fi
 
 exit "$FAIL"

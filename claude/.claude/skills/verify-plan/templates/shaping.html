@@ -12,73 +12,6 @@ __VP_META__
     <style>
       __VP_CSS__
 /* shaping page only */
-.alt {
-        margin-top: 18px;
-        background: var(--card);
-        border-radius: 10px;
-      }
-      .alth {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        width: 100%;
-        background: none;
-        border: 0;
-        text-align: left;
-        padding: 12px 16px;
-        cursor: pointer;
-        font-weight: 700;
-        font-size: 15px;
-      }
-      .alth:focus-visible {
-        outline: 2px solid var(--acc);
-        outline-offset: -2px;
-        border-radius: 10px;
-      }
-      .alth .chv {
-        position: static;
-        flex: none;
-      }
-      .alt.open .alth .chv {
-        transform: rotate(90deg);
-      }
-      .altb {
-        display: none;
-        padding: 0 16px 14px;
-      }
-      .alt.open .altb {
-        display: block;
-      }
-      .te {
-        display: grid;
-        grid-template-columns: minmax(220px, 1fr) 2.2fr;
-        gap: 6px 24px;
-        padding: 12px;
-        margin: 0 0 8px;
-        border-radius: 8px;
-        border: 2px solid transparent;
-        background: var(--code);
-        scroll-margin-top: 70px;
-      }
-      .te.flash {
-        border-color: var(--acc);
-        background: var(--accbg);
-      }
-      .te .tn {
-        font-weight: 700;
-        font-size: 15px;
-      }
-      .te .ln {
-        font-size: 13px;
-        color: var(--mut);
-        margin: 2px 0;
-      }
-      .te .ri {
-        font-size: 14px;
-      }
-      .te .ri div {
-        margin: 0 0 5px;
-      }
       .walk {
         margin-top: 14px;
         font-size: 14px;
@@ -219,9 +152,6 @@ __VP_META__
         .decs {
           grid-template-columns: 1fr;
         }
-        .te {
-          grid-template-columns: 1fr;
-        }
       }
     </style>
   </head>
@@ -244,13 +174,10 @@ __VP_META__
         var esc = VP.esc,
           list = VP.list;
 
-        function byId(items, id) {
-          return (
-            list(items).filter(function (x) {
-              return x.id === id;
-            })[0] || null
-          );
-        }
+        var byId = VP.byId,
+          partLabels = VP.partLabels,
+          laneLabel = VP.laneLabel;
+
         // Derived, never stored: a test resting on a decision that is still open is tentative.
         function testState(d, t) {
           var dec = t.decision ? byId(d.decisions, t.decision) : null;
@@ -267,26 +194,6 @@ __VP_META__
             esc(t.status)
           );
         }
-        function partLabels(d, ids) {
-          return list(ids)
-            .map(function (id) {
-              var p = byId(d.parts, id);
-              return esc(p ? p.label : id);
-            })
-            .join(", ");
-        }
-        function laneLabel(d, id) {
-          return esc(
-            VP.lanes(d)
-              .filter(function (l) {
-                return l.id === id;
-              })
-              .map(function (l) {
-                return l.label;
-              })[0] || id,
-          );
-        }
-
         function band(d) {
           var tests = list(d.tests),
             decs = list(d.decisions);
@@ -377,7 +284,7 @@ __VP_META__
                   }
                   return tiles.length
                     ? "<td>" + tiles.join("") + "</td>"
-                    : '<td class="none">none</td>';
+                    : VP.noneCell(r);
                 })
                 .join("");
               return (
@@ -574,17 +481,7 @@ __VP_META__
           );
         }
 
-        function bullets(items) {
-          return list(items).length
-            ? "<ul>" +
-                list(items)
-                  .map(function (x) {
-                    return "<li>" + esc(x) + "</li>";
-                  })
-                  .join("") +
-                "</ul>"
-            : '<p class="empty">Nothing.</p>';
-        }
+        var bullets = VP.bullets;
         function checked(d) {
           return (
             '<div class="three"><div><h3>Checked before proposing</h3>' +
@@ -606,9 +503,7 @@ __VP_META__
         }
         function page(d) {
           return (
-            '<div class="cap">Verification &middot; shaping</div><h1>Verification: ' +
-            esc(d.task) +
-            "</h1>" +
+            VP.header(d, "Verification \u00b7 shaping") +
             VP.stageBar(d.stage) +
             '<div class="purpose">' +
             esc(purpose(d.stage)) +

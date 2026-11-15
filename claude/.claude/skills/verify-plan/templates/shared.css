@@ -530,12 +530,95 @@ button.tl:focus-visible {
   font-size: 12px;
   color: var(--mut);
 }
+/* collapsible list of every test (both pages) */
+
+.alt {
+  margin-top: 18px;
+  background: var(--card);
+  border-radius: 10px;
+}
+.alth {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 0;
+  text-align: left;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 15px;
+}
+.alth:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+.alth .chv {
+  position: static;
+  flex: none;
+}
+.alt.open .alth .chv {
+  transform: rotate(90deg);
+}
+.altb {
+  display: none;
+  padding: 0 16px 14px;
+}
+.alt.open .altb {
+  display: block;
+}
+.te {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 2.2fr;
+  gap: 6px 24px;
+  padding: 12px;
+  margin: 0 0 8px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: var(--code);
+  scroll-margin-top: 70px;
+}
+.te.flash {
+  border-color: var(--acc);
+  background: var(--accbg);
+}
+.te .tn {
+  font-weight: 700;
+  font-size: 15px;
+}
+.te .ln {
+  font-size: 13px;
+  color: var(--mut);
+  margin: 2px 0;
+}
+.te .ri {
+  font-size: 14px;
+}
+.te .ri div {
+  margin: 0 0 5px;
+}
+.tag.gap {
+  background: var(--planbg);
+  color: var(--plan);
+  display: inline-block;
+  margin-top: 6px;
+}
+.grid td.none.acc {
+  border-color: var(--plan);
+  color: var(--plan);
+  font-weight: 600;
+}
 @media (max-width: 900px) {
   .wrap {
     width: auto;
     margin: 0 16px;
   }
   .band {
+    grid-template-columns: 1fr;
+  }
+  .te {
     grid-template-columns: 1fr;
   }
 }

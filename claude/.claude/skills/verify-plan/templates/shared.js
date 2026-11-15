@@ -85,6 +85,51 @@ var VP = (function () {
       };
     });
   }
+  function byId(items, id) {
+    return (
+      list(items).filter(function (x) {
+        return x.id === id;
+      })[0] || null
+    );
+  }
+  function partLabels(d, ids) {
+    return list(ids)
+      .map(function (id) {
+        var p = byId(d.parts, id);
+        return esc(p ? p.label : id);
+      })
+      .join(", ");
+  }
+  function laneLabel(d, id) {
+    return esc(
+      lanes(d)
+        .filter(function (l) {
+          return l.id === id;
+        })
+        .map(function (l) {
+          return l.label;
+        })[0] || id,
+    );
+  }
+  // Page head: caption, the document's title (or its task name), and the one-line summary when given.
+  function header(d, caption) {
+    return (
+      '<div class="cap">' +
+      esc(caption) +
+      "</div><h1>" +
+      (d.title ? esc(d.title) : "Verification: " + esc(d.task)) +
+      "</h1>" +
+      (d.summary ? '<p class="sub">' + esc(d.summary) + "</p>" : "")
+    );
+  }
+  // An empty grid cell: a requirement that carries an accepted gap is marked as one, not left as bare "none".
+  function noneCell(r) {
+    return r && r.accepted_gap
+      ? '<td class="none acc" title="' +
+          esc(r.accepted_gap) +
+          '">accepted gap</td>'
+      : '<td class="none">none</td>';
+  }
   function reqIndex(d, id) {
     var rs = list(d.requirements);
     for (var i = 0; i < rs.length; i++) if (rs[i].id === id) return i;
@@ -106,12 +151,25 @@ var VP = (function () {
       "</a>"
     );
   }
+  // One inline group, so a flex or grid parent never splits a comma from the link before it.
   function reqLinks(d, ids) {
-    return list(ids)
+    var links = list(ids)
       .map(function (id) {
         return reqLink(d, id);
       })
       .join(", ");
+    return links ? '<span class="rls">' + links + "</span>" : "";
+  }
+  function bullets(items) {
+    return list(items).length
+      ? "<ul>" +
+          list(items)
+            .map(function (x) {
+              return "<li>" + esc(x) + "</li>";
+            })
+            .join("") +
+          "</ul>"
+      : '<p class="empty">Nothing.</p>';
   }
 
   function stageBar(stage) {
@@ -158,6 +216,9 @@ var VP = (function () {
         '</span><span class="sent">' +
         esc(r.sentence) +
         "</span>" +
+        (r.accepted_gap
+          ? '<span class="tag gap">Accepted gap</span>'
+          : "") +
         '<span class="chv" aria-hidden="true">&#9656;</span></button></div>';
       details +=
         '<div class="rd" id="rd' +
@@ -215,9 +276,15 @@ var VP = (function () {
     esc: esc,
     list: list,
     lanes: lanes,
+    byId: byId,
+    partLabels: partLabels,
+    laneLabel: laneLabel,
+    header: header,
+    noneCell: noneCell,
     reqIndex: reqIndex,
     reqLink: reqLink,
     reqLinks: reqLinks,
+    bullets: bullets,
     stageBar: stageBar,
     reqCards: reqCards,
     copyControl: copyControl,

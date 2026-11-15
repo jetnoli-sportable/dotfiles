@@ -7,6 +7,8 @@ One document per task, kept at `verify/verify.json` in the task's dossier. Every
 | Key | Type | Notes |
 |---|---|---|
 | `task` | string, required | The task's name. Must not be blank. |
+| `title` | string, optional | A readable title for the page header, such as "Book holds". When absent the pages use `task`. |
+| `summary` | string, optional | One line saying what the task is. Shown under the title on every page. |
 | `page` | object | Page metadata (below). |
 | `stage` | string, required | `shaping`, `map`, `run` or `results`. |
 | `requirements` | list | Requirement objects. |

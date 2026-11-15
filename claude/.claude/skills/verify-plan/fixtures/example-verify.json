@@ -1,5 +1,7 @@
 {
   "task": "example--book-holds",
+  "title": "Book holds",
+  "summary": "Readers can place, cancel and be notified of holds on books that are checked out.",
   "page": {
     "tags": ["verify-plan"],
     "retire_when": "task:example--book-holds done"

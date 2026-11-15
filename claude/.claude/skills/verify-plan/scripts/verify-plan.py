@@ -4,7 +4,7 @@
 Subcommands:
   check <file>   validate the document; silent and exit 0 when it is sound,
                  otherwise one line per problem and exit 1.
-  build <file>   validate, then write the pages (shaping.html) beside the source;
+  build <file>   validate, then write the pages (shaping.html, map.html) beside the source;
                  each is one self-contained file, identical on every build.
 (`record-run` is added by a later unit.)
 
@@ -83,6 +83,9 @@ def check_document(doc):
         add("document: field 'task' is required and must not be blank")
     if doc.get("stage") not in STAGES:
         add(f"document: field 'stage' must be one of {', '.join(STAGES)} (got {doc.get('stage')!r})")
+    for f in ("title", "summary"):
+        if f in doc and not isinstance(doc[f], str):
+            add(f"document: field '{f}' must be a string")
     page = doc.get("page", {})
     if not isinstance(page, dict):
         add("page: must be an object")
@@ -237,8 +240,8 @@ def cmd_check(args):
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 TEMPLATES = os.path.join(SKILL_DIR, "templates")
-# (template, output name) for every page `build` writes; later units add the map page here.
-PAGES = (("shaping.html", "shaping.html"),)
+# (template, output name) for every page `build` writes.
+PAGES = (("shaping.html", "shaping.html"), ("map.html", "map.html"))
 
 
 def script_safe(text):
@@ -269,7 +272,7 @@ def render_page(template_name, doc):
 
     values = {
         "META": meta_lines(doc),
-        "TITLE": html.escape("Verification: " + " ".join(str(doc.get("task", "")).split())),
+        "TITLE": html.escape("Verification: " + " ".join(str(doc.get("title") or doc.get("task", "")).split())),
         "CSS": read("shared.css"),
         "JS": read("shared.js"),
         "DATA": script_safe(json.dumps(doc, sort_keys=True, ensure_ascii=True, separators=(",", ":"))),

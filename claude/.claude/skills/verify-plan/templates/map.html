@@ -1,0 +1,1997 @@
+<!doctype html>
+<!--
+---
+__VP_META__
+---
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>__VP_TITLE__</title>
+    <style>
+      __VP_CSS__
+/* map page only */
+.top {
+        display: flex;
+        gap: 12px 24px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 0 0 12px;
+      }
+      .seg {
+        display: inline-flex;
+        background: var(--code);
+        border-radius: 8px;
+        padding: 3px;
+      }
+      .seg[hidden] {
+        display: none;
+      }
+      .seg button {
+        border: 0;
+        background: none;
+        padding: 6px 16px;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 15px;
+        border-radius: 6px;
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--acc);
+        color: #fff;
+      }
+      .seg button:focus-visible {
+        outline: 2px solid var(--acc);
+        outline-offset: 2px;
+      }
+      .band .n.b {
+        color: var(--bad);
+      }
+      /* status dots and key */
+      .dot {
+        display: inline-block;
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        border: 2px solid var(--mut);
+        flex: none;
+        box-sizing: border-box;
+      }
+      .dot.built,
+      .dot.passed {
+        background: var(--ok);
+        border-color: var(--ok);
+      }
+      .dot.planned,
+      .dot.skipped,
+      .dot.not-run {
+        border-color: var(--plan);
+        border-style: dashed;
+      }
+      .dot.proposed {
+        border-style: dashed;
+      }
+      .dot.gap {
+        border-color: var(--bad);
+        opacity: 0.55;
+      }
+      .dot.failed {
+        background: var(--bad);
+        border-color: var(--bad);
+      }
+      .dot.you {
+        background: var(--eyesb);
+        border-color: var(--eyesb);
+      }
+      .legend .d {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      /* grid: gap cells, tiles, panel row */
+      .grid td.gap {
+        background: var(--badbg);
+        outline: 2px dashed var(--bad);
+        outline-offset: -2px;
+        padding: 0;
+        vertical-align: middle;
+      }
+      .grid td.gap.acc {
+        background: none;
+        outline-color: var(--plan);
+      }
+      .gb {
+        display: block;
+        width: 100%;
+        padding: 16px 8px;
+        background: none;
+        border: 0;
+        color: var(--bad);
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        text-align: center;
+      }
+      .grid td.gap.acc .gb {
+        color: var(--plan);
+      }
+      .gb:focus-visible {
+        outline: 2px solid var(--acc);
+        outline-offset: -4px;
+      }
+      /* grid lines: a status dot before the plain name, no coloured cards */
+      .tl.mt {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        width: 100%;
+        border: 0;
+        background: none;
+        padding: 4px 4px;
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .tl.mt::before {
+        content: "";
+        flex: none;
+        width: 11px;
+        height: 11px;
+        margin-top: 3px;
+        border-radius: 50%;
+        border: 2px solid var(--mut);
+        box-sizing: border-box;
+      }
+      .tl.mt.built::before,
+      .tl.mt.passed::before {
+        background: var(--ok);
+        border-color: var(--ok);
+      }
+      .tl.mt.planned::before,
+      .tl.mt.skipped::before,
+      .tl.mt.not-run::before {
+        border: 2px dashed var(--plan);
+      }
+      .tl.mt.proposed::before {
+        border: 2px dashed var(--mut);
+      }
+      .tl.mt.wk.you::before {
+        background: var(--eyesb);
+        border-color: var(--eyesb);
+      }
+      .tl.mt.failed::before {
+        background: var(--bad);
+        border-color: var(--bad);
+      }
+      .tl.mt.wait {
+        outline: 2px dashed var(--plan);
+        outline-offset: -2px;
+        background: var(--planbg);
+      }
+      button.tl.mt:hover {
+        background: var(--code);
+      }
+      .vh {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+      /* section nav under the summary band */
+      nav.secs {
+        position: sticky;
+        top: var(--stagesh, 52px);
+        z-index: 4;
+        background: var(--bg);
+        display: flex;
+        gap: 18px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+        margin-top: 14px;
+        font-size: 14px;
+        flex-wrap: wrap;
+      }
+      nav.secs a {
+        color: var(--mut);
+        text-decoration: none;
+        font-weight: 600;
+        padding: 2px 0;
+        border-bottom: 2px solid transparent;
+      }
+      nav.secs a:hover,
+      nav.secs a.on {
+        color: var(--acc);
+        border-bottom-color: var(--acc);
+      }
+      nav.secs a:focus-visible {
+        outline: 2px solid var(--acc);
+        outline-offset: 3px;
+        border-radius: 3px;
+      }
+      h2 {
+        scroll-margin-top: 120px;
+      }
+      .grid td.gap.wait {
+        background: none;
+        outline-color: var(--plan);
+      }
+      .grid td.gap.wait .gb {
+        color: var(--plan);
+      }
+      #grid .ov td.o-gap.o-wait {
+        background: none;
+        color: var(--plan);
+        outline-color: var(--plan);
+      }
+      .nchk {
+        background: var(--badbg);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-top: 16px;
+        font-size: 14px;
+      }
+      .nchk h3,
+      .pbox h3 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      .nchk ul,
+      .pbox ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+      .pbox {
+        background: var(--card);
+        border: 2px dashed var(--plan);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-top: 28px;
+        font-size: 14px;
+      }
+      .rq .chip {
+        display: inline-block;
+        margin-left: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 0 7px;
+        border-radius: 99px;
+        background: var(--eyes);
+        color: var(--eyesb);
+        white-space: nowrap;
+      }
+      .rq .chip.acc {
+        background: var(--planbg);
+        color: var(--plan);
+      }
+      .grid td.dtd {
+        padding: 0;
+        background: none;
+      }
+      .panel {
+        grid-column: 1 / -1;
+        background: var(--card);
+        border-left: 4px solid var(--acc);
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin: 6px 0;
+        scroll-margin-top: 90px;
+      }
+      .bh {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .bh h3 {
+        flex: 1;
+        margin: 0;
+        font-size: 17px;
+      }
+      .x {
+        border: 0;
+        background: var(--code);
+        border-radius: 6px;
+        width: 30px;
+        aspect-ratio: 1;
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+        flex: none;
+      }
+      .x:hover {
+        background: var(--acc);
+        color: #fff;
+      }
+      .x:focus-visible {
+        outline: 2px solid var(--acc);
+        outline-offset: 2px;
+      }
+      .secs {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 0 28px;
+      }
+      .sec {
+        margin: 12px 0 0;
+        font-size: 14px;
+      }
+      .ctl {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 0 0 12px;
+      }
+      /* overview density: slim rows, worst status per cell */
+      #grid:not(.ovm) tr.ov,
+      #grid:not(.ovm) tfoot {
+        display: none;
+      }
+      #grid.ovm tbody tr.dr,
+      #grid.ovm tbody tr.dtr {
+        display: none;
+      }
+      #grid.ovm {
+        border-spacing: 8px 5px;
+      }
+      #grid.ovm thead th {
+        padding-bottom: 14px;
+      }
+      #grid .ov td {
+        padding: 0 8px;
+        height: 34px;
+        font-size: 13px;
+        line-height: 34px;
+        overflow: hidden;
+      }
+      #grid .ov td.rq {
+        padding: 0 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        background: none;
+      }
+      .ovb {
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--acc);
+        text-align: left;
+      }
+      .ovb b {
+        font-weight: 800;
+      }
+      .ovb:focus-visible {
+        outline: 2px solid var(--acc);
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+      #grid .ov td.o-gap {
+        background: var(--badbg);
+        color: var(--bad);
+        font-weight: 700;
+        outline: 1px dashed var(--bad);
+        outline-offset: -1px;
+      }
+      #grid .ov td.o-gap.o-acc {
+        background: none;
+        color: var(--plan);
+        outline-color: var(--plan);
+      }
+      #grid .ov td.o-planned,
+      #grid .ov td.o-proposed,
+      #grid .ov td.o-skipped,
+      #grid .ov td.o-not-run {
+        background: var(--planbg);
+      }
+      #grid .ov td.o-failed {
+        background: var(--badbg);
+      }
+      .ol {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .ol .on {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .oc {
+        flex: none;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 16px;
+        color: var(--mut);
+        background: var(--code);
+        border-radius: 8px;
+        padding: 0 6px;
+      }
+      .ov {
+        cursor: pointer;
+      }
+      .ov:hover td {
+        box-shadow: inset 0 0 0 2px var(--acc);
+      }
+      tfoot td {
+        font-size: 13px;
+        font-weight: 700;
+        background: none !important;
+        padding: 6px 8px !important;
+      }
+      .grid tr.flash td {
+        box-shadow: inset 0 0 0 3px var(--plan);
+      }
+      .view {
+        display: none;
+      }
+      .view.on {
+        display: block;
+      }
+      /* by system part */
+      .sysv {
+        background: var(--card);
+        border-radius: 10px;
+        padding: 18px;
+      }
+      .sysv .prime {
+        max-width: 110ch;
+        margin: 0 0 12px;
+      }
+      .key {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 22px;
+        font-size: 13px;
+        margin: 0 0 14px;
+        padding: 10px 12px;
+        background: var(--code);
+        border-radius: 6px;
+      }
+      .key span {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .key i {
+        display: inline-block;
+        width: 26px;
+        height: 14px;
+        border-radius: 3px;
+      }
+      .sysg {
+        display: grid;
+        grid-template-columns: minmax(200px, 1.3fr) repeat(
+            var(--n),
+            minmax(0, 1fr)
+          );
+        gap: 6px;
+        align-items: stretch;
+      }
+      .sp {
+        background: var(--code);
+        border: 1.4px solid var(--ink);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+        min-width: 0;
+      }
+      .sp b {
+        display: block;
+        font-size: 14px;
+      }
+      .sp small {
+        display: block;
+        color: var(--mut);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .sp.unreached {
+        border-color: var(--bad);
+        background: var(--badbg);
+      }
+      .sp em {
+        display: block;
+        font-style: normal;
+        font-weight: 700;
+        font-size: 12px;
+        color: var(--bad);
+        margin-top: 4px;
+      }
+      .stn {
+        text-align: left;
+        background: none;
+        border: 2px solid transparent;
+        border-radius: 6px;
+        padding: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        align-self: center;
+      }
+      .stn:hover,
+      .stn:focus-visible {
+        background: var(--code);
+        outline: 0;
+        border-color: var(--acc);
+      }
+      .stn i {
+        display: block;
+        font-style: normal;
+        font-weight: 400;
+        font-size: 12px;
+        color: var(--mut);
+      }
+      .stn.you {
+        cursor: default;
+        color: var(--eyesb);
+      }
+      .sc {
+        border-radius: 5px;
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: var(--mut);
+      }
+      .sc.real {
+        background: var(--okbg);
+        border: 1.6px solid var(--ok);
+        color: var(--ok);
+        font-weight: 700;
+      }
+      .sc.fake {
+        background: repeating-linear-gradient(
+          45deg,
+          var(--mut) 0 1px,
+          transparent 1px 6px
+        );
+        border: 1.4px dashed var(--mut);
+      }
+      .sc.skip {
+        border: 1.2px dotted var(--line);
+      }
+      .sc.you {
+        background: var(--eyes);
+        border: 1.8px solid var(--eyesb);
+        color: var(--eyesb);
+        font-weight: 700;
+      }
+      .sunr {
+        margin-top: 14px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        background: var(--okbg);
+      }
+      .sunr.bad {
+        background: var(--badbg);
+        color: var(--bad);
+        font-weight: 600;
+      }
+      /* walkthrough */
+      .sum {
+        display: flex;
+        gap: 6px 14px;
+        align-items: center;
+        flex-wrap: wrap;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-bottom: 12px;
+        background: var(--okbg);
+        border: 2px solid var(--loc);
+        font-weight: 600;
+      }
+      .sum.loud {
+        background: var(--cldbg);
+        border-color: var(--cld);
+      }
+      .sum .big {
+        font-size: 16px;
+      }
+      .wlist {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .step {
+        background: var(--card);
+        border-left: 6px solid var(--loc);
+        border-radius: 8px;
+        scroll-margin-top: 70px;
+      }
+      .step.cloud {
+        border: 1px solid var(--cld);
+        border-left: 6px solid var(--cld);
+        background: var(--cldbg);
+      }
+      .step .hd {
+        padding: 8px 12px 2px;
+      }
+      .tg {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        background: none;
+        border: 0;
+        text-align: left;
+        cursor: pointer;
+        padding: 4px 0;
+      }
+      .tg:focus-visible {
+        outline: 2px solid var(--acc);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+      .tg .sid {
+        font-weight: 800;
+        color: var(--acc);
+        min-width: 28px;
+      }
+      .tg .ttl {
+        font-weight: 600;
+        flex: 1 1 260px;
+      }
+      .tg .chev {
+        margin-left: auto;
+        font-size: 13px;
+        transition: transform 0.15s;
+        color: var(--acc);
+        font-weight: 700;
+      }
+      .step.open .tg .chev {
+        transform: rotate(180deg);
+      }
+      .step .tags {
+        padding: 0 12px 8px 50px;
+        display: flex;
+        gap: 6px 14px;
+        flex-wrap: wrap;
+      }
+      .acc {
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        padding: 2px 9px;
+        border-radius: 5px;
+        color: #fff;
+        white-space: nowrap;
+        margin-right: 4px;
+        display: inline-block;
+      }
+      .acc.LOCAL {
+        background: var(--okbg);
+        color: var(--loc);
+        border: 1px solid var(--loc);
+      }
+      .acc.CLOUD {
+        background: var(--cld);
+      }
+      .acc.CHANGES {
+        background: var(--chg);
+      }
+      .acc.PROD {
+        background: var(--prod);
+      }
+      .acc.PERM {
+        background: var(--perm);
+      }
+      .runst {
+        font-size: 13px;
+        font-weight: 700;
+        border-radius: 99px;
+        padding: 1px 10px;
+        background: var(--code);
+      }
+      .runst.passed {
+        background: var(--okbg);
+        color: var(--ok);
+      }
+      .runst.failed {
+        background: var(--badbg);
+        color: var(--bad);
+      }
+      .runst.skipped,
+      .runst.not-run {
+        background: var(--planbg);
+        color: var(--plan);
+      }
+      .bd {
+        display: none;
+        padding: 2px 16px 14px 50px;
+      }
+      .step.open .bd {
+        display: block;
+      }
+      .f {
+        margin: 10px 0;
+        font-size: 15px;
+      }
+      .f .k {
+        font-size: 13px;
+        letter-spacing: 0.07em;
+      }
+      .f.ex .k {
+        color: var(--ok);
+      }
+      .f.wr .k {
+        color: var(--bad);
+      }
+      .risk {
+        margin: 8px 0;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 2px solid var(--loc);
+        background: var(--okbg);
+      }
+      .risk .k {
+        color: var(--loc);
+        font-weight: 800;
+      }
+      .step.cloud .risk {
+        border-color: var(--cld);
+        background: var(--card);
+      }
+      .step.cloud .risk .k {
+        color: var(--cld);
+      }
+      .cmd {
+        background: var(--code);
+        border-radius: 6px;
+        padding: 9px 12px;
+        margin: 4px 0;
+      }
+      .cmd .copy {
+        display: flex;
+        width: 100%;
+        align-items: flex-start;
+        justify-content: space-between;
+      }
+      .cmd .hint {
+        flex: 1;
+        min-width: 0;
+        white-space: pre-wrap;
+        word-break: break-all;
+        background: none;
+        padding: 0;
+      }
+      .cmd .cp {
+        flex: none;
+      }
+      .expect {
+        background: #10151f;
+        color: #cfe9d6;
+        border-radius: 6px;
+        padding: 9px 12px;
+        margin: 4px 0;
+        border-left: 3px solid var(--ok);
+        white-space: pre-wrap;
+      }
+      .wrongbox {
+        background: var(--badbg);
+        color: var(--bad);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 14px;
+        margin-top: 4px;
+      }
+      textarea.pb {
+        width: 100%;
+        font:
+          13px ui-monospace,
+          Menlo,
+          monospace;
+        background: var(--card);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 8px;
+        margin-top: 4px;
+      }
+      @media (max-width: 900px) {
+        .step .tags,
+        .bd {
+          padding-left: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap" id="app">
+      <noscript
+        >This page draws itself from its embedded data and needs
+        JavaScript.</noscript
+      >
+    </div>
+    <script type="application/json" id="vp-data">
+      __VP_DATA__
+    </script>
+    <script>
+      __VP_JS__;
+    </script>
+    <script>
+      // CORE:BEGIN
+      var VM = (function () {
+        var esc = VP.esc,
+          list = VP.list,
+          byId = VP.byId;
+
+        // Worst first. The automated lanes use the first list, the walkthrough lane the second.
+        var STATUS_ORDER = ["gap", "proposed", "planned", "built"];
+        var RUN_ORDER = ["failed", "not-run", "skipped", "passed"];
+        var STATUS_LABEL = {
+          built: "Built",
+          planned: "Planned",
+          proposed: "Proposed",
+        };
+        var RUN_LABEL = {
+          passed: "Passed",
+          failed: "Failed",
+          skipped: "Skipped",
+          "not-run": "Not run",
+        };
+        var ACCESS = {
+          local: ["LOCAL ONLY", "LOCAL"],
+          "cloud-read": ["TOUCHES CLOUD (read)", "CLOUD"],
+          "cloud-write": ["CHANGES CLOUD", "CHANGES"],
+          prod: ["COULD AFFECT PROD", "PROD"],
+          permission: ["NEEDS PERMISSION", "PERM"],
+        };
+
+        function pickWorst(order, items) {
+          var best = null;
+          list(items).forEach(function (s) {
+            var r = order.indexOf(s);
+            if (r < 0) r = 0;
+            if (best === null || r < best) best = r;
+          });
+          return best === null ? null : order[best];
+        }
+        function worst(statuses) {
+          return pickWorst(STATUS_ORDER, statuses) || "gap";
+        }
+        function worstRun(outcomes) {
+          return pickWorst(RUN_ORDER, outcomes) || "not-run";
+        }
+        function steps(d) {
+          return list(d.walkthrough && d.walkthrough.steps);
+        }
+        function hasRun(d) {
+          return !!d.run && typeof d.run === "object";
+        }
+        // A step with no recorded outcome counts as not run.
+        function outcome(d, s) {
+          var e = hasRun(d) && d.run.steps ? d.run.steps[s.id] : null;
+          return e && e.outcome ? e.outcome : "not-run";
+        }
+
+        // One grid cell: the tests (or steps) in a lane for a requirement, and the worst status among them.
+        function cell(d, rid, lane) {
+          var tests = [],
+            ss = [];
+          if (lane === "walkthrough") {
+            steps(d).forEach(function (s, i) {
+              if (list(s.requirements).indexOf(rid) >= 0) ss.push(i);
+            });
+            if (!ss.length) return { status: "gap", tests: [], steps: [] };
+            var status = hasRun(d)
+              ? worstRun(
+                  ss.map(function (i) {
+                    return outcome(d, steps(d)[i]);
+                  }),
+                )
+              : "you";
+            return { status: status, tests: [], steps: ss };
+          }
+          list(d.tests).forEach(function (t, i) {
+            if (t.lane === lane && list(t.requirements).indexOf(rid) >= 0)
+              tests.push(i);
+          });
+          return {
+            status: worst(
+              tests.map(function (i) {
+                return d.tests[i].status;
+              }),
+            ),
+            tests: tests,
+            steps: [],
+          };
+        }
+
+        // Per lane: requirements with something in the lane (gaps left out), of all, and how many are not built yet.
+        function laneTotals(d) {
+          var reqs = list(d.requirements);
+          return VP.lanes(d).map(function (l) {
+            var covered = 0,
+              notBuilt = 0;
+            reqs.forEach(function (r) {
+              var c = cell(d, r.id, l.id);
+              if (c.status === "gap") return;
+              covered++;
+              if (c.status === "proposed" || c.status === "planned") notBuilt++;
+            });
+            return {
+              id: l.id,
+              covered: covered,
+              of: reqs.length,
+              notBuilt: notBuilt,
+            };
+          });
+        }
+
+        // How a requirement is proven today: a built automated test, only the walkthrough, or nothing.
+        function proof(d, rid) {
+          var built = list(d.tests).some(function (t) {
+            return (
+              t.status === "built" && list(t.requirements).indexOf(rid) >= 0
+            );
+          });
+          if (built) return "built";
+          if (
+            steps(d).some(function (s) {
+              return list(s.requirements).indexOf(rid) >= 0;
+            })
+          )
+            return "you";
+          return waitingOn(d, rid).length ? "waiting" : "none";
+        }
+        // Open decisions that name a requirement: its missing proof waits on them.
+        function waitingOn(d, rid) {
+          return list(d.decisions)
+            .filter(function (x) {
+              return x.status === "open" && list(x.requirements).indexOf(rid) >= 0;
+            })
+            .map(function (x) {
+              return x.id;
+            });
+        }
+        function tentative(d, t) {
+          var dec = t.decision ? byId(d.decisions, t.decision) : null;
+          return !!dec && dec.status === "open";
+        }
+        function bandCounts(d) {
+          var out = {
+            total: list(d.requirements).length,
+            builtIds: [],
+            youIds: [],
+            noneIds: [],
+            waitIds: [],
+            acceptedIds: [],
+          };
+          list(d.requirements).forEach(function (r) {
+            var p = proof(d, r.id);
+            if (p === "built") out.builtIds.push(r.id);
+            else if (p === "you") out.youIds.push(r.id);
+            else if (r.accepted_gap) out.acceptedIds.push(r.id);
+            else if (p === "waiting") out.waitIds.push(r.id);
+            else out.noneIds.push(r.id);
+          });
+          out.builtReqs = out.builtIds.length;
+          out.youReqs = out.youIds.length;
+          out.noneReqs = out.noneIds.length;
+          out.waitReqs = out.waitIds.length;
+          out.planned = list(d.tests).filter(function (t) {
+            return t.status === "planned";
+          }).length;
+          out.proposed = list(d.tests).filter(function (t) {
+            return t.status === "proposed";
+          }).length;
+          out.pending = out.planned + out.proposed;
+          return out;
+        }
+        function band(d) {
+          var b = bandCounts(d);
+          var rest =
+            (b.noneIds.length
+              ? "<span>No proof at all: " +
+                VP.reqLinks(d, b.noneIds) +
+                "</span> "
+              : "") +
+            (b.waitIds.length
+              ? "<span>Waiting on a decision: " +
+                VP.reqLinks(d, b.waitIds) +
+                "</span> "
+              : "") +
+            (b.acceptedIds.length
+              ? "<span>Accepted gap: " +
+                VP.reqLinks(d, b.acceptedIds) +
+                "</span>"
+              : "");
+          return (
+            '<div class="band">' +
+            '<div><span class="n g">' +
+            b.builtReqs +
+            " of " +
+            b.total +
+            "</span><span>requirements have a built automated test</span>" +
+            '<span class="sm">' +
+            VP.reqLinks(d, b.builtIds) +
+            "</span></div>" +
+            '<div><span class="n y">' +
+            b.youReqs +
+            " of " +
+            b.total +
+            "</span><span>requirements rest only on your walkthrough</span>" +
+            '<span class="sm">' +
+            VP.reqLinks(d, b.youIds) +
+            "</span>" +
+            (rest ? '<span class="sm">' + rest + "</span>" : "") +
+            "</div>" +
+            '<div><span class="n p">' +
+            b.pending +
+            "</span><span>automated test" +
+            (b.pending === 1 ? "" : "s") +
+            " not built yet</span>" +
+            '<span class="sm">' +
+            b.planned +
+            " planned, " +
+            b.proposed +
+            " proposed</span></div></div>"
+          );
+        }
+
+        function density(d) {
+          return list(d.requirements).length > 6 ? "over" : "detail";
+        }
+
+        function tile(d, t, i) {
+          return (
+            '<button type="button" class="tl mt ' +
+            esc(t.status) +
+            (tentative(d, t) ? " wait" : "") +
+            '" data-t="' +
+            i +
+            '">' +
+            esc(t.name) +
+            '<span class="vh">' +
+            esc(STATUS_LABEL[t.status] || t.status) +
+            (tentative(d, t) ? ", waiting on a decision" : "") +
+            "</span></button>"
+          );
+        }
+        function stepTile(d, s) {
+          var run = hasRun(d),
+            o = outcome(d, s);
+          return (
+            '<button type="button" class="tl mt wk ' +
+            (run ? o : "you") +
+            '" data-step="' +
+            esc(s.id) +
+            '">' +
+            esc(s.id) +
+            " &middot; " +
+            esc(s.title) +
+            '<span class="vh">' +
+            esc(run ? RUN_LABEL[o] || o : "you run it") +
+            "</span></button>"
+          );
+        }
+        // What an empty cell says: an accepted gap, a wait on open decisions, or a plain gap.
+        function emptyKind(d, r, lane) {
+          if (r.accepted_gap) return { cls: "acc", text: "Accepted gap" };
+          var w = waitingOn(d, r.id);
+          if (w.length) return { cls: "wait", text: "Waits on " + w.join(", ") };
+          return { cls: "", text: lane === "walkthrough" ? "No step" : "GAP" };
+        }
+        function gapCell(d, r, lane) {
+          var k = emptyKind(d, r, lane);
+          return (
+            '<td class="gap' +
+            (k.cls ? " " + k.cls : "") +
+            '"><button type="button" class="gb" data-gap="' +
+            esc(r.id + ":" + lane) +
+            '">' +
+            esc(k.text) +
+            "</button></td>"
+          );
+        }
+        function detailRow(d, r, ri) {
+          var tds = VP.lanes(d)
+            .map(function (l) {
+              var c = cell(d, r.id, l.id);
+              if (c.status === "gap")
+                return gapCell(d, r, l.id);
+              if (l.id === "walkthrough")
+                return (
+                  "<td>" +
+                  c.steps
+                    .map(function (i) {
+                      return stepTile(d, steps(d)[i]);
+                    })
+                    .join("") +
+                  "</td>"
+                );
+              return (
+                "<td>" +
+                c.tests
+                  .map(function (i) {
+                    return tile(d, d.tests[i], i);
+                  })
+                  .join("") +
+                "</td>"
+              );
+            })
+            .join("");
+          return (
+            '<tr class="dr" data-r="' +
+            ri +
+            '"><td class="rq">' +
+            VP.reqLink(d, r.id) +
+            rowChips(d, r) +
+            "</td>" +
+            tds +
+            "</tr>"
+          );
+        }
+        function rowChips(d, r) {
+          var p = proof(d, r.id);
+          var w = r.accepted_gap ? [] : waitingOn(d, r.id);
+          return (
+            (p === "you" ? '<span class="chip">rests on you</span>' : "") +
+            (w.length
+              ? '<span class="chip acc">waits on ' + esc(w.join(", ")) + "</span>"
+              : "") +
+            (r.accepted_gap ? '<span class="chip acc">accepted gap</span>' : "")
+          );
+        }
+        function dotCell(status, names, title, extra) {
+          var more =
+            names.length > 1
+              ? '<b class="oc">+' + (names.length - 1) + "</b>"
+              : "";
+          return (
+            '<td class="o-' +
+            status +
+            '" title="' +
+            esc(title) +
+            '"><span class="ol"><i class="dot ' +
+            status +
+            '"></i><span class="on">' +
+            esc(names[0]) +
+            "</span>" +
+            more +
+            "</span></td>"
+          );
+        }
+        function overviewRow(d, r, ri) {
+          var tds = VP.lanes(d)
+            .map(function (l) {
+              var c = cell(d, r.id, l.id);
+              if (c.status === "gap") {
+                var k = emptyKind(d, r, l.id);
+                return (
+                  '<td class="o-gap' +
+                  (k.cls ? " o-" + k.cls : "") +
+                  '" title="' +
+                  esc(
+                    k.cls === "acc"
+                      ? "Accepted gap: " + r.accepted_gap
+                      : k.cls === "wait"
+                        ? k.text
+                        : "Gap: nothing in this lane",
+                  ) +
+                  '"><span class="ol"><i class="dot gap"></i><span class="on">' +
+                  esc(k.text) +
+                  "</span></span></td>"
+                );
+              }
+              if (l.id === "walkthrough") {
+                var ss = c.steps.map(function (i) {
+                  return steps(d)[i];
+                });
+                return dotCell(
+                  c.status,
+                  ss.map(function (s) {
+                    return s.title;
+                  }),
+                  ss
+                    .map(function (s) {
+                      return (
+                        s.title +
+                        " (" +
+                        (hasRun(d) ? RUN_LABEL[outcome(d, s)] : "you run it") +
+                        ")"
+                      );
+                    })
+                    .join("; "),
+                );
+              }
+              var ts = c.tests.map(function (i) {
+                return d.tests[i];
+              });
+              return dotCell(
+                c.status,
+                ts.map(function (t) {
+                  return t.name;
+                }),
+                ts
+                  .map(function (t) {
+                    return t.name + " (" + t.status + ")";
+                  })
+                  .join("; "),
+              );
+            })
+            .join("");
+          return (
+            '<tr class="ov" data-r="' +
+            ri +
+            '"><td class="rq"><button type="button" class="ovb" aria-label="Show ' +
+            esc(r.id) +
+            ' in detail"><b>' +
+            esc(r.id) +
+            "</b> &middot; " +
+            esc(r.label) +
+            "</button>" +
+            rowChips(d, r) +
+            "</td>" +
+            tds +
+            "</tr>"
+          );
+        }
+        function grid(d) {
+          var ls = VP.lanes(d);
+          var head =
+            '<tr><th class="rq">Requirement</th>' +
+            ls
+              .map(function (l) {
+                return (
+                  "<th>" +
+                  esc(l.label) +
+                  "<small>" +
+                  esc(l.explain) +
+                  "</small></th>"
+                );
+              })
+              .join("") +
+            "</tr>";
+          var body = list(d.requirements)
+            .map(function (r, i) {
+              return detailRow(d, r, i) + overviewRow(d, r, i);
+            })
+            .join("");
+          var totals = laneTotals(d)
+            .map(function (l) {
+              return (
+                '<td title="' +
+                l.notBuilt +
+                ' not built yet">' +
+                l.covered +
+                " of " +
+                l.of +
+                " covered</td>"
+              );
+            })
+            .join("");
+          return (
+            '<table class="grid' +
+            (density(d) === "over" ? " ovm" : "") +
+            '" id="grid"><thead>' +
+            head +
+            "</thead><tbody>" +
+            body +
+            '</tbody><tfoot><tr><td class="rq">Coverage</td>' +
+            totals +
+            "</tr></tfoot></table>"
+          );
+        }
+
+        // Parts that no automated test runs for real.
+        function unreachedParts(d) {
+          return list(d.parts)
+            .map(function (p) {
+              return p.id;
+            })
+            .filter(function (id) {
+              return !list(d.tests).some(function (t) {
+                return list(t.real_parts).indexOf(id) >= 0;
+              });
+            });
+        }
+        function system(d) {
+          var parts = list(d.parts),
+            un = unreachedParts(d);
+          if (!parts.length) return "";
+          var head =
+            '<div class="sh"></div>' +
+            parts
+              .map(function (p) {
+                var u = un.indexOf(p.id) >= 0;
+                return (
+                  '<div class="sp' +
+                  (u ? " unreached" : "") +
+                  '"><b>' +
+                  esc(p.label) +
+                  "</b><small>" +
+                  esc(p.what || "") +
+                  "</small>" +
+                  (u ? "<em>No automated test runs this for real</em>" : "") +
+                  "</div>"
+                );
+              })
+              .join("");
+          var rows = list(d.tests)
+            .map(function (t, i) {
+              return (
+                '<button type="button" class="stn" data-t="' +
+                i +
+                '" data-row="' +
+                i +
+                '">' +
+                esc(t.name) +
+                "<i>" +
+                esc(VP.laneLabel(d, t.lane)) +
+                " &middot; " +
+                esc(STATUS_LABEL[t.status] || t.status) +
+                "</i></button>" +
+                parts
+                  .map(function (p) {
+                    var real = list(t.real_parts).indexOf(p.id) >= 0,
+                      fake = list(t.faked_parts).indexOf(p.id) >= 0;
+                    return (
+                      '<div class="sc ' +
+                      (real ? "real" : fake ? "fake" : "skip") +
+                      '" data-row="' +
+                      i +
+                      '" title="' +
+                      esc(p.label) +
+                      ": " +
+                      (real ? "real" : fake ? "faked" : "not used") +
+                      '">' +
+                      (real ? "real" : fake ? "faked" : "") +
+                      "</div>"
+                    );
+                  })
+                  .join("")
+              );
+            })
+            .join("");
+          var you =
+            '<div class="stn you">You, running the walkthrough<i>The only row that goes the whole way</i></div>' +
+            parts
+              .map(function () {
+                return '<div class="sc you">you</div>';
+              })
+              .join("");
+          return (
+            '<div class="sysv"><p class="prime">Each row is one automated test; each column is a part of the system. Click a row for its detail.</p>' +
+            '<div class="key"><span><i style="background:var(--okbg);border:1.6px solid var(--ok)"></i>Solid: the test runs that part for real.</span>' +
+            '<span><i style="background:repeating-linear-gradient(45deg,var(--mut) 0 1px,transparent 1px 6px);border:1.4px dashed var(--mut)"></i>Hatched: that part is faked.</span>' +
+            '<span><i style="border:1.2px dotted var(--line)"></i>Blank: not used by the test.</span>' +
+            '<span><i style="background:var(--badbg);border:1px solid var(--bad)"></i>Red part: no automated test runs it for real.</span></div>' +
+            '<div class="sysg" style="--n:' +
+            parts.length +
+            '">' +
+            head +
+            rows +
+            you +
+            "</div>" +
+            '<div class="sunr' +
+            (un.length ? " bad" : "") +
+            '">' +
+            (un.length
+              ? "Run for real by no automated test: " + partLabels(d, un) + "."
+              : "Every part is run for real by at least one automated test.") +
+            "</div></div>"
+          );
+        }
+        var partLabels = VP.partLabels;
+
+        function panel(titleHtml, bodyHtml) {
+          return (
+            '<div class="bh"><h3>' +
+            titleHtml +
+            '</h3><button type="button" class="x" data-close aria-label="Close detail">&times;</button></div><div class="secs">' +
+            bodyHtml +
+            "</div>"
+          );
+        }
+        function testDetail(d, i) {
+          var t = d.tests[i],
+            hasParts = list(d.parts).length > 0;
+          return panel(
+            esc(t.name) +
+              ' <span class="badge ' +
+              (t.status === "built" ? "ok" : "plan") +
+              '">' +
+              esc(STATUS_LABEL[t.status] || t.status) +
+              "</span>",
+            "<div>" +
+              '<div class="sec"><span class="k">Lane</span>' +
+              VP.laneLabel(d, t.lane) +
+              (t.test_name ? " <code>" + esc(t.test_name) + "</code>" : "") +
+              "</div>" +
+              '<div class="sec"><span class="k">Requirements proven</span>' +
+              (VP.reqLinks(d, t.requirements) || "nothing yet") +
+              "</div></div><div>" +
+              (hasParts
+                ? '<div class="sec"><span class="k">Real</span>' +
+                  (VP.partLabels(d, t.real_parts) || "nothing named") +
+                  '</div><div class="sec"><span class="k">Faked</span>' +
+                  (VP.partLabels(d, t.faked_parts) || "nothing named") +
+                  "</div>"
+                : "") +
+              '<div class="sec"><span class="k p">' +
+              (t.status === "built"
+                ? "Passing tells you"
+                : "Passing would tell you") +
+              "</span>" +
+              esc(t.passing_tells) +
+              "</div></div>",
+          );
+        }
+        function gapDetail(d, key) {
+          var bits = String(key).split(":"),
+            r = byId(d.requirements, bits[0]),
+            lane = bits[1];
+          if (!r) return "";
+          var ss = steps(d)
+            .filter(function (s) {
+              return list(s.requirements).indexOf(r.id) >= 0;
+            })
+            .map(function (s) {
+              return esc(s.title);
+            });
+          return panel(
+            r.accepted_gap
+              ? "An accepted gap"
+              : "A gap: nothing in this lane proves it",
+            "<div>" +
+              '<div class="sec"><span class="k">Requirement</span>' +
+              VP.reqLink(d, r.id) +
+              "</div>" +
+              '<div class="sec"><span class="k">Lane</span>' +
+              VP.laneLabel(d, lane) +
+              "</div></div><div>" +
+              (r.accepted_gap
+                ? '<div class="sec"><span class="k">Why it is accepted</span>' +
+                  esc(r.accepted_gap) +
+                  "</div>"
+                : "") +
+              (waitingOn(d, r.id).length
+                ? '<div class="sec"><span class="k">Waiting on</span>' +
+                  esc(waitingOn(d, r.id).join(", ")) +
+                  " (an open decision)</div>"
+                : "") +
+              '<div class="sec"><span class="k">What covers it instead</span>' +
+              (ss.length
+                ? "Walkthrough: " + ss.join("; ") + "."
+                : "No walkthrough step either.") +
+              "</div></div>",
+          );
+        }
+
+        function testsList(d) {
+          var tests = list(d.tests),
+            hasParts = list(d.parts).length > 0;
+          var nb = tests.filter(function (t) {
+            return t.status === "built";
+          }).length;
+          var body = tests
+            .map(function (t, i) {
+              return (
+                '<div class="te" id="te' +
+                i +
+                '"><div><div class="tn">' +
+                esc(t.name) +
+                "</div>" +
+                '<div class="ln">' +
+                VP.laneLabel(d, t.lane) +
+                " &middot; proves " +
+                (VP.reqLinks(d, t.requirements) || "nothing yet") +
+                "</div>" +
+                '<span class="badge ' +
+                (t.status === "built" ? "ok" : "plan") +
+                '">' +
+                esc(STATUS_LABEL[t.status] || t.status) +
+                "</span>" +
+                (t.test_name
+                  ? '<div class="ln"><code>' +
+                    esc(t.test_name) +
+                    "</code></div>"
+                  : "") +
+                "</div>" +
+                '<div class="ri">' +
+                (hasParts
+                  ? '<div><span class="k">Real</span>' +
+                    (VP.partLabels(d, t.real_parts) || "nothing named") +
+                    "</div>" +
+                    '<div><span class="k">Faked</span>' +
+                    (VP.partLabels(d, t.faked_parts) || "nothing named") +
+                    "</div>"
+                  : "") +
+                '<div><span class="k">' +
+                (t.status === "built"
+                  ? "Passing tells you"
+                  : "Passing would tell you") +
+                "</span>" +
+                esc(t.passing_tells) +
+                "</div></div></div>"
+              );
+            })
+            .join("");
+          return (
+            '<div class="alt" id="alt"><button type="button" class="alth" id="alth" aria-expanded="false" aria-controls="altb">' +
+            '<span class="chv" aria-hidden="true">&#9656;</span>All tests <span style="font-weight:400;color:var(--mut)">&mdash; ' +
+            tests.length +
+            " in all: " +
+            nb +
+            " built, " +
+            (tests.length - nb) +
+            " not built yet</span></button>" +
+            '<div class="altb" id="altb">' +
+            (body || '<p class="empty">No tests yet.</p>') +
+            "</div></div>"
+          );
+        }
+
+        // Cloud and prod summary for the top of the walkthrough.
+        function accessSummary(d) {
+          var ss = steps(d),
+            n = ss.length;
+          var has = function (s, a) {
+            return list(s.access).indexOf(a) >= 0;
+          };
+          var cloud = ss.filter(function (s) {
+            return (
+              has(s, "cloud-read") || has(s, "cloud-write") || has(s, "prod")
+            );
+          }).length;
+          var write = ss.filter(function (s) {
+            return has(s, "cloud-write");
+          }).length;
+          var prod = ss.filter(function (s) {
+            return has(s, "prod");
+          }).length;
+          var perm = ss.filter(function (s) {
+            return has(s, "permission");
+          }).length;
+          var text;
+          if (!n) text = "No walkthrough steps yet.";
+          else if (!cloud && !perm)
+            text =
+              "All " +
+              n +
+              " step" +
+              (n === 1 ? " is" : "s are") +
+              " local only; none touches the cloud.";
+          else {
+            text =
+              (cloud
+                ? cloud +
+                  " of " +
+                  n +
+                  " step" +
+                  (n === 1 ? "" : "s") +
+                  (cloud === 1 ? " touches" : " touch") +
+                  " the cloud" +
+                  (write
+                    ? ", " +
+                      write +
+                      (write === 1 ? " of them changes" : " of them change") +
+                      " it"
+                    : "")
+                : "No step touches the cloud") +
+              "; " +
+              (prod ? prod + " could affect prod" : "none could affect prod") +
+              (perm
+                ? "; " +
+                  perm +
+                  (perm === 1 ? " needs" : " need") +
+                  " permission"
+                : "") +
+              ".";
+          }
+          return {
+            steps: n,
+            cloud: cloud,
+            write: write,
+            prod: prod,
+            permission: perm,
+            loud: cloud > 0 || perm > 0 || prod > 0,
+            text: text,
+          };
+        }
+        function accessBadges(s) {
+          return list(s.access)
+            .map(function (a) {
+              var m = ACCESS[a] || [a, "PERM"];
+              return '<span class="acc ' + m[1] + '">' + esc(m[0]) + "</span>";
+            })
+            .join("");
+        }
+        function accessLabels(s) {
+          return list(s.access)
+            .map(function (a) {
+              return esc((ACCESS[a] || [a])[0]);
+            })
+            .join(" &middot; ");
+        }
+        function step(d, s, first) {
+          var beyond = list(s.access).some(function (a) {
+            return a !== "local";
+          });
+          var id = esc(s.id),
+            ran = hasRun(d);
+          var act =
+            s.command && String(s.command).trim()
+              ? '<div class="f"><span class="k">Command</span><div class="cmd">' +
+                VP.copyControl("Copy", s.command) +
+                "</div></div>"
+              : '<div class="f"><span class="k">Do (no command)</span><div class="cmd">' +
+                esc(s.instruction) +
+                "</div></div>";
+          return (
+            '<div class="step' +
+            (beyond ? " cloud" : "") +
+            (first ? " open" : "") +
+            '" id="st-' +
+            id +
+            '" data-step="' +
+            id +
+            '"><div class="hd"><button type="button" class="tg" aria-expanded="' +
+            (first ? "true" : "false") +
+            '" aria-controls="sb-' +
+            id +
+            '"><span class="sid">' +
+            id +
+            '</span><span class="ttl">' +
+            esc(s.title) +
+            "</span><span>" +
+            accessBadges(s) +
+            "</span>" +
+            // Hook for the run stage: the recorded outcome for this step.
+            (ran
+              ? '<span class="runst ' +
+                esc(outcome(d, s)) +
+                '" data-run-for="' +
+                id +
+                '">' +
+                esc(RUN_LABEL[outcome(d, s)] || outcome(d, s)) +
+                "</span>"
+              : "") +
+            '<span class="chev" aria-hidden="true">&#9660;</span></button></div>' +
+            (list(s.requirements).length
+              ? '<div class="tags">' + VP.reqLinks(d, s.requirements) + "</div>"
+              : "") +
+            '<div class="bd" id="sb-' +
+            id +
+            '">' +
+            '<div class="risk"><span class="k">Risk and access: ' +
+            accessLabels(s) +
+            "</span>" +
+            esc(s.risk || "") +
+            "</div>" +
+            (s.where
+              ? '<div class="f"><span class="k">Where</span>' +
+                esc(s.where) +
+                "</div>"
+              : "") +
+            (s.why
+              ? '<div class="f"><span class="k">Why</span>' +
+                esc(s.why) +
+                "</div>"
+              : "") +
+            act +
+            '<div class="f ex"><span class="k">You should see</span><div class="expect">' +
+            esc(s.expected || "") +
+            "</div></div>" +
+            (s.wrong_if
+              ? '<div class="f wr"><span class="k">Wrong if</span><div class="wrongbox">' +
+                esc(s.wrong_if) +
+                "</div></div>"
+              : "") +
+            (s.paste
+              ? '<div class="f"><span class="k">Paste what you saw</span><textarea class="pb" rows="3" data-paste="' +
+                id +
+                '" aria-label="Paste what you saw for ' +
+                esc(s.title) +
+                '"></textarea></div>'
+              : "") +
+            "</div></div>"
+          );
+        }
+        function walkthrough(d) {
+          var ss = steps(d);
+          if (!ss.length)
+            return '<p class="empty">No walkthrough steps yet.</p>';
+          var a = accessSummary(d);
+          return (
+            '<div class="sum' +
+            (a.loud ? " loud" : "") +
+            '" id="asum"><span class="big">' +
+            (a.loud ? "&#9888; " : "") +
+            esc(a.text) +
+            "</span></div>" +
+            '<div class="wlist" id="wlist">' +
+            ss
+              .map(function (s, i) {
+                return step(d, s, i === 0);
+              })
+              .join("") +
+            "</div>"
+          );
+        }
+
+        function legend() {
+          return (
+            '<div class="legend"><span class="d"><i class="dot built"></i>built</span>' +
+            '<span class="d"><i class="dot planned"></i>planned</span>' +
+            '<span class="d"><i class="dot proposed"></i>proposed</span>' +
+            '<span class="d"><i class="dot gap"></i>no proof in this lane</span>' +
+            '<span class="d"><i class="dot you"></i>your walkthrough</span></div>'
+          );
+        }
+        function controls(d) {
+          var hasParts = list(d.parts).length > 0,
+            over = density(d) === "over";
+          return (
+            '<div class="ctl">' +
+            (hasParts
+              ? '<div class="seg" id="vtog" role="group" aria-label="View"><button type="button" id="bReq" aria-pressed="true">By requirement</button><button type="button" id="bSys" aria-pressed="false">By system part</button></div>'
+              : "") +
+            '<div class="seg" id="dens" role="group" aria-label="Density"><button type="button" id="bDet" aria-pressed="' +
+            !over +
+            '">Detail</button><button type="button" id="bOv" aria-pressed="' +
+            over +
+            '">Overview</button></div></div>'
+          );
+        }
+        function uncheckedBox(d) {
+          return list(d.unchecked).length
+            ? '<div class="nchk"><h3>Not checked</h3>' +
+                VP.bullets(d.unchecked) +
+                "</div>"
+            : "";
+        }
+        function needsBox(d) {
+          return list(d.needs).length
+            ? '<div class="pbox"><h3>Planned work this needs</h3>' +
+                VP.bullets(d.needs) +
+                "</div>"
+            : "";
+        }
+        function page(d) {
+          var hasParts = list(d.parts).length > 0;
+          return (
+            VP.header(d, "Verification · map") +
+            VP.stageBar(d.stage) +
+            '<div class="purpose">The agreed proof for this task: what automation covers, what rests on you, and the steps you run yourself.</div>' +
+            band(d) +
+            '<nav class="secs" aria-label="Sections"><a href="#sReq" class="on">Requirements</a><a href="#sAuto">Automated proof</a><a href="#sWalk">Your walkthrough</a></nav>' +
+            '<h2 id="sReq">Requirements <small>&mdash; the one place each is defined; open a card for the reasoning</small></h2>' +
+            VP.reqCards(d) +
+            '<h2 id="sAuto">Automated proof <small>&mdash; every test, by requirement' +
+            (hasParts ? " or by system part" : "") +
+            "</small></h2>" +
+            controls(d) +
+            legend() +
+            '<div class="view on" id="vGrid">' +
+            grid(d) +
+            "</div>" +
+            (hasParts
+              ? '<div class="view" id="vSys">' + system(d) + "</div>"
+              : "") +
+            uncheckedBox(d) +
+            testsList(d) +
+            '<h2 id="sWalk">Your walkthrough <small>&mdash; steps you run yourself; open a step for its command and what to expect</small></h2>' +
+            walkthrough(d) +
+            needsBox(d)
+          );
+        }
+
+        return {
+          worst: worst,
+          worstRun: worstRun,
+          cell: cell,
+          laneTotals: laneTotals,
+          bandCounts: bandCounts,
+          waitingOn: waitingOn,
+          band: band,
+          defaultDensity: density,
+          grid: grid,
+          unreachedParts: unreachedParts,
+          system: system,
+          testDetail: testDetail,
+          gapDetail: gapDetail,
+          testsList: testsList,
+          accessSummary: accessSummary,
+          walkthrough: walkthrough,
+          page: page,
+        };
+      })();
+      // CORE:END
+
+      (function () {
+        var data = JSON.parse(document.getElementById("vp-data").textContent);
+        document.getElementById("app").innerHTML = VM.page(data);
+        vpWire();
+        var $ = function (s) {
+          return document.querySelector(s);
+        };
+        var grid = $("#grid"),
+          panelEl = null,
+          panelKey = null;
+
+        function closePanel() {
+          if (panelEl) panelEl.remove();
+          panelEl = null;
+          panelKey = null;
+        }
+        // One detail open at a time, directly under the row that was clicked.
+        function openPanel(key, html, anchor, inTable) {
+          if (panelKey === key) {
+            closePanel();
+            return;
+          }
+          closePanel();
+          var box = document.createElement("div");
+          box.className = "panel";
+          box.setAttribute("aria-live", "polite");
+          box.innerHTML = html;
+          if (inTable) {
+            var tr = document.createElement("tr"),
+              td = document.createElement("td");
+            tr.className = "dtr";
+            td.className = "dtd";
+            td.colSpan = 5;
+            td.appendChild(box);
+            tr.appendChild(td);
+            anchor.after(tr);
+            panelEl = tr;
+          } else {
+            anchor.after(box);
+            panelEl = box;
+          }
+          panelKey = key;
+          box.scrollIntoView({ block: "nearest" });
+        }
+        function setDensity(over) {
+          grid.classList.toggle("ovm", over);
+          $("#bDet").setAttribute("aria-pressed", String(!over));
+          $("#bOv").setAttribute("aria-pressed", String(over));
+          if (over) closePanel();
+        }
+        function setView(sys) {
+          closePanel();
+          $("#vGrid").classList.toggle("on", !sys);
+          var s = $("#vSys");
+          if (s) s.classList.toggle("on", sys);
+          $("#dens").hidden = sys;
+          $("#bReq").setAttribute("aria-pressed", String(!sys));
+          $("#bSys").setAttribute("aria-pressed", String(sys));
+        }
+        function setStep(id, open) {
+          var st = document.getElementById("st-" + id);
+          if (!st) return;
+          st.classList.toggle("open", open);
+          st.querySelector(".tg").setAttribute("aria-expanded", String(open));
+        }
+        function gotoRow(i) {
+          setDensity(false);
+          var tr = grid.querySelector('tr.dr[data-r="' + i + '"]');
+          if (!tr) return;
+          tr.scrollIntoView({ block: "center" });
+          tr.classList.add("flash");
+          setTimeout(function () {
+            tr.classList.remove("flash");
+          }, 1400);
+        }
+
+        function setNav() {
+          var n = document.querySelector("nav.stages");
+          if (n)
+            document.documentElement.style.setProperty(
+              "--stagesh",
+              n.offsetHeight + "px",
+            );
+        }
+        function spy() {
+          var cur = 0,
+            ids = ["sReq", "sAuto", "sWalk"];
+          ids.forEach(function (id, i) {
+            var el = document.getElementById(id);
+            if (el && el.getBoundingClientRect().top < 150) cur = i;
+          });
+          document.querySelectorAll("nav.secs a").forEach(function (a, i) {
+            a.classList.toggle("on", i === cur);
+          });
+        }
+        setNav();
+        window.addEventListener("resize", setNav);
+        window.addEventListener("scroll", spy, { passive: true });
+        $("#bDet").addEventListener("click", function () {
+          setDensity(false);
+        });
+        $("#bOv").addEventListener("click", function () {
+          setDensity(true);
+        });
+        if ($("#bReq")) {
+          $("#bReq").addEventListener("click", function () {
+            setView(false);
+          });
+          $("#bSys").addEventListener("click", function () {
+            setView(true);
+          });
+        }
+        var alt = $("#alt");
+        $("#alth").addEventListener("click", function () {
+          $("#alth").setAttribute(
+            "aria-expanded",
+            String(alt.classList.toggle("open")),
+          );
+        });
+
+        document.addEventListener("click", function (e) {
+          var t = e.target;
+          var x = t.closest("[data-close]");
+          if (x) {
+            closePanel();
+            return;
+          }
+          var tg = t.closest("button.tg");
+          if (tg) {
+            var st = tg.closest(".step");
+            setStep(
+              st.getAttribute("data-step"),
+              !st.classList.contains("open"),
+            );
+            return;
+          }
+          var ws = t.closest("button.tl[data-step]");
+          if (ws) {
+            var id = ws.getAttribute("data-step");
+            setStep(id, true);
+            var el = document.getElementById("st-" + id);
+            el.scrollIntoView({ block: "start" });
+            vpFlash(el);
+            return;
+          }
+          var sel = t.closest("button.tl[data-t], button.stn[data-t]");
+          if (sel) {
+            var i = Number(sel.getAttribute("data-t"));
+            var html = VM.testDetail(data, i);
+            if (sel.classList.contains("stn")) {
+              var cells = document.querySelectorAll(
+                '.sysg [data-row="' + i + '"]',
+              );
+              openPanel("t" + i + "@sys", html, cells[cells.length - 1], false);
+            } else {
+              var row = sel.closest("tr");
+              openPanel(
+                "t" + i + "@" + row.getAttribute("data-r"),
+                html,
+                row,
+                true,
+              );
+            }
+            return;
+          }
+          var gb = t.closest("button.gb");
+          if (gb) {
+            var gk = gb.getAttribute("data-gap");
+            openPanel("g" + gk, VM.gapDetail(data, gk), gb.closest("tr"), true);
+            return;
+          }
+          var ov = t.closest("tr.ov");
+          if (ov) gotoRow(ov.getAttribute("data-r"));
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape") closePanel();
+        });
+      })();
+    </script>
+  </body>
+</html>
