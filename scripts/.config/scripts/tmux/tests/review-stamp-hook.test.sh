@@ -199,7 +199,29 @@ id="$NID"
 mkrun "$id" feat-x
 transcript "$ROOT/t7b.jsonl" "$id" none
 run_hook "$(stop_payload "$ROOT/t7b.jsonl")"
-check "no invocation found in the transcript: own branch, stamped" 1 "stamped"
+check "no invocation found in the transcript: target unknown, no call" 0
+
+newid
+id="$NID"
+mkrun "$id" feat-x $'review the hooks\n123'
+transcript "$ROOT/t7c.jsonl" "$id" skill ""
+run_hook "$(stop_payload "$ROOT/t7c.jsonl")"
+check "finish-input.json PR number on the second line: no call" 0
+
+newid
+id="$NID"
+mkrun "$id" feat-x
+transcript "$ROOT/t7d.jsonl" "$id" typed $'focus on hooks\nother-br'
+run_hook "$(stop_payload "$ROOT/t7d.jsonl")"
+check "typed multi-line args naming another branch: no call" 0
+
+newid
+id="$NID"
+mkrun "$id" feat-x
+git -C "$REPO" update-ref refs/remotes/origin/colleague-br HEAD
+transcript "$ROOT/t7e.jsonl" "$id" skill "colleague-br"
+run_hook "$(stop_payload "$ROOT/t7e.jsonl")"
+check "Skill args naming a remote-only branch: no call" 0
 
 newid
 id="$NID"
@@ -257,6 +279,8 @@ check "failing wb.sh: message says so, hook exits 0" 1 "failed"
 [[ "$OUT" == *"no task file for sess"* && "$OUT" != *"second line"* ]] && ok "message carries only the first stderr line" || bad "stderr in message: $OUT"
 [[ "$OUT" == *"wb reviewed"* ]] && ok "message tells Jet to run wb reviewed" || bad "no wb reviewed advice: $OUT"
 [ ! -e "$RUNS/$id/.wb-stamped" ] && ok "no marker after a failed stamp" || bad "marker written after failure"
+WB_FAIL="no task file for sess" run_hook "$(stop_payload "$ROOT/t12.jsonl")"
+check "failed stamp is reported once: next Stop makes no call, no output" 0
 
 # --- bad payloads -----------------------------------------------------------
 run_hook ""

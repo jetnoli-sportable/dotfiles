@@ -26,7 +26,9 @@ review_target_default_branch() {
 review_target_is_other() {
   local repo="$1" args="$2" tok cur up def defshort
   local -a toks
-  read -ra toks <<<"$args"
+  # -d '' reads past newlines: typed and Skill args can span lines. It returns
+  # 1 at end of input, having filled the array anyway.
+  read -r -d '' -a toks <<<"$args" || true
   [ "${#toks[@]}" -gt 0 ] || return 1
   # ce-code-review refuses base: together with a PR or branch target, so a
   # base: run always reviews the current checkout, whatever its prose names.
@@ -54,6 +56,8 @@ review_target_is_other() {
     [ -n "$def" ] && { [ "$tok" = "$def" ] || [ "$tok" = "$defshort" ]; } && continue
     git -C "$repo" show-ref --verify --quiet "refs/heads/$tok" && return 0
     git -C "$repo" show-ref --verify --quiet "refs/remotes/$tok" && return 0
+    # ce-code-review resolves a bare branch name as origin/<name>.
+    git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$tok" && return 0
   done
   return 1
 }

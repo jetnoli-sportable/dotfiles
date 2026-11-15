@@ -89,14 +89,27 @@ else bad "matcher self-check"; fi
 if jq -e '.permissions.allow | index("Read(/home/jetnoli/code/tasks/**)")' "$SETTINGS" >/dev/null; then
   ok "allow keeps the task-store Read rule"
 else bad "allow lost the task-store Read rule"; fi
-for pair in 'Bash|tasks-git-hooks/pretooluse-guard.sh' 'Bash|risky-command-guard.sh' \
-  'Edit|Write|MultiEdit|tasks-git-hooks/pretooluse-guard.sh'; do
-  matcher="${pair%|*}" script="${pair##*|}"
-  if jq -e --arg m "$matcher" --arg s "$script" \
-    '[.hooks.PreToolUse[]? | select(.matcher == $m) | .hooks[].command | endswith($s)] | any' \
+# Every hook registration, old and new: a typo in a matcher or path would
+# switch a hook off while its own script tests still pass. An empty matcher
+# means the entry has none.
+TMUX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+for entry in 'PreToolUse|Bash|tasks-git-hooks/pretooluse-guard.sh' \
+  'PreToolUse|Bash|risky-command-guard.sh' \
+  'PreToolUse|Edit|Write|MultiEdit|tasks-git-hooks/pretooluse-guard.sh' \
+  'PreToolUse|Skill|haircut-gate-hook.sh' \
+  'UserPromptSubmit||haircut-gate-hook.sh' \
+  'PostToolUse|Write|Edit|MultiEdit|format-on-edit-hook.sh' \
+  'Stop||review-stamp-hook.sh' \
+  'SubagentStop||review-stamp-hook.sh'; do
+  event="${entry%%|*}" rest="${entry#*|}"
+  matcher="${rest%|*}" script="${rest##*|}"
+  if jq -e --arg e "$event" --arg m "$matcher" --arg s "$script" \
+    '[.hooks[$e][]? | select((.matcher // "") == $m) | .hooks[].command
+      | . == "$HOME/.config/scripts/tmux/" + $s] | any' \
     "$SETTINGS" >/dev/null; then
-    ok "PreToolUse $matcher still runs $script"
-  else bad "PreToolUse $matcher no longer runs $script"; fi
+    ok "$event ${matcher:-(no matcher)} runs $script"
+  else bad "$event ${matcher:-(no matcher)} does not run $script"; fi
+  [ -x "$TMUX_DIR/$script" ] || bad "registered hook script missing or not executable: $script"
 done
 
 exit "$fail"

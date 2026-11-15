@@ -53,12 +53,17 @@ load_invocations() {
 eligible=()
 while IFS=$'\t' read -r line folder; do
   [ -d "$folder" ] && [ ! -L "$folder" ] && [ -O "$folder" ] || continue
-  [ -f "$folder/metadata.json" ] && [ ! -e "$folder/.wb-stamped" ] || continue
+  # .wb-stamp-failed: a failed stamp is reported once, not on every Stop.
+  [ -f "$folder/metadata.json" ] && [ ! -e "$folder/.wb-stamped" ] && [ ! -e "$folder/.wb-stamp-failed" ] || continue
   [ "$(jq -r '.branch // empty' "$folder/metadata.json" 2>/dev/null)" = "$cur" ] || continue
   args="$(jq -r '.invocation.arguments // empty' "$folder/finish-input.json" 2>/dev/null)"
   if [ -z "$args" ] && [ ! -f "$folder/finish-input.json" ]; then
     [ "$loaded" = 1 ] || load_invocations
-    args="$(jq -rs --argjson f "$line" 'map(select(.n < $f)) | last | .args // ""' <<<"$invocations" 2>/dev/null)"
+    # "=" marks a found invocation, so an empty result means none was found:
+    # the target is unknown, and the run is skipped rather than stamped.
+    args="$(jq -rs --argjson f "$line" 'map(select(.n < $f)) | if length == 0 then "" else "=" + (last | .args // "") end' <<<"$invocations" 2>/dev/null)"
+    [ -n "$args" ] || continue
+    args="${args#=}"
   fi
   review_target_is_other "$cwd" "$args" && continue
   eligible+=("$folder")
@@ -70,6 +75,7 @@ if err="$("$wb" reviewed "$session" 2>&1 >/dev/null)"; then
   for folder in "${eligible[@]}"; do : >"$folder/.wb-stamped"; done
   jq -n --arg m "wb: stamped $session's task as reviewed (review ${eligible[0]##*/})" '{systemMessage: $m}'
 else
+  for folder in "${eligible[@]}"; do : >"$folder/.wb-stamp-failed"; done
   jq -n --arg m "wb: stamping $session's task as reviewed failed (${err%%$'\n'*}). Run \`wb reviewed\` yourself." '{systemMessage: $m}'
 fi
 exit 0

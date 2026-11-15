@@ -146,6 +146,10 @@ case "$reason" in *"/haircut"*"code"*) echo "ok   - block reason names /haircut"
 esac
 check "typed plugin-qualified with base:development" block "$(prompt_payload UserPromptSubmit-ce-code-review-base-development.json "$r")"
 check "typed command naming a PR" allow "$(prompt_payload UserPromptSubmit-ce-code-review.json "$r" "/ce-code-review 123")"
+check "typed command, PR on its second line" allow "$(prompt_payload UserPromptSubmit-ce-code-review.json "$r" $'/ce-code-review\nhttps://github.com/o/r/pull/45')"
+g -C "$r" update-ref refs/remotes/origin/colleague-branch development
+check "args: bare remote-only branch" allow "$(skill_payload $CR colleague-branch "$r")"
+check "args: PR URL after a context line" allow "$(skill_payload $CR $'review the hooks\nhttps://github.com/o/r/pull/45' "$r")"
 check "prose mentioning code review" allow "$(prompt_payload UserPromptSubmit-ce-code-review.json "$r" "please do a ce-code-review later")"
 check "longer command name is not a match" allow "$(prompt_payload UserPromptSubmit-ce-code-review.json "$r" "/ce-code-review-extra")"
 
@@ -171,8 +175,8 @@ g -C "$r" update-ref refs/remotes/origin/remote-only development
 tgt() { # <expected: other|own> <args>
   local got=own
   review_target_is_other "$r" "$2" && got=other
-  if [ "$got" = "$1" ]; then echo "ok   - target $1: $2"; else
-    echo "FAIL - target expected $1, got $got: $2"
+  if [ "$got" = "$1" ]; then echo "ok   - target $1: ${2//$'\n'/\\n}"; else
+    echo "FAIL - target expected $1, got $got: ${2//$'\n'/\\n}"
     fail=1
   fi
 }
@@ -196,6 +200,16 @@ tgt own "base:page-fixes — review branch feat/x (units 1–6: 10 commits from 
 tgt own "--full base:abc1234 (branch other-branch vs development; PR #12 follow-up)"
 tgt own "development"
 tgt own "no-such-branch"
+# A bare name that exists only on the remote: ce-code-review resolves it as
+# origin/<name>, so it is another branch.
+tgt other "remote-only"
+tgt other "review branch remote-only please"
+# Arguments spanning lines: the target can sit after the first newline.
+tgt other $'focus on hooks\nhttps://github.com/o/r/pull/9'
+tgt other $'mode:agent\n#145'
+tgt other $'context line\nother-branch'
+tgt own $'Review branch feat/x\nagainst origin/development'
+tgt own $'focus on hooks\nbase:origin/development'
 # The helper is sourced into hooks, so it must leave the caller's variables alone.
 before="$(set | /usr/bin/grep -c '^review_target_[a-z_]*=')"
 if [ "$before" = 0 ]; then echo "ok   - helper leaves no review_target_ globals"; else
