@@ -1,0 +1,7 @@
+{
+  "name": "wb-continue-hook",
+  "description": "wb continue hooks: a Stop hook restarts a saved session's pane into a fresh Claude (in shadow mode until the continue-live file exists), and a SessionStart hook drops a request when Jet clears by hand. Hooks only; logic lives in ~/.config/scripts/tmux/wb-continue-hook.sh.",
+  "author": {
+    "name": "jetnoli-sportable"
+  }
+}

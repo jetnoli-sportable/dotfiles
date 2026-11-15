@@ -23,7 +23,8 @@
 
 WBC_FIELDS=(id stem task_file state reason typed declined restart_born command
   session_id pane tmux_session model entry_sha entry_heading tip tree_sha
-  worktree created updated new_session_id)
+  worktree created updated new_session_id
+  last_stop last_busy effort permission_mode model_fallback)
 
 wbc_dir() { printf '%s/%s\n' "$(wb_continue_state_root)" "$1"; }
 
@@ -46,7 +47,8 @@ _wbc_write_file() { # <path> <content> — atomic: temp + mv
 
 # wbc_set <event> <stem> <state> <reason> [field=value ...] — CALLER HOLDS
 # continue-<stem>. Merges the fields into the request (creating it), sets state
-# and reason, stamps `updated`, rewrites `row`, appends the log line.
+# and reason, stamps `updated`, rewrites `row`, appends the log line (not for
+# the event `snapshot`, the Stop hook's per-turn bookkeeping).
 wbc_set() {
   local event="$1" stem="$2" state="$3" reason="$4"; shift 4
   local dir f line k kv_arg
@@ -68,7 +70,9 @@ wbc_set() {
   local done_line=""
   [ ! -f "$dir/entry.md" ] || done_line="$(_wbc_done_line "$dir/entry.md")"
   _wbc_write_file "$dir/row" "$state"$'\t'"${kv[reason]}"$'\t'"$(_wbc_oneline "$done_line")"$'\t'"${kv[command]:-}"$'\n'
-  wb_continue_log "$event" "$stem" "${kv[id]:-}" "$state" "${kv[reason]}"
+  # The Stop hook's per-turn snapshot is not an event worth a log line.
+  [ "$event" = snapshot ] || wb_continue_log "$event" "$stem" "${kv[id]:-}" "$state" "${kv[reason]}"
+  return 0
 }
 
 # _wbc_done_line <entry-file> — first line of the entry's **Done:** field,
