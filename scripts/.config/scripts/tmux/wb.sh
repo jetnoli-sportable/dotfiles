@@ -155,15 +155,16 @@
 #   wb notes [<task>]                print dossiers/<task>/notes.md (the file may not exist; wb
 #                                    never creates it), tmux-free; with no <task>, the current
 #                                    tmux session's @task (an error outside tmux)
-#   wb page [--no-open] [--task|--family] [<task>]
+#   wb page [--no-open] [--task|--family] [<task>] | wb page [--no-open] --index
 #                                    open <task>'s page from wb-store's page server: its family
 #                                    page when it has children, else its task page (--task or
 #                                    --family picks one; the family page is drawn from the
 #                                    family's root, so from a child it is the coordinator's
-#                                    view; prefix+P and prefix+F bind the two). Reuses a
-#                                    server of the current build on ports 8766-8775, else stops
-#                                    the older one it started and starts one detached (log:
-#                                    ~/.local/state/wb/page-server.log). With
+#                                    view; prefix+P and prefix+F bind the two; --index opens
+#                                    the families index, from anywhere, bound to prefix+H).
+#                                    Reuses a server of the current build on ports 8766-8775,
+#                                    else stops the older one it started and starts one
+#                                    detached (log: ~/.local/state/wb/page-server.log). With
 #                                    no <task>, the current tmux session's @task; --no-open only
 #                                    prints the URL
 #   wb week path                     print the standing weekly-capture doc's path,
@@ -8167,7 +8168,8 @@ _wb_page_detach() {
 }
 
 # _wb_page_start <stem> <log> <pidfile> — stop the older server recorded in
-# <pidfile>, start `wb-store serve --no-open --port WB_PAGE_PORT <stem>`
+# <pidfile>, start `wb-store serve --no-open --port WB_PAGE_PORT [<stem>]`
+# (an empty <stem> starts it on the families index)
 # detached (its own session, so closing this shell leaves it running),
 # record its pid in <pidfile>, and print the port it bound, read from its
 # first line in <log>. Returns 1, naming the log and showing its last lines,
@@ -8178,7 +8180,7 @@ _wb_page_start() {
   mkdir -p "$(dirname "$log")" "$(dirname "$pidfile")"
   _wb_page_stop_old "$pidfile"
   : > "$log"
-  _wb_page_detach "$WB_STORE_SHIM" serve --no-open --port "$WB_PAGE_PORT" "$stem" >>"$log" 2>&1 </dev/null
+  _wb_page_detach "$WB_STORE_SHIM" serve --no-open --port "$WB_PAGE_PORT" ${stem:+"$stem"} >>"$log" 2>&1 </dev/null
   pid=$!
   printf '%s\n' "$pid" > "$pidfile"
   for i in $(seq 1 50); do
@@ -8217,22 +8219,24 @@ _wb_page_open() {
 
 # cmd_page [--no-open] [--task|--family] [<task-ref>] — print and open a
 # task's page: the family page when the task has children, the task page
-# otherwise. --task always opens the task page; --family always opens the
-# family page, which the server draws from the family's root for any member
+# otherwise. With --index (and no task) it opens the families index instead,
+# needing neither tmux nor a task, after checking this build serves one.
+# --task always opens the task page; --family always opens the family page,
+# which the server draws from the family's root for any member
 # (so from a child it is the coordinator's view). A server of the current
 # build (KTD15's /healthz probe) is reused; otherwise one is started
 # detached. Resolution matches cmd_notes: a <task-ref> needs no tmux, none
 # (or an empty one, as a tmux bind passes for a session without @task)
 # means the current session's @task.
 cmd_page() {
-  local usage="usage: wb page [--no-open] [--task|--family] [<task-ref>]"
+  local usage="usage: wb page [--no-open] [--task|--family] [<task-ref>] | wb page [--no-open] --index"
   local no_open=0 view=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --no-open) no_open=1 ;;
-      --task|--family)
+      --task|--family|--index)
         if [ -n "$view" ] && [ "$view" != "${1#--}" ]; then
-          echo "wb page: --task and --family can't both be given" >&2
+          echo "wb page: only one of --task, --family and --index can be given" >&2
           echo "$usage" >&2
           return 1
         fi
@@ -8242,12 +8246,14 @@ cmd_page() {
     esac
     shift
   done
-  if [ $# -gt 1 ]; then
+  if [ $# -gt 1 ] || { [ "$view" = index ] && [ $# -gt 0 ]; }; then
     echo "$usage" >&2
     return 1
   fi
-  local file
-  if [ -n "${1:-}" ]; then
+  local file stem=""
+  if [ "$view" = index ]; then
+    :
+  elif [ -n "${1:-}" ]; then
     file="$(_wb_append_resolve_task "$1" "wb page")" || return 1
   else
     if [ -z "${TMUX:-}" ]; then
@@ -8262,7 +8268,7 @@ cmd_page() {
       return 1
     fi
   fi
-  local stem; stem="$(basename "$file" .md)"
+  [ "$view" = index ] || stem="$(basename "$file" .md)"
 
   if [ ! -x "$WB_STORE_SHIM" ]; then
     echo "wb page: no wb-store shim at $WB_STORE_SHIM — run stow (cd ~/code/dotfiles && stow scripts)" >&2
@@ -8279,11 +8285,24 @@ cmd_page() {
     port="$(_wb_page_start "$stem" "$state/page-server.log" "$state/page-server.$key.pid")" || return 1
   fi
 
-  if [ -z "$view" ]; then
-    view=task
-    if [ "$(_wb_family_tree "$stem" | wc -l)" -gt 1 ]; then view=family; fi
+  local url
+  if [ "$view" = index ]; then
+    # The shim builds from the main checkout, so an unpulled one serves no
+    # index (plan KTD8) and answers 404 at /: say so rather than open it.
+    # Any other answer, a timeout included, opens the page: rendering it
+    # waits up to 2s on tmux, so a slow load is not a missing index.
+    url="http://127.0.0.1:$port/"
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$url" 2>/dev/null || true)" = 404 ]; then
+      echo "wb page: this wb-store build has no index page; pull ~/code/wb-store" >&2
+      return 1
+    fi
+  else
+    if [ -z "$view" ]; then
+      view=task
+      if [ "$(_wb_family_tree "$stem" | wc -l)" -gt 1 ]; then view=family; fi
+    fi
+    url="http://127.0.0.1:$port/$view/$stem"
   fi
-  local url="http://127.0.0.1:$port/$view/$stem"
   printf '%s\n' "$url"
   [ "$no_open" = 1 ] || _wb_page_open "$url"
 }

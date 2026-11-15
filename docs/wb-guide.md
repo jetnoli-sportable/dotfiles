@@ -924,13 +924,15 @@ wb page --no-open wb-store--page-server
 wb page --family                 # the coordinator's family page, from a child
 ```
 
-Two tmux binds open them from any wb session, in the background (the URL isn't
-shown; a failure shows its first line as a message):
+Three tmux binds open them in the background (the URL isn't shown; a failure
+shows its first line as a message). The first two need a wb session; prefix+H
+works from any session:
 
 | Key | Opens |
 |---|---|
 | `prefix+P` | this session's task page (`wb page --task`) |
 | `prefix+F` | its family page, the coordinator's view from a child (`wb page --family`) |
+| `prefix+H` | the families index: one card per open family, the loose tasks and the live sessions (`wb page --index`) |
 
 The page server binds `127.0.0.1` from port 8766, falling forward up to 8775,
 answers reads only, and re-reads the store on every refresh, so a page is never
