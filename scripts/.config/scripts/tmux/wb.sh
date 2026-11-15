@@ -121,6 +121,17 @@
 #                                    list them; none, or already done: exit 1). Sets
 #                                    status: closed + closed: <date> (and "Closed <date>: <note>"),
 #                                    views rebuilt
+#   wb continue stage [<task>]       what /wb-save calls after writing its entry: record the live
+#                                    Handoffs entry as a `ready` continue request (one per task)
+#   wb continue arm [--decline] [<task>]
+#                                    what /wb-continue calls: record the request and pick its lane
+#                                    (armed or ready); a typed /wb-continue takes its words from the
+#                                    prompt record, a session's own instruction comes on stdin
+#   wb continue status [<task>]      print the task's request fields
+#   wb continue drop [<task>]        remove the task's request
+#   wb continue pickup <request-id>  run by the fresh Claude: check the request still matches, write the
+#                                    Handoffs line, print the frozen entry and the command; single use
+#   wb continue release [<task>]     not built yet
 #   wb migrate <task>|--all [--dry-run]
 #                                    convert an old-shape task file (one written by hand or
 #                                    brought from elsewhere) into the dossier layout
@@ -460,6 +471,42 @@ wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
 # wb_needs_you_file <key> — the /decide needs-you marker of a task stem (or a tmux session
 # name outside a task); lines and writers are in wb-decide.sh, the picker only reads it.
 wb_needs_you_file() { printf '%s/wb/needs-you/%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$1"; }
+
+# wb continue (wb-continue.sh, sourced lazily): one request per task under
+# wb_continue_state_root/<stem>/. The three functions below live here, not in
+# that file, so the lifecycle verbs can drop a request before it is stowed.
+wb_continue_state_root() { printf '%s/wb/continue' "${XDG_STATE_HOME:-$HOME/.local/state}"; }
+# wb_continue_log <event> <stem> <id> <state> <reason> — one line in wb/continue.log.
+wb_continue_log() {
+  local reason="${5//\"/\'}"
+  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/wb" 2>/dev/null || return 0
+  printf '%s wbc event=%s stem=%s id=%s state=%s reason="%s"\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
+    "$1" "$2" "$3" "$4" "${reason//[$'\t\r\n']/ }" >> "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue.log" 2>/dev/null || true
+}
+# wb_continue_drop_files <stem> [<event> [<reason>]] — remove <stem>'s request
+# files by name, then the directory; logs when a request existed. CALLER HOLDS
+# continue-<stem>.
+wb_continue_drop_files() {
+  local stem="$1" event="${2:-drop}" reason="${3:-task lifecycle}" d f id=""
+  d="$(wb_continue_state_root)/$stem"
+  [ -d "$d" ] || return 0
+  if [ -f "$d/request" ]; then
+    while IFS= read -r f || [ -n "$f" ]; do [[ "$f" == id=* ]] && id="${f#id=}"; done < "$d/request"
+  fi
+  for f in request entry.md instruction row; do rm -f "$d/$f"; done
+  for f in "$d"/*.tmp.*; do [ ! -e "$f" ] || rm -f "$f"; done
+  rmdir "$d" 2>/dev/null || true
+  wb_continue_log "$event" "$stem" "$id" dropped "$reason"
+}
+# wb_continue_drop <stem> [<event> [<reason>]] — the same under its own
+# continue-<stem> lock; what the lifecycle verbs call.
+wb_continue_drop() {
+  [ -d "$(wb_continue_state_root)/$1" ] || return 0
+  local took=0
+  if wb_task_lock_acquire_guarded "continue-$1" >/dev/null 2>&1; then took=1; fi
+  wb_continue_drop_files "$@"
+  [ "$took" = 0 ] || wb_task_lock_release "continue-$1"
+}
 
 # wb_task_files — every real task file in the store: only `<repo>--<slug>.md`
 # stems (a non-empty repo, the `--` delimiter, a non-empty slug), so
@@ -2478,6 +2525,7 @@ cmd_restart() {
     if [ "$dry" = 1 ]; then
       echo "WOULD $stem: wb resume, then pre-type: $agent_cmd"; ok=$((ok + 1)); continue
     fi
+    wb_continue_drop "$stem" restart "wb restart"
     if ! bash "$SELF" resume "$stem" >/dev/null </dev/null; then
       echo "FAIL  $stem: wb resume failed"; failed=$((failed + 1)); continue
     fi
@@ -4067,6 +4115,7 @@ cmd_down() {
   wb_branch_has_open_pr "$(wb_repo_dir "$repo")" "$branch" && has_open_pr=0
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_continue_drop "$(basename -- "$task_file" .md)" down "wb down"
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
   [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && wb_set_frontmatter "$task_file" status review
@@ -4119,6 +4168,7 @@ cmd_pause() {
   _wb_down_shelf_warn "$task_file" 1
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_continue_drop "$(basename -- "$task_file" .md)" pause "wb pause"
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status paused
   # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
@@ -6912,6 +6962,7 @@ cmd_done() {
   wb_append_handoff "$task_file" "wb done" "$handoff_msg" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (handoff not written)" >&2; exit 1; }
   wb_task_lock_release "$task_file"
+  wb_continue_drop "$task_stem" "done" "wb done"
   # R19: the task is done, so what it was waiting on no longer is. Say what
   # the marker held, then remove it and its lock. (wb down leaves it: a page
   # outlives its session.)
@@ -8920,6 +8971,12 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
       # shellcheck source=wb-migrate.sh
       source "$SCRIPT_DIR/wb-migrate.sh"
       cmd_migrate "$@" ;;
+    # Same lazy source again: wb-continue.sh is new.
+    continue)
+      shift
+      # shellcheck source=wb-continue.sh
+      source "$SCRIPT_DIR/wb-continue.sh"
+      wbc_main "$@" ;;
     # Same lazy source as migrate, for the same reason: wb-decide.sh is new.
     decide-path|decide-buffer|decide-open|decide-clear|decision|decide-spec-check)
       _wb_dcmd="$1"; shift
