@@ -67,13 +67,20 @@ lock_is_stale() {
   [ -n "$(find "$lock" -maxdepth 0 -mmin +5 2>/dev/null)" ]
 }
 
+# A failed pid write means another caller broke our new lock in between:
+# go round again rather than build without one.
 take_lock() {
   local deadline=$((SECONDS + lock_wait))
-  until mkdir "$lock" 2>/dev/null; do
+  while :; do
+    if mkdir "$lock" 2>/dev/null; then
+      have_lock=1
+      if { echo "$$" > "$lock/pid"; } 2>/dev/null; then return 0; fi
+      have_lock=0
+      continue
+    fi
     if lock_is_stale; then
       echo "wb-store.sh: breaking stale build lock $lock" >&2
-      rm -rf "$lock"
-      continue
+      rm -rf "$lock" 2>/dev/null || true
     fi
     if [ "$SECONDS" -ge "$deadline" ]; then
       echo "wb-store.sh: gave up after ${lock_wait}s waiting for another build of $BIN (lock $lock, pid $(cat "$lock/pid" 2>/dev/null || echo unknown)); remove the lock if no build is running" >&2
@@ -81,8 +88,6 @@ take_lock() {
     fi
     sleep 0.2
   done
-  have_lock=1
-  echo "$$" > "$lock/pid"
 }
 
 # Only our own lock: one broken as stale and retaken by another caller

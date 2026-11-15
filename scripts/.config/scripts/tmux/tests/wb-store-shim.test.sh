@@ -269,6 +269,16 @@ assert_match "says it broke the lock" "breaking stale build lock" "$(cat "$FIXTU
 assert_eq "no build lock left" no "$([ -e "$DEFAULT_BIN.lock" ] && echo yes || echo no)"
 touch -t "$OLD" "$DEFAULT_SRC/go.mod"; touch -t "$BUILT" "$DEFAULT_BIN"
 
+echo "# several callers break the same dead lock at once: all succeed, no lock left"
+( exit 0 ) & dead=$!; wait "$dead"
+mkdir "$DEFAULT_BIN.lock"; echo "$dead" > "$DEFAULT_BIN.lock/pid"
+touch -t "$NEWER" "$DEFAULT_SRC/go.mod"
+pids=(); for _ in 1 2 3 4 5 6; do GO_SLEEP=0.3 bash "$SHIM" list >/dev/null 2>>"$FIXTURE/stderr-many" & pids+=($!); done
+failed=0; for p in "${pids[@]}"; do wait "$p" || failed=$((failed + 1)); done
+assert_eq "no caller failed" 0 "$failed"
+assert_eq "no build lock left" no "$([ -e "$DEFAULT_BIN.lock" ] && echo yes || echo no)"
+touch -t "$OLD" "$DEFAULT_SRC/go.mod"; touch -t "$BUILT" "$DEFAULT_BIN"
+
 echo "# a lock older than 5 minutes, its pid alive (reused): broken, then built"
 mkdir "$DEFAULT_BIN.lock"; echo "$$" > "$DEFAULT_BIN.lock/pid"
 touch -t "$OLD" "$DEFAULT_BIN.lock"
