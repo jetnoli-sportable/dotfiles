@@ -207,6 +207,10 @@ def check_document(doc):
             rev = run.get("revision")
             if rev is not None and (not isinstance(rev, int) or isinstance(rev, bool)):
                 add("run: field 'revision' must be an integer")
+            wt_rev = (wt or {}).get("revision") if isinstance(wt, dict) else None
+            if isinstance(rev, int) and isinstance(wt_rev, int) and rev != wt_rev:
+                add(f"run: recorded against walkthrough revision {rev} but the walkthrough is now at revision "
+                    f"{wt_rev}; re-run the walkthrough and record-run again, or remove the 'run' section")
             rs = run.get("steps", {})
             if not isinstance(rs, dict):
                 add("run: field 'steps' must be an object keyed by step id")
@@ -317,7 +321,8 @@ def unwrap(raw):
 
 def cmd_record_run(args):
     doc = load(args.file)
-    errs = check_document(doc)
+    # The run section is about to be replaced, so a stale one must not block recording.
+    errs = check_document({k: v for k, v in doc.items() if k != "run"} if isinstance(doc, dict) else doc)
     if errs:
         return fail(errs, "verify-plan.py: not recording into an invalid document")
     steps_dir = os.path.join(args.state_dir, "steps")
@@ -339,10 +344,10 @@ def cmd_record_run(args):
             continue
         if not isinstance(entry, dict):
             problems.append(f"{name}: must hold an object")
-        elif sid not in known:
-            problems.append(f"step {sid}: stored state names a step that is not in the walkthrough")
         elif str(entry.get("rev")) != str(revision):
             ignored += 1
+        elif sid not in known:
+            problems.append(f"step {sid}: stored state names a step that is not in the walkthrough")
         else:
             recorded[sid] = {
                 "outcome": entry.get("outcome") or "not-run",

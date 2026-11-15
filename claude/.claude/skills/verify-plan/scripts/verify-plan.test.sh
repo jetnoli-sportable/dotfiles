@@ -85,6 +85,7 @@ reject no-parts-but-tests-name-parts 'del s["parts"]' "real_parts"
 accept no-run 's.pop("run", None)'
 reject run-unknown-step 's["run"] = {"revision": s["walkthrough"]["revision"], "steps": {"S99": {"outcome": "passed"}}}' "S99"
 reject run-bad-outcome 's["run"] = {"revision": s["walkthrough"]["revision"], "steps": {s["walkthrough"]["steps"][0]["id"]: {"outcome": "meh"}}}' "meh" "passed" "failed" "skipped" "not-run"
+reject run-stale-revision 's["walkthrough"]["revision"] = 2; s["run"] = {"revision": 1, "steps": {s["walkthrough"]["steps"][0]["id"]: {"outcome": "passed"}}}' "revision 1" "revision 2" "record-run"
 accept run-valid 's["run"] = {"revision": s["walkthrough"]["revision"], "steps": {s["walkthrough"]["steps"][0]["id"]: {"outcome": "skipped", "skip_reason": "no cloud access today"}}}'
 
 # Optional title and summary: strings, never required.
@@ -191,6 +192,22 @@ then pass "record-run keeps pasted text byte for byte"; else fail "pasted text c
 cp -r "$STATE" "$WORK/bad-state"; echo '{"outcome":"passed","rev":"1","updatedAt":"2026-11-16T11:00:00.000Z"}' > "$WORK/bad-state/steps/S99.json"
 build_copy r2; BEFORE="$(sum_of "$WORK/r2/verify.json")"; record "$WORK/r2/verify.json" "$WORK/bad-state"
 if [ "$RC" != 0 ] && [[ "$OUT" == *S99* ]] && [ "$BEFORE" = "$(sum_of "$WORK/r2/verify.json")" ]; then pass "record-run refuses a step id absent from the source and leaves it unchanged"; else fail "unknown step (rc=$RC out=$OUT)"; fi
+
+# Old-revision document for a step since removed: ignored and counted, not refused.
+cp -r "$STATE" "$WORK/gone-state"; echo '{"outcome":"passed","rev":"0","updatedAt":"2026-11-16T11:00:00.000Z"}' > "$WORK/gone-state/steps/S99.json"
+build_copy r2b; record "$WORK/r2b/verify.json" "$WORK/gone-state"
+if [ "$RC" = 0 ] && [[ "$OUT" == *"ignored 1 "* ]]; then pass "record-run ignores an old-revision document for a removed step"; else fail "old-revision removed step (rc=$RC out=$OUT)"; fi
+
+# A stale run in the source does not block recording a fresh one.
+build_copy r2c 's["walkthrough"]["revision"] = 2; s["run"] = {"revision": 1, "steps": {}}'
+cp -r "$STATE" "$WORK/rev2-state"
+for f in "$WORK"/rev2-state/steps/*.json; do python3 - "$f" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1])); t = d.get("data", d); t["rev"] = "2"; json.dump(d, open(sys.argv[1], "w"))
+PYEOF
+done
+record "$WORK/r2c/verify.json" "$WORK/rev2-state"
+if [ "$RC" = 0 ] && [ "$(run_field "$WORK/r2c/verify.json" 'd["run"]["revision"]')" = 2 ]; then pass "record-run replaces a stale run section"; else fail "stale run replaced (rc=$RC out=$OUT)"; fi
 
 # Idempotent.
 cp "$WORK/r1/verify.json" "$WORK/r1-first.json"; record "$WORK/r1/verify.json" "$STATE"

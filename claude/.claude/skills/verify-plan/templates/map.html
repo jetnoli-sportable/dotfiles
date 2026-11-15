@@ -1029,8 +1029,15 @@ __VP_META__
         function steps(d) {
           return list(d.walkthrough && d.walkthrough.steps);
         }
-        function hasRun(d) {
+        function runPresent(d) {
           return !!d.run && typeof d.run === "object";
+        }
+        // A run recorded against another walkthrough revision is never counted.
+        function hasRun(d) {
+          return (
+            runPresent(d) &&
+            String(d.run.revision) === String((d.walkthrough || {}).revision)
+          );
         }
         // A step with no recorded outcome counts as not run.
         function outcome(d, s) {
@@ -1751,7 +1758,7 @@ __VP_META__
         // recorded run. "static": the plain map, before there is anything to run.
         function mode(d) {
           if (d.stage === "results") return "results";
-          return d.stage === "run" || hasRun(d) ? "run" : "static";
+          return d.stage === "run" || runPresent(d) ? "run" : "static";
         }
         function norm(e) {
           e = e || {};
@@ -1772,6 +1779,10 @@ __VP_META__
           if (hasRun(d))
             Object.keys(d.run.steps || {}).forEach(function (id) {
               states[id] = norm(d.run.steps[id]);
+            });
+          else if (runPresent(d))
+            Object.keys(d.run.steps || {}).forEach(function (id) {
+              stale.push(id);
             });
           stored = stored || {};
           steps(d).forEach(function (s) {

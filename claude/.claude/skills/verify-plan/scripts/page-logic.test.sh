@@ -408,6 +408,24 @@ check "a stored step document from an older revision is shown as such and not co
   assert(VM.page(d, { states: r.states, stale: r.stale }).includes('from an earlier version of the walkthrough'));
   assert(!VM.page(d, { states: r.states, stale: [] }).includes('from an earlier version'));"
 
+check "a run recorded against an older walkthrough revision is never counted" "
+  $SEVEN
+  d.stage = 'run';
+  d.walkthrough.revision = 2;
+  assert.strictEqual(d.run.revision, 1);
+  const r = VM.resolve(d, {});
+  assert.deepStrictEqual(r.stale.slice().sort(), Object.keys(d.run.steps).sort());
+  assert.deepStrictEqual(r.states, {});
+  const c = VM.counts(d, r.states);
+  assert.deepStrictEqual([c.passed, c.failed, c.skipped, c.not_run], [0, 0, 0, 7]);
+  d.stage = 'results';
+  const box = VM.resultsBox(d);
+  assert(box.includes('7 steps)') && !box.includes('passed,') && box.includes('7 not run'), 'results count nothing');
+  assert.strictEqual(VM.cell(d, 'R1', 'walkthrough').status, 'you');
+  assert.strictEqual(VM.mode(d), 'results');
+  d.stage = 'run';
+  assert.strictEqual(VM.mode(d), 'run', 'the page still opens in run mode');"
+
 check "stored documents override the recorded run as the starting state" "
   $SEVEN
   const r = VM.resolve(d, { S1: { outcome: 'skipped', skip_reason: 'no time', rev: '1' } });
