@@ -56,6 +56,8 @@ reject bad-lane 's["tests"][0]["lane"] = "smoke"' "smoke" "unit" "integration" "
 reject unknown-part 's["tests"][0]["real_parts"].append("nope")' "nope"
 reject unknown-decision 's["tests"][0]["decision"] = "D99"' "D99"
 reject unknown-step-req 's["walkthrough"]["steps"][0]["requirements"].append("R98")' "R98"
+reject bad-step-id 's["walkthrough"]["steps"][0]["id"] = "S1/../x"' "S1/../x" "letters, digits"
+reject bad-requirement-id 's["requirements"][0]["id"] = "R 1"' "R 1" "letters, digits"
 reject blank-name 's["tests"][0]["name"] = "   "' "name"
 
 # Coverage: strip the uncovered requirement's cover, then add each way out.

@@ -1,6 +1,6 @@
 # verify.json contract
 
-One document per task, kept at `verify/verify.json` in the task's dossier. Every page is generated from it; nothing is edited in the HTML. `scripts/verify-plan.py check <file>` enforces what is marked **checked** below. On success it prints nothing and exits 0; on failure it prints one line per problem, naming the item id and the field, and exits 1. A worked example is `fixtures/example-verify.json` (an invented library-holds app).
+One document per task, kept at `verify/verify.json` in the task's dossier. Every page is generated from it; nothing is edited in the HTML. `scripts/verify-plan.py check <file>` enforces what is marked **checked** below. On success it prints nothing and exits 0; on failure it prints one line per problem, naming the item id and the field, and exits 1. Every `id` (requirement, part, test, step, decision) matches `^[A-Za-z0-9_-]+$`, so it is safe in a file name (`steps/<stepId>.json`) and an HTML attribute; **checked**, with the bad id named. A worked example is `fixtures/example-verify.json` (an invented library-holds app).
 
 ## Top level
 
@@ -70,7 +70,7 @@ Written by `record-run`; the shape is:
 }
 ```
 
-`revision` is the walkthrough revision the results were recorded against. `outcome` is `passed`, `failed`, `skipped` or `not-run`. **Checked**: every key under `steps` is a real step id and every `outcome` is allowed. A document with no `run` passes.
+`revision` is the walkthrough revision the results were recorded against. `outcome` is `passed`, `failed`, `skipped` or `not-run`. **Checked**: every key under `steps` is a real step id and every `outcome` is allowed. A `run` whose `revision` differs from `walkthrough.revision` fails the check: it was recorded against another version of the walkthrough, so re-run and `record-run` again, or remove it. A document with no `run` passes.
 
 ### Stored documents and the exported run state
 
@@ -82,4 +82,4 @@ A published run page (stage `run`, or `map` with a `run` section) keeps its stat
 
 The session exports both with the page-database tool's `out_dir` option into `<dossier>/verify/run-state/`, which writes `<out_dir>/<collection>/<doc id>.json`: `steps/<stepId>.json` and `meta/submitted.json`. `fixtures/example-run-state/` shows the layout. An exported file is either the document itself or a wrapper that carries it under `data` beside fields such as `id` and `version`; `record-run` accepts both.
 
-`record-run <verify.json> <state-dir>` reads `<state-dir>/steps/*.json` (the file name is the step id). It refuses state naming a step id that is not in the source (non-zero exit, source untouched). It ignores documents whose `rev` is not the current revision and reports how many. It then replaces the whole `run` section with `{revision, steps}` built from the rest (`time` is the document's `updatedAt`; a cleared outcome becomes `not-run`), validates the result as `check` does, and writes atomically (temp file and rename) as JSON with 2-space indent, a trailing newline and the key order kept, so a second run with the same state leaves the file byte-identical.
+`record-run <verify.json> <state-dir>` reads `<state-dir>/steps/*.json` (the file name is the step id). It ignores documents whose `rev` is not the current revision and reports how many (this is checked first, so an old document for a step since removed is only ignored). It refuses current-revision state naming a step id that is not in the source (non-zero exit, source untouched). A stale `run` already in the source does not block it, since the section is replaced. It then replaces the whole `run` section with `{revision, steps}` built from the rest (`time` is the document's `updatedAt`; a cleared outcome becomes `not-run`), validates the result as `check` does, and writes atomically (temp file and rename) as JSON with 2-space indent, a trailing newline and the key order kept, so a second run with the same state leaves the file byte-identical.

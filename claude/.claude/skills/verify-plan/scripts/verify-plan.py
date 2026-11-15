@@ -23,6 +23,7 @@ import sys
 LANES = ("unit", "integration", "e2e", "walkthrough")
 ACCESS = ("local", "cloud-read", "cloud-write", "prod", "permission")
 STAGES = ("shaping", "map", "run", "results")
+ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 TEST_STATUSES = ("proposed", "planned", "built")
 DECISION_STATUSES = ("open", "answered")
 OUTCOMES = ("passed", "failed", "skipped", "not-run")
@@ -76,6 +77,8 @@ def check_document(doc):
             if blank(i):
                 add(f"{kind}: an entry has no id")
                 continue
+            if not isinstance(i, str) or not ID_RE.fullmatch(i):
+                add(f"{kind} {i!r}: id may use only letters, digits, '_' and '-'")
             if i in seen:
                 add(f"{kind} {i}: duplicate id")
             seen.add(i)

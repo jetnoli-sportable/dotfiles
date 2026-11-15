@@ -787,6 +787,12 @@ __VP_META__
         font-size: 14px;
         margin-top: 4px;
       }
+      .pbhint {
+        display: block;
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--mut);
+      }
       textarea.pb {
         width: 100%;
         font:
@@ -1869,7 +1875,7 @@ __VP_META__
             esc(st.skip_reason) +
             '"></label>' +
             (s.paste
-              ? '<label class="lb2">Paste what you saw<textarea class="pb" rows="3" data-paste="' +
+              ? '<label class="lb2">Paste what you saw<span class="pbhint">Do not paste secrets: tokens, keys or connection strings.</span><textarea class="pb" rows="3" data-paste="' +
                 id +
                 '">' +
                 esc(st.output) +
@@ -2033,7 +2039,7 @@ __VP_META__
               : ctx.mode === "results"
                 ? recorded(st)
                 : s.paste
-                  ? '<div class="f"><span class="k">Paste what you saw</span><textarea class="pb" rows="3" data-paste="' +
+                  ? '<div class="f"><span class="k">Paste what you saw</span><span class="pbhint">Do not paste secrets: tokens, keys or connection strings.</span><textarea class="pb" rows="3" data-paste="' +
                     id +
                     '" aria-label="Paste what you saw for ' +
                     esc(s.title) +
