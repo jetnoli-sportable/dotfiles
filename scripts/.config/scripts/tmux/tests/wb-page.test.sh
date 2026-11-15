@@ -177,6 +177,12 @@ out=$(cmd_page --index 2>&1); rc=$?
 assert_eq "exit 1" 1 "$rc"
 assert "says to pull wb-store" "has no index page; pull ~/code/wb-store" "$out"
 assert_eq "opened nothing" no "$([ -f "$OPENED" ] && echo yes || echo no)"
+echo "# --index when the probe times out (000): still opens the index"
+reset; HEALTHZ_PORT=8766; HEALTHZ_ID="$BUILD_ID"; INDEX_CODE=000
+out=$(cmd_page --index 2>&1); rc=$?
+assert_eq "exit 0" 0 "$rc"
+assert_eq "the index URL" "http://127.0.0.1:8766/" "$out"
+assert_eq "opened it" "http://127.0.0.1:8766/" "$(cat "$OPENED" 2>/dev/null)"
 echo "# --index takes no task, and no --task or --family"
 reset; HEALTHZ_PORT=8766; HEALTHZ_ID="$BUILD_ID"
 out=$(cmd_page --index dotfiles--lone 2>&1); rc=$?

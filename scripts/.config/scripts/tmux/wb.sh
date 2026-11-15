@@ -161,10 +161,10 @@
 #                                    --family picks one; the family page is drawn from the
 #                                    family's root, so from a child it is the coordinator's
 #                                    view; prefix+P and prefix+F bind the two; --index opens
-#                                    the families index, from anywhere, bound to prefix+H). Reuses a
-#                                    server of the current build on ports 8766-8775, else stops
-#                                    the older one it started and starts one detached (log:
-#                                    ~/.local/state/wb/page-server.log). With
+#                                    the families index, from anywhere, bound to prefix+H).
+#                                    Reuses a server of the current build on ports 8766-8775,
+#                                    else stops the older one it started and starts one
+#                                    detached (log: ~/.local/state/wb/page-server.log). With
 #                                    no <task>, the current tmux session's @task; --no-open only
 #                                    prints the URL
 #   wb week path                     print the standing weekly-capture doc's path,
@@ -8220,8 +8220,9 @@ _wb_page_open() {
 # cmd_page [--no-open] [--task|--family] [<task-ref>] — print and open a
 # task's page: the family page when the task has children, the task page
 # otherwise. With --index (and no task) it opens the families index instead,
-# needing neither tmux nor a task, after checking this build serves one. --task always opens the task page; --family always opens the
-# family page, which the server draws from the family's root for any member
+# needing neither tmux nor a task, after checking this build serves one.
+# --task always opens the task page; --family always opens the family page,
+# which the server draws from the family's root for any member
 # (so from a child it is the coordinator's view). A server of the current
 # build (KTD15's /healthz probe) is reused; otherwise one is started
 # detached. Resolution matches cmd_notes: a <task-ref> needs no tmux, none
@@ -8287,9 +8288,11 @@ cmd_page() {
   local url
   if [ "$view" = index ]; then
     # The shim builds from the main checkout, so an unpulled one serves no
-    # index (plan KTD8): say so rather than open a 404.
+    # index (plan KTD8) and answers 404 at /: say so rather than open it.
+    # Any other answer, a timeout included, opens the page: rendering it
+    # waits up to 2s on tmux, so a slow load is not a missing index.
     url="http://127.0.0.1:$port/"
-    if [ "$(curl -s -o /dev/null -w '%{http_code}' -m 2 "$url" 2>/dev/null || true)" != 200 ]; then
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$url" 2>/dev/null || true)" = 404 ]; then
       echo "wb page: this wb-store build has no index page; pull ~/code/wb-store" >&2
       return 1
     fi
