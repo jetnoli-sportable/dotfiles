@@ -445,9 +445,8 @@ cmd_chain() {
 # removes the file and the pane's @wb_unseen mark: opening the viewer is
 # seeing it. Prints nothing, and touches nothing, when there is no file.
 take_unseen() {
-  local pane="$1" s tf stem f line n id sum=0 uids=""
-  s="$(tmux display-message -p -t "$pane" '#S' 2>/dev/null || true)"
-  [ -n "$s" ] && tf="$(tmux show -t "=$s:" -v @task 2>/dev/null || true)"
+  local pane="$1" tf stem f line n id sum=0 uids=""
+  tf="$(tmux display-message -p -t "$pane" '#{@task}' 2>/dev/null || true)"
   [ -n "${tf:-}" ] || return 0
   stem="${tf##*/}"; stem="${stem%.md}"
   [[ "$stem" =~ ^[A-Za-z0-9._-]+$ ]] || return 0

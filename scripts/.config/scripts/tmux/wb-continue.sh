@@ -62,11 +62,13 @@ wbc_set() {
   fi
   for kv_arg in "$@"; do kv["${kv_arg%%=*}"]="${kv_arg#*=}"; done
   kv[stem]="$stem"; kv[state]="$state"; kv[reason]="$(_wbc_oneline "$reason")"
-  kv[updated]="$(date +%s)"
+  kv[updated]="$EPOCHSECONDS"
   [ -n "${kv[created]:-}" ] || kv[created]="${kv[updated]}"
   local out=""
   for k in "${WBC_FIELDS[@]}"; do out+="$k=$(_wbc_oneline "${kv[$k]:-}")"$'\n'; done
   _wbc_write_file "$f" "$out" || return 1
+  # A snapshot changes neither state nor reason, so the picker row stands.
+  if [ "$event" = snapshot ] && [ -f "$dir/row" ]; then return 0; fi
   local done_line=""
   [ ! -f "$dir/entry.md" ] || done_line="$(_wbc_done_line "$dir/entry.md")"
   _wbc_write_file "$dir/row" "$state"$'\t'"${kv[reason]}"$'\t'"$(_wbc_oneline "$done_line")"$'\t'"${kv[command]:-}"$'\n'
@@ -130,14 +132,13 @@ _wbc_worktree() {
 # so an edit to an already-dirty file or to an untracked file changes it.
 _wbc_tip() { GIT_OPTIONAL_LOCKS=0 git -C "$1" rev-parse HEAD 2>/dev/null || true; }
 _wbc_tree_sha() {
-  local wt="$1" f
+  local wt="$1"
   [ -d "$wt" ] || return 0
   {
     GIT_OPTIONAL_LOCKS=0 git -C "$wt" status --porcelain=v1 -uall 2>/dev/null
     GIT_OPTIONAL_LOCKS=0 git -C "$wt" diff HEAD --binary 2>/dev/null
-    while IFS= read -r -d '' f; do
-      printf '%s ' "$f"; sha256sum < "$wt/$f" 2>/dev/null
-    done < <(GIT_OPTIONAL_LOCKS=0 git -C "$wt" ls-files --others --exclude-standard -z 2>/dev/null)
+    GIT_OPTIONAL_LOCKS=0 git -C "$wt" ls-files --others --exclude-standard -z 2>/dev/null |
+      (cd "$wt" && xargs -0 -r sha256sum 2>/dev/null)
   } | _wbc_sha
 }
 
@@ -167,14 +168,19 @@ wbc_drift_check() {
 
 # --- the session's own facts -------------------------------------------------
 
+# _wbc_transcript_of <session-id> — that session's transcript, in any project dir.
+_wbc_transcript_of() {
+  local g
+  for g in "${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"/*/"$1.jsonl"; do
+    if [ -f "$g" ]; then printf '%s\n' "$g"; return 0; fi
+  done
+  return 1
+}
+
 _wbc_transcript() {
-  local t g
   if [ -n "${WBC_TRANSCRIPT:-}" ]; then printf '%s\n' "$WBC_TRANSCRIPT"; return 0; fi
   [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 1
-  for g in "$HOME"/.claude/projects/*/"$CLAUDE_CODE_SESSION_ID.jsonl"; do
-    if [ -f "$g" ]; then t="$g"; break; fi
-  done
-  [ -n "${t:-}" ] && printf '%s\n' "$t"
+  _wbc_transcript_of "$CLAUDE_CODE_SESSION_ID"
 }
 
 # _wbc_typed_info — sets WBC_TYPED (1 only when the prompt that opened the

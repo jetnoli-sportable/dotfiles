@@ -288,15 +288,21 @@ wbch_pane_reason() {
   return 0
 }
 
+# wbch_stale_exit — the request was replaced or dropped while the helper ran
+# (the caller has released the lock): log it and end the helper quietly.
+wbch_stale_exit() {
+  wb_continue_log helper-stale "$WBCH_STEM" "$WBCH_ID" gone "the request was replaced or dropped while the helper ran"
+  WBCH_DONE=1
+  exit 0
+}
+
 # wbch_set <event> <state> <reason> [field=value ...] — a state change under
 # the lock. A request that was replaced or dropped meanwhile ends the helper.
 wbch_set() {
   _wbc_lock "$WBCH_STEM" || return 1
   if [ "$(wbc_get "$WBCH_STEM" id)" != "$WBCH_ID" ]; then
     _wbc_unlock "$WBCH_STEM"
-    wb_continue_log helper-stale "$WBCH_STEM" "$WBCH_ID" gone "the request was replaced or dropped while the helper ran"
-    WBCH_DONE=1
-    exit 0
+    wbch_stale_exit
   fi
   local ev="$1"
   shift
@@ -334,7 +340,7 @@ wbch_back_armed() {
 # line is blank or shows a dim placeholder; typed text is not dim.
 wbch_input_pending() {
   local screen line plain rest prompt=$'\xe2\x9d\xaf\xc2\xa0' found=""
-  screen="$(tmux capture-pane -p -e -t "$1" 2>/dev/null)" || screen=""
+  screen="$(wb_capture_pane "$1")" || screen=""
   while IFS= read -r line; do
     plain="${line//$'\e'\[[0-9;]*m/}"
     [[ "$plain" == "$prompt"* ]] && found="$line"
@@ -426,9 +432,7 @@ wbch_drift() {
   _wbc_lock "$WBCH_STEM" || return 1
   if [ "$(wbc_get "$WBCH_STEM" id)" != "$WBCH_ID" ]; then
     _wbc_unlock "$WBCH_STEM"
-    wb_continue_log helper-stale "$WBCH_STEM" "$WBCH_ID" gone "the request was replaced or dropped while the helper ran"
-    WBCH_DONE=1
-    exit 0
+    wbch_stale_exit
   fi
   wbch_drift_probe "$WBCH_STEM" || {
     wbc_set helper-refused "$WBCH_STEM" refused "$WBCH_DRIFT"
@@ -461,7 +465,7 @@ wbch_unseen_scan() {
   wbch_looking "$pane" && return 0
   stamp="$(tmux show -pv -t "$pane" @wb_seen_at 2>/dev/null)"
   [[ "$stamp" =~ ^[0-9]+$ ]] || stamp=-1
-  for f in "$HOME"/.claude/projects/*/"$old".jsonl; do [ -r "$f" ] && { tp="$f"; break; }; done
+  tp="$(_wbc_transcript_of "$old")"
   [ -n "$tp" ] || return 0
   rf="${REPLY_LOG_DIR:-$HOME/.claude/replies}/$old.md"
   [ -r "$rf" ] || return 0
@@ -493,17 +497,14 @@ wbch_unseen_scan() {
 # pane, which survives the respawn. Nothing when the count is 0. Lives outside
 # the request dir because the request is removed at pick-up.
 wbch_unseen_write() {
-  local stem="$1" pane="$2" old="$3" dir f line sum=0 b
+  local stem="$1" pane="$2" old="$3" dir f
   [ "${WBCH_UNSEEN_N:-0}" -gt 0 ] || return 0
   dir="$(wb_continue_state_root)/unseen"
   mkdir -p "$dir" 2>/dev/null || return 0
   f="$dir/$stem"
   printf '%s %s %s\n' "$old" "$WBCH_UNSEEN_N" "$WBCH_UNSEEN_FIRST" >>"$f" 2>/dev/null || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    read -r _ b _ <<<"$line"
-    [[ "$b" =~ ^[0-9]+$ ]] && sum=$((sum + b))
-  done <"$f"
-  tmux set -p -t "$pane" @wb_unseen "$sum" 2>/dev/null
+  wb_continue_unseen_sum "$f"
+  tmux set -p -t "$pane" @wb_unseen "$WB_UNSEEN_SUM" 2>/dev/null
   return 0
 }
 
@@ -641,10 +642,6 @@ wbch_release_check() {
     echo "background work was still running at the last turn end"
     return 1
   fi
-  if [ -z "$stop" ] && wbch_input_pending "$pane"; then
-    echo "no turn end was recorded and the pane is not at an idle prompt"
-    return 1
-  fi
   if [ -n "$(tmux show -pv -t "$pane" @claude_working 2>/dev/null)" ]; then
     echo "a turn is in progress"
     return 1
@@ -654,7 +651,8 @@ wbch_release_check() {
     return 1
   fi
   if wbch_input_pending "$pane"; then
-    echo "$WBCH_PENDING"
+    if [ -z "$stop" ]; then echo "no turn end was recorded and the pane is not at an idle prompt"
+    else echo "$WBCH_PENDING"; fi
     return 1
   fi
   _wbc_lock "$stem" || { echo "the request is locked by another command"; return 1; }

@@ -236,10 +236,10 @@ WBC_TRANSCRIPT="$FIX/missing.jsonl"
 assert_eq "missing transcript is not typed" "ready 0" "$(lane proj--t1 '/ce-work') $(wbc_get proj--t1 typed)"
 assert_eq "missing transcript: model blank" "" "$(wbc_get proj--t1 model)"
 no_transcript
-mkdir -p "$HOME/.claude/projects/-some-dir"
-{ tr_user human "$(typed_prompt 'found by glob')"; } > "$HOME/.claude/projects/-some-dir/$SID_OLD.jsonl"
-assert_eq "transcript found by globbing ~/.claude/projects/*/<session-id>.jsonl" "armed 1" "$(lane proj--t1 'x') $(wbc_get proj--t1 typed)"
-rm -f "$HOME/.claude/projects/-some-dir/$SID_OLD.jsonl"
+mkdir -p "$CLAUDE_PROJECTS_DIR/-some-dir"
+{ tr_user human "$(typed_prompt 'found by glob')"; } > "$CLAUDE_PROJECTS_DIR/-some-dir/$SID_OLD.jsonl"
+assert_eq "transcript found by globbing \$CLAUDE_PROJECTS_DIR/*/<session-id>.jsonl" "armed 1" "$(lane proj--t1 'x') $(wbc_get proj--t1 typed)"
+rm -f "$CLAUDE_PROJECTS_DIR/-some-dir/$SID_OLD.jsonl"
 
 # an instruction and a different run block
 echo "# command selection and pickup"

@@ -158,7 +158,7 @@ function M.follow(opts)
 					last_sig = sig
 					rendered = #paths > 0
 					local divider = render(buf, paths, opts.unseen)
-					if first and not (divider and not landed) then
+					if first and not divider then
 						pin_bottom(vim.api.nvim_get_current_win(), buf)
 					end
 					-- Open at the divider once; after that the view follows new turns

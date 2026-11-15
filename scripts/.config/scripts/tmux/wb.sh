@@ -476,7 +476,7 @@ wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
 wb_needs_you_file() { printf '%s/wb/needs-you/%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$1"; }
 
 # wb continue (wb-continue.sh, sourced lazily): one request per task under
-# wb_continue_state_root/<stem>/. The three functions below live here, not in
+# wb_continue_state_root/<stem>/. The functions below live here, not in
 # that file, so the lifecycle verbs can drop a request before it is stowed.
 wb_continue_state_root() { printf '%s/wb/continue' "${XDG_STATE_HOME:-$HOME/.local/state}"; }
 # wb_continue_log <event> <stem> <id> <state> <reason> — one line in wb/continue.log.
@@ -509,6 +509,18 @@ wb_continue_drop() {
   if wb_task_lock_acquire_guarded "continue-$1" >/dev/null 2>&1; then took=1; fi
   wb_continue_drop_files "$@"
   [ "$took" = 0 ] || wb_task_lock_release "continue-$1"
+}
+# wb_continue_unseen_sum <unseen-file> — sets WB_UNSEEN_SUM to the sum of the
+# file's count column ("<session id> <count> <prompt id>" per line; 0 when the
+# file is missing). A global, not printed, so the picker row stays fork-free.
+wb_continue_unseen_sum() {
+  local line count
+  WB_UNSEEN_SUM=0
+  [ -f "$1" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    read -r _ count _ <<< "$line"
+    [[ "$count" =~ ^[0-9]+$ ]] && WB_UNSEEN_SUM=$((WB_UNSEEN_SUM + count))
+  done < "$1"
 }
 
 # wb_task_files — every real task file in the store: only `<repo>--<slug>.md`
@@ -7219,14 +7231,8 @@ wb_live_session_row() {
   # restarted session, "<session id> <count> <prompt id>") sums to a mark on the
   # name. Builtins only, no fork per row, like the markers above.
   if [ "$kind" = task ]; then
-    local _uline _ua _ub _usum=0
-    if [ -f "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/unseen/$_nykey" ]; then
-      while IFS= read -r _uline || [ -n "$_uline" ]; do
-        read -r _ua _ub _ <<< "$_uline"
-        [[ "$_ub" =~ ^[0-9]+$ ]] && _usum=$((_usum + _ub))
-      done < "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/unseen/$_nykey"
-      [ "$_usum" -gt 0 ] && label="$label ($_usum unseen)"
-    fi
+    wb_continue_unseen_sum "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/unseen/$_nykey"
+    [ "$WB_UNSEEN_SUM" -gt 0 ] && label="$label ($WB_UNSEEN_SUM unseen)"
   fi
 
   # A second argument, even empty, came from list-sessions: --listed.

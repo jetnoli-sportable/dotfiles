@@ -533,7 +533,7 @@ cat >"$FAKEBIN/tmux" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >>"${FAKE_TMUX_CALLS:-/dev/null}"
 case "$1" in
-  display-message) echo sess ;;
+  display-message) case "$*" in *'#{@task}'*) echo "$FAKE_TASK_FILE" ;; *) echo sess ;; esac ;;
   show) case "$*" in
     *@reply_log_for*) ;;
     *@claude_session_id*) echo "$SID_FAKE" ;;
