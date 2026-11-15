@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests for `wb page [--no-open] [<task>]` (W12, plan U9) — plain-bash
+# Tests for `wb page [--no-open] [<task>]` (W12, plan U9) and `wb page --index`
+# (W17, plan U7) — plain-bash
 # assertions, same convention as wb-task-file.test.sh. Sources wb.sh and
 # stubs tmux, curl (the /healthz probe), the browser opener and the
 # wb-store.sh shim, so no real server, browser or Go build is involved.
@@ -76,9 +77,13 @@ tmux() {
 # curl stub: /healthz answers on HEALTHZ_PORT with HEALTHZ_ID; every other
 # port refuses.
 # HEALTHZ_BODY, when set, replaces the body (to vary its JSON layout).
-HEALTHZ_PORT=""; HEALTHZ_ID=""; HEALTHZ_BODY=""
+# The index probe (`/` with -w) gets INDEX_CODE on any port.
+HEALTHZ_PORT=""; HEALTHZ_ID=""; HEALTHZ_BODY=""; INDEX_CODE=200
 curl() {
   local url="${*: -1}"
+  case "$url" in
+    http://127.0.0.1:*/) printf '%s' "$INDEX_CODE"; return 0 ;;
+  esac
   if [ -n "$HEALTHZ_PORT" ] && [ "$url" = "http://127.0.0.1:$HEALTHZ_PORT/healthz" ]; then
     if [ -n "$HEALTHZ_BODY" ]; then printf '%s\n' "$HEALTHZ_BODY"
     else printf '{"app":"wb-store","build_id":"%s"}\n' "$HEALTHZ_ID"; fi
@@ -92,7 +97,7 @@ _wb_page_open() { printf '%s\n' "$1" > "$OPENED"; }
 
 reset() {
   : > "$SERVE_LOG"; rm -f "$OPENED" "$PIDFILE"
-  HEALTHZ_PORT=""; HEALTHZ_ID=""; HEALTHZ_BODY=""; STUB_TASK=""; WB_PAGE_PORT=8766
+  HEALTHZ_PORT=""; HEALTHZ_ID=""; HEALTHZ_BODY=""; INDEX_CODE=200; STUB_TASK=""; WB_PAGE_PORT=8766
 }
 
 # Where cmd_page records the server it started from $BIN.
@@ -133,7 +138,7 @@ out=$(cmd_page --no-open --family dotfiles--lone 2>&1)
 assert_eq "--family on a lone task: its family page" "http://127.0.0.1:8766/family/dotfiles--lone" "$out"
 out=$(cmd_page --task --family dotfiles--lone 2>&1); rc=$?
 assert_eq "--task with --family: exit 1" 1 "$rc"
-assert "says they can't both be given" "can't both be given" "$out"
+assert "says only one can be given" "only one of --task, --family and --index" "$out"
 out=$(cmd_page --bogus dotfiles--lone 2>&1); rc=$?
 assert_eq "an unknown flag: exit 1" 1 "$rc"
 assert "prints usage" "usage: wb page \[--no-open\] \[--task\|--family\]" "$out"
@@ -147,6 +152,39 @@ STUB_TASK=""
 out=$(cmd_page --no-open --task "" 2>&1); rc=$?
 assert_eq "no @task either: exit 1" 1 "$rc"
 assert "names the session" "has no @task" "$out"
+
+# =============================================================================
+echo "# --index: the families index, with no task and no tmux (prefix+H)"
+reset; unset TMUX; HEALTHZ_PORT=8767; HEALTHZ_ID="$BUILD_ID"
+out=$(cmd_page --index 2>&1); rc=$?
+assert_eq "exit 0 outside tmux" 0 "$rc"
+assert_eq "the index on the running server" "http://127.0.0.1:8767/" "$out"
+assert_eq "opened it" "http://127.0.0.1:8767/" "$(cat "$OPENED" 2>/dev/null)"
+assert_eq "started no server" "" "$(cat "$SERVE_LOG")"
+export TMUX=fake STUB_TASK=""
+out=$(cmd_page --no-open --index 2>&1); rc=$?
+assert_eq "in a session with no @task: exit 0" 0 "$rc"
+assert_eq "still the index" "http://127.0.0.1:8767/" "$out"
+echo "# --index with no server: serve starts with no task"
+reset
+out=$(cmd_page --no-open --index 2>&1); rc=$?
+assert_eq "exit 0" 0 "$rc"
+assert_eq "started serve with no stem" "serve --no-open --port 8766" "$(cat "$SERVE_LOG")"
+assert_eq "the new server's index" "http://127.0.0.1:8768/" "$out"
+echo "# --index on a build without the index: the pull hint, nothing opened"
+reset; HEALTHZ_PORT=8766; HEALTHZ_ID="$BUILD_ID"; INDEX_CODE=404
+out=$(cmd_page --index 2>&1); rc=$?
+assert_eq "exit 1" 1 "$rc"
+assert "says to pull wb-store" "has no index page; pull ~/code/wb-store" "$out"
+assert_eq "opened nothing" no "$([ -f "$OPENED" ] && echo yes || echo no)"
+echo "# --index takes no task, and no --task or --family"
+reset; HEALTHZ_PORT=8766; HEALTHZ_ID="$BUILD_ID"
+out=$(cmd_page --index dotfiles--lone 2>&1); rc=$?
+assert_eq "with a task: exit 1" 1 "$rc"
+assert "prints usage" "^usage: wb page" "$out"
+out=$(cmd_page --index --family 2>&1); rc=$?
+assert_eq "with --family: exit 1" 1 "$rc"
+assert "says only one can be given" "only one of --task, --family and --index" "$out"
 
 # =============================================================================
 echo "# a server of another build: start a new one"

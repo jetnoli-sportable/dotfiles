@@ -1141,8 +1141,9 @@ wb page dotfiles--wb-future-direction
 wb page --no-open wb-store--page-server
 wb page --family                 # the coordinator's family page, from a child
 </code></pre>
-<p>Two tmux binds open them from any wb session, in the background (the URL isn't
-shown; a failure shows its first line as a message):</p>
+<p>Three tmux binds open them in the background (the URL isn't shown; a failure
+shows its first line as a message). The first two need a wb session; prefix+H
+works from any session:</p>
 <table>
 <thead>
 <tr>
@@ -1158,6 +1159,10 @@ shown; a failure shows its first line as a message):</p>
 <tr>
 <td><code>prefix+F</code></td>
 <td>its family page, the coordinator's view from a child (<code>wb page --family</code>)</td>
+</tr>
+<tr>
+<td><code>prefix+H</code></td>
+<td>the families index: one card per open family, the loose tasks and the live sessions (<code>wb page --index</code>)</td>
 </tr>
 </tbody>
 </table>
