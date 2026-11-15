@@ -188,7 +188,7 @@ Which lane a request takes:
 
 ### Assumptions
 
-These are bets Jet has not ruled on.
+Jet accepted these as written on 15 Nov 2026 (recorded in the task store dossier's decisions).
 
 - The fresh Claude starts in the old session's permission mode, as a manual `/clear` keeps it.
 - An open `/decide` surface blocks a release by key or picker as well as the automatic restart. The row says it waits on those answers.
