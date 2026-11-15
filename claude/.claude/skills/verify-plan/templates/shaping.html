@@ -178,7 +178,6 @@ __VP_META__
           partLabels = VP.partLabels,
           laneLabel = VP.laneLabel;
 
-        // Derived, never stored: a test resting on a decision that is still open is tentative.
         function testState(d, t) {
           return VP.tentative(d, t) ? "tentative" : "firm";
         }

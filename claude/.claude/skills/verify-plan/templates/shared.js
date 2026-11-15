@@ -382,7 +382,6 @@ function vpCopy(btn) {
     select();
   }
 }
-// The alternate view's heading toggles `.alt.open` and aria-expanded on `#alth`.
 function vpWireAlt() {
   var alt = document.getElementById("alt"),
     btn = document.getElementById("alth");
