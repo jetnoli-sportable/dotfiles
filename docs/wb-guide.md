@@ -387,6 +387,12 @@ wb session the view also stacks the task's earlier sessions (before any
 hook and wb-capture's hooks and never changes what they do. See
 [the reply-log guide](guides/reply-log.html).
 
+After a [wb continue](#continuing-in-a-fresh-context-wb-continue) restart, turns
+of the old session that finished after you last left the pane are marked as
+**unseen**: `(N unseen)` on the picker row and an amber `●N unseen` in the status
+bar. <kbd>prefix</kbd>+<kbd>v</kbd> then opens at a divider above the first of
+them instead of at the bottom, and opening it clears the marks.
+
 ## prefix+i and the picker preview — the session card
 
 The picker's preview shows each row's **context card**: the session's

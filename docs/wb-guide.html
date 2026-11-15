@@ -682,6 +682,11 @@ wb session the view also stacks the task's earlier sessions (before any
 <code>reply-log</code> plugin's Stop hook records. That hook runs beside the notify
 hook and wb-capture's hooks and never changes what they do. See
 <a href="guides/reply-log.html">the reply-log guide</a>.</p>
+<p>After a <a href="#continuing-in-a-fresh-context-wb-continue">wb continue</a> restart, turns
+of the old session that finished after you last left the pane are marked as
+<strong>unseen</strong>: <code>(N unseen)</code> on the picker row and an amber <code>●N unseen</code> in the status
+bar. <kbd>prefix</kbd>+<kbd>v</kbd> then opens at a divider above the first of
+them instead of at the bottom, and opening it clears the marks.</p>
 <h2 id="prefixi-and-the-picker-preview--the-session-card">prefix+i and the picker preview — the session card</h2>
 <p>The picker's preview shows each row's <strong>context card</strong>: the session's
 state (busy, waiting on you, idle, or quiet after 10 silent busy minutes),

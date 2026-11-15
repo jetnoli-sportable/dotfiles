@@ -248,6 +248,7 @@
       <li><a href="#try-it-now">Try it now</a></li>
       <li><a href="#who-decides-whether-it-restarts-by-itself">Who decides whether it restarts by itself</a></li>
       <li><a href="#when-it-waits-and-when-it-refuses">When it waits, and when it refuses</a></li>
+      <li><a href="#output-you-missed">Output you missed</a></li>
       <li><a href="#reference">Reference</a></li>
       <li><a href="#shadow-mode-and-the-off-switch">Shadow mode and the off switch</a></li>
       <li><a href="#known-rough-edges">Known rough edges</a></li>
@@ -361,6 +362,17 @@ changed, a newer Handoffs entry landed, the branch moved, or the working tree
 changed since the save. A refusal or a failed restart shows as a yellow <code>↻N</code> in
 the status line and as the row's reason in the picker. <code>/clear</code> then
 <code>/wb-resume</code> always works as before.</p>
+<h2 id="output-you-missed">Output you missed</h2>
+<p>A restart takes the old session's last replies off the screen. Gaining and
+losing focus both stamp a Claude pane, so the stamp is when you last left it.
+Before a restart, the turns that finished after that stamp are counted (by when
+each turn ended, so a turn you watched start but not finish counts). The count
+shows as <code>(N unseen)</code> on the picker row and an amber <code>●N unseen</code> in the status
+bar, and adds up across restarts. <kbd>prefix</kbd> <kbd>v</kbd> opens the reply
+viewer at a divider above the first unseen turn and clears the marks. A restart of
+the pane you're looking at (a <code>/wb-continue</code> you typed) counts nothing. Reload
+tmux (<kbd>prefix</kbd> <kbd>r</kbd>) once after the stow for the stamps to
+start.</p>
 <h2 id="reference">Reference</h2>
 <table>
 <thead>

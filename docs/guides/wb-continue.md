@@ -88,6 +88,19 @@ changed since the save. A refusal or a failed restart shows as a yellow `↻N` i
 the status line and as the row's reason in the picker. `/clear` then
 `/wb-resume` always works as before.
 
+## Output you missed
+
+A restart takes the old session's last replies off the screen. Gaining and
+losing focus both stamp a Claude pane, so the stamp is when you last left it.
+Before a restart, the turns that finished after that stamp are counted (by when
+each turn ended, so a turn you watched start but not finish counts). The count
+shows as `(N unseen)` on the picker row and an amber `●N unseen` in the status
+bar, and adds up across restarts. <kbd>prefix</kbd> <kbd>v</kbd> opens the reply
+viewer at a divider above the first unseen turn and clears the marks. A restart of
+the pane you're looking at (a `/wb-continue` you typed) counts nothing. Reload
+tmux (<kbd>prefix</kbd> <kbd>r</kbd>) once after the stow for the stamps to
+start.
+
 ## Reference
 
 | Piece | What it is |
