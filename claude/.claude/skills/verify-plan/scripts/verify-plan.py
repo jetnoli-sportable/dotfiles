@@ -274,7 +274,11 @@ def render_page(template_name, doc):
 
     values = {
         "META": meta_lines(doc),
-        "TITLE": html.escape("Verification: " + " ".join(str(doc.get("title") or doc.get("task", "")).split())),
+        # A short name with no colon: the page title doubles as the published artifact's name.
+        "TITLE": html.escape(
+            " ".join(str(doc.get("title") or doc.get("task", "")).split())
+            + (" shaping" if template_name == "shaping.html" else " proof map")
+        ),
         "CSS": read("shared.css"),
         "JS": read("shared.js"),
         "DATA": script_safe(json.dumps(doc, sort_keys=True, ensure_ascii=True, separators=(",", ":"))),
