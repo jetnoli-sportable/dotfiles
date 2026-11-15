@@ -444,6 +444,69 @@ wbch_drift() {
 # wbch_safe_word <value> — the value when it is safe to put on the launch line.
 wbch_safe_word() { [[ "$1" =~ ^[A-Za-z0-9._:-]+$ ]] && printf '%s' "$1"; }
 
+# wbch_unseen_scan <pane> <old-session-id> — how many of the old session's turns
+# Jet has not seen, before the restart takes the pane away. Sets WBCH_UNSEEN_N and
+# WBCH_UNSEEN_FIRST (the first such turn's prompt id, the viewer's divider target).
+# A turn counts by its END (the timestamp of its last transcript line), not its
+# prompt: one that started while Jet watched and finished after he left is unseen.
+# Turns are cut at user lines carrying a turnOrigin, and consecutive such lines
+# merge (the reply log groups them the same way, under the last prompt id). The
+# pane's @wb_seen_at stamp is the last focus-in or focus-out; none counts every
+# turn. A pane Jet is looking at counts as seen up to now. Only turns with an
+# anchor in the old session's reply file count, so the viewer can find them.
+wbch_unseen_scan() {
+  local pane="$1" old="$2" stamp tp="" f rf end pid id n=0 first=""
+  WBCH_UNSEEN_N=0 WBCH_UNSEEN_FIRST=""
+  [[ "$old" =~ ^[A-Za-z0-9-]+$ ]] || return 0
+  wbch_looking "$pane" && return 0
+  stamp="$(tmux show -pv -t "$pane" @wb_seen_at 2>/dev/null)"
+  [[ "$stamp" =~ ^[0-9]+$ ]] || stamp=-1
+  for f in "$HOME"/.claude/projects/*/"$old".jsonl; do [ -r "$f" ] && { tp="$f"; break; }; done
+  [ -n "$tp" ] || return 0
+  rf="${REPLY_LOG_DIR:-$HOME/.claude/replies}/$old.md"
+  [ -r "$rf" ] || return 0
+  local -A anchors=()
+  while IFS= read -r id; do [ -z "$id" ] || anchors["$id"]=1; done < <(
+    grep -o '"prompt_id":"[A-Za-z0-9-]*"' "$rf" 2>/dev/null | sed 's/^"prompt_id":"//; s/"$//')
+  while IFS=$'\t' read -r end pid; do
+    [[ "$end" =~ ^[0-9]+$ ]] && [ "$end" -gt "$stamp" ] || continue
+    [ -n "${anchors[$pid]:-}" ] || continue
+    n=$((n + 1))
+    [ -n "$first" ] || first="$pid"
+  done < <(jq -rn -R '
+    def ep: try (sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null;
+    reduce (inputs | fromjson? | select(type == "object")) as $e ({g: [], ls: false};
+      if ($e.type == "user" and ($e.turnOrigin // null) != null and ($e.isSidechain // false | not)) then
+        if .ls then .g[-1].pid = ($e.promptId // .g[-1].pid)
+        else .g += [{pid: ($e.promptId // ""), end: ($e.timestamp | ep)}] end | .ls = true
+      elif (.g | length) == 0 then .
+      else .ls = false | (($e.timestamp // null) | ep) as $t | if $t != null then .g[-1].end = $t else . end end)
+    | .g[] | select(.end != null and .pid != "") | "\(.end)\t\(.pid)"' <"$tp" 2>/dev/null)
+  WBCH_UNSEEN_N="$n"
+  WBCH_UNSEEN_FIRST="$first"
+  return 0
+}
+
+# wbch_unseen_write <stem> <pane> <old-session-id> — after a restart that went
+# ahead: append "<old id> <count> <first unseen prompt id>" to the task's unseen
+# file (a second restart adds a line; the mark is the sum) and put the sum on the
+# pane, which survives the respawn. Nothing when the count is 0. Lives outside
+# the request dir because the request is removed at pick-up.
+wbch_unseen_write() {
+  local stem="$1" pane="$2" old="$3" dir f line sum=0 b
+  [ "${WBCH_UNSEEN_N:-0}" -gt 0 ] || return 0
+  dir="$(wb_continue_state_root)/unseen"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  f="$dir/$stem"
+  printf '%s %s %s\n' "$old" "$WBCH_UNSEEN_N" "$WBCH_UNSEEN_FIRST" >>"$f" 2>/dev/null || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    read -r _ b _ <<<"$line"
+    [[ "$b" =~ ^[0-9]+$ ]] && sum=$((sum + b))
+  done <"$f"
+  tmux set -p -t "$pane" @wb_unseen "$sum" 2>/dev/null
+  return 0
+}
+
 wbch_helper() {
   local stem="$WBCH_STEM" id="$WBCH_ID" state pane wt old
   state="$(wbc_get "$stem" state 2>/dev/null)"
@@ -500,10 +563,14 @@ wbch_helper() {
   fi
 
   # 8. Restart: the pane's original shell, a prompt, then the fixed launch line.
+  # Count what Jet has not seen first (the old Claude's transcript and the pane's
+  # focus stamp are both still there), record it once the respawn took.
+  wbch_unseen_scan "$pane" "$old"
   tmux respawn-pane -k -t "$pane" -c "$wt" 2>/dev/null || {
     rm -f "$(wb_continue_state_root)/born/$new"
     wbch_end helper-ready ready "tmux could not respawn the pane; release it from the picker" new_session_id= model_fallback=
   }
+  wbch_unseen_write "$stem" "$pane" "$old"
   # A shell seen on two polls in a row: the command name passes through
   # `sh`/`bash` for a few milliseconds on its way to something else.
   local timeout="${WB_CONTINUE_PROMPT_TIMEOUT:-20}" i pcmd="" shells=0

@@ -437,6 +437,34 @@ cmd_chain() {
   chain_for_task "$task"
 }
 
+# take_unseen <pane> — what a `wb continue` restart took from Jet's sight (see
+# wb-continue-hook.sh): the pane's task has a file under
+# ${XDG_STATE_HOME:-~/.local/state}/wb/continue/unseen/<stem>, one line per
+# restarted session, "<session id> <count> <first unseen prompt id>". Prints the
+# Lua option text for `follow` (", unseen = { ids = { … }, count = N }"), and
+# removes the file and the pane's @wb_unseen mark: opening the viewer is
+# seeing it. Prints nothing, and touches nothing, when there is no file.
+take_unseen() {
+  local pane="$1" s tf stem f line n id sum=0 uids=""
+  s="$(tmux display-message -p -t "$pane" '#S' 2>/dev/null || true)"
+  [ -n "$s" ] && tf="$(tmux show -t "=$s:" -v @task 2>/dev/null || true)"
+  [ -n "${tf:-}" ] || return 0
+  stem="${tf##*/}"; stem="${stem%.md}"
+  [[ "$stem" =~ ^[A-Za-z0-9._-]+$ ]] || return 0
+  f="${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/unseen/$stem"
+  [ -f "$f" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    read -r _ n id _ <<<"$line"
+    [[ "$n" =~ ^[0-9]+$ ]] || continue
+    sum=$((sum + n))
+    [[ "$id" =~ ^[A-Za-z0-9-]+$ ]] && uids="$uids'$id', "
+  done <"$f"
+  rm -f -- "$f"
+  tmux set -p -u -t "$pane" @wb_unseen 2>/dev/null
+  [ -n "$uids" ] && printf ", unseen = { ids = { %s}, count = %s }" "$uids" "$sum"
+  return 0
+}
+
 cmd_view() {
   local pane="${1:-${TMUX_PANE:-}}" existing sid nvim self new
   [ -n "$pane" ] || return 0
@@ -457,9 +485,11 @@ cmd_view() {
   fi
   nvim="$(command -v nvim)" || { tmux display-message -t "$pane" "reply log: nvim not found" 2>/dev/null; return 0; }
   self="$(readlink -f "${BASH_SOURCE[0]}")"
+  local unseen
+  unseen="$(take_unseen "$pane")"
   new="$(tmux split-window -h -l 45% -t "$pane" -P -F '#{pane_id}' \
            -e "REPLY_LOG_DIR=$REPLY_DIR" -e "CLAUDE_SESSIONS_DIR=$SESSIONS_DIR" \
-           "$nvim -R -c \"lua require('claude-tmux.replies').follow({ pane = '$pane', script = '$self' })\"" 2>/dev/null)"
+           "$nvim -R -c \"lua require('claude-tmux.replies').follow({ pane = '$pane', script = '$self'$unseen })\"" 2>/dev/null)"
   [ -n "$new" ] && tmux set -p -t "$new" @reply_log_for "$pane" 2>/dev/null
   return 0
 }

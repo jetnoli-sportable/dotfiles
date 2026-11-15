@@ -28,15 +28,15 @@
 {"id":"tmux-bind-prefix-P","kind":"bind","name":"prefix+P","oneliner":"prefix+P — open THIS session's task page in the browser (`wb page --task`).","source":"tmux/.config/tmux/tmux.conf:71","invoke":"prefix+P","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-T","kind":"bind","name":"prefix+T","oneliner":"prefix+T — open THIS session's dossier notes.md (your scratch page, next to the task file prefix+t opens) in a popup editor.","source":"tmux/.config/tmux/tmux.conf:65","invoke":"prefix+T","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-a","kind":"bind","name":"prefix+a","oneliner":"new-window -c \"$HOME\" \"~/.config/scripts/tmux/wb.sh\"","source":"tmux/.config/tmux/tmux.conf:13","invoke":"prefix+a","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-c","kind":"bind","name":"prefix+c","oneliner":"new-window -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:203","invoke":"prefix+c","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-dquote","kind":"bind","name":"prefix+\"","oneliner":"Open pane in current dir","source":"tmux/.config/tmux/tmux.conf:201","invoke":"prefix+\"","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-c","kind":"bind","name":"prefix+c","oneliner":"new-window -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:210","invoke":"prefix+c","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-dquote","kind":"bind","name":"prefix+\"","oneliner":"Open pane in current dir","source":"tmux/.config/tmux/tmux.conf:208","invoke":"prefix+\"","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-g","kind":"bind","name":"prefix+g","oneliner":"new-window -c \"#{pane_current_path}\" -n \"lazygit\" \"$SHELL -lc 'lazygit'\"","source":"tmux/.config/tmux/tmux.conf:47","invoke":"prefix+g","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-i","kind":"bind","name":"prefix+i","oneliner":"prefix+i — the context card of the Claude session in this pane (or of the pane a prefix+v view belongs to): state, model/context/cost…","source":"tmux/.config/tmux/tmux.conf:98","invoke":"prefix+i","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-j","kind":"bind","name":"prefix+j","oneliner":"Claude agent push-notification: prefix+j -> jump straight to the most-urgent waiting agent prefix+J -> preview it first (j/Enter jumps…","source":"tmux/.config/tmux/tmux.conf:17","invoke":"prefix+j","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-m","kind":"bind","name":"prefix+m","oneliner":"wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per…","source":"tmux/.config/tmux/tmux.conf:12","invoke":"prefix+m","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-n","kind":"bind","name":"prefix+n","oneliner":"next-window","source":"tmux/.config/tmux/tmux.conf:19","invoke":"prefix+n","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-p","kind":"bind","name":"prefix+p","oneliner":"prefix+p was tmux's built-in previous-window before this file ever touched it — the capture-doc bind below briefly overrode it (moved off…","source":"tmux/.config/tmux/tmux.conf:25","invoke":"prefix+p","guide":"","tags":["tmux"]}
-{"id":"tmux-bind-prefix-percent","kind":"bind","name":"prefix+%","oneliner":"split-window -h -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:202","invoke":"prefix+%","guide":"","tags":["tmux"]}
+{"id":"tmux-bind-prefix-percent","kind":"bind","name":"prefix+%","oneliner":"split-window -h -c \"#{pane_current_path}\"","source":"tmux/.config/tmux/tmux.conf:209","invoke":"prefix+%","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-q","kind":"bind","name":"prefix+q","oneliner":"prefix+q — quick-ask: a scratch Claude Code window for a one-off question, separate from prefix+? (zero-LLM index lookup) and from `wb`'s…","source":"tmux/.config/tmux/tmux.conf:46","invoke":"prefix+q","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-question","kind":"bind","name":"prefix+?","oneliner":"prefix+? — the help picker: fzf over docs/INDEX.md (every bind, alias, skill, doc, decision with provenance).","source":"tmux/.config/tmux/tmux.conf:40","invoke":"prefix+?","guide":"","tags":["tmux"]}
 {"id":"tmux-bind-prefix-r","kind":"bind","name":"prefix+r","oneliner":"Add binding to reload tmux.conf for fast, iterative development","source":"tmux/.config/tmux/tmux.conf:2","invoke":"prefix+r","guide":"","tags":["tmux"]}
@@ -507,15 +507,15 @@
 | prefix+P | bind | prefix+P — open THIS session's task page in the browser (`wb page --task`). | prefix+P | tmux/.config/tmux/tmux.conf:71 |  |
 | prefix+T | bind | prefix+T — open THIS session's dossier notes.md (your scratch page, next to the task file prefix+t opens) in a popup editor. | prefix+T | tmux/.config/tmux/tmux.conf:65 |  |
 | prefix+a | bind | new-window -c "$HOME" "~/.config/scripts/tmux/wb.sh" | prefix+a | tmux/.config/tmux/tmux.conf:13 |  |
-| prefix+c | bind | new-window -c "#{pane_current_path}" | prefix+c | tmux/.config/tmux/tmux.conf:203 |  |
-| prefix+" | bind | Open pane in current dir | prefix+" | tmux/.config/tmux/tmux.conf:201 |  |
+| prefix+c | bind | new-window -c "#{pane_current_path}" | prefix+c | tmux/.config/tmux/tmux.conf:210 |  |
+| prefix+" | bind | Open pane in current dir | prefix+" | tmux/.config/tmux/tmux.conf:208 |  |
 | prefix+g | bind | new-window -c "#{pane_current_path}" -n "lazygit" "$SHELL -lc 'lazygit'" | prefix+g | tmux/.config/tmux/tmux.conf:47 |  |
 | prefix+i | bind | prefix+i — the context card of the Claude session in this pane (or of the pane a prefix+v view belongs to): state, model/context/cost… | prefix+i | tmux/.config/tmux/tmux.conf:98 |  |
 | prefix+j | bind | Claude agent push-notification: prefix+j -> jump straight to the most-urgent waiting agent prefix+J -> preview it first (j/Enter jumps… | prefix+j | tmux/.config/tmux/tmux.conf:17 |  |
 | prefix+m | bind | wb (workbench): the unified session/agent/task picker, replacing the session.sh (m) + claude-sessions.sh (a) split — cutover per… | prefix+m | tmux/.config/tmux/tmux.conf:12 |  |
 | prefix+n | bind | next-window | prefix+n | tmux/.config/tmux/tmux.conf:19 |  |
 | prefix+p | bind | prefix+p was tmux's built-in previous-window before this file ever touched it — the capture-doc bind below briefly overrode it (moved off… | prefix+p | tmux/.config/tmux/tmux.conf:25 |  |
-| prefix+% | bind | split-window -h -c "#{pane_current_path}" | prefix+% | tmux/.config/tmux/tmux.conf:202 |  |
+| prefix+% | bind | split-window -h -c "#{pane_current_path}" | prefix+% | tmux/.config/tmux/tmux.conf:209 |  |
 | prefix+q | bind | prefix+q — quick-ask: a scratch Claude Code window for a one-off question, separate from prefix+? (zero-LLM index lookup) and from `wb`'s… | prefix+q | tmux/.config/tmux/tmux.conf:46 |  |
 | prefix+? | bind | prefix+? — the help picker: fzf over docs/INDEX.md (every bind, alias, skill, doc, decision with provenance). | prefix+? | tmux/.config/tmux/tmux.conf:40 |  |
 | prefix+r | bind | Add binding to reload tmux.conf for fast, iterative development | prefix+r | tmux/.config/tmux/tmux.conf:2 |  |

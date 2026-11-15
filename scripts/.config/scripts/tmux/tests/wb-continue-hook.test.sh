@@ -834,6 +834,170 @@ run_hook hook-session-start "$PANE" "$(payload SessionStart-clear.json brand-new
 assert_eq "after /clear by hand: no request and no row" none "$([ -f "$(wbc_dir "$STEM")/row" ] || [ -f "$(wbc_dir "$STEM")/request" ] && echo there || echo none)"
 end_case
 
+# =============================================================================
+echo "# U6: what Jet has not seen is counted before the restart, from the old transcript"
+# =============================================================================
+BASE=1800000000
+iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%S.000Z; }
+UNSEEN_DIR="$XDG_STATE_HOME/wb/continue/unseen"
+# mk_old <turn: "<prompt id> <start> <end>">... — the old session's transcript
+# (turns cut at user lines with a turnOrigin; the end is its last line's time)
+# and reply file (one anchor per turn), under the fixture HOME.
+mk_old() {
+  local spec pid st en tp="$HOME/.claude/projects/proj/$SID.jsonl" rf="$HOME/.claude/replies/$SID.md"
+  mkdir -p "${tp%/*}" "${rf%/*}"
+  : >"$tp"
+  printf -- '---\nsession_id: %s\ntask: \n---\n\n' "$SID" >"$rf"
+  for spec in "$@"; do
+    read -r pid st en <<<"$spec"
+    {
+      jq -nc --arg p "$pid" --arg t "$(iso "$st")" '{type:"user",turnOrigin:"human",promptId:$p,timestamp:$t,origin:{kind:"human"},message:{content:"go"}}'
+      jq -nc --arg t "$(iso $((st + 1)))" '{type:"assistant",timestamp:$t,message:{content:[]}}'
+      jq -nc --arg t "$(iso "$en")" '{type:"assistant",timestamp:$t,message:{content:[]}}'
+      printf '{"type":"last-prompt"}\n'
+    } >>"$tp"
+    printf '## 2026-11-15 10:00 · %s\n<!-- turn {"prompt_id":"%s","session_id":"%s","ts":"%s"} -->\n### Prompt\n> go\n### Reply\nok\n\n' "$pid" "$pid" "$SID" "$(iso "$st")" >>"$rf"
+  done
+}
+# restart_and_wait — Jet releases the saved session; return once the helper
+# has respawned the pane and typed the launch (the fresh claude stub ran)
+restart_and_wait() {
+  stage_req
+  wbc_release "$(tf "$STEM")" >/dev/null 2>&1
+  for _ in $(seq 150); do [ -f "$FIX/claude-count" ] && break; sleep 0.1; done
+  sleep 0.2
+}
+unseen_file() { printf '%s/%s' "$UNSEEN_DIR" "$STEM"; }
+unseen_text() { cat "$(unseen_file)" 2>/dev/null; }
+
+# AE6: two turns end after the stamp
+new_case
+mk_old "p1 $BASE $((BASE + 10))" "p2 $((BASE + 100)) $((BASE + 110))" "p3 $((BASE + 200)) $((BASE + 210))"
+tm set -p -t "$PANE" @wb_seen_at $((BASE + 50))
+restart_and_wait
+assert_eq "AE6: two turns ended after the stamp: one line, count 2, divider at the first" "$SID 2 p2" "$(unseen_text)"
+assert_eq "AE6: the pane carries the count (it survives the respawn)" 2 "$(tm show -pv -t "$PANE" @wb_unseen)"
+assert_eq "the pane was respawned (a real restart)" 1 "$(tlog | /usr/bin/grep -c "^respawn-pane -k -t $PANE ")"
+end_case
+
+# a stamp later than every turn: nothing to record
+new_case
+mk_old "p1 $BASE $((BASE + 10))" "p2 $((BASE + 100)) $((BASE + 110))"
+tm set -p -t "$PANE" @wb_seen_at $((BASE + 1000))
+restart_and_wait
+assert_eq "stamp later than every turn: no unseen file" none "$([ -e "$(unseen_file)" ] && echo there || echo none)"
+assert_eq "... and no pane mark" "" "$(tm show -pv -t "$PANE" @wb_unseen 2>/dev/null)"
+assert_eq "... but the pane was restarted" 1 "$(tlog | /usr/bin/grep -c "^respawn-pane -k -t $PANE ")"
+end_case
+
+# a turn is unseen by its END: one that finished between a focus-in (+20) and the
+# focus-out (+50) was watched; one that began while watching but ended after he left is not
+new_case
+mk_old "p1 $BASE $((BASE + 10))" "p2 $((BASE + 30)) $((BASE + 40))" "p3 $((BASE + 45)) $((BASE + 60))"
+tm set -p -t "$PANE" @wb_seen_at $((BASE + 50))
+restart_and_wait
+assert_eq "turns that finish between a focus-in and the next focus-out are not counted; one ending after he left is" "$SID 1 p3" "$(unseen_text)"
+end_case
+
+# no stamp at all: every turn counts
+new_case
+mk_old "p1 $BASE $((BASE + 10))" "p2 $((BASE + 100)) $((BASE + 110))" "p3 $((BASE + 200)) $((BASE + 210))"
+restart_and_wait
+assert_eq "no stamp: every turn counts, the divider at the first" "$SID 3 p1" "$(unseen_text)"
+end_case
+
+# a turn with no anchor in the reply file cannot be found by the viewer: not counted
+new_case
+mk_old "p1 $BASE $((BASE + 10))" "p2 $((BASE + 100)) $((BASE + 110))"
+sed -i '/"prompt_id":"p1"/d' "$HOME/.claude/replies/$SID.md"
+restart_and_wait
+assert_eq "a turn with no anchor is skipped; the first anchored one is the divider target" "$SID 1 p2" "$(unseen_text)"
+end_case
+
+# the pane Jet is looking at counts as seen up to now
+new_case
+mk_old "p1 $BASE $((BASE + 10))" "p2 $((BASE + 100)) $((BASE + 110))"
+echo new >"$FIX/fake-clients"
+restart_and_wait
+assert_eq "restart of a pane Jet is looking at: no unseen file" none "$([ -e "$(unseen_file)" ] && echo there || echo none)"
+assert_eq "... and no pane mark" "" "$(tm show -pv -t "$PANE" @wb_unseen 2>/dev/null)"
+assert_eq "... the pane was restarted all the same" 1 "$(tlog | /usr/bin/grep -c "^respawn-pane -k -t $PANE ")"
+end_case
+
+# a second restart adds a line; an earlier line stays
+new_case
+mkdir -p "$UNSEEN_DIR"
+printf 'sess-earlier 1 q9\n' >"$(unseen_file)"
+mk_old "p1 $BASE $((BASE + 10))" "p2 $((BASE + 100)) $((BASE + 110))"
+tm set -p -t "$PANE" @wb_seen_at $((BASE + 50))
+restart_and_wait
+assert_eq "two restarts leave two lines" "sess-earlier 1 q9|$SID 1 p2" "$(unseen_text | paste -sd'|')"
+assert_eq "... and the pane mark is their sum" 2 "$(tm show -pv -t "$PANE" @wb_unseen)"
+end_case
+
+# shadow mode restarts nothing, so nothing is recorded
+new_case
+mk_old "p1 $BASE $((BASE + 10))"
+arm_req ""
+stop_clean
+wait_state "$STEM" '^ready$'
+assert_eq "shadow mode: no unseen file" none "$([ -e "$(unseen_file)" ] && echo there || echo none)"
+assert_eq "shadow mode: no pane mark" "" "$(tm show -pv -t "$PANE" @wb_unseen 2>/dev/null)"
+end_case
+rm -rf "$UNSEEN_DIR"
+
+# =============================================================================
+echo "# U6: pane-focus-in and pane-focus-out both stamp @wb_seen_at, and the old focus-in hook stays"
+# =============================================================================
+CONF="$SELF_DIR/../../../../tmux/.config/tmux/tmux.conf"
+/usr/bin/grep -E '^set-hook' "$CONF" >"$FIX/hooks.conf"
+tm set -g focus-events on
+tm source-file "$FIX/hooks.conf"
+tm source-file "$FIX/hooks.conf"
+hooks="$(tm show-hooks -gw 2>/dev/null)"
+assert_eq "a reload leaves one focus-out hook" 1 "$(printf '%s\n' "$hooks" | /usr/bin/grep -c '^pane-focus-out\[')"
+assert_eq "a reload leaves the two focus-in hooks (acknowledge + stamp)" 2 "$(printf '%s\n' "$hooks" | /usr/bin/grep -c '^pane-focus-in\[')"
+assert "the acknowledge hook is still there" 'pane-focus-in\[0\].*@claude_blocked' "$hooks"
+if command -v script >/dev/null 2>&1; then
+  # panes whose program asks for focus reports, as vim and Claude do (a shell pane that exits would end the test)
+  FOCUSCMD="printf '\\e[?1004h'; exec sleep 600"
+  tm new-session -d -s seen -x 80 -y 24 "$FOCUSCMD"
+  tm split-window -t seen "$FOCUSCMD"
+  PA="$(tm list-panes -t seen -F '#{pane_id}' | sed -n 1p)"
+  PB="$(tm list-panes -t seen -F '#{pane_id}' | sed -n 2p)"
+  tm set -p -t "$PA" @claude_session_id some-claude
+  tm set -p -t "$PA" @claude_blocked 1
+  tm select-pane -t "$PB"
+  sleep 0.5
+  # a pty client gives the hooks focus events to fire on
+  timeout 15 script -qc "env TERM=xterm-256color $REAL_TMUX -L $SOCK -f /dev/null attach -t seen" /dev/null </dev/null >/dev/null 2>&1 &
+  scr=$!
+  sleep 1.5
+  tm select-pane -t "$PA" # pane A gains focus
+  sleep 1.5
+  in_a="$(tm show -pv -t "$PA" @wb_seen_at 2>/dev/null)"
+  assert "focus-in stamps a pane that ran Claude with an epoch" '^[0-9]{10}$' "$in_a"
+  assert_eq "... and the acknowledge hook still ran (marker cleared)" "" "$(tm show -pv -t "$PA" @claude_blocked 2>/dev/null)"
+  assert_eq "a pane that never ran Claude is not stamped (no fork)" "" "$(tm show -pv -t "$PB" @wb_seen_at 2>/dev/null)"
+  sleep 1.2
+  tm select-pane -t "$PB" # pane A loses focus
+  sleep 1.5
+  out_a="$(tm show -pv -t "$PA" @wb_seen_at 2>/dev/null)"
+  assert "focus-out stamps it again, later than the focus-in" '^[0-9]{10}$' "$out_a"
+  if [ "${out_a:-0}" -gt "${in_a:-0}" ]; then
+    echo "ok   - ... the stamp moved forward ($in_a -> $out_a)"
+  else
+    echo "FAIL - the focus-out stamp did not move past the focus-in ($in_a -> $out_a)"
+    fail=1
+  fi
+  kill "$scr" 2>/dev/null
+  wait "$scr" 2>/dev/null
+  tm kill-session -t seen 2>/dev/null
+else
+  echo "skip - no script(1): the live focus stamp check did not run"
+fi
+
+
 echo
 if [ "$fail" -eq 0 ]; then echo "ALL PASSED"; else echo "FAILED"; fi
 exit "$fail"

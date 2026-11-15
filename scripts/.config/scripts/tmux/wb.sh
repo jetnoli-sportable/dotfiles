@@ -7215,6 +7215,20 @@ wb_live_session_row() {
     fi
   fi
 
+  # Output Jet missed to a `wb continue` restart: the unseen file (one line per
+  # restarted session, "<session id> <count> <prompt id>") sums to a mark on the
+  # name. Builtins only, no fork per row, like the markers above.
+  if [ "$kind" = task ]; then
+    local _uline _ua _ub _usum=0
+    if [ -f "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/unseen/$_nykey" ]; then
+      while IFS= read -r _uline || [ -n "$_uline" ]; do
+        read -r _ua _ub _ <<< "$_uline"
+        [[ "$_ub" =~ ^[0-9]+$ ]] && _usum=$((_usum + _ub))
+      done < "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/unseen/$_nykey"
+      [ "$_usum" -gt 0 ] && label="$label ($_usum unseen)"
+    fi
+  fi
+
   # A second argument, even empty, came from list-sessions: --listed.
   case "$visit" in ''|0) visit="$(wb_session_last_attached "$session" ${2+--listed})" ;; esac
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n' \

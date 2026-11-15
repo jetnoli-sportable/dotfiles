@@ -517,5 +517,46 @@ assert_eq "from inside the viewer: it closes itself" "kill-pane -t %5" "$(grep '
 view_with_fake %3
 assert_eq "another pane's viewer is only closed from that pane" "kill-pane -t %7" "$(grep '^kill-pane' "$H/tmux-calls")"
 
+echo "# U6: SessionEnd on a restart (respawn-pane -k, reason other) fills in the final turn"
+new_scenario; use_fixture multitext 2
+stop p-multi-1 "All done."
+assert_lacks "before the restart the middle block is missing" "Middle step." "$OUTF"
+use_fixture multitext
+run_hook "$(sed -e "s/__SESSION_ID__/$SID/g" -e "s#__HOME__#$H#g" -e 's/__USER__/u/g' -e "s#__CWD__#$H#g" -e "s#__TMPDIR__#$H#g" -e 's/__PROMPT_ID__/p-ignored/g' "$FX/../hook-payloads/SessionEnd-respawn.json" | jq -c --arg t "$TP" '.transcript_path = $t')" session-end
+assert_eq "exit 0" 0 "$RC"
+assert_eq "the final turn's middle block is in the reply file after the restart" 1 "$(count 'Middle step.' "$OUTF")"
+assert_eq "its final text once" 1 "$(count 'All done.' "$OUTF")"
+assert_eq "still one anchor" 1 "$(anchors "$OUTF")"
+
+echo "# U6: view hands the viewer the unseen turn ids and removes the unseen file and mark"
+cat >"$FAKEBIN/tmux" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >>"${FAKE_TMUX_CALLS:-/dev/null}"
+case "$1" in
+  display-message) echo sess ;;
+  show) case "$*" in
+    *@reply_log_for*) ;;
+    *@claude_session_id*) echo "$SID_FAKE" ;;
+    *@task*) echo "$FAKE_TASK_FILE" ;;
+  esac ;;
+  split-window) echo %9 ;;
+esac
+exit 0
+FAKE
+printf '#!/bin/sh\nexit 0\n' >"$FAKEBIN/nvim"; chmod +x "$FAKEBIN/nvim"
+unseen_view() { : >"$H/tmux-calls"; env -u TMUX HOME="$H" XDG_STATE_HOME="$H/state" REPLY_LOG_DIR="$RDIR" CLAUDE_SESSIONS_DIR="$H/nosessions" \
+  SID_FAKE="$SID" FAKE_TASK_FILE="$H/tasks/proj--u.md" FAKE_TMUX_CALLS="$H/tmux-calls" PATH="$FAKEBIN:$PATH" "$REAL_BASH" "$SCRIPT" view "$1" >/dev/null 2>&1; }
+new_scenario
+UF="$H/state/wb/continue/unseen/proj--u"; mkdir -p "${UF%/*}"
+printf 'sess-a 2 p-a2\nsess-b 1 p-b1\n' >"$UF"
+unseen_view %1
+assert_eq "the split's viewer is told the ids and the summed count" 1 "$(grep -c "^split-window .*unseen = { ids = { 'p-a2', 'p-b1', }, count = 3 }" "$H/tmux-calls")"
+assert_eq "opening the viewer removes the unseen file" gone "$([ -e "$UF" ] && echo there || echo gone)"
+assert_eq "... and clears the pane's mark" 1 "$(grep -c '^set -p -u -t %1 @wb_unseen' "$H/tmux-calls")"
+unseen_view %1
+assert_eq "no unseen file: the viewer opens as before" 0 "$(grep -c 'unseen' "$H/tmux-calls" | head -1)"
+assert_eq "... and the mark is not touched" 0 "$(grep -c '@wb_unseen' "$H/tmux-calls")"
+assert_eq "... but the viewer still opens" 1 "$(grep -c '^split-window ' "$H/tmux-calls")"
+
 echo
 if [ "$fail" = 0 ]; then echo "ALL PASSED"; else echo "SOME FAILED"; exit 1; fi

@@ -56,10 +56,37 @@ local function pin_bottom(win, buf)
 	end)
 end
 
-local function render(buf, paths)
+-- Draws a divider above the turn whose anchor carries `id` (the first turn Jet
+-- has not seen), taking the turn's `## ` heading line, just above the anchor,
+-- as its start. Returns the new lines and the divider text's line number, or
+-- the lines unchanged and nil when no turn carries that id.
+function M.with_divider(lines, id, count)
+	if not id or id == "" then
+		return lines, nil
+	end
+	local needle = '"prompt_id":"' .. id .. '"'
+	for i, l in ipairs(lines) do
+		if l:sub(1, 11) == "<!-- turn {" and l:find(needle, 1, true) then
+			local at = (i > 1 and lines[i - 1]:sub(1, 3) == "## ") and i - 1 or i
+			local text = "──── " .. (count and count > 0 and (count .. " ") or "") .. "unseen since you left ────"
+			local out = vim.list_slice(lines, 1, at - 1)
+			vim.list_extend(out, { "", text, "" })
+			vim.list_extend(out, vim.list_slice(lines, at))
+			return out, at + 1
+		end
+	end
+	return lines, nil
+end
+
+-- Returns the line number of the divider drawn, or nil.
+local function render(buf, paths, unseen)
 	local lines = {}
 	for _, p in ipairs(paths) do
 		vim.list_extend(lines, body(p))
+	end
+	local divider
+	if unseen and unseen.ids and unseen.ids[1] then
+		lines, divider = M.with_divider(lines, unseen.ids[1], unseen.count)
 	end
 	if #lines == 0 then
 		lines = { "*Waiting for this session's first reply…*" }
@@ -79,10 +106,14 @@ local function render(buf, paths)
 			pin_bottom(w, buf)
 		end
 	end
+	return divider
 end
 
 -- opts.pane   — the Claude pane's tmux id (%N)
 -- opts.script — path to claude-reply-log.sh
+-- opts.unseen — { ids = { <prompt id>, … }, count = N }: the turns a `wb continue`
+--               restart took from Jet's sight; the first id gets a divider and
+--               the view opens there instead of at the bottom
 function M.follow(opts)
 	local buf = vim.api.nvim_get_current_buf()
 	vim.bo[buf].buftype = "nofile"
@@ -99,6 +130,7 @@ function M.follow(opts)
 
 	local last_sig
 	local rendered = false
+	local landed = false
 	local busy = false
 	local timer = uv.new_timer()
 	local function tick()
@@ -125,9 +157,19 @@ function M.follow(opts)
 					local first = last_sig == nil
 					last_sig = sig
 					rendered = #paths > 0
-					render(buf, paths)
-					if first then
+					local divider = render(buf, paths, opts.unseen)
+					if first and not (divider and not landed) then
 						pin_bottom(vim.api.nvim_get_current_win(), buf)
+					end
+					-- Open at the divider once; after that the view follows new turns
+					-- only while the cursor is on the last line, as it always has.
+					if divider and not landed then
+						landed = true
+						local win = vim.api.nvim_get_current_win()
+						vim.api.nvim_win_set_cursor(win, { divider, 0 })
+						vim.api.nvim_win_call(win, function()
+							vim.cmd("normal! zt")
+						end)
 					end
 				end
 			end)

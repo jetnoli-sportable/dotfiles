@@ -450,5 +450,17 @@ assert "continue keys: c and C stay typeable in search mode (in navkeys)" "navke
 assert "continue keys: c releases the selected row, via the ref field" 'c:execute-silent\(.*_continue-release \{9\}' "$(grep -n '"c:execute-silent' "$WB")"
 assert "continue keys: C releases every ready row" 'C:execute-silent\(.*_continue-release-all' "$(grep -n '"C:execute-silent' "$WB")"
 
+# --- unseen mark (U6): output Jet missed to a restart ----------------------
+UN_DIR="$CR_STATE/wb/continue/unseen"
+mkdir -p "$UN_DIR"
+assert "unseen row: no unseen file, no mark on the name" '^[^(]*$' "$(row_field "$(cr_row)" 2)"
+printf 'sess-a 2 p-a2\n' >"$UN_DIR/proj--doing-live"
+assert "unseen row: one restart shows its count on the name" '\(2 unseen\)$' "$(row_field "$(cr_row)" 2)"
+printf 'sess-b 3 p-b1\n' >>"$UN_DIR/proj--doing-live"
+assert "unseen row: two restarts show the sum" '\(5 unseen\)$' "$(row_field "$(cr_row)" 2)"
+assert "unseen row: the mark is in the display too" '5 unseen' "$(cr_row | WB_PICKER_SESSION=other wb_format_for_display)"
+rm -f "$UN_DIR/proj--doing-live"
+assert "unseen row: file removed (viewer opened), mark gone" '^[^(]*$' "$(row_field "$(cr_row)" 2)"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
