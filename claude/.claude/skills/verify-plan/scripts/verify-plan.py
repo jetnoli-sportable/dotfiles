@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""verify-plan.py - tools for a task's verification document (verify.json).
+
+Subcommands:
+  check <file>   validate the document; silent and exit 0 when it is sound,
+                 otherwise one line per problem and exit 1.
+(`build` and `record-run` are added by later units.)
+
+Python 3, standard library only. The contract is in references/spec.md.
+"""
+import argparse
+import json
+import sys
+
+LANES = ("unit", "integration", "e2e", "walkthrough")
+ACCESS = ("local", "cloud-read", "cloud-write", "prod", "permission")
+STAGES = ("shaping", "map", "run", "results")
+TEST_STATUSES = ("proposed", "planned", "built")
+DECISION_STATUSES = ("open", "answered")
+OUTCOMES = ("passed", "failed", "skipped", "not-run")
+
+
+def blank(v):
+    return not isinstance(v, str) or not v.strip()
+
+
+def check_document(doc):
+    """Return a list of problem lines. Empty means the document is sound."""
+    errs = []
+    add = errs.append
+
+    if not isinstance(doc, dict):
+        return ["document: top level must be an object"]
+
+    def items(key, sub=None):
+        """List of dicts under doc[key] (or doc[key][sub]); reports a wrong shape."""
+        v = doc.get(key, [])
+        where = key
+        if sub is not None:
+            if not isinstance(v, dict):
+                if key in doc:
+                    add(f"{key}: must be an object")
+                return []
+            v = v.get(sub, [])
+            where = f"{key}.{sub}"
+        if not isinstance(v, list):
+            add(f"{where}: must be a list")
+            return []
+        out = []
+        for i, x in enumerate(v):
+            if isinstance(x, dict):
+                out.append(x)
+            else:
+                add(f"{where}[{i}]: must be an object")
+        return out
+
+    def str_list(item, field, owner):
+        v = item.get(field, [])
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            add(f"{owner}: field '{field}' must be a list of strings")
+            return []
+        return v
+
+    def collect_ids(entries, kind):
+        seen = set()
+        for e in entries:
+            i = e.get("id")
+            if blank(i):
+                add(f"{kind}: an entry has no id")
+                continue
+            if i in seen:
+                add(f"{kind} {i}: duplicate id")
+            seen.add(i)
+        return seen
+
+    if blank(doc.get("task")):
+        add("document: field 'task' is required and must not be blank")
+    if doc.get("stage") not in STAGES:
+        add(f"document: field 'stage' must be one of {', '.join(STAGES)} (got {doc.get('stage')!r})")
+    page = doc.get("page", {})
+    if not isinstance(page, dict):
+        add("page: must be an object")
+    elif "tags" in page and not isinstance(page["tags"], list):
+        add("page: field 'tags' must be a list")
+
+    lane_entries = items("lanes")
+    if "lanes" in doc:
+        lane_ids = [e.get("id") for e in lane_entries]
+        if sorted(map(str, lane_ids)) != sorted(LANES):
+            add(f"lanes: must be exactly {', '.join(LANES)} (got {', '.join(map(str, lane_ids))})")
+
+    reqs = items("requirements")
+    parts = items("parts")
+    tests = items("tests")
+    steps = items("walkthrough", "steps")
+    decisions = items("decisions")
+    req_ids = collect_ids(reqs, "requirement")
+    part_ids = collect_ids(parts, "part")
+    test_ids = collect_ids(tests, "test")
+    step_ids = collect_ids(steps, "step")
+    dec_ids = collect_ids(decisions, "decision")
+
+    wt = doc.get("walkthrough")
+    if wt is not None and (not isinstance(wt, dict) or not isinstance(wt.get("revision"), int)
+                           or isinstance(wt.get("revision"), bool)):
+        add("walkthrough: field 'revision' must be an integer")
+
+    for r in reqs:
+        rid = r.get("id", "?")
+        for f in ("label", "sentence"):
+            if blank(r.get(f)):
+                add(f"requirement {rid}: field '{f}' is required and must not be blank")
+        if "accepted_gap" in r and not isinstance(r["accepted_gap"], str):
+            add(f"requirement {rid}: field 'accepted_gap' must be a string")
+
+    covered = set()
+    for t in tests:
+        tid = t.get("id", "?")
+        if blank(t.get("name")):
+            add(f"test {tid}: field 'name' (the plain name) must not be blank")
+        if t.get("lane") not in LANES:
+            add(f"test {tid}: field 'lane' must be one of {', '.join(LANES)} (got {t.get('lane')!r})")
+        if t.get("status") not in TEST_STATUSES:
+            add(f"test {tid}: field 'status' must be one of {', '.join(TEST_STATUSES)} (got {t.get('status')!r})")
+        for r in str_list(t, "requirements", f"test {tid}"):
+            if r not in req_ids:
+                add(f"test {tid}: field 'requirements' names unknown requirement {r}")
+            covered.add(r)
+        for f in ("real_parts", "faked_parts"):
+            for p in str_list(t, f, f"test {tid}"):
+                if p not in part_ids:
+                    add(f"test {tid}: field '{f}' names unknown part {p}")
+        d = t.get("decision")
+        if d not in (None, "") and d not in dec_ids:
+            add(f"test {tid}: field 'decision' names unknown decision {d}")
+
+    for s in steps:
+        sid = s.get("id", "?")
+        if blank(s.get("title")):
+            add(f"step {sid}: field 'title' is required and must not be blank")
+        if blank(s.get("command")) and blank(s.get("instruction")):
+            add(f"step {sid}: needs a 'command' or a plain 'instruction'")
+        for a in str_list(s, "access", f"step {sid}"):
+            if a not in ACCESS:
+                add(f"step {sid}: field 'access' has {a!r}; allowed values are {', '.join(ACCESS)}")
+        if not s.get("access"):
+            add(f"step {sid}: field 'access' needs at least one of {', '.join(ACCESS)}")
+        for r in str_list(s, "requirements", f"step {sid}"):
+            if r not in req_ids:
+                add(f"step {sid}: field 'requirements' names unknown requirement {r}")
+            covered.add(r)
+
+    open_named = set()
+    for d in decisions:
+        did = d.get("id", "?")
+        if blank(d.get("question")):
+            add(f"decision {did}: field 'question' is required and must not be blank")
+        if d.get("status") not in DECISION_STATUSES:
+            add(f"decision {did}: field 'status' must be one of {', '.join(DECISION_STATUSES)} (got {d.get('status')!r})")
+        opts = d.get("options", [])
+        opt_ids = set()
+        if not isinstance(opts, list) or not all(isinstance(o, dict) for o in opts):
+            add(f"decision {did}: field 'options' must be a list of objects")
+        else:
+            opt_ids = {o.get("id") for o in opts}
+        for f in ("recommended", "answer"):
+            v = d.get(f)
+            if v not in (None, "") and opt_ids and v not in opt_ids:
+                add(f"decision {did}: field '{f}' names unknown option {v}")
+        if d.get("status") == "answered" and d.get("answer") in (None, ""):
+            add(f"decision {did}: status is answered but field 'answer' is empty")
+        names = str_list(d, "requirements", f"decision {did}")
+        for r in names:
+            if r not in req_ids:
+                add(f"decision {did}: field 'requirements' names unknown requirement {r}")
+        if d.get("status") == "open":
+            open_named.update(names)
+
+    for r in reqs:
+        rid = r.get("id")
+        if rid in covered or rid in open_named or not blank(r.get("accepted_gap")):
+            continue
+        add(f"requirement {rid}: uncovered - no test, no walkthrough step, no open decision naming it "
+            f"and no 'accepted_gap' reason")
+
+    for f in ("checked", "unchecked", "needs"):
+        v = doc.get(f, [])
+        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+            add(f"document: field '{f}' must be a list of strings")
+
+    run = doc.get("run")
+    if run is not None:
+        if not isinstance(run, dict):
+            add("run: must be an object")
+        else:
+            rev = run.get("revision")
+            if rev is not None and (not isinstance(rev, int) or isinstance(rev, bool)):
+                add("run: field 'revision' must be an integer")
+            rs = run.get("steps", {})
+            if not isinstance(rs, dict):
+                add("run: field 'steps' must be an object keyed by step id")
+            else:
+                for sid, entry in rs.items():
+                    if sid not in step_ids:
+                        add(f"run step {sid}: no such walkthrough step")
+                    if not isinstance(entry, dict):
+                        add(f"run step {sid}: must be an object")
+                        continue
+                    if entry.get("outcome") not in OUTCOMES:
+                        add(f"run step {sid}: field 'outcome' must be one of {', '.join(OUTCOMES)} "
+                            f"(got {entry.get('outcome')!r})")
+    return errs
+
+
+def load(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except OSError as e:
+        sys.exit(f"verify-plan.py: cannot read {path}: {e.strerror}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"verify-plan.py: {path} is not valid JSON: {e}")
+
+
+def cmd_check(args):
+    errs = check_document(load(args.file))
+    for line in errs:
+        print(line)
+    return 1 if errs else 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="verify-plan.py", description=__doc__.splitlines()[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("check", help="validate a verify.json")
+    p.add_argument("file")
+    p.set_defaults(func=cmd_check)
+    args = ap.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

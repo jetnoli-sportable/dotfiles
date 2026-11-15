@@ -1,0 +1,218 @@
+{
+  "task": "example--book-holds",
+  "page": {
+    "tags": ["verify-plan"],
+    "retire_when": "task:example--book-holds done"
+  },
+  "stage": "map",
+  "lanes": [
+    {"id": "unit", "label": "Unit", "explain": "One function or class on its own, everything around it faked."},
+    {"id": "integration", "label": "Integration (real dependency)", "explain": "Our code against a real database or service running locally."},
+    {"id": "e2e", "label": "End-to-end", "explain": "The whole app driven the way a reader would use it."},
+    {"id": "walkthrough", "label": "Your walkthrough", "explain": "Steps you run by hand, where a person's eyes are the test."}
+  ],
+  "requirements": [
+    {
+      "id": "R1",
+      "label": "Place a hold",
+      "sentence": "A reader can place a hold on a book that is checked out, and joins the back of that book's queue.",
+      "why": "Without it, readers have no way to get a popular book except by refreshing the catalogue.",
+      "wrong_when": "The hold is saved but the reader is placed at the front, or the same reader is queued twice.",
+      "lasting": true
+    },
+    {
+      "id": "R2",
+      "label": "Queue order",
+      "sentence": "When a book is returned, the first reader in its queue is notified and given three days to collect it.",
+      "why": "Readers who waited longest must get the book first, or the queue is meaningless.",
+      "wrong_when": "The notice goes out but the book is also shown as available to everyone else."
+    },
+    {
+      "id": "R3",
+      "label": "Cancel a hold",
+      "sentence": "A reader can cancel a hold, and everyone behind them moves up one place.",
+      "why": "Stale holds block the queue for people who still want the book.",
+      "wrong_when": "The hold disappears from the reader's list but still takes a place in the queue."
+    },
+    {
+      "id": "R4",
+      "label": "Hold limit",
+      "sentence": "A reader can have at most five active holds at once.",
+      "why": "An unbounded queue lets one reader lock up the popular shelf.",
+      "wrong_when": "The limit is checked in the interface but a direct request can still add a sixth."
+    }
+  ],
+  "parts": [
+    {"id": "queue", "label": "Hold queue", "what": "The ordered list of readers waiting for one book."},
+    {"id": "store", "label": "Hold store", "what": "The database table that keeps holds between restarts."},
+    {"id": "notifier", "label": "Notifier", "what": "Sends the reader a message when a book is ready."},
+    {"id": "clock", "label": "Clock", "what": "Supplies the current time for the three-day pickup window."},
+    {"id": "api", "label": "Holds API", "what": "The web endpoints the interface calls."}
+  ],
+  "tests": [
+    {
+      "id": "T1",
+      "name": "A new hold goes to the back of the queue",
+      "test_name": "test_place_hold_appends_to_queue",
+      "lane": "unit",
+      "requirements": ["R1"],
+      "real_parts": ["queue"],
+      "faked_parts": ["store", "clock"],
+      "passing_tells": "The queue puts a new reader last. It does not tell you the hold is saved.",
+      "status": "built"
+    },
+    {
+      "id": "T2",
+      "name": "The same reader cannot queue twice for one book",
+      "test_name": "test_place_hold_rejects_duplicate",
+      "lane": "unit",
+      "requirements": ["R1"],
+      "real_parts": ["queue"],
+      "faked_parts": ["store"],
+      "passing_tells": "A second hold by the same reader is refused by the queue logic.",
+      "status": "planned"
+    },
+    {
+      "id": "T3",
+      "name": "A saved hold survives a restart",
+      "test_name": "test_hold_persists_across_reconnect",
+      "lane": "integration",
+      "requirements": ["R1", "R3"],
+      "real_parts": ["queue", "store"],
+      "faked_parts": ["notifier", "clock"],
+      "passing_tells": "Holds written to a real local database come back in the same order.",
+      "status": "built"
+    },
+    {
+      "id": "T4",
+      "name": "A return notifies only the first reader",
+      "test_name": "test_return_notifies_head_only",
+      "lane": "integration",
+      "requirements": ["R2"],
+      "real_parts": ["queue", "store", "notifier"],
+      "faked_parts": ["clock"],
+      "passing_tells": "One message is sent, to the reader at the head of the queue.",
+      "status": "planned"
+    },
+    {
+      "id": "T5",
+      "name": "The pickup window closes after three days",
+      "test_name": "test_pickup_expires_after_three_days",
+      "lane": "unit",
+      "requirements": ["R2"],
+      "real_parts": ["queue", "clock"],
+      "faked_parts": ["store", "notifier"],
+      "passing_tells": "With a stepped clock, an uncollected book passes to the next reader on day three.",
+      "status": "proposed",
+      "decision": "D1"
+    },
+    {
+      "id": "T6",
+      "name": "Cancelling moves everyone behind up one place",
+      "test_name": "test_cancel_hold_shifts_queue",
+      "lane": "e2e",
+      "requirements": ["R3"],
+      "real_parts": ["queue", "store", "api"],
+      "faked_parts": ["notifier"],
+      "passing_tells": "Through the real endpoints, positions shown to three readers update after one cancels.",
+      "status": "proposed"
+    }
+  ],
+  "walkthrough": {
+    "revision": 1,
+    "steps": [
+      {
+        "id": "S1",
+        "title": "Start the app with sample data",
+        "where": "A terminal in the project folder",
+        "why": "Every later step needs a running app with a few books checked out.",
+        "command": "make dev-seed && make dev",
+        "expected": "The terminal prints \"listening on :8080\" and \"seeded 12 books\".",
+        "wrong_if": "It prints a connection error, or seeds fewer than 12 books.",
+        "risk": "Writes only to a local scratch database.",
+        "access": ["local"],
+        "paste": false,
+        "requirements": ["R1"]
+      },
+      {
+        "id": "S2",
+        "title": "Place two holds on one book",
+        "where": "The running app in a browser",
+        "why": "Shows the queue order a reader would actually see.",
+        "instruction": "Sign in as reader A and place a hold on \"The Long Tide\". Sign out, sign in as reader B and place a hold on the same book. Open the book page.",
+        "expected": "The book page lists A in position 1 and B in position 2.",
+        "wrong_if": "B appears first, or either reader is listed twice.",
+        "risk": "Writes only to the local scratch database.",
+        "access": ["local"],
+        "paste": false,
+        "requirements": ["R1", "R3"]
+      },
+      {
+        "id": "S3",
+        "title": "Read the real notification service's delivery log",
+        "where": "A terminal with read access to the shared test mail service",
+        "why": "Confirms the notice reaches the shared test mail service, not only our fake.",
+        "command": "mailtool log --recipient reader-a@example.test --last 1",
+        "expected": "One entry, subject \"Your hold is ready\", sent within a minute of the return.",
+        "wrong_if": "No entry, or the notice went to reader B.",
+        "risk": "Read-only, but it uses your shared test mail account.",
+        "access": ["cloud-read"],
+        "paste": true,
+        "requirements": ["R2"]
+      },
+      {
+        "id": "S4",
+        "title": "Return the book and check the pickup deadline",
+        "where": "The running app in a browser",
+        "why": "The three-day window is the visible promise to the reader.",
+        "command": "curl -s -X POST localhost:8080/returns -d '{\"book\":\"the-long-tide\"}'",
+        "expected": "The response includes a pickup deadline exactly three days ahead.",
+        "wrong_if": "The deadline is missing, or the book is listed as available to all.",
+        "risk": "Writes only to the local scratch database.",
+        "access": ["local"],
+        "paste": true,
+        "requirements": ["R2"]
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "id": "D1",
+      "question": "Should the pickup window be tested with a stepped fake clock or by sleeping in a real run?",
+      "options": [
+        {"id": "fake-clock", "label": "Stepped fake clock", "cost": "Needs the queue to accept a clock; small refactor.", "proves": "The expiry logic, instantly, but not real elapsed time."},
+        {"id": "real-sleep", "label": "Real sleep in a slow test", "cost": "A test that takes minutes and is flaky on busy machines.", "proves": "Real elapsed time end to end."}
+      ],
+      "recommended": "fake-clock",
+      "answer": null,
+      "note": "",
+      "status": "open",
+      "requirements": ["R4"]
+    },
+    {
+      "id": "D2",
+      "question": "Does the hold limit count holds that are ready for pickup?",
+      "options": [
+        {"id": "count-ready", "label": "Yes, count them", "cost": "Readers at the limit cannot place new holds until they collect.", "proves": "A strict limit of five."},
+        {"id": "waiting-only", "label": "No, only waiting holds", "cost": "A reader can hold up to five plus any ready books.", "proves": "A limit on queue pressure, not on shelf pressure."}
+      ],
+      "recommended": "count-ready",
+      "answer": "count-ready",
+      "note": "Keep it simple and strict.",
+      "status": "answered",
+      "requirements": []
+    }
+  ],
+  "checked": [
+    "Read the existing queue module and confirmed it has no clock parameter.",
+    "Confirmed a local database can be started with one command."
+  ],
+  "unchecked": [
+    "Whether the shared test mail account allows reading logs from a fresh machine.",
+    "How the interface behaves with more than 200 readers in one queue."
+  ],
+  "needs": [
+    "Read access to the shared test mail service for step 3.",
+    "An answer to D1 before test T5 can be agreed."
+  ]
+}
