@@ -274,6 +274,17 @@ restarting proj--c4 "$SID_NEW"
 out="$(pickup_as "$SID_NEW" "$(id_of proj--c4)")"
 assert "no command at all: says so" 'Command to carry out: none recorded' "$out"
 
+# the helper could not carry the model: the pick-up says so
+mk_task proj--c5
+wbc_stage "$(tf proj--c5)" >/dev/null 2>&1
+_wbc_lock proj--c5; wbc_set test proj--c5 restarting "test" "new_session_id=$SID_NEW" model_fallback=1; _wbc_unlock proj--c5
+out="$(pickup_as "$SID_NEW" "$(id_of proj--c5)")"
+assert "model fallback: the pick-up names it" "Note: the old session's model could not be read" "$out"
+mk_task proj--c6
+wbc_stage "$(tf proj--c6)" >/dev/null 2>&1
+restarting proj--c6 "$SID_NEW"
+refute "no model fallback: no note" "model could not be read" "$(pickup_as "$SID_NEW" "$(id_of proj--c6)")"
+
 # pickup success: one Handoffs entry, request removed, second pickup fails
 mk_task proj--p1
 wbc_stage "$(tf proj--p1)" >/dev/null 2>&1

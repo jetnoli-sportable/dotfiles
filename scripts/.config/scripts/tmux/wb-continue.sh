@@ -400,6 +400,7 @@ wbc_pickup() {
   heading="$(wbc_get "$stem" entry_heading)"
   ts="${heading#\#\#\# }"; ts="${ts%% — *}"
   old="$(wbc_get "$stem" session_id)"
+  local fallback; fallback="$(wbc_get "$stem" model_fallback)"
   local msg="Continued in a fresh context from the save of $ts"
   if [ -n "$old" ]; then msg+=" (old session $old; \`claude --resume $old\` reopens it)"; fi
   msg+="."
@@ -413,6 +414,7 @@ wbc_pickup() {
   _wbc_unlock "$stem"
 
   echo "wb continue: pickup ok for $stem"
+  [ "$fallback" != 1 ] || echo "Note: the old session's model could not be read; this session runs on the default model."
   echo "=== Frozen save entry (verbatim) ==="
   printf '%s\n' "$entry"
   echo "=== End of frozen save entry ==="
