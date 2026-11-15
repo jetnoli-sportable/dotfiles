@@ -1,0 +1,9 @@
+{
+  "session_id": "__SESSION_ID__",
+  "transcript_path": "__TRANSCRIPT__",
+  "cwd": "__CWD__",
+  "prompt_id": "__PROMPT_ID__",
+  "permission_mode": "bypassPermissions",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "/compound-engineering:ce-code-review base:development"
+}

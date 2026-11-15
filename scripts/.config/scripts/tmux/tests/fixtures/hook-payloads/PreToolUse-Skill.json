@@ -1,0 +1,17 @@
+{
+  "session_id": "__SESSION_ID__",
+  "transcript_path": "__TRANSCRIPT__",
+  "cwd": "__CWD__",
+  "prompt_id": "__PROMPT_ID__",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Skill",
+  "tool_input": {
+    "skill": "simplify",
+    "args": "base:development"
+  },
+  "tool_use_id": "__TOOL_USE_ID__"
+}

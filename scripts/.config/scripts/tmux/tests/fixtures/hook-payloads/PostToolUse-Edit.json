@@ -1,0 +1,42 @@
+{
+  "session_id": "__SESSION_ID__",
+  "transcript_path": "__TRANSCRIPT__",
+  "cwd": "__CWD__",
+  "prompt_id": "__PROMPT_ID__",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "__CWD__/hello.txt",
+    "old_string": "hi",
+    "new_string": "hello",
+    "replace_all": false
+  },
+  "tool_response": {
+    "filePath": "__CWD__/hello.txt",
+    "oldString": "hi",
+    "newString": "hello",
+    "originalFile": "hi",
+    "structuredPatch": [
+      {
+        "oldStart": 1,
+        "oldLines": 1,
+        "newStart": 1,
+        "newLines": 1,
+        "lines": [
+          "-hi",
+          "\\ No newline at end of file",
+          "+hello",
+          "\\ No newline at end of file"
+        ]
+      }
+    ],
+    "userModified": false,
+    "replaceAll": false
+  },
+  "tool_use_id": "__TOOL_USE_ID__",
+  "duration_ms": 9
+}

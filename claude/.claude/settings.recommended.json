@@ -2,6 +2,144 @@
   "permissions": {
     "allow": [
       "Read(/home/jetnoli/code/tasks/**)"
+    ],
+    "deny": [
+      "Bash(terraform apply *)",
+      "Bash(terraform -chdir=* apply*)",
+      "Bash(env * terraform apply*)",
+      "Bash(terraform destroy *)",
+      "Bash(terraform -chdir=* destroy*)",
+      "Bash(env * terraform destroy*)",
+      "Bash(terraform import *)",
+      "Bash(terraform -chdir=* import*)",
+      "Bash(env * terraform import*)",
+      "Bash(terraform taint *)",
+      "Bash(terraform -chdir=* taint*)",
+      "Bash(env * terraform taint*)",
+      "Bash(terraform untaint *)",
+      "Bash(terraform -chdir=* untaint*)",
+      "Bash(env * terraform untaint*)",
+      "Bash(terraform force-unlock *)",
+      "Bash(terraform -chdir=* force-unlock*)",
+      "Bash(env * terraform force-unlock*)",
+      "Bash(terraform refresh *)",
+      "Bash(terraform -chdir=* refresh*)",
+      "Bash(env * terraform refresh*)",
+      "Bash(terraform state rm *)",
+      "Bash(terraform -chdir=* state rm*)",
+      "Bash(env * terraform state rm*)",
+      "Bash(terraform state mv *)",
+      "Bash(terraform -chdir=* state mv*)",
+      "Bash(env * terraform state mv*)",
+      "Bash(terraform state push *)",
+      "Bash(terraform -chdir=* state push*)",
+      "Bash(env * terraform state push*)",
+      "Bash(terraform state replace-provider *)",
+      "Bash(terraform -chdir=* state replace-provider*)",
+      "Bash(env * terraform state replace-provider*)",
+      "Bash(terraform workspace delete *)",
+      "Bash(terraform -chdir=* workspace delete*)",
+      "Bash(env * terraform workspace delete*)",
+      "Bash(tofu apply *)",
+      "Bash(tofu -chdir=* apply*)",
+      "Bash(env * tofu apply*)",
+      "Bash(tofu destroy *)",
+      "Bash(tofu -chdir=* destroy*)",
+      "Bash(env * tofu destroy*)",
+      "Bash(tofu import *)",
+      "Bash(tofu -chdir=* import*)",
+      "Bash(env * tofu import*)",
+      "Bash(tofu taint *)",
+      "Bash(tofu -chdir=* taint*)",
+      "Bash(env * tofu taint*)",
+      "Bash(tofu untaint *)",
+      "Bash(tofu -chdir=* untaint*)",
+      "Bash(env * tofu untaint*)",
+      "Bash(tofu force-unlock *)",
+      "Bash(tofu -chdir=* force-unlock*)",
+      "Bash(env * tofu force-unlock*)",
+      "Bash(tofu refresh *)",
+      "Bash(tofu -chdir=* refresh*)",
+      "Bash(env * tofu refresh*)",
+      "Bash(tofu state rm *)",
+      "Bash(tofu -chdir=* state rm*)",
+      "Bash(env * tofu state rm*)",
+      "Bash(tofu state mv *)",
+      "Bash(tofu -chdir=* state mv*)",
+      "Bash(env * tofu state mv*)",
+      "Bash(tofu state push *)",
+      "Bash(tofu -chdir=* state push*)",
+      "Bash(env * tofu state push*)",
+      "Bash(tofu state replace-provider *)",
+      "Bash(tofu -chdir=* state replace-provider*)",
+      "Bash(env * tofu state replace-provider*)",
+      "Bash(tofu workspace delete *)",
+      "Bash(tofu -chdir=* workspace delete*)",
+      "Bash(env * tofu workspace delete*)",
+      "Bash(terragrunt apply *)",
+      "Bash(env * terragrunt apply*)",
+      "Bash(terragrunt destroy *)",
+      "Bash(env * terragrunt destroy*)",
+      "Bash(terragrunt import *)",
+      "Bash(env * terragrunt import*)",
+      "Bash(terragrunt taint *)",
+      "Bash(env * terragrunt taint*)",
+      "Bash(terragrunt untaint *)",
+      "Bash(env * terragrunt untaint*)",
+      "Bash(terragrunt force-unlock *)",
+      "Bash(env * terragrunt force-unlock*)",
+      "Bash(terragrunt refresh *)",
+      "Bash(env * terragrunt refresh*)",
+      "Bash(terragrunt state rm *)",
+      "Bash(env * terragrunt state rm*)",
+      "Bash(terragrunt state mv *)",
+      "Bash(env * terragrunt state mv*)",
+      "Bash(terragrunt state push *)",
+      "Bash(env * terragrunt state push*)",
+      "Bash(terragrunt state replace-provider *)",
+      "Bash(env * terragrunt state replace-provider*)",
+      "Bash(terragrunt workspace delete *)",
+      "Bash(env * terragrunt workspace delete*)",
+      "Bash(terragrunt run-all apply*)",
+      "Bash(terragrunt run-all destroy*)",
+      "Bash(terragrunt run-all import*)",
+      "Bash(terragrunt run-all taint*)",
+      "Bash(terragrunt run-all untaint*)",
+      "Bash(terragrunt run-all force-unlock*)",
+      "Bash(terragrunt run-all refresh*)",
+      "Bash(terragrunt run-all state rm*)",
+      "Bash(terragrunt run-all state mv*)",
+      "Bash(terragrunt run-all state push*)",
+      "Bash(terragrunt run-all state replace-provider*)",
+      "Bash(terragrunt run-all workspace delete*)",
+      "Bash(terragrunt apply-all*)",
+      "Bash(terragrunt destroy-all*)",
+      "Bash(terragrunt apply --all*)",
+      "Bash(terragrunt destroy --all*)",
+      "Bash(terragrunt run apply*)",
+      "Bash(terragrunt run destroy*)",
+      "Bash(terragrunt run import*)",
+      "Bash(terragrunt run taint*)",
+      "Bash(terragrunt run untaint*)",
+      "Bash(terragrunt run force-unlock*)",
+      "Bash(terragrunt run refresh*)",
+      "Bash(terragrunt run state rm*)",
+      "Bash(terragrunt run state mv*)",
+      "Bash(terragrunt run state push*)",
+      "Bash(terragrunt run state replace-provider*)",
+      "Bash(terragrunt run workspace delete*)",
+      "Bash(terragrunt run --all apply*)",
+      "Bash(terragrunt run --all destroy*)",
+      "Bash(terragrunt run --all import*)",
+      "Bash(terragrunt run --all taint*)",
+      "Bash(terragrunt run --all untaint*)",
+      "Bash(terragrunt run --all force-unlock*)",
+      "Bash(terragrunt run --all refresh*)",
+      "Bash(terragrunt run --all state rm*)",
+      "Bash(terragrunt run --all state mv*)",
+      "Bash(terragrunt run --all state push*)",
+      "Bash(terragrunt run --all state replace-provider*)",
+      "Bash(terragrunt run --all workspace delete*)"
     ]
   },
   "hooks": {
@@ -25,6 +163,61 @@
           {
             "type": "command",
             "command": "$HOME/.config/scripts/tmux/tasks-git-hooks/pretooluse-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/haircut-gate-hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/haircut-gate-hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/format-on-edit-hook.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/review-stamp-hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/scripts/tmux/review-stamp-hook.sh",
+            "timeout": 10
           }
         ]
       }
