@@ -2576,8 +2576,6 @@ __VP_META__
         }
         async function submitOnce() {
           submitBtn.disabled = true;
-          // 1. Every edit is saved first, so the counts sent and recorded are the saved ones.
-          await flushPending();
           if (failedCount()) {
             var f = $("status");
             f.className = "status err";
@@ -2586,9 +2584,11 @@ __VP_META__
           }
           var c = counts(),
             again = !!(st.submitted && String(st.submitted.rev) === rev);
+          // 1. The comment goes first, while this click is still Jet's gesture; no await before it.
           var threadId = (again && st.submitted.threadId) || "",
             sent = false,
             sendError = "";
+          var pending = flushPending();
           if (st.comments && st.sendState === "available") {
             var text = VM.submitText(data, c, again);
             try {
@@ -2611,6 +2611,7 @@ __VP_META__
           } else sendError = st.comments ? "send_" + (st.sendState || "unavailable") : "comments_unavailable";
           // 2. Then the durable record, with the same rev.
           try {
+            await pending;
             await flushPending();
             if (failedCount()) throw new Error("some steps are not saved");
             c = counts();
