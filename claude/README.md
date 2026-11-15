@@ -10,6 +10,7 @@ directory instead of replacing it.
 ## Tracked
 
 - `skills/decide/` — batches of decisions: an nvim buffer or a claude.ai page, recorded in the task
+- `skills/verify-plan/` — before planning, shape how a task will be proven; one verification document per task, its shaping and map pages, the walkthrough run and its results
 - `skills/handoff/` — route in-conversation discussion to the right worker (switch or spawn)
 - `skills/park/` — capture "later" items to the standing weekly-capture doc
 - `skills/weekly-review/` — the weekly ceremony that reviews captured items
