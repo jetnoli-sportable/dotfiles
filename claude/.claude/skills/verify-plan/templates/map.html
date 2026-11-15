@@ -801,6 +801,167 @@ __VP_META__
         padding: 8px;
         margin-top: 4px;
       }
+      /* run stage */
+      .runc {
+        margin: 10px 0;
+      }
+      .oc {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .oc .ob {
+        font: inherit;
+        font-weight: 700;
+        padding: 6px 16px;
+        border-radius: 99px;
+        border: 2px solid var(--line);
+        background: var(--card);
+        color: var(--ink);
+        cursor: pointer;
+      }
+      .oc .ob[aria-pressed="true"].passed {
+        background: var(--okbg);
+        border-color: var(--ok);
+        color: var(--ok);
+      }
+      .oc .ob[aria-pressed="true"].failed {
+        background: var(--badbg);
+        border-color: var(--bad);
+        color: var(--bad);
+      }
+      .oc .ob[aria-pressed="true"].skipped {
+        background: var(--planbg);
+        border-color: var(--plan);
+        color: var(--plan);
+      }
+      .oc .ob:focus-visible,
+      .runc input:focus-visible,
+      .runc textarea:focus-visible,
+      .rbar .sub:focus-visible {
+        outline: 3px solid var(--acc);
+        outline-offset: 2px;
+      }
+      .runc input[type="text"],
+      .runc textarea {
+        width: 100%;
+        font: inherit;
+        font-size: 14px;
+        background: var(--card);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-top: 4px;
+      }
+      .runc .lb2 {
+        display: block;
+        margin-top: 8px;
+        font-size: 13px;
+        color: var(--mut);
+      }
+      .serr {
+        color: var(--bad);
+        font-weight: 600;
+        margin-top: 6px;
+      }
+      .stale {
+        background: var(--planbg);
+        color: var(--plan);
+        border-radius: 6px;
+        padding: 6px 10px;
+        margin: 8px 0;
+        font-size: 14px;
+      }
+      pre.outp {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: var(--code);
+        border-radius: 6px;
+        padding: 8px;
+        margin: 4px 0 0;
+        font:
+          13px ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .rbar {
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+        display: flex;
+        gap: 8px 16px;
+        align-items: center;
+        flex-wrap: wrap;
+        background: var(--card);
+        border: 2px solid var(--acc);
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin: 12px 0;
+      }
+      .rbar .prog {
+        font-weight: 700;
+      }
+      .rbar .saved,
+      .rbar .status {
+        color: var(--mut);
+        font-size: 14px;
+      }
+      .rbar .status.err {
+        color: var(--bad);
+        font-weight: 600;
+      }
+      .rbar .sub {
+        margin-left: auto;
+        font: inherit;
+        font-weight: 700;
+        padding: 8px 22px;
+        border-radius: 8px;
+        border: 0;
+        background: var(--acc);
+        color: var(--bg);
+        cursor: pointer;
+      }
+      .rbar .sub:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .banner {
+        background: var(--planbg);
+        color: var(--ink);
+        border-left: 6px solid var(--plan);
+        border-radius: 6px;
+        padding: 8px 14px;
+        margin: 8px 0;
+      }
+      .banner.ok {
+        background: var(--okbg);
+        border-color: var(--ok);
+      }
+      .banner p {
+        margin: 0;
+      }
+      .rbox {
+        background: var(--card);
+        border: 2px solid var(--acc);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 14px 0;
+      }
+      .rbox h2 {
+        margin-top: 0;
+      }
+      .rbox .big {
+        font-size: 17px;
+        font-weight: 700;
+      }
+      .rbox ul {
+        margin: 8px 0 0;
+        padding-left: 20px;
+      }
+      .rbox li {
+        margin: 3px 0;
+      }
       @media (max-width: 900px) {
         .step .tags,
         .bd {
@@ -1619,12 +1780,210 @@ __VP_META__
             })
             .join(" &middot; ");
         }
-        function step(d, s, first) {
+        // ---- run stage -------------------------------------------------
+        // "results": recorded outcomes only. "run": outcome controls and Submit, starting from any
+        // recorded run. "static": the plain map, before there is anything to run.
+        function mode(d) {
+          if (d.stage === "results") return "results";
+          return d.stage === "run" || hasRun(d) ? "run" : "static";
+        }
+        function norm(e) {
+          e = e || {};
+          var o = e.outcome === "not-run" ? "" : e.outcome || "";
+          return {
+            outcome: o,
+            skip_reason: e.skip_reason || "",
+            output: e.output || "",
+            note: e.note || "",
+          };
+        }
+        // The starting state of every step: the recorded run, overridden by stored documents of the
+        // current revision. A stored document of another revision is listed as stale and not loaded.
+        function resolve(d, stored) {
+          var states = {},
+            stale = [],
+            rev = String(d.walkthrough && d.walkthrough.revision);
+          if (hasRun(d))
+            Object.keys(d.run.steps || {}).forEach(function (id) {
+              states[id] = norm(d.run.steps[id]);
+            });
+          stored = stored || {};
+          steps(d).forEach(function (s) {
+            var doc = stored[s.id];
+            if (!doc) return;
+            if (String(doc.rev) !== rev) stale.push(s.id);
+            else states[s.id] = norm(doc);
+          });
+          return { states: states, stale: stale };
+        }
+        function counts(d, states) {
+          var c = { passed: 0, failed: 0, skipped: 0, not_run: 0, total: 0 };
+          steps(d).forEach(function (s) {
+            var o = (states[s.id] || {}).outcome;
+            c.total++;
+            if (o === "passed" || o === "failed" || o === "skipped") c[o]++;
+            else c.not_run++;
+          });
+          return c;
+        }
+        function countsText(c) {
+          var parts = [];
+          [
+            ["passed", "passed"],
+            ["failed", "failed"],
+            ["skipped", "skipped"],
+            ["not_run", "not run"],
+          ].forEach(function (k) {
+            if (c[k[0]]) parts.push(c[k[0]] + " " + k[1]);
+          });
+          return parts.join(", ") || "no steps";
+        }
+        function progress(d, c) {
+          return c.total - c.not_run + " of " + c.total + " done";
+        }
+        function submitText(d, c, again) {
+          return (
+            (again ? "Submitted again" : "Submitted") +
+            " walkthrough rev " +
+            d.walkthrough.revision +
+            ": " +
+            countsText(c) +
+            ". Read this page's store (meta/submitted and the steps collection) and record the run."
+          );
+        }
+        function staleNote() {
+          return '<div class="stale" data-stale>A saved result for this step is from an earlier version of the walkthrough, so it is not shown or counted.</div>';
+        }
+        function runControls(s, st, isStale) {
+          var id = esc(s.id),
+            o = st.outcome || "";
+          return (
+            '<div class="runc">' +
+            (isStale ? staleNote() : "") +
+            '<span class="k">Your result</span><div class="oc" role="group" aria-label="Result for ' +
+            esc(s.title) +
+            '">' +
+            ["passed", "failed", "skipped"]
+              .map(function (v) {
+                return (
+                  '<button type="button" class="ob ' +
+                  v +
+                  '" data-out="' +
+                  v +
+                  '" data-step="' +
+                  id +
+                  '" aria-pressed="' +
+                  (o === v) +
+                  '">' +
+                  RUN_LABEL[v] +
+                  "</button>"
+                );
+              })
+              .join("") +
+            "</div>" +
+            '<label class="lb2" data-skiprow="' +
+            id +
+            '"' +
+            (o === "skipped" ? "" : " hidden") +
+            ">Why skipped" +
+            '<input type="text" data-skip="' +
+            id +
+            '" value="' +
+            esc(st.skip_reason) +
+            '"></label>' +
+            (s.paste
+              ? '<label class="lb2">Paste what you saw<textarea class="pb" rows="3" data-paste="' +
+                id +
+                '">' +
+                esc(st.output) +
+                "</textarea></label>"
+              : "") +
+            '<label class="lb2">Note (optional)<textarea rows="2" data-note="' +
+            id +
+            '">' +
+            esc(st.note) +
+            '</textarea></label><div class="serr" data-err="' +
+            id +
+            '" role="alert" hidden></div></div>'
+          );
+        }
+        function recorded(st) {
+          return (
+            '<div class="f"><span class="k">Recorded result</span>' +
+            (st.skip_reason ? "<div>Skipped because: " + esc(st.skip_reason) + "</div>" : "") +
+            (st.output ? '<pre class="outp">' + esc(st.output) + "</pre>" : "") +
+            (st.note ? "<div>" + esc(st.note) + "</div>" : "") +
+            (!st.output && !st.note && !st.skip_reason
+              ? "<div>No notes recorded.</div>"
+              : "") +
+            "</div>"
+          );
+        }
+        function resultsBox(d) {
+          var c = counts(d, resolve(d, {}).states),
+            tests = list(d.tests),
+            unbuilt = tests.filter(function (t) {
+              return t.status !== "built";
+            });
+          return (
+            '<div class="rbox" id="results"><h2>Results</h2><div class="big">Walkthrough (' +
+            c.total +
+            " steps): " +
+            esc(countsText(c)) +
+            "</div>" +
+            (c.failed
+              ? '<p>A failed step is a finding: the behaviour it checks is not proven.</p>'
+              : "") +
+            "<h3>Automated tests</h3>" +
+            (unbuilt.length
+              ? "<p>" +
+                unbuilt.length +
+                " of " +
+                tests.length +
+                " agreed tests are not built yet, so the proof for them is a gap.</p>"
+              : "<p>Every agreed test is built.</p>") +
+            "<ul>" +
+            tests
+              .map(function (t) {
+                return (
+                  "<li>" +
+                  esc(t.name) +
+                  " &mdash; <b>" +
+                  esc(STATUS_LABEL[t.status] || t.status) +
+                  "</b></li>"
+                );
+              })
+              .join("") +
+            "</ul></div>"
+          );
+        }
+        function runBar(d, c) {
+          return (
+            '<div id="notice" class="banner" hidden></div><div id="sentbanner" class="banner ok" hidden></div>' +
+            '<div class="rbar"><span class="prog" id="prog">' +
+            esc(progress(d, c)) +
+            '</span><span class="saved" id="saved" aria-live="polite"></span><span class="status" id="status" aria-live="polite"></span>' +
+            '<button type="button" class="sub" id="submit" disabled>Submit</button></div>'
+          );
+        }
+        function makeCtx(d, opts) {
+          opts = opts || {};
+          var r = resolve(d, {});
+          return {
+            mode: mode(d),
+            states: opts.states || r.states,
+            stale: opts.stale || [],
+          };
+        }
+
+        function step(d, s, first, ctx) {
           var beyond = list(s.access).some(function (a) {
             return a !== "local";
           });
           var id = esc(s.id),
-            ran = hasRun(d);
+            ran = ctx.mode !== "static",
+            st = ctx.states[s.id] || {},
+            out = st.outcome || "not-run";
           var act =
             s.command && String(s.command).trim()
               ? '<div class="f"><span class="k">Command</span><div class="cmd">' +
@@ -1655,11 +2014,11 @@ __VP_META__
             // Hook for the run stage: the recorded outcome for this step.
             (ran
               ? '<span class="runst ' +
-                esc(outcome(d, s)) +
+                esc(out) +
                 '" data-run-for="' +
                 id +
                 '">' +
-                esc(RUN_LABEL[outcome(d, s)] || outcome(d, s)) +
+                esc(RUN_LABEL[out] || out) +
                 "</span>"
               : "") +
             '<span class="chev" aria-hidden="true">&#9660;</span></button></div>' +
@@ -1693,17 +2052,22 @@ __VP_META__
                 esc(s.wrong_if) +
                 "</div></div>"
               : "") +
-            (s.paste
-              ? '<div class="f"><span class="k">Paste what you saw</span><textarea class="pb" rows="3" data-paste="' +
-                id +
-                '" aria-label="Paste what you saw for ' +
-                esc(s.title) +
-                '"></textarea></div>'
-              : "") +
+            (ctx.mode === "run"
+              ? runControls(s, st, ctx.stale.indexOf(s.id) >= 0)
+              : ctx.mode === "results"
+                ? recorded(st)
+                : s.paste
+                  ? '<div class="f"><span class="k">Paste what you saw</span><textarea class="pb" rows="3" data-paste="' +
+                    id +
+                    '" aria-label="Paste what you saw for ' +
+                    esc(s.title) +
+                    '"></textarea></div>'
+                  : "") +
             "</div></div>"
           );
         }
-        function walkthrough(d) {
+        function walkthrough(d, ctx) {
+          ctx = ctx || makeCtx(d);
           var ss = steps(d);
           if (!ss.length)
             return '<p class="empty">No walkthrough steps yet.</p>';
@@ -1715,10 +2079,15 @@ __VP_META__
             (a.loud ? "&#9888; " : "") +
             esc(a.text) +
             "</span></div>" +
+            (ctx.mode === "run" ? runBar(d, counts(d, ctx.states)) : "") +
             '<div class="wlist" id="wlist">' +
             ss
               .map(function (s, i) {
-                return step(d, s, i === 0);
+                var open =
+                  ctx.mode === "results"
+                    ? (ctx.states[s.id] || {}).outcome === "failed"
+                    : i === 0;
+                return step(d, s, open, ctx);
               })
               .join("") +
             "</div>"
@@ -1763,12 +2132,14 @@ __VP_META__
                 "</div>"
             : "";
         }
-        function page(d) {
-          var hasParts = list(d.parts).length > 0;
+        function page(d, opts) {
+          var hasParts = list(d.parts).length > 0,
+            ctx = makeCtx(d, opts);
           return (
             VP.header(d, "Verification · map") +
             VP.stageBar(d.stage) +
             '<div class="purpose">The agreed proof for this task: what automation covers, what rests on you, and the steps you run yourself.</div>' +
+            (ctx.mode === "results" ? resultsBox(d) : "") +
             band(d) +
             '<nav class="secs" aria-label="Sections"><a href="#sReq" class="on">Requirements</a><a href="#sAuto">Automated proof</a><a href="#sWalk">Your walkthrough</a></nav>' +
             '<h2 id="sReq">Requirements <small>&mdash; the one place each is defined; open a card for the reasoning</small></h2>' +
@@ -1787,7 +2158,7 @@ __VP_META__
             uncheckedBox(d) +
             testsList(d) +
             '<h2 id="sWalk">Your walkthrough <small>&mdash; steps you run yourself; open a step for its command and what to expect</small></h2>' +
-            walkthrough(d) +
+            walkthrough(d, ctx) +
             needsBox(d)
           );
         }
@@ -1809,6 +2180,18 @@ __VP_META__
           testsList: testsList,
           accessSummary: accessSummary,
           walkthrough: walkthrough,
+          steps: steps,
+          mode: mode,
+          resolve: resolve,
+          counts: counts,
+          countsText: countsText,
+          progress: progress,
+          submitText: submitText,
+          staleNote: staleNote,
+          resultsBox: resultsBox,
+          runLabel: function (o) {
+            return RUN_LABEL[o || "not-run"] || o;
+          },
           page: page,
         };
       })();
@@ -1991,6 +2374,331 @@ __VP_META__
         document.addEventListener("keydown", function (e) {
           if (e.key === "Escape") closePanel();
         });
+      })();
+    </script>
+    <script>
+      // Run stage wiring: step state saved as database documents, and Submit. The protocol is
+      // copied from /decide's page (claude/.claude/skills/decide/page/page.html): same
+      // capabilities, 600 ms text saves, 5 s retry, comment sent inside the click, saved threadId,
+      // then a meta/submitted record.
+      (function () {
+        var data = JSON.parse(document.getElementById("vp-data").textContent);
+        var submitBtn = document.getElementById("submit");
+        if (!submitBtn || VM.mode(data) !== "run") return;
+        var $ = function (id) {
+          return document.getElementById(id);
+        };
+        var rev = String(data.walkthrough.revision);
+        var st = {
+          states: VM.resolve(data, {}).states,
+          stamp: {},
+          stale: {},
+          db: null,
+          comments: null,
+          sendState: "",
+          failed: {},
+          timers: {},
+          retry: {},
+          submitted: null,
+          submitting: false,
+        };
+        var q = function (sel) {
+          return document.querySelector(sel);
+        };
+        function failedCount() {
+          return Object.keys(st.failed).length;
+        }
+        function cur(id) {
+          return (st.states[id] = st.states[id] || {
+            outcome: "",
+            skip_reason: "",
+            output: "",
+            note: "",
+          });
+        }
+        function counts() {
+          return VM.counts(data, st.states);
+        }
+        function chrome() {
+          $("prog").textContent = VM.progress(data, counts());
+          submitBtn.disabled = !st.db || failedCount() > 0 || st.submitting;
+          if (failedCount()) {
+            $("status").className = "status err";
+            $("status").textContent =
+              "Some steps are not saved yet. Submit waits until they are.";
+          }
+        }
+        // Repaint one step's controls from its state; text boxes only when not being typed in.
+        function paint(id, withText) {
+          var s = cur(id),
+            el = $("st-" + id);
+          if (!el) return;
+          el.querySelectorAll("button[data-out]").forEach(function (b) {
+            b.setAttribute("aria-pressed", String(b.getAttribute("data-out") === s.outcome));
+          });
+          var row = el.querySelector("[data-skiprow]");
+          if (row) row.hidden = s.outcome !== "skipped";
+          var chip = el.querySelector("[data-run-for]");
+          if (chip) {
+            chip.className = "runst " + (s.outcome || "not-run");
+            chip.textContent = VM.runLabel(s.outcome);
+          }
+          if (withText) {
+            [
+              ["[data-skip]", s.skip_reason],
+              ["[data-paste]", s.output],
+              ["[data-note]", s.note],
+            ].forEach(function (p) {
+              var f = el.querySelector(p[0]);
+              if (f && f !== document.activeElement) f.value = p[1];
+            });
+          }
+          var err = el.querySelector("[data-err]");
+          if (err) {
+            err.hidden = !st.failed[id];
+            err.textContent = st.failed[id]
+              ? "Not saved: " + st.failed[id] + ". Kept here; retrying."
+              : "";
+          }
+        }
+        function docOf(id) {
+          var s = cur(id);
+          return {
+            outcome: s.outcome,
+            skip_reason: s.skip_reason,
+            output: s.output,
+            note: s.note,
+            rev: rev,
+            updatedAt: st.stamp[id],
+          };
+        }
+        async function write(id) {
+          clearTimeout(st.timers[id]);
+          delete st.timers[id];
+          clearTimeout(st.retry[id]);
+          delete st.retry[id];
+          if (!st.db) return;
+          $("saved").textContent = "Saving...";
+          try {
+            await st.db.doc("steps/" + id).set(docOf(id));
+            var was = st.failed[id];
+            delete st.failed[id];
+            $("saved").textContent = "Saved.";
+            if (was) {
+              paint(id, false);
+              if (!failedCount()) {
+                $("status").className = "status";
+                $("status").textContent = "";
+              }
+            }
+          } catch (e) {
+            st.failed[id] = (e && (e.message || e.code)) || "the store refused the write";
+            $("saved").textContent = "A step is not saved. Retrying.";
+            paint(id, false);
+            st.retry[id] = setTimeout(function () {
+              if (st.failed[id]) write(id);
+            }, 5000);
+          }
+          chrome();
+        }
+        function change(id, patch, now) {
+          Object.assign(cur(id), patch);
+          st.stamp[id] = new Date().toISOString();
+          paint(id, false);
+          chrome();
+          clearTimeout(st.timers[id]);
+          if (now) write(id);
+          else st.timers[id] = setTimeout(function () { write(id); }, 600);
+        }
+        function flushPending() {
+          return Promise.all(Object.keys(st.timers).map(write));
+        }
+
+        document.addEventListener("click", function (e) {
+          var b = e.target.closest && e.target.closest("button[data-out]");
+          if (!b) return;
+          var id = b.getAttribute("data-step"),
+            v = b.getAttribute("data-out");
+          change(id, { outcome: cur(id).outcome === v ? "" : v }, true);
+        });
+        document.addEventListener("input", function (e) {
+          var el = e.target,
+            id;
+          if ((id = el.getAttribute && el.getAttribute("data-skip"))) change(id, { skip_reason: el.value }, false);
+          else if ((id = el.getAttribute && el.getAttribute("data-paste"))) change(id, { output: el.value }, false);
+          else if ((id = el.getAttribute && el.getAttribute("data-note"))) change(id, { note: el.value }, false);
+        });
+
+        var reasonText = function (code) {
+          return (
+            {
+              "": "",
+              claude_unavailable: "no Claude session is watching this page, or the click was too old",
+              consent_required: "the comment prompt was not allowed",
+              forbidden: "commenting from the page is off for you here",
+              rate_limited: "too many comments, slow down",
+              comments_unavailable: "this view cannot send comments",
+            }[code] || code
+          );
+        };
+        function showSubmitted(sendError) {
+          var s = st.submitted;
+          if (!s) return;
+          var t = new Date(s.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          var b = $("sentbanner");
+          b.hidden = false;
+          var p = document.createElement("p");
+          p.textContent = s.sent
+            ? "Submitted at " + t + " and sent to Claude. The run is waiting to be recorded. Your results stay editable; Submit again to resend."
+            : "Submitted at " + t + ", but Claude was not woken (" + (reasonText(sendError || s.send_error) || "not sent") + '). Type "done" in the session. The run is waiting to be recorded.';
+          b.replaceChildren(p);
+          var s2 = $("status");
+          s2.className = "status";
+          s2.textContent = "";
+          submitBtn.textContent = "Submit again";
+        }
+        async function submit() {
+          if (st.submitting || failedCount()) return;
+          st.submitting = true;
+          try {
+            await submitOnce();
+          } finally {
+            st.submitting = false;
+            chrome();
+          }
+        }
+        async function submitOnce() {
+          submitBtn.disabled = true;
+          var c = counts(),
+            again = !!(st.submitted && String(st.submitted.rev) === rev);
+          // 1. The comment goes first, while this click is still Jet's gesture.
+          var threadId = (again && st.submitted.threadId) || "",
+            sent = false,
+            sendError = "";
+          var pending = flushPending();
+          if (st.comments && st.sendState === "available") {
+            var text = VM.submitText(data, c, again);
+            try {
+              var res;
+              if (threadId) {
+                try {
+                  res = await st.comments.sendToClaude({ threadId: threadId, text: text });
+                } catch (e) {
+                  if (e && e.code === "not_found") threadId = "";
+                  else throw e;
+                }
+              }
+              if (!threadId)
+                res = await st.comments.sendToClaude({ anchor: await st.comments.anchorFor(submitBtn), text: text });
+              threadId = (res && res.threadId) || threadId;
+              sent = true;
+            } catch (e) {
+              sendError = (e && (e.code || e.message)) || "unknown";
+            }
+          } else sendError = st.comments ? "send_" + (st.sendState || "unavailable") : "comments_unavailable";
+          // 2. Then the durable record, with the same rev.
+          try {
+            await pending;
+            if (failedCount()) throw new Error("some steps are not saved");
+            var doc = {
+              at: new Date().toISOString(),
+              rev: rev,
+              counts: { passed: c.passed, failed: c.failed, skipped: c.skipped, not_run: c.not_run },
+              threadId: threadId,
+              sent: sent,
+              send_error: sendError,
+            };
+            await st.db.doc("meta/submitted").set(doc);
+            st.submitted = doc;
+          } catch (e) {
+            var s = $("status");
+            s.className = "status err";
+            s.textContent =
+              (sent ? "Sent to Claude, but the submit record was not saved: " : "Submit was not saved: ") +
+              ((e && e.message) || "the store refused the write") +
+              ". Try Submit again.";
+            return;
+          }
+          showSubmitted(sendError);
+        }
+
+        var use = function (name) {
+          return Promise.resolve(window.claude && window.claude.use ? window.claude.use(name) : null).catch(function () { return null; });
+        };
+        function banner(text) {
+          var n = $("notice");
+          n.hidden = false;
+          var p = document.createElement("p");
+          p.textContent = text;
+          n.replaceChildren(p);
+        }
+        function markStale(id) {
+          var box = q("#st-" + id + " .runc");
+          if (st.stale[id] || !box) return;
+          st.stale[id] = true;
+          box.insertAdjacentHTML("afterbegin", VM.staleNote());
+        }
+        // Stored documents of this revision fill in the steps; any other revision is marked stale.
+        function applyStored(snap) {
+          snap.docs.forEach(function (d) {
+            if (!d.exists) return;
+            var v = d.data(),
+              id = d.id;
+            if (!$("st-" + id)) return;
+            if (String(v.rev) !== rev) {
+              markStale(id);
+              return;
+            }
+            if ((v.updatedAt || "") > (st.stamp[id] || "")) {
+              st.states[id] = { outcome: v.outcome || "", skip_reason: v.skip_reason || "", output: v.output || "", note: v.note || "" };
+              st.stamp[id] = v.updatedAt || "";
+              paint(id, true);
+            }
+          });
+          chrome();
+        }
+
+        async function start() {
+          submitBtn.addEventListener("click", submit);
+          st.db = await use("db");
+          st.comments = await use("comments");
+          if (st.comments) {
+            try {
+              st.sendState = String(await st.comments.canSendToClaude());
+            } catch (e) {
+              st.sendState = "unavailable";
+            }
+          }
+          if (!st.db) {
+            banner("Results will not be saved in this view, and there is no Submit. Open the page in claude.ai, signed in.");
+            $("saved").textContent = "Not saving.";
+            submitBtn.title = "Results cannot be saved in this view";
+            chrome();
+            return;
+          }
+          if (!st.comments || st.sendState !== "available") {
+            banner(
+              !st.comments
+                ? 'Submit cannot wake Claude from this view. After you submit, type "done" in the session.'
+                : "Claude cannot be woken from this page right now (" + st.sendState + '). After you submit, type "done" in the session.',
+            );
+          }
+          chrome();
+          st.db.collection("steps").onSnapshot(applyStored, function (e) {
+            $("saved").textContent = "Live updates stopped: " + ((e && e.message) || "store error") + ". Reload the page.";
+          });
+          st.db.collection("meta").onSnapshot(function (snap) {
+            snap.docs.forEach(function (d) {
+              if (!d.exists || d.id !== "submitted") return;
+              var v = d.data();
+              if (v && String(v.rev) === rev) {
+                st.submitted = v;
+                showSubmitted("");
+              }
+            });
+          }, function () {});
+        }
+        start();
       })();
     </script>
   </body>

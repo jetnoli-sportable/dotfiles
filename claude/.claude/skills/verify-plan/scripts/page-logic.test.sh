@@ -346,4 +346,87 @@ check "requirement links are joined with a comma that hugs the preceding link" "
   assert.strictEqual(VP.reqLinks(d, []), '');
   assert(html.startsWith('<span class=\"rls\">'));"
 
+# ---------------------------------------------------------------- run stage and results
+# A seven-step copy of the fixture, with a run section recorded against it.
+SEVEN="
+  const base = d.walkthrough.steps;
+  for (let n = 5; n <= 7; n++) base.push(Object.assign({}, base[0], { id: 'S' + n, title: 'Extra ' + n }));
+  const mk = (o) => Object.assign({ skip_reason: '', output: '', note: '', time: '2026-11-16T10:00:00Z' }, o);
+  d.run = { revision: 1, steps: {} };
+  ['S1', 'S2', 'S3', 'S4', 'S5'].forEach((id) => (d.run.steps[id] = mk({ outcome: 'passed' })));
+  d.run.steps.S6 = mk({ outcome: 'failed', note: 'Wrong order' });
+"
+
+check "pasted output from the source is returned escaped, never as markup" "
+  $SEVEN
+  d.stage = 'results';
+  d.run.steps.S3 = mk({ outcome: 'passed', output: '<b>bold</b> </script><script>alert(1)</script> & x' });
+  const html = VM.page(d);
+  assert(html.includes('&lt;b&gt;bold&lt;/b&gt; &lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt; &amp; x'));
+  assert(!html.includes('<b>bold'));
+  assert(!html.includes('</script>'));
+  assert(!html.includes('<script>alert'));"
+
+check "the Submit comment for 5 passed, 1 failed and 1 not run reads those three counts" "
+  $SEVEN
+  d.stage = 'run';
+  const r = VM.resolve(d, {});
+  const c = VM.counts(d, r.states);
+  assert.deepStrictEqual([c.passed, c.failed, c.skipped, c.not_run, c.total], [5, 1, 0, 1, 7]);
+  const text = VM.submitText(d, c, false);
+  assert(text.includes('5 passed, 1 failed, 1 not run'), text);
+  assert(text.includes('rev 1'));
+  assert(!text.includes('skipped'), 'a zero count is left out');
+  assert(text.includes('meta/submitted') && text.includes('steps'));
+  assert.strictEqual(VM.progress(d, c), '6 of 7 done');
+  c.skipped = 2;
+  assert(VM.submitText(d, c, true).includes('2 skipped'));"
+
+check "a source with a run section at stage run renders Submit; at stage results it does not" "
+  $SEVEN
+  d.stage = 'run';
+  const run = VM.page(d);
+  assert(run.includes('id=\"submit\"'));
+  assert(run.includes('data-out=\"passed\"') && run.includes('data-out=\"failed\"') && run.includes('data-out=\"skipped\"'));
+  d.stage = 'results';
+  const res = VM.page(d);
+  assert(!res.includes('id=\"submit\"'));
+  assert(!res.includes('data-out='));
+  assert(!res.includes('<textarea'));
+  d.stage = 'map'; delete d.run;
+  assert(!VM.page(d).includes('id=\"submit\"'), 'a plain map has no Submit');"
+
+check "a stored step document from an older revision is shown as such and not counted" "
+  $SEVEN
+  d.stage = 'run'; delete d.run;
+  const stored = { S1: { outcome: 'passed', rev: '0' }, S2: { outcome: 'failed', rev: '1' }, S3: { outcome: 'passed', rev: 1 } };
+  const r = VM.resolve(d, stored);
+  assert.deepStrictEqual(r.stale, ['S1']);
+  assert.strictEqual(r.states.S1, undefined, 'not loaded as the current outcome');
+  const c = VM.counts(d, r.states);
+  assert.deepStrictEqual([c.passed, c.failed, c.not_run], [1, 1, 5]);
+  assert(VM.page(d, { states: r.states, stale: r.stale }).includes('from an earlier version of the walkthrough'));
+  assert(!VM.page(d, { states: r.states, stale: [] }).includes('from an earlier version'));"
+
+check "stored documents override the recorded run as the starting state" "
+  $SEVEN
+  const r = VM.resolve(d, { S1: { outcome: 'skipped', skip_reason: 'no time', rev: '1' } });
+  assert.strictEqual(r.states.S1.outcome, 'skipped');
+  assert.strictEqual(r.states.S2.outcome, 'passed', 'the recorded run is the base');
+  assert.strictEqual(VM.counts(d, r.states).skipped, 1);"
+
+check "the results page shows each outcome, a summary and every test's status, with a skip reason" "
+  $SEVEN
+  d.stage = 'results';
+  d.run.steps.S7 = mk({ outcome: 'skipped', skip_reason: 'No cloud access today' });
+  const page = VM.page(d);
+  assert(page.includes('id=\"results\"'));
+  assert(page.includes('5 passed, 1 failed, 1 skipped'), 'summary');
+  assert(page.includes('No cloud access today'));
+  assert(page.includes('Wrong order'));
+  const box = VM.resultsBox(d);
+  d.tests.forEach((t) => assert(box.includes(VP.esc(t.name)), t.name));
+  assert(box.includes('Planned') && box.includes('Built'));
+  assert(VM.cell(d, 'R1', 'walkthrough').status === 'failed', 'the grid lane agrees with the run');"
+
 exit "$FAIL"

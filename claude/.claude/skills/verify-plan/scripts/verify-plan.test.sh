@@ -166,4 +166,84 @@ if grep -q '<title>[^<]*example--book-holds' "$WORK/b5/map.html"; then pass "bro
 build_copy b4 's["tests"][0]["requirements"].append("R99")'; build "$WORK/b4/verify.json"
 if [ "$RC" != 0 ] && [[ "$OUT" == *R99* ]] && [ ! -e "$WORK/b4/shaping.html" ] && [ ! -e "$WORK/b4/map.html" ]; then pass "build refuses an invalid document"; else fail "build invalid (rc=$RC out=$OUT)"; fi
 
+# ---------------------------------------------------------------- record-run
+STATE="$SKILL_DIR/fixtures/example-run-state"
+record() { OUT="$(python3 "$TOOL" record-run "$1" "$2" 2>&1)"; RC=$?; }
+sum_of() { sha256sum "$1" | cut -d' ' -f1; }
+# run_field <verify.json> <python expr on d>: prints the value
+run_field() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$1" "$2"; }
+
+build_copy r1; record "$WORK/r1/verify.json" "$STATE"
+if [ "$RC" = 0 ] \
+  && [ "$(run_field "$WORK/r1/verify.json" '[d["run"]["steps"][k]["outcome"] for k in ("S1","S2","S3","S4")]')" = "['passed', 'failed', 'skipped', 'passed']" ] \
+  && [ "$(run_field "$WORK/r1/verify.json" 'd["run"]["steps"]["S3"]["skip_reason"]')" = "No access to the shared test mail account today." ] \
+  && [ "$(run_field "$WORK/r1/verify.json" 'd["run"]["revision"]')" = 1 ] \
+  && [ "$(run_field "$WORK/r1/verify.json" 'd["run"]["steps"]["S1"]["time"]')" = "2026-11-16T10:02:00.000Z" ]; then
+  pass "record-run writes each step's outcome, skip reason and time (plain and wrapped documents)"; else fail "record-run outcomes (rc=$RC out=$OUT)"; fi
+if python3 - "$WORK/r1/verify.json" "$STATE/steps/S4.json" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8")); s = json.load(open(sys.argv[2], encoding="utf-8"))
+sys.exit(0 if d["run"]["steps"]["S4"]["output"] == s["output"] and "</script>" in s["output"] else 1)
+PYEOF
+then pass "record-run keeps pasted text byte for byte"; else fail "pasted text changed"; fi
+
+# Absent step id: refused, source untouched.
+cp -r "$STATE" "$WORK/bad-state"; echo '{"outcome":"passed","rev":"1","updatedAt":"2026-11-16T11:00:00.000Z"}' > "$WORK/bad-state/steps/S99.json"
+build_copy r2; BEFORE="$(sum_of "$WORK/r2/verify.json")"; record "$WORK/r2/verify.json" "$WORK/bad-state"
+if [ "$RC" != 0 ] && [[ "$OUT" == *S99* ]] && [ "$BEFORE" = "$(sum_of "$WORK/r2/verify.json")" ]; then pass "record-run refuses a step id absent from the source and leaves it unchanged"; else fail "unknown step (rc=$RC out=$OUT)"; fi
+
+# Idempotent.
+cp "$WORK/r1/verify.json" "$WORK/r1-first.json"; record "$WORK/r1/verify.json" "$STATE"
+if [ "$RC" = 0 ] && cmp -s "$WORK/r1-first.json" "$WORK/r1/verify.json"; then pass "a second record-run with the same state leaves the source byte-identical"; else fail "not idempotent (rc=$RC)"; fi
+
+# Seven-step copy: five recorded first, then all seven.
+SEVEN='base = s["walkthrough"]["steps"]
+for n in (5, 6, 7):
+    x = copy.deepcopy(base[0]); x["id"] = "S%d" % n; x["title"] = "Extra step %d" % n
+    base.append(x)
+s["walkthrough"]["steps"] = base[:7]'
+build_copy r3 "$SEVEN"
+mkdir -p "$WORK/st7/steps"
+python3 - "$WORK/st7/steps" <<'PYEOF'
+import json, sys
+for n in range(1, 6):
+    json.dump({"outcome": "passed", "skip_reason": "", "output": "out %d" % n, "note": "", "rev": "1", "updatedAt": "2026-11-16T10:0%d:00.000Z" % n},
+              open("%s/S%d.json" % (sys.argv[1], n), "w"))
+PYEOF
+record "$WORK/r3/verify.json" "$WORK/st7"; RC1=$RC
+cp "$WORK/r3/verify.json" "$WORK/r3-five.json"
+for n in 6 7; do echo '{"outcome":"passed","rev":"1","updatedAt":"2026-11-16T10:30:00.000Z"}' > "$WORK/st7/steps/S$n.json"; done
+record "$WORK/r3/verify.json" "$WORK/st7"
+if [ "$RC1" = 0 ] && [ "$RC" = 0 ] \
+  && [ "$(run_field "$WORK/r3-five.json" 'sorted(d["run"]["steps"])')" = "['S1', 'S2', 'S3', 'S4', 'S5']" ] \
+  && [ "$(run_field "$WORK/r3/verify.json" 'sorted(d["run"]["steps"])')" = "['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7']" ] \
+  && [ "$(run_field "$WORK/r3/verify.json" '[d["run"]["steps"]["S%d" % n]["output"] for n in range(1, 6)]')" = "['out 1', 'out 2', 'out 3', 'out 4', 'out 5']" ] \
+  && [ "$(run_field "$WORK/r3/verify.json" 'd["run"]["steps"]["S7"]["outcome"]')" = passed ]; then
+  pass "a second record-run replaces the section: the five earlier outcomes kept, two added"; else fail "replace section (rc1=$RC1 rc=$RC out=$OUT)"; fi
+
+# Older revision ignored and counted.
+cp -r "$STATE" "$WORK/old-state"; python3 - "$WORK/old-state/steps/S2.json" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1])); d["rev"] = "0"; json.dump(d, open(sys.argv[1], "w"))
+PYEOF
+build_copy r4; record "$WORK/r4/verify.json" "$WORK/old-state"
+if [ "$RC" = 0 ] && [[ "$OUT" == *"ignored 1 "* ]] \
+  && [ "$(run_field "$WORK/r4/verify.json" 'sorted(d["run"]["steps"])')" = "['S1', 'S3', 'S4']" ]; then
+  pass "record-run ignores a document from an older walkthrough revision and reports the count"; else fail "older revision (rc=$RC out=$OUT)"; fi
+
+# Output with HTML and a closing script tag builds with one closing tag per script block.
+build "$WORK/r1/verify.json"
+if [ "$RC" = 0 ] && python3 - "$WORK/r1/map.html" <<'PYEOF'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+a, b = len(re.findall(r"<script", t, re.I)), len(re.findall(r"</script", t, re.I))
+sys.exit(0 if a == b and a >= 2 and "alert(1)</script>" not in t else 1)
+PYEOF
+then pass "a source with pasted HTML and a closing script tag builds with one closing tag per script block"; else fail "pasted script tag build (rc=$RC out=$OUT)"; fi
+
+# An invalid result is not written (state names a bad outcome).
+cp -r "$STATE" "$WORK/meh-state"; echo '{"outcome":"meh","rev":"1","updatedAt":"x"}' > "$WORK/meh-state/steps/S1.json"
+build_copy r5; BEFORE="$(sum_of "$WORK/r5/verify.json")"; record "$WORK/r5/verify.json" "$WORK/meh-state"
+if [ "$RC" != 0 ] && [[ "$OUT" == *meh* ]] && [ "$BEFORE" = "$(sum_of "$WORK/r5/verify.json")" ]; then pass "record-run refuses a bad outcome and leaves the source unchanged"; else fail "bad outcome (rc=$RC out=$OUT)"; fi
+
 exit "$FAIL"

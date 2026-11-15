@@ -6,7 +6,9 @@ Subcommands:
                  otherwise one line per problem and exit 1.
   build <file>   validate, then write the pages (shaping.html, map.html) beside the source;
                  each is one self-contained file, identical on every build.
-(`record-run` is added by a later unit.)
+  record-run <file> <state-dir>
+                 replace the document's `run` section from the page's exported store
+                 (<state-dir>/steps/<stepId>.json); validates, then writes atomically.
 
 Python 3, standard library only. The contract is in references/spec.md.
 """
@@ -296,6 +298,76 @@ def cmd_build(args):
     return 0
 
 
+def unwrap(raw):
+    """An exported document is either the document itself or a wrapper that holds it under `data`."""
+    if isinstance(raw, dict) and isinstance(raw.get("data"), dict):
+        return raw["data"]
+    return raw
+
+
+def cmd_record_run(args):
+    doc = load(args.file)
+    errs = check_document(doc)
+    if errs:
+        for line in errs:
+            print(line, file=sys.stderr)
+        print("verify-plan.py: not recording into an invalid document", file=sys.stderr)
+        return 1
+    steps_dir = os.path.join(args.state_dir, "steps")
+    if not os.path.isdir(steps_dir):
+        print(f"verify-plan.py: no steps folder in {args.state_dir}", file=sys.stderr)
+        return 1
+    known = [s.get("id") for s in (doc.get("walkthrough") or {}).get("steps", [])]
+    revision = (doc.get("walkthrough") or {}).get("revision")
+    recorded, ignored, problems = {}, 0, []
+    for name in sorted(os.listdir(steps_dir)):
+        if not name.endswith(".json"):
+            continue
+        sid = name[:-5]
+        try:
+            with open(os.path.join(steps_dir, name), encoding="utf-8") as fh:
+                entry = unwrap(json.load(fh))
+        except (OSError, json.JSONDecodeError) as e:
+            problems.append(f"{name}: cannot read as JSON ({e})")
+            continue
+        if not isinstance(entry, dict):
+            problems.append(f"{name}: must hold an object")
+        elif sid not in known:
+            problems.append(f"step {sid}: stored state names a step that is not in the walkthrough")
+        elif str(entry.get("rev")) != str(revision):
+            ignored += 1
+        else:
+            recorded[sid] = {
+                "outcome": entry.get("outcome") or "not-run",
+                "skip_reason": entry.get("skip_reason") or "",
+                "output": entry.get("output") or "",
+                "note": entry.get("note") or "",
+                "time": entry.get("updatedAt") or "",
+            }
+    if problems:
+        for line in problems:
+            print(line, file=sys.stderr)
+        print("verify-plan.py: not recording; the source is unchanged", file=sys.stderr)
+        return 1
+    # Steps in the source's order, so the output does not depend on directory listing order.
+    new = dict(doc)
+    new["run"] = {"revision": revision, "steps": {sid: recorded[sid] for sid in known if sid in recorded}}
+    errs = check_document(new)
+    if errs:
+        for line in errs:
+            print(line, file=sys.stderr)
+        print("verify-plan.py: the recorded run is invalid; the source is unchanged", file=sys.stderr)
+        return 1
+    text = json.dumps(new, indent=2, ensure_ascii=False) + "\n"
+    target = os.path.abspath(args.file)
+    tmp = target + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(tmp, target)
+    print(f"recorded {len(recorded)} step(s); ignored {ignored} document(s) from another walkthrough revision")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="verify-plan.py", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -305,6 +377,10 @@ def main(argv=None):
     p = sub.add_parser("build", help="validate a verify.json, then write its pages beside it")
     p.add_argument("file")
     p.set_defaults(func=cmd_build)
+    p = sub.add_parser("record-run", help="replace the run section from an exported page store")
+    p.add_argument("file")
+    p.add_argument("state_dir")
+    p.set_defaults(func=cmd_record_run)
     args = ap.parse_args(argv)
     return args.func(args)
 

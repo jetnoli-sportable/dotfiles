@@ -1,0 +1,8 @@
+{
+  "outcome": "passed",
+  "skip_reason": "",
+  "output": "{\"deadline\": \"2026-11-19\"}\n<p class=\"ok\">3 days</p> </script><script>alert(1)</script> & done",
+  "note": "Deadline was exactly three days out.",
+  "rev": "1",
+  "updatedAt": "2026-11-16T10:09:00.000Z"
+}

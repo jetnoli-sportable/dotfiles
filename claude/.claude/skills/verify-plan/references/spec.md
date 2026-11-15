@@ -71,3 +71,15 @@ Written by `record-run`; the shape is:
 ```
 
 `revision` is the walkthrough revision the results were recorded against. `outcome` is `passed`, `failed`, `skipped` or `not-run`. **Checked**: every key under `steps` is a real step id and every `outcome` is allowed. A document with no `run` passes.
+
+### Stored documents and the exported run state
+
+A published run page (stage `run`, or `map` with a `run` section) keeps its state in the page's database. `rev` is the source's `walkthrough.revision`, stored as a string (`"1"`); readers compare it as a string, so `1` and `"1"` match.
+
+`steps/<stepId>` (one per touched step): `{"outcome": "passed", "skip_reason": "", "output": "", "note": "", "rev": "1", "updatedAt": "2026-11-16T10:02:00.000Z"}`. `outcome` is `passed`, `failed`, `skipped` or `""` (cleared, read as not run).
+
+`meta/submitted`: `{"at": "...", "rev": "1", "counts": {"passed": 2, "failed": 1, "skipped": 1, "not_run": 0}, "threadId": "...", "sent": true, "send_error": ""}`.
+
+The session exports both with the page-database tool's `out_dir` option into `<dossier>/verify/run-state/`, which writes `<out_dir>/<collection>/<doc id>.json`: `steps/<stepId>.json` and `meta/submitted.json`. `fixtures/example-run-state/` shows the layout. An exported file is either the document itself or a wrapper that carries it under `data` beside fields such as `id` and `version`; `record-run` accepts both.
+
+`record-run <verify.json> <state-dir>` reads `<state-dir>/steps/*.json` (the file name is the step id). It refuses state naming a step id that is not in the source (non-zero exit, source untouched). It ignores documents whose `rev` is not the current revision and reports how many. It then replaces the whole `run` section with `{revision, steps}` built from the rest (`time` is the document's `updatedAt`; a cleared outcome becomes `not-run`), validates the result as `check` does, and writes atomically (temp file and rename) as JSON with 2-space indent, a trailing newline and the key order kept, so a second run with the same state leaves the file byte-identical.
