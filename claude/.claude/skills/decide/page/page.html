@@ -381,7 +381,7 @@ const DC = (() => {
   const $ = (id) => document.getElementById(id);
   const state = {
     spec: null, answers: {}, db: null, comments: null, sendState: "", failed: new Set(), cleared: new Set(), timers: {}, retry: {}, inflight: {}, ready: false, lastThreadId: "",
-    accept: false, submitted: null, submitting: false, open: {}, sum: null, globalText: "", globalTimer: null,
+    accept: false, submitted: null, submitting: false, open: {}, sum: null, globalText: "", globalTimer: null, globalInflight: null, globalFailed: false,
   };
 
   function h(tag, attrs, ...kids) {
@@ -664,9 +664,27 @@ const DC = (() => {
     }
   }
   // Waits until no text save is queued and no write is in flight (a retry timer is not waited on).
+  function writeGlobal() {
+    clearTimeout(state.globalTimer); state.globalTimer = null;
+    if (!state.db) return Promise.resolve();
+    let p = null;
+    p = (async () => {
+      try {
+        await state.db.doc("meta/global").set({ text: state.globalText, rev: state.spec.rev, updatedAt: new Date().toISOString() });
+        state.globalFailed = false; $("saved").textContent = "Saved.";
+      } catch (e) {
+        state.globalFailed = true;
+        $("saved").textContent = "Global note not saved: " + ((e && e.message) || "store refused") + ".";
+      } finally { if (state.globalInflight === p) state.globalInflight = null; }
+    })();
+    state.globalInflight = p;
+    return p;
+  }
   async function flushPending() {
     for (;;) {
       const queued = Object.keys(state.timers), running = Object.values(state.inflight);
+      if (state.globalTimer) running.push(writeGlobal());
+      else if (state.globalInflight) running.push(state.globalInflight);
       if (!queued.length && !running.length) return;
       await Promise.all(queued.map((id) => write(state.spec.items.find((it) => it.id === id))).concat(running));
     }
@@ -706,6 +724,7 @@ const DC = (() => {
       await pending;
       await flushPending();
       if (state.failed.size) throw new Error("some answers are not saved");
+      if (state.globalFailed) throw new Error("the note for the whole batch is not saved");
       recompute(); sum = state.sum;
       const doc = DC.submittedDoc(spec, sum, { threadId, sent, sendError }, new Date().toISOString());
       await state.db.doc("meta/submitted").set(doc);
@@ -770,11 +789,7 @@ const DC = (() => {
       $("globalnote").addEventListener("input", () => {
         if (!state.ready) return;
         state.globalText = $("globalnote").value; clearTimeout(state.globalTimer);
-        state.globalTimer = setTimeout(async () => {
-          if (!state.db) return;
-          try { await state.db.doc("meta/global").set({ text: state.globalText, rev: spec.rev, updatedAt: new Date().toISOString() }); $("saved").textContent = "Saved."; }
-          catch (e) { $("saved").textContent = "Global note not saved: " + ((e && e.message) || "store refused") + "."; }
-        }, 600);
+        state.globalTimer = setTimeout(writeGlobal, 600);
       });
     }
   }
