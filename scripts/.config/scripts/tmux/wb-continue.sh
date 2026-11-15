@@ -72,7 +72,6 @@ wbc_set() {
   local done_line=""
   [ ! -f "$dir/entry.md" ] || done_line="$(_wbc_done_line "$dir/entry.md")"
   _wbc_write_file "$dir/row" "$state"$'\t'"${kv[reason]}"$'\t'"$(_wbc_oneline "$done_line")"$'\t'"${kv[command]:-}"$'\n'
-  # The Stop hook's per-turn snapshot is not an event worth a log line.
   [ "$event" = snapshot ] || wb_continue_log "$event" "$stem" "${kv[id]:-}" "$state" "${kv[reason]}"
   return 0
 }
