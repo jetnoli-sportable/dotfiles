@@ -380,5 +380,75 @@ mf="$NY_STATE/mode"; vf="$NY_STATE/view"; echo normal > "$mf"; echo live > "$vf"
 assert "marker: _next_needs selects the marked row" '^pos\(1\)$' "$(FZF_POS=0 _next_needs "$mf" "$vf")"
 rm -rf "$NY_STATE"
 
+# --- wb continue rows (U5): a saved session waiting for Jet's release ------
+# The row file is written by wbc_set, so these use the real writer. The
+# session proj--doing-live is live (created above); its task file is the stem.
+# shellcheck disable=SC1091
+source "$(dirname "$WB")/wb-continue.sh"
+CR_STATE="$(mktemp -d -t wb-picker-crstate.XXXXXX)"
+CR_DIR="$CR_STATE/wb/continue/proj--doing-live"
+mkdir -p "$CR_DIR"
+tmux new-session -d -s crsess -c "$FIXTURE_CODE" 2>/dev/null
+tmux set-option -t "=crsess:" @wb_repo proj >/dev/null
+tmux set-option -t "=crsess:" @wb_slug feat/doing-live >/dev/null
+tmux set-option -t "=crsess:" @task "$FIXTURE_TASKS/proj--doing-live.md" >/dev/null
+printf '### 2026-11-15 10:00 — wb-save\n\n**Done:** built the thing\n\n**Next:** go\n' > "$CR_DIR/entry.md"
+cr_set() { # <state> <reason> <command>
+  XDG_STATE_HOME="$CR_STATE" wbc_set test proj--doing-live "$1" "$2" "task_file=$FIXTURE_TASKS/proj--doing-live.md" "command=$3" >/dev/null
+}
+cr_row() { XDG_STATE_HOME="$CR_STATE" wb_live_session_row crsess 0; }
+cr_preview() { XDG_STATE_HOME="$CR_STATE" _preview_continue "$FIXTURE_TASKS/proj--doing-live.md"; }
+
+cr_set ready "saved; waits for a release" "/ce-code-review"
+crr="$(cr_row)"
+assert "continue row: ready with a command sorts as rank 1" '^1$' "$(row_field "$crr" 4)"
+assert "continue row: ... labelled ready to continue" '^> ready to continue$' "$(row_field "$crr" 5)"
+crp="$(cr_preview)"
+assert "continue row: the preview shows the Done line" 'Done: built the thing' "$crp"
+assert "continue row: the preview shows the command" 'Command: /ce-code-review' "$crp"
+crd="$(printf '%s\n' "$crr" | WB_PICKER_SESSION=other wb_format_for_display)"
+assert "continue row: the display tags the name (ready)" '\(ready\)' "$crd"
+assert "continue row: ... in cyan like finished" $'\033\\[36m' "$crd"
+
+cr_set ready "saved; waits for a release" ""
+crn="$(cr_row)"
+assert "continue row: ready with no command shows no mark (rank 3)" '^3$' "$(row_field "$crn" 4)"
+assert "continue row: ... and the label stays no agent" 'no agent$' "$(row_field "$crn" 5)"
+assert_eq_empty() { # <desc> <actual>
+  if [ -z "$2" ]; then echo "ok   - $1"; else echo "FAIL - $1"; echo "       got: $2"; fail=1; fi
+}
+assert_eq_empty "continue row: ... and the preview adds nothing" "$(cr_preview)"
+
+cr_set failed "the pane's shell never appeared" "/ce-code-review"
+crf="$(cr_row)"
+assert "continue row: failed with a command is rank 1, labelled restart failed" '^1	> restart failed$' "$(row_field "$crf" 4)	$(row_field "$crf" 5)"
+assert "continue row: ... the preview says why and that c tries again" 'tries again' "$(cr_preview)"
+
+cr_set refused "working tree changed since the save" "/ce-code-review"
+crx="$(cr_row)"
+assert "continue row: refused shows no mark (rank 3)" '^3$' "$(row_field "$crx" 4)"
+assert "continue row: refused shows its reason in the preview" 'working tree changed since the save' "$(cr_preview)"
+cr_out="$(XDG_STATE_HOME="$CR_STATE" wbc_release proj--doing-live 2>&1)"
+assert "continue row: the key does not release a refused request (says why)" 'refused: working tree changed since the save; not released' "$cr_out"
+assert "continue row: ... and the request stays refused" '^refused$' "$(XDG_STATE_HOME="$CR_STATE" wbc_get proj--doing-live state)"
+
+mkdir -p "$CR_STATE/wb/needs-you"
+printf 'page https://example.test/a r1\n' > "$CR_STATE/wb/needs-you/proj--doing-live"
+cr_set ready "saved; waits for a release" "/ce-code-review"
+assert "continue row: an open /decide surface keeps rank 0 (needs you)" '^0$' "$(row_field "$(cr_row)" 4)"
+rm -f "$CR_STATE/wb/needs-you/proj--doing-live"
+rm -rf "$CR_DIR"
+assert "continue row: no request, no mark and no preview block" '^3$' "$(row_field "$(cr_row)" 4)"
+assert_eq_empty "continue row: ... (a dormant or never-saved task prints nothing)" "$(cr_preview)"
+rm -rf "$CR_STATE"
+
+# the key-hint line: c and C listed, the header still within 120 columns
+hint_plain="$(wb_status_line normal live | sed -n 3p | sed -e $'s/\033\\[[0-9;]*m//g')"
+assert "continue keys: the hint lists c continue and C all" 'c continue C all' "$hint_plain"
+assert "continue keys: the hint is at most 120 columns" '^.{1,120}$' "$hint_plain"
+assert "continue keys: c and C stay typeable in search mode (in navkeys)" "navkeys='[^']*,c,C," "$(grep -n "local navkeys=" "$WB")"
+assert "continue keys: c releases the selected row, via the ref field" 'c:execute-silent\(.*_continue-release \{9\}' "$(grep -n '"c:execute-silent' "$WB")"
+assert "continue keys: C releases every ready row" 'C:execute-silent\(.*_continue-release-all' "$(grep -n '"C:execute-silent' "$WB")"
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

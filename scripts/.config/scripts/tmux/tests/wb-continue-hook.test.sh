@@ -656,6 +656,184 @@ run_hook hook-session-start "%999" "$(payload SessionStart-clear.json brand-new-
 assert_eq "clear in another pane: the request stays" armed "$(state_of "$STEM")"
 end_case
 
+# =============================================================================
+echo "# U5: release (wb continue release): AE5, the checks, --all, --pane, double press"
+# =============================================================================
+# AE5: a staged plain save is released by Jet; shadow mode (no continue-live
+# file) does not apply to a release; the helper restarts the pane and the
+# fresh Claude's pick-up succeeds. The call returns before the restart is done.
+new_case
+stage_req
+ID="$(wbc_get "$STEM" id)"
+assert_eq "staged save is ready" ready "$(state_of "$STEM")"
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert_eq "release exit status" 0 "$?"
+assert "release prints one line: released" "^$STEM: released$" "$out"
+assert "the call returned with the request claimed or restarting (detached)" '^(claimed|restarting)$' "$(state_of "$STEM")"
+wait_gone "$STEM" 15
+assert_eq "AE5: the pick-up removed the request" 0 "$?"
+assert_eq "AE5: one respawn of that pane id (live though shadow mode is on)" 1 "$(tlog | /usr/bin/grep -c "^respawn-pane -k -t $PANE ")"
+for _ in $(seq 100); do [ -s "$FIX/claude-pickup-1.out" ] && break; sleep 0.1; done
+assert "AE5: the pick-up succeeded" 'pickup ok' "$(cat "$FIX/claude-pickup-1.out" 2>/dev/null)"
+assert "AE5: ... and carries the save's command" 'ce-code-review' "$(cat "$FIX/claude-pickup-1.out" 2>/dev/null)"
+wait_log "event=restarted"
+assert "log: release then restarted" "event=release stem=$STEM id=$ID state=claimed" "$(log_text)"
+end_case
+
+# a turn in progress: refused for that reason, the request stays ready
+new_case
+stage_req
+tm set -p -t "$PANE" @claude_working 1
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert_eq "turn in progress: exit status 1" 1 "$?"
+assert "turn in progress: reason shown" "$STEM: not released: a turn is in progress" "$out"
+assert_eq "turn in progress: the request stays ready" ready "$(state_of "$STEM")"
+refute "turn in progress: nothing respawned" 'respawn-pane' "$(tlog)"
+assert "turn in progress: the reason is on the pane for the status line" 'turn is in progress' "$(tm show -pv -t "$PANE" @wb_continue_reason)"
+assert "log: release-wait line" "event=release-wait stem=$STEM .*a turn is in progress" "$(log_text)"
+# the next save clears it
+stage_req
+assert_eq "a fresh stage clears the pane's reason" "" "$(tm show -pv -t "$PANE" @wb_continue_reason 2>/dev/null)"
+end_case
+
+# a dirty snapshot: background work at the last turn end
+new_case
+stage_req
+(_wbc_lock "$STEM"; wbc_set snapshot "$STEM" ready "$(reason_of "$STEM")" "last_stop=$(date +%s)" last_busy=1; _wbc_unlock "$STEM")
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "busy snapshot: refused with its reason" "not released: background work was still running at the last turn end" "$out"
+assert_eq "busy snapshot: the request stays ready" ready "$(state_of "$STEM")"
+refute "busy snapshot: nothing respawned" 'respawn-pane' "$(tlog)"
+(_wbc_lock "$STEM"; wbc_set snapshot "$STEM" ready "$(reason_of "$STEM")" last_busy=0; _wbc_unlock "$STEM")
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "a clean snapshot releases" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+end_case
+
+# text on the input line, a /decide surface, a session that is not there
+new_case "$SCREEN_TEXT"
+stage_req
+(_wbc_lock "$STEM"; wbc_set snapshot "$STEM" ready "$(reason_of "$STEM")" "last_stop=$(date +%s)" last_busy=0; _wbc_unlock "$STEM")
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "typed text on the input line: not released" "not released: text or a dialog on the input line" "$out"
+assert_eq "... and the request stays ready" ready "$(state_of "$STEM")"
+end_case
+new_case
+stage_req
+mkdir -p "$XDG_STATE_HOME/wb/needs-you"
+printf 'page https://example.test/a r1\n' >"$(wb_needs_you_file "$STEM")"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "an open /decide surface: not released" "not released: a /decide surface is open" "$out"
+refute "... nothing respawned" 'respawn-pane' "$(tlog)"
+end_case
+new_case
+stage_req
+tm set -t "$SESS" @task "$(tf proj--someone-else)"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "the pane belongs to another task: the session is not running" "not released: the session is not running" "$out"
+end_case
+
+# drift refuses (the save changed): a newer Handoffs entry
+new_case
+stage_req
+printf '\n### 2026-11-15 11:00 — wb-save\n\n**Done:** more\n' >>"$(tf "$STEM")"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "drift: refused with U2's reason" "$STEM: refused: (a newer Handoffs entry landed since the save|the save entry changed since it was armed)" "$out"
+assert_eq "drift: the request is refused" refused "$(state_of "$STEM")"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "a refused request is not released by a second press" "refused: .*; not released" "$out"
+refute "nothing respawned" 'respawn-pane' "$(tlog)"
+end_case
+
+# --all: one drifted row is refused, the ready one goes, one with no command waits
+# (leftover requests of the cases above, whose sessions are gone, are skipped silently)
+new_case
+STEM1="$STEM"
+stage_req
+new_case
+STEM2="$STEM"
+
+stage_req
+SAVED_BODY="$ENTRY_BODY"
+ENTRY_BODY=$'\n**Done:** built the thing\n\n**Next:** just carry on'
+new_case
+STEM3="$STEM"
+PANE3="$PANE"
+stage_req
+ENTRY_BODY="$SAVED_BODY"
+assert_eq "the plain save has no command" "" "$(wbc_get "$STEM3" command)"
+printf '\n### 2026-11-15 11:00 — wb-save\n\n**Done:** more\n' >>"$(tf "$STEM1")"
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release --all 2>&1)"
+assert_eq "--all: exit status 0 (one released)" 0 "$?"
+assert "--all: the drifted one is refused" "$STEM1: refused: (a newer Handoffs entry|the save entry changed)" "$out"
+refute "--all: requests whose sessions are gone say nothing" "not running" "$out"
+assert "--all: the ready one is released" "$STEM2: released" "$out"
+refute "--all: the one with no command is not touched" "$STEM3" "$out"
+wait_gone "$STEM2" 15
+assert_eq "--all: the released request was picked up" 0 "$?"
+assert_eq "--all: the drifted request is refused" refused "$(state_of "$STEM1")"
+assert_eq "--all: the no-command request is still ready" ready "$(state_of "$STEM3")"
+assert_eq "--all: exactly one respawn" 1 "$(tlog | /usr/bin/grep -c '^respawn-pane ')"
+# --pane releases any save, even one with no command; the fresh Claude follows the Next prose
+out="$(wbc_release --pane "$PANE3" 2>&1)"
+assert "--pane: released although no command" "$STEM3: released" "$out"
+wait_gone "$STEM3" 15
+assert_eq "--pane: picked up" 0 "$?"
+for _ in $(seq 100); do [ -s "$FIX/claude-pickup-2.out" ] && break; sleep 0.1; done
+assert "--pane: the pick-up says to follow the Next prose" 'none recorded; follow the entry' "$(cat "$FIX/claude-pickup-2.out" 2>/dev/null)"
+out="$(wbc_release --pane %9999 2>&1)"
+assert "--pane: a pane with no request says so" "no saved session to continue in this pane" "$out"
+tm kill-session -t "wbch-s$((N - 2))" 2>/dev/null
+tm kill-session -t "wbch-s$((N - 1))" 2>/dev/null
+end_case
+
+# pressing release twice restarts once
+new_case
+stage_req
+echo pickup >"$FIX/claude-mode"
+out1="$(wbc_release "$(tf "$STEM")" 2>&1)"
+out2="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "first press releases" "$STEM: released" "$out1"
+assert "second press does not (already restarting, or already done)" "already restarting|no saved session" "$out2"
+wait_gone "$STEM" 15
+sleep 0.5
+assert_eq "one respawn for two presses" 1 "$(tlog | /usr/bin/grep -c '^respawn-pane ')"
+assert_eq "one fresh Claude" 1 "$(cat "$FIX/claude-count" 2>/dev/null)"
+end_case
+
+# an armed request: Jet's own press outranks waiting for a Stop
+new_case
+arm_req ""
+assert_eq "armed before the press" armed "$(state_of "$STEM")"
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "armed: released by the press" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+assert_eq "armed: restarted and picked up" 0 "$?"
+end_case
+
+# a failed restart can be released again
+new_case
+stage_req
+(_wbc_lock "$STEM"; wbc_set test "$STEM" failed "the pane's shell never appeared"; _wbc_unlock "$STEM")
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "failed: released again" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+assert_eq "failed: second attempt picked up" 0 "$?"
+end_case
+
+# after a manual /clear the row is gone
+new_case
+stage_req
+assert_eq "the row file exists while the request does" yes "$([ -f "$(wbc_dir "$STEM")/row" ] && echo yes || echo no)"
+run_hook hook-session-start "$PANE" "$(payload SessionStart-clear.json brand-new-id)"
+assert_eq "after /clear by hand: no request and no row" none "$([ -f "$(wbc_dir "$STEM")/row" ] || [ -f "$(wbc_dir "$STEM")/request" ] && echo there || echo none)"
+end_case
+
 echo
 if [ "$fail" -eq 0 ]; then echo "ALL PASSED"; else echo "FAILED"; fi
 exit "$fail"

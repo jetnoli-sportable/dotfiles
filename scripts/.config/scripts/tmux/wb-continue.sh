@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # wb-continue.sh — the verbs of `wb continue`: stage, arm, status, drop,
-# pickup (release comes later). Sourced lazily by wb.sh's dispatch (like
+# pickup, release. Sourced lazily by wb.sh's dispatch (like
 # wb-decide.sh), so this file only defines functions; no top-level command
 # runs just by sourcing it. It calls wb.sh's own helpers at run time.
 #
@@ -311,6 +311,8 @@ _wbc_make() {
   local rc=$?
   _wbc_unlock "$stem"
   [ "$rc" = 0 ] || return "$rc"
+  # A fresh save clears a refusal or failure reason the pane's status shows.
+  [ -z "$pane" ] || tmux set -p -u -t "$pane" @wb_continue_reason 2>/dev/null || true
   echo "wb continue: $state — $reason ($id)"
 }
 
@@ -426,7 +428,18 @@ wbc_pickup() {
   fi
 }
 
-wbc_release() { echo "wb continue release: not built yet" >&2; return 2; }
+# wbc_release <task> | --all | --pane <pane-id> — Jet's release of a ready, failed
+# or armed request: the helper's checks, then the restart, started detached so
+# the picker and the tmux key return at once. The logic lives with the helper in
+# wb-continue-hook.sh (one set of checks); this runs it as a child.
+wbc_release() {
+  local helper_sh="${BASH_SOURCE[0]%/*}/wb-continue-hook.sh"
+  case "${1:-}" in
+    -h|--help) echo "usage: wb continue release <task> | --all | --pane <pane-id>"; return 0 ;;
+  esac
+  if [ ! -f "$helper_sh" ]; then echo "wb continue release: $helper_sh is missing" >&2; return 1; fi
+  "$BASH" "$helper_sh" release "$@"
+}
 
 wbc_main() {
   local verb="${1:-}"

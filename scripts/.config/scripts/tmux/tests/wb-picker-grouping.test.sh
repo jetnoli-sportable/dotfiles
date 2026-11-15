@@ -46,7 +46,9 @@ trap cleanup EXIT
 
 fail=0
 assert() { # <desc> <expected-regex> <actual>
-  if printf '%s' "$3" | /usr/bin/grep -qE "$2"; then
+  # No -q: with pipefail, grep -q exiting at its first match makes printf of a
+  # large <actual> (the 700 KB dispatch block) die of SIGPIPE and the test fail.
+  if printf '%s' "$3" | /usr/bin/grep -E "$2" >/dev/null; then
     echo "ok   - $1"
   else
     echo "FAIL - $1"
@@ -832,7 +834,7 @@ assert_eq "U5 header (dormant): three lines, none over 120 characters" "3 0" \
   "$(printf '%s\n' "$dh" | wc -l) $(printf '%s\n' "$dplain" | char_len | awk '$1 > 120' | wc -l)"
 # the key hint
 hint="$(printf '%s\n' "$plain" | line_n 3)"
-for k in 'j/k' 'g/G' 'l/enter' 'h/q' 'u needs-you' 'n new' 'p down' 'r rename' 'b break' 'ctrl-x' 'ctrl-r' 'tab' '/ search'; do
+for k in 'j/k' 'l open' 'q quit' 'u needs' 'n new' 'p down' 'r rename' 'b break' 'c continue' 'C all' 'ctrl-x' 'ctrl-r' 'tab' '/ search'; do
   assert_has "U5 hint (normal) lists '$k'" "$k" "$hint"
 done
 assert_eq "U5 hint (dormant tab) is the same normal hint" "$hint" "$(printf '%s\n' "$dplain" | line_n 3)"
@@ -963,7 +965,7 @@ assert "U5 picker: the load bind then runs _initial-pos" '\+transform\(\\"\$SELF
 assert "U5 picker: u:transform runs _next-needs" '"u:transform\(\\"\$SELF\\" _next-needs \\"\$mode_file\\" \\"\$view_file\\"\)"' "$picker_block"
 navkeys_line="$(printf '%s\n' "$picker_block" | /usr/bin/grep -F "local navkeys=")"
 assert "U5 picker: u is in the NORMAL key list (so SEARCH unbinds it)" "navkeys='[^']*,u,[^']*'" "$navkeys_line"
-assert "U5 picker: the other nav keys are still in the list" "navkeys='j,k,g,G,q,i,r,b,p,n,u,/'" "$navkeys_line"
+assert "U5 picker: the other nav keys are still in the list" "navkeys='j,k,g,G,q,i,r,b,p,n,u,c,C,/'" "$navkeys_line"
 focus_bind="$(printf '%s\n' "$picker_block" | /usr/bin/grep -F -- '"focus:')"
 assert "U5 picker: the focus bind keeps the preview label" 'focus:transform-preview-label\(.*_preview-label \{7\} \{9\}\)' "$focus_bind"
 assert "U5 picker: ... and chains the focus record (session {8}, target {7}, kind {10}) onto it, skipping dormant rows (no session)" \

@@ -401,7 +401,11 @@ assert "drop says it dropped" 'dropped the request for proj--d1' "$out"
 assert_eq "drop removes the dir" 0 "$([ -e "$XDG_STATE_HOME/wb/continue/proj--d1" ] && echo 1 || echo 0)"
 assert "drop is logged" 'wbc event=drop stem=proj--d1 .* state=dropped' "$(log_text)"
 assert "status with no request" '^no continue request for proj--d1$' "$(wbc_status "$(tf proj--d1)")"
-assert "release is a stub that exits 2" 'not built yet' "$(wbc_release 2>&1)"; wbc_release >/dev/null 2>&1; assert_eq "release exit code" 2 "$?"
+# release (U5; its checks and restart are tested in wb-continue-hook.test.sh)
+assert "release with no request says so" '^proj--d1: no saved session to continue$' "$(wbc_release "$(tf proj--d1)" 2>&1)"; wbc_release "$(tf proj--d1)" >/dev/null 2>&1; assert_eq "release with no request: exit 1" 1 "$?"
+assert "release --help prints the usage" 'usage: wb continue release <task> \| --all \| --pane <pane-id>' "$(wbc_release --help 2>&1)"
+assert "release --all with nothing ready says so" 'nothing ready to continue' "$(wbc_release --all 2>&1)"
+assert "release --pane for a pane with no request says so" 'no saved session to continue in this pane' "$(wbc_release --pane %77 2>&1)"
 
 # the real dispatch arm (lazy source) as a subprocess
 mk_task proj--e1

@@ -18,10 +18,16 @@
 #                        work, scheduled jobs, a /decide surface, Jet looking)
 #                        and, when all clear, claim it and start the helper
 #   hook-session-start   a /clear by hand drops the pane's request
-#   helper <stem> <id>   run by the tmux server (so it outlives the pane it
+#   helper <stem> <id> [release]
+#                        run by the tmux server (so it outlives the pane it
 #                        respawns): settle, re-check, confirm the pane's Claude,
 #                        then restart the pane's shell and type the launch
-#                        command, and wait for the fresh Claude's pick-up
+#                        command, and wait for the fresh Claude's pick-up. The
+#                        `release` flag (Jet's own release, KTD11) skips shadow
+#                        mode and returns a pane that is busy to `ready`
+#   release <task> | --all | --pane <pane-id>
+#                        what `wb continue release` runs: the same checks and
+#                        restart as the Stop hook path, started by Jet
 #
 # The hooks run on every turn end of every Claude, so everything before a
 # request matches is plain bash: the kill switch, three environment guards, a
@@ -95,6 +101,7 @@ case "$WBCH_VERB" in
     fi
     ;;
   helper) exec >/dev/null 2>&1 ;;
+  release) ;; # Jet's own action: no kill switch, no hook guards, prints its result
   *) exit 0 ;;
 esac
 
@@ -256,7 +263,7 @@ wbch_session_start() {
 
 # --- the helper ---------------------------------------------------------------------------------
 
-WBCH_DONE=0 WBCH_ID="" WBCH_PANE=""
+WBCH_DONE=0 WBCH_ID="" WBCH_PANE="" WBCH_RELEASE="" WBCH_DRIFT=""
 
 # wbch_on_exit — the helper never leaves a request claimed or restarting
 # without a word: on any exit it did not plan, say so in the request and log.
@@ -310,7 +317,15 @@ wbch_end() {
 }
 
 # wbch_back_armed <reason> — the request waits for the next quiet turn end.
-wbch_back_armed() { wbch_end helper-armed armed "$1" new_session_id= model_fallback=; }
+# A release by Jet goes back to `ready` instead: an `armed` request would let a
+# later Stop restart a pane Jet only meant to release by hand.
+wbch_back_armed() {
+  if [ "$WBCH_RELEASE" = release ]; then
+    wbch_pane_reason "$1"
+    wbch_end helper-ready ready "$1" new_session_id= model_fallback=
+  fi
+  wbch_end helper-armed armed "$1" new_session_id= model_fallback=
+}
 
 # wbch_input_pending <pane> — text on Claude's input line, or no input line on
 # screen (a dialog, a menu, an unreadable screen: fail closed); WBCH_PENDING
@@ -389,10 +404,25 @@ wbch_pane_claude_is() {
   return 1
 }
 
+# wbch_drift_probe <stem> — the drift check under the task lock; the caller
+# holds continue-<stem>. Sets WBCH_DRIFT to the reason ("" when none) and
+# returns 1 on a drift. (A global, not a printed value: a command substitution
+# would take the task lock in a subshell.)
+wbch_drift_probe() {
+  local task_file
+  task_file="$(wbc_get "$1" task_file)"
+  wb_task_lock_acquire_guarded "$task_file" >/dev/null 2>&1 || true
+  WBCH_DRIFT=""
+  WBCH_DRIFT="$(wbc_drift_check "$1")" || {
+    wb_task_lock_release "$task_file" 2>/dev/null
+    return 1
+  }
+  wb_task_lock_release "$task_file" 2>/dev/null
+  return 0
+}
+
 # wbch_drift — the drift check under both locks; a drift refuses the request.
 wbch_drift() {
-  local task_file reason
-  task_file="$(wbc_get "$WBCH_STEM" task_file)"
   _wbc_lock "$WBCH_STEM" || return 1
   if [ "$(wbc_get "$WBCH_STEM" id)" != "$WBCH_ID" ]; then
     _wbc_unlock "$WBCH_STEM"
@@ -400,17 +430,13 @@ wbch_drift() {
     WBCH_DONE=1
     exit 0
   fi
-  wb_task_lock_acquire_guarded "$task_file" >/dev/null 2>&1 || true
-  reason=""
-  reason="$(wbc_drift_check "$WBCH_STEM")" || {
-    wb_task_lock_release "$task_file" 2>/dev/null
-    wbc_set helper-refused "$WBCH_STEM" refused "$reason"
+  wbch_drift_probe "$WBCH_STEM" || {
+    wbc_set helper-refused "$WBCH_STEM" refused "$WBCH_DRIFT"
     _wbc_unlock "$WBCH_STEM"
-    wbch_pane_reason "$reason"
+    wbch_pane_reason "$WBCH_DRIFT"
     WBCH_DONE=1
     exit 0
   }
-  wb_task_lock_release "$task_file" 2>/dev/null
   _wbc_unlock "$WBCH_STEM"
   return 0
 }
@@ -442,8 +468,9 @@ wbch_helper() {
   # 4. The pane's live Claude is the one that saved.
   wbch_pane_claude_is "$pane" "$old" ||
     wbch_end helper-ready ready "could not confirm the pane's Claude is the one that saved"
-  # 5. Shadow mode: everything above ran; stop short of the respawn.
-  if [ ! -e "$WBCH_STATE/continue-live" ]; then
+  # 5. Shadow mode: everything above ran; stop short of the respawn. A release
+  # is Jet's own action and is live from the start.
+  if [ ! -e "$WBCH_STATE/continue-live" ] && [ "$WBCH_RELEASE" != release ]; then
     wbch_end would-restart ready "shadow mode: would have restarted"
   fi
 
@@ -524,6 +551,152 @@ wbch_helper() {
   wbch_end helper-failed failed "the fresh Claude did not pick up the save within ${pt}s; the old session is $old: $resume"
 }
 
+# --- release (Jet's own: the picker keys, the tmux key, `wb continue release`) -----
+
+# wbch_release_check <stem> — the KTD8 checks, in order, before anything is
+# ended. Prints the reason and returns 1 when the request stays as it is (busy,
+# a turn in progress, text on the input line, a /decide surface, the session is
+# not there), 2 when the save itself no longer holds (drift: the request is
+# refused). Reuses the helper's own input-line, drift and pane-Claude checks.
+wbch_release_check() {
+  local stem="$1" pane tsess tf busy stop
+  pane="$(wbc_get "$stem" pane)"
+  tf="$(wbc_get "$stem" task_file)"
+  tsess=""
+  [ -z "$pane" ] || tsess="$(tmux display-message -p -t "$pane" '#S' 2>/dev/null)" || tsess=""
+  if [ -z "$tsess" ] || [ "$(wb_session_task_file "$tsess" 2>/dev/null)" != "$tf" ]; then
+    echo "the session is not running"
+    return 1
+  fi
+  busy="$(wbc_get "$stem" last_busy)"
+  stop="$(wbc_get "$stem" last_stop)"
+  if [ -n "$stop" ] && [ "$busy" != 0 ]; then
+    echo "background work was still running at the last turn end"
+    return 1
+  fi
+  if [ -z "$stop" ] && wbch_input_pending "$pane"; then
+    echo "no turn end was recorded and the pane is not at an idle prompt"
+    return 1
+  fi
+  if [ -n "$(tmux show -pv -t "$pane" @claude_working 2>/dev/null)" ]; then
+    echo "a turn is in progress"
+    return 1
+  fi
+  if [ -s "$(wb_needs_you_file "$stem")" ]; then
+    echo "a /decide surface is open"
+    return 1
+  fi
+  if wbch_input_pending "$pane"; then
+    echo "$WBCH_PENDING"
+    return 1
+  fi
+  _wbc_lock "$stem" || { echo "the request is locked by another command"; return 1; }
+  if ! wbch_drift_probe "$stem"; then
+    _wbc_unlock "$stem"
+    echo "$WBCH_DRIFT"
+    return 2
+  fi
+  _wbc_unlock "$stem"
+  if ! wbch_pane_claude_is "$pane" "$(wbc_get "$stem" session_id)"; then
+    echo "could not confirm the pane's Claude is the one that saved"
+    return 1
+  fi
+  return 0
+}
+
+# wbch_release_one <stem> <any|cmd> — release one request: check, claim, start
+# the helper detached. Prints one line. `cmd` skips a request with no command
+# (--all), silently, as it does a request whose session is gone; `any` releases it (the fresh Claude follows the save's
+# Next prose). Returns 0 when released.
+wbch_release_one() {
+  local stem="$1" need="$2" state reason rc id self cmd
+  state="$(wbc_get "$stem" state 2>/dev/null)"
+  case "$state" in
+    ready | failed | armed) ;;
+    claimed | restarting) echo "$stem: already restarting"; return 1 ;;
+    refused) echo "$stem: refused: $(wbc_get "$stem" reason); not released"; return 1 ;;
+    *) echo "$stem: no saved session to continue"; return 1 ;;
+  esac
+  if [ "$need" = cmd ] && [ -z "$(wbc_get "$stem" command)" ]; then return 2; fi
+  id="$(wbc_get "$stem" id)"
+  WBCH_PANE="$(wbc_get "$stem" pane)"
+  reason="$(wbch_release_check "$stem")" && rc=0 || rc=$?
+  if [ "$rc" = 1 ]; then
+    wb_continue_log release-wait "$stem" "$id" "$state" "not released: $reason"
+    wbch_pane_reason "$reason"
+    # --all skips a request whose session is gone (a leftover) without a word.
+    [ "$need" = cmd ] && [ "$reason" = "the session is not running" ] && return 2
+    echo "$stem: not released: $reason"
+    return 1
+  elif [ "$rc" = 2 ]; then
+    _wbc_lock "$stem" || return 1
+    if [ "$(wbc_get "$stem" id)" = "$id" ]; then wbc_set release-refused "$stem" refused "$reason"; fi
+    _wbc_unlock "$stem"
+    wbch_pane_reason "$reason"
+    echo "$stem: refused: $reason"
+    return 1
+  fi
+  # Claim under the lock: a second press, or the Stop hook, may have got here first.
+  _wbc_lock "$stem" || return 1
+  state="$(wbc_get "$stem" state)"
+  if [ "$(wbc_get "$stem" id)" != "$id" ]; then
+    _wbc_unlock "$stem"
+    echo "$stem: the request changed meanwhile; not released"
+    return 1
+  fi
+  case "$state" in
+    ready | failed | armed) ;;
+    *) _wbc_unlock "$stem"; echo "$stem: already restarting"; return 1 ;;
+  esac
+  wbc_set release "$stem" claimed "released by Jet"
+  _wbc_unlock "$stem"
+  wbch_pane_reason ""
+  self="$(readlink -f "$WBCH_SRC" 2>/dev/null)" || self="$WBCH_SRC"
+  cmd="$(printf '%q ' "$BASH" "$self" helper "$stem" "$id" release)"
+  if ! tmux run-shell -b -t "$WBCH_PANE" "$cmd" 2>/dev/null; then
+    _wbc_lock "$stem" || return 1
+    if [ "$(wbc_get "$stem" id)" = "$id" ] && [ "$(wbc_get "$stem" state)" = claimed ]; then
+      wbc_set release-ready "$stem" ready "tmux could not start the helper; release it again"
+    fi
+    _wbc_unlock "$stem"
+    echo "$stem: tmux could not start the helper"
+    return 1
+  fi
+  echo "$stem: released"
+  return 0
+}
+
+# wbch_release_main <task> | --all | --pane <pane-id>
+wbch_release_main() {
+  local stem tf d n=0 rc
+  case "${1:-}" in
+    --all)
+      for d in "$WBCH_STATE"/continue/*/request; do
+        [ -f "$d" ] || continue
+        d="${d%/request}"
+        stem="${d##*/}"
+        wbch_release_one "$stem" cmd && n=$((n + 1))
+      done
+      [ "$n" -gt 0 ] || echo "nothing ready to continue"
+      ;;
+    --pane)
+      if [ -z "${2:-}" ] || ! wbch_find pane "$2"; then
+        echo "no saved session to continue in this pane"
+        return 1
+      fi
+      wbch_release_one "$WBCH_STEM" any && n=1
+      ;;
+    *)
+      tf="$(_wbc_resolve_task "${1:-}")" || return 1
+      stem="$(basename -- "$tf" .md)"
+      wbch_release_one "$stem" any && n=1
+      ;;
+  esac
+  rc=1
+  [ "$n" -gt 0 ] && rc=0
+  return "$rc"
+}
+
 # shellcheck disable=SC2329 # named in the trap below
 wbch_on_exit_trap() { wbch_on_exit; }
 wb_lock_trap_append wbch_on_exit_trap
@@ -531,9 +704,14 @@ wb_lock_trap_append wbch_on_exit_trap
 case "$WBCH_VERB" in
   hook-stop) wbch_stop ;;
   hook-session-start) wbch_session_start ;;
+  release)
+    wbch_release_main "${@:2}"
+    exit $?
+    ;;
   helper)
     WBCH_STEM="${2:-}"
     WBCH_ID="${3:-}"
+    WBCH_RELEASE="${4:-}"
     if [[ "$WBCH_STEM" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$WBCH_ID" == "$WBCH_STEM"@* ]]; then
       wbch_helper
     else WBCH_STEM=""; fi
