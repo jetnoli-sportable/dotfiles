@@ -370,9 +370,15 @@ def cmd_record_run(args):
     text = json.dumps(new, indent=2, ensure_ascii=False) + "\n"
     target = os.path.abspath(args.file)
     tmp = target + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, target)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, target)
+    except OSError as e:
+        return fail([], f"verify-plan.py: cannot write {target}: {e.strerror}; the source is unchanged")
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     print(f"recorded {len(recorded)} step(s); ignored {ignored} document(s) from another walkthrough revision")
     return 0
 

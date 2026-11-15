@@ -95,7 +95,9 @@ reject title-not-string 's["title"] = 5' "title"
 reject summary-not-string 's["summary"] = ["x"]' "summary"
 accept no-title-no-summary 's.pop("title", None); s.pop("summary", None)'
 reject bad-stage 's["stage"] = "done"' "stage" "shaping"
-reject missing-file-arg 's["task"] = ""' "task"
+reject blank-task 's["task"] = ""' "task"
+OUT="$(python3 "$TOOL" check 2>&1)"; RC=$?
+if [ "$RC" != 0 ] && [[ "$OUT" == *"required"* ]]; then pass "rejects: missing file argument"; else fail "missing file argument (rc=$RC out=$OUT)"; fi
 
 # Unreadable input fails cleanly.
 echo "{not json" > "$WORK/broken.json"; check "$WORK/broken.json"
@@ -210,6 +212,13 @@ PYEOF
 done
 record "$WORK/r2c/verify.json" "$WORK/rev2-state"
 if [ "$RC" = 0 ] && [ "$(run_field "$WORK/r2c/verify.json" 'd["run"]["revision"]')" = 2 ]; then pass "record-run replaces a stale run section"; else fail "stale run replaced (rc=$RC out=$OUT)"; fi
+
+# A write that fails leaves the source untouched and no temp file behind.
+build_copy r6; BEFORE="$(sum_of "$WORK/r6/verify.json")"; chmod 555 "$WORK/r6"
+record "$WORK/r6/verify.json" "$STATE"; chmod 755 "$WORK/r6"
+if [ "$RC" != 0 ] && [[ "$OUT" == *"cannot write"* ]] && [[ "$OUT" != *Traceback* ]] \
+  && [ "$BEFORE" = "$(sum_of "$WORK/r6/verify.json")" ] && ! ls "$WORK/r6"/*.tmp >/dev/null 2>&1; then
+  pass "record-run: a failed write leaves the source unchanged and no .tmp file"; else fail "failed write (rc=$RC out=$OUT)"; fi
 
 # Idempotent.
 cp "$WORK/r1/verify.json" "$WORK/r1-first.json"; record "$WORK/r1/verify.json" "$STATE"
