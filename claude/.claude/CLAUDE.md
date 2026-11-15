@@ -88,3 +88,12 @@ Never show Jet a bare identifier: a commit SHA, a ticket number (SW-…, SFB-…
 - Task slug, artifact link, run id: what it is or holds, never the bare name or URL.
 - The identifier still goes alongside, so Jet can look it up; the description comes first.
 - Applies everywhere Jet reads: chat, buffers, decision pages, summaries, handoffs and relays.
+
+## Ending a turn → a Needs-you line, or "Nothing needed."
+
+A reply that ends a turn closes with one of two lines, so Jet and the scripts that read last replies (the page server's waiting-on-you list, `day_end.py`) can tell at a glance whether a session waits on him (decided 2026-11-08, after 6 of 13 last replies on 5 Nov didn't say):
+
+- **Something waits on Jet:** `**Needs you:**` followed by the exact ask, e.g. `**Needs you:** merge PR #2203 (the SportsCode half-timings row) or tell me to hold it.` Several asks go in a numbered list under it.
+- **Nothing does:** `**Nothing needed.**`, with at most one clause on what happens next. That clause must not sound like an ask: no "your call", "for you to", "up to you" or "needs you", which the scripts read as one.
+- **A `/decide` buffer or page is open:** `**Needs you:** answer the buffer at <path>` (or the page's link).
+- Only for replies that end a turn. Progress updates, subagent reports and permission prompts don't take the line.
