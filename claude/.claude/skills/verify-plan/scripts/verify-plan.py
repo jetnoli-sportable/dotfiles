@@ -4,12 +4,18 @@
 Subcommands:
   check <file>   validate the document; silent and exit 0 when it is sound,
                  otherwise one line per problem and exit 1.
-(`build` and `record-run` are added by later units.)
+  build <file>   validate, then write the pages (shaping.html) beside the source;
+                 each is one self-contained file, identical on every build.
+(`record-run` is added by a later unit.)
 
 Python 3, standard library only. The contract is in references/spec.md.
 """
 import argparse
+import html
+import importlib.util
 import json
+import os
+import re
 import sys
 
 LANES = ("unit", "integration", "e2e", "walkthrough")
@@ -229,12 +235,73 @@ def cmd_check(args):
     return 1 if errs else 0
 
 
+SKILL_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+TEMPLATES = os.path.join(SKILL_DIR, "templates")
+# (template, output name) for every page `build` writes; later units add the map page here.
+PAGES = (("shaping.html", "shaping.html"),)
+
+
+def script_safe(text):
+    """compare-page's helper, loaded by file path so stow symlinks and the cwd don't matter."""
+    path = os.path.join(SKILL_DIR, "..", "compare-page", "kit", "pagekit.py")
+    spec = importlib.util.spec_from_file_location("pagekit", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.script_safe(text)
+
+
+def meta_lines(doc):
+    """The page's metadata block body, in the format wb.sh's _wb_page_meta reads."""
+    page = doc.get("page") or {}
+    out = []
+    if page.get("tags"):
+        out.append("tags: [%s]" % ", ".join(html.escape(str(t), quote=False) for t in page["tags"]))
+    for key in ("retire_when", "url"):
+        if page.get(key):
+            out.append("%s: %s" % (key, html.escape(" ".join(str(page[key]).split()), quote=False)))
+    return "\n".join(out)
+
+
+def render_page(template_name, doc):
+    def read(*parts):
+        with open(os.path.join(TEMPLATES, *parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    values = {
+        "META": meta_lines(doc),
+        "TITLE": html.escape("Verification: " + " ".join(str(doc.get("task", "")).split())),
+        "CSS": read("shared.css"),
+        "JS": read("shared.js"),
+        "DATA": script_safe(json.dumps(doc, sort_keys=True, ensure_ascii=True, separators=(",", ":"))),
+    }
+    # One pass, so text inside a substituted value is never mistaken for a placeholder.
+    return re.sub(r"__VP_(META|TITLE|CSS|JS|DATA)__", lambda m: values[m.group(1)], read(template_name))
+
+
+def cmd_build(args):
+    doc = load(args.file)
+    errs = check_document(doc)
+    if errs:
+        for line in errs:
+            print(line, file=sys.stderr)
+        print("verify-plan.py: not building an invalid document", file=sys.stderr)
+        return 1
+    outdir = os.path.dirname(os.path.abspath(args.file))
+    for template, name in PAGES:
+        with open(os.path.join(outdir, name), "w", encoding="utf-8") as fh:
+            fh.write(render_page(template, doc))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="verify-plan.py", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("check", help="validate a verify.json")
     p.add_argument("file")
     p.set_defaults(func=cmd_check)
+    p = sub.add_parser("build", help="validate a verify.json, then write its pages beside it")
+    p.add_argument("file")
+    p.set_defaults(func=cmd_build)
     args = ap.parse_args(argv)
     return args.func(args)
 

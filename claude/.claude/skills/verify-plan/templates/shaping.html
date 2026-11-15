@@ -1,0 +1,675 @@
+<!doctype html>
+<!--
+---
+__VP_META__
+---
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>__VP_TITLE__</title>
+    <style>
+      __VP_CSS__
+/* shaping page only */
+.alt {
+        margin-top: 18px;
+        background: var(--card);
+        border-radius: 10px;
+      }
+      .alth {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        background: none;
+        border: 0;
+        text-align: left;
+        padding: 12px 16px;
+        cursor: pointer;
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .alth:focus-visible {
+        outline: 2px solid var(--acc);
+        outline-offset: -2px;
+        border-radius: 10px;
+      }
+      .alth .chv {
+        position: static;
+        flex: none;
+      }
+      .alt.open .alth .chv {
+        transform: rotate(90deg);
+      }
+      .altb {
+        display: none;
+        padding: 0 16px 14px;
+      }
+      .alt.open .altb {
+        display: block;
+      }
+      .te {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) 2.2fr;
+        gap: 6px 24px;
+        padding: 12px;
+        margin: 0 0 8px;
+        border-radius: 8px;
+        border: 2px solid transparent;
+        background: var(--code);
+        scroll-margin-top: 70px;
+      }
+      .te.flash {
+        border-color: var(--acc);
+        background: var(--accbg);
+      }
+      .te .tn {
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .te .ln {
+        font-size: 13px;
+        color: var(--mut);
+        margin: 2px 0;
+      }
+      .te .ri {
+        font-size: 14px;
+      }
+      .te .ri div {
+        margin: 0 0 5px;
+      }
+      .walk {
+        margin-top: 14px;
+        font-size: 14px;
+      }
+      .walk .k {
+        margin-bottom: 6px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .chip {
+        background: var(--code);
+        border-radius: 8px;
+        padding: 3px 10px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .chip.arr {
+        background: none;
+        padding: 0;
+        color: var(--mut);
+      }
+      .banner {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        background: var(--card);
+        border-left: 4px solid var(--plan);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 14px;
+      }
+      .decs {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+        gap: 14px;
+      }
+      .dec {
+        background: var(--card);
+        border-radius: 10px;
+        padding: 16px 18px;
+        border-left: 4px solid var(--plan);
+      }
+      .dec.done {
+        border-left-color: var(--ok);
+      }
+      .dec h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      .dec h3 b {
+        color: var(--acc);
+      }
+      .dec .names {
+        font-size: 13px;
+        color: var(--mut);
+        margin: 0 0 6px;
+      }
+      .opts {
+        margin: 4px 0 8px;
+      }
+      .opt {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 2px 10px;
+        border-top: 1px solid var(--line);
+        padding: 8px 4px 8px 8px;
+        font-size: 14px;
+        border-left: 3px solid transparent;
+      }
+      .opt.sel {
+        border-left-color: var(--acc);
+      }
+      .opt .n {
+        font-weight: 700;
+        grid-row: span 3;
+      }
+      .opt .t {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .opt .kk {
+        color: var(--mut);
+        font-size: 13px;
+      }
+      .opt .kk b {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .note {
+        margin: 6px 0;
+        padding: 6px 10px;
+        border-left: 3px solid var(--acc);
+        background: var(--accbg);
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .recline {
+        margin: 6px 0 8px;
+        padding: 6px 10px;
+        border-left: 4px solid var(--ok);
+        background: var(--okbg);
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .three {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 14px;
+      }
+      .three > div {
+        background: var(--card);
+        border-radius: 10px;
+        padding: 14px 18px;
+        font-size: 14px;
+      }
+      .three h3 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      .three ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .three .no {
+        background: var(--badbg);
+        outline: 2px dashed var(--bad);
+        outline-offset: -2px;
+      }
+      @media (max-width: 900px) {
+        .decs {
+          grid-template-columns: 1fr;
+        }
+        .te {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap" id="app">
+      <noscript
+        >This page draws itself from its embedded data and needs
+        JavaScript.</noscript
+      >
+    </div>
+    <script type="application/json" id="vp-data">
+      __VP_DATA__
+    </script>
+    <script>
+      __VP_JS__;
+    </script>
+    <script>
+      // CORE:BEGIN
+      var VS = (function () {
+        var esc = VP.esc,
+          list = VP.list;
+
+        function byId(items, id) {
+          return (
+            list(items).filter(function (x) {
+              return x.id === id;
+            })[0] || null
+          );
+        }
+        // Derived, never stored: a test resting on a decision that is still open is tentative.
+        function testState(d, t) {
+          var dec = t.decision ? byId(d.decisions, t.decision) : null;
+          return dec && dec.status === "open" ? "tentative" : "firm";
+        }
+        function testReason(d, t) {
+          var dec = t.decision ? byId(d.decisions, t.decision) : null;
+          if (!dec) return "Status: " + esc(t.status);
+          return (
+            (dec.status === "open" ? "Waits on " : "Follows ") +
+            esc(dec.id) +
+            (dec.status === "open" ? " (not answered)" : " (answered)") +
+            " &middot; " +
+            esc(t.status)
+          );
+        }
+        function partLabels(d, ids) {
+          return list(ids)
+            .map(function (id) {
+              var p = byId(d.parts, id);
+              return esc(p ? p.label : id);
+            })
+            .join(", ");
+        }
+        function laneLabel(d, id) {
+          return esc(
+            VP.lanes(d)
+              .filter(function (l) {
+                return l.id === id;
+              })
+              .map(function (l) {
+                return l.label;
+              })[0] || id,
+          );
+        }
+
+        function band(d) {
+          var tests = list(d.tests),
+            decs = list(d.decisions);
+          var tent = tests.filter(function (t) {
+            return testState(d, t) === "tentative";
+          }).length;
+          var ans = decs.filter(function (x) {
+            return x.status === "answered";
+          }).length;
+          return (
+            '<div class="band">' +
+            '<div><span class="n y">' +
+            tests.length +
+            '</span><span class="sm">proposed automated tests</span></div>' +
+            '<div><span class="n g">' +
+            (tests.length - tent) +
+            ' firm</span><span class="sm">' +
+            tent +
+            " tentative (waiting on a decision)</span></div>" +
+            '<div><span class="n p">' +
+            ans +
+            " of " +
+            decs.length +
+            '</span><span class="sm">decisions answered</span></div></div>'
+          );
+        }
+
+        function testTile(d, t, i) {
+          var st = testState(d, t);
+          return (
+            '<button type="button" class="tl ' +
+            (st === "tentative" ? "tent" : "firm") +
+            '" data-t="' +
+            i +
+            '">' +
+            esc(t.name) +
+            "<i>" +
+            (st === "tentative" ? "Tentative" : "Firm") +
+            " &middot; " +
+            esc(t.status) +
+            "</i></button>"
+          );
+        }
+        function grid(d) {
+          var ls = VP.lanes(d),
+            tests = list(d.tests),
+            steps = list(d.walkthrough && d.walkthrough.steps);
+          var head =
+            '<tr><th class="rq">Requirement</th>' +
+            ls
+              .map(function (l) {
+                return (
+                  "<th>" +
+                  esc(l.label) +
+                  "<small>" +
+                  esc(l.explain) +
+                  "</small></th>"
+                );
+              })
+              .join("") +
+            "</tr>";
+          var rows = list(d.requirements)
+            .map(function (r) {
+              var tds = ls
+                .map(function (l) {
+                  var tiles = [];
+                  tests.forEach(function (t, i) {
+                    if (
+                      t.lane === l.id &&
+                      list(t.requirements).indexOf(r.id) >= 0
+                    )
+                      tiles.push(testTile(d, t, i));
+                  });
+                  if (l.id === "walkthrough") {
+                    steps.forEach(function (s) {
+                      if (list(s.requirements).indexOf(r.id) >= 0) {
+                        tiles.push(
+                          '<div class="tl wk firm">' +
+                            esc(s.id) +
+                            " &middot; " +
+                            esc(s.title) +
+                            "<i>" +
+                            esc(s.where || "") +
+                            "</i></div>",
+                        );
+                      }
+                    });
+                  }
+                  return tiles.length
+                    ? "<td>" + tiles.join("") + "</td>"
+                    : '<td class="none">none</td>';
+                })
+                .join("");
+              return (
+                '<tr><td class="rq">' +
+                VP.reqLink(d, r.id) +
+                "</td>" +
+                tds +
+                "</tr>"
+              );
+            })
+            .join("");
+          return (
+            '<table class="grid"><thead>' +
+            head +
+            "</thead><tbody>" +
+            rows +
+            "</tbody></table>"
+          );
+        }
+
+        function testsList(d) {
+          var tests = list(d.tests);
+          var body = tests
+            .map(function (t, i) {
+              var st = testState(d, t),
+                hasParts = list(d.parts).length > 0;
+              return (
+                '<div class="te" id="te' +
+                i +
+                '"><div><div class="tn">' +
+                esc(t.name) +
+                "</div>" +
+                '<div class="ln">' +
+                laneLabel(d, t.lane) +
+                " &middot; proves " +
+                (VP.reqLinks(d, t.requirements) || "nothing yet") +
+                "</div>" +
+                '<span class="badge ' +
+                (st === "firm" ? "ok" : "plan") +
+                '">' +
+                (st === "firm" ? "Firm" : "Tentative") +
+                '</span> <span class="ln">' +
+                testReason(d, t) +
+                "</span>" +
+                (t.test_name
+                  ? '<div class="ln"><code>' +
+                    esc(t.test_name) +
+                    "</code></div>"
+                  : "") +
+                "</div>" +
+                '<div class="ri">' +
+                (hasParts
+                  ? '<div><span class="k">Real</span>' +
+                    (partLabels(d, t.real_parts) || "nothing named") +
+                    "</div>" +
+                    '<div><span class="k">Faked</span>' +
+                    (partLabels(d, t.faked_parts) || "nothing named") +
+                    "</div>"
+                  : "") +
+                '<div><span class="k">Passing tells you</span>' +
+                esc(t.passing_tells) +
+                "</div></div></div>"
+              );
+            })
+            .join("");
+          return (
+            '<div class="alt open" id="alt"><button type="button" class="alth" id="alth" aria-expanded="true" aria-controls="altb">' +
+            '<span class="chv" aria-hidden="true">&#9656;</span>Proposed tests <span style="font-weight:400;color:var(--mut)">&mdash; ' +
+            tests.length +
+            " in all</span></button>" +
+            '<div class="altb" id="altb">' +
+            (body || '<p class="empty">No tests proposed yet.</p>') +
+            "</div></div>"
+          );
+        }
+
+        function outline(d) {
+          var steps = list(d.walkthrough && d.walkthrough.steps);
+          if (!steps.length)
+            return '<div class="walk"><span class="k">Walkthrough outline</span><p class="empty">No walkthrough steps yet.</p></div>';
+          return (
+            '<div class="walk"><span class="k">Walkthrough outline (not full steps yet)</span><div class="chips">' +
+            steps
+              .map(function (s, i) {
+                return (
+                  (i ? '<span class="chip arr">&rarr;</span>' : "") +
+                  '<span class="chip">' +
+                  esc(s.title) +
+                  "</span>"
+                );
+              })
+              .join("") +
+            "</div></div>"
+          );
+        }
+
+        function letter(i) {
+          return String.fromCharCode(65 + (i % 26));
+        }
+        function decision(d, x) {
+          var answered = x.status === "answered";
+          var opts = list(x.options)
+            .map(function (o, i) {
+              var sel = answered && x.answer === o.id,
+                rec = x.recommended === o.id;
+              return (
+                '<div class="opt' +
+                (sel ? " sel" : "") +
+                '"><span class="n">' +
+                letter(i) +
+                '</span><div class="t">' +
+                esc(o.label) +
+                (rec ? ' <span class="tag rec">Recommended</span>' : "") +
+                (sel ? ' <span class="tag ch">Your choice</span>' : "") +
+                "</div>" +
+                (o.cost
+                  ? '<div class="kk"><b>Cost</b> ' + esc(o.cost) + "</div>"
+                  : "") +
+                (o.proves
+                  ? '<div class="kk"><b>Proves</b> ' + esc(o.proves) + "</div>"
+                  : "") +
+                "</div>"
+              );
+            })
+            .join("");
+          var chosen = answered ? byId(x.options, x.answer) : null;
+          var recOpt = x.recommended ? byId(x.options, x.recommended) : null;
+          return (
+            '<div class="dec' +
+            (answered ? " done" : "") +
+            '"><h3><b>' +
+            esc(x.id) +
+            "</b> &mdash; " +
+            esc(x.question) +
+            "</h3>" +
+            (list(x.requirements).length
+              ? '<p class="names">Concerns ' +
+                VP.reqLinks(d, x.requirements) +
+                "</p>"
+              : "") +
+            (answered
+              ? '<span class="pill ans">Answered: ' +
+                esc(chosen ? chosen.label : x.answer) +
+                "</span>"
+              : '<span class="pill wait">Waiting for your answer in /decide</span>') +
+            '<div class="opts">' +
+            opts +
+            "</div>" +
+            (answered && x.note
+              ? '<div class="note"><b>Your note:</b> &ldquo;' +
+                esc(x.note) +
+                "&rdquo;</div>"
+              : "") +
+            (recOpt
+              ? '<div class="recline"><b>Recommendation:</b> ' +
+                esc(recOpt.label) +
+                "</div>"
+              : "") +
+            VP.copyControl(
+              answered ? "Change in /decide" : "Answer in /decide",
+            ) +
+            "</div>"
+          );
+        }
+        function decisions(d) {
+          var ds = list(d.decisions);
+          if (!ds.length) return '<p class="empty">No decisions needed.</p>';
+          var open = ds.filter(function (x) {
+            return x.status === "open";
+          }).length;
+          var banner =
+            '<div class="banner"><b>' +
+            (ds.length - open) +
+            " of " +
+            ds.length +
+            " decided." +
+            (open
+              ? " " + open + " still need your answer: run"
+              : " Nothing is waiting on you.") +
+            "</b>" +
+            (open
+              ? VP.copyControl("Copy") + "<b>and answer in /decide.</b>"
+              : "") +
+            "</div>";
+          return (
+            banner +
+            '<div class="decs">' +
+            ds
+              .map(function (x) {
+                return decision(d, x);
+              })
+              .join("") +
+            "</div>"
+          );
+        }
+
+        function bullets(items) {
+          return list(items).length
+            ? "<ul>" +
+                list(items)
+                  .map(function (x) {
+                    return "<li>" + esc(x) + "</li>";
+                  })
+                  .join("") +
+                "</ul>"
+            : '<p class="empty">Nothing.</p>';
+        }
+        function checked(d) {
+          return (
+            '<div class="three"><div><h3>Checked before proposing</h3>' +
+            bullets(d.checked) +
+            "</div>" +
+            '<div class="no"><h3>Could not check</h3>' +
+            bullets(d.unchecked) +
+            "</div>" +
+            "<div><h3>Needs from you</h3>" +
+            bullets(d.needs) +
+            "</div></div>"
+          );
+        }
+
+        function purpose(stage) {
+          return stage === "shaping"
+            ? "Before any steps are written: is this the right way to prove the work? Nothing below is agreed yet."
+            : "This is the shaping record. The task has moved on, and the map page is the current view.";
+        }
+        function page(d) {
+          return (
+            '<div class="cap">Verification &middot; shaping</div><h1>Verification: ' +
+            esc(d.task) +
+            "</h1>" +
+            VP.stageBar(d.stage) +
+            '<div class="purpose">' +
+            esc(purpose(d.stage)) +
+            "</div>" +
+            band(d) +
+            "<h2>Requirements <small>&mdash; the one place each is defined; open a card for the reasoning the decisions rest on</small></h2>" +
+            VP.reqCards(d) +
+            "<h2>Draft coverage <small>&mdash; each row links to its requirement card; click a test to jump to it in the list below</small></h2>" +
+            '<div class="legend"><span><span class="sw f"></span>Solid = firm: follows an answered decision, or rests on none</span>' +
+            '<span><span class="sw t"></span>Dashed = tentative: depends on a decision still waiting</span></div>' +
+            grid(d) +
+            testsList(d) +
+            outline(d) +
+            "<h2>Decisions <small>&mdash; read-only here; answered through the /decide skill</small></h2>" +
+            decisions(d) +
+            "<h2>What the agent checked, and what it could not</h2>" +
+            checked(d)
+          );
+        }
+
+        return {
+          testState: testState,
+          band: band,
+          grid: grid,
+          testsList: testsList,
+          outline: outline,
+          decision: decision,
+          decisions: decisions,
+          checked: checked,
+          page: page,
+        };
+      })();
+      // CORE:END
+
+      (function () {
+        var data = JSON.parse(document.getElementById("vp-data").textContent);
+        document.getElementById("app").innerHTML = VS.page(data);
+        vpWire();
+        function toggleAlt() {
+          var alt = document.getElementById("alt"),
+            btn = document.getElementById("alth");
+          if (!alt) return;
+          btn.addEventListener("click", function () {
+            btn.setAttribute(
+              "aria-expanded",
+              String(alt.classList.toggle("open")),
+            );
+          });
+        }
+        toggleAlt();
+        document.addEventListener("click", function (e) {
+          var b = e.target.closest("button.tl[data-t]");
+          if (!b) return;
+          var alt = document.getElementById("alt");
+          alt.classList.add("open");
+          document.getElementById("alth").setAttribute("aria-expanded", "true");
+          var t = document.getElementById("te" + b.getAttribute("data-t"));
+          t.scrollIntoView({ block: "center" });
+          vpFlash(t);
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -96,4 +96,54 @@ if [ "$RC" != 0 ] && [ -n "$OUT" ]; then pass "rejects: malformed json"; else fa
 check "$WORK/missing.json"
 if [ "$RC" != 0 ] && [ -n "$OUT" ]; then pass "rejects: missing file"; else fail "missing file (rc=$RC)"; fi
 
+# ---------------------------------------------------------------- build
+# build_copy <name> [python]: copies the fixture (optionally mutated) into $WORK/<name>/verify.json
+build_copy() {
+  mkdir -p "$WORK/$1"
+  if [ -n "${2:-}" ]; then mutate "$1" "$2"; mv "$WORK/$1.json" "$WORK/$1/verify.json"; else cp "$FIXTURE" "$WORK/$1/verify.json"; fi
+}
+build() { OUT="$(python3 "$TOOL" build "$1" 2>&1)"; RC=$?; }
+
+build_copy b1; build "$WORK/b1/verify.json"
+if [ "$RC" = 0 ] && [ -s "$WORK/b1/shaping.html" ]; then pass "build writes shaping.html beside the source"; else fail "build (rc=$RC out=$OUT)"; fi
+cp "$WORK/b1/shaping.html" "$WORK/first.html"; build "$WORK/b1/verify.json"
+if cmp -s "$WORK/first.html" "$WORK/b1/shaping.html"; then pass "building twice is byte-identical"; else fail "build is not deterministic"; fi
+
+# Hostile text: a closing script tag in a requirement sentence.
+build_copy b2 's["requirements"][0]["sentence"] = "Try </script><script>alert(1)</script> and <!-- x & y"'
+build "$WORK/b2/verify.json"
+if [ "$RC" = 0 ] && python3 - "$WORK/b1/shaping.html" "$WORK/b2/shaping.html" <<'PYEOF'
+import re, sys
+def counts(p):
+    t = open(p, encoding="utf-8").read()
+    return len(re.findall(r"<script", t, re.I)), len(re.findall(r"</script", t, re.I))
+a, b = counts(sys.argv[1]), counts(sys.argv[2])
+sys.exit(0 if a == b and a[0] == a[1] and a[0] >= 2 else 1)
+PYEOF
+then pass "a </script in a sentence builds with one closing tag per script block"; else fail "script-end safety (rc=$RC out=$OUT)"; fi
+
+# Page metadata comment (the format wb.sh _wb_page_meta reads).
+if python3 - "$WORK/b1/shaping.html" <<'PYEOF'
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
+start = [i for i, l in enumerate(lines) if l.strip() == "---"]
+ok = bool(start) and start[0] < 5 and len(start) >= 2
+block = lines[start[0] + 1:start[1]] if ok else []
+ok = ok and "tags: [verify-plan]" in block
+ok = ok and any(l.startswith("retire_when: task:example--book-holds done") for l in block)
+sys.exit(0 if ok else 1)
+PYEOF
+then pass "page metadata block opens within the first five lines with tags and retire_when"; else fail "page metadata block"; fi
+build_copy b3 's["page"]["url"] = "https://example.test/p"'; build "$WORK/b3/verify.json"
+if grep -q '^url: https://example.test/p$' "$WORK/b3/shaping.html"; then pass "page url is emitted when present"; else fail "page url line"; fi
+
+# Colour blocks and no vertical-scroll containers.
+H="$WORK/b1/shaping.html"
+if grep -q 'prefers-color-scheme: *dark' "$H" && grep -q ':root:not(\[data-theme="light"\])' "$H" && grep -q ':root\[data-theme="dark"\]' "$H"; then pass "light and dark colour blocks are present"; else fail "colour blocks"; fi
+if grep -Eiq 'overflow(-y)? *: *(auto|scroll)|max-height' "$H"; then fail "page has a vertical-scroll container rule"; else pass "no vertical-scroll container rules"; fi
+
+# An invalid document is refused and nothing is written.
+build_copy b4 's["tests"][0]["requirements"].append("R99")'; build "$WORK/b4/verify.json"
+if [ "$RC" != 0 ] && [[ "$OUT" == *R99* ]] && [ ! -e "$WORK/b4/shaping.html" ]; then pass "build refuses an invalid document"; else fail "build invalid (rc=$RC out=$OUT)"; fi
+
 exit "$FAIL"
