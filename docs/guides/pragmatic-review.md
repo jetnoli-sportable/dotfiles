@@ -4,7 +4,7 @@ status: current
 tile: Reorder a long-term plan so real use comes first, and give every step a needed-now / later / not-needed verdict judged against the business's real size.
 group: skills
 kind: guide
-updated: 2026-10-22
+updated: 2026-11-15
 ---
 
 ## Overview
@@ -93,7 +93,7 @@ Paths under `references/` and `scripts/` are relative to
 ## Next steps / reverting
 
 Next: share `references/sequencing-checks.md` with `/wb-breakdown` proposals
-and `spec-doc`, so a breakdown is checked for order as it's written.
+and `/verify-plan`'s requirements step, so a breakdown is checked for order as it's written.
 
 To turn it off, delete `claude/.claude/skills/pragmatic-review/` and re-stow.
 The learnings files in `~/code/tasks/context/` stay where they are and are

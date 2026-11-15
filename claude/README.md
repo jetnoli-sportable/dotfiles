@@ -34,7 +34,6 @@ directory instead of replacing it.
   `scripts/.config/scripts/tmux/claude-reply-log.sh` are live. Do NOT duplicate the hook
   into `settings.recommended.json`, or it fires twice. See
   [`reply-log.md`](../docs/guides/reply-log.html).
-- `skills/spec-doc/` — requirements spec (PRD): synthesised, seams-first, Warp-style invariants + user stories; composes the vendored spec skills below
 
 ## Vendored (third-party, via `npx skills`)
 

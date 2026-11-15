@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> start-here</span>
   <span class="gen">docgen · generated from <b>docs/wb-guide.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-08-24</span>
+  <span class="right">updated 2026-11-15</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -1041,8 +1041,9 @@ live in the parent's.</li>
 at the top of an HTML-only page). Add it when the page is next edited.
 <code>retire_when:</code> takes <code>task:&lt;stem&gt; done</code>, <code>decision:&lt;id&gt; recorded</code>,
 <code>date:&lt;YYYY-MM-DD&gt;</code> or <code>pr:&lt;n&gt; merged</code>; once met, the index lists the page
-under Retired. A test guide uses <code>task:&lt;its task&gt; done</code>, so it retires when
-<code>wb done</code> closes the task.</li>
+under Retired. A <code>test-guide</code>-tagged page (older PRs; <code>/verify-plan</code>'s walkthrough
+replaces the per-PR test guide) uses <code>task:&lt;its task&gt; done</code>, so it retires
+when <code>wb done</code> closes the task.</li>
 </ul>
 <p><strong>One record shape.</strong> <code>wb migrate</code> writes each decision the way <code>wb append</code>
 does: the <code># </code> line carries the full title (the file name's slug still comes from

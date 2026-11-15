@@ -411,6 +411,6 @@ sessions' edits in flight; never commit anything else.
   context, that's the signal to add a step extractor (a deferred
   follow-up), not to split the judgment.
 - `references/sequencing-checks.md` is a separate file so `/wb-breakdown`
-  and `spec-doc` can share it later.
+  and `/verify-plan`'s requirements step can share it later.
 - `~/code/tasks/context/README.md` documents the learnings area for other
   agents and tools.

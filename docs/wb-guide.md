@@ -4,7 +4,7 @@ status: current
 tile: How to use wb: session-per-worktree, the unified picker, wind-down.
 group: start-here
 kind: guide
-updated: 2026-08-24
+updated: 2026-11-15
 ---
 
 Replaces the `s` / `ca` split with a single tmux+fzf tool backed by a
@@ -804,8 +804,9 @@ For every task:
   at the top of an HTML-only page). Add it when the page is next edited.
   `retire_when:` takes `task:<stem> done`, `decision:<id> recorded`,
   `date:<YYYY-MM-DD>` or `pr:<n> merged`; once met, the index lists the page
-  under Retired. A test guide uses `task:<its task> done`, so it retires when
-  `wb done` closes the task.
+  under Retired. A `test-guide`-tagged page (older PRs; `/verify-plan`'s walkthrough
+  replaces the per-PR test guide) uses `task:<its task> done`, so it retires
+  when `wb done` closes the task.
 
 **One record shape.** `wb migrate` writes each decision the way `wb append`
 does: the `# ` line carries the full title (the file name's slug still comes from
