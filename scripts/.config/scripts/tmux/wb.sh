@@ -7213,8 +7213,9 @@ wb_live_session_row() {
   # continue): its `row` file, one line state<TAB>reason<TAB>done<TAB>command,
   # read with builtins (no fork per row). A ready or failed request that has a
   # command sorts with the rows that want Jet, below needs-you. A needs-you
-  # row keeps its rank; a ready request with no command shows no mark.
-  if [ "$kind" = task ] && [ "$urank" != 0 ]; then
+  # row keeps its rank, and so does a working one (rank 2: the session is busy,
+  # "ready" would say it waits); a ready request with no command shows no mark.
+  if [ "$kind" = task ] && [ "$urank" != 0 ] && [ "$urank" != 2 ]; then
     local _crow _cstate _ccmd
     if IFS= read -r _crow 2>/dev/null < "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/$_nykey/row"; then
       _cstate="${_crow%%$'\t'*}"; _ccmd="${_crow##*$'\t'}"

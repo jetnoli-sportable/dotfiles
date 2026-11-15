@@ -165,6 +165,27 @@ wbc_drift_check() {
   return 0
 }
 
+# wbc_stale_demote <stem> — CALLER HOLDS continue-<stem>. A request claimed or
+# restarting whose last update is older than ${WB_CONTINUE_STALE_SECS:-300} s, or
+# whose recorded pane is gone, lost its helper (a hard kill the exit trap cannot
+# see): log stale-claim and make it `failed`, naming the old session. Returns 0
+# when it demoted one.
+wbc_stale_demote() {
+  local stem="$1" state updated pane old why="" age
+  state="$(wbc_get "$stem" state 2>/dev/null)"
+  case "$state" in claimed|restarting) ;; *) return 1 ;; esac
+  updated="$(wbc_get "$stem" updated)"
+  pane="$(wbc_get "$stem" pane)"
+  if [[ "$updated" =~ ^[0-9]+$ ]] && age=$((EPOCHSECONDS - updated)) && [ "$age" -gt "${WB_CONTINUE_STALE_SECS:-300}" ]; then
+    why="no update for ${age}s"
+  elif [ -n "$pane" ] && [ "$(tmux display-message -p -t "$pane" '#{pane_id}' 2>/dev/null)" != "$pane" ]; then
+    why="its pane is gone"
+  fi
+  [ -n "$why" ] || return 1
+  old="$(wbc_get "$stem" session_id)"
+  wbc_set stale-claim "$stem" failed "the restart never finished ($why); the old session is $old: claude --resume $old"
+}
+
 # --- the session's own facts -------------------------------------------------
 
 # _wbc_transcript_of <session-id> — that session's transcript, in any project dir.
@@ -192,7 +213,7 @@ _wbc_typed_info() {
   local tr last kind turn content rest
   tr="$(_wbc_transcript)" || return 0
   [ -r "$tr" ] || return 0
-  last="$(grep -F '"turnOrigin"' "$tr" 2>/dev/null \
+  last="$(grep -aF '"turnOrigin"' "$tr" 2>/dev/null \
     | jq -cR 'fromjson? | select(type == "object" and .type == "user" and (.turnOrigin != null))' 2>/dev/null \
     | tail -n 1)" || last=""
   [ -n "$last" ] || return 0
@@ -214,7 +235,7 @@ _wbc_typed_info() {
 _wbc_model() {
   local tr; tr="$(_wbc_transcript)" || return 0
   [ -r "$tr" ] || return 0
-  grep -F '"assistant"' "$tr" 2>/dev/null \
+  grep -aF '"assistant"' "$tr" 2>/dev/null \
     | jq -rR 'fromjson? | select(type == "object" and .type == "assistant") | .message.model // empty' 2>/dev/null \
     | tail -n 1
 }
@@ -261,6 +282,7 @@ _wbc_make() {
   _wbc_born && born=1
 
   _wbc_lock "$stem" || return $?
+  wbc_stale_demote "$stem" || true
   existing_state="$(wbc_get "$stem" state 2>/dev/null)" || existing_state=""
   case "$existing_state" in
     claimed|restarting)
@@ -407,7 +429,8 @@ wbc_pickup() {
   heading="$(wbc_get "$stem" entry_heading)"
   ts="${heading#\#\#\# }"; ts="${ts%% — *}"
   old="$(wbc_get "$stem" session_id)"
-  local fallback; fallback="$(wbc_get "$stem" model_fallback)"
+  local fallback typed
+  fallback="$(wbc_get "$stem" model_fallback)"; typed="$(wbc_get "$stem" typed)"
   local msg="Continued in a fresh context from the save of $ts"
   if [ -n "$old" ]; then msg+=" (old session $old; \`claude --resume $old\` reopens it)"; fi
   msg+="."
@@ -426,6 +449,8 @@ wbc_pickup() {
   printf '%s\n' "$entry"
   echo "=== End of frozen save entry ==="
   if [ -n "$command" ]; then
+    if [ "$typed" = 1 ]; then echo "Command source: typed by Jet"
+    else echo "Command source: written by the saving session, not by Jet"; fi
     echo "Command to carry out:"
     printf '%s\n' "$command"
   else

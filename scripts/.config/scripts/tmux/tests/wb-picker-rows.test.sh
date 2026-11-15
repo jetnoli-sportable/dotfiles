@@ -410,6 +410,17 @@ crd="$(printf '%s\n' "$crr" | WB_PICKER_SESSION=other wb_format_for_display)"
 assert "continue row: the display tags the name (ready)" '\(ready\)' "$crd"
 assert "continue row: ... in cyan like finished" $'\033\\[36m' "$crd"
 
+# a session that is working shows working: the ready mark waits for it to go idle
+ORIG_CLAUDE_PANES="$(declare -f tmux_claude_panes)"
+tmux_claude_panes() { printf '2\tcrsess:0.0\tworking\ttask text\n'; }
+crw="$(cr_row)"
+assert "continue row: a working session with a ready request stays rank 2" '^2$' "$(row_field "$crw" 4)"
+assert "continue row: ... and shows working, not ready to continue" '\* working$' "$(row_field "$crw" 5)"
+tmux_claude_panes() { printf '1\tcrsess:0.0\twaiting\ttask text\n'; }
+cri="$(cr_row)"
+assert "continue row: an idle session with a ready request shows ready to continue" '^1	> ready to continue$' "$(row_field "$cri" 4)	$(row_field "$cri" 5)"
+eval "$ORIG_CLAUDE_PANES"
+
 cr_set ready "saved; waits for a release" ""
 crn="$(cr_row)"
 assert "continue row: ready with no command shows no mark (rank 3)" '^3$' "$(row_field "$crn" 4)"

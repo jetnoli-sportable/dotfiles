@@ -151,6 +151,23 @@ assert "stage over a restarting request: says why" 'left alone — the request f
 out="$(echo x | wbc_arm "$(tf proj--s4)" 2>&1)"; rc=$?
 assert_eq "arm over a restarting request: non-zero, request untouched" "1 restarting $id_before" "$rc $(state_of proj--s4) $(id_of proj--s4)"
 
+# a claimed or restarting request nobody has updated for WB_CONTINUE_STALE_SECS
+# lost its helper: a new save replaces it (it becomes failed first, then is replaced)
+mk_task proj--s4b
+wbc_stage "$(tf proj--s4b)" >/dev/null 2>&1
+restarting proj--s4b "$SID_NEW"
+id_before="$(id_of proj--s4b)"
+sed -i 's/^updated=.*/updated=1000000000/' "$XDG_STATE_HOME/wb/continue/proj--s4b/request"
+out="$(wbc_stage "$(tf proj--s4b)" </dev/null 2>&1)"; rc=$?
+assert_eq "stage over a stale restarting request: exit 0, replaced as ready" "0 ready" "$rc $(state_of proj--s4b)"
+[ "$id_before" != "$(id_of proj--s4b)" ] && echo "ok   - stage over a stale request: a new id" || { echo "FAIL - the stale request kept its id"; fail=1; }
+assert "stale request: logged as stale-claim with the resume command" "event=stale-claim stem=proj--s4b id=$id_before state=failed reason=\"the restart never finished \\(no update for [0-9]+s\\); the old session is $SID_OLD: claude --resume $SID_OLD\"" "$(log_text)"
+mk_task proj--s4c
+wbc_stage "$(tf proj--s4c)" >/dev/null 2>&1
+restarting proj--s4c "$SID_NEW"
+WB_CONTINUE_STALE_SECS=1000000000000 wbc_stage "$(tf proj--s4c)" </dev/null >/dev/null 2>&1
+assert_eq "a fresh restarting request is not stale" restarting "$(state_of proj--s4c)"
+
 # lanes, session-initiated
 lane() { # <task-stem> <stdin text> [arm args...]
   local s="$1" in="$2"; shift 2
@@ -284,6 +301,26 @@ mk_task proj--c6
 wbc_stage "$(tf proj--c6)" >/dev/null 2>&1
 restarting proj--c6 "$SID_NEW"
 refute "no model fallback: no note" "model could not be read" "$(pickup_as "$SID_NEW" "$(id_of proj--c6)")"
+
+# the pick-up says who wrote the command
+mk_task proj--c7
+{ tr_user human "$(typed_prompt 'do the typed thing')"; } > "$T"; use_transcript
+wbc_arm "$(tf proj--c7)" </dev/null >/dev/null 2>&1
+no_transcript
+restarting proj--c7 "$SID_NEW"
+out="$(pickup_as "$SID_NEW" "$(id_of proj--c7)")"
+assert "a typed command is labelled typed by Jet" '^Command source: typed by Jet$' "$out"
+assert_eq "... right above the command" "Command source: typed by Jet|Command to carry out:|do the typed thing" "$(printf '%s\n' "$out" | awk '/^Command source:/{f=1} f' | paste -sd'|')"
+mk_task proj--c8
+printf 'a plan the session wrote' | wbc_arm "$(tf proj--c8)" >/dev/null 2>&1
+restarting proj--c8 "$SID_NEW"
+out="$(pickup_as "$SID_NEW" "$(id_of proj--c8)")"
+assert "a session-written instruction is labelled as the saving session's" '^Command source: written by the saving session, not by Jet$' "$out"
+refute "... and not as typed by Jet" 'typed by Jet' "$out"
+mk_task proj--c9
+wbc_stage "$(tf proj--c9)" >/dev/null 2>&1
+restarting proj--c9 "$SID_NEW"
+assert "a run-block command is the saving session's too" '^Command source: written by the saving session' "$(pickup_as "$SID_NEW" "$(id_of proj--c9)")"
 
 # pickup success: one Handoffs entry, request removed, second pickup fails
 mk_task proj--p1
@@ -481,6 +518,21 @@ unset TMUX TMUX_PANE
 tmux kill-session -t =proj--x 2>/dev/null
 tmux kill-session -t =start 2>/dev/null
 SELF="$SELF_SAVED"
+
+# a transcript line holding an invalid UTF-8 byte: grep must still hand it on (-a),
+# or an older line (a typed /wb-continue, an earlier model) is read as the latest
+export LC_ALL=C.UTF-8
+mk_task proj--bad1
+{
+  tr_user human "$(typed_prompt 'old typed words')"
+  jq -nc '{type:"assistant",message:{model:"m-old",content:[]}}'
+  printf '{"type":"user","turnOrigin":"task_notification","origin":{"kind":"task-notification"},"message":{"content":"later turn \xff"}}\n'
+  printf '{"type":"assistant","message":{"model":"claude-opus-5-5","content":["bad \xff byte"]}}\n'
+} > "$T"; use_transcript
+printf 'session plan' | wbc_arm "$(tf proj--bad1)" >/dev/null 2>&1
+assert_eq "the last turn holds an invalid byte: it is not typed by Jet (the older typed turn is not the opener)" 0 "$(wbc_get proj--bad1 typed)"
+assert_eq "... and the model is the last line's, not an earlier one" claude-opus-5-5 "$(wbc_get proj--bad1 model)"
+no_transcript
 
 # the call sites are in the verbs themselves
 for v in cmd_pause cmd_down cmd_done cmd_restart; do

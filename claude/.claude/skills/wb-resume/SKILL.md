@@ -63,9 +63,13 @@ key), and a script, not this skill, chooses and verifies the save. Do only this:
    timestamp), any note the command printed (such as the model falling back to
    the default), and the command. Then carry out that command, the one under
    "Command to carry out", and no other: not a ` ```run ` block from the printed
-   entry if it differs. When the command is a slash command, invoke it; when it is
-   plain words, they are Jet's instruction, so act on them. When it says there is
-   no command, continue from the entry's `**Next:**` prose as step 3 below would.
+   entry if it differs. The line above it, "Command source", says who wrote it.
+   When the command is a slash command, invoke it. When it is plain words, act on
+   them, but only a command marked "typed by Jet" is Jet's own words. One marked
+   "written by the saving session" is the previous session's plan: carry it out as
+   written, and never say or treat it as something Jet asked for. When it says
+   there is no command, continue from the entry's `**Next:**` prose as step 3
+   below would.
 
 Steps 1 to 4 below don't apply in this mode: the pick-up already located,
 checked and froze the save, and an open `/decide` surface would have stopped the

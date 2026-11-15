@@ -198,10 +198,13 @@ arm_req() {
     printf '%s' "${1-}" | wbc_arm "$(tf "$STEM")"
   ) >/dev/null 2>&1
 }
-stage_req() { (
+stage_req_nosnap() { (
   export CLAUDE_CODE_SESSION_ID="$SID" TMUX_PANE="$PANE"
   wbc_stage "$(tf "$STEM")"
 ) >/dev/null 2>&1; }
+# snap_req — the Stop hook's turn-end snapshot a release needs (clean, now)
+snap_req() { (_wbc_lock "$STEM"; wbc_set snapshot "$STEM" "$(state_of "$STEM")" "$(reason_of "$STEM")" "last_stop=$(date +%s)" last_busy=0; _wbc_unlock "$STEM") >/dev/null 2>&1; }
+stage_req() { stage_req_nosnap; snap_req; }
 end_case() {
   tm kill-session -t "$SESS" 2>/dev/null
   rm -f "$XDG_STATE_HOME/wb/continue-live" "$XDG_STATE_HOME/wb/disable-continue"
@@ -311,6 +314,7 @@ stop_clean
 wait_state "$STEM" '^ready$'
 assert_eq "request becomes ready" ready "$(state_of "$STEM")"
 assert_eq "reason says shadow" "shadow mode: would have restarted" "$(reason_of "$STEM")"
+wait_log "event=would-restart"
 assert "log: would-restart line" "event=would-restart stem=$STEM id=$ID state=ready" "$(log_text)"
 refute "no respawn" 'respawn-pane' "$(tlog)"
 assert_eq "no fresh claude" "" "$(cat "$FIX/claude-count" 2>/dev/null)"
@@ -808,6 +812,7 @@ end_case
 new_case
 arm_req ""
 assert_eq "armed before the press" armed "$(state_of "$STEM")"
+snap_req
 echo pickup >"$FIX/claude-mode"
 out="$(wbc_release "$(tf "$STEM")" 2>&1)"
 assert "armed: released by the press" "$STEM: released" "$out"
@@ -945,6 +950,226 @@ assert_eq "shadow mode: no unseen file" none "$([ -e "$(unseen_file)" ] && echo 
 assert_eq "shadow mode: no pane mark" "" "$(tm show -pv -t "$PANE" @wb_unseen 2>/dev/null)"
 end_case
 rm -rf "$UNSEEN_DIR"
+
+# =============================================================================
+echo "# review fixes: input-line bytes as the live screen prints them"
+# =============================================================================
+# Lines captured with `tmux capture-pane -ep` from live Claude panes: every
+# input line starts with \e[39m, an idle one is blank or a dim suggestion.
+# The line above the prompt is a full-width coloured rule, which is why tmux
+# starts the prompt row with \e[39m (the colour carries over, no reset between).
+RULE="\e[38;5;244m$(printf '\xe2\x94\x80%.0s' $(seq 120))\e[39m\n"
+SCREEN_LIVE_BLANK="$RULE"'\e[39m\xe2\x9d\xaf\xc2\xa0\n'
+SCREEN_LIVE_DIM="$RULE"'\e[39m\xe2\x9d\xaf\xc2\xa0\e[2mTry something else\e[0m\n'
+SCREEN_LIVE_TEXT="$RULE"'\e[39m\xe2\x9d\xaf\xc2\xa0hello\n'
+# The same three lines as bytes, straight into the parser (no tmux in between).
+eval "$(sed -n '/^wbch_input_pending() {/,/^}/p' "$HOOK")"
+input_pending_for() { ( SCR="$1"; wb_capture_pane() { printf '%b' "$SCR"; }; wbch_input_pending %0 && echo pending || echo clear ); }
+assert_eq "bytes: \\e[39m, glyph, dim suggestion: clear" clear "$(input_pending_for '\e[39m\xe2\x9d\xaf\xc2\xa0\e[2mTry something else\e[0m\n')"
+assert_eq "bytes: \\e[39m, glyph, typed text: pending" pending "$(input_pending_for '\e[39m\xe2\x9d\xaf\xc2\xa0hello\n')"
+assert_eq "bytes: \\e[39m, glyph, blank: clear" clear "$(input_pending_for '\e[39m\xe2\x9d\xaf\xc2\xa0\n')"
+assert_eq "bytes: typed text then a dim hint after it: pending" pending "$(input_pending_for '\e[39m\xe2\x9d\xaf\xc2\xa0hello \e[2mmore\e[0m\n')"
+assert_eq "bytes: no prompt line (a dialog): pending (fail closed)" pending "$(input_pending_for 'Do you want to proceed?\n')"
+for sc in "LIVE_BLANK:$SCREEN_LIVE_BLANK" "LIVE_DIM:$SCREEN_LIVE_DIM"; do
+  new_case "${sc#*:}"
+  sc="${sc%%:*}"
+  stage_req
+  echo pickup >"$FIX/claude-mode"
+  out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+  assert "live idle prompt ($sc): counts as clear, released" "$STEM: released" "$out"
+  wait_gone "$STEM" 15
+  end_case
+done
+new_case "$SCREEN_LIVE_TEXT"
+stage_req
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "live prompt with typed text: pending, not released" "not released: text or a dialog on the input line" "$out"
+refute "... nothing respawned" 'respawn-pane' "$(tlog)"
+end_case
+
+# =============================================================================
+echo "# review fixes: transcript greps read past an invalid byte"
+# =============================================================================
+printf '{"type":"user","toolUseResult":{"persistent":true,"taskId":"baj6ls1xl","note":"bad \xff byte"}}\n' >"$FIX/badbyte-transcript.jsonl"
+new_case
+arm_req ""
+run_hook hook-stop "$PANE" "$(payload Stop-background-work.json "$SID" "$ONLY_MONITOR | .transcript_path = \"$FIX/badbyte-transcript.jsonl\"")"
+wait_state "$STEM" '^ready$'
+assert "a monitor line holding an invalid byte still counts as a monitor: claims" "event=hook-claim stem=$STEM" "$(log_text)"
+end_case
+
+# =============================================================================
+echo "# review fixes: a drift check that cannot take its lock does not restart"
+# =============================================================================
+new_live_case
+arm_req ""
+ID="$(wbc_get "$STEM" id)"
+(_wbc_lock "$STEM"; wbc_set test "$STEM" claimed "claimed by the Stop hook"; _wbc_unlock "$STEM")
+rm -f "$FIX/hold-lock"
+( wb_task_lock_acquire "continue-$STEM" && for _ in $(seq 100); do [ -e "$FIX/hold-lock-release" ] && break; sleep 0.1; done ) &
+holder=$!
+sleep 0.3
+( sleep 2; touch "$FIX/hold-lock-release" ) &
+env WB_CONTINUE_SETTLE_MS=200 WB_CONTINUE_SETTLE_MAX_MS=1500 "$REAL_BASH" "$HOOK" helper "$STEM" "$ID"
+wait "$holder" 2>/dev/null
+rm -f "$FIX/hold-lock-release"
+assert_eq "lock unavailable at the drift step: back to armed" armed "$(state_of "$STEM")"
+assert_eq "reason names the lock" "could not take the request lock for the drift check" "$(reason_of "$STEM")"
+refute "no respawn" 'respawn-pane' "$(tlog)"
+assert_eq "the old Claude is still running" alive "$([ -d "/proc/$OLDPID" ] && echo alive || echo gone)"
+end_case
+
+# =============================================================================
+echo "# review fixes: nothing slow between the final look and the respawn"
+# =============================================================================
+new_case
+mk_old "p1 1800000000 1800000010"
+stage_req
+echo pickup >"$FIX/claude-mode"
+wbc_release "$(tf "$STEM")" >/dev/null 2>&1
+wait_gone "$STEM" 15
+between="$(tlog | awk '/^capture-pane/ { buf = ""; next } /^respawn-pane/ { print buf; exit } { buf = buf $0 "\n" }')"
+assert "the final look is the only call before the respawn" "^show -pv -t $PANE @claude_working$" "$between"
+refute "the unseen scan (display-message, focus stamp) is not between them" 'display-message|@wb_seen_at' "$between"
+assert "the unseen scan did run, before that look" '@wb_seen_at' "$(tlog)"
+end_case
+
+# =============================================================================
+echo "# review fixes: a release needs a recorded turn end"
+# =============================================================================
+new_case
+stage_req_nosnap
+assert_eq "a staged request has no snapshot yet" "" "$(wbc_get "$STEM" last_stop)"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert_eq "no snapshot: exit status 1" 1 "$?"
+assert "no snapshot: refused with the reason" "$STEM: not released: no turn end was recorded since the save \\(is the wb-continue hook loaded\\?\\)" "$out"
+assert_eq "no snapshot: the request stays ready" ready "$(state_of "$STEM")"
+refute "no snapshot: nothing respawned" 'respawn-pane' "$(tlog)"
+snap_req
+echo pickup >"$FIX/claude-mode"
+assert "once a turn end is recorded the same release goes" "$STEM: released" "$(wbc_release "$(tf "$STEM")" 2>&1)"
+wait_gone "$STEM" 15
+end_case
+
+# =============================================================================
+echo "# review fixes: a request that failed after the respawn can be released"
+# =============================================================================
+new_live_case
+arm_req ""
+echo exit >"$FIX/claude-mode"
+stop_clean
+wait_state "$STEM" '^failed$' 15
+assert_eq "the restart failed after a real respawn" failed "$(state_of "$STEM")"
+assert "it knows the fresh session id" '^[0-9a-f-]{36}$' "$(wbc_get "$STEM" new_session_id)"
+assert_eq "the old Claude is gone" gone "$([ -d "/proc/$OLDPID" ] && echo alive || echo gone)"
+wait_shell "$PANE"
+: >"$TMUX_LOG"
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "released although the old Claude is gone and the pane is at a shell" "$STEM: released" "$out"
+wait_gone "$STEM" 15
+assert_eq "the retry restarted the pane and was picked up" 0 "$?"
+assert_eq "one respawn for the retry" 1 "$(tlog | /usr/bin/grep -c '^respawn-pane -k ')"
+end_case
+
+# a failed request with no new_session_id (no respawn happened) keeps the old-session check
+new_case
+stage_req
+(_wbc_lock "$STEM"; wbc_set test "$STEM" failed "could not mark"; _wbc_unlock "$STEM")
+(
+  export CLAUDE_CODE_SESSION_ID="some-other-id" TMUX_PANE="$PANE"
+  _wbc_lock "$STEM"; wbc_set test "$STEM" failed "x" session_id=some-other-id; _wbc_unlock "$STEM"
+)
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "failed with no new session id and another Claude in the pane: not released" "not released: could not confirm the pane's Claude is the one that saved" "$out"
+end_case
+
+# =============================================================================
+echo "# review fixes: claimed and restarting requests age out"
+# =============================================================================
+# a claimed request nobody updated for the stale limit: failed, naming the old session
+new_case "$SCREEN_TEXT"
+stage_req
+ID="$(wbc_get "$STEM" id)"
+(_wbc_lock "$STEM"; wbc_set test "$STEM" claimed "claimed by the Stop hook"; _wbc_unlock "$STEM")
+sed -i 's/^updated=.*/updated=1000000000/' "$(wbc_dir "$STEM")/request"
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+refute "an old claim is not answered 'already restarting'" 'already restarting' "$out"
+assert_eq "an old claim becomes failed (the pane has text, so the release itself is refused)" failed "$(state_of "$STEM")"
+assert "its reason names the old session and the resume command" "the old session is $SID: claude --resume $SID" "$(reason_of "$STEM")"
+assert "log: stale-claim" "event=stale-claim stem=$STEM id=$ID state=failed reason=\".*no update for" "$(log_text)"
+end_case
+
+# a fresh claim is still 'already restarting'
+new_case
+stage_req
+(_wbc_lock "$STEM"; wbc_set test "$STEM" claimed "claimed by the Stop hook"; _wbc_unlock "$STEM")
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert "a fresh claim: already restarting" "$STEM: already restarting" "$out"
+assert_eq "... and still claimed" claimed "$(state_of "$STEM")"
+end_case
+
+# a claimed request whose pane no longer exists
+new_case
+stage_req
+(_wbc_lock "$STEM"; wbc_set test "$STEM" restarting "restarting the pane" pane=%9999 new_session_id=fresh-id; _wbc_unlock "$STEM")
+out="$(wbc_release "$(tf "$STEM")" 2>&1)"
+assert_eq "its pane is gone: failed" failed "$(state_of "$STEM")"
+assert "log: stale-claim says the pane is gone" "event=stale-claim stem=$STEM .*its pane is gone" "$(log_text)"
+refute "the answer is not 'already restarting'" 'already restarting' "$out"
+end_case
+
+# /wb-save's stage over a stale claim replaces it; over a live one leaves it
+new_case
+stage_req
+ID="$(wbc_get "$STEM" id)"
+(_wbc_lock "$STEM"; wbc_set test "$STEM" claimed "claimed by the Stop hook"; _wbc_unlock "$STEM")
+stage_req_nosnap
+assert_eq "a fresh claim: /wb-save's stage leaves it" "claimed $ID" "$(state_of "$STEM") $(wbc_get "$STEM" id)"
+sed -i 's/^updated=.*/updated=1000000000/' "$(wbc_dir "$STEM")/request"
+stage_req_nosnap
+assert_eq "an old claim: the stage replaces it with a ready request" ready "$(state_of "$STEM")"
+if [ "$ID" != "$(wbc_get "$STEM" id)" ]; then echo "ok   - ... under a new id"; else echo "FAIL - the stale request kept its id"; fail=1; fi
+end_case
+
+# =============================================================================
+echo "# review fixes: stale pane ids"
+# =============================================================================
+# two requests name the same pane id for different tasks (a tmux restart reuses ids)
+mk_other() { # <stem> <pane>: a leftover request of another task naming <pane>
+  mk_task "$1"
+  (_wbc_lock "$1"; wbc_set test "$1" ready "saved" "task_file=$(tf "$1")" "command=/ce-code-review" "pane=$2" "session_id=other-sess" last_stop=1 last_busy=0; _wbc_unlock "$1")
+}
+new_case
+stage_req
+mk_other proj--a-leftover "$PANE"
+echo pickup >"$FIX/claude-mode"
+out="$(wbc_release --pane "$PANE" 2>&1)"
+assert "--pane releases the request of the pane's own task" "^$STEM: released$" "$out"
+refute "--pane never touches the leftover" 'leftover' "$out"
+assert_eq "the leftover stays as it was" ready "$(state_of proj--a-leftover)"
+wait_gone "$STEM" 15
+end_case
+
+new_case
+mk_other proj--a-leftover "$PANE"
+out="$(wbc_release --all 2>&1)"
+refute "--all: a leftover whose pane is another session's says nothing" 'leftover|not running' "$out"
+assert_eq "--all: and puts no reason on that pane" "" "$(tm show -pv -t "$PANE" @wb_continue_reason 2>/dev/null)"
+out="$(wbc_release --pane "$PANE" 2>&1)"
+assert "--pane: no request of this pane's task" "no saved session to continue in this pane" "$out"
+out="$(wbc_release proj--a-leftover 2>&1)"
+assert "naming the leftover: says the session is not running" "not released: the session is not running" "$out"
+assert_eq "... and still puts no reason on the pane" "" "$(tm show -pv -t "$PANE" @wb_continue_reason 2>/dev/null)"
+end_case
+
+new_case
+arm_req ""
+mk_other proj--a-leftover "$PANE"
+run_hook hook-session-start "$PANE" "$(payload SessionStart-clear.json brand-new-id)"
+assert_eq "/clear by hand: the pane's own task's request is dropped" none "$([ -f "$(wbc_dir "$STEM")/request" ] && echo there || echo none)"
+assert_eq "... the leftover of another task stays" ready "$(state_of proj--a-leftover)"
+end_case
 
 # =============================================================================
 echo "# U6: pane-focus-in and pane-focus-out both stamp @wb_seen_at, and the old focus-in hook stays"
