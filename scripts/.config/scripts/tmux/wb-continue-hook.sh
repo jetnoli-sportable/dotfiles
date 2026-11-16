@@ -615,7 +615,6 @@ wbch_helper() {
   fi
 
   # 8. Restart: the pane's original shell, a prompt, then the fixed launch line.
-  # The unseen count is recorded once the respawn took.
   tmux respawn-pane -k -t "$pane" -c "$wt" 2>/dev/null || {
     rm -f "$(wb_continue_state_root)/born/$new"
     wbch_end helper-ready ready "tmux could not respawn the pane; release it from the picker" new_session_id= model_fallback=
@@ -810,7 +809,6 @@ wbch_release_one() {
   return 0
 }
 
-# wbch_pane_task_file <pane> — the task file of the pane's tmux session.
 wbch_pane_task_file() {
   local sess
   sess="$(tmux display-message -p -t "$1" '#S' 2>/dev/null)" || return 1
