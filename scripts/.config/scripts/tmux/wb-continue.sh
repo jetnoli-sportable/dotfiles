@@ -20,11 +20,19 @@
 #
 # States: armed (the Stop hook may restart the pane), claimed, restarting,
 # ready (waits for a release), refused, failed.
+#
+# stops_since_save counts the Stops that matched the request while it was not
+# armed (the Stops of an armed request are the continue's own waits). It starts
+# at -1 for a request that begins ready, whose own save turn then ends once and
+# brings it to 0, and at 0 for one that begins armed. A release refuses above 0:
+# the session kept working after the save.
+# wb/continue/picked-up/<id> marks a request the fresh Claude's pick-up removed,
+# so the helper can tell that from a drop.
 
 WBC_FIELDS=(id stem task_file state reason typed declined restart_born command
   session_id pane tmux_session model entry_sha entry_heading tip tree_sha
   worktree created updated new_session_id
-  last_stop last_busy effort permission_mode model_fallback)
+  last_stop last_busy effort permission_mode model_fallback stops_since_save)
 
 wbc_dir() { printf '%s/%s\n' "$(wb_continue_state_root)" "$1"; }
 
@@ -198,7 +206,7 @@ _wbc_transcript_of() {
 }
 
 _wbc_transcript() {
-  if [ -n "${WBC_TRANSCRIPT:-}" ]; then printf '%s\n' "$WBC_TRANSCRIPT"; return 0; fi
+  if [ "${WB_CONTINUE_TEST:-}" = 1 ] && [ -n "${WBC_TRANSCRIPT:-}" ]; then printf '%s\n' "$WBC_TRANSCRIPT"; return 0; fi
   [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 1
   _wbc_transcript_of "$CLAUDE_CODE_SESSION_ID"
 }
@@ -254,12 +262,43 @@ wbc_command_full() {
   if [ -f "$dir/instruction" ]; then cat "$dir/instruction"; else _wbc_run_block "$dir/entry.md"; fi
 }
 
-_wbc_is_review() {
-  local c="$1" first
+# _wbc_review_class <command> — 0: a review command whose every argument is a
+# read-only review option (the only session-written command the Stop hook
+# restarts on its own); 1: not a review command; 2: a review command with
+# anything else (an option that applies fixes or posts, a free word, a second
+# line, shell syntax).
+_wbc_review_class() {
+  local c="$1" first kind w v='[A-Za-z0-9._/@~+:-]+' prev=""
+  local -a words
   c="${c#"${c%%[![:space:]]*}"}"
+  c="${c%"${c##*[![:space:]]}"}"
   first="${c%%[[:space:]]*}"
-  case "$first" in /ce-code-review|/compound-engineering:ce-code-review|/code-review) return 0 ;; esac
-  return 1
+  case "$first" in
+    /ce-code-review|/compound-engineering:ce-code-review) kind=ce ;;
+    /code-review) kind=cr ;;
+    *) return 1 ;;
+  esac
+  [[ "$c" != *$'\n'* ]] || return 2
+  read -ra words <<<"${c#"$first"}"
+  for w in "${words[@]}"; do
+    if [ "$prev" = --max-findings ]; then
+      [[ "$w" =~ ^([0-9]+|all)$ ]] || return 2
+      prev=""; continue
+    fi
+    [[ "$w" =~ ^[0-9]+$ ]] && continue
+    if [ "$kind" = ce ]; then
+      [[ "$w" =~ ^(plan|base|depth|grouping):$v$ || "$w" =~ ^mode:(agent|headless)$ ]] || return 2
+    else
+      case "$w" in
+        low|medium|high|xhigh) ;;
+        --max-findings) prev="$w" ;;
+        --max-findings=*) [[ "${w#*=}" =~ ^([0-9]+|all)$ ]] || return 2 ;;
+        *) return 2 ;;
+      esac
+    fi
+  done
+  [ -z "$prev" ] || return 2
+  return 0
 }
 
 # --- stage / arm ---------------------------------------------------------------
@@ -309,9 +348,9 @@ _wbc_make() {
   _wbc_write_file "$dir/entry.md" "$entry"$'\n'
   if [ -n "$instruction" ]; then _wbc_write_file "$dir/instruction" "$instruction"; else rm -f "$dir/instruction"; fi
 
-  local command
-  command="$(wbc_command_full "$stem")"
-  command="$(_wbc_oneline "$command")"
+  local command raw_command
+  raw_command="$(wbc_command_full "$stem")"
+  command="$(_wbc_oneline "$raw_command")"
   command="${command#"${command%%[![:space:]]*}"}"; command="${command%"${command##*[![:space:]]}"}"
 
   local state reason
@@ -319,8 +358,14 @@ _wbc_make() {
   elif [ "$decline" = 1 ]; then state=ready; reason="the session declined an automatic restart"
   elif [ "$typed" = 1 ]; then state=armed; reason="typed by Jet"
   elif [ "$born" = 1 ]; then state=ready; reason="a restart-born session cannot restart itself"
-  elif _wbc_is_review "$command"; then state=armed; reason="a code review, requested by the session"
-  else state=ready; reason="the command is not a code review"; fi
+  else
+    _wbc_review_class "$raw_command"
+    case $? in
+      0) state=armed; reason="a code review, requested by the session" ;;
+      2) state=ready; reason="the review command has arguments that are not read-only review options" ;;
+      *) state=ready; reason="the command is not a code review" ;;
+    esac
+  fi
 
   local wt model pane tsess
   wt="$(_wbc_worktree "$task_file")"
@@ -334,7 +379,8 @@ _wbc_make() {
     "id=$id" "task_file=$task_file" "typed=$typed" "declined=$decline" "restart_born=$born" \
     "command=$command" "session_id=${CLAUDE_CODE_SESSION_ID:-}" "pane=$pane" "tmux_session=$tsess" \
     "model=$model" "entry_sha=$(printf '%s\n' "$entry" | _wbc_sha)" "entry_heading=$heading" \
-    "tip=$(_wbc_tip "$wt")" "tree_sha=$(_wbc_tree_sha "$wt")" "worktree=$wt" "new_session_id="
+    "tip=$(_wbc_tip "$wt")" "tree_sha=$(_wbc_tree_sha "$wt")" "worktree=$wt" "new_session_id=" \
+    "stops_since_save=$([ "$state" = armed ] && echo 0 || echo -1)"
   local rc=$?
   _wbc_unlock "$stem"
   [ "$rc" = 0 ] || return "$rc"
@@ -440,6 +486,7 @@ wbc_pickup() {
     _wbc_refuse_msg "could not write the Handoffs entry"; return 1
   fi
   wb_task_lock_release "$task_file"
+  mkdir -p "$(wb_continue_state_root)/picked-up" && : >"$(wb_continue_state_root)/picked-up/$id"
   wb_continue_drop_files "$stem" pickup "picked up by the fresh session"
   _wbc_unlock "$stem"
 

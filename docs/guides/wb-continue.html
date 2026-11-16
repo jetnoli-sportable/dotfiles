@@ -317,12 +317,12 @@ command. <kbd>c</kbd> releases that row, <kbd>C</kbd> every ready row.</li>
 </tr>
 <tr>
 <td>The session called it by itself (a build reaching its review)</td>
-<td>a code review: <code>/ce-code-review</code>, <code>/compound-engineering:ce-code-review</code>, <code>/code-review</code></td>
+<td>a read-only code review: <code>/ce-code-review</code>, <code>/compound-engineering:ce-code-review</code> or <code>/code-review</code>, with no arguments or only the read-only ones listed below</td>
 <td>yes, unless you're looking at the pane, then it waits in the ready list</td>
 </tr>
 <tr>
 <td>The session called it by itself</td>
-<td>anything else</td>
+<td>a review with any other argument, or anything else</td>
 <td>no, it waits in the ready list</td>
 </tr>
 <tr>
@@ -342,6 +342,20 @@ command. <kbd>c</kbd> releases that row, <kbd>C</kbd> every ready row.</li>
 </tr>
 </tbody>
 </table>
+<p>The read-only arguments are, for <code>/ce-code-review</code> and
+<code>/compound-engineering:ce-code-review</code>: <code>plan:&lt;path&gt;</code>, <code>base:&lt;ref&gt;</code>,
+<code>depth:&lt;value&gt;</code>, <code>grouping:&lt;value&gt;</code>, <code>mode:agent</code>, <code>mode:headless</code> and a bare PR
+number. For <code>/code-review</code>: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>--max-findings &lt;n&gt;</code>
+(or <code>=&lt;n&gt;</code>, or <code>all</code>) and a bare PR number. Anything else on a session-written
+review sends it to the ready list with the reason &quot;the review command has
+arguments that are not read-only review options&quot;: <code>apply:local</code>, <code>--fix</code>,
+<code>--comment</code>, <code>max</code>, free words (<code>/ce-code-review then push and open the PR</code>), a
+second line, or <code>&amp;&amp;</code> and <code>;</code>. A command that is not a review at all gets &quot;the
+command is not a code review&quot;. What you typed is never checked this way: any
+<code>/wb-continue</code> instruction you typed restarts by itself.</p>
+<p>The fresh Claude is told who wrote the command: its pick-up prints a <code>Command source:</code> line, &quot;typed by Jet&quot; for your words or &quot;written by the saving session,
+not by Jet&quot; for the session's own plan, which it carries out as written without
+treating it as something you said.</p>
 <p>A script decides the row, never the session: it reads the transcript's record of
 the prompt that opened the turn. A cron job, a task notification, a message from
 another session or a usage-limit resume never counts as typed by you. &quot;Looking at
@@ -357,11 +371,29 @@ moves it to the ready list:</p>
 <li>a <code>/decide</code> surface is open for the task;</li>
 <li>a new turn started, or there's text or a dialog on the input line.</li>
 </ul>
+<p>A release (<kbd>c</kbd>, <kbd>C</kbd>, <kbd>prefix</kbd> <kbd>y</kbd>) that only
+has to wait for one of these, or for a turn in progress, text on the input line, a
+locked request or a missing turn-end record, tells you why in the tmux message
+(or the picker's line) and in <code>continue.log</code>, and leaves the status line alone:
+waiting is not a failure, so the yellow mark never shows for it.</p>
+<p>A release also waits, with &quot;no turn end was recorded since the save (is the
+wb-continue hook loaded?)&quot;, when the Stop hook has not recorded a turn end for the
+save yet; without that record it can't tell whether background work is running.</p>
 <p>A restart is <strong>refused</strong>, and the save is left untouched, when the save entry
 changed, a newer Handoffs entry landed, the branch moved, or the working tree
-changed since the save. A refusal or a failed restart shows as a yellow <code>↻N</code> in
-the status line and as the row's reason in the picker. <code>/clear</code> then
-<code>/wb-resume</code> always works as before.</p>
+changed since the save. A release is also refused with &quot;the session kept working
+after the save; save again&quot; when a turn ended after the save's own turn: the
+fresh Claude would start from an older save and silently drop those turns (the
+old session is still there with <code>claude --resume &lt;old-id&gt;</code>). Run <code>/wb-save</code>
+again, then release. A request that was armed and waited through turn ends for
+background work is not counted against this: those turn ends belong to the same
+continue. Only a refusal or a failed restart shows as a yellow <code>↻N</code> in the status
+line (its reason is on the pane, and the row's reason in the picker); the next
+save in that pane clears it. <code>/clear</code> then <code>/wb-resume</code> always works as before.</p>
+<p>A restart that began but never finished (the helper was killed, or its pane is
+gone) stops blocking after five minutes: the next save or release turns it into a
+failed request naming the old session, and a failed request can be released
+again once the pane is back at a shell.</p>
 <h2 id="output-you-missed">Output you missed</h2>
 <p>A restart takes the old session's last replies off the screen. Gaining and
 losing focus both stamp a Claude pane, so the stamp is when you last left it.

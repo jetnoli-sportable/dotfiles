@@ -18,7 +18,7 @@ export HOME="$FIX/home" XDG_STATE_HOME="$FIX/state" CODE_DIR="$FIX/code" TASKS_D
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$HOME" "$XDG_STATE_HOME" "$CODE_DIR" "$TASKS_DIR" "$FIX/bin"
-unset TMUX TMUX_PANE CLAUDE_CODE_SESSION_ID WBC_TRANSCRIPT
+unset TMUX TMUX_PANE CLAUDE_CODE_SESSION_ID WBC_TRANSCRIPT WB_CONTINUE_TEST
 
 cat > "$FIX/bin/tmux" <<EOF2
 #!/usr/bin/env bash
@@ -75,8 +75,8 @@ T="$FIX/t.jsonl"
 tr_user() { jq -nc --arg c "$2" --arg k "$1" '{type:"user",turnOrigin:($k|gsub("-";"_")),origin:{kind:$k},message:{content:$c}}'; }
 tr_assistant() { jq -nc --arg m "$1" '{type:"assistant",message:{model:$m,content:[]}}'; }
 typed_prompt() { printf '<command-message>wb-continue</command-message>\n<command-name>/wb-continue</command-name>\n<command-args>%s</command-args>' "$1"; }
-use_transcript() { WBC_TRANSCRIPT="$T"; export WBC_TRANSCRIPT; }
-no_transcript() { unset WBC_TRANSCRIPT; }
+use_transcript() { WBC_TRANSCRIPT="$T" WB_CONTINUE_TEST=1; export WBC_TRANSCRIPT WB_CONTINUE_TEST; }
+no_transcript() { unset WBC_TRANSCRIPT WB_CONTINUE_TEST; }
 SID_OLD=sess-old-1111; SID_NEW=sess-new-2222
 export CLAUDE_CODE_SESSION_ID="$SID_OLD"
 
@@ -177,10 +177,36 @@ lane() { # <task-stem> <stdin text> [arm args...]
 mk_task proj--l1
 assert_eq "session-initiated /ce-work -> ready" ready "$(lane proj--l1 '/ce-work')"
 assert_eq "session-initiated /ce-code-review -> armed" armed "$(lane proj--l1 '/ce-code-review')"
-assert_eq "session-initiated /compound-engineering:ce-code-review with args -> armed" armed "$(lane proj--l1 '/compound-engineering:ce-code-review the diff')"
 assert_eq "session-initiated /code-review -> armed" armed "$(lane proj--l1 '/code-review')"
 assert_eq "session-initiated /code-reviewer (not the allow-list) -> ready" ready "$(lane proj--l1 '/code-reviewer')"
+assert_eq "not a review: the reason says so" "the command is not a code review" "$(wbc_get proj--l1 reason)"
+for ok in '/ce-code-review plan:docs/plans/x.md' '/ce-code-review base:origin/main' '/ce-code-review depth:deep grouping:file' \
+  '/ce-code-review mode:agent' '/ce-code-review mode:headless' '/ce-code-review 160' \
+  '/compound-engineering:ce-code-review plan:docs/p.md base:main mode:headless 160' \
+  '/code-review low' '/code-review medium' '/code-review high' '/code-review xhigh' '/code-review 160' \
+  '/code-review xhigh --max-findings 5' '/code-review --max-findings all' '/code-review --max-findings=12 high 7'; do
+  assert_eq "read-only review arms: $ok" armed "$(lane proj--l1 "$ok")"
+done
+# shellcheck disable=SC2016 # literal shell syntax is the fixture
+for bad in '/ce-code-review apply:local' '/ce-code-review --fix' '/ce-code-review --comment' '/ce-code-review max' \
+  '/ce-code-review the diff' '/ce-code-review then push and open the PR' '/ce-code-review mode:interactive' \
+  '/ce-code-review plan:x;rm' '/ce-code-review && git push' '/ce-code-review ; git push' '/ce-code-review plan:$(id)' \
+  '/ce-code-review high' '/ce-code-review base:' $'/ce-code-review\ngit push' $'/ce-code-review 160\n/ce-work' \
+  '/compound-engineering:ce-code-review apply:local' \
+  '/code-review max' '/code-review --fix' '/code-review --comment' '/code-review apply:local' '/code-review the diff' \
+  '/code-review --max-findings' '/code-review --max-findings=x' '/code-review --max-findings lots' '/code-review high && git push' \
+  '/code-review plan:x' $'/code-review\nrm -rf x'; do
+  assert_eq "review with other arguments goes to ready: ${bad//$'\n'/ | }" "ready $(printf '%s' 'the review command has arguments that are not read-only review options')" \
+    "$(lane proj--l1 "$bad") $(wbc_get proj--l1 reason)"
+done
 assert_eq "no instruction, review run block -> armed" armed "$(lane proj--l1 '')"
+mk_task proj--l3 "$(entry_text '2026-11-15 11:30' | sed 's#^/ce-code-review$#/ce-code-review\nthen push and open the PR#')"
+assert_eq "a multi-line run block starting with a review goes to ready" "ready the review command has arguments that are not read-only review options" \
+  "$(lane proj--l3 '') $(wbc_get proj--l3 reason)"
+mk_task proj--l4 "$(entry_text '2026-11-15 11:45' | sed 's#^/ce-code-review$#/ce-code-review apply:local#')"
+assert_eq "a run block with apply:local goes to ready" ready "$(lane proj--l4 '')"
+mk_task proj--l5 "$(entry_text '2026-11-15 11:50' | sed 's#^/ce-code-review$#/ce-code-review plan:docs/p.md base:main#')"
+assert_eq "a run block with read-only options arms" armed "$(lane proj--l5 '')"
 assert_eq "decline -> ready even for a review" ready "$(lane proj--l1 '/ce-code-review' --decline)"
 assert_eq "decline is recorded" 1 "$(wbc_get proj--l1 declined)"
 mk_task proj--l2 "$(entry_text '2026-11-15 11:00' | sed 's#^/ce-code-review$#/ce-work#')"
@@ -249,13 +275,23 @@ sed -n 1,9p "$FXT" > "$T"
 assert_eq "fixture: a Skill-tool turn (opener is the human prompt, tool results follow) is not typed" "ready 0" "$(lane proj--t1 '/ce-work') $(wbc_get proj--t1 typed)"
 { tr_user human "$(typed_prompt 'x')"; printf 'not json {{{\n'; } > "$T"
 assert_eq "a malformed line is skipped, the earlier typed prompt still counts" "armed 1" "$(lane proj--t1 'x') $(wbc_get proj--t1 typed)"
-WBC_TRANSCRIPT="$FIX/missing.jsonl"
+WBC_TRANSCRIPT="$FIX/missing.jsonl" WB_CONTINUE_TEST=1
 assert_eq "missing transcript is not typed" "ready 0" "$(lane proj--t1 '/ce-work') $(wbc_get proj--t1 typed)"
 assert_eq "missing transcript: model blank" "" "$(wbc_get proj--t1 model)"
 no_transcript
 mkdir -p "$CLAUDE_PROJECTS_DIR/-some-dir"
 { tr_user human "$(typed_prompt 'found by glob')"; } > "$CLAUDE_PROJECTS_DIR/-some-dir/$SID_OLD.jsonl"
 assert_eq "transcript found by globbing \$CLAUDE_PROJECTS_DIR/*/<session-id>.jsonl" "armed 1" "$(lane proj--t1 'x') $(wbc_get proj--t1 typed)"
+rm -f "$CLAUDE_PROJECTS_DIR/-some-dir/$SID_OLD.jsonl"
+# the transcript seam is for tests only: WBC_TRANSCRIPT counts only with WB_CONTINUE_TEST=1
+{ tr_user human "$(typed_prompt 'real lookup')"; } > "$CLAUDE_PROJECTS_DIR/-some-dir/$SID_OLD.jsonl"
+{ tr_user human "just talk"; } > "$FIX/other.jsonl"
+assert_eq "WBC_TRANSCRIPT without WB_CONTINUE_TEST is ignored: the real lookup decides" "armed 1" \
+  "$(WBC_TRANSCRIPT="$FIX/other.jsonl" lane proj--t1 'x') $(wbc_get proj--t1 typed)"
+assert_eq "WBC_TRANSCRIPT with WB_CONTINUE_TEST=1 is honoured" "ready 0" \
+  "$(WBC_TRANSCRIPT="$FIX/other.jsonl" WB_CONTINUE_TEST=1 lane proj--t1 '/ce-work') $(wbc_get proj--t1 typed)"
+assert_eq "WB_CONTINUE_TEST=1 without WBC_TRANSCRIPT still uses the real lookup" "armed 1" \
+  "$(WB_CONTINUE_TEST=1 lane proj--t1 'x') $(wbc_get proj--t1 typed)"
 rm -f "$CLAUDE_PROJECTS_DIR/-some-dir/$SID_OLD.jsonl"
 
 # an instruction and a different run block
@@ -317,6 +353,29 @@ restarting proj--c8 "$SID_NEW"
 out="$(pickup_as "$SID_NEW" "$(id_of proj--c8)")"
 assert "a session-written instruction is labelled as the saving session's" '^Command source: written by the saving session, not by Jet$' "$out"
 refute "... and not as typed by Jet" 'typed by Jet' "$out"
+
+# a pick-up leaves a marker the helper checks; a drop does not
+mk_task proj--c10
+wbc_stage "$(tf proj--c10)" >/dev/null 2>&1
+id_c10="$(id_of proj--c10)"
+restarting proj--c10 "$SID_NEW"
+pickup_as "$SID_NEW" "$id_c10" >/dev/null
+assert_eq "pickup leaves a picked-up marker named for the request id" yes "$([ -e "$XDG_STATE_HOME/wb/continue/picked-up/$id_c10" ] && echo yes || echo no)"
+mk_task proj--c11
+wbc_stage "$(tf proj--c11)" >/dev/null 2>&1
+id_c11="$(id_of proj--c11)"
+restarting proj--c11 "$SID_NEW"
+wbc_drop "$(tf proj--c11)" >/dev/null 2>&1
+assert_eq "a drop leaves no picked-up marker" no "$([ -e "$XDG_STATE_HOME/wb/continue/picked-up/$id_c11" ] && echo yes || echo no)"
+
+# the stop counter starts where the save's own turn end brings it to 0
+mk_task proj--c12
+wbc_stage "$(tf proj--c12)" >/dev/null 2>&1
+assert_eq "stage (ready): the counter starts at -1" -1 "$(wbc_get proj--c12 stops_since_save)"
+printf '' | wbc_arm "$(tf proj--c12)" >/dev/null 2>&1
+assert_eq "arm that begins armed: the counter starts at 0" "armed 0" "$(state_of proj--c12) $(wbc_get proj--c12 stops_since_save)"
+printf '/ce-code-review' | wbc_arm --decline "$(tf proj--c12)" >/dev/null 2>&1
+assert_eq "arm that begins ready (declined): the counter starts at -1" "ready -1" "$(state_of proj--c12) $(wbc_get proj--c12 stops_since_save)"
 mk_task proj--c9
 wbc_stage "$(tf proj--c9)" >/dev/null 2>&1
 restarting proj--c9 "$SID_NEW"

@@ -195,6 +195,12 @@ wbch_stop() {
   now="$(date +%s)"
   cur_reason="$(wbc_get "$stem" reason)"
   local -a snap=("last_stop=$now" "last_busy=$busy" "effort=$effort" "permission_mode=$perm")
+  if [ "$state" != armed ]; then
+    local stops
+    stops="$(wbc_get "$stem" stops_since_save)"
+    [[ "$stops" =~ ^-?[0-9]+$ ]] || stops=0
+    snap+=("stops_since_save=$((stops + 1))")
+  fi
   new_state="$state"
   reason="$cur_reason"
   event=snapshot
@@ -333,7 +339,6 @@ wbch_end() {
 # later Stop restart a pane Jet only meant to release by hand.
 wbch_back_armed() {
   if [ "$WBCH_RELEASE" = release ]; then
-    wbch_pane_reason "$1"
     wbch_end helper-ready ready "$1" new_session_id= model_fallback=
   fi
   wbch_end helper-armed armed "$1" new_session_id= model_fallback=
@@ -644,10 +649,16 @@ wbch_helper() {
   tmux set -p -t "$pane" @claude_session_id "$new" 2>/dev/null
 
   # 9. Wait for the pick-up: it removes the request, or refuses it.
-  local pt="${WB_CONTINUE_PICKUP_TIMEOUT:-120}" cur
+  local pt="${WB_CONTINUE_PICKUP_TIMEOUT:-120}" cur marker
   for ((i = 0; i < pt * 2; i++)); do
     if [ ! -f "$(wbc_dir "$stem")/request" ] || [ "$(wbc_get "$stem" id)" != "$id" ]; then
-      wb_continue_log restarted "$stem" "$id" restarted "the fresh Claude picked up the save"
+      marker="$(wb_continue_state_root)/picked-up/$id"
+      if [ -e "$marker" ]; then
+        rm -f "$marker"
+        wb_continue_log restarted "$stem" "$id" restarted "the fresh Claude picked up the save"
+      else
+        wb_continue_log dropped "$stem" "$id" gone "the request was dropped during the restart"
+      fi
       wbch_pane_reason ""
       WBCH_DONE=1
       return 0
@@ -668,8 +679,8 @@ wbch_helper() {
 # wbch_release_check <stem> — the KTD8 checks, in order, before anything is
 # ended. Prints the reason and returns 1 when the request stays as it is (busy,
 # a turn in progress, text on the input line, a /decide surface, the session is
-# not there), 2 when the save itself no longer holds (drift: the request is
-# refused). Reuses the helper's own input-line, drift and pane-Claude checks.
+# not there), 2 when the save itself no longer holds (drift, or the session kept
+# working after it: the request is refused). Reuses the helper's own input-line, drift and pane-Claude checks.
 wbch_release_check() {
   local stem="$1" pane tsess tf busy stop nsid=""
   pane="$(wbc_get "$stem" pane)"
@@ -680,6 +691,14 @@ wbch_release_check() {
     echo "the session is not running"
     return 1
   fi
+  case "$(wbc_get "$stem" state)" in
+    ready | failed)
+      if [ -z "$(wbc_get "$stem" new_session_id)" ] && [ "$(wbc_get "$stem" stops_since_save)" -gt 0 ] 2>/dev/null; then
+        echo "the session kept working after the save; save again"
+        return 2
+      fi
+      ;;
+  esac
   busy="$(wbc_get "$stem" last_busy)"
   stop="$(wbc_get "$stem" last_stop)"
   if [ -z "$stop" ]; then
@@ -751,7 +770,6 @@ wbch_release_one() {
       echo "$stem: not released: $reason"
       return 1
     fi
-    wbch_pane_reason "$reason"
     echo "$stem: not released: $reason"
     return 1
   elif [ "$rc" = 2 ]; then

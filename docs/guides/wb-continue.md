@@ -59,11 +59,28 @@ Any plain `/wb-save` can be continued later too:
 | Who asked | The command | Restarts by itself? |
 |---|---|---|
 | You typed `/wb-continue …` (the turn opened with it) | anything | yes, with your words passed on verbatim |
-| The session called it by itself (a build reaching its review) | a code review: `/ce-code-review`, `/compound-engineering:ce-code-review`, `/code-review` | yes, unless you're looking at the pane, then it waits in the ready list |
-| The session called it by itself | anything else | no, it waits in the ready list |
+| The session called it by itself (a build reaching its review) | a read-only code review: `/ce-code-review`, `/compound-engineering:ce-code-review` or `/code-review`, with no arguments or only the read-only ones listed below | yes, unless you're looking at the pane, then it waits in the ready list |
+| The session called it by itself | a review with any other argument, or anything else | no, it waits in the ready list |
 | The session declined (you have to act first, e.g. switch the model) | anything | no, it waits in the ready list |
 | A session started by a restart, by itself | anything | no, it waits in the ready list |
 | A plain `/wb-save` | any or none | no, it's staged for a release |
+
+The read-only arguments are, for `/ce-code-review` and
+`/compound-engineering:ce-code-review`: `plan:<path>`, `base:<ref>`,
+`depth:<value>`, `grouping:<value>`, `mode:agent`, `mode:headless` and a bare PR
+number. For `/code-review`: `low`, `medium`, `high`, `xhigh`, `--max-findings <n>`
+(or `=<n>`, or `all`) and a bare PR number. Anything else on a session-written
+review sends it to the ready list with the reason "the review command has
+arguments that are not read-only review options": `apply:local`, `--fix`,
+`--comment`, `max`, free words (`/ce-code-review then push and open the PR`), a
+second line, or `&&` and `;`. A command that is not a review at all gets "the
+command is not a code review". What you typed is never checked this way: any
+`/wb-continue` instruction you typed restarts by itself.
+
+The fresh Claude is told who wrote the command: its pick-up prints a `Command
+source:` line, "typed by Jet" for your words or "written by the saving session,
+not by Jet" for the session's own plan, which it carries out as written without
+treating it as something you said.
 
 A script decides the row, never the session: it reads the transcript's record of
 the prompt that opened the turn. A cron job, a task notification, a message from
@@ -82,11 +99,32 @@ moves it to the ready list:
 - a `/decide` surface is open for the task;
 - a new turn started, or there's text or a dialog on the input line.
 
+A release (<kbd>c</kbd>, <kbd>C</kbd>, <kbd>prefix</kbd> <kbd>y</kbd>) that only
+has to wait for one of these, or for a turn in progress, text on the input line, a
+locked request or a missing turn-end record, tells you why in the tmux message
+(or the picker's line) and in `continue.log`, and leaves the status line alone:
+waiting is not a failure, so the yellow mark never shows for it.
+
+A release also waits, with "no turn end was recorded since the save (is the
+wb-continue hook loaded?)", when the Stop hook has not recorded a turn end for the
+save yet; without that record it can't tell whether background work is running.
+
 A restart is **refused**, and the save is left untouched, when the save entry
 changed, a newer Handoffs entry landed, the branch moved, or the working tree
-changed since the save. A refusal or a failed restart shows as a yellow `↻N` in
-the status line and as the row's reason in the picker. `/clear` then
-`/wb-resume` always works as before.
+changed since the save. A release is also refused with "the session kept working
+after the save; save again" when a turn ended after the save's own turn: the
+fresh Claude would start from an older save and silently drop those turns (the
+old session is still there with `claude --resume <old-id>`). Run `/wb-save`
+again, then release. A request that was armed and waited through turn ends for
+background work is not counted against this: those turn ends belong to the same
+continue. Only a refusal or a failed restart shows as a yellow `↻N` in the status
+line (its reason is on the pane, and the row's reason in the picker); the next
+save in that pane clears it. `/clear` then `/wb-resume` always works as before.
+
+A restart that began but never finished (the helper was killed, or its pane is
+gone) stops blocking after five minutes: the next save or release turns it into a
+failed request naming the old session, and a failed request can be released
+again once the pane is back at a shell.
 
 ## Output you missed
 
