@@ -4,13 +4,37 @@ status: current
 tile: One canonical definition per term that keeps coming up. Jump to any of them.
 group: start-here
 kind: guide
-updated: 2026-07-10
+updated: 2026-11-15
 ---
 
 Terms that recur across this docs project, the task store, and the tmux/wb
 tooling — defined once here instead of re-explained inline every time they
 come up. Each term is its own section so the sticky table of contents can
 jump straight to it.
+
+## Release lane
+
+The picker's **ready to continue** rows: saved sessions waiting for Jet to carry
+them on in a fresh context with one key (<kbd>c</kbd> on a row, <kbd>C</kbd> for
+all, <kbd>prefix</kbd> <kbd>y</kbd> in the pane). A save lands here when it
+shouldn't restart by itself: a session's own continue for anything but a code
+review, a declined one, one Jet was looking at, or a plain `/wb-save` with a next
+command. See [wb-continue](guides/wb-continue.html).
+
+## Restart-born session
+
+A Claude session that a `/wb-continue` restart (or a release) started. Its first
+prompt is `/wb-resume --continue <request-id>`, and it is recorded in
+`~/.local/state/wb/continue/born/<session-id>`. A restart-born session can't
+restart itself again by its own choice; a `/wb-continue` Jet types there still
+counts as typed.
+
+## Unseen output
+
+Turns of a session that finished after Jet last looked at its pane and before the
+pane was restarted. They are counted at the restart, marked on the pane and its
+picker row until Jet opens the reply viewer (<kbd>prefix</kbd> <kbd>v</kbd>), which
+opens at a divider above the first of them. The count adds up across restarts.
 
 ## Frontmatter
 

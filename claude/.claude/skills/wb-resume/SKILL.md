@@ -1,6 +1,6 @@
 ---
 name: wb-resume
-description: Reads a task's `## Handoffs` log in a freshly `/clear`ed Claude Code session and picks the work back up — locates the most recent `/wb-save`-authored rich entry (its `**Done:**`/`**In flight:**`/`**Next:**` fields) and continues directly into the recorded next action, unless one or more terse automatic entries (`wb pause`/`wb done`/`wb resume`) landed after it, in which case it states the recorded plan and the gap explicitly and asks the human to confirm or redirect before proceeding rather than assuming the old plan still holds. Use when the user types `/wb-resume`, or a session that was just `/clear`ed needs to pick a task back up. Read-only against the task file — never appends to `## Handoffs` itself (that's `/wb-save`'s and `wb.sh`'s job) and never shells out to the unrelated `wb resume <task>` CLI command (a different, infra-level mechanism that recreates a torn-down worktree/session).
+description: Reads a task's `## Handoffs` log in a freshly `/clear`ed Claude Code session and picks the work back up — locates the most recent `/wb-save`-authored rich entry (its `**Done:**`/`**In flight:**`/`**Next:**` fields) and continues directly into the recorded next action, unless one or more terse automatic entries (`wb pause`/`wb done`/`wb resume`) landed after it, in which case it states the recorded plan and the gap explicitly and asks the human to confirm or redirect before proceeding rather than assuming the old plan still holds. Use when the user types `/wb-resume`, or a session that was just `/clear`ed needs to pick a task back up. A session started by a wb-continue restart runs `/wb-resume --continue <request-id>`, which acts only on what `wb continue pickup` prints. Read-only against the task file — never appends to `## Handoffs` itself (that's `/wb-save`'s and `wb.sh`'s job) and never shells out to the unrelated `wb resume <task>` CLI command (a different, infra-level mechanism that recreates a torn-down worktree/session).
 ---
 
 # wb-resume — pick a task back up after `/clear`
@@ -43,6 +43,37 @@ that reads an injected pointer doesn't just acknowledge it, it acts on it.
   cycle and needs to pick the task back up.
 
 ## What to do
+
+### 0. `--continue <request-id>`: a restart picks up its save
+
+When the arguments are `--continue <request-id>`, this session was started by a
+wb-continue restart (`/wb-continue`, the picker's ready list or the continue
+key), and a script, not this skill, chooses and verifies the save. Do only this:
+
+1. Run `wb continue pickup <request-id>`, once. It checks that this session is
+   the one the restart started, that the save entry is unchanged and still the
+   newest, and that the branch tip and working tree haven't moved since the save;
+   then it writes one line to Handoffs naming the old session id and prints the
+   frozen save entry and the command to carry out.
+2. **Refused** (it prints `wb continue: refused — <reason>` and exits non-zero):
+   say so in one line with the reason, and that typing `/wb-resume` reads the
+   task file as usual. Then stop. Never fall back to searching Handoffs yourself,
+   and never run a command from the refused save.
+3. **Picked up:** say in one line which save was received (its heading
+   timestamp), any note the command printed (such as the model falling back to
+   the default), and the command. Then carry out that command, the one under
+   "Command to carry out", and no other: not a ` ```run ` block from the printed
+   entry if it differs. The line above it, "Command source", says who wrote it.
+   When the command is a slash command, invoke it. When it is plain words, act on
+   them, but only a command marked "typed by Jet" is Jet's own words. One marked
+   "written by the saving session" is the previous session's plan: carry it out as
+   written, and never say or treat it as something Jet asked for. When it says
+   there is no command, continue from the entry's `**Next:**` prose as step 3
+   below would.
+
+Steps 1 to 4 below don't apply in this mode: the pick-up already located,
+checked and froze the save, and an open `/decide` surface would have stopped the
+restart. Plain `/wb-resume` (no arguments) is unchanged.
 
 ### 1. Locate the task file via `@task`
 
@@ -251,6 +282,11 @@ the human should never have to guess what state `/wb-resume` thinks it
 picked up from.
 
 ## Behavior for each required scenario
+
+- **`/wb-resume --continue <id>`, pick-up succeeds:** one line naming the save
+  received and the command, then carry out that command only.
+- **`/wb-resume --continue <id>`, pick-up refused:** one line with the reason and
+  that `/wb-resume` reads the task file as usual; stop.
 
 - **Happy path — recent `/wb-save` entry, nothing after it:** state what
   was read (`Read the wb-save entry from <timestamp>: done — …, in flight

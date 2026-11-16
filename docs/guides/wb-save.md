@@ -4,7 +4,7 @@ status: current
 tile: Write a structured done/in-flight/next snapshot before a manual /clear.
 group: skills
 kind: guide
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 ## Overview
@@ -57,6 +57,12 @@ deterministically instead of re-reading prose:
 No directive is written if you don't state a concrete next action — a
 plain "save my progress" produces the four-field entry with no directive.
 
+Every save is also staged as a ready request (`wb continue stage`), so you can
+carry it on in a fresh context later without visiting the pane:
+<kbd>prefix</kbd> <kbd>y</kbd> in the pane, or <kbd>c</kbd> on its picker row
+(the row shows **ready to continue** when the save has a next command). To save
+and restart in one step, use [`/wb-continue`](wb-continue.html).
+
 ## Reference
 
 | Step | What happens |
@@ -66,6 +72,7 @@ plain "save my progress" produces the four-field entry with no directive.
 | Compose the entry | **Drift** first, then **Done** / **In flight** / **Next**, drawn from what actually happened this session — a genuinely empty field is stated plainly (`**Done:** nothing yet this session`), never invented |
 | Refresh `## Now` first | Runs `wb now <task_file> -` first to replace `## Now` (goal, rung, next action, what waits on you), then the append below, which moves the previous handoff to `handoffs/`. Mentions `notes.md` only if it changed since the last save |
 | Append | Shells out to `wb append <task_file> Handoffs` (the locked, heading-scoped append verb) with the four-field block over stdin — never an Edit/Write-tool edit to a task file |
+| Stage | Then `wb continue stage <task_file>`: records the save (a frozen copy of the entry, the branch tip, a working-tree hash) as a ready request for a later release. Types nothing, restarts nothing |
 | Entry shape | `### <YYYY-MM-DD HH:MM> — wb-save` heading (no `(auto)` suffix — that's reserved for `wb.sh`'s own mechanical `pause`/`done`/`resume` entries), then `**Drift:**`/`**Done:**`/`**In flight:**`/`**Next:**` |
 | Next-action directive | Optional last element: a fenced ` ```run ` block right after `**Next:**`, containing the literal command to run on resume — only emitted when the save-request explicitly named one |
 | No `@task` set | Stops before touching any file: `wb-save: this session has no @task — not a wb task session.` |
@@ -79,7 +86,9 @@ plain "save my progress" produces the four-field entry with no directive.
   task-file edit instead.
 - **Never invokes `/clear` itself, never touches tmux state** beyond the
   one read-only `@task` lookup. This is a closed design boundary, not a
-  gap — see Overview.
+  gap — see Overview. Continuing in a fresh context without a manual `/clear`
+  is [`/wb-continue`](wb-continue.html)'s job, and even there a Stop hook
+  restarts the pane, never a skill.
 - **The task file keeps one handoff, not a log:**
   each save moves the old one to `handoffs/`. "Never touches existing content" still
   holds, because the old entry is moved, not edited. See [wb-guide](../wb-guide.html), "Dossier layout".

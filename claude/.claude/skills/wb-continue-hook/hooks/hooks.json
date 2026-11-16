@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${WB_CONTINUE_BIN:-$HOME/.config/scripts/tmux}/wb-continue-hook.sh\" hook-stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${WB_CONTINUE_BIN:-$HOME/.config/scripts/tmux}/wb-continue-hook.sh\" hook-session-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

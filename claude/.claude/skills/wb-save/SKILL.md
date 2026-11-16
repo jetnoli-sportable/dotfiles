@@ -34,7 +34,10 @@ to survive the clear; the human runs `/clear` themselves.
   the intro above. Don't attempt `send-keys`, `capture-pane`, or anything
   else pane-directed as a workaround; if something seems to need it,
   that's a sign the request is out of scope for this skill, not a gap to
-  route around. One narrow exception: when step 2's review records decisions,
+  route around. Continuing in a fresh context without a manual `/clear` is
+  `/wb-continue`'s job, and even there a Stop hook does the restart, never a
+  skill; this skill only stages a request file (step 5) that Jet can release
+  later. One narrow exception: when step 2's review records decisions,
   `/wb-decide` step 6 may read `wb family --sessions` (a read of other sessions'
   `@task`) and ListAgents, and send `[wb-propagate]` messages with SendMessage to
   *other* sessions it affects. Nothing is ever sent to this session's own pane.
@@ -199,6 +202,12 @@ Do two writes, in this order, both through the locked verbs:
    shown. That verb moves the task file's current handoff to
    `handoffs/<ts>.md` and writes this one in its place, so the task file keeps
    one handoff.
+3. `wb continue stage "$task_file"`, once the entry has landed. It records the
+   save (a frozen copy of the entry, the branch tip and the working tree) as a
+   ready request, so Jet can later start a fresh Claude on exactly this save
+   from the picker's ready list or with the continue key, without visiting the
+   pane. It types nothing and restarts nothing. If it fails, say so in the step 6
+   line and carry on; the save itself stands.
 
 Mention `notes.md` (Jet's scratch file in the dossier) in the entry only when it
 changed since the last save, one line: `notes.md changed since the last save`.
@@ -321,7 +330,9 @@ step 3 found drift, add one sentence saying what drifted.
 
 Never invoke `/clear` yourself, never send it (or anything else) via
 `tmux send-keys`, never touch tmux session state beyond the read-only
-`@task` lookup in step 1. This is intentional, not an oversight to work
+`@task` lookup in step 1. Step 5's `wb continue stage` writes a state file under
+`~/.local/state/wb/continue/`, not tmux state; the restart that may follow is the
+wb-continue hook's, started by Jet's release. This is intentional, not an oversight to work
 around — see the intro above for why it's a closed door, not an open
 question. The only exception is step 2's propagate call (see Scope), which
 messages *other* sessions and never this one.
@@ -331,9 +342,10 @@ messages *other* sessions and never this one.
 - **Happy path:** mid-task session, `/wb-save` run — read `@task`, read the
   task file, compose drift/done/in-flight/next from actual conversation content,
   append the entry under `## Handoffs`, confirm in one line.
-- **Save order:** `wb now` then `wb append … Handoffs -`; afterwards `## Now`
-  holds the new block, the task file holds only this handoff, and the old one is
-  a file in `handoffs/`.
+- **Save order:** `wb now` then `wb append … Handoffs -` then `wb continue stage`;
+  afterwards `## Now` holds the new block, the task file holds only this handoff,
+  the old one is a file in `handoffs/`, and `wb continue status` shows a ready
+  request for this save.
 - **Drift — work matches the brief:** the entry's first line is `**Drift:** none`.
 - **Drift — the session touched something the brief's "Not doing" lists** (e.g.
   the brief rules out `wb.sh` changes and the session edited `wb.sh`): the

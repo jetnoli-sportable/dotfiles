@@ -297,6 +297,13 @@ An agent waiting on you is hard to miss:
 - when the picker opens, the cursor **starts on the first one**. With none,
   it starts on the row just below your own.
 
+A session whose save is waiting to carry on in a fresh context (see
+[Continuing in a fresh context](#continuing-in-a-fresh-context-wb-continue)
+below) shows **ready to continue**, sorted just below the rows that need you;
+its preview shows the save's Done line and the command the fresh Claude will
+run. <kbd>c</kbd> releases it. A release that failed shows **restart failed**
+and can be released again.
+
 Your own session never counts as needing you, even when its agent is
 waiting: it stays grey. The cursor also stays on its row across the
 3-second refresh, even when that row's colour changes.
@@ -310,6 +317,8 @@ waiting: it stays grey. The cursor also stays on its row across the
 | <kbd>n</kbd> | New — prompts for a repo (defaults to the picker's own launching session's repo) and a slug; an empty slug opens a plain repo session instead of a task |
 | <kbd>p</kbd> | Close this row's session with `wb down` — worktree kept, resumable later. Guarded the same way <kbd>Ctrl</kbd>+<kbd>x</kbd> is: on the picker's own current session it writes everything but skips the kill |
 | <kbd>r</kbd> | Rename the row's tmux session (prompts inline, cosmetic only — doesn't touch the task file or worktree) |
+| <kbd>c</kbd> | Continue the row's saved session in a fresh context (`wb continue release`): the pane restarts with a fresh Claude on that save, after the same checks the automatic restart uses. The outcome shows as a tmux message |
+| <kbd>C</kbd> | The same for every **ready to continue** row; a row whose save has drifted is refused, the others still go |
 | <kbd>b</kbd> | Break the row's agent pane out into a brand new session of its own (prompts for a name) — for a second agent you started ad hoc in a shared session and now want on its own. On a parent session row this takes the session's *most-urgent* agent pane; on a row with no agent it does nothing. |
 | <kbd>Ctrl</kbd>+<kbd>x</kbd> | On a task row: asks "Close &lt;task&gt; (&lt;title&gt;)? [y/N]" first, then the full `wb done` wind-down; any key but <kbd>y</kbd> cancels. On a plain session/agent row: a raw kill, no prompt. |
 | <kbd>Ctrl</kbd>+<kbd>r</kbd> | Force a refresh (it also auto-refreshes every few seconds, without ever blocking your typing) |
@@ -378,6 +387,12 @@ wb session the view also stacks the task's earlier sessions (before any
 hook and wb-capture's hooks and never changes what they do. See
 [the reply-log guide](guides/reply-log.html).
 
+After a [wb continue](#continuing-in-a-fresh-context-wb-continue) restart, turns
+of the old session that finished after you last left the pane are marked as
+**unseen**: `(N unseen)` on the picker row and an amber `●N unseen` in the status
+bar. <kbd>prefix</kbd>+<kbd>v</kbd> then opens at a divider above the first of
+them instead of at the bottom, and opening it clears the marks.
+
 ## prefix+i and the picker preview — the session card
 
 The picker's preview shows each row's **context card**: the session's
@@ -441,6 +456,24 @@ each Claude starts only when you visit its window and press Enter. A list entry
 must be an exact task stem: no matching task file, or a session still open, and
 it is skipped with the reason printed. If an agent window never shows a shell
 prompt, the command is printed for you to type instead.
+
+### Continuing in a fresh context: /wb-continue
+
+`/wb-continue <instruction>` saves, restarts the pane with a fresh Claude and
+carries out the instruction, so a session that needs a fresh context (a build
+reaching its code review) no longer waits for you to type `/clear` and
+`/wb-resume`. A Stop hook does the restart at the end of the turn, once nothing is
+still running; a script hands the fresh Claude exactly the save that asked for
+it, or refuses if the save, the branch or the working tree changed since. A
+continue you typed restarts by itself; one a session started by itself does only
+for a code review, and only when you aren't looking at the pane. Everything else
+waits in the picker as **ready to continue**: <kbd>c</kbd> releases a row,
+<kbd>C</kbd> all of them, and <kbd>prefix</kbd> <kbd>y</kbd> releases the pane
+you're in after any `/wb-save`. Each restart adds a `wb continue (auto)` line to
+Handoffs naming the old session (`claude --resume <id>` reopens it). The
+automatic restart starts in shadow mode (logged, not done) until
+`~/.local/state/wb/continue-live` exists. Full rules, the waits and refusals:
+[wb-continue](guides/wb-continue.html).
 
 **Resuming is warm by default.** Bringing a dormant or paused task back —
 via the picker's dormant rows or `wb resume <task>` — rebuilds the usual
@@ -1093,6 +1126,7 @@ details, incident history, and runbooks live in
 | Verb | What it's for |
 |---|---|
 | `wb restart [--dry-run] <list-file>\|--crashed` | Brings back many sessions after a crash or reboot: runs `wb resume` on each task stem (one per line in the list file; `--crashed` builds the list from the store) and pre-types `claude "/wb-resume"` in each agent window without pressing Enter. See "After a crash" below. |
+| `wb continue stage\|arm\|status\|drop\|release\|pickup` | The request behind `/wb-continue` and the ready-to-continue list: `stage` (what `/wb-save` runs), `arm` (what `/wb-continue` runs), `release <task>\|--all\|--pane <pane>` (the picker's <kbd>c</kbd>/<kbd>C</kbd> and <kbd>prefix</kbd> <kbd>y</kbd>), `pickup <id>` (the fresh Claude, once). See "Continuing in a fresh context" above. |
 | `wb append <task> <heading> <text>` | Append text under a heading in a task file through a per-file lock, instead of an unlocked Edit-tool write racing another session's write to the same file. |
 | `wb unsafe-rewind` | The deliberate escape hatch for a genuine history rewind (`reset --hard` and friends) inside the task store, which a git hook otherwise refuses. Opens a short-lived (120s) sentinel, then you run the rewind yourself. |
 | `wb install-hooks` | Installs the git hook and the Claude Code `PreToolUse` hook that do the refusing/asking in the first place. One-time setup per machine. |

@@ -236,7 +236,7 @@
 <div class="statusbar">
   <span class="crumb"><a href="HUB.html">⌂ Hub</a> <span class="sep">/</span> start-here</span>
   <span class="gen">docgen · generated from <b>docs/glossary.md</b> — edit the .md, not this file</span>
-  <span class="right">updated 2026-07-10</span>
+  <span class="right">updated 2026-11-15</span>
 </div>
 <div class="shell">
   <nav class="toc">
@@ -244,6 +244,9 @@
     <div class="brand-sub">One canonical definition per term that keeps coming up. Jump to any of them.</div>
     <p class="backlink"><a href="HUB.html">&larr; back to the hub</a></p>
     <ul>
+      <li><a href="#release-lane">Release lane</a></li>
+      <li><a href="#restart-born-session">Restart-born session</a></li>
+      <li><a href="#unseen-output">Unseen output</a></li>
       <li><a href="#frontmatter">Frontmatter</a></li>
       <li><a href="#transcript">Transcript</a></li>
       <li><a href="#capture-doc">Capture doc</a></li>
@@ -270,6 +273,24 @@
 tooling — defined once here instead of re-explained inline every time they
 come up. Each term is its own section so the sticky table of contents can
 jump straight to it.</p>
+<h2 id="release-lane">Release lane</h2>
+<p>The picker's <strong>ready to continue</strong> rows: saved sessions waiting for Jet to carry
+them on in a fresh context with one key (<kbd>c</kbd> on a row, <kbd>C</kbd> for
+all, <kbd>prefix</kbd> <kbd>y</kbd> in the pane). A save lands here when it
+shouldn't restart by itself: a session's own continue for anything but a code
+review, a declined one, one Jet was looking at, or a plain <code>/wb-save</code> with a next
+command. See <a href="guides/wb-continue.html">wb-continue</a>.</p>
+<h2 id="restart-born-session">Restart-born session</h2>
+<p>A Claude session that a <code>/wb-continue</code> restart (or a release) started. Its first
+prompt is <code>/wb-resume --continue &lt;request-id&gt;</code>, and it is recorded in
+<code>~/.local/state/wb/continue/born/&lt;session-id&gt;</code>. A restart-born session can't
+restart itself again by its own choice; a <code>/wb-continue</code> Jet types there still
+counts as typed.</p>
+<h2 id="unseen-output">Unseen output</h2>
+<p>Turns of a session that finished after Jet last looked at its pane and before the
+pane was restarted. They are counted at the restart, marked on the pane and its
+picker row until Jet opens the reply viewer (<kbd>prefix</kbd> <kbd>v</kbd>), which
+opens at a divider above the first of them. The count adds up across restarts.</p>
 <h2 id="frontmatter">Frontmatter</h2>
 <p>The YAML block delimited by <code>---</code> lines at the top of a markdown source.
 Every docs page (<code>docs/*.md</code>), task file (<code>~/code/tasks/*.md</code>), and plan

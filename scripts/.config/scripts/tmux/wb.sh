@@ -121,6 +121,20 @@
 #                                    list them; none, or already done: exit 1). Sets
 #                                    status: closed + closed: <date> (and "Closed <date>: <note>"),
 #                                    views rebuilt
+#   wb continue stage [<task>]       what /wb-save calls after writing its entry: record the live
+#                                    Handoffs entry as a `ready` continue request (one per task)
+#   wb continue arm [--decline] [<task>]
+#                                    what /wb-continue calls: record the request and pick its lane
+#                                    (armed or ready); a typed /wb-continue takes its words from the
+#                                    prompt record, a session's own instruction comes on stdin
+#   wb continue status [<task>]      print the task's request fields
+#   wb continue drop [<task>]        remove the task's request
+#   wb continue pickup <request-id>  run by the fresh Claude: check the request still matches, write the
+#                                    Handoffs line, print the frozen entry and the command; single use
+#   wb continue release <task> | --all | --pane <pane-id>
+#                                    Jet's own release of a ready, failed or armed request: the same
+#                                    checks as the Stop hook, then the restart (live even in shadow
+#                                    mode), started detached; one line per task released or refused
 #   wb migrate <task>|--all [--dry-run]
 #                                    convert an old-shape task file (one written by hand or
 #                                    brought from elsewhere) into the dossier layout
@@ -460,6 +474,54 @@ wb_task_file() { printf '%s/%s--%s.md\n' "$TASKS_DIR" "$1" "$2"; }
 # wb_needs_you_file <key> — the /decide needs-you marker of a task stem (or a tmux session
 # name outside a task); lines and writers are in wb-decide.sh, the picker only reads it.
 wb_needs_you_file() { printf '%s/wb/needs-you/%s' "${XDG_STATE_HOME:-$HOME/.local/state}" "$1"; }
+
+# wb continue (wb-continue.sh, sourced lazily): one request per task under
+# wb_continue_state_root/<stem>/. The functions below live here, not in
+# that file, so the lifecycle verbs can drop a request before it is stowed.
+wb_continue_state_root() { printf '%s/wb/continue' "${XDG_STATE_HOME:-$HOME/.local/state}"; }
+# wb_continue_log <event> <stem> <id> <state> <reason> — one line in wb/continue.log.
+wb_continue_log() {
+  local reason="${5//\"/\'}"
+  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/wb" 2>/dev/null || return 0
+  printf '%s wbc event=%s stem=%s id=%s state=%s reason="%s"\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
+    "$1" "$2" "$3" "$4" "${reason//[$'\t\r\n']/ }" >> "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue.log" 2>/dev/null || true
+}
+# wb_continue_drop_files <stem> [<event> [<reason>]] — remove <stem>'s request
+# files by name, then the directory; logs when a request existed. CALLER HOLDS
+# continue-<stem>.
+wb_continue_drop_files() {
+  local stem="$1" event="${2:-drop}" reason="${3:-task lifecycle}" d f id=""
+  d="$(wb_continue_state_root)/$stem"
+  [ -d "$d" ] || return 0
+  if [ -f "$d/request" ]; then
+    while IFS= read -r f || [ -n "$f" ]; do [[ "$f" == id=* ]] && id="${f#id=}"; done < "$d/request"
+  fi
+  for f in request entry.md instruction row; do rm -f "$d/$f"; done
+  for f in "$d"/*.tmp.*; do [ ! -e "$f" ] || rm -f "$f"; done
+  rmdir "$d" 2>/dev/null || true
+  wb_continue_log "$event" "$stem" "$id" dropped "$reason"
+}
+# wb_continue_drop <stem> [<event> [<reason>]] — the same under its own
+# continue-<stem> lock; what the lifecycle verbs call.
+wb_continue_drop() {
+  [ -d "$(wb_continue_state_root)/$1" ] || return 0
+  local took=0
+  if wb_task_lock_acquire_guarded "continue-$1" >/dev/null 2>&1; then took=1; fi
+  wb_continue_drop_files "$@"
+  [ "$took" = 0 ] || wb_task_lock_release "continue-$1"
+}
+# wb_continue_unseen_sum <unseen-file> — sets WB_UNSEEN_SUM to the sum of the
+# file's count column ("<session id> <count> <prompt id>" per line; 0 when the
+# file is missing). A global, not printed, so the picker row stays fork-free.
+wb_continue_unseen_sum() {
+  local line count
+  WB_UNSEEN_SUM=0
+  [ -f "$1" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    read -r _ count _ <<< "$line"
+    [[ "$count" =~ ^[0-9]+$ ]] && WB_UNSEEN_SUM=$((WB_UNSEEN_SUM + count))
+  done < "$1"
+}
 
 # wb_task_files — every real task file in the store: only `<repo>--<slug>.md`
 # stems (a non-empty repo, the `--` delimiter, a non-empty slug), so
@@ -2478,6 +2540,7 @@ cmd_restart() {
     if [ "$dry" = 1 ]; then
       echo "WOULD $stem: wb resume, then pre-type: $agent_cmd"; ok=$((ok + 1)); continue
     fi
+    wb_continue_drop "$stem" restart "wb restart"
     if ! bash "$SELF" resume "$stem" >/dev/null </dev/null; then
       echo "FAIL  $stem: wb resume failed"; failed=$((failed + 1)); continue
     fi
@@ -4067,6 +4130,7 @@ cmd_down() {
   wb_branch_has_open_pr "$(wb_repo_dir "$repo")" "$branch" && has_open_pr=0
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_continue_drop "$(basename -- "$task_file" .md)" down "wb down"
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   [ -z "$snapshot" ] || wb_set_frontmatter "$task_file" claude_sessions "$snapshot"
   [ "$has_open_pr" = 0 ] && [ "$no_status_flip" = 0 ] && wb_set_frontmatter "$task_file" status review
@@ -4119,6 +4183,7 @@ cmd_pause() {
   _wb_down_shelf_warn "$task_file" 1
 
   _wb_lock_trap_append_if_top_level wb_task_lock_release_all
+  wb_continue_drop "$(basename -- "$task_file" .md)" pause "wb pause"
   wb_task_lock_acquire_guarded "$task_file" || exit $?
   wb_set_frontmatter "$task_file" status paused
   # shellcheck disable=SC2016  # literal backticks in the message/pattern, not an expansion
@@ -6912,6 +6977,7 @@ cmd_done() {
   wb_append_handoff "$task_file" "wb done" "$handoff_msg" \
     || { wb_task_lock_release "$task_file"; echo "$lock_fail (handoff not written)" >&2; exit 1; }
   wb_task_lock_release "$task_file"
+  wb_continue_drop "$task_stem" "done" "wb done"
   # R19: the task is done, so what it was waiting on no longer is. Say what
   # the marker held, then remove it and its lock. (wb down leaves it: a page
   # outlives its session.)
@@ -7141,6 +7207,33 @@ wb_live_session_row() {
   if [ "$kind" = task ]; then _nykey="${ref##*/}"; _nykey="${_nykey%.md}"; else _nykey="$session"; fi
   if [ -s "${XDG_STATE_HOME:-$HOME/.local/state}/wb/needs-you/$_nykey" ]; then
     urank=0; uicon="? needs you"
+  fi
+
+  # A saved session waiting for Jet to release it into a fresh context (wb
+  # continue): its `row` file, one line state<TAB>reason<TAB>done<TAB>command,
+  # read with builtins (no fork per row). A ready or failed request that has a
+  # command sorts with the rows that want Jet, below needs-you. A needs-you
+  # row keeps its rank, and so does a working one (rank 2: the session is busy,
+  # "ready" would say it waits); a ready request with no command shows no mark.
+  if [ "$kind" = task ] && [ "$urank" != 0 ] && [ "$urank" != 2 ]; then
+    local _crow _cstate _ccmd
+    if IFS= read -r _crow 2>/dev/null < "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/$_nykey/row"; then
+      _cstate="${_crow%%$'\t'*}"; _ccmd="${_crow##*$'\t'}"
+      if [ -n "$_ccmd" ]; then
+        case "$_cstate" in
+          ready)  urank=1; uicon="> ready to continue" ;;
+          failed) urank=1; uicon="> restart failed" ;;
+        esac
+      fi
+    fi
+  fi
+
+  # Output Jet missed to a `wb continue` restart: the unseen file (one line per
+  # restarted session, "<session id> <count> <prompt id>") sums to a mark on the
+  # name. Builtins only, no fork per row, like the markers above.
+  if [ "$kind" = task ]; then
+    wb_continue_unseen_sum "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/unseen/$_nykey"
+    [ "$WB_UNSEEN_SUM" -gt 0 ] && label="$label ($WB_UNSEEN_SUM unseen)"
   fi
 
   # A second argument, even empty, came from list-sessions: --listed.
@@ -7596,7 +7689,7 @@ wb_format_for_display() {
           w = lbl; sub(/ .*/, "", w)
           c = (w == "doing") ? ye : (w == "review") ? cy : dim
         } else if (lbl == "needs you") c = mg
-        else if (lbl == "finished")   c = cy
+        else if (lbl == "finished" || lbl == "ready to continue" || lbl == "restart failed") c = cy
         else if (lbl == "done")       c = gr
         else if (lbl == "working")    c = ye
         else                          c = dim
@@ -7657,7 +7750,11 @@ wb_format_for_display() {
         }
         txt = pre $2
         # The (here) tag is cut around, never cut off: shorten the name, not it.
+        # A saved session waiting for a release is tagged "(ready)", a failed
+        # restart "(failed)", cut around the same way.
+        sfx = (lbl == "ready to continue") ? " (ready)" : (lbl == "restart failed") ? " (failed)" : ""
         if (hs && $9 != "agent") ncell[n] = pad(fit(txt, wn - 7) " (here)", wn)
+        else if (sfx != "" && $9 != "agent") ncell[n] = pad(fit(txt, wn - length(sfx)) sfx, wn)
         else                     ncell[n] = pad(txt, wn)
         # The stored "[branch]" brackets would spend two of the few
         # characters in the column on a truncated branch, so the cell drops
@@ -7783,11 +7880,12 @@ wb_status_line() {
   if [ "$ctx" = search ]; then
     hint='SEARCH: type to filter (includes paused) · esc back to normal'
   else
-    # Thirteen keys in 120 columns leaves one space between pairs, so each key
-    # is bold to keep the pairs apart (the text without the codes is 120).
+    # Fourteen keys in 120 columns leaves one space between pairs, so each key
+    # is bold to keep the pairs apart (the text without the codes is 119). g/G,
+    # h and the enter key still work; only the hint dropped them.
     local b=$'\033[1m' n0=$'\033[22m'
-    hint="${b}j/k g/G${n0} move ${b}l/enter${n0} open ${b}h/q${n0} quit ${b}u${n0} needs-you ${b}n${n0} new ${b}p${n0} down"
-    hint+=" ${b}r${n0} rename ${b}b${n0} break ${b}ctrl-x${n0} done ${b}ctrl-r${n0} reload ${b}tab${n0} view ${b}/${n0} search"
+    hint="${b}j/k${n0} move ${b}l${n0} open ${b}q${n0} quit ${b}u${n0} needs ${b}n${n0} new ${b}p${n0} down"
+    hint+=" ${b}r${n0} rename ${b}b${n0} break ${b}c${n0} continue ${b}C${n0} all ${b}ctrl-x${n0} done ${b}ctrl-r${n0} sync ${b}tab${n0} view ${b}/${n0} search"
   fi
   if [ "$view" = dormant ]; then
     label=DORMANT
@@ -7892,6 +7990,39 @@ _initial_pos() {
 # so tests can stand in for a live pane without a tmux shim.
 wb_capture_pane() { tmux capture-pane -ep -t "$1" 2>/dev/null; }
 
+# _preview_continue <ref> — for a task with a saved session waiting for Jet
+# (wb continue's `row` file): a block with the Done line and the command, or
+# the reason a release was refused. Nothing for any other row.
+_preview_continue() {
+  local ref="${1:-}" stem row st rest reason dl cmd
+  [ -f "$ref" ] || return 0
+  stem="${ref##*/}"; stem="${stem%.md}"
+  IFS= read -r row 2>/dev/null < "${XDG_STATE_HOME:-$HOME/.local/state}/wb/continue/$stem/row" || return 0
+  st="${row%%$'\t'*}"; rest="${row#*$'\t'}"
+  reason="${rest%%$'\t'*}"; rest="${rest#*$'\t'}"
+  dl="${rest%%$'\t'*}"; cmd="${rest#*$'\t'}"
+  case "$st" in
+    ready)   [ -n "$cmd" ] || return 0; printf '\033[1mReady to continue\033[0m  (c releases it)\n' ;;
+    failed)  printf '\033[1mRestart failed\033[0m  (c tries again)\n%s\n' "$reason" ;;
+    refused) printf '\033[1mContinue refused\033[0m\n%s\n\n' "$reason"; return 0 ;;
+    *) return 0 ;;
+  esac
+  [ -z "$dl" ] || printf 'Done: %s\n' "$dl"
+  [ -z "$cmd" ] || printf 'Command: %s\n' "$cmd"
+  printf '\n'
+}
+
+# _continue_release <task-ref> | --all — the picker's c and C keys: release,
+# and say what happened as a tmux message (execute-silent shows no output).
+_continue_release() {
+  local out
+  if [ "${1:-}" != --all ] && [ ! -f "${1:-}" ]; then return 0; fi
+  out="$(wbc_release "$@" 2>&1)" || true
+  [ -n "$out" ] || return 0
+  if [ -n "${TMUX:-}" ]; then tmux display-message -d 6000 "$(printf '%s\n' "$out" | head -n 3 | tr '\n' '|')" 2>/dev/null || true
+  else printf '%s\n' "$out" >&2; fi
+}
+
 # _preview <target> <ref> <kind> — what fzf shows beside the focused row
 # (KTD9). Four cases, first match wins: a live pane (its bottom), a task file
 # (title, a status line, the latest hand-written Handoff laid out by field), a git dir (status, or
@@ -7900,6 +8031,7 @@ wb_capture_pane() { tmux capture-pane -ep -t "$1" 2>/dev/null; }
 # already decides. Always exits 0: fzf paints a non-zero preview as an error.
 _preview() {
   local target="${1:-}" ref="${2:-}" out
+  _preview_continue "$ref"
   if [ -n "$target" ]; then
     # Trailing blank screen lines are what a half-empty pane is made of;
     # without trimming them, tailing to the window shows only empty rows.
@@ -8794,7 +8926,7 @@ picker() {
   # unbound keys are inert; i or / enters SEARCH. `x` is gone with the old
   # interrupt key; `n` is new; `tab` is back, now toggling LIVE<->DORMANT
   # (not the old combined/sessions/agents cycle it used to drive).
-  local navkeys='j,k,g,G,q,i,r,b,p,n,u,/'
+  local navkeys='j,k,g,G,q,i,r,b,p,n,u,c,C,/'
 
   # Field 1 is the pre-rendered display string (see wb_format_for_display);
   # fields 2-14 are the real data, shown to fzf only as hidden/addressable
@@ -8827,6 +8959,8 @@ picker() {
         --bind "r:execute(\"$SELF\" _rename {8})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind "b:execute(\"$SELF\" _break-out {7})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind "p:execute(\"$SELF\" _down {8})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
+        --bind "c:execute-silent(\"$SELF\" _continue-release {9})+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
+        --bind "C:execute-silent(\"$SELF\" _continue-release-all)+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+refresh-preview" \
         --bind "n:become(\"$SELF\" _new)" \
         --bind "ctrl-x:become(\"$SELF\" _ctrl-x {10} {8} {7} {9})" \
         --bind "i:execute-silent(\"$SELF\" _set-mode \"$mode_file\" search)+unbind($navkeys)+enable-search+change-prompt(SEARCH )+reload-sync(\"$SELF\" render \"$mode_file\" \"$view_file\")+transform-header(\"$SELF\" _mode-header \"$mode_file\" \"$view_file\")" \
@@ -8920,6 +9054,12 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
       # shellcheck source=wb-migrate.sh
       source "$SCRIPT_DIR/wb-migrate.sh"
       cmd_migrate "$@" ;;
+    # Same lazy source again: wb-continue.sh is new.
+    continue)
+      shift
+      # shellcheck source=wb-continue.sh
+      source "$SCRIPT_DIR/wb-continue.sh"
+      wbc_main "$@" ;;
     # Same lazy source as migrate, for the same reason: wb-decide.sh is new.
     decide-path|decide-buffer|decide-open|decide-clear|decision|decide-spec-check)
       _wb_dcmd="$1"; shift
@@ -8951,6 +9091,11 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     _mode-header) shift; _mode_header "$@" ;;
     _initial-pos) shift; _initial_pos "$@" ;;
     _next-needs) shift; _next_needs "$@" ;;
+    _continue-release|_continue-release-all)
+      _wb_ccmd="$1"; shift
+      # shellcheck source=wb-continue.sh
+      source "$SCRIPT_DIR/wb-continue.sh"
+      if [ "$_wb_ccmd" = _continue-release-all ]; then _continue_release --all; else _continue_release "$@"; fi ;;
     _preview)    shift; _preview "$@" ;;
     _preview-label) shift; _preview_label "$@" ;;
     help|--help|-h) cmd_help ;;
