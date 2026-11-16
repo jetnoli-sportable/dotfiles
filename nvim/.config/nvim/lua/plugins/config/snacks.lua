@@ -4,6 +4,12 @@
 -- (tmux needs allow-passthrough, set in tmux.conf). Needs ImageMagick with
 -- librsvg for SVG, and mermaid-cli (mmdc) for Mermaid. GNOME Terminal has no
 -- graphics protocol, so there <leader>mo opens the image in the viewer instead.
+
+-- ImageMagick 6 loads ~/.config/ImageMagick/delegates.xml after the system
+-- one, so the system's svg:decode wins and D2's SVGs come out blank. Searched
+-- first, the imagemagick package's rsvg-convert delegate wins.
+vim.env.MAGICK_CONFIGURE_PATH = vim.env.MAGICK_CONFIGURE_PATH or vim.fn.expand("~/.config/ImageMagick")
+
 return {
 	"folke/snacks.nvim",
 	priority = 1000,
